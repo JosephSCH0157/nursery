@@ -1,13 +1,21 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import "./index.css";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+
+import AuthGate from "./components/AuthGate";
 import Login from "./routes/Login";
+import AppShell from "./routes/AppShell";
 import AuthCallback from "./routes/AuthCallback";
 import ResetPassword from "./routes/ResetPassword";
-import AppShell from "./routes/AppShell";
-import Placeholder from "./routes/Placeholder";
-import { AuthGate } from "./components/AuthGate";
+
+function Placeholder({ title }: { title: string }) {
+  return (
+    <div style={{ padding: 8 }}>
+      <h2>{title}</h2>
+      <p>Placeholder route.</p>
+    </div>
+  );
+}
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
@@ -25,15 +33,14 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             </AuthGate>
           }
         >
-          <Route index element={<Navigate to="/app/barstock" replace />} />
-          <Route path="barstock" element={<Placeholder name="Bar-Stock" />} />
-          <Route path="anvil" element={<Placeholder name="Anvil" />} />
-          <Route path="hearth" element={<Placeholder name="Hearth" />} />
-          <Route path="hammer" element={<Placeholder name="Hammer" />} />
-          <Route path="quench" element={<Placeholder name="Quench" />} />
-          <Route path="ironmine" element={<Placeholder name="IronMine" />} />
+          <Route index element={<Placeholder title="Nursery Home" />} />
+          <Route path="anvil" element={<Placeholder title="Anvil" />} />
+          <Route path="hearth" element={<Placeholder title="Hearth" />} />
+          <Route path="hammer" element={<Placeholder title="Hammer" />} />
+          <Route path="barstock" element={<Placeholder title="Barstock" />} />
         </Route>
 
+        <Route path="/" element={<Navigate to="/app" replace />} />
         <Route path="*" element={<Navigate to="/app" replace />} />
       </Routes>
     </BrowserRouter>

@@ -1,30 +1,51 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+
+function useNextParam() {
+  const loc = useLocation();
+  return useMemo(() => {
+    const p = new URLSearchParams(loc.search);
+    return p.get("next") || "/app";
+  }, [loc.search]);
+}
 
 export default function Login() {
   const nav = useNavigate();
+  const next = useNextParam();
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [msg, setMsg] = useState("");
-  const [err, setErr] = useState("");
+
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [msg, setMsg] = useState("");
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      if (data.session) nav("/app", { replace: true });
+      if (data.session) nav(next, { replace: true });
     });
-  }, [nav]);
+  }, [nav, next]);
 
-  async function onSignIn(e: React.FormEvent<HTMLFormElement>) {
+  async function onSignIn(e: FormEvent) {
     e.preventDefault();
     setErr("");
     setMsg("");
     setBusy(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
     setBusy(false);
-    if (error) return setErr(error.message);
-    nav("/app", { replace: true });
+
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+
+    nav(next, { replace: true });
   }
 
   async function onForgotPassword() {
@@ -34,58 +55,65 @@ export default function Login() {
       setErr('Enter your email first, then click "Forgot password".');
       return;
     }
-    const redirectTo = `${window.location.origin}/auth/callback`;
-    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
-    if (error) return setErr(error.message);
+
+    setBusy(true);
+    const redirectTo = `${window.location.origin}/auth/callback?type=recovery`;
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo,
+    });
+
+    setBusy(false);
+
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+
     setMsg("Password reset link sent. Check your email.");
   }
 
   return (
-    <div style={{ maxWidth: 520, margin: "60px auto", padding: 24 }}>
-      <h1 style={{ margin: 0 }}>Podcasters Forge</h1>
-      <p style={{ opacity: 0.75, marginTop: 8 }}>
-        Sign in to access Anvil, Bar-Stock, Hearth, and the rest of the Forge.
+    <div style={{ padding: 24, fontFamily: "system-ui", maxWidth: 520 }}>
+      <h1 style={{ marginBottom: 8 }}>Podcaster's Forge</h1>
+      <p style={{ marginTop: 0, opacity: 0.8 }}>
+        Sign in to access Nursery, Anvil, Hearth, Hammer, and Barstock.
       </p>
 
-      <form onSubmit={onSignIn} style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-        <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          Email
+      <form onSubmit={onSignIn} style={{ display: "grid", gap: 12 }}>
+        <label style={{ display: "grid", gap: 6 }}>
+          <span>Email</span>
           <input
-            type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            style={{ padding: 10 }}
+            type="email"
+            autoComplete="email"
             required
           />
         </label>
 
-        <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          Password
+        <label style={{ display: "grid", gap: 6 }}>
+          <span>Password</span>
           <input
-            type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            style={{ padding: 10 }}
+            type="password"
+            autoComplete="current-password"
             required
           />
         </label>
 
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <button type="submit" disabled={busy}>
-            {busy ? "Signing in..." : "Sign in"}
-          </button>
-          <button type="button" onClick={onForgotPassword} style={{ background: "transparent", border: "none", color: "#06f", cursor: "pointer" }}>
-            Forgot password?
-          </button>
-        </div>
+        <button type="submit" disabled={busy}>
+          {busy ? "Signing in..." : "Sign in"}
+        </button>
+
+        <button type="button" onClick={onForgotPassword} disabled={busy}>
+          Forgot password
+        </button>
+
+        {err ? <div style={{ color: "crimson" }}>{err}</div> : null}
+        {msg ? <div style={{ color: "green" }}>{msg}</div> : null}
       </form>
-
-      {msg ? <p style={{ marginTop: 12, color: "var(--success, #0a0)" }}>{msg}</p> : null}
-      {err ? <p style={{ marginTop: 12, color: "var(--error, #f00)" }}>Error: {err}</p> : null}
-
-      <p style={{ opacity: 0.6, marginTop: 20 }}>
-        Tip: keep this tab open so you stay on Nursery while you work through the tools.
-      </p>
     </div>
   );
 }

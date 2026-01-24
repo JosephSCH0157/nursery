@@ -1,37 +1,55 @@
-import { useEffect, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-import type { Session } from "@supabase/supabase-js";
+import { ReactNode, useEffect, useState } from "react";
+import { Navigate, useLocation } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 
-export function AuthGate({ children }: { children: React.ReactNode }) {
-  const nav = useNavigate();
+type Props = { children: ReactNode };
+
+export default function AuthGate({ children }: Props) {
   const loc = useLocation();
-  const [ready, setReady] = useState(false);
-  const [session, setSession] = useState<Session | null>(null);
+  const [checking, setChecking] = useState(true);
+  const [authed, setAuthed] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session ?? null);
-      setReady(true);
+    let alive = true;
+
+    (async () => {
+      const { data, error } = await supabase.auth.getSession();
+      if (!alive) return;
+
+      if (error) {
+        setAuthed(false);
+        setChecking(false);
+        return;
+      }
+
+      setAuthed(!!data.session);
+      setChecking(false);
+    })();
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!alive) return;
+      setAuthed(!!session);
+      setChecking(false);
     });
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_evt, s) => {
-      setSession(s);
-      setReady(true);
-    });
-
-    return () => sub.subscription.unsubscribe();
+    return () => {
+      alive = false;
+      sub.subscription.unsubscribe();
+    };
   }, []);
 
-  useEffect(() => {
-    if (!ready) return;
-    if (!session) {
-      const next = encodeURIComponent(loc.pathname + loc.search + loc.hash);
-      nav(`/login?next=${next}`, { replace: true });
-    }
-  }, [ready, session, nav, loc]);
+  if (checking) {
+    return (
+      <div style={{ padding: 24, fontFamily: "system-ui" }}>
+        Checking session...
+      </div>
+    );
+  }
 
-  if (!ready) return <div style={{ padding: 24 }}>Loading...</div>;
-  if (!session) return null; // redirecting
+  if (!authed) {
+    const next = encodeURIComponent(loc.pathname + loc.search + loc.hash);
+    return <Navigate to={`/login?next=${next}`} replace />;
+  }
+
   return <>{children}</>;
 }

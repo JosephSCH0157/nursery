@@ -9,27 +9,16 @@ export default function AuthCallback() {
   useEffect(() => {
     (async () => {
       try {
-        const { data, error } = await supabase.auth.getSession();
-        if (error) throw error;
-
-        const params = new URLSearchParams(window.location.search);
-        const type = params.get("type");
-
+        const p = new URLSearchParams(window.location.search);
+        const type = p.get("type");
         if (type === "recovery") {
           nav("/reset-password", { replace: true });
           return;
         }
 
-        if (data.session) {
-          nav("/app", { replace: true });
-          return;
-        }
-
-        setTimeout(async () => {
-          const retry = await supabase.auth.getSession();
-          if (retry.data.session) nav("/app", { replace: true });
-          else nav("/login", { replace: true });
-        }, 250);
+        const { data } = await supabase.auth.getSession();
+        if (data.session) nav("/app", { replace: true });
+        else nav("/login", { replace: true });
       } catch (e: any) {
         setErr(e?.message || "Auth callback failed.");
         nav("/login", { replace: true });
@@ -37,5 +26,5 @@ export default function AuthCallback() {
     })();
   }, [nav]);
 
-  return <div style={{ padding: 24 }}>{err ? `Error: ${err}` : "Signing you in..."}</div>;
+  return <div style={{ padding: 24 }}>{err ? `Error: ${err}` : "Finishing sign-in..."}</div>;
 }
