@@ -3,6 +3,8 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import "./index.css";
 import Login from "./routes/Login";
+import AuthCallback from "./routes/AuthCallback";
+import ResetPassword from "./routes/ResetPassword";
 import AppShell from "./routes/AppShell";
 import Placeholder from "./routes/Placeholder";
 import { AuthGate } from "./components/AuthGate";
@@ -12,6 +14,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/auth/callback" element={<AuthCallback />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
 
         <Route
           path="/app"

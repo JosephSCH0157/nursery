@@ -1,18 +1,44 @@
-import { useMemo, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 
-function useQuery() {
-  const { search } = useLocation();
-  return useMemo(() => new URLSearchParams(search), [search]);
-}
-
 export default function Login() {
-  const q = useQuery();
-  const next = q.get("next") || "/app";
+  const nav = useNavigate();
   const [email, setEmail] = useState("");
-  const [msg, setMsg] = useState<string | null>(null);
+  const [password, setPassword] = useState("");
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) nav("/app", { replace: true });
+    });
+  }, [nav]);
+
+  async function onSignIn(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setErr("");
+    setMsg("");
+    setBusy(true);
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    setBusy(false);
+    if (error) return setErr(error.message);
+    nav("/app", { replace: true });
+  }
+
+  async function onForgotPassword() {
+    setErr("");
+    setMsg("");
+    if (!email) {
+      setErr('Enter your email first, then click "Forgot password".');
+      return;
+    }
+    const redirectTo = `${window.location.origin}/auth/callback`;
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+    if (error) return setErr(error.message);
+    setMsg("Password reset link sent. Check your email.");
+  }
 
   return (
     <div style={{ maxWidth: 520, margin: "60px auto", padding: 24 }}>
@@ -21,34 +47,44 @@ export default function Login() {
         Sign in to access Anvil, Bar-Stock, Hearth, and the rest of the Forge.
       </p>
 
-      <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-        <input
-          style={{ flex: 1, padding: 10 }}
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="email for magic link"
-        />
-        <button
-          disabled={busy || !email.trim()}
-          onClick={async () => {
-            setBusy(true);
-            setMsg(null);
-            const { error } = await supabase.auth.signInWithOtp({
-              email,
-              options: { emailRedirectTo: window.location.origin + next },
-            });
-            setMsg(error ? error.message : "Magic link sent. Check your email.");
-            setBusy(false);
-          }}
-        >
-          {busy ? "Sending..." : "Send link"}
-        </button>
-      </div>
+      <form onSubmit={onSignIn} style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+        <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          Email
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            style={{ padding: 10 }}
+            required
+          />
+        </label>
 
-      {msg ? <p style={{ marginTop: 12 }}>{msg}</p> : null}
+        <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          Password
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            style={{ padding: 10 }}
+            required
+          />
+        </label>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <button type="submit" disabled={busy}>
+            {busy ? "Signing in..." : "Sign in"}
+          </button>
+          <button type="button" onClick={onForgotPassword} style={{ background: "transparent", border: "none", color: "#06f", cursor: "pointer" }}>
+            Forgot password?
+          </button>
+        </div>
+      </form>
+
+      {msg ? <p style={{ marginTop: 12, color: "var(--success, #0a0)" }}>{msg}</p> : null}
+      {err ? <p style={{ marginTop: 12, color: "var(--error, #f00)" }}>Error: {err}</p> : null}
 
       <p style={{ opacity: 0.6, marginTop: 20 }}>
-        Tip: keep this tab open, click the link in your email, and you'll come right back in.
+        Tip: keep this tab open so you stay on Nursery while you work through the tools.
       </p>
     </div>
   );
