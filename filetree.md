@@ -2,6 +2,10 @@
 
 - `.env.local`
 - `.gitattributes`
+- `filetree.md`
+- `index.html`
+- `login_nursery.html`
+- `package-lock.json`
 - `nursery/`
   - `node_modules/` (installed dependencies)
   - `public/`
@@ -13,8 +17,10 @@
       - `supabase.ts`
     - `routes/`
       - `AppShell.tsx`
+      - `AuthCallback.tsx`
       - `Login.tsx`
       - `Placeholder.tsx`
+      - `ResetPassword.tsx`
     - `App.css`
     - `App.tsx`
     - `index.css`
