@@ -1,0 +1,31 @@
+# File Tree
+
+- `.env.local`
+- `.gitattributes`
+- `nursery/`
+  - `node_modules/` (installed dependencies)
+  - `public/`
+  - `src/`
+    - `assets/`
+    - `components/`
+      - `AuthGate.tsx`
+    - `lib/`
+      - `supabase.ts`
+    - `routes/`
+      - `AppShell.tsx`
+      - `Login.tsx`
+      - `Placeholder.tsx`
+    - `App.css`
+    - `App.tsx`
+    - `index.css`
+    - `main.tsx`
+  - `.gitignore`
+  - `eslint.config.js`
+  - `index.html`
+  - `package-lock.json`
+  - `package.json`
+  - `README.md`
+  - `tsconfig.app.json`
+  - `tsconfig.json`
+  - `tsconfig.node.json`
+  - `vite.config.ts`
