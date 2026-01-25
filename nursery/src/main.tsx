@@ -7,6 +7,7 @@ import Login from "./routes/Login";
 import AppShell from "./routes/AppShell";
 import AuthCallback from "./routes/AuthCallback";
 import ResetPassword from "./routes/ResetPassword";
+import ForgeHub from "./routes/ForgeHub";
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -33,11 +34,15 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             </AuthGate>
           }
         >
-          <Route index element={<Placeholder title="Nursery Home" />} />
+          <Route index element={<ForgeHub />} />
           <Route path="anvil" element={<Placeholder title="Anvil" />} />
           <Route path="hearth" element={<Placeholder title="Hearth" />} />
           <Route path="hammer" element={<Placeholder title="Hammer" />} />
+          <Route path="tongs" element={<Placeholder title="Tongs" />} />
+          <Route path="quench" element={<Placeholder title="Quench" />} />
+          <Route path="ledger" element={<Placeholder title="Ledger" />} />
           <Route path="barstock" element={<Placeholder title="Barstock" />} />
+          <Route path="calendar" element={<Placeholder title="Calendar" />} />
         </Route>
 
         <Route path="/" element={<Navigate to="/app" replace />} />
