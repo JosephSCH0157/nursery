@@ -1,0 +1,9 @@
+{
+  "name": "podcasters-forge",
+  "private": true,
+  "packageManager": "pnpm@9",
+  "scripts": {
+    "dev": "pnpm --filter nursery dev",
+    "build": "pnpm --filter nursery build"
+  }
+}

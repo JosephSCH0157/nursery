@@ -1,0 +1,28 @@
+# logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# dependencies
+node_modules/
+**/node_modules/
+
+# pnpm lock
+pnpm-lock.yaml
+
+# build outputs
+dist/
+apps/*/dist/
+packages/*/dist/
+
+# env files
+*.env*
+*.local
+
+# editor folders
+.vscode/
+.idea/
+.DS_Store

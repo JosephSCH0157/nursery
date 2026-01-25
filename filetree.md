@@ -1,37 +1,50 @@
 # File Tree
 
-- `.env.local`
 - `.gitattributes`
+- `.gitignore`
 - `filetree.md`
-- `index.html`
-- `login_nursery.html`
-- `package-lock.json`
-- `nursery/`
-  - `node_modules/` (installed dependencies)
-  - `public/`
-  - `src/`
-    - `assets/`
-    - `components/`
-      - `AuthGate.tsx`
-    - `lib/`
-      - `supabase.ts`
-    - `routes/`
-      - `AppShell.tsx`
-      - `AuthCallback.tsx`
-      - `Login.tsx`
-      - `Placeholder.tsx`
-      - `ResetPassword.tsx`
-    - `App.css`
-    - `App.tsx`
-    - `index.css`
-    - `main.tsx`
-  - `.gitignore`
-  - `eslint.config.js`
-  - `index.html`
-  - `package-lock.json`
-  - `package.json`
-  - `README.md`
-  - `tsconfig.app.json`
-  - `tsconfig.json`
-  - `tsconfig.node.json`
-  - `vite.config.ts`
+- `netlify.toml`
+- `package.json`
+- `pnpm-workspace.yaml`
+- `README.md`
+- `apps/`
+  - `nursery/`
+    - `node_modules/` (installed dependencies after running `pnpm install`)
+    - `.env.local`
+    - `.gitignore`
+    - `eslint.config.js`
+    - `index.html`
+    - `package.json`
+    - `public/`
+      - `assets/`
+        - `anvil-favicon.png`
+        - `anvil_teleprompter_logo.png`
+        - `forge-splash.png`
+        - `login.png`
+      - `vite.svg`
+    - `src/`
+      - `assets/`
+        - `anvil-favicon.png`
+        - `anvil_teleprompter_logo.png`
+        - `login.png`
+        - `react.svg`
+      - `components/`
+        - `AuthGate.tsx`
+      - `lib/`
+        - `supabase.ts`
+      - `routes/`
+        - `AppShell.tsx`
+        - `AuthCallback.tsx`
+        - `ForgeHub.tsx`
+        - `Login.tsx`
+        - `Placeholder.tsx`
+        - `ResetPassword.tsx`
+      - `App.css`
+      - `App.tsx`
+      - `index.css`
+      - `main.tsx`
+    - `tsconfig.app.json`
+    - `tsconfig.json`
+    - `tsconfig.node.json`
+    - `vite.config.ts`
+- `packages/`
