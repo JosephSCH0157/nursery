@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import type { ForgeAppId } from "@forge/tongs";
 
 type HubLink = {
   to: string;
@@ -7,14 +8,59 @@ type HubLink = {
   desc: string;
 };
 
+const TOOL_META: Record<ForgeAppId, Omit<HubLink, "to">> = {
+  nursery: {
+    name: "Nursery",
+    hint: "Authentication Hub",
+    desc: "Sign in once to unlock the Forge tools.",
+  },
+  anvil: {
+    name: "Anvil",
+    hint: "Teleprompter & Recording",
+    desc: "Read scripts, record clean audio/video, run sessions.",
+  },
+  hearth: {
+    name: "Hearth",
+    hint: "Script Builder",
+    desc: "Draft, refine, and structure scripts.",
+  },
+  hammer: {
+    name: "Hammer",
+    hint: "Editing & Shorts",
+    desc: "Edit episodes, pull clips, produce shorts.",
+  },
+  quench: {
+    name: "Quench",
+    hint: "Publishing & Distribution",
+    desc: "Export, schedule, and publish to platforms.",
+  },
+  ledger: {
+    name: "Ledger",
+    hint: "Analytics & Growth",
+    desc: "Track performance, CTR, retention, and insights.",
+  },
+  barstock: {
+    name: "Barstock",
+    hint: "Ideas & Captures",
+    desc: "Catch sparks and turn them into real work.",
+  },
+};
+
+function linkFor(appId: ForgeAppId): HubLink {
+  return {
+    to: `/app/${appId}`,
+    ...TOOL_META[appId],
+  };
+}
+
 const LINKS: HubLink[] = [
-  { to: "/app/anvil", name: "Anvil", hint: "Teleprompter & Recording", desc: "Read scripts, record clean audio/video, run sessions." },
-  { to: "/app/hearth", name: "Hearth", hint: "Script Builder", desc: "Draft, refine, and structure scripts." },
-  { to: "/app/hammer", name: "Hammer", hint: "Editing & Shorts", desc: "Edit episodes, pull clips, produce shorts." },
+  linkFor("anvil"),
+  linkFor("hearth"),
+  linkFor("hammer"),
   { to: "/app/tongs", name: "Tongs", hint: "Storage & Workflow", desc: "Move work between tools, manage mounts & sessions." },
-  { to: "/app/quench", name: "Quench", hint: "Publishing & Distribution", desc: "Export, schedule, and publish to platforms." },
-  { to: "/app/ledger", name: "Ledger", hint: "Analytics & Growth", desc: "Track performance, CTR, retention, and insights." },
-  { to: "/app/barstock", name: "Barstock", hint: "Ideas & Captures", desc: "Catch sparks and turn them into real work." },
+  linkFor("quench"),
+  linkFor("ledger"),
+  linkFor("barstock"),
   { to: "/app/calendar", name: "Calendar", hint: "Scheduling & Sessions", desc: "Plan recordings and workflow timing." },
 ];
 
