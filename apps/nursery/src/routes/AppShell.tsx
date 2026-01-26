@@ -31,6 +31,12 @@ export default function AppShell() {
           <Link to="/app/barstock">Barstock</Link>
         </nav>
         <hr />
+        <div style={{ fontSize: "0.85rem", color: "#666" }}>Settings</div>
+        <nav style={{ display: "grid", gap: 6, marginTop: 4 }}>
+          <Link to="/app/settings">Settings home</Link>
+          <Link to="/app/settings/storage">Storage (Mounts)</Link>
+        </nav>
+        <hr />
         <button onClick={onSignOut}>Sign out</button>
       </aside>
 

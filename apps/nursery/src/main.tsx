@@ -8,6 +8,9 @@ import AppShell from "./routes/AppShell";
 import AuthCallback from "./routes/AuthCallback";
 import ResetPassword from "./routes/ResetPassword";
 import ForgeHub from "./routes/ForgeHub";
+import SettingsHome from "./routes/SettingsHome";
+import SettingsLayout from "./routes/SettingsLayout";
+import SettingsStorage from "./routes/SettingsStorage";
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -43,6 +46,10 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="ledger" element={<Placeholder title="Ledger" />} />
           <Route path="barstock" element={<Placeholder title="Barstock" />} />
           <Route path="calendar" element={<Placeholder title="Calendar" />} />
+          <Route path="settings" element={<SettingsLayout />}>
+            <Route index element={<SettingsHome />} />
+            <Route path="storage" element={<SettingsStorage />} />
+          </Route>
         </Route>
 
         <Route path="/" element={<Navigate to="/app" replace />} />
