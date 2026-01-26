@@ -1,14 +1,18 @@
 import { Outlet, Link, useNavigate } from "react-router-dom";
-import { buildDefaultRegistry, validateRegistry } from "@forge/tongs";
+import { useEffect } from "react";
+import { loadMountRegistry } from "../lib/mount-registry";
 import { supabase } from "../lib/supabase";
 
 export default function AppShell() {
   const nav = useNavigate();
-  const registry = buildDefaultRegistry("default");
-  const validation = validateRegistry(registry);
-  if (!validation.ok) {
-    console.warn("Mount registry invalid:", validation.issues);
-  }
+  useEffect(() => {
+    const res = loadMountRegistry("default");
+    if (!res.ok) {
+      console.warn("[tongs] mount registry recovered/seeded due to issues:", res.issues);
+    } else if (res.seeded) {
+      console.log("[tongs] mount registry seeded");
+    }
+  }, []);
 
   async function onSignOut() {
     await supabase.auth.signOut();
