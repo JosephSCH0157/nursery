@@ -1,8 +1,14 @@
 import { Outlet, Link, useNavigate } from "react-router-dom";
+import { buildDefaultRegistry, validateRegistry } from "@forge/tongs";
 import { supabase } from "../lib/supabase";
 
 export default function AppShell() {
   const nav = useNavigate();
+  const registry = buildDefaultRegistry("default");
+  const validation = validateRegistry(registry);
+  if (!validation.ok) {
+    console.warn("Mount registry invalid:", validation.issues);
+  }
 
   async function onSignOut() {
     await supabase.auth.signOut();
