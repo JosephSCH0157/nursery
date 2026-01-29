@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { MOUNT_ROLE_POLICY } from "@forge/tongs";
 import type { MountRole } from "@forge/tongs";
 import { useMountRegistry } from "../hooks/useMountRegistry";
@@ -435,24 +435,26 @@ export default function TongsCalendar() {
   const weekDays = useMemo(() => buildWeekDays(weekStart), [weekStart]);
   const monthDays = useMemo(() => buildMonthDays(cursorDate), [cursorDate]);
 
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [events, setEvents] = useState<CalendarEvent[]>(() => {
+    try {
+      return loadEvents();
+    } catch {
+      return [];
+    }
+  });
   const [showNew, setShowNew] = useState(false);
 
   const [kind, setKind] = useState<CalendarEventKind>("recording");
   const [status, setStatus] = useState<CalendarEventStatus>("planned");
   const [title, setTitle] = useState("Recording session");
-  const [date, setDate] = useState(() => {
-    const d = new Date();
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    return `${d.getFullYear()}-${mm}-${dd}`;
-  });
+  const [dateOverride, setDateOverride] = useState<string | null>(null);
   const [time, setTime] = useState(() => {
     const d = new Date();
     const hh = String(d.getHours()).padStart(2, "0");
     const mi = String(d.getMinutes()).padStart(2, "0");
     return `${hh}:${mi}`;
   });
+  const date = dateOverride ?? cursorDayIso;
   const [durationMin, setDurationMin] = useState(60);
   const [notes, setNotes] = useState("");
 
@@ -484,24 +486,21 @@ export default function TongsCalendar() {
 
   useEffect(() => {
     try {
-      setEvents(loadEvents());
-    } catch {
-      setEvents([]);
-    }
-  }, []);
-
-  useEffect(() => {
-    try {
       localStorage.setItem(EVENTS_KEY, JSON.stringify(events));
     } catch {
       // ignore storage failures
     }
   }, [events]);
 
-  useEffect(() => {
-    if (!showNew) return;
-    setDate(cursorDayIso);
-  }, [showNew, cursorDayIso]);
+  const openNewForm = useCallback(() => {
+    setDateOverride(null);
+    setShowNew(true);
+  }, []);
+
+  const closeNewForm = useCallback(() => {
+    setShowNew(false);
+    setDateOverride(null);
+  }, []);
 
   function resetKindFields(selectedKind: CalendarEventKind) {
     if (selectedKind === "recording") return;
@@ -595,7 +594,7 @@ export default function TongsCalendar() {
     });
 
     setEvents((prev) => [event, ...prev].sort((a, b) => b.startIso.localeCompare(a.startIso)));
-    setShowNew(false);
+    closeNewForm();
   }
 
   function deleteEvent(id: string) {
@@ -721,7 +720,7 @@ export default function TongsCalendar() {
 
           <div style={{ fontSize: 14, opacity: 0.7 }}>{rangeLabel}</div>
 
-          <button onClick={() => setShowNew((v) => !v)}>{showNew ? "Close" : "New Event"}</button>
+          <button onClick={showNew ? closeNewForm : openNewForm}>{showNew ? "Close" : "New Event"}</button>
         </div>
       </div>
 
@@ -792,7 +791,12 @@ export default function TongsCalendar() {
 
             <div>
               <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Date</label>
-              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ width: "100%" }} />
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDateOverride(e.target.value)}
+                style={{ width: "100%" }}
+              />
             </div>
 
             <div>
@@ -923,7 +927,7 @@ export default function TongsCalendar() {
           )}
 
           <div style={{ marginTop: 12, display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <button onClick={() => setShowNew(false)}>Cancel</button>
+            <button onClick={closeNewForm}>Cancel</button>
             <button onClick={addEvent}>Add</button>
           </div>
         </div>

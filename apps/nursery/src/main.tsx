@@ -13,15 +13,7 @@ import SettingsLayout from "./routes/SettingsLayout";
 import SettingsStorage from "./routes/SettingsStorage";
 import TongsCalendar from "./routes/TongsCalendar";
 import BarstockRoute from "./routes/Barstock";
-
-function Placeholder({ title }: { title: string }) {
-  return (
-    <div style={{ padding: 8 }}>
-      <h2>{title}</h2>
-      <p>Placeholder route.</p>
-    </div>
-  );
-}
+import Placeholder from "./routes/Placeholder";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
@@ -40,14 +32,14 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           }
         >
           <Route index element={<ForgeHub />} />
-          <Route path="anvil" element={<Placeholder title="Anvil" />} />
-          <Route path="hearth" element={<Placeholder title="Hearth" />} />
-          <Route path="hammer" element={<Placeholder title="Hammer" />} />
+          <Route path="anvil" element={<Placeholder name="Anvil" />} />
+          <Route path="hearth" element={<Placeholder name="Hearth" />} />
+          <Route path="hammer" element={<Placeholder name="Hammer" />} />
           <Route path="tongs" element={<TongsCalendar />} />
-          <Route path="quench" element={<Placeholder title="Quench" />} />
-          <Route path="ledger" element={<Placeholder title="Ledger" />} />
+          <Route path="quench" element={<Placeholder name="Quench" />} />
+          <Route path="ledger" element={<Placeholder name="Ledger" />} />
           <Route path="barstock" element={<BarstockRoute />} />
-          <Route path="calendar" element={<Placeholder title="Calendar" />} />
+          <Route path="calendar" element={<Placeholder name="Calendar" />} />
           <Route path="settings" element={<SettingsLayout />}>
             <Route index element={<SettingsHome />} />
             <Route path="storage" element={<SettingsStorage />} />

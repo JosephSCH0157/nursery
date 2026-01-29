@@ -19,8 +19,9 @@ export default function AuthCallback() {
         const { data } = await supabase.auth.getSession();
         if (data.session) nav("/app", { replace: true });
         else nav("/login", { replace: true });
-      } catch (e: any) {
-        setErr(e?.message || "Auth callback failed.");
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "Auth callback failed.";
+        setErr(message);
         nav("/login", { replace: true });
       }
     })();

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import type { MountRole, MountTargetType, WorkspaceMountRegistry } from "@forge/tongs";
 import { MOUNT_ROLE_POLICY } from "@forge/tongs";
 import { clearMountRegistry, getMount, loadMountRegistry, saveMountRegistry } from "../lib/mount-registry";
@@ -19,22 +19,21 @@ function toFriendly(value: unknown) {
 }
 
 export default function SettingsStorage() {
-  const [registry, setRegistry] = useState<WorkspaceMountRegistry | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
+  const initialState = useMemo(() => {
+    const res = loadMountRegistry("default");
+    let statusMessage = "Storage registry loaded.";
+    if (!res.ok) {
+      statusMessage = `Registry reset: ${toFriendly(res.issues)}`;
+    } else if (res.seeded) {
+      statusMessage = "Storage registry seeded with defaults.";
+    }
+    return { registry: res.registry, status: statusMessage };
+  }, []);
+
+  const [registry, setRegistry] = useState<WorkspaceMountRegistry | null>(initialState.registry);
+  const [status, setStatus] = useState<string | null>(initialState.status);
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
-
-  useEffect(() => {
-    const res = loadMountRegistry("default");
-    setRegistry(res.registry);
-    if (!res.ok) {
-      setStatus(`Registry reset: ${toFriendly(res.issues)}`);
-    } else if (res.seeded) {
-      setStatus("Storage registry seeded with defaults.");
-    } else {
-      setStatus("Storage registry loaded.");
-    }
-  }, []);
 
   const mountForRole = (role: MountRole) => getMount(registry, role);
 

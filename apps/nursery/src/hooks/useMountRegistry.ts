@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useReducer } from "react";
 import type { MountRole, MountTargetType, WorkspaceMountRegistry } from "@forge/tongs";
 import { loadMountRegistry } from "../lib/mount-registry";
 
@@ -12,41 +12,49 @@ type UseMountRegistryResult = {
 };
 
 export function useMountRegistry(workspaceId = "default"): UseMountRegistryResult {
-  const [registry, setRegistry] = useState<WorkspaceMountRegistry | null>(null);
-  const [seeded, setSeeded] = useState(false);
-  const [issues, setIssues] = useState<unknown | null>(null);
+  const [reloadToken, bumpReload] = useReducer((value) => value + 1, 0);
+
+  const snapshot = useMemo(() => {
+    void reloadToken;
+    const res = loadMountRegistry(workspaceId);
+    return {
+      registry: res.registry,
+      seeded: res.seeded,
+      issues: res.ok ? null : res.issues,
+    };
+  }, [workspaceId, reloadToken]);
 
   const reload = useCallback(() => {
-    const res = loadMountRegistry(workspaceId);
-    setRegistry(res.registry);
-    setSeeded(res.seeded);
-    setIssues(res.ok ? null : res.issues);
-  }, [workspaceId]);
-
-  useEffect(() => {
-    reload();
-  }, [reload]);
+    bumpReload();
+  }, []);
 
   const getTarget = useCallback(
     (role: MountRole): MountTargetType => {
-      const mounts = registry?.mounts ?? [];
+      const mounts = snapshot.registry?.mounts ?? [];
       const found = mounts.find((m) => m.role === role);
       return (found?.target as MountTargetType) ?? "local";
     },
-    [registry],
+    [snapshot.registry],
   );
 
   const getMeta = useCallback(
     (role: MountRole): Record<string, unknown> | undefined => {
-      const mounts = registry?.mounts ?? [];
+      const mounts = snapshot.registry?.mounts ?? [];
       const found = mounts.find((m) => m.role === role);
       return found?.meta as Record<string, unknown> | undefined;
     },
-    [registry],
+    [snapshot.registry],
   );
 
   return useMemo(
-    () => ({ registry, seeded, issues, reload, getTarget, getMeta }),
-    [registry, seeded, issues, reload, getTarget, getMeta],
+    () => ({
+      registry: snapshot.registry,
+      seeded: snapshot.seeded,
+      issues: snapshot.issues,
+      reload,
+      getTarget,
+      getMeta,
+    }),
+    [snapshot, reload, getTarget, getMeta],
   );
 }
