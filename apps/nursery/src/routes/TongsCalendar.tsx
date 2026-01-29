@@ -1,5 +1,6 @@
-import { useMemo, useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MOUNT_ROLE_POLICY } from "@forge/tongs";
+import type { MountRole } from "@forge/tongs";
 import { useMountRegistry } from "../hooks/useMountRegistry";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -18,16 +19,37 @@ const MONTH_NAMES = [
   "Dec",
 ];
 
-const SESSION_STORAGE_KEY = "forge_tongs_sessions_v1";
+const SESSIONS_KEY = "forge_tongs_sessions_v1";
 
-type RecordingSession = {
+type TongsSession = {
   id: string;
-  date: string; // YYYY-MM-DD
-  time: string;
   title: string;
+  startIso: string; // ISO string
+  minutes: number;
   notes?: string;
-  duration?: string;
 };
+
+function safeParseJson<T>(raw: string | null, fallback: T): T {
+  if (!raw) return fallback;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function uid(): string {
+  return Math.random().toString(36).slice(2, 10) + "-" + Date.now().toString(36);
+}
+
+function formatTargetShort(target: string): string {
+  return target === "tongs_cloud" ? "Cloud" : "Local";
+}
+
+function formatRoleSummary(role: MountRole, target: string): string {
+  const label = MOUNT_ROLE_POLICY.find((policy) => policy.role === role)?.label ?? role;
+  return `${label}=${formatTargetShort(target)}`;
+}
 
 function startOfWeek(date: Date): Date {
   const d = new Date(date);
@@ -75,104 +97,81 @@ function buildWeekDays(weekStart: Date) {
   });
 }
 
-function buildDefaultSessions(weekStart: Date): RecordingSession[] {
-  const plan = [
-    { offset: 0, time: "9:30 AM", notes: "Ep 12 - Cold open + intro", duration: "90 min" },
-    { offset: 2, time: "1:00 PM", notes: "Guest: Liv (remote)", duration: "60 min" },
-    { offset: 3, time: "4:00 PM", notes: "Ep 13 - Q&A", duration: "75 min" },
-    { offset: 5, time: "10:00 AM", notes: "Bonus clips", duration: "45 min" },
-  ];
-
-  return plan.map((item, index) => {
-    const date = new Date(weekStart);
-    date.setDate(weekStart.getDate() + item.offset);
-    return {
-      id: `seed-${index}`,
-      date: toDateKey(date),
-      time: item.time,
-      title: "Recording session",
-      notes: item.notes,
-      duration: item.duration,
-    };
-  });
-}
-
-function isRecordingSession(value: unknown): value is RecordingSession {
-  if (!value || typeof value !== "object") return false;
-  const session = value as RecordingSession;
-  return (
-    typeof session.id === "string" &&
-    typeof session.date === "string" &&
-    typeof session.time === "string" &&
-    typeof session.title === "string"
-  );
-}
-
-function loadSessions(weekStart: Date): RecordingSession[] {
-  try {
-    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
-    if (!raw) {
-      const seeded = buildDefaultSessions(weekStart);
-      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(seeded));
-      return seeded;
-    }
-
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) throw new Error("Invalid sessions payload");
-    const cleaned = parsed.filter(isRecordingSession);
-    if (!cleaned.length) throw new Error("No valid sessions");
-    return cleaned;
-  } catch {
-    return buildDefaultSessions(weekStart);
-  }
-}
-
-function timeToMinutes(time: string): number {
-  const match = time.match(/(\d+):(\d+)\s*(AM|PM)/i);
-  if (!match) return 0;
-  const hoursRaw = Number(match[1]);
-  const minutes = Number(match[2]);
-  const period = match[3].toUpperCase();
-  const hours = hoursRaw % 12 + (period === "PM" ? 12 : 0);
-  return hours * 60 + minutes;
+function dateKeyFromIso(iso: string): string | null {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return toDateKey(date);
 }
 
 export default function TongsCalendar() {
+  const { getTarget } = useMountRegistry("default");
+
   const weekStart = useMemo(() => startOfWeek(new Date()), []);
   const weekDays = useMemo(() => buildWeekDays(weekStart), [weekStart]);
-  const [sessions, setSessions] = useState<RecordingSession[]>(() => loadSessions(weekStart));
-  const { getTarget } = useMountRegistry();
+
+  const [sessions, setSessions] = useState<TongsSession[]>([]);
+  const [showNew, setShowNew] = useState(false);
+
+  const [title, setTitle] = useState("Recording session");
+  const [date, setDate] = useState(() => {
+    const d = new Date();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${d.getFullYear()}-${mm}-${dd}`;
+  });
+  const [time, setTime] = useState(() => {
+    const d = new Date();
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mi = String(d.getMinutes()).padStart(2, "0");
+    return `${hh}:${mi}`;
+  });
+  const [minutes, setMinutes] = useState(60);
+  const [notes, setNotes] = useState("");
 
   useEffect(() => {
     try {
-      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessions));
+      const raw = localStorage.getItem(SESSIONS_KEY);
+      const parsed = safeParseJson<TongsSession[]>(raw, []);
+      const clean = Array.isArray(parsed)
+        ? parsed.filter((s) => s && typeof s.id === "string" && typeof s.startIso === "string")
+        : [];
+      setSessions(clean);
+    } catch {
+      setSessions([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
     } catch {
       // ignore storage failures
     }
   }, [sessions]);
 
-  const storageSummary = useMemo(() => {
-    return MOUNT_ROLE_POLICY.map((policy) => {
-      const target = getTarget(policy.role);
-      const targetLabel = target === "tongs_cloud" ? "Cloud" : "Local";
-      const suffix = policy.eligibleTargets.length === 1 ? " (v1)" : "";
-      return `${policy.label}=${targetLabel}${suffix}`;
-    }).join(", ");
-  }, [getTarget]);
+  function addSession() {
+    const start = new Date(`${date}T${time}:00`);
+    if (Number.isNaN(start.getTime())) return;
 
-  const handleNewSession = () => {
-    const now = new Date();
-    const newSession: RecordingSession = {
-      id: `sess-${Date.now()}`,
-      date: toDateKey(now),
-      time: formatTimeLabel(now),
-      title: "Recording session",
-      notes: "New session",
-      duration: "60 min",
+    const session: TongsSession = {
+      id: uid(),
+      title: title.trim() || "Recording session",
+      startIso: start.toISOString(),
+      minutes: Math.max(15, Math.min(8 * 60, Number(minutes) || 60)),
+      notes: notes.trim() || undefined,
     };
 
-    setSessions((prev) => [newSession, ...prev]);
-  };
+    setSessions((prev) => [session, ...prev].sort((a, b) => b.startIso.localeCompare(a.startIso)));
+    setShowNew(false);
+  }
+
+  function deleteSession(id: string) {
+    setSessions((prev) => prev.filter((session) => session.id !== id));
+  }
+
+  const storageSummary = useMemo(() => {
+    return MOUNT_ROLE_POLICY.map((policy) => formatRoleSummary(policy.role, getTarget(policy.role))).join(", ");
+  }, [getTarget]);
 
   return (
     <div style={{ padding: 8, maxWidth: 1100 }}>
@@ -183,9 +182,63 @@ export default function TongsCalendar() {
         </div>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
           <div style={{ fontSize: 14, opacity: 0.7 }}>{formatWeekLabel(weekStart)}</div>
-          <button onClick={handleNewSession}>New Recording Session</button>
+          <button onClick={() => setShowNew((v) => !v)}>
+            {showNew ? "Close" : "New Recording Session"}
+          </button>
         </div>
       </div>
+
+      {showNew && (
+        <div
+          style={{
+            marginTop: 12,
+            padding: 12,
+            border: "1px solid rgba(255,255,255,0.15)",
+            borderRadius: 8,
+          }}
+        >
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 160px 120px", gap: 10 }}>
+            <div>
+              <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Title</label>
+              <input value={title} onChange={(e) => setTitle(e.target.value)} style={{ width: "100%" }} />
+            </div>
+
+            <div>
+              <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Date</label>
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ width: "100%" }} />
+            </div>
+
+            <div>
+              <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Time</label>
+              <input type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ width: "100%" }} />
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: 10, marginTop: 10 }}>
+            <div>
+              <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Minutes</label>
+              <input
+                type="number"
+                min={15}
+                max={480}
+                value={minutes}
+                onChange={(e) => setMinutes(Number(e.target.value))}
+                style={{ width: "100%" }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Notes (optional)</label>
+              <input value={notes} onChange={(e) => setNotes(e.target.value)} style={{ width: "100%" }} />
+            </div>
+          </div>
+
+          <div style={{ marginTop: 12, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button onClick={() => setShowNew(false)}>Cancel</button>
+            <button onClick={addSession}>Add</button>
+          </div>
+        </div>
+      )}
 
       <div
         style={{
@@ -200,8 +253,8 @@ export default function TongsCalendar() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(160px, 1fr))", gap: 12 }}>
           {weekDays.map((day) => {
             const daySessions = sessions
-              .filter((session) => session.date === day.key)
-              .sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
+              .filter((session) => dateKeyFromIso(session.startIso) === day.key)
+              .sort((a, b) => a.startIso.localeCompare(b.startIso));
             return (
               <div
                 key={day.key}
@@ -220,33 +273,76 @@ export default function TongsCalendar() {
                   {daySessions.length === 0 && (
                     <div style={{ fontSize: 12, opacity: 0.5 }}>No sessions</div>
                   )}
-                  {daySessions.map((session) => (
-                    <div
-                      key={session.id}
-                      style={{
-                        borderRadius: 10,
-                        padding: "10px 12px",
-                        background: "rgba(255,255,255,0.08)",
-                        border: "1px solid rgba(244,207,160,0.35)",
-                      }}
-                    >
-                      <div style={{ fontSize: 12, letterSpacing: 0.3, textTransform: "uppercase", opacity: 0.7 }}>
-                        {session.time}
+                  {daySessions.map((session) => {
+                    const start = new Date(session.startIso);
+                    const timeLabel = Number.isNaN(start.getTime()) ? "Unknown" : formatTimeLabel(start);
+                    return (
+                      <div
+                        key={session.id}
+                        style={{
+                          borderRadius: 10,
+                          padding: "10px 12px",
+                          background: "rgba(255,255,255,0.08)",
+                          border: "1px solid rgba(244,207,160,0.35)",
+                        }}
+                      >
+                        <div style={{ fontSize: 12, letterSpacing: 0.3, textTransform: "uppercase", opacity: 0.7 }}>
+                          {timeLabel}
+                        </div>
+                        <div style={{ marginTop: 4, fontWeight: 700 }}>{session.title}</div>
+                        {session.notes && (
+                          <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>{session.notes}</div>
+                        )}
+                        <div style={{ marginTop: 6, fontSize: 12, opacity: 0.6 }}>{session.minutes} min</div>
                       </div>
-                      <div style={{ marginTop: 4, fontWeight: 700 }}>{session.title}</div>
-                      {session.notes && (
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>{session.notes}</div>
-                      )}
-                      {session.duration && (
-                        <div style={{ marginTop: 6, fontSize: 12, opacity: 0.6 }}>{session.duration}</div>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             );
           })}
         </div>
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <h3 style={{ margin: "0 0 8px 0" }}>Sessions</h3>
+
+        {sessions.length === 0 ? (
+          <div style={{ opacity: 0.7 }}>No sessions yet. Click "New Recording Session".</div>
+        ) : (
+          <div style={{ display: "grid", gap: 10 }}>
+            {sessions.map((session) => {
+              const start = new Date(session.startIso);
+              return (
+                <div
+                  key={session.id}
+                  style={{
+                    padding: 12,
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    borderRadius: 8,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: 12,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 600 }}>{session.title}</div>
+                    <div style={{ opacity: 0.75, fontSize: 13 }}>
+                      {Number.isNaN(start.getTime()) ? session.startIso : start.toLocaleString()} · {session.minutes} min
+                    </div>
+                    {session.notes ? (
+                      <div style={{ opacity: 0.7, fontSize: 13, marginTop: 6 }}>{session.notes}</div>
+                    ) : null}
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <button onClick={() => deleteSession(session.id)}>Delete</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div style={{ marginTop: 14, fontSize: 12, opacity: 0.65 }}>Storage: {storageSummary}</div>
