@@ -3,9 +3,9 @@ import type { MountRole, MountTargetType, WorkspaceMountRegistry } from "@forge/
 import { MOUNT_ROLE_POLICY } from "@forge/tongs";
 import { clearMountRegistry, getMount, loadMountRegistry, saveMountRegistry } from "../lib/mount-registry";
 
-const STORAGE_OPTIONS: { label: string; value: MountTargetType; comingSoon?: boolean }[] = [
+const STORAGE_OPTIONS: { label: string; value: MountTargetType }[] = [
   { label: "Local", value: "local" },
-  { label: "Forge Cloud (coming soon)", value: "tongs_cloud", comingSoon: true },
+  { label: "Forge Cloud (beta)", value: "tongs_cloud" },
 ];
 
 function toFriendly(value: unknown) {
@@ -130,7 +130,7 @@ export default function SettingsStorage() {
                       (option) => option.value !== "tongs_cloud" || eligibleTargets.includes(option.value),
                     ).map((option) => {
                       const eligible = eligibleTargets.includes(option.value);
-                      const disabled = option.comingSoon || !eligible;
+                      const disabled = !eligible;
                       return (
                         <option key={option.value} value={option.value} disabled={disabled}>
                           {option.label}
@@ -145,8 +145,12 @@ export default function SettingsStorage() {
         </tbody>
       </table>
 
+      <div style={{ marginTop: 12, fontSize: 12, color: "#666" }}>
+        Forge Cloud sync isn't enabled yet. Choosing it saves your preference for when it goes live.
+      </div>
+
       <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-        <button onClick={handleSave} disabled={!registry || isSaving}>
+        <button onClick={handleSave} disabled={!registry || isSaving || !hasChanges}>
           {isSaving ? "Saving..." : "Save"}
         </button>
         <button onClick={handleReset} disabled={isSaving}>
