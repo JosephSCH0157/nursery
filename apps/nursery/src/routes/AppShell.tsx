@@ -25,10 +25,10 @@ export default function AppShell() {
         <h3>Nursery</h3>
         <nav style={{ display: "grid", gap: 8 }}>
           <Link to="/app">Home</Link>
+          <Link to="/app/tongs">Tongs Calendar</Link>
           <Link to="/app/anvil">Anvil</Link>
           <Link to="/app/hearth">Hearth</Link>
           <Link to="/app/hammer">Hammer</Link>
-          <Link to="/app/tongs">Tongs Calendar</Link>
           <Link to="/app/barstock">Barstock</Link>
         </nav>
         <hr />
