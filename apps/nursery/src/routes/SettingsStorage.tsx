@@ -1,18 +1,11 @@
 import { useEffect, useState } from "react";
 import type { MountRole, MountTargetType, WorkspaceMountRegistry } from "@forge/tongs";
-import { loadMountRegistry, saveMountRegistry, clearMountRegistry } from "../lib/mount-registry";
+import { MOUNT_ROLE_POLICY } from "@forge/tongs";
+import { clearMountRegistry, getMount, loadMountRegistry, saveMountRegistry } from "../lib/mount-registry";
 
-const ROLE_LABELS: Record<MountRole, string> = {
-  scripts: "Scripts",
-  recordings: "Recordings",
-  exports: "Exports",
-  assets: "Assets",
-  projects: "Projects",
-};
-
-const STORAGE_OPTIONS: { label: string; value: MountTargetType; disabled?: boolean }[] = [
+const STORAGE_OPTIONS: { label: string; value: MountTargetType; comingSoon?: boolean }[] = [
   { label: "Local", value: "local" },
-  { label: "Forge Cloud (coming soon)", value: "tongs_cloud", disabled: true },
+  { label: "Forge Cloud (coming soon)", value: "tongs_cloud", comingSoon: true },
 ];
 
 function toFriendly(value: unknown) {
@@ -43,9 +36,7 @@ export default function SettingsStorage() {
     }
   }, []);
 
-  const mountForRole = (role: MountRole) => {
-    return registry?.mounts.find((entry) => entry.role === role) ?? { role, target: "local" as MountTargetType };
-  };
+  const mountForRole = (role: MountRole) => getMount(registry, role);
 
   const handleTargetChange = (role: MountRole, target: MountTargetType) => {
     setRegistry((prev) => {
@@ -85,7 +76,7 @@ export default function SettingsStorage() {
   };
 
   if (!registry) {
-    return <p>Loading storage registry…</p>;
+    return <p>Loading storage registry...</p>;
   }
 
   return (
@@ -117,23 +108,26 @@ export default function SettingsStorage() {
           </tr>
         </thead>
         <tbody>
-          {Object.keys(ROLE_LABELS).map((roleKey) => {
-            const role = roleKey as MountRole;
-            const entry = mountForRole(role);
+          {MOUNT_ROLE_POLICY.map((policy) => {
+            const entry = mountForRole(policy.role);
             return (
-              <tr key={role} style={{ borderTop: "1px solid #eee" }}>
-                <td style={{ padding: "12px 0" }}>{ROLE_LABELS[role]}</td>
+              <tr key={policy.role} style={{ borderTop: "1px solid #eee" }}>
+                <td style={{ padding: "12px 0" }}>{policy.label}</td>
                 <td style={{ padding: "12px 0" }}>
                   <select
                     value={entry.target}
-                    onChange={(event) => handleTargetChange(role, event.target.value as MountTargetType)}
+                    onChange={(event) => handleTargetChange(policy.role, event.target.value as MountTargetType)}
                     style={{ padding: "4px 8px" }}
                   >
-                    {STORAGE_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value} disabled={option.disabled}>
-                        {option.label}
-                      </option>
-                    ))}
+                    {STORAGE_OPTIONS.map((option) => {
+                      const eligible = policy.eligibleTargets.includes(option.value);
+                      const disabled = option.comingSoon || !eligible;
+                      return (
+                        <option key={option.value} value={option.value} disabled={disabled}>
+                          {option.label}
+                        </option>
+                      );
+                    })}
                   </select>
                 </td>
               </tr>
@@ -144,7 +138,7 @@ export default function SettingsStorage() {
 
       <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
         <button onClick={handleSave} disabled={!registry || isSaving}>
-          {isSaving ? "Saving…" : "Save"}
+          {isSaving ? "Saving..." : "Save"}
         </button>
         <button onClick={handleReset} disabled={isSaving}>
           Reset to defaults

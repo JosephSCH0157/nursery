@@ -1,5 +1,5 @@
 import { buildDefaultRegistry, normalizeRegistry, validateRegistry } from "@forge/tongs";
-import type { WorkspaceMountRegistry } from "@forge/tongs";
+import type { MountRegistryEntry, MountRole, MountTargetType, WorkspaceMountRegistry } from "@forge/tongs";
 
 const KEY = "forge_mount_registry_v1";
 
@@ -40,6 +40,24 @@ export function loadMountRegistry(workspaceId = "default"): LoadResult {
     }
     return { ok: false, registry: fallback, seeded: true, issues: err };
   }
+}
+
+export function getMount(
+  registry: WorkspaceMountRegistry | null | undefined,
+  role: MountRole,
+): MountRegistryEntry {
+  const entry = registry?.mounts.find((mount) => mount.role === role);
+  return entry ?? { role, target: "local" };
+}
+
+export function getMountTarget(role: MountRole): MountTargetType {
+  const { registry } = loadMountRegistry("default");
+  return getMount(registry, role).target;
+}
+
+export function getMountMeta(role: MountRole): Record<string, unknown> | undefined {
+  const { registry } = loadMountRegistry("default");
+  return getMount(registry, role).meta;
 }
 
 export function saveMountRegistry(registry: WorkspaceMountRegistry): { ok: true } | { ok: false; error: unknown } {

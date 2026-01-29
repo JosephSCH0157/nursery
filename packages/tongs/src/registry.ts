@@ -1,4 +1,5 @@
 import type { MountRegistryEntry, MountRole, MountTargetType, WorkspaceMountRegistry } from "./types";
+import { MOUNT_ROLE_POLICY } from "./roles";
 
 export type RegistryIssueCode =
   | "MISSING_WORKSPACE_ID"
@@ -15,13 +16,7 @@ export type RegistryIssue = {
   role?: string;
 };
 
-const ROLE_SET: ReadonlySet<MountRole> = new Set([
-  "scripts",
-  "recordings",
-  "exports",
-  "assets",
-  "projects",
-]);
+const ROLE_SET: ReadonlySet<MountRole> = new Set(MOUNT_ROLE_POLICY.map((policy) => policy.role));
 
 const TARGET_SET: ReadonlySet<MountTargetType> = new Set(["local", "tongs_cloud"]);
 

@@ -11,6 +11,7 @@ import ForgeHub from "./routes/ForgeHub";
 import SettingsHome from "./routes/SettingsHome";
 import SettingsLayout from "./routes/SettingsLayout";
 import SettingsStorage from "./routes/SettingsStorage";
+import TongsCalendar from "./routes/TongsCalendar";
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -41,7 +42,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="anvil" element={<Placeholder title="Anvil" />} />
           <Route path="hearth" element={<Placeholder title="Hearth" />} />
           <Route path="hammer" element={<Placeholder title="Hammer" />} />
-          <Route path="tongs" element={<Placeholder title="Tongs" />} />
+          <Route path="tongs" element={<TongsCalendar />} />
           <Route path="quench" element={<Placeholder title="Quench" />} />
           <Route path="ledger" element={<Placeholder title="Ledger" />} />
           <Route path="barstock" element={<Placeholder title="Barstock" />} />
