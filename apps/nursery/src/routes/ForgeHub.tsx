@@ -57,11 +57,15 @@ const LINKS: HubLink[] = [
   linkFor("anvil"),
   linkFor("hearth"),
   linkFor("hammer"),
-  { to: "/app/tongs", name: "Tongs", hint: "Storage & Workflow", desc: "Move work between tools, manage mounts & sessions." },
+  {
+    to: "/app/tongs",
+    name: "Tongs (Calendar)",
+    hint: "Storage & Sessions",
+    desc: "Plan recordings, manage mounts, and move work between tools.",
+  },
   linkFor("quench"),
   linkFor("ledger"),
   linkFor("barstock"),
-  { to: "/app/calendar", name: "Calendar", hint: "Scheduling & Sessions", desc: "Plan recordings and workflow timing." },
 ];
 
 export default function ForgeHub() {
