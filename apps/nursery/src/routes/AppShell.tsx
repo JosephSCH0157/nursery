@@ -28,6 +28,7 @@ export default function AppShell() {
           <Link to="/app/anvil">Anvil</Link>
           <Link to="/app/hearth">Hearth</Link>
           <Link to="/app/hammer">Hammer</Link>
+          <Link to="/app/tongs">Tongs Calendar</Link>
           <Link to="/app/barstock">Barstock</Link>
         </nav>
         <hr />
