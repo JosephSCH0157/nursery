@@ -1,14 +1,12 @@
 import type { WorkspaceMountRegistry } from "./types";
+import { MOUNT_ROLE_POLICY } from "./roles";
 
 export function buildDefaultRegistry(workspaceId: string): WorkspaceMountRegistry {
   return {
     workspaceId,
-    mounts: [
-      { role: "scripts", target: "local" },
-      { role: "recordings", target: "local" },
-      { role: "exports", target: "local" },
-      { role: "assets", target: "local" },
-      { role: "projects", target: "local" },
-    ],
+    mounts: MOUNT_ROLE_POLICY.map((policy) => ({
+      role: policy.role,
+      target: policy.eligibleTargets[0] ?? "local",
+    })),
   };
 }

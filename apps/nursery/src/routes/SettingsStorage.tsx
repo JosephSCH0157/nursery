@@ -110,17 +110,26 @@ export default function SettingsStorage() {
         <tbody>
           {MOUNT_ROLE_POLICY.map((policy) => {
             const entry = mountForRole(policy.role);
+            const eligibleTargets = policy.eligibleTargets as readonly MountTargetType[];
+            const isLocalOnly = eligibleTargets.length === 1 && eligibleTargets[0] === "local";
             return (
               <tr key={policy.role} style={{ borderTop: "1px solid #eee" }}>
-                <td style={{ padding: "12px 0" }}>{policy.label}</td>
+                <td style={{ padding: "12px 0" }}>
+                  {policy.label}
+                  {isLocalOnly && (
+                    <span style={{ marginLeft: 8, fontSize: 12, color: "#666" }}>Local-only (v1)</span>
+                  )}
+                </td>
                 <td style={{ padding: "12px 0" }}>
                   <select
                     value={entry.target}
                     onChange={(event) => handleTargetChange(policy.role, event.target.value as MountTargetType)}
                     style={{ padding: "4px 8px" }}
                   >
-                    {STORAGE_OPTIONS.map((option) => {
-                      const eligible = policy.eligibleTargets.includes(option.value);
+                    {STORAGE_OPTIONS.filter(
+                      (option) => option.value !== "tongs_cloud" || eligibleTargets.includes(option.value),
+                    ).map((option) => {
+                      const eligible = eligibleTargets.includes(option.value);
                       const disabled = option.comingSoon || !eligible;
                       return (
                         <option key={option.value} value={option.value} disabled={disabled}>

@@ -20,6 +20,10 @@ const ROLE_SET: ReadonlySet<MountRole> = new Set(MOUNT_ROLE_POLICY.map((policy) 
 
 const TARGET_SET: ReadonlySet<MountTargetType> = new Set(["local", "tongs_cloud"]);
 
+const ROLE_POLICY = new Map<MountRole, (typeof MOUNT_ROLE_POLICY)[number]>(
+  MOUNT_ROLE_POLICY.map((policy) => [policy.role, policy]),
+);
+
 function isPlainObject(x: unknown): x is Record<string, unknown> {
   return !!x && typeof x === "object" && !Array.isArray(x);
 }
@@ -67,8 +71,16 @@ export function validateRegistry(
     }
     seenRoles.add(role);
 
-    if (typeof target !== "string" || !TARGET_SET.has(target as MountTargetType)) {
+    const targetIsValidType = typeof target === "string" && TARGET_SET.has(target as MountTargetType);
+    if (!targetIsValidType) {
       issues.push({ code: "INVALID_TARGET", message: "Invalid mount target.", role });
+    }
+    if (targetIsValidType) {
+      const allowedTargets = (ROLE_POLICY.get(role as MountRole)?.eligibleTargets ??
+        ["local"]) as readonly MountTargetType[];
+      if (!allowedTargets.includes(target as MountTargetType)) {
+        issues.push({ code: "INVALID_TARGET", message: "Invalid mount target.", role });
+      }
     }
 
     if (meta !== undefined && !isPlainObject(meta)) {
@@ -115,9 +127,17 @@ export function normalizeRegistry(
 
     if (typeof target !== "string" || !TARGET_SET.has(target as MountTargetType)) continue;
 
+    const allowedTargets = (ROLE_POLICY.get(role as MountRole)?.eligibleTargets ??
+      ["local"]) as readonly MountTargetType[];
+    let normalizedTarget = target as MountTargetType;
+    if (!allowedTargets.includes(normalizedTarget)) {
+      if (!allowedTargets.length) continue;
+      normalizedTarget = allowedTargets[0];
+    }
+
     const entry: MountRegistryEntry = {
       role: role as MountRole,
-      target: target as MountTargetType,
+      target: normalizedTarget,
     };
 
     if (meta !== undefined && isPlainObject(meta)) {
