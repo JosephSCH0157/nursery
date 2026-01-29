@@ -12,6 +12,7 @@ import SettingsHome from "./routes/SettingsHome";
 import SettingsLayout from "./routes/SettingsLayout";
 import SettingsStorage from "./routes/SettingsStorage";
 import TongsCalendar from "./routes/TongsCalendar";
+import BarstockRoute from "./routes/Barstock";
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -45,7 +46,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="tongs" element={<TongsCalendar />} />
           <Route path="quench" element={<Placeholder title="Quench" />} />
           <Route path="ledger" element={<Placeholder title="Ledger" />} />
-          <Route path="barstock" element={<Placeholder title="Barstock" />} />
+          <Route path="barstock" element={<BarstockRoute />} />
           <Route path="calendar" element={<Placeholder title="Calendar" />} />
           <Route path="settings" element={<SettingsLayout />}>
             <Route index element={<SettingsHome />} />
