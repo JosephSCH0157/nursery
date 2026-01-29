@@ -20,6 +20,16 @@ const MONTH_NAMES = [
 ];
 
 const SESSIONS_KEY = "forge_tongs_sessions_v1";
+const VIEW_KEY = "forge_tongs_calendar_view_v1";
+const CURSOR_KEY = "forge_tongs_calendar_cursor_v1";
+
+type CalendarView = "day" | "week" | "month";
+
+const VIEW_OPTIONS: { value: CalendarView; label: string }[] = [
+  { value: "day", label: "Day" },
+  { value: "week", label: "Week" },
+  { value: "month", label: "Month" },
+];
 
 type TongsSession = {
   id: string;
@@ -38,6 +48,27 @@ function safeParseJson<T>(raw: string | null, fallback: T): T {
   }
 }
 
+function useLocalStorageState<T>(key: string, initialValue: T) {
+  const [value, setValue] = useState<T>(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw != null ? (JSON.parse(raw) as T) : initialValue;
+    } catch {
+      return initialValue;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch {
+      // ignore storage failures
+    }
+  }, [key, value]);
+
+  return [value, setValue] as const;
+}
+
 function uid(): string {
   return Math.random().toString(36).slice(2, 10) + "-" + Date.now().toString(36);
 }
@@ -51,13 +82,49 @@ function formatRoleSummary(role: MountRole, target: string): string {
   return `${label}=${formatTargetShort(target)}`;
 }
 
-function startOfWeek(date: Date): Date {
+function startOfDay(date: Date): Date {
   const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function endOfDay(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
+function addDays(date: Date, days: number): Date {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+function addMonths(date: Date, months: number): Date {
+  const d = new Date(date);
+  d.setMonth(d.getMonth() + months);
+  return d;
+}
+
+function startOfWeek(date: Date): Date {
+  const d = startOfDay(date);
   const day = d.getDay();
   const diff = (day + 6) % 7; // Monday start
   d.setDate(d.getDate() - diff);
-  d.setHours(0, 0, 0, 0);
   return d;
+}
+
+function endOfWeek(date: Date): Date {
+  const start = startOfWeek(date);
+  return endOfDay(addDays(start, 6));
+}
+
+function startOfMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function endOfMonth(date: Date): Date {
+  return endOfDay(new Date(date.getFullYear(), date.getMonth() + 1, 0));
 }
 
 function toDateKey(date: Date): string {
@@ -67,14 +134,31 @@ function toDateKey(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+function parseDateKey(key: string): Date | null {
+  const match = /^\d{4}-\d{2}-\d{2}$/.test(key);
+  if (!match) return null;
+  const [year, month, day] = key.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 function formatDateLabel(date: Date): string {
   const month = MONTH_NAMES[date.getMonth()];
   const day = String(date.getDate()).padStart(2, "0");
   return `${month} ${day}`;
 }
 
+function formatDayLabel(date: Date): string {
+  const dayName = DAY_NAMES[date.getDay()];
+  return `${dayName}, ${formatDateLabel(date)}`;
+}
+
 function formatWeekLabel(start: Date): string {
   return `Week of ${formatDateLabel(start)}`;
+}
+
+function formatMonthLabel(date: Date): string {
+  return `${MONTH_NAMES[date.getMonth()]} ${date.getFullYear()}`;
 }
 
 function formatTimeLabel(date: Date): string {
@@ -87,8 +171,7 @@ function formatTimeLabel(date: Date): string {
 
 function buildWeekDays(weekStart: Date) {
   return Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(weekStart);
-    date.setDate(weekStart.getDate() + index);
+    const date = addDays(weekStart, index);
     return {
       key: toDateKey(date),
       label: DAY_NAMES[date.getDay()],
@@ -97,17 +180,59 @@ function buildWeekDays(weekStart: Date) {
   });
 }
 
+function buildMonthDays(cursorDate: Date) {
+  const monthStart = startOfMonth(cursorDate);
+  const gridStart = startOfWeek(monthStart);
+  const gridEnd = endOfWeek(endOfMonth(cursorDate));
+  const days = [] as { key: string; label: string; inMonth: boolean }[];
+
+  let current = gridStart;
+  while (current <= gridEnd) {
+    const key = toDateKey(current);
+    days.push({
+      key,
+      label: String(current.getDate()),
+      inMonth: current.getMonth() === cursorDate.getMonth(),
+    });
+    current = addDays(current, 1);
+  }
+
+  return days;
+}
+
 function dateKeyFromIso(iso: string): string | null {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
   return toDateKey(date);
 }
 
+function getViewRange(view: CalendarView, cursorDate: Date) {
+  if (view === "day") {
+    return { start: startOfDay(cursorDate), end: endOfDay(cursorDate) };
+  }
+
+  if (view === "week") {
+    const start = startOfWeek(cursorDate);
+    return { start, end: endOfWeek(start) };
+  }
+
+  const monthStart = startOfMonth(cursorDate);
+  const start = startOfWeek(monthStart);
+  const end = endOfWeek(endOfMonth(cursorDate));
+  return { start, end };
+}
+
 export default function TongsCalendar() {
   const { getTarget } = useMountRegistry("default");
 
-  const weekStart = useMemo(() => startOfWeek(new Date()), []);
+  const todayIso = useMemo(() => toDateKey(new Date()), []);
+  const [view, setView] = useLocalStorageState<CalendarView>(VIEW_KEY, "week");
+  const [cursorDayIso, setCursorDayIso] = useLocalStorageState<string>(CURSOR_KEY, todayIso);
+
+  const cursorDate = useMemo(() => parseDateKey(cursorDayIso) ?? new Date(), [cursorDayIso]);
+  const weekStart = useMemo(() => startOfWeek(cursorDate), [cursorDate]);
   const weekDays = useMemo(() => buildWeekDays(weekStart), [weekStart]);
+  const monthDays = useMemo(() => buildMonthDays(cursorDate), [cursorDate]);
 
   const [sessions, setSessions] = useState<TongsSession[]>([]);
   const [showNew, setShowNew] = useState(false);
@@ -169,19 +294,120 @@ export default function TongsCalendar() {
     setSessions((prev) => prev.filter((session) => session.id !== id));
   }
 
+  function goToToday() {
+    setCursorDayIso(todayIso);
+  }
+
+  function goPrev() {
+    if (view === "day") {
+      setCursorDayIso(toDateKey(addDays(cursorDate, -1)));
+      return;
+    }
+
+    if (view === "week") {
+      setCursorDayIso(toDateKey(addDays(cursorDate, -7)));
+      return;
+    }
+
+    setCursorDayIso(toDateKey(addMonths(cursorDate, -1)));
+  }
+
+  function goNext() {
+    if (view === "day") {
+      setCursorDayIso(toDateKey(addDays(cursorDate, 1)));
+      return;
+    }
+
+    if (view === "week") {
+      setCursorDayIso(toDateKey(addDays(cursorDate, 7)));
+      return;
+    }
+
+    setCursorDayIso(toDateKey(addMonths(cursorDate, 1)));
+  }
+
+  const rangeLabel = useMemo(() => {
+    if (view === "day") return formatDayLabel(cursorDate);
+    if (view === "week") return formatWeekLabel(weekStart);
+    return formatMonthLabel(cursorDate);
+  }, [view, cursorDate, weekStart]);
+
+  const viewRange = useMemo(() => getViewRange(view, cursorDate), [view, cursorDate]);
+
+  const visibleSessions = useMemo(() => {
+    return sessions
+      .filter((session) => {
+        const start = new Date(session.startIso);
+        if (Number.isNaN(start.getTime())) return false;
+        return start >= viewRange.start && start <= viewRange.end;
+      })
+      .sort((a, b) => a.startIso.localeCompare(b.startIso));
+  }, [sessions, viewRange]);
+
+  const sessionsByDay = useMemo(() => {
+    const map = new Map<string, TongsSession[]>();
+    for (const session of visibleSessions) {
+      const key = dateKeyFromIso(session.startIso);
+      if (!key) continue;
+      const list = map.get(key) ?? [];
+      list.push(session);
+      map.set(key, list);
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => a.startIso.localeCompare(b.startIso));
+    }
+    return map;
+  }, [visibleSessions]);
+
   const storageSummary = useMemo(() => {
     return MOUNT_ROLE_POLICY.map((policy) => formatRoleSummary(policy.role, getTarget(policy.role))).join(", ");
   }, [getTarget]);
+
+  const daySessions = sessionsByDay.get(toDateKey(cursorDate)) ?? [];
 
   return (
     <div style={{ padding: 8, maxWidth: 1100 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16 }}>
         <div>
           <h2 style={{ margin: 0 }}>Tongs Calendar</h2>
-          <p style={{ marginTop: 6, opacity: 0.7 }}>Week view with local-only sessions.</p>
+          <p style={{ marginTop: 6, opacity: 0.7 }}>Schedule recording sessions and keep a weekly rhythm.</p>
         </div>
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <div style={{ fontSize: 14, opacity: 0.7 }}>{formatWeekLabel(weekStart)}</div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <div
+            style={{
+              display: "inline-flex",
+              border: "1px solid rgba(255,255,255,0.2)",
+              borderRadius: 8,
+              overflow: "hidden",
+            }}
+          >
+            {VIEW_OPTIONS.map((option) => {
+              const isActive = view === option.value;
+              return (
+                <button
+                  key={option.value}
+                  onClick={() => setView(option.value)}
+                  style={{
+                    padding: "6px 10px",
+                    border: "none",
+                    background: isActive ? "rgba(255,255,255,0.18)" : "transparent",
+                    color: "inherit",
+                  }}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <button onClick={goPrev}>Prev</button>
+            <button onClick={goToToday}>Today</button>
+            <button onClick={goNext}>Next</button>
+          </div>
+
+          <div style={{ fontSize: 14, opacity: 0.7 }}>{rangeLabel}</div>
+
           <button onClick={() => setShowNew((v) => !v)}>
             {showNew ? "Close" : "New Recording Session"}
           </button>
@@ -240,78 +466,173 @@ export default function TongsCalendar() {
         </div>
       )}
 
-      <div
-        style={{
-          marginTop: 18,
-          border: "1px solid rgba(255,255,255,0.15)",
-          borderRadius: 14,
-          padding: 12,
-          background: "rgba(255,255,255,0.05)",
-          overflowX: "auto",
-        }}
-      >
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(160px, 1fr))", gap: 12 }}>
-          {weekDays.map((day) => {
-            const daySessions = sessions
-              .filter((session) => dateKeyFromIso(session.startIso) === day.key)
-              .sort((a, b) => a.startIso.localeCompare(b.startIso));
-            return (
-              <div
-                key={day.key}
-                style={{
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  borderRadius: 12,
-                  padding: 12,
-                  minHeight: 200,
-                  background: "rgba(0,0,0,0.2)",
-                }}
-              >
-                <div style={{ fontWeight: 700 }}>{day.label}</div>
-                <div style={{ fontSize: 12, opacity: 0.7 }}>{day.dateLabel}</div>
-
-                <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-                  {daySessions.length === 0 && (
-                    <div style={{ fontSize: 12, opacity: 0.5 }}>No sessions</div>
+      {view === "day" && (
+        <div
+          style={{
+            marginTop: 18,
+            border: "1px solid rgba(255,255,255,0.15)",
+            borderRadius: 14,
+            padding: 12,
+            background: "rgba(255,255,255,0.05)",
+          }}
+        >
+          <div style={{ fontWeight: 700 }}>{formatDayLabel(cursorDate)}</div>
+          <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+            {daySessions.length === 0 && <div style={{ fontSize: 12, opacity: 0.5 }}>No sessions</div>}
+            {daySessions.map((session) => {
+              const start = new Date(session.startIso);
+              const timeLabel = Number.isNaN(start.getTime()) ? "Unknown" : formatTimeLabel(start);
+              return (
+                <div
+                  key={session.id}
+                  style={{
+                    borderRadius: 10,
+                    padding: "10px 12px",
+                    background: "rgba(255,255,255,0.08)",
+                    border: "1px solid rgba(244,207,160,0.35)",
+                  }}
+                >
+                  <div style={{ fontSize: 12, letterSpacing: 0.3, textTransform: "uppercase", opacity: 0.7 }}>
+                    {timeLabel}
+                  </div>
+                  <div style={{ marginTop: 4, fontWeight: 700 }}>{session.title}</div>
+                  {session.notes && (
+                    <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>{session.notes}</div>
                   )}
-                  {daySessions.map((session) => {
-                    const start = new Date(session.startIso);
-                    const timeLabel = Number.isNaN(start.getTime()) ? "Unknown" : formatTimeLabel(start);
-                    return (
+                  <div style={{ marginTop: 6, fontSize: 12, opacity: 0.6 }}>{session.minutes} min</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {view === "week" && (
+        <div
+          style={{
+            marginTop: 18,
+            border: "1px solid rgba(255,255,255,0.15)",
+            borderRadius: 14,
+            padding: 12,
+            background: "rgba(255,255,255,0.05)",
+            overflowX: "auto",
+          }}
+        >
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(160px, 1fr))", gap: 12 }}>
+            {weekDays.map((day) => {
+              const daySessions = sessionsByDay.get(day.key) ?? [];
+              return (
+                <div
+                  key={day.key}
+                  style={{
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    borderRadius: 12,
+                    padding: 12,
+                    minHeight: 200,
+                    background: "rgba(0,0,0,0.2)",
+                  }}
+                >
+                  <div style={{ fontWeight: 700 }}>{day.label}</div>
+                  <div style={{ fontSize: 12, opacity: 0.7 }}>{day.dateLabel}</div>
+
+                  <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+                    {daySessions.length === 0 && (
+                      <div style={{ fontSize: 12, opacity: 0.5 }}>No sessions</div>
+                    )}
+                    {daySessions.map((session) => {
+                      const start = new Date(session.startIso);
+                      const timeLabel = Number.isNaN(start.getTime()) ? "Unknown" : formatTimeLabel(start);
+                      return (
+                        <div
+                          key={session.id}
+                          style={{
+                            borderRadius: 10,
+                            padding: "10px 12px",
+                            background: "rgba(255,255,255,0.08)",
+                            border: "1px solid rgba(244,207,160,0.35)",
+                          }}
+                        >
+                          <div style={{ fontSize: 12, letterSpacing: 0.3, textTransform: "uppercase", opacity: 0.7 }}>
+                            {timeLabel}
+                          </div>
+                          <div style={{ marginTop: 4, fontWeight: 700 }}>{session.title}</div>
+                          {session.notes && (
+                            <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>{session.notes}</div>
+                          )}
+                          <div style={{ marginTop: 6, fontSize: 12, opacity: 0.6 }}>{session.minutes} min</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {view === "month" && (
+        <div
+          style={{
+            marginTop: 18,
+            border: "1px solid rgba(255,255,255,0.15)",
+            borderRadius: 14,
+            padding: 12,
+            background: "rgba(255,255,255,0.05)",
+            overflowX: "auto",
+          }}
+        >
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(140px, 1fr))", gap: 12 }}>
+            {monthDays.map((day) => {
+              const daySessions = sessionsByDay.get(day.key) ?? [];
+              const visible = daySessions.slice(0, 3);
+              const hiddenCount = daySessions.length - visible.length;
+              return (
+                <div
+                  key={day.key}
+                  style={{
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    borderRadius: 12,
+                    padding: 10,
+                    minHeight: 140,
+                    background: day.inMonth ? "rgba(0,0,0,0.2)" : "rgba(0,0,0,0.12)",
+                  }}
+                >
+                  <div style={{ fontSize: 12, opacity: day.inMonth ? 0.85 : 0.45 }}>{day.label}</div>
+                  <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
+                    {visible.map((session) => (
                       <div
                         key={session.id}
                         style={{
-                          borderRadius: 10,
-                          padding: "10px 12px",
+                          borderRadius: 8,
+                          padding: "6px 8px",
                           background: "rgba(255,255,255,0.08)",
                           border: "1px solid rgba(244,207,160,0.35)",
+                          fontSize: 12,
                         }}
                       >
-                        <div style={{ fontSize: 12, letterSpacing: 0.3, textTransform: "uppercase", opacity: 0.7 }}>
-                          {timeLabel}
-                        </div>
-                        <div style={{ marginTop: 4, fontWeight: 700 }}>{session.title}</div>
-                        {session.notes && (
-                          <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>{session.notes}</div>
-                        )}
-                        <div style={{ marginTop: 6, fontSize: 12, opacity: 0.6 }}>{session.minutes} min</div>
+                        {session.title}
                       </div>
-                    );
-                  })}
+                    ))}
+                    {hiddenCount > 0 && (
+                      <div style={{ fontSize: 12, opacity: 0.6 }}>+{hiddenCount} more</div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       <div style={{ marginTop: 16 }}>
         <h3 style={{ margin: "0 0 8px 0" }}>Sessions</h3>
 
-        {sessions.length === 0 ? (
-          <div style={{ opacity: 0.7 }}>No sessions yet. Click "New Recording Session".</div>
+        {visibleSessions.length === 0 ? (
+          <div style={{ opacity: 0.7 }}>No sessions in this view.</div>
         ) : (
           <div style={{ display: "grid", gap: 10 }}>
-            {sessions.map((session) => {
+            {visibleSessions.map((session) => {
               const start = new Date(session.startIso);
               return (
                 <div
