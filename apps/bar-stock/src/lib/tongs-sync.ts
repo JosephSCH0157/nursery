@@ -127,6 +127,7 @@ export async function flushOutboxToTongs(args: {
   if (sparksToUpsert.length) {
     const rows = sparksToUpsert.map((sp) => {
       const normalizedId = normalizeSparkId(sp.id);
+      if (sp.id !== normalizedId) sp.id = normalizedId;
 
       return {
         id: normalizedId,
