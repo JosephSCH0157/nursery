@@ -26,7 +26,10 @@ function sanitizeMirror(input: unknown): MountMirrorConfig | undefined {
   const policy = typeof input["policy"] === "string" ? (input["policy"] as MountMirrorConfig["policy"]) : undefined;
   const vaultKey = typeof input["vaultKey"] === "string" ? input["vaultKey"] : undefined;
   const hint = typeof input["hint"] === "string" ? input["hint"] : undefined;
-  return { enabled, policy, vaultKey, hint };
+  const mirror: MountMirrorConfig = { enabled, policy };
+  if (vaultKey) mirror.vaultKey = vaultKey;
+  if (hint) mirror.hint = hint;
+  return mirror;
 }
 
 function sanitizeLocal(input: unknown): MountLocalConfig | undefined {
@@ -34,7 +37,10 @@ function sanitizeLocal(input: unknown): MountLocalConfig | undefined {
   const vaultKey = typeof input["vaultKey"] === "string" ? input["vaultKey"] : undefined;
   const hint = typeof input["hint"] === "string" ? input["hint"] : undefined;
   if (!vaultKey && !hint) return undefined;
-  return { vaultKey, hint };
+  const local: MountLocalConfig = {};
+  if (vaultKey) local.vaultKey = vaultKey;
+  if (hint) local.hint = hint;
+  return local;
 }
 
 function defaultTargetForRole(role: MountRole): MountTargetType {

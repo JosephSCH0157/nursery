@@ -98,13 +98,13 @@ export function validateRegistry(
         if ("enabled" in mirror && typeof mirror["enabled"] !== "boolean") {
           issues.push({ code: "INVALID_META", message: "mirror.enabled must be boolean.", role });
         }
-        if ("policy" in mirror && typeof mirror["policy"] !== "string") {
+        if ("policy" in mirror && mirror["policy"] !== undefined && typeof mirror["policy"] !== "string") {
           issues.push({ code: "INVALID_META", message: "mirror.policy must be a string.", role });
         }
-        if ("vaultKey" in mirror && typeof mirror["vaultKey"] !== "string") {
+        if ("vaultKey" in mirror && mirror["vaultKey"] !== undefined && typeof mirror["vaultKey"] !== "string") {
           issues.push({ code: "INVALID_META", message: "mirror.vaultKey must be a string.", role });
         }
-        if ("hint" in mirror && typeof mirror["hint"] !== "string") {
+        if ("hint" in mirror && mirror["hint"] !== undefined && typeof mirror["hint"] !== "string") {
           issues.push({ code: "INVALID_META", message: "mirror.hint must be a string.", role });
         }
       }
@@ -114,10 +114,10 @@ export function validateRegistry(
       if (!isPlainObject(local)) {
         issues.push({ code: "INVALID_META", message: "local must be an object if provided.", role });
       } else {
-        if ("vaultKey" in local && typeof local["vaultKey"] !== "string") {
+        if ("vaultKey" in local && local["vaultKey"] !== undefined && typeof local["vaultKey"] !== "string") {
           issues.push({ code: "INVALID_META", message: "local.vaultKey must be a string.", role });
         }
-        if ("hint" in local && typeof local["hint"] !== "string") {
+        if ("hint" in local && local["hint"] !== undefined && typeof local["hint"] !== "string") {
           issues.push({ code: "INVALID_META", message: "local.hint must be a string.", role });
         }
       }

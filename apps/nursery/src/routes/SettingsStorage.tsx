@@ -1,5 +1,11 @@
 import { useMemo, useState } from "react";
-import type { MountRegistryEntry, MountRole, MountTargetType, WorkspaceMountRegistry } from "@forge/tongs";
+import type {
+  MirrorPolicy,
+  MountRegistryEntry,
+  MountRole,
+  MountTargetType,
+  WorkspaceMountRegistry,
+} from "@forge/tongs";
 import {
   DEFAULT_MIRROR_POLICY,
   MOUNT_ROLE_POLICY,
@@ -37,6 +43,18 @@ function defaultTargetForRole(role: MountRole): MountTargetType {
 
 function buildVaultKey(workspaceId: string, role: MountRole, kind: "local" | "mirror"): string {
   return `mount:${workspaceId}:${role}:${kind}`;
+}
+
+function buildMirrorConfig(
+  enabled: boolean,
+  policy: MirrorPolicy,
+  vaultKey?: string,
+  hint?: string,
+) {
+  const mirror = { enabled, policy } as { enabled: boolean; policy: MirrorPolicy; vaultKey?: string; hint?: string };
+  if (typeof vaultKey === "string" && vaultKey.length > 0) mirror.vaultKey = vaultKey;
+  if (typeof hint === "string" && hint.length > 0) mirror.hint = hint;
+  return mirror;
 }
 
 export default function SettingsStorage() {
@@ -133,12 +151,12 @@ export default function SettingsStorage() {
       return {
         ...entry,
         target: "tongs_cloud",
-        mirror: {
+        mirror: buildMirrorConfig(
           enabled,
-          policy: mirror.policy ?? DEFAULT_MIRROR_POLICY,
-          vaultKey: mirror.vaultKey,
-          hint: mirror.hint,
-        },
+          mirror.policy ?? DEFAULT_MIRROR_POLICY,
+          mirror.vaultKey,
+          mirror.hint,
+        ),
       };
     });
     setStatus(enabled ? `Mirror enabled for ${role}.` : `Mirror disabled for ${role}.`);
@@ -160,12 +178,12 @@ export default function SettingsStorage() {
     updateRegistryEntry(role, (entry) => ({
       ...entry,
       target: "tongs_cloud",
-      mirror: {
-        enabled: true,
-        policy: entry.mirror?.policy ?? DEFAULT_MIRROR_POLICY,
+      mirror: buildMirrorConfig(
+        true,
+        entry.mirror?.policy ?? DEFAULT_MIRROR_POLICY,
         vaultKey,
-        hint: handle.name,
-      },
+        handle.name,
+      ),
     }));
     setStatus(`Mirror folder set for ${role}.`);
   };
@@ -183,10 +201,7 @@ export default function SettingsStorage() {
     updateRegistryEntry(role, (entry) => ({
       ...entry,
       target: "tongs_cloud",
-      mirror: {
-        enabled: false,
-        policy: entry.mirror?.policy ?? DEFAULT_MIRROR_POLICY,
-      },
+      mirror: buildMirrorConfig(false, entry.mirror?.policy ?? DEFAULT_MIRROR_POLICY),
     }));
     setStatus(`Mirror folder cleared for ${role}.`);
   };
