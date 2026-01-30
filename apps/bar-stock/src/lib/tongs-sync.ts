@@ -197,8 +197,17 @@ export async function flushOutboxToTongs(args: {
   return result;
 }
 
-export async function checkTongsOnline(workspaceId: string): Promise<boolean> {
+export async function checkTongsOnline(
+  workspaceId: string,
+  opts?: { reason?: string; reloadToken?: number },
+): Promise<boolean> {
   if (!supabase) return false;
+  console.info("[tongs-sync] mount_registry fetch", {
+    workspaceId,
+    role: "barstock",
+    reason: opts?.reason ?? "effect",
+    reloadToken: opts?.reloadToken,
+  });
   const { data, error } = await supabase
     .schema("tongs")
     .from("mount_registry")

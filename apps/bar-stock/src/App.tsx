@@ -120,7 +120,7 @@ export default function App() {
     let cancelled = false;
 
     (async () => {
-      const online = await checkTongsOnline(workspaceId);
+      const online = await checkTongsOnline(workspaceId, { reason: "effect" });
       if (!cancelled) {
         setTongsStatus(online ? "online" : "offline");
       }
