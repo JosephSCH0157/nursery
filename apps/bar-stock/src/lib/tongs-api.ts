@@ -10,7 +10,7 @@ export async function listMyWorkspaces(): Promise<Workspace[]> {
 
   const { data, error } = await supabase
     .from("tongs.workspace_members")
-    .select("workspace_id, role, workspaces(id, name)");
+    .select("workspace_id, role, workspaces!workspace_members_workspace_id_fkey(id, name)");
 
   if (error) {
     console.warn("[barstock] workspace list unavailable", error);
