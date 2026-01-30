@@ -15,6 +15,7 @@ if (existing) {
   client = existing;
 } else if (url && anon) {
   client = createClient(url, anon, {
+    db: { schema: "tongs" },
     auth: {
       persistSession: true,
       autoRefreshToken: true,

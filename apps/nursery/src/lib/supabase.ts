@@ -17,6 +17,7 @@ const existing = globalStore[GLOBAL_KEY];
 export const supabase =
   existing ??
   createClient(url, anon, {
+    db: { schema: "tongs" },
     auth: {
       persistSession: true,
       autoRefreshToken: true,
