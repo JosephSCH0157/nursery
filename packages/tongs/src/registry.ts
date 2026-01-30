@@ -1,5 +1,7 @@
-import type { MountRegistryEntry, MountRole, MountTargetType, WorkspaceMountRegistry } from "./types";
+import type { MountRole, MountTargetType } from "./types";
 import { MOUNT_ROLE_POLICY } from "./roles";
+import { ALL_MOUNT_ROLES } from "./storage/storage-contract";
+import { normalizeRegistry } from "./storage/registry-normalize";
 
 export type RegistryIssueCode =
   | "MISSING_WORKSPACE_ID"
@@ -16,7 +18,7 @@ export type RegistryIssue = {
   role?: string;
 };
 
-const ROLE_SET: ReadonlySet<MountRole> = new Set(MOUNT_ROLE_POLICY.map((policy) => policy.role));
+const ROLE_SET: ReadonlySet<MountRole> = new Set(ALL_MOUNT_ROLES);
 
 const TARGET_SET: ReadonlySet<MountTargetType> = new Set(["local", "tongs_cloud"]);
 
@@ -59,6 +61,8 @@ export function validateRegistry(
     const role = m["role"];
     const target = m["target"];
     const meta = m["meta"];
+    const mirror = m["mirror"];
+    const local = m["local"];
 
     if (typeof role !== "string" || !ROLE_SET.has(role as MountRole)) {
       issues.push({ code: "INVALID_ROLE", message: "Invalid mount role.", role: String(role) });
@@ -86,66 +90,40 @@ export function validateRegistry(
     if (meta !== undefined && !isPlainObject(meta)) {
       issues.push({ code: "INVALID_META", message: "meta must be an object if provided.", role });
     }
+
+    if (mirror !== undefined) {
+      if (!isPlainObject(mirror)) {
+        issues.push({ code: "INVALID_META", message: "mirror must be an object if provided.", role });
+      } else {
+        if ("enabled" in mirror && typeof mirror["enabled"] !== "boolean") {
+          issues.push({ code: "INVALID_META", message: "mirror.enabled must be boolean.", role });
+        }
+        if ("policy" in mirror && typeof mirror["policy"] !== "string") {
+          issues.push({ code: "INVALID_META", message: "mirror.policy must be a string.", role });
+        }
+        if ("vaultKey" in mirror && typeof mirror["vaultKey"] !== "string") {
+          issues.push({ code: "INVALID_META", message: "mirror.vaultKey must be a string.", role });
+        }
+        if ("hint" in mirror && typeof mirror["hint"] !== "string") {
+          issues.push({ code: "INVALID_META", message: "mirror.hint must be a string.", role });
+        }
+      }
+    }
+
+    if (local !== undefined) {
+      if (!isPlainObject(local)) {
+        issues.push({ code: "INVALID_META", message: "local must be an object if provided.", role });
+      } else {
+        if ("vaultKey" in local && typeof local["vaultKey"] !== "string") {
+          issues.push({ code: "INVALID_META", message: "local.vaultKey must be a string.", role });
+        }
+        if ("hint" in local && typeof local["hint"] !== "string") {
+          issues.push({ code: "INVALID_META", message: "local.hint must be a string.", role });
+        }
+      }
+    }
   }
 
   return issues.length ? { ok: false, issues } : { ok: true };
 }
-
-/**
- * Normalize unknown input into a safe WorkspaceMountRegistry shape.
- * - Drops invalid mounts
- * - Dedupes by role (first wins)
- * - Ensures stable fields
- */
-export function normalizeRegistry(
-  input: unknown,
-  fallbackWorkspaceId = "default",
-): WorkspaceMountRegistry {
-  if (!isPlainObject(input)) {
-    return { workspaceId: fallbackWorkspaceId, mounts: [] };
-  }
-
-  const workspaceId =
-    typeof input["workspaceId"] === "string" && input["workspaceId"].trim()
-      ? (input["workspaceId"] as string)
-      : fallbackWorkspaceId;
-
-  const mountsRaw = Array.isArray(input["mounts"]) ? input["mounts"] : [];
-  const mounts: MountRegistryEntry[] = [];
-  const seen = new Set<MountRole>();
-
-  for (const m of mountsRaw) {
-    if (!isPlainObject(m)) continue;
-
-    const role = m["role"];
-    const target = m["target"];
-    const meta = m["meta"];
-
-    if (typeof role !== "string" || !ROLE_SET.has(role as MountRole)) continue;
-    if (seen.has(role as MountRole)) continue;
-    seen.add(role as MountRole);
-
-    if (typeof target !== "string" || !TARGET_SET.has(target as MountTargetType)) continue;
-
-    const allowedTargets = (ROLE_POLICY.get(role as MountRole)?.eligibleTargets ??
-      ["local"]) as readonly MountTargetType[];
-    let normalizedTarget = target as MountTargetType;
-    if (!allowedTargets.includes(normalizedTarget)) {
-      if (!allowedTargets.length) continue;
-      normalizedTarget = allowedTargets[0];
-    }
-
-    const entry: MountRegistryEntry = {
-      role: role as MountRole,
-      target: normalizedTarget,
-    };
-
-    if (meta !== undefined && isPlainObject(meta)) {
-      entry.meta = meta;
-    }
-
-    mounts.push(entry);
-  }
-
-  return { workspaceId, mounts };
-}
+export { normalizeRegistry };

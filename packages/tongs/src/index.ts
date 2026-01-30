@@ -3,3 +3,7 @@ export * from "./constants";
 export * from "./registry";
 export * from "./defaults";
 export * from "./roles";
+export * from "./storage/storage-contract";
+export * from "./storage/registry-normalize";
+export * from "./storage/resolve-mount";
+export * from "./storage/storage-guard";

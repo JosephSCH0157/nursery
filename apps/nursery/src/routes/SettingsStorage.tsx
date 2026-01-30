@@ -1,12 +1,23 @@
 import { useMemo, useState } from "react";
-import type { MountRole, MountTargetType, WorkspaceMountRegistry } from "@forge/tongs";
-import { MOUNT_ROLE_POLICY } from "@forge/tongs";
-import { clearMountRegistry, getMount, loadMountRegistry, saveMountRegistry } from "../lib/mount-registry";
+import type { MountRegistryEntry, MountRole, MountTargetType, WorkspaceMountRegistry } from "@forge/tongs";
+import {
+  DEFAULT_MIRROR_POLICY,
+  MOUNT_ROLE_POLICY,
+  isCloudCanonicalRole,
+  isLocalOnlyRole,
+  resolveMount,
+} from "@forge/tongs";
+import { clearMountRegistry, loadMountRegistry, saveMountRegistry } from "../lib/mount-registry";
+import { removeHandle, setHandle } from "../lib/handle-vault";
 
 const STORAGE_OPTIONS: { label: string; value: MountTargetType }[] = [
   { label: "Local", value: "local" },
   { label: "Forge Cloud (beta)", value: "tongs_cloud" },
 ];
+
+type PickerWindow = Window & {
+  showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
+};
 
 function toFriendly(value: unknown) {
   if (value == null) return "none";
@@ -16,6 +27,16 @@ function toFriendly(value: unknown) {
   } catch {
     return String(value);
   }
+}
+
+function defaultTargetForRole(role: MountRole): MountTargetType {
+  if (isLocalOnlyRole(role)) return "local";
+  if (isCloudCanonicalRole(role)) return "tongs_cloud";
+  return "local";
+}
+
+function buildVaultKey(workspaceId: string, role: MountRole, kind: "local" | "mirror"): string {
+  return `mount:${workspaceId}:${role}:${kind}`;
 }
 
 export default function SettingsStorage() {
@@ -35,22 +56,139 @@ export default function SettingsStorage() {
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
 
-  const mountForRole = (role: MountRole) => getMount(registry, role);
-
-  const handleTargetChange = (role: MountRole, target: MountTargetType) => {
+  const updateRegistryEntry = (role: MountRole, updater: (entry: MountRegistryEntry) => MountRegistryEntry) => {
     setRegistry((prev) => {
       if (!prev) return prev;
-      const updatedAtIso = new Date().toISOString();
-      const idx = prev.mounts.findIndex((entry) => entry.role === role);
-      const existingEntry = prev.mounts.find((entry) => entry.role === role);
-      const updatedEntry = { ...(existingEntry ?? { role, target }), role, target, updatedAtIso };
-      const mounts =
-        idx === -1
-          ? [...prev.mounts, updatedEntry]
-          : prev.mounts.map((entry, index) => (index === idx ? updatedEntry : entry));
-      return { ...prev, mounts, updatedAtIso };
+      const existing = prev.mounts.find((entry) => entry.role === role);
+      const base: MountRegistryEntry = existing ?? { role, target: defaultTargetForRole(role) };
+      const nextEntry = updater(base);
+      const mounts = existing
+        ? prev.mounts.map((entry) => (entry.role === role ? nextEntry : entry))
+        : [...prev.mounts, nextEntry];
+      return { ...prev, mounts, updatedAtIso: new Date().toISOString() };
     });
     setHasChanges(true);
+  };
+
+  const pickDirectory = async () => {
+    const picker = (window as PickerWindow).showDirectoryPicker;
+    if (!picker) {
+      setStatus("Local folder picker is not supported in this browser.");
+      return null;
+    }
+
+    try {
+      return await picker();
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return null;
+      setStatus(`Folder pick failed: ${toFriendly(err)}`);
+      return null;
+    }
+  };
+
+  const setLocalFolder = async (role: MountRole) => {
+    if (!registry) return;
+    const handle = await pickDirectory();
+    if (!handle) return;
+
+    const vaultKey = buildVaultKey(registry.workspaceId, role, "local");
+    try {
+      await setHandle(vaultKey, handle, handle.name);
+    } catch (err) {
+      setStatus(`Failed to store local handle: ${toFriendly(err)}`);
+      return;
+    }
+
+    updateRegistryEntry(role, (entry) => ({
+      ...entry,
+      target: "local",
+      local: { vaultKey, hint: handle.name },
+      mirror: undefined,
+    }));
+    setStatus(`Local folder set for ${role}.`);
+  };
+
+  const clearLocalFolder = async (role: MountRole, vaultKey?: string) => {
+    if (vaultKey) {
+      try {
+        await removeHandle(vaultKey);
+      } catch (err) {
+        setStatus(`Failed to clear local handle: ${toFriendly(err)}`);
+        return;
+      }
+    }
+
+    updateRegistryEntry(role, (entry) => ({
+      ...entry,
+      target: "local",
+      local: undefined,
+      mirror: undefined,
+    }));
+    setStatus(`Local folder cleared for ${role}.`);
+  };
+
+  const toggleMirror = (role: MountRole, enabled: boolean) => {
+    updateRegistryEntry(role, (entry) => {
+      const mirror = entry.mirror ?? { enabled: false, policy: DEFAULT_MIRROR_POLICY };
+      return {
+        ...entry,
+        target: "tongs_cloud",
+        mirror: {
+          enabled,
+          policy: mirror.policy ?? DEFAULT_MIRROR_POLICY,
+          vaultKey: mirror.vaultKey,
+          hint: mirror.hint,
+        },
+      };
+    });
+    setStatus(enabled ? `Mirror enabled for ${role}.` : `Mirror disabled for ${role}.`);
+  };
+
+  const setMirrorFolder = async (role: MountRole) => {
+    if (!registry) return;
+    const handle = await pickDirectory();
+    if (!handle) return;
+
+    const vaultKey = buildVaultKey(registry.workspaceId, role, "mirror");
+    try {
+      await setHandle(vaultKey, handle, handle.name);
+    } catch (err) {
+      setStatus(`Failed to store mirror handle: ${toFriendly(err)}`);
+      return;
+    }
+
+    updateRegistryEntry(role, (entry) => ({
+      ...entry,
+      target: "tongs_cloud",
+      mirror: {
+        enabled: true,
+        policy: entry.mirror?.policy ?? DEFAULT_MIRROR_POLICY,
+        vaultKey,
+        hint: handle.name,
+      },
+    }));
+    setStatus(`Mirror folder set for ${role}.`);
+  };
+
+  const clearMirrorFolder = async (role: MountRole, vaultKey?: string) => {
+    if (vaultKey) {
+      try {
+        await removeHandle(vaultKey);
+      } catch (err) {
+        setStatus(`Failed to clear mirror handle: ${toFriendly(err)}`);
+        return;
+      }
+    }
+
+    updateRegistryEntry(role, (entry) => ({
+      ...entry,
+      target: "tongs_cloud",
+      mirror: {
+        enabled: false,
+        policy: entry.mirror?.policy ?? DEFAULT_MIRROR_POLICY,
+      },
+    }));
+    setStatus(`Mirror folder cleared for ${role}.`);
   };
 
   const handleSave = async () => {
@@ -108,35 +246,79 @@ export default function SettingsStorage() {
         </thead>
         <tbody>
           {MOUNT_ROLE_POLICY.map((policy) => {
-            const entry = mountForRole(policy.role);
-            const eligibleTargets = policy.eligibleTargets as readonly MountTargetType[];
-            const isLocalOnly = eligibleTargets.length === 1 && eligibleTargets[0] === "local";
+            const entry = registry.mounts.find((item) => item.role === policy.role);
+            const resolved = resolveMount(registry, policy.role);
+            const isLocalOnly = isLocalOnlyRole(policy.role);
+            const isCloudCanonical = isCloudCanonicalRole(policy.role);
+            const mirrorEnabled = entry?.mirror?.enabled ?? false;
+            const mirrorHint = entry?.mirror?.hint;
+            const mirrorVaultKey = entry?.mirror?.vaultKey;
+            const localHint = entry?.local?.hint;
+            const localVaultKey = entry?.local?.vaultKey;
+
             return (
               <tr key={policy.role} style={{ borderTop: "1px solid #eee" }}>
                 <td style={{ padding: "12px 0" }}>
                   {policy.label}
                   {isLocalOnly && (
-                    <span style={{ marginLeft: 8, fontSize: 12, color: "#666" }}>Local-only (v1)</span>
+                    <span style={{ marginLeft: 8, fontSize: 12, color: "#666" }}>Local-only</span>
+                  )}
+                  {isCloudCanonical && (
+                    <span style={{ marginLeft: 8, fontSize: 12, color: "#666" }}>Cloud canonical</span>
                   )}
                 </td>
                 <td style={{ padding: "12px 0" }}>
-                  <select
-                    value={entry.target}
-                    onChange={(event) => handleTargetChange(policy.role, event.target.value as MountTargetType)}
-                    style={{ padding: "4px 8px" }}
-                  >
-                    {STORAGE_OPTIONS.filter(
-                      (option) => option.value !== "tongs_cloud" || eligibleTargets.includes(option.value),
-                    ).map((option) => {
-                      const eligible = eligibleTargets.includes(option.value);
-                      const disabled = !eligible;
-                      return (
-                        <option key={option.value} value={option.value} disabled={disabled}>
-                          {option.label}
-                        </option>
-                      );
-                    })}
-                  </select>
+                  <div style={{ fontWeight: 600 }}>
+                    {resolved.canonicalTarget.target === "tongs_cloud" ? "Cloud (canonical)" : "Local only"}
+                  </div>
+
+                  {isLocalOnly && (
+                    <div style={{ marginTop: 6, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <div style={{ fontSize: 12, color: "#666" }}>
+                        Folder: {localHint ?? "not set"}
+                      </div>
+                      <button onClick={() => setLocalFolder(policy.role)}>Choose folder</button>
+                      {localVaultKey && (
+                        <button onClick={() => clearLocalFolder(policy.role, localVaultKey)}>Clear</button>
+                      )}
+                    </div>
+                  )}
+
+                  {isCloudCanonical && (
+                    <div style={{ marginTop: 6 }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <input
+                          type="checkbox"
+                          checked={mirrorEnabled}
+                          onChange={(event) => toggleMirror(policy.role, event.target.checked)}
+                        />
+                        <span>Mirror to local</span>
+                      </label>
+                      {mirrorEnabled && (
+                        <div style={{ marginTop: 6, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                          <div style={{ fontSize: 12, color: "#666" }}>
+                            Mirror folder: {mirrorHint ?? "not set"}
+                          </div>
+                          <button onClick={() => setMirrorFolder(policy.role)}>Choose folder</button>
+                          {mirrorVaultKey && (
+                            <button onClick={() => clearMirrorFolder(policy.role, mirrorVaultKey)}>Clear</button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {!isLocalOnly && !isCloudCanonical && (
+                    <div style={{ marginTop: 6, display: "flex", gap: 8, alignItems: "center" }}>
+                      <select value={resolved.canonicalTarget.target}>
+                        {STORAGE_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </td>
               </tr>
             );
@@ -144,18 +326,13 @@ export default function SettingsStorage() {
         </tbody>
       </table>
 
-      <div style={{ marginTop: 12, fontSize: 12, color: "#666" }}>
-        Forge Cloud sync isn't enabled yet. Choosing it saves your preference for when it goes live.
-      </div>
-
-      <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+      <div style={{ marginTop: 18, display: "flex", gap: 10 }}>
         <button onClick={handleSave} disabled={!registry || isSaving || !hasChanges}>
-          {isSaving ? "Saving..." : "Save"}
+          {isSaving ? "Saving..." : "Save changes"}
         </button>
         <button onClick={handleReset} disabled={isSaving}>
-          Reset to defaults
+          Reset defaults
         </button>
-        {hasChanges && <span style={{ alignSelf: "center", color: "#0366d6" }}>Changes not saved yet</span>}
       </div>
     </div>
   );

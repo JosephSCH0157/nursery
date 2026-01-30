@@ -1,3 +1,5 @@
+import type { MirrorPolicy, MountRole } from "./storage/storage-contract";
+
 export type ForgeAppId =
   | "nursery"
   | "anvil"
@@ -9,17 +11,26 @@ export type ForgeAppId =
 
 export type MountTargetType = "local" | "tongs_cloud";
 
-export type MountRole =
-  | "scripts"
-  | "recordings"
-  | "exports"
-  | "assets"
-  | "projects";
+export type { MountRole, MirrorPolicy };
+
+export type MountMirrorConfig = {
+  enabled: boolean;
+  policy?: MirrorPolicy;
+  vaultKey?: string;
+  hint?: string;
+};
+
+export type MountLocalConfig = {
+  vaultKey?: string;
+  hint?: string;
+};
 
 export type MountRegistryEntry = {
   role: MountRole;
   target: MountTargetType;
-  // metadata is intentionally flexible early; we’ll harden later
+  local?: MountLocalConfig;
+  mirror?: MountMirrorConfig;
+  // metadata is intentionally flexible early; we'll harden later
   meta?: Record<string, unknown>;
   updatedAtIso?: string;
 };
@@ -27,5 +38,6 @@ export type MountRegistryEntry = {
 export type WorkspaceMountRegistry = {
   workspaceId: string;
   mounts: MountRegistryEntry[];
+  version?: number;
   updatedAtIso?: string;
 };

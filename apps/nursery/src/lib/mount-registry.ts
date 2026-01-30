@@ -1,7 +1,12 @@
-import { buildDefaultRegistry, normalizeRegistry, validateRegistry } from "@forge/tongs";
-import type { MountRegistryEntry, MountRole, MountTargetType, WorkspaceMountRegistry } from "@forge/tongs";
+import {
+  buildDefaultRegistry,
+  normalizeRegistry,
+  resolveMount as resolveMountFromRegistry,
+  validateRegistry,
+} from "@forge/tongs";
+import type { MountRegistryEntry, MountRole, MountTargetType, ResolvedMount, WorkspaceMountRegistry } from "@forge/tongs";
 
-const KEY = "forge_mount_registry_v1";
+const KEY = "forge_mount_registry_v2";
 
 export type LoadResult =
   | { ok: true; registry: WorkspaceMountRegistry; seeded: boolean; issues: null }
@@ -30,6 +35,7 @@ export function loadMountRegistry(workspaceId = "default"): LoadResult {
 
     // ensure workspaceId matches caller expectation
     const reg = normalized.workspaceId === workspaceId ? normalized : { ...normalized, workspaceId };
+    localStorage.setItem(KEY, JSON.stringify(reg));
     return { ok: true, registry: reg, seeded: false, issues: null };
   } catch (err) {
     const fallback = buildDefaultRegistry(workspaceId);
@@ -52,7 +58,7 @@ export function getMount(
 
 export function getMountTarget(role: MountRole): MountTargetType {
   const { registry } = loadMountRegistry("default");
-  return getMount(registry, role).target;
+  return resolveMount(registry, role).canonicalTarget.target;
 }
 
 export function getMountMeta(role: MountRole): Record<string, unknown> | undefined {
@@ -60,11 +66,19 @@ export function getMountMeta(role: MountRole): Record<string, unknown> | undefin
   return getMount(registry, role).meta;
 }
 
+export function resolveMount(
+  registry: WorkspaceMountRegistry | null | undefined,
+  role: MountRole,
+): ResolvedMount {
+  return resolveMountFromRegistry(registry, role);
+}
+
 export function saveMountRegistry(registry: WorkspaceMountRegistry): { ok: true } | { ok: false; error: unknown } {
   try {
-    const v = validateRegistry(registry);
+    const normalized = normalizeRegistry(registry, registry.workspaceId);
+    const v = validateRegistry(normalized);
     if (!v.ok) return { ok: false, error: v.issues };
-    localStorage.setItem(KEY, JSON.stringify(registry));
+    localStorage.setItem(KEY, JSON.stringify(normalized));
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err };

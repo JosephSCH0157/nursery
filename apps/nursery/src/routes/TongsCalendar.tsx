@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MOUNT_ROLE_POLICY } from "@forge/tongs";
-import type { MountRole } from "@forge/tongs";
+import type { ResolvedMount } from "@forge/tongs";
 import { useMountRegistry } from "../hooks/useMountRegistry";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -159,9 +159,10 @@ function formatTargetShort(target: string): string {
   return target === "tongs_cloud" ? "Cloud" : "Local";
 }
 
-function formatRoleSummary(role: MountRole, target: string): string {
+function formatRoleSummary(resolved: ResolvedMount): string {
+  const role = resolved.role;
   const label = MOUNT_ROLE_POLICY.find((policy) => policy.role === role)?.label ?? role;
-  return `${label}=${formatTargetShort(target)}`;
+  return `${label}=${formatTargetShort(resolved.canonicalTarget.target)}`;
 }
 
 function startOfDay(date: Date): Date {
@@ -424,7 +425,7 @@ function loadEvents(): CalendarEvent[] {
 }
 
 export default function TongsCalendar() {
-  const { getTarget } = useMountRegistry("default");
+  const { resolveMount } = useMountRegistry("default");
 
   const todayIso = useMemo(() => toDateKey(new Date()), []);
   const [view, setView] = useLocalStorageState<CalendarView>(VIEW_KEY, "week");
@@ -672,8 +673,8 @@ export default function TongsCalendar() {
   }, [visibleEvents]);
 
   const storageSummary = useMemo(() => {
-    return MOUNT_ROLE_POLICY.map((policy) => formatRoleSummary(policy.role, getTarget(policy.role))).join(", ");
-  }, [getTarget]);
+    return MOUNT_ROLE_POLICY.map((policy) => formatRoleSummary(resolveMount(policy.role))).join(", ");
+  }, [resolveMount]);
 
   const dayEvents = eventsByDay.get(toDateKey(cursorDate)) ?? [];
 

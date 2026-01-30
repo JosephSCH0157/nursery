@@ -1,14 +1,13 @@
 import { useCallback, useMemo, useReducer } from "react";
-import type { MountRole, MountTargetType, WorkspaceMountRegistry } from "@forge/tongs";
-import { loadMountRegistry } from "../lib/mount-registry";
+import type { MountRole, ResolvedMount, WorkspaceMountRegistry } from "@forge/tongs";
+import { loadMountRegistry, resolveMount as resolveMountFromRegistry } from "../lib/mount-registry";
 
 type UseMountRegistryResult = {
   registry: WorkspaceMountRegistry | null;
   seeded: boolean;
   issues: unknown | null;
   reload: () => void;
-  getTarget: (role: MountRole) => MountTargetType;
-  getMeta: (role: MountRole) => Record<string, unknown> | undefined;
+  resolveMount: (role: MountRole) => ResolvedMount;
 };
 
 export function useMountRegistry(workspaceId = "default"): UseMountRegistryResult {
@@ -28,21 +27,8 @@ export function useMountRegistry(workspaceId = "default"): UseMountRegistryResul
     bumpReload();
   }, []);
 
-  const getTarget = useCallback(
-    (role: MountRole): MountTargetType => {
-      const mounts = snapshot.registry?.mounts ?? [];
-      const found = mounts.find((m) => m.role === role);
-      return (found?.target as MountTargetType) ?? "local";
-    },
-    [snapshot.registry],
-  );
-
-  const getMeta = useCallback(
-    (role: MountRole): Record<string, unknown> | undefined => {
-      const mounts = snapshot.registry?.mounts ?? [];
-      const found = mounts.find((m) => m.role === role);
-      return found?.meta as Record<string, unknown> | undefined;
-    },
+  const resolveMount = useCallback(
+    (role: MountRole): ResolvedMount => resolveMountFromRegistry(snapshot.registry, role),
     [snapshot.registry],
   );
 
@@ -52,9 +38,8 @@ export function useMountRegistry(workspaceId = "default"): UseMountRegistryResul
       seeded: snapshot.seeded,
       issues: snapshot.issues,
       reload,
-      getTarget,
-      getMeta,
+      resolveMount,
     }),
-    [snapshot, reload, getTarget, getMeta],
+    [snapshot, reload, resolveMount],
   );
 }
