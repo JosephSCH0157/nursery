@@ -8,6 +8,46 @@ type FlushResult = {
   errors: string[];
 };
 
+const SPARK_ID_MAP_KEY = "forge_barstock_spark_idmap_v1";
+
+function isUuid(v: unknown): v is string {
+  return typeof v === "string"
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+}
+
+function loadSparkIdMap(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(SPARK_ID_MAP_KEY);
+    if (!raw) return {};
+    const obj = JSON.parse(raw);
+    return obj && typeof obj === "object" ? obj : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveSparkIdMap(map: Record<string, string>) {
+  try {
+    localStorage.setItem(SPARK_ID_MAP_KEY, JSON.stringify(map));
+  } catch {
+    // ignore
+  }
+}
+
+/** Returns a stable UUID for a possibly-non-UUID legacy id. */
+function normalizeSparkId(id: string): string {
+  if (isUuid(id)) return id;
+
+  const map = loadSparkIdMap();
+  const existing = map[id];
+  if (existing && isUuid(existing)) return existing;
+
+  const next = crypto.randomUUID();
+  map[id] = next;
+  saveSparkIdMap(map);
+  return next;
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -85,19 +125,28 @@ export async function flushOutboxToTongs(args: {
   }
 
   if (sparksToUpsert.length) {
-    const rows = sparksToUpsert.map((sp) => ({
-      id: sp.id,
-      workspace_id: workspaceId,
-      created_by: userId,
-      session_id: sp.sessionId ?? null,
-      title: sp.title ?? null,
-      body: sp.body,
-      tags: Array.isArray(sp.tags) ? sp.tags : [],
-      status: sp.status,
-      source: sp.source,
-      pinned: !!sp.pinned,
-      deleted_at: null
-    }));
+    const rows = sparksToUpsert.map((sp) => {
+      const normalizedId = normalizeSparkId(sp.id);
+
+      return {
+        id: normalizedId,
+        workspace_id: workspaceId,
+        created_by: userId,
+        session_id: sp.sessionId ?? null,
+        title: sp.title ?? null,
+        body: sp.body,
+        tags: Array.isArray(sp.tags) ? sp.tags : [],
+        status: sp.status,
+        source: sp.source,
+        pinned: !!sp.pinned,
+        deleted_at: null
+      };
+    });
+
+    const bad = rows.filter(r => !isUuid(r.id));
+    if (bad.length) {
+      console.warn("[tongs-sync] non-uuid spark ids still present", bad.slice(0, 5));
+    }
 
     const { error } = await supabase
       .schema("tongs")
