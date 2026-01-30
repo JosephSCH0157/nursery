@@ -73,7 +73,7 @@ export async function flushOutboxToTongs(args: {
 
     const { error } = await supabase
       .schema("tongs")
-      .from("barstock_sessions")
+      .from("tongs.barstock_sessions")
       .upsert(rows, { onConflict: "id" });
 
     if (error) {
@@ -101,7 +101,7 @@ export async function flushOutboxToTongs(args: {
 
     const { error } = await supabase
       .schema("tongs")
-      .from("barstock_sparks")
+      .from("tongs.barstock_sparks")
       .upsert(rows, { onConflict: "id" });
 
     if (error) {
@@ -115,7 +115,7 @@ export async function flushOutboxToTongs(args: {
   if (deleteSessionIds.length) {
     const { error } = await supabase
       .schema("tongs")
-      .from("barstock_sessions")
+      .from("tongs.barstock_sessions")
       .update({ deleted_at: nowIso() })
       .eq("workspace_id", workspaceId)
       .in("id", [...new Set(deleteSessionIds)]);
@@ -131,7 +131,7 @@ export async function flushOutboxToTongs(args: {
   if (deleteSparkIds.length) {
     const { error } = await supabase
       .schema("tongs")
-      .from("barstock_sparks")
+      .from("tongs.barstock_sparks")
       .update({ deleted_at: nowIso() })
       .eq("workspace_id", workspaceId)
       .in("id", [...new Set(deleteSparkIds)]);
@@ -151,7 +151,7 @@ export async function checkTongsOnline(workspaceId: string): Promise<boolean> {
   if (!supabase) return false;
   const { data, error } = await supabase
     .schema("tongs")
-    .from("mount_registry")
+    .from("tongs.mount_registry")
     .select("id")
     .eq("workspace_id", workspaceId)
     .eq("role", "barstock")
