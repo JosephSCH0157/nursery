@@ -17,6 +17,14 @@ Nursery is the **front door** and **single login** for the Podcaster's Forge eco
 2. Run `pnpm install` from the repo root to install dependencies for every workspace member.
 3. Run `pnpm dev` to launch `apps/nursery` locally.
 
+## Before pushing
+
+Run:
+
+```
+pnpm check
+```
+
 ## Routes
 
 ### Public
