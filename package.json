@@ -4,8 +4,11 @@
   "packageManager": "pnpm@9",
   "scripts": {
     "dev": "pnpm --filter nursery dev",
-    "build": "pnpm --filter nursery build",
-    "check": "pnpm -r typecheck && pnpm -r lint && pnpm build"
+    "build": "pnpm -r build",
+    "lint": "pnpm --filter nursery lint && pnpm --filter @forge/tongs lint",
+    "types": "pnpm --filter nursery typecheck && pnpm --filter @forge/tongs typecheck",
+    "check": "pnpm lint && pnpm types && pnpm build",
+    "smoke": "node scripts/smoke.mjs"
   },
   "devDependencies": {
     "typescript": "^5.9.3"
