@@ -139,6 +139,10 @@ type ScriptSnapshot = ScriptSummary & {
 };
 
 type ScriptsSnapshotV1 = {
+  /**
+   * Stable mirror output for Scripts. Used by Storage UI and future imports/diffs.
+   * Shape is stable; adapter may change. Bump schemaVersion on breaking changes.
+   */
   schemaVersion: 1;
   mirroredAt: string;
   workspaceId: string;
