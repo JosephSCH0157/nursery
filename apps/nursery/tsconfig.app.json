@@ -7,7 +7,8 @@
     "module": "ESNext",
     "baseUrl": ".",
     "paths": {
-      "@barstock/*": ["../bar-stock/src/*"]
+      "@barstock/*": ["../bar-stock/src/*"],
+      "@hearth/*": ["../hearth/src/*"]
     },
     "types": ["vite/client"],
     "skipLibCheck": true,

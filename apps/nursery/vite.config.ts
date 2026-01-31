@@ -8,6 +8,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@barstock': resolve(__dirname, '../bar-stock/src'),
+      '@hearth': resolve(__dirname, '../hearth/src'),
     },
   },
   server: {
