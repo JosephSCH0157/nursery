@@ -60,7 +60,6 @@ export function makeSpark(body: string, partial?: Partial<Spark>): Spark {
   const t = now();
   const id = isUuid(partial?.id) ? partial.id : crypto.randomUUID();
   return {
-    id,
     createdAt: t,
     updatedAt: t,
     body: body.trim(),

@@ -18,9 +18,13 @@ function toSafeTimestamp(ts: Date): string {
 
 async function ensurePermission(handle: FileSystemDirectoryHandle): Promise<boolean> {
   const opts = { mode: "readwrite" } as const;
-  if (handle.queryPermission && (await handle.queryPermission(opts)) === "granted") return true;
-  if (handle.requestPermission && (await handle.requestPermission(opts)) === "granted") return true;
-  return false;
+  const anyHandle = handle as FileSystemDirectoryHandle & {
+    queryPermission?: (options: { mode: "readwrite" | "read" }) => Promise<PermissionState>;
+    requestPermission?: (options: { mode: "readwrite" | "read" }) => Promise<PermissionState>;
+  };
+  if (anyHandle.queryPermission && (await anyHandle.queryPermission(opts)) === "granted") return true;
+  if (anyHandle.requestPermission && (await anyHandle.requestPermission(opts)) === "granted") return true;
+  return true;
 }
 
 async function writeJson(
