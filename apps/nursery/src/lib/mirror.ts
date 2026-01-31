@@ -12,6 +12,65 @@ type MirrorResult =
   | { ok: true; files: { latest: string; snapshot: string } }
   | { ok: false; error: string };
 
+export type MirrorLastStatus = {
+  at: string;
+  workspaceId: string;
+  role: MountRole;
+  reason: MirrorReason;
+  ok: boolean;
+  error?: string;
+  vaultKey?: string;
+  files?: { latest: string; snapshot: string };
+};
+
+const LAST_MIRROR_KEY = "forge_mirror_last_v1";
+const AUTO_MIRROR_KEY = "forge_mirror_auto_v1";
+
+function buildLastMirrorKey(workspaceId: string, role: MountRole, vaultKey?: string): string {
+  return `${LAST_MIRROR_KEY}:${workspaceId}:${role}:${vaultKey ?? "none"}`;
+}
+
+export function loadLastMirrorStatus(
+  workspaceId: string,
+  role: MountRole,
+  vaultKey?: string,
+): MirrorLastStatus | null {
+  try {
+    const raw = localStorage.getItem(buildLastMirrorKey(workspaceId, role, vaultKey));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as MirrorLastStatus;
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function saveLastMirrorStatus(status: MirrorLastStatus) {
+  try {
+    const key = buildLastMirrorKey(status.workspaceId, status.role, status.vaultKey);
+    localStorage.setItem(key, JSON.stringify(status));
+  } catch {
+    // ignore
+  }
+}
+
+export function isAutoMirrorEnabled(workspaceId: string, role: MountRole): boolean {
+  try {
+    return localStorage.getItem(`${AUTO_MIRROR_KEY}:${workspaceId}:${role}`) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function setAutoMirrorEnabled(workspaceId: string, role: MountRole, enabled: boolean) {
+  try {
+    localStorage.setItem(`${AUTO_MIRROR_KEY}:${workspaceId}:${role}`, enabled ? "true" : "false");
+  } catch {
+    // ignore
+  }
+}
+
 function toSafeTimestamp(ts: Date): string {
   return ts.toISOString().replace(/[:.]/g, "-");
 }
@@ -66,33 +125,57 @@ export async function mirrorRoleSnapshot(
   const { registry } = loadMountRegistry("default");
   const resolved = resolveMount(registry, role);
   const mirrorTarget = resolved.mirrorTarget;
+  const baseStatus = {
+    at: new Date().toISOString(),
+    workspaceId,
+    role,
+    reason,
+    vaultKey: mirrorTarget?.vaultKey,
+  };
+
   if (!mirrorTarget?.vaultKey) {
-    return { ok: false, error: "Mirror folder not configured for this role." };
+    const error = "Mirror folder not configured for this role.";
+    saveLastMirrorStatus({ ...baseStatus, ok: false, error });
+    return { ok: false, error };
   }
 
   const handle = await getHandle(mirrorTarget.vaultKey);
   if (!handle) {
-    return { ok: false, error: "Mirror folder handle not found. Choose a folder again." };
+    const error = "Mirror folder handle not found. Choose a folder again.";
+    saveLastMirrorStatus({ ...baseStatus, ok: false, error });
+    return { ok: false, error };
   }
 
   const allowed = await ensurePermission(handle);
   if (!allowed) {
-    return { ok: false, error: "Mirror folder permission was not granted." };
+    const error = "Mirror folder permission was not granted.";
+    saveLastMirrorStatus({ ...baseStatus, ok: false, error });
+    return { ok: false, error };
   }
 
   let payload: unknown;
   if (role === "barstock") {
     payload = buildBarstockSnapshot(workspaceId, reason, meta);
   } else {
-    return { ok: false, error: `Mirroring not implemented for role: ${role}.` };
+    const error = `Mirroring not implemented for role: ${role}.`;
+    saveLastMirrorStatus({ ...baseStatus, ok: false, error });
+    return { ok: false, error };
   }
 
   const timestamp = toSafeTimestamp(new Date());
   const snapshotsDir = await handle.getDirectoryHandle("snapshots", { create: true });
   const snapshotName = `${role}-${timestamp}.json`;
 
-  await writeJson(snapshotsDir, snapshotName, payload);
-  await writeJson(handle, "latest.json", payload);
+  try {
+    await writeJson(snapshotsDir, snapshotName, payload);
+    await writeJson(handle, "latest.json", payload);
+  } catch (err) {
+    const error = err instanceof Error ? err.message : "Mirror write failed.";
+    saveLastMirrorStatus({ ...baseStatus, ok: false, error });
+    return { ok: false, error };
+  }
 
-  return { ok: true, files: { latest: "latest.json", snapshot: `snapshots/${snapshotName}` } };
+  const files = { latest: "latest.json", snapshot: `snapshots/${snapshotName}` };
+  saveLastMirrorStatus({ ...baseStatus, ok: true, files });
+  return { ok: true, files };
 }

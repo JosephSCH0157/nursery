@@ -47,6 +47,7 @@ type WorkspaceState = {
 type BarstockAppProps = {
   workspaceState?: WorkspaceState;
   showWorkspacePicker?: boolean;
+  onSessionEnd?: (sessionId: SessionId) => void;
 };
 
 export default function App(props: BarstockAppProps = {}) {
@@ -243,6 +244,21 @@ export default function App(props: BarstockAppProps = {}) {
     setQ(prev => ({ ...prev, tag: normalizeTag(tag) }));
   }
 
+  const setActiveSessionWithEnd = useCallback((next: SessionFilter, opts?: { skipEnd?: boolean }) => {
+    setActiveSession((prev) => {
+      if (!opts?.skipEnd && prev !== next && prev !== "all" && prev !== "unassigned") {
+        props.onSessionEnd?.(prev);
+      }
+      return next;
+    });
+  }, [props.onSessionEnd]);
+
+  function endCurrentSession() {
+    if (activeSession === "all" || activeSession === "unassigned") return;
+    props.onSessionEnd?.(activeSession);
+    setActiveSessionWithEnd("all", { skipEnd: true });
+  }
+
   function addSession() {
     const name = newSessionName.trim();
     if (!name) return;
@@ -250,7 +266,7 @@ export default function App(props: BarstockAppProps = {}) {
     setSessions(prev => upsertSession(prev, s));
     enqueue({ op: "upsert_session", at: now(), session: s });
     setNewSessionName("");
-    setActiveSession(s.id);
+    setActiveSessionWithEnd(s.id);
     popToast("Session created.");
   }
 
@@ -403,12 +419,12 @@ export default function App(props: BarstockAppProps = {}) {
             <SidebarItem
               label="All"
               active={activeSession === "all"}
-              onClick={() => setActiveSession("all")}
+              onClick={() => setActiveSessionWithEnd("all")}
             />
             <SidebarItem
               label="Unassigned"
               active={activeSession === "unassigned"}
-              onClick={() => setActiveSession("unassigned")}
+              onClick={() => setActiveSessionWithEnd("unassigned")}
             />
 
             <div style={{ marginTop: 10, opacity: 0.7, fontSize: 12 }}>
@@ -425,11 +441,19 @@ export default function App(props: BarstockAppProps = {}) {
                   key={s.id}
                   label={s.name}
                   active={activeSession === s.id}
-                  onClick={() => setActiveSession(s.id)}
+                  onClick={() => setActiveSessionWithEnd(s.id)}
                 />
               ))
             )}
           </div>
+
+          {activeSession !== "all" && activeSession !== "unassigned" && (
+            <div style={{ marginTop: 10 }}>
+              <button onClick={endCurrentSession} style={{ cursor: "pointer" }}>
+                End session
+              </button>
+            </div>
+          )}
 
           <div style={{ marginTop: 14, display: "flex", gap: 8 }}>
             <input

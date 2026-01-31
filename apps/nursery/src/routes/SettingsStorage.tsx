@@ -16,7 +16,7 @@ import {
 } from "@forge/tongs";
 import { clearMountRegistry, loadMountRegistry, saveMountRegistry } from "../lib/mount-registry";
 import { removeHandle, setHandle } from "../lib/handle-vault";
-import { mirrorRoleSnapshot } from "../lib/mirror";
+import { isAutoMirrorEnabled, loadLastMirrorStatus, mirrorRoleSnapshot, setAutoMirrorEnabled } from "../lib/mirror";
 import type { AppShellContext } from "./AppShell";
 
 const STORAGE_OPTIONS: { label: string; value: MountTargetType }[] = [
@@ -36,6 +36,13 @@ function toFriendly(value: unknown) {
   } catch {
     return String(value);
   }
+}
+
+function formatMirrorTime(iso?: string): string {
+  if (!iso) return "Never";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "Unknown";
+  return d.toLocaleString();
 }
 
 function defaultTargetForRole(role: MountRole): MountTargetType {
@@ -254,6 +261,15 @@ export default function SettingsStorage() {
     }
   };
 
+  const handleAutoMirrorToggle = (role: MountRole, enabled: boolean) => {
+    if (!activeWorkspaceId) {
+      setStatus("Pick a workspace first.");
+      return;
+    }
+    setAutoMirrorEnabled(activeWorkspaceId, role, enabled);
+    setStatus(enabled ? `Auto mirror enabled for ${role}.` : `Auto mirror disabled for ${role}.`);
+  };
+
   if (!registry) {
     return <p>Loading storage registry...</p>;
   }
@@ -297,6 +313,12 @@ export default function SettingsStorage() {
             const mirrorVaultKey = entry?.mirror?.vaultKey;
             const localHint = entry?.local?.hint;
             const localVaultKey = entry?.local?.vaultKey;
+            const lastMirror = activeWorkspaceId
+              ? loadLastMirrorStatus(activeWorkspaceId, policy.role, mirrorVaultKey)
+              : null;
+            const autoMirrorEnabled = activeWorkspaceId
+              ? isAutoMirrorEnabled(activeWorkspaceId, policy.role)
+              : false;
 
             return (
               <tr key={policy.role} style={{ borderTop: "1px solid #eee" }}>
@@ -353,6 +375,24 @@ export default function SettingsStorage() {
                               {mirroringRole === policy.role ? "Mirroring..." : "Mirror now"}
                             </button>
                           )}
+                        </div>
+                      )}
+                      {mirrorEnabled && policy.role === "barstock" && (
+                        <div style={{ marginTop: 8, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+                          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <input
+                              type="checkbox"
+                              checked={autoMirrorEnabled}
+                              onChange={(event) => handleAutoMirrorToggle(policy.role, event.target.checked)}
+                            />
+                            <span>Auto mirror at session end</span>
+                          </label>
+                          <div style={{ fontSize: 12, color: "#555" }}>
+                            Last mirrored: {formatMirrorTime(lastMirror?.at)}{" "}
+                            {lastMirror
+                              ? `(${lastMirror.reason}, ${lastMirror.ok ? "ok" : "failed"})`
+                              : ""}
+                          </div>
                         </div>
                       )}
                     </div>
