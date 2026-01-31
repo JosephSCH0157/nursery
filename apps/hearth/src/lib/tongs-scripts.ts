@@ -15,6 +15,17 @@ export async function upsertScriptDraftV1(
     p_revision: draft.revision ?? 0,
   };
 
+  if (import.meta.env.DEV) {
+    console.info("[hearth] upsert_script_draft_v1 payload", {
+      scriptId: payload.p_script_id,
+      revision: payload.p_revision,
+      baseState: payload.p_base_state,
+      relevance: payload.p_relevance,
+      bodyLength: payload.p_body_anvil.length,
+      originSparkId: payload.p_origin_spark_id ?? null,
+    });
+  }
+
   const { data, error } = await supabase.rpc("upsert_script_draft_v1", payload);
   if (error) throw error;
 
