@@ -1,11 +1,12 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@forge/tongs";
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
 const GLOBAL_KEY = "__forge_supabase_client__";
 const globalStore = globalThis as typeof globalThis & {
-  [GLOBAL_KEY]?: SupabaseClient;
+  [GLOBAL_KEY]?: SupabaseClient<Database>;
 };
 
 if (!url || !anon) {
@@ -14,9 +15,9 @@ if (!url || !anon) {
 
 const existing = globalStore[GLOBAL_KEY];
 
-export const supabase =
+export const supabase: SupabaseClient<Database> =
   existing ??
-  createClient(url, anon, {
+  createClient<Database>(url, anon, {
     db: { schema: "tongs" },
     auth: {
       persistSession: true,
@@ -25,4 +26,4 @@ export const supabase =
     },
   });
 
-globalStore[GLOBAL_KEY] = supabase as SupabaseClient;
+globalStore[GLOBAL_KEY] = supabase as SupabaseClient<Database>;

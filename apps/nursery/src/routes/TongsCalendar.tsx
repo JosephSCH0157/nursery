@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MOUNT_ROLE_POLICY } from "@forge/tongs";
 import type { ResolvedMount } from "@forge/tongs";
+import type { CalendarEventRow } from "@forge/tongs";
+import { listCalendarEvents, createCalendarEvent, deleteCalendarEvent } from "@forge/tongs";
 import { useMountRegistry } from "../hooks/useMountRegistry";
+import { supabase } from "../lib/supabase";
+import { useOutletContext } from "react-router-dom";
+import type { AppShellContext } from "./AppShell";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTH_NAMES = [
@@ -19,8 +24,6 @@ const MONTH_NAMES = [
   "Dec",
 ];
 
-const SESSIONS_KEY = "forge_tongs_sessions_v1";
-const EVENTS_KEY = "forge_tongs_events_v1";
 const VIEW_KEY = "forge_tongs_calendar_view_v1";
 const CURSOR_KEY = "forge_tongs_calendar_cursor_v1";
 
@@ -68,22 +71,6 @@ type CalendarEvent = {
   meta?: CalendarEventMeta;
 };
 
-type LegacyRecordingSession = {
-  id: string;
-  date: string;
-  time: string;
-  title: string;
-  notes?: string;
-  duration?: string;
-};
-
-type LegacyTongsSession = {
-  id: string;
-  title: string;
-  startIso: string;
-  minutes: number;
-  notes?: string;
-};
 
 const VIEW_OPTIONS: { value: CalendarView; label: string }[] = [
   { value: "day", label: "Day" },
@@ -121,15 +108,6 @@ const STATUS_COLORS: Record<CalendarEventStatus, string> = {
   done: "#4ade80",
 };
 
-function safeParseJson<T>(raw: string | null, fallback: T): T {
-  if (!raw) return fallback;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
-}
-
 function useLocalStorageState<T>(key: string, initialValue: T) {
   const [value, setValue] = useState<T>(() => {
     try {
@@ -151,9 +129,6 @@ function useLocalStorageState<T>(key: string, initialValue: T) {
   return [value, setValue] as const;
 }
 
-function uid(): string {
-  return Math.random().toString(36).slice(2, 10) + "-" + Date.now().toString(36);
-}
 
 function formatTargetShort(target: string): string {
   return target === "tongs_cloud" ? "Cloud" : "Local";
@@ -283,43 +258,6 @@ function buildMonthDays(cursorDate: Date) {
   return days;
 }
 
-function parseDurationToMin(value?: string): number | undefined {
-  if (!value) return undefined;
-  const match = value.match(/(\d+)/);
-  if (!match) return undefined;
-  const minutes = Number(match[1]);
-  return Number.isNaN(minutes) ? undefined : minutes;
-}
-
-function parseTimeString(time: string): { hours: number; minutes: number } | null {
-  const ampm = time.match(/(\d+):(\d+)\s*(AM|PM)/i);
-  if (ampm) {
-    const hoursRaw = Number(ampm[1]);
-    const minutes = Number(ampm[2]);
-    const period = ampm[3].toUpperCase();
-    if (Number.isNaN(hoursRaw) || Number.isNaN(minutes)) return null;
-    const hours = hoursRaw % 12 + (period === "PM" ? 12 : 0);
-    return { hours, minutes };
-  }
-
-  const twentyFour = time.match(/(\d+):(\d+)/);
-  if (twentyFour) {
-    const hours = Number(twentyFour[1]);
-    const minutes = Number(twentyFour[2]);
-    if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
-    return { hours, minutes };
-  }
-
-  return null;
-}
-
-function dateTimeFromDateAndTime(dateKey: string, time: string): Date | null {
-  const date = parseDateKey(dateKey);
-  if (!date) return null;
-  const parsed = parseTimeString(time);
-  if (!parsed) return null;
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), parsed.hours, parsed.minutes, 0, 0);
-}
 
 function dateKeyFromIso(iso: string): string | null {
   const date = new Date(iso);
@@ -357,74 +295,40 @@ function isValidKind(kind: unknown): kind is CalendarEventKind {
   return KIND_OPTIONS.some((option) => option.value === kind);
 }
 
-function isCalendarEvent(value: unknown): value is CalendarEvent {
-  if (!value || typeof value !== "object") return false;
-  const event = value as CalendarEvent;
-  return (
-    typeof event.id === "string" &&
-    typeof event.kind === "string" &&
-    isValidKind(event.kind) &&
-    typeof event.title === "string" &&
-    typeof event.startIso === "string"
-  );
+function isValidStatus(status: unknown): status is CalendarEventStatus {
+  return STATUS_OPTIONS.some((option) => option.value === status);
 }
 
-function legacyToEvent(session: LegacyRecordingSession | LegacyTongsSession): CalendarEvent | null {
-  const nowIso = new Date().toISOString();
+function rowToEvent(row: CalendarEventRow): CalendarEvent {
+  const startIso = row.start_at ?? new Date().toISOString();
+  const endIso = row.end_at ?? null;
+  const start = new Date(startIso);
+  const end = endIso ? new Date(endIso) : null;
+  const durationMin = end && !Number.isNaN(end.getTime())
+    ? Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000))
+    : undefined;
 
-  if ((session as LegacyTongsSession).startIso) {
-    const legacy = session as LegacyTongsSession;
-    return normalizeEvent({
-      id: legacy.id,
-      kind: "recording",
-      title: legacy.title || "Recording session",
-      startIso: legacy.startIso,
-      durationMin: legacy.minutes,
-      notes: legacy.notes,
-      status: "planned",
-      createdAtIso: nowIso,
-      updatedAtIso: nowIso,
-    });
-  }
-
-  const legacy = session as LegacyRecordingSession;
-  const start = dateTimeFromDateAndTime(legacy.date, legacy.time);
-  if (!start) return null;
+  const kind = isValidKind(row.kind) ? row.kind : "recording";
+  const status = isValidStatus(row.status) ? row.status : "planned";
 
   return normalizeEvent({
-    id: legacy.id,
-    kind: "recording",
-    title: legacy.title || "Recording session",
-    startIso: start.toISOString(),
-    durationMin: parseDurationToMin(legacy.duration),
-    notes: legacy.notes,
-    status: "planned",
-    createdAtIso: nowIso,
-    updatedAtIso: nowIso,
+    id: row.id,
+    kind,
+    title: row.title ?? "Recording session",
+    startIso,
+    durationMin,
+    notes: row.notes ?? undefined,
+    status,
+    createdAtIso: row.created_at ?? startIso,
+    updatedAtIso: row.updated_at ?? startIso,
+    meta: (row.meta as CalendarEventMeta) ?? undefined,
   });
 }
 
-function loadEvents(): CalendarEvent[] {
-  const raw = localStorage.getItem(EVENTS_KEY);
-  if (raw) {
-    const parsed = safeParseJson<CalendarEvent[]>(raw, []);
-    return Array.isArray(parsed)
-      ? parsed.filter(isCalendarEvent).map((event) => normalizeEvent(event))
-      : [];
-  }
-
-  const legacyRaw = localStorage.getItem(SESSIONS_KEY);
-  if (!legacyRaw) return [];
-
-  const parsedLegacy = safeParseJson<LegacyRecordingSession[] | LegacyTongsSession[]>(legacyRaw, []);
-  if (!Array.isArray(parsedLegacy)) return [];
-
-  return parsedLegacy
-    .map((session) => legacyToEvent(session as LegacyRecordingSession | LegacyTongsSession))
-    .filter((event): event is CalendarEvent => !!event);
-}
-
 export default function TongsCalendar() {
+  const shell = useOutletContext<AppShellContext>();
+  const workspaceId = shell?.workspaceId ?? null;
+  const session = shell?.session ?? null;
   const { resolveMount } = useMountRegistry("default");
 
   const todayIso = useMemo(() => toDateKey(new Date()), []);
@@ -436,13 +340,9 @@ export default function TongsCalendar() {
   const weekDays = useMemo(() => buildWeekDays(weekStart), [weekStart]);
   const monthDays = useMemo(() => buildMonthDays(cursorDate), [cursorDate]);
 
-  const [events, setEvents] = useState<CalendarEvent[]>(() => {
-    try {
-      return loadEvents();
-    } catch {
-      return [];
-    }
-  });
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
 
   const [kind, setKind] = useState<CalendarEventKind>("recording");
@@ -486,12 +386,37 @@ export default function TongsCalendar() {
   }));
 
   useEffect(() => {
-    try {
-      localStorage.setItem(EVENTS_KEY, JSON.stringify(events));
-    } catch {
-      // ignore storage failures
+    if (!workspaceId || !session) {
+      setEvents([]);
+      return;
     }
-  }, [events]);
+
+    let alive = true;
+    setLoading(true);
+    setLoadError(null);
+
+    const range = getViewRange(view, cursorDate);
+    void (async () => {
+      try {
+        const rows = await listCalendarEvents(supabase, workspaceId, {
+          startAt: range.start.toISOString(),
+          endAt: range.end.toISOString(),
+        });
+        if (!alive) return;
+        setEvents(rows.map(rowToEvent));
+      } catch (err: any) {
+        if (!alive) return;
+        console.warn("[tongs] calendar list failed", err);
+        setLoadError(err?.message ?? "Failed loading calendar events.");
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [workspaceId, session, view, cursorDate]);
 
   const openNewForm = useCallback(() => {
     setDateOverride(null);
@@ -534,11 +459,14 @@ export default function TongsCalendar() {
     resetKindFields(next);
   }
 
-  function addEvent() {
+  async function addEvent() {
+    if (!workspaceId || !session) return;
     const start = new Date(`${date}T${time}:00`);
     if (Number.isNaN(start.getTime())) return;
 
     const nowIso = new Date().toISOString();
+    const minutes = Math.max(15, Math.min(8 * 60, Number(durationMin) || 60));
+    const endAt = new Date(start.getTime() + minutes * 60 * 1000);
 
     const meta: CalendarEventMeta = {};
     if (kind === "scripting") {
@@ -581,25 +509,36 @@ export default function TongsCalendar() {
       };
     }
 
-    const event: CalendarEvent = normalizeEvent({
-      id: uid(),
-      kind,
-      title: title.trim() || KIND_STYLES[kind].label,
-      startIso: start.toISOString(),
-      durationMin: Math.max(15, Math.min(8 * 60, Number(durationMin) || 60)),
-      notes: notes.trim() || undefined,
-      status,
-      createdAtIso: nowIso,
-      updatedAtIso: nowIso,
-      meta: Object.keys(meta).length ? meta : undefined,
-    });
+    try {
+      const row = await createCalendarEvent(supabase, workspaceId, {
+        kind,
+        title: title.trim() || KIND_STYLES[kind].label,
+        start_at: start.toISOString(),
+        end_at: endAt.toISOString(),
+        all_day: false,
+        notes: notes.trim() || undefined,
+        status,
+        meta: Object.keys(meta).length ? meta : undefined,
+      });
 
-    setEvents((prev) => [event, ...prev].sort((a, b) => b.startIso.localeCompare(a.startIso)));
-    closeNewForm();
+      const event = rowToEvent(row);
+      setEvents((prev) => [event, ...prev].sort((a, b) => b.startIso.localeCompare(a.startIso)));
+      closeNewForm();
+    } catch (err: any) {
+      console.warn("[tongs] calendar create failed", err);
+      setLoadError(err?.message ?? "Failed creating calendar event.");
+    }
   }
 
-  function deleteEvent(id: string) {
-    setEvents((prev) => prev.filter((event) => event.id !== id));
+  async function deleteEvent(id: string) {
+    if (!workspaceId || !session) return;
+    try {
+      await deleteCalendarEvent(supabase, id);
+      setEvents((prev) => prev.filter((event) => event.id !== id));
+    } catch (err: any) {
+      console.warn("[tongs] calendar delete failed", err);
+      setLoadError(err?.message ?? "Failed deleting calendar event.");
+    }
   }
 
   function goToToday() {
@@ -724,6 +663,16 @@ export default function TongsCalendar() {
           <button onClick={showNew ? closeNewForm : openNewForm}>{showNew ? "Close" : "New Event"}</button>
         </div>
       </div>
+      {loadError ? (
+        <div style={{ marginTop: 10, color: "#ffb3b3", fontSize: 13 }}>
+          {loadError}
+        </div>
+      ) : null}
+      {loading ? (
+        <div style={{ marginTop: 10, opacity: 0.7, fontSize: 13 }}>
+          Loading events…
+        </div>
+      ) : null}
 
       <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
         {KIND_OPTIONS.map((option) => {
