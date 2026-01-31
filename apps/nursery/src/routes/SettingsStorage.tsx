@@ -367,7 +367,7 @@ export default function SettingsStorage() {
                           {mirrorVaultKey && (
                             <button onClick={() => clearMirrorFolder(policy.role, mirrorVaultKey)}>Clear</button>
                           )}
-                          {policy.role === "barstock" && (
+                          {(policy.role === "barstock" || policy.role === "scripts") && (
                             <button
                               onClick={() => handleMirrorNow(policy.role)}
                               disabled={mirroringRole === policy.role || !mirrorVaultKey}
@@ -377,16 +377,18 @@ export default function SettingsStorage() {
                           )}
                         </div>
                       )}
-                      {mirrorEnabled && policy.role === "barstock" && (
+                      {mirrorEnabled && (policy.role === "barstock" || policy.role === "scripts") && (
                         <div style={{ marginTop: 8, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-                          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <input
-                              type="checkbox"
-                              checked={autoMirrorEnabled}
-                              onChange={(event) => handleAutoMirrorToggle(policy.role, event.target.checked)}
-                            />
-                            <span>Auto mirror at session end</span>
-                          </label>
+                          {policy.role === "barstock" && (
+                            <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <input
+                                type="checkbox"
+                                checked={autoMirrorEnabled}
+                                onChange={(event) => handleAutoMirrorToggle(policy.role, event.target.checked)}
+                              />
+                              <span>Auto mirror at session end</span>
+                            </label>
+                          )}
                           <div style={{ fontSize: 12, color: "#555" }}>
                             Last mirrored: {formatMirrorTime(lastMirror?.at)}{" "}
                             {lastMirror

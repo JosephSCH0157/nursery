@@ -112,6 +112,117 @@ function buildBarstockSnapshot(workspaceId: string, reason: MirrorReason, meta?:
   };
 }
 
+const SCRIPT_LIST_KEYS = ["forge_scripts_v1", "hearth_scripts_v1", "scripts_v1"];
+const ACTIVE_SCRIPT_KEYS = [
+  "forge_active_script_id_v1",
+  "hearth_active_script_id",
+  "scripts_active_id",
+];
+
+type ScriptSummary = {
+  id: string;
+  title?: string;
+  updatedAt?: string | number;
+  createdAt?: string | number;
+};
+
+type ScriptSnapshot = ScriptSummary & {
+  body?: string;
+};
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object";
+}
+
+function pickString(obj: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = obj[key];
+    if (typeof value === "string") return value;
+  }
+  return undefined;
+}
+
+function pickStringOrNumber(obj: Record<string, unknown>, keys: string[]): string | number | undefined {
+  for (const key of keys) {
+    const value = obj[key];
+    if (typeof value === "string" || typeof value === "number") return value;
+  }
+  return undefined;
+}
+
+function loadFirstJson(keys: string[]): unknown | null {
+  for (const key of keys) {
+    const raw = localStorage.getItem(key);
+    if (!raw) continue;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function extractScriptList(raw: unknown): Record<string, unknown>[] {
+  if (Array.isArray(raw)) return raw.filter(isObject);
+  if (isObject(raw) && Array.isArray(raw["scripts"])) {
+    return (raw["scripts"] as unknown[]).filter(isObject);
+  }
+  return [];
+}
+
+function extractActiveScriptId(raw: unknown): string | undefined {
+  if (isObject(raw)) {
+    const fromObj = pickString(raw, ["activeScriptId", "activeScript", "activeId", "active_id"]);
+    if (fromObj) return fromObj;
+  }
+  const fallback = loadFirstJson(ACTIVE_SCRIPT_KEYS);
+  return typeof fallback === "string" ? fallback : undefined;
+}
+
+function toScriptSummary(raw: Record<string, unknown>): ScriptSummary | null {
+  const id = pickString(raw, ["id", "scriptId"]);
+  if (!id) return null;
+  return {
+    id,
+    title: pickString(raw, ["title", "name"]),
+    updatedAt: pickStringOrNumber(raw, ["updatedAt", "updated_at", "modifiedAt", "modified_at"]),
+    createdAt: pickStringOrNumber(raw, ["createdAt", "created_at"]),
+  };
+}
+
+function toActiveScript(raw: Record<string, unknown>): ScriptSnapshot | null {
+  const summary = toScriptSummary(raw);
+  if (!summary) return null;
+  return {
+    ...summary,
+    body: pickString(raw, ["body", "content", "text", "script"]),
+  };
+}
+
+function buildScriptsSnapshot(workspaceId: string, reason: MirrorReason, meta?: Record<string, unknown>) {
+  const rawScripts = loadFirstJson(SCRIPT_LIST_KEYS);
+  const scriptsRaw = extractScriptList(rawScripts);
+  const scripts = scriptsRaw.map(toScriptSummary).filter((s): s is ScriptSummary => !!s);
+  const activeScriptId = extractActiveScriptId(rawScripts);
+  const activeScriptRaw = activeScriptId
+    ? scriptsRaw.find((s) => pickString(s, ["id", "scriptId"]) === activeScriptId) ?? null
+    : null;
+  const activeScript = activeScriptRaw ? toActiveScript(activeScriptRaw) : null;
+
+  return {
+    version: "scripts_snapshot_v1",
+    mirroredAt: new Date().toISOString(),
+    workspaceId,
+    role: "scripts",
+    reason,
+    meta,
+    scripts,
+    activeScriptId: activeScriptId ?? null,
+    activeScript,
+  };
+}
+
 export async function mirrorRoleSnapshot(
   role: MountRole,
   workspaceId: string,
@@ -154,8 +265,12 @@ export async function mirrorRoleSnapshot(
   }
 
   let payload: unknown;
+  let latestName = "latest.json";
   if (role === "barstock") {
     payload = buildBarstockSnapshot(workspaceId, reason, meta);
+  } else if (role === "scripts") {
+    payload = buildScriptsSnapshot(workspaceId, reason, meta);
+    latestName = "scripts-latest.json";
   } else {
     const error = `Mirroring not implemented for role: ${role}.`;
     saveLastMirrorStatus({ ...baseStatus, ok: false, error });
@@ -168,14 +283,14 @@ export async function mirrorRoleSnapshot(
 
   try {
     await writeJson(snapshotsDir, snapshotName, payload);
-    await writeJson(handle, "latest.json", payload);
+    await writeJson(handle, latestName, payload);
   } catch (err) {
     const error = err instanceof Error ? err.message : "Mirror write failed.";
     saveLastMirrorStatus({ ...baseStatus, ok: false, error });
     return { ok: false, error };
   }
 
-  const files = { latest: "latest.json", snapshot: `snapshots/${snapshotName}` };
+  const files = { latest: latestName, snapshot: `snapshots/${snapshotName}` };
   saveLastMirrorStatus({ ...baseStatus, ok: true, files });
   return { ok: true, files };
 }
