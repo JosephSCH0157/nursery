@@ -1,15 +1,14 @@
 import { spawn } from "node:child_process";
 import http from "node:http";
+import https from "node:https";
 
 const DEV_COMMAND = "pnpm";
 const DEV_ARGS = ["dev"];
 const BUILD_COMMAND = "pnpm";
 const BUILD_ARGS = ["build"];
 
-const HOST = "127.0.0.1";
-const PORT = 5173;
-const PATH = "/";
-const TIMEOUT_MS = 15_000;
+const DEFAULT_URL = "http://127.0.0.1:5173/";
+const TIMEOUT_MS = 30_000;
 const POLL_MS = 500;
 const KILL_TIMEOUT_MS = 2_000;
 
@@ -41,10 +40,24 @@ function runCommand(command, args) {
   });
 }
 
-function checkHealth() {
+function checkHealth(urlString) {
   return new Promise((resolve) => {
-    const req = http.get(
-      { host: HOST, port: PORT, path: PATH, timeout: 2_000 },
+    let url;
+    try {
+      url = new URL(urlString);
+    } catch {
+      resolve(false);
+      return;
+    }
+
+    const client = url.protocol === "https:" ? https : http;
+    const req = client.get(
+      {
+        hostname: url.hostname,
+        port: url.port || (url.protocol === "https:" ? 443 : 80),
+        path: url.pathname + url.search,
+        timeout: 2_000,
+      },
       (res) => {
         res.resume();
         resolve(res.statusCode >= 200 && res.statusCode < 300);
@@ -58,10 +71,10 @@ function checkHealth() {
   });
 }
 
-async function waitForHealthy() {
+async function waitForHealthy(getUrl) {
   const start = Date.now();
   while (Date.now() - start < TIMEOUT_MS) {
-    if (await checkHealth()) return true;
+    if (await checkHealth(getUrl())) return true;
     await sleep(POLL_MS);
   }
   return false;
@@ -90,7 +103,32 @@ async function main() {
   await runCommand(BUILD_COMMAND, BUILD_ARGS);
 
   log("booting via pnpm dev");
-  const dev = spawnCmd(DEV_COMMAND, DEV_ARGS);
+  const dev = spawnCmd(DEV_COMMAND, DEV_ARGS, { stdio: ["ignore", "pipe", "pipe"] });
+  let devUrl = DEFAULT_URL;
+  let buffer = "";
+
+  const onData = (chunk) => {
+    const text = chunk.toString();
+    buffer += text;
+    process.stdout.write(text);
+
+    let idx;
+    while ((idx = buffer.indexOf("\n")) !== -1) {
+      const line = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 1);
+      const match = line.match(/Local:\s*(https?:\/\/\S+)/i);
+      if (match?.[1]) {
+        devUrl = match[1];
+      }
+    }
+  };
+
+  const onErrorData = (chunk) => {
+    process.stderr.write(chunk.toString());
+  };
+
+  dev.stdout?.on("data", onData);
+  dev.stderr?.on("data", onErrorData);
 
   const cleanup = async () => {
     await stopProcess(dev);
@@ -99,11 +137,11 @@ async function main() {
   process.once("SIGINT", () => void cleanup().then(() => process.exit(1)));
   process.once("SIGTERM", () => void cleanup().then(() => process.exit(1)));
 
-  const healthy = await waitForHealthy();
+  const healthy = await waitForHealthy(() => devUrl || DEFAULT_URL);
   await cleanup();
 
   if (!healthy) {
-    throw new Error(`Dev server did not become healthy on ${HOST}:${PORT}${PATH}`);
+    throw new Error(`Dev server did not become healthy on ${devUrl || DEFAULT_URL}`);
   }
 }
 
