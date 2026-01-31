@@ -7,13 +7,17 @@ const DEV_ARGS = ["dev"];
 const BUILD_COMMAND = "pnpm";
 const BUILD_ARGS = ["build"];
 
-const DEFAULT_URL = "http://127.0.0.1:5173/";
+const DEFAULT_URL = "http://localhost:5173/";
 const TIMEOUT_MS = 30_000;
 const POLL_MS = 500;
 const KILL_TIMEOUT_MS = 2_000;
 
 function log(message) {
   process.stdout.write(`[SMOKE] ${message}\n`);
+}
+
+function stripAnsi(input) {
+  return input.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
 }
 
 function sleep(ms) {
@@ -74,7 +78,24 @@ function checkHealth(urlString) {
 async function waitForHealthy(getUrl) {
   const start = Date.now();
   while (Date.now() - start < TIMEOUT_MS) {
-    if (await checkHealth(getUrl())) return true;
+    const primary = getUrl();
+    if (await checkHealth(primary)) return true;
+
+    let fallback = null;
+    try {
+      const url = new URL(primary);
+      if (url.hostname === "127.0.0.1") {
+        url.hostname = "localhost";
+        fallback = url.toString();
+      } else if (url.hostname === "localhost") {
+        url.hostname = "127.0.0.1";
+        fallback = url.toString();
+      }
+    } catch {
+      fallback = null;
+    }
+
+    if (fallback && (await checkHealth(fallback))) return true;
     await sleep(POLL_MS);
   }
   return false;
@@ -114,7 +135,7 @@ async function main() {
 
     let idx;
     while ((idx = buffer.indexOf("\n")) !== -1) {
-      const line = buffer.slice(0, idx);
+      const line = stripAnsi(buffer.slice(0, idx));
       buffer = buffer.slice(idx + 1);
       const match = line.match(/Local:\s*(https?:\/\/\S+)/i);
       if (match?.[1]) {
