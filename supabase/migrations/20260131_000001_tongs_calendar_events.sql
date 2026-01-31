@@ -2,8 +2,8 @@ create schema if not exists tongs;
 
 create table if not exists tongs.calendar_events (
   id uuid primary key default gen_random_uuid(),
-  workspace_id uuid not null references tongs.workspaces(id) on delete cascade,
-  created_by uuid references auth.users(id) on delete set null,
+  workspace_id uuid not null,
+  created_by uuid,
   title text not null,
   description text,
   location text,
