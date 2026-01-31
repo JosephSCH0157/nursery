@@ -10,10 +10,10 @@ export type SparkSource =
   | "link"
   | "other";
 
-export type SessionId = string;
+export type AssignmentId = string;
 
-export type Session = {
-  id: SessionId;
+export type Assignment = {
+  id: AssignmentId;
   name: string;
   createdAt: number;
   updatedAt: number;
@@ -33,7 +33,7 @@ export type Spark = {
 
   source: SparkSource;
   pinned?: boolean;
-  sessionId?: SessionId;
+  assignmentId: AssignmentId;
 
   // future-friendly: connection to other Forge tools without committing now
   links?: {
@@ -56,7 +56,7 @@ export function now(): number {
   return Date.now();
 }
 
-export function makeSpark(body: string, partial?: Partial<Spark>): Spark {
+export function makeSpark(body: string, assignmentId: AssignmentId, partial?: Partial<Spark>): Spark {
   const t = now();
   const id = isUuid(partial?.id) ? partial.id : crypto.randomUUID();
   return {
@@ -67,6 +67,7 @@ export function makeSpark(body: string, partial?: Partial<Spark>): Spark {
     status: "raw",
     source: "typed",
     ...partial,
+    assignmentId,
     id
   };
 }

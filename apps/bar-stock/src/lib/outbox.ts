@@ -1,10 +1,10 @@
-﻿import type { Spark, Session } from "./model";
+﻿import type { Spark, Assignment } from "./model";
 
 export type OutboxOp =
   | { op: "upsert_spark"; at: number; spark: Spark }
   | { op: "delete_spark"; at: number; sparkId: string }
-  | { op: "upsert_session"; at: number; session: Session }
-  | { op: "delete_session"; at: number; sessionId: string };
+  | { op: "upsert_assignment"; at: number; assignment: Assignment }
+  | { op: "delete_assignment"; at: number; assignmentId: string };
 
 const KEY = "barstock_outbox_v1";
 
@@ -47,20 +47,20 @@ export function drainOutbox() {
  */
 export function compactOutbox(items: OutboxOp[]): OutboxOp[] {
   const latestSpark = new Map<string, OutboxOp>();
-  const latestSession = new Map<string, OutboxOp>();
+  const latestAssignment = new Map<string, OutboxOp>();
   const passthrough: OutboxOp[] = [];
 
   for (const op of items) {
     if (op.op === "upsert_spark") latestSpark.set(op.spark.id, op);
     else if (op.op === "delete_spark") latestSpark.set(op.sparkId, op);
-    else if (op.op === "upsert_session") latestSession.set(op.session.id, op);
-    else if (op.op === "delete_session") latestSession.set(op.sessionId, op);
+    else if (op.op === "upsert_assignment") latestAssignment.set(op.assignment.id, op);
+    else if (op.op === "delete_assignment") latestAssignment.set(op.assignmentId, op);
     else passthrough.push(op);
   }
 
   return [
     ...passthrough,
-    ...latestSession.values(),
+    ...latestAssignment.values(),
     ...latestSpark.values()
   ].sort((a, b) => a.at - b.at);
 }

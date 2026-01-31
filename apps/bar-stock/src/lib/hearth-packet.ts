@@ -1,31 +1,33 @@
 ﻿import type { Spark } from "./model";
 
-export type HearthPacketV1 = {
+export type HearthPacketV2 = {
   from: "bar-stock";
   type: "spark_to_hearth";
-  version: 1;
+  version: 2;
   createdAt: string; // ISO
   sparkId: string;
-  session?: string;
+  episodeId: string;
+  episodeLabel: string;
   tags: string[];
   status: string;
   body: string;
 };
 
-export function buildHearthPacket(s: Spark, sessionName?: string): HearthPacketV1 {
+export function buildHearthPacket(s: Spark, episodeLabel: string): HearthPacketV2 {
   return {
     from: "bar-stock",
     type: "spark_to_hearth",
-    version: 1,
+    version: 2,
     createdAt: new Date().toISOString(),
     sparkId: s.id,
-    session: sessionName,
+    episodeId: s.assignmentId,
+    episodeLabel,
     tags: s.tags ?? [],
     status: s.status,
     body: s.body
   };
 }
 
-export function packetToClipboardText(p: HearthPacketV1): string {
+export function packetToClipboardText(p: HearthPacketV2): string {
   return JSON.stringify(p, null, 2);
 }

@@ -1,5 +1,5 @@
 ﻿import type { Spark } from "./model";
-import { makeSpark, now } from "./model";
+import { makeSpark, newId, now } from "./model";
 
 export type ImportResult = {
   imported: number;
@@ -38,7 +38,7 @@ function asStringArray(v: unknown): string[] | null {
  *  - Spark[] (raw array)
  *  - { sparks: Spark[] } (loose)
  *
- * Anything malformed becomes a “best effort” Spark via makeSpark(body).
+ * Anything malformed becomes a “best effort” Spark via makeSpark(body, assignmentId).
  */
 export function parseImportJson(rawText: string): { sparks: Spark[]; errors: number } {
   let parsed: unknown;
@@ -73,6 +73,9 @@ export function parseImportJson(rawText: string): { sparks: Spark[]; errors: num
 
     // best-effort hydration, but never trust imported timestamps blindly
     const id = asString(item.id) ?? undefined;
+    const legacyKey = "session" + "Id";
+    const assignmentId =
+      asString((item as any).assignmentId) ?? asString((item as any)[legacyKey]) ?? newId();
     const createdAt = asNumber(item.createdAt) ?? now();
     const updatedAt = asNumber(item.updatedAt) ?? createdAt;
     const tags = asStringArray(item.tags) ?? [];
@@ -81,7 +84,7 @@ export function parseImportJson(rawText: string): { sparks: Spark[]; errors: num
     const pinned = asBool(item.pinned) ?? false;
 
     // Build a “real” Spark, then overlay safe fields
-    const s = makeSpark(body, {
+    const s = makeSpark(body, assignmentId, {
       id,
       createdAt,
       updatedAt,

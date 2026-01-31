@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { Session, SessionId, Spark, SparkStatus } from "./lib/model";
+import type { Assignment, AssignmentId, Spark, SparkStatus } from "./lib/model";
 import { makeSpark, now } from "./lib/model";
 
 import { loadSparks, removeSpark, saveSparks, upsertSpark } from "./lib/store";
-import { loadSessions, makeSession, saveSessions, upsertSession } from "./lib/sessions";
+import {
+  buildAssignmentNameFromSpark,
+  loadAssignments,
+  makeAssignment,
+  makeAssignmentFromSpark,
+  saveAssignments,
+  upsertAssignment
+} from "./lib/assignments";
 
 import { extractTags, normalizeTag, querySparks, type SparkQuery } from "./lib/query";
 import { copyText } from "./lib/clip";
@@ -16,7 +23,7 @@ import { listMyWorkspaces, type Workspace } from "./lib/tongs-api";
 import type { Session as SupabaseSession } from "@supabase/supabase-js";
 import { flushOutboxToTongs, checkTongsOnline } from "./lib/tongs-sync";
 
-type SessionFilter = "all" | "unassigned" | SessionId;
+type AssignmentFilter = "all" | AssignmentId;
 
 const STANDALONE = import.meta.env.VITE_BARSTOCK_STANDALONE === "true";
 
@@ -47,16 +54,15 @@ type WorkspaceState = {
 type BarstockAppProps = {
   workspaceState?: WorkspaceState;
   showWorkspacePicker?: boolean;
-  onSessionEnd?: (sessionId: SessionId) => void;
 };
 
 export default function App(props: BarstockAppProps = {}) {
   const [body, setBody] = useState("");
   const [sparks, setSparks] = useState<Spark[]>(() => loadSparks());
 
-  const [sessions, setSessions] = useState<Session[]>(() => loadSessions());
-  const [activeSession, setActiveSession] = useState<SessionFilter>("all");
-  const [newSessionName, setNewSessionName] = useState("");
+  const [assignments, setAssignments] = useState<Assignment[]>(() => loadAssignments());
+  const [activeAssignment, setActiveAssignment] = useState<AssignmentFilter>("all");
+  const [newAssignmentName, setNewAssignmentName] = useState("");
   const [session, setSession] = useState<SupabaseSession | null>(null);
   const [email, setEmail] = useState("");
   const hasExternalWorkspaceState = !!props.workspaceState;
@@ -94,6 +100,61 @@ export default function App(props: BarstockAppProps = {}) {
     saveOutbox(items);
     setOutboxCount(items.length);
   }
+
+  function normalizeAssignmentsState(inputSparks: Spark[], inputAssignments: Assignment[]) {
+    const assignmentById = new Map(inputAssignments.map(a => [a.id, a]));
+    const nextAssignments = inputAssignments.slice();
+    const updatedAssignments: Assignment[] = [];
+    const updatedSparks: Spark[] = [];
+
+    const legacyKey = "session" + "Id";
+
+    const nextSparks = inputSparks.map((s) => {
+      const legacyId = (s as any)[legacyKey] as string | undefined;
+      let assignmentId = s.assignmentId ?? legacyId;
+
+      if (!assignmentId) {
+        const createdAt = s.createdAt ?? now();
+        const assignment = makeAssignmentFromSpark(s.body, createdAt);
+        assignmentId = assignment.id;
+        nextAssignments.push(assignment);
+        assignmentById.set(assignmentId, assignment);
+        updatedAssignments.push(assignment);
+      } else if (!assignmentById.has(assignmentId)) {
+        const createdAt = s.createdAt ?? now();
+        const name = buildAssignmentNameFromSpark(s.body, createdAt);
+        const assignment = makeAssignment(name, { id: assignmentId, createdAt, updatedAt: createdAt });
+        nextAssignments.push(assignment);
+        assignmentById.set(assignmentId, assignment);
+        updatedAssignments.push(assignment);
+      }
+
+      if (s.assignmentId !== assignmentId || legacyId) {
+        const next = { ...s, assignmentId };
+        updatedSparks.push(next);
+        return next;
+      }
+      return s;
+    });
+
+    return { sparks: nextSparks, assignments: nextAssignments, updatedSparks, updatedAssignments };
+  }
+
+  useEffect(() => {
+    const res = normalizeAssignmentsState(sparks, assignments);
+    if (res.updatedAssignments.length === 0 && res.updatedSparks.length === 0) return;
+
+    setAssignments(res.assignments);
+    setSparks(res.sparks);
+
+    const ts = now();
+    for (const a of res.updatedAssignments) {
+      enqueue({ op: "upsert_assignment", at: ts, assignment: a });
+    }
+    for (const s of res.updatedSparks) {
+      enqueue({ op: "upsert_spark", at: ts, spark: s });
+    }
+  }, []);
 
   const onSyncNow = useCallback(async () => {
     if (!supabaseAvailable) return popToast("Cloud sync unavailable.");
@@ -158,8 +219,8 @@ export default function App(props: BarstockAppProps = {}) {
   }, [sparks]);
 
   useEffect(() => {
-    saveSessions(sessions);
-  }, [sessions]);
+    saveAssignments(assignments);
+  }, [assignments]);
 
   useEffect(() => {
     if (!supabaseAvailable || !session || !workspaceId) {
@@ -244,30 +305,16 @@ export default function App(props: BarstockAppProps = {}) {
     setQ(prev => ({ ...prev, tag: normalizeTag(tag) }));
   }
 
-  const setActiveSessionWithEnd = useCallback((next: SessionFilter, opts?: { skipEnd?: boolean }) => {
-    setActiveSession((prev) => {
-      if (!opts?.skipEnd && prev !== next && prev !== "all" && prev !== "unassigned") {
-        props.onSessionEnd?.(prev);
-      }
-      return next;
-    });
-  }, [props.onSessionEnd]);
 
-  function endCurrentSession() {
-    if (activeSession === "all" || activeSession === "unassigned") return;
-    props.onSessionEnd?.(activeSession);
-    setActiveSessionWithEnd("all", { skipEnd: true });
-  }
-
-  function addSession() {
-    const name = newSessionName.trim();
+  function addAssignment() {
+    const name = newAssignmentName.trim();
     if (!name) return;
-    const s = makeSession(name);
-    setSessions(prev => upsertSession(prev, s));
-    enqueue({ op: "upsert_session", at: now(), session: s });
-    setNewSessionName("");
-    setActiveSessionWithEnd(s.id);
-    popToast("Session created.");
+    const a = makeAssignment(name);
+    setAssignments(prev => upsertAssignment(prev, a));
+    enqueue({ op: "upsert_assignment", at: now(), assignment: a });
+    setNewAssignmentName("");
+    setActiveAssignment(a.id);
+    popToast("Assignment created.");
   }
 
   function addSpark() {
@@ -275,13 +322,19 @@ export default function App(props: BarstockAppProps = {}) {
 
     const tags = extractTags(body);
 
-    const sessionId =
-      activeSession === "all" || activeSession === "unassigned" ? undefined : activeSession;
+    let assignmentId: AssignmentId;
+    if (activeAssignment === "all") {
+      const assignment = makeAssignmentFromSpark(body, now());
+      assignmentId = assignment.id;
+      setAssignments(prev => upsertAssignment(prev, assignment));
+      enqueue({ op: "upsert_assignment", at: now(), assignment });
+    } else {
+      assignmentId = activeAssignment;
+    }
 
-    const s = makeSpark(body, {
+    const s = makeSpark(body, assignmentId, {
       source: "typed",
-      tags,
-      sessionId
+      tags
     });
 
     setSparks(prev => upsertSpark(prev, s));
@@ -289,23 +342,22 @@ export default function App(props: BarstockAppProps = {}) {
     setBody("");
   }
 
-  const filteredBySession = useMemo(() => {
-    if (activeSession === "all") return sparks;
-    if (activeSession === "unassigned") return sparks.filter(s => !s.sessionId);
-    return sparks.filter(s => s.sessionId === activeSession);
-  }, [sparks, activeSession]);
+  const filteredByAssignment = useMemo(() => {
+    if (activeAssignment === "all") return sparks;
+    return sparks.filter(s => s.assignmentId === activeAssignment);
+  }, [sparks, activeAssignment]);
 
-  const filtered = useMemo(() => querySparks(filteredBySession, q), [filteredBySession, q]);
+  const filtered = useMemo(() => querySparks(filteredByAssignment, q), [filteredByAssignment, q]);
 
-  const sortedSessions = useMemo(() => {
+  const sortedAssignments = useMemo(() => {
     // pinned first then alpha
-    return [...sessions].sort((a, b) => {
+    return [...assignments].sort((a, b) => {
       const ap = a.pinned ? 1 : 0;
       const bp = b.pinned ? 1 : 0;
       if (ap !== bp) return bp - ap;
       return a.name.localeCompare(b.name);
     });
-  }, [sessions]);
+  }, [assignments]);
 
   async function onImportFile(file: File) {
     const text = await file.text();
@@ -325,11 +377,11 @@ export default function App(props: BarstockAppProps = {}) {
     popToast(msgParts.join(", ") + ".");
   }
 
-  const sessionNameById = useMemo(() => {
+  const assignmentNameById = useMemo(() => {
     const m = new Map<string, string>();
-    for (const s of sessions) m.set(s.id, s.name);
+    for (const a of assignments) m.set(a.id, a.name);
     return m;
-  }, [sessions]);
+  }, [assignments]);
 
   return (
     <div
@@ -412,65 +464,52 @@ export default function App(props: BarstockAppProps = {}) {
 
         <div style={{ marginTop: 14 }}>
           <div style={{ fontWeight: 700, fontSize: 13, opacity: 0.85, marginBottom: 8 }}>
-            Sessions
+            Assignments
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <SidebarItem
               label="All"
-              active={activeSession === "all"}
-              onClick={() => setActiveSessionWithEnd("all")}
-            />
-            <SidebarItem
-              label="Unassigned"
-              active={activeSession === "unassigned"}
-              onClick={() => setActiveSessionWithEnd("unassigned")}
+              active={activeAssignment === "all"}
+              onClick={() => setActiveAssignment("all")}
             />
 
             <div style={{ marginTop: 10, opacity: 0.7, fontSize: 12 }}>
               —
             </div>
 
-            {sortedSessions.length === 0 ? (
+            {sortedAssignments.length === 0 ? (
               <div style={{ opacity: 0.7, fontSize: 13, marginTop: 6 }}>
-                No sessions yet.
+                No assignments yet.
               </div>
             ) : (
-              sortedSessions.map(s => (
+              sortedAssignments.map(a => (
                 <SidebarItem
-                  key={s.id}
-                  label={s.name}
-                  active={activeSession === s.id}
-                  onClick={() => setActiveSessionWithEnd(s.id)}
+                  key={a.id}
+                  label={a.name}
+                  active={activeAssignment === a.id}
+                  onClick={() => setActiveAssignment(a.id)}
                 />
               ))
             )}
           </div>
 
-          {activeSession !== "all" && activeSession !== "unassigned" && (
-            <div style={{ marginTop: 10 }}>
-              <button onClick={endCurrentSession} style={{ cursor: "pointer" }}>
-                End session
-              </button>
-            </div>
-          )}
-
           <div style={{ marginTop: 14, display: "flex", gap: 8 }}>
             <input
-              value={newSessionName}
-              onChange={(e) => setNewSessionName(e.target.value)}
-              placeholder="New session…"
+              value={newAssignmentName}
+              onChange={(e) => setNewAssignmentName(e.target.value)}
+              placeholder="New assignment…"
               style={{ flex: 1, padding: 8 }}
               onKeyDown={(e) => {
-                if (e.key === "Enter") addSession();
+                if (e.key === "Enter") addAssignment();
               }}
             />
             <button
-              onClick={addSession}
-              disabled={!newSessionName.trim()}
+              onClick={addAssignment}
+              disabled={!newAssignmentName.trim()}
               style={{
                 padding: "8px 10px",
-                cursor: newSessionName.trim() ? "pointer" : "not-allowed"
+                cursor: newAssignmentName.trim() ? "pointer" : "not-allowed"
               }}
             >
               Add
@@ -607,6 +646,11 @@ export default function App(props: BarstockAppProps = {}) {
             filtered.map((s) => (
               <div
                 key={s.id}
+                onClick={(e) => {
+                  const target = e.target as HTMLElement;
+                  if (target.closest("button,select,input,textarea,option")) return;
+                  setActiveAssignment(s.assignmentId);
+                }}
                 style={{
                   border: "1px solid #ddd",
                   borderRadius: 10,
@@ -618,7 +662,7 @@ export default function App(props: BarstockAppProps = {}) {
                     {new Date(s.createdAt).toLocaleString()}
                     {s.pinned ? " • pinned" : ""}
                     {" • "}
-                    {s.sessionId ? (sessionNameById.get(s.sessionId) ?? "Unknown session") : "Unassigned"}
+                    {assignmentNameById.get(s.assignmentId) ?? "Unknown assignment"}
                   </div>
 
                   <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -635,18 +679,17 @@ export default function App(props: BarstockAppProps = {}) {
                     </select>
 
                     <select
-                      value={s.sessionId ?? "unassigned"}
+                      value={s.assignmentId}
                       onChange={(e) => {
                         const v = e.target.value;
-                        updateSpark(s, { sessionId: v === "unassigned" ? undefined : v });
+                        updateSpark(s, { assignmentId: v });
                       }}
                       style={{ padding: "4px 6px" }}
-                      title="Session"
+                      title="Assignment"
                     >
-                      <option value="unassigned">Unassigned</option>
-                      {sortedSessions.map(sess => (
-                        <option key={sess.id} value={sess.id}>
-                          {sess.name}
+                      {sortedAssignments.map(a => (
+                        <option key={a.id} value={a.id}>
+                          {a.name}
                         </option>
                       ))}
                     </select>
@@ -666,9 +709,10 @@ export default function App(props: BarstockAppProps = {}) {
                     </button>
 
                     <button
-                      onClick={async () => {
-                        const sessionName = s.sessionId ? (sessionNameById.get(s.sessionId) ?? undefined) : undefined;
-                        const packet = buildHearthPacket(s, sessionName);
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        const assignmentName = assignmentNameById.get(s.assignmentId) ?? "episode";
+                        const packet = buildHearthPacket(s, assignmentName);
                         const ok = await copyText(packetToClipboardText(packet));
                         popToast(ok ? "Hearth packet copied." : "Copy failed.");
                       }}

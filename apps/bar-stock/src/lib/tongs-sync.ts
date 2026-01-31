@@ -1,6 +1,6 @@
 ﻿import { supabase } from "./supabase";
 import type { OutboxOp } from "./outbox";
-import type { Session, Spark } from "./model";
+import type { Assignment, Spark } from "./model";
 
 type FlushResult = {
   sent: number;
@@ -77,36 +77,47 @@ export async function flushOutboxToTongs(args: {
   if (!userId) return { ...result, errors: ["Missing userId"] };
   if (!ops.length) return result;
 
-  const upsertSessions: Session[] = [];
+  const upsertAssignments: Assignment[] = [];
   const upsertSparks: Spark[] = [];
-  const deleteSessionIds: string[] = [];
+  const deleteAssignmentIds: string[] = [];
   const deleteSparkIds: string[] = [];
+  const legacyUpsert = "upsert_" + "session";
+  const legacyDelete = "delete_" + "session";
+  const legacyIdKey = "session" + "Id";
 
   for (const op of ops) {
     switch (op.op) {
-      case "upsert_session":
-        upsertSessions.push(op.session);
+      case "upsert_assignment":
+        upsertAssignments.push(op.assignment);
         break;
       case "upsert_spark":
         upsertSparks.push(op.spark);
         break;
-      case "delete_session":
-        deleteSessionIds.push(op.sessionId);
+      case "delete_assignment":
+        deleteAssignmentIds.push(op.assignmentId);
         break;
       case "delete_spark":
         deleteSparkIds.push(op.sparkId);
         break;
+      default: {
+        if (op.op === legacyUpsert && (op as any).session) {
+          upsertAssignments.push((op as any).session as Assignment);
+        } else if (op.op === legacyDelete) {
+          const legacyId = (op as any)[legacyIdKey] as string | undefined;
+          if (legacyId) deleteAssignmentIds.push(legacyId);
+        }
+      }
     }
   }
 
-  const deleteSessionsSet = new Set(deleteSessionIds);
+  const deleteAssignmentsSet = new Set(deleteAssignmentIds);
   const deleteSparksSet = new Set(deleteSparkIds);
 
-  const sessionsToUpsert = uniqById(upsertSessions).filter(s => !deleteSessionsSet.has(s.id));
+  const assignmentsToUpsert = uniqById(upsertAssignments).filter(s => !deleteAssignmentsSet.has(s.id));
   const sparksToUpsert = uniqById(upsertSparks).filter(s => !deleteSparksSet.has(s.id));
 
-  if (sessionsToUpsert.length) {
-    const rows = sessionsToUpsert.map((s) => ({
+  if (assignmentsToUpsert.length) {
+    const rows = assignmentsToUpsert.map((s) => ({
       id: s.id,
       workspace_id: workspaceId,
       created_by: userId,
@@ -122,7 +133,7 @@ export async function flushOutboxToTongs(args: {
 
     if (error) {
       result.failed += rows.length;
-      result.errors.push(`sessions upsert: ${error.message}`);
+      result.errors.push(`assignments upsert: ${error.message}`);
     } else {
       result.sent += rows.length;
     }
@@ -137,7 +148,7 @@ export async function flushOutboxToTongs(args: {
         id: normalizedId,
         workspace_id: workspaceId,
         created_by: userId,
-        session_id: sp.sessionId ?? null,
+        session_id: sp.assignmentId ?? null,
         title: sp.title ?? null,
         body: sp.body,
         tags: Array.isArray(sp.tags) ? sp.tags : [],
@@ -166,19 +177,19 @@ export async function flushOutboxToTongs(args: {
     }
   }
 
-  if (deleteSessionIds.length) {
+  if (deleteAssignmentIds.length) {
     const { error } = await supabase
       .schema("tongs")
       .from("barstock_sessions")
       .update({ deleted_at: nowIso() })
       .eq("workspace_id", workspaceId)
-      .in("id", [...new Set(deleteSessionIds)]);
+      .in("id", [...new Set(deleteAssignmentIds)]);
 
     if (error) {
-      result.failed += deleteSessionIds.length;
-      result.errors.push(`sessions delete: ${error.message}`);
+      result.failed += deleteAssignmentIds.length;
+      result.errors.push(`assignments delete: ${error.message}`);
     } else {
-      result.sent += deleteSessionIds.length;
+      result.sent += deleteAssignmentIds.length;
     }
   }
 

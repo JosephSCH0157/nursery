@@ -5,7 +5,7 @@ export type SparkQuery = {
   tag?: string;               // exact tag match
   status?: SparkStatus | "all";
   pinned?: "all" | "pinned" | "unpinned";
-  sessionId?: string | "all";
+  assignmentId?: string | "all";
 };
 
 export function normalizeTag(t: string): string {
@@ -25,7 +25,7 @@ export function matchesSpark(s: Spark, q: SparkQuery): boolean {
   if (q.pinned === "pinned" && !s.pinned) return false;
   if (q.pinned === "unpinned" && s.pinned) return false;
 
-  if (q.sessionId && q.sessionId !== "all" && s.sessionId !== q.sessionId) return false;
+  if (q.assignmentId && q.assignmentId !== "all" && s.assignmentId !== q.assignmentId) return false;
 
   if (q.tag) {
     const t = normalizeTag(q.tag);
