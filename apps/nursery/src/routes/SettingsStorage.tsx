@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useOutletContext } from "react-router-dom";
 import type {
   MirrorPolicy,
   MountRegistryEntry,
@@ -15,6 +16,8 @@ import {
 } from "@forge/tongs";
 import { clearMountRegistry, loadMountRegistry, saveMountRegistry } from "../lib/mount-registry";
 import { removeHandle, setHandle } from "../lib/handle-vault";
+import { mirrorRoleSnapshot } from "../lib/mirror";
+import type { AppShellContext } from "./AppShell";
 
 const STORAGE_OPTIONS: { label: string; value: MountTargetType }[] = [
   { label: "Local", value: "local" },
@@ -73,6 +76,10 @@ export default function SettingsStorage() {
   const [status, setStatus] = useState<string | null>(initialState.status);
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const [mirroringRole, setMirroringRole] = useState<MountRole | null>(null);
+
+  const shell = useOutletContext<AppShellContext>();
+  const activeWorkspaceId = shell?.workspaceId ?? registry?.workspaceId ?? null;
 
   const updateRegistryEntry = (role: MountRole, updater: (entry: MountRegistryEntry) => MountRegistryEntry) => {
     setRegistry((prev) => {
@@ -227,6 +234,26 @@ export default function SettingsStorage() {
     setStatus("Storage preferences reset to defaults.");
   };
 
+  const handleMirrorNow = async (role: MountRole) => {
+    if (!activeWorkspaceId) {
+      setStatus("Pick a workspace first.");
+      return;
+    }
+    setMirroringRole(role);
+    try {
+      const res = await mirrorRoleSnapshot(role, activeWorkspaceId, "manual");
+      if (res.ok) {
+        setStatus(`Mirrored ${role} to ${res.files.snapshot} (latest.json updated).`);
+      } else {
+        setStatus(`Mirror failed for ${role}: ${res.error}`);
+      }
+    } catch (err) {
+      setStatus(`Mirror failed for ${role}: ${toFriendly(err)}`);
+    } finally {
+      setMirroringRole(null);
+    }
+  };
+
   if (!registry) {
     return <p>Loading storage registry...</p>;
   }
@@ -317,6 +344,14 @@ export default function SettingsStorage() {
                           <button onClick={() => setMirrorFolder(policy.role)}>Choose folder</button>
                           {mirrorVaultKey && (
                             <button onClick={() => clearMirrorFolder(policy.role, mirrorVaultKey)}>Clear</button>
+                          )}
+                          {policy.role === "barstock" && (
+                            <button
+                              onClick={() => handleMirrorNow(policy.role)}
+                              disabled={mirroringRole === policy.role || !mirrorVaultKey}
+                            >
+                              {mirroringRole === policy.role ? "Mirroring..." : "Mirror now"}
+                            </button>
                           )}
                         </div>
                       )}
