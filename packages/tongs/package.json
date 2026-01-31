@@ -20,5 +20,8 @@
     "eslint": "^9.39.1",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.4"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.91.1"
   }
 }
