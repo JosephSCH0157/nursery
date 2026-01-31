@@ -112,15 +112,17 @@ function buildBarstockSnapshot(workspaceId: string, reason: MirrorReason, meta?:
   };
 }
 
-type ScriptSource = "forge" | "hearth" | "legacy" | "none";
+type ScriptsSnapshotSource = "forge" | "hearth" | "legacy" | "none";
 
-const SCRIPT_LIST_SOURCES: { key: string; source: ScriptSource }[] = [
+const SCRIPT_SOURCES_ORDER: ScriptsSnapshotSource[] = ["forge", "hearth", "legacy"];
+
+const SCRIPT_LIST_SOURCES: { key: string; source: ScriptsSnapshotSource }[] = [
   { key: "forge_scripts_v1", source: "forge" },
   { key: "hearth_scripts_v1", source: "hearth" },
   { key: "scripts_v1", source: "legacy" },
 ];
 
-const ACTIVE_SCRIPT_KEYS_BY_SOURCE: Record<Exclude<ScriptSource, "none">, string> = {
+const ACTIVE_SCRIPT_KEYS_BY_SOURCE: Record<Exclude<ScriptsSnapshotSource, "none">, string> = {
   forge: "forge_active_script_id_v1",
   hearth: "hearth_active_script_id",
   legacy: "scripts_active_id",
@@ -129,12 +131,29 @@ const ACTIVE_SCRIPT_KEYS_BY_SOURCE: Record<Exclude<ScriptSource, "none">, string
 type ScriptSummary = {
   id: string;
   title?: string;
-  updatedAt?: string | number;
-  createdAt?: string | number;
+  updatedAt?: string;
 };
 
 type ScriptSnapshot = ScriptSummary & {
   body?: string;
+};
+
+type ScriptsSnapshotV1 = {
+  schemaVersion: 1;
+  mirroredAt: string;
+  workspaceId: string;
+  role: "scripts";
+  reason: MirrorReason;
+  source: ScriptsSnapshotSource;
+  counts: { total: number; active: 0 | 1 };
+  activeScriptId: string | null;
+  scripts: ScriptSummary[];
+  activeScript: ScriptSnapshot | null;
+  meta: {
+    keysChecked: string[];
+    keysFound: string[];
+    parseErrors?: string[];
+  };
 };
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -157,19 +176,44 @@ function pickStringOrNumber(obj: Record<string, unknown>, keys: string[]): strin
   return undefined;
 }
 
-function loadFirstJsonWithSource(
-  entries: { key: string; source: ScriptSource }[],
-): { value: unknown; source: ScriptSource; key: string } | null {
-  for (const entry of entries) {
+function loadScriptsSource(): {
+  value: unknown | null;
+  source: ScriptsSnapshotSource;
+  key?: string;
+  keysChecked: string[];
+  keysFound: string[];
+  parseErrors: string[];
+} {
+  const keysChecked: string[] = [];
+  const keysFound: string[] = [];
+  const parseErrors: string[] = [];
+
+  for (const entry of SCRIPT_LIST_SOURCES) {
+    keysChecked.push(entry.key);
     const raw = localStorage.getItem(entry.key);
     if (!raw) continue;
+    keysFound.push(entry.key);
     try {
-      return { value: JSON.parse(raw), source: entry.source, key: entry.key };
+      return {
+        value: JSON.parse(raw),
+        source: entry.source,
+        key: entry.key,
+        keysChecked,
+        keysFound,
+        parseErrors,
+      };
     } catch {
-      return { value: null, source: entry.source, key: entry.key };
+      parseErrors.push(entry.key);
     }
   }
-  return null;
+
+  return {
+    value: null,
+    source: "none",
+    keysChecked,
+    keysFound,
+    parseErrors,
+  };
 }
 
 function extractScriptList(raw: unknown): Record<string, unknown>[] {
@@ -180,31 +224,25 @@ function extractScriptList(raw: unknown): Record<string, unknown>[] {
   return [];
 }
 
-function extractActiveScriptId(raw: unknown, source: ScriptSource): string | undefined {
+function extractActiveScriptId(raw: unknown, source: ScriptsSnapshotSource): string | undefined {
   if (isObject(raw)) {
     const fromObj = pickString(raw, ["activeScriptId", "activeScript", "activeId", "active_id"]);
     if (fromObj) return fromObj;
   }
-  if (source !== "none") {
-    const key = ACTIVE_SCRIPT_KEYS_BY_SOURCE[source];
-    const rawActive = localStorage.getItem(key);
-    if (rawActive) {
-      try {
-        const parsed = JSON.parse(rawActive);
-        if (typeof parsed === "string") return parsed;
-      } catch {
-        // ignore parse failures
-      }
-    }
-  }
-  for (const key of Object.values(ACTIVE_SCRIPT_KEYS_BY_SOURCE)) {
+  const orderedSources =
+    source === "none"
+      ? SCRIPT_SOURCES_ORDER
+      : [source, ...SCRIPT_SOURCES_ORDER.filter((s) => s !== source)];
+
+  for (const src of orderedSources) {
+    const key = ACTIVE_SCRIPT_KEYS_BY_SOURCE[src];
     const rawActive = localStorage.getItem(key);
     if (!rawActive) continue;
     try {
       const parsed = JSON.parse(rawActive);
       if (typeof parsed === "string") return parsed;
     } catch {
-      return undefined;
+      // ignore parse failures
     }
   }
   return undefined;
@@ -213,11 +251,13 @@ function extractActiveScriptId(raw: unknown, source: ScriptSource): string | und
 function toScriptSummary(raw: Record<string, unknown>): ScriptSummary | null {
   const id = pickString(raw, ["id", "scriptId"]);
   if (!id) return null;
+  const updatedAt = pickStringOrNumber(raw, ["updatedAt", "updated_at", "modifiedAt", "modified_at"]);
+  const normalizedUpdatedAt =
+    typeof updatedAt === "number" ? new Date(updatedAt).toISOString() : updatedAt;
   return {
     id,
     title: pickString(raw, ["title", "name"]),
-    updatedAt: pickStringOrNumber(raw, ["updatedAt", "updated_at", "modifiedAt", "modified_at"]),
-    createdAt: pickStringOrNumber(raw, ["createdAt", "created_at"]),
+    updatedAt: normalizedUpdatedAt,
   };
 }
 
@@ -231,9 +271,9 @@ function toActiveScript(raw: Record<string, unknown>): ScriptSnapshot | null {
 }
 
 function buildScriptsSnapshot(workspaceId: string, reason: MirrorReason, meta?: Record<string, unknown>) {
-  const loaded = loadFirstJsonWithSource(SCRIPT_LIST_SOURCES);
-  const rawScripts = loaded?.value ?? null;
-  const source = loaded?.source ?? "none";
+  const loaded = loadScriptsSource();
+  const rawScripts = loaded.value ?? null;
+  const source = loaded.source;
   const scriptsRaw = extractScriptList(rawScripts);
   const scripts = scriptsRaw.map(toScriptSummary).filter((s): s is ScriptSummary => !!s);
   const activeScriptId = extractActiveScriptId(rawScripts, source);
@@ -242,20 +282,26 @@ function buildScriptsSnapshot(workspaceId: string, reason: MirrorReason, meta?: 
     : null;
   const activeScript = activeScriptRaw ? toActiveScript(activeScriptRaw) : null;
 
-  return {
-    version: "scripts_snapshot_v1",
+  const snapshot: ScriptsSnapshotV1 = {
     schemaVersion: 1,
     mirroredAt: new Date().toISOString(),
     workspaceId,
     role: "scripts",
     reason,
     source,
-    counts: { total: scripts.length },
-    meta: { ...meta, source },
+    counts: { total: scripts.length, active: activeScriptId ? 1 : 0 },
     scripts,
     activeScriptId: activeScriptId ?? null,
     activeScript,
+    meta: {
+      ...meta,
+      keysChecked: loaded.keysChecked,
+      keysFound: loaded.keysFound,
+      parseErrors: loaded.parseErrors.length ? loaded.parseErrors : undefined,
+    },
   };
+
+  return snapshot;
 }
 
 export async function mirrorRoleSnapshot(
