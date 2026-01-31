@@ -112,12 +112,19 @@ function buildBarstockSnapshot(workspaceId: string, reason: MirrorReason, meta?:
   };
 }
 
-const SCRIPT_LIST_KEYS = ["forge_scripts_v1", "hearth_scripts_v1", "scripts_v1"];
-const ACTIVE_SCRIPT_KEYS = [
-  "forge_active_script_id_v1",
-  "hearth_active_script_id",
-  "scripts_active_id",
+type ScriptSource = "forge" | "hearth" | "legacy" | "none";
+
+const SCRIPT_LIST_SOURCES: { key: string; source: ScriptSource }[] = [
+  { key: "forge_scripts_v1", source: "forge" },
+  { key: "hearth_scripts_v1", source: "hearth" },
+  { key: "scripts_v1", source: "legacy" },
 ];
+
+const ACTIVE_SCRIPT_KEYS_BY_SOURCE: Record<Exclude<ScriptSource, "none">, string> = {
+  forge: "forge_active_script_id_v1",
+  hearth: "hearth_active_script_id",
+  legacy: "scripts_active_id",
+};
 
 type ScriptSummary = {
   id: string;
@@ -150,14 +157,16 @@ function pickStringOrNumber(obj: Record<string, unknown>, keys: string[]): strin
   return undefined;
 }
 
-function loadFirstJson(keys: string[]): unknown | null {
-  for (const key of keys) {
-    const raw = localStorage.getItem(key);
+function loadFirstJsonWithSource(
+  entries: { key: string; source: ScriptSource }[],
+): { value: unknown; source: ScriptSource; key: string } | null {
+  for (const entry of entries) {
+    const raw = localStorage.getItem(entry.key);
     if (!raw) continue;
     try {
-      return JSON.parse(raw);
+      return { value: JSON.parse(raw), source: entry.source, key: entry.key };
     } catch {
-      return null;
+      return { value: null, source: entry.source, key: entry.key };
     }
   }
   return null;
@@ -171,13 +180,34 @@ function extractScriptList(raw: unknown): Record<string, unknown>[] {
   return [];
 }
 
-function extractActiveScriptId(raw: unknown): string | undefined {
+function extractActiveScriptId(raw: unknown, source: ScriptSource): string | undefined {
   if (isObject(raw)) {
     const fromObj = pickString(raw, ["activeScriptId", "activeScript", "activeId", "active_id"]);
     if (fromObj) return fromObj;
   }
-  const fallback = loadFirstJson(ACTIVE_SCRIPT_KEYS);
-  return typeof fallback === "string" ? fallback : undefined;
+  if (source !== "none") {
+    const key = ACTIVE_SCRIPT_KEYS_BY_SOURCE[source];
+    const rawActive = localStorage.getItem(key);
+    if (rawActive) {
+      try {
+        const parsed = JSON.parse(rawActive);
+        if (typeof parsed === "string") return parsed;
+      } catch {
+        // ignore parse failures
+      }
+    }
+  }
+  for (const key of Object.values(ACTIVE_SCRIPT_KEYS_BY_SOURCE)) {
+    const rawActive = localStorage.getItem(key);
+    if (!rawActive) continue;
+    try {
+      const parsed = JSON.parse(rawActive);
+      if (typeof parsed === "string") return parsed;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
 }
 
 function toScriptSummary(raw: Record<string, unknown>): ScriptSummary | null {
@@ -201,10 +231,12 @@ function toActiveScript(raw: Record<string, unknown>): ScriptSnapshot | null {
 }
 
 function buildScriptsSnapshot(workspaceId: string, reason: MirrorReason, meta?: Record<string, unknown>) {
-  const rawScripts = loadFirstJson(SCRIPT_LIST_KEYS);
+  const loaded = loadFirstJsonWithSource(SCRIPT_LIST_SOURCES);
+  const rawScripts = loaded?.value ?? null;
+  const source = loaded?.source ?? "none";
   const scriptsRaw = extractScriptList(rawScripts);
   const scripts = scriptsRaw.map(toScriptSummary).filter((s): s is ScriptSummary => !!s);
-  const activeScriptId = extractActiveScriptId(rawScripts);
+  const activeScriptId = extractActiveScriptId(rawScripts, source);
   const activeScriptRaw = activeScriptId
     ? scriptsRaw.find((s) => pickString(s, ["id", "scriptId"]) === activeScriptId) ?? null
     : null;
@@ -212,11 +244,14 @@ function buildScriptsSnapshot(workspaceId: string, reason: MirrorReason, meta?: 
 
   return {
     version: "scripts_snapshot_v1",
+    schemaVersion: 1,
     mirroredAt: new Date().toISOString(),
     workspaceId,
     role: "scripts",
     reason,
-    meta,
+    source,
+    counts: { total: scripts.length },
+    meta: { ...meta, source },
     scripts,
     activeScriptId: activeScriptId ?? null,
     activeScript,
