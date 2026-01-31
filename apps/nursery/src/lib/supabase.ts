@@ -1,13 +1,11 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-type ForgeSupabaseClient = SupabaseClient<any, any, any, any>;
-
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
 const GLOBAL_KEY = "__forge_supabase_client__";
 const globalStore = globalThis as typeof globalThis & {
-  [GLOBAL_KEY]?: ForgeSupabaseClient;
+  [GLOBAL_KEY]?: SupabaseClient;
 };
 
 if (!url || !anon) {
@@ -27,4 +25,4 @@ export const supabase =
     },
   });
 
-globalStore[GLOBAL_KEY] = supabase;
+globalStore[GLOBAL_KEY] = supabase as SupabaseClient;

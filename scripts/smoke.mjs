@@ -21,10 +21,18 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function spawnCmd(command, args, opts = {}) {
+  return spawn(command, args, {
+    stdio: "inherit",
+    shell: true,
+    windowsHide: true,
+    ...opts,
+  });
+}
+
 function runCommand(command, args) {
   return new Promise((resolve, reject) => {
-    const cmd = process.platform === "win32" && command === "pnpm" ? "pnpm.cmd" : command;
-    const child = spawn(cmd, args, { stdio: "inherit" });
+    const child = spawnCmd(command, args);
     child.on("error", reject);
     child.on("exit", (code) => {
       if (code === 0) resolve();
@@ -82,8 +90,7 @@ async function main() {
   await runCommand(BUILD_COMMAND, BUILD_ARGS);
 
   log("booting via pnpm dev");
-  const cmd = process.platform === "win32" ? "pnpm.cmd" : DEV_COMMAND;
-  const dev = spawn(cmd, DEV_ARGS, { stdio: "inherit" });
+  const dev = spawnCmd(DEV_COMMAND, DEV_ARGS);
 
   const cleanup = async () => {
     await stopProcess(dev);
