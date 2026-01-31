@@ -157,6 +157,7 @@ type ScriptsSnapshotV1 = {
     keysChecked: string[];
     keysFound: string[];
     parseErrors?: string[];
+    warnings?: string[];
   };
 };
 
@@ -285,6 +286,13 @@ function buildScriptsSnapshot(workspaceId: string, reason: MirrorReason, meta?: 
     ? scriptsRaw.find((s) => pickString(s, ["id", "scriptId"]) === activeScriptId) ?? null
     : null;
   const activeScript = activeScriptRaw ? toActiveScript(activeScriptRaw) : null;
+  const warnings: string[] = [];
+  if (activeScriptId && !activeScript) {
+    warnings.push("activeScriptId_not_found_in_scripts");
+  }
+  if (loaded.keysFound.length > 1) {
+    warnings.push("multiple_script_stores_present");
+  }
 
   const snapshot: ScriptsSnapshotV1 = {
     schemaVersion: 1,
@@ -302,6 +310,7 @@ function buildScriptsSnapshot(workspaceId: string, reason: MirrorReason, meta?: 
       keysChecked: loaded.keysChecked,
       keysFound: loaded.keysFound,
       parseErrors: loaded.parseErrors.length ? loaded.parseErrors : undefined,
+      warnings: warnings.length ? warnings : undefined,
     },
   };
 
