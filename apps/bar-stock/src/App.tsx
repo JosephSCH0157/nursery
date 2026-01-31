@@ -20,7 +20,36 @@ type SessionFilter = "all" | "unassigned" | SessionId;
 
 const STANDALONE = import.meta.env.VITE_BARSTOCK_STANDALONE === "true";
 
-export default function App() {
+const ACTIVE_WORKSPACE_KEY = "forge_workspace_id_v1";
+const LEGACY_WORKSPACE_KEY = "barstock_workspace_id";
+
+function loadStoredWorkspaceId(): string | null {
+  return localStorage.getItem(ACTIVE_WORKSPACE_KEY)
+    ?? localStorage.getItem(LEGACY_WORKSPACE_KEY);
+}
+
+function saveStoredWorkspaceId(id: string | null) {
+  if (id) {
+    localStorage.setItem(ACTIVE_WORKSPACE_KEY, id);
+    localStorage.setItem(LEGACY_WORKSPACE_KEY, id);
+    return;
+  }
+  localStorage.removeItem(ACTIVE_WORKSPACE_KEY);
+  localStorage.removeItem(LEGACY_WORKSPACE_KEY);
+}
+
+type WorkspaceState = {
+  workspaces: Workspace[];
+  workspaceId: string | null;
+  onWorkspaceChange: (id: string | null) => void;
+};
+
+type BarstockAppProps = {
+  workspaceState?: WorkspaceState;
+  showWorkspacePicker?: boolean;
+};
+
+export default function App(props: BarstockAppProps = {}) {
   const [body, setBody] = useState("");
   const [sparks, setSparks] = useState<Spark[]>(() => loadSparks());
 
@@ -29,8 +58,18 @@ export default function App() {
   const [newSessionName, setNewSessionName] = useState("");
   const [session, setSession] = useState<SupabaseSession | null>(null);
   const [email, setEmail] = useState("");
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  const hasExternalWorkspaceState = !!props.workspaceState;
+  const externalWorkspaces = props.workspaceState?.workspaces;
+  const externalWorkspaceId = props.workspaceState?.workspaceId;
+  const externalWorkspaceChange = props.workspaceState?.onWorkspaceChange;
+  const showWorkspacePicker = props.showWorkspacePicker ?? !hasExternalWorkspaceState;
+
+  const [workspaces, setWorkspaces] = useState<Workspace[]>(
+    () => externalWorkspaces ?? [],
+  );
+  const [workspaceId, setWorkspaceId] = useState<string | null>(
+    () => (hasExternalWorkspaceState ? (externalWorkspaceId ?? null) : loadStoredWorkspaceId()),
+  );
 
   const [q, setQ] = useState<SparkQuery>({ status: "all", pinned: "all" });
   const [tongsStatus, setTongsStatus] = useState<"offline" | "online">("offline");
@@ -104,6 +143,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!hasExternalWorkspaceState) return;
+    setWorkspaces(externalWorkspaces ?? []);
+  }, [hasExternalWorkspaceState, externalWorkspaces]);
+
+  useEffect(() => {
+    if (!hasExternalWorkspaceState) return;
+    setWorkspaceId(externalWorkspaceId ?? null);
+  }, [hasExternalWorkspaceState, externalWorkspaceId]);
+
+  useEffect(() => {
     saveSparks(sparks);
   }, [sparks]);
 
@@ -132,6 +181,7 @@ export default function App() {
   }, [supabaseAvailable, session, workspaceId]);
 
   useEffect(() => {
+    if (hasExternalWorkspaceState) return;
     if (!session) {
       setWorkspaces([]);
       setWorkspaceId(null);
@@ -142,16 +192,16 @@ export default function App() {
       try {
         const ws = await listMyWorkspaces();
         setWorkspaces(ws);
-        const saved = localStorage.getItem("barstock_workspace_id");
+        const saved = loadStoredWorkspaceId();
         const pick = (saved && ws.find(x => x.id === saved)) ? saved : (ws[0]?.id ?? null);
         setWorkspaceId(pick);
-        if (pick) localStorage.setItem("barstock_workspace_id", pick);
+        if (pick) saveStoredWorkspaceId(pick);
       } catch (err) {
         console.error(err);
         popToast("Failed loading workspaces");
       }
     })();
-  }, [session]);
+  }, [session, hasExternalWorkspaceState]);
 
   const count = sparks.length;
   const canAdd = useMemo(() => body.trim().length > 0, [body]);
@@ -159,6 +209,15 @@ export default function App() {
   const syncHint = !supabaseAvailable
     ? "Cloud sync unavailable."
     : (tongsStatus === "offline" ? "Offline / local-only." : "Online.");
+
+  const setActiveWorkspace = useCallback((next: string | null) => {
+    if (hasExternalWorkspaceState && externalWorkspaceChange) {
+      externalWorkspaceChange(next);
+      return;
+    }
+    setWorkspaceId(next);
+    saveStoredWorkspaceId(next);
+  }, [hasExternalWorkspaceState, externalWorkspaceChange]);
 
   function updateSpark(s: Spark, patch: Partial<Spark>) {
     const ts = now();
@@ -276,63 +335,64 @@ export default function App() {
         <div style={{ opacity: 0.75, marginTop: 6, fontSize: 13 }}>
           {count} sparks • idea mine
         </div>
-        <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <strong>Bar-Stock</strong>
-            {session ? (
-              <span style={{ opacity: 0.7 }}>{session.user.email}</span>
-            ) : null}
-          </div>
-
-          {!supabaseAvailable ? (
-            <div style={{ fontSize: 12, opacity: 0.7 }}>Cloud sync unavailable.</div>
-          ) : session ? (
+        {showWorkspacePicker ? (
+          <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <select
-                value={workspaceId ?? ""}
-                onChange={(e) => {
-                  const v = e.target.value || null;
-                  setWorkspaceId(v);
-                  if (v) localStorage.setItem("barstock_workspace_id", v);
-                }}
-                style={{ padding: "6px", fontSize: 12 }}
-              >
-                {workspaces.map(w => (
-                  <option key={w.id} value={w.id}>{w.name}</option>
-                ))}
-              </select>
-              {STANDALONE ? (
-                <button onClick={() => supabase?.auth.signOut()} style={{ cursor: "pointer" }}>
-                  Sign out
-                </button>
+              <strong>Bar-Stock</strong>
+              {session ? (
+                <span style={{ opacity: 0.7 }}>{session.user.email}</span>
               ) : null}
             </div>
-          ) : STANDALONE ? (
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="email for magic link"
-                style={{ padding: "6px", fontSize: 12 }}
-              />
-              <button
-                onClick={async () => {
-                  if (!supabase) return;
-                  const { error } = await supabase.auth.signInWithOtp({
-                    email,
-                    options: { emailRedirectTo: window.location.origin }
-                  });
-                  popToast(error ? error.message : "Magic link sent.");
-                }}
-                style={{ cursor: "pointer" }}
-              >
-                Send link
-              </button>
-            </div>
-          ) : (
-            <div style={{ fontSize: 12, opacity: 0.7 }}>Signed in via Nursery.</div>
-          )}
-        </div>
+
+            {!supabaseAvailable ? (
+              <div style={{ fontSize: 12, opacity: 0.7 }}>Cloud sync unavailable.</div>
+            ) : session ? (
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <select
+                  value={workspaceId ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value || null;
+                    setActiveWorkspace(v);
+                  }}
+                  style={{ padding: "6px", fontSize: 12 }}
+                >
+                  {workspaces.map(w => (
+                    <option key={w.id} value={w.id}>{w.name}</option>
+                  ))}
+                </select>
+                {STANDALONE ? (
+                  <button onClick={() => supabase?.auth.signOut()} style={{ cursor: "pointer" }}>
+                    Sign out
+                  </button>
+                ) : null}
+              </div>
+            ) : STANDALONE ? (
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="email for magic link"
+                  style={{ padding: "6px", fontSize: 12 }}
+                />
+                <button
+                  onClick={async () => {
+                    if (!supabase) return;
+                    const { error } = await supabase.auth.signInWithOtp({
+                      email,
+                      options: { emailRedirectTo: window.location.origin }
+                    });
+                    popToast(error ? error.message : "Magic link sent.");
+                  }}
+                  style={{ cursor: "pointer" }}
+                >
+                  Send link
+                </button>
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, opacity: 0.7 }}>Signed in via Nursery.</div>
+            )}
+          </div>
+        ) : null}
 
         <div style={{ marginTop: 14 }}>
           <div style={{ fontWeight: 700, fontSize: 13, opacity: 0.85, marginBottom: 8 }}>
