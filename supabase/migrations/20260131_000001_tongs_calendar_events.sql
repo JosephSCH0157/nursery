@@ -104,6 +104,11 @@ begin
   end if;
 end $$;
 
--- Optional safety net:
-alter table tongs.workspace_members
-alter column role set default 'member';
+do $$
+begin
+  if to_regclass('tongs.workspace_members') is not null then
+    execute 'alter table tongs.workspace_members alter column role set default ''member''';
+  else
+    raise notice 'tongs.workspace_members not found; skipping role default (apply later).';
+  end if;
+end $$;
