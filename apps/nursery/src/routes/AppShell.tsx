@@ -43,15 +43,6 @@ function saveActiveWorkspaceId(id: string | null) {
   localStorage.removeItem(LEGACY_BARSTOCK_WORKSPACE_KEY);
 }
 
-function slugify(name: string): string {
-  return name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48);
-}
-
 export type AppShellContext = {
   workspaceId: string | null;
   workspaces: Workspace[];
@@ -69,9 +60,6 @@ export default function AppShell() {
   const lastSessionUserId = useRef<string | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [createName, setCreateName] = useState("");
-  const [createSlug, setCreateSlug] = useState("");
-  const [slugTouched, setSlugTouched] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -162,36 +150,24 @@ export default function AppShell() {
   }
 
   function openCreateWorkspace() {
-    setCreateName("");
-    setCreateSlug("");
-    setSlugTouched(false);
     setCreateError(null);
     setCreateOpen(true);
   }
 
   async function onCreateWorkspace() {
     if (!session) return;
-    const name = createName.trim();
-    if (!name) {
-      setCreateError("Name is required.");
-      return;
-    }
-    const slug = (createSlug.trim() || slugify(name)) || undefined;
-
     setCreating(true);
     setCreateError(null);
     try {
-      const payload: Record<string, unknown> = { name };
-      if (slug) payload.slug = slug;
-
-      const { data, error } = await supabase
+      const workspacePayload: Record<string, never> = {};
+      const { data: workspace, error } = await supabase
         .schema("tongs")
         .from("workspaces")
-        .insert(payload)
-        .select("id, name")
+        .insert(workspacePayload)
+        .select("id")
         .single();
 
-      if (error || !data?.id) {
+      if (error || !workspace?.id) {
         setCreateError(error?.message ?? "Failed to create workspace.");
         return;
       }
@@ -201,7 +177,7 @@ export default function AppShell() {
           .schema("tongs")
           .from("workspace_members")
           .insert({
-            workspace_id: data.id,
+            workspace_id: workspace.id,
             user_id: session.user.id,
             role: "owner",
           });
@@ -210,8 +186,8 @@ export default function AppShell() {
         }
       }
 
-      await refreshWorkspaces({ force: true, preferId: data.id });
-      selectWorkspace(data.id);
+      await refreshWorkspaces({ force: true, preferId: workspace.id });
+      selectWorkspace(workspace.id);
       setCreateOpen(false);
     } finally {
       setCreating(false);
@@ -261,7 +237,7 @@ export default function AppShell() {
                 {loadingWorkspaces ? "Loading..." : "Select workspace"}
               </option>
               {workspaces.map(w => (
-                <option key={w.id} value={w.id}>{w.name}</option>
+                <option key={w.id} value={w.id}>{w.id}</option>
               ))}
               <option value="__create__">+ Create workspace...</option>
             </select>
@@ -339,31 +315,9 @@ export default function AppShell() {
           <div style={{ background: "#fff", padding: 16, borderRadius: 12, width: "100%", maxWidth: 420 }}>
             <h3 style={{ marginTop: 0 }}>Create workspace</h3>
             <div style={{ display: "grid", gap: 10 }}>
-              <label style={{ display: "grid", gap: 6 }}>
-                <span style={{ fontSize: 12, opacity: 0.8 }}>Name</span>
-                <input
-                  value={createName}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    setCreateName(next);
-                    if (!slugTouched) setCreateSlug(slugify(next));
-                  }}
-                  placeholder="Black Anvil"
-                  style={{ padding: "8px 10px" }}
-                />
-              </label>
-              <label style={{ display: "grid", gap: 6 }}>
-                <span style={{ fontSize: 12, opacity: 0.8 }}>Slug (optional)</span>
-                <input
-                  value={createSlug}
-                  onChange={(e) => {
-                    setCreateSlug(e.target.value);
-                    setSlugTouched(true);
-                  }}
-                  placeholder="black-anvil"
-                  style={{ padding: "8px 10px" }}
-                />
-              </label>
+              <div style={{ fontSize: 12, opacity: 0.7 }}>
+                This creates an ID-only workspace container.
+              </div>
               {createError && (
                 <div style={{ color: "#b00020", fontSize: 12 }}>{createError}</div>
               )}
@@ -377,8 +331,8 @@ export default function AppShell() {
                 </button>
                 <button
                   onClick={onCreateWorkspace}
-                  disabled={creating || !createName.trim()}
-                  style={{ cursor: creating || !createName.trim() ? "not-allowed" : "pointer" }}
+                  disabled={creating}
+                  style={{ cursor: creating ? "not-allowed" : "pointer" }}
                 >
                   {creating ? "Creating..." : "Create"}
                 </button>
