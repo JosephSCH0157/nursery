@@ -185,6 +185,7 @@ export default function AppShell() {
       if (slug) payload.slug = slug;
 
       const { data, error } = await supabase
+        .schema("tongs")
         .from("workspaces")
         .insert(payload)
         .select("id, name")
@@ -197,6 +198,7 @@ export default function AppShell() {
 
       if (session.user?.id) {
         const { error: memberError } = await supabase
+          .schema("tongs")
           .from("workspace_members")
           .insert({
             workspace_id: data.id,

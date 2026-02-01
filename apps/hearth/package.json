@@ -1,0 +1,9 @@
+{
+  "name": "@forge/hearth",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.91.1"
+  }
+}

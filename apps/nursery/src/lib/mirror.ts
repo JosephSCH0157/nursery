@@ -3,7 +3,7 @@ import { resolveMount } from "@forge/tongs";
 import { loadMountRegistry } from "./mount-registry";
 import { getHandle } from "./handle-vault";
 import { loadSparks } from "@barstock/lib/store";
-import { loadSessions } from "@barstock/lib/sessions";
+import { loadAssignments } from "@barstock/lib/assignments";
 import { buildExportPayload } from "@barstock/lib/io";
 
 export type MirrorReason = "manual" | "session_end";
@@ -99,7 +99,7 @@ async function writeJson(
 
 function buildBarstockSnapshot(workspaceId: string, reason: MirrorReason, meta?: Record<string, unknown>) {
   const sparks = loadSparks();
-  const sessions = loadSessions();
+  const assignments = loadAssignments();
   return {
     version: "barstock_snapshot_v1",
     mirroredAt: new Date().toISOString(),
@@ -108,13 +108,14 @@ function buildBarstockSnapshot(workspaceId: string, reason: MirrorReason, meta?:
     reason,
     meta,
     data: buildExportPayload(sparks),
-    sessions,
+    assignments,
+    sessions: assignments,
   };
 }
 
 type ScriptsSnapshotSource = "forge" | "hearth" | "legacy" | "none";
 
-const SCRIPT_SOURCES_ORDER: ScriptsSnapshotSource[] = ["forge", "hearth", "legacy"];
+const SCRIPT_SOURCES_ORDER: Exclude<ScriptsSnapshotSource, "none">[] = ["forge", "hearth", "legacy"];
 
 const SCRIPT_LIST_SOURCES: { key: string; source: ScriptsSnapshotSource }[] = [
   { key: "forge_scripts_v1", source: "forge" },
@@ -234,7 +235,7 @@ function extractActiveScriptId(raw: unknown, source: ScriptsSnapshotSource): str
     const fromObj = pickString(raw, ["activeScriptId", "activeScript", "activeId", "active_id"]);
     if (fromObj) return fromObj;
   }
-  const orderedSources =
+  const orderedSources: Exclude<ScriptsSnapshotSource, "none">[] =
     source === "none"
       ? SCRIPT_SOURCES_ORDER
       : [source, ...SCRIPT_SOURCES_ORDER.filter((s) => s !== source)];

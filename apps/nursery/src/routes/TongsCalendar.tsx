@@ -29,46 +29,16 @@ const CURSOR_KEY = "forge_tongs_calendar_cursor_v1";
 
 type CalendarView = "day" | "week" | "month";
 
-type CalendarEventKind = "recording" | "scripting" | "editing" | "publishing" | "guest";
-
-type CalendarEventStatus = "planned" | "in_progress" | "blocked" | "done";
-
-type CalendarEventMeta = {
-  scripting?: {
-    scriptId?: string;
-    targetLengthMin?: number;
-    outline?: string;
-  };
-  editing?: {
-    episodeId?: string;
-    assets?: string[];
-    deliverables?: string[];
-  };
-  publishing?: {
-    platforms?: string[];
-    scheduledPublishIso?: string;
-    seoChecklist?: boolean;
-  };
-  guest?: {
-    guestName?: string;
-    guestHandle?: string;
-    contact?: string;
-    format?: "in_person" | "remote";
-    prepItems?: string;
-  };
-};
-
 type CalendarEvent = {
   id: string;
-  kind: CalendarEventKind;
   title: string;
+  description?: string;
+  location?: string;
   startIso: string;
-  durationMin?: number;
-  notes?: string;
-  status: CalendarEventStatus;
+  endIso?: string;
+  allDay?: boolean;
   createdAtIso: string;
   updatedAtIso: string;
-  meta?: CalendarEventMeta;
 };
 
 
@@ -78,35 +48,6 @@ const VIEW_OPTIONS: { value: CalendarView; label: string }[] = [
   { value: "month", label: "Month" },
 ];
 
-const KIND_OPTIONS: { value: CalendarEventKind; label: string }[] = [
-  { value: "recording", label: "Recording" },
-  { value: "scripting", label: "Scripting" },
-  { value: "editing", label: "Editing" },
-  { value: "publishing", label: "Publishing" },
-  { value: "guest", label: "Guest" },
-];
-
-const STATUS_OPTIONS: { value: CalendarEventStatus; label: string }[] = [
-  { value: "planned", label: "Planned" },
-  { value: "in_progress", label: "In progress" },
-  { value: "blocked", label: "Blocked" },
-  { value: "done", label: "Done" },
-];
-
-const KIND_STYLES: Record<CalendarEventKind, { label: string; color: string; bg: string }> = {
-  recording: { label: "Recording", color: "#f4cfa0", bg: "rgba(244,207,160,0.18)" },
-  scripting: { label: "Scripting", color: "#9ad0ff", bg: "rgba(154,208,255,0.18)" },
-  editing: { label: "Editing", color: "#b9f3c2", bg: "rgba(185,243,194,0.18)" },
-  publishing: { label: "Publishing", color: "#f7b7ff", bg: "rgba(247,183,255,0.18)" },
-  guest: { label: "Guest", color: "#ffd280", bg: "rgba(255,210,128,0.18)" },
-};
-
-const STATUS_COLORS: Record<CalendarEventStatus, string> = {
-  planned: "#a0a0a0",
-  in_progress: "#5da9ff",
-  blocked: "#ff6b6b",
-  done: "#4ade80",
-};
 
 function useLocalStorageState<T>(key: string, initialValue: T) {
   const [value, setValue] = useState<T>(() => {
@@ -285,43 +226,26 @@ function normalizeEvent(event: CalendarEvent): CalendarEvent {
   const nowIso = new Date().toISOString();
   return {
     ...event,
-    status: event.status ?? "planned",
+    allDay: event.allDay ?? false,
     createdAtIso: event.createdAtIso ?? nowIso,
     updatedAtIso: event.updatedAtIso ?? event.createdAtIso ?? nowIso,
   };
 }
 
-function isValidKind(kind: unknown): kind is CalendarEventKind {
-  return KIND_OPTIONS.some((option) => option.value === kind);
-}
-
-function isValidStatus(status: unknown): status is CalendarEventStatus {
-  return STATUS_OPTIONS.some((option) => option.value === status);
-}
-
 function rowToEvent(row: CalendarEventRow): CalendarEvent {
   const startIso = row.start_at ?? new Date().toISOString();
-  const endIso = row.end_at ?? null;
-  const start = new Date(startIso);
-  const end = endIso ? new Date(endIso) : null;
-  const durationMin = end && !Number.isNaN(end.getTime())
-    ? Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000))
-    : undefined;
-
-  const kind = isValidKind(row.kind) ? row.kind : "recording";
-  const status = isValidStatus(row.status) ? row.status : "planned";
+  const endIso = row.end_at ?? undefined;
 
   return normalizeEvent({
     id: row.id,
-    kind,
-    title: row.title ?? "Recording session",
+    title: row.title ?? "Calendar event",
+    description: row.description ?? undefined,
+    location: row.location ?? undefined,
     startIso,
-    durationMin,
-    notes: row.notes ?? undefined,
-    status,
+    endIso,
+    allDay: row.all_day ?? false,
     createdAtIso: row.created_at ?? startIso,
     updatedAtIso: row.updated_at ?? startIso,
-    meta: (row.meta as CalendarEventMeta) ?? undefined,
   });
 }
 
@@ -345,9 +269,9 @@ export default function TongsCalendar() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
 
-  const [kind, setKind] = useState<CalendarEventKind>("recording");
-  const [status, setStatus] = useState<CalendarEventStatus>("planned");
-  const [title, setTitle] = useState("Recording session");
+  const [title, setTitle] = useState("Calendar event");
+  const [description, setDescription] = useState("");
+  const [location, setLocation] = useState("");
   const [dateOverride, setDateOverride] = useState<string | null>(null);
   const [time, setTime] = useState(() => {
     const d = new Date();
@@ -357,33 +281,7 @@ export default function TongsCalendar() {
   });
   const date = dateOverride ?? cursorDayIso;
   const [durationMin, setDurationMin] = useState(60);
-  const [notes, setNotes] = useState("");
-
-  const [scriptId, setScriptId] = useState("");
-  const [targetLengthMin, setTargetLengthMin] = useState<number | "">("");
-  const [outline, setOutline] = useState("");
-
-  const [episodeId, setEpisodeId] = useState("");
-  const [assets, setAssets] = useState("");
-  const [deliverables, setDeliverables] = useState("");
-
-  const [platforms, setPlatforms] = useState("");
-  const [scheduledPublish, setScheduledPublish] = useState("");
-  const [seoChecklist, setSeoChecklist] = useState(false);
-
-  const [guestName, setGuestName] = useState("");
-  const [guestHandle, setGuestHandle] = useState("");
-  const [guestContact, setGuestContact] = useState("");
-  const [guestFormat, setGuestFormat] = useState<"in_person" | "remote">("remote");
-  const [prepItems, setPrepItems] = useState("");
-
-  const [kindFilters, setKindFilters] = useState<Record<CalendarEventKind, boolean>>(() => ({
-    recording: true,
-    scripting: true,
-    editing: true,
-    publishing: true,
-    guest: true,
-  }));
+  const [allDay, setAllDay] = useState(false);
 
   useEffect(() => {
     if (!workspaceId || !session) {
@@ -428,97 +326,22 @@ export default function TongsCalendar() {
     setDateOverride(null);
   }, []);
 
-  function resetKindFields(selectedKind: CalendarEventKind) {
-    if (selectedKind === "recording") return;
-    if (selectedKind === "scripting") {
-      setScriptId("");
-      setTargetLengthMin("");
-      setOutline("");
-    }
-    if (selectedKind === "editing") {
-      setEpisodeId("");
-      setAssets("");
-      setDeliverables("");
-    }
-    if (selectedKind === "publishing") {
-      setPlatforms("");
-      setScheduledPublish("");
-      setSeoChecklist(false);
-    }
-    if (selectedKind === "guest") {
-      setGuestName("");
-      setGuestHandle("");
-      setGuestContact("");
-      setGuestFormat("remote");
-      setPrepItems("");
-    }
-  }
-
-  function handleKindChange(next: CalendarEventKind) {
-    setKind(next);
-    resetKindFields(next);
-  }
 
   async function addEvent() {
     if (!workspaceId || !session) return;
-    const start = new Date(`${date}T${time}:00`);
-    if (Number.isNaN(start.getTime())) return;
-
-    const nowIso = new Date().toISOString();
+    const baseStart = allDay ? new Date(`${date}T00:00:00`) : new Date(`${date}T${time}:00`);
+    if (Number.isNaN(baseStart.getTime())) return;
     const minutes = Math.max(15, Math.min(8 * 60, Number(durationMin) || 60));
-    const endAt = new Date(start.getTime() + minutes * 60 * 1000);
-
-    const meta: CalendarEventMeta = {};
-    if (kind === "scripting") {
-      meta.scripting = {
-        scriptId: scriptId.trim() || undefined,
-        targetLengthMin: typeof targetLengthMin === "number" ? targetLengthMin : undefined,
-        outline: outline.trim() || undefined,
-      };
-    }
-    if (kind === "editing") {
-      meta.editing = {
-        episodeId: episodeId.trim() || undefined,
-        assets: assets
-          .split(",")
-          .map((item) => item.trim())
-          .filter(Boolean),
-        deliverables: deliverables
-          .split(",")
-          .map((item) => item.trim())
-          .filter(Boolean),
-      };
-    }
-    if (kind === "publishing") {
-      meta.publishing = {
-        platforms: platforms
-          .split(",")
-          .map((item) => item.trim())
-          .filter(Boolean),
-        scheduledPublishIso: scheduledPublish ? new Date(scheduledPublish).toISOString() : undefined,
-        seoChecklist: seoChecklist || undefined,
-      };
-    }
-    if (kind === "guest") {
-      meta.guest = {
-        guestName: guestName.trim() || undefined,
-        guestHandle: guestHandle.trim() || undefined,
-        contact: guestContact.trim() || undefined,
-        format: guestFormat,
-        prepItems: prepItems.trim() || undefined,
-      };
-    }
+    const endAt = allDay ? endOfDay(baseStart) : new Date(baseStart.getTime() + minutes * 60 * 1000);
 
     try {
       const row = await createCalendarEvent(supabase, workspaceId, {
-        kind,
-        title: title.trim() || KIND_STYLES[kind].label,
-        start_at: start.toISOString(),
+        title: title.trim() || "Calendar event",
+        description: description.trim() || undefined,
+        location: location.trim() || undefined,
+        start_at: baseStart.toISOString(),
         end_at: endAt.toISOString(),
-        all_day: false,
-        notes: notes.trim() || undefined,
-        status,
-        meta: Object.keys(meta).length ? meta : undefined,
+        all_day: allDay,
       });
 
       const event = rowToEvent(row);
@@ -573,10 +396,6 @@ export default function TongsCalendar() {
     setCursorDayIso(toDateKey(addMonths(cursorDate, 1)));
   }
 
-  function toggleKindFilter(kindKey: CalendarEventKind) {
-    setKindFilters((prev) => ({ ...prev, [kindKey]: !prev[kindKey] }));
-  }
-
   const rangeLabel = useMemo(() => {
     if (view === "day") return formatDayLabel(cursorDate);
     if (view === "week") return formatWeekLabel(weekStart);
@@ -588,13 +407,12 @@ export default function TongsCalendar() {
   const visibleEvents = useMemo(() => {
     return events
       .filter((event) => {
-        if (!kindFilters[event.kind]) return false;
         const start = new Date(event.startIso);
         if (Number.isNaN(start.getTime())) return false;
         return start >= viewRange.start && start <= viewRange.end;
       })
       .sort((a, b) => a.startIso.localeCompare(b.startIso));
-  }, [events, viewRange, kindFilters]);
+  }, [events, viewRange]);
 
   const eventsByDay = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
@@ -674,27 +492,6 @@ export default function TongsCalendar() {
         </div>
       ) : null}
 
-      <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {KIND_OPTIONS.map((option) => {
-          const active = kindFilters[option.value];
-          return (
-            <button
-              key={option.value}
-              onClick={() => toggleKindFilter(option.value)}
-              style={{
-                padding: "6px 10px",
-                borderRadius: 999,
-                border: `1px solid ${active ? KIND_STYLES[option.value].color : "rgba(255,255,255,0.2)"}`,
-                background: active ? KIND_STYLES[option.value].bg : "transparent",
-                color: "inherit",
-              }}
-            >
-              {option.label}
-            </button>
-          );
-        })}
-      </div>
-
       {showNew && (
         <div
           style={{
@@ -704,39 +501,31 @@ export default function TongsCalendar() {
             borderRadius: 8,
           }}
         >
-          <div style={{ display: "grid", gridTemplateColumns: "160px 1fr 160px", gap: 10 }}>
-            <div>
-              <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Type</label>
-              <select value={kind} onChange={(e) => handleKindChange(e.target.value as CalendarEventKind)}>
-                {KIND_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 160px", gap: 10 }}>
             <div>
               <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Title</label>
               <input value={title} onChange={(e) => setTitle(e.target.value)} style={{ width: "100%" }} />
             </div>
 
             <div>
-              <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Status</label>
-              <select value={status} onChange={(e) => setStatus(e.target.value as CalendarEventStatus)}>
-                {STATUS_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+              <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Location</label>
+              <input value={location} onChange={(e) => setLocation(e.target.value)} style={{ width: "100%" }} />
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={allDay}
+                onChange={(e) => setAllDay(e.target.checked)}
+              />
+              <span style={{ fontSize: 12 }}>All day</span>
             </div>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 160px 120px 120px", gap: 10, marginTop: 10 }}>
             <div>
-              <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Notes (optional)</label>
-              <input value={notes} onChange={(e) => setNotes(e.target.value)} style={{ width: "100%" }} />
+              <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Description (optional)</label>
+              <input value={description} onChange={(e) => setDescription(e.target.value)} style={{ width: "100%" }} />
             </div>
 
             <div>
@@ -763,118 +552,10 @@ export default function TongsCalendar() {
                 value={durationMin}
                 onChange={(e) => setDurationMin(Number(e.target.value))}
                 style={{ width: "100%" }}
+                disabled={allDay}
               />
             </div>
           </div>
-
-          {kind === "scripting" && (
-            <div style={{ display: "grid", gridTemplateColumns: "160px 160px 1fr", gap: 10, marginTop: 12 }}>
-              <div>
-                <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Script ID</label>
-                <input value={scriptId} onChange={(e) => setScriptId(e.target.value)} style={{ width: "100%" }} />
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Target length (min)</label>
-                <input
-                  type="number"
-                  min={1}
-                  value={targetLengthMin}
-                  onChange={(e) => setTargetLengthMin(e.target.value ? Number(e.target.value) : "")}
-                  style={{ width: "100%" }}
-                />
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Outline</label>
-                <input value={outline} onChange={(e) => setOutline(e.target.value)} style={{ width: "100%" }} />
-              </div>
-            </div>
-          )}
-
-          {kind === "editing" && (
-            <div style={{ display: "grid", gridTemplateColumns: "160px 1fr 1fr", gap: 10, marginTop: 12 }}>
-              <div>
-                <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Episode ID</label>
-                <input value={episodeId} onChange={(e) => setEpisodeId(e.target.value)} style={{ width: "100%" }} />
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Deliverables</label>
-                <input
-                  value={deliverables}
-                  onChange={(e) => setDeliverables(e.target.value)}
-                  placeholder="full ep, shorts"
-                  style={{ width: "100%" }}
-                />
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Assets</label>
-                <input
-                  value={assets}
-                  onChange={(e) => setAssets(e.target.value)}
-                  placeholder="audio stems, clips"
-                  style={{ width: "100%" }}
-                />
-              </div>
-            </div>
-          )}
-
-          {kind === "publishing" && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 200px 160px", gap: 10, marginTop: 12 }}>
-              <div>
-                <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Platforms</label>
-                <input
-                  value={platforms}
-                  onChange={(e) => setPlatforms(e.target.value)}
-                  placeholder="YouTube, Spotify"
-                  style={{ width: "100%" }}
-                />
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Scheduled publish</label>
-                <input
-                  type="datetime-local"
-                  value={scheduledPublish}
-                  onChange={(e) => setScheduledPublish(e.target.value)}
-                  style={{ width: "100%" }}
-                />
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <input
-                  type="checkbox"
-                  checked={seoChecklist}
-                  onChange={(e) => setSeoChecklist(e.target.checked)}
-                />
-                <span style={{ fontSize: 12 }}>SEO checklist complete</span>
-              </div>
-            </div>
-          )}
-
-          {kind === "guest" && (
-            <div style={{ display: "grid", gridTemplateColumns: "160px 160px 1fr", gap: 10, marginTop: 12 }}>
-              <div>
-                <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Guest name</label>
-                <input value={guestName} onChange={(e) => setGuestName(e.target.value)} style={{ width: "100%" }} />
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Handle</label>
-                <input value={guestHandle} onChange={(e) => setGuestHandle(e.target.value)} style={{ width: "100%" }} />
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Contact</label>
-                <input value={guestContact} onChange={(e) => setGuestContact(e.target.value)} style={{ width: "100%" }} />
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Format</label>
-                <select value={guestFormat} onChange={(e) => setGuestFormat(e.target.value as "in_person" | "remote")}>
-                  <option value="remote">Remote</option>
-                  <option value="in_person">In person</option>
-                </select>
-              </div>
-              <div style={{ gridColumn: "span 2" }}>
-                <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Prep items</label>
-                <input value={prepItems} onChange={(e) => setPrepItems(e.target.value)} style={{ width: "100%" }} />
-              </div>
-            </div>
-          )}
 
           <div style={{ marginTop: 12, display: "flex", gap: 8, justifyContent: "flex-end" }}>
             <button onClick={closeNewForm}>Cancel</button>
@@ -899,7 +580,6 @@ export default function TongsCalendar() {
             {dayEvents.map((event) => {
               const start = new Date(event.startIso);
               const timeLabel = Number.isNaN(start.getTime()) ? "Unknown" : formatTimeLabel(start);
-              const kindStyle = KIND_STYLES[event.kind];
               return (
                 <div
                   key={event.id}
@@ -907,42 +587,17 @@ export default function TongsCalendar() {
                     borderRadius: 10,
                     padding: "10px 12px",
                     background: "rgba(255,255,255,0.08)",
-                    border: `1px solid ${kindStyle.color}`,
+                    border: "1px solid rgba(255,255,255,0.2)",
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span
-                      style={{
-                        fontSize: 10,
-                        textTransform: "uppercase",
-                        letterSpacing: 0.4,
-                        color: kindStyle.color,
-                        background: kindStyle.bg,
-                        padding: "2px 6px",
-                        borderRadius: 999,
-                        border: `1px solid ${kindStyle.color}`,
-                      }}
-                    >
-                      {kindStyle.label}
-                    </span>
-                    <span style={{ fontWeight: 700 }}>{event.title}</span>
-                  </div>
+                  <div style={{ fontWeight: 700 }}>{event.title}</div>
                   <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75, display: "flex", gap: 8 }}>
-                    <span>{timeLabel}</span>
-                    {event.durationMin && <span>{event.durationMin} min</span>}
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                      <span
-                        style={{
-                          width: 6,
-                          height: 6,
-                          borderRadius: 999,
-                          background: STATUS_COLORS[event.status],
-                        }}
-                      />
-                      {STATUS_OPTIONS.find((option) => option.value === event.status)?.label ?? event.status}
-                    </span>
+                    <span>{event.allDay ? "All day" : timeLabel}</span>
+                    {event.location ? <span>{event.location}</span> : null}
                   </div>
-                  {event.notes && <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>{event.notes}</div>}
+                  {event.description ? (
+                    <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>{event.description}</div>
+                  ) : null}
                 </div>
               );
             })}
@@ -983,7 +638,6 @@ export default function TongsCalendar() {
                     {dayEventsForWeek.map((event) => {
                       const start = new Date(event.startIso);
                       const timeLabel = Number.isNaN(start.getTime()) ? "Unknown" : formatTimeLabel(start);
-                      const kindStyle = KIND_STYLES[event.kind];
                       return (
                         <div
                           key={event.id}
@@ -991,19 +645,16 @@ export default function TongsCalendar() {
                             borderRadius: 10,
                             padding: "10px 12px",
                             background: "rgba(255,255,255,0.08)",
-                            border: `1px solid ${kindStyle.color}`,
+                            border: "1px solid rgba(255,255,255,0.2)",
                           }}
                         >
                           <div style={{ fontSize: 12, letterSpacing: 0.3, textTransform: "uppercase", opacity: 0.7 }}>
-                            {timeLabel}
+                            {event.allDay ? "All day" : timeLabel}
                           </div>
                           <div style={{ marginTop: 4, fontWeight: 700 }}>{event.title}</div>
-                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>
-                            {kindStyle.label} -
-                            <span style={{ marginLeft: 6, color: STATUS_COLORS[event.status] }}>
-                              {STATUS_OPTIONS.find((option) => option.value === event.status)?.label ?? event.status}
-                            </span>
-                          </div>
+                          {event.location ? (
+                            <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>{event.location}</div>
+                          ) : null}
                         </div>
                       );
                     })}
@@ -1050,7 +701,6 @@ export default function TongsCalendar() {
                   <div style={{ fontSize: 12, opacity: day.inMonth ? 0.85 : 0.45 }}>{day.label}</div>
                   <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
                     {visible.map((event) => {
-                      const kindStyle = KIND_STYLES[event.kind];
                       return (
                         <div
                           key={event.id}
@@ -1058,11 +708,10 @@ export default function TongsCalendar() {
                             borderRadius: 8,
                             padding: "6px 8px",
                             background: "rgba(255,255,255,0.08)",
-                            border: `1px solid ${kindStyle.color}`,
+                            border: "1px solid rgba(255,255,255,0.2)",
                             fontSize: 12,
                           }}
                         >
-                          <span style={{ color: kindStyle.color, fontWeight: 600 }}>{kindStyle.label}</span>{" "}
                           {event.title}
                         </div>
                       );
@@ -1085,7 +734,6 @@ export default function TongsCalendar() {
           <div style={{ display: "grid", gap: 10 }}>
             {visibleEvents.map((event) => {
               const start = new Date(event.startIso);
-              const kindStyle = KIND_STYLES[event.kind];
               return (
                 <div
                   key={event.id}
@@ -1099,32 +747,16 @@ export default function TongsCalendar() {
                   }}
                 >
                   <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span
-                        style={{
-                          fontSize: 10,
-                          textTransform: "uppercase",
-                          letterSpacing: 0.4,
-                          color: kindStyle.color,
-                          background: kindStyle.bg,
-                          padding: "2px 6px",
-                          borderRadius: 999,
-                          border: `1px solid ${kindStyle.color}`,
-                        }}
-                      >
-                        {kindStyle.label}
-                      </span>
-                      <span style={{ fontWeight: 600 }}>{event.title}</span>
-                    </div>
+                    <div style={{ fontWeight: 600 }}>{event.title}</div>
                     <div style={{ opacity: 0.75, fontSize: 13, marginTop: 4 }}>
                       {Number.isNaN(start.getTime()) ? event.startIso : start.toLocaleString()}
-                      {event.durationMin ? ` - ${event.durationMin} min` : ""}
+                      {event.allDay ? " • All day" : ""}
                     </div>
-                    <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>
-                      Status: {STATUS_OPTIONS.find((option) => option.value === event.status)?.label ?? event.status}
-                    </div>
-                    {event.notes ? (
-                      <div style={{ opacity: 0.7, fontSize: 13, marginTop: 6 }}>{event.notes}</div>
+                    {event.location ? (
+                      <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>{event.location}</div>
+                    ) : null}
+                    {event.description ? (
+                      <div style={{ opacity: 0.7, fontSize: 13, marginTop: 6 }}>{event.description}</div>
                     ) : null}
                   </div>
 
