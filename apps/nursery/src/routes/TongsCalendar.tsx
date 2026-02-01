@@ -2,11 +2,17 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { MOUNT_ROLE_POLICY } from "@forge/tongs";
 import type { ResolvedMount } from "@forge/tongs";
 import type { CalendarEventRow } from "@forge/tongs";
-import { listCalendarEvents, createCalendarEvent, deleteCalendarEvent } from "@forge/tongs";
+import {
+  listCalendarEvents,
+  createCalendarEvent,
+  updateCalendarEvent,
+  deleteCalendarEvent,
+} from "@forge/tongs";
 import { useMountRegistry } from "../hooks/useMountRegistry";
 import { supabase } from "../lib/supabase";
 import { useOutletContext } from "react-router-dom";
 import type { AppShellContext } from "./AppShell";
+import { LocalHearthStore } from "@forge/hearth";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTH_NAMES = [
@@ -31,6 +37,7 @@ type CalendarView = "day" | "week" | "month";
 
 type CalendarEvent = {
   id: string;
+  sessionId?: string | null;
   title: string;
   description?: string;
   location?: string;
@@ -49,12 +56,24 @@ const VIEW_OPTIONS: { value: CalendarView; label: string }[] = [
 ];
 
 
+const hearthStore = new LocalHearthStore();
+
 function getErrorMessage(err: unknown): string | undefined {
   if (err && typeof err === "object" && "message" in err) {
     const message = (err as { message?: unknown }).message;
     return typeof message === "string" ? message : undefined;
   }
   return undefined;
+}
+
+function getAssignmentIdFromSession(session: unknown): string | null {
+  if (!session || typeof session !== "object") return null;
+  const s = session as Record<string, unknown>;
+  const candidates = [s.assignmentId, s.assignment_id, s.id, s.sessionId, s.session_id];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.length > 0) return c;
+  }
+  return null;
 }
 
 function useLocalStorageState<T>(key: string, initialValue: T) {
@@ -246,6 +265,7 @@ function rowToEvent(row: CalendarEventRow): CalendarEvent {
 
   return normalizeEvent({
     id: row.id,
+    sessionId: row.session_id ?? null,
     title: row.title ?? "Calendar event",
     description: row.description ?? undefined,
     location: row.location ?? undefined,
@@ -352,7 +372,26 @@ export default function TongsCalendar() {
         all_day: allDay,
       });
 
-      const event = rowToEvent(row);
+      const assignmentId = getAssignmentIdFromSession(session);
+      if (!assignmentId) {
+        throw new Error(
+          "Missing assignmentId for calendar event (cannot bind recording session)."
+        );
+      }
+
+      const hearthSession = await hearthStore.ensureSessionForCalendarEvent({
+        calendarEventId: row.id,
+        assignmentId,
+        title: row.title,
+        scheduledStart: row.start_at,
+        scheduledEnd: row.end_at ?? undefined,
+      });
+
+      const patched = await updateCalendarEvent(supabase, workspaceId, row.id, {
+        session_id: hearthSession.sessionId,
+      });
+
+      const event = rowToEvent(patched);
       setEvents((prev) => [event, ...prev].sort((a, b) => b.startIso.localeCompare(a.startIso)));
       closeNewForm();
     } catch (err: unknown) {
