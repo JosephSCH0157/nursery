@@ -159,12 +159,14 @@ export default function AppShell() {
     setCreating(true);
     setCreateError(null);
     try {
-      const workspacePayload: Record<string, never> = {};
       const { data: workspace, error } = await supabase
         .schema("tongs")
         .from("workspaces")
-        .insert(workspacePayload)
-        .select("id")
+        .insert({
+          name: "Workspace",
+          created_by: session.user.id,
+        })
+        .select("id,name")
         .single();
 
       if (error || !workspace?.id) {
