@@ -9,6 +9,7 @@ export async function listMyWorkspaces(): Promise<Workspace[]> {
   if (!supabase) return [];
 
   const { data, error } = await supabase
+    .schema("tongs")
     .from("workspace_members")
     .select("workspace_id, role, workspaces!workspace_members_workspace_id_fkey(id, name)");
 

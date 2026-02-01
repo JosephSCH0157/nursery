@@ -235,6 +235,7 @@ export async function checkTongsOnline(
     });
   }
   const { data, error } = await supabase
+    .schema("tongs")
     .from("workspaces")
     .select("id")
     .eq("id", workspaceId)
