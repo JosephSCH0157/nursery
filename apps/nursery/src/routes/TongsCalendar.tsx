@@ -49,6 +49,14 @@ const VIEW_OPTIONS: { value: CalendarView; label: string }[] = [
 ];
 
 
+function getErrorMessage(err: unknown): string | undefined {
+  if (err && typeof err === "object" && "message" in err) {
+    const message = (err as { message?: unknown }).message;
+    return typeof message === "string" ? message : undefined;
+  }
+  return undefined;
+}
+
 function useLocalStorageState<T>(key: string, initialValue: T) {
   const [value, setValue] = useState<T>(() => {
     try {
@@ -299,13 +307,13 @@ export default function TongsCalendar() {
         const rows = await listCalendarEvents(supabase, workspaceId, {
           startAt: range.start.toISOString(),
           endAt: range.end.toISOString(),
-        });
+      });
         if (!alive) return;
         setEvents(rows.map(rowToEvent));
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (!alive) return;
         console.warn("[tongs] calendar list failed", err);
-        setLoadError(err?.message ?? "Failed loading calendar events.");
+        setLoadError(getErrorMessage(err) ?? "Failed loading calendar events.");
       } finally {
         if (alive) setLoading(false);
       }
@@ -347,9 +355,9 @@ export default function TongsCalendar() {
       const event = rowToEvent(row);
       setEvents((prev) => [event, ...prev].sort((a, b) => b.startIso.localeCompare(a.startIso)));
       closeNewForm();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.warn("[tongs] calendar create failed", err);
-      setLoadError(err?.message ?? "Failed creating calendar event.");
+      setLoadError(getErrorMessage(err) ?? "Failed creating calendar event.");
     }
   }
 
@@ -358,9 +366,9 @@ export default function TongsCalendar() {
     try {
       await deleteCalendarEvent(supabase, id);
       setEvents((prev) => prev.filter((event) => event.id !== id));
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.warn("[tongs] calendar delete failed", err);
-      setLoadError(err?.message ?? "Failed deleting calendar event.");
+      setLoadError(getErrorMessage(err) ?? "Failed deleting calendar event.");
     }
   }
 
