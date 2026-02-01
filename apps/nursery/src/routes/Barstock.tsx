@@ -13,7 +13,6 @@ type AppShellContext = {
 
 export default function BarstockRoute() {
   const ctx = useOutletContext<AppShellContext>();
-  const workspaceId = ctx.workspaceId;
 
   return (
     <BarstockApp
