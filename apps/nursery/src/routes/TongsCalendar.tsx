@@ -66,28 +66,17 @@ function getErrorMessage(err: unknown): string | undefined {
   return undefined;
 }
 
-function getAssignmentIdFromSession(session: unknown): string | null {
-  if (!session || typeof session !== "object") return null;
-  const s = session as Record<string, unknown>;
-  const candidates = [s.assignmentId, s.assignment_id, s.id, s.sessionId, s.session_id];
-  for (const c of candidates) {
-    if (typeof c === "string" && c.length > 0) return c;
-  }
-  return null;
-}
-
 async function ensureEventHasSessionId(args: {
   supabase: unknown;
   workspaceId: string;
   row: CalendarEventRow;
-  assignmentId: string;
 }): Promise<CalendarEventRow> {
-  const { supabase, workspaceId, row, assignmentId } = args;
+  const { supabase, workspaceId, row } = args;
   if (row.session_id) return row;
 
   const hearthSession = await hearthStore.ensureSessionForCalendarEvent({
     calendarEventId: row.id,
-    assignmentId,
+    assignmentId: workspaceId,
     title: row.title,
     scheduledStart: row.start_at,
     scheduledEnd: row.end_at ?? undefined,
@@ -336,6 +325,9 @@ export default function TongsCalendar() {
   useEffect(() => {
     if (!workspaceId || !session) {
       setEvents([]);
+      if (!workspaceId) {
+        setLoadError("Select a workspace to view and create calendar sessions.");
+      }
       return;
     }
 
@@ -352,18 +344,12 @@ export default function TongsCalendar() {
         });
         if (!alive) return;
 
-        const assignmentId = getAssignmentIdFromSession(session);
-        if (!assignmentId) {
-          throw new Error("Missing assignmentId for calendar load (cannot bind sessions).");
-        }
-
         const patchedRows = await Promise.all(
           rows.map((r) =>
             ensureEventHasSessionId({
               supabase,
               workspaceId,
               row: r,
-              assignmentId,
             }).catch((err) => {
               console.warn("[tongs] calendar session backfill failed", { id: r.id, err });
               return r;
@@ -414,16 +400,9 @@ export default function TongsCalendar() {
         all_day: allDay,
       });
 
-      const assignmentId = getAssignmentIdFromSession(session);
-      if (!assignmentId) {
-        throw new Error(
-          "Missing assignmentId for calendar event (cannot bind recording session)."
-        );
-      }
-
       const hearthSession = await hearthStore.ensureSessionForCalendarEvent({
         calendarEventId: row.id,
-        assignmentId,
+        assignmentId: workspaceId,
         title: row.title,
         scheduledStart: row.start_at,
         scheduledEnd: row.end_at ?? undefined,
