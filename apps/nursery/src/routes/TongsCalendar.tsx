@@ -76,6 +76,28 @@ function getAssignmentIdFromSession(session: unknown): string | null {
   return null;
 }
 
+async function ensureEventHasSessionId(args: {
+  supabase: unknown;
+  workspaceId: string;
+  row: CalendarEventRow;
+  assignmentId: string;
+}): Promise<CalendarEventRow> {
+  const { supabase, workspaceId, row, assignmentId } = args;
+  if (row.session_id) return row;
+
+  const hearthSession = await hearthStore.ensureSessionForCalendarEvent({
+    calendarEventId: row.id,
+    assignmentId,
+    title: row.title,
+    scheduledStart: row.start_at,
+    scheduledEnd: row.end_at ?? undefined,
+  });
+
+  return updateCalendarEvent(supabase, workspaceId, row.id, {
+    session_id: hearthSession.sessionId,
+  });
+}
+
 function useLocalStorageState<T>(key: string, initialValue: T) {
   const [value, setValue] = useState<T>(() => {
     try {
@@ -327,9 +349,29 @@ export default function TongsCalendar() {
         const rows = await listCalendarEvents(supabase, workspaceId, {
           startAt: range.start.toISOString(),
           endAt: range.end.toISOString(),
-      });
+        });
         if (!alive) return;
-        setEvents(rows.map(rowToEvent));
+
+        const assignmentId = getAssignmentIdFromSession(session);
+        if (!assignmentId) {
+          throw new Error("Missing assignmentId for calendar load (cannot bind sessions).");
+        }
+
+        const patchedRows = await Promise.all(
+          rows.map((r) =>
+            ensureEventHasSessionId({
+              supabase,
+              workspaceId,
+              row: r,
+              assignmentId,
+            }).catch((err) => {
+              console.warn("[tongs] calendar session backfill failed", { id: r.id, err });
+              return r;
+            })
+          )
+        );
+
+        setEvents(patchedRows.map(rowToEvent));
       } catch (err: unknown) {
         if (!alive) return;
         console.warn("[tongs] calendar list failed", err);
