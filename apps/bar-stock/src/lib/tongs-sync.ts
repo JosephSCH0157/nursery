@@ -8,6 +8,11 @@ type FlushResult = {
   errors: string[];
 };
 
+type SyncOp =
+  | OutboxOp
+  | { op: "upsert_session"; session: Assignment }
+  | { op: "delete_session"; sessionId: string };
+
 const DEV = import.meta.env.DEV;
 const SPARK_ID_MAP_KEY = "forge_barstock_spark_idmap_v1";
 const TONGS_ONLINE_TTL_MS = 30_000;
@@ -65,7 +70,7 @@ function uniqById<T extends { id: string }>(items: T[]): T[] {
 export async function flushOutboxToTongs(args: {
   workspaceId: string;
   userId: string;
-  ops: OutboxOp[];
+  ops: SyncOp[];
 }): Promise<FlushResult> {
   const { workspaceId, userId, ops } = args;
 
@@ -81,9 +86,6 @@ export async function flushOutboxToTongs(args: {
   const upsertSparks: Spark[] = [];
   const deleteAssignmentIds: string[] = [];
   const deleteSparkIds: string[] = [];
-  const legacyUpsert = "upsert_" + "session";
-  const legacyDelete = "delete_" + "session";
-  const legacyIdKey = "session" + "Id";
 
   for (const op of ops) {
     switch (op.op) {
@@ -99,14 +101,12 @@ export async function flushOutboxToTongs(args: {
       case "delete_spark":
         deleteSparkIds.push(op.sparkId);
         break;
-      default: {
-        if (op.op === legacyUpsert && (op as any).session) {
-          upsertAssignments.push((op as any).session as Assignment);
-        } else if (op.op === legacyDelete) {
-          const legacyId = (op as any)[legacyIdKey] as string | undefined;
-          if (legacyId) deleteAssignmentIds.push(legacyId);
-        }
-      }
+      case "upsert_session":
+        upsertAssignments.push(op.session);
+        break;
+      case "delete_session":
+        deleteAssignmentIds.push(op.sessionId);
+        break;
     }
   }
 
