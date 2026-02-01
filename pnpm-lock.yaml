@@ -46,6 +46,12 @@ importers:
         specifier: ^5.0.0
         version: 5.4.21(@types/node@24.10.9)
 
+  apps/hearth:
+    dependencies:
+      '@supabase/supabase-js':
+        specifier: ^2.91.1
+        version: 2.91.1
+
   apps/nursery:
     dependencies:
       '@forge/tongs':
