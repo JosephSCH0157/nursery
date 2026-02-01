@@ -35,65 +35,74 @@ for each row execute function tongs.set_updated_at();
 
 alter table tongs.calendar_events enable row level security;
 
-drop policy if exists calendar_events_read_if_member on tongs.calendar_events;
-create policy calendar_events_read_if_member
-on tongs.calendar_events
-for select
-using (
-  exists (
-    select 1
-    from tongs.workspace_members wm
-    where wm.workspace_id = calendar_events.workspace_id
-      and wm.user_id = auth.uid()
-  )
-);
+do $$
+begin
+  if to_regclass('tongs.workspace_members') is not null then
 
-drop policy if exists calendar_events_insert_if_member on tongs.calendar_events;
-create policy calendar_events_insert_if_member
-on tongs.calendar_events
-for insert
-with check (
-  exists (
-    select 1
-    from tongs.workspace_members wm
-    where wm.workspace_id = calendar_events.workspace_id
-      and wm.user_id = auth.uid()
-  )
-);
+    drop policy if exists calendar_events_read_if_member on tongs.calendar_events;
+    create policy calendar_events_read_if_member
+    on tongs.calendar_events
+    for select
+    using (
+      exists (
+        select 1
+        from tongs.workspace_members wm
+        where wm.workspace_id = calendar_events.workspace_id
+          and wm.user_id = auth.uid()
+      )
+    );
 
-drop policy if exists calendar_events_update_if_member on tongs.calendar_events;
-create policy calendar_events_update_if_member
-on tongs.calendar_events
-for update
-using (
-  exists (
-    select 1
-    from tongs.workspace_members wm
-    where wm.workspace_id = calendar_events.workspace_id
-      and wm.user_id = auth.uid()
-  )
-)
-with check (
-  exists (
-    select 1
-    from tongs.workspace_members wm
-    where wm.workspace_id = calendar_events.workspace_id
-      and wm.user_id = auth.uid()
-  )
-);
+    drop policy if exists calendar_events_insert_if_member on tongs.calendar_events;
+    create policy calendar_events_insert_if_member
+    on tongs.calendar_events
+    for insert
+    with check (
+      exists (
+        select 1
+        from tongs.workspace_members wm
+        where wm.workspace_id = calendar_events.workspace_id
+          and wm.user_id = auth.uid()
+      )
+    );
 
-drop policy if exists calendar_events_delete_if_member on tongs.calendar_events;
-create policy calendar_events_delete_if_member
-on tongs.calendar_events
-for delete
-using (
-  exists (
-    select 1
-    from tongs.workspace_members wm
-    where wm.workspace_id = calendar_events.workspace_id
-      and wm.user_id = auth.uid()
-  )
-);
+    drop policy if exists calendar_events_update_if_member on tongs.calendar_events;
+    create policy calendar_events_update_if_member
+    on tongs.calendar_events
+    for update
+    using (
+      exists (
+        select 1
+        from tongs.workspace_members wm
+        where wm.workspace_id = calendar_events.workspace_id
+          and wm.user_id = auth.uid()
+      )
+    )
+    with check (
+      exists (
+        select 1
+        from tongs.workspace_members wm
+        where wm.workspace_id = calendar_events.workspace_id
+          and wm.user_id = auth.uid()
+      )
+    );
+
+    drop policy if exists calendar_events_delete_if_member on tongs.calendar_events;
+    create policy calendar_events_delete_if_member
+    on tongs.calendar_events
+    for delete
+    using (
+      exists (
+        select 1
+        from tongs.workspace_members wm
+        where wm.workspace_id = calendar_events.workspace_id
+          and wm.user_id = auth.uid()
+      )
+    );
+
+  else
+    raise notice 'tongs.workspace_members not found; skipping calendar_events RLS policies (apply later).';
+  end if;
+end $$;
 
 -- Optional safety net:
 alter table tongs.workspace_members
