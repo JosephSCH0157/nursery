@@ -221,13 +221,14 @@ function buildMonthDays(cursorDate: Date) {
   const monthStart = startOfMonth(cursorDate);
   const gridStart = startOfWeek(monthStart);
   const gridEnd = endOfWeek(endOfMonth(cursorDate));
-  const days = [] as { key: string; label: string; inMonth: boolean }[];
+  const days = [] as { key: string; label: string; inMonth: boolean; date: Date }[];
 
   let current = gridStart;
   while (current <= gridEnd) {
     const key = toDateKey(current);
     days.push({
       key,
+      date: current,
       label: String(current.getDate()),
       inMonth: current.getMonth() === cursorDate.getMonth(),
     });
@@ -475,10 +476,8 @@ export default function TongsCalendar() {
     setViewDate(addMonths(cursorDate, 1));
   }
 
-  function openDayFromKey(dayKey: string) {
-    const next = parseDateKey(dayKey);
-    if (!next) return;
-    setViewDate(next);
+  function openDay(date: Date) {
+    setViewDate(date);
     setView("day");
   }
 
@@ -771,8 +770,9 @@ export default function TongsCalendar() {
               return (
                 <button
                   key={day.key}
+                  type="button"
                   onClick={() => {
-                    openDayFromKey(day.key);
+                    openDay(day.date);
                   }}
                   style={{
                     border: "1px solid rgba(255,255,255,0.12)",
