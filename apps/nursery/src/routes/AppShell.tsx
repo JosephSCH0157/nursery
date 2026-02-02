@@ -164,10 +164,11 @@ export default function AppShell() {
         .from("workspaces")
         .insert({
           name: "Workspace",
-          created_by: session.user.id,
         })
         .select("id,name")
         .single();
+
+      if (error) throw error;
 
       if (error || !workspace?.id) {
         setCreateError(error?.message ?? "Failed to create workspace.");
