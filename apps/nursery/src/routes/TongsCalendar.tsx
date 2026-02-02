@@ -475,6 +475,13 @@ export default function TongsCalendar() {
     setViewDate(addMonths(cursorDate, 1));
   }
 
+  function openDayFromKey(dayKey: string) {
+    const next = parseDateKey(dayKey);
+    if (!next) return;
+    setViewDate(next);
+    setView("day");
+  }
+
   const rangeLabel = useMemo(() => {
     if (view === "day") return formatDayLabel(cursorDate);
     if (view === "week") return formatWeekLabel(weekStart);
@@ -765,9 +772,7 @@ export default function TongsCalendar() {
                 <button
                   key={day.key}
                   onClick={() => {
-                    const next = parseDateKey(day.key);
-                    if (next) setViewDate(next);
-                    setView("day");
+                    openDayFromKey(day.key);
                   }}
                   style={{
                     border: "1px solid rgba(255,255,255,0.12)",
