@@ -82,9 +82,6 @@ async function ensureEventHasSessionId(args: {
     scheduledEnd: row.end_at ?? undefined,
   });
 
-  console.log("[debug] updateCalendarEvent.length =", updateCalendarEvent.length);
-  console.log("[debug] args", { workspaceId, eventId: row.id });
-
   return updateCalendarEvent(supabase, workspaceId, row.id, {
     session_id: hearthSession.sessionId,
   });
@@ -410,9 +407,6 @@ export default function TongsCalendar() {
         scheduledStart: row.start_at,
         scheduledEnd: row.end_at ?? undefined,
       });
-
-      console.log("[debug] updateCalendarEvent.length =", updateCalendarEvent.length);
-      console.log("[debug] args", { workspaceId, eventId: row.id });
 
       const patched = await updateCalendarEvent(supabase, workspaceId, row.id, {
         session_id: hearthSession.sessionId,
