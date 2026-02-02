@@ -62,6 +62,10 @@ export default function AppShell() {
   const [createOpen, setCreateOpen] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState(false);
 
   useEffect(() => {
     const res = loadMountRegistry("default");
@@ -154,6 +158,57 @@ export default function AppShell() {
     setCreateOpen(true);
   }
 
+  function openRenameWorkspace() {
+    const current = workspaces.find(w => w.id === workspaceId);
+    if (!current) return;
+    setRenameValue(current.name ?? "");
+    setRenameError(null);
+    setRenameOpen(true);
+  }
+
+  function closeRenameWorkspace() {
+    setRenameOpen(false);
+    setRenameError(null);
+  }
+
+  async function onRenameWorkspace() {
+    if (!session || !workspaceId) return;
+    const name = renameValue.trim();
+    if (!name) {
+      setRenameError("Workspace name cannot be empty.");
+      return;
+    }
+
+    setRenaming(true);
+    setRenameError(null);
+    try {
+      const { data, error } = await supabase
+        .schema("tongs")
+        .from("workspaces")
+        .update({ name })
+        .eq("id", workspaceId)
+        .select("id,name")
+        .single();
+
+      if (error) throw error;
+      if (!data) throw new Error("Workspace rename missing row.");
+
+      setWorkspaces((prev) => {
+        const next = prev.map((w) => (w.id === workspaceId ? { ...w, name: data.name } : w));
+        saveWorkspaceCache(next);
+        return next;
+      });
+      setRenameOpen(false);
+    } catch (err: unknown) {
+      const message = err && typeof err === "object" && "message" in err
+        ? String((err as { message?: unknown }).message ?? "Failed to rename workspace.")
+        : "Failed to rename workspace.";
+      setRenameError(message);
+    } finally {
+      setRenaming(false);
+    }
+  }
+
   async function onCreateWorkspace() {
     if (!session) return;
     setCreating(true);
@@ -204,6 +259,7 @@ export default function AppShell() {
 
   const workspaceValue = workspaceId ?? "";
   const workspaceSelectDisabled = !session || loadingWorkspaces;
+  const activeWorkspace = workspaces.find(w => w.id === workspaceId) ?? null;
 
   return (
     <div style={{ minHeight: "100vh", fontFamily: "system-ui", display: "flex", flexDirection: "column" }}>
@@ -223,27 +279,60 @@ export default function AppShell() {
           </Link>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 12, opacity: 0.7 }}>Workspace</span>
-            <select
-              value={workspaceValue}
-              disabled={workspaceSelectDisabled}
-              onChange={(e) => {
-                const v = e.target.value;
-                if (v === "__create__") {
-                  openCreateWorkspace();
-                  return;
-                }
-                selectWorkspace(v || null);
-              }}
-              style={{ padding: "6px 8px", fontSize: 12, minWidth: 220 }}
-            >
-              <option value="" disabled>
-                {loadingWorkspaces ? "Loading..." : "Select workspace"}
-              </option>
-              {workspaces.map(w => (
-                <option key={w.id} value={w.id}>{w.id}</option>
-              ))}
-              <option value="__create__">+ Create workspace...</option>
-            </select>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <select
+                  value={workspaceValue}
+                  disabled={workspaceSelectDisabled}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === "__create__") {
+                      openCreateWorkspace();
+                      return;
+                    }
+                    selectWorkspace(v || null);
+                  }}
+                  style={{ padding: "6px 8px", fontSize: 12, minWidth: 220 }}
+                >
+                  <option value="" disabled>
+                    {loadingWorkspaces ? "Loading..." : "Select workspace"}
+                  </option>
+                  {workspaces.map(w => (
+                    <option key={w.id} value={w.id}>{w.name}</option>
+                  ))}
+                  <option value="__create__">+ Create workspace...</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={openRenameWorkspace}
+                  disabled={!activeWorkspace || !session}
+                  style={{ fontSize: 12, padding: "6px 8px", cursor: "pointer" }}
+                >
+                  Rename
+                </button>
+              </div>
+              {renameOpen && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <input
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    placeholder="Workspace name"
+                    style={{ padding: "6px 8px", fontSize: 12, minWidth: 220 }}
+                  />
+                  <button type="button" onClick={onRenameWorkspace} disabled={renaming}>
+                    Save
+                  </button>
+                  <button type="button" onClick={closeRenameWorkspace}>
+                    Cancel
+                  </button>
+                  {renameError && (
+                    <span style={{ color: "#b00020", fontSize: 12 }}>
+                      {renameError}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
