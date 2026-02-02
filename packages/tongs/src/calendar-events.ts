@@ -53,6 +53,7 @@ export async function createCalendarEvent(
 
 export async function updateCalendarEvent(
   supabase: SupabaseClient<Database>,
+  workspaceId: string,
   id: string,
   patch: CalendarEventUpdate,
 ): Promise<CalendarEventRow> {
@@ -60,6 +61,7 @@ export async function updateCalendarEvent(
     .schema("tongs")
     .from("calendar_events")
     .update(patch)
+    .eq("workspace_id", workspaceId)
     .eq("id", id)
     .select("*")
     .single();
