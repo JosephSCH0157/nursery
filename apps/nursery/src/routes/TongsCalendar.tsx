@@ -75,8 +75,8 @@ async function ensureEventHasSessionId(args: {
   if (row.session_id) return row;
 
   const hearthSession = await hearthStore.ensureSessionForCalendarEvent({
+    workspaceId,
     calendarEventId: row.id,
-    assignmentId: workspaceId,
     title: row.title,
     scheduledStart: row.start_at,
     scheduledEnd: row.end_at ?? undefined,
@@ -401,8 +401,8 @@ export default function TongsCalendar() {
       });
 
       const hearthSession = await hearthStore.ensureSessionForCalendarEvent({
+        workspaceId,
         calendarEventId: row.id,
-        assignmentId: workspaceId,
         title: row.title,
         scheduledStart: row.start_at,
         scheduledEnd: row.end_at ?? undefined,

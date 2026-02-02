@@ -1,11 +1,11 @@
 // packages/hearth/src/storage/hearthStore.ts
 
 import type {
-  AssignmentId,
   RecordingSession,
   RecordingSessionId,
   ScriptDoc,
   ScriptId,
+  WorkspaceId,
 } from "../domain/types";
 
 export interface HearthStore {
@@ -13,8 +13,8 @@ export interface HearthStore {
   getSession(sessionId: RecordingSessionId): Promise<RecordingSession | null>;
   upsertSession(session: RecordingSession): Promise<void>;
 
-  listSessionsByAssignment(
-    assignmentId: AssignmentId
+  listSessionsByWorkspace(
+    workspaceId: WorkspaceId
   ): Promise<RecordingSession[]>;
 
   /**
@@ -29,12 +29,12 @@ export interface HearthStore {
    * This is the canonical "Calendar event => stable sessionId" entrypoint.
    */
   ensureSessionForCalendarEvent(args: {
+    workspaceId: WorkspaceId;
     calendarEventId: string;
-    assignmentId: AssignmentId;
-    title: string;
-    scheduledStart: string; // ISO
+    title?: string;
+    scheduledStart?: string; // ISO
     scheduledEnd?: string; // ISO
-  }): Promise<RecordingSession>;
+  }): Promise<{ sessionId: RecordingSessionId }>;
 
   // ----- Scripts -----
   getScript(scriptId: ScriptId): Promise<ScriptDoc | null>;

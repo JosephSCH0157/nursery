@@ -5,12 +5,13 @@ export type IsoDateTime = string; // ISO 8601 string
 export type RecordingSessionId = string; // UUID (enforced at creation sites)
 export type ScriptId = string; // UUID
 export type AssignmentId = string; // UUID
+export type WorkspaceId = string; // UUID
 
 export interface RecordingSession {
   schemaVersion: 1;
 
   sessionId: RecordingSessionId;
-  assignmentId: AssignmentId;
+  workspaceId: WorkspaceId;
 
   title: string;
   scheduledStart: IsoDateTime;

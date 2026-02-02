@@ -2,11 +2,11 @@
 
 import {
   nowIso,
-  type AssignmentId,
   type RecordingSession,
   type RecordingSessionId,
   type ScriptDoc,
   type ScriptId,
+  type WorkspaceId,
 } from "../domain/types";
 import type { HearthStore } from "./hearthStore";
 import { newId } from "./ids";
@@ -77,12 +77,12 @@ export class LocalHearthStore implements HearthStore {
     saveState(this.storageKey, st);
   }
 
-  async listSessionsByAssignment(
-    assignmentId: AssignmentId
+  async listSessionsByWorkspace(
+    workspaceId: WorkspaceId
   ): Promise<RecordingSession[]> {
     const st = loadState(this.storageKey);
     return Object.values(st.sessions)
-      .filter((s) => s.assignmentId === assignmentId)
+      .filter((s) => s.workspaceId === workspaceId)
       .sort((a, b) => (a.scheduledStart < b.scheduledStart ? -1 : 1));
   }
 
@@ -94,12 +94,12 @@ export class LocalHearthStore implements HearthStore {
   }
 
   async ensureSessionForCalendarEvent(args: {
+    workspaceId: WorkspaceId;
     calendarEventId: string;
-    assignmentId: AssignmentId;
-    title: string;
-    scheduledStart: string;
+    title?: string;
+    scheduledStart?: string;
     scheduledEnd?: string;
-  }): Promise<RecordingSession> {
+  }): Promise<{ sessionId: RecordingSessionId }> {
     const st = loadState(this.storageKey);
 
     const existingSessionId =
@@ -107,7 +107,7 @@ export class LocalHearthStore implements HearthStore {
 
     if (existingSessionId) {
       const existing = st.sessions[existingSessionId];
-      if (existing) return existing;
+      if (existing) return { sessionId: existing.sessionId };
       // If mapping exists but session missing, fall through and recreate.
     }
 
@@ -117,9 +117,9 @@ export class LocalHearthStore implements HearthStore {
     const session: RecordingSession = {
       schemaVersion: 1,
       sessionId,
-      assignmentId: args.assignmentId,
-      title: args.title,
-      scheduledStart: args.scheduledStart,
+      workspaceId: args.workspaceId,
+      title: args.title ?? "Calendar event",
+      scheduledStart: args.scheduledStart ?? createdAt,
       scheduledEnd: args.scheduledEnd,
       calendarEventId: args.calendarEventId,
       scriptOrder: [],
@@ -132,7 +132,7 @@ export class LocalHearthStore implements HearthStore {
     st.calendarEventToSessionId[args.calendarEventId] = sessionId;
 
     saveState(this.storageKey, st);
-    return session;
+    return { sessionId };
   }
 
   // ----- Scripts -----
