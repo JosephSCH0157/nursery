@@ -53,18 +53,24 @@ export async function createCalendarEvent(
 
 export async function updateCalendarEvent(
   supabase: SupabaseClient<Database>,
-  workspaceId: string,
-  id: string,
-  patch: CalendarEventUpdate,
+  a: string,
+  b: string | CalendarEventUpdate,
+  c?: CalendarEventUpdate,
 ): Promise<CalendarEventRow> {
-  const { data, error } = await supabase
+  const has4Args = typeof c !== "undefined";
+  const workspaceId = has4Args ? a : null;
+  const id = has4Args ? (b as string) : a;
+  const patch = has4Args ? c! : (b as CalendarEventUpdate);
+
+  let query = supabase
     .schema("tongs")
     .from("calendar_events")
-    .update(patch)
-    .eq("workspace_id", workspaceId)
-    .eq("id", id)
-    .select("*")
-    .single();
+    .update(patch);
+
+  if (workspaceId) query = query.eq("workspace_id", workspaceId);
+  query = query.eq("id", id);
+
+  const { data, error } = await query.select("*").single();
 
   if (error) throw error;
   if (!data) throw new Error("calendar_events update: missing row");
