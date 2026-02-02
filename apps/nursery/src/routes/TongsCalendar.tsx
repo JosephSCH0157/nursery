@@ -297,8 +297,19 @@ export default function TongsCalendar() {
   const todayIso = useMemo(() => toDateKey(new Date()), []);
   const [view, setView] = useLocalStorageState<CalendarView>(VIEW_KEY, "week");
   const [cursorDayIso, setCursorDayIso] = useLocalStorageState<string>(CURSOR_KEY, todayIso);
+  const [cursorDate, setCursorDate] = useState(() => parseDateKey(cursorDayIso) ?? new Date());
+  const setViewDate = useCallback((nextDate: Date) => {
+    setCursorDate(nextDate);
+    setCursorDayIso(toDateKey(nextDate));
+  }, [setCursorDayIso]);
 
-  const cursorDate = useMemo(() => parseDateKey(cursorDayIso) ?? new Date(), [cursorDayIso]);
+  useEffect(() => {
+    const parsed = parseDateKey(cursorDayIso);
+    if (!parsed) return;
+    if (parsed.getTime() !== cursorDate.getTime()) {
+      setCursorDate(parsed);
+    }
+  }, [cursorDayIso, cursorDate]);
   const weekStart = useMemo(() => startOfWeek(cursorDate), [cursorDate]);
   const weekDays = useMemo(() => buildWeekDays(weekStart), [weekStart]);
   const monthDays = useMemo(() => buildMonthDays(cursorDate), [cursorDate]);
@@ -433,35 +444,35 @@ export default function TongsCalendar() {
   }
 
   function goToToday() {
-    setCursorDayIso(todayIso);
+    setViewDate(new Date());
   }
 
   function goPrev() {
     if (view === "day") {
-      setCursorDayIso(toDateKey(addDays(cursorDate, -1)));
+      setViewDate(addDays(cursorDate, -1));
       return;
     }
 
     if (view === "week") {
-      setCursorDayIso(toDateKey(addDays(cursorDate, -7)));
+      setViewDate(addDays(cursorDate, -7));
       return;
     }
 
-    setCursorDayIso(toDateKey(addMonths(cursorDate, -1)));
+    setViewDate(addMonths(cursorDate, -1));
   }
 
   function goNext() {
     if (view === "day") {
-      setCursorDayIso(toDateKey(addDays(cursorDate, 1)));
+      setViewDate(addDays(cursorDate, 1));
       return;
     }
 
     if (view === "week") {
-      setCursorDayIso(toDateKey(addDays(cursorDate, 7)));
+      setViewDate(addDays(cursorDate, 7));
       return;
     }
 
-    setCursorDayIso(toDateKey(addMonths(cursorDate, 1)));
+    setViewDate(addMonths(cursorDate, 1));
   }
 
   const rangeLabel = useMemo(() => {
@@ -754,7 +765,8 @@ export default function TongsCalendar() {
                 <button
                   key={day.key}
                   onClick={() => {
-                    setCursorDayIso(day.key);
+                    const next = parseDateKey(day.key);
+                    if (next) setViewDate(next);
                     setView("day");
                   }}
                   style={{
