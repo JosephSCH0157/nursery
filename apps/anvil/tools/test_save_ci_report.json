@@ -1,0 +1,193 @@
+{
+  "ok": false,
+  "errors": [
+    {
+      "type": "fatal",
+      "message": "ProtocolError: Input.dispatchMouseEvent timed out. Increase the 'protocolTimeout' setting in launch/connect calls for a higher timeout if needed.",
+      "stack": "ProtocolError: Input.dispatchMouseEvent timed out. Increase the 'protocolTimeout' setting in launch/connect calls for a higher timeout if needed.\n    at <instance_members_initializer> (d:\\teleprompter\\teleprompter\\tools\\node_modules\\puppeteer-core\\lib\\cjs\\puppeteer\\common\\Connection.js:49:14)\n    at new Callback (d:\\teleprompter\\teleprompter\\tools\\node_modules\\puppeteer-core\\lib\\cjs\\puppeteer\\common\\Connection.js:53:16)\n    at CallbackRegistry.create (d:\\teleprompter\\teleprompter\\tools\\node_modules\\puppeteer-core\\lib\\cjs\\puppeteer\\common\\Connection.js:93:26)\n    at Connection._rawSend (d:\\teleprompter\\teleprompter\\tools\\node_modules\\puppeteer-core\\lib\\cjs\\puppeteer\\common\\Connection.js:207:26)\n    at CDPSessionImpl.send (d:\\teleprompter\\teleprompter\\tools\\node_modules\\puppeteer-core\\lib\\cjs\\puppeteer\\common\\Connection.js:416:33)\n    at d:\\teleprompter\\teleprompter\\tools\\node_modules\\puppeteer-core\\lib\\cjs\\puppeteer\\common\\Input.js:338:33\n    at #withTransaction (d:\\teleprompter\\teleprompter\\tools\\node_modules\\puppeteer-core\\lib\\cjs\\puppeteer\\common\\Input.js:251:19)\n    at CDPMouse.up (d:\\teleprompter\\teleprompter\\tools\\node_modules\\puppeteer-core\\lib\\cjs\\puppeteer\\common\\Input.js:333:36)\n    at CDPMouse.click (d:\\teleprompter\\teleprompter\\tools\\node_modules\\puppeteer-core\\lib\\cjs\\puppeteer\\common\\Input.js:367:27)\n    at CDPElementHandle.click (d:\\teleprompter\\teleprompter\\tools\\node_modules\\puppeteer-core\\lib\\cjs\\puppeteer\\common\\ElementHandle.js:253:32)"
+    }
+  ],
+  "console": [
+    {
+      "type": "log",
+      "text": "Live reload enabled.",
+      "location": {
+        "url": "http://127.0.0.1:8080/teleprompter_pro.html",
+        "lineNumber": 835,
+        "columnNumber": 11
+      }
+    },
+    {
+      "type": "log",
+      "text": "[obs.state] wire init (claim bridge) ",
+      "location": {
+        "url": "http://127.0.0.1:8080/src/wiring/wire.js",
+        "lineNumber": 6,
+        "columnNumber": 16
+      }
+    },
+    {
+      "type": "log",
+      "text": "[obs.ui] delegate installed JSHandle@object",
+      "location": {
+        "url": "http://127.0.0.1:8080/src/wiring/wire.js",
+        "lineNumber": 6,
+        "columnNumber": 16
+      }
+    },
+    {
+      "type": "log",
+      "text": "[src/index] module imports complete",
+      "location": {
+        "url": "http://127.0.0.1:8080/dist/index.js?v=dev",
+        "lineNumber": 214,
+        "columnNumber": 10
+      }
+    },
+    {
+      "type": "log",
+      "text": "[src/index] boot()",
+      "location": {
+        "url": "http://127.0.0.1:8080/dist/index.js?v=dev",
+        "lineNumber": 346,
+        "columnNumber": 12
+      }
+    },
+    {
+      "type": "log",
+      "text": "[src/ui/dom] bindStaticDom",
+      "location": {
+        "url": "http://127.0.0.1:8080/src/ui/dom.js",
+        "lineNumber": 786,
+        "columnNumber": 10
+      }
+    },
+    {
+      "type": "table",
+      "text": "JSHandle@array",
+      "location": {
+        "url": "http://127.0.0.1:8080/src/ui/dom.js",
+        "lineNumber": 936,
+        "columnNumber": 16
+      }
+    },
+    {
+      "type": "log",
+      "text": "[HUD] {\"perf\":{\"r\":2,\"w\":1},\"drops\":{\"command\":0,\"oov\":0,\"meta\":0},\"softAdv\":{\"allowed\":0,\"blockedLost\":0,\"frozen\":0},\"rescue\":{\"count\":0,\"rescuesPerMin\":0}}",
+      "location": {
+        "url": "http://127.0.0.1:8080/debug-tools.js",
+        "lineNumber": 640,
+        "columnNumber": 30
+      }
+    },
+    {
+      "type": "log",
+      "text": "%c[UI PARITY OK] color:#0a0",
+      "location": {
+        "url": "http://127.0.0.1:8080/src/dev/parity-guard.js",
+        "lineNumber": 70,
+        "columnNumber": 20
+      }
+    },
+    {
+      "type": "log",
+      "text": "[src/adapters/obs] init",
+      "location": {
+        "url": "http://127.0.0.1:8080/src/adapters/obs.js",
+        "lineNumber": 3,
+        "columnNumber": 10
+      }
+    },
+    {
+      "type": "log",
+      "text": "[src/adapters/recorder] init",
+      "location": {
+        "url": "http://127.0.0.1:8080/src/adapters/recorder.js",
+        "lineNumber": 3,
+        "columnNumber": 10
+      }
+    },
+    {
+      "type": "log",
+      "text": "[src/features/persistence] initPersistence",
+      "location": {
+        "url": "http://127.0.0.1:8080/src/features/persistence.js",
+        "lineNumber": 2,
+        "columnNumber": 10
+      }
+    },
+    {
+      "type": "log",
+      "text": "[src/features/telemetry] initTelemetry",
+      "location": {
+        "url": "http://127.0.0.1:8080/src/features/telemetry.js",
+        "lineNumber": 2,
+        "columnNumber": 10
+      }
+    },
+    {
+      "type": "log",
+      "text": "[src/features/scroll] initScroll",
+      "location": {
+        "url": "http://127.0.0.1:8080/src/features/scroll.js",
+        "lineNumber": 2,
+        "columnNumber": 10
+      }
+    },
+    {
+      "type": "log",
+      "text": "[src/features/hotkeys] initHotkeys",
+      "location": {
+        "url": "http://127.0.0.1:8080/src/features/hotkeys.js",
+        "lineNumber": 2,
+        "columnNumber": 10
+      }
+    },
+    {
+      "type": "info",
+      "text": "[ASR] dev initAsrFeature()",
+      "location": {
+        "url": "http://127.0.0.1:8080/src/index-hooks/asr.js",
+        "lineNumber": 25,
+        "columnNumber": 16
+      }
+    },
+    {
+      "type": "info",
+      "text": "[ASR] initialized from /src/index-hooks/asr.js",
+      "location": {
+        "url": "http://127.0.0.1:8080/dist/index.js?v=dev",
+        "lineNumber": 639,
+        "columnNumber": 26
+      }
+    },
+    {
+      "type": "log",
+      "text": "[src/index] boot completed",
+      "location": {
+        "url": "http://127.0.0.1:8080/dist/index.js?v=dev",
+        "lineNumber": 973,
+        "columnNumber": 10
+      }
+    },
+    {
+      "type": "debug",
+      "text": "[HUD] settings:folder:injected JSHandle@object",
+      "location": {
+        "url": "http://127.0.0.1:8080/debug-tools.js",
+        "lineNumber": 30,
+        "columnNumber": 17
+      }
+    },
+    {
+      "type": "debug",
+      "text": "[HUD] display:render JSHandle@object",
+      "location": {
+        "url": "http://127.0.0.1:8080/debug-tools.js",
+        "lineNumber": 30,
+        "columnNumber": 17
+      }
+    }
+  ],
+  "saved": null
+}

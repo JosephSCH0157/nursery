@@ -1,0 +1,34 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["dom", "es2021"],
+  "allowJs": true,
+  "checkJs": false,
+    "strict": true,
+  "useUnknownInCatchVariables": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.d.ts",
+    "src/**/*.js",
+    "recorders.ts",
+    "recorders-core.ts",
+    "recorders-bridge-compat.ts",
+    "adapters/**/*.ts"
+  ],
+  "references": [
+    { "path": "src/logic" }
+  ]
+
+  ,"exclude": [
+    "dist",
+    "src/build-logic/**",
+    "src/features/scroll-router.ts"
+  ]
+}

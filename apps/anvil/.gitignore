@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+*.code-workspace
+
+# Builds/archives
+dist/
+build/
+*.zip
+.worktrees/
+
+# Legacy CI-only stub outputs served dynamically by the smoke server; no files generated.
+
+# TS compat outputs (built from ./recorders.ts and ./adapters/*.ts)
+recorders.js
+adapters/bridge.js
+adapters/obs.js
+
+# Env
+.env
+.env.*
+
+# Local Netlify folder
+.netlify
