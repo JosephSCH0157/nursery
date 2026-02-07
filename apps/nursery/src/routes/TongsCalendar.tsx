@@ -37,7 +37,7 @@ type CalendarView = "day" | "week" | "month";
 
 type CalendarEvent = {
   id: string;
-  sessionId?: string | null;
+  assignmentId?: string | null;
   title: string;
   description?: string;
   location?: string;
@@ -66,13 +66,13 @@ function getErrorMessage(err: unknown): string | undefined {
   return undefined;
 }
 
-async function ensureEventHasSessionId(args: {
+async function ensureEventHasAssignmentId(args: {
   supabase: unknown;
   workspaceId: string;
   row: CalendarEventRow;
 }): Promise<CalendarEventRow> {
   const { supabase, workspaceId, row } = args;
-  if (row.session_id) return row;
+  if (row.assignment_id) return row;
 
   const hearthSession = await hearthStore.ensureSessionForCalendarEvent({
     workspaceId,
@@ -83,7 +83,7 @@ async function ensureEventHasSessionId(args: {
   });
 
   return updateCalendarEvent(supabase, workspaceId, row.id, {
-    session_id: hearthSession.sessionId,
+    assignment_id: hearthSession.sessionId,
   });
 }
 
@@ -277,7 +277,7 @@ function rowToEvent(row: CalendarEventRow): CalendarEvent {
 
   return normalizeEvent({
     id: row.id,
-    sessionId: row.session_id ?? null,
+    assignmentId: row.assignment_id ?? null,
     title: row.title ?? "Calendar event",
     description: row.description ?? undefined,
     location: row.location ?? undefined,
@@ -358,12 +358,12 @@ export default function TongsCalendar() {
 
         const patchedRows = await Promise.all(
           rows.map((r) =>
-            ensureEventHasSessionId({
+            ensureEventHasAssignmentId({
               supabase,
               workspaceId,
               row: r,
             }).catch((err) => {
-              console.warn("[tongs] calendar session backfill failed", { id: r.id, err });
+              console.warn("[tongs] calendar assignment backfill failed", { id: r.id, err });
               return r;
             })
           )
@@ -421,7 +421,7 @@ export default function TongsCalendar() {
       });
 
       const patched = await updateCalendarEvent(supabase, workspaceId, row.id, {
-        session_id: hearthSession.sessionId,
+        assignment_id: hearthSession.sessionId,
       });
 
       const event = rowToEvent(patched);

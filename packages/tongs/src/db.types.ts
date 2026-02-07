@@ -53,43 +53,46 @@ export type Database = {
     Tables: {
       calendar_events: {
         Row: {
+          id: string
+          workspace_id: string
+          assignment_id: string | null
+          title: string
+          start_at: string
+          end_at: string | null
           all_day: boolean
+          description: string | null
+          location: string | null
           created_at: string
           created_by: string | null
-          description: string | null
-          end_at: string | null
-          id: string
-          location: string | null
-          start_at: string
-          title: string
           updated_at: string
-          workspace_id: string
         }
         Insert: {
+          id?: string
+          workspace_id: string
+          assignment_id?: string | null
+          title: string
+          start_at: string
+          end_at?: string | null
           all_day?: boolean
+          description?: string | null
+          location?: string | null
           created_at?: string
           created_by?: string | null
-          description?: string | null
-          end_at?: string | null
-          id?: string
-          location?: string | null
-          start_at: string
-          title: string
           updated_at?: string
-          workspace_id: string
         }
         Update: {
+          id?: string
+          workspace_id?: string
+          assignment_id?: string | null
+          title?: string
+          start_at?: string
+          end_at?: string | null
           all_day?: boolean
+          description?: string | null
+          location?: string | null
           created_at?: string
           created_by?: string | null
-          description?: string | null
-          end_at?: string | null
-          id?: string
-          location?: string | null
-          start_at?: string
-          title?: string
           updated_at?: string
-          workspace_id?: string
         }
         Relationships: []
       }
@@ -124,19 +127,22 @@ export type Database = {
       }
       workspaces: {
         Row: {
+          id: string
+          name: string
           created_at: string
           created_by: string | null
-          id: string
         }
         Insert: {
+          id?: string
+          name?: string
           created_at?: string
           created_by?: string | null
-          id?: string
         }
         Update: {
+          id?: string
+          name?: string
           created_at?: string
           created_by?: string | null
-          id?: string
         }
         Relationships: []
       }
