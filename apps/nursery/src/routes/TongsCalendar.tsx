@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MOUNT_ROLE_POLICY } from "@forge/tongs";
-import type { ResolvedMount } from "@forge/tongs";
-import type { CalendarEventRow } from "@forge/tongs";
+import type { ResolvedMount, CalendarEventRow, Database } from "@forge/tongs";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   listCalendarEvents,
   createCalendarEvent,
@@ -67,7 +67,7 @@ function getErrorMessage(err: unknown): string | undefined {
 }
 
 async function ensureEventHasAssignmentId(args: {
-  supabase: unknown;
+  supabase: SupabaseClient<Database>;
   workspaceId: string;
   row: CalendarEventRow;
 }): Promise<CalendarEventRow> {

@@ -223,10 +223,17 @@ export default function AppShell() {
         .select("id,name")
         .single();
 
-      if (error) throw error;
+      if (error) {
+        const msg =
+          typeof error === "object" && error !== null && "message" in error
+            ? String((error as { message?: unknown }).message)
+            : "Unknown error";
+        setCreateError(msg);
+        return;
+      }
 
-      if (error || !workspace?.id) {
-        setCreateError(error?.message ?? "Failed to create workspace.");
+      if (!workspace?.id) {
+        setCreateError("Failed to create workspace.");
         return;
       }
 
