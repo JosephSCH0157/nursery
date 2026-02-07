@@ -2,7 +2,6 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
-import AuthGate from "./components/AuthGate";
 import Login from "./routes/Login";
 import AppShell from "./routes/AppShell";
 import AuthCallback from "./routes/AuthCallback";
@@ -25,11 +24,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
 
         <Route
           path="/app"
-          element={
-            <AuthGate>
-              <AppShell />
-            </AuthGate>
-          }
+          element={<AppShell />}
         >
           <Route index element={<ForgeHub />} />
           <Route path="anvil" element={<Placeholder name="Anvil" />} />
