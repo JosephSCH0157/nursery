@@ -1,15 +1,24 @@
 # File Tree
 
+Generated folders are kept brief for readability (for example `node_modules/`, `dist/`, and `.git/` internals).
+
 - `.gitattributes`
 - `.gitignore`
+- `AGENTS.md`
+- `README.md`
 - `filetree.md`
 - `netlify.toml`
 - `package.json`
+- `pnpm-lock.yaml`
 - `pnpm-workspace.yaml`
-- `README.md`
+- `tsconfig.json`
+- `.vscode/`
+  - `extensions.json`
+  - `settings.json`
+- `scripts/`
+  - `smoke.mjs`
 - `apps/`
-  - `nursery/`
-    - `node_modules/` (installed dependencies after running `pnpm install`)
+  - `nursery/` (Vite SPA gateway)
     - `.env.local`
     - `.gitignore`
     - `eslint.config.js`
@@ -30,15 +39,25 @@
         - `react.svg`
       - `components/`
         - `AuthGate.tsx`
+      - `hooks/`
+        - `useMountRegistry.ts`
       - `lib/`
+        - `handle-vault.ts`
+        - `mirror.ts`
+        - `mount-registry.ts`
         - `supabase.ts`
       - `routes/`
         - `AppShell.tsx`
         - `AuthCallback.tsx`
+        - `Barstock.tsx`
         - `ForgeHub.tsx`
         - `Login.tsx`
         - `Placeholder.tsx`
         - `ResetPassword.tsx`
+        - `SettingsHome.tsx`
+        - `SettingsLayout.tsx`
+        - `SettingsStorage.tsx`
+        - `TongsCalendar.tsx`
       - `App.css`
       - `App.tsx`
       - `index.css`
@@ -47,10 +66,133 @@
     - `tsconfig.json`
     - `tsconfig.node.json`
     - `vite.config.ts`
-- `packages/`
-  - `tongs/`
+    - `node_modules/` (installed workspace dependencies)
+    - `dist/` (build output)
+  - `bar-stock/`
+    - `.env.local`
+    - `.gitattributes`
+    - `.vscode/`
+      - `settings.json`
+    - `README.md`
+    - `dev-run.js`
+    - `eslint.config.cjs`
+    - `find_sync.py`
+    - `index.html`
     - `package.json`
+    - `src/`
+      - `App.tsx`
+      - `main.tsx`
+      - `lib/`
+        - `assignments.ts`
+        - `clip.ts`
+        - `hearth-packet.ts`
+        - `io.ts`
+        - `model.ts`
+        - `outbox.ts`
+        - `query.ts`
+        - `store.ts`
+        - `supabase.ts`
+        - `tongs-api.ts`
+        - `tongs-bridge.ts`
+        - `tongs-sync.ts`
     - `tsconfig.json`
+    - `tsconfig.tsbuildinfo`
+    - `vite.config.ts`
+    - `node_modules/` (installed dependencies)
+    - `dist/` (build output)
+  - `hearth/`
+    - `AGENTS.md`
+    - `HEARTH_V1_MANIFEST.md`
+    - `README.md`
+    - `package.json`
+    - `src/`
+      - `lib/`
+        - `index.ts`
+        - `models.ts`
+        - `tongs-scripts.ts`
+    - `node_modules/` (installed dependencies)
+  - `anvil/` (standalone teleprompter project; contains its own `.git/`)
+    - `.env`
+    - `.eslintrc.json`
+    - `.github/`
+    - `.husky/`
+    - `.vscode/`
+    - `CHANGELOG.md`
+    - `MANIFEST.md`
+    - `README.md`
+    - `TOOLS-README.md`
+    - `VERSION.txt`
+    - `package.json`
+    - `src/`
+    - `tests/`
+    - `tools/`
+    - `docs/`
+    - `assets/`
+    - `scripts/`
+    - `releases/`
+    - `filetree.md`
+    - `filetree.txt`
+    - `project_tree.txt`
+    - `node_modules/` (installed dependencies)
+    - `dist/` (build output)
+- `packages/`
+  - `.gitkeep`
+  - `hearth/`
+    - `package.json`
     - `src/`
       - `index.ts`
+      - `domain/`
+        - `types.ts`
+      - `storage/`
+        - `hearthStore.ts`
+        - `ids.ts`
+        - `localHearthStore.ts`
+  - `tongs/`
+    - `eslint.config.mjs`
+    - `package.json`
+    - `tsconfig.json`
+    - `tsconfig.tsbuildinfo`
+    - `src/`
+      - `calendar-events.ts`
+      - `constants.ts`
+      - `db.types.ts`
+      - `defaults.ts`
+      - `index.ts`
+      - `registry.ts`
+      - `roles.ts`
       - `types.ts`
+      - `storage/`
+        - `registry-normalize.ts`
+        - `resolve-mount.ts`
+        - `storage-contract.ts`
+        - `storage-guard.ts`
+    - `node_modules/` (installed dependencies)
+    - `dist/` (build output)
+- `supabase/`
+  - `config.toml`
+  - `functions/`
+    - `create-checkout-session/`
+      - `.npmrc`
+      - `deno.json`
+      - `index.ts`
+    - `stripe-webhook/`
+      - `.npmrc`
+      - `deno.json`
+      - `index.ts`
+  - `migrations/`
+    - `20260131120000_000001_tongs_calendar_events.sql`
+    - `20260201120001_000001_tongs_core_workspaces.sql`
+    - `20260201182712_my_migration.sql`
+    - `20260201184500_tongs_workspaces_insert_policy_fix.sql`
+    - `20260201193000_tongs_workspaces_canonical_insert.sql`
+    - `20260201194500_tongs_workspaces_add_name.sql`
+    - `20260202120002_000001_tongs_calendar_events_add_session_id.sql`
+    - `20260203120003_000001_tongs_workspaces_rls.sql`
+    - `20260204120004_000001_tongs_workspaces_created_by.sql`
+    - `20260205120005_000001_tongs_workspaces_insert_policy.sql`
+    - `20260206120006_000001_tongs_workspaces_add_name.sql`
+    - `20260206120007_000002_public_workspaces_view.sql`
+  - `snippets/`
+  - `.branches/` (Supabase CLI state)
+  - `.temp/` (Supabase CLI cache)
+- `node_modules/` (root workspace dependencies)
