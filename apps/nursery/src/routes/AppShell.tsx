@@ -4,6 +4,7 @@ import type { Session as SupabaseSession } from "@supabase/supabase-js";
 import { loadMountRegistry } from "../lib/mount-registry";
 import { supabase } from "../lib/supabase";
 import { listMyWorkspaces, type Workspace } from "@barstock/lib/tongs-api";
+import { forgeNavTree } from "../nav/forgeNavTree";
 
 const WORKSPACE_CACHE_KEY = "forge_workspaces_cache_v1";
 const ACTIVE_WORKSPACE_KEY = "forge_workspace_id_v1";
@@ -378,21 +379,36 @@ export default function AppShell() {
 
       <div style={{ display: "flex", flex: 1 }}>
         <aside style={{ width: 240, padding: 16, borderRight: "1px solid var(--forge-border)" }}>
-          <h3>Nursery</h3>
-          <nav style={{ display: "grid", gap: 8 }}>
-            <Link to="/app">Home</Link>
-            <Link to="/app/tongs">Tongs Calendar</Link>
-            <Link to="/app/anvil">Anvil</Link>
-            <Link to="/app/hearth">Hearth</Link>
-            <Link to="/app/hammer">Hammer</Link>
-            <Link to="/app/barstock">Barstock</Link>
-          </nav>
-          <hr />
-          <div style={{ fontSize: "0.85rem", color: "var(--forge-text-muted)" }}>Settings</div>
-          <nav style={{ display: "grid", gap: 6, marginTop: 4 }}>
-            <Link to="/app/settings">Settings home</Link>
-            <Link to="/app/settings/storage">Storage (Mounts)</Link>
-          </nav>
+          {forgeNavTree.map((section, idx) => {
+            const isFirst = idx === 0;
+            return (
+              <div key={section.id} style={{ marginTop: isFirst ? 0 : 12 }}>
+                {section.title && (
+                  section.id === "forge"
+                    ? <h3 style={{ marginTop: 0 }}>{section.title}</h3>
+                    : (
+                      <div style={{ fontSize: "0.85rem", color: "var(--forge-text-muted)" }}>
+                        {section.title}
+                      </div>
+                    )
+                )}
+                <nav
+                  style={{
+                    display: "grid",
+                    gap: section.id === "settings" ? 6 : 8,
+                    marginTop: section.id === "settings" ? 4 : 0,
+                  }}
+                >
+                  {section.items.map((item) => (
+                    <Link key={item.id} to={item.to}>
+                      {item.label}
+                    </Link>
+                  ))}
+                </nav>
+                {section.id === "forge" && <hr />}
+              </div>
+            );
+          })}
         </aside>
 
         <main style={{ flex: 1, padding: 16 }}>
