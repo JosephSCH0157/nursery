@@ -14,6 +14,7 @@ import SettingsStorage from "./routes/SettingsStorage";
 import TongsCalendar from "./routes/TongsCalendar";
 import BarstockRoute from "./routes/Barstock";
 import Placeholder from "./routes/Placeholder";
+import AnvilRoute from "./routes/Anvil";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
@@ -28,7 +29,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           element={<AppShell />}
         >
           <Route index element={<ForgeHub />} />
-          <Route path="anvil" element={<Placeholder name="Anvil" />} />
+          <Route path="anvil" element={<AnvilRoute />} />
+          <Route path="anvil/help" element={<Placeholder name="Anvil Help" />} />
+          <Route path="anvil/settings" element={<Placeholder name="Anvil Settings" />} />
           <Route path="hearth" element={<Placeholder name="Hearth" />} />
           <Route path="hammer" element={<Placeholder name="Hammer" />} />
           <Route path="tongs" element={<TongsCalendar />} />
