@@ -1,5 +1,5 @@
-// SSOT: Do not hardcode Forge tool nav elsewhere.
-// Update this file to change the tool tree everywhere.
+// SSOT: Forge navigation tree.
+// Do not hardcode tool links in shells/menus; render this tree instead.
 export type ForgeNavItem = {
   id: string;
   label: string;
