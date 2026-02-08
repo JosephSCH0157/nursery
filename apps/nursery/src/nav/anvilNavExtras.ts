@@ -1,5 +1,6 @@
 import type { ForgeNavSection } from "./forgeNavTree";
 
+// Anvil-only items live here; do not edit forgeNavTree for Anvil-specific links.
 export const anvilNavExtras: ForgeNavSection[] = [
   {
     id: "anvil-native",

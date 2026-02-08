@@ -1,11 +1,11 @@
 import { useMemo, useState } from "react";
 import { ForgeNav } from "../nav/ForgeNav";
 import { anvilNavExtras } from "../nav/anvilNavExtras";
-import { forgeNavTree } from "../nav/forgeNavTree";
+import { composeNav, forgeNavTree } from "../nav/forgeNavTree";
 
 export default function AnvilRoute() {
   const [open, setOpen] = useState(false);
-  const anvilMenuTree = useMemo(() => [...forgeNavTree, ...anvilNavExtras], []);
+  const anvilMenuTree = useMemo(() => composeNav(forgeNavTree, anvilNavExtras), []);
 
   return (
     <div style={{ padding: 18, display: "grid", gap: 12 }}>

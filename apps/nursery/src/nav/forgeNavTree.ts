@@ -12,6 +12,10 @@ export type ForgeNavSection = {
   items: ForgeNavItem[];
 };
 
+export function composeNav(base: ForgeNavSection[], extras?: ForgeNavSection[]) {
+  return extras?.length ? [...base, ...extras] : base;
+}
+
 export const forgeNavTree: ForgeNavSection[] = [
   {
     id: "forge",
