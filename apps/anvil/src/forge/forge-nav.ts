@@ -20,7 +20,12 @@ type ForgeNavPayload = {
 const FORGE_NAV_PANEL_ID = "forgeNavPanel";
 const FORGE_NAV_BUTTON_ID = "forgeNavBtn";
 const FORGE_NAV_WRAPPER_ID = "forgeNavWrap";
+const DEFAULT_MOUNT_ID = "forge-menu-slot";
 const FORGE_NAV_READY_SENTINEL = "__tpForgeNavReady";
+
+type ForgeMenuInitOptions = {
+  mountId?: string;
+};
 const FORGE_NAV_FALLBACK: ForgeNavPayload = {
   schema: 1,
   generated_at: null,
@@ -31,7 +36,7 @@ const FORGE_NAV_FALLBACK: ForgeNavPayload = {
       items: [
         { id: "home", label: "Home", to: "/app" },
         { id: "tongs", label: "Tongs Calendar", to: "/app/tongs" },
-        { id: "anvil", label: "Anvil", to: "/app/anvil" },
+        { id: "anvil", label: "Anvil", href: "/anvil/teleprompter_pro.html" },
         { id: "hearth", label: "Hearth", to: "/app/hearth" },
         { id: "hammer", label: "Hammer", to: "/app/hammer" },
         { id: "barstock", label: "Barstock", to: "/app/barstock" },
@@ -119,15 +124,30 @@ function buildNavUrl(): string {
 }
 
 function resolveItemHref(item: ForgeNavItem): string {
-  if (item.href) return item.href;
-  if (item.to && /^https?:\/\//i.test(item.to)) return item.to;
-  if (!item.to) return "#";
+  if (item.href) {
+    if (/^https?:\/\//i.test(item.href)) return item.href;
+    if (item.href.startsWith("/")) {
+      const hubOrigin = getForgeHubOrigin();
+      if (!hubOrigin) return item.href;
+      try {
+        return new URL(item.href, hubOrigin).toString();
+      } catch {
+        return item.href;
+      }
+    }
+    return item.href;
+  }
+  const to = item.to;
+  if (!to) return "#";
+  if (/^https?:\/\//i.test(to)) return to;
+  if (!(to === "/app" || to.startsWith("/app/"))) return "#";
+
   const hubOrigin = getForgeHubOrigin();
-  if (!hubOrigin) return item.to;
+  if (!hubOrigin) return "#";
   try {
-    return new URL(item.to, hubOrigin).toString();
+    return new URL(to, hubOrigin).toString();
   } catch {
-    return item.to;
+    return "#";
   }
 }
 
@@ -200,33 +220,24 @@ function renderNavPanel(panel: HTMLDivElement, payload: ForgeNavPayload): void {
   });
 }
 
-function positionPanel(button: HTMLButtonElement, panel: HTMLDivElement): void {
-  const rect = button.getBoundingClientRect();
-  const panelWidth = 280;
-  const minViewportPadding = 12;
-  const left = Math.max(
-    minViewportPadding,
-    Math.min(rect.right - panelWidth, window.innerWidth - panelWidth - minViewportPadding),
-  );
-
-  panel.style.left = `${left}px`;
-  panel.style.top = `${Math.round(rect.bottom + 8)}px`;
-}
-
-export function initForgeNavMenu(): void {
-  const topbarRight = document.getElementById("topbarRight");
-  if (!topbarRight) return;
+export function initForgeMenu(opts: ForgeMenuInitOptions = {}): void {
+  const mountId = readString(opts.mountId) ?? DEFAULT_MOUNT_ID;
+  const mount = document.getElementById(mountId);
+  if (!mount) return;
 
   const win = window as any;
-  if (win[FORGE_NAV_READY_SENTINEL]) return;
-  win[FORGE_NAV_READY_SENTINEL] = true;
+  const readyKey = `${FORGE_NAV_READY_SENTINEL}:${mountId}`;
+  if (win[readyKey]) return;
+  win[readyKey] = true;
 
   if (document.getElementById(FORGE_NAV_BUTTON_ID) || document.getElementById(FORGE_NAV_PANEL_ID)) return;
 
   const wrapper = document.createElement("span");
   wrapper.id = FORGE_NAV_WRAPPER_ID;
+  wrapper.style.position = "relative";
   wrapper.style.display = "inline-flex";
   wrapper.style.alignItems = "center";
+  mount.appendChild(wrapper);
 
   const button = document.createElement("button");
   button.id = FORGE_NAV_BUTTON_ID;
@@ -242,7 +253,9 @@ export function initForgeNavMenu(): void {
   panel.setAttribute("role", "menu");
   panel.setAttribute("aria-label", "Forge navigation");
   panel.hidden = true;
-  panel.style.position = "fixed";
+  panel.style.position = "absolute";
+  panel.style.top = "calc(100% + 8px)";
+  panel.style.right = "0";
   panel.style.zIndex = "1100";
   panel.style.width = "280px";
   panel.style.maxWidth = "calc(100vw - 24px)";
@@ -260,21 +273,13 @@ export function initForgeNavMenu(): void {
   loading.style.fontSize = "12px";
   loading.style.opacity = "0.75";
   panel.appendChild(loading);
-
-  const settingsBtn = document.getElementById("settingsBtn");
-  if (settingsBtn && settingsBtn.parentElement === topbarRight) {
-    topbarRight.insertBefore(wrapper, settingsBtn);
-  } else {
-    topbarRight.appendChild(wrapper);
-  }
-  document.body.appendChild(panel);
+  wrapper.appendChild(panel);
 
   let open = false;
   const setOpen = (next: boolean) => {
     open = next;
     panel.hidden = !next;
     button.setAttribute("aria-expanded", next ? "true" : "false");
-    if (next) positionPanel(button, panel);
   };
 
   button.addEventListener("click", (event) => {
@@ -305,11 +310,11 @@ export function initForgeNavMenu(): void {
     if (event.key === "Escape") setOpen(false);
   });
 
-  window.addEventListener("resize", () => {
-    if (open) positionPanel(button, panel);
-  });
-
   void loadForgeNav().then((payload) => {
     renderNavPanel(panel, payload);
   });
+}
+
+export function initForgeNavMenu(opts: ForgeMenuInitOptions = {}): void {
+  initForgeMenu(opts);
 }

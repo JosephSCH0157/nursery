@@ -3,7 +3,8 @@
 export type ForgeNavItem = {
   id: string;
   label: string;
-  to: string;
+  to?: string;
+  href?: string;
 };
 
 export type ForgeNavSection = {
@@ -23,7 +24,7 @@ export const forgeNavTree: ForgeNavSection[] = [
     items: [
       { id: "home", label: "Home", to: "/app" },
       { id: "tongs", label: "Tongs Calendar", to: "/app/tongs" },
-      { id: "anvil", label: "Anvil", to: "/app/anvil" },
+      { id: "anvil", label: "Anvil", href: "/anvil/teleprompter_pro.html" },
       { id: "hearth", label: "Hearth", to: "/app/hearth" },
       { id: "hammer", label: "Hammer", to: "/app/hammer" },
       { id: "barstock", label: "Barstock", to: "/app/barstock" },

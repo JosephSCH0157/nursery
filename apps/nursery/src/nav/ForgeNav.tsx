@@ -52,14 +52,27 @@ export function ForgeNav({
 
             <nav style={navStyle}>
               {section.items.map((item) => (
-                <Link
-                  key={item.id}
-                  to={item.to}
-                  onClick={onNavigate}
-                  style={itemStyle}
-                >
-                  {item.label}
-                </Link>
+                item.href
+                  ? (
+                    <a
+                      key={item.id}
+                      href={item.href}
+                      onClick={onNavigate}
+                      style={itemStyle}
+                    >
+                      {item.label}
+                    </a>
+                  )
+                  : (
+                    <Link
+                      key={item.id}
+                      to={item.to ?? "#"}
+                      onClick={onNavigate}
+                      style={itemStyle}
+                    >
+                      {item.label}
+                    </Link>
+                  )
               ))}
             </nav>
 
