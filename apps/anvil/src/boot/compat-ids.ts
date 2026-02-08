@@ -6,7 +6,6 @@ declare global {
     $id?: <T extends HTMLElement = HTMLElement>(..._ids: string[]) => T | null;
     $bindOnce?: (_el: EventTarget | null, _type: string, _handler: EventListener, _key: string) => void;
     __TP_ID_ALIASES?: Record<string, string[]>;
-    getViewer2?: () => HTMLElement | null;
   }
 }
 
@@ -53,15 +52,6 @@ window.$bindOnce = function $bindOnce(el, type, handler, key) {
   // @ts-ignore
   (el as any)[k] = true;
 };
-
-// Legacy global getter used by older step-scroll bridges.
-try {
-  if (typeof window.getViewer2 !== 'function') {
-    window.getViewer2 = () => document.getElementById('viewer');
-  }
-} catch {
-  // ignore
-}
 
 export { };
 

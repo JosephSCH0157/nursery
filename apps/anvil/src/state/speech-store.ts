@@ -1,55 +1,32 @@
-// src/state/speech-store.ts
-// Typed speech state store with simple subscribe/set/get API.
-
-export type SpeechEngine = 'webspeech' | 'whisper' | 'vad' | string;
-
-export interface SpeechState {
-  engine: SpeechEngine;
+// =============================================================
+// File: src/state/speech-store.ts
+// (Local speech-only store. You can merge into your global store later.)
+// =============================================================
+export type SpeechState = {
+  engine: 'webspeech' | 'vosk' | 'whisper';
   lang: string;
   interim: boolean;
-  threshold: number;
+  threshold: number;         // coverage × confidence
   endpointingMs: number;
   fillerFilter: boolean;
-  manualAnchorAdoptEnabled: boolean;
-  calmModeEnabled: boolean;
-}
-
-type Subscriber = (next: SpeechState) => void;
+};
 
 const state: SpeechState = {
   engine: 'webspeech',
   lang: 'en-US',
   interim: true,
-  threshold: 0.6,
+  threshold: 0.60,
   endpointingMs: 700,
   fillerFilter: true,
-  manualAnchorAdoptEnabled: true,
-  calmModeEnabled: false,
 };
 
-const subs = new Set<Subscriber>();
+const subs = new Set<(_s: SpeechState) => void>();
 
 export const speechStore = {
-  get(): SpeechState {
-    return { ...state };
-  },
-
-  set(patch: Partial<SpeechState>): void {
+  get(): SpeechState { return { ...state }; },
+  set(patch: Partial<SpeechState>) {
     Object.assign(state, patch);
-    const snapshot = { ...state };
-    for (const fn of subs) {
-      try {
-        fn(snapshot);
-      } catch {
-        // ignore bad subscribers
-      }
-    }
+    for (const fn of subs) fn({ ...state });
   },
-
-  subscribe(fn: Subscriber): () => void {
-    subs.add(fn);
-    // Optionally emit current state immediately:
-    // fn({ ...state });
-    return () => subs.delete(fn);
-  },
+  subscribe(fn: (_s: SpeechState) => void) { subs.add(fn); return () => subs.delete(fn); },
 };

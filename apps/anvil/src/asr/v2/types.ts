@@ -55,7 +55,7 @@ export interface PaceCaps {
   decayMs: number;  // silence decay cadence
 }
 
-export type PaceMode = 'assist' | 'align' | 'vad' | 'off';
+export type PaceMode = 'assist' | 'align' | 'vad';
 
 export interface PaceEngine {
   setMode(_m: PaceMode): void;

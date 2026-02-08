@@ -1,84 +1,37 @@
-// Mic pill popover menu for quick ASR access
-import { getAsrState, onAsr, setActiveProfile } from '../asr/store';
-import { getAppStore } from '../state/appStore';
-import { showToast } from './toasts';
-
-const MIC_PILL_SELECTOR = '[data-tp-mic-pill]';
-const MENU_ID = 'micMenu';
-
-function openSettingsOverlay(): void {
-  let opened = false;
-  try {
-    const btn = document.querySelector<HTMLElement>('#settingsBtn, [data-action="settings-open"]');
-    if (btn) {
-      btn.click();
-      opened = true;
-    }
-  } catch {}
-  if (opened) return;
-  try {
-    (window as any).__tpSettings?.open?.();
-    opened = true;
-  } catch {}
-  if (opened) return;
-  try {
-    const overlay = document.getElementById('settingsOverlay');
-    if (overlay) {
-      overlay.hidden = false;
-      overlay.removeAttribute('hidden');
-      overlay.classList.remove('hidden');
-      overlay.setAttribute('aria-hidden', 'false');
-    }
-  } catch {}
-}
-
-function selectSettingsTab(id: string): void {
-  try {
-    const btn = document.querySelector<HTMLElement>(`[data-settings-tab="${id}"]`);
-    if (btn) {
-      btn.click();
-      return;
-    }
-  } catch {}
-  try {
-    const btn = document.querySelector<HTMLElement>(`[data-tab="${id}"]`);
-    btn?.click();
-  } catch {}
-}
-
-function openSettingsToMedia() {
-  try {
-    const store = getAppStore();
-    if (store?.set) {
-      try { store.set('settingsTab', 'media'); } catch {}
-    }
-  } catch {}
-  openSettingsOverlay();
-  selectSettingsTab('media');
-  setTimeout(() => selectSettingsTab('media'), 60);
-}
+// Mic pill (permChip) popover menu for quick ASR access
+import { getAsrState, setActiveProfile } from '../asr/store';
 
 function openSettingsToAsr(startWizard?: boolean) {
-  openSettingsToMedia();
-  setTimeout(() => {
-    try {
+  try {
+    // Open overlay
+    (window as any).__tpSettings?.open?.();
+    // Switch to Media tab
+    const overlay = document.getElementById('settingsOverlay');
+    if (overlay) overlay.classList.remove('hidden');
+    const tabsRoot = document.getElementById('settingsTabs') || document;
+    tabsRoot?.querySelectorAll('[data-tab-content]')?.forEach((c) => ((c as HTMLElement).style.display = 'none'));
+    const media = document.querySelector('[data-tab-content="media"]') as HTMLElement | null;
+    if (media) media.style.display = '';
+    // Scroll into ASR card
+    setTimeout(() => {
       const sec = document.getElementById('asrSettings');
       if (sec) {
         try { sec.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch { sec.scrollIntoView(); }
         try { sec.classList.add('asr-highlight'); setTimeout(() => sec.classList.remove('asr-highlight'), 1400); } catch {}
       }
+      // focus device select if present
       const devSel = document.getElementById('asrDevice') as HTMLSelectElement | null;
       devSel?.focus?.();
       if (startWizard) { try { (window as any).startAsrWizard?.(); } catch {} }
-    } catch {}
-  }, 50);
+    }, 50);
+  } catch {}
 }
 
 function buildMenu() {
-  let el = document.getElementById(MENU_ID);
+  let el = document.getElementById('micMenu');
   if (el) return el;
   el = document.createElement('div');
-  el.id = MENU_ID;
+  el.id = 'micMenu';
   el.style.position = 'fixed';
   el.style.zIndex = '2147483640';
   el.style.background = 'rgba(10,14,22,0.98)';
@@ -108,7 +61,7 @@ function buildMenu() {
           const Auto = (window as any).__tpAuto || (window as any).Auto;
           const isLive = !!Auto?.getState?.().enabled;
           if (isLive) {
-            showToast?.('Pause Auto-scroll to calibrate', { type: 'info' });
+            (window as any).toast?.('Pause Auto-scroll to calibrate', { type: 'info' });
           } else {
             openSettingsToAsr(true);
           }
@@ -117,7 +70,7 @@ function buildMenu() {
       hide();
     } else if (t.matches('[data-profile]')) {
       const id = t.getAttribute('data-profile') || '';
-      try { setActiveProfile(id as any); showToast?.('ASR profile selected', { type: 'info' }); } catch {}
+      try { setActiveProfile(id as any); (window as any).toast?.('ASR profile selected', { type: 'info' }); } catch {}
       hide();
     }
   });
@@ -170,80 +123,40 @@ function show(anchor: HTMLElement) {
 }
 
 function hide() {
-  const el = document.getElementById(MENU_ID);
+  const el = document.getElementById('micMenu');
   if (el) el.style.display = 'none';
 }
 
-function initMicPillMenu() {
+(function initMicPillMenu(){
   try {
-    const pill = document.querySelector<HTMLElement>(MIC_PILL_SELECTOR);
+    const pill = document.getElementById('permChip');
     if (!pill) return;
-    const applyState = () => {
-      try {
-        const s = getAsrState();
-        const profId = s?.activeProfileId;
-        const prof = profId ? (s.profiles as any)?.[profId] : null;
-        if (prof) {
-          pill.classList.add('is-active');
-          pill.dataset.asrProfile = String(prof.label || profId || 'profile');
-        } else {
-          pill.classList.remove('is-active');
-          try { delete pill.dataset.asrProfile; } catch {}
-        }
-      } catch {
-        // ignore
-      }
-    };
-    applyState();
-    try { onAsr(applyState); } catch {}
     pill.style.cursor = 'pointer';
     pill.title = 'Microphone menu';
     pill.addEventListener('click', () => {
-      const el = document.getElementById(MENU_ID);
+      const el = document.getElementById('micMenu');
       if (el && el.style.display !== 'none') hide(); else show(pill);
     });
     // Device changed prompt (when selecting a new device)
     document.addEventListener('change', (e) => {
       const t = e.target as HTMLElement | null;
       if ((t as HTMLSelectElement)?.id === 'settingsMicSel') {
-        showToast?.('Mic device changed — calibrate?', { type: 'warn', actionLabel: 'Open', action: () => openSettingsToAsr(false) });
+        (window as any).toast?.('Mic device changed — calibrate?', { type: 'warn', actionLabel: 'Open', action: () => openSettingsToAsr(false) });
       }
     }, { capture: true });
   } catch {}
-}
+})();
 
 // JIT prompt: first run (no active profile)
-function firstRunToast(){
+(function firstRunToast(){
   try {
     const s = getAsrState();
     if (!s.activeProfileId) {
-      showToast?.('ASR not calibrated — open ASR settings', {
+      (window as any).toast?.('ASR not calibrated — open ASR settings', {
         type: 'warn',
         actionLabel: 'Open',
         action: () => openSettingsToAsr(false)
       });
     }
   } catch {}
-}
-
-function autoInit() {
-  const run = () => {
-    initMicPillMenu();
-    firstRunToast();
-  };
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', run, { once: true });
-  } else {
-    run();
-  }
-}
-
-autoInit();
-
-// Expose helper for other UI (top bar Calibrate Mic, legacy hooks)
-try {
-  (window as any).openSettingsToAsr = openSettingsToAsr;
-  (window as any).openSettingsToMedia = openSettingsToMedia;
-} catch {
-  // ignore
-}
+})();
