@@ -123,6 +123,7 @@ import { applyTypographyTo } from './features/typography';
 import { initAsrFeature } from './index-hooks/asr';
 import { getTypography, onTypography, setTypography } from './settings/typographyStore';
 import { getUiPrefs } from './settings/uiPrefs';
+import { initForgeNavMenu } from './forge/forge-nav';
 import './ui/micMenu';
 import { initObsUI } from './wiring/obs-wiring';
 // Dev HUD for notes (only activates under ?dev=1 or __TP_DEV)
@@ -143,11 +144,13 @@ try {
 } catch {}
 
 try {
-	document.addEventListener('DOMContentLoaded', () => {
-			// Initialize ASR feature (settings card, hotkeys, topbar UI)
-			try { initAsrFeature(); } catch {}
-			// OBS Settings wiring (inline bridge-backed "Test connect")
-			try { initObsUI(); } catch {}
+		document.addEventListener('DOMContentLoaded', () => {
+				// Initialize ASR feature (settings card, hotkeys, topbar UI)
+				try { initAsrFeature(); } catch {}
+				// Forge hub navigation menu (fetches canonical nav + fallback).
+				try { initForgeNavMenu(); } catch {}
+				// OBS Settings wiring (inline bridge-backed "Test connect")
+				try { initObsUI(); } catch {}
 		// Ensure autoscroll engine is initialized
 		try { (Auto as any).initAutoScroll?.(); } catch {}
 

@@ -4,8 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "predev": "pnpm --filter @forge/tongs build",
+    "gen:forge-nav": "node scripts/generate-forge-nav.mjs",
+    "predev": "pnpm --filter @forge/tongs build && node scripts/generate-forge-nav.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/generate-forge-nav.mjs",
     "build": "tsc -b && vite build",
     "types": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",

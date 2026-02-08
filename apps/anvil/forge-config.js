@@ -6,3 +6,6 @@ window.__forgeSupabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOi
 // Optional overrides for production reset links:
 window.__forgeAppOrigin = window.__forgeAppOrigin || 'https://podcastersforge.com';
 window.__forgeResetRedirectUrl = window.__forgeResetRedirectUrl || 'https://podcastersforge.com/reset';
+// Optional nav config for standalone Anvil menu:
+window.FORGE_HUB_ORIGIN = window.FORGE_HUB_ORIGIN || window.__forgeAppOrigin || '';
+window.FORGE_BUILD_ID = window.FORGE_BUILD_ID || window.APP_VERSION || '';
