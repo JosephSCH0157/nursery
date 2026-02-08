@@ -2,6 +2,8 @@
 
 This document defines the **canonical agent roles** inside the Nursery workspace. Each agent has a clear scope, inputs/outputs, and guardrails so tools can cooperate without stepping on each other.
 
+Release baseline: **Forge v1.0.0** (`forge-v1.0.0`).
+
 ---
 
 ## 🏗️ Core System Agents
@@ -122,4 +124,4 @@ This document defines the **canonical agent roles** inside the Nursery workspace
 
 ---
 
-*Last updated: 2026‑01‑31*
+*Last updated: 2026‑02‑07*

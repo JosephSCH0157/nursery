@@ -1,8 +1,10 @@
-# Hearth V1 - Canonical Manifest
+# Hearth v1.0 - Canonical Manifest
 
 ## Purpose
 
 Hearth is the conversational script-forging tool in the Podcasters Forge ecosystem. Its sole purpose is to help creators transform raw ideas (Bar Stock sparks) into record-ready scripts that conform strictly to Anvil tag rules.
+
+Release status: included in **Forge v1.0.0** (`forge-v1.0.0`).
 
 Hearth is not a teleprompter, recorder, editor, publisher, or SEO tool. It is the thinking fire that gives Anvil power.
 

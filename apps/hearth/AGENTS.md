@@ -5,6 +5,8 @@ All contributors (human or AI) MUST follow these rules.
 
 If code behavior contradicts this document, the code is wrong.
 
+Release baseline: **Forge v1.0.0** (`forge-v1.0.0`).
+
 ---
 
 ## 1. What Hearth Is

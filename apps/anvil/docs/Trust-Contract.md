@@ -50,7 +50,7 @@ Purpose: Forge pricing is affordable for independent creators, sustainable for l
 
 3) Modular tool pricing
 - Tools are priced individually so users adopt only what they need.
-- Current pricing targets (subject to adjustment prior to release):
+- Forge v1.0 pricing:
   - Anvil: $15/month
   - Hammer: $15/month
   - Hearth: $15/month
@@ -85,8 +85,8 @@ Non-goals:
 - Forge does not bundle AI costs invisibly into subscriptions.
 
 Status:
-- Pricing model is conceptually locked.
-- Final dollar amounts may be adjusted prior to public launch.
+- Pricing model is live in Forge v1.0.0.
+- Listed amounts are the v1.0 baseline and any changes require explicit release-note updates.
 - These principles are not subject to change.
 
 Optional enforcement note:

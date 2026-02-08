@@ -2,6 +2,8 @@
 
 Hearth is the conversational script-forging tool inside Podcasters Forge. It helps creators turn raw ideas into calm, readable, record-ready scripts without pressure, automation creep, or premature optimization.
 
+Release status: included in **Forge v1.0.0** (`forge-v1.0.0`).
+
 ## What Hearth Is
 
 * A thinking space for scripts
@@ -34,4 +36,4 @@ Hearth makes Anvil powerful by ensuring that when recording starts, the thinking
 
 ---
 
-Hearth V1 is intentionally focused. Depth over breadth. Calm over speed. Voice over algorithms.
+Hearth ships in Forge v1.0 with an intentionally focused scope. Depth over breadth. Calm over speed. Voice over algorithms.

@@ -4,6 +4,8 @@
 
 Barstock is the raw idea capture layer of **Podcasters Forge** — the place for half-formed thoughts, rants, sparks, premises, and moments of clarity that show up at inconvenient times.
 
+Release status: included in **Forge v1.0.0** (`forge-v1.0.0`).
+
 No formatting pressure.  
 No polish required.  
 No judgment.
