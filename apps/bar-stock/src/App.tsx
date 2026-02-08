@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import "./index.css";
 
 import type { Assignment, AssignmentId, Spark, SparkStatus } from "./lib/model";
 import { makeSpark, now } from "./lib/model";
@@ -385,17 +386,20 @@ export default function App(props: BarstockAppProps = {}) {
 
   return (
     <div
+      className="barstock-root"
       style={{
         display: "grid",
         gridTemplateColumns: "260px 1fr",
         minHeight: "100vh",
-        fontFamily: "system-ui, sans-serif"
+        fontFamily: "system-ui, sans-serif",
+        color: "var(--barstock-text)",
+        background: "var(--barstock-bg)",
       }}
     >
       {/* Sidebar */}
       <aside
         style={{
-          borderRight: "1px solid #e5e5e5",
+          borderRight: "1px solid var(--barstock-border)",
           padding: 14
         }}
       >
@@ -548,7 +552,7 @@ export default function App(props: BarstockAppProps = {}) {
               }}
             />
           </div>
-          <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #e5e5e5" }}>
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--barstock-border)" }}>
             <div style={{ fontWeight: 700, fontSize: 13, opacity: 0.85 }}>Forge Sync</div>
             <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
               Status: <b>{syncLabel}</b> - Outbox: <b>{outboxCount}</b>
@@ -581,7 +585,15 @@ export default function App(props: BarstockAppProps = {}) {
         </p>
 
         {toast && (
-          <div style={{ marginTop: 10, padding: "8px 10px", border: "1px solid #ddd", borderRadius: 8 }}>
+          <div
+            style={{
+              marginTop: 10,
+              padding: "8px 10px",
+              border: "1px solid var(--barstock-border)",
+              borderRadius: 8,
+              background: "var(--barstock-surface)",
+            }}
+          >
             {toast}
           </div>
         )}
@@ -652,9 +664,10 @@ export default function App(props: BarstockAppProps = {}) {
                   setActiveAssignment(s.assignmentId);
                 }}
                 style={{
-                  border: "1px solid #ddd",
+                  border: "1px solid var(--barstock-border)",
                   borderRadius: 10,
-                  padding: 12
+                  padding: 12,
+                  background: "var(--barstock-surface)",
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
@@ -783,11 +796,12 @@ export default function App(props: BarstockAppProps = {}) {
                         onClick={() => onTagClick(t)}
                         style={{
                           cursor: "pointer",
-                          border: "1px solid #ddd",
+                          border: "1px solid var(--barstock-border)",
                           borderRadius: 999,
                           padding: "4px 10px",
                           fontSize: 12,
-                          opacity: 0.9
+                          opacity: 0.9,
+                          background: "rgba(26, 38, 61, 0.65)",
                         }}
                         title="Filter by tag"
                       >
@@ -814,11 +828,11 @@ function SidebarItem(props: { label: string; active: boolean; onClick: () => voi
         width: "100%",
         padding: "8px 10px",
         borderRadius: 10,
-        border: "1px solid #e5e5e5",
+        border: "1px solid var(--barstock-border)",
         cursor: "pointer",
         fontWeight: props.active ? 800 : 600,
         opacity: props.active ? 1 : 0.85,
-        background: props.active ? "#f5f5f5" : "transparent"
+        background: props.active ? "var(--barstock-surface-strong)" : "transparent"
       }}
     >
       {props.label}

@@ -1,0 +1,46 @@
+.barstock-root {
+  color-scheme: dark;
+  --barstock-bg: rgba(11, 18, 32, 0.72);
+  --barstock-surface: rgba(17, 27, 45, 0.78);
+  --barstock-surface-strong: rgba(26, 38, 61, 0.9);
+  --barstock-border: rgba(148, 163, 184, 0.3);
+  --barstock-text: var(--forge-text, #e5edf7);
+  --barstock-muted: var(--forge-text-muted, #9fb0c6);
+  --barstock-link: var(--forge-link, #93c5fd);
+  --barstock-link-hover: var(--forge-link-hover, #bfdbfe);
+  color: var(--barstock-text);
+}
+
+.barstock-root a {
+  color: var(--barstock-link);
+}
+
+.barstock-root a:hover {
+  color: var(--barstock-link-hover);
+}
+
+.barstock-root input,
+.barstock-root select,
+.barstock-root textarea {
+  border: 1px solid var(--barstock-border);
+  border-radius: 10px;
+  background: var(--barstock-surface);
+  color: var(--barstock-text);
+}
+
+.barstock-root input::placeholder,
+.barstock-root textarea::placeholder {
+  color: rgba(159, 176, 198, 0.9);
+}
+
+.barstock-root button {
+  border: 1px solid var(--barstock-border);
+  border-radius: 10px;
+  background: var(--barstock-surface-strong);
+  color: var(--barstock-text);
+}
+
+.barstock-root button:hover:not(:disabled) {
+  border-color: rgba(147, 197, 253, 0.55);
+  background: #243454;
+}

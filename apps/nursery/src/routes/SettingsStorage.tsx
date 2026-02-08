@@ -277,20 +277,20 @@ export default function SettingsStorage() {
   return (
     <div
       style={{
-        border: "1px solid #ddd",
+        border: "1px solid var(--forge-border)",
         borderRadius: 10,
         padding: 18,
-        background: "#fff",
+        background: "var(--forge-bg-elevated)",
         maxWidth: 820,
       }}
     >
       <h3 style={{ marginTop: 0 }}>Storage / Mounts</h3>
-      <p style={{ marginTop: 0, color: "#555" }}>
+      <p style={{ marginTop: 0, color: "var(--forge-text-muted)" }}>
         Choose where role-specific data lives. Every tool will read these settings automatically.
       </p>
 
       {status && (
-        <div style={{ marginBottom: 12, fontSize: "0.9rem", color: "#333" }}>
+        <div style={{ marginBottom: 12, fontSize: "0.9rem", color: "var(--forge-text-muted)" }}>
           <strong>Status:</strong> {status}
         </div>
       )}
@@ -321,14 +321,14 @@ export default function SettingsStorage() {
               : false;
 
             return (
-              <tr key={policy.role} style={{ borderTop: "1px solid #eee" }}>
+              <tr key={policy.role} style={{ borderTop: "1px solid var(--forge-border)" }}>
                 <td style={{ padding: "12px 0" }}>
                   {policy.label}
                   {isLocalOnly && (
-                    <span style={{ marginLeft: 8, fontSize: 12, color: "#666" }}>Local-only</span>
+                    <span style={{ marginLeft: 8, fontSize: 12, color: "var(--forge-text-muted)" }}>Local-only</span>
                   )}
                   {isCloudCanonical && (
-                    <span style={{ marginLeft: 8, fontSize: 12, color: "#666" }}>Cloud canonical</span>
+                    <span style={{ marginLeft: 8, fontSize: 12, color: "var(--forge-text-muted)" }}>Cloud canonical</span>
                   )}
                 </td>
                 <td style={{ padding: "12px 0" }}>
@@ -338,7 +338,7 @@ export default function SettingsStorage() {
 
                   {isLocalOnly && (
                     <div style={{ marginTop: 6, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                      <div style={{ fontSize: 12, color: "#666" }}>
+                      <div style={{ fontSize: 12, color: "var(--forge-text-muted)" }}>
                         Folder: {localHint ?? "not set"}
                       </div>
                       <button onClick={() => setLocalFolder(policy.role)}>Choose folder</button>
@@ -360,7 +360,7 @@ export default function SettingsStorage() {
                       </label>
                       {mirrorEnabled && (
                         <div style={{ marginTop: 6, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                          <div style={{ fontSize: 12, color: "#666" }}>
+                          <div style={{ fontSize: 12, color: "var(--forge-text-muted)" }}>
                             Mirror folder: {mirrorHint ?? "not set"}
                           </div>
                           <button onClick={() => setMirrorFolder(policy.role)}>Choose folder</button>
@@ -389,7 +389,7 @@ export default function SettingsStorage() {
                               <span>Auto mirror at session end</span>
                             </label>
                           )}
-                          <div style={{ fontSize: 12, color: "#555" }}>
+                          <div style={{ fontSize: 12, color: "var(--forge-text-muted)" }}>
                             Last mirrored: {formatMirrorTime(lastMirror?.at)}{" "}
                             {lastMirror
                               ? `(${lastMirror.reason}, ${lastMirror.ok ? "ok" : "failed"})`

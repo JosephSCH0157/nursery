@@ -5,7 +5,9 @@ export default function SettingsLayout() {
     <section style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <header>
         <h2 style={{ margin: 0 }}>Settings</h2>
-        <p style={{ margin: "4px 0 0", color: "#555" }}>Configure storage, identity, and workspace defaults in one place.</p>
+        <p style={{ margin: "4px 0 0", color: "var(--forge-text-muted)" }}>
+          Configure storage, identity, and workspace defaults in one place.
+        </p>
       </header>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <Outlet />

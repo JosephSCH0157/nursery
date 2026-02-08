@@ -269,14 +269,22 @@ export default function AppShell() {
   const activeWorkspace = workspaces.find(w => w.id === workspaceId) ?? null;
 
   return (
-    <div style={{ minHeight: "100vh", fontFamily: "system-ui", display: "flex", flexDirection: "column" }}>
+    <div
+      style={{
+        minHeight: "100vh",
+        fontFamily: "system-ui",
+        display: "flex",
+        flexDirection: "column",
+        color: "var(--forge-text)",
+      }}
+    >
       <header
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
           padding: "10px 16px",
-          borderBottom: "1px solid #ddd",
+          borderBottom: "1px solid var(--forge-border)",
           gap: 16,
         }}
       >
@@ -333,7 +341,7 @@ export default function AppShell() {
                     Cancel
                   </button>
                   {renameError && (
-                    <span style={{ color: "#b00020", fontSize: 12 }}>
+                    <span style={{ color: "var(--forge-danger)", fontSize: 12 }}>
                       {renameError}
                     </span>
                   )}
@@ -349,8 +357,8 @@ export default function AppShell() {
               width: 28,
               height: 28,
               borderRadius: 999,
-              background: "#222",
-              color: "#fff",
+              background: "var(--forge-bg-raised)",
+              color: "var(--forge-text)",
               display: "grid",
               placeItems: "center",
               fontSize: 12,
@@ -369,7 +377,7 @@ export default function AppShell() {
       </header>
 
       <div style={{ display: "flex", flex: 1 }}>
-        <aside style={{ width: 240, padding: 16, borderRight: "1px solid #ddd" }}>
+        <aside style={{ width: 240, padding: 16, borderRight: "1px solid var(--forge-border)" }}>
           <h3>Nursery</h3>
           <nav style={{ display: "grid", gap: 8 }}>
             <Link to="/app">Home</Link>
@@ -380,7 +388,7 @@ export default function AppShell() {
             <Link to="/app/barstock">Barstock</Link>
           </nav>
           <hr />
-          <div style={{ fontSize: "0.85rem", color: "#666" }}>Settings</div>
+          <div style={{ fontSize: "0.85rem", color: "var(--forge-text-muted)" }}>Settings</div>
           <nav style={{ display: "grid", gap: 6, marginTop: 4 }}>
             <Link to="/app/settings">Settings home</Link>
             <Link to="/app/settings/storage">Storage (Mounts)</Link>
@@ -405,20 +413,29 @@ export default function AppShell() {
           style={{
             position: "fixed",
             inset: 0,
-            background: "rgba(0, 0, 0, 0.35)",
+            background: "rgba(0, 0, 0, 0.65)",
             display: "grid",
             placeItems: "center",
             padding: 16,
           }}
         >
-          <div style={{ background: "#fff", padding: 16, borderRadius: 12, width: "100%", maxWidth: 420 }}>
+          <div
+            style={{
+              background: "var(--forge-bg-elevated)",
+              border: "1px solid var(--forge-border)",
+              padding: 16,
+              borderRadius: 12,
+              width: "100%",
+              maxWidth: 420,
+            }}
+          >
             <h3 style={{ marginTop: 0 }}>Create workspace</h3>
             <div style={{ display: "grid", gap: 10 }}>
               <div style={{ fontSize: 12, opacity: 0.7 }}>
                 This creates an ID-only workspace container.
               </div>
               {createError && (
-                <div style={{ color: "#b00020", fontSize: 12 }}>{createError}</div>
+                <div style={{ color: "var(--forge-danger)", fontSize: 12 }}>{createError}</div>
               )}
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
                 <button

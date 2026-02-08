@@ -2,10 +2,10 @@ export default function SettingsHome() {
   return (
     <div
       style={{
-        border: "1px solid #ddd",
+        border: "1px solid var(--forge-border)",
         borderRadius: 8,
         padding: 16,
-        background: "#fff",
+        background: "var(--forge-bg-elevated)",
         maxWidth: 540,
       }}
     >
