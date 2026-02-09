@@ -15197,6 +15197,7 @@ var meta = typeof import.meta !== "undefined" ? import.meta : {};
 var metaEnv = meta.env || {};
 var SUPABASE_URL = w.__forgeSupabaseUrl || metaEnv.VITE_SUPABASE_URL || "";
 var SUPABASE_ANON_KEY = w.__forgeSupabaseAnonKey || metaEnv.VITE_SUPABASE_ANON_KEY || "";
+var AUTH_STORAGE_KEY = "forge-auth";
 var hasSupabaseConfig = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 function createSupabaseStub(reason) {
   const handler = {
@@ -15225,7 +15226,10 @@ if (hasSupabaseConfig) {
     supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: {
         persistSession: true,
-        detectSessionInUrl: true
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        storageKey: AUTH_STORAGE_KEY,
+        ...typeof window !== "undefined" ? { storage: window.localStorage } : {}
       }
     });
   } catch (err) {
