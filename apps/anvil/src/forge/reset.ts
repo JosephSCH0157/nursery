@@ -51,7 +51,7 @@ async function handleReset(form: HTMLFormElement): Promise<void> {
     }
     setText('status', 'Password updated. Redirecting to login...');
     setTimeout(() => {
-      try { window.location.href = '/login'; } catch {}
+      try { window.location.href = '/app'; } catch {}
     }, 800);
   } catch (err: any) {
     setText('error', err?.message || 'Reset failed.');

@@ -191,6 +191,7 @@
     .topbar strong{font-weight:600;margin-right:6px}
     .chip{display:inline-block;padding:4px 8px;border-radius:8px;background:var(--chip-bg);color:var(--fg);font-size:13px}
     .inl-1{margin-left:auto}
+    #topbarRight{position:relative}
     .app{display:grid;grid-template-columns:320px 1fr;gap:12px;padding:12px;box-sizing:border-box}
     .panel{background:transparent;color:var(--muted);max-height:calc(100vh - 92px);overflow:auto}
     .viewer{background:transparent;padding:6px;min-height:calc(100vh - 92px);overflow:auto}
@@ -198,6 +199,11 @@
     .script .line{padding:6px 0;color:var(--fg)}
     #dbMeterTop{display:flex;gap:2px;height:14px;align-items:flex-end;position:relative;padding:0 2px;border:1px solid var(--edge);border-radius:4px;overflow:hidden;background:linear-gradient(90deg,#124,#124 5%,#135 5%,#135 20%,#145 20%,#145 40%,#254 40%,#352 60%,#542 80%,#731 90%,#921 95%,#b11);background-size:100% 100%;margin:0;}
     button.chip{border:0;background:transparent;color:var(--fg);cursor:pointer}
+    .forge-menu-btn{margin-right:6px;border-radius:10px;padding:6px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#fff;cursor:pointer}
+    .forge-menu{position:absolute;top:calc(100% + 8px);right:0;width:220px;border-radius:14px;background:rgba(10,14,22,0.98);border:1px solid rgba(255,255,255,0.12);box-shadow:0 12px 40px rgba(0,0,0,0.5);overflow:hidden;z-index:9999}
+    .forge-menu-item{display:block;padding:10px 12px;color:rgba(255,255,255,0.92);text-decoration:none;border-bottom:1px solid rgba(255,255,255,0.06)}
+    .forge-menu-item:hover{background:rgba(255,255,255,0.06)}
+    .forge-menu-item.disabled{opacity:0.6}
     @media (max-width:900px){.app{grid-template-columns:1fr}}
     @media (max-width:720px){.topbar{flex-wrap:wrap}}
     /* HUD root styles disabled (HUD removed) */
@@ -362,7 +368,8 @@
       <span id="recPill" class="rec-pill rec-pill--main" aria-hidden="true">REC</span>
       <span id="recPillLive" class="sr-only rec-pill-live"></span>
     </span>
-    <span id="forge-menu-slot"></span>
+    <button id="forgeMenuBtn" class="forge-menu-btn" aria-label="Forge menu" type="button">☰</button>
+    <div id="forgeMenu" class="forge-menu" hidden></div>
     <!-- ASR chip + button will mount here -->
     <button class="chip" id="singleMonitorBtn" data-action="single-monitor-toggle" aria-pressed="false" title="Single Monitor Read (maximize script view)">Single Monitor</button>
     <button class="chip" id="sidebarDrawerBtn" data-action="sidebar-drawer-toggle" aria-expanded="false" title="Open scripts/settings drawer">Scripts</button>
@@ -373,7 +380,7 @@
     <span id="authCluster" class="auth-cluster">
       <span class="chip" id="whoamiChip" hidden></span>
       <button id="logoutBtn" class="chip" type="button" hidden>Log out</button>
-      <a id="loginLink" class="chip auth-link" href="/login?next=%2Fanvil%2Fteleprompter_pro.html">Log in</a>
+      <a id="loginLink" class="chip auth-link" href="/app?next=%2Fanvil%2Fteleprompter_pro.html">Log in</a>
     </span>
     <span id="selfChecksChip" class="chip chip-muted dev-only">
       Self-checks: <strong id="selfChecksText">6/6 OK</strong> <em>(click)</em>
@@ -404,7 +411,7 @@
 
         var url = 'https://discord.com/channels/1457026850407841834/1457026850407841837';
         var target = encodeURIComponent(location.pathname + location.search + location.hash);
-        var loginHref = '/login?next=' + target;
+        var loginHref = '/app?next=' + target;
 
         // Capture so we beat any page-tab delegation that might exist elsewhere
         btn.addEventListener(
@@ -1027,6 +1034,54 @@ Joe starts here.
       try {
         // legacy display/camera wiring removed (TS bridges own these)
       } catch (e) {}
+    })();
+  </script>
+  <script>
+    (function initForgeMenu() {
+      var btn = document.getElementById('forgeMenuBtn');
+      var menu = document.getElementById('forgeMenu');
+      if (!btn || !menu) return;
+
+      function closeMenu(){ menu.hidden = true; }
+
+      function flattenItems(payload){
+        if (!payload) return [];
+        if (Array.isArray(payload)) return payload;
+        if (Array.isArray(payload.items)) return payload.items;
+        if (Array.isArray(payload.tree)) {
+          return payload.tree.reduce(function(acc, section){
+            if (section && Array.isArray(section.items)) {
+              acc.push.apply(acc, section.items);
+            }
+            return acc;
+          }, []);
+        }
+        return [];
+      }
+
+      btn.addEventListener('click', async function (e) {
+        try { e.stopPropagation(); } catch (_) {}
+        menu.hidden = !menu.hidden;
+        if (!menu.hidden && !menu.dataset.loaded) {
+          try {
+            var res = await fetch('/forge-nav.json', { cache: 'no-store' });
+            var nav = await res.json();
+            var items = flattenItems(nav);
+            menu.innerHTML = items.map(function(item){
+              if (!item) return '';
+              var href = item.href || item.to || '#';
+              var label = item.label || 'Untitled';
+              return '<a class="forge-menu-item" href="' + href + '">' + label + '</a>';
+            }).join('');
+            menu.dataset.loaded = '1';
+          } catch (err) {
+            menu.innerHTML = '<div class="forge-menu-item disabled">Menu failed to load</div>';
+          }
+        }
+      });
+
+      document.addEventListener('click', closeMenu);
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeMenu(); });
     })();
   </script>
   <!-- Hidden alias controls for camera actions to preserve binder hooks (since legacy start/stop buttons were removed) -->

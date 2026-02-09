@@ -18,9 +18,9 @@ function pickDisplayName(session: Session | null): string {
 function getLoginHref(): string {
   try {
     const target = window.location.pathname + window.location.search + window.location.hash;
-    return `/login?next=${encodeURIComponent(target)}`;
+    return `/app?next=${encodeURIComponent(target)}`;
   } catch {
-    return '/login';
+    return '/app';
   }
 }
 
@@ -31,6 +31,13 @@ export function wireWhoamiChip(supabase: SupabaseClient): void {
   const loginHref = getLoginHref();
   if (!el && !loginLink && !logoutBtn) return;
   if (loginLink) loginLink.href = loginHref;
+
+  if (el) {
+    el.textContent = 'Checking...';
+    el.hidden = false;
+  }
+  if (loginLink) loginLink.hidden = true;
+  if (logoutBtn) logoutBtn.hidden = true;
 
   const apply = (session: Session | null) => {
     if (!session?.user) {

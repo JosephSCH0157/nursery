@@ -5,9 +5,9 @@ const SESSION_CACHE_KEYS = ['forge_profile_cache', 'forge_user_cache'];
 function getLoginRedirectUrl(): string {
   try {
     const target = window.location.pathname + window.location.search + window.location.hash;
-    return `/login?next=${encodeURIComponent(target)}`;
+    return `/app?next=${encodeURIComponent(target)}`;
   } catch {
-    return '/login';
+    return '/app';
   }
 }
 
