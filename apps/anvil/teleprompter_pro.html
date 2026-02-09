@@ -46,7 +46,7 @@
   <script src="https://unpkg.com/mammoth/mammoth.browser.min.js"></script>
 
   <!-- BOOTSTRAP ONLY -->
-  <script src="/forge-config.js"></script>
+  <script src="./forge-config.js"></script>
 
   <!-- TS bundle entry (single brain) -->
   <!-- OBS bridge (WebSocket client) must load before TS bundle so window.__obsBridge is available -->
@@ -55,7 +55,10 @@
   <script type="module">
     (async () => {
       let lastErr = null;
-      const manifestCandidates = ["./dist/manifest.json", "./manifest.json"];
+      const runningFromAnvilSubpath = /^\/anvil(\/|$)/.test(window.location.pathname || "");
+      const manifestCandidates = runningFromAnvilSubpath
+        ? ["./manifest.json", "./dist/manifest.json"]
+        : ["./dist/manifest.json", "./manifest.json"];
       for (const manifestPath of manifestCandidates) {
         try {
           const r = await fetch(manifestPath, { cache: "no-store" });
@@ -73,7 +76,9 @@
         }
       }
 
-      const directEntryCandidates = ["./dist/index.js", "./index.js"];
+      const directEntryCandidates = runningFromAnvilSubpath
+        ? ["./index.js", "./dist/index.js"]
+        : ["./dist/index.js", "./index.js"];
       for (const entryPath of directEntryCandidates) {
         try {
           await import(entryPath);
@@ -368,7 +373,7 @@
     <span id="authCluster" class="auth-cluster">
       <span class="chip" id="whoamiChip" hidden></span>
       <button id="logoutBtn" class="chip" type="button" hidden>Log out</button>
-      <a id="loginLink" class="chip auth-link" href="/login.html">Log in</a>
+      <a id="loginLink" class="chip auth-link" href="./login.html">Log in</a>
     </span>
     <span id="selfChecksChip" class="chip chip-muted dev-only">
       Self-checks: <strong id="selfChecksText">6/6 OK</strong> <em>(click)</em>
