@@ -12,5 +12,8 @@
   },
   "devDependencies": {
     "typescript": "^5.9.3"
+  },
+  "volta": {
+    "node": "20.20.0"
   }
 }

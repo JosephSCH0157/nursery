@@ -38,6 +38,43 @@ export function onAsr(fn: (_s: AsrState) => void) {
   return () => subs.delete(fn);
 }
 
+export function hasActiveAsrProfile(): boolean {
+  try {
+    // Prefer in-module state since this file is the canonical ASR store.
+    if (
+      state.activeProfileId ??
+      (state as any).active_profile_id ??
+      (state as any).profileId ??
+      (state as any).profile_id ??
+      (state as any).activeProfile ??
+      (state as any).profile
+    ) {
+      return true;
+    }
+
+    // Defensive fallback for legacy/global integration points.
+    const anyStore: any = (globalThis as any).__asrStore ?? undefined;
+    const w: any = window as any;
+    const externalState =
+      (typeof w.getAsrState === 'function' ? w.getAsrState() : undefined) ??
+      (typeof anyStore?.getState === 'function' ? anyStore.getState() : undefined) ??
+      undefined;
+
+    if (!externalState) return false;
+
+    return Boolean(
+      externalState.activeProfileId ??
+      externalState.active_profile_id ??
+      externalState.profileId ??
+      externalState.profile_id ??
+      externalState.activeProfile ??
+      externalState.profile
+    );
+  } catch {
+    return false;
+  }
+}
+
 // storage-sync so Display picks up changes:
 try {
   window.addEventListener('storage', (e: StorageEvent) => {

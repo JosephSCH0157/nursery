@@ -1,61 +1,44 @@
-// src/script/tag-constants.ts
-var BLOCK_TAG_NAMES = ["s1", "s2", "g1", "g2", "note"];
-var CUE_TAG_NAMES = ["pause", "beat", "reflective pause"];
-var INLINE_TAG_BASES = ["color", "bg", "speaker", "guest", "b", "i"];
-var INLINE_TAG_NAMES = INLINE_TAG_BASES.flatMap((tag) => [tag, `/${tag}`]);
-var INLINE_ATTR_PATTERNS = INLINE_TAG_BASES.map((tag) => `${tag}(?:=[^\\]]+)?`);
-var SPEAKER_TAG_NAMES = BLOCK_TAG_NAMES.filter((tag) => tag !== "note");
-var ALLOWED_NORMALIZED_TAG_NAMES = [
-  ...BLOCK_TAG_NAMES,
-  ...CUE_TAG_NAMES,
-  ...INLINE_TAG_NAMES
-];
-
 // src/script/normalize.ts
-var BLOCK_TAG_PATTERN = BLOCK_TAG_NAMES.join("|");
-var CUE_TAG_PATTERN = CUE_TAG_NAMES.join("|");
-var INLINE_TAG_PATTERN = INLINE_TAG_BASES.join("|");
-var ALLOWED_TAG_SET = new Set(ALLOWED_NORMALIZED_TAG_NAMES);
-var INLINE_CANONICAL_REGEXP = new RegExp(
-  `\\[\\s*(\\/)?\\s*(${INLINE_TAG_PATTERN})(\\s*=\\s*[^\\]]+)?\\s*\\]`,
-  "gi"
-);
-function normalizeToStandardText(input = "") {
-  let text = String(input ?? "");
-  text = text.replace(/[\u2018\u2019\u201B]/g, "'").replace(/[\u201C\u201D]/g, '"').replace(/\u00A0/g, " ");
-  text = text.replace(new RegExp(`\\[\\s*(${BLOCK_TAG_PATTERN})\\s*\\]`, "gi"), (_, tag) => `[${String(tag).toLowerCase()}]`).replace(new RegExp(`\\[\\s*\\/\\s*(${BLOCK_TAG_PATTERN})\\s*\\]`, "gi"), (_, tag) => `[/${String(tag).toLowerCase()}]`).replace(new RegExp(`\\[\\s*(${CUE_TAG_PATTERN})\\s*\\]`, "gi"), (_, tag) => `[${String(tag).toLowerCase()}]`);
-  text = text.replace(INLINE_CANONICAL_REGEXP, (_, slash, tag, attr) => {
-    const normalizedTag = String(tag).toLowerCase();
-    let attrStr = "";
-    if (attr) {
-      const eqIndex = attr.indexOf("=");
-      if (eqIndex >= 0) {
-        const value = attr.slice(eqIndex + 1).trim();
-        attrStr = "=" + value;
-      }
-    }
-    const prefix = slash ? "/" : "";
-    return `[${prefix}${normalizedTag}${attrStr}]`;
-  });
-  text = text.replace(/\[([^\]]+)\]/g, (match, inner) => {
-    const trimmed = String(inner || "").trim();
-    if (!trimmed) return "";
-    const eqIndex = trimmed.indexOf("=");
-    const head2 = eqIndex >= 0 ? trimmed.slice(0, eqIndex) : trimmed;
-    let key = head2.trim().toLowerCase();
-    if (key.startsWith("/")) key = key.slice(1).trim();
-    key = key.replace(/\s+/g, " ");
-    return ALLOWED_TAG_SET.has(key) ? match : "";
-  });
-  text = text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  text = text.replace(/[ \t]+$/gm, "");
-  text = text.replace(/\n{3,}/g, "\n\n");
-  return text;
+function fallbackNormalizeText(input) {
+  let txt = String(input || "");
+  txt = txt.replace(/\r\n?/g, "\n").replace(/ +\n/g, "\n").replace(/[’]/g, "'");
+  txt = txt.replace(/\[\/\s*s1\s*\]/gi, "[/s1]").replace(/\[\/\s*s2\s*\]/gi, "[/s2]").replace(/\[\/\s*note\s*\]/gi, "[/note]");
+  return txt;
 }
-function fallbackNormalizeText(input = "") {
-  let text = String(input ?? "");
-  text = text.replace(/[\u2018\u2019\u201B]/g, "'").replace(/[\u201C\u201D]/g, '"').replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  return text;
+function normalizeToStandardText(input) {
+  let txt = String(input || "");
+  txt = txt.replace(/\r\n?/g, "\n").replace(/[ \t]+\n/g, "\n").replace(/[’]/g, "'").replace(/\[\s*(s1|s2|note)\s*\]/gi, (_, x) => `[${(x || "").toLowerCase()}]`).replace(/\[\s*\/\s*(s1|s2|note)\s*\]/gi, (_, x) => `[/${(x || "").toLowerCase()}]`);
+  txt = txt.replace(
+    /\[(s1|s2)\]([\s\S]*?)\[note\]([\s\S]*?)\[\/note\]([\s\S]*?)\[\/\1\]/gi,
+    (_, r, pre, note, post2) => `[note]${note.trim()}[/note]
+[${r}]${(pre + " " + post2).trim()}[/${r}]`
+  );
+  txt = txt.replace(/\[(s1|s2)\]\s*(?=\S)/gi, (_, r) => `[${r}]
+`).replace(/([^\n])\s*\[\/s(1|2)\](?=\s*$)/gim, (_, ch, sp) => `${ch}
+[/s${sp}]`);
+  txt = txt.replace(/\n?(\[note\][\s\S]*?\[\/note\])\n?/gi, "\n$1\n");
+  txt = txt.replace(/\n{3,}/g, "\n\n").trim() + "\n";
+  const blocks = txt.split(/\n{2,}/);
+  let current = "s1";
+  const out = [];
+  for (let b of blocks) {
+    const first = b.match(/^\s*\[(s1|s2|note)\]/i)?.[1]?.toLowerCase();
+    if (first === "note") {
+      out.push(b);
+      continue;
+    }
+    if (first === "s1" || first === "s2") {
+      current = first;
+      if (!/\[\/s[12]\]/i.test(b)) b = b + `
+[/${current}]`;
+      out.push(b);
+    } else {
+      out.push(`[${current}]
+${b}
+[/${current}]`);
+    }
+  }
+  return out.join("\n\n") + "\n";
 }
 
 // src/format-inline.ts
@@ -146,282 +129,55 @@ function getAsrBlockElements() {
   return blockEls;
 }
 
-// src/boot/scheduler.ts
-var writeQueue = [];
-var readQueue = [];
-var rafId = 0;
-function flush() {
-  rafId = 0;
-  const writes = writeQueue;
-  const reads = readQueue;
-  writeQueue = [];
-  readQueue = [];
-  for (const fn of writes) {
-    try {
-      fn();
-    } catch (e) {
-      try {
-        console.error("[scheduler] write error", e);
-      } catch {
-      }
-    }
-  }
-  for (const fn of reads) {
-    try {
-      fn();
-    } catch (e) {
-      try {
-        console.error("[scheduler] read error", e);
-      } catch {
-      }
-    }
-  }
-}
-function ensureRaf() {
-  if (rafId) return;
-  rafId = requestAnimationFrame(flush);
-}
-function requestWrite(fn) {
-  writeQueue.push(fn);
-  ensureRaf();
-}
-function requestRead(fn) {
-  readQueue.push(fn);
-  ensureRaf();
-}
-try {
-  const maybe = window.__tpScrollWrite;
-  if (typeof maybe === "function") {
-    window.__tpScrollWrite = {
-      scrollTo(y) {
-        try {
-          maybe(y);
-        } catch {
-        }
-      },
-      scrollBy(dy) {
-        try {
-          maybe((Number(dy) || 0) + 0);
-        } catch {
-        }
-      }
-    };
-  }
-} catch {
-}
-try {
-  if (typeof window !== "undefined") {
-    window.__tpRequestWrite = requestWrite;
-    window.__tpRequestRead = requestRead;
-  }
-} catch {
-}
-
-// src/ui/typography-ssot.ts
-var DEFAULT_SCRIPT_FONT_PX = 40;
-
 // src/scroll/scroll-helpers.ts
-var defaultViewer = () => document.getElementById("viewer") || document.querySelector('[data-role="viewer"]');
-var SCROLL_CALLER_HINTS = [
-  ["asr-scroll-driver", "ASR"],
-  ["hybrid-wpm-motor", "Hybrid"],
-  ["auto-motor", "Auto"],
-  ["scroll-router", "Router"],
-  ["autoscroll", "Auto"]
-];
+function resolveScroller(getEl) {
+  if (getEl) return getEl() ?? void 0;
+  return document.getElementById("scroller") ?? document.querySelector("[data-scroller]") ?? document.querySelector(".scroller") ?? document.querySelector(".script-scroller") ?? void 0;
+}
+function getViewportMetrics(getScroller) {
+  const el = resolveScroller(getScroller);
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  if (!el) {
+    return { viewportHeight, height: 0, scrollTop: 0, scrollHeight: 0 };
+  }
+  const height = el.clientHeight ?? el.getBoundingClientRect().height ?? 0;
+  const scrollTop = el.scrollTop ?? 0;
+  const scrollHeight = el.scrollHeight ?? 0;
+  return { viewportHeight, height, scrollTop, scrollHeight };
+}
+function computeAnchorLineIndex(scrollerEl2) {
+  const el = scrollerEl2 ?? resolveScroller() ?? document.scrollingElement ?? void 0;
+  if (!el) return 0;
+  const marker = document.getElementById("marker-line") ?? document.querySelector("[data-marker-line]") ?? null;
+  const anchorY = marker ? marker.getBoundingClientRect().top : (window.innerHeight || 0) * 0.35;
+  const candidates = Array.from(
+    el.querySelectorAll("[data-line-index],[data-line-idx],[data-line]")
+  );
+  if (candidates.length === 0) return 0;
+  let bestIdx = 0;
+  let bestDist = Number.POSITIVE_INFINITY;
+  for (const node of candidates) {
+    const r = node.getBoundingClientRect();
+    const y = r.top;
+    const dist = Math.abs(y - anchorY);
+    if (dist < bestDist) {
+      bestDist = dist;
+      const raw = node.getAttribute("data-line-index") ?? node.getAttribute("data-line-idx") ?? node.getAttribute("data-line") ?? "0";
+      const parsed = parseInt(raw, 10);
+      bestIdx = Number.isFinite(parsed) ? parsed : bestIdx;
+    }
+  }
+  return bestIdx;
+}
 function shouldLogScrollWrite() {
   try {
-    const w2 = window;
-    if (w2.__tpScrollDebug === true) return true;
-    if (w2.__tpScrollWriteDebug === true) return true;
-    const qs = new URLSearchParams(window.location.search || "");
-    if (qs.has("scrollDebug") || qs.has("scrollWriteDebug")) return true;
+    const ls = localStorage.getItem("tp_dev_mode");
+    if (ls === "1") return true;
+    const href = String(window.location.href || "");
+    if (href.includes("dev=1") || href.includes("#dev")) return true;
   } catch {
   }
   return false;
-}
-function detectScrollCaller() {
-  try {
-    const trace = (new Error().stack || "").toLowerCase();
-    for (const [hint, tag] of SCROLL_CALLER_HINTS) {
-      if (trace.includes(hint)) return tag;
-    }
-  } catch {
-  }
-  return "unknown";
-}
-function logScrollWrite(payload) {
-  try {
-    console.info("[SCROLL_WRITE]", payload);
-  } catch {
-  }
-}
-function readLineIndex(el) {
-  if (!el) return null;
-  const line = el.closest ? el.closest(".line") : null;
-  if (!line) return null;
-  const raw = line.dataset.i || line.dataset.index || line.dataset.lineIdx || line.dataset.line || line.getAttribute("data-line") || line.getAttribute("data-line-idx");
-  if (raw != null && raw !== "") {
-    const n = Number(raw);
-    if (Number.isFinite(n)) return Math.max(0, Math.floor(n));
-  }
-  const id = line.id || "";
-  const m = /^tp-line-(\d+)$/.exec(id);
-  if (m) return Math.max(0, Number(m[1]));
-  return null;
-}
-function computeAnchorLineIndex(scroller = defaultViewer()) {
-  if (!scroller) return null;
-  const rect = scroller.getBoundingClientRect();
-  if (!rect.height || !rect.width) return null;
-  const markerPct = typeof window.__TP_MARKER_PCT === "number" ? window.__TP_MARKER_PCT : 0.4;
-  const markerY = rect.top + rect.height * markerPct;
-  const markerX = rect.left + rect.width * 0.5;
-  const hit = document.elementFromPoint(markerX, markerY);
-  const hitIdx = readLineIndex(hit);
-  if (hitIdx != null) return hitIdx;
-  const lines = Array.from(scroller.querySelectorAll(".line"));
-  if (!lines.length) return null;
-  let bestIdx = null;
-  let bestDist = Infinity;
-  for (let i = 0; i < lines.length; i++) {
-    const el = lines[i];
-    const r = el.getBoundingClientRect();
-    const y = r.top + r.height * 0.5;
-    const d = Math.abs(y - markerY);
-    if (d < bestDist) {
-      bestDist = d;
-      bestIdx = readLineIndex(el) ?? i;
-    }
-  }
-  return bestIdx != null ? Math.max(0, Math.floor(bestIdx)) : null;
-}
-var clampGuard = (target, max) => {
-  try {
-    const guard = window.__tpClampGuard;
-    if (typeof guard === "function") return !!guard(target, max);
-  } catch {
-  }
-  return true;
-};
-function clampActive() {
-  try {
-    return window.__tpClampActive === true;
-  } catch {
-    return false;
-  }
-}
-function clampScrollTop(sc, y) {
-  const max = Math.max(0, sc.scrollHeight - sc.clientHeight);
-  const t = Math.max(0, Math.min(Number(y) || 0, max));
-  const allowed = clampGuard(t, max);
-  return { target: allowed ? t : sc.scrollTop || 0, guardDenied: !allowed, max };
-}
-function mirrorToDisplay(sc) {
-  try {
-    const send = window.sendToDisplay;
-    if (typeof send !== "function") return;
-    const max = Math.max(0, (sc.scrollHeight || 0) - (sc.clientHeight || 0));
-    const top = sc.scrollTop || 0;
-    const ratio = max > 0 ? top / max : 0;
-    const cursorLine = computeAnchorLineIndex(sc);
-    send({
-      type: "scroll",
-      top,
-      ratio,
-      anchorRatio: ratio,
-      cursorLine: cursorLine ?? void 0
-    });
-  } catch {
-  }
-}
-function scrollByPx(dy, getScroller = defaultViewer) {
-  const logEnabled = shouldLogScrollWrite();
-  const caller = logEnabled ? detectScrollCaller() : "unknown";
-  if (clampActive()) {
-    if (logEnabled) {
-      logScrollWrite({ caller, target: Number(dy) || 0, current: 0, accepted: false, reason: "clamp-active" });
-    }
-    return;
-  }
-  const sc = getScroller();
-  if (!sc) {
-    if (logEnabled) {
-      logScrollWrite({ caller, target: Number(dy) || 0, current: 0, accepted: false, reason: "no-scroller" });
-    }
-    return;
-  }
-  const current = sc.scrollTop || 0;
-  const { target, guardDenied } = clampScrollTop(sc, current + (Number(dy) || 0));
-  if (guardDenied) {
-    if (logEnabled) {
-      logScrollWrite({ caller, target, current, accepted: false, reason: "clamp-guard" });
-    }
-    return;
-  }
-  if (logEnabled) {
-    logScrollWrite({ caller, target, current, accepted: true, reason: "scrollByPx" });
-  }
-  requestWrite(() => {
-    try {
-      sc.scrollTop = target;
-    } catch {
-    }
-    mirrorToDisplay(sc);
-    try {
-      const win = window;
-      const debug = win?.__tpScrollDebug === true || /scrollDebug=1/i.test(String(location.search || ""));
-      if (debug) {
-        const mode = win.__tpScrollMode && typeof win.__tpScrollMode.getMode === "function" ? win.__tpScrollMode.getMode() : void 0;
-        const maxScrollTop = Math.max(0, (sc.scrollHeight || 0) - (sc.clientHeight || 0));
-        win.HUD?.log?.("scroll-commit", {
-          mode,
-          delta: dy,
-          targetTop: target,
-          currentTop: sc.scrollTop,
-          maxScrollTop
-        });
-      }
-      try {
-        window.dispatchEvent(new CustomEvent("tp:scroll:commit", {
-          detail: {
-            delta: dy,
-            targetTop: target,
-            currentTop: sc.scrollTop,
-            maxScrollTop: Math.max(0, (sc.scrollHeight || 0) - (sc.clientHeight || 0))
-          }
-        }));
-      } catch {
-      }
-    } catch {
-    }
-  });
-}
-function getViewportMetrics(getScroller = defaultViewer) {
-  const sc = getScroller();
-  const root = document.documentElement;
-  const cs = root ? getComputedStyle(root) : null;
-  const fontSize = cs ? parseFloat(cs.getPropertyValue("--tp-font-size")) || DEFAULT_SCRIPT_FONT_PX : DEFAULT_SCRIPT_FONT_PX;
-  const lineHeight = cs ? parseFloat(cs.getPropertyValue("--tp-line-height")) || 1.4 : 1.4;
-  const pxPerLine = fontSize * lineHeight;
-  const pxPerWord = pxPerLine / 6;
-  if (!sc) {
-    return {
-      scrollTop: 0,
-      viewportHeight: 0,
-      scrollHeight: 0,
-      pxPerLine,
-      pxPerWord
-    };
-  }
-  return {
-    scrollTop: sc.scrollTop || 0,
-    viewportHeight: sc.clientHeight || 0,
-    height: sc.clientHeight || 0,
-    scrollHeight: sc.scrollHeight || 0,
-    pxPerLine,
-    pxPerWord
-  };
 }
 
 // src/scroll/scroller.ts
@@ -710,11 +466,11 @@ function markerOffsetPx(fallbackScroller) {
 }
 function getScrollMode() {
   try {
-    const store2 = window.__tpStore;
-    if (store2 && typeof store2.get === "function") {
-      const scrollMode = store2.get("scrollMode");
-      if (scrollMode != null) return String(scrollMode).toLowerCase();
-      const legacyMode = store2.get("mode");
+    const store = window.__tpStore;
+    if (store && typeof store.get === "function") {
+      const scrollMode2 = store.get("scrollMode");
+      if (scrollMode2 != null) return String(scrollMode2).toLowerCase();
+      const legacyMode = store.get("mode");
       if (legacyMode != null) return String(legacyMode).toLowerCase();
     }
     const router = window.__tpScrollMode;
@@ -918,9 +674,9 @@ function seekToBlockAnimated(blockIdx, reason) {
       activeSeekAnim = null;
     }
   };
-  const tick = (now2) => {
+  const tick = (now) => {
     if (cancelled) return;
-    const elapsed = now2 - start;
+    const elapsed = now - start;
     const t = Math.max(0, Math.min(1, elapsed / durationMs));
     const eased = 1 - Math.pow(1 - t, 3);
     const next = startTop + (targetTop - startTop) * eased;
@@ -1039,194 +795,62 @@ function createTimedEngine(brain) {
 }
 
 // src/scroll/scroll-brain.ts
-var now = () => typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
-var debugEnabled = false;
-var debugCounter = 0;
-var isScrollDebug = () => {
+var scrollMode = "manual";
+var scrollTimer = null;
+var CONSTANT_SPEED = 2.4;
+var frameCount = 0;
+var log = (msg) => {
   try {
-    const w2 = window;
-    if (w2.__tpScrollDebug === true) return true;
-    const qs = new URLSearchParams(window.location.search || "");
-    if (qs.has("scrollDebug")) return true;
+    window.HUD?.log?.("scroll-brain", msg);
   } catch {
   }
-  return false;
 };
+function setScrollMode(mode) {
+  if (scrollMode === mode) return;
+  scrollMode = mode;
+  log(`Scroll mode \u2192 ${mode}`);
+  if (mode === "manual" || mode === "rehearsal") {
+    stopScrollEngine();
+  } else {
+    startScrollEngine();
+  }
+}
+function startScrollEngine() {
+  if (scrollTimer !== null) return;
+  scrollTimer = requestAnimationFrame(scrollTick);
+}
+function stopScrollEngine() {
+  if (scrollTimer === null) return;
+  cancelAnimationFrame(scrollTimer);
+  scrollTimer = null;
+}
+function scrollTick() {
+  frameCount++;
+  if (scrollMode === "auto") {
+    scrollBySpeed(CONSTANT_SPEED);
+  } else if (scrollMode === "hybrid") {
+    applyHybridScroll();
+  } else if (scrollMode === "step") {
+  }
+  if (frameCount % 10 === 0) {
+    log(`scroll[${scrollMode}]: y=${window.scrollY.toFixed(1)}`);
+  }
+  if (scrollMode === "auto" || scrollMode === "hybrid") {
+    scrollTimer = requestAnimationFrame(scrollTick);
+  } else {
+    scrollTimer = null;
+  }
+}
+function scrollBySpeed(speed) {
+  window.scrollBy(0, speed);
+}
+function applyHybridScroll() {
+  scrollBySpeed(CONSTANT_SPEED);
+}
 function createScrollBrain() {
-  const PLL_GAIN = 0.4;
-  const PLL_SMOOTH = 0.12;
-  const state3 = {
-    mode: "rehearsal",
-    ticking: false,
-    rafId: null,
-    lastTickTs: null,
-    pll: {
-      errPx: 0,
-      lastErrTs: 0,
-      smoothedErr: 0,
-      gain: PLL_GAIN,
-      smoothFactor: PLL_SMOOTH
-    },
-    silence: {
-      isSilent: false,
-      lastChangeTs: now()
-    },
-    targetSpeedPxPerSec: 0,
-    effectiveSpeedPxPerSec: 0,
-    pxPerLine: 0,
-    pxPerWord: 0,
-    manualNudgePx: 0,
-    lastCenteredLine: null
-  };
-  const resetForMode = (mode) => {
-    state3.pll = { errPx: 0, lastErrTs: now(), smoothedErr: 0, gain: PLL_GAIN, smoothFactor: PLL_SMOOTH };
-    state3.silence = { isSilent: false, lastChangeTs: now() };
-    state3.targetSpeedPxPerSec = 0;
-    state3.effectiveSpeedPxPerSec = 0;
-    state3.manualNudgePx = 0;
-    state3.lastCenteredLine = null;
-    state3.mode = mode;
-  };
-  const tick = (ts) => {
-    if (!state3.ticking) {
-      state3.rafId = null;
-      return;
-    }
-    if (!debugEnabled) debugEnabled = isScrollDebug();
-    const last = state3.lastTickTs ?? ts;
-    const dtMs = ts - last;
-    state3.lastTickTs = ts;
-    const dtSec = dtMs > 0 ? dtMs / 1e3 : 0;
-    const mode = state3.mode;
-    const base = state3.targetSpeedPxPerSec || 0;
-    let effectiveSpeed = base;
-    const isClamped = clampActive();
-    const silenceHold = mode === "hybrid" && state3.silence.isSilent;
-    if (mode === "hybrid" && !silenceHold) {
-      effectiveSpeed += state3.pll.smoothedErr * state3.pll.gain;
-    }
-    if (mode === "hybrid" && silenceHold) {
-      effectiveSpeed = 0;
-    }
-    if (isClamped) {
-      effectiveSpeed = 0;
-    }
-    if (effectiveSpeed < 0 || !Number.isFinite(effectiveSpeed)) effectiveSpeed = 0;
-    state3.effectiveSpeedPxPerSec = effectiveSpeed;
-    let dy = effectiveSpeed * dtSec;
-    if (state3.manualNudgePx) {
-      dy += state3.manualNudgePx;
-      state3.manualNudgePx = 0;
-    }
-    if (Number.isFinite(dy) && dy !== 0 && !isClamped) {
-      scrollByPx(dy);
-    }
-    if (!debugEnabled) {
-      debugEnabled = isScrollDebug();
-    }
-    if (debugEnabled) {
-      debugCounter++;
-      if (debugCounter >= 30) {
-        debugCounter = 0;
-        try {
-          console.log("[scroll-brain]", {
-            mode,
-            target: state3.targetSpeedPxPerSec || 0,
-            effective: effectiveSpeed,
-            clamp: isClamped,
-            silent: state3.silence.isSilent,
-            pllErr: state3.pll?.smoothedErr ?? 0
-          });
-        } catch {
-        }
-      }
-    }
-    state3.rafId = typeof requestAnimationFrame === "function" ? requestAnimationFrame(tick) : null;
-  };
-  const startEngine = () => {
-    if (state3.ticking) return;
-    state3.ticking = true;
-    state3.lastTickTs = null;
-    state3.rafId = typeof requestAnimationFrame === "function" ? requestAnimationFrame(tick) : null;
-  };
-  const stopEngine = () => {
-    state3.ticking = false;
-    if (state3.rafId && typeof cancelAnimationFrame === "function") {
-      cancelAnimationFrame(state3.rafId);
-    }
-    state3.rafId = null;
-    state3.lastTickTs = null;
-  };
-  const setMode = (mode) => {
-    if (state3.mode === mode) return;
-    stopEngine();
-    resetForMode(mode);
-  };
-  const getMode = () => state3.mode;
-  const setTargetSpeed = (pxPerSec) => {
-    const v = Number(pxPerSec);
-    state3.targetSpeedPxPerSec = Number.isFinite(v) && v > 0 ? v : 0;
-  };
-  const setMetrics = (pxPerLine, pxPerWord) => {
-    const line = Number(pxPerLine);
-    const word = Number(pxPerWord);
-    if (Number.isFinite(line) && line > 0) state3.pxPerLine = line;
-    if (Number.isFinite(word) && word > 0) state3.pxPerWord = word;
-  };
-  const reportAsrSample = (sample) => {
-    if (state3.mode !== "hybrid") return;
-    if (!sample || typeof sample.errPx !== "number") return;
-    const ts = typeof sample.ts === "number" ? sample.ts : now();
-    state3.pll.errPx = sample.errPx;
-    state3.pll.lastErrTs = ts;
-    const alpha = state3.pll.smoothFactor;
-    state3.pll.smoothedErr = state3.pll.smoothedErr * (1 - alpha) + sample.errPx * alpha;
-  };
-  const reportAsrSilence = (isSilent, ts) => {
-    state3.silence.isSilent = !!isSilent;
-    state3.silence.lastChangeTs = typeof ts === "number" ? ts : now();
-  };
-  const centerOnLine = (lineIndex) => {
-    state3.lastCenteredLine = Number.isFinite(lineIndex) ? Math.max(0, Math.floor(lineIndex)) : null;
-  };
-  const onSpeechSample = (sample) => {
-    try {
-      reportAsrSample(sample);
-    } catch {
-    }
-  };
-  const nudge = (deltaPx) => {
-    const delta = Number(deltaPx);
-    if (!Number.isFinite(delta) || delta === 0) return;
-    state3.manualNudgePx += delta;
-  };
   return {
-    setMode,
-    getMode,
-    startEngine,
-    stopEngine,
-    setTargetSpeed,
-    setMetrics,
-    reportAsrSample,
-    reportAsrSilence,
-    centerOnLine,
-    onSpeechSample,
-    nudge,
-    // Legacy shims
-    setBaseSpeedPx: (px) => {
-      const val = Number(px);
-      if (Number.isFinite(val)) {
-        state3.targetSpeedPxPerSec = val;
-        state3.effectiveSpeedPxPerSec = val;
-      }
-    },
-    onManualSpeedAdjust: (delta) => {
-      const d = Number(delta);
-      if (Number.isFinite(d)) {
-        state3.targetSpeedPxPerSec += d;
-      }
-    },
-    getCurrentSpeedPx: () => state3.effectiveSpeedPxPerSec
+    setMode: setScrollMode,
+    getMode: () => scrollMode
   };
 }
 
@@ -1251,7 +875,7 @@ var clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 function createHybridWpmMotor(deps) {
   let running = false;
   let velocityPxPerSec = 0;
-  let rafId2 = null;
+  let rafId = null;
   let lastNow = null;
   let lastTickLog = 0;
   let writer = null;
@@ -1261,10 +885,10 @@ function createHybridWpmMotor(deps) {
   let lastMoveAtMs = 0;
   let posFloat = null;
   const TICK_LOG_INTERVAL_MS = 1e3;
-  const now2 = deps.now ?? (() => performance.now());
+  const now = deps.now ?? (() => performance.now());
   const raf = deps.raf ?? ((cb) => window.requestAnimationFrame(cb));
   const caf = deps.caf ?? ((id) => window.cancelAnimationFrame(id));
-  const log = deps.log ?? (() => {
+  const log2 = deps.log ?? (() => {
   });
   const recordMove = (prevTop, nextTop) => {
     const delta = Math.abs(nextTop - prevTop);
@@ -1276,7 +900,7 @@ function createHybridWpmMotor(deps) {
       }
     }
     if (delta > 0) {
-      lastMoveAtMs = now2();
+      lastMoveAtMs = now();
     }
   };
   const resetAccumulatorFromDom = () => {
@@ -1284,7 +908,7 @@ function createHybridWpmMotor(deps) {
   };
   const tick = () => {
     if (!running) return;
-    const current = now2();
+    const current = now();
     const prev = lastNow ?? current;
     const deltaMs = current - prev;
     const dt = clamp(deltaMs / 1e3, 0, 0.2);
@@ -1310,7 +934,7 @@ function createHybridWpmMotor(deps) {
           } catch {
           }
         }
-        rafId2 = raf(tick);
+        rafId = raf(tick);
         return;
       }
       const prevTop = writer.scrollTop || 0;
@@ -1323,13 +947,13 @@ function createHybridWpmMotor(deps) {
       try {
         writer.scrollTop = nextTop;
       } catch (err) {
-        log("tick:scroll", err);
+        log2("tick:scroll", err);
       }
       recordMove(prevTop, nextTop);
-      const tickNow = now2();
+      const tickNow = now();
       if (tickNow - lastTickLog >= TICK_LOG_INTERVAL_MS) {
         lastTickLog = tickNow;
-        log("tick", {
+        log2("tick", {
           dt,
           velocityPxPerSec,
           prevTop,
@@ -1339,38 +963,38 @@ function createHybridWpmMotor(deps) {
         });
       }
     }
-    rafId2 = raf(tick);
+    rafId = raf(tick);
   };
   return {
     start() {
-      if (running || rafId2 != null) {
+      if (running || rafId != null) {
         return { started: false, reason: "already-running" };
       }
       running = true;
       loggedFirstMove = false;
       lastMoveAtMs = 0;
       resetAccumulatorFromDom();
-      lastNow = now2();
-      rafId2 = raf(tick);
-      log("start", { velocityPxPerSec });
+      lastNow = now();
+      rafId = raf(tick);
+      log2("start", { velocityPxPerSec });
       return { started: true };
     },
     stop() {
       if (!running) return;
       running = false;
-      if (rafId2 != null) {
-        caf(rafId2);
-        rafId2 = null;
+      if (rafId != null) {
+        caf(rafId);
+        rafId = null;
       }
       lastNow = null;
       loggedFirstMove = false;
       lastMoveAtMs = 0;
       posFloat = null;
-      log("stop", {});
+      log2("stop", {});
     },
     setVelocityPxPerSec(pxPerSec) {
       velocityPxPerSec = pxPerSec;
-      log("velocity", { velocityPxPerSec });
+      log2("velocity", { velocityPxPerSec });
     },
     isRunning() {
       return running;
@@ -1384,7 +1008,7 @@ function createHybridWpmMotor(deps) {
       }
     },
     movedRecently(nowArg) {
-      const check = typeof nowArg === "number" ? nowArg : now2();
+      const check = typeof nowArg === "number" ? nowArg : now();
       return lastMoveAtMs > 0 && check - lastMoveAtMs < 250;
     }
   };
@@ -1443,7 +1067,7 @@ function emitUnexpected(label, payload) {
 }
 function recordScrollModeWrite(event) {
   if (!auditEnabled()) return;
-  const now2 = Date.now();
+  const now = Date.now();
   const writer = event.writer || "unknown";
   const from = normalize(event.from);
   const to = normalize(event.to);
@@ -1452,7 +1076,7 @@ function recordScrollModeWrite(event) {
   const reasons = [];
   if (!EXPECTED_WRITERS.has(writer)) reasons.push("unexpected-writer");
   if (FORBIDDEN_PHASES.has(phase) && isContinuousMode(to)) reasons.push("forbidden-phase");
-  const deltaMs = lastWriteAt ? now2 - lastWriteAt : 0;
+  const deltaMs = lastWriteAt ? now - lastWriteAt : 0;
   if (lastWriteAt && deltaMs < RACE_WINDOW_MS) reasons.push("rapid-write");
   if (reasons.length > 0) {
     const payload = {
@@ -1476,7 +1100,7 @@ function recordScrollModeWrite(event) {
     }
     emitUnexpected("scrollMode-write", payload);
   }
-  lastWriteAt = now2;
+  lastWriteAt = now;
   lastWriter = writer;
   lastMode = to;
   lastPhase = phase;
@@ -2572,7 +2196,7 @@ var ProfileStore = class {
 };
 
 // src/profile/profile-persist.ts
-function createProfilePersister(store2, options) {
+function createProfilePersister(store, options) {
   const delayMs = Number.isFinite(options?.delayMs ?? NaN) ? options.delayMs : 450;
   let pending = null;
   let timer = null;
@@ -2594,9 +2218,9 @@ function createProfilePersister(store2, options) {
   };
   const scheduleFlush = () => {
     if (timer) clearTimeout(timer);
-    timer = setTimeout(() => void flush2(), delayMs);
+    timer = setTimeout(() => void flush(), delayMs);
   };
-  const flush2 = async () => {
+  const flush = async () => {
     if (!pending) return;
     if (saving) {
       if (timer) {
@@ -2612,12 +2236,12 @@ function createProfilePersister(store2, options) {
       timer = null;
     }
     try {
-      saving = store2.saveProfilePatch(patch);
+      saving = store.saveProfilePatch(patch);
       await saving;
     } finally {
       saving = null;
       if (pending) {
-        await flush2();
+        await flush();
       }
     }
   };
@@ -2627,7 +2251,7 @@ function createProfilePersister(store2, options) {
   };
   return {
     persist,
-    flush: flush2
+    flush
   };
 }
 
@@ -10617,16 +10241,16 @@ var GoTrueAdminApi = class {
 };
 
 // ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/local-storage.js
-function memoryLocalStorageAdapter(store2 = {}) {
+function memoryLocalStorageAdapter(store = {}) {
   return {
     getItem: (key) => {
-      return store2[key] || null;
+      return store[key] || null;
     },
     setItem: (key, value) => {
-      store2[key] = value;
+      store[key] = value;
     },
     removeItem: (key) => {
-      delete store2[key];
+      delete store[key];
     }
   };
 }
@@ -13429,7 +13053,7 @@ var GoTrueClient = class _GoTrueClient {
     try {
       await this._acquireLock(0, async () => {
         try {
-          const now2 = Date.now();
+          const now = Date.now();
           try {
             return await this._useSession(async (result) => {
               const { data: { session } } = result;
@@ -13437,7 +13061,7 @@ var GoTrueClient = class _GoTrueClient {
                 this._debug("#_autoRefreshTokenTick()", "no session");
                 return;
               }
-              const expiresInTicks = Math.floor((session.expires_at * 1e3 - now2) / AUTO_REFRESH_TICK_DURATION_MS);
+              const expiresInTicks = Math.floor((session.expires_at * 1e3 - now) / AUTO_REFRESH_TICK_DURATION_MS);
               this._debug("#_autoRefreshTokenTick()", `access token expires in ${expiresInTicks} ticks, a tick lasts ${AUTO_REFRESH_TICK_DURATION_MS}ms, refresh threshold is ${AUTO_REFRESH_TICK_THRESHOLD} ticks`);
               if (expiresInTicks <= AUTO_REFRESH_TICK_THRESHOLD) {
                 await this._callRefreshToken(session.refresh_token);
@@ -13890,9 +13514,9 @@ var GoTrueClient = class _GoTrueClient {
     if (jwk) {
       return jwk;
     }
-    const now2 = Date.now();
+    const now = Date.now();
     jwk = this.jwks.keys.find((key) => key.kid === kid);
-    if (jwk && this.jwks_cached_at + JWKS_TTL > now2) {
+    if (jwk && this.jwks_cached_at + JWKS_TTL > now) {
       return jwk;
     }
     const { data, error } = await _request(this.fetch, "GET", `${this.url}/.well-known/jwks.json`, {
@@ -13905,7 +13529,7 @@ var GoTrueClient = class _GoTrueClient {
       return null;
     }
     this.jwks = data;
-    this.jwks_cached_at = now2;
+    this.jwks_cached_at = now;
     jwk = data.keys.find((key) => key.kid === kid);
     if (!jwk) {
       return null;
@@ -14372,126 +13996,46 @@ if (hasSupabaseConfig) {
 }
 var supabase = supabaseClient || createSupabaseStub("[supabaseClient] Supabase not configured.");
 
-// src/state/appStore.ts
-function getAppStore() {
-  if (typeof window === "undefined") return null;
-  try {
-    const store2 = window.__tpStore;
-    return store2 || null;
-  } catch {
-    return null;
-  }
-}
-
 // src/asr/store.ts
 var KEY = "tp_asr_profiles_v1";
-var ACTIVE_KEY = "tp_asr_active_profile_v1";
-var store = getAppStore();
-var stateFromStore = (() => {
-  if (!store) return null;
-  try {
-    const profiles = store.get("asrProfiles") || {};
-    const activeProfileId = store.get("asrActiveProfileId") || void 0;
-    return { profiles, activeProfileId };
-  } catch {
-    return null;
-  }
-})();
 var state = (() => {
   try {
-    if (stateFromStore) {
-      return {
-        profiles: stateFromStore.profiles || {},
-        activeProfileId: stateFromStore.activeProfileId
-      };
-    }
     const raw = localStorage.getItem(KEY);
     const parsed = raw ? JSON.parse(raw) : {};
-    const legacyProfiles = parsed && typeof parsed === "object" && "profiles" in parsed ? parsed.profiles : null;
-    const profiles = legacyProfiles && typeof legacyProfiles === "object" ? legacyProfiles : parsed && typeof parsed === "object" ? parsed : {};
-    const activeProfileId = typeof parsed?.activeProfileId === "string" && parsed.activeProfileId || (localStorage.getItem(ACTIVE_KEY) || void 0);
-    return { profiles: profiles || {}, activeProfileId };
+    return { profiles: {}, ...parsed };
   } catch {
     return { profiles: {} };
   }
 })();
 var subs = /* @__PURE__ */ new Set();
-var storeSyncSuppressed = false;
-function syncAppStore() {
-  if (!store) return;
-  storeSyncSuppressed = true;
-  try {
-    store.set("asrProfiles", state.profiles);
-  } catch {
-  }
-  try {
-    store.set("asrActiveProfileId", state.activeProfileId ?? null);
-  } catch {
-  }
-  storeSyncSuppressed = false;
-}
-function save(opts) {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(state.profiles || {}));
-  } catch {
-  }
-  try {
-    if (state.activeProfileId) localStorage.setItem(ACTIVE_KEY, state.activeProfileId);
-    else localStorage.removeItem(ACTIVE_KEY);
-  } catch {
-  }
-  subs.forEach((fn) => {
-    try {
-      fn(state);
-    } catch {
-    }
-  });
-  if (!opts?.fromStore) {
-    syncAppStore();
-  }
-  try {
-    window.dispatchEvent(new CustomEvent("tp:asrChanged", { detail: state }));
-  } catch {
-  }
-}
-var getAsrState = () => state;
 function hasActiveAsrProfile() {
-  const state3 = getAsrState();
-  return !!(state3?.activeProfileId && state3.profiles?.[state3.activeProfileId]);
-}
-if (store) {
   try {
-    store.subscribe("asrProfiles", (next) => {
-      if (storeSyncSuppressed) return;
-      const profilesObj = next && typeof next === "object" ? next : {};
-      state.profiles = { ...profilesObj };
-      save({ fromStore: true });
-    });
-    store.subscribe("asrActiveProfileId", (next) => {
-      if (storeSyncSuppressed) return;
-      state.activeProfileId = typeof next === "string" && next ? next : void 0;
-      save({ fromStore: true });
-    });
+    if (state.activeProfileId ?? state.active_profile_id ?? state.profileId ?? state.profile_id ?? state.activeProfile ?? state.profile) {
+      return true;
+    }
+    const anyStore = globalThis.__asrStore ?? void 0;
+    const w2 = window;
+    const externalState = (typeof w2.getAsrState === "function" ? w2.getAsrState() : void 0) ?? (typeof anyStore?.getState === "function" ? anyStore.getState() : void 0) ?? void 0;
+    if (!externalState) return false;
+    return Boolean(
+      externalState.activeProfileId ?? externalState.active_profile_id ?? externalState.profileId ?? externalState.profile_id ?? externalState.activeProfile ?? externalState.profile
+    );
   } catch {
+    return false;
   }
-  syncAppStore();
 }
 try {
   window.addEventListener("storage", (e) => {
     try {
       if (e.key === KEY && e.newValue) {
-        const parsed = JSON.parse(e.newValue);
-        const legacyProfiles = parsed && typeof parsed === "object" && "profiles" in parsed ? parsed.profiles : null;
-        const profiles = legacyProfiles && typeof legacyProfiles === "object" ? legacyProfiles : parsed && typeof parsed === "object" ? parsed : {};
-        state = {
-          ...state,
-          profiles: profiles || {}
-        };
-        save({ fromStore: true });
-      }
-      if (e.key === ACTIVE_KEY) {
-        state.activeProfileId = e.newValue || void 0;
-        save({ fromStore: true });
+        const next = JSON.parse(e.newValue);
+        state = { ...next, profiles: next?.profiles || {} };
+        subs.forEach((fn) => {
+          try {
+            fn(state);
+          } catch {
+          }
+        });
       }
     } catch {
     }
@@ -14597,6 +14141,9 @@ if (typeof window !== "undefined") {
     window.toast = showToast;
   }
 }
+
+// src/ui/typography-ssot.ts
+var DEFAULT_SCRIPT_FONT_PX = 40;
 
 // src/features/scroll/scroll-router/router-impl.ts
 var isDevMode2 = /* @__PURE__ */ (() => {
@@ -14769,8 +14316,8 @@ function resolveAsrIntentCandidateBlockIdx(intent) {
   if (!Number.isFinite(raw)) return -1;
   return Math.max(0, Math.floor(raw));
 }
-function updateAsrTelemetryTopRejects(telemetry, now2) {
-  const cutoff = now2 - ASR_TELEMETRY_WINDOW_MS;
+function updateAsrTelemetryTopRejects(telemetry, now) {
+  const cutoff = now - ASR_TELEMETRY_WINDOW_MS;
   const events = telemetry._rejectEvents;
   let pruneCount = 0;
   while (pruneCount < events.length && events[pruneCount].ts < cutoff) {
@@ -14791,7 +14338,7 @@ function recordAsrIntentTelemetry(telemetry, intentReason) {
   if (intentReason.includes("final")) telemetry.finalSeen += 1;
   else if (intentReason.includes("interim")) telemetry.interimSeen += 1;
 }
-function recordAsrMatchEvent(now2, intent, intentReason) {
+function recordAsrMatchEvent(now, intent, intentReason) {
   const rawBlockIdx = Number(intent?.target?.blockIdx);
   if (!Number.isFinite(rawBlockIdx) || rawBlockIdx < 0) return;
   const rawLineIdx = Number(intent?.target?.lineIdx);
@@ -14799,13 +14346,13 @@ function recordAsrMatchEvent(now2, intent, intentReason) {
   const confidence = Number.isFinite(intent?.confidence) ? Number(intent.confidence) : null;
   const isFinal = intentReason.includes("final");
   recentAsrMatches.push({
-    ts: now2,
+    ts: now,
     blockIdx: Math.max(0, Math.floor(rawBlockIdx)),
     lineIdx,
     isFinal,
     confidence
   });
-  const cutoff = now2 - ASR_MATCH_WINDOW_MS;
+  const cutoff = now - ASR_MATCH_WINDOW_MS;
   let pruneCount = 0;
   while (pruneCount < recentAsrMatches.length && recentAsrMatches[pruneCount].ts < cutoff) {
     pruneCount += 1;
@@ -14847,7 +14394,7 @@ function getBlockLineIndices(blockIdx) {
   asrBlockLineCache.set(blockIdx, indices);
   return indices;
 }
-function buildCompletionEvidence(currentBlockIdx, candidateBlockIdx, now2 = Date.now()) {
+function buildCompletionEvidence(currentBlockIdx, candidateBlockIdx, now = Date.now()) {
   if (!Number.isFinite(candidateBlockIdx) || candidateBlockIdx < 0) return null;
   const blockLineIndices = getBlockLineIndices(currentBlockIdx);
   if (!blockLineIndices || !blockLineIndices.length) return null;
@@ -14855,7 +14402,7 @@ function buildCompletionEvidence(currentBlockIdx, candidateBlockIdx, now2 = Date
   if (totalLinesInBlock <= 0) return null;
   const lastLineIdx = blockLineIndices[blockLineIndices.length - 1];
   if (!Number.isFinite(lastLineIdx)) return null;
-  const cutoff = now2 - ASR_MATCH_WINDOW_MS;
+  const cutoff = now - ASR_MATCH_WINDOW_MS;
   const windowMatches = recentAsrMatches.filter((entry) => entry.ts >= cutoff);
   const hasFinal = windowMatches.some((entry) => entry.isFinal);
   const blockLineSet = new Set(blockLineIndices);
@@ -14904,17 +14451,17 @@ function formatCompletionEvidenceSummary(evidence) {
   const boundary = evidence.boundaryCrossed ? 1 : 0;
   return `cov=${covText} last=${last} trail=${trail} final=${finalFlag} bndry=${boundary}`;
 }
-function recordAsrReject(telemetry, now2, reasonKey, mode, phase, currentBlockIdx, candidateBlockIdx, completionEvidenceSummary) {
+function recordAsrReject(telemetry, now, reasonKey, mode, phase, currentBlockIdx, candidateBlockIdx, completionEvidenceSummary) {
   if (!telemetry) return;
   telemetry.commitRejected += 1;
   telemetry.rejectReasons[reasonKey] = (telemetry.rejectReasons[reasonKey] || 0) + 1;
-  telemetry._rejectEvents.push({ ts: now2, reason: reasonKey });
+  telemetry._rejectEvents.push({ ts: now, reason: reasonKey });
   if (telemetry._rejectEvents.length > ASR_TELEMETRY_MAX_REJECTS) {
     telemetry._rejectEvents.splice(0, telemetry._rejectEvents.length - ASR_TELEMETRY_MAX_REJECTS);
   }
-  updateAsrTelemetryTopRejects(telemetry, now2);
+  updateAsrTelemetryTopRejects(telemetry, now);
   telemetry.last = {
-    ts: now2,
+    ts: now,
     mode,
     phase,
     currentBlockIdx,
@@ -14926,12 +14473,12 @@ function recordAsrReject(telemetry, now2, reasonKey, mode, phase, currentBlockId
     completionReason: reasonKey.startsWith("reject_completion_") ? reasonKey.replace("reject_completion_", "") : telemetry.last?.completionReason
   };
 }
-function recordAsrAccept(telemetry, now2, mode, phase, currentBlockIdx, candidateBlockIdx, completionEvidenceSummary, completionConfidence, completionStatus, completionReason) {
+function recordAsrAccept(telemetry, now, mode, phase, currentBlockIdx, candidateBlockIdx, completionEvidenceSummary, completionConfidence, completionStatus, completionReason) {
   if (!telemetry) return;
   telemetry.commitAccepted += 1;
   const resolvedStatus = completionStatus || "complete";
   telemetry.last = {
-    ts: now2,
+    ts: now,
     mode,
     phase,
     currentBlockIdx,
@@ -14966,14 +14513,14 @@ function resetOffScriptDuration() {
   offScriptSinceMs = null;
   offScriptDurationMs = 0;
 }
-function syncOffScriptDuration(now2 = nowMs()) {
+function syncOffScriptDuration(now = nowMs()) {
   if (hybridSilence.offScriptActive) {
     if (offScriptSinceMs == null) {
-      offScriptSinceMs = now2;
+      offScriptSinceMs = now;
       offScriptDurationMs = 0;
       return;
     }
-    offScriptDurationMs = Math.max(0, now2 - offScriptSinceMs);
+    offScriptDurationMs = Math.max(0, now - offScriptSinceMs);
     return;
   }
   resetOffScriptDuration();
@@ -14987,9 +14534,9 @@ function computeOffScriptDecay(durationMs) {
   return 0;
 }
 function logHybridOffScriptHud(payload) {
-  const now2 = nowMs();
-  if (now2 - lastHybridOffScriptHudAt < HYBRID_OFFSCRIPT_HUD_THROTTLE_MS) return;
-  lastHybridOffScriptHudAt = now2;
+  const now = nowMs();
+  if (now - lastHybridOffScriptHudAt < HYBRID_OFFSCRIPT_HUD_THROTTLE_MS) return;
+  lastHybridOffScriptHudAt = now;
   try {
     window?.HUD?.log?.("HYBRID_OFFSCRIPT", payload);
   } catch {
@@ -15070,8 +14617,8 @@ function getScrollMode2() {
     const w2 = typeof window !== "undefined" ? window : null;
     const override = normalizeScrollModeValue(w2?.__tpModeOverride);
     if (override) return override;
-    const store2 = w2?.__tpStore || appStoreSingleton;
-    const storeMode = normalizeScrollModeValue(store2?.get?.("scrollMode"));
+    const store = w2?.__tpStore || appStoreSingleton;
+    const storeMode = normalizeScrollModeValue(store?.get?.("scrollMode"));
     if (storeMode) return storeMode;
     const uiMode = normalizeScrollModeValue(w2?.__tpUiScrollMode);
     if (uiMode) return uiMode;
@@ -15146,7 +14693,7 @@ function getMarkerLineIndex(scroller = scrollerEl, markerY = null) {
   if (!Number.isFinite(linePx) || linePx <= 0) return null;
   return Math.max(0, Math.round(markerY / linePx));
 }
-function computeHybridErrorPx(now2 = nowMs()) {
+function computeHybridErrorPx(now = nowMs()) {
   const scroller = scrollerEl;
   const hint = hybridTargetHintState;
   if (!scroller || !hint) return null;
@@ -15175,7 +14722,7 @@ function computeHybridErrorPx(now2 = nowMs()) {
   if (targetTop == null) return null;
   const anchorY = targetTop;
   const errorPx = anchorY - markerY;
-  const anchorAgeMs = Math.max(0, now2 - hint.ts);
+  const anchorAgeMs = Math.max(0, now - hint.ts);
   const markerIdx = getMarkerLineIndex(scroller, markerY);
   const fallbackBestIdx = Number.isFinite(lastAsrMatch.bestIndex) && lastAsrMatch.bestIndex >= 0 ? lastAsrMatch.bestIndex : null;
   const bestIdx = Number.isFinite(hint.lineIndex ?? NaN) && hint.lineIndex != null ? hint.lineIndex : fallbackBestIdx;
@@ -15194,24 +14741,24 @@ function computeHybridErrorPx(now2 = nowMs()) {
     targetTopSource
   };
 }
-function getSilenceMs(now2 = nowMs()) {
-  const lastSpeech = hybridSilence.lastSpeechAtMs ?? now2;
-  return Math.max(0, now2 - lastSpeech);
+function getSilenceMs(now = nowMs()) {
+  const lastSpeech = hybridSilence.lastSpeechAtMs ?? now;
+  return Math.max(0, now - lastSpeech);
 }
-function evaluateHybridEligibility(now2 = nowMs()) {
+function evaluateHybridEligibility(now = nowMs()) {
   if (state22.mode !== "hybrid") return { eligible: false, reason: "mode" };
   if (getHybridSessionPhase() !== "live") return { eligible: false, reason: "phase" };
   const hint = hybridTargetHintState;
   if (!hint) return { eligible: false, reason: "no-hint" };
   if (hint.confidence < HYBRID_CTRL_CONF_MIN) return { eligible: false, reason: "low-confidence" };
-  if (now2 - hint.ts > HYBRID_CTRL_ANCHOR_RECENCY_MS) return { eligible: false, reason: "stale-hint" };
+  if (now - hint.ts > HYBRID_CTRL_ANCHOR_RECENCY_MS) return { eligible: false, reason: "stale-hint" };
   return { eligible: true, reason: "ok" };
 }
-function logHybridCtrlState(basePxps, baseWithCorrection, now2, errorInfo, silenceMs, eligible, eligibleReason, normalizedError, targetMult, targetMultSource, lineTargetMult, lineMult, appliedTargetMult, silenceCap, offScriptSeverity, offScriptCap, finalPxps, ctrlMultApplied, effectiveScaleApplied, modeHint) {
+function logHybridCtrlState(basePxps, baseWithCorrection, now, errorInfo, silenceMs, eligible, eligibleReason, normalizedError, targetMult, targetMultSource, lineTargetMult, lineMult, appliedTargetMult, silenceCap, offScriptSeverity, offScriptCap, finalPxps, ctrlMultApplied, effectiveScaleApplied, modeHint) {
   if (!isDevMode2()) return;
   if (!HYBRID_CTRL_ENABLED) return;
-  if (now2 - lastHybridCtrlLogAt < HYBRID_CTRL_LOG_THROTTLE_MS) return;
-  lastHybridCtrlLogAt = now2;
+  if (now - lastHybridCtrlLogAt < HYBRID_CTRL_LOG_THROTTLE_MS) return;
+  lastHybridCtrlLogAt = now;
   try {
     console.info("[HYBRID_CTRL]", {
       errorPx: errorInfo?.errorPx ?? null,
@@ -15251,9 +14798,9 @@ function logHybridCtrlState(basePxps, baseWithCorrection, now2, errorInfo, silen
 function logHybridMultDebug(payload) {
   if (!isDevMode2()) return;
   if (!HYBRID_CTRL_ENABLED) return;
-  const now2 = nowMs();
-  if (now2 - lastHybridMultDebugAt < HYBRID_MULT_DEBUG_THROTTLE_MS) return;
-  lastHybridMultDebugAt = now2;
+  const now = nowMs();
+  if (now - lastHybridMultDebugAt < HYBRID_MULT_DEBUG_THROTTLE_MS) return;
+  lastHybridMultDebugAt = now;
   const fmt = (value, digits = 2) => value == null || !Number.isFinite(value) ? null : value.toFixed(digits);
   try {
     console.info("[HYBRID_CTRL] mult-debug", {
@@ -15269,9 +14816,9 @@ function logHybridMultDebug(payload) {
 }
 function logHybridTruthLine(payload) {
   if (!isDevMode2()) return;
-  const now2 = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
-  if (now2 - lastHybridTruthAt < HYBRID_TRUTH_THROTTLE_MS) return;
-  lastHybridTruthAt = now2;
+  const now = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
+  if (now - lastHybridTruthAt < HYBRID_TRUTH_THROTTLE_MS) return;
+  lastHybridTruthAt = now;
   const fmt = (value, digits) => value == null || !Number.isFinite(value) ? null : +value.toFixed(digits);
   try {
     const truthPayload = {
@@ -15509,11 +15056,11 @@ function scrollWrite(y, meta2) {
 }
 function beginHybridLiveGraceWindow() {
   if (state22.mode !== "hybrid") return;
-  const now2 = nowMs();
+  const now = nowMs();
   seedHybridBaseSpeed();
   setHybridScale(RECOVERY_SCALE);
-  liveGraceWindowEndsAt = now2 + LIVE_GRACE_MS;
-  hybridSilence.lastSpeechAtMs = now2;
+  liveGraceWindowEndsAt = now + LIVE_GRACE_MS;
+  hybridSilence.lastSpeechAtMs = now;
   hybridSilence.pausedBySilence = false;
   clearHybridSilenceTimer();
   if (hybridWantedRunning) {
@@ -15599,8 +15146,8 @@ function createFeatureSynth() {
   function dedupeKey(list) {
     return list.map((x) => x.text).join("|");
   }
-  function wordsInWindow(now2) {
-    const start = now2 - TOK_WIN_MS;
+  function wordsInWindow(now) {
+    const start = now - TOK_WIN_MS;
     toks = toks.filter((t) => t.t >= start);
     let words = 0;
     for (const t of toks) {
@@ -15609,41 +15156,41 @@ function createFeatureSynth() {
     return words;
   }
   function push(f) {
-    const now2 = performance.now();
+    const now = performance.now();
     if (f.kind === "tokens") {
       const key = dedupeKey(f.tokens);
       if (f.final || key !== lastTokensKey) {
         lastTokensKey = key;
         for (const tk of f.tokens) {
-          toks.push({ text: tk.text, t: now2 });
+          toks.push({ text: tk.text, t: now });
         }
-        lastActivityMs = now2;
+        lastActivityMs = now;
         speakingWanted = true;
       }
     } else if (f.kind === "gate") {
       speakingWanted = !!f.speaking;
-      if (f.speaking) lastActivityMs = now2;
+      if (f.speaking) lastActivityMs = now;
     }
     if (speakingWanted && !speaking2) {
-      if (now2 - lastSpeakChange >= ATTACK_MS) {
+      if (now - lastSpeakChange >= ATTACK_MS) {
         speaking2 = true;
-        lastSpeakChange = now2;
+        lastSpeakChange = now;
       }
     } else if (!speakingWanted && speaking2) {
-      if (now2 - lastSpeakChange >= RELEASE_MS) {
+      if (now - lastSpeakChange >= RELEASE_MS) {
         speaking2 = false;
-        lastSpeakChange = now2;
+        lastSpeakChange = now;
       }
     }
-    const words = wordsInWindow(now2);
+    const words = wordsInWindow(now);
     const instWpm = words * 60 * (1e3 / TOK_WIN_MS);
     if (words > 0) {
       wpmEma = wpmEma == null ? instWpm : ALPHA * instWpm + (1 - ALPHA) * wpmEma;
     }
   }
   function getTempo() {
-    const now2 = performance.now();
-    const pauseMs = Math.max(0, now2 - lastActivityMs);
+    const now = performance.now();
+    const pauseMs = Math.max(0, now - lastActivityMs);
     return { wpm: wpmEma, pauseMs };
   }
   function getSpeaking() {
@@ -15656,7 +15203,7 @@ function createAutoMotor() {
   const timed = createTimedEngine(brain);
   let enabled = false;
   let currentSpeed = 0;
-  let rafId2 = null;
+  let rafId = null;
   let lastTs = 0;
   let lastTickMoved = false;
   let carry = 0;
@@ -15673,13 +15220,13 @@ function createAutoMotor() {
   }
   function logAutoTick(event, el, pxPerSec, dtSec, reason, extra = {}) {
     if (!isDevMode2()) return;
-    const now2 = nowMs();
+    const now = nowMs();
     if (autoTickDebugStart === 0) {
-      autoTickDebugStart = now2;
+      autoTickDebugStart = now;
     }
-    if (now2 - autoTickDebugStart > AUTO_TICK_DEBUG_MS) return;
-    if (now2 - lastAutoTickLogAt < AUTO_TICK_LOG_THROTTLE_MS) return;
-    lastAutoTickLogAt = now2;
+    if (now - autoTickDebugStart > AUTO_TICK_DEBUG_MS) return;
+    if (now - lastAutoTickLogAt < AUTO_TICK_LOG_THROTTLE_MS) return;
+    lastAutoTickLogAt = now;
     try {
       const payload = {
         event,
@@ -15731,22 +15278,22 @@ function createAutoMotor() {
     }
   }
   function cancelTick() {
-    if (rafId2 != null && typeof cancelAnimationFrame === "function") {
-      cancelAnimationFrame(rafId2);
+    if (rafId != null && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(rafId);
     }
-    rafId2 = null;
+    rafId = null;
   }
   function scheduleTick() {
-    if (rafId2 != null) return;
+    if (rafId != null) return;
     lastTs = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
-    rafId2 = typeof requestAnimationFrame === "function" ? requestAnimationFrame(motorTick) : null;
+    rafId = typeof requestAnimationFrame === "function" ? requestAnimationFrame(motorTick) : null;
   }
   function motorTick(ts) {
-    rafId2 = null;
+    rafId = null;
     if (!enabled) return;
-    const now2 = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : ts || Date.now();
-    const dtSec = lastTs ? Math.max(0, (now2 - lastTs) / 1e3) : 0;
-    lastTs = now2;
+    const now = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : ts || Date.now();
+    const dtSec = lastTs ? Math.max(0, (now - lastTs) / 1e3) : 0;
+    lastTs = now;
     const pxPerSec = currentSpeed;
     const el = scrollerEl;
     if (!el) {
@@ -15853,9 +15400,9 @@ var isHybridVerboseDevMode = (() => {
 })();
 function logHybridPaceTelemetry(payload) {
   if (!isDevMode2()) return;
-  const now2 = nowMs();
-  if (now2 - lastHybridPaceLogAt < HYBRID_LOG_THROTTLE_MS) return;
-  lastHybridPaceLogAt = now2;
+  const now = nowMs();
+  if (now - lastHybridPaceLogAt < HYBRID_LOG_THROTTLE_MS) return;
+  lastHybridPaceLogAt = now;
   const summary = {
     mode: payload.mode,
     wpm: payload.wpm,
@@ -15876,9 +15423,9 @@ function logHybridPaceTelemetry(payload) {
 function logHybridScaleDetail(obj) {
   if (!isDevMode2()) return;
   if (state22.mode !== "hybrid") return;
-  const now2 = nowMs();
-  if (now2 - lastHybridScaleLogAt < HYBRID_LOG_THROTTLE_MS) return;
-  lastHybridScaleLogAt = now2;
+  const now = nowMs();
+  if (now - lastHybridScaleLogAt < HYBRID_LOG_THROTTLE_MS) return;
+  lastHybridScaleLogAt = now;
   const summary = {
     basePxps: obj.basePxps,
     chosenScale: obj.chosenScale,
@@ -15904,15 +15451,15 @@ function logHybridScaleDetail(obj) {
 function logHybridBrakeEvent(payload) {
   if (!isDevMode2()) return;
   if (state22.mode !== "hybrid") return;
-  const now2 = nowMs();
-  const ttl = Math.max(0, (payload.brakeExpiresAt ?? 0) - (payload.now ?? now2));
+  const now = nowMs();
+  const ttl = Math.max(0, (payload.brakeExpiresAt ?? 0) - (payload.now ?? now));
   const shouldLog = payload.graceActive || payload.brakeActive || ttl > 0;
   if (!shouldLog) return;
   const signature = `${payload.brakeFactor.toFixed(3)}|${payload.brakeReason ?? ""}|${payload.brakeActive ? "1" : "0"}|${payload.motorRunning ? "r" : "s"}`;
   const changed = signature !== lastHybridBrakeSignature;
-  if (!changed && now2 - lastHybridBrakeLogAt < HYBRID_LOG_THROTTLE_MS) return;
+  if (!changed && now - lastHybridBrakeLogAt < HYBRID_LOG_THROTTLE_MS) return;
   lastHybridBrakeSignature = signature;
-  lastHybridBrakeLogAt = now2;
+  lastHybridBrakeLogAt = now;
   const desc = [
     `brake=${payload.brakeFactor.toFixed(3)}`,
     `ttl=${Math.round(ttl)}`,
@@ -15929,12 +15476,12 @@ function logHybridVelocityEvent(payload) {
   if (state22.mode !== "hybrid") return;
   const meaningful = payload.motorRunning || payload.brakeTtl > 0 || payload.assistBoost > 0 || payload.graceActive || payload.chosenScale < 0.999;
   if (!meaningful) return;
-  const now2 = nowMs();
+  const now = nowMs();
   const signature = `${payload.velocity.toFixed(2)}|${payload.brakeFactor.toFixed(3)}|${payload.assistBoost.toFixed(3)}|${payload.reason}|${payload.brakeActive ? "b" : ""}|${payload.assistActive ? "a" : ""}|${payload.motorRunning ? "r" : "s"}`;
   const changed = signature !== lastHybridVelocitySignature;
-  if (!changed && now2 - lastHybridVelocityLogAt < HYBRID_LOG_THROTTLE_MS) return;
+  if (!changed && now - lastHybridVelocityLogAt < HYBRID_LOG_THROTTLE_MS) return;
   lastHybridVelocitySignature = signature;
-  lastHybridVelocityLogAt = now2;
+  lastHybridVelocityLogAt = now;
   const clampState = payload.chosenScale < 0.999 ? "clamped" : "free";
   const summary = [
     `base=${payload.basePxps.toFixed(1)}`,
@@ -15954,11 +15501,11 @@ function logHybridMotorEvent(evt, data) {
   if (!isDevMode2()) return;
   if (state22.mode !== "hybrid") return;
   if (evt === "velocity") {
-    const now2 = nowMs();
+    const now = nowMs();
     const signature = `${Number(data?.velocityPxPerSec ?? 0).toFixed(2)}`;
-    if (signature === lastHybridMotorVelocitySignature && now2 - lastHybridMotorVelocityLogAt < HYBRID_MOTOR_LOG_THROTTLE_MS) return;
+    if (signature === lastHybridMotorVelocitySignature && now - lastHybridMotorVelocityLogAt < HYBRID_MOTOR_LOG_THROTTLE_MS) return;
     lastHybridMotorVelocitySignature = signature;
-    lastHybridMotorVelocityLogAt = now2;
+    lastHybridMotorVelocityLogAt = now;
   }
   try {
     console.debug("[HybridMotor]", evt, data);
@@ -16054,9 +15601,9 @@ function createPaceEngine() {
     _catchup = level;
   }
   function consume(tempo, speaking2) {
-    const now2 = performance.now();
-    const dt = Math.max(1e-3, (now2 - lastUpdate) / 1e3);
-    lastUpdate = now2;
+    const now = performance.now();
+    const dt = Math.max(1e-3, (now - lastUpdate) / 1e3);
+    lastUpdate = now;
     if (mode === "vad") {
       const tgt = speaking2 ? SPEAKING_PXS : target * Math.pow(0.85, dt * (1e3 / caps.decayMs));
       const maxStep = caps.accelCap * dt;
@@ -16444,14 +15991,14 @@ var HYBRID_CTRL_DEV_OVERRIDE_DURATION_MS = 1e4;
 var hybridCtrlDevOverrideStart = null;
 var hybridCtrlDevOverrideDone = false;
 var lastHybridMultDebugAt = 0;
-function getHybridCtrlDevOverride(now2) {
+function getHybridCtrlDevOverride(now) {
   if (!HYBRID_CTRL_ENABLED || !HYBRID_CTRL_PARAM_ENABLED || hybridCtrlDevOverrideDone || typeof window === "undefined") {
     return null;
   }
   if (hybridCtrlDevOverrideStart === null) {
-    hybridCtrlDevOverrideStart = now2;
+    hybridCtrlDevOverrideStart = now;
   }
-  const elapsed = Math.max(0, now2 - hybridCtrlDevOverrideStart);
+  const elapsed = Math.max(0, now - hybridCtrlDevOverrideStart);
   if (elapsed >= HYBRID_CTRL_DEV_OVERRIDE_DURATION_MS) {
     hybridCtrlDevOverrideDone = true;
     return null;
@@ -16622,8 +16169,8 @@ function scheduleHybridVelocityRefresh() {
   hybridVelocityRefreshRaf = window.requestAnimationFrame(() => {
     hybridVelocityRefreshRaf = null;
     if (state22.mode !== "hybrid") return;
-    const now2 = nowMs();
-    if (!shouldHybridRefresh(now2)) {
+    const now = nowMs();
+    if (!shouldHybridRefresh(now)) {
       stopHybridVelocityRefresh();
       return;
     }
@@ -16660,13 +16207,13 @@ function stopHybridVelocityRefresh() {
   }
   hybridVelocityRefreshRaf = null;
 }
-function shouldHybridRefresh(now2 = nowMs()) {
+function shouldHybridRefresh(now = nowMs()) {
   if (state22.mode !== "hybrid") return false;
   if (hybridMotor.isRunning()) return true;
-  if (isHybridGraceActive(now2)) return true;
-  const brakeActive = hybridBrakeState.expiresAt > now2;
+  if (isHybridGraceActive(now)) return true;
+  const brakeActive = hybridBrakeState.expiresAt > now;
   if (brakeActive) return true;
-  if (hybridAssistState.expiresAt > now2) return true;
+  if (hybridAssistState.expiresAt > now) return true;
   if (hybridTargetHintState != null) return true;
   return false;
 }
@@ -16687,8 +16234,8 @@ function setHybridBrake(factor, ttlMs, reason = null) {
   const safeFactor = Number.isFinite(factor) ? clamp2(factor, 0, 1) : 1;
   const rawTtl = Number.isFinite(ttlMs) ? ttlMs : 0;
   const ttl = Math.max(0, Math.min(HYBRID_EVENT_TTL_MAX, rawTtl));
-  const now2 = nowMs();
-  const expiresAt2 = ttl > 0 ? now2 + ttl : 0;
+  const now = nowMs();
+  const expiresAt2 = ttl > 0 ? now + ttl : 0;
   hybridBrakeState = {
     factor: safeFactor,
     expiresAt: expiresAt2,
@@ -16699,11 +16246,11 @@ function setHybridBrake(factor, ttlMs, reason = null) {
   if (isDevMode2()) {
     let shouldLogBrake = true;
     if (reason === "manual-scroll") {
-      const elapsed = now2 - lastManualScrollBrakeLogAt;
+      const elapsed = now - lastManualScrollBrakeLogAt;
       if (elapsed < MANUAL_SCROLL_LOG_THROTTLE_MS) {
         shouldLogBrake = false;
       } else {
-        lastManualScrollBrakeLogAt = now2;
+        lastManualScrollBrakeLogAt = now;
       }
     }
     if (shouldLogBrake) {
@@ -16756,11 +16303,11 @@ function isSliderWpmSource(source) {
   return typeof source === "string" && WPM_USER_SOURCES.has(source);
 }
 function startHybridGrace(reason) {
-  const now2 = nowMs();
+  const now = nowMs();
   setHybridBrake(1, 0, reason ?? "grace-reset");
-  hybridGraceUntil = now2 + HYBRID_GRACE_DURATION_MS;
+  hybridGraceUntil = now + HYBRID_GRACE_DURATION_MS;
   hybridSilence.pausedBySilence = false;
-  hybridSilence.lastSpeechAtMs = now2;
+  hybridSilence.lastSpeechAtMs = now;
   hybridSilence.offScriptActive = false;
   resetOffScriptDuration();
   const timeoutId = hybridSilence.timeoutId;
@@ -16787,8 +16334,8 @@ function startHybridGrace(reason) {
     }
   }
 }
-function isHybridGraceActive(now2 = nowMs()) {
-  return hybridGraceUntil > now2;
+function isHybridGraceActive(now = nowMs()) {
+  return hybridGraceUntil > now;
 }
 var isHybridBypass = () => {
   try {
@@ -16905,9 +16452,9 @@ function holdCreepStart(pxPerSec = DEFAULTS.step.holdCreep, dir = 1) {
   if (!viewer) return;
   cancelAnimationFrame(creepRaf);
   creepLast = performance.now();
-  const tick = (now2) => {
-    const dt = (now2 - creepLast) / 1e3;
-    creepLast = now2;
+  const tick = (now) => {
+    const dt = (now - creepLast) / 1e3;
+    creepLast = now;
     try {
       scrollWriter.scrollBy(dir * pxPerSec * dt, { behavior: "auto" });
     } catch {
@@ -17204,8 +16751,8 @@ function installScrollRouter(opts) {
   }
   restoreMode();
   try {
-    const store2 = (typeof window !== "undefined" ? window.__tpStore : null) || appStoreSingleton;
-    const storeMode = normalizeScrollModeValue(store2?.get?.("scrollMode"));
+    const store = (typeof window !== "undefined" ? window.__tpStore : null) || appStoreSingleton;
+    const storeMode = normalizeScrollModeValue(store?.get?.("scrollMode"));
     if (storeMode && storeMode !== state22.mode) {
       state22.mode = storeMode;
     }
@@ -17214,8 +16761,8 @@ function installScrollRouter(opts) {
   applyMode(state22.mode);
   emitScrollModeSnapshot("mode-change");
   try {
-    const store2 = (typeof window !== "undefined" ? window.__tpStore : null) || appStoreSingleton;
-    store2?.subscribe?.("scrollMode", (next) => {
+    const store = (typeof window !== "undefined" ? window.__tpStore : null) || appStoreSingleton;
+    store?.subscribe?.("scrollMode", (next) => {
       const normalized = normalizeScrollModeValue(next);
       if (!normalized || normalized === state22.mode) return;
       applyMode(normalized);
@@ -17327,9 +16874,9 @@ function installScrollRouter(opts) {
         const telemetry = getAsrTelemetry();
         const intentReason = typeof intent.reason === "string" ? intent.reason : "";
         recordAsrIntentTelemetry(telemetry, intentReason);
-        const now2 = Date.now();
+        const now = Date.now();
         const mode = getScrollMode2();
-        recordAsrMatchEvent(now2, intent, intentReason);
+        recordAsrMatchEvent(now, intent, intentReason);
         if (telemetry) {
           telemetry.completionEvidence = null;
           telemetry.completionEvidenceSummary = "evidence_missing_block_index";
@@ -17337,7 +16884,7 @@ function installScrollRouter(opts) {
         if (intent.kind !== "seek_block") {
           recordAsrReject(
             telemetry,
-            now2,
+            now,
             "reject_kind",
             mode,
             sessionPhase2,
@@ -17350,7 +16897,7 @@ function installScrollRouter(opts) {
         if (mode !== "asr") {
           recordAsrReject(
             telemetry,
-            now2,
+            now,
             "reject_mode",
             mode,
             sessionPhase2,
@@ -17363,7 +16910,7 @@ function installScrollRouter(opts) {
         if (sessionPhase2 !== "live") {
           recordAsrReject(
             telemetry,
-            now2,
+            now,
             "reject_phase",
             mode,
             sessionPhase2,
@@ -17402,17 +16949,17 @@ function installScrollRouter(opts) {
         }
         if (telemetry && committedBlockIdx >= 0) {
           const candidateIdx = resolveAsrIntentCandidateBlockIdx(intent);
-          const evidence = buildCompletionEvidence(committedBlockIdx, candidateIdx, now2);
+          const evidence = buildCompletionEvidence(committedBlockIdx, candidateIdx, now);
           telemetry.completionEvidence = evidence;
           telemetry.completionEvidenceSummary = formatCompletionEvidenceSummary(evidence);
         } else if (telemetry) {
           telemetry.completionEvidence = null;
           telemetry.completionEvidenceSummary = "evidence_missing_block_index";
         }
-        if (asrIntentLiveSince && now2 - asrIntentLiveSince < ASR_INTENT_WARMUP_MS) {
+        if (asrIntentLiveSince && now - asrIntentLiveSince < ASR_INTENT_WARMUP_MS) {
           recordAsrReject(
             telemetry,
-            now2,
+            now,
             "reject_warmup",
             mode,
             sessionPhase2,
@@ -17426,7 +16973,7 @@ function installScrollRouter(opts) {
         if (!Number.isFinite(rawBlockIdx) || rawBlockIdx < 0) {
           recordAsrReject(
             telemetry,
-            now2,
+            now,
             "reject_invalid_target",
             mode,
             sessionPhase2,
@@ -17441,7 +16988,7 @@ function installScrollRouter(opts) {
           const reasonKey = rawBlockIdx === committedBlockIdx ? "reject_same_block" : "reject_backward";
           recordAsrReject(
             telemetry,
-            now2,
+            now,
             reasonKey,
             mode,
             sessionPhase2,
@@ -17451,10 +16998,10 @@ function installScrollRouter(opts) {
           );
           return;
         }
-        if (now2 - lastCommitAt < ASR_INTENT_DEBOUNCE_MS) {
+        if (now - lastCommitAt < ASR_INTENT_DEBOUNCE_MS) {
           recordAsrReject(
             telemetry,
-            now2,
+            now,
             "reject_debounce",
             mode,
             sessionPhase2,
@@ -17467,7 +17014,7 @@ function installScrollRouter(opts) {
         if (Number.isFinite(intent.confidence) && intent.confidence < ASR_INTENT_MIN_CONF) {
           recordAsrReject(
             telemetry,
-            now2,
+            now,
             "reject_low_confidence",
             mode,
             sessionPhase2,
@@ -17483,11 +17030,11 @@ function installScrollRouter(opts) {
         if (isInterim) {
           if (blockIdx !== lastCandidate) {
             lastCandidate = blockIdx;
-            stableSince = now2;
+            stableSince = now;
           }
           recordAsrReject(
             telemetry,
-            now2,
+            now,
             "reject_not_final",
             mode,
             sessionPhase2,
@@ -17500,10 +17047,10 @@ function installScrollRouter(opts) {
         if (isRescue) {
           recentAsrMatches = [];
           lastCandidate = -1;
-          stableSince = now2;
+          stableSince = now;
           recordAsrReject(
             telemetry,
-            now2,
+            now,
             "reject_rescue",
             mode,
             sessionPhase2,
@@ -17515,10 +17062,10 @@ function installScrollRouter(opts) {
         }
         if (blockIdx !== lastCandidate) {
           lastCandidate = blockIdx;
-          stableSince = now2;
+          stableSince = now;
           recordAsrReject(
             telemetry,
-            now2,
+            now,
             "reject_stability",
             mode,
             sessionPhase2,
@@ -17529,10 +17076,10 @@ function installScrollRouter(opts) {
           return;
         }
         const requiredStable = committedBlockIdx < 0 ? ASR_INTENT_FIRST_STABLE_MS : ASR_INTENT_STABLE_MS;
-        if (now2 - stableSince < requiredStable) {
+        if (now - stableSince < requiredStable) {
           recordAsrReject(
             telemetry,
-            now2,
+            now,
             "reject_stability",
             mode,
             sessionPhase2,
@@ -17550,7 +17097,7 @@ function installScrollRouter(opts) {
           let completionEvidence = telemetry?.completionEvidence ?? null;
           if (!completionEvidence) {
             try {
-              completionEvidence = buildCompletionEvidence(committedBlockIdx, blockIdx, now2);
+              completionEvidence = buildCompletionEvidence(committedBlockIdx, blockIdx, now);
             } catch (err) {
               if (isDevMode2()) {
                 try {
@@ -17592,7 +17139,7 @@ function installScrollRouter(opts) {
               } else if (completionDecision.status === "incomplete") {
                 recordAsrReject(
                   telemetry,
-                  now2,
+                  now,
                   `reject_completion_${completionDecision.reason}`,
                   mode,
                   sessionPhase2,
@@ -17616,10 +17163,10 @@ function installScrollRouter(opts) {
         }
         seekToBlockAnimated(blockIdx, "asr_commit");
         committedBlockIdx = blockIdx;
-        lastCommitAt = now2;
+        lastCommitAt = now;
         recordAsrAccept(
           telemetry,
-          now2,
+          now,
           mode,
           sessionPhase2,
           committedBlockIdx,
@@ -17998,19 +17545,19 @@ function installScrollRouter(opts) {
   }
   function handleHybridSilenceTimeout2() {
     hybridSilence.timeoutId = null;
-    const now2 = nowMs();
-    if (liveGraceWindowEndsAt != null && now2 >= liveGraceWindowEndsAt) {
+    const now = nowMs();
+    if (liveGraceWindowEndsAt != null && now >= liveGraceWindowEndsAt) {
       liveGraceWindowEndsAt = null;
     }
-    if (liveGraceWindowEndsAt != null && now2 < liveGraceWindowEndsAt) {
-      const delay = Math.max(0, liveGraceWindowEndsAt - now2);
+    if (liveGraceWindowEndsAt != null && now < liveGraceWindowEndsAt) {
+      const delay = Math.max(0, liveGraceWindowEndsAt - now);
       armHybridSilenceTimer2(delay || computeHybridSilenceDelayMs());
       return;
     }
     const softDelayMs = computeHybridSilenceDelayMs();
     const hardStopMs = HYBRID_SILENCE_HARD_STOP_MS;
-    const lastSpeechAtMs = hybridSilence.lastSpeechAtMs > 0 ? hybridSilence.lastSpeechAtMs : now2;
-    const silentForMs = Math.max(0, now2 - lastSpeechAtMs);
+    const lastSpeechAtMs = hybridSilence.lastSpeechAtMs > 0 ? hybridSilence.lastSpeechAtMs : now;
+    const silentForMs = Math.max(0, now - lastSpeechAtMs);
     const eligible = isHybridSessionEligible();
     const motorRunning = hybridMotor.isRunning();
     if (!eligible) {
@@ -18093,8 +17640,8 @@ function installScrollRouter(opts) {
     ensureHybridMotorRunningForSpeech();
     armHybridSilenceTimer2();
   }
-  function isLiveGraceActive(now2 = nowMs()) {
-    return liveGraceWindowEndsAt != null && now2 < liveGraceWindowEndsAt;
+  function isLiveGraceActive(now = nowMs()) {
+    return liveGraceWindowEndsAt != null && now < liveGraceWindowEndsAt;
   }
   function noteHybridSpeechActivity(ts, opts2) {
     if (getScrollMode2() !== "hybrid") {
@@ -18102,14 +17649,14 @@ function installScrollRouter(opts) {
       return;
     }
     const perfNow = nowMs();
-    const now2 = normalizePerfTimestamp(ts, perfNow);
+    const now = normalizePerfTimestamp(ts, perfNow);
     if (typeof opts2?.noMatch === "boolean") {
       hybridLastNoMatch = opts2.noMatch;
     }
     const wasSpeechActive = speechActive;
     speechActive = true;
-    hybridSilence.lastSpeechAtMs = now2;
-    setHybridSilence2(now2);
+    hybridSilence.lastSpeechAtMs = now;
+    setHybridSilence2(now);
     liveGraceWindowEndsAt = null;
     const wasPausedBySilence = typeof opts2?.resumedFromSilence === "boolean" ? opts2.resumedFromSilence : hybridSilence.pausedBySilence;
     hybridSilence.pausedBySilence = false;
@@ -18158,7 +17705,7 @@ function installScrollRouter(opts) {
   }
   function updateHybridScaleFromDetail(detail) {
     if (state22.mode !== "hybrid" || !hybridWantedRunning) return;
-    const now2 = nowMs();
+    const now = nowMs();
     const inBandValue = detail.inBand;
     const inBand = inBandValue === 1 || inBandValue === true || inBandValue === "1";
     const bestSimRaw = detail.bestSim ?? detail.sim ?? detail.score;
@@ -18170,7 +17717,7 @@ function installScrollRouter(opts) {
     const nextScale = determineHybridScaleFromDetail(scaleDetail);
     if (nextScale == null) return;
     const logHud = () => {
-      syncOffScriptDuration(now2);
+      syncOffScriptDuration(now);
       const currentScale = Number.isFinite(hybridScale) ? hybridScale : 1;
       const decay = hybridSilence.offScriptActive ? computeOffScriptDecay(offScriptDurationMs) : 1;
       const effectiveScale = currentScale * decay;
@@ -18189,7 +17736,7 @@ function installScrollRouter(opts) {
     const goodMatch = nextScale === RECOVERY_SCALE && !significantNoMatch;
     if (goodMatch) {
       onScriptStreak += 1;
-      lastGoodMatchAtMs = now2;
+      lastGoodMatchAtMs = now;
       offScriptEvidence = 0;
       lastOffScriptEvidenceTs = 0;
       setHybridScale2(RECOVERY_SCALE);
@@ -18206,10 +17753,10 @@ function installScrollRouter(opts) {
       return;
     }
     onScriptStreak = 0;
-    if (lastOffScriptEvidenceTs && now2 - lastOffScriptEvidenceTs > OFFSCRIPT_EVIDENCE_RESET_MS) {
+    if (lastOffScriptEvidenceTs && now - lastOffScriptEvidenceTs > OFFSCRIPT_EVIDENCE_RESET_MS) {
       offScriptEvidence = 0;
     }
-    lastOffScriptEvidenceTs = now2;
+    lastOffScriptEvidenceTs = now;
     offScriptEvidence += 1;
     if (offScriptEvidence >= OFFSCRIPT_EVIDENCE_THRESHOLD) {
       offScriptEvidence = 0;
@@ -18220,13 +17767,13 @@ function installScrollRouter(opts) {
   function handleTranscriptEvent(detail) {
     if (getScrollMode2() !== "hybrid") return;
     const perfNow = nowMs();
-    const now2 = normalizePerfTimestamp(detail.timestamp, perfNow);
+    const now = normalizePerfTimestamp(detail.timestamp, perfNow);
     const isNoMatch = detail.noMatch === true;
     const wasSilent = hybridSilence.pausedBySilence;
-    hybridSilence.lastSpeechAtMs = now2;
+    hybridSilence.lastSpeechAtMs = now;
     hybridSilence.pausedBySilence = false;
     clearHybridSilenceTimer();
-    noteHybridSpeechActivity(now2, {
+    noteHybridSpeechActivity(now, {
       source: detail.source || "transcript",
       noMatch: isNoMatch,
       resumedFromSilence: wasSilent
@@ -18399,8 +17946,8 @@ function installScrollRouter(opts) {
     runHybridVelocity(hybridSilence);
     return true;
   }
-  function getActiveBrakeFactor(now2 = nowMs()) {
-    if (hybridBrakeState.expiresAt <= now2) {
+  function getActiveBrakeFactor(now = nowMs()) {
+    if (hybridBrakeState.expiresAt <= now) {
       if (hybridBrakeState.factor !== 1 || hybridBrakeState.expiresAt !== 0) {
         hybridBrakeState = { factor: 1, expiresAt: 0, reason: null };
       }
@@ -18408,11 +17955,11 @@ function installScrollRouter(opts) {
     }
     return hybridBrakeState.factor;
   }
-  function getActiveAssistBoost(now2 = nowMs(), pauseTailEligible = false) {
-    if (hybridAssistState.expiresAt > now2) {
+  function getActiveAssistBoost(now = nowMs(), pauseTailEligible = false) {
+    if (hybridAssistState.expiresAt > now) {
       return hybridAssistState.boostPxps;
     }
-    const tailActive = pauseTailEligible && pauseAssistTailBoost > 0 && pauseAssistTailUntil > now2;
+    const tailActive = pauseTailEligible && pauseAssistTailBoost > 0 && pauseAssistTailUntil > now;
     if (tailActive) {
       return pauseAssistTailBoost;
     }
@@ -18427,7 +17974,7 @@ function installScrollRouter(opts) {
   }
   function handleHybridBrakeEvent(ev) {
     if (state22.mode !== "hybrid") return;
-    const now2 = nowMs();
+    const now = nowMs();
     const detail = ev?.detail || {};
     const factorRaw = Number(detail.factor);
     const safeFactor = Number.isFinite(factorRaw) ? clamp2(factorRaw, 0, 1) : 1;
@@ -18436,13 +17983,13 @@ function installScrollRouter(opts) {
     const reason = typeof detail.reason === "string" ? detail.reason : null;
     if (reason === "asr-pursuit") {
       if (isDevMode2()) {
-        const elapsed = now2 - lastIgnoredAsrPursuitLogAt;
+        const elapsed = now - lastIgnoredAsrPursuitLogAt;
         if (elapsed >= IGNORED_ASR_PURSUIT_LOG_THROTTLE_MS) {
-          lastIgnoredAsrPursuitLogAt = now2;
+          lastIgnoredAsrPursuitLogAt = now;
           try {
             console.info(
               `[HYBRID_BRAKE] ignored asr-pursuit ${JSON.stringify({
-                now: now2,
+                now,
                 safeFactor,
                 ttl,
                 reason
@@ -18455,10 +18002,10 @@ function installScrollRouter(opts) {
       return;
     }
     const prev = hybridBrakeState;
-    const prevActive = prev.expiresAt > now2;
+    const prevActive = prev.expiresAt > now;
     const prevFactor = prev.factor;
     const prevReason = prev.reason;
-    const remaining = prev.expiresAt - now2;
+    const remaining = prev.expiresAt - now;
     const FACTOR_EPS = 0.01;
     const REFRESH_WINDOW_MS = 120;
     const sameFactor = Math.abs(prevFactor - safeFactor) <= FACTOR_EPS;
@@ -18468,7 +18015,7 @@ function installScrollRouter(opts) {
         try {
           console.info(
             `[HYBRID_BRAKE] ignore refresh ${JSON.stringify({
-              now: now2,
+              now,
               safeFactor,
               ttl,
               reason,
@@ -18489,7 +18036,7 @@ function installScrollRouter(opts) {
       try {
         console.warn(
           `[HYBRID_BRAKE_SET] ${JSON.stringify({
-            now: now2,
+            now,
             factor: hybridBrakeState.factor,
             ttl,
             expiresAt: hybridBrakeState.expiresAt,
@@ -18561,17 +18108,17 @@ function installScrollRouter(opts) {
       lineIndex
     };
   }
-  function computeEffectiveHybridScale(now2, silence = hybridSilence, pauseLikelyOverride, forceOffScript = false, candidateErrorLines, weakMatch = false) {
-    syncOffScriptDuration(now2);
+  function computeEffectiveHybridScale(now, silence = hybridSilence, pauseLikelyOverride, forceOffScript = false, candidateErrorLines, weakMatch = false) {
+    syncOffScriptDuration(now);
     const pauseLikely = typeof pauseLikelyOverride === "boolean" ? pauseLikelyOverride : isPlannedPauseLikely();
     const scaleFromSilence = silence.pausedBySilence && pauseLikely ? PAUSE_DRIFT_SCALE : silence.pausedBySilence ? SILENCE_SCALE : 1;
     const offScriptActive = forceOffScript || silence.offScriptActive;
     const offScriptDecay = silence.offScriptActive ? computeOffScriptDecay(offScriptDurationMs) : 1;
     const scaleFromOffscript = offScriptActive ? OFFSCRIPT_SCALE * offScriptDecay : 1;
-    const graceActive = isHybridGraceActive(now2);
+    const graceActive = isHybridGraceActive(now);
     const scaleFromGrace = GRACE_MIN_SCALE;
     const nearTarget = Number.isFinite(candidateErrorLines ?? NaN) && Math.abs(candidateErrorLines ?? 0) <= HYBRID_CTRL_MODE_DEADBAND_LINES;
-    const onScriptLocked = onScriptStreak >= 2 && now2 - lastGoodMatchAtMs < ON_SCRIPT_LOCK_HOLD_MS && !weakMatch && !offScriptActive && nearTarget;
+    const onScriptLocked = onScriptStreak >= 2 && now - lastGoodMatchAtMs < ON_SCRIPT_LOCK_HOLD_MS && !weakMatch && !offScriptActive && nearTarget;
     if (onScriptLocked) {
       return {
         scale: 1,
@@ -18621,7 +18168,7 @@ function installScrollRouter(opts) {
   function applyHybridVelocityCore2(silence = hybridSilence) {
     const candidateBase = Number.isFinite(hybridBasePxps) ? hybridBasePxps : 0;
     const base = candidateBase > 0 ? candidateBase : HYBRID_BASELINE_FLOOR_PXPS;
-    const now2 = nowMs();
+    const now = nowMs();
     const matchState = getHybridMatchState();
     const { bestSim, sawNoMatch, weakMatch: baseWeakMatch, hardNoMatch } = matchState;
     const matchSimValue = Number.isFinite(bestSim ?? NaN) && bestSim != null ? bestSim : null;
@@ -18636,11 +18183,11 @@ function installScrollRouter(opts) {
       } catch {
       }
     }
-    const silenceMs = getSilenceMs(now2);
-    const errorInfo = computeHybridErrorPx(now2);
+    const silenceMs = getSilenceMs(now);
+    const errorInfo = computeHybridErrorPx(now);
     const driftWeakMatch = isHybridDriftWeak(errorInfo);
     const weakMatch = baseWeakMatch || driftWeakMatch;
-    const eligibility = evaluateHybridEligibility(now2);
+    const eligibility = evaluateHybridEligibility(now);
     const eligible = eligibility.eligible;
     const eligibleReason = eligibility.reason;
     const normalizedError = eligible && errorInfo ? normalizeHybridError(errorInfo.errorPx) : 0;
@@ -18675,7 +18222,7 @@ function installScrollRouter(opts) {
     hybridCtrl.lineTargetMult = Number.isFinite(candidateTargetMult ?? NaN) ? Number(candidateTargetMult) : null;
     hybridCtrl.lineSource = targetMultSource;
     const silenceCap = computeSilenceCapMultiplier(silenceMs);
-    const dtMs = hybridCtrl.lastTs > 0 ? Math.max(0, now2 - hybridCtrl.lastTs) : 0;
+    const dtMs = hybridCtrl.lastTs > 0 ? Math.max(0, now - hybridCtrl.lastTs) : 0;
     const errorLinesRaw = Number.isFinite(errorInfo?.errorLines ?? NaN) && errorInfo?.errorLines != null ? errorInfo.errorLines : Number.isFinite(effectiveErrorLines ?? NaN) ? effectiveErrorLines : 0;
     const lineMult = updateHybridLineMult(candidateTargetMult, dtMs, errorLinesRaw > 0);
     let appliedTargetMult = Number.isFinite(lineMult) ? lineMult : 1;
@@ -18689,14 +18236,14 @@ function installScrollRouter(opts) {
     appliedTargetMult = Math.max(appliedTargetMult, HYBRID_CTRL_MIN_MULT);
     hybridCtrl.lastErrorPx = errorInfo?.errorPx ?? 0;
     hybridCtrl.lastAnchorTs = errorInfo?.anchorAgeMs ?? 0;
-    hybridCtrl.lastTs = now2;
+    hybridCtrl.lastTs = now;
     const targetMult = candidateTargetMult ?? 1;
-    const devOverrideMult = getHybridCtrlDevOverride(now2);
+    const devOverrideMult = getHybridCtrlDevOverride(now);
     const ctrlMultFinal = Number.isFinite(devOverrideMult) ? devOverrideMult : appliedTargetMult;
     hybridCtrl.mult = ctrlMultFinal;
     const ctrlMultApplied = ctrlMultFinal;
     const hybridScaleDetail = computeEffectiveHybridScale(
-      now2,
+      now,
       silence,
       void 0,
       weakMatch,
@@ -18756,7 +18303,7 @@ function installScrollRouter(opts) {
     const pauseTailEligible = pauseLikely && silence.pausedBySilence;
     if (pauseTailEligible && hybridAssistState.boostPxps > 0) {
       pauseAssistTailBoost = hybridAssistState.boostPxps;
-      pauseAssistTailUntil = Math.max(pauseAssistTailUntil, now2 + PAUSE_ASSIST_TAIL_MS);
+      pauseAssistTailUntil = Math.max(pauseAssistTailUntil, now + PAUSE_ASSIST_TAIL_MS);
     } else if (!pauseTailEligible) {
       pauseAssistTailBoost = 0;
       pauseAssistTailUntil = 0;
@@ -18774,15 +18321,15 @@ function installScrollRouter(opts) {
       offScriptActive,
       pausedBySilence
     });
-    const brakeActive = hybridBrakeState.expiresAt > now2;
-    const brakeTtl = Math.max(0, hybridBrakeState.expiresAt - now2);
-    const assistActive = hybridAssistState.expiresAt > now2;
-    const assistTtl = Math.max(0, hybridAssistState.expiresAt - now2);
-    const brakeRaw = getActiveBrakeFactor(now2);
+    const brakeActive = hybridBrakeState.expiresAt > now;
+    const brakeTtl = Math.max(0, hybridBrakeState.expiresAt - now);
+    const assistActive = hybridAssistState.expiresAt > now;
+    const assistTtl = Math.max(0, hybridAssistState.expiresAt - now);
+    const brakeRaw = getActiveBrakeFactor(now);
     const brakeFactor = graceActive ? 1 : brakeRaw;
     const motorRunning = hybridMotor.isRunning();
     logHybridBrakeEvent({
-      now: now2,
+      now,
       brakeRaw,
       brakeFactor,
       graceActive,
@@ -18792,7 +18339,7 @@ function installScrollRouter(opts) {
       brakeTtl,
       motorRunning
     });
-    const rawAssist = getActiveAssistBoost(now2, pauseTailEligible);
+    const rawAssist = getActiveAssistBoost(now, pauseTailEligible);
     const suppressAssist = reason === "silence" || effectiveScale <= OFFSCRIPT_SCALE || reason === "grace";
     const assistCap = Math.max(0, base * HYBRID_ASSIST_CAP_FRAC);
     const assistBoost = suppressAssist ? 0 : Math.min(rawAssist, assistCap);
@@ -18898,7 +18445,7 @@ function installScrollRouter(opts) {
     logHybridCtrlState(
       base,
       baseWithCorrection,
-      now2,
+      now,
       errorInfo,
       silenceMs,
       eligible,
@@ -19364,13 +18911,13 @@ function installScrollRouter(opts) {
       if (enabledNow) {
         stopAutoMotor("hybrid-gate");
       }
-      const now2 = nowMs();
+      const now = nowMs();
       const gateWanted = computeGateWanted();
       const phaseAllowed = canRunHybridMotor();
       const baseHybridPxPerSec = Number.isFinite(hybridBasePxps) ? Math.max(0, hybridBasePxps) : 0;
-      const lastSpeechAgeMs = Math.max(0, now2 - hybridSilence.lastSpeechAtMs);
-      const liveGraceActive = isLiveGraceActive(now2);
-      const errorInfo = computeHybridErrorPx(now2);
+      const lastSpeechAgeMs = Math.max(0, now - hybridSilence.lastSpeechAtMs);
+      const liveGraceActive = isLiveGraceActive(now);
+      const errorInfo = computeHybridErrorPx(now);
       const silenceStopMs = computeHybridSilenceDelayMs();
       const isSilent = !liveGraceActive && lastSpeechAgeMs >= silenceStopMs;
       const speechAllowed = !isSilent;
@@ -19392,7 +18939,7 @@ function installScrollRouter(opts) {
       const hybridRunning = hybridMotor.isRunning();
       const silenceSnapshot = hybridSilence?.getState?.() ?? hybridSilence ?? null;
       const safeSilence = silenceSnapshot ?? {
-        lastSpeechAtMs: now2,
+        lastSpeechAtMs: now,
         pausedBySilence: false,
         timeoutId: null,
         erroredOnce: false,
@@ -19403,7 +18950,7 @@ function installScrollRouter(opts) {
       const gateWeakMatch = matchState.weakMatch || driftWeakMatch;
       const gateEffectiveOffScript = (safeSilence.offScriptActive ?? false) || gateWeakMatch;
       const hybridScaleDetail = computeEffectiveHybridScale(
-        now2,
+        now,
         safeSilence,
         void 0,
         gateEffectiveOffScript,
@@ -19411,15 +18958,15 @@ function installScrollRouter(opts) {
         gateWeakMatch
       );
       const scale = hybridScaleDetail.scale;
-      const brake = getActiveBrakeFactor(now2);
+      const brake = getActiveBrakeFactor(now);
       const pxCandidate = baseHybridPxPerSec * scale * brake;
       const fallback = Math.max(
         HYBRID_CTRL_MIN_PXPS,
         Number.isFinite(baseHybridPxPerSec) ? baseHybridPxPerSec : HYBRID_CTRL_MIN_PXPS
       );
       const effectivePxPerSec = Number.isFinite(pxCandidate) && pxCandidate > 0 ? pxCandidate : fallback;
-      if (isDevMode2() && now2 - lastHybridCtrlDebugTs >= HYBRID_CTRL_DEBUG_THROTTLE_MS) {
-        lastHybridCtrlDebugTs = now2;
+      if (isDevMode2() && now - lastHybridCtrlDebugTs >= HYBRID_CTRL_DEBUG_THROTTLE_MS) {
+        lastHybridCtrlDebugTs = now;
         const targetTop = Number.isFinite(errorInfo?.targetScrollTop ?? NaN) && errorInfo?.targetScrollTop != null ? errorInfo.targetScrollTop : null;
         const markerTop = Number.isFinite(errorInfo?.markerY ?? NaN) && errorInfo?.markerY != null ? errorInfo.markerY : null;
         const deltaPx = Number.isFinite(errorInfo?.errorPx ?? NaN) && errorInfo?.errorPx != null ? errorInfo.errorPx : null;
@@ -19612,7 +19159,7 @@ function installScrollRouter(opts) {
       return;
     }
     let nextWpm = Number.NaN;
-    const store2 = (typeof window !== "undefined" ? window.__tpStore : null) || appStoreSingleton;
+    const store = (typeof window !== "undefined" ? window.__tpStore : null) || appStoreSingleton;
     try {
       const sliderInput = document.getElementById("wpmTarget");
       if (sliderInput) {
@@ -19622,7 +19169,7 @@ function installScrollRouter(opts) {
         }
       }
       if (!Number.isFinite(nextWpm) || nextWpm <= 0) {
-        const stored = typeof store2?.get === "function" ? store2.get("wpmTarget") : void 0;
+        const stored = typeof store?.get === "function" ? store.get("wpmTarget") : void 0;
         if (typeof stored === "number" && stored > 0) {
           nextWpm = stored;
         }
@@ -19633,9 +19180,9 @@ function installScrollRouter(opts) {
       if (sliderInput) {
         setSliderValueSilently(sliderInput, String(nextWpm));
       }
-      if (typeof store2?.set === "function") {
+      if (typeof store?.set === "function") {
         try {
-          store2.set("wpmTarget", nextWpm);
+          store.set("wpmTarget", nextWpm);
         } catch {
         }
       }
@@ -19798,8 +19345,8 @@ function installScrollRouter(opts) {
       if (hybridMotor.isRunning() && !sourceIsSlider && wpmSliderUserTouched) {
         return;
       }
-      const now2 = nowMs();
-      const withinUserEvent = lastUserWpmPx > 0 && now2 - lastUserWpmAt <= WPM_USER_DEDUPE_MS;
+      const now = nowMs();
+      const withinUserEvent = lastUserWpmPx > 0 && now - lastUserWpmAt <= WPM_USER_DEDUPE_MS;
       if (withinUserEvent && Math.abs(lastUserWpmPx - pxPerSec) < 0.5) {
         return;
       }
@@ -19886,9 +19433,9 @@ function installScrollRouter(opts) {
         if (!hybridWantedRunning) return;
         if (sessionPhase2 !== "live") return;
         seedHybridBaseSpeed2();
-        const now2 = nowMs();
+        const now = nowMs();
         liveGraceWindowEndsAt = null;
-        hybridSilence.lastSpeechAtMs = now2;
+        hybridSilence.lastSpeechAtMs = now;
         hybridSilence.pausedBySilence = false;
         setHybridScale2(RECOVERY_SCALE);
         runHybridVelocity(hybridSilence);
