@@ -1,25 +1,57 @@
 {
   "schema": 1,
-  "generated_at": "2026-02-08T23:11:08Z",
+  "generated_at": "2026-02-08T23:28:01.950Z",
   "tree": [
     {
       "id": "forge",
       "title": "Nursery",
       "items": [
-        { "id": "home", "label": "Home", "to": "/app" },
-        { "id": "tongs", "label": "Tongs Calendar", "to": "/app/tongs" },
-        { "id": "anvil", "label": "Anvil", "href": "/anvil/teleprompter_pro.html" },
-        { "id": "hearth", "label": "Hearth", "to": "/app/hearth" },
-        { "id": "hammer", "label": "Hammer", "to": "/app/hammer" },
-        { "id": "barstock", "label": "Barstock", "to": "/app/barstock" }
+        {
+          "id": "home",
+          "label": "Home",
+          "to": "/app"
+        },
+        {
+          "id": "tongs",
+          "label": "Tongs Calendar",
+          "to": "/app/tongs"
+        },
+        {
+          "id": "anvil",
+          "label": "Anvil",
+          "href": "/anvil/teleprompter_pro.html"
+        },
+        {
+          "id": "hearth",
+          "label": "Hearth",
+          "to": "/app/hearth"
+        },
+        {
+          "id": "hammer",
+          "label": "Hammer",
+          "to": "/app/hammer"
+        },
+        {
+          "id": "barstock",
+          "label": "Barstock",
+          "to": "/app/barstock"
+        }
       ]
     },
     {
       "id": "settings",
       "title": "Settings",
       "items": [
-        { "id": "settings-home", "label": "Settings home", "to": "/app/settings" },
-        { "id": "storage", "label": "Storage (Mounts)", "to": "/app/settings/storage" }
+        {
+          "id": "settings-home",
+          "label": "Settings home",
+          "to": "/app/settings"
+        },
+        {
+          "id": "storage",
+          "label": "Storage (Mounts)",
+          "to": "/app/settings/storage"
+        }
       ]
     }
   ]

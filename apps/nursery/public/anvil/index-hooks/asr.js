@@ -1,0 +1,2032 @@
+// src/events.ts
+function emit(name, detail) {
+  window.dispatchEvent(new CustomEvent(name, { detail }));
+}
+
+// src/speech/asr-engine.ts
+var Emitter = class {
+  ls = /* @__PURE__ */ new Set();
+  on(fn) {
+    this.ls.add(fn);
+  }
+  off(fn) {
+    this.ls.delete(fn);
+  }
+  emit(e) {
+    for (const fn of this.ls) fn(e);
+  }
+};
+function normalizeText(s) {
+  return s.toLowerCase().replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"').replace(/[^a-z0-9'\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+var FILLERS = /* @__PURE__ */ new Set([
+  "um",
+  "uh",
+  "like",
+  "you",
+  "know",
+  "er",
+  "ah",
+  "hmm",
+  "mm",
+  "okay",
+  "ok",
+  "right",
+  "so",
+  "well"
+]);
+function stripFillers(s) {
+  const toks = normalizeText(s).split(" ");
+  return toks.filter((t) => !FILLERS.has(t)).join(" ");
+}
+
+// src/speech/engines/webspeech.ts
+var WebSpeechEngine = class {
+  name = "webspeech";
+  emitter = new Emitter();
+  recognition = null;
+  lastPartialAt = 0;
+  on(cb) {
+    this.emitter.on(cb);
+  }
+  async start(opts) {
+    const AnyWindow = window;
+    const Ctor = AnyWindow.webkitSpeechRecognition || AnyWindow.SpeechRecognition;
+    if (!Ctor) {
+      this.emitter.emit({ type: "error", code: "unsupported", message: "Web Speech not available" });
+      return;
+    }
+    const rec = new Ctor();
+    this.recognition = rec;
+    rec.continuous = true;
+    rec.interimResults = !!opts.interim;
+    rec.lang = opts.lang || "en-US";
+    rec.onstart = () => {
+      this.emitter.emit({ type: "ready" });
+      this.emitter.emit({ type: "listening" });
+    };
+    rec.onresult = (ev) => {
+      let partial = "";
+      let finalText = "";
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const res = ev.results[i];
+        const text = res[0]?.transcript ?? "";
+        if (res.isFinal) finalText += text + " ";
+        else partial += text + " ";
+      }
+      const now = performance.now();
+      if (partial && opts.interim && now - this.lastPartialAt > 120) {
+        this.emitter.emit({ type: "partial", text: partial.trim(), confidence: 0.5 });
+        this.lastPartialAt = now;
+      }
+      if (finalText) {
+        this.emitter.emit({ type: "final", text: finalText.trim(), confidence: 1 });
+      }
+    };
+    rec.onerror = (e) => {
+      const code = e?.error || "error";
+      const message = e?.message || String(e?.error) || "ASR error";
+      this.emitter.emit({ type: "error", code, message });
+    };
+    rec.onend = () => {
+      this.emitter.emit({ type: "stopped" });
+    };
+    try {
+      rec.start();
+    } catch (err) {
+      this.emitter.emit({ type: "error", code: "start-failed", message: err?.message || String(err) });
+    }
+  }
+  async stop() {
+    try {
+      this.recognition?.stop();
+    } catch {
+    }
+    this.recognition = null;
+  }
+};
+
+// src/state/speech-store.ts
+var state = {
+  engine: "webspeech",
+  lang: "en-US",
+  interim: true,
+  threshold: 0.6,
+  endpointingMs: 700,
+  fillerFilter: true,
+  manualAnchorAdoptEnabled: true,
+  calmModeEnabled: false
+};
+var subs = /* @__PURE__ */ new Set();
+var speechStore = {
+  get() {
+    return { ...state };
+  },
+  set(patch) {
+    Object.assign(state, patch);
+    const snapshot = { ...state };
+    for (const fn of subs) {
+      try {
+        fn(snapshot);
+      } catch {
+      }
+    }
+  },
+  subscribe(fn) {
+    subs.add(fn);
+    return () => subs.delete(fn);
+  }
+};
+
+// src/features/speech/speech-store.ts
+var MIN_ENDPOINT_MS = 100;
+var MAX_ENDPOINT_MS = 9e5;
+function clampEndpoint(value) {
+  if (value === void 0 || value === null) return void 0;
+  const candidate = Math.round(Number(value) || 0);
+  if (!Number.isFinite(candidate)) return void 0;
+  return Math.max(MIN_ENDPOINT_MS, Math.min(MAX_ENDPOINT_MS, candidate));
+}
+function getSpeechStore() {
+  return speechStore;
+}
+function getAsrSettings() {
+  return speechStore.get();
+}
+function setAsrSettings(patch) {
+  const normalized = { ...patch };
+  if (Object.prototype.hasOwnProperty.call(normalized, "endpointingMs")) {
+    normalized.endpointingMs = clampEndpoint(normalized.endpointingMs) ?? void 0;
+  }
+  speechStore.set(normalized);
+}
+function isDevMode() {
+  if (typeof window === "undefined") return false;
+  try {
+    const w = window;
+    if (w.__TP_DEV || w.__TP_DEV1 || w.__tpDevMode) return true;
+    if (w.localStorage?.getItem("tp_dev_mode") === "1") return true;
+    const params = new URLSearchParams(window.location.search || "");
+    if (params.has("dev")) return true;
+    const hash = (window.location.hash || "").toLowerCase();
+    if (hash === "#dev" || hash === "#dev=1" || hash.includes("dev=1")) return true;
+  } catch {
+    return false;
+  }
+  return false;
+}
+if (typeof window !== "undefined") {
+  const win = window;
+  const ns = win.__tpSpeech || {};
+  ns.store = speechStore;
+  ns.getAsrSettings = getAsrSettings;
+  ns.setAsrSettings = setAsrSettings;
+  win.__tpSpeech = ns;
+  if (isDevMode()) {
+    win.__tpSpeechStore = speechStore;
+  }
+}
+
+// src/scroll/scroll-intent-bus.ts
+var EVENT = "tp:scroll:intent";
+function emitScrollIntent(intent) {
+  window.dispatchEvent(new CustomEvent(EVENT, { detail: intent }));
+}
+
+// src/features/asr-mode.ts
+var ASR_MAX_VISUAL_LEAP = 3;
+var asrDisplayIndex = 0;
+var RESCUE_JUMPS_ENABLED = false;
+var asrDebugState = { config: null };
+function updateAsrDebugConfig(state2) {
+  const snapshot = {
+    engine: state2.engine,
+    lang: state2.lang,
+    useInterimResults: state2.interim,
+    filterFillers: state2.fillerFilter,
+    threshold: state2.threshold,
+    endpointingMs: state2.endpointingMs,
+    timestamp: Date.now()
+  };
+  asrDebugState.config = snapshot;
+  return snapshot;
+}
+function dumpAsrDebugConfig() {
+  const cfg = asrDebugState.config;
+  if (cfg) {
+    try {
+      console.table(cfg);
+    } catch {
+    }
+  }
+  return cfg;
+}
+if (typeof window !== "undefined") {
+  const win = window;
+  if (!win.__tpAsrDebug) {
+    win.__tpAsrDebug = { dump: dumpAsrDebugConfig };
+  }
+}
+function isTpDevMode() {
+  if (typeof window === "undefined") return false;
+  try {
+    const win = window;
+    const params = new URLSearchParams(win.location.search || "");
+    if (params.has("dev")) return true;
+    const hash = (win.location.hash || "").replace(/^#/, "").toLowerCase();
+    if (hash === "dev" || hash === "dev=1" || hash.includes("dev=1")) return true;
+    if (win.__TP_DEV || win.__TP_DEV1 || win.__tpDevMode) return true;
+    if (win?.localStorage?.getItem("tp_dev_mode") === "1") return true;
+  } catch {
+    return false;
+  }
+  return false;
+}
+function logAsrDebug(label, data) {
+  if (!isTpDevMode()) return;
+  try {
+    console.log(label, data);
+  } catch {
+  }
+}
+function logAsrEndpoint(action, detail) {
+  if (!isTpDevMode()) return;
+  try {
+    const { endpointingMs } = getSpeechStore().get();
+    const scrollState = window.__tpAsrScrollState;
+    console.log("[ASR endpoint]", { action, endpointMs: endpointingMs, scroll: scrollState, ...detail });
+  } catch {
+  }
+}
+var AsrMode = class {
+  engine = null;
+  state = "idle";
+  opts;
+  currentIdx = 0;
+  rescueCount = 0;
+  lastAdvanceAt = 0;
+  PROGRESS_TIMEOUT_MS = 8e3;
+  progressWatchTimer = null;
+  // ASR feed-forward: track reading speed to lead the target
+  tokensPerSec = 0;
+  lastPartialTs = 0;
+  lastPartialTokens = 0;
+  // Transcript event throttling
+  lastTxAt = 0;
+  TX_MIN_INTERVAL_MS = 90;
+  // ~10–12 Hz max
+  constructor(opts) {
+    this.opts = {
+      rootSelector: opts?.rootSelector ?? "#script, #scriptRoot, body",
+      lineSelector: opts?.lineSelector ?? ".line, p",
+      markerOffsetPx: opts?.markerOffsetPx ?? 140,
+      windowSize: opts?.windowSize ?? 6
+    };
+  }
+  getState() {
+    return this.state;
+  }
+  async setEnabled(enabled) {
+    if (enabled) {
+      if (this.state === "idle") await this.start();
+    } else {
+      if (this.state !== "idle") await this.stop();
+    }
+  }
+  async start() {
+    const s = getSpeechStore().get();
+    const cfgSnapshot = updateAsrDebugConfig(s);
+    logAsrDebug("[ASR session start cfg]", cfgSnapshot);
+    this.engine = createEngine(s.engine);
+    bindEngine(this.engine, (e) => this.onEngineEvent(e));
+    this.currentIdx = clamp(this.currentIdx, 0, this.getAllLineEls().length - 1);
+    asrDisplayIndex = this.currentIdx;
+    this.setState("ready");
+    const endpointingMs = Math.max(1400, s.endpointingMs);
+    await this.engine.start({
+      lang: s.lang,
+      interim: s.interim,
+      endpointingMs,
+      profanityFilter: false
+    });
+    logAsrEndpoint("ARM", { state: this.state });
+  }
+  async stop() {
+    logAsrEndpoint("STOP", { state: this.state, reason: "manual-stop", scope: "session-stop" });
+    await this.engine?.stop();
+    this.setState("idle", "manual-stop");
+  }
+  onEngineEvent(e) {
+    if (e.type === "ready") this.setState("ready");
+    if (e.type === "listening") this.setState("listening");
+    if (e.type === "partial" || e.type === "final") {
+      if (this.state !== "running") this.setState("running");
+      const text = this.prepareText(e.text);
+      const isFinal = e.type === "final";
+      const confidence = e.confidence ?? (isFinal ? 1 : 0.5);
+      this.emitTranscript({
+        text,
+        confidence,
+        partial: !isFinal,
+        final: isFinal,
+        lineIndex: isFinal ? this.currentIdx : void 0
+      });
+      if (e.type === "partial") {
+        const now = performance.now();
+        const tokens = text.split(/\s+/).filter(Boolean).length;
+        if (this.lastPartialTs) {
+          const dtSec = (now - this.lastPartialTs) / 1e3;
+          if (dtSec > 0 && tokens > this.lastPartialTokens) {
+            const rate = (tokens - this.lastPartialTokens) / dtSec;
+            this.tokensPerSec = 0.8 * this.tokensPerSec + 0.2 * rate;
+          }
+        }
+        this.lastPartialTs = now;
+        this.lastPartialTokens = tokens;
+      }
+      this.tryAdvance(text, isFinal, confidence);
+    }
+    if (e.type === "error") {
+      this.setState("error", e.message);
+      this.dispatch("asr:error", { code: e.code, message: e.message });
+    }
+    if (e.type === "stopped") {
+      this.setState("idle");
+    }
+  }
+  setState(next, reason) {
+    this.state = next;
+    this.dispatch("asr:state", { state: next, reason });
+    this.emitAsrState(next, reason);
+    if (next === "running") {
+      this.lastAdvanceAt = performance.now();
+      this.startProgressWatchdog();
+    } else {
+      this.stopProgressWatchdog();
+      asrDisplayIndex = 0;
+    }
+  }
+  prepareText(s) {
+    const st = getSpeechStore().get();
+    const normalized = normalizeText(s);
+    const filtered = st.fillerFilter ? stripFillers(s) : normalized;
+    if (st.fillerFilter && filtered !== normalized) {
+      logAsrDebug("[ASR fillers]", { raw: normalized, filtered });
+    }
+    return filtered;
+  }
+  /**
+   * Gate: only emit transcript events in dev OR when explicitly enabled in Settings
+   */
+  shouldEmitTx() {
+    return true;
+  }
+  /**
+   * Emit transcript event with throttling for partials
+   */
+  emitTranscript(detail) {
+    if (!this.shouldEmitTx()) return;
+    const currentState = getSpeechStore().get();
+    logAsrDebug("[ASR cfg]", { useInterimResults: currentState.interim });
+    logAsrDebug("[ASR event]", {
+      final: detail.final,
+      len: typeof detail.text === "string" ? detail.text.trim().length : 0,
+      text: detail.text
+    });
+    const now = performance.now();
+    if (now - this.lastTxAt < this.TX_MIN_INTERVAL_MS && !detail.final) return;
+    this.lastTxAt = now;
+    const payload = { ...detail, timestamp: now };
+    emit("tp:captions:transcript", payload);
+    emit("tp:speech:transcript", payload);
+  }
+  /**
+   * Emit ASR state change event
+   */
+  emitAsrState(state2, reason) {
+    if (!this.shouldEmitTx()) return;
+    const payload = { state: state2, reason, timestamp: performance.now() };
+    emit("tp:captions:state", payload);
+    emit("tp:speech:state", payload);
+  }
+  tryAdvance(hyp, isFinal, confidence) {
+    const { lines, idx0 } = this.getWindow();
+    const threshold = getSpeechStore().get().threshold;
+    let bestIdx = -1;
+    let bestScore = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const coverage = coverageScore(lines[i], hyp);
+      const score = coverage * confidence;
+      if (score > bestScore) {
+        bestScore = score;
+        bestIdx = i;
+      }
+    }
+    logAsrDebug("[ASR threshold]", {
+      threshold,
+      bestScore,
+      bestIdx,
+      accepted: bestScore >= threshold,
+      idx0,
+      isFinal
+    });
+    if (bestIdx >= 0 && bestScore >= threshold) {
+      let newIdx = idx0 + bestIdx;
+      const leadLines = this.getReadingLeadLines();
+      if (leadLines > 0) {
+        newIdx = Math.min(newIdx + leadLines, this.getAllLineEls().length - 1);
+      }
+      if (newIdx >= this.currentIdx) {
+        this.currentIdx = newIdx;
+        this.markAdvance();
+        const blockIdx = this.resolveBlockIdxFromLine(newIdx);
+        if (blockIdx != null) {
+          emitScrollIntent({
+            source: "asr",
+            kind: "seek_block",
+            target: { blockIdx, lineIdx: newIdx },
+            confidence: bestScore,
+            ts: Date.now(),
+            reason: isFinal ? "asr_match_final" : "asr_match_interim"
+          });
+        }
+        this.dispatch("asr:advance", { index: newIdx, score: bestScore, lead: leadLines });
+      }
+    } else if (isFinal) {
+      this.rescueCount++;
+      if (this.rescueCount <= 2) {
+        const rescueIdx = Math.min(this.currentIdx + 1, this.getAllLineEls().length - 1);
+        this.dispatch("asr:rescue", { index: rescueIdx, reason: "weak-final" });
+        if (RESCUE_JUMPS_ENABLED) {
+          this.currentIdx = rescueIdx;
+          this.markAdvance();
+          const blockIdx = this.resolveBlockIdxFromLine(this.currentIdx);
+          if (blockIdx != null) {
+            emitScrollIntent({
+              source: "asr",
+              kind: "seek_block",
+              target: { blockIdx, lineIdx: this.currentIdx },
+              confidence: 0,
+              ts: Date.now(),
+              reason: "asr_rescue"
+            });
+          }
+        }
+      }
+    }
+  }
+  /**
+   * Calculate reading lead in lines based on current token rate
+   * @returns Number of lines to lead (0-3)
+   */
+  getReadingLeadLines() {
+    const linesPerSec = this.tokensPerSec / 8;
+    return Math.max(0, Math.min(3, Math.round(linesPerSec * 0.6)));
+  }
+  getWindow() {
+    const els = this.getAllLineEls();
+    const start = clamp(this.currentIdx, 0, Math.max(0, els.length - 1));
+    const end = clamp(start + this.opts.windowSize, 0, els.length);
+    const texts = els.slice(start, end).map((el) => normalizeText(el.textContent || ""));
+    return { lines: texts, idx0: start };
+  }
+  getAllLineEls() {
+    const root = document.querySelector(this.opts.rootSelector) || document.body;
+    const list = Array.from(root.querySelectorAll(this.opts.lineSelector));
+    return list.length ? list : Array.from(document.querySelectorAll(".line, p"));
+  }
+  scrollToLine(idx) {
+    const els = this.getAllLineEls();
+    const target = els[idx];
+    if (!target) return;
+    try {
+      const ov = document.getElementById("countOverlay");
+      if (ov) {
+        const cs = getComputedStyle(ov);
+        const visible = cs.display !== "none" && cs.visibility !== "hidden" && !ov.classList.contains("hidden");
+        if (visible) return;
+      }
+    } catch {
+    }
+    const scroller = findScroller(target);
+    const marker = this.opts.markerOffsetPx;
+    const top = elementTopRelativeTo(target, scroller) - marker;
+    requestAnimationFrame(() => {
+      if (scroller === document.scrollingElement || scroller === document.body) {
+        window.scrollTo({ top, behavior: "auto" });
+      } else {
+        scroller.scrollTo({ top, behavior: "auto" });
+      }
+    });
+  }
+  markAdvance() {
+    this.lastAdvanceAt = performance.now();
+  }
+  scrollWithClamp(targetIdx) {
+    if (!Number.isFinite(targetIdx)) return;
+    if (asrDisplayIndex === 0) {
+      asrDisplayIndex = targetIdx;
+    }
+    const diff = targetIdx - asrDisplayIndex;
+    const clampedDiff = clamp(diff, -ASR_MAX_VISUAL_LEAP, ASR_MAX_VISUAL_LEAP);
+    asrDisplayIndex += clampedDiff;
+    this.scrollToLine(Math.round(asrDisplayIndex));
+  }
+  resolveBlockIdxFromLine(lineIdx) {
+    const els = this.getAllLineEls();
+    const target = els[lineIdx];
+    if (!target) return null;
+    const blockEl = target.closest(".tp-asr-block");
+    const raw = blockEl?.dataset?.tpBlock;
+    const idx = Number(raw);
+    return Number.isFinite(idx) ? idx : null;
+  }
+  startProgressWatchdog() {
+    if (this.progressWatchTimer != null) return;
+    const loop = () => {
+      if (this.state !== "running") {
+        this.progressWatchTimer = null;
+        return;
+      }
+      const idleFor = performance.now() - this.lastAdvanceAt;
+      if (idleFor > this.PROGRESS_TIMEOUT_MS) {
+        this.progressWatchTimer = null;
+        try {
+          this.engine?.stop();
+        } catch {
+        }
+        this.dispatch("asr:warning", { type: "no-progress", idleMs: idleFor });
+        this.setState("idle", "timeout");
+        return;
+      }
+      this.progressWatchTimer = window.setTimeout(loop, 1e3);
+    };
+    this.progressWatchTimer = window.setTimeout(loop, 1e3);
+  }
+  stopProgressWatchdog() {
+    if (this.progressWatchTimer != null) {
+      window.clearTimeout(this.progressWatchTimer);
+      this.progressWatchTimer = null;
+    }
+  }
+  dispatch(name, detail) {
+    window.dispatchEvent(new CustomEvent(name, { detail }));
+  }
+};
+function createEngine(name) {
+  switch (name) {
+    case "webspeech":
+      return new WebSpeechEngine();
+    case "vosk":
+      throw new Error("Vosk WASM engine not implemented yet");
+    case "whisper":
+      throw new Error("Whisper bridge engine not implemented yet");
+  }
+}
+function bindEngine(engine, fn) {
+  try {
+    engine.on(fn);
+  } catch {
+  }
+}
+function clamp(n, lo, hi) {
+  return Math.max(lo, Math.min(hi, n));
+}
+function coverageScore(line, hyp) {
+  const A = new Set(line.split(" ").filter(Boolean));
+  const B = new Set(hyp.split(" ").filter(Boolean));
+  let inter = 0;
+  for (const w of A) if (B.has(w)) inter++;
+  if (!A.size) return 0;
+  return inter / A.size;
+}
+function findScroller(el) {
+  let node = el.parentElement;
+  while (node) {
+    const style = getComputedStyle(node);
+    if (/(auto|scroll)/.test(style.overflowY || "")) return node;
+    node = node.parentElement;
+  }
+  return document.scrollingElement || document.body;
+}
+function elementTopRelativeTo(el, scroller) {
+  const r1 = el.getBoundingClientRect();
+  const r2 = scroller === document.scrollingElement || scroller === document.body ? { top: 0 } : scroller.getBoundingClientRect();
+  const scrollTop = scroller === document.scrollingElement || scroller === document.body ? window.pageYOffset : scroller.scrollTop;
+  return r1.top - r2.top + scrollTop;
+}
+
+// src/hotkeys/asr-hotkeys.ts
+function installAsrHotkeys() {
+  let armed = false;
+  const onKey = (e) => {
+    if (e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey && (e.key === "l" || e.key === "L")) {
+      armed = !armed;
+      if (armed) {
+        try {
+          const body = document.body;
+          const speechOn = !!(body && (body.classList.contains("speech-listening") || body.classList.contains("listening"))) || window.speechOn === true;
+          if (!speechOn) document.getElementById("recBtn")?.click();
+        } catch {
+        }
+      }
+      window.dispatchEvent(new CustomEvent("asr:toggle", { detail: { armed } }));
+      e.preventDefault();
+      e.stopPropagation();
+    } else if (e.key === "Escape") {
+      armed = false;
+      window.dispatchEvent(new CustomEvent("asr:stop"));
+    }
+  };
+  window.addEventListener("keydown", onKey, { passive: false });
+  speechStore.subscribe((_s) => {
+  });
+  return () => window.removeEventListener("keydown", onKey);
+}
+
+// src/scroll/audit.ts
+var EXPECTED_WRITERS = /* @__PURE__ */ new Set([
+  "ui/applyUiScrollMode",
+  "features/scroll/mode-router",
+  "scroll/mode-router",
+  "state/app-store"
+]);
+var CONTINUOUS_MODES = /* @__PURE__ */ new Set(["timed", "wpm", "hybrid", "asr"]);
+var FORBIDDEN_PHASES = /* @__PURE__ */ new Set(["idle", "preroll"]);
+var RACE_WINDOW_MS = 150;
+var writerStack = [];
+var lastWriteAt = 0;
+var lastWriter = "";
+var lastMode = "";
+var lastPhase = "";
+function auditEnabled() {
+  try {
+    const w = window;
+    if (w?.__TP_DEV || w?.__TP_DEV1 || w?.__tpDevMode) return true;
+    if (w?.localStorage?.getItem?.("tp_dev_mode") === "1") return true;
+    if (typeof location !== "undefined" && location.search.includes("dev=1")) return true;
+  } catch {
+  }
+  return false;
+}
+function getScrollModeAuditContext() {
+  if (!auditEnabled()) return null;
+  return writerStack.length ? writerStack[writerStack.length - 1] : null;
+}
+function isContinuousMode(mode) {
+  return CONTINUOUS_MODES.has(mode);
+}
+function normalize(value) {
+  return String(value || "").trim().toLowerCase();
+}
+function emitUnexpected(label, payload) {
+  try {
+    console.warn(`[scroll-audit] UNEXPECTED ${label}`, payload);
+  } catch {
+  }
+}
+function recordScrollModeWrite(event) {
+  if (!auditEnabled()) return;
+  const now = Date.now();
+  const writer = event.writer || "unknown";
+  const from = normalize(event.from);
+  const to = normalize(event.to);
+  if (!to || to === from) return;
+  const phase = normalize(event.phase);
+  const reasons = [];
+  if (!EXPECTED_WRITERS.has(writer)) reasons.push("unexpected-writer");
+  if (FORBIDDEN_PHASES.has(phase) && isContinuousMode(to)) reasons.push("forbidden-phase");
+  const deltaMs = lastWriteAt ? now - lastWriteAt : 0;
+  if (lastWriteAt && deltaMs < RACE_WINDOW_MS) reasons.push("rapid-write");
+  if (reasons.length > 0) {
+    const payload = {
+      reasons,
+      writer,
+      from,
+      to,
+      phase: phase || "unknown",
+      deltaMs: lastWriteAt ? deltaMs : null,
+      lastWriter: lastWriter || null,
+      lastMode: lastMode || null,
+      lastPhase: lastPhase || null
+    };
+    if (event.source) payload.source = event.source;
+    if (event.via) payload.via = event.via;
+    if (event.stack) {
+      try {
+        payload.stack = new Error().stack;
+      } catch {
+      }
+    }
+    emitUnexpected("scrollMode-write", payload);
+  }
+  lastWriteAt = now;
+  lastWriter = writer;
+  lastMode = to;
+  lastPhase = phase;
+}
+
+// src/features/scroll/scroll-prefs.ts
+var CANONICAL_KEY = "scrollMode";
+var LEGACY_KEYS = ["tp_scroll_prefs_v1", "tp_scroll_mode_v1", "tp_scroll_mode"];
+function normalizeMode(mode) {
+  const v = String(mode || "").toLowerCase();
+  if (v === "manual") return "step";
+  const allowed = ["hybrid", "timed", "wpm", "asr", "step", "rehearsal"];
+  return allowed.includes(v) ? v : null;
+}
+function safeParse(raw) {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    const normalized = normalizeMode(parsed.mode);
+    if (!normalized) return null;
+    return { mode: normalized };
+  } catch {
+    return null;
+  }
+}
+function readLegacyMode(key, raw) {
+  if (!raw) return null;
+  if (key === "tp_scroll_prefs_v1") {
+    return safeParse(raw)?.mode ?? null;
+  }
+  return normalizeMode(raw);
+}
+function cleanLegacyKeys(storage) {
+  LEGACY_KEYS.forEach((key) => {
+    try {
+      storage.removeItem(key);
+    } catch {
+    }
+  });
+}
+function migrateLegacyScrollMode() {
+  if (typeof window === "undefined") return null;
+  try {
+    const storage = window.localStorage;
+    const canonical = normalizeMode(storage.getItem(CANONICAL_KEY));
+    if (canonical) {
+      cleanLegacyKeys(storage);
+      return canonical;
+    }
+    for (const key of LEGACY_KEYS) {
+      const legacy = readLegacyMode(key, storage.getItem(key));
+      if (legacy) {
+        storage.setItem(CANONICAL_KEY, legacy);
+        cleanLegacyKeys(storage);
+        return legacy;
+      }
+    }
+    cleanLegacyKeys(storage);
+  } catch {
+  }
+  return null;
+}
+function loadScrollPrefs() {
+  try {
+    if (typeof window === "undefined") return null;
+    const mode = migrateLegacyScrollMode();
+    if (!mode) return null;
+    return { mode };
+  } catch {
+    return null;
+  }
+}
+function saveScrollPrefs(next) {
+  try {
+    if (typeof window === "undefined") return;
+    const normalized = normalizeMode(next?.mode || null);
+    if (!normalized) return;
+    window.localStorage.setItem(CANONICAL_KEY, normalized);
+    cleanLegacyKeys(window.localStorage);
+  } catch {
+  }
+}
+
+// src/state/app-store.ts
+var IS_TEST = typeof process !== "undefined" && process.env && false;
+var DEVICE_KEY = "tp_mic_device_v1";
+var OBS_ENABLED_KEY = "tp_obs_enabled";
+var OBS_HOST_KEY = "tp_obs_host";
+var OBS_PASSWORD_KEY = "tp_obs_password";
+var OBS_SCENE_KEY = "tp_obs_scene";
+var OBS_RECONNECT_KEY = "tp_obs_reconnect";
+var AUTO_RECORD_KEY = "tp_auto_record_on_start_v1";
+var LEGACY_AUTO_RECORD_KEY = "tp_auto_record";
+var PREROLL_SEC_KEY = "tp_preroll_seconds";
+var DEV_HUD_KEY = "tp_dev_hud";
+var SETTINGS_TAB_KEY = "tp_settings_tab";
+var LEGACY_ASR_SETTINGS_KEY = "tp_asr_settings_v1";
+var ASR_ENGINE_KEY = "tp_asr_engine_v1";
+var ASR_LANG_KEY = "tp_asr_language_v1";
+var ASR_INTERIM_KEY = "tp_asr_interim_v1";
+var ASR_FILTER_KEY = "tp_asr_filter_v1";
+var ASR_THRESHOLD_KEY = "tp_asr_threshold_v1";
+var ASR_ENDPOINT_KEY = "tp_asr_endpoint_v1";
+var ASR_PROFILES_KEY = "tp_asr_profiles_v1";
+var ASR_ACTIVE_PROFILE_KEY = "tp_asr_active_profile_v1";
+var SINGLE_MONITOR_READ_KEY = "tp_single_monitor_read_v1";
+var ASR_CALM_MODE_KEY = "tp_asr_calm_mode_v1";
+var ASR_TUNING_PROFILES_KEY = "tp_asr_tuning_profiles_v1";
+var ASR_TUNING_ACTIVE_PROFILE_KEY = "tp_asr_tuning_active_profile_v1";
+var SCROLL_MODE_KEY = "scrollMode";
+var TIMED_SPEED_KEY = "tp_scroll_timed_speed_v1";
+var WPM_TARGET_KEY = "tp_scroll_wpm_target_v1";
+var WPM_BASEPX_KEY = "tp_scroll_wpm_basepx_v1";
+var WPM_MINPX_KEY = "tp_scroll_wpm_minpx_v1";
+var WPM_MAXPX_KEY = "tp_scroll_wpm_maxpx_v1";
+var WPM_EWMA_KEY = "tp_scroll_wpm_ewma_v1";
+var HYB_ATTACK_KEY = "tp_scroll_hybrid_attack_v1";
+var HYB_RELEASE_KEY = "tp_scroll_hybrid_release_v1";
+var HYB_IDLE_KEY = "tp_scroll_hybrid_idle_v1";
+var STEP_PX_KEY = "tp_scroll_step_px_v1";
+var REH_PUNCT_KEY = "tp_scroll_reh_punct_v1";
+var REH_RESUME_KEY = "tp_scroll_reh_resume_v1";
+var ALLOWED_PAGES = /* @__PURE__ */ new Set(["scripts"]);
+var ALLOWED_OVERLAYS = /* @__PURE__ */ new Set(["none", "settings", "help", "shortcuts"]);
+var HUD_ENABLED_KEY = "tp_hud_enabled_v1";
+var HUD_SPEECH_NOTES_KEY = "tp_hud_speech_notes_v1";
+var OVERLAY_KEY = "tp_overlay_v1";
+var CAMERA_KEY = "tp_camera_enabled_v1";
+var persistMap = {
+  settingsTab: SETTINGS_TAB_KEY,
+  micDevice: DEVICE_KEY,
+  obsEnabled: OBS_ENABLED_KEY,
+  obsScene: OBS_SCENE_KEY,
+  obsReconnect: OBS_RECONNECT_KEY,
+  obsHost: OBS_HOST_KEY,
+  obsPassword: OBS_PASSWORD_KEY,
+  autoRecord: AUTO_RECORD_KEY,
+  prerollSeconds: PREROLL_SEC_KEY,
+  devHud: DEV_HUD_KEY,
+  hudEnabledByUser: HUD_ENABLED_KEY,
+  hudSpeechNotesEnabledByUser: HUD_SPEECH_NOTES_KEY,
+  overlay: OVERLAY_KEY,
+  cameraEnabled: CAMERA_KEY,
+  singleMonitorReadEnabled: SINGLE_MONITOR_READ_KEY,
+  // Scroll router persistence
+  scrollMode: SCROLL_MODE_KEY,
+  timedSpeed: TIMED_SPEED_KEY,
+  wpmTarget: WPM_TARGET_KEY,
+  wpmBasePx: WPM_BASEPX_KEY,
+  wpmMinPx: WPM_MINPX_KEY,
+  wpmMaxPx: WPM_MAXPX_KEY,
+  wpmEwmaSec: WPM_EWMA_KEY,
+  hybridAttackMs: HYB_ATTACK_KEY,
+  hybridReleaseMs: HYB_RELEASE_KEY,
+  hybridIdleMs: HYB_IDLE_KEY,
+  stepPx: STEP_PX_KEY,
+  rehearsalPunct: REH_PUNCT_KEY,
+  rehearsalResumeMs: REH_RESUME_KEY,
+  "asr.engine": ASR_ENGINE_KEY,
+  "asr.language": ASR_LANG_KEY,
+  "asr.useInterimResults": ASR_INTERIM_KEY,
+  "asr.threshold": ASR_THRESHOLD_KEY,
+  "asr.endpointMs": ASR_ENDPOINT_KEY,
+  "asr.filterFillers": ASR_FILTER_KEY,
+  asrCalmModeEnabled: ASR_CALM_MODE_KEY,
+  asrProfiles: ASR_PROFILES_KEY,
+  asrActiveProfileId: ASR_ACTIVE_PROFILE_KEY,
+  asrTuningProfiles: ASR_TUNING_PROFILES_KEY,
+  asrTuningActiveProfileId: ASR_TUNING_ACTIVE_PROFILE_KEY
+};
+function parseJson(value) {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+function loadLegacyAsrSettings() {
+  try {
+    if (typeof window === "undefined") return null;
+    const raw = window.localStorage.getItem(LEGACY_ASR_SETTINGS_KEY);
+    return parseJson(raw);
+  } catch {
+    return null;
+  }
+}
+function migrateAutoRecordFlag() {
+  try {
+    const current = localStorage.getItem(AUTO_RECORD_KEY);
+    if (current !== null && typeof current !== "undefined") {
+      if (localStorage.getItem(LEGACY_AUTO_RECORD_KEY) !== null) {
+        try {
+          localStorage.removeItem(LEGACY_AUTO_RECORD_KEY);
+        } catch {
+        }
+      }
+      return;
+    }
+    const legacy = localStorage.getItem(LEGACY_AUTO_RECORD_KEY);
+    if (legacy !== null && typeof legacy !== "undefined") {
+      localStorage.setItem(AUTO_RECORD_KEY, legacy === "1" ? "1" : "0");
+      try {
+        localStorage.removeItem(LEGACY_AUTO_RECORD_KEY);
+      } catch {
+      }
+    }
+  } catch {
+  }
+}
+migrateAutoRecordFlag();
+function normalizeScrollMode(mode) {
+  const v = String(mode || "").trim().toLowerCase();
+  if (!v) return "hybrid";
+  if (v === "manual") return "step";
+  return v;
+}
+function readAndMigrateScrollMode() {
+  const legacyKeys = ["tp_scroll_mode", "tp_scroll_mode_v1", "tp_scroll_mode_v2", "tp_scroll_mode_backup"];
+  try {
+    const canonical = localStorage.getItem(SCROLL_MODE_KEY);
+    if (canonical) {
+      const norm = normalizeScrollMode(canonical);
+      if (norm === "asr") {
+        localStorage.setItem(SCROLL_MODE_KEY, "hybrid");
+        try {
+          localStorage.setItem("tp_asr_boot_fallback", "1");
+        } catch {
+        }
+        legacyKeys.forEach((k) => {
+          try {
+            localStorage.removeItem(k);
+          } catch {
+          }
+        });
+        return "hybrid";
+      }
+      if (norm !== canonical) localStorage.setItem(SCROLL_MODE_KEY, norm);
+      legacyKeys.forEach((k) => {
+        try {
+          localStorage.removeItem(k);
+        } catch {
+        }
+      });
+      return norm;
+    }
+    for (const k of legacyKeys) {
+      const legacy = localStorage.getItem(k);
+      if (legacy) {
+        const norm = normalizeScrollMode(legacy);
+        if (norm === "asr") {
+          localStorage.setItem(SCROLL_MODE_KEY, "hybrid");
+          try {
+            localStorage.setItem("tp_asr_boot_fallback", "1");
+          } catch {
+          }
+          try {
+            localStorage.removeItem(k);
+          } catch {
+          }
+          return "hybrid";
+        }
+        localStorage.setItem(SCROLL_MODE_KEY, norm);
+        try {
+          localStorage.removeItem(k);
+        } catch {
+        }
+        return norm;
+      }
+    }
+  } catch {
+  }
+  return "hybrid";
+}
+function buildInitialState() {
+  const legacyAsrSettings = loadLegacyAsrSettings();
+  return {
+    // UI / Settings
+    settingsTab: (() => {
+      try {
+        return localStorage.getItem(SETTINGS_TAB_KEY) || "general";
+      } catch {
+        return "general";
+      }
+    })(),
+    micDevice: (() => {
+      try {
+        return localStorage.getItem(DEVICE_KEY) || "";
+      } catch {
+        return "";
+      }
+    })(),
+    cameraEnabled: (() => {
+      try {
+        const raw = localStorage.getItem(CAMERA_KEY);
+        if (raw == null) return false;
+        return raw === "1";
+      } catch {
+        return false;
+      }
+    })(),
+    cameraAvailable: false,
+    micGranted: false,
+    obsEnabled: (() => {
+      try {
+        return localStorage.getItem(OBS_ENABLED_KEY) === "1";
+      } catch {
+        return false;
+      }
+    })(),
+    obsScene: (() => {
+      try {
+        return localStorage.getItem(OBS_SCENE_KEY) || "";
+      } catch {
+        return "";
+      }
+    })(),
+    obsReconnect: (() => {
+      try {
+        return localStorage.getItem(OBS_RECONNECT_KEY) === "1";
+      } catch {
+        return false;
+      }
+    })(),
+    autoRecord: (() => {
+      try {
+        return localStorage.getItem(AUTO_RECORD_KEY) === "1";
+      } catch {
+        return false;
+      }
+    })(),
+    prerollSeconds: (() => {
+      try {
+        const n = parseInt(localStorage.getItem(PREROLL_SEC_KEY) || "3", 10);
+        return isFinite(n) ? Math.max(0, Math.min(10, n)) : 3;
+      } catch {
+        return 3;
+      }
+    })(),
+    devHud: (() => {
+      try {
+        return localStorage.getItem(DEV_HUD_KEY) === "1";
+      } catch {
+        return false;
+      }
+    })(),
+    hudSupported: true,
+    hudEnabledByUser: (() => {
+      try {
+        return localStorage.getItem(HUD_ENABLED_KEY) !== "0";
+      } catch {
+        return true;
+      }
+    })(),
+    hudSpeechNotesEnabledByUser: (() => {
+      try {
+        return localStorage.getItem(HUD_SPEECH_NOTES_KEY) === "1";
+      } catch {
+        return false;
+      }
+    })(),
+    singleMonitorReadEnabled: (() => {
+      try {
+        return localStorage.getItem(SINGLE_MONITOR_READ_KEY) === "1";
+      } catch {
+        return false;
+      }
+    })(),
+    asrLive: false,
+    "asr.engine": (() => {
+      try {
+        const raw = localStorage.getItem(ASR_ENGINE_KEY);
+        if (raw) return raw;
+        if (legacyAsrSettings?.engine && typeof legacyAsrSettings.engine === "string") {
+          return legacyAsrSettings.engine;
+        }
+      } catch {
+      }
+      return "webspeech";
+    })(),
+    "asr.language": (() => {
+      try {
+        const raw = localStorage.getItem(ASR_LANG_KEY);
+        if (raw) return raw;
+        if (legacyAsrSettings?.lang && typeof legacyAsrSettings.lang === "string") {
+          return legacyAsrSettings.lang;
+        }
+      } catch {
+      }
+      return "en-US";
+    })(),
+    "asr.useInterimResults": (() => {
+      try {
+        const raw = localStorage.getItem(ASR_INTERIM_KEY);
+        if (raw !== null) return raw === "1";
+        if (legacyAsrSettings?.interim !== void 0) return !!legacyAsrSettings.interim;
+      } catch {
+      }
+      return true;
+    })(),
+    "asr.filterFillers": (() => {
+      try {
+        const raw = localStorage.getItem(ASR_FILTER_KEY);
+        if (raw !== null) return raw === "1";
+        if (legacyAsrSettings?.filterFillers !== void 0) return !!legacyAsrSettings.filterFillers;
+      } catch {
+      }
+      return true;
+    })(),
+    "asr.threshold": (() => {
+      try {
+        const raw = localStorage.getItem(ASR_THRESHOLD_KEY);
+        const num = Number(raw);
+        if (raw !== null && !Number.isNaN(num)) return num;
+        if (legacyAsrSettings?.threshold !== void 0) return Number(legacyAsrSettings.threshold) || 0.6;
+      } catch {
+      }
+      return 0.6;
+    })(),
+    "asr.endpointMs": (() => {
+      try {
+        const raw = localStorage.getItem(ASR_ENDPOINT_KEY);
+        const num = Number(raw);
+        if (raw !== null && !Number.isNaN(num)) return num;
+        if (legacyAsrSettings?.endpointMs !== void 0) return Number(legacyAsrSettings.endpointMs) || 700;
+      } catch {
+      }
+      return 700;
+    })(),
+    asrCalmModeEnabled: (() => {
+      try {
+        const raw = localStorage.getItem(ASR_CALM_MODE_KEY);
+        if (raw !== null) return raw === "1";
+      } catch {
+      }
+      return false;
+    })(),
+    asrProfiles: (() => {
+      try {
+        const raw = localStorage.getItem(ASR_PROFILES_KEY);
+        const parsed = parseJson(raw);
+        if (parsed && typeof parsed === "object") return parsed;
+      } catch {
+      }
+      return {};
+    })(),
+    asrActiveProfileId: (() => {
+      try {
+        const raw = localStorage.getItem(ASR_ACTIVE_PROFILE_KEY);
+        if (raw) return raw;
+      } catch {
+      }
+      return null;
+    })(),
+    asrTuningProfiles: (() => {
+      try {
+        const raw = localStorage.getItem(ASR_TUNING_PROFILES_KEY);
+        const parsed = parseJson(raw);
+        if (parsed && typeof parsed === "object") return parsed;
+      } catch {
+      }
+      return {};
+    })(),
+    asrTuningActiveProfileId: (() => {
+      try {
+        const raw = localStorage.getItem(ASR_TUNING_ACTIVE_PROFILE_KEY);
+        if (raw) return raw;
+      } catch {
+      }
+      return null;
+    })(),
+    asrLastAppliedAt: 0,
+    asrLastAppliedSummary: {},
+    asrLastApplyOk: false,
+    settingsSaveStatus: { state: "idle", at: 0 },
+    overlay: (() => {
+      try {
+        const v = localStorage.getItem(OVERLAY_KEY) || "none";
+        if (!ALLOWED_OVERLAYS.has(v)) {
+          try {
+            localStorage.removeItem(OVERLAY_KEY);
+          } catch {
+          }
+          return "none";
+        }
+        return v;
+      } catch {
+        return "none";
+      }
+    })(),
+    page: (() => {
+      try {
+        const v = "scripts";
+        if (!ALLOWED_PAGES.has(v)) {
+          return "scripts";
+        }
+        return v;
+      } catch {
+        return "scripts";
+      }
+    })(),
+    obsHost: (() => {
+      try {
+        return localStorage.getItem(OBS_HOST_KEY) || "";
+      } catch {
+        return "";
+      }
+    })(),
+    obsPassword: (() => {
+      try {
+        return localStorage.getItem(OBS_PASSWORD_KEY) || "";
+      } catch {
+        return "";
+      }
+    })(),
+    // Scroll router (persisted)
+    scrollMode: (() => {
+      const fromPrefs = (() => {
+        try {
+          const prefs = loadScrollPrefs();
+          if (prefs?.mode) return normalizeScrollMode(prefs.mode);
+        } catch {
+        }
+        return null;
+      })();
+      if (fromPrefs === "asr") {
+        try {
+          localStorage.setItem("tp_asr_boot_fallback", "1");
+        } catch {
+        }
+      }
+      const migrated = readAndMigrateScrollMode();
+      const chosen = normalizeScrollMode((fromPrefs === "asr" ? null : fromPrefs) || migrated);
+      try {
+        localStorage.setItem(SCROLL_MODE_KEY, chosen);
+      } catch {
+      }
+      return chosen;
+    })(),
+    timedSpeed: (() => {
+      try {
+        const v = parseFloat(localStorage.getItem(TIMED_SPEED_KEY) || "");
+        return isFinite(v) && v > 0 ? v : 25;
+      } catch {
+        return 25;
+      }
+    })(),
+    wpmTarget: (() => {
+      try {
+        const v = parseInt(localStorage.getItem(WPM_TARGET_KEY) || "");
+        return isFinite(v) && v >= 60 ? v : 180;
+      } catch {
+        return 180;
+      }
+    })(),
+    wpmBasePx: (() => {
+      try {
+        const v = parseFloat(localStorage.getItem(WPM_BASEPX_KEY) || "");
+        return isFinite(v) && v > 0 ? v : 25;
+      } catch {
+        return 25;
+      }
+    })(),
+    wpmMinPx: (() => {
+      try {
+        const v = parseFloat(localStorage.getItem(WPM_MINPX_KEY) || "");
+        return isFinite(v) && v > 0 ? v : 6;
+      } catch {
+        return 6;
+      }
+    })(),
+    wpmMaxPx: (() => {
+      try {
+        const v = parseFloat(localStorage.getItem(WPM_MAXPX_KEY) || "");
+        return isFinite(v) && v > 0 ? v : 200;
+      } catch {
+        return 200;
+      }
+    })(),
+    wpmEwmaSec: (() => {
+      try {
+        const v = parseFloat(localStorage.getItem(WPM_EWMA_KEY) || "");
+        return isFinite(v) && v > 0 ? v : 1;
+      } catch {
+        return 1;
+      }
+    })(),
+    hybridAttackMs: (() => {
+      try {
+        const v = parseInt(localStorage.getItem(HYB_ATTACK_KEY) || "");
+        return isFinite(v) && v >= 0 ? v : 120;
+      } catch {
+        return 120;
+      }
+    })(),
+    hybridReleaseMs: (() => {
+      try {
+        const v = parseInt(localStorage.getItem(HYB_RELEASE_KEY) || "");
+        return isFinite(v) && v >= 0 ? v : 250;
+      } catch {
+        return 250;
+      }
+    })(),
+    hybridIdleMs: (() => {
+      try {
+        const v = parseInt(localStorage.getItem(HYB_IDLE_KEY) || "");
+        return isFinite(v) && v >= 0 ? v : 1500;
+      } catch {
+        return 1500;
+      }
+    })(),
+    stepPx: (() => {
+      try {
+        const v = parseInt(localStorage.getItem(STEP_PX_KEY) || "");
+        return isFinite(v) && v > 0 ? v : 120;
+      } catch {
+        return 120;
+      }
+    })(),
+    rehearsalPunct: (() => {
+      try {
+        const v = localStorage.getItem(REH_PUNCT_KEY);
+        return v != null && v !== "" ? v : ".,;:?!";
+      } catch {
+        return ".,;:?!";
+      }
+    })(),
+    rehearsalResumeMs: (() => {
+      try {
+        const v = parseInt(localStorage.getItem(REH_RESUME_KEY) || "");
+        return isFinite(v) && v >= 100 ? v : 1e3;
+      } catch {
+        return 1e3;
+      }
+    })(),
+    // transient session state (not persisted)
+    obsUrl: "",
+    obsPort: "",
+    obsSecure: false
+  };
+}
+function ensureExistingState() {
+  if (IS_TEST) {
+    try {
+      delete window.__tpStore;
+    } catch {
+    }
+    return {};
+  }
+  try {
+    const existing = window.__tpStore;
+    if (!existing || typeof existing !== "object") return {};
+    const snapshot = typeof existing.getSnapshot === "function" ? existing.getSnapshot() : existing.state;
+    if (snapshot && typeof snapshot === "object") return snapshot;
+  } catch {
+  }
+  return {};
+}
+function sanitizeState(state2) {
+  if (!ALLOWED_PAGES.has(state2.page)) {
+    state2.page = "scripts";
+  }
+  if (!ALLOWED_OVERLAYS.has(state2.overlay)) {
+    state2.overlay = "none";
+    try {
+      localStorage.removeItem(OVERLAY_KEY);
+    } catch {
+    }
+  }
+  if (state2.scrollMode === "manual") {
+    state2.scrollMode = "step";
+  }
+  if (!state2.asrProfiles || typeof state2.asrProfiles !== "object") {
+    state2.asrProfiles = {};
+  }
+  if (state2.asrActiveProfileId && typeof state2.asrActiveProfileId !== "string") {
+    state2.asrActiveProfileId = null;
+  }
+  if (!state2.asrTuningProfiles || typeof state2.asrTuningProfiles !== "object") {
+    state2.asrTuningProfiles = {};
+  }
+  if (state2.asrTuningActiveProfileId && typeof state2.asrTuningActiveProfileId !== "string") {
+    state2.asrTuningActiveProfileId = null;
+  }
+  if (typeof state2.asrLastAppliedAt !== "number") {
+    state2.asrLastAppliedAt = 0;
+  }
+  if (!state2.asrLastAppliedSummary || typeof state2.asrLastAppliedSummary !== "object") {
+    state2.asrLastAppliedSummary = {};
+  }
+  if (typeof state2.asrLastApplyOk !== "boolean") {
+    state2.asrLastApplyOk = false;
+  }
+  if (!state2.settingsSaveStatus || typeof state2.settingsSaveStatus !== "object") {
+    state2.settingsSaveStatus = { state: "idle", at: 0 };
+  }
+  return state2;
+}
+function createAppStore(initial) {
+  const subs2 = /* @__PURE__ */ Object.create(null);
+  const baseState = buildInitialState();
+  const state2 = sanitizeState(
+    Object.assign(
+      {},
+      baseState,
+      ensureExistingState(),
+      initial || {}
+    )
+  );
+  function notify(key, value) {
+    try {
+      const k = String(key);
+      const fns = subs2[k] || [];
+      for (let i = 0; i < fns.length; i++) {
+        try {
+          fns[i](value);
+        } catch {
+        }
+      }
+    } catch {
+    }
+  }
+  function get(key) {
+    try {
+      return state2[key];
+    } catch {
+      return void 0;
+    }
+  }
+  function set(key, value) {
+    try {
+      if (key === "page") {
+        value = ALLOWED_PAGES.has(value) ? value : "scripts";
+      }
+      if (key === "overlay") {
+        value = ALLOWED_OVERLAYS.has(value) ? value : "none";
+      }
+      const prev = state2[key];
+      if (prev === value) return value;
+      state2[key] = value;
+      if (key === "scrollMode") {
+        try {
+          const ctx = getScrollModeAuditContext();
+          recordScrollModeWrite({
+            writer: ctx?.writer || "unknown",
+            from: prev,
+            to: value,
+            phase: state2["session.phase"],
+            source: ctx?.meta?.source,
+            via: ctx?.meta?.via,
+            stack: !!ctx?.meta?.stack
+          });
+        } catch {
+        }
+      }
+      try {
+        const storageKey = persistMap[key];
+        if (storageKey) {
+          if (value === null || typeof value === "undefined") {
+            localStorage.removeItem(storageKey);
+          } else if (typeof value === "boolean") {
+            localStorage.setItem(storageKey, value ? "1" : "0");
+          } else if (typeof value === "object") {
+            try {
+              localStorage.setItem(storageKey, JSON.stringify(value));
+            } catch {
+            }
+          } else {
+            localStorage.setItem(storageKey, String(value));
+          }
+          if (key === "autoRecord") {
+            try {
+              localStorage.removeItem(LEGACY_AUTO_RECORD_KEY);
+            } catch {
+            }
+          }
+          if (key === "scrollMode") {
+            saveScrollPrefs({ mode: String(value) });
+          }
+        }
+      } catch {
+      }
+      notify(key, value);
+      return value;
+    } catch {
+      return value;
+    }
+  }
+  function subscribe(key, fn) {
+    if (typeof fn !== "function") return () => {
+    };
+    const k = String(key);
+    subs2[k] = subs2[k] || [];
+    subs2[k].push(fn);
+    try {
+      fn(state2[key]);
+    } catch {
+    }
+    return function unsubscribe() {
+      try {
+        subs2[k] = (subs2[k] || []).filter((x) => x !== fn);
+      } catch {
+      }
+    };
+  }
+  function subscribeAll(map) {
+    const unsubs = [];
+    try {
+      for (const k in map) {
+        if (Object.prototype.hasOwnProperty.call(map, k)) {
+          const key = k;
+          const fn = map[key];
+          if (fn) unsubs.push(subscribe(key, fn));
+        }
+      }
+    } catch {
+    }
+    return function unsubscribeAll() {
+      unsubs.forEach((u) => u && u());
+    };
+  }
+  const appStore = {
+    __tsOwned: true,
+    get,
+    set,
+    subscribe,
+    subscribeAll,
+    state: state2,
+    getSnapshot: () => ({ ...state2 })
+  };
+  try {
+    if (!IS_TEST) {
+      const w = window;
+      const existing = w.__tpStore;
+      if (!existing || !existing.__tsOwned) {
+        try {
+          Object.defineProperty(w, "__tpStore", {
+            value: appStore,
+            writable: true,
+            configurable: true,
+            enumerable: true
+          });
+        } catch {
+          w.__tpStore = appStore;
+        }
+      }
+    }
+  } catch {
+  }
+  return appStore;
+}
+var appStoreSingleton = createAppStore();
+
+// src/ui/settings-asr.ts
+var asrSettingsObserverStarted = false;
+var asrSettingsWarned = false;
+var asrSettingsRenderEventFired = false;
+var isHydratingAsrSettings = false;
+function resolveStore(store) {
+  if (store) return store;
+  try {
+    return window.__tpStore || appStoreSingleton || null;
+  } catch {
+    return appStoreSingleton;
+  }
+}
+function findAsrCard(root = document) {
+  return root?.querySelector?.("#asrSettingsCard") || root?.querySelector?.(".settings-card.asr") || null;
+}
+function queryAsrInputs(card) {
+  const q = (selector) => card.querySelector(selector);
+  return {
+    eng: q("#asrEngine"),
+    lang: q("#asrLang"),
+    interim: q("#asrInterim"),
+    fillers: q("#asrFillers"),
+    thresh: q("#asrThresh"),
+    endms: q("#asrEndMs"),
+    calm: q("#asrCalmMode")
+  };
+}
+function applyAsrStateToInputs(inputs, state2) {
+  const { eng, lang, interim, fillers, thresh, endms } = inputs;
+  if (eng && typeof state2.engine === "string") {
+    try {
+      eng.value = state2.engine;
+    } catch {
+    }
+  }
+  if (lang && typeof state2.lang === "string") {
+    lang.value = state2.lang;
+  }
+  if (interim) interim.checked = !!state2.interim;
+  if (fillers) fillers.checked = !!state2.fillerFilter;
+  if (thresh && typeof state2.threshold === "number") {
+    thresh.value = String(state2.threshold);
+  }
+  if (endms && typeof state2.endpointingMs === "number") {
+    endms.value = String(state2.endpointingMs);
+  }
+  if (inputs.calm) inputs.calm.checked = !!state2.calmModeEnabled;
+}
+function attachAsrInputListeners(inputs) {
+  const { eng, lang, interim, fillers, thresh, endms, calm } = inputs;
+  const persist = (patch) => {
+    if (isHydratingAsrSettings) return;
+    persistAsrPatch(patch);
+  };
+  const clampThreshold = (value) => {
+    const parsed = typeof value === "number" ? value : parseFloat(String(value));
+    if (Number.isNaN(parsed)) return;
+    persist({ threshold: clamp2(parsed, 0, 1) });
+  };
+  const clampEndpoint2 = (value) => {
+    const parsed = typeof value === "number" ? Math.round(value) : Math.round(parseFloat(String(value)));
+    if (Number.isNaN(parsed)) return;
+    persist({ endpointingMs: Math.max(200, parsed) });
+  };
+  eng?.addEventListener("change", () => persist({ engine: eng.value }));
+  lang?.addEventListener("change", () => persist({ lang: lang.value }));
+  interim?.addEventListener("change", () => persist({ interim: interim.checked }));
+  fillers?.addEventListener("change", () => persist({ fillerFilter: fillers.checked }));
+  thresh?.addEventListener("input", () => clampThreshold(thresh.value));
+  thresh?.addEventListener("change", () => clampThreshold(thresh.value));
+  endms?.addEventListener("input", () => clampEndpoint2(endms.value));
+  endms?.addEventListener("change", () => clampEndpoint2(endms.value));
+  calm?.addEventListener("change", () => persist({ calmModeEnabled: calm.checked }));
+}
+function withAsrHydration(fn) {
+  isHydratingAsrSettings = true;
+  try {
+    fn();
+  } finally {
+    const scheduleClear = () => {
+      isHydratingAsrSettings = false;
+    };
+    try {
+      if (typeof window !== "undefined" && typeof window.setTimeout === "function") {
+        window.setTimeout(scheduleClear, 0);
+      } else {
+        setTimeout(scheduleClear, 0);
+      }
+    } catch {
+      scheduleClear();
+    }
+  }
+}
+function persistAsrPatch(patch) {
+  setAsrSettings(patch);
+}
+function formatRelativeTime(timestamp) {
+  if (!timestamp || Number.isNaN(timestamp)) return "just now";
+  const delta = Date.now() - timestamp;
+  if (delta < 1e3) return "just now";
+  if (delta < 6e4) return `${Math.round(delta / 1e3)}s ago`;
+  if (delta < 36e5) return `${Math.round(delta / 6e4)}m ago`;
+  if (delta < 864e5) return `${Math.round(delta / 36e5)}h ago`;
+  return `${Math.round(delta / 864e5)}d ago`;
+}
+function wireAsrSettingsCard(root = document, store) {
+  const card = root.querySelector("#asrSettingsCard") || root.querySelector(".settings-card.asr");
+  if (!card) {
+    if (!asrSettingsWarned) {
+      asrSettingsWarned = true;
+      try {
+        console.warn("[ASR] settings card not found (skipping wiring)");
+      } catch {
+      }
+    }
+    return null;
+  }
+  if (card.dataset.tpAsrWired === "1") return card;
+  card.dataset.tpAsrWired = "1";
+  const inputs = queryAsrInputs(card);
+  attachAsrInputListeners(inputs);
+  wireAsrStatusIndicators(card, store);
+  return card;
+}
+function hydrateAsrSettingsCard(root = document) {
+  const card = findAsrCard(root);
+  if (!card) return;
+  const inputs = queryAsrInputs(card);
+  const state2 = getAsrSettings();
+  withAsrHydration(() => applyAsrStateToInputs(inputs, state2));
+}
+function mountAsrSettings(root = document, store) {
+  const card = wireAsrSettingsCard(root, store);
+  if (!card) return;
+  hydrateAsrSettingsCard(root);
+}
+function wireAsrStatusIndicators(card, store) {
+  const saveEl = card.querySelector("#asrSaveStatus");
+  const appliedEl = card.querySelector("#asrAppliedStatus");
+  if (!saveEl && !appliedEl) return;
+  const resolved = resolveStore(store);
+  const SAVE_STALE_MS = 15e3;
+  let saveStatusTimer = null;
+  const clearSaveTimer = () => {
+    if (saveStatusTimer) {
+      try {
+        clearTimeout(saveStatusTimer);
+      } catch {
+      }
+      saveStatusTimer = null;
+    }
+  };
+  const isMounted = () => {
+    try {
+      return card.isConnected && document.contains(card);
+    } catch {
+      return false;
+    }
+  };
+  const renderSaveStatus = () => {
+    if (!isMounted()) {
+      clearSaveTimer();
+      return;
+    }
+    if (!saveEl) return;
+    const status = resolved?.get?.("settingsSaveStatus");
+    if (!status || status.state === "idle") {
+      saveEl.textContent = "";
+      saveEl.hidden = true;
+      clearSaveTimer();
+      delete saveEl.dataset.stale;
+      return;
+    }
+    let text = "";
+    if (status.state === "saving") {
+      text = "Saving to account...";
+      clearSaveTimer();
+      delete saveEl.dataset.stale;
+    } else if (status.state === "saved") {
+      const when = formatRelativeTime(status.at);
+      const elapsed = Date.now() - status.at;
+      const isStale = elapsed >= SAVE_STALE_MS;
+      if (isStale) {
+        text = "Saved";
+        saveEl.dataset.stale = "1";
+        clearSaveTimer();
+      } else {
+        text = `Saved to account [OK]${when ? ` (${when})` : ""}`;
+        delete saveEl.dataset.stale;
+        clearSaveTimer();
+        saveStatusTimer = window.setTimeout(() => {
+          try {
+            renderSaveStatus();
+          } catch {
+          }
+        }, Math.max(SAVE_STALE_MS - elapsed, 0));
+      }
+    } else if (status.state === "failed") {
+      const errSuffix = status.error ? `: ${status.error}` : "";
+      text = `Save failed${errSuffix}`;
+      clearSaveTimer();
+      delete saveEl.dataset.stale;
+    }
+    saveEl.textContent = text;
+    saveEl.hidden = !text;
+  };
+  const renderAppliedStatus = () => {
+    if (!isMounted()) return;
+    if (!appliedEl) return;
+    const appliedAt = resolved?.get?.("asrLastAppliedAt") || 0;
+    const summary = resolved?.get?.("asrLastAppliedSummary");
+    const ok = !!resolved?.get?.("asrLastApplyOk");
+    const status = resolved?.get?.("settingsSaveStatus");
+    const lastSaveAt = status?.state === "saved" ? status.at : 0;
+    const asrRunning = !!resolved?.get?.("asrLive");
+    if (!asrRunning && lastSaveAt && lastSaveAt > appliedAt) {
+      appliedEl.textContent = "Pending application (ASR not running)";
+      appliedEl.hidden = false;
+      return;
+    }
+    if (!appliedAt) {
+      appliedEl.textContent = "ASR has not applied any settings yet.";
+      appliedEl.hidden = false;
+      return;
+    }
+    const parts = [];
+    if (summary) {
+      const engine = summary.engine || summary.eng;
+      if (engine) parts.push(String(engine));
+      if (summary.lang) parts.push(String(summary.lang));
+      if (summary.profileName) parts.push(String(summary.profileName));
+      if (summary.reason) parts.push(String(summary.reason));
+    }
+    const base = parts.length ? parts.join(" | ") : "default";
+    const symbol = ok ? "[applied]" : "[warn]";
+    const relative = formatRelativeTime(appliedAt);
+    appliedEl.textContent = `Applied to ASR: ${symbol} ${base}${relative ? ` (${relative})` : ""}`;
+    appliedEl.hidden = false;
+  };
+  renderSaveStatus();
+  renderAppliedStatus();
+  if (resolved?.subscribe) {
+    resolved.subscribe("settingsSaveStatus", renderSaveStatus);
+    resolved.subscribe("asrLastAppliedAt", renderAppliedStatus);
+    resolved.subscribe("asrLastAppliedSummary", renderAppliedStatus);
+    resolved.subscribe("asrLastApplyOk", renderAppliedStatus);
+    resolved.subscribe("asrLive", renderAppliedStatus);
+  }
+}
+function ensureAsrSettingsWired(root = document, store) {
+  const tryMount = (warnIfMissing = false) => {
+    const card = root?.querySelector?.("#asrSettingsCard") || root?.querySelector?.(".settings-card.asr");
+    if (!card) {
+      if (warnIfMissing && !asrSettingsWarned) {
+        asrSettingsWarned = true;
+        try {
+          console.warn("[ASR] settings card not found (will retry)");
+        } catch {
+        }
+      }
+      return false;
+    }
+    mountAsrSettings(root, store);
+    return true;
+  };
+  if (tryMount(false)) return;
+  document.addEventListener(
+    "tp:settings:rendered",
+    () => {
+      asrSettingsRenderEventFired = true;
+      tryMount(true);
+    },
+    { once: true }
+  );
+  if (!asrSettingsObserverStarted) {
+    asrSettingsObserverStarted = true;
+    const host = root?.querySelector?.("#settingsBody") || document.getElementById("settingsBody") || document.body;
+    try {
+      const obs = new MutationObserver(() => {
+        const wired = tryMount(asrSettingsRenderEventFired);
+        if (wired) {
+          try {
+            obs.disconnect();
+          } catch {
+          }
+        }
+      });
+      obs.observe(host || document.body, { subtree: true, childList: true });
+    } catch {
+    }
+  }
+}
+function clamp2(n, lo, hi) {
+  return Math.max(lo, Math.min(hi, n));
+}
+
+// src/ui/topbar-asr.ts
+var AsrTopbar = class {
+  constructor(_mode) {
+    this._mode = _mode;
+  }
+  chip;
+  running = false;
+  mount(targetSelector = "#topbarRight, .topbar, header, body") {
+    const host = document.querySelector(targetSelector) || document.body;
+    const wrap = document.createElement("div");
+    wrap.className = "asr-topbar flex items-center gap-2";
+    this.chip = document.createElement("span");
+    this.chip.className = "rounded-full px-2 py-1 text-xs font-medium bg-gray-700 text-white";
+    this.chip.textContent = "ASR: off";
+    wrap.appendChild(this.chip);
+    host.appendChild(wrap);
+    window.addEventListener("asr:state", (e) => {
+      const st = e.detail?.state;
+      const map = { idle: "off", ready: "ready", listening: "listening", running: "listening", error: "error" };
+      this.chip.textContent = `ASR: ${map[st] ?? st}`;
+      if (st === "idle" || st === "error") {
+        this.running = false;
+      }
+      if (st === "running" || st === "listening" || st === "ready") {
+        this.running = true;
+      }
+    });
+    this.chip.title = (() => {
+      const s = speechStore.get();
+      return `Engine: ${s.engine}  \u2022  Lang: ${s.lang}`;
+    })();
+  }
+  // No toggle UI anymore; ASR start/stop is wired to Speech Sync + mode changes.
+};
+
+// src/index-hooks/asr.ts
+function initAsrFeature() {
+  ensureAsrSettingsWired(document.getElementById("settingsBody") || document);
+  installAsrHotkeys();
+  let asrMode = null;
+  let speechActive = false;
+  let asrActive = false;
+  let autoHeld = false;
+  const getScrollMode = () => {
+    try {
+      const s = window.__tpStore || appStoreSingleton;
+      const v = s?.get?.("scrollMode");
+      if (typeof v === "string") return v.toLowerCase();
+    } catch {
+    }
+    return "";
+  };
+  const wantASR = () => getScrollMode() === "asr";
+  const holdAuto = () => {
+    if (autoHeld) return;
+    autoHeld = true;
+    try {
+      window.__tpAuto?.set?.(false);
+      window.dispatchEvent(new CustomEvent("autoscroll:disable", { detail: "asr" }));
+    } catch {
+    }
+  };
+  const releaseAuto = () => {
+    if (!autoHeld) return;
+    autoHeld = false;
+    try {
+      window.__tpAuto?.set?.(true);
+      window.dispatchEvent(new CustomEvent("autoscroll:enable", { detail: "asr" }));
+    } catch {
+    }
+  };
+  const ensureMode = async () => {
+    if (!asrMode) {
+      asrMode = new AsrMode({ rootSelector: "#scriptRoot, #script, body", lineSelector: ".line, p", markerOffsetPx: 140, windowSize: 6 });
+      window.__tpAsrMode = asrMode;
+      try {
+        new AsrTopbar(asrMode).mount("#topbarRight, .topbar, header, body");
+      } catch {
+      }
+    }
+    return asrMode;
+  };
+  const isSettingsHydrating = () => {
+    try {
+      return !!window.__tpSettingsHydrating;
+    } catch {
+      return false;
+    }
+  };
+  const start = async () => {
+    if (asrActive) return;
+    if (isSettingsHydrating()) {
+      try {
+        console.debug("[ASR] start blocked during settings hydration");
+      } catch {
+      }
+      return;
+    }
+    const m = await ensureMode();
+    try {
+      holdAuto();
+      await m.start();
+      asrActive = true;
+    } catch (err) {
+      asrActive = false;
+      releaseAuto();
+      try {
+        console.warn("[ASR] start failed, staying on non-ASR sync", err);
+      } catch {
+      }
+    }
+  };
+  const stop = async () => {
+    if (!asrActive) return;
+    try {
+      await asrMode?.stop?.();
+    } finally {
+      asrActive = false;
+      releaseAuto();
+    }
+  };
+  window.addEventListener("tp:speech-state", (ev) => {
+    try {
+      const d = ev?.detail || {};
+      const on = d.running === true || typeof d.state === "string" && (d.state === "active" || d.state === "running");
+      speechActive = !!on;
+      if (speechActive && wantASR()) void start();
+      else void stop();
+    } catch {
+    }
+  });
+  try {
+    const store = window.__tpStore || appStoreSingleton;
+    store?.subscribe?.("scrollMode", (_mode) => {
+      if (!speechActive) return;
+      wantASR() ? void start() : void stop();
+    });
+  } catch {
+  }
+  window.addEventListener("asr:toggle", (e) => {
+    const armed = !!e?.detail?.armed;
+    armed ? void start() : void stop();
+  });
+  window.addEventListener("asr:stop", () => {
+    void stop();
+  });
+  try {
+    const body = document.body;
+    speechActive = !!(body && (body.classList.contains("speech-listening") || body.classList.contains("listening"))) || window.speechOn === true;
+    if (speechActive && wantASR()) void start();
+  } catch {
+  }
+}
+export {
+  AsrMode,
+  initAsrFeature
+};
+//# sourceMappingURL=asr.js.map
