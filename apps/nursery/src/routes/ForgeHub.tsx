@@ -1,6 +1,7 @@
 import { Link, useOutletContext } from "react-router-dom";
 import type { ForgeAppId } from "@forge/tongs";
 import AnvilLoginPanel from "../components/AnvilLoginPanel";
+import type { AppShellContext } from "./AppShell";
 
 type HubLink = {
   to: string;
@@ -70,7 +71,7 @@ const LINKS: HubLink[] = [
 ];
 
 export default function ForgeHub() {
-  const shell = useOutletContext<any>();
+  const shell = useOutletContext<AppShellContext>();
   const session = shell?.session ?? null;
 
   if (!session) {
