@@ -233,6 +233,86 @@ function attachScrollWriterOnce(): void {
 	} catch {}
 }
 
+function installDisplayToggleActionGuard(): void {
+  try {
+    const root = document.documentElement;
+    if (!root || root.getAttribute('data-display-toggle-wired') === '1') return;
+    root.setAttribute('data-display-toggle-wired', '1');
+  } catch {
+    return;
+  }
+
+  const isDisplayOpen = (): boolean => {
+    try {
+      const winRef = (window as any).__tpDisplayWindow as Window | null | undefined;
+      return !!(winRef && !winRef.closed);
+    } catch {
+      return false;
+    }
+  };
+
+  const applyDisplayUi = (open: boolean): void => {
+    try { document.documentElement.setAttribute('data-display-open', open ? '1' : '0'); } catch {}
+    try {
+      const sidebar = document.getElementById('displayToggleBtnSidebar') as HTMLButtonElement | null;
+      if (sidebar) {
+        sidebar.setAttribute('aria-pressed', open ? 'true' : 'false');
+        sidebar.textContent = open ? 'Display: Open' : 'Display: Closed';
+      }
+    } catch {}
+    try {
+      const top = document.getElementById('displayToggleBtn') as HTMLButtonElement | null;
+      if (top) {
+        top.setAttribute('aria-expanded', open ? 'true' : 'false');
+      }
+    } catch {}
+  };
+
+  const toggleDisplayLocal = (): void => {
+    const open = isDisplayOpen();
+    const api = (window as any).__tpDisplay as
+      | { openDisplay?: () => void; closeDisplay?: () => void }
+      | undefined;
+    if (open) {
+      try { api?.closeDisplay?.(); } catch {}
+      applyDisplayUi(false);
+      return;
+    }
+    try { api?.openDisplay?.(); } catch {}
+    applyDisplayUi(true);
+  };
+
+  try { applyDisplayUi(isDisplayOpen()); } catch {}
+  try { window.addEventListener('tp:display:opened', () => applyDisplayUi(true)); } catch {}
+  try { window.addEventListener('tp:display:closed', () => applyDisplayUi(false)); } catch {}
+
+  try {
+    document.addEventListener(
+      'click',
+      (event: Event) => {
+        try {
+          const target = (event.target as HTMLElement | null)?.closest?.(
+            '#displayToggleBtn,#displayToggleBtnSidebar,[data-action="display"],[data-action="display-toggle"]',
+          ) as HTMLElement | null;
+          if (!target) return;
+
+          const action = String(target.getAttribute('data-action') || '').trim().toLowerCase();
+          if (action && action !== 'display' && action !== 'display-toggle') return;
+
+          try { event.preventDefault(); } catch {}
+          try { event.stopPropagation(); } catch {}
+          try { (event as any).stopImmediatePropagation?.(); } catch {}
+
+          // Explicitly keep display-toggle local; do not fall through to async bridge paths.
+          toggleDisplayLocal();
+          return;
+        } catch {}
+      },
+      { capture: true },
+    );
+  } catch {}
+}
+
 // appStore singleton is created inside state/app-store and attached to window.__tpStore
 try { initAsrScrollBridge(appStore); } catch {}
 try { initObsBridge(appStore); } catch {}
@@ -2013,6 +2093,7 @@ export async function boot() {
           }
 								// Core UI binder (idempotent)
 								try { bindCoreUI({ presentBtnSelector: '#presentBtn, [data-action="present-toggle"]' }); } catch {}
+                try { installDisplayToggleActionGuard(); } catch {}
 								try { initSingleMonitorRead(appStore); } catch {}
 								// Ensure Settings overlay content uses TS builder (single source of truth)
 								try { wireSettings({ store: appStore }); } catch {}
