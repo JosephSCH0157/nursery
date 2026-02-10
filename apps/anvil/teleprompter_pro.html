@@ -204,6 +204,7 @@
     .forge-menu-item{display:block;padding:10px 12px;color:rgba(255,255,255,0.92);text-decoration:none;border-bottom:1px solid rgba(255,255,255,0.06)}
     .forge-menu-item:hover{background:rgba(255,255,255,0.06)}
     .forge-menu-item.disabled{opacity:0.6}
+    #settingsBtn,#shortcutsBtn,#helpBtn{display:none !important}
     @media (max-width:900px){.app{grid-template-columns:1fr}}
     @media (max-width:720px){.topbar{flex-wrap:wrap}}
     /* HUD root styles disabled (HUD removed) */
@@ -1038,8 +1039,8 @@ Joe starts here.
   </script>
   <script>
     (function initForgeMenu() {
-      var btn = document.getElementById('forgeMenuBtn');
-      var menu = document.getElementById('forgeMenu');
+      var btn = document.getElementById("forgeMenuBtn");
+      var menu = document.getElementById("forgeMenu");
       if (!btn || !menu) return;
 
       function closeMenu(){ menu.hidden = true; }
