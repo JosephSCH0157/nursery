@@ -192,6 +192,7 @@
     .chip{display:inline-block;padding:4px 8px;border-radius:8px;background:var(--chip-bg);color:var(--fg);font-size:13px}
     .inl-1{margin-left:auto}
     #topbarRight{position:relative}
+    .forge-menu-wrap{position:relative;display:inline-flex;align-items:center;flex:0 0 auto}
     .app{display:grid;grid-template-columns:320px 1fr;gap:12px;padding:12px;box-sizing:border-box}
     .panel{background:transparent;color:var(--muted);max-height:calc(100vh - 92px);overflow:auto}
     .viewer{background:transparent;padding:6px;min-height:calc(100vh - 92px);overflow:auto}
@@ -200,7 +201,7 @@
     #dbMeterTop{display:flex;gap:2px;height:14px;align-items:flex-end;position:relative;padding:0 2px;border:1px solid var(--edge);border-radius:4px;overflow:hidden;background:linear-gradient(90deg,#124,#124 5%,#135 5%,#135 20%,#145 20%,#145 40%,#254 40%,#352 60%,#542 80%,#731 90%,#921 95%,#b11);background-size:100% 100%;margin:0;}
     button.chip{border:0;background:transparent;color:var(--fg);cursor:pointer}
     .forge-menu-btn{margin-right:6px;border-radius:10px;padding:6px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#fff;cursor:pointer}
-    .forge-menu{position:absolute;top:calc(100% + 8px);right:0;width:220px;border-radius:14px;background:rgba(10,14,22,0.98);border:1px solid rgba(255,255,255,0.12);box-shadow:0 12px 40px rgba(0,0,0,0.5);overflow:hidden;z-index:9999}
+    .forge-menu{position:absolute;top:calc(100% + 8px);left:0;right:auto;width:220px;border-radius:14px;background:rgba(10,14,22,0.98);border:1px solid rgba(255,255,255,0.12);box-shadow:0 12px 40px rgba(0,0,0,0.5);overflow:hidden;z-index:9999}
     .forge-menu-item{display:block;padding:10px 12px;color:rgba(255,255,255,0.92);text-decoration:none;border-bottom:1px solid rgba(255,255,255,0.06)}
     .forge-menu-item:hover{background:rgba(255,255,255,0.06)}
     .forge-menu-item.disabled{opacity:0.6}
@@ -345,6 +346,10 @@
 <!-- Toast container placeholder (ensures smoke harness can detect it even before modules load) -->
 <div id="tp_toast_container" class="tp-toast-container"></div>
 <div class="topbar">
+  <span class="forge-menu-wrap">
+    <button id="forgeMenuBtn" class="forge-menu-btn" aria-label="Forge menu" type="button">☰</button>
+    <div id="forgeMenu" class="forge-menu" hidden></div>
+  </span>
   <strong>Anvil - Teleprompter</strong>
     <span id="appVersion" class="version-badge" aria-label="App version">v1.8.2</span>
   <span class="chip" id="saveChip">Draft: -</span>
@@ -369,8 +374,6 @@
       <span id="recPill" class="rec-pill rec-pill--main" aria-hidden="true">REC</span>
       <span id="recPillLive" class="sr-only rec-pill-live"></span>
     </span>
-    <button id="forgeMenuBtn" class="forge-menu-btn" aria-label="Forge menu" type="button">☰</button>
-    <div id="forgeMenu" class="forge-menu" hidden></div>
     <!-- ASR chip + button will mount here -->
     <button class="chip" id="singleMonitorBtn" data-action="single-monitor-toggle" aria-pressed="false" title="Single Monitor Read (maximize script view)">Single Monitor</button>
     <button class="chip" id="sidebarDrawerBtn" data-action="sidebar-drawer-toggle" aria-expanded="false" title="Open scripts/settings drawer">Scripts</button>
