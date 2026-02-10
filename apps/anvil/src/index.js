@@ -701,6 +701,37 @@ async function boot() {
       // We still delegate clicks for speed +/- and mic buttons.
       document.addEventListener('click', (e) => {
         const t = e && e.target;
+        // === LOCAL-FIRST DISPLAY TOGGLE (MUST NOT FALL THROUGH) ===
+        const displayBtn =
+          t.closest(
+            '#displayToggleBtn,' +
+            '#displayToggleBtnSidebar,' +
+            '[data-ci="display-toggle"],' +
+            '[data-action="display-toggle"],' +
+            '[data-action="display"]'
+          );
+
+        if (displayBtn) {
+          try {
+            const d = window.__tpDisplay;
+            if (d && typeof d.openDisplay === 'function' && typeof d.closeDisplay === 'function') {
+              const w = window.__tpDisplayWindow;
+              const isOpen = !!(w && !w.closed);
+              if (isOpen) d.closeDisplay();
+              else d.openDisplay();
+            } else {
+              console.warn('[DISPLAY] __tpDisplay missing');
+            }
+          } catch (err) {
+            console.error('[DISPLAY] toggle failed', err);
+          }
+
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          return;
+        }
+        // === END DISPLAY TOGGLE ===
         // If the new TS Scroll Router is active, it owns auto +/- and intent controls
         try { if (window.__tpScrollRouterTsActive) { /* delegate to TS router */ } else {
           try { if (t?.closest?.('#autoInc'))    return Auto.inc(); } catch {}

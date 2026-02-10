@@ -1,3 +1,4 @@
+<!-- GENERATED FILE. DO NOT EDIT. Edit apps/anvil/teleprompter_pro.html -->
 <!DOCTYPE html>
 
 <html lang="en">
@@ -52,47 +53,6 @@
   <!-- OBS bridge (WebSocket client) must load before TS bundle so window.__obsBridge is available -->
   <!-- LEGACY COMPAT -->
   <script type="module" src="./adapters/obsBridge.js"></script>
-  <script type="module">
-    (async () => {
-      let lastErr = null;
-      const runningFromAnvilSubpath = /^\/anvil(\/|$)/.test(window.location.pathname || "");
-      const manifestCandidates = runningFromAnvilSubpath
-        ? ["./manifest.json", "./dist/manifest.json"]
-        : ["./dist/manifest.json", "./manifest.json"];
-      for (const manifestPath of manifestCandidates) {
-        try {
-          const r = await fetch(manifestPath, { cache: "no-store" });
-          if (!r.ok) throw new Error(`Missing manifest at ${manifestPath} (HTTP ${r.status})`);
-          const manifest = await r.json();
-          const manifestUrl = r.url || manifestPath;
-          if (!manifest?.entry || typeof manifest.entry !== "string") {
-            throw new Error(`manifest missing entry at ${manifestPath}`);
-          }
-          const entryUrl = new URL(manifest.entry, manifestUrl).toString();
-          await import(entryUrl);
-          return;
-        } catch (err) {
-          lastErr = err;
-        }
-      }
-
-      const directEntryCandidates = runningFromAnvilSubpath
-        ? ["./index.js", "./dist/index.js"]
-        : ["./dist/index.js", "./index.js"];
-      for (const entryPath of directEntryCandidates) {
-        try {
-          await import(entryPath);
-          return;
-        } catch (err) {
-          lastErr = err;
-        }
-      }
-
-      throw (lastErr || new Error("No app entry could be loaded"));
-    })().catch((err) => {
-      console.error("[TP-BOOT] failed to load entry from manifest", err);
-    });
-  </script>
   <!-- Dev HUD / debug tools removed (TS HUD is canonical) -->
 
 <!-- Dev flag: add .tp-dev class early so CSS can key off it -->
@@ -1243,6 +1203,19 @@ Joe starts here.
       }, 8000);
     })();
   </script>
-  <script type="module" src="/anvil/index.js?v=dev"></script>
+  <script>
+    (function () {
+      const url = new URL(window.location.href);
+      const devFlag =
+        url.searchParams.get('dev') === '1' ||
+        window.location.hash.includes('dev') ||
+        localStorage.getItem('tp_dev_mode') === '1';
+
+      const s = document.createElement('script');
+      s.type = 'module';
+      s.src = devFlag ? 'index.js?v=dev' : 'index.js';
+      document.head.appendChild(s);
+    })();
+  </script>
 </body>
 </html>

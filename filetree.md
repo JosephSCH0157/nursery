@@ -1,6 +1,6 @@
 # File Tree
 
-Generated folders are kept brief for readability (for example `node_modules/`, `dist/`, and `.git/` internals).
+Generated folders are kept brief for readability (for example `node_modules/`, `dist/`, and `.git/` internals). Synced bundle output under `apps/nursery/public/anvil/` is summarized at a high level.
 
 - `.gitattributes`
 - `.gitignore`
@@ -21,16 +21,48 @@ Generated folders are kept brief for readability (for example `node_modules/`, `
   - `nursery/` (Vite SPA gateway)
     - `.env.local`
     - `.gitignore`
+    - `FORGEHUB_V1_MANIFEST.md`
     - `eslint.config.js`
     - `index.html`
     - `package.json`
     - `public/`
+      - `_redirects`
+      - `anvil/` (synced runtime bundle from Anvil)
+        - `GENERATED.md`
+        - `account.html`
+        - `display.html`
+        - `forge-config.js`
+        - `hud_popout.html`
+        - `index.js`
+        - `login.html`
+        - `manifest.json`
+        - `reset.html`
+        - `teleprompter_pro.css`
+        - `teleprompter_pro.html`
+        - `adapters/`
+        - `assets/`
+        - `beta/`
+        - `features/`
+        - `forge/`
+        - `hud/`
+        - `index-hooks/`
+        - `net/`
+        - `speech/`
+      - `anvil-login/`
+        - `assets/`
+          - `anvil-favicon.png`
+          - `anvil_teleprompter_logo.png`
+          - `login.png`
       - `assets/`
         - `anvil-favicon.png`
         - `anvil_teleprompter_logo.png`
         - `forge-splash.png`
         - `login.png`
+      - `forge-nav.json`
       - `vite.svg`
+    - `scripts/`
+      - `generate-forge-nav.ts`
+      - `sync-anvil-dist.mjs`
     - `src/`
       - `assets/`
         - `anvil-favicon.png`
@@ -38,6 +70,7 @@ Generated folders are kept brief for readability (for example `node_modules/`, `
         - `login.png`
         - `react.svg`
       - `components/`
+        - `AnvilLoginPanel.tsx`
         - `AuthGate.tsx`
       - `hooks/`
         - `useMountRegistry.ts`
@@ -46,7 +79,12 @@ Generated folders are kept brief for readability (for example `node_modules/`, `
         - `mirror.ts`
         - `mount-registry.ts`
         - `supabase.ts`
+      - `nav/`
+        - `ForgeNav.tsx`
+        - `anvilNavExtras.ts`
+        - `forgeNavTree.ts`
       - `routes/`
+        - `Anvil.tsx`
         - `AppShell.tsx`
         - `AuthCallback.tsx`
         - `Barstock.tsx`
@@ -81,6 +119,7 @@ Generated folders are kept brief for readability (for example `node_modules/`, `
     - `package.json`
     - `src/`
       - `App.tsx`
+      - `index.css`
       - `main.tsx`
       - `lib/`
         - `assignments.ts`
@@ -116,12 +155,19 @@ Generated folders are kept brief for readability (for example `node_modules/`, `
     - `.eslintrc.json`
     - `.github/`
     - `.husky/`
+    - `.netlify/`
     - `.vscode/`
     - `CHANGELOG.md`
     - `MANIFEST.md`
     - `README.md`
     - `TOOLS-README.md`
     - `VERSION.txt`
+    - `account.html`
+    - `display.html`
+    - `login.html`
+    - `reset.html`
+    - `teleprompter_pro.css`
+    - `teleprompter_pro.html`
     - `package.json`
     - `src/`
     - `tests/`
@@ -148,6 +194,7 @@ Generated folders are kept brief for readability (for example `node_modules/`, `
         - `ids.ts`
         - `localHearthStore.ts`
   - `tongs/`
+    - `TONGS_V1_MANIFEST.md`
     - `eslint.config.mjs`
     - `package.json`
     - `tsconfig.json`
@@ -192,6 +239,7 @@ Generated folders are kept brief for readability (for example `node_modules/`, `
     - `20260205120005_000001_tongs_workspaces_insert_policy.sql`
     - `20260206120006_000001_tongs_workspaces_add_name.sql`
     - `20260206120007_000002_public_workspaces_view.sql`
+    - `20260207_forge_workspace_and_calendar_link.sql`
   - `snippets/`
   - `.branches/` (Supabase CLI state)
   - `.temp/` (Supabase CLI cache)

@@ -3,6 +3,14 @@ import path from 'node:path';
 
 const ROOT = path.resolve('.');
 const DIST = path.join(ROOT, 'dist');
+const GENERATED_TELEPROMPTER_BANNER =
+  '<!-- GENERATED FILE. DO NOT EDIT. Edit apps/anvil/teleprompter_pro.html -->';
+
+const stripGeneratedBanner = (html) =>
+  html.replace(
+    /^<!-- GENERATED FILE\. DO NOT EDIT\. Edit apps\/anvil\/teleprompter_pro\.html -->\r?\n?/,
+    '',
+  );
 
 const copy = (src, dest) => {
   if (!fs.existsSync(src)) {
@@ -43,4 +51,14 @@ for (const rel of STATIC_PATHS) {
 
 for (const stub of SPEECH_STUBS) {
   copy(path.join(ROOT, stub.src), path.join(DIST, stub.dest));
+}
+
+const distTeleprompterHtml = path.join(DIST, 'teleprompter_pro.html');
+if (fs.existsSync(distTeleprompterHtml)) {
+  const html = fs.readFileSync(distTeleprompterHtml, 'utf8').replace(/^\uFEFF/, '');
+  const normalized = stripGeneratedBanner(html);
+  const newline = normalized.includes('\r\n') ? '\r\n' : '\n';
+  const tagged = `${GENERATED_TELEPROMPTER_BANNER}${newline}${normalized}`;
+  fs.writeFileSync(distTeleprompterHtml, tagged, 'utf8');
+  console.log('[copy-static] tagged generated file', distTeleprompterHtml);
 }
