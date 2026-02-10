@@ -24,6 +24,12 @@ Nursery is the **front door** and **single login** for the Podcaster's Forge eco
 - `netlify.toml` - build and redirect configuration for deployment.
 - `.gitignore` - repository-level ignores.
 
+## Anvil Mirror Rules
+
+- Canonical editable teleprompter shell: `apps/anvil/teleprompter_pro.html`.
+- Generated copies (do not edit): `apps/anvil/dist/teleprompter_pro.html`, `apps/nursery/public/anvil/teleprompter_pro.html`, and `apps/nursery/dist/anvil/teleprompter_pro.html`.
+- One-way sync command: `pnpm --filter nursery sync:anvil` (copies `apps/anvil/dist/**` into `apps/nursery/public/anvil/**`).
+
 ## Getting started
 
 1. `npm install -g pnpm` (if not already installed).

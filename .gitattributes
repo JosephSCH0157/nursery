@@ -1,2 +1,7 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Generated artifacts/mirrors (do not hand edit)
+apps/anvil/dist/** linguist-generated=true
+apps/nursery/public/anvil/** linguist-generated=true
+apps/nursery/dist/anvil/** linguist-generated=true

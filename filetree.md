@@ -28,6 +28,7 @@ Generated folders are kept brief for readability (for example `node_modules/`, `
     - `public/`
       - `_redirects`
       - `anvil/` (synced runtime bundle from Anvil)
+        - `GENERATED.md`
         - `account.html`
         - `display.html`
         - `forge-config.js`
