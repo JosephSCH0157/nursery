@@ -11757,7 +11757,7 @@ function shouldBypassAuth() {
 }
 async function ensureUserAndProfile() {
   const redirectTarget = window.location.pathname + window.location.search + window.location.hash;
-  const loginUrl = `/login?next=${encodeURIComponent(redirectTarget)}`;
+  const loginUrl = `/app?next=${encodeURIComponent(redirectTarget)}`;
   if (shouldBypassAuth()) {
     const mockUser = { id: "test-user", email: "test@example.com" };
     const mockProfile = {
@@ -11833,7 +11833,8 @@ function renderAccount(ctx) {
   if (logoutBtn) {
     logoutBtn.addEventListener("click", async () => {
       await supabase.auth.signOut();
-      window.location.href = "/login";
+      const target = window.location.pathname + window.location.search + window.location.hash;
+      window.location.href = `/app?next=${encodeURIComponent(target)}`;
     });
   }
   if (upgradeBtn) {

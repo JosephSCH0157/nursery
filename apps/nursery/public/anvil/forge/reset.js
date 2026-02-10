@@ -11789,7 +11789,7 @@ async function handleReset(form) {
     setText("status", "Password updated. Redirecting to login...");
     setTimeout(() => {
       try {
-        window.location.href = "/login";
+        window.location.href = "/app";
       } catch {
       }
     }, 800);

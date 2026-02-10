@@ -11757,7 +11757,7 @@ function shouldBypassAuth() {
 }
 async function ensureUserAndProfile() {
   const redirectTarget = window.location.pathname + window.location.search + window.location.hash;
-  const loginUrl = `/login?next=${encodeURIComponent(redirectTarget)}`;
+  const loginUrl = `/app?next=${encodeURIComponent(redirectTarget)}`;
   if (shouldBypassAuth()) {
     const mockUser = { id: "test-user", email: "test@example.com" };
     const mockProfile = {
