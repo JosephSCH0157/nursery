@@ -43594,6 +43594,40 @@ var init_schema = __esm({
 });
 
 // src/settings/typographyStore.ts
+function readNumber(value, fallback) {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+function readString3(value, fallback) {
+  if (typeof value !== "string") return fallback;
+  const v = value.trim();
+  if (!v || v === "undefined" || v === "null") return fallback;
+  return v;
+}
+function normalizeTypography(input, fallback) {
+  const src = input && typeof input === "object" ? input : {};
+  return clampTypography({
+    fontFamily: readString3(src.fontFamily, fallback.fontFamily),
+    fontSizePx: readNumber(src.fontSizePx, fallback.fontSizePx),
+    lineHeight: readNumber(src.lineHeight, fallback.lineHeight),
+    weight: readNumber(src.weight, fallback.weight),
+    letterSpacingEm: readNumber(src.letterSpacingEm, fallback.letterSpacingEm),
+    wordSpacingEm: readNumber(src.wordSpacingEm, fallback.wordSpacingEm),
+    color: readString3(src.color, fallback.color),
+    background: readString3(src.background, fallback.background),
+    maxLineWidthCh: readNumber(src.maxLineWidthCh, fallback.maxLineWidthCh),
+    dimOthers: readNumber(src.dimOthers, fallback.dimOthers)
+  });
+}
+function normalizeState(raw, previous) {
+  const out = {};
+  const src = raw && typeof raw === "object" ? raw : {};
+  DISPLAYS.forEach((display) => {
+    const fallback = previous?.[display] ?? DEFAULTS2[display];
+    out[display] = normalizeTypography(src[display], fallback);
+  });
+  return out;
+}
 function getTypography(d) {
   return state6[d];
 }
@@ -43609,7 +43643,7 @@ function setTypography(d, t) {
     } catch {
     }
   }
-  state6 = { ...state6, [d]: clampTypography({ ...state6[d], ...t }) };
+  state6 = { ...state6, [d]: normalizeTypography({ ...state6[d], ...t }, state6[d] || DEFAULTS2[d]) };
   try {
     localStorage.setItem(KEY5, JSON.stringify(state6));
   } catch {
@@ -43642,18 +43676,25 @@ function clampTypography(t) {
     dimOthers: clamp11(t.dimOthers, 0, 0.7)
   };
 }
-var KEY5, META_KEY, state6, meta2, subs5;
+var KEY5, META_KEY, DISPLAYS, state6, meta2, subs5;
 var init_typographyStore = __esm({
   "src/settings/typographyStore.ts"() {
     "use strict";
     init_schema();
     KEY5 = "tp_typography_v1";
     META_KEY = "tp_typography_meta_v1";
+    DISPLAYS = ["main", "display"];
     state6 = (() => {
       try {
-        return { ...DEFAULTS2, ...JSON.parse(localStorage.getItem(KEY5) || "{}") };
+        const parsed = JSON.parse(localStorage.getItem(KEY5) || "{}");
+        const normalized = normalizeState(parsed);
+        try {
+          localStorage.setItem(KEY5, JSON.stringify(normalized));
+        } catch {
+        }
+        return normalized;
       } catch {
-        return { ...DEFAULTS2 };
+        return normalizeState({});
       }
     })();
     meta2 = (() => {
@@ -43670,9 +43711,8 @@ var init_typographyStore = __esm({
         if (e.key === KEY5) {
           try {
             const next = JSON.parse(e.newValue || "{}");
-            state6 = { ...state6, ...next };
-            Object.keys(state6).forEach((_d) => {
-              const d = _d;
+            state6 = normalizeState(next, state6);
+            DISPLAYS.forEach((d) => {
               subs5.forEach((fn) => {
                 try {
                   fn(d, state6[d]);
@@ -54733,17 +54773,35 @@ function applyTypographyTo(win, id) {
   });
   return off2;
   function setVars(style, x) {
+    const setString = (name, value) => {
+      if (typeof value === "string") {
+        const v = value.trim();
+        if (v && v !== "undefined" && v !== "null") {
+          style.setProperty(name, v);
+          return;
+        }
+      }
+      style.removeProperty(name);
+    };
+    const setNumber2 = (name, value, suffix = "") => {
+      const n = typeof value === "number" ? value : Number(value);
+      if (Number.isFinite(n)) {
+        style.setProperty(name, `${n}${suffix}`);
+        return;
+      }
+      style.removeProperty(name);
+    };
     try {
-      style.setProperty("--tp-font-family", x.fontFamily);
-      style.setProperty("--tp-font-size", `${x.fontSizePx}px`);
-      style.setProperty("--tp-line-height", String(x.lineHeight));
-      style.setProperty("--tp-weight", String(x.weight));
-      style.setProperty("--tp-letter-spacing", `${x.letterSpacingEm}em`);
-      style.setProperty("--tp-word-spacing", `${x.wordSpacingEm}em`);
-      style.setProperty("--tp-fg", x.color);
-      style.setProperty("--tp-bg", x.background);
-      style.setProperty("--tp-maxch", String(x.maxLineWidthCh));
-      style.setProperty("--tp-dim", String(x.dimOthers));
+      setString("--tp-font-family", x?.fontFamily);
+      setNumber2("--tp-font-size", x?.fontSizePx, "px");
+      setNumber2("--tp-line-height", x?.lineHeight);
+      setNumber2("--tp-weight", x?.weight);
+      setNumber2("--tp-letter-spacing", x?.letterSpacingEm, "em");
+      setNumber2("--tp-word-spacing", x?.wordSpacingEm, "em");
+      setString("--tp-fg", x?.color);
+      setString("--tp-bg", x?.background);
+      setNumber2("--tp-maxch", x?.maxLineWidthCh);
+      setNumber2("--tp-dim", x?.dimOthers);
     } catch {
     }
   }

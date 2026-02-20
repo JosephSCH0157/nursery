@@ -5,9 +5,55 @@ const META_KEY = 'tp_typography_meta_v1';
 type State = Record<DisplayId, Typography>;
 type MetaState = Record<DisplayId, { maxChManual?: boolean }>;
 
+const DISPLAYS: DisplayId[] = ['main', 'display'];
+
+function readNumber(value: unknown, fallback: number): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function readString(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') return fallback;
+  const v = value.trim();
+  if (!v || v === 'undefined' || v === 'null') return fallback;
+  return v;
+}
+
+function normalizeTypography(input: unknown, fallback: Typography): Typography {
+  const src = input && typeof input === 'object' ? (input as Partial<Typography>) : {};
+  return clampTypography({
+    fontFamily: readString(src.fontFamily, fallback.fontFamily),
+    fontSizePx: readNumber(src.fontSizePx, fallback.fontSizePx),
+    lineHeight: readNumber(src.lineHeight, fallback.lineHeight),
+    weight: readNumber(src.weight, fallback.weight),
+    letterSpacingEm: readNumber(src.letterSpacingEm, fallback.letterSpacingEm),
+    wordSpacingEm: readNumber(src.wordSpacingEm, fallback.wordSpacingEm),
+    color: readString(src.color, fallback.color),
+    background: readString(src.background, fallback.background),
+    maxLineWidthCh: readNumber(src.maxLineWidthCh, fallback.maxLineWidthCh),
+    dimOthers: readNumber(src.dimOthers, fallback.dimOthers),
+  });
+}
+
+function normalizeState(raw: unknown, previous?: State): State {
+  const out = {} as State;
+  const src = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  DISPLAYS.forEach((display) => {
+    const fallback = previous?.[display] ?? DEFAULTS[display];
+    out[display] = normalizeTypography(src[display], fallback);
+  });
+  return out;
+}
+
 let state: State = (() => {
-  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; }
-  catch { return { ...DEFAULTS }; }
+  try {
+    const parsed = JSON.parse(localStorage.getItem(KEY) || '{}');
+    const normalized = normalizeState(parsed);
+    try { localStorage.setItem(KEY, JSON.stringify(normalized)); } catch {}
+    return normalized;
+  } catch {
+    return normalizeState({});
+  }
 })();
 
 let meta: MetaState = (() => {
@@ -29,7 +75,7 @@ export function setTypography(d: DisplayId, t: Partial<Typography>) {
     meta = { ...meta, [d]: next };
     try { localStorage.setItem(META_KEY, JSON.stringify(meta)); } catch {}
   }
-  state = { ...state, [d]: clampTypography({ ...state[d], ...t } as Typography) };
+  state = { ...state, [d]: normalizeTypography({ ...state[d], ...t }, state[d] || DEFAULTS[d]) };
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {}
   subs.forEach(fn => { try { fn(d, state[d]); } catch {} });
   try { window.dispatchEvent(new CustomEvent('tp:typographyChanged', { detail: { display: d, settings: state[d] }})); } catch {}
@@ -41,10 +87,9 @@ try {
   window.addEventListener('storage', (e: StorageEvent) => {
     if (e.key === KEY) {
       try {
-        const next = JSON.parse(e.newValue || '{}') as Partial<State>;
-        state = { ...state, ...next } as State;
-        (Object.keys(state) as DisplayId[]).forEach((_d) => {
-          const d = _d as DisplayId;
+        const next = JSON.parse(e.newValue || '{}');
+        state = normalizeState(next, state);
+        DISPLAYS.forEach((d) => {
           subs.forEach(fn => { try { (fn as any)(d, state[d]); } catch {} });
         });
         try { window.dispatchEvent(new CustomEvent('tp:typographyChanged', { detail: { broadcast: true } })); } catch {}
