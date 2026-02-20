@@ -21,7 +21,6 @@ const FORGE_NAV_BUTTON_ID = "forgeNavBtn";
 const FORGE_NAV_WRAPPER_ID = "forgeNavWrap";
 const DEFAULT_MOUNT_ID = "forge-menu-slot";
 const FORGE_NAV_READY_SENTINEL = "__tpForgeNavReady";
-const FORGE_NAV_POPUP_NAME = "forgeNavPopup";
 const FORGE_NAV_POPUP_TITLE = "Nursery Menu";
 const FORGE_NAV_TREE_ID = "tree";
 const FORGE_NAV_POPUP_WIDTH = 420;
@@ -255,14 +254,28 @@ function buildPopupPlacement() {
   return { width, height, left, top, features };
 }
 
+function closePreviousNavPopup(hostWindow: any): void {
+  const existingPopup = hostWindow?.forgeNavPopup as Window | null | undefined;
+  if (existingPopup && !existingPopup.closed) {
+    try { existingPopup.close(); } catch {}
+  }
+  hostWindow.forgeNavPopup = null;
+}
+
 function openNavPopupWindow(): Window | null {
   try {
+    const hostWindow = window as any;
+    closePreviousNavPopup(hostWindow);
     const placement = buildPopupPlacement();
-    const popup = window.open("", FORGE_NAV_POPUP_NAME, placement.features);
+    const popup = window.open("", "", placement.features);
     if (!popup) return null;
+    hostWindow.forgeNavPopup = popup;
     try { popup.resizeTo(placement.width, placement.height); } catch {}
     try { popup.moveTo(placement.left, placement.top); } catch {}
     try { popup.focus(); } catch {}
+    setTimeout(() => {
+      try { popup.focus(); } catch {}
+    }, 50);
     return popup;
   } catch {
     return null;

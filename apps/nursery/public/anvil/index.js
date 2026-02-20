@@ -43135,11 +43135,24 @@ function buildPopupPlacement() {
   const features = `popup=yes,width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`;
   return { width, height, left, top, features };
 }
+function closePreviousNavPopup(hostWindow) {
+  const existingPopup = hostWindow?.forgeNavPopup;
+  if (existingPopup && !existingPopup.closed) {
+    try {
+      existingPopup.close();
+    } catch {
+    }
+  }
+  hostWindow.forgeNavPopup = null;
+}
 function openNavPopupWindow() {
   try {
+    const hostWindow = window;
+    closePreviousNavPopup(hostWindow);
     const placement = buildPopupPlacement();
-    const popup = window.open("", FORGE_NAV_POPUP_NAME, placement.features);
+    const popup = window.open("", "", placement.features);
     if (!popup) return null;
+    hostWindow.forgeNavPopup = popup;
     try {
       popup.resizeTo(placement.width, placement.height);
     } catch {
@@ -43152,6 +43165,12 @@ function openNavPopupWindow() {
       popup.focus();
     } catch {
     }
+    setTimeout(() => {
+      try {
+        popup.focus();
+      } catch {
+      }
+    }, 50);
     return popup;
   } catch {
     return null;
@@ -43305,7 +43324,7 @@ function initForgeMenu(opts = {}) {
 function initForgeNavMenu(opts = {}) {
   initForgeMenu(opts);
 }
-var FORGE_NAV_BUTTON_ID, FORGE_NAV_WRAPPER_ID, DEFAULT_MOUNT_ID, FORGE_NAV_READY_SENTINEL, FORGE_NAV_POPUP_NAME, FORGE_NAV_POPUP_TITLE, FORGE_NAV_TREE_ID, FORGE_NAV_POPUP_WIDTH, FORGE_NAV_POPUP_HEIGHT, FORGE_NAV_FALLBACK;
+var FORGE_NAV_BUTTON_ID, FORGE_NAV_WRAPPER_ID, DEFAULT_MOUNT_ID, FORGE_NAV_READY_SENTINEL, FORGE_NAV_POPUP_TITLE, FORGE_NAV_TREE_ID, FORGE_NAV_POPUP_WIDTH, FORGE_NAV_POPUP_HEIGHT, FORGE_NAV_FALLBACK;
 var init_forge_nav = __esm({
   "src/forge/forge-nav.ts"() {
     "use strict";
@@ -43313,7 +43332,6 @@ var init_forge_nav = __esm({
     FORGE_NAV_WRAPPER_ID = "forgeNavWrap";
     DEFAULT_MOUNT_ID = "forge-menu-slot";
     FORGE_NAV_READY_SENTINEL = "__tpForgeNavReady";
-    FORGE_NAV_POPUP_NAME = "forgeNavPopup";
     FORGE_NAV_POPUP_TITLE = "Nursery Menu";
     FORGE_NAV_TREE_ID = "tree";
     FORGE_NAV_POPUP_WIDTH = 420;
