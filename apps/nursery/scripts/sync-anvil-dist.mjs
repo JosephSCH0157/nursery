@@ -3,32 +3,6 @@ import path from "node:path";
 
 const GENERATED_TELEPROMPTER_BANNER =
   "<!-- GENERATED FILE. DO NOT EDIT. Edit apps/anvil/teleprompter_pro.html -->";
-const HOST_SHIM_STYLESHEET_HREF = "/anvil/host-shim.css";
-const HOST_SHIM_CSS = `/* Host-only density + overflow shim for Nursery mirror */
-html,
-body {
-  overflow-x: hidden !important;
-}
-
-body {
-  font-size: 14px !important;
-}
-
-.topbar {
-  max-width: 100vw;
-  overflow: hidden;
-  flex-wrap: wrap;
-  padding-top: 6px !important;
-  padding-bottom: 6px !important;
-}
-
-.topbar * {
-  min-width: 0;
-}
-
-/* Emergency fallback for Chromium-based hosts only. */
-/* body { zoom: 0.9; } */
-`;
 
 function copyDir(src, dest) {
   fs.mkdirSync(dest, { recursive: true });
@@ -57,28 +31,10 @@ function stripGeneratedBanner(html) {
   );
 }
 
-function injectHostShimStylesheet(html, newline) {
-  if (
-    html.includes(`href="${HOST_SHIM_STYLESHEET_HREF}"`) ||
-    html.includes(`href='${HOST_SHIM_STYLESHEET_HREF}'`)
-  ) {
-    return html;
-  }
-
-  const shimLink = `  <link rel="stylesheet" href="${HOST_SHIM_STYLESHEET_HREF}">`;
-  const teleprompterCssLink =
-    /([ \t]*<link\s+rel=["']stylesheet["'][^>]*href=["'](?:\.\/)?teleprompter_pro\.css(?:[?#][^"']*)?["'][^>]*>\r?\n?)/i;
-  if (teleprompterCssLink.test(html)) {
-    return html.replace(teleprompterCssLink, `$1${shimLink}${newline}`);
-  }
-
-  if (/<\/head>/i.test(html)) {
-    return html.replace(/<\/head>/i, `${shimLink}${newline}</head>`);
-  }
-
-  throw new Error(
-    "[sync-anvil] unable to inject host shim stylesheet into teleprompter_pro.html",
-  );
+function stripHostShimStylesheet(html) {
+  return html
+    .replace(/[ \t]*<link\s+rel=["']stylesheet["']\s+href=["']\/anvil\/host-shim\.css["']\s*>\r?\n?/gi, "")
+    .replace(/[ \t]*<link\s+href=["']\/anvil\/host-shim\.css["']\s+rel=["']stylesheet["']\s*>\r?\n?/gi, "");
 }
 
 function tagGeneratedTeleprompter(filePath) {
@@ -87,15 +43,10 @@ function tagGeneratedTeleprompter(filePath) {
   }
   const html = fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
   const normalized = stripGeneratedBanner(html);
-  const newline = normalized.includes("\r\n") ? "\r\n" : "\n";
-  const withHostShim = injectHostShimStylesheet(normalized, newline);
-  const tagged = `${GENERATED_TELEPROMPTER_BANNER}${newline}${withHostShim}`;
+  const cleaned = stripHostShimStylesheet(normalized);
+  const newline = cleaned.includes("\r\n") ? "\r\n" : "\n";
+  const tagged = `${GENERATED_TELEPROMPTER_BANNER}${newline}${cleaned}`;
   fs.writeFileSync(filePath, tagged, "utf8");
-}
-
-function writeHostShimStylesheet(destDir) {
-  const shimPath = path.join(destDir, "host-shim.css");
-  fs.writeFileSync(shimPath, HOST_SHIM_CSS, "utf8");
 }
 
 function writeGeneratedReadme(destDir) {
@@ -128,7 +79,10 @@ copyDir(src, dest);
 
 const mirroredTeleprompter = path.join(dest, "teleprompter_pro.html");
 tagGeneratedTeleprompter(mirroredTeleprompter);
-writeHostShimStylesheet(dest);
+const legacyHostShimPath = path.join(dest, "host-shim.css");
+if (fs.existsSync(legacyHostShimPath)) {
+  fs.rmSync(legacyHostShimPath, { force: true });
+}
 writeGeneratedReadme(dest);
 
 console.log(`[sync-anvil] ${src} -> ${dest} (one-way mirror)`);
