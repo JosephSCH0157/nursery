@@ -1,4 +1,5 @@
-import { getMappedFolder, refreshMappedFolder } from './mapped-folder';
+import { getMappedFolder, isMappedFolderManagedByNursery, refreshMappedFolder } from './mapped-folder';
+import { getNurseryStorageSettingsUrl } from '../forge/nursery-mounts';
 
 function safeFilename(title: string): string {
   const t = (title || '').trim() || 'Untitled';
@@ -11,7 +12,12 @@ export async function saveToMappedFolder(
   text: string,
 ): Promise<{ ok: boolean; name?: string; reason?: string }> {
   const dir = getMappedFolder();
-  if (!dir) return { ok: false, reason: 'No folder mapped' };
+  if (!dir) {
+    if (isMappedFolderManagedByNursery()) {
+      return { ok: false, reason: `No Nursery scripts folder linked (${getNurseryStorageSettingsUrl()})` };
+    }
+    return { ok: false, reason: 'No folder mapped' };
+  }
 
   const name = safeFilename(title);
   try {

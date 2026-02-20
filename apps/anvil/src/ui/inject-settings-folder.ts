@@ -32,7 +32,7 @@ export function ensureSettingsFolderControls() {
 
     card.innerHTML = `
       <h4>Scripts Folder</h4>
-      <div class="settings-small">Map a directory of .txt / .md / .docx files; select to load instantly.</div>
+      <div class="settings-small">Managed by Nursery Storage when connected. Standalone mode can map a local .txt / .md / .docx directory.</div>
       <div class="settings-row settings-mapped-folder">
         <div class="settings-row__controls">
           <button id="chooseFolderBtn" type="button">Choose Folder</button>

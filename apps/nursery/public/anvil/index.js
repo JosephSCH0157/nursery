@@ -13673,16 +13673,16 @@ function scrollByPx(dy, getScroller3 = defaultViewer) {
     }
     return;
   }
-  const current3 = sc.scrollTop || 0;
-  const { target, guardDenied } = clampScrollTop(sc, current3 + (Number(dy) || 0));
+  const current2 = sc.scrollTop || 0;
+  const { target, guardDenied } = clampScrollTop(sc, current2 + (Number(dy) || 0));
   if (guardDenied) {
     if (logEnabled) {
-      logScrollWrite({ caller, target, current: current3, accepted: false, reason: "clamp-guard" });
+      logScrollWrite({ caller, target, current: current2, accepted: false, reason: "clamp-guard" });
     }
     return;
   }
   if (logEnabled) {
-    logScrollWrite({ caller, target, current: current3, accepted: true, reason: "scrollByPx" });
+    logScrollWrite({ caller, target, current: current2, accepted: true, reason: "scrollByPx" });
   }
   requestWrite(() => {
     try {
@@ -13807,16 +13807,16 @@ function createScrollerHelpers(getScroller3) {
         }
         return;
       }
-      const current3 = sc.scrollTop || 0;
+      const current2 = sc.scrollTop || 0;
       const { target, guardDenied } = clampScrollTop(sc, top);
       if (guardDenied) {
         if (logEnabled) {
-          logScrollWrite({ caller, target, current: current3, accepted: false, reason: "clamp-guard" });
+          logScrollWrite({ caller, target, current: current2, accepted: false, reason: "clamp-guard" });
         }
         return;
       }
       if (logEnabled) {
-        logScrollWrite({ caller, target, current: current3, accepted: true, reason: "requestScroll" });
+        logScrollWrite({ caller, target, current: current2, accepted: true, reason: "requestScroll" });
       }
       requestWrite(() => {
         try {
@@ -14866,20 +14866,20 @@ function createHybridWpmMotor(deps) {
   };
   const tick = () => {
     if (!running2) return;
-    const current3 = now3();
-    const prev2 = lastNow ?? current3;
-    const deltaMs = current3 - prev2;
+    const current2 = now3();
+    const prev2 = lastNow ?? current2;
+    const deltaMs = current2 - prev2;
     const dt = clamp(deltaMs / 1e3, 0, 0.2);
     if (deltaMs > 200) {
-      if (current3 - lastDtClampLogAtMs >= DT_CLAMP_LOG_INTERVAL_MS) {
-        lastDtClampLogAtMs = current3;
+      if (current2 - lastDtClampLogAtMs >= DT_CLAMP_LOG_INTERVAL_MS) {
+        lastDtClampLogAtMs = current2;
         log("dt-clamp", {
           dtRaw: deltaMs / 1e3,
           dtClamped: dt
         });
       }
     }
-    lastNow = current3;
+    lastNow = current2;
     if (velocityPxPerSec !== 0) {
       if (!writer) {
         if (!warnedNoWriter) {
@@ -15245,8 +15245,8 @@ function loadLegacyAsrSettings() {
 }
 function migrateAutoRecordFlag() {
   try {
-    const current3 = localStorage.getItem(AUTO_RECORD_KEY);
-    if (current3 !== null && typeof current3 !== "undefined") {
+    const current2 = localStorage.getItem(AUTO_RECORD_KEY);
+    if (current2 !== null && typeof current2 !== "undefined") {
       if (localStorage.getItem(LEGACY_AUTO_RECORD_KEY) !== null) {
         try {
           localStorage.removeItem(LEGACY_AUTO_RECORD_KEY);
@@ -16228,8 +16228,8 @@ var init_profile_store = __esm({
       async saveProfilePatch(patch) {
         const user = await this.getUser();
         const userId = user.id;
-        const current3 = await this.getProfile();
-        const next = applyProfilePatch(current3, patch);
+        const current2 = await this.getProfile();
+        const next = applyProfilePatch(current2, patch);
         this.cache = next;
         const { error } = await this.supabase.from("tp_profiles").upsert(
           {
@@ -17465,18 +17465,18 @@ function computeLineTargetMultiplier(errorLines, eligible) {
   );
 }
 function updateHybridLineMult(targetMult, dtMs, allowFastUp = false) {
-  const current3 = Number.isFinite(hybridCtrl.lineMult) ? hybridCtrl.lineMult : 1;
+  const current2 = Number.isFinite(hybridCtrl.lineMult) ? hybridCtrl.lineMult : 1;
   const target = Number.isFinite(targetMult ?? NaN) ? Number(targetMult) : 1;
   if (!Number.isFinite(dtMs) || dtMs <= 0) {
     hybridCtrl.lineMult = target;
     return hybridCtrl.lineMult;
   }
   const alpha = 1 - Math.exp(-dtMs / HYBRID_CTRL_LINE_SMOOTH_TAU_MS);
-  const next = current3 + (target - current3) * alpha;
+  const next = current2 + (target - current2) * alpha;
   const maxDeltaDown = HYBRID_CTRL_LINE_RATE_LIMIT_PER_SEC * (dtMs / 1e3);
   const maxDeltaUp = HYBRID_CTRL_LINE_RATE_LIMIT_PER_SEC * (dtMs / 1e3) * (allowFastUp ? HYBRID_CTRL_LINE_RATE_LIMIT_BEHIND_MULT : 1);
-  const limited = clamp2(next, current3 - maxDeltaDown, current3 + maxDeltaUp);
-  hybridCtrl.lineMult = Number.isFinite(limited) ? limited : current3;
+  const limited = clamp2(next, current2 - maxDeltaDown, current2 + maxDeltaUp);
+  hybridCtrl.lineMult = Number.isFinite(limited) ? limited : current2;
   return hybridCtrl.lineMult;
 }
 function computeSilenceCapMultiplier(silenceMs) {
@@ -23245,8 +23245,8 @@ var init_router_impl = __esm({
       if (typeof window === "undefined") return false;
       let manualOverride = false;
       try {
-        const current3 = window.location.href || window.location.hash || window.location.search || "";
-        const url = new URL(current3, window.location.origin || void 0);
+        const current2 = window.location.href || window.location.hash || window.location.search || "";
+        const url = new URL(current2, window.location.origin || void 0);
         const fromSearch = url.searchParams.get("hybridCtrl");
         const fromHash = new URLSearchParams((url.hash || "").replace(/^#/, "")).get("hybridCtrl");
         if (fromSearch === "1" || fromHash === "1") manualOverride = true;
@@ -23457,8 +23457,8 @@ function getStore() {
 }
 function nextSeq() {
   const w3 = window;
-  const current3 = Number(w3[SEQ_KEY]);
-  const seq = Number.isFinite(current3) ? current3 + 1 : 1;
+  const current2 = Number(w3[SEQ_KEY]);
+  const seq = Number.isFinite(current2) ? current2 + 1 : 1;
   w3[SEQ_KEY] = seq;
   return seq;
 }
@@ -24782,6 +24782,128 @@ var init_script_doc = __esm({
   }
 });
 
+// src/forge/nursery-mounts.ts
+function readString(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+function readRegistry() {
+  try {
+    const raw = localStorage.getItem(REGISTRY_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+function getActiveWorkspaceId(registry3) {
+  for (const key of ACTIVE_WORKSPACE_KEYS) {
+    try {
+      const value = readString(localStorage.getItem(key));
+      if (value) return value;
+    } catch {
+    }
+  }
+  return readString(registry3?.workspaceId) ?? "default";
+}
+function getMountEntry(registry3, role) {
+  const mounts = Array.isArray(registry3?.mounts) ? registry3?.mounts : [];
+  for (const mount of mounts) {
+    if (!mount || typeof mount !== "object") continue;
+    const entry = mount;
+    if (readString(entry.role) === role) return entry;
+  }
+  return null;
+}
+function buildFallbackVaultKey(workspaceId, role) {
+  return `mount:${workspaceId ?? "default"}:${role}:local`;
+}
+function openVaultDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(VAULT_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(VAULT_STORE_NAME)) {
+        db.createObjectStore(VAULT_STORE_NAME, { keyPath: "key" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+async function getHandleFromVault(key) {
+  try {
+    const db = await openVaultDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(VAULT_STORE_NAME, "readonly");
+      const request = tx.objectStore(VAULT_STORE_NAME).get(key);
+      request.onsuccess = () => {
+        const result = request.result;
+        resolve(result?.handle ?? null);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  } catch {
+    return null;
+  }
+}
+function getForgeHubOrigin() {
+  try {
+    const w3 = window;
+    const fromEnv = readString(w3.FORGE_HUB_ORIGIN);
+    if (fromEnv) return fromEnv;
+    const fromForgeConfig = readString(w3.__forgeAppOrigin);
+    if (fromForgeConfig) return fromForgeConfig;
+  } catch {
+  }
+  return "";
+}
+function getNurseryStorageSettingsUrl() {
+  const origin = getForgeHubOrigin();
+  if (!origin) return "/app/settings/storage";
+  try {
+    return new URL("/app/settings/storage", origin).toString();
+  } catch {
+    return "/app/settings/storage";
+  }
+}
+async function getNurseryManagedDirectory(role) {
+  const registry3 = readRegistry();
+  if (!registry3) {
+    return {
+      managed: false,
+      role,
+      workspaceId: null,
+      handle: null
+    };
+  }
+  const workspaceId = getActiveWorkspaceId(registry3);
+  const entry = getMountEntry(registry3, role);
+  const vaultKey = readString(entry?.local?.vaultKey) ?? buildFallbackVaultKey(workspaceId, role);
+  const hint = readString(entry?.local?.hint) ?? void 0;
+  const handle = await getHandleFromVault(vaultKey);
+  return {
+    managed: true,
+    role,
+    workspaceId,
+    vaultKey,
+    hint,
+    handle
+  };
+}
+var REGISTRY_KEY, ACTIVE_WORKSPACE_KEYS, VAULT_DB_NAME, VAULT_STORE_NAME;
+var init_nursery_mounts = __esm({
+  "src/forge/nursery-mounts.ts"() {
+    "use strict";
+    REGISTRY_KEY = "forge_mount_registry_v2";
+    ACTIVE_WORKSPACE_KEYS = ["forge_workspace_id_v1", "barstock_workspace_id"];
+    VAULT_DB_NAME = "forge_handle_vault";
+    VAULT_STORE_NAME = "handles";
+  }
+});
+
 // src/fs/mapped-folder.ts
 function openDB() {
   return new Promise((resolve, reject) => {
@@ -24882,17 +25004,46 @@ function emit(why) {
 function getMappedFolder() {
   return _dir;
 }
+function isMappedFolderManagedByNursery() {
+  return _managedByNursery;
+}
+function getMappedFolderManagerHint() {
+  return _managedHint;
+}
 function refreshMappedFolder() {
   try {
     console.debug("[mapped-folder] refresh requested");
   } catch {
   }
+  if (_managedByNursery) {
+    void syncManagedFromNursery("sync");
+  }
   broadcast();
   emit("sync");
+}
+async function syncManagedFromNursery(why) {
+  try {
+    const managed = await getNurseryManagedDirectory("scripts");
+    if (!managed.managed) {
+      _managedByNursery = false;
+      _managedHint = null;
+      _dir = null;
+      return false;
+    }
+    _managedByNursery = true;
+    _managedHint = managed.hint ?? null;
+    _dir = managed.handle ?? null;
+    ensureBroadcast();
+    emit(why);
+    return true;
+  } catch {
+    return false;
+  }
 }
 async function initMappedFolder() {
   if (_initPromise) return _initPromise;
   _initPromise = (async () => {
+    if (await syncManagedFromNursery("init")) return;
     try {
       try {
         const FLAG = "tp_persist_req_v1";
@@ -24920,6 +25071,8 @@ async function initMappedFolder() {
       }
     } catch {
     }
+    _managedByNursery = false;
+    _managedHint = null;
     _dir = null;
     ensureBroadcast();
     emit("init");
@@ -24933,6 +25086,10 @@ async function initMappedFolder() {
   return _initPromise;
 }
 async function pickMappedFolder() {
+  if (_managedByNursery) {
+    emit("sync");
+    return false;
+  }
   try {
     const hasPicker = typeof window.showDirectoryPicker === "function";
     if (!hasPicker) return false;
@@ -24955,6 +25112,10 @@ async function pickMappedFolder() {
   }
 }
 async function clearMappedFolder() {
+  if (_managedByNursery) {
+    emit("sync");
+    return;
+  }
   _dir = null;
   await idbDel(KEY3);
   broadcast();
@@ -24987,6 +25148,8 @@ function ensureBroadcast() {
         try {
           if (!e?.data) return;
           if (e.data.type === "tp-mapped-folder:refresh") {
+            const managedSynced = await syncManagedFromNursery("sync");
+            if (managedSynced) return;
             const h = await idbGet(KEY3);
             if (h && await verifyPermission(h, "read")) {
               _dir = h;
@@ -24999,6 +25162,8 @@ function ensureBroadcast() {
       window.addEventListener("storage", async (ev) => {
         try {
           if (ev.key === STORAGE_KEY3 && ev.newValue) {
+            const managedSynced = await syncManagedFromNursery("sync");
+            if (managedSynced) return;
             const h = await idbGet(KEY3);
             if (h && await verifyPermission(h, "read")) {
               _dir = h;
@@ -25028,10 +25193,11 @@ function broadcast() {
   } catch {
   }
 }
-var DB_NAME, STORE, KEY3, BCAST, STORAGE_KEY3, _dir, _bc, _listeners, _initPromise;
+var DB_NAME, STORE, KEY3, BCAST, STORAGE_KEY3, _dir, _bc, _listeners, _initPromise, _managedByNursery, _managedHint;
 var init_mapped_folder = __esm({
   "src/fs/mapped-folder.ts"() {
     "use strict";
+    init_nursery_mounts();
     DB_NAME = "tp-db";
     STORE = "fs-handles";
     KEY3 = "scriptsRoot";
@@ -25041,8 +25207,17 @@ var init_mapped_folder = __esm({
     _bc = null;
     _listeners = /* @__PURE__ */ new Set();
     _initPromise = null;
+    _managedByNursery = false;
+    _managedHint = null;
     try {
-      window.__tpFolder = { get: getMappedFolder, pick: pickMappedFolder, clear: clearMappedFolder, list: listScripts };
+      window.__tpFolder = {
+        get: getMappedFolder,
+        pick: pickMappedFolder,
+        clear: clearMappedFolder,
+        list: listScripts,
+        isManaged: isMappedFolderManagedByNursery,
+        getManagedHint: getMappedFolderManagerHint
+      };
     } catch {
     }
   }
@@ -25106,7 +25281,14 @@ async function saveScriptAs(text, opts = {}) {
   if (!folder) {
     const err = new Error("No mapped folder available for Save As");
     logSaveFail("saveAs", safeName, err);
-    showSaveError("No folder mapped", "Pick a scripts folder in Settings to save files.");
+    if (isMappedFolderManagedByNursery()) {
+      showSaveError(
+        "No Nursery scripts folder linked",
+        `Configure scripts storage in Nursery > Settings > Storage (${getNurseryStorageSettingsUrl()}).`
+      );
+    } else {
+      showSaveError("No folder mapped", "Pick a scripts folder in Settings to save files.");
+    }
     return { ok: false, mode: "saveAs", reason: "nofolder", name: safeName, error: err };
   }
   const resolved = await resolveFilenameWithCollision(folder, safeName);
@@ -25373,6 +25555,7 @@ var init_script_save = __esm({
   "src/fs/script-save.ts"() {
     "use strict";
     init_mapped_folder();
+    init_nursery_mounts();
     init_script_doc();
     init_script_naming();
     init_logging();
@@ -25469,25 +25652,25 @@ function saveScript(name) {
 function deleteCurrent() {
   const list = readList();
   if (!list.length) return;
-  let current3 = null;
+  let current2 = null;
   try {
-    current3 = localStorage.getItem(TITLE_KEY);
+    current2 = localStorage.getItem(TITLE_KEY);
   } catch {
   }
-  if (!current3) return;
-  writeList(list.filter((s) => s.title !== current3));
+  if (!current2) return;
+  writeList(list.filter((s) => s.title !== current2));
 }
 function renameCurrent() {
   const list = readList();
   if (!list.length) return;
-  let current3 = null;
+  let current2 = null;
   try {
-    current3 = localStorage.getItem(TITLE_KEY);
+    current2 = localStorage.getItem(TITLE_KEY);
   } catch {
   }
-  const next = prompt("Rename script to:", current3 || "Untitled");
+  const next = prompt("Rename script to:", current2 || "Untitled");
   if (!next) return;
-  const entry = list.find((s) => s.title === current3);
+  const entry = list.find((s) => s.title === current2);
   if (!entry) return;
   entry.title = next;
   entry.ts = Date.now();
@@ -25721,14 +25904,14 @@ function combineTensAndOnes(tokens) {
   if (!tokens.length) return tokens;
   const combined = [];
   for (let i = 0; i < tokens.length; i += 1) {
-    const current3 = tokens[i];
+    const current2 = tokens[i];
     const next = tokens[i + 1];
-    if (TENS_TOKENS.has(current3) && typeof next === "string" && ONES_TOKEN_RE.test(next)) {
-      combined.push(String(Number(current3) + Number(next)));
+    if (TENS_TOKENS.has(current2) && typeof next === "string" && ONES_TOKEN_RE.test(next)) {
+      combined.push(String(Number(current2) + Number(next)));
       i += 1;
       continue;
     }
-    combined.push(current3);
+    combined.push(current2);
   }
   return combined;
 }
@@ -29529,17 +29712,17 @@ function createAsrScrollDriver(options = {}) {
   };
   const chooseWithinBlockContinuityLine = (proposedLine, candidateScores, cursorLine, bestScore) => {
     const nextLine = Math.max(0, Math.floor(proposedLine));
-    const current3 = Math.max(0, Math.floor(cursorLine));
-    if (nextLine - current3 <= 1) return nextLine;
-    const minForwardLine = current3 + Math.max(1, minLineAdvance);
-    const cursorBlock = findBlockByLine(current3);
+    const current2 = Math.max(0, Math.floor(cursorLine));
+    if (nextLine - current2 <= 1) return nextLine;
+    const minForwardLine = current2 + Math.max(1, minLineAdvance);
+    const cursorBlock = findBlockByLine(current2);
     const targetBlock = findBlockByLine(nextLine);
     if (!cursorBlock || !targetBlock || cursorBlock.blockId !== targetBlock.blockId) {
       return nextLine;
     }
     const scoreFloor = Number.isFinite(bestScore) ? Math.max(0, bestScore - WITHIN_BLOCK_CONTINUITY_SIM_SLACK) : 0;
     let picked = nextLine;
-    let pickedDelta = nextLine - current3;
+    let pickedDelta = nextLine - current2;
     for (const entry of candidateScores) {
       const candidateLine = Math.max(0, Math.floor(Number(entry.idx)));
       const candidateScore = Number(entry.score);
@@ -29548,7 +29731,7 @@ function createAsrScrollDriver(options = {}) {
       if (candidateScore < scoreFloor) continue;
       const candidateBlock = findBlockByLine(candidateLine);
       if (!candidateBlock || candidateBlock.blockId !== targetBlock.blockId) continue;
-      const candidateDelta = candidateLine - current3;
+      const candidateDelta = candidateLine - current2;
       if (candidateDelta < pickedDelta) {
         picked = candidateLine;
         pickedDelta = candidateDelta;
@@ -30187,14 +30370,14 @@ function createAsrScrollDriver(options = {}) {
     const now3 = performance.now();
     const dt = Math.max(1e-3, (now3 - (pursuitLastTs || now3)) / 1e3);
     pursuitLastTs = now3;
-    const current3 = scroller.scrollTop || 0;
-    appliedTopPx = current3;
-    const manualDelta = Math.abs(current3 - lastKnownScrollTop);
+    const current2 = scroller.scrollTop || 0;
+    appliedTopPx = current2;
+    const manualDelta = Math.abs(current2 - lastKnownScrollTop);
     if (pursuitActive && lastMoveAt && manualDelta > DEFAULT_PURSUE_MANUAL_CANCEL_PX) {
       pursuitActive = false;
       pursuitTargetTop = null;
       pursuitVel = 0;
-      lastKnownScrollTop = current3;
+      lastKnownScrollTop = current2;
       logDev("pursuit canceled (manual scroll)", { delta: Math.round(manualDelta) });
       return;
     }
@@ -30203,10 +30386,10 @@ function createAsrScrollDriver(options = {}) {
       pursuitActive = false;
       return;
     }
-    if (pursuitTargetTop < current3) {
-      pursuitTargetTop = current3;
+    if (pursuitTargetTop < current2) {
+      pursuitTargetTop = current2;
     }
-    const err = pursuitTargetTop - current3;
+    const err = pursuitTargetTop - current2;
     const microActive = microPursuitUntil > now3;
     const allowCreep = microActive || motionTuning.minPursuitPxPerSec > 0;
     if (err <= 0.5) {
@@ -30214,7 +30397,7 @@ function createAsrScrollDriver(options = {}) {
       pursuitVel = 0;
       pursuitActive = false;
       pursuitTargetTop = null;
-      emitPursuitHud(err, pursuitVel, target, current3);
+      emitPursuitHud(err, pursuitVel, target, current2);
       return;
     }
     if (err <= deadbandPx && !allowCreep) {
@@ -30222,7 +30405,7 @@ function createAsrScrollDriver(options = {}) {
       pursuitVel = 0;
       pursuitActive = false;
       pursuitTargetTop = null;
-      emitPursuitHud(err, pursuitVel, target, current3);
+      emitPursuitHud(err, pursuitVel, target, current2);
       return;
     }
     let maxVelForErr = resolveMaxVel(err);
@@ -30241,7 +30424,7 @@ function createAsrScrollDriver(options = {}) {
     if (move < minStepPx) move = Math.min(err, minStepPx);
     move = Math.min(err, move);
     if (move > 0) {
-      const applied = applyScrollWithHybridGuard(current3 + move, { scroller, reason: "asr-tick" });
+      const applied = applyScrollWithHybridGuard(current2 + move, { scroller, reason: "asr-tick" });
       appliedTopPx = applied;
       lastKnownScrollTop = applied;
       lastMoveAt = Date.now();
@@ -30256,7 +30439,7 @@ function createAsrScrollDriver(options = {}) {
         emitHybridAssist(assistBoost, "asr-pursuit", pursuitTargetTop ?? void 0, HYBRID_ASSIST_TTL_MS);
       }
     }
-    emitPursuitHud(err, pursuitVel, pursuitTargetTop, current3);
+    emitPursuitHud(err, pursuitVel, pursuitTargetTop, current2);
     window.requestAnimationFrame(tickController);
   };
   const ensurePursuitActive = () => {
@@ -39522,9 +39705,9 @@ function toastObs(msg, type = "info") {
   if (shouldSilenceObsLogs) return;
   try {
     const w3 = window;
-    const toast6 = w3._toast || w3.toast;
-    if (typeof toast6 === "function") {
-      toast6(msg, { type });
+    const toast5 = w3._toast || w3.toast;
+    if (typeof toast5 === "function") {
+      toast5(msg, { type });
       return;
     }
   } catch {
@@ -41661,8 +41844,8 @@ function getBlockLineRange(blockEl) {
 }
 function getCurrentLineIndex() {
   if (typeof window === "undefined") return null;
-  const current3 = Number(window.currentIndex);
-  if (Number.isFinite(current3)) return Math.max(0, Math.floor(current3));
+  const current2 = Number(window.currentIndex);
+  if (Number.isFinite(current2)) return Math.max(0, Math.floor(current2));
   try {
     const driver = window.__tpAsrScrollDriver;
     const fromDriver = Number(driver?.getLastLineIndex?.());
@@ -42684,8 +42867,8 @@ async function saveProfileSettings(opts) {
   }
   return { rev: Number(data?.settings_rev ?? expectedRev + 1) };
 }
-function applySettingsPatch(current3, patch) {
-  return deepMerge2(current3, patch);
+function applySettingsPatch(current2, patch) {
+  return deepMerge2(current2, patch);
 }
 function shouldBypassAuth() {
   try {
@@ -42765,7 +42948,7 @@ var init_authProfile = __esm({
 });
 
 // src/forge/forge-nav.ts
-function readString(value) {
+function readString2(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
@@ -42778,17 +42961,17 @@ function normalizePayload(raw) {
   const tree = [];
   for (const section of raw.tree) {
     if (!isRecord(section)) continue;
-    const id = readString(section.id);
-    const title = readString(section.title) ?? void 0;
+    const id = readString2(section.id);
+    const title = readString2(section.title) ?? void 0;
     const rawItems = Array.isArray(section.items) ? section.items : [];
     if (!id || rawItems.length === 0) continue;
     const items = [];
     for (const item of rawItems) {
       if (!isRecord(item)) continue;
-      const itemId = readString(item.id);
-      const label = readString(item.label);
-      const to = readString(item.to) ?? void 0;
-      const href = readString(item.href) ?? void 0;
+      const itemId = readString2(item.id);
+      const label = readString2(item.label);
+      const to = readString2(item.to) ?? void 0;
+      const href = readString2(item.href) ?? void 0;
       if (!itemId || !label || !to && !href) continue;
       items.push({ id: itemId, label, to, href });
     }
@@ -42798,26 +42981,26 @@ function normalizePayload(raw) {
   if (!tree.length) return null;
   return {
     schema: typeof raw.schema === "number" ? raw.schema : 1,
-    generated_at: readString(raw.generated_at),
+    generated_at: readString2(raw.generated_at),
     tree
   };
 }
-function getForgeHubOrigin() {
+function getForgeHubOrigin2() {
   const win = window;
-  const fromEnv = readString(win.FORGE_HUB_ORIGIN);
+  const fromEnv = readString2(win.FORGE_HUB_ORIGIN);
   if (fromEnv) return fromEnv;
-  const fromForgeConfig = readString(win.__forgeAppOrigin);
+  const fromForgeConfig = readString2(win.__forgeAppOrigin);
   if (fromForgeConfig) return fromForgeConfig;
   return "";
 }
 function getBuildId() {
   const win = window;
-  const explicit = readString(win.FORGE_BUILD_ID);
+  const explicit = readString2(win.FORGE_BUILD_ID);
   if (explicit) return explicit;
-  return readString(win.APP_VERSION) ?? null;
+  return readString2(win.APP_VERSION) ?? null;
 }
 function buildNavUrl() {
-  const base = getForgeHubOrigin() || window.location.origin;
+  const base = getForgeHubOrigin2() || window.location.origin;
   const navUrl = new URL("/forge-nav.json", base);
   const buildId = getBuildId();
   if (buildId) {
@@ -42829,7 +43012,7 @@ function resolveItemHref(item) {
   if (item.href) {
     if (/^https?:\/\//i.test(item.href)) return item.href;
     if (item.href.startsWith("/")) {
-      const hubOrigin2 = getForgeHubOrigin();
+      const hubOrigin2 = getForgeHubOrigin2();
       if (!hubOrigin2) return item.href;
       try {
         return new URL(item.href, hubOrigin2).toString();
@@ -42843,7 +43026,7 @@ function resolveItemHref(item) {
   if (!to) return "#";
   if (/^https?:\/\//i.test(to)) return to;
   if (!(to === "/app" || to.startsWith("/app/"))) return "#";
-  const hubOrigin = getForgeHubOrigin();
+  const hubOrigin = getForgeHubOrigin2();
   if (!hubOrigin) return "#";
   try {
     return new URL(to, hubOrigin).toString();
@@ -42916,7 +43099,7 @@ function renderNavPanel(panel, payload) {
   });
 }
 function initForgeMenu(opts = {}) {
-  const mountId = readString(opts.mountId) ?? DEFAULT_MOUNT_ID;
+  const mountId = readString2(opts.mountId) ?? DEFAULT_MOUNT_ID;
   const mount = document.getElementById(mountId);
   if (!mount) return;
   const win = window;
@@ -43064,7 +43247,7 @@ function applySample(ed) {
   }
 }
 function bindLoadSample(doc = document) {
-  const wire3 = () => {
+  const wire2 = () => {
     const btn = doc.getElementById("loadSample") || doc.querySelector('[data-action="load-sample"]');
     const ed = doc.getElementById("editor");
     if (!btn || !ed) return false;
@@ -43080,10 +43263,10 @@ function bindLoadSample(doc = document) {
     }, { capture: true });
     return true;
   };
-  if (wire3()) return;
+  if (wire2()) return;
   try {
     const mo = new MutationObserver(() => {
-      if (wire3()) mo.disconnect();
+      if (wire2()) mo.disconnect();
     });
     mo.observe(doc.documentElement, { childList: true, subtree: true });
   } catch {
@@ -43146,9 +43329,9 @@ function handleToggle(on3, sourceId) {
         const doc2 = window.document;
         syncEnabledCheckboxes(doc2, false);
         try {
-          const toast6 = window.toast;
-          if (typeof toast6 === "function") {
-            toast6("Finish configuring OBS in Settings \u2192 Recording before enabling remote OBS.");
+          const toast5 = window.toast;
+          if (typeof toast5 === "function") {
+            toast5("Finish configuring OBS in Settings \u2192 Recording before enabling remote OBS.");
           }
         } catch {
         }
@@ -43192,7 +43375,7 @@ function buildUrl(hostWithPort, explicitPort) {
 function bindObsSettingsUI(doc = document) {
   let syncing = false;
   let wired2 = false;
-  const wire3 = () => {
+  const wire2 = () => {
     const enableEl = doc.getElementById(ENABLE_ID);
     const sidebarEnableEl = doc.getElementById(SIDEBAR_ENABLE_ID);
     const toggleEls = Array.from(
@@ -43270,10 +43453,10 @@ function bindObsSettingsUI(doc = document) {
     });
     return true;
   };
-  if (!wire3()) {
+  if (!wire2()) {
     try {
       const mo = new MutationObserver(() => {
-        if (wire3()) {
+        if (wire2()) {
           mo.disconnect();
         }
       });
@@ -45368,6 +45551,7 @@ var recording_dir_exports = {};
 var init_recording_dir = __esm({
   "src/fs/recording-dir.ts"() {
     "use strict";
+    init_nursery_mounts();
     (function() {
       const DB_NAME2 = "tp-db";
       const STORE2 = "fs-handles";
@@ -45450,7 +45634,27 @@ var init_recording_dir = __esm({
         }
       }
       let _dir2 = null;
+      let _managedByNursery2 = false;
+      let _managedHint2 = null;
+      async function syncManagedRecordingDir() {
+        try {
+          const managed = await getNurseryManagedDirectory("recordings");
+          if (!managed.managed) {
+            _managedByNursery2 = false;
+            _managedHint2 = null;
+            _dir2 = null;
+            return false;
+          }
+          _managedByNursery2 = true;
+          _managedHint2 = managed.hint ?? null;
+          _dir2 = managed.handle ?? null;
+          return true;
+        } catch {
+          return false;
+        }
+      }
       async function initRecordingDir() {
+        if (await syncManagedRecordingDir()) return;
         try {
           const h = await idbGet2(KEY7);
           if (h) {
@@ -45465,15 +45669,18 @@ var init_recording_dir = __esm({
         return _dir2 || null;
       }
       async function setRecordingDir(h) {
+        if (_managedByNursery2) return;
         _dir2 = h || null;
         if (h) await idbSet2(KEY7, h);
         else await idbDel2(KEY7);
       }
       async function clearRecordingDir() {
+        if (_managedByNursery2) return;
         _dir2 = null;
         await idbDel2(KEY7);
       }
       async function pickRecordingDir() {
+        if (_managedByNursery2) return _dir2 || null;
         if (!hasFsApi()) return null;
         try {
           const dir = await window.showDirectoryPicker({ mode: "readwrite", id: "tp-recordings" });
@@ -45493,7 +45700,9 @@ var init_recording_dir = __esm({
         set: setRecordingDir,
         clear: clearRecordingDir,
         pick: pickRecordingDir,
-        supported: hasFsApi
+        supported: hasFsApi,
+        isManaged: () => _managedByNursery2,
+        managedHint: () => _managedHint2
       };
       try {
         window.__tpRecDir = api;
@@ -46865,10 +47074,10 @@ function initSpeechNotesHud(options = {}) {
     <div id="snList" style="overflow:auto;padding:.5rem .75rem;display:grid;gap:.4rem;background:rgba(0,0,0,.15)"></div>
   `;
   root.appendChild(panel);
-  const $5 = (id) => document.getElementById(id);
-  const listEl = $5("snList");
-  const finalsChk = $5("snFinalsOnly");
-  const statusEl = $5("snStatus");
+  const $4 = (id) => document.getElementById(id);
+  const listEl = $4("snList");
+  const finalsChk = $4("snFinalsOnly");
+  const statusEl = $4("snStatus");
   let notes = [];
   try {
     notes = JSON.parse(localStorage.getItem(LS_KEY3) || "[]");
@@ -46958,10 +47167,10 @@ function initSpeechNotesHud(options = {}) {
     const persist2 = savingEnabled() ? " \u2022 save=ON" : " \u2022 save=OFF";
     statusEl.textContent = on3 ? `listening (${m})${persist2}` : `idle${persist2}`;
   };
-  const clearBtn = $5("snClear");
-  const copyBtn = $5("snCopy");
-  const exportBtn = $5("snExport");
-  const closeBtn = $5("snClose");
+  const clearBtn = $4("snClear");
+  const copyBtn = $4("snCopy");
+  const exportBtn = $4("snExport");
+  const closeBtn = $4("snClose");
   if (clearBtn) clearBtn.onclick = clear;
   if (copyBtn) copyBtn.onclick = copyAll;
   if (exportBtn) exportBtn.onclick = exportTxt;
@@ -49698,6 +49907,127 @@ var init_mammoth = __esm({
   }
 });
 
+// src/ui/inject-settings-folder.ts
+function ensureSettingsFolderControls() {
+  const settingsBody = document.getElementById("settingsBody");
+  const mediaPanel = (settingsBody?.querySelector('[data-settings-panel="media"]') ?? document.querySelector('[data-settings-panel="media"]')) || document.querySelector('[data-tab-content="media"]');
+  if (!mediaPanel) {
+    return false;
+  }
+  try {
+    const legacyRow = document.getElementById("externalScriptsRow");
+    if (legacyRow) legacyRow.style.display = "none";
+  } catch {
+  }
+  const existingControls = document.querySelector("#chooseFolderBtn, #scriptSelect, #recheckFolderBtn");
+  let card = document.getElementById("scriptsFolderCard") || existingControls?.closest(".settings-card, [data-settings-panel]");
+  if (!card) {
+    card = document.createElement("div");
+    card.className = "settings-card settings-card--scripts";
+    card.id = "scriptsFolderCard";
+    card.dataset.tab = "media";
+    card.innerHTML = `
+      <h4>Scripts Folder</h4>
+      <div class="settings-small">Managed by Nursery Storage when connected. Standalone mode can map a local .txt / .md / .docx directory.</div>
+      <div class="settings-row settings-mapped-folder">
+        <div class="settings-row__controls">
+          <button id="chooseFolderBtn" type="button">Choose Folder</button>
+          <button id="recheckFolderBtn" type="button" title="Recheck permission">Recheck</button>
+          <select id="scriptSelect" class="select-md" aria-label="Mapped folder scripts" style="min-width:240px"></select>
+          <input id="folderFallback" type="file" webkitdirectory directory multiple hidden>
+        </div>
+      </div>
+    `;
+  } else {
+    if (!card.id) card.id = "scriptsFolderCard";
+    card.classList.add("settings-card");
+    card.classList.add("settings-card--scripts");
+    card.dataset.tab = "media";
+  }
+  if (card.parentElement !== mediaPanel) mediaPanel.appendChild(card);
+  signalSettingsFolderReady("injected");
+  try {
+    window.HUD?.log?.("settings:folder:injected", { late: false });
+  } catch {
+  }
+  return true;
+}
+function ensureSettingsFolderControlsAsync(timeoutMs = 6e3) {
+  try {
+    if (ensureSettingsFolderControls()) {
+      startPersistenceWatcher();
+      return;
+    }
+    const obs = new MutationObserver(() => {
+      try {
+        if (ensureSettingsFolderControls()) {
+          obs.disconnect();
+          try {
+            window.HUD?.log?.("settings:folder:injected", { late: true });
+          } catch {
+          }
+          startPersistenceWatcher();
+        }
+      } catch {
+      }
+    });
+    obs.observe(document.documentElement, { childList: true, subtree: true });
+    setTimeout(() => {
+      try {
+        obs.disconnect();
+      } catch {
+      }
+    }, timeoutMs);
+  } catch {
+  }
+}
+function startPersistenceWatcher() {
+  try {
+    const WATCH_MS = 12e4;
+    const start2 = Date.now();
+    const mo = new MutationObserver(() => {
+      try {
+        const present = document.getElementById("scriptsFolderCard");
+        if (!present && Date.now() - start2 < WATCH_MS) {
+          const host = document.getElementById("settingsBody");
+          if (host) {
+            const ok = ensureSettingsFolderControls();
+            if (ok) {
+              try {
+                window.HUD?.log?.("settings:folder:reinjected", {});
+              } catch {
+              }
+              signalSettingsFolderReady("reinjected");
+            }
+          }
+        }
+      } catch {
+      }
+    });
+    mo.observe(document.documentElement, { childList: true, subtree: true });
+    setTimeout(() => {
+      try {
+        mo.disconnect();
+      } catch {
+      }
+    }, WATCH_MS + 5e3);
+  } catch {
+  }
+}
+function signalSettingsFolderReady(reason) {
+  try {
+    window.dispatchEvent(new CustomEvent("tp:settings-folder:ready", {
+      detail: { reason, ts: Date.now() }
+    }));
+  } catch {
+  }
+}
+var init_inject_settings_folder2 = __esm({
+  "src/ui/inject-settings-folder.ts"() {
+    "use strict";
+  }
+});
+
 // src/asr/calibration.ts
 async function runCalibration(opts) {
   const stream = await navigator.mediaDevices.getUserMedia({
@@ -49801,21 +50131,26 @@ var init_calibration = __esm({
   }
 });
 
-// src/ui/settings/asrWizard.ts
+// src/ui/settings/asr-wizard.ts
 function $(id) {
   return document.getElementById(id);
 }
-function toast2(msg) {
+function toast2(msg, opts) {
   try {
-    window.tpToast?.ok?.(msg);
+    showToast(msg, opts);
   } catch {
+    try {
+      console.log("[ASR]", msg);
+    } catch {
+    }
   }
+}
+function setCalStatus(text) {
   try {
-    window.tpToast?.show?.(msg);
-  } catch {
-  }
-  try {
-    console.log("[ASR]", msg);
+    const el = document.querySelector("[data-calibration-status]") || $("asrCalStatus");
+    if (!el) return;
+    el.textContent = text || "";
+    el.hidden = !text;
   } catch {
   }
 }
@@ -49843,6 +50178,10 @@ async function populateMicSelect() {
 }
 async function grantMicLabels() {
   try {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      toast2("This browser does not support direct microphone access.");
+      return;
+    }
     await navigator.mediaDevices.getUserMedia({ audio: true });
     toast2("Mic access granted \u2014 device names unlocked.");
   } catch {
@@ -49860,8 +50199,12 @@ function setMeterMarker(db, ton, toff, gate) {
   const pct = mapDbToPct(db);
   meter.style.setProperty("--asr-level", pct.toFixed(1) + "%");
   meter.dataset.gate = gate ? "1" : "0";
-  if (typeof ton === "number") meter.style.setProperty("--asr-ton", mapDbToPct(ton).toFixed(1) + "%");
-  if (typeof toff === "number") meter.style.setProperty("--asr-toff", mapDbToPct(toff).toFixed(1) + "%");
+  if (typeof ton === "number") {
+    meter.style.setProperty("--asr-ton", mapDbToPct(ton).toFixed(1) + "%");
+  }
+  if (typeof toff === "number") {
+    meter.style.setProperty("--asr-toff", mapDbToPct(toff).toFixed(1) + "%");
+  }
 }
 function updateMeter(rmsDbfs, ton, toff, gate) {
   setMeterMarker(rmsDbfs, ton, toff, gate);
@@ -49872,9 +50215,11 @@ function updateMeter(rmsDbfs, ton, toff, gate) {
     if (snrEl && typeof snrEl.textContent === "string" && typeof ton === "number" && typeof toff === "number") {
       const p = current?.profile;
       if (p) {
-        noiseEl.textContent = `${p.cal.noiseRmsDbfs.toFixed(1)} dBFS`;
-        speechEl.textContent = `${p.cal.speechRmsDbfs.toFixed(1)} dBFS`;
-        snrEl.textContent = `${p.cal.snrDb.toFixed(1)} dB`;
+        if (noiseEl)
+          noiseEl.textContent = `${p.cal.noiseRmsDbfs.toFixed(1)} dBFS`;
+        if (speechEl)
+          speechEl.textContent = `${p.cal.speechRmsDbfs.toFixed(1)} dBFS`;
+        if (snrEl) snrEl.textContent = `${p.cal.snrDb.toFixed(1)} dB`;
       }
     }
   } catch {
@@ -49885,17 +50230,130 @@ function renderDerived(profile) {
     const noiseEl = $("asrNoise");
     const speechEl = $("asrSpeech");
     const snrEl = $("asrSnr");
-    if (noiseEl) noiseEl.textContent = `${profile.cal.noiseRmsDbfs.toFixed(1)} dBFS`;
-    if (speechEl) speechEl.textContent = `${profile.cal.speechRmsDbfs.toFixed(1)} dBFS`;
+    if (noiseEl)
+      noiseEl.textContent = `${profile.cal.noiseRmsDbfs.toFixed(1)} dBFS`;
+    if (speechEl)
+      speechEl.textContent = `${profile.cal.speechRmsDbfs.toFixed(1)} dBFS`;
     if (snrEl) snrEl.textContent = `${profile.cal.snrDb.toFixed(1)} dB`;
-    if (profile.cal.snrDb < 15) toast2("Increase mic gain or move closer. (SNR < 15 dB)");
+    if (profile.cal.snrDb < 15) {
+      toast2("Increase mic gain or move closer. (SNR < 15 dB)");
+    }
   } catch {
   }
 }
+function getProfileSelect() {
+  return document.getElementById("asrProfileSelect");
+}
+function renderProfileOptions() {
+  try {
+    const select = getProfileSelect();
+    if (!select) return;
+    const state8 = getAsrState();
+    const entries = Object.entries(state8.profiles || {});
+    select.innerHTML = "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = entries.length ? "Default settings (no profile)" : "No saved profiles yet";
+    select.appendChild(placeholder);
+    entries.sort((a, b) => (b[1].updatedAt || 0) - (a[1].updatedAt || 0)).forEach(([id, profile]) => {
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = profile.label || id;
+      select.appendChild(opt);
+    });
+    const active = state8.activeProfileId;
+    select.value = active && entries.some(([id]) => id === active) ? active : "";
+  } catch {
+  }
+}
+function wireProfileSelector() {
+  try {
+    const select = getProfileSelect();
+    if (!select) return;
+    if (select.dataset.tpAsrProfileWired === "1") return;
+    select.dataset.tpAsrProfileWired = "1";
+    select.addEventListener("change", () => {
+      const id = select.value;
+      if (!id) return;
+      try {
+        setActiveProfile(id);
+        toast2("ASR profile selected", { type: "info" });
+      } catch {
+      }
+      renderProfileOptions();
+    });
+    if (!profileSelectorSubbed) {
+      profileSelectorSubbed = true;
+      onAsr(() => renderProfileOptions());
+    }
+    renderProfileOptions();
+    wireProfileLoadButton();
+  } catch {
+  }
+}
+function wireProfileLoadButton() {
+  try {
+    const btn = document.getElementById("asrProfileLoad");
+    if (!btn || btn.dataset.tpAsrProfileLoadWired === "1") return;
+    btn.dataset.tpAsrProfileLoadWired = "1";
+    btn.addEventListener("click", () => {
+      const select = getProfileSelect();
+      if (!select) return;
+      const id = select.value;
+      if (!id) {
+        toast2("Select a profile first", { type: "warning" });
+        return;
+      }
+      try {
+        setActiveProfile(id);
+        toast2("ASR profile applied", { type: "info" });
+      } catch {
+      }
+      renderProfileOptions();
+    });
+  } catch {
+  }
+}
+function wirePreviewListener() {
+  if (previewListenerWired) return;
+  previewListenerWired = true;
+  try {
+    window.addEventListener(
+      "tp:asrPreview",
+      (e) => {
+        try {
+          const detail = e.detail || {};
+          const { rmsDbfs = -80, gate, ton, toff } = detail;
+          updateMeter(rmsDbfs, ton, toff, gate);
+        } catch {
+        }
+      },
+      { passive: true }
+    );
+  } catch {
+  }
+}
+function getDesiredProfileLabel() {
+  try {
+    const input = $("asrLabel");
+    const value = input?.value?.trim();
+    if (value) {
+      return value;
+    }
+  } catch {
+  }
+  return DEFAULT_PROFILE_LABEL;
+}
 async function startAsrWizard() {
   try {
-    const deviceId = $("asrDevice")?.value || "";
-    const label = $("asrLabel")?.value || "Desk \u2022 default";
+    if (calibrating) return;
+    calibrating = true;
+    setCalStatus('Calibrating: first stay quiet for a few seconds, then speak in your normal podcast voice and keep talking until this banner changes to "Calibration done.".');
+    const startBtn = $("asrStartBtn");
+    if (startBtn) startBtn.disabled = true;
+    const deviceSel = $("asrDevice");
+    const deviceId = deviceSel?.value || "";
+    const label = getDesiredProfileLabel();
     const flags = {
       echoCancellation: !!$("asrAEC")?.checked,
       noiseSuppression: !!$("asrNS")?.checked,
@@ -49905,20 +50363,51 @@ async function startAsrWizard() {
     renderDerived(current.profile);
   } catch (e) {
     console.warn("[ASR] startAsrWizard failed", e);
+    setCalStatus("Calibration failed. Check mic and try again.");
+  } finally {
+    if (current) {
+      const summary = "Calibration done. Noise " + current.profile.cal.noiseRmsDbfs.toFixed(1) + " dBFS, speech " + current.profile.cal.speechRmsDbfs.toFixed(1) + " dBFS, SNR " + current.profile.cal.snrDb.toFixed(1) + " dB.";
+      setTimeout(() => {
+        try {
+          setCalStatus(summary);
+        } catch {
+        }
+      }, 1500);
+    } else {
+      setCalStatus("");
+    }
+    calibrating = false;
+    try {
+      const startBtn = $("asrStartBtn");
+      if (startBtn) startBtn.disabled = false;
+    } catch {
+    }
   }
 }
 function wire() {
   try {
-    const startBtn = $("asrStartBtn");
-    startBtn?.addEventListener("click", () => startAsrWizard());
+    const attachStart = (id) => {
+      const btn = $(id);
+      btn?.addEventListener("click", () => startAsrWizard());
+    };
+    attachStart("asrStartBtn");
+    attachStart("asrCalibBtn");
     $("asrPreviewBtn")?.addEventListener("click", () => current?.preview());
     $("asrPreviewStop")?.addEventListener("click", () => current?.preview(true));
     $("asrSaveBtn")?.addEventListener("click", () => {
       try {
         if (!current) return;
+        const label = getDesiredProfileLabel();
+        current.profile.label = label;
+        try {
+          const deviceId = current.profile.capture?.deviceId || "";
+          current.profile.id = `${deviceId}::${label}`;
+        } catch {
+        }
         upsertProfile(current.profile);
         setActiveProfile(current.profile.id);
         toast2("ASR profile saved and activated.");
+        renderProfileOptions();
       } catch {
       }
     });
@@ -49940,16 +50429,21 @@ function wire() {
     };
     ["asrNS", "asrAGC"].forEach((id) => {
       try {
-        $(id)?.addEventListener("change", updateFlagsBadge);
+        $(id)?.addEventListener(
+          "change",
+          updateFlagsBadge
+        );
       } catch {
       }
     });
     updateFlagsBadge();
+    renderProfileOptions();
+    wireProfileSelector();
     $("asrRefreshDevs")?.addEventListener("click", () => {
-      populateMicSelect();
+      void populateMicSelect();
     });
     $("asrGrantPerm")?.addEventListener("click", () => {
-      grantMicLabels();
+      void grantMicLabels();
     });
   } catch {
   }
@@ -49969,33 +50463,25 @@ async function initAsrSettingsUI() {
       $("asrAGC")?.removeAttribute("checked");
     } catch {
     }
+    wire();
+    wirePreviewListener();
   } catch {
   }
 }
-var current;
-var init_asrWizard = __esm({
-  "src/ui/settings/asrWizard.ts"() {
+var current, previewListenerWired, calibrating, profileSelectorSubbed, DEFAULT_PROFILE_LABEL;
+var init_asr_wizard = __esm({
+  "src/ui/settings/asr-wizard.ts"() {
     "use strict";
     init_calibration();
     init_store();
+    init_toasts();
     current = null;
-    try {
-      window.addEventListener("tp:asrPreview", (e) => {
-        try {
-          const { rmsDbfs, gate, ton, toff } = e.detail || {};
-          updateMeter(rmsDbfs, ton, toff, gate);
-        } catch {
-        }
-      });
-    } catch {
-    }
+    previewListenerWired = false;
+    calibrating = false;
+    profileSelectorSubbed = false;
+    DEFAULT_PROFILE_LABEL = "Desk - default";
     try {
       window.startAsrWizard = startAsrWizard;
-    } catch {
-    }
-    try {
-      if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", wire, { once: true });
-      else wire();
     } catch {
     }
   }
@@ -50480,46 +50966,24 @@ var init_hybridGate = __esm({
   }
 });
 
-// src/ui/settings/tabs.ts
-function setupSettingsTabs(rootEl2) {
-  if (!rootEl2) return;
-  try {
-    rootEl2.querySelectorAll("[data-tab]").forEach((el) => {
-      el.addEventListener("click", (ev) => {
-        const t = ev.currentTarget.getAttribute("data-tab");
-        if (!t) return;
-        rootEl2.querySelectorAll("[data-tab-content]").forEach((c) => c.style.display = "none");
-        const sel = rootEl2.querySelector(`[data-tab-content="${t}"]`);
-        if (sel) sel.style.display = "";
-      });
-    });
-  } catch {
-  }
-}
-var init_tabs = __esm({
-  "src/ui/settings/tabs.ts"() {
-    "use strict";
-  }
-});
-
 // src/ui/settings/typographyPanel.ts
 function idFor(base, display) {
   return `${base}-${display}`;
 }
 function bindTypographyPanel(display) {
-  const $5 = (id) => document.getElementById(id);
+  const $4 = (id) => document.getElementById(id);
   const t = getTypography(display);
   const fields = {
-    fontFamily: $5(idFor("typoFontFamily", display)),
-    fontSizePx: $5(idFor("typoFontSize", display)),
-    lineHeight: $5(idFor("typoLineHeight", display)),
-    weight: $5(idFor("typoWeight", display)),
-    letterSpacingEm: $5(idFor("typoLetter", display)),
-    wordSpacingEm: $5(idFor("typoWord", display)),
-    color: $5(idFor("typoColor", display)),
-    background: $5(idFor("typoBg", display)),
-    maxLineWidthCh: $5(idFor("typoMaxCh", display)),
-    dimOthers: $5(idFor("typoDim", display))
+    fontFamily: $4(idFor("typoFontFamily", display)),
+    fontSizePx: $4(idFor("typoFontSize", display)),
+    lineHeight: $4(idFor("typoLineHeight", display)),
+    weight: $4(idFor("typoWeight", display)),
+    letterSpacingEm: $4(idFor("typoLetter", display)),
+    wordSpacingEm: $4(idFor("typoWord", display)),
+    color: $4(idFor("typoColor", display)),
+    background: $4(idFor("typoBg", display)),
+    maxLineWidthCh: $4(idFor("typoMaxCh", display)),
+    dimOthers: $4(idFor("typoDim", display))
   };
   if (fields.fontFamily) fields.fontFamily.value = t.fontFamily;
   if (fields.fontSizePx) fields.fontSizePx.value = String(t.fontSizePx);
@@ -50779,10 +51243,20 @@ function wireSettingsTabs(root, store3) {
   }
 }
 async function wireAutoRecord(rootEl2, store3) {
-  const chk = rootEl2.querySelector("#settingsAutoRecord");
-  const nameEl = rootEl2.querySelector("#autoRecordFolderName");
-  const pickBtn = rootEl2.querySelector("#autoRecordPickBtn");
-  const clearBtn = rootEl2.querySelector("#autoRecordClearBtn");
+  const q3 = (selector) => {
+    try {
+      const host = rootEl2;
+      if (host && typeof host.querySelector === "function") {
+        return host.querySelector(selector);
+      }
+    } catch {
+    }
+    return null;
+  };
+  const chk = q3("#settingsAutoRecord");
+  const nameEl = q3("#autoRecordFolderName");
+  const pickBtn = q3("#autoRecordPickBtn");
+  const clearBtn = q3("#autoRecordClearBtn");
   async function ensureRecDirReady() {
     try {
       await Promise.resolve().then(() => (init_recording_dir(), recording_dir_exports));
@@ -50796,8 +51270,29 @@ async function wireAutoRecord(rootEl2, store3) {
   async function renderFolder() {
     try {
       await ensureRecDirReady();
-      const dir = window.__tpRecDir?.get?.() || null;
+      const api = window.__tpRecDir;
+      const dir = api?.get?.() || null;
+      const managed = !!api?.isManaged?.();
+      const managedHint = typeof api?.managedHint === "function" ? api.managedHint() : null;
+      if (pickBtn) {
+        pickBtn.disabled = managed;
+        if (managed) {
+          pickBtn.textContent = "Managed by Nursery";
+          pickBtn.title = "Recordings folder is managed in Nursery Storage settings.";
+        } else {
+          pickBtn.textContent = "Change auto-save folder";
+          pickBtn.title = "";
+        }
+      }
+      if (clearBtn) {
+        clearBtn.disabled = managed;
+        clearBtn.title = managed ? "Recordings folder is managed in Nursery Storage settings." : "";
+      }
       if (!nameEl) return;
+      if (managed) {
+        nameEl.textContent = dir?.name || managedHint || "Managed by Nursery (not linked)";
+        return;
+      }
       if (dir) {
         nameEl.textContent = dir.name || "Selected";
         return;
@@ -50819,6 +51314,16 @@ async function wireAutoRecord(rootEl2, store3) {
   async function pickFolder({ force } = {}) {
     await ensureRecDirReady();
     const api = window.__tpRecDir;
+    if (api?.isManaged?.()) {
+      const existing2 = api.get?.();
+      if (existing2) return true;
+      const settingsUrl = getNurseryStorageSettingsUrl();
+      window.toast?.(
+        `Recordings folder is managed by Nursery. Set it in Nursery > Settings > Storage (${settingsUrl}).`,
+        { type: "warn" }
+      );
+      return false;
+    }
     if (!api?.supported?.()) {
       window.toast?.("This browser will download recordings instead of saving to a folder.", {
         type: "warn"
@@ -50873,7 +51378,7 @@ async function wireAutoRecord(rootEl2, store3) {
   if (pickBtn && !pickBtn.dataset[DATASET_CARD_WIRED]) {
     pickBtn.dataset[DATASET_CARD_WIRED] = "1";
     pickBtn.addEventListener("click", () => {
-      pickFolder({ force: true });
+      void pickFolder({ force: true });
     });
   }
   if (clearBtn && !clearBtn.dataset[DATASET_CARD_WIRED]) {
@@ -50881,15 +51386,24 @@ async function wireAutoRecord(rootEl2, store3) {
     clearBtn.addEventListener("click", async () => {
       try {
         await ensureRecDirReady();
+        const api = window.__tpRecDir;
+        if (api?.isManaged?.()) {
+          const settingsUrl = getNurseryStorageSettingsUrl();
+          window.toast?.(
+            `Recordings folder is managed by Nursery. Update it in Nursery > Settings > Storage (${settingsUrl}).`,
+            { type: "warn" }
+          );
+          return;
+        }
         await window.__tpRecDir?.clear?.();
         await renderFolder();
       } catch {
       }
     });
   }
-  const audioOnlyChk = rootEl2.querySelector("#settingsAudioOnly");
-  const audioOnlyHint = rootEl2.querySelector("#settingsAudioOnlyHint");
-  const cameraSelect = rootEl2.querySelector("#settingsCamSel");
+  const audioOnlyChk = q3("#settingsAudioOnly");
+  const audioOnlyHint = q3("#settingsAudioOnlyHint");
+  const cameraSelect = q3("#settingsCamSel");
   let lastAudioOnlyState = null;
   const resolveAudioStore = () => store3 || window.__tpStore || null;
   const applyAudioOnlyState = (on3) => {
@@ -51064,7 +51578,7 @@ function wireRecordingModeControls(rootEl2) {
   syncUi();
 }
 function wireSettingsDynamic(rootEl2, store3) {
-  if (!rootEl2) return;
+  if (!rootEl2 || typeof rootEl2.querySelector !== "function") return;
   if (window.__TP_DEV) {
     try {
       console.count("wireSettingsDynamic");
@@ -51273,7 +51787,12 @@ function wireSettingsDynamic(rootEl2, store3) {
   } catch {
   }
   try {
-    wireAutoRecord(rootEl2, store3);
+    void wireAutoRecord(rootEl2, store3).catch((err) => {
+      try {
+        console.warn("[settings] wireAutoRecord failed", err);
+      } catch {
+      }
+    });
   } catch {
   }
 }
@@ -51286,33 +51805,501 @@ var init_wire = __esm({
     init_recorder_settings();
     init_recorderRegistry();
     init_recording_mode_ui();
+    init_nursery_mounts();
     DATASET_SETTINGS_WIRED = "tpSettingsWired";
     DATASET_CHANGE_WIRED = "tpChangeWired";
     DATASET_CARD_WIRED = "wired";
   }
 });
 
-// src/ui/settings.ts
-function mountSettings(rootEl2) {
+// src/ui/settings-asr.ts
+function resolveStore2(store3) {
+  if (store3) return store3;
   try {
-    if (typeof window.buildSettingsContent === "function") {
+    return window.__tpStore || appStoreSingleton || null;
+  } catch {
+    return appStoreSingleton;
+  }
+}
+function findAsrCard(root = document) {
+  return root?.querySelector?.("#asrSettingsCard") || root?.querySelector?.(".settings-card.asr") || null;
+}
+function queryAsrInputs(card) {
+  const q3 = (selector) => card.querySelector(selector);
+  return {
+    eng: q3("#asrEngine"),
+    lang: q3("#asrLang"),
+    interim: q3("#asrInterim"),
+    fillers: q3("#asrFillers"),
+    thresh: q3("#asrThresh"),
+    endms: q3("#asrEndMs"),
+    calm: q3("#asrCalmMode")
+  };
+}
+function applyAsrStateToInputs(inputs, state8) {
+  const { eng, lang, interim, fillers, thresh, endms } = inputs;
+  if (eng && typeof state8.engine === "string") {
+    try {
+      eng.value = state8.engine;
+    } catch {
+    }
+  }
+  if (lang && typeof state8.lang === "string") {
+    lang.value = state8.lang;
+  }
+  if (interim) interim.checked = !!state8.interim;
+  if (fillers) fillers.checked = !!state8.fillerFilter;
+  if (thresh && typeof state8.threshold === "number") {
+    thresh.value = String(state8.threshold);
+  }
+  if (endms && typeof state8.endpointingMs === "number") {
+    endms.value = String(state8.endpointingMs);
+  }
+  if (inputs.calm) inputs.calm.checked = !!state8.calmModeEnabled;
+}
+function attachAsrInputListeners(inputs) {
+  const { eng, lang, interim, fillers, thresh, endms, calm } = inputs;
+  const persist2 = (patch) => {
+    if (isHydratingAsrSettings) return;
+    persistAsrPatch(patch);
+  };
+  const clampThreshold = (value) => {
+    const parsed = typeof value === "number" ? value : parseFloat(String(value));
+    if (Number.isNaN(parsed)) return;
+    persist2({ threshold: clamp7(parsed, 0, 1) });
+  };
+  const clampEndpoint2 = (value) => {
+    const parsed = typeof value === "number" ? Math.round(value) : Math.round(parseFloat(String(value)));
+    if (Number.isNaN(parsed)) return;
+    persist2({ endpointingMs: Math.max(200, parsed) });
+  };
+  eng?.addEventListener("change", () => persist2({ engine: eng.value }));
+  lang?.addEventListener("change", () => persist2({ lang: lang.value }));
+  interim?.addEventListener("change", () => persist2({ interim: interim.checked }));
+  fillers?.addEventListener("change", () => persist2({ fillerFilter: fillers.checked }));
+  thresh?.addEventListener("input", () => clampThreshold(thresh.value));
+  thresh?.addEventListener("change", () => clampThreshold(thresh.value));
+  endms?.addEventListener("input", () => clampEndpoint2(endms.value));
+  endms?.addEventListener("change", () => clampEndpoint2(endms.value));
+  calm?.addEventListener("change", () => persist2({ calmModeEnabled: calm.checked }));
+}
+function withAsrHydration(fn) {
+  isHydratingAsrSettings = true;
+  try {
+    fn();
+  } finally {
+    const scheduleClear = () => {
+      isHydratingAsrSettings = false;
+    };
+    try {
+      if (typeof window !== "undefined" && typeof window.setTimeout === "function") {
+        window.setTimeout(scheduleClear, 0);
+      } else {
+        setTimeout(scheduleClear, 0);
+      }
+    } catch {
+      scheduleClear();
+    }
+  }
+}
+function readAsrPatchFromCard(card) {
+  const patch = {};
+  const q3 = (selector) => card.querySelector(selector);
+  const eng = q3("#asrEngine");
+  const lang = q3("#asrLang");
+  const interim = q3("#asrInterim");
+  const fillers = q3("#asrFillers");
+  const thresh = q3("#asrThresh");
+  const endms = q3("#asrEndMs");
+  const calm = q3("#asrCalmMode");
+  if (eng) patch.engine = eng.value || "";
+  if (lang) patch.lang = lang.value || "";
+  if (interim) patch.interim = !!interim.checked;
+  if (fillers) patch.fillerFilter = !!fillers.checked;
+  if (thresh) {
+    const val = parseFloat(thresh.value);
+    if (!Number.isNaN(val)) {
+      patch.threshold = clamp7(val, 0, 1);
+    }
+  }
+  if (endms) {
+    const val = Math.round(+endms.value);
+    if (!Number.isNaN(val)) {
+      patch.endpointingMs = Math.max(200, val);
+    }
+  }
+  if (calm) patch.calmModeEnabled = !!calm.checked;
+  return patch;
+}
+function persistAsrPatch(patch) {
+  setAsrSettings(patch);
+}
+function formatRelativeTime(timestamp) {
+  if (!timestamp || Number.isNaN(timestamp)) return "just now";
+  const delta = Date.now() - timestamp;
+  if (delta < 1e3) return "just now";
+  if (delta < 6e4) return `${Math.round(delta / 1e3)}s ago`;
+  if (delta < 36e5) return `${Math.round(delta / 6e4)}m ago`;
+  if (delta < 864e5) return `${Math.round(delta / 36e5)}h ago`;
+  return `${Math.round(delta / 864e5)}d ago`;
+}
+function wireAsrSettingsCard(root = document, store3) {
+  const card = root.querySelector("#asrSettingsCard") || root.querySelector(".settings-card.asr");
+  if (!card) {
+    if (!asrSettingsWarned) {
+      asrSettingsWarned = true;
       try {
-        window.buildSettingsContent();
+        console.warn("[ASR] settings card not found (skipping wiring)");
+      } catch {
+      }
+    }
+    return null;
+  }
+  if (card.dataset.tpAsrWired === "1") return card;
+  card.dataset.tpAsrWired = "1";
+  const inputs = queryAsrInputs(card);
+  attachAsrInputListeners(inputs);
+  wireAsrStatusIndicators(card, store3);
+  return card;
+}
+function hydrateAsrSettingsCard(root = document) {
+  const card = findAsrCard(root);
+  if (!card) return;
+  const inputs = queryAsrInputs(card);
+  const state8 = getAsrSettings();
+  withAsrHydration(() => applyAsrStateToInputs(inputs, state8));
+}
+function mountAsrSettings(root = document, store3) {
+  const card = wireAsrSettingsCard(root, store3);
+  if (!card) return;
+  hydrateAsrSettingsCard(root);
+}
+function wireAsrStatusIndicators(card, store3) {
+  const saveEl = card.querySelector("#asrSaveStatus");
+  const appliedEl = card.querySelector("#asrAppliedStatus");
+  if (!saveEl && !appliedEl) return;
+  const resolved = resolveStore2(store3);
+  const SAVE_STALE_MS = 15e3;
+  let saveStatusTimer = null;
+  const clearSaveTimer = () => {
+    if (saveStatusTimer) {
+      try {
+        clearTimeout(saveStatusTimer);
+      } catch {
+      }
+      saveStatusTimer = null;
+    }
+  };
+  const isMounted = () => {
+    try {
+      return card.isConnected && document.contains(card);
+    } catch {
+      return false;
+    }
+  };
+  const renderSaveStatus = () => {
+    if (!isMounted()) {
+      clearSaveTimer();
+      return;
+    }
+    if (!saveEl) return;
+    const status2 = resolved?.get?.("settingsSaveStatus");
+    if (!status2 || status2.state === "idle") {
+      saveEl.textContent = "";
+      saveEl.hidden = true;
+      clearSaveTimer();
+      delete saveEl.dataset.stale;
+      return;
+    }
+    let text = "";
+    if (status2.state === "saving") {
+      text = "Saving to account...";
+      clearSaveTimer();
+      delete saveEl.dataset.stale;
+    } else if (status2.state === "saved") {
+      const when = formatRelativeTime(status2.at);
+      const elapsed = Date.now() - status2.at;
+      const isStale = elapsed >= SAVE_STALE_MS;
+      if (isStale) {
+        text = "Saved";
+        saveEl.dataset.stale = "1";
+        clearSaveTimer();
+      } else {
+        text = `Saved to account [OK]${when ? ` (${when})` : ""}`;
+        delete saveEl.dataset.stale;
+        clearSaveTimer();
+        saveStatusTimer = window.setTimeout(() => {
+          try {
+            renderSaveStatus();
+          } catch {
+          }
+        }, Math.max(SAVE_STALE_MS - elapsed, 0));
+      }
+    } else if (status2.state === "failed") {
+      const errSuffix = status2.error ? `: ${status2.error}` : "";
+      text = `Save failed${errSuffix}`;
+      clearSaveTimer();
+      delete saveEl.dataset.stale;
+    }
+    saveEl.textContent = text;
+    saveEl.hidden = !text;
+  };
+  const renderAppliedStatus = () => {
+    if (!isMounted()) return;
+    if (!appliedEl) return;
+    const appliedAt = resolved?.get?.("asrLastAppliedAt") || 0;
+    const summary = resolved?.get?.("asrLastAppliedSummary");
+    const ok = !!resolved?.get?.("asrLastApplyOk");
+    const status2 = resolved?.get?.("settingsSaveStatus");
+    const lastSaveAt = status2?.state === "saved" ? status2.at : 0;
+    const asrRunning = !!resolved?.get?.("asrLive");
+    if (!asrRunning && lastSaveAt && lastSaveAt > appliedAt) {
+      appliedEl.textContent = "Pending application (ASR not running)";
+      appliedEl.hidden = false;
+      return;
+    }
+    if (!appliedAt) {
+      appliedEl.textContent = "ASR has not applied any settings yet.";
+      appliedEl.hidden = false;
+      return;
+    }
+    const parts = [];
+    if (summary) {
+      const engine = summary.engine || summary.eng;
+      if (engine) parts.push(String(engine));
+      if (summary.lang) parts.push(String(summary.lang));
+      if (summary.profileName) parts.push(String(summary.profileName));
+      if (summary.reason) parts.push(String(summary.reason));
+    }
+    const base = parts.length ? parts.join(" | ") : "default";
+    const symbol = ok ? "[applied]" : "[warn]";
+    const relative = formatRelativeTime(appliedAt);
+    appliedEl.textContent = `Applied to ASR: ${symbol} ${base}${relative ? ` (${relative})` : ""}`;
+    appliedEl.hidden = false;
+  };
+  renderSaveStatus();
+  renderAppliedStatus();
+  if (resolved?.subscribe) {
+    resolved.subscribe("settingsSaveStatus", renderSaveStatus);
+    resolved.subscribe("asrLastAppliedAt", renderAppliedStatus);
+    resolved.subscribe("asrLastAppliedSummary", renderAppliedStatus);
+    resolved.subscribe("asrLastApplyOk", renderAppliedStatus);
+    resolved.subscribe("asrLive", renderAppliedStatus);
+  }
+}
+function flushAsrSettingsToStore(_store) {
+  try {
+    const card = findAsrCard();
+    if (!card) return;
+    const patch = readAsrPatchFromCard(card);
+    persistAsrPatch(patch);
+  } catch {
+  }
+}
+function ensureAsrSettingsWired(root = document, store3) {
+  const tryMount = (warnIfMissing = false) => {
+    const card = root?.querySelector?.("#asrSettingsCard") || root?.querySelector?.(".settings-card.asr");
+    if (!card) {
+      if (warnIfMissing && !asrSettingsWarned) {
+        asrSettingsWarned = true;
+        try {
+          console.warn("[ASR] settings card not found (will retry)");
+        } catch {
+        }
+      }
+      return false;
+    }
+    mountAsrSettings(root, store3);
+    return true;
+  };
+  if (tryMount(false)) return;
+  document.addEventListener(
+    "tp:settings:rendered",
+    () => {
+      asrSettingsRenderEventFired = true;
+      tryMount(true);
+    },
+    { once: true }
+  );
+  if (!asrSettingsObserverStarted) {
+    asrSettingsObserverStarted = true;
+    const host = root?.querySelector?.("#settingsBody") || document.getElementById("settingsBody") || document.body;
+    try {
+      const obs = new MutationObserver(() => {
+        const wired2 = tryMount(asrSettingsRenderEventFired);
+        if (wired2) {
+          try {
+            obs.disconnect();
+          } catch {
+          }
+        }
+      });
+      obs.observe(host || document.body, { subtree: true, childList: true });
+    } catch {
+    }
+  }
+}
+function clamp7(n, lo, hi) {
+  return Math.max(lo, Math.min(hi, n));
+}
+var asrSettingsObserverStarted, asrSettingsWarned, asrSettingsRenderEventFired, isHydratingAsrSettings;
+var init_settings_asr = __esm({
+  "src/ui/settings-asr.ts"() {
+    "use strict";
+    init_app_store();
+    init_speech_store2();
+    asrSettingsObserverStarted = false;
+    asrSettingsWarned = false;
+    asrSettingsRenderEventFired = false;
+    isHydratingAsrSettings = false;
+  }
+});
+
+// src/ui/settings/typography-presets.ts
+function setNumber(id, value) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.value = String(value);
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+}
+function setActivePreset(rowEl, preset) {
+  rowEl.querySelectorAll("[data-typo-preset]").forEach((b) => {
+    const isActive = b.getAttribute("data-typo-preset") === preset;
+    b.classList.toggle("active", isActive);
+    b.setAttribute("aria-pressed", String(isActive));
+  });
+}
+function applyTypographyPresetByName(preset, opts) {
+  const p = PRESETS[preset];
+  if (!p) return;
+  setNumber("typoLetter-display", p.letter);
+  setNumber("typoWord-display", p.word);
+  setNumber("typoMaxCh-display", p.maxCh);
+  if (opts?.applyToMain) {
+    setNumber("typoLetter-main", p.letter);
+    setNumber("typoWord-main", p.word);
+    setNumber("typoMaxCh-main", p.maxCh);
+  }
+  const rowEl = document.getElementById("typographyPresetsRow");
+  if (rowEl) setActivePreset(rowEl, preset);
+}
+function wireTypographyPresets() {
+  const row = document.getElementById("typographyPresetsRow");
+  if (!row) return;
+  const rowEl = row;
+  if (rowEl.dataset.wired === "1") return;
+  rowEl.dataset.wired = "1";
+  const applyBoth = document.getElementById("typoPresetApplyBoth");
+  rowEl.addEventListener("click", (ev) => {
+    const btn = ev.target?.closest?.("[data-typo-preset]");
+    if (!btn) return;
+    const preset = btn.getAttribute("data-typo-preset");
+    if (!preset) return;
+    const both = !!applyBoth?.checked;
+    applyTypographyPresetByName(preset, { applyToMain: both });
+  });
+}
+var PRESETS;
+var init_typography_presets = __esm({
+  "src/ui/settings/typography-presets.ts"() {
+    "use strict";
+    PRESETS = {
+      default: { letter: 0, word: 0, maxCh: 90 },
+      easyRead: { letter: 0, word: 0.01, maxCh: 84 },
+      smoothComfort: { letter: 0.01, word: 0.03, maxCh: 75 }
+    };
+  }
+});
+
+// src/ui/settings/index.ts
+function setSettingsHydrating(value) {
+  try {
+    window.__tpSettingsHydrating = value;
+  } catch {
+  }
+}
+function scheduleSettingsHydrationComplete() {
+  const clear = () => setSettingsHydrating(false);
+  if (typeof queueMicrotask === "function") {
+    queueMicrotask(clear);
+  } else if (typeof Promise !== "undefined" && typeof Promise.resolve === "function") {
+    Promise.resolve().then(clear);
+  } else {
+    setTimeout(clear, 0);
+  }
+}
+function getStore2(store3) {
+  if (store3) return store3;
+  try {
+    return window.__tpStore || null;
+  } catch {
+    return null;
+  }
+}
+function isSettingsDebugMode() {
+  if (typeof window === "undefined") return false;
+  try {
+    const w3 = window;
+    if (w3.__TP_DEV || w3.__TP_DEV1 || w3.__tpDevMode) return true;
+    if (w3?.localStorage?.getItem("tp_dev_mode") === "1") return true;
+    const params = new URLSearchParams(window.location.search || "");
+    if (params.has("dev")) return true;
+    const hash = (window.location.hash || "").replace(/^#/, "").toLowerCase();
+    if (hash === "dev" || hash === "dev=1" || hash.includes("dev=1")) return true;
+  } catch {
+    return false;
+  }
+  return false;
+}
+function buildAsrSnapshot(store3) {
+  const speechState = speechStore.get();
+  const snapshot = store3 ? {
+    engine: store3.get?.("asr.engine"),
+    lang: store3.get?.("asr.language"),
+    useInterimResults: store3.get?.("asr.useInterimResults"),
+    filterFillers: store3.get?.("asr.filterFillers"),
+    threshold: store3.get?.("asr.threshold"),
+    endpointingMs: store3.get?.("asr.endpointMs"),
+    calmModeEnabled: store3.get?.("asrCalmModeEnabled")
+  } : null;
+  return { store: snapshot, speechStore: speechState };
+}
+function logSettingsHydrationSnapshot(store3) {
+  if (!isSettingsDebugMode()) return;
+  try {
+    console.log("SettingsOpen: hydrating from SSOT snapshot", { asr: buildAsrSnapshot(store3) });
+  } catch {
+  }
+}
+function mountSettings(rootEl2, store3) {
+  setSettingsHydrating(true);
+  try {
+    const resolvedStore = getStore2(store3) || createAppStore();
+    logSettingsHydrationSnapshot(resolvedStore);
+    if (window.__TP_DEV) {
+      try {
+        console.count("mountSettings");
       } catch {
       }
     }
     if (!rootEl2) return;
     try {
+      rootEl2.dataset.tpSettingsWired = "";
+      rootEl2.innerHTML = "";
+    } catch {
+    }
+    try {
       const html = buildSettingsContent(rootEl2) || "";
       if (html) rootEl2.innerHTML = html;
+      try {
+        document.dispatchEvent(new CustomEvent("tp:settings:rendered"));
+      } catch {
+      }
     } catch {
     }
     try {
-      wireSettingsDynamic(rootEl2);
-    } catch {
-    }
-    try {
-      setupSettingsTabs(rootEl2);
+      wireSettingsDynamic(rootEl2, resolvedStore);
     } catch {
     }
     try {
@@ -51321,6 +52308,14 @@ function mountSettings(rootEl2) {
     }
     try {
       bindTypographyPanel("display");
+    } catch {
+    }
+    try {
+      wireTypographyPresets();
+    } catch {
+    }
+    try {
+      wireUiScaleControls(rootEl2);
     } catch {
     }
     try {
@@ -51333,6 +52328,18 @@ function mountSettings(rootEl2) {
     }
     try {
       bindHybridGateSetting(rootEl2);
+    } catch {
+    }
+    try {
+      wireAsrSettingsCard(rootEl2, resolvedStore);
+    } catch {
+    }
+    try {
+      hydrateAsrSettingsCard(rootEl2);
+    } catch {
+    }
+    try {
+      syncSettingsValues(resolvedStore);
     } catch {
     }
     try {
@@ -51463,31 +52470,32 @@ function mountSettings(rootEl2) {
     } catch {
     }
     try {
-      const legacyMap = {
-        "settingsReqMic": "settingsRequestMicBtn",
-        "settingsReqMicBtn": "settingsRequestMicBtn"
-      };
-      Object.keys(legacyMap).forEach((legacyId) => {
-        try {
-          const modern = legacyMap[legacyId];
-          const modernEl = rootEl2.querySelector("#" + modern);
-          if (modernEl && !document.getElementById(legacyId)) {
-            window.__tpLegacyRefs = window.__tpLegacyRefs || {};
-            window.__tpLegacyRefs[legacyId] = modernEl;
-          }
-        } catch {
-        }
-      });
+      ensureSettingsFolderControls();
     } catch {
     }
   } catch {
+  } finally {
+    scheduleSettingsHydrationComplete();
   }
 }
-function mountSettingsOverlay(root) {
-  const target = root || document.getElementById("settingsBody") || null;
-  mountSettings(target);
+function wireSettings(options) {
+  const store3 = getStore2(options?.store) || createAppStore();
+  const target = options?.root ?? document.getElementById("settingsBody") ?? null;
+  if (window.__tpSettingsBootedByTs && !options?.force) {
+    return { root: target, store: store3 };
+  }
+  try {
+    window.__tpSettingsBootedByTs = true;
+  } catch {
+  }
+  mountSettings(target, store3);
+  return { root: target, store: store3 };
 }
-function openSettings() {
+function mountSettingsOverlay(root, store3) {
+  const target = root || document.getElementById("settingsBody") || null;
+  mountSettings(target, store3);
+}
+function openSettings(store3) {
   try {
     const overlay = document.getElementById("settingsOverlay");
     const body = document.getElementById("settingsBody");
@@ -51495,7 +52503,7 @@ function openSettings() {
     overlay.classList.remove("hidden");
     overlay.style.display = "";
     try {
-      mountSettings(body);
+      mountSettings(body, store3);
     } catch {
     }
     try {
@@ -51506,394 +52514,46 @@ function openSettings() {
   } catch {
   }
 }
-function syncSettingsValues() {
+function syncSettingsValues(store3) {
+  const s = getStore2(store3);
   try {
     try {
-      const S = window.__tp && window.__tp.store ? window.__tp.store : null;
-      const micVal = S && typeof S.get === "function" ? S.get("micDevice") : null;
+      const micVal = s && typeof s.get === "function" ? s.get("micDevice") : null;
       const settingsMic = document.getElementById("settingsMicSel");
-      if (settingsMic && micVal != null) settingsMic.value = micVal;
+      if (settingsMic && micVal != null) settingsMic.value = String(micVal);
     } catch {
     }
   } catch {
   }
 }
+function flushPendingSettingsEdits(store3) {
+  flushAsrSettingsToStore(store3);
+}
 var settings_default;
 var init_settings = __esm({
-  "src/ui/settings.ts"() {
+  "src/ui/settings/index.ts"() {
     "use strict";
-    init_asrWizard();
+    init_inject_settings_folder2();
+    init_asr_wizard();
     init_builder();
     init_hybridGate();
-    init_tabs();
     init_typographyPanel();
     init_wire();
+    init_settings_asr();
+    init_app_store();
+    init_speech_store();
+    init_typography_presets();
+    init_ui_scale();
     try {
       window.__tp = window.__tp || {};
       window.__tp.settings = window.__tp.settings || {};
       if (typeof window.__tp.settings.mount !== "function") window.__tp.settings.mount = mountSettingsOverlay;
       window.__tpSettings = window.__tpSettings || {};
-      window.__tpSettings.open = window.__tpSettings.open || openSettings;
-      window.__tpSettings.syncValues = window.__tpSettings.syncValues || syncSettingsValues;
+      window.__tpSettings.open = window.__tpSettings.open || (() => openSettings());
+      window.__tpSettings.syncValues = window.__tpSettings.syncValues || (() => syncSettingsValues());
     } catch {
     }
-    settings_default = mountSettingsOverlay;
-  }
-});
-
-// src/ui/settings/asr-wizard.ts
-function $2(id) {
-  return document.getElementById(id);
-}
-function toast3(msg, opts) {
-  try {
-    showToast(msg, opts);
-  } catch {
-    try {
-      console.log("[ASR]", msg);
-    } catch {
-    }
-  }
-}
-function setCalStatus(text) {
-  try {
-    const el = document.querySelector("[data-calibration-status]") || $2("asrCalStatus");
-    if (!el) return;
-    el.textContent = text || "";
-    el.hidden = !text;
-  } catch {
-  }
-}
-async function populateMicSelect2() {
-  try {
-    const sel = $2("asrDevice");
-    if (!sel || !navigator.mediaDevices?.enumerateDevices) return;
-    const devs = await navigator.mediaDevices.enumerateDevices();
-    const mics = devs.filter((d) => d.kind === "audioinput");
-    sel.innerHTML = "";
-    mics.forEach((d, i) => {
-      const o = document.createElement("option");
-      o.value = d.deviceId || "";
-      o.textContent = d.label || `Microphone ${i + 1}`;
-      sel.appendChild(o);
-    });
-    try {
-      const s = getAsrState();
-      const devId = s.activeProfileId ? s.profiles[s.activeProfileId]?.capture.deviceId : void 0;
-      if (devId) sel.value = devId;
-    } catch {
-    }
-  } catch {
-  }
-}
-async function grantMicLabels2() {
-  try {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      toast3("This browser does not support direct microphone access.");
-      return;
-    }
-    await navigator.mediaDevices.getUserMedia({ audio: true });
-    toast3("Mic access granted \u2014 device names unlocked.");
-  } catch {
-    toast3("Mic access denied. You can still calibrate with generic names.");
-  }
-  await populateMicSelect2();
-}
-function mapDbToPct2(db) {
-  const clamped = Math.max(-80, Math.min(0, db));
-  return (clamped + 80) / 80 * 100;
-}
-function setMeterMarker2(db, ton, toff, gate) {
-  const meter = $2("asrMeter");
-  if (!meter) return;
-  const pct = mapDbToPct2(db);
-  meter.style.setProperty("--asr-level", pct.toFixed(1) + "%");
-  meter.dataset.gate = gate ? "1" : "0";
-  if (typeof ton === "number") {
-    meter.style.setProperty("--asr-ton", mapDbToPct2(ton).toFixed(1) + "%");
-  }
-  if (typeof toff === "number") {
-    meter.style.setProperty("--asr-toff", mapDbToPct2(toff).toFixed(1) + "%");
-  }
-}
-function updateMeter2(rmsDbfs, ton, toff, gate) {
-  setMeterMarker2(rmsDbfs, ton, toff, gate);
-  const noiseEl = $2("asrNoise");
-  const speechEl = $2("asrSpeech");
-  const snrEl = $2("asrSnr");
-  try {
-    if (snrEl && typeof snrEl.textContent === "string" && typeof ton === "number" && typeof toff === "number") {
-      const p = current2?.profile;
-      if (p) {
-        if (noiseEl)
-          noiseEl.textContent = `${p.cal.noiseRmsDbfs.toFixed(1)} dBFS`;
-        if (speechEl)
-          speechEl.textContent = `${p.cal.speechRmsDbfs.toFixed(1)} dBFS`;
-        if (snrEl) snrEl.textContent = `${p.cal.snrDb.toFixed(1)} dB`;
-      }
-    }
-  } catch {
-  }
-}
-function renderDerived2(profile) {
-  try {
-    const noiseEl = $2("asrNoise");
-    const speechEl = $2("asrSpeech");
-    const snrEl = $2("asrSnr");
-    if (noiseEl)
-      noiseEl.textContent = `${profile.cal.noiseRmsDbfs.toFixed(1)} dBFS`;
-    if (speechEl)
-      speechEl.textContent = `${profile.cal.speechRmsDbfs.toFixed(1)} dBFS`;
-    if (snrEl) snrEl.textContent = `${profile.cal.snrDb.toFixed(1)} dB`;
-    if (profile.cal.snrDb < 15) {
-      toast3("Increase mic gain or move closer. (SNR < 15 dB)");
-    }
-  } catch {
-  }
-}
-function getProfileSelect() {
-  return document.getElementById("asrProfileSelect");
-}
-function renderProfileOptions() {
-  try {
-    const select = getProfileSelect();
-    if (!select) return;
-    const state8 = getAsrState();
-    const entries = Object.entries(state8.profiles || {});
-    select.innerHTML = "";
-    const placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = entries.length ? "Default settings (no profile)" : "No saved profiles yet";
-    select.appendChild(placeholder);
-    entries.sort((a, b) => (b[1].updatedAt || 0) - (a[1].updatedAt || 0)).forEach(([id, profile]) => {
-      const opt = document.createElement("option");
-      opt.value = id;
-      opt.textContent = profile.label || id;
-      select.appendChild(opt);
-    });
-    const active = state8.activeProfileId;
-    select.value = active && entries.some(([id]) => id === active) ? active : "";
-  } catch {
-  }
-}
-function wireProfileSelector() {
-  try {
-    const select = getProfileSelect();
-    if (!select) return;
-    if (select.dataset.tpAsrProfileWired === "1") return;
-    select.dataset.tpAsrProfileWired = "1";
-    select.addEventListener("change", () => {
-      const id = select.value;
-      if (!id) return;
-      try {
-        setActiveProfile(id);
-        toast3("ASR profile selected", { type: "info" });
-      } catch {
-      }
-      renderProfileOptions();
-    });
-    if (!profileSelectorSubbed) {
-      profileSelectorSubbed = true;
-      onAsr(() => renderProfileOptions());
-    }
-    renderProfileOptions();
-    wireProfileLoadButton();
-  } catch {
-  }
-}
-function wireProfileLoadButton() {
-  try {
-    const btn = document.getElementById("asrProfileLoad");
-    if (!btn || btn.dataset.tpAsrProfileLoadWired === "1") return;
-    btn.dataset.tpAsrProfileLoadWired = "1";
-    btn.addEventListener("click", () => {
-      const select = getProfileSelect();
-      if (!select) return;
-      const id = select.value;
-      if (!id) {
-        toast3("Select a profile first", { type: "warning" });
-        return;
-      }
-      try {
-        setActiveProfile(id);
-        toast3("ASR profile applied", { type: "info" });
-      } catch {
-      }
-      renderProfileOptions();
-    });
-  } catch {
-  }
-}
-function wirePreviewListener() {
-  if (previewListenerWired) return;
-  previewListenerWired = true;
-  try {
-    window.addEventListener(
-      "tp:asrPreview",
-      (e) => {
-        try {
-          const detail = e.detail || {};
-          const { rmsDbfs = -80, gate, ton, toff } = detail;
-          updateMeter2(rmsDbfs, ton, toff, gate);
-        } catch {
-        }
-      },
-      { passive: true }
-    );
-  } catch {
-  }
-}
-function getDesiredProfileLabel() {
-  try {
-    const input = $2("asrLabel");
-    const value = input?.value?.trim();
-    if (value) {
-      return value;
-    }
-  } catch {
-  }
-  return DEFAULT_PROFILE_LABEL;
-}
-async function startAsrWizard2() {
-  try {
-    if (calibrating) return;
-    calibrating = true;
-    setCalStatus('Calibrating: first stay quiet for a few seconds, then speak in your normal podcast voice and keep talking until this banner changes to "Calibration done.".');
-    const startBtn = $2("asrStartBtn");
-    if (startBtn) startBtn.disabled = true;
-    const deviceSel = $2("asrDevice");
-    const deviceId = deviceSel?.value || "";
-    const label = getDesiredProfileLabel();
-    const flags = {
-      echoCancellation: !!$2("asrAEC")?.checked,
-      noiseSuppression: !!$2("asrNS")?.checked,
-      autoGainControl: !!$2("asrAGC")?.checked
-    };
-    current2 = await runCalibration({ deviceId, label, flags });
-    renderDerived2(current2.profile);
-  } catch (e) {
-    console.warn("[ASR] startAsrWizard failed", e);
-    setCalStatus("Calibration failed. Check mic and try again.");
-  } finally {
-    if (current2) {
-      const summary = "Calibration done. Noise " + current2.profile.cal.noiseRmsDbfs.toFixed(1) + " dBFS, speech " + current2.profile.cal.speechRmsDbfs.toFixed(1) + " dBFS, SNR " + current2.profile.cal.snrDb.toFixed(1) + " dB.";
-      setTimeout(() => {
-        try {
-          setCalStatus(summary);
-        } catch {
-        }
-      }, 1500);
-    } else {
-      setCalStatus("");
-    }
-    calibrating = false;
-    try {
-      const startBtn = $2("asrStartBtn");
-      if (startBtn) startBtn.disabled = false;
-    } catch {
-    }
-  }
-}
-function wire2() {
-  try {
-    const attachStart = (id) => {
-      const btn = $2(id);
-      btn?.addEventListener("click", () => startAsrWizard2());
-    };
-    attachStart("asrStartBtn");
-    attachStart("asrCalibBtn");
-    $2("asrPreviewBtn")?.addEventListener("click", () => current2?.preview());
-    $2("asrPreviewStop")?.addEventListener("click", () => current2?.preview(true));
-    $2("asrSaveBtn")?.addEventListener("click", () => {
-      try {
-        if (!current2) return;
-        const label = getDesiredProfileLabel();
-        current2.profile.label = label;
-        try {
-          const deviceId = current2.profile.capture?.deviceId || "";
-          current2.profile.id = `${deviceId}::${label}`;
-        } catch {
-        }
-        upsertProfile(current2.profile);
-        setActiveProfile(current2.profile.id);
-        toast3("ASR profile saved and activated.");
-        renderProfileOptions();
-      } catch {
-      }
-    });
-    const updateFlagsBadge = () => {
-      try {
-        const badge = $2("asrFlagsBadge");
-        if (!badge) return;
-        const ns = !!$2("asrNS")?.checked;
-        const ag = !!$2("asrAGC")?.checked;
-        if (ns || ag) {
-          badge.style.display = "inline-block";
-          const parts = [ns && "NS", ag && "AGC"].filter(Boolean).join(" + ");
-          badge.textContent = `Timing may vary: ${parts}`;
-        } else {
-          badge.style.display = "none";
-        }
-      } catch {
-      }
-    };
-    ["asrNS", "asrAGC"].forEach((id) => {
-      try {
-        $2(id)?.addEventListener(
-          "change",
-          updateFlagsBadge
-        );
-      } catch {
-      }
-    });
-    updateFlagsBadge();
-    renderProfileOptions();
-    wireProfileSelector();
-    $2("asrRefreshDevs")?.addEventListener("click", () => {
-      void populateMicSelect2();
-    });
-    $2("asrGrantPerm")?.addEventListener("click", () => {
-      void grantMicLabels2();
-    });
-  } catch {
-  }
-}
-async function initAsrSettingsUI2() {
-  try {
-    await populateMicSelect2();
-    try {
-      $2("asrAEC")?.removeAttribute("checked");
-    } catch {
-    }
-    try {
-      $2("asrNS")?.removeAttribute("checked");
-    } catch {
-    }
-    try {
-      $2("asrAGC")?.removeAttribute("checked");
-    } catch {
-    }
-    wire2();
-    wirePreviewListener();
-  } catch {
-  }
-}
-var current2, previewListenerWired, calibrating, profileSelectorSubbed, DEFAULT_PROFILE_LABEL;
-var init_asr_wizard = __esm({
-  "src/ui/settings/asr-wizard.ts"() {
-    "use strict";
-    init_calibration();
-    init_store();
-    init_toasts();
-    current2 = null;
-    previewListenerWired = false;
-    calibrating = false;
-    profileSelectorSubbed = false;
-    DEFAULT_PROFILE_LABEL = "Desk - default";
-    try {
-      window.startAsrWizard = startAsrWizard2;
-    } catch {
-    }
+    settings_default = wireSettings;
   }
 });
 
@@ -52581,7 +53241,7 @@ var init_asr_bridge = __esm({
 });
 
 // src/scroll/wpmSpeed.ts
-function clamp7(value, min, max) {
+function clamp8(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 function resolveTypographyNumber(value, fallback) {
@@ -52609,7 +53269,7 @@ function wpmToPxPerSec(targetWpm, display = "main") {
   const linesPerMinute = targetWpm / wordsPerLine;
   const pxPerMinute = linesPerMinute * pxPerLine;
   const pxPerSec = pxPerMinute / 60 * WPM_PXPS_MULTIPLIER;
-  return clamp7(pxPerSec, 0, 2e3);
+  return clamp8(pxPerSec, 0, 2e3);
 }
 var WPM_PXPS_MULTIPLIER;
 var init_wpmSpeed = __esm({
@@ -53074,7 +53734,7 @@ function writeAutoRecordPref(next) {
   } catch {
   }
 }
-function toast4(msg) {
+function toast3(msg) {
   try {
     window.toasts?.show?.(msg);
   } catch {
@@ -53156,11 +53816,11 @@ function keyGuard(e) {
     e.stopImmediatePropagation();
     e.stopPropagation();
     if (k === " ") {
-      toast4("Auto-scroll disabled in Rehearsal Mode");
+      toast3("Auto-scroll disabled in Rehearsal Mode");
     } else if (nav.includes(k)) {
-      toast4("Keyboard scroll is disabled in Rehearsal Mode");
+      toast3("Keyboard scroll is disabled in Rehearsal Mode");
     } else {
-      toast4("Recording/automation is disabled in Rehearsal Mode");
+      toast3("Recording/automation is disabled in Rehearsal Mode");
     }
   }
 }
@@ -53289,7 +53949,7 @@ function enable() {
     keyListenerInstalled = true;
   }
   wireSelectObserversOnce();
-  toast4("Rehearsal Mode enabled");
+  toast3("Rehearsal Mode enabled");
   try {
     broadcastRehearsal(true);
   } catch {
@@ -53301,7 +53961,7 @@ function disable() {
   setState(false);
   markUiDisabled(false);
   restorePrev();
-  toast4("Exited Rehearsal Mode");
+  toast3("Exited Rehearsal Mode");
   try {
     broadcastRehearsal(false);
   } catch {
@@ -53441,7 +54101,7 @@ var init_config = __esm({
 });
 
 // src/features/asr-engine.ts
-function getStore2() {
+function getStore3() {
   try {
     const anyWin = window;
     return anyWin.__tpStore || null;
@@ -53498,7 +54158,7 @@ var init_asr_engine = __esm({
           }
           return;
         }
-        const cfg = getAsrConfig(getStore2());
+        const cfg = getAsrConfig(getStore3());
         if (anyWin.__tpDevMode) {
           try {
             console.info("[ASR-ENGINE] Enabling ASR with config", cfg);
@@ -54125,349 +54785,6 @@ var init_asr_hotkeys = __esm({
   }
 });
 
-// src/ui/settings-asr.ts
-function resolveStore2(store3) {
-  if (store3) return store3;
-  try {
-    return window.__tpStore || appStoreSingleton || null;
-  } catch {
-    return appStoreSingleton;
-  }
-}
-function findAsrCard(root = document) {
-  return root?.querySelector?.("#asrSettingsCard") || root?.querySelector?.(".settings-card.asr") || null;
-}
-function queryAsrInputs(card) {
-  const q3 = (selector) => card.querySelector(selector);
-  return {
-    eng: q3("#asrEngine"),
-    lang: q3("#asrLang"),
-    interim: q3("#asrInterim"),
-    fillers: q3("#asrFillers"),
-    thresh: q3("#asrThresh"),
-    endms: q3("#asrEndMs"),
-    calm: q3("#asrCalmMode")
-  };
-}
-function applyAsrStateToInputs(inputs, state8) {
-  const { eng, lang, interim, fillers, thresh, endms } = inputs;
-  if (eng && typeof state8.engine === "string") {
-    try {
-      eng.value = state8.engine;
-    } catch {
-    }
-  }
-  if (lang && typeof state8.lang === "string") {
-    lang.value = state8.lang;
-  }
-  if (interim) interim.checked = !!state8.interim;
-  if (fillers) fillers.checked = !!state8.fillerFilter;
-  if (thresh && typeof state8.threshold === "number") {
-    thresh.value = String(state8.threshold);
-  }
-  if (endms && typeof state8.endpointingMs === "number") {
-    endms.value = String(state8.endpointingMs);
-  }
-  if (inputs.calm) inputs.calm.checked = !!state8.calmModeEnabled;
-}
-function attachAsrInputListeners(inputs) {
-  const { eng, lang, interim, fillers, thresh, endms, calm } = inputs;
-  const persist2 = (patch) => {
-    if (isHydratingAsrSettings) return;
-    persistAsrPatch(patch);
-  };
-  const clampThreshold = (value) => {
-    const parsed = typeof value === "number" ? value : parseFloat(String(value));
-    if (Number.isNaN(parsed)) return;
-    persist2({ threshold: clamp8(parsed, 0, 1) });
-  };
-  const clampEndpoint2 = (value) => {
-    const parsed = typeof value === "number" ? Math.round(value) : Math.round(parseFloat(String(value)));
-    if (Number.isNaN(parsed)) return;
-    persist2({ endpointingMs: Math.max(200, parsed) });
-  };
-  eng?.addEventListener("change", () => persist2({ engine: eng.value }));
-  lang?.addEventListener("change", () => persist2({ lang: lang.value }));
-  interim?.addEventListener("change", () => persist2({ interim: interim.checked }));
-  fillers?.addEventListener("change", () => persist2({ fillerFilter: fillers.checked }));
-  thresh?.addEventListener("input", () => clampThreshold(thresh.value));
-  thresh?.addEventListener("change", () => clampThreshold(thresh.value));
-  endms?.addEventListener("input", () => clampEndpoint2(endms.value));
-  endms?.addEventListener("change", () => clampEndpoint2(endms.value));
-  calm?.addEventListener("change", () => persist2({ calmModeEnabled: calm.checked }));
-}
-function withAsrHydration(fn) {
-  isHydratingAsrSettings = true;
-  try {
-    fn();
-  } finally {
-    const scheduleClear = () => {
-      isHydratingAsrSettings = false;
-    };
-    try {
-      if (typeof window !== "undefined" && typeof window.setTimeout === "function") {
-        window.setTimeout(scheduleClear, 0);
-      } else {
-        setTimeout(scheduleClear, 0);
-      }
-    } catch {
-      scheduleClear();
-    }
-  }
-}
-function readAsrPatchFromCard(card) {
-  const patch = {};
-  const q3 = (selector) => card.querySelector(selector);
-  const eng = q3("#asrEngine");
-  const lang = q3("#asrLang");
-  const interim = q3("#asrInterim");
-  const fillers = q3("#asrFillers");
-  const thresh = q3("#asrThresh");
-  const endms = q3("#asrEndMs");
-  const calm = q3("#asrCalmMode");
-  if (eng) patch.engine = eng.value || "";
-  if (lang) patch.lang = lang.value || "";
-  if (interim) patch.interim = !!interim.checked;
-  if (fillers) patch.fillerFilter = !!fillers.checked;
-  if (thresh) {
-    const val = parseFloat(thresh.value);
-    if (!Number.isNaN(val)) {
-      patch.threshold = clamp8(val, 0, 1);
-    }
-  }
-  if (endms) {
-    const val = Math.round(+endms.value);
-    if (!Number.isNaN(val)) {
-      patch.endpointingMs = Math.max(200, val);
-    }
-  }
-  if (calm) patch.calmModeEnabled = !!calm.checked;
-  return patch;
-}
-function persistAsrPatch(patch) {
-  setAsrSettings(patch);
-}
-function formatRelativeTime(timestamp) {
-  if (!timestamp || Number.isNaN(timestamp)) return "just now";
-  const delta = Date.now() - timestamp;
-  if (delta < 1e3) return "just now";
-  if (delta < 6e4) return `${Math.round(delta / 1e3)}s ago`;
-  if (delta < 36e5) return `${Math.round(delta / 6e4)}m ago`;
-  if (delta < 864e5) return `${Math.round(delta / 36e5)}h ago`;
-  return `${Math.round(delta / 864e5)}d ago`;
-}
-function wireAsrSettingsCard(root = document, store3) {
-  const card = root.querySelector("#asrSettingsCard") || root.querySelector(".settings-card.asr");
-  if (!card) {
-    if (!asrSettingsWarned) {
-      asrSettingsWarned = true;
-      try {
-        console.warn("[ASR] settings card not found (skipping wiring)");
-      } catch {
-      }
-    }
-    return null;
-  }
-  if (card.dataset.tpAsrWired === "1") return card;
-  card.dataset.tpAsrWired = "1";
-  const inputs = queryAsrInputs(card);
-  attachAsrInputListeners(inputs);
-  wireAsrStatusIndicators(card, store3);
-  return card;
-}
-function hydrateAsrSettingsCard(root = document) {
-  const card = findAsrCard(root);
-  if (!card) return;
-  const inputs = queryAsrInputs(card);
-  const state8 = getAsrSettings();
-  withAsrHydration(() => applyAsrStateToInputs(inputs, state8));
-}
-function mountAsrSettings(root = document, store3) {
-  const card = wireAsrSettingsCard(root, store3);
-  if (!card) return;
-  hydrateAsrSettingsCard(root);
-}
-function wireAsrStatusIndicators(card, store3) {
-  const saveEl = card.querySelector("#asrSaveStatus");
-  const appliedEl = card.querySelector("#asrAppliedStatus");
-  if (!saveEl && !appliedEl) return;
-  const resolved = resolveStore2(store3);
-  const SAVE_STALE_MS = 15e3;
-  let saveStatusTimer = null;
-  const clearSaveTimer = () => {
-    if (saveStatusTimer) {
-      try {
-        clearTimeout(saveStatusTimer);
-      } catch {
-      }
-      saveStatusTimer = null;
-    }
-  };
-  const isMounted = () => {
-    try {
-      return card.isConnected && document.contains(card);
-    } catch {
-      return false;
-    }
-  };
-  const renderSaveStatus = () => {
-    if (!isMounted()) {
-      clearSaveTimer();
-      return;
-    }
-    if (!saveEl) return;
-    const status2 = resolved?.get?.("settingsSaveStatus");
-    if (!status2 || status2.state === "idle") {
-      saveEl.textContent = "";
-      saveEl.hidden = true;
-      clearSaveTimer();
-      delete saveEl.dataset.stale;
-      return;
-    }
-    let text = "";
-    if (status2.state === "saving") {
-      text = "Saving to account...";
-      clearSaveTimer();
-      delete saveEl.dataset.stale;
-    } else if (status2.state === "saved") {
-      const when = formatRelativeTime(status2.at);
-      const elapsed = Date.now() - status2.at;
-      const isStale = elapsed >= SAVE_STALE_MS;
-      if (isStale) {
-        text = "Saved";
-        saveEl.dataset.stale = "1";
-        clearSaveTimer();
-      } else {
-        text = `Saved to account [OK]${when ? ` (${when})` : ""}`;
-        delete saveEl.dataset.stale;
-        clearSaveTimer();
-        saveStatusTimer = window.setTimeout(() => {
-          try {
-            renderSaveStatus();
-          } catch {
-          }
-        }, Math.max(SAVE_STALE_MS - elapsed, 0));
-      }
-    } else if (status2.state === "failed") {
-      const errSuffix = status2.error ? `: ${status2.error}` : "";
-      text = `Save failed${errSuffix}`;
-      clearSaveTimer();
-      delete saveEl.dataset.stale;
-    }
-    saveEl.textContent = text;
-    saveEl.hidden = !text;
-  };
-  const renderAppliedStatus = () => {
-    if (!isMounted()) return;
-    if (!appliedEl) return;
-    const appliedAt = resolved?.get?.("asrLastAppliedAt") || 0;
-    const summary = resolved?.get?.("asrLastAppliedSummary");
-    const ok = !!resolved?.get?.("asrLastApplyOk");
-    const status2 = resolved?.get?.("settingsSaveStatus");
-    const lastSaveAt = status2?.state === "saved" ? status2.at : 0;
-    const asrRunning = !!resolved?.get?.("asrLive");
-    if (!asrRunning && lastSaveAt && lastSaveAt > appliedAt) {
-      appliedEl.textContent = "Pending application (ASR not running)";
-      appliedEl.hidden = false;
-      return;
-    }
-    if (!appliedAt) {
-      appliedEl.textContent = "ASR has not applied any settings yet.";
-      appliedEl.hidden = false;
-      return;
-    }
-    const parts = [];
-    if (summary) {
-      const engine = summary.engine || summary.eng;
-      if (engine) parts.push(String(engine));
-      if (summary.lang) parts.push(String(summary.lang));
-      if (summary.profileName) parts.push(String(summary.profileName));
-      if (summary.reason) parts.push(String(summary.reason));
-    }
-    const base = parts.length ? parts.join(" | ") : "default";
-    const symbol = ok ? "[applied]" : "[warn]";
-    const relative = formatRelativeTime(appliedAt);
-    appliedEl.textContent = `Applied to ASR: ${symbol} ${base}${relative ? ` (${relative})` : ""}`;
-    appliedEl.hidden = false;
-  };
-  renderSaveStatus();
-  renderAppliedStatus();
-  if (resolved?.subscribe) {
-    resolved.subscribe("settingsSaveStatus", renderSaveStatus);
-    resolved.subscribe("asrLastAppliedAt", renderAppliedStatus);
-    resolved.subscribe("asrLastAppliedSummary", renderAppliedStatus);
-    resolved.subscribe("asrLastApplyOk", renderAppliedStatus);
-    resolved.subscribe("asrLive", renderAppliedStatus);
-  }
-}
-function flushAsrSettingsToStore(_store) {
-  try {
-    const card = findAsrCard();
-    if (!card) return;
-    const patch = readAsrPatchFromCard(card);
-    persistAsrPatch(patch);
-  } catch {
-  }
-}
-function ensureAsrSettingsWired(root = document, store3) {
-  const tryMount = (warnIfMissing = false) => {
-    const card = root?.querySelector?.("#asrSettingsCard") || root?.querySelector?.(".settings-card.asr");
-    if (!card) {
-      if (warnIfMissing && !asrSettingsWarned) {
-        asrSettingsWarned = true;
-        try {
-          console.warn("[ASR] settings card not found (will retry)");
-        } catch {
-        }
-      }
-      return false;
-    }
-    mountAsrSettings(root, store3);
-    return true;
-  };
-  if (tryMount(false)) return;
-  document.addEventListener(
-    "tp:settings:rendered",
-    () => {
-      asrSettingsRenderEventFired = true;
-      tryMount(true);
-    },
-    { once: true }
-  );
-  if (!asrSettingsObserverStarted) {
-    asrSettingsObserverStarted = true;
-    const host = root?.querySelector?.("#settingsBody") || document.getElementById("settingsBody") || document.body;
-    try {
-      const obs = new MutationObserver(() => {
-        const wired2 = tryMount(asrSettingsRenderEventFired);
-        if (wired2) {
-          try {
-            obs.disconnect();
-          } catch {
-          }
-        }
-      });
-      obs.observe(host || document.body, { subtree: true, childList: true });
-    } catch {
-    }
-  }
-}
-function clamp8(n, lo, hi) {
-  return Math.max(lo, Math.min(hi, n));
-}
-var asrSettingsObserverStarted, asrSettingsWarned, asrSettingsRenderEventFired, isHydratingAsrSettings;
-var init_settings_asr = __esm({
-  "src/ui/settings-asr.ts"() {
-    "use strict";
-    init_app_store();
-    init_speech_store2();
-    asrSettingsObserverStarted = false;
-    asrSettingsWarned = false;
-    asrSettingsRenderEventFired = false;
-    isHydratingAsrSettings = false;
-  }
-});
-
 // src/ui/topbar-asr.ts
 var AsrTopbar;
 var init_topbar_asr = __esm({
@@ -54829,10 +55146,10 @@ function bindCameraUI() {
       setButtons(false, false);
       updateChip("CamRTC: error");
       try {
-        const toast6 = window.toast;
-        if (typeof toast6 === "function") {
+        const toast5 = window.toast;
+        if (typeof toast5 === "function") {
           const msg = busy ? 'Camera is in use by another app. Close it or pick "OBS Virtual Camera" in Settings \u2192 Recording.' : "Camera failed to start. Check permissions or pick another device.";
-          toast6(msg, { type: "warn" });
+          toast5(msg, { type: "warn" });
         }
       } catch {
       }
@@ -55665,7 +55982,7 @@ async function handleRequestMic(source) {
     return;
   }
   try {
-    await initAsrSettingsUI2();
+    await initAsrSettingsUI();
   } catch {
   }
   try {
@@ -56310,9 +56627,9 @@ function initSpeakersPanel() {
     ];
     profileInputs.forEach(({ slot, el }) => {
       if (!el) return;
-      const current3 = bindings[slot] || "";
+      const current2 = bindings[slot] || "";
       el.innerHTML = options.map((opt) => `<option value="${opt.value}">${opt.label}</option>`).join("");
-      el.value = current3;
+      el.value = current2;
     });
   };
   const highlightActiveSlot = (slot) => {
@@ -57547,514 +57864,6 @@ Short lines read easier.
   }
 });
 
-// src/ui/inject-settings-folder.ts
-function ensureSettingsFolderControls() {
-  const settingsBody = document.getElementById("settingsBody");
-  const mediaPanel = (settingsBody?.querySelector('[data-settings-panel="media"]') ?? document.querySelector('[data-settings-panel="media"]')) || document.querySelector('[data-tab-content="media"]');
-  if (!mediaPanel) {
-    return false;
-  }
-  try {
-    const legacyRow = document.getElementById("externalScriptsRow");
-    if (legacyRow) legacyRow.style.display = "none";
-  } catch {
-  }
-  const existingControls = document.querySelector("#chooseFolderBtn, #scriptSelect, #recheckFolderBtn");
-  let card = document.getElementById("scriptsFolderCard") || existingControls?.closest(".settings-card, [data-settings-panel]");
-  if (!card) {
-    card = document.createElement("div");
-    card.className = "settings-card settings-card--scripts";
-    card.id = "scriptsFolderCard";
-    card.dataset.tab = "media";
-    card.innerHTML = `
-      <h4>Scripts Folder</h4>
-      <div class="settings-small">Map a directory of .txt / .md / .docx files; select to load instantly.</div>
-      <div class="settings-row settings-mapped-folder">
-        <div class="settings-row__controls">
-          <button id="chooseFolderBtn" type="button">Choose Folder</button>
-          <button id="recheckFolderBtn" type="button" title="Recheck permission">Recheck</button>
-          <select id="scriptSelect" class="select-md" aria-label="Mapped folder scripts" style="min-width:240px"></select>
-          <input id="folderFallback" type="file" webkitdirectory directory multiple hidden>
-        </div>
-      </div>
-    `;
-  } else {
-    if (!card.id) card.id = "scriptsFolderCard";
-    card.classList.add("settings-card");
-    card.classList.add("settings-card--scripts");
-    card.dataset.tab = "media";
-  }
-  if (card.parentElement !== mediaPanel) mediaPanel.appendChild(card);
-  signalSettingsFolderReady("injected");
-  try {
-    window.HUD?.log?.("settings:folder:injected", { late: false });
-  } catch {
-  }
-  return true;
-}
-function ensureSettingsFolderControlsAsync(timeoutMs = 6e3) {
-  try {
-    if (ensureSettingsFolderControls()) {
-      startPersistenceWatcher();
-      return;
-    }
-    const obs = new MutationObserver(() => {
-      try {
-        if (ensureSettingsFolderControls()) {
-          obs.disconnect();
-          try {
-            window.HUD?.log?.("settings:folder:injected", { late: true });
-          } catch {
-          }
-          startPersistenceWatcher();
-        }
-      } catch {
-      }
-    });
-    obs.observe(document.documentElement, { childList: true, subtree: true });
-    setTimeout(() => {
-      try {
-        obs.disconnect();
-      } catch {
-      }
-    }, timeoutMs);
-  } catch {
-  }
-}
-function startPersistenceWatcher() {
-  try {
-    const WATCH_MS = 12e4;
-    const start2 = Date.now();
-    const mo = new MutationObserver(() => {
-      try {
-        const present = document.getElementById("scriptsFolderCard");
-        if (!present && Date.now() - start2 < WATCH_MS) {
-          const host = document.getElementById("settingsBody");
-          if (host) {
-            const ok = ensureSettingsFolderControls();
-            if (ok) {
-              try {
-                window.HUD?.log?.("settings:folder:reinjected", {});
-              } catch {
-              }
-              signalSettingsFolderReady("reinjected");
-            }
-          }
-        }
-      } catch {
-      }
-    });
-    mo.observe(document.documentElement, { childList: true, subtree: true });
-    setTimeout(() => {
-      try {
-        mo.disconnect();
-      } catch {
-      }
-    }, WATCH_MS + 5e3);
-  } catch {
-  }
-}
-function signalSettingsFolderReady(reason) {
-  try {
-    window.dispatchEvent(new CustomEvent("tp:settings-folder:ready", {
-      detail: { reason, ts: Date.now() }
-    }));
-  } catch {
-  }
-}
-var init_inject_settings_folder2 = __esm({
-  "src/ui/inject-settings-folder.ts"() {
-    "use strict";
-  }
-});
-
-// src/ui/settings/typography-presets.ts
-function setNumber(id, value) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.value = String(value);
-  el.dispatchEvent(new Event("input", { bubbles: true }));
-  el.dispatchEvent(new Event("change", { bubbles: true }));
-}
-function setActivePreset(rowEl, preset) {
-  rowEl.querySelectorAll("[data-typo-preset]").forEach((b) => {
-    const isActive = b.getAttribute("data-typo-preset") === preset;
-    b.classList.toggle("active", isActive);
-    b.setAttribute("aria-pressed", String(isActive));
-  });
-}
-function applyTypographyPresetByName(preset, opts) {
-  const p = PRESETS[preset];
-  if (!p) return;
-  setNumber("typoLetter-display", p.letter);
-  setNumber("typoWord-display", p.word);
-  setNumber("typoMaxCh-display", p.maxCh);
-  if (opts?.applyToMain) {
-    setNumber("typoLetter-main", p.letter);
-    setNumber("typoWord-main", p.word);
-    setNumber("typoMaxCh-main", p.maxCh);
-  }
-  const rowEl = document.getElementById("typographyPresetsRow");
-  if (rowEl) setActivePreset(rowEl, preset);
-}
-function wireTypographyPresets() {
-  const row = document.getElementById("typographyPresetsRow");
-  if (!row) return;
-  const rowEl = row;
-  if (rowEl.dataset.wired === "1") return;
-  rowEl.dataset.wired = "1";
-  const applyBoth = document.getElementById("typoPresetApplyBoth");
-  rowEl.addEventListener("click", (ev) => {
-    const btn = ev.target?.closest?.("[data-typo-preset]");
-    if (!btn) return;
-    const preset = btn.getAttribute("data-typo-preset");
-    if (!preset) return;
-    const both = !!applyBoth?.checked;
-    applyTypographyPresetByName(preset, { applyToMain: both });
-  });
-}
-var PRESETS;
-var init_typography_presets = __esm({
-  "src/ui/settings/typography-presets.ts"() {
-    "use strict";
-    PRESETS = {
-      default: { letter: 0, word: 0, maxCh: 90 },
-      easyRead: { letter: 0, word: 0.01, maxCh: 84 },
-      smoothComfort: { letter: 0.01, word: 0.03, maxCh: 75 }
-    };
-  }
-});
-
-// src/ui/settings/index.ts
-function setSettingsHydrating(value) {
-  try {
-    window.__tpSettingsHydrating = value;
-  } catch {
-  }
-}
-function scheduleSettingsHydrationComplete() {
-  const clear = () => setSettingsHydrating(false);
-  if (typeof queueMicrotask === "function") {
-    queueMicrotask(clear);
-  } else if (typeof Promise !== "undefined" && typeof Promise.resolve === "function") {
-    Promise.resolve().then(clear);
-  } else {
-    setTimeout(clear, 0);
-  }
-}
-function getStore3(store3) {
-  if (store3) return store3;
-  try {
-    return window.__tpStore || null;
-  } catch {
-    return null;
-  }
-}
-function isSettingsDebugMode() {
-  if (typeof window === "undefined") return false;
-  try {
-    const w3 = window;
-    if (w3.__TP_DEV || w3.__TP_DEV1 || w3.__tpDevMode) return true;
-    if (w3?.localStorage?.getItem("tp_dev_mode") === "1") return true;
-    const params = new URLSearchParams(window.location.search || "");
-    if (params.has("dev")) return true;
-    const hash = (window.location.hash || "").replace(/^#/, "").toLowerCase();
-    if (hash === "dev" || hash === "dev=1" || hash.includes("dev=1")) return true;
-  } catch {
-    return false;
-  }
-  return false;
-}
-function buildAsrSnapshot(store3) {
-  const speechState = speechStore.get();
-  const snapshot = store3 ? {
-    engine: store3.get?.("asr.engine"),
-    lang: store3.get?.("asr.language"),
-    useInterimResults: store3.get?.("asr.useInterimResults"),
-    filterFillers: store3.get?.("asr.filterFillers"),
-    threshold: store3.get?.("asr.threshold"),
-    endpointingMs: store3.get?.("asr.endpointMs"),
-    calmModeEnabled: store3.get?.("asrCalmModeEnabled")
-  } : null;
-  return { store: snapshot, speechStore: speechState };
-}
-function logSettingsHydrationSnapshot(store3) {
-  if (!isSettingsDebugMode()) return;
-  try {
-    console.log("SettingsOpen: hydrating from SSOT snapshot", { asr: buildAsrSnapshot(store3) });
-  } catch {
-  }
-}
-function mountSettings2(rootEl2, store3) {
-  setSettingsHydrating(true);
-  try {
-    const resolvedStore = getStore3(store3) || createAppStore();
-    logSettingsHydrationSnapshot(resolvedStore);
-    if (window.__TP_DEV) {
-      try {
-        console.count("mountSettings");
-      } catch {
-      }
-    }
-    if (!rootEl2) return;
-    try {
-      rootEl2.dataset.tpSettingsWired = "";
-      rootEl2.innerHTML = "";
-    } catch {
-    }
-    try {
-      const html = buildSettingsContent(rootEl2) || "";
-      if (html) rootEl2.innerHTML = html;
-      try {
-        document.dispatchEvent(new CustomEvent("tp:settings:rendered"));
-      } catch {
-      }
-    } catch {
-    }
-    try {
-      wireSettingsDynamic(rootEl2, resolvedStore);
-    } catch {
-    }
-    try {
-      bindTypographyPanel("main");
-    } catch {
-    }
-    try {
-      bindTypographyPanel("display");
-    } catch {
-    }
-    try {
-      wireTypographyPresets();
-    } catch {
-    }
-    try {
-      wireUiScaleControls(rootEl2);
-    } catch {
-    }
-    try {
-      addAsrWizardCard(rootEl2);
-    } catch {
-    }
-    try {
-      initAsrSettingsUI2();
-    } catch {
-    }
-    try {
-      bindHybridGateSetting(rootEl2);
-    } catch {
-    }
-    try {
-      wireAsrSettingsCard(rootEl2, resolvedStore);
-    } catch {
-    }
-    try {
-      hydrateAsrSettingsCard(rootEl2);
-    } catch {
-    }
-    try {
-      syncSettingsValues2(resolvedStore);
-    } catch {
-    }
-    try {
-      rootEl2.addEventListener("click", (e) => {
-        const t = e.target;
-        if (t && t.id === "linkAsrSettings") {
-          e.preventDefault();
-          try {
-            rootEl2.querySelectorAll("[data-tab-content]")?.forEach((c) => c.style.display = "none");
-            const media = rootEl2.querySelector('[data-tab-content="media"]');
-            if (media) media.style.display = "";
-            const sec = document.getElementById("asrSettings");
-            if (sec) {
-              try {
-                sec.scrollIntoView({ behavior: "smooth", block: "start" });
-              } catch {
-                sec.scrollIntoView();
-              }
-              try {
-                sec.classList.add("asr-highlight");
-                setTimeout(() => sec.classList.remove("asr-highlight"), 1400);
-              } catch {
-              }
-            }
-          } catch {
-          }
-        }
-      }, { capture: true });
-    } catch {
-    }
-    try {
-      const fsS = document.getElementById("settingsFontSize");
-      const lhS = document.getElementById("settingsLineHeight");
-      const fsMain = window.$id?.("fontSize") ?? document.getElementById("fontSize");
-      const lhMain = window.$id?.("lineHeight") ?? document.getElementById("lineHeight");
-      const applyFromSettings = () => {
-        try {
-          if (fsS && fsMain) {
-            if (fsMain.value !== fsS.value) fsMain.value = fsS.value;
-            try {
-              fsMain.dispatchEvent(new Event("input", { bubbles: true }));
-            } catch {
-            }
-          }
-          if (lhS && lhMain) {
-            if (lhMain.value !== lhS.value) lhMain.value = lhS.value;
-            try {
-              lhMain.dispatchEvent(new Event("input", { bubbles: true }));
-            } catch {
-            }
-          }
-          try {
-            window.applyTypography && window.applyTypography();
-          } catch {
-          }
-          try {
-            if (fsS?.value) localStorage.setItem("tp_font_size_v1", String(fsS.value));
-            if (lhS?.value) localStorage.setItem("tp_line_height_v1", String(lhS.value));
-          } catch {
-          }
-        } catch {
-        }
-      };
-      if (fsS) fsS.addEventListener("input", applyFromSettings);
-      if (lhS) lhS.addEventListener("input", applyFromSettings);
-      try {
-        const storedFS = (() => {
-          try {
-            return localStorage.getItem("tp_font_size_v1");
-          } catch {
-            return null;
-          }
-        })();
-        const storedLH = (() => {
-          try {
-            return localStorage.getItem("tp_line_height_v1");
-          } catch {
-            return null;
-          }
-        })();
-        if (fsS) fsS.value = fsMain?.value || storedFS || "48";
-        if (lhS) lhS.value = lhMain?.value || storedLH || "1.35";
-        applyFromSettings();
-      } catch {
-      }
-    } catch {
-    }
-    try {
-      const micApi = window.__tpMic;
-      if (micApi && typeof micApi.populateDevices === "function") {
-        try {
-          micApi.populateDevices();
-        } catch {
-        }
-      } else {
-        (async function populateDevicesFallback() {
-          try {
-            if (!navigator.mediaDevices?.enumerateDevices) return;
-            const devs = await navigator.mediaDevices.enumerateDevices();
-            const mics = devs.filter((d) => d.kind === "audioinput");
-            const cams = devs.filter((d) => d.kind === "videoinput");
-            const fill = (id, list) => {
-              try {
-                const el = window.$id?.(id) ?? document.getElementById(id);
-                if (!el) return;
-                const prev2 = el.value;
-                el.innerHTML = "";
-                for (const d of list) {
-                  const opt = document.createElement("option");
-                  opt.value = d.deviceId;
-                  opt.textContent = d.label || (d.kind === "audioinput" ? "Microphone" : "Camera");
-                  el.appendChild(opt);
-                }
-                try {
-                  if (prev2 && Array.from(el.options).some((o) => o.value === prev2)) el.value = prev2;
-                } catch {
-                }
-              } catch {
-              }
-            };
-            fill("settingsMicSel", mics);
-            fill("micDeviceSel", mics);
-            fill("settingsCamSel", cams);
-          } catch {
-          }
-        })();
-      }
-    } catch {
-    }
-    try {
-      ensureSettingsFolderControls();
-    } catch {
-    }
-  } catch {
-  } finally {
-    scheduleSettingsHydrationComplete();
-  }
-}
-function mountSettingsOverlay2(root, store3) {
-  const target = root || document.getElementById("settingsBody") || null;
-  mountSettings2(target, store3);
-}
-function openSettings2(store3) {
-  try {
-    const overlay = document.getElementById("settingsOverlay");
-    const body = document.getElementById("settingsBody");
-    if (!overlay || !body) return;
-    overlay.classList.remove("hidden");
-    overlay.style.display = "";
-    try {
-      mountSettings2(body, store3);
-    } catch {
-    }
-    try {
-      const first = body.querySelector("button, [href], input, select, textarea");
-      if (first) first.focus();
-    } catch {
-    }
-  } catch {
-  }
-}
-function syncSettingsValues2(store3) {
-  const s = getStore3(store3);
-  try {
-    try {
-      const micVal = s && typeof s.get === "function" ? s.get("micDevice") : null;
-      const settingsMic = document.getElementById("settingsMicSel");
-      if (settingsMic && micVal != null) settingsMic.value = String(micVal);
-    } catch {
-    }
-  } catch {
-  }
-}
-function flushPendingSettingsEdits(store3) {
-  flushAsrSettingsToStore(store3);
-}
-var init_settings2 = __esm({
-  "src/ui/settings/index.ts"() {
-    "use strict";
-    init_inject_settings_folder2();
-    init_asr_wizard();
-    init_builder();
-    init_hybridGate();
-    init_typographyPanel();
-    init_wire();
-    init_settings_asr();
-    init_app_store();
-    init_speech_store();
-    init_typography_presets();
-    init_ui_scale();
-    try {
-      window.__tp = window.__tp || {};
-      window.__tp.settings = window.__tp.settings || {};
-      if (typeof window.__tp.settings.mount !== "function") window.__tp.settings.mount = mountSettingsOverlay2;
-      window.__tpSettings = window.__tpSettings || {};
-      window.__tpSettings.open = window.__tpSettings.open || (() => openSettings2());
-      window.__tpSettings.syncValues = window.__tpSettings.syncValues || (() => syncSettingsValues2());
-    } catch {
-    }
-  }
-});
-
 // src/ui/step-controls.ts
 function initStepControls(root = document) {
   const prev2 = root.querySelector("#stepPrevBtn");
@@ -58726,7 +58535,7 @@ function on2(el, ev, fn, opts) {
   } catch {
   }
 }
-function $3(id) {
+function $2(id) {
   try {
     return document.getElementById(id);
   } catch {
@@ -58873,8 +58682,8 @@ function wireDisplayBridge() {
     }
   } catch {
   }
-  const openBtn = $3("openDisplayBtn");
-  const closeBtn = $3("closeDisplayBtn");
+  const openBtn = $2("openDisplayBtn");
+  const closeBtn = $2("closeDisplayBtn");
   const getToggleBtns = () => Array.from(
     document.querySelectorAll(
       DISPLAY_TOGGLE_SELECTOR
@@ -58930,8 +58739,8 @@ function wireDisplayMirror() {
   try {
     if (document.documentElement.dataset.displayMirrorWired === "1") return;
     document.documentElement.dataset.displayMirrorWired = "1";
-    const viewer2 = $3("viewer");
-    const scriptEl = $3("script");
+    const viewer2 = $2("viewer");
+    const scriptEl = $2("script");
     let scrollPending = false;
     const sendScroll = () => {
       try {
@@ -58966,9 +58775,9 @@ function wireDisplayMirror() {
       let lastHeartbeatTop = viewer2.scrollTop || 0;
       const pollScrollHeartbeat = () => {
         try {
-          const current3 = viewer2.scrollTop || 0;
-          if (Math.abs(current3 - lastHeartbeatTop) >= 0.25) {
-            lastHeartbeatTop = current3;
+          const current2 = viewer2.scrollTop || 0;
+          if (Math.abs(current2 - lastHeartbeatTop) >= 0.25) {
+            lastHeartbeatTop = current2;
             requestSendScroll();
           }
         } catch {
@@ -58983,8 +58792,8 @@ function wireDisplayMirror() {
       } catch {
       }
     }
-    const fs = $3("fontSize");
-    const lh = $3("lineHeight");
+    const fs = $2("fontSize");
+    const lh = $2("lineHeight");
     const sendTypography = () => {
       try {
         let linkOn = false;
@@ -59037,8 +58846,8 @@ function wireDisplayMirror() {
   }
 }
 function wireMic() {
-  const req = $3("micBtn");
-  const rel = $3("releaseMicBtn");
+  const req = $2("micBtn");
+  const rel = $2("releaseMicBtn");
   on2(req, "click", async () => {
     try {
       await window.__tpMic?.requestMic?.();
@@ -59051,7 +58860,7 @@ function wireMic() {
     } catch {
     }
   });
-  const cal = $3("micCalBtn");
+  const cal = $2("micCalBtn");
   if (cal && !cal._tpMicCalWired) {
     cal._tpMicCalWired = true;
     cal.dataset.micCalWired = "1";
@@ -59101,12 +58910,12 @@ function wireMic() {
   }
 }
 function wireCamera() {
-  const start2 = $3("startCam") || $3("StartCam");
-  const stop3 = $3("stopCam") || $3("StopCam");
-  const camSel = $3("camDevice") || $3("CamDevice");
-  const size = $3("camSize");
-  const op = $3("camOpacity");
-  const mir = $3("camMirror");
+  const start2 = $2("startCam") || $2("StartCam");
+  const stop3 = $2("stopCam") || $2("StopCam");
+  const camSel = $2("camDevice") || $2("CamDevice");
+  const size = $2("camSize");
+  const op = $2("camOpacity");
+  const mir = $2("camMirror");
   const cameraControls = [camSel, size, op, mir];
   const store3 = window.__tpStore;
   const startLabel = start2?.textContent || "Start Camera";
@@ -59373,10 +59182,10 @@ function wireScriptControls() {
 }
 function installSpeakerIndex() {
   try {
-    const host = $3("speakerIndexChip");
+    const host = $2("speakerIndexChip");
     if (!host) return;
-    const editor = $3("editor") || $3("scriptInput") || $3("sourceText");
-    const viewer2 = $3("viewer");
+    const editor = $2("editor") || $2("scriptInput") || $2("sourceText");
+    const viewer2 = $2("viewer");
     const getText2 = () => {
       try {
         if (editor && "value" in editor) return editor.value;
@@ -60318,7 +60127,7 @@ var init_dom = __esm({
     init_apply_script();
     init_welcome_intro();
     init_sample_scripts();
-    init_settings2();
+    init_settings();
     init_step_controls();
     init_catch_up();
     __bc = null;
@@ -60785,8 +60594,8 @@ async function ensurePairingToken() {
   }
 }
 function refreshStatus() {
-  const current3 = getNetworkDisplayStatus();
-  modalElements?.status && (modalElements.status.textContent = `Connected: ${current3.connectedDisplays}`);
+  const current2 = getNetworkDisplayStatus();
+  modalElements?.status && (modalElements.status.textContent = `Connected: ${current2.connectedDisplays}`);
 }
 function bindModalEvents() {
   if (!modalElements) return;
@@ -63330,7 +63139,7 @@ var require_jszip_min = __commonJS({
 });
 
 // src/features/script-ingest.ts
-function $4(q3) {
+function $3(q3) {
   try {
     return document.querySelector(q3);
   } catch {
@@ -63339,9 +63148,9 @@ function $4(q3) {
 }
 function pickTarget(sel) {
   if (!sel) {
-    return $4("#scriptInput") || $4("#scriptText") || $4("#editor") || $4('[data-role="script-input"]') || $4('[data-script="input"]') || $4("#teleprompterText") || null;
+    return $3("#scriptInput") || $3("#scriptText") || $3("#editor") || $3('[data-role="script-input"]') || $3('[data-script="input"]') || $3("#teleprompterText") || null;
   }
-  return typeof sel === "string" ? $4(sel) : sel;
+  return typeof sel === "string" ? $3(sel) : sel;
 }
 async function readAny(item) {
   try {
@@ -63712,6 +63521,13 @@ function getFolderPickerEnvironmentHint() {
   }
   return "Folder picking is not available in this environment. Try running Anvil in a full browser (Chrome/Edge on http://localhost or https://).";
 }
+function openNurseryStorageSettings() {
+  const url = getNurseryStorageSettingsUrl();
+  try {
+    window.location.assign(url);
+  } catch {
+  }
+}
 function isSupportedScriptName(name) {
   const lower = (name || "").toLowerCase().trim();
   if (!lower) return false;
@@ -63750,6 +63566,18 @@ async function handleChooseFolder(doc = document) {
       return false;
     }
   };
+  const initOk = await awaitInit();
+  if (!initOk) return;
+  if (isMappedFolderManagedByNursery()) {
+    const settingsUrl = getNurseryStorageSettingsUrl();
+    const toastFn = window.toast;
+    if (typeof toastFn === "function") {
+      toastFn(`Scripts folder is managed by Nursery. Configure it in Nursery > Settings > Storage (${settingsUrl}).`, {
+        type: "warn"
+      });
+    }
+    return;
+  }
   const hasFS = typeof window.showDirectoryPicker === "function";
   const fallback = doc.getElementById("folderFallback");
   let picked = false;
@@ -63775,8 +63603,6 @@ async function handleChooseFolder(doc = document) {
       }
     }
   }
-  const initOk = await awaitInit();
-  if (!initOk) return;
   if (picked) {
     return;
   }
@@ -63823,6 +63649,43 @@ async function bindMappedFolderUI(opts) {
     didInit2 = true;
     await initMappedFolder();
   };
+  const defaultChooseLabel = (btn.textContent || "Choose Folder").trim() || "Choose Folder";
+  const ensureManagementUi = () => {
+    const managed = isMappedFolderManagedByNursery();
+    const managedHint = getMappedFolderManagerHint();
+    const recheckBtn = document.getElementById("recheckFolderBtn");
+    const settingsUrl = getNurseryStorageSettingsUrl();
+    if (managed) {
+      btn.disabled = true;
+      btn.textContent = "Managed by Nursery";
+      btn.title = `Set scripts folder in Nursery Storage (${settingsUrl}).`;
+      if (fallback) fallback.disabled = true;
+      if (recheckBtn) {
+        recheckBtn.disabled = true;
+        recheckBtn.title = `Managed by Nursery Storage (${settingsUrl}).`;
+      }
+    } else {
+      btn.disabled = false;
+      btn.textContent = defaultChooseLabel;
+      btn.title = "";
+      if (fallback) fallback.disabled = false;
+      if (recheckBtn) {
+        recheckBtn.disabled = false;
+        recheckBtn.title = "";
+      }
+    }
+    const card = document.getElementById("scriptsFolderCard");
+    if (!card) return;
+    let note = card.querySelector('[data-managed-by="nursery"]');
+    if (!note) {
+      note = document.createElement("div");
+      note.className = "settings-small";
+      note.dataset.managedBy = "nursery";
+      note.style.marginTop = "6px";
+      card.appendChild(note);
+    }
+    note.textContent = managed ? `Managed by Nursery Storage${managedHint ? ` (${managedHint})` : ""}.` : "";
+  };
   try {
     btn.dataset.mappedFolderWired = "1";
   } catch {
@@ -63854,6 +63717,10 @@ async function bindMappedFolderUI(opts) {
       if (!opt) return;
       sel.setAttribute("aria-busy", "true");
       const scriptId = opt.value || "";
+      if (opt?.dataset?.nurseryLink === "1" || scriptId === OPEN_NURSERY_STORAGE_COMMAND) {
+        openNurseryStorageSettings();
+        return;
+      }
       if (opt?.dataset?.settingsLink === "1") {
         try {
           document.getElementById("settingsBtn")?.click();
@@ -63900,7 +63767,9 @@ async function bindMappedFolderUI(opts) {
           hudLog("folder:permission:denied", { id: sel.id });
         } catch {
         }
-        toast5("Allow folder access to load scripts, or re-pick the folder in Settings.");
+        toast4(
+          isMappedFolderManagedByNursery() ? `Allow folder access, then re-link scripts mount in Nursery Storage (${getNurseryStorageSettingsUrl()}).` : "Allow folder access to load scripts, or re-pick the folder in Settings."
+        );
         return;
       }
       if (handle || file) {
@@ -63977,7 +63846,9 @@ async function bindMappedFolderUI(opts) {
       } catch {
       }
       try {
-        toast5("Could not load script from the mapped folder. Recheck permissions or pick the folder again.");
+        toast4(
+          isMappedFolderManagedByNursery() ? `Could not load script from Nursery-managed folder. Recheck Nursery Storage link (${getNurseryStorageSettingsUrl()}).` : "Could not load script from the mapped folder. Recheck permissions or pick the folder again."
+        );
       } catch {
       }
     } finally {
@@ -64015,6 +63886,7 @@ async function bindMappedFolderUI(opts) {
   async function refreshList() {
     try {
       await ensureInit();
+      ensureManagementUi();
       const mockMode = !!window.__tpMockFolderMode;
       const hasPreMock = mockMode && sel && sel.options && sel.options.length > 1 && !window.__tpFolder?.get?.();
       if (hasPreMock) {
@@ -64064,14 +63936,27 @@ async function bindMappedFolderUI(opts) {
       } catch {
       }
       if (!entries.length) {
+        const managed = isMappedFolderManagedByNursery();
+        const managedHint = getMappedFolderManagerHint();
         if (sel.id === "scriptSelectSidebar") {
           sel.disabled = false;
-          const opt = new Option("Map script folder...", "__OPEN_SETTINGS__");
-          opt.dataset.settingsLink = "1";
+          const opt = managed ? new Option("Manage scripts mount in Nursery...", OPEN_NURSERY_STORAGE_COMMAND) : new Option("Map script folder...", "__OPEN_SETTINGS__");
+          if (managed) {
+            opt.dataset.nurseryLink = "1";
+          } else {
+            opt.dataset.settingsLink = "1";
+          }
           sel.append(opt);
         } else {
           sel.disabled = true;
-          sel.append(new Option("No existing scripts yet \u2014 map folder and save new ones here", "", true, false));
+          sel.append(
+            new Option(
+              managed ? `No Nursery scripts folder linked${managedHint ? ` (${managedHint})` : ""}. Configure it in Nursery Storage.` : "No existing scripts yet \u2014 map folder and save new ones here",
+              "",
+              true,
+              false
+            )
+          );
         }
         try {
           ScriptStore.syncMapped([]);
@@ -64206,18 +64091,31 @@ async function bindMappedFolderUI(opts) {
         return isSupportedScriptName(f.name);
       }).sort((a, b) => a.name.localeCompare(b.name));
       if (!filtered.length) {
+        const managed = isMappedFolderManagedByNursery();
+        const managedHint = getMappedFolderManagerHint();
         try {
           ScriptStore.syncMapped([]);
         } catch {
         }
         if (sel.id === "scriptSelectSidebar") {
           sel.disabled = false;
-          const opt = new Option("Map script folder...", "__OPEN_SETTINGS__");
-          opt.dataset.settingsLink = "1";
+          const opt = managed ? new Option("Manage scripts mount in Nursery...", OPEN_NURSERY_STORAGE_COMMAND) : new Option("Map script folder...", "__OPEN_SETTINGS__");
+          if (managed) {
+            opt.dataset.nurseryLink = "1";
+          } else {
+            opt.dataset.settingsLink = "1";
+          }
           sel.append(opt);
         } else {
           sel.disabled = true;
-          sel.append(new Option("No existing scripts yet \u2014 map folder and save new ones here", "", true, false));
+          sel.append(
+            new Option(
+              managed ? `No Nursery scripts folder linked${managedHint ? ` (${managedHint})` : ""}. Configure it in Nursery Storage.` : "No existing scripts yet \u2014 map folder and save new ones here",
+              "",
+              true,
+              false
+            )
+          );
         }
         hudLog("folder:cleared", {});
         try {
@@ -64337,7 +64235,7 @@ async function bindMappedFolderUI(opts) {
           document.body.appendChild(s);
         }
       }
-      s.textContent = n === 0 ? "No existing scripts yet \u2014 map folder and save new ones here" : n === 1 ? "1 script found" : `${n} scripts found`;
+      s.textContent = n === 0 ? isMappedFolderManagedByNursery() ? "No Nursery scripts folder linked \u2014 configure in Nursery Storage." : "No existing scripts yet \u2014 map folder and save new ones here" : n === 1 ? "1 script found" : `${n} scripts found`;
     } catch {
     }
   }
@@ -64377,15 +64275,19 @@ async function docxToTextViaMammoth(file) {
 }
 async function recheckMappedFolderPermissions() {
   try {
+    if (isMappedFolderManagedByNursery()) {
+      toast4(`Scripts folder is managed by Nursery. Configure it in Nursery > Settings > Storage (${getNurseryStorageSettingsUrl()}).`);
+      return false;
+    }
     const dir = window.__tpFolder?.get?.();
     if (!dir) {
-      toast5("No folder mapped");
+      toast4("No folder mapped");
       return false;
     }
     const res = await dir.requestPermission?.({ mode: "read" });
     const granted = res === "granted";
     hudLog("folder:permission", { granted });
-    toast5(granted ? "Folder access granted" : "Folder access denied");
+    toast4(granted ? "Folder access granted" : "Folder access denied");
     if (!granted) {
       try {
         await window.__tpFolder?.clear?.();
@@ -64397,7 +64299,7 @@ async function recheckMappedFolderPermissions() {
     return false;
   }
 }
-function toast5(msg) {
+function toast4(msg) {
   hudLog("toast", { msg });
   try {
     window.dispatchEvent(new CustomEvent("tp:toast", { detail: { msg, ts: Date.now() } }));
@@ -64467,13 +64369,15 @@ function maybeAutoLoad(sel) {
   } catch {
   }
 }
-var SUPPORTED_EXT, shouldTraceMappedFolder, restoredLastScript, fingerprintNames, lastPopulateFingerprints, lastFallbackFingerprints, _lastCount;
+var SUPPORTED_EXT, shouldTraceMappedFolder, OPEN_NURSERY_STORAGE_COMMAND, restoredLastScript, fingerprintNames, lastPopulateFingerprints, lastFallbackFingerprints, _lastCount;
 var init_mapped_folder_bind = __esm({
   "src/ui/mapped-folder-bind.ts"() {
     "use strict";
     init_mapped_folder();
+    init_mapped_folder();
     init_scripts_store();
     init_logging();
+    init_nursery_mounts();
     init_script_selection();
     init_script_doc();
     init_script_naming();
@@ -64491,6 +64395,7 @@ var init_mapped_folder_bind = __esm({
         return cache;
       };
     })();
+    OPEN_NURSERY_STORAGE_COMMAND = "__OPEN_NURSERY_STORAGE__";
     restoredLastScript = false;
     fingerprintNames = (entries) => entries.map((e) => String(e?.name || "")).sort().join("|");
     lastPopulateFingerprints = /* @__PURE__ */ new WeakMap();
@@ -65048,9 +64953,9 @@ async function computeAuth(pass, salt, challenge) {
 }
 function notifyObsConnectionError(reason) {
   try {
-    const toast6 = window.toast;
-    if (typeof toast6 === "function") {
-      toast6("Could not connect to OBS. Make sure OBS is running and check Settings \u2192 Recording.");
+    const toast5 = window.toast;
+    if (typeof toast5 === "function") {
+      toast5("Could not connect to OBS. Make sure OBS is running and check Settings \u2192 Recording.");
     }
   } catch {
   }
@@ -65912,13 +65817,13 @@ function applySettingsToStore(settings2, store3) {
       if (!Object.prototype.hasOwnProperty.call(app, k)) return;
       if (k === "scrollMode") {
         let raw = "";
-        let current3 = "";
+        let current2 = "";
         try {
           raw = normalizeUiScrollMode(String(app[k] ?? "").trim().toLowerCase());
-          current3 = normalizeUiScrollMode(store3.get?.("scrollMode"));
+          current2 = normalizeUiScrollMode(store3.get?.("scrollMode"));
           const engaged = isAsrOverlayActive();
-          if (raw === "asr" && current3 !== "asr" && !engaged) {
-            devLog("[ASR] hydrate skipped scrollMode override to asr", { raw, current: current3, engaged });
+          if (raw === "asr" && current2 !== "asr" && !engaged) {
+            devLog("[ASR] hydrate skipped scrollMode override to asr", { raw, current: current2, engaged });
             return;
           }
           if (raw !== "asr" && engaged) {
@@ -66496,10 +66401,10 @@ function initScrollModeUiSync() {
   };
   const applyCurrent = () => {
     try {
-      const current3 = normalizeUiScrollMode(appStoreSingleton.get?.("scrollMode"));
-      if (current3 !== "asr") lastStableUiMode = current3;
-      updateFromStore(current3);
-      applyUiScrollMode(current3, { skipStore: true, allowToast: false, source: "boot" });
+      const current2 = normalizeUiScrollMode(appStoreSingleton.get?.("scrollMode"));
+      if (current2 !== "asr") lastStableUiMode = current2;
+      updateFromStore(current2);
+      applyUiScrollMode(current2, { skipStore: true, allowToast: false, source: "boot" });
     } catch {
     }
     try {
@@ -66560,9 +66465,9 @@ function initScrollModeUiSync() {
     }
     if (help) {
       if (ready) {
-        const current3 = normalizeUiScrollMode(appStoreSingleton.get?.("scrollMode"));
+        const current2 = normalizeUiScrollMode(appStoreSingleton.get?.("scrollMode"));
         try {
-          applyScrollModeUI(current3);
+          applyScrollModeUI(current2);
         } catch {
           help.textContent = defaultHelpText;
         }
@@ -66588,8 +66493,8 @@ function initScrollModeUiSync() {
   }
   try {
     appStoreSingleton.subscribe?.("asrLive", () => {
-      const current3 = normalizeUiScrollMode(appStoreSingleton.get?.("scrollMode"));
-      applyScrollModeUI(current3);
+      const current2 = normalizeUiScrollMode(appStoreSingleton.get?.("scrollMode"));
+      applyScrollModeUI(current2);
     });
   } catch {
   }
@@ -66633,8 +66538,8 @@ function initScrollModeUiSync() {
       if (asrGatePending) return;
       asrGatePending = true;
       try {
-        const current3 = normalizeUiScrollMode(appStoreSingleton.get?.("scrollMode"));
-        const fallback = current3 === "asr" ? "hybrid" : current3;
+        const current2 = normalizeUiScrollMode(appStoreSingleton.get?.("scrollMode"));
+        const fallback = current2 === "asr" ? "hybrid" : current2;
         setScrollModeSelectValue(fallback);
         const ok = await ensureAsrReadyForUser();
         if (ok) {

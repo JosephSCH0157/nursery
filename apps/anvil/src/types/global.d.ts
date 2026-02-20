@@ -20,8 +20,9 @@ declare global {
       pick(): Promise<boolean>;
       clear(): Promise<void>;
       list(): Promise<{ name: string; handle: FileSystemFileHandle }[]>;
+      isManaged?(): boolean;
+      getManagedHint?(): string | null;
     };
   }
 }
 export { };
-

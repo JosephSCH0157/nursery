@@ -333,7 +333,7 @@ try {
 // Install vendor shims (mammoth) so legacy code can use window.ensureMammoth
 import './vendor/mammoth';
 // Settings + ASR wizard wiring (safe to import; guards on element presence)
-import wireSettings from './ui/settings';
+import wireSettings from './ui/settings/index';
 import './ui/settings/asr-wizard';
 // Feature initializers (legacy JS modules)
 // If/when these are migrated to TS, drop the .js extension and types will flow.

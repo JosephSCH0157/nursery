@@ -1,6 +1,7 @@
 // src/fs/mapped-folder.ts
 // Manage a user-mapped scripts folder using the File System Access API.
 // Persists directory handle in IndexedDB, lists script files, and syncs across tabs.
+import { getNurseryManagedDirectory } from '../forge/nursery-mounts';
 
 export type ScriptEntry = {
   name: string;
@@ -18,6 +19,8 @@ let _dir: FileSystemDirectoryHandle | null = null;
 let _bc: BroadcastChannel | null = null;
 const _listeners = new Set<(_h: FileSystemDirectoryHandle | null, _why: 'init'|'pick'|'clear'|'sync'|'error') => void>();
 let _initPromise: Promise<void> | null = null;
+let _managedByNursery = false;
+let _managedHint: string | null = null;
 
 // ---------------- IndexedDB helpers ----------------
 function openDB(): Promise<IDBDatabase> {
@@ -99,15 +102,41 @@ function emit(why: 'init'|'pick'|'clear'|'sync'|'error') {
   try { window.dispatchEvent(new CustomEvent('tp:mapped-folder', { detail: { dir: _dir, why, ts: Date.now() } })); } catch {}
 }
 export function getMappedFolder(): FileSystemDirectoryHandle | null { return _dir; }
+export function isMappedFolderManagedByNursery(): boolean { return _managedByNursery; }
+export function getMappedFolderManagerHint(): string | null { return _managedHint; }
 export function refreshMappedFolder(): void {
   try { console.debug('[mapped-folder] refresh requested'); } catch {}
+  if (_managedByNursery) {
+    void syncManagedFromNursery('sync');
+  }
   broadcast();
   emit('sync');
+}
+
+async function syncManagedFromNursery(why: 'init'|'sync'): Promise<boolean> {
+  try {
+    const managed = await getNurseryManagedDirectory('scripts');
+    if (!managed.managed) {
+      _managedByNursery = false;
+      _managedHint = null;
+      _dir = null;
+      return false;
+    }
+    _managedByNursery = true;
+    _managedHint = managed.hint ?? null;
+    _dir = managed.handle ?? null;
+    ensureBroadcast();
+    emit(why);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function initMappedFolder(): Promise<void> {
   if (_initPromise) return _initPromise;
   _initPromise = (async () => {
+    if (await syncManagedFromNursery('init')) return;
     try {
       // Best-effort: request persistent storage once so directory handles survive eviction
       try {
@@ -122,6 +151,8 @@ export async function initMappedFolder(): Promise<void> {
       const h = await idbGet<FileSystemDirectoryHandle>(KEY);
       if (h && await verifyPermission(h, 'read')) { _dir = h; ensureBroadcast(); emit('init'); return; }
     } catch {}
+    _managedByNursery = false;
+    _managedHint = null;
     _dir = null; ensureBroadcast(); emit('init');
   })();
   try {
@@ -134,6 +165,10 @@ export async function initMappedFolder(): Promise<void> {
 }
 
 export async function pickMappedFolder(): Promise<boolean> {
+  if (_managedByNursery) {
+    emit('sync');
+    return false;
+  }
   try {
     const hasPicker = typeof (window as any).showDirectoryPicker === 'function';
     if (!hasPicker) return false; // fallback handled externally
@@ -148,6 +183,10 @@ export async function pickMappedFolder(): Promise<boolean> {
 }
 
 export async function clearMappedFolder(): Promise<void> {
+  if (_managedByNursery) {
+    emit('sync');
+    return;
+  }
   _dir = null; await idbDel(KEY); broadcast(); emit('clear');
 }
 
@@ -180,6 +219,8 @@ function ensureBroadcast() {
         try {
           if (!e?.data) return;
           if (e.data.type === 'tp-mapped-folder:refresh') {
+            const managedSynced = await syncManagedFromNursery('sync');
+            if (managedSynced) return;
             const h = await idbGet<FileSystemDirectoryHandle>(KEY);
             if (h && await verifyPermission(h, 'read')) { _dir = h; emit('sync'); }
           }
@@ -188,6 +229,8 @@ function ensureBroadcast() {
       window.addEventListener('storage', async (ev) => {
         try {
           if (ev.key === STORAGE_KEY && ev.newValue) {
+            const managedSynced = await syncManagedFromNursery('sync');
+            if (managedSynced) return;
             const h = await idbGet<FileSystemDirectoryHandle>(KEY);
             if (h && await verifyPermission(h, 'read')) { _dir = h; emit('sync'); }
           }
@@ -206,7 +249,14 @@ function broadcast() {
 
 // Optional global shim
 try {
-  (window as any).__tpFolder = { get: getMappedFolder, pick: pickMappedFolder, clear: clearMappedFolder, list: listScripts };
+  (window as any).__tpFolder = {
+    get: getMappedFolder,
+    pick: pickMappedFolder,
+    clear: clearMappedFolder,
+    list: listScripts,
+    isManaged: isMappedFolderManagedByNursery,
+    getManagedHint: getMappedFolderManagerHint,
+  };
 } catch {}
 
 export const _internals = { _listeners }; // test/debug only
