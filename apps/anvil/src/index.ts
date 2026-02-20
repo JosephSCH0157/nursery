@@ -73,20 +73,6 @@ function redirectToLogin(): void {
   }
 }
 
-async function ensureNurseryAuth(): Promise<boolean> {
-  if (isDisplayContext()) return true;
-  if (shouldBypassAuth()) return true;
-  if (!hasSupabaseConfig) return true;
-  try {
-    const { data, error } = await supabase.auth.getSession();
-    if (!error && data?.session) return true;
-  } catch {
-    // ignore
-  }
-  redirectToLogin();
-  return false;
-}
-
 function isIronMinePath(path: string): boolean {
   const clean = (path || '').toLowerCase();
   return clean === '/iron-mine' || clean === '/iron-mine.html' || clean === '/ironmine' || clean === '/ironmine.html';
@@ -124,9 +110,6 @@ async function maybeHandleIronMineRoute(): Promise<boolean> {
     bootTrace('index.ts:preflight:display-context:return');
     return;
   }
-  const authed = await ensureNurseryAuth();
-  bootTrace('index.ts:preflight:auth', { authed });
-  if (!authed) return;
   const handledIronMine = await maybeHandleIronMineRoute();
   bootTrace('index.ts:preflight:iron-mine', { handled: handledIronMine });
   if (handledIronMine) return;

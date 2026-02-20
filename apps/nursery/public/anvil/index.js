@@ -49645,10 +49645,6 @@ async function signOutCurrentUser(btn) {
       btn.textContent = fallbackText;
     }
     applyAuthState(null);
-    try {
-      window.location.assign(buildLoginHref());
-    } catch {
-    }
   }
 }
 function applyAuthState(session) {
@@ -68351,18 +68347,6 @@ function redirectToLogin() {
   } catch {
   }
 }
-async function ensureNurseryAuth() {
-  if (isDisplayContext5()) return true;
-  if (shouldBypassAuth3()) return true;
-  if (!hasSupabaseConfig) return true;
-  try {
-    const { data, error } = await supabase.auth.getSession();
-    if (!error && data?.session) return true;
-  } catch {
-  }
-  redirectToLogin();
-  return false;
-}
 function isIronMinePath(path) {
   const clean = (path || "").toLowerCase();
   return clean === "/iron-mine" || clean === "/iron-mine.html" || clean === "/ironmine" || clean === "/ironmine.html";
@@ -68395,9 +68379,6 @@ async function maybeHandleIronMineRoute() {
     bootTrace("index.ts:preflight:display-context:return");
     return;
   }
-  const authed = await ensureNurseryAuth();
-  bootTrace("index.ts:preflight:auth", { authed });
-  if (!authed) return;
   const handledIronMine = await maybeHandleIronMineRoute();
   bootTrace("index.ts:preflight:iron-mine", { handled: handledIronMine });
   if (handledIronMine) return;

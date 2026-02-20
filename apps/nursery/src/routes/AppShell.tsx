@@ -1,4 +1,4 @@
-import { Outlet, Link, useNavigate } from "react-router-dom";
+import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Session as SupabaseSession } from "@supabase/supabase-js";
 import { loadMountRegistry } from "../lib/mount-registry";
@@ -54,6 +54,7 @@ export type AppShellContext = {
 };
 
 export default function AppShell() {
+  const location = useLocation();
   const nav = useNavigate();
   const [session, setSession] = useState<SupabaseSession | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>(() => loadWorkspaceCache());
@@ -152,7 +153,12 @@ export default function AppShell() {
 
   async function onSignOut() {
     await supabase.auth.signOut();
-    nav("/login", { replace: true });
+    nav("/app", { replace: true });
+  }
+
+  function onSignIn() {
+    const next = encodeURIComponent(`${location.pathname}${location.search}${location.hash}`);
+    nav(`/login?next=${next}`, { replace: false });
   }
 
   function openCreateWorkspace() {
@@ -266,9 +272,16 @@ export default function AppShell() {
     return (email[0] ?? "?").toUpperCase();
   }, [session]);
 
-  const workspaceValue = workspaceId ?? "";
+  const trialWorkspaces = useMemo<Workspace[]>(
+    () => [{ id: "default", name: "Trial Workspace" }],
+    [],
+  );
+  const visibleWorkspaces = session ? workspaces : trialWorkspaces;
+  const effectiveWorkspaceId = session ? workspaceId : "default";
+  const workspaceValue = effectiveWorkspaceId ?? "";
   const workspaceSelectDisabled = !session || loadingWorkspaces;
-  const activeWorkspace = workspaces.find(w => w.id === workspaceId) ?? null;
+  const activeWorkspace = visibleWorkspaces.find(w => w.id === effectiveWorkspaceId) ?? null;
+  const inTrialMode = !session;
 
   return (
     <div
@@ -312,12 +325,16 @@ export default function AppShell() {
                   style={{ padding: "6px 8px", fontSize: 12, minWidth: 220 }}
                 >
                   <option value="" disabled>
-                    {loadingWorkspaces ? "Loading..." : "Select workspace"}
+                    {loadingWorkspaces
+                      ? "Loading..."
+                      : session
+                        ? "Select workspace"
+                        : "Trial workspace (read-only cloud)"}
                   </option>
-                  {workspaces.map(w => (
+                  {visibleWorkspaces.map(w => (
                     <option key={w.id} value={w.id}>{w.name}</option>
                   ))}
-                  <option value="__create__">+ Create workspace...</option>
+                  {session ? <option value="__create__">+ Create workspace...</option> : null}
                 </select>
                 <button
                   type="button"
@@ -365,18 +382,38 @@ export default function AppShell() {
               placeItems: "center",
               fontSize: 12,
             }}
-            title={session?.user?.email ?? "User"}
+            title={session?.user?.email ?? "Trial mode"}
           >
             {initials}
           </div>
           <span style={{ fontSize: 12, opacity: 0.8 }}>
-            {session?.user?.email ?? "Signed in"}
+            {session?.user?.email ?? "Anonymous trial"}
           </span>
-          <button onClick={onSignOut} style={{ cursor: "pointer" }}>
-            Sign out
-          </button>
+          {session ? (
+            <button onClick={onSignOut} style={{ cursor: "pointer" }}>
+              Sign out
+            </button>
+          ) : (
+            <button onClick={onSignIn} style={{ cursor: "pointer" }}>
+              Sign in
+            </button>
+          )}
         </div>
       </header>
+
+      {inTrialMode ? (
+        <div
+          style={{
+            padding: "10px 16px",
+            borderBottom: "1px solid var(--forge-border)",
+            background: "rgba(255, 255, 255, 0.03)",
+            fontSize: 13,
+            opacity: 0.9,
+          }}
+        >
+          Trial mode is active. You can explore tools with limited access. Sign in to unlock cloud workspaces, calendar writes, and full persistence.
+        </div>
+      ) : null}
 
       <div style={{ display: "flex", flex: 1 }}>
         <aside style={{ width: 240, padding: 16, borderRight: "1px solid var(--forge-border)" }}>
@@ -386,8 +423,8 @@ export default function AppShell() {
         <main style={{ flex: 1, padding: 16 }}>
           <Outlet
             context={{
-              workspaceId,
-              workspaces,
+              workspaceId: effectiveWorkspaceId,
+              workspaces: visibleWorkspaces,
               selectWorkspace,
               refreshWorkspaces,
               session,

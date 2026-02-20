@@ -280,9 +280,6 @@ async function signOutCurrentUser(btn?: HTMLButtonElement | null): Promise<void>
       btn.textContent = fallbackText;
     }
     applyAuthState(null);
-    try {
-      window.location.assign(buildLoginHref());
-    } catch {}
   }
 }
 
