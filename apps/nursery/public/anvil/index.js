@@ -51644,10 +51644,10 @@ async function wireAutoRecord(rootEl2, store3) {
       if (existing2) return true;
       const settingsUrl = getNurseryStorageSettingsUrl();
       window.toast?.(
-        `Recordings folder is managed by Nursery. Set it in Nursery > Settings > Storage (${settingsUrl}).`,
+        `Recordings folder is managed by Nursery but not linked in this browser yet. Auto-record will continue and recordings will download until Storage is linked (${settingsUrl}).`,
         { type: "warn" }
       );
-      return false;
+      return true;
     }
     if (!api?.supported?.()) {
       window.toast?.("This browser will download recordings instead of saving to a folder.", {

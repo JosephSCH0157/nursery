@@ -157,10 +157,10 @@ async function pickFolder({ force }: { force?: boolean } = {}) {
       if (existing) return true;
       const settingsUrl = getNurseryStorageSettingsUrl();
       (window as any).toast?.(
-        `Recordings folder is managed by Nursery. Set it in Nursery > Settings > Storage (${settingsUrl}).`,
+        `Recordings folder is managed by Nursery but not linked in this browser yet. Auto-record will continue and recordings will download until Storage is linked (${settingsUrl}).`,
         { type: 'warn' },
       );
-      return false;
+      return true;
     }
     if (!api?.supported?.()) {
       (window as any).toast?.('This browser will download recordings instead of saving to a folder.', {
