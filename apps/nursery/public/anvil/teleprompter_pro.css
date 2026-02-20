@@ -1336,38 +1336,44 @@ html.tp-mode-rehearsal::after{
 
 /* Compact chrome density for Nursery host (topbar + sidebar only) */
 :root {
+  --tp-chrome-scale: clamp(0.75, var(--tp-ui-scale), 1);
   --sidebar-w: 260px;
 }
 
 .topbar {
-  gap: calc(6px * var(--tp-ui-scale));
-  padding: calc(3px * var(--tp-ui-scale)) calc(8px * var(--tp-ui-scale));
-  min-height: calc(42px * var(--tp-ui-scale));
+  align-items: center;
+  gap: calc(6px * var(--tp-chrome-scale));
+  padding: calc(4px * var(--tp-chrome-scale)) calc(8px * var(--tp-chrome-scale));
+  min-height: calc(46px * var(--tp-chrome-scale));
 }
 
 .topbar strong {
-  font-size: var(--tp-ui-font-sm);
+  font-size: clamp(11px, calc(14px * var(--tp-chrome-scale)), 14px);
   line-height: 1.1;
 }
 
 .topbar .chip,
 .topbar button,
 .topbar .auth-link {
-  font-size: var(--tp-ui-font-xs);
+  font-size: clamp(10px, calc(12px * var(--tp-chrome-scale)), 12px);
   line-height: 1.1;
-  padding: calc(3px * var(--tp-ui-scale)) calc(6px * var(--tp-ui-scale));
+  padding: calc(3px * var(--tp-chrome-scale)) calc(6px * var(--tp-chrome-scale));
 }
 
 #topbarRight,
 #topbarRight.inl-1 {
   display: inline-flex;
   align-items: center;
-  gap: calc(4px * var(--tp-ui-scale));
+  gap: calc(4px * var(--tp-chrome-scale));
   flex-wrap: nowrap;
   white-space: nowrap;
   margin-left: auto;
-  padding: calc(2px * var(--tp-ui-scale)) calc(6px * var(--tp-ui-scale));
-  border-radius: calc(8px * var(--tp-ui-scale));
+  max-width: min(100%, 72vw);
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding: calc(2px * var(--tp-chrome-scale)) calc(6px * var(--tp-chrome-scale));
+  border-radius: calc(8px * var(--tp-chrome-scale));
 }
 
 #topbarRight > * {
@@ -1375,32 +1381,43 @@ html.tp-mode-rehearsal::after{
 }
 
 .auth-cluster {
-  gap: calc(4px * var(--tp-ui-scale));
+  gap: calc(4px * var(--tp-chrome-scale));
   margin-left: 0;
 }
 
 .mic-block {
-  gap: calc(6px * var(--tp-ui-scale));
-  padding: calc(3px * var(--tp-ui-scale)) calc(6px * var(--tp-ui-scale));
+  gap: calc(6px * var(--tp-chrome-scale));
+  padding: calc(3px * var(--tp-chrome-scale)) calc(6px * var(--tp-chrome-scale));
 }
 
 .mic-block .topbar-label,
 .mic-cal-btn {
-  font-size: var(--tp-ui-font-xs);
+  font-size: clamp(10px, calc(12px * var(--tp-chrome-scale)), 12px);
 }
 
 .mic-cal-btn {
-  padding: calc(4px * var(--tp-ui-scale)) calc(8px * var(--tp-ui-scale));
+  padding: calc(4px * var(--tp-chrome-scale)) calc(8px * var(--tp-chrome-scale));
+}
+
+.app {
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+}
+
+#sidebar {
+  width: var(--sidebar-w);
+  max-width: var(--sidebar-w);
+  flex: 0 0 var(--sidebar-w);
+  box-sizing: border-box;
 }
 
 .panel,
 #sidebar {
-  padding: 10px;
+  padding: calc(10px * var(--tp-chrome-scale));
 }
 
 .panel h2 {
   margin: 0 0 8px;
-  font-size: 15px;
+  font-size: clamp(14px, calc(15px * var(--tp-chrome-scale)), 15px);
 }
 
 .panel .row {
@@ -1412,8 +1429,8 @@ html.tp-mode-rehearsal::after{
 #sidebar select,
 #sidebar input[type="number"],
 #sidebar input[type="text"] {
-  font-size: var(--tp-ui-font-sm);
-  padding: calc(6px * var(--tp-ui-scale)) calc(8px * var(--tp-ui-scale));
+  font-size: clamp(10px, calc(12px * var(--tp-chrome-scale)), 12px);
+  padding: calc(6px * var(--tp-chrome-scale)) calc(8px * var(--tp-chrome-scale));
 }
 
 #scriptSelectSidebar {
