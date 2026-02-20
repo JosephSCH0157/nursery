@@ -243,9 +243,15 @@ export function initForgeMenu(opts: ForgeMenuInitOptions = {}): void {
   button.id = FORGE_NAV_BUTTON_ID;
   button.className = "chip";
   button.type = "button";
-  button.textContent = "Forge";
+  button.textContent = "☰";
+  button.setAttribute("aria-label", "Open Nursery menu");
   button.setAttribute("aria-haspopup", "menu");
   button.setAttribute("aria-expanded", "false");
+  button.title = "Nursery menu";
+  button.style.fontSize = "16px";
+  button.style.lineHeight = "1";
+  button.style.paddingLeft = "10px";
+  button.style.paddingRight = "10px";
   wrapper.appendChild(button);
 
   const panel = document.createElement("div");
@@ -255,7 +261,7 @@ export function initForgeMenu(opts: ForgeMenuInitOptions = {}): void {
   panel.hidden = true;
   panel.style.position = "absolute";
   panel.style.top = "calc(100% + 8px)";
-  panel.style.right = "0";
+  panel.style.left = "0";
   panel.style.zIndex = "1100";
   panel.style.width = "280px";
   panel.style.maxWidth = "calc(100vw - 24px)";

@@ -14,7 +14,7 @@ import { setSessionPhase } from '../state/session';
 import { applyScript } from '../features/apply-script';
 import { loadWelcomeGuide } from '../features/welcome-intro';
 import { getNextSampleScript } from '../content/sample-scripts';
-import { flushPendingSettingsEdits } from '../ui/settings';
+import { flushPendingSettingsEdits } from './settings/index';
 import { initStepControls } from './step-controls';
 import { wireCatchUpButton } from './catch-up';
 

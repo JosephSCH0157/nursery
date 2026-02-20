@@ -90,6 +90,7 @@ import { initDevDrawer } from './dev/dev-drawer';
 import { renderScript } from './render-script';
 import { setRecorderEnabled } from './state/recorder-settings';
 import { ensureUserAndProfile, loadProfileSettings, saveProfileSettings, applySettingsPatch, type PersistedAppKey, type UserSettings } from './forge/authProfile';
+import { initForgeNavMenu } from './forge/forge-nav';
 import { hasSupabaseConfig, supabase } from './forge/supabaseClient';
 import { bindLoadSample } from './ui/load-sample';
 import { bindObsSettingsUI } from './ui/obs-settings-bind';
@@ -262,6 +263,24 @@ function attachScrollWriterOnce(): void {
 	} catch {}
 }
 
+function initForgeMenuWhenReady(): void {
+  const run = () => {
+    try {
+      initForgeNavMenu({ mountId: 'forge-menu-slot' });
+      bootTrace('index-app.ts:forge-menu:init');
+    } catch (error) {
+      bootTrace('index-app.ts:forge-menu:error', { error: String(error) });
+    }
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', run, { once: true });
+    return;
+  }
+
+  run();
+}
+
 // appStore singleton is created inside state/app-store and attached to window.__tpStore
 try {
 	initObsBridge(appStore);
@@ -289,6 +308,7 @@ try {
 
 // Forge auth/profile gate: ensure session + profile; stash on window for legacy consumers.
 try { ensurePageTabs(appStore); } catch {}
+initForgeMenuWhenReady();
 
 // Run bootstrap (best-effort, non-blocking). The legacy monolith still calls
 // window._initCore/_initCoreRunner paths; this ensures the modular runtime

@@ -74,6 +74,26 @@ function initDebugHUD(opts) {
         setTimeout(() => clearInterval(t), 15e3);
       } catch {
       }
+    }, installSpeechTranscriptLog2 = function() {
+      try {
+        const handler = (ev) => {
+          try {
+            const detail = ev.detail || {};
+            const text = String(detail.text || detail.tail || "").trim();
+            if (!text) return;
+            log("speech:transcript", {
+              text: text.slice(0, 280),
+              final: !!detail.final,
+              conf: detail.confidence ?? detail.conf,
+              timestamp: detail.timestamp || Date.now()
+            });
+          } catch {
+          }
+        };
+        window.addEventListener("tp:captions:transcript", handler);
+        window.addEventListener("tp:speech:transcript", handler);
+      } catch {
+      }
     }, hookPostMessage2 = function() {
       try {
         window.addEventListener("message", (e) => {
@@ -120,11 +140,12 @@ function initDebugHUD(opts) {
       wrapKnown2();
       interceptCurrentIndex2();
       hookSpeech2();
+      installSpeechTranscriptLog2();
       hookPostMessage2();
       installScrollDetectors2();
       log("boot:seed-complete", { aggressive: !!(opts && opts.aggressive) });
     };
-    var wrapModule = wrapModule2, wrapKnown = wrapKnown2, interceptCurrentIndex = interceptCurrentIndex2, hookSpeech = hookSpeech2, hookPostMessage = hookPostMessage2, installScrollDetectors = installScrollDetectors2, init = init2;
+    var wrapModule = wrapModule2, wrapKnown = wrapKnown2, interceptCurrentIndex = interceptCurrentIndex2, hookSpeech = hookSpeech2, installSpeechTranscriptLog = installSpeechTranscriptLog2, hookPostMessage = hookPostMessage2, installScrollDetectors = installScrollDetectors2, init = init2;
     const devQuery = /([?#]).*dev=1/.test(location.href);
     const devLocal = (() => {
       try {
