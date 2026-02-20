@@ -50308,16 +50308,27 @@ var init_inject_settings_folder2 = __esm({
 
 // src/asr/calibration.ts
 async function runCalibration(opts) {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      deviceId: { exact: opts.deviceId },
-      channelCount: 1,
-      sampleRate: opts.flags.sampleRateHz ?? 48e3,
-      echoCancellation: opts.flags.echoCancellation,
-      noiseSuppression: opts.flags.noiseSuppression,
-      autoGainControl: opts.flags.autoGainControl
+  const wantedDeviceId = String(opts.deviceId || "").trim();
+  const audioConstraints = {
+    channelCount: 1,
+    sampleRate: opts.flags.sampleRateHz ?? 48e3,
+    echoCancellation: opts.flags.echoCancellation,
+    noiseSuppression: opts.flags.noiseSuppression,
+    autoGainControl: opts.flags.autoGainControl
+  };
+  if (wantedDeviceId) {
+    audioConstraints.deviceId = { exact: wantedDeviceId };
+  }
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+  const resolvedDeviceId = (() => {
+    try {
+      const track = stream.getAudioTracks?.()[0] || null;
+      const fromSettings = track?.getSettings?.()?.deviceId;
+      return String(fromSettings || wantedDeviceId || "default");
+    } catch {
+      return wantedDeviceId || "default";
     }
-  });
+  })();
   const AudioCtx = window.AudioContext || window.webkitAudioContext;
   const ctx = new AudioCtx({ sampleRate: opts.flags.sampleRateHz ?? void 0 });
   const src = ctx.createMediaStreamSource(stream);
@@ -50358,10 +50369,10 @@ async function runCalibration(opts) {
   const toff = ton - 6;
   const vad = { tonDb: ton, toffDb: toff, attackMs: 80, releaseMs: 300 };
   const profile = {
-    id: `${opts.deviceId}::${opts.label}`,
+    id: `${resolvedDeviceId}::${opts.label}`,
     label: opts.label,
     capture: {
-      deviceId: opts.deviceId,
+      deviceId: resolvedDeviceId,
       sampleRateHz: ctx.sampleRate,
       channelCount: 1,
       echoCancellation: opts.flags.echoCancellation,
@@ -50629,8 +50640,21 @@ async function startAsrWizard() {
     setCalStatus('Calibrating: first stay quiet for a few seconds, then speak in your normal podcast voice and keep talking until this banner changes to "Calibration done.".');
     const startBtn = $("asrStartBtn");
     if (startBtn) startBtn.disabled = true;
-    const deviceSel = $("asrDevice");
-    const deviceId = deviceSel?.value || "";
+    let deviceSel = $("asrDevice");
+    if (deviceSel && deviceSel.options.length === 0) {
+      await populateMicSelect();
+      deviceSel = $("asrDevice");
+    }
+    let deviceId = deviceSel?.value || "";
+    if (!deviceId && deviceSel && deviceSel.options.length > 0) {
+      deviceId = deviceSel.options[0].value || "";
+      if (deviceId) {
+        try {
+          deviceSel.value = deviceId;
+        } catch {
+        }
+      }
+    }
     const label = getDesiredProfileLabel();
     const flags = {
       echoCancellation: !!$("asrAEC")?.checked,
@@ -50641,7 +50665,13 @@ async function startAsrWizard() {
     renderDerived(current.profile);
   } catch (e) {
     console.warn("[ASR] startAsrWizard failed", e);
-    setCalStatus("Calibration failed. Check mic and try again.");
+    let reason = "Check mic and try again.";
+    try {
+      const message = e?.message ? String(e.message) : "";
+      if (message) reason = `Check mic and try again (${message}).`;
+    } catch {
+    }
+    setCalStatus(`Calibration failed. ${reason}`);
   } finally {
     if (current) {
       const summary = "Calibration done. Noise " + current.profile.cal.noiseRmsDbfs.toFixed(1) + " dBFS, speech " + current.profile.cal.speechRmsDbfs.toFixed(1) + " dBFS, SNR " + current.profile.cal.snrDb.toFixed(1) + " dB.";
@@ -56599,32 +56629,60 @@ var init_mic_toggle = __esm({
 
 // src/ui/micMenu.ts
 function openSettingsOverlay() {
-  let opened = false;
-  try {
-    const btn = document.querySelector('#settingsBtn, [data-action="settings-open"]');
-    if (btn) {
-      btn.click();
-      opened = true;
+  const isOverlayOpen2 = () => {
+    try {
+      const overlay = document.getElementById("settingsOverlay");
+      if (!overlay) return false;
+      if (overlay.hidden) return false;
+      if (overlay.getAttribute("aria-hidden") === "true") return false;
+      if (overlay.classList.contains("hidden")) return false;
+      const css = window.getComputedStyle(overlay);
+      return css.display !== "none" && css.visibility !== "hidden";
+    } catch {
+      return false;
     }
-  } catch {
-  }
-  if (opened) return;
-  try {
-    window.__tpSettings?.open?.();
-    opened = true;
-  } catch {
-  }
-  if (opened) return;
-  try {
-    const overlay = document.getElementById("settingsOverlay");
-    if (overlay) {
+  };
+  const ensureFallbackOpen = () => {
+    if (isOverlayOpen2()) return;
+    try {
+      window.__tpSettings?.open?.();
+    } catch {
+    }
+    if (isOverlayOpen2()) return;
+    try {
+      const overlay = document.getElementById("settingsOverlay");
+      if (!overlay) return;
       overlay.hidden = false;
       overlay.removeAttribute("hidden");
       overlay.classList.remove("hidden");
       overlay.setAttribute("aria-hidden", "false");
+      try {
+        window.__tp?.settings?.mount?.();
+      } catch {
+      }
+      try {
+        window.dispatchEvent(new CustomEvent("tp:settings:open"));
+      } catch {
+      }
+    } catch {
+    }
+  };
+  let clicked = false;
+  try {
+    const btn = document.querySelector('#settingsBtn, [data-action="settings-open"]');
+    if (btn) {
+      btn.click();
+      clicked = true;
     }
   } catch {
   }
+  if (clicked) {
+    setTimeout(() => {
+      ensureFallbackOpen();
+    }, 80);
+    return;
+  }
+  ensureFallbackOpen();
 }
 function selectSettingsTab(id) {
   try {
@@ -56658,7 +56716,30 @@ function openSettingsToMedia() {
 }
 function openSettingsToAsr(startWizard) {
   openSettingsToMedia();
-  setTimeout(() => {
+  const waitForAsrUi = (timeoutMs = 2200) => new Promise((resolve) => {
+    const started = Date.now();
+    const poll = () => {
+      try {
+        selectSettingsTab("media");
+        const sec = document.getElementById("asrSettings");
+        const devSel = document.getElementById("asrDevice");
+        const startBtn = document.getElementById("asrStartBtn");
+        if (sec && devSel && startBtn) {
+          resolve(true);
+          return;
+        }
+      } catch {
+      }
+      if (Date.now() - started >= timeoutMs) {
+        resolve(false);
+        return;
+      }
+      setTimeout(poll, 60);
+    };
+    poll();
+  });
+  void (async () => {
+    const ready = await waitForAsrUi();
     try {
       const sec = document.getElementById("asrSettings");
       if (sec) {
@@ -56675,15 +56756,18 @@ function openSettingsToAsr(startWizard) {
       }
       const devSel = document.getElementById("asrDevice");
       devSel?.focus?.();
-      if (startWizard) {
-        try {
-          window.startAsrWizard?.();
-        } catch {
-        }
+      if (!startWizard) return;
+      if (!ready) {
+        showToast?.("Could not open ASR calibration panel yet. Open Settings > Media and try again.", { type: "warning" });
+        return;
+      }
+      try {
+        await window.startAsrWizard?.();
+      } catch {
       }
     } catch {
     }
-  }, 50);
+  })();
 }
 function buildMenu() {
   let el = document.getElementById(MENU_ID);
@@ -59205,6 +59289,10 @@ function wireMic() {
       }
       try {
         const anyWin = window;
+        if (typeof anyWin.openSettingsToAsr === "function") {
+          anyWin.openSettingsToAsr(false);
+          return;
+        }
         if (typeof anyWin.openSettingsToMedia === "function") {
           anyWin.openSettingsToMedia();
           return;
@@ -59741,6 +59829,12 @@ function wireOverlays() {
           dlg.removeAttribute("hidden");
           dlg.setAttribute("aria-hidden", "false");
           btn && btn.setAttribute("aria-expanded", "true");
+          if (name === "settings") {
+            try {
+              window.dispatchEvent(new CustomEvent("tp:settings:open"));
+            } catch {
+            }
+          }
         } catch {
         }
       };

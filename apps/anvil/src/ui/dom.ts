@@ -404,6 +404,10 @@ export function wireDisplayMirror() {
         try { ev?.preventDefault(); } catch {}
         try {
           const anyWin = window as any;
+          if (typeof anyWin.openSettingsToAsr === 'function') {
+            anyWin.openSettingsToAsr(false);
+            return;
+          }
           if (typeof anyWin.openSettingsToMedia === 'function') {
             anyWin.openSettingsToMedia();
             return;
@@ -805,6 +809,9 @@ export function wireOverlays() {
           dlg.removeAttribute('hidden');
           dlg.setAttribute('aria-hidden', 'false');
           btn && btn.setAttribute('aria-expanded', 'true');
+          if (name === 'settings') {
+            try { window.dispatchEvent(new CustomEvent('tp:settings:open')); } catch {}
+          }
         } catch {}
       };
       const close = (name) => {

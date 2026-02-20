@@ -308,9 +308,19 @@ export async function startAsrWizard(): Promise<void> {
     const startBtn = $('asrStartBtn') as HTMLButtonElement | null;
     if (startBtn) startBtn.disabled = true;
 
-    const deviceSel = $('asrDevice') as HTMLSelectElement | null;
+    let deviceSel = $('asrDevice') as HTMLSelectElement | null;
+    if (deviceSel && deviceSel.options.length === 0) {
+      await populateMicSelect();
+      deviceSel = $('asrDevice') as HTMLSelectElement | null;
+    }
 
-    const deviceId = deviceSel?.value || '';
+    let deviceId = deviceSel?.value || '';
+    if (!deviceId && deviceSel && deviceSel.options.length > 0) {
+      deviceId = deviceSel.options[0].value || '';
+      if (deviceId) {
+        try { deviceSel.value = deviceId; } catch {}
+      }
+    }
     const label = getDesiredProfileLabel();
 
     const flags = {
@@ -323,7 +333,14 @@ export async function startAsrWizard(): Promise<void> {
     renderDerived(current.profile);
   } catch (e) {
     console.warn('[ASR] startAsrWizard failed', e);
-    setCalStatus('Calibration failed. Check mic and try again.');
+    let reason = 'Check mic and try again.';
+    try {
+      const message = (e as any)?.message ? String((e as any).message) : '';
+      if (message) reason = `Check mic and try again (${message}).`;
+    } catch {
+      // ignore
+    }
+    setCalStatus(`Calibration failed. ${reason}`);
   } finally {
     if (current) {
       const summary =
