@@ -17,14 +17,15 @@ type ForgeNavPayload = {
   tree: ForgeNavSection[];
 };
 
-const FORGE_NAV_PANEL_ID = "forgeNavPanel";
 const FORGE_NAV_BUTTON_ID = "forgeNavBtn";
 const FORGE_NAV_WRAPPER_ID = "forgeNavWrap";
 const DEFAULT_MOUNT_ID = "forge-menu-slot";
 const FORGE_NAV_READY_SENTINEL = "__tpForgeNavReady";
 const FORGE_NAV_POPUP_NAME = "forgeNavPopup";
-const FORGE_NAV_POPUP_FEATURES = "popup=yes,width=380,height=620,resizable=yes,scrollbars=yes";
 const FORGE_NAV_POPUP_TITLE = "Nursery Menu";
+const FORGE_NAV_TREE_ID = "tree";
+const FORGE_NAV_POPUP_WIDTH = 420;
+const FORGE_NAV_POPUP_HEIGHT = 720;
 
 type ForgeMenuInitOptions = {
   mountId?: string;
@@ -201,18 +202,23 @@ function renderNavPanel(panel: HTMLDivElement, payload: ForgeNavPayload): void {
     nav.style.marginTop = section.id === "settings" ? "4px" : "0";
 
     section.items.forEach((item) => {
-      const link = document.createElement("a");
-      link.textContent = item.label;
-      link.href = resolveItemHref(item);
-      link.dataset.forgeNavLink = "1";
-      link.dataset.forgeNavHref = link.href;
-      link.style.display = "block";
-      link.style.padding = "6px 8px";
-      link.style.borderRadius = "8px";
-      link.style.background = "rgba(255,255,255,0.03)";
-      link.style.color = "inherit";
-      link.style.textDecoration = "none";
-      nav.appendChild(link);
+      const href = resolveItemHref(item);
+      const action = document.createElement("button");
+      action.type = "button";
+      action.textContent = item.label;
+      action.dataset.forgeNavLink = "1";
+      action.dataset.forgeNavHref = href;
+      action.style.display = "block";
+      action.style.width = "100%";
+      action.style.padding = "6px 8px";
+      action.style.borderRadius = "8px";
+      action.style.border = "1px solid rgba(255,255,255,0.12)";
+      action.style.background = "rgba(255,255,255,0.03)";
+      action.style.color = "inherit";
+      action.style.textAlign = "left";
+      action.style.cursor = href === "#" ? "not-allowed" : "pointer";
+      action.disabled = href === "#";
+      nav.appendChild(action);
     });
     sectionEl.appendChild(nav);
 
@@ -240,10 +246,23 @@ function showPopupBlockedNotice(): void {
   try { console.warn(`[forge-nav] ${message}`); } catch {}
 }
 
+function buildPopupPlacement() {
+  const width = FORGE_NAV_POPUP_WIDTH;
+  const height = FORGE_NAV_POPUP_HEIGHT;
+  const left = Math.max(0, Math.round(window.screenX + (window.outerWidth - width) / 2));
+  const top = Math.max(0, Math.round(window.screenY + (window.outerHeight - height) / 2));
+  const features = `popup=yes,width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`;
+  return { width, height, left, top, features };
+}
+
 function openNavPopupWindow(): Window | null {
   try {
-    const popup = window.open("", FORGE_NAV_POPUP_NAME, FORGE_NAV_POPUP_FEATURES);
-    if (popup) popup.focus();
+    const placement = buildPopupPlacement();
+    const popup = window.open("", FORGE_NAV_POPUP_NAME, placement.features);
+    if (!popup) return null;
+    try { popup.resizeTo(placement.width, placement.height); } catch {}
+    try { popup.moveTo(placement.left, placement.top); } catch {}
+    try { popup.focus(); } catch {}
     return popup;
   } catch {
     return null;
@@ -262,49 +281,67 @@ function writePopupShell(popup: Window): HTMLDivElement | null {
   <title>${FORGE_NAV_POPUP_TITLE}</title>
   <style>
     :root { color-scheme: dark; }
-    html, body { margin: 0; padding: 0; background: #0b1020; color: #eaf0ff; font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
-    body { min-height: 100vh; }
-    .forge-nav-popup { padding: 14px; }
+    * { box-sizing: border-box; pointer-events: auto; }
+    html, body, #root { margin: 0; padding: 0; height: 100vh; }
+    body { background: #0b1020; color: #eaf0ff; font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    #root { overflow: auto; }
+    .forge-nav-popup { min-height: 100%; padding: 14px; }
     .forge-nav-popup h1 { margin: 0 0 10px; font-size: 16px; font-weight: 700; letter-spacing: 0.02em; }
-    .forge-nav-popup a:hover { background: rgba(90, 160, 255, 0.24) !important; }
+    #${FORGE_NAV_TREE_ID} { position: relative; z-index: 2; }
+    .forge-nav-popup button[data-forge-nav-link='1']:hover { background: rgba(90, 160, 255, 0.24) !important; }
     .forge-nav-popup hr { border: none; border-top: 1px solid rgba(255,255,255,0.16); margin: 12px 0; }
     .forge-nav-popup .loading { opacity: 0.8; font-size: 12px; }
     .forge-nav-popup .hint { margin-top: 10px; opacity: 0.72; font-size: 12px; }
   </style>
 </head>
 <body>
+  <div id="root">
   <div class="forge-nav-popup">
     <h1>${FORGE_NAV_POPUP_TITLE}</h1>
-    <div id="${FORGE_NAV_PANEL_ID}" role="menu" aria-label="Forge navigation"></div>
+    <div id="${FORGE_NAV_TREE_ID}" role="menu" aria-label="Forge navigation"></div>
     <div class="hint">Selecting an item opens it in the Anvil tab and closes this popup.</div>
+  </div>
   </div>
 </body>
 </html>`);
     doc.close();
-    return doc.getElementById(FORGE_NAV_PANEL_ID) as HTMLDivElement | null;
+    return doc.getElementById(FORGE_NAV_TREE_ID) as HTMLDivElement | null;
   } catch {
     return null;
   }
 }
 
-function wirePopupLinks(panel: HTMLDivElement, popup: Window): void {
-  panel.querySelectorAll<HTMLAnchorElement>("[data-forge-nav-link='1']").forEach((link) => {
-    link.addEventListener("click", (event) => {
-      event.preventDefault();
-      const targetHref = link.dataset.forgeNavHref || link.href;
-      if (!targetHref || targetHref === "#") return;
-      try {
-        const openerWin = popup.opener && !popup.opener.closed ? popup.opener : null;
-        if (openerWin && typeof openerWin.location?.assign === "function") {
-          openerWin.location.assign(targetHref);
-        } else {
-          window.location.assign(targetHref);
-        }
-      } catch {
-        try { window.location.assign(targetHref); } catch {}
-      }
+function navigateFromPopup(popup: Window, targetHref: string): void {
+  const openerWin = popup.opener && !popup.opener.closed ? popup.opener : null;
+  try {
+    if (openerWin) {
+      // Access check first to avoid cross-origin throws during assign.
+      void openerWin.location.href;
+      openerWin.location.assign(targetHref);
       try { popup.close(); } catch {}
-    });
+      return;
+    }
+  } catch {
+    // fall through to new-tab fallback
+  }
+
+  try {
+    popup.open(targetHref, "_blank", "noopener,noreferrer");
+  } catch {
+    try { window.open(targetHref, "_blank", "noopener,noreferrer"); } catch {}
+  }
+  try { popup.close(); } catch {}
+}
+
+function wirePopupLinks(panel: HTMLDivElement, popup: Window): void {
+  panel.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement | null;
+    const action = target?.closest<HTMLElement>("[data-forge-nav-href]");
+    if (!action) return;
+    event.preventDefault();
+    const targetHref = readString(action.dataset.forgeNavHref) ?? null;
+    if (!targetHref || targetHref === "#") return;
+    navigateFromPopup(popup, targetHref);
   });
 }
 
