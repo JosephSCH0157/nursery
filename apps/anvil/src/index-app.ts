@@ -915,13 +915,18 @@ function waitForActiveAsrProfile(timeoutMs = 60000): Promise<boolean> {
 }
 
 async function ensureAsrReadyForUser(): Promise<boolean> {
-  try {
-    const micRes = await ensureMicAccess();
-    if (!micRes.allowed) return false;
-  } catch {
-    return false;
+  if (isMicCapturing()) {
+    try { appStore.set?.('micGranted', true as any); } catch {}
+    try { (window as any).__tpMicPermState = 'granted'; } catch {}
+  } else {
+    try {
+      const micRes = await ensureMicAccess();
+      if (!micRes.allowed) return false;
+    } catch {
+      return false;
+    }
+    if (!(await ensureMicStream())) return false;
   }
-  if (!(await ensureMicStream())) return false;
   if (hasActiveAsrProfile()) return true;
   try {
     const openAsr = (window as any).openSettingsToAsr;
@@ -1260,6 +1265,7 @@ function initScrollModeUiSync(): void {
     appStore.subscribe?.('micGranted', () => applyAsrAvailability());
     appStore.subscribe?.('micDevice', () => applyAsrAvailability());
     window.addEventListener('tp:asrChanged', applyAsrAvailability, { capture: false });
+    window.addEventListener('tp:mic:state', applyAsrAvailability, { capture: false });
   } catch {}
   try {
     appStore.subscribe?.('asrLive', () => {

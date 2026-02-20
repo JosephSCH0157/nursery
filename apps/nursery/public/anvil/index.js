@@ -35434,10 +35434,21 @@ var init_save_speaker_profiles_prompt = __esm({
 // src/asr/readiness.ts
 function computeAsrReadiness() {
   try {
-    const micGranted = !!appStoreSingleton.get?.("micGranted");
+    const micOpen = !!window.__tpMic?.__lastStream || !!window.__tpMic?.isOpen?.();
+    const permState = String(window.__tpMicPermState || "").toLowerCase();
+    const micGranted = !!appStoreSingleton.get?.("micGranted") || micOpen || permState === "granted";
+    if (micOpen) {
+      try {
+        appStoreSingleton.set?.("micGranted", true);
+      } catch {
+      }
+      try {
+        window.__tpMicPermState = "granted";
+      } catch {
+      }
+    }
     if (!micGranted) return { ready: false, reason: "NO_PERMISSION" };
     const micDevice = String(appStoreSingleton.get?.("micDevice") || "").trim();
-    const micOpen = !!window.__tpMic?.__lastStream || !!window.__tpMic?.isOpen?.();
     let activeProfile = null;
     try {
       const asrState = getAsrState?.();
@@ -66559,13 +66570,24 @@ function waitForActiveAsrProfile(timeoutMs = 6e4) {
   });
 }
 async function ensureAsrReadyForUser() {
-  try {
-    const micRes = await ensureMicAccess();
-    if (!micRes.allowed) return false;
-  } catch {
-    return false;
+  if (isMicCapturing2()) {
+    try {
+      appStoreSingleton.set?.("micGranted", true);
+    } catch {
+    }
+    try {
+      window.__tpMicPermState = "granted";
+    } catch {
+    }
+  } else {
+    try {
+      const micRes = await ensureMicAccess();
+      if (!micRes.allowed) return false;
+    } catch {
+      return false;
+    }
+    if (!await ensureMicStream()) return false;
   }
-  if (!await ensureMicStream()) return false;
   if (hasActiveAsrProfile()) return true;
   try {
     const openAsr = window.openSettingsToAsr;
@@ -66916,6 +66938,7 @@ function initScrollModeUiSync() {
     appStoreSingleton.subscribe?.("micGranted", () => applyAsrAvailability());
     appStoreSingleton.subscribe?.("micDevice", () => applyAsrAvailability());
     window.addEventListener("tp:asrChanged", applyAsrAvailability, { capture: false });
+    window.addEventListener("tp:mic:state", applyAsrAvailability, { capture: false });
   } catch {
   }
   try {
