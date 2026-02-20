@@ -1,11 +1,18 @@
 type ManagedRole = "scripts" | "recordings";
 
+type MountSide = {
+  vaultKey?: unknown;
+  hint?: unknown;
+} | null;
+
 type MountEntry = {
   role?: unknown;
-  local?: {
-    vaultKey?: unknown;
-    hint?: unknown;
-  } | null;
+  target?: unknown;
+  local?: MountSide;
+  mirror?: (MountSide & {
+    enabled?: unknown;
+    policy?: unknown;
+  }) | null;
 };
 
 type RegistryShape = {
@@ -68,6 +75,32 @@ function getMountEntry(registry: RegistryShape | null, role: ManagedRole): Mount
 
 function buildFallbackVaultKey(workspaceId: string | null, role: ManagedRole): string {
   return `mount:${workspaceId ?? "default"}:${role}:local`;
+}
+
+function pickVaultAndHint(
+  role: ManagedRole,
+  workspaceId: string | null,
+  entry: MountEntry | null,
+): { vaultKey: string; hint?: string } {
+  const localVaultKey = readString(entry?.local?.vaultKey);
+  const localHint = readString(entry?.local?.hint) ?? undefined;
+  const mirrorVaultKey = readString(entry?.mirror?.vaultKey);
+  const mirrorHint = readString(entry?.mirror?.hint) ?? undefined;
+  const mirrorEnabled = entry?.mirror?.enabled === true;
+
+  if (localVaultKey) {
+    return { vaultKey: localVaultKey, hint: localHint ?? mirrorHint };
+  }
+
+  // Scripts are cloud-canonical in Nursery; when mirrored locally, Anvil reads from mirror.
+  if (role === "scripts" && mirrorVaultKey && (mirrorEnabled || !localVaultKey)) {
+    return { vaultKey: mirrorVaultKey, hint: mirrorHint ?? localHint };
+  }
+
+  return {
+    vaultKey: buildFallbackVaultKey(workspaceId, role),
+    hint: localHint ?? mirrorHint,
+  };
 }
 
 function openVaultDb(): Promise<IDBDatabase> {
@@ -137,8 +170,7 @@ export async function getNurseryManagedDirectory(role: ManagedRole): Promise<Nur
 
   const workspaceId = getActiveWorkspaceId(registry);
   const entry = getMountEntry(registry, role);
-  const vaultKey = readString(entry?.local?.vaultKey) ?? buildFallbackVaultKey(workspaceId, role);
-  const hint = readString(entry?.local?.hint) ?? undefined;
+  const { vaultKey, hint } = pickVaultAndHint(role, workspaceId, entry);
   const handle = await getHandleFromVault(vaultKey);
 
   return {
@@ -150,4 +182,3 @@ export async function getNurseryManagedDirectory(role: ManagedRole): Promise<Nur
     handle,
   };
 }
-

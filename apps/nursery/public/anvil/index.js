@@ -24824,6 +24824,23 @@ function getMountEntry(registry3, role) {
 function buildFallbackVaultKey(workspaceId, role) {
   return `mount:${workspaceId ?? "default"}:${role}:local`;
 }
+function pickVaultAndHint(role, workspaceId, entry) {
+  const localVaultKey = readString(entry?.local?.vaultKey);
+  const localHint = readString(entry?.local?.hint) ?? void 0;
+  const mirrorVaultKey = readString(entry?.mirror?.vaultKey);
+  const mirrorHint = readString(entry?.mirror?.hint) ?? void 0;
+  const mirrorEnabled = entry?.mirror?.enabled === true;
+  if (localVaultKey) {
+    return { vaultKey: localVaultKey, hint: localHint ?? mirrorHint };
+  }
+  if (role === "scripts" && mirrorVaultKey && (mirrorEnabled || !localVaultKey)) {
+    return { vaultKey: mirrorVaultKey, hint: mirrorHint ?? localHint };
+  }
+  return {
+    vaultKey: buildFallbackVaultKey(workspaceId, role),
+    hint: localHint ?? mirrorHint
+  };
+}
 function openVaultDb() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(VAULT_DB_NAME, 1);
@@ -24885,8 +24902,7 @@ async function getNurseryManagedDirectory(role) {
   }
   const workspaceId = getActiveWorkspaceId(registry3);
   const entry = getMountEntry(registry3, role);
-  const vaultKey = readString(entry?.local?.vaultKey) ?? buildFallbackVaultKey(workspaceId, role);
-  const hint = readString(entry?.local?.hint) ?? void 0;
+  const { vaultKey, hint } = pickVaultAndHint(role, workspaceId, entry);
   const handle = await getHandleFromVault(vaultKey);
   return {
     managed: true,
@@ -25125,11 +25141,14 @@ async function clearMappedFolder() {
   broadcast();
   emit("clear");
 }
-async function listScripts(extensions = [".txt", ".docx", ".md"]) {
+async function listScripts(extensions = [".txt", ".docx", ".doc", ".md"]) {
   const out = [];
   const dir = _dir;
   if (!dir) return out;
   try {
+    if (!await verifyPermission(dir, "read")) {
+      return out;
+    }
     for await (const entry of dir.values?.() || []) {
       if (entry?.kind === "file") {
         const name = entry.name || "";
@@ -53176,11 +53195,11 @@ function syncSelectFromStore(select, role, entries) {
       entries: entries.length,
       value: select.value
     });
-    if (role === "sidebar" && select.value && select.value !== OPEN_SETTINGS_COMMAND) {
+    if (role === "sidebar" && select.value && select.value !== OPEN_SETTINGS_COMMAND && select.value !== OPEN_NURSERY_STORAGE_COMMAND) {
       lastSidebarValidSelection = select.value;
     }
   };
-  if (role === "sidebar" && previous === OPEN_SETTINGS_COMMAND) {
+  if (role === "sidebar" && (previous === OPEN_SETTINGS_COMMAND || previous === OPEN_NURSERY_STORAGE_COMMAND)) {
     debugLog("[SCRIPT-EDITOR] syncSelectFromStore: sentinel command consumed, reverting", {
       role,
       entries: entries.length,
@@ -53207,10 +53226,17 @@ function syncSelectFromStore(select, role, entries) {
   }
   select.innerHTML = "";
   if (!entries.length) {
-    const placeholderText = role === "sidebar" ? "Map script folder..." : "No existing scripts yet - map folder and save new ones here";
-    const placeholder = new Option(placeholderText, role === "sidebar" ? OPEN_SETTINGS_COMMAND : "", true, true);
+    const managed = isMappedFolderManagedByNursery();
+    const managedHint = getMappedFolderManagerHint();
+    const placeholderText = role === "sidebar" ? managed ? "Manage scripts mount in Nursery..." : "Map script folder..." : managed ? `No Nursery scripts folder linked${managedHint ? ` (${managedHint})` : ""}. Configure it in Nursery Storage.` : "No existing scripts yet - map folder and save new ones here";
+    const placeholderValue = role === "sidebar" ? managed ? OPEN_NURSERY_STORAGE_COMMAND : OPEN_SETTINGS_COMMAND : "";
+    const placeholder = new Option(placeholderText, placeholderValue, true, true);
     if (role === "sidebar") {
-      placeholder.dataset.settingsLink = "1";
+      if (managed) {
+        placeholder.dataset.nurseryLink = "1";
+      } else {
+        placeholder.dataset.settingsLink = "1";
+      }
       select.disabled = false;
     } else {
       select.disabled = true;
@@ -53255,6 +53281,34 @@ function wireSidebarHandlers() {
   if (!select) return;
   select.addEventListener("change", () => {
     debugLog("[SCRIPT-EDITOR] sidebar change", { value: select.value });
+    const selected = select.selectedOptions && select.selectedOptions[0] || (select.options.length ? select.options[select.selectedIndex] : null);
+    const settingsLink = !!selected?.dataset?.settingsLink || select.value === OPEN_SETTINGS_COMMAND;
+    const nurseryLink = !!selected?.dataset?.nurseryLink || select.value === OPEN_NURSERY_STORAGE_COMMAND;
+    if (settingsLink) {
+      try {
+        document.getElementById("settingsBtn")?.click();
+      } catch {
+      }
+      try {
+        requestAnimationFrame(() => {
+          try {
+            document.getElementById("scriptsFolderCard")?.scrollIntoView({ block: "start", behavior: "smooth" });
+          } catch {
+          }
+        });
+      } catch {
+      }
+      syncScriptSelectsFromStore();
+      return;
+    }
+    if (nurseryLink) {
+      try {
+        window.location.assign(getNurseryStorageSettingsUrl());
+      } catch {
+      }
+      syncScriptSelectsFromStore();
+      return;
+    }
     if (!select.value) {
       syncScriptSelectsFromStore();
       return;
@@ -53346,7 +53400,7 @@ function installScriptEditor() {
   } catch {
   }
 }
-var SIDEBAR_ID, loadInFlight, lastLoadTs, sidebarAbort, SETTINGS_SELECT_ID, OPEN_SETTINGS_COMMAND, lastSidebarValidSelection;
+var SIDEBAR_ID, loadInFlight, lastLoadTs, sidebarAbort, SETTINGS_SELECT_ID, OPEN_SETTINGS_COMMAND, OPEN_NURSERY_STORAGE_COMMAND, lastSidebarValidSelection;
 var init_script_editor = __esm({
   "src/ui/script-editor.ts"() {
     "use strict";
@@ -53354,12 +53408,15 @@ var init_script_editor = __esm({
     init_scripts_store();
     init_apply_script();
     init_script_selection();
+    init_mapped_folder();
+    init_nursery_mounts();
     SIDEBAR_ID = "scriptSelectSidebar";
     loadInFlight = false;
     lastLoadTs = 0;
     sidebarAbort = null;
     SETTINGS_SELECT_ID = "scriptSelect";
     OPEN_SETTINGS_COMMAND = "__OPEN_SETTINGS__";
+    OPEN_NURSERY_STORAGE_COMMAND = "__OPEN_NURSERY_STORAGE__";
     lastSidebarValidSelection = null;
     if (typeof document !== "undefined") {
       if (document.readyState === "loading") {
@@ -63913,7 +63970,7 @@ async function bindMappedFolderUI(opts) {
       if (!opt) return;
       sel.setAttribute("aria-busy", "true");
       const scriptId = opt.value || "";
-      if (opt?.dataset?.nurseryLink === "1" || scriptId === OPEN_NURSERY_STORAGE_COMMAND) {
+      if (opt?.dataset?.nurseryLink === "1" || scriptId === OPEN_NURSERY_STORAGE_COMMAND2) {
         openNurseryStorageSettings();
         return;
       }
@@ -64096,23 +64153,21 @@ async function bindMappedFolderUI(opts) {
         sel.setAttribute("aria-busy", "true");
       } catch {
       }
-      if ("showDirectoryPicker" in window) {
-        const entries = await listScripts();
-        const entriesFingerprint = fingerprintNames(entries);
-        const prevFingerprint = lastPopulateFingerprints.get(sel);
-        if (!entriesFingerprint || entriesFingerprint !== prevFingerprint) {
-          lastPopulateFingerprints.set(sel, entriesFingerprint);
-          populateSelect(entries);
-          _lastCount = entries.length;
-          try {
-            announceCount(_lastCount);
-          } catch {
-          }
-        } else {
-          try {
-            hudLog("folder:populate:skip", { fingerprint: entriesFingerprint, count: entries.length });
-          } catch {
-          }
+      const entries = await listScripts();
+      const entriesFingerprint = fingerprintNames(entries);
+      const prevFingerprint = lastPopulateFingerprints.get(sel);
+      if (!entriesFingerprint || entriesFingerprint !== prevFingerprint) {
+        lastPopulateFingerprints.set(sel, entriesFingerprint);
+        populateSelect(entries);
+        _lastCount = entries.length;
+        try {
+          announceCount(_lastCount);
+        } catch {
+        }
+      } else {
+        try {
+          hudLog("folder:populate:skip", { fingerprint: entriesFingerprint, count: entries.length });
+        } catch {
         }
       }
     } catch {
@@ -64136,7 +64191,7 @@ async function bindMappedFolderUI(opts) {
         const managedHint = getMappedFolderManagerHint();
         if (sel.id === "scriptSelectSidebar") {
           sel.disabled = false;
-          const opt = managed ? new Option("Manage scripts mount in Nursery...", OPEN_NURSERY_STORAGE_COMMAND) : new Option("Map script folder...", "__OPEN_SETTINGS__");
+          const opt = managed ? new Option("Manage scripts mount in Nursery...", OPEN_NURSERY_STORAGE_COMMAND2) : new Option("Map script folder...", "__OPEN_SETTINGS__");
           if (managed) {
             opt.dataset.nurseryLink = "1";
           } else {
@@ -64295,7 +64350,7 @@ async function bindMappedFolderUI(opts) {
         }
         if (sel.id === "scriptSelectSidebar") {
           sel.disabled = false;
-          const opt = managed ? new Option("Manage scripts mount in Nursery...", OPEN_NURSERY_STORAGE_COMMAND) : new Option("Map script folder...", "__OPEN_SETTINGS__");
+          const opt = managed ? new Option("Manage scripts mount in Nursery...", OPEN_NURSERY_STORAGE_COMMAND2) : new Option("Map script folder...", "__OPEN_SETTINGS__");
           if (managed) {
             opt.dataset.nurseryLink = "1";
           } else {
@@ -64565,7 +64620,7 @@ function maybeAutoLoad(sel) {
   } catch {
   }
 }
-var SUPPORTED_EXT, shouldTraceMappedFolder, OPEN_NURSERY_STORAGE_COMMAND, restoredLastScript, fingerprintNames, lastPopulateFingerprints, lastFallbackFingerprints, _lastCount;
+var SUPPORTED_EXT, shouldTraceMappedFolder, OPEN_NURSERY_STORAGE_COMMAND2, restoredLastScript, fingerprintNames, lastPopulateFingerprints, lastFallbackFingerprints, _lastCount;
 var init_mapped_folder_bind = __esm({
   "src/ui/mapped-folder-bind.ts"() {
     "use strict";
@@ -64591,7 +64646,7 @@ var init_mapped_folder_bind = __esm({
         return cache;
       };
     })();
-    OPEN_NURSERY_STORAGE_COMMAND = "__OPEN_NURSERY_STORAGE__";
+    OPEN_NURSERY_STORAGE_COMMAND2 = "__OPEN_NURSERY_STORAGE__";
     restoredLastScript = false;
     fingerprintNames = (entries) => entries.map((e) => String(e?.name || "")).sort().join("|");
     lastPopulateFingerprints = /* @__PURE__ */ new WeakMap();

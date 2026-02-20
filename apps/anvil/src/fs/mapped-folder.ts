@@ -190,10 +190,13 @@ export async function clearMappedFolder(): Promise<void> {
   _dir = null; await idbDel(KEY); broadcast(); emit('clear');
 }
 
-export async function listScripts(extensions = ['.txt', '.docx', '.md']): Promise<ScriptEntry[]> {
+export async function listScripts(extensions = ['.txt', '.docx', '.doc', '.md']): Promise<ScriptEntry[]> {
   const out: ScriptEntry[] = [];
   const dir = _dir; if (!dir) return out;
   try {
+    if (!(await verifyPermission(dir, 'read'))) {
+      return out;
+    }
     // Iterate directory entries; FileSystemDirectoryHandle implements values() async iterator in supporting browsers
     // @ts-ignore
     for await (const entry of (dir as any).values?.() || []) {

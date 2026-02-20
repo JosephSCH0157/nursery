@@ -392,18 +392,16 @@ export async function bindMappedFolderUI(opts: BindOpts): Promise<() => void> {
         return;
       }
       try { sel.setAttribute('aria-busy','true'); } catch {}
-      if ('showDirectoryPicker' in window) {
-        const entries = await listScripts();
-        const entriesFingerprint = fingerprintNames(entries);
-        const prevFingerprint = lastPopulateFingerprints.get(sel);
-        if (!entriesFingerprint || entriesFingerprint !== prevFingerprint) {
-          lastPopulateFingerprints.set(sel, entriesFingerprint);
-          populateSelect(entries);
-          _lastCount = entries.length;
-          try { announceCount(_lastCount); } catch {}
-        } else {
-          try { hudLog('folder:populate:skip', { fingerprint: entriesFingerprint, count: entries.length }); } catch {}
-        }
+      const entries = await listScripts();
+      const entriesFingerprint = fingerprintNames(entries);
+      const prevFingerprint = lastPopulateFingerprints.get(sel);
+      if (!entriesFingerprint || entriesFingerprint !== prevFingerprint) {
+        lastPopulateFingerprints.set(sel, entriesFingerprint);
+        populateSelect(entries);
+        _lastCount = entries.length;
+        try { announceCount(_lastCount); } catch {}
+      } else {
+        try { hudLog('folder:populate:skip', { fingerprint: entriesFingerprint, count: entries.length }); } catch {}
       }
     } catch {}
     finally { try { sel.setAttribute('aria-busy','false'); } catch {} }
