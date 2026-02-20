@@ -5,7 +5,7 @@ import { setSessionPhase } from '../state/session';
 import { showToast } from '../ui/toasts';
 
 const TRIAL_LIMIT_MS = 5 * 60 * 1000;
-const LOGIN_PATH = '/login.html';
+const LOGIN_PATH = '/login';
 const SESSION_CACHE_KEYS = ['forge_profile_cache', 'forge_user_cache'];
 
 let initialized = false;
@@ -25,7 +25,7 @@ function getRedirectTarget(): string {
 
 function buildLoginHref(): string {
   const target = encodeURIComponent(getRedirectTarget());
-  return `${LOGIN_PATH}?redirect=${target}&return=${target}`;
+  return `${LOGIN_PATH}?next=${target}`;
 }
 
 function pickDisplayName(session: Session | null): string {
@@ -280,6 +280,9 @@ async function signOutCurrentUser(btn?: HTMLButtonElement | null): Promise<void>
       btn.textContent = fallbackText;
     }
     applyAuthState(null);
+    try {
+      window.location.assign(buildLoginHref());
+    } catch {}
   }
 }
 

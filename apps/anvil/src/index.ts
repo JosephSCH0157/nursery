@@ -62,7 +62,7 @@ function getRedirectTarget(): string {
 
 function buildLoginUrl(): string {
   const target = encodeURIComponent(getRedirectTarget());
-  return `/login.html?redirect=${target}&return=${target}`;
+  return `/login?next=${target}`;
 }
 
 function redirectToLogin(): void {
@@ -71,6 +71,20 @@ function redirectToLogin(): void {
   } catch {
     // ignore
   }
+}
+
+async function ensureNurseryAuth(): Promise<boolean> {
+  if (isDisplayContext()) return true;
+  if (shouldBypassAuth()) return true;
+  if (!hasSupabaseConfig) return true;
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (!error && data?.session) return true;
+  } catch {
+    // ignore
+  }
+  redirectToLogin();
+  return false;
 }
 
 function isIronMinePath(path: string): boolean {
@@ -110,6 +124,9 @@ async function maybeHandleIronMineRoute(): Promise<boolean> {
     bootTrace('index.ts:preflight:display-context:return');
     return;
   }
+  const authed = await ensureNurseryAuth();
+  bootTrace('index.ts:preflight:auth', { authed });
+  if (!authed) return;
   const handledIronMine = await maybeHandleIronMineRoute();
   bootTrace('index.ts:preflight:iron-mine', { handled: handledIronMine });
   if (handledIronMine) return;

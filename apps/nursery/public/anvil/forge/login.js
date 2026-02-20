@@ -13045,6 +13045,7 @@ var meta = typeof import.meta !== "undefined" ? import.meta : {};
 var metaEnv = meta.env || {};
 var SUPABASE_URL = w.__forgeSupabaseUrl || metaEnv.VITE_SUPABASE_URL || "";
 var SUPABASE_ANON_KEY = w.__forgeSupabaseAnonKey || metaEnv.VITE_SUPABASE_ANON_KEY || "";
+var AUTH_STORAGE_KEY = "forge-auth";
 var hasSupabaseConfig = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 function createSupabaseStub(reason) {
   const handler = {
@@ -13073,7 +13074,10 @@ if (hasSupabaseConfig) {
     supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: {
         persistSession: true,
-        detectSessionInUrl: true
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        storageKey: AUTH_STORAGE_KEY,
+        ...typeof window !== "undefined" ? { storage: window.localStorage } : {}
       }
     });
   } catch (err) {
@@ -13086,170 +13090,35 @@ if (hasSupabaseConfig) {
 }
 var supabase = supabaseClient || createSupabaseStub("[supabaseClient] Supabase not configured.");
 
-// src/forge/authProfile.ts
-function shouldBypassAuth() {
-  try {
-    const search = String(window.location.search || "");
-    const hash = String(window.location.hash || "");
-    if (search.includes("ci=1") || search.includes("uiMock=1") || search.includes("mockFolder=1")) return true;
-    if (hash.includes("ci=1") || hash.includes("uiMock=1")) return true;
-    if (window.__TP_SKIP_AUTH === true) return true;
-  } catch {
-  }
-  return false;
-}
-async function ensureUserAndProfile() {
-  const redirectTarget = window.location.pathname + window.location.search + window.location.hash;
-  const loginUrl = `/login?redirect=${encodeURIComponent(redirectTarget)}`;
-  if (shouldBypassAuth()) {
-    const mockUser = { id: "test-user", email: "test@example.com" };
-    const mockProfile = {
-      user_id: mockUser.id,
-      display_name: "Test User",
-      tier: "free"
-    };
-    try {
-      window.__forgeUser = mockUser;
-    } catch {
-    }
-    try {
-      window.__forgeProfile = mockProfile;
-    } catch {
-    }
-    return { user: mockUser, profile: mockProfile };
-  }
-  const { data: userData, error: userError } = await supabase.auth.getUser();
-  if (userError || !userData?.user) {
-    window.location.assign(loginUrl);
-    throw new Error("No user session; redirecting to login.");
-  }
-  const user = userData.user;
-  const { data: profile, error: profileError } = await supabase.from("profiles").select("user_id, display_name, tier").eq("user_id", user.id).maybeSingle();
-  if (profile) {
-    return { user, profile };
-  }
-  if (profileError && profileError.code !== "PGRST116") {
-    console.error("[authProfile] error fetching profile", profileError);
-    throw profileError;
-  }
-  const defaultDisplay = user.user_metadata && user.user_metadata.full_name || user.email || "New user";
-  const { data: inserted, error: insertError } = await supabase.from("profiles").insert({
-    user_id: user.id,
-    display_name: defaultDisplay,
-    tier: "free"
-  }).select("user_id, display_name, tier").single();
-  if (insertError) {
-    if (insertError.code === "23505") {
-      const { data: existing, error: refetchError } = await supabase.from("profiles").select("user_id, display_name, tier").eq("user_id", user.id).single();
-      if (refetchError) throw refetchError;
-      return { user, profile: existing };
-    }
-    console.error("[authProfile] error creating default profile", insertError);
-    throw insertError;
-  }
-  return { user, profile: inserted };
-}
-
 // src/forge/login.ts
 function getRedirectTarget() {
   const params = new URLSearchParams(window.location.search || "");
-  return params.get("redirect") || params.get("return") || "/teleprompter_pro.html";
+  return params.get("next") || params.get("redirect") || params.get("return") || "/anvil/teleprompter_pro.html";
 }
-async function checkExistingSession() {
-  try {
-    const { data, error } = await supabase.auth.getUser();
-    if (!error && data?.user) {
-      window.location.assign(getRedirectTarget());
-    }
-  } catch {
-  }
+function buildNurseryLoginHref(target) {
+  return `/login?next=${encodeURIComponent(target)}`;
 }
-async function handleLogin(email, password) {
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) throw error;
-  await ensureUserAndProfile();
-  window.location.assign(getRedirectTarget());
-}
-async function handleSignup(email, password) {
-  const { error } = await supabase.auth.signUp({ email, password });
-  if (error) throw error;
-  try {
-    await ensureUserAndProfile();
-  } catch {
-  }
-  const msg = document.getElementById("error");
-  if (msg) msg.textContent = "Check your email to confirm your account.";
-}
-function getResetRedirectUrl() {
-  const override = window.__forgeResetRedirectUrl;
-  if (typeof override === "string" && override.trim()) {
-    return override;
-  }
-  const canonicalOrigin = window.__forgeAppOrigin;
-  if (typeof canonicalOrigin === "string" && canonicalOrigin.trim()) {
-    try {
-      return new URL("reset", canonicalOrigin).toString();
-    } catch {
-    }
-  }
-  try {
-    return new URL("reset", window.location.origin).toString();
-  } catch {
-  }
-  return "/reset";
-}
-async function handleForgotPassword(email) {
-  if (!email) throw new Error("Enter your email to receive a reset link.");
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: getResetRedirectUrl()
-  });
-  if (error) throw error;
-}
-function wireLoginPage() {
-  const form = document.getElementById("login-form");
+function setStatus(message) {
   const errorEl = document.getElementById("error");
-  const signupBtn = document.getElementById("signup-btn");
-  const forgotBtn = document.getElementById("forgot-password");
-  if (!form) return;
-  form.addEventListener("submit", async (ev) => {
-    try {
-      ev.preventDefault();
-    } catch {
+  if (errorEl) errorEl.textContent = message;
+}
+async function redirectToNurseryAuth() {
+  const target = getRedirectTarget();
+  setStatus("Login moved to Nursery. Redirecting...");
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (!error && data?.session) {
+      window.location.replace(target);
+      return;
     }
-    if (!errorEl) return;
-    const email = document.getElementById("email")?.value || "";
-    const password = document.getElementById("password")?.value || "";
-    errorEl.textContent = "";
-    try {
-      await handleLogin(email, password);
-    } catch (err) {
-      errorEl.textContent = err?.message || "Login failed.";
-    }
-  });
-  if (signupBtn && errorEl) {
-    signupBtn.addEventListener("click", async () => {
-      const email = document.getElementById("email")?.value || "";
-      const password = document.getElementById("password")?.value || "";
-      errorEl.textContent = "";
-      try {
-        await handleSignup(email, password);
-      } catch (err) {
-        errorEl.textContent = err?.message || "Sign-up failed.";
-      }
-    });
+  } catch {
   }
-  if (forgotBtn && errorEl) {
-    forgotBtn.addEventListener("click", async () => {
-      const email = document.getElementById("email")?.value || "";
-      errorEl.textContent = "";
-      try {
-        await handleForgotPassword(email);
-        errorEl.textContent = "If that email exists, a reset link is on the way.";
-      } catch (err) {
-        errorEl.textContent = err?.message || "Password reset failed.";
-      }
-    });
+  const nurseryLogin = buildNurseryLoginHref(target);
+  try {
+    window.location.replace(nurseryLogin);
+  } catch {
+    window.location.assign(nurseryLogin);
   }
 }
-checkExistingSession().then(wireLoginPage).catch(() => wireLoginPage());
+void redirectToNurseryAuth();
 //# sourceMappingURL=login.js.map

@@ -13066,7 +13066,7 @@ function createSupabaseStub(reason) {
     throw new Error(reason);
   }, handler);
 }
-var w, meta, metaEnv, SUPABASE_URL, SUPABASE_ANON_KEY, hasSupabaseConfig, supabaseClient, supabase;
+var w, meta, metaEnv, SUPABASE_URL, SUPABASE_ANON_KEY, AUTH_STORAGE_KEY, hasSupabaseConfig, supabaseClient, supabase;
 var init_supabaseClient = __esm({
   "src/forge/supabaseClient.ts"() {
     "use strict";
@@ -13076,6 +13076,7 @@ var init_supabaseClient = __esm({
     metaEnv = meta.env || {};
     SUPABASE_URL = w.__forgeSupabaseUrl || metaEnv.VITE_SUPABASE_URL || "";
     SUPABASE_ANON_KEY = w.__forgeSupabaseAnonKey || metaEnv.VITE_SUPABASE_ANON_KEY || "";
+    AUTH_STORAGE_KEY = "forge-auth";
     hasSupabaseConfig = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
     if (!hasSupabaseConfig) {
       try {
@@ -13089,7 +13090,10 @@ var init_supabaseClient = __esm({
         supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
           auth: {
             persistSession: true,
-            detectSessionInUrl: true
+            autoRefreshToken: true,
+            detectSessionInUrl: true,
+            storageKey: AUTH_STORAGE_KEY,
+            ...typeof window !== "undefined" ? { storage: window.localStorage } : {}
           }
         });
       } catch (err) {
@@ -42883,7 +42887,7 @@ function shouldBypassAuth() {
 }
 async function ensureUserAndProfile() {
   const redirectTarget = window.location.pathname + window.location.search + window.location.hash;
-  const loginUrl = `/login?redirect=${encodeURIComponent(redirectTarget)}`;
+  const loginUrl = `/login?next=${encodeURIComponent(redirectTarget)}`;
   if (shouldBypassAuth()) {
     const mockUser = { id: "test-user", email: "test@example.com" };
     const mockProfile = {
@@ -49369,7 +49373,7 @@ function getRedirectTarget() {
 }
 function buildLoginHref() {
   const target = encodeURIComponent(getRedirectTarget());
-  return `${LOGIN_PATH}?redirect=${target}&return=${target}`;
+  return `${LOGIN_PATH}?next=${target}`;
 }
 function pickDisplayName(session) {
   const user = session?.user;
@@ -49641,6 +49645,10 @@ async function signOutCurrentUser(btn) {
       btn.textContent = fallbackText;
     }
     applyAuthState(null);
+    try {
+      window.location.assign(buildLoginHref());
+    } catch {
+    }
   }
 }
 function applyAuthState(session) {
@@ -49700,7 +49708,7 @@ var init_auth_unlock = __esm({
     init_session();
     init_toasts();
     TRIAL_LIMIT_MS = 5 * 60 * 1e3;
-    LOGIN_PATH = "/login.html";
+    LOGIN_PATH = "/login";
     SESSION_CACHE_KEYS = ["forge_profile_cache", "forge_user_cache"];
     initialized2 = false;
     currentSession = null;
@@ -68335,13 +68343,25 @@ function getRedirectTarget2() {
 }
 function buildLoginUrl() {
   const target = encodeURIComponent(getRedirectTarget2());
-  return `/login.html?redirect=${target}&return=${target}`;
+  return `/login?next=${target}`;
 }
 function redirectToLogin() {
   try {
     window.location.assign(buildLoginUrl());
   } catch {
   }
+}
+async function ensureNurseryAuth() {
+  if (isDisplayContext5()) return true;
+  if (shouldBypassAuth3()) return true;
+  if (!hasSupabaseConfig) return true;
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (!error && data?.session) return true;
+  } catch {
+  }
+  redirectToLogin();
+  return false;
 }
 function isIronMinePath(path) {
   const clean = (path || "").toLowerCase();
@@ -68375,6 +68395,9 @@ async function maybeHandleIronMineRoute() {
     bootTrace("index.ts:preflight:display-context:return");
     return;
   }
+  const authed = await ensureNurseryAuth();
+  bootTrace("index.ts:preflight:auth", { authed });
+  if (!authed) return;
   const handledIronMine = await maybeHandleIronMineRoute();
   bootTrace("index.ts:preflight:iron-mine", { handled: handledIronMine });
   if (handledIronMine) return;
