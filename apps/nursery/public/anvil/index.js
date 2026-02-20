@@ -50530,7 +50530,7 @@ function buildSettingsContent(rootEl2) {
           </div>
           <div class="settings-inline-row">
             <button id="typoResetMain" class="chip">Reset to Default</button>
-            <button id="typoCopyMainToDisplay" class="chip">Copy ??? Display</button>
+            <button id="typoCopyMainToDisplay" class="chip">Copy -> Display</button>
             <button class="chip" data-typo-preset data-display="main" data-typo-preset-name="readable">Readable</button>
             <button class="chip" data-typo-preset data-display="main" data-typo-preset-name="studio">Studio</button>
             <button class="chip" data-typo-preset data-display="main" data-typo-preset-name="bigroom">Big Room</button>
@@ -50564,7 +50564,7 @@ function buildSettingsContent(rootEl2) {
           </div>
           <div class="settings-inline-row">
             <button id="typoResetDisplay" class="chip">Reset to Default</button>
-            <button id="typoCopyDisplayToMain" class="chip">Copy ??? Main</button>
+            <button id="typoCopyDisplayToMain" class="chip">Copy -> Main</button>
             <button class="chip" data-typo-preset data-display="display" data-typo-preset-name="readable">Readable</button>
             <button class="chip" data-typo-preset data-display="display" data-typo-preset-name="studio">Studio</button>
             <button class="chip" data-typo-preset data-display="display" data-typo-preset-name="bigroom">Big Room</button>
@@ -50710,7 +50710,7 @@ function buildSettingsContent(rootEl2) {
           <button id="settingsObsTest" data-action="obs-test" class="chip btn-chip" type="button">Test connection</button>
           <span id="settingsObsTestMsg" class="obs-test-msg" role="status" aria-live="polite"></span>
         </div>
-        <small class="muted">OBS ??? Tools ??? WebSocket Server Settings (default port 4455). Use this host and password.</small>
+        <small class="muted">OBS -> Tools -> WebSocket Server Settings (default port 4455). Use this host and password.</small>
       </div>
 
       <div class="settings-card anim-in">
@@ -50832,7 +50832,7 @@ function buildSettingsContent(rootEl2) {
             <p>
               Support helps fund continued work on Anvil and the rest of the Podcaster's Forge toolchain.
             </p>
-            <p id="aboutVersion">Version: Anvil 2.0</p>
+            <p id="aboutVersion">Version: loading...</p>
           </div>
         </div>
       </section>
@@ -50899,7 +50899,7 @@ function addAsrWizardCard(root) {
         id="asrCalStatus"
         hidden
       >
-        Click ???Start calibration??? to begin. We???ll ask you to stay quiet, then speak in your normal voice.
+        Click "Start calibration" to begin. We'll ask you to stay quiet, then speak in your normal voice.
       </div>
       <small class="muted">Tip: Use headphones; leave NS/AGC off for best timing. Enable AEC only if using speakers.</small>
     `;
@@ -58963,7 +58963,7 @@ function wireCamera() {
       } catch {
       }
       try {
-        if (window.toast) window.toast("Camera starting\xE2\u20AC\xA6");
+        if (window.toast) window.toast("Camera starting...");
       } catch {
       }
       try {
@@ -58979,9 +58979,9 @@ function wireCamera() {
           try {
             const name = String(err && err.name || "");
             if (name === "NotReadableError" || name === "TrackStartError") {
-              hint = ' \xE2\u20AC\xA2 Another app is using the camera (e.g., OBS). Close it or pick "OBS Virtual Camera" in Settings \xE2\u2020\u2019 Media.';
+              hint = ' - Another app is using the camera (e.g., OBS). Close it or pick "OBS Virtual Camera" in Settings -> Media.';
             } else if (name === "NotAllowedError" || name === "PermissionDeniedError") {
-              hint = " \xE2\u20AC\xA2 Grant camera permission to this tab and try again.";
+              hint = " - Grant camera permission to this tab and try again.";
             }
           } catch {
           }
@@ -59214,7 +59214,7 @@ function installSpeakerIndex() {
         const s1 = countTag("s1");
         const s2 = countTag("s2");
         const g2 = countTag("g1") + countTag("g2") + countTag("guest1") + countTag("guest");
-        host.textContent = `Speakers: S1 ${s1} \xE2\u20AC\xA2 S2 ${s2}${g2 ? ` \xE2\u20AC\xA2 G ${g2}` : ""}`;
+        host.textContent = `Speakers: S1 ${s1} | S2 ${s2}${g2 ? ` | G ${g2}` : ""}`;
       } catch {
       }
     };
@@ -59293,7 +59293,7 @@ function installObsChip() {
       const render = ({ status: status2 = "disconnected", recording = false, scene } = {}) => {
         try {
           const s = String(status2 || "disconnected");
-          labelEl.textContent = `OBS: ${s}${recording ? " \xE2\u20AC\xA2 REC" : ""}${scene ? ` \xE2\u20AC\xA2 ${scene}` : ""}`;
+          labelEl.textContent = `OBS: ${s}${recording ? " | REC" : ""}${scene ? ` | ${scene}` : ""}`;
           const base = ["chip"];
           if (s === "identified" || s === "open") base.push("obs-connected");
           else if (s === "connecting") base.push("obs-reconnecting");
@@ -59315,7 +59315,7 @@ function installObsChip() {
           const d = e && e.detail || {};
           const ok = !!d.ok;
           if (!iconEl) return;
-          iconEl.textContent = ok ? "\xE2\u0153\u201C" : "!";
+          iconEl.textContent = ok ? "OK" : "!";
           iconEl.classList.remove("ok", "error", "show");
           iconEl.classList.add(ok ? "ok" : "error");
           void iconEl.offsetWidth;
@@ -59351,14 +59351,14 @@ function wireOverlays() {
             <h4>Tag Guide</h4>
             <div class="settings-small">Use bracket tags inside your script to style and segment content.</div>
             <ul class="tag-list">
-              <li><code>[s1]</code>\xE2\u20AC\xA6<code>[/s1]</code> \xE2\u20AC\u201D Speaker 1</li>
-              <li><code>[s2]</code>\xE2\u20AC\xA6<code>[/s2]</code> \xE2\u20AC\u201D Speaker 2</li>
-              <li><code>[g1]</code>\xE2\u20AC\xA6<code>[/g1]</code> \xE2\u20AC\u201D Guest 1</li>
-              <li><code>[g2]</code>\xE2\u20AC\xA6<code>[/g2]</code> \xE2\u20AC\u201D Guest 2</li>
-              <li><code>[b]</code>/<code>[i]</code>/<code>[u]</code> \xE2\u20AC\u201D Bold/Italic/Underline</li>
-              <li><code>[note]</code>\xE2\u20AC\xA6<code>[/note]</code> \xE2\u20AC\u201D Sidebar note</li>
-              <li><code>[color=#ff0]</code>\xE2\u20AC\xA6<code>[/color]</code> \xE2\u20AC\u201D Text color</li>
-              <li><code>[bg=#112233]</code>\xE2\u20AC\xA6<code>[/bg]</code> \xE2\u20AC\u201D Background color</li>
+              <li><code>[s1]</code>...<code>[/s1]</code> - Speaker 1</li>
+              <li><code>[s2]</code>...<code>[/s2]</code> - Speaker 2</li>
+              <li><code>[g1]</code>...<code>[/g1]</code> - Guest 1</li>
+              <li><code>[g2]</code>...<code>[/g2]</code> - Guest 2</li>
+              <li><code>[b]</code>/<code>[i]</code>/<code>[u]</code> - Bold/Italic/Underline</li>
+              <li><code>[note]</code>...<code>[/note]</code> - Sidebar note</li>
+              <li><code>[color=#ff0]</code>...<code>[/color]</code> - Text color</li>
+              <li><code>[bg=#112233]</code>...<code>[/bg]</code> - Background color</li>
             </ul>
             <div class="row">
               <button id="normalizeBtn" class="btn-chip">Normalize</button>
@@ -60097,7 +60097,7 @@ function initSelfChecksChip() {
       try {
         const total = checks.length;
         const passed = checks.filter((c) => c.pass).length;
-        txt.textContent = `${passed}/${total} ${passed === total ? "\xE2\u0153\u201D" : "\xE2\u20AC\xA2"}`;
+        txt.textContent = `${passed}/${total} ${passed === total ? "OK" : "*"}`;
         console.table(checks);
       } catch {
       }
@@ -60112,7 +60112,7 @@ function initSelfChecksChip() {
           renderResult(runLocalChecks());
         }
       } catch {
-        txt.textContent = "0/0 \xE2\u20AC\xA2";
+        txt.textContent = "0/0 *";
       }
     };
     setTimeout(runChecks, 0);
@@ -60205,7 +60205,7 @@ var init_dom = __esm({
               } catch {
               }
               try {
-                window.toast && window.toast("Camera unavailable \xE2\u20AC\u201D selection reverted", { type: "warn" });
+                window.toast && window.toast("Camera unavailable - selection reverted", { type: "warn" });
               } catch {
               }
             }

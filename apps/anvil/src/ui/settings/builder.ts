@@ -36,7 +36,7 @@ export function buildSettingsContent(rootEl: HTMLElement | null) {
           </div>
           <div class="settings-inline-row">
             <button id="typoResetMain" class="chip">Reset to Default</button>
-            <button id="typoCopyMainToDisplay" class="chip">Copy ??? Display</button>
+            <button id="typoCopyMainToDisplay" class="chip">Copy -> Display</button>
             <button class="chip" data-typo-preset data-display="main" data-typo-preset-name="readable">Readable</button>
             <button class="chip" data-typo-preset data-display="main" data-typo-preset-name="studio">Studio</button>
             <button class="chip" data-typo-preset data-display="main" data-typo-preset-name="bigroom">Big Room</button>
@@ -70,7 +70,7 @@ export function buildSettingsContent(rootEl: HTMLElement | null) {
           </div>
           <div class="settings-inline-row">
             <button id="typoResetDisplay" class="chip">Reset to Default</button>
-            <button id="typoCopyDisplayToMain" class="chip">Copy ??? Main</button>
+            <button id="typoCopyDisplayToMain" class="chip">Copy -> Main</button>
             <button class="chip" data-typo-preset data-display="display" data-typo-preset-name="readable">Readable</button>
             <button class="chip" data-typo-preset data-display="display" data-typo-preset-name="studio">Studio</button>
             <button class="chip" data-typo-preset data-display="display" data-typo-preset-name="bigroom">Big Room</button>
@@ -216,7 +216,7 @@ export function buildSettingsContent(rootEl: HTMLElement | null) {
           <button id="settingsObsTest" data-action="obs-test" class="chip btn-chip" type="button">Test connection</button>
           <span id="settingsObsTestMsg" class="obs-test-msg" role="status" aria-live="polite"></span>
         </div>
-        <small class="muted">OBS ??? Tools ??? WebSocket Server Settings (default port 4455). Use this host and password.</small>
+        <small class="muted">OBS -> Tools -> WebSocket Server Settings (default port 4455). Use this host and password.</small>
       </div>
 
       <div class="settings-card anim-in">
@@ -338,7 +338,7 @@ export function buildSettingsContent(rootEl: HTMLElement | null) {
             <p>
               Support helps fund continued work on Anvil and the rest of the Podcaster's Forge toolchain.
             </p>
-            <p id="aboutVersion">Version: Anvil 2.0</p>
+            <p id="aboutVersion">Version: loading...</p>
           </div>
         </div>
       </section>
@@ -411,7 +411,7 @@ export function addAsrWizardCard(root: HTMLElement) {
         id="asrCalStatus"
         hidden
       >
-        Click ???Start calibration??? to begin. We???ll ask you to stay quiet, then speak in your normal voice.
+        Click "Start calibration" to begin. We'll ask you to stay quiet, then speak in your normal voice.
       </div>
       <small class="muted">Tip: Use headphones; leave NS/AGC off for best timing. Enable AEC only if using speakers.</small>
     `;

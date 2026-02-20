@@ -165,7 +165,7 @@ try {
             if (sSel && prev && sSel.value !== prev) sSel.value = prev;
             if (mSel && prev && mSel.value !== prev) mSel.value = prev;
           } catch {}
-          try { window.toast && window.toast('Camera unavailable â€” selection reverted', { type: 'warn' }); } catch {}
+          try { window.toast && window.toast('Camera unavailable - selection reverted', { type: 'warn' }); } catch {}
         }
         // Stop legacy listeners from reacting
         try { e.stopPropagation(); e.stopImmediatePropagation?.(); } catch {}
@@ -463,7 +463,7 @@ export function wireCamera() {
     start.dataset.captureWired = '1';
     start.addEventListener('click', async (e) => {
       try { e.stopImmediatePropagation(); e.preventDefault(); } catch {}
-      try { if (window.toast) window.toast('Camera startingâ€¦'); } catch {}
+      try { if (window.toast) window.toast('Camera starting...'); } catch {}
       // Ensure camera module is loaded if not yet available
       try { if (!window.__tpCamera || typeof window.__tpCamera.startCamera !== 'function') await import('../media/camera'); } catch {}
       try {
@@ -475,9 +475,9 @@ export function wireCamera() {
           try {
             const name = String(err && err.name || '');
             if (name === 'NotReadableError' || name === 'TrackStartError') {
-              hint = ' â€¢ Another app is using the camera (e.g., OBS). Close it or pick "OBS Virtual Camera" in Settings â†’ Media.';
+              hint = ' - Another app is using the camera (e.g., OBS). Close it or pick "OBS Virtual Camera" in Settings -> Media.';
             } else if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
-              hint = ' â€¢ Grant camera permission to this tab and try again.';
+              hint = ' - Grant camera permission to this tab and try again.';
             }
           } catch {}
           if (window.toast) window.toast('Camera start failed' + (msg ? ': ' + msg : '') + hint);
@@ -631,7 +631,7 @@ function installSpeakerIndex() {
         const s2 = countTag('s2');
         // tolerate variants: guest1, g1, guest
         const g = countTag('g1') + countTag('g2') + countTag('guest1') + countTag('guest');
-        host.textContent = `Speakers: S1 ${s1} â€¢ S2 ${s2}${g ? ` â€¢ G ${g}` : ''}`;
+        host.textContent = `Speakers: S1 ${s1} | S2 ${s2}${g ? ` | G ${g}` : ''}`;
       } catch {}
     };
     render();
@@ -665,7 +665,7 @@ function installDbMeter() {
       const render = (db = NaN, peak = NaN) => {
         try {
           const val = Number.isFinite(peak) ? peak : (Number.isFinite(db) ? db : -60);
-          const pct = (clamp(val, -60, 0) + 60) / 60; // map -60..0 â†’ 0..1
+          const pct = (clamp(val, -60, 0) + 60) / 60; // map -60..0 -> 0..1
           if (topFill) topFill.style.transform = `scaleX(${pct})`;
         } catch {}
       };
@@ -705,7 +705,7 @@ function installObsChip() {
       const render = ({ status = 'disconnected', recording = false, scene } = {}) => {
         try {
           const s = String(status||'disconnected');
-          labelEl.textContent = `OBS: ${s}${recording ? ' â€¢ REC' : ''}${scene ? ` â€¢ ${scene}` : ''}`;
+          labelEl.textContent = `OBS: ${s}${recording ? ' | REC' : ''}${scene ? ` | ${scene}` : ''}`;
           // reset state classes and apply new one(s)
           const base = ['chip'];
           if (s === 'identified' || s === 'open') base.push('obs-connected');
@@ -722,7 +722,7 @@ function installObsChip() {
         try {
           const d = (e && e.detail) || {}; const ok = !!d.ok;
           if (!iconEl) return;
-          iconEl.textContent = ok ? 'âœ“' : '!';
+          iconEl.textContent = ok ? 'OK' : '!';
           iconEl.classList.remove('ok','error','show');
           iconEl.classList.add(ok ? 'ok' : 'error');
           // force reflow for transition
@@ -751,14 +751,14 @@ export function wireOverlays() {
             <h4>Tag Guide</h4>
             <div class="settings-small">Use bracket tags inside your script to style and segment content.</div>
             <ul class="tag-list">
-              <li><code>[s1]</code>â€¦<code>[/s1]</code> â€” Speaker 1</li>
-              <li><code>[s2]</code>â€¦<code>[/s2]</code> â€” Speaker 2</li>
-              <li><code>[g1]</code>â€¦<code>[/g1]</code> â€” Guest 1</li>
-              <li><code>[g2]</code>â€¦<code>[/g2]</code> â€” Guest 2</li>
-              <li><code>[b]</code>/<code>[i]</code>/<code>[u]</code> â€” Bold/Italic/Underline</li>
-              <li><code>[note]</code>â€¦<code>[/note]</code> â€” Sidebar note</li>
-              <li><code>[color=#ff0]</code>â€¦<code>[/color]</code> â€” Text color</li>
-              <li><code>[bg=#112233]</code>â€¦<code>[/bg]</code> â€” Background color</li>
+              <li><code>[s1]</code>...<code>[/s1]</code> - Speaker 1</li>
+              <li><code>[s2]</code>...<code>[/s2]</code> - Speaker 2</li>
+              <li><code>[g1]</code>...<code>[/g1]</code> - Guest 1</li>
+              <li><code>[g2]</code>...<code>[/g2]</code> - Guest 2</li>
+              <li><code>[b]</code>/<code>[i]</code>/<code>[u]</code> - Bold/Italic/Underline</li>
+              <li><code>[note]</code>...<code>[/note]</code> - Sidebar note</li>
+              <li><code>[color=#ff0]</code>...<code>[/color]</code> - Text color</li>
+              <li><code>[bg=#112233]</code>...<code>[/bg]</code> - Background color</li>
             </ul>
             <div class="row">
               <button id="normalizeBtn" class="btn-chip">Normalize</button>
@@ -1386,7 +1386,7 @@ function initSelfChecksChip() {
       try {
         const total = checks.length;
         const passed = checks.filter(c => c.pass).length;
-        txt.textContent = `${passed}/${total} ${passed===total ? 'âœ”' : 'â€¢'}`;
+        txt.textContent = `${passed}/${total} ${passed===total ? 'OK' : '*'}`;
         console.table(checks);
       } catch {}
     };
@@ -1401,7 +1401,7 @@ function initSelfChecksChip() {
         } else {
           renderResult(runLocalChecks());
         }
-      } catch { txt.textContent = '0/0 â€¢'; }
+      } catch { txt.textContent = '0/0 *'; }
     };
 
     // Initial quick pass after hydration
