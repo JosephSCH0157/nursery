@@ -5,6 +5,7 @@ export * from "./defaults";
 export * from "./roles";
 export * from "./calendar-events";
 export * from "./db.types";
+export * from "./workpiece-commit-api";
 export * from "./storage/storage-contract";
 export * from "./storage/registry-normalize";
 export * from "./storage/resolve-mount";
