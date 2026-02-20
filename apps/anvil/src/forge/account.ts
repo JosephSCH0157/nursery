@@ -37,8 +37,7 @@ function renderAccount(ctx: AccountContext) {
   if (logoutBtn) {
     logoutBtn.addEventListener('click', async () => {
       await supabase.auth.signOut();
-      const target = window.location.pathname + window.location.search + window.location.hash;
-      window.location.href = `/app?next=${encodeURIComponent(target)}`;
+      window.location.href = '/login';
     });
   }
 

@@ -6,7 +6,108 @@ import { emit } from '../events';
 import type { AsrEngine, AsrEngineName, AsrEvent } from '../speech/asr-engine';
 import { normalizeText, stripFillers } from '../speech/asr-engine';
 import { WebSpeechEngine } from '../speech/engines/webspeech';
-import { speechStore } from '../state/speech-store';
+import { getSpeechStore, type SpeechState } from './speech/speech-store';
+import { emitScrollIntent } from '../scroll/scroll-intent-bus';
+import { applyCanonicalScrollTop, getScrollerEl } from '../scroll/scroller';
+
+// How many lines the viewport is allowed to jump per ASR advance
+const ASR_MAX_VISUAL_LEAP = 3;
+// Track which line the screen is currently showing as "active"
+let asrDisplayIndex = 0;
+
+const RESCUE_JUMPS_ENABLED = false; // temp gate: log rescues without forcing hard jumps
+
+declare global {
+  interface Window {
+    __tpAsrDebug?: { dump: () => AsrDebugConfig | null };
+  }
+}
+
+interface AsrDebugConfig {
+  engine: string;
+  lang: string;
+  useInterimResults: boolean;
+  filterFillers: boolean;
+  threshold: number;
+  endpointingMs: number;
+  timestamp: number;
+}
+
+const asrDebugState: { config: AsrDebugConfig | null } = { config: null };
+const ASR_DEBUG_NOISY_THROTTLE_MS = 750;
+const ASR_DEBUG_NOISY_LABELS = new Set([
+  '[ASR cfg]',
+  '[ASR event]',
+  '[ASR threshold] (mode-side diagnostic; not driver scorer)',
+]);
+const asrDebugLastAt = new Map<string, number>();
+
+function updateAsrDebugConfig(state: SpeechState): AsrDebugConfig {
+  const snapshot: AsrDebugConfig = {
+    engine: state.engine,
+    lang: state.lang,
+    useInterimResults: state.interim,
+    filterFillers: state.fillerFilter,
+    threshold: state.threshold,
+    endpointingMs: state.endpointingMs,
+    timestamp: Date.now(),
+  };
+  asrDebugState.config = snapshot;
+  return snapshot;
+}
+
+function dumpAsrDebugConfig(): AsrDebugConfig | null {
+  const cfg = asrDebugState.config;
+  if (cfg) {
+    try { console.table(cfg); } catch {}
+  }
+  return cfg;
+}
+
+if (typeof window !== 'undefined') {
+  const win = window as any;
+  if (!win.__tpAsrDebug) {
+    win.__tpAsrDebug = { dump: dumpAsrDebugConfig };
+  }
+}
+
+function isTpDevMode(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const win = window as any;
+    const params = new URLSearchParams(win.location.search || '');
+    if (params.has('dev')) return true;
+    const hash = (win.location.hash || '').replace(/^#/, '').toLowerCase();
+    if (hash === 'dev' || hash === 'dev=1' || hash.includes('dev=1')) return true;
+    if (win.__TP_DEV || win.__TP_DEV1 || win.__tpDevMode) return true;
+    if (win?.localStorage?.getItem('tp_dev_mode') === '1') return true;
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+function logAsrDebug(label: string, data: unknown): void {
+  if (!isTpDevMode()) return;
+  const key = String(label || '');
+  const throttleMs = ASR_DEBUG_NOISY_LABELS.has(key) ? ASR_DEBUG_NOISY_THROTTLE_MS : 0;
+  if (throttleMs > 0) {
+    const now = Date.now();
+    const last = asrDebugLastAt.get(key) ?? 0;
+    if (now - last < throttleMs) return;
+    asrDebugLastAt.set(key, now);
+  }
+  try { console.log(label, data); } catch {}
+}
+
+function logAsrEndpoint(action: string, detail?: Record<string, unknown>): void {
+  if (!isTpDevMode()) return;
+  try {
+    const { endpointingMs } = getSpeechStore().get();
+    const scrollState = (window as any).__tpAsrScrollState;
+    console.log('[ASR endpoint]', { action, endpointMs: endpointingMs, scroll: scrollState, ...detail });
+  } catch {}
+}
 
 export type AsrState = 'idle' | 'ready' | 'listening' | 'running' | 'error';
 
@@ -24,6 +125,9 @@ export class AsrMode {
   private opts: Required<AsrModeOptions>;
   private currentIdx = 0;
   private rescueCount = 0;
+  private lastAdvanceAt = 0;
+  private readonly PROGRESS_TIMEOUT_MS = 8000;
+  private progressWatchTimer: number | null = null;
   
   // ASR feed-forward: track reading speed to lead the target
   private tokensPerSec = 0;
@@ -54,23 +158,40 @@ export class AsrMode {
   }
 
   async start(): Promise<void> {
-    const s = speechStore.get();
-  this.engine = createEngine(s.engine);
-  bindEngine(this.engine, (e: AsrEvent) => this.onEngineEvent(e));
+    const s = getSpeechStore().get();
+    const cfgSnapshot = updateAsrDebugConfig(s);
+    logAsrDebug('[ASR session start cfg]', cfgSnapshot);
+    this.engine = createEngine(s.engine as AsrEngineName);
+    bindEngine(this.engine, (e: AsrEvent) => this.onEngineEvent(e));
+
+    this.currentIdx = clamp(this.currentIdx, 0, this.getAllLineEls().length - 1);
+    asrDisplayIndex = this.currentIdx;
 
     this.setState('ready');
+    const endpointingMs = Math.max(1400, s.endpointingMs);
+    // Keep transport responsive in live ASR: capture interim hypotheses even when
+    // the UI setting is off. Commit gating still controls actual movement.
+    const effectiveInterim = true;
+    if (effectiveInterim !== s.interim) {
+      logAsrDebug('[ASR interim override]', {
+        configured: s.interim,
+        effective: effectiveInterim,
+        reason: 'live-responsiveness',
+      });
+    }
     await this.engine.start({
       lang: s.lang,
-      interim: s.interim,
-      endpointingMs: s.endpointingMs,
+      interim: effectiveInterim,
+      endpointingMs,
       profanityFilter: false,
     });
+    logAsrEndpoint('ARM', { state: this.state });
   }
 
   async stop(): Promise<void> {
+    logAsrEndpoint('STOP', { state: this.state, reason: 'manual-stop', scope: 'session-stop' });
     await this.engine?.stop();
-    this.setState('idle');
-    this.dispatch('asr:state', { state: this.state });
+    this.setState('idle', 'manual-stop');
   }
 
   private onEngineEvent(e: AsrEvent) {
@@ -111,8 +232,7 @@ export class AsrMode {
     }
 
     if (e.type === 'error') {
-      this.setState('error');
-      this.emitAsrState('error', e.message);
+      this.setState('error', e.message);
       this.dispatch('asr:error', { code: e.code, message: e.message });
     }
     if (e.type === 'stopped') {
@@ -120,28 +240,35 @@ export class AsrMode {
     }
   }
 
-  private setState(next: AsrState) {
+  private setState(next: AsrState, reason?: string) {
     this.state = next;
-    this.dispatch('asr:state', { state: next });
-    this.emitAsrState(next);
+    this.dispatch('asr:state', { state: next, reason });
+    this.emitAsrState(next, reason);
+
+    if (next === 'running') {
+      this.lastAdvanceAt = performance.now();
+      this.startProgressWatchdog();
+    } else {
+      this.stopProgressWatchdog();
+      asrDisplayIndex = 0;
+    }
   }
 
   private prepareText(s: string): string {
-    const st = speechStore.get();
-    return st.fillerFilter ? stripFillers(s) : normalizeText(s);
+    const st = getSpeechStore().get();
+    const normalized = normalizeText(s);
+    const filtered = st.fillerFilter ? stripFillers(s) : normalized;
+    if (st.fillerFilter && filtered !== normalized) {
+      logAsrDebug('[ASR fillers]', { raw: normalized, filtered });
+    }
+    return filtered;
   }
   
   /**
    * Gate: only emit transcript events in dev OR when explicitly enabled in Settings
    */
   private shouldEmitTx(): boolean {
-    try {
-      return localStorage.getItem('tp_dev_mode') === '1' || 
-             localStorage.getItem('tp_hud_prod') === '1' ||
-             (window as any).__TP_DEV === true;
-    } catch {
-      return false;
-    }
+    return true;
   }
   
   /**
@@ -149,6 +276,13 @@ export class AsrMode {
    */
   private emitTranscript(detail: Omit<TranscriptEvent, 'timestamp'>): void {
     if (!this.shouldEmitTx()) return;
+    const currentState = getSpeechStore().get();
+    logAsrDebug('[ASR cfg]', { useInterimResults: currentState.interim });
+    logAsrDebug('[ASR event]', {
+      final: detail.final,
+      len: typeof detail.text === 'string' ? detail.text.trim().length : 0,
+      text: detail.text,
+    });
     const now = performance.now();
     if (now - this.lastTxAt < this.TX_MIN_INTERVAL_MS && !detail.final) return; // throttle partials
     this.lastTxAt = now;
@@ -175,7 +309,7 @@ export class AsrMode {
 
   private tryAdvance(hyp: string, isFinal: boolean, confidence: number) {
     const { lines, idx0 } = this.getWindow();
-    const threshold = speechStore.get().threshold;
+    const threshold = getSpeechStore().get().threshold;
 
     let bestIdx = -1; let bestScore = 0;
     for (let i = 0; i < lines.length; i++) {
@@ -183,6 +317,14 @@ export class AsrMode {
       const score = coverage * confidence;
       if (score > bestScore) { bestScore = score; bestIdx = i; }
     }
+    logAsrDebug('[ASR threshold] (mode-side diagnostic; not driver scorer)', {
+      threshold,
+      bestScore,
+      bestIdx,
+      accepted: bestScore >= threshold,
+      idx0,
+      isFinal,
+    });
 
     if (bestIdx >= 0 && bestScore >= threshold) {
       let newIdx = idx0 + bestIdx;
@@ -195,16 +337,43 @@ export class AsrMode {
       
       if (newIdx >= this.currentIdx) {
         this.currentIdx = newIdx;
-        this.scrollToLine(newIdx);
+        this.markAdvance();
+        const blockIdx = this.resolveBlockIdxFromLine(newIdx);
+        if (blockIdx != null) {
+          // NOTE: ASR emits evidence only. Forward motion is authorized by the router.
+          // Block completion semantics are enforced centrally (see router TODO).
+          emitScrollIntent({
+            source: 'asr',
+            kind: 'seek_block',
+            target: { blockIdx, lineIdx: newIdx },
+            confidence: bestScore,
+            ts: Date.now(),
+            reason: isFinal ? 'asr_match_final' : 'asr_match_interim',
+          });
+        }
         this.dispatch('asr:advance', { index: newIdx, score: bestScore, lead: leadLines });
       }
     } else if (isFinal) {
       // Rescue attempt on weak finals: nudge by one to keep momentum
       this.rescueCount++;
       if (this.rescueCount <= 2) {
-        this.currentIdx = Math.min(this.currentIdx + 1, this.getAllLineEls().length - 1);
-        this.scrollToLine(this.currentIdx);
-        this.dispatch('asr:rescue', { index: this.currentIdx, reason: 'weak-final' });
+        const rescueIdx = Math.min(this.currentIdx + 1, this.getAllLineEls().length - 1);
+        this.dispatch('asr:rescue', { index: rescueIdx, reason: 'weak-final' });
+        if (RESCUE_JUMPS_ENABLED) {
+          this.currentIdx = rescueIdx;
+          this.markAdvance();
+          const blockIdx = this.resolveBlockIdxFromLine(this.currentIdx);
+          if (blockIdx != null) {
+            emitScrollIntent({
+              source: 'asr',
+              kind: 'seek_block',
+              target: { blockIdx, lineIdx: this.currentIdx },
+              confidence: 0,
+              ts: Date.now(),
+              reason: 'asr_rescue',
+            });
+          }
+        }
       }
     }
   }
@@ -254,12 +423,73 @@ export class AsrMode {
 
     const top = elementTopRelativeTo(target, scroller) - marker;
     requestAnimationFrame(() => {
-      if (scroller === document.scrollingElement || scroller === document.body) {
-        window.scrollTo({ top, behavior: 'smooth' });
-      } else {
-        (scroller as HTMLElement).scrollTo({ top, behavior: 'smooth' });
-      }
+      if (!scroller) return;
+      applyCanonicalScrollTop(top, {
+        scroller,
+        reason: 'asr-mode-scroll',
+        source: 'asr-mode',
+      });
+      markProgrammaticScroll(scroller);
     });
+  }
+
+  private markAdvance() {
+    this.lastAdvanceAt = performance.now();
+  }
+
+  private scrollWithClamp(targetIdx: number) {
+    if (!Number.isFinite(targetIdx)) return;
+
+    if (asrDisplayIndex === 0) {
+      asrDisplayIndex = targetIdx;
+    }
+
+    const diff = targetIdx - asrDisplayIndex;
+    const clampedDiff = clamp(diff, -ASR_MAX_VISUAL_LEAP, ASR_MAX_VISUAL_LEAP);
+    asrDisplayIndex += clampedDiff;
+
+    this.scrollToLine(Math.round(asrDisplayIndex));
+  }
+
+  private resolveBlockIdxFromLine(lineIdx: number): number | null {
+    const els = this.getAllLineEls();
+    const target = els[lineIdx];
+    if (!target) return null;
+    const blockEl = target.closest('.tp-asr-block') as HTMLElement | null;
+    const raw = blockEl?.dataset?.tpBlock;
+    const idx = Number(raw);
+    return Number.isFinite(idx) ? idx : null;
+  }
+
+  private startProgressWatchdog() {
+    if (this.progressWatchTimer != null) return;
+
+    const loop = () => {
+      if (this.state !== 'running') {
+        this.progressWatchTimer = null;
+        return;
+      }
+
+      const idleFor = performance.now() - this.lastAdvanceAt;
+      if (idleFor > this.PROGRESS_TIMEOUT_MS) {
+        this.progressWatchTimer = null;
+        try { this.engine?.stop(); } catch {}
+        this.dispatch('asr:warning', { type: 'no-progress', idleMs: idleFor });
+        this.setState('idle', 'timeout');
+        return;
+      }
+
+      this.progressWatchTimer = window.setTimeout(loop, 1000);
+    };
+
+    this.progressWatchTimer = window.setTimeout(loop, 1000);
+  }
+
+  private stopProgressWatchdog() {
+    if (this.progressWatchTimer != null) {
+      window.clearTimeout(this.progressWatchTimer);
+      this.progressWatchTimer = null;
+    }
   }
 
   private dispatch(name: string, detail: any) {
@@ -290,23 +520,22 @@ function coverageScore(line: string, hyp: string): number {
   return inter / A.size;
 }
 
-function findScroller(el: HTMLElement): Element | null {
-  let node: any = el.parentElement;
-  while (node) {
-    const style = getComputedStyle(node);
-    if (/(auto|scroll)/.test(style.overflowY || '')) return node;
-    node = node.parentElement;
-  }
-  return document.scrollingElement || document.body;
+function findScroller(_el: HTMLElement): HTMLElement | null {
+  return getScrollerEl('main') || getScrollerEl('display');
 }
 
-function elementTopRelativeTo(el: HTMLElement, scroller: any): number {
+function elementTopRelativeTo(el: HTMLElement, scroller: HTMLElement | null): number {
+  if (!scroller) return el.offsetTop || 0;
   const r1 = el.getBoundingClientRect();
-  const r2 = (scroller === document.scrollingElement || scroller === document.body)
-    ? { top: 0 } as DOMRect
-    : (scroller as HTMLElement).getBoundingClientRect();
-  const scrollTop = (scroller === document.scrollingElement || scroller === document.body)
-    ? window.pageYOffset
-    : (scroller as HTMLElement).scrollTop;
+  const r2 = scroller.getBoundingClientRect();
+  const scrollTop = scroller.scrollTop;
   return r1.top - r2.top + scrollTop;
+}
+
+function markProgrammaticScroll(scroller: HTMLElement | null): void {
+  if (!scroller) return;
+  const at = Date.now();
+  const y = Number(scroller.scrollTop || 0);
+  try { scroller.dataset.tpLastWriter = 'asr-mode'; } catch {}
+  try { (window as any).__tpLastWriter = { from: 'asr-mode', at, y }; } catch {}
 }

@@ -1,185 +1,332 @@
 import { requestWrite } from '../boot/scheduler';
+import { DEFAULT_SCRIPT_FONT_PX } from '../ui/typography-ssot';
 
-export type ScrollerGetter = () => HTMLElement | null | undefined;
-
-export function createScrollerHelpers(getScroller: ScrollerGetter) {
-  let _pendingTop: number | null = null;
-  let _rafId = 0;
-
-  function clampScrollTop(y: any) {
-    const sc = getScroller();
-    if (!sc) return 0;
-    const max = Math.max(0, sc.scrollHeight - sc.clientHeight);
-    return Math.max(0, Math.min(Number(y) || 0, max));
-  }
-
-  function requestScroll(top: number) {
-    const sc = getScroller();
-    if (!sc) return;
-    const t = clampScrollTop(top);
-    try {
-      if (typeof (window as any).__tpClampGuard === 'function') {
-        if (!(window as any).__tpClampGuard(t, Math.max(0, sc.scrollHeight - sc.clientHeight))) return;
-      }
-    } catch {}
-    _pendingTop = t;
-    try {
-      (window as any).__lastScrollTarget = _pendingTop;
-    } catch {}
-    if (_rafId) return;
-    _rafId = requestAnimationFrame(() => {
-      const t2 = _pendingTop;
-      _pendingTop = null;
-      _rafId = 0;
-      // Use scheduler to perform DOM write in a single-writer queue
-      requestWrite(() => {
-        try {
-          sc.scrollTo({ top: t2 as number, behavior: 'auto' });
-        } catch {
-          try {
-            (sc as any).scrollTop = t2;
-          } catch {}
-        }
-        try {
-          (window as any).__lastScrollTarget = null;
-        } catch {}
-      });
-    });
-  }
-
-  function scrollByPx(px: number) {
-    const sc = getScroller();
-    if (!sc) return;
-    const target = clampScrollTop((sc.scrollTop || 0) + (Number(px) || 0));
-    requestScroll(target);
-  }
-
-  function scrollToY(y: number) {
-    const sc = getScroller();
-    if (!sc) return;
-    requestScroll(clampScrollTop(Number(y) || 0));
-  }
-
-  function scrollToEl(el: HTMLElement | null, offset = 0) {
-    const sc = getScroller();
-    if (!sc || !el) return;
-    const y = (el.offsetTop || 0) - (Number(offset) || 0);
-    const t = clampScrollTop(y);
-    try {
-      if (typeof (window as any).__tpClampGuard === 'function') {
-        if (!(window as any).__tpClampGuard(t, Math.max(0, sc.scrollHeight - sc.clientHeight))) return;
-      }
-    } catch {}
-    requestScroll(t);
-  }
-
-  return { getScroller, clampScrollTop, scrollByPx, scrollToY, scrollToEl, requestScroll };
+export interface ViewportMetrics {
+  scrollTop: number;
+  viewportHeight: number;
+  scrollHeight: number;
+  pxPerLine: number;
+  pxPerWord: number;
+  height?: number; // alias for viewportHeight
 }
 
-// --- Compatibility exports (expected by scroller/router/step-scroll) ---
+const defaultViewer = () =>
+  (document.getElementById('viewer') as HTMLElement | null) ||
+  (document.querySelector('[data-role=\"viewer\"]') as HTMLElement | null);
 
-type ViewportMetrics = {
-  viewportHeight: number;
-  height: number;
-  scrollTop: number;
-  scrollHeight: number;
+const SCROLL_CALLER_HINTS: Array<[string, string]> = [
+  ['asr-scroll-driver', 'ASR'],
+  ['hybrid-wpm-motor', 'Hybrid'],
+  ['auto-motor', 'Auto'],
+  ['scroll-router', 'Router'],
+  ['autoscroll', 'Auto'],
+];
+
+type ScrollWriteLogPayload = {
+  caller: string;
+  target: number;
+  current: number;
+  accepted: boolean;
+  reason: string;
 };
 
-// Try to locate a scroller element if caller doesn't supply one.
-function resolveScroller(getEl?: () => HTMLElement | undefined | null): HTMLElement | undefined {
-  if (getEl) return (getEl() ?? undefined) as any;
-
-  // Common candidates (safe fallbacks)
-  return (
-    (document.getElementById('scroller') as HTMLElement | null) ??
-    (document.querySelector('[data-scroller]') as HTMLElement | null) ??
-    (document.querySelector('.scroller') as HTMLElement | null) ??
-    (document.querySelector('.script-scroller') as HTMLElement | null) ??
-    undefined
-  ) as any;
-}
-
-export function getViewportMetrics(getScroller?: () => HTMLElement | undefined | null): ViewportMetrics {
-  const el = resolveScroller(getScroller);
-  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-
-  if (!el) {
-    return { viewportHeight, height: 0, scrollTop: 0, scrollHeight: 0 };
-  }
-
-  // height = visible client area of the scroller
-  const height = (el as any).clientHeight ?? el.getBoundingClientRect().height ?? 0;
-  const scrollTop = (el as any).scrollTop ?? 0;
-  const scrollHeight = (el as any).scrollHeight ?? 0;
-
-  return { viewportHeight, height, scrollTop, scrollHeight };
-}
-
-// Anchor line = which "line" is closest to the marker/anchor Y.
-// Works with elements that have data-line-index / data-line-idx / data-line.
-export function computeAnchorLineIndex(scrollerEl?: HTMLElement): number {
-  const el =
-    scrollerEl ??
-    resolveScroller() ??
-    (document.scrollingElement as unknown as HTMLElement | null) ??
-    undefined;
-
-  if (!el) return 0;
-
-  // Where is the "anchor line" on screen? Use marker element if present, else 35% viewport.
-  const marker =
-    (document.getElementById('marker-line') as HTMLElement | null) ??
-    (document.querySelector('[data-marker-line]') as HTMLElement | null) ??
-    null;
-
-  const anchorY = marker
-    ? marker.getBoundingClientRect().top
-    : (window.innerHeight || 0) * 0.35;
-
-  // Grab candidate line elements.
-  const candidates = Array.from(
-    el.querySelectorAll<HTMLElement>('[data-line-index],[data-line-idx],[data-line]')
-  );
-
-  if (candidates.length === 0) return 0;
-
-  let bestIdx = 0;
-  let bestDist = Number.POSITIVE_INFINITY;
-
-  for (const node of candidates) {
-    const r = node.getBoundingClientRect();
-    const y = r.top; // compare top edge to anchor
-    const dist = Math.abs(y - anchorY);
-
-    if (dist < bestDist) {
-      bestDist = dist;
-
-      const raw =
-        node.getAttribute('data-line-index') ??
-        node.getAttribute('data-line-idx') ??
-        node.getAttribute('data-line') ??
-        '0';
-
-      const parsed = parseInt(raw, 10);
-      bestIdx = Number.isFinite(parsed) ? parsed : bestIdx;
-    }
-  }
-
-  return bestIdx;
-}
-
-// Use dev mode as the gate. If you want a dedicated toggle later, wire it here.
 export function shouldLogScrollWrite(): boolean {
   try {
-    // Your established dev toggle convention:
-    // ?dev=1, #dev, or localStorage tp_dev_mode=1
-    const ls = localStorage.getItem('tp_dev_mode');
-    if (ls === '1') return true;
-
-    const href = String(window.location.href || '');
-    if (href.includes('dev=1') || href.includes('#dev')) return true;
+    const w = window as any;
+    if (w.__tpScrollDebug === true) return true;
+    if (w.__tpScrollWriteDebug === true) return true;
+    const qs = new URLSearchParams(window.location.search || '');
+    if (qs.has('scrollDebug') || qs.has('scrollWriteDebug')) return true;
   } catch {
     // ignore
   }
   return false;
+}
+
+function detectScrollCaller(): string {
+  try {
+    const trace = (new Error().stack || '').toLowerCase();
+    for (const [hint, tag] of SCROLL_CALLER_HINTS) {
+      if (trace.includes(hint)) return tag;
+    }
+  } catch {
+    // ignore
+  }
+  return 'unknown';
+}
+
+function logScrollWrite(payload: ScrollWriteLogPayload): void {
+  try { console.info('[SCROLL_WRITE]', payload); } catch {}
+}
+
+function readLineIndex(el: Element | null): number | null {
+  if (!el) return null;
+  const line = (el as HTMLElement).closest ? (el as HTMLElement).closest('.line') as HTMLElement | null : null;
+  if (!line) return null;
+  const raw =
+    line.dataset.i ||
+    line.dataset.index ||
+    line.dataset.lineIdx ||
+    line.dataset.line ||
+    line.getAttribute('data-line') ||
+    line.getAttribute('data-line-idx');
+  if (raw != null && raw !== '') {
+    const n = Number(raw);
+    if (Number.isFinite(n)) return Math.max(0, Math.floor(n));
+  }
+  const id = line.id || '';
+  const m = /^tp-line-(\d+)$/.exec(id);
+  if (m) return Math.max(0, Number(m[1]));
+  return null;
+}
+
+export function computeAnchorLineIndex(scroller = defaultViewer()): number | null {
+  if (!scroller) return null;
+  const rect = scroller.getBoundingClientRect();
+  if (!rect.height || !rect.width) return null;
+  const markerPct = typeof (window as any).__TP_MARKER_PCT === 'number'
+    ? (window as any).__TP_MARKER_PCT
+    : 0.4;
+  const markerY = rect.top + rect.height * markerPct;
+  const markerX = rect.left + rect.width * 0.5;
+  const hit = document.elementFromPoint(markerX, markerY);
+  const hitIdx = readLineIndex(hit);
+  if (hitIdx != null) return hitIdx;
+  const lines = Array.from(scroller.querySelectorAll<HTMLElement>('.line'));
+  if (!lines.length) return null;
+  let bestIdx: number | null = null;
+  let bestDist = Infinity;
+  for (let i = 0; i < lines.length; i++) {
+    const el = lines[i];
+    const r = el.getBoundingClientRect();
+    const y = r.top + r.height * 0.5;
+    const d = Math.abs(y - markerY);
+    if (d < bestDist) {
+      bestDist = d;
+      bestIdx = readLineIndex(el) ?? i;
+    }
+  }
+  return bestIdx != null ? Math.max(0, Math.floor(bestIdx)) : null;
+}
+
+const clampGuard = (target: number, max: number): boolean => {
+  try {
+    const guard = (window as any).__tpClampGuard;
+    if (typeof guard === 'function') return !!guard(target, max);
+  } catch {}
+  return true;
+};
+
+export function clampActive(): boolean {
+  try { return (window as any).__tpClampActive === true; } catch { return false; }
+}
+
+export function setClampActive(on: boolean): void {
+  try { (window as any).__tpClampActive = !!on; } catch {}
+}
+
+function clampScrollTop(sc: HTMLElement, y: number): { target: number; guardDenied: boolean; max: number } {
+  const max = Math.max(0, sc.scrollHeight - sc.clientHeight);
+  const t = Math.max(0, Math.min(Number(y) || 0, max));
+  const allowed = clampGuard(t, max);
+  return { target: allowed ? t : (sc.scrollTop || 0), guardDenied: !allowed, max };
+}
+
+function mirrorToDisplay(sc: HTMLElement): void {
+  try {
+    const send = (window as any).sendToDisplay;
+    if (typeof send !== 'function') return;
+    const max = Math.max(0, (sc.scrollHeight || 0) - (sc.clientHeight || 0));
+    const top = sc.scrollTop || 0;
+    const ratio = max > 0 ? top / max : 0;
+    const cursorLine = computeAnchorLineIndex(sc);
+    send({
+      type: 'scroll',
+      top,
+      ratio,
+      anchorRatio: ratio,
+      cursorLine: cursorLine ?? undefined,
+    });
+  } catch {
+    // ignore display mirror errors
+  }
+}
+
+export function scrollByPx(dy: number, getScroller = defaultViewer): void {
+  const logEnabled = shouldLogScrollWrite();
+  const caller = logEnabled ? detectScrollCaller() : 'unknown';
+  if (clampActive()) {
+    if (logEnabled) {
+      logScrollWrite({ caller, target: Number(dy) || 0, current: 0, accepted: false, reason: 'clamp-active' });
+    }
+    return;
+  }
+  const sc = getScroller();
+  if (!sc) {
+    if (logEnabled) {
+      logScrollWrite({ caller, target: Number(dy) || 0, current: 0, accepted: false, reason: 'no-scroller' });
+    }
+    return;
+  }
+  const current = sc.scrollTop || 0;
+  const { target, guardDenied } = clampScrollTop(sc, current + (Number(dy) || 0));
+  if (guardDenied) {
+    if (logEnabled) {
+      logScrollWrite({ caller, target, current, accepted: false, reason: 'clamp-guard' });
+    }
+    return;
+  }
+  if (logEnabled) {
+    logScrollWrite({ caller, target, current, accepted: true, reason: 'scrollByPx' });
+  }
+  requestWrite(() => {
+    try { sc.scrollTop = target; } catch {}
+    mirrorToDisplay(sc);
+    try {
+      const win = window as any;
+      const debug = win?.__tpScrollDebug === true || /scrollDebug=1/i.test(String(location.search || ''));
+      if (debug) {
+        const mode =
+          (win.__tpScrollMode && typeof win.__tpScrollMode.getMode === 'function')
+            ? win.__tpScrollMode.getMode()
+            : undefined;
+        const maxScrollTop = Math.max(0, (sc.scrollHeight || 0) - (sc.clientHeight || 0));
+        win.HUD?.log?.('scroll-commit', {
+          mode,
+          delta: dy,
+          targetTop: target,
+          currentTop: sc.scrollTop,
+          maxScrollTop,
+        });
+      }
+      try {
+        window.dispatchEvent(new CustomEvent('tp:scroll:commit', {
+          detail: {
+            delta: dy,
+            targetTop: target,
+            currentTop: sc.scrollTop,
+            maxScrollTop: Math.max(0, (sc.scrollHeight || 0) - (sc.clientHeight || 0)),
+          },
+        }));
+      } catch {
+        // ignore
+      }
+    } catch {
+      // ignore HUD/log errors
+    }
+  });
+}
+
+export function scrollByLines(n: number, getScroller = defaultViewer): void {
+  if (clampActive()) return;
+  const sc = getScroller();
+  if (!sc) return;
+  const metrics = getViewportMetrics(getScroller);
+  const dy = (Number(n) || 0) * metrics.pxPerLine;
+  scrollByPx(dy, getScroller);
+}
+
+export function centerLine(lineIndex: number, getScroller = defaultViewer): void {
+  if (clampActive()) return;
+  const sc = getScroller();
+  if (!sc || !Number.isFinite(lineIndex)) return;
+  const idx = Math.max(0, Math.floor(lineIndex));
+  const line =
+    sc.querySelector<HTMLElement>(`.line[data-i=\"${idx}\"]`) ||
+    sc.querySelector<HTMLElement>(`.line[data-index=\"${idx}\"]`) ||
+    sc.querySelector<HTMLElement>(`.line[data-line=\"${idx}\"]`) ||
+    sc.querySelector<HTMLElement>(`.line[data-line-idx=\"${idx}\"]`) ||
+    (document.getElementById(`tp-line-${idx}`) as HTMLElement | null);
+  if (!line) return;
+  const offset = Math.max(0, (sc.clientHeight - line.offsetHeight) / 2);
+  const logEnabled = shouldLogScrollWrite();
+  const caller = logEnabled ? detectScrollCaller() : 'unknown';
+  const { target, guardDenied } = clampScrollTop(sc, (line.offsetTop || 0) - offset);
+  if (guardDenied) {
+    if (logEnabled) {
+      logScrollWrite({ caller, target, current: sc.scrollTop || 0, accepted: false, reason: 'clamp-guard' });
+    }
+    return;
+  }
+  if (logEnabled) {
+    logScrollWrite({ caller, target, current: sc.scrollTop || 0, accepted: true, reason: 'centerLine' });
+  }
+  requestWrite(() => {
+    try { sc.scrollTop = target; } catch {}
+  });
+}
+
+export function getViewportMetrics(getScroller = defaultViewer): ViewportMetrics {
+  const sc = getScroller();
+  const root = document.documentElement;
+  const cs = root ? getComputedStyle(root) : null;
+  const fontSize = cs ? parseFloat(cs.getPropertyValue('--tp-font-size')) || DEFAULT_SCRIPT_FONT_PX : DEFAULT_SCRIPT_FONT_PX;
+  const lineHeight = cs ? parseFloat(cs.getPropertyValue('--tp-line-height')) || 1.4 : 1.4;
+  const pxPerLine = fontSize * lineHeight;
+  const pxPerWord = pxPerLine / 6; // coarse default; refined later by typography integration
+  if (!sc) {
+    return {
+      scrollTop: 0,
+      viewportHeight: 0,
+      scrollHeight: 0,
+      pxPerLine,
+      pxPerWord,
+    };
+  }
+  return {
+    scrollTop: sc.scrollTop || 0,
+    viewportHeight: sc.clientHeight || 0,
+    height: sc.clientHeight || 0,
+    scrollHeight: sc.scrollHeight || 0,
+    pxPerLine,
+    pxPerWord,
+  };
+}
+
+// Back-compat helper for legacy TS wiring; returns the same helpers but uses the provided getter.
+export type ScrollerGetter = () => HTMLElement | null;
+export function createScrollerHelpers(getScroller: ScrollerGetter) {
+  return {
+    getScroller,
+    clampScrollTop: (y: number) => {
+      const sc = getScroller();
+      if (!sc) return 0;
+      return clampScrollTop(sc, y);
+    },
+    scrollByPx: (px: number) => scrollByPx(px, () => getScroller()),
+    scrollByLines: (n: number) => scrollByLines(n, () => getScroller()),
+    centerLine: (i: number) => centerLine(i, () => getScroller()),
+  requestScroll: (top: number) => {
+    const logEnabled = shouldLogScrollWrite();
+    const caller = logEnabled ? detectScrollCaller() : 'unknown';
+    if (clampActive()) {
+      if (logEnabled) {
+        logScrollWrite({ caller, target: top, current: 0, accepted: false, reason: 'clamp-active' });
+      }
+      return;
+    }
+    const sc = getScroller();
+    if (!sc) {
+      if (logEnabled) {
+        logScrollWrite({ caller, target: top, current: 0, accepted: false, reason: 'no-scroller' });
+      }
+      return;
+    }
+    const current = sc.scrollTop || 0;
+    const { target, guardDenied } = clampScrollTop(sc, top);
+    if (guardDenied) {
+      if (logEnabled) {
+        logScrollWrite({ caller, target, current, accepted: false, reason: 'clamp-guard' });
+      }
+      return;
+    }
+    if (logEnabled) {
+      logScrollWrite({ caller, target, current, accepted: true, reason: 'requestScroll' });
+    }
+    requestWrite(() => {
+      try { sc.scrollTop = target; } catch {}
+      mirrorToDisplay(sc);
+    });
+  },
+  };
 }

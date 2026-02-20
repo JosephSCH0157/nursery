@@ -15,52 +15,14 @@ function pickDisplayName(session: Session | null): string {
   return baseLabel;
 }
 
-function getLoginHref(): string {
-  try {
-    const target = window.location.pathname + window.location.search + window.location.hash;
-    return `/app?next=${encodeURIComponent(target)}`;
-  } catch {
-    return '/app';
-  }
-}
-
 export function wireWhoamiChip(supabase: SupabaseClient): void {
   const el = document.getElementById('whoamiChip');
-  const loginLink = document.getElementById('loginLink') as HTMLAnchorElement | null;
-  const logoutBtn = document.getElementById('logoutBtn') as HTMLButtonElement | null;
-  const loginHref = getLoginHref();
-  if (!el && !loginLink && !logoutBtn) return;
-  if (loginLink) loginLink.href = loginHref;
-
-  if (el) {
-    el.textContent = 'Checking...';
-    el.hidden = false;
-  }
-  if (loginLink) loginLink.hidden = true;
-  if (logoutBtn) logoutBtn.hidden = true;
+  if (!el) return;
 
   const apply = (session: Session | null) => {
-    if (!session?.user) {
-      if (el) {
-        el.textContent = '';
-        el.hidden = true;
-      }
-      if (logoutBtn) logoutBtn.hidden = true;
-      if (loginLink) {
-        loginLink.hidden = false;
-        loginLink.href = loginHref;
-      }
-      return;
-    }
-
     const label = pickDisplayName(session);
-    const shortId = session.user.id ? session.user.id.slice(-6) : '';
-    if (el) {
-      el.textContent = `Logged in as ${label}${shortId ? ` (${shortId})` : ''}`;
-      el.hidden = false;
-    }
-    if (logoutBtn) logoutBtn.hidden = false;
-    if (loginLink) loginLink.hidden = true;
+    const shortId = session?.user?.id ? session.user.id.slice(-6) : '';
+    el.textContent = `Logged in: ${label}${shortId ? ` (${shortId})` : ''}`;
   };
 
   void supabase.auth

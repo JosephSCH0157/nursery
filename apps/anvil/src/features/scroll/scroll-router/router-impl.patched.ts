@@ -3,6 +3,7 @@ export {};
 
 import { getScrollWriter } from '../../../scroll/scroll-writer';
 import { getViewportMetrics, computeAnchorLineIndex } from '../../../scroll/scroll-helpers';
+import { getScrollerEl } from '../../../scroll/scroller';
 import { createTimedEngine } from '../../../scroll/autoscroll';
 import { getScrollBrain } from '../../../scroll/brain-access';
 import { createHybridWpmMotor } from '../hybrid-wpm-motor';
@@ -790,24 +791,22 @@ export function triggerWireAutoIntentListener(): void {
       try { console.warn('[AUTO_INTENT] TRIGGER step=3 wiring now'); } catch {}
       autoIntentListenerWired = true;
       window.addEventListener('tp:auto:intent', onAutoIntent as EventListener);
-      document.addEventListener('tp:auto:intent', onAutoIntent as EventListener);
     try {
-      console.log(`[AUTO_INTENT] listener wired ${AUTO_INTENT_WIRE_STAMP}`, { target: 'window+document' });
+      console.log(`[AUTO_INTENT] listener wired ${AUTO_INTENT_WIRE_STAMP}`, { target: 'window' });
     } catch {}
     try { console.warn('[AUTO_INTENT] TRIGGER step=4 wired ok'); } catch {}
     try {
       const counts = [
         (getEventListeners?.(window)?.['tp:auto:intent']?.length ?? 'noAPI'),
-        (getEventListeners?.(document)?.['tp:auto:intent']?.length ?? 'noAPI'),
       ];
-      console.warn('[AUTO_INTENT] TRIGGER step=5 post-wire sanity', { win: counts[0], doc: counts[1] });
+      console.warn('[AUTO_INTENT] TRIGGER step=5 post-wire sanity', { win: counts[0] });
     } catch {}
     try {
       window.dispatchEvent(
         new CustomEvent('tp:auto:intent', { detail: { enabled: false, reason: 'wire-selftest' } }),
       );
     } catch {}
-    try { console.warn('[AUTO_INTENT] TRIGGER wired listeners (window+document)'); } catch {}
+    try { console.warn('[AUTO_INTENT] TRIGGER wired listeners (window)'); } catch {}
   }
   try {
     console.warn('[AUTO_INTENT] triggerWireAutoIntentListener EXIT', __AUTO_INTENT_WIRE_SENTINEL);
@@ -2366,18 +2365,19 @@ function applyMode(m) {
 }
 function installScrollRouter(opts) {
   const { auto, viewer: viewerInstallFlag = false, hostEl = null } = opts;
+  const canonicalScroller = getScrollerEl(viewerRole) || getScrollerEl('main');
   if (!viewer && hostEl) {
     viewer = hostEl;
   }
   if (hostEl instanceof HTMLElement) {
-    scrollerEl = hostEl;
+    scrollerEl = canonicalScroller || hostEl;
   }
   if (!scrollerEl) {
-    scrollerEl = document.querySelector<HTMLElement>('#viewer') || document.querySelector<HTMLElement>('#script');
-  }
-  if (!scrollerEl) {
-    const fallback = (document.scrollingElement as HTMLElement | null) || document.documentElement;
-    scrollerEl = fallback;
+    scrollerEl =
+      canonicalScroller ||
+      document.querySelector<HTMLElement>('main#viewer.viewer, #viewer') ||
+      document.querySelector<HTMLElement>('#script') ||
+      (viewerRole === 'display' ? (document.getElementById('wrap') as HTMLElement | null) : null);
   }
     if (!hybridScrollGraceListenerInstalled) {
     try {
