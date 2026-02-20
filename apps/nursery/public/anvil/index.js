@@ -63817,7 +63817,8 @@ var init_script_ingest = __esm({
       }
     })();
     try {
-      __docCh = window.__tpDocCh || (window.__tpDocCh = new window.BroadcastChannel() ? new BroadcastChannel("tp-doc") : null);
+      const BcCtor = window.BroadcastChannel;
+      __docCh = window.__tpDocCh || (window.__tpDocCh = typeof BcCtor === "function" ? new BcCtor("tp-doc") : null);
       if (__docCh) {
         try {
           __docCh.onmessage = (ev) => {
