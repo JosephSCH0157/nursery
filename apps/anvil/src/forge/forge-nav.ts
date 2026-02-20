@@ -22,9 +22,15 @@ const FORGE_NAV_WRAPPER_ID = "forgeNavWrap";
 const DEFAULT_MOUNT_ID = "forge-menu-slot";
 const FORGE_NAV_READY_SENTINEL = "__tpForgeNavReady";
 const FORGE_NAV_POPUP_TITLE = "Nursery Menu";
-const FORGE_NAV_TREE_ID = "tree";
-const FORGE_NAV_POPUP_WIDTH = 420;
-const FORGE_NAV_POPUP_HEIGHT = 720;
+const FORGE_NAV_TREE_ID = "forgeNavTree";
+const FORGE_NAV_OVERLAY_ROOT_ID = "forgeNavOverlayRoot";
+const FORGE_NAV_OVERLAY_STYLE_ID = "forgeNavOverlayStyles";
+const FORGE_NAV_OVERLAY_TITLE_ID = "forgeNavOverlayTitle";
+
+type ForgeNavOverlayState = {
+  root: HTMLDivElement;
+  onKeydown: (event: KeyboardEvent) => void;
+};
 
 type ForgeMenuInitOptions = {
   mountId?: string;
@@ -233,151 +239,247 @@ function renderNavPanel(panel: HTMLDivElement, payload: ForgeNavPayload): void {
   });
 }
 
-function showPopupBlockedNotice(): void {
-  const message = "Nursery menu popup blocked. Allow popups for this site.";
+function getOverlayState(): ForgeNavOverlayState | null {
+  const win = window as any;
+  const state = win.__forgeNavOverlayState as ForgeNavOverlayState | null | undefined;
+  if (!state || !state.root) return null;
+  return state;
+}
+
+function setOverlayState(state: ForgeNavOverlayState | null): void {
+  const win = window as any;
+  win.__forgeNavOverlayState = state;
+}
+
+function closeForgeMenuOverlay(): boolean {
+  const state = getOverlayState();
+  if (state) {
+    try { document.removeEventListener("keydown", state.onKeydown, true); } catch {}
+    try { state.root.remove(); } catch {}
+    setOverlayState(null);
+    return true;
+  }
+
+  const staleRoot = document.getElementById(FORGE_NAV_OVERLAY_ROOT_ID);
+  if (staleRoot) {
+    try { staleRoot.remove(); } catch {}
+    return true;
+  }
+  return false;
+}
+
+function ensureOverlayStyles(): void {
+  if (document.getElementById(FORGE_NAV_OVERLAY_STYLE_ID)) return;
+  const style = document.createElement("style");
+  style.id = FORGE_NAV_OVERLAY_STYLE_ID;
+  style.textContent = `
+#${FORGE_NAV_OVERLAY_ROOT_ID} {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  pointer-events: none;
+}
+#${FORGE_NAV_OVERLAY_ROOT_ID} .forge-nav-overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  background: rgba(5, 10, 18, 0.58);
+  pointer-events: auto;
+}
+#${FORGE_NAV_OVERLAY_ROOT_ID} .forge-nav-overlay-panel {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  bottom: 12px;
+  width: min(360px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: #0b1020;
+  color: #eaf0ff;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.42);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  pointer-events: auto;
+  animation: forge-nav-overlay-in 140ms ease-out;
+  font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+#${FORGE_NAV_OVERLAY_ROOT_ID} .forge-nav-overlay-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+#${FORGE_NAV_OVERLAY_ROOT_ID} .forge-nav-overlay-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+#${FORGE_NAV_OVERLAY_ROOT_ID} .forge-nav-overlay-close {
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+#${FORGE_NAV_OVERLAY_ROOT_ID} .forge-nav-overlay-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 10px 14px;
+}
+#${FORGE_NAV_OVERLAY_ROOT_ID} .forge-nav-overlay-hint {
+  padding: 0 14px 12px;
+  opacity: 0.74;
+  font-size: 12px;
+}
+#${FORGE_NAV_OVERLAY_ROOT_ID} .loading {
+  opacity: 0.8;
+  font-size: 12px;
+}
+#${FORGE_NAV_OVERLAY_ROOT_ID} button[data-forge-nav-link='1']:hover {
+  background: rgba(90, 160, 255, 0.24) !important;
+}
+@keyframes forge-nav-overlay-in {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+`;
+  document.head.appendChild(style);
+}
+
+function openNavOverlayShell(): { panel: HTMLDivElement; closeOverlay: () => void } | null {
   try {
-    const win = window as any;
-    if (typeof win.toast === "function") {
-      win.toast(message, { type: "warn" });
-      return;
-    }
+    ensureOverlayStyles();
+    closeForgeMenuOverlay();
+
+    const root = document.createElement("div");
+    root.id = FORGE_NAV_OVERLAY_ROOT_ID;
+
+    const backdrop = document.createElement("button");
+    backdrop.type = "button";
+    backdrop.className = "forge-nav-overlay-backdrop";
+    backdrop.dataset.forgeNavClose = "1";
+    backdrop.setAttribute("aria-label", "Close Nursery menu");
+    root.appendChild(backdrop);
+
+    const panelShell = document.createElement("section");
+    panelShell.className = "forge-nav-overlay-panel";
+    panelShell.setAttribute("role", "dialog");
+    panelShell.setAttribute("aria-modal", "true");
+    panelShell.setAttribute("aria-labelledby", FORGE_NAV_OVERLAY_TITLE_ID);
+
+    const head = document.createElement("div");
+    head.className = "forge-nav-overlay-head";
+
+    const title = document.createElement("h2");
+    title.id = FORGE_NAV_OVERLAY_TITLE_ID;
+    title.textContent = FORGE_NAV_POPUP_TITLE;
+    head.appendChild(title);
+
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "forge-nav-overlay-close";
+    closeBtn.dataset.forgeNavClose = "1";
+    closeBtn.setAttribute("aria-label", "Close Nursery menu");
+    closeBtn.textContent = "×";
+    head.appendChild(closeBtn);
+
+    const body = document.createElement("div");
+    body.className = "forge-nav-overlay-body";
+
+    const tree = document.createElement("div");
+    tree.id = FORGE_NAV_TREE_ID;
+    tree.setAttribute("role", "menu");
+    tree.setAttribute("aria-label", "Forge navigation");
+    body.appendChild(tree);
+
+    const hint = document.createElement("div");
+    hint.className = "forge-nav-overlay-hint";
+    hint.textContent = "Select an item to navigate.";
+
+    panelShell.appendChild(head);
+    panelShell.appendChild(body);
+    panelShell.appendChild(hint);
+    root.appendChild(panelShell);
+
+    const closeOverlay = () => {
+      const state = getOverlayState();
+      if (state && state.root !== root) return;
+      try { document.removeEventListener("keydown", onKeydown, true); } catch {}
+      try { root.remove(); } catch {}
+      setOverlayState(null);
+    };
+
+    const onKeydown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeOverlay();
+    };
+
+    root.addEventListener("click", (event) => {
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest("[data-forge-nav-close='1']")) return;
+      event.preventDefault();
+      closeOverlay();
+    });
+
+    document.addEventListener("keydown", onKeydown, true);
+    setOverlayState({ root, onKeydown });
+    document.body.appendChild(root);
+    try { closeBtn.focus(); } catch {}
+    return { panel: tree, closeOverlay };
+  } catch {
+    return null;
+  }
+}
+
+function navigateFromOverlay(targetHref: string): void {
+  try {
+    window.location.assign(targetHref);
+    return;
   } catch {}
-  try { console.warn(`[forge-nav] ${message}`); } catch {}
+  try { window.open(targetHref, "_blank", "noopener,noreferrer"); } catch {}
 }
 
-function buildPopupPlacement() {
-  const width = FORGE_NAV_POPUP_WIDTH;
-  const height = FORGE_NAV_POPUP_HEIGHT;
-  const left = Math.max(0, Math.round(window.screenX + (window.outerWidth - width) / 2));
-  const top = Math.max(0, Math.round(window.screenY + (window.outerHeight - height) / 2));
-  const features = `popup=yes,width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`;
-  return { width, height, left, top, features };
-}
-
-function closePreviousNavPopup(hostWindow: any): void {
-  const existingPopup = hostWindow?.forgeNavPopup as Window | null | undefined;
-  if (existingPopup && !existingPopup.closed) {
-    try { existingPopup.close(); } catch {}
-  }
-  hostWindow.forgeNavPopup = null;
-}
-
-function openNavPopupWindow(): Window | null {
-  try {
-    const hostWindow = window as any;
-    closePreviousNavPopup(hostWindow);
-    const placement = buildPopupPlacement();
-    const popup = window.open("", "", placement.features);
-    if (!popup) return null;
-    hostWindow.forgeNavPopup = popup;
-    try { popup.resizeTo(placement.width, placement.height); } catch {}
-    try { popup.moveTo(placement.left, placement.top); } catch {}
-    try { popup.focus(); } catch {}
-    setTimeout(() => {
-      try { popup.focus(); } catch {}
-    }, 50);
-    return popup;
-  } catch {
-    return null;
-  }
-}
-
-function writePopupShell(popup: Window): HTMLDivElement | null {
-  try {
-    const doc = popup.document;
-    doc.open();
-    doc.write(`<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>${FORGE_NAV_POPUP_TITLE}</title>
-  <style>
-    :root { color-scheme: dark; }
-    * { box-sizing: border-box; pointer-events: auto; }
-    html, body, #root { margin: 0; padding: 0; height: 100vh; }
-    body { background: #0b1020; color: #eaf0ff; font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
-    #root { overflow: auto; }
-    .forge-nav-popup { min-height: 100%; padding: 14px; }
-    .forge-nav-popup h1 { margin: 0 0 10px; font-size: 16px; font-weight: 700; letter-spacing: 0.02em; }
-    #${FORGE_NAV_TREE_ID} { position: relative; z-index: 2; }
-    .forge-nav-popup button[data-forge-nav-link='1']:hover { background: rgba(90, 160, 255, 0.24) !important; }
-    .forge-nav-popup hr { border: none; border-top: 1px solid rgba(255,255,255,0.16); margin: 12px 0; }
-    .forge-nav-popup .loading { opacity: 0.8; font-size: 12px; }
-    .forge-nav-popup .hint { margin-top: 10px; opacity: 0.72; font-size: 12px; }
-  </style>
-</head>
-<body>
-  <div id="root">
-  <div class="forge-nav-popup">
-    <h1>${FORGE_NAV_POPUP_TITLE}</h1>
-    <div id="${FORGE_NAV_TREE_ID}" role="menu" aria-label="Forge navigation"></div>
-    <div class="hint">Selecting an item opens it in the Anvil tab and closes this popup.</div>
-  </div>
-  </div>
-</body>
-</html>`);
-    doc.close();
-    return doc.getElementById(FORGE_NAV_TREE_ID) as HTMLDivElement | null;
-  } catch {
-    return null;
-  }
-}
-
-function navigateFromPopup(popup: Window, targetHref: string): void {
-  const openerWin = popup.opener && !popup.opener.closed ? popup.opener : null;
-  try {
-    if (openerWin) {
-      // Access check first to avoid cross-origin throws during assign.
-      void openerWin.location.href;
-      openerWin.location.assign(targetHref);
-      try { popup.close(); } catch {}
-      return;
-    }
-  } catch {
-    // fall through to new-tab fallback
-  }
-
-  try {
-    popup.open(targetHref, "_blank", "noopener,noreferrer");
-  } catch {
-    try { window.open(targetHref, "_blank", "noopener,noreferrer"); } catch {}
-  }
-  try { popup.close(); } catch {}
-}
-
-function wirePopupLinks(panel: HTMLDivElement, popup: Window): void {
+function wireOverlayLinks(panel: HTMLDivElement, closeOverlay: () => void): void {
   panel.addEventListener("click", (event) => {
-    const target = event.target as HTMLElement | null;
-    const action = target?.closest<HTMLElement>("[data-forge-nav-href]");
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const action = target.closest<HTMLElement>("[data-forge-nav-href]");
     if (!action) return;
     event.preventDefault();
     const targetHref = readString(action.dataset.forgeNavHref) ?? null;
     if (!targetHref || targetHref === "#") return;
-    navigateFromPopup(popup, targetHref);
+    closeOverlay();
+    navigateFromOverlay(targetHref);
   });
 }
 
-async function openForgeMenuPopup(): Promise<void> {
-  const popup = openNavPopupWindow();
-  if (!popup) {
-    showPopupBlockedNotice();
-    return;
-  }
+async function openForgeMenuOverlay(): Promise<void> {
+  const shell = openNavOverlayShell();
+  if (!shell) return;
 
-  const panel = writePopupShell(popup);
-  if (!panel) return;
-
-  const loading = popup.document.createElement("div");
+  const { panel, closeOverlay } = shell;
+  const loading = document.createElement("div");
   loading.className = "loading";
   loading.textContent = "Loading navigation...";
   panel.appendChild(loading);
 
   const payload = await loadForgeNav();
-  if (popup.closed) return;
+  if (!panel.isConnected) return;
 
   renderNavPanel(panel, payload);
-  wirePopupLinks(panel, popup);
+  wireOverlayLinks(panel, closeOverlay);
 }
 
 export function initForgeMenu(opts: ForgeMenuInitOptions = {}): void {
@@ -405,9 +507,9 @@ export function initForgeMenu(opts: ForgeMenuInitOptions = {}): void {
   button.className = "forge-nav-btn";
   button.type = "button";
   button.textContent = "☰";
-  button.setAttribute("aria-label", "Open Nursery menu popup");
+  button.setAttribute("aria-label", "Open Nursery menu");
   button.setAttribute("aria-haspopup", "dialog");
-  button.title = "Nursery menu popup";
+  button.title = "Nursery menu";
   button.style.display = "inline-flex";
   button.style.alignItems = "center";
   button.style.justifyContent = "center";
@@ -431,7 +533,8 @@ export function initForgeMenu(opts: ForgeMenuInitOptions = {}): void {
   button.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    void openForgeMenuPopup();
+    if (closeForgeMenuOverlay()) return;
+    void openForgeMenuOverlay();
   });
 }
 
