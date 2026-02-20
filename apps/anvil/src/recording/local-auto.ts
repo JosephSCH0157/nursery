@@ -339,6 +339,18 @@ import { getRecordingMode } from './recording-settings';
           try {
             console.log('[core-recorder] writing to directory', { name: (dir as any).name || '(handle)' });
           } catch {}
+          try {
+            const q = await (dir as any).queryPermission?.({ mode: 'readwrite' });
+            if (q !== 'granted') {
+              const r = await (dir as any).requestPermission?.({ mode: 'readwrite' });
+              if (r !== 'granted') {
+                throw new Error('recording-dir-permission-not-granted');
+              }
+            }
+          } catch (permErr) {
+            try { console.warn('[core-recorder] directory permission not granted; using download fallback', permErr); } catch {}
+            throw permErr;
+          }
           const fh = await dir.getFileHandle(name, { create: true });
           const w = await fh.createWritable();
           await w.write(blob);

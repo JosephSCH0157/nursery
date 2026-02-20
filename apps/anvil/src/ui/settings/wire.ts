@@ -154,10 +154,24 @@ async function pickFolder({ force }: { force?: boolean } = {}) {
     const api = (window as any).__tpRecDir;
     if (api?.isManaged?.()) {
       const existing = api.get?.();
-      if (existing) return true;
+      if (existing) {
+        try {
+          const q = await existing.queryPermission?.({ mode: 'readwrite' });
+          if (q !== 'granted') {
+            const r = await existing.requestPermission?.({ mode: 'readwrite' });
+            if (r !== 'granted') {
+              (window as any).toast?.(
+                'Recordings folder is mapped but write permission is not granted yet. Recording will continue and download fallback will be used until access is granted.',
+                { type: 'warn' },
+              );
+            }
+          }
+        } catch {}
+        return true;
+      }
       const settingsUrl = getNurseryStorageSettingsUrl();
       (window as any).toast?.(
-        `Recordings folder is managed by Nursery but not linked in this browser yet. Auto-record will continue and recordings will download until Storage is linked (${settingsUrl}).`,
+        `Recordings folder is managed by Nursery but not linked in this origin (${window.location.origin}). Auto-record will continue and recordings will download until Storage is linked (${settingsUrl}).`,
         { type: 'warn' },
       );
       return true;

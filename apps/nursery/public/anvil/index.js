@@ -46360,6 +46360,21 @@ var init_local_auto = __esm({
                 console.log("[core-recorder] writing to directory", { name: dir.name || "(handle)" });
               } catch {
               }
+              try {
+                const q3 = await dir.queryPermission?.({ mode: "readwrite" });
+                if (q3 !== "granted") {
+                  const r = await dir.requestPermission?.({ mode: "readwrite" });
+                  if (r !== "granted") {
+                    throw new Error("recording-dir-permission-not-granted");
+                  }
+                }
+              } catch (permErr) {
+                try {
+                  console.warn("[core-recorder] directory permission not granted; using download fallback", permErr);
+                } catch {
+                }
+                throw permErr;
+              }
               const fh = await dir.getFileHandle(name, { create: true });
               const w3 = await fh.createWritable();
               await w3.write(blob);
@@ -51641,10 +51656,25 @@ async function wireAutoRecord(rootEl2, store3) {
     const api = window.__tpRecDir;
     if (api?.isManaged?.()) {
       const existing2 = api.get?.();
-      if (existing2) return true;
+      if (existing2) {
+        try {
+          const q4 = await existing2.queryPermission?.({ mode: "readwrite" });
+          if (q4 !== "granted") {
+            const r = await existing2.requestPermission?.({ mode: "readwrite" });
+            if (r !== "granted") {
+              window.toast?.(
+                "Recordings folder is mapped but write permission is not granted yet. Recording will continue and download fallback will be used until access is granted.",
+                { type: "warn" }
+              );
+            }
+          }
+        } catch {
+        }
+        return true;
+      }
       const settingsUrl = getNurseryStorageSettingsUrl();
       window.toast?.(
-        `Recordings folder is managed by Nursery but not linked in this browser yet. Auto-record will continue and recordings will download until Storage is linked (${settingsUrl}).`,
+        `Recordings folder is managed by Nursery but not linked in this origin (${window.location.origin}). Auto-record will continue and recordings will download until Storage is linked (${settingsUrl}).`,
         { type: "warn" }
       );
       return true;
