@@ -330,6 +330,9 @@ import { getRecordingMode } from './recording-settings';
     try {
       console.log('[recording-dir] saveRecordingBlob start', { size: blob.size, name });
       await import('../fs/recording-dir');
+      try {
+        await (window as any).__tpRecDir?.init?.();
+      } catch {}
       const dir = (window as any).__tpRecDir?.get?.() || null;
       if (dir && typeof dir.getFileHandle === 'function') {
         try {
@@ -349,11 +352,13 @@ import { getRecordingMode } from './recording-settings';
         }
       } else {
         try {
+          const managed = !!(window as any).__tpRecDir?.isManaged?.();
+          const hint = (window as any).__tpRecDir?.managedHint?.();
           console.warn(
-            '[core-recorder] no recording directory handle available; pick a folder in Settings → Recording/Media',
+            '[core-recorder] no recording directory handle available; falling back to download',
+            { managed, hint: hint || null },
           );
         } catch {}
-        return false;
       }
     } catch {}
     try {

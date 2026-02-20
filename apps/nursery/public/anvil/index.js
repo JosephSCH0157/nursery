@@ -46349,6 +46349,10 @@ var init_local_auto = __esm({
         try {
           console.log("[recording-dir] saveRecordingBlob start", { size: blob.size, name });
           await Promise.resolve().then(() => (init_recording_dir(), recording_dir_exports));
+          try {
+            await window.__tpRecDir?.init?.();
+          } catch {
+          }
           const dir = window.__tpRecDir?.get?.() || null;
           if (dir && typeof dir.getFileHandle === "function") {
             try {
@@ -46373,12 +46377,14 @@ var init_local_auto = __esm({
             }
           } else {
             try {
+              const managed = !!window.__tpRecDir?.isManaged?.();
+              const hint = window.__tpRecDir?.managedHint?.();
               console.warn(
-                "[core-recorder] no recording directory handle available; pick a folder in Settings \u2192 Recording/Media"
+                "[core-recorder] no recording directory handle available; falling back to download",
+                { managed, hint: hint || null }
               );
             } catch {
             }
-            return false;
           }
         } catch {
         }
