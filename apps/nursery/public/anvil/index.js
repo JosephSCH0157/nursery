@@ -108,9 +108,9 @@ function installBoot() {
     window.__TP_BOOT_TRACE = [];
     window.__tpBootPush = (m) => {
       try {
-        const rec = { t: Date.now(), m };
-        window.__TP_BOOT_TRACE.push(rec);
-        if (DEV) console.log("[TP-TRACE]", rec.m);
+        const rec2 = { t: Date.now(), m };
+        window.__TP_BOOT_TRACE.push(rec2);
+        if (DEV) console.log("[TP-TRACE]", rec2.m);
       } catch {
       }
     };
@@ -1436,8 +1436,8 @@ function resolveScroller(getEl) {
   if (getEl) return getEl() ?? void 0;
   return document.getElementById("scroller") ?? document.querySelector("[data-scroller]") ?? document.querySelector(".scroller") ?? document.querySelector(".script-scroller") ?? void 0;
 }
-function getViewportMetrics(getScroller) {
-  const el = resolveScroller(getScroller);
+function getViewportMetrics(getScroller2) {
+  const el = resolveScroller(getScroller2);
   const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
   if (!el) {
     return { viewportHeight, height: 0, scrollTop: 0, scrollHeight: 0 };
@@ -1768,11 +1768,11 @@ function markerOffsetPx(fallbackScroller) {
 }
 function getScrollMode() {
   try {
-    const store = window.__tpStore;
-    if (store && typeof store.get === "function") {
-      const scrollMode2 = store.get("scrollMode");
+    const store2 = window.__tpStore;
+    if (store2 && typeof store2.get === "function") {
+      const scrollMode2 = store2.get("scrollMode");
       if (scrollMode2 != null) return String(scrollMode2).toLowerCase();
-      const legacyMode = store.get("mode");
+      const legacyMode = store2.get("mode");
       if (legacyMode != null) return String(legacyMode).toLowerCase();
     }
     const router = window.__tpScrollMode;
@@ -1859,11 +1859,11 @@ function getScrollWriter() {
     const maybe = window.__tpScrollWrite;
     if (typeof maybe === "function") {
       const fn = maybe;
-      const getScroller = () => document.getElementById("scriptScrollContainer") || document.getElementById("viewer") || document.scrollingElement || document.documentElement || document.body;
+      const getScroller2 = () => document.getElementById("scriptScrollContainer") || document.getElementById("viewer") || document.scrollingElement || document.documentElement || document.body;
       cached = {
         scrollTo(top) {
           try {
-            const sc = getScroller();
+            const sc = getScroller2();
             const cur = sc ? sc.scrollTop || 0 : 0;
             const next = Number(top) || 0;
             withWriteEnabled("scrollTo", next - cur, () => fn(next));
@@ -1872,7 +1872,7 @@ function getScrollWriter() {
         },
         scrollBy(delta) {
           try {
-            const sc = getScroller();
+            const sc = getScroller2();
             const cur = sc ? sc.scrollTop || 0 : 0;
             const d = Number(delta) || 0;
             withWriteEnabled("scrollBy", d, () => fn(cur + d));
@@ -2115,7 +2115,7 @@ function getScrollBrain() {
 // src/features/scroll/hybrid-wpm-motor.ts
 var clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 function createHybridWpmMotor(deps) {
-  let running = false;
+  let running2 = false;
   let velocityPxPerSec = 0;
   let rafId = null;
   let lastNow = null;
@@ -2149,7 +2149,7 @@ function createHybridWpmMotor(deps) {
     posFloat = writer ? writer.scrollTop || 0 : null;
   };
   const tick = () => {
-    if (!running) return;
+    if (!running2) return;
     const current2 = now();
     const prev2 = lastNow ?? current2;
     const deltaMs = current2 - prev2;
@@ -2209,10 +2209,10 @@ function createHybridWpmMotor(deps) {
   };
   return {
     start() {
-      if (running || rafId != null) {
+      if (running2 || rafId != null) {
         return { started: false, reason: "already-running" };
       }
-      running = true;
+      running2 = true;
       loggedFirstMove = false;
       lastMoveAtMs = 0;
       resetAccumulatorFromDom();
@@ -2222,8 +2222,8 @@ function createHybridWpmMotor(deps) {
       return { started: true };
     },
     stop() {
-      if (!running) return;
-      running = false;
+      if (!running2) return;
+      running2 = false;
       if (rafId != null) {
         caf(rafId);
         rafId = null;
@@ -2239,7 +2239,7 @@ function createHybridWpmMotor(deps) {
       log2("velocity", { velocityPxPerSec });
     },
     isRunning() {
-      return running;
+      return running2;
     },
     setWriter(el) {
       writer = el;
@@ -3002,50 +3002,50 @@ function ensureExistingState() {
   }
   return {};
 }
-function sanitizeState(state6) {
-  if (!ALLOWED_PAGES.has(state6.page)) {
-    state6.page = "scripts";
+function sanitizeState(state8) {
+  if (!ALLOWED_PAGES.has(state8.page)) {
+    state8.page = "scripts";
   }
-  if (!ALLOWED_OVERLAYS.has(state6.overlay)) {
-    state6.overlay = "none";
+  if (!ALLOWED_OVERLAYS.has(state8.overlay)) {
+    state8.overlay = "none";
     try {
       localStorage.removeItem(OVERLAY_KEY);
     } catch {
     }
   }
-  if (state6.scrollMode === "manual") {
-    state6.scrollMode = "step";
+  if (state8.scrollMode === "manual") {
+    state8.scrollMode = "step";
   }
-  if (!state6.asrProfiles || typeof state6.asrProfiles !== "object") {
-    state6.asrProfiles = {};
+  if (!state8.asrProfiles || typeof state8.asrProfiles !== "object") {
+    state8.asrProfiles = {};
   }
-  if (state6.asrActiveProfileId && typeof state6.asrActiveProfileId !== "string") {
-    state6.asrActiveProfileId = null;
+  if (state8.asrActiveProfileId && typeof state8.asrActiveProfileId !== "string") {
+    state8.asrActiveProfileId = null;
   }
-  if (!state6.asrTuningProfiles || typeof state6.asrTuningProfiles !== "object") {
-    state6.asrTuningProfiles = {};
+  if (!state8.asrTuningProfiles || typeof state8.asrTuningProfiles !== "object") {
+    state8.asrTuningProfiles = {};
   }
-  if (state6.asrTuningActiveProfileId && typeof state6.asrTuningActiveProfileId !== "string") {
-    state6.asrTuningActiveProfileId = null;
+  if (state8.asrTuningActiveProfileId && typeof state8.asrTuningActiveProfileId !== "string") {
+    state8.asrTuningActiveProfileId = null;
   }
-  if (typeof state6.asrLastAppliedAt !== "number") {
-    state6.asrLastAppliedAt = 0;
+  if (typeof state8.asrLastAppliedAt !== "number") {
+    state8.asrLastAppliedAt = 0;
   }
-  if (!state6.asrLastAppliedSummary || typeof state6.asrLastAppliedSummary !== "object") {
-    state6.asrLastAppliedSummary = {};
+  if (!state8.asrLastAppliedSummary || typeof state8.asrLastAppliedSummary !== "object") {
+    state8.asrLastAppliedSummary = {};
   }
-  if (typeof state6.asrLastApplyOk !== "boolean") {
-    state6.asrLastApplyOk = false;
+  if (typeof state8.asrLastApplyOk !== "boolean") {
+    state8.asrLastApplyOk = false;
   }
-  if (!state6.settingsSaveStatus || typeof state6.settingsSaveStatus !== "object") {
-    state6.settingsSaveStatus = { state: "idle", at: 0 };
+  if (!state8.settingsSaveStatus || typeof state8.settingsSaveStatus !== "object") {
+    state8.settingsSaveStatus = { state: "idle", at: 0 };
   }
-  return state6;
+  return state8;
 }
 function createAppStore(initial) {
-  const subs5 = /* @__PURE__ */ Object.create(null);
+  const subs6 = /* @__PURE__ */ Object.create(null);
   const baseState = buildInitialState();
-  const state6 = sanitizeState(
+  const state8 = sanitizeState(
     Object.assign(
       {},
       baseState,
@@ -3056,7 +3056,7 @@ function createAppStore(initial) {
   function notify(key, value) {
     try {
       const k = String(key);
-      const fns = subs5[k] || [];
+      const fns = subs6[k] || [];
       for (let i = 0; i < fns.length; i++) {
         try {
           fns[i](value);
@@ -3068,7 +3068,7 @@ function createAppStore(initial) {
   }
   function get3(key) {
     try {
-      return state6[key];
+      return state8[key];
     } catch {
       return void 0;
     }
@@ -3081,9 +3081,9 @@ function createAppStore(initial) {
       if (key === "overlay") {
         value = ALLOWED_OVERLAYS.has(value) ? value : "none";
       }
-      const prev2 = state6[key];
+      const prev2 = state8[key];
       if (prev2 === value) return value;
-      state6[key] = value;
+      state8[key] = value;
       if (key === "scrollMode") {
         try {
           const ctx = getScrollModeAuditContext();
@@ -3091,7 +3091,7 @@ function createAppStore(initial) {
             writer: ctx?.writer || "unknown",
             from: prev2,
             to: value,
-            phase: state6["session.phase"],
+            phase: state8["session.phase"],
             source: ctx?.meta?.source,
             via: ctx?.meta?.via,
             stack: !!ctx?.meta?.stack
@@ -3136,15 +3136,15 @@ function createAppStore(initial) {
     if (typeof fn !== "function") return () => {
     };
     const k = String(key);
-    subs5[k] = subs5[k] || [];
-    subs5[k].push(fn);
+    subs6[k] = subs6[k] || [];
+    subs6[k].push(fn);
     try {
-      fn(state6[key]);
+      fn(state8[key]);
     } catch {
     }
     return function unsubscribe() {
       try {
-        subs5[k] = (subs5[k] || []).filter((x) => x !== fn);
+        subs6[k] = (subs6[k] || []).filter((x) => x !== fn);
       } catch {
       }
     };
@@ -3171,8 +3171,8 @@ function createAppStore(initial) {
     set,
     subscribe,
     subscribeAll,
-    state: state6,
-    getSnapshot: () => ({ ...state6 })
+    state: state8,
+    getSnapshot: () => ({ ...state8 })
   };
   try {
     if (!IS_TEST) {
@@ -3296,47 +3296,47 @@ function coerceProfile(input) {
     defaultProfileV1(),
     migrated
   );
-  const clamp5 = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-  const clamp012 = (v) => clamp5(v, 0, 1);
+  const clamp6 = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const clamp013 = (v) => clamp6(v, 0, 1);
   for (const role of ["main", "display"]) {
     const t = p.ui.windows[role].typography;
-    t.fontSizePx = clamp5(num(t.fontSizePx, 56), 18, 140);
-    t.lineHeight = clamp5(num(t.lineHeight, 1.4), 1, 2.4);
-    t.letterSpacingEm = clamp5(num(t.letterSpacingEm, 0), -0.1, 0.2);
-    t.maxLineWidthPx = t.maxLineWidthPx == null ? null : clamp5(num(t.maxLineWidthPx, 600), 240, 2e3);
+    t.fontSizePx = clamp6(num(t.fontSizePx, 56), 18, 140);
+    t.lineHeight = clamp6(num(t.lineHeight, 1.4), 1, 2.4);
+    t.letterSpacingEm = clamp6(num(t.letterSpacingEm, 0), -0.1, 0.2);
+    t.maxLineWidthPx = t.maxLineWidthPx == null ? null : clamp6(num(t.maxLineWidthPx, 600), 240, 2e3);
     const l = p.ui.windows[role].layout;
-    l.markerY = clamp012(num(l.markerY, 0.33));
-    l.paddingTopPx = clamp5(num(l.paddingTopPx, 16), 0, 200);
-    l.paddingBottomPx = clamp5(num(l.paddingBottomPx, 16), 0, 200);
+    l.markerY = clamp013(num(l.markerY, 0.33));
+    l.paddingTopPx = clamp6(num(l.paddingTopPx, 16), 0, 200);
+    l.paddingBottomPx = clamp6(num(l.paddingBottomPx, 16), 0, 200);
     const h = p.ui.windows[role].highlight;
-    h.intensity = clamp012(num(h.intensity, 0.35));
+    h.intensity = clamp013(num(h.intensity, 0.35));
   }
-  p.scroll.wpm.min = clamp5(num(p.scroll.wpm.min, 60), 10, 600);
-  p.scroll.wpm.max = clamp5(num(p.scroll.wpm.max, 260), 10, 600);
+  p.scroll.wpm.min = clamp6(num(p.scroll.wpm.min, 60), 10, 600);
+  p.scroll.wpm.max = clamp6(num(p.scroll.wpm.max, 260), 10, 600);
   if (p.scroll.wpm.min > p.scroll.wpm.max) {
     const tmp = p.scroll.wpm.min;
     p.scroll.wpm.min = p.scroll.wpm.max;
     p.scroll.wpm.max = tmp;
   }
-  p.scroll.wpm.value = clamp5(num(p.scroll.wpm.value, 140), p.scroll.wpm.min, p.scroll.wpm.max);
-  p.scroll.wpm.wplHint = clamp5(num(p.scroll.wpm.wplHint, 8), 3, 30);
-  p.scroll.timed.minPxPerSec = clamp5(num(p.scroll.timed.minPxPerSec, 5), 0.1, 2e3);
-  p.scroll.timed.maxPxPerSec = clamp5(num(p.scroll.timed.maxPxPerSec, 220), 0.1, 2e3);
+  p.scroll.wpm.value = clamp6(num(p.scroll.wpm.value, 140), p.scroll.wpm.min, p.scroll.wpm.max);
+  p.scroll.wpm.wplHint = clamp6(num(p.scroll.wpm.wplHint, 8), 3, 30);
+  p.scroll.timed.minPxPerSec = clamp6(num(p.scroll.timed.minPxPerSec, 5), 0.1, 2e3);
+  p.scroll.timed.maxPxPerSec = clamp6(num(p.scroll.timed.maxPxPerSec, 220), 0.1, 2e3);
   if (p.scroll.timed.minPxPerSec > p.scroll.timed.maxPxPerSec) {
     const tmp = p.scroll.timed.minPxPerSec;
     p.scroll.timed.minPxPerSec = p.scroll.timed.maxPxPerSec;
     p.scroll.timed.maxPxPerSec = tmp;
   }
-  p.scroll.timed.pxPerSec = clamp5(num(p.scroll.timed.pxPerSec, 40), p.scroll.timed.minPxPerSec, p.scroll.timed.maxPxPerSec);
-  p.scroll.hybrid.sensitivity = clamp5(num(p.scroll.hybrid.sensitivity, 1), 0.25, 3);
-  p.scroll.hybrid.assistMax = clamp5(num(p.scroll.hybrid.assistMax, 1.25), 1, 3);
-  p.scroll.hybrid.brakeMin = clamp5(num(p.scroll.hybrid.brakeMin, 0.65), 0.1, 1);
-  p.scroll.hybrid.confMin = clamp012(num(p.scroll.hybrid.confMin, 0.25));
-  p.asr.tuning.confidenceFloor = clamp012(num(p.asr.tuning.confidenceFloor, 0.25));
-  p.asr.tuning.lagCompMs = clamp5(num(p.asr.tuning.lagCompMs, 150), 0, 2e3);
-  p.asr.tuning.winBackLines = clamp5(num(p.asr.tuning.winBackLines, 3), 0, 80);
-  p.asr.tuning.winAheadLines = clamp5(num(p.asr.tuning.winAheadLines, 6), 0, 120);
-  p.dev.hybridLogThrottleMs = clamp5(num(p.dev.hybridLogThrottleMs, 500), 0, 5e3);
+  p.scroll.timed.pxPerSec = clamp6(num(p.scroll.timed.pxPerSec, 40), p.scroll.timed.minPxPerSec, p.scroll.timed.maxPxPerSec);
+  p.scroll.hybrid.sensitivity = clamp6(num(p.scroll.hybrid.sensitivity, 1), 0.25, 3);
+  p.scroll.hybrid.assistMax = clamp6(num(p.scroll.hybrid.assistMax, 1.25), 1, 3);
+  p.scroll.hybrid.brakeMin = clamp6(num(p.scroll.hybrid.brakeMin, 0.65), 0.1, 1);
+  p.scroll.hybrid.confMin = clamp013(num(p.scroll.hybrid.confMin, 0.25));
+  p.asr.tuning.confidenceFloor = clamp013(num(p.asr.tuning.confidenceFloor, 0.25));
+  p.asr.tuning.lagCompMs = clamp6(num(p.asr.tuning.lagCompMs, 150), 0, 2e3);
+  p.asr.tuning.winBackLines = clamp6(num(p.asr.tuning.winBackLines, 3), 0, 80);
+  p.asr.tuning.winAheadLines = clamp6(num(p.asr.tuning.winAheadLines, 6), 0, 120);
+  p.dev.hybridLogThrottleMs = clamp6(num(p.dev.hybridLogThrottleMs, 500), 0, 5e3);
   p.workflow.hasSeenWelcome = Boolean(p.workflow.hasSeenWelcome);
   return p;
 }
@@ -3438,7 +3438,7 @@ var ProfileStore = class {
 };
 
 // src/profile/profile-persist.ts
-function createProfilePersister(store, options) {
+function createProfilePersister(store2, options) {
   const delayMs = Number.isFinite(options?.delayMs ?? NaN) ? options.delayMs : 450;
   let pending = null;
   let timer = null;
@@ -3478,7 +3478,7 @@ function createProfilePersister(store, options) {
       timer = null;
     }
     try {
-      saving = store.saveProfilePatch(patch);
+      saving = store2.saveProfilePatch(patch);
       await saving;
     } finally {
       saving = null;
@@ -3487,12 +3487,12 @@ function createProfilePersister(store, options) {
       }
     }
   };
-  const persist = (patch) => {
+  const persist2 = (patch) => {
     pending = merge(pending ?? {}, patch);
     scheduleFlush();
   };
   return {
-    persist,
+    persist: persist2,
     flush
   };
 }
@@ -5617,17 +5617,17 @@ var RealtimePresence = class _RealtimePresence {
    * @internal
    */
   static syncState(currentState, newState, onJoin, onLeave) {
-    const state6 = this.cloneDeep(currentState);
+    const state8 = this.cloneDeep(currentState);
     const transformedState = this.transformState(newState);
     const joins = {};
     const leaves = {};
-    this.map(state6, (key, presences) => {
+    this.map(state8, (key, presences) => {
       if (!transformedState[key]) {
         leaves[key] = presences;
       }
     });
     this.map(transformedState, (key, newPresences) => {
-      const currentPresences = state6[key];
+      const currentPresences = state8[key];
       if (currentPresences) {
         const newPresenceRefs = newPresences.map((m) => m.presence_ref);
         const curPresenceRefs = currentPresences.map((m) => m.presence_ref);
@@ -5643,7 +5643,7 @@ var RealtimePresence = class _RealtimePresence {
         joins[key] = newPresences;
       }
     });
-    return this.syncDiff(state6, { joins, leaves }, onJoin, onLeave);
+    return this.syncDiff(state8, { joins, leaves }, onJoin, onLeave);
   }
   /**
    * Used to sync a diff of presence join and leave events from the
@@ -5655,7 +5655,7 @@ var RealtimePresence = class _RealtimePresence {
    *
    * @internal
    */
-  static syncDiff(state6, diff, onJoin, onLeave) {
+  static syncDiff(state8, diff, onJoin, onLeave) {
     const { joins, leaves } = {
       joins: this.transformState(diff.joins),
       leaves: this.transformState(diff.leaves)
@@ -5670,27 +5670,27 @@ var RealtimePresence = class _RealtimePresence {
     }
     this.map(joins, (key, newPresences) => {
       var _a;
-      const currentPresences = (_a = state6[key]) !== null && _a !== void 0 ? _a : [];
-      state6[key] = this.cloneDeep(newPresences);
+      const currentPresences = (_a = state8[key]) !== null && _a !== void 0 ? _a : [];
+      state8[key] = this.cloneDeep(newPresences);
       if (currentPresences.length > 0) {
-        const joinedPresenceRefs = state6[key].map((m) => m.presence_ref);
+        const joinedPresenceRefs = state8[key].map((m) => m.presence_ref);
         const curPresences = currentPresences.filter((m) => joinedPresenceRefs.indexOf(m.presence_ref) < 0);
-        state6[key].unshift(...curPresences);
+        state8[key].unshift(...curPresences);
       }
       onJoin(key, currentPresences, newPresences);
     });
     this.map(leaves, (key, leftPresences) => {
-      let currentPresences = state6[key];
+      let currentPresences = state8[key];
       if (!currentPresences)
         return;
       const presenceRefsToRemove = leftPresences.map((m) => m.presence_ref);
       currentPresences = currentPresences.filter((m) => presenceRefsToRemove.indexOf(m.presence_ref) < 0);
-      state6[key] = currentPresences;
+      state8[key] = currentPresences;
       onLeave(key, currentPresences, leftPresences);
       if (currentPresences.length === 0)
-        delete state6[key];
+        delete state8[key];
     });
-    return state6;
+    return state8;
   }
   /** @internal */
   static map(obj, func) {
@@ -5719,10 +5719,10 @@ var RealtimePresence = class _RealtimePresence {
    *
    * @internal
    */
-  static transformState(state6) {
-    state6 = this.cloneDeep(state6);
-    return Object.getOwnPropertyNames(state6).reduce((newState, key) => {
-      const presences = state6[key];
+  static transformState(state8) {
+    state8 = this.cloneDeep(state8);
+    return Object.getOwnPropertyNames(state8).reduce((newState, key) => {
+      const presences = state8[key];
       if ("metas" in presences) {
         newState[key] = presences.metas.map((presence) => {
           presence["presence_ref"] = presence["phx_ref"];
@@ -6958,11 +6958,11 @@ Option 2: Install and provide the "ws" package:
    * Set connection state with proper state management
    * @internal
    */
-  _setConnectionState(state6, manual = false) {
-    this._connectionState = state6;
-    if (state6 === "connecting") {
+  _setConnectionState(state8, manual = false) {
+    this._connectionState = state8;
+    if (state8 === "connecting") {
       this._wasManualDisconnect = false;
-    } else if (state6 === "disconnecting") {
+    } else if (state8 === "disconnecting") {
       this._wasManualDisconnect = manual;
     }
   }
@@ -10497,33 +10497,33 @@ var FROM_BASE64URL = (() => {
   }
   return charMap;
 })();
-function byteToBase64URL(byte, state6, emit2) {
+function byteToBase64URL(byte, state8, emit2) {
   if (byte !== null) {
-    state6.queue = state6.queue << 8 | byte;
-    state6.queuedBits += 8;
-    while (state6.queuedBits >= 6) {
-      const pos = state6.queue >> state6.queuedBits - 6 & 63;
+    state8.queue = state8.queue << 8 | byte;
+    state8.queuedBits += 8;
+    while (state8.queuedBits >= 6) {
+      const pos = state8.queue >> state8.queuedBits - 6 & 63;
       emit2(TO_BASE64URL[pos]);
-      state6.queuedBits -= 6;
+      state8.queuedBits -= 6;
     }
-  } else if (state6.queuedBits > 0) {
-    state6.queue = state6.queue << 6 - state6.queuedBits;
-    state6.queuedBits = 6;
-    while (state6.queuedBits >= 6) {
-      const pos = state6.queue >> state6.queuedBits - 6 & 63;
+  } else if (state8.queuedBits > 0) {
+    state8.queue = state8.queue << 6 - state8.queuedBits;
+    state8.queuedBits = 6;
+    while (state8.queuedBits >= 6) {
+      const pos = state8.queue >> state8.queuedBits - 6 & 63;
       emit2(TO_BASE64URL[pos]);
-      state6.queuedBits -= 6;
+      state8.queuedBits -= 6;
     }
   }
 }
-function byteFromBase64URL(charCode, state6, emit2) {
+function byteFromBase64URL(charCode, state8, emit2) {
   const bits = FROM_BASE64URL[charCode];
   if (bits > -1) {
-    state6.queue = state6.queue << 6 | bits;
-    state6.queuedBits += 6;
-    while (state6.queuedBits >= 8) {
-      emit2(state6.queue >> state6.queuedBits - 8 & 255);
-      state6.queuedBits -= 8;
+    state8.queue = state8.queue << 6 | bits;
+    state8.queuedBits += 6;
+    while (state8.queuedBits >= 8) {
+      emit2(state8.queue >> state8.queuedBits - 8 & 255);
+      state8.queuedBits -= 8;
     }
   } else if (bits === -2) {
     return;
@@ -10583,47 +10583,47 @@ function stringToUTF8(str, emit2) {
     codepointToUTF8(codepoint, emit2);
   }
 }
-function stringFromUTF8(byte, state6, emit2) {
-  if (state6.utf8seq === 0) {
+function stringFromUTF8(byte, state8, emit2) {
+  if (state8.utf8seq === 0) {
     if (byte <= 127) {
       emit2(byte);
       return;
     }
     for (let leadingBit = 1; leadingBit < 6; leadingBit += 1) {
       if ((byte >> 7 - leadingBit & 1) === 0) {
-        state6.utf8seq = leadingBit;
+        state8.utf8seq = leadingBit;
         break;
       }
     }
-    if (state6.utf8seq === 2) {
-      state6.codepoint = byte & 31;
-    } else if (state6.utf8seq === 3) {
-      state6.codepoint = byte & 15;
-    } else if (state6.utf8seq === 4) {
-      state6.codepoint = byte & 7;
+    if (state8.utf8seq === 2) {
+      state8.codepoint = byte & 31;
+    } else if (state8.utf8seq === 3) {
+      state8.codepoint = byte & 15;
+    } else if (state8.utf8seq === 4) {
+      state8.codepoint = byte & 7;
     } else {
       throw new Error("Invalid UTF-8 sequence");
     }
-    state6.utf8seq -= 1;
-  } else if (state6.utf8seq > 0) {
+    state8.utf8seq -= 1;
+  } else if (state8.utf8seq > 0) {
     if (byte <= 127) {
       throw new Error("Invalid UTF-8 sequence");
     }
-    state6.codepoint = state6.codepoint << 6 | byte & 63;
-    state6.utf8seq -= 1;
-    if (state6.utf8seq === 0) {
-      emit2(state6.codepoint);
+    state8.codepoint = state8.codepoint << 6 | byte & 63;
+    state8.utf8seq -= 1;
+    if (state8.utf8seq === 0) {
+      emit2(state8.codepoint);
     }
   }
 }
 function base64UrlToUint8Array(str) {
   const result = [];
-  const state6 = { queue: 0, queuedBits: 0 };
+  const state8 = { queue: 0, queuedBits: 0 };
   const onByte = (byte) => {
     result.push(byte);
   };
   for (let i = 0; i < str.length; i += 1) {
-    byteFromBase64URL(str.charCodeAt(i), state6, onByte);
+    byteFromBase64URL(str.charCodeAt(i), state8, onByte);
   }
   return new Uint8Array(result);
 }
@@ -10634,12 +10634,12 @@ function stringToUint8Array(str) {
 }
 function bytesToBase64URL(bytes) {
   const result = [];
-  const state6 = { queue: 0, queuedBits: 0 };
+  const state8 = { queue: 0, queuedBits: 0 };
   const onChar = (char) => {
     result.push(char);
   };
-  bytes.forEach((byte) => byteToBase64URL(byte, state6, onChar));
-  byteToBase64URL(null, state6, onChar);
+  bytes.forEach((byte) => byteToBase64URL(byte, state8, onChar));
+  byteToBase64URL(null, state8, onChar);
   return result.join("");
 }
 
@@ -11483,16 +11483,16 @@ var GoTrueAdminApi = class {
 };
 
 // ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/local-storage.js
-function memoryLocalStorageAdapter(store = {}) {
+function memoryLocalStorageAdapter(store2 = {}) {
   return {
     getItem: (key) => {
-      return store[key] || null;
+      return store2[key] || null;
     },
     setItem: (key, value) => {
-      store[key] = value;
+      store2[key] = value;
     },
     removeItem: (key) => {
-      delete store[key];
+      delete store2[key];
     }
   };
 }
@@ -15816,8 +15816,8 @@ function getScrollMode2() {
     const w2 = typeof window !== "undefined" ? window : null;
     const override = normalizeScrollModeValue(w2?.__tpModeOverride);
     if (override) return override;
-    const store = w2?.__tpStore || appStoreSingleton;
-    const storeMode = normalizeScrollModeValue(store?.get?.("scrollMode"));
+    const store2 = w2?.__tpStore || appStoreSingleton;
+    const storeMode = normalizeScrollModeValue(store2?.get?.("scrollMode"));
     if (storeMode) return storeMode;
     const uiMode = normalizeScrollModeValue(w2?.__tpUiScrollMode);
     if (uiMode) return uiMode;
@@ -16055,7 +16055,7 @@ function computeHybridModeHint(errorLines, weakMatch) {
   }
   return lines > 0 ? "CATCHING UP" : "LETTING YOU CATCH UP";
 }
-function renderHybridCtrlHud(state6) {
+function renderHybridCtrlHud(state8) {
   if (!HYBRID_CTRL_ENABLED) return;
   if (typeof document === "undefined") return;
   const container = document.body || document.documentElement;
@@ -16079,28 +16079,28 @@ function renderHybridCtrlHud(state6) {
     container.appendChild(hud);
   }
   const parts = [
-    `mode=${state6.modeHint}`,
-    `target=${formatHudNumber(state6.targetTop, 1)}`,
-    `curr=${formatHudNumber(state6.currentTop, 1)}`,
-    `err=${formatHudNumber(state6.errorPx, 1)}`,
-    `errLines=${formatHudNumber(state6.errorLines, 1)}`,
-    `markerIdx=${formatHudNumber(state6.markerIdx, 0)}`,
-    `bestIdx=${formatHudNumber(state6.bestIdx, 0)}`,
-    `lineTarget=${formatHudNumber(state6.lineTargetMult, 2)}`,
-    `lineMult=${formatHudNumber(state6.lineMult, 2)}`,
-    `lineSrc=${state6.lineSource}`,
-    `base=${formatHudNumber(state6.basePxps, 1)}`,
-    `baseCorr=${formatHudNumber(state6.baseWithCorrection, 1)}`,
-    `mult=${formatHudNumber(state6.mult, 2)}`,
-    `ctrl=${formatHudNumber(state6.ctrlMultApplied, 2)}`,
-    `scale=${formatHudNumber(state6.effectiveScaleApplied, 2)}`,
-    `final=${formatHudNumber(state6.finalPxps, 1)}`,
-    `silence=${formatHudNumber(state6.silenceMs, 0)}ms`,
-    `silenceCap=${formatHudNumber(state6.silenceCap, 2)}`,
-    `off=${formatHudNumber(state6.offScriptSeverity, 2)}`,
-    `offCap=${formatHudNumber(state6.offScriptCap, 2)}`,
-    `eligible=${state6.eligible ? "yes" : "no"}(${state6.eligibleReason})`,
-    `writer=${state6.writerSource ?? "n/a"}`
+    `mode=${state8.modeHint}`,
+    `target=${formatHudNumber(state8.targetTop, 1)}`,
+    `curr=${formatHudNumber(state8.currentTop, 1)}`,
+    `err=${formatHudNumber(state8.errorPx, 1)}`,
+    `errLines=${formatHudNumber(state8.errorLines, 1)}`,
+    `markerIdx=${formatHudNumber(state8.markerIdx, 0)}`,
+    `bestIdx=${formatHudNumber(state8.bestIdx, 0)}`,
+    `lineTarget=${formatHudNumber(state8.lineTargetMult, 2)}`,
+    `lineMult=${formatHudNumber(state8.lineMult, 2)}`,
+    `lineSrc=${state8.lineSource}`,
+    `base=${formatHudNumber(state8.basePxps, 1)}`,
+    `baseCorr=${formatHudNumber(state8.baseWithCorrection, 1)}`,
+    `mult=${formatHudNumber(state8.mult, 2)}`,
+    `ctrl=${formatHudNumber(state8.ctrlMultApplied, 2)}`,
+    `scale=${formatHudNumber(state8.effectiveScaleApplied, 2)}`,
+    `final=${formatHudNumber(state8.finalPxps, 1)}`,
+    `silence=${formatHudNumber(state8.silenceMs, 0)}ms`,
+    `silenceCap=${formatHudNumber(state8.silenceCap, 2)}`,
+    `off=${formatHudNumber(state8.offScriptSeverity, 2)}`,
+    `offCap=${formatHudNumber(state8.offScriptCap, 2)}`,
+    `eligible=${state8.eligible ? "yes" : "no"}(${state8.eligibleReason})`,
+    `writer=${state8.writerSource ?? "n/a"}`
   ];
   hud.textContent = parts.join(" | ");
 }
@@ -17950,8 +17950,8 @@ function installScrollRouter(opts) {
   }
   restoreMode();
   try {
-    const store = (typeof window !== "undefined" ? window.__tpStore : null) || appStoreSingleton;
-    const storeMode = normalizeScrollModeValue(store?.get?.("scrollMode"));
+    const store2 = (typeof window !== "undefined" ? window.__tpStore : null) || appStoreSingleton;
+    const storeMode = normalizeScrollModeValue(store2?.get?.("scrollMode"));
     if (storeMode && storeMode !== state22.mode) {
       state22.mode = storeMode;
     }
@@ -17960,8 +17960,8 @@ function installScrollRouter(opts) {
   applyMode(state22.mode);
   emitScrollModeSnapshot("mode-change");
   try {
-    const store = (typeof window !== "undefined" ? window.__tpStore : null) || appStoreSingleton;
-    store?.subscribe?.("scrollMode", (next) => {
+    const store2 = (typeof window !== "undefined" ? window.__tpStore : null) || appStoreSingleton;
+    store2?.subscribe?.("scrollMode", (next) => {
       const normalized = normalizeScrollModeValue(next);
       if (!normalized || normalized === state22.mode) return;
       applyMode(normalized);
@@ -18610,9 +18610,9 @@ function installScrollRouter(opts) {
     window.addEventListener("tp:speech-state", (e) => {
       try {
         const detail = e?.detail || {};
-        const running = !!detail.running;
+        const running2 = !!detail.running;
         const ts = typeof detail.ts === "number" ? detail.ts : nowMs();
-        if (running) {
+        if (running2) {
           noteHybridSpeechActivity(ts, { source: "speech-state" });
         }
       } catch {
@@ -18669,9 +18669,9 @@ function installScrollRouter(opts) {
     el.setAttribute("data-state", state32);
     if (detail) el.title = detail;
   }
-  function emitMotorState2(source, running) {
+  function emitMotorState2(source, running2) {
     try {
-      const payload = { source, running };
+      const payload = { source, running: running2 };
       try {
         const handler = window.__tp_onMotorStateChange;
         if (typeof handler === "function") handler(payload);
@@ -18693,7 +18693,7 @@ function installScrollRouter(opts) {
         document.dispatchEvent(new CustomEvent("tp:motor:state", { detail: payload }));
       } catch {
       }
-      emitScrollModeSnapshot(`motor:${source}:${running ? "on" : "off"}`);
+      emitScrollModeSnapshot(`motor:${source}:${running2 ? "on" : "off"}`);
     } catch {
     }
   }
@@ -20358,7 +20358,7 @@ function installScrollRouter(opts) {
       return;
     }
     let nextWpm = Number.NaN;
-    const store = (typeof window !== "undefined" ? window.__tpStore : null) || appStoreSingleton;
+    const store2 = (typeof window !== "undefined" ? window.__tpStore : null) || appStoreSingleton;
     try {
       const sliderInput = document.getElementById("wpmTarget");
       if (sliderInput) {
@@ -20368,7 +20368,7 @@ function installScrollRouter(opts) {
         }
       }
       if (!Number.isFinite(nextWpm) || nextWpm <= 0) {
-        const stored = typeof store?.get === "function" ? store.get("wpmTarget") : void 0;
+        const stored = typeof store2?.get === "function" ? store2.get("wpmTarget") : void 0;
         if (typeof stored === "number" && stored > 0) {
           nextWpm = stored;
         }
@@ -20379,9 +20379,9 @@ function installScrollRouter(opts) {
       if (sliderInput) {
         setSliderValueSilently(sliderInput, String(nextWpm));
       }
-      if (typeof store?.set === "function") {
+      if (typeof store2?.set === "function") {
         try {
-          store.set("wpmTarget", nextWpm);
+          store2.set("wpmTarget", nextWpm);
         } catch {
         }
       }
@@ -21077,16 +21077,16 @@ try {
 } catch {
 }
 function clampTypography(t) {
-  const clamp5 = (n, min, max) => Math.min(max, Math.max(min, n));
+  const clamp6 = (n, min, max) => Math.min(max, Math.max(min, n));
   return {
     ...t,
-    fontSizePx: clamp5(t.fontSizePx, 24, 120),
-    lineHeight: clamp5(t.lineHeight, 1.2, 1.8),
-    weight: clamp5(t.weight, 300, 900),
-    letterSpacingEm: clamp5(t.letterSpacingEm, -0.03, 0.15),
-    wordSpacingEm: clamp5(t.wordSpacingEm, 0, 0.4),
-    maxLineWidthCh: clamp5(t.maxLineWidthCh, 24, 90),
-    dimOthers: clamp5(t.dimOthers, 0, 0.7)
+    fontSizePx: clamp6(t.fontSizePx, 24, 120),
+    lineHeight: clamp6(t.lineHeight, 1.2, 1.8),
+    weight: clamp6(t.weight, 300, 900),
+    letterSpacingEm: clamp6(t.letterSpacingEm, -0.03, 0.15),
+    wordSpacingEm: clamp6(t.wordSpacingEm, 0, 0.4),
+    maxLineWidthCh: clamp6(t.maxLineWidthCh, 24, 90),
+    dimOthers: clamp6(t.dimOthers, 0, 0.7)
   };
 }
 
@@ -21180,16 +21180,16 @@ var WebSpeechEngine = class {
       this.emitter.emit({ type: "error", code: "unsupported", message: "Web Speech not available" });
       return;
     }
-    const rec = new Ctor();
-    this.recognition = rec;
-    rec.continuous = true;
-    rec.interimResults = !!opts.interim;
-    rec.lang = opts.lang || "en-US";
-    rec.onstart = () => {
+    const rec2 = new Ctor();
+    this.recognition = rec2;
+    rec2.continuous = true;
+    rec2.interimResults = !!opts.interim;
+    rec2.lang = opts.lang || "en-US";
+    rec2.onstart = () => {
       this.emitter.emit({ type: "ready" });
       this.emitter.emit({ type: "listening" });
     };
-    rec.onresult = (ev) => {
+    rec2.onresult = (ev) => {
       let partial = "";
       let finalText = "";
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
@@ -21207,16 +21207,16 @@ var WebSpeechEngine = class {
         this.emitter.emit({ type: "final", text: finalText.trim(), confidence: 1 });
       }
     };
-    rec.onerror = (e) => {
+    rec2.onerror = (e) => {
       const code = e?.error || "error";
       const message = e?.message || String(e?.error) || "ASR error";
       this.emitter.emit({ type: "error", code, message });
     };
-    rec.onend = () => {
+    rec2.onend = () => {
       this.emitter.emit({ type: "stopped" });
     };
     try {
-      rec.start();
+      rec2.start();
     } catch (err) {
       this.emitter.emit({ type: "error", code: "start-failed", message: err?.message || String(err) });
     }
@@ -21377,9 +21377,9 @@ var AsrMode = class {
   /**
    * Emit ASR state change event
    */
-  emitAsrState(state6, reason) {
+  emitAsrState(state8, reason) {
     if (!this.shouldEmitTx()) return;
-    const payload = { state: state6, reason, timestamp: performance.now() };
+    const payload = { state: state8, reason, timestamp: performance.now() };
     emit("tp:captions:state", payload);
     emit("tp:speech:state", payload);
   }
@@ -22188,9 +22188,9 @@ function hide() {
 function __tpReadAutoRecordPref() {
   try {
     if (typeof window !== "undefined") {
-      const store = window.__tpStore;
-      if (store && typeof store.get === "function") {
-        const v = store.get("autoRecord");
+      const store2 = window.__tpStore;
+      if (store2 && typeof store2.get === "function") {
+        const v = store2.get("autoRecord");
         if (typeof v === "boolean") return v;
       }
     }
@@ -22289,10 +22289,10 @@ function __tpReadAutoRecordPref() {
       }
     }
     async function recorderStart() {
-      const rec = getRecorderSurface2();
-      if (!rec || typeof rec.start !== "function") return true;
+      const rec2 = getRecorderSurface2();
+      if (!rec2 || typeof rec2.start !== "function") return true;
       try {
-        await rec.start();
+        await rec2.start();
         return true;
       } catch (err) {
         try {
@@ -22303,10 +22303,10 @@ function __tpReadAutoRecordPref() {
       }
     }
     async function recorderStop() {
-      const rec = getRecorderSurface2();
-      if (!rec || typeof rec.stop !== "function") return true;
+      const rec2 = getRecorderSurface2();
+      if (!rec2 || typeof rec2.stop !== "function") return true;
       try {
-        await rec.stop();
+        await rec2.stop();
         return true;
       } catch (err) {
         try {
@@ -22558,16 +22558,16 @@ var __sleep = (ms) => new Promise((resolve) => {
   setTrackedTimeout(() => resolve(), Math.max(0, ms || 0));
 });
 var __lastRecKey = "";
-function _emitRecState(state6, detail = null) {
+function _emitRecState(state8, detail = null) {
   try {
-    _recState = state6;
+    _recState = state8;
     _recDetail = detail || null;
     if (typeof window !== "undefined") {
       try {
-        window.__recState = { state: state6, adapter: _recAdapter, detail: _recDetail, ts: Date.now() };
+        window.__recState = { state: state8, adapter: _recAdapter, detail: _recDetail, ts: Date.now() };
       } catch {
       }
-      const payload = { adapter: _recAdapter, state: state6, detail: _recDetail };
+      const payload = { adapter: _recAdapter, state: state8, detail: _recDetail };
       try {
         const key = String(payload.adapter || "") + "|" + String(payload.state || "") + "|" + (payload.detail && payload.detail.fallback ? "F" : "");
         if (key === __lastRecKey) return;
@@ -23050,18 +23050,18 @@ function ensureObsDisconnectFallback() {
     window.__tpObsDisconnectWired = true;
     _onObsDisconnectCb = async () => {
       try {
-        const state6 = _recState;
+        const state8 = _recState;
         const bridgeAdapter = registry.get("bridge");
         const isAuto = __tpReadAutoRecordPref();
         try {
           recStats.disconnects++;
         } catch {
         }
-        if (state6 === "starting") {
+        if (state8 === "starting") {
           await startObsWithConfirm({ timeoutMs: 900, retryDelayMs: 300 });
           return;
         }
-        if (state6 === "recording") {
+        if (state8 === "recording") {
           _emitRecState("stopping", { reason: "disconnect" });
           if (isAuto && bridgeAdapter) {
             try {
@@ -23821,13 +23821,7143 @@ function initObsUI() {
   }
 }
 
+// src/state/session.ts
+function initSession() {
+  appStoreSingleton.set("session.phase", "idle");
+  appStoreSingleton.set("session.scrollAutoOnLive", false);
+  appStoreSingleton.set("session.recordOnLive", false);
+  appStoreSingleton.set("session.recordReason", null);
+  appStoreSingleton.set("session.asrReady", false);
+  appStoreSingleton.set("session.asrDesired", false);
+  appStoreSingleton.set("session.asrArmed", false);
+}
+function setSessionPhase(phase) {
+  appStoreSingleton.set("session.phase", phase);
+  try {
+    window.dispatchEvent(
+      new CustomEvent("tp:session:phase", { detail: { phase } })
+    );
+  } catch {
+  }
+}
+function getSession() {
+  return {
+    phase: appStoreSingleton.get("session.phase") || "idle",
+    scrollAutoOnLive: !!appStoreSingleton.get("session.scrollAutoOnLive"),
+    recordOnLive: !!appStoreSingleton.get("session.recordOnLive"),
+    recordReason: appStoreSingleton.get("session.recordReason") || null,
+    asrReady: !!appStoreSingleton.get("session.asrReady"),
+    asrDesired: !!appStoreSingleton.get("session.asrDesired"),
+    asrArmed: !!appStoreSingleton.get("session.asrArmed")
+  };
+}
+
+// src/asr/readiness.ts
+function computeAsrReadiness() {
+  try {
+    const micGranted = !!appStoreSingleton.get?.("micGranted");
+    if (!micGranted) return { ready: false, reason: "NO_PERMISSION" };
+    const micDevice = String(appStoreSingleton.get?.("micDevice") || "").trim();
+    const micOpen = !!window.__tpMic?.__lastStream || !!window.__tpMic?.isOpen?.();
+    let activeProfile = null;
+    try {
+      const asrState = getAsrState?.();
+      activeProfile = asrState?.activeProfileId && asrState.profiles?.[asrState.activeProfileId];
+    } catch {
+    }
+    const hasDevice = !!micDevice || !!activeProfile?.deviceId || micOpen;
+    if (!hasDevice) return { ready: false, reason: "NO_DEVICE" };
+    if (!activeProfile) return { ready: true, warn: "NOT_CALIBRATED" };
+    return { ready: true };
+  } catch {
+    return { ready: true };
+  }
+}
+
+// src/recording/wantsAutoRecord.ts
+function readBool(val) {
+  return typeof val === "boolean" ? val : void 0;
+}
+function readStore(store2) {
+  if (!store2) return void 0;
+  try {
+    const snap = typeof store2.getSnapshot === "function" ? store2.getSnapshot() : null;
+    const fromSnap = snap && readBool(snap.autoRecord);
+    if (typeof fromSnap === "boolean") return fromSnap;
+  } catch {
+  }
+  try {
+    if (store2.state) {
+      const fromState = readBool(store2.state.autoRecord);
+      if (typeof fromState === "boolean") return fromState;
+    }
+  } catch {
+  }
+  try {
+    if (typeof store2.get === "function") {
+      const fromGet = readBool(store2.get("autoRecord"));
+      if (typeof fromGet === "boolean") return fromGet;
+    }
+  } catch {
+  }
+  return void 0;
+}
+function wantsAutoRecord(store2) {
+  const s = store2 ?? appStoreSingleton;
+  const val = readStore(s);
+  return val === true;
+}
+try {
+  if (typeof window !== "undefined") {
+    window.wantsAutoRecord = wantsAutoRecord;
+    window.__tpWantsAutoRecord = wantsAutoRecord;
+  }
+} catch {
+}
+
+// src/recording/recording-settings.ts
+var SETTINGS_KEY = "tp_rec_settings_v1";
+function readRawSettings() {
+  try {
+    if (typeof window === "undefined") return null;
+    const raw = window.localStorage?.getItem(SETTINGS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+function normalizeSelected(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((v) => String(v)).filter(Boolean);
+}
+function getRecordingMode() {
+  const raw = readRawSettings();
+  const mode = String(raw?.recordingMode || "").toLowerCase();
+  const resolved = mode === "audio" ? "audio" : "av";
+  if (resolved === "audio" && getRecordingEngine() === "obs") return "av";
+  return resolved;
+}
+function getRecordingEngine() {
+  const raw = readRawSettings();
+  const selected = normalizeSelected(raw?.selected);
+  const mode = String(raw?.mode || "").toLowerCase();
+  if (mode === "single") {
+    if (selected.includes("obs")) return "obs";
+    if (selected.includes("core")) return "core";
+  }
+  if (selected.includes("obs") && !selected.includes("core")) return "obs";
+  return "core";
+}
+
+// src/recording/recorderRegistry.ts
+var registry2 = /* @__PURE__ */ new Map();
+var sessionRecording = false;
+function emitRecordingState(recording) {
+  try {
+    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+      window.dispatchEvent(
+        new CustomEvent("tp:recording:state", { detail: { recording: !!recording } })
+      );
+    }
+  } catch {
+  }
+}
+function listRecorders() {
+  return [...registry2.values()];
+}
+async function startSessionRecording(opts) {
+  if (sessionRecording) return;
+  const engine = opts?.engine ?? getRecordingEngine();
+  const obsEnabled = !!opts?.obsEnabled;
+  const tasks = [];
+  const core = registry2.get("core");
+  if (core && engine === "core") {
+    try {
+      console.debug("[recording-session] startRecorders: core available", { engine, obsEnabled });
+    } catch {
+    }
+    tasks.push(
+      core.isAvailable().then((ok) => ok ? core.start() : void 0).catch((err) => {
+        console.warn("[recording] core start failed", err);
+      })
+    );
+  } else {
+    console.warn('[recording] no "core" recorder registered');
+  }
+  if (engine === "obs" && obsEnabled) {
+    const obs = registry2.get("obs");
+    if (obs) {
+      try {
+        console.debug("[recording-session] startRecorders: obs available", { engine });
+      } catch {
+      }
+      tasks.push(
+        obs.isAvailable().then((ok) => ok ? obs.start() : void 0).catch((err) => {
+          console.warn("[recording] obs start failed", err);
+        })
+      );
+    }
+  }
+  if (tasks.length === 0) return;
+  try {
+    console.debug("[recording-session] startRecorders", { count: tasks.length, enabled: true });
+  } catch {
+  }
+  await Promise.all(tasks);
+  sessionRecording = true;
+  emitRecordingState(true);
+}
+async function stopSessionRecording() {
+  if (!sessionRecording) return;
+  const tasks = listRecorders().map(
+    (rec2) => rec2.isAvailable().then((ok) => ok ? rec2.stop() : void 0).catch((err) => {
+      console.warn("[recording] stop failed", rec2.id, err);
+    })
+  );
+  await Promise.all(tasks);
+  sessionRecording = false;
+  emitRecordingState(false);
+}
+function isSessionRecording() {
+  return sessionRecording;
+}
+
+// src/features/scroll/scroll-mode-utils.ts
+var ALLOWED_MODES = ["timed", "wpm", "hybrid", "asr", "step", "rehearsal", "auto", "off"];
+var AUTO_ALLOWED = ["timed", "wpm", "hybrid", "asr", "auto"];
+function sanitize(raw) {
+  const value = String(raw || "").trim().toLowerCase();
+  if (value === "manual") return "step";
+  return value;
+}
+function normalizeScrollMode2(raw) {
+  const candidate = sanitize(raw);
+  return candidate === "auto" || ALLOWED_MODES.includes(candidate) ? candidate : "hybrid";
+}
+function shouldAutoStartForMode(raw) {
+  const mode = normalizeScrollMode2(raw);
+  return AUTO_ALLOWED.includes(mode);
+}
+
+// src/features/preroll-session.ts
+function computeScrollAutoOnLive(rawMode) {
+  try {
+    const mode = rawMode ?? appStoreSingleton.get("scrollMode");
+    return shouldAutoStartForMode(mode);
+  } catch {
+    return true;
+  }
+}
+function hasMicDevice() {
+  try {
+    const micId = appStoreSingleton.get("micDevice");
+    if (micId && typeof micId === "string") return true;
+  } catch {
+  }
+  try {
+    return !!window.__tpMic?.__lastStream || !!window.__tpMic?.isOpen?.();
+  } catch {
+    return true;
+  }
+}
+function hasCameraActive() {
+  try {
+    const cam = window.__tpCamera;
+    if (cam && typeof cam.isActive === "function") return !!cam.isActive();
+    if (cam && cam.__lastStream) return true;
+  } catch {
+  }
+  return false;
+}
+function computeRecordArmOnLive(recordingEnabledOverride) {
+  try {
+    const recordingEnabled = typeof recordingEnabledOverride === "boolean" ? recordingEnabledOverride : wantsAutoRecord();
+    const mode = normalizeScrollMode2(appStoreSingleton.get("scrollMode"));
+    const inRehearsal2 = mode === "rehearsal";
+    if (inRehearsal2) {
+      return { recordOnLive: false, reason: "rehearsal-mode" };
+    }
+    if (!recordingEnabled) {
+      return { recordOnLive: false, reason: "disabled-by-settings" };
+    }
+    const recordingMode = getRecordingMode();
+    const engine = getRecordingEngine();
+    const needsCamera = recordingMode === "av" && engine === "core";
+    if (needsCamera && !hasCameraActive()) {
+      try {
+        window.dispatchEvent(
+          new CustomEvent("tp:session:warning", {
+            detail: {
+              type: "camera",
+              message: "Camera not ready; recording disabled for this run."
+            }
+          })
+        );
+      } catch {
+      }
+      return { recordOnLive: false, reason: "no-camera" };
+    }
+    if (!hasMicDevice()) {
+      return { recordOnLive: false, reason: "no-mic" };
+    }
+    if (listRecorders().length === 0) {
+      return { recordOnLive: false, reason: "recorder-not-ready" };
+    }
+    return { recordOnLive: true, reason: "auto" };
+  } catch {
+    return { recordOnLive: false, reason: "error" };
+  }
+}
+function computeAsrDesired() {
+  try {
+    const mode = String(appStoreSingleton.get("scrollMode") || "").toLowerCase();
+    return mode === "asr" || mode === "hybrid";
+  } catch {
+    return false;
+  }
+}
+function computeAsrArmed(desired) {
+  if (!desired) return false;
+  try {
+    const readiness = computeAsrReadiness();
+    return !!readiness.ready;
+  } catch {
+    return false;
+  }
+}
+function snapshotPreroll() {
+  const rawMode = appStoreSingleton.get("scrollMode");
+  const mode = normalizeScrollMode2(rawMode);
+  const scrollAutoOnLive = computeScrollAutoOnLive(rawMode);
+  const autoRecordEnabled = wantsAutoRecord();
+  const { recordOnLive, reason } = computeRecordArmOnLive(autoRecordEnabled);
+  const asrDesired = computeAsrDesired();
+  const asrArmed = computeAsrArmed(asrDesired);
+  const autoRecord = !!appStoreSingleton.get("autoRecord");
+  const hasMic = hasMicDevice();
+  appStoreSingleton.set("session.scrollAutoOnLive", scrollAutoOnLive);
+  appStoreSingleton.set("session.recordOnLive", recordOnLive);
+  appStoreSingleton.set("session.recordReason", reason);
+  try {
+    console.debug("[session/preroll] recording arm", { autoRecordEnabled, recordOnLive, reason });
+  } catch {
+  }
+  appStoreSingleton.set("session.asrDesired", asrDesired);
+  appStoreSingleton.set("session.asrArmed", asrArmed);
+  appStoreSingleton.set("session.asrReady", asrArmed);
+  try {
+    console.log("[probe] scrollAutoOnLive computed", {
+      rawMode,
+      normalizedMode: mode,
+      scrollAutoOnLive
+    });
+  } catch {
+  }
+  if (scrollAutoOnLive) {
+    try {
+      window.dispatchEvent(
+        new CustomEvent("tp:auto:intent", {
+          detail: { enabled: true, source: "preroll", reason: "live-start" }
+        })
+      );
+    } catch {
+    }
+  }
+  try {
+    console.debug(
+      "[session/preroll]",
+      { mode, autoRecord, hasMic },
+      { scrollAutoOnLive, recordOnLive, recordReason: reason, asrDesired, asrArmed }
+    );
+  } catch {
+  }
+}
+function showCountdown(n) {
+  try {
+    const overlay = document.getElementById("countOverlay");
+    const num2 = document.getElementById("countNum");
+    if (overlay) overlay.style.display = "flex";
+    if (num2) num2.textContent = String(n);
+    if (typeof window.sendToDisplay === "function") {
+      window.sendToDisplay({ type: "preroll", show: true, n });
+    }
+  } catch {
+  }
+}
+function hideCountdown() {
+  try {
+    const overlay = document.getElementById("countOverlay");
+    if (overlay) overlay.style.display = "none";
+    if (typeof window.sendToDisplay === "function") {
+      window.sendToDisplay({ type: "preroll", show: false });
+    }
+  } catch {
+  }
+}
+async function runCountdown(seconds) {
+  const s = Math.max(0, Math.round(seconds));
+  if (s <= 0) return;
+  for (let i = s; i > 0; i--) {
+    showCountdown(i);
+    try {
+      window.HUD?.bus?.emit?.("speech:countdown", { remaining: i });
+    } catch {
+    }
+    await new Promise((r) => setTimeout(r, 1e3));
+  }
+  hideCountdown();
+}
+var prerollRunning = false;
+function completePrerollSession(detail) {
+  setSessionPhase("live");
+  try {
+    window.dispatchEvent(
+      new CustomEvent("tp:preroll:done", {
+        detail
+      })
+    );
+  } catch {
+  }
+}
+async function onPhaseChange(phase) {
+  if (phase !== "preroll") return;
+  if (prerollRunning) return;
+  prerollRunning = true;
+  snapshotPreroll();
+  const seconds = (() => {
+    try {
+      return Number(appStoreSingleton.get("prerollSeconds") || 0);
+    } catch {
+      return 0;
+    }
+  })();
+  try {
+    await runCountdown(seconds);
+  } catch {
+  }
+  try {
+    completePrerollSession({ seconds, source: "session" });
+  } finally {
+    prerollRunning = false;
+  }
+}
+function initPrerollSession() {
+  try {
+    appStoreSingleton.subscribe(
+      "session.phase",
+      (p) => onPhaseChange(p)
+    );
+  } catch {
+  }
+  try {
+    window.addEventListener("tp:session:start", () => {
+      onPhaseChange("preroll");
+    });
+  } catch {
+  }
+}
+
+// src/speech/runtime-control.ts
+function stopAsrRuntime() {
+  if (typeof window === "undefined") return;
+  try {
+    const w2 = window;
+    const speech = w2.__tpSpeech;
+    if (speech && typeof speech.stopRecognizer === "function") {
+      speech.stopRecognizer();
+    }
+  } catch {
+  }
+}
+
+// src/speech/matcher.ts
+function normTokens(s) {
+  return String(s || "").toLowerCase().replace(/\[[^\]]+]/g, "").replace(/[“”"']/g, "").replace(/[—–]/g, "-").replace(/[^\w\s-]/g, " ").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+}
+
+// src/features/speech/speech-store.ts
+var MIN_ENDPOINT_MS = 100;
+var MAX_ENDPOINT_MS = 9e5;
+function clampEndpoint(value) {
+  if (value === void 0 || value === null) return void 0;
+  const candidate = Math.round(Number(value) || 0);
+  if (!Number.isFinite(candidate)) return void 0;
+  return Math.max(MIN_ENDPOINT_MS, Math.min(MAX_ENDPOINT_MS, candidate));
+}
+function getAsrSettings() {
+  return speechStore.get();
+}
+function setAsrSettings(patch) {
+  const normalized = { ...patch };
+  if (Object.prototype.hasOwnProperty.call(normalized, "endpointingMs")) {
+    normalized.endpointingMs = clampEndpoint(normalized.endpointingMs) ?? void 0;
+  }
+  speechStore.set(normalized);
+}
+function isDevMode2() {
+  if (typeof window === "undefined") return false;
+  try {
+    const w2 = window;
+    if (w2.__TP_DEV || w2.__TP_DEV1 || w2.__tpDevMode) return true;
+    if (w2.localStorage?.getItem("tp_dev_mode") === "1") return true;
+    const params = new URLSearchParams(window.location.search || "");
+    if (params.has("dev")) return true;
+    const hash = (window.location.hash || "").toLowerCase();
+    if (hash === "#dev" || hash === "#dev=1" || hash.includes("dev=1")) return true;
+  } catch {
+    return false;
+  }
+  return false;
+}
+if (typeof window !== "undefined") {
+  const win = window;
+  const ns = win.__tpSpeech || {};
+  ns.store = speechStore;
+  ns.getAsrSettings = getAsrSettings;
+  ns.setAsrSettings = setAsrSettings;
+  win.__tpSpeech = ns;
+  if (isDevMode2()) {
+    win.__tpSpeechStore = speechStore;
+  }
+}
+
+// src/state/appStore.ts
+function getAppStore() {
+  if (typeof window === "undefined") return null;
+  try {
+    const store2 = window.__tpStore;
+    return store2 || null;
+  } catch {
+    return null;
+  }
+}
+
+// src/asr/tuning-store.ts
+var DISABLE_ASR_TUNING_PERSIST = true;
+var KEY5 = "tp_asr_tuning_profiles_v1";
+var ACTIVE_KEY = "tp_asr_tuning_active_profile_v1";
+var store = getAppStore();
+var DEFAULT_READING_PROFILE = {
+  id: "reading",
+  label: "Reading",
+  description: "Reading profile for scripts and teleprompter cadence.",
+  bufferMs: 1500,
+  minTokenCount: 2,
+  minEvidenceChars: 12,
+  interimHysteresisBonus: 0.08,
+  interimStableRepeats: 1,
+  consistencyCount: 3,
+  consistencyWindowMs: 2400,
+  consistencyMaxDeltaLines: 6,
+  consistencyMaxSpreadLines: 4,
+  consistencySimSlack: 0.1,
+  consistencyRequireNearMarker: true,
+  consistencyMarkerBandLines: 8,
+  catchupMaxDeltaLines: 10,
+  catchupSimSlack: 0.12,
+  allowInterimCommit: true,
+  allowShortEvidence: true,
+  allowCatchup: true
+};
+var DEFAULT_STRICT_PROFILE = {
+  id: "strict",
+  label: "Strict",
+  description: "Strict profile for conversation or dictation safety.",
+  bufferMs: 0,
+  minTokenCount: 6,
+  minEvidenceChars: 40,
+  interimHysteresisBonus: 0.15,
+  interimStableRepeats: 2,
+  consistencyCount: 3,
+  consistencyWindowMs: 2e3,
+  consistencyMaxDeltaLines: 6,
+  consistencyMaxSpreadLines: 3,
+  consistencySimSlack: 0,
+  consistencyRequireNearMarker: true,
+  consistencyMarkerBandLines: 6,
+  catchupMaxDeltaLines: 6,
+  catchupSimSlack: 0,
+  allowInterimCommit: true,
+  allowShortEvidence: false,
+  allowCatchup: false
+};
+var BUILTIN_PROFILES = {
+  reading: DEFAULT_READING_PROFILE,
+  strict: DEFAULT_STRICT_PROFILE
+};
+var stateFromStore = (() => {
+  if (DISABLE_ASR_TUNING_PERSIST) return null;
+  if (!store) return null;
+  try {
+    const profiles = store.get("asrTuningProfiles") || {};
+    const activeProfileId = store.get("asrTuningActiveProfileId") || void 0;
+    return { profiles, activeProfileId };
+  } catch {
+    return null;
+  }
+})();
+function normalizeProfile(profile, fallback) {
+  const base = fallback || DEFAULT_READING_PROFILE;
+  if (!profile || typeof profile !== "object") {
+    return { ...base, updatedAt: Date.now() };
+  }
+  const id = profile.id || base.id;
+  return {
+    ...base,
+    ...profile,
+    id,
+    label: profile.label || base.label,
+    updatedAt: Date.now()
+  };
+}
+function hydrateProfiles(raw) {
+  const profiles = {
+    reading: { ...DEFAULT_READING_PROFILE },
+    strict: { ...DEFAULT_STRICT_PROFILE }
+  };
+  if (!raw || typeof raw !== "object") return profiles;
+  Object.keys(raw).forEach((id) => {
+    const key = id;
+    const existing = profiles[key] || DEFAULT_READING_PROFILE;
+    profiles[key] = normalizeProfile(raw[key], existing);
+  });
+  return profiles;
+}
+var state6 = (() => {
+  try {
+    if (DISABLE_ASR_TUNING_PERSIST) {
+      return { profiles: hydrateProfiles(null), activeProfileId: "reading" };
+    }
+    if (stateFromStore) {
+      return {
+        profiles: hydrateProfiles(stateFromStore.profiles),
+        activeProfileId: stateFromStore.activeProfileId
+      };
+    }
+    const raw = localStorage.getItem(KEY5);
+    const parsed = raw ? JSON.parse(raw) : {};
+    const legacyProfiles = parsed && typeof parsed === "object" && "profiles" in parsed ? parsed.profiles : null;
+    const profiles = legacyProfiles && typeof legacyProfiles === "object" ? legacyProfiles : parsed && typeof parsed === "object" ? parsed : {};
+    const activeProfileId = typeof parsed?.activeProfileId === "string" && parsed.activeProfileId || (localStorage.getItem(ACTIVE_KEY) || void 0);
+    return { profiles: hydrateProfiles(profiles), activeProfileId };
+  } catch {
+    return { profiles: hydrateProfiles(null) };
+  }
+})();
+var subs5 = /* @__PURE__ */ new Set();
+var storeSyncSuppressed = false;
+var calibrationRunning = false;
+function syncAppStore() {
+  if (DISABLE_ASR_TUNING_PERSIST) return;
+  if (!store) return;
+  storeSyncSuppressed = true;
+  try {
+    store.set("asrTuningProfiles", state6.profiles);
+  } catch {
+  }
+  try {
+    store.set("asrTuningActiveProfileId", state6.activeProfileId ?? null);
+  } catch {
+  }
+  storeSyncSuppressed = false;
+}
+function emitChange() {
+  try {
+    window.dispatchEvent(new CustomEvent("tp:asr:tuning", { detail: { ...state6 } }));
+  } catch {
+  }
+}
+function save2(opts) {
+  if (!DISABLE_ASR_TUNING_PERSIST) {
+    try {
+      localStorage.setItem(KEY5, JSON.stringify(state6.profiles || {}));
+    } catch {
+    }
+    try {
+      if (state6.activeProfileId) localStorage.setItem(ACTIVE_KEY, state6.activeProfileId);
+      else localStorage.removeItem(ACTIVE_KEY);
+    } catch {
+    }
+  }
+  subs5.forEach((fn) => {
+    try {
+      fn(state6);
+    } catch {
+    }
+  });
+  if (!opts?.fromStore) {
+    syncAppStore();
+  }
+  emitChange();
+}
+var getAsrTuningState = () => state6;
+function getActiveAsrTuningProfile() {
+  const id = state6.activeProfileId || "reading";
+  const selected = state6.profiles[id];
+  if (selected) return selected;
+  return state6.profiles.reading || DEFAULT_READING_PROFILE;
+}
+function ensureAsrTuningProfile(id) {
+  if (!state6.activeProfileId || !state6.profiles[state6.activeProfileId]) {
+    state6.activeProfileId = id;
+    save2();
+  }
+}
+function upsertAsrTuningProfile(profile) {
+  const fallback = BUILTIN_PROFILES[profile.id] || DEFAULT_READING_PROFILE;
+  state6.profiles[profile.id] = normalizeProfile(profile, fallback);
+  if (!state6.activeProfileId) state6.activeProfileId = profile.id;
+  save2();
+}
+function setActiveAsrTuningProfile(id) {
+  state6.activeProfileId = id;
+  if (!state6.profiles[id]) {
+    const fallback = BUILTIN_PROFILES[id] || DEFAULT_READING_PROFILE;
+    state6.profiles[id] = normalizeProfile({ id }, fallback);
+  }
+  save2();
+}
+function onAsrTuning(fn) {
+  subs5.add(fn);
+  return () => subs5.delete(fn);
+}
+function startCadenceCalibration(opts) {
+  if (typeof window === "undefined") {
+    return { stop: () => void 0, done: Promise.resolve(null) };
+  }
+  if (calibrationRunning) {
+    return {
+      stop: () => void 0,
+      done: Promise.resolve(null)
+    };
+  }
+  calibrationRunning = true;
+  const durationMs = Math.max(5e3, Number(opts?.durationMs) || 3e4);
+  const profileId = opts?.profileId || "reading";
+  const startedAt = Date.now();
+  let totalTokens = 0;
+  let totalChars = 0;
+  let sampleCount = 0;
+  let totalInterim = 0;
+  let stableInterim = 0;
+  let lastInterimText = "";
+  let lastSpeechTs = 0;
+  let pauseCount = 0;
+  let pauseSumMs = 0;
+  let stopped = false;
+  let timer = null;
+  let resolveDone = null;
+  const handler = (event) => {
+    const detail = event?.detail || {};
+    const raw = typeof detail.text === "string" ? detail.text : "";
+    const text = raw.replace(/\s+/g, " ").trim();
+    if (!text) return;
+    const now = Date.now();
+    const tokens = normTokens(text);
+    if (tokens.length) {
+      totalTokens += tokens.length;
+      totalChars += text.length;
+      sampleCount += 1;
+    }
+    if (lastSpeechTs) {
+      const gap = now - lastSpeechTs;
+      if (gap >= 300) {
+        pauseCount += 1;
+        pauseSumMs += gap;
+      }
+    }
+    lastSpeechTs = now;
+    const isFinal = Boolean(detail.isFinal ?? detail.final);
+    if (!isFinal) {
+      totalInterim += 1;
+      if (text === lastInterimText) stableInterim += 1;
+      lastInterimText = text;
+    } else {
+      lastInterimText = "";
+    }
+  };
+  const finish = () => {
+    if (stopped) return;
+    stopped = true;
+    calibrationRunning = false;
+    try {
+      window.removeEventListener("tp:speech:transcript", handler, true);
+    } catch {
+    }
+    if (timer) {
+      try {
+        window.clearTimeout(timer);
+      } catch {
+      }
+      timer = null;
+    }
+    const durationMin = Math.max(0.01, (Date.now() - startedAt) / 6e4);
+    const avgTokens = sampleCount ? totalTokens / sampleCount : 0;
+    const avgChars = sampleCount ? totalChars / sampleCount : 0;
+    const wpm = durationMin > 0 ? totalTokens / durationMin : 0;
+    const avgPauseMs = pauseCount ? pauseSumMs / pauseCount : 0;
+    const interimStability = totalInterim ? stableInterim / totalInterim : 0;
+    let bufferMs = Math.round(900 + Math.min(1200, avgPauseMs || 600));
+    if (wpm > 160) bufferMs -= 200;
+    bufferMs = Math.max(700, Math.min(2200, bufferMs));
+    let minTokenCount = avgTokens <= 3 ? 2 : avgTokens <= 6 ? 3 : 4;
+    if (wpm > 170) minTokenCount = Math.max(2, minTokenCount - 1);
+    let minEvidenceChars = Math.max(10, Math.round(minTokenCount * 6 + (avgChars > 40 ? 6 : 0)));
+    let consistencyCount = interimStability >= 0.6 ? 2 : interimStability >= 0.35 ? 3 : 4;
+    if (wpm < 100) consistencyCount = Math.min(4, consistencyCount + 1);
+    let interimStableRepeats = interimStability >= 0.6 ? 1 : 2;
+    const baseProfile = state6.profiles[profileId] || DEFAULT_READING_PROFILE;
+    const nextProfile = {
+      ...baseProfile,
+      id: profileId,
+      bufferMs,
+      minTokenCount,
+      minEvidenceChars,
+      interimStableRepeats,
+      consistencyCount,
+      consistencyWindowMs: Math.max(1200, Math.min(3200, Math.round(bufferMs + 800)))
+    };
+    upsertAsrTuningProfile(nextProfile);
+    const result = {
+      profileId,
+      bufferMs,
+      minTokenCount,
+      minEvidenceChars,
+      interimStableRepeats,
+      consistencyCount,
+      avgTokens,
+      avgChars,
+      wpm,
+      avgPauseMs,
+      interimStability
+    };
+    try {
+      window.dispatchEvent(new CustomEvent("tp:asr:tuning-calibrated", { detail: result }));
+    } catch {
+    }
+    if (resolveDone) resolveDone(result);
+  };
+  const stop2 = () => finish();
+  const done = new Promise((resolve) => {
+    resolveDone = resolve;
+    timer = window.setTimeout(() => finish(), durationMs);
+  });
+  try {
+    window.addEventListener("tp:speech:transcript", handler, true);
+  } catch {
+  }
+  return { stop: stop2, done };
+}
+if (store && !DISABLE_ASR_TUNING_PERSIST) {
+  try {
+    store.subscribe("asrTuningProfiles", (next) => {
+      if (storeSyncSuppressed) return;
+      const profilesObj = next && typeof next === "object" ? next : {};
+      state6.profiles = hydrateProfiles(profilesObj);
+      save2({ fromStore: true });
+    });
+    store.subscribe("asrTuningActiveProfileId", (next) => {
+      if (storeSyncSuppressed) return;
+      state6.activeProfileId = typeof next === "string" && next ? next : void 0;
+      save2({ fromStore: true });
+    });
+  } catch {
+  }
+  syncAppStore();
+}
+try {
+  if (!DISABLE_ASR_TUNING_PERSIST) {
+    window.addEventListener("storage", (e) => {
+      try {
+        if (e.key === KEY5 && e.newValue) {
+          const parsed = JSON.parse(e.newValue);
+          const legacyProfiles = parsed && typeof parsed === "object" && "profiles" in parsed ? parsed.profiles : null;
+          const profiles = legacyProfiles && typeof legacyProfiles === "object" ? legacyProfiles : parsed && typeof parsed === "object" ? parsed : {};
+          state6 = {
+            ...state6,
+            profiles: hydrateProfiles(profiles || {})
+          };
+          save2({ fromStore: true });
+        }
+        if (e.key === ACTIVE_KEY) {
+          state6.activeProfileId = e.newValue || void 0;
+          save2({ fromStore: true });
+        }
+      } catch {
+      }
+    });
+  }
+} catch {
+}
+try {
+  window.__tpAsrTuning = {
+    getState: getAsrTuningState,
+    getActiveProfile: getActiveAsrTuningProfile,
+    setActiveProfile: setActiveAsrTuningProfile,
+    upsertProfile: upsertAsrTuningProfile,
+    ensureProfile: ensureAsrTuningProfile,
+    startCalibration: startCadenceCalibration
+  };
+} catch {
+}
+
+// src/asr/asr-thresholds.ts
+var DEFAULT_ASR_THRESHOLDS = {
+  candidateMinSim: 0.55,
+  commitFinalMinSim: 0.22,
+  commitInterimMinSim: 0.18,
+  stickinessDelta: 0.08,
+  interimStreakNeeded: 2,
+  maxJumpsPerSecond: 4,
+  tieDelta: 0.05,
+  anchorMinSim: 0.7,
+  maxAnchorJumpLines: 60,
+  anchorStreakNeeded: 2,
+  maxLinesPerCommit: 1.25,
+  deltaSmoothingFactor: 0.3,
+  taperExponent: 2.2,
+  taperMin: 0.15,
+  glideMinMs: 120,
+  glideMaxMs: 250,
+  glideDefaultMs: 180,
+  microDeltaLineRatio: 0.8,
+  microPursuitMs: 320,
+  microPursuitMaxPxPerSec: 60,
+  minPursuitPxPerSec: 18
+};
+function clamp012(n) {
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
+function normalizeThresholds(thresholds) {
+  const glideMinMs = Math.max(50, Math.floor(thresholds.glideMinMs || DEFAULT_ASR_THRESHOLDS.glideMinMs));
+  const glideMaxMs = Math.max(glideMinMs, Math.floor(thresholds.glideMaxMs || DEFAULT_ASR_THRESHOLDS.glideMaxMs));
+  const glideDefaultMs = Math.max(
+    glideMinMs,
+    Math.min(
+      glideMaxMs,
+      Math.floor(thresholds.glideDefaultMs || DEFAULT_ASR_THRESHOLDS.glideDefaultMs)
+    )
+  );
+  return {
+    ...thresholds,
+    candidateMinSim: clamp012(thresholds.candidateMinSim),
+    commitFinalMinSim: clamp012(thresholds.commitFinalMinSim),
+    commitInterimMinSim: clamp012(thresholds.commitInterimMinSim),
+    stickinessDelta: clamp012(thresholds.stickinessDelta),
+    interimStreakNeeded: Math.max(1, Math.floor(thresholds.interimStreakNeeded || 1)),
+    maxJumpsPerSecond: Math.max(1, Math.floor(thresholds.maxJumpsPerSecond || 1)),
+    tieDelta: clamp012(thresholds.tieDelta),
+    anchorMinSim: clamp012(thresholds.anchorMinSim),
+    maxAnchorJumpLines: Math.max(1, Math.floor(thresholds.maxAnchorJumpLines || 1)),
+    anchorStreakNeeded: Math.max(1, Math.floor(thresholds.anchorStreakNeeded || 1)),
+    maxLinesPerCommit: Math.max(0.1, Number(thresholds.maxLinesPerCommit || DEFAULT_ASR_THRESHOLDS.maxLinesPerCommit)),
+    deltaSmoothingFactor: clamp012(thresholds.deltaSmoothingFactor),
+    taperExponent: Math.max(0.5, Math.min(5, Number(thresholds.taperExponent || DEFAULT_ASR_THRESHOLDS.taperExponent))),
+    taperMin: clamp012(thresholds.taperMin),
+    glideMinMs,
+    glideMaxMs,
+    glideDefaultMs,
+    microDeltaLineRatio: Math.max(0.1, Math.min(2, Number(thresholds.microDeltaLineRatio || DEFAULT_ASR_THRESHOLDS.microDeltaLineRatio))),
+    microPursuitMs: Math.max(100, Math.min(800, Math.floor(thresholds.microPursuitMs || DEFAULT_ASR_THRESHOLDS.microPursuitMs))),
+    microPursuitMaxPxPerSec: Math.max(5, Math.min(400, Number(thresholds.microPursuitMaxPxPerSec || DEFAULT_ASR_THRESHOLDS.microPursuitMaxPxPerSec))),
+    minPursuitPxPerSec: Math.max(0, Math.min(200, Number(thresholds.minPursuitPxPerSec || DEFAULT_ASR_THRESHOLDS.minPursuitPxPerSec)))
+  };
+}
+
+// src/dev/dev-thresholds.ts
+var STORAGE_KEY3 = "tp_asr_thresholds_v1";
+function getStorage() {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+function loadDevAsrThresholds() {
+  const storage = getStorage();
+  if (!storage) return null;
+  try {
+    const raw = storage.getItem(STORAGE_KEY3);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return null;
+    return normalizeThresholds({ ...DEFAULT_ASR_THRESHOLDS, ...parsed });
+  } catch {
+    return null;
+  }
+}
+
+// src/asr/asr-threshold-store.ts
+var THRESHOLD_EVENT = "tp:asr:thresholds";
+var baseThresholds = normalizeThresholds({ ...DEFAULT_ASR_THRESHOLDS });
+var driverThresholds = baseThresholds;
+var thresholdsDirty = false;
+function broadcastThresholdUpdate() {
+  if (typeof window === "undefined") return;
+  try {
+    const payload = driverThresholds;
+    window.dispatchEvent(new CustomEvent(THRESHOLD_EVENT, { detail: payload }));
+  } catch {
+  }
+}
+function computeEffectiveThresholds() {
+  return normalizeThresholds({ ...baseThresholds });
+}
+function refreshEffectiveThresholds(force = false) {
+  if (!force && thresholdsDirty) return;
+  driverThresholds = computeEffectiveThresholds();
+  broadcastThresholdUpdate();
+}
+function markThresholdsDirty() {
+  thresholdsDirty = true;
+}
+function applyDevOverrides() {
+  const overrides = loadDevAsrThresholds();
+  if (!overrides) return;
+  baseThresholds = normalizeThresholds({ ...baseThresholds, ...overrides });
+}
+applyDevOverrides();
+refreshEffectiveThresholds();
+function setAsrDriverThresholds(next, options) {
+  baseThresholds = normalizeThresholds({ ...baseThresholds, ...next });
+  if (options?.markDirty) {
+    markThresholdsDirty();
+  }
+  refreshEffectiveThresholds(true);
+}
+function getAsrDriverThresholds() {
+  return driverThresholds;
+}
+function getSessionLearnedPatches() {
+  return {};
+}
+function clearSessionLearnedPatches() {
+}
+
+// src/features/asr/asr-scroll-driver.ts
+var DEFAULT_MIN_LINE_ADVANCE = 1;
+var DEFAULT_SEEK_THROTTLE_MS = 120;
+var DEFAULT_INTERIM_SCALE = 1.15;
+var DEFAULT_MATCH_BACKTRACK_LINES = 2;
+var DEFAULT_MATCH_LOOKAHEAD_LINES = 50;
+var DEFAULT_MATCH_LOOKAHEAD_STEPS = [DEFAULT_MATCH_LOOKAHEAD_LINES, 120, 200, 400];
+var DEFAULT_LOOKAHEAD_BUMP_COOLDOWN_MS = 2e3;
+var DEFAULT_LOOKAHEAD_BEHIND_HITS = 2;
+var DEFAULT_LOOKAHEAD_BEHIND_WINDOW_MS = 1800;
+var DEFAULT_LOOKAHEAD_STALL_MS = 2500;
+var DEFAULT_SAME_LINE_THROTTLE_MS = 300;
+var DEFAULT_CREEP_PX = 8;
+var DEFAULT_CREEP_NEAR_PX = 12;
+var DEFAULT_CREEP_BUDGET_PX = 40;
+var DEFAULT_DEADBAND_PX = 32;
+var DEFAULT_MAX_VEL_PX_PER_SEC = 470;
+var DEFAULT_MAX_VEL_MED_PX_PER_SEC = 170;
+var DEFAULT_MAX_VEL_CATCHUP_PX_PER_SEC = 240;
+var DEFAULT_MAX_ACCEL_PX_PER_SEC2 = 800;
+var DEFAULT_MIN_STEP_PX = 6;
+var DEFAULT_MAX_STEP_PX = 10;
+var DEFAULT_CATCHUP_MED_MIN_PX = 80;
+var DEFAULT_CATCHUP_FAST_MIN_PX = 250;
+var DEFAULT_MAX_TARGET_JUMP_PX = 120;
+var DEFAULT_MAX_TARGET_JUMP_HYBRID_PX = 80;
+var DEFAULT_PURSUE_KP = 3.2;
+var DEFAULT_PURSUE_MANUAL_CANCEL_PX = 48;
+var DEFAULT_NO_TARGET_RETRY_SIM = 0.9;
+var DEFAULT_NO_TARGET_RETRY_MAX_DELTA = 6;
+var DEFAULT_NO_TARGET_RETRY_FRAMES = 2;
+var DEFAULT_LINE_MISSING_LOOKUP_FRAMES = 2;
+var DEFAULT_NO_TARGET_RETRY_WINDOW_MS = 350;
+var DEFAULT_STRONG_WINDOW_MS = 700;
+var DEFAULT_FINAL_EVIDENCE_LEAD_LINES = 2;
+var DEFAULT_BACK_RECOVERY_MAX_PX = 15;
+var DEFAULT_BACK_RECOVERY_COOLDOWN_MS = 5e3;
+var DEFAULT_BACK_RECOVERY_HIT_LIMIT = 2;
+var DEFAULT_BACK_RECOVERY_WINDOW_MS = 1200;
+var DEFAULT_BACK_RECOVERY_STRONG_CONF = 0.75;
+var MARKER_BIAS_PX = 6;
+var DEFAULT_REALIGN_LEAD_LINES = 6;
+var DEFAULT_REALIGN_LOOKBACK_LINES = 3;
+var DEFAULT_REALIGN_SIM = 0.7;
+var DEFAULT_LAG_RELOCK_BEHIND_HITS = 3;
+var DEFAULT_LAG_RELOCK_WINDOW_MS = 2200;
+var DEFAULT_LAG_RELOCK_MIN_DELTA = 20;
+var DEFAULT_LAG_RELOCK_MIN_TOKENS = 4;
+var DEFAULT_LAG_RELOCK_MIN_CHARS = 18;
+var DEFAULT_LAG_RELOCK_LOOKAHEAD_BONUS = 260;
+var DEFAULT_LAG_RELOCK_DURATION_MS = 2600;
+var DEFAULT_LAG_RELOCK_LOW_SIM_FLOOR = 0.3;
+var DEFAULT_RELOCK_SIM_FLOOR = 0.45;
+var DEFAULT_RELOCK_OVERLAP_RATIO = 0.22;
+var DEFAULT_RELOCK_SPAN_MIN_LINES = 2;
+var DEFAULT_RELOCK_REPEAT_WINDOW_MS = 2200;
+var DEFAULT_RELOCK_REPEAT_MIN = 2;
+var DEFAULT_RESYNC_WINDOW_MS = 1600;
+var DEFAULT_RESYNC_LOOKAHEAD_BONUS = 20;
+var DEFAULT_RESYNC_COOLDOWN_MS = 2500;
+var DEFAULT_STRONG_BACK_SIM = 0.72;
+var DEFAULT_BACK_CONFIRM_HITS = 2;
+var DEFAULT_BACK_CONFIRM_WINDOW_MS = 1300;
+var DEFAULT_BEHIND_RECOVERY_MS = 2600;
+var DEFAULT_BEHIND_RECOVERY_MAX_LINES = 6;
+var DEFAULT_BEHIND_RECOVERY_MIN_SIM = 0.78;
+var DEFAULT_BEHIND_RECOVERY_COOLDOWN_MS = 5e3;
+var DEFAULT_AMBIGUITY_SIM_DELTA = 0.06;
+var DEFAULT_AMBIGUITY_NEAR_LINES = 6;
+var DEFAULT_AMBIGUITY_FAR_LINES = 20;
+var DEFAULT_MIN_TOKEN_COUNT = 3;
+var DEFAULT_MIN_EVIDENCE_CHARS = 20;
+var DEFAULT_INTERIM_HYSTERESIS_BONUS = 0.15;
+var DEFAULT_INTERIM_STABLE_REPEATS = 1;
+var DEFAULT_FORWARD_TIE_EPS = 0.03;
+var DEFAULT_FORWARD_PROGRESS_WINDOW_MS = 4e3;
+var DEFAULT_FORWARD_BIAS_RECENT_LINES = 6;
+var DEFAULT_FORWARD_BIAS_WINDOW_MS = DEFAULT_FORWARD_PROGRESS_WINDOW_MS;
+var DEFAULT_FORWARD_BIAS_LOOKAHEAD_LINES = 12;
+var DEFAULT_FORWARD_BIAS_SIM_SLACK = 0.1;
+var DEFAULT_SHORT_FINAL_MIN_TOKENS = 2;
+var DEFAULT_SHORT_FINAL_MAX_TOKENS = 6;
+var DEFAULT_SHORT_FINAL_WINDOW_MS = DEFAULT_FORWARD_PROGRESS_WINDOW_MS;
+var DEFAULT_SHORT_FINAL_LOOKAHEAD_LINES = 10;
+var DEFAULT_SHORT_FINAL_SIM_SLACK = 0.12;
+var DEFAULT_OUTRUN_RELAXED_SIM = 0.5;
+var DEFAULT_OUTRUN_WINDOW_MS = DEFAULT_FORWARD_PROGRESS_WINDOW_MS;
+var DEFAULT_OUTRUN_LOOKAHEAD_LINES = 6;
+var DEFAULT_FORCED_RATE_WINDOW_MS = 1e4;
+var DEFAULT_FORCED_RATE_MAX = 2;
+var DEFAULT_FORCED_COOLDOWN_MS = 5e3;
+var DEFAULT_FORCED_MIN_TOKENS = 4;
+var DEFAULT_FORCED_MIN_CHARS = 24;
+var DEFAULT_SLAM_DUNK_SIM = 0.95;
+var DEFAULT_SLAM_DUNK_MAX_DELTA = 2;
+var DEFAULT_CONFIRMATION_RELAXED_SIM = 0.9;
+var DEFAULT_CONFIRMATION_RELAXED_MAX_DELTA = 2;
+var DEFAULT_NO_MATCH_WINDOW_MS = 1200;
+var DEFAULT_NO_MATCH_BUMP_HITS = 3;
+var DEFAULT_NO_MATCH_RELOCK_HITS = 6;
+var GUARD_THROTTLE_MS = 750;
+var DEFAULT_SHORT_TOKEN_MAX = 4;
+var DEFAULT_SHORT_TOKEN_BOOST = 0.12;
+var DEFAULT_STALL_COMMIT_MS = 15e3;
+var DEFAULT_STALL_LOG_COOLDOWN_MS = 4e3;
+var DEFAULT_LOW_SIM_FLOOR = 0.35;
+var DEFAULT_STUCK_RESYNC_WINDOW_MS = 2600;
+var DEFAULT_STUCK_RESYNC_LOOKAHEAD_BONUS = 80;
+var DEFAULT_STUCK_RESYNC_BACKTRACK_LINES = 1;
+var DEFAULT_STUCK_RELOCK_SIM = 0.55;
+var DEFAULT_GENERIC_SIM_DELTA = 0.03;
+var DEFAULT_GENERIC_MIN_CANDIDATES = 3;
+var DEFAULT_GENERIC_MAX_TOKENS = 8;
+var DEFAULT_META_OVERLAP_RATIO = 0.25;
+var DEFAULT_LAG_DELTA_LINES = 12;
+var DEFAULT_LAG_WINDOW_MATCHES = 5;
+var DEFAULT_LAG_MIN_FORWARD_HITS = 3;
+var DEFAULT_LAG_FORCE_DELTA_LINES = 25;
+var DEFAULT_LAG_FORCE_HITS = 2;
+var DEFAULT_CATCHUP_MODE_MAX_JUMP = 25;
+var DEFAULT_CATCHUP_MODE_MIN_SIM = 0.55;
+var DEFAULT_CATCHUP_MODE_DURATION_MS = 2500;
+var DEFAULT_CATCHUP_LOOKAHEAD_BONUS = 120;
+var POST_CATCHUP_MS = 2200;
+var POST_CATCHUP_DROP = 0.05;
+var POST_CATCHUP_MAX_DELTA = 24;
+var POST_CATCHUP_REQUIRE_IN_BAND = true;
+var DELTA_SMALL_MAX_LINES = 6;
+var DELTA_MED_MAX_LINES = 30;
+var DELTA_LARGE_MIN_LINES = 31;
+var DELTA_MIN_SIM_SMALL = 0.26;
+var DELTA_MIN_SIM_MED = 0.33;
+var DELTA_MIN_SIM_LARGE = 0.45;
+var LARGE_DELTA_CONFIRM_HITS = 2;
+var LARGE_DELTA_CONFIRM_WINDOW_MS = 1500;
+var LARGE_DELTA_CONFIRM_SPREAD = 6;
+var OVERSHOOT_RISK_DELTA_LINES = 30;
+var OVERSHOOT_RISK_WINDOW_MS = 3500;
+var OVERSHOOT_RISK_MIN_SIM = 0.4;
+var BEHIND_RECOVERY_WINDOW_MS = 2500;
+var BEHIND_RECOVERY_HITS = 3;
+var BEHIND_RECOVERY_CLUSTER_SPREAD = 6;
+var BEHIND_RECOVERY_MIN_DELTA = 6;
+var BEHIND_RECOVERY_MAX_REWIND = 20;
+var BEHIND_RECOVERY_MIN_SIM = 0.3;
+var BEHIND_RECOVERY_COOLDOWN_MS = 2500;
+var POST_CATCHUP_SAMPLES = 6;
+var DEFAULT_BACKJUMP_BLOCK_LINES = 5;
+var DEFAULT_FREEZE_LOW_SIM_HITS = 20;
+var DEFAULT_FREEZE_LOW_SIM_WINDOW_MS = 5e3;
+var EVENT_RING_MAX = 50;
+var EVENT_DUMP_COUNT = 12;
+var BEHIND_DEBT_WINDOW_LINES = 4;
+var BEHIND_DEBT_DECAY = 2;
+var BEHIND_DEBT_CAP = 200;
+var RECOVERY_BIG_JUMP_LINES = 15;
+var RECOVERY_SIM_MIN = 0.75;
+var RECOVERY_STREAK_REQUIRED = 3;
+var RECOVERY_SIM_SLACK = 0.05;
+var MANUAL_ANCHOR_MIN_SCROLL_PX = 400;
+var MANUAL_ANCHOR_MAX_SCROLL_WINDOW_MS = 1e3;
+var MANUAL_ANCHOR_PENDING_TIMEOUT_MS = 5e3;
+var MANUAL_ANCHOR_WINDOW_LINES = 10;
+var MANUAL_ANCHOR_SIM_SLACK = 0.03;
+var MAX_LINES_PER_COMMIT = 1.25;
+var DELTA_SMOOTHING_FACTOR = 0.3;
+var TAPER_EXPONENT = 2.2;
+var TAPER_MIN = 0.15;
+var GLIDE_MIN_MS = 120;
+var GLIDE_MAX_MS = 250;
+var GLIDE_DEFAULT_MS = 180;
+var MICRO_DELTA_LINE_RATIO = 0.8;
+var MICRO_PURSUE_MS = 320;
+var MICRO_PURSUE_MAX_PXPS = 60;
+var MIN_PX_PER_SEC = 18;
+var MOTION_PRESET_NORMAL = {
+  maxLinesPerCommit: MAX_LINES_PER_COMMIT,
+  deltaSmoothingFactor: DELTA_SMOOTHING_FACTOR,
+  taperExponent: TAPER_EXPONENT,
+  taperMin: TAPER_MIN,
+  glideMinMs: GLIDE_MIN_MS,
+  glideMaxMs: GLIDE_MAX_MS,
+  glideDefaultMs: GLIDE_DEFAULT_MS,
+  microDeltaLineRatio: MICRO_DELTA_LINE_RATIO,
+  microPursuitMs: MICRO_PURSUE_MS,
+  microPursuitMaxPxPerSec: MICRO_PURSUE_MAX_PXPS,
+  minPursuitPxPerSec: MIN_PX_PER_SEC
+};
+var MOTION_PRESET_CALM = {
+  maxLinesPerCommit: 0.9,
+  deltaSmoothingFactor: 0.2,
+  taperExponent: 2.6,
+  taperMin: 0.1,
+  glideMinMs: 180,
+  glideMaxMs: 360,
+  glideDefaultMs: 270,
+  microDeltaLineRatio: 0.95,
+  microPursuitMs: 420,
+  microPursuitMaxPxPerSec: 40,
+  minPursuitPxPerSec: 12
+};
+var MOTION_OVERRIDE_EPS = 1e-4;
+var MOTION_KEYS = [
+  "maxLinesPerCommit",
+  "deltaSmoothingFactor",
+  "taperExponent",
+  "taperMin",
+  "glideMinMs",
+  "glideMaxMs",
+  "glideDefaultMs",
+  "microDeltaLineRatio",
+  "microPursuitMs",
+  "microPursuitMaxPxPerSec",
+  "minPursuitPxPerSec"
+];
+function clamp5(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+function formatLogSnippet(value, maxLen) {
+  const compact = String(value || "").replace(/\s+/g, " ").trim();
+  if (compact.length <= maxLen) return compact;
+  return `${compact.slice(0, maxLen)}...`;
+}
+function formatLogScore(value) {
+  return Number.isFinite(value) ? value.toFixed(2) : "?";
+}
+function mergeEvidenceText(base, next) {
+  const a = String(base || "").trim();
+  const b = String(next || "").trim();
+  if (!a) return b;
+  if (!b) return a;
+  if (a.includes(b)) return a;
+  if (b.includes(a)) return b;
+  const aTokens = a.split(" ");
+  const bTokens = b.split(" ");
+  const max = Math.min(aTokens.length, bTokens.length);
+  let overlap = 0;
+  for (let n = max; n >= 1; n -= 1) {
+    const tail = aTokens.slice(-n).join(" ").toLowerCase();
+    const head2 = bTokens.slice(0, n).join(" ").toLowerCase();
+    if (tail === head2) {
+      overlap = n;
+      break;
+    }
+  }
+  if (overlap > 0) {
+    return [...aTokens, ...bTokens.slice(overlap)].join(" ");
+  }
+  return `${a} ${b}`;
+}
+function buildEvidenceText(entries) {
+  let merged = "";
+  for (const entry of entries) {
+    merged = mergeEvidenceText(merged, entry.text);
+  }
+  return merged.replace(/\s+/g, " ").trim();
+}
+var guardLastAt = /* @__PURE__ */ new Map();
+var logLastAt = /* @__PURE__ */ new Map();
+var guardStatusLastAt = /* @__PURE__ */ new Map();
+var activeGuardCounts = null;
+var guardEvents = [];
+var LOG_THROTTLE_MS = 500;
+var HUD_STATUS_THROTTLE_MS = 500;
+var HUD_PURSUE_THROTTLE_MS = 200;
+var lastPursueHudAt = 0;
+function logThrottled(key, level, message, payload) {
+  const now = Date.now();
+  const last = logLastAt.get(key) ?? 0;
+  if (now - last < LOG_THROTTLE_MS) return;
+  logLastAt.set(key, now);
+  try {
+    const fn = console[level] || console.log;
+    if (payload === void 0) fn(message);
+    else fn(message, payload);
+  } catch {
+  }
+}
+function warnGuard(reason, parts) {
+  const now = Date.now();
+  try {
+    guardEvents.push({ ts: now, reason });
+    const cutoff = now - DEFAULT_STALL_COMMIT_MS;
+    while (guardEvents.length && guardEvents[0].ts < cutoff) guardEvents.shift();
+  } catch {
+  }
+  try {
+    if (activeGuardCounts) {
+      activeGuardCounts.set(reason, (activeGuardCounts.get(reason) || 0) + 1);
+    }
+  } catch {
+  }
+  const last = guardLastAt.get(reason) ?? 0;
+  if (now - last < GUARD_THROTTLE_MS) return;
+  guardLastAt.set(reason, now);
+  try {
+    const line = ["\u{1F9F1} ASR_GUARD", `reason=${reason}`, ...parts.filter(Boolean)];
+    console.warn(line.join(" "));
+  } catch {
+  }
+  logThrottled(`ASR_GUARD:${reason}`, "warn", "ASR_GUARD", { reason, parts: parts.filter(Boolean) });
+}
+function emitHudStatus(key, text, detail) {
+  const now = Date.now();
+  const last = guardStatusLastAt.get(key) ?? 0;
+  if (now - last < HUD_STATUS_THROTTLE_MS) return;
+  guardStatusLastAt.set(key, now);
+  const payload = { text, ts: now, ...detail };
+  try {
+    window.dispatchEvent(new CustomEvent("tp:asr:guard", { detail: payload }));
+  } catch {
+  }
+  try {
+    window.__tpHud?.bus?.emit?.("asr:guard", payload);
+  } catch {
+  }
+}
+function emitPursuitHud(err, vel, target, top) {
+  if (!isDevMode3()) return;
+  const now = Date.now();
+  if (now - lastPursueHudAt < HUD_PURSUE_THROTTLE_MS) return;
+  lastPursueHudAt = now;
+  const payload = {
+    err: Number.isFinite(err) ? Math.round(err) : err,
+    vel: Number.isFinite(vel) ? Number(vel.toFixed(1)) : vel,
+    target: Number.isFinite(target) ? Math.round(target) : target,
+    top: Math.round(top)
+  };
+  try {
+    window.__tpHud?.log?.("ASR_PURSUE", payload);
+  } catch {
+  }
+  try {
+    window.HUD?.log?.("ASR_PURSUE", payload);
+  } catch {
+  }
+  try {
+    console.debug(`ASR_PURSUE err=${payload.err} vel=${payload.vel} target=${payload.target} top=${payload.top}`);
+  } catch {
+  }
+}
+function resolveThreshold() {
+  try {
+    const stored = getAsrSettings();
+    if (typeof stored.threshold === "number") {
+      return clamp5(stored.threshold, 0, 1);
+    }
+  } catch {
+  }
+  return 0.55;
+}
+function isDevMode3() {
+  if (typeof window === "undefined") return false;
+  try {
+    const w2 = window;
+    if (w2.__tpAsrScrollDebug) return true;
+    if (w2.__TP_DEV || w2.__TP_DEV1 || w2.__tpDevMode) return true;
+    if (w2.localStorage?.getItem("tp_dev_mode") === "1") return true;
+    const params = new URLSearchParams(window.location.search || "");
+    if (params.has("dev") || params.has("debug")) return true;
+    const hash = (window.location.hash || "").replace(/^#/, "").toLowerCase();
+    if (hash === "dev" || hash === "dev=1" || hash.includes("dev=1")) return true;
+  } catch {
+  }
+  return false;
+}
+function logDev(...args) {
+  if (!isDevMode3()) return;
+  try {
+    console.debug("[ASR\u2192SCROLL]", ...args);
+  } catch {
+  }
+}
+function getScrollMode3() {
+  try {
+    const store2 = window.__tpStore;
+    const raw = store2?.get?.("scrollMode") ?? window.__tpUiScrollMode;
+    return String(raw || "").toLowerCase();
+  } catch {
+    return "";
+  }
+}
+function isHybridMode() {
+  return getScrollMode3() === "hybrid";
+}
+var HYBRID_BRAKE_TTL_MS = 320;
+var HYBRID_ASSIST_TTL_MS = 320;
+var HYBRID_TARGET_HINT_TTL_MS = 600;
+var HYBRID_ASSIST_MAX_BOOST_PXPS = 400;
+var HYBRID_TARGET_HINT_MIN_DELTA_PX = 8;
+var HYBRID_TARGET_HINT_MIN_INTERVAL_MS = 250;
+var lastHybridTargetHintTop = null;
+var lastHybridTargetHintTs = 0;
+var getNowMs = () => typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
+function dispatchHybridEvent(name, detail) {
+  if (typeof window === "undefined") return;
+  try {
+    window.dispatchEvent(new CustomEvent(name, { detail }));
+  } catch {
+  }
+}
+function emitHybridBrake(factor, reason, ttlMs) {
+  if (!isHybridMode()) return;
+  const safeFactor = Number.isFinite(factor) ? Math.max(0, Math.min(1, factor)) : 1;
+  const requestedTtl = typeof ttlMs === "number" ? ttlMs : HYBRID_BRAKE_TTL_MS;
+  const safeTtl = Math.max(20, Math.min(2e3, requestedTtl));
+  dispatchHybridEvent("tp:hybrid:brake", {
+    factor: safeFactor,
+    reason,
+    ttlMs: safeTtl
+  });
+}
+function emitHybridAssist(boostPxps, reason, targetTop, ttlMs) {
+  if (!isHybridMode()) return;
+  const boostValue = typeof boostPxps === "number" ? boostPxps : NaN;
+  const boost = Number.isFinite(boostValue) ? Math.max(0, Math.min(HYBRID_ASSIST_MAX_BOOST_PXPS, boostValue)) : 0;
+  if (boost <= 0) return;
+  const requestedTtl = typeof ttlMs === "number" ? ttlMs : HYBRID_ASSIST_TTL_MS;
+  const safeTtl = Math.max(20, Math.min(2e3, requestedTtl));
+  dispatchHybridEvent("tp:hybrid:assist", {
+    boostPxps: boost,
+    reason,
+    ttlMs: safeTtl,
+    targetTop
+  });
+}
+var warnedMissingTargetTop = false;
+function emitHybridTargetHint(top, confidence, reason, ttlMs, lineIndex) {
+  if (!isHybridMode()) return;
+  const scroller = getScroller();
+  const anchorLineIndex = typeof lineIndex === "number" && Number.isFinite(lineIndex) ? Math.max(0, Math.floor(lineIndex)) : null;
+  let anchorTop = null;
+  if (scroller && anchorLineIndex !== null) {
+    const lineEl = getLineElementByIndex(scroller, anchorLineIndex);
+    if (lineEl) {
+      anchorTop = lineEl.offsetTop || 0;
+    }
+  }
+  const fallbackTop = anchorTop != null ? anchorTop : scroller && typeof scroller.scrollTop === "number" ? scroller.scrollTop : 0;
+  const normalizedTop = Number.isFinite(top) ? top : fallbackTop;
+  const missingTop = !Number.isFinite(top);
+  if (missingTop && isDevMode3() && !warnedMissingTargetTop) {
+    warnedMissingTargetTop = true;
+    try {
+      console.warn("[HYBRID_CTRL] targetHint missing top \u2013 using fallback", {
+        reason,
+        fallbackTop
+      });
+    } catch {
+    }
+  }
+  const now = getNowMs();
+  if (lastHybridTargetHintTop != null && Math.abs(normalizedTop - lastHybridTargetHintTop) < HYBRID_TARGET_HINT_MIN_DELTA_PX && now - lastHybridTargetHintTs < HYBRID_TARGET_HINT_MIN_INTERVAL_MS) {
+    return;
+  }
+  lastHybridTargetHintTop = normalizedTop;
+  lastHybridTargetHintTs = now;
+  const requestedTtl = typeof ttlMs === "number" ? ttlMs : HYBRID_TARGET_HINT_TTL_MS;
+  const safeTtl = Math.max(20, Math.min(2e3, requestedTtl));
+  const safeConfidence = Math.max(0, Math.min(1, confidence));
+  const markerPct = typeof window.__TP_MARKER_PCT === "number" ? window.__TP_MARKER_PCT : 0.4;
+  dispatchHybridEvent("tp:hybrid:targetHint", {
+    targetTop: normalizedTop,
+    top: normalizedTop,
+    confidence: safeConfidence,
+    reason,
+    ttlMs: safeTtl,
+    anchorTop,
+    markerPct,
+    anchorLine: anchorLineIndex,
+    lineIndex: anchorLineIndex
+  });
+}
+function getScroller() {
+  const primary = getPrimaryScroller();
+  const root = getScriptRoot();
+  const fallback = root || getFallbackScroller();
+  return resolveActiveScroller(primary, fallback);
+}
+function getLineElementByIndex(scroller, lineIndex) {
+  if (!scroller) return null;
+  const idx = Math.max(0, Math.floor(lineIndex));
+  const selectors = [
+    `.line[data-line="${idx}"]`,
+    `.tp-line[data-line="${idx}"]`,
+    `.line[data-line-idx="${idx}"]`,
+    `.tp-line[data-line-idx="${idx}"]`
+  ];
+  for (const selector of selectors) {
+    const candidate = scroller.querySelector(selector);
+    if (candidate) return candidate;
+  }
+  return null;
+}
+function computeLineTargetTop(scroller, lineEl) {
+  if (!scroller || !lineEl) return null;
+  const offset = Math.max(0, (scroller.clientHeight - (lineEl.offsetHeight || lineEl.clientHeight || 0)) / 2);
+  const raw = (lineEl.offsetTop || 0) - offset;
+  const biased = raw - MARKER_BIAS_PX;
+  const max = Math.max(0, (scroller.scrollHeight || 0) - scroller.clientHeight);
+  return clamp5(biased, 0, max);
+}
+function resolveTargetTop(scroller, lineIndex) {
+  return computeLineTargetTop(scroller, getLineElementByIndex(scroller, lineIndex));
+}
+async function findLineElWithRetry(scroller, targetIndex, retries = DEFAULT_LINE_MISSING_LOOKUP_FRAMES) {
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const el = getLineElementByIndex(scroller, targetIndex);
+    if (el) return el;
+    if (attempt === retries) break;
+    await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  }
+  return null;
+}
+function diagnoseNoTarget(scroller, lineIndex) {
+  const reasons = [];
+  if (!Number.isFinite(lineIndex)) reasons.push("invalid_index");
+  if (!scroller) {
+    reasons.push("no_scroller");
+    return {
+      reasons,
+      lineEl: null,
+      domLines: 0,
+      markerIdx: -1,
+      scrollerId: "none"
+    };
+  }
+  const lineEl = getLineElementByIndex(scroller, lineIndex);
+  if (!lineEl) reasons.push("line_missing");
+  if (lineEl && !lineEl.isConnected) reasons.push("line_detached");
+  if (lineEl) {
+    try {
+      const style = getComputedStyle(lineEl);
+      if (style.display === "none" || style.visibility === "hidden") {
+        reasons.push("line_hidden");
+      }
+    } catch {
+    }
+    try {
+      const rect = lineEl.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) reasons.push("line_zero_rect");
+    } catch {
+    }
+  }
+  if (!scroller.isConnected) reasons.push("scroller_detached");
+  try {
+    const scrollerStyle = getComputedStyle(scroller);
+    if (scrollerStyle.display === "none" || scrollerStyle.visibility === "hidden") {
+      reasons.push("scroller_hidden");
+    }
+  } catch {
+  }
+  let domLines = 0;
+  try {
+    domLines = scroller.querySelectorAll(".line").length;
+  } catch {
+  }
+  if (domLines === 0) reasons.push("no_dom_lines");
+  const markerIdx = computeMarkerLineIndex(scroller);
+  if (!Number.isFinite(markerIdx) || markerIdx < 0) reasons.push("marker_idx_invalid");
+  return {
+    reasons,
+    lineEl,
+    domLines,
+    markerIdx,
+    scrollerId: describeElement(scroller)
+  };
+}
+function estimateTargetTopFromLines(scroller, baseLineIndex, targetLineIndex) {
+  if (!scroller) return null;
+  const baseIdx = Number.isFinite(baseLineIndex) ? Math.max(0, Math.floor(baseLineIndex)) : 0;
+  const targetIdx = Number.isFinite(targetLineIndex) ? Math.max(0, Math.floor(targetLineIndex)) : 0;
+  const baseEl = getLineElementByIndex(scroller, baseIdx) || scroller.querySelector(".line");
+  if (!baseEl) return null;
+  const lineHeight = baseEl.offsetHeight || baseEl.clientHeight || 0;
+  if (!lineHeight) return null;
+  const deltaLines = targetIdx - baseIdx;
+  const offset = Math.max(0, (scroller.clientHeight - lineHeight) / 2);
+  const raw = (baseEl.offsetTop || 0) + deltaLines * lineHeight - offset;
+  const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+  return clamp5(raw, 0, max);
+}
+function computeMarkerLineIndex(scroller) {
+  try {
+    const viewer3 = scroller || getPrimaryScroller();
+    const root = getScriptRoot() || viewer3;
+    const container = viewer3 || root;
+    const lineEls = Array.from((container || document).querySelectorAll(".line"));
+    if (!lineEls.length) return 0;
+    const activeScroller = resolveActiveScroller(viewer3, root);
+    const scrollTop = activeScroller?.scrollTop ?? 0;
+    const firstLineHeight = lineEls[0].offsetHeight || lineEls[0].clientHeight || 0;
+    const topEpsilon = Math.max(24, firstLineHeight * 0.5);
+    if (scrollTop <= topEpsilon) return 0;
+    const markerPct = typeof window.__TP_MARKER_PCT === "number" ? window.__TP_MARKER_PCT : 0.4;
+    const host = activeScroller || container;
+    const rect = host ? host.getBoundingClientRect() : document.documentElement.getBoundingClientRect();
+    const markerY = rect.top + (host ? host.clientHeight : window.innerHeight) * markerPct;
+    let bestIdx = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < lineEls.length; i++) {
+      const el = lineEls[i];
+      const r = el.getBoundingClientRect();
+      const y = r.top + r.height * 0.5;
+      const d = Math.abs(y - markerY);
+      if (d < bestDist) {
+        bestDist = d;
+        const dataIdx = el.dataset.i || el.dataset.index || el.getAttribute("data-line-idx");
+        bestIdx = dataIdx ? Math.max(0, Number(dataIdx) || 0) : i;
+      }
+    }
+    return Math.max(0, Math.floor(bestIdx));
+  } catch {
+    return 0;
+  }
+}
+function createAsrScrollDriver(options = {}) {
+  const minLineAdvance = Number.isFinite(options.minLineAdvance ?? DEFAULT_MIN_LINE_ADVANCE) ? Math.max(0, options.minLineAdvance ?? DEFAULT_MIN_LINE_ADVANCE) : DEFAULT_MIN_LINE_ADVANCE;
+  const seekThrottleMs = Number.isFinite(options.seekThrottleMs ?? DEFAULT_SEEK_THROTTLE_MS) ? Math.max(0, options.seekThrottleMs ?? DEFAULT_SEEK_THROTTLE_MS) : DEFAULT_SEEK_THROTTLE_MS;
+  const interimScale = Number.isFinite(options.interimConfidenceScale ?? DEFAULT_INTERIM_SCALE) ? Math.max(0, options.interimConfidenceScale ?? DEFAULT_INTERIM_SCALE) : DEFAULT_INTERIM_SCALE;
+  const sessionStartAt = Date.now();
+  let threshold = resolveThreshold();
+  setAsrDriverThresholds({ candidateMinSim: threshold });
+  let lastLineIndex = -1;
+  let postCatchupUntil = 0;
+  let postCatchupSamplesLeft = 0;
+  let lastSeekTs = 0;
+  let lastSameLineNudgeTs = 0;
+  let lastMoveAt = 0;
+  let lastIngestAt = 0;
+  let lastCommitAt2 = sessionStartAt;
+  let commitCount = 0;
+  let firstCommitIndex = null;
+  let lastCommitIndex = null;
+  let lastKnownScrollTop = 0;
+  let summaryEmitted = false;
+  let lastStallLogAt = 0;
+  let lastForwardCommitAt = Date.now();
+  let stallRescueRequested = false;
+  let stallHudEmitted = false;
+  let disposed = false;
+  let desyncWarned = false;
+  let lowSimStreak = 0;
+  let lowSimFirstAt = 0;
+  let lowSimFreezeLogged = false;
+  let resyncUntil = 0;
+  let resyncAnchorIdx = null;
+  let resyncReason = null;
+  let resyncLookaheadBonus = DEFAULT_RESYNC_LOOKAHEAD_BONUS;
+  let resyncBacktrackOverride = DEFAULT_MATCH_BACKTRACK_LINES;
+  let matchAnchorIdx = -1;
+  let pursuitTargetTop = null;
+  let appliedTopPx = 0;
+  let pursuitVel = 0;
+  let pursuitLastTs = 0;
+  let pursuitActive = false;
+  function logAsrScrollAttempt(stage, payload) {
+    if (!shouldLogScrollWrite()) return;
+    try {
+      const topValue = typeof payload.targetTop === "number" && Number.isFinite(payload.targetTop) ? Number(payload.targetTop.toFixed(1)) : payload.targetTop;
+      console.info("[ASR_SCROLL_WRITE]", {
+        stage,
+        reason: payload.reason,
+        source: payload.source || "asr",
+        targetTop: topValue,
+        currentTop: Math.round(payload.currentTop || 0),
+        applied: payload.applied,
+        scroller: describeElement(payload.scroller ?? null)
+      });
+    } catch {
+    }
+  }
+  function scheduleAsrWriteCheck(scroller, before, reason, targetTop, source) {
+    if (!shouldLogScrollWrite()) return;
+    const logFn = () => {
+      try {
+        const after = scroller.scrollTop || before;
+        logAsrScrollAttempt("applied", {
+          targetTop,
+          currentTop: before,
+          reason,
+          source,
+          scroller,
+          applied: after !== before
+        });
+      } catch {
+      }
+    };
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(logFn);
+    } else {
+      setTimeout(logFn, 0);
+    }
+  }
+  function applyScrollWithHybridGuard(targetTop, opts) {
+    const scroller = opts.scroller ?? getScroller();
+    const reason = opts.reason ?? "asr";
+    const source = opts.source ?? "asr";
+    const currentTop = scroller?.scrollTop ?? lastKnownScrollTop;
+    logAsrScrollAttempt("attempt", { targetTop, currentTop, reason, scroller, source });
+    if (!scroller) {
+      logAsrScrollAttempt("denied", {
+        targetTop,
+        currentTop,
+        reason: `${reason}:no-scroller`,
+        scroller,
+        source,
+        applied: false
+      });
+      return currentTop;
+    }
+    if (isHybridMode()) {
+      logAsrScrollAttempt("denied", {
+        targetTop,
+        currentTop,
+        reason: `${reason}:hybrid`,
+        scroller,
+        source,
+        applied: false
+      });
+      return currentTop;
+    }
+    const payload = { ...opts, scroller };
+    const appliedTop = applyCanonicalScrollTop(targetTop, { ...payload, source });
+    scheduleAsrWriteCheck(scroller, currentTop, reason, targetTop, source);
+    return appliedTop;
+  }
+  let calmModeEnabled = false;
+  try {
+    calmModeEnabled = !!speechStore.get().calmModeEnabled;
+  } catch {
+  }
+  let activeMotionPreset = calmModeEnabled ? "calm" : "normal";
+  let motionTuning = { ...calmModeEnabled ? MOTION_PRESET_CALM : MOTION_PRESET_NORMAL };
+  let lastTuningSnapshot = "";
+  let lastTuningHudAt = 0;
+  const emitTuningHud = (now) => {
+    if (now - lastTuningHudAt < 2e3) return;
+    lastTuningHudAt = now;
+    const payload = {
+      preset: activeMotionPreset,
+      maxLinesPerCommit: Number(motionTuning.maxLinesPerCommit.toFixed(2)),
+      deltaSmoothingFactor: Number(motionTuning.deltaSmoothingFactor.toFixed(2)),
+      taperExponent: Number(motionTuning.taperExponent.toFixed(2)),
+      taperMin: Number(motionTuning.taperMin.toFixed(2)),
+      glideMs: Math.round(motionTuning.glideDefaultMs),
+      microDeltaLineRatio: Number(motionTuning.microDeltaLineRatio.toFixed(2)),
+      microPursuitMs: Math.round(motionTuning.microPursuitMs),
+      microMaxPxPerSec: Math.round(motionTuning.microPursuitMaxPxPerSec),
+      minPxPerSec: Math.round(motionTuning.minPursuitPxPerSec)
+    };
+    try {
+      window.__tpHud?.log?.("ASR_TUNING", payload);
+    } catch {
+    }
+    try {
+      window.HUD?.log?.("ASR_TUNING", payload);
+    } catch {
+    }
+  };
+  const syncMotionTuning = (thresholds, now) => {
+    const presetName = calmModeEnabled ? "calm" : "normal";
+    const preset = presetName === "calm" ? MOTION_PRESET_CALM : MOTION_PRESET_NORMAL;
+    const next = { ...preset };
+    MOTION_KEYS.forEach((key) => {
+      const overrideVal = thresholds[key];
+      const baselineVal = MOTION_PRESET_NORMAL[key];
+      if (Number.isFinite(overrideVal) && Math.abs(overrideVal - baselineVal) > MOTION_OVERRIDE_EPS) {
+        next[key] = overrideVal;
+      }
+    });
+    motionTuning = next;
+    if (presetName !== activeMotionPreset) {
+      activeMotionPreset = presetName;
+      stopGlide("preset-change");
+      microPursuitUntil = 0;
+      lastCommitDeltaPx = 0;
+      pursuitVel = 0;
+      pursuitActive = false;
+      pursuitTargetTop = null;
+    }
+    const snapshot = JSON.stringify({ preset: activeMotionPreset, ...motionTuning });
+    if (snapshot !== lastTuningSnapshot) {
+      lastTuningSnapshot = snapshot;
+      emitTuningHud(now);
+    }
+  };
+  const stopGlide = (reason) => {
+    if (!glideAnim) return;
+    try {
+      glideAnim.cancel();
+    } catch {
+    }
+    glideAnim = null;
+    if (reason) {
+      logDev("glide canceled", { reason });
+    }
+  };
+  const armMicroPursuit = (now, reason, capOverride) => {
+    microPursuitUntil = now + Math.max(100, motionTuning.microPursuitMs);
+    microPursuitCapPxPerSec = Number.isFinite(capOverride) ? capOverride : motionTuning.microPursuitMaxPxPerSec;
+    if (reason) {
+      logDev("micro pursuit", { reason, until: microPursuitUntil });
+    }
+  };
+  const startGlideTo = (targetTop, opts) => {
+    if (isHybridMode()) return false;
+    const scroller = opts.scroller ?? getScroller();
+    if (!scroller) return false;
+    if (!Number.isFinite(targetTop)) return false;
+    stopGlide("retarget");
+    const fromTop = Number(scroller.scrollTop || 0);
+    const toTop = Number(targetTop);
+    if (!Number.isFinite(fromTop) || !Number.isFinite(toTop)) return false;
+    const duration = clamp5(
+      Number.isFinite(opts.durationMs) ? opts.durationMs : motionTuning.glideDefaultMs,
+      motionTuning.glideMinMs,
+      motionTuning.glideMaxMs
+    );
+    let cancelled = false;
+    const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+    glideAnim = {
+      cancel: () => {
+        cancelled = true;
+      }
+    };
+    const step = (ts) => {
+      if (cancelled) return;
+      const now = Number.isFinite(ts) ? ts : typeof performance !== "undefined" ? performance.now() : Date.now();
+      const t = clamp5((now - startedAt) / duration, 0, 1);
+      const eased = 1 - Math.pow(1 - t, 3);
+      const nextTop = fromTop + (toTop - fromTop) * eased;
+      const applied = applyScrollWithHybridGuard(nextTop, {
+        scroller,
+        reason: opts.reason ?? "asr-glide",
+        source: opts.source ?? "asr"
+      });
+      appliedTopPx = applied;
+      lastKnownScrollTop = applied;
+      lastMoveAt = Date.now();
+      markProgrammaticScroll();
+      if (t < 1) {
+        if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+          window.requestAnimationFrame(step);
+        } else {
+          setTimeout(() => step(typeof performance !== "undefined" ? performance.now() : Date.now()), 16);
+        }
+      } else {
+        glideAnim = null;
+      }
+    };
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(step);
+    } else {
+      setTimeout(() => step(typeof performance !== "undefined" ? performance.now() : Date.now()), 0);
+    }
+    return true;
+  };
+  const computeDeltaMinSim = (deltaLines) => {
+    if (!Number.isFinite(deltaLines) || deltaLines <= 0) return 0;
+    if (deltaLines >= DELTA_LARGE_MIN_LINES) return DELTA_MIN_SIM_LARGE;
+    if (deltaLines >= DELTA_SMALL_MAX_LINES + 1 && deltaLines <= DELTA_MED_MAX_LINES) {
+      return DELTA_MIN_SIM_MED;
+    }
+    return DELTA_MIN_SIM_SMALL;
+  };
+  const confirmLargeDelta = (targetLine, now) => {
+    if (!Number.isFinite(targetLine)) return false;
+    if (!largeDeltaConfirm) {
+      largeDeltaConfirm = { idx: targetLine, ts: now, hits: 1 };
+      return false;
+    }
+    const withinWindow = now - largeDeltaConfirm.ts <= LARGE_DELTA_CONFIRM_WINDOW_MS;
+    const withinBand = Math.abs(targetLine - largeDeltaConfirm.idx) <= LARGE_DELTA_CONFIRM_SPREAD;
+    if (!withinWindow || !withinBand) {
+      largeDeltaConfirm = { idx: targetLine, ts: now, hits: 1 };
+      return false;
+    }
+    largeDeltaConfirm.hits += 1;
+    largeDeltaConfirm.ts = now;
+    if (largeDeltaConfirm.hits >= LARGE_DELTA_CONFIRM_HITS) {
+      largeDeltaConfirm = null;
+      return true;
+    }
+    return false;
+  };
+  const recordBehindRecoveryHit = (idx, sim, isFinal, now) => {
+    if (!Number.isFinite(idx) || !Number.isFinite(sim)) return;
+    if (sim < BEHIND_RECOVERY_MIN_SIM) return;
+    behindRecoveryHits.push({ ts: now, idx: Math.max(0, Math.floor(idx)), sim, isFinal });
+    for (let i = behindRecoveryHits.length - 1; i >= 0; i--) {
+      if (now - behindRecoveryHits[i].ts > BEHIND_RECOVERY_WINDOW_MS) {
+        behindRecoveryHits.splice(i, 1);
+      }
+    }
+  };
+  const tryBehindRecovery = (cursorLine, now, conf, rawIdx, isFinal) => {
+    if (now - lastBehindRecoveryAt < BEHIND_RECOVERY_COOLDOWN_MS) return false;
+    if (cursorLine - rawIdx < BEHIND_RECOVERY_MIN_DELTA) return false;
+    const activeHits = behindRecoveryHits.filter((h) => now - h.ts <= BEHIND_RECOVERY_WINDOW_MS);
+    if (activeHits.length < BEHIND_RECOVERY_HITS) return false;
+    let minIdx = Infinity;
+    let maxIdx = -Infinity;
+    let finalCount = 0;
+    for (const hit of activeHits) {
+      if (hit.idx < minIdx) minIdx = hit.idx;
+      if (hit.idx > maxIdx) maxIdx = hit.idx;
+      if (hit.isFinal) finalCount += 1;
+    }
+    if (!Number.isFinite(minIdx) || !Number.isFinite(maxIdx)) return false;
+    if (maxIdx - minIdx > BEHIND_RECOVERY_CLUSTER_SPREAD) return false;
+    if (!isFinal && finalCount === 0 && conf < DELTA_MIN_SIM_MED) return false;
+    const targetIdxRaw = Math.min(cursorLine - 1, Math.max(0, Math.floor(maxIdx)));
+    const rewind = Math.max(0, cursorLine - targetIdxRaw);
+    if (rewind <= 0) return false;
+    const targetIdx = rewind > BEHIND_RECOVERY_MAX_REWIND ? Math.max(0, cursorLine - BEHIND_RECOVERY_MAX_REWIND) : targetIdxRaw;
+    const scroller = getScroller();
+    const targetTop = scroller ? resolveTargetTop(scroller, targetIdx) : null;
+    if (scroller && targetTop != null) {
+      stopGlide("behind-recovery");
+      const applied = applyScrollWithHybridGuard(targetTop, {
+        scroller,
+        reason: "asr-behind-recovery"
+      });
+      lastKnownScrollTop = applied;
+      lastMoveAt = Date.now();
+      markProgrammaticScroll();
+    }
+    lastLineIndex = Math.max(0, Math.floor(targetIdx));
+    matchAnchorIdx = lastLineIndex;
+    lastForwardCommitAt = now;
+    lastSeekTs = now;
+    lastEvidenceAt = now;
+    noteCommit(cursorLine, lastLineIndex, now);
+    resetLowSimStreak();
+    behindStrongCount = 0;
+    lastBehindStrongIdx = -1;
+    lastBehindStrongAt = 0;
+    behindStrongSince = 0;
+    lastCommitDeltaPx = 0;
+    microPursuitUntil = 0;
+    setCurrentIndex(lastLineIndex, "behind-recovery");
+    resetLookahead("behind-recovery");
+    behindRecoveryHits.length = 0;
+    largeDeltaConfirm = null;
+    overshootRiskUntil = Math.max(overshootRiskUntil, now + OVERSHOOT_RISK_WINDOW_MS);
+    lastBehindRecoveryAt = now;
+    logThrottled("ASR_COMMIT", "log", "ASR_COMMIT", {
+      prevIndex: cursorLine,
+      nextIndex: lastLineIndex,
+      delta: lastLineIndex - cursorLine,
+      sim: Number.isFinite(conf) ? Number(conf.toFixed(3)) : conf,
+      forced: false,
+      mode: getScrollMode3() || "unknown",
+      reason: "behind-recovery"
+    });
+    updateDebugState("behind-recovery");
+    return true;
+  };
+  let lastEvidenceAt = 0;
+  let lastCommitDeltaPx = 0;
+  let glideAnim = null;
+  let microPursuitUntil = 0;
+  let microPursuitCapPxPerSec = MICRO_PURSUE_MAX_PXPS;
+  let lastBackRecoverAt = 0;
+  let lastBackRecoverIdx = -1;
+  let lastBackRecoverHitAt = 0;
+  let backRecoverStreak = 0;
+  let creepBudgetLine = -1;
+  let creepBudgetUsed = 0;
+  let lastInterimBestIdx = -1;
+  let interimRepeatCount = 0;
+  let relockRepeatIdx = -1;
+  let relockRepeatCount = 0;
+  let relockRepeatWindowStart = 0;
+  let lastResyncAt = 0;
+  let lastBehindStrongIdx = -1;
+  let lastBehindStrongAt = 0;
+  let behindStrongSince = 0;
+  let behindStrongCount = 0;
+  let behindDebt = 0;
+  let behindDebtStreak = 0;
+  let lastBehindRecoveryAt = 0;
+  let overshootRiskUntil = 0;
+  let largeDeltaConfirm = null;
+  const behindRecoveryHits = [];
+  let lookaheadStepIndex = 0;
+  let lastLookaheadBumpAt = 0;
+  let behindHitCount = 0;
+  let behindHitWindowStart = 0;
+  let lagRelockHits = 0;
+  let lagRelockWindowStart = 0;
+  let pendingMatch = null;
+  let pendingSeq = 0;
+  const adoptPendingMatch = (next) => {
+    pendingMatch = next;
+    pendingSeq += 1;
+    return pendingMatch;
+  };
+  let pendingRaf = 0;
+  let bootLogged = false;
+  let forcedCooldownUntil = 0;
+  const forcedCommitTimes = [];
+  let jumpHistory = [];
+  const LINE_MISSING_RETRY_LIMIT = 2;
+  let lineMissingRetryLine = null;
+  let lineMissingRetryCount = 0;
+  let anchorStreakLine = null;
+  let anchorStreakCount = 0;
+  let noTargetRetryLine = -1;
+  let noTargetRetryCount = 0;
+  let noTargetRetryAt = 0;
+  let noTargetRetryMatchId = null;
+  let noMatchWindowStart = 0;
+  let noMatchHits = 0;
+  let lastNoMatchAt = 0;
+  let lastStuckDumpAt = 0;
+  let lastMatchId;
+  let lastScriptHash = "";
+  let missingMatchIdKeysLogged = false;
+  const armPostCatchupGrace = (reason) => {
+    const now = Date.now();
+    postCatchupUntil = now + POST_CATCHUP_MS;
+    postCatchupSamplesLeft = POST_CATCHUP_SAMPLES;
+    logDev("[ASR] post catchup armed", { reason, until: postCatchupUntil });
+  };
+  const isPostCatchupActive = (now) => now < postCatchupUntil && postCatchupSamplesLeft > 0;
+  const matchBacktrackLines = DEFAULT_MATCH_BACKTRACK_LINES;
+  const matchLookaheadLines = DEFAULT_MATCH_LOOKAHEAD_LINES;
+  const matchLookaheadSteps = DEFAULT_MATCH_LOOKAHEAD_STEPS.length > 0 ? DEFAULT_MATCH_LOOKAHEAD_STEPS : [matchLookaheadLines];
+  const lookaheadBumpCooldownMs = DEFAULT_LOOKAHEAD_BUMP_COOLDOWN_MS;
+  const lookaheadBehindHits = DEFAULT_LOOKAHEAD_BEHIND_HITS;
+  const lookaheadBehindWindowMs = DEFAULT_LOOKAHEAD_BEHIND_WINDOW_MS;
+  const lookaheadStallMs = DEFAULT_LOOKAHEAD_STALL_MS;
+  const matchLookaheadMax = matchLookaheadSteps[matchLookaheadSteps.length - 1] || matchLookaheadLines;
+  const sameLineThrottleMs = DEFAULT_SAME_LINE_THROTTLE_MS;
+  const creepPx = DEFAULT_CREEP_PX;
+  const creepNearPx = DEFAULT_CREEP_NEAR_PX;
+  const creepBudgetPx = DEFAULT_CREEP_BUDGET_PX;
+  const deadbandPx = DEFAULT_DEADBAND_PX;
+  const maxVelPxPerSec = DEFAULT_MAX_VEL_PX_PER_SEC;
+  const maxVelMedPxPerSec = DEFAULT_MAX_VEL_MED_PX_PER_SEC;
+  const maxVelCatchupPxPerSec = DEFAULT_MAX_VEL_CATCHUP_PX_PER_SEC;
+  const maxAccelPxPerSec2 = DEFAULT_MAX_ACCEL_PX_PER_SEC2;
+  const minStepPx = DEFAULT_MIN_STEP_PX;
+  const maxStepPx = Math.max(DEFAULT_MAX_STEP_PX, minStepPx);
+  const catchupMedMinPx = DEFAULT_CATCHUP_MED_MIN_PX;
+  const catchupFastMinPx = DEFAULT_CATCHUP_FAST_MIN_PX;
+  const maxTargetJumpPx = DEFAULT_MAX_TARGET_JUMP_PX;
+  const strongWindowMs = DEFAULT_STRONG_WINDOW_MS;
+  const finalEvidenceLeadLines = DEFAULT_FINAL_EVIDENCE_LEAD_LINES;
+  const backRecoverMaxPx = DEFAULT_BACK_RECOVERY_MAX_PX;
+  const backRecoverCooldownMs = DEFAULT_BACK_RECOVERY_COOLDOWN_MS;
+  const backRecoverHitLimit = DEFAULT_BACK_RECOVERY_HIT_LIMIT;
+  const backRecoverWindowMs = DEFAULT_BACK_RECOVERY_WINDOW_MS;
+  const backRecoverStrongConf = DEFAULT_BACK_RECOVERY_STRONG_CONF;
+  const realignLeadLines = DEFAULT_REALIGN_LEAD_LINES;
+  const realignLookbackLines = DEFAULT_REALIGN_LOOKBACK_LINES;
+  const realignSim = DEFAULT_REALIGN_SIM;
+  const resyncWindowMs = DEFAULT_RESYNC_WINDOW_MS;
+  const resyncCooldownMs = DEFAULT_RESYNC_COOLDOWN_MS;
+  const strongBackSim = DEFAULT_STRONG_BACK_SIM;
+  const backConfirmHits = DEFAULT_BACK_CONFIRM_HITS;
+  const backConfirmWindowMs = DEFAULT_BACK_CONFIRM_WINDOW_MS;
+  const behindRecoveryMs = DEFAULT_BEHIND_RECOVERY_MS;
+  const behindRecoveryMaxLines = DEFAULT_BEHIND_RECOVERY_MAX_LINES;
+  const behindRecoveryMinSim = DEFAULT_BEHIND_RECOVERY_MIN_SIM;
+  const behindRecoveryCooldownMs = DEFAULT_BEHIND_RECOVERY_COOLDOWN_MS;
+  const forwardTieEps = DEFAULT_FORWARD_TIE_EPS;
+  const slamDunkCompetitorDelta = DEFAULT_FORWARD_TIE_EPS;
+  const forwardBiasRecentLines = DEFAULT_FORWARD_BIAS_RECENT_LINES;
+  const forwardBiasWindowMs = DEFAULT_FORWARD_BIAS_WINDOW_MS;
+  const forwardBiasLookaheadLines = DEFAULT_FORWARD_BIAS_LOOKAHEAD_LINES;
+  const forwardBiasSimSlack = DEFAULT_FORWARD_BIAS_SIM_SLACK;
+  const shortFinalMinTokens = DEFAULT_SHORT_FINAL_MIN_TOKENS;
+  const shortFinalMaxTokens = DEFAULT_SHORT_FINAL_MAX_TOKENS;
+  const shortFinalWindowMs = DEFAULT_SHORT_FINAL_WINDOW_MS;
+  const shortFinalLookaheadLines = DEFAULT_SHORT_FINAL_LOOKAHEAD_LINES;
+  const shortFinalSimSlack = DEFAULT_SHORT_FINAL_SIM_SLACK;
+  const outrunRelaxedSim = DEFAULT_OUTRUN_RELAXED_SIM;
+  const outrunWindowMs = DEFAULT_OUTRUN_WINDOW_MS;
+  const outrunLookaheadLines = DEFAULT_OUTRUN_LOOKAHEAD_LINES;
+  const forcedRateWindowMs = DEFAULT_FORCED_RATE_WINDOW_MS;
+  const forcedRateMax = DEFAULT_FORCED_RATE_MAX;
+  const forcedCooldownMs = DEFAULT_FORCED_COOLDOWN_MS;
+  const forcedMinTokens = DEFAULT_FORCED_MIN_TOKENS;
+  const forcedMinChars = DEFAULT_FORCED_MIN_CHARS;
+  const slamDunkSim = DEFAULT_SLAM_DUNK_SIM;
+  const slamDunkMaxDelta = DEFAULT_SLAM_DUNK_MAX_DELTA;
+  const confirmationRelaxedSim = DEFAULT_CONFIRMATION_RELAXED_SIM;
+  const confirmationRelaxedMaxDelta = DEFAULT_CONFIRMATION_RELAXED_MAX_DELTA;
+  const noMatchWindowMs = DEFAULT_NO_MATCH_WINDOW_MS;
+  const noMatchBumpHits = DEFAULT_NO_MATCH_BUMP_HITS;
+  const noMatchRelockHits = DEFAULT_NO_MATCH_RELOCK_HITS;
+  let minTokenCount = DEFAULT_MIN_TOKEN_COUNT;
+  let minEvidenceChars = DEFAULT_MIN_EVIDENCE_CHARS;
+  let interimHysteresisBonus = DEFAULT_INTERIM_HYSTERESIS_BONUS;
+  let interimStableRepeats = DEFAULT_INTERIM_STABLE_REPEATS;
+  let bufferMs = 0;
+  let allowShortEvidence = true;
+  let allowCatchup = false;
+  let allowInterimCommit = true;
+  let consistencyCount = 0;
+  let consistencyWindowMs = 0;
+  let consistencyMaxDeltaLines = 0;
+  let consistencyMaxSpreadLines = 0;
+  let consistencySimSlack = 0;
+  let consistencyRequireNearMarker = true;
+  let consistencyMarkerBandLines = 0;
+  let catchupMaxDeltaLines = 0;
+  let catchupSimSlack = 0;
+  const shortTokenMax = DEFAULT_SHORT_TOKEN_MAX;
+  const shortTokenBoost = DEFAULT_SHORT_TOKEN_BOOST;
+  const ambiguitySimDelta = DEFAULT_AMBIGUITY_SIM_DELTA;
+  const ambiguityNearLines = DEFAULT_AMBIGUITY_NEAR_LINES;
+  const ambiguityFarLines = DEFAULT_AMBIGUITY_FAR_LINES;
+  const strongHits = [];
+  const pushStrongHit = (idx, conf, isFinal, ts) => {
+    if (!Number.isFinite(idx)) return;
+    strongHits.push({ ts, idx, conf, isFinal });
+    while (strongHits.length && strongHits[0].ts < ts - strongWindowMs) {
+      strongHits.shift();
+    }
+  };
+  const evidenceEntries = [];
+  let evidenceText = "";
+  let lastBufferChars = 0;
+  const consistencyEntries = [];
+  const lagSamples = [];
+  let catchUpModeUntil = 0;
+  const eventRing = [];
+  const guardCounts = /* @__PURE__ */ new Map();
+  let manualAnchorPending = null;
+  let manualScrollLastTop = 0;
+  let manualScrollLastAt = 0;
+  let manualScrollListenerAttached = false;
+  let manualScrollHandler = null;
+  let manualScrollToastAt = 0;
+  let lastProgrammaticScrollAt = 0;
+  activeGuardCounts = guardCounts;
+  let activeTuningProfileId = "";
+  const applyTuningProfile = (profile) => {
+    if (!profile) return;
+    const prevProfileId = activeTuningProfileId;
+    const prevBufferMs = bufferMs;
+    activeTuningProfileId = String(profile.id || "");
+    minTokenCount = Number.isFinite(profile.minTokenCount) ? Math.max(0, profile.minTokenCount) : DEFAULT_MIN_TOKEN_COUNT;
+    minEvidenceChars = Number.isFinite(profile.minEvidenceChars) ? Math.max(0, profile.minEvidenceChars) : DEFAULT_MIN_EVIDENCE_CHARS;
+    interimHysteresisBonus = Number.isFinite(profile.interimHysteresisBonus) ? Math.max(0, profile.interimHysteresisBonus) : DEFAULT_INTERIM_HYSTERESIS_BONUS;
+    interimStableRepeats = Number.isFinite(profile.interimStableRepeats) ? Math.max(1, profile.interimStableRepeats) : DEFAULT_INTERIM_STABLE_REPEATS;
+    bufferMs = Number.isFinite(profile.bufferMs) ? Math.max(0, profile.bufferMs) : 0;
+    allowShortEvidence = !!profile.allowShortEvidence;
+    allowCatchup = !!profile.allowCatchup;
+    allowInterimCommit = profile.allowInterimCommit !== false;
+    consistencyCount = Number.isFinite(profile.consistencyCount) ? Math.max(0, profile.consistencyCount) : 0;
+    consistencyWindowMs = Number.isFinite(profile.consistencyWindowMs) ? Math.max(0, profile.consistencyWindowMs) : 0;
+    consistencyMaxDeltaLines = Number.isFinite(profile.consistencyMaxDeltaLines) ? Math.max(0, profile.consistencyMaxDeltaLines) : 0;
+    consistencyMaxSpreadLines = Number.isFinite(profile.consistencyMaxSpreadLines) ? Math.max(0, profile.consistencyMaxSpreadLines) : 0;
+    consistencySimSlack = Number.isFinite(profile.consistencySimSlack) ? Math.max(0, profile.consistencySimSlack) : 0;
+    consistencyRequireNearMarker = profile.consistencyRequireNearMarker !== false;
+    consistencyMarkerBandLines = Number.isFinite(profile.consistencyMarkerBandLines) ? Math.max(0, profile.consistencyMarkerBandLines) : 0;
+    catchupMaxDeltaLines = Number.isFinite(profile.catchupMaxDeltaLines) ? Math.max(0, profile.catchupMaxDeltaLines) : 0;
+    catchupSimSlack = Number.isFinite(profile.catchupSimSlack) ? Math.max(0, profile.catchupSimSlack) : 0;
+    if (prevProfileId !== activeTuningProfileId || prevBufferMs !== bufferMs) {
+      evidenceEntries.length = 0;
+      evidenceText = "";
+      lastBufferChars = 0;
+      consistencyEntries.length = 0;
+    }
+  };
+  const readScriptHash = () => {
+    try {
+      return String(window.__TP_LAST_APPLIED_HASH || "");
+    } catch {
+      return "";
+    }
+  };
+  if (!lastScriptHash) {
+    lastScriptHash = readScriptHash();
+  }
+  const setCurrentIndex = (nextIndex, reason) => {
+    if (!Number.isFinite(nextIndex)) return;
+    const next = Math.max(0, Math.floor(nextIndex));
+    const prevRaw = Number(window?.currentIndex ?? lastLineIndex ?? -1);
+    const prev2 = Number.isFinite(prevRaw) ? Math.floor(prevRaw) : 0;
+    const scriptHash = readScriptHash();
+    const scriptHashChanged = !!scriptHash && scriptHash !== lastScriptHash;
+    const isBackJump = next < prev2 - DEFAULT_BACKJUMP_BLOCK_LINES;
+    const allowBackJump = reason === "manualReset" || reason === "scriptChanged";
+    if (isBackJump) {
+      try {
+        console.warn("[ASR_BACKJUMP]", {
+          oldIndex: prev2,
+          newIndex: next,
+          lastMatchId,
+          reason,
+          scriptHashChanged,
+          blocked: !allowBackJump
+        });
+      } catch {
+      }
+      if (!allowBackJump) {
+        if (scriptHashChanged) lastScriptHash = scriptHash;
+        return;
+      }
+      lineMissingRetryLine = null;
+      lineMissingRetryCount = 0;
+    }
+    try {
+      window.currentIndex = next;
+    } catch {
+    }
+    if (scriptHashChanged) lastScriptHash = scriptHash;
+  };
+  const manualScrollListenerOptions = { passive: true, capture: true };
+  const isManualAnchorAdoptEnabled = () => {
+    try {
+      const settings2 = getAsrSettings();
+      return settings2.manualAnchorAdoptEnabled !== false;
+    } catch {
+      return true;
+    }
+  };
+  const updateManualAnchorGlobalState = () => {
+    try {
+      window.__tpAsrManualAnchorPending = manualAnchorPending;
+    } catch {
+    }
+  };
+  const rejectManualAnchorPending = (reason) => {
+    if (!manualAnchorPending) return;
+    logDev(`[ASR_ADOPT] rejected (${reason})`);
+    manualAnchorPending = null;
+    updateManualAnchorGlobalState();
+  };
+  const primeRecoveryForManualAnchor = () => {
+    behindDebtStreak = Math.max(behindDebtStreak, RECOVERY_STREAK_REQUIRED);
+    behindDebt = Math.max(behindDebt, RECOVERY_BIG_JUMP_LINES);
+  };
+  const markProgrammaticScroll = () => {
+    lastProgrammaticScrollAt = Date.now();
+    const scroller = getScroller();
+    manualScrollLastTop = scroller?.scrollTop ?? manualScrollLastTop;
+    manualScrollLastAt = lastProgrammaticScrollAt;
+  };
+  const setManualAnchorPendingState = (targetIndex, now) => {
+    manualAnchorPending = { targetIndex, ts: now };
+    updateManualAnchorGlobalState();
+    logDev("[ASR_ADOPT] pending targetIndex=" + manualAnchorPending.targetIndex);
+    primeRecoveryForManualAnchor();
+    if (isDevMode3() && now - manualScrollToastAt > 3e3) {
+      manualScrollToastAt = now;
+      try {
+        window.toast?.("Manual reposition pending (waiting for local match)", { type: "info", timeoutMs: 2e3 });
+      } catch {
+      }
+    }
+  };
+  const handleManualScrollEvent = () => {
+    if (disposed) return;
+    if (!isManualAnchorAdoptEnabled()) return;
+    const mode = getScrollMode3();
+    if (mode !== "hybrid" && mode !== "asr") return;
+    const now = Date.now();
+    if (now - lastProgrammaticScrollAt < 250) return;
+    const scroller = getScroller();
+    if (!scroller) return;
+    const currentTop = scroller.scrollTop || 0;
+    const delta = Math.abs(currentTop - manualScrollLastTop);
+    const windowMs = manualScrollLastAt ? now - manualScrollLastAt : Infinity;
+    manualScrollLastTop = currentTop;
+    manualScrollLastAt = now;
+    if (delta < MANUAL_ANCHOR_MIN_SCROLL_PX || windowMs > MANUAL_ANCHOR_MAX_SCROLL_WINDOW_MS) return;
+    const markerIdx = computeMarkerLineIndex(scroller);
+    if (!Number.isFinite(markerIdx) || markerIdx < 0) return;
+    const targetIndex = Math.max(0, Math.floor(markerIdx));
+    if (manualAnchorPending && Math.abs(manualAnchorPending.targetIndex - targetIndex) <= MANUAL_ANCHOR_WINDOW_LINES) {
+      manualAnchorPending.ts = now;
+      updateManualAnchorGlobalState();
+      return;
+    }
+    setManualAnchorPendingState(targetIndex, now);
+  };
+  const attachManualScrollWatcher = () => {
+    if (manualScrollListenerAttached) return;
+    manualScrollListenerAttached = true;
+    manualScrollHandler = handleManualScrollEvent;
+    try {
+      document.addEventListener("scroll", manualScrollHandler, manualScrollListenerOptions);
+    } catch {
+    }
+    try {
+      window.addEventListener("scroll", manualScrollHandler, manualScrollListenerOptions);
+    } catch {
+    }
+    manualScrollLastTop = getScroller()?.scrollTop ?? manualScrollLastTop;
+    manualScrollLastAt = Date.now();
+    lastProgrammaticScrollAt = manualScrollLastAt;
+  };
+  const detachManualScrollWatcher = () => {
+    if (!manualScrollListenerAttached || !manualScrollHandler) return;
+    manualScrollListenerAttached = false;
+    try {
+      document.removeEventListener("scroll", manualScrollHandler, manualScrollListenerOptions);
+    } catch {
+    }
+    try {
+      window.removeEventListener("scroll", manualScrollHandler, manualScrollListenerOptions);
+    } catch {
+    }
+    manualScrollHandler = null;
+  };
+  const adoptManualAnchorTruth = (lineIndex, sim, scroller) => {
+    const normalized = Number.isFinite(lineIndex) ? Math.max(0, Math.floor(lineIndex)) : 0;
+    const now = Date.now();
+    manualAnchorPending = null;
+    updateManualAnchorGlobalState();
+    clearEvidenceBuffer("manual adopt");
+    resetLowSimStreak();
+    lowSimFreezeLogged = false;
+    strongHits.length = 0;
+    pendingMatch = null;
+    pendingSeq += 1;
+    lastLineIndex = normalized;
+    matchAnchorIdx = normalized;
+    lastEvidenceAt = now;
+    lastForwardCommitAt = now;
+    lastCommitAt2 = now;
+    lastSeekTs = now;
+    lastMoveAt = now;
+    lastIngestAt = now;
+    resyncUntil = 0;
+    resyncAnchorIdx = null;
+    resyncReason = null;
+    catchUpModeUntil = 0;
+    postCatchupUntil = 0;
+    postCatchupSamplesLeft = 0;
+    const scrollTop = scroller?.scrollTop ?? lastKnownScrollTop;
+    lastKnownScrollTop = scrollTop;
+    appliedTopPx = scrollTop;
+    pursuitActive = false;
+    pursuitTargetTop = null;
+    pursuitVel = 0;
+    logDev("[ASR_ADOPT] accepted bestIndex=" + normalized + " sim=" + formatLogScore(sim));
+    setCurrentIndex(normalized, "manualAdopt");
+    updateDebugState("manual-adopt");
+    return true;
+  };
+  try {
+    const hasScript = !!(getScriptRoot() || document.querySelector(".line"));
+    if (hasScript) ensureAsrTuningProfile("reading");
+  } catch {
+  }
+  applyTuningProfile(getActiveAsrTuningProfile());
+  attachManualScrollWatcher();
+  const unsubscribe = speechStore.subscribe((state8) => {
+    if (disposed) return;
+    if (typeof state8.threshold === "number" && !isDevMode3()) {
+      threshold = clamp5(state8.threshold, 0, 1);
+      setAsrDriverThresholds({ candidateMinSim: threshold });
+    }
+    const nextCalm = !!state8.calmModeEnabled;
+    if (nextCalm !== calmModeEnabled) {
+      calmModeEnabled = nextCalm;
+      syncMotionTuning(getAsrDriverThresholds(), Date.now());
+    }
+  });
+  const unsubscribeTuning = onAsrTuning(() => {
+    applyTuningProfile(getActiveAsrTuningProfile());
+  });
+  const syncMatchAnchor = (idx) => {
+    if (!Number.isFinite(idx)) return;
+    const next = Math.max(0, Math.floor(idx));
+    matchAnchorIdx = matchAnchorIdx >= 0 ? Math.max(matchAnchorIdx, next) : next;
+    setCurrentIndex(matchAnchorIdx, "match-anchor");
+  };
+  const updateDebugState = (tag) => {
+    if (!isDevMode3()) return;
+    try {
+      window.__tpAsrScrollState = {
+        tag,
+        lastIngestAt,
+        lastEvidenceAt,
+        pendingEvidenceCount: strongHits.length,
+        cursorLineIndex: lastLineIndex,
+        matchAnchorIdx,
+        pursuitTargetTop,
+        appliedTopPx,
+        lastMoveAt,
+        tuningProfileId: activeTuningProfileId,
+        bufferChars: evidenceText.length,
+        bufferEntries: evidenceEntries.length
+      };
+    } catch {
+    }
+  };
+  const trimEvidenceEntries = (now) => {
+    if (!bufferMs || bufferMs <= 0) {
+      evidenceEntries.length = 0;
+      evidenceText = "";
+      return;
+    }
+    while (evidenceEntries.length && evidenceEntries[0].ts < now - bufferMs) {
+      evidenceEntries.shift();
+    }
+  };
+  const clearEvidenceBuffer = (reason) => {
+    if (!evidenceEntries.length && !evidenceText) return;
+    evidenceEntries.length = 0;
+    evidenceText = "";
+    lastBufferChars = 0;
+    consistencyEntries.length = 0;
+    logDev("evidence buffer cleared", { reason });
+    updateDebugState("buffer-clear");
+  };
+  const updateEvidenceBuffer = (text, isFinal, now) => {
+    if (!bufferMs || bufferMs <= 0) return text;
+    const clean = String(text || "").replace(/\s+/g, " ").trim();
+    if (!clean) return evidenceText;
+    evidenceEntries.push({ ts: now, text: clean, isFinal });
+    trimEvidenceEntries(now);
+    evidenceText = buildEvidenceText(evidenceEntries);
+    lastBufferChars = evidenceText.length;
+    return evidenceText;
+  };
+  const trimConsistencyEntries = (now) => {
+    if (!consistencyWindowMs || consistencyWindowMs <= 0) {
+      consistencyEntries.length = 0;
+      return;
+    }
+    while (consistencyEntries.length && consistencyEntries[0].ts < now - consistencyWindowMs) {
+      consistencyEntries.shift();
+    }
+  };
+  const recordConsistencyEntry = (entry) => {
+    consistencyEntries.push(entry);
+    trimConsistencyEntries(entry.ts);
+    if (consistencyEntries.length > 24) {
+      consistencyEntries.splice(0, consistencyEntries.length - 24);
+    }
+  };
+  const evaluateConsistency = (now, opts) => {
+    trimConsistencyEntries(now);
+    const needed = Math.max(0, opts.requiredCount);
+    const emptyResult = {
+      ok: false,
+      count: consistencyEntries.length,
+      needed,
+      minDelta: 0,
+      maxDelta: 0,
+      minSim: 0,
+      spread: 0,
+      nearOk: false
+    };
+    if (!needed || consistencyEntries.length < needed) {
+      return {
+        ...emptyResult,
+        count: consistencyEntries.length,
+        needed
+      };
+    }
+    const tail = consistencyEntries.slice(-needed);
+    const deltas = tail.map((e) => e.delta);
+    const idxs = tail.map((e) => e.idx);
+    const sims = tail.map((e) => e.sim);
+    const minDelta = Math.min(...deltas);
+    const maxDelta = Math.max(...deltas);
+    const spread = Math.max(...idxs) - Math.min(...idxs);
+    const minSim = Math.min(...sims);
+    const nearOk = !opts.requireNearMarker || tail.every((e) => e.nearMarker);
+    const minDeltaRequired = Number.isFinite(opts.minDeltaLines) ? opts.minDeltaLines : minLineAdvance;
+    const requireForward = opts.requireForward === true;
+    const hasForward = maxDelta >= minLineAdvance;
+    const ok = nearOk && minDelta >= minDeltaRequired && maxDelta <= opts.maxDeltaLines && spread <= opts.maxSpreadLines && minSim >= opts.minSim && (!requireForward || hasForward);
+    return {
+      ok,
+      count: tail.length,
+      needed,
+      minDelta,
+      maxDelta,
+      minSim,
+      spread,
+      nearOk
+    };
+  };
+  const recordEvent = (entry) => {
+    eventRing.push(entry);
+    if (eventRing.length > EVENT_RING_MAX) eventRing.shift();
+  };
+  const recordLagSample = (sample) => {
+    lagSamples.push(sample);
+    if (lagSamples.length > DEFAULT_LAG_WINDOW_MATCHES) {
+      lagSamples.splice(0, lagSamples.length - DEFAULT_LAG_WINDOW_MATCHES);
+    }
+  };
+  const shouldTriggerCatchUp = () => {
+    if (!allowCatchup) return false;
+    const window2 = lagSamples.slice(-DEFAULT_LAG_WINDOW_MATCHES);
+    if (!window2.length) return false;
+    const forwardHits = window2.filter(
+      (entry) => entry.delta >= DEFAULT_LAG_DELTA_LINES && entry.nearMarker && entry.inBand
+    );
+    const forceWindow = window2.slice(-DEFAULT_LAG_FORCE_HITS);
+    const forceHits = forceWindow.length >= DEFAULT_LAG_FORCE_HITS && forceWindow.every((entry) => entry.delta >= DEFAULT_LAG_FORCE_DELTA_LINES && entry.nearMarker && entry.inBand && entry.sim < DEFAULT_CATCHUP_MODE_MIN_SIM);
+    if (forceHits) return true;
+    if (forwardHits.length < DEFAULT_LAG_MIN_FORWARD_HITS) return false;
+    const hasConfident = forwardHits.some((entry) => entry.sim >= DEFAULT_CATCHUP_MODE_MIN_SIM);
+    return hasConfident;
+  };
+  const activateCatchUpMode = (now, sample) => {
+    if (pursuitActive) {
+      pursuitActive = false;
+      pursuitTargetTop = null;
+      pursuitVel = 0;
+      logDev("pursuit canceled (catchup mode)");
+    }
+    const nextUntil = now + DEFAULT_CATCHUP_MODE_DURATION_MS;
+    if (nextUntil <= catchUpModeUntil) return;
+    catchUpModeUntil = nextUntil;
+    emitHudStatus(
+      "catchup",
+      `Catch-up: ON (\u0394+${sample.delta}, sim ${formatLogScore(sample.sim)})`
+    );
+  };
+  const silenceHandler = (event) => {
+    const detail = event?.detail || {};
+    if (detail && detail.silent) {
+      clearEvidenceBuffer("silence");
+    }
+  };
+  const resetHandler = () => {
+    clearEvidenceBuffer("script-reset");
+  };
+  const rescueHandler = () => {
+    stallRescueRequested = true;
+  };
+  try {
+    window.addEventListener("tp:asr:silence", silenceHandler);
+  } catch {
+  }
+  try {
+    window.addEventListener("tp:script:reset", resetHandler);
+  } catch {
+  }
+  try {
+    window.addEventListener("tp:asr:rescue", rescueHandler);
+  } catch {
+  }
+  try {
+    window.__tpAsrRequestRescue = rescueHandler;
+  } catch {
+  }
+  const summarizeGuardCounts = (limit = Number.POSITIVE_INFINITY) => {
+    const entries = Array.from(guardCounts.entries()).map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count);
+    return entries.slice(0, limit);
+  };
+  const summarizeRecentGuardCounts = (limit = Number.POSITIVE_INFINITY) => {
+    const now = Date.now();
+    const cutoff = now - DEFAULT_STALL_COMMIT_MS;
+    const counts = /* @__PURE__ */ new Map();
+    for (let i = guardEvents.length - 1; i >= 0; i -= 1) {
+      const entry = guardEvents[i];
+      if (entry.ts < cutoff) break;
+      counts.set(entry.reason, (counts.get(entry.reason) || 0) + 1);
+    }
+    const entries = Array.from(counts.entries()).map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count);
+    return entries.slice(0, limit);
+  };
+  const getTotalLines = () => {
+    try {
+      const root = getScriptRoot() || getPrimaryScroller();
+      const container = root || document;
+      const lines = container?.querySelectorAll?.(".line");
+      return lines ? lines.length : 0;
+    } catch {
+      return 0;
+    }
+  };
+  const noteCommit = (prevIndex, nextIndex, now) => {
+    commitCount += 1;
+    stallHudEmitted = false;
+    if (firstCommitIndex == null && Number.isFinite(prevIndex)) {
+      firstCommitIndex = Math.max(0, Math.floor(prevIndex));
+    }
+    if (Number.isFinite(nextIndex)) {
+      lastCommitIndex = Math.max(0, Math.floor(nextIndex));
+    }
+    lastCommitAt2 = now;
+  };
+  const emitSummary = (source) => {
+    if (summaryEmitted) return;
+    summaryEmitted = true;
+    const now = Date.now();
+    const durationMs = Math.max(0, now - sessionStartAt);
+    const scroller = getScroller();
+    const scrollerId = describeElement(scroller);
+    const scrollTop = scroller?.scrollTop ?? lastKnownScrollTop;
+    const totalLines = getTotalLines();
+    const firstIndex = firstCommitIndex != null ? firstCommitIndex : lastLineIndex >= 0 ? lastLineIndex : 0;
+    const lastIndex = lastCommitIndex != null ? lastCommitIndex : lastLineIndex >= 0 ? lastLineIndex : 0;
+    const linesAdvanced = Number.isFinite(firstIndex) && Number.isFinite(lastIndex) ? lastIndex - firstIndex : 0;
+    const denom = Math.max(1, totalLines - 1);
+    const traversedPct = totalLines > 0 && Number.isFinite(lastIndex) ? clamp5(lastIndex / denom, 0, 1) * 100 : 0;
+    const guardSummary = summarizeGuardCounts();
+    const guardMap = guardSummary.reduce((acc, entry) => {
+      acc[entry.reason] = entry.count;
+      return acc;
+    }, {});
+    const summary = {
+      mode: getScrollMode3() || "unknown",
+      durationMs,
+      commitCount,
+      firstIndex,
+      lastIndex,
+      linesAdvanced,
+      traversedPct: Number(traversedPct.toFixed(1)),
+      guardCounts: guardMap,
+      lastKnownScrollTop: Math.round(scrollTop || 0),
+      scrollerId,
+      source
+    };
+    try {
+      console.warn("ASR_SESSION_SUMMARY", summary);
+    } catch {
+    }
+    try {
+      window.dispatchEvent(new CustomEvent("tp:asr:summary", { detail: summary }));
+    } catch {
+    }
+    const warnUnsafe = commitCount === 0 || traversedPct < 5;
+    if (warnUnsafe) {
+      try {
+        window.toast?.(
+          "ASR did not advance the script (0 commits). This run is not production-safe.",
+          { type: "warning" }
+        );
+      } catch {
+      }
+    } else {
+      try {
+        window.toast?.(
+          `ASR session: ${commitCount} commits, ${linesAdvanced >= 0 ? "+" : ""}${linesAdvanced} lines (${summary.traversedPct}%)`,
+          { type: "info" }
+        );
+      } catch {
+      }
+    }
+  };
+  const summarizeGuardText = () => {
+    const top = summarizeRecentGuardCounts(3);
+    if (!top.length) return "none";
+    return top.map((entry) => `${entry.reason}:${entry.count}`).join(", ");
+  };
+  const formatCompletionTelemetry = () => {
+    try {
+      const telemetry = window.__tpAsrTelemetry;
+      if (!telemetry || typeof telemetry !== "object") return "";
+      const accept = Number(telemetry.commitAccepted) || 0;
+      const reject = Number(telemetry.commitRejected) || 0;
+      const top = Array.isArray(telemetry.last15sRejectTop3) ? telemetry.last15sRejectTop3 : [];
+      const topText = top.slice(0, 3).map((entry) => `${entry.reason}(${entry.count})`).join(", ");
+      const evidenceSummary = typeof telemetry.completionEvidenceSummary === "string" ? telemetry.completionEvidenceSummary : "";
+      const last = telemetry.last || {};
+      const mode = typeof last.mode === "string" && last.mode ? String(last.mode).toLowerCase() : "";
+      const rejectReason = typeof last.rejectReason === "string" ? last.rejectReason : "";
+      const completionOk = typeof last.completionOk === "boolean" ? last.completionOk : null;
+      const completionReason = typeof last.completionReason === "string" ? last.completionReason : "";
+      let lastResult = "";
+      if (last.decision === "reject") {
+        if (rejectReason.startsWith("reject_completion_")) {
+          lastResult = `rejected=${rejectReason.replace("reject_completion_", "")}`;
+        } else if (rejectReason.startsWith("reject_")) {
+          lastResult = `blocked=${rejectReason.replace("reject_", "")}`;
+        } else if (rejectReason) {
+          lastResult = `blocked=${rejectReason}`;
+        }
+      } else if (last.decision === "accept") {
+        if (completionOk === false) {
+          lastResult = `comp=${completionReason || "unknown"}`;
+        } else if (completionOk === true) {
+          lastResult = `comp=${completionReason || "complete"}`;
+        }
+      }
+      if (!topText && accept === 0 && reject === 0 && !evidenceSummary) return "";
+      const base = `accept ${accept} / rej ${reject}`;
+      const parts = [base];
+      if (mode) parts.push(`mode=${mode}`);
+      if (topText) parts.push(`top: ${topText}`);
+      if (evidenceSummary) parts.push(evidenceSummary);
+      if (lastResult) parts.push(lastResult);
+      return parts.join(" \u2022 ");
+    } catch {
+      return "";
+    }
+  };
+  const maybeLogStall = (now) => {
+    if (now - lastCommitAt2 < DEFAULT_STALL_COMMIT_MS) return;
+    if (now - lastStallLogAt < DEFAULT_STALL_LOG_COOLDOWN_MS) return;
+    lastStallLogAt = now;
+    const reasonSummary = summarizeGuardText();
+    const telemetrySummary = formatCompletionTelemetry();
+    try {
+      console.warn("[ASR_STALLED] no commits in 15s", {
+        sinceMs: Math.round(now - lastCommitAt2),
+        commitCount,
+        lastLineIndex,
+        reasonSummary
+      });
+    } catch {
+    }
+    if (!stallHudEmitted) {
+      const stallText = telemetrySummary ? `ASR stalled \u2022 ${reasonSummary} \u2022 ${telemetrySummary}` : `ASR stalled \u2022 ${reasonSummary}`;
+      emitHudStatus("stall", stallText, {
+        key: "stall",
+        sinceMs: Math.round(now - lastCommitAt2),
+        reasonSummary
+      });
+      stallHudEmitted = true;
+    }
+  };
+  const resetLowSimStreak = () => {
+    lowSimStreak = 0;
+    lowSimFirstAt = 0;
+  };
+  const noteLowSimFreeze = (now, snapshot) => {
+    if (!lowSimFirstAt) lowSimFirstAt = now;
+    lowSimStreak += 1;
+    if (lowSimFreezeLogged) return;
+    const elapsed = now - lowSimFirstAt;
+    if (lowSimStreak < DEFAULT_FREEZE_LOW_SIM_HITS && elapsed < DEFAULT_FREEZE_LOW_SIM_WINDOW_MS) return;
+    lowSimFreezeLogged = true;
+    try {
+      console.warn("[ASR_FREEZE_SNAPSHOT]", {
+        cursorLine: snapshot.cursorLine,
+        bestIdx: snapshot.bestIdx,
+        delta: snapshot.delta,
+        sim: Number.isFinite(snapshot.sim) ? Number(snapshot.sim.toFixed(3)) : snapshot.sim,
+        inBand: snapshot.inBand ? 1 : 0,
+        requiredSim: Number.isFinite(snapshot.requiredSim) ? Number(snapshot.requiredSim.toFixed(3)) : snapshot.requiredSim,
+        need: Number.isFinite(snapshot.need) ? Number(snapshot.need.toFixed(3)) : snapshot.need,
+        repeatCount: snapshot.repeatCount,
+        bestSpan: snapshot.bestSpan,
+        overlapRatio: snapshot.overlapRatio,
+        matchId: snapshot.matchId,
+        relock: snapshot.relockModeActive,
+        catchUp: snapshot.catchUpModeActive,
+        stuck: snapshot.stuckResyncActive,
+        tieGap: typeof snapshot.tieGap === "number" && Number.isFinite(snapshot.tieGap) ? Number(snapshot.tieGap.toFixed(3)) : void 0,
+        snippet: snapshot.snippet
+      });
+    } catch {
+    }
+  };
+  const pruneForcedCommits = (now) => {
+    while (forcedCommitTimes.length && forcedCommitTimes[0] < now - forcedRateWindowMs) {
+      forcedCommitTimes.shift();
+    }
+  };
+  const getForcedCount = (now) => {
+    pruneForcedCommits(now);
+    return forcedCommitTimes.length;
+  };
+  const getForcedCooldownRemaining = (now) => Math.max(0, forcedCooldownUntil - now);
+  const logForcedDeny = (reason, parts) => {
+    try {
+      const line = ["ASR_FORCED_DENY", reason, ...parts.filter(Boolean)];
+      console.warn(line.join(" "));
+    } catch {
+    }
+  };
+  const logForcedThrottle = (count) => {
+    try {
+      console.warn("ASR_FORCED_THROTTLE", `count=${count}`, `windowMs=${forcedRateWindowMs}`, `cooldownMs=${forcedCooldownMs}`);
+    } catch {
+    }
+  };
+  const dumpRecentEvents = (label) => {
+    const recent = eventRing.slice(-EVENT_DUMP_COUNT);
+    warnGuard(`dump_${label}`, [`dumping=${recent.length}`]);
+    try {
+      console.table(recent);
+    } catch {
+      try {
+        console.warn(JSON.stringify(recent));
+      } catch {
+      }
+    }
+  };
+  const resolveLookahead = (resyncActive) => {
+    const base = matchLookaheadSteps[Math.min(lookaheadStepIndex, matchLookaheadSteps.length - 1)] || matchLookaheadLines;
+    const bonus = resyncActive ? resyncLookaheadBonus : 0;
+    const boosted = resyncActive ? base + bonus : base;
+    return clamp5(boosted, matchLookaheadLines, matchLookaheadMax + bonus);
+  };
+  const bumpLookahead = (reason, now) => {
+    if (lookaheadStepIndex >= matchLookaheadSteps.length - 1) return;
+    if (now - lastLookaheadBumpAt < lookaheadBumpCooldownMs) return;
+    lookaheadStepIndex += 1;
+    lastLookaheadBumpAt = now;
+    behindHitCount = 0;
+    behindHitWindowStart = 0;
+    logDev("lookahead bump", { reason, windowAhead: resolveLookahead(false) });
+  };
+  const resetLookahead = (reason) => {
+    if (lookaheadStepIndex === 0) return;
+    lookaheadStepIndex = 0;
+    behindHitCount = 0;
+    behindHitWindowStart = 0;
+    logDev("lookahead reset", { reason, windowAhead: resolveLookahead(false) });
+  };
+  const resetResyncOverrides = () => {
+    resyncLookaheadBonus = DEFAULT_RESYNC_LOOKAHEAD_BONUS;
+    resyncBacktrackOverride = matchBacktrackLines;
+  };
+  const resetLagRelock = (reason) => {
+    if (!lagRelockHits && !lagRelockWindowStart) return;
+    lagRelockHits = 0;
+    lagRelockWindowStart = 0;
+    logDev("lag relock reset", { reason });
+  };
+  const activateStuckResync = (anchorIdx, now) => {
+    resyncUntil = now + DEFAULT_STUCK_RESYNC_WINDOW_MS;
+    resyncAnchorIdx = Math.max(0, Math.floor(anchorIdx));
+    resyncReason = "stuck";
+    resyncLookaheadBonus = DEFAULT_STUCK_RESYNC_LOOKAHEAD_BONUS;
+    resyncBacktrackOverride = Math.min(matchBacktrackLines, DEFAULT_STUCK_RESYNC_BACKTRACK_LINES);
+    logDev("stuck resync", {
+      anchor: resyncAnchorIdx,
+      windowAhead: resolveLookahead(true),
+      windowBack: resyncBacktrackOverride
+    });
+  };
+  const activateLagRelock = (anchorIdx, now) => {
+    resyncUntil = now + DEFAULT_LAG_RELOCK_DURATION_MS;
+    resyncAnchorIdx = Math.max(0, Math.floor(anchorIdx));
+    resyncReason = "lag";
+    resyncLookaheadBonus = DEFAULT_LAG_RELOCK_LOOKAHEAD_BONUS;
+    resyncBacktrackOverride = 0;
+    lastResyncAt = now;
+    emitHudStatus("relock", "Relock: forward scan");
+    logDev("lag relock", {
+      anchor: resyncAnchorIdx,
+      windowAhead: resolveLookahead(true),
+      windowBack: resyncBacktrackOverride
+    });
+  };
+  const resetNoMatchTracking = (reason) => {
+    if (!noMatchHits && !noMatchWindowStart) return;
+    noMatchWindowStart = 0;
+    noMatchHits = 0;
+    lastNoMatchAt = 0;
+    if (reason) {
+      logDev("no_match_reset", { reason });
+    }
+  };
+  const noteNoMatchGap = (now, reason, snippet) => {
+    const gapMs = lastNoMatchAt ? now - lastNoMatchAt : 0;
+    if (!noMatchWindowStart || now - noMatchWindowStart > noMatchWindowMs) {
+      noMatchWindowStart = now;
+      noMatchHits = 1;
+    } else {
+      noMatchHits += 1;
+    }
+    lastNoMatchAt = now;
+    if (noMatchHits >= noMatchBumpHits) {
+      bumpLookahead(`no_match_${reason}`, now);
+    }
+    if (noMatchHits >= noMatchRelockHits && now - lastResyncAt >= resyncCooldownMs) {
+      const anchorForNoMatch = lastLineIndex >= 0 ? lastLineIndex : Number(window?.currentIndex ?? 0);
+      activateStuckResync(anchorForNoMatch, now);
+      emitHudStatus("resync", "Resyncing...");
+      noMatchHits = 0;
+      noMatchWindowStart = now;
+    }
+    logDev("no_match_gap", { reason, hits: noMatchHits, gapMs, snippet });
+  };
+  const noteBehindBlocked = (now) => {
+    if (!behindHitWindowStart || now - behindHitWindowStart > lookaheadBehindWindowMs) {
+      behindHitWindowStart = now;
+      behindHitCount = 1;
+    } else {
+      behindHitCount += 1;
+    }
+    if (behindHitCount >= lookaheadBehindHits) {
+      bumpLookahead("behind_blocked", now);
+    }
+  };
+  const maybeBumpForStall = (now) => {
+    const lastProgressAt = Math.max(lastForwardCommitAt || 0, lastEvidenceAt || 0);
+    if (now - lastProgressAt < lookaheadStallMs) return;
+    bumpLookahead("stall", now);
+  };
+  const resolveMaxVel = (errPx) => {
+    if (errPx >= catchupFastMinPx) return maxVelCatchupPxPerSec;
+    if (errPx >= catchupMedMinPx) return maxVelMedPxPerSec;
+    return maxVelPxPerSec;
+  };
+  const getMaxTargetJumpPx = () => {
+    if (isHybridMode()) return Math.min(maxTargetJumpPx, DEFAULT_MAX_TARGET_JUMP_HYBRID_PX);
+    return maxTargetJumpPx;
+  };
+  const tickController = () => {
+    if (!pursuitActive || disposed) return;
+    const scroller = getScroller();
+    if (!scroller) {
+      pursuitActive = false;
+      return;
+    }
+    const now = performance.now();
+    const dt = Math.max(1e-3, (now - (pursuitLastTs || now)) / 1e3);
+    pursuitLastTs = now;
+    const current2 = scroller.scrollTop || 0;
+    appliedTopPx = current2;
+    const manualDelta = Math.abs(current2 - lastKnownScrollTop);
+    if (pursuitActive && lastMoveAt && manualDelta > DEFAULT_PURSUE_MANUAL_CANCEL_PX) {
+      pursuitActive = false;
+      pursuitTargetTop = null;
+      pursuitVel = 0;
+      lastKnownScrollTop = current2;
+      logDev("pursuit canceled (manual scroll)", { delta: Math.round(manualDelta) });
+      return;
+    }
+    if (pursuitTargetTop == null) {
+      pursuitVel = 0;
+      pursuitActive = false;
+      return;
+    }
+    if (pursuitTargetTop < current2) {
+      pursuitTargetTop = current2;
+    }
+    const err = pursuitTargetTop - current2;
+    const microActive = microPursuitUntil > now;
+    const allowCreep = microActive || motionTuning.minPursuitPxPerSec > 0;
+    if (err <= 0.5) {
+      const target = pursuitTargetTop;
+      pursuitVel = 0;
+      pursuitActive = false;
+      pursuitTargetTop = null;
+      emitPursuitHud(err, pursuitVel, target, current2);
+      return;
+    }
+    if (err <= deadbandPx && !allowCreep) {
+      const target = pursuitTargetTop;
+      pursuitVel = 0;
+      pursuitActive = false;
+      pursuitTargetTop = null;
+      emitPursuitHud(err, pursuitVel, target, current2);
+      return;
+    }
+    let maxVelForErr = resolveMaxVel(err);
+    if (microActive) {
+      maxVelForErr = Math.min(maxVelForErr, microPursuitCapPxPerSec);
+    }
+    const desiredVel = Math.min(maxVelForErr, Math.max(0, err * DEFAULT_PURSUE_KP));
+    const accelCap = maxAccelPxPerSec2 * dt;
+    const velDelta = clamp5(desiredVel - pursuitVel, -accelCap, accelCap);
+    pursuitVel = clamp5(pursuitVel + velDelta, 0, maxVelForErr);
+    if (err > 0 && pursuitVel < motionTuning.minPursuitPxPerSec) {
+      pursuitVel = Math.min(maxVelForErr, Math.max(pursuitVel, motionTuning.minPursuitPxPerSec));
+    }
+    let move = pursuitVel * dt;
+    move = Math.min(move, maxStepPx);
+    if (move < minStepPx) move = Math.min(err, minStepPx);
+    move = Math.min(err, move);
+    if (move > 0) {
+      const applied = applyScrollWithHybridGuard(current2 + move, { scroller, reason: "asr-tick" });
+      appliedTopPx = applied;
+      lastKnownScrollTop = applied;
+      lastMoveAt = Date.now();
+      markProgrammaticScroll();
+      if (isHybridMode()) {
+        if (commitCount > 0) {
+          const normalizedErr = Math.min(1, err / 200);
+          const brakeFactor = Math.max(0.15, 1 - normalizedErr);
+          emitHybridBrake(brakeFactor, "asr-pursuit", HYBRID_BRAKE_TTL_MS);
+        }
+        const assistBoost = Math.min(Math.max(0, pursuitVel), HYBRID_ASSIST_MAX_BOOST_PXPS);
+        emitHybridAssist(assistBoost, "asr-pursuit", pursuitTargetTop ?? void 0, HYBRID_ASSIST_TTL_MS);
+      }
+    }
+    emitPursuitHud(err, pursuitVel, pursuitTargetTop, current2);
+    window.requestAnimationFrame(tickController);
+  };
+  const ensurePursuitActive = () => {
+    if (pursuitActive) return;
+    pursuitActive = true;
+    pursuitLastTs = performance.now();
+    window.requestAnimationFrame(tickController);
+  };
+  const schedulePending = () => {
+    if (pendingRaf) return;
+    pendingRaf = window.requestAnimationFrame(() => {
+      pendingRaf = 0;
+      if (disposed) return;
+      void (async () => {
+        const seq = pendingSeq;
+        const pending = pendingMatch;
+        if (!pending) return;
+        pendingMatch = null;
+        const scroller = getScroller();
+        if (!scroller) {
+          warnGuard("no_scroller", []);
+          return;
+        }
+        const now = Date.now();
+        const jumpCap = getMaxTargetJumpPx();
+        const {
+          line,
+          conf,
+          isFinal,
+          hasEvidence,
+          snippet,
+          minThreshold,
+          forced,
+          forceReason,
+          consistency,
+          relockOverride,
+          relockReason,
+          relockSpan,
+          relockOverlapRatio,
+          relockRepeat,
+          matchId,
+          requiredThreshold: pendingRequiredThreshold,
+          topScores = [],
+          tieGap
+        } = pending;
+        const thresholds = getAsrDriverThresholds();
+        syncMotionTuning(thresholds, now);
+        const requiredThresholdValue = typeof pendingRequiredThreshold === "number" ? pendingRequiredThreshold : NaN;
+        const baselineRequired = Number.isFinite(requiredThresholdValue) ? clamp5(requiredThresholdValue, 0, 1) : 0;
+        const minThresholdValue = typeof minThreshold === "number" ? minThreshold : NaN;
+        const matchThreshold = Number.isFinite(minThresholdValue) ? clamp5(minThresholdValue, 0, 1) : baselineRequired;
+        const deltaLines = Math.max(0, Math.floor(line) - lastLineIndex);
+        const deltaMinSim = computeDeltaMinSim(deltaLines);
+        const overshootActive = now < overshootRiskUntil;
+        let effectiveMatchThreshold = Math.max(matchThreshold, deltaMinSim);
+        if (overshootActive) {
+          effectiveMatchThreshold = Math.max(effectiveMatchThreshold, OVERSHOOT_RISK_MIN_SIM);
+        }
+        const secondScore = topScores.length > 1 ? Number(topScores[1].score) : void 0;
+        const tieMargin = typeof secondScore === "number" && Number.isFinite(secondScore) ? conf - secondScore : typeof tieGap === "number" ? tieGap : void 0;
+        const tieOk = tieMargin === void 0 || tieMargin >= thresholds.tieDelta;
+        const strongMatch = conf >= effectiveMatchThreshold && tieOk;
+        if (!strongMatch) {
+          const tieParts = !tieOk && typeof tieMargin === "number" ? [`tie=${formatLogScore(tieMargin)}`, `tieNeed=${formatLogScore(thresholds.tieDelta)}`] : [];
+          const deltaParts = deltaMinSim > matchThreshold ? [`deltaNeed=${formatLogScore(deltaMinSim)}`] : [];
+          const riskParts = overshootActive ? ["overshoot=1"] : [];
+          warnGuard("low_sim", [
+            matchId ? `matchId=${matchId}` : "",
+            `current=${lastLineIndex}`,
+            `best=${line}`,
+            `delta=${line - lastLineIndex}`,
+            `sim=${formatLogScore(conf)}`,
+            `need=${formatLogScore(effectiveMatchThreshold)}`,
+            ...tieParts,
+            ...deltaParts,
+            ...riskParts,
+            relockOverride ? `relock=1` : "",
+            relockReason ? `relockReason=${relockReason}` : "",
+            Number.isFinite(relockSpan) ? `span=${relockSpan}` : "",
+            typeof relockOverlapRatio === "number" && Number.isFinite(relockOverlapRatio) ? `overlap=${formatLogScore(relockOverlapRatio)}` : "",
+            Number.isFinite(relockRepeat) ? `repeat=${relockRepeat}` : "",
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+          emitHudStatus(
+            "low_sim",
+            `Low confidence - waiting (sim=${formatLogScore(conf)} < ${formatLogScore(effectiveMatchThreshold)})`
+          );
+          noteLowSimFreeze(Date.now(), {
+            cursorLine: lastLineIndex,
+            bestIdx: line,
+            delta: line - lastLineIndex,
+            sim: conf,
+            inBand: true,
+            requiredSim: effectiveMatchThreshold,
+            need: effectiveMatchThreshold,
+            repeatCount: relockRepeat || 0,
+            bestSpan: relockSpan,
+            overlapRatio: relockOverlapRatio,
+            snippet: formatLogSnippet(snippet, 80),
+            matchId,
+            relockModeActive: !!relockOverride,
+            catchUpModeActive: false,
+            stuckResyncActive: false,
+            tieGap: typeof tieMargin === "number" ? Number(tieMargin.toFixed(3)) : void 0
+          });
+          return;
+        }
+        let targetLine = Math.max(0, Math.floor(line));
+        const confirmDelta = targetLine - lastLineIndex;
+        if (confirmDelta < DELTA_LARGE_MIN_LINES && largeDeltaConfirm) {
+          largeDeltaConfirm = null;
+        }
+        if (confirmDelta >= DELTA_LARGE_MIN_LINES) {
+          const confirmed = confirmLargeDelta(targetLine, now);
+          if (!confirmed) {
+            warnGuard("large_delta_confirm", [
+              `current=${lastLineIndex}`,
+              `best=${targetLine}`,
+              `delta=${confirmDelta}`,
+              `need=${LARGE_DELTA_CONFIRM_HITS}`,
+              `window=${LARGE_DELTA_CONFIRM_WINDOW_MS}`
+            ]);
+            emitHudStatus(
+              "confirmations",
+              `Waiting: large jump confirm (${confirmDelta} lines)`
+            );
+            return;
+          }
+        }
+        let lineEl = getLineElementByIndex(scroller, targetLine);
+        if (!lineEl) {
+          lineEl = await findLineElWithRetry(scroller, targetLine);
+          if (seq !== pendingSeq) {
+            return;
+          }
+        }
+        let targetTop = computeLineTargetTop(scroller, lineEl);
+        const currentTop = scroller.scrollTop || 0;
+        let deltaPx = targetTop != null ? targetTop - currentTop : 0;
+        if (targetTop == null) {
+          const deltaLines2 = targetLine - lastLineIndex;
+          const diag = diagnoseNoTarget(scroller, targetLine);
+          if (maybeScheduleLineRetry(targetLine, pending)) {
+            return;
+          }
+          const reasonChain = diag.reasons.length ? diag.reasons.join("|") : "unknown";
+          const retryEligible = strongMatch && conf >= DEFAULT_NO_TARGET_RETRY_SIM && deltaLines2 >= 0 && deltaLines2 <= DEFAULT_NO_TARGET_RETRY_MAX_DELTA;
+          let retryCount = 0;
+          if (retryEligible) {
+            const sameKey = noTargetRetryLine === targetLine && (matchId ? matchId === noTargetRetryMatchId : noTargetRetryMatchId == null);
+            if (!sameKey || now - noTargetRetryAt > DEFAULT_NO_TARGET_RETRY_WINDOW_MS) {
+              noTargetRetryCount = 0;
+            }
+            noTargetRetryLine = targetLine;
+            noTargetRetryMatchId = matchId || null;
+            noTargetRetryAt = now;
+            retryCount = noTargetRetryCount + 1;
+            noTargetRetryCount = retryCount;
+          }
+          warnGuard("no_target", [
+            `current=${lastLineIndex}`,
+            `best=${targetLine}`,
+            `delta=${deltaLines2}`,
+            `why=${reasonChain}`,
+            `domLines=${diag.domLines}`,
+            `marker=${diag.markerIdx}`,
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+          emitHudStatus("no_target", "No target line in DOM", {
+            line: targetLine,
+            delta: deltaLines2,
+            sim: Number.isFinite(conf) ? Number(conf.toFixed(3)) : conf,
+            reasons: reasonChain,
+            domLines: diag.domLines,
+            marker: diag.markerIdx,
+            retry: retryCount,
+            matchId
+          });
+          logDev("no_target", {
+            line: targetLine,
+            delta: deltaLines2,
+            sim: conf,
+            reasons: reasonChain,
+            scroller: diag.scrollerId,
+            domLines: diag.domLines,
+            markerIdx: diag.markerIdx,
+            retry: retryCount,
+            matchId
+          });
+          if (retryEligible && retryCount > 0 && retryCount <= DEFAULT_NO_TARGET_RETRY_FRAMES) {
+            const approxTop = estimateTargetTopFromLines(scroller, lastLineIndex, targetLine);
+            if (approxTop != null) {
+              const max2 = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+              const base2 = pursuitTargetTop == null ? currentTop : pursuitTargetTop;
+              const desired = clamp5(approxTop, 0, max2);
+              const limitedTarget2 = Math.min(desired, base2 + jumpCap);
+              if (limitedTarget2 > base2) {
+                pursuitTargetTop = limitedTarget2;
+                lastEvidenceAt = now;
+                ensurePursuitActive();
+                logDev("no_target_nudge", { line: targetLine, px: Math.round(limitedTarget2 - base2), conf });
+                emitHybridTargetHint(limitedTarget2, isFinal ? 0.75 : 0.55, "asr-no-target", void 0, targetLine);
+              }
+            }
+            adoptPendingMatch({ ...pending });
+            schedulePending();
+            return;
+          }
+          return;
+        }
+        if (targetLine <= lastLineIndex) {
+          if (targetLine === lastLineIndex) {
+            if (isFinal && hasEvidence && strongMatch && deltaPx > 0 && deltaPx <= creepNearPx) {
+              const nextLine = targetLine + 1;
+              const nextTop = resolveTargetTop(scroller, nextLine);
+              if (nextTop != null) {
+                const nextDeltaPx = nextTop - currentTop;
+                if (nextDeltaPx > 0 && nextDeltaPx <= jumpCap) {
+                  targetLine = nextLine;
+                  targetTop = nextTop;
+                  deltaPx = nextDeltaPx;
+                  logDev("same-line advance", { line: targetLine, px: Math.round(nextDeltaPx), conf });
+                }
+              }
+            }
+          }
+        }
+        if (targetLine <= lastLineIndex) {
+          if (targetLine === lastLineIndex) {
+            if (deltaPx < 0) {
+              warnGuard("same_line_noop", [
+                `current=${lastLineIndex}`,
+                `best=${targetLine}`,
+                `deltaPx=${Math.round(deltaPx)}`,
+                `nearPx=${creepNearPx}`,
+                snippet ? `clue="${snippet}"` : ""
+              ]);
+              return;
+            }
+            if (now - lastSameLineNudgeTs < sameLineThrottleMs) {
+              warnGuard("same_line_throttle", [
+                `line=${targetLine}`,
+                `since=${now - lastSameLineNudgeTs}`,
+                `throttle=${sameLineThrottleMs}`
+              ]);
+              pushStrongHit(targetLine, conf, isFinal, now);
+              recordConsistencyEntry({
+                ts: now,
+                idx: targetLine,
+                delta: targetLine - lastLineIndex,
+                sim: conf,
+                nearMarker: true,
+                isFinal
+              });
+              return;
+            }
+            if (deltaPx > creepNearPx) {
+              const max2 = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+              const base2 = pursuitTargetTop == null ? currentTop : pursuitTargetTop;
+              const desired = clamp5(targetTop, 0, max2);
+              const limitedTarget2 = Math.min(desired, base2 + jumpCap);
+              if (limitedTarget2 > base2) {
+                stopGlide("same-line-recenter");
+                pursuitTargetTop = limitedTarget2;
+                lastSameLineNudgeTs = now;
+                lastEvidenceAt = now;
+                const lineHeightPx2 = lineEl?.offsetHeight || lineEl?.clientHeight || 0;
+                const microThresholdPx2 = lineHeightPx2 > 0 ? lineHeightPx2 * motionTuning.microDeltaLineRatio : 0;
+                if (microThresholdPx2 > 0 && limitedTarget2 - base2 <= microThresholdPx2) {
+                  armMicroPursuit(now, "same-line-recenter");
+                }
+                ensurePursuitActive();
+                logDev("same-line recenter", { line: targetLine, px: Math.round(limitedTarget2 - base2), conf });
+                emitHybridTargetHint(
+                  limitedTarget2,
+                  isFinal ? 0.8 : 0.6,
+                  "asr-same-line-center",
+                  void 0,
+                  targetLine
+                );
+                updateDebugState("same-line-recenter");
+                return;
+              }
+              warnGuard("same_line_noop", [
+                `current=${lastLineIndex}`,
+                `best=${targetLine}`,
+                `deltaPx=${Math.round(deltaPx)}`,
+                `nearPx=${creepNearPx}`,
+                snippet ? `clue="${snippet}"` : ""
+              ]);
+              return;
+            }
+            if (now - lastSameLineNudgeTs >= sameLineThrottleMs) {
+              if (creepBudgetLine !== targetLine) {
+                creepBudgetLine = targetLine;
+                creepBudgetUsed = 0;
+              }
+              if (creepBudgetUsed >= creepBudgetPx) {
+                warnGuard("creep_budget", [
+                  `line=${targetLine}`,
+                  `used=${Math.round(creepBudgetUsed)}`,
+                  `budget=${creepBudgetPx}`
+                ]);
+                return;
+              }
+              const max2 = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+              const base2 = pursuitTargetTop == null ? currentTop : pursuitTargetTop;
+              const creepStep = Math.min(creepPx, creepBudgetPx - creepBudgetUsed);
+              const creepTarget = clamp5(base2 + creepStep, 0, max2);
+              const limitedTarget2 = Math.min(creepTarget, base2 + jumpCap);
+              if (limitedTarget2 > base2) {
+                stopGlide("same-line-creep");
+                pursuitTargetTop = limitedTarget2;
+                lastSameLineNudgeTs = now;
+                lastEvidenceAt = now;
+                creepBudgetUsed += Math.max(0, limitedTarget2 - base2);
+                const lineHeightPx2 = lineEl?.offsetHeight || lineEl?.clientHeight || 0;
+                const microThresholdPx2 = lineHeightPx2 > 0 ? lineHeightPx2 * motionTuning.microDeltaLineRatio : 0;
+                if (microThresholdPx2 > 0 && limitedTarget2 - base2 <= microThresholdPx2) {
+                  armMicroPursuit(now, "same-line-creep");
+                }
+                ensurePursuitActive();
+                logDev("same-line creep", { line: targetLine, px: creepStep, conf });
+                emitHybridTargetHint(
+                  limitedTarget2,
+                  isFinal ? 0.8 : 0.6,
+                  "asr-same-line-creep",
+                  void 0,
+                  targetLine
+                );
+                updateDebugState("same-line-creep");
+              }
+            }
+            return;
+          }
+          const strongBack = conf >= Math.max(backRecoverStrongConf, baselineRequired);
+          if (isFinal && strongBack && deltaPx < 0 && Math.abs(deltaPx) <= backRecoverMaxPx) {
+            if (Math.abs(targetLine - lastBackRecoverIdx) <= 1 && now - lastBackRecoverHitAt <= backRecoverWindowMs) {
+              backRecoverStreak += 1;
+            } else {
+              backRecoverStreak = 1;
+            }
+            lastBackRecoverIdx = targetLine;
+            lastBackRecoverHitAt = now;
+            if (backRecoverStreak >= backRecoverHitLimit && now - lastBackRecoverAt >= backRecoverCooldownMs) {
+              stopGlide("back-recovery");
+              const applied = applyScrollWithHybridGuard(currentTop + deltaPx, {
+                scroller,
+                reason: "asr-back-recovery"
+              });
+              lastKnownScrollTop = applied;
+              lastMoveAt = Date.now();
+              markProgrammaticScroll();
+              lastBackRecoverAt = now;
+              backRecoverStreak = 0;
+              logDev("back-recovery nudge", { px: deltaPx, conf, line: targetLine });
+              updateDebugState("back-recovery");
+            }
+          } else {
+            backRecoverStreak = 0;
+          }
+          warnGuard("behind_blocked", [
+            `current=${lastLineIndex}`,
+            `best=${targetLine}`,
+            `delta=${targetLine - lastLineIndex}`,
+            `sim=${formatLogScore(conf)}`,
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+          emitHudStatus("behind_blocked", "Behind match ignored");
+          return;
+        }
+        if (!hasEvidence) {
+          warnGuard("no_evidence", [
+            `current=${lastLineIndex}`,
+            `best=${line}`,
+            `delta=${line - lastLineIndex}`,
+            `sim=${formatLogScore(conf)}`,
+            `final=${isFinal ? 1 : 0}`,
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+          if (consistency && consistency.needed > 0 && consistency.count < consistency.needed) {
+            emitHudStatus(
+              "confirmations",
+              `Waiting: confirmations ${consistency.count}/${consistency.needed}`
+            );
+          } else {
+            emitHudStatus("no_evidence", "Blocked: min evidence");
+          }
+          return;
+        }
+        const forwardDelta = targetLine - lastLineIndex;
+        if (forwardDelta < minLineAdvance) {
+          warnGuard("forward_progress", [
+            `lastLineIndex=${lastLineIndex}`,
+            `bestIdx=${line}`,
+            `targetLine=${targetLine}`,
+            `delta=${forwardDelta}`,
+            `sim=${formatLogScore(conf)}`,
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+          dumpRecentEvents("forwardProgress");
+          return;
+        }
+        if (now - lastSeekTs < seekThrottleMs) {
+          warnGuard("seek_throttle", [
+            `current=${lastLineIndex}`,
+            `best=${targetLine}`,
+            `delta=${targetLine - lastLineIndex}`,
+            `since=${now - lastSeekTs}`,
+            `throttle=${seekThrottleMs}`
+          ]);
+          return;
+        }
+        const rateWindowMs = 1e3;
+        jumpHistory = jumpHistory.filter((ts) => now - ts < rateWindowMs);
+        if (!forced && jumpHistory.length >= thresholds.maxJumpsPerSecond) {
+          warnGuard("rate_limited", [
+            `limit=${thresholds.maxJumpsPerSecond}`,
+            `windowMs=${rateWindowMs}`,
+            `since=${now - (jumpHistory[0] || 0)}`
+          ]);
+          emitHudStatus("rate_limited", "Rate-limited - waiting");
+          return;
+        }
+        const prevLineIndex = lastLineIndex;
+        const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+        const lineHeightPx = (() => {
+          try {
+            if (!lineEl) return 0;
+            const h = lineEl.offsetHeight || lineEl.clientHeight;
+            if (h && Number.isFinite(h)) return h;
+            const computed = Number.parseFloat(getComputedStyle(lineEl).lineHeight);
+            return Number.isFinite(computed) ? computed : 0;
+          } catch {
+            return 0;
+          }
+        })();
+        const rawDeltaPx = Math.max(0, targetTop - currentTop);
+        const maxJumpPx = lineHeightPx > 0 ? lineHeightPx * motionTuning.maxLinesPerCommit : rawDeltaPx;
+        const clampedDeltaPx = Math.min(rawDeltaPx, maxJumpPx);
+        const prevCommitDeltaPx = lastCommitDeltaPx > 0 ? lastCommitDeltaPx : clampedDeltaPx;
+        let smoothedDeltaPx = prevCommitDeltaPx + (clampedDeltaPx - prevCommitDeltaPx) * motionTuning.deltaSmoothingFactor;
+        smoothedDeltaPx = Math.min(smoothedDeltaPx, clampedDeltaPx);
+        smoothedDeltaPx = Math.max(0, smoothedDeltaPx);
+        let taper = 1;
+        if (max > 0) {
+          const progress = clamp5(currentTop / max, 0, 1);
+          taper = clamp5(1 - Math.pow(progress, motionTuning.taperExponent), motionTuning.taperMin, 1);
+        }
+        const taperedDeltaPx = Math.min(clampedDeltaPx, smoothedDeltaPx * taper);
+        lastCommitDeltaPx = taperedDeltaPx;
+        const maxAllowedTarget = clamp5(currentTop + taperedDeltaPx, 0, max);
+        const base = pursuitTargetTop == null ? currentTop : pursuitTargetTop;
+        const baseClamped = Math.min(base, maxAllowedTarget);
+        const candidate = maxAllowedTarget;
+        const limitedTarget = forced ? candidate : Math.min(candidate, baseClamped + jumpCap);
+        const nextTargetTop = Math.max(baseClamped, limitedTarget);
+        pursuitTargetTop = nextTargetTop;
+        if (nextTargetTop > base) {
+          emitHybridTargetHint(
+            nextTargetTop,
+            isFinal ? 0.9 : 0.7,
+            forced ? "asr-forced-commit" : "asr-commit",
+            void 0,
+            targetLine
+          );
+        }
+        const microThresholdPx = lineHeightPx > 0 ? lineHeightPx * motionTuning.microDeltaLineRatio : 0;
+        const useMicro = microThresholdPx > 0 && taperedDeltaPx > 0 && taperedDeltaPx <= microThresholdPx;
+        let didGlide = false;
+        if (!isHybridMode()) {
+          if (useMicro) {
+            stopGlide("micro-commit");
+            pursuitTargetTop = nextTargetTop;
+            pursuitVel = 0;
+            armMicroPursuit(now, "micro-commit");
+          } else {
+            microPursuitUntil = 0;
+            pursuitActive = false;
+            pursuitVel = 0;
+            didGlide = startGlideTo(nextTargetTop, {
+              scroller,
+              reason: forced ? "asr-forced-commit" : "asr-commit",
+              source: "asr"
+            });
+          }
+        }
+        lastLineIndex = Math.max(lastLineIndex, targetLine);
+        creepBudgetLine = -1;
+        creepBudgetUsed = 0;
+        lastForwardCommitAt = now;
+        relockRepeatIdx = -1;
+        relockRepeatCount = 0;
+        relockRepeatWindowStart = 0;
+        resetLookahead("forward_commit");
+        lastSeekTs = now;
+        lastEvidenceAt = now;
+        if (forced) {
+          forcedCommitTimes.push(now);
+          pruneForcedCommits(now);
+        } else {
+          jumpHistory.push(now);
+        }
+        noteCommit(prevLineIndex, targetLine, now);
+        if (forwardDelta >= OVERSHOOT_RISK_DELTA_LINES) {
+          overshootRiskUntil = now + OVERSHOOT_RISK_WINDOW_MS;
+          logDev("overshoot risk", { delta: forwardDelta, until: overshootRiskUntil });
+        }
+        behindRecoveryHits.length = 0;
+        largeDeltaConfirm = null;
+        if (pending.recoveryDetails && isDevMode3()) {
+          const { delta: recDelta, sim: recSim, streak, debt } = pending.recoveryDetails;
+          const msg = `[ASR_RECOVERY] commit delta=${recDelta} sim=${formatLogScore(recSim)} streak=${streak} debt=${debt}`;
+          logDev(msg);
+          try {
+            window.toast?.(msg, { type: "info", timeoutMs: 2200 });
+          } catch {
+          }
+        }
+        resetLowSimStreak();
+        setCurrentIndex(lastLineIndex, forceReason === "catchup" ? "catchup-commit" : "commit");
+        try {
+          const simStr = Number.isFinite(conf) ? Number(conf.toFixed(3)) : conf;
+          const fromTop = Number.isFinite(currentTop) ? Math.round(currentTop) : currentTop;
+          const toTop = Number.isFinite(pursuitTargetTop ?? currentTop) ? Math.round(pursuitTargetTop ?? currentTop) : pursuitTargetTop ?? currentTop;
+          const movedPx = typeof fromTop === "number" && typeof toTop === "number" ? Math.round(toTop - fromTop) : 0;
+          const targetElFound = !!lineEl;
+          console.log(
+            `[ASR_DRIVER] driveToLine best=${targetLine} cur=${prevLineIndex} delta=${targetLine - prevLineIndex} sim=${simStr} reason=transcript fromTop=${fromTop} toTop=${toTop} movedPx=${movedPx} targetElFound=${targetElFound ? 1 : 0}`
+          );
+        } catch {
+        }
+        const intendedTargetTop = pursuitTargetTop ?? currentTop;
+        try {
+          console.info("[ASR_COMMIT_TARGET]", { line: targetLine, targetTop: Math.round(intendedTargetTop) });
+        } catch {
+        }
+        logThrottled("ASR_COMMIT", "log", "ASR_COMMIT", {
+          matchId,
+          prevIndex: prevLineIndex,
+          nextIndex: targetLine,
+          delta: targetLine - prevLineIndex,
+          sim: Number.isFinite(conf) ? Number(conf.toFixed(3)) : conf,
+          scrollTopBefore: Math.round(currentTop),
+          scrollTopAfter: Math.round(pursuitTargetTop ?? currentTop),
+          targetTop: Math.round(intendedTargetTop),
+          forced: !!forced,
+          mode: getScrollMode3() || "unknown",
+          relock: !!relockOverride,
+          relockReason: relockReason || void 0
+        });
+        if (!didGlide) {
+          ensurePursuitActive();
+        }
+        try {
+          const forcedCount = getForcedCount(now);
+          const forcedCooldown = getForcedCooldownRemaining(now);
+          const markerIdx = computeMarkerLineIndex(scroller);
+          const currentEl = getLineElementByIndex(scroller, prevLineIndex);
+          const bestEl = getLineElementByIndex(scroller, targetLine);
+          const markerEl = getLineElementByIndex(scroller, markerIdx);
+          const currentText = currentEl ? formatLogSnippet(currentEl.textContent || "", 60) : "";
+          const bestText = bestEl ? formatLogSnippet(bestEl.textContent || "", 60) : "";
+          const markerText = markerEl ? formatLogSnippet(markerEl.textContent || "", 60) : "";
+          const lineHeight = bestEl?.offsetHeight || currentEl?.offsetHeight || 0;
+          const commitLine = [
+            "ASR_COMMIT",
+            `line=${targetLine}`,
+            `prev=${prevLineIndex}`,
+            `delta=${targetLine - prevLineIndex}`,
+            `sim=${formatLogScore(conf)}`,
+            `final=${isFinal ? 1 : 0}`,
+            `marker=${markerIdx}`,
+            `scrollTop=${Math.round(scroller.scrollTop || 0)}`,
+            `lineH=${lineHeight}`,
+            matchId ? `matchId=${matchId}` : "",
+            `forced=${forced ? 1 : 0}`,
+            forced ? `forceReason=${forceReason || 1}` : "",
+            relockOverride ? `relock=1` : "",
+            relockReason ? `relockReason=${relockReason}` : "",
+            Number.isFinite(relockSpan) ? `span=${relockSpan}` : "",
+            typeof relockOverlapRatio === "number" && Number.isFinite(relockOverlapRatio) ? `overlap=${formatLogScore(relockOverlapRatio)}` : "",
+            Number.isFinite(relockRepeat) ? `repeat=${relockRepeat}` : "",
+            `forcedCount10s=${forcedCount}`,
+            forcedCooldown ? `cooldown=${forcedCooldown}` : "cooldown=0",
+            currentText ? `currentText="${currentText}"` : "",
+            bestText ? `bestText="${bestText}"` : "",
+            markerText ? `markerText="${markerText}"` : "",
+            snippet ? `clue="${snippet}"` : ""
+          ].filter(Boolean).join(" ");
+          console.log(commitLine);
+        } catch {
+        }
+        if (forced && forceReason === "catchup") {
+          emitHudStatus("catchup_commit", `Catch-up commit +${targetLine - prevLineIndex}`);
+        }
+        clearEvidenceBuffer("commit");
+        logDev("target update", { line: targetLine, conf, pxDelta: deltaPx, targetTop: pursuitTargetTop });
+        updateDebugState("target-update");
+      })();
+    });
+  };
+  const ingest = (text, isFinal, detail) => {
+    if (disposed) return;
+    const normalized = String(text || "").trim();
+    if (!normalized) return;
+    const compacted = normalized.replace(/\s+/g, " ").trim();
+    const now = Date.now();
+    const incomingIdx = Number(detail?.currentIdx);
+    if (Number.isFinite(incomingIdx)) {
+      const nextIdx = Math.max(0, Math.floor(incomingIdx));
+      if (nextIdx !== lastLineIndex) {
+        lastLineIndex = nextIdx;
+        matchAnchorIdx = nextIdx;
+      }
+    }
+    if (postCatchupSamplesLeft > 0) postCatchupSamplesLeft -= 1;
+    const rawMatchId = detail?.matchId;
+    const noMatch2 = detail?.noMatch === true;
+    const hasMatchId = typeof rawMatchId === "string" && rawMatchId.length > 0;
+    const explicitNoMatch = rawMatchId === null && noMatch2;
+    if (!hasMatchId && !explicitNoMatch) {
+      if (isDevMode3() && !missingMatchIdKeysLogged) {
+        missingMatchIdKeysLogged = true;
+        try {
+          const keys = detail && typeof detail === "object" ? Object.keys(detail) : [];
+          console.debug("[ASR_PIPELINE] missing matchId keys=[" + keys.join(",") + "]");
+        } catch {
+        }
+      }
+      const snippet2 = formatLogSnippet(compacted, 60);
+      try {
+        console.warn("[ASR_PIPELINE] NO_MATCH (pipeline): missing matchId");
+      } catch {
+      }
+      warnGuard("no_match_pipeline", [
+        `final=${isFinal ? 1 : 0}`,
+        snippet2 ? `clue="${snippet2}"` : ""
+      ]);
+      emitHudStatus("no_match", "No match (pipeline)");
+      noteNoMatchGap(now, "missing_matchId", snippet2);
+      return;
+    }
+    if (explicitNoMatch) {
+      const snippet2 = formatLogSnippet(compacted, 60);
+      emitHudStatus("no_match", "No match");
+      noteNoMatchGap(now, "explicit_no_match", snippet2);
+      return;
+    }
+    const matchId = rawMatchId;
+    lastMatchId = matchId;
+    const metaTranscript = detail?.source === "meta" || detail?.meta === true;
+    const incomingMatch = detail?.match;
+    if (!incomingMatch) {
+      const snippet2 = formatLogSnippet(compacted, 60);
+      try {
+        console.warn("[ASR_PIPELINE] NO_MATCH (pipeline): missing match payload");
+      } catch {
+      }
+      warnGuard("no_match_pipeline", [
+        `matchId=${matchId}`,
+        `final=${isFinal ? 1 : 0}`,
+        snippet2 ? `clue="${snippet2}"` : ""
+      ]);
+      emitHudStatus("no_match", "No match (pipeline)");
+      noteNoMatchGap(now, "missing_payload", snippet2);
+      return;
+    }
+    resetNoMatchTracking("match");
+    const prevBufferChars = lastBufferChars;
+    const bufferedText = metaTranscript ? compacted : updateEvidenceBuffer(compacted, isFinal, now);
+    const bufferGrowing = !metaTranscript && bufferMs > 0 && bufferedText.length > prevBufferChars;
+    const snippet = formatLogSnippet(bufferedText, 60);
+    const freezeSnippet = formatLogSnippet(bufferedText, 80);
+    const fragmentTokenCount = normTokens(compacted).length;
+    const tokenCount = normTokens(bufferedText).length;
+    const evidenceChars = bufferedText.length;
+    if (!bootLogged) {
+      bootLogged = true;
+      try {
+        const viewer3 = getScroller();
+        const root = getScriptRoot() || viewer3;
+        const scroller = resolveActiveScroller(viewer3, root || getFallbackScroller());
+        const scrollTop = scroller?.scrollTop ?? 0;
+        const markerPct = typeof window.__TP_MARKER_PCT === "number" ? window.__TP_MARKER_PCT : 0.4;
+        const host = scroller || root;
+        const rect = host ? host.getBoundingClientRect() : document.documentElement.getBoundingClientRect();
+        const markerY = rect.top + (host ? host.clientHeight : window.innerHeight) * markerPct;
+        const lineEl = (root || scroller || document).querySelector(".line");
+        const pxPerLine = lineEl?.offsetHeight ?? 0;
+        const topEpsilon = Math.max(24, (pxPerLine || 0) * 0.5);
+        const computedLineHeight = (() => {
+          if (!scroller) return 0;
+          const parsed = Number.parseFloat(getComputedStyle(scroller).lineHeight);
+          return Number.isFinite(parsed) ? parsed : 0;
+        })();
+        const currentIndexRaw = lastLineIndex >= 0 ? lastLineIndex : Number(window?.currentIndex ?? -1);
+        const currentIndex = Number.isFinite(currentIndexRaw) ? Math.floor(currentIndexRaw) : currentIndexRaw;
+        console.info([
+          "ASR_BOOT",
+          `scroller=${describeElement(scroller)}`,
+          `scrollTop=${Math.round(scrollTop)}`,
+          `topEps=${Math.round(topEpsilon)}`,
+          `markerY=${Math.round(markerY)}`,
+          `pxPerLine=${Math.round(pxPerLine)}`,
+          `lineHeight=${Number.isFinite(computedLineHeight) ? computedLineHeight.toFixed(2) : "?"}`,
+          `currentIndex=${currentIndex}`
+        ].join(" "));
+      } catch {
+      }
+    }
+    lastIngestAt = now;
+    updateDebugState("ingest");
+    maybeLogStall(now);
+    if (resyncReason && resyncUntil && now >= resyncUntil) {
+      resyncReason = null;
+      resyncAnchorIdx = null;
+      resetResyncOverrides();
+    }
+    if (catchUpModeUntil && now >= catchUpModeUntil) {
+      catchUpModeUntil = 0;
+    }
+    const evidenceShort = !isFinal && tokenCount < minTokenCount && evidenceChars < minEvidenceChars;
+    if (evidenceShort && !allowShortEvidence) {
+      const cursor = lastLineIndex >= 0 ? lastLineIndex : Number(window?.currentIndex ?? -1);
+      warnGuard("min_evidence", [
+        `cursor=${cursor}`,
+        `tokens=${tokenCount}`,
+        `chars=${evidenceChars}`,
+        `final=${isFinal ? 1 : 0}`,
+        snippet ? `clue="${snippet}"` : ""
+      ]);
+      emitHudStatus("min_evidence", `Blocked: min evidence (tokens=${tokenCount})`);
+      logDev("short utterance ignored", { tokenCount, evidenceChars, isFinal });
+      return;
+    }
+    maybeBumpForStall(now);
+    if (now - lastForwardCommitAt >= DEFAULT_FORWARD_PROGRESS_WINDOW_MS && now - lastStuckDumpAt >= DEFAULT_FORWARD_PROGRESS_WINDOW_MS) {
+      lastStuckDumpAt = now;
+      if (stallRescueRequested) {
+        stallRescueRequested = false;
+        clearEvidenceBuffer("stuck");
+        const anchorForStuck = lastLineIndex >= 0 ? lastLineIndex : Number(window?.currentIndex ?? 0);
+        activateStuckResync(anchorForStuck, now);
+        emitHudStatus("resync", "Resyncing...");
+        dumpRecentEvents("stuck");
+        logThrottled("ASR_GUARD:stuck", "warn", "ASR_GUARD", {
+          reason: "stuck",
+          lastLineIndex,
+          lastForwardCommitAt
+        });
+      }
+    }
+    const anchorIdx = matchAnchorIdx >= 0 ? matchAnchorIdx : lastLineIndex >= 0 ? lastLineIndex : Number(window?.currentIndex ?? 0);
+    const resyncActive = now < resyncUntil && Number.isFinite(resyncAnchorIdx ?? NaN);
+    const lagRelockActive = resyncActive && resyncReason === "lag";
+    const effectiveAnchor = resyncActive ? Math.max(0, Math.floor(resyncAnchorIdx)) : Math.max(0, Math.floor(anchorIdx));
+    const anchorTarget = effectiveAnchor;
+    const driverWindowBack = resyncActive ? resyncBacktrackOverride : matchBacktrackLines;
+    const catchUpModeActivePre = catchUpModeUntil > now;
+    const lookaheadBase = resolveLookahead(resyncActive);
+    const driverWindowAhead = catchUpModeActivePre ? clamp5(lookaheadBase + DEFAULT_CATCHUP_LOOKAHEAD_BONUS, matchLookaheadLines, matchLookaheadMax + DEFAULT_CATCHUP_LOOKAHEAD_BONUS) : lookaheadBase;
+    const match = incomingMatch;
+    if (!match) {
+      warnGuard("no_match", [
+        `current=${effectiveAnchor}`,
+        `final=${isFinal ? 1 : 0}`,
+        snippet ? `clue="${snippet}"` : ""
+      ]);
+      return;
+    }
+    const thresholds = getAsrDriverThresholds();
+    const matchWindowBackRaw = Number(match?.windowBack);
+    const matchWindowAheadRaw = Number(match?.windowAhead);
+    const matchWindowBack = Number.isFinite(matchWindowBackRaw) ? Math.max(0, Math.floor(matchWindowBackRaw)) : driverWindowBack;
+    const matchWindowAhead = Number.isFinite(matchWindowAheadRaw) ? Math.max(0, Math.floor(matchWindowAheadRaw)) : driverWindowAhead;
+    let rawIdx = Number(match.bestIdx);
+    let conf = Number.isFinite(match.bestSim) ? match.bestSim : 0;
+    const currentIdxRaw = Number(window?.currentIndex ?? -1);
+    const currentIdx = Number.isFinite(currentIdxRaw) ? currentIdxRaw : -1;
+    const cursorLine = lastLineIndex >= 0 ? lastLineIndex : effectiveAnchor;
+    const baseCommitThreshold = isFinal ? thresholds.commitFinalMinSim : clamp5(thresholds.commitInterimMinSim * interimScale, 0, 1);
+    const shortBoost = tokenCount <= shortTokenMax ? shortTokenBoost : 0;
+    const requiredThreshold = clamp5(baseCommitThreshold + shortBoost, 0, 1);
+    const interimHighThreshold = clamp5(requiredThreshold + interimHysteresisBonus, 0, 1);
+    const consistencyMinSim = clamp5(requiredThreshold - consistencySimSlack, 0, 1);
+    const catchupMinSim = clamp5(requiredThreshold - catchupSimSlack, 0, 1);
+    const prevIndex = Number.isFinite(currentIdxRaw) ? Math.floor(currentIdxRaw) : 0;
+    const candidateAnchorLine = Number.isFinite(rawIdx) ? Math.max(0, Math.floor(rawIdx)) : null;
+    if (candidateAnchorLine !== null && conf >= thresholds.anchorMinSim) {
+      if (anchorStreakLine === candidateAnchorLine) {
+        anchorStreakCount += 1;
+      } else {
+        anchorStreakLine = candidateAnchorLine;
+        anchorStreakCount = 1;
+      }
+    } else {
+      anchorStreakLine = null;
+      anchorStreakCount = 0;
+    }
+    const anchorDelta = Math.abs(anchorTarget - prevIndex);
+    const commitFinalOk = isFinal && conf >= thresholds.commitFinalMinSim;
+    const anchorStreakOk = anchorStreakLine !== null && anchorStreakCount >= thresholds.anchorStreakNeeded;
+    const anchorAllowedByDelta = anchorDelta <= thresholds.maxAnchorJumpLines;
+    const anchorAllowedByConfidence = commitFinalOk || anchorStreakOk;
+    if (anchorAllowedByDelta || anchorAllowedByConfidence) {
+      setCurrentIndex(anchorTarget, "anchor-sync");
+    } else {
+      warnGuard("anchor_blocked", [
+        `current=${prevIndex}`,
+        `target=${anchorTarget}`,
+        `delta=${anchorDelta}`,
+        `sim=${formatLogScore(conf)}`,
+        `need=${formatLogScore(thresholds.anchorMinSim)}`
+      ]);
+    }
+    const noMatchFlag = !Number.isFinite(rawIdx) || rawIdx < 0;
+    if (isDevMode3() && rawIdx !== cursorLine) {
+      const bestOut = Number.isFinite(rawIdx) ? Math.floor(rawIdx) : rawIdx;
+      const deltaOut = Number.isFinite(rawIdx) ? Math.floor(rawIdx) - cursorLine : NaN;
+      try {
+        console.debug(
+          "[ASR_EVENT_IDX]",
+          `matchId=${matchId}`,
+          `current=${cursorLine}`,
+          `best=${bestOut}`,
+          `delta=${Number.isFinite(deltaOut) ? deltaOut : "NaN"}`,
+          `sim=${formatLogScore(conf)}`,
+          `noMatch=${noMatchFlag ? 1 : 0}`
+        );
+      } catch {
+      }
+    }
+    if (!Number.isFinite(rawIdx)) {
+      warnGuard("invalid_match", [
+        `current=${currentIdx}`,
+        `final=${isFinal ? 1 : 0}`,
+        snippet ? `clue="${snippet}"` : ""
+      ]);
+      return;
+    }
+    if (rawIdx < 0) {
+      warnGuard("no_match", [
+        `current=${currentIdx}`,
+        `final=${isFinal ? 1 : 0}`,
+        snippet ? `clue="${snippet}"` : ""
+      ]);
+      emitHudStatus("no_match", "No match");
+      return;
+    }
+    const totalLines = getTotalLines();
+    const bandStart = Number.isFinite(match?.bandStart) ? Math.max(0, Math.floor(match.bandStart)) : Math.max(0, cursorLine - matchWindowBack);
+    const bandEnd = Number.isFinite(match?.bandEnd) ? Math.max(bandStart, Math.floor(match.bandEnd)) : totalLines > 0 ? Math.min(totalLines - 1, cursorLine + matchWindowAhead) : cursorLine + matchWindowAhead;
+    const inBand = rawIdx >= bandStart && rawIdx <= bandEnd;
+    const manualAnchorEnabled = isManualAnchorAdoptEnabled();
+    if (manualAnchorPending && manualAnchorEnabled && now - manualAnchorPending.ts >= MANUAL_ANCHOR_PENDING_TIMEOUT_MS) {
+      rejectManualAnchorPending("no local evidence");
+    }
+    if (!inBand) {
+      warnGuard("match_out_of_band", [
+        `current=${cursorLine}`,
+        `best=${rawIdx}`,
+        `delta=${rawIdx - cursorLine}`,
+        `bandStart=${bandStart}`,
+        `bandEnd=${bandEnd}`,
+        `inBand=${inBand ? 1 : 0}`
+      ]);
+      emitHudStatus("match_out_of_band", "Out-of-band match ignored");
+      resetLagRelock("out-of-band");
+      return;
+    }
+    const rawBestSim = conf;
+    const candidateIdx = Number.isFinite(rawIdx) ? Math.max(0, Math.floor(rawIdx)) : -1;
+    const confirmingCurrentLine = candidateIdx >= 0 && candidateIdx === cursorLine;
+    const stickAdjust = confirmingCurrentLine ? thresholds.stickinessDelta : 0;
+    const effectiveThresholdForPending = clamp5(requiredThreshold - stickAdjust, 0, 1);
+    const topScores = Array.isArray(match.topScores) ? match.topScores : [];
+    const rawScoreByIdx = /* @__PURE__ */ new Map();
+    topScores.forEach((entry) => {
+      const idx = Number(entry.idx);
+      const score = Number(entry.score);
+      if (Number.isFinite(idx) && Number.isFinite(score)) {
+        rawScoreByIdx.set(idx, score);
+      }
+    });
+    const bestSpan = Number(match?.bestSpan);
+    const bestOverlap = Number(match?.bestOverlap);
+    const bestOverlapRatio = Number(match?.bestOverlapRatio);
+    const isSlamDunkFinal = (idx, sim) => {
+      if (!isFinal) return false;
+      const delta2 = idx - cursorLine;
+      if (delta2 < 0 || delta2 > slamDunkMaxDelta) return false;
+      if (sim < slamDunkSim) return false;
+      const hasCompetitor = topScores.some((entry) => {
+        const entryIdx = Number(entry.idx);
+        const entryScore = Number(entry.score);
+        if (!Number.isFinite(entryIdx) || !Number.isFinite(entryScore)) return false;
+        if (entryIdx === idx) return false;
+        return entryScore >= sim - slamDunkCompetitorDelta;
+      });
+      return !hasCompetitor;
+    };
+    if (metaTranscript) {
+      const overlapOk2 = Number.isFinite(bestOverlapRatio) && bestOverlapRatio >= DEFAULT_META_OVERLAP_RATIO;
+      if (!overlapOk2) {
+        warnGuard("meta_skip", [
+          matchId ? `matchId=${matchId}` : "",
+          `current=${cursorLine}`,
+          `best=${rawIdx}`,
+          `delta=${rawIdx - cursorLine}`,
+          Number.isFinite(bestOverlapRatio) ? `overlap=${formatLogScore(bestOverlapRatio)}` : "",
+          snippet ? `clue="${snippet}"` : ""
+        ]);
+        emitHudStatus("meta_skip", "Ignored: meta transcript");
+        return;
+      }
+    }
+    const delta = rawIdx - cursorLine;
+    const deltaAbs = Math.abs(delta);
+    if (delta >= BEHIND_DEBT_WINDOW_LINES) {
+      behindDebt = Math.min(BEHIND_DEBT_CAP, behindDebt + delta);
+      behindDebtStreak += 1;
+    } else {
+      behindDebt = Math.max(0, behindDebt - BEHIND_DEBT_DECAY);
+      if (deltaAbs <= BEHIND_DEBT_WINDOW_LINES) {
+        behindDebtStreak = Math.max(0, behindDebtStreak - 1);
+      }
+    }
+    if (lagRelockActive && Number.isFinite(bestSpan) && bestSpan > 1) {
+      const parts = [
+        `Relock best=${rawIdx}`,
+        `(${bestSpan}-line)`,
+        `sim=${formatLogScore(conf)}`,
+        Number.isFinite(bestOverlap) ? `overlap=${bestOverlap}` : null,
+        Number.isFinite(bestOverlapRatio) ? `overlapPct=${formatLogScore(bestOverlapRatio)}` : null,
+        snippet ? `clue="${snippet}"` : null
+      ].filter(Boolean).join(" ");
+      emitHudStatus("relock_match", parts);
+      logDev("relock match", {
+        best: rawIdx,
+        span: bestSpan,
+        sim: conf,
+        overlap: bestOverlap,
+        overlapPct: bestOverlapRatio,
+        clue: snippet
+      });
+    }
+    const effectiveRawSim = rawScoreByIdx.get(rawIdx) ?? rawBestSim;
+    let effectiveThreshold = requiredThreshold;
+    const trustFloor = Math.max(thresholds.candidateMinSim, thresholds.commitInterimMinSim - RECOVERY_SIM_SLACK);
+    const recoveryCandidate = !noMatchFlag && delta >= RECOVERY_BIG_JUMP_LINES && conf >= RECOVERY_SIM_MIN && behindDebtStreak >= RECOVERY_STREAK_REQUIRED;
+    if (recoveryCandidate) {
+      const recoveryNeed = Math.max(trustFloor, requiredThreshold - RECOVERY_SIM_SLACK);
+      effectiveThreshold = Math.min(effectiveThreshold, recoveryNeed);
+      logDev("recovery relax", {
+        delta,
+        sim: conf,
+        need: recoveryNeed,
+        debt: behindDebt,
+        streak: behindDebtStreak
+      });
+    }
+    const recoveryDetails = recoveryCandidate ? {
+      delta,
+      sim: conf,
+      streak: behindDebtStreak,
+      debt: behindDebt
+    } : void 0;
+    const scrollerForMatch = getScroller();
+    const scrollTopForMatch = scrollerForMatch?.scrollTop ?? 0;
+    if (manualAnchorPending && manualAnchorEnabled) {
+      const candidateLine = Number.isFinite(rawIdx) ? Math.max(0, Math.floor(rawIdx)) : -1;
+      const candidateNeed = clamp5(thresholds.candidateMinSim + MANUAL_ANCHOR_SIM_SLACK, 0, 1);
+      if (candidateLine >= 0 && Math.abs(candidateLine - manualAnchorPending.targetIndex) <= MANUAL_ANCHOR_WINDOW_LINES && conf >= candidateNeed) {
+        if (adoptManualAnchorTruth(candidateLine, conf, scrollerForMatch)) {
+          return;
+        }
+      }
+    }
+    const catchUpModeWasActive = catchUpModeUntil > now;
+    const lowSimFloor = lagRelockActive ? DEFAULT_LAG_RELOCK_LOW_SIM_FLOOR : DEFAULT_LOW_SIM_FLOOR;
+    const postCatchupActive = isPostCatchupActive(now);
+    if (postCatchupActive) {
+      effectiveThreshold = Math.max(0.5, effectiveThreshold - POST_CATCHUP_DROP);
+    }
+    const alignedPostCatchup = postCatchupActive && (!POST_CATCHUP_REQUIRE_IN_BAND || inBand) && deltaAbs <= POST_CATCHUP_MAX_DELTA;
+    if (catchUpModeWasActive && rawIdx < cursorLine) {
+      warnGuard("catchup_ignore_behind", [
+        `current=${cursorLine}`,
+        `best=${rawIdx}`,
+        `delta=${rawIdx - cursorLine}`,
+        `sim=${formatLogScore(effectiveRawSim)}`
+      ]);
+      emitHudStatus("catchup", "Catch-up: ON");
+      return;
+    }
+    const behindByLowSim = rawIdx < cursorLine - matchWindowBack || rawIdx < cursorLine && effectiveRawSim < lowSimFloor;
+    if (behindByLowSim) {
+      warnGuard("behind_noise", [
+        `current=${cursorLine}`,
+        `best=${rawIdx}`,
+        `delta=${rawIdx - cursorLine}`,
+        `sim=${formatLogScore(effectiveRawSim)}`,
+        `floor=${formatLogScore(lowSimFloor)}`
+      ]);
+      emitHudStatus("behind_noise", "Ignored: low-sim behind match");
+      const lagDelta = rawIdx - cursorLine;
+      const lagSubstance = tokenCount >= DEFAULT_LAG_RELOCK_MIN_TOKENS || evidenceChars >= DEFAULT_LAG_RELOCK_MIN_CHARS;
+      const lagEligible = lagDelta <= -DEFAULT_LAG_RELOCK_MIN_DELTA && lagSubstance;
+      if (lagEligible) {
+        if (!lagRelockWindowStart || now - lagRelockWindowStart > DEFAULT_LAG_RELOCK_WINDOW_MS) {
+          lagRelockWindowStart = now;
+          lagRelockHits = 1;
+        } else {
+          lagRelockHits += 1;
+        }
+        if (!lagRelockActive && lagRelockHits >= DEFAULT_LAG_RELOCK_BEHIND_HITS && now - lastResyncAt >= resyncCooldownMs) {
+          activateLagRelock(cursorLine, now);
+          resetLagRelock("triggered");
+        }
+      } else {
+        resetLagRelock("behind_noise");
+      }
+      return;
+    }
+    resetLagRelock("in-band");
+    logThrottled("ASR_MATCH", "log", "ASR_MATCH", {
+      matchId,
+      currentIndex: cursorLine,
+      bestIndex: rawIdx,
+      delta: rawIdx - cursorLine,
+      sim: Number.isFinite(conf) ? Number(conf.toFixed(3)) : conf,
+      scrollTop: Math.round(scrollTopForMatch),
+      winBack: matchWindowBack,
+      winAhead: matchWindowAhead,
+      final: isFinal ? 1 : 0
+    });
+    if ((resyncReason === "stuck" || resyncReason === "lag") && resyncActive && rawIdx >= cursorLine + minLineAdvance && conf >= DEFAULT_STUCK_RELOCK_SIM) {
+      resyncUntil = 0;
+      resyncAnchorIdx = null;
+      resyncReason = null;
+      resetResyncOverrides();
+      emitHudStatus("resync_lock", "Resync locked");
+      resetLagRelock("lock");
+    }
+    const shortFinal = isFinal && fragmentTokenCount >= shortFinalMinTokens && fragmentTokenCount <= shortFinalMaxTokens;
+    const shortFinalRecent = shortFinal && lastLineIndex >= 0 && now - lastForwardCommitAt <= shortFinalWindowMs;
+    const shortFinalNeed = shortFinalRecent ? clamp5(requiredThreshold - shortFinalSimSlack, 0, 1) : requiredThreshold;
+    const outrunRecent = isFinal && lastLineIndex >= 0 && now - lastForwardCommitAt <= outrunWindowMs;
+    const outrunMax = cursorLine + Math.max(1, outrunLookaheadLines);
+    const forwardBandScores = topScores.length ? topScores.map((entry) => ({ idx: Number(entry.idx), score: Number(entry.score) })).filter((entry) => Number.isFinite(entry.idx) && Number.isFinite(entry.score)).filter((entry) => entry.idx > cursorLine && entry.idx <= outrunMax) : [];
+    const outrunCandidate = forwardBandScores.sort((a, b) => b.score - a.score || a.idx - b.idx)[0] || null;
+    const bestForwardSim = outrunCandidate ? outrunCandidate.score : 0;
+    const outrunPick = outrunCandidate;
+    const outrunFloor = shortFinalRecent ? shortFinalNeed : outrunRelaxedSim;
+    const forwardCandidateOk = !!outrunCandidate && bestForwardSim >= outrunFloor;
+    const slamDunkFinalEarly = isSlamDunkFinal(rawIdx, conf);
+    const forcedEvidenceOk = slamDunkFinalEarly || (tokenCount >= forcedMinTokens || evidenceChars >= forcedMinChars) && forwardCandidateOk;
+    const outrunEligible = !!outrunPick && outrunRecent && forcedEvidenceOk;
+    const behindByForBias = cursorLine - rawIdx;
+    const forwardBiasEligible = isFinal && behindByForBias > 0 && behindByForBias <= forwardBiasRecentLines && lastLineIndex >= 0 && now - lastForwardCommitAt <= forwardBiasWindowMs;
+    if (topScores.length) {
+      const bestScore = conf;
+      const tieCandidates = topScores.map((entry) => ({ idx: Number(entry.idx), score: Number(entry.score) })).filter((entry) => Number.isFinite(entry.idx) && Number.isFinite(entry.score)).filter((entry) => entry.score >= bestScore - forwardTieEps);
+      const hasTie = tieCandidates.length >= 2;
+      const forwardMinIdx = cursorLine + Math.max(1, minLineAdvance);
+      const forwardCandidates = tieCandidates.filter((entry) => entry.idx >= forwardMinIdx).sort((a, b) => a.idx - b.idx || b.score - a.score);
+      const forwardPick = forwardCandidates[0];
+      const tieNeed = shortFinalRecent ? shortFinalNeed : requiredThreshold;
+      if (hasTie && forwardPick && forwardPick.score < tieNeed && !forwardBiasEligible && !outrunEligible) {
+        warnGuard("tie_forward", [
+          `current=${cursorLine}`,
+          `best=${rawIdx}`,
+          `forward=${forwardPick.idx}`,
+          `sim=${formatLogScore(forwardPick.score)}`,
+          `need=${formatLogScore(tieNeed)}`,
+          `eps=${forwardTieEps}`,
+          snippet ? `clue="${snippet}"` : ""
+        ]);
+        return;
+      }
+      if (hasTie && !forwardPick && !forwardBiasEligible && !shortFinalRecent && !outrunEligible) {
+        const guardReason = rawIdx <= cursorLine ? "same_line_noop" : "no_match_wait";
+        warnGuard(guardReason, [
+          `current=${cursorLine}`,
+          `best=${rawIdx}`,
+          `minForward=${forwardMinIdx}`,
+          `sim=${formatLogScore(bestScore)}`,
+          `need=${formatLogScore(requiredThreshold)}`,
+          `eps=${forwardTieEps}`,
+          snippet ? `clue="${snippet}"` : ""
+        ]);
+        return;
+      }
+      if (forwardPick && (forwardPick.idx !== rawIdx || forwardPick.score !== conf)) {
+        const before = rawIdx;
+        rawIdx = forwardPick.idx;
+        conf = forwardPick.score;
+        if (hasTie) {
+          warnGuard("tie_forward", [
+            `current=${cursorLine}`,
+            `best=${before}`,
+            `forward=${rawIdx}`,
+            `sim=${formatLogScore(conf)}`,
+            `eps=${forwardTieEps}`,
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+        }
+      }
+    }
+    if (shortFinalRecent && rawIdx >= cursorLine) {
+      const forwardBand = rawIdx - cursorLine <= shortFinalLookaheadLines;
+      if (forwardBand && shortFinalNeed < effectiveThreshold) {
+        effectiveThreshold = shortFinalNeed;
+        logDev("short-final threshold", { cursorLine, best: rawIdx, need: effectiveThreshold, sim: conf });
+      }
+    }
+    let outrunCommit = false;
+    let forceReason;
+    let relockOverride = false;
+    let relockReason;
+    const allowForced = !isHybridMode();
+    if (allowForced && outrunRecent && (rawIdx <= cursorLine || conf < effectiveThreshold)) {
+      if (!outrunPick) {
+        logForcedDeny("evidence", [
+          `tokens=${tokenCount}`,
+          `chars=${evidenceChars}`,
+          `bestForwardSim=${formatLogScore(bestForwardSim)}`,
+          `floor=${formatLogScore(outrunFloor)}`,
+          snippet ? `clue="${snippet}"` : ""
+        ]);
+      } else if (!forcedEvidenceOk) {
+        logForcedDeny("evidence", [
+          `tokens=${tokenCount}`,
+          `chars=${evidenceChars}`,
+          `bestForwardSim=${formatLogScore(bestForwardSim)}`,
+          `floor=${formatLogScore(outrunFloor)}`,
+          snippet ? `clue="${snippet}"` : ""
+        ]);
+      } else {
+        const delta2 = outrunPick.idx - cursorLine;
+        const cooldownRemaining = getForcedCooldownRemaining(now);
+        if (delta2 > outrunLookaheadLines) {
+          logForcedDeny("delta_cap", [
+            `delta=${delta2}`,
+            `cap=${outrunLookaheadLines}`,
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+        } else if (cooldownRemaining > 0) {
+          logForcedDeny("cooldown", [
+            `cooldownMs=${cooldownRemaining}`,
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+        } else {
+          const forcedCount = getForcedCount(now);
+          if (forcedCount >= forcedRateMax) {
+            forcedCooldownUntil = now + forcedCooldownMs;
+            logForcedThrottle(forcedCount);
+            logForcedDeny("throttle", [
+              `count=${forcedCount}`,
+              `windowMs=${forcedRateWindowMs}`,
+              `cooldownMs=${forcedCooldownMs}`
+            ]);
+          } else if (outrunEligible) {
+            const before = rawIdx;
+            const outrunNeed = outrunFloor;
+            rawIdx = outrunPick.idx;
+            conf = outrunPick.score;
+            effectiveThreshold = Math.min(effectiveThreshold, outrunNeed);
+            outrunCommit = true;
+            forceReason = "outrun";
+            warnGuard("forward_outrun", [
+              `current=${cursorLine}`,
+              `best=${before}`,
+              `forward=${rawIdx}`,
+              `sim=${formatLogScore(conf)}`,
+              `need=${formatLogScore(effectiveThreshold)}`,
+              `delta=${rawIdx - cursorLine}`,
+              snippet ? `clue="${snippet}"` : ""
+            ]);
+            logDev("forward outrun", { cursorLine, best: before, forward: rawIdx, sim: conf, need: effectiveThreshold });
+          }
+        }
+      }
+    }
+    const shortFinalForcedCandidate = shortFinalRecent && rawIdx > cursorLine && shortFinalNeed < requiredThreshold && conf >= shortFinalNeed && conf < requiredThreshold;
+    let shortFinalForced = false;
+    if (allowForced && shortFinalForcedCandidate && !outrunCommit) {
+      const forwardCandidate = outrunCandidate;
+      const forcedDelta = forwardCandidate ? forwardCandidate.idx - cursorLine : rawIdx - cursorLine;
+      const cooldownRemaining = getForcedCooldownRemaining(now);
+      if (!forcedEvidenceOk) {
+        logForcedDeny("evidence", [
+          `tokens=${tokenCount}`,
+          `chars=${evidenceChars}`,
+          `bestForwardSim=${formatLogScore(bestForwardSim)}`,
+          `floor=${formatLogScore(outrunFloor)}`,
+          snippet ? `clue="${snippet}"` : ""
+        ]);
+      } else if (forcedDelta > outrunLookaheadLines) {
+        logForcedDeny("delta_cap", [
+          `delta=${forcedDelta}`,
+          `cap=${outrunLookaheadLines}`,
+          snippet ? `clue="${snippet}"` : ""
+        ]);
+      } else if (cooldownRemaining > 0) {
+        logForcedDeny("cooldown", [
+          `cooldownMs=${cooldownRemaining}`,
+          snippet ? `clue="${snippet}"` : ""
+        ]);
+      } else {
+        const forcedCount = getForcedCount(now);
+        if (forcedCount >= forcedRateMax) {
+          forcedCooldownUntil = now + forcedCooldownMs;
+          logForcedThrottle(forcedCount);
+          logForcedDeny("throttle", [
+            `count=${forcedCount}`,
+            `windowMs=${forcedRateWindowMs}`,
+            `cooldownMs=${forcedCooldownMs}`
+          ]);
+        } else {
+          if (forwardCandidate.idx !== rawIdx || forwardCandidate.score !== conf) {
+            rawIdx = forwardCandidate.idx;
+            conf = forwardCandidate.score;
+          }
+          effectiveThreshold = Math.min(effectiveThreshold, shortFinalNeed);
+          shortFinalForced = true;
+          forceReason = forceReason || "short-final";
+        }
+      }
+    }
+    if (forwardBiasEligible && rawIdx < cursorLine && topScores.length) {
+      const behindBy2 = cursorLine - rawIdx;
+      const biasThreshold = clamp5(requiredThreshold - forwardBiasSimSlack, 0, 1);
+      const forwardNeed = shortFinalRecent ? Math.min(biasThreshold, shortFinalNeed) : biasThreshold;
+      const forwardMax = cursorLine + Math.max(1, forwardBiasLookaheadLines);
+      const forwardPick = topScores.map((entry) => ({ idx: Number(entry.idx), score: Number(entry.score) })).filter((entry) => Number.isFinite(entry.idx) && Number.isFinite(entry.score)).filter((entry) => entry.idx >= cursorLine && entry.idx <= forwardMax).sort((a, b) => b.score - a.score || a.idx - b.idx)[0];
+      if (forwardPick && forwardPick.score >= forwardNeed) {
+        const before = rawIdx;
+        rawIdx = forwardPick.idx;
+        conf = forwardPick.score;
+        effectiveThreshold = Math.min(effectiveThreshold, forwardNeed);
+        warnGuard("forward_bias", [
+          `current=${cursorLine}`,
+          `best=${before}`,
+          `forward=${rawIdx}`,
+          `sim=${formatLogScore(conf)}`,
+          `need=${formatLogScore(effectiveThreshold)}`,
+          `behind=${behindBy2}`,
+          snippet ? `clue="${snippet}"` : ""
+        ]);
+        logDev("forward bias", { cursorLine, best: before, forward: rawIdx, sim: conf, need: effectiveThreshold });
+      }
+    }
+    const markerIdx = consistencyRequireNearMarker ? computeMarkerLineIndex(scrollerForMatch) : -1;
+    const nearMarker = consistencyRequireNearMarker ? Math.abs(rawIdx - markerIdx) <= Math.max(1, consistencyMarkerBandLines) : true;
+    if (allowCatchup) {
+      const lagSample = {
+        ts: now,
+        delta: rawIdx - cursorLine,
+        sim: conf,
+        nearMarker,
+        inBand
+      };
+      recordLagSample(lagSample);
+      if (shouldTriggerCatchUp()) {
+        activateCatchUpMode(now, lagSample);
+      }
+    }
+    const catchUpModeActive = catchUpModeUntil > now;
+    const stuckResyncActive = resyncActive && resyncReason === "stuck";
+    const relockModeActive = lagRelockActive || catchUpModeActive || stuckResyncActive;
+    const forwardMatch = inBand && rawIdx >= cursorLine + minLineAdvance;
+    const relockForward = relockModeActive && forwardMatch;
+    if (forwardMatch) {
+      if (!relockRepeatWindowStart || now - relockRepeatWindowStart > DEFAULT_RELOCK_REPEAT_WINDOW_MS) {
+        relockRepeatWindowStart = now;
+        relockRepeatIdx = rawIdx;
+        relockRepeatCount = 1;
+      } else if (Math.abs(rawIdx - relockRepeatIdx) <= 1) {
+        relockRepeatCount += 1;
+      } else {
+        relockRepeatIdx = rawIdx;
+        relockRepeatCount = 1;
+      }
+    } else if (relockRepeatCount || relockRepeatWindowStart) {
+      relockRepeatIdx = -1;
+      relockRepeatCount = 0;
+      relockRepeatWindowStart = 0;
+    }
+    const overlapOk = Number.isFinite(bestOverlapRatio) && bestOverlapRatio >= DEFAULT_RELOCK_OVERLAP_RATIO;
+    const spanOk = Number.isFinite(bestSpan) && bestSpan >= DEFAULT_RELOCK_SPAN_MIN_LINES;
+    const repeatOk = relockRepeatCount >= DEFAULT_RELOCK_REPEAT_MIN;
+    const finalOk = isFinal && rawIdx > cursorLine && inBand;
+    const relockEvidenceOk = relockForward && (overlapOk || spanOk || repeatOk || finalOk);
+    if (relockEvidenceOk && conf < effectiveThreshold) {
+      effectiveThreshold = Math.min(effectiveThreshold, DEFAULT_RELOCK_SIM_FLOOR);
+      relockOverride = true;
+      relockReason = overlapOk ? "overlap" : spanOk ? "span" : repeatOk ? "repeat" : "final";
+      emitHudStatus(
+        "relock_override",
+        `Relock override: ${relockReason} (sim=${formatLogScore(conf)} floor=${formatLogScore(DEFAULT_RELOCK_SIM_FLOOR)})`
+      );
+      logDev("relock override", {
+        reason: relockReason,
+        sim: conf,
+        span: bestSpan,
+        overlapPct: bestOverlapRatio,
+        repeat: relockRepeatCount,
+        delta: rawIdx - cursorLine
+      });
+    }
+    const forwardEvidence = inBand && rawIdx > cursorLine;
+    const lowSimForwardEvidence = relockModeActive && forwardEvidence && (isFinal || repeatOk || spanOk || overlapOk);
+    if (lowSimForwardEvidence && conf < effectiveThreshold) {
+      effectiveThreshold = Math.min(effectiveThreshold, conf);
+      if (!relockOverride) {
+        relockOverride = true;
+        relockReason = isFinal ? "final" : repeatOk ? "repeat" : spanOk ? "span" : "overlap";
+      }
+    }
+    if (alignedPostCatchup && effectiveThreshold > 0 && conf < effectiveThreshold) {
+      logDev("postCatchup relax", {
+        sim: conf,
+        need: effectiveThreshold,
+        delta,
+        aligned: alignedPostCatchup,
+        msLeft: postCatchupUntil - now
+      });
+    } else if (effectiveThreshold > 0 && conf < effectiveThreshold) {
+      if (!relockModeActive) {
+        warnGuard("low_sim_wait", [
+          matchId ? `matchId=${matchId}` : "",
+          `current=${cursorLine}`,
+          `best=${rawIdx}`,
+          `delta=${rawIdx - cursorLine}`,
+          `sim=${formatLogScore(conf)}`,
+          `need=${formatLogScore(effectiveThreshold)}`,
+          snippet ? `clue="${snippet}"` : ""
+        ]);
+        emitHudStatus("low_sim_wait", "Low confidence - waiting");
+        noteLowSimFreeze(now, {
+          cursorLine,
+          bestIdx: rawIdx,
+          delta: rawIdx - cursorLine,
+          sim: conf,
+          inBand,
+          requiredSim: requiredThreshold,
+          need: effectiveThreshold,
+          repeatCount: relockRepeatCount,
+          bestSpan: Number.isFinite(bestSpan) ? bestSpan : void 0,
+          overlapRatio: Number.isFinite(bestOverlapRatio) ? bestOverlapRatio : void 0,
+          snippet: freezeSnippet,
+          matchId,
+          relockModeActive,
+          catchUpModeActive,
+          stuckResyncActive
+        });
+        return;
+      }
+      warnGuard("low_sim", [
+        matchId ? `matchId=${matchId}` : "",
+        `current=${cursorLine}`,
+        `best=${rawIdx}`,
+        `delta=${rawIdx - cursorLine}`,
+        `sim=${formatLogScore(conf)}`,
+        `need=${formatLogScore(effectiveThreshold)}`,
+        relockModeActive ? "relock=1" : "",
+        relockReason ? `relockReason=${relockReason}` : "",
+        Number.isFinite(bestSpan) ? `span=${bestSpan}` : "",
+        Number.isFinite(bestOverlapRatio) ? `overlap=${formatLogScore(bestOverlapRatio)}` : "",
+        relockRepeatCount ? `repeat=${relockRepeatCount}` : "",
+        snippet ? `clue="${snippet}"` : ""
+      ]);
+      emitHudStatus(
+        "low_sim_ingest",
+        `Ignored: low confidence (sim=${formatLogScore(conf)} < ${formatLogScore(effectiveThreshold)})`
+      );
+      noteLowSimFreeze(now, {
+        cursorLine,
+        bestIdx: rawIdx,
+        delta: rawIdx - cursorLine,
+        sim: conf,
+        inBand,
+        requiredSim: requiredThreshold,
+        need: effectiveThreshold,
+        repeatCount: relockRepeatCount,
+        bestSpan: Number.isFinite(bestSpan) ? bestSpan : void 0,
+        overlapRatio: Number.isFinite(bestOverlapRatio) ? bestOverlapRatio : void 0,
+        snippet: freezeSnippet,
+        matchId,
+        relockModeActive,
+        catchUpModeActive,
+        stuckResyncActive
+      });
+      return;
+    }
+    recordConsistencyEntry({
+      ts: now,
+      idx: rawIdx,
+      delta: rawIdx - cursorLine,
+      sim: conf,
+      nearMarker,
+      isFinal
+    });
+    const genericCandidateCount = topScores.length ? topScores.filter((entry) => Number(entry.score) >= conf - DEFAULT_GENERIC_SIM_DELTA).length : 0;
+    const genericTranscript = tokenCount > 0 && tokenCount <= DEFAULT_GENERIC_MAX_TOKENS && genericCandidateCount >= DEFAULT_GENERIC_MIN_CANDIDATES;
+    let effectiveConsistencyCount = consistencyCount + (genericTranscript ? 1 : 0);
+    const forwardDelta = rawIdx - cursorLine;
+    const highConfidenceSmallDelta = isFinal && forwardDelta >= 0 && forwardDelta <= confirmationRelaxedMaxDelta && conf >= confirmationRelaxedSim;
+    if (highConfidenceSmallDelta && effectiveConsistencyCount >= 3) {
+      effectiveConsistencyCount = Math.max(2, effectiveConsistencyCount - 1);
+      logDev("confirmations relaxed", {
+        count: effectiveConsistencyCount,
+        delta: forwardDelta,
+        sim: conf
+      });
+    }
+    if (catchUpModeActive && effectiveConsistencyCount > 0) {
+      effectiveConsistencyCount = Math.max(1, effectiveConsistencyCount - 1);
+    }
+    const catchupMaxDeltaLinesEffective = catchUpModeActive ? Math.max(catchupMaxDeltaLines, DEFAULT_CATCHUP_MODE_MAX_JUMP) : catchupMaxDeltaLines;
+    const catchupMinSimEffective = catchUpModeActive ? Math.max(catchupMinSim, DEFAULT_CATCHUP_MODE_MIN_SIM) : catchupMinSim;
+    const allowSameLineConfirmations = highConfidenceSmallDelta && effectiveConsistencyCount > 0;
+    const consistencyState = allowShortEvidence ? evaluateConsistency(now, {
+      requiredCount: effectiveConsistencyCount,
+      minSim: consistencyMinSim,
+      maxDeltaLines: consistencyMaxDeltaLines,
+      maxSpreadLines: consistencyMaxSpreadLines,
+      requireNearMarker: consistencyRequireNearMarker,
+      minDeltaLines: allowSameLineConfirmations ? 0 : minLineAdvance,
+      requireForward: allowSameLineConfirmations
+    }) : {
+      ok: false,
+      count: 0,
+      needed: 0,
+      minDelta: 0,
+      maxDelta: 0,
+      minSim: 0,
+      spread: 0,
+      nearOk: false
+    };
+    const catchupState = allowCatchup ? evaluateConsistency(now, {
+      requiredCount: effectiveConsistencyCount,
+      minSim: catchupMinSimEffective,
+      maxDeltaLines: catchupMaxDeltaLinesEffective,
+      maxSpreadLines: consistencyMaxSpreadLines,
+      requireNearMarker: consistencyRequireNearMarker
+    }) : {
+      ok: false,
+      count: 0,
+      needed: 0,
+      minDelta: 0,
+      maxDelta: 0,
+      minSim: 0,
+      spread: 0,
+      nearOk: false
+    };
+    let catchupCommit = false;
+    if (allowCatchup && catchupState.ok && rawIdx > cursorLine) {
+      const delta2 = rawIdx - cursorLine;
+      if (delta2 <= catchupMaxDeltaLinesEffective && conf >= catchupMinSimEffective) {
+        const cooldownRemaining = getForcedCooldownRemaining(now);
+        if (!allowForced) {
+          warnGuard("catchup_blocked", [
+            `current=${cursorLine}`,
+            `best=${rawIdx}`,
+            `delta=${delta2}`
+          ]);
+        } else if (cooldownRemaining > 0) {
+          logForcedDeny("cooldown", [
+            `cooldownMs=${cooldownRemaining}`
+          ]);
+        } else {
+          const forcedCount = getForcedCount(now);
+          if (forcedCount >= forcedRateMax) {
+            forcedCooldownUntil = now + forcedCooldownMs;
+            logForcedThrottle(forcedCount);
+            logForcedDeny("throttle", [
+              `count=${forcedCount}`,
+              `windowMs=${forcedRateWindowMs}`,
+              `cooldownMs=${forcedCooldownMs}`
+            ]);
+          } else {
+            catchupCommit = true;
+            forceReason = forceReason || "catchup";
+            effectiveThreshold = Math.min(effectiveThreshold, catchupMinSim);
+            armPostCatchupGrace("catchup");
+          }
+        }
+      }
+    }
+    let interimEligible = true;
+    if (!isFinal) {
+      if (!allowInterimCommit) {
+        interimEligible = false;
+      } else if (conf < interimHighThreshold && !(consistencyState.ok || catchupState.ok)) {
+        lastInterimBestIdx = -1;
+        interimRepeatCount = 0;
+        interimEligible = false;
+        warnGuard("interim_unstable", [
+          `current=${cursorLine}`,
+          `best=${rawIdx}`,
+          `delta=${rawIdx - cursorLine}`,
+          `sim=${formatLogScore(conf)}`,
+          `need=${formatLogScore(interimHighThreshold)}`,
+          snippet ? `clue="${snippet}"` : ""
+        ]);
+      } else {
+        let effectiveInterimRepeats = interimStableRepeats;
+        if (allowInterimCommit && bufferGrowing && (consistencyState.ok || catchupState.ok)) {
+          effectiveInterimRepeats = Math.max(1, interimStableRepeats - 1);
+        } else if (allowInterimCommit && evidenceShort && !consistencyState.ok) {
+          effectiveInterimRepeats = interimStableRepeats + 1;
+        }
+        if (rawIdx === lastInterimBestIdx) {
+          interimRepeatCount += 1;
+        } else {
+          lastInterimBestIdx = rawIdx;
+          interimRepeatCount = 1;
+        }
+        interimEligible = interimRepeatCount >= effectiveInterimRepeats || consistencyState.ok || catchupState.ok;
+        if (!interimEligible) {
+          warnGuard("interim_unstable", [
+            `current=${cursorLine}`,
+            `best=${rawIdx}`,
+            `delta=${rawIdx - cursorLine}`,
+            `sim=${formatLogScore(conf)}`,
+            `repeats=${interimRepeatCount}`,
+            `need=${effectiveInterimRepeats}`,
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+        }
+      }
+    } else {
+      lastInterimBestIdx = -1;
+      interimRepeatCount = 0;
+    }
+    recordEvent({
+      ts: new Date(now).toISOString(),
+      currentIndex: currentIdx,
+      lastLineIndex,
+      bestIdx: rawIdx,
+      sim: conf,
+      isFinal,
+      snippet,
+      matchId
+    });
+    if (topScores.length >= 2) {
+      let near = null;
+      let far = null;
+      for (const entry of topScores) {
+        const idx = Number(entry.idx);
+        const score = Number(entry.score);
+        if (!Number.isFinite(idx) || !Number.isFinite(score)) continue;
+        const dist = Math.abs(idx - cursorLine);
+        if (dist <= ambiguityNearLines && (!near || score > near.score)) {
+          near = { idx, score, dist };
+        }
+        if (dist >= ambiguityFarLines && (!far || score > far.score)) {
+          far = { idx, score, dist };
+        }
+      }
+      if (near && far && Math.abs(near.score - far.score) <= ambiguitySimDelta) {
+        warnGuard("ambiguous", [
+          `current=${cursorLine}`,
+          `near=${near.idx}:${formatLogScore(near.score)}`,
+          `far=${far.idx}:${formatLogScore(far.score)}`,
+          `delta=${Math.abs(near.score - far.score).toFixed(2)}`
+        ]);
+        logDev("ambiguous match", { near, far, cursorLine });
+      }
+    }
+    const behindBy = cursorLine - rawIdx;
+    if (behindBy > 0) {
+      recordBehindRecoveryHit(rawIdx, conf, isFinal, now);
+      if (tryBehindRecovery(cursorLine, now, conf, rawIdx, isFinal)) {
+        return;
+      }
+      if (!isFinal) {
+        behindStrongCount = 0;
+        lastBehindStrongIdx = -1;
+        lastBehindStrongAt = 0;
+        noteBehindBlocked(now);
+        warnGuard("behind_blocked", [
+          `current=${cursorLine}`,
+          `best=${rawIdx}`,
+          `delta=${rawIdx - cursorLine}`,
+          `sim=${formatLogScore(conf)}`,
+          snippet ? `clue="${snippet}"` : ""
+        ]);
+        emitHudStatus("behind_blocked", "Behind match ignored");
+        logDev("behind match ignored", { line: rawIdx, conf, cursorLine, isFinal, reason: "interim" });
+        return;
+      }
+      const strongBehind = conf >= Math.max(strongBackSim, requiredThreshold);
+      if (strongBehind) {
+        if (Math.abs(rawIdx - lastBehindStrongIdx) <= 1 && now - lastBehindStrongAt <= backConfirmWindowMs) {
+          behindStrongCount += 1;
+        } else {
+          behindStrongCount = 1;
+          behindStrongSince = now;
+        }
+        lastBehindStrongIdx = rawIdx;
+        lastBehindStrongAt = now;
+      } else {
+        behindStrongCount = 0;
+        behindStrongSince = 0;
+      }
+      if (strongBehind && behindStrongCount >= backConfirmHits && behindStrongSince > 0 && now - behindStrongSince >= behindRecoveryMs && behindBy <= behindRecoveryMaxLines && conf >= Math.max(behindRecoveryMinSim, requiredThreshold) && now - lastBehindRecoveryAt >= behindRecoveryCooldownMs) {
+        const scroller = getScroller();
+        const scrollTopBefore = scroller?.scrollTop ?? 0;
+        const targetTop = scroller ? resolveTargetTop(scroller, rawIdx) : null;
+        if (scroller && targetTop != null) {
+          stopGlide("behind-reanchor");
+          const applied = applyScrollWithHybridGuard(targetTop, {
+            scroller,
+            reason: "asr-behind-reanchor"
+          });
+          lastKnownScrollTop = applied;
+          lastMoveAt = Date.now();
+          markProgrammaticScroll();
+        }
+        lastLineIndex = Math.max(0, Math.floor(rawIdx));
+        matchAnchorIdx = lastLineIndex;
+        lastForwardCommitAt = now;
+        lastSeekTs = now;
+        lastEvidenceAt = now;
+        noteCommit(cursorLine, lastLineIndex, now);
+        resetLowSimStreak();
+        behindStrongSince = 0;
+        behindStrongCount = 0;
+        lastBehindRecoveryAt = now;
+        microPursuitUntil = 0;
+        resetLookahead("behind-reanchor");
+        setCurrentIndex(lastLineIndex, "behind-reanchor");
+        logThrottled("ASR_COMMIT", "log", "ASR_COMMIT", {
+          prevIndex: cursorLine,
+          nextIndex: lastLineIndex,
+          delta: lastLineIndex - cursorLine,
+          sim: Number.isFinite(conf) ? Number(conf.toFixed(3)) : conf,
+          scrollTopBefore: Math.round(scrollTopBefore),
+          scrollTopAfter: Math.round(targetTop ?? scrollTopBefore),
+          forced: false,
+          mode: getScrollMode3() || "unknown",
+          reason: "behind-reanchor"
+        });
+        updateDebugState("behind-reanchor");
+        return;
+      }
+      if (!strongBehind || behindStrongCount < backConfirmHits) {
+        noteBehindBlocked(now);
+        warnGuard("behind_blocked", [
+          `current=${cursorLine}`,
+          `best=${rawIdx}`,
+          `delta=${rawIdx - cursorLine}`,
+          `sim=${formatLogScore(conf)}`,
+          `hits=${behindStrongCount}`,
+          `need=${backConfirmHits}`,
+          `strong=${strongBehind ? 1 : 0}`,
+          snippet ? `clue="${snippet}"` : ""
+        ]);
+        emitHudStatus("behind_blocked", "Behind match ignored");
+        logDev("behind match ignored", {
+          line: rawIdx,
+          conf,
+          cursorLine,
+          isFinal,
+          reason: strongBehind ? "confirm" : "weak"
+        });
+        return;
+      }
+    } else {
+      behindStrongCount = 0;
+    }
+    const aheadBy = rawIdx - cursorLine;
+    if (aheadBy >= realignLeadLines && conf >= Math.max(realignSim, requiredThreshold)) {
+      if (now - lastResyncAt >= resyncCooldownMs) {
+        resyncUntil = now + resyncWindowMs;
+        resyncAnchorIdx = Math.max(0, Math.floor(rawIdx - realignLookbackLines));
+        resyncReason = "auto";
+        resetResyncOverrides();
+        lastResyncAt = now;
+        if (!desyncWarned) {
+          desyncWarned = true;
+          try {
+            console.warn("[ASR] realigning matcher window", { targetLine: rawIdx, lastLineIndex, currentIndex: currentIdx });
+          } catch {
+          }
+        }
+        logDev("realign matcher window", { anchor: resyncAnchorIdx, windowAhead: matchLookaheadLines + resyncLookaheadBonus });
+      }
+    }
+    if (tokenCount === 0) {
+      warnGuard("min_evidence", [
+        `current=${cursorLine}`,
+        `best=${rawIdx}`,
+        `tokens=${tokenCount}`
+      ]);
+      emitHudStatus("min_evidence_zero", "Blocked: min evidence (tokens=0)");
+      return;
+    }
+    pushStrongHit(rawIdx, conf, isFinal, now);
+    if (outrunCommit && strongHits.length > 1) {
+      strongHits.splice(0, strongHits.length - 1);
+      behindStrongCount = 0;
+      lastBehindStrongIdx = -1;
+      lastBehindStrongAt = 0;
+    }
+    syncMatchAnchor(rawIdx);
+    updateDebugState("strong-hit");
+    let hasPairEvidence = false;
+    if (strongHits.length >= 2) {
+      const a = strongHits[strongHits.length - 1];
+      const b = strongHits[strongHits.length - 2];
+      if (Math.abs(a.idx - b.idx) <= 1 && a.idx >= cursorLine + minLineAdvance && b.idx >= cursorLine + minLineAdvance) {
+        hasPairEvidence = true;
+      }
+    }
+    const consistencyOk = allowShortEvidence && consistencyState.ok;
+    const slamDunkFinal = isSlamDunkFinal(rawIdx, conf);
+    const finalEvidence = hasPairEvidence || consistencyOk || rawIdx >= cursorLine + finalEvidenceLeadLines;
+    const interimEvidence = hasPairEvidence || consistencyOk || bufferGrowing;
+    const hasEvidence = outrunCommit || catchupCommit || lowSimForwardEvidence || slamDunkFinal ? true : isFinal ? finalEvidence : interimEvidence;
+    adoptPendingMatch({
+      line: Math.max(0, Math.floor(rawIdx)),
+      conf,
+      isFinal,
+      hasEvidence,
+      snippet,
+      minThreshold: effectiveThresholdForPending < requiredThreshold ? effectiveThresholdForPending : void 0,
+      requiredThreshold,
+      topScores,
+      stickinessApplied: stickAdjust > 0,
+      forced: outrunCommit || shortFinalForced || catchupCommit,
+      forceReason,
+      consistency: { count: consistencyState.count, needed: consistencyState.needed },
+      relockOverride,
+      relockReason,
+      relockSpan: Number.isFinite(bestSpan) ? bestSpan : void 0,
+      relockOverlapRatio: Number.isFinite(bestOverlapRatio) ? bestOverlapRatio : void 0,
+      relockRepeat: relockRepeatCount || void 0,
+      matchId,
+      recoveryDetails
+    });
+    schedulePending();
+  };
+  function maybeScheduleLineRetry(targetLine, pending) {
+    if (!Number.isFinite(targetLine)) return false;
+    const line = Math.max(0, Math.floor(targetLine));
+    if (lineMissingRetryLine !== line) {
+      lineMissingRetryLine = line;
+      lineMissingRetryCount = 1;
+    } else if (lineMissingRetryCount < LINE_MISSING_RETRY_LIMIT) {
+      lineMissingRetryCount += 1;
+    } else {
+      lineMissingRetryLine = null;
+      lineMissingRetryCount = 0;
+      return false;
+    }
+    adoptPendingMatch({ ...pending });
+    schedulePending();
+    return true;
+  }
+  const dispose = () => {
+    if (disposed) return;
+    emitSummary("dispose");
+    disposed = true;
+    try {
+      unsubscribe();
+    } catch {
+    }
+    try {
+      unsubscribeTuning();
+    } catch {
+    }
+    try {
+      window.removeEventListener("tp:asr:silence", silenceHandler);
+    } catch {
+    }
+    try {
+      window.removeEventListener("tp:script:reset", resetHandler);
+    } catch {
+    }
+    try {
+      window.removeEventListener("tp:asr:rescue", rescueHandler);
+    } catch {
+    }
+    detachManualScrollWatcher();
+    manualAnchorPending = null;
+    updateManualAnchorGlobalState();
+    if (activeGuardCounts === guardCounts) {
+      activeGuardCounts = null;
+    }
+  };
+  const setLastLineIndex = (index) => {
+    if (!Number.isFinite(index)) return;
+    lastLineIndex = Math.max(0, Math.floor(index));
+    lastSeekTs = 0;
+    lastSameLineNudgeTs = 0;
+    lastMoveAt = 0;
+    lastIngestAt = 0;
+    lastCommitAt2 = Date.now();
+    lastStallLogAt = 0;
+    stallHudEmitted = false;
+    stallRescueRequested = false;
+    matchAnchorIdx = lastLineIndex;
+    pursuitTargetTop = null;
+    pursuitVel = 0;
+    pursuitActive = false;
+    lastEvidenceAt = 0;
+    lastCommitDeltaPx = 0;
+    stopGlide("sync-index");
+    microPursuitUntil = 0;
+    lastBackRecoverAt = 0;
+    lastBackRecoverIdx = -1;
+    lastBackRecoverHitAt = 0;
+    backRecoverStreak = 0;
+    creepBudgetLine = -1;
+    creepBudgetUsed = 0;
+    lastInterimBestIdx = -1;
+    interimRepeatCount = 0;
+    relockRepeatIdx = -1;
+    relockRepeatCount = 0;
+    relockRepeatWindowStart = 0;
+    lastResyncAt = 0;
+    resyncUntil = 0;
+    resyncAnchorIdx = null;
+    resyncReason = null;
+    resetResyncOverrides();
+    lastBehindStrongIdx = -1;
+    lastBehindStrongAt = 0;
+    behindStrongSince = 0;
+    behindStrongCount = 0;
+    lastBehindRecoveryAt = 0;
+    overshootRiskUntil = 0;
+    largeDeltaConfirm = null;
+    behindRecoveryHits.length = 0;
+    lagRelockHits = 0;
+    lagRelockWindowStart = 0;
+    lastForwardCommitAt = Date.now();
+    resetLookahead("sync-index");
+    if (pendingRaf) {
+      try {
+        cancelAnimationFrame(pendingRaf);
+      } catch {
+      }
+      pendingRaf = 0;
+    }
+    pendingMatch = null;
+    strongHits.length = 0;
+    evidenceEntries.length = 0;
+    evidenceText = "";
+    lastBufferChars = 0;
+    consistencyEntries.length = 0;
+    lastStuckDumpAt = 0;
+    manualAnchorPending = null;
+    updateManualAnchorGlobalState();
+    setCurrentIndex(lastLineIndex, "manualReset");
+    updateDebugState("sync-index");
+  };
+  const getLastLineIndex = () => lastLineIndex;
+  return { ingest, dispose, setLastLineIndex, getLastLineIndex };
+}
+
+// src/ui/speaker-profiles-store.ts
+var STORAGE_KEY4 = "tp_speaker_profiles_v1";
+var BINDING_EVENT = "tp:speaker:bindings";
+var ACTIVE_SPEAKER_EVENT = "tp:speaker:active";
+var DEFAULT_PROFILES = [
+  { id: "default-s1", name: "Default S1", system: true },
+  { id: "default-s2", name: "Default S2", system: true }
+];
+var DEFAULT_BINDINGS = {
+  s1: "default-s1",
+  s2: "default-s2",
+  g1: null,
+  g2: null
+};
+var DEFAULT_ACTIVE_SLOT = "s1";
+var VALID_SLOTS = ["s1", "s2", "g1", "g2"];
+var subscribers = /* @__PURE__ */ new Set();
+var activeSubscribers = /* @__PURE__ */ new Set();
+var stateSubscribers = /* @__PURE__ */ new Set();
+function normalizeSlot(slot) {
+  if (typeof slot !== "string") return DEFAULT_ACTIVE_SLOT;
+  if (VALID_SLOTS.includes(slot)) return slot;
+  return DEFAULT_ACTIVE_SLOT;
+}
+function normalizeBindings(raw) {
+  const out = { ...DEFAULT_BINDINGS };
+  if (!raw || typeof raw !== "object") return out;
+  for (const slot of VALID_SLOTS) {
+    if (Object.prototype.hasOwnProperty.call(raw, slot)) {
+      out[slot] = raw[slot] ?? null;
+    }
+  }
+  return out;
+}
+function readStorage() {
+  if (typeof window === "undefined") {
+    return {
+      profiles: [...DEFAULT_PROFILES],
+      bindings: { ...DEFAULT_BINDINGS },
+      activeSlot: DEFAULT_ACTIVE_SLOT
+    };
+  }
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY4);
+    if (!raw) throw new Error("missing");
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") throw new Error("bad");
+    const profiles = Array.isArray(parsed.profiles) ? parsed.profiles : [];
+    const bindings = normalizeBindings(parsed?.bindings);
+    const activeSlot = normalizeSlot(parsed?.activeSlot);
+    return {
+      profiles,
+      bindings: {
+        ...DEFAULT_BINDINGS,
+        ...bindings
+      },
+      activeSlot
+    };
+  } catch {
+    return {
+      profiles: [...DEFAULT_PROFILES],
+      bindings: { ...DEFAULT_BINDINGS },
+      activeSlot: DEFAULT_ACTIVE_SLOT
+    };
+  }
+}
+function writeStorage(state8) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(STORAGE_KEY4, JSON.stringify(state8));
+  } catch {
+  }
+}
+function getProfileSummaries() {
+  return state7.profiles.map((profile) => ({
+    id: profile.id,
+    name: profile.name
+  }));
+}
+function notifyBindings() {
+  const bindings = getSpeakerBindings();
+  try {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent(BINDING_EVENT, { detail: { bindings, profiles: getProfileSummaries() } })
+      );
+    }
+  } catch {
+  }
+  try {
+    window?.sendToDisplay?.({
+      type: "speaker-bindings",
+      bindings,
+      profiles: getProfileSummaries(),
+      activeSlot: state7.activeSlot
+    });
+  } catch {
+  }
+  subscribers.forEach((cb) => {
+    try {
+      cb(bindings);
+    } catch {
+    }
+  });
+}
+function notifyActiveSpeaker() {
+  const slot = getActiveSpeakerSlot();
+  const bindings = getSpeakerBindings();
+  const profile = getProfileById(bindings[slot] || null);
+  try {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent(ACTIVE_SPEAKER_EVENT, {
+        detail: {
+          slot,
+          profileId: profile?.id ?? null,
+          profileName: profile?.name ?? ""
+        }
+      }));
+    }
+  } catch {
+  }
+  try {
+    window?.sendToDisplay?.({
+      type: "speaker-active",
+      slot,
+      profileId: profile?.id ?? null,
+      profileName: profile?.name ?? ""
+    });
+  } catch {
+  }
+  activeSubscribers.forEach((cb) => {
+    try {
+      cb(slot);
+    } catch {
+    }
+  });
+}
+var state7 = readStorage();
+writeStorage(state7);
+notifyBindings();
+notifyActiveSpeaker();
+function persist() {
+  writeStorage(state7);
+  notifyBindings();
+  notifyActiveSpeaker();
+  notifyStateSubscribers();
+}
+function notifyStateSubscribers() {
+  const snapshot = getSpeakerProfilesSnapshot();
+  stateSubscribers.forEach((cb) => {
+    try {
+      cb(snapshot);
+    } catch {
+    }
+  });
+}
+function upsertSpeakerProfile(profile) {
+  const trimmed = profile.name?.trim() || "";
+  const next = {
+    ...profile,
+    name: trimmed || "Untitled",
+    id: profile.id || `profile-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  };
+  state7 = {
+    ...state7,
+    profiles: [
+      ...state7.profiles.filter((item) => item.id !== next.id),
+      next
+    ]
+  };
+  persist();
+  return next;
+}
+function getSpeakerBindings() {
+  return { ...state7.bindings };
+}
+function setSpeakerBinding(slot, profileId) {
+  if (!slot) return;
+  state7 = {
+    ...state7,
+    bindings: {
+      ...state7.bindings,
+      [slot]: profileId
+    }
+  };
+  persist();
+}
+function getActiveSpeakerSlot() {
+  return state7.activeSlot;
+}
+function getProfileById(id) {
+  if (!id) return void 0;
+  return state7.profiles.find((profile) => profile.id === id);
+}
+function hasPatchValues(patch) {
+  return !!patch && Object.keys(patch).length > 0;
+}
+function createProfile(name, patch) {
+  const trimmed = (name || "").trim() || `Profile ${Date.now()}`;
+  return upsertSpeakerProfile({
+    id: "",
+    name: trimmed,
+    asrTweaks: hasPatchValues(patch) ? { ...patch } : void 0
+  });
+}
+function applyProfileToSlot(slot, profileId) {
+  setSpeakerBinding(slot, profileId);
+}
+function getProfile(profileId) {
+  return getProfileById(profileId);
+}
+function getSpeakerProfilesSnapshot() {
+  return {
+    profiles: state7.profiles.slice(),
+    bindings: { ...state7.bindings },
+    activeSlot: state7.activeSlot
+  };
+}
+function applyProfileTweaks(profile, tweaks) {
+  const next = {
+    ...profile,
+    asrTweaks: tweaks && Object.keys(tweaks).length ? { ...tweaks } : void 0
+  };
+  return next;
+}
+function setProfileAsrTweaks(profileId, tweaks) {
+  if (!profileId) return;
+  const profile = getProfileById(profileId);
+  if (!profile) return;
+  state7 = {
+    ...state7,
+    profiles: [
+      ...state7.profiles.filter((item) => item.id !== profileId),
+      applyProfileTweaks(profile, tweaks)
+    ]
+  };
+  persist();
+}
+
+// src/ui/save-speaker-profiles-prompt.ts
+var MODAL_ID = "tp-save-speaker-profiles-modal";
+var SLOT_LABELS = {
+  s1: "Speaker 1 (S1)",
+  s2: "Speaker 2 (S2)",
+  g1: "Guest 1 (G1)",
+  g2: "Guest 2 (G2)"
+};
+function escapeHtml(value) {
+  return String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function hasSessionPatches(patches) {
+  return Object.values(patches).some((patch) => !!patch && Object.keys(patch).length > 0);
+}
+function hasPatchValuesLocal(patch) {
+  return !!patch && Object.keys(patch).length > 0;
+}
+function buildModalContent(entries) {
+  const rows = entries.map(
+    (entry) => `
+      <div class="tp-save-speaker-row" data-slot="${entry.slot}">
+        <label class="tp-save-speaker-label">${escapeHtml(entry.label)}</label>
+        <input class="tp-save-speaker-input" type="text" value="${escapeHtml(entry.name)}" />
+      </div>
+    `
+  ).join("");
+  return `
+    <div class="tp-save-speaker-panel">
+      <h2>Save speaker profiles from this session?</h2>
+      <p class="tp-save-speaker-desc">
+        We captured tuning tweaks for this read. Save them so the dropdown remembers your names next time.
+      </p>
+      <div class="tp-save-speaker-rows">
+        ${rows}
+      </div>
+      <div class="tp-save-speaker-actions">
+        <button type="button" class="tp-save-speaker-btn tp-save-speaker-save">Save</button>
+        <button type="button" class="tp-save-speaker-btn tp-save-speaker-cancel">Not now</button>
+      </div>
+    </div>
+  `;
+}
+function createModalOverlay(content) {
+  const overlay = document.createElement("div");
+  overlay.id = MODAL_ID;
+  overlay.className = "tp-save-speaker-overlay";
+  overlay.innerHTML = content;
+  overlay.addEventListener("click", (event) => {
+    if (event.target.id === MODAL_ID) {
+      closeModal();
+    }
+  });
+  return overlay;
+}
+function closeModal() {
+  const existing = document.getElementById(MODAL_ID);
+  if (existing && existing.parentElement) {
+    existing.parentElement.removeChild(existing);
+  }
+}
+function applyStyles() {
+  if (document.getElementById("tp-save-speaker-styles")) return;
+  const style = document.createElement("style");
+  style.id = "tp-save-speaker-styles";
+  style.textContent = `
+    #${MODAL_ID} {
+      position: fixed;
+      inset: 0;
+      background: rgba(5,12,27,0.75);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1600;
+      padding: 20px;
+    }
+    #${MODAL_ID} .tp-save-speaker-panel {
+      background: #0f172a;
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 12px;
+      padding: 20px;
+      width: min(420px, 100%);
+      color: #f8fafc;
+      box-shadow: 0 16px 40px rgba(15,23,42,0.6);
+      font-family: system-ui, 'Segoe UI', sans-serif;
+    }
+    #${MODAL_ID} h2 {
+      margin: 0 0 8px;
+      font-size: 20px;
+    }
+    #${MODAL_ID} .tp-save-speaker-desc {
+      margin: 0 0 12px;
+      font-size: 14px;
+      color: rgba(226, 232, 240, 0.75);
+    }
+    #${MODAL_ID} .tp-save-speaker-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    #${MODAL_ID} .tp-save-speaker-label {
+      flex: 0 0 130px;
+      font-size: 13px;
+      color: rgba(248, 250, 252, 0.9);
+    }
+    #${MODAL_ID} .tp-save-speaker-input {
+      flex: 1;
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(148,163,184,0.6);
+      background: rgba(15,23,42,0.85);
+      color: #e2e8f0;
+      font-size: 13px;
+    }
+    #${MODAL_ID} .tp-save-speaker-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 14px;
+    }
+    #${MODAL_ID} .tp-save-speaker-btn {
+      padding: 6px 16px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.3);
+      background: transparent;
+      color: #e2e8f0;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    #${MODAL_ID} .tp-save-speaker-save {
+      background: rgba(59,130,246,0.9);
+      border-color: rgba(59,130,246,0.9);
+    }
+  `;
+  document.head.appendChild(style);
+}
+function maybePromptSaveSpeakerProfiles(mode) {
+  if (typeof document === "undefined") return;
+  const normalizedMode = (mode || "").toLowerCase();
+  if (!["asr", "hybrid"].includes(normalizedMode)) return;
+  if (document.getElementById(MODAL_ID)) return;
+  const patches = getSessionLearnedPatches();
+  if (!hasSessionPatches(patches)) return;
+  const entries = [];
+  const bindings = getSpeakerBindings();
+  for (const slot of Object.keys(patches)) {
+    const patch = patches[slot];
+    if (!hasPatchValuesLocal(patch)) continue;
+    const profileId = bindings[slot] || null;
+    const profile = getProfile(profileId);
+    const bindingLabel = profile?.name || SLOT_LABELS[slot] || slot.toUpperCase();
+    entries.push({
+      slot,
+      label: SLOT_LABELS[slot] || slot.toUpperCase(),
+      name: bindingLabel
+    });
+  }
+  if (!entries.length) return;
+  applyStyles();
+  const modal = createModalOverlay(buildModalContent(entries));
+  const inputs = {};
+  entries.forEach((entry) => {
+    const row = modal.querySelector(`.tp-save-speaker-row[data-slot="${entry.slot}"]`);
+    if (!row) return;
+    const input = row.querySelector("input");
+    if (!input) return;
+    inputs[entry.slot] = input;
+  });
+  const saveButton = modal.querySelector(".tp-save-speaker-save");
+  const cancelButton = modal.querySelector(".tp-save-speaker-cancel");
+  const patchMap = patches;
+  const bindingsSnapshot = { ...bindings };
+  function handleSave() {
+    entries.forEach((entry) => {
+      const input = inputs[entry.slot];
+      const patch = patchMap[entry.slot];
+      if (!patch || !hasPatchValuesLocal(patch)) return;
+      const name = input?.value?.trim() || entry.label;
+      const existingId = bindingsSnapshot[entry.slot] || null;
+      if (existingId) {
+        setProfileAsrTweaks(existingId, patch);
+        applyProfileToSlot(entry.slot, existingId);
+      } else {
+        const profile = createProfile(name, patch);
+        applyProfileToSlot(entry.slot, profile.id);
+      }
+    });
+    clearSessionLearnedPatches();
+    closeModal();
+  }
+  saveButton?.addEventListener("click", handleSave);
+  cancelButton?.addEventListener("click", closeModal);
+  document.body.appendChild(modal);
+}
+
+// src/speech/backend-guard.ts
+var matchBatchStub = () => ({ bestIdx: 0, bestSim: 0, topScores: [] });
+var noop3 = () => void 0;
+function hasSearchFlag(name, aliases = []) {
+  try {
+    const search = typeof window !== "undefined" && window.location ? window.location.search : "";
+    if (!search) return false;
+    const params = new URLSearchParams(search);
+    if (params.get(name) === "1") return true;
+    for (const alias of aliases) {
+      if (params.get(alias) === "1") return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+function hasStorageFlag(name) {
+  try {
+    const storage = typeof window !== "undefined" ? window.localStorage : void 0;
+    return storage?.getItem(name) === "1";
+  } catch {
+    return false;
+  }
+}
+function flagEnabled(name, aliases = []) {
+  return hasSearchFlag(name, aliases) || hasStorageFlag(name);
+}
+function isSpeechFeatureEnabled() {
+  return flagEnabled("tp_speech") || flagEnabled("tp_speech_force");
+}
+function isSpeechBackendAllowed() {
+  return isSpeechFeatureEnabled() && flagEnabled("tp_probe_speech", ["probe"]);
+}
+function ensureSpeechGlobals() {
+  if (typeof window === "undefined") return;
+  const win = window;
+  if (!win.__tpRecognizer) {
+    win.__tpRecognizer = () => ({
+      start: noop3,
+      stop: noop3,
+      abort: noop3,
+      on: noop3,
+      onend: null,
+      onerror: null
+    });
+  }
+  if (!win.__tpMatcher) {
+    win.__tpMatcher = {
+      matchBatch: matchBatchStub,
+      normTokens: () => [],
+      computeLineSimilarity: () => 0
+    };
+  } else {
+    if (!win.__tpMatcher.matchBatch) win.__tpMatcher.matchBatch = matchBatchStub;
+    if (!win.__tpMatcher.normTokens) win.__tpMatcher.normTokens = () => [];
+    if (!win.__tpMatcher.computeLineSimilarity) win.__tpMatcher.computeLineSimilarity = () => 0;
+  }
+  if (!win.__tpSpeech) {
+    win.__tpSpeech = {
+      startRecognizer: async () => void 0,
+      stopRecognizer: noop3,
+      matchBatch: matchBatchStub
+    };
+  } else {
+    if (!win.__tpSpeech.startRecognizer) win.__tpSpeech.startRecognizer = async () => void 0;
+    if (!win.__tpSpeech.stopRecognizer) win.__tpSpeech.stopRecognizer = noop3;
+    if (!win.__tpSpeech.matchBatch) win.__tpSpeech.matchBatch = matchBatchStub;
+  }
+}
+
+// src/features/speech-loader.ts
+ensureSpeechGlobals();
+function _showToast(msg) {
+  try {
+    window.toasts?.show?.(msg);
+  } catch {
+  }
+}
+var running = false;
+var rec = null;
+var lastScrollMode = "";
+var lastResultTs = 0;
+var speechWatchdogTimer = null;
+var activeRecognizer = null;
+var pendingManualRestartCount = 0;
+var WATCHDOG_INTERVAL_MS = 5e3;
+var WATCHDOG_THRESHOLD_MS = 15e3;
+var ASR_WATCHDOG_THRESHOLD_MS = 4e3;
+function inRehearsal() {
+  try {
+    return !!document.body?.classList?.contains("mode-rehearsal");
+  } catch {
+    return false;
+  }
+}
+function getScrollMode4() {
+  try {
+    const store2 = window.__tpStore;
+    if (store2 && typeof store2.get === "function") {
+      const scrollMode2 = store2.get("scrollMode");
+      if (scrollMode2 != null) return String(scrollMode2).toLowerCase();
+      const legacyMode = store2.get("mode");
+      if (legacyMode != null) return String(legacyMode).toLowerCase();
+    }
+    const router = window.__tpScrollMode;
+    if (router && typeof router.getMode === "function") {
+      const mode = router.getMode();
+      if (mode != null) return String(mode).toLowerCase();
+    }
+    if (typeof router === "string") return router.toLowerCase();
+  } catch {
+  }
+  return "";
+}
+function dispatchSessionIntent(active, detail) {
+  try {
+    const payload = {
+      active,
+      source: detail?.source,
+      reason: detail?.reason,
+      mode: detail?.mode ?? getScrollMode4(),
+      phase: detail?.phase,
+      intentSource: "session-intent"
+    };
+    window.dispatchEvent(new CustomEvent("tp:session:intent", { detail: payload }));
+  } catch {
+  }
+}
+function rememberMode(mode) {
+  if (typeof mode === "string") {
+    lastScrollMode = mode;
+  }
+}
+function micActive() {
+  try {
+    return !!window.__tpMic?.isOpen?.();
+  } catch {
+  }
+  try {
+    return !!window.__tpStore?.get?.("micEnabled");
+  } catch {
+  }
+  return false;
+}
+function shouldEmitTranscript() {
+  if (inRehearsal()) return false;
+  const mode = getScrollMode4();
+  rememberMode(mode);
+  if (mode !== "asr" && mode !== "hybrid") return false;
+  if (!running) return false;
+  const micOpen = micActive();
+  if (!micOpen) {
+    try {
+      window.__tpHud?.log?.("[speech-loader]", "mic inactive (soft gate)");
+    } catch {
+    }
+  }
+  return true;
+}
+function isAutoRestartEnabled() {
+  try {
+    const flag = window.recAutoRestart;
+    if (flag === void 0 || flag === null) return true;
+    if (typeof flag === "string") {
+      const normalized = flag.trim().toLowerCase();
+      if (normalized === "false" || normalized === "0") return false;
+      if (normalized === "true" || normalized === "1") return true;
+    }
+    return !!flag;
+  } catch {
+  }
+  return true;
+}
+function emitTranscriptEvent(payload) {
+  try {
+    window.__tpBus?.emit?.("tp:speech:transcript", payload);
+  } catch {
+  }
+  try {
+    window.dispatchEvent(new CustomEvent("tp:speech:transcript", { detail: payload }));
+  } catch {
+  }
+}
+function markResultTimestamp() {
+  lastResultTs = Date.now();
+}
+function stopSpeechWatchdog() {
+  if (speechWatchdogTimer != null) {
+    window.clearInterval(speechWatchdogTimer);
+    speechWatchdogTimer = null;
+  }
+}
+function startSpeechWatchdog() {
+  stopSpeechWatchdog();
+  speechWatchdogTimer = window.setInterval(() => {
+    if (!shouldAutoRestartSpeech()) return;
+    if (!activeRecognizer || typeof activeRecognizer.start !== "function") return;
+    const idleFor = Date.now() - (lastResultTs || 0);
+    const mode = lastScrollMode || getScrollMode4();
+    const thresholdMs = mode === "asr" || mode === "hybrid" ? ASR_WATCHDOG_THRESHOLD_MS : WATCHDOG_THRESHOLD_MS;
+    if (lastResultTs && idleFor > thresholdMs) {
+      try {
+        console.warn("[speech] watchdog: no results for", idleFor, "ms; restarting recognition");
+      } catch {
+      }
+      const restarted = requestRecognizerRestart("idle-watchdog");
+      if (!restarted) {
+        emitAsrState("idle", "recognition-watchdog-failed");
+        running = false;
+        setActiveRecognizer(null);
+        _showToast("ASR recovery failed: recognizer restart blocked.");
+      } else {
+        _showToast("ASR recovered (no results).");
+      }
+    }
+  }, WATCHDOG_INTERVAL_MS);
+}
+function setActiveRecognizer(instance) {
+  activeRecognizer = instance && typeof instance.start === "function" ? instance : null;
+  pendingManualRestartCount = 0;
+  if (activeRecognizer) {
+    markResultTimestamp();
+    startSpeechWatchdog();
+  } else {
+    stopSpeechWatchdog();
+  }
+}
+function requestRecognizerRestart(reasonTag) {
+  if (!activeRecognizer || typeof activeRecognizer.start !== "function") return false;
+  pendingManualRestartCount += 1;
+  markResultTimestamp();
+  try {
+    activeRecognizer.abort?.();
+  } catch {
+  }
+  try {
+    activeRecognizer.start();
+    try {
+      window.debug?.({ tag: "speech:watchdog:restart", reason: reasonTag || "watchdog", hasRecognizer: true });
+    } catch {
+    }
+    try {
+      console.log("[speech] watchdog: restarted recognition");
+    } catch {
+    }
+    return true;
+  } catch (err) {
+    pendingManualRestartCount = Math.max(pendingManualRestartCount - 1, 0);
+    try {
+      console.warn("[speech] watchdog: restart failed", err);
+    } catch {
+    }
+    return false;
+  }
+}
+try {
+  window.__tpGetActiveRecognizer = () => activeRecognizer;
+} catch {
+}
+function routeTranscript(input, isFinal) {
+  try {
+    const incoming = typeof input === "string" ? null : input;
+    const inputText = typeof input === "string" ? input : "";
+    const finalFlag = typeof isFinal === "boolean" ? isFinal : Boolean(incoming?.isFinal ?? incoming?.final);
+    const payload = incoming ? { ...incoming } : {
+      text: inputText,
+      final: !!finalFlag,
+      isFinal: !!finalFlag,
+      timestamp: performance.now(),
+      source: "speech-loader",
+      mode: lastScrollMode || getScrollMode4()
+    };
+    const text = typeof payload.text === "string" ? payload.text : inputText;
+    if (!text) return;
+    markResultTimestamp();
+    if (payload.text == null) payload.text = text;
+    if (payload.final == null) payload.final = !!finalFlag;
+    if (payload.isFinal == null) payload.isFinal = !!finalFlag;
+    if (payload.timestamp == null) payload.timestamp = performance.now();
+    if (payload.source == null) payload.source = "speech-loader";
+    if (payload.mode == null) payload.mode = lastScrollMode || getScrollMode4();
+    try {
+      console.debug(
+        "[ASR_ROUTE] keys=",
+        Object.keys(payload),
+        "matchId=",
+        payload.matchId,
+        "noMatch=",
+        payload.noMatch
+      );
+    } catch {
+    }
+    try {
+      window.HUD?.bus?.emit?.(finalFlag ? "speech:final" : "speech:partial", payload);
+    } catch {
+    }
+    if (inRehearsal()) return;
+    if (typeof window.advanceByTranscript === "function") {
+      try {
+        window.advanceByTranscript(text, !!finalFlag);
+      } catch {
+      }
+    }
+    if (shouldEmitTranscript()) {
+      try {
+        console.log("[speech-loader] emit tp:speech:transcript", payload);
+      } catch {
+      }
+      emitTranscriptEvent(payload);
+    }
+  } catch {
+  }
+}
+function setReadyUi() {
+  try {
+    const btn = document.getElementById("recBtn");
+    const chip = document.getElementById("speechStatus") || document.getElementById("recChip");
+    if (btn) {
+      btn.disabled = false;
+      btn.title = "Start speech sync";
+      try {
+        btn.textContent = "Start speech sync";
+      } catch {
+      }
+    }
+    if (chip) chip.textContent = "Speech: ready";
+    try {
+      document.body.classList.add("speech-ready");
+    } catch {
+    }
+  } catch {
+  }
+}
+function setUnsupportedUi() {
+  try {
+    const btn = document.getElementById("recBtn");
+    const chip = document.getElementById("speechStatus") || document.getElementById("recChip");
+    if (btn) {
+      btn.disabled = true;
+      btn.title = "Speech not supported in this browser";
+    }
+    if (chip) chip.textContent = "Speech: unsupported";
+    try {
+      document.body.classList.remove("speech-ready", "speech-listening", "listening");
+    } catch {
+    }
+  } catch {
+  }
+}
+function setListeningUi(listening) {
+  try {
+    const btn = document.getElementById("recBtn");
+    const chip = document.getElementById("speechStatus") || document.getElementById("recChip");
+    if (btn) {
+      btn.title = listening ? "Stop speech sync" : "Start speech sync";
+      try {
+        btn.textContent = listening ? "Stop speech sync" : "Start speech sync";
+      } catch {
+      }
+    }
+    if (chip) chip.textContent = listening ? "Speech: listening" : "Speech: ready";
+    try {
+      if (listening) {
+        document.body.classList.add("listening");
+      } else {
+        document.body.classList.remove("listening");
+      }
+    } catch {
+    }
+  } catch {
+  }
+}
+function beginCountdownThen(sec, cb, source = "speech") {
+  function showPreroll(n) {
+    try {
+      const overlay = document.getElementById("countOverlay");
+      const num2 = document.getElementById("countNum");
+      if (overlay) overlay.style.display = "flex";
+      if (num2) num2.textContent = String(n);
+      if (typeof window.sendToDisplay === "function") {
+        window.sendToDisplay({ type: "preroll", show: true, n });
+      }
+    } catch {
+    }
+  }
+  function hidePreroll() {
+    try {
+      const overlay = document.getElementById("countOverlay");
+      if (overlay) overlay.style.display = "none";
+      if (typeof window.sendToDisplay === "function") {
+        window.sendToDisplay({ type: "preroll", show: false });
+      }
+    } catch {
+    }
+  }
+  return new Promise((resolve) => {
+    (async () => {
+      let done = false;
+      try {
+        const s = Number(sec) || 0;
+        if (s <= 0) {
+          hidePreroll();
+          try {
+            await cb();
+          } catch {
+          }
+          completePrerollSession({ seconds: s, source });
+          done = true;
+          return;
+        }
+        for (let i = s; i > 0; i--) {
+          showPreroll(i);
+          try {
+            window.HUD?.bus?.emit?.("speech:countdown", { remaining: i });
+          } catch {
+          }
+          await new Promise((r) => setTimeout(r, 1e3));
+        }
+        hidePreroll();
+        try {
+          await cb();
+        } catch {
+        }
+        completePrerollSession({ seconds: s, source });
+        done = true;
+      } catch {
+      } finally {
+        if (!done) hidePreroll();
+      }
+    })().then(() => resolve()).catch(() => {
+      try {
+        hidePreroll();
+      } catch {
+      }
+      ;
+      resolve();
+    });
+  });
+}
+function emitAsrState(state8, reason) {
+  try {
+    window.__tpBus?.emit?.("tp:asr:state", { state: state8, reason });
+  } catch {
+  }
+}
+function shouldAutoRestartSpeech() {
+  const mode = lastScrollMode || getScrollMode4();
+  rememberMode(mode);
+  return running && (mode === "asr" || mode === "hybrid") && isAutoRestartEnabled();
+}
+function isDevMode4() {
+  if (typeof window === "undefined") return false;
+  try {
+    const w2 = window;
+    if (w2.__TP_DEV || w2.__TP_DEV1 || w2.__tpDevMode) return true;
+    if (w2.localStorage?.getItem("tp_dev_mode") === "1") return true;
+    const params = new URLSearchParams(window.location.search || "");
+    if (params.has("dev")) return true;
+    const hash = (window.location.hash || "").replace(/^#/, "").toLowerCase();
+    if (hash === "dev" || hash === "dev=1" || hash.includes("dev=1")) return true;
+  } catch {
+  }
+  return false;
+}
+var SPEAKER_SLOTS = ["s1", "s2", "g1", "g2"];
+var SPEAKER_NAME_SELECTORS = {
+  s1: "#name-s1",
+  s2: "#name-s2",
+  g1: "#name-g1",
+  g2: "#name-g2"
+};
+var DEFAULT_SPEAKER_LABELS = {
+  s1: "Speaker 1",
+  s2: "Speaker 2",
+  g1: "Guest 1",
+  g2: "Guest 2"
+};
+function getSpeakerName(slot) {
+  try {
+    const selector = SPEAKER_NAME_SELECTORS[slot];
+    const input = document.querySelector(selector);
+    const value = input?.value?.trim();
+    if (value) return value;
+  } catch {
+  }
+  return DEFAULT_SPEAKER_LABELS[slot] || slot.toUpperCase();
+}
+function ensureProfileForSlot(slot) {
+  const bindings = getSpeakerBindings();
+  const existingId = bindings[slot] || null;
+  const profile = getProfile(existingId);
+  if (profile) return profile;
+  const created = createProfile(getSpeakerName(slot));
+  applyProfileToSlot(slot, created.id);
+  return created;
+}
+var LOWER_GUARDS = [
+  "low_sim",
+  "low_sim_wait",
+  "no_match",
+  "no_match_pipeline",
+  "min_evidence"
+];
+var RAISE_GUARDS = [
+  "tie_forward",
+  "forward_outrun",
+  "forward_progress",
+  "forward_bias"
+];
+function clampCandidate(value) {
+  return Math.max(0.55, Math.min(0.85, clamp012(value)));
+}
+var summaryListenerAttached = false;
+function computeCandidateDelta(guardCounts) {
+  if (!guardCounts) return 0;
+  const lowerHits = LOWER_GUARDS.reduce((sum, key) => sum + (guardCounts[key] || 0), 0);
+  const raiseHits = RAISE_GUARDS.reduce((sum, key) => sum + (guardCounts[key] || 0), 0);
+  if (lowerHits >= 3) return -0.01;
+  if (raiseHits >= 3) return 0.01;
+  return 0;
+}
+function handleAsrSummary(summary) {
+  if (!summary) return;
+  const mode = (summary.mode || "").toLowerCase();
+  if (!["asr", "hybrid"].includes(mode)) return;
+  const commitCount = typeof summary.commitCount === "number" ? summary.commitCount : 0;
+  if (commitCount < 4) return;
+  const guardCounts = summary.guardCounts;
+  const delta = computeCandidateDelta(guardCounts);
+  if (!delta) return;
+  const slot = getActiveSpeakerSlot();
+  const profile = ensureProfileForSlot(slot);
+  const existing = profile.asrTweaks?.candidateMinSim ?? DEFAULT_ASR_THRESHOLDS.candidateMinSim;
+  const next = clampCandidate(existing + delta);
+  if (Math.abs(next - existing) < 1e-6) return;
+  setProfileAsrTweaks(profile.id, {
+    ...profile.asrTweaks || {},
+    candidateMinSim: next
+  });
+  if (isDevMode4()) {
+    console.debug("[ASR] summary auto-tune", { slot, delta, next, guardCounts });
+  }
+}
+function attachSummaryListener() {
+  if (summaryListenerAttached || typeof window === "undefined") return;
+  summaryListenerAttached = true;
+  try {
+    window.addEventListener("tp:asr:summary", (event) => {
+      handleAsrSummary(event?.detail);
+    });
+  } catch {
+  }
+}
+function autoSaveSpeakerPatchesAfterStop(mode) {
+  if (typeof document === "undefined") return;
+  const normalizedMode = (mode || "").toLowerCase();
+  if (!["asr", "hybrid"].includes(normalizedMode)) return;
+  const patches = getSessionLearnedPatches();
+  const bindingsBefore = getSpeakerBindings();
+  const createdSlots = [];
+  for (const slot of SPEAKER_SLOTS) {
+    if (!bindingsBefore[slot]) {
+      ensureProfileForSlot(slot);
+      createdSlots.push(slot);
+    } else {
+      ensureProfileForSlot(slot);
+    }
+  }
+  if (isDevMode4()) {
+    console.debug("[ASR] autoSaveSpeakerPatchesAfterStop", {
+      mode: normalizedMode,
+      patches: Object.fromEntries(
+        SPEAKER_SLOTS.map((slot) => [slot, Object.keys(patches[slot] || {})])
+      ),
+      createdSlots
+    });
+  }
+  for (const slot of SPEAKER_SLOTS) {
+    const patch = patches[slot];
+    if (!patch || !Object.keys(patch).length) continue;
+    const profile = ensureProfileForSlot(slot);
+    setProfileAsrTweaks(profile.id, {
+      ...profile.asrTweaks || {},
+      ...patch
+    });
+    if (isDevMode4()) {
+      console.debug("[ASR] saved patch", slot, Object.keys(patch));
+    }
+  }
+}
+function isSettingsHydrating() {
+  try {
+    return !!window.__tpSettingsHydrating;
+  } catch {
+    return false;
+  }
+}
+function parsePx(value) {
+  const parsed = Number.parseFloat(String(value || ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+function getMarkerOffset(viewer3, root) {
+  const markerPct = typeof window.__TP_MARKER_PCT === "number" ? window.__TP_MARKER_PCT : 0.4;
+  const host = viewer3 || root;
+  const hostHeight = host?.clientHeight || 0;
+  const markerOffset = Math.max(0, Math.round(hostHeight * markerPct));
+  return { markerPct, host, hostHeight, markerOffset };
+}
+function checkAsrLayoutReady() {
+  const viewer3 = getPrimaryScroller();
+  const root = getScriptRoot() || viewer3;
+  const container = root || viewer3;
+  if (!container) return { ready: false, reason: "no-container" };
+  const lineEl = container.querySelector(".line");
+  if (!lineEl) return { ready: false, reason: "no-lines" };
+  const lineHeight = lineEl.offsetHeight || lineEl.clientHeight || 0;
+  if (lineHeight <= 0) return { ready: false, reason: "line-height", lineHeight };
+  const { markerPct, host, hostHeight, markerOffset } = getMarkerOffset(viewer3, root);
+  if (!host || hostHeight <= 0) {
+    return { ready: false, reason: "host-height", hostHeight, markerPct };
+  }
+  const rootPadding = root ? parsePx(getComputedStyle(root).paddingTop) : 0;
+  const viewerScrollPadding = viewer3 ? parsePx(getComputedStyle(viewer3).scrollPaddingTop) : 0;
+  const paddingReady = markerOffset <= 0 || Math.abs(rootPadding - markerOffset) <= 1 || Math.abs(viewerScrollPadding - markerOffset) <= 1;
+  if (!paddingReady) {
+    return {
+      ready: false,
+      reason: "marker-padding",
+      markerOffset,
+      rootPadding,
+      viewerScrollPadding,
+      markerPct,
+      hostHeight
+    };
+  }
+  return {
+    ready: true,
+    markerOffset,
+    lineHeight,
+    markerPct,
+    hostHeight
+  };
+}
+var ASR_LAYOUT_READY_MAX_MS = 1200;
+var pendingLayoutReady = null;
+async function waitForAsrLayoutReady(reason) {
+  if (typeof window === "undefined") return true;
+  if (pendingLayoutReady) return pendingLayoutReady;
+  pendingLayoutReady = (async () => {
+    const raf3 = typeof requestAnimationFrame === "function" ? requestAnimationFrame : (cb) => setTimeout(() => cb(Date.now()), 16);
+    const start2 = typeof performance !== "undefined" ? performance.now() : Date.now();
+    let lastCheck = checkAsrLayoutReady();
+    while (!lastCheck.ready) {
+      const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+      if (now - start2 >= ASR_LAYOUT_READY_MAX_MS) break;
+      await new Promise((resolve) => raf3(() => resolve()));
+      lastCheck = checkAsrLayoutReady();
+    }
+    if (!lastCheck.ready) {
+      try {
+        console.warn("[ASR] layout not ready", {
+          reason,
+          cause: lastCheck.reason,
+          ...lastCheck
+        });
+      } catch {
+      }
+    }
+    return lastCheck.ready;
+  })();
+  try {
+    return await pendingLayoutReady;
+  } finally {
+    pendingLayoutReady = null;
+  }
+}
+function computeMarkerLineIndex2() {
+  try {
+    const viewer3 = getPrimaryScroller();
+    const root = getScriptRoot() || viewer3;
+    const container = viewer3 || root;
+    const lineEls = Array.from(
+      (container || document).querySelectorAll(".line")
+    );
+    if (!lineEls.length) return 0;
+    const scroller = resolveActiveScroller(viewer3, root || getFallbackScroller());
+    const scrollTop = scroller?.scrollTop ?? 0;
+    const firstLineHeight = lineEls[0].offsetHeight || lineEls[0].clientHeight || 0;
+    const topEpsilon = Math.max(24, firstLineHeight * 0.5);
+    if (scrollTop <= topEpsilon) return 0;
+    const markerPct = typeof window.__TP_MARKER_PCT === "number" ? window.__TP_MARKER_PCT : 0.4;
+    const host = scroller || container;
+    const rect = host ? host.getBoundingClientRect() : document.documentElement.getBoundingClientRect();
+    const markerY = rect.top + (host ? host.clientHeight : window.innerHeight) * markerPct;
+    let bestIdx = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < lineEls.length; i++) {
+      const el = lineEls[i];
+      const r = el.getBoundingClientRect();
+      const y = r.top + r.height * 0.5;
+      const d = Math.abs(y - markerY);
+      if (d < bestDist) {
+        bestDist = d;
+        const dataIdx = el.dataset.i || el.dataset.index || el.getAttribute("data-line-idx");
+        bestIdx = dataIdx ? Math.max(0, Number(dataIdx) || 0) : i;
+      }
+    }
+    return Math.max(0, Math.floor(bestIdx));
+  } catch {
+    return 0;
+  }
+}
+function getLineSnapshot(index) {
+  try {
+    const viewer3 = getPrimaryScroller() || getScriptRoot();
+    const idx = Math.max(0, Math.floor(index));
+    const line = viewer3?.querySelector(`.line[data-i="${idx}"]`) || viewer3?.querySelector(`.line[data-index="${idx}"]`) || viewer3?.querySelector(`.line[data-line-idx="${idx}"]`);
+    if (!line) return null;
+    const text = String(line.textContent || "").replace(/\s+/g, " ").trim();
+    const snippet = text.length > 60 ? `${text.slice(0, 60)}...` : text;
+    return {
+      snippet,
+      lineHeight: line.offsetHeight || line.clientHeight || 0,
+      scrollTop: viewer3?.scrollTop ?? 0
+    };
+  } catch {
+    return null;
+  }
+}
+function syncAsrIndices(startIdx, reason) {
+  const viewer3 = getPrimaryScroller();
+  const root = getScriptRoot() || viewer3;
+  const scroller = resolveActiveScroller(viewer3, root || getFallbackScroller());
+  const scrollTop = scroller?.scrollTop ?? 0;
+  const lineEl = (root || viewer3 || document).querySelector(".line");
+  const lineHeight = lineEl?.offsetHeight || lineEl?.clientHeight || 0;
+  const topEpsilon = Math.max(24, lineHeight * 0.5);
+  const clamped = scrollTop <= topEpsilon;
+  const idx = clamped ? 0 : Math.max(0, Math.floor(Number(startIdx) || 0));
+  try {
+    window.currentIndex = idx;
+  } catch {
+  }
+  try {
+    asrScrollDriver?.setLastLineIndex?.(idx);
+  } catch {
+  }
+  try {
+    console.debug("[ASR] index sync", { idx, reason, clamped, scrollTop, topEpsilon });
+  } catch {
+  }
+}
+var TRANSCRIPT_EVENT_OPTIONS = { capture: true };
+var asrScrollDriver = null;
+var transcriptListener = null;
+var sessionStopHooked = false;
+var asrBrainLogged = false;
+function attachAsrScrollDriver() {
+  if (typeof window === "undefined") return;
+  if (!asrScrollDriver) {
+    asrScrollDriver = createAsrScrollDriver();
+    try {
+      window.__tpAsrScrollDriver = asrScrollDriver;
+    } catch {
+    }
+  }
+  if (transcriptListener) return;
+  transcriptListener = (event) => {
+    const detail = event?.detail || {};
+    const detectedMode = typeof detail.mode === "string" ? detail.mode.toLowerCase() : "";
+    const rawMode = (detectedMode || getScrollMode4() || "").toLowerCase();
+    const effectiveMode = rawMode === "manual" ? "step" : rawMode;
+    const phase = getSession().phase;
+    if (effectiveMode === "hybrid") {
+    } else if (effectiveMode === "asr" && phase === "live") {
+    } else {
+      return;
+    }
+    const text = typeof detail.text === "string" ? detail.text : "";
+    if (!text) return;
+    const isFinal = Boolean(detail.isFinal ?? detail.final);
+    asrScrollDriver?.ingest(text, isFinal, detail);
+  };
+  window.addEventListener("tp:speech:transcript", transcriptListener, TRANSCRIPT_EVENT_OPTIONS);
+}
+function detachAsrScrollDriver() {
+  if (typeof window !== "undefined" && transcriptListener) {
+    window.removeEventListener("tp:speech:transcript", transcriptListener, TRANSCRIPT_EVENT_OPTIONS);
+  }
+  transcriptListener = null;
+  if (asrScrollDriver) {
+    asrScrollDriver.dispose();
+    asrScrollDriver = null;
+    try {
+      window.__tpAsrScrollDriver = null;
+    } catch {
+    }
+  }
+}
+function ensureSessionStopHooked() {
+  if (sessionStopHooked) return;
+  sessionStopHooked = true;
+  if (typeof window === "undefined") return;
+  window.addEventListener("tp:session:stop", (event) => {
+    detachAsrScrollDriver();
+    const detail = event?.detail || {};
+    const mode = typeof detail.mode === "string" && detail.mode ? detail.mode : lastScrollMode || getScrollMode4();
+    autoSaveSpeakerPatchesAfterStop(mode);
+    if (isDevMode4()) {
+      maybePromptSaveSpeakerProfiles(mode);
+    }
+    clearSessionLearnedPatches();
+  }, TRANSCRIPT_EVENT_OPTIONS);
+}
+try {
+  ensureSessionStopHooked();
+} catch {
+}
+try {
+  attachSummaryListener();
+} catch {
+}
+function attachWebSpeechLifecycle(sr) {
+  if (!sr) return;
+  sr.onend = (event) => {
+    try {
+      console.log("[speech] onend", event);
+    } catch {
+    }
+    if (pendingManualRestartCount > 0) {
+      pendingManualRestartCount = Math.max(pendingManualRestartCount - 1, 0);
+      return;
+    }
+    if (shouldAutoRestartSpeech()) {
+      try {
+        console.log("[speech] restarting recognition after onend");
+        sr.start();
+      } catch (err) {
+        try {
+          console.warn("[speech] restart failed after onend", err);
+        } catch {
+        }
+        emitAsrState("idle", "recognition-restart-error");
+      }
+    } else {
+      emitAsrState("idle", "recognition-end");
+    }
+  };
+  sr.onerror = (event) => {
+    try {
+      console.error("[speech] error", event);
+    } catch {
+    }
+    if (shouldAutoRestartSpeech()) {
+      try {
+        sr.stop();
+      } catch {
+      }
+      try {
+        sr.start();
+      } catch (err) {
+        try {
+          console.warn("[speech] restart failed after error", err);
+        } catch {
+        }
+        emitAsrState("idle", "recognition-error");
+      }
+    } else {
+      emitAsrState("idle", "recognition-error");
+    }
+  };
+}
+async function startBackendForSession(mode, reason) {
+  if (isSettingsHydrating()) {
+    try {
+      console.debug("[ASR] startBackend blocked during settings hydration", { mode, reason });
+    } catch {
+    }
+    return false;
+  }
+  if (isDevMode4()) {
+    const w2 = typeof window !== "undefined" ? window : null;
+    const info = {
+      mode,
+      reason,
+      hasOrchestrator: !!w2?.__tpSpeechOrchestrator?.start,
+      hasRecognizerStart: typeof w2?.__tpSpeech?.startRecognizer === "function",
+      hasWebSpeech: !!(w2?.SpeechRecognition || w2?.webkitSpeechRecognition)
+    };
+    try {
+      console.log("[ASR] lifecycle startBackend: invoking backend", info);
+    } catch {
+    }
+  }
+  try {
+    if (window.__tpSpeechOrchestrator?.start) {
+      const started = await window.__tpSpeechOrchestrator.start();
+      rec = started || null;
+      if (rec && typeof rec.on === "function") {
+        try {
+          rec.on("final", (t) => routeTranscript(String(t || ""), true));
+        } catch {
+        }
+        try {
+          rec.on("partial", (t) => routeTranscript(String(t || ""), false));
+        } catch {
+        }
+      }
+      try {
+        window.__tpEmitSpeech = (t, final) => routeTranscript(String(t || ""), !!final);
+      } catch {
+      }
+      if (rec && typeof rec.start === "function") {
+        setActiveRecognizer(rec);
+      }
+      return true;
+    }
+  } catch {
+  }
+  try {
+    const startRecognizer = window.__tpSpeech?.startRecognizer;
+    if (typeof startRecognizer === "function") {
+      startRecognizer(() => {
+      }, { lang: "en-US" });
+      rec = { stop: () => {
+        try {
+          window.__tpSpeech?.stopRecognizer?.();
+        } catch {
+        }
+      } };
+      return true;
+    }
+  } catch {
+  }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) throw new Error("NoSpeechBackend");
+  const sr = new SR();
+  sr.interimResults = true;
+  sr.continuous = true;
+  attachWebSpeechLifecycle(sr);
+  setActiveRecognizer(sr);
+  let _lastInterimAt = 0;
+  sr.onresult = (e) => {
+    try {
+      let interim = "", finals = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const res = e.results[i];
+        if (res.isFinal) finals += res[0].transcript;
+        else interim += res[0].transcript;
+      }
+      if (finals) routeTranscript(finals, true);
+      const now = performance.now();
+      if (interim && now - _lastInterimAt > 120) {
+        _lastInterimAt = now;
+        routeTranscript(interim, false);
+      }
+    } catch {
+    }
+  };
+  sr.onerror = (e) => {
+    try {
+      console.warn("[speech] error", e);
+    } catch {
+    }
+  };
+  try {
+    sr.start();
+  } catch {
+  }
+  rec = { stop: () => {
+    try {
+      sr.stop();
+    } catch {
+    }
+  } };
+  try {
+    window.__tpEmitSpeech = (t, final) => routeTranscript(String(t || ""), !!final);
+  } catch {
+  }
+  return true;
+}
+async function startSpeechBackendForSession(info) {
+  const mode = (info?.mode || getScrollMode4()).toLowerCase();
+  const wantsSpeech = mode === "asr" || mode === "hybrid";
+  if (!wantsSpeech) return false;
+  if (isSettingsHydrating()) {
+    try {
+      console.debug("[ASR] startSpeech blocked during settings hydration", { mode, reason: info?.reason });
+    } catch {
+    }
+    return false;
+  }
+  if (running) return true;
+  const layoutReady = await waitForAsrLayoutReady(info?.reason);
+  if (!layoutReady) return false;
+  if (running) return true;
+  attachAsrScrollDriver();
+  const startIdx = computeMarkerLineIndex2();
+  syncAsrIndices(startIdx, "session-start");
+  if (!asrBrainLogged) {
+    asrBrainLogged = true;
+    try {
+      const session = getSession();
+      const scroller = resolveActiveScroller(
+        getPrimaryScroller(),
+        getScriptRoot() || getFallbackScroller()
+      );
+      console.warn("ASR_BRAIN_READY", {
+        asrDesired: session.asrDesired,
+        asrArmed: session.asrArmed,
+        brain: !!asrScrollDriver,
+        mode,
+        scrollerId: describeElement(scroller)
+      });
+    } catch {
+    }
+  }
+  try {
+    const currentIdx = Number(window.currentIndex ?? startIdx);
+    const viewer3 = getPrimaryScroller();
+    const root = getScriptRoot() || viewer3;
+    const scroller = resolveActiveScroller(viewer3, root || getFallbackScroller());
+    const scrollerTop = scroller?.scrollTop ?? 0;
+    const firstLine = (root || viewer3 || document).querySelector(".line");
+    const firstLineHeight = firstLine?.offsetHeight || firstLine?.clientHeight || 0;
+    const topEpsilon = Math.max(24, firstLineHeight * 0.5);
+    const markerSnap = getLineSnapshot(startIdx);
+    const currentSnap = getLineSnapshot(currentIdx);
+    try {
+      console.warn("ASR_START_STATE", {
+        anchorIndex: startIdx,
+        cursorLine: currentIdx,
+        scrollTop: Math.round(scrollerTop),
+        scroller: describeElement(scroller),
+        topEps: Math.round(topEpsilon)
+      });
+    } catch {
+    }
+    const anchorLine = [
+      "ASR_ANCHOR",
+      `current=${currentIdx}`,
+      `marker=${startIdx}`,
+      `scroller=${describeElement(scroller)}`,
+      `scrollTop=${Math.round(scrollerTop)}`,
+      `topEps=${Math.round(topEpsilon)}`,
+      markerSnap?.snippet ? `markerText="${markerSnap.snippet}"` : "",
+      currentSnap?.snippet ? `currentText="${currentSnap.snippet}"` : "",
+      `snapScrollTop=${Math.round(currentSnap?.scrollTop ?? 0)}`,
+      `lineH=${currentSnap?.lineHeight ?? 0}`
+    ].filter(Boolean).join(" ");
+    console.warn(anchorLine);
+  } catch {
+  }
+  running = true;
+  rememberMode(mode);
+  try {
+    document.body.classList.add("listening");
+  } catch {
+  }
+  try {
+    window.HUD?.bus?.emit?.("speech:toggle", true);
+  } catch {
+  }
+  try {
+    window.speechOn = true;
+  } catch {
+  }
+  setListeningUi(true);
+  try {
+    window.dispatchEvent(new CustomEvent("tp:speech-state", { detail: { running: true } }));
+  } catch {
+  }
+  try {
+    console.debug("[ASR] willStartRecognizer", {
+      phase: "session-live",
+      mode,
+      hasSR: !!(window.SpeechRecognition || window.webkitSpeechRecognition)
+    });
+  } catch {
+  }
+  try {
+    const ok = await startBackendForSession(mode, info?.reason);
+    try {
+      console.debug("[ASR] didCallStartRecognizer", { ok });
+    } catch {
+    }
+    try {
+      await window.__tpMic?.requestMic?.();
+    } catch {
+    }
+    return ok;
+  } catch {
+    running = false;
+    setActiveRecognizer(null);
+    setListeningUi(false);
+    setReadyUi();
+    return false;
+  }
+}
+function stopSpeechBackendForSession(reason) {
+  if (!running && !rec) {
+    detachAsrScrollDriver();
+    return;
+  }
+  detachAsrScrollDriver();
+  asrBrainLogged = false;
+  try {
+    stopAsrRuntime();
+  } catch {
+  }
+  try {
+    window.__tpMic?.releaseMic?.();
+  } catch {
+  }
+  try {
+    rec?.stop?.();
+  } catch {
+  }
+  try {
+    window.__tpSpeech?.stopRecognizer?.();
+  } catch {
+  }
+  setActiveRecognizer(null);
+  running = false;
+  try {
+    document.body.classList.remove("listening");
+  } catch {
+  }
+  try {
+    window.HUD?.bus?.emit?.("speech:toggle", false);
+  } catch {
+  }
+  try {
+    window.speechOn = false;
+  } catch {
+  }
+  setListeningUi(false);
+  setReadyUi();
+  try {
+    window.dispatchEvent(new CustomEvent("tp:speech-state", { detail: { running: false, reason } }));
+  } catch {
+  }
+}
+function installSpeech() {
+  (async () => {
+    try {
+      const btn = document.getElementById("recBtn");
+      if (!btn || btn.__sessionWired) return;
+      btn.__sessionWired = true;
+      setReadyUi();
+      const syncBtnUi = (phase) => {
+        try {
+          const p = (phase || "").toLowerCase();
+          const isRunning = p === "preroll" || p === "live";
+          btn.textContent = isRunning ? "Stop" : "Start speech sync";
+          btn.title = isRunning ? "Stop speech sync" : "Start speech sync";
+        } catch {
+        }
+      };
+      try {
+        window.addEventListener("tp:session:phase", (ev) => {
+          const phase = ev?.detail?.phase || "";
+          syncBtnUi(String(phase));
+        });
+      } catch {
+      }
+      btn.addEventListener(
+        "click",
+        () => {
+          const session = getSession();
+          if (session.phase === "preroll" || session.phase === "live") {
+            const mode = getScrollMode4();
+            const needsSpeech = mode === "asr" || mode === "hybrid";
+            if (needsSpeech && !running) {
+              try {
+                console.warn("[session/stop] ignoring stop click because speech backend never ran", {
+                  mode,
+                  phase: session.phase
+                });
+              } catch {
+              }
+              return;
+            }
+            try {
+              console.debug("[session/stop] click in phase=", session.phase);
+            } catch {
+            }
+            const stopIntent = { source: "recBtn", phase: session.phase, reason: "user" };
+            dispatchSessionIntent(false, stopIntent);
+            try {
+              setSessionPhase("wrap");
+            } catch {
+            }
+            try {
+              window.dispatchEvent(
+                new CustomEvent("tp:session:stop", {
+                  detail: { ...stopIntent, intentSource: "session-intent" }
+                })
+              );
+            } catch {
+            }
+            return;
+          }
+          try {
+            console.debug("[session/start] phase", session.phase, "\u2192 preroll");
+          } catch {
+          }
+          const startIntent = { source: "recBtn", reason: "user" };
+          try {
+            setSessionPhase("preroll");
+          } catch {
+          }
+          try {
+            window.dispatchEvent(
+              new CustomEvent("tp:session:start", {
+                detail: { ...startIntent, intentSource: "session-intent" }
+              })
+            );
+          } catch {
+          }
+          dispatchSessionIntent(true, startIntent);
+          syncBtnUi("preroll");
+        },
+        { capture: true }
+      );
+    } catch {
+    }
+  })();
+  return;
+  async function probeUrl(url) {
+    try {
+      const res = await fetch(url, { method: "HEAD", cache: "no-store" });
+      return Boolean(res && res.ok);
+    } catch {
+      return false;
+    }
+  }
+  async function resolveOrchestratorUrl() {
+    const v = Date.now();
+    const primary = `/dist/speech/orchestrator.real.js?v=${v}`;
+    try {
+      console.log("[SPEECH] orchestrator resolved ->", primary);
+    } catch {
+    }
+    return primary;
+  }
+  (async () => {
+    try {
+      const btn = document.getElementById("recBtn");
+      if (!btn) return;
+      const SRAvail = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+      const hasGlobalOrch = !!window.__tpSpeechOrchestrator;
+      const force = (() => {
+        try {
+          return localStorage.getItem("tp_speech_force") === "1";
+        } catch {
+        }
+        return false;
+      })();
+      const ciGuard = (() => {
+        try {
+          const ls = localStorage.getItem("tp_ci");
+          if (ls === "1") return true;
+        } catch {
+        }
+        try {
+          const sp = new URLSearchParams(location.search);
+          if (sp.get("ci") === "1") return true;
+        } catch {
+        }
+        return false;
+      })();
+      const backendAllowed = isSpeechBackendAllowed();
+      let hasOrchestrator = hasGlobalOrch;
+      if (!hasOrchestrator && backendAllowed && !ciGuard) {
+        try {
+          hasOrchestrator = await probeUrl("/dist/speech/orchestrator.real.js");
+        } catch {
+        }
+      }
+      const supported = SRAvail || hasOrchestrator;
+      const canUse = supported || force;
+      if (canUse) setReadyUi();
+      else setUnsupportedUi();
+      try {
+        window.__tpSpeechCanDynImport = backendAllowed && !!hasOrchestrator && !ciGuard;
+      } catch {
+      }
+      async function startBackend() {
+        if (isDevMode4()) {
+          const w2 = typeof window !== "undefined" ? window : null;
+          const info = {
+            hasOrchestrator: !!w2?.__tpSpeechOrchestrator?.start,
+            hasRecognizerStart: typeof w2?.__tpSpeech?.startRecognizer === "function",
+            hasWebSpeech: !!(w2?.SpeechRecognition || w2?.webkitSpeechRecognition)
+          };
+          console.log("[ASR] lifecycle startBackend: invoking backend", info);
+        }
+        try {
+          if (window.__tpSpeechOrchestrator?.start) {
+            const started = await window.__tpSpeechOrchestrator.start();
+            rec = started || null;
+            if (rec && typeof rec.on === "function") {
+              try {
+                rec.on("final", (t) => routeTranscript(String(t || ""), true));
+              } catch {
+              }
+              try {
+                rec.on("partial", (t) => routeTranscript(String(t || ""), false));
+              } catch {
+              }
+            }
+            try {
+              window.__tpEmitSpeech = (t, final) => routeTranscript(String(t || ""), !!final);
+            } catch {
+            }
+            return true;
+          }
+        } catch {
+        }
+        try {
+          if (window.__tpSpeechCanDynImport) {
+            const orchUrl = await resolveOrchestratorUrl();
+            const mod = await import(
+              /* @vite-ignore */
+              orchUrl
+            );
+            if (mod?.startOrchestrator) {
+              const started = await mod.startOrchestrator();
+              rec = started || null;
+              try {
+                if (rec && typeof rec.on === "function") {
+                  try {
+                    rec.on("final", (t) => routeTranscript(String(t || ""), true));
+                  } catch {
+                  }
+                  try {
+                    rec.on("partial", (t) => routeTranscript(String(t || ""), false));
+                  } catch {
+                  }
+                }
+              } catch {
+              }
+              try {
+                window.__tpEmitSpeech = (t, final) => routeTranscript(String(t || ""), !!final);
+              } catch {
+              }
+              try {
+                console.log("[SPEECH] shim", { start: !!window.__tpSpeech?.startRecognizer, match: !!window.__tpSpeech?.matchBatch });
+              } catch {
+              }
+              return true;
+            }
+          }
+        } catch {
+        }
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SR) throw new Error("NoSpeechBackend");
+        const sr = new SR();
+        sr.interimResults = true;
+        sr.continuous = true;
+        attachWebSpeechLifecycle(sr);
+        setActiveRecognizer(sr);
+        let _lastInterimAt = 0;
+        sr.onresult = (e) => {
+          try {
+            let interim = "", finals = "";
+            for (let i = e.resultIndex; i < e.results.length; i++) {
+              const res = e.results[i];
+              if (res.isFinal) finals += res[0].transcript;
+              else interim += res[0].transcript;
+            }
+            if (finals) routeTranscript(finals, true);
+            const now = performance.now();
+            if (interim && now - _lastInterimAt > 120) {
+              _lastInterimAt = now;
+              routeTranscript(interim, false);
+            }
+          } catch {
+          }
+        };
+        sr.onerror = (e) => {
+          try {
+            console.warn("[speech] error", e);
+          } catch {
+          }
+        };
+        try {
+          sr.start();
+        } catch {
+        }
+        rec = { stop: () => {
+          try {
+            sr.stop();
+          } catch {
+          }
+        } };
+        try {
+          window.__tpEmitSpeech = (t, final) => routeTranscript(String(t || ""), !!final);
+        } catch {
+        }
+        return true;
+      }
+      async function startSpeech() {
+        try {
+          const mode = getScrollMode4();
+          const wantsSpeech = mode === "hybrid" || mode === "asr";
+          const S = window.__tpStore;
+          const sec = S && S.get ? Number(S.get("prerollSeconds") || 0) : 0;
+          detachAsrScrollDriver();
+          if (!wantsSpeech) {
+            running = true;
+            setListeningUi(true);
+            try {
+              window.dispatchEvent(new CustomEvent("tp:speech-state", { detail: { running: true } }));
+            } catch {
+            }
+            await beginCountdownThen(sec, async () => {
+              try {
+                window.dispatchEvent(new CustomEvent("tp:auto:intent", { detail: { enabled: true, reason: "speech" } }));
+              } catch {
+              }
+              try {
+                window.dispatchEvent(new CustomEvent("tp:speechSync:ready", {
+                  detail: { source: "auto-only", preroll: sec }
+                }));
+              } catch {
+              }
+            });
+            if (btn) btn.disabled = false;
+            return;
+          }
+          attachAsrScrollDriver();
+          running = true;
+          rememberMode(mode);
+          try {
+            document.body.classList.add("listening");
+          } catch {
+          }
+          try {
+            window.HUD?.bus?.emit?.("speech:toggle", true);
+          } catch {
+          }
+          try {
+            window.speechOn = true;
+          } catch {
+          }
+          setListeningUi(true);
+          try {
+            window.dispatchEvent(new CustomEvent("tp:speech-state", { detail: { running: true } }));
+          } catch {
+          }
+          try {
+            (window.HUD?.log || console.debug)?.("speech", { state: "start" });
+          } catch {
+          }
+          if (isDevMode4()) {
+            const w2 = typeof window !== "undefined" ? window : null;
+            const info = {
+              mode,
+              hasOrchestrator: !!w2?.__tpSpeechOrchestrator?.start,
+              hasRecognizerStart: typeof w2?.__tpSpeech?.startRecognizer === "function",
+              hasWebSpeech: !!(w2?.SpeechRecognition || w2?.webkitSpeechRecognition)
+            };
+            console.log("[ASR] lifecycle start: willStartBackend", info);
+          }
+          console.debug("[ASR] willStartRecognizer", {
+            phase: "startSpeech",
+            mode,
+            hasSR: !!(window.SpeechRecognition || window.webkitSpeechRecognition)
+          });
+          await beginCountdownThen(sec, async () => {
+            try {
+              window.dispatchEvent(new CustomEvent("tp:auto:intent", { detail: { enabled: true, reason: "speech" } }));
+            } catch {
+            }
+            const ok = await startBackend();
+            console.debug("[ASR] didCallStartRecognizer", { ok });
+            console.debug("[ASR] recognizerRef", {
+              hasRef: !!rec,
+              state: rec?.state
+            });
+            try {
+              window.dispatchEvent(new CustomEvent("tp:speechSync:ready", {
+                detail: { source: "speech", preroll: sec }
+              }));
+            } catch {
+            }
+            try {
+              await window.__tpMic?.requestMic?.();
+            } catch {
+            }
+          });
+        } catch (err) {
+          running = false;
+          setActiveRecognizer(null);
+          setListeningUi(false);
+          setReadyUi();
+          const msg = err instanceof Error ? err.message : String(err);
+          try {
+            (window.HUD?.log || console.warn)?.("speech", { startError: msg });
+          } catch {
+          }
+        } finally {
+        }
+      }
+      async function stopSpeech() {
+        try {
+          detachAsrScrollDriver();
+          try {
+            stopAsrRuntime();
+          } catch {
+          }
+          try {
+            window.__tpMic?.releaseMic?.();
+          } catch {
+          }
+          try {
+            rec?.stop?.();
+          } catch {
+          }
+          setActiveRecognizer(null);
+          running = false;
+          try {
+            document.body.classList.remove("listening");
+          } catch {
+          }
+          try {
+            window.HUD?.bus?.emit?.("speech:toggle", false);
+          } catch {
+          }
+          try {
+            window.speechOn = false;
+          } catch {
+          }
+          setListeningUi(false);
+          setReadyUi();
+          try {
+            console.log("[ASR] Stop speech sync clicked");
+            const auto2 = window.__tpAuto;
+            if (auto2 && typeof auto2.setEnabled === "function") {
+              console.log("[ASR] Disabling auto-scroll from Stop speech sync");
+              auto2.setEnabled(false);
+            } else {
+              console.warn("[ASR] __tpAuto not available; cannot disable auto-scroll.");
+            }
+            const asr = window.__tpASR || window.ASR || rec;
+            if (asr && typeof asr.stop === "function") {
+              console.log("[ASR] Calling ASR.stop() from Stop speech sync");
+              asr.stop();
+            } else if (asr && typeof asr.abort === "function") {
+              console.log("[ASR] Calling ASR.abort() from Stop speech sync");
+              asr.abort();
+            } else {
+              console.warn("[ASR] No ASR controller found to stop.");
+            }
+          } catch {
+          }
+          try {
+            const sendToDisplay = window.__tpSendToDisplay || (() => {
+            });
+            sendToDisplay({ type: "auto", op: "stop" });
+          } catch {
+          }
+          try {
+            window.dispatchEvent(new CustomEvent("tp:speech-state", { detail: { running: false } }));
+          } catch {
+          }
+          try {
+            (window.HUD?.log || console.debug)?.("speech", { state: "stop" });
+          } catch {
+          }
+        } finally {
+        }
+      }
+      btn.addEventListener("click", async () => {
+        if (!running) await startSpeech();
+        else await stopSpeech();
+      }, { capture: true });
+    } catch {
+    }
+  })();
+}
+
+// src/features/scroll-session.ts
+try {
+  window.__TP_SCROLL_SESSION_FINGERPRINT = "scroll-session-v4-2026-02-10-a";
+  console.log("SCROLL_SESSION_FINGERPRINT", window.__TP_SCROLL_SESSION_FINGERPRINT);
+} catch {
+}
+var asrOffLogged = false;
+var lastPhaseInit = (() => {
+  try {
+    const session = getSession();
+    return session?.phase ?? "idle";
+  } catch {
+    return "idle";
+  }
+})();
+var lastSessionPhase = lastPhaseInit;
+function dispatchAutoIntent(enabled2, reason = "session") {
+  try {
+    console.trace("[probe] dispatch tp:auto:intent", { enabled: enabled2, reason });
+  } catch {
+  }
+  const detail = { enabled: enabled2, reason };
+  try {
+    window.dispatchEvent(new CustomEvent("tp:auto:intent", { detail }));
+  } catch {
+  }
+  try {
+    document.dispatchEvent(new CustomEvent("tp:auto:intent", { detail }));
+  } catch {
+  }
+}
+function startAutoScroll(mode, reason = "session-live") {
+  if (!shouldAutoStartForMode(mode)) {
+    try {
+      console.debug("[scroll-session] auto-scroll start ignored (mode not auto-capable)", { mode });
+    } catch {
+    }
+    return;
+  }
+  try {
+    console.debug("[scroll-session] dispatching tp:auto:intent (start)", { mode, reason });
+  } catch {
+  }
+  dispatchAutoIntent(true, reason);
+}
+function stopAutoScroll(ctx) {
+  try {
+    console.info("[scroll-session] STOP requested", ctx);
+  } catch {
+  }
+  dispatchAutoIntent(false, ctx.reason || "session-stop");
+}
+function shouldStopAutoForPhase(phase) {
+  return phase !== "preroll";
+}
+function maybeStartOnLive(phase) {
+  const prevPhase = lastSessionPhase;
+  lastSessionPhase = phase;
+  const session = getSession();
+  const rawMode = appStoreSingleton.get("scrollMode");
+  const canonicalMode = normalizeScrollMode2(rawMode);
+  const canonicalModeStr = String(canonicalMode);
+  const shouldRun = session.scrollAutoOnLive && shouldAutoStartForMode(canonicalMode);
+  if (phase !== "live") {
+    if (prevPhase === "live" && shouldStopAutoForPhase(phase)) {
+      stopAutoScroll({
+        reason: "phase-change",
+        phase,
+        mode: canonicalMode,
+        userEnabled: session.scrollAutoOnLive,
+        shouldRun
+      });
+      stopSpeechBackendForSession("phase-change");
+      asrOffLogged = false;
+    }
+    return;
+  }
+  try {
+    console.debug("[ASR] live entered", {
+      mode: canonicalMode,
+      scrollAutoOnLive: session.scrollAutoOnLive,
+      brain: appStoreSingleton.get("scrollBrain"),
+      asrDesired: session.asrDesired,
+      asrArmed: session.asrArmed
+    });
+  } catch {
+  }
+  const brain = String(appStoreSingleton.get("scrollBrain") || "").toLowerCase();
+  const shouldStartSpeech = canonicalModeStr === "hybrid" || session.asrArmed && (canonicalMode === "asr" || brain === "asr");
+  if (shouldStartSpeech) {
+    try {
+      console.debug("[ASR] about to call startSpeech/startBackend", { mode: canonicalMode, reason: "live-enter" });
+    } catch {
+    }
+    void startSpeechBackendForSession({ reason: "live-enter", mode: canonicalMode });
+  } else if (!asrOffLogged) {
+    asrOffLogged = true;
+    const reason = !session.asrDesired ? "not-desired" : !session.asrArmed ? "not-armed" : canonicalMode !== "asr" && canonicalMode !== "hybrid" && brain !== "asr" ? "mode-blocked" : "unknown";
+    const scroller = resolveActiveScroller(
+      getPrimaryScroller(),
+      getScriptRoot() || getFallbackScroller()
+    );
+    try {
+      console.warn("ASR_OFF_REASON", {
+        reason,
+        asrDesired: session.asrDesired,
+        asrArmed: session.asrArmed,
+        mode: canonicalMode,
+        brain,
+        scrollerId: describeElement(scroller)
+      });
+    } catch {
+    }
+  }
+  if (!session.scrollAutoOnLive) {
+    try {
+      console.debug("[scroll-session] auto-scroll not starting on live (scrollAutoOnLive=false)");
+    } catch {
+    }
+    return;
+  }
+  if (!shouldRun) {
+    try {
+      console.debug("[scroll-session] auto-scroll not allowed for mode", canonicalMode);
+    } catch {
+    }
+    return;
+  }
+  try {
+    console.debug("[scroll-session] live phase with auto-on-live; starting auto-scroll", { mode: canonicalMode });
+  } catch {
+  }
+  startAutoScroll(canonicalModeStr, "live-enter");
+}
+function initScrollSessionRouter() {
+  try {
+    appStoreSingleton.subscribe(
+      "session.phase",
+      (p) => maybeStartOnLive(p)
+    );
+    maybeStartOnLive(getSession().phase);
+  } catch {
+  }
+  try {
+    window.addEventListener("tp:preroll:done", (ev) => {
+      const session = getSession();
+      const detail = ev?.detail || {};
+      try {
+        console.debug("[scroll-session] preroll done", {
+          phase: session.phase,
+          scrollAutoOnLive: session.scrollAutoOnLive,
+          mode: appStoreSingleton.get("scrollMode"),
+          detail
+        });
+      } catch {
+      }
+      if (session.phase !== "live") return;
+      if (!session.scrollAutoOnLive) {
+        try {
+          console.debug("[scroll-session] auto-scroll disabled for this mode");
+        } catch {
+        }
+        return;
+      }
+      const rawMode = appStoreSingleton.get("scrollMode");
+      const canonicalMode = normalizeScrollMode2(rawMode);
+      if (!shouldAutoStartForMode(canonicalMode)) {
+        try {
+          console.debug("[scroll-session] auto-scroll disabled for this mode (manual block)", { mode: canonicalMode });
+        } catch {
+        }
+        return;
+      }
+      startAutoScroll(String(canonicalMode), "preroll-done");
+    });
+  } catch {
+  }
+}
+
+// src/features/recording-session.ts
+function maybeStartOnLive2(phase) {
+  if (phase !== "live") return;
+  const shouldRecord = !!appStoreSingleton.get("session.recordOnLive");
+  const reason = appStoreSingleton.get("session.recordReason");
+  if (!shouldRecord) {
+    try {
+      console.log("[session] recording not armed; reason=", reason);
+    } catch {
+    }
+    return;
+  }
+  try {
+    const obsEnabled = !!appStoreSingleton.get("obsEnabled");
+    const engine = getRecordingEngine();
+    try {
+      console.debug("[recording-session] live phase", {
+        recordOnLive: shouldRecord,
+        reason,
+        obsEnabled,
+        engine
+      });
+    } catch {
+    }
+    try {
+      console.debug("[recording-session] startRecorders: intent", {
+        obsEnabled,
+        engine,
+        recordOnLive: shouldRecord,
+        registered: listRecorders().map((r) => r.id)
+      });
+    } catch {
+    }
+    startSessionRecording({ obsEnabled, engine }).catch((err) => {
+      console.warn("[session] startSessionRecording failed", err);
+    });
+  } catch (err) {
+    try {
+      console.warn("[session] recorder start failed", err);
+    } catch {
+    }
+  }
+}
+function maybeStopOnEnd(phase) {
+  if (phase !== "wrap" && phase !== "idle") return;
+  if (!isSessionRecording()) return;
+  try {
+    console.debug("[recording-session] stopping recorders; phase=", phase);
+  } catch {
+  }
+  try {
+    stopSessionRecording().catch(() => {
+    });
+  } catch {
+  }
+}
+function initRecordingSession() {
+  try {
+    appStoreSingleton.subscribe("session.phase", (p) => {
+      const phase = p;
+      maybeStartOnLive2(phase);
+      maybeStopOnEnd(phase);
+    });
+  } catch {
+  }
+}
+
 // src/hud/loader.ts
 var LS_KEY3 = "tp_hud_notes_v1";
 var LEGACY_LS_KEYS2 = ["tp_hud_speech_notes_v1"];
 var PROD_TOGGLE_KEY = "tp_hud_prod";
 var notes = [];
 var filterMode = "all";
-function save2() {
+function save3() {
   try {
     localStorage.setItem(LS_KEY3, JSON.stringify(notes.slice(-500)));
   } catch {
@@ -23936,7 +31066,7 @@ function loadHudIfDev() {
       } catch {
       }
       notes.push(note);
-      save2();
+      save3();
       render2(notes);
     };
     var render = render2, addNote = addNote2;
@@ -23972,7 +31102,7 @@ function loadHudIfDev() {
     const notesEl = document.getElementById("hudNotes");
     window.__tpHudNotes = { addNote: (n) => addNote2(n), list: () => notes.slice(), clear: () => {
       notes = [];
-      save2();
+      save3();
       render2(notes);
     }, setFilter: (m) => {
       filterMode = m;
@@ -24003,7 +31133,7 @@ function loadHudIfDev() {
     document.getElementById("hudCopy")?.addEventListener("click", copyAll);
     document.getElementById("hudClear")?.addEventListener("click", () => {
       notes = [];
-      save2();
+      save3();
       render2(notes);
     });
     document.getElementById("hudClose")?.addEventListener("click", () => {
@@ -24168,6 +31298,26 @@ try {
     }
     try {
       initObsUI();
+    } catch {
+    }
+    try {
+      initSession();
+    } catch {
+    }
+    try {
+      initPrerollSession();
+    } catch {
+    }
+    try {
+      initScrollSessionRouter();
+    } catch {
+    }
+    try {
+      initRecordingSession();
+    } catch {
+    }
+    try {
+      installSpeech();
     } catch {
     }
     try {
@@ -24364,7 +31514,7 @@ try {
       if (window.__tpTypographyBridgeActive) {
         throw new Error("skip-ts-wheel");
       }
-      const clamp5 = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+      const clamp6 = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
       window.addEventListener("wheel", (e) => {
         try {
           if (!(e.ctrlKey || e.metaKey)) return;
@@ -24372,7 +31522,7 @@ try {
           const targetDisplay = e.altKey ? "display" : "main";
           const cur = getTypography(targetDisplay).fontSizePx;
           const step = 2;
-          const next = clamp5(cur + (e.deltaY < 0 ? step : -step), 18, 120);
+          const next = clamp6(cur + (e.deltaY < 0 ? step : -step), 18, 120);
           setTypography(targetDisplay, { fontSizePx: next });
         } catch {
         }

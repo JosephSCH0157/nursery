@@ -11,6 +11,7 @@ import {
   type AsrBlockUnit,
 } from './scroll/asr-block-index';
 import { setAsrBlocks } from './scroll/asr-block-store';
+import { bootTrace } from './boot/boot-trace';
 
 try { console.warn('[ROUTER_STAMP] render-script', ROUTER_STAMP); } catch {}
 
@@ -171,6 +172,7 @@ function chunkAsrUnits(units: AsrBlockUnit[]) {
 export function renderScript(text: string, container?: HTMLElement | null): void {
   console.log("[LIVE SCRIPT RENDERER] executing", { ts: Date.now() });
   const raw = String(text ?? '');
+  bootTrace('render-script:enter', { length: raw.length });
   try { (window as any).__tpRawScript = raw; } catch {}
 
   // Prefer the dedicated script container so we never nuke sibling UI (e.g., camera overlay).
@@ -225,6 +227,7 @@ export function renderScript(text: string, container?: HTMLElement | null): void
         `scrollPaddingTop=${scrollPadTarget}`,
       ].join(' '));
       if (!viewerScrollRouterInstalled && viewer) {
+        bootTrace('render-script:scroll-router-runtime:install:start');
         try { console.warn('[SCROLL_ROUTER] render-script installing router now'); } catch {}
         const auto = createAutoMotor();
         const viewerEl = document.getElementById('viewer') as HTMLElement | null;
@@ -252,7 +255,9 @@ export function renderScript(text: string, container?: HTMLElement | null): void
           try { console.info('RETURNED FROM installScrollRouter'); } catch {}
           try { (window as any).__tpAuto = auto; } catch {}
           viewerScrollRouterInstalled = true;
+          bootTrace('render-script:scroll-router-runtime:install:done');
         } catch (error) {
+          bootTrace('render-script:scroll-router-runtime:install:error', { error: String(error) });
           try {
             const errObj = error instanceof Error ? error : new Error(String(error));
             console.error('[SCROLL_ROUTER] install failure context', {
@@ -508,16 +513,16 @@ export function renderScript(text: string, container?: HTMLElement | null): void
   } catch {}
 
   try {
-    const evt = new CustomEvent('tp:render:done', { detail: { lineCount: renderedLineIndex } });
-    root.dispatchEvent(evt);
-    document.dispatchEvent(evt);
+    const detail = { lineCount: renderedLineIndex };
+    root.dispatchEvent(new CustomEvent('tp:render:done', { detail }));
+    window.dispatchEvent(new CustomEvent('tp:render:done', { detail }));
   } catch {
     // ignore
   }
 
   // Notify observers (e.g., display mirror) that content changed
   try {
-    document.dispatchEvent(new CustomEvent('tp:script-rendered', { detail: { lineCount: renderedLineIndex } }));
+    window.dispatchEvent(new CustomEvent('tp:script-rendered', { detail: { lineCount: renderedLineIndex } }));
   } catch {}
   // Notify listeners (e.g., display sync) that script content changed
   try { window.dispatchEvent(new CustomEvent('tp:scriptChanged', { detail: { lineCount: renderedLineIndex } })); } catch {}

@@ -1,8 +1,6 @@
-# Teleprompter Pro (v1.8.2)
+# Teleprompter Pro (v1.8.5)
 
 Browser-based teleprompter with mirrored display, speech/scroll helpers, recording pills, and a TS-only runtime (`dist/index.js`).
-
-Release status: included in **Forge v1.0.0** (`forge-v1.0.0`).
 
 ## Highlights
 - Single ESM entry (`dist/index.js`) with idempotent feature init (`__tpInit`, `[TP-READY]` log).

@@ -1,5 +1,5 @@
 // src/forge/authProfile.ts
-// Ensure a logged-in user and a profile row exist; redirect to /app otherwise.
+// Ensure a logged-in user and a profile row exist; redirect to /login otherwise.
 import type { User } from '@supabase/supabase-js';
 import type {
   SpeakerBindingsSettings,
@@ -176,7 +176,7 @@ function shouldBypassAuth(): boolean {
 
 export async function ensureUserAndProfile(): Promise<ForgeSessionContext> {
   const redirectTarget = window.location.pathname + window.location.search + window.location.hash;
-  const loginUrl = `/app?next=${encodeURIComponent(redirectTarget)}`;
+  const loginUrl = `/login?redirect=${encodeURIComponent(redirectTarget)}`;
 
   if (shouldBypassAuth()) {
     const mockUser = { id: 'test-user', email: 'test@example.com' } as unknown as User;

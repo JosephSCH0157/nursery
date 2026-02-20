@@ -1,15 +1,7 @@
 import { supabase } from '../forge/supabaseClient';
 
+const LOGOUT_REDIRECT = '/login.html';
 const SESSION_CACHE_KEYS = ['forge_profile_cache', 'forge_user_cache'];
-
-function getLoginRedirectUrl(): string {
-  try {
-    const target = window.location.pathname + window.location.search + window.location.hash;
-    return `/app?next=${encodeURIComponent(target)}`;
-  } catch {
-    return '/app';
-  }
-}
 
 async function finalizeLogout() {
   try {
@@ -18,7 +10,7 @@ async function finalizeLogout() {
     });
   } catch {}
   try {
-    window.location.href = getLoginRedirectUrl();
+    window.location.href = LOGOUT_REDIRECT;
   } catch {}
 }
 
