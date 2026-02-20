@@ -36,54 +36,8 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
   mod
 ));
-var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // ../../node_modules/.pnpm/tslib@2.8.1/node_modules/tslib/tslib.es6.mjs
-var tslib_es6_exports = {};
-__export(tslib_es6_exports, {
-  __addDisposableResource: () => __addDisposableResource,
-  __assign: () => __assign,
-  __asyncDelegator: () => __asyncDelegator,
-  __asyncGenerator: () => __asyncGenerator,
-  __asyncValues: () => __asyncValues,
-  __await: () => __await,
-  __awaiter: () => __awaiter,
-  __classPrivateFieldGet: () => __classPrivateFieldGet,
-  __classPrivateFieldIn: () => __classPrivateFieldIn,
-  __classPrivateFieldSet: () => __classPrivateFieldSet,
-  __createBinding: () => __createBinding,
-  __decorate: () => __decorate,
-  __disposeResources: () => __disposeResources,
-  __esDecorate: () => __esDecorate,
-  __exportStar: () => __exportStar,
-  __extends: () => __extends,
-  __generator: () => __generator,
-  __importDefault: () => __importDefault,
-  __importStar: () => __importStar,
-  __makeTemplateObject: () => __makeTemplateObject,
-  __metadata: () => __metadata,
-  __param: () => __param,
-  __propKey: () => __propKey,
-  __read: () => __read,
-  __rest: () => __rest,
-  __rewriteRelativeImportExtension: () => __rewriteRelativeImportExtension,
-  __runInitializers: () => __runInitializers,
-  __setFunctionName: () => __setFunctionName,
-  __spread: () => __spread,
-  __spreadArray: () => __spreadArray,
-  __spreadArrays: () => __spreadArrays,
-  __values: () => __values,
-  default: () => tslib_es6_default
-});
-function __extends(d, b) {
-  if (typeof b !== "function" && b !== null)
-    throw new TypeError("Class extends value " + String(b) + " is not a constructor or null");
-  extendStatics(d, b);
-  function __() {
-    this.constructor = d;
-  }
-  d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
-}
 function __rest(s, e) {
   var t = {};
   for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p) && e.indexOf(p) < 0)
@@ -94,66 +48,6 @@ function __rest(s, e) {
         t[p[i]] = s[p[i]];
     }
   return t;
-}
-function __decorate(decorators, target, key, desc) {
-  var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
-  if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
-  else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
-  return c > 3 && r && Object.defineProperty(target, key, r), r;
-}
-function __param(paramIndex, decorator) {
-  return function(target, key) {
-    decorator(target, key, paramIndex);
-  };
-}
-function __esDecorate(ctor, descriptorIn, decorators, contextIn, initializers, extraInitializers) {
-  function accept(f) {
-    if (f !== void 0 && typeof f !== "function") throw new TypeError("Function expected");
-    return f;
-  }
-  var kind = contextIn.kind, key = kind === "getter" ? "get" : kind === "setter" ? "set" : "value";
-  var target = !descriptorIn && ctor ? contextIn["static"] ? ctor : ctor.prototype : null;
-  var descriptor = descriptorIn || (target ? Object.getOwnPropertyDescriptor(target, contextIn.name) : {});
-  var _, done = false;
-  for (var i = decorators.length - 1; i >= 0; i--) {
-    var context = {};
-    for (var p in contextIn) context[p] = p === "access" ? {} : contextIn[p];
-    for (var p in contextIn.access) context.access[p] = contextIn.access[p];
-    context.addInitializer = function(f) {
-      if (done) throw new TypeError("Cannot add initializers after decoration has completed");
-      extraInitializers.push(accept(f || null));
-    };
-    var result = (0, decorators[i])(kind === "accessor" ? { get: descriptor.get, set: descriptor.set } : descriptor[key], context);
-    if (kind === "accessor") {
-      if (result === void 0) continue;
-      if (result === null || typeof result !== "object") throw new TypeError("Object expected");
-      if (_ = accept(result.get)) descriptor.get = _;
-      if (_ = accept(result.set)) descriptor.set = _;
-      if (_ = accept(result.init)) initializers.unshift(_);
-    } else if (_ = accept(result)) {
-      if (kind === "field") initializers.unshift(_);
-      else descriptor[key] = _;
-    }
-  }
-  if (target) Object.defineProperty(target, contextIn.name, descriptor);
-  done = true;
-}
-function __runInitializers(thisArg, initializers, value) {
-  var useValue = arguments.length > 2;
-  for (var i = 0; i < initializers.length; i++) {
-    value = useValue ? initializers[i].call(thisArg, value) : initializers[i].call(thisArg);
-  }
-  return useValue ? value : void 0;
-}
-function __propKey(x) {
-  return typeof x === "symbol" ? x : "".concat(x);
-}
-function __setFunctionName(f, name, prefix) {
-  if (typeof name === "symbol") name = name.description ? "[".concat(name.description, "]") : "";
-  return Object.defineProperty(f, "name", { configurable: true, value: prefix ? "".concat(prefix, " ", name) : name });
-}
-function __metadata(metadataKey, metadataValue) {
-  if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(metadataKey, metadataValue);
 }
 function __awaiter(thisArg, _arguments, P, generator) {
   function adopt(value) {
@@ -182,466 +76,78 @@ function __awaiter(thisArg, _arguments, P, generator) {
     step((generator = generator.apply(thisArg, _arguments || [])).next());
   });
 }
-function __generator(thisArg, body) {
-  var _ = { label: 0, sent: function() {
-    if (t[0] & 1) throw t[1];
-    return t[1];
-  }, trys: [], ops: [] }, f, y, t, g2 = Object.create((typeof Iterator === "function" ? Iterator : Object).prototype);
-  return g2.next = verb(0), g2["throw"] = verb(1), g2["return"] = verb(2), typeof Symbol === "function" && (g2[Symbol.iterator] = function() {
-    return this;
-  }), g2;
-  function verb(n) {
-    return function(v) {
-      return step([n, v]);
-    };
-  }
-  function step(op) {
-    if (f) throw new TypeError("Generator is already executing.");
-    while (g2 && (g2 = 0, op[0] && (_ = 0)), _) try {
-      if (f = 1, y && (t = op[0] & 2 ? y["return"] : op[0] ? y["throw"] || ((t = y["return"]) && t.call(y), 0) : y.next) && !(t = t.call(y, op[1])).done) return t;
-      if (y = 0, t) op = [op[0] & 2, t.value];
-      switch (op[0]) {
-        case 0:
-        case 1:
-          t = op;
-          break;
-        case 4:
-          _.label++;
-          return { value: op[1], done: false };
-        case 5:
-          _.label++;
-          y = op[1];
-          op = [0];
-          continue;
-        case 7:
-          op = _.ops.pop();
-          _.trys.pop();
-          continue;
-        default:
-          if (!(t = _.trys, t = t.length > 0 && t[t.length - 1]) && (op[0] === 6 || op[0] === 2)) {
-            _ = 0;
-            continue;
-          }
-          if (op[0] === 3 && (!t || op[1] > t[0] && op[1] < t[3])) {
-            _.label = op[1];
-            break;
-          }
-          if (op[0] === 6 && _.label < t[1]) {
-            _.label = t[1];
-            t = op;
-            break;
-          }
-          if (t && _.label < t[2]) {
-            _.label = t[2];
-            _.ops.push(op);
-            break;
-          }
-          if (t[2]) _.ops.pop();
-          _.trys.pop();
-          continue;
-      }
-      op = body.call(thisArg, _);
-    } catch (e) {
-      op = [6, e];
-      y = 0;
-    } finally {
-      f = t = 0;
-    }
-    if (op[0] & 5) throw op[1];
-    return { value: op[0] ? op[1] : void 0, done: true };
-  }
-}
-function __exportStar(m, o) {
-  for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(o, p)) __createBinding(o, m, p);
-}
-function __values(o) {
-  var s = typeof Symbol === "function" && Symbol.iterator, m = s && o[s], i = 0;
-  if (m) return m.call(o);
-  if (o && typeof o.length === "number") return {
-    next: function() {
-      if (o && i >= o.length) o = void 0;
-      return { value: o && o[i++], done: !o };
-    }
-  };
-  throw new TypeError(s ? "Object is not iterable." : "Symbol.iterator is not defined.");
-}
-function __read(o, n) {
-  var m = typeof Symbol === "function" && o[Symbol.iterator];
-  if (!m) return o;
-  var i = m.call(o), r, ar = [], e;
-  try {
-    while ((n === void 0 || n-- > 0) && !(r = i.next()).done) ar.push(r.value);
-  } catch (error) {
-    e = { error };
-  } finally {
-    try {
-      if (r && !r.done && (m = i["return"])) m.call(i);
-    } finally {
-      if (e) throw e.error;
-    }
-  }
-  return ar;
-}
-function __spread() {
-  for (var ar = [], i = 0; i < arguments.length; i++)
-    ar = ar.concat(__read(arguments[i]));
-  return ar;
-}
-function __spreadArrays() {
-  for (var s = 0, i = 0, il = arguments.length; i < il; i++) s += arguments[i].length;
-  for (var r = Array(s), k = 0, i = 0; i < il; i++)
-    for (var a = arguments[i], j = 0, jl = a.length; j < jl; j++, k++)
-      r[k] = a[j];
-  return r;
-}
-function __spreadArray(to, from, pack) {
-  if (pack || arguments.length === 2) for (var i = 0, l = from.length, ar; i < l; i++) {
-    if (ar || !(i in from)) {
-      if (!ar) ar = Array.prototype.slice.call(from, 0, i);
-      ar[i] = from[i];
-    }
-  }
-  return to.concat(ar || Array.prototype.slice.call(from));
-}
-function __await(v) {
-  return this instanceof __await ? (this.v = v, this) : new __await(v);
-}
-function __asyncGenerator(thisArg, _arguments, generator) {
-  if (!Symbol.asyncIterator) throw new TypeError("Symbol.asyncIterator is not defined.");
-  var g2 = generator.apply(thisArg, _arguments || []), i, q3 = [];
-  return i = Object.create((typeof AsyncIterator === "function" ? AsyncIterator : Object).prototype), verb("next"), verb("throw"), verb("return", awaitReturn), i[Symbol.asyncIterator] = function() {
-    return this;
-  }, i;
-  function awaitReturn(f) {
-    return function(v) {
-      return Promise.resolve(v).then(f, reject);
-    };
-  }
-  function verb(n, f) {
-    if (g2[n]) {
-      i[n] = function(v) {
-        return new Promise(function(a, b) {
-          q3.push([n, v, a, b]) > 1 || resume(n, v);
-        });
-      };
-      if (f) i[n] = f(i[n]);
-    }
-  }
-  function resume(n, v) {
-    try {
-      step(g2[n](v));
-    } catch (e) {
-      settle(q3[0][3], e);
-    }
-  }
-  function step(r) {
-    r.value instanceof __await ? Promise.resolve(r.value.v).then(fulfill, reject) : settle(q3[0][2], r);
-  }
-  function fulfill(value) {
-    resume("next", value);
-  }
-  function reject(value) {
-    resume("throw", value);
-  }
-  function settle(f, v) {
-    if (f(v), q3.shift(), q3.length) resume(q3[0][0], q3[0][1]);
-  }
-}
-function __asyncDelegator(o) {
-  var i, p;
-  return i = {}, verb("next"), verb("throw", function(e) {
-    throw e;
-  }), verb("return"), i[Symbol.iterator] = function() {
-    return this;
-  }, i;
-  function verb(n, f) {
-    i[n] = o[n] ? function(v) {
-      return (p = !p) ? { value: __await(o[n](v)), done: false } : f ? f(v) : v;
-    } : f;
-  }
-}
-function __asyncValues(o) {
-  if (!Symbol.asyncIterator) throw new TypeError("Symbol.asyncIterator is not defined.");
-  var m = o[Symbol.asyncIterator], i;
-  return m ? m.call(o) : (o = typeof __values === "function" ? __values(o) : o[Symbol.iterator](), i = {}, verb("next"), verb("throw"), verb("return"), i[Symbol.asyncIterator] = function() {
-    return this;
-  }, i);
-  function verb(n) {
-    i[n] = o[n] && function(v) {
-      return new Promise(function(resolve, reject) {
-        v = o[n](v), settle(resolve, reject, v.done, v.value);
-      });
-    };
-  }
-  function settle(resolve, reject, d, v) {
-    Promise.resolve(v).then(function(v2) {
-      resolve({ value: v2, done: d });
-    }, reject);
-  }
-}
-function __makeTemplateObject(cooked, raw) {
-  if (Object.defineProperty) {
-    Object.defineProperty(cooked, "raw", { value: raw });
-  } else {
-    cooked.raw = raw;
-  }
-  return cooked;
-}
-function __importStar(mod) {
-  if (mod && mod.__esModule) return mod;
-  var result = {};
-  if (mod != null) {
-    for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-  }
-  __setModuleDefault(result, mod);
-  return result;
-}
-function __importDefault(mod) {
-  return mod && mod.__esModule ? mod : { default: mod };
-}
-function __classPrivateFieldGet(receiver, state8, kind, f) {
-  if (kind === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
-  if (typeof state8 === "function" ? receiver !== state8 || !f : !state8.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
-  return kind === "m" ? f : kind === "a" ? f.call(receiver) : f ? f.value : state8.get(receiver);
-}
-function __classPrivateFieldSet(receiver, state8, value, kind, f) {
-  if (kind === "m") throw new TypeError("Private method is not writable");
-  if (kind === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
-  if (typeof state8 === "function" ? receiver !== state8 || !f : !state8.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
-  return kind === "a" ? f.call(receiver, value) : f ? f.value = value : state8.set(receiver, value), value;
-}
-function __classPrivateFieldIn(state8, receiver) {
-  if (receiver === null || typeof receiver !== "object" && typeof receiver !== "function") throw new TypeError("Cannot use 'in' operator on non-object");
-  return typeof state8 === "function" ? receiver === state8 : state8.has(receiver);
-}
-function __addDisposableResource(env, value, async) {
-  if (value !== null && value !== void 0) {
-    if (typeof value !== "object" && typeof value !== "function") throw new TypeError("Object expected.");
-    var dispose, inner;
-    if (async) {
-      if (!Symbol.asyncDispose) throw new TypeError("Symbol.asyncDispose is not defined.");
-      dispose = value[Symbol.asyncDispose];
-    }
-    if (dispose === void 0) {
-      if (!Symbol.dispose) throw new TypeError("Symbol.dispose is not defined.");
-      dispose = value[Symbol.dispose];
-      if (async) inner = dispose;
-    }
-    if (typeof dispose !== "function") throw new TypeError("Object not disposable.");
-    if (inner) dispose = function() {
-      try {
-        inner.call(this);
-      } catch (e) {
-        return Promise.reject(e);
-      }
-    };
-    env.stack.push({ value, dispose, async });
-  } else if (async) {
-    env.stack.push({ async: true });
-  }
-  return value;
-}
-function __disposeResources(env) {
-  function fail(e) {
-    env.error = env.hasError ? new _SuppressedError(e, env.error, "An error was suppressed during disposal.") : e;
-    env.hasError = true;
-  }
-  var r, s = 0;
-  function next() {
-    while (r = env.stack.pop()) {
-      try {
-        if (!r.async && s === 1) return s = 0, env.stack.push(r), Promise.resolve().then(next);
-        if (r.dispose) {
-          var result = r.dispose.call(r.value);
-          if (r.async) return s |= 2, Promise.resolve(result).then(next, function(e) {
-            fail(e);
-            return next();
-          });
-        } else s |= 1;
-      } catch (e) {
-        fail(e);
-      }
-    }
-    if (s === 1) return env.hasError ? Promise.reject(env.error) : Promise.resolve();
-    if (env.hasError) throw env.error;
-  }
-  return next();
-}
-function __rewriteRelativeImportExtension(path, preserveJsx) {
-  if (typeof path === "string" && /^\.\.?\//.test(path)) {
-    return path.replace(/\.(tsx)$|((?:\.d)?)((?:\.[^./]+?)?)\.([cm]?)ts$/i, function(m, tsx, d, ext, cm) {
-      return tsx ? preserveJsx ? ".jsx" : ".js" : d && (!ext || !cm) ? m : d + ext + "." + cm.toLowerCase() + "js";
-    });
-  }
-  return path;
-}
-var extendStatics, __assign, __createBinding, __setModuleDefault, ownKeys, _SuppressedError, tslib_es6_default;
 var init_tslib_es6 = __esm({
   "../../node_modules/.pnpm/tslib@2.8.1/node_modules/tslib/tslib.es6.mjs"() {
-    extendStatics = function(d, b) {
-      extendStatics = Object.setPrototypeOf || { __proto__: [] } instanceof Array && function(d2, b2) {
-        d2.__proto__ = b2;
-      } || function(d2, b2) {
-        for (var p in b2) if (Object.prototype.hasOwnProperty.call(b2, p)) d2[p] = b2[p];
-      };
-      return extendStatics(d, b);
-    };
-    __assign = function() {
-      __assign = Object.assign || function __assign2(t) {
-        for (var s, i = 1, n = arguments.length; i < n; i++) {
-          s = arguments[i];
-          for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p)) t[p] = s[p];
-        }
-        return t;
-      };
-      return __assign.apply(this, arguments);
-    };
-    __createBinding = Object.create ? (function(o, m, k, k2) {
-      if (k2 === void 0) k2 = k;
-      var desc = Object.getOwnPropertyDescriptor(m, k);
-      if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-        desc = { enumerable: true, get: function() {
-          return m[k];
-        } };
-      }
-      Object.defineProperty(o, k2, desc);
-    }) : (function(o, m, k, k2) {
-      if (k2 === void 0) k2 = k;
-      o[k2] = m[k];
-    });
-    __setModuleDefault = Object.create ? (function(o, v) {
-      Object.defineProperty(o, "default", { enumerable: true, value: v });
-    }) : function(o, v) {
-      o["default"] = v;
-    };
-    ownKeys = function(o) {
-      ownKeys = Object.getOwnPropertyNames || function(o2) {
-        var ar = [];
-        for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
-        return ar;
-      };
-      return ownKeys(o);
-    };
-    _SuppressedError = typeof SuppressedError === "function" ? SuppressedError : function(error, suppressed, message) {
-      var e = new Error(message);
-      return e.name = "SuppressedError", e.error = error, e.suppressed = suppressed, e;
-    };
-    tslib_es6_default = {
-      __extends,
-      __assign,
-      __rest,
-      __decorate,
-      __param,
-      __esDecorate,
-      __runInitializers,
-      __propKey,
-      __setFunctionName,
-      __metadata,
-      __awaiter,
-      __generator,
-      __createBinding,
-      __exportStar,
-      __values,
-      __read,
-      __spread,
-      __spreadArrays,
-      __spreadArray,
-      __await,
-      __asyncGenerator,
-      __asyncDelegator,
-      __asyncValues,
-      __makeTemplateObject,
-      __importStar,
-      __importDefault,
-      __classPrivateFieldGet,
-      __classPrivateFieldSet,
-      __classPrivateFieldIn,
-      __addDisposableResource,
-      __disposeResources,
-      __rewriteRelativeImportExtension
-    };
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/main/helper.js
-var require_helper = __commonJS({
-  "../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/main/helper.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.resolveFetch = void 0;
-    var resolveFetch = (customFetch) => {
+// ../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/module/helper.js
+var resolveFetch;
+var init_helper = __esm({
+  "../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/module/helper.js"() {
+    resolveFetch = (customFetch) => {
       if (customFetch) {
         return (...args) => customFetch(...args);
       }
       return (...args) => fetch(...args);
     };
-    exports.resolveFetch = resolveFetch;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/main/types.js
-var require_types = __commonJS({
-  "../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/main/types.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.FunctionRegion = exports.FunctionsHttpError = exports.FunctionsRelayError = exports.FunctionsFetchError = exports.FunctionsError = void 0;
-    var FunctionsError2 = class extends Error {
+// ../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/module/types.js
+var FunctionsError, FunctionsFetchError, FunctionsRelayError, FunctionsHttpError, FunctionRegion;
+var init_types = __esm({
+  "../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/module/types.js"() {
+    FunctionsError = class extends Error {
       constructor(message, name = "FunctionsError", context) {
         super(message);
         this.name = name;
         this.context = context;
       }
     };
-    exports.FunctionsError = FunctionsError2;
-    var FunctionsFetchError2 = class extends FunctionsError2 {
+    FunctionsFetchError = class extends FunctionsError {
       constructor(context) {
         super("Failed to send a request to the Edge Function", "FunctionsFetchError", context);
       }
     };
-    exports.FunctionsFetchError = FunctionsFetchError2;
-    var FunctionsRelayError2 = class extends FunctionsError2 {
+    FunctionsRelayError = class extends FunctionsError {
       constructor(context) {
         super("Relay Error invoking the Edge Function", "FunctionsRelayError", context);
       }
     };
-    exports.FunctionsRelayError = FunctionsRelayError2;
-    var FunctionsHttpError2 = class extends FunctionsError2 {
+    FunctionsHttpError = class extends FunctionsError {
       constructor(context) {
         super("Edge Function returned a non-2xx status code", "FunctionsHttpError", context);
       }
     };
-    exports.FunctionsHttpError = FunctionsHttpError2;
-    var FunctionRegion2;
-    (function(FunctionRegion3) {
-      FunctionRegion3["Any"] = "any";
-      FunctionRegion3["ApNortheast1"] = "ap-northeast-1";
-      FunctionRegion3["ApNortheast2"] = "ap-northeast-2";
-      FunctionRegion3["ApSouth1"] = "ap-south-1";
-      FunctionRegion3["ApSoutheast1"] = "ap-southeast-1";
-      FunctionRegion3["ApSoutheast2"] = "ap-southeast-2";
-      FunctionRegion3["CaCentral1"] = "ca-central-1";
-      FunctionRegion3["EuCentral1"] = "eu-central-1";
-      FunctionRegion3["EuWest1"] = "eu-west-1";
-      FunctionRegion3["EuWest2"] = "eu-west-2";
-      FunctionRegion3["EuWest3"] = "eu-west-3";
-      FunctionRegion3["SaEast1"] = "sa-east-1";
-      FunctionRegion3["UsEast1"] = "us-east-1";
-      FunctionRegion3["UsWest1"] = "us-west-1";
-      FunctionRegion3["UsWest2"] = "us-west-2";
-    })(FunctionRegion2 || (exports.FunctionRegion = FunctionRegion2 = {}));
+    (function(FunctionRegion2) {
+      FunctionRegion2["Any"] = "any";
+      FunctionRegion2["ApNortheast1"] = "ap-northeast-1";
+      FunctionRegion2["ApNortheast2"] = "ap-northeast-2";
+      FunctionRegion2["ApSouth1"] = "ap-south-1";
+      FunctionRegion2["ApSoutheast1"] = "ap-southeast-1";
+      FunctionRegion2["ApSoutheast2"] = "ap-southeast-2";
+      FunctionRegion2["CaCentral1"] = "ca-central-1";
+      FunctionRegion2["EuCentral1"] = "eu-central-1";
+      FunctionRegion2["EuWest1"] = "eu-west-1";
+      FunctionRegion2["EuWest2"] = "eu-west-2";
+      FunctionRegion2["EuWest3"] = "eu-west-3";
+      FunctionRegion2["SaEast1"] = "sa-east-1";
+      FunctionRegion2["UsEast1"] = "us-east-1";
+      FunctionRegion2["UsWest1"] = "us-west-1";
+      FunctionRegion2["UsWest2"] = "us-west-2";
+    })(FunctionRegion || (FunctionRegion = {}));
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/main/FunctionsClient.js
-var require_FunctionsClient = __commonJS({
-  "../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/main/FunctionsClient.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.FunctionsClient = void 0;
-    var tslib_1 = (init_tslib_es6(), __toCommonJS(tslib_es6_exports));
-    var helper_1 = require_helper();
-    var types_1 = require_types();
-    var FunctionsClient = class {
+// ../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/module/FunctionsClient.js
+var FunctionsClient;
+var init_FunctionsClient = __esm({
+  "../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/module/FunctionsClient.js"() {
+    init_tslib_es6();
+    init_helper();
+    init_types();
+    FunctionsClient = class {
       /**
        * Creates a new Functions client bound to an Edge Functions URL.
        *
@@ -655,11 +161,11 @@ var require_FunctionsClient = __commonJS({
        * })
        * ```
        */
-      constructor(url, { headers = {}, customFetch, region = types_1.FunctionRegion.Any } = {}) {
+      constructor(url, { headers = {}, customFetch, region = FunctionRegion.Any } = {}) {
         this.url = url;
         this.headers = headers;
         this.region = region;
-        this.fetch = (0, helper_1.resolveFetch)(customFetch);
+        this.fetch = resolveFetch(customFetch);
       }
       /**
        * Updates the authorization header
@@ -684,7 +190,7 @@ var require_FunctionsClient = __commonJS({
        * ```
        */
       invoke(functionName_1) {
-        return tslib_1.__awaiter(this, arguments, void 0, function* (functionName, options = {}) {
+        return __awaiter(this, arguments, void 0, function* (functionName, options = {}) {
           var _a;
           let timeoutId;
           let timeoutController;
@@ -742,14 +248,14 @@ var require_FunctionsClient = __commonJS({
               body,
               signal: effectiveSignal
             }).catch((fetchError) => {
-              throw new types_1.FunctionsFetchError(fetchError);
+              throw new FunctionsFetchError(fetchError);
             });
             const isRelayError = response.headers.get("x-relay-error");
             if (isRelayError && isRelayError === "true") {
-              throw new types_1.FunctionsRelayError(response);
+              throw new FunctionsRelayError(response);
             }
             if (!response.ok) {
-              throw new types_1.FunctionsHttpError(response);
+              throw new FunctionsHttpError(response);
             }
             let responseType = ((_a = response.headers.get("Content-Type")) !== null && _a !== void 0 ? _a : "text/plain").split(";")[0].trim();
             let data;
@@ -769,7 +275,7 @@ var require_FunctionsClient = __commonJS({
             return {
               data: null,
               error,
-              response: error instanceof types_1.FunctionsHttpError || error instanceof types_1.FunctionsRelayError ? error.context : void 0
+              response: error instanceof FunctionsHttpError || error instanceof FunctionsRelayError ? error.context : void 0
             };
           } finally {
             if (timeoutId) {
@@ -779,44 +285,21 @@ var require_FunctionsClient = __commonJS({
         });
       }
     };
-    exports.FunctionsClient = FunctionsClient;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/main/index.js
-var require_main = __commonJS({
-  "../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/main/index.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.FunctionRegion = exports.FunctionsRelayError = exports.FunctionsHttpError = exports.FunctionsFetchError = exports.FunctionsError = exports.FunctionsClient = void 0;
-    var FunctionsClient_1 = require_FunctionsClient();
-    Object.defineProperty(exports, "FunctionsClient", { enumerable: true, get: function() {
-      return FunctionsClient_1.FunctionsClient;
-    } });
-    var types_1 = require_types();
-    Object.defineProperty(exports, "FunctionsError", { enumerable: true, get: function() {
-      return types_1.FunctionsError;
-    } });
-    Object.defineProperty(exports, "FunctionsFetchError", { enumerable: true, get: function() {
-      return types_1.FunctionsFetchError;
-    } });
-    Object.defineProperty(exports, "FunctionsHttpError", { enumerable: true, get: function() {
-      return types_1.FunctionsHttpError;
-    } });
-    Object.defineProperty(exports, "FunctionsRelayError", { enumerable: true, get: function() {
-      return types_1.FunctionsRelayError;
-    } });
-    Object.defineProperty(exports, "FunctionRegion", { enumerable: true, get: function() {
-      return types_1.FunctionRegion;
-    } });
+// ../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/module/index.js
+var init_module = __esm({
+  "../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/module/index.js"() {
+    init_FunctionsClient();
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+postgrest-js@2.91.1/node_modules/@supabase/postgrest-js/dist/index.cjs
-var require_dist = __commonJS({
-  "../../node_modules/.pnpm/@supabase+postgrest-js@2.91.1/node_modules/@supabase/postgrest-js/dist/index.cjs"(exports) {
-    Object.defineProperty(exports, "__esModule", { value: true });
-    var PostgrestError2 = class extends Error {
+// ../../node_modules/.pnpm/@supabase+postgrest-js@2.91.1/node_modules/@supabase/postgrest-js/dist/index.mjs
+var PostgrestError, PostgrestBuilder, PostgrestTransformBuilder, PostgrestReservedCharsRegexp, PostgrestFilterBuilder, PostgrestQueryBuilder, PostgrestClient;
+var init_dist = __esm({
+  "../../node_modules/.pnpm/@supabase+postgrest-js@2.91.1/node_modules/@supabase/postgrest-js/dist/index.mjs"() {
+    PostgrestError = class extends Error {
       /**
       * @example
       * ```ts
@@ -838,7 +321,7 @@ var require_dist = __commonJS({
         this.code = context.code;
       }
     };
-    var PostgrestBuilder = class {
+    PostgrestBuilder = class {
       /**
       * Creates a builder configured for a specific PostgREST request.
       *
@@ -950,7 +433,7 @@ var require_dist = __commonJS({
               status2 = 200;
               statusText = "OK";
             }
-            if (error && _this.shouldThrowOnError) throw new PostgrestError2(error);
+            if (error && _this.shouldThrowOnError) throw new PostgrestError(error);
           }
           return {
             error,
@@ -1029,7 +512,7 @@ ${cause.stack}`;
         return this;
       }
     };
-    var PostgrestTransformBuilder = class extends PostgrestBuilder {
+    PostgrestTransformBuilder = class extends PostgrestBuilder {
       /**
       * Perform a SELECT on the query result.
       *
@@ -1225,8 +708,8 @@ ${cause.stack}`;
         return this;
       }
     };
-    var PostgrestReservedCharsRegexp = /* @__PURE__ */ new RegExp("[,()]");
-    var PostgrestFilterBuilder = class extends PostgrestTransformBuilder {
+    PostgrestReservedCharsRegexp = /* @__PURE__ */ new RegExp("[,()]");
+    PostgrestFilterBuilder = class extends PostgrestTransformBuilder {
       /**
       * Match only rows where `column` is equal to `value`.
       *
@@ -1612,7 +1095,7 @@ ${cause.stack}`;
         return this;
       }
     };
-    var PostgrestQueryBuilder = class {
+    PostgrestQueryBuilder = class {
       /**
       * Creates a query builder scoped to a Postgres table or view.
       *
@@ -1663,8 +1146,8 @@ ${cause.stack}`;
       * numbers.
       */
       select(columns, options) {
-        const { head = false, count } = options !== null && options !== void 0 ? options : {};
-        const method = head ? "HEAD" : "GET";
+        const { head: head2 = false, count } = options !== null && options !== void 0 ? options : {};
+        const method = head2 ? "HEAD" : "GET";
         let quoted = false;
         const cleanedColumns = (columns !== null && columns !== void 0 ? columns : "*").split("").map((c) => {
           if (/\s/.test(c) && !quoted) return "";
@@ -1907,7 +1390,7 @@ ${cause.stack}`;
         });
       }
     };
-    var PostgrestClient = class PostgrestClient2 {
+    PostgrestClient = class PostgrestClient2 {
       /**
       * Creates a PostgREST client.
       *
@@ -1991,18 +1474,18 @@ ${cause.stack}`;
       *   .overrideTypes<{ id: string; user_id: string }[]>()
       * ```
       */
-      rpc(fn, args = {}, { head = false, get: get3 = false, count } = {}) {
+      rpc(fn, args = {}, { head: head2 = false, get: get4 = false, count } = {}) {
         var _this$fetch;
         let method;
         const url = new URL(`${this.url}/rpc/${fn}`);
         let body;
         const _isObject = (v) => v !== null && typeof v === "object" && (!Array.isArray(v) || v.some(_isObject));
-        const _hasObjectArg = head && Object.values(args).some(_isObject);
+        const _hasObjectArg = head2 && Object.values(args).some(_isObject);
         if (_hasObjectArg) {
           method = "POST";
           body = args;
-        } else if (head || get3) {
-          method = head ? "HEAD" : "GET";
+        } else if (head2 || get4) {
+          method = head2 ? "HEAD" : "GET";
           Object.entries(args).filter(([_, value]) => value !== void 0).map(([name, value]) => [name, Array.isArray(value) ? `{${value.join(",")}}` : `${value}`]).forEach(([name, value]) => {
             url.searchParams.append(name, value);
           });
@@ -2023,31 +1506,14 @@ ${cause.stack}`;
         });
       }
     };
-    var src_default = {
-      PostgrestClient,
-      PostgrestQueryBuilder,
-      PostgrestFilterBuilder,
-      PostgrestTransformBuilder,
-      PostgrestBuilder,
-      PostgrestError: PostgrestError2
-    };
-    exports.PostgrestBuilder = PostgrestBuilder;
-    exports.PostgrestClient = PostgrestClient;
-    exports.PostgrestError = PostgrestError2;
-    exports.PostgrestFilterBuilder = PostgrestFilterBuilder;
-    exports.PostgrestQueryBuilder = PostgrestQueryBuilder;
-    exports.PostgrestTransformBuilder = PostgrestTransformBuilder;
-    exports.default = src_default;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/main/lib/websocket-factory.js
-var require_websocket_factory = __commonJS({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/main/lib/websocket-factory.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.WebSocketFactory = void 0;
-    var WebSocketFactory = class {
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/websocket-factory.js
+var WebSocketFactory, websocket_factory_default;
+var init_websocket_factory = __esm({
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/websocket-factory.js"() {
+    WebSocketFactory = class {
       /**
        * Static-only utility – prevent instantiation.
        */
@@ -2160,52 +1626,43 @@ Suggested solution: ${env.workaround}`;
         }
       }
     };
-    exports.WebSocketFactory = WebSocketFactory;
-    exports.default = WebSocketFactory;
+    websocket_factory_default = WebSocketFactory;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/main/lib/version.js
-var require_version = __commonJS({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/main/lib/version.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.version = void 0;
-    exports.version = "2.91.1";
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/version.js
+var version;
+var init_version = __esm({
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/version.js"() {
+    version = "2.91.1";
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/main/lib/constants.js
-var require_constants = __commonJS({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/main/lib/constants.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.CONNECTION_STATE = exports.TRANSPORTS = exports.CHANNEL_EVENTS = exports.CHANNEL_STATES = exports.SOCKET_STATES = exports.MAX_PUSH_BUFFER_SIZE = exports.WS_CLOSE_NORMAL = exports.DEFAULT_TIMEOUT = exports.VERSION = exports.DEFAULT_VSN = exports.VSN_2_0_0 = exports.VSN_1_0_0 = exports.DEFAULT_VERSION = void 0;
-    var version_1 = require_version();
-    exports.DEFAULT_VERSION = `realtime-js/${version_1.version}`;
-    exports.VSN_1_0_0 = "1.0.0";
-    exports.VSN_2_0_0 = "2.0.0";
-    exports.DEFAULT_VSN = exports.VSN_2_0_0;
-    exports.VERSION = version_1.version;
-    exports.DEFAULT_TIMEOUT = 1e4;
-    exports.WS_CLOSE_NORMAL = 1e3;
-    exports.MAX_PUSH_BUFFER_SIZE = 100;
-    var SOCKET_STATES;
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/constants.js
+var DEFAULT_VERSION, VSN_1_0_0, VSN_2_0_0, DEFAULT_VSN, DEFAULT_TIMEOUT, WS_CLOSE_NORMAL, MAX_PUSH_BUFFER_SIZE, SOCKET_STATES, CHANNEL_STATES, CHANNEL_EVENTS, TRANSPORTS, CONNECTION_STATE;
+var init_constants = __esm({
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/constants.js"() {
+    init_version();
+    DEFAULT_VERSION = `realtime-js/${version}`;
+    VSN_1_0_0 = "1.0.0";
+    VSN_2_0_0 = "2.0.0";
+    DEFAULT_VSN = VSN_2_0_0;
+    DEFAULT_TIMEOUT = 1e4;
+    WS_CLOSE_NORMAL = 1e3;
+    MAX_PUSH_BUFFER_SIZE = 100;
     (function(SOCKET_STATES2) {
       SOCKET_STATES2[SOCKET_STATES2["connecting"] = 0] = "connecting";
       SOCKET_STATES2[SOCKET_STATES2["open"] = 1] = "open";
       SOCKET_STATES2[SOCKET_STATES2["closing"] = 2] = "closing";
       SOCKET_STATES2[SOCKET_STATES2["closed"] = 3] = "closed";
-    })(SOCKET_STATES || (exports.SOCKET_STATES = SOCKET_STATES = {}));
-    var CHANNEL_STATES;
+    })(SOCKET_STATES || (SOCKET_STATES = {}));
     (function(CHANNEL_STATES2) {
       CHANNEL_STATES2["closed"] = "closed";
       CHANNEL_STATES2["errored"] = "errored";
       CHANNEL_STATES2["joined"] = "joined";
       CHANNEL_STATES2["joining"] = "joining";
       CHANNEL_STATES2["leaving"] = "leaving";
-    })(CHANNEL_STATES || (exports.CHANNEL_STATES = CHANNEL_STATES = {}));
-    var CHANNEL_EVENTS;
+    })(CHANNEL_STATES || (CHANNEL_STATES = {}));
     (function(CHANNEL_EVENTS2) {
       CHANNEL_EVENTS2["close"] = "phx_close";
       CHANNEL_EVENTS2["error"] = "phx_error";
@@ -2213,27 +1670,24 @@ var require_constants = __commonJS({
       CHANNEL_EVENTS2["reply"] = "phx_reply";
       CHANNEL_EVENTS2["leave"] = "phx_leave";
       CHANNEL_EVENTS2["access_token"] = "access_token";
-    })(CHANNEL_EVENTS || (exports.CHANNEL_EVENTS = CHANNEL_EVENTS = {}));
-    var TRANSPORTS;
+    })(CHANNEL_EVENTS || (CHANNEL_EVENTS = {}));
     (function(TRANSPORTS2) {
       TRANSPORTS2["websocket"] = "websocket";
-    })(TRANSPORTS || (exports.TRANSPORTS = TRANSPORTS = {}));
-    var CONNECTION_STATE;
+    })(TRANSPORTS || (TRANSPORTS = {}));
     (function(CONNECTION_STATE2) {
       CONNECTION_STATE2["Connecting"] = "connecting";
       CONNECTION_STATE2["Open"] = "open";
       CONNECTION_STATE2["Closing"] = "closing";
       CONNECTION_STATE2["Closed"] = "closed";
-    })(CONNECTION_STATE || (exports.CONNECTION_STATE = CONNECTION_STATE = {}));
+    })(CONNECTION_STATE || (CONNECTION_STATE = {}));
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/main/lib/serializer.js
-var require_serializer = __commonJS({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/main/lib/serializer.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    var Serializer = class {
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/serializer.js
+var Serializer;
+var init_serializer = __esm({
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/serializer.js"() {
+    Serializer = class {
       constructor(allowedMetadataKeys) {
         this.HEADER_LENGTH = 1;
         this.USER_BROADCAST_PUSH_META_LENGTH = 6;
@@ -2371,16 +1825,14 @@ var require_serializer = __commonJS({
         return Object.fromEntries(Object.entries(obj).filter(([key]) => keys.includes(key)));
       }
     };
-    exports.default = Serializer;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/main/lib/timer.js
-var require_timer = __commonJS({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/main/lib/timer.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    var Timer = class {
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/timer.js
+var Timer;
+var init_timer = __esm({
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/timer.js"() {
+    Timer = class {
       constructor(callback, timerCalc) {
         this.callback = callback;
         this.timerCalc = timerCalc;
@@ -2403,17 +1855,13 @@ var require_timer = __commonJS({
         }, this.timerCalc(this.tries + 1));
       }
     };
-    exports.default = Timer;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/main/lib/transformers.js
-var require_transformers = __commonJS({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/main/lib/transformers.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.httpEndpointURL = exports.toTimestampString = exports.toArray = exports.toJson = exports.toNumber = exports.toBoolean = exports.convertCell = exports.convertColumn = exports.convertChangeData = exports.PostgresTypes = void 0;
-    var PostgresTypes;
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/transformers.js
+var PostgresTypes, convertChangeData, convertColumn, convertCell, noop, toBoolean, toNumber, toJson, toArray, toTimestampString, httpEndpointURL;
+var init_transformers = __esm({
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/transformers.js"() {
     (function(PostgresTypes2) {
       PostgresTypes2["abstime"] = "abstime";
       PostgresTypes2["bool"] = "bool";
@@ -2439,37 +1887,35 @@ var require_transformers = __commonJS({
       PostgresTypes2["timetz"] = "timetz";
       PostgresTypes2["tsrange"] = "tsrange";
       PostgresTypes2["tstzrange"] = "tstzrange";
-    })(PostgresTypes || (exports.PostgresTypes = PostgresTypes = {}));
-    var convertChangeData = (columns, record, options = {}) => {
+    })(PostgresTypes || (PostgresTypes = {}));
+    convertChangeData = (columns, record, options = {}) => {
       var _a;
       const skipTypes = (_a = options.skipTypes) !== null && _a !== void 0 ? _a : [];
       if (!record) {
         return {};
       }
       return Object.keys(record).reduce((acc, rec_key) => {
-        acc[rec_key] = (0, exports.convertColumn)(rec_key, columns, record, skipTypes);
+        acc[rec_key] = convertColumn(rec_key, columns, record, skipTypes);
         return acc;
       }, {});
     };
-    exports.convertChangeData = convertChangeData;
-    var convertColumn = (columnName, columns, record, skipTypes) => {
+    convertColumn = (columnName, columns, record, skipTypes) => {
       const column = columns.find((x) => x.name === columnName);
       const colType = column === null || column === void 0 ? void 0 : column.type;
       const value = record[columnName];
       if (colType && !skipTypes.includes(colType)) {
-        return (0, exports.convertCell)(colType, value);
+        return convertCell(colType, value);
       }
-      return noop2(value);
+      return noop(value);
     };
-    exports.convertColumn = convertColumn;
-    var convertCell = (type, value) => {
+    convertCell = (type, value) => {
       if (type.charAt(0) === "_") {
         const dataType = type.slice(1, type.length);
-        return (0, exports.toArray)(value, dataType);
+        return toArray(value, dataType);
       }
       switch (type) {
         case PostgresTypes.bool:
-          return (0, exports.toBoolean)(value);
+          return toBoolean(value);
         case PostgresTypes.float4:
         case PostgresTypes.float8:
         case PostgresTypes.int2:
@@ -2477,12 +1923,12 @@ var require_transformers = __commonJS({
         case PostgresTypes.int8:
         case PostgresTypes.numeric:
         case PostgresTypes.oid:
-          return (0, exports.toNumber)(value);
+          return toNumber(value);
         case PostgresTypes.json:
         case PostgresTypes.jsonb:
-          return (0, exports.toJson)(value);
+          return toJson(value);
         case PostgresTypes.timestamp:
-          return (0, exports.toTimestampString)(value);
+          return toTimestampString(value);
         // Format to be consistent with PostgREST
         case PostgresTypes.abstime:
         // To allow users to cast it based on Timezone
@@ -2503,16 +1949,15 @@ var require_transformers = __commonJS({
         // To allow users to cast it based on Timezone
         case PostgresTypes.tsrange:
         case PostgresTypes.tstzrange:
-          return noop2(value);
+          return noop(value);
         default:
-          return noop2(value);
+          return noop(value);
       }
     };
-    exports.convertCell = convertCell;
-    var noop2 = (value) => {
+    noop = (value) => {
       return value;
     };
-    var toBoolean = (value) => {
+    toBoolean = (value) => {
       switch (value) {
         case "t":
           return true;
@@ -2522,8 +1967,7 @@ var require_transformers = __commonJS({
           return value;
       }
     };
-    exports.toBoolean = toBoolean;
-    var toNumber = (value) => {
+    toNumber = (value) => {
       if (typeof value === "string") {
         const parsedValue = parseFloat(value);
         if (!Number.isNaN(parsedValue)) {
@@ -2532,8 +1976,7 @@ var require_transformers = __commonJS({
       }
       return value;
     };
-    exports.toNumber = toNumber;
-    var toJson = (value) => {
+    toJson = (value) => {
       if (typeof value === "string") {
         try {
           return JSON.parse(value);
@@ -2543,8 +1986,7 @@ var require_transformers = __commonJS({
       }
       return value;
     };
-    exports.toJson = toJson;
-    var toArray = (value, type) => {
+    toArray = (value, type) => {
       if (typeof value !== "string") {
         return value;
       }
@@ -2559,19 +2001,17 @@ var require_transformers = __commonJS({
         } catch (_) {
           arr = valTrim ? valTrim.split(",") : [];
         }
-        return arr.map((val) => (0, exports.convertCell)(type, val));
+        return arr.map((val) => convertCell(type, val));
       }
       return value;
     };
-    exports.toArray = toArray;
-    var toTimestampString = (value) => {
+    toTimestampString = (value) => {
       if (typeof value === "string") {
         return value.replace(" ", "T");
       }
       return value;
     };
-    exports.toTimestampString = toTimestampString;
-    var httpEndpointURL = (socketUrl) => {
+    httpEndpointURL = (socketUrl) => {
       const wsUrl = new URL(socketUrl);
       wsUrl.protocol = wsUrl.protocol.replace(/^ws/i, "http");
       wsUrl.pathname = wsUrl.pathname.replace(/\/+$/, "").replace(/\/socket\/websocket$/i, "").replace(/\/socket$/i, "").replace(/\/websocket$/i, "");
@@ -2582,17 +2022,15 @@ var require_transformers = __commonJS({
       }
       return wsUrl.href;
     };
-    exports.httpEndpointURL = httpEndpointURL;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/main/lib/push.js
-var require_push = __commonJS({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/main/lib/push.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    var constants_1 = require_constants();
-    var Push = class {
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/push.js
+var Push;
+var init_push = __esm({
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/push.js"() {
+    init_constants();
+    Push = class {
       /**
        * Initializes the Push
        *
@@ -2601,7 +2039,7 @@ var require_push = __commonJS({
        * @param payload The payload, for example `{user_id: 123}`
        * @param timeout The push timeout in milliseconds
        */
-      constructor(channel, event, payload = {}, timeout = constants_1.DEFAULT_TIMEOUT) {
+      constructor(channel, event, payload = {}, timeout = DEFAULT_TIMEOUT) {
         this.channel = channel;
         this.event = event;
         this.payload = payload;
@@ -2689,23 +2127,19 @@ var require_push = __commonJS({
         return this.receivedResp && this.receivedResp.status === status2;
       }
     };
-    exports.default = Push;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/main/RealtimePresence.js
-var require_RealtimePresence = __commonJS({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/main/RealtimePresence.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.REALTIME_PRESENCE_LISTEN_EVENTS = void 0;
-    var REALTIME_PRESENCE_LISTEN_EVENTS2;
-    (function(REALTIME_PRESENCE_LISTEN_EVENTS3) {
-      REALTIME_PRESENCE_LISTEN_EVENTS3["SYNC"] = "sync";
-      REALTIME_PRESENCE_LISTEN_EVENTS3["JOIN"] = "join";
-      REALTIME_PRESENCE_LISTEN_EVENTS3["LEAVE"] = "leave";
-    })(REALTIME_PRESENCE_LISTEN_EVENTS2 || (exports.REALTIME_PRESENCE_LISTEN_EVENTS = REALTIME_PRESENCE_LISTEN_EVENTS2 = {}));
-    var RealtimePresence2 = class _RealtimePresence {
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/RealtimePresence.js
+var REALTIME_PRESENCE_LISTEN_EVENTS, RealtimePresence;
+var init_RealtimePresence = __esm({
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/RealtimePresence.js"() {
+    (function(REALTIME_PRESENCE_LISTEN_EVENTS2) {
+      REALTIME_PRESENCE_LISTEN_EVENTS2["SYNC"] = "sync";
+      REALTIME_PRESENCE_LISTEN_EVENTS2["JOIN"] = "join";
+      REALTIME_PRESENCE_LISTEN_EVENTS2["LEAVE"] = "leave";
+    })(REALTIME_PRESENCE_LISTEN_EVENTS || (REALTIME_PRESENCE_LISTEN_EVENTS = {}));
+    RealtimePresence = class _RealtimePresence {
       /**
        * Creates a Presence helper that keeps the local presence state in sync with the server.
        *
@@ -2929,46 +2363,38 @@ var require_RealtimePresence = __commonJS({
         return !this.joinRef || this.joinRef !== this.channel._joinRef();
       }
     };
-    exports.default = RealtimePresence2;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/main/RealtimeChannel.js
-var require_RealtimeChannel = __commonJS({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/main/RealtimeChannel.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.REALTIME_CHANNEL_STATES = exports.REALTIME_SUBSCRIBE_STATES = exports.REALTIME_LISTEN_TYPES = exports.REALTIME_POSTGRES_CHANGES_LISTEN_EVENT = void 0;
-    var tslib_1 = (init_tslib_es6(), __toCommonJS(tslib_es6_exports));
-    var constants_1 = require_constants();
-    var push_1 = tslib_1.__importDefault(require_push());
-    var timer_1 = tslib_1.__importDefault(require_timer());
-    var RealtimePresence_1 = tslib_1.__importDefault(require_RealtimePresence());
-    var Transformers = tslib_1.__importStar(require_transformers());
-    var transformers_1 = require_transformers();
-    var REALTIME_POSTGRES_CHANGES_LISTEN_EVENT2;
-    (function(REALTIME_POSTGRES_CHANGES_LISTEN_EVENT3) {
-      REALTIME_POSTGRES_CHANGES_LISTEN_EVENT3["ALL"] = "*";
-      REALTIME_POSTGRES_CHANGES_LISTEN_EVENT3["INSERT"] = "INSERT";
-      REALTIME_POSTGRES_CHANGES_LISTEN_EVENT3["UPDATE"] = "UPDATE";
-      REALTIME_POSTGRES_CHANGES_LISTEN_EVENT3["DELETE"] = "DELETE";
-    })(REALTIME_POSTGRES_CHANGES_LISTEN_EVENT2 || (exports.REALTIME_POSTGRES_CHANGES_LISTEN_EVENT = REALTIME_POSTGRES_CHANGES_LISTEN_EVENT2 = {}));
-    var REALTIME_LISTEN_TYPES2;
-    (function(REALTIME_LISTEN_TYPES3) {
-      REALTIME_LISTEN_TYPES3["BROADCAST"] = "broadcast";
-      REALTIME_LISTEN_TYPES3["PRESENCE"] = "presence";
-      REALTIME_LISTEN_TYPES3["POSTGRES_CHANGES"] = "postgres_changes";
-      REALTIME_LISTEN_TYPES3["SYSTEM"] = "system";
-    })(REALTIME_LISTEN_TYPES2 || (exports.REALTIME_LISTEN_TYPES = REALTIME_LISTEN_TYPES2 = {}));
-    var REALTIME_SUBSCRIBE_STATES2;
-    (function(REALTIME_SUBSCRIBE_STATES3) {
-      REALTIME_SUBSCRIBE_STATES3["SUBSCRIBED"] = "SUBSCRIBED";
-      REALTIME_SUBSCRIBE_STATES3["TIMED_OUT"] = "TIMED_OUT";
-      REALTIME_SUBSCRIBE_STATES3["CLOSED"] = "CLOSED";
-      REALTIME_SUBSCRIBE_STATES3["CHANNEL_ERROR"] = "CHANNEL_ERROR";
-    })(REALTIME_SUBSCRIBE_STATES2 || (exports.REALTIME_SUBSCRIBE_STATES = REALTIME_SUBSCRIBE_STATES2 = {}));
-    exports.REALTIME_CHANNEL_STATES = constants_1.CHANNEL_STATES;
-    var RealtimeChannel2 = class _RealtimeChannel {
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/RealtimeChannel.js
+var REALTIME_POSTGRES_CHANGES_LISTEN_EVENT, REALTIME_LISTEN_TYPES, REALTIME_SUBSCRIBE_STATES, RealtimeChannel;
+var init_RealtimeChannel = __esm({
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/RealtimeChannel.js"() {
+    init_constants();
+    init_push();
+    init_timer();
+    init_RealtimePresence();
+    init_transformers();
+    init_transformers();
+    (function(REALTIME_POSTGRES_CHANGES_LISTEN_EVENT2) {
+      REALTIME_POSTGRES_CHANGES_LISTEN_EVENT2["ALL"] = "*";
+      REALTIME_POSTGRES_CHANGES_LISTEN_EVENT2["INSERT"] = "INSERT";
+      REALTIME_POSTGRES_CHANGES_LISTEN_EVENT2["UPDATE"] = "UPDATE";
+      REALTIME_POSTGRES_CHANGES_LISTEN_EVENT2["DELETE"] = "DELETE";
+    })(REALTIME_POSTGRES_CHANGES_LISTEN_EVENT || (REALTIME_POSTGRES_CHANGES_LISTEN_EVENT = {}));
+    (function(REALTIME_LISTEN_TYPES2) {
+      REALTIME_LISTEN_TYPES2["BROADCAST"] = "broadcast";
+      REALTIME_LISTEN_TYPES2["PRESENCE"] = "presence";
+      REALTIME_LISTEN_TYPES2["POSTGRES_CHANGES"] = "postgres_changes";
+      REALTIME_LISTEN_TYPES2["SYSTEM"] = "system";
+    })(REALTIME_LISTEN_TYPES || (REALTIME_LISTEN_TYPES = {}));
+    (function(REALTIME_SUBSCRIBE_STATES2) {
+      REALTIME_SUBSCRIBE_STATES2["SUBSCRIBED"] = "SUBSCRIBED";
+      REALTIME_SUBSCRIBE_STATES2["TIMED_OUT"] = "TIMED_OUT";
+      REALTIME_SUBSCRIBE_STATES2["CLOSED"] = "CLOSED";
+      REALTIME_SUBSCRIBE_STATES2["CHANNEL_ERROR"] = "CHANNEL_ERROR";
+    })(REALTIME_SUBSCRIBE_STATES || (REALTIME_SUBSCRIBE_STATES = {}));
+    RealtimeChannel = class _RealtimeChannel {
       /**
        * Creates a channel that can broadcast messages, sync presence, and listen to Postgres changes.
        *
@@ -2991,7 +2417,7 @@ var require_RealtimeChannel = __commonJS({
         this.params = params;
         this.socket = socket2;
         this.bindings = {};
-        this.state = constants_1.CHANNEL_STATES.closed;
+        this.state = CHANNEL_STATES.closed;
         this.joinedOnce = false;
         this.pushBuffer = [];
         this.subTopic = topic.replace(/^realtime:/i, "");
@@ -3001,10 +2427,10 @@ var require_RealtimeChannel = __commonJS({
           private: false
         }, params.config);
         this.timeout = this.socket.timeout;
-        this.joinPush = new push_1.default(this, constants_1.CHANNEL_EVENTS.join, this.params, this.timeout);
-        this.rejoinTimer = new timer_1.default(() => this._rejoinUntilConnected(), this.socket.reconnectAfterMs);
+        this.joinPush = new Push(this, CHANNEL_EVENTS.join, this.params, this.timeout);
+        this.rejoinTimer = new Timer(() => this._rejoinUntilConnected(), this.socket.reconnectAfterMs);
         this.joinPush.receive("ok", () => {
-          this.state = constants_1.CHANNEL_STATES.joined;
+          this.state = CHANNEL_STATES.joined;
           this.rejoinTimer.reset();
           this.pushBuffer.forEach((pushEvent) => pushEvent.send());
           this.pushBuffer = [];
@@ -3012,7 +2438,7 @@ var require_RealtimeChannel = __commonJS({
         this._onClose(() => {
           this.rejoinTimer.reset();
           this.socket.log("channel", `close ${this.topic} ${this._joinRef()}`);
-          this.state = constants_1.CHANNEL_STATES.closed;
+          this.state = CHANNEL_STATES.closed;
           this.socket._remove(this);
         });
         this._onError((reason) => {
@@ -3020,7 +2446,7 @@ var require_RealtimeChannel = __commonJS({
             return;
           }
           this.socket.log("channel", `error ${this.topic}`, reason);
-          this.state = constants_1.CHANNEL_STATES.errored;
+          this.state = CHANNEL_STATES.errored;
           this.rejoinTimer.scheduleTimeout();
         });
         this.joinPush.receive("timeout", () => {
@@ -3028,7 +2454,7 @@ var require_RealtimeChannel = __commonJS({
             return;
           }
           this.socket.log("channel", `timeout ${this.topic}`, this.joinPush.timeout);
-          this.state = constants_1.CHANNEL_STATES.errored;
+          this.state = CHANNEL_STATES.errored;
           this.rejoinTimer.scheduleTimeout();
         });
         this.joinPush.receive("error", (reason) => {
@@ -3036,14 +2462,14 @@ var require_RealtimeChannel = __commonJS({
             return;
           }
           this.socket.log("channel", `error ${this.topic}`, reason);
-          this.state = constants_1.CHANNEL_STATES.errored;
+          this.state = CHANNEL_STATES.errored;
           this.rejoinTimer.scheduleTimeout();
         });
-        this._on(constants_1.CHANNEL_EVENTS.reply, {}, (payload, ref) => {
+        this._on(CHANNEL_EVENTS.reply, {}, (payload, ref) => {
           this._trigger(this._replyEventName(ref), payload);
         });
-        this.presence = new RealtimePresence_1.default(this);
-        this.broadcastEndpointURL = (0, transformers_1.httpEndpointURL)(this.socket.endPoint);
+        this.presence = new RealtimePresence(this);
+        this.broadcastEndpointURL = httpEndpointURL(this.socket.endPoint);
         this.private = this.params.config.private || false;
         if (!this.private && ((_b = (_a = this.params.config) === null || _a === void 0 ? void 0 : _a.broadcast) === null || _b === void 0 ? void 0 : _b.replay)) {
           throw `tried to use replay on public channel '${this.topic}'. It must be a private channel.`;
@@ -3055,10 +2481,10 @@ var require_RealtimeChannel = __commonJS({
         if (!this.socket.isConnected()) {
           this.socket.connect();
         }
-        if (this.state == constants_1.CHANNEL_STATES.closed) {
+        if (this.state == CHANNEL_STATES.closed) {
           const { config: { broadcast: broadcast2, presence, private: isPrivate } } = this.params;
           const postgres_changes = (_b = (_a = this.bindings.postgres_changes) === null || _a === void 0 ? void 0 : _a.map((r) => r.filter)) !== null && _b !== void 0 ? _b : [];
-          const presence_enabled = !!this.bindings[REALTIME_LISTEN_TYPES2.PRESENCE] && this.bindings[REALTIME_LISTEN_TYPES2.PRESENCE].length > 0 || ((_c = this.params.config.presence) === null || _c === void 0 ? void 0 : _c.enabled) === true;
+          const presence_enabled = !!this.bindings[REALTIME_LISTEN_TYPES.PRESENCE] && this.bindings[REALTIME_LISTEN_TYPES.PRESENCE].length > 0 || ((_c = this.params.config.presence) === null || _c === void 0 ? void 0 : _c.enabled) === true;
           const accessTokenPayload = {};
           const config = {
             broadcast: broadcast2,
@@ -3069,8 +2495,8 @@ var require_RealtimeChannel = __commonJS({
           if (this.socket.accessTokenValue) {
             accessTokenPayload.access_token = this.socket.accessTokenValue;
           }
-          this._onError((e) => callback === null || callback === void 0 ? void 0 : callback(REALTIME_SUBSCRIBE_STATES2.CHANNEL_ERROR, e));
-          this._onClose(() => callback === null || callback === void 0 ? void 0 : callback(REALTIME_SUBSCRIBE_STATES2.CLOSED));
+          this._onError((e) => callback === null || callback === void 0 ? void 0 : callback(REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR, e));
+          this._onClose(() => callback === null || callback === void 0 ? void 0 : callback(REALTIME_SUBSCRIBE_STATES.CLOSED));
           this.updateJoinPayload(Object.assign({ config }, accessTokenPayload));
           this.joinedOnce = true;
           this._rejoin(timeout);
@@ -3080,7 +2506,7 @@ var require_RealtimeChannel = __commonJS({
               this.socket.setAuth();
             }
             if (postgres_changes2 === void 0) {
-              callback === null || callback === void 0 ? void 0 : callback(REALTIME_SUBSCRIBE_STATES2.SUBSCRIBED);
+              callback === null || callback === void 0 ? void 0 : callback(REALTIME_SUBSCRIBE_STATES.SUBSCRIBED);
               return;
             } else {
               const clientPostgresBindings = this.bindings.postgres_changes;
@@ -3094,21 +2520,21 @@ var require_RealtimeChannel = __commonJS({
                   newPostgresBindings.push(Object.assign(Object.assign({}, clientPostgresBinding), { id: serverPostgresFilter.id }));
                 } else {
                   this.unsubscribe();
-                  this.state = constants_1.CHANNEL_STATES.errored;
-                  callback === null || callback === void 0 ? void 0 : callback(REALTIME_SUBSCRIBE_STATES2.CHANNEL_ERROR, new Error("mismatch between server and client bindings for postgres changes"));
+                  this.state = CHANNEL_STATES.errored;
+                  callback === null || callback === void 0 ? void 0 : callback(REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR, new Error("mismatch between server and client bindings for postgres changes"));
                   return;
                 }
               }
               this.bindings.postgres_changes = newPostgresBindings;
-              callback && callback(REALTIME_SUBSCRIBE_STATES2.SUBSCRIBED);
+              callback && callback(REALTIME_SUBSCRIBE_STATES.SUBSCRIBED);
               return;
             }
           }).receive("error", (error) => {
-            this.state = constants_1.CHANNEL_STATES.errored;
-            callback === null || callback === void 0 ? void 0 : callback(REALTIME_SUBSCRIBE_STATES2.CHANNEL_ERROR, new Error(JSON.stringify(Object.values(error).join(", ") || "error")));
+            this.state = CHANNEL_STATES.errored;
+            callback === null || callback === void 0 ? void 0 : callback(REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR, new Error(JSON.stringify(Object.values(error).join(", ") || "error")));
             return;
           }).receive("timeout", () => {
-            callback === null || callback === void 0 ? void 0 : callback(REALTIME_SUBSCRIBE_STATES2.TIMED_OUT);
+            callback === null || callback === void 0 ? void 0 : callback(REALTIME_SUBSCRIBE_STATES.TIMED_OUT);
             return;
           });
         }
@@ -3144,7 +2570,7 @@ var require_RealtimeChannel = __commonJS({
         }, opts);
       }
       on(type, filter, callback) {
-        if (this.state === constants_1.CHANNEL_STATES.joined && type === REALTIME_LISTEN_TYPES2.PRESENCE) {
+        if (this.state === CHANNEL_STATES.joined && type === REALTIME_LISTEN_TYPES.PRESENCE) {
           this.socket.log("channel", `resubscribe to ${this.topic} due to change in presence callbacks on joined channel`);
           this.unsubscribe().then(async () => await this.subscribe());
         }
@@ -3275,15 +2701,15 @@ var require_RealtimeChannel = __commonJS({
        * channel.unsubscribe().receive("ok", () => alert("left!") )
        */
       unsubscribe(timeout = this.timeout) {
-        this.state = constants_1.CHANNEL_STATES.leaving;
+        this.state = CHANNEL_STATES.leaving;
         const onClose = () => {
           this.socket.log("channel", `leave ${this.topic}`);
-          this._trigger(constants_1.CHANNEL_EVENTS.close, "leave", this._joinRef());
+          this._trigger(CHANNEL_EVENTS.close, "leave", this._joinRef());
         };
         this.joinPush.destroy();
         let leavePush = null;
         return new Promise((resolve) => {
-          leavePush = new push_1.default(this, constants_1.CHANNEL_EVENTS.leave, {}, timeout);
+          leavePush = new Push(this, CHANNEL_EVENTS.leave, {}, timeout);
           leavePush.receive("ok", () => {
             onClose();
             resolve("ok");
@@ -3311,7 +2737,7 @@ var require_RealtimeChannel = __commonJS({
         this.pushBuffer = [];
         this.rejoinTimer.reset();
         this.joinPush.destroy();
-        this.state = constants_1.CHANNEL_STATES.closed;
+        this.state = CHANNEL_STATES.closed;
         this.bindings = {};
       }
       /** @internal */
@@ -3327,7 +2753,7 @@ var require_RealtimeChannel = __commonJS({
         if (!this.joinedOnce) {
           throw `tried to push '${event}' to '${this.topic}' before joining. Use channel.subscribe() before pushing events`;
         }
-        let pushEvent = new push_1.default(this, event, payload, timeout);
+        let pushEvent = new Push(this, event, payload, timeout);
         if (this._canPush()) {
           pushEvent.send();
         } else {
@@ -3339,7 +2765,7 @@ var require_RealtimeChannel = __commonJS({
       _addToPushBuffer(pushEvent) {
         pushEvent.startTimeout();
         this.pushBuffer.push(pushEvent);
-        if (this.pushBuffer.length > constants_1.MAX_PUSH_BUFFER_SIZE) {
+        if (this.pushBuffer.length > MAX_PUSH_BUFFER_SIZE) {
           const removedPush = this.pushBuffer.shift();
           if (removedPush) {
             removedPush.destroy();
@@ -3370,7 +2796,7 @@ var require_RealtimeChannel = __commonJS({
       _trigger(type, payload, ref) {
         var _a, _b;
         const typeLower = type.toLocaleLowerCase();
-        const { close, error, leave, join } = constants_1.CHANNEL_EVENTS;
+        const { close, error, leave, join } = CHANNEL_EVENTS;
         const events = [close, error, leave, join];
         if (ref && events.indexOf(typeLower) >= 0 && ref !== this._joinRef()) {
           return;
@@ -3420,19 +2846,19 @@ var require_RealtimeChannel = __commonJS({
       }
       /** @internal */
       _isClosed() {
-        return this.state === constants_1.CHANNEL_STATES.closed;
+        return this.state === CHANNEL_STATES.closed;
       }
       /** @internal */
       _isJoined() {
-        return this.state === constants_1.CHANNEL_STATES.joined;
+        return this.state === CHANNEL_STATES.joined;
       }
       /** @internal */
       _isJoining() {
-        return this.state === constants_1.CHANNEL_STATES.joining;
+        return this.state === CHANNEL_STATES.joining;
       }
       /** @internal */
       _isLeaving() {
-        return this.state === constants_1.CHANNEL_STATES.leaving;
+        return this.state === CHANNEL_STATES.leaving;
       }
       /** @internal */
       _replyEventName(ref) {
@@ -3499,7 +2925,7 @@ var require_RealtimeChannel = __commonJS({
        * @internal
        */
       _onClose(callback) {
-        this._on(constants_1.CHANNEL_EVENTS.close, {}, callback);
+        this._on(CHANNEL_EVENTS.close, {}, callback);
       }
       /**
        * Registers a callback that will be executed when the channel encounteres an error.
@@ -3507,7 +2933,7 @@ var require_RealtimeChannel = __commonJS({
        * @internal
        */
       _onError(callback) {
-        this._on(constants_1.CHANNEL_EVENTS.error, {}, (reason) => callback(reason));
+        this._on(CHANNEL_EVENTS.error, {}, (reason) => callback(reason));
       }
       /**
        * Returns `true` if the socket is connected and the channel has been joined.
@@ -3523,7 +2949,7 @@ var require_RealtimeChannel = __commonJS({
           return;
         }
         this.socket._leaveOpenTopic(this.topic);
-        this.state = constants_1.CHANNEL_STATES.joining;
+        this.state = CHANNEL_STATES.joining;
         this.joinPush.resend(timeout);
       }
       /** @internal */
@@ -3533,46 +2959,43 @@ var require_RealtimeChannel = __commonJS({
           old: {}
         };
         if (payload.type === "INSERT" || payload.type === "UPDATE") {
-          records.new = Transformers.convertChangeData(payload.columns, payload.record);
+          records.new = convertChangeData(payload.columns, payload.record);
         }
         if (payload.type === "UPDATE" || payload.type === "DELETE") {
-          records.old = Transformers.convertChangeData(payload.columns, payload.old_record);
+          records.old = convertChangeData(payload.columns, payload.old_record);
         }
         return records;
       }
     };
-    exports.default = RealtimeChannel2;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/main/RealtimeClient.js
-var require_RealtimeClient = __commonJS({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/main/RealtimeClient.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    var tslib_1 = (init_tslib_es6(), __toCommonJS(tslib_es6_exports));
-    var websocket_factory_1 = tslib_1.__importDefault(require_websocket_factory());
-    var constants_1 = require_constants();
-    var serializer_1 = tslib_1.__importDefault(require_serializer());
-    var timer_1 = tslib_1.__importDefault(require_timer());
-    var transformers_1 = require_transformers();
-    var RealtimeChannel_1 = tslib_1.__importDefault(require_RealtimeChannel());
-    var noop2 = () => {
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/RealtimeClient.js
+var noop2, CONNECTION_TIMEOUTS, RECONNECT_INTERVALS, DEFAULT_RECONNECT_FALLBACK, WORKER_SCRIPT, RealtimeClient;
+var init_RealtimeClient = __esm({
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/RealtimeClient.js"() {
+    init_websocket_factory();
+    init_constants();
+    init_serializer();
+    init_timer();
+    init_transformers();
+    init_RealtimeChannel();
+    noop2 = () => {
     };
-    var CONNECTION_TIMEOUTS = {
+    CONNECTION_TIMEOUTS = {
       HEARTBEAT_INTERVAL: 25e3,
       RECONNECT_DELAY: 10,
       HEARTBEAT_TIMEOUT_FALLBACK: 100
     };
-    var RECONNECT_INTERVALS = [1e3, 2e3, 5e3, 1e4];
-    var DEFAULT_RECONNECT_FALLBACK = 1e4;
-    var WORKER_SCRIPT = `
+    RECONNECT_INTERVALS = [1e3, 2e3, 5e3, 1e4];
+    DEFAULT_RECONNECT_FALLBACK = 1e4;
+    WORKER_SCRIPT = `
   addEventListener("message", (e) => {
     if (e.data.event === "start") {
       setInterval(() => postMessage({ event: "keepAlive" }), e.data.interval);
     }
   });`;
-    var RealtimeClient2 = class {
+    RealtimeClient = class {
       /**
        * Initializes the Socket.
        *
@@ -3612,7 +3035,7 @@ var require_RealtimeClient = __commonJS({
         this.httpEndpoint = "";
         this.headers = {};
         this.params = {};
-        this.timeout = constants_1.DEFAULT_TIMEOUT;
+        this.timeout = DEFAULT_TIMEOUT;
         this.transport = null;
         this.heartbeatIntervalMs = CONNECTION_TIMEOUTS.HEARTBEAT_INTERVAL;
         this.heartbeatTimer = void 0;
@@ -3620,11 +3043,11 @@ var require_RealtimeClient = __commonJS({
         this.heartbeatCallback = noop2;
         this.ref = 0;
         this.reconnectTimer = null;
-        this.vsn = constants_1.DEFAULT_VSN;
+        this.vsn = DEFAULT_VSN;
         this.logger = noop2;
         this.conn = null;
         this.sendBuffer = [];
-        this.serializer = new serializer_1.default();
+        this.serializer = new Serializer();
         this.stateChangeCallbacks = {
           open: [],
           close: [],
@@ -3646,8 +3069,8 @@ var require_RealtimeClient = __commonJS({
           throw new Error("API key is required to connect to Realtime");
         }
         this.apiKey = options.params.apikey;
-        this.endPoint = `${endPoint}/${constants_1.TRANSPORTS.websocket}`;
-        this.httpEndpoint = (0, transformers_1.httpEndpointURL)(endPoint);
+        this.endPoint = `${endPoint}/${TRANSPORTS.websocket}`;
+        this.httpEndpoint = httpEndpointURL(endPoint);
         this._initializeOptions(options);
         this._setupReconnectionTimer();
         this.fetch = this._resolveFetch(options === null || options === void 0 ? void 0 : options.fetch);
@@ -3667,7 +3090,7 @@ var require_RealtimeClient = __commonJS({
           this.conn = new this.transport(this.endpointURL());
         } else {
           try {
-            this.conn = websocket_factory_1.default.createWebSocket(this.endpointURL());
+            this.conn = websocket_factory_default.createWebSocket(this.endpointURL());
           } catch (error) {
             this._setConnectionState("disconnected");
             const errorMessage = error.message;
@@ -3769,21 +3192,21 @@ Option 2: Install and provide the "ws" package:
        */
       connectionState() {
         switch (this.conn && this.conn.readyState) {
-          case constants_1.SOCKET_STATES.connecting:
-            return constants_1.CONNECTION_STATE.Connecting;
-          case constants_1.SOCKET_STATES.open:
-            return constants_1.CONNECTION_STATE.Open;
-          case constants_1.SOCKET_STATES.closing:
-            return constants_1.CONNECTION_STATE.Closing;
+          case SOCKET_STATES.connecting:
+            return CONNECTION_STATE.Connecting;
+          case SOCKET_STATES.open:
+            return CONNECTION_STATE.Open;
+          case SOCKET_STATES.closing:
+            return CONNECTION_STATE.Closing;
           default:
-            return constants_1.CONNECTION_STATE.Closed;
+            return CONNECTION_STATE.Closed;
         }
       }
       /**
        * Returns `true` is the connection is open.
        */
       isConnected() {
-        return this.connectionState() === constants_1.CONNECTION_STATE.Open;
+        return this.connectionState() === CONNECTION_STATE.Open;
       }
       /**
        * Returns `true` if the connection is currently connecting.
@@ -3808,7 +3231,7 @@ Option 2: Install and provide the "ws" package:
         const realtimeTopic = `realtime:${topic}`;
         const exists = this.getChannels().find((c) => c.topic === realtimeTopic);
         if (!exists) {
-          const chan2 = new RealtimeChannel_1.default(`realtime:${topic}`, params, this);
+          const chan2 = new RealtimeChannel(`realtime:${topic}`, params, this);
           this.channels.push(chan2);
           return chan2;
         } else {
@@ -3894,7 +3317,7 @@ Option 2: Install and provide the "ws" package:
             this.log("error", "error in heartbeat callback", e);
           }
           this._wasManualDisconnect = false;
-          (_a = this.conn) === null || _a === void 0 ? void 0 : _a.close(constants_1.WS_CLOSE_NORMAL, "heartbeat timeout");
+          (_a = this.conn) === null || _a === void 0 ? void 0 : _a.close(WS_CLOSE_NORMAL, "heartbeat timeout");
           setTimeout(() => {
             var _a2;
             if (!this.isConnected()) {
@@ -4027,7 +3450,7 @@ Option 2: Install and provide the "ws" package:
         this.conn.onerror = (error) => this._onConnError(error);
         this.conn.onmessage = (event) => this._onConnMessage(event);
         this.conn.onclose = (event) => this._onConnClose(event);
-        if (this.conn.readyState === constants_1.SOCKET_STATES.open) {
+        if (this.conn.readyState === SOCKET_STATES.open) {
           this._onConnOpen();
         }
       }
@@ -4037,7 +3460,7 @@ Option 2: Install and provide the "ws" package:
        */
       _teardownConnection() {
         if (this.conn) {
-          if (this.conn.readyState === constants_1.SOCKET_STATES.open || this.conn.readyState === constants_1.SOCKET_STATES.connecting) {
+          if (this.conn.readyState === SOCKET_STATES.open || this.conn.readyState === SOCKET_STATES.connecting) {
             try {
               this.conn.close();
             } catch (e) {
@@ -4135,7 +3558,7 @@ Option 2: Install and provide the "ws" package:
       }
       /** @internal */
       _triggerChanError() {
-        this.channels.forEach((channel) => channel._trigger(constants_1.CHANNEL_EVENTS.error));
+        this.channels.forEach((channel) => channel._trigger(CHANNEL_EVENTS.error));
       }
       /** @internal */
       _appendParams(url, params) {
@@ -4198,11 +3621,11 @@ Option 2: Install and provide the "ws" package:
           this.channels.forEach((channel) => {
             const payload = {
               access_token: tokenToSend,
-              version: constants_1.DEFAULT_VERSION
+              version: DEFAULT_VERSION
             };
             tokenToSend && channel.updateJoinPayload(payload);
             if (channel.joinedOnce && channel._isJoined()) {
-              channel._push(constants_1.CHANNEL_EVENTS.access_token, {
+              channel._push(CHANNEL_EVENTS.access_token, {
                 access_token: tokenToSend
               });
             }
@@ -4251,7 +3674,7 @@ Option 2: Install and provide the "ws" package:
        * @internal
        */
       _setupReconnectionTimer() {
-        this.reconnectTimer = new timer_1.default(async () => {
+        this.reconnectTimer = new Timer(async () => {
           setTimeout(async () => {
             await this._waitForAuthIfNeeded();
             if (!this.isConnected()) {
@@ -4267,12 +3690,12 @@ Option 2: Install and provide the "ws" package:
       _initializeOptions(options) {
         var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
         this.transport = (_a = options === null || options === void 0 ? void 0 : options.transport) !== null && _a !== void 0 ? _a : null;
-        this.timeout = (_b = options === null || options === void 0 ? void 0 : options.timeout) !== null && _b !== void 0 ? _b : constants_1.DEFAULT_TIMEOUT;
+        this.timeout = (_b = options === null || options === void 0 ? void 0 : options.timeout) !== null && _b !== void 0 ? _b : DEFAULT_TIMEOUT;
         this.heartbeatIntervalMs = (_c = options === null || options === void 0 ? void 0 : options.heartbeatIntervalMs) !== null && _c !== void 0 ? _c : CONNECTION_TIMEOUTS.HEARTBEAT_INTERVAL;
         this.worker = (_d = options === null || options === void 0 ? void 0 : options.worker) !== null && _d !== void 0 ? _d : false;
         this.accessToken = (_e = options === null || options === void 0 ? void 0 : options.accessToken) !== null && _e !== void 0 ? _e : null;
         this.heartbeatCallback = (_f = options === null || options === void 0 ? void 0 : options.heartbeatCallback) !== null && _f !== void 0 ? _f : noop2;
-        this.vsn = (_g = options === null || options === void 0 ? void 0 : options.vsn) !== null && _g !== void 0 ? _g : constants_1.DEFAULT_VSN;
+        this.vsn = (_g = options === null || options === void 0 ? void 0 : options.vsn) !== null && _g !== void 0 ? _g : DEFAULT_VSN;
         if (options === null || options === void 0 ? void 0 : options.params)
           this.params = options.params;
         if (options === null || options === void 0 ? void 0 : options.logger)
@@ -4285,7 +3708,7 @@ Option 2: Install and provide the "ws" package:
           return RECONNECT_INTERVALS[tries - 1] || DEFAULT_RECONNECT_FALLBACK;
         });
         switch (this.vsn) {
-          case constants_1.VSN_1_0_0:
+          case VSN_1_0_0:
             this.encode = (_j = options === null || options === void 0 ? void 0 : options.encode) !== null && _j !== void 0 ? _j : ((payload, callback) => {
               return callback(JSON.stringify(payload));
             });
@@ -4293,7 +3716,7 @@ Option 2: Install and provide the "ws" package:
               return callback(JSON.parse(payload));
             });
             break;
-          case constants_1.VSN_2_0_0:
+          case VSN_2_0_0:
             this.encode = (_l = options === null || options === void 0 ? void 0 : options.encode) !== null && _l !== void 0 ? _l : this.serializer.encode.bind(this.serializer);
             this.decode = (_m = options === null || options === void 0 ? void 0 : options.decode) !== null && _m !== void 0 ? _m : this.serializer.decode.bind(this.serializer);
             break;
@@ -4308,48 +3731,97 @@ Option 2: Install and provide the "ws" package:
         }
       }
     };
-    exports.default = RealtimeClient2;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/main/index.js
-var require_main2 = __commonJS({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/main/index.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.WebSocketFactory = exports.REALTIME_CHANNEL_STATES = exports.REALTIME_SUBSCRIBE_STATES = exports.REALTIME_PRESENCE_LISTEN_EVENTS = exports.REALTIME_POSTGRES_CHANGES_LISTEN_EVENT = exports.REALTIME_LISTEN_TYPES = exports.RealtimeClient = exports.RealtimeChannel = exports.RealtimePresence = void 0;
-    var tslib_1 = (init_tslib_es6(), __toCommonJS(tslib_es6_exports));
-    var RealtimeClient_1 = tslib_1.__importDefault(require_RealtimeClient());
-    exports.RealtimeClient = RealtimeClient_1.default;
-    var RealtimeChannel_1 = tslib_1.__importStar(require_RealtimeChannel());
-    exports.RealtimeChannel = RealtimeChannel_1.default;
-    Object.defineProperty(exports, "REALTIME_LISTEN_TYPES", { enumerable: true, get: function() {
-      return RealtimeChannel_1.REALTIME_LISTEN_TYPES;
-    } });
-    Object.defineProperty(exports, "REALTIME_POSTGRES_CHANGES_LISTEN_EVENT", { enumerable: true, get: function() {
-      return RealtimeChannel_1.REALTIME_POSTGRES_CHANGES_LISTEN_EVENT;
-    } });
-    Object.defineProperty(exports, "REALTIME_SUBSCRIBE_STATES", { enumerable: true, get: function() {
-      return RealtimeChannel_1.REALTIME_SUBSCRIBE_STATES;
-    } });
-    Object.defineProperty(exports, "REALTIME_CHANNEL_STATES", { enumerable: true, get: function() {
-      return RealtimeChannel_1.REALTIME_CHANNEL_STATES;
-    } });
-    var RealtimePresence_1 = tslib_1.__importStar(require_RealtimePresence());
-    exports.RealtimePresence = RealtimePresence_1.default;
-    Object.defineProperty(exports, "REALTIME_PRESENCE_LISTEN_EVENTS", { enumerable: true, get: function() {
-      return RealtimePresence_1.REALTIME_PRESENCE_LISTEN_EVENTS;
-    } });
-    var websocket_factory_1 = tslib_1.__importDefault(require_websocket_factory());
-    exports.WebSocketFactory = websocket_factory_1.default;
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/index.js
+var init_module2 = __esm({
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/index.js"() {
+    init_RealtimeClient();
+    init_RealtimeChannel();
+    init_RealtimePresence();
+    init_websocket_factory();
   }
 });
 
-// ../../node_modules/.pnpm/iceberg-js@0.8.1/node_modules/iceberg-js/dist/index.cjs
-var require_dist2 = __commonJS({
-  "../../node_modules/.pnpm/iceberg-js@0.8.1/node_modules/iceberg-js/dist/index.cjs"(exports) {
-    "use strict";
-    var IcebergError = class extends Error {
+// ../../node_modules/.pnpm/iceberg-js@0.8.1/node_modules/iceberg-js/dist/index.mjs
+function buildUrl(baseUrl, path, query) {
+  const url = new URL(path, baseUrl);
+  if (query) {
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== void 0) {
+        url.searchParams.set(key, value);
+      }
+    }
+  }
+  return url.toString();
+}
+async function buildAuthHeaders(auth) {
+  if (!auth || auth.type === "none") {
+    return {};
+  }
+  if (auth.type === "bearer") {
+    return { Authorization: `Bearer ${auth.token}` };
+  }
+  if (auth.type === "header") {
+    return { [auth.name]: auth.value };
+  }
+  if (auth.type === "custom") {
+    return await auth.getHeaders();
+  }
+  return {};
+}
+function createFetchClient(options) {
+  const fetchFn = options.fetchImpl ?? globalThis.fetch;
+  return {
+    async request({
+      method,
+      path,
+      query,
+      body,
+      headers
+    }) {
+      const url = buildUrl(options.baseUrl, path, query);
+      const authHeaders = await buildAuthHeaders(options.auth);
+      const res = await fetchFn(url, {
+        method,
+        headers: {
+          ...body ? { "Content-Type": "application/json" } : {},
+          ...authHeaders,
+          ...headers
+        },
+        body: body ? JSON.stringify(body) : void 0
+      });
+      const text = await res.text();
+      const isJson = (res.headers.get("content-type") || "").includes("application/json");
+      const data = isJson && text ? JSON.parse(text) : text;
+      if (!res.ok) {
+        const errBody = isJson ? data : void 0;
+        const errorDetail = errBody?.error;
+        throw new IcebergError(
+          errorDetail?.message ?? `Request failed with status ${res.status}`,
+          {
+            status: res.status,
+            icebergType: errorDetail?.type,
+            icebergCode: errorDetail?.code,
+            details: errBody
+          }
+        );
+      }
+      return { status: res.status, headers: res.headers, data };
+    }
+  };
+}
+function namespaceToPath(namespace) {
+  return namespace.join("");
+}
+function namespaceToPath2(namespace) {
+  return namespace.join("");
+}
+var IcebergError, NamespaceOperations, TableOperations, IcebergRestCatalog;
+var init_dist2 = __esm({
+  "../../node_modules/.pnpm/iceberg-js@0.8.1/node_modules/iceberg-js/dist/index.mjs"() {
+    IcebergError = class extends Error {
       constructor(message, opts) {
         super(message);
         this.name = "IcebergError";
@@ -4378,77 +3850,7 @@ var require_dist2 = __commonJS({
         return this.status === 419;
       }
     };
-    function buildUrl2(baseUrl, path, query) {
-      const url = new URL(path, baseUrl);
-      if (query) {
-        for (const [key, value] of Object.entries(query)) {
-          if (value !== void 0) {
-            url.searchParams.set(key, value);
-          }
-        }
-      }
-      return url.toString();
-    }
-    async function buildAuthHeaders(auth) {
-      if (!auth || auth.type === "none") {
-        return {};
-      }
-      if (auth.type === "bearer") {
-        return { Authorization: `Bearer ${auth.token}` };
-      }
-      if (auth.type === "header") {
-        return { [auth.name]: auth.value };
-      }
-      if (auth.type === "custom") {
-        return await auth.getHeaders();
-      }
-      return {};
-    }
-    function createFetchClient(options) {
-      const fetchFn = options.fetchImpl ?? globalThis.fetch;
-      return {
-        async request({
-          method,
-          path,
-          query,
-          body,
-          headers
-        }) {
-          const url = buildUrl2(options.baseUrl, path, query);
-          const authHeaders = await buildAuthHeaders(options.auth);
-          const res = await fetchFn(url, {
-            method,
-            headers: {
-              ...body ? { "Content-Type": "application/json" } : {},
-              ...authHeaders,
-              ...headers
-            },
-            body: body ? JSON.stringify(body) : void 0
-          });
-          const text = await res.text();
-          const isJson = (res.headers.get("content-type") || "").includes("application/json");
-          const data = isJson && text ? JSON.parse(text) : text;
-          if (!res.ok) {
-            const errBody = isJson ? data : void 0;
-            const errorDetail = errBody?.error;
-            throw new IcebergError(
-              errorDetail?.message ?? `Request failed with status ${res.status}`,
-              {
-                status: res.status,
-                icebergType: errorDetail?.type,
-                icebergCode: errorDetail?.code,
-                details: errBody
-              }
-            );
-          }
-          return { status: res.status, headers: res.headers, data };
-        }
-      };
-    }
-    function namespaceToPath(namespace) {
-      return namespace.join("");
-    }
-    var NamespaceOperations = class {
+    NamespaceOperations = class {
       constructor(client, prefix = "") {
         this.client = client;
         this.prefix = prefix;
@@ -4514,10 +3916,7 @@ var require_dist2 = __commonJS({
         }
       }
     };
-    function namespaceToPath2(namespace) {
-      return namespace.join("");
-    }
-    var TableOperations = class {
+    TableOperations = class {
       constructor(client, prefix = "", accessDelegation) {
         this.client = client;
         this.prefix = prefix;
@@ -4603,7 +4002,7 @@ var require_dist2 = __commonJS({
         }
       }
     };
-    var IcebergRestCatalog = class {
+    IcebergRestCatalog = class {
       /**
        * Creates a new Iceberg REST Catalog client.
        *
@@ -4880,71 +4279,117 @@ var require_dist2 = __commonJS({
         return this.tableOps.createTableIfNotExists(namespace, request);
       }
     };
-    var DECIMAL_REGEX = /^decimal\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)$/;
-    var FIXED_REGEX = /^fixed\s*\[\s*(\d+)\s*\]$/;
-    function parseDecimalType(type) {
-      const match = type.match(DECIMAL_REGEX);
-      if (!match) return null;
-      return {
-        precision: parseInt(match[1], 10),
-        scale: parseInt(match[2], 10)
-      };
-    }
-    function parseFixedType(type) {
-      const match = type.match(FIXED_REGEX);
-      if (!match) return null;
-      return {
-        length: parseInt(match[1], 10)
-      };
-    }
-    function isDecimalType(type) {
-      return DECIMAL_REGEX.test(type);
-    }
-    function isFixedType(type) {
-      return FIXED_REGEX.test(type);
-    }
-    function typesEqual(a, b) {
-      const decimalA = parseDecimalType(a);
-      const decimalB = parseDecimalType(b);
-      if (decimalA && decimalB) {
-        return decimalA.precision === decimalB.precision && decimalA.scale === decimalB.scale;
-      }
-      const fixedA = parseFixedType(a);
-      const fixedB = parseFixedType(b);
-      if (fixedA && fixedB) {
-        return fixedA.length === fixedB.length;
-      }
-      return a === b;
-    }
-    function getCurrentSchema(metadata) {
-      return metadata.schemas.find((s) => s["schema-id"] === metadata["current-schema-id"]);
-    }
-    exports.IcebergError = IcebergError;
-    exports.IcebergRestCatalog = IcebergRestCatalog;
-    exports.getCurrentSchema = getCurrentSchema;
-    exports.isDecimalType = isDecimalType;
-    exports.isFixedType = isFixedType;
-    exports.parseDecimalType = parseDecimalType;
-    exports.parseFixedType = parseFixedType;
-    exports.typesEqual = typesEqual;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+storage-js@2.91.1/node_modules/@supabase/storage-js/dist/index.cjs
-var require_dist3 = __commonJS({
-  "../../node_modules/.pnpm/@supabase+storage-js@2.91.1/node_modules/@supabase/storage-js/dist/index.cjs"(exports) {
-    var iceberg_js = require_dist2();
-    var StorageError = class extends Error {
+// ../../node_modules/.pnpm/@supabase+storage-js@2.91.1/node_modules/@supabase/storage-js/dist/index.mjs
+function isStorageError(error) {
+  return typeof error === "object" && error !== null && "__isStorageError" in error;
+}
+function _typeof(o) {
+  "@babel/helpers - typeof";
+  return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o$1) {
+    return typeof o$1;
+  } : function(o$1) {
+    return o$1 && "function" == typeof Symbol && o$1.constructor === Symbol && o$1 !== Symbol.prototype ? "symbol" : typeof o$1;
+  }, _typeof(o);
+}
+function toPrimitive(t, r) {
+  if ("object" != _typeof(t) || !t) return t;
+  var e = t[Symbol.toPrimitive];
+  if (void 0 !== e) {
+    var i = e.call(t, r || "default");
+    if ("object" != _typeof(i)) return i;
+    throw new TypeError("@@toPrimitive must return a primitive value.");
+  }
+  return ("string" === r ? String : Number)(t);
+}
+function toPropertyKey(t) {
+  var i = toPrimitive(t, "string");
+  return "symbol" == _typeof(i) ? i : i + "";
+}
+function _defineProperty(e, r, t) {
+  return (r = toPropertyKey(r)) in e ? Object.defineProperty(e, r, {
+    value: t,
+    enumerable: true,
+    configurable: true,
+    writable: true
+  }) : e[r] = t, e;
+}
+function ownKeys(e, r) {
+  var t = Object.keys(e);
+  if (Object.getOwnPropertySymbols) {
+    var o = Object.getOwnPropertySymbols(e);
+    r && (o = o.filter(function(r$1) {
+      return Object.getOwnPropertyDescriptor(e, r$1).enumerable;
+    })), t.push.apply(t, o);
+  }
+  return t;
+}
+function _objectSpread2(e) {
+  for (var r = 1; r < arguments.length; r++) {
+    var t = null != arguments[r] ? arguments[r] : {};
+    r % 2 ? ownKeys(Object(t), true).forEach(function(r$1) {
+      _defineProperty(e, r$1, t[r$1]);
+    }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys(Object(t)).forEach(function(r$1) {
+      Object.defineProperty(e, r$1, Object.getOwnPropertyDescriptor(t, r$1));
+    });
+  }
+  return e;
+}
+async function _handleRequest$1(fetcher, method, url, options, parameters, body) {
+  return new Promise((resolve, reject) => {
+    fetcher(url, _getRequestParams$1(method, options, parameters, body)).then((result) => {
+      if (!result.ok) throw result;
+      if (options === null || options === void 0 ? void 0 : options.noResolveJson) return result;
+      return result.json();
+    }).then((data) => resolve(data)).catch((error) => handleError$1(error, reject, options));
+  });
+}
+async function get(fetcher, url, options, parameters) {
+  return _handleRequest$1(fetcher, "GET", url, options, parameters);
+}
+async function post$1(fetcher, url, body, options, parameters) {
+  return _handleRequest$1(fetcher, "POST", url, options, parameters, body);
+}
+async function put(fetcher, url, body, options, parameters) {
+  return _handleRequest$1(fetcher, "PUT", url, options, parameters, body);
+}
+async function head(fetcher, url, options, parameters) {
+  return _handleRequest$1(fetcher, "HEAD", url, _objectSpread2(_objectSpread2({}, options), {}, { noResolveJson: true }), parameters);
+}
+async function remove(fetcher, url, body, options, parameters) {
+  return _handleRequest$1(fetcher, "DELETE", url, options, parameters, body);
+}
+function isStorageVectorsError(error) {
+  return typeof error === "object" && error !== null && "__isStorageVectorsError" in error;
+}
+async function _handleRequest(fetcher, method, url, options, parameters, body) {
+  return new Promise((resolve, reject) => {
+    fetcher(url, _getRequestParams(method, options, parameters, body)).then((result) => {
+      if (!result.ok) throw result;
+      if (options === null || options === void 0 ? void 0 : options.noResolveJson) return result;
+      const contentType = result.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) return {};
+      return result.json();
+    }).then((data) => resolve(data)).catch((error) => handleError(error, reject, options));
+  });
+}
+async function post(fetcher, url, body, options, parameters) {
+  return _handleRequest(fetcher, "POST", url, options, parameters, body);
+}
+var StorageError, StorageApiError, StorageUnknownError, resolveFetch$1, resolveResponse$1, recursiveToCamel, isPlainObject$1, isValidBucketName, _getErrorMessage$1, handleError$1, _getRequestParams$1, StreamDownloadBuilder, _Symbol$toStringTag, BlobDownloadBuilder, DEFAULT_SEARCH_OPTIONS, DEFAULT_FILE_OPTIONS, StorageFileApi, version2, DEFAULT_HEADERS$1, StorageBucketApi, StorageAnalyticsClient, DEFAULT_HEADERS, StorageVectorsError, StorageVectorsApiError, StorageVectorsUnknownError, resolveFetch2, isPlainObject, _getErrorMessage, handleError, _getRequestParams, VectorIndexApi, VectorDataApi, VectorBucketApi, StorageVectorsClient, VectorBucketScope, VectorIndexScope, StorageClient;
+var init_dist3 = __esm({
+  "../../node_modules/.pnpm/@supabase+storage-js@2.91.1/node_modules/@supabase/storage-js/dist/index.mjs"() {
+    init_dist2();
+    StorageError = class extends Error {
       constructor(message) {
         super(message);
         this.__isStorageError = true;
         this.name = "StorageError";
       }
     };
-    function isStorageError(error) {
-      return typeof error === "object" && error !== null && "__isStorageError" in error;
-    }
-    var StorageApiError = class extends StorageError {
+    StorageApiError = class extends StorageError {
       constructor(message, status2, statusCode) {
         super(message);
         this.name = "StorageApiError";
@@ -4960,21 +4405,21 @@ var require_dist3 = __commonJS({
         };
       }
     };
-    var StorageUnknownError = class extends StorageError {
+    StorageUnknownError = class extends StorageError {
       constructor(message, originalError) {
         super(message);
         this.name = "StorageUnknownError";
         this.originalError = originalError;
       }
     };
-    var resolveFetch$1 = (customFetch) => {
+    resolveFetch$1 = (customFetch) => {
       if (customFetch) return (...args) => customFetch(...args);
       return (...args) => fetch(...args);
     };
-    var resolveResponse$1 = () => {
+    resolveResponse$1 = () => {
       return Response;
     };
-    var recursiveToCamel = (item) => {
+    recursiveToCamel = (item) => {
       if (Array.isArray(item)) return item.map((el) => recursiveToCamel(el));
       else if (typeof item === "function" || item !== Object(item)) return item;
       const result = {};
@@ -4984,74 +4429,23 @@ var require_dist3 = __commonJS({
       });
       return result;
     };
-    var isPlainObject$1 = (value) => {
+    isPlainObject$1 = (value) => {
       if (typeof value !== "object" || value === null) return false;
       const prototype = Object.getPrototypeOf(value);
       return (prototype === null || prototype === Object.prototype || Object.getPrototypeOf(prototype) === null) && !(Symbol.toStringTag in value) && !(Symbol.iterator in value);
     };
-    var isValidBucketName = (bucketName) => {
+    isValidBucketName = (bucketName) => {
       if (!bucketName || typeof bucketName !== "string") return false;
       if (bucketName.length === 0 || bucketName.length > 100) return false;
       if (bucketName.trim() !== bucketName) return false;
       if (bucketName.includes("/") || bucketName.includes("\\")) return false;
       return /^[\w!.\*'() &$@=;:+,?-]+$/.test(bucketName);
     };
-    function _typeof(o) {
-      "@babel/helpers - typeof";
-      return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o$1) {
-        return typeof o$1;
-      } : function(o$1) {
-        return o$1 && "function" == typeof Symbol && o$1.constructor === Symbol && o$1 !== Symbol.prototype ? "symbol" : typeof o$1;
-      }, _typeof(o);
-    }
-    function toPrimitive(t, r) {
-      if ("object" != _typeof(t) || !t) return t;
-      var e = t[Symbol.toPrimitive];
-      if (void 0 !== e) {
-        var i = e.call(t, r || "default");
-        if ("object" != _typeof(i)) return i;
-        throw new TypeError("@@toPrimitive must return a primitive value.");
-      }
-      return ("string" === r ? String : Number)(t);
-    }
-    function toPropertyKey(t) {
-      var i = toPrimitive(t, "string");
-      return "symbol" == _typeof(i) ? i : i + "";
-    }
-    function _defineProperty(e, r, t) {
-      return (r = toPropertyKey(r)) in e ? Object.defineProperty(e, r, {
-        value: t,
-        enumerable: true,
-        configurable: true,
-        writable: true
-      }) : e[r] = t, e;
-    }
-    function ownKeys2(e, r) {
-      var t = Object.keys(e);
-      if (Object.getOwnPropertySymbols) {
-        var o = Object.getOwnPropertySymbols(e);
-        r && (o = o.filter(function(r$1) {
-          return Object.getOwnPropertyDescriptor(e, r$1).enumerable;
-        })), t.push.apply(t, o);
-      }
-      return t;
-    }
-    function _objectSpread2(e) {
-      for (var r = 1; r < arguments.length; r++) {
-        var t = null != arguments[r] ? arguments[r] : {};
-        r % 2 ? ownKeys2(Object(t), true).forEach(function(r$1) {
-          _defineProperty(e, r$1, t[r$1]);
-        }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys2(Object(t)).forEach(function(r$1) {
-          Object.defineProperty(e, r$1, Object.getOwnPropertyDescriptor(t, r$1));
-        });
-      }
-      return e;
-    }
-    var _getErrorMessage$1 = (err) => {
+    _getErrorMessage$1 = (err) => {
       var _err$error;
       return err.msg || err.message || err.error_description || (typeof err.error === "string" ? err.error : (_err$error = err.error) === null || _err$error === void 0 ? void 0 : _err$error.message) || JSON.stringify(err);
     };
-    var handleError$1 = async (error, reject, options) => {
+    handleError$1 = async (error, reject, options) => {
       if (error instanceof await resolveResponse$1() && !(options === null || options === void 0 ? void 0 : options.noResolveJson)) error.json().then((err) => {
         const status2 = error.status || 500;
         const statusCode = (err === null || err === void 0 ? void 0 : err.statusCode) || status2 + "";
@@ -5061,7 +4455,7 @@ var require_dist3 = __commonJS({
       });
       else reject(new StorageUnknownError(_getErrorMessage$1(error), error));
     };
-    var _getRequestParams$1 = (method, options, parameters, body) => {
+    _getRequestParams$1 = (method, options, parameters, body) => {
       const params = {
         method,
         headers: (options === null || options === void 0 ? void 0 : options.headers) || {}
@@ -5074,31 +4468,7 @@ var require_dist3 = __commonJS({
       if (options === null || options === void 0 ? void 0 : options.duplex) params.duplex = options.duplex;
       return _objectSpread2(_objectSpread2({}, params), parameters);
     };
-    async function _handleRequest$1(fetcher, method, url, options, parameters, body) {
-      return new Promise((resolve, reject) => {
-        fetcher(url, _getRequestParams$1(method, options, parameters, body)).then((result) => {
-          if (!result.ok) throw result;
-          if (options === null || options === void 0 ? void 0 : options.noResolveJson) return result;
-          return result.json();
-        }).then((data) => resolve(data)).catch((error) => handleError$1(error, reject, options));
-      });
-    }
-    async function get3(fetcher, url, options, parameters) {
-      return _handleRequest$1(fetcher, "GET", url, options, parameters);
-    }
-    async function post$1(fetcher, url, body, options, parameters) {
-      return _handleRequest$1(fetcher, "POST", url, options, parameters, body);
-    }
-    async function put(fetcher, url, body, options, parameters) {
-      return _handleRequest$1(fetcher, "PUT", url, options, parameters, body);
-    }
-    async function head(fetcher, url, options, parameters) {
-      return _handleRequest$1(fetcher, "HEAD", url, _objectSpread2(_objectSpread2({}, options), {}, { noResolveJson: true }), parameters);
-    }
-    async function remove(fetcher, url, body, options, parameters) {
-      return _handleRequest$1(fetcher, "DELETE", url, options, parameters, body);
-    }
-    var StreamDownloadBuilder = class {
+    StreamDownloadBuilder = class {
       constructor(downloadFn, shouldThrowOnError) {
         this.downloadFn = downloadFn;
         this.shouldThrowOnError = shouldThrowOnError;
@@ -5123,9 +4493,8 @@ var require_dist3 = __commonJS({
         }
       }
     };
-    var _Symbol$toStringTag;
     _Symbol$toStringTag = Symbol.toStringTag;
-    var BlobDownloadBuilder = class {
+    BlobDownloadBuilder = class {
       constructor(downloadFn, shouldThrowOnError) {
         this.downloadFn = downloadFn;
         this.shouldThrowOnError = shouldThrowOnError;
@@ -5165,7 +4534,7 @@ var require_dist3 = __commonJS({
         }
       }
     };
-    var DEFAULT_SEARCH_OPTIONS = {
+    DEFAULT_SEARCH_OPTIONS = {
       limit: 100,
       offset: 0,
       sortBy: {
@@ -5173,12 +4542,12 @@ var require_dist3 = __commonJS({
         order: "asc"
       }
     };
-    var DEFAULT_FILE_OPTIONS = {
+    DEFAULT_FILE_OPTIONS = {
       cacheControl: "3600",
       contentType: "text/plain;charset=UTF-8",
       upsert: false
     };
-    var StorageFileApi = class {
+    StorageFileApi = class {
       constructor(url, headers = {}, bucketId, fetch$1) {
         this.shouldThrowOnError = false;
         this.url = url;
@@ -5735,7 +5104,7 @@ var require_dist3 = __commonJS({
         const transformationQuery = this.transformOptsToQueryString((options === null || options === void 0 ? void 0 : options.transform) || {});
         const queryString = transformationQuery ? `?${transformationQuery}` : "";
         const _path = this._getFinalPath(path);
-        const downloadFn = () => get3(this.fetch, `${this.url}/${renderPath}/${_path}${queryString}`, {
+        const downloadFn = () => get(this.fetch, `${this.url}/${renderPath}/${_path}${queryString}`, {
           headers: this.headers,
           noResolveJson: true
         });
@@ -5761,7 +5130,7 @@ var require_dist3 = __commonJS({
         const _path = _this10._getFinalPath(path);
         try {
           return {
-            data: recursiveToCamel(await get3(_this10.fetch, `${_this10.url}/object/info/${_path}`, { headers: _this10.headers })),
+            data: recursiveToCamel(await get(_this10.fetch, `${_this10.url}/object/info/${_path}`, { headers: _this10.headers })),
             error: null
           };
         } catch (error) {
@@ -6042,9 +5411,9 @@ var require_dist3 = __commonJS({
         return params.join("&");
       }
     };
-    var version = "2.91.1";
-    var DEFAULT_HEADERS$1 = { "X-Client-Info": `storage-js/${version}` };
-    var StorageBucketApi = class {
+    version2 = "2.91.1";
+    DEFAULT_HEADERS$1 = { "X-Client-Info": `storage-js/${version2}` };
+    StorageBucketApi = class {
       constructor(url, headers = {}, fetch$1, opts) {
         this.shouldThrowOnError = false;
         const baseUrl = new URL(url);
@@ -6101,7 +5470,7 @@ var require_dist3 = __commonJS({
         try {
           const queryString = _this.listBucketOptionsToQueryString(options);
           return {
-            data: await get3(_this.fetch, `${_this.url}/bucket${queryString}`, { headers: _this.headers }),
+            data: await get(_this.fetch, `${_this.url}/bucket${queryString}`, { headers: _this.headers }),
             error: null
           };
         } catch (error) {
@@ -6150,7 +5519,7 @@ var require_dist3 = __commonJS({
         var _this2 = this;
         try {
           return {
-            data: await get3(_this2.fetch, `${_this2.url}/bucket/${id}`, { headers: _this2.headers }),
+            data: await get(_this2.fetch, `${_this2.url}/bucket/${id}`, { headers: _this2.headers }),
             error: null
           };
         } catch (error) {
@@ -6372,7 +5741,7 @@ var require_dist3 = __commonJS({
         return Object.keys(params).length > 0 ? "?" + new URLSearchParams(params).toString() : "";
       }
     };
-    var StorageAnalyticsClient = class {
+    StorageAnalyticsClient = class {
       /**
       * @alpha
       *
@@ -6519,7 +5888,7 @@ var require_dist3 = __commonJS({
           const queryString = queryParams.toString();
           const url = queryString ? `${_this2.url}/bucket?${queryString}` : `${_this2.url}/bucket`;
           return {
-            data: await get3(_this2.fetch, url, { headers: _this2.headers }),
+            data: await get(_this2.fetch, url, { headers: _this2.headers }),
             error: null
           };
         } catch (error) {
@@ -6704,7 +6073,7 @@ var require_dist3 = __commonJS({
       from(bucketName) {
         var _this4 = this;
         if (!isValidBucketName(bucketName)) throw new StorageError("Invalid bucket name: File, folder, and bucket names must follow AWS object key naming guidelines and should avoid the use of any other characters.");
-        const catalog = new iceberg_js.IcebergRestCatalog({
+        const catalog = new IcebergRestCatalog({
           baseUrl: this.url,
           catalogName: bucketName,
           auth: {
@@ -6734,21 +6103,18 @@ var require_dist3 = __commonJS({
         } });
       }
     };
-    var DEFAULT_HEADERS = {
-      "X-Client-Info": `storage-js/${version}`,
+    DEFAULT_HEADERS = {
+      "X-Client-Info": `storage-js/${version2}`,
       "Content-Type": "application/json"
     };
-    var StorageVectorsError = class extends Error {
+    StorageVectorsError = class extends Error {
       constructor(message) {
         super(message);
         this.__isStorageVectorsError = true;
         this.name = "StorageVectorsError";
       }
     };
-    function isStorageVectorsError(error) {
-      return typeof error === "object" && error !== null && "__isStorageVectorsError" in error;
-    }
-    var StorageVectorsApiError = class extends StorageVectorsError {
+    StorageVectorsApiError = class extends StorageVectorsError {
       constructor(message, status2, statusCode) {
         super(message);
         this.name = "StorageVectorsApiError";
@@ -6764,42 +6130,24 @@ var require_dist3 = __commonJS({
         };
       }
     };
-    var StorageVectorsUnknownError = class extends StorageVectorsError {
+    StorageVectorsUnknownError = class extends StorageVectorsError {
       constructor(message, originalError) {
         super(message);
         this.name = "StorageVectorsUnknownError";
         this.originalError = originalError;
       }
     };
-    var StorageVectorsErrorCode = /* @__PURE__ */ (function(StorageVectorsErrorCode$1) {
-      StorageVectorsErrorCode$1["InternalError"] = "InternalError";
-      StorageVectorsErrorCode$1["S3VectorConflictException"] = "S3VectorConflictException";
-      StorageVectorsErrorCode$1["S3VectorNotFoundException"] = "S3VectorNotFoundException";
-      StorageVectorsErrorCode$1["S3VectorBucketNotEmpty"] = "S3VectorBucketNotEmpty";
-      StorageVectorsErrorCode$1["S3VectorMaxBucketsExceeded"] = "S3VectorMaxBucketsExceeded";
-      StorageVectorsErrorCode$1["S3VectorMaxIndexesExceeded"] = "S3VectorMaxIndexesExceeded";
-      return StorageVectorsErrorCode$1;
-    })({});
-    var resolveFetch = (customFetch) => {
+    resolveFetch2 = (customFetch) => {
       if (customFetch) return (...args) => customFetch(...args);
       return (...args) => fetch(...args);
     };
-    var resolveResponse = () => {
-      return Response;
-    };
-    var isPlainObject2 = (value) => {
+    isPlainObject = (value) => {
       if (typeof value !== "object" || value === null) return false;
       const prototype = Object.getPrototypeOf(value);
       return (prototype === null || prototype === Object.prototype || Object.getPrototypeOf(prototype) === null) && !(Symbol.toStringTag in value) && !(Symbol.iterator in value);
     };
-    var normalizeToFloat32 = (values) => {
-      return Array.from(new Float32Array(values));
-    };
-    var validateVectorDimension = (vector, expectedDimension) => {
-      if (expectedDimension !== void 0 && vector.float32.length !== expectedDimension) throw new Error(`Vector dimension mismatch: expected ${expectedDimension}, got ${vector.float32.length}`);
-    };
-    var _getErrorMessage = (err) => err.msg || err.message || err.error_description || err.error || JSON.stringify(err);
-    var handleError = async (error, reject, options) => {
+    _getErrorMessage = (err) => err.msg || err.message || err.error_description || err.error || JSON.stringify(err);
+    handleError = async (error, reject, options) => {
       if (error && typeof error === "object" && "status" in error && "ok" in error && typeof error.status === "number" && !(options === null || options === void 0 ? void 0 : options.noResolveJson)) {
         const status2 = error.status || 500;
         const responseError = error;
@@ -6816,39 +6164,25 @@ var require_dist3 = __commonJS({
         }
       } else reject(new StorageVectorsUnknownError(_getErrorMessage(error), error));
     };
-    var _getRequestParams = (method, options, parameters, body) => {
+    _getRequestParams = (method, options, parameters, body) => {
       const params = {
         method,
         headers: (options === null || options === void 0 ? void 0 : options.headers) || {}
       };
       if (method === "GET" || !body) return params;
-      if (isPlainObject2(body)) {
+      if (isPlainObject(body)) {
         params.headers = _objectSpread2({ "Content-Type": "application/json" }, options === null || options === void 0 ? void 0 : options.headers);
         params.body = JSON.stringify(body);
       } else params.body = body;
       return _objectSpread2(_objectSpread2({}, params), parameters);
     };
-    async function _handleRequest(fetcher, method, url, options, parameters, body) {
-      return new Promise((resolve, reject) => {
-        fetcher(url, _getRequestParams(method, options, parameters, body)).then((result) => {
-          if (!result.ok) throw result;
-          if (options === null || options === void 0 ? void 0 : options.noResolveJson) return result;
-          const contentType = result.headers.get("content-type");
-          if (!contentType || !contentType.includes("application/json")) return {};
-          return result.json();
-        }).then((data) => resolve(data)).catch((error) => handleError(error, reject, options));
-      });
-    }
-    async function post(fetcher, url, body, options, parameters) {
-      return _handleRequest(fetcher, "POST", url, options, parameters, body);
-    }
-    var VectorIndexApi = class {
+    VectorIndexApi = class {
       /** Creates a new VectorIndexApi instance */
       constructor(url, headers = {}, fetch$1) {
         this.shouldThrowOnError = false;
         this.url = url.replace(/\/$/, "");
         this.headers = _objectSpread2(_objectSpread2({}, DEFAULT_HEADERS), headers);
-        this.fetch = resolveFetch(fetch$1);
+        this.fetch = resolveFetch2(fetch$1);
       }
       /** Enable throwing errors instead of returning them in the response */
       throwOnError() {
@@ -6930,13 +6264,13 @@ var require_dist3 = __commonJS({
         }
       }
     };
-    var VectorDataApi = class {
+    VectorDataApi = class {
       /** Creates a new VectorDataApi instance */
       constructor(url, headers = {}, fetch$1) {
         this.shouldThrowOnError = false;
         this.url = url.replace(/\/$/, "");
         this.headers = _objectSpread2(_objectSpread2({}, DEFAULT_HEADERS), headers);
-        this.fetch = resolveFetch(fetch$1);
+        this.fetch = resolveFetch2(fetch$1);
       }
       /** Enable throwing errors instead of returning them in the response */
       throwOnError() {
@@ -7037,13 +6371,13 @@ var require_dist3 = __commonJS({
         }
       }
     };
-    var VectorBucketApi = class {
+    VectorBucketApi = class {
       /** Creates a new VectorBucketApi instance */
       constructor(url, headers = {}, fetch$1) {
         this.shouldThrowOnError = false;
         this.url = url.replace(/\/$/, "");
         this.headers = _objectSpread2(_objectSpread2({}, DEFAULT_HEADERS), headers);
-        this.fetch = resolveFetch(fetch$1);
+        this.fetch = resolveFetch2(fetch$1);
       }
       /** Enable throwing errors instead of returning them in the response */
       throwOnError() {
@@ -7119,7 +6453,7 @@ var require_dist3 = __commonJS({
         }
       }
     };
-    var StorageVectorsClient = class extends VectorBucketApi {
+    StorageVectorsClient = class extends VectorBucketApi {
       /**
       * @alpha
       *
@@ -7266,7 +6600,7 @@ var require_dist3 = __commonJS({
         return _superprop_getDeleteBucket().call(_this4, vectorBucketName);
       }
     };
-    var VectorBucketScope = class extends VectorIndexApi {
+    VectorBucketScope = class extends VectorIndexApi {
       /**
       * @alpha
       *
@@ -7420,7 +6754,7 @@ var require_dist3 = __commonJS({
         return new VectorIndexScope(this.url, this.headers, this.vectorBucketName, indexName, this.fetch);
       }
     };
-    var VectorIndexScope = class extends VectorDataApi {
+    VectorIndexScope = class extends VectorDataApi {
       /**
       *
       * @alpha
@@ -7593,7 +6927,7 @@ var require_dist3 = __commonJS({
         }));
       }
     };
-    var StorageClient = class extends StorageBucketApi {
+    StorageClient = class extends StorageBucketApi {
       /**
       * Creates a client for Storage buckets, files, analytics, and vectors.
       *
@@ -7657,224 +6991,60 @@ var require_dist3 = __commonJS({
         return new StorageAnalyticsClient(this.url + "/iceberg", this.headers, this.fetch);
       }
     };
-    exports.StorageAnalyticsClient = StorageAnalyticsClient;
-    exports.StorageApiError = StorageApiError;
-    exports.StorageClient = StorageClient;
-    exports.StorageError = StorageError;
-    exports.StorageUnknownError = StorageUnknownError;
-    exports.StorageVectorsApiError = StorageVectorsApiError;
-    exports.StorageVectorsClient = StorageVectorsClient;
-    exports.StorageVectorsError = StorageVectorsError;
-    exports.StorageVectorsErrorCode = StorageVectorsErrorCode;
-    exports.StorageVectorsUnknownError = StorageVectorsUnknownError;
-    exports.VectorBucketApi = VectorBucketApi;
-    exports.VectorBucketScope = VectorBucketScope;
-    exports.VectorDataApi = VectorDataApi;
-    exports.VectorIndexApi = VectorIndexApi;
-    exports.VectorIndexScope = VectorIndexScope;
-    exports.isPlainObject = isPlainObject2;
-    exports.isStorageError = isStorageError;
-    exports.isStorageVectorsError = isStorageVectorsError;
-    exports.normalizeToFloat32 = normalizeToFloat32;
-    exports.resolveFetch = resolveFetch;
-    exports.resolveResponse = resolveResponse;
-    exports.validateVectorDimension = validateVectorDimension;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+supabase-js@2.91.1/node_modules/@supabase/supabase-js/dist/main/lib/version.js
-var require_version2 = __commonJS({
-  "../../node_modules/.pnpm/@supabase+supabase-js@2.91.1/node_modules/@supabase/supabase-js/dist/main/lib/version.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.version = void 0;
-    exports.version = "2.87.1";
+// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/version.js
+var version3;
+var init_version2 = __esm({
+  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/version.js"() {
+    version3 = "2.91.1";
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+supabase-js@2.91.1/node_modules/@supabase/supabase-js/dist/main/lib/constants.js
-var require_constants2 = __commonJS({
-  "../../node_modules/.pnpm/@supabase+supabase-js@2.91.1/node_modules/@supabase/supabase-js/dist/main/lib/constants.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.DEFAULT_REALTIME_OPTIONS = exports.DEFAULT_AUTH_OPTIONS = exports.DEFAULT_DB_OPTIONS = exports.DEFAULT_GLOBAL_OPTIONS = exports.DEFAULT_HEADERS = void 0;
-    var version_1 = require_version2();
-    var JS_ENV = "";
-    if (typeof Deno !== "undefined") {
-      JS_ENV = "deno";
-    } else if (typeof document !== "undefined") {
-      JS_ENV = "web";
-    } else if (typeof navigator !== "undefined" && navigator.product === "ReactNative") {
-      JS_ENV = "react-native";
-    } else {
-      JS_ENV = "node";
-    }
-    exports.DEFAULT_HEADERS = { "X-Client-Info": `supabase-js-${JS_ENV}/${version_1.version}` };
-    exports.DEFAULT_GLOBAL_OPTIONS = {
-      headers: exports.DEFAULT_HEADERS
-    };
-    exports.DEFAULT_DB_OPTIONS = {
-      schema: "public"
-    };
-    exports.DEFAULT_AUTH_OPTIONS = {
-      autoRefreshToken: true,
-      persistSession: true,
-      detectSessionInUrl: true,
-      flowType: "implicit"
-    };
-    exports.DEFAULT_REALTIME_OPTIONS = {};
-  }
-});
-
-// ../../node_modules/.pnpm/@supabase+supabase-js@2.91.1/node_modules/@supabase/supabase-js/dist/main/lib/fetch.js
-var require_fetch = __commonJS({
-  "../../node_modules/.pnpm/@supabase+supabase-js@2.91.1/node_modules/@supabase/supabase-js/dist/main/lib/fetch.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.fetchWithAuth = exports.resolveHeadersConstructor = exports.resolveFetch = void 0;
-    var resolveFetch = (customFetch) => {
-      if (customFetch) {
-        return (...args) => customFetch(...args);
-      }
-      return (...args) => fetch(...args);
-    };
-    exports.resolveFetch = resolveFetch;
-    var resolveHeadersConstructor = () => {
-      return Headers;
-    };
-    exports.resolveHeadersConstructor = resolveHeadersConstructor;
-    var fetchWithAuth = (supabaseKey, getAccessToken, customFetch) => {
-      const fetch2 = (0, exports.resolveFetch)(customFetch);
-      const HeadersConstructor = (0, exports.resolveHeadersConstructor)();
-      return async (input, init3) => {
-        var _a;
-        const accessToken = (_a = await getAccessToken()) !== null && _a !== void 0 ? _a : supabaseKey;
-        let headers = new HeadersConstructor(init3 === null || init3 === void 0 ? void 0 : init3.headers);
-        if (!headers.has("apikey")) {
-          headers.set("apikey", supabaseKey);
-        }
-        if (!headers.has("Authorization")) {
-          headers.set("Authorization", `Bearer ${accessToken}`);
-        }
-        return fetch2(input, Object.assign(Object.assign({}, init3), { headers }));
-      };
-    };
-    exports.fetchWithAuth = fetchWithAuth;
-  }
-});
-
-// ../../node_modules/.pnpm/@supabase+supabase-js@2.91.1/node_modules/@supabase/supabase-js/dist/main/lib/helpers.js
-var require_helpers = __commonJS({
-  "../../node_modules/.pnpm/@supabase+supabase-js@2.91.1/node_modules/@supabase/supabase-js/dist/main/lib/helpers.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.isBrowser = void 0;
-    exports.uuid = uuid;
-    exports.ensureTrailingSlash = ensureTrailingSlash;
-    exports.applySettingDefaults = applySettingDefaults;
-    exports.validateSupabaseUrl = validateSupabaseUrl;
-    function uuid() {
-      return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function(c) {
-        var r = Math.random() * 16 | 0, v = c == "x" ? r : r & 3 | 8;
-        return v.toString(16);
-      });
-    }
-    function ensureTrailingSlash(url) {
-      return url.endsWith("/") ? url : url + "/";
-    }
-    var isBrowser2 = () => typeof window !== "undefined";
-    exports.isBrowser = isBrowser2;
-    function applySettingDefaults(options, defaults) {
-      var _a, _b;
-      const { db: dbOptions, auth: authOptions, realtime: realtimeOptions, global: globalOptions } = options;
-      const { db: DEFAULT_DB_OPTIONS, auth: DEFAULT_AUTH_OPTIONS, realtime: DEFAULT_REALTIME_OPTIONS, global: DEFAULT_GLOBAL_OPTIONS } = defaults;
-      const result = {
-        db: Object.assign(Object.assign({}, DEFAULT_DB_OPTIONS), dbOptions),
-        auth: Object.assign(Object.assign({}, DEFAULT_AUTH_OPTIONS), authOptions),
-        realtime: Object.assign(Object.assign({}, DEFAULT_REALTIME_OPTIONS), realtimeOptions),
-        storage: {},
-        global: Object.assign(Object.assign(Object.assign({}, DEFAULT_GLOBAL_OPTIONS), globalOptions), { headers: Object.assign(Object.assign({}, (_a = DEFAULT_GLOBAL_OPTIONS === null || DEFAULT_GLOBAL_OPTIONS === void 0 ? void 0 : DEFAULT_GLOBAL_OPTIONS.headers) !== null && _a !== void 0 ? _a : {}), (_b = globalOptions === null || globalOptions === void 0 ? void 0 : globalOptions.headers) !== null && _b !== void 0 ? _b : {}) }),
-        accessToken: async () => ""
-      };
-      if (options.accessToken) {
-        result.accessToken = options.accessToken;
-      } else {
-        delete result.accessToken;
-      }
-      return result;
-    }
-    function validateSupabaseUrl(supabaseUrl) {
-      const trimmedUrl = supabaseUrl === null || supabaseUrl === void 0 ? void 0 : supabaseUrl.trim();
-      if (!trimmedUrl) {
-        throw new Error("supabaseUrl is required.");
-      }
-      if (!trimmedUrl.match(/^https?:\/\//i)) {
-        throw new Error("Invalid supabaseUrl: Must be a valid HTTP or HTTPS URL.");
-      }
-      try {
-        return new URL(ensureTrailingSlash(trimmedUrl));
-      } catch (_a) {
-        throw Error("Invalid supabaseUrl: Provided URL is malformed.");
-      }
-    }
-  }
-});
-
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/lib/version.js
-var require_version3 = __commonJS({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/lib/version.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.version = void 0;
-    exports.version = "2.91.1";
-  }
-});
-
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/lib/constants.js
-var require_constants3 = __commonJS({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/lib/constants.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.JWKS_TTL = exports.BASE64URL_REGEX = exports.API_VERSIONS = exports.API_VERSION_HEADER_NAME = exports.NETWORK_FAILURE = exports.DEFAULT_HEADERS = exports.AUDIENCE = exports.STORAGE_KEY = exports.GOTRUE_URL = exports.EXPIRY_MARGIN_MS = exports.AUTO_REFRESH_TICK_THRESHOLD = exports.AUTO_REFRESH_TICK_DURATION_MS = void 0;
-    var version_1 = require_version3();
-    exports.AUTO_REFRESH_TICK_DURATION_MS = 30 * 1e3;
-    exports.AUTO_REFRESH_TICK_THRESHOLD = 3;
-    exports.EXPIRY_MARGIN_MS = exports.AUTO_REFRESH_TICK_THRESHOLD * exports.AUTO_REFRESH_TICK_DURATION_MS;
-    exports.GOTRUE_URL = "http://localhost:9999";
-    exports.STORAGE_KEY = "supabase.auth.token";
-    exports.AUDIENCE = "";
-    exports.DEFAULT_HEADERS = { "X-Client-Info": `gotrue-js/${version_1.version}` };
-    exports.NETWORK_FAILURE = {
-      MAX_RETRIES: 10,
-      RETRY_INTERVAL: 2
-      // in deciseconds
-    };
-    exports.API_VERSION_HEADER_NAME = "X-Supabase-Api-Version";
-    exports.API_VERSIONS = {
+// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/constants.js
+var AUTO_REFRESH_TICK_DURATION_MS, AUTO_REFRESH_TICK_THRESHOLD, EXPIRY_MARGIN_MS, GOTRUE_URL, STORAGE_KEY, DEFAULT_HEADERS2, API_VERSION_HEADER_NAME, API_VERSIONS, BASE64URL_REGEX, JWKS_TTL;
+var init_constants2 = __esm({
+  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/constants.js"() {
+    init_version2();
+    AUTO_REFRESH_TICK_DURATION_MS = 30 * 1e3;
+    AUTO_REFRESH_TICK_THRESHOLD = 3;
+    EXPIRY_MARGIN_MS = AUTO_REFRESH_TICK_THRESHOLD * AUTO_REFRESH_TICK_DURATION_MS;
+    GOTRUE_URL = "http://localhost:9999";
+    STORAGE_KEY = "supabase.auth.token";
+    DEFAULT_HEADERS2 = { "X-Client-Info": `gotrue-js/${version3}` };
+    API_VERSION_HEADER_NAME = "X-Supabase-Api-Version";
+    API_VERSIONS = {
       "2024-01-01": {
         timestamp: Date.parse("2024-01-01T00:00:00.0Z"),
         name: "2024-01-01"
       }
     };
-    exports.BASE64URL_REGEX = /^([a-z0-9_-]{4})*($|[a-z0-9_-]{3}$|[a-z0-9_-]{2}$)$/i;
-    exports.JWKS_TTL = 10 * 60 * 1e3;
+    BASE64URL_REGEX = /^([a-z0-9_-]{4})*($|[a-z0-9_-]{3}$|[a-z0-9_-]{2}$)$/i;
+    JWKS_TTL = 10 * 60 * 1e3;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/lib/errors.js
-var require_errors = __commonJS({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/lib/errors.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.AuthInvalidJwtError = exports.AuthWeakPasswordError = exports.AuthRetryableFetchError = exports.AuthPKCECodeVerifierMissingError = exports.AuthPKCEGrantCodeExchangeError = exports.AuthImplicitGrantRedirectError = exports.AuthInvalidCredentialsError = exports.AuthInvalidTokenResponseError = exports.AuthSessionMissingError = exports.CustomAuthError = exports.AuthUnknownError = exports.AuthApiError = exports.AuthError = void 0;
-    exports.isAuthError = isAuthError2;
-    exports.isAuthApiError = isAuthApiError2;
-    exports.isAuthSessionMissingError = isAuthSessionMissingError2;
-    exports.isAuthImplicitGrantRedirectError = isAuthImplicitGrantRedirectError2;
-    exports.isAuthPKCECodeVerifierMissingError = isAuthPKCECodeVerifierMissingError;
-    exports.isAuthRetryableFetchError = isAuthRetryableFetchError2;
-    exports.isAuthWeakPasswordError = isAuthWeakPasswordError2;
-    var AuthError2 = class extends Error {
+// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/errors.js
+function isAuthError(error) {
+  return typeof error === "object" && error !== null && "__isAuthError" in error;
+}
+function isAuthApiError(error) {
+  return isAuthError(error) && error.name === "AuthApiError";
+}
+function isAuthSessionMissingError(error) {
+  return isAuthError(error) && error.name === "AuthSessionMissingError";
+}
+function isAuthImplicitGrantRedirectError(error) {
+  return isAuthError(error) && error.name === "AuthImplicitGrantRedirectError";
+}
+function isAuthRetryableFetchError(error) {
+  return isAuthError(error) && error.name === "AuthRetryableFetchError";
+}
+var AuthError, AuthApiError, AuthUnknownError, CustomAuthError, AuthSessionMissingError, AuthInvalidTokenResponseError, AuthInvalidCredentialsError, AuthImplicitGrantRedirectError, AuthPKCEGrantCodeExchangeError, AuthPKCECodeVerifierMissingError, AuthRetryableFetchError, AuthWeakPasswordError, AuthInvalidJwtError;
+var init_errors = __esm({
+  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/errors.js"() {
+    AuthError = class extends Error {
       constructor(message, status2, code) {
         super(message);
         this.__isAuthError = true;
@@ -7883,11 +7053,7 @@ var require_errors = __commonJS({
         this.code = code;
       }
     };
-    exports.AuthError = AuthError2;
-    function isAuthError2(error) {
-      return typeof error === "object" && error !== null && "__isAuthError" in error;
-    }
-    var AuthApiError2 = class extends AuthError2 {
+    AuthApiError = class extends AuthError {
       constructor(message, status2, code) {
         super(message, status2, code);
         this.name = "AuthApiError";
@@ -7895,48 +7061,36 @@ var require_errors = __commonJS({
         this.code = code;
       }
     };
-    exports.AuthApiError = AuthApiError2;
-    function isAuthApiError2(error) {
-      return isAuthError2(error) && error.name === "AuthApiError";
-    }
-    var AuthUnknownError2 = class extends AuthError2 {
+    AuthUnknownError = class extends AuthError {
       constructor(message, originalError) {
         super(message);
         this.name = "AuthUnknownError";
         this.originalError = originalError;
       }
     };
-    exports.AuthUnknownError = AuthUnknownError2;
-    var CustomAuthError2 = class extends AuthError2 {
+    CustomAuthError = class extends AuthError {
       constructor(message, name, status2, code) {
         super(message, status2, code);
         this.name = name;
         this.status = status2;
       }
     };
-    exports.CustomAuthError = CustomAuthError2;
-    var AuthSessionMissingError2 = class extends CustomAuthError2 {
+    AuthSessionMissingError = class extends CustomAuthError {
       constructor() {
         super("Auth session missing!", "AuthSessionMissingError", 400, void 0);
       }
     };
-    exports.AuthSessionMissingError = AuthSessionMissingError2;
-    function isAuthSessionMissingError2(error) {
-      return isAuthError2(error) && error.name === "AuthSessionMissingError";
-    }
-    var AuthInvalidTokenResponseError2 = class extends CustomAuthError2 {
+    AuthInvalidTokenResponseError = class extends CustomAuthError {
       constructor() {
         super("Auth session or user missing", "AuthInvalidTokenResponseError", 500, void 0);
       }
     };
-    exports.AuthInvalidTokenResponseError = AuthInvalidTokenResponseError2;
-    var AuthInvalidCredentialsError2 = class extends CustomAuthError2 {
+    AuthInvalidCredentialsError = class extends CustomAuthError {
       constructor(message) {
         super(message, "AuthInvalidCredentialsError", 400, void 0);
       }
     };
-    exports.AuthInvalidCredentialsError = AuthInvalidCredentialsError2;
-    var AuthImplicitGrantRedirectError2 = class extends CustomAuthError2 {
+    AuthImplicitGrantRedirectError = class extends CustomAuthError {
       constructor(message, details = null) {
         super(message, "AuthImplicitGrantRedirectError", 500, void 0);
         this.details = null;
@@ -7951,11 +7105,7 @@ var require_errors = __commonJS({
         };
       }
     };
-    exports.AuthImplicitGrantRedirectError = AuthImplicitGrantRedirectError2;
-    function isAuthImplicitGrantRedirectError2(error) {
-      return isAuthError2(error) && error.name === "AuthImplicitGrantRedirectError";
-    }
-    var AuthPKCEGrantCodeExchangeError2 = class extends CustomAuthError2 {
+    AuthPKCEGrantCodeExchangeError = class extends CustomAuthError {
       constructor(message, details = null) {
         super(message, "AuthPKCEGrantCodeExchangeError", 500, void 0);
         this.details = null;
@@ -7970,62 +7120,182 @@ var require_errors = __commonJS({
         };
       }
     };
-    exports.AuthPKCEGrantCodeExchangeError = AuthPKCEGrantCodeExchangeError2;
-    var AuthPKCECodeVerifierMissingError = class extends CustomAuthError2 {
+    AuthPKCECodeVerifierMissingError = class extends CustomAuthError {
       constructor() {
         super("PKCE code verifier not found in storage. This can happen if the auth flow was initiated in a different browser or device, or if the storage was cleared. For SSR frameworks (Next.js, SvelteKit, etc.), use @supabase/ssr on both the server and client to store the code verifier in cookies.", "AuthPKCECodeVerifierMissingError", 400, "pkce_code_verifier_not_found");
       }
     };
-    exports.AuthPKCECodeVerifierMissingError = AuthPKCECodeVerifierMissingError;
-    function isAuthPKCECodeVerifierMissingError(error) {
-      return isAuthError2(error) && error.name === "AuthPKCECodeVerifierMissingError";
-    }
-    var AuthRetryableFetchError2 = class extends CustomAuthError2 {
+    AuthRetryableFetchError = class extends CustomAuthError {
       constructor(message, status2) {
         super(message, "AuthRetryableFetchError", status2, void 0);
       }
     };
-    exports.AuthRetryableFetchError = AuthRetryableFetchError2;
-    function isAuthRetryableFetchError2(error) {
-      return isAuthError2(error) && error.name === "AuthRetryableFetchError";
-    }
-    var AuthWeakPasswordError2 = class extends CustomAuthError2 {
+    AuthWeakPasswordError = class extends CustomAuthError {
       constructor(message, status2, reasons) {
         super(message, "AuthWeakPasswordError", status2, "weak_password");
         this.reasons = reasons;
       }
     };
-    exports.AuthWeakPasswordError = AuthWeakPasswordError2;
-    function isAuthWeakPasswordError2(error) {
-      return isAuthError2(error) && error.name === "AuthWeakPasswordError";
-    }
-    var AuthInvalidJwtError2 = class extends CustomAuthError2 {
+    AuthInvalidJwtError = class extends CustomAuthError {
       constructor(message) {
         super(message, "AuthInvalidJwtError", 400, "invalid_jwt");
       }
     };
-    exports.AuthInvalidJwtError = AuthInvalidJwtError2;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/lib/base64url.js
-var require_base64url = __commonJS({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/lib/base64url.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.byteToBase64URL = byteToBase64URL;
-    exports.byteFromBase64URL = byteFromBase64URL;
-    exports.stringToBase64URL = stringToBase64URL;
-    exports.stringFromBase64URL = stringFromBase64URL;
-    exports.codepointToUTF8 = codepointToUTF8;
-    exports.stringToUTF8 = stringToUTF8;
-    exports.stringFromUTF8 = stringFromUTF8;
-    exports.base64UrlToUint8Array = base64UrlToUint8Array;
-    exports.stringToUint8Array = stringToUint8Array;
-    exports.bytesToBase64URL = bytesToBase64URL;
-    var TO_BASE64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".split("");
-    var IGNORE_BASE64URL = " 	\n\r=".split("");
-    var FROM_BASE64URL = (() => {
+// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/base64url.js
+function byteToBase64URL(byte, state8, emit3) {
+  if (byte !== null) {
+    state8.queue = state8.queue << 8 | byte;
+    state8.queuedBits += 8;
+    while (state8.queuedBits >= 6) {
+      const pos = state8.queue >> state8.queuedBits - 6 & 63;
+      emit3(TO_BASE64URL[pos]);
+      state8.queuedBits -= 6;
+    }
+  } else if (state8.queuedBits > 0) {
+    state8.queue = state8.queue << 6 - state8.queuedBits;
+    state8.queuedBits = 6;
+    while (state8.queuedBits >= 6) {
+      const pos = state8.queue >> state8.queuedBits - 6 & 63;
+      emit3(TO_BASE64URL[pos]);
+      state8.queuedBits -= 6;
+    }
+  }
+}
+function byteFromBase64URL(charCode, state8, emit3) {
+  const bits = FROM_BASE64URL[charCode];
+  if (bits > -1) {
+    state8.queue = state8.queue << 6 | bits;
+    state8.queuedBits += 6;
+    while (state8.queuedBits >= 8) {
+      emit3(state8.queue >> state8.queuedBits - 8 & 255);
+      state8.queuedBits -= 8;
+    }
+  } else if (bits === -2) {
+    return;
+  } else {
+    throw new Error(`Invalid Base64-URL character "${String.fromCharCode(charCode)}"`);
+  }
+}
+function stringFromBase64URL(str) {
+  const conv = [];
+  const utf8Emit = (codepoint) => {
+    conv.push(String.fromCodePoint(codepoint));
+  };
+  const utf8State = {
+    utf8seq: 0,
+    codepoint: 0
+  };
+  const b64State = { queue: 0, queuedBits: 0 };
+  const byteEmit = (byte) => {
+    stringFromUTF8(byte, utf8State, utf8Emit);
+  };
+  for (let i = 0; i < str.length; i += 1) {
+    byteFromBase64URL(str.charCodeAt(i), b64State, byteEmit);
+  }
+  return conv.join("");
+}
+function codepointToUTF8(codepoint, emit3) {
+  if (codepoint <= 127) {
+    emit3(codepoint);
+    return;
+  } else if (codepoint <= 2047) {
+    emit3(192 | codepoint >> 6);
+    emit3(128 | codepoint & 63);
+    return;
+  } else if (codepoint <= 65535) {
+    emit3(224 | codepoint >> 12);
+    emit3(128 | codepoint >> 6 & 63);
+    emit3(128 | codepoint & 63);
+    return;
+  } else if (codepoint <= 1114111) {
+    emit3(240 | codepoint >> 18);
+    emit3(128 | codepoint >> 12 & 63);
+    emit3(128 | codepoint >> 6 & 63);
+    emit3(128 | codepoint & 63);
+    return;
+  }
+  throw new Error(`Unrecognized Unicode codepoint: ${codepoint.toString(16)}`);
+}
+function stringToUTF8(str, emit3) {
+  for (let i = 0; i < str.length; i += 1) {
+    let codepoint = str.charCodeAt(i);
+    if (codepoint > 55295 && codepoint <= 56319) {
+      const highSurrogate = (codepoint - 55296) * 1024 & 65535;
+      const lowSurrogate = str.charCodeAt(i + 1) - 56320 & 65535;
+      codepoint = (lowSurrogate | highSurrogate) + 65536;
+      i += 1;
+    }
+    codepointToUTF8(codepoint, emit3);
+  }
+}
+function stringFromUTF8(byte, state8, emit3) {
+  if (state8.utf8seq === 0) {
+    if (byte <= 127) {
+      emit3(byte);
+      return;
+    }
+    for (let leadingBit = 1; leadingBit < 6; leadingBit += 1) {
+      if ((byte >> 7 - leadingBit & 1) === 0) {
+        state8.utf8seq = leadingBit;
+        break;
+      }
+    }
+    if (state8.utf8seq === 2) {
+      state8.codepoint = byte & 31;
+    } else if (state8.utf8seq === 3) {
+      state8.codepoint = byte & 15;
+    } else if (state8.utf8seq === 4) {
+      state8.codepoint = byte & 7;
+    } else {
+      throw new Error("Invalid UTF-8 sequence");
+    }
+    state8.utf8seq -= 1;
+  } else if (state8.utf8seq > 0) {
+    if (byte <= 127) {
+      throw new Error("Invalid UTF-8 sequence");
+    }
+    state8.codepoint = state8.codepoint << 6 | byte & 63;
+    state8.utf8seq -= 1;
+    if (state8.utf8seq === 0) {
+      emit3(state8.codepoint);
+    }
+  }
+}
+function base64UrlToUint8Array(str) {
+  const result = [];
+  const state8 = { queue: 0, queuedBits: 0 };
+  const onByte = (byte) => {
+    result.push(byte);
+  };
+  for (let i = 0; i < str.length; i += 1) {
+    byteFromBase64URL(str.charCodeAt(i), state8, onByte);
+  }
+  return new Uint8Array(result);
+}
+function stringToUint8Array(str) {
+  const result = [];
+  stringToUTF8(str, (byte) => result.push(byte));
+  return new Uint8Array(result);
+}
+function bytesToBase64URL(bytes) {
+  const result = [];
+  const state8 = { queue: 0, queuedBits: 0 };
+  const onChar = (char) => {
+    result.push(char);
+  };
+  bytes.forEach((byte) => byteToBase64URL(byte, state8, onChar));
+  byteToBase64URL(null, state8, onChar);
+  return result.join("");
+}
+var TO_BASE64URL, IGNORE_BASE64URL, FROM_BASE64URL;
+var init_base64url = __esm({
+  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/base64url.js"() {
+    TO_BASE64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".split("");
+    IGNORE_BASE64URL = " 	\n\r=".split("");
+    FROM_BASE64URL = (() => {
       const charMap = new Array(128);
       for (let i = 0; i < charMap.length; i += 1) {
         charMap[i] = -1;
@@ -8038,206 +7308,233 @@ var require_base64url = __commonJS({
       }
       return charMap;
     })();
-    function byteToBase64URL(byte, state8, emit3) {
-      if (byte !== null) {
-        state8.queue = state8.queue << 8 | byte;
-        state8.queuedBits += 8;
-        while (state8.queuedBits >= 6) {
-          const pos = state8.queue >> state8.queuedBits - 6 & 63;
-          emit3(TO_BASE64URL[pos]);
-          state8.queuedBits -= 6;
-        }
-      } else if (state8.queuedBits > 0) {
-        state8.queue = state8.queue << 6 - state8.queuedBits;
-        state8.queuedBits = 6;
-        while (state8.queuedBits >= 6) {
-          const pos = state8.queue >> state8.queuedBits - 6 & 63;
-          emit3(TO_BASE64URL[pos]);
-          state8.queuedBits -= 6;
-        }
-      }
-    }
-    function byteFromBase64URL(charCode, state8, emit3) {
-      const bits = FROM_BASE64URL[charCode];
-      if (bits > -1) {
-        state8.queue = state8.queue << 6 | bits;
-        state8.queuedBits += 6;
-        while (state8.queuedBits >= 8) {
-          emit3(state8.queue >> state8.queuedBits - 8 & 255);
-          state8.queuedBits -= 8;
-        }
-      } else if (bits === -2) {
-        return;
-      } else {
-        throw new Error(`Invalid Base64-URL character "${String.fromCharCode(charCode)}"`);
-      }
-    }
-    function stringToBase64URL(str) {
-      const base64 = [];
-      const emitter = (char) => {
-        base64.push(char);
-      };
-      const state8 = { queue: 0, queuedBits: 0 };
-      stringToUTF8(str, (byte) => {
-        byteToBase64URL(byte, state8, emitter);
-      });
-      byteToBase64URL(null, state8, emitter);
-      return base64.join("");
-    }
-    function stringFromBase64URL(str) {
-      const conv = [];
-      const utf8Emit = (codepoint) => {
-        conv.push(String.fromCodePoint(codepoint));
-      };
-      const utf8State = {
-        utf8seq: 0,
-        codepoint: 0
-      };
-      const b64State = { queue: 0, queuedBits: 0 };
-      const byteEmit = (byte) => {
-        stringFromUTF8(byte, utf8State, utf8Emit);
-      };
-      for (let i = 0; i < str.length; i += 1) {
-        byteFromBase64URL(str.charCodeAt(i), b64State, byteEmit);
-      }
-      return conv.join("");
-    }
-    function codepointToUTF8(codepoint, emit3) {
-      if (codepoint <= 127) {
-        emit3(codepoint);
-        return;
-      } else if (codepoint <= 2047) {
-        emit3(192 | codepoint >> 6);
-        emit3(128 | codepoint & 63);
-        return;
-      } else if (codepoint <= 65535) {
-        emit3(224 | codepoint >> 12);
-        emit3(128 | codepoint >> 6 & 63);
-        emit3(128 | codepoint & 63);
-        return;
-      } else if (codepoint <= 1114111) {
-        emit3(240 | codepoint >> 18);
-        emit3(128 | codepoint >> 12 & 63);
-        emit3(128 | codepoint >> 6 & 63);
-        emit3(128 | codepoint & 63);
-        return;
-      }
-      throw new Error(`Unrecognized Unicode codepoint: ${codepoint.toString(16)}`);
-    }
-    function stringToUTF8(str, emit3) {
-      for (let i = 0; i < str.length; i += 1) {
-        let codepoint = str.charCodeAt(i);
-        if (codepoint > 55295 && codepoint <= 56319) {
-          const highSurrogate = (codepoint - 55296) * 1024 & 65535;
-          const lowSurrogate = str.charCodeAt(i + 1) - 56320 & 65535;
-          codepoint = (lowSurrogate | highSurrogate) + 65536;
-          i += 1;
-        }
-        codepointToUTF8(codepoint, emit3);
-      }
-    }
-    function stringFromUTF8(byte, state8, emit3) {
-      if (state8.utf8seq === 0) {
-        if (byte <= 127) {
-          emit3(byte);
-          return;
-        }
-        for (let leadingBit = 1; leadingBit < 6; leadingBit += 1) {
-          if ((byte >> 7 - leadingBit & 1) === 0) {
-            state8.utf8seq = leadingBit;
-            break;
-          }
-        }
-        if (state8.utf8seq === 2) {
-          state8.codepoint = byte & 31;
-        } else if (state8.utf8seq === 3) {
-          state8.codepoint = byte & 15;
-        } else if (state8.utf8seq === 4) {
-          state8.codepoint = byte & 7;
-        } else {
-          throw new Error("Invalid UTF-8 sequence");
-        }
-        state8.utf8seq -= 1;
-      } else if (state8.utf8seq > 0) {
-        if (byte <= 127) {
-          throw new Error("Invalid UTF-8 sequence");
-        }
-        state8.codepoint = state8.codepoint << 6 | byte & 63;
-        state8.utf8seq -= 1;
-        if (state8.utf8seq === 0) {
-          emit3(state8.codepoint);
-        }
-      }
-    }
-    function base64UrlToUint8Array(str) {
-      const result = [];
-      const state8 = { queue: 0, queuedBits: 0 };
-      const onByte = (byte) => {
-        result.push(byte);
-      };
-      for (let i = 0; i < str.length; i += 1) {
-        byteFromBase64URL(str.charCodeAt(i), state8, onByte);
-      }
-      return new Uint8Array(result);
-    }
-    function stringToUint8Array(str) {
-      const result = [];
-      stringToUTF8(str, (byte) => result.push(byte));
-      return new Uint8Array(result);
-    }
-    function bytesToBase64URL(bytes) {
-      const result = [];
-      const state8 = { queue: 0, queuedBits: 0 };
-      const onChar = (char) => {
-        result.push(char);
-      };
-      bytes.forEach((byte) => byteToBase64URL(byte, state8, onChar));
-      byteToBase64URL(null, state8, onChar);
-      return result.join("");
-    }
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/lib/helpers.js
-var require_helpers2 = __commonJS({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/lib/helpers.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.Deferred = exports.removeItemAsync = exports.getItemAsync = exports.setItemAsync = exports.looksLikeFetchResponse = exports.resolveFetch = exports.supportsLocalStorage = exports.isBrowser = void 0;
-    exports.expiresAt = expiresAt;
-    exports.generateCallbackId = generateCallbackId;
-    exports.parseParametersFromURL = parseParametersFromURL;
-    exports.decodeJWT = decodeJWT;
-    exports.sleep = sleep;
-    exports.retryable = retryable;
-    exports.generatePKCEVerifier = generatePKCEVerifier;
-    exports.generatePKCEChallenge = generatePKCEChallenge;
-    exports.getCodeChallengeAndMethod = getCodeChallengeAndMethod;
-    exports.parseResponseAPIVersion = parseResponseAPIVersion;
-    exports.validateExp = validateExp;
-    exports.getAlgorithm = getAlgorithm;
-    exports.validateUUID = validateUUID;
-    exports.userNotAvailableProxy = userNotAvailableProxy;
-    exports.insecureUserWarningProxy = insecureUserWarningProxy;
-    exports.deepClone = deepClone;
-    var constants_1 = require_constants3();
-    var errors_1 = require_errors();
-    var base64url_1 = require_base64url();
-    function expiresAt(expiresIn) {
-      const timeNow = Math.round(Date.now() / 1e3);
-      return timeNow + expiresIn;
+// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/helpers.js
+function expiresAt(expiresIn) {
+  const timeNow = Math.round(Date.now() / 1e3);
+  return timeNow + expiresIn;
+}
+function generateCallbackId() {
+  return /* @__PURE__ */ Symbol("auth-callback");
+}
+function parseParametersFromURL(href) {
+  const result = {};
+  const url = new URL(href);
+  if (url.hash && url.hash[0] === "#") {
+    try {
+      const hashSearchParams = new URLSearchParams(url.hash.substring(1));
+      hashSearchParams.forEach((value, key) => {
+        result[key] = value;
+      });
+    } catch (e) {
     }
-    function generateCallbackId() {
-      return /* @__PURE__ */ Symbol("auth-callback");
+  }
+  url.searchParams.forEach((value, key) => {
+    result[key] = value;
+  });
+  return result;
+}
+function decodeJWT(token) {
+  const parts = token.split(".");
+  if (parts.length !== 3) {
+    throw new AuthInvalidJwtError("Invalid JWT structure");
+  }
+  for (let i = 0; i < parts.length; i++) {
+    if (!BASE64URL_REGEX.test(parts[i])) {
+      throw new AuthInvalidJwtError("JWT not in base64url format");
     }
-    var isBrowser2 = () => typeof window !== "undefined" && typeof document !== "undefined";
-    exports.isBrowser = isBrowser2;
-    var localStorageWriteTests = {
+  }
+  const data = {
+    // using base64url lib
+    header: JSON.parse(stringFromBase64URL(parts[0])),
+    payload: JSON.parse(stringFromBase64URL(parts[1])),
+    signature: base64UrlToUint8Array(parts[2]),
+    raw: {
+      header: parts[0],
+      payload: parts[1]
+    }
+  };
+  return data;
+}
+async function sleep(time) {
+  return await new Promise((accept) => {
+    setTimeout(() => accept(null), time);
+  });
+}
+function retryable(fn, isRetryable) {
+  const promise = new Promise((accept, reject) => {
+    ;
+    (async () => {
+      for (let attempt = 0; attempt < Infinity; attempt++) {
+        try {
+          const result = await fn(attempt);
+          if (!isRetryable(attempt, null, result)) {
+            accept(result);
+            return;
+          }
+        } catch (e) {
+          if (!isRetryable(attempt, e)) {
+            reject(e);
+            return;
+          }
+        }
+      }
+    })();
+  });
+  return promise;
+}
+function dec2hex(dec) {
+  return ("0" + dec.toString(16)).substr(-2);
+}
+function generatePKCEVerifier() {
+  const verifierLength = 56;
+  const array = new Uint32Array(verifierLength);
+  if (typeof crypto === "undefined") {
+    const charSet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+    const charSetLen = charSet.length;
+    let verifier = "";
+    for (let i = 0; i < verifierLength; i++) {
+      verifier += charSet.charAt(Math.floor(Math.random() * charSetLen));
+    }
+    return verifier;
+  }
+  crypto.getRandomValues(array);
+  return Array.from(array, dec2hex).join("");
+}
+async function sha256(randomString) {
+  const encoder = new TextEncoder();
+  const encodedData = encoder.encode(randomString);
+  const hash = await crypto.subtle.digest("SHA-256", encodedData);
+  const bytes = new Uint8Array(hash);
+  return Array.from(bytes).map((c) => String.fromCharCode(c)).join("");
+}
+async function generatePKCEChallenge(verifier) {
+  const hasCryptoSupport = typeof crypto !== "undefined" && typeof crypto.subtle !== "undefined" && typeof TextEncoder !== "undefined";
+  if (!hasCryptoSupport) {
+    console.warn("WebCrypto API is not supported. Code challenge method will default to use plain instead of sha256.");
+    return verifier;
+  }
+  const hashed = await sha256(verifier);
+  return btoa(hashed).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+async function getCodeChallengeAndMethod(storage, storageKey, isPasswordRecovery = false) {
+  const codeVerifier = generatePKCEVerifier();
+  let storedCodeVerifier = codeVerifier;
+  if (isPasswordRecovery) {
+    storedCodeVerifier += "/PASSWORD_RECOVERY";
+  }
+  await setItemAsync(storage, `${storageKey}-code-verifier`, storedCodeVerifier);
+  const codeChallenge = await generatePKCEChallenge(codeVerifier);
+  const codeChallengeMethod = codeVerifier === codeChallenge ? "plain" : "s256";
+  return [codeChallenge, codeChallengeMethod];
+}
+function parseResponseAPIVersion(response) {
+  const apiVersion = response.headers.get(API_VERSION_HEADER_NAME);
+  if (!apiVersion) {
+    return null;
+  }
+  if (!apiVersion.match(API_VERSION_REGEX)) {
+    return null;
+  }
+  try {
+    const date = /* @__PURE__ */ new Date(`${apiVersion}T00:00:00.0Z`);
+    return date;
+  } catch (e) {
+    return null;
+  }
+}
+function validateExp(exp) {
+  if (!exp) {
+    throw new Error("Missing exp claim");
+  }
+  const timeNow = Math.floor(Date.now() / 1e3);
+  if (exp <= timeNow) {
+    throw new Error("JWT has expired");
+  }
+}
+function getAlgorithm(alg) {
+  switch (alg) {
+    case "RS256":
+      return {
+        name: "RSASSA-PKCS1-v1_5",
+        hash: { name: "SHA-256" }
+      };
+    case "ES256":
+      return {
+        name: "ECDSA",
+        namedCurve: "P-256",
+        hash: { name: "SHA-256" }
+      };
+    default:
+      throw new Error("Invalid alg claim");
+  }
+}
+function validateUUID(str) {
+  if (!UUID_REGEX.test(str)) {
+    throw new Error("@supabase/auth-js: Expected parameter to be UUID but is not");
+  }
+}
+function userNotAvailableProxy() {
+  const proxyTarget = {};
+  return new Proxy(proxyTarget, {
+    get: (target, prop) => {
+      if (prop === "__isUserNotAvailableProxy") {
+        return true;
+      }
+      if (typeof prop === "symbol") {
+        const sProp = prop.toString();
+        if (sProp === "Symbol(Symbol.toPrimitive)" || sProp === "Symbol(Symbol.toStringTag)" || sProp === "Symbol(util.inspect.custom)") {
+          return void 0;
+        }
+      }
+      throw new Error(`@supabase/auth-js: client was created with userStorage option and there was no user stored in the user storage. Accessing the "${prop}" property of the session object is not supported. Please use getUser() instead.`);
+    },
+    set: (_target, prop) => {
+      throw new Error(`@supabase/auth-js: client was created with userStorage option and there was no user stored in the user storage. Setting the "${prop}" property of the session object is not supported. Please use getUser() to fetch a user object you can manipulate.`);
+    },
+    deleteProperty: (_target, prop) => {
+      throw new Error(`@supabase/auth-js: client was created with userStorage option and there was no user stored in the user storage. Deleting the "${prop}" property of the session object is not supported. Please use getUser() to fetch a user object you can manipulate.`);
+    }
+  });
+}
+function insecureUserWarningProxy(user, suppressWarningRef) {
+  return new Proxy(user, {
+    get: (target, prop, receiver) => {
+      if (prop === "__isInsecureUserWarningProxy") {
+        return true;
+      }
+      if (typeof prop === "symbol") {
+        const sProp = prop.toString();
+        if (sProp === "Symbol(Symbol.toPrimitive)" || sProp === "Symbol(Symbol.toStringTag)" || sProp === "Symbol(util.inspect.custom)" || sProp === "Symbol(nodejs.util.inspect.custom)") {
+          return Reflect.get(target, prop, receiver);
+        }
+      }
+      if (!suppressWarningRef.value && typeof prop === "string") {
+        console.warn("Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.");
+        suppressWarningRef.value = true;
+      }
+      return Reflect.get(target, prop, receiver);
+    }
+  });
+}
+function deepClone(obj) {
+  return JSON.parse(JSON.stringify(obj));
+}
+var isBrowser, localStorageWriteTests, supportsLocalStorage, resolveFetch3, looksLikeFetchResponse, setItemAsync, getItemAsync, removeItemAsync, Deferred, API_VERSION_REGEX, UUID_REGEX;
+var init_helpers = __esm({
+  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/helpers.js"() {
+    init_constants2();
+    init_errors();
+    init_base64url();
+    isBrowser = () => typeof window !== "undefined" && typeof document !== "undefined";
+    localStorageWriteTests = {
       tested: false,
       writable: false
     };
-    var supportsLocalStorage = () => {
-      if (!(0, exports.isBrowser)()) {
+    supportsLocalStorage = () => {
+      if (!isBrowser()) {
         return false;
       }
       try {
@@ -8262,40 +7559,19 @@ var require_helpers2 = __commonJS({
       }
       return localStorageWriteTests.writable;
     };
-    exports.supportsLocalStorage = supportsLocalStorage;
-    function parseParametersFromURL(href) {
-      const result = {};
-      const url = new URL(href);
-      if (url.hash && url.hash[0] === "#") {
-        try {
-          const hashSearchParams = new URLSearchParams(url.hash.substring(1));
-          hashSearchParams.forEach((value, key) => {
-            result[key] = value;
-          });
-        } catch (e) {
-        }
-      }
-      url.searchParams.forEach((value, key) => {
-        result[key] = value;
-      });
-      return result;
-    }
-    var resolveFetch = (customFetch) => {
+    resolveFetch3 = (customFetch) => {
       if (customFetch) {
         return (...args) => customFetch(...args);
       }
       return (...args) => fetch(...args);
     };
-    exports.resolveFetch = resolveFetch;
-    var looksLikeFetchResponse = (maybeResponse) => {
+    looksLikeFetchResponse = (maybeResponse) => {
       return typeof maybeResponse === "object" && maybeResponse !== null && "status" in maybeResponse && "ok" in maybeResponse && "json" in maybeResponse && typeof maybeResponse.json === "function";
     };
-    exports.looksLikeFetchResponse = looksLikeFetchResponse;
-    var setItemAsync = async (storage, key, data) => {
+    setItemAsync = async (storage, key, data) => {
       await storage.setItem(key, JSON.stringify(data));
     };
-    exports.setItemAsync = setItemAsync;
-    var getItemAsync = async (storage, key) => {
+    getItemAsync = async (storage, key) => {
       const value = await storage.getItem(key);
       if (!value) {
         return null;
@@ -8306,12 +7582,10 @@ var require_helpers2 = __commonJS({
         return value;
       }
     };
-    exports.getItemAsync = getItemAsync;
-    var removeItemAsync = async (storage, key) => {
+    removeItemAsync = async (storage, key) => {
       await storage.removeItem(key);
     };
-    exports.removeItemAsync = removeItemAsync;
-    var Deferred = class _Deferred {
+    Deferred = class _Deferred {
       constructor() {
         ;
         this.promise = new _Deferred.promiseConstructor((res, rej) => {
@@ -8321,251 +7595,147 @@ var require_helpers2 = __commonJS({
         });
       }
     };
-    exports.Deferred = Deferred;
     Deferred.promiseConstructor = Promise;
-    function decodeJWT(token) {
-      const parts = token.split(".");
-      if (parts.length !== 3) {
-        throw new errors_1.AuthInvalidJwtError("Invalid JWT structure");
-      }
-      for (let i = 0; i < parts.length; i++) {
-        if (!constants_1.BASE64URL_REGEX.test(parts[i])) {
-          throw new errors_1.AuthInvalidJwtError("JWT not in base64url format");
-        }
-      }
-      const data = {
-        // using base64url lib
-        header: JSON.parse((0, base64url_1.stringFromBase64URL)(parts[0])),
-        payload: JSON.parse((0, base64url_1.stringFromBase64URL)(parts[1])),
-        signature: (0, base64url_1.base64UrlToUint8Array)(parts[2]),
-        raw: {
-          header: parts[0],
-          payload: parts[1]
-        }
-      };
-      return data;
-    }
-    async function sleep(time) {
-      return await new Promise((accept) => {
-        setTimeout(() => accept(null), time);
-      });
-    }
-    function retryable(fn, isRetryable) {
-      const promise = new Promise((accept, reject) => {
-        ;
-        (async () => {
-          for (let attempt = 0; attempt < Infinity; attempt++) {
-            try {
-              const result = await fn(attempt);
-              if (!isRetryable(attempt, null, result)) {
-                accept(result);
-                return;
-              }
-            } catch (e) {
-              if (!isRetryable(attempt, e)) {
-                reject(e);
-                return;
-              }
-            }
-          }
-        })();
-      });
-      return promise;
-    }
-    function dec2hex(dec) {
-      return ("0" + dec.toString(16)).substr(-2);
-    }
-    function generatePKCEVerifier() {
-      const verifierLength = 56;
-      const array = new Uint32Array(verifierLength);
-      if (typeof crypto === "undefined") {
-        const charSet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
-        const charSetLen = charSet.length;
-        let verifier = "";
-        for (let i = 0; i < verifierLength; i++) {
-          verifier += charSet.charAt(Math.floor(Math.random() * charSetLen));
-        }
-        return verifier;
-      }
-      crypto.getRandomValues(array);
-      return Array.from(array, dec2hex).join("");
-    }
-    async function sha256(randomString) {
-      const encoder = new TextEncoder();
-      const encodedData = encoder.encode(randomString);
-      const hash = await crypto.subtle.digest("SHA-256", encodedData);
-      const bytes = new Uint8Array(hash);
-      return Array.from(bytes).map((c) => String.fromCharCode(c)).join("");
-    }
-    async function generatePKCEChallenge(verifier) {
-      const hasCryptoSupport = typeof crypto !== "undefined" && typeof crypto.subtle !== "undefined" && typeof TextEncoder !== "undefined";
-      if (!hasCryptoSupport) {
-        console.warn("WebCrypto API is not supported. Code challenge method will default to use plain instead of sha256.");
-        return verifier;
-      }
-      const hashed = await sha256(verifier);
-      return btoa(hashed).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-    }
-    async function getCodeChallengeAndMethod(storage, storageKey, isPasswordRecovery = false) {
-      const codeVerifier = generatePKCEVerifier();
-      let storedCodeVerifier = codeVerifier;
-      if (isPasswordRecovery) {
-        storedCodeVerifier += "/PASSWORD_RECOVERY";
-      }
-      await (0, exports.setItemAsync)(storage, `${storageKey}-code-verifier`, storedCodeVerifier);
-      const codeChallenge = await generatePKCEChallenge(codeVerifier);
-      const codeChallengeMethod = codeVerifier === codeChallenge ? "plain" : "s256";
-      return [codeChallenge, codeChallengeMethod];
-    }
-    var API_VERSION_REGEX = /^2[0-9]{3}-(0[1-9]|1[0-2])-(0[1-9]|1[0-9]|2[0-9]|3[0-1])$/i;
-    function parseResponseAPIVersion(response) {
-      const apiVersion = response.headers.get(constants_1.API_VERSION_HEADER_NAME);
-      if (!apiVersion) {
-        return null;
-      }
-      if (!apiVersion.match(API_VERSION_REGEX)) {
-        return null;
-      }
-      try {
-        const date = /* @__PURE__ */ new Date(`${apiVersion}T00:00:00.0Z`);
-        return date;
-      } catch (e) {
-        return null;
-      }
-    }
-    function validateExp(exp) {
-      if (!exp) {
-        throw new Error("Missing exp claim");
-      }
-      const timeNow = Math.floor(Date.now() / 1e3);
-      if (exp <= timeNow) {
-        throw new Error("JWT has expired");
-      }
-    }
-    function getAlgorithm(alg) {
-      switch (alg) {
-        case "RS256":
-          return {
-            name: "RSASSA-PKCS1-v1_5",
-            hash: { name: "SHA-256" }
-          };
-        case "ES256":
-          return {
-            name: "ECDSA",
-            namedCurve: "P-256",
-            hash: { name: "SHA-256" }
-          };
-        default:
-          throw new Error("Invalid alg claim");
-      }
-    }
-    var UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-    function validateUUID(str) {
-      if (!UUID_REGEX.test(str)) {
-        throw new Error("@supabase/auth-js: Expected parameter to be UUID but is not");
-      }
-    }
-    function userNotAvailableProxy() {
-      const proxyTarget = {};
-      return new Proxy(proxyTarget, {
-        get: (target, prop) => {
-          if (prop === "__isUserNotAvailableProxy") {
-            return true;
-          }
-          if (typeof prop === "symbol") {
-            const sProp = prop.toString();
-            if (sProp === "Symbol(Symbol.toPrimitive)" || sProp === "Symbol(Symbol.toStringTag)" || sProp === "Symbol(util.inspect.custom)") {
-              return void 0;
-            }
-          }
-          throw new Error(`@supabase/auth-js: client was created with userStorage option and there was no user stored in the user storage. Accessing the "${prop}" property of the session object is not supported. Please use getUser() instead.`);
-        },
-        set: (_target, prop) => {
-          throw new Error(`@supabase/auth-js: client was created with userStorage option and there was no user stored in the user storage. Setting the "${prop}" property of the session object is not supported. Please use getUser() to fetch a user object you can manipulate.`);
-        },
-        deleteProperty: (_target, prop) => {
-          throw new Error(`@supabase/auth-js: client was created with userStorage option and there was no user stored in the user storage. Deleting the "${prop}" property of the session object is not supported. Please use getUser() to fetch a user object you can manipulate.`);
-        }
-      });
-    }
-    function insecureUserWarningProxy(user, suppressWarningRef) {
-      return new Proxy(user, {
-        get: (target, prop, receiver) => {
-          if (prop === "__isInsecureUserWarningProxy") {
-            return true;
-          }
-          if (typeof prop === "symbol") {
-            const sProp = prop.toString();
-            if (sProp === "Symbol(Symbol.toPrimitive)" || sProp === "Symbol(Symbol.toStringTag)" || sProp === "Symbol(util.inspect.custom)" || sProp === "Symbol(nodejs.util.inspect.custom)") {
-              return Reflect.get(target, prop, receiver);
-            }
-          }
-          if (!suppressWarningRef.value && typeof prop === "string") {
-            console.warn("Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.");
-            suppressWarningRef.value = true;
-          }
-          return Reflect.get(target, prop, receiver);
-        }
-      });
-    }
-    function deepClone(obj) {
-      return JSON.parse(JSON.stringify(obj));
-    }
+    API_VERSION_REGEX = /^2[0-9]{3}-(0[1-9]|1[0-2])-(0[1-9]|1[0-9]|2[0-9]|3[0-1])$/i;
+    UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/lib/fetch.js
-var require_fetch2 = __commonJS({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/lib/fetch.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.handleError = handleError;
-    exports._request = _request;
-    exports._sessionResponse = _sessionResponse;
-    exports._sessionResponsePassword = _sessionResponsePassword;
-    exports._userResponse = _userResponse;
-    exports._ssoResponse = _ssoResponse;
-    exports._generateLinkResponse = _generateLinkResponse;
-    exports._noResolveJsonResponse = _noResolveJsonResponse;
-    var tslib_1 = (init_tslib_es6(), __toCommonJS(tslib_es6_exports));
-    var constants_1 = require_constants3();
-    var helpers_1 = require_helpers2();
-    var errors_1 = require_errors();
-    var _getErrorMessage = (err) => err.msg || err.message || err.error_description || err.error || JSON.stringify(err);
-    var NETWORK_ERROR_CODES = [502, 503, 504];
-    async function handleError(error) {
-      var _a;
-      if (!(0, helpers_1.looksLikeFetchResponse)(error)) {
-        throw new errors_1.AuthRetryableFetchError(_getErrorMessage(error), 0);
-      }
-      if (NETWORK_ERROR_CODES.includes(error.status)) {
-        throw new errors_1.AuthRetryableFetchError(_getErrorMessage(error), error.status);
-      }
-      let data;
-      try {
-        data = await error.json();
-      } catch (e) {
-        throw new errors_1.AuthUnknownError(_getErrorMessage(e), e);
-      }
-      let errorCode = void 0;
-      const responseAPIVersion = (0, helpers_1.parseResponseAPIVersion)(error);
-      if (responseAPIVersion && responseAPIVersion.getTime() >= constants_1.API_VERSIONS["2024-01-01"].timestamp && typeof data === "object" && data && typeof data.code === "string") {
-        errorCode = data.code;
-      } else if (typeof data === "object" && data && typeof data.error_code === "string") {
-        errorCode = data.error_code;
-      }
-      if (!errorCode) {
-        if (typeof data === "object" && data && typeof data.weak_password === "object" && data.weak_password && Array.isArray(data.weak_password.reasons) && data.weak_password.reasons.length && data.weak_password.reasons.reduce((a, i) => a && typeof i === "string", true)) {
-          throw new errors_1.AuthWeakPasswordError(_getErrorMessage(data), error.status, data.weak_password.reasons);
-        }
-      } else if (errorCode === "weak_password") {
-        throw new errors_1.AuthWeakPasswordError(_getErrorMessage(data), error.status, ((_a = data.weak_password) === null || _a === void 0 ? void 0 : _a.reasons) || []);
-      } else if (errorCode === "session_not_found") {
-        throw new errors_1.AuthSessionMissingError();
-      }
-      throw new errors_1.AuthApiError(_getErrorMessage(data), error.status || 500, errorCode);
+// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/fetch.js
+async function handleError2(error) {
+  var _a;
+  if (!looksLikeFetchResponse(error)) {
+    throw new AuthRetryableFetchError(_getErrorMessage2(error), 0);
+  }
+  if (NETWORK_ERROR_CODES.includes(error.status)) {
+    throw new AuthRetryableFetchError(_getErrorMessage2(error), error.status);
+  }
+  let data;
+  try {
+    data = await error.json();
+  } catch (e) {
+    throw new AuthUnknownError(_getErrorMessage2(e), e);
+  }
+  let errorCode = void 0;
+  const responseAPIVersion = parseResponseAPIVersion(error);
+  if (responseAPIVersion && responseAPIVersion.getTime() >= API_VERSIONS["2024-01-01"].timestamp && typeof data === "object" && data && typeof data.code === "string") {
+    errorCode = data.code;
+  } else if (typeof data === "object" && data && typeof data.error_code === "string") {
+    errorCode = data.error_code;
+  }
+  if (!errorCode) {
+    if (typeof data === "object" && data && typeof data.weak_password === "object" && data.weak_password && Array.isArray(data.weak_password.reasons) && data.weak_password.reasons.length && data.weak_password.reasons.reduce((a, i) => a && typeof i === "string", true)) {
+      throw new AuthWeakPasswordError(_getErrorMessage2(data), error.status, data.weak_password.reasons);
     }
-    var _getRequestParams = (method, options, parameters, body) => {
+  } else if (errorCode === "weak_password") {
+    throw new AuthWeakPasswordError(_getErrorMessage2(data), error.status, ((_a = data.weak_password) === null || _a === void 0 ? void 0 : _a.reasons) || []);
+  } else if (errorCode === "session_not_found") {
+    throw new AuthSessionMissingError();
+  }
+  throw new AuthApiError(_getErrorMessage2(data), error.status || 500, errorCode);
+}
+async function _request(fetcher, method, url, options) {
+  var _a;
+  const headers = Object.assign({}, options === null || options === void 0 ? void 0 : options.headers);
+  if (!headers[API_VERSION_HEADER_NAME]) {
+    headers[API_VERSION_HEADER_NAME] = API_VERSIONS["2024-01-01"].name;
+  }
+  if (options === null || options === void 0 ? void 0 : options.jwt) {
+    headers["Authorization"] = `Bearer ${options.jwt}`;
+  }
+  const qs = (_a = options === null || options === void 0 ? void 0 : options.query) !== null && _a !== void 0 ? _a : {};
+  if (options === null || options === void 0 ? void 0 : options.redirectTo) {
+    qs["redirect_to"] = options.redirectTo;
+  }
+  const queryString = Object.keys(qs).length ? "?" + new URLSearchParams(qs).toString() : "";
+  const data = await _handleRequest2(fetcher, method, url + queryString, {
+    headers,
+    noResolveJson: options === null || options === void 0 ? void 0 : options.noResolveJson
+  }, {}, options === null || options === void 0 ? void 0 : options.body);
+  return (options === null || options === void 0 ? void 0 : options.xform) ? options === null || options === void 0 ? void 0 : options.xform(data) : { data: Object.assign({}, data), error: null };
+}
+async function _handleRequest2(fetcher, method, url, options, parameters, body) {
+  const requestParams = _getRequestParams2(method, options, parameters, body);
+  let result;
+  try {
+    result = await fetcher(url, Object.assign({}, requestParams));
+  } catch (e) {
+    console.error(e);
+    throw new AuthRetryableFetchError(_getErrorMessage2(e), 0);
+  }
+  if (!result.ok) {
+    await handleError2(result);
+  }
+  if (options === null || options === void 0 ? void 0 : options.noResolveJson) {
+    return result;
+  }
+  try {
+    return await result.json();
+  } catch (e) {
+    await handleError2(e);
+  }
+}
+function _sessionResponse(data) {
+  var _a;
+  let session = null;
+  if (hasSession(data)) {
+    session = Object.assign({}, data);
+    if (!data.expires_at) {
+      session.expires_at = expiresAt(data.expires_in);
+    }
+  }
+  const user = (_a = data.user) !== null && _a !== void 0 ? _a : data;
+  return { data: { session, user }, error: null };
+}
+function _sessionResponsePassword(data) {
+  const response = _sessionResponse(data);
+  if (!response.error && data.weak_password && typeof data.weak_password === "object" && Array.isArray(data.weak_password.reasons) && data.weak_password.reasons.length && data.weak_password.message && typeof data.weak_password.message === "string" && data.weak_password.reasons.reduce((a, i) => a && typeof i === "string", true)) {
+    response.data.weak_password = data.weak_password;
+  }
+  return response;
+}
+function _userResponse(data) {
+  var _a;
+  const user = (_a = data.user) !== null && _a !== void 0 ? _a : data;
+  return { data: { user }, error: null };
+}
+function _ssoResponse(data) {
+  return { data, error: null };
+}
+function _generateLinkResponse(data) {
+  const { action_link, email_otp, hashed_token, redirect_to, verification_type } = data, rest = __rest(data, ["action_link", "email_otp", "hashed_token", "redirect_to", "verification_type"]);
+  const properties = {
+    action_link,
+    email_otp,
+    hashed_token,
+    redirect_to,
+    verification_type
+  };
+  const user = Object.assign({}, rest);
+  return {
+    data: {
+      properties,
+      user
+    },
+    error: null
+  };
+}
+function _noResolveJsonResponse(data) {
+  return data;
+}
+function hasSession(data) {
+  return data.access_token && data.refresh_token && data.expires_in;
+}
+var _getErrorMessage2, NETWORK_ERROR_CODES, _getRequestParams2;
+var init_fetch = __esm({
+  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/fetch.js"() {
+    init_tslib_es6();
+    init_constants2();
+    init_helpers();
+    init_errors();
+    _getErrorMessage2 = (err) => err.msg || err.message || err.error_description || err.error || JSON.stringify(err);
+    NETWORK_ERROR_CODES = [502, 503, 504];
+    _getRequestParams2 = (method, options, parameters, body) => {
       const params = { method, headers: (options === null || options === void 0 ? void 0 : options.headers) || {} };
       if (method === "GET") {
         return params;
@@ -8574,122 +7744,27 @@ var require_fetch2 = __commonJS({
       params.body = JSON.stringify(body);
       return Object.assign(Object.assign({}, params), parameters);
     };
-    async function _request(fetcher, method, url, options) {
-      var _a;
-      const headers = Object.assign({}, options === null || options === void 0 ? void 0 : options.headers);
-      if (!headers[constants_1.API_VERSION_HEADER_NAME]) {
-        headers[constants_1.API_VERSION_HEADER_NAME] = constants_1.API_VERSIONS["2024-01-01"].name;
-      }
-      if (options === null || options === void 0 ? void 0 : options.jwt) {
-        headers["Authorization"] = `Bearer ${options.jwt}`;
-      }
-      const qs = (_a = options === null || options === void 0 ? void 0 : options.query) !== null && _a !== void 0 ? _a : {};
-      if (options === null || options === void 0 ? void 0 : options.redirectTo) {
-        qs["redirect_to"] = options.redirectTo;
-      }
-      const queryString = Object.keys(qs).length ? "?" + new URLSearchParams(qs).toString() : "";
-      const data = await _handleRequest(fetcher, method, url + queryString, {
-        headers,
-        noResolveJson: options === null || options === void 0 ? void 0 : options.noResolveJson
-      }, {}, options === null || options === void 0 ? void 0 : options.body);
-      return (options === null || options === void 0 ? void 0 : options.xform) ? options === null || options === void 0 ? void 0 : options.xform(data) : { data: Object.assign({}, data), error: null };
-    }
-    async function _handleRequest(fetcher, method, url, options, parameters, body) {
-      const requestParams = _getRequestParams(method, options, parameters, body);
-      let result;
-      try {
-        result = await fetcher(url, Object.assign({}, requestParams));
-      } catch (e) {
-        console.error(e);
-        throw new errors_1.AuthRetryableFetchError(_getErrorMessage(e), 0);
-      }
-      if (!result.ok) {
-        await handleError(result);
-      }
-      if (options === null || options === void 0 ? void 0 : options.noResolveJson) {
-        return result;
-      }
-      try {
-        return await result.json();
-      } catch (e) {
-        await handleError(e);
-      }
-    }
-    function _sessionResponse(data) {
-      var _a;
-      let session = null;
-      if (hasSession(data)) {
-        session = Object.assign({}, data);
-        if (!data.expires_at) {
-          session.expires_at = (0, helpers_1.expiresAt)(data.expires_in);
-        }
-      }
-      const user = (_a = data.user) !== null && _a !== void 0 ? _a : data;
-      return { data: { session, user }, error: null };
-    }
-    function _sessionResponsePassword(data) {
-      const response = _sessionResponse(data);
-      if (!response.error && data.weak_password && typeof data.weak_password === "object" && Array.isArray(data.weak_password.reasons) && data.weak_password.reasons.length && data.weak_password.message && typeof data.weak_password.message === "string" && data.weak_password.reasons.reduce((a, i) => a && typeof i === "string", true)) {
-        response.data.weak_password = data.weak_password;
-      }
-      return response;
-    }
-    function _userResponse(data) {
-      var _a;
-      const user = (_a = data.user) !== null && _a !== void 0 ? _a : data;
-      return { data: { user }, error: null };
-    }
-    function _ssoResponse(data) {
-      return { data, error: null };
-    }
-    function _generateLinkResponse(data) {
-      const { action_link, email_otp, hashed_token, redirect_to, verification_type } = data, rest = tslib_1.__rest(data, ["action_link", "email_otp", "hashed_token", "redirect_to", "verification_type"]);
-      const properties = {
-        action_link,
-        email_otp,
-        hashed_token,
-        redirect_to,
-        verification_type
-      };
-      const user = Object.assign({}, rest);
-      return {
-        data: {
-          properties,
-          user
-        },
-        error: null
-      };
-    }
-    function _noResolveJsonResponse(data) {
-      return data;
-    }
-    function hasSession(data) {
-      return data.access_token && data.refresh_token && data.expires_in;
-    }
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/lib/types.js
-var require_types2 = __commonJS({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/lib/types.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.SIGN_OUT_SCOPES = void 0;
-    exports.SIGN_OUT_SCOPES = ["global", "local", "others"];
+// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/types.js
+var SIGN_OUT_SCOPES;
+var init_types2 = __esm({
+  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/types.js"() {
+    SIGN_OUT_SCOPES = ["global", "local", "others"];
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/GoTrueAdminApi.js
-var require_GoTrueAdminApi = __commonJS({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/GoTrueAdminApi.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    var tslib_1 = (init_tslib_es6(), __toCommonJS(tslib_es6_exports));
-    var fetch_1 = require_fetch2();
-    var helpers_1 = require_helpers2();
-    var types_1 = require_types2();
-    var errors_1 = require_errors();
-    var GoTrueAdminApi2 = class {
+// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/GoTrueAdminApi.js
+var GoTrueAdminApi;
+var init_GoTrueAdminApi = __esm({
+  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/GoTrueAdminApi.js"() {
+    init_tslib_es6();
+    init_fetch();
+    init_helpers();
+    init_types2();
+    init_errors();
+    GoTrueAdminApi = class {
       /**
        * Creates an admin API client that can be used to manage users and OAuth clients.
        *
@@ -8706,7 +7781,7 @@ var require_GoTrueAdminApi = __commonJS({
       constructor({ url = "", headers = {}, fetch: fetch2 }) {
         this.url = url;
         this.headers = headers;
-        this.fetch = (0, helpers_1.resolveFetch)(fetch2);
+        this.fetch = resolveFetch3(fetch2);
         this.mfa = {
           listFactors: this._listFactors.bind(this),
           deleteFactor: this._deleteFactor.bind(this)
@@ -8725,19 +7800,19 @@ var require_GoTrueAdminApi = __commonJS({
        * @param jwt A valid, logged-in JWT.
        * @param scope The logout sope.
        */
-      async signOut(jwt, scope = types_1.SIGN_OUT_SCOPES[0]) {
-        if (types_1.SIGN_OUT_SCOPES.indexOf(scope) < 0) {
-          throw new Error(`@supabase/auth-js: Parameter scope must be one of ${types_1.SIGN_OUT_SCOPES.join(", ")}`);
+      async signOut(jwt, scope = SIGN_OUT_SCOPES[0]) {
+        if (SIGN_OUT_SCOPES.indexOf(scope) < 0) {
+          throw new Error(`@supabase/auth-js: Parameter scope must be one of ${SIGN_OUT_SCOPES.join(", ")}`);
         }
         try {
-          await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/logout?scope=${scope}`, {
+          await _request(this.fetch, "POST", `${this.url}/logout?scope=${scope}`, {
             headers: this.headers,
             jwt,
             noResolveJson: true
           });
           return { data: null, error: null };
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return { data: null, error };
           }
           throw error;
@@ -8750,14 +7825,14 @@ var require_GoTrueAdminApi = __commonJS({
        */
       async inviteUserByEmail(email, options = {}) {
         try {
-          return await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/invite`, {
+          return await _request(this.fetch, "POST", `${this.url}/invite`, {
             body: { email, data: options.data },
             headers: this.headers,
             redirectTo: options.redirectTo,
-            xform: fetch_1._userResponse
+            xform: _userResponse
           });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return { data: { user: null }, error };
           }
           throw error;
@@ -8772,20 +7847,20 @@ var require_GoTrueAdminApi = __commonJS({
        */
       async generateLink(params) {
         try {
-          const { options } = params, rest = tslib_1.__rest(params, ["options"]);
+          const { options } = params, rest = __rest(params, ["options"]);
           const body = Object.assign(Object.assign({}, rest), options);
           if ("newEmail" in rest) {
             body.new_email = rest === null || rest === void 0 ? void 0 : rest.newEmail;
             delete body["newEmail"];
           }
-          return await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/admin/generate_link`, {
+          return await _request(this.fetch, "POST", `${this.url}/admin/generate_link`, {
             body,
             headers: this.headers,
-            xform: fetch_1._generateLinkResponse,
+            xform: _generateLinkResponse,
             redirectTo: options === null || options === void 0 ? void 0 : options.redirectTo
           });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return {
               data: {
                 properties: null,
@@ -8804,13 +7879,13 @@ var require_GoTrueAdminApi = __commonJS({
        */
       async createUser(attributes) {
         try {
-          return await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/admin/users`, {
+          return await _request(this.fetch, "POST", `${this.url}/admin/users`, {
             body: attributes,
             headers: this.headers,
-            xform: fetch_1._userResponse
+            xform: _userResponse
           });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return { data: { user: null }, error };
           }
           throw error;
@@ -8826,14 +7901,14 @@ var require_GoTrueAdminApi = __commonJS({
         var _a, _b, _c, _d, _e, _f, _g;
         try {
           const pagination = { nextPage: null, lastPage: 0, total: 0 };
-          const response = await (0, fetch_1._request)(this.fetch, "GET", `${this.url}/admin/users`, {
+          const response = await _request(this.fetch, "GET", `${this.url}/admin/users`, {
             headers: this.headers,
             noResolveJson: true,
             query: {
               page: (_b = (_a = params === null || params === void 0 ? void 0 : params.page) === null || _a === void 0 ? void 0 : _a.toString()) !== null && _b !== void 0 ? _b : "",
               per_page: (_d = (_c = params === null || params === void 0 ? void 0 : params.perPage) === null || _c === void 0 ? void 0 : _c.toString()) !== null && _d !== void 0 ? _d : ""
             },
-            xform: fetch_1._noResolveJsonResponse
+            xform: _noResolveJsonResponse
           });
           if (response.error)
             throw response.error;
@@ -8850,7 +7925,7 @@ var require_GoTrueAdminApi = __commonJS({
           }
           return { data: Object.assign(Object.assign({}, users), pagination), error: null };
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return { data: { users: [] }, error };
           }
           throw error;
@@ -8864,14 +7939,14 @@ var require_GoTrueAdminApi = __commonJS({
        * This function should only be called on a server. Never expose your `service_role` key in the browser.
        */
       async getUserById(uid) {
-        (0, helpers_1.validateUUID)(uid);
+        validateUUID(uid);
         try {
-          return await (0, fetch_1._request)(this.fetch, "GET", `${this.url}/admin/users/${uid}`, {
+          return await _request(this.fetch, "GET", `${this.url}/admin/users/${uid}`, {
             headers: this.headers,
-            xform: fetch_1._userResponse
+            xform: _userResponse
           });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return { data: { user: null }, error };
           }
           throw error;
@@ -8885,15 +7960,15 @@ var require_GoTrueAdminApi = __commonJS({
        * This function should only be called on a server. Never expose your `service_role` key in the browser.
        */
       async updateUserById(uid, attributes) {
-        (0, helpers_1.validateUUID)(uid);
+        validateUUID(uid);
         try {
-          return await (0, fetch_1._request)(this.fetch, "PUT", `${this.url}/admin/users/${uid}`, {
+          return await _request(this.fetch, "PUT", `${this.url}/admin/users/${uid}`, {
             body: attributes,
             headers: this.headers,
-            xform: fetch_1._userResponse
+            xform: _userResponse
           });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return { data: { user: null }, error };
           }
           throw error;
@@ -8909,26 +7984,26 @@ var require_GoTrueAdminApi = __commonJS({
        * This function should only be called on a server. Never expose your `service_role` key in the browser.
        */
       async deleteUser(id, shouldSoftDelete = false) {
-        (0, helpers_1.validateUUID)(id);
+        validateUUID(id);
         try {
-          return await (0, fetch_1._request)(this.fetch, "DELETE", `${this.url}/admin/users/${id}`, {
+          return await _request(this.fetch, "DELETE", `${this.url}/admin/users/${id}`, {
             headers: this.headers,
             body: {
               should_soft_delete: shouldSoftDelete
             },
-            xform: fetch_1._userResponse
+            xform: _userResponse
           });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return { data: { user: null }, error };
           }
           throw error;
         }
       }
       async _listFactors(params) {
-        (0, helpers_1.validateUUID)(params.userId);
+        validateUUID(params.userId);
         try {
-          const { data, error } = await (0, fetch_1._request)(this.fetch, "GET", `${this.url}/admin/users/${params.userId}/factors`, {
+          const { data, error } = await _request(this.fetch, "GET", `${this.url}/admin/users/${params.userId}/factors`, {
             headers: this.headers,
             xform: (factors) => {
               return { data: { factors }, error: null };
@@ -8936,22 +8011,22 @@ var require_GoTrueAdminApi = __commonJS({
           });
           return { data, error };
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return { data: null, error };
           }
           throw error;
         }
       }
       async _deleteFactor(params) {
-        (0, helpers_1.validateUUID)(params.userId);
-        (0, helpers_1.validateUUID)(params.id);
+        validateUUID(params.userId);
+        validateUUID(params.id);
         try {
-          const data = await (0, fetch_1._request)(this.fetch, "DELETE", `${this.url}/admin/users/${params.userId}/factors/${params.id}`, {
+          const data = await _request(this.fetch, "DELETE", `${this.url}/admin/users/${params.userId}/factors/${params.id}`, {
             headers: this.headers
           });
           return { data, error: null };
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return { data: null, error };
           }
           throw error;
@@ -8967,14 +8042,14 @@ var require_GoTrueAdminApi = __commonJS({
         var _a, _b, _c, _d, _e, _f, _g;
         try {
           const pagination = { nextPage: null, lastPage: 0, total: 0 };
-          const response = await (0, fetch_1._request)(this.fetch, "GET", `${this.url}/admin/oauth/clients`, {
+          const response = await _request(this.fetch, "GET", `${this.url}/admin/oauth/clients`, {
             headers: this.headers,
             noResolveJson: true,
             query: {
               page: (_b = (_a = params === null || params === void 0 ? void 0 : params.page) === null || _a === void 0 ? void 0 : _a.toString()) !== null && _b !== void 0 ? _b : "",
               per_page: (_d = (_c = params === null || params === void 0 ? void 0 : params.perPage) === null || _c === void 0 ? void 0 : _c.toString()) !== null && _d !== void 0 ? _d : ""
             },
-            xform: fetch_1._noResolveJsonResponse
+            xform: _noResolveJsonResponse
           });
           if (response.error)
             throw response.error;
@@ -8991,7 +8066,7 @@ var require_GoTrueAdminApi = __commonJS({
           }
           return { data: Object.assign(Object.assign({}, clients), pagination), error: null };
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return { data: { clients: [] }, error };
           }
           throw error;
@@ -9005,7 +8080,7 @@ var require_GoTrueAdminApi = __commonJS({
        */
       async _createOAuthClient(params) {
         try {
-          return await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/admin/oauth/clients`, {
+          return await _request(this.fetch, "POST", `${this.url}/admin/oauth/clients`, {
             body: params,
             headers: this.headers,
             xform: (client) => {
@@ -9013,7 +8088,7 @@ var require_GoTrueAdminApi = __commonJS({
             }
           });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return { data: null, error };
           }
           throw error;
@@ -9027,14 +8102,14 @@ var require_GoTrueAdminApi = __commonJS({
        */
       async _getOAuthClient(clientId) {
         try {
-          return await (0, fetch_1._request)(this.fetch, "GET", `${this.url}/admin/oauth/clients/${clientId}`, {
+          return await _request(this.fetch, "GET", `${this.url}/admin/oauth/clients/${clientId}`, {
             headers: this.headers,
             xform: (client) => {
               return { data: client, error: null };
             }
           });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return { data: null, error };
           }
           throw error;
@@ -9048,7 +8123,7 @@ var require_GoTrueAdminApi = __commonJS({
        */
       async _updateOAuthClient(clientId, params) {
         try {
-          return await (0, fetch_1._request)(this.fetch, "PUT", `${this.url}/admin/oauth/clients/${clientId}`, {
+          return await _request(this.fetch, "PUT", `${this.url}/admin/oauth/clients/${clientId}`, {
             body: params,
             headers: this.headers,
             xform: (client) => {
@@ -9056,7 +8131,7 @@ var require_GoTrueAdminApi = __commonJS({
             }
           });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return { data: null, error };
           }
           throw error;
@@ -9070,13 +8145,13 @@ var require_GoTrueAdminApi = __commonJS({
        */
       async _deleteOAuthClient(clientId) {
         try {
-          await (0, fetch_1._request)(this.fetch, "DELETE", `${this.url}/admin/oauth/clients/${clientId}`, {
+          await _request(this.fetch, "DELETE", `${this.url}/admin/oauth/clients/${clientId}`, {
             headers: this.headers,
             noResolveJson: true
           });
           return { data: null, error: null };
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return { data: null, error };
           }
           throw error;
@@ -9090,276 +8165,364 @@ var require_GoTrueAdminApi = __commonJS({
        */
       async _regenerateOAuthClientSecret(clientId) {
         try {
-          return await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/admin/oauth/clients/${clientId}/regenerate_secret`, {
+          return await _request(this.fetch, "POST", `${this.url}/admin/oauth/clients/${clientId}/regenerate_secret`, {
             headers: this.headers,
             xform: (client) => {
               return { data: client, error: null };
             }
           });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return { data: null, error };
           }
           throw error;
         }
       }
     };
-    exports.default = GoTrueAdminApi2;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/lib/local-storage.js
-var require_local_storage = __commonJS({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/lib/local-storage.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.memoryLocalStorageAdapter = memoryLocalStorageAdapter;
-    function memoryLocalStorageAdapter(store3 = {}) {
-      return {
-        getItem: (key) => {
-          return store3[key] || null;
-        },
-        setItem: (key, value) => {
-          store3[key] = value;
-        },
-        removeItem: (key) => {
-          delete store3[key];
-        }
-      };
+// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/local-storage.js
+function memoryLocalStorageAdapter(store3 = {}) {
+  return {
+    getItem: (key) => {
+      return store3[key] || null;
+    },
+    setItem: (key, value) => {
+      store3[key] = value;
+    },
+    removeItem: (key) => {
+      delete store3[key];
     }
+  };
+}
+var init_local_storage = __esm({
+  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/local-storage.js"() {
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/lib/locks.js
-var require_locks = __commonJS({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/lib/locks.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.ProcessLockAcquireTimeoutError = exports.NavigatorLockAcquireTimeoutError = exports.LockAcquireTimeoutError = exports.internals = void 0;
-    exports.navigatorLock = navigatorLock2;
-    exports.processLock = processLock2;
-    var helpers_1 = require_helpers2();
-    exports.internals = {
+// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/locks.js
+async function navigatorLock(name, acquireTimeout, fn) {
+  if (internals.debug) {
+    console.log("@supabase/gotrue-js: navigatorLock: acquire lock", name, acquireTimeout);
+  }
+  const abortController = new globalThis.AbortController();
+  if (acquireTimeout > 0) {
+    setTimeout(() => {
+      abortController.abort();
+      if (internals.debug) {
+        console.log("@supabase/gotrue-js: navigatorLock acquire timed out", name);
+      }
+    }, acquireTimeout);
+  }
+  return await Promise.resolve().then(() => globalThis.navigator.locks.request(name, acquireTimeout === 0 ? {
+    mode: "exclusive",
+    ifAvailable: true
+  } : {
+    mode: "exclusive",
+    signal: abortController.signal
+  }, async (lock) => {
+    if (lock) {
+      if (internals.debug) {
+        console.log("@supabase/gotrue-js: navigatorLock: acquired", name, lock.name);
+      }
+      try {
+        return await fn();
+      } finally {
+        if (internals.debug) {
+          console.log("@supabase/gotrue-js: navigatorLock: released", name, lock.name);
+        }
+      }
+    } else {
+      if (acquireTimeout === 0) {
+        if (internals.debug) {
+          console.log("@supabase/gotrue-js: navigatorLock: not immediately available", name);
+        }
+        throw new NavigatorLockAcquireTimeoutError(`Acquiring an exclusive Navigator LockManager lock "${name}" immediately failed`);
+      } else {
+        if (internals.debug) {
+          try {
+            const result = await globalThis.navigator.locks.query();
+            console.log("@supabase/gotrue-js: Navigator LockManager state", JSON.stringify(result, null, "  "));
+          } catch (e) {
+            console.warn("@supabase/gotrue-js: Error when querying Navigator LockManager state", e);
+          }
+        }
+        console.warn("@supabase/gotrue-js: Navigator LockManager returned a null lock when using #request without ifAvailable set to true, it appears this browser is not following the LockManager spec https://developer.mozilla.org/en-US/docs/Web/API/LockManager/request");
+        return await fn();
+      }
+    }
+  }));
+}
+var internals, LockAcquireTimeoutError, NavigatorLockAcquireTimeoutError;
+var init_locks = __esm({
+  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/locks.js"() {
+    init_helpers();
+    internals = {
       /**
        * @experimental
        */
-      debug: !!(globalThis && (0, helpers_1.supportsLocalStorage)() && globalThis.localStorage && globalThis.localStorage.getItem("supabase.gotrue-js.locks.debug") === "true")
+      debug: !!(globalThis && supportsLocalStorage() && globalThis.localStorage && globalThis.localStorage.getItem("supabase.gotrue-js.locks.debug") === "true")
     };
-    var LockAcquireTimeoutError = class extends Error {
+    LockAcquireTimeoutError = class extends Error {
       constructor(message) {
         super(message);
         this.isAcquireTimeout = true;
       }
     };
-    exports.LockAcquireTimeoutError = LockAcquireTimeoutError;
-    var NavigatorLockAcquireTimeoutError2 = class extends LockAcquireTimeoutError {
+    NavigatorLockAcquireTimeoutError = class extends LockAcquireTimeoutError {
     };
-    exports.NavigatorLockAcquireTimeoutError = NavigatorLockAcquireTimeoutError2;
-    var ProcessLockAcquireTimeoutError = class extends LockAcquireTimeoutError {
-    };
-    exports.ProcessLockAcquireTimeoutError = ProcessLockAcquireTimeoutError;
-    async function navigatorLock2(name, acquireTimeout, fn) {
-      if (exports.internals.debug) {
-        console.log("@supabase/gotrue-js: navigatorLock: acquire lock", name, acquireTimeout);
-      }
-      const abortController = new globalThis.AbortController();
-      if (acquireTimeout > 0) {
-        setTimeout(() => {
-          abortController.abort();
-          if (exports.internals.debug) {
-            console.log("@supabase/gotrue-js: navigatorLock acquire timed out", name);
-          }
-        }, acquireTimeout);
-      }
-      return await Promise.resolve().then(() => globalThis.navigator.locks.request(name, acquireTimeout === 0 ? {
-        mode: "exclusive",
-        ifAvailable: true
-      } : {
-        mode: "exclusive",
-        signal: abortController.signal
-      }, async (lock) => {
-        if (lock) {
-          if (exports.internals.debug) {
-            console.log("@supabase/gotrue-js: navigatorLock: acquired", name, lock.name);
-          }
-          try {
-            return await fn();
-          } finally {
-            if (exports.internals.debug) {
-              console.log("@supabase/gotrue-js: navigatorLock: released", name, lock.name);
-            }
-          }
-        } else {
-          if (acquireTimeout === 0) {
-            if (exports.internals.debug) {
-              console.log("@supabase/gotrue-js: navigatorLock: not immediately available", name);
-            }
-            throw new NavigatorLockAcquireTimeoutError2(`Acquiring an exclusive Navigator LockManager lock "${name}" immediately failed`);
-          } else {
-            if (exports.internals.debug) {
-              try {
-                const result = await globalThis.navigator.locks.query();
-                console.log("@supabase/gotrue-js: Navigator LockManager state", JSON.stringify(result, null, "  "));
-              } catch (e) {
-                console.warn("@supabase/gotrue-js: Error when querying Navigator LockManager state", e);
-              }
-            }
-            console.warn("@supabase/gotrue-js: Navigator LockManager returned a null lock when using #request without ifAvailable set to true, it appears this browser is not following the LockManager spec https://developer.mozilla.org/en-US/docs/Web/API/LockManager/request");
-            return await fn();
-          }
-        }
-      }));
-    }
-    var PROCESS_LOCKS = {};
-    async function processLock2(name, acquireTimeout, fn) {
-      var _a;
-      const previousOperation = (_a = PROCESS_LOCKS[name]) !== null && _a !== void 0 ? _a : Promise.resolve();
-      const currentOperation = Promise.race([
-        previousOperation.catch(() => {
-          return null;
-        }),
-        acquireTimeout >= 0 ? new Promise((_, reject) => {
-          setTimeout(() => {
-            console.warn(`@supabase/gotrue-js: Lock "${name}" acquisition timed out after ${acquireTimeout}ms. This may be caused by another operation holding the lock. Consider increasing lockAcquireTimeout or checking for stuck operations.`);
-            reject(new ProcessLockAcquireTimeoutError(`Acquiring process lock with name "${name}" timed out`));
-          }, acquireTimeout);
-        }) : null
-      ].filter((x) => x)).catch((e) => {
-        if (e && e.isAcquireTimeout) {
-          throw e;
-        }
-        return null;
-      }).then(async () => {
-        return await fn();
-      });
-      PROCESS_LOCKS[name] = currentOperation.catch(async (e) => {
-        if (e && e.isAcquireTimeout) {
-          await previousOperation;
-          return null;
-        }
-        throw e;
-      });
-      return await currentOperation;
-    }
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/lib/polyfills.js
-var require_polyfills = __commonJS({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/lib/polyfills.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.polyfillGlobalThis = polyfillGlobalThis;
-    function polyfillGlobalThis() {
-      if (typeof globalThis === "object")
-        return;
-      try {
-        Object.defineProperty(Object.prototype, "__magic__", {
-          get: function() {
-            return this;
-          },
-          configurable: true
-        });
-        __magic__.globalThis = __magic__;
-        delete Object.prototype.__magic__;
-      } catch (e) {
-        if (typeof self !== "undefined") {
-          self.globalThis = self;
-        }
-      }
+// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/polyfills.js
+function polyfillGlobalThis() {
+  if (typeof globalThis === "object")
+    return;
+  try {
+    Object.defineProperty(Object.prototype, "__magic__", {
+      get: function() {
+        return this;
+      },
+      configurable: true
+    });
+    __magic__.globalThis = __magic__;
+    delete Object.prototype.__magic__;
+  } catch (e) {
+    if (typeof self !== "undefined") {
+      self.globalThis = self;
     }
+  }
+}
+var init_polyfills = __esm({
+  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/polyfills.js"() {
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/lib/web3/ethereum.js
-var require_ethereum = __commonJS({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/lib/web3/ethereum.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.getAddress = getAddress;
-    exports.fromHex = fromHex;
-    exports.toHex = toHex;
-    exports.createSiweMessage = createSiweMessage;
-    function getAddress(address) {
-      if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
-        throw new Error(`@supabase/auth-js: Address "${address}" is invalid.`);
-      }
-      return address.toLowerCase();
-    }
-    function fromHex(hex) {
-      return parseInt(hex, 16);
-    }
-    function toHex(value) {
-      const bytes = new TextEncoder().encode(value);
-      const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-      return "0x" + hex;
-    }
-    function createSiweMessage(parameters) {
-      var _a;
-      const { chainId, domain, expirationTime, issuedAt = /* @__PURE__ */ new Date(), nonce, notBefore, requestId, resources, scheme, uri, version } = parameters;
-      {
-        if (!Number.isInteger(chainId))
-          throw new Error(`@supabase/auth-js: Invalid SIWE message field "chainId". Chain ID must be a EIP-155 chain ID. Provided value: ${chainId}`);
-        if (!domain)
-          throw new Error(`@supabase/auth-js: Invalid SIWE message field "domain". Domain must be provided.`);
-        if (nonce && nonce.length < 8)
-          throw new Error(`@supabase/auth-js: Invalid SIWE message field "nonce". Nonce must be at least 8 characters. Provided value: ${nonce}`);
-        if (!uri)
-          throw new Error(`@supabase/auth-js: Invalid SIWE message field "uri". URI must be provided.`);
-        if (version !== "1")
-          throw new Error(`@supabase/auth-js: Invalid SIWE message field "version". Version must be '1'. Provided value: ${version}`);
-        if ((_a = parameters.statement) === null || _a === void 0 ? void 0 : _a.includes("\n"))
-          throw new Error(`@supabase/auth-js: Invalid SIWE message field "statement". Statement must not include '\\n'. Provided value: ${parameters.statement}`);
-      }
-      const address = getAddress(parameters.address);
-      const origin = scheme ? `${scheme}://${domain}` : domain;
-      const statement = parameters.statement ? `${parameters.statement}
+// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/web3/ethereum.js
+function getAddress(address) {
+  if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
+    throw new Error(`@supabase/auth-js: Address "${address}" is invalid.`);
+  }
+  return address.toLowerCase();
+}
+function fromHex(hex) {
+  return parseInt(hex, 16);
+}
+function toHex(value) {
+  const bytes = new TextEncoder().encode(value);
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return "0x" + hex;
+}
+function createSiweMessage(parameters) {
+  var _a;
+  const { chainId, domain, expirationTime, issuedAt = /* @__PURE__ */ new Date(), nonce, notBefore, requestId, resources, scheme, uri, version: version5 } = parameters;
+  {
+    if (!Number.isInteger(chainId))
+      throw new Error(`@supabase/auth-js: Invalid SIWE message field "chainId". Chain ID must be a EIP-155 chain ID. Provided value: ${chainId}`);
+    if (!domain)
+      throw new Error(`@supabase/auth-js: Invalid SIWE message field "domain". Domain must be provided.`);
+    if (nonce && nonce.length < 8)
+      throw new Error(`@supabase/auth-js: Invalid SIWE message field "nonce". Nonce must be at least 8 characters. Provided value: ${nonce}`);
+    if (!uri)
+      throw new Error(`@supabase/auth-js: Invalid SIWE message field "uri". URI must be provided.`);
+    if (version5 !== "1")
+      throw new Error(`@supabase/auth-js: Invalid SIWE message field "version". Version must be '1'. Provided value: ${version5}`);
+    if ((_a = parameters.statement) === null || _a === void 0 ? void 0 : _a.includes("\n"))
+      throw new Error(`@supabase/auth-js: Invalid SIWE message field "statement". Statement must not include '\\n'. Provided value: ${parameters.statement}`);
+  }
+  const address = getAddress(parameters.address);
+  const origin = scheme ? `${scheme}://${domain}` : domain;
+  const statement = parameters.statement ? `${parameters.statement}
 ` : "";
-      const prefix = `${origin} wants you to sign in with your Ethereum account:
+  const prefix = `${origin} wants you to sign in with your Ethereum account:
 ${address}
 
 ${statement}`;
-      let suffix = `URI: ${uri}
-Version: ${version}
+  let suffix = `URI: ${uri}
+Version: ${version5}
 Chain ID: ${chainId}${nonce ? `
 Nonce: ${nonce}` : ""}
 Issued At: ${issuedAt.toISOString()}`;
-      if (expirationTime)
-        suffix += `
+  if (expirationTime)
+    suffix += `
 Expiration Time: ${expirationTime.toISOString()}`;
-      if (notBefore)
-        suffix += `
+  if (notBefore)
+    suffix += `
 Not Before: ${notBefore.toISOString()}`;
-      if (requestId)
-        suffix += `
+  if (requestId)
+    suffix += `
 Request ID: ${requestId}`;
-      if (resources) {
-        let content = "\nResources:";
-        for (const resource of resources) {
-          if (!resource || typeof resource !== "string")
-            throw new Error(`@supabase/auth-js: Invalid SIWE message field "resources". Every resource must be a valid string. Provided value: ${resource}`);
-          content += `
+  if (resources) {
+    let content = "\nResources:";
+    for (const resource of resources) {
+      if (!resource || typeof resource !== "string")
+        throw new Error(`@supabase/auth-js: Invalid SIWE message field "resources". Every resource must be a valid string. Provided value: ${resource}`);
+      content += `
 - ${resource}`;
-        }
-        suffix += content;
-      }
-      return `${prefix}
-${suffix}`;
     }
+    suffix += content;
+  }
+  return `${prefix}
+${suffix}`;
+}
+var init_ethereum = __esm({
+  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/web3/ethereum.js"() {
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/lib/webauthn.errors.js
-var require_webauthn_errors = __commonJS({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/lib/webauthn.errors.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.WebAuthnUnknownError = exports.WebAuthnError = void 0;
-    exports.isWebAuthnError = isWebAuthnError;
-    exports.identifyRegistrationError = identifyRegistrationError;
-    exports.identifyAuthenticationError = identifyAuthenticationError;
-    var webauthn_1 = require_webauthn();
-    var WebAuthnError = class extends Error {
+// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/webauthn.errors.js
+function identifyRegistrationError({ error, options }) {
+  var _a, _b, _c;
+  const { publicKey } = options;
+  if (!publicKey) {
+    throw Error("options was missing required publicKey property");
+  }
+  if (error.name === "AbortError") {
+    if (options.signal instanceof AbortSignal) {
+      return new WebAuthnError({
+        message: "Registration ceremony was sent an abort signal",
+        code: "ERROR_CEREMONY_ABORTED",
+        cause: error
+      });
+    }
+  } else if (error.name === "ConstraintError") {
+    if (((_a = publicKey.authenticatorSelection) === null || _a === void 0 ? void 0 : _a.requireResidentKey) === true) {
+      return new WebAuthnError({
+        message: "Discoverable credentials were required but no available authenticator supported it",
+        code: "ERROR_AUTHENTICATOR_MISSING_DISCOVERABLE_CREDENTIAL_SUPPORT",
+        cause: error
+      });
+    } else if (
+      // @ts-ignore: `mediation` doesn't yet exist on CredentialCreationOptions but it's possible as of Sept 2024
+      options.mediation === "conditional" && ((_b = publicKey.authenticatorSelection) === null || _b === void 0 ? void 0 : _b.userVerification) === "required"
+    ) {
+      return new WebAuthnError({
+        message: "User verification was required during automatic registration but it could not be performed",
+        code: "ERROR_AUTO_REGISTER_USER_VERIFICATION_FAILURE",
+        cause: error
+      });
+    } else if (((_c = publicKey.authenticatorSelection) === null || _c === void 0 ? void 0 : _c.userVerification) === "required") {
+      return new WebAuthnError({
+        message: "User verification was required but no available authenticator supported it",
+        code: "ERROR_AUTHENTICATOR_MISSING_USER_VERIFICATION_SUPPORT",
+        cause: error
+      });
+    }
+  } else if (error.name === "InvalidStateError") {
+    return new WebAuthnError({
+      message: "The authenticator was previously registered",
+      code: "ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED",
+      cause: error
+    });
+  } else if (error.name === "NotAllowedError") {
+    return new WebAuthnError({
+      message: error.message,
+      code: "ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY",
+      cause: error
+    });
+  } else if (error.name === "NotSupportedError") {
+    const validPubKeyCredParams = publicKey.pubKeyCredParams.filter((param) => param.type === "public-key");
+    if (validPubKeyCredParams.length === 0) {
+      return new WebAuthnError({
+        message: 'No entry in pubKeyCredParams was of type "public-key"',
+        code: "ERROR_MALFORMED_PUBKEYCREDPARAMS",
+        cause: error
+      });
+    }
+    return new WebAuthnError({
+      message: "No available authenticator supported any of the specified pubKeyCredParams algorithms",
+      code: "ERROR_AUTHENTICATOR_NO_SUPPORTED_PUBKEYCREDPARAMS_ALG",
+      cause: error
+    });
+  } else if (error.name === "SecurityError") {
+    const effectiveDomain = window.location.hostname;
+    if (!isValidDomain(effectiveDomain)) {
+      return new WebAuthnError({
+        message: `${window.location.hostname} is an invalid domain`,
+        code: "ERROR_INVALID_DOMAIN",
+        cause: error
+      });
+    } else if (publicKey.rp.id !== effectiveDomain) {
+      return new WebAuthnError({
+        message: `The RP ID "${publicKey.rp.id}" is invalid for this domain`,
+        code: "ERROR_INVALID_RP_ID",
+        cause: error
+      });
+    }
+  } else if (error.name === "TypeError") {
+    if (publicKey.user.id.byteLength < 1 || publicKey.user.id.byteLength > 64) {
+      return new WebAuthnError({
+        message: "User ID was not between 1 and 64 characters",
+        code: "ERROR_INVALID_USER_ID_LENGTH",
+        cause: error
+      });
+    }
+  } else if (error.name === "UnknownError") {
+    return new WebAuthnError({
+      message: "The authenticator was unable to process the specified options, or could not create a new credential",
+      code: "ERROR_AUTHENTICATOR_GENERAL_ERROR",
+      cause: error
+    });
+  }
+  return new WebAuthnError({
+    message: "a Non-Webauthn related error has occurred",
+    code: "ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY",
+    cause: error
+  });
+}
+function identifyAuthenticationError({ error, options }) {
+  const { publicKey } = options;
+  if (!publicKey) {
+    throw Error("options was missing required publicKey property");
+  }
+  if (error.name === "AbortError") {
+    if (options.signal instanceof AbortSignal) {
+      return new WebAuthnError({
+        message: "Authentication ceremony was sent an abort signal",
+        code: "ERROR_CEREMONY_ABORTED",
+        cause: error
+      });
+    }
+  } else if (error.name === "NotAllowedError") {
+    return new WebAuthnError({
+      message: error.message,
+      code: "ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY",
+      cause: error
+    });
+  } else if (error.name === "SecurityError") {
+    const effectiveDomain = window.location.hostname;
+    if (!isValidDomain(effectiveDomain)) {
+      return new WebAuthnError({
+        message: `${window.location.hostname} is an invalid domain`,
+        code: "ERROR_INVALID_DOMAIN",
+        cause: error
+      });
+    } else if (publicKey.rpId !== effectiveDomain) {
+      return new WebAuthnError({
+        message: `The RP ID "${publicKey.rpId}" is invalid for this domain`,
+        code: "ERROR_INVALID_RP_ID",
+        cause: error
+      });
+    }
+  } else if (error.name === "UnknownError") {
+    return new WebAuthnError({
+      message: "The authenticator was unable to process the specified options, or could not create a new assertion signature",
+      code: "ERROR_AUTHENTICATOR_GENERAL_ERROR",
+      cause: error
+    });
+  }
+  return new WebAuthnError({
+    message: "a Non-Webauthn related error has occurred",
+    code: "ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY",
+    cause: error
+  });
+}
+var WebAuthnError, WebAuthnUnknownError;
+var init_webauthn_errors = __esm({
+  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/webauthn.errors.js"() {
+    init_webauthn();
+    WebAuthnError = class extends Error {
       constructor({ message, code, cause, name }) {
         var _a;
         super(message, { cause });
@@ -9368,8 +8531,7 @@ var require_webauthn_errors = __commonJS({
         this.code = code;
       }
     };
-    exports.WebAuthnError = WebAuthnError;
-    var WebAuthnUnknownError = class extends WebAuthnError {
+    WebAuthnUnknownError = class extends WebAuthnError {
       constructor(message, originalError) {
         super({
           code: "ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY",
@@ -9380,192 +8542,226 @@ var require_webauthn_errors = __commonJS({
         this.originalError = originalError;
       }
     };
-    exports.WebAuthnUnknownError = WebAuthnUnknownError;
-    function isWebAuthnError(error) {
-      return typeof error === "object" && error !== null && "__isWebAuthnError" in error;
-    }
-    function identifyRegistrationError({ error, options }) {
-      var _a, _b, _c;
-      const { publicKey } = options;
-      if (!publicKey) {
-        throw Error("options was missing required publicKey property");
-      }
-      if (error.name === "AbortError") {
-        if (options.signal instanceof AbortSignal) {
-          return new WebAuthnError({
-            message: "Registration ceremony was sent an abort signal",
-            code: "ERROR_CEREMONY_ABORTED",
-            cause: error
-          });
-        }
-      } else if (error.name === "ConstraintError") {
-        if (((_a = publicKey.authenticatorSelection) === null || _a === void 0 ? void 0 : _a.requireResidentKey) === true) {
-          return new WebAuthnError({
-            message: "Discoverable credentials were required but no available authenticator supported it",
-            code: "ERROR_AUTHENTICATOR_MISSING_DISCOVERABLE_CREDENTIAL_SUPPORT",
-            cause: error
-          });
-        } else if (
-          // @ts-ignore: `mediation` doesn't yet exist on CredentialCreationOptions but it's possible as of Sept 2024
-          options.mediation === "conditional" && ((_b = publicKey.authenticatorSelection) === null || _b === void 0 ? void 0 : _b.userVerification) === "required"
-        ) {
-          return new WebAuthnError({
-            message: "User verification was required during automatic registration but it could not be performed",
-            code: "ERROR_AUTO_REGISTER_USER_VERIFICATION_FAILURE",
-            cause: error
-          });
-        } else if (((_c = publicKey.authenticatorSelection) === null || _c === void 0 ? void 0 : _c.userVerification) === "required") {
-          return new WebAuthnError({
-            message: "User verification was required but no available authenticator supported it",
-            code: "ERROR_AUTHENTICATOR_MISSING_USER_VERIFICATION_SUPPORT",
-            cause: error
-          });
-        }
-      } else if (error.name === "InvalidStateError") {
-        return new WebAuthnError({
-          message: "The authenticator was previously registered",
-          code: "ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED",
-          cause: error
-        });
-      } else if (error.name === "NotAllowedError") {
-        return new WebAuthnError({
-          message: error.message,
-          code: "ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY",
-          cause: error
-        });
-      } else if (error.name === "NotSupportedError") {
-        const validPubKeyCredParams = publicKey.pubKeyCredParams.filter((param) => param.type === "public-key");
-        if (validPubKeyCredParams.length === 0) {
-          return new WebAuthnError({
-            message: 'No entry in pubKeyCredParams was of type "public-key"',
-            code: "ERROR_MALFORMED_PUBKEYCREDPARAMS",
-            cause: error
-          });
-        }
-        return new WebAuthnError({
-          message: "No available authenticator supported any of the specified pubKeyCredParams algorithms",
-          code: "ERROR_AUTHENTICATOR_NO_SUPPORTED_PUBKEYCREDPARAMS_ALG",
-          cause: error
-        });
-      } else if (error.name === "SecurityError") {
-        const effectiveDomain = window.location.hostname;
-        if (!(0, webauthn_1.isValidDomain)(effectiveDomain)) {
-          return new WebAuthnError({
-            message: `${window.location.hostname} is an invalid domain`,
-            code: "ERROR_INVALID_DOMAIN",
-            cause: error
-          });
-        } else if (publicKey.rp.id !== effectiveDomain) {
-          return new WebAuthnError({
-            message: `The RP ID "${publicKey.rp.id}" is invalid for this domain`,
-            code: "ERROR_INVALID_RP_ID",
-            cause: error
-          });
-        }
-      } else if (error.name === "TypeError") {
-        if (publicKey.user.id.byteLength < 1 || publicKey.user.id.byteLength > 64) {
-          return new WebAuthnError({
-            message: "User ID was not between 1 and 64 characters",
-            code: "ERROR_INVALID_USER_ID_LENGTH",
-            cause: error
-          });
-        }
-      } else if (error.name === "UnknownError") {
-        return new WebAuthnError({
-          message: "The authenticator was unable to process the specified options, or could not create a new credential",
-          code: "ERROR_AUTHENTICATOR_GENERAL_ERROR",
-          cause: error
-        });
-      }
-      return new WebAuthnError({
-        message: "a Non-Webauthn related error has occurred",
-        code: "ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY",
-        cause: error
-      });
-    }
-    function identifyAuthenticationError({ error, options }) {
-      const { publicKey } = options;
-      if (!publicKey) {
-        throw Error("options was missing required publicKey property");
-      }
-      if (error.name === "AbortError") {
-        if (options.signal instanceof AbortSignal) {
-          return new WebAuthnError({
-            message: "Authentication ceremony was sent an abort signal",
-            code: "ERROR_CEREMONY_ABORTED",
-            cause: error
-          });
-        }
-      } else if (error.name === "NotAllowedError") {
-        return new WebAuthnError({
-          message: error.message,
-          code: "ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY",
-          cause: error
-        });
-      } else if (error.name === "SecurityError") {
-        const effectiveDomain = window.location.hostname;
-        if (!(0, webauthn_1.isValidDomain)(effectiveDomain)) {
-          return new WebAuthnError({
-            message: `${window.location.hostname} is an invalid domain`,
-            code: "ERROR_INVALID_DOMAIN",
-            cause: error
-          });
-        } else if (publicKey.rpId !== effectiveDomain) {
-          return new WebAuthnError({
-            message: `The RP ID "${publicKey.rpId}" is invalid for this domain`,
-            code: "ERROR_INVALID_RP_ID",
-            cause: error
-          });
-        }
-      } else if (error.name === "UnknownError") {
-        return new WebAuthnError({
-          message: "The authenticator was unable to process the specified options, or could not create a new assertion signature",
-          code: "ERROR_AUTHENTICATOR_GENERAL_ERROR",
-          cause: error
-        });
-      }
-      return new WebAuthnError({
-        message: "a Non-Webauthn related error has occurred",
-        code: "ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY",
-        cause: error
-      });
-    }
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/lib/webauthn.js
-var require_webauthn = __commonJS({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/lib/webauthn.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.WebAuthnApi = exports.DEFAULT_REQUEST_OPTIONS = exports.DEFAULT_CREATION_OPTIONS = exports.webAuthnAbortService = exports.WebAuthnAbortService = exports.identifyAuthenticationError = exports.identifyRegistrationError = exports.isWebAuthnError = exports.WebAuthnError = void 0;
-    exports.deserializeCredentialCreationOptions = deserializeCredentialCreationOptions;
-    exports.deserializeCredentialRequestOptions = deserializeCredentialRequestOptions;
-    exports.serializeCredentialCreationResponse = serializeCredentialCreationResponse;
-    exports.serializeCredentialRequestResponse = serializeCredentialRequestResponse;
-    exports.isValidDomain = isValidDomain;
-    exports.createCredential = createCredential;
-    exports.getCredential = getCredential;
-    exports.mergeCredentialCreationOptions = mergeCredentialCreationOptions;
-    exports.mergeCredentialRequestOptions = mergeCredentialRequestOptions;
-    var tslib_1 = (init_tslib_es6(), __toCommonJS(tslib_es6_exports));
-    var base64url_1 = require_base64url();
-    var errors_1 = require_errors();
-    var helpers_1 = require_helpers2();
-    var webauthn_errors_1 = require_webauthn_errors();
-    Object.defineProperty(exports, "identifyAuthenticationError", { enumerable: true, get: function() {
-      return webauthn_errors_1.identifyAuthenticationError;
-    } });
-    Object.defineProperty(exports, "identifyRegistrationError", { enumerable: true, get: function() {
-      return webauthn_errors_1.identifyRegistrationError;
-    } });
-    Object.defineProperty(exports, "isWebAuthnError", { enumerable: true, get: function() {
-      return webauthn_errors_1.isWebAuthnError;
-    } });
-    Object.defineProperty(exports, "WebAuthnError", { enumerable: true, get: function() {
-      return webauthn_errors_1.WebAuthnError;
-    } });
-    var WebAuthnAbortService = class {
+// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/webauthn.js
+function deserializeCredentialCreationOptions(options) {
+  if (!options) {
+    throw new Error("Credential creation options are required");
+  }
+  if (typeof PublicKeyCredential !== "undefined" && "parseCreationOptionsFromJSON" in PublicKeyCredential && typeof PublicKeyCredential.parseCreationOptionsFromJSON === "function") {
+    return PublicKeyCredential.parseCreationOptionsFromJSON(
+      /** we assert the options here as typescript still doesn't know about future webauthn types */
+      options
+    );
+  }
+  const { challenge: challengeStr, user: userOpts, excludeCredentials } = options, restOptions = __rest(
+    options,
+    ["challenge", "user", "excludeCredentials"]
+  );
+  const challenge = base64UrlToUint8Array(challengeStr).buffer;
+  const user = Object.assign(Object.assign({}, userOpts), { id: base64UrlToUint8Array(userOpts.id).buffer });
+  const result = Object.assign(Object.assign({}, restOptions), {
+    challenge,
+    user
+  });
+  if (excludeCredentials && excludeCredentials.length > 0) {
+    result.excludeCredentials = new Array(excludeCredentials.length);
+    for (let i = 0; i < excludeCredentials.length; i++) {
+      const cred = excludeCredentials[i];
+      result.excludeCredentials[i] = Object.assign(Object.assign({}, cred), {
+        id: base64UrlToUint8Array(cred.id).buffer,
+        type: cred.type || "public-key",
+        // Cast transports to handle future transport types like "cable"
+        transports: cred.transports
+      });
+    }
+  }
+  return result;
+}
+function deserializeCredentialRequestOptions(options) {
+  if (!options) {
+    throw new Error("Credential request options are required");
+  }
+  if (typeof PublicKeyCredential !== "undefined" && "parseRequestOptionsFromJSON" in PublicKeyCredential && typeof PublicKeyCredential.parseRequestOptionsFromJSON === "function") {
+    return PublicKeyCredential.parseRequestOptionsFromJSON(options);
+  }
+  const { challenge: challengeStr, allowCredentials } = options, restOptions = __rest(
+    options,
+    ["challenge", "allowCredentials"]
+  );
+  const challenge = base64UrlToUint8Array(challengeStr).buffer;
+  const result = Object.assign(Object.assign({}, restOptions), { challenge });
+  if (allowCredentials && allowCredentials.length > 0) {
+    result.allowCredentials = new Array(allowCredentials.length);
+    for (let i = 0; i < allowCredentials.length; i++) {
+      const cred = allowCredentials[i];
+      result.allowCredentials[i] = Object.assign(Object.assign({}, cred), {
+        id: base64UrlToUint8Array(cred.id).buffer,
+        type: cred.type || "public-key",
+        // Cast transports to handle future transport types like "cable"
+        transports: cred.transports
+      });
+    }
+  }
+  return result;
+}
+function serializeCredentialCreationResponse(credential) {
+  var _a;
+  if ("toJSON" in credential && typeof credential.toJSON === "function") {
+    return credential.toJSON();
+  }
+  const credentialWithAttachment = credential;
+  return {
+    id: credential.id,
+    rawId: credential.id,
+    response: {
+      attestationObject: bytesToBase64URL(new Uint8Array(credential.response.attestationObject)),
+      clientDataJSON: bytesToBase64URL(new Uint8Array(credential.response.clientDataJSON))
+    },
+    type: "public-key",
+    clientExtensionResults: credential.getClientExtensionResults(),
+    // Convert null to undefined and cast to AuthenticatorAttachment type
+    authenticatorAttachment: (_a = credentialWithAttachment.authenticatorAttachment) !== null && _a !== void 0 ? _a : void 0
+  };
+}
+function serializeCredentialRequestResponse(credential) {
+  var _a;
+  if ("toJSON" in credential && typeof credential.toJSON === "function") {
+    return credential.toJSON();
+  }
+  const credentialWithAttachment = credential;
+  const clientExtensionResults = credential.getClientExtensionResults();
+  const assertionResponse = credential.response;
+  return {
+    id: credential.id,
+    rawId: credential.id,
+    // W3C spec expects rawId to match id for JSON format
+    response: {
+      authenticatorData: bytesToBase64URL(new Uint8Array(assertionResponse.authenticatorData)),
+      clientDataJSON: bytesToBase64URL(new Uint8Array(assertionResponse.clientDataJSON)),
+      signature: bytesToBase64URL(new Uint8Array(assertionResponse.signature)),
+      userHandle: assertionResponse.userHandle ? bytesToBase64URL(new Uint8Array(assertionResponse.userHandle)) : void 0
+    },
+    type: "public-key",
+    clientExtensionResults,
+    // Convert null to undefined and cast to AuthenticatorAttachment type
+    authenticatorAttachment: (_a = credentialWithAttachment.authenticatorAttachment) !== null && _a !== void 0 ? _a : void 0
+  };
+}
+function isValidDomain(hostname) {
+  return (
+    // Consider localhost valid as well since it's okay wrt Secure Contexts
+    hostname === "localhost" || /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/i.test(hostname)
+  );
+}
+function browserSupportsWebAuthn() {
+  var _a, _b;
+  return !!(isBrowser() && "PublicKeyCredential" in window && window.PublicKeyCredential && "credentials" in navigator && typeof ((_a = navigator === null || navigator === void 0 ? void 0 : navigator.credentials) === null || _a === void 0 ? void 0 : _a.create) === "function" && typeof ((_b = navigator === null || navigator === void 0 ? void 0 : navigator.credentials) === null || _b === void 0 ? void 0 : _b.get) === "function");
+}
+async function createCredential(options) {
+  try {
+    const response = await navigator.credentials.create(
+      /** we assert the type here until typescript types are updated */
+      options
+    );
+    if (!response) {
+      return {
+        data: null,
+        error: new WebAuthnUnknownError("Empty credential response", response)
+      };
+    }
+    if (!(response instanceof PublicKeyCredential)) {
+      return {
+        data: null,
+        error: new WebAuthnUnknownError("Browser returned unexpected credential type", response)
+      };
+    }
+    return { data: response, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: identifyRegistrationError({
+        error: err,
+        options
+      })
+    };
+  }
+}
+async function getCredential(options) {
+  try {
+    const response = await navigator.credentials.get(
+      /** we assert the type here until typescript types are updated */
+      options
+    );
+    if (!response) {
+      return {
+        data: null,
+        error: new WebAuthnUnknownError("Empty credential response", response)
+      };
+    }
+    if (!(response instanceof PublicKeyCredential)) {
+      return {
+        data: null,
+        error: new WebAuthnUnknownError("Browser returned unexpected credential type", response)
+      };
+    }
+    return { data: response, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: identifyAuthenticationError({
+        error: err,
+        options
+      })
+    };
+  }
+}
+function deepMerge(...sources) {
+  const isObject = (val) => val !== null && typeof val === "object" && !Array.isArray(val);
+  const isArrayBufferLike = (val) => val instanceof ArrayBuffer || ArrayBuffer.isView(val);
+  const result = {};
+  for (const source of sources) {
+    if (!source)
+      continue;
+    for (const key in source) {
+      const value = source[key];
+      if (value === void 0)
+        continue;
+      if (Array.isArray(value)) {
+        result[key] = value;
+      } else if (isArrayBufferLike(value)) {
+        result[key] = value;
+      } else if (isObject(value)) {
+        const existing = result[key];
+        if (isObject(existing)) {
+          result[key] = deepMerge(existing, value);
+        } else {
+          result[key] = deepMerge(value);
+        }
+      } else {
+        result[key] = value;
+      }
+    }
+  }
+  return result;
+}
+function mergeCredentialCreationOptions(baseOptions, overrides) {
+  return deepMerge(DEFAULT_CREATION_OPTIONS, baseOptions, overrides || {});
+}
+function mergeCredentialRequestOptions(baseOptions, overrides) {
+  return deepMerge(DEFAULT_REQUEST_OPTIONS, baseOptions, overrides || {});
+}
+var WebAuthnAbortService, webAuthnAbortService, DEFAULT_CREATION_OPTIONS, DEFAULT_REQUEST_OPTIONS, WebAuthnApi;
+var init_webauthn = __esm({
+  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/webauthn.js"() {
+    init_tslib_es6();
+    init_base64url();
+    init_errors();
+    init_helpers();
+    init_webauthn_errors();
+    WebAuthnAbortService = class {
       /**
        * Create an abort signal for a new WebAuthn operation.
        * Automatically cancels any existing operation.
@@ -9598,181 +8794,8 @@ var require_webauthn = __commonJS({
         }
       }
     };
-    exports.WebAuthnAbortService = WebAuthnAbortService;
-    exports.webAuthnAbortService = new WebAuthnAbortService();
-    function deserializeCredentialCreationOptions(options) {
-      if (!options) {
-        throw new Error("Credential creation options are required");
-      }
-      if (typeof PublicKeyCredential !== "undefined" && "parseCreationOptionsFromJSON" in PublicKeyCredential && typeof PublicKeyCredential.parseCreationOptionsFromJSON === "function") {
-        return PublicKeyCredential.parseCreationOptionsFromJSON(
-          /** we assert the options here as typescript still doesn't know about future webauthn types */
-          options
-        );
-      }
-      const { challenge: challengeStr, user: userOpts, excludeCredentials } = options, restOptions = tslib_1.__rest(
-        options,
-        ["challenge", "user", "excludeCredentials"]
-      );
-      const challenge = (0, base64url_1.base64UrlToUint8Array)(challengeStr).buffer;
-      const user = Object.assign(Object.assign({}, userOpts), { id: (0, base64url_1.base64UrlToUint8Array)(userOpts.id).buffer });
-      const result = Object.assign(Object.assign({}, restOptions), {
-        challenge,
-        user
-      });
-      if (excludeCredentials && excludeCredentials.length > 0) {
-        result.excludeCredentials = new Array(excludeCredentials.length);
-        for (let i = 0; i < excludeCredentials.length; i++) {
-          const cred = excludeCredentials[i];
-          result.excludeCredentials[i] = Object.assign(Object.assign({}, cred), {
-            id: (0, base64url_1.base64UrlToUint8Array)(cred.id).buffer,
-            type: cred.type || "public-key",
-            // Cast transports to handle future transport types like "cable"
-            transports: cred.transports
-          });
-        }
-      }
-      return result;
-    }
-    function deserializeCredentialRequestOptions(options) {
-      if (!options) {
-        throw new Error("Credential request options are required");
-      }
-      if (typeof PublicKeyCredential !== "undefined" && "parseRequestOptionsFromJSON" in PublicKeyCredential && typeof PublicKeyCredential.parseRequestOptionsFromJSON === "function") {
-        return PublicKeyCredential.parseRequestOptionsFromJSON(options);
-      }
-      const { challenge: challengeStr, allowCredentials } = options, restOptions = tslib_1.__rest(
-        options,
-        ["challenge", "allowCredentials"]
-      );
-      const challenge = (0, base64url_1.base64UrlToUint8Array)(challengeStr).buffer;
-      const result = Object.assign(Object.assign({}, restOptions), { challenge });
-      if (allowCredentials && allowCredentials.length > 0) {
-        result.allowCredentials = new Array(allowCredentials.length);
-        for (let i = 0; i < allowCredentials.length; i++) {
-          const cred = allowCredentials[i];
-          result.allowCredentials[i] = Object.assign(Object.assign({}, cred), {
-            id: (0, base64url_1.base64UrlToUint8Array)(cred.id).buffer,
-            type: cred.type || "public-key",
-            // Cast transports to handle future transport types like "cable"
-            transports: cred.transports
-          });
-        }
-      }
-      return result;
-    }
-    function serializeCredentialCreationResponse(credential) {
-      var _a;
-      if ("toJSON" in credential && typeof credential.toJSON === "function") {
-        return credential.toJSON();
-      }
-      const credentialWithAttachment = credential;
-      return {
-        id: credential.id,
-        rawId: credential.id,
-        response: {
-          attestationObject: (0, base64url_1.bytesToBase64URL)(new Uint8Array(credential.response.attestationObject)),
-          clientDataJSON: (0, base64url_1.bytesToBase64URL)(new Uint8Array(credential.response.clientDataJSON))
-        },
-        type: "public-key",
-        clientExtensionResults: credential.getClientExtensionResults(),
-        // Convert null to undefined and cast to AuthenticatorAttachment type
-        authenticatorAttachment: (_a = credentialWithAttachment.authenticatorAttachment) !== null && _a !== void 0 ? _a : void 0
-      };
-    }
-    function serializeCredentialRequestResponse(credential) {
-      var _a;
-      if ("toJSON" in credential && typeof credential.toJSON === "function") {
-        return credential.toJSON();
-      }
-      const credentialWithAttachment = credential;
-      const clientExtensionResults = credential.getClientExtensionResults();
-      const assertionResponse = credential.response;
-      return {
-        id: credential.id,
-        rawId: credential.id,
-        // W3C spec expects rawId to match id for JSON format
-        response: {
-          authenticatorData: (0, base64url_1.bytesToBase64URL)(new Uint8Array(assertionResponse.authenticatorData)),
-          clientDataJSON: (0, base64url_1.bytesToBase64URL)(new Uint8Array(assertionResponse.clientDataJSON)),
-          signature: (0, base64url_1.bytesToBase64URL)(new Uint8Array(assertionResponse.signature)),
-          userHandle: assertionResponse.userHandle ? (0, base64url_1.bytesToBase64URL)(new Uint8Array(assertionResponse.userHandle)) : void 0
-        },
-        type: "public-key",
-        clientExtensionResults,
-        // Convert null to undefined and cast to AuthenticatorAttachment type
-        authenticatorAttachment: (_a = credentialWithAttachment.authenticatorAttachment) !== null && _a !== void 0 ? _a : void 0
-      };
-    }
-    function isValidDomain(hostname) {
-      return (
-        // Consider localhost valid as well since it's okay wrt Secure Contexts
-        hostname === "localhost" || /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/i.test(hostname)
-      );
-    }
-    function browserSupportsWebAuthn() {
-      var _a, _b;
-      return !!((0, helpers_1.isBrowser)() && "PublicKeyCredential" in window && window.PublicKeyCredential && "credentials" in navigator && typeof ((_a = navigator === null || navigator === void 0 ? void 0 : navigator.credentials) === null || _a === void 0 ? void 0 : _a.create) === "function" && typeof ((_b = navigator === null || navigator === void 0 ? void 0 : navigator.credentials) === null || _b === void 0 ? void 0 : _b.get) === "function");
-    }
-    async function createCredential(options) {
-      try {
-        const response = await navigator.credentials.create(
-          /** we assert the type here until typescript types are updated */
-          options
-        );
-        if (!response) {
-          return {
-            data: null,
-            error: new webauthn_errors_1.WebAuthnUnknownError("Empty credential response", response)
-          };
-        }
-        if (!(response instanceof PublicKeyCredential)) {
-          return {
-            data: null,
-            error: new webauthn_errors_1.WebAuthnUnknownError("Browser returned unexpected credential type", response)
-          };
-        }
-        return { data: response, error: null };
-      } catch (err) {
-        return {
-          data: null,
-          error: (0, webauthn_errors_1.identifyRegistrationError)({
-            error: err,
-            options
-          })
-        };
-      }
-    }
-    async function getCredential(options) {
-      try {
-        const response = await navigator.credentials.get(
-          /** we assert the type here until typescript types are updated */
-          options
-        );
-        if (!response) {
-          return {
-            data: null,
-            error: new webauthn_errors_1.WebAuthnUnknownError("Empty credential response", response)
-          };
-        }
-        if (!(response instanceof PublicKeyCredential)) {
-          return {
-            data: null,
-            error: new webauthn_errors_1.WebAuthnUnknownError("Browser returned unexpected credential type", response)
-          };
-        }
-        return { data: response, error: null };
-      } catch (err) {
-        return {
-          data: null,
-          error: (0, webauthn_errors_1.identifyAuthenticationError)({
-            error: err,
-            options
-          })
-        };
-      }
-    }
-    exports.DEFAULT_CREATION_OPTIONS = {
+    webAuthnAbortService = new WebAuthnAbortService();
+    DEFAULT_CREATION_OPTIONS = {
       hints: ["security-key"],
       authenticatorSelection: {
         authenticatorAttachment: "cross-platform",
@@ -9783,48 +8806,13 @@ var require_webauthn = __commonJS({
       },
       attestation: "direct"
     };
-    exports.DEFAULT_REQUEST_OPTIONS = {
+    DEFAULT_REQUEST_OPTIONS = {
       /** set to preferred because older yubikeys don't have PIN/Biometric */
       userVerification: "preferred",
       hints: ["security-key"],
       attestation: "direct"
     };
-    function deepMerge3(...sources) {
-      const isObject = (val) => val !== null && typeof val === "object" && !Array.isArray(val);
-      const isArrayBufferLike = (val) => val instanceof ArrayBuffer || ArrayBuffer.isView(val);
-      const result = {};
-      for (const source of sources) {
-        if (!source)
-          continue;
-        for (const key in source) {
-          const value = source[key];
-          if (value === void 0)
-            continue;
-          if (Array.isArray(value)) {
-            result[key] = value;
-          } else if (isArrayBufferLike(value)) {
-            result[key] = value;
-          } else if (isObject(value)) {
-            const existing = result[key];
-            if (isObject(existing)) {
-              result[key] = deepMerge3(existing, value);
-            } else {
-              result[key] = deepMerge3(value);
-            }
-          } else {
-            result[key] = value;
-          }
-        }
-      }
-      return result;
-    }
-    function mergeCredentialCreationOptions(baseOptions, overrides) {
-      return deepMerge3(exports.DEFAULT_CREATION_OPTIONS, baseOptions, overrides || {});
-    }
-    function mergeCredentialRequestOptions(baseOptions, overrides) {
-      return deepMerge3(exports.DEFAULT_REQUEST_OPTIONS, baseOptions, overrides || {});
-    }
-    var WebAuthnApi = class {
+    WebAuthnApi = class {
       constructor(client) {
         this.client = client;
         this.enroll = this._enroll.bind(this);
@@ -9868,7 +8856,7 @@ var require_webauthn = __commonJS({
           if (!challengeResponse) {
             return { data: null, error: challengeError };
           }
-          const abortSignal = signal !== null && signal !== void 0 ? signal : exports.webAuthnAbortService.createNewAbortSignal();
+          const abortSignal = signal !== null && signal !== void 0 ? signal : webAuthnAbortService.createNewAbortSignal();
           if (challengeResponse.webauthn.type === "create") {
             const { user } = challengeResponse.webauthn.credential_options.publicKey;
             if (!user.name) {
@@ -9920,12 +8908,12 @@ var require_webauthn = __commonJS({
             }
           }
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return { data: null, error };
           }
           return {
             data: null,
-            error: new errors_1.AuthUnknownError("Unexpected error in challenge", error)
+            error: new AuthUnknownError("Unexpected error in challenge", error)
           };
         }
       }
@@ -9968,14 +8956,14 @@ var require_webauthn = __commonJS({
         if (!rpId) {
           return {
             data: null,
-            error: new errors_1.AuthError("rpId is required for WebAuthn authentication")
+            error: new AuthError("rpId is required for WebAuthn authentication")
           };
         }
         try {
           if (!browserSupportsWebAuthn()) {
             return {
               data: null,
-              error: new errors_1.AuthUnknownError("Browser does not support WebAuthn", null)
+              error: new AuthUnknownError("Browser does not support WebAuthn", null)
             };
           }
           const { data: challengeResponse, error: challengeError } = await this.challenge({
@@ -9998,12 +8986,12 @@ var require_webauthn = __commonJS({
             }
           });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return { data: null, error };
           }
           return {
             data: null,
-            error: new errors_1.AuthUnknownError("Unexpected error in authenticate", error)
+            error: new AuthUnknownError("Unexpected error in authenticate", error)
           };
         }
       }
@@ -10026,14 +9014,14 @@ var require_webauthn = __commonJS({
         if (!rpId) {
           return {
             data: null,
-            error: new errors_1.AuthError("rpId is required for WebAuthn registration")
+            error: new AuthError("rpId is required for WebAuthn registration")
           };
         }
         try {
           if (!browserSupportsWebAuthn()) {
             return {
               data: null,
-              error: new errors_1.AuthUnknownError("Browser does not support WebAuthn", null)
+              error: new AuthUnknownError("Browser does not support WebAuthn", null)
             };
           }
           const { data: factor, error: enrollError } = await this._enroll({
@@ -10068,46 +9056,46 @@ var require_webauthn = __commonJS({
             }
           });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return { data: null, error };
           }
           return {
             data: null,
-            error: new errors_1.AuthUnknownError("Unexpected error in register", error)
+            error: new AuthUnknownError("Unexpected error in register", error)
           };
         }
       }
     };
-    exports.WebAuthnApi = WebAuthnApi;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/GoTrueClient.js
-var require_GoTrueClient = __commonJS({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/GoTrueClient.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    var tslib_1 = (init_tslib_es6(), __toCommonJS(tslib_es6_exports));
-    var GoTrueAdminApi_1 = tslib_1.__importDefault(require_GoTrueAdminApi());
-    var constants_1 = require_constants3();
-    var errors_1 = require_errors();
-    var fetch_1 = require_fetch2();
-    var helpers_1 = require_helpers2();
-    var local_storage_1 = require_local_storage();
-    var locks_1 = require_locks();
-    var polyfills_1 = require_polyfills();
-    var version_1 = require_version3();
-    var base64url_1 = require_base64url();
-    var ethereum_1 = require_ethereum();
-    var webauthn_1 = require_webauthn();
-    (0, polyfills_1.polyfillGlobalThis)();
-    var DEFAULT_OPTIONS = {
-      url: constants_1.GOTRUE_URL,
-      storageKey: constants_1.STORAGE_KEY,
+// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/GoTrueClient.js
+async function lockNoOp(name, acquireTimeout, fn) {
+  return await fn();
+}
+var DEFAULT_OPTIONS, GLOBAL_JWKS, GoTrueClient, GoTrueClient_default;
+var init_GoTrueClient = __esm({
+  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/GoTrueClient.js"() {
+    init_GoTrueAdminApi();
+    init_constants2();
+    init_errors();
+    init_fetch();
+    init_helpers();
+    init_local_storage();
+    init_locks();
+    init_polyfills();
+    init_version2();
+    init_base64url();
+    init_ethereum();
+    init_webauthn();
+    polyfillGlobalThis();
+    DEFAULT_OPTIONS = {
+      url: GOTRUE_URL,
+      storageKey: STORAGE_KEY,
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: true,
-      headers: constants_1.DEFAULT_HEADERS,
+      headers: DEFAULT_HEADERS2,
       flowType: "implicit",
       debug: false,
       hasCustomAuthorizationHeader: false,
@@ -10115,11 +9103,8 @@ var require_GoTrueClient = __commonJS({
       lockAcquireTimeout: 1e4
       // 10 seconds
     };
-    async function lockNoOp(name, acquireTimeout, fn) {
-      return await fn();
-    }
-    var GLOBAL_JWKS = {};
-    var GoTrueClient2 = class _GoTrueClient {
+    GLOBAL_JWKS = {};
+    GoTrueClient = class _GoTrueClient {
       /**
        * The JWKS used for verifying asymmetric JWTs
        */
@@ -10176,7 +9161,7 @@ var require_GoTrueClient = __commonJS({
         if (typeof settings2.debug === "function") {
           this.logger = settings2.debug;
         }
-        if (this.instanceID > 0 && (0, helpers_1.isBrowser)()) {
+        if (this.instanceID > 0 && isBrowser()) {
           const message = `${this._logPrefix()} Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.`;
           console.warn(message);
           if (this.logDebugMessages) {
@@ -10185,14 +9170,14 @@ var require_GoTrueClient = __commonJS({
         }
         this.persistSession = settings2.persistSession;
         this.autoRefreshToken = settings2.autoRefreshToken;
-        this.admin = new GoTrueAdminApi_1.default({
+        this.admin = new GoTrueAdminApi({
           url: settings2.url,
           headers: settings2.headers,
           fetch: settings2.fetch
         });
         this.url = settings2.url;
         this.headers = settings2.headers;
-        this.fetch = (0, helpers_1.resolveFetch)(settings2.fetch);
+        this.fetch = resolveFetch3(settings2.fetch);
         this.lock = settings2.lock || lockNoOp;
         this.detectSessionInUrl = settings2.detectSessionInUrl;
         this.flowType = settings2.flowType;
@@ -10201,8 +9186,8 @@ var require_GoTrueClient = __commonJS({
         this.lockAcquireTimeout = settings2.lockAcquireTimeout;
         if (settings2.lock) {
           this.lock = settings2.lock;
-        } else if (this.persistSession && (0, helpers_1.isBrowser)() && ((_b = globalThis === null || globalThis === void 0 ? void 0 : globalThis.navigator) === null || _b === void 0 ? void 0 : _b.locks)) {
-          this.lock = locks_1.navigatorLock;
+        } else if (this.persistSession && isBrowser() && ((_b = globalThis === null || globalThis === void 0 ? void 0 : globalThis.navigator) === null || _b === void 0 ? void 0 : _b.locks)) {
+          this.lock = navigatorLock;
         } else {
           this.lock = lockNoOp;
         }
@@ -10218,7 +9203,7 @@ var require_GoTrueClient = __commonJS({
           listFactors: this._listFactors.bind(this),
           challengeAndVerify: this._challengeAndVerify.bind(this),
           getAuthenticatorAssuranceLevel: this._getAuthenticatorAssuranceLevel.bind(this),
-          webauthn: new webauthn_1.WebAuthnApi(this)
+          webauthn: new WebAuthnApi(this)
         };
         this.oauth = {
           getAuthorizationDetails: this._getAuthorizationDetails.bind(this),
@@ -10231,11 +9216,11 @@ var require_GoTrueClient = __commonJS({
           if (settings2.storage) {
             this.storage = settings2.storage;
           } else {
-            if ((0, helpers_1.supportsLocalStorage)()) {
+            if (supportsLocalStorage()) {
               this.storage = globalThis.localStorage;
             } else {
               this.memoryStorage = {};
-              this.storage = (0, local_storage_1.memoryLocalStorageAdapter)(this.memoryStorage);
+              this.storage = memoryLocalStorageAdapter(this.memoryStorage);
             }
           }
           if (settings2.userStorage) {
@@ -10243,9 +9228,9 @@ var require_GoTrueClient = __commonJS({
           }
         } else {
           this.memoryStorage = {};
-          this.storage = (0, local_storage_1.memoryLocalStorageAdapter)(this.memoryStorage);
+          this.storage = memoryLocalStorageAdapter(this.memoryStorage);
         }
-        if ((0, helpers_1.isBrowser)() && globalThis.BroadcastChannel && this.persistSession && this.storageKey) {
+        if (isBrowser() && globalThis.BroadcastChannel && this.persistSession && this.storageKey) {
           try {
             this.broadcastChannel = new globalThis.BroadcastChannel(this.storageKey);
           } catch (e) {
@@ -10276,7 +9261,7 @@ var require_GoTrueClient = __commonJS({
         return result;
       }
       _logPrefix() {
-        return `GoTrueClient@${this.storageKey}:${this.instanceID} (${version_1.version}) ${(/* @__PURE__ */ new Date()).toISOString()}`;
+        return `GoTrueClient@${this.storageKey}:${this.instanceID} (${version3}) ${(/* @__PURE__ */ new Date()).toISOString()}`;
       }
       _debug(...args) {
         if (this.logDebugMessages) {
@@ -10311,19 +9296,19 @@ var require_GoTrueClient = __commonJS({
         try {
           let params = {};
           let callbackUrlType = "none";
-          if ((0, helpers_1.isBrowser)()) {
-            params = (0, helpers_1.parseParametersFromURL)(window.location.href);
+          if (isBrowser()) {
+            params = parseParametersFromURL(window.location.href);
             if (this._isImplicitGrantCallback(params)) {
               callbackUrlType = "implicit";
             } else if (await this._isPKCECallback(params)) {
               callbackUrlType = "pkce";
             }
           }
-          if ((0, helpers_1.isBrowser)() && this.detectSessionInUrl && callbackUrlType !== "none") {
+          if (isBrowser() && this.detectSessionInUrl && callbackUrlType !== "none") {
             const { data, error } = await this._getSessionFromURL(params, callbackUrlType);
             if (error) {
               this._debug("#_initialize()", "error detecting session from URL", error);
-              if ((0, errors_1.isAuthImplicitGrantRedirectError)(error)) {
+              if (isAuthImplicitGrantRedirectError(error)) {
                 const errorCode = (_a = error.details) === null || _a === void 0 ? void 0 : _a.code;
                 if (errorCode === "identity_already_exists" || errorCode === "identity_not_found" || errorCode === "single_identity_not_deletable") {
                   return { error };
@@ -10346,11 +9331,11 @@ var require_GoTrueClient = __commonJS({
           await this._recoverAndRefresh();
           return { error: null };
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return this._returnResult({ error });
           }
           return this._returnResult({
-            error: new errors_1.AuthUnknownError("Unexpected error during initialization", error)
+            error: new AuthUnknownError("Unexpected error during initialization", error)
           });
         } finally {
           await this._handleVisibilityChange();
@@ -10365,13 +9350,13 @@ var require_GoTrueClient = __commonJS({
       async signInAnonymously(credentials) {
         var _a, _b, _c;
         try {
-          const res = await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/signup`, {
+          const res = await _request(this.fetch, "POST", `${this.url}/signup`, {
             headers: this.headers,
             body: {
               data: (_b = (_a = credentials === null || credentials === void 0 ? void 0 : credentials.options) === null || _a === void 0 ? void 0 : _a.data) !== null && _b !== void 0 ? _b : {},
               gotrue_meta_security: { captcha_token: (_c = credentials === null || credentials === void 0 ? void 0 : credentials.options) === null || _c === void 0 ? void 0 : _c.captchaToken }
             },
-            xform: fetch_1._sessionResponse
+            xform: _sessionResponse
           });
           const { data, error } = res;
           if (error || !data) {
@@ -10385,7 +9370,7 @@ var require_GoTrueClient = __commonJS({
           }
           return this._returnResult({ data: { user, session }, error: null });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return this._returnResult({ data: { user: null, session: null }, error });
           }
           throw error;
@@ -10411,9 +9396,9 @@ var require_GoTrueClient = __commonJS({
             let codeChallengeMethod = null;
             if (this.flowType === "pkce") {
               ;
-              [codeChallenge, codeChallengeMethod] = await (0, helpers_1.getCodeChallengeAndMethod)(this.storage, this.storageKey);
+              [codeChallenge, codeChallengeMethod] = await getCodeChallengeAndMethod(this.storage, this.storageKey);
             }
-            res = await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/signup`, {
+            res = await _request(this.fetch, "POST", `${this.url}/signup`, {
               headers: this.headers,
               redirectTo: options === null || options === void 0 ? void 0 : options.emailRedirectTo,
               body: {
@@ -10424,11 +9409,11 @@ var require_GoTrueClient = __commonJS({
                 code_challenge: codeChallenge,
                 code_challenge_method: codeChallengeMethod
               },
-              xform: fetch_1._sessionResponse
+              xform: _sessionResponse
             });
           } else if ("phone" in credentials) {
             const { phone, password, options } = credentials;
-            res = await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/signup`, {
+            res = await _request(this.fetch, "POST", `${this.url}/signup`, {
               headers: this.headers,
               body: {
                 phone,
@@ -10437,14 +9422,14 @@ var require_GoTrueClient = __commonJS({
                 channel: (_c = options === null || options === void 0 ? void 0 : options.channel) !== null && _c !== void 0 ? _c : "sms",
                 gotrue_meta_security: { captcha_token: options === null || options === void 0 ? void 0 : options.captchaToken }
               },
-              xform: fetch_1._sessionResponse
+              xform: _sessionResponse
             });
           } else {
-            throw new errors_1.AuthInvalidCredentialsError("You must provide either an email or phone number and a password");
+            throw new AuthInvalidCredentialsError("You must provide either an email or phone number and a password");
           }
           const { data, error } = res;
           if (error || !data) {
-            await (0, helpers_1.removeItemAsync)(this.storage, `${this.storageKey}-code-verifier`);
+            await removeItemAsync(this.storage, `${this.storageKey}-code-verifier`);
             return this._returnResult({ data: { user: null, session: null }, error });
           }
           const session = data.session;
@@ -10455,8 +9440,8 @@ var require_GoTrueClient = __commonJS({
           }
           return this._returnResult({ data: { user, session }, error: null });
         } catch (error) {
-          await (0, helpers_1.removeItemAsync)(this.storage, `${this.storageKey}-code-verifier`);
-          if ((0, errors_1.isAuthError)(error)) {
+          await removeItemAsync(this.storage, `${this.storageKey}-code-verifier`);
+          if (isAuthError(error)) {
             return this._returnResult({ data: { user: null, session: null }, error });
           }
           throw error;
@@ -10475,34 +9460,34 @@ var require_GoTrueClient = __commonJS({
           let res;
           if ("email" in credentials) {
             const { email, password, options } = credentials;
-            res = await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/token?grant_type=password`, {
+            res = await _request(this.fetch, "POST", `${this.url}/token?grant_type=password`, {
               headers: this.headers,
               body: {
                 email,
                 password,
                 gotrue_meta_security: { captcha_token: options === null || options === void 0 ? void 0 : options.captchaToken }
               },
-              xform: fetch_1._sessionResponsePassword
+              xform: _sessionResponsePassword
             });
           } else if ("phone" in credentials) {
             const { phone, password, options } = credentials;
-            res = await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/token?grant_type=password`, {
+            res = await _request(this.fetch, "POST", `${this.url}/token?grant_type=password`, {
               headers: this.headers,
               body: {
                 phone,
                 password,
                 gotrue_meta_security: { captcha_token: options === null || options === void 0 ? void 0 : options.captchaToken }
               },
-              xform: fetch_1._sessionResponsePassword
+              xform: _sessionResponsePassword
             });
           } else {
-            throw new errors_1.AuthInvalidCredentialsError("You must provide either an email or phone number and a password");
+            throw new AuthInvalidCredentialsError("You must provide either an email or phone number and a password");
           }
           const { data, error } = res;
           if (error) {
             return this._returnResult({ data: { user: null, session: null }, error });
           } else if (!data || !data.session || !data.user) {
-            const invalidTokenError = new errors_1.AuthInvalidTokenResponseError();
+            const invalidTokenError = new AuthInvalidTokenResponseError();
             return this._returnResult({ data: { user: null, session: null }, error: invalidTokenError });
           }
           if (data.session) {
@@ -10514,7 +9499,7 @@ var require_GoTrueClient = __commonJS({
             error
           });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return this._returnResult({ data: { user: null, session: null }, error });
           }
           throw error;
@@ -10570,7 +9555,7 @@ var require_GoTrueClient = __commonJS({
         } else {
           const { chain, wallet, statement, options } = credentials;
           let resolvedWallet;
-          if (!(0, helpers_1.isBrowser)()) {
+          if (!isBrowser()) {
             if (typeof wallet !== "object" || !(options === null || options === void 0 ? void 0 : options.url)) {
               throw new Error("@supabase/auth-js: Both wallet and url must be specified in non-browser environments.");
             }
@@ -10594,13 +9579,13 @@ var require_GoTrueClient = __commonJS({
           if (!accounts || accounts.length === 0) {
             throw new Error(`@supabase/auth-js: No accounts available. Please ensure the wallet is connected.`);
           }
-          const address = (0, ethereum_1.getAddress)(accounts[0]);
+          const address = getAddress(accounts[0]);
           let chainId = (_b = options === null || options === void 0 ? void 0 : options.signInWithEthereum) === null || _b === void 0 ? void 0 : _b.chainId;
           if (!chainId) {
             const chainIdHex = await resolvedWallet.request({
               method: "eth_chainId"
             });
-            chainId = (0, ethereum_1.fromHex)(chainIdHex);
+            chainId = fromHex(chainIdHex);
           }
           const siweMessage = {
             domain: url.host,
@@ -10616,27 +9601,27 @@ var require_GoTrueClient = __commonJS({
             requestId: (_h = options === null || options === void 0 ? void 0 : options.signInWithEthereum) === null || _h === void 0 ? void 0 : _h.requestId,
             resources: (_j = options === null || options === void 0 ? void 0 : options.signInWithEthereum) === null || _j === void 0 ? void 0 : _j.resources
           };
-          message = (0, ethereum_1.createSiweMessage)(siweMessage);
+          message = createSiweMessage(siweMessage);
           signature = await resolvedWallet.request({
             method: "personal_sign",
-            params: [(0, ethereum_1.toHex)(message), address]
+            params: [toHex(message), address]
           });
         }
         try {
-          const { data, error } = await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/token?grant_type=web3`, {
+          const { data, error } = await _request(this.fetch, "POST", `${this.url}/token?grant_type=web3`, {
             headers: this.headers,
             body: Object.assign({
               chain: "ethereum",
               message,
               signature
             }, ((_k = credentials.options) === null || _k === void 0 ? void 0 : _k.captchaToken) ? { gotrue_meta_security: { captcha_token: (_l = credentials.options) === null || _l === void 0 ? void 0 : _l.captchaToken } } : null),
-            xform: fetch_1._sessionResponse
+            xform: _sessionResponse
           });
           if (error) {
             throw error;
           }
           if (!data || !data.session || !data.user) {
-            const invalidTokenError = new errors_1.AuthInvalidTokenResponseError();
+            const invalidTokenError = new AuthInvalidTokenResponseError();
             return this._returnResult({ data: { user: null, session: null }, error: invalidTokenError });
           }
           if (data.session) {
@@ -10645,7 +9630,7 @@ var require_GoTrueClient = __commonJS({
           }
           return this._returnResult({ data: Object.assign({}, data), error });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return this._returnResult({ data: { user: null, session: null }, error });
           }
           throw error;
@@ -10661,7 +9646,7 @@ var require_GoTrueClient = __commonJS({
         } else {
           const { chain, wallet, statement, options } = credentials;
           let resolvedWallet;
-          if (!(0, helpers_1.isBrowser)()) {
+          if (!isBrowser()) {
             if (typeof wallet !== "object" || !(options === null || options === void 0 ? void 0 : options.url)) {
               throw new Error("@supabase/auth-js: Both wallet and url must be specified in non-browser environments.");
             }
@@ -10727,16 +9712,16 @@ var require_GoTrueClient = __commonJS({
           }
         }
         try {
-          const { data, error } = await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/token?grant_type=web3`, {
+          const { data, error } = await _request(this.fetch, "POST", `${this.url}/token?grant_type=web3`, {
             headers: this.headers,
-            body: Object.assign({ chain: "solana", message, signature: (0, base64url_1.bytesToBase64URL)(signature) }, ((_l = credentials.options) === null || _l === void 0 ? void 0 : _l.captchaToken) ? { gotrue_meta_security: { captcha_token: (_m = credentials.options) === null || _m === void 0 ? void 0 : _m.captchaToken } } : null),
-            xform: fetch_1._sessionResponse
+            body: Object.assign({ chain: "solana", message, signature: bytesToBase64URL(signature) }, ((_l = credentials.options) === null || _l === void 0 ? void 0 : _l.captchaToken) ? { gotrue_meta_security: { captcha_token: (_m = credentials.options) === null || _m === void 0 ? void 0 : _m.captchaToken } } : null),
+            xform: _sessionResponse
           });
           if (error) {
             throw error;
           }
           if (!data || !data.session || !data.user) {
-            const invalidTokenError = new errors_1.AuthInvalidTokenResponseError();
+            const invalidTokenError = new AuthInvalidTokenResponseError();
             return this._returnResult({ data: { user: null, session: null }, error: invalidTokenError });
           }
           if (data.session) {
@@ -10745,33 +9730,33 @@ var require_GoTrueClient = __commonJS({
           }
           return this._returnResult({ data: Object.assign({}, data), error });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return this._returnResult({ data: { user: null, session: null }, error });
           }
           throw error;
         }
       }
       async _exchangeCodeForSession(authCode) {
-        const storageItem = await (0, helpers_1.getItemAsync)(this.storage, `${this.storageKey}-code-verifier`);
+        const storageItem = await getItemAsync(this.storage, `${this.storageKey}-code-verifier`);
         const [codeVerifier, redirectType] = (storageItem !== null && storageItem !== void 0 ? storageItem : "").split("/");
         try {
           if (!codeVerifier && this.flowType === "pkce") {
-            throw new errors_1.AuthPKCECodeVerifierMissingError();
+            throw new AuthPKCECodeVerifierMissingError();
           }
-          const { data, error } = await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/token?grant_type=pkce`, {
+          const { data, error } = await _request(this.fetch, "POST", `${this.url}/token?grant_type=pkce`, {
             headers: this.headers,
             body: {
               auth_code: authCode,
               code_verifier: codeVerifier
             },
-            xform: fetch_1._sessionResponse
+            xform: _sessionResponse
           });
-          await (0, helpers_1.removeItemAsync)(this.storage, `${this.storageKey}-code-verifier`);
+          await removeItemAsync(this.storage, `${this.storageKey}-code-verifier`);
           if (error) {
             throw error;
           }
           if (!data || !data.session || !data.user) {
-            const invalidTokenError = new errors_1.AuthInvalidTokenResponseError();
+            const invalidTokenError = new AuthInvalidTokenResponseError();
             return this._returnResult({
               data: { user: null, session: null, redirectType: null },
               error: invalidTokenError
@@ -10783,8 +9768,8 @@ var require_GoTrueClient = __commonJS({
           }
           return this._returnResult({ data: Object.assign(Object.assign({}, data), { redirectType: redirectType !== null && redirectType !== void 0 ? redirectType : null }), error });
         } catch (error) {
-          await (0, helpers_1.removeItemAsync)(this.storage, `${this.storageKey}-code-verifier`);
-          if ((0, errors_1.isAuthError)(error)) {
+          await removeItemAsync(this.storage, `${this.storageKey}-code-verifier`);
+          if (isAuthError(error)) {
             return this._returnResult({
               data: { user: null, session: null, redirectType: null },
               error
@@ -10800,7 +9785,7 @@ var require_GoTrueClient = __commonJS({
       async signInWithIdToken(credentials) {
         try {
           const { options, provider, token, access_token, nonce } = credentials;
-          const res = await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/token?grant_type=id_token`, {
+          const res = await _request(this.fetch, "POST", `${this.url}/token?grant_type=id_token`, {
             headers: this.headers,
             body: {
               provider,
@@ -10809,13 +9794,13 @@ var require_GoTrueClient = __commonJS({
               nonce,
               gotrue_meta_security: { captcha_token: options === null || options === void 0 ? void 0 : options.captchaToken }
             },
-            xform: fetch_1._sessionResponse
+            xform: _sessionResponse
           });
           const { data, error } = res;
           if (error) {
             return this._returnResult({ data: { user: null, session: null }, error });
           } else if (!data || !data.session || !data.user) {
-            const invalidTokenError = new errors_1.AuthInvalidTokenResponseError();
+            const invalidTokenError = new AuthInvalidTokenResponseError();
             return this._returnResult({ data: { user: null, session: null }, error: invalidTokenError });
           }
           if (data.session) {
@@ -10824,7 +9809,7 @@ var require_GoTrueClient = __commonJS({
           }
           return this._returnResult({ data, error });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return this._returnResult({ data: { user: null, session: null }, error });
           }
           throw error;
@@ -10856,9 +9841,9 @@ var require_GoTrueClient = __commonJS({
             let codeChallengeMethod = null;
             if (this.flowType === "pkce") {
               ;
-              [codeChallenge, codeChallengeMethod] = await (0, helpers_1.getCodeChallengeAndMethod)(this.storage, this.storageKey);
+              [codeChallenge, codeChallengeMethod] = await getCodeChallengeAndMethod(this.storage, this.storageKey);
             }
-            const { error } = await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/otp`, {
+            const { error } = await _request(this.fetch, "POST", `${this.url}/otp`, {
               headers: this.headers,
               body: {
                 email,
@@ -10874,7 +9859,7 @@ var require_GoTrueClient = __commonJS({
           }
           if ("phone" in credentials) {
             const { phone, options } = credentials;
-            const { data, error } = await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/otp`, {
+            const { data, error } = await _request(this.fetch, "POST", `${this.url}/otp`, {
               headers: this.headers,
               body: {
                 phone,
@@ -10889,10 +9874,10 @@ var require_GoTrueClient = __commonJS({
               error
             });
           }
-          throw new errors_1.AuthInvalidCredentialsError("You must provide either an email or phone number.");
+          throw new AuthInvalidCredentialsError("You must provide either an email or phone number.");
         } catch (error) {
-          await (0, helpers_1.removeItemAsync)(this.storage, `${this.storageKey}-code-verifier`);
-          if ((0, errors_1.isAuthError)(error)) {
+          await removeItemAsync(this.storage, `${this.storageKey}-code-verifier`);
+          if (isAuthError(error)) {
             return this._returnResult({ data: { user: null, session: null }, error });
           }
           throw error;
@@ -10910,11 +9895,11 @@ var require_GoTrueClient = __commonJS({
             redirectTo = (_a = params.options) === null || _a === void 0 ? void 0 : _a.redirectTo;
             captchaToken = (_b = params.options) === null || _b === void 0 ? void 0 : _b.captchaToken;
           }
-          const { data, error } = await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/verify`, {
+          const { data, error } = await _request(this.fetch, "POST", `${this.url}/verify`, {
             headers: this.headers,
             body: Object.assign(Object.assign({}, params), { gotrue_meta_security: { captcha_token: captchaToken } }),
             redirectTo,
-            xform: fetch_1._sessionResponse
+            xform: _sessionResponse
           });
           if (error) {
             throw error;
@@ -10931,7 +9916,7 @@ var require_GoTrueClient = __commonJS({
           }
           return this._returnResult({ data: { user, session }, error: null });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return this._returnResult({ data: { user: null, session: null }, error });
           }
           throw error;
@@ -10958,20 +9943,20 @@ var require_GoTrueClient = __commonJS({
           let codeChallengeMethod = null;
           if (this.flowType === "pkce") {
             ;
-            [codeChallenge, codeChallengeMethod] = await (0, helpers_1.getCodeChallengeAndMethod)(this.storage, this.storageKey);
+            [codeChallenge, codeChallengeMethod] = await getCodeChallengeAndMethod(this.storage, this.storageKey);
           }
-          const result = await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/sso`, {
+          const result = await _request(this.fetch, "POST", `${this.url}/sso`, {
             body: Object.assign(Object.assign(Object.assign(Object.assign(Object.assign({}, "providerId" in params ? { provider_id: params.providerId } : null), "domain" in params ? { domain: params.domain } : null), { redirect_to: (_b = (_a = params.options) === null || _a === void 0 ? void 0 : _a.redirectTo) !== null && _b !== void 0 ? _b : void 0 }), ((_c = params === null || params === void 0 ? void 0 : params.options) === null || _c === void 0 ? void 0 : _c.captchaToken) ? { gotrue_meta_security: { captcha_token: params.options.captchaToken } } : null), { skip_http_redirect: true, code_challenge: codeChallenge, code_challenge_method: codeChallengeMethod }),
             headers: this.headers,
-            xform: fetch_1._ssoResponse
+            xform: _ssoResponse
           });
-          if (((_d = result.data) === null || _d === void 0 ? void 0 : _d.url) && (0, helpers_1.isBrowser)() && !((_e = params.options) === null || _e === void 0 ? void 0 : _e.skipBrowserRedirect)) {
+          if (((_d = result.data) === null || _d === void 0 ? void 0 : _d.url) && isBrowser() && !((_e = params.options) === null || _e === void 0 ? void 0 : _e.skipBrowserRedirect)) {
             window.location.assign(result.data.url);
           }
           return this._returnResult(result);
         } catch (error) {
-          await (0, helpers_1.removeItemAsync)(this.storage, `${this.storageKey}-code-verifier`);
-          if ((0, errors_1.isAuthError)(error)) {
+          await removeItemAsync(this.storage, `${this.storageKey}-code-verifier`);
+          if (isAuthError(error)) {
             return this._returnResult({ data: null, error });
           }
           throw error;
@@ -10994,15 +9979,15 @@ var require_GoTrueClient = __commonJS({
             if (sessionError)
               throw sessionError;
             if (!session)
-              throw new errors_1.AuthSessionMissingError();
-            const { error } = await (0, fetch_1._request)(this.fetch, "GET", `${this.url}/reauthenticate`, {
+              throw new AuthSessionMissingError();
+            const { error } = await _request(this.fetch, "GET", `${this.url}/reauthenticate`, {
               headers: this.headers,
               jwt: session.access_token
             });
             return this._returnResult({ data: { user: null, session: null }, error });
           });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return this._returnResult({ data: { user: null, session: null }, error });
           }
           throw error;
@@ -11016,7 +10001,7 @@ var require_GoTrueClient = __commonJS({
           const endpoint = `${this.url}/resend`;
           if ("email" in credentials) {
             const { email, type, options } = credentials;
-            const { error } = await (0, fetch_1._request)(this.fetch, "POST", endpoint, {
+            const { error } = await _request(this.fetch, "POST", endpoint, {
               headers: this.headers,
               body: {
                 email,
@@ -11028,7 +10013,7 @@ var require_GoTrueClient = __commonJS({
             return this._returnResult({ data: { user: null, session: null }, error });
           } else if ("phone" in credentials) {
             const { phone, type, options } = credentials;
-            const { data, error } = await (0, fetch_1._request)(this.fetch, "POST", endpoint, {
+            const { data, error } = await _request(this.fetch, "POST", endpoint, {
               headers: this.headers,
               body: {
                 phone,
@@ -11041,9 +10026,9 @@ var require_GoTrueClient = __commonJS({
               error
             });
           }
-          throw new errors_1.AuthInvalidCredentialsError("You must provide either an email or phone number and a type");
+          throw new AuthInvalidCredentialsError("You must provide either an email or phone number and a type");
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return this._returnResult({ data: { user: null, session: null }, error });
           }
           throw error;
@@ -11143,7 +10128,7 @@ var require_GoTrueClient = __commonJS({
         }
         try {
           let currentSession3 = null;
-          const maybeSession = await (0, helpers_1.getItemAsync)(this.storage, this.storageKey);
+          const maybeSession = await getItemAsync(this.storage, this.storageKey);
           this._debug("#getSession()", "session from storage", maybeSession);
           if (maybeSession !== null) {
             if (this._isValidSession(maybeSession)) {
@@ -11156,20 +10141,20 @@ var require_GoTrueClient = __commonJS({
           if (!currentSession3) {
             return { data: { session: null }, error: null };
           }
-          const hasExpired = currentSession3.expires_at ? currentSession3.expires_at * 1e3 - Date.now() < constants_1.EXPIRY_MARGIN_MS : false;
+          const hasExpired = currentSession3.expires_at ? currentSession3.expires_at * 1e3 - Date.now() < EXPIRY_MARGIN_MS : false;
           this._debug("#__loadSession()", `session has${hasExpired ? "" : " not"} expired`, "expires_at", currentSession3.expires_at);
           if (!hasExpired) {
             if (this.userStorage) {
-              const maybeUser = await (0, helpers_1.getItemAsync)(this.userStorage, this.storageKey + "-user");
+              const maybeUser = await getItemAsync(this.userStorage, this.storageKey + "-user");
               if (maybeUser === null || maybeUser === void 0 ? void 0 : maybeUser.user) {
                 currentSession3.user = maybeUser.user;
               } else {
-                currentSession3.user = (0, helpers_1.userNotAvailableProxy)();
+                currentSession3.user = userNotAvailableProxy();
               }
             }
             if (this.storage.isServer && currentSession3.user && !currentSession3.user.__isUserNotAvailableProxy) {
               const suppressWarningRef = { value: this.suppressGetSessionWarning };
-              currentSession3.user = (0, helpers_1.insecureUserWarningProxy)(currentSession3.user, suppressWarningRef);
+              currentSession3.user = insecureUserWarningProxy(currentSession3.user, suppressWarningRef);
               if (suppressWarningRef.value) {
                 this.suppressGetSessionWarning = true;
               }
@@ -11208,10 +10193,10 @@ var require_GoTrueClient = __commonJS({
       async _getUser(jwt) {
         try {
           if (jwt) {
-            return await (0, fetch_1._request)(this.fetch, "GET", `${this.url}/user`, {
+            return await _request(this.fetch, "GET", `${this.url}/user`, {
               headers: this.headers,
               jwt,
-              xform: fetch_1._userResponse
+              xform: _userResponse
             });
           }
           return await this._useSession(async (result) => {
@@ -11221,19 +10206,19 @@ var require_GoTrueClient = __commonJS({
               throw error;
             }
             if (!((_a = data.session) === null || _a === void 0 ? void 0 : _a.access_token) && !this.hasCustomAuthorizationHeader) {
-              return { data: { user: null }, error: new errors_1.AuthSessionMissingError() };
+              return { data: { user: null }, error: new AuthSessionMissingError() };
             }
-            return await (0, fetch_1._request)(this.fetch, "GET", `${this.url}/user`, {
+            return await _request(this.fetch, "GET", `${this.url}/user`, {
               headers: this.headers,
               jwt: (_c = (_b = data.session) === null || _b === void 0 ? void 0 : _b.access_token) !== null && _c !== void 0 ? _c : void 0,
-              xform: fetch_1._userResponse
+              xform: _userResponse
             });
           });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
-            if ((0, errors_1.isAuthSessionMissingError)(error)) {
+          if (isAuthError(error)) {
+            if (isAuthSessionMissingError(error)) {
               await this._removeSession();
-              await (0, helpers_1.removeItemAsync)(this.storage, `${this.storageKey}-code-verifier`);
+              await removeItemAsync(this.storage, `${this.storageKey}-code-verifier`);
             }
             return this._returnResult({ data: { user: null }, error });
           }
@@ -11257,21 +10242,21 @@ var require_GoTrueClient = __commonJS({
               throw sessionError;
             }
             if (!sessionData.session) {
-              throw new errors_1.AuthSessionMissingError();
+              throw new AuthSessionMissingError();
             }
             const session = sessionData.session;
             let codeChallenge = null;
             let codeChallengeMethod = null;
             if (this.flowType === "pkce" && attributes.email != null) {
               ;
-              [codeChallenge, codeChallengeMethod] = await (0, helpers_1.getCodeChallengeAndMethod)(this.storage, this.storageKey);
+              [codeChallenge, codeChallengeMethod] = await getCodeChallengeAndMethod(this.storage, this.storageKey);
             }
-            const { data, error: userError } = await (0, fetch_1._request)(this.fetch, "PUT", `${this.url}/user`, {
+            const { data, error: userError } = await _request(this.fetch, "PUT", `${this.url}/user`, {
               headers: this.headers,
               redirectTo: options === null || options === void 0 ? void 0 : options.emailRedirectTo,
               body: Object.assign(Object.assign({}, attributes), { code_challenge: codeChallenge, code_challenge_method: codeChallengeMethod }),
               jwt: session.access_token,
-              xform: fetch_1._userResponse
+              xform: _userResponse
             });
             if (userError) {
               throw userError;
@@ -11282,8 +10267,8 @@ var require_GoTrueClient = __commonJS({
             return this._returnResult({ data: { user: session.user }, error: null });
           });
         } catch (error) {
-          await (0, helpers_1.removeItemAsync)(this.storage, `${this.storageKey}-code-verifier`);
-          if ((0, errors_1.isAuthError)(error)) {
+          await removeItemAsync(this.storage, `${this.storageKey}-code-verifier`);
+          if (isAuthError(error)) {
             return this._returnResult({ data: { user: null }, error });
           }
           throw error;
@@ -11303,16 +10288,16 @@ var require_GoTrueClient = __commonJS({
       async _setSession(currentSession3) {
         try {
           if (!currentSession3.access_token || !currentSession3.refresh_token) {
-            throw new errors_1.AuthSessionMissingError();
+            throw new AuthSessionMissingError();
           }
           const timeNow = Date.now() / 1e3;
-          let expiresAt = timeNow;
+          let expiresAt2 = timeNow;
           let hasExpired = true;
           let session = null;
-          const { payload } = (0, helpers_1.decodeJWT)(currentSession3.access_token);
+          const { payload } = decodeJWT(currentSession3.access_token);
           if (payload.exp) {
-            expiresAt = payload.exp;
-            hasExpired = expiresAt <= timeNow;
+            expiresAt2 = payload.exp;
+            hasExpired = expiresAt2 <= timeNow;
           }
           if (hasExpired) {
             const { data: refreshedSession, error } = await this._callRefreshToken(currentSession3.refresh_token);
@@ -11333,15 +10318,15 @@ var require_GoTrueClient = __commonJS({
               refresh_token: currentSession3.refresh_token,
               user: data.user,
               token_type: "bearer",
-              expires_in: expiresAt - timeNow,
-              expires_at: expiresAt
+              expires_in: expiresAt2 - timeNow,
+              expires_at: expiresAt2
             };
             await this._saveSession(session);
             await this._notifyAllSubscribers("SIGNED_IN", session);
           }
           return this._returnResult({ data: { user: session.user, session }, error: null });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return this._returnResult({ data: { session: null, user: null }, error });
           }
           throw error;
@@ -11371,7 +10356,7 @@ var require_GoTrueClient = __commonJS({
               currentSession3 = (_a = data.session) !== null && _a !== void 0 ? _a : void 0;
             }
             if (!(currentSession3 === null || currentSession3 === void 0 ? void 0 : currentSession3.refresh_token)) {
-              throw new errors_1.AuthSessionMissingError();
+              throw new AuthSessionMissingError();
             }
             const { data: session, error } = await this._callRefreshToken(currentSession3.refresh_token);
             if (error) {
@@ -11383,7 +10368,7 @@ var require_GoTrueClient = __commonJS({
             return this._returnResult({ data: { user: session.user, session }, error: null });
           });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return this._returnResult({ data: { user: null, session: null }, error });
           }
           throw error;
@@ -11394,10 +10379,10 @@ var require_GoTrueClient = __commonJS({
        */
       async _getSessionFromURL(params, callbackUrlType) {
         try {
-          if (!(0, helpers_1.isBrowser)())
-            throw new errors_1.AuthImplicitGrantRedirectError("No browser detected.");
+          if (!isBrowser())
+            throw new AuthImplicitGrantRedirectError("No browser detected.");
           if (params.error || params.error_description || params.error_code) {
-            throw new errors_1.AuthImplicitGrantRedirectError(params.error_description || "Error in URL with unspecified error_description", {
+            throw new AuthImplicitGrantRedirectError(params.error_description || "Error in URL with unspecified error_description", {
               error: params.error || "unspecified_error",
               code: params.error_code || "unspecified_code"
             });
@@ -11405,12 +10390,12 @@ var require_GoTrueClient = __commonJS({
           switch (callbackUrlType) {
             case "implicit":
               if (this.flowType === "pkce") {
-                throw new errors_1.AuthPKCEGrantCodeExchangeError("Not a valid PKCE flow url.");
+                throw new AuthPKCEGrantCodeExchangeError("Not a valid PKCE flow url.");
               }
               break;
             case "pkce":
               if (this.flowType === "implicit") {
-                throw new errors_1.AuthImplicitGrantRedirectError("Not a valid implicit grant flow url.");
+                throw new AuthImplicitGrantRedirectError("Not a valid implicit grant flow url.");
               }
               break;
             default:
@@ -11418,7 +10403,7 @@ var require_GoTrueClient = __commonJS({
           if (callbackUrlType === "pkce") {
             this._debug("#_initialize()", "begin", "is PKCE flow", true);
             if (!params.code)
-              throw new errors_1.AuthPKCEGrantCodeExchangeError("No code detected.");
+              throw new AuthPKCEGrantCodeExchangeError("No code detected.");
             const { data: data2, error: error2 } = await this._exchangeCodeForSession(params.code);
             if (error2)
               throw error2;
@@ -11429,23 +10414,23 @@ var require_GoTrueClient = __commonJS({
           }
           const { provider_token, provider_refresh_token, access_token, refresh_token, expires_in, expires_at, token_type } = params;
           if (!access_token || !expires_in || !refresh_token || !token_type) {
-            throw new errors_1.AuthImplicitGrantRedirectError("No session defined in URL");
+            throw new AuthImplicitGrantRedirectError("No session defined in URL");
           }
           const timeNow = Math.round(Date.now() / 1e3);
           const expiresIn = parseInt(expires_in);
-          let expiresAt = timeNow + expiresIn;
+          let expiresAt2 = timeNow + expiresIn;
           if (expires_at) {
-            expiresAt = parseInt(expires_at);
+            expiresAt2 = parseInt(expires_at);
           }
-          const actuallyExpiresIn = expiresAt - timeNow;
-          if (actuallyExpiresIn * 1e3 <= constants_1.AUTO_REFRESH_TICK_DURATION_MS) {
+          const actuallyExpiresIn = expiresAt2 - timeNow;
+          if (actuallyExpiresIn * 1e3 <= AUTO_REFRESH_TICK_DURATION_MS) {
             console.warn(`@supabase/gotrue-js: Session as retrieved from URL expires in ${actuallyExpiresIn}s, should have been closer to ${expiresIn}s`);
           }
-          const issuedAt = expiresAt - expiresIn;
+          const issuedAt = expiresAt2 - expiresIn;
           if (timeNow - issuedAt >= 120) {
-            console.warn("@supabase/gotrue-js: Session as retrieved from URL was issued over 120s ago, URL could be stale", issuedAt, expiresAt, timeNow);
+            console.warn("@supabase/gotrue-js: Session as retrieved from URL was issued over 120s ago, URL could be stale", issuedAt, expiresAt2, timeNow);
           } else if (timeNow - issuedAt < 0) {
-            console.warn("@supabase/gotrue-js: Session as retrieved from URL was issued in the future? Check the device clock for skew", issuedAt, expiresAt, timeNow);
+            console.warn("@supabase/gotrue-js: Session as retrieved from URL was issued in the future? Check the device clock for skew", issuedAt, expiresAt2, timeNow);
           }
           const { data, error } = await this._getUser(access_token);
           if (error)
@@ -11455,7 +10440,7 @@ var require_GoTrueClient = __commonJS({
             provider_refresh_token,
             access_token,
             expires_in: expiresIn,
-            expires_at: expiresAt,
+            expires_at: expiresAt2,
             refresh_token,
             token_type,
             user: data.user
@@ -11464,7 +10449,7 @@ var require_GoTrueClient = __commonJS({
           this._debug("#_getSessionFromURL()", "clearing window.location.hash");
           return this._returnResult({ data: { session, redirectType: params.type }, error: null });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return this._returnResult({ data: { session: null, redirectType: null }, error });
           }
           throw error;
@@ -11487,7 +10472,7 @@ var require_GoTrueClient = __commonJS({
        * Checks if the current URL and backing storage contain parameters given by a PKCE flow
        */
       async _isPKCECallback(params) {
-        const currentStorageContent = await (0, helpers_1.getItemAsync)(this.storage, `${this.storageKey}-code-verifier`);
+        const currentStorageContent = await getItemAsync(this.storage, `${this.storageKey}-code-verifier`);
         return !!(params.code && currentStorageContent);
       }
       /**
@@ -11515,20 +10500,20 @@ var require_GoTrueClient = __commonJS({
           if (accessToken) {
             const { error } = await this.admin.signOut(accessToken, scope);
             if (error) {
-              if (!((0, errors_1.isAuthApiError)(error) && (error.status === 404 || error.status === 401 || error.status === 403))) {
+              if (!(isAuthApiError(error) && (error.status === 404 || error.status === 401 || error.status === 403))) {
                 return this._returnResult({ error });
               }
             }
           }
           if (scope !== "others") {
             await this._removeSession();
-            await (0, helpers_1.removeItemAsync)(this.storage, `${this.storageKey}-code-verifier`);
+            await removeItemAsync(this.storage, `${this.storageKey}-code-verifier`);
           }
           return this._returnResult({ error: null });
         });
       }
       onAuthStateChange(callback) {
-        const id = (0, helpers_1.generateCallbackId)();
+        const id = generateCallbackId();
         const subscription = {
           id,
           callback,
@@ -11575,7 +10560,7 @@ var require_GoTrueClient = __commonJS({
         let codeChallengeMethod = null;
         if (this.flowType === "pkce") {
           ;
-          [codeChallenge, codeChallengeMethod] = await (0, helpers_1.getCodeChallengeAndMethod)(
+          [codeChallenge, codeChallengeMethod] = await getCodeChallengeAndMethod(
             this.storage,
             this.storageKey,
             true
@@ -11583,7 +10568,7 @@ var require_GoTrueClient = __commonJS({
           );
         }
         try {
-          return await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/recover`, {
+          return await _request(this.fetch, "POST", `${this.url}/recover`, {
             body: {
               email,
               code_challenge: codeChallenge,
@@ -11594,8 +10579,8 @@ var require_GoTrueClient = __commonJS({
             redirectTo: options.redirectTo
           });
         } catch (error) {
-          await (0, helpers_1.removeItemAsync)(this.storage, `${this.storageKey}-code-verifier`);
-          if ((0, errors_1.isAuthError)(error)) {
+          await removeItemAsync(this.storage, `${this.storageKey}-code-verifier`);
+          if (isAuthError(error)) {
             return this._returnResult({ data: null, error });
           }
           throw error;
@@ -11612,7 +10597,7 @@ var require_GoTrueClient = __commonJS({
             throw error;
           return this._returnResult({ data: { identities: (_a = data.user.identities) !== null && _a !== void 0 ? _a : [] }, error: null });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return this._returnResult({ data: null, error });
           }
           throw error;
@@ -11638,14 +10623,14 @@ var require_GoTrueClient = __commonJS({
               queryParams: (_c = credentials.options) === null || _c === void 0 ? void 0 : _c.queryParams,
               skipBrowserRedirect: true
             });
-            return await (0, fetch_1._request)(this.fetch, "GET", url, {
+            return await _request(this.fetch, "GET", url, {
               headers: this.headers,
               jwt: (_e = (_d = data2.session) === null || _d === void 0 ? void 0 : _d.access_token) !== null && _e !== void 0 ? _e : void 0
             });
           });
           if (error)
             throw error;
-          if ((0, helpers_1.isBrowser)() && !((_a = credentials.options) === null || _a === void 0 ? void 0 : _a.skipBrowserRedirect)) {
+          if (isBrowser() && !((_a = credentials.options) === null || _a === void 0 ? void 0 : _a.skipBrowserRedirect)) {
             window.location.assign(data === null || data === void 0 ? void 0 : data.url);
           }
           return this._returnResult({
@@ -11653,7 +10638,7 @@ var require_GoTrueClient = __commonJS({
             error: null
           });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return this._returnResult({ data: { provider: credentials.provider, url: null }, error });
           }
           throw error;
@@ -11667,7 +10652,7 @@ var require_GoTrueClient = __commonJS({
             if (sessionError)
               throw sessionError;
             const { options, provider, token, access_token, nonce } = credentials;
-            const res = await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/token?grant_type=id_token`, {
+            const res = await _request(this.fetch, "POST", `${this.url}/token?grant_type=id_token`, {
               headers: this.headers,
               jwt: (_a = session === null || session === void 0 ? void 0 : session.access_token) !== null && _a !== void 0 ? _a : void 0,
               body: {
@@ -11678,7 +10663,7 @@ var require_GoTrueClient = __commonJS({
                 link_identity: true,
                 gotrue_meta_security: { captcha_token: options === null || options === void 0 ? void 0 : options.captchaToken }
               },
-              xform: fetch_1._sessionResponse
+              xform: _sessionResponse
             });
             const { data, error } = res;
             if (error) {
@@ -11686,7 +10671,7 @@ var require_GoTrueClient = __commonJS({
             } else if (!data || !data.session || !data.user) {
               return this._returnResult({
                 data: { user: null, session: null },
-                error: new errors_1.AuthInvalidTokenResponseError()
+                error: new AuthInvalidTokenResponseError()
               });
             }
             if (data.session) {
@@ -11695,8 +10680,8 @@ var require_GoTrueClient = __commonJS({
             }
             return this._returnResult({ data, error });
           } catch (error) {
-            await (0, helpers_1.removeItemAsync)(this.storage, `${this.storageKey}-code-verifier`);
-            if ((0, errors_1.isAuthError)(error)) {
+            await removeItemAsync(this.storage, `${this.storageKey}-code-verifier`);
+            if (isAuthError(error)) {
               return this._returnResult({ data: { user: null, session: null }, error });
             }
             throw error;
@@ -11714,13 +10699,13 @@ var require_GoTrueClient = __commonJS({
             if (error) {
               throw error;
             }
-            return await (0, fetch_1._request)(this.fetch, "DELETE", `${this.url}/user/identities/${identity.identity_id}`, {
+            return await _request(this.fetch, "DELETE", `${this.url}/user/identities/${identity.identity_id}`, {
               headers: this.headers,
               jwt: (_b = (_a = data.session) === null || _a === void 0 ? void 0 : _a.access_token) !== null && _b !== void 0 ? _b : void 0
             });
           });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return this._returnResult({ data: null, error });
           }
           throw error;
@@ -11735,24 +10720,24 @@ var require_GoTrueClient = __commonJS({
         this._debug(debugName, "begin");
         try {
           const startedAt = Date.now();
-          return await (0, helpers_1.retryable)(async (attempt) => {
+          return await retryable(async (attempt) => {
             if (attempt > 0) {
-              await (0, helpers_1.sleep)(200 * Math.pow(2, attempt - 1));
+              await sleep(200 * Math.pow(2, attempt - 1));
             }
             this._debug(debugName, "refreshing attempt", attempt);
-            return await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/token?grant_type=refresh_token`, {
+            return await _request(this.fetch, "POST", `${this.url}/token?grant_type=refresh_token`, {
               body: { refresh_token: refreshToken },
               headers: this.headers,
-              xform: fetch_1._sessionResponse
+              xform: _sessionResponse
             });
           }, (attempt, error) => {
             const nextBackOffInterval = 200 * Math.pow(2, attempt);
-            return error && (0, errors_1.isAuthRetryableFetchError)(error) && // retryable only if the request can be sent before the backoff overflows the tick duration
-            Date.now() + nextBackOffInterval - startedAt < constants_1.AUTO_REFRESH_TICK_DURATION_MS;
+            return error && isAuthRetryableFetchError(error) && // retryable only if the request can be sent before the backoff overflows the tick duration
+            Date.now() + nextBackOffInterval - startedAt < AUTO_REFRESH_TICK_DURATION_MS;
           });
         } catch (error) {
           this._debug(debugName, "error", error);
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return this._returnResult({ data: { session: null, user: null }, error });
           }
           throw error;
@@ -11771,7 +10756,7 @@ var require_GoTrueClient = __commonJS({
           queryParams: options.queryParams
         });
         this._debug("#_handleProviderSignIn()", "provider", provider, "options", options, "url", url);
-        if ((0, helpers_1.isBrowser)() && !options.skipBrowserRedirect) {
+        if (isBrowser() && !options.skipBrowserRedirect) {
           window.location.assign(url);
         }
         return { data: { provider, url }, error: null };
@@ -11785,23 +10770,23 @@ var require_GoTrueClient = __commonJS({
         const debugName = "#_recoverAndRefresh()";
         this._debug(debugName, "begin");
         try {
-          const currentSession3 = await (0, helpers_1.getItemAsync)(this.storage, this.storageKey);
+          const currentSession3 = await getItemAsync(this.storage, this.storageKey);
           if (currentSession3 && this.userStorage) {
-            let maybeUser = await (0, helpers_1.getItemAsync)(this.userStorage, this.storageKey + "-user");
+            let maybeUser = await getItemAsync(this.userStorage, this.storageKey + "-user");
             if (!this.storage.isServer && Object.is(this.storage, this.userStorage) && !maybeUser) {
               maybeUser = { user: currentSession3.user };
-              await (0, helpers_1.setItemAsync)(this.userStorage, this.storageKey + "-user", maybeUser);
+              await setItemAsync(this.userStorage, this.storageKey + "-user", maybeUser);
             }
-            currentSession3.user = (_a = maybeUser === null || maybeUser === void 0 ? void 0 : maybeUser.user) !== null && _a !== void 0 ? _a : (0, helpers_1.userNotAvailableProxy)();
+            currentSession3.user = (_a = maybeUser === null || maybeUser === void 0 ? void 0 : maybeUser.user) !== null && _a !== void 0 ? _a : userNotAvailableProxy();
           } else if (currentSession3 && !currentSession3.user) {
             if (!currentSession3.user) {
-              const separateUser = await (0, helpers_1.getItemAsync)(this.storage, this.storageKey + "-user");
+              const separateUser = await getItemAsync(this.storage, this.storageKey + "-user");
               if (separateUser && (separateUser === null || separateUser === void 0 ? void 0 : separateUser.user)) {
                 currentSession3.user = separateUser.user;
-                await (0, helpers_1.removeItemAsync)(this.storage, this.storageKey + "-user");
-                await (0, helpers_1.setItemAsync)(this.storage, this.storageKey, currentSession3);
+                await removeItemAsync(this.storage, this.storageKey + "-user");
+                await setItemAsync(this.storage, this.storageKey, currentSession3);
               } else {
-                currentSession3.user = (0, helpers_1.userNotAvailableProxy)();
+                currentSession3.user = userNotAvailableProxy();
               }
             }
           }
@@ -11813,14 +10798,14 @@ var require_GoTrueClient = __commonJS({
             }
             return;
           }
-          const expiresWithMargin = ((_b = currentSession3.expires_at) !== null && _b !== void 0 ? _b : Infinity) * 1e3 - Date.now() < constants_1.EXPIRY_MARGIN_MS;
-          this._debug(debugName, `session has${expiresWithMargin ? "" : " not"} expired with margin of ${constants_1.EXPIRY_MARGIN_MS}s`);
+          const expiresWithMargin = ((_b = currentSession3.expires_at) !== null && _b !== void 0 ? _b : Infinity) * 1e3 - Date.now() < EXPIRY_MARGIN_MS;
+          this._debug(debugName, `session has${expiresWithMargin ? "" : " not"} expired with margin of ${EXPIRY_MARGIN_MS}s`);
           if (expiresWithMargin) {
             if (this.autoRefreshToken && currentSession3.refresh_token) {
               const { error } = await this._callRefreshToken(currentSession3.refresh_token);
               if (error) {
                 console.error(error);
-                if (!(0, errors_1.isAuthRetryableFetchError)(error)) {
+                if (!isAuthRetryableFetchError(error)) {
                   this._debug(debugName, "refresh failed with a non-retryable error, removing the session", error);
                   await this._removeSession();
                 }
@@ -11854,7 +10839,7 @@ var require_GoTrueClient = __commonJS({
       async _callRefreshToken(refreshToken) {
         var _a, _b;
         if (!refreshToken) {
-          throw new errors_1.AuthSessionMissingError();
+          throw new AuthSessionMissingError();
         }
         if (this.refreshingDeferred) {
           return this.refreshingDeferred.promise;
@@ -11862,12 +10847,12 @@ var require_GoTrueClient = __commonJS({
         const debugName = `#_callRefreshToken(${refreshToken.substring(0, 5)}...)`;
         this._debug(debugName, "begin");
         try {
-          this.refreshingDeferred = new helpers_1.Deferred();
+          this.refreshingDeferred = new Deferred();
           const { data, error } = await this._refreshAccessToken(refreshToken);
           if (error)
             throw error;
           if (!data.session)
-            throw new errors_1.AuthSessionMissingError();
+            throw new AuthSessionMissingError();
           await this._saveSession(data.session);
           await this._notifyAllSubscribers("TOKEN_REFRESHED", data.session);
           const result = { data: data.session, error: null };
@@ -11875,9 +10860,9 @@ var require_GoTrueClient = __commonJS({
           return result;
         } catch (error) {
           this._debug(debugName, "error", error);
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             const result = { data: null, error };
-            if (!(0, errors_1.isAuthRetryableFetchError)(error)) {
+            if (!isAuthRetryableFetchError(error)) {
               await this._removeSession();
             }
             (_a = this.refreshingDeferred) === null || _a === void 0 ? void 0 : _a.resolve(result);
@@ -11923,33 +10908,33 @@ var require_GoTrueClient = __commonJS({
       async _saveSession(session) {
         this._debug("#_saveSession()", session);
         this.suppressGetSessionWarning = true;
-        await (0, helpers_1.removeItemAsync)(this.storage, `${this.storageKey}-code-verifier`);
+        await removeItemAsync(this.storage, `${this.storageKey}-code-verifier`);
         const sessionToProcess = Object.assign({}, session);
         const userIsProxy = sessionToProcess.user && sessionToProcess.user.__isUserNotAvailableProxy === true;
         if (this.userStorage) {
           if (!userIsProxy && sessionToProcess.user) {
-            await (0, helpers_1.setItemAsync)(this.userStorage, this.storageKey + "-user", {
+            await setItemAsync(this.userStorage, this.storageKey + "-user", {
               user: sessionToProcess.user
             });
           } else if (userIsProxy) {
           }
           const mainSessionData = Object.assign({}, sessionToProcess);
           delete mainSessionData.user;
-          const clonedMainSessionData = (0, helpers_1.deepClone)(mainSessionData);
-          await (0, helpers_1.setItemAsync)(this.storage, this.storageKey, clonedMainSessionData);
+          const clonedMainSessionData = deepClone(mainSessionData);
+          await setItemAsync(this.storage, this.storageKey, clonedMainSessionData);
         } else {
-          const clonedSession = (0, helpers_1.deepClone)(sessionToProcess);
-          await (0, helpers_1.setItemAsync)(this.storage, this.storageKey, clonedSession);
+          const clonedSession = deepClone(sessionToProcess);
+          await setItemAsync(this.storage, this.storageKey, clonedSession);
         }
       }
       async _removeSession() {
         this._debug("#_removeSession()");
         this.suppressGetSessionWarning = false;
-        await (0, helpers_1.removeItemAsync)(this.storage, this.storageKey);
-        await (0, helpers_1.removeItemAsync)(this.storage, this.storageKey + "-code-verifier");
-        await (0, helpers_1.removeItemAsync)(this.storage, this.storageKey + "-user");
+        await removeItemAsync(this.storage, this.storageKey);
+        await removeItemAsync(this.storage, this.storageKey + "-code-verifier");
+        await removeItemAsync(this.storage, this.storageKey + "-user");
         if (this.userStorage) {
-          await (0, helpers_1.removeItemAsync)(this.userStorage, this.storageKey + "-user");
+          await removeItemAsync(this.userStorage, this.storageKey + "-user");
         }
         await this._notifyAllSubscribers("SIGNED_OUT", null);
       }
@@ -11964,7 +10949,7 @@ var require_GoTrueClient = __commonJS({
         const callback = this.visibilityChangedCallback;
         this.visibilityChangedCallback = null;
         try {
-          if (callback && (0, helpers_1.isBrowser)() && (window === null || window === void 0 ? void 0 : window.removeEventListener)) {
+          if (callback && isBrowser() && (window === null || window === void 0 ? void 0 : window.removeEventListener)) {
             window.removeEventListener("visibilitychange", callback);
           }
         } catch (e) {
@@ -11978,7 +10963,7 @@ var require_GoTrueClient = __commonJS({
       async _startAutoRefresh() {
         await this._stopAutoRefresh();
         this._debug("#_startAutoRefresh()");
-        const ticker = setInterval(() => this._autoRefreshTokenTick(), constants_1.AUTO_REFRESH_TICK_DURATION_MS);
+        const ticker = setInterval(() => this._autoRefreshTokenTick(), AUTO_REFRESH_TICK_DURATION_MS);
         this.autoRefreshTicker = ticker;
         if (ticker && typeof ticker === "object" && typeof ticker.unref === "function") {
           ticker.unref();
@@ -12067,9 +11052,9 @@ var require_GoTrueClient = __commonJS({
                     this._debug("#_autoRefreshTokenTick()", "no session");
                     return;
                   }
-                  const expiresInTicks = Math.floor((session.expires_at * 1e3 - now3) / constants_1.AUTO_REFRESH_TICK_DURATION_MS);
-                  this._debug("#_autoRefreshTokenTick()", `access token expires in ${expiresInTicks} ticks, a tick lasts ${constants_1.AUTO_REFRESH_TICK_DURATION_MS}ms, refresh threshold is ${constants_1.AUTO_REFRESH_TICK_THRESHOLD} ticks`);
-                  if (expiresInTicks <= constants_1.AUTO_REFRESH_TICK_THRESHOLD) {
+                  const expiresInTicks = Math.floor((session.expires_at * 1e3 - now3) / AUTO_REFRESH_TICK_DURATION_MS);
+                  this._debug("#_autoRefreshTokenTick()", `access token expires in ${expiresInTicks} ticks, a tick lasts ${AUTO_REFRESH_TICK_DURATION_MS}ms, refresh threshold is ${AUTO_REFRESH_TICK_THRESHOLD} ticks`);
+                  if (expiresInTicks <= AUTO_REFRESH_TICK_THRESHOLD) {
                     await this._callRefreshToken(session.refresh_token);
                   }
                 });
@@ -12081,7 +11066,7 @@ var require_GoTrueClient = __commonJS({
             }
           });
         } catch (e) {
-          if (e.isAcquireTimeout || e instanceof locks_1.LockAcquireTimeoutError) {
+          if (e.isAcquireTimeout || e instanceof LockAcquireTimeoutError) {
             this._debug("auto refresh token tick lock not available");
           } else {
             throw e;
@@ -12095,7 +11080,7 @@ var require_GoTrueClient = __commonJS({
        */
       async _handleVisibilityChange() {
         this._debug("#_handleVisibilityChange()");
-        if (!(0, helpers_1.isBrowser)() || !(window === null || window === void 0 ? void 0 : window.addEventListener)) {
+        if (!isBrowser() || !(window === null || window === void 0 ? void 0 : window.addEventListener)) {
           if (this.autoRefreshToken) {
             this.startAutoRefresh();
           }
@@ -12150,7 +11135,7 @@ var require_GoTrueClient = __commonJS({
           urlParams.push(`scopes=${encodeURIComponent(options.scopes)}`);
         }
         if (this.flowType === "pkce") {
-          const [codeChallenge, codeChallengeMethod] = await (0, helpers_1.getCodeChallengeAndMethod)(this.storage, this.storageKey);
+          const [codeChallenge, codeChallengeMethod] = await getCodeChallengeAndMethod(this.storage, this.storageKey);
           const flowParams = new URLSearchParams({
             code_challenge: `${encodeURIComponent(codeChallenge)}`,
             code_challenge_method: `${encodeURIComponent(codeChallengeMethod)}`
@@ -12174,13 +11159,13 @@ var require_GoTrueClient = __commonJS({
             if (sessionError) {
               return this._returnResult({ data: null, error: sessionError });
             }
-            return await (0, fetch_1._request)(this.fetch, "DELETE", `${this.url}/factors/${params.factorId}`, {
+            return await _request(this.fetch, "DELETE", `${this.url}/factors/${params.factorId}`, {
               headers: this.headers,
               jwt: (_a = sessionData === null || sessionData === void 0 ? void 0 : sessionData.session) === null || _a === void 0 ? void 0 : _a.access_token
             });
           });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return this._returnResult({ data: null, error });
           }
           throw error;
@@ -12195,7 +11180,7 @@ var require_GoTrueClient = __commonJS({
               return this._returnResult({ data: null, error: sessionError });
             }
             const body = Object.assign({ friendly_name: params.friendlyName, factor_type: params.factorType }, params.factorType === "phone" ? { phone: params.phone } : params.factorType === "totp" ? { issuer: params.issuer } : {});
-            const { data, error } = await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/factors`, {
+            const { data, error } = await _request(this.fetch, "POST", `${this.url}/factors`, {
               body,
               headers: this.headers,
               jwt: (_a = sessionData === null || sessionData === void 0 ? void 0 : sessionData.session) === null || _a === void 0 ? void 0 : _a.access_token
@@ -12209,7 +11194,7 @@ var require_GoTrueClient = __commonJS({
             return this._returnResult({ data, error: null });
           });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return this._returnResult({ data: null, error });
           }
           throw error;
@@ -12225,9 +11210,9 @@ var require_GoTrueClient = __commonJS({
                 return this._returnResult({ data: null, error: sessionError });
               }
               const body = Object.assign({ challenge_id: params.challengeId }, "webauthn" in params ? {
-                webauthn: Object.assign(Object.assign({}, params.webauthn), { credential_response: params.webauthn.type === "create" ? (0, webauthn_1.serializeCredentialCreationResponse)(params.webauthn.credential_response) : (0, webauthn_1.serializeCredentialRequestResponse)(params.webauthn.credential_response) })
+                webauthn: Object.assign(Object.assign({}, params.webauthn), { credential_response: params.webauthn.type === "create" ? serializeCredentialCreationResponse(params.webauthn.credential_response) : serializeCredentialRequestResponse(params.webauthn.credential_response) })
               } : { code: params.code });
-              const { data, error } = await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/factors/${params.factorId}/verify`, {
+              const { data, error } = await _request(this.fetch, "POST", `${this.url}/factors/${params.factorId}/verify`, {
                 body,
                 headers: this.headers,
                 jwt: (_a = sessionData === null || sessionData === void 0 ? void 0 : sessionData.session) === null || _a === void 0 ? void 0 : _a.access_token
@@ -12240,7 +11225,7 @@ var require_GoTrueClient = __commonJS({
               return this._returnResult({ data, error });
             });
           } catch (error) {
-            if ((0, errors_1.isAuthError)(error)) {
+            if (isAuthError(error)) {
               return this._returnResult({ data: null, error });
             }
             throw error;
@@ -12256,7 +11241,7 @@ var require_GoTrueClient = __commonJS({
               if (sessionError) {
                 return this._returnResult({ data: null, error: sessionError });
               }
-              const response = await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/factors/${params.factorId}/challenge`, {
+              const response = await _request(this.fetch, "POST", `${this.url}/factors/${params.factorId}/challenge`, {
                 body: params,
                 headers: this.headers,
                 jwt: (_a = sessionData === null || sessionData === void 0 ? void 0 : sessionData.session) === null || _a === void 0 ? void 0 : _a.access_token
@@ -12271,18 +11256,18 @@ var require_GoTrueClient = __commonJS({
               switch (data.webauthn.type) {
                 case "create":
                   return {
-                    data: Object.assign(Object.assign({}, data), { webauthn: Object.assign(Object.assign({}, data.webauthn), { credential_options: Object.assign(Object.assign({}, data.webauthn.credential_options), { publicKey: (0, webauthn_1.deserializeCredentialCreationOptions)(data.webauthn.credential_options.publicKey) }) }) }),
+                    data: Object.assign(Object.assign({}, data), { webauthn: Object.assign(Object.assign({}, data.webauthn), { credential_options: Object.assign(Object.assign({}, data.webauthn.credential_options), { publicKey: deserializeCredentialCreationOptions(data.webauthn.credential_options.publicKey) }) }) }),
                     error: null
                   };
                 case "request":
                   return {
-                    data: Object.assign(Object.assign({}, data), { webauthn: Object.assign(Object.assign({}, data.webauthn), { credential_options: Object.assign(Object.assign({}, data.webauthn.credential_options), { publicKey: (0, webauthn_1.deserializeCredentialRequestOptions)(data.webauthn.credential_options.publicKey) }) }) }),
+                    data: Object.assign(Object.assign({}, data), { webauthn: Object.assign(Object.assign({}, data.webauthn), { credential_options: Object.assign(Object.assign({}, data.webauthn.credential_options), { publicKey: deserializeCredentialRequestOptions(data.webauthn.credential_options.publicKey) }) }) }),
                     error: null
                   };
               }
             });
           } catch (error) {
-            if ((0, errors_1.isAuthError)(error)) {
+            if (isAuthError(error)) {
               return this._returnResult({ data: null, error });
             }
             throw error;
@@ -12347,7 +11332,7 @@ var require_GoTrueClient = __commonJS({
             error: null
           };
         }
-        const { payload } = (0, helpers_1.decodeJWT)(session.access_token);
+        const { payload } = decodeJWT(session.access_token);
         let currentLevel = null;
         if (payload.aal) {
           currentLevel = payload.aal;
@@ -12376,16 +11361,16 @@ var require_GoTrueClient = __commonJS({
               return this._returnResult({ data: null, error: sessionError });
             }
             if (!session) {
-              return this._returnResult({ data: null, error: new errors_1.AuthSessionMissingError() });
+              return this._returnResult({ data: null, error: new AuthSessionMissingError() });
             }
-            return await (0, fetch_1._request)(this.fetch, "GET", `${this.url}/oauth/authorizations/${authorizationId}`, {
+            return await _request(this.fetch, "GET", `${this.url}/oauth/authorizations/${authorizationId}`, {
               headers: this.headers,
               jwt: session.access_token,
               xform: (data) => ({ data, error: null })
             });
           });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return this._returnResult({ data: null, error });
           }
           throw error;
@@ -12403,23 +11388,23 @@ var require_GoTrueClient = __commonJS({
               return this._returnResult({ data: null, error: sessionError });
             }
             if (!session) {
-              return this._returnResult({ data: null, error: new errors_1.AuthSessionMissingError() });
+              return this._returnResult({ data: null, error: new AuthSessionMissingError() });
             }
-            const response = await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/oauth/authorizations/${authorizationId}/consent`, {
+            const response = await _request(this.fetch, "POST", `${this.url}/oauth/authorizations/${authorizationId}/consent`, {
               headers: this.headers,
               jwt: session.access_token,
               body: { action: "approve" },
               xform: (data) => ({ data, error: null })
             });
             if (response.data && response.data.redirect_url) {
-              if ((0, helpers_1.isBrowser)() && !(options === null || options === void 0 ? void 0 : options.skipBrowserRedirect)) {
+              if (isBrowser() && !(options === null || options === void 0 ? void 0 : options.skipBrowserRedirect)) {
                 window.location.assign(response.data.redirect_url);
               }
             }
             return response;
           });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return this._returnResult({ data: null, error });
           }
           throw error;
@@ -12437,23 +11422,23 @@ var require_GoTrueClient = __commonJS({
               return this._returnResult({ data: null, error: sessionError });
             }
             if (!session) {
-              return this._returnResult({ data: null, error: new errors_1.AuthSessionMissingError() });
+              return this._returnResult({ data: null, error: new AuthSessionMissingError() });
             }
-            const response = await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/oauth/authorizations/${authorizationId}/consent`, {
+            const response = await _request(this.fetch, "POST", `${this.url}/oauth/authorizations/${authorizationId}/consent`, {
               headers: this.headers,
               jwt: session.access_token,
               body: { action: "deny" },
               xform: (data) => ({ data, error: null })
             });
             if (response.data && response.data.redirect_url) {
-              if ((0, helpers_1.isBrowser)() && !(options === null || options === void 0 ? void 0 : options.skipBrowserRedirect)) {
+              if (isBrowser() && !(options === null || options === void 0 ? void 0 : options.skipBrowserRedirect)) {
                 window.location.assign(response.data.redirect_url);
               }
             }
             return response;
           });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return this._returnResult({ data: null, error });
           }
           throw error;
@@ -12471,16 +11456,16 @@ var require_GoTrueClient = __commonJS({
               return this._returnResult({ data: null, error: sessionError });
             }
             if (!session) {
-              return this._returnResult({ data: null, error: new errors_1.AuthSessionMissingError() });
+              return this._returnResult({ data: null, error: new AuthSessionMissingError() });
             }
-            return await (0, fetch_1._request)(this.fetch, "GET", `${this.url}/user/oauth/grants`, {
+            return await _request(this.fetch, "GET", `${this.url}/user/oauth/grants`, {
               headers: this.headers,
               jwt: session.access_token,
               xform: (data) => ({ data, error: null })
             });
           });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return this._returnResult({ data: null, error });
           }
           throw error;
@@ -12498,9 +11483,9 @@ var require_GoTrueClient = __commonJS({
               return this._returnResult({ data: null, error: sessionError });
             }
             if (!session) {
-              return this._returnResult({ data: null, error: new errors_1.AuthSessionMissingError() });
+              return this._returnResult({ data: null, error: new AuthSessionMissingError() });
             }
-            await (0, fetch_1._request)(this.fetch, "DELETE", `${this.url}/user/oauth/grants`, {
+            await _request(this.fetch, "DELETE", `${this.url}/user/oauth/grants`, {
               headers: this.headers,
               jwt: session.access_token,
               query: { client_id: options.clientId },
@@ -12509,7 +11494,7 @@ var require_GoTrueClient = __commonJS({
             return { data: {}, error: null };
           });
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return this._returnResult({ data: null, error });
           }
           throw error;
@@ -12522,10 +11507,10 @@ var require_GoTrueClient = __commonJS({
         }
         const now3 = Date.now();
         jwk = this.jwks.keys.find((key) => key.kid === kid);
-        if (jwk && this.jwks_cached_at + constants_1.JWKS_TTL > now3) {
+        if (jwk && this.jwks_cached_at + JWKS_TTL > now3) {
           return jwk;
         }
-        const { data, error } = await (0, fetch_1._request)(this.fetch, "GET", `${this.url}/.well-known/jwks.json`, {
+        const { data, error } = await _request(this.fetch, "GET", `${this.url}/.well-known/jwks.json`, {
           headers: this.headers
         });
         if (error) {
@@ -12568,9 +11553,9 @@ var require_GoTrueClient = __commonJS({
             }
             token = data.session.access_token;
           }
-          const { header, payload, signature, raw: { header: rawHeader, payload: rawPayload } } = (0, helpers_1.decodeJWT)(token);
+          const { header, payload, signature, raw: { header: rawHeader, payload: rawPayload } } = decodeJWT(token);
           if (!(options === null || options === void 0 ? void 0 : options.allowExpired)) {
-            (0, helpers_1.validateExp)(payload.exp);
+            validateExp(payload.exp);
           }
           const signingKey = !header.alg || header.alg.startsWith("HS") || !header.kid || !("crypto" in globalThis && "subtle" in globalThis.crypto) ? null : await this.fetchJwk(header.kid, (options === null || options === void 0 ? void 0 : options.keys) ? { keys: options.keys } : options === null || options === void 0 ? void 0 : options.jwks);
           if (!signingKey) {
@@ -12587,13 +11572,13 @@ var require_GoTrueClient = __commonJS({
               error: null
             };
           }
-          const algorithm = (0, helpers_1.getAlgorithm)(header.alg);
+          const algorithm = getAlgorithm(header.alg);
           const publicKey = await crypto.subtle.importKey("jwk", signingKey, algorithm, true, [
             "verify"
           ]);
-          const isValid = await crypto.subtle.verify(algorithm, publicKey, signature, (0, base64url_1.stringToUint8Array)(`${rawHeader}.${rawPayload}`));
+          const isValid = await crypto.subtle.verify(algorithm, publicKey, signature, stringToUint8Array(`${rawHeader}.${rawPayload}`));
           if (!isValid) {
-            throw new errors_1.AuthInvalidJwtError("Invalid JWT signature");
+            throw new AuthInvalidJwtError("Invalid JWT signature");
           }
           return {
             data: {
@@ -12604,132 +11589,216 @@ var require_GoTrueClient = __commonJS({
             error: null
           };
         } catch (error) {
-          if ((0, errors_1.isAuthError)(error)) {
+          if (isAuthError(error)) {
             return this._returnResult({ data: null, error });
           }
           throw error;
         }
       }
     };
-    GoTrueClient2.nextInstanceID = {};
-    exports.default = GoTrueClient2;
+    GoTrueClient.nextInstanceID = {};
+    GoTrueClient_default = GoTrueClient;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/AuthAdminApi.js
-var require_AuthAdminApi = __commonJS({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/AuthAdminApi.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    var tslib_1 = (init_tslib_es6(), __toCommonJS(tslib_es6_exports));
-    var GoTrueAdminApi_1 = tslib_1.__importDefault(require_GoTrueAdminApi());
-    var AuthAdminApi2 = GoTrueAdminApi_1.default;
-    exports.default = AuthAdminApi2;
+// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/AuthAdminApi.js
+var init_AuthAdminApi = __esm({
+  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/AuthAdminApi.js"() {
+    init_GoTrueAdminApi();
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/AuthClient.js
-var require_AuthClient = __commonJS({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/AuthClient.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    var tslib_1 = (init_tslib_es6(), __toCommonJS(tslib_es6_exports));
-    var GoTrueClient_1 = tslib_1.__importDefault(require_GoTrueClient());
-    var AuthClient2 = GoTrueClient_1.default;
-    exports.default = AuthClient2;
+// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/AuthClient.js
+var AuthClient, AuthClient_default;
+var init_AuthClient = __esm({
+  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/AuthClient.js"() {
+    init_GoTrueClient();
+    AuthClient = GoTrueClient_default;
+    AuthClient_default = AuthClient;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/index.js
-var require_main3 = __commonJS({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/main/index.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.processLock = exports.lockInternals = exports.NavigatorLockAcquireTimeoutError = exports.navigatorLock = exports.AuthClient = exports.AuthAdminApi = exports.GoTrueClient = exports.GoTrueAdminApi = void 0;
-    var tslib_1 = (init_tslib_es6(), __toCommonJS(tslib_es6_exports));
-    var GoTrueAdminApi_1 = tslib_1.__importDefault(require_GoTrueAdminApi());
-    exports.GoTrueAdminApi = GoTrueAdminApi_1.default;
-    var GoTrueClient_1 = tslib_1.__importDefault(require_GoTrueClient());
-    exports.GoTrueClient = GoTrueClient_1.default;
-    var AuthAdminApi_1 = tslib_1.__importDefault(require_AuthAdminApi());
-    exports.AuthAdminApi = AuthAdminApi_1.default;
-    var AuthClient_1 = tslib_1.__importDefault(require_AuthClient());
-    exports.AuthClient = AuthClient_1.default;
-    tslib_1.__exportStar(require_types2(), exports);
-    tslib_1.__exportStar(require_errors(), exports);
-    var locks_1 = require_locks();
-    Object.defineProperty(exports, "navigatorLock", { enumerable: true, get: function() {
-      return locks_1.navigatorLock;
-    } });
-    Object.defineProperty(exports, "NavigatorLockAcquireTimeoutError", { enumerable: true, get: function() {
-      return locks_1.NavigatorLockAcquireTimeoutError;
-    } });
-    Object.defineProperty(exports, "lockInternals", { enumerable: true, get: function() {
-      return locks_1.internals;
-    } });
-    Object.defineProperty(exports, "processLock", { enumerable: true, get: function() {
-      return locks_1.processLock;
-    } });
+// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/index.js
+var init_module3 = __esm({
+  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/index.js"() {
+    init_GoTrueAdminApi();
+    init_GoTrueClient();
+    init_AuthAdminApi();
+    init_AuthClient();
+    init_types2();
+    init_errors();
+    init_locks();
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+supabase-js@2.91.1/node_modules/@supabase/supabase-js/dist/main/lib/SupabaseAuthClient.js
-var require_SupabaseAuthClient = __commonJS({
-  "../../node_modules/.pnpm/@supabase+supabase-js@2.91.1/node_modules/@supabase/supabase-js/dist/main/lib/SupabaseAuthClient.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.SupabaseAuthClient = void 0;
-    var auth_js_1 = require_main3();
-    var SupabaseAuthClient = class extends auth_js_1.AuthClient {
+// ../../node_modules/.pnpm/@supabase+supabase-js@2.91.1/node_modules/@supabase/supabase-js/dist/index.mjs
+function _typeof2(o) {
+  "@babel/helpers - typeof";
+  return _typeof2 = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o$1) {
+    return typeof o$1;
+  } : function(o$1) {
+    return o$1 && "function" == typeof Symbol && o$1.constructor === Symbol && o$1 !== Symbol.prototype ? "symbol" : typeof o$1;
+  }, _typeof2(o);
+}
+function toPrimitive2(t, r) {
+  if ("object" != _typeof2(t) || !t) return t;
+  var e = t[Symbol.toPrimitive];
+  if (void 0 !== e) {
+    var i = e.call(t, r || "default");
+    if ("object" != _typeof2(i)) return i;
+    throw new TypeError("@@toPrimitive must return a primitive value.");
+  }
+  return ("string" === r ? String : Number)(t);
+}
+function toPropertyKey2(t) {
+  var i = toPrimitive2(t, "string");
+  return "symbol" == _typeof2(i) ? i : i + "";
+}
+function _defineProperty2(e, r, t) {
+  return (r = toPropertyKey2(r)) in e ? Object.defineProperty(e, r, {
+    value: t,
+    enumerable: true,
+    configurable: true,
+    writable: true
+  }) : e[r] = t, e;
+}
+function ownKeys2(e, r) {
+  var t = Object.keys(e);
+  if (Object.getOwnPropertySymbols) {
+    var o = Object.getOwnPropertySymbols(e);
+    r && (o = o.filter(function(r$1) {
+      return Object.getOwnPropertyDescriptor(e, r$1).enumerable;
+    })), t.push.apply(t, o);
+  }
+  return t;
+}
+function _objectSpread22(e) {
+  for (var r = 1; r < arguments.length; r++) {
+    var t = null != arguments[r] ? arguments[r] : {};
+    r % 2 ? ownKeys2(Object(t), true).forEach(function(r$1) {
+      _defineProperty2(e, r$1, t[r$1]);
+    }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys2(Object(t)).forEach(function(r$1) {
+      Object.defineProperty(e, r$1, Object.getOwnPropertyDescriptor(t, r$1));
+    });
+  }
+  return e;
+}
+function ensureTrailingSlash(url) {
+  return url.endsWith("/") ? url : url + "/";
+}
+function applySettingDefaults(options, defaults) {
+  var _DEFAULT_GLOBAL_OPTIO, _globalOptions$header;
+  const { db: dbOptions, auth: authOptions, realtime: realtimeOptions, global: globalOptions } = options;
+  const { db: DEFAULT_DB_OPTIONS$1, auth: DEFAULT_AUTH_OPTIONS$1, realtime: DEFAULT_REALTIME_OPTIONS$1, global: DEFAULT_GLOBAL_OPTIONS$1 } = defaults;
+  const result = {
+    db: _objectSpread22(_objectSpread22({}, DEFAULT_DB_OPTIONS$1), dbOptions),
+    auth: _objectSpread22(_objectSpread22({}, DEFAULT_AUTH_OPTIONS$1), authOptions),
+    realtime: _objectSpread22(_objectSpread22({}, DEFAULT_REALTIME_OPTIONS$1), realtimeOptions),
+    storage: {},
+    global: _objectSpread22(_objectSpread22(_objectSpread22({}, DEFAULT_GLOBAL_OPTIONS$1), globalOptions), {}, { headers: _objectSpread22(_objectSpread22({}, (_DEFAULT_GLOBAL_OPTIO = DEFAULT_GLOBAL_OPTIONS$1 === null || DEFAULT_GLOBAL_OPTIONS$1 === void 0 ? void 0 : DEFAULT_GLOBAL_OPTIONS$1.headers) !== null && _DEFAULT_GLOBAL_OPTIO !== void 0 ? _DEFAULT_GLOBAL_OPTIO : {}), (_globalOptions$header = globalOptions === null || globalOptions === void 0 ? void 0 : globalOptions.headers) !== null && _globalOptions$header !== void 0 ? _globalOptions$header : {}) }),
+    accessToken: async () => ""
+  };
+  if (options.accessToken) result.accessToken = options.accessToken;
+  else delete result.accessToken;
+  return result;
+}
+function validateSupabaseUrl(supabaseUrl) {
+  const trimmedUrl = supabaseUrl === null || supabaseUrl === void 0 ? void 0 : supabaseUrl.trim();
+  if (!trimmedUrl) throw new Error("supabaseUrl is required.");
+  if (!trimmedUrl.match(/^https?:\/\//i)) throw new Error("Invalid supabaseUrl: Must be a valid HTTP or HTTPS URL.");
+  try {
+    return new URL(ensureTrailingSlash(trimmedUrl));
+  } catch (_unused) {
+    throw Error("Invalid supabaseUrl: Provided URL is malformed.");
+  }
+}
+function shouldShowDeprecationWarning() {
+  if (typeof window !== "undefined") return false;
+  const _process = globalThis["process"];
+  if (!_process) return false;
+  const processVersion = _process["version"];
+  if (processVersion === void 0 || processVersion === null) return false;
+  const versionMatch = processVersion.match(/^v(\d+)\./);
+  if (!versionMatch) return false;
+  return parseInt(versionMatch[1], 10) <= 18;
+}
+var version4, JS_ENV, DEFAULT_HEADERS3, DEFAULT_GLOBAL_OPTIONS, DEFAULT_DB_OPTIONS, DEFAULT_AUTH_OPTIONS, DEFAULT_REALTIME_OPTIONS, resolveFetch4, resolveHeadersConstructor, fetchWithAuth, SupabaseAuthClient, SupabaseClient, createClient;
+var init_dist4 = __esm({
+  "../../node_modules/.pnpm/@supabase+supabase-js@2.91.1/node_modules/@supabase/supabase-js/dist/index.mjs"() {
+    init_module();
+    init_dist();
+    init_module2();
+    init_dist3();
+    init_module3();
+    init_module2();
+    init_module3();
+    version4 = "2.91.1";
+    JS_ENV = "";
+    if (typeof Deno !== "undefined") JS_ENV = "deno";
+    else if (typeof document !== "undefined") JS_ENV = "web";
+    else if (typeof navigator !== "undefined" && navigator.product === "ReactNative") JS_ENV = "react-native";
+    else JS_ENV = "node";
+    DEFAULT_HEADERS3 = { "X-Client-Info": `supabase-js-${JS_ENV}/${version4}` };
+    DEFAULT_GLOBAL_OPTIONS = { headers: DEFAULT_HEADERS3 };
+    DEFAULT_DB_OPTIONS = { schema: "public" };
+    DEFAULT_AUTH_OPTIONS = {
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: true,
+      flowType: "implicit"
+    };
+    DEFAULT_REALTIME_OPTIONS = {};
+    resolveFetch4 = (customFetch) => {
+      if (customFetch) return (...args) => customFetch(...args);
+      return (...args) => fetch(...args);
+    };
+    resolveHeadersConstructor = () => {
+      return Headers;
+    };
+    fetchWithAuth = (supabaseKey, getAccessToken, customFetch) => {
+      const fetch$1 = resolveFetch4(customFetch);
+      const HeadersConstructor = resolveHeadersConstructor();
+      return async (input, init3) => {
+        var _await$getAccessToken;
+        const accessToken = (_await$getAccessToken = await getAccessToken()) !== null && _await$getAccessToken !== void 0 ? _await$getAccessToken : supabaseKey;
+        let headers = new HeadersConstructor(init3 === null || init3 === void 0 ? void 0 : init3.headers);
+        if (!headers.has("apikey")) headers.set("apikey", supabaseKey);
+        if (!headers.has("Authorization")) headers.set("Authorization", `Bearer ${accessToken}`);
+        return fetch$1(input, _objectSpread22(_objectSpread22({}, init3), {}, { headers }));
+      };
+    };
+    SupabaseAuthClient = class extends AuthClient_default {
       constructor(options) {
         super(options);
       }
     };
-    exports.SupabaseAuthClient = SupabaseAuthClient;
-  }
-});
-
-// ../../node_modules/.pnpm/@supabase+supabase-js@2.91.1/node_modules/@supabase/supabase-js/dist/main/SupabaseClient.js
-var require_SupabaseClient = __commonJS({
-  "../../node_modules/.pnpm/@supabase+supabase-js@2.91.1/node_modules/@supabase/supabase-js/dist/main/SupabaseClient.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    var functions_js_1 = require_main();
-    var postgrest_js_1 = require_dist();
-    var realtime_js_1 = require_main2();
-    var storage_js_1 = require_dist3();
-    var constants_1 = require_constants2();
-    var fetch_1 = require_fetch();
-    var helpers_1 = require_helpers();
-    var SupabaseAuthClient_1 = require_SupabaseAuthClient();
-    var SupabaseClient2 = class {
+    SupabaseClient = class {
       /**
-       * Create a new client for use in the browser.
-       * @param supabaseUrl The unique Supabase URL which is supplied when you create a new project in your project dashboard.
-       * @param supabaseKey The unique Supabase Key which is supplied when you create a new project in your project dashboard.
-       * @param options.db.schema You can switch in between schemas. The schema needs to be on the list of exposed schemas inside Supabase.
-       * @param options.auth.autoRefreshToken Set to "true" if you want to automatically refresh the token before expiring.
-       * @param options.auth.persistSession Set to "true" if you want to automatically save the user session into local storage.
-       * @param options.auth.detectSessionInUrl Set to "true" if you want to automatically detects OAuth grants in the URL and signs in the user.
-       * @param options.realtime Options passed along to realtime-js constructor.
-       * @param options.storage Options passed along to the storage-js constructor.
-       * @param options.global.fetch A custom fetch implementation.
-       * @param options.global.headers Any additional headers to send with each network request.
-       * @example
-       * ```ts
-       * import { createClient } from '@supabase/supabase-js'
-       *
-       * const supabase = createClient('https://xyzcompany.supabase.co', 'public-anon-key')
-       * const { data } = await supabase.from('profiles').select('*')
-       * ```
-       */
+      * Create a new client for use in the browser.
+      * @param supabaseUrl The unique Supabase URL which is supplied when you create a new project in your project dashboard.
+      * @param supabaseKey The unique Supabase Key which is supplied when you create a new project in your project dashboard.
+      * @param options.db.schema You can switch in between schemas. The schema needs to be on the list of exposed schemas inside Supabase.
+      * @param options.auth.autoRefreshToken Set to "true" if you want to automatically refresh the token before expiring.
+      * @param options.auth.persistSession Set to "true" if you want to automatically save the user session into local storage.
+      * @param options.auth.detectSessionInUrl Set to "true" if you want to automatically detects OAuth grants in the URL and signs in the user.
+      * @param options.realtime Options passed along to realtime-js constructor.
+      * @param options.storage Options passed along to the storage-js constructor.
+      * @param options.global.fetch A custom fetch implementation.
+      * @param options.global.headers Any additional headers to send with each network request.
+      * @example
+      * ```ts
+      * import { createClient } from '@supabase/supabase-js'
+      *
+      * const supabase = createClient('https://xyzcompany.supabase.co', 'public-anon-key')
+      * const { data } = await supabase.from('profiles').select('*')
+      * ```
+      */
       constructor(supabaseUrl, supabaseKey, options) {
-        var _a, _b, _c;
+        var _settings$auth$storag, _settings$global$head;
         this.supabaseUrl = supabaseUrl;
         this.supabaseKey = supabaseKey;
-        const baseUrl = (0, helpers_1.validateSupabaseUrl)(supabaseUrl);
-        if (!supabaseKey)
-          throw new Error("supabaseKey is required.");
+        const baseUrl = validateSupabaseUrl(supabaseUrl);
+        if (!supabaseKey) throw new Error("supabaseKey is required.");
         this.realtimeUrl = new URL("realtime/v1", baseUrl);
         this.realtimeUrl.protocol = this.realtimeUrl.protocol.replace("http", "ws");
         this.authUrl = new URL("auth/v1", baseUrl);
@@ -12737,91 +11806,87 @@ var require_SupabaseClient = __commonJS({
         this.functionsUrl = new URL("functions/v1", baseUrl);
         const defaultStorageKey = `sb-${baseUrl.hostname.split(".")[0]}-auth-token`;
         const DEFAULTS3 = {
-          db: constants_1.DEFAULT_DB_OPTIONS,
-          realtime: constants_1.DEFAULT_REALTIME_OPTIONS,
-          auth: Object.assign(Object.assign({}, constants_1.DEFAULT_AUTH_OPTIONS), { storageKey: defaultStorageKey }),
-          global: constants_1.DEFAULT_GLOBAL_OPTIONS
+          db: DEFAULT_DB_OPTIONS,
+          realtime: DEFAULT_REALTIME_OPTIONS,
+          auth: _objectSpread22(_objectSpread22({}, DEFAULT_AUTH_OPTIONS), {}, { storageKey: defaultStorageKey }),
+          global: DEFAULT_GLOBAL_OPTIONS
         };
-        const settings2 = (0, helpers_1.applySettingDefaults)(options !== null && options !== void 0 ? options : {}, DEFAULTS3);
-        this.storageKey = (_a = settings2.auth.storageKey) !== null && _a !== void 0 ? _a : "";
-        this.headers = (_b = settings2.global.headers) !== null && _b !== void 0 ? _b : {};
+        const settings2 = applySettingDefaults(options !== null && options !== void 0 ? options : {}, DEFAULTS3);
+        this.storageKey = (_settings$auth$storag = settings2.auth.storageKey) !== null && _settings$auth$storag !== void 0 ? _settings$auth$storag : "";
+        this.headers = (_settings$global$head = settings2.global.headers) !== null && _settings$global$head !== void 0 ? _settings$global$head : {};
         if (!settings2.accessToken) {
-          this.auth = this._initSupabaseAuthClient((_c = settings2.auth) !== null && _c !== void 0 ? _c : {}, this.headers, settings2.global.fetch);
+          var _settings$auth;
+          this.auth = this._initSupabaseAuthClient((_settings$auth = settings2.auth) !== null && _settings$auth !== void 0 ? _settings$auth : {}, this.headers, settings2.global.fetch);
         } else {
           this.accessToken = settings2.accessToken;
-          this.auth = new Proxy({}, {
-            get: (_, prop) => {
-              throw new Error(`@supabase/supabase-js: Supabase Client is configured with the accessToken option, accessing supabase.auth.${String(prop)} is not possible`);
-            }
-          });
+          this.auth = new Proxy({}, { get: (_, prop) => {
+            throw new Error(`@supabase/supabase-js: Supabase Client is configured with the accessToken option, accessing supabase.auth.${String(prop)} is not possible`);
+          } });
         }
-        this.fetch = (0, fetch_1.fetchWithAuth)(supabaseKey, this._getAccessToken.bind(this), settings2.global.fetch);
-        this.realtime = this._initRealtimeClient(Object.assign({ headers: this.headers, accessToken: this._getAccessToken.bind(this) }, settings2.realtime));
-        if (this.accessToken) {
-          this.accessToken().then((token) => this.realtime.setAuth(token)).catch((e) => console.warn("Failed to set initial Realtime auth token:", e));
-        }
-        this.rest = new postgrest_js_1.PostgrestClient(new URL("rest/v1", baseUrl).href, {
+        this.fetch = fetchWithAuth(supabaseKey, this._getAccessToken.bind(this), settings2.global.fetch);
+        this.realtime = this._initRealtimeClient(_objectSpread22({
+          headers: this.headers,
+          accessToken: this._getAccessToken.bind(this)
+        }, settings2.realtime));
+        if (this.accessToken) Promise.resolve(this.accessToken()).then((token) => this.realtime.setAuth(token)).catch((e) => console.warn("Failed to set initial Realtime auth token:", e));
+        this.rest = new PostgrestClient(new URL("rest/v1", baseUrl).href, {
           headers: this.headers,
           schema: settings2.db.schema,
           fetch: this.fetch
         });
-        this.storage = new storage_js_1.StorageClient(this.storageUrl.href, this.headers, this.fetch, options === null || options === void 0 ? void 0 : options.storage);
-        if (!settings2.accessToken) {
-          this._listenForAuthEvents();
-        }
+        this.storage = new StorageClient(this.storageUrl.href, this.headers, this.fetch, options === null || options === void 0 ? void 0 : options.storage);
+        if (!settings2.accessToken) this._listenForAuthEvents();
       }
       /**
-       * Supabase Functions allows you to deploy and invoke edge functions.
-       */
+      * Supabase Functions allows you to deploy and invoke edge functions.
+      */
       get functions() {
-        return new functions_js_1.FunctionsClient(this.functionsUrl.href, {
+        return new FunctionsClient(this.functionsUrl.href, {
           headers: this.headers,
           customFetch: this.fetch
         });
       }
       /**
-       * Perform a query on a table or a view.
-       *
-       * @param relation - The table or view name to query
-       */
+      * Perform a query on a table or a view.
+      *
+      * @param relation - The table or view name to query
+      */
       from(relation) {
         return this.rest.from(relation);
       }
-      // NOTE: signatures must be kept in sync with PostgrestClient.schema
       /**
-       * Select a schema to query or perform an function (rpc) call.
-       *
-       * The schema needs to be on the list of exposed schemas inside Supabase.
-       *
-       * @param schema - The schema to query
-       */
+      * Select a schema to query or perform an function (rpc) call.
+      *
+      * The schema needs to be on the list of exposed schemas inside Supabase.
+      *
+      * @param schema - The schema to query
+      */
       schema(schema) {
         return this.rest.schema(schema);
       }
-      // NOTE: signatures must be kept in sync with PostgrestClient.rpc
       /**
-       * Perform a function call.
-       *
-       * @param fn - The function name to call
-       * @param args - The arguments to pass to the function call
-       * @param options - Named parameters
-       * @param options.head - When set to `true`, `data` will not be returned.
-       * Useful if you only need the count.
-       * @param options.get - When set to `true`, the function will be called with
-       * read-only access mode.
-       * @param options.count - Count algorithm to use to count rows returned by the
-       * function. Only applicable for [set-returning
-       * functions](https://www.postgresql.org/docs/current/functions-srf.html).
-       *
-       * `"exact"`: Exact but slow count algorithm. Performs a `COUNT(*)` under the
-       * hood.
-       *
-       * `"planned"`: Approximated but fast count algorithm. Uses the Postgres
-       * statistics under the hood.
-       *
-       * `"estimated"`: Uses exact count for low numbers and planned count for high
-       * numbers.
-       */
+      * Perform a function call.
+      *
+      * @param fn - The function name to call
+      * @param args - The arguments to pass to the function call
+      * @param options - Named parameters
+      * @param options.head - When set to `true`, `data` will not be returned.
+      * Useful if you only need the count.
+      * @param options.get - When set to `true`, the function will be called with
+      * read-only access mode.
+      * @param options.count - Count algorithm to use to count rows returned by the
+      * function. Only applicable for [set-returning
+      * functions](https://www.postgresql.org/docs/current/functions-srf.html).
+      *
+      * `"exact"`: Exact but slow count algorithm. Performs a `COUNT(*)` under the
+      * hood.
+      *
+      * `"planned"`: Approximated but fast count algorithm. Uses the Postgres
+      * statistics under the hood.
+      *
+      * `"estimated"`: Uses exact count for low numbers and planned count for high
+      * numbers.
+      */
       rpc(fn, args = {}, options = {
         head: false,
         get: false,
@@ -12830,52 +11895,51 @@ var require_SupabaseClient = __commonJS({
         return this.rest.rpc(fn, args, options);
       }
       /**
-       * Creates a Realtime channel with Broadcast, Presence, and Postgres Changes.
-       *
-       * @param {string} name - The name of the Realtime channel.
-       * @param {Object} opts - The options to pass to the Realtime channel.
-       *
-       */
+      * Creates a Realtime channel with Broadcast, Presence, and Postgres Changes.
+      *
+      * @param {string} name - The name of the Realtime channel.
+      * @param {Object} opts - The options to pass to the Realtime channel.
+      *
+      */
       channel(name, opts = { config: {} }) {
         return this.realtime.channel(name, opts);
       }
       /**
-       * Returns all Realtime channels.
-       */
+      * Returns all Realtime channels.
+      */
       getChannels() {
         return this.realtime.getChannels();
       }
       /**
-       * Unsubscribes and removes Realtime channel from Realtime client.
-       *
-       * @param {RealtimeChannel} channel - The name of the Realtime channel.
-       *
-       */
+      * Unsubscribes and removes Realtime channel from Realtime client.
+      *
+      * @param {RealtimeChannel} channel - The name of the Realtime channel.
+      *
+      */
       removeChannel(channel) {
         return this.realtime.removeChannel(channel);
       }
       /**
-       * Unsubscribes and removes all Realtime channels from Realtime client.
-       */
+      * Unsubscribes and removes all Realtime channels from Realtime client.
+      */
       removeAllChannels() {
         return this.realtime.removeAllChannels();
       }
       async _getAccessToken() {
-        var _a, _b;
-        if (this.accessToken) {
-          return await this.accessToken();
-        }
-        const { data } = await this.auth.getSession();
-        return (_b = (_a = data.session) === null || _a === void 0 ? void 0 : _a.access_token) !== null && _b !== void 0 ? _b : this.supabaseKey;
+        var _this = this;
+        var _data$session$access_, _data$session;
+        if (_this.accessToken) return await _this.accessToken();
+        const { data } = await _this.auth.getSession();
+        return (_data$session$access_ = (_data$session = data.session) === null || _data$session === void 0 ? void 0 : _data$session.access_token) !== null && _data$session$access_ !== void 0 ? _data$session$access_ : _this.supabaseKey;
       }
-      _initSupabaseAuthClient({ autoRefreshToken, persistSession, detectSessionInUrl, storage, userStorage, storageKey, flowType, lock, debug, throwOnError }, headers, fetch2) {
+      _initSupabaseAuthClient({ autoRefreshToken, persistSession, detectSessionInUrl, storage, userStorage, storageKey, flowType, lock, debug, throwOnError }, headers, fetch$1) {
         const authHeaders = {
           Authorization: `Bearer ${this.supabaseKey}`,
           apikey: `${this.supabaseKey}`
         };
-        return new SupabaseAuthClient_1.SupabaseAuthClient({
+        return new SupabaseAuthClient({
           url: this.authUrl.href,
-          headers: Object.assign(Object.assign({}, authHeaders), headers),
+          headers: _objectSpread22(_objectSpread22({}, authHeaders), headers),
           storageKey,
           autoRefreshToken,
           persistSession,
@@ -12886,20 +11950,17 @@ var require_SupabaseClient = __commonJS({
           lock,
           debug,
           throwOnError,
-          fetch: fetch2,
-          // auth checks if there is a custom authorizaiton header using this flag
-          // so it knows whether to return an error when getUser is called with no session
+          fetch: fetch$1,
           hasCustomAuthorizationHeader: Object.keys(this.headers).some((key) => key.toLowerCase() === "authorization")
         });
       }
       _initRealtimeClient(options) {
-        return new realtime_js_1.RealtimeClient(this.realtimeUrl.href, Object.assign(Object.assign({}, options), { params: Object.assign({ apikey: this.supabaseKey }, options === null || options === void 0 ? void 0 : options.params) }));
+        return new RealtimeClient(this.realtimeUrl.href, _objectSpread22(_objectSpread22({}, options), {}, { params: _objectSpread22(_objectSpread22({}, { apikey: this.supabaseKey }), options === null || options === void 0 ? void 0 : options.params) }));
       }
       _listenForAuthEvents() {
-        const data = this.auth.onAuthStateChange((event, session) => {
+        return this.auth.onAuthStateChange((event, session) => {
           this._handleTokenChanged(event, "CLIENT", session === null || session === void 0 ? void 0 : session.access_token);
         });
-        return data;
       }
       _handleTokenChanged(event, source, token) {
         if ((event === "TOKEN_REFRESHED" || event === "SIGNED_IN") && this.changedAccessToken !== token) {
@@ -12907,146 +11968,15 @@ var require_SupabaseClient = __commonJS({
           this.realtime.setAuth(token);
         } else if (event === "SIGNED_OUT") {
           this.realtime.setAuth();
-          if (source == "STORAGE")
-            this.auth.signOut();
+          if (source == "STORAGE") this.auth.signOut();
           this.changedAccessToken = void 0;
         }
       }
     };
-    exports.default = SupabaseClient2;
-  }
-});
-
-// ../../node_modules/.pnpm/@supabase+supabase-js@2.91.1/node_modules/@supabase/supabase-js/dist/main/index.js
-var require_main4 = __commonJS({
-  "../../node_modules/.pnpm/@supabase+supabase-js@2.91.1/node_modules/@supabase/supabase-js/dist/main/index.js"(exports) {
-    "use strict";
-    var __createBinding2 = exports && exports.__createBinding || (Object.create ? (function(o, m, k, k2) {
-      if (k2 === void 0) k2 = k;
-      var desc = Object.getOwnPropertyDescriptor(m, k);
-      if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-        desc = { enumerable: true, get: function() {
-          return m[k];
-        } };
-      }
-      Object.defineProperty(o, k2, desc);
-    }) : (function(o, m, k, k2) {
-      if (k2 === void 0) k2 = k;
-      o[k2] = m[k];
-    }));
-    var __exportStar2 = exports && exports.__exportStar || function(m, exports2) {
-      for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports2, p)) __createBinding2(exports2, m, p);
+    createClient = (supabaseUrl, supabaseKey, options) => {
+      return new SupabaseClient(supabaseUrl, supabaseKey, options);
     };
-    var __importDefault2 = exports && exports.__importDefault || function(mod) {
-      return mod && mod.__esModule ? mod : { "default": mod };
-    };
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.createClient = exports.SupabaseClient = exports.FunctionRegion = exports.FunctionsError = exports.FunctionsRelayError = exports.FunctionsFetchError = exports.FunctionsHttpError = exports.PostgrestError = void 0;
-    var SupabaseClient_1 = __importDefault2(require_SupabaseClient());
-    __exportStar2(require_main3(), exports);
-    var postgrest_js_1 = require_dist();
-    Object.defineProperty(exports, "PostgrestError", { enumerable: true, get: function() {
-      return postgrest_js_1.PostgrestError;
-    } });
-    var functions_js_1 = require_main();
-    Object.defineProperty(exports, "FunctionsHttpError", { enumerable: true, get: function() {
-      return functions_js_1.FunctionsHttpError;
-    } });
-    Object.defineProperty(exports, "FunctionsFetchError", { enumerable: true, get: function() {
-      return functions_js_1.FunctionsFetchError;
-    } });
-    Object.defineProperty(exports, "FunctionsRelayError", { enumerable: true, get: function() {
-      return functions_js_1.FunctionsRelayError;
-    } });
-    Object.defineProperty(exports, "FunctionsError", { enumerable: true, get: function() {
-      return functions_js_1.FunctionsError;
-    } });
-    Object.defineProperty(exports, "FunctionRegion", { enumerable: true, get: function() {
-      return functions_js_1.FunctionRegion;
-    } });
-    __exportStar2(require_main2(), exports);
-    var SupabaseClient_2 = require_SupabaseClient();
-    Object.defineProperty(exports, "SupabaseClient", { enumerable: true, get: function() {
-      return __importDefault2(SupabaseClient_2).default;
-    } });
-    var createClient2 = (supabaseUrl, supabaseKey, options) => {
-      return new SupabaseClient_1.default(supabaseUrl, supabaseKey, options);
-    };
-    exports.createClient = createClient2;
-    function shouldShowDeprecationWarning() {
-      if (typeof window !== "undefined") {
-        return false;
-      }
-      if (typeof process === "undefined") {
-        return false;
-      }
-      const processVersion = process["version"];
-      if (processVersion === void 0 || processVersion === null) {
-        return false;
-      }
-      const versionMatch = processVersion.match(/^v(\d+)\./);
-      if (!versionMatch) {
-        return false;
-      }
-      const majorVersion = parseInt(versionMatch[1], 10);
-      return majorVersion <= 18;
-    }
-    if (shouldShowDeprecationWarning()) {
-      console.warn(`\u26A0\uFE0F  Node.js 18 and below are deprecated and will no longer be supported in future versions of @supabase/supabase-js. Please upgrade to Node.js 20 or later. For more information, visit: https://github.com/orgs/supabase/discussions/37217`);
-    }
-  }
-});
-
-// ../../node_modules/.pnpm/@supabase+supabase-js@2.91.1/node_modules/@supabase/supabase-js/dist/esm/wrapper.mjs
-var index, PostgrestError, FunctionsHttpError, FunctionsFetchError, FunctionsRelayError, FunctionsError, FunctionRegion, SupabaseClient, createClient, GoTrueAdminApi, GoTrueClient, AuthAdminApi, AuthClient, navigatorLock, NavigatorLockAcquireTimeoutError, lockInternals, processLock, SIGN_OUT_SCOPES, AuthError, AuthApiError, AuthUnknownError, CustomAuthError, AuthSessionMissingError, AuthInvalidTokenResponseError, AuthInvalidCredentialsError, AuthImplicitGrantRedirectError, AuthPKCEGrantCodeExchangeError, AuthRetryableFetchError, AuthWeakPasswordError, AuthInvalidJwtError, isAuthError, isAuthApiError, isAuthSessionMissingError, isAuthImplicitGrantRedirectError, isAuthRetryableFetchError, isAuthWeakPasswordError, RealtimePresence, RealtimeChannel, RealtimeClient, REALTIME_LISTEN_TYPES, REALTIME_POSTGRES_CHANGES_LISTEN_EVENT, REALTIME_PRESENCE_LISTEN_EVENTS, REALTIME_SUBSCRIBE_STATES, REALTIME_CHANNEL_STATES;
-var init_wrapper = __esm({
-  "../../node_modules/.pnpm/@supabase+supabase-js@2.91.1/node_modules/@supabase/supabase-js/dist/esm/wrapper.mjs"() {
-    index = __toESM(require_main4(), 1);
-    ({
-      PostgrestError,
-      FunctionsHttpError,
-      FunctionsFetchError,
-      FunctionsRelayError,
-      FunctionsError,
-      FunctionRegion,
-      SupabaseClient,
-      createClient,
-      GoTrueAdminApi,
-      GoTrueClient,
-      AuthAdminApi,
-      AuthClient,
-      navigatorLock,
-      NavigatorLockAcquireTimeoutError,
-      lockInternals,
-      processLock,
-      SIGN_OUT_SCOPES,
-      AuthError,
-      AuthApiError,
-      AuthUnknownError,
-      CustomAuthError,
-      AuthSessionMissingError,
-      AuthInvalidTokenResponseError,
-      AuthInvalidCredentialsError,
-      AuthImplicitGrantRedirectError,
-      AuthPKCEGrantCodeExchangeError,
-      AuthRetryableFetchError,
-      AuthWeakPasswordError,
-      AuthInvalidJwtError,
-      isAuthError,
-      isAuthApiError,
-      isAuthSessionMissingError,
-      isAuthImplicitGrantRedirectError,
-      isAuthRetryableFetchError,
-      isAuthWeakPasswordError,
-      RealtimePresence,
-      RealtimeChannel,
-      RealtimeClient,
-      REALTIME_LISTEN_TYPES,
-      REALTIME_POSTGRES_CHANGES_LISTEN_EVENT,
-      REALTIME_PRESENCE_LISTEN_EVENTS,
-      REALTIME_SUBSCRIBE_STATES,
-      REALTIME_CHANNEL_STATES
-    } = index.default || index);
+    if (shouldShowDeprecationWarning()) console.warn("\u26A0\uFE0F  Node.js 18 and below are deprecated and will no longer be supported in future versions of @supabase/supabase-js. Please upgrade to Node.js 20 or later. For more information, visit: https://github.com/orgs/supabase/discussions/37217");
   }
 });
 
@@ -13070,7 +12000,7 @@ var w, meta, metaEnv, SUPABASE_URL, SUPABASE_ANON_KEY, AUTH_STORAGE_KEY, hasSupa
 var init_supabaseClient = __esm({
   "src/forge/supabaseClient.ts"() {
     "use strict";
-    init_wrapper();
+    init_dist4();
     w = typeof window !== "undefined" ? window : {};
     meta = typeof import.meta !== "undefined" ? import.meta : {};
     metaEnv = meta.env || {};
@@ -14996,15 +13926,15 @@ var init_hybrid_wpm_motor = __esm({
 function persistStoredAutoEnabled(enabled2) {
   try {
     if (typeof window === "undefined") return;
-    window.localStorage?.setItem(STORAGE_KEY, enabled2 ? "1" : "0");
+    window.localStorage?.setItem(STORAGE_KEY2, enabled2 ? "1" : "0");
   } catch {
   }
 }
-var STORAGE_KEY;
+var STORAGE_KEY2;
 var init_auto_state = __esm({
   "src/features/scroll/auto-state.ts"() {
     "use strict";
-    STORAGE_KEY = "tp_auto_enabled_v1";
+    STORAGE_KEY2 = "tp_auto_enabled_v1";
   }
 });
 
@@ -15781,7 +14711,7 @@ function createAppStore(initial2) {
     } catch {
     }
   }
-  function get3(key) {
+  function get4(key) {
     try {
       return state8[key];
     } catch {
@@ -15882,7 +14812,7 @@ function createAppStore(initial2) {
   }
   const appStore = {
     __tsOwned: true,
-    get: get3,
+    get: get4,
     set,
     subscribe,
     subscribeAll,
@@ -16093,7 +15023,7 @@ function defaultProfileV1() {
   };
 }
 function applyProfilePatch(base, patch) {
-  const merged = deepMerge(
+  const merged = deepMerge2(
     base,
     patch
   );
@@ -16102,7 +15032,7 @@ function applyProfilePatch(base, patch) {
 function coerceProfile(input) {
   if (!input || typeof input !== "object") return defaultProfileV1();
   const migrated = migrateProfile(input);
-  const p = deepMerge(
+  const p = deepMerge2(
     defaultProfileV1(),
     migrated
   );
@@ -16176,15 +15106,15 @@ function safeNum(v) {
   }
   return null;
 }
-function isPlainObject(v) {
+function isPlainObject2(v) {
   return !!v && typeof v === "object" && !Array.isArray(v);
 }
-function deepMerge(base, patch) {
+function deepMerge2(base, patch) {
   const out = Array.isArray(base) ? [...base] : { ...base };
   for (const [k, v] of Object.entries(patch || {})) {
     if (v === void 0) continue;
     const bv = out[k];
-    if (isPlainObject(bv) && isPlainObject(v)) out[k] = deepMerge(bv, v);
+    if (isPlainObject2(bv) && isPlainObject2(v)) out[k] = deepMerge2(bv, v);
     else out[k] = v;
   }
   return out;
@@ -18789,10 +17719,10 @@ function setHybridBrake(factor, ttlMs, reason = null) {
   const rawTtl = Number.isFinite(ttlMs) ? ttlMs : 0;
   const ttl = Math.max(0, Math.min(HYBRID_EVENT_TTL_MAX, rawTtl));
   const now3 = nowMs();
-  const expiresAt = ttl > 0 ? now3 + ttl : 0;
+  const expiresAt2 = ttl > 0 ? now3 + ttl : 0;
   hybridBrakeState = {
     factor: safeFactor,
-    expiresAt,
+    expiresAt: expiresAt2,
     reason
   };
   scheduleHybridVelocityRefresh();
@@ -23926,10 +22856,10 @@ function ensureSpeechGlobals() {
   const win = window;
   if (!win.__tpRecognizer) {
     win.__tpRecognizer = () => ({
-      start: noop,
-      stop: noop,
-      abort: noop,
-      on: noop,
+      start: noop3,
+      stop: noop3,
+      abort: noop3,
+      on: noop3,
       onend: null,
       onerror: null
     });
@@ -23948,16 +22878,16 @@ function ensureSpeechGlobals() {
   if (!win.__tpSpeech) {
     win.__tpSpeech = {
       startRecognizer: async () => void 0,
-      stopRecognizer: noop,
+      stopRecognizer: noop3,
       matchBatch: matchBatchStub
     };
   } else {
     if (!win.__tpSpeech.startRecognizer) win.__tpSpeech.startRecognizer = async () => void 0;
-    if (!win.__tpSpeech.stopRecognizer) win.__tpSpeech.stopRecognizer = noop;
+    if (!win.__tpSpeech.stopRecognizer) win.__tpSpeech.stopRecognizer = noop3;
     if (!win.__tpSpeech.matchBatch) win.__tpSpeech.matchBatch = matchBatchStub;
   }
 }
-var matchBatchStub, noop;
+var matchBatchStub, noop3;
 var init_backend_guard = __esm({
   "src/speech/backend-guard.ts"() {
     "use strict";
@@ -23967,7 +22897,7 @@ var init_backend_guard = __esm({
       topScores: [],
       reason: "matcher_unavailable"
     });
-    noop = () => void 0;
+    noop3 = () => void 0;
   }
 });
 
@@ -24106,7 +23036,7 @@ function readStorage() {
     };
   }
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY2);
+    const raw = window.localStorage.getItem(STORAGE_KEY3);
     if (!raw) throw new Error("missing");
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") throw new Error("bad");
@@ -24132,7 +23062,7 @@ function readStorage() {
 function writeStorage(state8) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(STORAGE_KEY2, JSON.stringify(state8));
+    window.localStorage.setItem(STORAGE_KEY3, JSON.stringify(state8));
   } catch {
   }
 }
@@ -24358,11 +23288,11 @@ function setProfileAsrTweaks(profileId, tweaks) {
   };
   persist();
 }
-var STORAGE_KEY2, BINDING_EVENT, ACTIVE_SPEAKER_EVENT, DEFAULT_PROFILES, DEFAULT_BINDINGS, DEFAULT_ACTIVE_SLOT, VALID_SLOTS, subscribers, activeSubscribers, stateSubscribers, state4;
+var STORAGE_KEY3, BINDING_EVENT, ACTIVE_SPEAKER_EVENT, DEFAULT_PROFILES, DEFAULT_BINDINGS, DEFAULT_ACTIVE_SLOT, VALID_SLOTS, subscribers, activeSubscribers, stateSubscribers, state4;
 var init_speaker_profiles_store = __esm({
   "src/ui/speaker-profiles-store.ts"() {
     "use strict";
-    STORAGE_KEY2 = "tp_speaker_profiles_v1";
+    STORAGE_KEY3 = "tp_speaker_profiles_v1";
     BINDING_EVENT = "tp:speaker:bindings";
     ACTIVE_SPEAKER_EVENT = "tp:speaker:active";
     DEFAULT_PROFILES = [
@@ -25184,7 +24114,7 @@ function ensureBroadcast() {
       };
       window.addEventListener("storage", async (ev) => {
         try {
-          if (ev.key === STORAGE_KEY3 && ev.newValue) {
+          if (ev.key === STORAGE_KEY4 && ev.newValue) {
             const managedSynced = await syncManagedFromNursery("sync");
             if (managedSynced) return;
             const h = await idbGet(KEY3);
@@ -25206,17 +24136,17 @@ function broadcast() {
   } catch {
   }
   try {
-    localStorage.setItem(STORAGE_KEY3, String(Date.now()));
+    localStorage.setItem(STORAGE_KEY4, String(Date.now()));
     setTimeout(() => {
       try {
-        localStorage.removeItem(STORAGE_KEY3);
+        localStorage.removeItem(STORAGE_KEY4);
       } catch {
       }
     }, 500);
   } catch {
   }
 }
-var DB_NAME, STORE, KEY3, BCAST, STORAGE_KEY3, _dir, _bc, _listeners, _initPromise, _managedByNursery, _managedHint;
+var DB_NAME, STORE, KEY3, BCAST, STORAGE_KEY4, _dir, _bc, _listeners, _initPromise, _managedByNursery, _managedHint;
 var init_mapped_folder = __esm({
   "src/fs/mapped-folder.ts"() {
     "use strict";
@@ -25225,7 +24155,7 @@ var init_mapped_folder = __esm({
     STORE = "fs-handles";
     KEY3 = "scriptsRoot";
     BCAST = "tp-mapped-folder";
-    STORAGE_KEY3 = "tp_mapped_folder_bcast";
+    STORAGE_KEY4 = "tp_mapped_folder_bcast";
     _dir = null;
     _bc = null;
     _listeners = /* @__PURE__ */ new Set();
@@ -25590,7 +24520,7 @@ var init_script_save = __esm({
 // src/features/scripts-local.ts
 function readList() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY4);
+    const raw = localStorage.getItem(STORAGE_KEY5);
     return raw ? JSON.parse(raw).filter(Boolean) : [];
   } catch {
     return [];
@@ -25598,7 +24528,7 @@ function readList() {
 }
 function writeList(list) {
   try {
-    localStorage.setItem(STORAGE_KEY4, JSON.stringify(list || []));
+    localStorage.setItem(STORAGE_KEY5, JSON.stringify(list || []));
   } catch {
   }
 }
@@ -25722,14 +24652,14 @@ function initScriptsLocal() {
   wireButton("scriptDeleteBtn", () => deleteCurrent());
   wireButton("scriptRenameBtn", () => renameCurrent());
 }
-var STORAGE_KEY4, TITLE_KEY;
+var STORAGE_KEY5, TITLE_KEY;
 var init_scripts_local = __esm({
   "src/features/scripts-local.ts"() {
     "use strict";
     init_script_doc();
     init_script_save();
     init_script_naming();
-    STORAGE_KEY4 = "tp_local_scripts_v1";
+    STORAGE_KEY5 = "tp_local_scripts_v1";
     TITLE_KEY = "tp_last_script_title";
     if (typeof document !== "undefined") {
       if (document.readyState === "loading") {
@@ -25824,7 +24754,7 @@ function loadDevAsrThresholds() {
   const storage = getStorage();
   if (!storage) return null;
   try {
-    const raw = storage.getItem(STORAGE_KEY5);
+    const raw = storage.getItem(STORAGE_KEY6);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (typeof parsed !== "object" || parsed === null) return null;
@@ -25837,16 +24767,16 @@ function saveDevAsrThresholds(thresholds) {
   const storage = getStorage();
   if (!storage) return;
   try {
-    storage.setItem(STORAGE_KEY5, JSON.stringify(thresholds));
+    storage.setItem(STORAGE_KEY6, JSON.stringify(thresholds));
   } catch {
   }
 }
-var STORAGE_KEY5;
+var STORAGE_KEY6;
 var init_dev_thresholds = __esm({
   "src/dev/dev-thresholds.ts"() {
     "use strict";
     init_asr_thresholds();
-    STORAGE_KEY5 = "tp_asr_thresholds_v1";
+    STORAGE_KEY6 = "tp_asr_thresholds_v1";
   }
 });
 
@@ -26897,8 +25827,8 @@ function mergeEvidenceText(base, next) {
   let overlap = 0;
   for (let n = max; n >= 1; n -= 1) {
     const tail = aTokens.slice(-n).join(" ").toLowerCase();
-    const head = bTokens.slice(0, n).join(" ").toLowerCase();
-    if (tail === head) {
+    const head2 = bTokens.slice(0, n).join(" ").toLowerCase();
+    if (tail === head2) {
       overlap = n;
       break;
     }
@@ -28882,11 +27812,11 @@ function createAsrScrollDriver(options = {}) {
   if (!lastScriptHash) {
     lastScriptHash = readScriptHash();
   }
-  const publishSharedCursor = (index2, reason) => {
+  const publishSharedCursor = (index, reason) => {
     try {
       window.dispatchEvent(new CustomEvent("tp:asr:cursor", {
         detail: {
-          index: index2,
+          index,
           reason,
           source: "asr-driver"
         }
@@ -30266,8 +29196,8 @@ function createAsrScrollDriver(options = {}) {
       logDev("commit band reseed cleared", { reason });
     }
   }
-  function reseedCommitBandFromIndex(index2, now3, reason) {
-    const anchorRaw = finiteNumberOrNull("band-reseed.anchor", index2, { reason });
+  function reseedCommitBandFromIndex(index, now3, reason) {
+    const anchorRaw = finiteNumberOrNull("band-reseed.anchor", index, { reason });
     if (anchorRaw == null) return;
     const anchor = Math.max(0, Math.floor(anchorRaw));
     const start2 = Math.max(0, anchor - COMMIT_BAND_RESEED_BACK_LINES);
@@ -34648,11 +33578,11 @@ function createAsrScrollDriver(options = {}) {
       activeGuardCounts = null;
     }
   };
-  const setLastLineIndex = (index2) => {
-    if (!Number.isFinite(index2)) return;
+  const setLastLineIndex = (index) => {
+    if (!Number.isFinite(index)) return;
     scriptEndEventEmitted = false;
     releaseCommitWindow("setLastLineIndex");
-    lastLineIndex = Math.max(0, Math.floor(index2));
+    lastLineIndex = Math.max(0, Math.floor(index));
     _postCommitReadabilitySeq += 1;
     lastSeekTs = 0;
     lastSameLineNudgeTs = 0;
@@ -37874,10 +36804,10 @@ function computeMarkerLineIndex2() {
     return 0;
   }
 }
-function getLineSnapshot(index2) {
+function getLineSnapshot(index) {
   try {
     const viewer2 = getPrimaryScroller() || getScriptRoot();
-    const idx = Math.max(0, Math.floor(index2));
+    const idx = Math.max(0, Math.floor(index));
     const line = viewer2?.querySelector(`.line[data-i="${idx}"]`) || viewer2?.querySelector(`.line[data-index="${idx}"]`) || viewer2?.querySelector(`.line[data-line-idx="${idx}"]`);
     if (!line) return null;
     const text = String(line.textContent || "").replace(/\s+/g, " ").trim();
@@ -37891,8 +36821,8 @@ function getLineSnapshot(index2) {
     return null;
   }
 }
-function getLineTextAtIndex(index2, container) {
-  const idx = Math.max(0, Math.floor(Number(index2) || 0));
+function getLineTextAtIndex(index, container) {
+  const idx = Math.max(0, Math.floor(Number(index) || 0));
   try {
     const host = container || getScriptRoot() || getPrimaryScroller() || document;
     const line = host.querySelector(`.line[data-line="${idx}"]`) || host.querySelector(`.line[data-line-idx="${idx}"]`) || host.querySelector(`.line[data-i="${idx}"]`) || host.querySelector(`.line[data-index="${idx}"]`);
@@ -39595,7 +38525,7 @@ function loadState() {
     if (typeof window === "undefined") {
       return cloneState(DEFAULT_STATE);
     }
-    const raw = window.localStorage.getItem(STORAGE_KEY6);
+    const raw = window.localStorage.getItem(STORAGE_KEY7);
     if (!raw) return cloneState(DEFAULT_STATE);
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return cloneState(DEFAULT_STATE);
@@ -39620,7 +38550,7 @@ function persistState(state8) {
       configs: cloneState(state8.configs)
     };
     toStore.configs.obs.password = "";
-    window.localStorage.setItem(STORAGE_KEY6, JSON.stringify(toStore));
+    window.localStorage.setItem(STORAGE_KEY7, JSON.stringify(toStore));
   } catch {
   }
 }
@@ -39677,11 +38607,11 @@ function setObsStatus(status2, lastError = null) {
   }
   notify();
 }
-var STORAGE_KEY6, DEFAULT_OBS_URL, DEFAULT_STATE, currentState, listeners;
+var STORAGE_KEY7, DEFAULT_OBS_URL, DEFAULT_STATE, currentState, listeners;
 var init_recorder_settings = __esm({
   "src/state/recorder-settings.ts"() {
     "use strict";
-    STORAGE_KEY6 = "tp_rec_settings_v1";
+    STORAGE_KEY7 = "tp_rec_settings_v1";
     DEFAULT_OBS_URL = "ws://127.0.0.1:4455";
     DEFAULT_STATE = {
       enabled: {
@@ -40508,7 +39438,7 @@ async function stopSelected() {
 function register(adapter) {
   registry2.set(adapter.id, adapter);
 }
-function get(id) {
+function get2(id) {
   return registry2.get(id);
 }
 function all() {
@@ -40725,7 +39655,7 @@ var init_recorders_core = __esm({
         }, getAdapter2 = function(id) {
           if (typeof id === "string" && id.length > 0) {
             try {
-              return get(id);
+              return get2(id);
             } catch {
               return void 0;
             }
@@ -42021,11 +40951,11 @@ var init_kick = __esm({
 });
 
 // src/dev/dev-drawer.ts
-function isBrowser() {
+function isBrowser2() {
   return typeof window !== "undefined" && typeof document !== "undefined";
 }
 function isDevActive() {
-  if (!isBrowser()) return false;
+  if (!isBrowser2()) return false;
   try {
     const w3 = window;
     if (w3.__TP_DEV || w3.__TP_DEV1) return true;
@@ -42037,7 +40967,7 @@ function isDevActive() {
   return false;
 }
 function computeDock() {
-  if (!isBrowser()) return "right";
+  if (!isBrowser2()) return "right";
   const width = window.innerWidth || 0;
   const height = window.innerHeight || 0;
   if (width >= 1100) return "right";
@@ -42080,7 +41010,7 @@ function updateZenState(value) {
   if (zenButtonEl) {
     zenButtonEl.textContent = zenMode ? "Zen: On" : "Zen: Off";
   }
-  if (isBrowser()) {
+  if (isBrowser2()) {
     const body = document.body;
     if (body) body.classList.toggle("tp-dev-zen", zenMode);
   }
@@ -42109,7 +41039,7 @@ function handleKeydown(event) {
   }
 }
 function ensureRoot() {
-  if (!isBrowser()) return null;
+  if (!isBrowser2()) return null;
   rootEl = document.getElementById(ROOT_ID);
   if (!rootEl) {
     rootEl = document.createElement("div");
@@ -42177,7 +41107,7 @@ function buildDrawerStructure() {
 }
 function initDevDrawer() {
   if (initialized) return;
-  if (!isBrowser()) return;
+  if (!isBrowser2()) return;
   if (!isDevActive()) return;
   if (!document.body) return;
   if (document.getElementById(ROOT_ID)) return;
@@ -42259,8 +41189,8 @@ function normalizeToStandardText(input = "") {
     const trimmed = String(inner || "").trim();
     if (!trimmed) return "";
     const eqIndex = trimmed.indexOf("=");
-    const head = eqIndex >= 0 ? trimmed.slice(0, eqIndex) : trimmed;
-    let key = head.trim().toLowerCase();
+    const head2 = eqIndex >= 0 ? trimmed.slice(0, eqIndex) : trimmed;
+    let key = head2.trim().toLowerCase();
     if (key.startsWith("/")) key = key.slice(1).trim();
     key = key.replace(/\s+/g, " ");
     return ALLOWED_TAG_SET.has(key) ? match : "";
@@ -42855,13 +41785,13 @@ var init_render_script = __esm({
 });
 
 // src/forge/authProfile.ts
-function deepMerge2(base, incoming) {
+function deepMerge3(base, incoming) {
   if (!incoming || typeof incoming !== "object") return base;
   const out = Array.isArray(base) ? [...base] : { ...base };
   for (const k of Object.keys(incoming)) {
     const v = incoming[k];
     if (v && typeof v === "object" && !Array.isArray(v) && out[k] && typeof out[k] === "object") {
-      out[k] = deepMerge2(out[k], v);
+      out[k] = deepMerge3(out[k], v);
     } else {
       out[k] = v;
     }
@@ -42876,7 +41806,7 @@ async function loadProfileSettings(userId) {
   const baseSettings = data?.settings ?? {};
   const asrSettings = data?.asr_settings ?? {};
   const asrProfiles = data?.asr_calibration_profiles ?? [];
-  const merged = deepMerge2(DEFAULT_SETTINGS, {
+  const merged = deepMerge3(DEFAULT_SETTINGS, {
     ...baseSettings,
     asrSettings,
     asrProfiles
@@ -42902,7 +41832,7 @@ async function saveProfileSettings(opts) {
   return { rev: Number(data?.settings_rev ?? expectedRev + 1) };
 }
 function applySettingsPatch(current2, patch) {
-  return deepMerge2(current2, patch);
+  return deepMerge3(current2, patch);
 }
 function shouldBypassAuth() {
   try {
@@ -43281,19 +42211,19 @@ function openNavOverlayShell() {
     panelShell.setAttribute("role", "dialog");
     panelShell.setAttribute("aria-modal", "true");
     panelShell.setAttribute("aria-labelledby", FORGE_NAV_OVERLAY_TITLE_ID);
-    const head = document.createElement("div");
-    head.className = "forge-nav-overlay-head";
+    const head2 = document.createElement("div");
+    head2.className = "forge-nav-overlay-head";
     const title = document.createElement("h2");
     title.id = FORGE_NAV_OVERLAY_TITLE_ID;
     title.textContent = FORGE_NAV_POPUP_TITLE;
-    head.appendChild(title);
+    head2.appendChild(title);
     const closeBtn = document.createElement("button");
     closeBtn.type = "button";
     closeBtn.className = "forge-nav-overlay-close";
     closeBtn.dataset.forgeNavClose = "1";
     closeBtn.setAttribute("aria-label", "Close Nursery menu");
     closeBtn.textContent = "\xD7";
-    head.appendChild(closeBtn);
+    head2.appendChild(closeBtn);
     const body = document.createElement("div");
     body.className = "forge-nav-overlay-body";
     const tree = document.createElement("div");
@@ -43304,7 +42234,7 @@ function openNavOverlayShell() {
     const hint = document.createElement("div");
     hint.className = "forge-nav-overlay-hint";
     hint.textContent = "Select an item to navigate.";
-    panelShell.appendChild(head);
+    panelShell.appendChild(head2);
     panelShell.appendChild(body);
     panelShell.appendChild(hint);
     root.appendChild(panelShell);
@@ -43605,7 +42535,7 @@ function handleToggle(on3, sourceId) {
   } catch {
   }
 }
-function buildUrl(hostWithPort, explicitPort) {
+function buildUrl2(hostWithPort, explicitPort) {
   const rawHost = (hostWithPort || "").trim();
   const rawPort = (explicitPort || "").trim();
   if (rawHost.startsWith("ws://") || rawHost.startsWith("wss://")) {
@@ -43679,7 +42609,7 @@ function bindObsSettingsUI(doc = document) {
     });
     const pushUrl = () => {
       if (syncing) return;
-      const next = buildUrl(hostEl?.value ?? "", portEl?.value ?? "");
+      const next = buildUrl2(hostEl?.value ?? "", portEl?.value ?? "");
       const cur = getRecorderSettings().configs.obs.url;
       if (next === cur) return;
       try {
@@ -48389,7 +47319,7 @@ var init_scroll_strip = __esm({
 // src/hud/drag.ts
 function loadPos() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY7);
+    const raw = localStorage.getItem(STORAGE_KEY8);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (typeof parsed.left === "number" && typeof parsed.top === "number") {
@@ -48403,7 +47333,7 @@ function savePos(root) {
   try {
     const rect = root.getBoundingClientRect();
     const pos = { left: rect.left, top: rect.top };
-    localStorage.setItem(STORAGE_KEY7, JSON.stringify(pos));
+    localStorage.setItem(STORAGE_KEY8, JSON.stringify(pos));
   } catch {
   }
 }
@@ -48506,11 +47436,11 @@ function attachHudDrag(root) {
   root.addEventListener("click", swallowIfNeeded, true);
   window.addEventListener("click", swallowIfNeeded, true);
 }
-var STORAGE_KEY7;
+var STORAGE_KEY8;
 var init_drag = __esm({
   "src/hud/drag.ts"() {
     "use strict";
-    STORAGE_KEY7 = "tp_hud_pos_v1";
+    STORAGE_KEY8 = "tp_hud_pos_v1";
   }
 });
 
@@ -48666,8 +47596,8 @@ function initHudPopup(opts = {}) {
   wrap.style.top = `${state8.y}px`;
   wrap.style.display = state8.open ? "block" : "none";
   wrap.dataset.open = state8.open ? "1" : "0";
-  const head = document.createElement("div");
-  head.className = "tp-hud-popup__head";
+  const head2 = document.createElement("div");
+  head2.className = "tp-hud-popup__head";
   const title = document.createElement("div");
   title.className = "tp-hud-popup__title";
   title.textContent = "HUD Log";
@@ -48692,7 +47622,7 @@ function initHudPopup(opts = {}) {
   btnPopout.style.display = state8.popout ? "none" : "";
   btnDock.style.display = state8.popout ? "" : "none";
   btns.append(btnDump, btnCopy, btnClear, btnFreeze, btnPopout, btnDock, btnClose);
-  head.append(title, btns);
+  head2.append(title, btns);
   const body = document.createElement("div");
   body.className = "tp-hud-popup__body";
   const ta = document.createElement("textarea");
@@ -48700,7 +47630,7 @@ function initHudPopup(opts = {}) {
   ta.spellcheck = false;
   ta.wrap = "off";
   body.appendChild(ta);
-  wrap.append(head, body);
+  wrap.append(head2, body);
   wrap.style.pointerEvents = "auto";
   root.appendChild(wrap);
   const ensureInsideViewport = () => {
@@ -48719,19 +47649,19 @@ function initHudPopup(opts = {}) {
   let startY = 0;
   let baseX = 0;
   let baseY = 0;
-  head.style.cursor = "grab";
-  head.addEventListener("pointerdown", (ev) => {
+  head2.style.cursor = "grab";
+  head2.addEventListener("pointerdown", (ev) => {
     if (ev.target?.closest("button")) return;
     dragging = true;
-    head.setPointerCapture(ev.pointerId);
-    head.style.cursor = "grabbing";
+    head2.setPointerCapture(ev.pointerId);
+    head2.style.cursor = "grabbing";
     startX = ev.clientX;
     startY = ev.clientY;
     baseX = parseFloat(wrap.style.left || "0") || 0;
     baseY = parseFloat(wrap.style.top || "0") || 0;
     ev.preventDefault();
   });
-  head.addEventListener("pointermove", (ev) => {
+  head2.addEventListener("pointermove", (ev) => {
     if (!dragging) return;
     const dx = ev.clientX - startX;
     const dy = ev.clientY - startY;
@@ -48742,10 +47672,10 @@ function initHudPopup(opts = {}) {
     wrap.style.left = `${x}px`;
     wrap.style.top = `${y}px`;
   });
-  head.addEventListener("pointerup", () => {
+  head2.addEventListener("pointerup", () => {
     if (!dragging) return;
     dragging = false;
-    head.style.cursor = "grab";
+    head2.style.cursor = "grab";
     ensureInsideViewport();
   });
   const appendLine = (line) => {
@@ -49297,7 +48227,7 @@ function safeParse2(raw) {
 function loadPersistedAsrSettings() {
   try {
     if (typeof window === "undefined") return null;
-    return safeParse2(window.localStorage.getItem(STORAGE_KEY8));
+    return safeParse2(window.localStorage.getItem(STORAGE_KEY9));
   } catch {
     return null;
   }
@@ -49305,7 +48235,7 @@ function loadPersistedAsrSettings() {
 function savePersistedAsrSettings(next) {
   try {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem(STORAGE_KEY8, JSON.stringify(next));
+    window.localStorage.setItem(STORAGE_KEY9, JSON.stringify(next));
   } catch {
   }
 }
@@ -49388,14 +48318,14 @@ function initAsrPersistence() {
     }
   }
 }
-var speechStore2, STORAGE_KEY8;
+var speechStore2, STORAGE_KEY9;
 var init_persistence = __esm({
   "src/features/asr/persistence.ts"() {
     "use strict";
     init_speech_store2();
     init_appStore();
     speechStore2 = getSpeechStore();
-    STORAGE_KEY8 = "tp_asr_settings_v1";
+    STORAGE_KEY9 = "tp_asr_settings_v1";
   }
 });
 
@@ -51474,7 +50404,7 @@ __export(recorders_exports, {
   connect2: () => connect2,
   default: () => recorders_bridge_compat_default,
   disconnect: () => disconnect,
-  get: () => get,
+  get: () => get2,
   getRecState: () => getRecState,
   getRecordingMode: () => getRecordingMode2,
   getSettings: () => getSettings,
@@ -56283,7 +55213,7 @@ var init_mic_bridge = __esm({
 });
 
 // src/utils/safe-dom.ts
-function get2(id) {
+function get3(id) {
   try {
     return document.getElementById(id) || null;
   } catch {
@@ -56335,7 +55265,7 @@ var safeDOM;
 var init_safe_dom = __esm({
   "src/utils/safe-dom.ts"() {
     "use strict";
-    safeDOM = { get: get2, q: q2, on, off };
+    safeDOM = { get: get3, q: q2, on, off };
     try {
       if (typeof window !== "undefined") {
         if (!window.safeDOM) {
@@ -56476,7 +55406,7 @@ function clamp9(v, min, max) {
 }
 function loadPos2() {
   try {
-    const s = window.localStorage.getItem(STORAGE_KEY9);
+    const s = window.localStorage.getItem(STORAGE_KEY10);
     if (!s) return null;
     const o = JSON.parse(s);
     if (typeof o.x === "number" && typeof o.y === "number") {
@@ -56492,7 +55422,7 @@ function savePos2(x, y) {
       x: Math.round(x),
       y: Math.round(y)
     };
-    window.localStorage.setItem(STORAGE_KEY9, JSON.stringify(payload));
+    window.localStorage.setItem(STORAGE_KEY10, JSON.stringify(payload));
   } catch {
   }
 }
@@ -56565,7 +55495,7 @@ function initCamDraggable() {
     el.style.right = "16px";
     el.style.bottom = "16px";
     try {
-      window.localStorage.removeItem(STORAGE_KEY9);
+      window.localStorage.removeItem(STORAGE_KEY10);
     } catch {
     }
   };
@@ -56590,11 +55520,11 @@ function autoInit() {
   } catch {
   }
 }
-var STORAGE_KEY9;
+var STORAGE_KEY10;
 var init_camera_drag = __esm({
   "src/ui/camera-drag.ts"() {
     "use strict";
-    STORAGE_KEY9 = "tp_cam_pos_v1";
+    STORAGE_KEY10 = "tp_cam_pos_v1";
     autoInit();
     if (typeof window !== "undefined" && !window.initCamDraggable) {
       window.initCamDraggable = initCamDraggable;
@@ -57264,7 +56194,7 @@ function clamp10(v, lo, hi) {
 }
 function readStore2() {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY10);
+    const raw = window.localStorage.getItem(STORAGE_KEY11);
     return raw ? JSON.parse(raw) : {};
   } catch {
     return {};
@@ -57272,7 +56202,7 @@ function readStore2() {
 }
 function writeStore(st) {
   try {
-    window.localStorage.setItem(STORAGE_KEY10, JSON.stringify(st || {}));
+    window.localStorage.setItem(STORAGE_KEY11, JSON.stringify(st || {}));
   } catch {
   }
 }
@@ -57394,12 +56324,12 @@ function initTypography() {
   initGlobalWheelZoom();
   initLocalWheelZoom();
 }
-var STORAGE_KEY10, MIN_SIZE, MAX_SIZE, DEFAULT_SIZE, DEFAULT_LINE_HEIGHT, DISPLAY_ID;
+var STORAGE_KEY11, MIN_SIZE, MAX_SIZE, DEFAULT_SIZE, DEFAULT_LINE_HEIGHT, DISPLAY_ID;
 var init_typography2 = __esm({
   "src/ui/typography.ts"() {
     "use strict";
     init_typography_ssot();
-    STORAGE_KEY10 = "tp_typography_v1";
+    STORAGE_KEY11 = "tp_typography_v1";
     MIN_SIZE = 18;
     MAX_SIZE = 120;
     DEFAULT_SIZE = DEFAULT_SCRIPT_FONT_PX;
@@ -58276,7 +57206,7 @@ var init_welcome_intro = __esm({
 function readStoredIndex() {
   if (typeof window === "undefined") return -1;
   try {
-    const raw = window.localStorage?.getItem?.(STORAGE_KEY11);
+    const raw = window.localStorage?.getItem?.(STORAGE_KEY12);
     if (!raw) return -1;
     const parsed = parseInt(raw, 10);
     return Number.isNaN(parsed) ? -1 : parsed;
@@ -58284,10 +57214,10 @@ function readStoredIndex() {
     return -1;
   }
 }
-function persistIndex(index2) {
+function persistIndex(index) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage?.setItem?.(STORAGE_KEY11, String(index2));
+    window.localStorage?.setItem?.(STORAGE_KEY12, String(index));
   } catch {
   }
 }
@@ -58298,11 +57228,11 @@ function getNextSampleScript() {
   persistIndex(nextIndex);
   return SAMPLE_SCRIPTS[nextIndex];
 }
-var STORAGE_KEY11, SAMPLE_SCRIPTS;
+var STORAGE_KEY12, SAMPLE_SCRIPTS;
 var init_sample_scripts = __esm({
   "src/content/sample-scripts.ts"() {
     "use strict";
-    STORAGE_KEY11 = "tp_sample_idx";
+    STORAGE_KEY12 = "tp_sample_idx";
     SAMPLE_SCRIPTS = [
       `[s1]
 Welcome to Teleprompter Pro.
@@ -60258,9 +59188,9 @@ function bindStaticDom() {
     initStepControls(document);
     try {
       const resolveCatchUpScroller = () => resolveActiveScroller(getPrimaryScroller(), getScriptRoot() || getFallbackScroller());
-      const getLineElementByIndex2 = (root, index2) => {
-        if (!root || !Number.isFinite(index2)) return null;
-        const idx = Math.max(0, Math.floor(index2));
+      const getLineElementByIndex2 = (root, index) => {
+        if (!root || !Number.isFinite(index)) return null;
+        const idx = Math.max(0, Math.floor(index));
         const selector = [
           `.line[data-i="${idx}"]`,
           `.line[data-index="${idx}"]`,
@@ -60348,10 +59278,10 @@ function bindStaticDom() {
         getScroller: resolveCatchUpScroller,
         getMarkerOffsetPx,
         getMarkerLineIndex: getMarkerLineIndex2,
-        getLineByIndex: (index2) => {
+        getLineByIndex: (index) => {
           const scroller = resolveCatchUpScroller();
           const root = getScriptRoot() || scroller || document;
-          return getLineElementByIndex2(root, index2);
+          return getLineElementByIndex2(root, index);
         },
         scrollToTop: (top) => {
           applyCanonicalScrollTop(top, {
@@ -60360,11 +59290,11 @@ function bindStaticDom() {
             source: "dom-catchup"
           });
         },
-        onCatchUp: ({ index: index2, line, targetTop, prevTop }) => {
+        onCatchUp: ({ index, line, targetTop, prevTop }) => {
           const mode = getScrollMode7();
           setActiveLine(line);
           if (mode === "asr" || mode === "hybrid") {
-            const prevIndex = Number.isFinite(index2) ? Math.max(0, Math.floor(index2)) : null;
+            const prevIndex = Number.isFinite(index) ? Math.max(0, Math.floor(index)) : null;
             if (mode === "asr" && prevIndex != null) {
               try {
                 const driver = window.__tpAsrScrollDriver;
