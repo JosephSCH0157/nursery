@@ -56,21 +56,21 @@ function linkFor(appId: ForgeAppId): HubLink {
 }
 
 const LINKS: HubLink[] = [
-  {
-    href: "/anvil/teleprompter_pro.html",
-    ...TOOL_META.anvil,
-  },
+  linkFor("barstock"),
   linkFor("hearth"),
-  linkFor("hammer"),
   {
     to: "/app/tongs",
     name: "Tongs (Calendar)",
     hint: "Storage & Sessions",
     desc: "Plan recordings, manage mounts, and move work between tools.",
   },
+  {
+    href: "/anvil/teleprompter_pro.html",
+    ...TOOL_META.anvil,
+  },
+  linkFor("hammer"),
   linkFor("quench"),
   linkFor("ledger"),
-  linkFor("barstock"),
 ];
 
 export default function ForgeHub() {
