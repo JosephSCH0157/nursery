@@ -161,6 +161,12 @@ export type TongsCommitApiOptions = {
   apiToken?: string;
 };
 
+export type TongsCommitApiService = {
+  createCradle(input: CreateCradleRequest): Promise<CreateCradleResponse>;
+  commitFile(workpieceId: string, input: CommitFileRequest): Promise<CommitFileResponse>;
+  appendEvent(workpieceId: string, input: AppendEventRequest): Promise<WorkpieceEventRow>;
+};
+
 class HttpError extends Error {
   readonly status: number;
   readonly code: string;
@@ -1356,17 +1362,18 @@ export function createTongsCommitService(options: TongsCommitApiOptions): TongsC
   return new TongsCommitService(supabase, bucket);
 }
 
-export function createTongsCommitApiHandler(options: TongsCommitApiOptions): (request: Request) => Promise<Response> {
-  const service = createTongsCommitService(options);
-  const apiToken = options.apiToken?.trim() || undefined;
-
+export function createTongsCommitApiHandlerWithService(
+  service: TongsCommitApiService,
+  apiToken?: string,
+): (request: Request) => Promise<Response> {
+  const normalizedApiToken = apiToken?.trim() || undefined;
   return async (request: Request): Promise<Response> => {
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204 });
     }
 
     try {
-      checkApiToken(request, apiToken);
+      checkApiToken(request, normalizedApiToken);
 
       const url = new URL(request.url);
       const parts = url.pathname.replace(/\/+$/, "").split("/").filter(Boolean);
@@ -1402,4 +1409,9 @@ export function createTongsCommitApiHandler(options: TongsCommitApiOptions): (re
       return errorResponse(error);
     }
   };
+}
+
+export function createTongsCommitApiHandler(options: TongsCommitApiOptions): (request: Request) => Promise<Response> {
+  const service = createTongsCommitService(options);
+  return createTongsCommitApiHandlerWithService(service, options.apiToken);
 }
