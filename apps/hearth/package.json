@@ -1,9 +1,18 @@
 {
-  "name": "hearth",
+  "name": "@nursery/hearth",
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit",
+    "types": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
   "dependencies": {
-    "@supabase/supabase-js": "^2.91.1"
+    "react": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.5",
+    "typescript": "~5.9.3"
   }
 }
