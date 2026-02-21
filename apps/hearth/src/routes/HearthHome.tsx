@@ -203,6 +203,12 @@ export default function HearthHome() {
     await persistSession(draft.id, "editor");
   }, [persistSession, refreshRevisions]);
 
+  const onSaveDraft = useCallback(async () => {
+    if (!activeDraft) return;
+    const now = Date.now();
+    await persistDraft({ draft: activeDraft, updatedAt: now, createRevision: null });
+  }, [activeDraft]);
+
   const loadInitial = useCallback(async () => {
     setIsLoading(true);
     setError(null);
@@ -435,12 +441,6 @@ export default function HearthHome() {
       setError(message);
     }
   }
-
-  const onSaveDraft = useCallback(async () => {
-    if (!activeDraft) return;
-    const now = Date.now();
-    await persistDraft({ draft: activeDraft, updatedAt: now, createRevision: null });
-  }, [activeDraft]);
 
   async function onDeleteDraft(draft: Draft) {
     const confirmDelete = window.confirm("Delete this draft? This cannot be undone.");
