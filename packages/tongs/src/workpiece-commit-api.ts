@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { Database, Json } from "./db.types";
+import type { Database, Json } from "./db.types.js";
 
 export const TONGS_WORKPIECE_BUCKET = "forge-workpieces";
 

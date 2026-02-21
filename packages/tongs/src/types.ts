@@ -1,4 +1,4 @@
-import type { MirrorPolicy, MountRole } from "./storage/storage-contract";
+import type { MirrorPolicy, MountRole } from "./storage/storage-contract.js";
 
 export type ForgeAppId =
   | "nursery"

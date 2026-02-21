@@ -1,9 +1,6 @@
 import { Buffer } from "node:buffer";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import {
-  createTongsCommitApiHandler,
-  type TongsCommitApiOptions,
-} from "../../../packages/tongs/src/workpiece-commit-api";
+import { createTongsCommitApiHandler, type TongsCommitApiOptions } from "@forge/tongs";
 
 type Next = (err?: unknown) => void;
 
@@ -13,6 +10,12 @@ function readEnv(name: string): string | undefined {
   const trimmed = value.trim();
   return trimmed ? trimmed : undefined;
 }
+
+type ResolvedConfig = {
+  options: TongsCommitApiOptions;
+  missing: string[];
+  allowUnsafeNoToken: boolean;
+};
 
 function readBody(req: IncomingMessage): Promise<Uint8Array | undefined> {
   const method = (req.method || "GET").toUpperCase();
@@ -59,30 +62,52 @@ async function writeFetchResponse(res: ServerResponse, response: Response): Prom
   res.end(body);
 }
 
-function buildOptionsFromEnv(): TongsCommitApiOptions | null {
-  const supabaseUrl = readEnv("SUPABASE_URL") || readEnv("VITE_SUPABASE_URL");
-  const supabaseServiceRoleKey = readEnv("SUPABASE_SERVICE_ROLE_KEY");
-  if (!supabaseUrl || !supabaseServiceRoleKey) {
-    return null;
+function resolveConfig(): ResolvedConfig {
+  const supabaseUrl = readEnv("TONGS_SUPABASE_URL") || readEnv("SUPABASE_URL");
+  const supabaseServiceRoleKey = readEnv("TONGS_SERVICE_ROLE_KEY") || readEnv("SUPABASE_SERVICE_ROLE_KEY");
+  const apiToken = readEnv("TONGS_API_TOKEN");
+  const allowUnsafeNoToken = readEnv("TONGS_ALLOW_UNSAFE_NO_TOKEN") === "1";
+
+  const missing: string[] = [];
+  if (!supabaseUrl) missing.push("TONGS_SUPABASE_URL (or SUPABASE_URL)");
+  if (!supabaseServiceRoleKey) missing.push("TONGS_SERVICE_ROLE_KEY (or SUPABASE_SERVICE_ROLE_KEY)");
+  if (!apiToken && !allowUnsafeNoToken) missing.push("TONGS_API_TOKEN");
+
+  if (missing.length) {
+    return {
+      options: {
+        supabaseUrl: "",
+        supabaseServiceRoleKey: "",
+      },
+      missing,
+      allowUnsafeNoToken,
+    };
   }
 
+  const resolvedSupabaseUrl = supabaseUrl!;
+  const resolvedServiceRoleKey = supabaseServiceRoleKey!;
+
   return {
-    supabaseUrl,
-    supabaseServiceRoleKey,
-    apiToken: readEnv("TONGS_API_TOKEN"),
-    bucket: readEnv("TONGS_WORKPIECE_BUCKET"),
+    options: {
+      supabaseUrl: resolvedSupabaseUrl,
+      supabaseServiceRoleKey: resolvedServiceRoleKey,
+      apiToken,
+      bucket: readEnv("TONGS_WORKPIECE_BUCKET"),
+    },
+    missing,
+    allowUnsafeNoToken,
   };
 }
 
 export function createNurseryTongsMiddleware(opts?: { routePrefix?: string }) {
   const routePrefix = opts?.routePrefix ?? "/tongs";
-  const options = buildOptionsFromEnv();
-  const handler = options ? createTongsCommitApiHandler(options) : null;
+  const config = resolveConfig();
+  const handler = config.missing.length ? null : createTongsCommitApiHandler(config.options);
 
   if (!handler) {
-    console.warn(
-      "[nursery:tongs-commit-api] not mounted: missing SUPABASE_URL/VITE_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY",
-    );
+    console.warn("[nursery:tongs-commit-api] not mounted: missing required env", config.missing);
+  } else if (config.allowUnsafeNoToken && !config.options.apiToken) {
+    console.warn("[nursery:tongs-commit-api] running without token guard because TONGS_ALLOW_UNSAFE_NO_TOKEN=1");
   }
 
   return async function nurseryTongsMiddleware(req: IncomingMessage, res: ServerResponse, next: Next) {
@@ -100,7 +125,8 @@ export function createNurseryTongsMiddleware(opts?: { routePrefix?: string }) {
             ok: false,
             error: {
               code: "tongs_commit_api_unconfigured",
-              message: "Missing SUPABASE_URL/VITE_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY",
+              message: "Missing required server env for Tongs Commit API",
+              missing_env: config.missing,
             },
           }),
         );

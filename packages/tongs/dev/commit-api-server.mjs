@@ -33,16 +33,19 @@ async function readBody(req) {
 }
 
 async function main() {
-  const supabaseUrl = readEnv("SUPABASE_URL") || readEnv("VITE_SUPABASE_URL");
-  const supabaseServiceRoleKey = readEnv("SUPABASE_SERVICE_ROLE_KEY");
+  const supabaseUrl = readEnv("TONGS_SUPABASE_URL") || readEnv("SUPABASE_URL");
+  const supabaseServiceRoleKey = readEnv("TONGS_SERVICE_ROLE_KEY") || readEnv("SUPABASE_SERVICE_ROLE_KEY");
   const apiToken = readEnv("TONGS_API_TOKEN");
   const allowUnsafeNoToken = readEnv("TONGS_ALLOW_UNSAFE_NO_TOKEN") === "1";
 
-  if (!supabaseUrl || !supabaseServiceRoleKey) {
-    throw new Error("Missing SUPABASE_URL (or VITE_SUPABASE_URL) and/or SUPABASE_SERVICE_ROLE_KEY");
-  }
-  if (!apiToken && !allowUnsafeNoToken) {
-    throw new Error("Missing TONGS_API_TOKEN (set TONGS_ALLOW_UNSAFE_NO_TOKEN=1 only for local throwaway use)");
+  const missing = [];
+  if (!supabaseUrl) missing.push("TONGS_SUPABASE_URL (or SUPABASE_URL)");
+  if (!supabaseServiceRoleKey) missing.push("TONGS_SERVICE_ROLE_KEY (or SUPABASE_SERVICE_ROLE_KEY)");
+  if (!apiToken && !allowUnsafeNoToken) missing.push("TONGS_API_TOKEN");
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing required env: ${missing.join(", ")} (set TONGS_ALLOW_UNSAFE_NO_TOKEN=1 only for local throwaway use)`,
+    );
   }
 
   const host = readEnv("TONGS_API_HOST") || "127.0.0.1";

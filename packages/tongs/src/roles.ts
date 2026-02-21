@@ -1,4 +1,4 @@
-import type { MountRole, MountTargetType } from "./types";
+import type { MountRole, MountTargetType } from "./types.js";
 
 export type MountRolePolicy = {
   role: MountRole;

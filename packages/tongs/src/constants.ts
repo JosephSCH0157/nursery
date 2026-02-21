@@ -1,4 +1,4 @@
-import type { ForgeAppId } from "./types";
+import type { ForgeAppId } from "./types.js";
 
 export const FORGE_APP_IDS: readonly ForgeAppId[] = [
   "nursery",

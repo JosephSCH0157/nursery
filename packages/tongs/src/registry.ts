@@ -1,7 +1,7 @@
-import type { MountRole, MountTargetType } from "./types";
-import { MOUNT_ROLE_POLICY } from "./roles";
-import { ALL_MOUNT_ROLES } from "./storage/storage-contract";
-import { normalizeRegistry } from "./storage/registry-normalize";
+import type { MountRole, MountTargetType } from "./types.js";
+import { MOUNT_ROLE_POLICY } from "./roles.js";
+import { ALL_MOUNT_ROLES } from "./storage/storage-contract.js";
+import { normalizeRegistry } from "./storage/registry-normalize.js";
 
 export type RegistryIssueCode =
   | "MISSING_WORKSPACE_ID"

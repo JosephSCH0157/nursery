@@ -5,14 +5,14 @@ import type {
   MountRole,
   MountTargetType,
   WorkspaceMountRegistry,
-} from "../types";
+} from "../types.js";
 import {
   ALL_MOUNT_ROLES,
   DEFAULT_MIRROR_POLICY,
   STORAGE_REGISTRY_VERSION,
   isCloudCanonicalRole,
   isLocalOnlyRole,
-} from "./storage-contract";
+} from "./storage-contract.js";
 
 const TARGET_SET: ReadonlySet<MountTargetType> = new Set(["local", "tongs_cloud"]);
 
