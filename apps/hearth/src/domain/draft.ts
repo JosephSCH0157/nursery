@@ -6,6 +6,8 @@ export interface Draft {
   body: string;
   createdAt: number;
   updatedAt: number;
+  revisionCount?: number;
+  lastRevisionAt?: number;
 }
 
 function generateDraftId(): DraftId {
@@ -28,5 +30,7 @@ export function createDraft(partial?: { title?: string; body?: string }): Draft 
     body: partial?.body ?? "",
     createdAt: now,
     updatedAt: now,
+    revisionCount: 0,
+    lastRevisionAt: undefined,
   };
 }

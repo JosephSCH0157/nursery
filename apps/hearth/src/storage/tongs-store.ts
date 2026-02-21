@@ -1,5 +1,7 @@
 import type { Draft, DraftId } from "../domain/draft";
+import type { Revision, RevisionId } from "../domain/revision";
 import type { HearthStore } from "./hearth-store";
+import { cloneRevision, normalizeRevision, readRevisionRecord, writeRevisionRecord } from "./revision-storage";
 
 type WrittenBy = {
   tool: string;
@@ -51,12 +53,17 @@ function normalizeDraft(value: unknown): Draft | null {
   const createdAt = isFiniteNumber(row.createdAt) ? row.createdAt : Date.now();
   const updatedAt = isFiniteNumber(row.updatedAt) ? row.updatedAt : createdAt;
 
+  const revisionCount = isFiniteNumber(row.revisionCount) ? row.revisionCount : undefined;
+  const lastRevisionAt = isFiniteNumber(row.lastRevisionAt) ? row.lastRevisionAt : undefined;
+
   return {
     id,
     title: typeof row.title === "string" && row.title.trim() ? row.title.trim() : "Untitled Draft",
     body: typeof row.body === "string" ? row.body : "",
     createdAt,
     updatedAt,
+    revisionCount,
+    lastRevisionAt,
   };
 }
 
@@ -365,6 +372,38 @@ export class TongsHearthStore implements HearthStore {
     delete cache.drafts[id];
     writeCache(cache);
     await this.syncToTongs(cache);
+  }
+
+  async listRevisions(draftId: DraftId): Promise<Revision[]> {
+    const record = readRevisionRecord();
+    return Object.values(record)
+      .filter((rev) => rev.draftId === draftId)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .map(cloneRevision);
+  }
+
+  async getRevision(id: RevisionId): Promise<Revision | null> {
+    const record = readRevisionRecord();
+    const found = record[id];
+    return found ? cloneRevision(found) : null;
+  }
+
+  async saveRevision(revision: Revision): Promise<void> {
+    const normalized = normalizeRevision(revision);
+    if (!normalized) {
+      throw new Error("Invalid revision payload");
+    }
+
+    const record = readRevisionRecord();
+    record[normalized.id] = cloneRevision(normalized);
+    writeRevisionRecord(record);
+  }
+
+  async restoreRevision(id: RevisionId): Promise<{ title: string; body: string } | null> {
+    const record = readRevisionRecord();
+    const found = record[id];
+    if (!found) return null;
+    return { title: found.titleSnapshot, body: found.bodySnapshot };
   }
 
   private async syncToTongs(cache: TongsCacheV1): Promise<void> {
