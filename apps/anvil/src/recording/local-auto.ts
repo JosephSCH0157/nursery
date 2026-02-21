@@ -1,6 +1,7 @@
 // Lightweight auto-record stub (browser MediaRecorder-based).
 // Mirrors the legacy JS behavior but typed for the TS runtime.
 import { getRecordingMode } from './recording-settings';
+import { commitRecordingBlobToTongs } from '../forge/workpiece-commit';
 
 (() => {
   let mediaRecorder: MediaRecorder | null = null;
@@ -327,8 +328,31 @@ import { getRecordingMode } from './recording-settings';
   }
 
   async function saveBlob(blob: Blob, name: string): Promise<boolean> {
+    let committed = false;
     try {
-      console.log('[recording-dir] saveRecordingBlob start', { size: blob.size, name });
+      const commitResult = await commitRecordingBlobToTongs(blob, name);
+      if (commitResult.ok) {
+        committed = true;
+        try {
+          console.log('[core-recorder] canonical commit ok', {
+            workpieceId: commitResult.workpieceId,
+            path: commitResult.path,
+            createdCradle: commitResult.createdCradle,
+          });
+        } catch {}
+      } else {
+        try {
+          console.warn('[core-recorder] canonical commit unavailable; using local fallback', commitResult);
+        } catch {}
+      }
+    } catch (commitErr) {
+      try {
+        console.warn('[core-recorder] canonical commit failed; using local fallback', commitErr);
+      } catch {}
+    }
+
+    try {
+      console.log('[recording-dir] saveRecordingBlob start', { size: blob.size, name, committed });
       await import('../fs/recording-dir');
       try {
         await (window as any).__tpRecDir?.init?.();
@@ -356,7 +380,7 @@ import { getRecordingMode } from './recording-settings';
           await w.write(blob);
           await w.close();
           try {
-            console.log('[core-recorder] saved file', name);
+            console.log('[core-recorder] saved file mirror', name);
           } catch {}
           return true;
         } catch (err) {
@@ -373,6 +397,12 @@ import { getRecordingMode } from './recording-settings';
         } catch {}
       }
     } catch {}
+    if (committed) {
+      try {
+        console.log('[core-recorder] canonical commit succeeded; skipping download fallback', { name });
+      } catch {}
+      return true;
+    }
     try {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
