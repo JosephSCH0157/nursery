@@ -30,6 +30,12 @@ function normalizeSession(value: unknown): HearthSession | null {
       selectedTab: typeof (row.uiState as Record<string, unknown>).selectedTab === "string"
         ? (row.uiState as Record<string, unknown>).selectedTab as string
         : undefined,
+      cursorPosition: isFiniteNumber((row.uiState as Record<string, unknown>).cursorPosition)
+        ? (row.uiState as Record<string, unknown>).cursorPosition as number
+        : undefined,
+      scrollTop: isFiniteNumber((row.uiState as Record<string, unknown>).scrollTop)
+        ? (row.uiState as Record<string, unknown>).scrollTop as number
+        : undefined,
     }
     : undefined;
 

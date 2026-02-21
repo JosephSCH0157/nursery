@@ -4,6 +4,7 @@ import type { HearthStore } from "./hearth-store";
 import { cloneRevision, normalizeRevision, readRevisionRecord, writeRevisionRecord } from "./revision-storage";
 
 const DRAFTS_STORAGE_KEY = "hearth:drafts";
+const MAX_REVISIONS_PER_DRAFT = 200;
 
 type DraftRecord = Record<string, Draft>;
 
@@ -26,6 +27,8 @@ function normalizeDraft(value: unknown): Draft | null {
 
   const revisionCount = isFiniteNumber(row.revisionCount) ? row.revisionCount : undefined;
   const lastRevisionAt = isFiniteNumber(row.lastRevisionAt) ? row.lastRevisionAt : undefined;
+  const archived = typeof row.archived === "boolean" ? row.archived : undefined;
+  const pinned = typeof row.pinned === "boolean" ? row.pinned : undefined;
 
   return {
     id,
@@ -35,6 +38,8 @@ function normalizeDraft(value: unknown): Draft | null {
     updatedAt,
     revisionCount,
     lastRevisionAt,
+    archived,
+    pinned,
   };
 }
 
@@ -117,6 +122,14 @@ export class LocalHearthStore implements HearthStore {
 
     const record = readRevisionRecord();
     record[normalized.id] = cloneRevision(normalized);
+    const byDraft = Object.values(record)
+      .filter((rev) => rev.draftId === normalized.draftId)
+      .sort((a, b) => b.createdAt - a.createdAt);
+    if (byDraft.length > MAX_REVISIONS_PER_DRAFT) {
+      for (const stale of byDraft.slice(MAX_REVISIONS_PER_DRAFT)) {
+        delete record[stale.id];
+      }
+    }
     writeRevisionRecord(record);
   }
 

@@ -8,6 +8,8 @@ export interface Draft {
   updatedAt: number;
   revisionCount?: number;
   lastRevisionAt?: number;
+  archived?: boolean;
+  pinned?: boolean;
 }
 
 function generateDraftId(): DraftId {
@@ -32,5 +34,7 @@ export function createDraft(partial?: { title?: string; body?: string }): Draft 
     updatedAt: now,
     revisionCount: 0,
     lastRevisionAt: undefined,
+    archived: false,
+    pinned: false,
   };
 }

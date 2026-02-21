@@ -33,6 +33,7 @@ const TONGS_WORKPIECE_KEY = "forge_hearth_workpiece_id_v1";
 const TONGS_WORKPIECE_BY_WORKSPACE_PREFIX = "forge_hearth_workpiece_v1:";
 const TONGS_DRAFT_SNAPSHOT_PATH = "hearth/drafts.v1.json";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MAX_REVISIONS_PER_DRAFT = 200;
 
 let correlationSeq = 0;
 
@@ -55,6 +56,8 @@ function normalizeDraft(value: unknown): Draft | null {
 
   const revisionCount = isFiniteNumber(row.revisionCount) ? row.revisionCount : undefined;
   const lastRevisionAt = isFiniteNumber(row.lastRevisionAt) ? row.lastRevisionAt : undefined;
+  const archived = typeof row.archived === "boolean" ? row.archived : undefined;
+  const pinned = typeof row.pinned === "boolean" ? row.pinned : undefined;
 
   return {
     id,
@@ -64,6 +67,8 @@ function normalizeDraft(value: unknown): Draft | null {
     updatedAt,
     revisionCount,
     lastRevisionAt,
+    archived,
+    pinned,
   };
 }
 
@@ -396,6 +401,14 @@ export class TongsHearthStore implements HearthStore {
 
     const record = readRevisionRecord();
     record[normalized.id] = cloneRevision(normalized);
+    const byDraft = Object.values(record)
+      .filter((rev) => rev.draftId === normalized.draftId)
+      .sort((a, b) => b.createdAt - a.createdAt);
+    if (byDraft.length > MAX_REVISIONS_PER_DRAFT) {
+      for (const stale of byDraft.slice(MAX_REVISIONS_PER_DRAFT)) {
+        delete record[stale.id];
+      }
+    }
     writeRevisionRecord(record);
   }
 

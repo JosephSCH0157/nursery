@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { createDraft, type Draft } from "../domain/draft";
 import { createRevision, type Revision, type RevisionKind } from "../domain/revision";
 import type { HearthSession } from "../domain/session";
@@ -8,6 +9,7 @@ import { LocalSessionStore } from "../storage/local-session-store";
 
 const AUTOSAVE_DELAY_MS = 1200;
 const AUTOSAVE_REVISION_GAP_MS = 5 * 60 * 1000;
+const SESSION_SAVE_DELAY_MS = 500;
 
 function resolveStoreKind(): HearthStoreKind {
   const params = new URLSearchParams(window.location.search);
@@ -29,6 +31,15 @@ function normalizeTitle(title: string): string {
   return trimmed || "Untitled Draft";
 }
 
+function countWords(text: string): number {
+  const matches = text.trim().match(/\b\w+\b/g);
+  return matches ? matches.length : 0;
+}
+
+function splitLines(text: string): string[] {
+  return text.split(/\r?\n/);
+}
+
 type SortKey = "updated" | "title";
 
 type DraftSnapshot = {
@@ -36,6 +47,40 @@ type DraftSnapshot = {
   body: string;
   updatedAt: number;
 };
+
+type DiffLine = {
+  left: string;
+  right: string;
+  status: "same" | "changed" | "added" | "removed" | "separator";
+};
+
+function buildDiffLines(current: string, revision: string): DiffLine[] {
+  const leftLines = splitLines(current);
+  const rightLines = splitLines(revision);
+  const maxLen = Math.max(leftLines.length, rightLines.length);
+  const out: DiffLine[] = [];
+
+  for (let i = 0; i < maxLen; i += 1) {
+    const left = leftLines[i] ?? "";
+    const right = rightLines[i] ?? "";
+    const leftTrim = left.trim();
+    const rightTrim = right.trim();
+    if (leftTrim === "---" || rightTrim === "---") {
+      out.push({ left, right, status: "separator" });
+      continue;
+    }
+    if (!left && right) {
+      out.push({ left, right, status: "added" });
+      continue;
+    }
+    if (left && !right) {
+      out.push({ left, right, status: "removed" });
+      continue;
+    }
+    out.push({ left, right, status: left === right ? "same" : "changed" });
+  }
+  return out;
+}
 
 export default function HearthHome() {
   const storeKind = useMemo(resolveStoreKind, []);
@@ -49,18 +94,27 @@ export default function HearthHome() {
   const [draftSnapshot, setDraftSnapshot] = useState<DraftSnapshot | null>(null);
 
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingRevision, setIsSavingRevision] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchText, setSearchText] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("updated");
+  const [showArchived, setShowArchived] = useState(false);
   const [showRevisions, setShowRevisions] = useState(false);
   const [revisionModalOpen, setRevisionModalOpen] = useState(false);
   const [revisionNote, setRevisionNote] = useState("");
   const [revisionKind, setRevisionKind] = useState<RevisionKind>("manual");
   const [revisionView, setRevisionView] = useState<"list" | "preview" | "compare">("list");
   const [session, setSession] = useState<HearthSession | null>(null);
+  const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState("");
+  const [cursorPosition, setCursorPosition] = useState<number | null>(null);
+  const [scrollTop, setScrollTop] = useState<number | null>(null);
 
   const autosaveTimer = useRef<number | null>(null);
+  const sessionSaveTimer = useRef<number | null>(null);
+  const bodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
 
   const lastAutosaveRevisionAt = useMemo(() => {
     const match = revisions.find((rev) => rev.kind === "autosave");
@@ -72,24 +126,35 @@ export default function HearthHome() {
     return activeDraft.title !== draftSnapshot.title || activeDraft.body !== draftSnapshot.body;
   }, [activeDraft, draftSnapshot]);
 
+  const wordCount = useMemo(() => countWords(activeDraft?.body ?? ""), [activeDraft?.body]);
+  const charCount = useMemo(() => activeDraft?.body?.length ?? 0, [activeDraft?.body]);
   const statusText = isSaving ? "Saving..." : isDirty ? "Unsaved changes" : "Saved";
 
   const filteredDrafts = useMemo(() => {
     const query = searchText.trim().toLowerCase();
-    const filtered = !query
-      ? drafts
-      : drafts.filter((draft) => {
+    const filtered = drafts
+      .filter((draft) => (showArchived ? true : !draft.archived))
+      .filter((draft) => {
+        if (!query) return true;
         const title = draft.title.toLowerCase();
         const body = draft.body.toLowerCase();
         return title.includes(query) || body.includes(query);
       });
 
-    if (sortKey === "title") {
-      return [...filtered].sort((a, b) => a.title.localeCompare(b.title));
-    }
+    const pinned = filtered.filter((draft) => draft.pinned);
+    const unpinned = filtered.filter((draft) => !draft.pinned);
 
-    return [...filtered].sort((a, b) => b.updatedAt - a.updatedAt);
-  }, [drafts, searchText, sortKey]);
+    const sortFn = sortKey === "title"
+      ? (a: Draft, b: Draft) => a.title.localeCompare(b.title)
+      : (a: Draft, b: Draft) => b.updatedAt - a.updatedAt;
+
+    return [...pinned.sort(sortFn), ...unpinned.sort(sortFn)];
+  }, [drafts, searchText, sortKey, showArchived]);
+
+  const diffLines = useMemo(() => {
+    if (!selectedRevision || !activeDraft) return [];
+    return buildDiffLines(activeDraft.body, selectedRevision.bodySnapshot);
+  }, [activeDraft, selectedRevision]);
 
   const refreshDrafts = useCallback(async () => {
     const list = await store.listDrafts();
@@ -116,11 +181,13 @@ export default function HearthHome() {
       uiState: {
         splitPane: showRevisions,
         selectedTab: uiSelectedTab ?? base.uiState?.selectedTab,
+        cursorPosition: cursorPosition ?? base.uiState?.cursorPosition,
+        scrollTop: scrollTop ?? base.uiState?.scrollTop,
       },
     };
     setSession(next);
     await sessionStore.saveSession(next);
-  }, [session, sessionStore, showRevisions]);
+  }, [cursorPosition, scrollTop, session, sessionStore, showRevisions]);
 
   const selectDraft = useCallback(async (draft: Draft | null) => {
     if (!draft) {
@@ -147,6 +214,12 @@ export default function HearthHome() {
 
       setSession(storedSession);
       setDrafts(list);
+
+      setShowRevisions(Boolean(storedSession?.uiState?.splitPane));
+      const tab = storedSession?.uiState?.selectedTab;
+      if (tab === "preview" || tab === "compare" || tab === "list") {
+        setRevisionView(tab);
+      }
 
       const preferredId = storedSession?.activeDraftId;
       const first = preferredId ? list.find((draft) => draft.id === preferredId) : list[0];
@@ -194,6 +267,69 @@ export default function HearthHome() {
       }
     };
   }, [activeDraft?.title, activeDraft?.body, activeDraft?.id, isDirty]);
+
+  useEffect(() => {
+    const textarea = bodyRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, [activeDraft?.body]);
+
+  useEffect(() => {
+    const textarea = bodyRef.current;
+    if (!textarea || !session?.uiState || activeDraft?.id !== session.activeDraftId) return;
+    if (typeof session.uiState.cursorPosition === "number") {
+      const pos = Math.min(session.uiState.cursorPosition, textarea.value.length);
+      textarea.setSelectionRange(pos, pos);
+      setCursorPosition(pos);
+    }
+    if (typeof session.uiState.scrollTop === "number") {
+      textarea.scrollTop = session.uiState.scrollTop;
+      setScrollTop(session.uiState.scrollTop);
+    }
+  }, [activeDraft?.id, session]);
+
+  useEffect(() => {
+    if (sessionSaveTimer.current) {
+      window.clearTimeout(sessionSaveTimer.current);
+    }
+    sessionSaveTimer.current = window.setTimeout(() => {
+      const tab = showRevisions ? revisionView : "editor";
+      void persistSession(activeDraft?.id ?? null, tab);
+    }, SESSION_SAVE_DELAY_MS);
+
+    return () => {
+      if (sessionSaveTimer.current) {
+        window.clearTimeout(sessionSaveTimer.current);
+        sessionSaveTimer.current = null;
+      }
+    };
+  }, [activeDraft?.id, cursorPosition, persistSession, revisionView, scrollTop, showRevisions]);
+
+  useEffect(() => {
+    function handleKey(event: KeyboardEvent) {
+      const key = event.key.toLowerCase();
+      if ((event.ctrlKey || event.metaKey) && key === "s") {
+        event.preventDefault();
+        if (event.shiftKey) {
+          if (!revisionModalOpen && activeDraft) {
+            setRevisionModalOpen(true);
+          }
+          return;
+        }
+        void onSaveDraft();
+      }
+
+      if ((event.ctrlKey || event.metaKey) && key === "k") {
+        event.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }
+    }
+
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [activeDraft, onSaveDraft, revisionModalOpen]);
 
   async function handleAutosave() {
     if (!activeDraft) return;
@@ -254,7 +390,7 @@ export default function HearthHome() {
         const next = exists
           ? prev.map((d) => (d.id === toSave.id ? toSave : d))
           : [toSave, ...prev];
-        return next.sort((a, b) => b.updatedAt - a.updatedAt);
+        return next;
       });
 
       if (createdRevision) {
@@ -271,6 +407,22 @@ export default function HearthHome() {
     }
   }
 
+  async function saveDraftMeta(draft: Draft, updates: Partial<Draft>) {
+    const now = Date.now();
+    const toSave: Draft = {
+      ...draft,
+      ...updates,
+      title: normalizeTitle(updates.title ?? draft.title),
+      updatedAt: now,
+    };
+    await store.saveDraft(toSave);
+    setDrafts((prev) => prev.map((d) => (d.id === toSave.id ? toSave : d)));
+    if (activeDraft?.id === toSave.id) {
+      setActiveDraft(toSave);
+      setDraftSnapshot({ title: toSave.title, body: toSave.body, updatedAt: toSave.updatedAt });
+    }
+  }
+
   async function onCreateDraft() {
     setError(null);
     try {
@@ -284,20 +436,23 @@ export default function HearthHome() {
     }
   }
 
-  async function onSaveDraft() {
+  const onSaveDraft = useCallback(async () => {
     if (!activeDraft) return;
     const now = Date.now();
     await persistDraft({ draft: activeDraft, updatedAt: now, createRevision: null });
-  }
+  }, [activeDraft]);
 
-  async function onDeleteActive() {
-    if (!activeDraft) return;
+  async function onDeleteDraft(draft: Draft) {
+    const confirmDelete = window.confirm("Delete this draft? This cannot be undone.");
+    if (!confirmDelete) return;
     setError(null);
     try {
-      await store.deleteDraft(activeDraft.id);
+      await store.deleteDraft(draft.id);
       await refreshDrafts();
-      await selectDraft(null);
-      await persistSession(null, "editor");
+      if (activeDraft?.id === draft.id) {
+        await selectDraft(null);
+      }
+      await persistSession(activeDraft?.id === draft.id ? null : activeDraft?.id ?? null, "editor");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to delete draft.";
       setError(message);
@@ -340,6 +495,24 @@ export default function HearthHome() {
     setRevisionView("preview");
   }
 
+  async function onUpdateRevisionNote(revision: Revision, note: string) {
+    setIsSavingRevision(true);
+    try {
+      const updated: Revision = {
+        ...revision,
+        note: note.trim() || undefined,
+      };
+      await store.saveRevision(updated);
+      setRevisions((prev) => prev.map((rev) => (rev.id === updated.id ? updated : rev)));
+      setSelectedRevision(updated);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to update revision note.";
+      setError(message);
+    } finally {
+      setIsSavingRevision(false);
+    }
+  }
+
   function openRevisionPanel() {
     setShowRevisions(true);
     setRevisionView("list");
@@ -352,6 +525,19 @@ export default function HearthHome() {
     setRevisionView("list");
     setSelectedRevision(null);
     void persistSession(activeDraft?.id ?? null, "editor");
+  }
+
+  function renderSectionedBody(text: string) {
+    const lines = splitLines(text);
+    return (
+      <div style={{ display: "grid", gap: 6, whiteSpace: "pre-wrap" }}>
+        {lines.map((line, idx) => (
+          line.trim() === "---"
+            ? <hr key={`sep-${idx}`} style={{ borderColor: "rgba(148,163,184,0.35)" }} />
+            : <div key={`line-${idx}`}>{line || " "}</div>
+        ))}
+      </div>
+    );
   }
 
   return (
@@ -376,10 +562,8 @@ export default function HearthHome() {
             Revisions
           </button>
         )}
-        <button onClick={onDeleteActive} disabled={!activeDraft || isSaving}>
-          Delete
-        </button>
         <span style={{ fontSize: 12, opacity: 0.75 }}>{statusText}</span>
+        <span style={{ fontSize: 12, opacity: 0.6 }}>{wordCount} words · {charCount} chars</span>
       </div>
 
       {error ? (
@@ -390,8 +574,8 @@ export default function HearthHome() {
         style={{
           display: "grid",
           gridTemplateColumns: showRevisions
-            ? "minmax(240px, 320px) minmax(320px, 1fr) minmax(260px, 340px)"
-            : "minmax(240px, 320px) 1fr",
+            ? "minmax(260px, 340px) minmax(320px, 1fr) minmax(280px, 360px)"
+            : "minmax(260px, 340px) 1fr",
           gap: 16,
           alignItems: "start",
         }}
@@ -403,12 +587,15 @@ export default function HearthHome() {
             padding: 12,
             background: "var(--forge-bg-elevated, #fff)",
             minHeight: 220,
+            display: "grid",
+            gap: 12,
           }}
         >
           <div style={{ display: "grid", gap: 8 }}>
             <div style={{ display: "grid", gap: 6 }}>
               <label style={{ fontSize: 12, opacity: 0.8 }}>Search drafts</label>
               <input
+                ref={searchRef}
                 type="search"
                 value={searchText}
                 onChange={(event) => setSearchText(event.target.value)}
@@ -422,37 +609,109 @@ export default function HearthHome() {
                 <option value="title">Title A-Z</option>
               </select>
             </div>
+            <label style={{ fontSize: 12, opacity: 0.8, display: "flex", gap: 6, alignItems: "center" }}>
+              <input
+                type="checkbox"
+                checked={showArchived}
+                onChange={(event) => setShowArchived(event.target.checked)}
+              />
+              Show archived
+            </label>
           </div>
 
-          <h3 style={{ marginTop: 12 }}>Drafts</h3>
+          <h3 style={{ marginTop: 0 }}>Drafts</h3>
           {isLoading ? <p>Loading drafts...</p> : null}
           {!isLoading && drafts.length === 0 ? <p>No drafts yet.</p> : null}
-          <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 8 }}>
+          <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
             {filteredDrafts.map((draft) => {
               const isActive = activeDraft?.id === draft.id;
+              const isEditing = editingDraftId === draft.id;
               return (
                 <li key={draft.id}>
-                  <button
-                    onClick={() => {
-                      void selectDraft(draft);
-                    }}
+                  <div
                     style={{
-                      width: "100%",
-                      textAlign: "left",
                       border: isActive ? "1px solid #557" : "1px solid var(--forge-border, #ddd)",
-                      borderRadius: 6,
-                      padding: "8px 10px",
+                      borderRadius: 8,
+                      padding: 8,
                       background: isActive ? "rgba(85, 119, 255, 0.08)" : "transparent",
+                      display: "grid",
+                      gap: 6,
                     }}
                   >
-                    <div style={{ fontWeight: 600 }}>{draft.title || "Untitled Draft"}</div>
-                    <div style={{ fontSize: 12, opacity: 0.75 }}>
-                      Updated {formatUpdatedAt(draft.updatedAt)}
-                    </div>
+                    {isEditing ? (
+                      <input
+                        value={editingTitle}
+                        onChange={(event) => setEditingTitle(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            void saveDraftMeta(draft, { title: editingTitle });
+                            setEditingDraftId(null);
+                          }
+                          if (event.key === "Escape") {
+                            setEditingDraftId(null);
+                          }
+                        }}
+                        onBlur={() => {
+                          if (editingDraftId === draft.id) {
+                            void saveDraftMeta(draft, { title: editingTitle });
+                            setEditingDraftId(null);
+                          }
+                        }}
+                      />
+                    ) : (
+                      <button
+                        onClick={() => {
+                          void selectDraft(draft);
+                        }}
+                        style={{
+                          textAlign: "left",
+                          border: "none",
+                          background: "transparent",
+                          padding: 0,
+                          color: "inherit",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <div style={{ fontWeight: 600 }}>{draft.title || "Untitled Draft"}</div>
+                        <div style={{ fontSize: 12, opacity: 0.75 }}>
+                          Updated {formatUpdatedAt(draft.updatedAt)}
+                        </div>
+                      </button>
+                    )}
                     <div style={{ fontSize: 12, opacity: 0.65 }}>
                       Revisions {draft.revisionCount ?? "-"}
                     </div>
-                  </button>
+                    {draft.archived ? (
+                      <div style={{ fontSize: 11, opacity: 0.6 }}>Archived</div>
+                    ) : null}
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        onClick={() => void saveDraftMeta(draft, { pinned: !draft.pinned })}
+                      >
+                        {draft.pinned ? "Unpin" : "Pin"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingDraftId(draft.id);
+                          setEditingTitle(draft.title);
+                        }}
+                      >
+                        Rename
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void saveDraftMeta(draft, { archived: !draft.archived })}
+                      >
+                        {draft.archived ? "Unarchive" : "Archive"}
+                      </button>
+                      <button type="button" onClick={() => void onDeleteDraft(draft)}>
+                        Delete
+                      </button>
+                    </div>
+                  </div>
                 </li>
               );
             })}
@@ -486,14 +745,27 @@ export default function HearthHome() {
           <label style={{ display: "grid", gap: 6 }}>
             <span style={{ fontWeight: 600 }}>Body</span>
             <textarea
+              ref={bodyRef}
               value={activeDraft?.body ?? ""}
               placeholder="Start writing..."
               onChange={(event) => {
                 if (!activeDraft) return;
                 setActiveDraft({ ...activeDraft, body: event.target.value });
               }}
+              onSelect={(event) => {
+                const target = event.target as HTMLTextAreaElement;
+                setCursorPosition(target.selectionStart);
+              }}
+              onKeyUp={(event) => {
+                const target = event.target as HTMLTextAreaElement;
+                setCursorPosition(target.selectionStart);
+              }}
+              onScroll={(event) => {
+                const target = event.target as HTMLTextAreaElement;
+                setScrollTop(target.scrollTop);
+              }}
               disabled={!activeDraft}
-              style={{ minHeight: 320, resize: "vertical" }}
+              style={{ minHeight: 320, resize: "vertical", overflow: "hidden" }}
             />
           </label>
         </div>
@@ -518,7 +790,7 @@ export default function HearthHome() {
             {revisions.length === 0 ? (
               <p style={{ fontSize: 13, opacity: 0.7 }}>No revisions yet.</p>
             ) : (
-              <div style={{ display: "grid", gap: 10 }}>
+              <div style={{ display: "grid", gap: 10, maxHeight: 360, overflowY: "auto" }}>
                 {revisions.map((revision) => (
                   <div
                     key={revision.id}
@@ -533,7 +805,17 @@ export default function HearthHome() {
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
                       <span>{formatUpdatedAt(revision.createdAt)}</span>
-                      <span style={{ textTransform: "capitalize", opacity: 0.7 }}>{revision.kind}</span>
+                      <span
+                        style={{
+                          textTransform: "capitalize",
+                          opacity: 0.7,
+                          padding: "2px 6px",
+                          borderRadius: 999,
+                          border: "1px solid rgba(148,163,184,0.4)",
+                        }}
+                      >
+                        {revision.kind}
+                      </span>
                     </div>
                     <div style={{ fontSize: 13, marginTop: 4 }}>
                       {revision.note || "No note"}
@@ -567,40 +849,79 @@ export default function HearthHome() {
             )}
 
             {revisionView !== "list" && selectedRevision ? (
-              <div style={{ display: "grid", gap: 8 }}>
+              <div style={{ display: "grid", gap: 10 }}>
                 <div style={{ fontWeight: 600 }}>{revisionView === "preview" ? "Preview" : "Compare"}</div>
+                <div style={{ fontSize: 12, opacity: 0.7 }}>
+                  {formatUpdatedAt(selectedRevision.createdAt)} · {selectedRevision.kind}
+                </div>
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, opacity: 0.7 }}>Revision note</span>
+                  <input
+                    value={selectedRevision.note ?? ""}
+                    onChange={(event) => {
+                      setSelectedRevision({ ...selectedRevision, note: event.target.value });
+                    }}
+                    onBlur={(event) => void onUpdateRevisionNote(selectedRevision, event.target.value)}
+                  />
+                </label>
                 {revisionView === "preview" ? (
                   <div style={{ display: "grid", gap: 8 }}>
-                    <div style={{ fontSize: 12, opacity: 0.7 }}>
-                      {formatUpdatedAt(selectedRevision.createdAt)} · {selectedRevision.kind}
-                    </div>
                     <div style={{ fontWeight: 600 }}>{selectedRevision.titleSnapshot}</div>
-                    <textarea
-                      readOnly
-                      value={selectedRevision.bodySnapshot}
-                      style={{ minHeight: 180, resize: "vertical" }}
-                    />
+                    {renderSectionedBody(selectedRevision.bodySnapshot)}
                   </div>
                 ) : (
                   <div style={{ display: "grid", gap: 8 }}>
                     <div style={{ display: "grid", gap: 6 }}>
-                      <span style={{ fontSize: 12, opacity: 0.7 }}>Current</span>
-                      <textarea
-                        readOnly
-                        value={activeDraft?.body ?? ""}
-                        style={{ minHeight: 140, resize: "vertical" }}
-                      />
-                    </div>
-                    <div style={{ display: "grid", gap: 6 }}>
-                      <span style={{ fontSize: 12, opacity: 0.7 }}>Revision</span>
-                      <textarea
-                        readOnly
-                        value={selectedRevision.bodySnapshot}
-                        style={{ minHeight: 140, resize: "vertical" }}
-                      />
+                      <span style={{ fontSize: 12, opacity: 0.7 }}>Diff</span>
+                      <div style={{ display: "grid", gap: 4 }}>
+                        {diffLines.map((line, idx) => {
+                          const isSeparator = line.status === "separator";
+                          const leftStyle: CSSProperties = {
+                            padding: "2px 4px",
+                            background: line.status === "removed" || line.status === "changed"
+                              ? "rgba(255, 138, 154, 0.18)"
+                              : undefined,
+                            whiteSpace: "pre-wrap",
+                          };
+                          const rightStyle: CSSProperties = {
+                            padding: "2px 4px",
+                            background: line.status === "added" || line.status === "changed"
+                              ? "rgba(121, 226, 166, 0.18)"
+                              : undefined,
+                            whiteSpace: "pre-wrap",
+                          };
+                          if (isSeparator) {
+                            return (
+                              <div key={`diff-${idx}`} style={{ gridColumn: "1 / -1" }}>
+                                <hr style={{ borderColor: "rgba(148,163,184,0.35)" }} />
+                              </div>
+                            );
+                          }
+                          return (
+                            <div
+                              key={`diff-${idx}`}
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "1fr 1fr",
+                                gap: 8,
+                              }}
+                            >
+                              <div style={leftStyle}>{line.left || " "}</div>
+                              <div style={rightStyle}>{line.right || " "}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                 )}
+                <button
+                  type="button"
+                  onClick={() => void onUpdateRevisionNote(selectedRevision, selectedRevision.note ?? "")}
+                  disabled={isSavingRevision}
+                >
+                  {isSavingRevision ? "Saving note..." : "Save note"}
+                </button>
               </div>
             ) : null}
           </aside>

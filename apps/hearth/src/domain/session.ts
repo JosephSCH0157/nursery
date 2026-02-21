@@ -9,6 +9,8 @@ export interface HearthSession {
   uiState?: {
     splitPane?: boolean;
     selectedTab?: string;
+    cursorPosition?: number;
+    scrollTop?: number;
   };
   createdAt: number;
   updatedAt: number;
