@@ -6,6 +6,7 @@ import { supabase } from "../lib/supabase";
 import { listMyWorkspaces, type Workspace } from "@barstock/lib/tongs-api";
 import { ForgeNav } from "../nav/ForgeNav";
 import { forgeNavTree } from "../nav/forgeNavTree";
+import forgeInteriorImage from "../../../../assets/forge-interior.png";
 
 const WORKSPACE_CACHE_KEY = "forge_workspaces_cache_v1";
 const ACTIVE_WORKSPACE_KEY = "forge_workspace_id_v1";
@@ -282,6 +283,8 @@ export default function AppShell() {
   const workspaceSelectDisabled = !session || loadingWorkspaces;
   const activeWorkspace = visibleWorkspaces.find(w => w.id === effectiveWorkspaceId) ?? null;
   const inTrialMode = !session;
+  const isHomeRoute = location.pathname === "/app" || location.pathname === "/app/";
+  const showHomeMainBackground = !!session && isHomeRoute;
 
   return (
     <div
@@ -420,7 +423,18 @@ export default function AppShell() {
           <ForgeNav tree={forgeNavTree} />
         </aside>
 
-        <main style={{ flex: 1, padding: 16 }}>
+        <main
+          style={{
+            flex: 1,
+            padding: 16,
+            backgroundImage: showHomeMainBackground
+              ? `linear-gradient(rgba(7, 11, 19, 0.62), rgba(7, 11, 19, 0.72)), url(${forgeInteriorImage})`
+              : undefined,
+            backgroundSize: showHomeMainBackground ? "cover" : undefined,
+            backgroundPosition: showHomeMainBackground ? "center center" : undefined,
+            backgroundRepeat: "no-repeat",
+          }}
+        >
           <Outlet
             context={{
               workspaceId: effectiveWorkspaceId,
