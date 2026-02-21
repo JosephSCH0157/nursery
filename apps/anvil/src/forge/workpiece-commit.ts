@@ -4,6 +4,12 @@ type WrittenBy = {
   lane: string;
 };
 
+type RecordingCommitInput = {
+  bytes: Uint8Array;
+  originalName: string;
+  contentType?: string;
+};
+
 export type RecordingCommitResult =
   | {
       ok: true;
@@ -27,17 +33,20 @@ type CreateCradleResult =
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DEFAULT_TOOL_VERSION = "1.8.5";
+const DEFAULT_LANE = "forge-managed";
 
 const WORKSPACE_STORAGE_KEYS = ["forge_workspace_id_v1", "barstock_workspace_id"] as const;
 const WORKPIECE_STORAGE_KEYS = [
   "forge_active_workpiece_id_v1",
   "forge_workpiece_id_v1",
   "tp_workpiece_id",
-  "tp:last_script_id",
 ] as const;
 
 const ACTIVE_WORKPIECE_KEY = "forge_active_workpiece_id_v1";
 const WORKSPACE_WORKPIECE_PREFIX = "forge_anvil_recording_workpiece_v1:";
+const RECORDING_SESSION_KEY = "forge_anvil_recording_session_v1";
+
+let correlationSeq = 0;
 
 function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -67,6 +76,22 @@ function writeLocalStorage(key: string, value: string): void {
   }
 }
 
+function readSessionStorage(key: string): string | null {
+  try {
+    return readString(sessionStorage.getItem(key));
+  } catch {
+    return null;
+  }
+}
+
+function writeSessionStorage(key: string, value: string): void {
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {
+    // ignore
+  }
+}
+
 function getQueryParam(...keys: string[]): string | null {
   try {
     const q = new URLSearchParams(window.location.search || "");
@@ -80,17 +105,55 @@ function getQueryParam(...keys: string[]): string | null {
   return null;
 }
 
+function resolveLane(): string {
+  const w = window as any;
+  const fromQuery = readString(getQueryParam("forge_lane", "lane"));
+  if (fromQuery) return fromQuery;
+  const fromWindow = readString(w.__forgeLane ?? w.__tpLane);
+  if (fromWindow) return fromWindow;
+  const fromStorage = readString(readLocalStorage("forge_lane_v1"));
+  if (fromStorage) return fromStorage;
+  return DEFAULT_LANE;
+}
+
 function getWrittenBy(): WrittenBy {
   const version = readString((window as any).APP_VERSION) || DEFAULT_TOOL_VERSION;
   return {
     tool: "anvil",
     tool_version: version,
-    lane: "forge-managed",
+    lane: resolveLane(),
   };
 }
 
 function getApiToken(): string | undefined {
   return readString((window as any).__forgeTongsApiToken) ?? undefined;
+}
+
+function getOrCreateRecordingSessionId(): string {
+  const existing = readSessionStorage(RECORDING_SESSION_KEY);
+  if (existing) return existing;
+
+  let next = "";
+  try {
+    const randomUuid =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : "";
+    next = readString(randomUuid) || "";
+  } catch {
+    // ignore
+  }
+  if (!next) {
+    next = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+
+  writeSessionStorage(RECORDING_SESSION_KEY, next);
+  return next;
+}
+
+function nextCorrelationId(prefix: string): string {
+  correlationSeq += 1;
+  return `${prefix}:${getOrCreateRecordingSessionId()}:${correlationSeq}`;
 }
 
 function resolveWorkspaceId(): string | null {
@@ -143,9 +206,10 @@ function persistWorkpiece(workspaceId: string | null, workpieceId: string): void
   }
 }
 
-function inferContentType(blob: Blob, name: string): string {
-  const byBlob = readString(blob.type);
-  if (byBlob) return byBlob;
+function inferContentType(contentType: string | undefined, name: string): string {
+  const fromInput = readString(contentType);
+  if (fromInput) return fromInput;
+
   const lower = name.toLowerCase();
   if (lower.endsWith(".wav")) return "audio/wav";
   if (lower.endsWith(".webm")) return "video/webm";
@@ -183,22 +247,28 @@ async function readBodyAsJson(response: Response): Promise<unknown> {
   }
 }
 
-async function blobToBase64(blob: Blob): Promise<string> {
-  return await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error || new Error("Failed to read recording blob"));
-    reader.onload = () => {
-      const result = typeof reader.result === "string" ? reader.result : "";
-      const comma = result.indexOf(",");
-      const base64 = comma >= 0 ? result.slice(comma + 1) : result;
-      if (!base64) {
-        reject(new Error("Failed to encode recording blob"));
-        return;
-      }
-      resolve(base64);
+function encodeBase64(bytes: Uint8Array): string {
+  if (!bytes.length) return "";
+
+  const globalWithBuffer = globalThis as typeof globalThis & {
+    Buffer?: {
+      from(data: Uint8Array): { toString(encoding: "base64"): string };
     };
-    reader.readAsDataURL(blob);
-  });
+  };
+  if (globalWithBuffer.Buffer?.from) {
+    return globalWithBuffer.Buffer.from(bytes).toString("base64");
+  }
+
+  if (typeof btoa !== "function") {
+    throw new Error("No base64 encoder available in runtime");
+  }
+
+  const CHUNK = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
 }
 
 async function createCradle(
@@ -216,7 +286,7 @@ async function createCradle(
         name: "anvil",
         version: writtenBy.tool_version,
       },
-      correlation_id: `anvil-create-cradle-${Date.now()}`,
+      correlation_id: nextCorrelationId("anvil-create-cradle"),
     }),
   });
   const body = await readBodyAsJson(response);
@@ -245,7 +315,7 @@ async function commitFileToWorkpiece(
   return { status: response.status, body, ok: response.ok && (body as any)?.ok === true };
 }
 
-export async function commitRecordingBlobToTongs(blob: Blob, originalName: string): Promise<RecordingCommitResult> {
+export async function commitRecordingBytesToTongs(input: RecordingCommitInput): Promise<RecordingCommitResult> {
   const writtenBy = getWrittenBy();
   const apiToken = getApiToken();
   const workspaceId = resolveWorkspaceId();
@@ -278,10 +348,11 @@ export async function commitRecordingBlobToTongs(blob: Blob, originalName: strin
 
   persistWorkpiece(workspaceId, workpieceId);
 
-  const name = sanitizeFilename(originalName);
+  const name = sanitizeFilename(input.originalName);
   const path = `recordings/${name}`;
-  const contentType = inferContentType(blob, name);
-  const bytesBase64 = await blobToBase64(blob);
+  const contentType = inferContentType(input.contentType, name);
+  const bytesBase64 = encodeBase64(input.bytes);
+  const recordingSessionId = getOrCreateRecordingSessionId();
 
   const commitPayload = {
     path,
@@ -291,16 +362,21 @@ export async function commitRecordingBlobToTongs(blob: Blob, originalName: strin
     event_name: "anvil.recording.committed",
     event_payload: {
       source: "anvil.local-auto",
-      original_name: originalName,
-      bytes: blob.size,
+      original_name: input.originalName,
+      bytes: input.bytes.byteLength,
       content_type: contentType,
       created_cradle: createdCradle,
+      recording_session_id: recordingSessionId,
     },
-    correlation_id: `anvil-recording-${Date.now()}`,
+    correlation_id: nextCorrelationId("anvil-recording"),
   };
 
+  let didRetry404 = false;
   let commit = await commitFileToWorkpiece(workpieceId, commitPayload, apiToken);
+
+  // Single defensive retry: stale cached workpiece IDs can happen after cradle resets.
   if (!commit.ok && commit.status === 404 && workspaceId) {
+    didRetry404 = true;
     const replacement = await createCradle(workspaceId, writtenBy, apiToken);
     if (replacement.ok) {
       workpieceId = replacement.workpieceId;
@@ -313,7 +389,7 @@ export async function commitRecordingBlobToTongs(blob: Blob, originalName: strin
   if (!commit.ok) {
     return {
       ok: false,
-      reason: "commit_failed",
+      reason: didRetry404 ? "commit_failed_after_retry" : "commit_failed",
       status: commit.status,
       details: commit.body,
       workspaceId,
@@ -328,4 +404,10 @@ export async function commitRecordingBlobToTongs(blob: Blob, originalName: strin
     createdCradle,
     status: commit.status,
   };
+}
+
+export async function commitRecordingBlobToTongs(blob: Blob, originalName: string): Promise<RecordingCommitResult> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const contentType = readString(blob.type) || undefined;
+  return commitRecordingBytesToTongs({ bytes, originalName, contentType });
 }

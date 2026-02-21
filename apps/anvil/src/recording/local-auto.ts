@@ -1,7 +1,7 @@
 // Lightweight auto-record stub (browser MediaRecorder-based).
 // Mirrors the legacy JS behavior but typed for the TS runtime.
 import { getRecordingMode } from './recording-settings';
-import { commitRecordingBlobToTongs } from '../forge/workpiece-commit';
+import { commitRecordingBytesToTongs } from '../forge/workpiece-commit';
 
 (() => {
   let mediaRecorder: MediaRecorder | null = null;
@@ -328,9 +328,16 @@ import { commitRecordingBlobToTongs } from '../forge/workpiece-commit';
   }
 
   async function saveBlob(blob: Blob, name: string): Promise<boolean> {
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const contentType = blob.type || 'application/octet-stream';
+    const localWritePayload = bytes;
     let committed = false;
     try {
-      const commitResult = await commitRecordingBlobToTongs(blob, name);
+      const commitResult = await commitRecordingBytesToTongs({
+        bytes,
+        originalName: name,
+        contentType,
+      });
       if (commitResult.ok) {
         committed = true;
         try {
@@ -377,7 +384,7 @@ import { commitRecordingBlobToTongs } from '../forge/workpiece-commit';
           }
           const fh = await dir.getFileHandle(name, { create: true });
           const w = await fh.createWritable();
-          await w.write(blob);
+          await w.write(localWritePayload);
           await w.close();
           try {
             console.log('[core-recorder] saved file mirror', name);
@@ -404,7 +411,8 @@ import { commitRecordingBlobToTongs } from '../forge/workpiece-commit';
       return true;
     }
     try {
-      const url = URL.createObjectURL(blob);
+      const downloadBlob = new Blob([bytes], { type: contentType });
+      const url = URL.createObjectURL(downloadBlob);
       const a = document.createElement('a');
       a.href = url;
       a.download = name || 'Recording.webm';
