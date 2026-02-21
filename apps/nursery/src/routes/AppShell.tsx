@@ -134,8 +134,8 @@ export default function AppShell() {
     const userId = session?.user?.id ?? null;
     if (!userId) {
       lastSessionUserId.current = null;
-      setWorkspaces([]);
-      setWorkspaceId(null);
+      if (workspaces.length) setWorkspaces([]);
+      if (workspaceId !== null) setWorkspaceId(null);
       return;
     }
 
