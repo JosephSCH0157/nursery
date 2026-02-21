@@ -673,7 +673,14 @@ export default function HearthHome() {
                           cursor: "pointer",
                         }}
                       >
-                        <div style={{ fontWeight: 600 }}>{draft.title || "Untitled Draft"}</div>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                          <div style={{ fontWeight: 600 }}>{draft.title || "Untitled Draft"}</div>
+                          {draft.pinned ? (
+                            <span style={{ fontSize: 14, opacity: 0.7 }} aria-label="Pinned" title="Pinned">
+                              📌
+                            </span>
+                          ) : null}
+                        </div>
                         <div style={{ fontSize: 12, opacity: 0.75 }}>
                           Updated {formatUpdatedAt(draft.updatedAt)}
                         </div>
@@ -682,9 +689,6 @@ export default function HearthHome() {
                     <div style={{ fontSize: 12, opacity: 0.65 }}>
                       Revisions {draft.revisionCount ?? "-"}
                     </div>
-                    {draft.archived ? (
-                      <div style={{ fontSize: 11, opacity: 0.6 }}>Archived</div>
-                    ) : null}
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                       <button
                         type="button"
