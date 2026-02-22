@@ -81,10 +81,10 @@ var init_tslib_es6 = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/module/helper.js
+// ../../node_modules/.pnpm/@supabase+functions-js@2.97.0/node_modules/@supabase/functions-js/dist/module/helper.js
 var resolveFetch;
 var init_helper = __esm({
-  "../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/module/helper.js"() {
+  "../../node_modules/.pnpm/@supabase+functions-js@2.97.0/node_modules/@supabase/functions-js/dist/module/helper.js"() {
     resolveFetch = (customFetch) => {
       if (customFetch) {
         return (...args) => customFetch(...args);
@@ -94,10 +94,10 @@ var init_helper = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/module/types.js
+// ../../node_modules/.pnpm/@supabase+functions-js@2.97.0/node_modules/@supabase/functions-js/dist/module/types.js
 var FunctionsError, FunctionsFetchError, FunctionsRelayError, FunctionsHttpError, FunctionRegion;
 var init_types = __esm({
-  "../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/module/types.js"() {
+  "../../node_modules/.pnpm/@supabase+functions-js@2.97.0/node_modules/@supabase/functions-js/dist/module/types.js"() {
     FunctionsError = class extends Error {
       constructor(message, name = "FunctionsError", context) {
         super(message);
@@ -140,10 +140,10 @@ var init_types = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/module/FunctionsClient.js
+// ../../node_modules/.pnpm/@supabase+functions-js@2.97.0/node_modules/@supabase/functions-js/dist/module/FunctionsClient.js
 var FunctionsClient;
 var init_FunctionsClient = __esm({
-  "../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/module/FunctionsClient.js"() {
+  "../../node_modules/.pnpm/@supabase+functions-js@2.97.0/node_modules/@supabase/functions-js/dist/module/FunctionsClient.js"() {
     init_tslib_es6();
     init_helper();
     init_types();
@@ -288,17 +288,68 @@ var init_FunctionsClient = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/module/index.js
+// ../../node_modules/.pnpm/@supabase+functions-js@2.97.0/node_modules/@supabase/functions-js/dist/module/index.js
 var init_module = __esm({
-  "../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/module/index.js"() {
+  "../../node_modules/.pnpm/@supabase+functions-js@2.97.0/node_modules/@supabase/functions-js/dist/module/index.js"() {
     init_FunctionsClient();
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+postgrest-js@2.91.1/node_modules/@supabase/postgrest-js/dist/index.mjs
+// ../../node_modules/.pnpm/@supabase+postgrest-js@2.97.0/node_modules/@supabase/postgrest-js/dist/index.mjs
+function _typeof(o) {
+  "@babel/helpers - typeof";
+  return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o$1) {
+    return typeof o$1;
+  } : function(o$1) {
+    return o$1 && "function" == typeof Symbol && o$1.constructor === Symbol && o$1 !== Symbol.prototype ? "symbol" : typeof o$1;
+  }, _typeof(o);
+}
+function toPrimitive(t, r) {
+  if ("object" != _typeof(t) || !t) return t;
+  var e = t[Symbol.toPrimitive];
+  if (void 0 !== e) {
+    var i = e.call(t, r || "default");
+    if ("object" != _typeof(i)) return i;
+    throw new TypeError("@@toPrimitive must return a primitive value.");
+  }
+  return ("string" === r ? String : Number)(t);
+}
+function toPropertyKey(t) {
+  var i = toPrimitive(t, "string");
+  return "symbol" == _typeof(i) ? i : i + "";
+}
+function _defineProperty(e, r, t) {
+  return (r = toPropertyKey(r)) in e ? Object.defineProperty(e, r, {
+    value: t,
+    enumerable: true,
+    configurable: true,
+    writable: true
+  }) : e[r] = t, e;
+}
+function ownKeys(e, r) {
+  var t = Object.keys(e);
+  if (Object.getOwnPropertySymbols) {
+    var o = Object.getOwnPropertySymbols(e);
+    r && (o = o.filter(function(r$1) {
+      return Object.getOwnPropertyDescriptor(e, r$1).enumerable;
+    })), t.push.apply(t, o);
+  }
+  return t;
+}
+function _objectSpread2(e) {
+  for (var r = 1; r < arguments.length; r++) {
+    var t = null != arguments[r] ? arguments[r] : {};
+    r % 2 ? ownKeys(Object(t), true).forEach(function(r$1) {
+      _defineProperty(e, r$1, t[r$1]);
+    }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys(Object(t)).forEach(function(r$1) {
+      Object.defineProperty(e, r$1, Object.getOwnPropertyDescriptor(t, r$1));
+    });
+  }
+  return e;
+}
 var PostgrestError, PostgrestBuilder, PostgrestTransformBuilder, PostgrestReservedCharsRegexp, PostgrestFilterBuilder, PostgrestQueryBuilder, PostgrestClient;
 var init_dist = __esm({
-  "../../node_modules/.pnpm/@supabase+postgrest-js@2.91.1/node_modules/@supabase/postgrest-js/dist/index.mjs"() {
+  "../../node_modules/.pnpm/@supabase+postgrest-js@2.97.0/node_modules/@supabase/postgrest-js/dist/index.mjs"() {
     PostgrestError = class extends Error {
       /**
       * @example
@@ -336,7 +387,7 @@ var init_dist = __esm({
       * ```
       */
       constructor(builder) {
-        var _builder$shouldThrowO, _builder$isMaybeSingl;
+        var _builder$shouldThrowO, _builder$isMaybeSingl, _builder$urlLengthLim;
         this.shouldThrowOnError = false;
         this.method = builder.method;
         this.url = builder.url;
@@ -346,6 +397,7 @@ var init_dist = __esm({
         this.shouldThrowOnError = (_builder$shouldThrowO = builder.shouldThrowOnError) !== null && _builder$shouldThrowO !== void 0 ? _builder$shouldThrowO : false;
         this.signal = builder.signal;
         this.isMaybeSingle = (_builder$isMaybeSingl = builder.isMaybeSingle) !== null && _builder$isMaybeSingl !== void 0 ? _builder$isMaybeSingl : false;
+        this.urlLengthLimit = (_builder$urlLengthLim = builder.urlLengthLimit) !== null && _builder$urlLengthLim !== void 0 ? _builder$urlLengthLim : 8e3;
         if (builder.fetch) this.fetch = builder.fetch;
         else this.fetch = fetch;
       }
@@ -446,6 +498,8 @@ var init_dist = __esm({
         if (!this.shouldThrowOnError) res = res.catch((fetchError) => {
           var _fetchError$name2;
           let errorDetails = "";
+          let hint = "";
+          let code = "";
           const cause = fetchError === null || fetchError === void 0 ? void 0 : fetchError.cause;
           if (cause) {
             var _cause$message, _cause$code, _fetchError$name, _cause$name;
@@ -462,12 +516,22 @@ ${cause.stack}`;
             var _fetchError$stack;
             errorDetails = (_fetchError$stack = fetchError === null || fetchError === void 0 ? void 0 : fetchError.stack) !== null && _fetchError$stack !== void 0 ? _fetchError$stack : "";
           }
+          const urlLength = this.url.toString().length;
+          if ((fetchError === null || fetchError === void 0 ? void 0 : fetchError.name) === "AbortError" || (fetchError === null || fetchError === void 0 ? void 0 : fetchError.code) === "ABORT_ERR") {
+            code = "";
+            hint = "Request was aborted (timeout or manual cancellation)";
+            if (urlLength > this.urlLengthLimit) hint += `. Note: Your request URL is ${urlLength} characters, which may exceed server limits. If selecting many fields, consider using views. If filtering with large arrays (e.g., .in('id', [many IDs])), consider using an RPC function to pass values server-side.`;
+          } else if ((cause === null || cause === void 0 ? void 0 : cause.name) === "HeadersOverflowError" || (cause === null || cause === void 0 ? void 0 : cause.code) === "UND_ERR_HEADERS_OVERFLOW") {
+            code = "";
+            hint = "HTTP headers exceeded server limits (typically 16KB)";
+            if (urlLength > this.urlLengthLimit) hint += `. Your request URL is ${urlLength} characters. If selecting many fields, consider using views. If filtering with large arrays (e.g., .in('id', [200+ IDs])), consider using an RPC function instead.`;
+          }
           return {
             error: {
               message: `${(_fetchError$name2 = fetchError === null || fetchError === void 0 ? void 0 : fetchError.name) !== null && _fetchError$name2 !== void 0 ? _fetchError$name2 : "FetchError"}: ${fetchError === null || fetchError === void 0 ? void 0 : fetchError.message}`,
               details: errorDetails,
-              hint: "",
-              code: ""
+              hint,
+              code
             },
             data: null,
             count: null,
@@ -1109,11 +1173,12 @@ ${cause.stack}`;
       * )
       * ```
       */
-      constructor(url, { headers = {}, schema, fetch: fetch$1 }) {
+      constructor(url, { headers = {}, schema, fetch: fetch$1, urlLengthLimit = 8e3 }) {
         this.url = url;
         this.headers = new Headers(headers);
         this.schema = schema;
         this.fetch = fetch$1;
+        this.urlLengthLimit = urlLengthLimit;
       }
       /**
       * Clone URL and headers to prevent shared state between operations.
@@ -1144,6 +1209,10 @@ ${cause.stack}`;
       *
       * `"estimated"`: Uses exact count for low numbers and planned count for high
       * numbers.
+      *
+      * @remarks
+      * When using `count` with `.range()` or `.limit()`, the returned `count` is the total number of rows
+      * that match your filters, not the number of rows in the current page. Use this to build pagination UI.
       */
       select(columns, options) {
         const { head: head2 = false, count } = options !== null && options !== void 0 ? options : {};
@@ -1162,7 +1231,8 @@ ${cause.stack}`;
           url,
           headers,
           schema: this.schema,
-          fetch: this.fetch
+          fetch: this.fetch,
+          urlLengthLimit: this.urlLengthLimit
         });
       }
       /**
@@ -1210,7 +1280,8 @@ ${cause.stack}`;
           headers,
           schema: this.schema,
           body: values,
-          fetch: (_this$fetch = this.fetch) !== null && _this$fetch !== void 0 ? _this$fetch : fetch
+          fetch: (_this$fetch = this.fetch) !== null && _this$fetch !== void 0 ? _this$fetch : fetch,
+          urlLengthLimit: this.urlLengthLimit
         });
       }
       /**
@@ -1319,7 +1390,8 @@ ${cause.stack}`;
           headers,
           schema: this.schema,
           body: values,
-          fetch: (_this$fetch2 = this.fetch) !== null && _this$fetch2 !== void 0 ? _this$fetch2 : fetch
+          fetch: (_this$fetch2 = this.fetch) !== null && _this$fetch2 !== void 0 ? _this$fetch2 : fetch,
+          urlLengthLimit: this.urlLengthLimit
         });
       }
       /**
@@ -1354,7 +1426,8 @@ ${cause.stack}`;
           headers,
           schema: this.schema,
           body: values,
-          fetch: (_this$fetch3 = this.fetch) !== null && _this$fetch3 !== void 0 ? _this$fetch3 : fetch
+          fetch: (_this$fetch3 = this.fetch) !== null && _this$fetch3 !== void 0 ? _this$fetch3 : fetch,
+          urlLengthLimit: this.urlLengthLimit
         });
       }
       /**
@@ -1386,7 +1459,8 @@ ${cause.stack}`;
           url,
           headers,
           schema: this.schema,
-          fetch: (_this$fetch4 = this.fetch) !== null && _this$fetch4 !== void 0 ? _this$fetch4 : fetch
+          fetch: (_this$fetch4 = this.fetch) !== null && _this$fetch4 !== void 0 ? _this$fetch4 : fetch,
+          urlLengthLimit: this.urlLengthLimit
         });
       }
     };
@@ -1399,6 +1473,8 @@ ${cause.stack}`;
       * @param options.headers - Custom headers
       * @param options.schema - Postgres schema to switch to
       * @param options.fetch - Custom fetch
+      * @param options.timeout - Optional timeout in milliseconds for all requests. When set, requests will automatically abort after this duration to prevent indefinite hangs.
+      * @param options.urlLengthLimit - Maximum URL length in characters before warnings/errors are triggered. Defaults to 8000.
       * @example
       * ```ts
       * import PostgrestClient from '@supabase/postgrest-js'
@@ -1406,14 +1482,38 @@ ${cause.stack}`;
       * const postgrest = new PostgrestClient('https://xyzcompany.supabase.co/rest/v1', {
       *   headers: { apikey: 'public-anon-key' },
       *   schema: 'public',
+      *   timeout: 30000, // 30 second timeout
       * })
       * ```
       */
-      constructor(url, { headers = {}, schema, fetch: fetch$1 } = {}) {
+      constructor(url, { headers = {}, schema, fetch: fetch$1, timeout, urlLengthLimit = 8e3 } = {}) {
         this.url = url;
         this.headers = new Headers(headers);
         this.schemaName = schema;
-        this.fetch = fetch$1;
+        this.urlLengthLimit = urlLengthLimit;
+        const originalFetch = fetch$1 !== null && fetch$1 !== void 0 ? fetch$1 : globalThis.fetch;
+        if (timeout !== void 0 && timeout > 0) this.fetch = (input, init3) => {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), timeout);
+          const existingSignal = init3 === null || init3 === void 0 ? void 0 : init3.signal;
+          if (existingSignal) {
+            if (existingSignal.aborted) {
+              clearTimeout(timeoutId);
+              return originalFetch(input, init3);
+            }
+            const abortHandler = () => {
+              clearTimeout(timeoutId);
+              controller.abort();
+            };
+            existingSignal.addEventListener("abort", abortHandler, { once: true });
+            return originalFetch(input, _objectSpread2(_objectSpread2({}, init3), {}, { signal: controller.signal })).finally(() => {
+              clearTimeout(timeoutId);
+              existingSignal.removeEventListener("abort", abortHandler);
+            });
+          }
+          return originalFetch(input, _objectSpread2(_objectSpread2({}, init3), {}, { signal: controller.signal })).finally(() => clearTimeout(timeoutId));
+        };
+        else this.fetch = originalFetch;
       }
       /**
       * Perform a query on a table or a view.
@@ -1425,7 +1525,8 @@ ${cause.stack}`;
         return new PostgrestQueryBuilder(new URL(`${this.url}/${relation}`), {
           headers: new Headers(this.headers),
           schema: this.schemaName,
-          fetch: this.fetch
+          fetch: this.fetch,
+          urlLengthLimit: this.urlLengthLimit
         });
       }
       /**
@@ -1439,7 +1540,8 @@ ${cause.stack}`;
         return new PostgrestClient2(this.url, {
           headers: this.headers,
           schema,
-          fetch: this.fetch
+          fetch: this.fetch,
+          urlLengthLimit: this.urlLengthLimit
         });
       }
       /**
@@ -1502,17 +1604,18 @@ ${cause.stack}`;
           headers,
           schema: this.schemaName,
           body,
-          fetch: (_this$fetch = this.fetch) !== null && _this$fetch !== void 0 ? _this$fetch : fetch
+          fetch: (_this$fetch = this.fetch) !== null && _this$fetch !== void 0 ? _this$fetch : fetch,
+          urlLengthLimit: this.urlLengthLimit
         });
       }
     };
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/websocket-factory.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/websocket-factory.js
 var WebSocketFactory, websocket_factory_default;
 var init_websocket_factory = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/websocket-factory.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/websocket-factory.js"() {
     WebSocketFactory = class {
       /**
        * Static-only utility – prevent instantiation.
@@ -1630,18 +1733,18 @@ Suggested solution: ${env.workaround}`;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/version.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/version.js
 var version;
 var init_version = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/version.js"() {
-    version = "2.91.1";
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/version.js"() {
+    version = "2.97.0";
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/constants.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/constants.js
 var DEFAULT_VERSION, VSN_1_0_0, VSN_2_0_0, DEFAULT_VSN, DEFAULT_TIMEOUT, WS_CLOSE_NORMAL, MAX_PUSH_BUFFER_SIZE, SOCKET_STATES, CHANNEL_STATES, CHANNEL_EVENTS, TRANSPORTS, CONNECTION_STATE;
 var init_constants = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/constants.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/constants.js"() {
     init_version();
     DEFAULT_VERSION = `realtime-js/${version}`;
     VSN_1_0_0 = "1.0.0";
@@ -1683,10 +1786,10 @@ var init_constants = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/serializer.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/serializer.js
 var Serializer;
 var init_serializer = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/serializer.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/serializer.js"() {
     Serializer = class {
       constructor(allowedMetadataKeys) {
         this.HEADER_LENGTH = 1;
@@ -1828,10 +1931,10 @@ var init_serializer = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/timer.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/timer.js
 var Timer;
 var init_timer = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/timer.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/timer.js"() {
     Timer = class {
       constructor(callback, timerCalc) {
         this.callback = callback;
@@ -1858,10 +1961,10 @@ var init_timer = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/transformers.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/transformers.js
 var PostgresTypes, convertChangeData, convertColumn, convertCell, noop, toBoolean, toNumber, toJson, toArray, toTimestampString, httpEndpointURL;
 var init_transformers = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/transformers.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/transformers.js"() {
     (function(PostgresTypes2) {
       PostgresTypes2["abstime"] = "abstime";
       PostgresTypes2["bool"] = "bool";
@@ -2025,10 +2128,10 @@ var init_transformers = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/push.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/push.js
 var Push;
 var init_push = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/push.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/push.js"() {
     init_constants();
     Push = class {
       /**
@@ -2130,10 +2233,10 @@ var init_push = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/RealtimePresence.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/RealtimePresence.js
 var REALTIME_PRESENCE_LISTEN_EVENTS, RealtimePresence;
 var init_RealtimePresence = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/RealtimePresence.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/RealtimePresence.js"() {
     (function(REALTIME_PRESENCE_LISTEN_EVENTS2) {
       REALTIME_PRESENCE_LISTEN_EVENTS2["SYNC"] = "sync";
       REALTIME_PRESENCE_LISTEN_EVENTS2["JOIN"] = "join";
@@ -2366,10 +2469,10 @@ var init_RealtimePresence = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/RealtimeChannel.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/RealtimeChannel.js
 var REALTIME_POSTGRES_CHANGES_LISTEN_EVENT, REALTIME_LISTEN_TYPES, REALTIME_SUBSCRIBE_STATES, RealtimeChannel;
 var init_RealtimeChannel = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/RealtimeChannel.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/RealtimeChannel.js"() {
     init_constants();
     init_push();
     init_timer();
@@ -2812,15 +2915,15 @@ var init_RealtimeChannel = __esm({
           }).map((bind) => bind.callback(handledPayload, ref));
         } else {
           (_b = this.bindings[typeLower]) === null || _b === void 0 ? void 0 : _b.filter((bind) => {
-            var _a2, _b2, _c, _d, _e, _f, _g, _h;
+            var _a2, _b2, _c, _d, _e, _f;
             if (["broadcast", "presence", "postgres_changes"].includes(typeLower)) {
               if ("id" in bind) {
                 const bindId = bind.id;
                 const bindEvent = (_a2 = bind.filter) === null || _a2 === void 0 ? void 0 : _a2.event;
-                return bindId && ((_b2 = payload.ids) === null || _b2 === void 0 ? void 0 : _b2.includes(bindId)) && (bindEvent === "*" || (bindEvent === null || bindEvent === void 0 ? void 0 : bindEvent.toLocaleLowerCase()) === ((_c = payload.data) === null || _c === void 0 ? void 0 : _c.type.toLocaleLowerCase())) && (!((_d = bind.filter) === null || _d === void 0 ? void 0 : _d.table) || bind.filter.table === ((_e = payload.data) === null || _e === void 0 ? void 0 : _e.table));
+                return bindId && ((_b2 = payload.ids) === null || _b2 === void 0 ? void 0 : _b2.includes(bindId)) && (bindEvent === "*" || (bindEvent === null || bindEvent === void 0 ? void 0 : bindEvent.toLocaleLowerCase()) === ((_c = payload.data) === null || _c === void 0 ? void 0 : _c.type.toLocaleLowerCase()));
               } else {
-                const bindEvent = (_g = (_f = bind === null || bind === void 0 ? void 0 : bind.filter) === null || _f === void 0 ? void 0 : _f.event) === null || _g === void 0 ? void 0 : _g.toLocaleLowerCase();
-                return bindEvent === "*" || bindEvent === ((_h = payload === null || payload === void 0 ? void 0 : payload.event) === null || _h === void 0 ? void 0 : _h.toLocaleLowerCase());
+                const bindEvent = (_e = (_d = bind === null || bind === void 0 ? void 0 : bind.filter) === null || _d === void 0 ? void 0 : _d.event) === null || _e === void 0 ? void 0 : _e.toLocaleLowerCase();
+                return bindEvent === "*" || bindEvent === ((_f = payload === null || payload === void 0 ? void 0 : payload.event) === null || _f === void 0 ? void 0 : _f.toLocaleLowerCase());
               }
             } else {
               return bind.type.toLocaleLowerCase() === typeLower;
@@ -2970,10 +3073,10 @@ var init_RealtimeChannel = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/RealtimeClient.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/RealtimeClient.js
 var noop2, CONNECTION_TIMEOUTS, RECONNECT_INTERVALS, DEFAULT_RECONNECT_FALLBACK, WORKER_SCRIPT, RealtimeClient;
 var init_RealtimeClient = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/RealtimeClient.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/RealtimeClient.js"() {
     init_websocket_factory();
     init_constants();
     init_serializer();
@@ -3555,6 +3658,11 @@ Option 2: Install and provide the "ws" package:
         this.log("transport", `${error}`);
         this._triggerChanError();
         this._triggerStateCallbacks("error", error);
+        try {
+          this.heartbeatCallback("error");
+        } catch (e) {
+          this.log("error", "error in heartbeat callback", e);
+        }
       }
       /** @internal */
       _triggerChanError() {
@@ -3734,9 +3842,9 @@ Option 2: Install and provide the "ws" package:
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/index.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/index.js
 var init_module2 = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/index.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/index.js"() {
     init_RealtimeClient();
     init_RealtimeChannel();
     init_RealtimePresence();
@@ -4282,41 +4390,41 @@ var init_dist2 = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+storage-js@2.91.1/node_modules/@supabase/storage-js/dist/index.mjs
+// ../../node_modules/.pnpm/@supabase+storage-js@2.97.0/node_modules/@supabase/storage-js/dist/index.mjs
 function isStorageError(error) {
   return typeof error === "object" && error !== null && "__isStorageError" in error;
 }
-function _typeof(o) {
+function _typeof2(o) {
   "@babel/helpers - typeof";
-  return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o$1) {
+  return _typeof2 = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o$1) {
     return typeof o$1;
   } : function(o$1) {
     return o$1 && "function" == typeof Symbol && o$1.constructor === Symbol && o$1 !== Symbol.prototype ? "symbol" : typeof o$1;
-  }, _typeof(o);
+  }, _typeof2(o);
 }
-function toPrimitive(t, r) {
-  if ("object" != _typeof(t) || !t) return t;
+function toPrimitive2(t, r) {
+  if ("object" != _typeof2(t) || !t) return t;
   var e = t[Symbol.toPrimitive];
   if (void 0 !== e) {
     var i = e.call(t, r || "default");
-    if ("object" != _typeof(i)) return i;
+    if ("object" != _typeof2(i)) return i;
     throw new TypeError("@@toPrimitive must return a primitive value.");
   }
   return ("string" === r ? String : Number)(t);
 }
-function toPropertyKey(t) {
-  var i = toPrimitive(t, "string");
-  return "symbol" == _typeof(i) ? i : i + "";
+function toPropertyKey2(t) {
+  var i = toPrimitive2(t, "string");
+  return "symbol" == _typeof2(i) ? i : i + "";
 }
-function _defineProperty(e, r, t) {
-  return (r = toPropertyKey(r)) in e ? Object.defineProperty(e, r, {
+function _defineProperty2(e, r, t) {
+  return (r = toPropertyKey2(r)) in e ? Object.defineProperty(e, r, {
     value: t,
     enumerable: true,
     configurable: true,
     writable: true
   }) : e[r] = t, e;
 }
-function ownKeys(e, r) {
+function ownKeys2(e, r) {
   var t = Object.keys(e);
   if (Object.getOwnPropertySymbols) {
     var o = Object.getOwnPropertySymbols(e);
@@ -4326,73 +4434,68 @@ function ownKeys(e, r) {
   }
   return t;
 }
-function _objectSpread2(e) {
+function _objectSpread22(e) {
   for (var r = 1; r < arguments.length; r++) {
     var t = null != arguments[r] ? arguments[r] : {};
-    r % 2 ? ownKeys(Object(t), true).forEach(function(r$1) {
-      _defineProperty(e, r$1, t[r$1]);
-    }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys(Object(t)).forEach(function(r$1) {
+    r % 2 ? ownKeys2(Object(t), true).forEach(function(r$1) {
+      _defineProperty2(e, r$1, t[r$1]);
+    }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys2(Object(t)).forEach(function(r$1) {
       Object.defineProperty(e, r$1, Object.getOwnPropertyDescriptor(t, r$1));
     });
   }
   return e;
 }
-async function _handleRequest$1(fetcher, method, url, options, parameters, body) {
-  return new Promise((resolve, reject) => {
-    fetcher(url, _getRequestParams$1(method, options, parameters, body)).then((result) => {
-      if (!result.ok) throw result;
-      if (options === null || options === void 0 ? void 0 : options.noResolveJson) return result;
-      return result.json();
-    }).then((data) => resolve(data)).catch((error) => handleError$1(error, reject, options));
-  });
-}
-async function get(fetcher, url, options, parameters) {
-  return _handleRequest$1(fetcher, "GET", url, options, parameters);
-}
-async function post$1(fetcher, url, body, options, parameters) {
-  return _handleRequest$1(fetcher, "POST", url, options, parameters, body);
-}
-async function put(fetcher, url, body, options, parameters) {
-  return _handleRequest$1(fetcher, "PUT", url, options, parameters, body);
-}
-async function head(fetcher, url, options, parameters) {
-  return _handleRequest$1(fetcher, "HEAD", url, _objectSpread2(_objectSpread2({}, options), {}, { noResolveJson: true }), parameters);
-}
-async function remove(fetcher, url, body, options, parameters) {
-  return _handleRequest$1(fetcher, "DELETE", url, options, parameters, body);
-}
-function isStorageVectorsError(error) {
-  return typeof error === "object" && error !== null && "__isStorageVectorsError" in error;
-}
-async function _handleRequest(fetcher, method, url, options, parameters, body) {
+async function _handleRequest(fetcher, method, url, options, parameters, body, namespace) {
   return new Promise((resolve, reject) => {
     fetcher(url, _getRequestParams(method, options, parameters, body)).then((result) => {
       if (!result.ok) throw result;
       if (options === null || options === void 0 ? void 0 : options.noResolveJson) return result;
-      const contentType = result.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) return {};
+      if (namespace === "vectors") {
+        const contentType = result.headers.get("content-type");
+        if (result.headers.get("content-length") === "0" || result.status === 204) return {};
+        if (!contentType || !contentType.includes("application/json")) return {};
+      }
       return result.json();
-    }).then((data) => resolve(data)).catch((error) => handleError(error, reject, options));
+    }).then((data) => resolve(data)).catch((error) => handleError(error, reject, options, namespace));
   });
 }
-async function post(fetcher, url, body, options, parameters) {
-  return _handleRequest(fetcher, "POST", url, options, parameters, body);
+function createFetchApi(namespace = "storage") {
+  return {
+    get: async (fetcher, url, options, parameters) => {
+      return _handleRequest(fetcher, "GET", url, options, parameters, void 0, namespace);
+    },
+    post: async (fetcher, url, body, options, parameters) => {
+      return _handleRequest(fetcher, "POST", url, options, parameters, body, namespace);
+    },
+    put: async (fetcher, url, body, options, parameters) => {
+      return _handleRequest(fetcher, "PUT", url, options, parameters, body, namespace);
+    },
+    head: async (fetcher, url, options, parameters) => {
+      return _handleRequest(fetcher, "HEAD", url, _objectSpread22(_objectSpread22({}, options), {}, { noResolveJson: true }), parameters, void 0, namespace);
+    },
+    remove: async (fetcher, url, body, options, parameters) => {
+      return _handleRequest(fetcher, "DELETE", url, options, parameters, body, namespace);
+    }
+  };
 }
-var StorageError, StorageApiError, StorageUnknownError, resolveFetch$1, resolveResponse$1, recursiveToCamel, isPlainObject$1, isValidBucketName, _getErrorMessage$1, handleError$1, _getRequestParams$1, StreamDownloadBuilder, _Symbol$toStringTag, BlobDownloadBuilder, DEFAULT_SEARCH_OPTIONS, DEFAULT_FILE_OPTIONS, StorageFileApi, version2, DEFAULT_HEADERS$1, StorageBucketApi, StorageAnalyticsClient, DEFAULT_HEADERS, StorageVectorsError, StorageVectorsApiError, StorageVectorsUnknownError, resolveFetch2, isPlainObject, _getErrorMessage, handleError, _getRequestParams, VectorIndexApi, VectorDataApi, VectorBucketApi, StorageVectorsClient, VectorBucketScope, VectorIndexScope, StorageClient;
+var StorageError, StorageApiError, StorageUnknownError, resolveFetch2, isPlainObject, recursiveToCamel, isValidBucketName, _getErrorMessage, handleError, _getRequestParams, defaultApi, get, post, put, head, remove, vectorsApi, BaseApiClient, StreamDownloadBuilder, _Symbol$toStringTag, BlobDownloadBuilder, DEFAULT_SEARCH_OPTIONS, DEFAULT_FILE_OPTIONS, StorageFileApi, version2, DEFAULT_HEADERS, StorageBucketApi, StorageAnalyticsClient, VectorIndexApi, VectorDataApi, VectorBucketApi, StorageVectorsClient, VectorBucketScope, VectorIndexScope, StorageClient;
 var init_dist3 = __esm({
-  "../../node_modules/.pnpm/@supabase+storage-js@2.91.1/node_modules/@supabase/storage-js/dist/index.mjs"() {
+  "../../node_modules/.pnpm/@supabase+storage-js@2.97.0/node_modules/@supabase/storage-js/dist/index.mjs"() {
     init_dist2();
     StorageError = class extends Error {
-      constructor(message) {
+      constructor(message, namespace = "storage", status2, statusCode) {
         super(message);
         this.__isStorageError = true;
-        this.name = "StorageError";
+        this.namespace = namespace;
+        this.name = namespace === "vectors" ? "StorageVectorsError" : "StorageError";
+        this.status = status2;
+        this.statusCode = statusCode;
       }
     };
     StorageApiError = class extends StorageError {
-      constructor(message, status2, statusCode) {
-        super(message);
-        this.name = "StorageApiError";
+      constructor(message, status2, statusCode, namespace = "storage") {
+        super(message, namespace, status2, statusCode);
+        this.name = namespace === "vectors" ? "StorageVectorsApiError" : "StorageApiError";
         this.status = status2;
         this.statusCode = statusCode;
       }
@@ -4406,18 +4509,20 @@ var init_dist3 = __esm({
       }
     };
     StorageUnknownError = class extends StorageError {
-      constructor(message, originalError) {
-        super(message);
-        this.name = "StorageUnknownError";
+      constructor(message, originalError, namespace = "storage") {
+        super(message, namespace);
+        this.name = namespace === "vectors" ? "StorageVectorsUnknownError" : "StorageUnknownError";
         this.originalError = originalError;
       }
     };
-    resolveFetch$1 = (customFetch) => {
+    resolveFetch2 = (customFetch) => {
       if (customFetch) return (...args) => customFetch(...args);
       return (...args) => fetch(...args);
     };
-    resolveResponse$1 = () => {
-      return Response;
+    isPlainObject = (value) => {
+      if (typeof value !== "object" || value === null) return false;
+      const prototype = Object.getPrototypeOf(value);
+      return (prototype === null || prototype === Object.prototype || Object.getPrototypeOf(prototype) === null) && !(Symbol.toStringTag in value) && !(Symbol.iterator in value);
     };
     recursiveToCamel = (item) => {
       if (Array.isArray(item)) return item.map((el) => recursiveToCamel(el));
@@ -4429,11 +4534,6 @@ var init_dist3 = __esm({
       });
       return result;
     };
-    isPlainObject$1 = (value) => {
-      if (typeof value !== "object" || value === null) return false;
-      const prototype = Object.getPrototypeOf(value);
-      return (prototype === null || prototype === Object.prototype || Object.getPrototypeOf(prototype) === null) && !(Symbol.toStringTag in value) && !(Symbol.iterator in value);
-    };
     isValidBucketName = (bucketName) => {
       if (!bucketName || typeof bucketName !== "string") return false;
       if (bucketName.length === 0 || bucketName.length > 100) return false;
@@ -4441,32 +4541,126 @@ var init_dist3 = __esm({
       if (bucketName.includes("/") || bucketName.includes("\\")) return false;
       return /^[\w!.\*'() &$@=;:+,?-]+$/.test(bucketName);
     };
-    _getErrorMessage$1 = (err) => {
+    _getErrorMessage = (err) => {
       var _err$error;
       return err.msg || err.message || err.error_description || (typeof err.error === "string" ? err.error : (_err$error = err.error) === null || _err$error === void 0 ? void 0 : _err$error.message) || JSON.stringify(err);
     };
-    handleError$1 = async (error, reject, options) => {
-      if (error instanceof await resolveResponse$1() && !(options === null || options === void 0 ? void 0 : options.noResolveJson)) error.json().then((err) => {
-        const status2 = error.status || 500;
-        const statusCode = (err === null || err === void 0 ? void 0 : err.statusCode) || status2 + "";
-        reject(new StorageApiError(_getErrorMessage$1(err), status2, statusCode));
-      }).catch((err) => {
-        reject(new StorageUnknownError(_getErrorMessage$1(err), err));
-      });
-      else reject(new StorageUnknownError(_getErrorMessage$1(error), error));
+    handleError = async (error, reject, options, namespace) => {
+      if (error && typeof error === "object" && "status" in error && "ok" in error && typeof error.status === "number" && !(options === null || options === void 0 ? void 0 : options.noResolveJson)) {
+        const responseError = error;
+        const status2 = responseError.status || 500;
+        if (typeof responseError.json === "function") responseError.json().then((err) => {
+          const statusCode = (err === null || err === void 0 ? void 0 : err.statusCode) || (err === null || err === void 0 ? void 0 : err.code) || status2 + "";
+          reject(new StorageApiError(_getErrorMessage(err), status2, statusCode, namespace));
+        }).catch(() => {
+          if (namespace === "vectors") {
+            const statusCode = status2 + "";
+            reject(new StorageApiError(responseError.statusText || `HTTP ${status2} error`, status2, statusCode, namespace));
+          } else {
+            const statusCode = status2 + "";
+            reject(new StorageApiError(responseError.statusText || `HTTP ${status2} error`, status2, statusCode, namespace));
+          }
+        });
+        else {
+          const statusCode = status2 + "";
+          reject(new StorageApiError(responseError.statusText || `HTTP ${status2} error`, status2, statusCode, namespace));
+        }
+      } else reject(new StorageUnknownError(_getErrorMessage(error), error, namespace));
     };
-    _getRequestParams$1 = (method, options, parameters, body) => {
+    _getRequestParams = (method, options, parameters, body) => {
       const params = {
         method,
         headers: (options === null || options === void 0 ? void 0 : options.headers) || {}
       };
-      if (method === "GET" || !body) return params;
-      if (isPlainObject$1(body)) {
-        params.headers = _objectSpread2({ "Content-Type": "application/json" }, options === null || options === void 0 ? void 0 : options.headers);
+      if (method === "GET" || method === "HEAD" || !body) return _objectSpread22(_objectSpread22({}, params), parameters);
+      if (isPlainObject(body)) {
+        params.headers = _objectSpread22({ "Content-Type": "application/json" }, options === null || options === void 0 ? void 0 : options.headers);
         params.body = JSON.stringify(body);
       } else params.body = body;
       if (options === null || options === void 0 ? void 0 : options.duplex) params.duplex = options.duplex;
-      return _objectSpread2(_objectSpread2({}, params), parameters);
+      return _objectSpread22(_objectSpread22({}, params), parameters);
+    };
+    defaultApi = createFetchApi("storage");
+    ({ get, post, put, head, remove } = defaultApi);
+    vectorsApi = createFetchApi("vectors");
+    BaseApiClient = class {
+      /**
+      * Creates a new BaseApiClient instance
+      * @param url - Base URL for API requests
+      * @param headers - Default headers for API requests
+      * @param fetch - Optional custom fetch implementation
+      * @param namespace - Error namespace ('storage' or 'vectors')
+      */
+      constructor(url, headers = {}, fetch$1, namespace = "storage") {
+        this.shouldThrowOnError = false;
+        this.url = url;
+        this.headers = headers;
+        this.fetch = resolveFetch2(fetch$1);
+        this.namespace = namespace;
+      }
+      /**
+      * Enable throwing errors instead of returning them.
+      * When enabled, errors are thrown instead of returned in { data, error } format.
+      *
+      * @returns this - For method chaining
+      */
+      throwOnError() {
+        this.shouldThrowOnError = true;
+        return this;
+      }
+      /**
+      * Set an HTTP header for the request.
+      * Creates a shallow copy of headers to avoid mutating shared state.
+      *
+      * @param name - Header name
+      * @param value - Header value
+      * @returns this - For method chaining
+      */
+      setHeader(name, value) {
+        this.headers = _objectSpread22(_objectSpread22({}, this.headers), {}, { [name]: value });
+        return this;
+      }
+      /**
+      * Handles API operation with standardized error handling
+      * Eliminates repetitive try-catch blocks across all API methods
+      *
+      * This wrapper:
+      * 1. Executes the operation
+      * 2. Returns { data, error: null } on success
+      * 3. Returns { data: null, error } on failure (if shouldThrowOnError is false)
+      * 4. Throws error on failure (if shouldThrowOnError is true)
+      *
+      * @typeParam T - The expected data type from the operation
+      * @param operation - Async function that performs the API call
+      * @returns Promise with { data, error } tuple
+      *
+      * @example
+      * ```typescript
+      * async listBuckets() {
+      *   return this.handleOperation(async () => {
+      *     return await get(this.fetch, `${this.url}/bucket`, {
+      *       headers: this.headers,
+      *     })
+      *   })
+      * }
+      * ```
+      */
+      async handleOperation(operation) {
+        var _this = this;
+        try {
+          return {
+            data: await operation(),
+            error: null
+          };
+        } catch (error) {
+          if (_this.shouldThrowOnError) throw error;
+          if (isStorageError(error)) return {
+            data: null,
+            error
+          };
+          throw error;
+        }
+      }
     };
     StreamDownloadBuilder = class {
       constructor(downloadFn, shouldThrowOnError) {
@@ -4547,22 +4741,10 @@ var init_dist3 = __esm({
       contentType: "text/plain;charset=UTF-8",
       upsert: false
     };
-    StorageFileApi = class {
+    StorageFileApi = class extends BaseApiClient {
       constructor(url, headers = {}, bucketId, fetch$1) {
-        this.shouldThrowOnError = false;
-        this.url = url;
-        this.headers = headers;
+        super(url, headers, fetch$1, "storage");
         this.bucketId = bucketId;
-        this.fetch = resolveFetch$1(fetch$1);
-      }
-      /**
-      * Enable throwing errors instead of returning them.
-      *
-      * @category File Buckets
-      */
-      throwOnError() {
-        this.shouldThrowOnError = true;
-        return this;
       }
       /**
       * Uploads a file to an existing bucket or replaces an existing file at the specified path with a new one.
@@ -4573,10 +4755,10 @@ var init_dist3 = __esm({
       */
       async uploadOrUpdate(method, path, fileBody, fileOptions) {
         var _this = this;
-        try {
+        return _this.handleOperation(async () => {
           let body;
-          const options = _objectSpread2(_objectSpread2({}, DEFAULT_FILE_OPTIONS), fileOptions);
-          let headers = _objectSpread2(_objectSpread2({}, _this.headers), method === "POST" && { "x-upsert": String(options.upsert) });
+          const options = _objectSpread22(_objectSpread22({}, DEFAULT_FILE_OPTIONS), fileOptions);
+          let headers = _objectSpread22(_objectSpread22({}, _this.headers), method === "POST" && { "x-upsert": String(options.upsert) });
           const metadata = options.metadata;
           if (typeof Blob !== "undefined" && fileBody instanceof Blob) {
             body = new FormData();
@@ -4594,26 +4776,16 @@ var init_dist3 = __esm({
             if (metadata) headers["x-metadata"] = _this.toBase64(_this.encodeMetadata(metadata));
             if ((typeof ReadableStream !== "undefined" && body instanceof ReadableStream || body && typeof body === "object" && "pipe" in body && typeof body.pipe === "function") && !options.duplex) options.duplex = "half";
           }
-          if (fileOptions === null || fileOptions === void 0 ? void 0 : fileOptions.headers) headers = _objectSpread2(_objectSpread2({}, headers), fileOptions.headers);
+          if (fileOptions === null || fileOptions === void 0 ? void 0 : fileOptions.headers) headers = _objectSpread22(_objectSpread22({}, headers), fileOptions.headers);
           const cleanPath = _this._removeEmptyFolders(path);
           const _path = _this._getFinalPath(cleanPath);
-          const data = await (method == "PUT" ? put : post$1)(_this.fetch, `${_this.url}/object/${_path}`, body, _objectSpread2({ headers }, (options === null || options === void 0 ? void 0 : options.duplex) ? { duplex: options.duplex } : {}));
+          const data = await (method == "PUT" ? put : post)(_this.fetch, `${_this.url}/object/${_path}`, body, _objectSpread22({ headers }, (options === null || options === void 0 ? void 0 : options.duplex) ? { duplex: options.duplex } : {}));
           return {
-            data: {
-              path: cleanPath,
-              id: data.Id,
-              fullPath: data.Key
-            },
-            error: null
+            path: cleanPath,
+            id: data.Id,
+            fullPath: data.Key
           };
-        } catch (error) {
-          if (_this.shouldThrowOnError) throw error;
-          if (isStorageError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        });
       }
       /**
       * Uploads a file to an existing bucket.
@@ -4699,10 +4871,10 @@ var init_dist3 = __esm({
         const _path = _this3._getFinalPath(cleanPath);
         const url = new URL(_this3.url + `/object/upload/sign/${_path}`);
         url.searchParams.set("token", token);
-        try {
+        return _this3.handleOperation(async () => {
           let body;
-          const options = _objectSpread2({ upsert: DEFAULT_FILE_OPTIONS.upsert }, fileOptions);
-          const headers = _objectSpread2(_objectSpread2({}, _this3.headers), { "x-upsert": String(options.upsert) });
+          const options = _objectSpread22({ upsert: DEFAULT_FILE_OPTIONS.upsert }, fileOptions);
+          const headers = _objectSpread22(_objectSpread22({}, _this3.headers), { "x-upsert": String(options.upsert) });
           if (typeof Blob !== "undefined" && fileBody instanceof Blob) {
             body = new FormData();
             body.append("cacheControl", options.cacheControl);
@@ -4716,20 +4888,10 @@ var init_dist3 = __esm({
             headers["content-type"] = options.contentType;
           }
           return {
-            data: {
-              path: cleanPath,
-              fullPath: (await put(_this3.fetch, url.toString(), body, { headers })).Key
-            },
-            error: null
+            path: cleanPath,
+            fullPath: (await put(_this3.fetch, url.toString(), body, { headers })).Key
           };
-        } catch (error) {
-          if (_this3.shouldThrowOnError) throw error;
-          if (isStorageError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        });
       }
       /**
       * Creates a signed upload URL.
@@ -4763,30 +4925,20 @@ var init_dist3 = __esm({
       */
       async createSignedUploadUrl(path, options) {
         var _this4 = this;
-        try {
+        return _this4.handleOperation(async () => {
           let _path = _this4._getFinalPath(path);
-          const headers = _objectSpread2({}, _this4.headers);
+          const headers = _objectSpread22({}, _this4.headers);
           if (options === null || options === void 0 ? void 0 : options.upsert) headers["x-upsert"] = "true";
-          const data = await post$1(_this4.fetch, `${_this4.url}/object/upload/sign/${_path}`, {}, { headers });
+          const data = await post(_this4.fetch, `${_this4.url}/object/upload/sign/${_path}`, {}, { headers });
           const url = new URL(_this4.url + data.url);
           const token = url.searchParams.get("token");
           if (!token) throw new StorageError("No token returned by API");
           return {
-            data: {
-              signedUrl: url.toString(),
-              path,
-              token
-            },
-            error: null
+            signedUrl: url.toString(),
+            path,
+            token
           };
-        } catch (error) {
-          if (_this4.shouldThrowOnError) throw error;
-          if (isStorageError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        });
       }
       /**
       * Replaces an existing file at the specified path with a new one.
@@ -4864,24 +5016,14 @@ var init_dist3 = __esm({
       */
       async move(fromPath, toPath, options) {
         var _this6 = this;
-        try {
-          return {
-            data: await post$1(_this6.fetch, `${_this6.url}/object/move`, {
-              bucketId: _this6.bucketId,
-              sourceKey: fromPath,
-              destinationKey: toPath,
-              destinationBucket: options === null || options === void 0 ? void 0 : options.destinationBucket
-            }, { headers: _this6.headers }),
-            error: null
-          };
-        } catch (error) {
-          if (_this6.shouldThrowOnError) throw error;
-          if (isStorageError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        return _this6.handleOperation(async () => {
+          return await post(_this6.fetch, `${_this6.url}/object/move`, {
+            bucketId: _this6.bucketId,
+            sourceKey: fromPath,
+            destinationKey: toPath,
+            destinationBucket: options === null || options === void 0 ? void 0 : options.destinationBucket
+          }, { headers: _this6.headers });
+        });
       }
       /**
       * Copies an existing file to a new path in the same bucket.
@@ -4912,24 +5054,14 @@ var init_dist3 = __esm({
       */
       async copy(fromPath, toPath, options) {
         var _this7 = this;
-        try {
-          return {
-            data: { path: (await post$1(_this7.fetch, `${_this7.url}/object/copy`, {
-              bucketId: _this7.bucketId,
-              sourceKey: fromPath,
-              destinationKey: toPath,
-              destinationBucket: options === null || options === void 0 ? void 0 : options.destinationBucket
-            }, { headers: _this7.headers })).Key },
-            error: null
-          };
-        } catch (error) {
-          if (_this7.shouldThrowOnError) throw error;
-          if (isStorageError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        return _this7.handleOperation(async () => {
+          return { path: (await post(_this7.fetch, `${_this7.url}/object/copy`, {
+            bucketId: _this7.bucketId,
+            sourceKey: fromPath,
+            destinationKey: toPath,
+            destinationBucket: options === null || options === void 0 ? void 0 : options.destinationBucket
+          }, { headers: _this7.headers })).Key };
+        });
       }
       /**
       * Creates a signed URL. Use a signed URL to share a file for a fixed amount of time.
@@ -4984,23 +5116,12 @@ var init_dist3 = __esm({
       */
       async createSignedUrl(path, expiresIn, options) {
         var _this8 = this;
-        try {
+        return _this8.handleOperation(async () => {
           let _path = _this8._getFinalPath(path);
-          let data = await post$1(_this8.fetch, `${_this8.url}/object/sign/${_path}`, _objectSpread2({ expiresIn }, (options === null || options === void 0 ? void 0 : options.transform) ? { transform: options.transform } : {}), { headers: _this8.headers });
+          let data = await post(_this8.fetch, `${_this8.url}/object/sign/${_path}`, _objectSpread22({ expiresIn }, (options === null || options === void 0 ? void 0 : options.transform) ? { transform: options.transform } : {}), { headers: _this8.headers });
           const downloadQueryParam = (options === null || options === void 0 ? void 0 : options.download) ? `&download=${options.download === true ? "" : options.download}` : "";
-          data = { signedUrl: encodeURI(`${_this8.url}${data.signedURL}${downloadQueryParam}`) };
-          return {
-            data,
-            error: null
-          };
-        } catch (error) {
-          if (_this8.shouldThrowOnError) throw error;
-          if (isStorageError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+          return { signedUrl: encodeURI(`${_this8.url}${data.signedURL}${downloadQueryParam}`) };
+        });
       }
       /**
       * Creates multiple signed URLs. Use a signed URL to share a file for a fixed amount of time.
@@ -5042,24 +5163,14 @@ var init_dist3 = __esm({
       */
       async createSignedUrls(paths, expiresIn, options) {
         var _this9 = this;
-        try {
-          const data = await post$1(_this9.fetch, `${_this9.url}/object/sign/${_this9.bucketId}`, {
+        return _this9.handleOperation(async () => {
+          const data = await post(_this9.fetch, `${_this9.url}/object/sign/${_this9.bucketId}`, {
             expiresIn,
             paths
           }, { headers: _this9.headers });
           const downloadQueryParam = (options === null || options === void 0 ? void 0 : options.download) ? `&download=${options.download === true ? "" : options.download}` : "";
-          return {
-            data: data.map((datum) => _objectSpread2(_objectSpread2({}, datum), {}, { signedUrl: datum.signedURL ? encodeURI(`${_this9.url}${datum.signedURL}${downloadQueryParam}`) : null })),
-            error: null
-          };
-        } catch (error) {
-          if (_this9.shouldThrowOnError) throw error;
-          if (isStorageError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+          return data.map((datum) => _objectSpread22(_objectSpread22({}, datum), {}, { signedUrl: datum.signedURL ? encodeURI(`${_this9.url}${datum.signedURL}${downloadQueryParam}`) : null }));
+        });
       }
       /**
       * Downloads a file from a private bucket. For public buckets, make a request to the URL returned from `getPublicUrl` instead.
@@ -5067,6 +5178,7 @@ var init_dist3 = __esm({
       * @category File Buckets
       * @param path The full path and file name of the file to be downloaded. For example `folder/image.png`.
       * @param options.transform Transform the asset before serving it to the client.
+      * @param parameters Additional fetch parameters like signal for cancellation. Supports standard fetch options including cache control.
       * @returns BlobDownloadBuilder instance for downloading the file
       *
       * @example Download file
@@ -5098,8 +5210,27 @@ var init_dist3 = __esm({
       *     }
       *   })
       * ```
+      *
+      * @example Download with cache control (useful in Edge Functions)
+      * ```js
+      * const { data, error } = await supabase
+      *   .storage
+      *   .from('avatars')
+      *   .download('folder/avatar1.png', {}, { cache: 'no-store' })
+      * ```
+      *
+      * @example Download with abort signal
+      * ```js
+      * const controller = new AbortController()
+      * setTimeout(() => controller.abort(), 5000)
+      *
+      * const { data, error } = await supabase
+      *   .storage
+      *   .from('avatars')
+      *   .download('folder/avatar1.png', {}, { signal: controller.signal })
+      * ```
       */
-      download(path, options) {
+      download(path, options, parameters) {
         const renderPath = typeof (options === null || options === void 0 ? void 0 : options.transform) !== "undefined" ? "render/image/authenticated" : "object";
         const transformationQuery = this.transformOptsToQueryString((options === null || options === void 0 ? void 0 : options.transform) || {});
         const queryString = transformationQuery ? `?${transformationQuery}` : "";
@@ -5107,7 +5238,7 @@ var init_dist3 = __esm({
         const downloadFn = () => get(this.fetch, `${this.url}/${renderPath}/${_path}${queryString}`, {
           headers: this.headers,
           noResolveJson: true
-        });
+        }, parameters);
         return new BlobDownloadBuilder(downloadFn, this.shouldThrowOnError);
       }
       /**
@@ -5128,19 +5259,9 @@ var init_dist3 = __esm({
       async info(path) {
         var _this10 = this;
         const _path = _this10._getFinalPath(path);
-        try {
-          return {
-            data: recursiveToCamel(await get(_this10.fetch, `${_this10.url}/object/info/${_path}`, { headers: _this10.headers })),
-            error: null
-          };
-        } catch (error) {
-          if (_this10.shouldThrowOnError) throw error;
-          if (isStorageError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        return _this10.handleOperation(async () => {
+          return recursiveToCamel(await get(_this10.fetch, `${_this10.url}/object/info/${_path}`, { headers: _this10.headers }));
+        });
       }
       /**
       * Checks the existence of a file.
@@ -5265,19 +5386,9 @@ var init_dist3 = __esm({
       */
       async remove(paths) {
         var _this12 = this;
-        try {
-          return {
-            data: await remove(_this12.fetch, `${_this12.url}/object/${_this12.bucketId}`, { prefixes: paths }, { headers: _this12.headers }),
-            error: null
-          };
-        } catch (error) {
-          if (_this12.shouldThrowOnError) throw error;
-          if (isStorageError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        return _this12.handleOperation(async () => {
+          return await remove(_this12.fetch, `${_this12.url}/object/${_this12.bucketId}`, { prefixes: paths }, { headers: _this12.headers });
+        });
       }
       /**
       * Get file metadata
@@ -5349,20 +5460,10 @@ var init_dist3 = __esm({
       */
       async list(path, options, parameters) {
         var _this13 = this;
-        try {
-          const body = _objectSpread2(_objectSpread2(_objectSpread2({}, DEFAULT_SEARCH_OPTIONS), options), {}, { prefix: path || "" });
-          return {
-            data: await post$1(_this13.fetch, `${_this13.url}/object/list/${_this13.bucketId}`, body, { headers: _this13.headers }, parameters),
-            error: null
-          };
-        } catch (error) {
-          if (_this13.shouldThrowOnError) throw error;
-          if (isStorageError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        return _this13.handleOperation(async () => {
+          const body = _objectSpread22(_objectSpread22(_objectSpread22({}, DEFAULT_SEARCH_OPTIONS), options), {}, { prefix: path || "" });
+          return await post(_this13.fetch, `${_this13.url}/object/list/${_this13.bucketId}`, body, { headers: _this13.headers }, parameters);
+        });
       }
       /**
       * @experimental this method signature might change in the future
@@ -5373,20 +5474,10 @@ var init_dist3 = __esm({
       */
       async listV2(options, parameters) {
         var _this14 = this;
-        try {
-          const body = _objectSpread2({}, options);
-          return {
-            data: await post$1(_this14.fetch, `${_this14.url}/object/list-v2/${_this14.bucketId}`, body, { headers: _this14.headers }, parameters),
-            error: null
-          };
-        } catch (error) {
-          if (_this14.shouldThrowOnError) throw error;
-          if (isStorageError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        return _this14.handleOperation(async () => {
+          const body = _objectSpread22({}, options);
+          return await post(_this14.fetch, `${_this14.url}/object/list-v2/${_this14.bucketId}`, body, { headers: _this14.headers }, parameters);
+        });
       }
       encodeMetadata(metadata) {
         return JSON.stringify(metadata);
@@ -5411,27 +5502,17 @@ var init_dist3 = __esm({
         return params.join("&");
       }
     };
-    version2 = "2.91.1";
-    DEFAULT_HEADERS$1 = { "X-Client-Info": `storage-js/${version2}` };
-    StorageBucketApi = class {
+    version2 = "2.97.0";
+    DEFAULT_HEADERS = { "X-Client-Info": `storage-js/${version2}` };
+    StorageBucketApi = class extends BaseApiClient {
       constructor(url, headers = {}, fetch$1, opts) {
-        this.shouldThrowOnError = false;
         const baseUrl = new URL(url);
         if (opts === null || opts === void 0 ? void 0 : opts.useNewHostname) {
           if (/supabase\.(co|in|red)$/.test(baseUrl.hostname) && !baseUrl.hostname.includes("storage.supabase.")) baseUrl.hostname = baseUrl.hostname.replace("supabase.", "storage.supabase.");
         }
-        this.url = baseUrl.href.replace(/\/$/, "");
-        this.headers = _objectSpread2(_objectSpread2({}, DEFAULT_HEADERS$1), headers);
-        this.fetch = resolveFetch$1(fetch$1);
-      }
-      /**
-      * Enable throwing errors instead of returning them.
-      *
-      * @category File Buckets
-      */
-      throwOnError() {
-        this.shouldThrowOnError = true;
-        return this;
+        const finalUrl = baseUrl.href.replace(/\/$/, "");
+        const finalHeaders = _objectSpread22(_objectSpread22({}, DEFAULT_HEADERS), headers);
+        super(finalUrl, finalHeaders, fetch$1, "storage");
       }
       /**
       * Retrieves the details of all Storage buckets within an existing project.
@@ -5467,20 +5548,10 @@ var init_dist3 = __esm({
       */
       async listBuckets(options) {
         var _this = this;
-        try {
+        return _this.handleOperation(async () => {
           const queryString = _this.listBucketOptionsToQueryString(options);
-          return {
-            data: await get(_this.fetch, `${_this.url}/bucket${queryString}`, { headers: _this.headers }),
-            error: null
-          };
-        } catch (error) {
-          if (_this.shouldThrowOnError) throw error;
-          if (isStorageError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+          return await get(_this.fetch, `${_this.url}/bucket${queryString}`, { headers: _this.headers });
+        });
       }
       /**
       * Retrieves the details of an existing Storage bucket.
@@ -5517,19 +5588,9 @@ var init_dist3 = __esm({
       */
       async getBucket(id) {
         var _this2 = this;
-        try {
-          return {
-            data: await get(_this2.fetch, `${_this2.url}/bucket/${id}`, { headers: _this2.headers }),
-            error: null
-          };
-        } catch (error) {
-          if (_this2.shouldThrowOnError) throw error;
-          if (isStorageError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        return _this2.handleOperation(async () => {
+          return await get(_this2.fetch, `${_this2.url}/bucket/${id}`, { headers: _this2.headers });
+        });
       }
       /**
       * Creates a new Storage bucket
@@ -5570,26 +5631,16 @@ var init_dist3 = __esm({
       */
       async createBucket(id, options = { public: false }) {
         var _this3 = this;
-        try {
-          return {
-            data: await post$1(_this3.fetch, `${_this3.url}/bucket`, {
-              id,
-              name: id,
-              type: options.type,
-              public: options.public,
-              file_size_limit: options.fileSizeLimit,
-              allowed_mime_types: options.allowedMimeTypes
-            }, { headers: _this3.headers }),
-            error: null
-          };
-        } catch (error) {
-          if (_this3.shouldThrowOnError) throw error;
-          if (isStorageError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        return _this3.handleOperation(async () => {
+          return await post(_this3.fetch, `${_this3.url}/bucket`, {
+            id,
+            name: id,
+            type: options.type,
+            public: options.public,
+            file_size_limit: options.fileSizeLimit,
+            allowed_mime_types: options.allowedMimeTypes
+          }, { headers: _this3.headers });
+        });
       }
       /**
       * Updates a Storage bucket
@@ -5628,25 +5679,15 @@ var init_dist3 = __esm({
       */
       async updateBucket(id, options) {
         var _this4 = this;
-        try {
-          return {
-            data: await put(_this4.fetch, `${_this4.url}/bucket/${id}`, {
-              id,
-              name: id,
-              public: options.public,
-              file_size_limit: options.fileSizeLimit,
-              allowed_mime_types: options.allowedMimeTypes
-            }, { headers: _this4.headers }),
-            error: null
-          };
-        } catch (error) {
-          if (_this4.shouldThrowOnError) throw error;
-          if (isStorageError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        return _this4.handleOperation(async () => {
+          return await put(_this4.fetch, `${_this4.url}/bucket/${id}`, {
+            id,
+            name: id,
+            public: options.public,
+            file_size_limit: options.fileSizeLimit,
+            allowed_mime_types: options.allowedMimeTypes
+          }, { headers: _this4.headers });
+        });
       }
       /**
       * Removes all objects inside a single bucket.
@@ -5674,19 +5715,9 @@ var init_dist3 = __esm({
       */
       async emptyBucket(id) {
         var _this5 = this;
-        try {
-          return {
-            data: await post$1(_this5.fetch, `${_this5.url}/bucket/${id}/empty`, {}, { headers: _this5.headers }),
-            error: null
-          };
-        } catch (error) {
-          if (_this5.shouldThrowOnError) throw error;
-          if (isStorageError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        return _this5.handleOperation(async () => {
+          return await post(_this5.fetch, `${_this5.url}/bucket/${id}/empty`, {}, { headers: _this5.headers });
+        });
       }
       /**
       * Deletes an existing bucket. A bucket can't be deleted with existing objects inside it.
@@ -5715,19 +5746,9 @@ var init_dist3 = __esm({
       */
       async deleteBucket(id) {
         var _this6 = this;
-        try {
-          return {
-            data: await remove(_this6.fetch, `${_this6.url}/bucket/${id}`, {}, { headers: _this6.headers }),
-            error: null
-          };
-        } catch (error) {
-          if (_this6.shouldThrowOnError) throw error;
-          if (isStorageError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        return _this6.handleOperation(async () => {
+          return await remove(_this6.fetch, `${_this6.url}/bucket/${id}`, {}, { headers: _this6.headers });
+        });
       }
       listBucketOptionsToQueryString(options) {
         const params = {};
@@ -5741,7 +5762,7 @@ var init_dist3 = __esm({
         return Object.keys(params).length > 0 ? "?" + new URLSearchParams(params).toString() : "";
       }
     };
-    StorageAnalyticsClient = class {
+    StorageAnalyticsClient = class extends BaseApiClient {
       /**
       * @alpha
       *
@@ -5760,25 +5781,9 @@ var init_dist3 = __esm({
       * ```
       */
       constructor(url, headers = {}, fetch$1) {
-        this.shouldThrowOnError = false;
-        this.url = url.replace(/\/$/, "");
-        this.headers = _objectSpread2(_objectSpread2({}, DEFAULT_HEADERS$1), headers);
-        this.fetch = resolveFetch$1(fetch$1);
-      }
-      /**
-      * @alpha
-      *
-      * Enable throwing errors instead of returning them in the response
-      * When enabled, failed operations will throw instead of returning { data: null, error }
-      *
-      * **Public alpha:** This API is part of a public alpha release and may not be available to your account type.
-      *
-      * @category Analytics Buckets
-      * @returns This instance for method chaining
-      */
-      throwOnError() {
-        this.shouldThrowOnError = true;
-        return this;
+        const finalUrl = url.replace(/\/$/, "");
+        const finalHeaders = _objectSpread22(_objectSpread22({}, DEFAULT_HEADERS), headers);
+        super(finalUrl, finalHeaders, fetch$1, "storage");
       }
       /**
       * @alpha
@@ -5816,19 +5821,9 @@ var init_dist3 = __esm({
       */
       async createBucket(name) {
         var _this = this;
-        try {
-          return {
-            data: await post$1(_this.fetch, `${_this.url}/bucket`, { name }, { headers: _this.headers }),
-            error: null
-          };
-        } catch (error) {
-          if (_this.shouldThrowOnError) throw error;
-          if (isStorageError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        return _this.handleOperation(async () => {
+          return await post(_this.fetch, `${_this.url}/bucket`, { name }, { headers: _this.headers });
+        });
       }
       /**
       * @alpha
@@ -5878,7 +5873,7 @@ var init_dist3 = __esm({
       */
       async listBuckets(options) {
         var _this2 = this;
-        try {
+        return _this2.handleOperation(async () => {
           const queryParams = new URLSearchParams();
           if ((options === null || options === void 0 ? void 0 : options.limit) !== void 0) queryParams.set("limit", options.limit.toString());
           if ((options === null || options === void 0 ? void 0 : options.offset) !== void 0) queryParams.set("offset", options.offset.toString());
@@ -5887,18 +5882,8 @@ var init_dist3 = __esm({
           if (options === null || options === void 0 ? void 0 : options.search) queryParams.set("search", options.search);
           const queryString = queryParams.toString();
           const url = queryString ? `${_this2.url}/bucket?${queryString}` : `${_this2.url}/bucket`;
-          return {
-            data: await get(_this2.fetch, url, { headers: _this2.headers }),
-            error: null
-          };
-        } catch (error) {
-          if (_this2.shouldThrowOnError) throw error;
-          if (isStorageError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+          return await get(_this2.fetch, url, { headers: _this2.headers });
+        });
       }
       /**
       * @alpha
@@ -5933,19 +5918,9 @@ var init_dist3 = __esm({
       */
       async deleteBucket(bucketName) {
         var _this3 = this;
-        try {
-          return {
-            data: await remove(_this3.fetch, `${_this3.url}/bucket/${bucketName}`, {}, { headers: _this3.headers }),
-            error: null
-          };
-        } catch (error) {
-          if (_this3.shouldThrowOnError) throw error;
-          if (isStorageError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        return _this3.handleOperation(async () => {
+          return await remove(_this3.fetch, `${_this3.url}/bucket/${bucketName}`, {}, { headers: _this3.headers });
+        });
       }
       /**
       * @alpha
@@ -6103,354 +6078,133 @@ var init_dist3 = __esm({
         } });
       }
     };
-    DEFAULT_HEADERS = {
-      "X-Client-Info": `storage-js/${version2}`,
-      "Content-Type": "application/json"
-    };
-    StorageVectorsError = class extends Error {
-      constructor(message) {
-        super(message);
-        this.__isStorageVectorsError = true;
-        this.name = "StorageVectorsError";
-      }
-    };
-    StorageVectorsApiError = class extends StorageVectorsError {
-      constructor(message, status2, statusCode) {
-        super(message);
-        this.name = "StorageVectorsApiError";
-        this.status = status2;
-        this.statusCode = statusCode;
-      }
-      toJSON() {
-        return {
-          name: this.name,
-          message: this.message,
-          status: this.status,
-          statusCode: this.statusCode
-        };
-      }
-    };
-    StorageVectorsUnknownError = class extends StorageVectorsError {
-      constructor(message, originalError) {
-        super(message);
-        this.name = "StorageVectorsUnknownError";
-        this.originalError = originalError;
-      }
-    };
-    resolveFetch2 = (customFetch) => {
-      if (customFetch) return (...args) => customFetch(...args);
-      return (...args) => fetch(...args);
-    };
-    isPlainObject = (value) => {
-      if (typeof value !== "object" || value === null) return false;
-      const prototype = Object.getPrototypeOf(value);
-      return (prototype === null || prototype === Object.prototype || Object.getPrototypeOf(prototype) === null) && !(Symbol.toStringTag in value) && !(Symbol.iterator in value);
-    };
-    _getErrorMessage = (err) => err.msg || err.message || err.error_description || err.error || JSON.stringify(err);
-    handleError = async (error, reject, options) => {
-      if (error && typeof error === "object" && "status" in error && "ok" in error && typeof error.status === "number" && !(options === null || options === void 0 ? void 0 : options.noResolveJson)) {
-        const status2 = error.status || 500;
-        const responseError = error;
-        if (typeof responseError.json === "function") responseError.json().then((err) => {
-          const statusCode = (err === null || err === void 0 ? void 0 : err.statusCode) || (err === null || err === void 0 ? void 0 : err.code) || status2 + "";
-          reject(new StorageVectorsApiError(_getErrorMessage(err), status2, statusCode));
-        }).catch(() => {
-          const statusCode = status2 + "";
-          reject(new StorageVectorsApiError(responseError.statusText || `HTTP ${status2} error`, status2, statusCode));
-        });
-        else {
-          const statusCode = status2 + "";
-          reject(new StorageVectorsApiError(responseError.statusText || `HTTP ${status2} error`, status2, statusCode));
-        }
-      } else reject(new StorageVectorsUnknownError(_getErrorMessage(error), error));
-    };
-    _getRequestParams = (method, options, parameters, body) => {
-      const params = {
-        method,
-        headers: (options === null || options === void 0 ? void 0 : options.headers) || {}
-      };
-      if (method === "GET" || !body) return params;
-      if (isPlainObject(body)) {
-        params.headers = _objectSpread2({ "Content-Type": "application/json" }, options === null || options === void 0 ? void 0 : options.headers);
-        params.body = JSON.stringify(body);
-      } else params.body = body;
-      return _objectSpread2(_objectSpread2({}, params), parameters);
-    };
-    VectorIndexApi = class {
+    VectorIndexApi = class extends BaseApiClient {
       /** Creates a new VectorIndexApi instance */
       constructor(url, headers = {}, fetch$1) {
-        this.shouldThrowOnError = false;
-        this.url = url.replace(/\/$/, "");
-        this.headers = _objectSpread2(_objectSpread2({}, DEFAULT_HEADERS), headers);
-        this.fetch = resolveFetch2(fetch$1);
-      }
-      /** Enable throwing errors instead of returning them in the response */
-      throwOnError() {
-        this.shouldThrowOnError = true;
-        return this;
+        const finalUrl = url.replace(/\/$/, "");
+        const finalHeaders = _objectSpread22(_objectSpread22({}, DEFAULT_HEADERS), {}, { "Content-Type": "application/json" }, headers);
+        super(finalUrl, finalHeaders, fetch$1, "vectors");
       }
       /** Creates a new vector index within a bucket */
       async createIndex(options) {
         var _this = this;
-        try {
-          return {
-            data: await post(_this.fetch, `${_this.url}/CreateIndex`, options, { headers: _this.headers }) || {},
-            error: null
-          };
-        } catch (error) {
-          if (_this.shouldThrowOnError) throw error;
-          if (isStorageVectorsError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        return _this.handleOperation(async () => {
+          return await vectorsApi.post(_this.fetch, `${_this.url}/CreateIndex`, options, { headers: _this.headers }) || {};
+        });
       }
       /** Retrieves metadata for a specific vector index */
       async getIndex(vectorBucketName, indexName) {
         var _this2 = this;
-        try {
-          return {
-            data: await post(_this2.fetch, `${_this2.url}/GetIndex`, {
-              vectorBucketName,
-              indexName
-            }, { headers: _this2.headers }),
-            error: null
-          };
-        } catch (error) {
-          if (_this2.shouldThrowOnError) throw error;
-          if (isStorageVectorsError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        return _this2.handleOperation(async () => {
+          return await vectorsApi.post(_this2.fetch, `${_this2.url}/GetIndex`, {
+            vectorBucketName,
+            indexName
+          }, { headers: _this2.headers });
+        });
       }
       /** Lists vector indexes within a bucket with optional filtering and pagination */
       async listIndexes(options) {
         var _this3 = this;
-        try {
-          return {
-            data: await post(_this3.fetch, `${_this3.url}/ListIndexes`, options, { headers: _this3.headers }),
-            error: null
-          };
-        } catch (error) {
-          if (_this3.shouldThrowOnError) throw error;
-          if (isStorageVectorsError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        return _this3.handleOperation(async () => {
+          return await vectorsApi.post(_this3.fetch, `${_this3.url}/ListIndexes`, options, { headers: _this3.headers });
+        });
       }
       /** Deletes a vector index and all its data */
       async deleteIndex(vectorBucketName, indexName) {
         var _this4 = this;
-        try {
-          return {
-            data: await post(_this4.fetch, `${_this4.url}/DeleteIndex`, {
-              vectorBucketName,
-              indexName
-            }, { headers: _this4.headers }) || {},
-            error: null
-          };
-        } catch (error) {
-          if (_this4.shouldThrowOnError) throw error;
-          if (isStorageVectorsError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        return _this4.handleOperation(async () => {
+          return await vectorsApi.post(_this4.fetch, `${_this4.url}/DeleteIndex`, {
+            vectorBucketName,
+            indexName
+          }, { headers: _this4.headers }) || {};
+        });
       }
     };
-    VectorDataApi = class {
+    VectorDataApi = class extends BaseApiClient {
       /** Creates a new VectorDataApi instance */
       constructor(url, headers = {}, fetch$1) {
-        this.shouldThrowOnError = false;
-        this.url = url.replace(/\/$/, "");
-        this.headers = _objectSpread2(_objectSpread2({}, DEFAULT_HEADERS), headers);
-        this.fetch = resolveFetch2(fetch$1);
-      }
-      /** Enable throwing errors instead of returning them in the response */
-      throwOnError() {
-        this.shouldThrowOnError = true;
-        return this;
+        const finalUrl = url.replace(/\/$/, "");
+        const finalHeaders = _objectSpread22(_objectSpread22({}, DEFAULT_HEADERS), {}, { "Content-Type": "application/json" }, headers);
+        super(finalUrl, finalHeaders, fetch$1, "vectors");
       }
       /** Inserts or updates vectors in batch (1-500 per request) */
       async putVectors(options) {
         var _this = this;
-        try {
-          if (options.vectors.length < 1 || options.vectors.length > 500) throw new Error("Vector batch size must be between 1 and 500 items");
-          return {
-            data: await post(_this.fetch, `${_this.url}/PutVectors`, options, { headers: _this.headers }) || {},
-            error: null
-          };
-        } catch (error) {
-          if (_this.shouldThrowOnError) throw error;
-          if (isStorageVectorsError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        if (options.vectors.length < 1 || options.vectors.length > 500) throw new Error("Vector batch size must be between 1 and 500 items");
+        return _this.handleOperation(async () => {
+          return await vectorsApi.post(_this.fetch, `${_this.url}/PutVectors`, options, { headers: _this.headers }) || {};
+        });
       }
       /** Retrieves vectors by their keys in batch */
       async getVectors(options) {
         var _this2 = this;
-        try {
-          return {
-            data: await post(_this2.fetch, `${_this2.url}/GetVectors`, options, { headers: _this2.headers }),
-            error: null
-          };
-        } catch (error) {
-          if (_this2.shouldThrowOnError) throw error;
-          if (isStorageVectorsError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        return _this2.handleOperation(async () => {
+          return await vectorsApi.post(_this2.fetch, `${_this2.url}/GetVectors`, options, { headers: _this2.headers });
+        });
       }
       /** Lists vectors in an index with pagination */
       async listVectors(options) {
         var _this3 = this;
-        try {
-          if (options.segmentCount !== void 0) {
-            if (options.segmentCount < 1 || options.segmentCount > 16) throw new Error("segmentCount must be between 1 and 16");
-            if (options.segmentIndex !== void 0) {
-              if (options.segmentIndex < 0 || options.segmentIndex >= options.segmentCount) throw new Error(`segmentIndex must be between 0 and ${options.segmentCount - 1}`);
-            }
+        if (options.segmentCount !== void 0) {
+          if (options.segmentCount < 1 || options.segmentCount > 16) throw new Error("segmentCount must be between 1 and 16");
+          if (options.segmentIndex !== void 0) {
+            if (options.segmentIndex < 0 || options.segmentIndex >= options.segmentCount) throw new Error(`segmentIndex must be between 0 and ${options.segmentCount - 1}`);
           }
-          return {
-            data: await post(_this3.fetch, `${_this3.url}/ListVectors`, options, { headers: _this3.headers }),
-            error: null
-          };
-        } catch (error) {
-          if (_this3.shouldThrowOnError) throw error;
-          if (isStorageVectorsError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
         }
+        return _this3.handleOperation(async () => {
+          return await vectorsApi.post(_this3.fetch, `${_this3.url}/ListVectors`, options, { headers: _this3.headers });
+        });
       }
       /** Queries for similar vectors using approximate nearest neighbor search */
       async queryVectors(options) {
         var _this4 = this;
-        try {
-          return {
-            data: await post(_this4.fetch, `${_this4.url}/QueryVectors`, options, { headers: _this4.headers }),
-            error: null
-          };
-        } catch (error) {
-          if (_this4.shouldThrowOnError) throw error;
-          if (isStorageVectorsError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        return _this4.handleOperation(async () => {
+          return await vectorsApi.post(_this4.fetch, `${_this4.url}/QueryVectors`, options, { headers: _this4.headers });
+        });
       }
       /** Deletes vectors by their keys in batch (1-500 per request) */
       async deleteVectors(options) {
         var _this5 = this;
-        try {
-          if (options.keys.length < 1 || options.keys.length > 500) throw new Error("Keys batch size must be between 1 and 500 items");
-          return {
-            data: await post(_this5.fetch, `${_this5.url}/DeleteVectors`, options, { headers: _this5.headers }) || {},
-            error: null
-          };
-        } catch (error) {
-          if (_this5.shouldThrowOnError) throw error;
-          if (isStorageVectorsError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        if (options.keys.length < 1 || options.keys.length > 500) throw new Error("Keys batch size must be between 1 and 500 items");
+        return _this5.handleOperation(async () => {
+          return await vectorsApi.post(_this5.fetch, `${_this5.url}/DeleteVectors`, options, { headers: _this5.headers }) || {};
+        });
       }
     };
-    VectorBucketApi = class {
+    VectorBucketApi = class extends BaseApiClient {
       /** Creates a new VectorBucketApi instance */
       constructor(url, headers = {}, fetch$1) {
-        this.shouldThrowOnError = false;
-        this.url = url.replace(/\/$/, "");
-        this.headers = _objectSpread2(_objectSpread2({}, DEFAULT_HEADERS), headers);
-        this.fetch = resolveFetch2(fetch$1);
-      }
-      /** Enable throwing errors instead of returning them in the response */
-      throwOnError() {
-        this.shouldThrowOnError = true;
-        return this;
+        const finalUrl = url.replace(/\/$/, "");
+        const finalHeaders = _objectSpread22(_objectSpread22({}, DEFAULT_HEADERS), {}, { "Content-Type": "application/json" }, headers);
+        super(finalUrl, finalHeaders, fetch$1, "vectors");
       }
       /** Creates a new vector bucket */
       async createBucket(vectorBucketName) {
         var _this = this;
-        try {
-          return {
-            data: await post(_this.fetch, `${_this.url}/CreateVectorBucket`, { vectorBucketName }, { headers: _this.headers }) || {},
-            error: null
-          };
-        } catch (error) {
-          if (_this.shouldThrowOnError) throw error;
-          if (isStorageVectorsError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        return _this.handleOperation(async () => {
+          return await vectorsApi.post(_this.fetch, `${_this.url}/CreateVectorBucket`, { vectorBucketName }, { headers: _this.headers }) || {};
+        });
       }
       /** Retrieves metadata for a specific vector bucket */
       async getBucket(vectorBucketName) {
         var _this2 = this;
-        try {
-          return {
-            data: await post(_this2.fetch, `${_this2.url}/GetVectorBucket`, { vectorBucketName }, { headers: _this2.headers }),
-            error: null
-          };
-        } catch (error) {
-          if (_this2.shouldThrowOnError) throw error;
-          if (isStorageVectorsError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        return _this2.handleOperation(async () => {
+          return await vectorsApi.post(_this2.fetch, `${_this2.url}/GetVectorBucket`, { vectorBucketName }, { headers: _this2.headers });
+        });
       }
       /** Lists vector buckets with optional filtering and pagination */
       async listBuckets(options = {}) {
         var _this3 = this;
-        try {
-          return {
-            data: await post(_this3.fetch, `${_this3.url}/ListVectorBuckets`, options, { headers: _this3.headers }),
-            error: null
-          };
-        } catch (error) {
-          if (_this3.shouldThrowOnError) throw error;
-          if (isStorageVectorsError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        return _this3.handleOperation(async () => {
+          return await vectorsApi.post(_this3.fetch, `${_this3.url}/ListVectorBuckets`, options, { headers: _this3.headers });
+        });
       }
       /** Deletes a vector bucket (must be empty first) */
       async deleteBucket(vectorBucketName) {
         var _this4 = this;
-        try {
-          return {
-            data: await post(_this4.fetch, `${_this4.url}/DeleteVectorBucket`, { vectorBucketName }, { headers: _this4.headers }) || {},
-            error: null
-          };
-        } catch (error) {
-          if (_this4.shouldThrowOnError) throw error;
-          if (isStorageVectorsError(error)) return {
-            data: null,
-            error
-          };
-          throw error;
-        }
+        return _this4.handleOperation(async () => {
+          return await vectorsApi.post(_this4.fetch, `${_this4.url}/DeleteVectorBucket`, { vectorBucketName }, { headers: _this4.headers }) || {};
+        });
       }
     };
     StorageVectorsClient = class extends VectorBucketApi {
@@ -6647,7 +6401,7 @@ var init_dist3 = __esm({
       */
       async createIndex(options) {
         var _superprop_getCreateIndex = () => super.createIndex, _this5 = this;
-        return _superprop_getCreateIndex().call(_this5, _objectSpread2(_objectSpread2({}, options), {}, { vectorBucketName: _this5.vectorBucketName }));
+        return _superprop_getCreateIndex().call(_this5, _objectSpread22(_objectSpread22({}, options), {}, { vectorBucketName: _this5.vectorBucketName }));
       }
       /**
       *
@@ -6670,7 +6424,7 @@ var init_dist3 = __esm({
       */
       async listIndexes(options = {}) {
         var _superprop_getListIndexes = () => super.listIndexes, _this6 = this;
-        return _superprop_getListIndexes().call(_this6, _objectSpread2(_objectSpread2({}, options), {}, { vectorBucketName: _this6.vectorBucketName }));
+        return _superprop_getListIndexes().call(_this6, _objectSpread22(_objectSpread22({}, options), {}, { vectorBucketName: _this6.vectorBucketName }));
       }
       /**
       *
@@ -6803,7 +6557,7 @@ var init_dist3 = __esm({
       */
       async putVectors(options) {
         var _superprop_getPutVectors = () => super.putVectors, _this9 = this;
-        return _superprop_getPutVectors().call(_this9, _objectSpread2(_objectSpread2({}, options), {}, {
+        return _superprop_getPutVectors().call(_this9, _objectSpread22(_objectSpread22({}, options), {}, {
           vectorBucketName: _this9.vectorBucketName,
           indexName: _this9.indexName
         }));
@@ -6832,7 +6586,7 @@ var init_dist3 = __esm({
       */
       async getVectors(options) {
         var _superprop_getGetVectors = () => super.getVectors, _this10 = this;
-        return _superprop_getGetVectors().call(_this10, _objectSpread2(_objectSpread2({}, options), {}, {
+        return _superprop_getGetVectors().call(_this10, _objectSpread22(_objectSpread22({}, options), {}, {
           vectorBucketName: _this10.vectorBucketName,
           indexName: _this10.indexName
         }));
@@ -6861,7 +6615,7 @@ var init_dist3 = __esm({
       */
       async listVectors(options = {}) {
         var _superprop_getListVectors = () => super.listVectors, _this11 = this;
-        return _superprop_getListVectors().call(_this11, _objectSpread2(_objectSpread2({}, options), {}, {
+        return _superprop_getListVectors().call(_this11, _objectSpread22(_objectSpread22({}, options), {}, {
           vectorBucketName: _this11.vectorBucketName,
           indexName: _this11.indexName
         }));
@@ -6893,7 +6647,7 @@ var init_dist3 = __esm({
       */
       async queryVectors(options) {
         var _superprop_getQueryVectors = () => super.queryVectors, _this12 = this;
-        return _superprop_getQueryVectors().call(_this12, _objectSpread2(_objectSpread2({}, options), {}, {
+        return _superprop_getQueryVectors().call(_this12, _objectSpread22(_objectSpread22({}, options), {}, {
           vectorBucketName: _this12.vectorBucketName,
           indexName: _this12.indexName
         }));
@@ -6921,7 +6675,7 @@ var init_dist3 = __esm({
       */
       async deleteVectors(options) {
         var _superprop_getDeleteVectors = () => super.deleteVectors, _this13 = this;
-        return _superprop_getDeleteVectors().call(_this13, _objectSpread2(_objectSpread2({}, options), {}, {
+        return _superprop_getDeleteVectors().call(_this13, _objectSpread22(_objectSpread22({}, options), {}, {
           vectorBucketName: _this13.vectorBucketName,
           indexName: _this13.indexName
         }));
@@ -6994,18 +6748,18 @@ var init_dist3 = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/version.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/version.js
 var version3;
 var init_version2 = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/version.js"() {
-    version3 = "2.91.1";
+  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/version.js"() {
+    version3 = "2.97.0";
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/constants.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/constants.js
 var AUTO_REFRESH_TICK_DURATION_MS, AUTO_REFRESH_TICK_THRESHOLD, EXPIRY_MARGIN_MS, GOTRUE_URL, STORAGE_KEY, DEFAULT_HEADERS2, API_VERSION_HEADER_NAME, API_VERSIONS, BASE64URL_REGEX, JWKS_TTL;
 var init_constants2 = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/constants.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/constants.js"() {
     init_version2();
     AUTO_REFRESH_TICK_DURATION_MS = 30 * 1e3;
     AUTO_REFRESH_TICK_THRESHOLD = 3;
@@ -7025,7 +6779,7 @@ var init_constants2 = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/errors.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/errors.js
 function isAuthError(error) {
   return typeof error === "object" && error !== null && "__isAuthError" in error;
 }
@@ -7043,7 +6797,7 @@ function isAuthRetryableFetchError(error) {
 }
 var AuthError, AuthApiError, AuthUnknownError, CustomAuthError, AuthSessionMissingError, AuthInvalidTokenResponseError, AuthInvalidCredentialsError, AuthImplicitGrantRedirectError, AuthPKCEGrantCodeExchangeError, AuthPKCECodeVerifierMissingError, AuthRetryableFetchError, AuthWeakPasswordError, AuthInvalidJwtError;
 var init_errors = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/errors.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/errors.js"() {
     AuthError = class extends Error {
       constructor(message, status2, code) {
         super(message);
@@ -7144,7 +6898,7 @@ var init_errors = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/base64url.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/base64url.js
 function byteToBase64URL(byte, state8, emit3) {
   if (byte !== null) {
     state8.queue = state8.queue << 8 | byte;
@@ -7292,7 +7046,7 @@ function bytesToBase64URL(bytes) {
 }
 var TO_BASE64URL, IGNORE_BASE64URL, FROM_BASE64URL;
 var init_base64url = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/base64url.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/base64url.js"() {
     TO_BASE64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".split("");
     IGNORE_BASE64URL = " 	\n\r=".split("");
     FROM_BASE64URL = (() => {
@@ -7311,7 +7065,7 @@ var init_base64url = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/helpers.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/helpers.js
 function expiresAt(expiresIn) {
   const timeNow = Math.round(Date.now() / 1e3);
   return timeNow + expiresIn;
@@ -7524,7 +7278,7 @@ function deepClone(obj) {
 }
 var isBrowser, localStorageWriteTests, supportsLocalStorage, resolveFetch3, looksLikeFetchResponse, setItemAsync, getItemAsync, removeItemAsync, Deferred, API_VERSION_REGEX, UUID_REGEX;
 var init_helpers = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/helpers.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/helpers.js"() {
     init_constants2();
     init_errors();
     init_base64url();
@@ -7601,7 +7355,7 @@ var init_helpers = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/fetch.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/fetch.js
 async function handleError2(error) {
   var _a;
   if (!looksLikeFetchResponse(error)) {
@@ -7728,7 +7482,7 @@ function hasSession(data) {
 }
 var _getErrorMessage2, NETWORK_ERROR_CODES, _getRequestParams2;
 var init_fetch = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/fetch.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/fetch.js"() {
     init_tslib_es6();
     init_constants2();
     init_helpers();
@@ -7747,18 +7501,18 @@ var init_fetch = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/types.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/types.js
 var SIGN_OUT_SCOPES;
 var init_types2 = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/types.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/types.js"() {
     SIGN_OUT_SCOPES = ["global", "local", "others"];
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/GoTrueAdminApi.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/GoTrueAdminApi.js
 var GoTrueAdminApi;
 var init_GoTrueAdminApi = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/GoTrueAdminApi.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/GoTrueAdminApi.js"() {
     init_tslib_es6();
     init_fetch();
     init_helpers();
@@ -7955,9 +7709,34 @@ var init_GoTrueAdminApi = __esm({
       /**
        * Updates the user data. Changes are applied directly without confirmation flows.
        *
+       * @param uid The user's unique identifier
        * @param attributes The data you want to update.
        *
        * This function should only be called on a server. Never expose your `service_role` key in the browser.
+       *
+       * @remarks
+       * **Important:** This is a server-side operation and does **not** trigger client-side
+       * `onAuthStateChange` listeners. The admin API has no connection to client state.
+       *
+       * To sync changes to the client after calling this method:
+       * 1. On the client, call `supabase.auth.refreshSession()` to fetch the updated user data
+       * 2. This will trigger the `TOKEN_REFRESHED` event and notify all listeners
+       *
+       * @example
+       * ```typescript
+       * // Server-side (Edge Function)
+       * const { data, error } = await supabase.auth.admin.updateUserById(
+       *   userId,
+       *   { user_metadata: { preferences: { theme: 'dark' } } }
+       * )
+       *
+       * // Client-side (to sync the changes)
+       * const { data, error } = await supabase.auth.refreshSession()
+       * // onAuthStateChange listeners will now be notified with updated user
+       * ```
+       *
+       * @see {@link GoTrueClient.refreshSession} for syncing admin changes to the client
+       * @see {@link GoTrueClient.updateUser} for client-side user updates (triggers listeners automatically)
        */
       async updateUserById(uid, attributes) {
         validateUUID(uid);
@@ -8182,7 +7961,7 @@ var init_GoTrueAdminApi = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/local-storage.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/local-storage.js
 function memoryLocalStorageAdapter(store3 = {}) {
   return {
     getItem: (key) => {
@@ -8197,11 +7976,11 @@ function memoryLocalStorageAdapter(store3 = {}) {
   };
 }
 var init_local_storage = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/local-storage.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/local-storage.js"() {
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/locks.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/locks.js
 async function navigatorLock(name, acquireTimeout, fn) {
   if (internals.debug) {
     console.log("@supabase/gotrue-js: navigatorLock: acquire lock", name, acquireTimeout);
@@ -8215,48 +7994,56 @@ async function navigatorLock(name, acquireTimeout, fn) {
       }
     }, acquireTimeout);
   }
-  return await Promise.resolve().then(() => globalThis.navigator.locks.request(name, acquireTimeout === 0 ? {
-    mode: "exclusive",
-    ifAvailable: true
-  } : {
-    mode: "exclusive",
-    signal: abortController.signal
-  }, async (lock) => {
-    if (lock) {
-      if (internals.debug) {
-        console.log("@supabase/gotrue-js: navigatorLock: acquired", name, lock.name);
-      }
-      try {
-        return await fn();
-      } finally {
+  await Promise.resolve();
+  try {
+    return await globalThis.navigator.locks.request(name, acquireTimeout === 0 ? {
+      mode: "exclusive",
+      ifAvailable: true
+    } : {
+      mode: "exclusive",
+      signal: abortController.signal
+    }, async (lock) => {
+      if (lock) {
         if (internals.debug) {
-          console.log("@supabase/gotrue-js: navigatorLock: released", name, lock.name);
+          console.log("@supabase/gotrue-js: navigatorLock: acquired", name, lock.name);
         }
-      }
-    } else {
-      if (acquireTimeout === 0) {
-        if (internals.debug) {
-          console.log("@supabase/gotrue-js: navigatorLock: not immediately available", name);
-        }
-        throw new NavigatorLockAcquireTimeoutError(`Acquiring an exclusive Navigator LockManager lock "${name}" immediately failed`);
-      } else {
-        if (internals.debug) {
-          try {
-            const result = await globalThis.navigator.locks.query();
-            console.log("@supabase/gotrue-js: Navigator LockManager state", JSON.stringify(result, null, "  "));
-          } catch (e) {
-            console.warn("@supabase/gotrue-js: Error when querying Navigator LockManager state", e);
+        try {
+          return await fn();
+        } finally {
+          if (internals.debug) {
+            console.log("@supabase/gotrue-js: navigatorLock: released", name, lock.name);
           }
         }
-        console.warn("@supabase/gotrue-js: Navigator LockManager returned a null lock when using #request without ifAvailable set to true, it appears this browser is not following the LockManager spec https://developer.mozilla.org/en-US/docs/Web/API/LockManager/request");
-        return await fn();
+      } else {
+        if (acquireTimeout === 0) {
+          if (internals.debug) {
+            console.log("@supabase/gotrue-js: navigatorLock: not immediately available", name);
+          }
+          throw new NavigatorLockAcquireTimeoutError(`Acquiring an exclusive Navigator LockManager lock "${name}" immediately failed`);
+        } else {
+          if (internals.debug) {
+            try {
+              const result = await globalThis.navigator.locks.query();
+              console.log("@supabase/gotrue-js: Navigator LockManager state", JSON.stringify(result, null, "  "));
+            } catch (e) {
+              console.warn("@supabase/gotrue-js: Error when querying Navigator LockManager state", e);
+            }
+          }
+          console.warn("@supabase/gotrue-js: Navigator LockManager returned a null lock when using #request without ifAvailable set to true, it appears this browser is not following the LockManager spec https://developer.mozilla.org/en-US/docs/Web/API/LockManager/request");
+          return await fn();
+        }
       }
+    });
+  } catch (e) {
+    if ((e === null || e === void 0 ? void 0 : e.name) === "AbortError") {
+      throw new NavigatorLockAcquireTimeoutError(`Acquiring an exclusive Navigator LockManager lock "${name}" timed out waiting ${acquireTimeout}ms`);
     }
-  }));
+    throw e;
+  }
 }
 var internals, LockAcquireTimeoutError, NavigatorLockAcquireTimeoutError;
 var init_locks = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/locks.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/locks.js"() {
     init_helpers();
     internals = {
       /**
@@ -8275,7 +8062,7 @@ var init_locks = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/polyfills.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/polyfills.js
 function polyfillGlobalThis() {
   if (typeof globalThis === "object")
     return;
@@ -8295,11 +8082,11 @@ function polyfillGlobalThis() {
   }
 }
 var init_polyfills = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/polyfills.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/polyfills.js"() {
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/web3/ethereum.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/web3/ethereum.js
 function getAddress(address) {
   if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
     throw new Error(`@supabase/auth-js: Address "${address}" is invalid.`);
@@ -8367,11 +8154,11 @@ Request ID: ${requestId}`;
 ${suffix}`;
 }
 var init_ethereum = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/web3/ethereum.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/web3/ethereum.js"() {
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/webauthn.errors.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/webauthn.errors.js
 function identifyRegistrationError({ error, options }) {
   var _a, _b, _c;
   const { publicKey } = options;
@@ -8520,7 +8307,7 @@ function identifyAuthenticationError({ error, options }) {
 }
 var WebAuthnError, WebAuthnUnknownError;
 var init_webauthn_errors = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/webauthn.errors.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/webauthn.errors.js"() {
     init_webauthn();
     WebAuthnError = class extends Error {
       constructor({ message, code, cause, name }) {
@@ -8545,7 +8332,7 @@ var init_webauthn_errors = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/webauthn.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/webauthn.js
 function deserializeCredentialCreationOptions(options) {
   if (!options) {
     throw new Error("Credential creation options are required");
@@ -8755,7 +8542,7 @@ function mergeCredentialRequestOptions(baseOptions, overrides) {
 }
 var WebAuthnAbortService, webAuthnAbortService, DEFAULT_CREATION_OPTIONS, DEFAULT_REQUEST_OPTIONS, WebAuthnApi;
 var init_webauthn = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/webauthn.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/webauthn.js"() {
     init_tslib_es6();
     init_base64url();
     init_errors();
@@ -8848,6 +8635,7 @@ var init_webauthn = __esm({
        * @see {@link https://w3c.github.io/webauthn/#sctn-verifying-assertion W3C WebAuthn Spec - Verifying Assertion}
        */
       async _challenge({ factorId, webauthn, friendlyName, signal }, overrides) {
+        var _a;
         try {
           const { data: challengeResponse, error: challengeError } = await this.client.mfa.challenge({
             factorId,
@@ -8860,7 +8648,15 @@ var init_webauthn = __esm({
           if (challengeResponse.webauthn.type === "create") {
             const { user } = challengeResponse.webauthn.credential_options.publicKey;
             if (!user.name) {
-              user.name = `${user.id}:${friendlyName}`;
+              const nameToUse = friendlyName;
+              if (!nameToUse) {
+                const currentUser = await this.client.getUser();
+                const userData = currentUser.data.user;
+                const fallbackName = ((_a = userData === null || userData === void 0 ? void 0 : userData.user_metadata) === null || _a === void 0 ? void 0 : _a.name) || (userData === null || userData === void 0 ? void 0 : userData.email) || (userData === null || userData === void 0 ? void 0 : userData.id) || "User";
+                user.name = `${user.id}:${fallbackName}`;
+              } else {
+                user.name = `${user.id}:${nameToUse}`;
+              }
             }
             if (!user.displayName) {
               user.displayName = user.name;
@@ -9069,13 +8865,13 @@ var init_webauthn = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/GoTrueClient.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/GoTrueClient.js
 async function lockNoOp(name, acquireTimeout, fn) {
   return await fn();
 }
 var DEFAULT_OPTIONS, GLOBAL_JWKS, GoTrueClient, GoTrueClient_default;
 var init_GoTrueClient = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/GoTrueClient.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/GoTrueClient.js"() {
     init_GoTrueAdminApi();
     init_constants2();
     init_errors();
@@ -9100,8 +8896,9 @@ var init_GoTrueClient = __esm({
       debug: false,
       hasCustomAuthorizationHeader: false,
       throwOnError: false,
-      lockAcquireTimeout: 1e4
+      lockAcquireTimeout: 1e4,
       // 10 seconds
+      skipAutoInitialize: false
     };
     GLOBAL_JWKS = {};
     GoTrueClient = class _GoTrueClient {
@@ -9238,10 +9035,18 @@ var init_GoTrueClient = __esm({
           }
           (_c = this.broadcastChannel) === null || _c === void 0 ? void 0 : _c.addEventListener("message", async (event) => {
             this._debug("received broadcast notification from other tab or client", event);
-            await this._notifyAllSubscribers(event.data.event, event.data.session, false);
+            try {
+              await this._notifyAllSubscribers(event.data.event, event.data.session, false);
+            } catch (error) {
+              this._debug("#broadcastChannel", "error", error);
+            }
           });
         }
-        this.initialize();
+        if (!settings2.skipAutoInitialize) {
+          this.initialize().catch((error) => {
+            this._debug("#initialize()", "error", error);
+          });
+        }
       }
       /**
        * Returns whether error throwing mode is enabled for this client.
@@ -10311,7 +10116,7 @@ var init_GoTrueClient = __esm({
           } else {
             const { data, error } = await this._getUser(currentSession3.access_token);
             if (error) {
-              throw error;
+              return this._returnResult({ data: { user: null, session: null }, error });
             }
             session = {
               access_token: currentSession3.access_token,
@@ -10493,14 +10298,14 @@ var init_GoTrueClient = __esm({
         return await this._useSession(async (result) => {
           var _a;
           const { data, error: sessionError } = result;
-          if (sessionError) {
+          if (sessionError && !isAuthSessionMissingError(sessionError)) {
             return this._returnResult({ error: sessionError });
           }
           const accessToken = (_a = data.session) === null || _a === void 0 ? void 0 : _a.access_token;
           if (accessToken) {
             const { error } = await this.admin.signOut(accessToken, scope);
             if (error) {
-              if (!(isAuthApiError(error) && (error.status === 404 || error.status === 401 || error.status === 403))) {
+              if (!(isAuthApiError(error) && (error.status === 404 || error.status === 401 || error.status === 403) || isAuthSessionMissingError(error))) {
                 return this._returnResult({ error });
               }
             }
@@ -11087,7 +10892,13 @@ var init_GoTrueClient = __esm({
           return false;
         }
         try {
-          this.visibilityChangedCallback = async () => await this._onVisibilityChanged(false);
+          this.visibilityChangedCallback = async () => {
+            try {
+              await this._onVisibilityChanged(false);
+            } catch (error) {
+              this._debug("#visibilityChangedCallback", "error", error);
+            }
+          };
           window === null || window === void 0 ? void 0 : window.addEventListener("visibilitychange", this.visibilityChangedCallback);
           await this._onVisibilityChanged(true);
         } catch (error) {
@@ -11320,8 +11131,33 @@ var init_GoTrueClient = __esm({
       /**
        * {@see GoTrueMFAApi#getAuthenticatorAssuranceLevel}
        */
-      async _getAuthenticatorAssuranceLevel() {
-        var _a, _b;
+      async _getAuthenticatorAssuranceLevel(jwt) {
+        var _a, _b, _c, _d;
+        if (jwt) {
+          try {
+            const { payload: payload2 } = decodeJWT(jwt);
+            let currentLevel2 = null;
+            if (payload2.aal) {
+              currentLevel2 = payload2.aal;
+            }
+            let nextLevel2 = currentLevel2;
+            const { data: { user }, error: userError } = await this.getUser(jwt);
+            if (userError) {
+              return this._returnResult({ data: null, error: userError });
+            }
+            const verifiedFactors2 = (_b = (_a = user === null || user === void 0 ? void 0 : user.factors) === null || _a === void 0 ? void 0 : _a.filter((factor) => factor.status === "verified")) !== null && _b !== void 0 ? _b : [];
+            if (verifiedFactors2.length > 0) {
+              nextLevel2 = "aal2";
+            }
+            const currentAuthenticationMethods2 = payload2.amr || [];
+            return { data: { currentLevel: currentLevel2, nextLevel: nextLevel2, currentAuthenticationMethods: currentAuthenticationMethods2 }, error: null };
+          } catch (error) {
+            if (isAuthError(error)) {
+              return this._returnResult({ data: null, error });
+            }
+            throw error;
+          }
+        }
         const { data: { session }, error: sessionError } = await this.getSession();
         if (sessionError) {
           return this._returnResult({ data: null, error: sessionError });
@@ -11338,7 +11174,7 @@ var init_GoTrueClient = __esm({
           currentLevel = payload.aal;
         }
         let nextLevel = currentLevel;
-        const verifiedFactors = (_b = (_a = session.user.factors) === null || _a === void 0 ? void 0 : _a.filter((factor) => factor.status === "verified")) !== null && _b !== void 0 ? _b : [];
+        const verifiedFactors = (_d = (_c = session.user.factors) === null || _c === void 0 ? void 0 : _c.filter((factor) => factor.status === "verified")) !== null && _d !== void 0 ? _d : [];
         if (verifiedFactors.length > 0) {
           nextLevel = "aal2";
         }
@@ -11350,7 +11186,7 @@ var init_GoTrueClient = __esm({
        * Only relevant when the OAuth 2.1 server is enabled in Supabase Auth.
        *
        * Returns authorization details including client info, scopes, and user information.
-       * If the API returns a redirect_uri, it means consent was already given - the caller
+       * If the response includes only a redirect_url field, it means consent was already given - the caller
        * should handle the redirect manually if needed.
        */
       async _getAuthorizationDetails(authorizationId) {
@@ -11601,26 +11437,26 @@ var init_GoTrueClient = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/AuthAdminApi.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/AuthAdminApi.js
 var init_AuthAdminApi = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/AuthAdminApi.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/AuthAdminApi.js"() {
     init_GoTrueAdminApi();
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/AuthClient.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/AuthClient.js
 var AuthClient, AuthClient_default;
 var init_AuthClient = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/AuthClient.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/AuthClient.js"() {
     init_GoTrueClient();
     AuthClient = GoTrueClient_default;
     AuthClient_default = AuthClient;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/index.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/index.js
 var init_module3 = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/index.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/index.js"() {
     init_GoTrueAdminApi();
     init_GoTrueClient();
     init_AuthAdminApi();
@@ -11631,38 +11467,38 @@ var init_module3 = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+supabase-js@2.91.1/node_modules/@supabase/supabase-js/dist/index.mjs
-function _typeof2(o) {
+// ../../node_modules/.pnpm/@supabase+supabase-js@2.97.0/node_modules/@supabase/supabase-js/dist/index.mjs
+function _typeof3(o) {
   "@babel/helpers - typeof";
-  return _typeof2 = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o$1) {
+  return _typeof3 = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o$1) {
     return typeof o$1;
   } : function(o$1) {
     return o$1 && "function" == typeof Symbol && o$1.constructor === Symbol && o$1 !== Symbol.prototype ? "symbol" : typeof o$1;
-  }, _typeof2(o);
+  }, _typeof3(o);
 }
-function toPrimitive2(t, r) {
-  if ("object" != _typeof2(t) || !t) return t;
+function toPrimitive3(t, r) {
+  if ("object" != _typeof3(t) || !t) return t;
   var e = t[Symbol.toPrimitive];
   if (void 0 !== e) {
     var i = e.call(t, r || "default");
-    if ("object" != _typeof2(i)) return i;
+    if ("object" != _typeof3(i)) return i;
     throw new TypeError("@@toPrimitive must return a primitive value.");
   }
   return ("string" === r ? String : Number)(t);
 }
-function toPropertyKey2(t) {
-  var i = toPrimitive2(t, "string");
-  return "symbol" == _typeof2(i) ? i : i + "";
+function toPropertyKey3(t) {
+  var i = toPrimitive3(t, "string");
+  return "symbol" == _typeof3(i) ? i : i + "";
 }
-function _defineProperty2(e, r, t) {
-  return (r = toPropertyKey2(r)) in e ? Object.defineProperty(e, r, {
+function _defineProperty3(e, r, t) {
+  return (r = toPropertyKey3(r)) in e ? Object.defineProperty(e, r, {
     value: t,
     enumerable: true,
     configurable: true,
     writable: true
   }) : e[r] = t, e;
 }
-function ownKeys2(e, r) {
+function ownKeys3(e, r) {
   var t = Object.keys(e);
   if (Object.getOwnPropertySymbols) {
     var o = Object.getOwnPropertySymbols(e);
@@ -11672,12 +11508,12 @@ function ownKeys2(e, r) {
   }
   return t;
 }
-function _objectSpread22(e) {
+function _objectSpread23(e) {
   for (var r = 1; r < arguments.length; r++) {
     var t = null != arguments[r] ? arguments[r] : {};
-    r % 2 ? ownKeys2(Object(t), true).forEach(function(r$1) {
-      _defineProperty2(e, r$1, t[r$1]);
-    }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys2(Object(t)).forEach(function(r$1) {
+    r % 2 ? ownKeys3(Object(t), true).forEach(function(r$1) {
+      _defineProperty3(e, r$1, t[r$1]);
+    }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys3(Object(t)).forEach(function(r$1) {
       Object.defineProperty(e, r$1, Object.getOwnPropertyDescriptor(t, r$1));
     });
   }
@@ -11691,11 +11527,11 @@ function applySettingDefaults(options, defaults) {
   const { db: dbOptions, auth: authOptions, realtime: realtimeOptions, global: globalOptions } = options;
   const { db: DEFAULT_DB_OPTIONS$1, auth: DEFAULT_AUTH_OPTIONS$1, realtime: DEFAULT_REALTIME_OPTIONS$1, global: DEFAULT_GLOBAL_OPTIONS$1 } = defaults;
   const result = {
-    db: _objectSpread22(_objectSpread22({}, DEFAULT_DB_OPTIONS$1), dbOptions),
-    auth: _objectSpread22(_objectSpread22({}, DEFAULT_AUTH_OPTIONS$1), authOptions),
-    realtime: _objectSpread22(_objectSpread22({}, DEFAULT_REALTIME_OPTIONS$1), realtimeOptions),
+    db: _objectSpread23(_objectSpread23({}, DEFAULT_DB_OPTIONS$1), dbOptions),
+    auth: _objectSpread23(_objectSpread23({}, DEFAULT_AUTH_OPTIONS$1), authOptions),
+    realtime: _objectSpread23(_objectSpread23({}, DEFAULT_REALTIME_OPTIONS$1), realtimeOptions),
     storage: {},
-    global: _objectSpread22(_objectSpread22(_objectSpread22({}, DEFAULT_GLOBAL_OPTIONS$1), globalOptions), {}, { headers: _objectSpread22(_objectSpread22({}, (_DEFAULT_GLOBAL_OPTIO = DEFAULT_GLOBAL_OPTIONS$1 === null || DEFAULT_GLOBAL_OPTIONS$1 === void 0 ? void 0 : DEFAULT_GLOBAL_OPTIONS$1.headers) !== null && _DEFAULT_GLOBAL_OPTIO !== void 0 ? _DEFAULT_GLOBAL_OPTIO : {}), (_globalOptions$header = globalOptions === null || globalOptions === void 0 ? void 0 : globalOptions.headers) !== null && _globalOptions$header !== void 0 ? _globalOptions$header : {}) }),
+    global: _objectSpread23(_objectSpread23(_objectSpread23({}, DEFAULT_GLOBAL_OPTIONS$1), globalOptions), {}, { headers: _objectSpread23(_objectSpread23({}, (_DEFAULT_GLOBAL_OPTIO = DEFAULT_GLOBAL_OPTIONS$1 === null || DEFAULT_GLOBAL_OPTIONS$1 === void 0 ? void 0 : DEFAULT_GLOBAL_OPTIONS$1.headers) !== null && _DEFAULT_GLOBAL_OPTIO !== void 0 ? _DEFAULT_GLOBAL_OPTIO : {}), (_globalOptions$header = globalOptions === null || globalOptions === void 0 ? void 0 : globalOptions.headers) !== null && _globalOptions$header !== void 0 ? _globalOptions$header : {}) }),
     accessToken: async () => ""
   };
   if (options.accessToken) result.accessToken = options.accessToken;
@@ -11724,7 +11560,7 @@ function shouldShowDeprecationWarning() {
 }
 var version4, JS_ENV, DEFAULT_HEADERS3, DEFAULT_GLOBAL_OPTIONS, DEFAULT_DB_OPTIONS, DEFAULT_AUTH_OPTIONS, DEFAULT_REALTIME_OPTIONS, resolveFetch4, resolveHeadersConstructor, fetchWithAuth, SupabaseAuthClient, SupabaseClient, createClient;
 var init_dist4 = __esm({
-  "../../node_modules/.pnpm/@supabase+supabase-js@2.91.1/node_modules/@supabase/supabase-js/dist/index.mjs"() {
+  "../../node_modules/.pnpm/@supabase+supabase-js@2.97.0/node_modules/@supabase/supabase-js/dist/index.mjs"() {
     init_module();
     init_dist();
     init_module2();
@@ -11732,7 +11568,7 @@ var init_dist4 = __esm({
     init_module3();
     init_module2();
     init_module3();
-    version4 = "2.91.1";
+    version4 = "2.97.0";
     JS_ENV = "";
     if (typeof Deno !== "undefined") JS_ENV = "deno";
     else if (typeof document !== "undefined") JS_ENV = "web";
@@ -11764,7 +11600,7 @@ var init_dist4 = __esm({
         let headers = new HeadersConstructor(init3 === null || init3 === void 0 ? void 0 : init3.headers);
         if (!headers.has("apikey")) headers.set("apikey", supabaseKey);
         if (!headers.has("Authorization")) headers.set("Authorization", `Bearer ${accessToken}`);
-        return fetch$1(input, _objectSpread22(_objectSpread22({}, init3), {}, { headers }));
+        return fetch$1(input, _objectSpread23(_objectSpread23({}, init3), {}, { headers }));
       };
     };
     SupabaseAuthClient = class extends AuthClient_default {
@@ -11808,7 +11644,7 @@ var init_dist4 = __esm({
         const DEFAULTS3 = {
           db: DEFAULT_DB_OPTIONS,
           realtime: DEFAULT_REALTIME_OPTIONS,
-          auth: _objectSpread22(_objectSpread22({}, DEFAULT_AUTH_OPTIONS), {}, { storageKey: defaultStorageKey }),
+          auth: _objectSpread23(_objectSpread23({}, DEFAULT_AUTH_OPTIONS), {}, { storageKey: defaultStorageKey }),
           global: DEFAULT_GLOBAL_OPTIONS
         };
         const settings2 = applySettingDefaults(options !== null && options !== void 0 ? options : {}, DEFAULTS3);
@@ -11824,7 +11660,7 @@ var init_dist4 = __esm({
           } });
         }
         this.fetch = fetchWithAuth(supabaseKey, this._getAccessToken.bind(this), settings2.global.fetch);
-        this.realtime = this._initRealtimeClient(_objectSpread22({
+        this.realtime = this._initRealtimeClient(_objectSpread23({
           headers: this.headers,
           accessToken: this._getAccessToken.bind(this)
         }, settings2.realtime));
@@ -11832,7 +11668,9 @@ var init_dist4 = __esm({
         this.rest = new PostgrestClient(new URL("rest/v1", baseUrl).href, {
           headers: this.headers,
           schema: settings2.db.schema,
-          fetch: this.fetch
+          fetch: this.fetch,
+          timeout: settings2.db.timeout,
+          urlLengthLimit: settings2.db.urlLengthLimit
         });
         this.storage = new StorageClient(this.storageUrl.href, this.headers, this.fetch, options === null || options === void 0 ? void 0 : options.storage);
         if (!settings2.accessToken) this._listenForAuthEvents();
@@ -11939,7 +11777,7 @@ var init_dist4 = __esm({
         };
         return new SupabaseAuthClient({
           url: this.authUrl.href,
-          headers: _objectSpread22(_objectSpread22({}, authHeaders), headers),
+          headers: _objectSpread23(_objectSpread23({}, authHeaders), headers),
           storageKey,
           autoRefreshToken,
           persistSession,
@@ -11955,7 +11793,7 @@ var init_dist4 = __esm({
         });
       }
       _initRealtimeClient(options) {
-        return new RealtimeClient(this.realtimeUrl.href, _objectSpread22(_objectSpread22({}, options), {}, { params: _objectSpread22(_objectSpread22({}, { apikey: this.supabaseKey }), options === null || options === void 0 ? void 0 : options.params) }));
+        return new RealtimeClient(this.realtimeUrl.href, _objectSpread23(_objectSpread23({}, options), {}, { params: _objectSpread23(_objectSpread23({}, { apikey: this.supabaseKey }), options === null || options === void 0 ? void 0 : options.params) }));
       }
       _listenForAuthEvents() {
         return this.auth.onAuthStateChange((event, session) => {

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generated_at": "2026-02-22T00:29:35.072Z",
+  "generated_at": "2026-02-22T22:26:06.512Z",
   "tree": [
     {
       "id": "forge",
@@ -19,7 +19,7 @@
         {
           "id": "hearth",
           "label": "Hearth",
-          "to": "/app/hearth"
+          "href": "/apps/hearth"
         },
         {
           "id": "tongs",
