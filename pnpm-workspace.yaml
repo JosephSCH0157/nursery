@@ -2,9 +2,5 @@ packages:
   - apps/*
   - packages/*
 
-ignoredBuiltDependencies:
-  - puppeteer
-  - unrs-resolver
-
 onlyBuiltDependencies:
   - esbuild
