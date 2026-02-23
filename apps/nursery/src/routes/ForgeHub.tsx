@@ -57,7 +57,10 @@ function linkFor(appId: ForgeAppId): HubLink {
 
 const LINKS: HubLink[] = [
   linkFor("barstock"),
-  linkFor("hearth"),
+  {
+    href: "/apps/hearth",
+    ...TOOL_META.hearth,
+  },
   {
     to: "/app/tongs",
     name: "Tongs (Calendar)",

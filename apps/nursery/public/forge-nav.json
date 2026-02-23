@@ -19,7 +19,7 @@
         {
           "id": "hearth",
           "label": "Hearth",
-          "to": "/app/hearth"
+          "href": "/apps/hearth"
         },
         {
           "id": "tongs",
