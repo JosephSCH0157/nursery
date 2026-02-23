@@ -46,7 +46,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           </Route>
         </Route>
 
-        <Route path="/hearth" element={<Navigate to="/apps/hearth" replace />} />
+        <Route path="/apps/hearth" element={<Navigate to="/app/hearth" replace />} />
+        <Route path="/hearth" element={<Navigate to="/app/hearth" replace />} />
 
         <Route path="/" element={<Navigate to="/app" replace />} />
         <Route path="*" element={<Navigate to="/app" replace />} />
