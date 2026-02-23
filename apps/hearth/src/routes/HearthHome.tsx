@@ -11,21 +11,28 @@ const AUTOSAVE_DELAY_MS = 1200;
 const AUTOSAVE_REVISION_GAP_MS = 5 * 60 * 1000;
 const SESSION_SAVE_DELAY_MS = 500;
 const STORE_KIND_KEY = "hearth_store_kind";
+const DEV_MODE_KEY = "tp_dev_mode";
 
 function resolveStoreKind(): HearthStoreKind {
-  if (typeof window === "undefined") return "local";
-  const params = new URLSearchParams(window.location.search);
-  const requested = (params.get("store") ?? params.get("hearthStore") ?? "")
-    .trim()
-    .toLowerCase();
+  if (typeof window === "undefined") return "tongs";
+  if (!isDevMode()) return "tongs";
 
-  if (requested === "tongs" || requested === "local") {
-    try {
-      window.localStorage.setItem(STORE_KIND_KEY, requested);
-    } catch {
-      // Ignore storage failures (private mode, access blocked, etc.).
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const requested = (params.get("store") ?? params.get("hearthStore") ?? "")
+      .trim()
+      .toLowerCase();
+
+    if (requested === "tongs" || requested === "local") {
+      try {
+        window.localStorage.setItem(STORE_KIND_KEY, requested);
+      } catch {
+        // Ignore storage failures (private mode, access blocked, etc.).
+      }
+      return requested as HearthStoreKind;
     }
-    return requested as HearthStoreKind;
+  } catch {
+    // Ignore URL parsing failures and fall back to localStorage.
   }
 
   try {
@@ -34,10 +41,36 @@ function resolveStoreKind(): HearthStoreKind {
       return saved as HearthStoreKind;
     }
   } catch {
-    // Ignore storage failures and fall back to local.
+    // Ignore storage failures and fall back to tongs.
   }
 
-  return "local";
+  return "tongs";
+}
+
+function isDevMode(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("dev") || params.get("dev") === "1") return true;
+  } catch {
+    // Ignore query parsing failures.
+  }
+  try {
+    if (window.localStorage.getItem(DEV_MODE_KEY) === "1") return true;
+  } catch {
+    // Ignore storage failures.
+  }
+  try {
+    const w = window as typeof window & {
+      __TP_DEV?: unknown;
+      __TP_DEV1?: unknown;
+      __tpDevMode?: unknown;
+    };
+    if (w.__TP_DEV || w.__TP_DEV1 || w.__tpDevMode) return true;
+  } catch {
+    // Ignore global inspection failures.
+  }
+  return false;
 }
 
 function formatUpdatedAt(value: number | undefined): string {
@@ -107,6 +140,7 @@ function buildDiffLines(current: string, revision: string): DiffLine[] {
 
 export default function HearthHome() {
   const storeKind = resolveStoreKind();
+  const devMode = isDevMode();
   const store = useMemo(() => createHearthStore(storeKind), [storeKind]);
   const sessionStore = useMemo(() => new LocalSessionStore(), []);
 
@@ -567,7 +601,9 @@ export default function HearthHome() {
     <section style={{ padding: 24, display: "grid", gap: 16 }}>
       <header style={{ display: "grid", gap: 4 }}>
         <h1 style={{ margin: 0 }}>Hearth</h1>
-        <p style={{ margin: 0, opacity: 0.75 }}>Store: {storeKind}</p>
+        {devMode ? (
+          <p style={{ margin: 0, opacity: 0.75 }}>Dev store: {storeKind}</p>
+        ) : null}
       </header>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
