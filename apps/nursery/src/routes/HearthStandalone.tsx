@@ -14,6 +14,7 @@ type AiStatus = {
 type StoreKind = "local" | "tongs";
 
 const STORE_KIND_KEY = "hearth_store_kind";
+const DEV_MODE_KEY = "tp_dev_mode";
 
 function readAiStatus(): AiStatus {
   if (typeof window === "undefined") {
@@ -33,7 +34,8 @@ function readAiStatus(): AiStatus {
 }
 
 function resolveStoreKind(search: string): StoreKind {
-  if (typeof window === "undefined") return "local";
+  if (typeof window === "undefined") return "tongs";
+  if (!isDevMode(search)) return "tongs";
 
   const params = new URLSearchParams(search);
   const requested = (params.get("store") ?? params.get("hearthStore") ?? "")
@@ -53,7 +55,33 @@ function resolveStoreKind(search: string): StoreKind {
     // ignore storage access errors
   }
 
-  return "local";
+  return "tongs";
+}
+
+function isDevMode(search: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const params = new URLSearchParams(search);
+    if (params.has("dev") || params.get("dev") === "1") return true;
+  } catch {
+    // ignore query parsing failures
+  }
+  try {
+    if (window.localStorage.getItem(DEV_MODE_KEY) === "1") return true;
+  } catch {
+    // ignore storage failures
+  }
+  try {
+    const w = window as typeof window & {
+      __TP_DEV?: unknown;
+      __TP_DEV1?: unknown;
+      __tpDevMode?: unknown;
+    };
+    if (w.__TP_DEV || w.__TP_DEV1 || w.__tpDevMode) return true;
+  } catch {
+    // ignore global inspection failures
+  }
+  return false;
 }
 
 function useAiStatus() {
@@ -115,6 +143,7 @@ export default function HearthStandalone() {
   const { session, loading } = useForgeSession();
   const aiStatus = useAiStatus();
   const location = useLocation();
+  const devMode = useMemo(() => isDevMode(location.search), [location.search]);
   const storeKind = useMemo(() => resolveStoreKind(location.search), [location.search]);
 
   const loginHref = useMemo(() => {
@@ -304,21 +333,25 @@ export default function HearthStandalone() {
             {aiPillText}
           </span>
 
-          <Link
-            to="/apps/hearth?store=local"
-            style={storeLinkStyle(storeKind === "local")}
-          >
-            Store: Local
-          </Link>
-          <Link
-            to="/apps/hearth?store=tongs"
-            style={storeLinkStyle(storeKind === "tongs")}
-          >
-            Store: Tongs
-          </Link>
-          <span style={{ fontSize: 11, opacity: 0.6 }}>
-            Store: {storeKind}
-          </span>
+          {devMode ? (
+            <>
+              <Link
+                to="/apps/hearth?store=local"
+                style={storeLinkStyle(storeKind === "local")}
+              >
+                Dev store: Local
+              </Link>
+              <Link
+                to="/apps/hearth?store=tongs"
+                style={storeLinkStyle(storeKind === "tongs")}
+              >
+                Dev store: Tongs
+              </Link>
+              <span style={{ fontSize: 11, opacity: 0.6 }}>
+                Dev store: {storeKind}
+              </span>
+            </>
+          ) : null}
 
           <span
             style={{

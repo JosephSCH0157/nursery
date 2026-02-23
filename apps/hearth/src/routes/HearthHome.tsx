@@ -3,6 +3,9 @@ import type { CSSProperties } from "react";
 import { createDraft, type Draft } from "../domain/draft";
 import { createRevision, type Revision, type RevisionKind } from "../domain/revision";
 import type { HearthSession } from "../domain/session";
+import type { ScriptSource, WorkpieceSourceRef } from "../domain/source";
+import { readSourceLibrary, readWorkpieceSources, isSourceRegistryKey } from "../lib/source-registry";
+import { normalizeSourceId, parseSourceTokens } from "../lib/source-tokens";
 import { createHearthStore } from "../storage/store-factory";
 import type { HearthStoreKind } from "../storage/hearth-store";
 import { LocalSessionStore } from "../storage/local-session-store";
@@ -11,21 +14,28 @@ const AUTOSAVE_DELAY_MS = 1200;
 const AUTOSAVE_REVISION_GAP_MS = 5 * 60 * 1000;
 const SESSION_SAVE_DELAY_MS = 500;
 const STORE_KIND_KEY = "hearth_store_kind";
+const DEV_MODE_KEY = "tp_dev_mode";
 
 function resolveStoreKind(): HearthStoreKind {
-  if (typeof window === "undefined") return "local";
-  const params = new URLSearchParams(window.location.search);
-  const requested = (params.get("store") ?? params.get("hearthStore") ?? "")
-    .trim()
-    .toLowerCase();
+  if (typeof window === "undefined") return "tongs";
+  if (!isDevMode()) return "tongs";
 
-  if (requested === "tongs" || requested === "local") {
-    try {
-      window.localStorage.setItem(STORE_KIND_KEY, requested);
-    } catch {
-      // Ignore storage failures (private mode, access blocked, etc.).
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const requested = (params.get("store") ?? params.get("hearthStore") ?? "")
+      .trim()
+      .toLowerCase();
+
+    if (requested === "tongs" || requested === "local") {
+      try {
+        window.localStorage.setItem(STORE_KIND_KEY, requested);
+      } catch {
+        // Ignore storage failures (private mode, access blocked, etc.).
+      }
+      return requested as HearthStoreKind;
     }
-    return requested as HearthStoreKind;
+  } catch {
+    // Ignore URL parsing failures and fall back to localStorage.
   }
 
   try {
@@ -34,10 +44,36 @@ function resolveStoreKind(): HearthStoreKind {
       return saved as HearthStoreKind;
     }
   } catch {
-    // Ignore storage failures and fall back to local.
+    // Ignore storage failures and fall back to tongs.
   }
 
-  return "local";
+  return "tongs";
+}
+
+function isDevMode(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("dev") || params.get("dev") === "1") return true;
+  } catch {
+    // Ignore query parsing failures.
+  }
+  try {
+    if (window.localStorage.getItem(DEV_MODE_KEY) === "1") return true;
+  } catch {
+    // Ignore storage failures.
+  }
+  try {
+    const w = window as typeof window & {
+      __TP_DEV?: unknown;
+      __TP_DEV1?: unknown;
+      __tpDevMode?: unknown;
+    };
+    if (w.__TP_DEV || w.__TP_DEV1 || w.__tpDevMode) return true;
+  } catch {
+    // Ignore global inspection failures.
+  }
+  return false;
 }
 
 function formatUpdatedAt(value: number | undefined): string {
@@ -107,8 +143,16 @@ function buildDiffLines(current: string, revision: string): DiffLine[] {
 
 export default function HearthHome() {
   const storeKind = resolveStoreKind();
+  const devMode = isDevMode();
   const store = useMemo(() => createHearthStore(storeKind), [storeKind]);
   const sessionStore = useMemo(() => new LocalSessionStore(), []);
+
+  const [workpieceSources, setWorkpieceSources] = useState<WorkpieceSourceRef[]>(
+    () => readWorkpieceSources(),
+  );
+  const [librarySources, setLibrarySources] = useState<ScriptSource[]>(
+    () => readSourceLibrary(),
+  );
 
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [activeDraft, setActiveDraft] = useState<Draft | null>(null);
@@ -152,6 +196,61 @@ export default function HearthHome() {
   const wordCount = useMemo(() => countWords(activeDraft?.body ?? ""), [activeDraft?.body]);
   const charCount = useMemo(() => activeDraft?.body?.length ?? 0, [activeDraft?.body]);
   const statusText = isSaving ? "Saving..." : isDirty ? "Unsaved changes" : "Saved";
+
+  const sourceTokens = useMemo(
+    () => parseSourceTokens(activeDraft?.body ?? ""),
+    [activeDraft?.body],
+  );
+  const citedSourceIds = useMemo(
+    () => new Set(sourceTokens.map((token) => token.normalized)),
+    [sourceTokens],
+  );
+  const workpieceSourceIds = useMemo(
+    () => new Set(workpieceSources.map((ref) => normalizeSourceId(ref.source_id))),
+    [workpieceSources],
+  );
+  const librarySourceIds = useMemo(
+    () => new Set(librarySources.map((source) => normalizeSourceId(source.source_id))),
+    [librarySources],
+  );
+
+  const missingWorkpieceSources = useMemo(() => {
+    if (sourceTokens.length === 0) return [];
+    const missing = new Map<string, string>();
+    for (const token of sourceTokens) {
+      if (!workpieceSourceIds.has(token.normalized)) {
+        if (!missing.has(token.normalized)) {
+          missing.set(token.normalized, token.sourceId);
+        }
+      }
+    }
+    return Array.from(missing.values());
+  }, [sourceTokens, workpieceSourceIds]);
+
+  const missingLibrarySources = useMemo(() => {
+    if (sourceTokens.length === 0 || librarySources.length === 0) return [];
+    const missing = new Map<string, string>();
+    for (const token of sourceTokens) {
+      if (!librarySourceIds.has(token.normalized)) {
+        if (!missing.has(token.normalized)) {
+          missing.set(token.normalized, token.sourceId);
+        }
+      }
+    }
+    return Array.from(missing.values());
+  }, [sourceTokens, librarySources.length, librarySourceIds]);
+
+  const unusedWorkpieceSources = useMemo(() => {
+    if (workpieceSources.length === 0) return [];
+    const unused = new Map<string, string>();
+    for (const ref of workpieceSources) {
+      const normalized = normalizeSourceId(ref.source_id);
+      if (!citedSourceIds.has(normalized)) {
+        unused.set(normalized, ref.source_id);
+      }
+    }
+    return Array.from(unused.values());
+  }, [workpieceSources, citedSourceIds]);
 
   const filteredDrafts = useMemo(() => {
     const query = searchText.trim().toLowerCase();
@@ -271,6 +370,21 @@ export default function HearthHome() {
   useEffect(() => {
     void loadInitial();
   }, [loadInitial]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const refreshSources = () => {
+      setWorkpieceSources(readWorkpieceSources());
+      setLibrarySources(readSourceLibrary());
+    };
+    refreshSources();
+    const onStorage = (event: StorageEvent) => {
+      if (!isSourceRegistryKey(event.key)) return;
+      refreshSources();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
   useEffect(() => {
     if (!activeDraft) return;
@@ -567,7 +681,9 @@ export default function HearthHome() {
     <section style={{ padding: 24, display: "grid", gap: 16 }}>
       <header style={{ display: "grid", gap: 4 }}>
         <h1 style={{ margin: 0 }}>Hearth</h1>
-        <p style={{ margin: 0, opacity: 0.75 }}>Store: {storeKind}</p>
+        {devMode ? (
+          <p style={{ margin: 0, opacity: 0.75 }}>Dev store: {storeKind}</p>
+        ) : null}
       </header>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -591,6 +707,24 @@ export default function HearthHome() {
 
       {error ? (
         <div style={{ color: "#b00020", fontSize: 14 }}>{error}</div>
+      ) : null}
+
+      {missingWorkpieceSources.length ? (
+        <div style={{ color: "#b00020", fontSize: 12 }}>
+          Missing sources (workpiece): {missingWorkpieceSources.join(", ")}
+        </div>
+      ) : null}
+
+      {missingLibrarySources.length ? (
+        <div style={{ color: "#b06d00", fontSize: 12 }}>
+          Missing sources (library): {missingLibrarySources.join(", ")}
+        </div>
+      ) : null}
+
+      {unusedWorkpieceSources.length ? (
+        <div style={{ fontSize: 12, opacity: 0.7 }}>
+          Unused sources: {unusedWorkpieceSources.join(", ")}
+        </div>
       ) : null}
 
       <div
