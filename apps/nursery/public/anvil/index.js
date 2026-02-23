@@ -42226,7 +42226,7 @@ var init_forge_nav = __esm({
             { id: "home", label: "Home", to: "/app" },
             { id: "tongs", label: "Tongs Calendar", to: "/app/tongs" },
             { id: "anvil", label: "Anvil", href: "/anvil/teleprompter_pro.html" },
-            { id: "hearth", label: "Hearth", to: "/app/hearth" },
+            { id: "hearth", label: "Hearth", href: "/apps/hearth" },
             { id: "hammer", label: "Hammer", to: "/app/hammer" },
             { id: "barstock", label: "Barstock", to: "/app/barstock" }
           ]

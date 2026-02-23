@@ -10,11 +10,34 @@ import { LocalSessionStore } from "../storage/local-session-store";
 const AUTOSAVE_DELAY_MS = 1200;
 const AUTOSAVE_REVISION_GAP_MS = 5 * 60 * 1000;
 const SESSION_SAVE_DELAY_MS = 500;
+const STORE_KIND_KEY = "hearth_store_kind";
 
 function resolveStoreKind(): HearthStoreKind {
+  if (typeof window === "undefined") return "local";
   const params = new URLSearchParams(window.location.search);
-  const requested = params.get("hearthStore")?.trim().toLowerCase();
-  return requested === "tongs" ? "tongs" : "local";
+  const requested = (params.get("store") ?? params.get("hearthStore") ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (requested === "tongs" || requested === "local") {
+    try {
+      window.localStorage.setItem(STORE_KIND_KEY, requested);
+    } catch {
+      // Ignore storage failures (private mode, access blocked, etc.).
+    }
+    return requested as HearthStoreKind;
+  }
+
+  try {
+    const saved = window.localStorage.getItem(STORE_KIND_KEY)?.trim().toLowerCase();
+    if (saved === "tongs" || saved === "local") {
+      return saved as HearthStoreKind;
+    }
+  } catch {
+    // Ignore storage failures and fall back to local.
+  }
+
+  return "local";
 }
 
 function formatUpdatedAt(value: number | undefined): string {
@@ -83,7 +106,7 @@ function buildDiffLines(current: string, revision: string): DiffLine[] {
 }
 
 export default function HearthHome() {
-  const storeKind = useMemo(resolveStoreKind, []);
+  const storeKind = resolveStoreKind();
   const store = useMemo(() => createHearthStore(storeKind), [storeKind]);
   const sessionStore = useMemo(() => new LocalSessionStore(), []);
 

@@ -11,6 +11,10 @@ type AiStatus = {
   inUse: boolean;
 };
 
+type StoreKind = "local" | "tongs";
+
+const STORE_KIND_KEY = "hearth_store_kind";
+
 function readAiStatus(): AiStatus {
   if (typeof window === "undefined") {
     return { balance: null, inUse: false };
@@ -26,6 +30,30 @@ function readAiStatus(): AiStatus {
     typeof balanceRaw === "number" && Number.isFinite(balanceRaw) ? balanceRaw : null;
   const inUse = w.__forgeAiInUse === true || w.__forgeAiActive === true;
   return { balance, inUse };
+}
+
+function resolveStoreKind(search: string): StoreKind {
+  if (typeof window === "undefined") return "local";
+
+  const params = new URLSearchParams(search);
+  const requested = (params.get("store") ?? params.get("hearthStore") ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (requested === "tongs" || requested === "local") {
+    return requested;
+  }
+
+  try {
+    const saved = window.localStorage.getItem(STORE_KIND_KEY)?.trim().toLowerCase();
+    if (saved === "tongs" || saved === "local") {
+      return saved;
+    }
+  } catch {
+    // ignore storage access errors
+  }
+
+  return "local";
 }
 
 function useAiStatus() {
@@ -87,6 +115,7 @@ export default function HearthStandalone() {
   const { session, loading } = useForgeSession();
   const aiStatus = useAiStatus();
   const location = useLocation();
+  const storeKind = useMemo(() => resolveStoreKind(location.search), [location.search]);
 
   const loginHref = useMemo(() => {
     const next = encodeURIComponent(
@@ -127,6 +156,13 @@ export default function HearthStandalone() {
     ? "AI Tokens: --"
     : `AI Tokens: ${aiStatus.balance.toLocaleString()}`;
   const aiPillText = aiStatus.inUse ? "AI: In use" : "AI: Idle";
+  const storeLinkStyle = (active: boolean) => ({
+    fontSize: 12,
+    opacity: active ? 1 : 0.6,
+    textDecoration: active ? "underline" : "none",
+    textUnderlineOffset: "3px",
+    color: "inherit",
+  });
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
@@ -268,6 +304,22 @@ export default function HearthStandalone() {
             {aiPillText}
           </span>
 
+          <Link
+            to="/apps/hearth?store=local"
+            style={storeLinkStyle(storeKind === "local")}
+          >
+            Store: Local
+          </Link>
+          <Link
+            to="/apps/hearth?store=tongs"
+            style={storeLinkStyle(storeKind === "tongs")}
+          >
+            Store: Tongs
+          </Link>
+          <span style={{ fontSize: 11, opacity: 0.6 }}>
+            Store: {storeKind}
+          </span>
+
           <span
             style={{
               padding: "4px 10px",
@@ -296,7 +348,7 @@ export default function HearthStandalone() {
         </div>
       </header>
 
-      <main style={{ flex: 1, minHeight: 0 }}>
+      <main style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
         <HearthHome />
       </main>
     </div>
