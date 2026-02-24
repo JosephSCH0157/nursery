@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { createDraft, type Draft } from "../domain/draft";
+import type { HearthPlanningSession, HearthSessionDecision, HearthSessionOrigin } from "../domain/hearth-session";
+import { HEARTH_SESSION_SCHEMA } from "../domain/hearth-session";
 import { createRevision, type Revision, type RevisionKind } from "../domain/revision";
 import type { HearthSession } from "../domain/session";
 import type { ScriptSource, SourceIndexEntry, WorkpieceSourceRef } from "../domain/source";
@@ -13,6 +15,12 @@ import {
   writeBarStockSparks,
 } from "../lib/barstock-sparks";
 import { createHearthWorkpiece } from "../lib/hearth-workpiece";
+import {
+  isHearthPlanningSessionKey,
+  readHearthPlanningSessionCache,
+  writeHearthPlanningSessionCache,
+} from "../lib/hearth-session-registry";
+import { commitHearthSession, readHearthSession } from "../lib/hearth-session-repo";
 import {
   readSourceLibrary,
   readSourceIndex,
@@ -211,6 +219,53 @@ function buildIndexFromSources(sources: ScriptSource[]): SourceIndexEntry[] {
   }));
 }
 
+function parsePlanningLines(text: string): string[] {
+  return splitLines(text)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function formatDecisionAt(value: string | undefined): string {
+  if (!value) return "Unknown";
+  try {
+    return new Date(value).toLocaleString();
+  } catch {
+    return value;
+  }
+}
+
+function deriveIntentFromOrigin(origin: HearthSessionOrigin | null | undefined): HearthPlanningSession["intent"] {
+  if (!origin?.created_from) return undefined;
+  return origin.created_from === "bar-stock" ? "from_spark" : "new_idea";
+}
+
+function isPlanningSessionEmpty(session: HearthPlanningSession | null): boolean {
+  if (!session) return true;
+  const hasTitle = Boolean(session.title && session.title.trim());
+  const hasGoals = (session.goals ?? []).length > 0;
+  const hasOutline = (session.outline ?? []).length > 0;
+  const hasDecisions = (session.decisions ?? []).length > 0;
+  const hasAudience = Boolean(session.audience && session.audience.trim());
+  const hasTone = Boolean(session.tone_preset && session.tone_preset.trim());
+  return !(hasTitle || hasGoals || hasOutline || hasDecisions || hasAudience || hasTone);
+}
+
+function buildSessionFingerprint(session: HearthPlanningSession): string {
+  return JSON.stringify({
+    workpiece_id: session.workpiece_id ?? null,
+    workspace_id: session.workspace_id ?? null,
+    origin: session.origin ?? null,
+    intent: session.intent ?? null,
+    title: session.title ?? "",
+    goals: session.goals ?? [],
+    outline: session.outline ?? [],
+    audience: session.audience ?? "",
+    tone_preset: session.tone_preset ?? "",
+    links: session.links ?? null,
+    decisions: session.decisions ?? [],
+  });
+}
+
 export default function HearthHome() {
   const storeKind = resolveStoreKind();
   const devMode = isDevMode();
@@ -224,6 +279,12 @@ export default function HearthHome() {
 
   const [workspaceId, setWorkspaceId] = useState<string | null>(() => resolveWorkspaceId());
   const [workpieceId, setWorkpieceId] = useState<string | null>(() => resolveWorkpieceId());
+
+  const [planningSession, setPlanningSession] = useState<HearthPlanningSession | null>(() =>
+    readHearthPlanningSessionCache(resolveWorkpieceId()),
+  );
+  const [sessionTouched, setSessionTouched] = useState(false);
+  const [decisionDraft, setDecisionDraft] = useState("");
 
   const [workpieceSources, setWorkpieceSources] = useState<WorkpieceSourceRef[]>(
     () => readWorkpieceSources(),
@@ -264,6 +325,9 @@ export default function HearthHome() {
   const workspaceSourcesCommitRef = useRef<string | null>(null);
   const sourcesCommitInFlight = useRef(false);
   const sourcesCommitQueued = useRef(false);
+  const sessionCommitRef = useRef<string | null>(null);
+  const sessionCommitInFlight = useRef(false);
+  const sessionCommitQueued = useRef(false);
 
   const lastAutosaveRevisionAt = useMemo(() => {
     const match = revisions.find((rev) => rev.kind === "autosave");
@@ -278,6 +342,18 @@ export default function HearthHome() {
   const wordCount = useMemo(() => countWords(activeDraft?.body ?? ""), [activeDraft?.body]);
   const charCount = useMemo(() => activeDraft?.body?.length ?? 0, [activeDraft?.body]);
   const statusText = isSaving ? "Saving..." : isDirty ? "Unsaved changes" : "Saved";
+  const sessionTitle = planningSession?.title ?? "";
+  const sessionGoalsText = useMemo(
+    () => (planningSession?.goals ?? []).join("\n"),
+    [planningSession?.goals],
+  );
+  const sessionOutlineText = useMemo(
+    () => (planningSession?.outline ?? []).join("\n"),
+    [planningSession?.outline],
+  );
+  const sessionDecisions = planningSession?.decisions ?? [];
+  const sessionIntent = planningSession?.intent ?? deriveIntentFromOrigin(planningSession?.origin);
+  const sessionSparkId = planningSession?.origin?.spark_id ?? planningSession?.links?.spark_id ?? null;
 
   const sourceTokens = useMemo(
     () => parseSourceTokens(activeDraft?.body ?? ""),
@@ -407,6 +483,112 @@ export default function HearthHome() {
     await persistSession(draft.id, "editor");
   }, [persistSession, refreshRevisions]);
 
+  const updatePlanningSession = useCallback((
+    updater: (prev: HearthPlanningSession) => HearthPlanningSession,
+    options?: { touched?: boolean },
+  ) => {
+    setPlanningSession((prev) => {
+      const nowIso = new Date().toISOString();
+      const base: HearthPlanningSession = prev ?? {
+        schema: HEARTH_SESSION_SCHEMA,
+        created_at: nowIso,
+        updated_at: nowIso,
+      };
+
+      const normalizedBase: HearthPlanningSession = {
+        ...base,
+        schema: HEARTH_SESSION_SCHEMA,
+        intent: base.intent ?? deriveIntentFromOrigin(base.origin),
+      };
+
+      const next = updater(normalizedBase);
+      const updated: HearthPlanningSession = {
+        ...next,
+        schema: HEARTH_SESSION_SCHEMA,
+        workpiece_id: workpieceId ?? next.workpiece_id ?? null,
+        workspace_id: workspaceId ?? next.workspace_id ?? null,
+        created_at: next.created_at || normalizedBase.created_at || nowIso,
+        updated_at: nowIso,
+        intent: next.intent ?? deriveIntentFromOrigin(next.origin),
+      };
+
+      writeHearthPlanningSessionCache(updated, workpieceId ?? updated.workpiece_id ?? null);
+      return updated;
+    });
+
+    if (options?.touched !== false) {
+      setSessionTouched(true);
+    }
+  }, [workpieceId, workspaceId]);
+
+  const syncSessionToTongs = useCallback(async () => {
+    if (!planningSession || !workpieceId) return;
+    if (sessionCommitInFlight.current) {
+      sessionCommitQueued.current = true;
+      return;
+    }
+
+    sessionCommitInFlight.current = true;
+    try {
+      do {
+        sessionCommitQueued.current = false;
+
+        const sourceIds = Array.from(
+          new Set(workpieceSources.map((ref) => ref.source_id).filter(Boolean)),
+        ).sort();
+        const sparkId = planningSession.origin?.spark_id ?? planningSession.links?.spark_id ?? null;
+        const links = sparkId || sourceIds.length ? {
+          spark_id: sparkId ?? null,
+          source_ids: sourceIds.length ? sourceIds : undefined,
+        } : null;
+
+        const sessionForCommit: HearthPlanningSession = {
+          ...planningSession,
+          schema: HEARTH_SESSION_SCHEMA,
+          workpiece_id: workpieceId,
+          workspace_id: workspaceId ?? planningSession.workspace_id ?? null,
+          intent: planningSession.intent ?? deriveIntentFromOrigin(planningSession.origin),
+          links,
+        };
+
+        const fingerprint = buildSessionFingerprint(sessionForCommit);
+
+        const allowEmpty = sessionTouched;
+        if (!allowEmpty && isPlanningSessionEmpty(sessionForCommit)) {
+          continue;
+        }
+
+        if (!sessionForCommit.workspace_id) {
+          continue;
+        }
+
+        if (fingerprint === sessionCommitRef.current) {
+          continue;
+        }
+
+        const result = await commitHearthSession(workpieceId, sessionForCommit, { allowEmpty });
+        if (result.ok && !result.skipped) {
+          sessionCommitRef.current = fingerprint;
+          setSessionTouched(false);
+          setPlanningSession((prev) => {
+            if (!prev) return prev;
+            const next = { ...sessionForCommit, updated_at: new Date().toISOString() };
+            writeHearthPlanningSessionCache(next, workpieceId);
+            return next;
+          });
+        }
+      } while (sessionCommitQueued.current);
+    } finally {
+      sessionCommitInFlight.current = false;
+    }
+  }, [
+    planningSession,
+    sessionTouched,
+    workpieceId,
+    workpieceSources,
+    workspaceId,
+  ]);
+
   const syncSourcesToTongs = useCallback(async () => {
     if (!workspaceId && !workpieceId) return;
     if (sourcesCommitInFlight.current) {
@@ -476,6 +658,18 @@ export default function HearthHome() {
     await persistDraft({ draft: activeDraft, updatedAt: now, createRevision: null });
   }, [activeDraft]);
 
+  const applySessionOrigin = useCallback((origin: HearthSessionOrigin) => {
+    updatePlanningSession((prev) => ({
+      ...prev,
+      origin,
+      intent: prev.intent ?? deriveIntentFromOrigin(origin),
+      links: {
+        ...prev.links,
+        spark_id: origin.spark_id ?? null,
+      },
+    }), { touched: false });
+  }, [updatePlanningSession]);
+
   const createDraftAndOpen = useCallback(async (seed?: { title?: string; body?: string }) => {
     const next = createDraft(seed);
     await store.saveDraft(next);
@@ -500,6 +694,7 @@ export default function HearthHome() {
         setWorkpieceId(created.workpieceId);
       }
       setWorkspaceId(resolveWorkspaceId());
+      applySessionOrigin({ created_from: "scratch" });
       await createDraftAndOpen();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to start workpiece.";
@@ -507,7 +702,7 @@ export default function HearthHome() {
     } finally {
       setIsForging(false);
     }
-  }, [createDraftAndOpen, isForging]);
+  }, [applySessionOrigin, createDraftAndOpen, isForging]);
 
   const forgeSpark = useCallback(async (spark: BarStockSpark) => {
     if (isForging) return;
@@ -529,6 +724,7 @@ export default function HearthHome() {
         setWorkpieceId(workpieceId);
       }
       setWorkspaceId(resolveWorkspaceId());
+      applySessionOrigin({ created_from: "bar-stock", spark_id: spark.id });
 
       const draft = await createDraftAndOpen({
         title: spark.title,
@@ -556,7 +752,7 @@ export default function HearthHome() {
     } finally {
       setIsForging(false);
     }
-  }, [createDraftAndOpen, isForging, sparks]);
+  }, [applySessionOrigin, createDraftAndOpen, isForging, sparks]);
 
   const loadInitial = useCallback(async () => {
     setIsLoading(true);
@@ -624,6 +820,61 @@ export default function HearthHome() {
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const refreshSession = () => {
+      const cached = readHearthPlanningSessionCache(workpieceId);
+      if (cached) {
+        setPlanningSession(cached);
+        if (!workpieceId && cached.workpiece_id) {
+          setWorkpieceId(cached.workpiece_id);
+        }
+        if (!workspaceId && cached.workspace_id) {
+          setWorkspaceId(cached.workspace_id);
+        }
+      }
+    };
+    refreshSession();
+    const onStorage = (event: StorageEvent) => {
+      if (!isHearthPlanningSessionKey(event.key)) return;
+      refreshSession();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [workpieceId, workspaceId]);
+
+  useEffect(() => {
+    if (!workpieceId) return;
+    let cancelled = false;
+    readHearthSession(workpieceId)
+      .then((session) => {
+        if (cancelled || !session) return;
+        setPlanningSession(session);
+        setSessionTouched(false);
+        sessionCommitRef.current = buildSessionFingerprint(session);
+        writeHearthPlanningSessionCache(session, workpieceId);
+        if (!workspaceId && session.workspace_id) {
+          setWorkspaceId(session.workspace_id);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [workpieceId, workspaceId]);
+
+  useEffect(() => {
+    if (!planningSession) return;
+    const needsWorkspace = workspaceId && planningSession.workspace_id !== workspaceId;
+    const needsWorkpiece = workpieceId && planningSession.workpiece_id !== workpieceId;
+    if (!needsWorkspace && !needsWorkpiece) return;
+    updatePlanningSession((prev) => ({
+      ...prev,
+      workspace_id: workspaceId ?? prev.workspace_id ?? null,
+      workpiece_id: workpieceId ?? prev.workpiece_id ?? null,
+    }), { touched: false });
+  }, [planningSession, updatePlanningSession, workspaceId, workpieceId]);
 
   useEffect(() => {
     if (!workspaceId && !workpieceId) return;
@@ -769,6 +1020,7 @@ export default function HearthHome() {
         note: "Autosave",
       } : null,
       syncSources: false,
+      syncSession: false,
     });
   }
 
@@ -777,6 +1029,7 @@ export default function HearthHome() {
     updatedAt: number;
     createRevision: { kind: RevisionKind; note?: string } | null;
     syncSources?: boolean;
+    syncSession?: boolean;
   }) {
     setIsSaving(true);
     setError(null);
@@ -828,6 +1081,9 @@ export default function HearthHome() {
       if (args.syncSources !== false) {
         void syncSourcesToTongs();
       }
+      if (args.syncSession !== false) {
+        void syncSessionToTongs();
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to save draft.";
       setError(message);
@@ -863,6 +1119,36 @@ export default function HearthHome() {
       const message = err instanceof Error ? err.message : "Failed to create draft.";
       setError(message);
     }
+  }
+
+  function onAddDecision() {
+    const text = decisionDraft.trim();
+    if (!text) return;
+    const entry: HearthSessionDecision = {
+      at: new Date().toISOString(),
+      text,
+    };
+    updatePlanningSession((prev) => ({
+      ...prev,
+      decisions: [...(prev.decisions ?? []), entry],
+    }));
+    setDecisionDraft("");
+  }
+
+  function onUpdateDecision(idx: number, text: string) {
+    updatePlanningSession((prev) => {
+      const next = [...(prev.decisions ?? [])];
+      if (!next[idx]) return prev;
+      next[idx] = { ...next[idx], text };
+      return { ...prev, decisions: next };
+    });
+  }
+
+  function onRemoveDecision(idx: number) {
+    updatePlanningSession((prev) => ({
+      ...prev,
+      decisions: (prev.decisions ?? []).filter((_, index) => index !== idx),
+    }));
   }
 
   async function onDeleteDraft(draft: Draft) {
@@ -1052,6 +1338,118 @@ export default function HearthHome() {
           <p style={{ margin: 0, opacity: 0.75 }}>Dev store: {storeKind}</p>
         ) : null}
       </header>
+
+      <section
+        style={{
+          border: "1px solid var(--forge-border, #ddd)",
+          borderRadius: 12,
+          padding: 12,
+          background: "var(--forge-bg-elevated, #fff)",
+          display: "grid",
+          gap: 12,
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontWeight: 700 }}>Planning Board</div>
+          <div style={{ fontSize: 12, opacity: 0.6 }}>
+            {sessionIntent ? `Intent: ${sessionIntent === "from_spark" ? "From Spark" : "New Idea"}` : "Intent: —"}
+            {sessionSparkId ? ` · Spark ${sessionSparkId.slice(0, 8)}` : ""}
+          </div>
+        </div>
+        <div style={{ display: "grid", gap: 10 }}>
+          <label style={{ display: "grid", gap: 6 }}>
+            <span style={{ fontWeight: 600 }}>Title</span>
+            <input
+              type="text"
+              value={sessionTitle}
+              placeholder="Episode title seed"
+              onChange={(event) => {
+                updatePlanningSession((prev) => ({
+                  ...prev,
+                  title: event.target.value,
+                }));
+              }}
+            />
+          </label>
+          <label style={{ display: "grid", gap: 6 }}>
+            <span style={{ fontWeight: 600 }}>Goals</span>
+            <textarea
+              value={sessionGoalsText}
+              placeholder="One per line"
+              onChange={(event) => {
+                const nextGoals = parsePlanningLines(event.target.value);
+                updatePlanningSession((prev) => ({
+                  ...prev,
+                  goals: nextGoals,
+                }));
+              }}
+              style={{ minHeight: 70, resize: "vertical" }}
+            />
+          </label>
+          <label style={{ display: "grid", gap: 6 }}>
+            <span style={{ fontWeight: 600 }}>Outline</span>
+            <textarea
+              value={sessionOutlineText}
+              placeholder="Bullet outline, one per line"
+              onChange={(event) => {
+                const nextOutline = parsePlanningLines(event.target.value);
+                updatePlanningSession((prev) => ({
+                  ...prev,
+                  outline: nextOutline,
+                }));
+              }}
+              style={{ minHeight: 90, resize: "vertical" }}
+            />
+          </label>
+          <div style={{ display: "grid", gap: 8 }}>
+            <span style={{ fontWeight: 600 }}>Decision notes</span>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <input
+                type="text"
+                value={decisionDraft}
+                placeholder="Add a decision"
+                onChange={(event) => setDecisionDraft(event.target.value)}
+                style={{ flex: "1 1 240px" }}
+              />
+              <button type="button" onClick={onAddDecision} disabled={!decisionDraft.trim()}>
+                Add
+              </button>
+            </div>
+            {sessionDecisions.length === 0 ? (
+              <p style={{ margin: 0, fontSize: 12, opacity: 0.6 }}>No decisions logged yet.</p>
+            ) : (
+              <div style={{ display: "grid", gap: 8 }}>
+                {sessionDecisions.map((decision, idx) => (
+                  <div
+                    key={`${decision.at}-${idx}`}
+                    style={{
+                      border: "1px solid var(--forge-border, #ddd)",
+                      borderRadius: 8,
+                      padding: 8,
+                      display: "grid",
+                      gap: 6,
+                    }}
+                  >
+                    <div style={{ fontSize: 11, opacity: 0.6 }}>
+                      {formatDecisionAt(decision.at)}
+                    </div>
+                    <input
+                      type="text"
+                      value={decision.text}
+                      onChange={(event) => onUpdateDecision(idx, event.target.value)}
+                    />
+                    <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                      <button type="button" onClick={() => onRemoveDecision(idx)}>
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <button onClick={onCreateDraft}>New Draft</button>
