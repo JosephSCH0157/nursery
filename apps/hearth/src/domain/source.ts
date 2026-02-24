@@ -22,6 +22,15 @@ export type ScriptSource = {
   notes?: string | null;
 };
 
+export type SourceIndexEntry = {
+  source_id: string;
+  title?: string | null;
+  type?: string | null;
+  url?: string | null;
+  publisher?: string | null;
+  published_at?: string | null;
+};
+
 export type SourceAnchor =
   | { kind: "token"; token: string }
   | { kind: "range"; start: number; end: number }
@@ -36,22 +45,22 @@ export type WorkpieceSourceRef = {
 export type ScriptSourcesDocument = {
   schema: "forge.script.sources.v1";
   updated_at: string;
-  sources: WorkpieceSourceRef[];
+  refs: WorkpieceSourceRef[];
 };
 
-export type SourceLibraryDocument = {
-  schema: "forge.source.library.v1";
+export type SourcesIndexDocument = {
+  schema: "forge.sources.index.v1";
   updated_at: string;
-  sources: ScriptSource[];
+  sources: SourceIndexEntry[];
 };
 
 export const SCRIPT_SOURCES_SCHEMA = "forge.script.sources.v1";
-export const SOURCE_LIBRARY_SCHEMA = "forge.source.library.v1";
+export const SOURCES_INDEX_SCHEMA = "forge.sources.index.v1";
 
 export const SCRIPT_SOURCES_PATH = "script/script.sources.json";
-export const SOURCE_LIBRARY_INDEX_PATH = "sources/index.json";
+export const SOURCES_INDEX_PATH = "sources/index.json";
 
-export function sourceLibraryEntryPath(sourceId: string): string {
+export function sourceEntryPath(sourceId: string): string {
   const trimmed = sourceId.trim();
   return trimmed ? `sources/${trimmed}.json` : "sources/unknown.json";
 }

@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import { createDraft, type Draft } from "../domain/draft";
 import { createRevision, type Revision, type RevisionKind } from "../domain/revision";
 import type { HearthSession } from "../domain/session";
-import type { ScriptSource, WorkpieceSourceRef } from "../domain/source";
+import type { SourceIndexEntry, WorkpieceSourceRef } from "../domain/source";
 import {
   type BarStockSpark,
   enqueueBarStockSpark,
@@ -13,7 +13,19 @@ import {
   writeBarStockSparks,
 } from "../lib/barstock-sparks";
 import { createHearthWorkpiece } from "../lib/hearth-workpiece";
-import { readSourceLibrary, readWorkpieceSources, isSourceRegistryKey } from "../lib/source-registry";
+import {
+  readSourceIndex,
+  readWorkpieceSources,
+  isSourceRegistryKey,
+  writeSourceIndexCache,
+  writeWorkpieceSourcesCache,
+} from "../lib/source-registry";
+import {
+  readWorkpieceSourceRefs,
+  readWorkspaceSourcesIndex,
+  resolveWorkpieceId,
+  resolveWorkspaceId,
+} from "../lib/sources-repo";
 import { normalizeSourceId, parseSourceTokens } from "../lib/source-tokens";
 import { createHearthStore } from "../storage/store-factory";
 import type { HearthStoreKind } from "../storage/hearth-store";
@@ -196,11 +208,14 @@ export default function HearthHome() {
   const [forgeError, setForgeError] = useState<string | null>(null);
   const [isForging, setIsForging] = useState(false);
 
+  const [workspaceId, setWorkspaceId] = useState<string | null>(() => resolveWorkspaceId());
+  const [workpieceId, setWorkpieceId] = useState<string | null>(() => resolveWorkpieceId());
+
   const [workpieceSources, setWorkpieceSources] = useState<WorkpieceSourceRef[]>(
     () => readWorkpieceSources(),
   );
-  const [librarySources, setLibrarySources] = useState<ScriptSource[]>(
-    () => readSourceLibrary(),
+  const [sourceIndexEntries, setSourceIndexEntries] = useState<SourceIndexEntry[]>(
+    () => readSourceIndex(),
   );
 
   const [drafts, setDrafts] = useState<Draft[]>([]);
@@ -258,9 +273,9 @@ export default function HearthHome() {
     () => new Set(workpieceSources.map((ref) => normalizeSourceId(ref.source_id))),
     [workpieceSources],
   );
-  const librarySourceIds = useMemo(
-    () => new Set(librarySources.map((source) => normalizeSourceId(source.source_id))),
-    [librarySources],
+  const sourceIndexIds = useMemo(
+    () => new Set(sourceIndexEntries.map((source) => normalizeSourceId(source.source_id))),
+    [sourceIndexEntries],
   );
 
   const missingWorkpieceSources = useMemo(() => {
@@ -277,17 +292,17 @@ export default function HearthHome() {
   }, [sourceTokens, workpieceSourceIds]);
 
   const missingLibrarySources = useMemo(() => {
-    if (sourceTokens.length === 0 || librarySources.length === 0) return [];
+    if (sourceTokens.length === 0 || sourceIndexEntries.length === 0) return [];
     const missing = new Map<string, string>();
     for (const token of sourceTokens) {
-      if (!librarySourceIds.has(token.normalized)) {
+      if (!sourceIndexIds.has(token.normalized)) {
         if (!missing.has(token.normalized)) {
           missing.set(token.normalized, token.sourceId);
         }
       }
     }
     return Array.from(missing.values());
-  }, [sourceTokens, librarySources.length, librarySourceIds]);
+  }, [sourceTokens, sourceIndexEntries.length, sourceIndexIds]);
 
   const unusedWorkpieceSources = useMemo(() => {
     if (workpieceSources.length === 0) return [];
@@ -397,7 +412,13 @@ export default function HearthHome() {
       const created = await createHearthWorkpiece({ created_from: "scratch" });
       if (!created.ok) {
         setForgeError("Workpiece creation failed; draft created locally.");
+        if (created.workpieceId) {
+          setWorkpieceId(created.workpieceId);
+        }
+      } else {
+        setWorkpieceId(created.workpieceId);
       }
+      setWorkspaceId(resolveWorkspaceId());
       await createDraftAndOpen();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to start workpiece.";
@@ -423,6 +444,10 @@ export default function HearthHome() {
       } else {
         workpieceId = created.workpieceId;
       }
+      if (workpieceId) {
+        setWorkpieceId(workpieceId);
+      }
+      setWorkspaceId(resolveWorkspaceId());
 
       const draft = await createDraftAndOpen({
         title: spark.title,
@@ -508,7 +533,7 @@ export default function HearthHome() {
     if (typeof window === "undefined") return;
     const refreshSources = () => {
       setWorkpieceSources(readWorkpieceSources());
-      setLibrarySources(readSourceLibrary());
+      setSourceIndexEntries(readSourceIndex());
     };
     refreshSources();
     const onStorage = (event: StorageEvent) => {
@@ -518,6 +543,48 @@ export default function HearthHome() {
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
+
+  useEffect(() => {
+    if (!workspaceId && !workpieceId) return;
+    let cancelled = false;
+
+    const refreshFromTongs = async () => {
+      const tasks: Promise<void>[] = [];
+
+      if (workpieceId) {
+        tasks.push(
+          readWorkpieceSourceRefs(workpieceId)
+            .then((refs) => {
+              if (cancelled || !refs) return;
+              setWorkpieceSources(refs);
+              writeWorkpieceSourcesCache(refs);
+            })
+            .catch(() => {}),
+        );
+      }
+
+      if (workspaceId) {
+        tasks.push(
+          readWorkspaceSourcesIndex(workspaceId)
+            .then((index) => {
+              if (cancelled || !index) return;
+              setSourceIndexEntries(index);
+              writeSourceIndexCache(index);
+            })
+            .catch(() => {}),
+        );
+      }
+
+      if (tasks.length) {
+        await Promise.all(tasks);
+      }
+    };
+
+    void refreshFromTongs();
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId, workpieceId]);
 
   useEffect(() => {
     if (!activeDraft) return;
@@ -819,10 +886,6 @@ export default function HearthHome() {
           <p style={{ margin: 0, opacity: 0.75 }}>Select a spark or begin a new workpiece.</p>
         </header>
 
-        {forgeError ? (
-          <div style={{ color: "#b00020", fontSize: 12 }}>{forgeError}</div>
-        ) : null}
-
         <section style={{ display: "grid", gap: 10 }}>
           <h2 style={{ margin: 0, fontSize: 16 }}>Start New Workpiece</h2>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -836,6 +899,10 @@ export default function HearthHome() {
             ) : null}
           </div>
         </section>
+
+        {forgeError ? (
+          <div style={{ color: "#b00020", fontSize: 12 }}>{forgeError}</div>
+        ) : null}
 
         <section style={{ display: "grid", gap: 12 }}>
           <h2 style={{ margin: 0, fontSize: 16 }}>From Bar Stock</h2>

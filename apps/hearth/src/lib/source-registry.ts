@@ -1,9 +1,10 @@
-import type { ScriptSource, WorkpieceSourceRef } from "../domain/source";
-import { SCRIPT_SOURCES_SCHEMA, SOURCE_LIBRARY_SCHEMA } from "../domain/source";
+import type { SourceIndexEntry, ScriptSource, WorkpieceSourceRef } from "../domain/source";
+import { SCRIPT_SOURCES_SCHEMA, SOURCES_INDEX_SCHEMA } from "../domain/source";
 
 const WORKPIECE_SOURCES_KEY = "hearth:script:sources:v1";
-const SOURCE_LIBRARY_FALLBACK_KEY = "forge:sources:library:v1";
-const SOURCE_LIBRARY_PREFIX = "forge:sources:library:v1:";
+const SOURCES_INDEX_FALLBACK_KEY = "forge:sources:index:v1";
+const SOURCES_INDEX_PREFIX = "forge:sources:index:v1:";
+const LEGACY_SOURCE_LIBRARY_KEY = "forge:sources:library:v1";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type ForgeWindow = Window & {
@@ -97,8 +98,13 @@ function normalizeWorkpieceSources(raw: unknown): WorkpieceSourceRef[] {
   }
   if (isRecord(raw)) {
     const schema = readString(raw.schema);
-    if (schema === SCRIPT_SOURCES_SCHEMA && Array.isArray(raw.sources)) {
-      return raw.sources.map(normalizeWorkpieceSource).filter(Boolean) as WorkpieceSourceRef[];
+    if (schema === SCRIPT_SOURCES_SCHEMA) {
+      const list = Array.isArray(raw.refs)
+        ? raw.refs
+        : Array.isArray(raw.sources)
+          ? raw.sources
+          : [];
+      return list.map(normalizeWorkpieceSource).filter(Boolean) as WorkpieceSourceRef[];
     }
   }
   return [];
@@ -121,22 +127,36 @@ function normalizeScriptSource(value: unknown): ScriptSource | null {
   };
 }
 
-function normalizeSourceLibrary(raw: unknown): ScriptSource[] {
+function normalizeSourceIndexEntry(value: unknown): SourceIndexEntry | null {
+  if (!isRecord(value)) return null;
+  const sourceId = readString(value.source_id);
+  if (!sourceId) return null;
+  return {
+    source_id: sourceId,
+    title: readNullableString(value.title),
+    type: readNullableString(value.type),
+    url: readNullableString(value.url),
+    publisher: readNullableString(value.publisher),
+    published_at: readNullableString(value.published_at),
+  };
+}
+
+function normalizeSourceIndex(raw: unknown): SourceIndexEntry[] {
   if (Array.isArray(raw)) {
-    return raw.map(normalizeScriptSource).filter(Boolean) as ScriptSource[];
+    return raw.map(normalizeSourceIndexEntry).filter(Boolean) as SourceIndexEntry[];
   }
   if (isRecord(raw)) {
     const schema = readString(raw.schema);
-    if (schema === SOURCE_LIBRARY_SCHEMA && Array.isArray(raw.sources)) {
-      return raw.sources.map(normalizeScriptSource).filter(Boolean) as ScriptSource[];
+    if (schema === SOURCES_INDEX_SCHEMA && Array.isArray(raw.sources)) {
+      return raw.sources.map(normalizeSourceIndexEntry).filter(Boolean) as SourceIndexEntry[];
     }
   }
   return [];
 }
 
-function resolveLibraryKey(): string {
+function resolveIndexKey(): string {
   const workspaceId = resolveWorkspaceId();
-  return workspaceId ? `${SOURCE_LIBRARY_PREFIX}${workspaceId}` : SOURCE_LIBRARY_FALLBACK_KEY;
+  return workspaceId ? `${SOURCES_INDEX_PREFIX}${workspaceId}` : SOURCES_INDEX_FALLBACK_KEY;
 }
 
 export function readWorkpieceSources(): WorkpieceSourceRef[] {
@@ -144,14 +164,80 @@ export function readWorkpieceSources(): WorkpieceSourceRef[] {
   return normalizeWorkpieceSources(readJson(WORKPIECE_SOURCES_KEY));
 }
 
+export function readSourceIndex(): SourceIndexEntry[] {
+  if (typeof window === "undefined") return [];
+  const raw = readJson(resolveIndexKey());
+  if (raw) return normalizeSourceIndex(raw);
+  const legacy = readJson(LEGACY_SOURCE_LIBRARY_KEY);
+  if (legacy) {
+    return normalizeSourceIndex({
+      schema: SOURCES_INDEX_SCHEMA,
+      updated_at: new Date().toISOString(),
+      sources: normalizeSourceLibrary(legacy).map((entry) => ({
+        source_id: entry.source_id,
+        title: entry.title,
+        type: entry.type,
+        url: entry.url,
+        publisher: entry.publisher,
+        published_at: entry.published_at,
+      })),
+    });
+  }
+  return [];
+}
+
 export function readSourceLibrary(): ScriptSource[] {
   if (typeof window === "undefined") return [];
-  return normalizeSourceLibrary(readJson(resolveLibraryKey()));
+  const legacy = readJson(LEGACY_SOURCE_LIBRARY_KEY);
+  return normalizeSourceLibrary(legacy);
+}
+
+function normalizeSourceLibrary(raw: unknown): ScriptSource[] {
+  if (Array.isArray(raw)) {
+    return raw.map(normalizeScriptSource).filter(Boolean) as ScriptSource[];
+  }
+  if (isRecord(raw)) {
+    const schema = readString(raw.schema);
+    if (schema === "forge.source.library.v1" && Array.isArray(raw.sources)) {
+      return raw.sources.map(normalizeScriptSource).filter(Boolean) as ScriptSource[];
+    }
+  }
+  return [];
+}
+
+export function writeWorkpieceSourcesCache(refs: WorkpieceSourceRef[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    const payload = {
+      schema: SCRIPT_SOURCES_SCHEMA,
+      updated_at: new Date().toISOString(),
+      refs,
+    };
+    window.localStorage.setItem(WORKPIECE_SOURCES_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore
+  }
+}
+
+export function writeSourceIndexCache(sources: SourceIndexEntry[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    const payload = {
+      schema: SOURCES_INDEX_SCHEMA,
+      updated_at: new Date().toISOString(),
+      sources,
+    };
+    window.localStorage.setItem(resolveIndexKey(), JSON.stringify(payload));
+  } catch {
+    // ignore
+  }
 }
 
 export function isSourceRegistryKey(key: string | null): boolean {
   if (!key) return true;
   if (key === WORKPIECE_SOURCES_KEY) return true;
-  if (key === SOURCE_LIBRARY_FALLBACK_KEY) return true;
-  return key.startsWith(SOURCE_LIBRARY_PREFIX);
+  if (key === SOURCES_INDEX_FALLBACK_KEY) return true;
+  if (key === LEGACY_SOURCE_LIBRARY_KEY) return true;
+  if (key.startsWith(SOURCES_INDEX_PREFIX)) return true;
+  return false;
 }
