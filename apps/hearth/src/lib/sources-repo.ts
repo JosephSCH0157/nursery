@@ -148,6 +148,15 @@ function nextCorrelationId(prefix: string): string {
 async function readJsonFromTongs(url: string): Promise<ReadResult<unknown>> {
   const response = await tongsFetch(url);
   if (response.status === 404) {
+    let body: unknown = null;
+    try {
+      body = await response.json();
+    } catch {
+      // ignore
+    }
+    if (body && typeof body === "object" && (body as { ok?: boolean }).ok === true) {
+      return { ok: true, data: null };
+    }
     return { ok: false, status: 404, reason: "not_found" };
   }
   if (!response.ok) {

@@ -1518,8 +1518,8 @@ export function createTongsCommitApiHandlerWithService(
         const result = await service.readWorkpieceJson(workpieceId, path);
         if (!result.found) {
           return jsonResponse(404, {
-            ok: false,
-            error: { code: "file_not_found", message: "File not found" },
+            ok: true,
+            exists: false,
           });
         }
         return jsonResponse(200, { ok: true, data: result.data });
@@ -1536,8 +1536,8 @@ export function createTongsCommitApiHandlerWithService(
         const result = await service.readWorkspaceJson(workspaceId, path);
         if (!result.found) {
           return jsonResponse(404, {
-            ok: false,
-            error: { code: "file_not_found", message: "File not found" },
+            ok: true,
+            exists: false,
           });
         }
         return jsonResponse(200, { ok: true, data: result.data });
