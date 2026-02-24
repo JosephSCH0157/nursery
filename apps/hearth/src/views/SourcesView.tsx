@@ -2,9 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { SourcesState, NewSourceInput } from "../hooks/useSourcesState";
 import { normalizeSourceId } from "../lib/source-tokens";
 
-type SourcesPanelProps = {
-  open: boolean;
-  onClose: () => void;
+type SourcesViewProps = {
   state: SourcesState;
   workspaceId: string | null;
   workpieceId: string | null;
@@ -22,7 +20,7 @@ const SOURCE_TYPES = [
   "other",
 ];
 
-export default function SourcesPanel({ open, onClose, state, workspaceId, workpieceId }: SourcesPanelProps) {
+export default function SourcesView({ state, workspaceId, workpieceId }: SourcesViewProps) {
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
   const [notesDrafts, setNotesDrafts] = useState<Record<string, string>>({});
   const [form, setForm] = useState<NewSourceInput>({
@@ -97,8 +95,6 @@ export default function SourcesPanel({ open, onClose, state, workspaceId, workpi
     });
   }, [state.workpieceSources]);
 
-  if (!open) return null;
-
   const statusColor = state.status.kind === "error"
     ? "#b00020"
     : state.status.kind === "success"
@@ -144,7 +140,7 @@ export default function SourcesPanel({ open, onClose, state, workspaceId, workpi
   };
 
   return (
-    <aside
+    <section
       style={{
         border: "1px solid var(--forge-border, #ddd)",
         borderRadius: 10,
@@ -157,7 +153,6 @@ export default function SourcesPanel({ open, onClose, state, workspaceId, workpi
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ fontWeight: 700 }}>Sources</div>
-        <button type="button" onClick={onClose}>Close</button>
       </div>
 
       {state.status.kind !== "idle" ? (
@@ -471,6 +466,6 @@ export default function SourcesPanel({ open, onClose, state, workspaceId, workpi
           </button>
         </div>
       </section>
-    </aside>
+    </section>
   );
 }
