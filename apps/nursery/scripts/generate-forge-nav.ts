@@ -3,6 +3,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { forgeNavTree } from "../src/nav/forgeNavTree";
 
+if (process.env.FORGE_SKIP_GEN_NAV === "1") {
+  console.log("[forge-nav] skipped (FORGE_SKIP_GEN_NAV=1)");
+  process.exit(0);
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
