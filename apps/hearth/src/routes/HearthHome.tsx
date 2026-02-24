@@ -5,7 +5,6 @@ import type { HearthPlanningSession, HearthSessionDecision, HearthSessionOrigin 
 import { HEARTH_SESSION_SCHEMA } from "../domain/hearth-session";
 import { createRevision, type Revision, type RevisionKind } from "../domain/revision";
 import type { HearthSession } from "../domain/session";
-import type { ScriptSource, SourceIndexEntry, WorkpieceSourceRef } from "../domain/source";
 import {
   type BarStockSpark,
   enqueueBarStockSpark,
@@ -14,6 +13,7 @@ import {
   upsertBarStockSpark,
   writeBarStockSparks,
 } from "../lib/barstock-sparks";
+import SourcesPanel from "../components/SourcesPanel";
 import { createHearthWorkpiece } from "../lib/hearth-workpiece";
 import {
   isHearthPlanningSessionKey,
@@ -21,23 +21,8 @@ import {
   writeHearthPlanningSessionCache,
 } from "../lib/hearth-session-registry";
 import { commitHearthSession, readHearthSession } from "../lib/hearth-session-repo";
-import {
-  readSourceLibrary,
-  readSourceIndex,
-  readWorkpieceSources,
-  isSourceRegistryKey,
-  writeSourceIndexCache,
-  writeWorkpieceSourcesCache,
-} from "../lib/source-registry";
-import {
-  commitWorkpieceSourceRefs,
-  commitWorkspaceSourcesLibrary,
-  readWorkpieceSourceRefs,
-  readWorkspaceSourcesIndex,
-  resolveWorkpieceId,
-  resolveWorkspaceId,
-} from "../lib/sources-repo";
-import { normalizeSourceId, parseSourceTokens } from "../lib/source-tokens";
+import { useSourcesState } from "../hooks/useSourcesState";
+import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import { createHearthStore } from "../storage/store-factory";
 import type { HearthStoreKind } from "../storage/hearth-store";
 import { LocalSessionStore } from "../storage/local-session-store";
@@ -208,17 +193,6 @@ function formatSparkStatus(spark: BarStockSpark): { label: string; detail?: stri
   return { label: "Unused" };
 }
 
-function buildIndexFromSources(sources: ScriptSource[]): SourceIndexEntry[] {
-  return sources.map((source) => ({
-    source_id: source.source_id,
-    title: source.title,
-    type: source.type,
-    url: source.url ?? null,
-    publisher: source.publisher ?? null,
-    published_at: source.published_at ?? null,
-  }));
-}
-
 function parsePlanningLines(text: string): string[] {
   return splitLines(text)
     .map((line) => line.trim())
@@ -286,13 +260,6 @@ export default function HearthHome() {
   const [sessionTouched, setSessionTouched] = useState(false);
   const [decisionDraft, setDecisionDraft] = useState("");
 
-  const [workpieceSources, setWorkpieceSources] = useState<WorkpieceSourceRef[]>(
-    () => readWorkpieceSources(),
-  );
-  const [sourceIndexEntries, setSourceIndexEntries] = useState<SourceIndexEntry[]>(
-    () => readSourceIndex(),
-  );
-
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [activeDraft, setActiveDraft] = useState<Draft | null>(null);
   const [revisions, setRevisions] = useState<Revision[]>([]);
@@ -307,6 +274,7 @@ export default function HearthHome() {
   const [sortKey, setSortKey] = useState<SortKey>("updated");
   const [showArchived, setShowArchived] = useState(false);
   const [showRevisions, setShowRevisions] = useState(false);
+  const [showSourcesPanel, setShowSourcesPanel] = useState(false);
   const [revisionModalOpen, setRevisionModalOpen] = useState(false);
   const [revisionNote, setRevisionNote] = useState("");
   const [revisionKind, setRevisionKind] = useState<RevisionKind>("manual");
@@ -321,10 +289,6 @@ export default function HearthHome() {
   const sessionSaveTimer = useRef<number | null>(null);
   const bodyRef = useRef<HTMLTextAreaElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
-  const workpieceSourcesCommitRef = useRef<string | null>(null);
-  const workspaceSourcesCommitRef = useRef<string | null>(null);
-  const sourcesCommitInFlight = useRef(false);
-  const sourcesCommitQueued = useRef(false);
   const sessionCommitRef = useRef<string | null>(null);
   const sessionCommitInFlight = useRef(false);
   const sessionCommitQueued = useRef(false);
@@ -354,61 +318,8 @@ export default function HearthHome() {
   const sessionDecisions = planningSession?.decisions ?? [];
   const sessionIntent = planningSession?.intent ?? deriveIntentFromOrigin(planningSession?.origin);
   const sessionSparkId = planningSession?.origin?.spark_id ?? planningSession?.links?.spark_id ?? null;
-
-  const sourceTokens = useMemo(
-    () => parseSourceTokens(activeDraft?.body ?? ""),
-    [activeDraft?.body],
-  );
-  const citedSourceIds = useMemo(
-    () => new Set(sourceTokens.map((token) => token.normalized)),
-    [sourceTokens],
-  );
-  const workpieceSourceIds = useMemo(
-    () => new Set(workpieceSources.map((ref) => normalizeSourceId(ref.source_id))),
-    [workpieceSources],
-  );
-  const sourceIndexIds = useMemo(
-    () => new Set(sourceIndexEntries.map((source) => normalizeSourceId(source.source_id))),
-    [sourceIndexEntries],
-  );
-
-  const missingWorkpieceSources = useMemo(() => {
-    if (sourceTokens.length === 0) return [];
-    const missing = new Map<string, string>();
-    for (const token of sourceTokens) {
-      if (!workpieceSourceIds.has(token.normalized)) {
-        if (!missing.has(token.normalized)) {
-          missing.set(token.normalized, token.sourceId);
-        }
-      }
-    }
-    return Array.from(missing.values());
-  }, [sourceTokens, workpieceSourceIds]);
-
-  const missingLibrarySources = useMemo(() => {
-    if (sourceTokens.length === 0 || sourceIndexEntries.length === 0) return [];
-    const missing = new Map<string, string>();
-    for (const token of sourceTokens) {
-      if (!sourceIndexIds.has(token.normalized)) {
-        if (!missing.has(token.normalized)) {
-          missing.set(token.normalized, token.sourceId);
-        }
-      }
-    }
-    return Array.from(missing.values());
-  }, [sourceTokens, sourceIndexEntries.length, sourceIndexIds]);
-
-  const unusedWorkpieceSources = useMemo(() => {
-    if (workpieceSources.length === 0) return [];
-    const unused = new Map<string, string>();
-    for (const ref of workpieceSources) {
-      const normalized = normalizeSourceId(ref.source_id);
-      if (!citedSourceIds.has(normalized)) {
-        unused.set(normalized, ref.source_id);
-      }
-    }
-    return Array.from(unused.values());
-  }, [workpieceSources, citedSourceIds]);
+  const sourcesState = useSourcesState(workspaceId, workpieceId, activeDraft?.body ?? "");
+  const workpieceSources = sourcesState.workpieceSources;
 
   const filteredDrafts = useMemo(() => {
     const query = searchText.trim().toLowerCase();
@@ -589,69 +500,6 @@ export default function HearthHome() {
     workspaceId,
   ]);
 
-  const syncSourcesToTongs = useCallback(async () => {
-    if (!workspaceId && !workpieceId) return;
-    if (sourcesCommitInFlight.current) {
-      sourcesCommitQueued.current = true;
-      return;
-    }
-
-    sourcesCommitInFlight.current = true;
-    try {
-      do {
-        sourcesCommitQueued.current = false;
-        const tasks: Promise<void>[] = [];
-
-        if (workpieceId && workpieceSources.length > 0) {
-          const fingerprint = JSON.stringify({ workpieceId, refs: workpieceSources });
-          if (fingerprint !== workpieceSourcesCommitRef.current) {
-            tasks.push(
-              commitWorkpieceSourceRefs(workpieceId, workpieceSources)
-                .then((result) => {
-                  if (result.ok && !result.skipped) {
-                    workpieceSourcesCommitRef.current = fingerprint;
-                  }
-                })
-                .catch(() => {}),
-            );
-          }
-        }
-
-        if (workspaceId) {
-          const sourceLibrary = readSourceLibrary();
-          const indexToCommit = sourceIndexEntries.length > 0
-            ? sourceIndexEntries
-            : buildIndexFromSources(sourceLibrary);
-
-          if (sourceLibrary.length > 0 && indexToCommit.length > 0) {
-            const fingerprint = JSON.stringify({
-              workspaceId,
-              sources: sourceLibrary,
-              index: indexToCommit,
-            });
-            if (fingerprint !== workspaceSourcesCommitRef.current) {
-              tasks.push(
-                commitWorkspaceSourcesLibrary(workspaceId, sourceLibrary, indexToCommit)
-                  .then((result) => {
-                    if (result.ok && !result.skipped) {
-                      workspaceSourcesCommitRef.current = fingerprint;
-                    }
-                  })
-                  .catch(() => {}),
-              );
-            }
-          }
-        }
-
-        if (tasks.length) {
-          await Promise.all(tasks);
-        }
-      } while (sourcesCommitQueued.current);
-    } finally {
-      sourcesCommitInFlight.current = false;
-    }
-  }, [sourceIndexEntries, workspaceId, workpieceId, workpieceSources]);
-
   const onSaveDraft = useCallback(async () => {
     if (!activeDraft) return;
     const now = Date.now();
@@ -808,21 +656,6 @@ export default function HearthHome() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const refreshSources = () => {
-      setWorkpieceSources(readWorkpieceSources());
-      setSourceIndexEntries(readSourceIndex());
-    };
-    refreshSources();
-    const onStorage = (event: StorageEvent) => {
-      if (!isSourceRegistryKey(event.key)) return;
-      refreshSources();
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
     const refreshSession = () => {
       const cached = readHearthPlanningSessionCache(workpieceId);
       if (cached) {
@@ -875,48 +708,6 @@ export default function HearthHome() {
       workpiece_id: workpieceId ?? prev.workpiece_id ?? null,
     }), { touched: false });
   }, [planningSession, updatePlanningSession, workspaceId, workpieceId]);
-
-  useEffect(() => {
-    if (!workspaceId && !workpieceId) return;
-    let cancelled = false;
-
-    const refreshFromTongs = async () => {
-      const tasks: Promise<void>[] = [];
-
-      if (workpieceId) {
-        tasks.push(
-          readWorkpieceSourceRefs(workpieceId)
-            .then((refs) => {
-              if (cancelled || !refs) return;
-              setWorkpieceSources(refs);
-              writeWorkpieceSourcesCache(refs);
-            })
-            .catch(() => {}),
-        );
-      }
-
-      if (workspaceId) {
-        tasks.push(
-          readWorkspaceSourcesIndex(workspaceId)
-            .then((index) => {
-              if (cancelled || !index) return;
-              setSourceIndexEntries(index);
-              writeSourceIndexCache(index);
-            })
-            .catch(() => {}),
-        );
-      }
-
-      if (tasks.length) {
-        await Promise.all(tasks);
-      }
-    };
-
-    void refreshFromTongs();
-    return () => {
-      cancelled = true;
-    };
-  }, [workspaceId, workpieceId]);
 
   useEffect(() => {
     if (!activeDraft) return;
@@ -1079,7 +870,7 @@ export default function HearthHome() {
 
       await persistSession(toSave.id, revisionView === "list" ? "editor" : revisionView);
       if (args.syncSources !== false) {
-        void syncSourcesToTongs();
+        sourcesState.syncSources();
       }
       if (args.syncSession !== false) {
         void syncSessionToTongs();
@@ -1332,11 +1123,32 @@ export default function HearthHome() {
 
   return (
     <section style={{ padding: 24, display: "grid", gap: 16 }}>
-      <header style={{ display: "grid", gap: 4 }}>
-        <h1 style={{ margin: 0 }}>Hearth</h1>
-        {devMode ? (
-          <p style={{ margin: 0, opacity: 0.75 }}>Dev store: {storeKind}</p>
-        ) : null}
+      <header
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ display: "grid", gap: 4 }}>
+          <h1 style={{ margin: 0 }}>Hearth</h1>
+          {devMode ? (
+            <p style={{ margin: 0, opacity: 0.75 }}>Dev store: {storeKind}</p>
+          ) : null}
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button
+            type="button"
+            onClick={() => setShowSourcesPanel((prev) => !prev)}
+            disabled={!workpieceId}
+            aria-pressed={showSourcesPanel}
+            title={workpieceId ? "Sources" : "Forge a workpiece to manage sources"}
+          >
+            Sources
+          </button>
+        </div>
       </header>
 
       <section
@@ -1474,30 +1286,14 @@ export default function HearthHome() {
         <div style={{ color: "#b00020", fontSize: 14 }}>{error}</div>
       ) : null}
 
-      {missingWorkpieceSources.length ? (
-        <div style={{ color: "#b00020", fontSize: 12 }}>
-          Missing sources (workpiece): {missingWorkpieceSources.join(", ")}
-        </div>
-      ) : null}
-
-      {missingLibrarySources.length ? (
-        <div style={{ color: "#b06d00", fontSize: 12 }}>
-          Missing sources (library): {missingLibrarySources.join(", ")}
-        </div>
-      ) : null}
-
-      {unusedWorkpieceSources.length ? (
-        <div style={{ fontSize: 12, opacity: 0.7 }}>
-          Unused sources: {unusedWorkpieceSources.join(", ")}
-        </div>
-      ) : null}
-
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: showRevisions
-            ? "minmax(260px, 340px) minmax(320px, 1fr) minmax(280px, 360px)"
-            : "minmax(260px, 340px) 1fr",
+          gridTemplateColumns: showRevisions && showSourcesPanel
+            ? "minmax(260px, 340px) minmax(320px, 1fr) minmax(280px, 360px) minmax(280px, 360px)"
+            : showRevisions || showSourcesPanel
+              ? "minmax(260px, 340px) minmax(320px, 1fr) minmax(280px, 360px)"
+              : "minmax(260px, 340px) 1fr",
           gap: 16,
           alignItems: "start",
         }}
@@ -1852,6 +1648,13 @@ export default function HearthHome() {
             ) : null}
           </aside>
         ) : null}
+        <SourcesPanel
+          open={showSourcesPanel}
+          onClose={() => setShowSourcesPanel(false)}
+          state={sourcesState}
+          workspaceId={workspaceId}
+          workpieceId={workpieceId}
+        />
       </div>
 
       {revisionModalOpen ? (
