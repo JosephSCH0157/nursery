@@ -823,6 +823,20 @@ export default function HearthHome() {
           <div style={{ color: "#b00020", fontSize: 12 }}>{forgeError}</div>
         ) : null}
 
+        <section style={{ display: "grid", gap: 10 }}>
+          <h2 style={{ margin: 0, fontSize: 16 }}>Start New Workpiece</h2>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button type="button" onClick={() => void startFromScratch()} disabled={isForging}>
+              Start from scratch
+            </button>
+            {activeDraft ? (
+              <button type="button" onClick={() => setView("editor")}>
+                Continue last draft
+              </button>
+            ) : null}
+          </div>
+        </section>
+
         <section style={{ display: "grid", gap: 12 }}>
           <h2 style={{ margin: 0, fontSize: 16 }}>From Bar Stock</h2>
           {sortedSparks.length === 0 ? (
@@ -872,20 +886,6 @@ export default function HearthHome() {
               })}
             </div>
           )}
-        </section>
-
-        <section style={{ display: "grid", gap: 10 }}>
-          <h2 style={{ margin: 0, fontSize: 16 }}>Start New Workpiece</h2>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <button type="button" onClick={() => void startFromScratch()} disabled={isForging}>
-              Start from scratch
-            </button>
-            {activeDraft ? (
-              <button type="button" onClick={() => setView("editor")}>
-                Continue last draft
-              </button>
-            ) : null}
-          </div>
         </section>
       </section>
     );

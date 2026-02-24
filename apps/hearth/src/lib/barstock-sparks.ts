@@ -70,10 +70,10 @@ export function readBarStockSparks(): BarStockSpark[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
-    return parsed
+    const normalized = parsed
       .map(normalizeSpark)
-      .filter(Boolean)
-      .sort((a, b) => b.createdAt - a.createdAt) as BarStockSpark[];
+      .filter((spark): spark is BarStockSpark => !!spark);
+    return normalized.sort((a, b) => b.createdAt - a.createdAt);
   } catch {
     return [];
   }
