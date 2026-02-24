@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
 import { createDraft, type Draft } from "../domain/draft";
 import type { HearthPlanningSession, HearthSessionDecision, HearthSessionOrigin } from "../domain/hearth-session";
 import { HEARTH_SESSION_SCHEMA } from "../domain/hearth-session";
@@ -14,6 +13,7 @@ import {
   writeBarStockSparks,
 } from "../lib/barstock-sparks";
 import SourcesView from "../views/SourcesView";
+import "./HearthShell.css";
 import { createHearthWorkpiece } from "../lib/hearth-workpiece";
 import {
   isHearthPlanningSessionKey,
@@ -184,6 +184,16 @@ function buildDiffLines(current: string, revision: string): DiffLine[] {
     out.push({ left, right, status: left === right ? "same" : "changed" });
   }
   return out;
+}
+
+function diffCellClass(side: "left" | "right", status: DiffLine["status"]): string {
+  const classes = ["hs-diff-cell"];
+  if (status === "removed" && side === "left") classes.push("is-removed");
+  if (status === "added" && side === "right") classes.push("is-added");
+  if (status === "changed") {
+    classes.push(side === "left" ? "is-changed-left" : "is-changed-right");
+  }
+  return classes.join(" ");
 }
 
 function formatSparkDate(value: number | undefined): string {
@@ -1103,10 +1113,10 @@ export default function HearthShell() {
   function renderSectionedBody(text: string) {
     const lines = splitLines(text);
     return (
-      <div style={{ display: "grid", gap: 6, whiteSpace: "pre-wrap" }}>
+      <div className="hs-sectioned-body">
         {lines.map((line, idx) => (
           line.trim() === "---"
-            ? <hr key={`sep-${idx}`} style={{ borderColor: "rgba(148,163,184,0.35)" }} />
+            ? <hr key={`sep-${idx}`} className="hs-divider" />
             : <div key={`line-${idx}`}>{line || " "}</div>
         ))}
       </div>
@@ -1116,15 +1126,15 @@ export default function HearthShell() {
   const renderHomeView = () => {
     const sortedSparks = sparks.slice().sort((a, b) => b.createdAt - a.createdAt);
     return (
-      <section style={{ display: "grid", gap: 20 }}>
-        <header style={{ display: "grid", gap: 6 }}>
-          <h2 style={{ margin: 0 }}>Hearth</h2>
-          <p style={{ margin: 0, opacity: 0.75 }}>Select a spark or begin a new workpiece.</p>
+      <section className="hs-home">
+        <header className="hs-home-header">
+          <h2 className="hs-home-title">Hearth</h2>
+          <p className="hs-home-subtext">Select a spark or begin a new workpiece.</p>
         </header>
 
-        <section style={{ display: "grid", gap: 10 }}>
-          <h3 style={{ margin: 0, fontSize: 16 }}>Start New Workpiece</h3>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <section className="hs-home-section">
+          <h3 className="hs-home-section-title">Start New Workpiece</h3>
+          <div className="hs-home-actions">
             <button type="button" onClick={() => void startFromScratch()} disabled={isForging}>
               Start from scratch
             </button>
@@ -1137,43 +1147,36 @@ export default function HearthShell() {
         </section>
 
         {forgeError ? (
-          <div style={{ color: "#b00020", fontSize: 12 }}>{forgeError}</div>
+          <div className="hs-error-text-small">{forgeError}</div>
         ) : null}
 
-        <section style={{ display: "grid", gap: 12 }}>
-          <h3 style={{ margin: 0, fontSize: 16 }}>From Bar Stock</h3>
+        <section className="hs-home-barstock">
+          <h3 className="hs-home-section-title">From Bar Stock</h3>
           {sortedSparks.length === 0 ? (
-            <p style={{ margin: 0, fontSize: 13, opacity: 0.7 }}>
+            <p className="hs-home-empty">
               No sparks yet. Capture ideas in Bar Stock first.
             </p>
           ) : (
-            <div style={{ display: "grid", gap: 12 }}>
+            <div className="hs-home-spark-list">
               {sortedSparks.map((spark) => {
                 const status = formatSparkStatus(spark);
                 const preview = buildSparkPreview(spark.body);
                 return (
                   <div
                     key={spark.id}
-                    style={{
-                      border: "1px solid var(--forge-border, #ddd)",
-                      borderRadius: 10,
-                      padding: 12,
-                      background: "var(--forge-bg-elevated, #fff)",
-                      display: "grid",
-                      gap: 6,
-                    }}
+                    className="hs-spark-card"
                   >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                      <div style={{ fontWeight: 600 }}>{deriveSparkTitle(spark)}</div>
-                      <div style={{ fontSize: 12, opacity: 0.7 }}>
+                    <div className="hs-spark-header">
+                      <div className="hs-spark-title">{deriveSparkTitle(spark)}</div>
+                      <div className="hs-spark-date">
                         {formatSparkDate(spark.createdAt)}
                       </div>
                     </div>
-                    <div style={{ fontSize: 13, opacity: 0.85 }}>
+                    <div className="hs-spark-preview">
                       {preview || "No preview available yet."}
                     </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                      <div style={{ fontSize: 12, opacity: 0.7 }}>
+                    <div className="hs-spark-footer">
+                      <div className="hs-spark-status">
                         Status: {status.label}{status.detail ? ` · ${status.detail}` : ""}
                       </div>
                       <button
@@ -1203,15 +1206,15 @@ export default function HearthShell() {
       : "";
 
     return (
-      <section style={{ display: "grid", gap: 16 }}>
-        <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-          <div style={{ fontWeight: 700, fontSize: 18 }}>Draft</div>
-          <div style={{ fontSize: 12, opacity: 0.65 }}>
+      <section className="hs-draft">
+        <header className="hs-draft-header">
+          <div className="hs-draft-title">Draft</div>
+          <div className="hs-draft-updated">
             Last updated {formatUpdatedAt(activeDraft?.updatedAt)}
           </div>
         </header>
 
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <div className="hs-toolbar">
           <button onClick={onCreateDraft}>New Draft</button>
           <button onClick={onSaveDraft} disabled={!activeDraft || isSaving}>
             {isSaving ? "Saving..." : "Save"}
@@ -1222,16 +1225,16 @@ export default function HearthShell() {
           <button onClick={openRevisionPanel} disabled={!activeDraft}>
             Revisions
           </button>
-          <span style={{ fontSize: 12, opacity: 0.75 }}>{statusText}</span>
-          <span style={{ fontSize: 12, opacity: 0.6 }}>{wordCount} words · {charCount} chars</span>
+          <span className="hs-status-text">{statusText}</span>
+          <span className="hs-count-text">{wordCount} words · {charCount} chars</span>
         </div>
 
         {error ? (
-          <div style={{ color: "#b00020", fontSize: 14 }}>{error}</div>
+          <div className="hs-error-text">{error}</div>
         ) : null}
 
-        <label style={{ display: "grid", gap: 6 }}>
-          <span style={{ fontWeight: 600 }}>Title</span>
+        <label className="hs-field">
+          <span className="hs-field-label">Title</span>
           <input
             type="text"
             value={activeDraft?.title ?? ""}
@@ -1244,8 +1247,8 @@ export default function HearthShell() {
           />
         </label>
 
-        <label style={{ display: "grid", gap: 6 }}>
-          <span style={{ fontWeight: 600 }}>Body</span>
+        <label className="hs-field">
+          <span className="hs-field-label">Body</span>
           <textarea
             ref={bodyRef}
             value={activeDraft?.body ?? ""}
@@ -1267,12 +1270,12 @@ export default function HearthShell() {
               setScrollTop(target.scrollTop);
             }}
             disabled={!activeDraft}
-            style={{ minHeight: 320, resize: "vertical", overflow: "hidden" }}
+            className="hs-textarea-body"
           />
         </label>
 
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <span style={{ fontSize: 12, opacity: 0.7 }}>Sources: {sourcesSummary}{unusedSummary}</span>
+        <div className="hs-sources-row">
+          <span className="hs-sources-summary">Sources: {sourcesSummary}{unusedSummary}</span>
           <button type="button" onClick={() => setMode("sources")} disabled={!workpieceId}>
             Review sources
           </button>
@@ -1282,16 +1285,16 @@ export default function HearthShell() {
   };
 
   const renderPlanningView = () => (
-    <section style={{ display: "grid", gap: 16 }}>
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-        <div style={{ fontWeight: 700, fontSize: 18 }}>Planning Board</div>
-        <div style={{ fontSize: 12, opacity: 0.6 }}>
+    <section className="hs-planning">
+      <header className="hs-planning-header">
+        <div className="hs-planning-title">Planning Board</div>
+        <div className="hs-planning-meta">
           {sessionIntent ? `Intent: ${sessionIntent === "from_spark" ? "From Spark" : "New Idea"}` : "Intent: —"}
           {sessionSparkId ? ` · Spark ${sessionSparkId.slice(0, 8)}` : ""}
         </div>
       </header>
 
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+      <div className="hs-toolbar">
         <button
           type="button"
           onClick={() => void syncSessionToTongs()}
@@ -1299,13 +1302,13 @@ export default function HearthShell() {
         >
           Save Planning
         </button>
-        <span style={{ fontSize: 12, opacity: 0.7 }}>
+        <span className="hs-status-text">
           {sessionTouched ? "Unsaved changes" : "Saved"}
         </span>
       </div>
 
-      <label style={{ display: "grid", gap: 6 }}>
-        <span style={{ fontWeight: 600 }}>Title</span>
+      <label className="hs-field">
+        <span className="hs-field-label">Title</span>
         <input
           type="text"
           value={sessionTitle}
@@ -1318,8 +1321,8 @@ export default function HearthShell() {
           }}
         />
       </label>
-      <label style={{ display: "grid", gap: 6 }}>
-        <span style={{ fontWeight: 600 }}>Goals</span>
+      <label className="hs-field">
+        <span className="hs-field-label">Goals</span>
         <textarea
           value={sessionGoalsText}
           placeholder="One per line"
@@ -1330,11 +1333,11 @@ export default function HearthShell() {
               goals: nextGoals,
             }));
           }}
-          style={{ minHeight: 70, resize: "vertical" }}
+          className="hs-textarea-small"
         />
       </label>
-      <label style={{ display: "grid", gap: 6 }}>
-        <span style={{ fontWeight: 600 }}>Outline</span>
+      <label className="hs-field">
+        <span className="hs-field-label">Outline</span>
         <textarea
           value={sessionOutlineText}
           placeholder="Bullet outline, one per line"
@@ -1345,39 +1348,33 @@ export default function HearthShell() {
               outline: nextOutline,
             }));
           }}
-          style={{ minHeight: 90, resize: "vertical" }}
+          className="hs-textarea-medium"
         />
       </label>
-      <div style={{ display: "grid", gap: 8 }}>
-        <span style={{ fontWeight: 600 }}>Decision notes</span>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <div className="hs-decision-section">
+        <span className="hs-decision-title">Decision notes</span>
+        <div className="hs-decision-input-row">
           <input
             type="text"
             value={decisionDraft}
             placeholder="Add a decision"
             onChange={(event) => setDecisionDraft(event.target.value)}
-            style={{ flex: "1 1 240px" }}
+            className="hs-decision-input"
           />
           <button type="button" onClick={onAddDecision} disabled={!decisionDraft.trim()}>
             Add
           </button>
         </div>
         {sessionDecisions.length === 0 ? (
-          <p style={{ margin: 0, fontSize: 12, opacity: 0.6 }}>No decisions logged yet.</p>
+          <p className="hs-muted-text-small">No decisions logged yet.</p>
         ) : (
-          <div style={{ display: "grid", gap: 8 }}>
+          <div className="hs-decision-list">
             {sessionDecisions.map((decision, idx) => (
               <div
                 key={`${decision.at}-${idx}`}
-                style={{
-                  border: "1px solid var(--forge-border, #ddd)",
-                  borderRadius: 8,
-                  padding: 8,
-                  display: "grid",
-                  gap: 6,
-                }}
+                className="hs-decision-card"
               >
-                <div style={{ fontSize: 11, opacity: 0.6 }}>
+                <div className="hs-decision-time">
                   {formatDecisionAt(decision.at)}
                 </div>
                 <input
@@ -1385,7 +1382,7 @@ export default function HearthShell() {
                   value={decision.text}
                   onChange={(event) => onUpdateDecision(idx, event.target.value)}
                 />
-                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <div className="hs-decision-actions">
                   <button type="button" onClick={() => onRemoveDecision(idx)}>
                     Remove
                   </button>
@@ -1399,62 +1396,40 @@ export default function HearthShell() {
   );
 
   const renderSourcesView = () => (
-    <section style={{ display: "grid", gap: 12 }}>
+    <section className="hs-sources-view">
       <SourcesView state={sourcesState} workspaceId={workspaceId} workpieceId={workpieceId} />
     </section>
   );
 
   const renderRevisionsView = () => (
-    <section style={{ display: "grid", gap: 16 }}>
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ fontWeight: 700, fontSize: 18 }}>Revisions</div>
+    <section className="hs-revisions">
+      <header className="hs-revisions-header">
+        <div className="hs-revisions-title">Revisions</div>
         <button type="button" onClick={closeRevisionPanel}>
           Back to Draft
         </button>
       </header>
 
       {revisions.length === 0 ? (
-        <p style={{ fontSize: 13, opacity: 0.7 }}>No revisions yet.</p>
+        <p className="hs-muted-text">No revisions yet.</p>
       ) : (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(240px, 1fr) minmax(320px, 1.2fr)",
-            gap: 12,
-            alignItems: "start",
-          }}
-        >
-          <div style={{ display: "grid", gap: 10, maxHeight: 520, overflowY: "auto" }}>
+        <div className="hs-revisions-grid">
+          <div className="hs-revision-list">
             {revisions.map((revision) => (
               <div
                 key={revision.id}
-                style={{
-                  border: "1px solid var(--forge-border, #ddd)",
-                  borderRadius: 6,
-                  padding: 8,
-                  background: selectedRevision?.id === revision.id
-                    ? "rgba(85, 119, 255, 0.08)"
-                    : "transparent",
-                }}
+                className={`hs-revision-card${selectedRevision?.id === revision.id ? " is-active" : ""}`}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                <div className="hs-revision-card-header">
                   <span>{formatUpdatedAt(revision.createdAt)}</span>
-                  <span
-                    style={{
-                      textTransform: "capitalize",
-                      opacity: 0.7,
-                      padding: "2px 6px",
-                      borderRadius: 999,
-                      border: "1px solid rgba(148,163,184,0.4)",
-                    }}
-                  >
+                  <span className="hs-revision-kind">
                     {revision.kind}
                   </span>
                 </div>
-                <div style={{ fontSize: 13, marginTop: 4 }}>
+                <div className="hs-revision-note">
                   {revision.note || "No note"}
                 </div>
-                <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+                <div className="hs-revision-actions">
                   <button
                     type="button"
                     onClick={() => {
@@ -1482,13 +1457,15 @@ export default function HearthShell() {
           </div>
 
           {selectedRevision ? (
-            <div style={{ display: "grid", gap: 10 }}>
-              <div style={{ fontWeight: 600 }}>{revisionView === "preview" ? "Preview" : "Compare"}</div>
-              <div style={{ fontSize: 12, opacity: 0.7 }}>
+            <div className="hs-revision-detail">
+              <div className="hs-revision-detail-title">
+                {revisionView === "preview" ? "Preview" : "Compare"}
+              </div>
+              <div className="hs-revision-meta">
                 {formatUpdatedAt(selectedRevision.createdAt)} · {selectedRevision.kind}
               </div>
-              <label style={{ display: "grid", gap: 6 }}>
-                <span style={{ fontSize: 12, opacity: 0.7 }}>Revision note</span>
+              <label className="hs-revision-label">
+                <span className="hs-revision-label-text">Revision note</span>
                 <input
                   value={selectedRevision.note ?? ""}
                   onChange={(event) => {
@@ -1498,49 +1475,31 @@ export default function HearthShell() {
                 />
               </label>
               {revisionView === "preview" ? (
-                <div style={{ display: "grid", gap: 8 }}>
-                  <div style={{ fontWeight: 600 }}>{selectedRevision.titleSnapshot}</div>
+                <div className="hs-revision-preview">
+                  <div className="hs-revision-preview-title">{selectedRevision.titleSnapshot}</div>
                   {renderSectionedBody(selectedRevision.bodySnapshot)}
                 </div>
               ) : (
-                <div style={{ display: "grid", gap: 8 }}>
-                  <div style={{ display: "grid", gap: 6 }}>
-                    <span style={{ fontSize: 12, opacity: 0.7 }}>Diff</span>
-                    <div style={{ display: "grid", gap: 4 }}>
+                <div className="hs-revision-diff-section">
+                  <div className="hs-revision-diff-block">
+                    <span className="hs-diff-label">Diff</span>
+                    <div className="hs-diff-list">
                       {diffLines.map((line, idx) => {
                         const isSeparator = line.status === "separator";
-                        const leftStyle: CSSProperties = {
-                          padding: "2px 4px",
-                          background: line.status === "removed" || line.status === "changed"
-                            ? "rgba(255, 138, 154, 0.18)"
-                            : undefined,
-                          whiteSpace: "pre-wrap",
-                        };
-                        const rightStyle: CSSProperties = {
-                          padding: "2px 4px",
-                          background: line.status === "added" || line.status === "changed"
-                            ? "rgba(121, 226, 166, 0.18)"
-                            : undefined,
-                          whiteSpace: "pre-wrap",
-                        };
                         if (isSeparator) {
                           return (
-                            <div key={`diff-${idx}`} style={{ gridColumn: "1 / -1" }}>
-                              <hr style={{ borderColor: "rgba(148,163,184,0.35)" }} />
+                            <div key={`diff-${idx}`} className="hs-diff-separator">
+                              <hr className="hs-divider" />
                             </div>
                           );
                         }
                         return (
                           <div
                             key={`diff-${idx}`}
-                            style={{
-                              display: "grid",
-                              gridTemplateColumns: "1fr 1fr",
-                              gap: 8,
-                            }}
+                            className="hs-diff-row"
                           >
-                            <div style={leftStyle}>{line.left || " "}</div>
-                            <div style={rightStyle}>{line.right || " "}</div>
+                            <div className={diffCellClass("left", line.status)}>{line.left || " "}</div>
+                            <div className={diffCellClass("right", line.status)}>{line.right || " "}</div>
                           </div>
                         );
                       })}
@@ -1557,7 +1516,7 @@ export default function HearthShell() {
               </button>
             </div>
           ) : (
-            <div style={{ fontSize: 12, opacity: 0.7 }}>Select a revision to preview.</div>
+            <div className="hs-muted-text-subtle">Select a revision to preview.</div>
           )}
         </div>
       )}
@@ -1574,65 +1533,33 @@ export default function HearthShell() {
           ? renderRevisionsView()
           : renderDraftView();
 
-  const modeButtonStyle = (active: boolean): CSSProperties => ({
-    border: "1px solid var(--forge-border, #ddd)",
-    borderRadius: 8,
-    padding: "6px 8px",
-    textAlign: "left",
-    background: active ? "rgba(85, 119, 255, 0.08)" : "transparent",
-    fontWeight: active ? 600 : 500,
-  });
-
   const sourcesBadge = missingSourcesCount > 0 ? String(missingSourcesCount) : null;
   const sourcesBadgeTitle = missingSourcesCount > 0
     ? `Missing cited sources: ${missingSourcesCount}${unusedSourcesCount ? ` · Unused refs: ${unusedSourcesCount}` : ""}`
     : unusedSourcesCount > 0
       ? `Unused refs: ${unusedSourcesCount}`
       : "Sources";
-  const sourcesBadgeStyle: CSSProperties = {
-    marginLeft: 6,
-    fontSize: 11,
-    padding: "1px 6px",
-    borderRadius: 999,
-    border: "1px solid rgba(148,163,184,0.6)",
-    color: devMode ? "#b00020" : "rgba(15,23,42,0.7)",
-    background: devMode ? "rgba(176,0,32,0.08)" : "rgba(15,23,42,0.08)",
-  };
 
   return (
-    <section style={{ padding: 24, display: "grid", gap: 16 }}>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(240px, 320px) minmax(0, 1fr)",
-          gap: 16,
-          alignItems: "start",
-        }}
-      >
+    <section className="hs-shell">
+      <div className="hs-shell-grid">
         <aside
-          style={{
-            border: "1px solid var(--forge-border, #ddd)",
-            borderRadius: 10,
-            padding: 12,
-            background: "var(--forge-bg-elevated, #fff)",
-            display: "grid",
-            gap: 14,
-          }}
+          className="hs-rail"
         >
-          <div style={{ display: "grid", gap: 4 }}>
-            <div style={{ fontWeight: 700 }}>Hearth</div>
+          <div className="hs-rail-header">
+            <div className="hs-rail-title">Hearth</div>
             {devMode ? (
-              <div style={{ fontSize: 12, opacity: 0.7 }}>Dev store: {storeKind}</div>
+              <div className="hs-rail-meta">Dev store: {storeKind}</div>
             ) : null}
             {workpieceId ? (
-              <div style={{ fontSize: 12, opacity: 0.7 }}>
+              <div className="hs-rail-meta">
                 Workpiece {workpieceId.slice(0, 8)}
               </div>
             ) : null}
           </div>
 
-          <div style={{ display: "grid", gap: 8 }}>
-            <div style={{ fontSize: 11, opacity: 0.6, textTransform: "uppercase" }}>Primary actions</div>
+          <div className="hs-rail-section">
+            <div className="hs-rail-heading">Primary actions</div>
             <button type="button" onClick={() => void startFromScratch()} disabled={isForging}>
               New Workpiece
             </button>
@@ -1641,8 +1568,8 @@ export default function HearthShell() {
             </button>
           </div>
 
-          <div style={{ display: "grid", gap: 8 }}>
-            <label style={{ fontSize: 12, opacity: 0.8 }}>Search workpieces</label>
+          <div className="hs-rail-section">
+            <label className="hs-rail-label">Search workpieces</label>
             <input
               ref={searchRef}
               type="search"
@@ -1650,14 +1577,14 @@ export default function HearthShell() {
               onChange={(event) => setSearchText(event.target.value)}
               placeholder="Search title or body"
             />
-            <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: 12, opacity: 0.8 }}>Sort</label>
+            <div className="hs-rail-sort">
+              <label className="hs-rail-label">Sort</label>
               <select value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
                 <option value="updated">Recently updated</option>
                 <option value="title">Title A-Z</option>
               </select>
             </div>
-            <label style={{ fontSize: 12, opacity: 0.8, display: "flex", gap: 6, alignItems: "center" }}>
+            <label className="hs-rail-checkbox">
               <input
                 type="checkbox"
                 checked={showArchived}
@@ -1667,25 +1594,18 @@ export default function HearthShell() {
             </label>
           </div>
 
-          <div style={{ display: "grid", gap: 8 }}>
-            <div style={{ fontSize: 11, opacity: 0.6, textTransform: "uppercase" }}>Workpieces</div>
+          <div className="hs-rail-section">
+            <div className="hs-rail-heading">Workpieces</div>
             {isLoading ? <p>Loading drafts...</p> : null}
             {!isLoading && drafts.length === 0 ? <p>No drafts yet.</p> : null}
-            <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
+            <ul className="hs-workpieces-list">
               {filteredDrafts.map((draft) => {
                 const isActive = activeDraft?.id === draft.id;
                 const isEditing = editingDraftId === draft.id;
                 return (
                   <li key={draft.id}>
                     <div
-                      style={{
-                        border: isActive ? "1px solid #557" : "1px solid var(--forge-border, #ddd)",
-                        borderRadius: 8,
-                        padding: 8,
-                        background: isActive ? "rgba(85, 119, 255, 0.08)" : "transparent",
-                        display: "grid",
-                        gap: 6,
-                      }}
+                      className={`hs-workpiece-card${isActive ? " is-active" : ""}`}
                     >
                       {isEditing ? (
                         <input
@@ -1714,32 +1634,25 @@ export default function HearthShell() {
                             void selectDraft(draft);
                             setMode("draft");
                           }}
-                          style={{
-                            textAlign: "left",
-                            border: "none",
-                            background: "transparent",
-                            padding: 0,
-                            color: "inherit",
-                            cursor: "pointer",
-                          }}
+                          className="hs-workpiece-button"
                         >
-                          <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                            <div style={{ fontWeight: 600 }}>{draft.title || "Untitled Draft"}</div>
+                          <div className="hs-workpiece-title-row">
+                            <div className="hs-workpiece-title">{draft.title || "Untitled Draft"}</div>
                             {draft.pinned ? (
-                              <span style={{ fontSize: 10, opacity: 0.7 }} aria-label="Pinned" title="Pinned">
+                              <span className="hs-workpiece-pin" aria-label="Pinned" title="Pinned">
                                 PIN
                               </span>
                             ) : null}
                           </div>
-                          <div style={{ fontSize: 12, opacity: 0.75 }}>
+                          <div className="hs-workpiece-updated">
                             Updated {formatUpdatedAt(draft.updatedAt)}
                           </div>
                         </button>
                       )}
-                      <div style={{ fontSize: 12, opacity: 0.65 }}>
+                      <div className="hs-workpiece-revisions">
                         Revisions {draft.revisionCount ?? "-"}
                       </div>
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <div className="hs-workpiece-actions">
                         <button
                           type="button"
                           onClick={() => void saveDraftMeta(draft, { pinned: !draft.pinned })}
@@ -1773,91 +1686,76 @@ export default function HearthShell() {
           </div>
 
           {workpieceId ? (
-            <div style={{ display: "grid", gap: 8 }}>
-              <div style={{ fontSize: 11, opacity: 0.6, textTransform: "uppercase" }}>Active workpiece</div>
+            <div className="hs-active-workpiece">
+              <div className="hs-rail-heading">Active workpiece</div>
               <button
                 type="button"
                 onClick={() => setMode("draft")}
-                style={modeButtonStyle(selectedMode === "draft")}
+                className={`hs-mode-button${selectedMode === "draft" ? " is-active" : ""}`}
               >
                 Draft
-                <span style={{ fontSize: 11, opacity: 0.6, marginLeft: 6 }}>{wordCount} words</span>
+                <span className="hs-mode-meta">{wordCount} words</span>
               </button>
               <button
                 type="button"
                 onClick={() => setMode("planning")}
-                style={modeButtonStyle(selectedMode === "planning")}
+                className={`hs-mode-button${selectedMode === "planning" ? " is-active" : ""}`}
               >
                 Planning Board
               </button>
               <button
                 type="button"
                 onClick={() => setMode("sources")}
-                style={modeButtonStyle(selectedMode === "sources")}
+                className={`hs-mode-button${selectedMode === "sources" ? " is-active" : ""}`}
                 title={sourcesBadgeTitle}
               >
                 Sources
                 {sourcesBadge ? (
-                  <span style={sourcesBadgeStyle}>{sourcesBadge}</span>
+                  <span className={`hs-sources-badge${devMode ? " is-dev" : ""}`}>{sourcesBadge}</span>
                 ) : null}
               </button>
               <button
                 type="button"
                 onClick={() => setMode("revisions")}
-                style={modeButtonStyle(selectedMode === "revisions")}
+                className={`hs-mode-button${selectedMode === "revisions" ? " is-active" : ""}`}
               >
                 Revisions
-                <span style={{ fontSize: 11, opacity: 0.6, marginLeft: 6 }}>{revisions.length}</span>
+                <span className="hs-mode-meta">{revisions.length}</span>
               </button>
             </div>
           ) : null}
         </aside>
 
-        <main style={{ display: "grid", gap: 16 }}>
+        <main className="hs-main">
           {mainContent}
         </main>
       </div>
 
       {revisionModalOpen ? (
         <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.65)",
-            display: "grid",
-            placeItems: "center",
-            padding: 16,
-          }}
+          className="hs-modal-overlay"
         >
           <div
-            style={{
-              width: "min(460px, 90vw)",
-              background: "var(--forge-bg-elevated, #fff)",
-              borderRadius: 12,
-              padding: 16,
-              border: "1px solid var(--forge-border, #ddd)",
-              display: "grid",
-              gap: 12,
-            }}
+            className="hs-modal"
           >
-            <div style={{ fontWeight: 700 }}>Create Revision</div>
-            <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontSize: 12, opacity: 0.7 }}>Kind</span>
+            <div className="hs-modal-title">Create Revision</div>
+            <label className="hs-field">
+              <span className="hs-field-label-muted">Kind</span>
               <select value={revisionKind} onChange={(event) => setRevisionKind(event.target.value as RevisionKind)}>
                 <option value="manual">Manual</option>
                 <option value="milestone">Milestone</option>
               </select>
             </label>
-            <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontSize: 12, opacity: 0.7 }}>Note (optional)</span>
+            <label className="hs-field">
+              <span className="hs-field-label-muted">Note (optional)</span>
               <textarea
                 value={revisionNote}
                 onChange={(event) => setRevisionNote(event.target.value)}
                 placeholder="Why this change?"
-                style={{ minHeight: 90, resize: "vertical" }}
+                className="hs-textarea-modal"
               />
             </label>
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <div className="hs-modal-actions">
               <button
                 type="button"
                 onClick={() => {
