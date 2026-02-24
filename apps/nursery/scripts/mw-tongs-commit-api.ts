@@ -1,8 +1,40 @@
 import { Buffer } from "node:buffer";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createTongsCommitApiHandler, type TongsCommitApiOptions } from "@forge/tongs";
 
 type Next = (err?: unknown) => void;
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const ENV_ROOT = path.join(__dirname, "..");
+const ENV_FILES = [".env.local", ".env"];
+
+function loadEnvFile(filePath: string): void {
+  if (!fs.existsSync(filePath)) return;
+  const content = fs.readFileSync(filePath, "utf8");
+  const lines = content.split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let value = trimmed.slice(eq + 1).trim();
+    if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (process.env[key] == null) {
+      process.env[key] = value;
+    }
+  }
+}
+
+for (const filename of ENV_FILES) {
+  loadEnvFile(path.join(ENV_ROOT, filename));
+}
 
 function readEnv(name: string): string | undefined {
   const value = process.env[name];
