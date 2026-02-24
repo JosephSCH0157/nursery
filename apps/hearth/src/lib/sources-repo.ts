@@ -154,7 +154,12 @@ async function readJsonFromTongs(url: string): Promise<ReadResult<unknown>> {
     } catch {
       // ignore
     }
-    if (body && typeof body === "object" && (body as { ok?: boolean }).ok === true) {
+    if (
+      body
+      && typeof body === "object"
+      && (body as { ok?: boolean }).ok === true
+      && (body as { exists?: boolean }).exists === false
+    ) {
       return { ok: true, data: null };
     }
     return { ok: false, status: 404, reason: "not_found" };
