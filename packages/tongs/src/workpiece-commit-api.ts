@@ -771,11 +771,37 @@ async function uploadStorageObject(
   });
 
   if (error) {
+    logStorageError("upload", bucket, key, error);
     throw new HttpError(502, "storage_write_failed", "Unable to write file to Storage", {
       key,
       reason: error.message,
     });
   }
+}
+
+function shouldDebugStorage(): boolean {
+  return typeof process !== "undefined" && process.env.TONGS_DEBUG_STORAGE === "1";
+}
+
+function safeSerializeError(error: unknown): unknown {
+  if (!error || typeof error !== "object") return error;
+  try {
+    return JSON.parse(JSON.stringify(error));
+  } catch {
+    return { message: String(error) };
+  }
+}
+
+function logStorageError(action: "download" | "upload", bucket: string, key: string, error: unknown): void {
+  if (!shouldDebugStorage()) return;
+  const serialized = safeSerializeError(error);
+  const message = error instanceof Error ? error.message : undefined;
+  console.error(`[tongs][storage:${action}]`, {
+    bucket,
+    key,
+    message,
+    error: serialized,
+  });
 }
 
 async function downloadStorageObject(
@@ -786,13 +812,17 @@ async function downloadStorageObject(
   const { data, error } = await supabase.storage.from(bucket).download(key);
   if (error) {
     const message = String(error.message || "").toLowerCase();
-    const code = String((error as { statusCode?: unknown }).statusCode ?? "");
+    const statusCode = (error as { statusCode?: unknown; status?: unknown }).statusCode
+      ?? (error as { status?: unknown }).status
+      ?? null;
+    const code = String(statusCode ?? "");
     if (message.includes("not found") || code === "404") return null;
 
+    logStorageError("download", bucket, key, error);
     throw new HttpError(502, "storage_read_failed", "Unable to read file from Storage", {
       key,
       reason: error.message,
-      status: (error as { statusCode?: unknown }).statusCode ?? null,
+      status: statusCode,
     });
   }
 
