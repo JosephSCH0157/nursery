@@ -792,6 +792,7 @@ async function downloadStorageObject(
     throw new HttpError(502, "storage_read_failed", "Unable to read file from Storage", {
       key,
       reason: error.message,
+      status: (error as { statusCode?: unknown }).statusCode ?? null,
     });
   }
 
