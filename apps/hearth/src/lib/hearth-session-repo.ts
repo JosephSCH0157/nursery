@@ -90,6 +90,9 @@ function resolveApiToken(): string | undefined {
   };
   const fromWindow = readString(w.__forgeTongsApiToken ?? w.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
+  const metaEnv = import.meta as unknown as { env?: Record<string, string | undefined> };
+  const fromEnv = readString(metaEnv.env?.VITE_TONGS_API_TOKEN);
+  if (fromEnv) return fromEnv;
   try {
     return readString(window.localStorage.getItem("forge_tongs_api_token_v1")) ?? undefined;
   } catch {

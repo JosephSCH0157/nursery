@@ -113,9 +113,12 @@ function getApiToken(): string | undefined {
     __forgeTongsApiToken?: unknown;
     __tpTongsApiToken?: unknown;
   };
-  return readString(w.__forgeTongsApiToken ?? w.__tpTongsApiToken)
-    ?? readString(readLocalStorage("forge_tongs_api_token_v1"))
-    ?? undefined;
+  const fromWindow = readString(w.__forgeTongsApiToken ?? w.__tpTongsApiToken);
+  if (fromWindow) return fromWindow;
+  const metaEnv = import.meta as unknown as { env?: Record<string, string | undefined> };
+  const fromEnv = readString(metaEnv.env?.VITE_TONGS_API_TOKEN);
+  if (fromEnv) return fromEnv;
+  return readString(readLocalStorage("forge_tongs_api_token_v1")) ?? undefined;
 }
 
 function buildHeaders(apiToken?: string): Record<string, string> {

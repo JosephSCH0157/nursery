@@ -197,6 +197,10 @@ function resolveApiToken(): string | undefined {
     // ignore
   }
 
+  const metaEnv = import.meta as unknown as { env?: Record<string, string | undefined> };
+  const fromEnv = readString(metaEnv.env?.VITE_TONGS_API_TOKEN);
+  if (fromEnv) return fromEnv;
+
   return readLocalStorage("forge_tongs_api_token_v1") ?? undefined;
 }
 
