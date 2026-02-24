@@ -32,6 +32,8 @@ Release baseline: **Forge v1.0.0** (`forge-v1.0.0`).
 **Inputs:** Tool storage requests  
 **Outputs:** Normalized storage decisions, snapshots, mirrors
 
+Canonical storage contract: `TONGS_PATH_CHARTER.md`.
+
 ---
 
 ## 🔥 Creation Agents
