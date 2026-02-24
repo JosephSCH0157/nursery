@@ -7,7 +7,7 @@ Authorization is enforced by Supabase RLS and membership, never by storage key p
 
 **Canonical Identities**
 - `workspace_id` = `tongs.workspaces.id`
-- `workpiece_id` = `tongs.project_cradles.id`
+- `workpiece_id` = `tongs.episodes.id`
 - `path` = relative path stored in `tongs.workpiece_files.path`
 
 **Storage Key Layout**

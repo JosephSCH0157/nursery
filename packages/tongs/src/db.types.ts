@@ -96,6 +96,38 @@ export type Database = {
         }
         Relationships: []
       }
+      episodes: {
+        Row: {
+          id: string
+          workspace_id: string
+          label: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          label: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          label?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "episodes_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_cradles: {
         Row: {
           id: string
@@ -205,7 +237,7 @@ export type Database = {
             foreignKeyName: "workpiece_events_workpiece_id_fkey"
             columns: ["workpiece_id"]
             isOneToOne: false
-            referencedRelation: "project_cradles"
+            referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
         ]
@@ -264,7 +296,7 @@ export type Database = {
             foreignKeyName: "workpiece_files_workpiece_id_fkey"
             columns: ["workpiece_id"]
             isOneToOne: false
-            referencedRelation: "project_cradles"
+            referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
         ]

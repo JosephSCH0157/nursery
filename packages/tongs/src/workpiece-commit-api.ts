@@ -12,7 +12,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
-type ProjectCradleRow = Database["tongs"]["Tables"]["project_cradles"]["Row"];
+type EpisodeRow = Database["tongs"]["Tables"]["episodes"]["Row"];
 type WorkpieceFileRow = Database["tongs"]["Tables"]["workpiece_files"]["Row"];
 type WorkpieceEventRow = Database["tongs"]["Tables"]["workpiece_events"]["Row"];
 type WorkspaceRow = Database["tongs"]["Tables"]["workspaces"]["Row"];
@@ -110,7 +110,7 @@ export type CreateCradleRequest = {
 };
 
 export type CreateCradleResponse = {
-  cradle: ProjectCradleRow;
+  cradle: EpisodeRow;
   manifest_hash: string;
   manifest_bytes: number;
   files_indexed: number;
@@ -930,6 +930,15 @@ function normalizeAppendEventRequest(body: Record<string, unknown>): AppendEvent
   };
 }
 
+function resolveEpisodeLabel(metadata: Json | undefined): string {
+  if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
+    const row = metadata as Record<string, unknown>;
+    if (typeof row.label === "string" && row.label.trim()) return row.label.trim();
+    if (typeof row.title === "string" && row.title.trim()) return row.title.trim();
+  }
+  return "Untitled Episode";
+}
+
 export class TongsCommitService {
   readonly supabase: SupabaseClient<Database>;
   readonly bucket: string;
@@ -939,10 +948,10 @@ export class TongsCommitService {
     this.bucket = bucket;
   }
 
-  private async getCradleOrThrow(workpieceId: string): Promise<ProjectCradleRow> {
+  private async getCradleOrThrow(workpieceId: string): Promise<EpisodeRow> {
     const { data, error } = await this.supabase
       .schema("tongs")
-      .from("project_cradles")
+      .from("episodes")
       .select("*")
       .eq("id", workpieceId)
       .single();
@@ -951,7 +960,7 @@ export class TongsCommitService {
       if (error.code === "PGRST116") {
         throw new HttpError(404, "workpiece_not_found", `Workpiece ${workpieceId} was not found`);
       }
-      throw new HttpError(502, "db_read_failed", "Failed to read project cradle", {
+      throw new HttpError(502, "db_read_failed", "Failed to read episode", {
         reason: error.message,
       });
     }
@@ -1032,18 +1041,20 @@ export class TongsCommitService {
     return data;
   }
 
-  private async loadManifestOrDefault(cradle: ProjectCradleRow): Promise<WorkpieceManifest> {
+  private async loadManifestOrDefault(cradle: EpisodeRow): Promise<WorkpieceManifest> {
+    const status = "draft";
+    const createdAt = cradle.created_at ?? new Date().toISOString();
     const key = buildStorageKey(cradle.id, MANIFEST_PATH);
     const bytes = await downloadStorageObject(this.supabase, this.bucket, key);
     const fallback = {
       workpieceId: cradle.id,
       workspaceId: cradle.workspace_id,
-      status: cradle.status,
-      createdAt: cradle.created_at,
+      status,
+      createdAt,
     };
 
     if (!bytes) {
-      return defaultManifest(cradle.id, cradle.workspace_id, cradle.status, cradle.created_at);
+      return defaultManifest(cradle.id, cradle.workspace_id, status, createdAt);
     }
 
     const parsed = parseJsonText(textDecoder.decode(bytes), MANIFEST_PATH);
@@ -1055,27 +1066,27 @@ export class TongsCommitService {
     const writtenBy = input.written_by ?? DEFAULT_WRITTEN_BY;
     const status = input.status?.trim() || "draft";
 
-    const { data: cradle, error: cradleError } = await this.supabase
+    const { data: episode, error: episodeError } = await this.supabase
       .schema("tongs")
-      .from("project_cradles")
+      .from("episodes")
       .insert({
         ...(input.cradle_id ? { id: input.cradle_id } : {}),
         workspace_id: input.workspace_id,
-        status,
-        metadata: input.metadata ?? ({} as Json),
-        created_by: input.created_by?.user_id ?? null,
+        label: resolveEpisodeLabel(input.metadata),
       })
       .select("*")
       .single();
 
-    if (cradleError) {
-      throw new HttpError(502, "db_write_failed", "Failed to create project cradle", {
-        reason: cradleError.message,
+    if (episodeError) {
+      throw new HttpError(502, "db_write_failed", "Failed to create episode", {
+        reason: episodeError.message,
       });
     }
-    if (!cradle) {
-      throw new HttpError(502, "db_write_failed", "project_cradles insert returned no row");
+    if (!episode) {
+      throw new HttpError(502, "db_write_failed", "episodes insert returned no row");
     }
+
+    const cradle = episode;
 
     const metadataDocument = {
       schema: "forge.metadata.v1",
@@ -1270,7 +1281,9 @@ export class TongsCommitService {
 
     const manifest = await this.loadManifestOrDefault(cradle);
     manifest.updated_at = nowIso;
-    manifest.status = cradle.status;
+    if (!manifest.status) {
+      manifest.status = "draft";
+    }
     manifest.files[path] = buildManifestFileEntry(fileType, contentType, bytes.length, hash, writtenBy, nowIso);
     applyPointerUpdates(manifest, path, input.pointer);
 
