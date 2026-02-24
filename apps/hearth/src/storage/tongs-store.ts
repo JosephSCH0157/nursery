@@ -2,6 +2,7 @@ import type { Draft, DraftId } from "../domain/draft";
 import type { Revision, RevisionId } from "../domain/revision";
 import type { HearthStore } from "./hearth-store";
 import { cloneRevision, normalizeRevision, readRevisionRecord, writeRevisionRecord } from "./revision-storage";
+import { tongsFetch } from "../lib/tongs-fetch";
 
 type WrittenBy = {
   tool: string;
@@ -180,30 +181,6 @@ function resolveWorkspaceId(): string | null {
   return normalizeUuid(readLocalStorage("barstock_workspace_id"));
 }
 
-function resolveApiToken(): string | undefined {
-  try {
-    const params = new URLSearchParams(window.location.search);
-    const fromQuery = readString(params.get("tongs_api_token") ?? params.get("tongsApiToken"));
-    if (fromQuery) return fromQuery;
-  } catch {
-    // ignore
-  }
-
-  try {
-    const w = window as ForgeWindow;
-    const fromWindow = readString(w.__forgeTongsApiToken ?? w.__tpTongsApiToken);
-    if (fromWindow) return fromWindow;
-  } catch {
-    // ignore
-  }
-
-  const metaEnv = import.meta as unknown as { env?: Record<string, string | undefined> };
-  const fromEnv = readString(metaEnv.env?.VITE_TONGS_API_TOKEN);
-  if (fromEnv) return fromEnv;
-
-  return readLocalStorage("forge_tongs_api_token_v1") ?? undefined;
-}
-
 function resolveLane(): string {
   try {
     const params = new URLSearchParams(window.location.search);
@@ -248,14 +225,6 @@ function nextCorrelationId(prefix: string): string {
   return `${prefix}:${Date.now().toString(36)}:${correlationSeq}`;
 }
 
-function buildHeaders(apiToken?: string): Record<string, string> {
-  const headers: Record<string, string> = {
-    "content-type": "application/json",
-  };
-  if (apiToken) headers.authorization = `Bearer ${apiToken}`;
-  return headers;
-}
-
 async function readJsonBody(response: Response): Promise<unknown> {
   const text = await response.text();
   if (!text.trim()) return null;
@@ -266,11 +235,10 @@ async function readJsonBody(response: Response): Promise<unknown> {
   }
 }
 
-async function createCradle(workspaceId: string, writtenBy: WrittenBy, apiToken?: string): Promise<string | null> {
-  const response = await fetch("/tongs/cradles", {
+async function createCradle(workspaceId: string, writtenBy: WrittenBy): Promise<string | null> {
+  const response = await tongsFetch("/tongs/cradles", {
     method: "POST",
-    headers: buildHeaders(apiToken),
-    body: JSON.stringify({
+    json: {
       workspace_id: workspaceId,
       written_by: writtenBy,
       origin_tool: {
@@ -281,7 +249,7 @@ async function createCradle(workspaceId: string, writtenBy: WrittenBy, apiToken?
         schema: "hearth.drafts.v1",
       },
       correlation_id: nextCorrelationId("hearth-create-cradle"),
-    }),
+    },
   });
 
   const body = await readJsonBody(response);
@@ -301,12 +269,10 @@ async function commitDraftSnapshot(
     drafts: Draft[];
   },
   writtenBy: WrittenBy,
-  apiToken?: string,
 ): Promise<{ ok: true } | { ok: false; status: number }> {
-  const response = await fetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/commit-file`, {
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/commit-file`, {
     method: "POST",
-    headers: buildHeaders(apiToken),
-    body: JSON.stringify({
+    json: {
       path: TONGS_DRAFT_SNAPSHOT_PATH,
       content_type: "application/json",
       json: snapshot,
@@ -318,7 +284,7 @@ async function commitDraftSnapshot(
         updatedAt: snapshot.updatedAt,
       },
       correlation_id: nextCorrelationId("hearth-drafts-commit"),
-    }),
+    },
   });
 
   const body = await readJsonBody(response);
@@ -428,11 +394,10 @@ export class TongsHearthStore implements HearthStore {
     if (!workspaceId) return;
 
     const writtenBy = buildWrittenBy();
-    const apiToken = resolveApiToken();
     let workpieceId = resolveCachedWorkpieceId(workspaceId, cache);
 
     if (!workpieceId) {
-      workpieceId = await createCradle(workspaceId, writtenBy, apiToken);
+      workpieceId = await createCradle(workspaceId, writtenBy);
       if (!workpieceId) return;
       persistWorkpieceId(workspaceId, workpieceId, cache);
     }
@@ -445,13 +410,13 @@ export class TongsHearthStore implements HearthStore {
       drafts,
     };
 
-    const firstTry = await commitDraftSnapshot(workpieceId, snapshot, writtenBy, apiToken);
+    const firstTry = await commitDraftSnapshot(workpieceId, snapshot, writtenBy);
     if (firstTry.ok) return;
     if (firstTry.status !== 404) return;
 
-    const replacementId = await createCradle(workspaceId, writtenBy, apiToken);
+    const replacementId = await createCradle(workspaceId, writtenBy);
     if (!replacementId) return;
     persistWorkpieceId(workspaceId, replacementId, cache);
-    await commitDraftSnapshot(replacementId, snapshot, writtenBy, apiToken);
+    await commitDraftSnapshot(replacementId, snapshot, writtenBy);
   }
 }

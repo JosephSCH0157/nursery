@@ -1,3 +1,5 @@
+import { tongsFetch } from "./tongs-fetch";
+
 type WrittenBy = {
   tool: string;
   tool_version: string;
@@ -108,27 +110,6 @@ function getWrittenBy(): WrittenBy {
   };
 }
 
-function getApiToken(): string | undefined {
-  const w = window as typeof window & {
-    __forgeTongsApiToken?: unknown;
-    __tpTongsApiToken?: unknown;
-  };
-  const fromWindow = readString(w.__forgeTongsApiToken ?? w.__tpTongsApiToken);
-  if (fromWindow) return fromWindow;
-  const metaEnv = import.meta as unknown as { env?: Record<string, string | undefined> };
-  const fromEnv = readString(metaEnv.env?.VITE_TONGS_API_TOKEN);
-  if (fromEnv) return fromEnv;
-  return readString(readLocalStorage("forge_tongs_api_token_v1")) ?? undefined;
-}
-
-function buildHeaders(apiToken?: string): Record<string, string> {
-  const headers: Record<string, string> = {
-    "content-type": "application/json",
-  };
-  if (apiToken) headers.authorization = `Bearer ${apiToken}`;
-  return headers;
-}
-
 function nextCorrelationId(prefix: string): string {
   correlationSeq += 1;
   return `${prefix}:${Date.now().toString(36)}:${correlationSeq}`;
@@ -155,13 +136,11 @@ async function readBodyAsJson(response: Response): Promise<unknown> {
 async function createCradle(args: {
   workspaceId: string;
   writtenBy: WrittenBy;
-  apiToken?: string;
   origin?: ForgeOrigin;
 }): Promise<CreateWorkpieceResult> {
-  const response = await fetch("/tongs/cradles", {
+  const response = await tongsFetch("/tongs/cradles", {
     method: "POST",
-    headers: buildHeaders(args.apiToken),
-    body: JSON.stringify({
+    json: {
       workspace_id: args.workspaceId,
       written_by: args.writtenBy,
       origin_tool: {
@@ -170,7 +149,7 @@ async function createCradle(args: {
       },
       metadata: args.origin ? { origin: args.origin } : {},
       correlation_id: nextCorrelationId("hearth-create-cradle"),
-    }),
+    },
   });
 
   const body = await readBodyAsJson(response);
@@ -185,7 +164,6 @@ async function commitMetadata(args: {
   workpieceId: string;
   workspaceId: string;
   writtenBy: WrittenBy;
-  apiToken?: string;
   origin?: ForgeOrigin;
 }): Promise<{ ok: boolean; status?: number; details?: unknown }> {
   const nowIso = new Date().toISOString();
@@ -200,10 +178,9 @@ async function commitMetadata(args: {
     origin: args.origin ?? null,
   };
 
-  const response = await fetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/commit-file`, {
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/commit-file`, {
     method: "POST",
-    headers: buildHeaders(args.apiToken),
-    body: JSON.stringify({
+    json: {
       path: "metadata.json",
       content_type: "application/json",
       written_by: args.writtenBy,
@@ -213,7 +190,7 @@ async function commitMetadata(args: {
         origin: args.origin ?? null,
       },
       correlation_id: nextCorrelationId("hearth-metadata"),
-    }),
+    },
   });
 
   const body = await readBodyAsJson(response);
@@ -230,9 +207,8 @@ export async function createHearthWorkpiece(origin?: ForgeOrigin): Promise<Creat
   }
 
   const writtenBy = getWrittenBy();
-  const apiToken = getApiToken();
 
-  const created = await createCradle({ workspaceId, writtenBy, apiToken, origin });
+  const created = await createCradle({ workspaceId, writtenBy, origin });
   if (!created.ok) return created;
 
   persistWorkpiece(workspaceId, created.workpieceId);
@@ -240,7 +216,6 @@ export async function createHearthWorkpiece(origin?: ForgeOrigin): Promise<Creat
     workpieceId: created.workpieceId,
     workspaceId,
     writtenBy,
-    apiToken,
     origin,
   });
 

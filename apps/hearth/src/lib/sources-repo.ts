@@ -12,6 +12,7 @@ import {
   SOURCES_INDEX_SCHEMA,
   sourceEntryPath,
 } from "../domain/source";
+import { tongsFetch } from "./tongs-fetch";
 
 type ReadResult<T> = { ok: true; data: T } | { ok: false; status?: number; reason: string };
 type CommitResult = { ok: true; skipped?: boolean } | { ok: false; status?: number; reason: string };
@@ -116,21 +117,6 @@ export function resolveWorkpieceId(): string | null {
   return null;
 }
 
-function resolveApiToken(): string | undefined {
-  const fromQuery = readString(getQueryParam("tongs_api_token", "tongsApiToken"));
-  if (fromQuery) return fromQuery;
-  const w = window as typeof window & {
-    __forgeTongsApiToken?: unknown;
-    __tpTongsApiToken?: unknown;
-  };
-  const fromWindow = readString(w.__forgeTongsApiToken ?? w.__tpTongsApiToken);
-  if (fromWindow) return fromWindow;
-  const metaEnv = import.meta as unknown as { env?: Record<string, string | undefined> };
-  const fromEnv = readString(metaEnv.env?.VITE_TONGS_API_TOKEN);
-  if (fromEnv) return fromEnv;
-  return readLocalStorage("forge_tongs_api_token_v1") ?? undefined;
-}
-
 function resolveLane(): string {
   const fromQuery = readString(getQueryParam("forge_lane", "lane"));
   if (fromQuery) return fromQuery;
@@ -154,23 +140,13 @@ function buildWrittenBy(): WrittenBy {
   };
 }
 
-function buildHeaders(apiToken?: string): Record<string, string> {
-  const headers: Record<string, string> = { "content-type": "application/json" };
-  if (apiToken) headers.authorization = `Bearer ${apiToken}`;
-  return headers;
-}
-
 function nextCorrelationId(prefix: string): string {
   correlationSeq += 1;
   return `${prefix}:${Date.now().toString(36)}:${correlationSeq}`;
 }
 
 async function readJsonFromTongs(url: string): Promise<ReadResult<unknown>> {
-  const headers: Record<string, string> = {};
-  const apiToken = resolveApiToken();
-  if (apiToken) headers.authorization = `Bearer ${apiToken}`;
-
-  const response = await fetch(url, { headers });
+  const response = await tongsFetch(url);
   if (response.status === 404) {
     return { ok: false, status: 404, reason: "not_found" };
   }
@@ -187,11 +163,9 @@ async function readJsonFromTongs(url: string): Promise<ReadResult<unknown>> {
 }
 
 async function postJsonToTongs(url: string, payload: unknown): Promise<ReadResult<unknown>> {
-  const apiToken = resolveApiToken();
-  const response = await fetch(url, {
+  const response = await tongsFetch(url, {
     method: "POST",
-    headers: buildHeaders(apiToken),
-    body: JSON.stringify(payload),
+    json: payload,
   });
 
   if (!response.ok) {
