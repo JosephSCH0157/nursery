@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import { createDraft, type Draft } from "../domain/draft";
 import { createRevision, type Revision, type RevisionKind } from "../domain/revision";
 import type { HearthSession } from "../domain/session";
-import type { SourceIndexEntry, WorkpieceSourceRef } from "../domain/source";
+import type { ScriptSource, SourceIndexEntry, WorkpieceSourceRef } from "../domain/source";
 import {
   type BarStockSpark,
   enqueueBarStockSpark,
@@ -14,6 +14,7 @@ import {
 } from "../lib/barstock-sparks";
 import { createHearthWorkpiece } from "../lib/hearth-workpiece";
 import {
+  readSourceLibrary,
   readSourceIndex,
   readWorkpieceSources,
   isSourceRegistryKey,
@@ -21,6 +22,8 @@ import {
   writeWorkpieceSourcesCache,
 } from "../lib/source-registry";
 import {
+  commitWorkpieceSourceRefs,
+  commitWorkspaceSourcesLibrary,
   readWorkpieceSourceRefs,
   readWorkspaceSourcesIndex,
   resolveWorkpieceId,
@@ -197,6 +200,17 @@ function formatSparkStatus(spark: BarStockSpark): { label: string; detail?: stri
   return { label: "Unused" };
 }
 
+function buildIndexFromSources(sources: ScriptSource[]): SourceIndexEntry[] {
+  return sources.map((source) => ({
+    source_id: source.source_id,
+    title: source.title,
+    type: source.type,
+    url: source.url ?? null,
+    publisher: source.publisher ?? null,
+    published_at: source.published_at ?? null,
+  }));
+}
+
 export default function HearthHome() {
   const storeKind = resolveStoreKind();
   const devMode = isDevMode();
@@ -246,6 +260,10 @@ export default function HearthHome() {
   const sessionSaveTimer = useRef<number | null>(null);
   const bodyRef = useRef<HTMLTextAreaElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const workpieceSourcesCommitRef = useRef<string | null>(null);
+  const workspaceSourcesCommitRef = useRef<string | null>(null);
+  const sourcesCommitInFlight = useRef(false);
+  const sourcesCommitQueued = useRef(false);
 
   const lastAutosaveRevisionAt = useMemo(() => {
     const match = revisions.find((rev) => rev.kind === "autosave");
@@ -388,6 +406,69 @@ export default function HearthHome() {
     await refreshRevisions(draft.id);
     await persistSession(draft.id, "editor");
   }, [persistSession, refreshRevisions]);
+
+  const syncSourcesToTongs = useCallback(async () => {
+    if (!workspaceId && !workpieceId) return;
+    if (sourcesCommitInFlight.current) {
+      sourcesCommitQueued.current = true;
+      return;
+    }
+
+    sourcesCommitInFlight.current = true;
+    try {
+      do {
+        sourcesCommitQueued.current = false;
+        const tasks: Promise<void>[] = [];
+
+        if (workpieceId && workpieceSources.length > 0) {
+          const fingerprint = JSON.stringify({ workpieceId, refs: workpieceSources });
+          if (fingerprint !== workpieceSourcesCommitRef.current) {
+            tasks.push(
+              commitWorkpieceSourceRefs(workpieceId, workpieceSources)
+                .then((result) => {
+                  if (result.ok && !result.skipped) {
+                    workpieceSourcesCommitRef.current = fingerprint;
+                  }
+                })
+                .catch(() => {}),
+            );
+          }
+        }
+
+        if (workspaceId) {
+          const sourceLibrary = readSourceLibrary();
+          const indexToCommit = sourceIndexEntries.length > 0
+            ? sourceIndexEntries
+            : buildIndexFromSources(sourceLibrary);
+
+          if (sourceLibrary.length > 0 && indexToCommit.length > 0) {
+            const fingerprint = JSON.stringify({
+              workspaceId,
+              sources: sourceLibrary,
+              index: indexToCommit,
+            });
+            if (fingerprint !== workspaceSourcesCommitRef.current) {
+              tasks.push(
+                commitWorkspaceSourcesLibrary(workspaceId, sourceLibrary, indexToCommit)
+                  .then((result) => {
+                    if (result.ok && !result.skipped) {
+                      workspaceSourcesCommitRef.current = fingerprint;
+                    }
+                  })
+                  .catch(() => {}),
+              );
+            }
+          }
+        }
+
+        if (tasks.length) {
+          await Promise.all(tasks);
+        }
+      } while (sourcesCommitQueued.current);
+    } finally {
+      sourcesCommitInFlight.current = false;
+    }
+  }, [sourceIndexEntries, workspaceId, workpieceId, workpieceSources]);
 
   const onSaveDraft = useCallback(async () => {
     if (!activeDraft) return;
@@ -687,6 +768,7 @@ export default function HearthHome() {
         kind: "autosave",
         note: "Autosave",
       } : null,
+      syncSources: false,
     });
   }
 
@@ -694,6 +776,7 @@ export default function HearthHome() {
     draft: Draft;
     updatedAt: number;
     createRevision: { kind: RevisionKind; note?: string } | null;
+    syncSources?: boolean;
   }) {
     setIsSaving(true);
     setError(null);
@@ -742,6 +825,9 @@ export default function HearthHome() {
       }
 
       await persistSession(toSave.id, revisionView === "list" ? "editor" : revisionView);
+      if (args.syncSources !== false) {
+        void syncSourcesToTongs();
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to save draft.";
       setError(message);
