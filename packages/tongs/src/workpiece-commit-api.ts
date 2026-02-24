@@ -147,6 +147,10 @@ export type CommitFileResponse = {
   event: WorkpieceEventRow;
 };
 
+export type ReadJsonFileResult =
+  | { found: true; data: unknown }
+  | { found: false };
+
 export type AppendEventRequest = {
   event_name: string;
   payload?: Json;
@@ -165,6 +169,8 @@ export type TongsCommitApiService = {
   createCradle(input: CreateCradleRequest): Promise<CreateCradleResponse>;
   commitFile(workpieceId: string, input: CommitFileRequest): Promise<CommitFileResponse>;
   appendEvent(workpieceId: string, input: AppendEventRequest): Promise<WorkpieceEventRow>;
+  readWorkpieceJson(workpieceId: string, path: string): Promise<ReadJsonFileResult>;
+  readWorkspaceJson(workspaceId: string, path: string): Promise<ReadJsonFileResult>;
 };
 
 class HttpError extends Error {
@@ -447,6 +453,10 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 
 function buildStorageKey(workpieceId: string, path: string): string {
   return `workpieces/${workpieceId}/${path}`;
+}
+
+function buildWorkspaceStorageKey(workspaceId: string, path: string): string {
+  return `workspaces/${workspaceId}/${path}`;
 }
 
 function buildManifestFileEntry(
@@ -1320,6 +1330,23 @@ export class TongsCommitService {
     };
   }
 
+  async readWorkpieceJson(workpieceId: string, path: string): Promise<ReadJsonFileResult> {
+    await this.getCradleOrThrow(workpieceId);
+    const storageKey = buildStorageKey(workpieceId, path);
+    const bytes = await downloadStorageObject(this.supabase, this.bucket, storageKey);
+    if (!bytes) return { found: false };
+    const parsed = parseJsonText(textDecoder.decode(bytes), path);
+    return { found: true, data: parsed };
+  }
+
+  async readWorkspaceJson(workspaceId: string, path: string): Promise<ReadJsonFileResult> {
+    const storageKey = buildWorkspaceStorageKey(workspaceId, path);
+    const bytes = await downloadStorageObject(this.supabase, this.bucket, storageKey);
+    if (!bytes) return { found: false };
+    const parsed = parseJsonText(textDecoder.decode(bytes), path);
+    return { found: true, data: parsed };
+  }
+
   async appendEvent(workpieceId: string, input: AppendEventRequest): Promise<WorkpieceEventRow> {
     await this.getCradleOrThrow(workpieceId);
     return this.insertEvent({
@@ -1393,6 +1420,42 @@ export function createTongsCommitApiHandlerWithService(
         const payload = normalizeCommitFileRequest(body);
         const result = await service.commitFile(workpieceId, payload);
         return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "read-file") {
+        requireMethod(request, "GET");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const url = new URL(request.url);
+        const path = normalizeRelativePath(url.searchParams.get("path"));
+        if (extensionOf(path) !== ".json") {
+          throw new HttpError(400, "invalid_path", "read-file currently supports JSON paths only");
+        }
+        const result = await service.readWorkpieceJson(workpieceId, path);
+        if (!result.found) {
+          return jsonResponse(404, {
+            ok: false,
+            error: { code: "file_not_found", message: "File not found" },
+          });
+        }
+        return jsonResponse(200, { ok: true, data: result.data });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "read-file") {
+        requireMethod(request, "GET");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const url = new URL(request.url);
+        const path = normalizeRelativePath(url.searchParams.get("path"));
+        if (extensionOf(path) !== ".json") {
+          throw new HttpError(400, "invalid_path", "read-file currently supports JSON paths only");
+        }
+        const result = await service.readWorkspaceJson(workspaceId, path);
+        if (!result.found) {
+          return jsonResponse(404, {
+            ok: false,
+            error: { code: "file_not_found", message: "File not found" },
+          });
+        }
+        return jsonResponse(200, { ok: true, data: result.data });
       }
 
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "append-event") {
