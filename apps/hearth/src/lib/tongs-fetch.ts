@@ -8,6 +8,8 @@ type ForgeWindow = Window &
 
 export type TongsFetchOptions = RequestInit & { json?: unknown };
 
+console.log("[tongsFetch] VITE_TONGS_API_TOKEN =", (import.meta as any).env?.VITE_TONGS_API_TOKEN);
+
 function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
