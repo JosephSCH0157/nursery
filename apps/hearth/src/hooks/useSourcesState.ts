@@ -76,6 +76,9 @@ export type SourcesState = {
   missingWorkpieceSources: string[];
   missingLibrarySources: string[];
   unusedWorkpieceSources: string[];
+  missingCitedCount: number;
+  unusedRefsCount: number;
+  hasWorkspaceIndex: boolean;
   citedSourceIds: Set<string>;
   status: SourcesStatus;
   attachSourceToWorkpiece: (sourceId: string) => void;
@@ -90,9 +93,12 @@ export function useSourcesState(
   workspaceId: string | null,
   workpieceId: string | null,
   draftText: string | null | undefined,
+  options?: { mode?: "summary" | "full" },
 ): SourcesState {
+  const mode = options?.mode ?? "summary";
   const [workpieceSources, setWorkpieceSources] = useState<WorkpieceSourceRef[]>(() => readWorkpieceSources());
   const [sourceIndexEntries, setSourceIndexEntries] = useState<SourceIndexEntry[]>(() => readSourceIndex());
+  const [workspaceIndexExists, setWorkspaceIndexExists] = useState<boolean | null>(null);
   const [sourceDetails, setSourceDetails] = useState<Record<string, ScriptSource>>({});
   const [status, setStatus] = useState<SourcesStatus>({ kind: "idle" });
 
@@ -156,6 +162,10 @@ export function useSourcesState(
     }
     return Array.from(unused.values());
   }, [workpieceSources, citedSourceIds]);
+
+  const missingCitedCount = missingWorkpieceSources.length;
+  const unusedRefsCount = unusedWorkpieceSources.length;
+  const hasWorkspaceIndex = workspaceIndexExists ?? sourceIndexEntries.length > 0;
 
   const setStatusWithTimeout = useCallback((next: SourcesStatus, timeoutMs = 2200) => {
     setStatus(next);
@@ -264,6 +274,7 @@ export function useSourcesState(
   }, [queueWorkpieceCommit]);
 
   const loadSourceDetails = useCallback(async (sourceId: string) => {
+    if (mode !== "full") return null;
     const normalized = normalizeSourceId(sourceId);
     if (sourceDetails[normalized]) return sourceDetails[normalized];
     if (!workspaceId) {
@@ -280,7 +291,7 @@ export function useSourcesState(
       }
     }
     return result;
-  }, [sourceDetails, workspaceId, setStatusWithTimeout, sourceIndexById, sourceIndexEntries]);
+  }, [mode, sourceDetails, workspaceId, setStatusWithTimeout, sourceIndexById, sourceIndexEntries]);
 
   const addSourceToLibrary = useCallback(async (
     input: NewSourceInput,
@@ -374,8 +385,9 @@ export function useSourcesState(
           readWorkspaceSourcesIndex(workspaceId)
             .then((index) => {
               if (cancelled || !index) return;
-              setSourceIndexEntries(index);
-              writeSourceIndexCache(index);
+              setSourceIndexEntries(index.entries);
+              writeSourceIndexCache(index.entries);
+              setWorkspaceIndexExists(index.exists);
             })
             .catch(() => {}),
         );
@@ -406,6 +418,9 @@ export function useSourcesState(
     missingWorkpieceSources,
     missingLibrarySources,
     unusedWorkpieceSources,
+    missingCitedCount,
+    unusedRefsCount,
+    hasWorkspaceIndex,
     citedSourceIds,
     status,
     attachSourceToWorkpiece,

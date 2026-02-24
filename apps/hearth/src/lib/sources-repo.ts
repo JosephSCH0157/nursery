@@ -233,13 +233,21 @@ export async function readWorkpieceSourceRefs(workpieceId: string): Promise<Work
   return normalizeWorkpieceRefs(result.data);
 }
 
-export async function readWorkspaceSourcesIndex(workspaceId: string): Promise<SourceIndexEntry[] | null> {
+export type WorkspaceSourcesIndexResult = {
+  entries: SourceIndexEntry[];
+  exists: boolean;
+};
+
+export async function readWorkspaceSourcesIndex(workspaceId: string): Promise<WorkspaceSourcesIndexResult | null> {
   const url = `/tongs/workspaces/${encodeURIComponent(workspaceId)}/read-file?path=${encodeURIComponent(
     SOURCES_INDEX_PATH,
   )}`;
   const result = await readJsonFromTongs(url);
   if (!result.ok) return null;
-  return normalizeSourceIndex(result.data);
+  if (!result.data) {
+    return { entries: [], exists: false };
+  }
+  return { entries: normalizeSourceIndex(result.data), exists: true };
 }
 
 export async function readWorkspaceSource(workspaceId: string, sourceId: string): Promise<ScriptSource | null> {

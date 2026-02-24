@@ -350,10 +350,12 @@ export default function HearthShell() {
   const sessionDecisions = planningSession?.decisions ?? [];
   const sessionIntent = planningSession?.intent ?? deriveIntentFromOrigin(planningSession?.origin);
   const sessionSparkId = planningSession?.origin?.spark_id ?? planningSession?.links?.spark_id ?? null;
-  const sourcesState = useSourcesState(workspaceId, workpieceId, activeDraft?.body ?? "");
+  const sourcesState = useSourcesState(workspaceId, workpieceId, activeDraft?.body ?? "", {
+    mode: selectedMode === "sources" ? "full" : "summary",
+  });
   const workpieceSources = sourcesState.workpieceSources;
-  const missingSourcesCount = sourcesState.missingWorkpieceSources.length;
-  const unusedSourcesCount = sourcesState.unusedWorkpieceSources.length;
+  const missingSourcesCount = sourcesState.missingCitedCount;
+  const unusedSourcesCount = sourcesState.unusedRefsCount;
   const showHome = selectedMode === "home" || !workpieceId;
 
   const filteredDrafts = useMemo(() => {
@@ -1581,6 +1583,22 @@ export default function HearthShell() {
     fontWeight: active ? 600 : 500,
   });
 
+  const sourcesBadge = missingSourcesCount > 0 ? String(missingSourcesCount) : null;
+  const sourcesBadgeTitle = missingSourcesCount > 0
+    ? `Missing cited sources: ${missingSourcesCount}${unusedSourcesCount ? ` · Unused refs: ${unusedSourcesCount}` : ""}`
+    : unusedSourcesCount > 0
+      ? `Unused refs: ${unusedSourcesCount}`
+      : "Sources";
+  const sourcesBadgeStyle: CSSProperties = {
+    marginLeft: 6,
+    fontSize: 11,
+    padding: "1px 6px",
+    borderRadius: 999,
+    border: "1px solid rgba(148,163,184,0.6)",
+    color: devMode ? "#b00020" : "rgba(15,23,42,0.7)",
+    background: devMode ? "rgba(176,0,32,0.08)" : "rgba(15,23,42,0.08)",
+  };
+
   return (
     <section style={{ padding: 24, display: "grid", gap: 16 }}>
       <div
@@ -1776,10 +1794,11 @@ export default function HearthShell() {
                 type="button"
                 onClick={() => setMode("sources")}
                 style={modeButtonStyle(selectedMode === "sources")}
+                title={sourcesBadgeTitle}
               >
                 Sources
-                {missingSourcesCount > 0 ? (
-                  <span style={{ fontSize: 11, color: "#b00020", marginLeft: 6 }}>!</span>
+                {sourcesBadge ? (
+                  <span style={sourcesBadgeStyle}>{sourcesBadge}</span>
                 ) : null}
               </button>
               <button
