@@ -4,6 +4,15 @@ import { createDraft, type Draft } from "../domain/draft";
 import { createRevision, type Revision, type RevisionKind } from "../domain/revision";
 import type { HearthSession } from "../domain/session";
 import type { ScriptSource, WorkpieceSourceRef } from "../domain/source";
+import {
+  type BarStockSpark,
+  enqueueBarStockSpark,
+  isBarStockKey,
+  readBarStockSparks,
+  upsertBarStockSpark,
+  writeBarStockSparks,
+} from "../lib/barstock-sparks";
+import { createHearthWorkpiece } from "../lib/hearth-workpiece";
 import { readSourceLibrary, readWorkpieceSources, isSourceRegistryKey } from "../lib/source-registry";
 import { normalizeSourceId, parseSourceTokens } from "../lib/source-tokens";
 import { createHearthStore } from "../storage/store-factory";
@@ -141,11 +150,51 @@ function buildDiffLines(current: string, revision: string): DiffLine[] {
   return out;
 }
 
+function formatSparkDate(value: number | undefined): string {
+  if (!value) return "Unknown";
+  try {
+    return new Date(value).toLocaleDateString();
+  } catch {
+    return String(value);
+  }
+}
+
+function deriveSparkTitle(spark: BarStockSpark): string {
+  const title = spark.title?.trim();
+  if (title) return title;
+  const line = spark.body.split(/\r?\n/).find((chunk) => chunk.trim());
+  if (line) return line.trim().slice(0, 60);
+  return "Untitled Spark";
+}
+
+function buildSparkPreview(text: string): string {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const preview = lines.slice(0, 2).join(" ");
+  return preview.length > 180 ? `${preview.slice(0, 177)}...` : preview;
+}
+
+function formatSparkStatus(spark: BarStockSpark): { label: string; detail?: string } {
+  const workpieceId = spark.links?.hearthWorkpieceId ?? spark.links?.hearthDraftId ?? null;
+  if (workpieceId) {
+    const shortId = workpieceId.length > 8 ? workpieceId.slice(0, 8) : workpieceId;
+    return { label: "Used", detail: shortId };
+  }
+  if (spark.status === "forged") {
+    return { label: "Used" };
+  }
+  return { label: "Unused" };
+}
+
 export default function HearthHome() {
   const storeKind = resolveStoreKind();
   const devMode = isDevMode();
   const store = useMemo(() => createHearthStore(storeKind), [storeKind]);
   const sessionStore = useMemo(() => new LocalSessionStore(), []);
+
+  const [view, setView] = useState<"home" | "editor">("home");
+  const [sparks, setSparks] = useState<BarStockSpark[]>(() => readBarStockSparks());
+  const [forgeError, setForgeError] = useState<string | null>(null);
+  const [isForging, setIsForging] = useState(false);
 
   const [workpieceSources, setWorkpieceSources] = useState<WorkpieceSourceRef[]>(
     () => readWorkpieceSources(),
@@ -331,6 +380,78 @@ export default function HearthHome() {
     await persistDraft({ draft: activeDraft, updatedAt: now, createRevision: null });
   }, [activeDraft]);
 
+  const createDraftAndOpen = useCallback(async (seed?: { title?: string; body?: string }) => {
+    const next = createDraft(seed);
+    await store.saveDraft(next);
+    await refreshDrafts();
+    await selectDraft(next);
+    setView("editor");
+    return next;
+  }, [refreshDrafts, selectDraft, store]);
+
+  const startFromScratch = useCallback(async () => {
+    if (isForging) return;
+    setForgeError(null);
+    setIsForging(true);
+    try {
+      const created = await createHearthWorkpiece({ created_from: "scratch" });
+      if (!created.ok) {
+        setForgeError("Workpiece creation failed; draft created locally.");
+      }
+      await createDraftAndOpen();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to start workpiece.";
+      setForgeError(message);
+    } finally {
+      setIsForging(false);
+    }
+  }, [createDraftAndOpen, isForging]);
+
+  const forgeSpark = useCallback(async (spark: BarStockSpark) => {
+    if (isForging) return;
+    setForgeError(null);
+    setIsForging(true);
+    let workpieceId: string | undefined;
+    try {
+      const created = await createHearthWorkpiece({
+        created_from: "bar-stock",
+        spark_id: spark.id,
+      });
+      if (!created.ok) {
+        workpieceId = created.workpieceId;
+        setForgeError("Workpiece creation failed; draft created locally.");
+      } else {
+        workpieceId = created.workpieceId;
+      }
+
+      const draft = await createDraftAndOpen({
+        title: spark.title,
+        body: spark.body,
+      });
+
+      const now = Date.now();
+      const updatedSpark: BarStockSpark = {
+        ...spark,
+        status: "forged",
+        updatedAt: now,
+        links: {
+          ...spark.links,
+          hearthDraftId: draft.id,
+          hearthWorkpieceId: workpieceId,
+        },
+      };
+      const nextSparks = upsertBarStockSpark(sparks, updatedSpark);
+      setSparks(nextSparks);
+      writeBarStockSparks(nextSparks);
+      enqueueBarStockSpark(updatedSpark);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Forge failed.";
+      setForgeError(message);
+    } finally {
+      setIsForging(false);
+    }
+  }, [createDraftAndOpen, isForging, sparks]);
+
   const loadInitial = useCallback(async () => {
     setIsLoading(true);
     setError(null);
@@ -370,6 +491,18 @@ export default function HearthHome() {
   useEffect(() => {
     void loadInitial();
   }, [loadInitial]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const refresh = () => setSparks(readBarStockSparks());
+    refresh();
+    const onStorage = (event: StorageEvent) => {
+      if (!isBarStockKey(event.key)) return;
+      refresh();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -674,6 +807,87 @@ export default function HearthHome() {
             : <div key={`line-${idx}`}>{line || " "}</div>
         ))}
       </div>
+    );
+  }
+
+  if (view === "home") {
+    const sortedSparks = sparks.slice().sort((a, b) => b.createdAt - a.createdAt);
+    return (
+      <section style={{ padding: 24, display: "grid", gap: 20 }}>
+        <header style={{ display: "grid", gap: 6 }}>
+          <h1 style={{ margin: 0 }}>Hearth</h1>
+          <p style={{ margin: 0, opacity: 0.75 }}>Select a spark or begin a new workpiece.</p>
+        </header>
+
+        {forgeError ? (
+          <div style={{ color: "#b00020", fontSize: 12 }}>{forgeError}</div>
+        ) : null}
+
+        <section style={{ display: "grid", gap: 12 }}>
+          <h2 style={{ margin: 0, fontSize: 16 }}>From Bar Stock</h2>
+          {sortedSparks.length === 0 ? (
+            <p style={{ margin: 0, fontSize: 13, opacity: 0.7 }}>
+              No sparks yet. Capture ideas in Bar Stock first.
+            </p>
+          ) : (
+            <div style={{ display: "grid", gap: 12 }}>
+              {sortedSparks.map((spark) => {
+                const status = formatSparkStatus(spark);
+                const preview = buildSparkPreview(spark.body);
+                return (
+                  <div
+                    key={spark.id}
+                    style={{
+                      border: "1px solid var(--forge-border, #ddd)",
+                      borderRadius: 10,
+                      padding: 12,
+                      background: "var(--forge-bg-elevated, #fff)",
+                      display: "grid",
+                      gap: 6,
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                      <div style={{ fontWeight: 600 }}>{deriveSparkTitle(spark)}</div>
+                      <div style={{ fontSize: 12, opacity: 0.7 }}>
+                        {formatSparkDate(spark.createdAt)}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 13, opacity: 0.85 }}>
+                      {preview || "No preview available yet."}
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                      <div style={{ fontSize: 12, opacity: 0.7 }}>
+                        Status: {status.label}{status.detail ? ` · ${status.detail}` : ""}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void forgeSpark(spark)}
+                        disabled={isForging}
+                      >
+                        Forge this
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        <section style={{ display: "grid", gap: 10 }}>
+          <h2 style={{ margin: 0, fontSize: 16 }}>Start New Workpiece</h2>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button type="button" onClick={() => void startFromScratch()} disabled={isForging}>
+              Start from scratch
+            </button>
+            {activeDraft ? (
+              <button type="button" onClick={() => setView("editor")}>
+                Continue last draft
+              </button>
+            ) : null}
+          </div>
+        </section>
+      </section>
     );
   }
 
