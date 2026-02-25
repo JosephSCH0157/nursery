@@ -44767,6 +44767,17 @@ async function readBodyAsJson(response) {
     return { raw };
   }
 }
+function resolveCreatedWorkpieceId(body) {
+  const row = body;
+  return normalizeUuid(
+    row?.data?.cradle?.id ?? row?.data?.episode?.id ?? row?.data?.workpiece?.id ?? row?.data?.id ?? row?.cradle?.id ?? row?.episode?.id ?? row?.workpiece?.id ?? row?.id
+  );
+}
+function isCommitAck(body) {
+  const row = body;
+  if (row?.error) return false;
+  return row?.ok === true || row?.success === true || row?.data?.ok === true || row?.data?.success === true;
+}
 function encodeBase64(bytes) {
   if (!bytes.length) return "";
   const globalWithBuffer = globalThis;
@@ -44798,7 +44809,7 @@ async function createCradle(workspaceId, writtenBy, apiToken) {
     })
   });
   const body = await readBodyAsJson(response);
-  const createdId = normalizeUuid(body?.data?.cradle?.id);
+  const createdId = resolveCreatedWorkpieceId(body);
   if (!response.ok || !createdId) {
     return {
       ok: false,
@@ -44815,7 +44826,7 @@ async function commitFileToWorkpiece(workpieceId, payload, apiToken) {
     body: JSON.stringify(payload)
   });
   const body = await readBodyAsJson(response);
-  return { status: response.status, body, ok: response.ok && body?.ok === true };
+  return { status: response.status, body, ok: response.ok && isCommitAck(body) };
 }
 async function commitRecordingBytesToTongs(input) {
   const writtenBy = getWrittenBy();
