@@ -46,7 +46,7 @@ const FORGE_NAV_FALLBACK: ForgeNavPayload = {
         { id: "home", label: "Home", to: "/app" },
         { id: "tongs", label: "Tongs Calendar", to: "/app/tongs" },
         { id: "anvil", label: "Anvil", href: "/anvil/teleprompter_pro.html" },
-        { id: "hearth", label: "Hearth", href: "/apps/hearth" },
+        { id: "hearth", label: "Hearth", to: "/app/hearth" },
         { id: "hammer", label: "Hammer", to: "/app/hammer" },
         { id: "barstock", label: "Barstock", to: "/app/barstock" },
       ],
@@ -111,8 +111,22 @@ function getForgeHubOrigin(): string {
   const fromEnv = readString(win.FORGE_HUB_ORIGIN);
   if (fromEnv) return fromEnv;
   const fromForgeConfig = readString(win.__forgeAppOrigin);
-  if (fromForgeConfig) return fromForgeConfig;
-  return "";
+  const currentOrigin = readString(window.location.origin);
+  if (!fromForgeConfig) return currentOrigin ?? "";
+
+  // In local/dev sessions prefer same-origin routes so menu links stay usable.
+  try {
+    const current = new URL(currentOrigin ?? "http://localhost");
+    const target = new URL(fromForgeConfig);
+    const isLocalCurrent =
+      current.hostname === "localhost" ||
+      current.hostname === "127.0.0.1" ||
+      current.hostname === "::1";
+    if (isLocalCurrent) return current.origin;
+    return target.origin;
+  } catch {
+    return currentOrigin ?? fromForgeConfig;
+  }
 }
 
 function getBuildId(): string | null {
@@ -151,12 +165,11 @@ function resolveItemHref(item: ForgeNavItem): string {
   if (/^https?:\/\//i.test(to)) return to;
   if (!(to === "/app" || to.startsWith("/app/"))) return "#";
 
-  const hubOrigin = getForgeHubOrigin();
-  if (!hubOrigin) return "#";
+  const hubOrigin = getForgeHubOrigin() || window.location.origin;
   try {
     return new URL(to, hubOrigin).toString();
   } catch {
-    return "#";
+    return to;
   }
 }
 

@@ -41792,8 +41792,17 @@ function getForgeHubOrigin2() {
   const fromEnv = readString2(win.FORGE_HUB_ORIGIN);
   if (fromEnv) return fromEnv;
   const fromForgeConfig = readString2(win.__forgeAppOrigin);
-  if (fromForgeConfig) return fromForgeConfig;
-  return "";
+  const currentOrigin = readString2(window.location.origin);
+  if (!fromForgeConfig) return currentOrigin ?? "";
+  try {
+    const current = new URL(currentOrigin ?? "http://localhost");
+    const target = new URL(fromForgeConfig);
+    const isLocalCurrent = current.hostname === "localhost" || current.hostname === "127.0.0.1" || current.hostname === "::1";
+    if (isLocalCurrent) return current.origin;
+    return target.origin;
+  } catch {
+    return currentOrigin ?? fromForgeConfig;
+  }
 }
 function getBuildId() {
   const win = window;
@@ -41828,12 +41837,11 @@ function resolveItemHref(item) {
   if (!to) return "#";
   if (/^https?:\/\//i.test(to)) return to;
   if (!(to === "/app" || to.startsWith("/app/"))) return "#";
-  const hubOrigin = getForgeHubOrigin2();
-  if (!hubOrigin) return "#";
+  const hubOrigin = getForgeHubOrigin2() || window.location.origin;
   try {
     return new URL(to, hubOrigin).toString();
   } catch {
-    return "#";
+    return to;
   }
 }
 async function loadForgeNav() {
@@ -42226,7 +42234,7 @@ var init_forge_nav = __esm({
             { id: "home", label: "Home", to: "/app" },
             { id: "tongs", label: "Tongs Calendar", to: "/app/tongs" },
             { id: "anvil", label: "Anvil", href: "/anvil/teleprompter_pro.html" },
-            { id: "hearth", label: "Hearth", href: "/apps/hearth" },
+            { id: "hearth", label: "Hearth", to: "/app/hearth" },
             { id: "hammer", label: "Hammer", to: "/app/hammer" },
             { id: "barstock", label: "Barstock", to: "/app/barstock" }
           ]
