@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import type { Session } from "@supabase/supabase-js";
-import HearthHome from "@hearth/routes/HearthHome";
+import HearthShell from "@hearth/routes/HearthShell";
 import { ForgeNav } from "../nav/ForgeNav";
 import { forgeNavTree } from "../nav/forgeNavTree";
 import { supabase } from "../lib/supabase";
@@ -382,7 +382,7 @@ export default function HearthStandalone() {
       </header>
 
       <main style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-        <HearthHome />
+        <HearthShell />
       </main>
     </div>
   );

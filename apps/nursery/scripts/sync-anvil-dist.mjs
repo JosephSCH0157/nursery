@@ -17,11 +17,9 @@ function copyDir(src, dest) {
   }
 }
 
-function emptyDir(dir) {
-  if (!fs.existsSync(dir)) return;
-  for (const name of fs.readdirSync(dir)) {
-    fs.rmSync(path.join(dir, name), { recursive: true, force: true });
-  }
+function resetDir(dir) {
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
 }
 
 function stripGeneratedBanner(html) {
@@ -74,7 +72,7 @@ if (!fs.existsSync(src)) {
   process.exit(1);
 }
 
-emptyDir(dest);
+resetDir(dest);
 copyDir(src, dest);
 
 const mirroredTeleprompter = path.join(dest, "teleprompter_pro.html");

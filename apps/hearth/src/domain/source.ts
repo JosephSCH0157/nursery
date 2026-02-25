@@ -3,6 +3,8 @@ export type ScriptSourceType =
   | "case"
   | "article"
   | "book"
+  | "paper"
+  | "webpage"
   | "video"
   | "podcast"
   | "transcript"

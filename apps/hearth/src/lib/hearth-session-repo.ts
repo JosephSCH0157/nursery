@@ -1,6 +1,7 @@
 import type { HearthPlanningSession, HearthSessionDecision, HearthSessionIntent } from "../domain/hearth-session";
 import { HEARTH_SESSION_PATH, HEARTH_SESSION_SCHEMA } from "../domain/hearth-session";
 import { resolveWorkspaceId } from "./sources-repo";
+import { tongsFetch } from "./tongs-fetch";
 
 type ReadResult<T> = { ok: true; data: T } | { ok: false; status?: number; reason: string };
 type CommitResult = { ok: true; skipped?: boolean } | { ok: false; status?: number; reason: string };
@@ -83,20 +84,6 @@ function normalizeSession(raw: unknown): HearthPlanningSession | null {
   };
 }
 
-function resolveApiToken(): string | undefined {
-  const w = window as typeof window & {
-    __forgeTongsApiToken?: unknown;
-    __tpTongsApiToken?: unknown;
-  };
-  const fromWindow = readString(w.__forgeTongsApiToken ?? w.__tpTongsApiToken);
-  if (fromWindow) return fromWindow;
-  try {
-    return readString(window.localStorage.getItem("forge_tongs_api_token_v1")) ?? undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 function resolveLane(): string {
   const w = window as typeof window & { __forgeLane?: unknown; __tpLane?: unknown };
   const fromWindow = readString(w.__forgeLane ?? w.__tpLane);
@@ -122,24 +109,28 @@ function buildWrittenBy(): WrittenBy {
   };
 }
 
-function buildHeaders(apiToken?: string): Record<string, string> {
-  const headers: Record<string, string> = { "content-type": "application/json" };
-  if (apiToken) headers.authorization = `Bearer ${apiToken}`;
-  return headers;
-}
-
 function nextCorrelationId(prefix: string): string {
   correlationSeq += 1;
   return `${prefix}:${Date.now().toString(36)}:${correlationSeq}`;
 }
 
 async function readJsonFromTongs(url: string): Promise<ReadResult<unknown>> {
-  const headers: Record<string, string> = {};
-  const apiToken = resolveApiToken();
-  if (apiToken) headers.authorization = `Bearer ${apiToken}`;
-
-  const response = await fetch(url, { headers });
+  const response = await tongsFetch(url);
   if (response.status === 404) {
+    let body: unknown = null;
+    try {
+      body = await response.json();
+    } catch {
+      // ignore
+    }
+    if (
+      body
+      && typeof body === "object"
+      && (body as { ok?: boolean }).ok === true
+      && (body as { exists?: boolean }).exists === false
+    ) {
+      return { ok: true, data: null };
+    }
     return { ok: false, status: 404, reason: "not_found" };
   }
   if (!response.ok) {
@@ -155,11 +146,9 @@ async function readJsonFromTongs(url: string): Promise<ReadResult<unknown>> {
 }
 
 async function postJsonToTongs(url: string, payload: unknown): Promise<ReadResult<unknown>> {
-  const apiToken = resolveApiToken();
-  const response = await fetch(url, {
+  const response = await tongsFetch(url, {
     method: "POST",
-    headers: buildHeaders(apiToken),
-    body: JSON.stringify(payload),
+    json: payload,
   });
 
   if (!response.ok) {
@@ -226,12 +215,33 @@ function buildSessionDocument(
   };
 }
 
+function buildEmptySession(workpieceId: string): HearthPlanningSession {
+  const nowIso = new Date().toISOString();
+  return {
+    schema: HEARTH_SESSION_SCHEMA,
+    workpiece_id: workpieceId,
+    workspace_id: resolveWorkspaceId(),
+    created_at: nowIso,
+    updated_at: nowIso,
+    origin: null,
+    intent: null,
+    title: null,
+    goals: [],
+    outline: [],
+    audience: null,
+    tone_preset: null,
+    links: null,
+    decisions: [],
+  };
+}
+
 export async function readHearthSession(workpieceId: string): Promise<HearthPlanningSession | null> {
   const url = `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(
     HEARTH_SESSION_PATH,
   )}`;
   const result = await readJsonFromTongs(url);
   if (!result.ok) return null;
+  if (result.data == null) return buildEmptySession(workpieceId);
   return normalizeSession(result.data);
 }
 

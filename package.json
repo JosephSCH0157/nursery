@@ -11,10 +11,14 @@
     "smoke": "node scripts/smoke.mjs"
   },
   "devDependencies": {
+    "dotenv": "^16.6.1",
     "graphemer": "1.4.0",
     "typescript": "^5.9.3"
   },
   "volta": {
     "node": "20.20.0"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.97.0"
   }
 }

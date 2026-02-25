@@ -1,3 +1,5 @@
+import { tongsFetch } from "./tongs-fetch";
+
 type WrittenBy = {
   tool: string;
   tool_version: string;
@@ -108,24 +110,6 @@ function getWrittenBy(): WrittenBy {
   };
 }
 
-function getApiToken(): string | undefined {
-  const w = window as typeof window & {
-    __forgeTongsApiToken?: unknown;
-    __tpTongsApiToken?: unknown;
-  };
-  return readString(w.__forgeTongsApiToken ?? w.__tpTongsApiToken)
-    ?? readString(readLocalStorage("forge_tongs_api_token_v1"))
-    ?? undefined;
-}
-
-function buildHeaders(apiToken?: string): Record<string, string> {
-  const headers: Record<string, string> = {
-    "content-type": "application/json",
-  };
-  if (apiToken) headers.authorization = `Bearer ${apiToken}`;
-  return headers;
-}
-
 function nextCorrelationId(prefix: string): string {
   correlationSeq += 1;
   return `${prefix}:${Date.now().toString(36)}:${correlationSeq}`;
@@ -149,16 +133,59 @@ async function readBodyAsJson(response: Response): Promise<unknown> {
   }
 }
 
+function resolveCreatedWorkpieceId(body: unknown): string | null {
+  const row = body as {
+    data?: {
+      cradle?: { id?: unknown };
+      episode?: { id?: unknown };
+      workpiece?: { id?: unknown };
+      id?: unknown;
+    };
+    cradle?: { id?: unknown };
+    episode?: { id?: unknown };
+    workpiece?: { id?: unknown };
+    id?: unknown;
+  };
+
+  return normalizeUuid(
+    row?.data?.cradle?.id
+      ?? row?.data?.episode?.id
+      ?? row?.data?.workpiece?.id
+      ?? row?.data?.id
+      ?? row?.cradle?.id
+      ?? row?.episode?.id
+      ?? row?.workpiece?.id
+      ?? row?.id,
+  );
+}
+
+function isCommitAck(body: unknown): boolean {
+  const row = body as {
+    ok?: unknown;
+    success?: unknown;
+    error?: unknown;
+    data?: {
+      ok?: unknown;
+      success?: unknown;
+    };
+  };
+
+  if (row?.error) return false;
+
+  return row?.ok === true
+    || row?.success === true
+    || row?.data?.ok === true
+    || row?.data?.success === true;
+}
+
 async function createCradle(args: {
   workspaceId: string;
   writtenBy: WrittenBy;
-  apiToken?: string;
   origin?: ForgeOrigin;
 }): Promise<CreateWorkpieceResult> {
-  const response = await fetch("/tongs/cradles", {
+  const response = await tongsFetch("/tongs/cradles", {
     method: "POST",
-    headers: buildHeaders(args.apiToken),
-    body: JSON.stringify({
+    json: {
       workspace_id: args.workspaceId,
       written_by: args.writtenBy,
       origin_tool: {
@@ -167,11 +194,11 @@ async function createCradle(args: {
       },
       metadata: args.origin ? { origin: args.origin } : {},
       correlation_id: nextCorrelationId("hearth-create-cradle"),
-    }),
+    },
   });
 
   const body = await readBodyAsJson(response);
-  const createdId = normalizeUuid((body as { data?: { cradle?: { id?: unknown } } })?.data?.cradle?.id);
+  const createdId = resolveCreatedWorkpieceId(body);
   if (!response.ok || !createdId) {
     return { ok: false, reason: "create_cradle_failed", status: response.status, details: body };
   }
@@ -182,7 +209,6 @@ async function commitMetadata(args: {
   workpieceId: string;
   workspaceId: string;
   writtenBy: WrittenBy;
-  apiToken?: string;
   origin?: ForgeOrigin;
 }): Promise<{ ok: boolean; status?: number; details?: unknown }> {
   const nowIso = new Date().toISOString();
@@ -197,10 +223,9 @@ async function commitMetadata(args: {
     origin: args.origin ?? null,
   };
 
-  const response = await fetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/commit-file`, {
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/commit-file`, {
     method: "POST",
-    headers: buildHeaders(args.apiToken),
-    body: JSON.stringify({
+    json: {
       path: "metadata.json",
       content_type: "application/json",
       written_by: args.writtenBy,
@@ -210,11 +235,11 @@ async function commitMetadata(args: {
         origin: args.origin ?? null,
       },
       correlation_id: nextCorrelationId("hearth-metadata"),
-    }),
+    },
   });
 
   const body = await readBodyAsJson(response);
-  return { ok: response.ok && (body as { ok?: boolean })?.ok === true, status: response.status, details: body };
+  return { ok: response.ok && isCommitAck(body), status: response.status, details: body };
 }
 
 export async function createHearthWorkpiece(origin?: ForgeOrigin): Promise<CreateWorkpieceResult> {
@@ -227,17 +252,13 @@ export async function createHearthWorkpiece(origin?: ForgeOrigin): Promise<Creat
   }
 
   const writtenBy = getWrittenBy();
-  const apiToken = getApiToken();
 
-  const created = await createCradle({ workspaceId, writtenBy, apiToken, origin });
+  const created = await createCradle({ workspaceId, writtenBy, origin });
   if (!created.ok) return created;
-
-  persistWorkpiece(workspaceId, created.workpieceId);
   const metadata = await commitMetadata({
     workpieceId: created.workpieceId,
     workspaceId,
     writtenBy,
-    apiToken,
     origin,
   });
 
@@ -251,5 +272,6 @@ export async function createHearthWorkpiece(origin?: ForgeOrigin): Promise<Creat
     };
   }
 
+  persistWorkpiece(workspaceId, created.workpieceId);
   return { ok: true, workpieceId: created.workpieceId };
 }

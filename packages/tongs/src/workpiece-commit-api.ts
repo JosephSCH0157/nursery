@@ -8,11 +8,13 @@ const SHA256_ALGO = "sha256";
 const DEFAULT_ORIGIN_TOOL = { name: "tongs", version: "0.1.0" } as const;
 const DEFAULT_WRITTEN_BY = { tool: "tongs", tool_version: "0.1.0", lane: "forge-managed" } as const;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const BOOTSTRAP_WORKPIECE_PATHS = new Set(["script/session.json", "script/script.sources.json"]);
+const BOOTSTRAP_WORKSPACE_PATHS = new Set(["sources/index.json"]);
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
-type ProjectCradleRow = Database["tongs"]["Tables"]["project_cradles"]["Row"];
+type EpisodeRow = Database["tongs"]["Tables"]["episodes"]["Row"];
 type WorkpieceFileRow = Database["tongs"]["Tables"]["workpiece_files"]["Row"];
 type WorkpieceEventRow = Database["tongs"]["Tables"]["workpiece_events"]["Row"];
 type WorkspaceRow = Database["tongs"]["Tables"]["workspaces"]["Row"];
@@ -110,7 +112,7 @@ export type CreateCradleRequest = {
 };
 
 export type CreateCradleResponse = {
-  cradle: ProjectCradleRow;
+  cradle: EpisodeRow;
   manifest_hash: string;
   manifest_bytes: number;
   files_indexed: number;
@@ -453,7 +455,7 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
     throw new HttpError(500, "crypto_unavailable", "crypto.subtle is unavailable in this runtime");
   }
 
-  const digest = await subtle.digest(SHA256_ALGO, uint8ToArrayBuffer(bytes));
+  const digest = await subtle.digest("SHA-256", uint8ToArrayBuffer(bytes));
   const out = new Uint8Array(digest);
   let hex = "";
   for (const n of out) {
@@ -771,11 +773,103 @@ async function uploadStorageObject(
   });
 
   if (error) {
+    logStorageError("upload", bucket, key, error);
     throw new HttpError(502, "storage_write_failed", "Unable to write file to Storage", {
       key,
       reason: error.message,
     });
   }
+}
+
+function shouldDebugStorage(): boolean {
+  if (typeof globalThis === "undefined") return false;
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
+  return env?.TONGS_DEBUG_STORAGE === "1";
+}
+
+function safeSerializeError(error: unknown): unknown {
+  if (!error || typeof error !== "object") return error;
+  try {
+    return JSON.parse(JSON.stringify(error));
+  } catch {
+    return { message: String(error) };
+  }
+}
+
+function extractErrorDetails(error: unknown): Record<string, unknown> | null {
+  if (!error || typeof error !== "object") return null;
+  const details: Record<string, unknown> = {};
+  for (const key of Object.getOwnPropertyNames(error)) {
+    details[key] = (error as Record<string, unknown>)[key];
+  }
+  const proto = Object.getPrototypeOf(error);
+  if (proto?.constructor?.name && proto.constructor.name !== "Object") {
+    details.__type = proto.constructor.name;
+  }
+  return details;
+}
+
+async function extractResponseDetails(error: unknown): Promise<Record<string, unknown> | null> {
+  const response = (error as { originalError?: unknown } | null | undefined)?.originalError;
+  if (!response || typeof response !== "object") return null;
+  const maybeResponse = response as Response;
+  if (typeof maybeResponse.text !== "function") return null;
+
+  try {
+    const bodyText = await maybeResponse.clone().text();
+    let bodyJson: unknown = null;
+    try {
+      bodyJson = JSON.parse(bodyText);
+    } catch {
+      bodyJson = null;
+    }
+    return {
+      status: maybeResponse.status,
+      statusText: maybeResponse.statusText,
+      bodyText,
+      bodyJson,
+      url: maybeResponse.url,
+    };
+  } catch {
+    return {
+      status: maybeResponse.status,
+      statusText: maybeResponse.statusText,
+      url: maybeResponse.url,
+    };
+  }
+}
+
+function logStorageError(action: "download" | "upload", bucket: string, key: string, error: unknown): void {
+  if (!shouldDebugStorage()) return;
+  const serialized = safeSerializeError(error);
+  const extracted = extractErrorDetails(error);
+  const message = error instanceof Error ? error.message : undefined;
+  console.log(`[tongs][storage:${action}] error keys`, Object.getOwnPropertyNames(error ?? {}));
+  console.log(
+    `[tongs][storage:${action}] original keys`,
+    Object.getOwnPropertyNames((error as { originalError?: unknown } | null | undefined)?.originalError ?? {}),
+  );
+  console.dir(error, { depth: null });
+  const original = (error as { originalError?: unknown } | null | undefined)?.originalError;
+  if (original) {
+    console.dir(original, { depth: null });
+  }
+  console.error(`[tongs][storage:${action}]`, {
+    bucket,
+    key,
+    message,
+    error: serialized,
+    extracted,
+  });
+  console.error(`[tongs][storage:${action}] raw`, error);
+}
+
+function isBootstrapWorkpiecePath(path: string): boolean {
+  return BOOTSTRAP_WORKPIECE_PATHS.has(path);
+}
+
+function isBootstrapWorkspacePath(path: string): boolean {
+  return BOOTSTRAP_WORKSPACE_PATHS.has(path);
 }
 
 async function downloadStorageObject(
@@ -786,12 +880,38 @@ async function downloadStorageObject(
   const { data, error } = await supabase.storage.from(bucket).download(key);
   if (error) {
     const message = String(error.message || "").toLowerCase();
-    const code = String((error as { statusCode?: unknown }).statusCode ?? "");
+    const statusCode = (error as { statusCode?: unknown; status?: unknown }).statusCode
+      ?? (error as { status?: unknown }).status
+      ?? null;
+    const code = String(statusCode ?? "");
     if (message.includes("not found") || code === "404") return null;
 
+    const responseDetails = await extractResponseDetails(error);
+    if (responseDetails) {
+      const status = Number(responseDetails.status ?? NaN);
+      const bodyJson = responseDetails.bodyJson as { statusCode?: unknown; error?: unknown; message?: unknown } | null;
+      const bodyText = String(responseDetails.bodyText ?? "");
+      const statusCodeText = bodyJson?.statusCode ?? "";
+      const statusCodeNum = typeof statusCodeText === "string" ? Number(statusCodeText) : Number(statusCodeText ?? NaN);
+      const isNotFound = status === 404
+        || (status === 400 && (
+          statusCodeNum === 404
+          || bodyJson?.error === "not_found"
+          || /object not found/i.test(String(bodyJson?.message ?? bodyText))
+        ));
+
+      if (isNotFound) return null;
+    }
+
+    logStorageError("download", bucket, key, error);
+    if (responseDetails && shouldDebugStorage()) {
+      console.error("[tongs][storage:download] response", responseDetails);
+    }
     throw new HttpError(502, "storage_read_failed", "Unable to read file from Storage", {
       key,
       reason: error.message,
+      status: statusCode,
+      response: responseDetails ?? undefined,
     });
   }
 
@@ -930,6 +1050,15 @@ function normalizeAppendEventRequest(body: Record<string, unknown>): AppendEvent
   };
 }
 
+function resolveEpisodeLabel(metadata: Json | undefined): string {
+  if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
+    const row = metadata as Record<string, unknown>;
+    if (typeof row.label === "string" && row.label.trim()) return row.label.trim();
+    if (typeof row.title === "string" && row.title.trim()) return row.title.trim();
+  }
+  return "Untitled Episode";
+}
+
 export class TongsCommitService {
   readonly supabase: SupabaseClient<Database>;
   readonly bucket: string;
@@ -939,10 +1068,10 @@ export class TongsCommitService {
     this.bucket = bucket;
   }
 
-  private async getCradleOrThrow(workpieceId: string): Promise<ProjectCradleRow> {
+  private async getCradleOrThrow(workpieceId: string): Promise<EpisodeRow> {
     const { data, error } = await this.supabase
       .schema("tongs")
-      .from("project_cradles")
+      .from("episodes")
       .select("*")
       .eq("id", workpieceId)
       .single();
@@ -951,7 +1080,7 @@ export class TongsCommitService {
       if (error.code === "PGRST116") {
         throw new HttpError(404, "workpiece_not_found", `Workpiece ${workpieceId} was not found`);
       }
-      throw new HttpError(502, "db_read_failed", "Failed to read project cradle", {
+      throw new HttpError(502, "db_read_failed", "Failed to read episode", {
         reason: error.message,
       });
     }
@@ -1032,18 +1161,20 @@ export class TongsCommitService {
     return data;
   }
 
-  private async loadManifestOrDefault(cradle: ProjectCradleRow): Promise<WorkpieceManifest> {
+  private async loadManifestOrDefault(cradle: EpisodeRow): Promise<WorkpieceManifest> {
+    const status = "draft";
+    const createdAt = cradle.created_at ?? new Date().toISOString();
     const key = buildStorageKey(cradle.id, MANIFEST_PATH);
     const bytes = await downloadStorageObject(this.supabase, this.bucket, key);
     const fallback = {
       workpieceId: cradle.id,
       workspaceId: cradle.workspace_id,
-      status: cradle.status,
-      createdAt: cradle.created_at,
+      status,
+      createdAt,
     };
 
     if (!bytes) {
-      return defaultManifest(cradle.id, cradle.workspace_id, cradle.status, cradle.created_at);
+      return defaultManifest(cradle.id, cradle.workspace_id, status, createdAt);
     }
 
     const parsed = parseJsonText(textDecoder.decode(bytes), MANIFEST_PATH);
@@ -1055,27 +1186,27 @@ export class TongsCommitService {
     const writtenBy = input.written_by ?? DEFAULT_WRITTEN_BY;
     const status = input.status?.trim() || "draft";
 
-    const { data: cradle, error: cradleError } = await this.supabase
+    const { data: episode, error: episodeError } = await this.supabase
       .schema("tongs")
-      .from("project_cradles")
+      .from("episodes")
       .insert({
         ...(input.cradle_id ? { id: input.cradle_id } : {}),
         workspace_id: input.workspace_id,
-        status,
-        metadata: input.metadata ?? ({} as Json),
-        created_by: input.created_by?.user_id ?? null,
+        label: resolveEpisodeLabel(input.metadata),
       })
       .select("*")
       .single();
 
-    if (cradleError) {
-      throw new HttpError(502, "db_write_failed", "Failed to create project cradle", {
-        reason: cradleError.message,
+    if (episodeError) {
+      throw new HttpError(502, "db_write_failed", "Failed to create episode", {
+        reason: episodeError.message,
       });
     }
-    if (!cradle) {
-      throw new HttpError(502, "db_write_failed", "project_cradles insert returned no row");
+    if (!episode) {
+      throw new HttpError(502, "db_write_failed", "episodes insert returned no row");
     }
+
+    const cradle = episode;
 
     const metadataDocument = {
       schema: "forge.metadata.v1",
@@ -1270,7 +1401,9 @@ export class TongsCommitService {
 
     const manifest = await this.loadManifestOrDefault(cradle);
     manifest.updated_at = nowIso;
-    manifest.status = cradle.status;
+    if (!manifest.status) {
+      manifest.status = "draft";
+    }
     manifest.files[path] = buildManifestFileEntry(fileType, contentType, bytes.length, hash, writtenBy, nowIso);
     applyPointerUpdates(manifest, path, input.pointer);
 
@@ -1504,9 +1637,12 @@ export function createTongsCommitApiHandlerWithService(
         }
         const result = await service.readWorkpieceJson(workpieceId, path);
         if (!result.found) {
+          if (isBootstrapWorkpiecePath(path)) {
+            return jsonResponse(200, { ok: true, data: null, exists: false });
+          }
           return jsonResponse(404, {
-            ok: false,
-            error: { code: "file_not_found", message: "File not found" },
+            ok: true,
+            exists: false,
           });
         }
         return jsonResponse(200, { ok: true, data: result.data });
@@ -1522,9 +1658,12 @@ export function createTongsCommitApiHandlerWithService(
         }
         const result = await service.readWorkspaceJson(workspaceId, path);
         if (!result.found) {
+          if (isBootstrapWorkspacePath(path)) {
+            return jsonResponse(200, { ok: true, data: null, exists: false });
+          }
           return jsonResponse(404, {
-            ok: false,
-            error: { code: "file_not_found", message: "File not found" },
+            ok: true,
+            exists: false,
           });
         }
         return jsonResponse(200, { ok: true, data: result.data });

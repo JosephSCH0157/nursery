@@ -12,6 +12,7 @@ import {
   SOURCES_INDEX_SCHEMA,
   sourceEntryPath,
 } from "../domain/source";
+import { tongsFetch } from "./tongs-fetch";
 
 type ReadResult<T> = { ok: true; data: T } | { ok: false; status?: number; reason: string };
 type CommitResult = { ok: true; skipped?: boolean } | { ok: false; status?: number; reason: string };
@@ -116,18 +117,6 @@ export function resolveWorkpieceId(): string | null {
   return null;
 }
 
-function resolveApiToken(): string | undefined {
-  const fromQuery = readString(getQueryParam("tongs_api_token", "tongsApiToken"));
-  if (fromQuery) return fromQuery;
-  const w = window as typeof window & {
-    __forgeTongsApiToken?: unknown;
-    __tpTongsApiToken?: unknown;
-  };
-  const fromWindow = readString(w.__forgeTongsApiToken ?? w.__tpTongsApiToken);
-  if (fromWindow) return fromWindow;
-  return readLocalStorage("forge_tongs_api_token_v1") ?? undefined;
-}
-
 function resolveLane(): string {
   const fromQuery = readString(getQueryParam("forge_lane", "lane"));
   if (fromQuery) return fromQuery;
@@ -151,24 +140,28 @@ function buildWrittenBy(): WrittenBy {
   };
 }
 
-function buildHeaders(apiToken?: string): Record<string, string> {
-  const headers: Record<string, string> = { "content-type": "application/json" };
-  if (apiToken) headers.authorization = `Bearer ${apiToken}`;
-  return headers;
-}
-
 function nextCorrelationId(prefix: string): string {
   correlationSeq += 1;
   return `${prefix}:${Date.now().toString(36)}:${correlationSeq}`;
 }
 
 async function readJsonFromTongs(url: string): Promise<ReadResult<unknown>> {
-  const headers: Record<string, string> = {};
-  const apiToken = resolveApiToken();
-  if (apiToken) headers.authorization = `Bearer ${apiToken}`;
-
-  const response = await fetch(url, { headers });
+  const response = await tongsFetch(url);
   if (response.status === 404) {
+    let body: unknown = null;
+    try {
+      body = await response.json();
+    } catch {
+      // ignore
+    }
+    if (
+      body
+      && typeof body === "object"
+      && (body as { ok?: boolean }).ok === true
+      && (body as { exists?: boolean }).exists === false
+    ) {
+      return { ok: true, data: null };
+    }
     return { ok: false, status: 404, reason: "not_found" };
   }
   if (!response.ok) {
@@ -184,11 +177,9 @@ async function readJsonFromTongs(url: string): Promise<ReadResult<unknown>> {
 }
 
 async function postJsonToTongs(url: string, payload: unknown): Promise<ReadResult<unknown>> {
-  const apiToken = resolveApiToken();
-  const response = await fetch(url, {
+  const response = await tongsFetch(url, {
     method: "POST",
-    headers: buildHeaders(apiToken),
-    body: JSON.stringify(payload),
+    json: payload,
   });
 
   if (!response.ok) {
@@ -242,13 +233,21 @@ export async function readWorkpieceSourceRefs(workpieceId: string): Promise<Work
   return normalizeWorkpieceRefs(result.data);
 }
 
-export async function readWorkspaceSourcesIndex(workspaceId: string): Promise<SourceIndexEntry[] | null> {
+export type WorkspaceSourcesIndexResult = {
+  entries: SourceIndexEntry[];
+  exists: boolean;
+};
+
+export async function readWorkspaceSourcesIndex(workspaceId: string): Promise<WorkspaceSourcesIndexResult | null> {
   const url = `/tongs/workspaces/${encodeURIComponent(workspaceId)}/read-file?path=${encodeURIComponent(
     SOURCES_INDEX_PATH,
   )}`;
   const result = await readJsonFromTongs(url);
   if (!result.ok) return null;
-  return normalizeSourceIndex(result.data);
+  if (!result.data) {
+    return { entries: [], exists: false };
+  }
+  return { entries: normalizeSourceIndex(result.data), exists: true };
 }
 
 export async function readWorkspaceSource(workspaceId: string, sourceId: string): Promise<ScriptSource | null> {
