@@ -235,6 +235,51 @@ async function readJsonBody(response: Response): Promise<unknown> {
   }
 }
 
+function resolveCreatedWorkpieceId(body: unknown): string | null {
+  const row = body as {
+    data?: {
+      cradle?: { id?: unknown };
+      episode?: { id?: unknown };
+      workpiece?: { id?: unknown };
+      id?: unknown;
+    };
+    cradle?: { id?: unknown };
+    episode?: { id?: unknown };
+    workpiece?: { id?: unknown };
+    id?: unknown;
+  };
+
+  return normalizeUuid(
+    row?.data?.cradle?.id
+      ?? row?.data?.episode?.id
+      ?? row?.data?.workpiece?.id
+      ?? row?.data?.id
+      ?? row?.cradle?.id
+      ?? row?.episode?.id
+      ?? row?.workpiece?.id
+      ?? row?.id,
+  );
+}
+
+function isCommitAck(body: unknown): boolean {
+  const row = body as {
+    ok?: unknown;
+    success?: unknown;
+    error?: unknown;
+    data?: {
+      ok?: unknown;
+      success?: unknown;
+    };
+  };
+
+  if (row?.error) return false;
+
+  return row?.ok === true
+    || row?.success === true
+    || row?.data?.ok === true
+    || row?.data?.success === true;
+}
+
 async function createCradle(workspaceId: string, writtenBy: WrittenBy): Promise<string | null> {
   const response = await tongsFetch("/tongs/cradles", {
     method: "POST",
@@ -253,11 +298,11 @@ async function createCradle(workspaceId: string, writtenBy: WrittenBy): Promise<
   });
 
   const body = await readJsonBody(response);
-  if (!response.ok || !(body as { ok?: boolean })?.ok) {
+  const createdId = resolveCreatedWorkpieceId(body);
+  if (!response.ok || !createdId) {
     return null;
   }
-
-  return normalizeUuid((body as { data?: { cradle?: { id?: unknown } } })?.data?.cradle?.id);
+  return createdId;
 }
 
 async function commitDraftSnapshot(
@@ -288,7 +333,7 @@ async function commitDraftSnapshot(
   });
 
   const body = await readJsonBody(response);
-  if (!response.ok || !(body as { ok?: boolean })?.ok) {
+  if (!response.ok || !isCommitAck(body)) {
     return { ok: false, status: response.status };
   }
   return { ok: true };

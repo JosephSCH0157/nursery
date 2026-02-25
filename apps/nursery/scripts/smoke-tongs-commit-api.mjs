@@ -63,9 +63,16 @@ async function main() {
     },
   });
 
-  const workpieceId = cradle?.data?.cradle?.id;
+  const workpieceId = cradle?.data?.cradle?.id
+    ?? cradle?.data?.episode?.id
+    ?? cradle?.data?.workpiece?.id
+    ?? cradle?.data?.id
+    ?? cradle?.cradle?.id
+    ?? cradle?.episode?.id
+    ?? cradle?.workpiece?.id
+    ?? cradle?.id;
   if (!workpieceId) {
-    throw new Error("Create cradle response missing data.cradle.id");
+    throw new Error("Create cradle response missing workpiece id");
   }
 
   await postJson(`/tongs/workpieces/${workpieceId}/commit-file`, {

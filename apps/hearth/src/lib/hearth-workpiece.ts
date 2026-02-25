@@ -133,6 +133,51 @@ async function readBodyAsJson(response: Response): Promise<unknown> {
   }
 }
 
+function resolveCreatedWorkpieceId(body: unknown): string | null {
+  const row = body as {
+    data?: {
+      cradle?: { id?: unknown };
+      episode?: { id?: unknown };
+      workpiece?: { id?: unknown };
+      id?: unknown;
+    };
+    cradle?: { id?: unknown };
+    episode?: { id?: unknown };
+    workpiece?: { id?: unknown };
+    id?: unknown;
+  };
+
+  return normalizeUuid(
+    row?.data?.cradle?.id
+      ?? row?.data?.episode?.id
+      ?? row?.data?.workpiece?.id
+      ?? row?.data?.id
+      ?? row?.cradle?.id
+      ?? row?.episode?.id
+      ?? row?.workpiece?.id
+      ?? row?.id,
+  );
+}
+
+function isCommitAck(body: unknown): boolean {
+  const row = body as {
+    ok?: unknown;
+    success?: unknown;
+    error?: unknown;
+    data?: {
+      ok?: unknown;
+      success?: unknown;
+    };
+  };
+
+  if (row?.error) return false;
+
+  return row?.ok === true
+    || row?.success === true
+    || row?.data?.ok === true
+    || row?.data?.success === true;
+}
+
 async function createCradle(args: {
   workspaceId: string;
   writtenBy: WrittenBy;
@@ -153,7 +198,7 @@ async function createCradle(args: {
   });
 
   const body = await readBodyAsJson(response);
-  const createdId = normalizeUuid((body as { data?: { cradle?: { id?: unknown } } })?.data?.cradle?.id);
+  const createdId = resolveCreatedWorkpieceId(body);
   if (!response.ok || !createdId) {
     return { ok: false, reason: "create_cradle_failed", status: response.status, details: body };
   }
@@ -194,7 +239,7 @@ async function commitMetadata(args: {
   });
 
   const body = await readBodyAsJson(response);
-  return { ok: response.ok && (body as { ok?: boolean })?.ok === true, status: response.status, details: body };
+  return { ok: response.ok && isCommitAck(body), status: response.status, details: body };
 }
 
 export async function createHearthWorkpiece(origin?: ForgeOrigin): Promise<CreateWorkpieceResult> {
@@ -210,8 +255,6 @@ export async function createHearthWorkpiece(origin?: ForgeOrigin): Promise<Creat
 
   const created = await createCradle({ workspaceId, writtenBy, origin });
   if (!created.ok) return created;
-
-  persistWorkpiece(workspaceId, created.workpieceId);
   const metadata = await commitMetadata({
     workpieceId: created.workpieceId,
     workspaceId,
@@ -229,5 +272,6 @@ export async function createHearthWorkpiece(origin?: ForgeOrigin): Promise<Creat
     };
   }
 
+  persistWorkpiece(workspaceId, created.workpieceId);
   return { ok: true, workpieceId: created.workpieceId };
 }

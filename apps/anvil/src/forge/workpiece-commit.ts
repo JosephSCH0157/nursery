@@ -247,6 +247,51 @@ async function readBodyAsJson(response: Response): Promise<unknown> {
   }
 }
 
+function resolveCreatedWorkpieceId(body: unknown): string | null {
+  const row = body as {
+    data?: {
+      cradle?: { id?: unknown };
+      episode?: { id?: unknown };
+      workpiece?: { id?: unknown };
+      id?: unknown;
+    };
+    cradle?: { id?: unknown };
+    episode?: { id?: unknown };
+    workpiece?: { id?: unknown };
+    id?: unknown;
+  };
+
+  return normalizeUuid(
+    row?.data?.cradle?.id
+      ?? row?.data?.episode?.id
+      ?? row?.data?.workpiece?.id
+      ?? row?.data?.id
+      ?? row?.cradle?.id
+      ?? row?.episode?.id
+      ?? row?.workpiece?.id
+      ?? row?.id,
+  );
+}
+
+function isCommitAck(body: unknown): boolean {
+  const row = body as {
+    ok?: unknown;
+    success?: unknown;
+    error?: unknown;
+    data?: {
+      ok?: unknown;
+      success?: unknown;
+    };
+  };
+
+  if (row?.error) return false;
+
+  return row?.ok === true
+    || row?.success === true
+    || row?.data?.ok === true
+    || row?.data?.success === true;
+}
+
 function encodeBase64(bytes: Uint8Array): string {
   if (!bytes.length) return "";
 
@@ -290,7 +335,7 @@ async function createCradle(
     }),
   });
   const body = await readBodyAsJson(response);
-  const createdId = normalizeUuid((body as any)?.data?.cradle?.id);
+  const createdId = resolveCreatedWorkpieceId(body);
   if (!response.ok || !createdId) {
     return {
       ok: false,
@@ -312,7 +357,7 @@ async function commitFileToWorkpiece(
     body: JSON.stringify(payload),
   });
   const body = await readBodyAsJson(response);
-  return { status: response.status, body, ok: response.ok && (body as any)?.ok === true };
+  return { status: response.status, body, ok: response.ok && isCommitAck(body) };
 }
 
 export async function commitRecordingBytesToTongs(input: RecordingCommitInput): Promise<RecordingCommitResult> {
