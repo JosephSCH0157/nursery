@@ -117,6 +117,20 @@ function nextCorrelationId(prefix: string): string {
 async function readJsonFromTongs(url: string): Promise<ReadResult<unknown>> {
   const response = await tongsFetch(url);
   if (response.status === 404) {
+    let body: unknown = null;
+    try {
+      body = await response.json();
+    } catch {
+      // ignore
+    }
+    if (
+      body
+      && typeof body === "object"
+      && (body as { ok?: boolean }).ok === true
+      && (body as { exists?: boolean }).exists === false
+    ) {
+      return { ok: true, data: null };
+    }
     return { ok: false, status: 404, reason: "not_found" };
   }
   if (!response.ok) {
@@ -201,12 +215,33 @@ function buildSessionDocument(
   };
 }
 
+function buildEmptySession(workpieceId: string): HearthPlanningSession {
+  const nowIso = new Date().toISOString();
+  return {
+    schema: HEARTH_SESSION_SCHEMA,
+    workpiece_id: workpieceId,
+    workspace_id: resolveWorkspaceId(),
+    created_at: nowIso,
+    updated_at: nowIso,
+    origin: null,
+    intent: null,
+    title: null,
+    goals: [],
+    outline: [],
+    audience: null,
+    tone_preset: null,
+    links: null,
+    decisions: [],
+  };
+}
+
 export async function readHearthSession(workpieceId: string): Promise<HearthPlanningSession | null> {
   const url = `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(
     HEARTH_SESSION_PATH,
   )}`;
   const result = await readJsonFromTongs(url);
   if (!result.ok) return null;
+  if (result.data == null) return buildEmptySession(workpieceId);
   return normalizeSession(result.data);
 }
 

@@ -8,6 +8,8 @@ const SHA256_ALGO = "sha256";
 const DEFAULT_ORIGIN_TOOL = { name: "tongs", version: "0.1.0" } as const;
 const DEFAULT_WRITTEN_BY = { tool: "tongs", tool_version: "0.1.0", lane: "forge-managed" } as const;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const BOOTSTRAP_WORKPIECE_PATHS = new Set(["script/session.json", "script/script.sources.json"]);
+const BOOTSTRAP_WORKSPACE_PATHS = new Set(["sources/index.json"]);
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -842,6 +844,16 @@ function logStorageError(action: "download" | "upload", bucket: string, key: str
   const serialized = safeSerializeError(error);
   const extracted = extractErrorDetails(error);
   const message = error instanceof Error ? error.message : undefined;
+  console.log(`[tongs][storage:${action}] error keys`, Object.getOwnPropertyNames(error ?? {}));
+  console.log(
+    `[tongs][storage:${action}] original keys`,
+    Object.getOwnPropertyNames((error as { originalError?: unknown } | null | undefined)?.originalError ?? {}),
+  );
+  console.dir(error, { depth: null });
+  const original = (error as { originalError?: unknown } | null | undefined)?.originalError;
+  if (original) {
+    console.dir(original, { depth: null });
+  }
   console.error(`[tongs][storage:${action}]`, {
     bucket,
     key,
@@ -850,6 +862,14 @@ function logStorageError(action: "download" | "upload", bucket: string, key: str
     extracted,
   });
   console.error(`[tongs][storage:${action}] raw`, error);
+}
+
+function isBootstrapWorkpiecePath(path: string): boolean {
+  return BOOTSTRAP_WORKPIECE_PATHS.has(path);
+}
+
+function isBootstrapWorkspacePath(path: string): boolean {
+  return BOOTSTRAP_WORKSPACE_PATHS.has(path);
 }
 
 async function downloadStorageObject(
@@ -1601,6 +1621,9 @@ export function createTongsCommitApiHandlerWithService(
         }
         const result = await service.readWorkpieceJson(workpieceId, path);
         if (!result.found) {
+          if (isBootstrapWorkpiecePath(path)) {
+            return jsonResponse(200, { ok: true, data: null, exists: false });
+          }
           return jsonResponse(404, {
             ok: true,
             exists: false,
@@ -1619,6 +1642,9 @@ export function createTongsCommitApiHandlerWithService(
         }
         const result = await service.readWorkspaceJson(workspaceId, path);
         if (!result.found) {
+          if (isBootstrapWorkspacePath(path)) {
+            return jsonResponse(200, { ok: true, data: null, exists: false });
+          }
           return jsonResponse(404, {
             ok: true,
             exists: false,
