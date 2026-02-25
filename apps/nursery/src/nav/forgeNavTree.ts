@@ -5,7 +5,10 @@ export type ForgeNavItem = {
   label: string;
   to?: string;
   href?: string;
+  actionId?: string;
 };
+
+export const FORGE_NAV_ACTION_AI_CONTROLS = "ai-controls";
 
 export type ForgeNavSection = {
   id: string;

@@ -5,8 +5,9 @@ import { loadMountRegistry } from "../lib/mount-registry";
 import { supabase } from "../lib/supabase";
 import { listMyWorkspaces, type Workspace } from "@barstock/lib/tongs-api";
 import { ForgeNav } from "../nav/ForgeNav";
-import { forgeNavTree } from "../nav/forgeNavTree";
+import { FORGE_NAV_ACTION_AI_CONTROLS, forgeNavTree } from "../nav/forgeNavTree";
 import { parseForgeRouteContext, removeWorkspaceParams } from "../lib/forge-route-context";
+import { AiControlsPanel } from "../components/hearth/AiControlsPanel";
 
 const WORKSPACE_CACHE_KEY = "forge_workspaces_cache_v1";
 const ACTIVE_WORKSPACE_KEY = "forge_workspace_id_v1";
@@ -97,6 +98,7 @@ export default function AppShell() {
   const [renameError, setRenameError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [workspaceGateChoice, setWorkspaceGateChoice] = useState("");
+  const [aiControlsOpen, setAiControlsOpen] = useState(false);
 
   const urlContext = useMemo(() => parseForgeRouteContext(location.search), [location.search]);
   const urlWorkspaceId = urlContext.workspaceId;
@@ -421,6 +423,16 @@ export default function AppShell() {
     setWorkspaceGateChoice(workspaces[0]?.id ?? "");
   }, [shouldBlockWorkspaceRoute, workspaceGateChoice, workspaces]);
 
+  function onNavAction(actionId: string) {
+    if (actionId !== FORGE_NAV_ACTION_AI_CONTROLS) return;
+    setAiControlsOpen(true);
+  }
+
+  const navExtraItems = useMemo(
+    () => [{ id: "ai-controls", label: "AI Controls", actionId: FORGE_NAV_ACTION_AI_CONTROLS }],
+    [],
+  );
+
   return (
     <div
       style={{
@@ -555,7 +567,7 @@ export default function AppShell() {
 
       <div style={{ display: "flex", flex: 1 }}>
         <aside style={{ width: 240, padding: 16, borderRight: "1px solid var(--forge-border)" }}>
-          <ForgeNav tree={forgeNavTree} />
+          <ForgeNav tree={forgeNavTree} extraItems={navExtraItems} onAction={onNavAction} />
         </aside>
 
         <main style={{ flex: 1, padding: 16 }}>
@@ -711,6 +723,25 @@ export default function AppShell() {
           </div>
         </div>
       )}
+
+      {aiControlsOpen ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(5, 10, 18, 0.58)",
+            display: "grid",
+            placeItems: "center",
+            padding: 16,
+            zIndex: 10000,
+          }}
+          onClick={() => setAiControlsOpen(false)}
+        >
+          <div onClick={(event) => event.stopPropagation()}>
+            <AiControlsPanel onClose={() => setAiControlsOpen(false)} />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

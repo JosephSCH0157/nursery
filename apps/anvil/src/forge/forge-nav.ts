@@ -5,6 +5,14 @@ type ForgeNavItem = {
   href?: string;
 };
 
+type ForgeMenuItem = {
+  id: string;
+  label: string;
+  to?: string;
+  href?: string;
+  onClick?: () => void;
+};
+
 type ForgeNavSection = {
   id: string;
   title?: string;
@@ -34,6 +42,14 @@ type ForgeNavOverlayState = {
 
 type ForgeMenuInitOptions = {
   mountId?: string;
+  extraItems?: ForgeMenuItem[];
+  hideItems?: string[];
+};
+
+type ForgeNavRenderOptions = {
+  extraItems?: ForgeMenuItem[];
+  hideItems?: string[];
+  extraActionHandlers?: Map<string, () => void>;
 };
 const FORGE_NAV_FALLBACK: ForgeNavPayload = {
   schema: 1,
@@ -205,8 +221,11 @@ function createSectionTitle(section: ForgeNavSection): HTMLElement | null {
   return el;
 }
 
-function renderNavPanel(panel: HTMLDivElement, payload: ForgeNavPayload): void {
+function renderNavPanel(panel: HTMLDivElement, payload: ForgeNavPayload, opts: ForgeNavRenderOptions = {}): void {
   panel.innerHTML = "";
+  const hiddenItems = new Set((opts.hideItems ?? []).map((id) => id.trim()).filter(Boolean));
+  const actionHandlers = opts.extraActionHandlers ?? new Map<string, () => void>();
+
   payload.tree.forEach((section, idx) => {
     const sectionEl = document.createElement("div");
     sectionEl.style.marginTop = idx === 0 ? "0" : "12px";
@@ -220,6 +239,7 @@ function renderNavPanel(panel: HTMLDivElement, payload: ForgeNavPayload): void {
     nav.style.marginTop = section.id === "settings" ? "4px" : "0";
 
     section.items.forEach((item) => {
+      if (hiddenItems.has(item.id)) return;
       const href = resolveItemHref(item);
       const action = document.createElement("button");
       action.type = "button";
@@ -250,6 +270,55 @@ function renderNavPanel(panel: HTMLDivElement, payload: ForgeNavPayload): void {
 
     panel.appendChild(sectionEl);
   });
+
+  const extraItems = (opts.extraItems ?? []).filter((item) => !hiddenItems.has(item.id));
+  if (!extraItems.length) return;
+
+  const sectionEl = document.createElement("div");
+  sectionEl.style.marginTop = "12px";
+
+  const titleEl = document.createElement("div");
+  titleEl.textContent = "Tools";
+  titleEl.style.fontSize = "0.85rem";
+  titleEl.style.opacity = "0.8";
+  sectionEl.appendChild(titleEl);
+
+  const nav = document.createElement("nav");
+  nav.style.display = "grid";
+  nav.style.gap = "6px";
+  nav.style.marginTop = "4px";
+
+  extraItems.forEach((item) => {
+    const action = document.createElement("button");
+    action.type = "button";
+    action.textContent = item.label;
+    action.style.display = "block";
+    action.style.width = "100%";
+    action.style.padding = "6px 8px";
+    action.style.borderRadius = "8px";
+    action.style.border = "1px solid rgba(255,255,255,0.12)";
+    action.style.background = "rgba(255,255,255,0.03)";
+    action.style.color = "inherit";
+    action.style.textAlign = "left";
+
+    const href = resolveItemHref(item);
+    if (href !== "#") {
+      action.dataset.forgeNavHref = href;
+      action.style.cursor = "pointer";
+    } else if (typeof item.onClick === "function") {
+      action.dataset.forgeNavActionId = item.id;
+      action.style.cursor = "pointer";
+      actionHandlers.set(item.id, item.onClick);
+    } else {
+      action.style.cursor = "not-allowed";
+      action.disabled = true;
+    }
+
+    nav.appendChild(action);
+  });
+
+  sectionEl.appendChild(nav);
+  panel.appendChild(sectionEl);
 }
 
 function getOverlayState(): ForgeNavOverlayState | null {
@@ -464,10 +533,25 @@ function navigateFromOverlay(targetHref: string): void {
   try { window.open(targetHref, "_blank", "noopener,noreferrer"); } catch {}
 }
 
-function wireOverlayLinks(panel: HTMLDivElement, closeOverlay: () => void): void {
+function wireOverlayLinks(
+  panel: HTMLDivElement,
+  closeOverlay: () => void,
+  extraActionHandlers: Map<string, () => void>,
+): void {
   panel.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
+    const actionTrigger = target.closest<HTMLElement>("[data-forge-nav-action-id]");
+    if (actionTrigger) {
+      event.preventDefault();
+      const actionId = readString(actionTrigger.dataset.forgeNavActionId) ?? null;
+      if (!actionId) return;
+      const action = extraActionHandlers.get(actionId);
+      if (!action) return;
+      closeOverlay();
+      try { action(); } catch {}
+      return;
+    }
     const action = target.closest<HTMLElement>("[data-forge-nav-href]");
     if (!action) return;
     event.preventDefault();
@@ -483,6 +567,8 @@ async function openForgeMenuOverlay(): Promise<void> {
   if (!shell) return;
 
   const { panel, closeOverlay } = shell;
+  const opts = (window as any).__forgeMenuInitOptions as ForgeMenuInitOptions | undefined;
+  const extraActionHandlers = new Map<string, () => void>();
   const loading = document.createElement("div");
   loading.className = "loading";
   loading.textContent = "Loading navigation...";
@@ -491,8 +577,12 @@ async function openForgeMenuOverlay(): Promise<void> {
   const payload = await loadForgeNav();
   if (!panel.isConnected) return;
 
-  renderNavPanel(panel, payload);
-  wireOverlayLinks(panel, closeOverlay);
+  renderNavPanel(panel, payload, {
+    extraItems: opts?.extraItems,
+    hideItems: opts?.hideItems,
+    extraActionHandlers,
+  });
+  wireOverlayLinks(panel, closeOverlay, extraActionHandlers);
 }
 
 export function initForgeMenu(opts: ForgeMenuInitOptions = {}): void {
@@ -501,6 +591,7 @@ export function initForgeMenu(opts: ForgeMenuInitOptions = {}): void {
   if (!mount) return;
 
   const win = window as any;
+  win.__forgeMenuInitOptions = opts;
   const readyKey = `${FORGE_NAV_READY_SENTINEL}:${mountId}`;
   if (win[readyKey]) return;
   win[readyKey] = true;

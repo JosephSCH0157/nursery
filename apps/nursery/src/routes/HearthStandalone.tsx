@@ -3,8 +3,9 @@ import { Link, useLocation } from "react-router-dom";
 import type { Session } from "@supabase/supabase-js";
 import HearthShell from "@hearth/routes/HearthShell";
 import { ForgeNav } from "../nav/ForgeNav";
-import { forgeNavTree } from "../nav/forgeNavTree";
+import { FORGE_NAV_ACTION_AI_CONTROLS, forgeNavTree } from "../nav/forgeNavTree";
 import { supabase } from "../lib/supabase";
+import { AiControlsPanel } from "../components/hearth/AiControlsPanel";
 
 type AiStatus = {
   balance: number | null;
@@ -139,6 +140,7 @@ function pickDisplayName(session: Session | null): string {
 
 export default function HearthStandalone() {
   const [navOpen, setNavOpen] = useState(false);
+  const [aiControlsOpen, setAiControlsOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const { session, loading } = useForgeSession();
   const aiStatus = useAiStatus();
@@ -181,6 +183,12 @@ export default function HearthStandalone() {
     }
   }
 
+  function onNavAction(actionId: string) {
+    if (actionId !== FORGE_NAV_ACTION_AI_CONTROLS) return;
+    setNavOpen(false);
+    setAiControlsOpen(true);
+  }
+
   const aiBalanceLabel = aiStatus.balance == null
     ? "AI Tokens: --"
     : `AI Tokens: ${aiStatus.balance.toLocaleString()}`;
@@ -192,6 +200,10 @@ export default function HearthStandalone() {
     textUnderlineOffset: "3px",
     color: "inherit",
   });
+  const navExtraItems = useMemo(
+    () => [{ id: "ai-controls", label: "AI Controls", actionId: FORGE_NAV_ACTION_AI_CONTROLS }],
+    [],
+  );
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
@@ -261,12 +273,37 @@ export default function HearthStandalone() {
               </button>
             </div>
             <div style={{ flex: "1 1 auto", overflow: "auto", padding: "10px 14px" }}>
-              <ForgeNav tree={forgeNavTree} onNavigate={() => setNavOpen(false)} />
+              <ForgeNav
+                tree={forgeNavTree}
+                extraItems={navExtraItems}
+                onNavigate={() => setNavOpen(false)}
+                onAction={onNavAction}
+              />
             </div>
             <div style={{ padding: "0 14px 12px", opacity: 0.74, fontSize: 12 }}>
               Select an item to navigate.
             </div>
           </section>
+        </div>
+      ) : null}
+
+      {aiControlsOpen ? (
+        <div
+          role="presentation"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(5, 10, 18, 0.58)",
+            zIndex: 10000,
+            display: "grid",
+            placeItems: "center",
+            padding: 16,
+          }}
+          onClick={() => setAiControlsOpen(false)}
+        >
+          <div onClick={(event) => event.stopPropagation()}>
+            <AiControlsPanel onClose={() => setAiControlsOpen(false)} />
+          </div>
         </div>
       ) : null}
 
