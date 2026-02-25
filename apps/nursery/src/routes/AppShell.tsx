@@ -62,6 +62,14 @@ function loadWorkspaceIdFromSearch(search: string): string | null {
   return trimmed.length ? trimmed : null;
 }
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message;
+  }
+  return fallback;
+}
+
 export type AppShellContext = {
   workspaceId: string | null;
   workspaces: Workspace[];
@@ -82,6 +90,8 @@ export default function AppShell() {
     return fromUrl ?? loadActiveWorkspaceId();
   });
   const [loadingWorkspaces, setLoadingWorkspaces] = useState(false);
+  const [workspaceLoadError, setWorkspaceLoadError] = useState<string | null>(null);
+  const [hasWorkspaceFetchSucceeded, setHasWorkspaceFetchSucceeded] = useState(false);
   const lastSessionUserId = useRef<string | null>(null);
   const lastUrlWorkspaceRefresh = useRef<string | null>(null);
 
@@ -136,10 +146,12 @@ export default function AppShell() {
     if (!session) return;
     if (!opts?.force && workspaces.length) return;
     setLoadingWorkspaces(true);
+    setWorkspaceLoadError(null);
     try {
       const ws = await listMyWorkspaces();
       setWorkspaces(ws);
       saveWorkspaceCache(ws);
+      setHasWorkspaceFetchSucceeded(true);
 
       const preferId = opts?.preferId ?? null;
       const current = workspaceId;
@@ -156,6 +168,7 @@ export default function AppShell() {
       }
     } catch (err) {
       console.warn("[workspace] refresh failed", err);
+      setWorkspaceLoadError(getErrorMessage(err, "Failed loading workspaces. Try refresh."));
     } finally {
       setLoadingWorkspaces(false);
     }
@@ -168,6 +181,8 @@ export default function AppShell() {
       lastUrlWorkspaceRefresh.current = null;
       setWorkspaces([]);
       setWorkspaceId(null);
+      setWorkspaceLoadError(null);
+      setHasWorkspaceFetchSucceeded(false);
       return;
     }
 
@@ -206,6 +221,34 @@ export default function AppShell() {
     lastUrlWorkspaceRefresh.current = urlWorkspaceId;
     void refreshWorkspaces({ force: true, preferId: urlWorkspaceId });
   }, [session, urlWorkspaceId, workspaces, workspaceId, refreshWorkspaces, selectWorkspace]);
+
+  useEffect(() => {
+    if (!session || !urlWorkspaceId) return;
+    if (!hasWorkspaceFetchSucceeded || loadingWorkspaces) return;
+    if (workspaces.some((w) => w.id === urlWorkspaceId)) return;
+
+    const params = new URLSearchParams(location.search);
+    params.delete("workspace_id");
+    const nextSearch = params.toString();
+    nav(
+      {
+        pathname: location.pathname,
+        search: nextSearch ? `?${nextSearch}` : "",
+        hash: location.hash,
+      },
+      { replace: true },
+    );
+  }, [
+    session,
+    urlWorkspaceId,
+    hasWorkspaceFetchSucceeded,
+    loadingWorkspaces,
+    workspaces,
+    location.pathname,
+    location.search,
+    location.hash,
+    nav,
+  ]);
 
   async function onSignOut() {
     await supabase.auth.signOut();
@@ -333,16 +376,10 @@ export default function AppShell() {
     return parts[1] ?? null;
   }, [location.pathname]);
   const routeNeedsWorkspace = !!(appSegment && WORKSPACE_REQUIRED_APP_SEGMENTS.has(appSegment));
-  const urlWorkspaceMatchExists = !!(urlWorkspaceId && workspaces.some((w) => w.id === urlWorkspaceId));
-  const urlWorkspaceMismatch = !!(
-    session
-    && routeNeedsWorkspace
-    && urlWorkspaceMatchExists
-    && workspaceId !== urlWorkspaceId
-  );
-  const shouldBlockWorkspaceRoute = !!session && routeNeedsWorkspace && (!workspaceIsValid || urlWorkspaceMismatch);
+  const shouldBlockWorkspaceRoute = !!session && routeNeedsWorkspace && !workspaceIsValid;
   const workspaceGateLoading = shouldBlockWorkspaceRoute
-    && ((loadingWorkspaces && workspaces.length === 0) || urlWorkspaceMismatch);
+    && loadingWorkspaces
+    && workspaces.length === 0;
 
   useEffect(() => {
     if (!shouldBlockWorkspaceRoute) {
@@ -485,7 +522,23 @@ export default function AppShell() {
             >
               <h2 style={{ margin: 0 }}>You need a workspace to use the Forge.</h2>
               {workspaceGateLoading ? (
-                <p style={{ margin: 0, opacity: 0.8 }}>Resolving workspace…</p>
+                <p style={{ margin: 0, opacity: 0.8 }}>Loading workspaces...</p>
+              ) : workspaceLoadError && workspaces.length === 0 ? (
+                <>
+                  <p style={{ margin: 0, opacity: 0.8 }}>
+                    Could not load workspaces right now.
+                  </p>
+                  <div style={{ color: "var(--forge-danger)", fontSize: 13 }}>{workspaceLoadError}</div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => void refreshWorkspaces({ force: true, preferId: urlWorkspaceId })}
+                      disabled={loadingWorkspaces}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                </>
               ) : workspaces.length === 0 ? (
                 <>
                   <p style={{ margin: 0, opacity: 0.8 }}>
@@ -509,6 +562,11 @@ export default function AppShell() {
                   <p style={{ margin: 0, opacity: 0.8 }}>
                     Select a workspace to continue.
                   </p>
+                  {workspaceLoadError && (
+                    <div style={{ color: "var(--forge-danger)", fontSize: 13 }}>
+                      {workspaceLoadError}
+                    </div>
+                  )}
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     <select
                       value={workspaceGateChoice}
