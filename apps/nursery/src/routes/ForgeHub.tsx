@@ -58,7 +58,7 @@ function linkFor(appId: ForgeAppId): HubLink {
 const LINKS: HubLink[] = [
   linkFor("barstock"),
   {
-    href: "/apps/hearth",
+    to: "/app/hearth",
     ...TOOL_META.hearth,
   },
   {
@@ -68,7 +68,7 @@ const LINKS: HubLink[] = [
     desc: "Plan recordings, manage mounts, and move work between tools.",
   },
   {
-    href: "/anvil/teleprompter_pro.html",
+    to: "/app/anvil",
     ...TOOL_META.anvil,
   },
   linkFor("hammer"),

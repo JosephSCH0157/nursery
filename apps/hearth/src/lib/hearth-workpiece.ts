@@ -253,6 +253,7 @@ export async function createHearthWorkpiece(origin?: ForgeOrigin): Promise<Creat
 
   const writtenBy = getWrittenBy();
 
+  // Success contract: cradle created -> metadata committed -> pointers persisted.
   const created = await createCradle({ workspaceId, writtenBy, origin });
   if (!created.ok) return created;
   const metadata = await commitMetadata({
@@ -272,6 +273,7 @@ export async function createHearthWorkpiece(origin?: ForgeOrigin): Promise<Creat
     };
   }
 
+  // Persist only after metadata commit is acknowledged.
   persistWorkpiece(workspaceId, created.workpieceId);
   return { ok: true, workpieceId: created.workpieceId };
 }

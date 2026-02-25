@@ -32,6 +32,7 @@ Deliverables:
 - Contract document updates in this file (and linked code comments/types).
 - Shared type definitions for handshake payloads/results.
 - Minimal helper functions for context resolution + handoff URL construction.
+- Canonical link helper ownership: `apps/nursery/src/lib/forge-route-context.ts`.
 - No visual redesign required.
 
 ### 4.2 UX Wiring: Open in Anvil
@@ -83,6 +84,26 @@ Primary outcome: shareable URLs and deterministic restore behavior.
   - replace invalid URL state (do not push history)
   - fall back to valid selected/default workspace with clear user notice
 
+### Canonical Link Model (4.1 Contract)
+
+- Canonical deep-link keys are:
+  - `workspace_id`
+  - `workpiece_id`
+- Legacy aliases may be parsed for compatibility, but all generated links must emit canonical keys.
+- Parsing/validation ownership for router handoff lives in:
+  - `apps/nursery/src/lib/forge-route-context.ts`
+- Route bridges must sanitize invalid context keys before handoff and use replace semantics for URL correction.
+
+### Workpiece Creation Success (4.1 Contract)
+
+A Hearth workpiece creation is considered successful only when all are true:
+
+- Cradle/Episode row creation succeeded.
+- `metadata.json` commit succeeded.
+- Local last-open pointers were persisted after commit success.
+
+If metadata commit fails, creation is considered failed even if a cradle row exists.
+
 ### Hearth <-> Tongs
 
 Hearth writes:
@@ -108,6 +129,11 @@ Rules:
 
 - Never open Anvil without a resolved workspace.
 - Never rely only on stale local storage for workpiece selection.
+- Hearth generated handoff URL contract:
+  - `/app/anvil?workspace_id=<uuid>&workpiece_id=<uuid>`
+- Nursery Anvil route forwards canonical context to Anvil runtime:
+  - `/anvil/teleprompter_pro.html?workspace_id=<uuid>&workpiece_id=<uuid>`
+- Invalid/missing workspace context must route through workspace gate before Anvil mount.
 
 ### Hearth <-> Bar-Stock
 
@@ -120,6 +146,13 @@ Rules:
 
 - Spark provenance must be persisted on workpiece origin metadata.
 - Workpiece creation failure must not leave partial local selection state.
+
+## Manual Integration Checklist (4.1)
+
+- [ ] Create spark -> Forge in Hearth -> open workpiece -> refresh -> same workpiece still opens.
+- [ ] From Hearth active workpiece, open Anvil -> correct workspace/workpiece context is preserved.
+- [ ] Launch tool route with no workspace (`/app/hearth` or `/app/anvil`) -> workspace-required gate blocks mount.
+- [ ] Launch with invalid `workspace_id` query -> URL self-heals via replace and does not add back-button spam.
 
 ## Acceptance Criteria
 

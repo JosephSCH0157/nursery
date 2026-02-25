@@ -251,6 +251,17 @@ function deriveIntentFromOrigin(origin: HearthSessionOrigin | null | undefined):
   return origin.created_from === "bar-stock" ? "from_spark" : "new_idea";
 }
 
+function buildOpenInAnvilHref(workspaceId: string | null, workpieceId: string | null): string | null {
+  const workspace = workspaceId?.trim();
+  const workpiece = workpieceId?.trim();
+  if (!workspace || !workpiece) return null;
+
+  const params = new URLSearchParams();
+  params.set("workspace_id", workspace);
+  params.set("workpiece_id", workpiece);
+  return `/app/anvil?${params.toString()}`;
+}
+
 function isPlanningSessionEmpty(session: HearthPlanningSession | null): boolean {
   if (!session) return true;
   const hasTitle = Boolean(session.title && session.title.trim());
@@ -367,6 +378,10 @@ export default function HearthShell() {
   const missingSourcesCount = sourcesState.missingCitedCount;
   const unusedSourcesCount = sourcesState.unusedRefsCount;
   const showHome = selectedMode === "home" || !workpieceId;
+  const openInAnvilHref = useMemo(
+    () => buildOpenInAnvilHref(workspaceId, workpieceId),
+    [workspaceId, workpieceId],
+  );
 
   const filteredDrafts = useMemo(() => {
     const query = searchText.trim().toLowerCase();
@@ -1688,6 +1703,17 @@ export default function HearthShell() {
           {workpieceId ? (
             <div className="hs-active-workpiece">
               <div className="hs-rail-heading">Active workpiece</div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!openInAnvilHref) return;
+                  window.location.assign(openInAnvilHref);
+                }}
+                disabled={!openInAnvilHref}
+                className="hs-mode-button"
+              >
+                Open in Anvil
+              </button>
               <button
                 type="button"
                 onClick={() => setMode("draft")}

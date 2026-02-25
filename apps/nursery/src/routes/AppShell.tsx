@@ -6,6 +6,7 @@ import { supabase } from "../lib/supabase";
 import { listMyWorkspaces, type Workspace } from "@barstock/lib/tongs-api";
 import { ForgeNav } from "../nav/ForgeNav";
 import { forgeNavTree } from "../nav/forgeNavTree";
+import { parseForgeRouteContext, removeWorkspaceParams } from "../lib/forge-route-context";
 
 const WORKSPACE_CACHE_KEY = "forge_workspaces_cache_v1";
 const ACTIVE_WORKSPACE_KEY = "forge_workspace_id_v1";
@@ -55,13 +56,6 @@ function saveActiveWorkspaceId(id: string | null) {
   localStorage.removeItem(LEGACY_BARSTOCK_WORKSPACE_KEY);
 }
 
-function loadWorkspaceIdFromSearch(search: string): string | null {
-  const raw = new URLSearchParams(search).get("workspace_id");
-  if (!raw) return null;
-  const trimmed = raw.trim();
-  return trimmed.length ? trimmed : null;
-}
-
 function getErrorMessage(error: unknown, fallback: string): string {
   if (error && typeof error === "object" && "message" in error) {
     const message = (error as { message?: unknown }).message;
@@ -85,7 +79,7 @@ export default function AppShell() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>(() => loadWorkspaceCache());
   const [workspaceId, setWorkspaceId] = useState<string | null>(() => {
     const fromUrl = typeof window !== "undefined"
-      ? loadWorkspaceIdFromSearch(window.location.search)
+      ? parseForgeRouteContext(window.location.search).workspaceId
       : null;
     return fromUrl ?? loadActiveWorkspaceId();
   });
@@ -104,10 +98,8 @@ export default function AppShell() {
   const [renaming, setRenaming] = useState(false);
   const [workspaceGateChoice, setWorkspaceGateChoice] = useState("");
 
-  const urlWorkspaceId = useMemo(
-    () => loadWorkspaceIdFromSearch(location.search),
-    [location.search],
-  );
+  const urlContext = useMemo(() => parseForgeRouteContext(location.search), [location.search]);
+  const urlWorkspaceId = urlContext.workspaceId;
 
   useEffect(() => {
     const res = loadMountRegistry("default");
@@ -226,14 +218,10 @@ export default function AppShell() {
     if (!session || !urlWorkspaceId) return;
     if (!hasWorkspaceFetchSucceeded || loadingWorkspaces) return;
     if (workspaces.some((w) => w.id === urlWorkspaceId)) return;
-
-    const params = new URLSearchParams(location.search);
-    params.delete("workspace_id");
-    const nextSearch = params.toString();
     nav(
       {
         pathname: location.pathname,
-        search: nextSearch ? `?${nextSearch}` : "",
+        search: removeWorkspaceParams(location.search),
         hash: location.hash,
       },
       { replace: true },
@@ -244,6 +232,24 @@ export default function AppShell() {
     hasWorkspaceFetchSucceeded,
     loadingWorkspaces,
     workspaces,
+    location.pathname,
+    location.search,
+    location.hash,
+    nav,
+  ]);
+
+  useEffect(() => {
+    if (!urlContext.hasInvalidWorkspaceId) return;
+    nav(
+      {
+        pathname: location.pathname,
+        search: removeWorkspaceParams(location.search),
+        hash: location.hash,
+      },
+      { replace: true },
+    );
+  }, [
+    urlContext.hasInvalidWorkspaceId,
     location.pathname,
     location.search,
     location.hash,
