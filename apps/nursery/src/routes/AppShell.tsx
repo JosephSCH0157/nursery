@@ -80,7 +80,6 @@ export type AppShellContext = {
 };
 
 export default function AppShell() {
-  const location = useLocation();
   const nav = useNavigate();
   const location = useLocation();
   const [session, setSession] = useState<SupabaseSession | null>(null);
