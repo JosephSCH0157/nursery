@@ -41795,10 +41795,10 @@ function getForgeHubOrigin2() {
   const currentOrigin = readString2(window.location.origin);
   if (!fromForgeConfig) return currentOrigin ?? "";
   try {
-    const current = new URL(currentOrigin ?? "http://localhost");
+    const current2 = new URL(currentOrigin ?? "http://localhost");
     const target = new URL(fromForgeConfig);
-    const isLocalCurrent = current.hostname === "localhost" || current.hostname === "127.0.0.1" || current.hostname === "::1";
-    if (isLocalCurrent) return current.origin;
+    const isLocalCurrent = current2.hostname === "localhost" || current2.hostname === "127.0.0.1" || current2.hostname === "::1";
+    if (isLocalCurrent) return current2.origin;
     return target.origin;
   } catch {
     return currentOrigin ?? fromForgeConfig;
