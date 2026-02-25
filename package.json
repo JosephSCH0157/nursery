@@ -7,6 +7,7 @@
     "build": "pnpm -r build",
     "lint": "pnpm --filter nursery lint && pnpm --filter @forge/tongs lint",
     "types": "pnpm --filter nursery typecheck && pnpm --filter @forge/tongs typecheck",
+    "gate": "pnpm check",
     "check": "pnpm smoke && pnpm lint && pnpm types",
     "smoke": "node scripts/smoke.mjs"
   },
