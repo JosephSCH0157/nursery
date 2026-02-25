@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generated_at": "2026-02-25T16:43:15.286Z",
+  "generated_at": "2026-02-25T17:35:18.239Z",
   "tree": [
     {
       "id": "forge",
@@ -19,7 +19,7 @@
         {
           "id": "hearth",
           "label": "Hearth",
-          "href": "/apps/hearth"
+          "to": "/app/hearth"
         },
         {
           "id": "tongs",
@@ -29,7 +29,7 @@
         {
           "id": "anvil",
           "label": "Anvil",
-          "href": "/anvil/teleprompter_pro.html"
+          "to": "/app/anvil"
         },
         {
           "id": "hammer",
