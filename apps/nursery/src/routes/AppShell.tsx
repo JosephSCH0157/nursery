@@ -6,7 +6,6 @@ import { supabase } from "../lib/supabase";
 import { listMyWorkspaces, type Workspace } from "@barstock/lib/tongs-api";
 import { ForgeNav } from "../nav/ForgeNav";
 import { forgeNavTree } from "../nav/forgeNavTree";
-import forgeInteriorImage from "../../../../assets/forge-interior.png";
 
 const WORKSPACE_CACHE_KEY = "forge_workspaces_cache_v1";
 const ACTIVE_WORKSPACE_KEY = "forge_workspace_id_v1";
