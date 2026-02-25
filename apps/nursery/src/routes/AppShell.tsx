@@ -376,6 +376,7 @@ export default function AppShell() {
     () => [{ id: "default", name: "Trial Workspace" }],
     [],
   );
+  const inTrialMode = !session;
   const visibleWorkspaces = session ? workspaces : trialWorkspaces;
   const effectiveWorkspaceId = session ? workspaceId : "default";
   const workspaceValue = effectiveWorkspaceId ?? "";
