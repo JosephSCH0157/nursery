@@ -886,8 +886,24 @@ async function downloadStorageObject(
     const code = String(statusCode ?? "");
     if (message.includes("not found") || code === "404") return null;
 
-    logStorageError("download", bucket, key, error);
     const responseDetails = await extractResponseDetails(error);
+    if (responseDetails) {
+      const status = Number(responseDetails.status ?? NaN);
+      const bodyJson = responseDetails.bodyJson as { statusCode?: unknown; error?: unknown; message?: unknown } | null;
+      const bodyText = String(responseDetails.bodyText ?? "");
+      const statusCodeText = bodyJson?.statusCode ?? "";
+      const statusCodeNum = typeof statusCodeText === "string" ? Number(statusCodeText) : Number(statusCodeText ?? NaN);
+      const isNotFound = status === 404
+        || (status === 400 && (
+          statusCodeNum === 404
+          || bodyJson?.error === "not_found"
+          || /object not found/i.test(String(bodyJson?.message ?? bodyText))
+        ));
+
+      if (isNotFound) return null;
+    }
+
+    logStorageError("download", bucket, key, error);
     if (responseDetails && shouldDebugStorage()) {
       console.error("[tongs][storage:download] response", responseDetails);
     }
