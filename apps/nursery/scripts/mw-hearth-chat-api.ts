@@ -7,7 +7,6 @@ type Next = (err?: unknown) => void;
 
 type ChatRole = "system" | "user" | "assistant";
 type ChatMessage = { role: ChatRole; content: string };
-type Behavior = "fast" | "careful" | "deterministic" | "creative";
 type ReqBody = {
   messages?: unknown;
   behavior?: unknown;
@@ -81,10 +80,6 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   });
 }
 
-function isBehavior(value: unknown): value is Behavior {
-  return value === "fast" || value === "careful" || value === "deterministic" || value === "creative";
-}
-
 function isRole(value: unknown): value is ChatRole {
   return value === "system" || value === "user" || value === "assistant";
 }
@@ -100,20 +95,6 @@ function toChatMessage(value: unknown): ChatMessage | null {
     role: row.role,
     content,
   };
-}
-
-function behaviorToTemperature(behavior: Behavior): number {
-  switch (behavior) {
-    case "fast":
-      return 0.8;
-    case "creative":
-      return 0.95;
-    case "deterministic":
-      return 0.1;
-    case "careful":
-    default:
-      return 0.5;
-  }
 }
 
 function extractAssistantReply(payload: unknown): string {
@@ -166,7 +147,6 @@ export function mwHearthChatApi() {
       }
 
       const bodyRaw = (await readJsonBody(req)) as ReqBody;
-      const behavior = isBehavior(bodyRaw.behavior) ? bodyRaw.behavior : "careful";
       const rawMessages = Array.isArray(bodyRaw.messages) ? bodyRaw.messages : [];
       const messages = rawMessages
         .map(toChatMessage)
@@ -192,7 +172,6 @@ export function mwHearthChatApi() {
         body: JSON.stringify({
           model,
           messages: [system, ...messages],
-          temperature: behaviorToTemperature(behavior),
         }),
       });
 
