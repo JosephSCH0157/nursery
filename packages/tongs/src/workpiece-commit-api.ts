@@ -794,16 +794,32 @@ function safeSerializeError(error: unknown): unknown {
   }
 }
 
+function extractErrorDetails(error: unknown): Record<string, unknown> | null {
+  if (!error || typeof error !== "object") return null;
+  const details: Record<string, unknown> = {};
+  for (const key of Object.getOwnPropertyNames(error)) {
+    details[key] = (error as Record<string, unknown>)[key];
+  }
+  const proto = Object.getPrototypeOf(error);
+  if (proto?.constructor?.name && proto.constructor.name !== "Object") {
+    details.__type = proto.constructor.name;
+  }
+  return details;
+}
+
 function logStorageError(action: "download" | "upload", bucket: string, key: string, error: unknown): void {
   if (!shouldDebugStorage()) return;
   const serialized = safeSerializeError(error);
+  const extracted = extractErrorDetails(error);
   const message = error instanceof Error ? error.message : undefined;
   console.error(`[tongs][storage:${action}]`, {
     bucket,
     key,
     message,
     error: serialized,
+    extracted,
   });
+  console.error(`[tongs][storage:${action}] raw`, error);
 }
 
 async function downloadStorageObject(
