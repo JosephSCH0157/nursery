@@ -807,6 +807,36 @@ function extractErrorDetails(error: unknown): Record<string, unknown> | null {
   return details;
 }
 
+async function extractResponseDetails(error: unknown): Promise<Record<string, unknown> | null> {
+  const response = (error as { originalError?: unknown } | null | undefined)?.originalError;
+  if (!response || typeof response !== "object") return null;
+  const maybeResponse = response as Response;
+  if (typeof maybeResponse.text !== "function") return null;
+
+  try {
+    const bodyText = await maybeResponse.clone().text();
+    let bodyJson: unknown = null;
+    try {
+      bodyJson = JSON.parse(bodyText);
+    } catch {
+      bodyJson = null;
+    }
+    return {
+      status: maybeResponse.status,
+      statusText: maybeResponse.statusText,
+      bodyText,
+      bodyJson,
+      url: maybeResponse.url,
+    };
+  } catch {
+    return {
+      status: maybeResponse.status,
+      statusText: maybeResponse.statusText,
+      url: maybeResponse.url,
+    };
+  }
+}
+
 function logStorageError(action: "download" | "upload", bucket: string, key: string, error: unknown): void {
   if (!shouldDebugStorage()) return;
   const serialized = safeSerializeError(error);
@@ -837,10 +867,15 @@ async function downloadStorageObject(
     if (message.includes("not found") || code === "404") return null;
 
     logStorageError("download", bucket, key, error);
+    const responseDetails = await extractResponseDetails(error);
+    if (responseDetails && shouldDebugStorage()) {
+      console.error("[tongs][storage:download] response", responseDetails);
+    }
     throw new HttpError(502, "storage_read_failed", "Unable to read file from Storage", {
       key,
       reason: error.message,
       status: statusCode,
+      response: responseDetails ?? undefined,
     });
   }
 
