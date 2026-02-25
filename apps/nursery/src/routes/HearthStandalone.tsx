@@ -2,36 +2,22 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import type { Session } from "@supabase/supabase-js";
 import HearthShell from "@hearth/routes/HearthShell";
+import {
+  readHearthAiRuntimeStatus,
+  type HearthAiRuntimeStatus,
+} from "@hearth/lib/ai-runtime-status";
 import { ForgeNav } from "../nav/ForgeNav";
 import { FORGE_NAV_ACTION_AI_CONTROLS, forgeNavTree } from "../nav/forgeNavTree";
 import { supabase } from "../lib/supabase";
 import { AiControlsPanel } from "../components/hearth/AiControlsPanel";
-
-type AiStatus = {
-  balance: number | null;
-  inUse: boolean;
-};
 
 type StoreKind = "local" | "tongs";
 
 const STORE_KIND_KEY = "hearth_store_kind";
 const DEV_MODE_KEY = "tp_dev_mode";
 
-function readAiStatus(): AiStatus {
-  if (typeof window === "undefined") {
-    return { balance: null, inUse: false };
-  }
-  const w = window as typeof window & {
-    __forgeAiTokenBalance?: unknown;
-    __forgeAiTokens?: unknown;
-    __forgeAiInUse?: unknown;
-    __forgeAiActive?: unknown;
-  };
-  const balanceRaw = w.__forgeAiTokenBalance ?? w.__forgeAiTokens;
-  const balance =
-    typeof balanceRaw === "number" && Number.isFinite(balanceRaw) ? balanceRaw : null;
-  const inUse = w.__forgeAiInUse === true || w.__forgeAiActive === true;
-  return { balance, inUse };
+function readAiStatus(): HearthAiRuntimeStatus {
+  return readHearthAiRuntimeStatus();
 }
 
 function resolveStoreKind(search: string): StoreKind {
@@ -86,7 +72,7 @@ function isDevMode(search: string): boolean {
 }
 
 function useAiStatus() {
-  const [status, setStatus] = useState<AiStatus>(() => readAiStatus());
+  const [status, setStatus] = useState<HearthAiRuntimeStatus>(() => readAiStatus());
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -189,10 +175,16 @@ export default function HearthStandalone() {
     setAiControlsOpen(true);
   }
 
-  const aiBalanceLabel = aiStatus.balance == null
-    ? "AI Tokens: --"
-    : `AI Tokens: ${aiStatus.balance.toLocaleString()}`;
-  const aiPillText = aiStatus.inUse ? "AI: In use" : "AI: Idle";
+  const aiBalanceLabel = aiStatus.billingMode === "byo"
+    ? "AI Credits: BYO"
+    : aiStatus.tokenBalance == null
+      ? "AI Credits: --"
+      : `AI Credits: ${aiStatus.tokenBalance.toLocaleString()}`;
+  const aiPillText = aiStatus.billingMode === "byo"
+    ? "AI: BYO Mode"
+    : aiStatus.isAiProcessing
+      ? "AI: Active"
+      : "AI: Idle";
   const storeLinkStyle = (active: boolean) => ({
     fontSize: 12,
     opacity: active ? 1 : 0.6,
@@ -361,8 +353,8 @@ export default function HearthStandalone() {
             style={{
               padding: "4px 10px",
               borderRadius: 999,
-              background: aiStatus.inUse ? "rgba(121, 226, 166, 0.2)" : "rgba(255,255,255,0.08)",
-              color: aiStatus.inUse ? "#b9f3d2" : "inherit",
+              background: aiStatus.isAiProcessing ? "rgba(121, 226, 166, 0.2)" : "rgba(255,255,255,0.08)",
+              color: aiStatus.isAiProcessing ? "#b9f3d2" : "inherit",
               fontSize: 12,
               fontWeight: 600,
             }}

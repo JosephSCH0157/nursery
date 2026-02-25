@@ -20,7 +20,14 @@ import {
   readHearthPlanningSessionCache,
   writeHearthPlanningSessionCache,
 } from "../lib/hearth-session-registry";
-import { requestHearthChatReply, type HearthChatMessage } from "../lib/hearth-chat-api";
+import {
+  fetchHearthAiStatus,
+  requestHearthChatReply,
+  resolveAiLaneFromStorage,
+  type HearthAiLane,
+  type HearthChatMessage,
+} from "../lib/hearth-chat-api";
+import { writeHearthAiRuntimeStatus } from "../lib/ai-runtime-status";
 import { commitHearthSession, readHearthSession } from "../lib/hearth-session-repo";
 import { useSourcesState } from "../hooks/useSourcesState";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
@@ -338,7 +345,9 @@ export default function HearthShell() {
   const [chatMessages, setChatMessages] = useState<HearthChatMessage[]>([]);
   const [chatDraft, setChatDraft] = useState("");
   const [chatError, setChatError] = useState<string | null>(null);
-  const [isChatting, setIsChatting] = useState(false);
+  const [isAiProcessing, setIsAiProcessing] = useState(false);
+  const [aiTokenBalance, setAiTokenBalance] = useState<number | null>(null);
+  const [aiBillingMode, setAiBillingMode] = useState<HearthAiLane>(() => resolveAiLaneFromStorage());
 
   const setMode = useCallback((mode: HearthMode) => {
     modeTouchedRef.current = true;
@@ -359,6 +368,7 @@ export default function HearthShell() {
   const sessionCommitInFlight = useRef(false);
   const sessionCommitQueued = useRef(false);
   const restoredCursorDraftIdRef = useRef<string | null>(null);
+  const aiRequestControllerRef = useRef<AbortController | null>(null);
 
   const lastAutosaveRevisionAt = useMemo(() => {
     const match = revisions.find((rev) => rev.kind === "autosave");
@@ -396,6 +406,7 @@ export default function HearthShell() {
     () => buildOpenInAnvilHref(workspaceId, workpieceId),
     [workspaceId, workpieceId],
   );
+  const aiCreditsDepleted = aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0;
 
   const filteredDrafts = useMemo(() => {
     const query = searchText.trim().toLowerCase();
@@ -430,6 +441,63 @@ export default function HearthShell() {
   useEffect(() => {
     draftSnapshotRef.current = draftSnapshot;
   }, [draftSnapshot]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let cancelled = false;
+
+    const syncAiRuntime = async () => {
+      const lane = resolveAiLaneFromStorage();
+      if (!cancelled) {
+        setAiBillingMode(lane);
+        if (lane === "byo") {
+          setAiTokenBalance(null);
+        }
+      }
+
+      const status = await fetchHearthAiStatus();
+      if (cancelled) return;
+      if (!status.runtime) return;
+      if (lane === "byo") {
+        setAiTokenBalance(null);
+      } else {
+        setAiTokenBalance(status.runtime.tokenBalance);
+      }
+    };
+
+    void syncAiRuntime();
+
+    const onAiSettingsChange = () => {
+      void syncAiRuntime();
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key && event.key !== "forge:hearth:aiSettings:v1") return;
+      void syncAiRuntime();
+    };
+
+    window.addEventListener("forge:ai:settings", onAiSettingsChange as EventListener);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("forge:ai:settings", onAiSettingsChange as EventListener);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
+
+  useEffect(() => {
+    writeHearthAiRuntimeStatus({
+      isAiProcessing,
+      tokenBalance: aiTokenBalance,
+      billingMode: aiBillingMode,
+    });
+  }, [aiBillingMode, aiTokenBalance, isAiProcessing]);
+
+  useEffect(() => {
+    return () => {
+      aiRequestControllerRef.current?.abort();
+      writeHearthAiRuntimeStatus({ isAiProcessing: false });
+    };
+  }, []);
 
   const refreshDrafts = useCallback(async () => {
     const list = await store.listDrafts();
@@ -1207,20 +1275,41 @@ export default function HearthShell() {
     void persistSession(activeDraft?.id ?? null, "draft");
   }
 
+  function onCancelAiRequest() {
+    aiRequestControllerRef.current?.abort();
+  }
+
   async function onSendChat() {
-    if (isChatting) return;
+    if (isAiProcessing) return;
     const content = chatDraft.trim();
     if (!content) return;
+    const lane = resolveAiLaneFromStorage();
+    setAiBillingMode(lane);
+    if (lane === "forge" && aiTokenBalance != null && aiTokenBalance <= 0) {
+      setChatError("No AI credits remaining.");
+      return;
+    }
+    if (lane === "byo") {
+      setAiTokenBalance(null);
+    }
 
     const userMessage: HearthChatMessage = { role: "user", content };
     const nextMessages = [...chatMessages, userMessage].slice(-24);
     setChatMessages(nextMessages);
     setChatDraft("");
     setChatError(null);
-    setIsChatting(true);
+    const controller = new AbortController();
+    aiRequestControllerRef.current = controller;
+    setIsAiProcessing(true);
 
     try {
-      const result = await requestHearthChatReply(nextMessages);
+      const result = await requestHearthChatReply(nextMessages, { signal: controller.signal });
+      if (result.runtime.billingMode === "forge") {
+        setAiTokenBalance(result.runtime.tokenBalance);
+      } else {
+        setAiTokenBalance(null);
+      }
+      setAiBillingMode(result.runtime.billingMode);
       if (!result.ok) {
         setChatError(result.error);
         return;
@@ -1228,7 +1317,10 @@ export default function HearthShell() {
       const assistantMessage: HearthChatMessage = { role: "assistant", content: result.reply };
       setChatMessages((prev) => [...prev, assistantMessage].slice(-24));
     } finally {
-      setIsChatting(false);
+      if (aiRequestControllerRef.current === controller) {
+        aiRequestControllerRef.current = null;
+      }
+      setIsAiProcessing(false);
     }
   }
 
@@ -1420,7 +1512,7 @@ export default function HearthShell() {
                 setChatMessages([]);
                 setChatError(null);
               }}
-              disabled={isChatting || chatMessages.length === 0}
+              disabled={isAiProcessing || chatMessages.length === 0}
             >
               Clear
             </button>
@@ -1445,6 +1537,10 @@ export default function HearthShell() {
             <div className="hs-error-text-small">{chatError}</div>
           ) : null}
 
+          {aiCreditsDepleted ? (
+            <div className="hs-error-text-small">No AI credits remaining.</div>
+          ) : null}
+
           <div className="hs-ai-chat-compose">
             <textarea
               value={chatDraft}
@@ -1457,10 +1553,19 @@ export default function HearthShell() {
                 event.preventDefault();
                 void onSendChat();
               }}
-              disabled={isChatting}
+              disabled={isAiProcessing || aiCreditsDepleted}
             />
-            <button type="button" onClick={() => void onSendChat()} disabled={isChatting || !chatDraft.trim()}>
-              {isChatting ? "Sending..." : "Send"}
+            {isAiProcessing ? (
+              <button type="button" onClick={onCancelAiRequest}>
+                Cancel
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => void onSendChat()}
+              disabled={isAiProcessing || aiCreditsDepleted || !chatDraft.trim()}
+            >
+              {isAiProcessing ? "Sending..." : "Send"}
             </button>
           </div>
         </section>

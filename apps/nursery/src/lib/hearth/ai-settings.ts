@@ -35,6 +35,15 @@ function writeStorage(value: string): void {
   }
 }
 
+function emitSettingsEvent(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.dispatchEvent(new CustomEvent("forge:ai:settings"));
+  } catch {
+    // ignore
+  }
+}
+
 export function loadAiSettings(): AiSettings {
   try {
     const raw = readStorage();
@@ -58,6 +67,7 @@ export function loadAiSettings(): AiSettings {
 
 export function saveAiSettings(next: AiSettings): void {
   writeStorage(JSON.stringify(next));
+  emitSettingsEvent();
 }
 
 export function clearByoKey(): void {

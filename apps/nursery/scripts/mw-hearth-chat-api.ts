@@ -7,9 +7,11 @@ type Next = (err?: unknown) => void;
 
 type ChatRole = "system" | "user" | "assistant";
 type ChatMessage = { role: ChatRole; content: string };
+type BillingMode = "forge" | "byo";
 type ReqBody = {
   messages?: unknown;
   behavior?: unknown;
+  lane?: unknown;
 };
 
 const __filename = fileURLToPath(import.meta.url);
@@ -17,6 +19,7 @@ const __dirname = path.dirname(__filename);
 const ENV_ROOT = path.join(__dirname, "..");
 const ENV_FILES = [".env.local", ".env"];
 const CHAT_ROUTE = "/api/hearth/chat";
+const CHAT_STATUS_ROUTE = "/api/hearth/chat/status";
 
 function loadEnvFile(filePath: string): void {
   if (!fs.existsSync(filePath)) return;
@@ -57,6 +60,14 @@ function sendJson(res: ServerResponse, status: number, obj: unknown): void {
   res.end(body);
 }
 
+function readIntegerEnv(name: string): number | null {
+  const raw = readEnv(name);
+  if (!raw) return null;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) return null;
+  return parsed >= 0 ? parsed : null;
+}
+
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const method = (req.method || "GET").toUpperCase();
   if (method === "GET" || method === "HEAD") return {};
@@ -82,6 +93,10 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
 
 function isRole(value: unknown): value is ChatRole {
   return value === "system" || value === "user" || value === "assistant";
+}
+
+function isBillingMode(value: unknown): value is BillingMode {
+  return value === "forge" || value === "byo";
 }
 
 function toChatMessage(value: unknown): ChatMessage | null {
@@ -122,31 +137,81 @@ function extractAssistantReply(payload: unknown): string {
   return parts.join("\n").trim();
 }
 
+function extractTotalTokens(payload: unknown): number | null {
+  if (!payload || typeof payload !== "object") return null;
+  const usage = (payload as Record<string, unknown>).usage;
+  if (!usage || typeof usage !== "object") return null;
+  const total = (usage as Record<string, unknown>).total_tokens;
+  return typeof total === "number" && Number.isFinite(total) && total >= 0 ? total : null;
+}
+
 export function mwHearthChatApi() {
   const apiKey = readEnv("OPENAI_API_KEY");
   const model = readEnv("HEARTH_AI_MODEL") || "gpt-5";
+  const configuredBillingMode: BillingMode = readEnv("HEARTH_AI_BILLING_MODE") === "byo" ? "byo" : "forge";
+  let tokenBalance = readIntegerEnv("HEARTH_AI_TOKEN_BALANCE") ?? 12430;
+
+  function buildBillingSnapshot(mode: BillingMode) {
+    return {
+      billing_mode: mode,
+      token_balance: mode === "forge" ? tokenBalance : null,
+    };
+  }
 
   return async function hearthChatMiddleware(req: IncomingMessage, res: ServerResponse, next: Next) {
     try {
       const rawUrl = req.url || "";
-      const isTarget =
-        rawUrl === CHAT_ROUTE || rawUrl.startsWith(`${CHAT_ROUTE}?`) || rawUrl.startsWith(`${CHAT_ROUTE}/`);
-      if (!isTarget) {
+      const origin = `http://${req.headers.host || "localhost"}`;
+      const url = new URL(rawUrl, origin);
+      const pathname = url.pathname;
+
+      if (pathname !== CHAT_ROUTE && pathname !== CHAT_STATUS_ROUTE) {
         next();
         return;
       }
 
       const method = (req.method || "GET").toUpperCase();
+
+      if (pathname === CHAT_STATUS_ROUTE) {
+        if (method !== "GET") {
+          sendJson(res, 405, { ok: false, error: "Method not allowed" });
+          return;
+        }
+        const laneParam = url.searchParams.get("lane");
+        const lane: BillingMode = isBillingMode(laneParam) ? laneParam : configuredBillingMode;
+        sendJson(res, 200, {
+          ok: true,
+          ...buildBillingSnapshot(lane),
+        });
+        return;
+      }
+
       if (method !== "POST") {
         sendJson(res, 405, { ok: false, error: "Method not allowed" });
         return;
       }
+
+      const bodyRaw = (await readJsonBody(req)) as ReqBody;
+      const lane: BillingMode = isBillingMode(bodyRaw.lane) ? bodyRaw.lane : configuredBillingMode;
+
       if (!apiKey) {
-        sendJson(res, 500, { ok: false, error: "Missing OPENAI_API_KEY in server env" });
+        sendJson(res, 500, {
+          ok: false,
+          error: "Missing OPENAI_API_KEY in server env",
+          ...buildBillingSnapshot(lane),
+        });
         return;
       }
 
-      const bodyRaw = (await readJsonBody(req)) as ReqBody;
+      if (lane === "forge" && tokenBalance != null && tokenBalance <= 0) {
+        sendJson(res, 402, {
+          ok: false,
+          error: "No AI credits remaining.",
+          ...buildBillingSnapshot(lane),
+        });
+        return;
+      }
+
       const rawMessages = Array.isArray(bodyRaw.messages) ? bodyRaw.messages : [];
       const messages = rawMessages
         .map(toChatMessage)
@@ -154,7 +219,11 @@ export function mwHearthChatApi() {
         .slice(-24);
 
       if (!messages.length) {
-        sendJson(res, 400, { ok: false, error: "messages are required" });
+        sendJson(res, 400, {
+          ok: false,
+          error: "messages are required",
+          ...buildBillingSnapshot(lane),
+        });
         return;
       }
 
@@ -177,18 +246,37 @@ export function mwHearthChatApi() {
 
       if (!upstream.ok) {
         const detail = await upstream.text();
-        sendJson(res, 502, { ok: false, error: "OpenAI error", detail });
+        sendJson(res, 502, {
+          ok: false,
+          error: "OpenAI error",
+          detail,
+          ...buildBillingSnapshot(lane),
+        });
         return;
       }
 
       const payload = (await upstream.json()) as unknown;
       const reply = extractAssistantReply(payload);
       if (!reply) {
-        sendJson(res, 502, { ok: false, error: "OpenAI returned empty response" });
+        sendJson(res, 502, {
+          ok: false,
+          error: "OpenAI returned empty response",
+          ...buildBillingSnapshot(lane),
+        });
         return;
       }
 
-      sendJson(res, 200, { ok: true, reply });
+      const totalTokens = extractTotalTokens(payload);
+      if (lane === "forge" && tokenBalance != null && totalTokens != null) {
+        tokenBalance = Math.max(0, tokenBalance - totalTokens);
+      }
+
+      sendJson(res, 200, {
+        ok: true,
+        reply,
+        total_tokens: totalTokens,
+        ...buildBillingSnapshot(lane),
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       sendJson(res, 500, { ok: false, error: message });
