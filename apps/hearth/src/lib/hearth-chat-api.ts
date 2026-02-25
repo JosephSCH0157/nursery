@@ -23,6 +23,7 @@ export type HearthChatResult =
       reply: string;
       runtime: HearthAiRuntimeSnapshot;
       totalTokens: number | null;
+      creditsWarning?: string;
     }
   | {
       ok: false;
@@ -33,6 +34,7 @@ export type HearthChatResult =
     };
 
 const AI_SETTINGS_STORAGE_KEY = "forge:hearth:aiSettings:v1";
+const SUPABASE_AUTH_STORAGE_KEY = "forge-auth";
 
 type AiSettingsSnapshot = {
   lane: HearthAiLane;
@@ -78,6 +80,55 @@ function readNumberField(payload: unknown, key: string): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function readSupabaseConfig(): { url: string; anonKey: string } | null {
+  const meta = import.meta as unknown as {
+    env?: Record<string, string | undefined>;
+  };
+  const url = meta.env?.VITE_SUPABASE_URL?.trim();
+  const anonKey = meta.env?.VITE_SUPABASE_ANON_KEY?.trim();
+  if (!url || !anonKey) return null;
+  return { url, anonKey };
+}
+
+function readAccessTokenFromStorage(): string | null {
+  if (typeof window === "undefined") return null;
+  let raw: string | null = null;
+  try {
+    raw = window.localStorage.getItem(SUPABASE_AUTH_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as {
+      access_token?: unknown;
+      currentSession?: { access_token?: unknown };
+      session?: { access_token?: unknown };
+    };
+    const direct = parsed.access_token;
+    if (typeof direct === "string" && direct.trim()) return direct.trim();
+    const fromCurrent = parsed.currentSession?.access_token;
+    if (typeof fromCurrent === "string" && fromCurrent.trim()) return fromCurrent.trim();
+    const fromSession = parsed.session?.access_token;
+    if (typeof fromSession === "string" && fromSession.trim()) return fromSession.trim();
+  } catch {
+    // ignore JSON parse failures
+  }
+  return null;
+}
+
+function buildAuthHeaders(opts?: { includeJson?: boolean }): Headers {
+  const headers = new Headers();
+  if (opts?.includeJson !== false) {
+    headers.set("content-type", "application/json");
+  }
+  const accessToken = readAccessTokenFromStorage();
+  if (accessToken) {
+    headers.set("authorization", `Bearer ${accessToken}`);
+  }
+  return headers;
+}
+
 function resolveAiSettingsFromStorage(): AiSettingsSnapshot {
   if (typeof window === "undefined") return DEFAULT_AI_SETTINGS;
   try {
@@ -114,18 +165,98 @@ export function resolveAiLaneFromStorage(): HearthAiLane {
   return resolveAiSettingsFromStorage().lane;
 }
 
+function parseCreditsPayload(payload: unknown, fallbackLane: HearthAiLane): HearthAiRuntimeSnapshot {
+  if (Array.isArray(payload) && payload.length > 0) {
+    return readRuntimeFromPayload(payload[0], fallbackLane);
+  }
+  return readRuntimeFromPayload(payload, fallbackLane);
+}
+
+export async function refreshMyAiCredits(): Promise<HearthAiStatusResult> {
+  const lane = resolveAiLaneFromStorage();
+  if (lane === "byo") {
+    return {
+      ok: true,
+      status: 200,
+      runtime: {
+        billingMode: "byo",
+        tokenBalance: null,
+      },
+    };
+  }
+
+  const config = readSupabaseConfig();
+  const accessToken = readAccessTokenFromStorage();
+  if (!config || !accessToken) {
+    return {
+      ok: false,
+      status: 0,
+      error: "Unable to refresh credits.",
+      runtime: { billingMode: lane, tokenBalance: null },
+    };
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${config.url}/rest/v1/rpc/get_my_ai_credits`, {
+      method: "POST",
+      headers: {
+        apikey: config.anonKey,
+        authorization: `Bearer ${accessToken}`,
+        "accept-profile": "tongs",
+        "content-profile": "tongs",
+        "content-type": "application/json",
+      },
+      body: "{}",
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Network error";
+    return {
+      ok: false,
+      status: 0,
+      error: message,
+      runtime: { billingMode: lane, tokenBalance: null },
+    };
+  }
+
+  let payload: unknown = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  const runtime = parseCreditsPayload(payload, lane);
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      error: readErrorText(payload, `Credits request failed (${response.status})`),
+      runtime,
+    };
+  }
+
+  return {
+    ok: true,
+    status: response.status,
+    runtime,
+  };
+}
+
 export async function fetchHearthAiStatus(): Promise<HearthAiStatusResult> {
-  const settings = resolveAiSettingsFromStorage();
-  const lane = settings.lane;
+  const credits = await refreshMyAiCredits();
+  if (credits.ok) {
+    return credits;
+  }
+
+  const lane = resolveAiLaneFromStorage();
   const query = new URLSearchParams({ lane });
   let response: Response;
 
   try {
     response = await fetch(`/api/hearth/chat/status?${query.toString()}`, {
       method: "GET",
-      headers: {
-        "content-type": "application/json",
-      },
+      headers: buildAuthHeaders({ includeJson: true }),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Network error";
@@ -182,9 +313,7 @@ export async function requestHearthChatReply(
   try {
     response = await fetch("/api/hearth/chat", {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
+      headers: buildAuthHeaders({ includeJson: true }),
       body: JSON.stringify({
         messages: normalized,
         behavior: settings.behavior,
@@ -242,5 +371,6 @@ export async function requestHearthChatReply(
     reply,
     runtime,
     totalTokens: readNumberField(payload, "total_tokens"),
+    creditsWarning: readStringField(payload, "credits_warning") ?? undefined,
   };
 }

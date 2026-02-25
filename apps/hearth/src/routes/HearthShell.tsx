@@ -23,6 +23,7 @@ import {
 import {
   fetchHearthAiStatus,
   requestHearthChatReply,
+  refreshMyAiCredits,
   resolveAiLaneFromStorage,
   type HearthAiLane,
   type HearthChatMessage,
@@ -345,6 +346,7 @@ export default function HearthShell() {
   const [chatMessages, setChatMessages] = useState<HearthChatMessage[]>([]);
   const [chatDraft, setChatDraft] = useState("");
   const [chatError, setChatError] = useState<string | null>(null);
+  const [aiRuntimeWarning, setAiRuntimeWarning] = useState<string | null>(null);
   const [isAiProcessing, setIsAiProcessing] = useState(false);
   const [aiTokenBalance, setAiTokenBalance] = useState<number | null>(null);
   const [aiBillingMode, setAiBillingMode] = useState<HearthAiLane>(() => resolveAiLaneFromStorage());
@@ -498,6 +500,12 @@ export default function HearthShell() {
       writeHearthAiRuntimeStatus({ isAiProcessing: false });
     };
   }, []);
+
+  useEffect(() => {
+    if (!aiRuntimeWarning) return;
+    const timer = window.setTimeout(() => setAiRuntimeWarning(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [aiRuntimeWarning]);
 
   const refreshDrafts = useCallback(async () => {
     const list = await store.listDrafts();
@@ -1298,24 +1306,37 @@ export default function HearthShell() {
     setChatMessages(nextMessages);
     setChatDraft("");
     setChatError(null);
+    setAiRuntimeWarning(null);
     const controller = new AbortController();
     aiRequestControllerRef.current = controller;
     setIsAiProcessing(true);
 
     try {
       const result = await requestHearthChatReply(nextMessages, { signal: controller.signal });
-      if (result.runtime.billingMode === "forge") {
-        setAiTokenBalance(result.runtime.tokenBalance);
-      } else {
+      setAiBillingMode(result.runtime.billingMode);
+      if (result.runtime.billingMode === "byo") {
         setAiTokenBalance(null);
       }
-      setAiBillingMode(result.runtime.billingMode);
       if (!result.ok) {
-        setChatError(result.error);
+        if (!result.cancelled) {
+          setChatError(result.error);
+        }
         return;
       }
       const assistantMessage: HearthChatMessage = { role: "assistant", content: result.reply };
       setChatMessages((prev) => [...prev, assistantMessage].slice(-24));
+
+      if (result.creditsWarning) {
+        setAiRuntimeWarning(result.creditsWarning);
+      }
+
+      const refreshedCredits = await refreshMyAiCredits();
+      if (refreshedCredits.ok) {
+        setAiBillingMode(refreshedCredits.runtime.billingMode);
+        setAiTokenBalance(refreshedCredits.runtime.tokenBalance);
+      } else {
+        setAiRuntimeWarning("Unable to update credits.");
+      }
     } finally {
       if (aiRequestControllerRef.current === controller) {
         aiRequestControllerRef.current = null;
@@ -1535,6 +1556,10 @@ export default function HearthShell() {
 
           {chatError ? (
             <div className="hs-error-text-small">{chatError}</div>
+          ) : null}
+
+          {aiRuntimeWarning ? (
+            <div className="hs-error-text-small">{aiRuntimeWarning}</div>
           ) : null}
 
           {aiCreditsDepleted ? (

@@ -1,7 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@forge/tongs";
 
 type Next = (err?: unknown) => void;
 
@@ -68,6 +71,16 @@ function readIntegerEnv(name: string): number | null {
   return parsed >= 0 ? parsed : null;
 }
 
+function readBearerToken(headerValue: string | string[] | undefined): string | null {
+  if (!headerValue) return null;
+  const raw = Array.isArray(headerValue) ? headerValue[0] : headerValue;
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed.toLowerCase().startsWith("bearer ")) return null;
+  const token = trimmed.slice(7).trim();
+  return token || null;
+}
+
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const method = (req.method || "GET").toUpperCase();
   if (method === "GET" || method === "HEAD") return {};
@@ -89,6 +102,15 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
     });
     req.on("error", reject);
   });
+}
+
+function extractRpcTokenBalance(payload: unknown): number | null {
+  const row = Array.isArray(payload) ? payload[0] : payload;
+  if (!row || typeof row !== "object") return null;
+  const tokenBalance = (row as Record<string, unknown>).token_balance;
+  return typeof tokenBalance === "number" && Number.isFinite(tokenBalance) && tokenBalance >= 0
+    ? tokenBalance
+    : null;
 }
 
 function isRole(value: unknown): value is ChatRole {
@@ -145,16 +167,90 @@ function extractTotalTokens(payload: unknown): number | null {
   return typeof total === "number" && Number.isFinite(total) && total >= 0 ? total : null;
 }
 
+function estimateTokenFallback(messages: ChatMessage[], reply: string): number {
+  const messageChars = messages.reduce((acc, message) => acc + message.content.length, 0);
+  const totalChars = messageChars + reply.length;
+  return Math.max(1, Math.ceil(totalChars / 4));
+}
+
 export function mwHearthChatApi() {
   const apiKey = readEnv("OPENAI_API_KEY");
   const model = readEnv("HEARTH_AI_MODEL") || "gpt-5";
   const configuredBillingMode: BillingMode = readEnv("HEARTH_AI_BILLING_MODE") === "byo" ? "byo" : "forge";
   let tokenBalance = readIntegerEnv("HEARTH_AI_TOKEN_BALANCE") ?? 12430;
+  const supabaseUrl = readEnv("TONGS_SUPABASE_URL") || readEnv("SUPABASE_URL");
+  const supabaseServiceRoleKey = readEnv("TONGS_SERVICE_ROLE_KEY") || readEnv("SUPABASE_SERVICE_ROLE_KEY");
+  const supabaseService: SupabaseClient<Database> | null =
+    supabaseUrl && supabaseServiceRoleKey
+      ? createClient<Database>(supabaseUrl, supabaseServiceRoleKey, {
+          auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+          },
+        })
+      : null;
 
   function buildBillingSnapshot(mode: BillingMode) {
     return {
       billing_mode: mode,
       token_balance: mode === "forge" ? tokenBalance : null,
+    };
+  }
+
+  async function resolveUserId(accessToken: string | null): Promise<string | null> {
+    if (!accessToken || !supabaseService) return null;
+    const { data, error } = await supabaseService.auth.getUser(accessToken);
+    if (error) {
+      console.warn("[hearth-chat-api] failed to resolve user from bearer token", error.message);
+      return null;
+    }
+    return data.user?.id ?? null;
+  }
+
+  async function applyTokenDelta(args: {
+    userId: string;
+    spent: number;
+    requestId: string;
+    openAiRequestId: string | null;
+  }): Promise<{ ok: true; tokenBalance: number | null } | { ok: false; warning: string }> {
+    if (!supabaseService) {
+      console.warn("[hearth-chat-api] apply_ai_token_delta skipped: supabase service env missing");
+      return { ok: false, warning: "Unable to update credits." };
+    }
+
+    const rpcClient = supabaseService.schema("tongs") as unknown as {
+      rpc: (
+        fn: string,
+        params: {
+          p_user_id: string;
+          p_delta: number;
+          p_reason: string;
+          p_request_id: string;
+          p_provider_request_id?: string;
+        },
+      ) => Promise<{ data: unknown; error: { message: string } | null }>;
+    };
+
+    const { data, error } = await rpcClient.rpc("apply_ai_token_delta", {
+      p_user_id: args.userId,
+      p_delta: -args.spent,
+      p_reason: "hearth:chat",
+      p_request_id: args.requestId,
+      p_provider_request_id: args.openAiRequestId ?? undefined,
+    });
+
+    if (error) {
+      console.warn("[hearth-chat-api] apply_ai_token_delta failed", {
+        message: error.message,
+        request_id: args.requestId,
+        openai_request_id: args.openAiRequestId,
+      });
+      return { ok: false, warning: "Unable to update credits." };
+    }
+
+    return {
+      ok: true,
+      tokenBalance: extractRpcTokenBalance(data),
     };
   }
 
@@ -193,6 +289,7 @@ export function mwHearthChatApi() {
 
       const bodyRaw = (await readJsonBody(req)) as ReqBody;
       const lane: BillingMode = isBillingMode(bodyRaw.lane) ? bodyRaw.lane : configuredBillingMode;
+      const bearerToken = readBearerToken(req.headers.authorization);
 
       if (!apiKey) {
         sendJson(res, 500, {
@@ -232,51 +329,104 @@ export function mwHearthChatApi() {
         content: "You are Hearth. Reply plainly. No markdown.",
       };
 
-      const upstream = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${apiKey}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          model,
-          messages: [system, ...messages],
-        }),
-      });
+      const upstreamAbort = new AbortController();
+      let clientAborted = req.aborted === true;
+      const onAborted = () => {
+        clientAborted = true;
+        upstreamAbort.abort();
+      };
+      req.once("aborted", onAborted);
 
-      if (!upstream.ok) {
-        const detail = await upstream.text();
-        sendJson(res, 502, {
-          ok: false,
-          error: "OpenAI error",
-          detail,
+      try {
+        let upstream: Response;
+        try {
+          upstream = await fetch("https://api.openai.com/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              authorization: `Bearer ${apiKey}`,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              model,
+              messages: [system, ...messages],
+            }),
+            signal: upstreamAbort.signal,
+          });
+        } catch (error) {
+          if (clientAborted || upstreamAbort.signal.aborted) {
+            return;
+          }
+          throw error;
+        }
+
+        if (clientAborted) {
+          return;
+        }
+
+        if (!upstream.ok) {
+          const detail = await upstream.text();
+          sendJson(res, 502, {
+            ok: false,
+            error: "OpenAI error",
+            detail,
+            ...buildBillingSnapshot(lane),
+          });
+          return;
+        }
+
+        const payload = (await upstream.json()) as unknown;
+        const reply = extractAssistantReply(payload);
+        if (!reply) {
+          sendJson(res, 502, {
+            ok: false,
+            error: "OpenAI returned empty response",
+            ...buildBillingSnapshot(lane),
+          });
+          return;
+        }
+
+        if (clientAborted || req.aborted) {
+          return;
+        }
+
+        const totalTokens = extractTotalTokens(payload);
+        const spent = totalTokens ?? estimateTokenFallback(messages, reply);
+        const openAiRequestId = upstream.headers.get("x-request-id");
+        let creditsWarning: string | null = null;
+
+        if (lane === "forge" && spent > 0) {
+          const userId = await resolveUserId(bearerToken);
+          if (!userId) {
+            creditsWarning = "Unable to update credits.";
+          } else {
+            const deltaResult = await applyTokenDelta({
+              userId,
+              spent,
+              requestId: crypto.randomUUID(),
+              openAiRequestId,
+            });
+            if (!deltaResult.ok) {
+              creditsWarning = deltaResult.warning;
+            } else if (deltaResult.tokenBalance != null) {
+              tokenBalance = deltaResult.tokenBalance;
+            }
+          }
+        }
+
+        if (clientAborted || req.aborted) {
+          return;
+        }
+
+        sendJson(res, 200, {
+          ok: true,
+          reply,
+          total_tokens: spent,
+          credits_warning: creditsWarning,
           ...buildBillingSnapshot(lane),
         });
-        return;
+      } finally {
+        req.removeListener("aborted", onAborted);
       }
-
-      const payload = (await upstream.json()) as unknown;
-      const reply = extractAssistantReply(payload);
-      if (!reply) {
-        sendJson(res, 502, {
-          ok: false,
-          error: "OpenAI returned empty response",
-          ...buildBillingSnapshot(lane),
-        });
-        return;
-      }
-
-      const totalTokens = extractTotalTokens(payload);
-      if (lane === "forge" && tokenBalance != null && totalTokens != null) {
-        tokenBalance = Math.max(0, tokenBalance - totalTokens);
-      }
-
-      sendJson(res, 200, {
-        ok: true,
-        reply,
-        total_tokens: totalTokens,
-        ...buildBillingSnapshot(lane),
-      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       sendJson(res, 500, { ok: false, error: message });
