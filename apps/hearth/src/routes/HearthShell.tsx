@@ -345,6 +345,7 @@ export default function HearthShell() {
   const sessionCommitRef = useRef<string | null>(null);
   const sessionCommitInFlight = useRef(false);
   const sessionCommitQueued = useRef(false);
+  const restoredCursorDraftIdRef = useRef<string | null>(null);
 
   const lastAutosaveRevisionAt = useMemo(() => {
     const match = revisions.find((rev) => rev.kind === "autosave");
@@ -444,12 +445,14 @@ export default function HearthShell() {
 
   const selectDraft = useCallback(async (draft: Draft | null) => {
     if (!draft) {
+      restoredCursorDraftIdRef.current = null;
       setActiveDraft(null);
       setDraftSnapshot(null);
       setRevisions([]);
       setSelectedRevision(null);
       return;
     }
+    restoredCursorDraftIdRef.current = null;
     setActiveDraft(draft);
     setDraftSnapshot({ title: draft.title, body: draft.body, updatedAt: draft.updatedAt });
     await refreshRevisions(draft.id);
@@ -687,10 +690,12 @@ export default function HearthShell() {
       const preferredId = storedSession?.activeDraftId;
       const first = preferredId ? list.find((draft) => draft.id === preferredId) : list[0];
       if (first) {
+        restoredCursorDraftIdRef.current = null;
         setActiveDraft(first);
         setDraftSnapshot({ title: first.title, body: first.body, updatedAt: first.updatedAt });
         await refreshRevisions(first.id);
       } else {
+        restoredCursorDraftIdRef.current = null;
         setActiveDraft(null);
         setDraftSnapshot(null);
       }
@@ -835,8 +840,12 @@ export default function HearthShell() {
   }, [activeDraft?.body]);
 
   useEffect(() => {
+    const activeDraftId = activeDraft?.id ?? null;
     const textarea = bodyRef.current;
-    if (!textarea || !session?.uiState || activeDraft?.id !== session.activeDraftId) return;
+    if (!textarea || !session?.uiState || !activeDraftId || activeDraftId !== session.activeDraftId) return;
+    if (restoredCursorDraftIdRef.current === activeDraftId) return;
+
+    restoredCursorDraftIdRef.current = activeDraftId;
     if (typeof session.uiState.cursorPosition === "number") {
       const pos = Math.min(session.uiState.cursorPosition, textarea.value.length);
       textarea.setSelectionRange(pos, pos);
@@ -846,7 +855,7 @@ export default function HearthShell() {
       textarea.scrollTop = session.uiState.scrollTop;
       setScrollTop(session.uiState.scrollTop);
     }
-  }, [activeDraft?.id, session]);
+  }, [activeDraft?.id, session?.activeDraftId]);
 
   useEffect(() => {
     if (sessionSaveTimer.current) {
