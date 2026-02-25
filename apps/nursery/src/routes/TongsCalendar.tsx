@@ -13,6 +13,7 @@ import { supabase } from "../lib/supabase";
 import { useOutletContext } from "react-router-dom";
 import type { AppShellContext } from "./AppShell";
 import { LocalHearthStore } from "@forge/hearth";
+import WorkspaceRequiredNotice from "./WorkspaceRequiredNotice";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTH_NAMES = [
@@ -519,6 +520,10 @@ export default function TongsCalendar() {
   }, [resolveMount]);
 
   const dayEvents = eventsByDay.get(toDateKey(cursorDate)) ?? [];
+
+  if (!workspaceId) {
+    return <WorkspaceRequiredNotice toolName="Tongs Calendar" />;
+  }
 
   return (
     <div style={{ padding: 8, maxWidth: 1100 }}>

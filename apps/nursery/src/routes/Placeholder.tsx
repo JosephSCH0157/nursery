@@ -1,11 +1,18 @@
 import { useMemo, useState } from "react";
+import { useOutletContext } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { upsertScriptDraftV1 } from "@hearth/lib";
+import type { AppShellContext } from "./AppShell";
+import WorkspaceRequiredNotice from "./WorkspaceRequiredNotice";
 
 const TEST_SCRIPT_ID_KEY = "hearth_test_script_id_v1";
+const WORKSPACE_REQUIRED_PLACEHOLDERS = new Set(["hearth", "hammer", "quench", "ledger", "calendar"]);
 
 export default function Placeholder({ name }: { name: string }) {
-  const isHearth = name.toLowerCase() === "hearth";
+  const shell = useOutletContext<AppShellContext>();
+  const normalizedName = name.toLowerCase();
+  const isHearth = normalizedName === "hearth";
+  const requiresWorkspace = WORKSPACE_REQUIRED_PLACEHOLDERS.has(normalizedName);
   const devEnabled = useMemo(() => {
     if (import.meta.env.DEV) return true;
     if (localStorage.getItem("tp_dev_mode") === "1") return true;
@@ -50,6 +57,10 @@ export default function Placeholder({ name }: { name: string }) {
       console.error("[hearth] upsert_script_draft_v1 failed", err);
       setStatus("Save failed. Check console.");
     }
+  }
+
+  if (requiresWorkspace && !shell.workspaceId) {
+    return <WorkspaceRequiredNotice toolName={name} />;
   }
 
   return (

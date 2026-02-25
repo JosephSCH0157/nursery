@@ -1,4 +1,4 @@
-﻿import { supabase } from "./supabase";
+import { supabase } from "./supabase";
 
 export type Workspace = {
   id: string;
@@ -14,8 +14,7 @@ export async function listMyWorkspaces(): Promise<Workspace[]> {
     .select("workspace_id, role, workspaces!workspace_members_workspace_id_fkey(id, name)");
 
   if (error) {
-    console.warn("[barstock] workspace list unavailable", error);
-    return [];
+    throw error;
   }
 
   const out: Workspace[] = [];

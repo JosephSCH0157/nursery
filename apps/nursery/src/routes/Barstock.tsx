@@ -1,18 +1,13 @@
 import { useOutletContext } from "react-router-dom";
-import type { Session as SupabaseSession } from "@supabase/supabase-js";
-import type { Workspace } from "@barstock/lib/tongs-api";
 import BarstockApp from "@barstock/App";
-
-type AppShellContext = {
-  workspaceId: string | null;
-  workspaces: Workspace[];
-  selectWorkspace: (id: string | null) => void;
-  refreshWorkspaces: (opts?: { force?: boolean; preferId?: string | null }) => Promise<void>;
-  session: SupabaseSession | null;
-};
+import type { AppShellContext } from "./AppShell";
+import WorkspaceRequiredNotice from "./WorkspaceRequiredNotice";
 
 export default function BarstockRoute() {
   const ctx = useOutletContext<AppShellContext>();
+  if (!ctx.workspaceId) {
+    return <WorkspaceRequiredNotice toolName="Barstock" />;
+  }
 
   return (
     <BarstockApp

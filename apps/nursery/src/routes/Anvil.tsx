@@ -1,11 +1,19 @@
 import { useMemo, useState } from "react";
+import { useOutletContext } from "react-router-dom";
 import { ForgeNav } from "../nav/ForgeNav";
 import { anvilNavExtras } from "../nav/anvilNavExtras";
 import { composeNav, forgeNavTree } from "../nav/forgeNavTree";
+import type { AppShellContext } from "./AppShell";
+import WorkspaceRequiredNotice from "./WorkspaceRequiredNotice";
 
 export default function AnvilRoute() {
+  const shell = useOutletContext<AppShellContext>();
   const [open, setOpen] = useState(false);
   const anvilMenuTree = useMemo(() => composeNav(forgeNavTree, anvilNavExtras), []);
+
+  if (!shell.workspaceId) {
+    return <WorkspaceRequiredNotice toolName="Anvil" />;
+  }
 
   return (
     <div style={{ padding: 18, display: "grid", gap: 12 }}>

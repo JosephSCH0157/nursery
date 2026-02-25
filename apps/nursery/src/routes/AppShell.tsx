@@ -1,4 +1,4 @@
-import { Outlet, Link, useNavigate } from "react-router-dom";
+import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Session as SupabaseSession } from "@supabase/supabase-js";
 import { loadMountRegistry } from "../lib/mount-registry";
@@ -10,6 +10,16 @@ import { forgeNavTree } from "../nav/forgeNavTree";
 const WORKSPACE_CACHE_KEY = "forge_workspaces_cache_v1";
 const ACTIVE_WORKSPACE_KEY = "forge_workspace_id_v1";
 const LEGACY_BARSTOCK_WORKSPACE_KEY = "barstock_workspace_id";
+const WORKSPACE_REQUIRED_APP_SEGMENTS = new Set([
+  "anvil",
+  "hearth",
+  "hammer",
+  "tongs",
+  "quench",
+  "ledger",
+  "barstock",
+  "calendar",
+]);
 
 function loadWorkspaceCache(): Workspace[] {
   try {
@@ -45,6 +55,13 @@ function saveActiveWorkspaceId(id: string | null) {
   localStorage.removeItem(LEGACY_BARSTOCK_WORKSPACE_KEY);
 }
 
+function loadWorkspaceIdFromSearch(search: string): string | null {
+  const raw = new URLSearchParams(search).get("workspace_id");
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  return trimmed.length ? trimmed : null;
+}
+
 export type AppShellContext = {
   workspaceId: string | null;
   workspaces: Workspace[];
@@ -55,11 +72,18 @@ export type AppShellContext = {
 
 export default function AppShell() {
   const nav = useNavigate();
+  const location = useLocation();
   const [session, setSession] = useState<SupabaseSession | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>(() => loadWorkspaceCache());
-  const [workspaceId, setWorkspaceId] = useState<string | null>(() => loadActiveWorkspaceId());
+  const [workspaceId, setWorkspaceId] = useState<string | null>(() => {
+    const fromUrl = typeof window !== "undefined"
+      ? loadWorkspaceIdFromSearch(window.location.search)
+      : null;
+    return fromUrl ?? loadActiveWorkspaceId();
+  });
   const [loadingWorkspaces, setLoadingWorkspaces] = useState(false);
   const lastSessionUserId = useRef<string | null>(null);
+  const lastUrlWorkspaceRefresh = useRef<string | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -68,6 +92,12 @@ export default function AppShell() {
   const [renameValue, setRenameValue] = useState("");
   const [renameError, setRenameError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
+  const [workspaceGateChoice, setWorkspaceGateChoice] = useState("");
+
+  const urlWorkspaceId = useMemo(
+    () => loadWorkspaceIdFromSearch(location.search),
+    [location.search],
+  );
 
   useEffect(() => {
     const res = loadMountRegistry("default");
@@ -116,22 +146,26 @@ export default function AppShell() {
       const saved = loadActiveWorkspaceId();
       const pick =
         (preferId && ws.some(w => w.id === preferId)) ? preferId
-          : (current && ws.some(w => w.id === current)) ? current
+          : (urlWorkspaceId && ws.some(w => w.id === urlWorkspaceId)) ? urlWorkspaceId
             : (saved && ws.some(w => w.id === saved)) ? saved
-              : (ws[0]?.id ?? null);
+              : (current && ws.some(w => w.id === current)) ? current
+                : (ws[0]?.id ?? null);
 
       if (pick !== workspaceId) {
         selectWorkspace(pick);
       }
+    } catch (err) {
+      console.warn("[workspace] refresh failed", err);
     } finally {
       setLoadingWorkspaces(false);
     }
-  }, [session, workspaces.length, workspaceId, selectWorkspace]);
+  }, [session, workspaces.length, workspaceId, selectWorkspace, urlWorkspaceId]);
 
   useEffect(() => {
     const userId = session?.user?.id ?? null;
     if (!userId) {
       lastSessionUserId.current = null;
+      lastUrlWorkspaceRefresh.current = null;
       setWorkspaces([]);
       setWorkspaceId(null);
       return;
@@ -139,16 +173,39 @@ export default function AppShell() {
 
     if (lastSessionUserId.current !== userId) {
       lastSessionUserId.current = userId;
-      void refreshWorkspaces({ force: true });
+      void refreshWorkspaces({ force: true, preferId: urlWorkspaceId });
       return;
     }
 
     if (workspaceId && workspaces.some(w => w.id === workspaceId)) return;
     if (!workspaceId && workspaces.length === 0) return;
     const saved = loadActiveWorkspaceId();
-    const pick = (saved && workspaces.some(w => w.id === saved)) ? saved : (workspaces[0]?.id ?? null);
+    const pick =
+      (urlWorkspaceId && workspaces.some((w) => w.id === urlWorkspaceId)) ? urlWorkspaceId
+        : (saved && workspaces.some((w) => w.id === saved)) ? saved
+          : (workspaces[0]?.id ?? null);
     if (pick !== workspaceId) selectWorkspace(pick);
-  }, [session, workspaces, workspaceId, refreshWorkspaces, selectWorkspace]);
+  }, [session, workspaces, workspaceId, refreshWorkspaces, selectWorkspace, urlWorkspaceId]);
+
+  useEffect(() => {
+    if (!session || !urlWorkspaceId) {
+      lastUrlWorkspaceRefresh.current = null;
+      return;
+    }
+
+    if (workspaces.some((w) => w.id === urlWorkspaceId)) {
+      if (workspaceId !== urlWorkspaceId) {
+        selectWorkspace(urlWorkspaceId);
+      }
+      return;
+    }
+
+    if (lastUrlWorkspaceRefresh.current === urlWorkspaceId) {
+      return;
+    }
+    lastUrlWorkspaceRefresh.current = urlWorkspaceId;
+    void refreshWorkspaces({ force: true, preferId: urlWorkspaceId });
+  }, [session, urlWorkspaceId, workspaces, workspaceId, refreshWorkspaces, selectWorkspace]);
 
   async function onSignOut() {
     await supabase.auth.signOut();
@@ -269,6 +326,36 @@ export default function AppShell() {
   const workspaceValue = workspaceId ?? "";
   const workspaceSelectDisabled = !session || loadingWorkspaces;
   const activeWorkspace = workspaces.find(w => w.id === workspaceId) ?? null;
+  const workspaceIsValid = !!activeWorkspace;
+  const appSegment = useMemo(() => {
+    const parts = location.pathname.split("/").filter(Boolean);
+    if (parts[0] !== "app") return null;
+    return parts[1] ?? null;
+  }, [location.pathname]);
+  const routeNeedsWorkspace = !!(appSegment && WORKSPACE_REQUIRED_APP_SEGMENTS.has(appSegment));
+  const urlWorkspaceMatchExists = !!(urlWorkspaceId && workspaces.some((w) => w.id === urlWorkspaceId));
+  const urlWorkspaceMismatch = !!(
+    session
+    && routeNeedsWorkspace
+    && urlWorkspaceMatchExists
+    && workspaceId !== urlWorkspaceId
+  );
+  const shouldBlockWorkspaceRoute = !!session && routeNeedsWorkspace && (!workspaceIsValid || urlWorkspaceMismatch);
+  const workspaceGateLoading = shouldBlockWorkspaceRoute
+    && ((loadingWorkspaces && workspaces.length === 0) || urlWorkspaceMismatch);
+
+  useEffect(() => {
+    if (!shouldBlockWorkspaceRoute) {
+      setWorkspaceGateChoice("");
+      return;
+    }
+
+    if (workspaceGateChoice && workspaces.some((w) => w.id === workspaceGateChoice)) {
+      return;
+    }
+
+    setWorkspaceGateChoice(workspaces[0]?.id ?? "");
+  }, [shouldBlockWorkspaceRoute, workspaceGateChoice, workspaces]);
 
   return (
     <div
@@ -384,15 +471,85 @@ export default function AppShell() {
         </aside>
 
         <main style={{ flex: 1, padding: 16 }}>
-          <Outlet
-            context={{
-              workspaceId,
-              workspaces,
-              selectWorkspace,
-              refreshWorkspaces,
-              session,
-            } satisfies AppShellContext}
-          />
+          {shouldBlockWorkspaceRoute ? (
+            <section
+              style={{
+                border: "1px solid var(--forge-border)",
+                borderRadius: 14,
+                background: "var(--forge-bg-elevated)",
+                padding: 18,
+                maxWidth: 560,
+                display: "grid",
+                gap: 12,
+              }}
+            >
+              <h2 style={{ margin: 0 }}>You need a workspace to use the Forge.</h2>
+              {workspaceGateLoading ? (
+                <p style={{ margin: 0, opacity: 0.8 }}>Resolving workspace…</p>
+              ) : workspaces.length === 0 ? (
+                <>
+                  <p style={{ margin: 0, opacity: 0.8 }}>
+                    Create your first workspace before opening tools.
+                  </p>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button type="button" onClick={openCreateWorkspace} disabled={creating}>
+                      Create workspace
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void refreshWorkspaces({ force: true, preferId: urlWorkspaceId })}
+                      disabled={loadingWorkspaces}
+                    >
+                      Refresh
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p style={{ margin: 0, opacity: 0.8 }}>
+                    Select a workspace to continue.
+                  </p>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <select
+                      value={workspaceGateChoice}
+                      onChange={(e) => setWorkspaceGateChoice(e.target.value)}
+                      style={{ minWidth: 240, padding: "6px 8px" }}
+                    >
+                      <option value="" disabled>Select workspace</option>
+                      {workspaces.map((w) => (
+                        <option key={w.id} value={w.id}>
+                          {w.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!workspaceGateChoice) return;
+                        selectWorkspace(workspaceGateChoice);
+                      }}
+                      disabled={!workspaceGateChoice}
+                    >
+                      Continue
+                    </button>
+                    <button type="button" onClick={openCreateWorkspace}>
+                      Create workspace
+                    </button>
+                  </div>
+                </>
+              )}
+            </section>
+          ) : (
+            <Outlet
+              context={{
+                workspaceId,
+                workspaces,
+                selectWorkspace,
+                refreshWorkspaces,
+                session,
+              } satisfies AppShellContext}
+            />
+          )}
         </main>
       </div>
 
