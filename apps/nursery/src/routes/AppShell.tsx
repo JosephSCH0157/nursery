@@ -329,8 +329,15 @@ export default function AppShell() {
     try {
       // Prefer a single atomic RPC so row creation + owner membership are guaranteed together.
       let workspaceId: string | null = null;
-      const { data: createdViaRpc, error: rpcError } = await supabase
-        .schema("tongs")
+      const tongsRpcClient = supabase.schema("tongs") as unknown as {
+        rpc: (
+          fn: string,
+          args?: Record<string, unknown>,
+        ) => {
+          single: () => Promise<{ data: unknown; error: unknown }>;
+        };
+      };
+      const { data: createdViaRpc, error: rpcError } = await tongsRpcClient
         .rpc("create_workspace_with_owner", { _name: "Workspace" })
         .single();
 
