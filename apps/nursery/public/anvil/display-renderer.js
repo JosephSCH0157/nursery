@@ -1,44 +1,61 @@
+// src/script/tag-constants.ts
+var BLOCK_TAG_NAMES = ["s1", "s2", "g1", "g2", "note"];
+var CUE_TAG_NAMES = ["pause", "beat", "reflective pause"];
+var INLINE_TAG_BASES = ["color", "bg", "speaker", "guest", "b", "i"];
+var INLINE_TAG_NAMES = INLINE_TAG_BASES.flatMap((tag) => [tag, `/${tag}`]);
+var INLINE_ATTR_PATTERNS = INLINE_TAG_BASES.map((tag) => `${tag}(?:=[^\\]]+)?`);
+var SPEAKER_TAG_NAMES = BLOCK_TAG_NAMES.filter((tag) => tag !== "note");
+var ALLOWED_NORMALIZED_TAG_NAMES = [
+  ...BLOCK_TAG_NAMES,
+  ...CUE_TAG_NAMES,
+  ...INLINE_TAG_NAMES
+];
+
 // src/script/normalize.ts
-function fallbackNormalizeText(input) {
-  let txt = String(input || "");
-  txt = txt.replace(/\r\n?/g, "\n").replace(/ +\n/g, "\n").replace(/[’]/g, "'");
-  txt = txt.replace(/\[\/\s*s1\s*\]/gi, "[/s1]").replace(/\[\/\s*s2\s*\]/gi, "[/s2]").replace(/\[\/\s*note\s*\]/gi, "[/note]");
-  return txt;
+var BLOCK_TAG_PATTERN = BLOCK_TAG_NAMES.join("|");
+var CUE_TAG_PATTERN = CUE_TAG_NAMES.join("|");
+var INLINE_TAG_PATTERN = INLINE_TAG_BASES.join("|");
+var ALLOWED_TAG_SET = new Set(ALLOWED_NORMALIZED_TAG_NAMES);
+var INLINE_CANONICAL_REGEXP = new RegExp(
+  `\\[\\s*(\\/)?\\s*(${INLINE_TAG_PATTERN})(\\s*=\\s*[^\\]]+)?\\s*\\]`,
+  "gi"
+);
+function normalizeToStandardText(input = "") {
+  let text = String(input ?? "");
+  text = text.replace(/[\u2018\u2019\u201B]/g, "'").replace(/[\u201C\u201D]/g, '"').replace(/\u00A0/g, " ");
+  text = text.replace(new RegExp(`\\[\\s*(${BLOCK_TAG_PATTERN})\\s*\\]`, "gi"), (_, tag) => `[${String(tag).toLowerCase()}]`).replace(new RegExp(`\\[\\s*\\/\\s*(${BLOCK_TAG_PATTERN})\\s*\\]`, "gi"), (_, tag) => `[/${String(tag).toLowerCase()}]`).replace(new RegExp(`\\[\\s*(${CUE_TAG_PATTERN})\\s*\\]`, "gi"), (_, tag) => `[${String(tag).toLowerCase()}]`);
+  text = text.replace(INLINE_CANONICAL_REGEXP, (_, slash, tag, attr) => {
+    const normalizedTag = String(tag).toLowerCase();
+    let attrStr = "";
+    if (attr) {
+      const eqIndex = attr.indexOf("=");
+      if (eqIndex >= 0) {
+        const value = attr.slice(eqIndex + 1).trim();
+        attrStr = "=" + value;
+      }
+    }
+    const prefix = slash ? "/" : "";
+    return `[${prefix}${normalizedTag}${attrStr}]`;
+  });
+  text = text.replace(/\[([^\]]+)\]/g, (match, inner) => {
+    const trimmed = String(inner || "").trim();
+    if (!trimmed) return "";
+    const eqIndex = trimmed.indexOf("=");
+    const head2 = eqIndex >= 0 ? trimmed.slice(0, eqIndex) : trimmed;
+    let key = head2.trim().toLowerCase();
+    if (key.startsWith("/")) key = key.slice(1).trim();
+    key = key.replace(/\s+/g, " ");
+    return ALLOWED_TAG_SET.has(key) ? match : "";
+  });
+  text = text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  text = text.replace(/[ \t]+$/gm, "");
+  text = text.replace(/\n{3,}/g, "\n\n");
+  return text;
 }
-function normalizeToStandardText(input) {
-  let txt = String(input || "");
-  txt = txt.replace(/\r\n?/g, "\n").replace(/[ \t]+\n/g, "\n").replace(/[’]/g, "'").replace(/\[\s*(s1|s2|note)\s*\]/gi, (_, x) => `[${(x || "").toLowerCase()}]`).replace(/\[\s*\/\s*(s1|s2|note)\s*\]/gi, (_, x) => `[/${(x || "").toLowerCase()}]`);
-  txt = txt.replace(
-    /\[(s1|s2)\]([\s\S]*?)\[note\]([\s\S]*?)\[\/note\]([\s\S]*?)\[\/\1\]/gi,
-    (_, r, pre, note, post2) => `[note]${note.trim()}[/note]
-[${r}]${(pre + " " + post2).trim()}[/${r}]`
-  );
-  txt = txt.replace(/\[(s1|s2)\]\s*(?=\S)/gi, (_, r) => `[${r}]
-`).replace(/([^\n])\s*\[\/s(1|2)\](?=\s*$)/gim, (_, ch, sp) => `${ch}
-[/s${sp}]`);
-  txt = txt.replace(/\n?(\[note\][\s\S]*?\[\/note\])\n?/gi, "\n$1\n");
-  txt = txt.replace(/\n{3,}/g, "\n\n").trim() + "\n";
-  const blocks = txt.split(/\n{2,}/);
-  let current = "s1";
-  const out = [];
-  for (let b of blocks) {
-    const first = b.match(/^\s*\[(s1|s2|note)\]/i)?.[1]?.toLowerCase();
-    if (first === "note") {
-      out.push(b);
-      continue;
-    }
-    if (first === "s1" || first === "s2") {
-      current = first;
-      if (!/\[\/s[12]\]/i.test(b)) b = b + `
-[/${current}]`;
-      out.push(b);
-    } else {
-      out.push(`[${current}]
-${b}
-[/${current}]`);
-    }
-  }
-  return out.join("\n\n") + "\n";
+function fallbackNormalizeText(input = "") {
+  let text = String(input ?? "");
+  text = text.replace(/[\u2018\u2019\u201B]/g, "'").replace(/[\u201C\u201D]/g, '"').replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  return text;
 }
 
 // src/format-inline.ts
@@ -117,10 +134,28 @@ function isDevMode() {
 function setAsrBlocks(nextEls, meta2) {
   blockEls = Array.isArray(nextEls) ? nextEls : [];
   blockMeta = meta2 || null;
+  const payload = {
+    ready: true,
+    blockCount: blockEls.length,
+    schemaVersion: Number(meta2?.schemaVersion || 1),
+    source: meta2?.source || "render"
+  };
+  try {
+    window.__tpAsrBlocksReady = true;
+    window.__tpAsrBlockCount = blockEls.length;
+  } catch {
+  }
+  try {
+    window.dispatchEvent(new CustomEvent("tp:asr:blocks-ready", { detail: payload }));
+  } catch {
+  }
+  try {
+    document.dispatchEvent(new CustomEvent("tp:asr:blocks-ready", { detail: payload }));
+  } catch {
+  }
   if (isDevMode()) {
     try {
-      window.__tpAsrBlocksReady = true;
-      window.__tpAsrBlockCount = blockEls.length;
+      console.debug("[asr-block-store] blocks ready", payload);
     } catch {
     }
   }
@@ -128,61 +163,66 @@ function setAsrBlocks(nextEls, meta2) {
 function getAsrBlockElements() {
   return blockEls;
 }
-
-// src/scroll/scroll-helpers.ts
-function resolveScroller(getEl) {
-  if (getEl) return getEl() ?? void 0;
-  return document.getElementById("scroller") ?? document.querySelector("[data-scroller]") ?? document.querySelector(".scroller") ?? document.querySelector(".script-scroller") ?? void 0;
-}
-function getViewportMetrics(getScroller) {
-  const el = resolveScroller(getScroller);
-  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-  if (!el) {
-    return { viewportHeight, height: 0, scrollTop: 0, scrollHeight: 0 };
-  }
-  const height = el.clientHeight ?? el.getBoundingClientRect().height ?? 0;
-  const scrollTop = el.scrollTop ?? 0;
-  const scrollHeight = el.scrollHeight ?? 0;
-  return { viewportHeight, height, scrollTop, scrollHeight };
-}
-function computeAnchorLineIndex(scrollerEl2) {
-  const el = scrollerEl2 ?? resolveScroller() ?? document.scrollingElement ?? void 0;
-  if (!el) return 0;
-  const marker = document.getElementById("marker-line") ?? document.querySelector("[data-marker-line]") ?? null;
-  const anchorY = marker ? marker.getBoundingClientRect().top : (window.innerHeight || 0) * 0.35;
-  const candidates = Array.from(
-    el.querySelectorAll("[data-line-index],[data-line-idx],[data-line]")
-  );
-  if (candidates.length === 0) return 0;
-  let bestIdx = 0;
-  let bestDist = Number.POSITIVE_INFINITY;
-  for (const node of candidates) {
-    const r = node.getBoundingClientRect();
-    const y = r.top;
-    const dist = Math.abs(y - anchorY);
-    if (dist < bestDist) {
-      bestDist = dist;
-      const raw = node.getAttribute("data-line-index") ?? node.getAttribute("data-line-idx") ?? node.getAttribute("data-line") ?? "0";
-      const parsed = parseInt(raw, 10);
-      bestIdx = Number.isFinite(parsed) ? parsed : bestIdx;
-    }
-  }
-  return bestIdx;
-}
-function shouldLogScrollWrite() {
-  try {
-    const ls = localStorage.getItem("tp_dev_mode");
-    if (ls === "1") return true;
-    const href = String(window.location.href || "");
-    if (href.includes("dev=1") || href.includes("#dev")) return true;
-  } catch {
-  }
-  return false;
+function getAsrBlockIndex() {
+  return blockMeta;
 }
 
 // src/scroll/scroller.ts
 var displayScrollChannel = null;
 var scrollEventTrackerInstalled = false;
+function shouldLogScrollWrite() {
+  if (typeof window === "undefined") return false;
+  try {
+    const w2 = window;
+    if (w2.__tpScrollDebug === true) return true;
+    if (w2.__tpScrollWriteDebug === true) return true;
+    const qs = new URLSearchParams(window.location.search || "");
+    if (qs.has("scrollDebug") || qs.has("scrollWriteDebug")) return true;
+  } catch {
+  }
+  return false;
+}
+function readLineIndex(el) {
+  if (!el) return null;
+  const line = el.closest ? el.closest(".line") : null;
+  if (!line) return null;
+  const raw = line.dataset.i || line.dataset.index || line.dataset.lineIdx || line.dataset.line || line.getAttribute("data-line") || line.getAttribute("data-line-idx");
+  if (raw != null && raw !== "") {
+    const n = Number(raw);
+    if (Number.isFinite(n)) return Math.max(0, Math.floor(n));
+  }
+  const id = line.id || "";
+  const m = /^tp-line-(\d+)$/.exec(id);
+  if (m) return Math.max(0, Number(m[1]));
+  return null;
+}
+function computeAnchorLineIndex(scroller) {
+  if (!scroller) return null;
+  if (typeof document === "undefined" || typeof window === "undefined") return null;
+  const rect = scroller.getBoundingClientRect();
+  if (!rect.height || !rect.width) return null;
+  const markerPct = typeof window.__TP_MARKER_PCT === "number" ? window.__TP_MARKER_PCT : 0.4;
+  const markerY = rect.top + rect.height * markerPct;
+  const markerX = rect.left + rect.width * 0.5;
+  const hit = document.elementFromPoint(markerX, markerY);
+  const hitIdx = readLineIndex(hit);
+  if (hitIdx != null) return hitIdx;
+  const lines = Array.from(scroller.querySelectorAll(".line"));
+  if (!lines.length) return null;
+  let bestIdx = null;
+  let bestDist = Infinity;
+  for (let i = 0; i < lines.length; i++) {
+    const el = lines[i];
+    const r = el.getBoundingClientRect();
+    const y = r.top + r.height * 0.5;
+    const d = Math.abs(y - markerY);
+    if (d < bestDist) {
+      bestDist = d;
+      bestIdx = readLineIndex(el) ?? i;
+    }
+  }
+  return bestIdx != null ? Math.max(0, Math.floor(bestIdx)) : null;
+}
 function isElementLike(node) {
   return !!node && typeof node === "object" && node.nodeType === 1;
 }
@@ -199,16 +239,20 @@ function getDisplayViewerElement() {
   }
   return null;
 }
-function getScrollContainer() {
+function getScrollerEl(role = "main") {
+  if (typeof document === "undefined") return null;
+  if (role === "display") {
+    return getDisplayViewerElement() || document.getElementById("wrap");
+  }
   try {
-    return document.getElementById("scriptScrollContainer") || document.getElementById("wrap");
+    return document.querySelector("main#viewer.viewer, #viewer") || document.getElementById("viewer");
   } catch {
-    return null;
+    return document.getElementById("viewer");
   }
 }
 function getViewerElement() {
   try {
-    return document.getElementById("viewer") || document.querySelector('[data-role="viewer"]') || document.getElementById("wrap") || getDisplayViewerElement();
+    return getScrollerEl("main") || document.querySelector('[data-role="viewer"]') || document.getElementById("wrap") || getDisplayViewerElement();
   } catch {
     return getDisplayViewerElement();
   }
@@ -222,7 +266,7 @@ function getScriptRoot() {
 }
 function getFallbackScroller() {
   try {
-    return document.scrollingElement || document.documentElement || document.body;
+    return getScrollerEl("main") || getScrollerEl("display") || getScriptRoot() || document.getElementById("wrap");
   } catch {
     return null;
   }
@@ -249,7 +293,35 @@ function describeElement(el) {
   return `${el.tagName.toLowerCase()}${id}${cls}` || el.tagName.toLowerCase();
 }
 function getPrimaryScroller() {
-  return getScrollContainer() || getViewerElement() || getDisplayViewerElement();
+  return getScrollerEl("main") || getScrollerEl("display");
+}
+function resolveViewerRole() {
+  if (typeof window === "undefined") return "main";
+  try {
+    const explicit = String(window.__TP_VIEWER_ROLE || "").toLowerCase();
+    if (explicit === "display") return "display";
+    if (explicit === "main") return "main";
+    const bodyRole = String(window.document?.body?.dataset?.viewerRole || "").toLowerCase();
+    if (bodyRole === "display") return "display";
+    if (bodyRole === "main") return "main";
+    if (window.__TP_FORCE_DISPLAY) return "display";
+    const path = String(window.location?.pathname || "").toLowerCase();
+    if (path.includes("display")) return "display";
+  } catch {
+  }
+  return "main";
+}
+function getRuntimeScroller(role = resolveViewerRole()) {
+  if (typeof document === "undefined") return null;
+  const root = getScriptRoot();
+  if (role === "display") {
+    const primary2 = getScrollerEl("display");
+    const fallback2 = document.getElementById("wrap") || root;
+    return resolveActiveScroller(primary2, fallback2);
+  }
+  const primary = getScrollerEl("main") || root;
+  const fallback = root || getScrollerEl("display");
+  return resolveActiveScroller(primary, fallback);
 }
 function isDisplayWindow() {
   if (typeof window === "undefined") return false;
@@ -396,20 +468,97 @@ if (typeof window !== "undefined") {
   }
 }
 
+// src/env/dev-log.ts
+var MIN_LOG_LEVEL = 0;
+var MAX_LOG_LEVEL = 3;
+var DEFAULT_DEV_LOG_LEVEL = 1;
+function clampLogLevel(value) {
+  if (!Number.isFinite(value)) return MIN_LOG_LEVEL;
+  return Math.max(MIN_LOG_LEVEL, Math.min(MAX_LOG_LEVEL, Math.floor(value)));
+}
+function parseLogLevelRaw(value) {
+  if (value == null) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return clampLogLevel(parsed);
+}
+function isDevContext() {
+  if (typeof window === "undefined") return false;
+  try {
+    const w2 = window;
+    if (w2.__TP_DEV || w2.__TP_DEV1 || w2.__tpDevMode) return true;
+    const params = new URLSearchParams(window.location.search || "");
+    if (params.has("dev") || params.has("debug") || params.has("dev1")) return true;
+    if (window.localStorage?.getItem("tp_dev_mode") === "1") return true;
+  } catch {
+  }
+  return false;
+}
+function getTpLogLevel() {
+  if (typeof window === "undefined") return MIN_LOG_LEVEL;
+  try {
+    const w2 = window;
+    const runtimeLevel = parseLogLevelRaw(w2.__tpLogLevel);
+    if (runtimeLevel != null) return runtimeLevel;
+  } catch {
+  }
+  try {
+    const stored = parseLogLevelRaw(window.localStorage?.getItem("tp_log_level"));
+    if (stored != null) return stored;
+  } catch {
+  }
+  try {
+    const params = new URLSearchParams(window.location.search || "");
+    const fromQuery = parseLogLevelRaw(params.get("tp_log_level")) ?? parseLogLevelRaw(params.get("logLevel")) ?? parseLogLevelRaw(params.get("log"));
+    if (fromQuery != null) return fromQuery;
+  } catch {
+  }
+  return isDevContext() ? DEFAULT_DEV_LOG_LEVEL : MIN_LOG_LEVEL;
+}
+function shouldLogLevel(minLevel) {
+  return getTpLogLevel() >= clampLogLevel(minLevel);
+}
+
 // src/scroll/scroll-writer.ts
 var cached = null;
 var warned = false;
 var activeSeekAnim = null;
+var activeSeekAnimRunId = 0;
+var lastWriteMismatchAt = 0;
+var lastWriteMismatchKey = "";
+var lastNonFiniteGuardAt = 0;
+var WRITE_MISMATCH_LOG_THROTTLE_MS = 2e3;
+var WRITE_MISMATCH_EPSILON_PX = 1;
+var NON_FINITE_GUARD_THROTTLE_MS = 1e3;
+var ASR_SEEK_DEFAULT_LINES_PER_SEC = 2.8;
+var ASR_SEEK_MIN_DURATION_MS = 140;
+var ASR_SEEK_MAX_DURATION_MS = 560;
+var ASR_SEEK_EPSILON_PX = 0.5;
+var ASR_SEEK_MIN_PX_PER_SEC = 36;
+var ASR_SEEK_MAX_PX_PER_SEC = 420;
+var ASR_SEEK_MAX_VIEWPORTS_PER_SEC = 1.25;
+function shouldWarnWrites() {
+  return shouldLogLevel(1);
+}
+function shouldVerboseWrites() {
+  return shouldLogLevel(2);
+}
 function shouldTraceWrites() {
+  return shouldLogLevel(3);
+}
+function logNonFiniteGuard(reason, value, detail) {
+  if (!shouldWarnWrites()) return;
+  const now2 = Date.now();
+  if (now2 - lastNonFiniteGuardAt < NON_FINITE_GUARD_THROTTLE_MS) return;
+  lastNonFiniteGuardAt = now2;
   try {
-    const w2 = window;
-    if (w2.__TP_DEV || w2.__TP_DEV1) return true;
-    const qs = new URLSearchParams(String(location.search || ""));
-    if (qs.get("dev") === "1" || qs.has("dev")) return true;
-    if (w2.localStorage?.getItem("tp_dev_mode") === "1") return true;
+    console.warn("[scroll-writer] non-finite value", {
+      reason,
+      value,
+      ...detail || {}
+    });
   } catch {
   }
-  return false;
 }
 function withWriteEnabled(reason, delta, fn) {
   const w2 = window;
@@ -427,29 +576,12 @@ function withWriteEnabled(reason, delta, fn) {
     w2.__tpScrollWriteActive = prev;
   }
 }
-function isWindowScroller(scroller) {
-  return scroller === document.scrollingElement || scroller === document.documentElement || scroller === document.body;
-}
 function findScroller(el) {
-  let node = el?.parentElement;
-  while (node) {
-    try {
-      const st = getComputedStyle(node);
-      if (/(auto|scroll)/.test(st.overflowY || "")) return node;
-    } catch {
-    }
-    node = node.parentElement;
-  }
-  return document.scrollingElement || document.documentElement || document.body || el;
+  const runtime = getRuntimeScroller(resolveViewerRole());
+  return runtime || getScrollerEl("main") || getScrollerEl("display") || getDisplayViewerElement() || getViewerElement() || el;
 }
 function elementTopRelativeTo(el, scroller) {
   try {
-    const isWin = scroller === document.scrollingElement || scroller === document.documentElement || scroller === document.body;
-    if (isWin) {
-      const rect2 = el.getBoundingClientRect();
-      const scrollTop = window.scrollY || window.pageYOffset || scroller.scrollTop || 0;
-      return rect2.top + scrollTop;
-    }
     const rect = el.getBoundingClientRect();
     const scRect = scroller.getBoundingClientRect();
     return rect.top - scRect.top + scroller.scrollTop;
@@ -464,13 +596,18 @@ function markerOffsetPx(fallbackScroller) {
   const h = host?.clientHeight || window.innerHeight || 0;
   return Math.max(0, Math.round(h * markerPct));
 }
+function easeInOutCubic(t) {
+  if (t <= 0) return 0;
+  if (t >= 1) return 1;
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
 function getScrollMode() {
   try {
-    const store = window.__tpStore;
-    if (store && typeof store.get === "function") {
-      const scrollMode2 = store.get("scrollMode");
-      if (scrollMode2 != null) return String(scrollMode2).toLowerCase();
-      const legacyMode = store.get("mode");
+    const store2 = window.__tpStore;
+    if (store2 && typeof store2.get === "function") {
+      const scrollMode = store2.get("scrollMode");
+      if (scrollMode != null) return String(scrollMode).toLowerCase();
+      const legacyMode = store2.get("mode");
       if (legacyMode != null) return String(legacyMode).toLowerCase();
     }
     const router = window.__tpScrollMode;
@@ -483,19 +620,6 @@ function getScrollMode() {
   }
   return "";
 }
-function asrLandingBiasPx(fallbackScroller) {
-  const viewer2 = getViewerElement();
-  const host = viewer2 || fallbackScroller;
-  const h = host?.clientHeight || window.innerHeight || 0;
-  const overridePx = window.__TP_ASR_LANDING_BIAS_PX;
-  if (typeof overridePx === "number" && Number.isFinite(overridePx)) {
-    return Math.max(0, Math.round(overridePx));
-  }
-  const overridePct = window.__TP_ASR_LANDING_BIAS_PCT;
-  const pctRaw = typeof overridePct === "number" ? overridePct : 0.12;
-  const pct = Math.max(0, Math.min(0.5, pctRaw));
-  return Math.max(0, Math.round(h * pct));
-}
 function prefersReducedMotion() {
   try {
     return !!window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
@@ -504,6 +628,7 @@ function prefersReducedMotion() {
   }
 }
 function cancelSeekAnimation() {
+  activeSeekAnimRunId += 1;
   if (!activeSeekAnim) return;
   try {
     activeSeekAnim.cancel();
@@ -512,13 +637,10 @@ function cancelSeekAnimation() {
   activeSeekAnim = null;
 }
 function readScrollTop(scroller) {
-  if (isWindowScroller(scroller)) {
-    return window.scrollY || window.pageYOffset || scroller.scrollTop || 0;
-  }
   return scroller.scrollTop || 0;
 }
 function getDeltaScroller() {
-  return document.getElementById("scriptScrollContainer") || document.getElementById("viewer") || document.getElementById("wrap") || getDisplayViewerElement() || document.scrollingElement || document.documentElement || document.body;
+  return getRuntimeScroller(resolveViewerRole()) || getScrollerEl("main") || getScrollerEl("display") || getDisplayViewerElement() || document.getElementById("wrap");
 }
 function estimateDelta(targetTop) {
   try {
@@ -529,27 +651,114 @@ function estimateDelta(targetTop) {
     return Number(targetTop) || 0;
   }
 }
+function logWriteMismatch(scroller, target, before, after, reason) {
+  if (!shouldWarnWrites()) return;
+  if (Math.abs(after - target) <= WRITE_MISMATCH_EPSILON_PX) return;
+  const now2 = Date.now();
+  const key = `${reason}|${describeElement(scroller)}|${Math.round(target)}|${Math.round(after)}`;
+  if (key === lastWriteMismatchKey && now2 - lastWriteMismatchAt < WRITE_MISMATCH_LOG_THROTTLE_MS) return;
+  lastWriteMismatchKey = key;
+  lastWriteMismatchAt = now2;
+  let overflow = "";
+  let overflowY = "";
+  try {
+    const style = getComputedStyle(scroller);
+    overflow = String(style.overflow || "");
+    overflowY = String(style.overflowY || "");
+  } catch {
+    overflow = "";
+    overflowY = "";
+  }
+  const maxTop = Math.max(0, (scroller.scrollHeight || 0) - (scroller.clientHeight || 0));
+  const activeScroller = getRuntimeScroller(resolveViewerRole());
+  try {
+    console.warn("[scroll-writer] write mismatch", {
+      reason,
+      scroller: describeElement(scroller),
+      targetTop: Math.round(target),
+      before: Math.round(before),
+      after: Math.round(after),
+      deltaPx: Math.round(after - before),
+      overflow,
+      overflowY,
+      scrollHeight: Math.round(scroller.scrollHeight || 0),
+      clientHeight: Math.round(scroller.clientHeight || 0),
+      maxTop: Math.round(maxTop),
+      activeScroller: describeElement(activeScroller),
+      isActiveScroller: activeScroller === scroller
+    });
+  } catch {
+  }
+}
 function writeScrollTop(scroller, top, reason = "writeScrollTop") {
-  const from = readScrollTop(scroller);
-  const delta = (Number(top) || 0) - (Number(from) || 0);
+  const rawFrom = scroller.scrollTop;
+  const from = Number.isFinite(rawFrom) ? rawFrom : 0;
+  if (!Number.isFinite(rawFrom)) {
+    logNonFiniteGuard("writeScrollTop:from", rawFrom, {
+      scroller: describeElement(scroller),
+      reason
+    });
+  }
+  const rawTop = Number(top);
+  if (!Number.isFinite(rawTop)) {
+    logNonFiniteGuard("writeScrollTop:target", top, {
+      scroller: describeElement(scroller),
+      reason
+    });
+    return;
+  }
+  const maxTop = Math.max(0, (scroller.scrollHeight || 0) - (scroller.clientHeight || 0));
+  const target = Math.max(0, Math.min(rawTop, maxTop));
+  const delta = target - from;
   withWriteEnabled(reason, delta, () => {
-    if (isWindowScroller(scroller)) {
-      window.scrollTo({ top, behavior: "auto" });
-    } else {
-      scroller.scrollTo({ top, behavior: "auto" });
-    }
+    scroller.scrollTop = target;
   });
+  const after = readScrollTop(scroller);
+  logWriteMismatch(scroller, target, from, after, reason);
 }
 function resolveSeekTarget(blockIdx) {
   const blocks = getAsrBlockElements();
   const el = blocks[blockIdx];
   if (!el) return null;
   const scroller = findScroller(el);
-  const baseOffset = markerOffsetPx(scroller);
   const mode = getScrollMode();
-  const bias = mode === "asr" ? asrLandingBiasPx(scroller) : 0;
-  const top = elementTopRelativeTo(el, scroller) - (baseOffset + bias);
-  return { scroller, top };
+  const blockTopPx = elementTopRelativeTo(el, scroller);
+  if (!Number.isFinite(blockTopPx)) {
+    logNonFiniteGuard("resolveSeekTarget:blockTopPx", blockTopPx, { blockIdx });
+    return null;
+  }
+  const top = mode === "asr" ? blockTopPx : blockTopPx - markerOffsetPx(scroller);
+  if (!Number.isFinite(top)) {
+    logNonFiniteGuard("resolveSeekTarget:top", top, { blockIdx, mode });
+    return null;
+  }
+  let lineIdx = null;
+  try {
+    const firstLine = el.querySelector(".line[data-line], .line[data-line-idx], .line");
+    const rawIdx = firstLine?.dataset?.line ?? firstLine?.dataset?.lineIdx;
+    const parsed = Number(rawIdx);
+    if (Number.isFinite(parsed)) lineIdx = Math.max(0, Math.floor(parsed));
+  } catch {
+    lineIdx = null;
+  }
+  return { blockEl: el, scroller, top, blockTopPx, lineIdx };
+}
+function resolveSeekLineHeightPx(target) {
+  const lineEl = target.blockEl.querySelector(".line[data-line], .line[data-line-idx], .line");
+  const lineRectH = lineEl?.getBoundingClientRect?.().height ?? 0;
+  if (Number.isFinite(lineRectH) && lineRectH > 4) return lineRectH;
+  const lineOffsetH = lineEl?.offsetHeight ?? 0;
+  if (Number.isFinite(lineOffsetH) && lineOffsetH > 4) return lineOffsetH;
+  try {
+    const computed = lineEl ? Number.parseFloat(getComputedStyle(lineEl).lineHeight) : Number.NaN;
+    if (Number.isFinite(computed) && computed > 4) return computed;
+  } catch {
+  }
+  const scrollerRectH = target.scroller.getBoundingClientRect?.().height ?? 0;
+  if (Number.isFinite(scrollerRectH) && scrollerRectH > 0) {
+    return Math.max(24, Math.min(96, scrollerRectH * 0.09));
+  }
+  return 56;
 }
 function getScrollWriter() {
   if (cached) return cached;
@@ -557,7 +766,7 @@ function getScrollWriter() {
     const maybe = window.__tpScrollWrite;
     if (typeof maybe === "function") {
       const fn = maybe;
-      const getScroller = () => document.getElementById("scriptScrollContainer") || document.getElementById("viewer") || document.scrollingElement || document.documentElement || document.body;
+      const getScroller = () => getRuntimeScroller(resolveViewerRole()) || getScrollerEl("main") || getScrollerEl("display") || getDisplayViewerElement();
       cached = {
         scrollTo(top) {
           try {
@@ -638,8 +847,23 @@ function seekToBlock(blockIdx, reason) {
   cancelSeekAnimation();
   const target = resolveSeekTarget(blockIdx);
   if (!target) return;
-  const { scroller, top } = target;
+  const { scroller, top, blockTopPx, lineIdx } = target;
   try {
+    if (shouldVerboseWrites()) {
+      const currentScrollTop = readScrollTop(scroller);
+      try {
+        console.log("[scroll-writer] seek target", {
+          blockIdx,
+          lineIdx,
+          blockTopPx: Math.round(blockTopPx),
+          currentScrollTop: Math.round(currentScrollTop),
+          targetTop: Math.round(top),
+          deltaPx: Math.round(top - currentScrollTop),
+          reason: reason || "seekToBlock"
+        });
+      } catch {
+      }
+    }
     writeScrollTop(scroller, top, reason || "seekToBlock");
     try {
       if (reason && typeof console !== "undefined") {
@@ -650,22 +874,64 @@ function seekToBlock(blockIdx, reason) {
   } catch {
   }
 }
-function seekToBlockAnimated(blockIdx, reason) {
+function seekToBlockAnimated(blockIdx, reason, opts = {}) {
   cancelSeekAnimation();
+  const runId = activeSeekAnimRunId;
   const mode = getScrollMode();
-  if (mode !== "asr" || prefersReducedMotion()) {
+  const forceAnimated = opts.forceAnimated === true;
+  if (!forceAnimated && mode !== "asr" || !forceAnimated && prefersReducedMotion()) {
     seekToBlock(blockIdx, reason);
     return;
   }
   const target = resolveSeekTarget(blockIdx);
   if (!target) return;
-  const { scroller, top: targetTop } = target;
+  const { scroller, top: blockTargetTop, blockTopPx, lineIdx } = target;
   const startTop = readScrollTop(scroller);
-  if (!Number.isFinite(targetTop) || Math.abs(targetTop - startTop) < 0.5) {
+  const maxTop = Math.max(0, (scroller.scrollHeight || 0) - (scroller.clientHeight || 0));
+  const requestedTopRaw = Number(opts.targetTop);
+  const hasRequestedTop = Number.isFinite(requestedTopRaw);
+  const targetTop = hasRequestedTop ? Math.max(0, Math.min(requestedTopRaw, maxTop)) : blockTargetTop;
+  const lineHeightPx = resolveSeekLineHeightPx(target);
+  const configuredMaxPxPerSecond = Number(opts.maxPxPerSecond);
+  const baseMaxPxPerSecond = Number.isFinite(configuredMaxPxPerSecond) && configuredMaxPxPerSecond > 0 ? configuredMaxPxPerSecond : lineHeightPx * ASR_SEEK_DEFAULT_LINES_PER_SEC;
+  const viewportMaxPxPerSecond = Math.max(
+    ASR_SEEK_MIN_PX_PER_SEC,
+    (scroller.clientHeight || 0) * ASR_SEEK_MAX_VIEWPORTS_PER_SEC
+  );
+  const maxPxPerSecond = Math.max(
+    ASR_SEEK_MIN_PX_PER_SEC,
+    Math.min(baseMaxPxPerSecond, ASR_SEEK_MAX_PX_PER_SEC, viewportMaxPxPerSecond)
+  );
+  const minDurationMsRaw = Number(opts.minDurationMs);
+  const maxDurationMsRaw = Number(opts.maxDurationMs);
+  const minDurationMs = Number.isFinite(minDurationMsRaw) && minDurationMsRaw > 0 ? minDurationMsRaw : ASR_SEEK_MIN_DURATION_MS;
+  const maxDurationMs = Number.isFinite(maxDurationMsRaw) && maxDurationMsRaw > minDurationMs ? maxDurationMsRaw : Math.max(minDurationMs, ASR_SEEK_MAX_DURATION_MS);
+  const deltaPx = targetTop - startTop;
+  if (shouldVerboseWrites()) {
+    try {
+      console.log("[scroll-writer] seek target", {
+        blockIdx,
+        lineIdx,
+        blockTopPx: Math.round(blockTopPx),
+        lineHeightPx: Math.round(lineHeightPx),
+        currentScrollTop: Math.round(startTop),
+        targetTop: Math.round(targetTop),
+        requestedTop: hasRequestedTop ? Math.round(requestedTopRaw) : null,
+        maxPxPerSecond: Math.round(maxPxPerSecond),
+        deltaPx: Math.round(deltaPx),
+        reason: reason || "seekToBlockAnimated"
+      });
+    } catch {
+    }
+  }
+  if (!Number.isFinite(targetTop) || Math.abs(deltaPx) < ASR_SEEK_EPSILON_PX) {
     writeScrollTop(scroller, targetTop, reason || "seekToBlockAnimated");
     return;
   }
-  const durationMs = 200;
+  const durationMs = Math.max(
+    minDurationMs,
+    Math.min(maxDurationMs, Math.abs(deltaPx) / maxPxPerSecond * 1e3)
+  );
   const start = typeof performance !== "undefined" ? performance.now() : Date.now();
   let cancelled = false;
   activeSeekAnim = {
@@ -674,17 +940,19 @@ function seekToBlockAnimated(blockIdx, reason) {
       activeSeekAnim = null;
     }
   };
-  const tick = (now) => {
-    if (cancelled) return;
-    const elapsed = now - start;
+  const tick = (now2) => {
+    if (cancelled || runId !== activeSeekAnimRunId) return;
+    const elapsed = now2 - start;
     const t = Math.max(0, Math.min(1, elapsed / durationMs));
-    const eased = 1 - Math.pow(1 - t, 3);
+    const eased = easeInOutCubic(t);
     const next = startTop + (targetTop - startTop) * eased;
     writeScrollTop(scroller, next, reason || "seekToBlockAnimated");
     if (t < 1) {
       requestAnimationFrame(tick);
     } else {
-      activeSeekAnim = null;
+      if (runId === activeSeekAnimRunId) {
+        activeSeekAnim = null;
+      }
     }
   };
   requestAnimationFrame(tick);
@@ -696,6 +964,284 @@ function onScrollIntent(cb) {
   const h = (e) => cb(e.detail);
   window.addEventListener(EVENT, h);
   return () => window.removeEventListener(EVENT, h);
+}
+
+// src/boot/scheduler.ts
+var writeQueue = [];
+var readQueue = [];
+var rafId = 0;
+function flush() {
+  rafId = 0;
+  const writes = writeQueue;
+  const reads = readQueue;
+  writeQueue = [];
+  readQueue = [];
+  for (const fn of writes) {
+    try {
+      fn();
+    } catch (e) {
+      try {
+        console.error("[scheduler] write error", e);
+      } catch {
+      }
+    }
+  }
+  for (const fn of reads) {
+    try {
+      fn();
+    } catch (e) {
+      try {
+        console.error("[scheduler] read error", e);
+      } catch {
+      }
+    }
+  }
+}
+function ensureRaf() {
+  if (rafId) return;
+  rafId = requestAnimationFrame(flush);
+}
+function requestWrite(fn) {
+  writeQueue.push(fn);
+  ensureRaf();
+}
+function requestRead(fn) {
+  readQueue.push(fn);
+  ensureRaf();
+}
+try {
+  const maybe = window.__tpScrollWrite;
+  if (typeof maybe === "function") {
+    window.__tpScrollWrite = {
+      scrollTo(y) {
+        try {
+          maybe(y);
+        } catch {
+        }
+      },
+      scrollBy(dy) {
+        try {
+          maybe((Number(dy) || 0) + 0);
+        } catch {
+        }
+      }
+    };
+  }
+} catch {
+}
+try {
+  if (typeof window !== "undefined") {
+    window.__tpRequestWrite = requestWrite;
+    window.__tpRequestRead = requestRead;
+  }
+} catch {
+}
+
+// src/ui/typography-ssot.ts
+var DEFAULT_SCRIPT_FONT_PX = 40;
+
+// src/scroll/scroll-helpers.ts
+var defaultViewer = () => document.getElementById("viewer") || document.querySelector('[data-role="viewer"]');
+var SCROLL_CALLER_HINTS = [
+  ["asr-scroll-driver", "ASR"],
+  ["hybrid-wpm-motor", "Hybrid"],
+  ["auto-motor", "Auto"],
+  ["scroll-router", "Router"],
+  ["autoscroll", "Auto"]
+];
+function shouldLogScrollWrite2() {
+  try {
+    const w2 = window;
+    if (w2.__tpScrollDebug === true) return true;
+    if (w2.__tpScrollWriteDebug === true) return true;
+    const qs = new URLSearchParams(window.location.search || "");
+    if (qs.has("scrollDebug") || qs.has("scrollWriteDebug")) return true;
+  } catch {
+  }
+  return false;
+}
+function detectScrollCaller() {
+  try {
+    const trace = (new Error().stack || "").toLowerCase();
+    for (const [hint, tag] of SCROLL_CALLER_HINTS) {
+      if (trace.includes(hint)) return tag;
+    }
+  } catch {
+  }
+  return "unknown";
+}
+function logScrollWrite(payload) {
+  try {
+    console.info("[SCROLL_WRITE]", payload);
+  } catch {
+  }
+}
+function readLineIndex2(el) {
+  if (!el) return null;
+  const line = el.closest ? el.closest(".line") : null;
+  if (!line) return null;
+  const raw = line.dataset.i || line.dataset.index || line.dataset.lineIdx || line.dataset.line || line.getAttribute("data-line") || line.getAttribute("data-line-idx");
+  if (raw != null && raw !== "") {
+    const n = Number(raw);
+    if (Number.isFinite(n)) return Math.max(0, Math.floor(n));
+  }
+  const id = line.id || "";
+  const m = /^tp-line-(\d+)$/.exec(id);
+  if (m) return Math.max(0, Number(m[1]));
+  return null;
+}
+function computeAnchorLineIndex2(scroller = defaultViewer()) {
+  if (!scroller) return null;
+  const rect = scroller.getBoundingClientRect();
+  if (!rect.height || !rect.width) return null;
+  const markerPct = typeof window.__TP_MARKER_PCT === "number" ? window.__TP_MARKER_PCT : 0.4;
+  const markerY = rect.top + rect.height * markerPct;
+  const markerX = rect.left + rect.width * 0.5;
+  const hit = document.elementFromPoint(markerX, markerY);
+  const hitIdx = readLineIndex2(hit);
+  if (hitIdx != null) return hitIdx;
+  const lines = Array.from(scroller.querySelectorAll(".line"));
+  if (!lines.length) return null;
+  let bestIdx = null;
+  let bestDist = Infinity;
+  for (let i = 0; i < lines.length; i++) {
+    const el = lines[i];
+    const r = el.getBoundingClientRect();
+    const y = r.top + r.height * 0.5;
+    const d = Math.abs(y - markerY);
+    if (d < bestDist) {
+      bestDist = d;
+      bestIdx = readLineIndex2(el) ?? i;
+    }
+  }
+  return bestIdx != null ? Math.max(0, Math.floor(bestIdx)) : null;
+}
+var clampGuard = (target, max) => {
+  try {
+    const guard = window.__tpClampGuard;
+    if (typeof guard === "function") return !!guard(target, max);
+  } catch {
+  }
+  return true;
+};
+function clampActive() {
+  try {
+    return window.__tpClampActive === true;
+  } catch {
+    return false;
+  }
+}
+function clampScrollTop(sc, y) {
+  const max = Math.max(0, sc.scrollHeight - sc.clientHeight);
+  const t = Math.max(0, Math.min(Number(y) || 0, max));
+  const allowed = clampGuard(t, max);
+  return { target: allowed ? t : sc.scrollTop || 0, guardDenied: !allowed, max };
+}
+function mirrorToDisplay(sc) {
+  try {
+    const send = window.sendToDisplay;
+    if (typeof send !== "function") return;
+    const max = Math.max(0, (sc.scrollHeight || 0) - (sc.clientHeight || 0));
+    const top = sc.scrollTop || 0;
+    const ratio = max > 0 ? top / max : 0;
+    const cursorLine = computeAnchorLineIndex2(sc);
+    send({
+      type: "scroll",
+      top,
+      ratio,
+      anchorRatio: ratio,
+      cursorLine: cursorLine ?? void 0
+    });
+  } catch {
+  }
+}
+function scrollByPx(dy, getScroller = defaultViewer) {
+  const logEnabled = shouldLogScrollWrite2();
+  const caller = logEnabled ? detectScrollCaller() : "unknown";
+  if (clampActive()) {
+    if (logEnabled) {
+      logScrollWrite({ caller, target: Number(dy) || 0, current: 0, accepted: false, reason: "clamp-active" });
+    }
+    return;
+  }
+  const sc = getScroller();
+  if (!sc) {
+    if (logEnabled) {
+      logScrollWrite({ caller, target: Number(dy) || 0, current: 0, accepted: false, reason: "no-scroller" });
+    }
+    return;
+  }
+  const current = sc.scrollTop || 0;
+  const { target, guardDenied } = clampScrollTop(sc, current + (Number(dy) || 0));
+  if (guardDenied) {
+    if (logEnabled) {
+      logScrollWrite({ caller, target, current, accepted: false, reason: "clamp-guard" });
+    }
+    return;
+  }
+  if (logEnabled) {
+    logScrollWrite({ caller, target, current, accepted: true, reason: "scrollByPx" });
+  }
+  requestWrite(() => {
+    try {
+      sc.scrollTop = target;
+    } catch {
+    }
+    mirrorToDisplay(sc);
+    try {
+      const win = window;
+      const debug = win?.__tpScrollDebug === true || /scrollDebug=1/i.test(String(location.search || ""));
+      if (debug) {
+        const mode = win.__tpScrollMode && typeof win.__tpScrollMode.getMode === "function" ? win.__tpScrollMode.getMode() : void 0;
+        const maxScrollTop = Math.max(0, (sc.scrollHeight || 0) - (sc.clientHeight || 0));
+        win.HUD?.log?.("scroll-commit", {
+          mode,
+          delta: dy,
+          targetTop: target,
+          currentTop: sc.scrollTop,
+          maxScrollTop
+        });
+      }
+      try {
+        window.dispatchEvent(new CustomEvent("tp:scroll:commit", {
+          detail: {
+            delta: dy,
+            targetTop: target,
+            currentTop: sc.scrollTop,
+            maxScrollTop: Math.max(0, (sc.scrollHeight || 0) - (sc.clientHeight || 0))
+          }
+        }));
+      } catch {
+      }
+    } catch {
+    }
+  });
+}
+function getViewportMetrics(getScroller = defaultViewer) {
+  const sc = getScroller();
+  const root = document.documentElement;
+  const cs = root ? getComputedStyle(root) : null;
+  const fontSize = cs ? parseFloat(cs.getPropertyValue("--tp-font-size")) || DEFAULT_SCRIPT_FONT_PX : DEFAULT_SCRIPT_FONT_PX;
+  const lineHeight = cs ? parseFloat(cs.getPropertyValue("--tp-line-height")) || 1.4 : 1.4;
+  const pxPerLine = fontSize * lineHeight;
+  const pxPerWord = pxPerLine / 6;
+  if (!sc) {
+    return {
+      scrollTop: 0,
+      viewportHeight: 0,
+      scrollHeight: 0,
+      pxPerLine,
+      pxPerWord
+    };
+  }
+  return {
+    scrollTop: sc.scrollTop || 0,
+    viewportHeight: sc.clientHeight || 0,
+    height: sc.clientHeight || 0,
+    scrollHeight: sc.scrollHeight || 0,
+    pxPerLine,
+    pxPerWord
+  };
 }
 
 // src/scroll/asr-block-completion.ts
@@ -795,62 +1341,194 @@ function createTimedEngine(brain) {
 }
 
 // src/scroll/scroll-brain.ts
-var scrollMode = "manual";
-var scrollTimer = null;
-var CONSTANT_SPEED = 2.4;
-var frameCount = 0;
-var log = (msg) => {
+var now = () => typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
+var debugEnabled = false;
+var debugCounter = 0;
+var isScrollDebug = () => {
   try {
-    window.HUD?.log?.("scroll-brain", msg);
+    const w2 = window;
+    if (w2.__tpScrollDebug === true) return true;
+    const qs = new URLSearchParams(window.location.search || "");
+    if (qs.has("scrollDebug")) return true;
   } catch {
   }
+  return false;
 };
-function setScrollMode(mode) {
-  if (scrollMode === mode) return;
-  scrollMode = mode;
-  log(`Scroll mode \u2192 ${mode}`);
-  if (mode === "manual" || mode === "rehearsal") {
-    stopScrollEngine();
-  } else {
-    startScrollEngine();
-  }
-}
-function startScrollEngine() {
-  if (scrollTimer !== null) return;
-  scrollTimer = requestAnimationFrame(scrollTick);
-}
-function stopScrollEngine() {
-  if (scrollTimer === null) return;
-  cancelAnimationFrame(scrollTimer);
-  scrollTimer = null;
-}
-function scrollTick() {
-  frameCount++;
-  if (scrollMode === "auto") {
-    scrollBySpeed(CONSTANT_SPEED);
-  } else if (scrollMode === "hybrid") {
-    applyHybridScroll();
-  } else if (scrollMode === "step") {
-  }
-  if (frameCount % 10 === 0) {
-    log(`scroll[${scrollMode}]: y=${window.scrollY.toFixed(1)}`);
-  }
-  if (scrollMode === "auto" || scrollMode === "hybrid") {
-    scrollTimer = requestAnimationFrame(scrollTick);
-  } else {
-    scrollTimer = null;
-  }
-}
-function scrollBySpeed(speed) {
-  window.scrollBy(0, speed);
-}
-function applyHybridScroll() {
-  scrollBySpeed(CONSTANT_SPEED);
-}
 function createScrollBrain() {
+  const PLL_GAIN = 0.4;
+  const PLL_SMOOTH = 0.12;
+  const state3 = {
+    mode: "rehearsal",
+    ticking: false,
+    rafId: null,
+    lastTickTs: null,
+    pll: {
+      errPx: 0,
+      lastErrTs: 0,
+      smoothedErr: 0,
+      gain: PLL_GAIN,
+      smoothFactor: PLL_SMOOTH
+    },
+    silence: {
+      isSilent: false,
+      lastChangeTs: now()
+    },
+    targetSpeedPxPerSec: 0,
+    effectiveSpeedPxPerSec: 0,
+    pxPerLine: 0,
+    pxPerWord: 0,
+    manualNudgePx: 0,
+    lastCenteredLine: null
+  };
+  const resetForMode = (mode) => {
+    state3.pll = { errPx: 0, lastErrTs: now(), smoothedErr: 0, gain: PLL_GAIN, smoothFactor: PLL_SMOOTH };
+    state3.silence = { isSilent: false, lastChangeTs: now() };
+    state3.targetSpeedPxPerSec = 0;
+    state3.effectiveSpeedPxPerSec = 0;
+    state3.manualNudgePx = 0;
+    state3.lastCenteredLine = null;
+    state3.mode = mode;
+  };
+  const tick = (ts) => {
+    if (!state3.ticking) {
+      state3.rafId = null;
+      return;
+    }
+    if (!debugEnabled) debugEnabled = isScrollDebug();
+    const last = state3.lastTickTs ?? ts;
+    const dtMs = ts - last;
+    state3.lastTickTs = ts;
+    const dtSec = dtMs > 0 ? dtMs / 1e3 : 0;
+    const mode = state3.mode;
+    const base = state3.targetSpeedPxPerSec || 0;
+    let effectiveSpeed = base;
+    const isClamped = clampActive();
+    const silenceHold = mode === "hybrid" && state3.silence.isSilent;
+    if (mode === "hybrid" && !silenceHold) {
+      effectiveSpeed += state3.pll.smoothedErr * state3.pll.gain;
+    }
+    if (mode === "hybrid" && silenceHold) {
+      effectiveSpeed = 0;
+    }
+    if (isClamped) {
+      effectiveSpeed = 0;
+    }
+    if (effectiveSpeed < 0 || !Number.isFinite(effectiveSpeed)) effectiveSpeed = 0;
+    state3.effectiveSpeedPxPerSec = effectiveSpeed;
+    let dy = effectiveSpeed * dtSec;
+    if (state3.manualNudgePx) {
+      dy += state3.manualNudgePx;
+      state3.manualNudgePx = 0;
+    }
+    if (Number.isFinite(dy) && dy !== 0 && !isClamped) {
+      scrollByPx(dy);
+    }
+    if (!debugEnabled) {
+      debugEnabled = isScrollDebug();
+    }
+    if (debugEnabled) {
+      debugCounter++;
+      if (debugCounter >= 30) {
+        debugCounter = 0;
+        try {
+          console.log("[scroll-brain]", {
+            mode,
+            target: state3.targetSpeedPxPerSec || 0,
+            effective: effectiveSpeed,
+            clamp: isClamped,
+            silent: state3.silence.isSilent,
+            pllErr: state3.pll?.smoothedErr ?? 0
+          });
+        } catch {
+        }
+      }
+    }
+    state3.rafId = typeof requestAnimationFrame === "function" ? requestAnimationFrame(tick) : null;
+  };
+  const startEngine = () => {
+    if (state3.ticking) return;
+    state3.ticking = true;
+    state3.lastTickTs = null;
+    state3.rafId = typeof requestAnimationFrame === "function" ? requestAnimationFrame(tick) : null;
+  };
+  const stopEngine = () => {
+    state3.ticking = false;
+    if (state3.rafId && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(state3.rafId);
+    }
+    state3.rafId = null;
+    state3.lastTickTs = null;
+  };
+  const setMode = (mode) => {
+    if (state3.mode === mode) return;
+    stopEngine();
+    resetForMode(mode);
+  };
+  const getMode = () => state3.mode;
+  const setTargetSpeed = (pxPerSec) => {
+    const v = Number(pxPerSec);
+    state3.targetSpeedPxPerSec = Number.isFinite(v) && v > 0 ? v : 0;
+  };
+  const setMetrics = (pxPerLine, pxPerWord) => {
+    const line = Number(pxPerLine);
+    const word = Number(pxPerWord);
+    if (Number.isFinite(line) && line > 0) state3.pxPerLine = line;
+    if (Number.isFinite(word) && word > 0) state3.pxPerWord = word;
+  };
+  const reportAsrSample = (sample) => {
+    if (state3.mode !== "hybrid") return;
+    if (!sample || typeof sample.errPx !== "number") return;
+    const ts = typeof sample.ts === "number" ? sample.ts : now();
+    state3.pll.errPx = sample.errPx;
+    state3.pll.lastErrTs = ts;
+    const alpha = state3.pll.smoothFactor;
+    state3.pll.smoothedErr = state3.pll.smoothedErr * (1 - alpha) + sample.errPx * alpha;
+  };
+  const reportAsrSilence = (isSilent, ts) => {
+    state3.silence.isSilent = !!isSilent;
+    state3.silence.lastChangeTs = typeof ts === "number" ? ts : now();
+  };
+  const centerOnLine = (lineIndex) => {
+    state3.lastCenteredLine = Number.isFinite(lineIndex) ? Math.max(0, Math.floor(lineIndex)) : null;
+  };
+  const onSpeechSample = (sample) => {
+    try {
+      reportAsrSample(sample);
+    } catch {
+    }
+  };
+  const nudge = (deltaPx) => {
+    const delta = Number(deltaPx);
+    if (!Number.isFinite(delta) || delta === 0) return;
+    state3.manualNudgePx += delta;
+  };
   return {
-    setMode: setScrollMode,
-    getMode: () => scrollMode
+    setMode,
+    getMode,
+    startEngine,
+    stopEngine,
+    setTargetSpeed,
+    setMetrics,
+    reportAsrSample,
+    reportAsrSilence,
+    centerOnLine,
+    onSpeechSample,
+    nudge,
+    // Legacy shims
+    setBaseSpeedPx: (px) => {
+      const val = Number(px);
+      if (Number.isFinite(val)) {
+        state3.targetSpeedPxPerSec = val;
+        state3.effectiveSpeedPxPerSec = val;
+      }
+    },
+    onManualSpeedAdjust: (delta) => {
+      const d = Number(delta);
+      if (Number.isFinite(d)) {
+        state3.targetSpeedPxPerSec += d;
+      }
+    },
+    getCurrentSpeedPx: () => state3.effectiveSpeedPxPerSec
   };
 }
 
@@ -875,7 +1553,7 @@ var clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 function createHybridWpmMotor(deps) {
   let running = false;
   let velocityPxPerSec = 0;
-  let rafId = null;
+  let rafId2 = null;
   let lastNow = null;
   let lastTickLog = 0;
   let writer = null;
@@ -883,12 +1561,14 @@ function createHybridWpmMotor(deps) {
   let warnedNoOverflow = false;
   let loggedFirstMove = false;
   let lastMoveAtMs = 0;
+  let lastDtClampLogAtMs = 0;
   let posFloat = null;
   const TICK_LOG_INTERVAL_MS = 1e3;
-  const now = deps.now ?? (() => performance.now());
+  const DT_CLAMP_LOG_INTERVAL_MS = 250;
+  const now2 = deps.now ?? (() => performance.now());
   const raf = deps.raf ?? ((cb) => window.requestAnimationFrame(cb));
   const caf = deps.caf ?? ((id) => window.cancelAnimationFrame(id));
-  const log2 = deps.log ?? (() => {
+  const log = deps.log ?? (() => {
   });
   const recordMove = (prevTop, nextTop) => {
     const delta = Math.abs(nextTop - prevTop);
@@ -900,7 +1580,7 @@ function createHybridWpmMotor(deps) {
       }
     }
     if (delta > 0) {
-      lastMoveAtMs = now();
+      lastMoveAtMs = now2();
     }
   };
   const resetAccumulatorFromDom = () => {
@@ -908,10 +1588,19 @@ function createHybridWpmMotor(deps) {
   };
   const tick = () => {
     if (!running) return;
-    const current = now();
+    const current = now2();
     const prev = lastNow ?? current;
     const deltaMs = current - prev;
     const dt = clamp(deltaMs / 1e3, 0, 0.2);
+    if (deltaMs > 200) {
+      if (current - lastDtClampLogAtMs >= DT_CLAMP_LOG_INTERVAL_MS) {
+        lastDtClampLogAtMs = current;
+        log("dt-clamp", {
+          dtRaw: deltaMs / 1e3,
+          dtClamped: dt
+        });
+      }
+    }
     lastNow = current;
     if (velocityPxPerSec !== 0) {
       if (!writer) {
@@ -934,7 +1623,7 @@ function createHybridWpmMotor(deps) {
           } catch {
           }
         }
-        rafId = raf(tick);
+        rafId2 = raf(tick);
         return;
       }
       const prevTop = writer.scrollTop || 0;
@@ -947,13 +1636,13 @@ function createHybridWpmMotor(deps) {
       try {
         writer.scrollTop = nextTop;
       } catch (err) {
-        log2("tick:scroll", err);
+        log("tick:scroll", err);
       }
       recordMove(prevTop, nextTop);
-      const tickNow = now();
+      const tickNow = now2();
       if (tickNow - lastTickLog >= TICK_LOG_INTERVAL_MS) {
         lastTickLog = tickNow;
-        log2("tick", {
+        log("tick", {
           dt,
           velocityPxPerSec,
           prevTop,
@@ -963,38 +1652,38 @@ function createHybridWpmMotor(deps) {
         });
       }
     }
-    rafId = raf(tick);
+    rafId2 = raf(tick);
   };
   return {
     start() {
-      if (running || rafId != null) {
+      if (running || rafId2 != null) {
         return { started: false, reason: "already-running" };
       }
       running = true;
       loggedFirstMove = false;
       lastMoveAtMs = 0;
       resetAccumulatorFromDom();
-      lastNow = now();
-      rafId = raf(tick);
-      log2("start", { velocityPxPerSec });
+      lastNow = now2();
+      rafId2 = raf(tick);
+      log("start", { velocityPxPerSec });
       return { started: true };
     },
     stop() {
       if (!running) return;
       running = false;
-      if (rafId != null) {
-        caf(rafId);
-        rafId = null;
+      if (rafId2 != null) {
+        caf(rafId2);
+        rafId2 = null;
       }
       lastNow = null;
       loggedFirstMove = false;
       lastMoveAtMs = 0;
       posFloat = null;
-      log2("stop", {});
+      log("stop", {});
     },
     setVelocityPxPerSec(pxPerSec) {
       velocityPxPerSec = pxPerSec;
-      log2("velocity", { velocityPxPerSec });
+      log("velocity", { velocityPxPerSec });
     },
     isRunning() {
       return running;
@@ -1008,7 +1697,7 @@ function createHybridWpmMotor(deps) {
       }
     },
     movedRecently(nowArg) {
-      const check = typeof nowArg === "number" ? nowArg : now();
+      const check = typeof nowArg === "number" ? nowArg : now2();
       return lastMoveAtMs > 0 && check - lastMoveAtMs < 250;
     }
   };
@@ -1067,7 +1756,7 @@ function emitUnexpected(label, payload) {
 }
 function recordScrollModeWrite(event) {
   if (!auditEnabled()) return;
-  const now = Date.now();
+  const now2 = Date.now();
   const writer = event.writer || "unknown";
   const from = normalize(event.from);
   const to = normalize(event.to);
@@ -1076,7 +1765,7 @@ function recordScrollModeWrite(event) {
   const reasons = [];
   if (!EXPECTED_WRITERS.has(writer)) reasons.push("unexpected-writer");
   if (FORBIDDEN_PHASES.has(phase) && isContinuousMode(to)) reasons.push("forbidden-phase");
-  const deltaMs = lastWriteAt ? now - lastWriteAt : 0;
+  const deltaMs = lastWriteAt ? now2 - lastWriteAt : 0;
   if (lastWriteAt && deltaMs < RACE_WINDOW_MS) reasons.push("rapid-write");
   if (reasons.length > 0) {
     const payload = {
@@ -1100,7 +1789,7 @@ function recordScrollModeWrite(event) {
     }
     emitUnexpected("scrollMode-write", payload);
   }
-  lastWriteAt = now;
+  lastWriteAt = now2;
   lastWriter = writer;
   lastMode = to;
   lastPhase = phase;
@@ -2196,7 +2885,7 @@ var ProfileStore = class {
 };
 
 // src/profile/profile-persist.ts
-function createProfilePersister(store, options) {
+function createProfilePersister(store2, options) {
   const delayMs = Number.isFinite(options?.delayMs ?? NaN) ? options.delayMs : 450;
   let pending = null;
   let timer = null;
@@ -2218,9 +2907,9 @@ function createProfilePersister(store, options) {
   };
   const scheduleFlush = () => {
     if (timer) clearTimeout(timer);
-    timer = setTimeout(() => void flush(), delayMs);
+    timer = setTimeout(() => void flush2(), delayMs);
   };
-  const flush = async () => {
+  const flush2 = async () => {
     if (!pending) return;
     if (saving) {
       if (timer) {
@@ -2236,12 +2925,12 @@ function createProfilePersister(store, options) {
       timer = null;
     }
     try {
-      saving = store.saveProfilePatch(patch);
+      saving = store2.saveProfilePatch(patch);
       await saving;
     } finally {
       saving = null;
       if (pending) {
-        await flush();
+        await flush2();
       }
     }
   };
@@ -2251,7 +2940,7 @@ function createProfilePersister(store, options) {
   };
   return {
     persist,
-    flush
+    flush: flush2
   };
 }
 
@@ -2295,7 +2984,7 @@ function __awaiter(thisArg, _arguments, P, generator) {
   });
 }
 
-// ../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/module/helper.js
+// ../../node_modules/.pnpm/@supabase+functions-js@2.97.0/node_modules/@supabase/functions-js/dist/module/helper.js
 var resolveFetch = (customFetch) => {
   if (customFetch) {
     return (...args) => customFetch(...args);
@@ -2303,7 +2992,7 @@ var resolveFetch = (customFetch) => {
   return (...args) => fetch(...args);
 };
 
-// ../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/module/types.js
+// ../../node_modules/.pnpm/@supabase+functions-js@2.97.0/node_modules/@supabase/functions-js/dist/module/types.js
 var FunctionsError = class extends Error {
   constructor(message, name = "FunctionsError", context) {
     super(message);
@@ -2345,7 +3034,7 @@ var FunctionRegion;
   FunctionRegion2["UsWest2"] = "us-west-2";
 })(FunctionRegion || (FunctionRegion = {}));
 
-// ../../node_modules/.pnpm/@supabase+functions-js@2.91.1/node_modules/@supabase/functions-js/dist/module/FunctionsClient.js
+// ../../node_modules/.pnpm/@supabase+functions-js@2.97.0/node_modules/@supabase/functions-js/dist/module/FunctionsClient.js
 var FunctionsClient = class {
   /**
    * Creates a new Functions client bound to an Edge Functions URL.
@@ -2485,7 +3174,7 @@ var FunctionsClient = class {
   }
 };
 
-// ../../node_modules/.pnpm/@supabase+postgrest-js@2.91.1/node_modules/@supabase/postgrest-js/dist/index.mjs
+// ../../node_modules/.pnpm/@supabase+postgrest-js@2.97.0/node_modules/@supabase/postgrest-js/dist/index.mjs
 var PostgrestError = class extends Error {
   /**
   * @example
@@ -2523,7 +3212,7 @@ var PostgrestBuilder = class {
   * ```
   */
   constructor(builder) {
-    var _builder$shouldThrowO, _builder$isMaybeSingl;
+    var _builder$shouldThrowO, _builder$isMaybeSingl, _builder$urlLengthLim;
     this.shouldThrowOnError = false;
     this.method = builder.method;
     this.url = builder.url;
@@ -2533,6 +3222,7 @@ var PostgrestBuilder = class {
     this.shouldThrowOnError = (_builder$shouldThrowO = builder.shouldThrowOnError) !== null && _builder$shouldThrowO !== void 0 ? _builder$shouldThrowO : false;
     this.signal = builder.signal;
     this.isMaybeSingle = (_builder$isMaybeSingl = builder.isMaybeSingle) !== null && _builder$isMaybeSingl !== void 0 ? _builder$isMaybeSingl : false;
+    this.urlLengthLimit = (_builder$urlLengthLim = builder.urlLengthLimit) !== null && _builder$urlLengthLim !== void 0 ? _builder$urlLengthLim : 8e3;
     if (builder.fetch) this.fetch = builder.fetch;
     else this.fetch = fetch;
   }
@@ -2633,6 +3323,8 @@ var PostgrestBuilder = class {
     if (!this.shouldThrowOnError) res = res.catch((fetchError) => {
       var _fetchError$name2;
       let errorDetails = "";
+      let hint = "";
+      let code = "";
       const cause = fetchError === null || fetchError === void 0 ? void 0 : fetchError.cause;
       if (cause) {
         var _cause$message, _cause$code, _fetchError$name, _cause$name;
@@ -2649,12 +3341,22 @@ ${cause.stack}`;
         var _fetchError$stack;
         errorDetails = (_fetchError$stack = fetchError === null || fetchError === void 0 ? void 0 : fetchError.stack) !== null && _fetchError$stack !== void 0 ? _fetchError$stack : "";
       }
+      const urlLength = this.url.toString().length;
+      if ((fetchError === null || fetchError === void 0 ? void 0 : fetchError.name) === "AbortError" || (fetchError === null || fetchError === void 0 ? void 0 : fetchError.code) === "ABORT_ERR") {
+        code = "";
+        hint = "Request was aborted (timeout or manual cancellation)";
+        if (urlLength > this.urlLengthLimit) hint += `. Note: Your request URL is ${urlLength} characters, which may exceed server limits. If selecting many fields, consider using views. If filtering with large arrays (e.g., .in('id', [many IDs])), consider using an RPC function to pass values server-side.`;
+      } else if ((cause === null || cause === void 0 ? void 0 : cause.name) === "HeadersOverflowError" || (cause === null || cause === void 0 ? void 0 : cause.code) === "UND_ERR_HEADERS_OVERFLOW") {
+        code = "";
+        hint = "HTTP headers exceeded server limits (typically 16KB)";
+        if (urlLength > this.urlLengthLimit) hint += `. Your request URL is ${urlLength} characters. If selecting many fields, consider using views. If filtering with large arrays (e.g., .in('id', [200+ IDs])), consider using an RPC function instead.`;
+      }
       return {
         error: {
           message: `${(_fetchError$name2 = fetchError === null || fetchError === void 0 ? void 0 : fetchError.name) !== null && _fetchError$name2 !== void 0 ? _fetchError$name2 : "FetchError"}: ${fetchError === null || fetchError === void 0 ? void 0 : fetchError.message}`,
           details: errorDetails,
-          hint: "",
-          code: ""
+          hint,
+          code
         },
         data: null,
         count: null,
@@ -3296,11 +3998,12 @@ var PostgrestQueryBuilder = class {
   * )
   * ```
   */
-  constructor(url, { headers = {}, schema, fetch: fetch$1 }) {
+  constructor(url, { headers = {}, schema, fetch: fetch$1, urlLengthLimit = 8e3 }) {
     this.url = url;
     this.headers = new Headers(headers);
     this.schema = schema;
     this.fetch = fetch$1;
+    this.urlLengthLimit = urlLengthLimit;
   }
   /**
   * Clone URL and headers to prevent shared state between operations.
@@ -3331,6 +4034,10 @@ var PostgrestQueryBuilder = class {
   *
   * `"estimated"`: Uses exact count for low numbers and planned count for high
   * numbers.
+  *
+  * @remarks
+  * When using `count` with `.range()` or `.limit()`, the returned `count` is the total number of rows
+  * that match your filters, not the number of rows in the current page. Use this to build pagination UI.
   */
   select(columns, options) {
     const { head: head2 = false, count } = options !== null && options !== void 0 ? options : {};
@@ -3349,7 +4056,8 @@ var PostgrestQueryBuilder = class {
       url,
       headers,
       schema: this.schema,
-      fetch: this.fetch
+      fetch: this.fetch,
+      urlLengthLimit: this.urlLengthLimit
     });
   }
   /**
@@ -3397,7 +4105,8 @@ var PostgrestQueryBuilder = class {
       headers,
       schema: this.schema,
       body: values,
-      fetch: (_this$fetch = this.fetch) !== null && _this$fetch !== void 0 ? _this$fetch : fetch
+      fetch: (_this$fetch = this.fetch) !== null && _this$fetch !== void 0 ? _this$fetch : fetch,
+      urlLengthLimit: this.urlLengthLimit
     });
   }
   /**
@@ -3506,7 +4215,8 @@ var PostgrestQueryBuilder = class {
       headers,
       schema: this.schema,
       body: values,
-      fetch: (_this$fetch2 = this.fetch) !== null && _this$fetch2 !== void 0 ? _this$fetch2 : fetch
+      fetch: (_this$fetch2 = this.fetch) !== null && _this$fetch2 !== void 0 ? _this$fetch2 : fetch,
+      urlLengthLimit: this.urlLengthLimit
     });
   }
   /**
@@ -3541,7 +4251,8 @@ var PostgrestQueryBuilder = class {
       headers,
       schema: this.schema,
       body: values,
-      fetch: (_this$fetch3 = this.fetch) !== null && _this$fetch3 !== void 0 ? _this$fetch3 : fetch
+      fetch: (_this$fetch3 = this.fetch) !== null && _this$fetch3 !== void 0 ? _this$fetch3 : fetch,
+      urlLengthLimit: this.urlLengthLimit
     });
   }
   /**
@@ -3573,10 +4284,62 @@ var PostgrestQueryBuilder = class {
       url,
       headers,
       schema: this.schema,
-      fetch: (_this$fetch4 = this.fetch) !== null && _this$fetch4 !== void 0 ? _this$fetch4 : fetch
+      fetch: (_this$fetch4 = this.fetch) !== null && _this$fetch4 !== void 0 ? _this$fetch4 : fetch,
+      urlLengthLimit: this.urlLengthLimit
     });
   }
 };
+function _typeof(o) {
+  "@babel/helpers - typeof";
+  return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o$1) {
+    return typeof o$1;
+  } : function(o$1) {
+    return o$1 && "function" == typeof Symbol && o$1.constructor === Symbol && o$1 !== Symbol.prototype ? "symbol" : typeof o$1;
+  }, _typeof(o);
+}
+function toPrimitive(t, r) {
+  if ("object" != _typeof(t) || !t) return t;
+  var e = t[Symbol.toPrimitive];
+  if (void 0 !== e) {
+    var i = e.call(t, r || "default");
+    if ("object" != _typeof(i)) return i;
+    throw new TypeError("@@toPrimitive must return a primitive value.");
+  }
+  return ("string" === r ? String : Number)(t);
+}
+function toPropertyKey(t) {
+  var i = toPrimitive(t, "string");
+  return "symbol" == _typeof(i) ? i : i + "";
+}
+function _defineProperty(e, r, t) {
+  return (r = toPropertyKey(r)) in e ? Object.defineProperty(e, r, {
+    value: t,
+    enumerable: true,
+    configurable: true,
+    writable: true
+  }) : e[r] = t, e;
+}
+function ownKeys(e, r) {
+  var t = Object.keys(e);
+  if (Object.getOwnPropertySymbols) {
+    var o = Object.getOwnPropertySymbols(e);
+    r && (o = o.filter(function(r$1) {
+      return Object.getOwnPropertyDescriptor(e, r$1).enumerable;
+    })), t.push.apply(t, o);
+  }
+  return t;
+}
+function _objectSpread2(e) {
+  for (var r = 1; r < arguments.length; r++) {
+    var t = null != arguments[r] ? arguments[r] : {};
+    r % 2 ? ownKeys(Object(t), true).forEach(function(r$1) {
+      _defineProperty(e, r$1, t[r$1]);
+    }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys(Object(t)).forEach(function(r$1) {
+      Object.defineProperty(e, r$1, Object.getOwnPropertyDescriptor(t, r$1));
+    });
+  }
+  return e;
+}
 var PostgrestClient = class PostgrestClient2 {
   /**
   * Creates a PostgREST client.
@@ -3586,6 +4349,8 @@ var PostgrestClient = class PostgrestClient2 {
   * @param options.headers - Custom headers
   * @param options.schema - Postgres schema to switch to
   * @param options.fetch - Custom fetch
+  * @param options.timeout - Optional timeout in milliseconds for all requests. When set, requests will automatically abort after this duration to prevent indefinite hangs.
+  * @param options.urlLengthLimit - Maximum URL length in characters before warnings/errors are triggered. Defaults to 8000.
   * @example
   * ```ts
   * import PostgrestClient from '@supabase/postgrest-js'
@@ -3593,14 +4358,38 @@ var PostgrestClient = class PostgrestClient2 {
   * const postgrest = new PostgrestClient('https://xyzcompany.supabase.co/rest/v1', {
   *   headers: { apikey: 'public-anon-key' },
   *   schema: 'public',
+  *   timeout: 30000, // 30 second timeout
   * })
   * ```
   */
-  constructor(url, { headers = {}, schema, fetch: fetch$1 } = {}) {
+  constructor(url, { headers = {}, schema, fetch: fetch$1, timeout, urlLengthLimit = 8e3 } = {}) {
     this.url = url;
     this.headers = new Headers(headers);
     this.schemaName = schema;
-    this.fetch = fetch$1;
+    this.urlLengthLimit = urlLengthLimit;
+    const originalFetch = fetch$1 !== null && fetch$1 !== void 0 ? fetch$1 : globalThis.fetch;
+    if (timeout !== void 0 && timeout > 0) this.fetch = (input, init) => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+      const existingSignal = init === null || init === void 0 ? void 0 : init.signal;
+      if (existingSignal) {
+        if (existingSignal.aborted) {
+          clearTimeout(timeoutId);
+          return originalFetch(input, init);
+        }
+        const abortHandler = () => {
+          clearTimeout(timeoutId);
+          controller.abort();
+        };
+        existingSignal.addEventListener("abort", abortHandler, { once: true });
+        return originalFetch(input, _objectSpread2(_objectSpread2({}, init), {}, { signal: controller.signal })).finally(() => {
+          clearTimeout(timeoutId);
+          existingSignal.removeEventListener("abort", abortHandler);
+        });
+      }
+      return originalFetch(input, _objectSpread2(_objectSpread2({}, init), {}, { signal: controller.signal })).finally(() => clearTimeout(timeoutId));
+    };
+    else this.fetch = originalFetch;
   }
   /**
   * Perform a query on a table or a view.
@@ -3612,7 +4401,8 @@ var PostgrestClient = class PostgrestClient2 {
     return new PostgrestQueryBuilder(new URL(`${this.url}/${relation}`), {
       headers: new Headers(this.headers),
       schema: this.schemaName,
-      fetch: this.fetch
+      fetch: this.fetch,
+      urlLengthLimit: this.urlLengthLimit
     });
   }
   /**
@@ -3626,7 +4416,8 @@ var PostgrestClient = class PostgrestClient2 {
     return new PostgrestClient2(this.url, {
       headers: this.headers,
       schema,
-      fetch: this.fetch
+      fetch: this.fetch,
+      urlLengthLimit: this.urlLengthLimit
     });
   }
   /**
@@ -3689,12 +4480,13 @@ var PostgrestClient = class PostgrestClient2 {
       headers,
       schema: this.schemaName,
       body,
-      fetch: (_this$fetch = this.fetch) !== null && _this$fetch !== void 0 ? _this$fetch : fetch
+      fetch: (_this$fetch = this.fetch) !== null && _this$fetch !== void 0 ? _this$fetch : fetch,
+      urlLengthLimit: this.urlLengthLimit
     });
   }
 };
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/websocket-factory.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/websocket-factory.js
 var WebSocketFactory = class {
   /**
    * Static-only utility – prevent instantiation.
@@ -3810,10 +4602,10 @@ Suggested solution: ${env.workaround}`;
 };
 var websocket_factory_default = WebSocketFactory;
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/version.js
-var version = "2.91.1";
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/version.js
+var version = "2.97.0";
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/constants.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/constants.js
 var DEFAULT_VERSION = `realtime-js/${version}`;
 var VSN_1_0_0 = "1.0.0";
 var VSN_2_0_0 = "2.0.0";
@@ -3857,7 +4649,7 @@ var CONNECTION_STATE;
   CONNECTION_STATE2["Closed"] = "closed";
 })(CONNECTION_STATE || (CONNECTION_STATE = {}));
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/serializer.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/serializer.js
 var Serializer = class {
   constructor(allowedMetadataKeys) {
     this.HEADER_LENGTH = 1;
@@ -3997,7 +4789,7 @@ var Serializer = class {
   }
 };
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/timer.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/timer.js
 var Timer = class {
   constructor(callback, timerCalc) {
     this.callback = callback;
@@ -4022,7 +4814,7 @@ var Timer = class {
   }
 };
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/transformers.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/transformers.js
 var PostgresTypes;
 (function(PostgresTypes2) {
   PostgresTypes2["abstime"] = "abstime";
@@ -4185,7 +4977,7 @@ var httpEndpointURL = (socketUrl) => {
   return wsUrl.href;
 };
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/lib/push.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/push.js
 var Push = class {
   /**
    * Initializes the Push
@@ -4284,7 +5076,7 @@ var Push = class {
   }
 };
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/RealtimePresence.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/RealtimePresence.js
 var REALTIME_PRESENCE_LISTEN_EVENTS;
 (function(REALTIME_PRESENCE_LISTEN_EVENTS2) {
   REALTIME_PRESENCE_LISTEN_EVENTS2["SYNC"] = "sync";
@@ -4516,7 +5308,7 @@ var RealtimePresence = class _RealtimePresence {
   }
 };
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/RealtimeChannel.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/RealtimeChannel.js
 var REALTIME_POSTGRES_CHANGES_LISTEN_EVENT;
 (function(REALTIME_POSTGRES_CHANGES_LISTEN_EVENT2) {
   REALTIME_POSTGRES_CHANGES_LISTEN_EVENT2["ALL"] = "*";
@@ -4956,15 +5748,15 @@ var RealtimeChannel = class _RealtimeChannel {
       }).map((bind) => bind.callback(handledPayload, ref));
     } else {
       (_b = this.bindings[typeLower]) === null || _b === void 0 ? void 0 : _b.filter((bind) => {
-        var _a2, _b2, _c, _d, _e, _f, _g, _h;
+        var _a2, _b2, _c, _d, _e, _f;
         if (["broadcast", "presence", "postgres_changes"].includes(typeLower)) {
           if ("id" in bind) {
             const bindId = bind.id;
             const bindEvent = (_a2 = bind.filter) === null || _a2 === void 0 ? void 0 : _a2.event;
-            return bindId && ((_b2 = payload.ids) === null || _b2 === void 0 ? void 0 : _b2.includes(bindId)) && (bindEvent === "*" || (bindEvent === null || bindEvent === void 0 ? void 0 : bindEvent.toLocaleLowerCase()) === ((_c = payload.data) === null || _c === void 0 ? void 0 : _c.type.toLocaleLowerCase())) && (!((_d = bind.filter) === null || _d === void 0 ? void 0 : _d.table) || bind.filter.table === ((_e = payload.data) === null || _e === void 0 ? void 0 : _e.table));
+            return bindId && ((_b2 = payload.ids) === null || _b2 === void 0 ? void 0 : _b2.includes(bindId)) && (bindEvent === "*" || (bindEvent === null || bindEvent === void 0 ? void 0 : bindEvent.toLocaleLowerCase()) === ((_c = payload.data) === null || _c === void 0 ? void 0 : _c.type.toLocaleLowerCase()));
           } else {
-            const bindEvent = (_g = (_f = bind === null || bind === void 0 ? void 0 : bind.filter) === null || _f === void 0 ? void 0 : _f.event) === null || _g === void 0 ? void 0 : _g.toLocaleLowerCase();
-            return bindEvent === "*" || bindEvent === ((_h = payload === null || payload === void 0 ? void 0 : payload.event) === null || _h === void 0 ? void 0 : _h.toLocaleLowerCase());
+            const bindEvent = (_e = (_d = bind === null || bind === void 0 ? void 0 : bind.filter) === null || _d === void 0 ? void 0 : _d.event) === null || _e === void 0 ? void 0 : _e.toLocaleLowerCase();
+            return bindEvent === "*" || bindEvent === ((_f = payload === null || payload === void 0 ? void 0 : payload.event) === null || _f === void 0 ? void 0 : _f.toLocaleLowerCase());
           }
         } else {
           return bind.type.toLocaleLowerCase() === typeLower;
@@ -5112,7 +5904,7 @@ var RealtimeChannel = class _RealtimeChannel {
   }
 };
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.91.1/node_modules/@supabase/realtime-js/dist/module/RealtimeClient.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/RealtimeClient.js
 var noop2 = () => {
 };
 var CONNECTION_TIMEOUTS = {
@@ -5688,6 +6480,11 @@ Option 2: Install and provide the "ws" package:
     this.log("transport", `${error}`);
     this._triggerChanError();
     this._triggerStateCallbacks("error", error);
+    try {
+      this.heartbeatCallback("error");
+    } catch (e) {
+      this.log("error", "error in heartbeat callback", e);
+    }
   }
   /** @internal */
   _triggerChanError() {
@@ -6398,21 +7195,24 @@ var IcebergRestCatalog = class {
   }
 };
 
-// ../../node_modules/.pnpm/@supabase+storage-js@2.91.1/node_modules/@supabase/storage-js/dist/index.mjs
+// ../../node_modules/.pnpm/@supabase+storage-js@2.97.0/node_modules/@supabase/storage-js/dist/index.mjs
 var StorageError = class extends Error {
-  constructor(message) {
+  constructor(message, namespace = "storage", status, statusCode) {
     super(message);
     this.__isStorageError = true;
-    this.name = "StorageError";
+    this.namespace = namespace;
+    this.name = namespace === "vectors" ? "StorageVectorsError" : "StorageError";
+    this.status = status;
+    this.statusCode = statusCode;
   }
 };
 function isStorageError(error) {
   return typeof error === "object" && error !== null && "__isStorageError" in error;
 }
 var StorageApiError = class extends StorageError {
-  constructor(message, status, statusCode) {
-    super(message);
-    this.name = "StorageApiError";
+  constructor(message, status, statusCode, namespace = "storage") {
+    super(message, namespace, status, statusCode);
+    this.name = namespace === "vectors" ? "StorageVectorsApiError" : "StorageApiError";
     this.status = status;
     this.statusCode = statusCode;
   }
@@ -6426,18 +7226,20 @@ var StorageApiError = class extends StorageError {
   }
 };
 var StorageUnknownError = class extends StorageError {
-  constructor(message, originalError) {
-    super(message);
-    this.name = "StorageUnknownError";
+  constructor(message, originalError, namespace = "storage") {
+    super(message, namespace);
+    this.name = namespace === "vectors" ? "StorageVectorsUnknownError" : "StorageUnknownError";
     this.originalError = originalError;
   }
 };
-var resolveFetch$1 = (customFetch) => {
+var resolveFetch2 = (customFetch) => {
   if (customFetch) return (...args) => customFetch(...args);
   return (...args) => fetch(...args);
 };
-var resolveResponse$1 = () => {
-  return Response;
+var isPlainObject2 = (value) => {
+  if (typeof value !== "object" || value === null) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return (prototype === null || prototype === Object.prototype || Object.getPrototypeOf(prototype) === null) && !(Symbol.toStringTag in value) && !(Symbol.iterator in value);
 };
 var recursiveToCamel = (item) => {
   if (Array.isArray(item)) return item.map((el) => recursiveToCamel(el));
@@ -6449,11 +7251,6 @@ var recursiveToCamel = (item) => {
   });
   return result;
 };
-var isPlainObject$1 = (value) => {
-  if (typeof value !== "object" || value === null) return false;
-  const prototype = Object.getPrototypeOf(value);
-  return (prototype === null || prototype === Object.prototype || Object.getPrototypeOf(prototype) === null) && !(Symbol.toStringTag in value) && !(Symbol.iterator in value);
-};
 var isValidBucketName = (bucketName) => {
   if (!bucketName || typeof bucketName !== "string") return false;
   if (bucketName.length === 0 || bucketName.length > 100) return false;
@@ -6461,37 +7258,37 @@ var isValidBucketName = (bucketName) => {
   if (bucketName.includes("/") || bucketName.includes("\\")) return false;
   return /^[\w!.\*'() &$@=;:+,?-]+$/.test(bucketName);
 };
-function _typeof(o) {
+function _typeof2(o) {
   "@babel/helpers - typeof";
-  return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o$1) {
+  return _typeof2 = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o$1) {
     return typeof o$1;
   } : function(o$1) {
     return o$1 && "function" == typeof Symbol && o$1.constructor === Symbol && o$1 !== Symbol.prototype ? "symbol" : typeof o$1;
-  }, _typeof(o);
+  }, _typeof2(o);
 }
-function toPrimitive(t, r) {
-  if ("object" != _typeof(t) || !t) return t;
+function toPrimitive2(t, r) {
+  if ("object" != _typeof2(t) || !t) return t;
   var e = t[Symbol.toPrimitive];
   if (void 0 !== e) {
     var i = e.call(t, r || "default");
-    if ("object" != _typeof(i)) return i;
+    if ("object" != _typeof2(i)) return i;
     throw new TypeError("@@toPrimitive must return a primitive value.");
   }
   return ("string" === r ? String : Number)(t);
 }
-function toPropertyKey(t) {
-  var i = toPrimitive(t, "string");
-  return "symbol" == _typeof(i) ? i : i + "";
+function toPropertyKey2(t) {
+  var i = toPrimitive2(t, "string");
+  return "symbol" == _typeof2(i) ? i : i + "";
 }
-function _defineProperty(e, r, t) {
-  return (r = toPropertyKey(r)) in e ? Object.defineProperty(e, r, {
+function _defineProperty2(e, r, t) {
+  return (r = toPropertyKey2(r)) in e ? Object.defineProperty(e, r, {
     value: t,
     enumerable: true,
     configurable: true,
     writable: true
   }) : e[r] = t, e;
 }
-function ownKeys(e, r) {
+function ownKeys2(e, r) {
   var t = Object.keys(e);
   if (Object.getOwnPropertySymbols) {
     var o = Object.getOwnPropertySymbols(e);
@@ -6501,68 +7298,171 @@ function ownKeys(e, r) {
   }
   return t;
 }
-function _objectSpread2(e) {
+function _objectSpread22(e) {
   for (var r = 1; r < arguments.length; r++) {
     var t = null != arguments[r] ? arguments[r] : {};
-    r % 2 ? ownKeys(Object(t), true).forEach(function(r$1) {
-      _defineProperty(e, r$1, t[r$1]);
-    }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys(Object(t)).forEach(function(r$1) {
+    r % 2 ? ownKeys2(Object(t), true).forEach(function(r$1) {
+      _defineProperty2(e, r$1, t[r$1]);
+    }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys2(Object(t)).forEach(function(r$1) {
       Object.defineProperty(e, r$1, Object.getOwnPropertyDescriptor(t, r$1));
     });
   }
   return e;
 }
-var _getErrorMessage$1 = (err) => {
+var _getErrorMessage = (err) => {
   var _err$error;
   return err.msg || err.message || err.error_description || (typeof err.error === "string" ? err.error : (_err$error = err.error) === null || _err$error === void 0 ? void 0 : _err$error.message) || JSON.stringify(err);
 };
-var handleError$1 = async (error, reject, options) => {
-  if (error instanceof await resolveResponse$1() && !(options === null || options === void 0 ? void 0 : options.noResolveJson)) error.json().then((err) => {
-    const status = error.status || 500;
-    const statusCode = (err === null || err === void 0 ? void 0 : err.statusCode) || status + "";
-    reject(new StorageApiError(_getErrorMessage$1(err), status, statusCode));
-  }).catch((err) => {
-    reject(new StorageUnknownError(_getErrorMessage$1(err), err));
-  });
-  else reject(new StorageUnknownError(_getErrorMessage$1(error), error));
+var handleError = async (error, reject, options, namespace) => {
+  if (error && typeof error === "object" && "status" in error && "ok" in error && typeof error.status === "number" && !(options === null || options === void 0 ? void 0 : options.noResolveJson)) {
+    const responseError = error;
+    const status = responseError.status || 500;
+    if (typeof responseError.json === "function") responseError.json().then((err) => {
+      const statusCode = (err === null || err === void 0 ? void 0 : err.statusCode) || (err === null || err === void 0 ? void 0 : err.code) || status + "";
+      reject(new StorageApiError(_getErrorMessage(err), status, statusCode, namespace));
+    }).catch(() => {
+      if (namespace === "vectors") {
+        const statusCode = status + "";
+        reject(new StorageApiError(responseError.statusText || `HTTP ${status} error`, status, statusCode, namespace));
+      } else {
+        const statusCode = status + "";
+        reject(new StorageApiError(responseError.statusText || `HTTP ${status} error`, status, statusCode, namespace));
+      }
+    });
+    else {
+      const statusCode = status + "";
+      reject(new StorageApiError(responseError.statusText || `HTTP ${status} error`, status, statusCode, namespace));
+    }
+  } else reject(new StorageUnknownError(_getErrorMessage(error), error, namespace));
 };
-var _getRequestParams$1 = (method, options, parameters, body) => {
+var _getRequestParams = (method, options, parameters, body) => {
   const params = {
     method,
     headers: (options === null || options === void 0 ? void 0 : options.headers) || {}
   };
-  if (method === "GET" || !body) return params;
-  if (isPlainObject$1(body)) {
-    params.headers = _objectSpread2({ "Content-Type": "application/json" }, options === null || options === void 0 ? void 0 : options.headers);
+  if (method === "GET" || method === "HEAD" || !body) return _objectSpread22(_objectSpread22({}, params), parameters);
+  if (isPlainObject2(body)) {
+    params.headers = _objectSpread22({ "Content-Type": "application/json" }, options === null || options === void 0 ? void 0 : options.headers);
     params.body = JSON.stringify(body);
   } else params.body = body;
   if (options === null || options === void 0 ? void 0 : options.duplex) params.duplex = options.duplex;
-  return _objectSpread2(_objectSpread2({}, params), parameters);
+  return _objectSpread22(_objectSpread22({}, params), parameters);
 };
-async function _handleRequest$1(fetcher, method, url, options, parameters, body) {
+async function _handleRequest(fetcher, method, url, options, parameters, body, namespace) {
   return new Promise((resolve, reject) => {
-    fetcher(url, _getRequestParams$1(method, options, parameters, body)).then((result) => {
+    fetcher(url, _getRequestParams(method, options, parameters, body)).then((result) => {
       if (!result.ok) throw result;
       if (options === null || options === void 0 ? void 0 : options.noResolveJson) return result;
+      if (namespace === "vectors") {
+        const contentType = result.headers.get("content-type");
+        if (result.headers.get("content-length") === "0" || result.status === 204) return {};
+        if (!contentType || !contentType.includes("application/json")) return {};
+      }
       return result.json();
-    }).then((data) => resolve(data)).catch((error) => handleError$1(error, reject, options));
+    }).then((data) => resolve(data)).catch((error) => handleError(error, reject, options, namespace));
   });
 }
-async function get(fetcher, url, options, parameters) {
-  return _handleRequest$1(fetcher, "GET", url, options, parameters);
+function createFetchApi(namespace = "storage") {
+  return {
+    get: async (fetcher, url, options, parameters) => {
+      return _handleRequest(fetcher, "GET", url, options, parameters, void 0, namespace);
+    },
+    post: async (fetcher, url, body, options, parameters) => {
+      return _handleRequest(fetcher, "POST", url, options, parameters, body, namespace);
+    },
+    put: async (fetcher, url, body, options, parameters) => {
+      return _handleRequest(fetcher, "PUT", url, options, parameters, body, namespace);
+    },
+    head: async (fetcher, url, options, parameters) => {
+      return _handleRequest(fetcher, "HEAD", url, _objectSpread22(_objectSpread22({}, options), {}, { noResolveJson: true }), parameters, void 0, namespace);
+    },
+    remove: async (fetcher, url, body, options, parameters) => {
+      return _handleRequest(fetcher, "DELETE", url, options, parameters, body, namespace);
+    }
+  };
 }
-async function post$1(fetcher, url, body, options, parameters) {
-  return _handleRequest$1(fetcher, "POST", url, options, parameters, body);
-}
-async function put(fetcher, url, body, options, parameters) {
-  return _handleRequest$1(fetcher, "PUT", url, options, parameters, body);
-}
-async function head(fetcher, url, options, parameters) {
-  return _handleRequest$1(fetcher, "HEAD", url, _objectSpread2(_objectSpread2({}, options), {}, { noResolveJson: true }), parameters);
-}
-async function remove(fetcher, url, body, options, parameters) {
-  return _handleRequest$1(fetcher, "DELETE", url, options, parameters, body);
-}
+var defaultApi = createFetchApi("storage");
+var { get, post, put, head, remove } = defaultApi;
+var vectorsApi = createFetchApi("vectors");
+var BaseApiClient = class {
+  /**
+  * Creates a new BaseApiClient instance
+  * @param url - Base URL for API requests
+  * @param headers - Default headers for API requests
+  * @param fetch - Optional custom fetch implementation
+  * @param namespace - Error namespace ('storage' or 'vectors')
+  */
+  constructor(url, headers = {}, fetch$1, namespace = "storage") {
+    this.shouldThrowOnError = false;
+    this.url = url;
+    this.headers = headers;
+    this.fetch = resolveFetch2(fetch$1);
+    this.namespace = namespace;
+  }
+  /**
+  * Enable throwing errors instead of returning them.
+  * When enabled, errors are thrown instead of returned in { data, error } format.
+  *
+  * @returns this - For method chaining
+  */
+  throwOnError() {
+    this.shouldThrowOnError = true;
+    return this;
+  }
+  /**
+  * Set an HTTP header for the request.
+  * Creates a shallow copy of headers to avoid mutating shared state.
+  *
+  * @param name - Header name
+  * @param value - Header value
+  * @returns this - For method chaining
+  */
+  setHeader(name, value) {
+    this.headers = _objectSpread22(_objectSpread22({}, this.headers), {}, { [name]: value });
+    return this;
+  }
+  /**
+  * Handles API operation with standardized error handling
+  * Eliminates repetitive try-catch blocks across all API methods
+  *
+  * This wrapper:
+  * 1. Executes the operation
+  * 2. Returns { data, error: null } on success
+  * 3. Returns { data: null, error } on failure (if shouldThrowOnError is false)
+  * 4. Throws error on failure (if shouldThrowOnError is true)
+  *
+  * @typeParam T - The expected data type from the operation
+  * @param operation - Async function that performs the API call
+  * @returns Promise with { data, error } tuple
+  *
+  * @example
+  * ```typescript
+  * async listBuckets() {
+  *   return this.handleOperation(async () => {
+  *     return await get(this.fetch, `${this.url}/bucket`, {
+  *       headers: this.headers,
+  *     })
+  *   })
+  * }
+  * ```
+  */
+  async handleOperation(operation) {
+    var _this = this;
+    try {
+      return {
+        data: await operation(),
+        error: null
+      };
+    } catch (error) {
+      if (_this.shouldThrowOnError) throw error;
+      if (isStorageError(error)) return {
+        data: null,
+        error
+      };
+      throw error;
+    }
+  }
+};
 var StreamDownloadBuilder = class {
   constructor(downloadFn, shouldThrowOnError) {
     this.downloadFn = downloadFn;
@@ -6643,22 +7543,10 @@ var DEFAULT_FILE_OPTIONS = {
   contentType: "text/plain;charset=UTF-8",
   upsert: false
 };
-var StorageFileApi = class {
+var StorageFileApi = class extends BaseApiClient {
   constructor(url, headers = {}, bucketId, fetch$1) {
-    this.shouldThrowOnError = false;
-    this.url = url;
-    this.headers = headers;
+    super(url, headers, fetch$1, "storage");
     this.bucketId = bucketId;
-    this.fetch = resolveFetch$1(fetch$1);
-  }
-  /**
-  * Enable throwing errors instead of returning them.
-  *
-  * @category File Buckets
-  */
-  throwOnError() {
-    this.shouldThrowOnError = true;
-    return this;
   }
   /**
   * Uploads a file to an existing bucket or replaces an existing file at the specified path with a new one.
@@ -6669,10 +7557,10 @@ var StorageFileApi = class {
   */
   async uploadOrUpdate(method, path, fileBody, fileOptions) {
     var _this = this;
-    try {
+    return _this.handleOperation(async () => {
       let body;
-      const options = _objectSpread2(_objectSpread2({}, DEFAULT_FILE_OPTIONS), fileOptions);
-      let headers = _objectSpread2(_objectSpread2({}, _this.headers), method === "POST" && { "x-upsert": String(options.upsert) });
+      const options = _objectSpread22(_objectSpread22({}, DEFAULT_FILE_OPTIONS), fileOptions);
+      let headers = _objectSpread22(_objectSpread22({}, _this.headers), method === "POST" && { "x-upsert": String(options.upsert) });
       const metadata = options.metadata;
       if (typeof Blob !== "undefined" && fileBody instanceof Blob) {
         body = new FormData();
@@ -6690,26 +7578,16 @@ var StorageFileApi = class {
         if (metadata) headers["x-metadata"] = _this.toBase64(_this.encodeMetadata(metadata));
         if ((typeof ReadableStream !== "undefined" && body instanceof ReadableStream || body && typeof body === "object" && "pipe" in body && typeof body.pipe === "function") && !options.duplex) options.duplex = "half";
       }
-      if (fileOptions === null || fileOptions === void 0 ? void 0 : fileOptions.headers) headers = _objectSpread2(_objectSpread2({}, headers), fileOptions.headers);
+      if (fileOptions === null || fileOptions === void 0 ? void 0 : fileOptions.headers) headers = _objectSpread22(_objectSpread22({}, headers), fileOptions.headers);
       const cleanPath = _this._removeEmptyFolders(path);
       const _path = _this._getFinalPath(cleanPath);
-      const data = await (method == "PUT" ? put : post$1)(_this.fetch, `${_this.url}/object/${_path}`, body, _objectSpread2({ headers }, (options === null || options === void 0 ? void 0 : options.duplex) ? { duplex: options.duplex } : {}));
+      const data = await (method == "PUT" ? put : post)(_this.fetch, `${_this.url}/object/${_path}`, body, _objectSpread22({ headers }, (options === null || options === void 0 ? void 0 : options.duplex) ? { duplex: options.duplex } : {}));
       return {
-        data: {
-          path: cleanPath,
-          id: data.Id,
-          fullPath: data.Key
-        },
-        error: null
+        path: cleanPath,
+        id: data.Id,
+        fullPath: data.Key
       };
-    } catch (error) {
-      if (_this.shouldThrowOnError) throw error;
-      if (isStorageError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    });
   }
   /**
   * Uploads a file to an existing bucket.
@@ -6795,10 +7673,10 @@ var StorageFileApi = class {
     const _path = _this3._getFinalPath(cleanPath);
     const url = new URL(_this3.url + `/object/upload/sign/${_path}`);
     url.searchParams.set("token", token);
-    try {
+    return _this3.handleOperation(async () => {
       let body;
-      const options = _objectSpread2({ upsert: DEFAULT_FILE_OPTIONS.upsert }, fileOptions);
-      const headers = _objectSpread2(_objectSpread2({}, _this3.headers), { "x-upsert": String(options.upsert) });
+      const options = _objectSpread22({ upsert: DEFAULT_FILE_OPTIONS.upsert }, fileOptions);
+      const headers = _objectSpread22(_objectSpread22({}, _this3.headers), { "x-upsert": String(options.upsert) });
       if (typeof Blob !== "undefined" && fileBody instanceof Blob) {
         body = new FormData();
         body.append("cacheControl", options.cacheControl);
@@ -6812,20 +7690,10 @@ var StorageFileApi = class {
         headers["content-type"] = options.contentType;
       }
       return {
-        data: {
-          path: cleanPath,
-          fullPath: (await put(_this3.fetch, url.toString(), body, { headers })).Key
-        },
-        error: null
+        path: cleanPath,
+        fullPath: (await put(_this3.fetch, url.toString(), body, { headers })).Key
       };
-    } catch (error) {
-      if (_this3.shouldThrowOnError) throw error;
-      if (isStorageError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    });
   }
   /**
   * Creates a signed upload URL.
@@ -6859,30 +7727,20 @@ var StorageFileApi = class {
   */
   async createSignedUploadUrl(path, options) {
     var _this4 = this;
-    try {
+    return _this4.handleOperation(async () => {
       let _path = _this4._getFinalPath(path);
-      const headers = _objectSpread2({}, _this4.headers);
+      const headers = _objectSpread22({}, _this4.headers);
       if (options === null || options === void 0 ? void 0 : options.upsert) headers["x-upsert"] = "true";
-      const data = await post$1(_this4.fetch, `${_this4.url}/object/upload/sign/${_path}`, {}, { headers });
+      const data = await post(_this4.fetch, `${_this4.url}/object/upload/sign/${_path}`, {}, { headers });
       const url = new URL(_this4.url + data.url);
       const token = url.searchParams.get("token");
       if (!token) throw new StorageError("No token returned by API");
       return {
-        data: {
-          signedUrl: url.toString(),
-          path,
-          token
-        },
-        error: null
+        signedUrl: url.toString(),
+        path,
+        token
       };
-    } catch (error) {
-      if (_this4.shouldThrowOnError) throw error;
-      if (isStorageError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    });
   }
   /**
   * Replaces an existing file at the specified path with a new one.
@@ -6960,24 +7818,14 @@ var StorageFileApi = class {
   */
   async move(fromPath, toPath, options) {
     var _this6 = this;
-    try {
-      return {
-        data: await post$1(_this6.fetch, `${_this6.url}/object/move`, {
-          bucketId: _this6.bucketId,
-          sourceKey: fromPath,
-          destinationKey: toPath,
-          destinationBucket: options === null || options === void 0 ? void 0 : options.destinationBucket
-        }, { headers: _this6.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this6.shouldThrowOnError) throw error;
-      if (isStorageError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    return _this6.handleOperation(async () => {
+      return await post(_this6.fetch, `${_this6.url}/object/move`, {
+        bucketId: _this6.bucketId,
+        sourceKey: fromPath,
+        destinationKey: toPath,
+        destinationBucket: options === null || options === void 0 ? void 0 : options.destinationBucket
+      }, { headers: _this6.headers });
+    });
   }
   /**
   * Copies an existing file to a new path in the same bucket.
@@ -7008,24 +7856,14 @@ var StorageFileApi = class {
   */
   async copy(fromPath, toPath, options) {
     var _this7 = this;
-    try {
-      return {
-        data: { path: (await post$1(_this7.fetch, `${_this7.url}/object/copy`, {
-          bucketId: _this7.bucketId,
-          sourceKey: fromPath,
-          destinationKey: toPath,
-          destinationBucket: options === null || options === void 0 ? void 0 : options.destinationBucket
-        }, { headers: _this7.headers })).Key },
-        error: null
-      };
-    } catch (error) {
-      if (_this7.shouldThrowOnError) throw error;
-      if (isStorageError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    return _this7.handleOperation(async () => {
+      return { path: (await post(_this7.fetch, `${_this7.url}/object/copy`, {
+        bucketId: _this7.bucketId,
+        sourceKey: fromPath,
+        destinationKey: toPath,
+        destinationBucket: options === null || options === void 0 ? void 0 : options.destinationBucket
+      }, { headers: _this7.headers })).Key };
+    });
   }
   /**
   * Creates a signed URL. Use a signed URL to share a file for a fixed amount of time.
@@ -7080,23 +7918,12 @@ var StorageFileApi = class {
   */
   async createSignedUrl(path, expiresIn, options) {
     var _this8 = this;
-    try {
+    return _this8.handleOperation(async () => {
       let _path = _this8._getFinalPath(path);
-      let data = await post$1(_this8.fetch, `${_this8.url}/object/sign/${_path}`, _objectSpread2({ expiresIn }, (options === null || options === void 0 ? void 0 : options.transform) ? { transform: options.transform } : {}), { headers: _this8.headers });
+      let data = await post(_this8.fetch, `${_this8.url}/object/sign/${_path}`, _objectSpread22({ expiresIn }, (options === null || options === void 0 ? void 0 : options.transform) ? { transform: options.transform } : {}), { headers: _this8.headers });
       const downloadQueryParam = (options === null || options === void 0 ? void 0 : options.download) ? `&download=${options.download === true ? "" : options.download}` : "";
-      data = { signedUrl: encodeURI(`${_this8.url}${data.signedURL}${downloadQueryParam}`) };
-      return {
-        data,
-        error: null
-      };
-    } catch (error) {
-      if (_this8.shouldThrowOnError) throw error;
-      if (isStorageError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+      return { signedUrl: encodeURI(`${_this8.url}${data.signedURL}${downloadQueryParam}`) };
+    });
   }
   /**
   * Creates multiple signed URLs. Use a signed URL to share a file for a fixed amount of time.
@@ -7138,24 +7965,14 @@ var StorageFileApi = class {
   */
   async createSignedUrls(paths, expiresIn, options) {
     var _this9 = this;
-    try {
-      const data = await post$1(_this9.fetch, `${_this9.url}/object/sign/${_this9.bucketId}`, {
+    return _this9.handleOperation(async () => {
+      const data = await post(_this9.fetch, `${_this9.url}/object/sign/${_this9.bucketId}`, {
         expiresIn,
         paths
       }, { headers: _this9.headers });
       const downloadQueryParam = (options === null || options === void 0 ? void 0 : options.download) ? `&download=${options.download === true ? "" : options.download}` : "";
-      return {
-        data: data.map((datum) => _objectSpread2(_objectSpread2({}, datum), {}, { signedUrl: datum.signedURL ? encodeURI(`${_this9.url}${datum.signedURL}${downloadQueryParam}`) : null })),
-        error: null
-      };
-    } catch (error) {
-      if (_this9.shouldThrowOnError) throw error;
-      if (isStorageError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+      return data.map((datum) => _objectSpread22(_objectSpread22({}, datum), {}, { signedUrl: datum.signedURL ? encodeURI(`${_this9.url}${datum.signedURL}${downloadQueryParam}`) : null }));
+    });
   }
   /**
   * Downloads a file from a private bucket. For public buckets, make a request to the URL returned from `getPublicUrl` instead.
@@ -7163,6 +7980,7 @@ var StorageFileApi = class {
   * @category File Buckets
   * @param path The full path and file name of the file to be downloaded. For example `folder/image.png`.
   * @param options.transform Transform the asset before serving it to the client.
+  * @param parameters Additional fetch parameters like signal for cancellation. Supports standard fetch options including cache control.
   * @returns BlobDownloadBuilder instance for downloading the file
   *
   * @example Download file
@@ -7194,8 +8012,27 @@ var StorageFileApi = class {
   *     }
   *   })
   * ```
+  *
+  * @example Download with cache control (useful in Edge Functions)
+  * ```js
+  * const { data, error } = await supabase
+  *   .storage
+  *   .from('avatars')
+  *   .download('folder/avatar1.png', {}, { cache: 'no-store' })
+  * ```
+  *
+  * @example Download with abort signal
+  * ```js
+  * const controller = new AbortController()
+  * setTimeout(() => controller.abort(), 5000)
+  *
+  * const { data, error } = await supabase
+  *   .storage
+  *   .from('avatars')
+  *   .download('folder/avatar1.png', {}, { signal: controller.signal })
+  * ```
   */
-  download(path, options) {
+  download(path, options, parameters) {
     const renderPath = typeof (options === null || options === void 0 ? void 0 : options.transform) !== "undefined" ? "render/image/authenticated" : "object";
     const transformationQuery = this.transformOptsToQueryString((options === null || options === void 0 ? void 0 : options.transform) || {});
     const queryString = transformationQuery ? `?${transformationQuery}` : "";
@@ -7203,7 +8040,7 @@ var StorageFileApi = class {
     const downloadFn = () => get(this.fetch, `${this.url}/${renderPath}/${_path}${queryString}`, {
       headers: this.headers,
       noResolveJson: true
-    });
+    }, parameters);
     return new BlobDownloadBuilder(downloadFn, this.shouldThrowOnError);
   }
   /**
@@ -7224,19 +8061,9 @@ var StorageFileApi = class {
   async info(path) {
     var _this10 = this;
     const _path = _this10._getFinalPath(path);
-    try {
-      return {
-        data: recursiveToCamel(await get(_this10.fetch, `${_this10.url}/object/info/${_path}`, { headers: _this10.headers })),
-        error: null
-      };
-    } catch (error) {
-      if (_this10.shouldThrowOnError) throw error;
-      if (isStorageError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    return _this10.handleOperation(async () => {
+      return recursiveToCamel(await get(_this10.fetch, `${_this10.url}/object/info/${_path}`, { headers: _this10.headers }));
+    });
   }
   /**
   * Checks the existence of a file.
@@ -7361,19 +8188,9 @@ var StorageFileApi = class {
   */
   async remove(paths) {
     var _this12 = this;
-    try {
-      return {
-        data: await remove(_this12.fetch, `${_this12.url}/object/${_this12.bucketId}`, { prefixes: paths }, { headers: _this12.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this12.shouldThrowOnError) throw error;
-      if (isStorageError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    return _this12.handleOperation(async () => {
+      return await remove(_this12.fetch, `${_this12.url}/object/${_this12.bucketId}`, { prefixes: paths }, { headers: _this12.headers });
+    });
   }
   /**
   * Get file metadata
@@ -7445,20 +8262,10 @@ var StorageFileApi = class {
   */
   async list(path, options, parameters) {
     var _this13 = this;
-    try {
-      const body = _objectSpread2(_objectSpread2(_objectSpread2({}, DEFAULT_SEARCH_OPTIONS), options), {}, { prefix: path || "" });
-      return {
-        data: await post$1(_this13.fetch, `${_this13.url}/object/list/${_this13.bucketId}`, body, { headers: _this13.headers }, parameters),
-        error: null
-      };
-    } catch (error) {
-      if (_this13.shouldThrowOnError) throw error;
-      if (isStorageError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    return _this13.handleOperation(async () => {
+      const body = _objectSpread22(_objectSpread22(_objectSpread22({}, DEFAULT_SEARCH_OPTIONS), options), {}, { prefix: path || "" });
+      return await post(_this13.fetch, `${_this13.url}/object/list/${_this13.bucketId}`, body, { headers: _this13.headers }, parameters);
+    });
   }
   /**
   * @experimental this method signature might change in the future
@@ -7469,20 +8276,10 @@ var StorageFileApi = class {
   */
   async listV2(options, parameters) {
     var _this14 = this;
-    try {
-      const body = _objectSpread2({}, options);
-      return {
-        data: await post$1(_this14.fetch, `${_this14.url}/object/list-v2/${_this14.bucketId}`, body, { headers: _this14.headers }, parameters),
-        error: null
-      };
-    } catch (error) {
-      if (_this14.shouldThrowOnError) throw error;
-      if (isStorageError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    return _this14.handleOperation(async () => {
+      const body = _objectSpread22({}, options);
+      return await post(_this14.fetch, `${_this14.url}/object/list-v2/${_this14.bucketId}`, body, { headers: _this14.headers }, parameters);
+    });
   }
   encodeMetadata(metadata) {
     return JSON.stringify(metadata);
@@ -7507,27 +8304,17 @@ var StorageFileApi = class {
     return params.join("&");
   }
 };
-var version2 = "2.91.1";
-var DEFAULT_HEADERS$1 = { "X-Client-Info": `storage-js/${version2}` };
-var StorageBucketApi = class {
+var version2 = "2.97.0";
+var DEFAULT_HEADERS = { "X-Client-Info": `storage-js/${version2}` };
+var StorageBucketApi = class extends BaseApiClient {
   constructor(url, headers = {}, fetch$1, opts) {
-    this.shouldThrowOnError = false;
     const baseUrl = new URL(url);
     if (opts === null || opts === void 0 ? void 0 : opts.useNewHostname) {
       if (/supabase\.(co|in|red)$/.test(baseUrl.hostname) && !baseUrl.hostname.includes("storage.supabase.")) baseUrl.hostname = baseUrl.hostname.replace("supabase.", "storage.supabase.");
     }
-    this.url = baseUrl.href.replace(/\/$/, "");
-    this.headers = _objectSpread2(_objectSpread2({}, DEFAULT_HEADERS$1), headers);
-    this.fetch = resolveFetch$1(fetch$1);
-  }
-  /**
-  * Enable throwing errors instead of returning them.
-  *
-  * @category File Buckets
-  */
-  throwOnError() {
-    this.shouldThrowOnError = true;
-    return this;
+    const finalUrl = baseUrl.href.replace(/\/$/, "");
+    const finalHeaders = _objectSpread22(_objectSpread22({}, DEFAULT_HEADERS), headers);
+    super(finalUrl, finalHeaders, fetch$1, "storage");
   }
   /**
   * Retrieves the details of all Storage buckets within an existing project.
@@ -7563,20 +8350,10 @@ var StorageBucketApi = class {
   */
   async listBuckets(options) {
     var _this = this;
-    try {
+    return _this.handleOperation(async () => {
       const queryString = _this.listBucketOptionsToQueryString(options);
-      return {
-        data: await get(_this.fetch, `${_this.url}/bucket${queryString}`, { headers: _this.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this.shouldThrowOnError) throw error;
-      if (isStorageError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+      return await get(_this.fetch, `${_this.url}/bucket${queryString}`, { headers: _this.headers });
+    });
   }
   /**
   * Retrieves the details of an existing Storage bucket.
@@ -7613,19 +8390,9 @@ var StorageBucketApi = class {
   */
   async getBucket(id) {
     var _this2 = this;
-    try {
-      return {
-        data: await get(_this2.fetch, `${_this2.url}/bucket/${id}`, { headers: _this2.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this2.shouldThrowOnError) throw error;
-      if (isStorageError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    return _this2.handleOperation(async () => {
+      return await get(_this2.fetch, `${_this2.url}/bucket/${id}`, { headers: _this2.headers });
+    });
   }
   /**
   * Creates a new Storage bucket
@@ -7666,26 +8433,16 @@ var StorageBucketApi = class {
   */
   async createBucket(id, options = { public: false }) {
     var _this3 = this;
-    try {
-      return {
-        data: await post$1(_this3.fetch, `${_this3.url}/bucket`, {
-          id,
-          name: id,
-          type: options.type,
-          public: options.public,
-          file_size_limit: options.fileSizeLimit,
-          allowed_mime_types: options.allowedMimeTypes
-        }, { headers: _this3.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this3.shouldThrowOnError) throw error;
-      if (isStorageError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    return _this3.handleOperation(async () => {
+      return await post(_this3.fetch, `${_this3.url}/bucket`, {
+        id,
+        name: id,
+        type: options.type,
+        public: options.public,
+        file_size_limit: options.fileSizeLimit,
+        allowed_mime_types: options.allowedMimeTypes
+      }, { headers: _this3.headers });
+    });
   }
   /**
   * Updates a Storage bucket
@@ -7724,25 +8481,15 @@ var StorageBucketApi = class {
   */
   async updateBucket(id, options) {
     var _this4 = this;
-    try {
-      return {
-        data: await put(_this4.fetch, `${_this4.url}/bucket/${id}`, {
-          id,
-          name: id,
-          public: options.public,
-          file_size_limit: options.fileSizeLimit,
-          allowed_mime_types: options.allowedMimeTypes
-        }, { headers: _this4.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this4.shouldThrowOnError) throw error;
-      if (isStorageError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    return _this4.handleOperation(async () => {
+      return await put(_this4.fetch, `${_this4.url}/bucket/${id}`, {
+        id,
+        name: id,
+        public: options.public,
+        file_size_limit: options.fileSizeLimit,
+        allowed_mime_types: options.allowedMimeTypes
+      }, { headers: _this4.headers });
+    });
   }
   /**
   * Removes all objects inside a single bucket.
@@ -7770,19 +8517,9 @@ var StorageBucketApi = class {
   */
   async emptyBucket(id) {
     var _this5 = this;
-    try {
-      return {
-        data: await post$1(_this5.fetch, `${_this5.url}/bucket/${id}/empty`, {}, { headers: _this5.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this5.shouldThrowOnError) throw error;
-      if (isStorageError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    return _this5.handleOperation(async () => {
+      return await post(_this5.fetch, `${_this5.url}/bucket/${id}/empty`, {}, { headers: _this5.headers });
+    });
   }
   /**
   * Deletes an existing bucket. A bucket can't be deleted with existing objects inside it.
@@ -7811,19 +8548,9 @@ var StorageBucketApi = class {
   */
   async deleteBucket(id) {
     var _this6 = this;
-    try {
-      return {
-        data: await remove(_this6.fetch, `${_this6.url}/bucket/${id}`, {}, { headers: _this6.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this6.shouldThrowOnError) throw error;
-      if (isStorageError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    return _this6.handleOperation(async () => {
+      return await remove(_this6.fetch, `${_this6.url}/bucket/${id}`, {}, { headers: _this6.headers });
+    });
   }
   listBucketOptionsToQueryString(options) {
     const params = {};
@@ -7837,7 +8564,7 @@ var StorageBucketApi = class {
     return Object.keys(params).length > 0 ? "?" + new URLSearchParams(params).toString() : "";
   }
 };
-var StorageAnalyticsClient = class {
+var StorageAnalyticsClient = class extends BaseApiClient {
   /**
   * @alpha
   *
@@ -7856,25 +8583,9 @@ var StorageAnalyticsClient = class {
   * ```
   */
   constructor(url, headers = {}, fetch$1) {
-    this.shouldThrowOnError = false;
-    this.url = url.replace(/\/$/, "");
-    this.headers = _objectSpread2(_objectSpread2({}, DEFAULT_HEADERS$1), headers);
-    this.fetch = resolveFetch$1(fetch$1);
-  }
-  /**
-  * @alpha
-  *
-  * Enable throwing errors instead of returning them in the response
-  * When enabled, failed operations will throw instead of returning { data: null, error }
-  *
-  * **Public alpha:** This API is part of a public alpha release and may not be available to your account type.
-  *
-  * @category Analytics Buckets
-  * @returns This instance for method chaining
-  */
-  throwOnError() {
-    this.shouldThrowOnError = true;
-    return this;
+    const finalUrl = url.replace(/\/$/, "");
+    const finalHeaders = _objectSpread22(_objectSpread22({}, DEFAULT_HEADERS), headers);
+    super(finalUrl, finalHeaders, fetch$1, "storage");
   }
   /**
   * @alpha
@@ -7912,19 +8623,9 @@ var StorageAnalyticsClient = class {
   */
   async createBucket(name) {
     var _this = this;
-    try {
-      return {
-        data: await post$1(_this.fetch, `${_this.url}/bucket`, { name }, { headers: _this.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this.shouldThrowOnError) throw error;
-      if (isStorageError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    return _this.handleOperation(async () => {
+      return await post(_this.fetch, `${_this.url}/bucket`, { name }, { headers: _this.headers });
+    });
   }
   /**
   * @alpha
@@ -7974,7 +8675,7 @@ var StorageAnalyticsClient = class {
   */
   async listBuckets(options) {
     var _this2 = this;
-    try {
+    return _this2.handleOperation(async () => {
       const queryParams = new URLSearchParams();
       if ((options === null || options === void 0 ? void 0 : options.limit) !== void 0) queryParams.set("limit", options.limit.toString());
       if ((options === null || options === void 0 ? void 0 : options.offset) !== void 0) queryParams.set("offset", options.offset.toString());
@@ -7983,18 +8684,8 @@ var StorageAnalyticsClient = class {
       if (options === null || options === void 0 ? void 0 : options.search) queryParams.set("search", options.search);
       const queryString = queryParams.toString();
       const url = queryString ? `${_this2.url}/bucket?${queryString}` : `${_this2.url}/bucket`;
-      return {
-        data: await get(_this2.fetch, url, { headers: _this2.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this2.shouldThrowOnError) throw error;
-      if (isStorageError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+      return await get(_this2.fetch, url, { headers: _this2.headers });
+    });
   }
   /**
   * @alpha
@@ -8029,19 +8720,9 @@ var StorageAnalyticsClient = class {
   */
   async deleteBucket(bucketName) {
     var _this3 = this;
-    try {
-      return {
-        data: await remove(_this3.fetch, `${_this3.url}/bucket/${bucketName}`, {}, { headers: _this3.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this3.shouldThrowOnError) throw error;
-      if (isStorageError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    return _this3.handleOperation(async () => {
+      return await remove(_this3.fetch, `${_this3.url}/bucket/${bucketName}`, {}, { headers: _this3.headers });
+    });
   }
   /**
   * @alpha
@@ -8199,371 +8880,133 @@ var StorageAnalyticsClient = class {
     } });
   }
 };
-var DEFAULT_HEADERS = {
-  "X-Client-Info": `storage-js/${version2}`,
-  "Content-Type": "application/json"
-};
-var StorageVectorsError = class extends Error {
-  constructor(message) {
-    super(message);
-    this.__isStorageVectorsError = true;
-    this.name = "StorageVectorsError";
-  }
-};
-function isStorageVectorsError(error) {
-  return typeof error === "object" && error !== null && "__isStorageVectorsError" in error;
-}
-var StorageVectorsApiError = class extends StorageVectorsError {
-  constructor(message, status, statusCode) {
-    super(message);
-    this.name = "StorageVectorsApiError";
-    this.status = status;
-    this.statusCode = statusCode;
-  }
-  toJSON() {
-    return {
-      name: this.name,
-      message: this.message,
-      status: this.status,
-      statusCode: this.statusCode
-    };
-  }
-};
-var StorageVectorsUnknownError = class extends StorageVectorsError {
-  constructor(message, originalError) {
-    super(message);
-    this.name = "StorageVectorsUnknownError";
-    this.originalError = originalError;
-  }
-};
-var resolveFetch2 = (customFetch) => {
-  if (customFetch) return (...args) => customFetch(...args);
-  return (...args) => fetch(...args);
-};
-var isPlainObject2 = (value) => {
-  if (typeof value !== "object" || value === null) return false;
-  const prototype = Object.getPrototypeOf(value);
-  return (prototype === null || prototype === Object.prototype || Object.getPrototypeOf(prototype) === null) && !(Symbol.toStringTag in value) && !(Symbol.iterator in value);
-};
-var _getErrorMessage = (err) => err.msg || err.message || err.error_description || err.error || JSON.stringify(err);
-var handleError = async (error, reject, options) => {
-  if (error && typeof error === "object" && "status" in error && "ok" in error && typeof error.status === "number" && !(options === null || options === void 0 ? void 0 : options.noResolveJson)) {
-    const status = error.status || 500;
-    const responseError = error;
-    if (typeof responseError.json === "function") responseError.json().then((err) => {
-      const statusCode = (err === null || err === void 0 ? void 0 : err.statusCode) || (err === null || err === void 0 ? void 0 : err.code) || status + "";
-      reject(new StorageVectorsApiError(_getErrorMessage(err), status, statusCode));
-    }).catch(() => {
-      const statusCode = status + "";
-      reject(new StorageVectorsApiError(responseError.statusText || `HTTP ${status} error`, status, statusCode));
-    });
-    else {
-      const statusCode = status + "";
-      reject(new StorageVectorsApiError(responseError.statusText || `HTTP ${status} error`, status, statusCode));
-    }
-  } else reject(new StorageVectorsUnknownError(_getErrorMessage(error), error));
-};
-var _getRequestParams = (method, options, parameters, body) => {
-  const params = {
-    method,
-    headers: (options === null || options === void 0 ? void 0 : options.headers) || {}
-  };
-  if (method === "GET" || !body) return params;
-  if (isPlainObject2(body)) {
-    params.headers = _objectSpread2({ "Content-Type": "application/json" }, options === null || options === void 0 ? void 0 : options.headers);
-    params.body = JSON.stringify(body);
-  } else params.body = body;
-  return _objectSpread2(_objectSpread2({}, params), parameters);
-};
-async function _handleRequest(fetcher, method, url, options, parameters, body) {
-  return new Promise((resolve, reject) => {
-    fetcher(url, _getRequestParams(method, options, parameters, body)).then((result) => {
-      if (!result.ok) throw result;
-      if (options === null || options === void 0 ? void 0 : options.noResolveJson) return result;
-      const contentType = result.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) return {};
-      return result.json();
-    }).then((data) => resolve(data)).catch((error) => handleError(error, reject, options));
-  });
-}
-async function post(fetcher, url, body, options, parameters) {
-  return _handleRequest(fetcher, "POST", url, options, parameters, body);
-}
-var VectorIndexApi = class {
+var VectorIndexApi = class extends BaseApiClient {
   /** Creates a new VectorIndexApi instance */
   constructor(url, headers = {}, fetch$1) {
-    this.shouldThrowOnError = false;
-    this.url = url.replace(/\/$/, "");
-    this.headers = _objectSpread2(_objectSpread2({}, DEFAULT_HEADERS), headers);
-    this.fetch = resolveFetch2(fetch$1);
-  }
-  /** Enable throwing errors instead of returning them in the response */
-  throwOnError() {
-    this.shouldThrowOnError = true;
-    return this;
+    const finalUrl = url.replace(/\/$/, "");
+    const finalHeaders = _objectSpread22(_objectSpread22({}, DEFAULT_HEADERS), {}, { "Content-Type": "application/json" }, headers);
+    super(finalUrl, finalHeaders, fetch$1, "vectors");
   }
   /** Creates a new vector index within a bucket */
   async createIndex(options) {
     var _this = this;
-    try {
-      return {
-        data: await post(_this.fetch, `${_this.url}/CreateIndex`, options, { headers: _this.headers }) || {},
-        error: null
-      };
-    } catch (error) {
-      if (_this.shouldThrowOnError) throw error;
-      if (isStorageVectorsError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    return _this.handleOperation(async () => {
+      return await vectorsApi.post(_this.fetch, `${_this.url}/CreateIndex`, options, { headers: _this.headers }) || {};
+    });
   }
   /** Retrieves metadata for a specific vector index */
   async getIndex(vectorBucketName, indexName) {
     var _this2 = this;
-    try {
-      return {
-        data: await post(_this2.fetch, `${_this2.url}/GetIndex`, {
-          vectorBucketName,
-          indexName
-        }, { headers: _this2.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this2.shouldThrowOnError) throw error;
-      if (isStorageVectorsError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    return _this2.handleOperation(async () => {
+      return await vectorsApi.post(_this2.fetch, `${_this2.url}/GetIndex`, {
+        vectorBucketName,
+        indexName
+      }, { headers: _this2.headers });
+    });
   }
   /** Lists vector indexes within a bucket with optional filtering and pagination */
   async listIndexes(options) {
     var _this3 = this;
-    try {
-      return {
-        data: await post(_this3.fetch, `${_this3.url}/ListIndexes`, options, { headers: _this3.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this3.shouldThrowOnError) throw error;
-      if (isStorageVectorsError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    return _this3.handleOperation(async () => {
+      return await vectorsApi.post(_this3.fetch, `${_this3.url}/ListIndexes`, options, { headers: _this3.headers });
+    });
   }
   /** Deletes a vector index and all its data */
   async deleteIndex(vectorBucketName, indexName) {
     var _this4 = this;
-    try {
-      return {
-        data: await post(_this4.fetch, `${_this4.url}/DeleteIndex`, {
-          vectorBucketName,
-          indexName
-        }, { headers: _this4.headers }) || {},
-        error: null
-      };
-    } catch (error) {
-      if (_this4.shouldThrowOnError) throw error;
-      if (isStorageVectorsError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    return _this4.handleOperation(async () => {
+      return await vectorsApi.post(_this4.fetch, `${_this4.url}/DeleteIndex`, {
+        vectorBucketName,
+        indexName
+      }, { headers: _this4.headers }) || {};
+    });
   }
 };
-var VectorDataApi = class {
+var VectorDataApi = class extends BaseApiClient {
   /** Creates a new VectorDataApi instance */
   constructor(url, headers = {}, fetch$1) {
-    this.shouldThrowOnError = false;
-    this.url = url.replace(/\/$/, "");
-    this.headers = _objectSpread2(_objectSpread2({}, DEFAULT_HEADERS), headers);
-    this.fetch = resolveFetch2(fetch$1);
-  }
-  /** Enable throwing errors instead of returning them in the response */
-  throwOnError() {
-    this.shouldThrowOnError = true;
-    return this;
+    const finalUrl = url.replace(/\/$/, "");
+    const finalHeaders = _objectSpread22(_objectSpread22({}, DEFAULT_HEADERS), {}, { "Content-Type": "application/json" }, headers);
+    super(finalUrl, finalHeaders, fetch$1, "vectors");
   }
   /** Inserts or updates vectors in batch (1-500 per request) */
   async putVectors(options) {
     var _this = this;
-    try {
-      if (options.vectors.length < 1 || options.vectors.length > 500) throw new Error("Vector batch size must be between 1 and 500 items");
-      return {
-        data: await post(_this.fetch, `${_this.url}/PutVectors`, options, { headers: _this.headers }) || {},
-        error: null
-      };
-    } catch (error) {
-      if (_this.shouldThrowOnError) throw error;
-      if (isStorageVectorsError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    if (options.vectors.length < 1 || options.vectors.length > 500) throw new Error("Vector batch size must be between 1 and 500 items");
+    return _this.handleOperation(async () => {
+      return await vectorsApi.post(_this.fetch, `${_this.url}/PutVectors`, options, { headers: _this.headers }) || {};
+    });
   }
   /** Retrieves vectors by their keys in batch */
   async getVectors(options) {
     var _this2 = this;
-    try {
-      return {
-        data: await post(_this2.fetch, `${_this2.url}/GetVectors`, options, { headers: _this2.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this2.shouldThrowOnError) throw error;
-      if (isStorageVectorsError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    return _this2.handleOperation(async () => {
+      return await vectorsApi.post(_this2.fetch, `${_this2.url}/GetVectors`, options, { headers: _this2.headers });
+    });
   }
   /** Lists vectors in an index with pagination */
   async listVectors(options) {
     var _this3 = this;
-    try {
-      if (options.segmentCount !== void 0) {
-        if (options.segmentCount < 1 || options.segmentCount > 16) throw new Error("segmentCount must be between 1 and 16");
-        if (options.segmentIndex !== void 0) {
-          if (options.segmentIndex < 0 || options.segmentIndex >= options.segmentCount) throw new Error(`segmentIndex must be between 0 and ${options.segmentCount - 1}`);
-        }
+    if (options.segmentCount !== void 0) {
+      if (options.segmentCount < 1 || options.segmentCount > 16) throw new Error("segmentCount must be between 1 and 16");
+      if (options.segmentIndex !== void 0) {
+        if (options.segmentIndex < 0 || options.segmentIndex >= options.segmentCount) throw new Error(`segmentIndex must be between 0 and ${options.segmentCount - 1}`);
       }
-      return {
-        data: await post(_this3.fetch, `${_this3.url}/ListVectors`, options, { headers: _this3.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this3.shouldThrowOnError) throw error;
-      if (isStorageVectorsError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
     }
+    return _this3.handleOperation(async () => {
+      return await vectorsApi.post(_this3.fetch, `${_this3.url}/ListVectors`, options, { headers: _this3.headers });
+    });
   }
   /** Queries for similar vectors using approximate nearest neighbor search */
   async queryVectors(options) {
     var _this4 = this;
-    try {
-      return {
-        data: await post(_this4.fetch, `${_this4.url}/QueryVectors`, options, { headers: _this4.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this4.shouldThrowOnError) throw error;
-      if (isStorageVectorsError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    return _this4.handleOperation(async () => {
+      return await vectorsApi.post(_this4.fetch, `${_this4.url}/QueryVectors`, options, { headers: _this4.headers });
+    });
   }
   /** Deletes vectors by their keys in batch (1-500 per request) */
   async deleteVectors(options) {
     var _this5 = this;
-    try {
-      if (options.keys.length < 1 || options.keys.length > 500) throw new Error("Keys batch size must be between 1 and 500 items");
-      return {
-        data: await post(_this5.fetch, `${_this5.url}/DeleteVectors`, options, { headers: _this5.headers }) || {},
-        error: null
-      };
-    } catch (error) {
-      if (_this5.shouldThrowOnError) throw error;
-      if (isStorageVectorsError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    if (options.keys.length < 1 || options.keys.length > 500) throw new Error("Keys batch size must be between 1 and 500 items");
+    return _this5.handleOperation(async () => {
+      return await vectorsApi.post(_this5.fetch, `${_this5.url}/DeleteVectors`, options, { headers: _this5.headers }) || {};
+    });
   }
 };
-var VectorBucketApi = class {
+var VectorBucketApi = class extends BaseApiClient {
   /** Creates a new VectorBucketApi instance */
   constructor(url, headers = {}, fetch$1) {
-    this.shouldThrowOnError = false;
-    this.url = url.replace(/\/$/, "");
-    this.headers = _objectSpread2(_objectSpread2({}, DEFAULT_HEADERS), headers);
-    this.fetch = resolveFetch2(fetch$1);
-  }
-  /** Enable throwing errors instead of returning them in the response */
-  throwOnError() {
-    this.shouldThrowOnError = true;
-    return this;
+    const finalUrl = url.replace(/\/$/, "");
+    const finalHeaders = _objectSpread22(_objectSpread22({}, DEFAULT_HEADERS), {}, { "Content-Type": "application/json" }, headers);
+    super(finalUrl, finalHeaders, fetch$1, "vectors");
   }
   /** Creates a new vector bucket */
   async createBucket(vectorBucketName) {
     var _this = this;
-    try {
-      return {
-        data: await post(_this.fetch, `${_this.url}/CreateVectorBucket`, { vectorBucketName }, { headers: _this.headers }) || {},
-        error: null
-      };
-    } catch (error) {
-      if (_this.shouldThrowOnError) throw error;
-      if (isStorageVectorsError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    return _this.handleOperation(async () => {
+      return await vectorsApi.post(_this.fetch, `${_this.url}/CreateVectorBucket`, { vectorBucketName }, { headers: _this.headers }) || {};
+    });
   }
   /** Retrieves metadata for a specific vector bucket */
   async getBucket(vectorBucketName) {
     var _this2 = this;
-    try {
-      return {
-        data: await post(_this2.fetch, `${_this2.url}/GetVectorBucket`, { vectorBucketName }, { headers: _this2.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this2.shouldThrowOnError) throw error;
-      if (isStorageVectorsError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    return _this2.handleOperation(async () => {
+      return await vectorsApi.post(_this2.fetch, `${_this2.url}/GetVectorBucket`, { vectorBucketName }, { headers: _this2.headers });
+    });
   }
   /** Lists vector buckets with optional filtering and pagination */
   async listBuckets(options = {}) {
     var _this3 = this;
-    try {
-      return {
-        data: await post(_this3.fetch, `${_this3.url}/ListVectorBuckets`, options, { headers: _this3.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this3.shouldThrowOnError) throw error;
-      if (isStorageVectorsError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    return _this3.handleOperation(async () => {
+      return await vectorsApi.post(_this3.fetch, `${_this3.url}/ListVectorBuckets`, options, { headers: _this3.headers });
+    });
   }
   /** Deletes a vector bucket (must be empty first) */
   async deleteBucket(vectorBucketName) {
     var _this4 = this;
-    try {
-      return {
-        data: await post(_this4.fetch, `${_this4.url}/DeleteVectorBucket`, { vectorBucketName }, { headers: _this4.headers }) || {},
-        error: null
-      };
-    } catch (error) {
-      if (_this4.shouldThrowOnError) throw error;
-      if (isStorageVectorsError(error)) return {
-        data: null,
-        error
-      };
-      throw error;
-    }
+    return _this4.handleOperation(async () => {
+      return await vectorsApi.post(_this4.fetch, `${_this4.url}/DeleteVectorBucket`, { vectorBucketName }, { headers: _this4.headers }) || {};
+    });
   }
 };
 var StorageVectorsClient = class extends VectorBucketApi {
@@ -8760,7 +9203,7 @@ var VectorBucketScope = class extends VectorIndexApi {
   */
   async createIndex(options) {
     var _superprop_getCreateIndex = () => super.createIndex, _this5 = this;
-    return _superprop_getCreateIndex().call(_this5, _objectSpread2(_objectSpread2({}, options), {}, { vectorBucketName: _this5.vectorBucketName }));
+    return _superprop_getCreateIndex().call(_this5, _objectSpread22(_objectSpread22({}, options), {}, { vectorBucketName: _this5.vectorBucketName }));
   }
   /**
   *
@@ -8783,7 +9226,7 @@ var VectorBucketScope = class extends VectorIndexApi {
   */
   async listIndexes(options = {}) {
     var _superprop_getListIndexes = () => super.listIndexes, _this6 = this;
-    return _superprop_getListIndexes().call(_this6, _objectSpread2(_objectSpread2({}, options), {}, { vectorBucketName: _this6.vectorBucketName }));
+    return _superprop_getListIndexes().call(_this6, _objectSpread22(_objectSpread22({}, options), {}, { vectorBucketName: _this6.vectorBucketName }));
   }
   /**
   *
@@ -8916,7 +9359,7 @@ var VectorIndexScope = class extends VectorDataApi {
   */
   async putVectors(options) {
     var _superprop_getPutVectors = () => super.putVectors, _this9 = this;
-    return _superprop_getPutVectors().call(_this9, _objectSpread2(_objectSpread2({}, options), {}, {
+    return _superprop_getPutVectors().call(_this9, _objectSpread22(_objectSpread22({}, options), {}, {
       vectorBucketName: _this9.vectorBucketName,
       indexName: _this9.indexName
     }));
@@ -8945,7 +9388,7 @@ var VectorIndexScope = class extends VectorDataApi {
   */
   async getVectors(options) {
     var _superprop_getGetVectors = () => super.getVectors, _this10 = this;
-    return _superprop_getGetVectors().call(_this10, _objectSpread2(_objectSpread2({}, options), {}, {
+    return _superprop_getGetVectors().call(_this10, _objectSpread22(_objectSpread22({}, options), {}, {
       vectorBucketName: _this10.vectorBucketName,
       indexName: _this10.indexName
     }));
@@ -8974,7 +9417,7 @@ var VectorIndexScope = class extends VectorDataApi {
   */
   async listVectors(options = {}) {
     var _superprop_getListVectors = () => super.listVectors, _this11 = this;
-    return _superprop_getListVectors().call(_this11, _objectSpread2(_objectSpread2({}, options), {}, {
+    return _superprop_getListVectors().call(_this11, _objectSpread22(_objectSpread22({}, options), {}, {
       vectorBucketName: _this11.vectorBucketName,
       indexName: _this11.indexName
     }));
@@ -9006,7 +9449,7 @@ var VectorIndexScope = class extends VectorDataApi {
   */
   async queryVectors(options) {
     var _superprop_getQueryVectors = () => super.queryVectors, _this12 = this;
-    return _superprop_getQueryVectors().call(_this12, _objectSpread2(_objectSpread2({}, options), {}, {
+    return _superprop_getQueryVectors().call(_this12, _objectSpread22(_objectSpread22({}, options), {}, {
       vectorBucketName: _this12.vectorBucketName,
       indexName: _this12.indexName
     }));
@@ -9034,7 +9477,7 @@ var VectorIndexScope = class extends VectorDataApi {
   */
   async deleteVectors(options) {
     var _superprop_getDeleteVectors = () => super.deleteVectors, _this13 = this;
-    return _superprop_getDeleteVectors().call(_this13, _objectSpread2(_objectSpread2({}, options), {}, {
+    return _superprop_getDeleteVectors().call(_this13, _objectSpread22(_objectSpread22({}, options), {}, {
       vectorBucketName: _this13.vectorBucketName,
       indexName: _this13.indexName
     }));
@@ -9105,10 +9548,10 @@ var StorageClient = class extends StorageBucketApi {
   }
 };
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/version.js
-var version3 = "2.91.1";
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/version.js
+var version3 = "2.97.0";
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/constants.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/constants.js
 var AUTO_REFRESH_TICK_DURATION_MS = 30 * 1e3;
 var AUTO_REFRESH_TICK_THRESHOLD = 3;
 var EXPIRY_MARGIN_MS = AUTO_REFRESH_TICK_THRESHOLD * AUTO_REFRESH_TICK_DURATION_MS;
@@ -9125,7 +9568,7 @@ var API_VERSIONS = {
 var BASE64URL_REGEX = /^([a-z0-9_-]{4})*($|[a-z0-9_-]{3}$|[a-z0-9_-]{2}$)$/i;
 var JWKS_TTL = 10 * 60 * 1e3;
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/errors.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/errors.js
 var AuthError = class extends Error {
   constructor(message, status, code) {
     super(message);
@@ -9239,7 +9682,7 @@ var AuthInvalidJwtError = class extends CustomAuthError {
   }
 };
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/base64url.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/base64url.js
 var TO_BASE64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".split("");
 var IGNORE_BASE64URL = " 	\n\r=".split("");
 var FROM_BASE64URL = (() => {
@@ -9401,7 +9844,7 @@ function bytesToBase64URL(bytes) {
   return result.join("");
 }
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/helpers.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/helpers.js
 function expiresAt(expiresIn) {
   const timeNow = Math.round(Date.now() / 1e3);
   return timeNow + expiresIn;
@@ -9683,7 +10126,7 @@ function deepClone(obj) {
   return JSON.parse(JSON.stringify(obj));
 }
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/fetch.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/fetch.js
 var _getErrorMessage2 = (err) => err.msg || err.message || err.error_description || err.error || JSON.stringify(err);
 var NETWORK_ERROR_CODES = [502, 503, 504];
 async function handleError2(error) {
@@ -9820,10 +10263,10 @@ function hasSession(data) {
   return data.access_token && data.refresh_token && data.expires_in;
 }
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/types.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/types.js
 var SIGN_OUT_SCOPES = ["global", "local", "others"];
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/GoTrueAdminApi.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/GoTrueAdminApi.js
 var GoTrueAdminApi = class {
   /**
    * Creates an admin API client that can be used to manage users and OAuth clients.
@@ -10015,9 +10458,34 @@ var GoTrueAdminApi = class {
   /**
    * Updates the user data. Changes are applied directly without confirmation flows.
    *
+   * @param uid The user's unique identifier
    * @param attributes The data you want to update.
    *
    * This function should only be called on a server. Never expose your `service_role` key in the browser.
+   *
+   * @remarks
+   * **Important:** This is a server-side operation and does **not** trigger client-side
+   * `onAuthStateChange` listeners. The admin API has no connection to client state.
+   *
+   * To sync changes to the client after calling this method:
+   * 1. On the client, call `supabase.auth.refreshSession()` to fetch the updated user data
+   * 2. This will trigger the `TOKEN_REFRESHED` event and notify all listeners
+   *
+   * @example
+   * ```typescript
+   * // Server-side (Edge Function)
+   * const { data, error } = await supabase.auth.admin.updateUserById(
+   *   userId,
+   *   { user_metadata: { preferences: { theme: 'dark' } } }
+   * )
+   *
+   * // Client-side (to sync the changes)
+   * const { data, error } = await supabase.auth.refreshSession()
+   * // onAuthStateChange listeners will now be notified with updated user
+   * ```
+   *
+   * @see {@link GoTrueClient.refreshSession} for syncing admin changes to the client
+   * @see {@link GoTrueClient.updateUser} for client-side user updates (triggers listeners automatically)
    */
   async updateUserById(uid, attributes) {
     validateUUID(uid);
@@ -10240,22 +10708,22 @@ var GoTrueAdminApi = class {
   }
 };
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/local-storage.js
-function memoryLocalStorageAdapter(store = {}) {
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/local-storage.js
+function memoryLocalStorageAdapter(store2 = {}) {
   return {
     getItem: (key) => {
-      return store[key] || null;
+      return store2[key] || null;
     },
     setItem: (key, value) => {
-      store[key] = value;
+      store2[key] = value;
     },
     removeItem: (key) => {
-      delete store[key];
+      delete store2[key];
     }
   };
 }
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/locks.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/locks.js
 var internals = {
   /**
    * @experimental
@@ -10283,47 +10751,55 @@ async function navigatorLock(name, acquireTimeout, fn) {
       }
     }, acquireTimeout);
   }
-  return await Promise.resolve().then(() => globalThis.navigator.locks.request(name, acquireTimeout === 0 ? {
-    mode: "exclusive",
-    ifAvailable: true
-  } : {
-    mode: "exclusive",
-    signal: abortController.signal
-  }, async (lock) => {
-    if (lock) {
-      if (internals.debug) {
-        console.log("@supabase/gotrue-js: navigatorLock: acquired", name, lock.name);
-      }
-      try {
-        return await fn();
-      } finally {
+  await Promise.resolve();
+  try {
+    return await globalThis.navigator.locks.request(name, acquireTimeout === 0 ? {
+      mode: "exclusive",
+      ifAvailable: true
+    } : {
+      mode: "exclusive",
+      signal: abortController.signal
+    }, async (lock) => {
+      if (lock) {
         if (internals.debug) {
-          console.log("@supabase/gotrue-js: navigatorLock: released", name, lock.name);
+          console.log("@supabase/gotrue-js: navigatorLock: acquired", name, lock.name);
         }
-      }
-    } else {
-      if (acquireTimeout === 0) {
-        if (internals.debug) {
-          console.log("@supabase/gotrue-js: navigatorLock: not immediately available", name);
-        }
-        throw new NavigatorLockAcquireTimeoutError(`Acquiring an exclusive Navigator LockManager lock "${name}" immediately failed`);
-      } else {
-        if (internals.debug) {
-          try {
-            const result = await globalThis.navigator.locks.query();
-            console.log("@supabase/gotrue-js: Navigator LockManager state", JSON.stringify(result, null, "  "));
-          } catch (e) {
-            console.warn("@supabase/gotrue-js: Error when querying Navigator LockManager state", e);
+        try {
+          return await fn();
+        } finally {
+          if (internals.debug) {
+            console.log("@supabase/gotrue-js: navigatorLock: released", name, lock.name);
           }
         }
-        console.warn("@supabase/gotrue-js: Navigator LockManager returned a null lock when using #request without ifAvailable set to true, it appears this browser is not following the LockManager spec https://developer.mozilla.org/en-US/docs/Web/API/LockManager/request");
-        return await fn();
+      } else {
+        if (acquireTimeout === 0) {
+          if (internals.debug) {
+            console.log("@supabase/gotrue-js: navigatorLock: not immediately available", name);
+          }
+          throw new NavigatorLockAcquireTimeoutError(`Acquiring an exclusive Navigator LockManager lock "${name}" immediately failed`);
+        } else {
+          if (internals.debug) {
+            try {
+              const result = await globalThis.navigator.locks.query();
+              console.log("@supabase/gotrue-js: Navigator LockManager state", JSON.stringify(result, null, "  "));
+            } catch (e) {
+              console.warn("@supabase/gotrue-js: Error when querying Navigator LockManager state", e);
+            }
+          }
+          console.warn("@supabase/gotrue-js: Navigator LockManager returned a null lock when using #request without ifAvailable set to true, it appears this browser is not following the LockManager spec https://developer.mozilla.org/en-US/docs/Web/API/LockManager/request");
+          return await fn();
+        }
       }
+    });
+  } catch (e) {
+    if ((e === null || e === void 0 ? void 0 : e.name) === "AbortError") {
+      throw new NavigatorLockAcquireTimeoutError(`Acquiring an exclusive Navigator LockManager lock "${name}" timed out waiting ${acquireTimeout}ms`);
     }
-  }));
+    throw e;
+  }
 }
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/polyfills.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/polyfills.js
 function polyfillGlobalThis() {
   if (typeof globalThis === "object")
     return;
@@ -10343,7 +10819,7 @@ function polyfillGlobalThis() {
   }
 }
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/web3/ethereum.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/web3/ethereum.js
 function getAddress(address) {
   if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
     throw new Error(`@supabase/auth-js: Address "${address}" is invalid.`);
@@ -10411,7 +10887,7 @@ Request ID: ${requestId}`;
 ${suffix}`;
 }
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/webauthn.errors.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/webauthn.errors.js
 var WebAuthnError = class extends Error {
   constructor({ message, code, cause, name }) {
     var _a;
@@ -10579,7 +11055,7 @@ function identifyAuthenticationError({ error, options }) {
   });
 }
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/lib/webauthn.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/webauthn.js
 var WebAuthnAbortService = class {
   /**
    * Create an abort signal for a new WebAuthn operation.
@@ -10874,6 +11350,7 @@ var WebAuthnApi = class {
    * @see {@link https://w3c.github.io/webauthn/#sctn-verifying-assertion W3C WebAuthn Spec - Verifying Assertion}
    */
   async _challenge({ factorId, webauthn, friendlyName, signal }, overrides) {
+    var _a;
     try {
       const { data: challengeResponse, error: challengeError } = await this.client.mfa.challenge({
         factorId,
@@ -10886,7 +11363,15 @@ var WebAuthnApi = class {
       if (challengeResponse.webauthn.type === "create") {
         const { user } = challengeResponse.webauthn.credential_options.publicKey;
         if (!user.name) {
-          user.name = `${user.id}:${friendlyName}`;
+          const nameToUse = friendlyName;
+          if (!nameToUse) {
+            const currentUser = await this.client.getUser();
+            const userData = currentUser.data.user;
+            const fallbackName = ((_a = userData === null || userData === void 0 ? void 0 : userData.user_metadata) === null || _a === void 0 ? void 0 : _a.name) || (userData === null || userData === void 0 ? void 0 : userData.email) || (userData === null || userData === void 0 ? void 0 : userData.id) || "User";
+            user.name = `${user.id}:${fallbackName}`;
+          } else {
+            user.name = `${user.id}:${nameToUse}`;
+          }
         }
         if (!user.displayName) {
           user.displayName = user.name;
@@ -11093,7 +11578,7 @@ var WebAuthnApi = class {
   }
 };
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/GoTrueClient.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/GoTrueClient.js
 polyfillGlobalThis();
 var DEFAULT_OPTIONS = {
   url: GOTRUE_URL,
@@ -11106,8 +11591,9 @@ var DEFAULT_OPTIONS = {
   debug: false,
   hasCustomAuthorizationHeader: false,
   throwOnError: false,
-  lockAcquireTimeout: 1e4
+  lockAcquireTimeout: 1e4,
   // 10 seconds
+  skipAutoInitialize: false
 };
 async function lockNoOp(name, acquireTimeout, fn) {
   return await fn();
@@ -11247,10 +11733,18 @@ var GoTrueClient = class _GoTrueClient {
       }
       (_c = this.broadcastChannel) === null || _c === void 0 ? void 0 : _c.addEventListener("message", async (event) => {
         this._debug("received broadcast notification from other tab or client", event);
-        await this._notifyAllSubscribers(event.data.event, event.data.session, false);
+        try {
+          await this._notifyAllSubscribers(event.data.event, event.data.session, false);
+        } catch (error) {
+          this._debug("#broadcastChannel", "error", error);
+        }
       });
     }
-    this.initialize();
+    if (!settings.skipAutoInitialize) {
+      this.initialize().catch((error) => {
+        this._debug("#initialize()", "error", error);
+      });
+    }
   }
   /**
    * Returns whether error throwing mode is enabled for this client.
@@ -12320,7 +12814,7 @@ var GoTrueClient = class _GoTrueClient {
       } else {
         const { data, error } = await this._getUser(currentSession.access_token);
         if (error) {
-          throw error;
+          return this._returnResult({ data: { user: null, session: null }, error });
         }
         session = {
           access_token: currentSession.access_token,
@@ -12502,14 +12996,14 @@ var GoTrueClient = class _GoTrueClient {
     return await this._useSession(async (result) => {
       var _a;
       const { data, error: sessionError } = result;
-      if (sessionError) {
+      if (sessionError && !isAuthSessionMissingError(sessionError)) {
         return this._returnResult({ error: sessionError });
       }
       const accessToken = (_a = data.session) === null || _a === void 0 ? void 0 : _a.access_token;
       if (accessToken) {
         const { error } = await this.admin.signOut(accessToken, scope);
         if (error) {
-          if (!(isAuthApiError(error) && (error.status === 404 || error.status === 401 || error.status === 403))) {
+          if (!(isAuthApiError(error) && (error.status === 404 || error.status === 401 || error.status === 403) || isAuthSessionMissingError(error))) {
             return this._returnResult({ error });
           }
         }
@@ -13053,7 +13547,7 @@ var GoTrueClient = class _GoTrueClient {
     try {
       await this._acquireLock(0, async () => {
         try {
-          const now = Date.now();
+          const now2 = Date.now();
           try {
             return await this._useSession(async (result) => {
               const { data: { session } } = result;
@@ -13061,7 +13555,7 @@ var GoTrueClient = class _GoTrueClient {
                 this._debug("#_autoRefreshTokenTick()", "no session");
                 return;
               }
-              const expiresInTicks = Math.floor((session.expires_at * 1e3 - now) / AUTO_REFRESH_TICK_DURATION_MS);
+              const expiresInTicks = Math.floor((session.expires_at * 1e3 - now2) / AUTO_REFRESH_TICK_DURATION_MS);
               this._debug("#_autoRefreshTokenTick()", `access token expires in ${expiresInTicks} ticks, a tick lasts ${AUTO_REFRESH_TICK_DURATION_MS}ms, refresh threshold is ${AUTO_REFRESH_TICK_THRESHOLD} ticks`);
               if (expiresInTicks <= AUTO_REFRESH_TICK_THRESHOLD) {
                 await this._callRefreshToken(session.refresh_token);
@@ -13096,7 +13590,13 @@ var GoTrueClient = class _GoTrueClient {
       return false;
     }
     try {
-      this.visibilityChangedCallback = async () => await this._onVisibilityChanged(false);
+      this.visibilityChangedCallback = async () => {
+        try {
+          await this._onVisibilityChanged(false);
+        } catch (error) {
+          this._debug("#visibilityChangedCallback", "error", error);
+        }
+      };
       window === null || window === void 0 ? void 0 : window.addEventListener("visibilitychange", this.visibilityChangedCallback);
       await this._onVisibilityChanged(true);
     } catch (error) {
@@ -13329,8 +13829,33 @@ var GoTrueClient = class _GoTrueClient {
   /**
    * {@see GoTrueMFAApi#getAuthenticatorAssuranceLevel}
    */
-  async _getAuthenticatorAssuranceLevel() {
-    var _a, _b;
+  async _getAuthenticatorAssuranceLevel(jwt) {
+    var _a, _b, _c, _d;
+    if (jwt) {
+      try {
+        const { payload: payload2 } = decodeJWT(jwt);
+        let currentLevel2 = null;
+        if (payload2.aal) {
+          currentLevel2 = payload2.aal;
+        }
+        let nextLevel2 = currentLevel2;
+        const { data: { user }, error: userError } = await this.getUser(jwt);
+        if (userError) {
+          return this._returnResult({ data: null, error: userError });
+        }
+        const verifiedFactors2 = (_b = (_a = user === null || user === void 0 ? void 0 : user.factors) === null || _a === void 0 ? void 0 : _a.filter((factor) => factor.status === "verified")) !== null && _b !== void 0 ? _b : [];
+        if (verifiedFactors2.length > 0) {
+          nextLevel2 = "aal2";
+        }
+        const currentAuthenticationMethods2 = payload2.amr || [];
+        return { data: { currentLevel: currentLevel2, nextLevel: nextLevel2, currentAuthenticationMethods: currentAuthenticationMethods2 }, error: null };
+      } catch (error) {
+        if (isAuthError(error)) {
+          return this._returnResult({ data: null, error });
+        }
+        throw error;
+      }
+    }
     const { data: { session }, error: sessionError } = await this.getSession();
     if (sessionError) {
       return this._returnResult({ data: null, error: sessionError });
@@ -13347,7 +13872,7 @@ var GoTrueClient = class _GoTrueClient {
       currentLevel = payload.aal;
     }
     let nextLevel = currentLevel;
-    const verifiedFactors = (_b = (_a = session.user.factors) === null || _a === void 0 ? void 0 : _a.filter((factor) => factor.status === "verified")) !== null && _b !== void 0 ? _b : [];
+    const verifiedFactors = (_d = (_c = session.user.factors) === null || _c === void 0 ? void 0 : _c.filter((factor) => factor.status === "verified")) !== null && _d !== void 0 ? _d : [];
     if (verifiedFactors.length > 0) {
       nextLevel = "aal2";
     }
@@ -13359,7 +13884,7 @@ var GoTrueClient = class _GoTrueClient {
    * Only relevant when the OAuth 2.1 server is enabled in Supabase Auth.
    *
    * Returns authorization details including client info, scopes, and user information.
-   * If the API returns a redirect_uri, it means consent was already given - the caller
+   * If the response includes only a redirect_url field, it means consent was already given - the caller
    * should handle the redirect manually if needed.
    */
   async _getAuthorizationDetails(authorizationId) {
@@ -13514,9 +14039,9 @@ var GoTrueClient = class _GoTrueClient {
     if (jwk) {
       return jwk;
     }
-    const now = Date.now();
+    const now2 = Date.now();
     jwk = this.jwks.keys.find((key) => key.kid === kid);
-    if (jwk && this.jwks_cached_at + JWKS_TTL > now) {
+    if (jwk && this.jwks_cached_at + JWKS_TTL > now2) {
       return jwk;
     }
     const { data, error } = await _request(this.fetch, "GET", `${this.url}/.well-known/jwks.json`, {
@@ -13529,7 +14054,7 @@ var GoTrueClient = class _GoTrueClient {
       return null;
     }
     this.jwks = data;
-    this.jwks_cached_at = now;
+    this.jwks_cached_at = now2;
     jwk = data.keys.find((key) => key.kid === kid);
     if (!jwk) {
       return null;
@@ -13608,12 +14133,12 @@ var GoTrueClient = class _GoTrueClient {
 GoTrueClient.nextInstanceID = {};
 var GoTrueClient_default = GoTrueClient;
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.91.1/node_modules/@supabase/auth-js/dist/module/AuthClient.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/AuthClient.js
 var AuthClient = GoTrueClient_default;
 var AuthClient_default = AuthClient;
 
-// ../../node_modules/.pnpm/@supabase+supabase-js@2.91.1/node_modules/@supabase/supabase-js/dist/index.mjs
-var version4 = "2.91.1";
+// ../../node_modules/.pnpm/@supabase+supabase-js@2.97.0/node_modules/@supabase/supabase-js/dist/index.mjs
+var version4 = "2.97.0";
 var JS_ENV = "";
 if (typeof Deno !== "undefined") JS_ENV = "deno";
 else if (typeof document !== "undefined") JS_ENV = "web";
@@ -13629,37 +14154,37 @@ var DEFAULT_AUTH_OPTIONS = {
   flowType: "implicit"
 };
 var DEFAULT_REALTIME_OPTIONS = {};
-function _typeof2(o) {
+function _typeof3(o) {
   "@babel/helpers - typeof";
-  return _typeof2 = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o$1) {
+  return _typeof3 = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o$1) {
     return typeof o$1;
   } : function(o$1) {
     return o$1 && "function" == typeof Symbol && o$1.constructor === Symbol && o$1 !== Symbol.prototype ? "symbol" : typeof o$1;
-  }, _typeof2(o);
+  }, _typeof3(o);
 }
-function toPrimitive2(t, r) {
-  if ("object" != _typeof2(t) || !t) return t;
+function toPrimitive3(t, r) {
+  if ("object" != _typeof3(t) || !t) return t;
   var e = t[Symbol.toPrimitive];
   if (void 0 !== e) {
     var i = e.call(t, r || "default");
-    if ("object" != _typeof2(i)) return i;
+    if ("object" != _typeof3(i)) return i;
     throw new TypeError("@@toPrimitive must return a primitive value.");
   }
   return ("string" === r ? String : Number)(t);
 }
-function toPropertyKey2(t) {
-  var i = toPrimitive2(t, "string");
-  return "symbol" == _typeof2(i) ? i : i + "";
+function toPropertyKey3(t) {
+  var i = toPrimitive3(t, "string");
+  return "symbol" == _typeof3(i) ? i : i + "";
 }
-function _defineProperty2(e, r, t) {
-  return (r = toPropertyKey2(r)) in e ? Object.defineProperty(e, r, {
+function _defineProperty3(e, r, t) {
+  return (r = toPropertyKey3(r)) in e ? Object.defineProperty(e, r, {
     value: t,
     enumerable: true,
     configurable: true,
     writable: true
   }) : e[r] = t, e;
 }
-function ownKeys2(e, r) {
+function ownKeys3(e, r) {
   var t = Object.keys(e);
   if (Object.getOwnPropertySymbols) {
     var o = Object.getOwnPropertySymbols(e);
@@ -13669,12 +14194,12 @@ function ownKeys2(e, r) {
   }
   return t;
 }
-function _objectSpread22(e) {
+function _objectSpread23(e) {
   for (var r = 1; r < arguments.length; r++) {
     var t = null != arguments[r] ? arguments[r] : {};
-    r % 2 ? ownKeys2(Object(t), true).forEach(function(r$1) {
-      _defineProperty2(e, r$1, t[r$1]);
-    }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys2(Object(t)).forEach(function(r$1) {
+    r % 2 ? ownKeys3(Object(t), true).forEach(function(r$1) {
+      _defineProperty3(e, r$1, t[r$1]);
+    }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys3(Object(t)).forEach(function(r$1) {
       Object.defineProperty(e, r$1, Object.getOwnPropertyDescriptor(t, r$1));
     });
   }
@@ -13696,7 +14221,7 @@ var fetchWithAuth = (supabaseKey, getAccessToken, customFetch) => {
     let headers = new HeadersConstructor(init === null || init === void 0 ? void 0 : init.headers);
     if (!headers.has("apikey")) headers.set("apikey", supabaseKey);
     if (!headers.has("Authorization")) headers.set("Authorization", `Bearer ${accessToken}`);
-    return fetch$1(input, _objectSpread22(_objectSpread22({}, init), {}, { headers }));
+    return fetch$1(input, _objectSpread23(_objectSpread23({}, init), {}, { headers }));
   };
 };
 function ensureTrailingSlash(url) {
@@ -13707,11 +14232,11 @@ function applySettingDefaults(options, defaults) {
   const { db: dbOptions, auth: authOptions, realtime: realtimeOptions, global: globalOptions } = options;
   const { db: DEFAULT_DB_OPTIONS$1, auth: DEFAULT_AUTH_OPTIONS$1, realtime: DEFAULT_REALTIME_OPTIONS$1, global: DEFAULT_GLOBAL_OPTIONS$1 } = defaults;
   const result = {
-    db: _objectSpread22(_objectSpread22({}, DEFAULT_DB_OPTIONS$1), dbOptions),
-    auth: _objectSpread22(_objectSpread22({}, DEFAULT_AUTH_OPTIONS$1), authOptions),
-    realtime: _objectSpread22(_objectSpread22({}, DEFAULT_REALTIME_OPTIONS$1), realtimeOptions),
+    db: _objectSpread23(_objectSpread23({}, DEFAULT_DB_OPTIONS$1), dbOptions),
+    auth: _objectSpread23(_objectSpread23({}, DEFAULT_AUTH_OPTIONS$1), authOptions),
+    realtime: _objectSpread23(_objectSpread23({}, DEFAULT_REALTIME_OPTIONS$1), realtimeOptions),
     storage: {},
-    global: _objectSpread22(_objectSpread22(_objectSpread22({}, DEFAULT_GLOBAL_OPTIONS$1), globalOptions), {}, { headers: _objectSpread22(_objectSpread22({}, (_DEFAULT_GLOBAL_OPTIO = DEFAULT_GLOBAL_OPTIONS$1 === null || DEFAULT_GLOBAL_OPTIONS$1 === void 0 ? void 0 : DEFAULT_GLOBAL_OPTIONS$1.headers) !== null && _DEFAULT_GLOBAL_OPTIO !== void 0 ? _DEFAULT_GLOBAL_OPTIO : {}), (_globalOptions$header = globalOptions === null || globalOptions === void 0 ? void 0 : globalOptions.headers) !== null && _globalOptions$header !== void 0 ? _globalOptions$header : {}) }),
+    global: _objectSpread23(_objectSpread23(_objectSpread23({}, DEFAULT_GLOBAL_OPTIONS$1), globalOptions), {}, { headers: _objectSpread23(_objectSpread23({}, (_DEFAULT_GLOBAL_OPTIO = DEFAULT_GLOBAL_OPTIONS$1 === null || DEFAULT_GLOBAL_OPTIONS$1 === void 0 ? void 0 : DEFAULT_GLOBAL_OPTIONS$1.headers) !== null && _DEFAULT_GLOBAL_OPTIO !== void 0 ? _DEFAULT_GLOBAL_OPTIO : {}), (_globalOptions$header = globalOptions === null || globalOptions === void 0 ? void 0 : globalOptions.headers) !== null && _globalOptions$header !== void 0 ? _globalOptions$header : {}) }),
     accessToken: async () => ""
   };
   if (options.accessToken) result.accessToken = options.accessToken;
@@ -13769,7 +14294,7 @@ var SupabaseClient = class {
     const DEFAULTS2 = {
       db: DEFAULT_DB_OPTIONS,
       realtime: DEFAULT_REALTIME_OPTIONS,
-      auth: _objectSpread22(_objectSpread22({}, DEFAULT_AUTH_OPTIONS), {}, { storageKey: defaultStorageKey }),
+      auth: _objectSpread23(_objectSpread23({}, DEFAULT_AUTH_OPTIONS), {}, { storageKey: defaultStorageKey }),
       global: DEFAULT_GLOBAL_OPTIONS
     };
     const settings = applySettingDefaults(options !== null && options !== void 0 ? options : {}, DEFAULTS2);
@@ -13785,7 +14310,7 @@ var SupabaseClient = class {
       } });
     }
     this.fetch = fetchWithAuth(supabaseKey, this._getAccessToken.bind(this), settings.global.fetch);
-    this.realtime = this._initRealtimeClient(_objectSpread22({
+    this.realtime = this._initRealtimeClient(_objectSpread23({
       headers: this.headers,
       accessToken: this._getAccessToken.bind(this)
     }, settings.realtime));
@@ -13793,7 +14318,9 @@ var SupabaseClient = class {
     this.rest = new PostgrestClient(new URL("rest/v1", baseUrl).href, {
       headers: this.headers,
       schema: settings.db.schema,
-      fetch: this.fetch
+      fetch: this.fetch,
+      timeout: settings.db.timeout,
+      urlLengthLimit: settings.db.urlLengthLimit
     });
     this.storage = new StorageClient(this.storageUrl.href, this.headers, this.fetch, options === null || options === void 0 ? void 0 : options.storage);
     if (!settings.accessToken) this._listenForAuthEvents();
@@ -13900,7 +14427,7 @@ var SupabaseClient = class {
     };
     return new SupabaseAuthClient({
       url: this.authUrl.href,
-      headers: _objectSpread22(_objectSpread22({}, authHeaders), headers),
+      headers: _objectSpread23(_objectSpread23({}, authHeaders), headers),
       storageKey,
       autoRefreshToken,
       persistSession,
@@ -13916,7 +14443,7 @@ var SupabaseClient = class {
     });
   }
   _initRealtimeClient(options) {
-    return new RealtimeClient(this.realtimeUrl.href, _objectSpread22(_objectSpread22({}, options), {}, { params: _objectSpread22(_objectSpread22({}, { apikey: this.supabaseKey }), options === null || options === void 0 ? void 0 : options.params) }));
+    return new RealtimeClient(this.realtimeUrl.href, _objectSpread23(_objectSpread23({}, options), {}, { params: _objectSpread23(_objectSpread23({}, { apikey: this.supabaseKey }), options === null || options === void 0 ? void 0 : options.params) }));
   }
   _listenForAuthEvents() {
     return this.auth.onAuthStateChange((event, session) => {
@@ -14000,46 +14527,126 @@ if (hasSupabaseConfig) {
 }
 var supabase = supabaseClient || createSupabaseStub("[supabaseClient] Supabase not configured.");
 
+// src/state/appStore.ts
+function getAppStore() {
+  if (typeof window === "undefined") return null;
+  try {
+    const store2 = window.__tpStore;
+    return store2 || null;
+  } catch {
+    return null;
+  }
+}
+
 // src/asr/store.ts
 var KEY = "tp_asr_profiles_v1";
+var ACTIVE_KEY = "tp_asr_active_profile_v1";
+var store = getAppStore();
+var stateFromStore = (() => {
+  if (!store) return null;
+  try {
+    const profiles = store.get("asrProfiles") || {};
+    const activeProfileId = store.get("asrActiveProfileId") || void 0;
+    return { profiles, activeProfileId };
+  } catch {
+    return null;
+  }
+})();
 var state = (() => {
   try {
+    if (stateFromStore) {
+      return {
+        profiles: stateFromStore.profiles || {},
+        activeProfileId: stateFromStore.activeProfileId
+      };
+    }
     const raw = localStorage.getItem(KEY);
     const parsed = raw ? JSON.parse(raw) : {};
-    return { profiles: {}, ...parsed };
+    const legacyProfiles = parsed && typeof parsed === "object" && "profiles" in parsed ? parsed.profiles : null;
+    const profiles = legacyProfiles && typeof legacyProfiles === "object" ? legacyProfiles : parsed && typeof parsed === "object" ? parsed : {};
+    const activeProfileId = typeof parsed?.activeProfileId === "string" && parsed.activeProfileId || (localStorage.getItem(ACTIVE_KEY) || void 0);
+    return { profiles: profiles || {}, activeProfileId };
   } catch {
     return { profiles: {} };
   }
 })();
 var subs = /* @__PURE__ */ new Set();
-function hasActiveAsrProfile() {
+var storeSyncSuppressed = false;
+function syncAppStore() {
+  if (!store) return;
+  storeSyncSuppressed = true;
   try {
-    if (state.activeProfileId ?? state.active_profile_id ?? state.profileId ?? state.profile_id ?? state.activeProfile ?? state.profile) {
-      return true;
-    }
-    const anyStore = globalThis.__asrStore ?? void 0;
-    const w2 = window;
-    const externalState = (typeof w2.getAsrState === "function" ? w2.getAsrState() : void 0) ?? (typeof anyStore?.getState === "function" ? anyStore.getState() : void 0) ?? void 0;
-    if (!externalState) return false;
-    return Boolean(
-      externalState.activeProfileId ?? externalState.active_profile_id ?? externalState.profileId ?? externalState.profile_id ?? externalState.activeProfile ?? externalState.profile
-    );
+    store.set("asrProfiles", state.profiles);
   } catch {
-    return false;
   }
+  try {
+    store.set("asrActiveProfileId", state.activeProfileId ?? null);
+  } catch {
+  }
+  storeSyncSuppressed = false;
+}
+function save(opts) {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(state.profiles || {}));
+  } catch {
+  }
+  try {
+    if (state.activeProfileId) localStorage.setItem(ACTIVE_KEY, state.activeProfileId);
+    else localStorage.removeItem(ACTIVE_KEY);
+  } catch {
+  }
+  subs.forEach((fn) => {
+    try {
+      fn(state);
+    } catch {
+    }
+  });
+  if (!opts?.fromStore) {
+    syncAppStore();
+  }
+  try {
+    window.dispatchEvent(new CustomEvent("tp:asrChanged", { detail: state }));
+  } catch {
+  }
+}
+var getAsrState = () => state;
+function hasActiveAsrProfile() {
+  const state3 = getAsrState();
+  return !!(state3?.activeProfileId && state3.profiles?.[state3.activeProfileId]);
+}
+if (store) {
+  try {
+    store.subscribe("asrProfiles", (next) => {
+      if (storeSyncSuppressed) return;
+      const profilesObj = next && typeof next === "object" ? next : {};
+      state.profiles = { ...profilesObj };
+      save({ fromStore: true });
+    });
+    store.subscribe("asrActiveProfileId", (next) => {
+      if (storeSyncSuppressed) return;
+      state.activeProfileId = typeof next === "string" && next ? next : void 0;
+      save({ fromStore: true });
+    });
+  } catch {
+  }
+  syncAppStore();
 }
 try {
   window.addEventListener("storage", (e) => {
     try {
       if (e.key === KEY && e.newValue) {
-        const next = JSON.parse(e.newValue);
-        state = { ...next, profiles: next?.profiles || {} };
-        subs.forEach((fn) => {
-          try {
-            fn(state);
-          } catch {
-          }
-        });
+        const parsed = JSON.parse(e.newValue);
+        const legacyProfiles = parsed && typeof parsed === "object" && "profiles" in parsed ? parsed.profiles : null;
+        const profiles = legacyProfiles && typeof legacyProfiles === "object" ? legacyProfiles : parsed && typeof parsed === "object" ? parsed : {};
+        state = {
+          ...state,
+          profiles: profiles || {}
+        };
+        save({ fromStore: true });
+      }
+      if (e.key === ACTIVE_KEY) {
+        state.activeProfileId = e.newValue || void 0;
+        save({ fromStore: true });
       }
     } catch {
     }
@@ -14146,9 +14753,6 @@ if (typeof window !== "undefined") {
   }
 }
 
-// src/ui/typography-ssot.ts
-var DEFAULT_SCRIPT_FONT_PX = 40;
-
 // src/features/scroll/scroll-router/router-impl.ts
 var isDevMode2 = /* @__PURE__ */ (() => {
   let cache = null;
@@ -14250,6 +14854,7 @@ var pendingAutoIntentDetail = null;
 var scrollerEl = null;
 var auto = null;
 var scrollIntentListenerWired = false;
+var legacyAsrIntentLaneBlockedLogged = false;
 var ASR_INTENT_DEBOUNCE_MS = 450;
 var ASR_INTENT_STABLE_MS = 250;
 var ASR_INTENT_FIRST_STABLE_MS = 600;
@@ -14266,10 +14871,16 @@ var lastCandidate = -1;
 var stableSince = 0;
 var asrMotorConflictLogged = false;
 var scrollWriteWarned = false;
-var markHybridOffScriptFn = null;
 var guardHandlerErrorLogged = false;
 var hybridScrollGraceListenerInstalled = false;
 var hybridModeMismatchLogged = false;
+function shouldBlockLegacyAsrIntentLane() {
+  try {
+    return window.__tpAllowLegacyAsrIntent !== true;
+  } catch {
+    return true;
+  }
+}
 var recentAsrMatches = [];
 var asrBlockLineCacheRef = null;
 var asrBlockLineCache = /* @__PURE__ */ new Map();
@@ -14320,8 +14931,8 @@ function resolveAsrIntentCandidateBlockIdx(intent) {
   if (!Number.isFinite(raw)) return -1;
   return Math.max(0, Math.floor(raw));
 }
-function updateAsrTelemetryTopRejects(telemetry, now) {
-  const cutoff = now - ASR_TELEMETRY_WINDOW_MS;
+function updateAsrTelemetryTopRejects(telemetry, now2) {
+  const cutoff = now2 - ASR_TELEMETRY_WINDOW_MS;
   const events = telemetry._rejectEvents;
   let pruneCount = 0;
   while (pruneCount < events.length && events[pruneCount].ts < cutoff) {
@@ -14342,7 +14953,7 @@ function recordAsrIntentTelemetry(telemetry, intentReason) {
   if (intentReason.includes("final")) telemetry.finalSeen += 1;
   else if (intentReason.includes("interim")) telemetry.interimSeen += 1;
 }
-function recordAsrMatchEvent(now, intent, intentReason) {
+function recordAsrMatchEvent(now2, intent, intentReason) {
   const rawBlockIdx = Number(intent?.target?.blockIdx);
   if (!Number.isFinite(rawBlockIdx) || rawBlockIdx < 0) return;
   const rawLineIdx = Number(intent?.target?.lineIdx);
@@ -14350,13 +14961,13 @@ function recordAsrMatchEvent(now, intent, intentReason) {
   const confidence = Number.isFinite(intent?.confidence) ? Number(intent.confidence) : null;
   const isFinal = intentReason.includes("final");
   recentAsrMatches.push({
-    ts: now,
+    ts: now2,
     blockIdx: Math.max(0, Math.floor(rawBlockIdx)),
     lineIdx,
     isFinal,
     confidence
   });
-  const cutoff = now - ASR_MATCH_WINDOW_MS;
+  const cutoff = now2 - ASR_MATCH_WINDOW_MS;
   let pruneCount = 0;
   while (pruneCount < recentAsrMatches.length && recentAsrMatches[pruneCount].ts < cutoff) {
     pruneCount += 1;
@@ -14398,7 +15009,7 @@ function getBlockLineIndices(blockIdx) {
   asrBlockLineCache.set(blockIdx, indices);
   return indices;
 }
-function buildCompletionEvidence(currentBlockIdx, candidateBlockIdx, now = Date.now()) {
+function buildCompletionEvidence(currentBlockIdx, candidateBlockIdx, now2 = Date.now()) {
   if (!Number.isFinite(candidateBlockIdx) || candidateBlockIdx < 0) return null;
   const blockLineIndices = getBlockLineIndices(currentBlockIdx);
   if (!blockLineIndices || !blockLineIndices.length) return null;
@@ -14406,7 +15017,7 @@ function buildCompletionEvidence(currentBlockIdx, candidateBlockIdx, now = Date.
   if (totalLinesInBlock <= 0) return null;
   const lastLineIdx = blockLineIndices[blockLineIndices.length - 1];
   if (!Number.isFinite(lastLineIdx)) return null;
-  const cutoff = now - ASR_MATCH_WINDOW_MS;
+  const cutoff = now2 - ASR_MATCH_WINDOW_MS;
   const windowMatches = recentAsrMatches.filter((entry) => entry.ts >= cutoff);
   const hasFinal = windowMatches.some((entry) => entry.isFinal);
   const blockLineSet = new Set(blockLineIndices);
@@ -14455,17 +15066,17 @@ function formatCompletionEvidenceSummary(evidence) {
   const boundary = evidence.boundaryCrossed ? 1 : 0;
   return `cov=${covText} last=${last} trail=${trail} final=${finalFlag} bndry=${boundary}`;
 }
-function recordAsrReject(telemetry, now, reasonKey, mode, phase, currentBlockIdx, candidateBlockIdx, completionEvidenceSummary) {
+function recordAsrReject(telemetry, now2, reasonKey, mode, phase, currentBlockIdx, candidateBlockIdx, completionEvidenceSummary) {
   if (!telemetry) return;
   telemetry.commitRejected += 1;
   telemetry.rejectReasons[reasonKey] = (telemetry.rejectReasons[reasonKey] || 0) + 1;
-  telemetry._rejectEvents.push({ ts: now, reason: reasonKey });
+  telemetry._rejectEvents.push({ ts: now2, reason: reasonKey });
   if (telemetry._rejectEvents.length > ASR_TELEMETRY_MAX_REJECTS) {
     telemetry._rejectEvents.splice(0, telemetry._rejectEvents.length - ASR_TELEMETRY_MAX_REJECTS);
   }
-  updateAsrTelemetryTopRejects(telemetry, now);
+  updateAsrTelemetryTopRejects(telemetry, now2);
   telemetry.last = {
-    ts: now,
+    ts: now2,
     mode,
     phase,
     currentBlockIdx,
@@ -14477,12 +15088,12 @@ function recordAsrReject(telemetry, now, reasonKey, mode, phase, currentBlockIdx
     completionReason: reasonKey.startsWith("reject_completion_") ? reasonKey.replace("reject_completion_", "") : telemetry.last?.completionReason
   };
 }
-function recordAsrAccept(telemetry, now, mode, phase, currentBlockIdx, candidateBlockIdx, completionEvidenceSummary, completionConfidence, completionStatus, completionReason) {
+function recordAsrAccept(telemetry, now2, mode, phase, currentBlockIdx, candidateBlockIdx, completionEvidenceSummary, completionConfidence, completionStatus, completionReason) {
   if (!telemetry) return;
   telemetry.commitAccepted += 1;
   const resolvedStatus = completionStatus || "complete";
   telemetry.last = {
-    ts: now,
+    ts: now2,
     mode,
     phase,
     currentBlockIdx,
@@ -14496,6 +15107,8 @@ function recordAsrAccept(telemetry, now, mode, phase, currentBlockIdx, candidate
 }
 var hybridSilence = {
   lastSpeechAtMs: typeof performance !== "undefined" ? performance.now() : Date.now(),
+  lastSpeechActivityAtMs: 0,
+  speechHoldUntilMs: 0,
   pausedBySilence: false,
   timeoutId: null,
   erroredOnce: false,
@@ -14517,14 +15130,14 @@ function resetOffScriptDuration() {
   offScriptSinceMs = null;
   offScriptDurationMs = 0;
 }
-function syncOffScriptDuration(now = nowMs()) {
+function syncOffScriptDuration(now2 = nowMs()) {
   if (hybridSilence.offScriptActive) {
     if (offScriptSinceMs == null) {
-      offScriptSinceMs = now;
+      offScriptSinceMs = now2;
       offScriptDurationMs = 0;
       return;
     }
-    offScriptDurationMs = Math.max(0, now - offScriptSinceMs);
+    offScriptDurationMs = Math.max(0, now2 - offScriptSinceMs);
     return;
   }
   resetOffScriptDuration();
@@ -14538,9 +15151,9 @@ function computeOffScriptDecay(durationMs) {
   return 0;
 }
 function logHybridOffScriptHud(payload) {
-  const now = nowMs();
-  if (now - lastHybridOffScriptHudAt < HYBRID_OFFSCRIPT_HUD_THROTTLE_MS) return;
-  lastHybridOffScriptHudAt = now;
+  const now2 = nowMs();
+  if (now2 - lastHybridOffScriptHudAt < HYBRID_OFFSCRIPT_HUD_THROTTLE_MS) return;
+  lastHybridOffScriptHudAt = now2;
   try {
     window?.HUD?.log?.("HYBRID_OFFSCRIPT", payload);
   } catch {
@@ -14621,8 +15234,8 @@ function getScrollMode2() {
     const w2 = typeof window !== "undefined" ? window : null;
     const override = normalizeScrollModeValue(w2?.__tpModeOverride);
     if (override) return override;
-    const store = w2?.__tpStore || appStoreSingleton;
-    const storeMode = normalizeScrollModeValue(store?.get?.("scrollMode"));
+    const store2 = w2?.__tpStore || appStoreSingleton;
+    const storeMode = normalizeScrollModeValue(store2?.get?.("scrollMode"));
     if (storeMode) return storeMode;
     const uiMode = normalizeScrollModeValue(w2?.__tpUiScrollMode);
     if (uiMode) return uiMode;
@@ -14646,7 +15259,7 @@ function normalizePerfTimestamp(candidate, referenceNow = nowMs()) {
 }
 function resolveCurrentBlockIdx() {
   try {
-    const anchorIdx = computeAnchorLineIndex(scrollerEl || void 0);
+    const anchorIdx = computeAnchorLineIndex2(scrollerEl || void 0);
     if (!Number.isFinite(anchorIdx)) return null;
     const idx = Math.max(0, Math.floor(anchorIdx));
     const selector = `.line[data-i="${idx}"], .line[data-index="${idx}"], .line[data-line="${idx}"], .line[data-line-idx="${idx}"]`;
@@ -14660,10 +15273,13 @@ function resolveCurrentBlockIdx() {
   }
 }
 function runHybridVelocity(silence = hybridSilence) {
-  if (state22.mode !== "hybrid") {
+  const mode = getScrollMode2();
+  if (mode !== "hybrid") {
+    if (state22.mode !== mode) state22.mode = mode;
     assertHybridStoppedIfNotHybrid("runHybridVelocity");
     return;
   }
+  if (state22.mode !== "hybrid") state22.mode = "hybrid";
   const target = typeof window !== "undefined" ? window : globalThis;
   const fn = target.__tpApplyHybridVelocity;
   if (typeof fn === "function") {
@@ -14686,7 +15302,7 @@ function getMarkerPercent() {
 function getMarkerLineIndex(scroller = scrollerEl, markerY = null) {
   try {
     const toCheck = scroller ?? void 0;
-    const anchorIdx = computeAnchorLineIndex(toCheck);
+    const anchorIdx = computeAnchorLineIndex2(toCheck);
     if (Number.isFinite(anchorIdx)) {
       return Math.max(0, Math.floor(anchorIdx));
     }
@@ -14697,7 +15313,7 @@ function getMarkerLineIndex(scroller = scrollerEl, markerY = null) {
   if (!Number.isFinite(linePx) || linePx <= 0) return null;
   return Math.max(0, Math.round(markerY / linePx));
 }
-function computeHybridErrorPx(now = nowMs()) {
+function computeHybridErrorPx(now2 = nowMs()) {
   const scroller = scrollerEl;
   const hint = hybridTargetHintState;
   if (!scroller || !hint) return null;
@@ -14726,7 +15342,7 @@ function computeHybridErrorPx(now = nowMs()) {
   if (targetTop == null) return null;
   const anchorY = targetTop;
   const errorPx = anchorY - markerY;
-  const anchorAgeMs = Math.max(0, now - hint.ts);
+  const anchorAgeMs = Math.max(0, now2 - hint.ts);
   const markerIdx = getMarkerLineIndex(scroller, markerY);
   const fallbackBestIdx = Number.isFinite(lastAsrMatch.bestIndex) && lastAsrMatch.bestIndex >= 0 ? lastAsrMatch.bestIndex : null;
   const bestIdx = Number.isFinite(hint.lineIndex ?? NaN) && hint.lineIndex != null ? hint.lineIndex : fallbackBestIdx;
@@ -14745,24 +15361,82 @@ function computeHybridErrorPx(now = nowMs()) {
     targetTopSource
   };
 }
-function getSilenceMs(now = nowMs()) {
-  const lastSpeech = hybridSilence.lastSpeechAtMs ?? now;
-  return Math.max(0, now - lastSpeech);
+function getSilenceMs(now2 = nowMs()) {
+  const lastSpeech = hybridSilence.lastSpeechAtMs ?? now2;
+  return Math.max(0, now2 - lastSpeech);
 }
-function evaluateHybridEligibility(now = nowMs()) {
+function getHybridSpeechHoldRemainingMs(now2 = nowMs()) {
+  const holdUntil = Number(hybridSilence.speechHoldUntilMs);
+  if (!Number.isFinite(holdUntil) || holdUntil <= 0) return 0;
+  return Math.max(0, holdUntil - now2);
+}
+function isHybridSpeechPresent(now2 = nowMs()) {
+  if (speechActive) return true;
+  if (getHybridSpeechHoldRemainingMs(now2) > 0) return true;
+  if (!(hybridSilence.lastSpeechActivityAtMs > 0)) return false;
+  return Math.max(0, now2 - hybridSilence.lastSpeechActivityAtMs) <= HYBRID_SPEECH_PRESENT_HOLD_MS;
+}
+function markHybridSpeechPresent(now2 = nowMs()) {
+  hybridSilence.lastSpeechActivityAtMs = now2;
+  hybridSilence.speechHoldUntilMs = Math.max(
+    hybridSilence.speechHoldUntilMs || 0,
+    now2 + HYBRID_SPEECH_PRESENT_HOLD_MS
+  );
+}
+function getHybridSpeedSettingRaw() {
+  try {
+    const slider = document.getElementById("wpmTarget");
+    const sliderRaw = Number(slider?.value);
+    if (Number.isFinite(sliderRaw) && sliderRaw > 0) return sliderRaw;
+  } catch {
+  }
+  try {
+    const storedRaw = Number(localStorage.getItem("tp_baseline_wpm"));
+    if (Number.isFinite(storedRaw) && storedRaw > 0) return storedRaw;
+  } catch {
+  }
+  try {
+    const storeVal = Number(appStoreSingleton.get("wpmTarget"));
+    if (Number.isFinite(storeVal) && storeVal > 0) return storeVal;
+  } catch {
+  }
+  return null;
+}
+function getHybridWpmCalibrationMultiplier() {
+  let raw = null;
+  try {
+    const overrideRaw = Number(window.__TP_HYBRID_WPM_CAL_MULT);
+    if (Number.isFinite(overrideRaw) && overrideRaw > 0) {
+      raw = overrideRaw;
+    }
+  } catch {
+  }
+  if (raw == null) {
+    try {
+      const storedRaw = Number(localStorage.getItem("tp_hybrid_wpm_cal_mult"));
+      if (Number.isFinite(storedRaw) && storedRaw > 0) {
+        raw = storedRaw;
+      }
+    } catch {
+    }
+  }
+  const resolved = raw ?? HYBRID_WPM_CAL_MULT_DEFAULT;
+  return Math.max(HYBRID_WPM_CAL_MULT_MIN, Math.min(HYBRID_WPM_CAL_MULT_MAX, resolved));
+}
+function evaluateHybridEligibility(now2 = nowMs()) {
   if (state22.mode !== "hybrid") return { eligible: false, reason: "mode" };
   if (getHybridSessionPhase() !== "live") return { eligible: false, reason: "phase" };
   const hint = hybridTargetHintState;
   if (!hint) return { eligible: false, reason: "no-hint" };
   if (hint.confidence < HYBRID_CTRL_CONF_MIN) return { eligible: false, reason: "low-confidence" };
-  if (now - hint.ts > HYBRID_CTRL_ANCHOR_RECENCY_MS) return { eligible: false, reason: "stale-hint" };
+  if (now2 - hint.ts > HYBRID_CTRL_ANCHOR_RECENCY_MS) return { eligible: false, reason: "stale-hint" };
   return { eligible: true, reason: "ok" };
 }
-function logHybridCtrlState(basePxps, baseWithCorrection, now, errorInfo, silenceMs, eligible, eligibleReason, normalizedError, targetMult, targetMultSource, lineTargetMult, lineMult, appliedTargetMult, silenceCap, offScriptSeverity, offScriptCap, finalPxps, ctrlMultApplied, effectiveScaleApplied, modeHint) {
+function logHybridCtrlState(basePxps, baseWithCorrection, now2, errorInfo, silenceMs, eligible, eligibleReason, normalizedError, targetMult, targetMultSource, lineTargetMult, lineMult, appliedTargetMult, silenceCap, offScriptSeverity, offScriptCap, finalPxps, ctrlMultApplied, effectiveScaleApplied, modeHint) {
   if (!isDevMode2()) return;
   if (!HYBRID_CTRL_ENABLED) return;
-  if (now - lastHybridCtrlLogAt < HYBRID_CTRL_LOG_THROTTLE_MS) return;
-  lastHybridCtrlLogAt = now;
+  if (now2 - lastHybridCtrlLogAt < HYBRID_CTRL_LOG_THROTTLE_MS) return;
+  lastHybridCtrlLogAt = now2;
   try {
     console.info("[HYBRID_CTRL]", {
       errorPx: errorInfo?.errorPx ?? null,
@@ -14802,9 +15476,9 @@ function logHybridCtrlState(basePxps, baseWithCorrection, now, errorInfo, silenc
 function logHybridMultDebug(payload) {
   if (!isDevMode2()) return;
   if (!HYBRID_CTRL_ENABLED) return;
-  const now = nowMs();
-  if (now - lastHybridMultDebugAt < HYBRID_MULT_DEBUG_THROTTLE_MS) return;
-  lastHybridMultDebugAt = now;
+  const now2 = nowMs();
+  if (now2 - lastHybridMultDebugAt < HYBRID_MULT_DEBUG_THROTTLE_MS) return;
+  lastHybridMultDebugAt = now2;
   const fmt = (value, digits = 2) => value == null || !Number.isFinite(value) ? null : value.toFixed(digits);
   try {
     console.info("[HYBRID_CTRL] mult-debug", {
@@ -14820,9 +15494,9 @@ function logHybridMultDebug(payload) {
 }
 function logHybridTruthLine(payload) {
   if (!isDevMode2()) return;
-  const now = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
-  if (now - lastHybridTruthAt < HYBRID_TRUTH_THROTTLE_MS) return;
-  lastHybridTruthAt = now;
+  const now2 = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
+  if (now2 - lastHybridTruthAt < HYBRID_TRUTH_THROTTLE_MS) return;
+  lastHybridTruthAt = now2;
   const fmt = (value, digits) => value == null || !Number.isFinite(value) ? null : +value.toFixed(digits);
   try {
     const truthPayload = {
@@ -14922,6 +15596,47 @@ function getLastWriterSource() {
   }
   return null;
 }
+function classifyProgrammaticWriterKind(source, modeHint = null) {
+  const raw = String(source || "").toLowerCase();
+  const mode = String(modeHint || "").toLowerCase();
+  if (raw.includes("asr") || mode === "asr") return "asr";
+  if (raw.includes("writer") || raw.includes("programmatic") || raw.includes("scrollwrite")) {
+    return "writer";
+  }
+  return "other";
+}
+function noteProgrammaticWriterStamp(source, kind, at = nowMs()) {
+  if (kind === "other") return;
+  lastProgrammaticWriterStamp = {
+    at,
+    source: String(source || "programmatic"),
+    kind
+  };
+}
+function getRecentProgrammaticWriterStamp(scroller, now2 = nowMs()) {
+  try {
+    const w2 = window;
+    const source = String(scroller?.dataset?.tpLastWriter || "");
+    const globalWriter = w2?.__tpLastWriter;
+    const globalFrom = typeof globalWriter?.from === "string" ? globalWriter.from : "";
+    const globalAt = Number(globalWriter?.at);
+    if (Number.isFinite(globalAt) && now2 - globalAt <= PROGRAMMATIC_WRITER_GRACE_MS) {
+      const kind = classifyProgrammaticWriterKind(globalFrom || source, getScrollMode2());
+      noteProgrammaticWriterStamp(globalFrom || source || "writer", kind, globalAt);
+    } else if (w2?.__tpScrollWriteActive === true) {
+      const activeSource = source || globalFrom || "writer-active";
+      const kind = classifyProgrammaticWriterKind(activeSource, getScrollMode2());
+      noteProgrammaticWriterStamp(activeSource, kind, now2);
+    } else if (state22.mode === "asr" && source) {
+      const kind = classifyProgrammaticWriterKind(source, "asr");
+      noteProgrammaticWriterStamp(source, kind, now2);
+    }
+  } catch {
+  }
+  if (!lastProgrammaticWriterStamp) return null;
+  if (now2 - lastProgrammaticWriterStamp.at > PROGRAMMATIC_WRITER_GRACE_MS) return null;
+  return lastProgrammaticWriterStamp;
+}
 function getLinePx() {
   try {
     const metrics = getViewportMetrics(() => scrollerEl);
@@ -15013,6 +15728,21 @@ function clearHybridSilenceTimer() {
   }
 }
 var tpLastWriter = null;
+function describeEl(el) {
+  if (!el) {
+    return {
+      tag: "null",
+      id: null,
+      cls: null
+    };
+  }
+  const e = el;
+  return {
+    tag: (e.tagName || "unknown").toLowerCase(),
+    id: e.id || null,
+    cls: e.className && String(e.className) || null
+  };
+}
 function scrollWrite(y, meta2) {
   if (!isMainViewer()) {
     try {
@@ -15022,7 +15752,9 @@ function scrollWrite(y, meta2) {
     return false;
   }
   const target = viewer ?? scrollerEl ?? (typeof document !== "undefined" ? document.getElementById("viewer") : null);
-  const before = target?.scrollTop ?? null;
+  const targetInfo = describeEl(target);
+  const beforeTop = target?.scrollTop ?? null;
+  const requestedTop = y;
   let ok = false;
   try {
     const writeFn = window.__tpScrollWrite;
@@ -15030,7 +15762,11 @@ function scrollWrite(y, meta2) {
       writeFn(y);
       ok = true;
     } else if (target) {
-      target.scrollTop = y;
+      applyCanonicalScrollTop(y, {
+        scroller: target,
+        reason: meta2.reason ?? "router-scroll-write-fallback",
+        source: meta2.from || "router-scroll-write-fallback"
+      });
       ok = true;
     }
   } catch (err) {
@@ -15039,32 +15775,60 @@ function scrollWrite(y, meta2) {
     } catch {
     }
   }
-  const after = target?.scrollTop ?? null;
-  tpLastWriter = { from: meta2.from, at: nowMs(), y };
+  const afterTop = target?.scrollTop ?? null;
+  const writeAt = nowMs();
+  tpLastWriter = { from: meta2.from, at: writeAt, y };
   try {
     window.__tpLastWriter = tpLastWriter;
   } catch {
   }
+  const stampSource = meta2.reason || meta2.from || "writer";
+  const stampKind = classifyProgrammaticWriterKind(stampSource, getScrollMode2());
+  noteProgrammaticWriterStamp(stampSource, stampKind, writeAt);
   try {
     console.info("[SCROLL_WRITE]", {
       ok,
       from: meta2.from,
       reason: meta2.reason ?? null,
-      before,
+      before: beforeTop,
       y,
-      after
+      after: afterTop
     });
   } catch {
+  }
+  const debugStack = isDevMode2() ? new Error().stack || null : null;
+  if (target && typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+    const targetEl = target;
+    window.requestAnimationFrame(() => {
+      const afterTopRaf = targetEl.scrollTop ?? null;
+      const changedNow = beforeTop != null && afterTop != null ? afterTop !== beforeTop : null;
+      const snappedBack = afterTop != null && afterTopRaf != null ? afterTopRaf !== afterTop : null;
+      try {
+        console.warn("[SCROLL_WRITE_TRUTH]", {
+          from: meta2.from,
+          reason: meta2.reason ?? null,
+          target: targetInfo,
+          beforeTop,
+          requestedTop,
+          afterTop,
+          afterTopRaf,
+          changedNow,
+          snappedBack,
+          stack: debugStack
+        });
+      } catch {
+      }
+    });
   }
   return ok;
 }
 function beginHybridLiveGraceWindow() {
   if (state22.mode !== "hybrid") return;
-  const now = nowMs();
+  const now2 = nowMs();
   seedHybridBaseSpeed();
   setHybridScale(RECOVERY_SCALE);
-  liveGraceWindowEndsAt = now + LIVE_GRACE_MS;
-  hybridSilence.lastSpeechAtMs = now;
+  liveGraceWindowEndsAt = now2 + LIVE_GRACE_MS;
+  hybridSilence.lastSpeechAtMs = now2;
   hybridSilence.pausedBySilence = false;
   clearHybridSilenceTimer();
   if (hybridWantedRunning) {
@@ -15150,8 +15914,8 @@ function createFeatureSynth() {
   function dedupeKey(list) {
     return list.map((x) => x.text).join("|");
   }
-  function wordsInWindow(now) {
-    const start = now - TOK_WIN_MS;
+  function wordsInWindow(now2) {
+    const start = now2 - TOK_WIN_MS;
     toks = toks.filter((t) => t.t >= start);
     let words = 0;
     for (const t of toks) {
@@ -15160,41 +15924,41 @@ function createFeatureSynth() {
     return words;
   }
   function push(f) {
-    const now = performance.now();
+    const now2 = performance.now();
     if (f.kind === "tokens") {
       const key = dedupeKey(f.tokens);
       if (f.final || key !== lastTokensKey) {
         lastTokensKey = key;
         for (const tk of f.tokens) {
-          toks.push({ text: tk.text, t: now });
+          toks.push({ text: tk.text, t: now2 });
         }
-        lastActivityMs = now;
+        lastActivityMs = now2;
         speakingWanted = true;
       }
     } else if (f.kind === "gate") {
       speakingWanted = !!f.speaking;
-      if (f.speaking) lastActivityMs = now;
+      if (f.speaking) lastActivityMs = now2;
     }
     if (speakingWanted && !speaking2) {
-      if (now - lastSpeakChange >= ATTACK_MS) {
+      if (now2 - lastSpeakChange >= ATTACK_MS) {
         speaking2 = true;
-        lastSpeakChange = now;
+        lastSpeakChange = now2;
       }
     } else if (!speakingWanted && speaking2) {
-      if (now - lastSpeakChange >= RELEASE_MS) {
+      if (now2 - lastSpeakChange >= RELEASE_MS) {
         speaking2 = false;
-        lastSpeakChange = now;
+        lastSpeakChange = now2;
       }
     }
-    const words = wordsInWindow(now);
+    const words = wordsInWindow(now2);
     const instWpm = words * 60 * (1e3 / TOK_WIN_MS);
     if (words > 0) {
       wpmEma = wpmEma == null ? instWpm : ALPHA * instWpm + (1 - ALPHA) * wpmEma;
     }
   }
   function getTempo() {
-    const now = performance.now();
-    const pauseMs = Math.max(0, now - lastActivityMs);
+    const now2 = performance.now();
+    const pauseMs = Math.max(0, now2 - lastActivityMs);
     return { wpm: wpmEma, pauseMs };
   }
   function getSpeaking() {
@@ -15207,7 +15971,7 @@ function createAutoMotor() {
   const timed = createTimedEngine(brain);
   let enabled = false;
   let currentSpeed = 0;
-  let rafId = null;
+  let rafId2 = null;
   let lastTs = 0;
   let lastTickMoved = false;
   let carry = 0;
@@ -15224,13 +15988,13 @@ function createAutoMotor() {
   }
   function logAutoTick(event, el, pxPerSec, dtSec, reason, extra = {}) {
     if (!isDevMode2()) return;
-    const now = nowMs();
+    const now2 = nowMs();
     if (autoTickDebugStart === 0) {
-      autoTickDebugStart = now;
+      autoTickDebugStart = now2;
     }
-    if (now - autoTickDebugStart > AUTO_TICK_DEBUG_MS) return;
-    if (now - lastAutoTickLogAt < AUTO_TICK_LOG_THROTTLE_MS) return;
-    lastAutoTickLogAt = now;
+    if (now2 - autoTickDebugStart > AUTO_TICK_DEBUG_MS) return;
+    if (now2 - lastAutoTickLogAt < AUTO_TICK_LOG_THROTTLE_MS) return;
+    lastAutoTickLogAt = now2;
     try {
       const payload = {
         event,
@@ -15282,24 +16046,28 @@ function createAutoMotor() {
     }
   }
   function cancelTick() {
-    if (rafId != null && typeof cancelAnimationFrame === "function") {
-      cancelAnimationFrame(rafId);
+    if (rafId2 != null && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(rafId2);
     }
-    rafId = null;
+    rafId2 = null;
   }
   function scheduleTick() {
-    if (rafId != null) return;
+    if (rafId2 != null) return;
     lastTs = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
-    rafId = typeof requestAnimationFrame === "function" ? requestAnimationFrame(motorTick) : null;
+    rafId2 = typeof requestAnimationFrame === "function" ? requestAnimationFrame(motorTick) : null;
   }
   function motorTick(ts) {
-    rafId = null;
+    rafId2 = null;
     if (!enabled) return;
-    const now = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : ts || Date.now();
-    const dtSec = lastTs ? Math.max(0, (now - lastTs) / 1e3) : 0;
-    lastTs = now;
+    const now2 = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : ts || Date.now();
+    const dtSec = lastTs ? Math.max(0, (now2 - lastTs) / 1e3) : 0;
+    lastTs = now2;
     const pxPerSec = currentSpeed;
-    const el = scrollerEl;
+    const canonicalViewer = ensureViewerElement();
+    if (canonicalViewer && scrollerEl !== canonicalViewer) {
+      scrollerEl = canonicalViewer;
+    }
+    const el = canonicalViewer || scrollerEl;
     if (!el) {
       logAutoTick("tick", el, pxPerSec, dtSec, "no-element");
       scheduleTick();
@@ -15357,7 +16125,15 @@ function createAutoMotor() {
     cancelTick();
   }
   function start() {
-    if (enabled) return;
+    if (enabled) {
+      if (rafId2 == null) {
+        autoTickDebugStart = 0;
+        lastAutoTickLogAt = 0;
+        logAutoTick("start", viewer ?? scrollerEl, currentSpeed, 0, "already-enabled-resume");
+        scheduleTick();
+      }
+      return;
+    }
     setEnabled(true);
     lastTickMoved = false;
     carry = 0;
@@ -15384,6 +16160,7 @@ function createAutoMotor() {
 }
 var HYBRID_LOG_THROTTLE_MS = 500;
 var HYBRID_VERBOSE_FLAG = "hybrid-dev";
+var HYBRID_TRACE_FLAG = "hybridTrace";
 var lastHybridScaleLogAt = 0;
 var lastHybridPaceLogAt = 0;
 var lastHybridBrakeLogAt = 0;
@@ -15402,11 +16179,46 @@ var isHybridVerboseDevMode = (() => {
     return false;
   }
 })();
+var hybridTraceLastAt = /* @__PURE__ */ new Map();
+var hybridTraceLastSig = /* @__PURE__ */ new Map();
+function isHybridTraceEnabled() {
+  if (!isDevMode2()) return false;
+  if (typeof window === "undefined") return false;
+  try {
+    const w2 = window;
+    if (w2.__TP_HYBRID_TRACE === true) return true;
+    const params = new URLSearchParams(window.location.search || "");
+    if (params.get(HYBRID_TRACE_FLAG) === "1") return true;
+    if (window.localStorage?.getItem("tp_hybrid_trace") === "1") return true;
+  } catch {
+  }
+  return false;
+}
+function logHybridTrace(tag, payload, opts) {
+  if (!isHybridTraceEnabled()) return;
+  const throttleMs = Math.max(0, Number(opts?.throttleMs) || 0);
+  const signature = typeof opts?.signature === "string" ? opts.signature : null;
+  const now2 = nowMs();
+  if (throttleMs > 0) {
+    const lastAt = hybridTraceLastAt.get(tag) ?? 0;
+    if (now2 - lastAt < throttleMs) return;
+    hybridTraceLastAt.set(tag, now2);
+  }
+  if (signature) {
+    const lastSig = hybridTraceLastSig.get(tag);
+    if (lastSig === signature) return;
+    hybridTraceLastSig.set(tag, signature);
+  }
+  try {
+    console.info(`[HYBRID_TRACE] ${tag}`, payload);
+  } catch {
+  }
+}
 function logHybridPaceTelemetry(payload) {
   if (!isDevMode2()) return;
-  const now = nowMs();
-  if (now - lastHybridPaceLogAt < HYBRID_LOG_THROTTLE_MS) return;
-  lastHybridPaceLogAt = now;
+  const now2 = nowMs();
+  if (now2 - lastHybridPaceLogAt < HYBRID_LOG_THROTTLE_MS) return;
+  lastHybridPaceLogAt = now2;
   const summary = {
     mode: payload.mode,
     wpm: payload.wpm,
@@ -15427,9 +16239,9 @@ function logHybridPaceTelemetry(payload) {
 function logHybridScaleDetail(obj) {
   if (!isDevMode2()) return;
   if (state22.mode !== "hybrid") return;
-  const now = nowMs();
-  if (now - lastHybridScaleLogAt < HYBRID_LOG_THROTTLE_MS) return;
-  lastHybridScaleLogAt = now;
+  const now2 = nowMs();
+  if (now2 - lastHybridScaleLogAt < HYBRID_LOG_THROTTLE_MS) return;
+  lastHybridScaleLogAt = now2;
   const summary = {
     basePxps: obj.basePxps,
     chosenScale: obj.chosenScale,
@@ -15455,15 +16267,15 @@ function logHybridScaleDetail(obj) {
 function logHybridBrakeEvent(payload) {
   if (!isDevMode2()) return;
   if (state22.mode !== "hybrid") return;
-  const now = nowMs();
-  const ttl = Math.max(0, (payload.brakeExpiresAt ?? 0) - (payload.now ?? now));
+  const now2 = nowMs();
+  const ttl = Math.max(0, (payload.brakeExpiresAt ?? 0) - (payload.now ?? now2));
   const shouldLog = payload.graceActive || payload.brakeActive || ttl > 0;
   if (!shouldLog) return;
   const signature = `${payload.brakeFactor.toFixed(3)}|${payload.brakeReason ?? ""}|${payload.brakeActive ? "1" : "0"}|${payload.motorRunning ? "r" : "s"}`;
   const changed = signature !== lastHybridBrakeSignature;
-  if (!changed && now - lastHybridBrakeLogAt < HYBRID_LOG_THROTTLE_MS) return;
+  if (!changed && now2 - lastHybridBrakeLogAt < HYBRID_LOG_THROTTLE_MS) return;
   lastHybridBrakeSignature = signature;
-  lastHybridBrakeLogAt = now;
+  lastHybridBrakeLogAt = now2;
   const desc = [
     `brake=${payload.brakeFactor.toFixed(3)}`,
     `ttl=${Math.round(ttl)}`,
@@ -15480,12 +16292,12 @@ function logHybridVelocityEvent(payload) {
   if (state22.mode !== "hybrid") return;
   const meaningful = payload.motorRunning || payload.brakeTtl > 0 || payload.assistBoost > 0 || payload.graceActive || payload.chosenScale < 0.999;
   if (!meaningful) return;
-  const now = nowMs();
+  const now2 = nowMs();
   const signature = `${payload.velocity.toFixed(2)}|${payload.brakeFactor.toFixed(3)}|${payload.assistBoost.toFixed(3)}|${payload.reason}|${payload.brakeActive ? "b" : ""}|${payload.assistActive ? "a" : ""}|${payload.motorRunning ? "r" : "s"}`;
   const changed = signature !== lastHybridVelocitySignature;
-  if (!changed && now - lastHybridVelocityLogAt < HYBRID_LOG_THROTTLE_MS) return;
+  if (!changed && now2 - lastHybridVelocityLogAt < HYBRID_LOG_THROTTLE_MS) return;
   lastHybridVelocitySignature = signature;
-  lastHybridVelocityLogAt = now;
+  lastHybridVelocityLogAt = now2;
   const clampState = payload.chosenScale < 0.999 ? "clamped" : "free";
   const summary = [
     `base=${payload.basePxps.toFixed(1)}`,
@@ -15505,11 +16317,28 @@ function logHybridMotorEvent(evt, data) {
   if (!isDevMode2()) return;
   if (state22.mode !== "hybrid") return;
   if (evt === "velocity") {
-    const now = nowMs();
+    const now2 = nowMs();
     const signature = `${Number(data?.velocityPxPerSec ?? 0).toFixed(2)}`;
-    if (signature === lastHybridMotorVelocitySignature && now - lastHybridMotorVelocityLogAt < HYBRID_MOTOR_LOG_THROTTLE_MS) return;
+    if (signature === lastHybridMotorVelocitySignature && now2 - lastHybridMotorVelocityLogAt < HYBRID_MOTOR_LOG_THROTTLE_MS) return;
     lastHybridMotorVelocitySignature = signature;
-    lastHybridMotorVelocityLogAt = now;
+    lastHybridMotorVelocityLogAt = now2;
+  }
+  if (evt === "dt-clamp") {
+    const dtRaw = Number(data?.dtRaw ?? NaN);
+    const dtClamped = Number(data?.dtClamped ?? NaN);
+    if (Number.isFinite(dtRaw) && Number.isFinite(dtClamped)) {
+      logHybridTrace(
+        "motor_dt_clamp",
+        {
+          dtRaw: Number(dtRaw.toFixed(3)),
+          dtClamped: Number(dtClamped.toFixed(3))
+        },
+        {
+          throttleMs: 250,
+          signature: `${dtRaw.toFixed(3)}|${dtClamped.toFixed(3)}`
+        }
+      );
+    }
   }
   try {
     console.debug("[HybridMotor]", evt, data);
@@ -15524,15 +16353,39 @@ function convertWpmToPxPerSec(targetWpm) {
     const lhScale = parseFloat(cs.getPropertyValue("--tp-line-height")) || 1.4;
     const lineHeightPx = fsPx * lhScale;
     const wpl = parseFloat(localStorage.getItem("tp_wpl_hint") || "8") || 8;
-    const pxPerSec = targetWpm / 60 / wpl * lineHeightPx;
+    const basePxpsRaw = targetWpm / 60 / wpl * lineHeightPx;
+    const mode = getScrollMode2();
+    const hybridWpmCalMult = mode === "hybrid" ? getHybridWpmCalibrationMultiplier() : 1;
+    const pxPerSec = basePxpsRaw * hybridWpmCalMult;
+    logHybridTrace(
+      "base_speed_compute",
+      {
+        speedRaw: targetWpm,
+        unit: "wpm",
+        mode,
+        wpm: targetWpm,
+        wpl,
+        lineHeightPx: Number(lineHeightPx.toFixed(2)),
+        basePxpsRaw: Number(basePxpsRaw.toFixed(2)),
+        hybridWpmCalMult: Number(hybridWpmCalMult.toFixed(3)),
+        basePxps: Number(pxPerSec.toFixed(2))
+      },
+      {
+        throttleMs: 100,
+        signature: `${mode}|${Number(targetWpm).toFixed(2)}|${Number(wpl).toFixed(2)}|${Number(lineHeightPx).toFixed(2)}|${Number(hybridWpmCalMult).toFixed(3)}|${Number(pxPerSec).toFixed(2)}`
+      }
+    );
     try {
       console.info(
         `[WPM_CONVERT] ${JSON.stringify({
           targetWpm,
+          mode,
           fsPx,
           lhScale,
           lineHeightPx,
           wpl,
+          basePxpsRaw,
+          hybridWpmCalMult,
           pxPerSec
         })}`
       );
@@ -15605,9 +16458,9 @@ function createPaceEngine() {
     _catchup = level;
   }
   function consume(tempo, speaking2) {
-    const now = performance.now();
-    const dt = Math.max(1e-3, (now - lastUpdate) / 1e3);
-    lastUpdate = now;
+    const now2 = performance.now();
+    const dt = Math.max(1e-3, (now2 - lastUpdate) / 1e3);
+    lastUpdate = now2;
     if (mode === "vad") {
       const tgt = speaking2 ? SPEAKING_PXS : target * Math.pow(0.85, dt * (1e3 / caps.decayMs));
       const maxStep = caps.accelCap * dt;
@@ -15881,6 +16734,8 @@ var HYBRID_SILENCE_SOFT_MS = 3e3;
 var HYBRID_PAUSE_SILENCE_SOFT_MS = 7500;
 var HYBRID_SILENCE_HARD_STOP_MS = 25e3;
 var LIVE_GRACE_MS = 1800;
+var HYBRID_SPEECH_PRESENT_HOLD_MS = 1600;
+var HYBRID_HARD_NOMATCH_OFFSCRIPT_GRACE_MS = 420;
 var OFFSCRIPT_MILD = 0.75;
 var OFFSCRIPT_DEEP = 0.55;
 var RECOVERY_SCALE = 1;
@@ -15894,6 +16749,9 @@ var PAUSE_LOOKAHEAD_LINES = 10;
 var HYBRID_PAUSE_TOKENS = ["[pause]", "[beat]", "[reflective pause]"];
 var GRACE_MIN_SCALE = 0.9;
 var HYBRID_BASELINE_FLOOR_PXPS = 24;
+var HYBRID_WPM_CAL_MULT_DEFAULT = 2.5;
+var HYBRID_WPM_CAL_MULT_MIN = 0.25;
+var HYBRID_WPM_CAL_MULT_MAX = 8;
 var HYBRID_ASSIST_CAP_FRAC = 0.35;
 var HYBRID_EVENT_TTL_MIN = 20;
 var HYBRID_EVENT_TTL_MAX = 2e3;
@@ -15907,10 +16765,13 @@ var OFFSCRIPT_DECAY_T2_MS = 6e3;
 var OFFSCRIPT_DECAY_T3_MS = 1e4;
 var OFFSCRIPT_DECAY_T4_MS = 12e3;
 var OFFSCRIPT_DECAY_CRAWL = 0.1;
+var HYBRID_OFFSCRIPT_SPEECH_FLOOR_MULT = 0.35;
 var ON_SCRIPT_LOCK_HOLD_MS = 1500;
 var PAUSE_ASSIST_TAIL_MS = 2e3;
 var IGNORED_ASR_PURSUIT_LOG_THROTTLE_MS = 2e3;
 var MANUAL_SCROLL_LOG_THROTTLE_MS = 1500;
+var PROGRAMMATIC_WRITER_GRACE_MS = 250;
+var PROGRAMMATIC_WRITER_LOG_THROTTLE_MS = 1e3;
 var HYBRID_CTRL_LOG_THROTTLE_MS = 500;
 var HYBRID_CTRL_CONF_MIN = 0.25;
 var HYBRID_CTRL_ANCHOR_RECENCY_MS = 2500;
@@ -15973,12 +16834,22 @@ var HYBRID_CTRL_ON_TARGET_VELOCITY_EPS = 12;
 var HYBRID_CTRL_MODE_DEADBAND_LINES = 3;
 var HYBRID_CTRL_BASE_MAX_MULT = 2.8;
 var HYBRID_CTRL_AGGRO_MAX_MULT = 3.2;
+var HYBRID_CTRL_DYNAMIC_MAX_MULT = 6;
+var HYBRID_CTRL_DYNAMIC_MAX_MULT_AGGRO = 8;
+var HYBRID_CTRL_DYNAMIC_MAX_ABS_MIN_PXPS = 240;
+var HYBRID_CTRL_DYNAMIC_MAX_ABS_MIN_PXPS_AGGRO = 300;
+var HYBRID_CTRL_CTRL_MULT_MAX = 2.5;
+var HYBRID_CTRL_REACTIVE_MULT_MAX = 7;
+var HYBRID_CTRL_POLICY_MULT_MIN = 0.35;
+var HYBRID_CTRL_POLICY_MULT_MAX = 1.25;
+var HYBRID_CTRL_PRECLAMP_SCALE_MAX = 8;
 var HYBRID_REACTIVE_BEHIND_BASE = 0.55;
 var HYBRID_REACTIVE_BEHIND_ACC_THRESHOLD = 2;
 var HYBRID_REACTIVE_BEHIND_ACC_BONUS = 0.25;
 var HYBRID_CTRL_ASSIST_BEHIND_BOOST_FRAC = 0.15;
 var HYBRID_ON_TARGET_LINES = 0.92;
 var HYBRID_MULT_DEBUG_THROTTLE_MS = 500;
+var HYBRID_POLICY_LOG_THROTTLE_MS = 700;
 var HYBRID_ONSCRIPT_SIM_MIN = 0.74;
 var HYBRID_CTRL_PARAM_ENABLED = (() => {
   if (typeof window === "undefined") return false;
@@ -15995,14 +16866,14 @@ var HYBRID_CTRL_DEV_OVERRIDE_DURATION_MS = 1e4;
 var hybridCtrlDevOverrideStart = null;
 var hybridCtrlDevOverrideDone = false;
 var lastHybridMultDebugAt = 0;
-function getHybridCtrlDevOverride(now) {
+function getHybridCtrlDevOverride(now2) {
   if (!HYBRID_CTRL_ENABLED || !HYBRID_CTRL_PARAM_ENABLED || hybridCtrlDevOverrideDone || typeof window === "undefined") {
     return null;
   }
   if (hybridCtrlDevOverrideStart === null) {
-    hybridCtrlDevOverrideStart = now;
+    hybridCtrlDevOverrideStart = now2;
   }
-  const elapsed = Math.max(0, now - hybridCtrlDevOverrideStart);
+  const elapsed = Math.max(0, now2 - hybridCtrlDevOverrideStart);
   if (elapsed >= HYBRID_CTRL_DEV_OVERRIDE_DURATION_MS) {
     hybridCtrlDevOverrideDone = true;
     return null;
@@ -16019,7 +16890,110 @@ var lastAsrMatch = { currentIndex: -1, bestIndex: -1, bestSim: NaN };
 var hybridLastMatch = null;
 var hybridMatchSeen = false;
 var hybridLastNoMatch = null;
+var hybridMatcherSource = "unknown";
+var hybridMatcherSourceDetail = "unknown";
+var lastHybridMatcherProbeAt = 0;
 var HYBRID_HARD_NOMATCH_SIM_MIN = 0.25;
+var HYBRID_MATCHER_PROBE_THROTTLE_MS = 350;
+var HYBRID_BLOCKS_NOT_READY_HOLD_MS = 3500;
+function isHybridBackendReady() {
+  try {
+    if (window.__tpSpeechOrchestrator?.start) return true;
+  } catch {
+  }
+  try {
+    if (window.__tpSpeech?.startRecognizer) return true;
+  } catch {
+  }
+  try {
+    if (window.__tpSpeechCanDynImport === true) return true;
+  } catch {
+  }
+  try {
+    if (window.SpeechRecognition || window.webkitSpeechRecognition) return true;
+  } catch {
+  }
+  return false;
+}
+function computeAsrBlockScriptSig(meta2) {
+  if (!meta2 || !Array.isArray(meta2.units) || !meta2.units.length) return null;
+  try {
+    const units = meta2.units;
+    const first = units[0];
+    const last = units[units.length - 1];
+    const sums = units.reduce(
+      (acc, unit) => {
+        const chars = Number(unit?.charCount);
+        const sentences = Number(unit?.sentenceCount);
+        if (Number.isFinite(chars)) acc.chars += Math.max(0, Math.floor(chars));
+        if (Number.isFinite(sentences)) acc.sentences += Math.max(0, Math.floor(sentences));
+        return acc;
+      },
+      { chars: 0, sentences: 0 }
+    );
+    return [
+      units.length,
+      Number(first?.unitStart ?? -1),
+      Number(first?.unitEnd ?? -1),
+      Number(last?.unitStart ?? -1),
+      Number(last?.unitEnd ?? -1),
+      sums.sentences,
+      sums.chars
+    ].join(":");
+  } catch {
+    return null;
+  }
+}
+function readHybridScriptHash() {
+  try {
+    const hash = String(window.__TP_LAST_APPLIED_HASH || "").trim();
+    return hash || null;
+  } catch {
+    return null;
+  }
+}
+function getHybridBlockRuntimeState() {
+  const blockEls2 = getAsrBlockElements();
+  const meta2 = getAsrBlockIndex();
+  const storeCount = Array.isArray(blockEls2) ? blockEls2.length : 0;
+  let globalCount = 0;
+  let globalReady = false;
+  try {
+    const rawCount = Number(window.__tpAsrBlockCount);
+    globalCount = Number.isFinite(rawCount) ? Math.max(0, Math.floor(rawCount)) : 0;
+    globalReady = Boolean(window.__tpAsrBlocksReady);
+  } catch {
+  }
+  const blockCount = Math.max(storeCount, globalCount);
+  const blocksReady = (globalReady || storeCount > 0) && blockCount > 0;
+  const scriptSig = computeAsrBlockScriptSig(meta2);
+  return {
+    blocksReady,
+    blockCount,
+    blockSource: String(meta2?.source || "unknown"),
+    schemaVersion: Number.isFinite(Number(meta2?.schemaVersion)) ? Number(meta2?.schemaVersion) : null,
+    scriptSig,
+    scriptHash: readHybridScriptHash(),
+    backendReady: isHybridBackendReady(),
+    matcherSource: hybridMatcherSource,
+    matcherSourceDetail: hybridMatcherSourceDetail
+  };
+}
+function isHybridBlocksNotReadyHold(now2 = nowMs(), runtime = getHybridBlockRuntimeState()) {
+  if (!runtime.backendReady || runtime.blocksReady) return false;
+  const lastSpeechAgeMs = Math.max(0, now2 - hybridSilence.lastSpeechAtMs);
+  return isHybridSpeechPresent(now2) || lastSpeechAgeMs <= HYBRID_BLOCKS_NOT_READY_HOLD_MS;
+}
+function logHybridMatcherProbe(reason, payload) {
+  if (!isDevMode2()) return;
+  const now2 = nowMs();
+  if (now2 - lastHybridMatcherProbeAt < HYBRID_MATCHER_PROBE_THROTTLE_MS) return;
+  lastHybridMatcherProbeAt = now2;
+  try {
+    console.info("[HYBRID_MATCHER_PROBE]", { reason, ...payload });
+  } catch {
+  }
+}
 function getHybridMatchState() {
   const matchSim = hybridMatchSeen && Number.isFinite(hybridLastMatch?.bestSim ?? NaN) ? hybridLastMatch.bestSim : Number.isFinite(lastAsrMatch?.bestSim ?? NaN) ? lastAsrMatch.bestSim : null;
   const simFinite = Number.isFinite(matchSim ?? NaN);
@@ -16054,6 +17028,7 @@ var pauseAssistTailUntil = 0;
 var lastIgnoredAsrPursuitLogAt = 0;
 var hybridVelocityRefreshRaf = null;
 var hybridTargetHintState = null;
+var speechActive = false;
 var hybridCommitBoostUntilMs = 0;
 function armHybridCommitBoostWindow(reason) {
   if (reason !== "asr-commit") return;
@@ -16068,6 +17043,8 @@ var hybridLastGoodTargetTop = null;
 var hybridWantedRunning = false;
 var liveGraceWindowEndsAt = null;
 var lastManualScrollBrakeLogAt = 0;
+var lastProgrammaticWriterStamp = null;
+var lastProgrammaticWriterLogAt = 0;
 var lastHybridCtrlLogAt = 0;
 var hybridCtrl = {
   mult: 1,
@@ -16172,9 +17149,9 @@ function scheduleHybridVelocityRefresh() {
   if (typeof window === "undefined") return;
   hybridVelocityRefreshRaf = window.requestAnimationFrame(() => {
     hybridVelocityRefreshRaf = null;
-    if (state22.mode !== "hybrid") return;
-    const now = nowMs();
-    if (!shouldHybridRefresh(now)) {
+    if (getScrollMode2() !== "hybrid") return;
+    const now2 = nowMs();
+    if (!shouldHybridRefresh(now2)) {
       stopHybridVelocityRefresh();
       return;
     }
@@ -16211,13 +17188,18 @@ function stopHybridVelocityRefresh() {
   }
   hybridVelocityRefreshRaf = null;
 }
-function shouldHybridRefresh(now = nowMs()) {
-  if (state22.mode !== "hybrid") return false;
+function shouldHybridRefresh(now2 = nowMs()) {
+  const mode = getScrollMode2();
+  if (mode !== "hybrid") {
+    if (state22.mode !== mode) state22.mode = mode;
+    return false;
+  }
+  if (state22.mode !== "hybrid") state22.mode = "hybrid";
   if (hybridMotor.isRunning()) return true;
-  if (isHybridGraceActive(now)) return true;
-  const brakeActive = hybridBrakeState.expiresAt > now;
+  if (isHybridGraceActive(now2)) return true;
+  const brakeActive = hybridBrakeState.expiresAt > now2;
   if (brakeActive) return true;
-  if (hybridAssistState.expiresAt > now) return true;
+  if (hybridAssistState.expiresAt > now2) return true;
   if (hybridTargetHintState != null) return true;
   return false;
 }
@@ -16238,8 +17220,8 @@ function setHybridBrake(factor, ttlMs, reason = null) {
   const safeFactor = Number.isFinite(factor) ? clamp2(factor, 0, 1) : 1;
   const rawTtl = Number.isFinite(ttlMs) ? ttlMs : 0;
   const ttl = Math.max(0, Math.min(HYBRID_EVENT_TTL_MAX, rawTtl));
-  const now = nowMs();
-  const expiresAt2 = ttl > 0 ? now + ttl : 0;
+  const now2 = nowMs();
+  const expiresAt2 = ttl > 0 ? now2 + ttl : 0;
   hybridBrakeState = {
     factor: safeFactor,
     expiresAt: expiresAt2,
@@ -16250,16 +17232,17 @@ function setHybridBrake(factor, ttlMs, reason = null) {
   if (isDevMode2()) {
     let shouldLogBrake = true;
     if (reason === "manual-scroll") {
-      const elapsed = now - lastManualScrollBrakeLogAt;
+      const elapsed = now2 - lastManualScrollBrakeLogAt;
       if (elapsed < MANUAL_SCROLL_LOG_THROTTLE_MS) {
         shouldLogBrake = false;
       } else {
-        lastManualScrollBrakeLogAt = now;
+        lastManualScrollBrakeLogAt = now2;
       }
     }
     if (shouldLogBrake) {
       try {
-        console.info("[HYBRID_BRAKE] set", {
+        const brakeTag = state22.mode === "asr" ? "ASR_BRAKE" : "HYBRID_BRAKE";
+        console.info(`[${brakeTag}] set`, {
           factor: safeFactor,
           ttl,
           expiresAt: hybridBrakeState.expiresAt,
@@ -16307,11 +17290,11 @@ function isSliderWpmSource(source) {
   return typeof source === "string" && WPM_USER_SOURCES.has(source);
 }
 function startHybridGrace(reason) {
-  const now = nowMs();
+  const now2 = nowMs();
   setHybridBrake(1, 0, reason ?? "grace-reset");
-  hybridGraceUntil = now + HYBRID_GRACE_DURATION_MS;
+  hybridGraceUntil = now2 + HYBRID_GRACE_DURATION_MS;
   hybridSilence.pausedBySilence = false;
-  hybridSilence.lastSpeechAtMs = now;
+  hybridSilence.lastSpeechAtMs = now2;
   hybridSilence.offScriptActive = false;
   resetOffScriptDuration();
   const timeoutId = hybridSilence.timeoutId;
@@ -16338,8 +17321,8 @@ function startHybridGrace(reason) {
     }
   }
 }
-function isHybridGraceActive(now = nowMs()) {
-  return hybridGraceUntil > now;
+function isHybridGraceActive(now2 = nowMs()) {
+  return hybridGraceUntil > now2;
 }
 var isHybridBypass = () => {
   try {
@@ -16456,9 +17439,9 @@ function holdCreepStart(pxPerSec = DEFAULTS.step.holdCreep, dir = 1) {
   if (!viewer) return;
   cancelAnimationFrame(creepRaf);
   creepLast = performance.now();
-  const tick = (now) => {
-    const dt = (now - creepLast) / 1e3;
-    creepLast = now;
+  const tick = (now2) => {
+    const dt = (now2 - creepLast) / 1e3;
+    creepLast = now2;
     try {
       scrollWriter.scrollBy(dir * pxPerSec * dt, { behavior: "auto" });
     } catch {
@@ -16686,18 +17669,20 @@ function applyMode(m) {
 function installScrollRouter(opts) {
   const { auto: autoMotor, viewer: viewerInstallFlag = false, hostEl = null } = opts;
   auto = autoMotor || auto || null;
-  if (!viewer && hostEl) {
-    viewer = hostEl;
+  const canonicalScroller = getScrollerEl(viewerRole) || getScrollerEl("main");
+  const docViewer = document.getElementById("viewer");
+  if (!viewer) {
+    if (docViewer) {
+      viewer = docViewer;
+    } else if (hostEl instanceof HTMLElement && hostEl.id === "viewer") {
+      viewer = hostEl;
+    }
   }
   if (hostEl instanceof HTMLElement) {
-    scrollerEl = hostEl;
+    scrollerEl = canonicalScroller || docViewer || viewer || hostEl;
   }
   if (!scrollerEl) {
-    scrollerEl = document.querySelector("#viewer") || document.querySelector("#script");
-  }
-  if (!scrollerEl) {
-    const fallback = document.scrollingElement || document.documentElement;
-    scrollerEl = fallback;
+    scrollerEl = canonicalScroller || docViewer || document.querySelector("main#viewer.viewer, #viewer") || document.querySelector("#script") || (viewerRole === "display" ? document.getElementById("wrap") : null);
   }
   if (!hybridScrollGraceListenerInstalled) {
     try {
@@ -16710,6 +17695,25 @@ function installScrollRouter(opts) {
         const scroller = scrollerEl;
         if (!scroller || !target) return;
         if (scroller === target || scroller.contains(target)) {
+          const now2 = nowMs();
+          const writerStamp = getRecentProgrammaticWriterStamp(scroller, now2);
+          if (writerStamp && (writerStamp.kind === "asr" || writerStamp.kind === "writer")) {
+            if (isDevMode2() && now2 - lastProgrammaticWriterLogAt >= PROGRAMMATIC_WRITER_LOG_THROTTLE_MS) {
+              lastProgrammaticWriterLogAt = now2;
+              try {
+                const brakeTag = state22.mode === "asr" ? "ASR_BRAKE" : "HYBRID_BRAKE";
+                console.info(`[${brakeTag}] skip`, {
+                  reason: "programmatic-writer",
+                  source: writerStamp.source,
+                  kind: writerStamp.kind,
+                  ageMs: Math.max(0, Math.round(now2 - writerStamp.at)),
+                  mode: state22.mode
+                });
+              } catch {
+              }
+            }
+            return;
+          }
           setHybridBrake(1, 0, "manual-scroll");
         }
       };
@@ -16755,8 +17759,8 @@ function installScrollRouter(opts) {
   }
   restoreMode();
   try {
-    const store = (typeof window !== "undefined" ? window.__tpStore : null) || appStoreSingleton;
-    const storeMode = normalizeScrollModeValue(store?.get?.("scrollMode"));
+    const store2 = (typeof window !== "undefined" ? window.__tpStore : null) || appStoreSingleton;
+    const storeMode = normalizeScrollModeValue(store2?.get?.("scrollMode"));
     if (storeMode && storeMode !== state22.mode) {
       state22.mode = storeMode;
     }
@@ -16765,11 +17769,23 @@ function installScrollRouter(opts) {
   applyMode(state22.mode);
   emitScrollModeSnapshot("mode-change");
   try {
-    const store = (typeof window !== "undefined" ? window.__tpStore : null) || appStoreSingleton;
-    store?.subscribe?.("scrollMode", (next) => {
+    const store2 = (typeof window !== "undefined" ? window.__tpStore : null) || appStoreSingleton;
+    store2?.subscribe?.("scrollMode", (next) => {
       const normalized = normalizeScrollModeValue(next);
       if (!normalized || normalized === state22.mode) return;
       applyMode(normalized);
+      if (normalized === "asr") {
+        try {
+          stopAllMotors("mode switch to asr (safety)");
+        } catch {
+        }
+        try {
+          window.dispatchEvent(new CustomEvent("tp:auto:intent", {
+            detail: { enabled: false, reason: "mode-enter-asr" }
+          }));
+        } catch {
+        }
+      }
       emitScrollModeSnapshot("store-change");
     });
   } catch {
@@ -16843,7 +17859,8 @@ function installScrollRouter(opts) {
   let dbGate = false;
   let vadGate = false;
   let gatePref = getUiPrefs().hybridGate;
-  let speechActive = false;
+  let hardNoMatchSinceMs = 0;
+  let lastHybridPolicyLogAt = 0;
   let sessionIntentOn = false;
   let sessionPhase2 = "idle";
   hybridSessionPhase = sessionPhase2;
@@ -16875,12 +17892,24 @@ function installScrollRouter(opts) {
     onScrollIntent((intent) => {
       try {
         if (!intent || intent.source !== "asr") return;
+        if (shouldBlockLegacyAsrIntentLane()) {
+          if (!legacyAsrIntentLaneBlockedLogged) {
+            legacyAsrIntentLaneBlockedLogged = true;
+            if (isDevMode2()) {
+              try {
+                console.info("[ASR] ignoring legacy tp:scroll:intent (driver-owned commit lane)");
+              } catch {
+              }
+            }
+          }
+          return;
+        }
         const telemetry = getAsrTelemetry();
         const intentReason = typeof intent.reason === "string" ? intent.reason : "";
         recordAsrIntentTelemetry(telemetry, intentReason);
-        const now = Date.now();
+        const now2 = Date.now();
         const mode = getScrollMode2();
-        recordAsrMatchEvent(now, intent, intentReason);
+        recordAsrMatchEvent(now2, intent, intentReason);
         if (telemetry) {
           telemetry.completionEvidence = null;
           telemetry.completionEvidenceSummary = "evidence_missing_block_index";
@@ -16888,7 +17917,7 @@ function installScrollRouter(opts) {
         if (intent.kind !== "seek_block") {
           recordAsrReject(
             telemetry,
-            now,
+            now2,
             "reject_kind",
             mode,
             sessionPhase2,
@@ -16901,7 +17930,7 @@ function installScrollRouter(opts) {
         if (mode !== "asr") {
           recordAsrReject(
             telemetry,
-            now,
+            now2,
             "reject_mode",
             mode,
             sessionPhase2,
@@ -16914,7 +17943,7 @@ function installScrollRouter(opts) {
         if (sessionPhase2 !== "live") {
           recordAsrReject(
             telemetry,
-            now,
+            now2,
             "reject_phase",
             mode,
             sessionPhase2,
@@ -16953,17 +17982,17 @@ function installScrollRouter(opts) {
         }
         if (telemetry && committedBlockIdx >= 0) {
           const candidateIdx = resolveAsrIntentCandidateBlockIdx(intent);
-          const evidence = buildCompletionEvidence(committedBlockIdx, candidateIdx, now);
+          const evidence = buildCompletionEvidence(committedBlockIdx, candidateIdx, now2);
           telemetry.completionEvidence = evidence;
           telemetry.completionEvidenceSummary = formatCompletionEvidenceSummary(evidence);
         } else if (telemetry) {
           telemetry.completionEvidence = null;
           telemetry.completionEvidenceSummary = "evidence_missing_block_index";
         }
-        if (asrIntentLiveSince && now - asrIntentLiveSince < ASR_INTENT_WARMUP_MS) {
+        if (asrIntentLiveSince && now2 - asrIntentLiveSince < ASR_INTENT_WARMUP_MS) {
           recordAsrReject(
             telemetry,
-            now,
+            now2,
             "reject_warmup",
             mode,
             sessionPhase2,
@@ -16977,7 +18006,7 @@ function installScrollRouter(opts) {
         if (!Number.isFinite(rawBlockIdx) || rawBlockIdx < 0) {
           recordAsrReject(
             telemetry,
-            now,
+            now2,
             "reject_invalid_target",
             mode,
             sessionPhase2,
@@ -16992,7 +18021,7 @@ function installScrollRouter(opts) {
           const reasonKey = rawBlockIdx === committedBlockIdx ? "reject_same_block" : "reject_backward";
           recordAsrReject(
             telemetry,
-            now,
+            now2,
             reasonKey,
             mode,
             sessionPhase2,
@@ -17002,10 +18031,10 @@ function installScrollRouter(opts) {
           );
           return;
         }
-        if (now - lastCommitAt < ASR_INTENT_DEBOUNCE_MS) {
+        if (now2 - lastCommitAt < ASR_INTENT_DEBOUNCE_MS) {
           recordAsrReject(
             telemetry,
-            now,
+            now2,
             "reject_debounce",
             mode,
             sessionPhase2,
@@ -17018,7 +18047,7 @@ function installScrollRouter(opts) {
         if (Number.isFinite(intent.confidence) && intent.confidence < ASR_INTENT_MIN_CONF) {
           recordAsrReject(
             telemetry,
-            now,
+            now2,
             "reject_low_confidence",
             mode,
             sessionPhase2,
@@ -17034,11 +18063,11 @@ function installScrollRouter(opts) {
         if (isInterim) {
           if (blockIdx !== lastCandidate) {
             lastCandidate = blockIdx;
-            stableSince = now;
+            stableSince = now2;
           }
           recordAsrReject(
             telemetry,
-            now,
+            now2,
             "reject_not_final",
             mode,
             sessionPhase2,
@@ -17051,10 +18080,10 @@ function installScrollRouter(opts) {
         if (isRescue) {
           recentAsrMatches = [];
           lastCandidate = -1;
-          stableSince = now;
+          stableSince = now2;
           recordAsrReject(
             telemetry,
-            now,
+            now2,
             "reject_rescue",
             mode,
             sessionPhase2,
@@ -17066,10 +18095,10 @@ function installScrollRouter(opts) {
         }
         if (blockIdx !== lastCandidate) {
           lastCandidate = blockIdx;
-          stableSince = now;
+          stableSince = now2;
           recordAsrReject(
             telemetry,
-            now,
+            now2,
             "reject_stability",
             mode,
             sessionPhase2,
@@ -17080,10 +18109,10 @@ function installScrollRouter(opts) {
           return;
         }
         const requiredStable = committedBlockIdx < 0 ? ASR_INTENT_FIRST_STABLE_MS : ASR_INTENT_STABLE_MS;
-        if (now - stableSince < requiredStable) {
+        if (now2 - stableSince < requiredStable) {
           recordAsrReject(
             telemetry,
-            now,
+            now2,
             "reject_stability",
             mode,
             sessionPhase2,
@@ -17101,7 +18130,7 @@ function installScrollRouter(opts) {
           let completionEvidence = telemetry?.completionEvidence ?? null;
           if (!completionEvidence) {
             try {
-              completionEvidence = buildCompletionEvidence(committedBlockIdx, blockIdx, now);
+              completionEvidence = buildCompletionEvidence(committedBlockIdx, blockIdx, now2);
             } catch (err) {
               if (isDevMode2()) {
                 try {
@@ -17143,7 +18172,7 @@ function installScrollRouter(opts) {
               } else if (completionDecision.status === "incomplete") {
                 recordAsrReject(
                   telemetry,
-                  now,
+                  now2,
                   `reject_completion_${completionDecision.reason}`,
                   mode,
                   sessionPhase2,
@@ -17167,10 +18196,10 @@ function installScrollRouter(opts) {
         }
         seekToBlockAnimated(blockIdx, "asr_commit");
         committedBlockIdx = blockIdx;
-        lastCommitAt = now;
+        lastCommitAt = now2;
         recordAsrAccept(
           telemetry,
-          now,
+          now2,
           mode,
           sessionPhase2,
           committedBlockIdx,
@@ -17187,6 +18216,20 @@ function installScrollRouter(opts) {
       console.info("[scroll-router] tp:scroll:intent listener installed");
     } catch {
     }
+  }
+  let lastAutoIntentMotorRequest = { kind: "auto", source: "unknown" };
+  function normalizeRequestedMotorKind(raw) {
+    const value = String(raw || "").toLowerCase();
+    if (value === "auto" || value === "hybrid") return value;
+    return null;
+  }
+  function resolveAutoIntentMotorRequest(detail, mode, reasonRaw) {
+    const source = typeof detail?.source === "string" ? detail.source : reasonRaw || "unknown";
+    if (mode === "asr") return { kind: "auto", source };
+    const explicit = normalizeRequestedMotorKind(detail?.motorKind) || normalizeRequestedMotorKind(detail?.kind) || normalizeRequestedMotorKind(detail?.intent?.kind);
+    if (explicit) return { kind: explicit, source };
+    if (mode === "hybrid") return { kind: "hybrid", source };
+    return { kind: "auto", source };
   }
   function resolveAutoIntentEnabled(detail) {
     if (typeof detail.enabled === "boolean") return detail.enabled;
@@ -17231,6 +18274,28 @@ function installScrollRouter(opts) {
       const enabled = resolveAutoIntentEnabled(detail);
       if (typeof enabled !== "boolean") return null;
       const reasonRaw = resolveAutoIntentReason(detail);
+      const mode = getScrollMode2();
+      const currentPhase = String(appStoreSingleton.get("session.phase") || sessionPhase2);
+      const asrArmed = !!appStoreSingleton.get("session.asrArmed");
+      const reasonNormalized = String(reasonRaw || "").trim().toLowerCase();
+      const reasonCompact = reasonNormalized.replace(/[^a-z]/g, "");
+      const isScriptEndReason = reasonCompact === "scriptend";
+      const ignoreAsrScriptEnd = !enabled && isScriptEndReason && mode === "asr" && currentPhase === "live" && asrArmed;
+      if (ignoreAsrScriptEnd) {
+        if (isDevMode2()) {
+          try {
+            console.warn("[AUTO_INTENT] scriptEnd ignored in live armed ASR", {
+              enabled,
+              reason: reasonRaw ?? null,
+              mode,
+              phase: currentPhase,
+              asrArmed
+            });
+          } catch {
+          }
+        }
+        return null;
+      }
       if (shouldIgnoreHybridStop(reasonRaw, enabled)) {
         try {
           console.info("[AUTO_INTENT] hybrid stop ignored (live, non-fatal reason)", { reason: reasonRaw });
@@ -17238,17 +18303,17 @@ function installScrollRouter(opts) {
         }
         return null;
       }
+      const motorRequest = resolveAutoIntentMotorRequest(detail, mode, reasonRaw);
+      lastAutoIntentMotorRequest = motorRequest;
       setAutoIntentState(enabled, reasonRaw);
-      const mode = getScrollMode2();
       const allowAutoMotor = mode !== "asr";
       const brain = String(appStoreSingleton.get("scrollBrain") || "auto");
       const baseDecision = enabled ? "motor-start-request" : "motor-stop-request";
       const decision = allowAutoMotor ? baseDecision : "motor-stop-request";
       const pxPerSec = typeof getCurrentSpeed === "function" ? getCurrentSpeed() : void 0;
-      const currentPhase = String(appStoreSingleton.get("session.phase") || sessionPhase2);
       try {
         console.info(
-          `[scroll-router] tp:auto:intent mode=${state22.mode} brain=${brain} phase=${sessionPhase2} decision=${decision} userEnabled=${userEnabled}`
+          `[scroll-router] tp:auto:intent mode=${state22.mode} brain=${brain} phase=${sessionPhase2} decision=${decision} userEnabled=${userEnabled} motorKind=${motorRequest.kind} source=${motorRequest.source}`
         );
         console.warn(
           "[AUTO_INTENT]",
@@ -17256,6 +18321,10 @@ function installScrollRouter(opts) {
           state22.mode,
           "enabled=",
           enabled,
+          "motorKind=",
+          motorRequest.kind,
+          "source=",
+          motorRequest.source,
           "pxPerSec=",
           pxPerSec,
           "sessionPhase=",
@@ -17278,7 +18347,14 @@ function installScrollRouter(opts) {
         emitAutoState();
       } catch {
       }
-      return { enabled, decision, pxs, reason: reasonRaw };
+      return {
+        enabled,
+        decision,
+        pxs,
+        reason: reasonRaw,
+        motorKind: motorRequest.kind,
+        motorSource: motorRequest.source
+      };
     } catch {
     }
     return null;
@@ -17286,14 +18362,28 @@ function installScrollRouter(opts) {
   function processAutoIntent(detail) {
     const payload = handleAutoIntent(detail);
     if (!payload) return;
-    const { enabled, decision, pxs, reason } = payload;
+    const { enabled, decision, pxs, reason, motorKind, motorSource } = payload;
     const mode = getScrollMode2();
+    const currentPhase = String(appStoreSingleton.get("session.phase") || sessionPhase2);
+    if (enabled && currentPhase !== "live") {
+      try {
+        console.info("[AUTO_INTENT] start ignored: session not live", {
+          mode,
+          phase: currentPhase,
+          reason: reason ?? "unknown"
+        });
+      } catch {
+      }
+      return;
+    }
     const pxps = typeof getCurrentSpeed === "function" ? getCurrentSpeed() : void 0;
     const chosenMotor = mode === "hybrid" ? "hybrid" : "auto";
     try {
       console.warn("[AUTO_INTENT] processor RUN", {
         enabled,
         mode,
+        motorKind,
+        source: motorSource,
         pxps,
         chosenMotor,
         viewerRole,
@@ -17549,19 +18639,19 @@ function installScrollRouter(opts) {
   }
   function handleHybridSilenceTimeout2() {
     hybridSilence.timeoutId = null;
-    const now = nowMs();
-    if (liveGraceWindowEndsAt != null && now >= liveGraceWindowEndsAt) {
+    const now2 = nowMs();
+    if (liveGraceWindowEndsAt != null && now2 >= liveGraceWindowEndsAt) {
       liveGraceWindowEndsAt = null;
     }
-    if (liveGraceWindowEndsAt != null && now < liveGraceWindowEndsAt) {
-      const delay = Math.max(0, liveGraceWindowEndsAt - now);
+    if (liveGraceWindowEndsAt != null && now2 < liveGraceWindowEndsAt) {
+      const delay = Math.max(0, liveGraceWindowEndsAt - now2);
       armHybridSilenceTimer2(delay || computeHybridSilenceDelayMs());
       return;
     }
     const softDelayMs = computeHybridSilenceDelayMs();
     const hardStopMs = HYBRID_SILENCE_HARD_STOP_MS;
-    const lastSpeechAtMs = hybridSilence.lastSpeechAtMs > 0 ? hybridSilence.lastSpeechAtMs : now;
-    const silentForMs = Math.max(0, now - lastSpeechAtMs);
+    const lastSpeechAtMs = hybridSilence.lastSpeechAtMs > 0 ? hybridSilence.lastSpeechAtMs : now2;
+    const silentForMs = Math.max(0, now2 - lastSpeechAtMs);
     const eligible = isHybridSessionEligible();
     const motorRunning = hybridMotor.isRunning();
     if (!eligible) {
@@ -17572,6 +18662,7 @@ function installScrollRouter(opts) {
       }
       hybridSilence.pausedBySilence = false;
       speechActive = false;
+      hybridSilence.speechHoldUntilMs = now2;
       emitHybridSafety();
       try {
         applyGate();
@@ -17587,6 +18678,7 @@ function installScrollRouter(opts) {
       }
       hybridSilence.pausedBySilence = false;
       speechActive = false;
+      hybridSilence.speechHoldUntilMs = now2;
       emitHybridSafety();
       try {
         applyGate();
@@ -17597,6 +18689,7 @@ function installScrollRouter(opts) {
     if (!motorRunning) return;
     hybridSilence.pausedBySilence = true;
     speechActive = false;
+    hybridSilence.speechHoldUntilMs = now2;
     runHybridVelocity(hybridSilence);
     emitHybridSafety();
     armHybridSilenceTimer2(softDelayMs);
@@ -17633,7 +18726,8 @@ function installScrollRouter(opts) {
     }
   }
   function startHybridMotorFromSpeedChange() {
-    if (getScrollMode2() !== "hybrid") {
+    const modeNow = getScrollMode2();
+    if (modeNow !== "hybrid") {
       logHybridModeMismatch("startHybridMotorFromSpeedChange");
       return;
     }
@@ -17644,8 +18738,8 @@ function installScrollRouter(opts) {
     ensureHybridMotorRunningForSpeech();
     armHybridSilenceTimer2();
   }
-  function isLiveGraceActive(now = nowMs()) {
-    return liveGraceWindowEndsAt != null && now < liveGraceWindowEndsAt;
+  function isLiveGraceActive(now2 = nowMs()) {
+    return liveGraceWindowEndsAt != null && now2 < liveGraceWindowEndsAt;
   }
   function noteHybridSpeechActivity(ts, opts2) {
     if (getScrollMode2() !== "hybrid") {
@@ -17653,14 +18747,15 @@ function installScrollRouter(opts) {
       return;
     }
     const perfNow = nowMs();
-    const now = normalizePerfTimestamp(ts, perfNow);
+    const now2 = normalizePerfTimestamp(ts, perfNow);
     if (typeof opts2?.noMatch === "boolean") {
       hybridLastNoMatch = opts2.noMatch;
     }
     const wasSpeechActive = speechActive;
     speechActive = true;
-    hybridSilence.lastSpeechAtMs = now;
-    setHybridSilence2(now);
+    markHybridSpeechPresent(now2);
+    hybridSilence.lastSpeechAtMs = now2;
+    setHybridSilence2(now2);
     liveGraceWindowEndsAt = null;
     const wasPausedBySilence = typeof opts2?.resumedFromSilence === "boolean" ? opts2.resumedFromSilence : hybridSilence.pausedBySilence;
     hybridSilence.pausedBySilence = false;
@@ -17709,7 +18804,30 @@ function installScrollRouter(opts) {
   }
   function updateHybridScaleFromDetail(detail) {
     if (state22.mode !== "hybrid" || !hybridWantedRunning) return;
-    const now = nowMs();
+    const now2 = nowMs();
+    const runtime = getHybridBlockRuntimeState();
+    const blocksNotReadyHold = isHybridBlocksNotReadyHold(now2, runtime);
+    if (blocksNotReadyHold) {
+      offScriptEvidence = 0;
+      lastOffScriptEvidenceTs = 0;
+      if (hybridSilence.offScriptActive) {
+        hybridSilence.offScriptActive = false;
+      }
+      if (Number.isFinite(hybridScale) && hybridScale !== RECOVERY_SCALE) {
+        setHybridScale2(RECOVERY_SCALE);
+      }
+      logHybridMatcherProbe("scale-hold:blocks-not-ready", {
+        blocksReady: runtime.blocksReady,
+        blockCount: runtime.blockCount,
+        blockSource: runtime.blockSource,
+        scriptHash: runtime.scriptHash,
+        scriptSig: runtime.scriptSig,
+        backendReady: runtime.backendReady,
+        matcherSource: runtime.matcherSource,
+        matcherSourceDetail: runtime.matcherSourceDetail
+      });
+      return;
+    }
     const inBandValue = detail.inBand;
     const inBand = inBandValue === 1 || inBandValue === true || inBandValue === "1";
     const bestSimRaw = detail.bestSim ?? detail.sim ?? detail.score;
@@ -17721,7 +18839,7 @@ function installScrollRouter(opts) {
     const nextScale = determineHybridScaleFromDetail(scaleDetail);
     if (nextScale == null) return;
     const logHud = () => {
-      syncOffScriptDuration(now);
+      syncOffScriptDuration(now2);
       const currentScale = Number.isFinite(hybridScale) ? hybridScale : 1;
       const decay = hybridSilence.offScriptActive ? computeOffScriptDecay(offScriptDurationMs) : 1;
       const effectiveScale = currentScale * decay;
@@ -17740,10 +18858,25 @@ function installScrollRouter(opts) {
     const goodMatch = nextScale === RECOVERY_SCALE && !significantNoMatch;
     if (goodMatch) {
       onScriptStreak += 1;
-      lastGoodMatchAtMs = now;
+      lastGoodMatchAtMs = now2;
       offScriptEvidence = 0;
       lastOffScriptEvidenceTs = 0;
       setHybridScale2(RECOVERY_SCALE);
+      logHybridTrace(
+        "evidence_counters",
+        {
+          source: "good-match",
+          onScriptStreak,
+          offScriptEvidence,
+          offScriptActive: hybridSilence.offScriptActive,
+          bestSim,
+          noMatch: isNoMatch,
+          nextScale
+        },
+        {
+          signature: `good|${onScriptStreak}|${offScriptEvidence}|${hybridSilence.offScriptActive ? 1 : 0}|${Number(bestSim ?? NaN).toFixed(2)}`
+        }
+      );
       logHud();
       return;
     }
@@ -17757,27 +18890,100 @@ function installScrollRouter(opts) {
       return;
     }
     onScriptStreak = 0;
-    if (lastOffScriptEvidenceTs && now - lastOffScriptEvidenceTs > OFFSCRIPT_EVIDENCE_RESET_MS) {
+    if (lastOffScriptEvidenceTs && now2 - lastOffScriptEvidenceTs > OFFSCRIPT_EVIDENCE_RESET_MS) {
       offScriptEvidence = 0;
     }
-    lastOffScriptEvidenceTs = now;
+    lastOffScriptEvidenceTs = now2;
     offScriptEvidence += 1;
     if (offScriptEvidence >= OFFSCRIPT_EVIDENCE_THRESHOLD) {
       offScriptEvidence = 0;
       setHybridScale2(nextScale);
     }
+    logHybridTrace(
+      "evidence_counters",
+      {
+        source: "offscript",
+        onScriptStreak,
+        offScriptEvidence,
+        offScriptActive: hybridSilence.offScriptActive,
+        bestSim,
+        noMatch: isNoMatch,
+        significantNoMatch,
+        nextScale
+      },
+      {
+        signature: `off|${onScriptStreak}|${offScriptEvidence}|${hybridSilence.offScriptActive ? 1 : 0}|${Number(bestSim ?? NaN).toFixed(2)}|${significantNoMatch ? 1 : 0}`
+      }
+    );
     logHud();
   }
   function handleTranscriptEvent(detail) {
     if (getScrollMode2() !== "hybrid") return;
     const perfNow = nowMs();
-    const now = normalizePerfTimestamp(detail.timestamp, perfNow);
+    const now2 = normalizePerfTimestamp(detail.timestamp, perfNow);
+    hybridMatcherSource = "tp:speech:transcript";
+    hybridMatcherSourceDetail = String(detail.source || "speech-loader");
     const isNoMatch = detail.noMatch === true;
+    const inBand = detail.inBand === true || detail.inBand === 1 || detail.inBand === "1";
+    const bestIdxRaw = detail.bestIdx ?? detail.line ?? detail.idx ?? detail.match?.bestIdx;
+    const bestIdx = Number.isFinite(Number(bestIdxRaw)) ? Math.max(0, Math.floor(Number(bestIdxRaw))) : -1;
+    const simRaw = detail.bestSim ?? detail.sim ?? detail.score ?? detail.match?.bestSim;
+    const parsedBestSim = Number.isFinite(Number(simRaw)) ? Number(simRaw) : Number.NaN;
+    const inferredBestSim = Number.isFinite(parsedBestSim) ? parsedBestSim : isNoMatch ? Number.NaN : inBand ? HYBRID_ON_SCRIPT_SIM : HYBRID_OFFSCRIPT_MILD_SIM;
+    const currentIdxRaw = detail.currentIdx ?? detail.match?.currentIdx ?? window?.currentIndex;
+    const currentIdx = Number.isFinite(Number(currentIdxRaw)) ? Math.max(0, Math.floor(Number(currentIdxRaw))) : lastAsrMatch.currentIndex;
+    const speechPresentNow = isHybridSpeechPresent(now2);
+    const ingressMatchState = getHybridMatchState();
+    logHybridTrace(
+      "transcript_ingress",
+      {
+        source: detail.source || "speech-loader",
+        noMatch: isNoMatch,
+        bestIdx,
+        sim: Number.isFinite(inferredBestSim) ? Number(inferredBestSim.toFixed(3)) : null,
+        speechPresent: speechPresentNow,
+        hardNoMatch: ingressMatchState.hardNoMatch
+      },
+      {
+        throttleMs: 60,
+        signature: `${isNoMatch ? 1 : 0}|${bestIdx}|${Number(inferredBestSim).toFixed(3)}|${speechPresentNow ? 1 : 0}|${ingressMatchState.hardNoMatch ? 1 : 0}`
+      }
+    );
+    if (!isNoMatch && bestIdx >= 0) {
+      hybridMatchSeen = true;
+      hybridLastMatch = {
+        bestIdx,
+        bestSim: inferredBestSim,
+        isFinal: Boolean(detail.isFinal ?? detail.final),
+        ts: now2
+      };
+      lastAsrMatch = {
+        currentIndex: currentIdx,
+        bestIndex: bestIdx,
+        bestSim: inferredBestSim
+      };
+      if (Number.isFinite(inferredBestSim) && inferredBestSim >= HYBRID_HARD_NOMATCH_SIM_MIN) {
+        hybridLastNoMatch = false;
+      }
+      logHybridTrace(
+        "match_latch",
+        {
+          latchedMatch: true,
+          bestIdx,
+          sim: Number.isFinite(inferredBestSim) ? Number(inferredBestSim.toFixed(3)) : null,
+          isFinal: Boolean(detail.isFinal ?? detail.final),
+          currentIdx
+        },
+        {
+          signature: `${bestIdx}|${Number(inferredBestSim).toFixed(3)}|${Boolean(detail.isFinal ?? detail.final) ? 1 : 0}|${currentIdx}`
+        }
+      );
+    }
     const wasSilent = hybridSilence.pausedBySilence;
-    hybridSilence.lastSpeechAtMs = now;
+    hybridSilence.lastSpeechAtMs = now2;
     hybridSilence.pausedBySilence = false;
     clearHybridSilenceTimer();
-    noteHybridSpeechActivity(now, {
+    noteHybridSpeechActivity(now2, {
       source: detail.source || "transcript",
       noMatch: isNoMatch,
       resumedFromSilence: wasSilent
@@ -17825,8 +19031,11 @@ function installScrollRouter(opts) {
       const detail = ev.detail || {};
       const ts = typeof detail.ts === "number" ? detail.ts : nowMs();
       if (getScrollMode2() !== "hybrid") return;
+      hybridMatcherSource = "tp:asr:sync";
+      hybridMatcherSourceDetail = String(detail.source || "sync");
+      const noMatch = detail.noMatch === true;
       try {
-        noteHybridSpeechActivity(ts, { source: "sync", noMatch: detail.noMatch === true });
+        noteHybridSpeechActivity(ts, { source: "sync", noMatch });
       } catch (err) {
         handleHybridFatalOnce(err);
         return;
@@ -17863,9 +19072,20 @@ function installScrollRouter(opts) {
   } catch {
   }
   try {
-    window.addEventListener("tp:asr:guard", () => {
+    window.addEventListener("tp:asr:guard", (ev) => {
       try {
-        markHybridOffScriptFn?.();
+        if (getScrollMode2() !== "hybrid") return;
+        const detail = ev.detail || {};
+        if (isDevMode2()) {
+          try {
+            console.info("[HYBRID] structural guard (no offscript decay)", {
+              status: detail.status ?? null,
+              reason: detail.reason ?? null,
+              source: detail.source ?? null
+            });
+          } catch {
+          }
+        }
       } catch (err) {
         if (!guardHandlerErrorLogged) {
           guardHandlerErrorLogged = true;
@@ -17891,6 +19111,8 @@ function installScrollRouter(opts) {
   try {
     window.addEventListener("tp:hybrid:matchState", (ev) => {
       const detail = ev.detail || {};
+      hybridMatcherSource = "tp:hybrid:matchState";
+      hybridMatcherSourceDetail = String(detail.source || detail.reason || "match-state");
       const bestIdxRaw = detail.bestIdx;
       const bestSimRaw = detail.bestSim;
       const bestIdx = Number.isFinite(bestIdxRaw) ? bestIdxRaw : -1;
@@ -17950,8 +19172,8 @@ function installScrollRouter(opts) {
     runHybridVelocity(hybridSilence);
     return true;
   }
-  function getActiveBrakeFactor(now = nowMs()) {
-    if (hybridBrakeState.expiresAt <= now) {
+  function getActiveBrakeFactor(now2 = nowMs()) {
+    if (hybridBrakeState.expiresAt <= now2) {
       if (hybridBrakeState.factor !== 1 || hybridBrakeState.expiresAt !== 0) {
         hybridBrakeState = { factor: 1, expiresAt: 0, reason: null };
       }
@@ -17959,11 +19181,11 @@ function installScrollRouter(opts) {
     }
     return hybridBrakeState.factor;
   }
-  function getActiveAssistBoost(now = nowMs(), pauseTailEligible = false) {
-    if (hybridAssistState.expiresAt > now) {
+  function getActiveAssistBoost(now2 = nowMs(), pauseTailEligible = false) {
+    if (hybridAssistState.expiresAt > now2) {
       return hybridAssistState.boostPxps;
     }
-    const tailActive = pauseTailEligible && pauseAssistTailBoost > 0 && pauseAssistTailUntil > now;
+    const tailActive = pauseTailEligible && pauseAssistTailBoost > 0 && pauseAssistTailUntil > now2;
     if (tailActive) {
       return pauseAssistTailBoost;
     }
@@ -17978,7 +19200,7 @@ function installScrollRouter(opts) {
   }
   function handleHybridBrakeEvent(ev) {
     if (state22.mode !== "hybrid") return;
-    const now = nowMs();
+    const now2 = nowMs();
     const detail = ev?.detail || {};
     const factorRaw = Number(detail.factor);
     const safeFactor = Number.isFinite(factorRaw) ? clamp2(factorRaw, 0, 1) : 1;
@@ -17987,13 +19209,13 @@ function installScrollRouter(opts) {
     const reason = typeof detail.reason === "string" ? detail.reason : null;
     if (reason === "asr-pursuit") {
       if (isDevMode2()) {
-        const elapsed = now - lastIgnoredAsrPursuitLogAt;
+        const elapsed = now2 - lastIgnoredAsrPursuitLogAt;
         if (elapsed >= IGNORED_ASR_PURSUIT_LOG_THROTTLE_MS) {
-          lastIgnoredAsrPursuitLogAt = now;
+          lastIgnoredAsrPursuitLogAt = now2;
           try {
             console.info(
               `[HYBRID_BRAKE] ignored asr-pursuit ${JSON.stringify({
-                now,
+                now: now2,
                 safeFactor,
                 ttl,
                 reason
@@ -18006,10 +19228,10 @@ function installScrollRouter(opts) {
       return;
     }
     const prev = hybridBrakeState;
-    const prevActive = prev.expiresAt > now;
+    const prevActive = prev.expiresAt > now2;
     const prevFactor = prev.factor;
     const prevReason = prev.reason;
-    const remaining = prev.expiresAt - now;
+    const remaining = prev.expiresAt - now2;
     const FACTOR_EPS = 0.01;
     const REFRESH_WINDOW_MS = 120;
     const sameFactor = Math.abs(prevFactor - safeFactor) <= FACTOR_EPS;
@@ -18019,7 +19241,7 @@ function installScrollRouter(opts) {
         try {
           console.info(
             `[HYBRID_BRAKE] ignore refresh ${JSON.stringify({
-              now,
+              now: now2,
               safeFactor,
               ttl,
               reason,
@@ -18040,7 +19262,7 @@ function installScrollRouter(opts) {
       try {
         console.warn(
           `[HYBRID_BRAKE_SET] ${JSON.stringify({
-            now,
+            now: now2,
             factor: hybridBrakeState.factor,
             ttl,
             expiresAt: hybridBrakeState.expiresAt,
@@ -18112,17 +19334,17 @@ function installScrollRouter(opts) {
       lineIndex
     };
   }
-  function computeEffectiveHybridScale(now, silence = hybridSilence, pauseLikelyOverride, forceOffScript = false, candidateErrorLines, weakMatch = false) {
-    syncOffScriptDuration(now);
+  function computeEffectiveHybridScale(now2, silence = hybridSilence, pauseLikelyOverride, forceOffScript = false, candidateErrorLines, weakMatch = false) {
+    syncOffScriptDuration(now2);
     const pauseLikely = typeof pauseLikelyOverride === "boolean" ? pauseLikelyOverride : isPlannedPauseLikely();
     const scaleFromSilence = silence.pausedBySilence && pauseLikely ? PAUSE_DRIFT_SCALE : silence.pausedBySilence ? SILENCE_SCALE : 1;
     const offScriptActive = forceOffScript || silence.offScriptActive;
     const offScriptDecay = silence.offScriptActive ? computeOffScriptDecay(offScriptDurationMs) : 1;
     const scaleFromOffscript = offScriptActive ? OFFSCRIPT_SCALE * offScriptDecay : 1;
-    const graceActive = isHybridGraceActive(now);
+    const graceActive = isHybridGraceActive(now2);
     const scaleFromGrace = GRACE_MIN_SCALE;
     const nearTarget = Number.isFinite(candidateErrorLines ?? NaN) && Math.abs(candidateErrorLines ?? 0) <= HYBRID_CTRL_MODE_DEADBAND_LINES;
-    const onScriptLocked = onScriptStreak >= 2 && now - lastGoodMatchAtMs < ON_SCRIPT_LOCK_HOLD_MS && !weakMatch && !offScriptActive && nearTarget;
+    const onScriptLocked = onScriptStreak >= 2 && now2 - lastGoodMatchAtMs < ON_SCRIPT_LOCK_HOLD_MS && !weakMatch && !offScriptActive && nearTarget;
     if (onScriptLocked) {
       return {
         scale: 1,
@@ -18170,13 +19392,105 @@ function installScrollRouter(opts) {
     };
   }
   function applyHybridVelocityCore2(silence = hybridSilence) {
+    const mode = getScrollMode2();
+    if (mode !== "hybrid") {
+      if (state22.mode !== mode) state22.mode = mode;
+      assertHybridStoppedIfNotHybrid("applyHybridVelocityCore");
+      return;
+    }
+    if (state22.mode !== "hybrid") state22.mode = "hybrid";
     const candidateBase = Number.isFinite(hybridBasePxps) ? hybridBasePxps : 0;
     const base = candidateBase > 0 ? candidateBase : HYBRID_BASELINE_FLOOR_PXPS;
-    const now = nowMs();
+    const now2 = nowMs();
+    const runtime = getHybridBlockRuntimeState();
+    const blocksNotReadyHold = isHybridBlocksNotReadyHold(now2, runtime);
+    if (blocksNotReadyHold) {
+      offScriptEvidence = 0;
+      offScriptStreak = 0;
+      lastOffScriptEvidenceTs = 0;
+      if (hybridSilence.offScriptActive) {
+        hybridSilence.offScriptActive = false;
+      }
+      if (Number.isFinite(hybridScale) && hybridScale !== RECOVERY_SCALE) {
+        setHybridScale2(RECOVERY_SCALE);
+      }
+    }
     const matchState = getHybridMatchState();
     const { bestSim, sawNoMatch, weakMatch: baseWeakMatch, hardNoMatch } = matchState;
+    const sawNoMatchEffective = blocksNotReadyHold ? false : sawNoMatch;
+    const hardNoMatchEffective = blocksNotReadyHold ? false : hardNoMatch;
+    const speechPresent = isHybridSpeechPresent(now2);
+    if (speechPresent && hardNoMatchEffective) {
+      if (!(hardNoMatchSinceMs > 0)) {
+        hardNoMatchSinceMs = now2;
+      }
+    } else if (hardNoMatchSinceMs > 0) {
+      hardNoMatchSinceMs = 0;
+    }
+    const hardNoMatchAgeMs = hardNoMatchSinceMs > 0 ? Math.max(0, now2 - hardNoMatchSinceMs) : 0;
+    const hardNoMatchOffScriptActive = !blocksNotReadyHold && speechPresent && hardNoMatchEffective && hardNoMatchAgeMs >= HYBRID_HARD_NOMATCH_OFFSCRIPT_GRACE_MS;
+    const traceClampStage = (stage, inPxps, outPxps, reason2, extra) => {
+      if (!Number.isFinite(inPxps) || !Number.isFinite(outPxps)) return;
+      const delta = Math.abs(outPxps - inPxps);
+      if (delta < 0.01) return;
+      const inRounded = Number(inPxps.toFixed(2));
+      const outRounded = Number(outPxps.toFixed(2));
+      logHybridTrace(
+        "clamp_stage",
+        {
+          stage,
+          inPxps: inRounded,
+          outPxps: outRounded,
+          reason: reason2,
+          ...extra
+        },
+        {
+          signature: `${stage}|${inRounded.toFixed(2)}|${outRounded.toFixed(2)}|${reason2}|${typeof extra?.reasonTag === "string" ? extra.reasonTag : ""}`
+        }
+      );
+    };
+    const boundMultiplier = (name, rawValue, minValue, maxValue, reasonTag, fallback = 1) => {
+      const finiteRaw = Number.isFinite(rawValue) ? rawValue : fallback;
+      const bounded = clamp2(finiteRaw, minValue, maxValue);
+      if (bounded !== finiteRaw || !Number.isFinite(rawValue)) {
+        logHybridTrace(
+          "multiplier_cap",
+          {
+            name,
+            inMult: Number.isFinite(rawValue) ? Number(rawValue.toFixed(3)) : null,
+            fallback,
+            outMult: Number(bounded.toFixed(3)),
+            minMult: Number(minValue.toFixed(3)),
+            maxMult: Number(maxValue.toFixed(3)),
+            reasonTag
+          },
+          {
+            signature: `${name}|${Number.isFinite(rawValue) ? Number(rawValue).toFixed(3) : "nonfinite"}|${bounded.toFixed(3)}|${minValue.toFixed(3)}|${maxValue.toFixed(3)}|${reasonTag}`
+          }
+        );
+      }
+      return bounded;
+    };
+    logHybridTrace(
+      "clamp_input",
+      {
+        basePxps: Number(base.toFixed(2)),
+        speechPresent,
+        offScriptActive: hybridSilence.offScriptActive || hardNoMatchOffScriptActive,
+        hardNoMatch: hardNoMatchEffective,
+        sim: Number.isFinite(bestSim ?? NaN) ? Number(bestSim.toFixed(3)) : null,
+        blocksNotReadyHold
+      },
+      {
+        throttleMs: 50,
+        signature: `${Number(base).toFixed(2)}|${speechPresent ? 1 : 0}|${hybridSilence.offScriptActive || hardNoMatchOffScriptActive ? 1 : 0}|${hardNoMatchEffective ? 1 : 0}|${Number(bestSim ?? NaN).toFixed(3)}|${blocksNotReadyHold ? 1 : 0}`
+      }
+    );
+    if (hardNoMatchOffScriptActive && !hybridSilence.offScriptActive) {
+      setHybridScale2(OFFSCRIPT_DEEP);
+    }
     const matchSimValue = Number.isFinite(bestSim ?? NaN) && bestSim != null ? bestSim : null;
-    const matchKnown = hybridMatchSeen && matchSimValue != null && matchSimValue > 0 && !sawNoMatch;
+    const matchKnown = hybridMatchSeen && matchSimValue != null && matchSimValue > 0 && !sawNoMatchEffective;
     const matchReason = matchKnown ? hybridLastMatch?.isFinal ? "asr-final" : "asr" : "unknown";
     if (isDevMode2() && !hybridCtrl.engagedLogged) {
       hybridCtrl.engagedLogged = true;
@@ -18187,11 +19501,11 @@ function installScrollRouter(opts) {
       } catch {
       }
     }
-    const silenceMs = getSilenceMs(now);
-    const errorInfo = computeHybridErrorPx(now);
+    const silenceMs = getSilenceMs(now2);
+    const errorInfo = computeHybridErrorPx(now2);
     const driftWeakMatch = isHybridDriftWeak(errorInfo);
-    const weakMatch = baseWeakMatch || driftWeakMatch;
-    const eligibility = evaluateHybridEligibility(now);
+    const weakMatch = blocksNotReadyHold ? false : baseWeakMatch || driftWeakMatch;
+    const eligibility = evaluateHybridEligibility(now2);
     const eligible = eligibility.eligible;
     const eligibleReason = eligibility.reason;
     const normalizedError = eligible && errorInfo ? normalizeHybridError(errorInfo.errorPx) : 0;
@@ -18226,31 +19540,77 @@ function installScrollRouter(opts) {
     hybridCtrl.lineTargetMult = Number.isFinite(candidateTargetMult ?? NaN) ? Number(candidateTargetMult) : null;
     hybridCtrl.lineSource = targetMultSource;
     const silenceCap = computeSilenceCapMultiplier(silenceMs);
-    const dtMs = hybridCtrl.lastTs > 0 ? Math.max(0, now - hybridCtrl.lastTs) : 0;
+    const dtMs = hybridCtrl.lastTs > 0 ? Math.max(0, now2 - hybridCtrl.lastTs) : 0;
     const errorLinesRaw = Number.isFinite(errorInfo?.errorLines ?? NaN) && errorInfo?.errorLines != null ? errorInfo.errorLines : Number.isFinite(effectiveErrorLines ?? NaN) ? effectiveErrorLines : 0;
     const lineMult = updateHybridLineMult(candidateTargetMult, dtMs, errorLinesRaw > 0);
     let appliedTargetMult = Number.isFinite(lineMult) ? lineMult : 1;
-    const offScriptSeverity = computeOffScriptSeverity();
+    const offScriptSeverity = blocksNotReadyHold ? 0 : computeOffScriptSeverity();
     const offScriptCap = Math.max(
       HYBRID_CTRL_MIN_MULT,
       1 - offScriptSeverity * HYBRID_CTRL_OFFSCRIPT_PENALTY
     );
+    const preSilenceCapMult = appliedTargetMult;
     appliedTargetMult = Math.min(appliedTargetMult, silenceCap);
+    traceClampStage(
+      "silence_cap",
+      base * preSilenceCapMult,
+      base * appliedTargetMult,
+      "silenceCap",
+      { silenceCap: Number(silenceCap.toFixed(3)) }
+    );
+    const preOffScriptCapMult = appliedTargetMult;
     appliedTargetMult = Math.min(appliedTargetMult, offScriptCap);
+    traceClampStage(
+      "offscript_cap",
+      base * preOffScriptCapMult,
+      base * appliedTargetMult,
+      "offScriptCap",
+      { offScriptCap: Number(offScriptCap.toFixed(3)) }
+    );
+    const preMinMultClamp = appliedTargetMult;
     appliedTargetMult = Math.max(appliedTargetMult, HYBRID_CTRL_MIN_MULT);
+    traceClampStage(
+      "min_mult_floor",
+      base * preMinMultClamp,
+      base * appliedTargetMult,
+      "minMultFloor",
+      { minMult: Number(HYBRID_CTRL_MIN_MULT.toFixed(3)) }
+    );
     hybridCtrl.lastErrorPx = errorInfo?.errorPx ?? 0;
     hybridCtrl.lastAnchorTs = errorInfo?.anchorAgeMs ?? 0;
-    hybridCtrl.lastTs = now;
+    hybridCtrl.lastTs = now2;
     const targetMult = candidateTargetMult ?? 1;
-    const devOverrideMult = getHybridCtrlDevOverride(now);
+    const devOverrideMult = getHybridCtrlDevOverride(now2);
     const ctrlMultFinal = Number.isFinite(devOverrideMult) ? devOverrideMult : appliedTargetMult;
     hybridCtrl.mult = ctrlMultFinal;
-    const ctrlMultApplied = ctrlMultFinal;
+    const ctrlMultApplied = boundMultiplier(
+      "ctrl_mult",
+      ctrlMultFinal,
+      HYBRID_CTRL_MIN_MULT,
+      HYBRID_CTRL_CTRL_MULT_MAX,
+      "ctrlMult"
+    );
+    const baseWithCorrectionRaw = base * ctrlMultApplied;
+    const baseWithCorrection = Number.isFinite(baseWithCorrectionRaw) && baseWithCorrectionRaw > 0 ? baseWithCorrectionRaw : base;
+    if (!(Number.isFinite(baseWithCorrectionRaw) && baseWithCorrectionRaw > 0)) {
+      logHybridTrace(
+        "multiplier_cap",
+        {
+          name: "base_with_correction",
+          inPxps: Number.isFinite(baseWithCorrectionRaw) ? Number(baseWithCorrectionRaw.toFixed(2)) : null,
+          outPxps: Number(base.toFixed(2)),
+          reasonTag: "baseWithCorrectionFallback"
+        },
+        {
+          signature: `base_with_correction|${Number.isFinite(baseWithCorrectionRaw) ? baseWithCorrectionRaw.toFixed(2) : "nonfinite"}|${base.toFixed(2)}`
+        }
+      );
+    }
     const hybridScaleDetail = computeEffectiveHybridScale(
-      now,
+      now2,
       silence,
       void 0,
-      weakMatch,
+      weakMatch || hardNoMatchOffScriptActive,
       effectiveErrorLines,
       weakMatch
     );
@@ -18272,7 +19632,15 @@ function installScrollRouter(opts) {
     let effectiveScale = effectiveScaleRaw;
     const offScriptScale = hybridSilence.offScriptActive && Number.isFinite(hybridScale) ? clamp2(hybridScale, 0, 1) : 1;
     const offScriptMultiplier = offScriptActive && Number.isFinite(offScriptDecay) ? offScriptScale * offScriptDecay : 1;
-    const maxScale = aggro ? HYBRID_CTRL_AGGRO_MAX_MULT : HYBRID_CTRL_BASE_MAX_MULT;
+    const aggressiveCeiling = aggro || commitBoost;
+    const dynamicMaxMult = aggressiveCeiling ? HYBRID_CTRL_DYNAMIC_MAX_MULT_AGGRO : HYBRID_CTRL_DYNAMIC_MAX_MULT;
+    const dynamicMaxAbsMinPxps = aggressiveCeiling ? HYBRID_CTRL_DYNAMIC_MAX_ABS_MIN_PXPS_AGGRO : HYBRID_CTRL_DYNAMIC_MAX_ABS_MIN_PXPS;
+    const dynamicMaxAllowedPxps = Math.max(baseWithCorrection * dynamicMaxMult, dynamicMaxAbsMinPxps);
+    const dynamicMaxScale = dynamicMaxAllowedPxps / Math.max(baseWithCorrection, HYBRID_CTRL_MIN_PXPS);
+    const maxScale = Math.max(
+      aggro ? HYBRID_CTRL_AGGRO_MAX_MULT : HYBRID_CTRL_BASE_MAX_MULT,
+      Number.isFinite(dynamicMaxScale) ? dynamicMaxScale : HYBRID_CTRL_BASE_MAX_MULT
+    );
     const confMin = aggro && commitBoost ? 0.35 : 0.65;
     const simMin = aggro && commitBoost ? 0.45 : 0.55;
     const needCatchUp = Number.isFinite(errorLinesRaw) ? errorLinesRaw > 0 : false;
@@ -18281,6 +19649,30 @@ function installScrollRouter(opts) {
     const eligibleForAggro = needCatchUp && !pausedBySilence && !offScriptActive && reason !== "silence" && reason !== "offscript" && reason !== "grace";
     if ((aggro || commitBoost) && eligibleForAggro) {
       const gatingOk = aggro && commitBoost || conf >= confMin && sim >= simMin;
+      if (!gatingOk) {
+        const denyReasons = [];
+        if (conf < confMin) denyReasons.push("conf");
+        if (sim < simMin) denyReasons.push("sim");
+        logHybridTrace(
+          "catchup_gate_deny",
+          {
+            denied: true,
+            reason: denyReasons.length > 0 ? denyReasons.join("+") : "threshold",
+            conf: Number(conf.toFixed(3)),
+            confMin: Number(confMin.toFixed(3)),
+            sim: Number(sim.toFixed(3)),
+            simMin: Number(simMin.toFixed(3)),
+            needCatchUp,
+            aggro,
+            commitBoost,
+            errorLines: Number(errorLinesRaw.toFixed(3))
+          },
+          {
+            throttleMs: 80,
+            signature: `${denyReasons.join("+")}|${conf.toFixed(3)}|${sim.toFixed(3)}|${needCatchUp ? 1 : 0}|${aggro ? 1 : 0}|${commitBoost ? 1 : 0}`
+          }
+        );
+      }
       if (gatingOk) {
         const errBoost = clamp2(Math.abs(errorLinesRaw) / 6, 0, 1);
         const distanceScale = 1 + errBoost * (maxScale - 1);
@@ -18307,7 +19699,7 @@ function installScrollRouter(opts) {
     const pauseTailEligible = pauseLikely && silence.pausedBySilence;
     if (pauseTailEligible && hybridAssistState.boostPxps > 0) {
       pauseAssistTailBoost = hybridAssistState.boostPxps;
-      pauseAssistTailUntil = Math.max(pauseAssistTailUntil, now + PAUSE_ASSIST_TAIL_MS);
+      pauseAssistTailUntil = Math.max(pauseAssistTailUntil, now2 + PAUSE_ASSIST_TAIL_MS);
     } else if (!pauseTailEligible) {
       pauseAssistTailBoost = 0;
       pauseAssistTailUntil = 0;
@@ -18325,15 +19717,15 @@ function installScrollRouter(opts) {
       offScriptActive,
       pausedBySilence
     });
-    const brakeActive = hybridBrakeState.expiresAt > now;
-    const brakeTtl = Math.max(0, hybridBrakeState.expiresAt - now);
-    const assistActive = hybridAssistState.expiresAt > now;
-    const assistTtl = Math.max(0, hybridAssistState.expiresAt - now);
-    const brakeRaw = getActiveBrakeFactor(now);
+    const brakeActive = hybridBrakeState.expiresAt > now2;
+    const brakeTtl = Math.max(0, hybridBrakeState.expiresAt - now2);
+    const assistActive = hybridAssistState.expiresAt > now2;
+    const assistTtl = Math.max(0, hybridAssistState.expiresAt - now2);
+    const brakeRaw = getActiveBrakeFactor(now2);
     const brakeFactor = graceActive ? 1 : brakeRaw;
     const motorRunning = hybridMotor.isRunning();
     logHybridBrakeEvent({
-      now,
+      now: now2,
       brakeRaw,
       brakeFactor,
       graceActive,
@@ -18343,11 +19735,10 @@ function installScrollRouter(opts) {
       brakeTtl,
       motorRunning
     });
-    const rawAssist = getActiveAssistBoost(now, pauseTailEligible);
+    const rawAssist = getActiveAssistBoost(now2, pauseTailEligible);
     const suppressAssist = reason === "silence" || effectiveScale <= OFFSCRIPT_SCALE || reason === "grace";
     const assistCap = Math.max(0, base * HYBRID_ASSIST_CAP_FRAC);
     const assistBoost = suppressAssist ? 0 : Math.min(rawAssist, assistCap);
-    const baseWithCorrection = base * ctrlMultApplied;
     const deltaLines = Number.isFinite(errorLinesRaw) ? errorLinesRaw : 0;
     const absDL = Math.abs(deltaLines);
     const deadbandLines = aggro ? 0.45 : 0.75;
@@ -18369,30 +19760,102 @@ function installScrollRouter(opts) {
     } else {
       reasons.push("deadband");
     }
+    const reactiveScaleCap = Math.min(
+      HYBRID_CTRL_REACTIVE_MULT_MAX,
+      Math.max(HYBRID_CTRL_POLICY_MULT_MIN, maxScale)
+    );
+    reactiveScale = boundMultiplier(
+      "reactive_scale",
+      reactiveScale,
+      HYBRID_CTRL_POLICY_MULT_MIN,
+      reactiveScaleCap,
+      "reactiveScale"
+    );
     let policyMult = 1;
     if (pausedBySilence || reason === "silence") {
+      const inScale = reactiveScale * policyMult;
       const silenceMult = aggro ? 0.75 : 0.85;
       policyMult *= silenceMult;
+      const outScale = reactiveScale * policyMult;
+      traceClampStage(
+        "silence_policy",
+        baseWithCorrection * inScale,
+        baseWithCorrection * outScale,
+        "silencePolicy",
+        { silenceMult: Number(silenceMult.toFixed(3)) }
+      );
       reasons.push("silence");
     }
     if (offScriptActive || reason === "offscript") {
+      const inScale = reactiveScale * policyMult;
       const offscriptMult = aggro ? 0.8 : 0.9;
       policyMult *= offscriptMult;
+      const outScale = reactiveScale * policyMult;
+      traceClampStage(
+        "offscript_policy",
+        baseWithCorrection * inScale,
+        baseWithCorrection * outScale,
+        "offScriptPolicy",
+        { offscriptMult: Number(offscriptMult.toFixed(3)) }
+      );
       reasons.push("offscript");
     }
-    const preClampScale = reactiveScale * policyMult;
+    policyMult = boundMultiplier(
+      "policy_mult",
+      policyMult,
+      HYBRID_CTRL_POLICY_MULT_MIN,
+      HYBRID_CTRL_POLICY_MULT_MAX,
+      "policyMult"
+    );
+    const preClampScale = boundMultiplier(
+      "preclamp_scale",
+      reactiveScale * policyMult,
+      HYBRID_CTRL_POLICY_MULT_MIN,
+      HYBRID_CTRL_PRECLAMP_SCALE_MAX,
+      "preClampScale"
+    );
     let scaleAfterBrake = preClampScale;
     if (brakeActive) {
+      const beforeBrake = scaleAfterBrake;
       scaleAfterBrake = Math.min(scaleAfterBrake, brakeFactor);
+      traceClampStage(
+        "brake_clamp",
+        baseWithCorrection * beforeBrake,
+        baseWithCorrection * scaleAfterBrake,
+        "brakeCap",
+        { brakeFactor: Number(brakeFactor.toFixed(3)) }
+      );
       reasons.push("brakeCap");
     }
     let scaleAfterCaps = scaleAfterBrake;
-    const assistFloorScale = suppressAssistScale(rawAssist, baseWithCorrection);
+    const assistFloorScale = boundMultiplier(
+      "assist_floor_scale",
+      suppressAssistScale(rawAssist, baseWithCorrection),
+      0,
+      2.5,
+      "assistFloor",
+      0
+    );
     const assistEligible = assistActive && assistFloorScale > 0 && needCatchUp && conf >= confMin;
     if (assistEligible) {
+      const beforeAssistFloor = scaleAfterCaps;
       scaleAfterCaps = Math.max(scaleAfterCaps, assistFloorScale);
+      traceClampStage(
+        "assist_floor",
+        baseWithCorrection * beforeAssistFloor,
+        baseWithCorrection * scaleAfterCaps,
+        "assistFloor",
+        { assistFloorScale: Number(assistFloorScale.toFixed(3)) }
+      );
       reasons.push("assistFloor");
     }
+    scaleAfterCaps = boundMultiplier(
+      "scale_after_caps",
+      scaleAfterCaps,
+      HYBRID_CTRL_POLICY_MULT_MIN,
+      HYBRID_CTRL_PRECLAMP_SCALE_MAX,
+      "scaleAfterCaps"
+    );
     const minScale = HYBRID_CTRL_MIN_MULT;
     const maxClampScale = Math.max(maxScale, minScale);
     const isBehind = deltaLines > 0;
@@ -18403,9 +19866,45 @@ function installScrollRouter(opts) {
     if (scaleAfterCaps > maxClampScale) {
       finalScale = maxClampScale;
       clampReason = "maxClamp";
+      const inPxps = baseWithCorrection * scaleAfterCaps;
+      const maxAllowedPxps = baseWithCorrection * maxClampScale;
+      const outPxps = baseWithCorrection * finalScale;
+      let maxClampReasonTag = "maxClamp";
+      if (assistEligible && scaleAfterCaps > scaleAfterBrake + 1e-3) {
+        maxClampReasonTag = "assistFloor";
+      } else if (reactiveScale >= HYBRID_CTRL_REACTIVE_MULT_MAX - 1e-3) {
+        maxClampReasonTag = "reactiveScaleCap";
+      } else if (policyMult >= HYBRID_CTRL_POLICY_MULT_MAX - 1e-3) {
+        maxClampReasonTag = "policyMultCap";
+      } else if (ctrlMultApplied >= HYBRID_CTRL_CTRL_MULT_MAX - 1e-3) {
+        maxClampReasonTag = "ctrlMultCap";
+      } else if (Math.abs(maxAllowedPxps - dynamicMaxAbsMinPxps) <= 0.5) {
+        maxClampReasonTag = "dynamicAbsMinCeiling";
+      } else if (dynamicMaxAllowedPxps >= baseWithCorrection * dynamicMaxMult - 0.5) {
+        maxClampReasonTag = "dynamicMultCeiling";
+      }
+      traceClampStage(
+        "max_clamp",
+        inPxps,
+        outPxps,
+        "maxClamp",
+        {
+          maxClampScale: Number(maxClampScale.toFixed(3)),
+          maxAllowedPxps: Number(maxAllowedPxps.toFixed(2)),
+          inScale: Number(scaleAfterCaps.toFixed(3)),
+          reasonTag: maxClampReasonTag
+        }
+      );
     } else if (!clampOverride && scaleLimitedToMax < minScale) {
       finalScale = minScale;
       clampReason = "minClamp";
+      traceClampStage(
+        "min_clamp",
+        baseWithCorrection * scaleLimitedToMax,
+        baseWithCorrection * finalScale,
+        "minClamp",
+        { minScale: Number(minScale.toFixed(3)) }
+      );
     }
     if (clampReason) {
       reasons.push(clampReason);
@@ -18414,14 +19913,41 @@ function installScrollRouter(opts) {
     const distancePx = errorPx != null ? Math.abs(errorPx) : null;
     const stableOnTarget = distancePx != null && distancePx <= HYBRID_CTRL_ON_TARGET_STABLE_PX && Math.abs(deltaLines) <= HYBRID_CTRL_MODE_DEADBAND_LINES;
     if (stableOnTarget) {
+      const preStableClampScale = finalScale;
       finalScale = clamp2(finalScale, HYBRID_CTRL_ON_TARGET_MULT_MIN, HYBRID_CTRL_ON_TARGET_MULT_MAX);
+      traceClampStage(
+        "on_target_clamp",
+        baseWithCorrection * preStableClampScale,
+        baseWithCorrection * finalScale,
+        "stableOnTarget",
+        {
+          min: Number(HYBRID_CTRL_ON_TARGET_MULT_MIN.toFixed(3)),
+          max: Number(HYBRID_CTRL_ON_TARGET_MULT_MAX.toFixed(3))
+        }
+      );
     }
     if (offScriptMultiplier !== 1) {
+      const preOffScriptDecayScale = finalScale;
       finalScale *= offScriptMultiplier;
+      traceClampStage(
+        "offscript_decay",
+        baseWithCorrection * preOffScriptDecayScale,
+        baseWithCorrection * finalScale,
+        "offScriptDecay",
+        { offScriptMultiplier: Number(offScriptMultiplier.toFixed(3)) }
+      );
       reasons.push("offscriptDecay");
     }
-    const minPxps = offScriptMultiplier < 1 ? 0 : HYBRID_CTRL_MIN_PXPS;
-    const finalPxpsBase = Math.max(minPxps, baseWithCorrection * finalScale);
+    const minPxps = offScriptMultiplier < 1 ? speechPresent ? HYBRID_CTRL_MIN_PXPS * HYBRID_OFFSCRIPT_SPEECH_FLOOR_MULT : 0 : HYBRID_CTRL_MIN_PXPS;
+    const unclampedPxpsBase = baseWithCorrection * finalScale;
+    const finalPxpsBase = Math.max(minPxps, unclampedPxpsBase);
+    traceClampStage(
+      "min_pxps_floor",
+      unclampedPxpsBase,
+      finalPxpsBase,
+      speechPresent ? "speechFloor" : "minPxps",
+      { minPxps: Number(minPxps.toFixed(2)) }
+    );
     const assistFloorBoostPx = assistEligible && isBehind ? base * HYBRID_CTRL_ASSIST_BEHIND_BOOST_FRAC : 0;
     const finalPxps = finalPxpsBase + assistFloorBoostPx * offScriptMultiplier;
     const velocityPxps = Number.isFinite(finalPxps) ? Math.abs(finalPxps) : 0;
@@ -18438,6 +19964,25 @@ function installScrollRouter(opts) {
     }
     const finalReasons = reasons.length > 0 ? reasons : ["base"];
     const capReason = finalReasons.includes("silence") ? "silence" : finalReasons.includes("offscript") ? "offscript" : void 0;
+    if (isDevMode2() && now2 - lastHybridPolicyLogAt >= HYBRID_POLICY_LOG_THROTTLE_MS) {
+      lastHybridPolicyLogAt = now2;
+      const speedSettingRaw = getHybridSpeedSettingRaw();
+      try {
+        console.info("[HYBRID_POLICY]", {
+          speechPresent,
+          speechHoldRemainingMs: Math.round(getHybridSpeechHoldRemainingMs(now2)),
+          hardNoMatch: hardNoMatchEffective,
+          hardNoMatchAgeMs: Math.round(hardNoMatchAgeMs),
+          offScriptActive: offScriptActive || hardNoMatchOffScriptActive,
+          policyMult: Number(policyMult.toFixed(3)),
+          basePxps: Number(base.toFixed(2)),
+          finalPxps: Number(finalPxps.toFixed(2)),
+          speedSettingRaw,
+          speedUnit: "wpm"
+        });
+      } catch {
+      }
+    }
     logHybridMultDebug({
       basePxps: base,
       errorLines: errorInfo?.errorLines ?? null,
@@ -18449,7 +19994,7 @@ function installScrollRouter(opts) {
     logHybridCtrlState(
       base,
       baseWithCorrection,
-      now,
+      now2,
       errorInfo,
       silenceMs,
       eligible,
@@ -18528,8 +20073,9 @@ function installScrollRouter(opts) {
       lineMult,
       capReason,
       scaleReason: hybridScaleDetail.reason,
-      sawNoMatch,
-      hardNoMatch,
+      noMatch: sawNoMatchEffective || !matchKnown,
+      sawNoMatch: sawNoMatchEffective,
+      hardNoMatch: hardNoMatchEffective,
       offScriptActive: hybridScaleDetail.offScriptActive,
       bestSim,
       weakMatch,
@@ -18558,18 +20104,50 @@ function installScrollRouter(opts) {
         console.info("[HYBRID_FINAL_MILE]", logParts.join(" "));
         const matchSimLog = matchKnown ? matchSimValue : null;
         const stateParts = [
-          `noMatch=${sawNoMatch || !matchKnown}`,
+          `noMatch=${sawNoMatchEffective || !matchKnown}`,
+          `sawNoMatch=${sawNoMatchEffective}`,
           `weakMatch=${weakMatch}`,
-          `hardNoMatch=${hardNoMatch}`,
+          `hardNoMatch=${hardNoMatchEffective}`,
           `offScriptActive=${offScriptActive}`,
           `reason=${reason}`,
           `conf=${conf.toFixed(2)}`,
           `sim=${sim.toFixed(2)}`,
           `matchSim=${matchSimLog != null ? matchSimLog.toFixed(2) : "null"}`,
           `matchReason=${matchReason}`,
-          `targetTopSrc=${matchKnown ? errorInfo?.targetTopSource ?? "unknown" : "unknown"}`
+          `targetTopSrc=${matchKnown ? errorInfo?.targetTopSource ?? "unknown" : "unknown"}`,
+          `blocksReady=${runtime.blocksReady}`,
+          `blockCount=${runtime.blockCount}`,
+          `blockSource=${runtime.blockSource}`,
+          `backendReady=${runtime.backendReady}`,
+          `blocksHold=${blocksNotReadyHold}`,
+          `scriptHash=${runtime.scriptHash ?? "null"}`,
+          `scriptSig=${runtime.scriptSig ?? "null"}`,
+          `matcherSource=${runtime.matcherSource}`,
+          `matcherFeed=${runtime.matcherSourceDetail}`
         ];
         console.info("[HYBRID_FINAL_MILE_STATE]", stateParts.join(" "));
+        if (blocksNotReadyHold || sawNoMatchEffective || offScriptActive || hardNoMatchEffective) {
+          logHybridMatcherProbe("final-mile", {
+            noMatch: sawNoMatchEffective || !matchKnown,
+            sawNoMatch: sawNoMatchEffective,
+            weakMatch,
+            hardNoMatch: hardNoMatchEffective,
+            hardNoMatchAgeMs: Math.round(hardNoMatchAgeMs),
+            hardNoMatchOffScriptActive,
+            offScriptActive,
+            bestSim: matchSimLog,
+            reason,
+            blocksReady: runtime.blocksReady,
+            blockCount: runtime.blockCount,
+            blockSource: runtime.blockSource,
+            scriptHash: runtime.scriptHash,
+            scriptSig: runtime.scriptSig,
+            matcherSource: runtime.matcherSource,
+            matcherSourceDetail: runtime.matcherSourceDetail,
+            backendReady: runtime.backendReady,
+            blocksNotReadyHold
+          });
+        }
       } catch {
       }
     }
@@ -18590,6 +20168,21 @@ function installScrollRouter(opts) {
       } catch {
       }
     }
+    logHybridTrace(
+      "motor_velocity_set",
+      {
+        finalPxps: Number(finalPxps.toFixed(2)),
+        basePxps: Number(base.toFixed(2)),
+        finalScale: Number(finalScale.toFixed(3)),
+        speechPresent,
+        offScriptActive: offScriptActive || hardNoMatchOffScriptActive,
+        reason: finalReasons.join("|")
+      },
+      {
+        throttleMs: 30,
+        signature: `${finalPxps.toFixed(2)}|${base.toFixed(2)}|${finalScale.toFixed(3)}|${speechPresent ? 1 : 0}|${offScriptActive || hardNoMatchOffScriptActive ? 1 : 0}|${finalReasons.join("|")}`
+      }
+    );
     hybridMotor.setVelocityPxPerSec(finalPxps);
     emitHybridSafety();
     scheduleHybridVelocityRefresh();
@@ -18599,12 +20192,6 @@ function installScrollRouter(opts) {
     target.__tpApplyHybridVelocity = applyHybridVelocityCore2;
   } catch {
   }
-  function _markHybridOffScript() {
-    if (state22.mode !== "hybrid") return;
-    const changed = setHybridScale2(OFFSCRIPT_DEEP);
-    if (!changed) emitHybridSafety();
-  }
-  markHybridOffScriptFn = _markHybridOffScript;
   function suppressAssistScale(boost, base) {
     if (!Number.isFinite(boost) || boost <= 0) return 0;
     if (!Number.isFinite(base) || base <= 0) return 0;
@@ -18807,6 +20394,32 @@ function installScrollRouter(opts) {
   } catch {
   }
   let applyGateRaf = null;
+  const MOTOR_IGNORED_LOG_THROTTLE_MS = 2e3;
+  let lastMotorIgnoredLogAt = 0;
+  let lastMotorIgnoredLogKey = "";
+  function logAutoGateAction(action, mode, line, blockedReason = "") {
+    if (mode === "asr" && blockedReason === "blocked:mode-asr-motorless") {
+      return;
+    }
+    if (action !== "MOTOR_IGNORED_OFF") {
+      try {
+        console.info(line);
+      } catch {
+      }
+      return;
+    }
+    const now2 = Date.now();
+    const dedupeKey = `${mode}|${blockedReason}`;
+    if (dedupeKey === lastMotorIgnoredLogKey && now2 - lastMotorIgnoredLogAt < MOTOR_IGNORED_LOG_THROTTLE_MS) {
+      return;
+    }
+    lastMotorIgnoredLogKey = dedupeKey;
+    lastMotorIgnoredLogAt = now2;
+    try {
+      console.debug(line);
+    } catch {
+    }
+  }
   function scheduleApplyGate() {
     if (applyGateRaf != null) return;
     if (typeof window === "undefined" || typeof window.requestAnimationFrame !== "function") {
@@ -18855,10 +20468,17 @@ function installScrollRouter(opts) {
           }
         }
         const viewerReady = hasScrollableTarget();
+        const requestedMotorKind = lastAutoIntentMotorRequest.kind;
+        const requestedMotorSource = lastAutoIntentMotorRequest.source;
+        const livePhase = sessionPhase2 === "live";
         const sessionBlocked = !sessionIntentOn && !userEnabled;
         let autoBlocked = "blocked:sessionOff";
-        if (mode === "asr" || mode === "step" || mode === "rehearsal") {
+        if (mode === "step" || mode === "rehearsal") {
           autoBlocked = `blocked:mode-${mode}`;
+        } else if (mode === "asr") {
+          autoBlocked = "blocked:mode-asr-motorless";
+        } else if (!livePhase) {
+          autoBlocked = "blocked:livePhase";
         } else if (sessionBlocked) {
           autoBlocked = "blocked:sessionOff";
         } else if (!userEnabled) {
@@ -18871,17 +20491,29 @@ function installScrollRouter(opts) {
           autoBlocked = "none";
         }
         const want = autoBlocked === "none";
-        const prevEnabled = enabledNow && activeMotorBrain === "auto";
-        const action = want ? prevEnabled ? "MOTOR_ALREADY_RUNNING" : "MOTOR_START" : prevEnabled ? "MOTOR_STOP" : "MOTOR_IGNORED_OFF";
-        try {
-          console.info(
-            `[scroll-router] ${action} mode=${mode} sessionPhase=${sessionPhase2} sessionIntent=${sessionIntentOn} pxPerSec=${autoPxPerSec} blocked=${autoBlocked}`
-          );
-        } catch {
-        }
+        const prevEnabled = (enabledNow || !!auto?.getState?.().enabled) && activeMotorBrain === "auto";
+        const prevRunning = !!auto?.isRunning?.();
+        const action = want ? prevRunning ? "MOTOR_ALREADY_RUNNING" : "MOTOR_START" : prevEnabled ? "MOTOR_STOP" : "MOTOR_IGNORED_OFF";
+        logAutoGateAction(
+          action,
+          mode,
+          `[scroll-router] ${action} mode=${mode} reqKind=${requestedMotorKind} reqSource=${requestedMotorSource} sessionPhase=${sessionPhase2} sessionIntent=${sessionIntentOn} pxPerSec=${autoPxPerSec} blocked=${autoBlocked}`,
+          autoBlocked
+        );
         let emittedAutoStop = false;
         if (want) {
-          if (typeof auto.setEnabled === "function") auto.setEnabled(true);
+          try {
+            auto.setSpeed?.(autoPxPerSec);
+          } catch {
+          }
+          try {
+            auto.start?.();
+          } catch {
+          }
+          try {
+            auto.setEnabled?.(true);
+          } catch {
+          }
           enabledNow = true;
           setActiveMotor("auto", mode);
         } else {
@@ -18915,16 +20547,21 @@ function installScrollRouter(opts) {
       if (enabledNow) {
         stopAutoMotor("hybrid-gate");
       }
-      const now = nowMs();
+      const now2 = nowMs();
       const gateWanted = computeGateWanted();
       const phaseAllowed = canRunHybridMotor();
+      const runtime = getHybridBlockRuntimeState();
       const baseHybridPxPerSec = Number.isFinite(hybridBasePxps) ? Math.max(0, hybridBasePxps) : 0;
-      const lastSpeechAgeMs = Math.max(0, now - hybridSilence.lastSpeechAtMs);
-      const liveGraceActive = isLiveGraceActive(now);
-      const errorInfo = computeHybridErrorPx(now);
+      const lastSpeechAgeMs = Math.max(0, now2 - hybridSilence.lastSpeechAtMs);
+      const speechPresent = isHybridSpeechPresent(now2);
+      const speechHoldRemainingMs = getHybridSpeechHoldRemainingMs(now2);
+      const speechHeardRecently = speechPresent || lastSpeechAgeMs <= HYBRID_BLOCKS_NOT_READY_HOLD_MS;
+      const blocksNotReadyHold = runtime.backendReady && !runtime.blocksReady && speechHeardRecently;
+      const liveGraceActive = isLiveGraceActive(now2);
+      const errorInfo = computeHybridErrorPx(now2);
       const silenceStopMs = computeHybridSilenceDelayMs();
       const isSilent = !liveGraceActive && lastSpeechAgeMs >= silenceStopMs;
-      const speechAllowed = !isSilent;
+      const speechAllowed = !isSilent || blocksNotReadyHold;
       const gateSatisfied = isHybridBypass() ? true : gateWanted;
       const wantEnabled = hybridWantedRunning && userEnabled && phaseAllowed && (speechAllowed || gateSatisfied);
       let hybridBlockedReason = "none";
@@ -18943,18 +20580,31 @@ function installScrollRouter(opts) {
       const hybridRunning = hybridMotor.isRunning();
       const silenceSnapshot = hybridSilence?.getState?.() ?? hybridSilence ?? null;
       const safeSilence = silenceSnapshot ?? {
-        lastSpeechAtMs: now,
+        lastSpeechAtMs: now2,
         pausedBySilence: false,
         timeoutId: null,
         erroredOnce: false,
         offScriptActive: false
       };
       const matchState = getHybridMatchState();
+      const hardNoMatchEffective = blocksNotReadyHold ? false : matchState.hardNoMatch;
+      if (speechPresent && hardNoMatchEffective) {
+        if (!(hardNoMatchSinceMs > 0)) {
+          hardNoMatchSinceMs = now2;
+        }
+      } else if (hardNoMatchSinceMs > 0) {
+        hardNoMatchSinceMs = 0;
+      }
+      const hardNoMatchAgeMs = hardNoMatchSinceMs > 0 ? Math.max(0, now2 - hardNoMatchSinceMs) : 0;
+      const hardNoMatchOffScriptActive = !blocksNotReadyHold && speechPresent && hardNoMatchEffective && hardNoMatchAgeMs >= HYBRID_HARD_NOMATCH_OFFSCRIPT_GRACE_MS;
+      if (hardNoMatchOffScriptActive && !hybridSilence.offScriptActive) {
+        setHybridScale2(OFFSCRIPT_DEEP);
+      }
       const driftWeakMatch = isHybridDriftWeak(errorInfo);
-      const gateWeakMatch = matchState.weakMatch || driftWeakMatch;
-      const gateEffectiveOffScript = (safeSilence.offScriptActive ?? false) || gateWeakMatch;
+      const gateWeakMatch = blocksNotReadyHold ? false : matchState.weakMatch || driftWeakMatch;
+      const gateEffectiveOffScript = blocksNotReadyHold ? false : (safeSilence.offScriptActive ?? false) || gateWeakMatch || hardNoMatchOffScriptActive;
       const hybridScaleDetail = computeEffectiveHybridScale(
-        now,
+        now2,
         safeSilence,
         void 0,
         gateEffectiveOffScript,
@@ -18962,15 +20612,15 @@ function installScrollRouter(opts) {
         gateWeakMatch
       );
       const scale = hybridScaleDetail.scale;
-      const brake = getActiveBrakeFactor(now);
+      const brake = getActiveBrakeFactor(now2);
       const pxCandidate = baseHybridPxPerSec * scale * brake;
       const fallback = Math.max(
         HYBRID_CTRL_MIN_PXPS,
         Number.isFinite(baseHybridPxPerSec) ? baseHybridPxPerSec : HYBRID_CTRL_MIN_PXPS
       );
       const effectivePxPerSec = Number.isFinite(pxCandidate) && pxCandidate > 0 ? pxCandidate : fallback;
-      if (isDevMode2() && now - lastHybridCtrlDebugTs >= HYBRID_CTRL_DEBUG_THROTTLE_MS) {
-        lastHybridCtrlDebugTs = now;
+      if (isDevMode2() && now2 - lastHybridCtrlDebugTs >= HYBRID_CTRL_DEBUG_THROTTLE_MS) {
+        lastHybridCtrlDebugTs = now2;
         const targetTop = Number.isFinite(errorInfo?.targetScrollTop ?? NaN) && errorInfo?.targetScrollTop != null ? errorInfo.targetScrollTop : null;
         const markerTop = Number.isFinite(errorInfo?.markerY ?? NaN) && errorInfo?.markerY != null ? errorInfo.markerY : null;
         const deltaPx = Number.isFinite(errorInfo?.errorPx ?? NaN) && errorInfo?.errorPx != null ? errorInfo.errorPx : null;
@@ -19003,7 +20653,9 @@ function installScrollRouter(opts) {
         mode: state22.mode,
         phase: sessionPhase2,
         hybridWantedRunning,
-        asrEnabled: speechActive,
+        asrEnabled: speechPresent,
+        speechPresent,
+        speechHoldRemainingMs: Math.round(speechHoldRemainingMs),
         lastSpeechAgeMs,
         liveGraceActive,
         isSilent,
@@ -19018,6 +20670,19 @@ function installScrollRouter(opts) {
         gateWanted,
         phaseAllowed,
         blocked: hybridBlockedReason,
+        blocksReady: runtime.blocksReady,
+        blockCount: runtime.blockCount,
+        blockSource: runtime.blockSource,
+        blockSchemaVersion: runtime.schemaVersion,
+        scriptHash: runtime.scriptHash,
+        scriptSig: runtime.scriptSig,
+        matcherSource: runtime.matcherSource,
+        matcherSourceDetail: runtime.matcherSourceDetail,
+        backendReady: runtime.backendReady,
+        blocksNotReadyHold,
+        hardNoMatch: hardNoMatchEffective,
+        hardNoMatchAgeMs: Math.round(hardNoMatchAgeMs),
+        hardNoMatchOffScriptActive,
         viewer: {
           has: !!viewerEl,
           top: viewerEl?.scrollTop ?? -1,
@@ -19036,7 +20701,7 @@ function installScrollRouter(opts) {
         sessionPhase2,
         hybridWantedRunning ? "1" : "0",
         userEnabled ? "1" : "0",
-        speechActive ? "1" : "0",
+        speechPresent ? "1" : "0",
         gatePref,
         gateWanted ? "1" : "0",
         phaseAllowed ? "1" : "0",
@@ -19045,15 +20710,56 @@ function installScrollRouter(opts) {
         hybridRunning ? "1" : "0",
         shouldRunHybrid ? "1" : "0",
         Number.isFinite(effectivePxPerSec) ? effectivePxPerSec.toFixed(1) : "0",
-        Number.isFinite(hybridBasePxps) ? hybridBasePxps.toFixed(0) : "0"
+        Number.isFinite(hybridBasePxps) ? hybridBasePxps.toFixed(0) : "0",
+        runtime.blocksReady ? "1" : "0",
+        blocksNotReadyHold ? "1" : "0"
       ];
       const gateFingerprint = fingerprintParts.join("|");
+      logHybridTrace(
+        "gate_decision",
+        {
+          shouldRunHybrid,
+          gateReason: hybridBlockedReason,
+          speechPresent,
+          holdMs: Math.round(speechHoldRemainingMs),
+          offScriptActive: gateEffectiveOffScript,
+          hardNoMatch: hardNoMatchEffective,
+          blocksNotReadyHold,
+          gateWanted,
+          gateSatisfied,
+          wantEnabled,
+          effectivePxps: Number(effectivePxPerSec.toFixed(2))
+        },
+        {
+          signature: gateFingerprint
+        }
+      );
       if (gateFingerprint !== lastHybridGateFingerprint) {
         lastHybridGateFingerprint = gateFingerprint;
         try {
           console.warn("[HYBRID] gate", snap);
         } catch {
         }
+      }
+      if (blocksNotReadyHold || gateEffectiveOffScript || matchState.hardNoMatch) {
+        logHybridMatcherProbe("gate", {
+          blocksReady: runtime.blocksReady,
+          blockCount: runtime.blockCount,
+          blockSource: runtime.blockSource,
+          scriptHash: runtime.scriptHash,
+          scriptSig: runtime.scriptSig,
+          matcherSource: runtime.matcherSource,
+          matcherSourceDetail: runtime.matcherSourceDetail,
+          backendReady: runtime.backendReady,
+          blocksNotReadyHold,
+          hardNoMatch: hardNoMatchEffective,
+          hardNoMatchAgeMs: Math.round(hardNoMatchAgeMs),
+          hardNoMatchOffScriptActive,
+          weakMatch: gateWeakMatch,
+          offScriptActive: gateEffectiveOffScript,
+          speechActive: speechPresent,
+          lastSpeechAgeMs: Math.round(lastSpeechAgeMs)
+        });
       }
       if (shouldRunHybrid) {
         if (silenceTimer) {
@@ -19068,6 +20774,31 @@ function installScrollRouter(opts) {
         } catch {
         }
         if (!hybridRunning) {
+          if (isDevMode2()) {
+            try {
+              const sliderValue = (() => {
+                const slider = document.getElementById("wpmTarget");
+                if (!slider) return null;
+                const raw = Number(slider.value);
+                return Number.isFinite(raw) && raw > 0 ? raw : null;
+              })();
+              const storedValue = (() => {
+                const raw = Number(localStorage.getItem("tp_baseline_wpm"));
+                return Number.isFinite(raw) && raw > 0 ? raw : null;
+              })();
+              const clampReason = blocksNotReadyHold ? "blocks-not-ready-hold" : silencePaused ? "silence" : gateEffectiveOffScript ? "offscript" : hybridScaleDetail.reason || "none";
+              const speedSettingRaw = getHybridSpeedSettingRaw();
+              console.info("[HYBRID_SPEED]", {
+                sliderValue: speedSettingRaw ?? sliderValue,
+                storedValue,
+                speedSettingRaw,
+                speedUnit: "wpm",
+                basePxpsComputed: Number(baseHybridPxPerSec.toFixed(2)),
+                clampReason
+              });
+            } catch {
+            }
+          }
           try {
             console.info("[HYBRID] shouldRun true starting motor", {
               isRunningBefore: hybridRunning,
@@ -19102,7 +20833,7 @@ function installScrollRouter(opts) {
         emitMotorState2("hybridWpm", false);
         clearHybridSilenceTimer();
       }
-      const detail = `Mode: Hybrid \u2022 Pref: ${gatePref} \u2022 User: ${userEnabled ? "On" : "Off"} \u2022 Phase:${phaseAllowed ? "live" : "blocked"} \u2022 Speech:${speechActive ? "1" : "0"} \u2022 dB:${dbGate ? "1" : "0"} \u2022 VAD:${vadGate ? "1" : "0"}`;
+      const detail = `Mode: Hybrid \u2022 Pref: ${gatePref} \u2022 User: ${userEnabled ? "On" : "Off"} \u2022 Phase:${phaseAllowed ? "live" : "blocked"} \u2022 Speech:${speechPresent ? "1" : "0"} \u2022 dB:${dbGate ? "1" : "0"} \u2022 VAD:${vadGate ? "1" : "0"}`;
       const chipState = userEnabled ? hybridMotor.isRunning() ? "on" : "paused" : "manual";
       setAutoChip(chipState, detail, "Motor");
       emitMotorState2("hybridWpm", hybridMotor.isRunning());
@@ -19150,6 +20881,36 @@ function installScrollRouter(opts) {
       appStoreSingleton.subscribe("session.scrollAutoOnLive", () => {
         applyGate();
       });
+      appStoreSingleton.subscribe("scrollMode", (modeRaw) => {
+        const normalized = normalizeScrollModeValue(modeRaw);
+        if (normalized !== "asr") return;
+        stopAllMotors("mode-enter-asr");
+        userEnabled = false;
+        userIntentOn = false;
+        sessionIntentOn = false;
+        hybridWantedRunning = false;
+        hybridSilence.pausedBySilence = false;
+        clearHybridSilenceTimer();
+        enabledNow = false;
+        asrIntentLiveSince = 0;
+        try {
+          auto?.setEnabled?.(false);
+        } catch {
+        }
+        persistStoredAutoEnabled(false);
+        try {
+          emitMotorState2("auto", false);
+        } catch {
+        }
+        try {
+          emitMotorState2("hybridWpm", false);
+        } catch {
+        }
+        try {
+          emitAutoState();
+        } catch {
+        }
+      });
     }
   } catch {
   }
@@ -19158,12 +20919,16 @@ function installScrollRouter(opts) {
       liveSessionWpmLocked = false;
       return;
     }
+    if (getScrollMode2() === "asr") {
+      liveSessionWpmLocked = false;
+      return;
+    }
     if (userWpmLocked) {
       liveSessionWpmLocked = false;
       return;
     }
     let nextWpm = Number.NaN;
-    const store = (typeof window !== "undefined" ? window.__tpStore : null) || appStoreSingleton;
+    const store2 = (typeof window !== "undefined" ? window.__tpStore : null) || appStoreSingleton;
     try {
       const sliderInput = document.getElementById("wpmTarget");
       if (sliderInput) {
@@ -19173,7 +20938,7 @@ function installScrollRouter(opts) {
         }
       }
       if (!Number.isFinite(nextWpm) || nextWpm <= 0) {
-        const stored = typeof store?.get === "function" ? store.get("wpmTarget") : void 0;
+        const stored = typeof store2?.get === "function" ? store2.get("wpmTarget") : void 0;
         if (typeof stored === "number" && stored > 0) {
           nextWpm = stored;
         }
@@ -19184,9 +20949,9 @@ function installScrollRouter(opts) {
       if (sliderInput) {
         setSliderValueSilently(sliderInput, String(nextWpm));
       }
-      if (typeof store?.set === "function") {
+      if (typeof store2?.set === "function") {
         try {
-          store.set("wpmTarget", nextWpm);
+          store2.set("wpmTarget", nextWpm);
         } catch {
         }
       }
@@ -19202,6 +20967,7 @@ function installScrollRouter(opts) {
   const WPM_INTENT_EVENT = "tp:wpm:intent";
   function applyWpmBaselinePx(pxs, source, wpmValue) {
     if (!Number.isFinite(pxs) || pxs <= 0) return;
+    if (getScrollMode2() === "asr") return;
     const storeWpm = (() => {
       try {
         const raw = localStorage.getItem("tp_baseline_wpm");
@@ -19349,8 +21115,8 @@ function installScrollRouter(opts) {
       if (hybridMotor.isRunning() && !sourceIsSlider && wpmSliderUserTouched) {
         return;
       }
-      const now = nowMs();
-      const withinUserEvent = lastUserWpmPx > 0 && now - lastUserWpmAt <= WPM_USER_DEDUPE_MS;
+      const now2 = nowMs();
+      const withinUserEvent = lastUserWpmPx > 0 && now2 - lastUserWpmAt <= WPM_USER_DEDUPE_MS;
       if (withinUserEvent && Math.abs(lastUserWpmPx - pxPerSec) < 0.5) {
         return;
       }
@@ -19416,12 +21182,22 @@ function installScrollRouter(opts) {
         const rawTs = typeof detail.ts === "number" ? detail.ts : perfNow;
         const normalizedTs = normalizePerfTimestamp(rawTs, perfNow);
         if (silent) {
-          hybridSilence.lastSpeechAtMs = normalizedTs;
-          hybridSilence.pausedBySilence = true;
           speechActive = false;
-          clearHybridSilenceTimer();
-          runHybridVelocity(hybridSilence);
-          armHybridSilenceTimer2();
+          if (!(hybridSilence.lastSpeechAtMs > 0)) {
+            hybridSilence.lastSpeechAtMs = normalizedTs;
+          }
+          if (hybridSilence.pausedBySilence) {
+            armHybridSilenceTimer2();
+          } else {
+            const lastSpeechAtMs = hybridSilence.lastSpeechAtMs > 0 ? hybridSilence.lastSpeechAtMs : normalizedTs;
+            const silentForMs = Math.max(0, normalizedTs - lastSpeechAtMs);
+            const remainingMs = Math.max(1, computeHybridSilenceDelayMs() - silentForMs);
+            armHybridSilenceTimer2(remainingMs);
+          }
+          try {
+            applyGate();
+          } catch {
+          }
         } else {
           noteHybridSpeechActivity(normalizedTs, { source: "silence" });
         }
@@ -19437,9 +21213,9 @@ function installScrollRouter(opts) {
         if (!hybridWantedRunning) return;
         if (sessionPhase2 !== "live") return;
         seedHybridBaseSpeed2();
-        const now = nowMs();
+        const now2 = nowMs();
         liveGraceWindowEndsAt = null;
-        hybridSilence.lastSpeechAtMs = now;
+        hybridSilence.lastSpeechAtMs = now2;
         hybridSilence.pausedBySilence = false;
         setHybridScale2(RECOVERY_SCALE);
         runHybridVelocity(hybridSilence);
@@ -19616,6 +21392,119 @@ var ASR_MAX_SENTENCES_PER_BLOCK = 4;
 var ASR_MIN_CHARS_PER_BLOCK = 80;
 var ASR_MAX_CHARS_PER_BLOCK = 400;
 
+// src/boot/boot-trace.ts
+var TRACE_KEY = "__tpBootTrace";
+var ENABLE_KEY = "__tpBootTraceEnabled";
+var SEQ_KEY = "__tpBootTraceSeq";
+function getNow() {
+  try {
+    if (typeof performance !== "undefined" && typeof performance.now === "function") {
+      return performance.now();
+    }
+  } catch {
+  }
+  return Date.now();
+}
+function isEnabledFromEnv() {
+  if (typeof window === "undefined") return false;
+  try {
+    const params = new URLSearchParams(window.location.search || "");
+    if (params.get("boottrace") === "1") return true;
+    if (params.get("boottrace") === "0") return false;
+    if (params.get("dev") === "1" || params.has("dev")) return true;
+  } catch {
+  }
+  try {
+    const hash = String(window.location.hash || "").toLowerCase();
+    if (hash.includes("boottrace=1")) return true;
+    if (hash.includes("dev")) return true;
+  } catch {
+  }
+  try {
+    if (window.localStorage?.getItem("tp_dev_mode") === "1") return true;
+  } catch {
+  }
+  try {
+    const w2 = window;
+    if (w2.__TP_DEV || w2.__TP_DEV1) return true;
+  } catch {
+  }
+  return false;
+}
+function getStore() {
+  const w2 = window;
+  const store2 = w2[TRACE_KEY];
+  if (Array.isArray(store2)) return store2;
+  const created = [];
+  w2[TRACE_KEY] = created;
+  return created;
+}
+function nextSeq() {
+  const w2 = window;
+  const current = Number(w2[SEQ_KEY]);
+  const seq = Number.isFinite(current) ? current + 1 : 1;
+  w2[SEQ_KEY] = seq;
+  return seq;
+}
+function isBootTraceEnabled() {
+  if (typeof window === "undefined") return false;
+  const w2 = window;
+  if (typeof w2[ENABLE_KEY] !== "boolean") {
+    w2[ENABLE_KEY] = isEnabledFromEnv();
+  }
+  return !!w2[ENABLE_KEY];
+}
+function bootTrace(tag, detail) {
+  if (typeof window === "undefined") return;
+  if (!isBootTraceEnabled()) return;
+  try {
+    const ev = {
+      seq: nextSeq(),
+      t: getNow(),
+      tag: String(tag || "").trim() || "unknown",
+      detail
+    };
+    getStore().push(ev);
+  } catch {
+  }
+}
+function bootTraceGet() {
+  if (typeof window === "undefined") return [];
+  try {
+    return getStore().slice().sort((a, b) => a.seq - b.seq);
+  } catch {
+    return [];
+  }
+}
+function bootTraceExport() {
+  try {
+    return JSON.stringify(bootTraceGet(), null, 2);
+  } catch {
+    return "[]";
+  }
+}
+function bootTraceDumpToConsole() {
+  if (typeof window === "undefined") return;
+  if (!isBootTraceEnabled()) return;
+  const events = bootTraceGet();
+  try {
+    console.groupCollapsed(`[BOOTTRACE] ${events.length} events`);
+    for (const ev of events) {
+      console.log(`${ev.t.toFixed(1)}ms`, ev.tag, ev.detail ?? "");
+    }
+    console.groupEnd();
+  } catch {
+  }
+}
+try {
+  if (typeof window !== "undefined") {
+    if (typeof window.tpBootTraceGet !== "function") window.tpBootTraceGet = bootTraceGet;
+    if (typeof window.tpBootTraceDump !== "function") window.tpBootTraceDump = bootTraceDumpToConsole;
+    if (typeof window.tpBootTraceExport !== "function") window.tpBootTraceExport = bootTraceExport;
+  }
+} catch {
+}
+
 // src/render-script.ts
 try {
   console.warn("[ROUTER_STAMP] render-script", ROUTER_STAMP);
@@ -19733,6 +21622,7 @@ function chunkAsrUnits(units) {
 function renderScript(text, container) {
   console.log("[LIVE SCRIPT RENDERER] executing", { ts: Date.now() });
   const raw = String(text ?? "");
+  bootTrace("render-script:enter", { length: raw.length });
   try {
     window.__tpRawScript = raw;
   } catch {
@@ -19785,6 +21675,7 @@ function renderScript(text, container) {
         `scrollPaddingTop=${scrollPadTarget}`
       ].join(" "));
       if (!viewerScrollRouterInstalled && viewer2) {
+        bootTrace("render-script:scroll-router-runtime:install:start");
         try {
           console.warn("[SCROLL_ROUTER] render-script installing router now");
         } catch {
@@ -19820,7 +21711,9 @@ function renderScript(text, container) {
           } catch {
           }
           viewerScrollRouterInstalled = true;
+          bootTrace("render-script:scroll-router-runtime:install:done");
         } catch (error) {
+          bootTrace("render-script:scroll-router-runtime:install:error", { error: String(error) });
           try {
             const errObj = error instanceof Error ? error : new Error(String(error));
             console.error("[SCROLL_ROUTER] install failure context", {
@@ -20068,13 +21961,13 @@ function renderScript(text, container) {
   } catch {
   }
   try {
-    const evt = new CustomEvent("tp:render:done", { detail: { lineCount: renderedLineIndex } });
-    root.dispatchEvent(evt);
-    document.dispatchEvent(evt);
+    const detail = { lineCount: renderedLineIndex };
+    root.dispatchEvent(new CustomEvent("tp:render:done", { detail }));
+    window.dispatchEvent(new CustomEvent("tp:render:done", { detail }));
   } catch {
   }
   try {
-    document.dispatchEvent(new CustomEvent("tp:script-rendered", { detail: { lineCount: renderedLineIndex } }));
+    window.dispatchEvent(new CustomEvent("tp:script-rendered", { detail: { lineCount: renderedLineIndex } }));
   } catch {
   }
   try {

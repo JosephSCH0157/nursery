@@ -13570,94 +13570,19 @@ var require_main5 = __commonJS({
 
 // src/scroll/asr-block-store.ts
 var blockEls = [];
+var blockMeta = null;
 function getAsrBlockElements() {
   return blockEls;
 }
-
-// src/boot/scheduler.ts
-var writeQueue = [];
-var readQueue = [];
-var rafId = 0;
-function flush() {
-  rafId = 0;
-  const writes = writeQueue;
-  const reads = readQueue;
-  writeQueue = [];
-  readQueue = [];
-  for (const fn of writes) {
-    try {
-      fn();
-    } catch (e) {
-      try {
-        console.error("[scheduler] write error", e);
-      } catch {
-      }
-    }
-  }
-  for (const fn of reads) {
-    try {
-      fn();
-    } catch (e) {
-      try {
-        console.error("[scheduler] read error", e);
-      } catch {
-      }
-    }
-  }
-}
-function ensureRaf() {
-  if (rafId) return;
-  rafId = requestAnimationFrame(flush);
-}
-function requestWrite(fn) {
-  writeQueue.push(fn);
-  ensureRaf();
-}
-function requestRead(fn) {
-  readQueue.push(fn);
-  ensureRaf();
-}
-try {
-  const maybe = window.__tpScrollWrite;
-  if (typeof maybe === "function") {
-    window.__tpScrollWrite = {
-      scrollTo(y) {
-        try {
-          maybe(y);
-        } catch {
-        }
-      },
-      scrollBy(dy) {
-        try {
-          maybe((Number(dy) || 0) + 0);
-        } catch {
-        }
-      }
-    };
-  }
-} catch {
-}
-try {
-  if (typeof window !== "undefined") {
-    window.__tpRequestWrite = requestWrite;
-    window.__tpRequestRead = requestRead;
-  }
-} catch {
+function getAsrBlockIndex() {
+  return blockMeta;
 }
 
-// src/ui/typography-ssot.ts
-var DEFAULT_SCRIPT_FONT_PX = 40;
-
-// src/scroll/scroll-helpers.ts
-var defaultViewer = () => document.getElementById("viewer") || document.querySelector('[data-role="viewer"]');
-var SCROLL_CALLER_HINTS = [
-  ["asr-scroll-driver", "ASR"],
-  ["hybrid-wpm-motor", "Hybrid"],
-  ["auto-motor", "Auto"],
-  ["scroll-router", "Router"],
-  ["autoscroll", "Auto"]
-];
+// src/scroll/scroller.ts
+var displayScrollChannel = null;
+var scrollEventTrackerInstalled = false;
 function shouldLogScrollWrite() {
+  if (typeof window === "undefined") return false;
   try {
     const w2 = window;
     if (w2.__tpScrollDebug === true) return true;
@@ -13667,22 +13592,6 @@ function shouldLogScrollWrite() {
   } catch {
   }
   return false;
-}
-function detectScrollCaller() {
-  try {
-    const trace = (new Error().stack || "").toLowerCase();
-    for (const [hint, tag] of SCROLL_CALLER_HINTS) {
-      if (trace.includes(hint)) return tag;
-    }
-  } catch {
-  }
-  return "unknown";
-}
-function logScrollWrite(payload) {
-  try {
-    console.info("[SCROLL_WRITE]", payload);
-  } catch {
-  }
 }
 function readLineIndex(el) {
   if (!el) return null;
@@ -13698,8 +13607,9 @@ function readLineIndex(el) {
   if (m) return Math.max(0, Number(m[1]));
   return null;
 }
-function computeAnchorLineIndex(scroller = defaultViewer()) {
+function computeAnchorLineIndex(scroller) {
   if (!scroller) return null;
+  if (typeof document === "undefined" || typeof window === "undefined") return null;
   const rect = scroller.getBoundingClientRect();
   if (!rect.height || !rect.width) return null;
   const markerPct = typeof window.__TP_MARKER_PCT === "number" ? window.__TP_MARKER_PCT : 0.4;
@@ -13724,137 +13634,6 @@ function computeAnchorLineIndex(scroller = defaultViewer()) {
   }
   return bestIdx != null ? Math.max(0, Math.floor(bestIdx)) : null;
 }
-var clampGuard = (target, max) => {
-  try {
-    const guard = window.__tpClampGuard;
-    if (typeof guard === "function") return !!guard(target, max);
-  } catch {
-  }
-  return true;
-};
-function clampActive() {
-  try {
-    return window.__tpClampActive === true;
-  } catch {
-    return false;
-  }
-}
-function clampScrollTop(sc, y) {
-  const max = Math.max(0, sc.scrollHeight - sc.clientHeight);
-  const t = Math.max(0, Math.min(Number(y) || 0, max));
-  const allowed = clampGuard(t, max);
-  return { target: allowed ? t : sc.scrollTop || 0, guardDenied: !allowed, max };
-}
-function mirrorToDisplay(sc) {
-  try {
-    const send = window.sendToDisplay;
-    if (typeof send !== "function") return;
-    const max = Math.max(0, (sc.scrollHeight || 0) - (sc.clientHeight || 0));
-    const top = sc.scrollTop || 0;
-    const ratio = max > 0 ? top / max : 0;
-    const cursorLine = computeAnchorLineIndex(sc);
-    send({
-      type: "scroll",
-      top,
-      ratio,
-      anchorRatio: ratio,
-      cursorLine: cursorLine ?? void 0
-    });
-  } catch {
-  }
-}
-function scrollByPx(dy, getScroller = defaultViewer) {
-  const logEnabled = shouldLogScrollWrite();
-  const caller = logEnabled ? detectScrollCaller() : "unknown";
-  if (clampActive()) {
-    if (logEnabled) {
-      logScrollWrite({ caller, target: Number(dy) || 0, current: 0, accepted: false, reason: "clamp-active" });
-    }
-    return;
-  }
-  const sc = getScroller();
-  if (!sc) {
-    if (logEnabled) {
-      logScrollWrite({ caller, target: Number(dy) || 0, current: 0, accepted: false, reason: "no-scroller" });
-    }
-    return;
-  }
-  const current = sc.scrollTop || 0;
-  const { target, guardDenied } = clampScrollTop(sc, current + (Number(dy) || 0));
-  if (guardDenied) {
-    if (logEnabled) {
-      logScrollWrite({ caller, target, current, accepted: false, reason: "clamp-guard" });
-    }
-    return;
-  }
-  if (logEnabled) {
-    logScrollWrite({ caller, target, current, accepted: true, reason: "scrollByPx" });
-  }
-  requestWrite(() => {
-    try {
-      sc.scrollTop = target;
-    } catch {
-    }
-    mirrorToDisplay(sc);
-    try {
-      const win = window;
-      const debug = win?.__tpScrollDebug === true || /scrollDebug=1/i.test(String(location.search || ""));
-      if (debug) {
-        const mode = win.__tpScrollMode && typeof win.__tpScrollMode.getMode === "function" ? win.__tpScrollMode.getMode() : void 0;
-        const maxScrollTop = Math.max(0, (sc.scrollHeight || 0) - (sc.clientHeight || 0));
-        win.HUD?.log?.("scroll-commit", {
-          mode,
-          delta: dy,
-          targetTop: target,
-          currentTop: sc.scrollTop,
-          maxScrollTop
-        });
-      }
-      try {
-        window.dispatchEvent(new CustomEvent("tp:scroll:commit", {
-          detail: {
-            delta: dy,
-            targetTop: target,
-            currentTop: sc.scrollTop,
-            maxScrollTop: Math.max(0, (sc.scrollHeight || 0) - (sc.clientHeight || 0))
-          }
-        }));
-      } catch {
-      }
-    } catch {
-    }
-  });
-}
-function getViewportMetrics(getScroller = defaultViewer) {
-  const sc = getScroller();
-  const root = document.documentElement;
-  const cs = root ? getComputedStyle(root) : null;
-  const fontSize = cs ? parseFloat(cs.getPropertyValue("--tp-font-size")) || DEFAULT_SCRIPT_FONT_PX : DEFAULT_SCRIPT_FONT_PX;
-  const lineHeight = cs ? parseFloat(cs.getPropertyValue("--tp-line-height")) || 1.4 : 1.4;
-  const pxPerLine = fontSize * lineHeight;
-  const pxPerWord = pxPerLine / 6;
-  if (!sc) {
-    return {
-      scrollTop: 0,
-      viewportHeight: 0,
-      scrollHeight: 0,
-      pxPerLine,
-      pxPerWord
-    };
-  }
-  return {
-    scrollTop: sc.scrollTop || 0,
-    viewportHeight: sc.clientHeight || 0,
-    height: sc.clientHeight || 0,
-    scrollHeight: sc.scrollHeight || 0,
-    pxPerLine,
-    pxPerWord
-  };
-}
-
-// src/scroll/scroller.ts
-var displayScrollChannel = null;
-var scrollEventTrackerInstalled = false;
 function isElementLike(node) {
   return !!node && typeof node === "object" && node.nodeType === 1;
 }
@@ -13871,16 +13650,20 @@ function getDisplayViewerElement() {
   }
   return null;
 }
-function getScrollContainer() {
+function getScrollerEl(role = "main") {
+  if (typeof document === "undefined") return null;
+  if (role === "display") {
+    return getDisplayViewerElement() || document.getElementById("wrap");
+  }
   try {
-    return document.getElementById("scriptScrollContainer") || document.getElementById("wrap");
+    return document.querySelector("main#viewer.viewer, #viewer") || document.getElementById("viewer");
   } catch {
-    return null;
+    return document.getElementById("viewer");
   }
 }
 function getViewerElement() {
   try {
-    return document.getElementById("viewer") || document.querySelector('[data-role="viewer"]') || document.getElementById("wrap") || getDisplayViewerElement();
+    return getScrollerEl("main") || document.querySelector('[data-role="viewer"]') || document.getElementById("wrap") || getDisplayViewerElement();
   } catch {
     return getDisplayViewerElement();
   }
@@ -13894,7 +13677,7 @@ function getScriptRoot() {
 }
 function getFallbackScroller() {
   try {
-    return document.scrollingElement || document.documentElement || document.body;
+    return getScrollerEl("main") || getScrollerEl("display") || getScriptRoot() || document.getElementById("wrap");
   } catch {
     return null;
   }
@@ -13921,7 +13704,35 @@ function describeElement(el) {
   return `${el.tagName.toLowerCase()}${id}${cls}` || el.tagName.toLowerCase();
 }
 function getPrimaryScroller() {
-  return getScrollContainer() || getViewerElement() || getDisplayViewerElement();
+  return getScrollerEl("main") || getScrollerEl("display");
+}
+function resolveViewerRole() {
+  if (typeof window === "undefined") return "main";
+  try {
+    const explicit = String(window.__TP_VIEWER_ROLE || "").toLowerCase();
+    if (explicit === "display") return "display";
+    if (explicit === "main") return "main";
+    const bodyRole = String(window.document?.body?.dataset?.viewerRole || "").toLowerCase();
+    if (bodyRole === "display") return "display";
+    if (bodyRole === "main") return "main";
+    if (window.__TP_FORCE_DISPLAY) return "display";
+    const path = String(window.location?.pathname || "").toLowerCase();
+    if (path.includes("display")) return "display";
+  } catch {
+  }
+  return "main";
+}
+function getRuntimeScroller(role = resolveViewerRole()) {
+  if (typeof document === "undefined") return null;
+  const root = getScriptRoot();
+  if (role === "display") {
+    const primary2 = getScrollerEl("display");
+    const fallback2 = document.getElementById("wrap") || root;
+    return resolveActiveScroller(primary2, fallback2);
+  }
+  const primary = getScrollerEl("main") || root;
+  const fallback = root || getScrollerEl("display");
+  return resolveActiveScroller(primary, fallback);
 }
 function isDisplayWindow() {
   if (typeof window === "undefined") return false;
@@ -14068,20 +13879,97 @@ if (typeof window !== "undefined") {
   }
 }
 
+// src/env/dev-log.ts
+var MIN_LOG_LEVEL = 0;
+var MAX_LOG_LEVEL = 3;
+var DEFAULT_DEV_LOG_LEVEL = 1;
+function clampLogLevel(value) {
+  if (!Number.isFinite(value)) return MIN_LOG_LEVEL;
+  return Math.max(MIN_LOG_LEVEL, Math.min(MAX_LOG_LEVEL, Math.floor(value)));
+}
+function parseLogLevelRaw(value) {
+  if (value == null) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return clampLogLevel(parsed);
+}
+function isDevContext() {
+  if (typeof window === "undefined") return false;
+  try {
+    const w2 = window;
+    if (w2.__TP_DEV || w2.__TP_DEV1 || w2.__tpDevMode) return true;
+    const params = new URLSearchParams(window.location.search || "");
+    if (params.has("dev") || params.has("debug") || params.has("dev1")) return true;
+    if (window.localStorage?.getItem("tp_dev_mode") === "1") return true;
+  } catch {
+  }
+  return false;
+}
+function getTpLogLevel() {
+  if (typeof window === "undefined") return MIN_LOG_LEVEL;
+  try {
+    const w2 = window;
+    const runtimeLevel = parseLogLevelRaw(w2.__tpLogLevel);
+    if (runtimeLevel != null) return runtimeLevel;
+  } catch {
+  }
+  try {
+    const stored = parseLogLevelRaw(window.localStorage?.getItem("tp_log_level"));
+    if (stored != null) return stored;
+  } catch {
+  }
+  try {
+    const params = new URLSearchParams(window.location.search || "");
+    const fromQuery = parseLogLevelRaw(params.get("tp_log_level")) ?? parseLogLevelRaw(params.get("logLevel")) ?? parseLogLevelRaw(params.get("log"));
+    if (fromQuery != null) return fromQuery;
+  } catch {
+  }
+  return isDevContext() ? DEFAULT_DEV_LOG_LEVEL : MIN_LOG_LEVEL;
+}
+function shouldLogLevel(minLevel) {
+  return getTpLogLevel() >= clampLogLevel(minLevel);
+}
+
 // src/scroll/scroll-writer.ts
 var cached = null;
 var warned = false;
 var activeSeekAnim = null;
+var activeSeekAnimRunId = 0;
+var lastWriteMismatchAt = 0;
+var lastWriteMismatchKey = "";
+var lastNonFiniteGuardAt = 0;
+var WRITE_MISMATCH_LOG_THROTTLE_MS = 2e3;
+var WRITE_MISMATCH_EPSILON_PX = 1;
+var NON_FINITE_GUARD_THROTTLE_MS = 1e3;
+var ASR_SEEK_DEFAULT_LINES_PER_SEC = 2.8;
+var ASR_SEEK_MIN_DURATION_MS = 140;
+var ASR_SEEK_MAX_DURATION_MS = 560;
+var ASR_SEEK_EPSILON_PX = 0.5;
+var ASR_SEEK_MIN_PX_PER_SEC = 36;
+var ASR_SEEK_MAX_PX_PER_SEC = 420;
+var ASR_SEEK_MAX_VIEWPORTS_PER_SEC = 1.25;
+function shouldWarnWrites() {
+  return shouldLogLevel(1);
+}
+function shouldVerboseWrites() {
+  return shouldLogLevel(2);
+}
 function shouldTraceWrites() {
+  return shouldLogLevel(3);
+}
+function logNonFiniteGuard(reason, value, detail) {
+  if (!shouldWarnWrites()) return;
+  const now2 = Date.now();
+  if (now2 - lastNonFiniteGuardAt < NON_FINITE_GUARD_THROTTLE_MS) return;
+  lastNonFiniteGuardAt = now2;
   try {
-    const w2 = window;
-    if (w2.__TP_DEV || w2.__TP_DEV1) return true;
-    const qs = new URLSearchParams(String(location.search || ""));
-    if (qs.get("dev") === "1" || qs.has("dev")) return true;
-    if (w2.localStorage?.getItem("tp_dev_mode") === "1") return true;
+    console.warn("[scroll-writer] non-finite value", {
+      reason,
+      value,
+      ...detail || {}
+    });
   } catch {
   }
-  return false;
 }
 function withWriteEnabled(reason, delta, fn) {
   const w2 = window;
@@ -14099,29 +13987,12 @@ function withWriteEnabled(reason, delta, fn) {
     w2.__tpScrollWriteActive = prev;
   }
 }
-function isWindowScroller(scroller) {
-  return scroller === document.scrollingElement || scroller === document.documentElement || scroller === document.body;
-}
 function findScroller(el) {
-  let node = el?.parentElement;
-  while (node) {
-    try {
-      const st = getComputedStyle(node);
-      if (/(auto|scroll)/.test(st.overflowY || "")) return node;
-    } catch {
-    }
-    node = node.parentElement;
-  }
-  return document.scrollingElement || document.documentElement || document.body || el;
+  const runtime = getRuntimeScroller(resolveViewerRole());
+  return runtime || getScrollerEl("main") || getScrollerEl("display") || getDisplayViewerElement() || getViewerElement() || el;
 }
 function elementTopRelativeTo(el, scroller) {
   try {
-    const isWin = scroller === document.scrollingElement || scroller === document.documentElement || scroller === document.body;
-    if (isWin) {
-      const rect2 = el.getBoundingClientRect();
-      const scrollTop = window.scrollY || window.pageYOffset || scroller.scrollTop || 0;
-      return rect2.top + scrollTop;
-    }
     const rect = el.getBoundingClientRect();
     const scRect = scroller.getBoundingClientRect();
     return rect.top - scRect.top + scroller.scrollTop;
@@ -14135,6 +14006,11 @@ function markerOffsetPx(fallbackScroller) {
   const host = viewer2 || fallbackScroller;
   const h = host?.clientHeight || window.innerHeight || 0;
   return Math.max(0, Math.round(h * markerPct));
+}
+function easeInOutCubic(t) {
+  if (t <= 0) return 0;
+  if (t >= 1) return 1;
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
 function getScrollMode() {
   try {
@@ -14155,19 +14031,6 @@ function getScrollMode() {
   }
   return "";
 }
-function asrLandingBiasPx(fallbackScroller) {
-  const viewer2 = getViewerElement();
-  const host = viewer2 || fallbackScroller;
-  const h = host?.clientHeight || window.innerHeight || 0;
-  const overridePx = window.__TP_ASR_LANDING_BIAS_PX;
-  if (typeof overridePx === "number" && Number.isFinite(overridePx)) {
-    return Math.max(0, Math.round(overridePx));
-  }
-  const overridePct = window.__TP_ASR_LANDING_BIAS_PCT;
-  const pctRaw = typeof overridePct === "number" ? overridePct : 0.12;
-  const pct = Math.max(0, Math.min(0.5, pctRaw));
-  return Math.max(0, Math.round(h * pct));
-}
 function prefersReducedMotion() {
   try {
     return !!window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
@@ -14176,6 +14039,7 @@ function prefersReducedMotion() {
   }
 }
 function cancelSeekAnimation() {
+  activeSeekAnimRunId += 1;
   if (!activeSeekAnim) return;
   try {
     activeSeekAnim.cancel();
@@ -14184,13 +14048,10 @@ function cancelSeekAnimation() {
   activeSeekAnim = null;
 }
 function readScrollTop(scroller) {
-  if (isWindowScroller(scroller)) {
-    return window.scrollY || window.pageYOffset || scroller.scrollTop || 0;
-  }
   return scroller.scrollTop || 0;
 }
 function getDeltaScroller() {
-  return document.getElementById("scriptScrollContainer") || document.getElementById("viewer") || document.getElementById("wrap") || getDisplayViewerElement() || document.scrollingElement || document.documentElement || document.body;
+  return getRuntimeScroller(resolveViewerRole()) || getScrollerEl("main") || getScrollerEl("display") || getDisplayViewerElement() || document.getElementById("wrap");
 }
 function estimateDelta(targetTop) {
   try {
@@ -14201,27 +14062,114 @@ function estimateDelta(targetTop) {
     return Number(targetTop) || 0;
   }
 }
+function logWriteMismatch(scroller, target, before, after, reason) {
+  if (!shouldWarnWrites()) return;
+  if (Math.abs(after - target) <= WRITE_MISMATCH_EPSILON_PX) return;
+  const now2 = Date.now();
+  const key = `${reason}|${describeElement(scroller)}|${Math.round(target)}|${Math.round(after)}`;
+  if (key === lastWriteMismatchKey && now2 - lastWriteMismatchAt < WRITE_MISMATCH_LOG_THROTTLE_MS) return;
+  lastWriteMismatchKey = key;
+  lastWriteMismatchAt = now2;
+  let overflow = "";
+  let overflowY = "";
+  try {
+    const style = getComputedStyle(scroller);
+    overflow = String(style.overflow || "");
+    overflowY = String(style.overflowY || "");
+  } catch {
+    overflow = "";
+    overflowY = "";
+  }
+  const maxTop = Math.max(0, (scroller.scrollHeight || 0) - (scroller.clientHeight || 0));
+  const activeScroller = getRuntimeScroller(resolveViewerRole());
+  try {
+    console.warn("[scroll-writer] write mismatch", {
+      reason,
+      scroller: describeElement(scroller),
+      targetTop: Math.round(target),
+      before: Math.round(before),
+      after: Math.round(after),
+      deltaPx: Math.round(after - before),
+      overflow,
+      overflowY,
+      scrollHeight: Math.round(scroller.scrollHeight || 0),
+      clientHeight: Math.round(scroller.clientHeight || 0),
+      maxTop: Math.round(maxTop),
+      activeScroller: describeElement(activeScroller),
+      isActiveScroller: activeScroller === scroller
+    });
+  } catch {
+  }
+}
 function writeScrollTop(scroller, top, reason = "writeScrollTop") {
-  const from = readScrollTop(scroller);
-  const delta = (Number(top) || 0) - (Number(from) || 0);
+  const rawFrom = scroller.scrollTop;
+  const from = Number.isFinite(rawFrom) ? rawFrom : 0;
+  if (!Number.isFinite(rawFrom)) {
+    logNonFiniteGuard("writeScrollTop:from", rawFrom, {
+      scroller: describeElement(scroller),
+      reason
+    });
+  }
+  const rawTop = Number(top);
+  if (!Number.isFinite(rawTop)) {
+    logNonFiniteGuard("writeScrollTop:target", top, {
+      scroller: describeElement(scroller),
+      reason
+    });
+    return;
+  }
+  const maxTop = Math.max(0, (scroller.scrollHeight || 0) - (scroller.clientHeight || 0));
+  const target = Math.max(0, Math.min(rawTop, maxTop));
+  const delta = target - from;
   withWriteEnabled(reason, delta, () => {
-    if (isWindowScroller(scroller)) {
-      window.scrollTo({ top, behavior: "auto" });
-    } else {
-      scroller.scrollTo({ top, behavior: "auto" });
-    }
+    scroller.scrollTop = target;
   });
+  const after = readScrollTop(scroller);
+  logWriteMismatch(scroller, target, from, after, reason);
 }
 function resolveSeekTarget(blockIdx) {
   const blocks = getAsrBlockElements();
   const el = blocks[blockIdx];
   if (!el) return null;
   const scroller = findScroller(el);
-  const baseOffset = markerOffsetPx(scroller);
   const mode = getScrollMode();
-  const bias = mode === "asr" ? asrLandingBiasPx(scroller) : 0;
-  const top = elementTopRelativeTo(el, scroller) - (baseOffset + bias);
-  return { scroller, top };
+  const blockTopPx = elementTopRelativeTo(el, scroller);
+  if (!Number.isFinite(blockTopPx)) {
+    logNonFiniteGuard("resolveSeekTarget:blockTopPx", blockTopPx, { blockIdx });
+    return null;
+  }
+  const top = mode === "asr" ? blockTopPx : blockTopPx - markerOffsetPx(scroller);
+  if (!Number.isFinite(top)) {
+    logNonFiniteGuard("resolveSeekTarget:top", top, { blockIdx, mode });
+    return null;
+  }
+  let lineIdx = null;
+  try {
+    const firstLine = el.querySelector(".line[data-line], .line[data-line-idx], .line");
+    const rawIdx = firstLine?.dataset?.line ?? firstLine?.dataset?.lineIdx;
+    const parsed = Number(rawIdx);
+    if (Number.isFinite(parsed)) lineIdx = Math.max(0, Math.floor(parsed));
+  } catch {
+    lineIdx = null;
+  }
+  return { blockEl: el, scroller, top, blockTopPx, lineIdx };
+}
+function resolveSeekLineHeightPx(target) {
+  const lineEl = target.blockEl.querySelector(".line[data-line], .line[data-line-idx], .line");
+  const lineRectH = lineEl?.getBoundingClientRect?.().height ?? 0;
+  if (Number.isFinite(lineRectH) && lineRectH > 4) return lineRectH;
+  const lineOffsetH = lineEl?.offsetHeight ?? 0;
+  if (Number.isFinite(lineOffsetH) && lineOffsetH > 4) return lineOffsetH;
+  try {
+    const computed = lineEl ? Number.parseFloat(getComputedStyle(lineEl).lineHeight) : Number.NaN;
+    if (Number.isFinite(computed) && computed > 4) return computed;
+  } catch {
+  }
+  const scrollerRectH = target.scroller.getBoundingClientRect?.().height ?? 0;
+  if (Number.isFinite(scrollerRectH) && scrollerRectH > 0) {
+    return Math.max(24, Math.min(96, scrollerRectH * 0.09));
+  }
+  return 56;
 }
 function getScrollWriter() {
   if (cached) return cached;
@@ -14229,7 +14177,7 @@ function getScrollWriter() {
     const maybe = window.__tpScrollWrite;
     if (typeof maybe === "function") {
       const fn = maybe;
-      const getScroller = () => document.getElementById("scriptScrollContainer") || document.getElementById("viewer") || document.scrollingElement || document.documentElement || document.body;
+      const getScroller = () => getRuntimeScroller(resolveViewerRole()) || getScrollerEl("main") || getScrollerEl("display") || getDisplayViewerElement();
       cached = {
         scrollTo(top) {
           try {
@@ -14310,8 +14258,23 @@ function seekToBlock(blockIdx, reason) {
   cancelSeekAnimation();
   const target = resolveSeekTarget(blockIdx);
   if (!target) return;
-  const { scroller, top } = target;
+  const { scroller, top, blockTopPx, lineIdx } = target;
   try {
+    if (shouldVerboseWrites()) {
+      const currentScrollTop = readScrollTop(scroller);
+      try {
+        console.log("[scroll-writer] seek target", {
+          blockIdx,
+          lineIdx,
+          blockTopPx: Math.round(blockTopPx),
+          currentScrollTop: Math.round(currentScrollTop),
+          targetTop: Math.round(top),
+          deltaPx: Math.round(top - currentScrollTop),
+          reason: reason || "seekToBlock"
+        });
+      } catch {
+      }
+    }
     writeScrollTop(scroller, top, reason || "seekToBlock");
     try {
       if (reason && typeof console !== "undefined") {
@@ -14322,22 +14285,64 @@ function seekToBlock(blockIdx, reason) {
   } catch {
   }
 }
-function seekToBlockAnimated(blockIdx, reason) {
+function seekToBlockAnimated(blockIdx, reason, opts = {}) {
   cancelSeekAnimation();
+  const runId = activeSeekAnimRunId;
   const mode = getScrollMode();
-  if (mode !== "asr" || prefersReducedMotion()) {
+  const forceAnimated = opts.forceAnimated === true;
+  if (!forceAnimated && mode !== "asr" || !forceAnimated && prefersReducedMotion()) {
     seekToBlock(blockIdx, reason);
     return;
   }
   const target = resolveSeekTarget(blockIdx);
   if (!target) return;
-  const { scroller, top: targetTop } = target;
+  const { scroller, top: blockTargetTop, blockTopPx, lineIdx } = target;
   const startTop = readScrollTop(scroller);
-  if (!Number.isFinite(targetTop) || Math.abs(targetTop - startTop) < 0.5) {
+  const maxTop = Math.max(0, (scroller.scrollHeight || 0) - (scroller.clientHeight || 0));
+  const requestedTopRaw = Number(opts.targetTop);
+  const hasRequestedTop = Number.isFinite(requestedTopRaw);
+  const targetTop = hasRequestedTop ? Math.max(0, Math.min(requestedTopRaw, maxTop)) : blockTargetTop;
+  const lineHeightPx = resolveSeekLineHeightPx(target);
+  const configuredMaxPxPerSecond = Number(opts.maxPxPerSecond);
+  const baseMaxPxPerSecond = Number.isFinite(configuredMaxPxPerSecond) && configuredMaxPxPerSecond > 0 ? configuredMaxPxPerSecond : lineHeightPx * ASR_SEEK_DEFAULT_LINES_PER_SEC;
+  const viewportMaxPxPerSecond = Math.max(
+    ASR_SEEK_MIN_PX_PER_SEC,
+    (scroller.clientHeight || 0) * ASR_SEEK_MAX_VIEWPORTS_PER_SEC
+  );
+  const maxPxPerSecond = Math.max(
+    ASR_SEEK_MIN_PX_PER_SEC,
+    Math.min(baseMaxPxPerSecond, ASR_SEEK_MAX_PX_PER_SEC, viewportMaxPxPerSecond)
+  );
+  const minDurationMsRaw = Number(opts.minDurationMs);
+  const maxDurationMsRaw = Number(opts.maxDurationMs);
+  const minDurationMs = Number.isFinite(minDurationMsRaw) && minDurationMsRaw > 0 ? minDurationMsRaw : ASR_SEEK_MIN_DURATION_MS;
+  const maxDurationMs = Number.isFinite(maxDurationMsRaw) && maxDurationMsRaw > minDurationMs ? maxDurationMsRaw : Math.max(minDurationMs, ASR_SEEK_MAX_DURATION_MS);
+  const deltaPx = targetTop - startTop;
+  if (shouldVerboseWrites()) {
+    try {
+      console.log("[scroll-writer] seek target", {
+        blockIdx,
+        lineIdx,
+        blockTopPx: Math.round(blockTopPx),
+        lineHeightPx: Math.round(lineHeightPx),
+        currentScrollTop: Math.round(startTop),
+        targetTop: Math.round(targetTop),
+        requestedTop: hasRequestedTop ? Math.round(requestedTopRaw) : null,
+        maxPxPerSecond: Math.round(maxPxPerSecond),
+        deltaPx: Math.round(deltaPx),
+        reason: reason || "seekToBlockAnimated"
+      });
+    } catch {
+    }
+  }
+  if (!Number.isFinite(targetTop) || Math.abs(deltaPx) < ASR_SEEK_EPSILON_PX) {
     writeScrollTop(scroller, targetTop, reason || "seekToBlockAnimated");
     return;
   }
-  const durationMs = 200;
+  const durationMs = Math.max(
+    minDurationMs,
+    Math.min(maxDurationMs, Math.abs(deltaPx) / maxPxPerSecond * 1e3)
+  );
   const start = typeof performance !== "undefined" ? performance.now() : Date.now();
   let cancelled = false;
   activeSeekAnim = {
@@ -14347,16 +14352,18 @@ function seekToBlockAnimated(blockIdx, reason) {
     }
   };
   const tick = (now2) => {
-    if (cancelled) return;
+    if (cancelled || runId !== activeSeekAnimRunId) return;
     const elapsed = now2 - start;
     const t = Math.max(0, Math.min(1, elapsed / durationMs));
-    const eased = 1 - Math.pow(1 - t, 3);
+    const eased = easeInOutCubic(t);
     const next = startTop + (targetTop - startTop) * eased;
     writeScrollTop(scroller, next, reason || "seekToBlockAnimated");
     if (t < 1) {
       requestAnimationFrame(tick);
     } else {
-      activeSeekAnim = null;
+      if (runId === activeSeekAnimRunId) {
+        activeSeekAnim = null;
+      }
     }
   };
   requestAnimationFrame(tick);
@@ -14368,6 +14375,284 @@ function onScrollIntent(cb) {
   const h = (e) => cb(e.detail);
   window.addEventListener(EVENT, h);
   return () => window.removeEventListener(EVENT, h);
+}
+
+// src/boot/scheduler.ts
+var writeQueue = [];
+var readQueue = [];
+var rafId = 0;
+function flush() {
+  rafId = 0;
+  const writes = writeQueue;
+  const reads = readQueue;
+  writeQueue = [];
+  readQueue = [];
+  for (const fn of writes) {
+    try {
+      fn();
+    } catch (e) {
+      try {
+        console.error("[scheduler] write error", e);
+      } catch {
+      }
+    }
+  }
+  for (const fn of reads) {
+    try {
+      fn();
+    } catch (e) {
+      try {
+        console.error("[scheduler] read error", e);
+      } catch {
+      }
+    }
+  }
+}
+function ensureRaf() {
+  if (rafId) return;
+  rafId = requestAnimationFrame(flush);
+}
+function requestWrite(fn) {
+  writeQueue.push(fn);
+  ensureRaf();
+}
+function requestRead(fn) {
+  readQueue.push(fn);
+  ensureRaf();
+}
+try {
+  const maybe = window.__tpScrollWrite;
+  if (typeof maybe === "function") {
+    window.__tpScrollWrite = {
+      scrollTo(y) {
+        try {
+          maybe(y);
+        } catch {
+        }
+      },
+      scrollBy(dy) {
+        try {
+          maybe((Number(dy) || 0) + 0);
+        } catch {
+        }
+      }
+    };
+  }
+} catch {
+}
+try {
+  if (typeof window !== "undefined") {
+    window.__tpRequestWrite = requestWrite;
+    window.__tpRequestRead = requestRead;
+  }
+} catch {
+}
+
+// src/ui/typography-ssot.ts
+var DEFAULT_SCRIPT_FONT_PX = 40;
+
+// src/scroll/scroll-helpers.ts
+var defaultViewer = () => document.getElementById("viewer") || document.querySelector('[data-role="viewer"]');
+var SCROLL_CALLER_HINTS = [
+  ["asr-scroll-driver", "ASR"],
+  ["hybrid-wpm-motor", "Hybrid"],
+  ["auto-motor", "Auto"],
+  ["scroll-router", "Router"],
+  ["autoscroll", "Auto"]
+];
+function shouldLogScrollWrite2() {
+  try {
+    const w2 = window;
+    if (w2.__tpScrollDebug === true) return true;
+    if (w2.__tpScrollWriteDebug === true) return true;
+    const qs = new URLSearchParams(window.location.search || "");
+    if (qs.has("scrollDebug") || qs.has("scrollWriteDebug")) return true;
+  } catch {
+  }
+  return false;
+}
+function detectScrollCaller() {
+  try {
+    const trace = (new Error().stack || "").toLowerCase();
+    for (const [hint, tag] of SCROLL_CALLER_HINTS) {
+      if (trace.includes(hint)) return tag;
+    }
+  } catch {
+  }
+  return "unknown";
+}
+function logScrollWrite(payload) {
+  try {
+    console.info("[SCROLL_WRITE]", payload);
+  } catch {
+  }
+}
+function readLineIndex2(el) {
+  if (!el) return null;
+  const line = el.closest ? el.closest(".line") : null;
+  if (!line) return null;
+  const raw = line.dataset.i || line.dataset.index || line.dataset.lineIdx || line.dataset.line || line.getAttribute("data-line") || line.getAttribute("data-line-idx");
+  if (raw != null && raw !== "") {
+    const n = Number(raw);
+    if (Number.isFinite(n)) return Math.max(0, Math.floor(n));
+  }
+  const id = line.id || "";
+  const m = /^tp-line-(\d+)$/.exec(id);
+  if (m) return Math.max(0, Number(m[1]));
+  return null;
+}
+function computeAnchorLineIndex2(scroller = defaultViewer()) {
+  if (!scroller) return null;
+  const rect = scroller.getBoundingClientRect();
+  if (!rect.height || !rect.width) return null;
+  const markerPct = typeof window.__TP_MARKER_PCT === "number" ? window.__TP_MARKER_PCT : 0.4;
+  const markerY = rect.top + rect.height * markerPct;
+  const markerX = rect.left + rect.width * 0.5;
+  const hit = document.elementFromPoint(markerX, markerY);
+  const hitIdx = readLineIndex2(hit);
+  if (hitIdx != null) return hitIdx;
+  const lines = Array.from(scroller.querySelectorAll(".line"));
+  if (!lines.length) return null;
+  let bestIdx = null;
+  let bestDist = Infinity;
+  for (let i = 0; i < lines.length; i++) {
+    const el = lines[i];
+    const r = el.getBoundingClientRect();
+    const y = r.top + r.height * 0.5;
+    const d = Math.abs(y - markerY);
+    if (d < bestDist) {
+      bestDist = d;
+      bestIdx = readLineIndex2(el) ?? i;
+    }
+  }
+  return bestIdx != null ? Math.max(0, Math.floor(bestIdx)) : null;
+}
+var clampGuard = (target, max) => {
+  try {
+    const guard = window.__tpClampGuard;
+    if (typeof guard === "function") return !!guard(target, max);
+  } catch {
+  }
+  return true;
+};
+function clampActive() {
+  try {
+    return window.__tpClampActive === true;
+  } catch {
+    return false;
+  }
+}
+function clampScrollTop(sc, y) {
+  const max = Math.max(0, sc.scrollHeight - sc.clientHeight);
+  const t = Math.max(0, Math.min(Number(y) || 0, max));
+  const allowed = clampGuard(t, max);
+  return { target: allowed ? t : sc.scrollTop || 0, guardDenied: !allowed, max };
+}
+function mirrorToDisplay(sc) {
+  try {
+    const send = window.sendToDisplay;
+    if (typeof send !== "function") return;
+    const max = Math.max(0, (sc.scrollHeight || 0) - (sc.clientHeight || 0));
+    const top = sc.scrollTop || 0;
+    const ratio = max > 0 ? top / max : 0;
+    const cursorLine = computeAnchorLineIndex2(sc);
+    send({
+      type: "scroll",
+      top,
+      ratio,
+      anchorRatio: ratio,
+      cursorLine: cursorLine ?? void 0
+    });
+  } catch {
+  }
+}
+function scrollByPx(dy, getScroller = defaultViewer) {
+  const logEnabled = shouldLogScrollWrite2();
+  const caller = logEnabled ? detectScrollCaller() : "unknown";
+  if (clampActive()) {
+    if (logEnabled) {
+      logScrollWrite({ caller, target: Number(dy) || 0, current: 0, accepted: false, reason: "clamp-active" });
+    }
+    return;
+  }
+  const sc = getScroller();
+  if (!sc) {
+    if (logEnabled) {
+      logScrollWrite({ caller, target: Number(dy) || 0, current: 0, accepted: false, reason: "no-scroller" });
+    }
+    return;
+  }
+  const current = sc.scrollTop || 0;
+  const { target, guardDenied } = clampScrollTop(sc, current + (Number(dy) || 0));
+  if (guardDenied) {
+    if (logEnabled) {
+      logScrollWrite({ caller, target, current, accepted: false, reason: "clamp-guard" });
+    }
+    return;
+  }
+  if (logEnabled) {
+    logScrollWrite({ caller, target, current, accepted: true, reason: "scrollByPx" });
+  }
+  requestWrite(() => {
+    try {
+      sc.scrollTop = target;
+    } catch {
+    }
+    mirrorToDisplay(sc);
+    try {
+      const win = window;
+      const debug = win?.__tpScrollDebug === true || /scrollDebug=1/i.test(String(location.search || ""));
+      if (debug) {
+        const mode = win.__tpScrollMode && typeof win.__tpScrollMode.getMode === "function" ? win.__tpScrollMode.getMode() : void 0;
+        const maxScrollTop = Math.max(0, (sc.scrollHeight || 0) - (sc.clientHeight || 0));
+        win.HUD?.log?.("scroll-commit", {
+          mode,
+          delta: dy,
+          targetTop: target,
+          currentTop: sc.scrollTop,
+          maxScrollTop
+        });
+      }
+      try {
+        window.dispatchEvent(new CustomEvent("tp:scroll:commit", {
+          detail: {
+            delta: dy,
+            targetTop: target,
+            currentTop: sc.scrollTop,
+            maxScrollTop: Math.max(0, (sc.scrollHeight || 0) - (sc.clientHeight || 0))
+          }
+        }));
+      } catch {
+      }
+    } catch {
+    }
+  });
+}
+function getViewportMetrics(getScroller = defaultViewer) {
+  const sc = getScroller();
+  const root = document.documentElement;
+  const cs = root ? getComputedStyle(root) : null;
+  const fontSize = cs ? parseFloat(cs.getPropertyValue("--tp-font-size")) || DEFAULT_SCRIPT_FONT_PX : DEFAULT_SCRIPT_FONT_PX;
+  const lineHeight = cs ? parseFloat(cs.getPropertyValue("--tp-line-height")) || 1.4 : 1.4;
+  const pxPerLine = fontSize * lineHeight;
+  const pxPerWord = pxPerLine / 6;
+  if (!sc) {
+    return {
+      scrollTop: 0,
+      viewportHeight: 0,
+      scrollHeight: 0,
+      pxPerLine,
+      pxPerWord
+    };
+  }
+  return {
+    scrollTop: sc.scrollTop || 0,
+    viewportHeight: sc.clientHeight || 0,
+    height: sc.clientHeight || 0,
+    scrollHeight: sc.scrollHeight || 0,
+    pxPerLine,
+    pxPerWord
+  };
 }
 
 // src/scroll/asr-block-completion.ts
@@ -14687,8 +14972,10 @@ function createHybridWpmMotor(deps) {
   let warnedNoOverflow = false;
   let loggedFirstMove = false;
   let lastMoveAtMs = 0;
+  let lastDtClampLogAtMs = 0;
   let posFloat = null;
   const TICK_LOG_INTERVAL_MS = 1e3;
+  const DT_CLAMP_LOG_INTERVAL_MS = 250;
   const now2 = deps.now ?? (() => performance.now());
   const raf = deps.raf ?? ((cb) => window.requestAnimationFrame(cb));
   const caf = deps.caf ?? ((id) => window.cancelAnimationFrame(id));
@@ -14716,6 +15003,15 @@ function createHybridWpmMotor(deps) {
     const prev = lastNow ?? current;
     const deltaMs = current - prev;
     const dt = clamp(deltaMs / 1e3, 0, 0.2);
+    if (deltaMs > 200) {
+      if (current - lastDtClampLogAtMs >= DT_CLAMP_LOG_INTERVAL_MS) {
+        lastDtClampLogAtMs = current;
+        log("dt-clamp", {
+          dtRaw: deltaMs / 1e3,
+          dtClamped: dt
+        });
+      }
+    }
     lastNow = current;
     if (velocityPxPerSec !== 0) {
       if (!writer) {
@@ -16484,6 +16780,7 @@ var pendingAutoIntentDetail = null;
 var scrollerEl = null;
 var auto = null;
 var scrollIntentListenerWired = false;
+var legacyAsrIntentLaneBlockedLogged = false;
 var ASR_INTENT_DEBOUNCE_MS = 450;
 var ASR_INTENT_STABLE_MS = 250;
 var ASR_INTENT_FIRST_STABLE_MS = 600;
@@ -16500,10 +16797,16 @@ var lastCandidate = -1;
 var stableSince = 0;
 var asrMotorConflictLogged = false;
 var scrollWriteWarned = false;
-var markHybridOffScriptFn = null;
 var guardHandlerErrorLogged = false;
 var hybridScrollGraceListenerInstalled = false;
 var hybridModeMismatchLogged = false;
+function shouldBlockLegacyAsrIntentLane() {
+  try {
+    return window.__tpAllowLegacyAsrIntent !== true;
+  } catch {
+    return true;
+  }
+}
 var recentAsrMatches = [];
 var asrBlockLineCacheRef = null;
 var asrBlockLineCache = /* @__PURE__ */ new Map();
@@ -16730,6 +17033,8 @@ function recordAsrAccept(telemetry, now2, mode, phase, currentBlockIdx, candidat
 }
 var hybridSilence = {
   lastSpeechAtMs: typeof performance !== "undefined" ? performance.now() : Date.now(),
+  lastSpeechActivityAtMs: 0,
+  speechHoldUntilMs: 0,
   pausedBySilence: false,
   timeoutId: null,
   erroredOnce: false,
@@ -16880,7 +17185,7 @@ function normalizePerfTimestamp(candidate, referenceNow = nowMs()) {
 }
 function resolveCurrentBlockIdx() {
   try {
-    const anchorIdx = computeAnchorLineIndex(scrollerEl || void 0);
+    const anchorIdx = computeAnchorLineIndex2(scrollerEl || void 0);
     if (!Number.isFinite(anchorIdx)) return null;
     const idx = Math.max(0, Math.floor(anchorIdx));
     const selector = `.line[data-i="${idx}"], .line[data-index="${idx}"], .line[data-line="${idx}"], .line[data-line-idx="${idx}"]`;
@@ -16894,10 +17199,13 @@ function resolveCurrentBlockIdx() {
   }
 }
 function runHybridVelocity(silence = hybridSilence) {
-  if (state22.mode !== "hybrid") {
+  const mode = getScrollMode2();
+  if (mode !== "hybrid") {
+    if (state22.mode !== mode) state22.mode = mode;
     assertHybridStoppedIfNotHybrid("runHybridVelocity");
     return;
   }
+  if (state22.mode !== "hybrid") state22.mode = "hybrid";
   const target = typeof window !== "undefined" ? window : globalThis;
   const fn = target.__tpApplyHybridVelocity;
   if (typeof fn === "function") {
@@ -16920,7 +17228,7 @@ function getMarkerPercent() {
 function getMarkerLineIndex(scroller = scrollerEl, markerY = null) {
   try {
     const toCheck = scroller ?? void 0;
-    const anchorIdx = computeAnchorLineIndex(toCheck);
+    const anchorIdx = computeAnchorLineIndex2(toCheck);
     if (Number.isFinite(anchorIdx)) {
       return Math.max(0, Math.floor(anchorIdx));
     }
@@ -16982,6 +17290,64 @@ function computeHybridErrorPx(now2 = nowMs()) {
 function getSilenceMs(now2 = nowMs()) {
   const lastSpeech = hybridSilence.lastSpeechAtMs ?? now2;
   return Math.max(0, now2 - lastSpeech);
+}
+function getHybridSpeechHoldRemainingMs(now2 = nowMs()) {
+  const holdUntil = Number(hybridSilence.speechHoldUntilMs);
+  if (!Number.isFinite(holdUntil) || holdUntil <= 0) return 0;
+  return Math.max(0, holdUntil - now2);
+}
+function isHybridSpeechPresent(now2 = nowMs()) {
+  if (speechActive) return true;
+  if (getHybridSpeechHoldRemainingMs(now2) > 0) return true;
+  if (!(hybridSilence.lastSpeechActivityAtMs > 0)) return false;
+  return Math.max(0, now2 - hybridSilence.lastSpeechActivityAtMs) <= HYBRID_SPEECH_PRESENT_HOLD_MS;
+}
+function markHybridSpeechPresent(now2 = nowMs()) {
+  hybridSilence.lastSpeechActivityAtMs = now2;
+  hybridSilence.speechHoldUntilMs = Math.max(
+    hybridSilence.speechHoldUntilMs || 0,
+    now2 + HYBRID_SPEECH_PRESENT_HOLD_MS
+  );
+}
+function getHybridSpeedSettingRaw() {
+  try {
+    const slider = document.getElementById("wpmTarget");
+    const sliderRaw = Number(slider?.value);
+    if (Number.isFinite(sliderRaw) && sliderRaw > 0) return sliderRaw;
+  } catch {
+  }
+  try {
+    const storedRaw = Number(localStorage.getItem("tp_baseline_wpm"));
+    if (Number.isFinite(storedRaw) && storedRaw > 0) return storedRaw;
+  } catch {
+  }
+  try {
+    const storeVal = Number(appStoreSingleton.get("wpmTarget"));
+    if (Number.isFinite(storeVal) && storeVal > 0) return storeVal;
+  } catch {
+  }
+  return null;
+}
+function getHybridWpmCalibrationMultiplier() {
+  let raw = null;
+  try {
+    const overrideRaw = Number(window.__TP_HYBRID_WPM_CAL_MULT);
+    if (Number.isFinite(overrideRaw) && overrideRaw > 0) {
+      raw = overrideRaw;
+    }
+  } catch {
+  }
+  if (raw == null) {
+    try {
+      const storedRaw = Number(localStorage.getItem("tp_hybrid_wpm_cal_mult"));
+      if (Number.isFinite(storedRaw) && storedRaw > 0) {
+        raw = storedRaw;
+      }
+    } catch {
+    }
+  }
+  const resolved = raw ?? HYBRID_WPM_CAL_MULT_DEFAULT;
+  return Math.max(HYBRID_WPM_CAL_MULT_MIN, Math.min(HYBRID_WPM_CAL_MULT_MAX, resolved));
 }
 function evaluateHybridEligibility(now2 = nowMs()) {
   if (state22.mode !== "hybrid") return { eligible: false, reason: "mode" };
@@ -17156,6 +17522,47 @@ function getLastWriterSource() {
   }
   return null;
 }
+function classifyProgrammaticWriterKind(source, modeHint = null) {
+  const raw = String(source || "").toLowerCase();
+  const mode = String(modeHint || "").toLowerCase();
+  if (raw.includes("asr") || mode === "asr") return "asr";
+  if (raw.includes("writer") || raw.includes("programmatic") || raw.includes("scrollwrite")) {
+    return "writer";
+  }
+  return "other";
+}
+function noteProgrammaticWriterStamp(source, kind, at = nowMs()) {
+  if (kind === "other") return;
+  lastProgrammaticWriterStamp = {
+    at,
+    source: String(source || "programmatic"),
+    kind
+  };
+}
+function getRecentProgrammaticWriterStamp(scroller, now2 = nowMs()) {
+  try {
+    const w2 = window;
+    const source = String(scroller?.dataset?.tpLastWriter || "");
+    const globalWriter = w2?.__tpLastWriter;
+    const globalFrom = typeof globalWriter?.from === "string" ? globalWriter.from : "";
+    const globalAt = Number(globalWriter?.at);
+    if (Number.isFinite(globalAt) && now2 - globalAt <= PROGRAMMATIC_WRITER_GRACE_MS) {
+      const kind = classifyProgrammaticWriterKind(globalFrom || source, getScrollMode2());
+      noteProgrammaticWriterStamp(globalFrom || source || "writer", kind, globalAt);
+    } else if (w2?.__tpScrollWriteActive === true) {
+      const activeSource = source || globalFrom || "writer-active";
+      const kind = classifyProgrammaticWriterKind(activeSource, getScrollMode2());
+      noteProgrammaticWriterStamp(activeSource, kind, now2);
+    } else if (state22.mode === "asr" && source) {
+      const kind = classifyProgrammaticWriterKind(source, "asr");
+      noteProgrammaticWriterStamp(source, kind, now2);
+    }
+  } catch {
+  }
+  if (!lastProgrammaticWriterStamp) return null;
+  if (now2 - lastProgrammaticWriterStamp.at > PROGRAMMATIC_WRITER_GRACE_MS) return null;
+  return lastProgrammaticWriterStamp;
+}
 function getLinePx() {
   try {
     const metrics = getViewportMetrics(() => scrollerEl);
@@ -17247,6 +17654,21 @@ function clearHybridSilenceTimer() {
   }
 }
 var tpLastWriter = null;
+function describeEl(el) {
+  if (!el) {
+    return {
+      tag: "null",
+      id: null,
+      cls: null
+    };
+  }
+  const e = el;
+  return {
+    tag: (e.tagName || "unknown").toLowerCase(),
+    id: e.id || null,
+    cls: e.className && String(e.className) || null
+  };
+}
 function scrollWrite(y, meta2) {
   if (!isMainViewer()) {
     try {
@@ -17256,7 +17678,9 @@ function scrollWrite(y, meta2) {
     return false;
   }
   const target = viewer ?? scrollerEl ?? (typeof document !== "undefined" ? document.getElementById("viewer") : null);
-  const before = target?.scrollTop ?? null;
+  const targetInfo = describeEl(target);
+  const beforeTop = target?.scrollTop ?? null;
+  const requestedTop = y;
   let ok = false;
   try {
     const writeFn = window.__tpScrollWrite;
@@ -17264,7 +17688,11 @@ function scrollWrite(y, meta2) {
       writeFn(y);
       ok = true;
     } else if (target) {
-      target.scrollTop = y;
+      applyCanonicalScrollTop(y, {
+        scroller: target,
+        reason: meta2.reason ?? "router-scroll-write-fallback",
+        source: meta2.from || "router-scroll-write-fallback"
+      });
       ok = true;
     }
   } catch (err) {
@@ -17273,22 +17701,50 @@ function scrollWrite(y, meta2) {
     } catch {
     }
   }
-  const after = target?.scrollTop ?? null;
-  tpLastWriter = { from: meta2.from, at: nowMs(), y };
+  const afterTop = target?.scrollTop ?? null;
+  const writeAt = nowMs();
+  tpLastWriter = { from: meta2.from, at: writeAt, y };
   try {
     window.__tpLastWriter = tpLastWriter;
   } catch {
   }
+  const stampSource = meta2.reason || meta2.from || "writer";
+  const stampKind = classifyProgrammaticWriterKind(stampSource, getScrollMode2());
+  noteProgrammaticWriterStamp(stampSource, stampKind, writeAt);
   try {
     console.info("[SCROLL_WRITE]", {
       ok,
       from: meta2.from,
       reason: meta2.reason ?? null,
-      before,
+      before: beforeTop,
       y,
-      after
+      after: afterTop
     });
   } catch {
+  }
+  const debugStack = isDevMode() ? new Error().stack || null : null;
+  if (target && typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+    const targetEl = target;
+    window.requestAnimationFrame(() => {
+      const afterTopRaf = targetEl.scrollTop ?? null;
+      const changedNow = beforeTop != null && afterTop != null ? afterTop !== beforeTop : null;
+      const snappedBack = afterTop != null && afterTopRaf != null ? afterTopRaf !== afterTop : null;
+      try {
+        console.warn("[SCROLL_WRITE_TRUTH]", {
+          from: meta2.from,
+          reason: meta2.reason ?? null,
+          target: targetInfo,
+          beforeTop,
+          requestedTop,
+          afterTop,
+          afterTopRaf,
+          changedNow,
+          snappedBack,
+          stack: debugStack
+        });
+      } catch {
+      }
+    });
   }
   return ok;
 }
@@ -17357,9 +17813,8 @@ function triggerWireAutoIntentListener() {
     }
     autoIntentListenerWired = true;
     window.addEventListener("tp:auto:intent", onAutoIntent);
-    document.addEventListener("tp:auto:intent", onAutoIntent);
     try {
-      console.log(`[AUTO_INTENT] listener wired ${AUTO_INTENT_WIRE_STAMP}`, { target: "window+document" });
+      console.log(`[AUTO_INTENT] listener wired ${AUTO_INTENT_WIRE_STAMP}`, { target: "window" });
     } catch {
     }
     try {
@@ -17368,10 +17823,9 @@ function triggerWireAutoIntentListener() {
     }
     try {
       const counts = [
-        getEventListeners?.(window)?.["tp:auto:intent"]?.length ?? "noAPI",
-        getEventListeners?.(document)?.["tp:auto:intent"]?.length ?? "noAPI"
+        getEventListeners?.(window)?.["tp:auto:intent"]?.length ?? "noAPI"
       ];
-      console.warn("[AUTO_INTENT] TRIGGER step=5 post-wire sanity", { win: counts[0], doc: counts[1] });
+      console.warn("[AUTO_INTENT] TRIGGER step=5 post-wire sanity", { win: counts[0] });
     } catch {
     }
     try {
@@ -17381,7 +17835,7 @@ function triggerWireAutoIntentListener() {
     } catch {
     }
     try {
-      console.warn("[AUTO_INTENT] TRIGGER wired listeners (window+document)");
+      console.warn("[AUTO_INTENT] TRIGGER wired listeners (window)");
     } catch {
     }
   }
@@ -17605,7 +18059,11 @@ function createAutoMotor() {
     const dtSec = lastTs ? Math.max(0, (now2 - lastTs) / 1e3) : 0;
     lastTs = now2;
     const pxPerSec = currentSpeed;
-    const el = scrollerEl;
+    const canonicalViewer = ensureViewerElement();
+    if (canonicalViewer && scrollerEl !== canonicalViewer) {
+      scrollerEl = canonicalViewer;
+    }
+    const el = canonicalViewer || scrollerEl;
     if (!el) {
       logAutoTick("tick", el, pxPerSec, dtSec, "no-element");
       scheduleTick();
@@ -17663,7 +18121,15 @@ function createAutoMotor() {
     cancelTick();
   }
   function start() {
-    if (enabled) return;
+    if (enabled) {
+      if (rafId2 == null) {
+        autoTickDebugStart = 0;
+        lastAutoTickLogAt = 0;
+        logAutoTick("start", viewer ?? scrollerEl, currentSpeed, 0, "already-enabled-resume");
+        scheduleTick();
+      }
+      return;
+    }
     setEnabled(true);
     lastTickMoved = false;
     carry = 0;
@@ -17690,6 +18156,7 @@ function createAutoMotor() {
 }
 var HYBRID_LOG_THROTTLE_MS = 500;
 var HYBRID_VERBOSE_FLAG = "hybrid-dev";
+var HYBRID_TRACE_FLAG = "hybridTrace";
 var lastHybridScaleLogAt = 0;
 var lastHybridPaceLogAt = 0;
 var lastHybridBrakeLogAt = 0;
@@ -17708,6 +18175,41 @@ var isHybridVerboseDevMode = (() => {
     return false;
   }
 })();
+var hybridTraceLastAt = /* @__PURE__ */ new Map();
+var hybridTraceLastSig = /* @__PURE__ */ new Map();
+function isHybridTraceEnabled() {
+  if (!isDevMode()) return false;
+  if (typeof window === "undefined") return false;
+  try {
+    const w2 = window;
+    if (w2.__TP_HYBRID_TRACE === true) return true;
+    const params = new URLSearchParams(window.location.search || "");
+    if (params.get(HYBRID_TRACE_FLAG) === "1") return true;
+    if (window.localStorage?.getItem("tp_hybrid_trace") === "1") return true;
+  } catch {
+  }
+  return false;
+}
+function logHybridTrace(tag, payload, opts) {
+  if (!isHybridTraceEnabled()) return;
+  const throttleMs = Math.max(0, Number(opts?.throttleMs) || 0);
+  const signature = typeof opts?.signature === "string" ? opts.signature : null;
+  const now2 = nowMs();
+  if (throttleMs > 0) {
+    const lastAt = hybridTraceLastAt.get(tag) ?? 0;
+    if (now2 - lastAt < throttleMs) return;
+    hybridTraceLastAt.set(tag, now2);
+  }
+  if (signature) {
+    const lastSig = hybridTraceLastSig.get(tag);
+    if (lastSig === signature) return;
+    hybridTraceLastSig.set(tag, signature);
+  }
+  try {
+    console.info(`[HYBRID_TRACE] ${tag}`, payload);
+  } catch {
+  }
+}
 function logHybridPaceTelemetry(payload) {
   if (!isDevMode()) return;
   const now2 = nowMs();
@@ -17817,6 +18319,23 @@ function logHybridMotorEvent(evt, data) {
     lastHybridMotorVelocitySignature = signature;
     lastHybridMotorVelocityLogAt = now2;
   }
+  if (evt === "dt-clamp") {
+    const dtRaw = Number(data?.dtRaw ?? NaN);
+    const dtClamped = Number(data?.dtClamped ?? NaN);
+    if (Number.isFinite(dtRaw) && Number.isFinite(dtClamped)) {
+      logHybridTrace(
+        "motor_dt_clamp",
+        {
+          dtRaw: Number(dtRaw.toFixed(3)),
+          dtClamped: Number(dtClamped.toFixed(3))
+        },
+        {
+          throttleMs: 250,
+          signature: `${dtRaw.toFixed(3)}|${dtClamped.toFixed(3)}`
+        }
+      );
+    }
+  }
   try {
     console.debug("[HybridMotor]", evt, data);
   } catch {
@@ -17830,15 +18349,39 @@ function convertWpmToPxPerSec(targetWpm) {
     const lhScale = parseFloat(cs.getPropertyValue("--tp-line-height")) || 1.4;
     const lineHeightPx = fsPx * lhScale;
     const wpl = parseFloat(localStorage.getItem("tp_wpl_hint") || "8") || 8;
-    const pxPerSec = targetWpm / 60 / wpl * lineHeightPx;
+    const basePxpsRaw = targetWpm / 60 / wpl * lineHeightPx;
+    const mode = getScrollMode2();
+    const hybridWpmCalMult = mode === "hybrid" ? getHybridWpmCalibrationMultiplier() : 1;
+    const pxPerSec = basePxpsRaw * hybridWpmCalMult;
+    logHybridTrace(
+      "base_speed_compute",
+      {
+        speedRaw: targetWpm,
+        unit: "wpm",
+        mode,
+        wpm: targetWpm,
+        wpl,
+        lineHeightPx: Number(lineHeightPx.toFixed(2)),
+        basePxpsRaw: Number(basePxpsRaw.toFixed(2)),
+        hybridWpmCalMult: Number(hybridWpmCalMult.toFixed(3)),
+        basePxps: Number(pxPerSec.toFixed(2))
+      },
+      {
+        throttleMs: 100,
+        signature: `${mode}|${Number(targetWpm).toFixed(2)}|${Number(wpl).toFixed(2)}|${Number(lineHeightPx).toFixed(2)}|${Number(hybridWpmCalMult).toFixed(3)}|${Number(pxPerSec).toFixed(2)}`
+      }
+    );
     try {
       console.info(
         `[WPM_CONVERT] ${JSON.stringify({
           targetWpm,
+          mode,
           fsPx,
           lhScale,
           lineHeightPx,
           wpl,
+          basePxpsRaw,
+          hybridWpmCalMult,
           pxPerSec
         })}`
       );
@@ -18187,6 +18730,8 @@ var HYBRID_SILENCE_SOFT_MS = 3e3;
 var HYBRID_PAUSE_SILENCE_SOFT_MS = 7500;
 var HYBRID_SILENCE_HARD_STOP_MS = 25e3;
 var LIVE_GRACE_MS = 1800;
+var HYBRID_SPEECH_PRESENT_HOLD_MS = 1600;
+var HYBRID_HARD_NOMATCH_OFFSCRIPT_GRACE_MS = 420;
 var OFFSCRIPT_MILD = 0.75;
 var OFFSCRIPT_DEEP = 0.55;
 var RECOVERY_SCALE = 1;
@@ -18200,6 +18745,9 @@ var PAUSE_LOOKAHEAD_LINES = 10;
 var HYBRID_PAUSE_TOKENS = ["[pause]", "[beat]", "[reflective pause]"];
 var GRACE_MIN_SCALE = 0.9;
 var HYBRID_BASELINE_FLOOR_PXPS = 24;
+var HYBRID_WPM_CAL_MULT_DEFAULT = 2.5;
+var HYBRID_WPM_CAL_MULT_MIN = 0.25;
+var HYBRID_WPM_CAL_MULT_MAX = 8;
 var HYBRID_ASSIST_CAP_FRAC = 0.35;
 var HYBRID_EVENT_TTL_MIN = 20;
 var HYBRID_EVENT_TTL_MAX = 2e3;
@@ -18213,10 +18761,13 @@ var OFFSCRIPT_DECAY_T2_MS = 6e3;
 var OFFSCRIPT_DECAY_T3_MS = 1e4;
 var OFFSCRIPT_DECAY_T4_MS = 12e3;
 var OFFSCRIPT_DECAY_CRAWL = 0.1;
+var HYBRID_OFFSCRIPT_SPEECH_FLOOR_MULT = 0.35;
 var ON_SCRIPT_LOCK_HOLD_MS = 1500;
 var PAUSE_ASSIST_TAIL_MS = 2e3;
 var IGNORED_ASR_PURSUIT_LOG_THROTTLE_MS = 2e3;
 var MANUAL_SCROLL_LOG_THROTTLE_MS = 1500;
+var PROGRAMMATIC_WRITER_GRACE_MS = 250;
+var PROGRAMMATIC_WRITER_LOG_THROTTLE_MS = 1e3;
 var HYBRID_CTRL_LOG_THROTTLE_MS = 500;
 var HYBRID_CTRL_CONF_MIN = 0.25;
 var HYBRID_CTRL_ANCHOR_RECENCY_MS = 2500;
@@ -18279,12 +18830,22 @@ var HYBRID_CTRL_ON_TARGET_VELOCITY_EPS = 12;
 var HYBRID_CTRL_MODE_DEADBAND_LINES = 3;
 var HYBRID_CTRL_BASE_MAX_MULT = 2.8;
 var HYBRID_CTRL_AGGRO_MAX_MULT = 3.2;
+var HYBRID_CTRL_DYNAMIC_MAX_MULT = 6;
+var HYBRID_CTRL_DYNAMIC_MAX_MULT_AGGRO = 8;
+var HYBRID_CTRL_DYNAMIC_MAX_ABS_MIN_PXPS = 240;
+var HYBRID_CTRL_DYNAMIC_MAX_ABS_MIN_PXPS_AGGRO = 300;
+var HYBRID_CTRL_CTRL_MULT_MAX = 2.5;
+var HYBRID_CTRL_REACTIVE_MULT_MAX = 7;
+var HYBRID_CTRL_POLICY_MULT_MIN = 0.35;
+var HYBRID_CTRL_POLICY_MULT_MAX = 1.25;
+var HYBRID_CTRL_PRECLAMP_SCALE_MAX = 8;
 var HYBRID_REACTIVE_BEHIND_BASE = 0.55;
 var HYBRID_REACTIVE_BEHIND_ACC_THRESHOLD = 2;
 var HYBRID_REACTIVE_BEHIND_ACC_BONUS = 0.25;
 var HYBRID_CTRL_ASSIST_BEHIND_BOOST_FRAC = 0.15;
 var HYBRID_ON_TARGET_LINES = 0.92;
 var HYBRID_MULT_DEBUG_THROTTLE_MS = 500;
+var HYBRID_POLICY_LOG_THROTTLE_MS = 700;
 var HYBRID_ONSCRIPT_SIM_MIN = 0.74;
 var HYBRID_CTRL_PARAM_ENABLED = (() => {
   if (typeof window === "undefined") return false;
@@ -18325,7 +18886,110 @@ var lastAsrMatch = { currentIndex: -1, bestIndex: -1, bestSim: NaN };
 var hybridLastMatch = null;
 var hybridMatchSeen = false;
 var hybridLastNoMatch = null;
+var hybridMatcherSource = "unknown";
+var hybridMatcherSourceDetail = "unknown";
+var lastHybridMatcherProbeAt = 0;
 var HYBRID_HARD_NOMATCH_SIM_MIN = 0.25;
+var HYBRID_MATCHER_PROBE_THROTTLE_MS = 350;
+var HYBRID_BLOCKS_NOT_READY_HOLD_MS = 3500;
+function isHybridBackendReady() {
+  try {
+    if (window.__tpSpeechOrchestrator?.start) return true;
+  } catch {
+  }
+  try {
+    if (window.__tpSpeech?.startRecognizer) return true;
+  } catch {
+  }
+  try {
+    if (window.__tpSpeechCanDynImport === true) return true;
+  } catch {
+  }
+  try {
+    if (window.SpeechRecognition || window.webkitSpeechRecognition) return true;
+  } catch {
+  }
+  return false;
+}
+function computeAsrBlockScriptSig(meta2) {
+  if (!meta2 || !Array.isArray(meta2.units) || !meta2.units.length) return null;
+  try {
+    const units = meta2.units;
+    const first = units[0];
+    const last = units[units.length - 1];
+    const sums = units.reduce(
+      (acc, unit) => {
+        const chars = Number(unit?.charCount);
+        const sentences = Number(unit?.sentenceCount);
+        if (Number.isFinite(chars)) acc.chars += Math.max(0, Math.floor(chars));
+        if (Number.isFinite(sentences)) acc.sentences += Math.max(0, Math.floor(sentences));
+        return acc;
+      },
+      { chars: 0, sentences: 0 }
+    );
+    return [
+      units.length,
+      Number(first?.unitStart ?? -1),
+      Number(first?.unitEnd ?? -1),
+      Number(last?.unitStart ?? -1),
+      Number(last?.unitEnd ?? -1),
+      sums.sentences,
+      sums.chars
+    ].join(":");
+  } catch {
+    return null;
+  }
+}
+function readHybridScriptHash() {
+  try {
+    const hash = String(window.__TP_LAST_APPLIED_HASH || "").trim();
+    return hash || null;
+  } catch {
+    return null;
+  }
+}
+function getHybridBlockRuntimeState() {
+  const blockEls2 = getAsrBlockElements();
+  const meta2 = getAsrBlockIndex();
+  const storeCount = Array.isArray(blockEls2) ? blockEls2.length : 0;
+  let globalCount = 0;
+  let globalReady = false;
+  try {
+    const rawCount = Number(window.__tpAsrBlockCount);
+    globalCount = Number.isFinite(rawCount) ? Math.max(0, Math.floor(rawCount)) : 0;
+    globalReady = Boolean(window.__tpAsrBlocksReady);
+  } catch {
+  }
+  const blockCount = Math.max(storeCount, globalCount);
+  const blocksReady = (globalReady || storeCount > 0) && blockCount > 0;
+  const scriptSig = computeAsrBlockScriptSig(meta2);
+  return {
+    blocksReady,
+    blockCount,
+    blockSource: String(meta2?.source || "unknown"),
+    schemaVersion: Number.isFinite(Number(meta2?.schemaVersion)) ? Number(meta2?.schemaVersion) : null,
+    scriptSig,
+    scriptHash: readHybridScriptHash(),
+    backendReady: isHybridBackendReady(),
+    matcherSource: hybridMatcherSource,
+    matcherSourceDetail: hybridMatcherSourceDetail
+  };
+}
+function isHybridBlocksNotReadyHold(now2 = nowMs(), runtime = getHybridBlockRuntimeState()) {
+  if (!runtime.backendReady || runtime.blocksReady) return false;
+  const lastSpeechAgeMs = Math.max(0, now2 - hybridSilence.lastSpeechAtMs);
+  return isHybridSpeechPresent(now2) || lastSpeechAgeMs <= HYBRID_BLOCKS_NOT_READY_HOLD_MS;
+}
+function logHybridMatcherProbe(reason, payload) {
+  if (!isDevMode()) return;
+  const now2 = nowMs();
+  if (now2 - lastHybridMatcherProbeAt < HYBRID_MATCHER_PROBE_THROTTLE_MS) return;
+  lastHybridMatcherProbeAt = now2;
+  try {
+    console.info("[HYBRID_MATCHER_PROBE]", { reason, ...payload });
+  } catch {
+  }
+}
 function getHybridMatchState() {
   const matchSim = hybridMatchSeen && Number.isFinite(hybridLastMatch?.bestSim ?? NaN) ? hybridLastMatch.bestSim : Number.isFinite(lastAsrMatch?.bestSim ?? NaN) ? lastAsrMatch.bestSim : null;
   const simFinite = Number.isFinite(matchSim ?? NaN);
@@ -18360,6 +19024,7 @@ var pauseAssistTailUntil = 0;
 var lastIgnoredAsrPursuitLogAt = 0;
 var hybridVelocityRefreshRaf = null;
 var hybridTargetHintState = null;
+var speechActive = false;
 var hybridCommitBoostUntilMs = 0;
 function armHybridCommitBoostWindow(reason) {
   if (reason !== "asr-commit") return;
@@ -18374,6 +19039,8 @@ var hybridLastGoodTargetTop = null;
 var hybridWantedRunning = false;
 var liveGraceWindowEndsAt = null;
 var lastManualScrollBrakeLogAt = 0;
+var lastProgrammaticWriterStamp = null;
+var lastProgrammaticWriterLogAt = 0;
 var lastHybridCtrlLogAt = 0;
 var hybridCtrl = {
   mult: 1,
@@ -18478,7 +19145,7 @@ function scheduleHybridVelocityRefresh() {
   if (typeof window === "undefined") return;
   hybridVelocityRefreshRaf = window.requestAnimationFrame(() => {
     hybridVelocityRefreshRaf = null;
-    if (state22.mode !== "hybrid") return;
+    if (getScrollMode2() !== "hybrid") return;
     const now2 = nowMs();
     if (!shouldHybridRefresh(now2)) {
       stopHybridVelocityRefresh();
@@ -18518,7 +19185,12 @@ function stopHybridVelocityRefresh() {
   hybridVelocityRefreshRaf = null;
 }
 function shouldHybridRefresh(now2 = nowMs()) {
-  if (state22.mode !== "hybrid") return false;
+  const mode = getScrollMode2();
+  if (mode !== "hybrid") {
+    if (state22.mode !== mode) state22.mode = mode;
+    return false;
+  }
+  if (state22.mode !== "hybrid") state22.mode = "hybrid";
   if (hybridMotor.isRunning()) return true;
   if (isHybridGraceActive(now2)) return true;
   const brakeActive = hybridBrakeState.expiresAt > now2;
@@ -18565,7 +19237,8 @@ function setHybridBrake(factor, ttlMs, reason = null) {
     }
     if (shouldLogBrake) {
       try {
-        console.info("[HYBRID_BRAKE] set", {
+        const brakeTag = state22.mode === "asr" ? "ASR_BRAKE" : "HYBRID_BRAKE";
+        console.info(`[${brakeTag}] set`, {
           factor: safeFactor,
           ttl,
           expiresAt: hybridBrakeState.expiresAt,
@@ -18992,18 +19665,20 @@ function applyMode(m) {
 function installScrollRouter(opts) {
   const { auto: autoMotor, viewer: viewerInstallFlag = false, hostEl = null } = opts;
   auto = autoMotor || auto || null;
-  if (!viewer && hostEl) {
-    viewer = hostEl;
+  const canonicalScroller = getScrollerEl(viewerRole) || getScrollerEl("main");
+  const docViewer = document.getElementById("viewer");
+  if (!viewer) {
+    if (docViewer) {
+      viewer = docViewer;
+    } else if (hostEl instanceof HTMLElement && hostEl.id === "viewer") {
+      viewer = hostEl;
+    }
   }
   if (hostEl instanceof HTMLElement) {
-    scrollerEl = hostEl;
+    scrollerEl = canonicalScroller || docViewer || viewer || hostEl;
   }
   if (!scrollerEl) {
-    scrollerEl = document.querySelector("#viewer") || document.querySelector("#script");
-  }
-  if (!scrollerEl) {
-    const fallback = document.scrollingElement || document.documentElement;
-    scrollerEl = fallback;
+    scrollerEl = canonicalScroller || docViewer || document.querySelector("main#viewer.viewer, #viewer") || document.querySelector("#script") || (viewerRole === "display" ? document.getElementById("wrap") : null);
   }
   if (!hybridScrollGraceListenerInstalled) {
     try {
@@ -19016,6 +19691,25 @@ function installScrollRouter(opts) {
         const scroller = scrollerEl;
         if (!scroller || !target) return;
         if (scroller === target || scroller.contains(target)) {
+          const now2 = nowMs();
+          const writerStamp = getRecentProgrammaticWriterStamp(scroller, now2);
+          if (writerStamp && (writerStamp.kind === "asr" || writerStamp.kind === "writer")) {
+            if (isDevMode() && now2 - lastProgrammaticWriterLogAt >= PROGRAMMATIC_WRITER_LOG_THROTTLE_MS) {
+              lastProgrammaticWriterLogAt = now2;
+              try {
+                const brakeTag = state22.mode === "asr" ? "ASR_BRAKE" : "HYBRID_BRAKE";
+                console.info(`[${brakeTag}] skip`, {
+                  reason: "programmatic-writer",
+                  source: writerStamp.source,
+                  kind: writerStamp.kind,
+                  ageMs: Math.max(0, Math.round(now2 - writerStamp.at)),
+                  mode: state22.mode
+                });
+              } catch {
+              }
+            }
+            return;
+          }
           setHybridBrake(1, 0, "manual-scroll");
         }
       };
@@ -19076,6 +19770,18 @@ function installScrollRouter(opts) {
       const normalized = normalizeScrollModeValue(next);
       if (!normalized || normalized === state22.mode) return;
       applyMode(normalized);
+      if (normalized === "asr") {
+        try {
+          stopAllMotors("mode switch to asr (safety)");
+        } catch {
+        }
+        try {
+          window.dispatchEvent(new CustomEvent("tp:auto:intent", {
+            detail: { enabled: false, reason: "mode-enter-asr" }
+          }));
+        } catch {
+        }
+      }
       emitScrollModeSnapshot("store-change");
     });
   } catch {
@@ -19149,7 +19855,8 @@ function installScrollRouter(opts) {
   let dbGate = false;
   let vadGate = false;
   let gatePref = getUiPrefs().hybridGate;
-  let speechActive = false;
+  let hardNoMatchSinceMs = 0;
+  let lastHybridPolicyLogAt = 0;
   let sessionIntentOn = false;
   let sessionPhase2 = "idle";
   hybridSessionPhase = sessionPhase2;
@@ -19181,6 +19888,18 @@ function installScrollRouter(opts) {
     onScrollIntent((intent) => {
       try {
         if (!intent || intent.source !== "asr") return;
+        if (shouldBlockLegacyAsrIntentLane()) {
+          if (!legacyAsrIntentLaneBlockedLogged) {
+            legacyAsrIntentLaneBlockedLogged = true;
+            if (isDevMode()) {
+              try {
+                console.info("[ASR] ignoring legacy tp:scroll:intent (driver-owned commit lane)");
+              } catch {
+              }
+            }
+          }
+          return;
+        }
         const telemetry = getAsrTelemetry();
         const intentReason = typeof intent.reason === "string" ? intent.reason : "";
         recordAsrIntentTelemetry(telemetry, intentReason);
@@ -19494,6 +20213,20 @@ function installScrollRouter(opts) {
     } catch {
     }
   }
+  let lastAutoIntentMotorRequest = { kind: "auto", source: "unknown" };
+  function normalizeRequestedMotorKind(raw) {
+    const value = String(raw || "").toLowerCase();
+    if (value === "auto" || value === "hybrid") return value;
+    return null;
+  }
+  function resolveAutoIntentMotorRequest(detail, mode, reasonRaw) {
+    const source = typeof detail?.source === "string" ? detail.source : reasonRaw || "unknown";
+    if (mode === "asr") return { kind: "auto", source };
+    const explicit = normalizeRequestedMotorKind(detail?.motorKind) || normalizeRequestedMotorKind(detail?.kind) || normalizeRequestedMotorKind(detail?.intent?.kind);
+    if (explicit) return { kind: explicit, source };
+    if (mode === "hybrid") return { kind: "hybrid", source };
+    return { kind: "auto", source };
+  }
   function resolveAutoIntentEnabled(detail) {
     if (typeof detail.enabled === "boolean") return detail.enabled;
     if (typeof detail.on === "boolean") return detail.on;
@@ -19537,6 +20270,28 @@ function installScrollRouter(opts) {
       const enabled = resolveAutoIntentEnabled(detail);
       if (typeof enabled !== "boolean") return null;
       const reasonRaw = resolveAutoIntentReason(detail);
+      const mode = getScrollMode2();
+      const currentPhase = String(appStoreSingleton.get("session.phase") || sessionPhase2);
+      const asrArmed = !!appStoreSingleton.get("session.asrArmed");
+      const reasonNormalized = String(reasonRaw || "").trim().toLowerCase();
+      const reasonCompact = reasonNormalized.replace(/[^a-z]/g, "");
+      const isScriptEndReason = reasonCompact === "scriptend";
+      const ignoreAsrScriptEnd = !enabled && isScriptEndReason && mode === "asr" && currentPhase === "live" && asrArmed;
+      if (ignoreAsrScriptEnd) {
+        if (isDevMode()) {
+          try {
+            console.warn("[AUTO_INTENT] scriptEnd ignored in live armed ASR", {
+              enabled,
+              reason: reasonRaw ?? null,
+              mode,
+              phase: currentPhase,
+              asrArmed
+            });
+          } catch {
+          }
+        }
+        return null;
+      }
       if (shouldIgnoreHybridStop(reasonRaw, enabled)) {
         try {
           console.info("[AUTO_INTENT] hybrid stop ignored (live, non-fatal reason)", { reason: reasonRaw });
@@ -19544,17 +20299,17 @@ function installScrollRouter(opts) {
         }
         return null;
       }
+      const motorRequest = resolveAutoIntentMotorRequest(detail, mode, reasonRaw);
+      lastAutoIntentMotorRequest = motorRequest;
       setAutoIntentState(enabled, reasonRaw);
-      const mode = getScrollMode2();
       const allowAutoMotor = mode !== "asr";
       const brain = String(appStoreSingleton.get("scrollBrain") || "auto");
       const baseDecision = enabled ? "motor-start-request" : "motor-stop-request";
       const decision = allowAutoMotor ? baseDecision : "motor-stop-request";
       const pxPerSec = typeof getCurrentSpeed === "function" ? getCurrentSpeed() : void 0;
-      const currentPhase = String(appStoreSingleton.get("session.phase") || sessionPhase2);
       try {
         console.info(
-          `[scroll-router] tp:auto:intent mode=${state22.mode} brain=${brain} phase=${sessionPhase2} decision=${decision} userEnabled=${userEnabled}`
+          `[scroll-router] tp:auto:intent mode=${state22.mode} brain=${brain} phase=${sessionPhase2} decision=${decision} userEnabled=${userEnabled} motorKind=${motorRequest.kind} source=${motorRequest.source}`
         );
         console.warn(
           "[AUTO_INTENT]",
@@ -19562,6 +20317,10 @@ function installScrollRouter(opts) {
           state22.mode,
           "enabled=",
           enabled,
+          "motorKind=",
+          motorRequest.kind,
+          "source=",
+          motorRequest.source,
           "pxPerSec=",
           pxPerSec,
           "sessionPhase=",
@@ -19584,7 +20343,14 @@ function installScrollRouter(opts) {
         emitAutoState();
       } catch {
       }
-      return { enabled, decision, pxs, reason: reasonRaw };
+      return {
+        enabled,
+        decision,
+        pxs,
+        reason: reasonRaw,
+        motorKind: motorRequest.kind,
+        motorSource: motorRequest.source
+      };
     } catch {
     }
     return null;
@@ -19592,14 +20358,28 @@ function installScrollRouter(opts) {
   function processAutoIntent(detail) {
     const payload = handleAutoIntent(detail);
     if (!payload) return;
-    const { enabled, decision, pxs, reason } = payload;
+    const { enabled, decision, pxs, reason, motorKind, motorSource } = payload;
     const mode = getScrollMode2();
+    const currentPhase = String(appStoreSingleton.get("session.phase") || sessionPhase2);
+    if (enabled && currentPhase !== "live") {
+      try {
+        console.info("[AUTO_INTENT] start ignored: session not live", {
+          mode,
+          phase: currentPhase,
+          reason: reason ?? "unknown"
+        });
+      } catch {
+      }
+      return;
+    }
     const pxps = typeof getCurrentSpeed === "function" ? getCurrentSpeed() : void 0;
     const chosenMotor = mode === "hybrid" ? "hybrid" : "auto";
     try {
       console.warn("[AUTO_INTENT] processor RUN", {
         enabled,
         mode,
+        motorKind,
+        source: motorSource,
         pxps,
         chosenMotor,
         viewerRole,
@@ -19878,6 +20658,7 @@ function installScrollRouter(opts) {
       }
       hybridSilence.pausedBySilence = false;
       speechActive = false;
+      hybridSilence.speechHoldUntilMs = now2;
       emitHybridSafety();
       try {
         applyGate();
@@ -19893,6 +20674,7 @@ function installScrollRouter(opts) {
       }
       hybridSilence.pausedBySilence = false;
       speechActive = false;
+      hybridSilence.speechHoldUntilMs = now2;
       emitHybridSafety();
       try {
         applyGate();
@@ -19903,6 +20685,7 @@ function installScrollRouter(opts) {
     if (!motorRunning) return;
     hybridSilence.pausedBySilence = true;
     speechActive = false;
+    hybridSilence.speechHoldUntilMs = now2;
     runHybridVelocity(hybridSilence);
     emitHybridSafety();
     armHybridSilenceTimer2(softDelayMs);
@@ -19939,7 +20722,8 @@ function installScrollRouter(opts) {
     }
   }
   function startHybridMotorFromSpeedChange() {
-    if (getScrollMode2() !== "hybrid") {
+    const modeNow = getScrollMode2();
+    if (modeNow !== "hybrid") {
       logHybridModeMismatch("startHybridMotorFromSpeedChange");
       return;
     }
@@ -19965,6 +20749,7 @@ function installScrollRouter(opts) {
     }
     const wasSpeechActive = speechActive;
     speechActive = true;
+    markHybridSpeechPresent(now2);
     hybridSilence.lastSpeechAtMs = now2;
     setHybridSilence2(now2);
     liveGraceWindowEndsAt = null;
@@ -20016,6 +20801,29 @@ function installScrollRouter(opts) {
   function updateHybridScaleFromDetail(detail) {
     if (state22.mode !== "hybrid" || !hybridWantedRunning) return;
     const now2 = nowMs();
+    const runtime = getHybridBlockRuntimeState();
+    const blocksNotReadyHold = isHybridBlocksNotReadyHold(now2, runtime);
+    if (blocksNotReadyHold) {
+      offScriptEvidence = 0;
+      lastOffScriptEvidenceTs = 0;
+      if (hybridSilence.offScriptActive) {
+        hybridSilence.offScriptActive = false;
+      }
+      if (Number.isFinite(hybridScale) && hybridScale !== RECOVERY_SCALE) {
+        setHybridScale2(RECOVERY_SCALE);
+      }
+      logHybridMatcherProbe("scale-hold:blocks-not-ready", {
+        blocksReady: runtime.blocksReady,
+        blockCount: runtime.blockCount,
+        blockSource: runtime.blockSource,
+        scriptHash: runtime.scriptHash,
+        scriptSig: runtime.scriptSig,
+        backendReady: runtime.backendReady,
+        matcherSource: runtime.matcherSource,
+        matcherSourceDetail: runtime.matcherSourceDetail
+      });
+      return;
+    }
     const inBandValue = detail.inBand;
     const inBand = inBandValue === 1 || inBandValue === true || inBandValue === "1";
     const bestSimRaw = detail.bestSim ?? detail.sim ?? detail.score;
@@ -20050,6 +20858,21 @@ function installScrollRouter(opts) {
       offScriptEvidence = 0;
       lastOffScriptEvidenceTs = 0;
       setHybridScale2(RECOVERY_SCALE);
+      logHybridTrace(
+        "evidence_counters",
+        {
+          source: "good-match",
+          onScriptStreak,
+          offScriptEvidence,
+          offScriptActive: hybridSilence.offScriptActive,
+          bestSim,
+          noMatch: isNoMatch,
+          nextScale
+        },
+        {
+          signature: `good|${onScriptStreak}|${offScriptEvidence}|${hybridSilence.offScriptActive ? 1 : 0}|${Number(bestSim ?? NaN).toFixed(2)}`
+        }
+      );
       logHud();
       return;
     }
@@ -20072,13 +20895,86 @@ function installScrollRouter(opts) {
       offScriptEvidence = 0;
       setHybridScale2(nextScale);
     }
+    logHybridTrace(
+      "evidence_counters",
+      {
+        source: "offscript",
+        onScriptStreak,
+        offScriptEvidence,
+        offScriptActive: hybridSilence.offScriptActive,
+        bestSim,
+        noMatch: isNoMatch,
+        significantNoMatch,
+        nextScale
+      },
+      {
+        signature: `off|${onScriptStreak}|${offScriptEvidence}|${hybridSilence.offScriptActive ? 1 : 0}|${Number(bestSim ?? NaN).toFixed(2)}|${significantNoMatch ? 1 : 0}`
+      }
+    );
     logHud();
   }
   function handleTranscriptEvent(detail) {
     if (getScrollMode2() !== "hybrid") return;
     const perfNow = nowMs();
     const now2 = normalizePerfTimestamp(detail.timestamp, perfNow);
+    hybridMatcherSource = "tp:speech:transcript";
+    hybridMatcherSourceDetail = String(detail.source || "speech-loader");
     const isNoMatch = detail.noMatch === true;
+    const inBand = detail.inBand === true || detail.inBand === 1 || detail.inBand === "1";
+    const bestIdxRaw = detail.bestIdx ?? detail.line ?? detail.idx ?? detail.match?.bestIdx;
+    const bestIdx = Number.isFinite(Number(bestIdxRaw)) ? Math.max(0, Math.floor(Number(bestIdxRaw))) : -1;
+    const simRaw = detail.bestSim ?? detail.sim ?? detail.score ?? detail.match?.bestSim;
+    const parsedBestSim = Number.isFinite(Number(simRaw)) ? Number(simRaw) : Number.NaN;
+    const inferredBestSim = Number.isFinite(parsedBestSim) ? parsedBestSim : isNoMatch ? Number.NaN : inBand ? HYBRID_ON_SCRIPT_SIM : HYBRID_OFFSCRIPT_MILD_SIM;
+    const currentIdxRaw = detail.currentIdx ?? detail.match?.currentIdx ?? window?.currentIndex;
+    const currentIdx = Number.isFinite(Number(currentIdxRaw)) ? Math.max(0, Math.floor(Number(currentIdxRaw))) : lastAsrMatch.currentIndex;
+    const speechPresentNow = isHybridSpeechPresent(now2);
+    const ingressMatchState = getHybridMatchState();
+    logHybridTrace(
+      "transcript_ingress",
+      {
+        source: detail.source || "speech-loader",
+        noMatch: isNoMatch,
+        bestIdx,
+        sim: Number.isFinite(inferredBestSim) ? Number(inferredBestSim.toFixed(3)) : null,
+        speechPresent: speechPresentNow,
+        hardNoMatch: ingressMatchState.hardNoMatch
+      },
+      {
+        throttleMs: 60,
+        signature: `${isNoMatch ? 1 : 0}|${bestIdx}|${Number(inferredBestSim).toFixed(3)}|${speechPresentNow ? 1 : 0}|${ingressMatchState.hardNoMatch ? 1 : 0}`
+      }
+    );
+    if (!isNoMatch && bestIdx >= 0) {
+      hybridMatchSeen = true;
+      hybridLastMatch = {
+        bestIdx,
+        bestSim: inferredBestSim,
+        isFinal: Boolean(detail.isFinal ?? detail.final),
+        ts: now2
+      };
+      lastAsrMatch = {
+        currentIndex: currentIdx,
+        bestIndex: bestIdx,
+        bestSim: inferredBestSim
+      };
+      if (Number.isFinite(inferredBestSim) && inferredBestSim >= HYBRID_HARD_NOMATCH_SIM_MIN) {
+        hybridLastNoMatch = false;
+      }
+      logHybridTrace(
+        "match_latch",
+        {
+          latchedMatch: true,
+          bestIdx,
+          sim: Number.isFinite(inferredBestSim) ? Number(inferredBestSim.toFixed(3)) : null,
+          isFinal: Boolean(detail.isFinal ?? detail.final),
+          currentIdx
+        },
+        {
+          signature: `${bestIdx}|${Number(inferredBestSim).toFixed(3)}|${Boolean(detail.isFinal ?? detail.final) ? 1 : 0}|${currentIdx}`
+        }
+      );
+    }
     const wasSilent = hybridSilence.pausedBySilence;
     hybridSilence.lastSpeechAtMs = now2;
     hybridSilence.pausedBySilence = false;
@@ -20131,8 +21027,11 @@ function installScrollRouter(opts) {
       const detail = ev.detail || {};
       const ts = typeof detail.ts === "number" ? detail.ts : nowMs();
       if (getScrollMode2() !== "hybrid") return;
+      hybridMatcherSource = "tp:asr:sync";
+      hybridMatcherSourceDetail = String(detail.source || "sync");
+      const noMatch = detail.noMatch === true;
       try {
-        noteHybridSpeechActivity(ts, { source: "sync", noMatch: detail.noMatch === true });
+        noteHybridSpeechActivity(ts, { source: "sync", noMatch });
       } catch (err) {
         handleHybridFatalOnce(err);
         return;
@@ -20169,9 +21068,20 @@ function installScrollRouter(opts) {
   } catch {
   }
   try {
-    window.addEventListener("tp:asr:guard", () => {
+    window.addEventListener("tp:asr:guard", (ev) => {
       try {
-        markHybridOffScriptFn?.();
+        if (getScrollMode2() !== "hybrid") return;
+        const detail = ev.detail || {};
+        if (isDevMode()) {
+          try {
+            console.info("[HYBRID] structural guard (no offscript decay)", {
+              status: detail.status ?? null,
+              reason: detail.reason ?? null,
+              source: detail.source ?? null
+            });
+          } catch {
+          }
+        }
       } catch (err) {
         if (!guardHandlerErrorLogged) {
           guardHandlerErrorLogged = true;
@@ -20197,6 +21107,8 @@ function installScrollRouter(opts) {
   try {
     window.addEventListener("tp:hybrid:matchState", (ev) => {
       const detail = ev.detail || {};
+      hybridMatcherSource = "tp:hybrid:matchState";
+      hybridMatcherSourceDetail = String(detail.source || detail.reason || "match-state");
       const bestIdxRaw = detail.bestIdx;
       const bestSimRaw = detail.bestSim;
       const bestIdx = Number.isFinite(bestIdxRaw) ? bestIdxRaw : -1;
@@ -20476,13 +21388,105 @@ function installScrollRouter(opts) {
     };
   }
   function applyHybridVelocityCore2(silence = hybridSilence) {
+    const mode = getScrollMode2();
+    if (mode !== "hybrid") {
+      if (state22.mode !== mode) state22.mode = mode;
+      assertHybridStoppedIfNotHybrid("applyHybridVelocityCore");
+      return;
+    }
+    if (state22.mode !== "hybrid") state22.mode = "hybrid";
     const candidateBase = Number.isFinite(hybridBasePxps) ? hybridBasePxps : 0;
     const base = candidateBase > 0 ? candidateBase : HYBRID_BASELINE_FLOOR_PXPS;
     const now2 = nowMs();
+    const runtime = getHybridBlockRuntimeState();
+    const blocksNotReadyHold = isHybridBlocksNotReadyHold(now2, runtime);
+    if (blocksNotReadyHold) {
+      offScriptEvidence = 0;
+      offScriptStreak = 0;
+      lastOffScriptEvidenceTs = 0;
+      if (hybridSilence.offScriptActive) {
+        hybridSilence.offScriptActive = false;
+      }
+      if (Number.isFinite(hybridScale) && hybridScale !== RECOVERY_SCALE) {
+        setHybridScale2(RECOVERY_SCALE);
+      }
+    }
     const matchState = getHybridMatchState();
     const { bestSim, sawNoMatch, weakMatch: baseWeakMatch, hardNoMatch } = matchState;
+    const sawNoMatchEffective = blocksNotReadyHold ? false : sawNoMatch;
+    const hardNoMatchEffective = blocksNotReadyHold ? false : hardNoMatch;
+    const speechPresent = isHybridSpeechPresent(now2);
+    if (speechPresent && hardNoMatchEffective) {
+      if (!(hardNoMatchSinceMs > 0)) {
+        hardNoMatchSinceMs = now2;
+      }
+    } else if (hardNoMatchSinceMs > 0) {
+      hardNoMatchSinceMs = 0;
+    }
+    const hardNoMatchAgeMs = hardNoMatchSinceMs > 0 ? Math.max(0, now2 - hardNoMatchSinceMs) : 0;
+    const hardNoMatchOffScriptActive = !blocksNotReadyHold && speechPresent && hardNoMatchEffective && hardNoMatchAgeMs >= HYBRID_HARD_NOMATCH_OFFSCRIPT_GRACE_MS;
+    const traceClampStage = (stage, inPxps, outPxps, reason2, extra) => {
+      if (!Number.isFinite(inPxps) || !Number.isFinite(outPxps)) return;
+      const delta = Math.abs(outPxps - inPxps);
+      if (delta < 0.01) return;
+      const inRounded = Number(inPxps.toFixed(2));
+      const outRounded = Number(outPxps.toFixed(2));
+      logHybridTrace(
+        "clamp_stage",
+        {
+          stage,
+          inPxps: inRounded,
+          outPxps: outRounded,
+          reason: reason2,
+          ...extra
+        },
+        {
+          signature: `${stage}|${inRounded.toFixed(2)}|${outRounded.toFixed(2)}|${reason2}|${typeof extra?.reasonTag === "string" ? extra.reasonTag : ""}`
+        }
+      );
+    };
+    const boundMultiplier = (name, rawValue, minValue, maxValue, reasonTag, fallback = 1) => {
+      const finiteRaw = Number.isFinite(rawValue) ? rawValue : fallback;
+      const bounded = clamp2(finiteRaw, minValue, maxValue);
+      if (bounded !== finiteRaw || !Number.isFinite(rawValue)) {
+        logHybridTrace(
+          "multiplier_cap",
+          {
+            name,
+            inMult: Number.isFinite(rawValue) ? Number(rawValue.toFixed(3)) : null,
+            fallback,
+            outMult: Number(bounded.toFixed(3)),
+            minMult: Number(minValue.toFixed(3)),
+            maxMult: Number(maxValue.toFixed(3)),
+            reasonTag
+          },
+          {
+            signature: `${name}|${Number.isFinite(rawValue) ? Number(rawValue).toFixed(3) : "nonfinite"}|${bounded.toFixed(3)}|${minValue.toFixed(3)}|${maxValue.toFixed(3)}|${reasonTag}`
+          }
+        );
+      }
+      return bounded;
+    };
+    logHybridTrace(
+      "clamp_input",
+      {
+        basePxps: Number(base.toFixed(2)),
+        speechPresent,
+        offScriptActive: hybridSilence.offScriptActive || hardNoMatchOffScriptActive,
+        hardNoMatch: hardNoMatchEffective,
+        sim: Number.isFinite(bestSim ?? NaN) ? Number(bestSim.toFixed(3)) : null,
+        blocksNotReadyHold
+      },
+      {
+        throttleMs: 50,
+        signature: `${Number(base).toFixed(2)}|${speechPresent ? 1 : 0}|${hybridSilence.offScriptActive || hardNoMatchOffScriptActive ? 1 : 0}|${hardNoMatchEffective ? 1 : 0}|${Number(bestSim ?? NaN).toFixed(3)}|${blocksNotReadyHold ? 1 : 0}`
+      }
+    );
+    if (hardNoMatchOffScriptActive && !hybridSilence.offScriptActive) {
+      setHybridScale2(OFFSCRIPT_DEEP);
+    }
     const matchSimValue = Number.isFinite(bestSim ?? NaN) && bestSim != null ? bestSim : null;
-    const matchKnown = hybridMatchSeen && matchSimValue != null && matchSimValue > 0 && !sawNoMatch;
+    const matchKnown = hybridMatchSeen && matchSimValue != null && matchSimValue > 0 && !sawNoMatchEffective;
     const matchReason = matchKnown ? hybridLastMatch?.isFinal ? "asr-final" : "asr" : "unknown";
     if (isDevMode() && !hybridCtrl.engagedLogged) {
       hybridCtrl.engagedLogged = true;
@@ -20496,7 +21500,7 @@ function installScrollRouter(opts) {
     const silenceMs = getSilenceMs(now2);
     const errorInfo = computeHybridErrorPx(now2);
     const driftWeakMatch = isHybridDriftWeak(errorInfo);
-    const weakMatch = baseWeakMatch || driftWeakMatch;
+    const weakMatch = blocksNotReadyHold ? false : baseWeakMatch || driftWeakMatch;
     const eligibility = evaluateHybridEligibility(now2);
     const eligible = eligibility.eligible;
     const eligibleReason = eligibility.reason;
@@ -20536,14 +21540,38 @@ function installScrollRouter(opts) {
     const errorLinesRaw = Number.isFinite(errorInfo?.errorLines ?? NaN) && errorInfo?.errorLines != null ? errorInfo.errorLines : Number.isFinite(effectiveErrorLines ?? NaN) ? effectiveErrorLines : 0;
     const lineMult = updateHybridLineMult(candidateTargetMult, dtMs, errorLinesRaw > 0);
     let appliedTargetMult = Number.isFinite(lineMult) ? lineMult : 1;
-    const offScriptSeverity = computeOffScriptSeverity();
+    const offScriptSeverity = blocksNotReadyHold ? 0 : computeOffScriptSeverity();
     const offScriptCap = Math.max(
       HYBRID_CTRL_MIN_MULT,
       1 - offScriptSeverity * HYBRID_CTRL_OFFSCRIPT_PENALTY
     );
+    const preSilenceCapMult = appliedTargetMult;
     appliedTargetMult = Math.min(appliedTargetMult, silenceCap);
+    traceClampStage(
+      "silence_cap",
+      base * preSilenceCapMult,
+      base * appliedTargetMult,
+      "silenceCap",
+      { silenceCap: Number(silenceCap.toFixed(3)) }
+    );
+    const preOffScriptCapMult = appliedTargetMult;
     appliedTargetMult = Math.min(appliedTargetMult, offScriptCap);
+    traceClampStage(
+      "offscript_cap",
+      base * preOffScriptCapMult,
+      base * appliedTargetMult,
+      "offScriptCap",
+      { offScriptCap: Number(offScriptCap.toFixed(3)) }
+    );
+    const preMinMultClamp = appliedTargetMult;
     appliedTargetMult = Math.max(appliedTargetMult, HYBRID_CTRL_MIN_MULT);
+    traceClampStage(
+      "min_mult_floor",
+      base * preMinMultClamp,
+      base * appliedTargetMult,
+      "minMultFloor",
+      { minMult: Number(HYBRID_CTRL_MIN_MULT.toFixed(3)) }
+    );
     hybridCtrl.lastErrorPx = errorInfo?.errorPx ?? 0;
     hybridCtrl.lastAnchorTs = errorInfo?.anchorAgeMs ?? 0;
     hybridCtrl.lastTs = now2;
@@ -20551,12 +21579,34 @@ function installScrollRouter(opts) {
     const devOverrideMult = getHybridCtrlDevOverride(now2);
     const ctrlMultFinal = Number.isFinite(devOverrideMult) ? devOverrideMult : appliedTargetMult;
     hybridCtrl.mult = ctrlMultFinal;
-    const ctrlMultApplied = ctrlMultFinal;
+    const ctrlMultApplied = boundMultiplier(
+      "ctrl_mult",
+      ctrlMultFinal,
+      HYBRID_CTRL_MIN_MULT,
+      HYBRID_CTRL_CTRL_MULT_MAX,
+      "ctrlMult"
+    );
+    const baseWithCorrectionRaw = base * ctrlMultApplied;
+    const baseWithCorrection = Number.isFinite(baseWithCorrectionRaw) && baseWithCorrectionRaw > 0 ? baseWithCorrectionRaw : base;
+    if (!(Number.isFinite(baseWithCorrectionRaw) && baseWithCorrectionRaw > 0)) {
+      logHybridTrace(
+        "multiplier_cap",
+        {
+          name: "base_with_correction",
+          inPxps: Number.isFinite(baseWithCorrectionRaw) ? Number(baseWithCorrectionRaw.toFixed(2)) : null,
+          outPxps: Number(base.toFixed(2)),
+          reasonTag: "baseWithCorrectionFallback"
+        },
+        {
+          signature: `base_with_correction|${Number.isFinite(baseWithCorrectionRaw) ? baseWithCorrectionRaw.toFixed(2) : "nonfinite"}|${base.toFixed(2)}`
+        }
+      );
+    }
     const hybridScaleDetail = computeEffectiveHybridScale(
       now2,
       silence,
       void 0,
-      weakMatch,
+      weakMatch || hardNoMatchOffScriptActive,
       effectiveErrorLines,
       weakMatch
     );
@@ -20578,7 +21628,15 @@ function installScrollRouter(opts) {
     let effectiveScale = effectiveScaleRaw;
     const offScriptScale = hybridSilence.offScriptActive && Number.isFinite(hybridScale) ? clamp2(hybridScale, 0, 1) : 1;
     const offScriptMultiplier = offScriptActive && Number.isFinite(offScriptDecay) ? offScriptScale * offScriptDecay : 1;
-    const maxScale = aggro ? HYBRID_CTRL_AGGRO_MAX_MULT : HYBRID_CTRL_BASE_MAX_MULT;
+    const aggressiveCeiling = aggro || commitBoost;
+    const dynamicMaxMult = aggressiveCeiling ? HYBRID_CTRL_DYNAMIC_MAX_MULT_AGGRO : HYBRID_CTRL_DYNAMIC_MAX_MULT;
+    const dynamicMaxAbsMinPxps = aggressiveCeiling ? HYBRID_CTRL_DYNAMIC_MAX_ABS_MIN_PXPS_AGGRO : HYBRID_CTRL_DYNAMIC_MAX_ABS_MIN_PXPS;
+    const dynamicMaxAllowedPxps = Math.max(baseWithCorrection * dynamicMaxMult, dynamicMaxAbsMinPxps);
+    const dynamicMaxScale = dynamicMaxAllowedPxps / Math.max(baseWithCorrection, HYBRID_CTRL_MIN_PXPS);
+    const maxScale = Math.max(
+      aggro ? HYBRID_CTRL_AGGRO_MAX_MULT : HYBRID_CTRL_BASE_MAX_MULT,
+      Number.isFinite(dynamicMaxScale) ? dynamicMaxScale : HYBRID_CTRL_BASE_MAX_MULT
+    );
     const confMin = aggro && commitBoost ? 0.35 : 0.65;
     const simMin = aggro && commitBoost ? 0.45 : 0.55;
     const needCatchUp = Number.isFinite(errorLinesRaw) ? errorLinesRaw > 0 : false;
@@ -20587,6 +21645,30 @@ function installScrollRouter(opts) {
     const eligibleForAggro = needCatchUp && !pausedBySilence && !offScriptActive && reason !== "silence" && reason !== "offscript" && reason !== "grace";
     if ((aggro || commitBoost) && eligibleForAggro) {
       const gatingOk = aggro && commitBoost || conf >= confMin && sim >= simMin;
+      if (!gatingOk) {
+        const denyReasons = [];
+        if (conf < confMin) denyReasons.push("conf");
+        if (sim < simMin) denyReasons.push("sim");
+        logHybridTrace(
+          "catchup_gate_deny",
+          {
+            denied: true,
+            reason: denyReasons.length > 0 ? denyReasons.join("+") : "threshold",
+            conf: Number(conf.toFixed(3)),
+            confMin: Number(confMin.toFixed(3)),
+            sim: Number(sim.toFixed(3)),
+            simMin: Number(simMin.toFixed(3)),
+            needCatchUp,
+            aggro,
+            commitBoost,
+            errorLines: Number(errorLinesRaw.toFixed(3))
+          },
+          {
+            throttleMs: 80,
+            signature: `${denyReasons.join("+")}|${conf.toFixed(3)}|${sim.toFixed(3)}|${needCatchUp ? 1 : 0}|${aggro ? 1 : 0}|${commitBoost ? 1 : 0}`
+          }
+        );
+      }
       if (gatingOk) {
         const errBoost = clamp2(Math.abs(errorLinesRaw) / 6, 0, 1);
         const distanceScale = 1 + errBoost * (maxScale - 1);
@@ -20653,7 +21735,6 @@ function installScrollRouter(opts) {
     const suppressAssist = reason === "silence" || effectiveScale <= OFFSCRIPT_SCALE || reason === "grace";
     const assistCap = Math.max(0, base * HYBRID_ASSIST_CAP_FRAC);
     const assistBoost = suppressAssist ? 0 : Math.min(rawAssist, assistCap);
-    const baseWithCorrection = base * ctrlMultApplied;
     const deltaLines = Number.isFinite(errorLinesRaw) ? errorLinesRaw : 0;
     const absDL = Math.abs(deltaLines);
     const deadbandLines = aggro ? 0.45 : 0.75;
@@ -20675,30 +21756,102 @@ function installScrollRouter(opts) {
     } else {
       reasons.push("deadband");
     }
+    const reactiveScaleCap = Math.min(
+      HYBRID_CTRL_REACTIVE_MULT_MAX,
+      Math.max(HYBRID_CTRL_POLICY_MULT_MIN, maxScale)
+    );
+    reactiveScale = boundMultiplier(
+      "reactive_scale",
+      reactiveScale,
+      HYBRID_CTRL_POLICY_MULT_MIN,
+      reactiveScaleCap,
+      "reactiveScale"
+    );
     let policyMult = 1;
     if (pausedBySilence || reason === "silence") {
+      const inScale = reactiveScale * policyMult;
       const silenceMult = aggro ? 0.75 : 0.85;
       policyMult *= silenceMult;
+      const outScale = reactiveScale * policyMult;
+      traceClampStage(
+        "silence_policy",
+        baseWithCorrection * inScale,
+        baseWithCorrection * outScale,
+        "silencePolicy",
+        { silenceMult: Number(silenceMult.toFixed(3)) }
+      );
       reasons.push("silence");
     }
     if (offScriptActive || reason === "offscript") {
+      const inScale = reactiveScale * policyMult;
       const offscriptMult = aggro ? 0.8 : 0.9;
       policyMult *= offscriptMult;
+      const outScale = reactiveScale * policyMult;
+      traceClampStage(
+        "offscript_policy",
+        baseWithCorrection * inScale,
+        baseWithCorrection * outScale,
+        "offScriptPolicy",
+        { offscriptMult: Number(offscriptMult.toFixed(3)) }
+      );
       reasons.push("offscript");
     }
-    const preClampScale = reactiveScale * policyMult;
+    policyMult = boundMultiplier(
+      "policy_mult",
+      policyMult,
+      HYBRID_CTRL_POLICY_MULT_MIN,
+      HYBRID_CTRL_POLICY_MULT_MAX,
+      "policyMult"
+    );
+    const preClampScale = boundMultiplier(
+      "preclamp_scale",
+      reactiveScale * policyMult,
+      HYBRID_CTRL_POLICY_MULT_MIN,
+      HYBRID_CTRL_PRECLAMP_SCALE_MAX,
+      "preClampScale"
+    );
     let scaleAfterBrake = preClampScale;
     if (brakeActive) {
+      const beforeBrake = scaleAfterBrake;
       scaleAfterBrake = Math.min(scaleAfterBrake, brakeFactor);
+      traceClampStage(
+        "brake_clamp",
+        baseWithCorrection * beforeBrake,
+        baseWithCorrection * scaleAfterBrake,
+        "brakeCap",
+        { brakeFactor: Number(brakeFactor.toFixed(3)) }
+      );
       reasons.push("brakeCap");
     }
     let scaleAfterCaps = scaleAfterBrake;
-    const assistFloorScale = suppressAssistScale(rawAssist, baseWithCorrection);
+    const assistFloorScale = boundMultiplier(
+      "assist_floor_scale",
+      suppressAssistScale(rawAssist, baseWithCorrection),
+      0,
+      2.5,
+      "assistFloor",
+      0
+    );
     const assistEligible = assistActive && assistFloorScale > 0 && needCatchUp && conf >= confMin;
     if (assistEligible) {
+      const beforeAssistFloor = scaleAfterCaps;
       scaleAfterCaps = Math.max(scaleAfterCaps, assistFloorScale);
+      traceClampStage(
+        "assist_floor",
+        baseWithCorrection * beforeAssistFloor,
+        baseWithCorrection * scaleAfterCaps,
+        "assistFloor",
+        { assistFloorScale: Number(assistFloorScale.toFixed(3)) }
+      );
       reasons.push("assistFloor");
     }
+    scaleAfterCaps = boundMultiplier(
+      "scale_after_caps",
+      scaleAfterCaps,
+      HYBRID_CTRL_POLICY_MULT_MIN,
+      HYBRID_CTRL_PRECLAMP_SCALE_MAX,
+      "scaleAfterCaps"
+    );
     const minScale = HYBRID_CTRL_MIN_MULT;
     const maxClampScale = Math.max(maxScale, minScale);
     const isBehind = deltaLines > 0;
@@ -20709,9 +21862,45 @@ function installScrollRouter(opts) {
     if (scaleAfterCaps > maxClampScale) {
       finalScale = maxClampScale;
       clampReason = "maxClamp";
+      const inPxps = baseWithCorrection * scaleAfterCaps;
+      const maxAllowedPxps = baseWithCorrection * maxClampScale;
+      const outPxps = baseWithCorrection * finalScale;
+      let maxClampReasonTag = "maxClamp";
+      if (assistEligible && scaleAfterCaps > scaleAfterBrake + 1e-3) {
+        maxClampReasonTag = "assistFloor";
+      } else if (reactiveScale >= HYBRID_CTRL_REACTIVE_MULT_MAX - 1e-3) {
+        maxClampReasonTag = "reactiveScaleCap";
+      } else if (policyMult >= HYBRID_CTRL_POLICY_MULT_MAX - 1e-3) {
+        maxClampReasonTag = "policyMultCap";
+      } else if (ctrlMultApplied >= HYBRID_CTRL_CTRL_MULT_MAX - 1e-3) {
+        maxClampReasonTag = "ctrlMultCap";
+      } else if (Math.abs(maxAllowedPxps - dynamicMaxAbsMinPxps) <= 0.5) {
+        maxClampReasonTag = "dynamicAbsMinCeiling";
+      } else if (dynamicMaxAllowedPxps >= baseWithCorrection * dynamicMaxMult - 0.5) {
+        maxClampReasonTag = "dynamicMultCeiling";
+      }
+      traceClampStage(
+        "max_clamp",
+        inPxps,
+        outPxps,
+        "maxClamp",
+        {
+          maxClampScale: Number(maxClampScale.toFixed(3)),
+          maxAllowedPxps: Number(maxAllowedPxps.toFixed(2)),
+          inScale: Number(scaleAfterCaps.toFixed(3)),
+          reasonTag: maxClampReasonTag
+        }
+      );
     } else if (!clampOverride && scaleLimitedToMax < minScale) {
       finalScale = minScale;
       clampReason = "minClamp";
+      traceClampStage(
+        "min_clamp",
+        baseWithCorrection * scaleLimitedToMax,
+        baseWithCorrection * finalScale,
+        "minClamp",
+        { minScale: Number(minScale.toFixed(3)) }
+      );
     }
     if (clampReason) {
       reasons.push(clampReason);
@@ -20720,14 +21909,41 @@ function installScrollRouter(opts) {
     const distancePx = errorPx != null ? Math.abs(errorPx) : null;
     const stableOnTarget = distancePx != null && distancePx <= HYBRID_CTRL_ON_TARGET_STABLE_PX && Math.abs(deltaLines) <= HYBRID_CTRL_MODE_DEADBAND_LINES;
     if (stableOnTarget) {
+      const preStableClampScale = finalScale;
       finalScale = clamp2(finalScale, HYBRID_CTRL_ON_TARGET_MULT_MIN, HYBRID_CTRL_ON_TARGET_MULT_MAX);
+      traceClampStage(
+        "on_target_clamp",
+        baseWithCorrection * preStableClampScale,
+        baseWithCorrection * finalScale,
+        "stableOnTarget",
+        {
+          min: Number(HYBRID_CTRL_ON_TARGET_MULT_MIN.toFixed(3)),
+          max: Number(HYBRID_CTRL_ON_TARGET_MULT_MAX.toFixed(3))
+        }
+      );
     }
     if (offScriptMultiplier !== 1) {
+      const preOffScriptDecayScale = finalScale;
       finalScale *= offScriptMultiplier;
+      traceClampStage(
+        "offscript_decay",
+        baseWithCorrection * preOffScriptDecayScale,
+        baseWithCorrection * finalScale,
+        "offScriptDecay",
+        { offScriptMultiplier: Number(offScriptMultiplier.toFixed(3)) }
+      );
       reasons.push("offscriptDecay");
     }
-    const minPxps = offScriptMultiplier < 1 ? 0 : HYBRID_CTRL_MIN_PXPS;
-    const finalPxpsBase = Math.max(minPxps, baseWithCorrection * finalScale);
+    const minPxps = offScriptMultiplier < 1 ? speechPresent ? HYBRID_CTRL_MIN_PXPS * HYBRID_OFFSCRIPT_SPEECH_FLOOR_MULT : 0 : HYBRID_CTRL_MIN_PXPS;
+    const unclampedPxpsBase = baseWithCorrection * finalScale;
+    const finalPxpsBase = Math.max(minPxps, unclampedPxpsBase);
+    traceClampStage(
+      "min_pxps_floor",
+      unclampedPxpsBase,
+      finalPxpsBase,
+      speechPresent ? "speechFloor" : "minPxps",
+      { minPxps: Number(minPxps.toFixed(2)) }
+    );
     const assistFloorBoostPx = assistEligible && isBehind ? base * HYBRID_CTRL_ASSIST_BEHIND_BOOST_FRAC : 0;
     const finalPxps = finalPxpsBase + assistFloorBoostPx * offScriptMultiplier;
     const velocityPxps = Number.isFinite(finalPxps) ? Math.abs(finalPxps) : 0;
@@ -20744,6 +21960,25 @@ function installScrollRouter(opts) {
     }
     const finalReasons = reasons.length > 0 ? reasons : ["base"];
     const capReason = finalReasons.includes("silence") ? "silence" : finalReasons.includes("offscript") ? "offscript" : void 0;
+    if (isDevMode() && now2 - lastHybridPolicyLogAt >= HYBRID_POLICY_LOG_THROTTLE_MS) {
+      lastHybridPolicyLogAt = now2;
+      const speedSettingRaw = getHybridSpeedSettingRaw();
+      try {
+        console.info("[HYBRID_POLICY]", {
+          speechPresent,
+          speechHoldRemainingMs: Math.round(getHybridSpeechHoldRemainingMs(now2)),
+          hardNoMatch: hardNoMatchEffective,
+          hardNoMatchAgeMs: Math.round(hardNoMatchAgeMs),
+          offScriptActive: offScriptActive || hardNoMatchOffScriptActive,
+          policyMult: Number(policyMult.toFixed(3)),
+          basePxps: Number(base.toFixed(2)),
+          finalPxps: Number(finalPxps.toFixed(2)),
+          speedSettingRaw,
+          speedUnit: "wpm"
+        });
+      } catch {
+      }
+    }
     logHybridMultDebug({
       basePxps: base,
       errorLines: errorInfo?.errorLines ?? null,
@@ -20834,8 +22069,9 @@ function installScrollRouter(opts) {
       lineMult,
       capReason,
       scaleReason: hybridScaleDetail.reason,
-      sawNoMatch,
-      hardNoMatch,
+      noMatch: sawNoMatchEffective || !matchKnown,
+      sawNoMatch: sawNoMatchEffective,
+      hardNoMatch: hardNoMatchEffective,
       offScriptActive: hybridScaleDetail.offScriptActive,
       bestSim,
       weakMatch,
@@ -20864,18 +22100,50 @@ function installScrollRouter(opts) {
         console.info("[HYBRID_FINAL_MILE]", logParts.join(" "));
         const matchSimLog = matchKnown ? matchSimValue : null;
         const stateParts = [
-          `noMatch=${sawNoMatch || !matchKnown}`,
+          `noMatch=${sawNoMatchEffective || !matchKnown}`,
+          `sawNoMatch=${sawNoMatchEffective}`,
           `weakMatch=${weakMatch}`,
-          `hardNoMatch=${hardNoMatch}`,
+          `hardNoMatch=${hardNoMatchEffective}`,
           `offScriptActive=${offScriptActive}`,
           `reason=${reason}`,
           `conf=${conf.toFixed(2)}`,
           `sim=${sim.toFixed(2)}`,
           `matchSim=${matchSimLog != null ? matchSimLog.toFixed(2) : "null"}`,
           `matchReason=${matchReason}`,
-          `targetTopSrc=${matchKnown ? errorInfo?.targetTopSource ?? "unknown" : "unknown"}`
+          `targetTopSrc=${matchKnown ? errorInfo?.targetTopSource ?? "unknown" : "unknown"}`,
+          `blocksReady=${runtime.blocksReady}`,
+          `blockCount=${runtime.blockCount}`,
+          `blockSource=${runtime.blockSource}`,
+          `backendReady=${runtime.backendReady}`,
+          `blocksHold=${blocksNotReadyHold}`,
+          `scriptHash=${runtime.scriptHash ?? "null"}`,
+          `scriptSig=${runtime.scriptSig ?? "null"}`,
+          `matcherSource=${runtime.matcherSource}`,
+          `matcherFeed=${runtime.matcherSourceDetail}`
         ];
         console.info("[HYBRID_FINAL_MILE_STATE]", stateParts.join(" "));
+        if (blocksNotReadyHold || sawNoMatchEffective || offScriptActive || hardNoMatchEffective) {
+          logHybridMatcherProbe("final-mile", {
+            noMatch: sawNoMatchEffective || !matchKnown,
+            sawNoMatch: sawNoMatchEffective,
+            weakMatch,
+            hardNoMatch: hardNoMatchEffective,
+            hardNoMatchAgeMs: Math.round(hardNoMatchAgeMs),
+            hardNoMatchOffScriptActive,
+            offScriptActive,
+            bestSim: matchSimLog,
+            reason,
+            blocksReady: runtime.blocksReady,
+            blockCount: runtime.blockCount,
+            blockSource: runtime.blockSource,
+            scriptHash: runtime.scriptHash,
+            scriptSig: runtime.scriptSig,
+            matcherSource: runtime.matcherSource,
+            matcherSourceDetail: runtime.matcherSourceDetail,
+            backendReady: runtime.backendReady,
+            blocksNotReadyHold
+          });
+        }
       } catch {
       }
     }
@@ -20896,6 +22164,21 @@ function installScrollRouter(opts) {
       } catch {
       }
     }
+    logHybridTrace(
+      "motor_velocity_set",
+      {
+        finalPxps: Number(finalPxps.toFixed(2)),
+        basePxps: Number(base.toFixed(2)),
+        finalScale: Number(finalScale.toFixed(3)),
+        speechPresent,
+        offScriptActive: offScriptActive || hardNoMatchOffScriptActive,
+        reason: finalReasons.join("|")
+      },
+      {
+        throttleMs: 30,
+        signature: `${finalPxps.toFixed(2)}|${base.toFixed(2)}|${finalScale.toFixed(3)}|${speechPresent ? 1 : 0}|${offScriptActive || hardNoMatchOffScriptActive ? 1 : 0}|${finalReasons.join("|")}`
+      }
+    );
     hybridMotor.setVelocityPxPerSec(finalPxps);
     emitHybridSafety();
     scheduleHybridVelocityRefresh();
@@ -20905,12 +22188,6 @@ function installScrollRouter(opts) {
     target.__tpApplyHybridVelocity = applyHybridVelocityCore2;
   } catch {
   }
-  function _markHybridOffScript() {
-    if (state22.mode !== "hybrid") return;
-    const changed = setHybridScale2(OFFSCRIPT_DEEP);
-    if (!changed) emitHybridSafety();
-  }
-  markHybridOffScriptFn = _markHybridOffScript;
   function suppressAssistScale(boost, base) {
     if (!Number.isFinite(boost) || boost <= 0) return 0;
     if (!Number.isFinite(base) || base <= 0) return 0;
@@ -21113,6 +22390,32 @@ function installScrollRouter(opts) {
   } catch {
   }
   let applyGateRaf = null;
+  const MOTOR_IGNORED_LOG_THROTTLE_MS = 2e3;
+  let lastMotorIgnoredLogAt = 0;
+  let lastMotorIgnoredLogKey = "";
+  function logAutoGateAction(action, mode, line, blockedReason = "") {
+    if (mode === "asr" && blockedReason === "blocked:mode-asr-motorless") {
+      return;
+    }
+    if (action !== "MOTOR_IGNORED_OFF") {
+      try {
+        console.info(line);
+      } catch {
+      }
+      return;
+    }
+    const now2 = Date.now();
+    const dedupeKey = `${mode}|${blockedReason}`;
+    if (dedupeKey === lastMotorIgnoredLogKey && now2 - lastMotorIgnoredLogAt < MOTOR_IGNORED_LOG_THROTTLE_MS) {
+      return;
+    }
+    lastMotorIgnoredLogKey = dedupeKey;
+    lastMotorIgnoredLogAt = now2;
+    try {
+      console.debug(line);
+    } catch {
+    }
+  }
   function scheduleApplyGate() {
     if (applyGateRaf != null) return;
     if (typeof window === "undefined" || typeof window.requestAnimationFrame !== "function") {
@@ -21161,10 +22464,17 @@ function installScrollRouter(opts) {
           }
         }
         const viewerReady = hasScrollableTarget();
+        const requestedMotorKind = lastAutoIntentMotorRequest.kind;
+        const requestedMotorSource = lastAutoIntentMotorRequest.source;
+        const livePhase = sessionPhase2 === "live";
         const sessionBlocked = !sessionIntentOn && !userEnabled;
         let autoBlocked = "blocked:sessionOff";
-        if (mode === "asr" || mode === "step" || mode === "rehearsal") {
+        if (mode === "step" || mode === "rehearsal") {
           autoBlocked = `blocked:mode-${mode}`;
+        } else if (mode === "asr") {
+          autoBlocked = "blocked:mode-asr-motorless";
+        } else if (!livePhase) {
+          autoBlocked = "blocked:livePhase";
         } else if (sessionBlocked) {
           autoBlocked = "blocked:sessionOff";
         } else if (!userEnabled) {
@@ -21177,17 +22487,29 @@ function installScrollRouter(opts) {
           autoBlocked = "none";
         }
         const want = autoBlocked === "none";
-        const prevEnabled = enabledNow && activeMotorBrain === "auto";
-        const action = want ? prevEnabled ? "MOTOR_ALREADY_RUNNING" : "MOTOR_START" : prevEnabled ? "MOTOR_STOP" : "MOTOR_IGNORED_OFF";
-        try {
-          console.info(
-            `[scroll-router] ${action} mode=${mode} sessionPhase=${sessionPhase2} sessionIntent=${sessionIntentOn} pxPerSec=${autoPxPerSec} blocked=${autoBlocked}`
-          );
-        } catch {
-        }
+        const prevEnabled = (enabledNow || !!auto?.getState?.().enabled) && activeMotorBrain === "auto";
+        const prevRunning = !!auto?.isRunning?.();
+        const action = want ? prevRunning ? "MOTOR_ALREADY_RUNNING" : "MOTOR_START" : prevEnabled ? "MOTOR_STOP" : "MOTOR_IGNORED_OFF";
+        logAutoGateAction(
+          action,
+          mode,
+          `[scroll-router] ${action} mode=${mode} reqKind=${requestedMotorKind} reqSource=${requestedMotorSource} sessionPhase=${sessionPhase2} sessionIntent=${sessionIntentOn} pxPerSec=${autoPxPerSec} blocked=${autoBlocked}`,
+          autoBlocked
+        );
         let emittedAutoStop = false;
         if (want) {
-          if (typeof auto.setEnabled === "function") auto.setEnabled(true);
+          try {
+            auto.setSpeed?.(autoPxPerSec);
+          } catch {
+          }
+          try {
+            auto.start?.();
+          } catch {
+          }
+          try {
+            auto.setEnabled?.(true);
+          } catch {
+          }
           enabledNow = true;
           setActiveMotor("auto", mode);
         } else {
@@ -21224,13 +22546,18 @@ function installScrollRouter(opts) {
       const now2 = nowMs();
       const gateWanted = computeGateWanted();
       const phaseAllowed = canRunHybridMotor();
+      const runtime = getHybridBlockRuntimeState();
       const baseHybridPxPerSec = Number.isFinite(hybridBasePxps) ? Math.max(0, hybridBasePxps) : 0;
       const lastSpeechAgeMs = Math.max(0, now2 - hybridSilence.lastSpeechAtMs);
+      const speechPresent = isHybridSpeechPresent(now2);
+      const speechHoldRemainingMs = getHybridSpeechHoldRemainingMs(now2);
+      const speechHeardRecently = speechPresent || lastSpeechAgeMs <= HYBRID_BLOCKS_NOT_READY_HOLD_MS;
+      const blocksNotReadyHold = runtime.backendReady && !runtime.blocksReady && speechHeardRecently;
       const liveGraceActive = isLiveGraceActive(now2);
       const errorInfo = computeHybridErrorPx(now2);
       const silenceStopMs = computeHybridSilenceDelayMs();
       const isSilent = !liveGraceActive && lastSpeechAgeMs >= silenceStopMs;
-      const speechAllowed = !isSilent;
+      const speechAllowed = !isSilent || blocksNotReadyHold;
       const gateSatisfied = isHybridBypass() ? true : gateWanted;
       const wantEnabled = hybridWantedRunning && userEnabled && phaseAllowed && (speechAllowed || gateSatisfied);
       let hybridBlockedReason = "none";
@@ -21256,9 +22583,22 @@ function installScrollRouter(opts) {
         offScriptActive: false
       };
       const matchState = getHybridMatchState();
+      const hardNoMatchEffective = blocksNotReadyHold ? false : matchState.hardNoMatch;
+      if (speechPresent && hardNoMatchEffective) {
+        if (!(hardNoMatchSinceMs > 0)) {
+          hardNoMatchSinceMs = now2;
+        }
+      } else if (hardNoMatchSinceMs > 0) {
+        hardNoMatchSinceMs = 0;
+      }
+      const hardNoMatchAgeMs = hardNoMatchSinceMs > 0 ? Math.max(0, now2 - hardNoMatchSinceMs) : 0;
+      const hardNoMatchOffScriptActive = !blocksNotReadyHold && speechPresent && hardNoMatchEffective && hardNoMatchAgeMs >= HYBRID_HARD_NOMATCH_OFFSCRIPT_GRACE_MS;
+      if (hardNoMatchOffScriptActive && !hybridSilence.offScriptActive) {
+        setHybridScale2(OFFSCRIPT_DEEP);
+      }
       const driftWeakMatch = isHybridDriftWeak(errorInfo);
-      const gateWeakMatch = matchState.weakMatch || driftWeakMatch;
-      const gateEffectiveOffScript = (safeSilence.offScriptActive ?? false) || gateWeakMatch;
+      const gateWeakMatch = blocksNotReadyHold ? false : matchState.weakMatch || driftWeakMatch;
+      const gateEffectiveOffScript = blocksNotReadyHold ? false : (safeSilence.offScriptActive ?? false) || gateWeakMatch || hardNoMatchOffScriptActive;
       const hybridScaleDetail = computeEffectiveHybridScale(
         now2,
         safeSilence,
@@ -21309,7 +22649,9 @@ function installScrollRouter(opts) {
         mode: state22.mode,
         phase: sessionPhase2,
         hybridWantedRunning,
-        asrEnabled: speechActive,
+        asrEnabled: speechPresent,
+        speechPresent,
+        speechHoldRemainingMs: Math.round(speechHoldRemainingMs),
         lastSpeechAgeMs,
         liveGraceActive,
         isSilent,
@@ -21324,6 +22666,19 @@ function installScrollRouter(opts) {
         gateWanted,
         phaseAllowed,
         blocked: hybridBlockedReason,
+        blocksReady: runtime.blocksReady,
+        blockCount: runtime.blockCount,
+        blockSource: runtime.blockSource,
+        blockSchemaVersion: runtime.schemaVersion,
+        scriptHash: runtime.scriptHash,
+        scriptSig: runtime.scriptSig,
+        matcherSource: runtime.matcherSource,
+        matcherSourceDetail: runtime.matcherSourceDetail,
+        backendReady: runtime.backendReady,
+        blocksNotReadyHold,
+        hardNoMatch: hardNoMatchEffective,
+        hardNoMatchAgeMs: Math.round(hardNoMatchAgeMs),
+        hardNoMatchOffScriptActive,
         viewer: {
           has: !!viewerEl,
           top: viewerEl?.scrollTop ?? -1,
@@ -21342,7 +22697,7 @@ function installScrollRouter(opts) {
         sessionPhase2,
         hybridWantedRunning ? "1" : "0",
         userEnabled ? "1" : "0",
-        speechActive ? "1" : "0",
+        speechPresent ? "1" : "0",
         gatePref,
         gateWanted ? "1" : "0",
         phaseAllowed ? "1" : "0",
@@ -21351,15 +22706,56 @@ function installScrollRouter(opts) {
         hybridRunning ? "1" : "0",
         shouldRunHybrid ? "1" : "0",
         Number.isFinite(effectivePxPerSec) ? effectivePxPerSec.toFixed(1) : "0",
-        Number.isFinite(hybridBasePxps) ? hybridBasePxps.toFixed(0) : "0"
+        Number.isFinite(hybridBasePxps) ? hybridBasePxps.toFixed(0) : "0",
+        runtime.blocksReady ? "1" : "0",
+        blocksNotReadyHold ? "1" : "0"
       ];
       const gateFingerprint = fingerprintParts.join("|");
+      logHybridTrace(
+        "gate_decision",
+        {
+          shouldRunHybrid,
+          gateReason: hybridBlockedReason,
+          speechPresent,
+          holdMs: Math.round(speechHoldRemainingMs),
+          offScriptActive: gateEffectiveOffScript,
+          hardNoMatch: hardNoMatchEffective,
+          blocksNotReadyHold,
+          gateWanted,
+          gateSatisfied,
+          wantEnabled,
+          effectivePxps: Number(effectivePxPerSec.toFixed(2))
+        },
+        {
+          signature: gateFingerprint
+        }
+      );
       if (gateFingerprint !== lastHybridGateFingerprint) {
         lastHybridGateFingerprint = gateFingerprint;
         try {
           console.warn("[HYBRID] gate", snap);
         } catch {
         }
+      }
+      if (blocksNotReadyHold || gateEffectiveOffScript || matchState.hardNoMatch) {
+        logHybridMatcherProbe("gate", {
+          blocksReady: runtime.blocksReady,
+          blockCount: runtime.blockCount,
+          blockSource: runtime.blockSource,
+          scriptHash: runtime.scriptHash,
+          scriptSig: runtime.scriptSig,
+          matcherSource: runtime.matcherSource,
+          matcherSourceDetail: runtime.matcherSourceDetail,
+          backendReady: runtime.backendReady,
+          blocksNotReadyHold,
+          hardNoMatch: hardNoMatchEffective,
+          hardNoMatchAgeMs: Math.round(hardNoMatchAgeMs),
+          hardNoMatchOffScriptActive,
+          weakMatch: gateWeakMatch,
+          offScriptActive: gateEffectiveOffScript,
+          speechActive: speechPresent,
+          lastSpeechAgeMs: Math.round(lastSpeechAgeMs)
+        });
       }
       if (shouldRunHybrid) {
         if (silenceTimer) {
@@ -21374,6 +22770,31 @@ function installScrollRouter(opts) {
         } catch {
         }
         if (!hybridRunning) {
+          if (isDevMode()) {
+            try {
+              const sliderValue = (() => {
+                const slider = document.getElementById("wpmTarget");
+                if (!slider) return null;
+                const raw = Number(slider.value);
+                return Number.isFinite(raw) && raw > 0 ? raw : null;
+              })();
+              const storedValue = (() => {
+                const raw = Number(localStorage.getItem("tp_baseline_wpm"));
+                return Number.isFinite(raw) && raw > 0 ? raw : null;
+              })();
+              const clampReason = blocksNotReadyHold ? "blocks-not-ready-hold" : silencePaused ? "silence" : gateEffectiveOffScript ? "offscript" : hybridScaleDetail.reason || "none";
+              const speedSettingRaw = getHybridSpeedSettingRaw();
+              console.info("[HYBRID_SPEED]", {
+                sliderValue: speedSettingRaw ?? sliderValue,
+                storedValue,
+                speedSettingRaw,
+                speedUnit: "wpm",
+                basePxpsComputed: Number(baseHybridPxPerSec.toFixed(2)),
+                clampReason
+              });
+            } catch {
+            }
+          }
           try {
             console.info("[HYBRID] shouldRun true starting motor", {
               isRunningBefore: hybridRunning,
@@ -21408,7 +22829,7 @@ function installScrollRouter(opts) {
         emitMotorState2("hybridWpm", false);
         clearHybridSilenceTimer();
       }
-      const detail = `Mode: Hybrid \u2022 Pref: ${gatePref} \u2022 User: ${userEnabled ? "On" : "Off"} \u2022 Phase:${phaseAllowed ? "live" : "blocked"} \u2022 Speech:${speechActive ? "1" : "0"} \u2022 dB:${dbGate ? "1" : "0"} \u2022 VAD:${vadGate ? "1" : "0"}`;
+      const detail = `Mode: Hybrid \u2022 Pref: ${gatePref} \u2022 User: ${userEnabled ? "On" : "Off"} \u2022 Phase:${phaseAllowed ? "live" : "blocked"} \u2022 Speech:${speechPresent ? "1" : "0"} \u2022 dB:${dbGate ? "1" : "0"} \u2022 VAD:${vadGate ? "1" : "0"}`;
       const chipState = userEnabled ? hybridMotor.isRunning() ? "on" : "paused" : "manual";
       setAutoChip(chipState, detail, "Motor");
       emitMotorState2("hybridWpm", hybridMotor.isRunning());
@@ -21456,11 +22877,45 @@ function installScrollRouter(opts) {
       appStoreSingleton.subscribe("session.scrollAutoOnLive", () => {
         applyGate();
       });
+      appStoreSingleton.subscribe("scrollMode", (modeRaw) => {
+        const normalized = normalizeScrollModeValue(modeRaw);
+        if (normalized !== "asr") return;
+        stopAllMotors("mode-enter-asr");
+        userEnabled = false;
+        userIntentOn = false;
+        sessionIntentOn = false;
+        hybridWantedRunning = false;
+        hybridSilence.pausedBySilence = false;
+        clearHybridSilenceTimer();
+        enabledNow = false;
+        asrIntentLiveSince = 0;
+        try {
+          auto?.setEnabled?.(false);
+        } catch {
+        }
+        persistStoredAutoEnabled(false);
+        try {
+          emitMotorState2("auto", false);
+        } catch {
+        }
+        try {
+          emitMotorState2("hybridWpm", false);
+        } catch {
+        }
+        try {
+          emitAutoState();
+        } catch {
+        }
+      });
     }
   } catch {
   }
   function syncSliderWpmBeforeLiveStart() {
     if (typeof document === "undefined") {
+      liveSessionWpmLocked = false;
+      return;
+    }
+    if (getScrollMode2() === "asr") {
       liveSessionWpmLocked = false;
       return;
     }
@@ -21508,6 +22963,7 @@ function installScrollRouter(opts) {
   const WPM_INTENT_EVENT = "tp:wpm:intent";
   function applyWpmBaselinePx(pxs, source, wpmValue) {
     if (!Number.isFinite(pxs) || pxs <= 0) return;
+    if (getScrollMode2() === "asr") return;
     const storeWpm = (() => {
       try {
         const raw = localStorage.getItem("tp_baseline_wpm");
@@ -21722,12 +23178,22 @@ function installScrollRouter(opts) {
         const rawTs = typeof detail.ts === "number" ? detail.ts : perfNow;
         const normalizedTs = normalizePerfTimestamp(rawTs, perfNow);
         if (silent) {
-          hybridSilence.lastSpeechAtMs = normalizedTs;
-          hybridSilence.pausedBySilence = true;
           speechActive = false;
-          clearHybridSilenceTimer();
-          runHybridVelocity(hybridSilence);
-          armHybridSilenceTimer2();
+          if (!(hybridSilence.lastSpeechAtMs > 0)) {
+            hybridSilence.lastSpeechAtMs = normalizedTs;
+          }
+          if (hybridSilence.pausedBySilence) {
+            armHybridSilenceTimer2();
+          } else {
+            const lastSpeechAtMs = hybridSilence.lastSpeechAtMs > 0 ? hybridSilence.lastSpeechAtMs : normalizedTs;
+            const silentForMs = Math.max(0, normalizedTs - lastSpeechAtMs);
+            const remainingMs = Math.max(1, computeHybridSilenceDelayMs() - silentForMs);
+            armHybridSilenceTimer2(remainingMs);
+          }
+          try {
+            applyGate();
+          } catch {
+          }
         } else {
           noteHybridSpeechActivity(normalizedTs, { source: "silence" });
         }
