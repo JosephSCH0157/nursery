@@ -15,6 +15,7 @@ const textDecoder = new TextDecoder();
 type ProjectCradleRow = Database["tongs"]["Tables"]["project_cradles"]["Row"];
 type WorkpieceFileRow = Database["tongs"]["Tables"]["workpiece_files"]["Row"];
 type WorkpieceEventRow = Database["tongs"]["Tables"]["workpiece_events"]["Row"];
+type WorkspaceRow = Database["tongs"]["Tables"]["workspaces"]["Row"];
 
 type JsonPrimitive = string | number | boolean | null;
 type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
@@ -147,6 +148,15 @@ export type CommitFileResponse = {
   event: WorkpieceEventRow;
 };
 
+export type CommitWorkspaceFileResponse = {
+  workspace_id: string;
+  path: string;
+  storage_key: string;
+  hash: string;
+  bytes: number;
+  content_type: string;
+};
+
 export type ReadJsonFileResult =
   | { found: true; data: unknown }
   | { found: false };
@@ -168,6 +178,7 @@ export type TongsCommitApiOptions = {
 export type TongsCommitApiService = {
   createCradle(input: CreateCradleRequest): Promise<CreateCradleResponse>;
   commitFile(workpieceId: string, input: CommitFileRequest): Promise<CommitFileResponse>;
+  commitWorkspaceFile(workspaceId: string, input: CommitFileRequest): Promise<CommitWorkspaceFileResponse>;
   appendEvent(workpieceId: string, input: AppendEventRequest): Promise<WorkpieceEventRow>;
   readWorkpieceJson(workpieceId: string, path: string): Promise<ReadJsonFileResult>;
   readWorkspaceJson(workspaceId: string, path: string): Promise<ReadJsonFileResult>;
@@ -951,6 +962,29 @@ export class TongsCommitService {
     return data;
   }
 
+  private async getWorkspaceOrThrow(workspaceId: string): Promise<WorkspaceRow> {
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("workspaces")
+      .select("*")
+      .eq("id", workspaceId)
+      .single();
+
+    if (error) {
+      if (error.code === "PGRST116") {
+        throw new HttpError(404, "workspace_not_found", `Workspace ${workspaceId} was not found`);
+      }
+      throw new HttpError(502, "db_read_failed", "Failed to read workspace", {
+        reason: error.message,
+      });
+    }
+
+    if (!data) {
+      throw new HttpError(404, "workspace_not_found", `Workspace ${workspaceId} was not found`);
+    }
+    return data;
+  }
+
   private async upsertWorkpieceFile(rows: Database["tongs"]["Tables"]["workpiece_files"]["Insert"][]): Promise<void> {
     const { error } = await this.supabase
       .schema("tongs")
@@ -1330,6 +1364,35 @@ export class TongsCommitService {
     };
   }
 
+  async commitWorkspaceFile(workspaceId: string, input: CommitFileRequest): Promise<CommitWorkspaceFileResponse> {
+    await this.getWorkspaceOrThrow(workspaceId);
+    const path = normalizeRelativePath(input.path);
+    if (extensionOf(path) !== ".json") {
+      throw new HttpError(400, "invalid_path", "Workspace commit-file currently supports JSON paths only");
+    }
+
+    const contentType = normalizeContentType(input.content_type, path);
+    normalizeWrittenBy(input.written_by);
+    if (typeof input.jsonl_append !== "undefined") {
+      throw new HttpError(400, "invalid_payload", "workspace commit-file does not support jsonl_append");
+    }
+
+    const storageKey = buildWorkspaceStorageKey(workspaceId, path);
+    const bytes = canonicalizeReplaceBytes(path, contentType, input);
+    const hash = await sha256Hex(bytes);
+
+    await uploadStorageObject(this.supabase, this.bucket, storageKey, bytes, contentType);
+
+    return {
+      workspace_id: workspaceId,
+      path,
+      storage_key: storageKey,
+      hash,
+      bytes: bytes.length,
+      content_type: contentType,
+    };
+  }
+
   async readWorkpieceJson(workpieceId: string, path: string): Promise<ReadJsonFileResult> {
     await this.getCradleOrThrow(workpieceId);
     const storageKey = buildStorageKey(workpieceId, path);
@@ -1419,6 +1482,15 @@ export function createTongsCommitApiHandlerWithService(
         const body = await parseJsonBody(request);
         const payload = normalizeCommitFileRequest(body);
         const result = await service.commitFile(workpieceId, payload);
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "commit-file") {
+        requireMethod(request, "POST");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const body = await parseJsonBody(request);
+        const payload = normalizeCommitFileRequest(body);
+        const result = await service.commitWorkspaceFile(workspaceId, payload);
         return jsonResponse(200, { ok: true, data: result });
       }
 
