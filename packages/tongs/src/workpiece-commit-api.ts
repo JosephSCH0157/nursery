@@ -780,7 +780,9 @@ async function uploadStorageObject(
 }
 
 function shouldDebugStorage(): boolean {
-  return typeof process !== "undefined" && process.env.TONGS_DEBUG_STORAGE === "1";
+  if (typeof globalThis === "undefined") return false;
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
+  return env?.TONGS_DEBUG_STORAGE === "1";
 }
 
 function safeSerializeError(error: unknown): unknown {
