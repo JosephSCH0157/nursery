@@ -453,7 +453,7 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
     throw new HttpError(500, "crypto_unavailable", "crypto.subtle is unavailable in this runtime");
   }
 
-  const digest = await subtle.digest(SHA256_ALGO, uint8ToArrayBuffer(bytes));
+  const digest = await subtle.digest("SHA-256", uint8ToArrayBuffer(bytes));
   const out = new Uint8Array(digest);
   let hex = "";
   for (const n of out) {
