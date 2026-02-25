@@ -8,13 +8,14 @@ const ANVIL_FULL_PAGE_URL = "/anvil/teleprompter_pro.html";
 export default function AnvilRoute() {
   const shell = useOutletContext<AppShellContext>();
 
+  useEffect(() => {
+    if (!shell.workspaceId) return;
+    window.location.replace(ANVIL_FULL_PAGE_URL);
+  }, [shell.workspaceId]);
+
   if (!shell.workspaceId) {
     return <WorkspaceRequiredNotice toolName="Anvil" />;
   }
-
-  useEffect(() => {
-    window.location.replace(ANVIL_FULL_PAGE_URL);
-  }, []);
 
   return (
     <section style={{ padding: 24, display: "grid", gap: 8 }}>
