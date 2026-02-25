@@ -20,6 +20,7 @@ import {
   readHearthPlanningSessionCache,
   writeHearthPlanningSessionCache,
 } from "../lib/hearth-session-registry";
+import { requestHearthChatReply, type HearthChatMessage } from "../lib/hearth-chat-api";
 import { commitHearthSession, readHearthSession } from "../lib/hearth-session-repo";
 import { useSourcesState } from "../hooks/useSourcesState";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
@@ -27,7 +28,8 @@ import { createHearthStore } from "../storage/store-factory";
 import type { HearthStoreKind } from "../storage/hearth-store";
 import { LocalSessionStore } from "../storage/local-session-store";
 
-const AUTOSAVE_DELAY_MS = 1200;
+const AUTOSAVE_DELAY_MS = 2200;
+const AUTOSAVE_MIN_GAP_MS = 5000;
 const AUTOSAVE_REVISION_GAP_MS = 5 * 60 * 1000;
 const SESSION_SAVE_DELAY_MS = 500;
 const STORE_KIND_KEY = "hearth_store_kind";
@@ -332,6 +334,11 @@ export default function HearthShell() {
   const [editingTitle, setEditingTitle] = useState("");
   const [cursorPosition, setCursorPosition] = useState<number | null>(null);
   const [scrollTop, setScrollTop] = useState<number | null>(null);
+  const [isBodyComposing, setIsBodyComposing] = useState(false);
+  const [chatMessages, setChatMessages] = useState<HearthChatMessage[]>([]);
+  const [chatDraft, setChatDraft] = useState("");
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [isChatting, setIsChatting] = useState(false);
 
   const setMode = useCallback((mode: HearthMode) => {
     modeTouchedRef.current = true;
@@ -339,6 +346,12 @@ export default function HearthShell() {
   }, []);
 
   const autosaveTimer = useRef<number | null>(null);
+  const autosaveInFlightRef = useRef(false);
+  const autosaveQueuedRef = useRef(false);
+  const lastAutosaveCommitAtRef = useRef(0);
+  const draftEditVersionRef = useRef(0);
+  const activeDraftRef = useRef<Draft | null>(null);
+  const draftSnapshotRef = useRef<DraftSnapshot | null>(null);
   const sessionSaveTimer = useRef<number | null>(null);
   const bodyRef = useRef<HTMLTextAreaElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -409,6 +422,14 @@ export default function HearthShell() {
     if (!selectedRevision || !activeDraft) return [];
     return buildDiffLines(activeDraft.body, selectedRevision.bodySnapshot);
   }, [activeDraft, selectedRevision]);
+
+  useEffect(() => {
+    activeDraftRef.current = activeDraft;
+  }, [activeDraft]);
+
+  useEffect(() => {
+    draftSnapshotRef.current = draftSnapshot;
+  }, [draftSnapshot]);
 
   const refreshDrafts = useCallback(async () => {
     const list = await store.listDrafts();
@@ -815,14 +836,18 @@ export default function HearthShell() {
   useEffect(() => {
     if (!activeDraft) return;
     if (!isDirty) return;
+    if (isBodyComposing) return;
 
     if (autosaveTimer.current) {
       window.clearTimeout(autosaveTimer.current);
     }
 
+    const now = Date.now();
+    const remainingGap = Math.max(0, AUTOSAVE_MIN_GAP_MS - (now - lastAutosaveCommitAtRef.current));
+    const delay = Math.max(AUTOSAVE_DELAY_MS, remainingGap);
     autosaveTimer.current = window.setTimeout(() => {
       void handleAutosave();
-    }, AUTOSAVE_DELAY_MS);
+    }, delay);
 
     return () => {
       if (autosaveTimer.current) {
@@ -830,7 +855,7 @@ export default function HearthShell() {
         autosaveTimer.current = null;
       }
     };
-  }, [activeDraft?.title, activeDraft?.body, activeDraft?.id, isDirty]);
+  }, [activeDraft?.title, activeDraft?.body, activeDraft?.id, isBodyComposing, isDirty]);
 
   useEffect(() => {
     const textarea = bodyRef.current;
@@ -904,21 +929,54 @@ export default function HearthShell() {
   }, [activeDraft, onSaveDraft, revisionModalOpen]);
 
   async function handleAutosave() {
-    if (!activeDraft) return;
-    const now = Date.now();
-    const shouldAutoRevision = !lastAutosaveRevisionAt
-      || now - lastAutosaveRevisionAt >= AUTOSAVE_REVISION_GAP_MS;
+    if (autosaveInFlightRef.current) {
+      autosaveQueuedRef.current = true;
+      return;
+    }
 
-    await persistDraft({
-      draft: activeDraft,
-      updatedAt: now,
-      createRevision: shouldAutoRevision ? {
-        kind: "autosave",
-        note: "Autosave",
-      } : null,
-      syncSources: false,
-      syncSession: false,
-    });
+    autosaveInFlightRef.current = true;
+    try {
+      do {
+        autosaveQueuedRef.current = false;
+
+        if (isBodyComposing) {
+          continue;
+        }
+
+        const draft = activeDraftRef.current;
+        const snapshot = draftSnapshotRef.current;
+        if (!draft || !snapshot) {
+          continue;
+        }
+
+        const draftIsDirty = draft.title !== snapshot.title || draft.body !== snapshot.body;
+        if (!draftIsDirty) {
+          continue;
+        }
+
+        const now = Date.now();
+        const shouldAutoRevision = !lastAutosaveRevisionAt
+          || now - lastAutosaveRevisionAt >= AUTOSAVE_REVISION_GAP_MS;
+
+        const saved = await persistDraft({
+          draft,
+          updatedAt: now,
+          createRevision: shouldAutoRevision ? {
+            kind: "autosave",
+            note: "Autosave",
+          } : null,
+          syncSources: false,
+          syncSession: false,
+          showSavingState: false,
+        });
+
+        if (saved) {
+          lastAutosaveCommitAtRef.current = now;
+        }
+      } while (autosaveQueuedRef.current);
+    } finally {
+      autosaveInFlightRef.current = false;
+    }
   }
 
   async function persistDraft(args: {
@@ -927,9 +985,14 @@ export default function HearthShell() {
     createRevision: { kind: RevisionKind; note?: string } | null;
     syncSources?: boolean;
     syncSession?: boolean;
-  }) {
-    setIsSaving(true);
+    showSavingState?: boolean;
+  }): Promise<boolean> {
+    const showSavingState = args.showSavingState ?? true;
+    if (showSavingState) {
+      setIsSaving(true);
+    }
     setError(null);
+    const editVersionAtStart = draftEditVersionRef.current;
     try {
       let revisionCount = args.draft.revisionCount;
       let lastRevisionAt = args.draft.lastRevisionAt;
@@ -959,8 +1022,14 @@ export default function HearthShell() {
 
       await store.saveDraft(toSave);
 
-      setActiveDraft(toSave);
-      setDraftSnapshot({ title: toSave.title, body: toSave.body, updatedAt: toSave.updatedAt });
+      const latestActiveDraft = activeDraftRef.current;
+      const hasNewerEdits = latestActiveDraft?.id === toSave.id
+        && draftEditVersionRef.current !== editVersionAtStart;
+
+      if (!hasNewerEdits) {
+        setActiveDraft(toSave);
+        setDraftSnapshot({ title: toSave.title, body: toSave.body, updatedAt: toSave.updatedAt });
+      }
       setDrafts((prev) => {
         const exists = prev.some((d) => d.id === toSave.id);
         const next = exists
@@ -982,11 +1051,15 @@ export default function HearthShell() {
       if (args.syncSession) {
         void syncSessionToTongs();
       }
+      return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to save draft.";
       setError(message);
+      return false;
     } finally {
-      setIsSaving(false);
+      if (showSavingState) {
+        setIsSaving(false);
+      }
     }
   }
 
@@ -1134,6 +1207,31 @@ export default function HearthShell() {
     void persistSession(activeDraft?.id ?? null, "draft");
   }
 
+  async function onSendChat() {
+    if (isChatting) return;
+    const content = chatDraft.trim();
+    if (!content) return;
+
+    const userMessage: HearthChatMessage = { role: "user", content };
+    const nextMessages = [...chatMessages, userMessage].slice(-24);
+    setChatMessages(nextMessages);
+    setChatDraft("");
+    setChatError(null);
+    setIsChatting(true);
+
+    try {
+      const result = await requestHearthChatReply(nextMessages);
+      if (!result.ok) {
+        setChatError(result.error);
+        return;
+      }
+      const assistantMessage: HearthChatMessage = { role: "assistant", content: result.reply };
+      setChatMessages((prev) => [...prev, assistantMessage].slice(-24));
+    } finally {
+      setIsChatting(false);
+    }
+  }
+
   function renderSectionedBody(text: string) {
     const lines = splitLines(text);
     return (
@@ -1264,8 +1362,11 @@ export default function HearthShell() {
             value={activeDraft?.title ?? ""}
             placeholder="Draft title"
             onChange={(event) => {
-              if (!activeDraft) return;
-              setActiveDraft({ ...activeDraft, title: event.target.value });
+              setActiveDraft((prev) => {
+                if (!prev) return prev;
+                draftEditVersionRef.current += 1;
+                return { ...prev, title: event.target.value };
+              });
             }}
             disabled={!activeDraft}
           />
@@ -1278,9 +1379,14 @@ export default function HearthShell() {
             value={activeDraft?.body ?? ""}
             placeholder="Start writing..."
             onChange={(event) => {
-              if (!activeDraft) return;
-              setActiveDraft({ ...activeDraft, body: event.target.value });
+              setActiveDraft((prev) => {
+                if (!prev) return prev;
+                draftEditVersionRef.current += 1;
+                return { ...prev, body: event.target.value };
+              });
             }}
+            onCompositionStart={() => setIsBodyComposing(true)}
+            onCompositionEnd={() => setIsBodyComposing(false)}
             onSelect={(event) => {
               const target = event.target as HTMLTextAreaElement;
               setCursorPosition(target.selectionStart);
@@ -1304,6 +1410,60 @@ export default function HearthShell() {
             Review sources
           </button>
         </div>
+
+        <section className="hs-ai-chat" aria-label="Hearth AI chat">
+          <div className="hs-ai-chat-header">
+            <div className="hs-ai-chat-title">AI Assistant</div>
+            <button
+              type="button"
+              onClick={() => {
+                setChatMessages([]);
+                setChatError(null);
+              }}
+              disabled={isChatting || chatMessages.length === 0}
+            >
+              Clear
+            </button>
+          </div>
+
+          <div className="hs-ai-chat-log" role="log" aria-live="polite">
+            {chatMessages.length === 0 ? (
+              <div className="hs-ai-chat-empty">
+                Ask a quick question about this draft.
+              </div>
+            ) : (
+              chatMessages.map((message, index) => (
+                <div key={`${message.role}-${index}`} className={`hs-ai-chat-msg is-${message.role}`}>
+                  <span className="hs-ai-chat-role">{message.role === "assistant" ? "Hearth" : "You"}</span>
+                  <span className="hs-ai-chat-content">{message.content}</span>
+                </div>
+              ))
+            )}
+          </div>
+
+          {chatError ? (
+            <div className="hs-error-text-small">{chatError}</div>
+          ) : null}
+
+          <div className="hs-ai-chat-compose">
+            <textarea
+              value={chatDraft}
+              onChange={(event) => setChatDraft(event.target.value)}
+              placeholder="Ask Hearth AI..."
+              className="hs-ai-chat-input"
+              rows={2}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || event.shiftKey) return;
+                event.preventDefault();
+                void onSendChat();
+              }}
+              disabled={isChatting}
+            />
+            <button type="button" onClick={() => void onSendChat()} disabled={isChatting || !chatDraft.trim()}>
+              {isChatting ? "Sending..." : "Send"}
+            </button>
+          </div>
+        </section>
       </section>
     );
   };
