@@ -1,3 +1,7 @@
+/anvil     /anvil/teleprompter_pro.html  200
 /anvil/*  /anvil/:splat  200
+/login    /index.html    200
+/auth/callback  /index.html  200
+/reset-password  /index.html  200
 /app/*    /index.html    200
 /         /app           302

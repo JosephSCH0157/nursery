@@ -396,7 +396,12 @@
     <!-- Adjust path if your bundler outputs somewhere else -->
     <script>
       (function () {
-        const candidates = ['/dist/forge/login.js', '/forge/login.js'];
+        const candidates = [
+          '/anvil/dist/forge/login.js',
+          '/anvil/forge/login.js',
+          '/dist/forge/login.js',
+          '/forge/login.js'
+        ];
         function tryPath(index) {
           if (index >= candidates.length) {
             console.error('Unable to load /forge/login.js from any expected path.');

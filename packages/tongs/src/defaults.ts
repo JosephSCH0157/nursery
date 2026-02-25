@@ -1,6 +1,6 @@
-import type { MountRegistryEntry, WorkspaceMountRegistry } from "./types";
-import { MOUNT_ROLE_POLICY } from "./roles";
-import { DEFAULT_MIRROR_POLICY, isCloudCanonicalRole, STORAGE_REGISTRY_VERSION } from "./storage/storage-contract";
+import type { MountRegistryEntry, WorkspaceMountRegistry } from "./types.js";
+import { MOUNT_ROLE_POLICY } from "./roles.js";
+import { DEFAULT_MIRROR_POLICY, isCloudCanonicalRole, STORAGE_REGISTRY_VERSION } from "./storage/storage-contract.js";
 
 export function buildDefaultRegistry(workspaceId: string): WorkspaceMountRegistry {
   const nowIso = new Date().toISOString();

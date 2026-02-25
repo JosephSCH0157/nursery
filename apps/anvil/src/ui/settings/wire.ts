@@ -9,6 +9,7 @@ import type { AppStore } from '../../state/app-store';
 import { setRecorderEnabled } from '../../state/recorder-settings';
 import { isSessionRecording } from '../../recording/recorderRegistry';
 import { applyRecordingModeUi } from '../recording-mode-ui';
+import { getNurseryStorageSettingsUrl } from '../../forge/nursery-mounts';
 
 const DATASET_SETTINGS_WIRED = 'tpSettingsWired';
 const DATASET_CHANGE_WIRED = 'tpChangeWired';
@@ -81,11 +82,21 @@ function wireSettingsTabs(root: HTMLElement, store?: AppStore | null): void {
   } catch {}
 }
 
-async function wireAutoRecord(rootEl: HTMLElement, store?: AppStore | null) {
-  const chk = rootEl.querySelector('#settingsAutoRecord') as HTMLInputElement | null;
-  const nameEl = rootEl.querySelector('#autoRecordFolderName') as HTMLElement | null;
-  const pickBtn = rootEl.querySelector('#autoRecordPickBtn') as HTMLButtonElement | null;
-  const clearBtn = rootEl.querySelector('#autoRecordClearBtn') as HTMLButtonElement | null;
+async function wireAutoRecord(rootEl: HTMLElement | null | undefined, store?: AppStore | null) {
+  const q = <T extends Element = HTMLElement>(selector: string): T | null => {
+    try {
+      const host = rootEl as any;
+      if (host && typeof host.querySelector === 'function') {
+        return host.querySelector(selector) as T | null;
+      }
+    } catch {}
+    return null;
+  };
+
+  const chk = q<HTMLInputElement>('#settingsAutoRecord');
+  const nameEl = q<HTMLElement>('#autoRecordFolderName');
+  const pickBtn = q<HTMLButtonElement>('#autoRecordPickBtn');
+  const clearBtn = q<HTMLButtonElement>('#autoRecordClearBtn');
 
   async function ensureRecDirReady() {
     try {
@@ -99,8 +110,29 @@ async function wireAutoRecord(rootEl: HTMLElement, store?: AppStore | null) {
   async function renderFolder() {
     try {
       await ensureRecDirReady();
-      const dir = (window as any).__tpRecDir?.get?.() || null;
+      const api = (window as any).__tpRecDir;
+      const dir = api?.get?.() || null;
+      const managed = !!api?.isManaged?.();
+      const managedHint = typeof api?.managedHint === 'function' ? api.managedHint() : null;
+      if (pickBtn) {
+        pickBtn.disabled = managed;
+        if (managed) {
+          pickBtn.textContent = 'Managed by Nursery';
+          pickBtn.title = 'Recordings folder is managed in Nursery Storage settings.';
+        } else {
+          pickBtn.textContent = 'Change auto-save folder';
+          pickBtn.title = '';
+        }
+      }
+      if (clearBtn) {
+        clearBtn.disabled = managed;
+        clearBtn.title = managed ? 'Recordings folder is managed in Nursery Storage settings.' : '';
+      }
       if (!nameEl) return;
+      if (managed) {
+        nameEl.textContent = dir?.name || managedHint || 'Managed by Nursery (not linked)';
+        return;
+      }
       if (dir) {
         nameEl.textContent = dir.name || 'Selected';
         return;
@@ -120,6 +152,30 @@ async function wireAutoRecord(rootEl: HTMLElement, store?: AppStore | null) {
 async function pickFolder({ force }: { force?: boolean } = {}) {
     await ensureRecDirReady();
     const api = (window as any).__tpRecDir;
+    if (api?.isManaged?.()) {
+      const existing = api.get?.();
+      if (existing) {
+        try {
+          const q = await existing.queryPermission?.({ mode: 'readwrite' });
+          if (q !== 'granted') {
+            const r = await existing.requestPermission?.({ mode: 'readwrite' });
+            if (r !== 'granted') {
+              (window as any).toast?.(
+                'Recordings folder is mapped but write permission is not granted yet. Recording will continue and download fallback will be used until access is granted.',
+                { type: 'warn' },
+              );
+            }
+          }
+        } catch {}
+        return true;
+      }
+      const settingsUrl = getNurseryStorageSettingsUrl();
+      (window as any).toast?.(
+        `Recordings folder is managed by Nursery but not linked in this origin (${window.location.origin}). Auto-record will continue and recordings will download until Storage is linked (${settingsUrl}).`,
+        { type: 'warn' },
+      );
+      return true;
+    }
     if (!api?.supported?.()) {
       (window as any).toast?.('This browser will download recordings instead of saving to a folder.', {
         type: 'warn',
@@ -175,7 +231,7 @@ async function pickFolder({ force }: { force?: boolean } = {}) {
   if (pickBtn && !pickBtn.dataset[DATASET_CARD_WIRED]) {
     pickBtn.dataset[DATASET_CARD_WIRED] = '1';
     pickBtn.addEventListener('click', () => {
-      pickFolder({ force: true });
+      void pickFolder({ force: true });
     });
   }
   if (clearBtn && !clearBtn.dataset[DATASET_CARD_WIRED]) {
@@ -183,15 +239,24 @@ async function pickFolder({ force }: { force?: boolean } = {}) {
     clearBtn.addEventListener('click', async () => {
       try {
         await ensureRecDirReady();
+        const api = (window as any).__tpRecDir;
+        if (api?.isManaged?.()) {
+          const settingsUrl = getNurseryStorageSettingsUrl();
+          (window as any).toast?.(
+            `Recordings folder is managed by Nursery. Update it in Nursery > Settings > Storage (${settingsUrl}).`,
+            { type: 'warn' },
+          );
+          return;
+        }
         await (window as any).__tpRecDir?.clear?.();
         await renderFolder();
       } catch {}
     });
   }
 
-  const audioOnlyChk = rootEl.querySelector('#settingsAudioOnly') as HTMLInputElement | null;
-  const audioOnlyHint = rootEl.querySelector('#settingsAudioOnlyHint') as HTMLElement | null;
-  const cameraSelect = rootEl.querySelector('#settingsCamSel') as HTMLSelectElement | null;
+  const audioOnlyChk = q<HTMLInputElement>('#settingsAudioOnly');
+  const audioOnlyHint = q<HTMLElement>('#settingsAudioOnlyHint');
+  const cameraSelect = q<HTMLSelectElement>('#settingsCamSel');
   let lastAudioOnlyState: boolean | null = null;
   const resolveAudioStore = () => store || (window as any).__tpStore || null;
   const applyAudioOnlyState = (on: boolean) => {
@@ -399,7 +464,7 @@ function wireRecordingModeControls(rootEl: HTMLElement) {
 }
 
 export function wireSettingsDynamic(rootEl: HTMLElement | null, store?: AppStore | null) {
-  if (!rootEl) return;
+  if (!rootEl || typeof (rootEl as any).querySelector !== 'function') return;
   if ((window as any).__TP_DEV) {
     try { console.count('wireSettingsDynamic'); } catch {}
   }
@@ -608,7 +673,9 @@ export function wireSettingsDynamic(rootEl: HTMLElement | null, store?: AppStore
     wireRecordingModeControls(rootEl);
   } catch {}
   try {
-    wireAutoRecord(rootEl, store);
+    void wireAutoRecord(rootEl, store).catch((err) => {
+      try { console.warn('[settings] wireAutoRecord failed', err); } catch {}
+    });
   } catch {}
 }
 

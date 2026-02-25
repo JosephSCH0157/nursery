@@ -338,7 +338,9 @@ export default function TongsCalendar() {
   useEffect(() => {
     if (!workspaceId || !session) {
       setEvents([]);
-      if (!workspaceId) {
+      if (!session) {
+        setLoadError("Trial mode: sign in to view and create cloud calendar sessions.");
+      } else if (!workspaceId) {
         setLoadError("Select a workspace to view and create calendar sessions.");
       }
       return;
@@ -568,7 +570,13 @@ export default function TongsCalendar() {
 
           <div style={{ fontSize: 14, opacity: 0.7 }}>{rangeLabel}</div>
 
-          <button onClick={showNew ? closeNewForm : openNewForm}>{showNew ? "Close" : "New Event"}</button>
+          <button
+            onClick={showNew ? closeNewForm : openNewForm}
+            disabled={!session || !workspaceId}
+            title={!session ? "Sign in to create events." : !workspaceId ? "Select a workspace first." : ""}
+          >
+            {showNew ? "Close" : "New Event"}
+          </button>
         </div>
       </div>
       {loadError ? (

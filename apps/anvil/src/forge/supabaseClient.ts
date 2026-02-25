@@ -16,6 +16,7 @@ const SUPABASE_ANON_KEY: string =
   w.__forgeSupabaseAnonKey ||
   metaEnv.VITE_SUPABASE_ANON_KEY ||
   '';
+const AUTH_STORAGE_KEY = 'forge-auth';
 
 export let hasSupabaseConfig = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
@@ -42,7 +43,10 @@ if (hasSupabaseConfig) {
     supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: {
         persistSession: true,
+        autoRefreshToken: true,
         detectSessionInUrl: true,
+        storageKey: AUTH_STORAGE_KEY,
+        ...(typeof window !== 'undefined' ? { storage: window.localStorage } : {}),
       },
     });
   } catch (err) {

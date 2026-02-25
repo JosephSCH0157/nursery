@@ -1,6 +1,7 @@
 // Lightweight auto-record stub (browser MediaRecorder-based).
 // Mirrors the legacy JS behavior but typed for the TS runtime.
 import { getRecordingMode } from './recording-settings';
+import { commitRecordingBytesToTongs } from '../forge/workpiece-commit';
 
 (() => {
   let mediaRecorder: MediaRecorder | null = null;
@@ -327,21 +328,66 @@ import { getRecordingMode } from './recording-settings';
   }
 
   async function saveBlob(blob: Blob, name: string): Promise<boolean> {
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const contentType = blob.type || 'application/octet-stream';
+    const localWritePayload = bytes;
+    let committed = false;
     try {
-      console.log('[recording-dir] saveRecordingBlob start', { size: blob.size, name });
+      const commitResult = await commitRecordingBytesToTongs({
+        bytes,
+        originalName: name,
+        contentType,
+      });
+      if (commitResult.ok) {
+        committed = true;
+        try {
+          console.log('[core-recorder] canonical commit ok', {
+            workpieceId: commitResult.workpieceId,
+            path: commitResult.path,
+            createdCradle: commitResult.createdCradle,
+          });
+        } catch {}
+      } else {
+        try {
+          console.warn('[core-recorder] canonical commit unavailable; using local fallback', commitResult);
+        } catch {}
+      }
+    } catch (commitErr) {
+      try {
+        console.warn('[core-recorder] canonical commit failed; using local fallback', commitErr);
+      } catch {}
+    }
+
+    try {
+      console.log('[recording-dir] saveRecordingBlob start', { size: blob.size, name, committed });
       await import('../fs/recording-dir');
+      try {
+        await (window as any).__tpRecDir?.init?.();
+      } catch {}
       const dir = (window as any).__tpRecDir?.get?.() || null;
       if (dir && typeof dir.getFileHandle === 'function') {
         try {
           try {
             console.log('[core-recorder] writing to directory', { name: (dir as any).name || '(handle)' });
           } catch {}
+          try {
+            const q = await (dir as any).queryPermission?.({ mode: 'readwrite' });
+            if (q !== 'granted') {
+              const r = await (dir as any).requestPermission?.({ mode: 'readwrite' });
+              if (r !== 'granted') {
+                throw new Error('recording-dir-permission-not-granted');
+              }
+            }
+          } catch (permErr) {
+            try { console.warn('[core-recorder] directory permission not granted; using download fallback', permErr); } catch {}
+            throw permErr;
+          }
           const fh = await dir.getFileHandle(name, { create: true });
           const w = await fh.createWritable();
-          await w.write(blob);
+          await w.write(localWritePayload);
           await w.close();
           try {
-            console.log('[core-recorder] saved file', name);
+            console.log('[core-recorder] saved file mirror', name);
           } catch {}
           return true;
         } catch (err) {
@@ -349,15 +395,24 @@ import { getRecordingMode } from './recording-settings';
         }
       } else {
         try {
+          const managed = !!(window as any).__tpRecDir?.isManaged?.();
+          const hint = (window as any).__tpRecDir?.managedHint?.();
           console.warn(
-            '[core-recorder] no recording directory handle available; pick a folder in Settings → Recording/Media',
+            '[core-recorder] no recording directory handle available; falling back to download',
+            { managed, hint: hint || null },
           );
         } catch {}
-        return false;
       }
     } catch {}
+    if (committed) {
+      try {
+        console.log('[core-recorder] canonical commit succeeded; skipping download fallback', { name });
+      } catch {}
+      return true;
+    }
     try {
-      const url = URL.createObjectURL(blob);
+      const downloadBlob = new Blob([bytes], { type: contentType });
+      const url = URL.createObjectURL(downloadBlob);
       const a = document.createElement('a');
       a.href = url;
       a.download = name || 'Recording.webm';

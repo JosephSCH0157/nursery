@@ -1,3 +1,5 @@
+import { getNurseryManagedDirectory } from '../forge/nursery-mounts';
+
 (function () {
   type DirHandle = FileSystemDirectoryHandle | null | undefined;
   type RecDirAPI = {
@@ -7,6 +9,8 @@
     clear: () => Promise<void>;
     pick: () => Promise<DirHandle | null>;
     supported: () => boolean;
+    isManaged: () => boolean;
+    managedHint: () => string | null;
   };
 
   const DB_NAME = 'tp-db';
@@ -90,7 +94,29 @@
   }
 
   let _dir: DirHandle = null;
+  let _managedByNursery = false;
+  let _managedHint: string | null = null;
+
+  async function syncManagedRecordingDir(): Promise<boolean> {
+    try {
+      const managed = await getNurseryManagedDirectory('recordings');
+      if (!managed.managed) {
+        _managedByNursery = false;
+        _managedHint = null;
+        _dir = null;
+        return false;
+      }
+      _managedByNursery = true;
+      _managedHint = managed.hint ?? null;
+      _dir = managed.handle ?? null;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async function initRecordingDir() {
+    if (await syncManagedRecordingDir()) return;
     try {
       const h = await idbGet(KEY);
       if (h) {
@@ -105,15 +131,18 @@
     return _dir || null;
   }
   async function setRecordingDir(h: DirHandle) {
+    if (_managedByNursery) return;
     _dir = h || null;
     if (h) await idbSet(KEY, h);
     else await idbDel(KEY);
   }
   async function clearRecordingDir() {
+    if (_managedByNursery) return;
     _dir = null;
     await idbDel(KEY);
   }
   async function pickRecordingDir(): Promise<DirHandle | null> {
+    if (_managedByNursery) return _dir || null;
     if (!hasFsApi()) return null;
     try {
       // @ts-ignore
@@ -137,6 +166,8 @@
     clear: clearRecordingDir,
     pick: pickRecordingDir,
     supported: hasFsApi,
+    isManaged: () => _managedByNursery,
+    managedHint: () => _managedHint,
   };
 
   try {

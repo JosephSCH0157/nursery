@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database } from "./db.types";
+import type { Database } from "./db.types.js";
 
 export type CalendarEventRow = Database["tongs"]["Tables"]["calendar_events"]["Row"];
 export type CalendarEventInsert = Database["tongs"]["Tables"]["calendar_events"]["Insert"];

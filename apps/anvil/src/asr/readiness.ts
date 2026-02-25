@@ -6,11 +6,16 @@ export type AsrWarnReason = 'NOT_CALIBRATED';
 
 export function computeAsrReadiness(): { ready: true; warn?: AsrWarnReason } | { ready: false; reason: AsrNotReadyReason } {
   try {
-    const micGranted = !!appStore.get?.('micGranted');
+    const micOpen = !!(window as any).__tpMic?.__lastStream || !!(window as any).__tpMic?.isOpen?.();
+    const permState = String((window as any).__tpMicPermState || '').toLowerCase();
+    const micGranted = !!appStore.get?.('micGranted') || micOpen || permState === 'granted';
+    if (micOpen) {
+      try { appStore.set?.('micGranted', true as any); } catch {}
+      try { (window as any).__tpMicPermState = 'granted'; } catch {}
+    }
     if (!micGranted) return { ready: false, reason: 'NO_PERMISSION' };
 
     const micDevice = String(appStore.get?.('micDevice') || '').trim();
-    const micOpen = !!(window as any).__tpMic?.__lastStream || !!(window as any).__tpMic?.isOpen?.();
     let activeProfile: any = null;
     try {
       const asrState = getAsrState?.();

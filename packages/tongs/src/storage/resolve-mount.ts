@@ -1,6 +1,6 @@
-import type { MirrorPolicy, MountRole, MountTargetType, WorkspaceMountRegistry } from "../types";
-import { DEFAULT_MIRROR_POLICY, isCloudCanonicalRole, isLocalOnlyRole } from "./storage-contract";
-import { assertRoleAllowed } from "./storage-guard";
+import type { MirrorPolicy, MountRole, MountTargetType, WorkspaceMountRegistry } from "../types.js";
+import { DEFAULT_MIRROR_POLICY, isCloudCanonicalRole, isLocalOnlyRole } from "./storage-contract.js";
+import { assertRoleAllowed } from "./storage-guard.js";
 
 export type ResolvedMountTarget = {
   type: "local" | "cloud";

@@ -13,7 +13,8 @@
     "types": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "smoke:tongs-commit-api": "node scripts/smoke-tongs-commit-api.mjs"
   },
   "dependencies": {
     "@forge/hearth": "workspace:*",

@@ -17,17 +17,35 @@ export function applyTypographyTo(win: Window, id: DisplayId) {
   return off;
 
   function setVars(style: CSSStyleDeclaration, x: ReturnType<typeof getTypography>) {
+    const setString = (name: string, value: unknown) => {
+      if (typeof value === 'string') {
+        const v = value.trim();
+        if (v && v !== 'undefined' && v !== 'null') {
+          style.setProperty(name, v);
+          return;
+        }
+      }
+      style.removeProperty(name);
+    };
+    const setNumber = (name: string, value: unknown, suffix = '') => {
+      const n = typeof value === 'number' ? value : Number(value);
+      if (Number.isFinite(n)) {
+        style.setProperty(name, `${n}${suffix}`);
+        return;
+      }
+      style.removeProperty(name);
+    };
     try {
-      style.setProperty('--tp-font-family', x.fontFamily);
-      style.setProperty('--tp-font-size', `${x.fontSizePx}px`);
-      style.setProperty('--tp-line-height', String(x.lineHeight));
-      style.setProperty('--tp-weight', String(x.weight));
-      style.setProperty('--tp-letter-spacing', `${x.letterSpacingEm}em`);
-      style.setProperty('--tp-word-spacing', `${x.wordSpacingEm}em`);
-      style.setProperty('--tp-fg', x.color);
-      style.setProperty('--tp-bg', x.background);
-      style.setProperty('--tp-maxch', String(x.maxLineWidthCh));
-      style.setProperty('--tp-dim', String(x.dimOthers));
+      setString('--tp-font-family', x?.fontFamily);
+      setNumber('--tp-font-size', x?.fontSizePx, 'px');
+      setNumber('--tp-line-height', x?.lineHeight);
+      setNumber('--tp-weight', x?.weight);
+      setNumber('--tp-letter-spacing', x?.letterSpacingEm, 'em');
+      setNumber('--tp-word-spacing', x?.wordSpacingEm, 'em');
+      setString('--tp-fg', x?.color);
+      setString('--tp-bg', x?.background);
+      setNumber('--tp-maxch', x?.maxLineWidthCh);
+      setNumber('--tp-dim', x?.dimOthers);
     } catch {}
   }
 }

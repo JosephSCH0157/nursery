@@ -19,7 +19,10 @@ const __isDisplayCtx = (() => {
 })();
 
 try {
-  __docCh = (window as any).__tpDocCh || ((window as any).__tpDocCh = (new (window as any).BroadcastChannel ? new BroadcastChannel('tp-doc') : null));
+  const BcCtor = (window as any).BroadcastChannel;
+  __docCh =
+    (window as any).__tpDocCh ||
+    ((window as any).__tpDocCh = (typeof BcCtor === 'function' ? new BcCtor('tp-doc') : null));
   if (__docCh) {
     try {
       __docCh.onmessage = (ev: MessageEvent) => {

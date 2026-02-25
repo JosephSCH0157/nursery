@@ -7,29 +7,49 @@ const MIC_PILL_SELECTOR = '[data-tp-mic-pill]';
 const MENU_ID = 'micMenu';
 
 function openSettingsOverlay(): void {
-  let opened = false;
-  try {
-    const btn = document.querySelector<HTMLElement>('#settingsBtn, [data-action="settings-open"]');
-    if (btn) {
-      btn.click();
-      opened = true;
+  const isOverlayOpen = () => {
+    try {
+      const overlay = document.getElementById('settingsOverlay');
+      if (!overlay) return false;
+      if ((overlay as any).hidden) return false;
+      if (overlay.getAttribute('aria-hidden') === 'true') return false;
+      if (overlay.classList.contains('hidden')) return false;
+      const css = window.getComputedStyle(overlay);
+      return css.display !== 'none' && css.visibility !== 'hidden';
+    } catch {
+      return false;
     }
-  } catch {}
-  if (opened) return;
-  try {
-    (window as any).__tpSettings?.open?.();
-    opened = true;
-  } catch {}
-  if (opened) return;
-  try {
-    const overlay = document.getElementById('settingsOverlay');
-    if (overlay) {
+  };
+
+  const ensureFallbackOpen = () => {
+    if (isOverlayOpen()) return;
+    try { (window as any).__tpSettings?.open?.(); } catch {}
+    if (isOverlayOpen()) return;
+    try {
+      const overlay = document.getElementById('settingsOverlay');
+      if (!overlay) return;
       overlay.hidden = false;
       overlay.removeAttribute('hidden');
       overlay.classList.remove('hidden');
       overlay.setAttribute('aria-hidden', 'false');
+      try { (window as any).__tp?.settings?.mount?.(); } catch {}
+      try { window.dispatchEvent(new CustomEvent('tp:settings:open')); } catch {}
+    } catch {}
+  };
+
+  let clicked = false;
+  try {
+    const btn = document.querySelector<HTMLElement>('#settingsBtn, [data-action="settings-open"]');
+    if (btn) {
+      btn.click();
+      clicked = true;
     }
   } catch {}
+  if (clicked) {
+    setTimeout(() => { ensureFallbackOpen(); }, 80);
+    return;
+  }
+  ensureFallbackOpen();
 }
 
 function selectSettingsTab(id: string): void {
@@ -60,7 +80,31 @@ function openSettingsToMedia() {
 
 function openSettingsToAsr(startWizard?: boolean) {
   openSettingsToMedia();
-  setTimeout(() => {
+  const waitForAsrUi = (timeoutMs = 2200) =>
+    new Promise<boolean>((resolve) => {
+      const started = Date.now();
+      const poll = () => {
+        try {
+          selectSettingsTab('media');
+          const sec = document.getElementById('asrSettings');
+          const devSel = document.getElementById('asrDevice') as HTMLSelectElement | null;
+          const startBtn = document.getElementById('asrStartBtn') as HTMLButtonElement | null;
+          if (sec && devSel && startBtn) {
+            resolve(true);
+            return;
+          }
+        } catch {}
+        if (Date.now() - started >= timeoutMs) {
+          resolve(false);
+          return;
+        }
+        setTimeout(poll, 60);
+      };
+      poll();
+    });
+
+  void (async () => {
+    const ready = await waitForAsrUi();
     try {
       const sec = document.getElementById('asrSettings');
       if (sec) {
@@ -69,9 +113,14 @@ function openSettingsToAsr(startWizard?: boolean) {
       }
       const devSel = document.getElementById('asrDevice') as HTMLSelectElement | null;
       devSel?.focus?.();
-      if (startWizard) { try { (window as any).startAsrWizard?.(); } catch {} }
+      if (!startWizard) return;
+      if (!ready) {
+        showToast?.('Could not open ASR calibration panel yet. Open Settings > Media and try again.', { type: 'warning' });
+        return;
+      }
+      try { await (window as any).startAsrWizard?.(); } catch {}
     } catch {}
-  }, 50);
+  })();
 }
 
 function buildMenu() {

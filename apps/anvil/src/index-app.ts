@@ -90,6 +90,7 @@ import { initDevDrawer } from './dev/dev-drawer';
 import { renderScript } from './render-script';
 import { setRecorderEnabled } from './state/recorder-settings';
 import { ensureUserAndProfile, loadProfileSettings, saveProfileSettings, applySettingsPatch, type PersistedAppKey, type UserSettings } from './forge/authProfile';
+import { initForgeNavMenu } from './forge/forge-nav';
 import { hasSupabaseConfig, supabase } from './forge/supabaseClient';
 import { bindLoadSample } from './ui/load-sample';
 import { bindObsSettingsUI } from './ui/obs-settings-bind';
@@ -262,6 +263,24 @@ function attachScrollWriterOnce(): void {
 	} catch {}
 }
 
+function initForgeMenuWhenReady(): void {
+  const run = () => {
+    try {
+      initForgeNavMenu({ mountId: 'forge-menu-slot' });
+      bootTrace('index-app.ts:forge-menu:init');
+    } catch (error) {
+      bootTrace('index-app.ts:forge-menu:error', { error: String(error) });
+    }
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', run, { once: true });
+    return;
+  }
+
+  run();
+}
+
 // appStore singleton is created inside state/app-store and attached to window.__tpStore
 try {
 	initObsBridge(appStore);
@@ -289,6 +308,7 @@ try {
 
 // Forge auth/profile gate: ensure session + profile; stash on window for legacy consumers.
 try { ensurePageTabs(appStore); } catch {}
+initForgeMenuWhenReady();
 
 // Run bootstrap (best-effort, non-blocking). The legacy monolith still calls
 // window._initCore/_initCoreRunner paths; this ensures the modular runtime
@@ -313,7 +333,7 @@ try {
 // Install vendor shims (mammoth) so legacy code can use window.ensureMammoth
 import './vendor/mammoth';
 // Settings + ASR wizard wiring (safe to import; guards on element presence)
-import wireSettings from './ui/settings';
+import wireSettings from './ui/settings/index';
 import './ui/settings/asr-wizard';
 // Feature initializers (legacy JS modules)
 // If/when these are migrated to TS, drop the .js extension and types will flow.
@@ -895,13 +915,18 @@ function waitForActiveAsrProfile(timeoutMs = 60000): Promise<boolean> {
 }
 
 async function ensureAsrReadyForUser(): Promise<boolean> {
-  try {
-    const micRes = await ensureMicAccess();
-    if (!micRes.allowed) return false;
-  } catch {
-    return false;
+  if (isMicCapturing()) {
+    try { appStore.set?.('micGranted', true as any); } catch {}
+    try { (window as any).__tpMicPermState = 'granted'; } catch {}
+  } else {
+    try {
+      const micRes = await ensureMicAccess();
+      if (!micRes.allowed) return false;
+    } catch {
+      return false;
+    }
+    if (!(await ensureMicStream())) return false;
   }
-  if (!(await ensureMicStream())) return false;
   if (hasActiveAsrProfile()) return true;
   try {
     const openAsr = (window as any).openSettingsToAsr;
@@ -1240,6 +1265,7 @@ function initScrollModeUiSync(): void {
     appStore.subscribe?.('micGranted', () => applyAsrAvailability());
     appStore.subscribe?.('micDevice', () => applyAsrAvailability());
     window.addEventListener('tp:asrChanged', applyAsrAvailability, { capture: false });
+    window.addEventListener('tp:mic:state', applyAsrAvailability, { capture: false });
   } catch {}
   try {
     appStore.subscribe?.('asrLive', () => {

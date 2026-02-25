@@ -4,6 +4,8 @@ import { debugLog } from '../env/logging';
 import { ScriptStore } from '../features/scripts-store';
 import { applyScript } from '../features/apply-script';
 import { getLastScriptId } from '../features/script-selection';
+import { getMappedFolderManagerHint, isMappedFolderManagedByNursery } from '../fs/mapped-folder';
+import { getNurseryStorageSettingsUrl } from '../forge/nursery-mounts';
 
 declare global {
   interface Window {
@@ -25,6 +27,7 @@ type MappedEntry = { id: string; title: string; handle?: FileSystemFileHandle };
 type SelectRole = 'sidebar' | 'settings';
 const SETTINGS_SELECT_ID = 'scriptSelect';
 const OPEN_SETTINGS_COMMAND = '__OPEN_SETTINGS__';
+const OPEN_NURSERY_STORAGE_COMMAND = '__OPEN_NURSERY_STORAGE__';
 let lastSidebarValidSelection: string | null = null;
 
 function gatherScriptEntries(): MappedEntry[] {
@@ -46,12 +49,17 @@ function syncSelectFromStore(select: HTMLSelectElement | null, role: SelectRole,
       entries: entries.length,
       value: select.value,
     });
-    if (role === 'sidebar' && select.value && select.value !== OPEN_SETTINGS_COMMAND) {
+    if (
+      role === 'sidebar' &&
+      select.value &&
+      select.value !== OPEN_SETTINGS_COMMAND &&
+      select.value !== OPEN_NURSERY_STORAGE_COMMAND
+    ) {
       lastSidebarValidSelection = select.value;
     }
   };
 
-  if (role === 'sidebar' && previous === OPEN_SETTINGS_COMMAND) {
+  if (role === 'sidebar' && (previous === OPEN_SETTINGS_COMMAND || previous === OPEN_NURSERY_STORAGE_COMMAND)) {
     debugLog('[SCRIPT-EDITOR] syncSelectFromStore: sentinel command consumed, reverting', {
       role,
       entries: entries.length,
@@ -79,13 +87,27 @@ function syncSelectFromStore(select: HTMLSelectElement | null, role: SelectRole,
 
   select.innerHTML = '';
   if (!entries.length) {
+    const managed = isMappedFolderManagedByNursery();
+    const managedHint = getMappedFolderManagerHint();
     const placeholderText =
       role === 'sidebar'
-        ? 'Map script folder...'
-        : 'No existing scripts yet - map folder and save new ones here';
-    const placeholder = new Option(placeholderText, role === 'sidebar' ? OPEN_SETTINGS_COMMAND : '', true, true);
+        ? (managed ? 'Manage scripts mount in Nursery...' : 'Map script folder...')
+        : (
+          managed
+            ? `No Nursery scripts folder linked${managedHint ? ` (${managedHint})` : ''}. Configure it in Nursery Storage.`
+            : 'No existing scripts yet - map folder and save new ones here'
+        );
+    const placeholderValue =
+      role === 'sidebar'
+        ? (managed ? OPEN_NURSERY_STORAGE_COMMAND : OPEN_SETTINGS_COMMAND)
+        : '';
+    const placeholder = new Option(placeholderText, placeholderValue, true, true);
     if (role === 'sidebar') {
-      (placeholder as any).dataset.settingsLink = '1';
+      if (managed) {
+        (placeholder as any).dataset.nurseryLink = '1';
+      } else {
+        (placeholder as any).dataset.settingsLink = '1';
+      }
       select.disabled = false;
     } else {
       select.disabled = true;
@@ -131,6 +153,26 @@ function wireSidebarHandlers(): void {
   if (!select) return;
   select.addEventListener('change', () => {
     debugLog('[SCRIPT-EDITOR] sidebar change', { value: select.value });
+    const selected =
+      (select.selectedOptions && select.selectedOptions[0]) ||
+      (select.options.length ? select.options[select.selectedIndex] : null);
+    const settingsLink = !!(selected as any)?.dataset?.settingsLink || select.value === OPEN_SETTINGS_COMMAND;
+    const nurseryLink = !!(selected as any)?.dataset?.nurseryLink || select.value === OPEN_NURSERY_STORAGE_COMMAND;
+    if (settingsLink) {
+      try { document.getElementById('settingsBtn')?.click(); } catch {}
+      try {
+        requestAnimationFrame(() => {
+          try { document.getElementById('scriptsFolderCard')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch {}
+        });
+      } catch {}
+      syncScriptSelectsFromStore();
+      return;
+    }
+    if (nurseryLink) {
+      try { window.location.assign(getNurseryStorageSettingsUrl()); } catch {}
+      syncScriptSelectsFromStore();
+      return;
+    }
     if (!select.value) {
       syncScriptSelectsFromStore();
       return;

@@ -3,8 +3,13 @@
 // Safe no-op if elements are missing.
 
 import { getMappedFolder, initMappedFolder, listScripts, onMappedFolder, pickMappedFolder } from '../fs/mapped-folder';
+import {
+  getMappedFolderManagerHint,
+  isMappedFolderManagedByNursery,
+} from '../fs/mapped-folder';
 import { ScriptStore } from '../features/scripts-store';
 import { debugLog, hudLog } from '../env/logging';
+import { getNurseryStorageSettingsUrl } from '../forge/nursery-mounts';
 import {
   consumeLastScriptId,
   loadScriptById,
@@ -57,6 +62,15 @@ const shouldTraceMappedFolder = (() => {
     return cache;
   };
 })();
+
+const OPEN_NURSERY_STORAGE_COMMAND = '__OPEN_NURSERY_STORAGE__';
+
+function openNurseryStorageSettings() {
+  const url = getNurseryStorageSettingsUrl();
+  try {
+    window.location.assign(url);
+  } catch {}
+}
 let restoredLastScript = false;
 const fingerprintNames = (entries: { name: string }[]) =>
   entries
@@ -112,6 +126,20 @@ export async function handleChooseFolder(doc: Document = document): Promise<void
     }
   };
 
+  const initOk = await awaitInit();
+  if (!initOk) return;
+
+  if (isMappedFolderManagedByNursery()) {
+    const settingsUrl = getNurseryStorageSettingsUrl();
+    const toastFn = (window as any).toast;
+    if (typeof toastFn === 'function') {
+      toastFn(`Scripts folder is managed by Nursery. Configure it in Nursery > Settings > Storage (${settingsUrl}).`, {
+        type: 'warn',
+      });
+    }
+    return;
+  }
+
   const hasFS = typeof (window as any).showDirectoryPicker === 'function';
   const fallback = doc.getElementById('folderFallback') as HTMLInputElement | null;
   let picked = false;
@@ -133,9 +161,6 @@ export async function handleChooseFolder(doc: Document = document): Promise<void
       try { console.warn('[mapped-folder] folderFallback click failed', err); } catch {}
     }
   }
-
-  const initOk = await awaitInit();
-  if (!initOk) return;
 
   if (picked) {
     return;
@@ -186,6 +211,47 @@ export async function bindMappedFolderUI(opts: BindOpts): Promise<() => void> {
     didInit = true;
     await initMappedFolder();
   };
+  const defaultChooseLabel = (btn.textContent || 'Choose Folder').trim() || 'Choose Folder';
+  const ensureManagementUi = () => {
+    const managed = isMappedFolderManagedByNursery();
+    const managedHint = getMappedFolderManagerHint();
+    const recheckBtn = document.getElementById('recheckFolderBtn') as HTMLButtonElement | null;
+    const settingsUrl = getNurseryStorageSettingsUrl();
+
+    if (managed) {
+      btn.disabled = true;
+      btn.textContent = 'Managed by Nursery';
+      btn.title = `Set scripts folder in Nursery Storage (${settingsUrl}).`;
+      if (fallback) fallback.disabled = true;
+      if (recheckBtn) {
+        recheckBtn.disabled = true;
+        recheckBtn.title = `Managed by Nursery Storage (${settingsUrl}).`;
+      }
+    } else {
+      btn.disabled = false;
+      btn.textContent = defaultChooseLabel;
+      btn.title = '';
+      if (fallback) fallback.disabled = false;
+      if (recheckBtn) {
+        recheckBtn.disabled = false;
+        recheckBtn.title = '';
+      }
+    }
+
+    const card = document.getElementById('scriptsFolderCard');
+    if (!card) return;
+    let note = card.querySelector<HTMLElement>('[data-managed-by="nursery"]');
+    if (!note) {
+      note = document.createElement('div');
+      note.className = 'settings-small';
+      note.dataset.managedBy = 'nursery';
+      note.style.marginTop = '6px';
+      card.appendChild(note);
+    }
+    note.textContent = managed
+      ? `Managed by Nursery Storage${managedHint ? ` (${managedHint})` : ''}.`
+      : '';
+  };
 
   try { (btn as any).dataset.mappedFolderWired = '1'; } catch {}
   btn.addEventListener('click', (ev) => {
@@ -211,6 +277,10 @@ export async function bindMappedFolderUI(opts: BindOpts): Promise<() => void> {
       if (!opt) return;
       sel.setAttribute('aria-busy','true');
       const scriptId = opt.value || '';
+      if ((opt as any)?.dataset?.nurseryLink === '1' || scriptId === OPEN_NURSERY_STORAGE_COMMAND) {
+        openNurseryStorageSettings();
+        return;
+      }
       if ((opt as any)?.dataset?.settingsLink === '1') {
         try { document.getElementById('settingsBtn')?.click(); } catch {}
         try { requestAnimationFrame(() => { try { document.getElementById('scriptsFolderCard')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch {} }); } catch {}
@@ -241,7 +311,11 @@ export async function bindMappedFolderUI(opts: BindOpts): Promise<() => void> {
       };
       if (handle && !(await ensureReadPermission(handle))) {
         try { hudLog('folder:permission:denied', { id: sel.id }); } catch {}
-        toast('Allow folder access to load scripts, or re-pick the folder in Settings.');
+        toast(
+          isMappedFolderManagedByNursery()
+            ? `Allow folder access, then re-link scripts mount in Nursery Storage (${getNurseryStorageSettingsUrl()}).`
+            : 'Allow folder access to load scripts, or re-pick the folder in Settings.',
+        );
         return;
       }
       if (handle || file) {
@@ -285,7 +359,13 @@ export async function bindMappedFolderUI(opts: BindOpts): Promise<() => void> {
     } catch (e) {
       try { console.warn('[mapped-folder] load failed', e); } catch {}
       try { hudLog('folder:load:error', { id: sel.id, err: (e as any)?.name || (e as any)?.message || String(e) }); } catch {}
-      try { toast('Could not load script from the mapped folder. Recheck permissions or pick the folder again.'); } catch {}
+      try {
+        toast(
+          isMappedFolderManagedByNursery()
+            ? `Could not load script from Nursery-managed folder. Recheck Nursery Storage link (${getNurseryStorageSettingsUrl()}).`
+            : 'Could not load script from the mapped folder. Recheck permissions or pick the folder again.',
+        );
+      } catch {}
     }
     finally { try { sel.setAttribute('aria-busy','false'); } catch {} }
   });
@@ -302,6 +382,7 @@ export async function bindMappedFolderUI(opts: BindOpts): Promise<() => void> {
   async function refreshList() {
     try {
       await ensureInit();
+      ensureManagementUi();
       // In deterministic CI mock mode, preserve pre-populated options (avoid wiping to "(No scripts found)")
       const mockMode = !!(window as any).__tpMockFolderMode;
       const hasPreMock = mockMode && sel && sel.options && sel.options.length > 1 && !(window as any).__tpFolder?.get?.();
@@ -311,18 +392,16 @@ export async function bindMappedFolderUI(opts: BindOpts): Promise<() => void> {
         return;
       }
       try { sel.setAttribute('aria-busy','true'); } catch {}
-      if ('showDirectoryPicker' in window) {
-        const entries = await listScripts();
-        const entriesFingerprint = fingerprintNames(entries);
-        const prevFingerprint = lastPopulateFingerprints.get(sel);
-        if (!entriesFingerprint || entriesFingerprint !== prevFingerprint) {
-          lastPopulateFingerprints.set(sel, entriesFingerprint);
-          populateSelect(entries);
-          _lastCount = entries.length;
-          try { announceCount(_lastCount); } catch {}
-        } else {
-          try { hudLog('folder:populate:skip', { fingerprint: entriesFingerprint, count: entries.length }); } catch {}
-        }
+      const entries = await listScripts();
+      const entriesFingerprint = fingerprintNames(entries);
+      const prevFingerprint = lastPopulateFingerprints.get(sel);
+      if (!entriesFingerprint || entriesFingerprint !== prevFingerprint) {
+        lastPopulateFingerprints.set(sel, entriesFingerprint);
+        populateSelect(entries);
+        _lastCount = entries.length;
+        try { announceCount(_lastCount); } catch {}
+      } else {
+        try { hudLog('folder:populate:skip', { fingerprint: entriesFingerprint, count: entries.length }); } catch {}
       }
     } catch {}
     finally { try { sel.setAttribute('aria-busy','false'); } catch {} }
@@ -334,15 +413,32 @@ function populateSelect(entries: { name: string; handle: FileSystemFileHandle }[
     const mappedEntries: { id: string; title: string; handle: FileSystemHandle }[] = [];
     try { sel.setAttribute('aria-busy','true'); } catch {}
       if (!entries.length) {
+        const managed = isMappedFolderManagedByNursery();
+        const managedHint = getMappedFolderManagerHint();
         // Sidebar gets a Settings link placeholder instead of disabled select
         if (sel.id === 'scriptSelectSidebar') {
           sel.disabled = false;
-          const opt = new Option('Map script folder...', '__OPEN_SETTINGS__');
-          (opt as any).dataset.settingsLink = '1';
+          const opt = managed
+            ? new Option('Manage scripts mount in Nursery...', OPEN_NURSERY_STORAGE_COMMAND)
+            : new Option('Map script folder...', '__OPEN_SETTINGS__');
+          if (managed) {
+            (opt as any).dataset.nurseryLink = '1';
+          } else {
+            (opt as any).dataset.settingsLink = '1';
+          }
           sel.append(opt);
         } else {
           sel.disabled = true;
-          sel.append(new Option('No existing scripts yet — map folder and save new ones here', '', true, false));
+          sel.append(
+            new Option(
+              managed
+                ? `No Nursery scripts folder linked${managedHint ? ` (${managedHint})` : ''}. Configure it in Nursery Storage.`
+                : 'No existing scripts yet — map folder and save new ones here',
+              '',
+              true,
+              false,
+            ),
+          );
         }
         try { ScriptStore.syncMapped([]); } catch {}
         hudLog('folder:cleared', {});
@@ -436,15 +532,32 @@ function populateSelect(entries: { name: string; handle: FileSystemFileHandle }[
         return isSupportedScriptName(f.name);
       }).sort((a,b)=>a.name.localeCompare(b.name));
       if (!filtered.length) {
+        const managed = isMappedFolderManagedByNursery();
+        const managedHint = getMappedFolderManagerHint();
         try { ScriptStore.syncMapped([]); } catch {}
         if (sel.id === 'scriptSelectSidebar') {
           sel.disabled = false;
-          const opt = new Option('Map script folder...', '__OPEN_SETTINGS__');
-          (opt as any).dataset.settingsLink = '1';
+          const opt = managed
+            ? new Option('Manage scripts mount in Nursery...', OPEN_NURSERY_STORAGE_COMMAND)
+            : new Option('Map script folder...', '__OPEN_SETTINGS__');
+          if (managed) {
+            (opt as any).dataset.nurseryLink = '1';
+          } else {
+            (opt as any).dataset.settingsLink = '1';
+          }
           sel.append(opt);
         } else {
           sel.disabled = true;
-          sel.append(new Option('No existing scripts yet — map folder and save new ones here', '', true, false));
+          sel.append(
+            new Option(
+              managed
+                ? `No Nursery scripts folder linked${managedHint ? ` (${managedHint})` : ''}. Configure it in Nursery Storage.`
+                : 'No existing scripts yet — map folder and save new ones here',
+              '',
+              true,
+              false,
+            ),
+          );
         }
         hudLog('folder:cleared', {});
         try { window.dispatchEvent(new CustomEvent('tp:folderScripts:populated', { detail: { count: 0 } })); } catch {}
@@ -537,7 +650,11 @@ function populateSelect(entries: { name: string; handle: FileSystemFileHandle }[
         }
       }
       s.textContent = n === 0
-        ? 'No existing scripts yet — map folder and save new ones here'
+        ? (
+          isMappedFolderManagedByNursery()
+            ? 'No Nursery scripts folder linked — configure in Nursery Storage.'
+            : 'No existing scripts yet — map folder and save new ones here'
+        )
         : (n === 1 ? '1 script found' : `${n} scripts found`);
     } catch {}
   }
@@ -579,6 +696,10 @@ let _lastCount = 0; // track last script count for HUD logging
 
 export async function recheckMappedFolderPermissions() {
   try {
+    if (isMappedFolderManagedByNursery()) {
+      toast(`Scripts folder is managed by Nursery. Configure it in Nursery > Settings > Storage (${getNurseryStorageSettingsUrl()}).`);
+      return false;
+    }
     const dir = (window as any).__tpFolder?.get?.();
     if (!dir) { toast('No folder mapped'); return false; }
     // @ts-ignore
@@ -648,6 +769,3 @@ function maybeAutoLoad(sel: HTMLSelectElement) {
     }
   } catch {}
 }
-
-
-

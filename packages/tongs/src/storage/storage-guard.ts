@@ -1,5 +1,5 @@
-import type { MountRole, MountTargetType } from "../types";
-import { isLocalOnlyRole } from "./storage-contract";
+import type { MountRole, MountTargetType } from "../types.js";
+import { isLocalOnlyRole } from "./storage-contract.js";
 
 export function assertRoleAllowed(role: MountRole, targetType: MountTargetType): void {
   if (isLocalOnlyRole(role) && targetType === "tongs_cloud") {

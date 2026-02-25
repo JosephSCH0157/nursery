@@ -96,6 +96,47 @@ export type Database = {
         }
         Relationships: []
       }
+      project_cradles: {
+        Row: {
+          id: string
+          workspace_id: string
+          status: string
+          manifest_path: string
+          metadata: Json
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          status?: string
+          manifest_path?: string
+          metadata?: Json
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          status?: string
+          manifest_path?: string
+          metadata?: Json
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_cradles_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       workspace_members: {
         Row: {
           created_at: string
@@ -121,6 +162,109 @@ export type Database = {
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workpiece_events: {
+        Row: {
+          id: number
+          workpiece_id: string
+          event_name: string
+          payload: Json
+          correlation_id: string | null
+          written_by_tool: string
+          written_by_tool_version: string
+          written_by_lane: string
+          created_at: string
+        }
+        Insert: {
+          id?: number
+          workpiece_id: string
+          event_name: string
+          payload?: Json
+          correlation_id?: string | null
+          written_by_tool: string
+          written_by_tool_version: string
+          written_by_lane: string
+          created_at?: string
+        }
+        Update: {
+          id?: number
+          workpiece_id?: string
+          event_name?: string
+          payload?: Json
+          correlation_id?: string | null
+          written_by_tool?: string
+          written_by_tool_version?: string
+          written_by_lane?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workpiece_events_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "project_cradles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workpiece_files: {
+        Row: {
+          workpiece_id: string
+          path: string
+          file_type: string
+          content_type: string
+          bytes: number
+          hash_algo: string
+          hash_value: string
+          storage_bucket: string
+          storage_key: string
+          written_by_tool: string
+          written_by_tool_version: string
+          written_by_lane: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          workpiece_id: string
+          path: string
+          file_type?: string
+          content_type: string
+          bytes: number
+          hash_algo?: string
+          hash_value: string
+          storage_bucket?: string
+          storage_key: string
+          written_by_tool: string
+          written_by_tool_version: string
+          written_by_lane: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          workpiece_id?: string
+          path?: string
+          file_type?: string
+          content_type?: string
+          bytes?: number
+          hash_algo?: string
+          hash_value?: string
+          storage_bucket?: string
+          storage_key?: string
+          written_by_tool?: string
+          written_by_tool_version?: string
+          written_by_lane?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workpiece_files_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "project_cradles"
             referencedColumns: ["id"]
           },
         ]

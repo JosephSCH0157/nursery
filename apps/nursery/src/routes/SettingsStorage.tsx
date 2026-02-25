@@ -86,6 +86,7 @@ export default function SettingsStorage() {
   const [mirroringRole, setMirroringRole] = useState<MountRole | null>(null);
 
   const shell = useOutletContext<AppShellContext>();
+  const session = shell?.session ?? null;
   const activeWorkspaceId = shell?.workspaceId ?? registry?.workspaceId ?? null;
 
   const updateRegistryEntry = (role: MountRole, updater: (entry: MountRegistryEntry) => MountRegistryEntry) => {
@@ -288,6 +289,11 @@ export default function SettingsStorage() {
       <p style={{ marginTop: 0, color: "var(--forge-text-muted)" }}>
         Choose where role-specific data lives. Every tool will read these settings automatically.
       </p>
+      {!session ? (
+        <p style={{ marginTop: 0, color: "var(--forge-text-muted)", fontSize: 13 }}>
+          Trial mode: storage mappings are local to this browser until you sign in.
+        </p>
+      ) : null}
 
       {status && (
         <div style={{ marginBottom: 12, fontSize: "0.9rem", color: "var(--forge-text-muted)" }}>

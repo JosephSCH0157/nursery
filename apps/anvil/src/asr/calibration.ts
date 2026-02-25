@@ -9,16 +9,28 @@ export async function runCalibration(opts: {
   flags: { echoCancellation: boolean; noiseSuppression: boolean; autoGainControl: boolean; sampleRateHz?: number }
 }): Promise<{ profile: AsrProfile; preview: (_stop?: boolean) => void }> {
 
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      deviceId: { exact: opts.deviceId },
-      channelCount: 1,
-      sampleRate: opts.flags.sampleRateHz ?? 48000,
-      echoCancellation: opts.flags.echoCancellation,
-      noiseSuppression: opts.flags.noiseSuppression,
-      autoGainControl: opts.flags.autoGainControl,
+  const wantedDeviceId = String(opts.deviceId || '').trim();
+  const audioConstraints: MediaTrackConstraints = {
+    channelCount: 1,
+    sampleRate: opts.flags.sampleRateHz ?? 48000,
+    echoCancellation: opts.flags.echoCancellation,
+    noiseSuppression: opts.flags.noiseSuppression,
+    autoGainControl: opts.flags.autoGainControl,
+  };
+  if (wantedDeviceId) {
+    audioConstraints.deviceId = { exact: wantedDeviceId };
+  }
+
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+  const resolvedDeviceId = (() => {
+    try {
+      const track = stream.getAudioTracks?.()[0] || null;
+      const fromSettings = (track?.getSettings?.() as MediaTrackSettings | undefined)?.deviceId;
+      return String(fromSettings || wantedDeviceId || 'default');
+    } catch {
+      return wantedDeviceId || 'default';
     }
-  });
+  })();
 
   const AudioCtx: any = (window as any).AudioContext || (window as any).webkitAudioContext;
   const ctx: AudioContext = new AudioCtx({ sampleRate: opts.flags.sampleRateHz ?? undefined });
@@ -63,10 +75,10 @@ export async function runCalibration(opts: {
   const vad: VadThresholds = { tonDb: ton, toffDb: toff, attackMs: 80, releaseMs: 300 };
 
   const profile: AsrProfile = {
-    id: `${opts.deviceId}::${opts.label}`,
+    id: `${resolvedDeviceId}::${opts.label}`,
     label: opts.label,
     capture: {
-      deviceId: opts.deviceId,
+      deviceId: resolvedDeviceId,
       sampleRateHz: ctx.sampleRate,
       channelCount: 1,
       echoCancellation: opts.flags.echoCancellation,

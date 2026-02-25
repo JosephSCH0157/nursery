@@ -67,27 +67,8 @@ export default function Placeholder({ name }: { name: string }) {
     <div style={{ padding: 18 }}>
       <h2 style={{ marginTop: 0 }}>{name}</h2>
       <p style={{ opacity: 0.7 }}>
-        This is a placeholder route inside Nursery. Next step is mounting the real app here.
+        This route is a placeholder inside Nursery. Mount the production tool here when ready.
       </p>
-      {isHearth && devEnabled && (
-        <div style={{ marginTop: 16, display: "grid", gap: 8 }}>
-          <button onClick={onSaveTestScript} style={{ width: "fit-content" }}>
-            Save test script
-          </button>
-          <div style={{ fontSize: 12, opacity: 0.8 }}>
-            Script id: {scriptId ?? "not created"}
-          </div>
-          <div style={{ fontSize: 12, opacity: 0.8 }}>
-            Revision: {revision}
-          </div>
-          <div style={{ fontSize: 12, opacity: 0.8 }}>
-            Last saved: {lastSavedAt ?? "never"}
-          </div>
-          {status && (
-            <div style={{ fontSize: 12, opacity: 0.9 }}>{status}</div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

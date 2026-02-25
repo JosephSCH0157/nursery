@@ -17,11 +17,20 @@ type ForgeNavPayload = {
   tree: ForgeNavSection[];
 };
 
-const FORGE_NAV_PANEL_ID = "forgeNavPanel";
 const FORGE_NAV_BUTTON_ID = "forgeNavBtn";
 const FORGE_NAV_WRAPPER_ID = "forgeNavWrap";
 const DEFAULT_MOUNT_ID = "forge-menu-slot";
 const FORGE_NAV_READY_SENTINEL = "__tpForgeNavReady";
+const FORGE_NAV_POPUP_TITLE = "Nursery Menu";
+const FORGE_NAV_TREE_ID = "forgeNavTree";
+const FORGE_NAV_OVERLAY_ROOT_ID = "forgeNavOverlayRoot";
+const FORGE_NAV_OVERLAY_STYLE_ID = "forgeNavOverlayStyles";
+const FORGE_NAV_OVERLAY_TITLE_ID = "forgeNavOverlayTitle";
+
+type ForgeNavOverlayState = {
+  root: HTMLDivElement;
+  onKeydown: (event: KeyboardEvent) => void;
+};
 
 type ForgeMenuInitOptions = {
   mountId?: string;
@@ -37,7 +46,7 @@ const FORGE_NAV_FALLBACK: ForgeNavPayload = {
         { id: "home", label: "Home", to: "/app" },
         { id: "tongs", label: "Tongs Calendar", to: "/app/tongs" },
         { id: "anvil", label: "Anvil", href: "/anvil/teleprompter_pro.html" },
-        { id: "hearth", label: "Hearth", to: "/app/hearth" },
+        { id: "hearth", label: "Hearth", href: "/apps/hearth" },
         { id: "hammer", label: "Hammer", to: "/app/hammer" },
         { id: "barstock", label: "Barstock", to: "/app/barstock" },
       ],
@@ -198,13 +207,23 @@ function renderNavPanel(panel: HTMLDivElement, payload: ForgeNavPayload): void {
     nav.style.marginTop = section.id === "settings" ? "4px" : "0";
 
     section.items.forEach((item) => {
-      const link = document.createElement("a");
-      link.textContent = item.label;
-      link.href = resolveItemHref(item);
-      link.dataset.forgeNavLink = "1";
-      link.style.color = "inherit";
-      link.style.textDecoration = "none";
-      nav.appendChild(link);
+      const href = resolveItemHref(item);
+      const action = document.createElement("button");
+      action.type = "button";
+      action.textContent = item.label;
+      action.dataset.forgeNavLink = "1";
+      action.dataset.forgeNavHref = href;
+      action.style.display = "block";
+      action.style.width = "100%";
+      action.style.padding = "6px 8px";
+      action.style.borderRadius = "8px";
+      action.style.border = "1px solid rgba(255,255,255,0.12)";
+      action.style.background = "rgba(255,255,255,0.03)";
+      action.style.color = "inherit";
+      action.style.textAlign = "left";
+      action.style.cursor = href === "#" ? "not-allowed" : "pointer";
+      action.disabled = href === "#";
+      nav.appendChild(action);
     });
     sectionEl.appendChild(nav);
 
@@ -220,6 +239,249 @@ function renderNavPanel(panel: HTMLDivElement, payload: ForgeNavPayload): void {
   });
 }
 
+function getOverlayState(): ForgeNavOverlayState | null {
+  const win = window as any;
+  const state = win.__forgeNavOverlayState as ForgeNavOverlayState | null | undefined;
+  if (!state || !state.root) return null;
+  return state;
+}
+
+function setOverlayState(state: ForgeNavOverlayState | null): void {
+  const win = window as any;
+  win.__forgeNavOverlayState = state;
+}
+
+function closeForgeMenuOverlay(): boolean {
+  const state = getOverlayState();
+  if (state) {
+    try { document.removeEventListener("keydown", state.onKeydown, true); } catch {}
+    try { state.root.remove(); } catch {}
+    setOverlayState(null);
+    return true;
+  }
+
+  const staleRoot = document.getElementById(FORGE_NAV_OVERLAY_ROOT_ID);
+  if (staleRoot) {
+    try { staleRoot.remove(); } catch {}
+    return true;
+  }
+  return false;
+}
+
+function ensureOverlayStyles(): void {
+  if (document.getElementById(FORGE_NAV_OVERLAY_STYLE_ID)) return;
+  const style = document.createElement("style");
+  style.id = FORGE_NAV_OVERLAY_STYLE_ID;
+  style.textContent = `
+#${FORGE_NAV_OVERLAY_ROOT_ID} {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  pointer-events: none;
+}
+#${FORGE_NAV_OVERLAY_ROOT_ID} .forge-nav-overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  background: rgba(5, 10, 18, 0.58);
+  pointer-events: auto;
+}
+#${FORGE_NAV_OVERLAY_ROOT_ID} .forge-nav-overlay-panel {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  bottom: 12px;
+  width: min(360px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: #0b1020;
+  color: #eaf0ff;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.42);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  pointer-events: auto;
+  animation: forge-nav-overlay-in 140ms ease-out;
+  font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+#${FORGE_NAV_OVERLAY_ROOT_ID} .forge-nav-overlay-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+#${FORGE_NAV_OVERLAY_ROOT_ID} .forge-nav-overlay-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+#${FORGE_NAV_OVERLAY_ROOT_ID} .forge-nav-overlay-close {
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+#${FORGE_NAV_OVERLAY_ROOT_ID} .forge-nav-overlay-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 10px 14px;
+}
+#${FORGE_NAV_OVERLAY_ROOT_ID} .forge-nav-overlay-hint {
+  padding: 0 14px 12px;
+  opacity: 0.74;
+  font-size: 12px;
+}
+#${FORGE_NAV_OVERLAY_ROOT_ID} .loading {
+  opacity: 0.8;
+  font-size: 12px;
+}
+#${FORGE_NAV_OVERLAY_ROOT_ID} button[data-forge-nav-link='1']:hover {
+  background: rgba(90, 160, 255, 0.24) !important;
+}
+@keyframes forge-nav-overlay-in {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+`;
+  document.head.appendChild(style);
+}
+
+function openNavOverlayShell(): { panel: HTMLDivElement; closeOverlay: () => void } | null {
+  try {
+    ensureOverlayStyles();
+    closeForgeMenuOverlay();
+
+    const root = document.createElement("div");
+    root.id = FORGE_NAV_OVERLAY_ROOT_ID;
+
+    const backdrop = document.createElement("button");
+    backdrop.type = "button";
+    backdrop.className = "forge-nav-overlay-backdrop";
+    backdrop.dataset.forgeNavClose = "1";
+    backdrop.setAttribute("aria-label", "Close Nursery menu");
+    root.appendChild(backdrop);
+
+    const panelShell = document.createElement("section");
+    panelShell.className = "forge-nav-overlay-panel";
+    panelShell.setAttribute("role", "dialog");
+    panelShell.setAttribute("aria-modal", "true");
+    panelShell.setAttribute("aria-labelledby", FORGE_NAV_OVERLAY_TITLE_ID);
+
+    const head = document.createElement("div");
+    head.className = "forge-nav-overlay-head";
+
+    const title = document.createElement("h2");
+    title.id = FORGE_NAV_OVERLAY_TITLE_ID;
+    title.textContent = FORGE_NAV_POPUP_TITLE;
+    head.appendChild(title);
+
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "forge-nav-overlay-close";
+    closeBtn.dataset.forgeNavClose = "1";
+    closeBtn.setAttribute("aria-label", "Close Nursery menu");
+    closeBtn.textContent = "×";
+    head.appendChild(closeBtn);
+
+    const body = document.createElement("div");
+    body.className = "forge-nav-overlay-body";
+
+    const tree = document.createElement("div");
+    tree.id = FORGE_NAV_TREE_ID;
+    tree.setAttribute("role", "menu");
+    tree.setAttribute("aria-label", "Forge navigation");
+    body.appendChild(tree);
+
+    const hint = document.createElement("div");
+    hint.className = "forge-nav-overlay-hint";
+    hint.textContent = "Select an item to navigate.";
+
+    panelShell.appendChild(head);
+    panelShell.appendChild(body);
+    panelShell.appendChild(hint);
+    root.appendChild(panelShell);
+
+    const closeOverlay = () => {
+      const state = getOverlayState();
+      if (state && state.root !== root) return;
+      try { document.removeEventListener("keydown", onKeydown, true); } catch {}
+      try { root.remove(); } catch {}
+      setOverlayState(null);
+    };
+
+    const onKeydown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeOverlay();
+    };
+
+    root.addEventListener("click", (event) => {
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest("[data-forge-nav-close='1']")) return;
+      event.preventDefault();
+      closeOverlay();
+    });
+
+    document.addEventListener("keydown", onKeydown, true);
+    setOverlayState({ root, onKeydown });
+    document.body.appendChild(root);
+    try { closeBtn.focus(); } catch {}
+    return { panel: tree, closeOverlay };
+  } catch {
+    return null;
+  }
+}
+
+function navigateFromOverlay(targetHref: string): void {
+  try {
+    window.location.assign(targetHref);
+    return;
+  } catch {}
+  try { window.open(targetHref, "_blank", "noopener,noreferrer"); } catch {}
+}
+
+function wireOverlayLinks(panel: HTMLDivElement, closeOverlay: () => void): void {
+  panel.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const action = target.closest<HTMLElement>("[data-forge-nav-href]");
+    if (!action) return;
+    event.preventDefault();
+    const targetHref = readString(action.dataset.forgeNavHref) ?? null;
+    if (!targetHref || targetHref === "#") return;
+    closeOverlay();
+    navigateFromOverlay(targetHref);
+  });
+}
+
+async function openForgeMenuOverlay(): Promise<void> {
+  const shell = openNavOverlayShell();
+  if (!shell) return;
+
+  const { panel, closeOverlay } = shell;
+  const loading = document.createElement("div");
+  loading.className = "loading";
+  loading.textContent = "Loading navigation...";
+  panel.appendChild(loading);
+
+  const payload = await loadForgeNav();
+  if (!panel.isConnected) return;
+
+  renderNavPanel(panel, payload);
+  wireOverlayLinks(panel, closeOverlay);
+}
+
 export function initForgeMenu(opts: ForgeMenuInitOptions = {}): void {
   const mountId = readString(opts.mountId) ?? DEFAULT_MOUNT_ID;
   const mount = document.getElementById(mountId);
@@ -230,88 +492,49 @@ export function initForgeMenu(opts: ForgeMenuInitOptions = {}): void {
   if (win[readyKey]) return;
   win[readyKey] = true;
 
-  if (document.getElementById(FORGE_NAV_BUTTON_ID) || document.getElementById(FORGE_NAV_PANEL_ID)) return;
+  if (document.getElementById(FORGE_NAV_BUTTON_ID)) return;
 
   const wrapper = document.createElement("span");
   wrapper.id = FORGE_NAV_WRAPPER_ID;
   wrapper.style.position = "relative";
   wrapper.style.display = "inline-flex";
   wrapper.style.alignItems = "center";
+  wrapper.style.flex = "0 0 auto";
   mount.appendChild(wrapper);
 
   const button = document.createElement("button");
   button.id = FORGE_NAV_BUTTON_ID;
-  button.className = "chip";
+  button.className = "forge-nav-btn";
   button.type = "button";
-  button.textContent = "Forge";
-  button.setAttribute("aria-haspopup", "menu");
-  button.setAttribute("aria-expanded", "false");
+  button.textContent = "☰";
+  button.setAttribute("aria-label", "Open Nursery menu");
+  button.setAttribute("aria-haspopup", "dialog");
+  button.title = "Nursery menu";
+  button.style.display = "inline-flex";
+  button.style.alignItems = "center";
+  button.style.justifyContent = "center";
+  button.style.width = "34px";
+  button.style.height = "34px";
+  button.style.minWidth = "34px";
+  button.style.minHeight = "34px";
+  button.style.padding = "0";
+  button.style.boxSizing = "border-box";
+  button.style.flex = "0 0 auto";
+  button.style.border = "1px solid rgba(255,255,255,0.28)";
+  button.style.borderRadius = "10px";
+  button.style.background = "rgba(14,20,32,0.92)";
+  button.style.color = "rgba(233,240,255,0.96)";
+  button.style.cursor = "pointer";
+  button.style.fontSize = "18px";
+  button.style.fontWeight = "700";
+  button.style.lineHeight = "1";
   wrapper.appendChild(button);
-
-  const panel = document.createElement("div");
-  panel.id = FORGE_NAV_PANEL_ID;
-  panel.setAttribute("role", "menu");
-  panel.setAttribute("aria-label", "Forge navigation");
-  panel.hidden = true;
-  panel.style.position = "absolute";
-  panel.style.top = "calc(100% + 8px)";
-  panel.style.right = "0";
-  panel.style.zIndex = "1100";
-  panel.style.width = "280px";
-  panel.style.maxWidth = "calc(100vw - 24px)";
-  panel.style.maxHeight = "min(72vh, calc(100vh - 24px))";
-  panel.style.overflow = "auto";
-  panel.style.padding = "12px";
-  panel.style.borderRadius = "12px";
-  panel.style.border = "1px solid rgba(255,255,255,0.2)";
-  panel.style.background = "linear-gradient(180deg, rgba(20,28,44,0.98), rgba(12,18,31,0.98))";
-  panel.style.color = "rgba(233,240,255,0.95)";
-  panel.style.boxShadow = "0 16px 32px rgba(0,0,0,0.45)";
-
-  const loading = document.createElement("div");
-  loading.textContent = "Loading navigation...";
-  loading.style.fontSize = "12px";
-  loading.style.opacity = "0.75";
-  panel.appendChild(loading);
-  wrapper.appendChild(panel);
-
-  let open = false;
-  const setOpen = (next: boolean) => {
-    open = next;
-    panel.hidden = !next;
-    button.setAttribute("aria-expanded", next ? "true" : "false");
-  };
 
   button.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    setOpen(!open);
-  });
-
-  panel.addEventListener("click", (event) => {
-    const target = event.target as HTMLElement | null;
-    if (target?.closest("[data-forge-nav-link='1']")) {
-      setOpen(false);
-    }
-  });
-
-  document.addEventListener(
-    "click",
-    (event) => {
-      const target = event.target as Node | null;
-      if (!target) return;
-      if (wrapper.contains(target) || panel.contains(target)) return;
-      setOpen(false);
-    },
-    { capture: true },
-  );
-
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") setOpen(false);
-  });
-
-  void loadForgeNav().then((payload) => {
-    renderNavPanel(panel, payload);
+    if (closeForgeMenuOverlay()) return;
+    void openForgeMenuOverlay();
   });
 }
 

@@ -23,11 +23,13 @@ export const forgeNavTree: ForgeNavSection[] = [
     title: "Nursery",
     items: [
       { id: "home", label: "Home", to: "/app" },
+      { id: "barstock", label: "Barstock", to: "/app/barstock" },
+      { id: "hearth", label: "Hearth", href: "/apps/hearth" },
       { id: "tongs", label: "Tongs Calendar", to: "/app/tongs" },
       { id: "anvil", label: "Anvil", href: "/anvil/teleprompter_pro.html" },
-      { id: "hearth", label: "Hearth", to: "/app/hearth" },
       { id: "hammer", label: "Hammer", to: "/app/hammer" },
-      { id: "barstock", label: "Barstock", to: "/app/barstock" },
+      { id: "quench", label: "Quench", to: "/app/quench" },
+      { id: "ledger", label: "Ledger", to: "/app/ledger" },
     ],
   },
   {

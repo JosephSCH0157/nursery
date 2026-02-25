@@ -1,4 +1,9 @@
-import { getMappedFolder, refreshMappedFolder } from './mapped-folder';
+import {
+  getMappedFolder,
+  isMappedFolderManagedByNursery,
+  refreshMappedFolder,
+} from './mapped-folder';
+import { getNurseryStorageSettingsUrl } from '../forge/nursery-mounts';
 import { getCurrentScriptDoc, setCurrentScriptHandle } from './script-doc';
 import { sanitizeScriptFilename, scriptBaseName } from './script-naming';
 import { debugLog, hudLog } from '../env/logging';
@@ -64,7 +69,14 @@ export async function saveScriptAs(
   if (!folder) {
     const err = new Error('No mapped folder available for Save As');
     logSaveFail('saveAs', safeName, err);
-    showSaveError('No folder mapped', 'Pick a scripts folder in Settings to save files.');
+    if (isMappedFolderManagedByNursery()) {
+      showSaveError(
+        'No Nursery scripts folder linked',
+        `Configure scripts storage in Nursery > Settings > Storage (${getNurseryStorageSettingsUrl()}).`,
+      );
+    } else {
+      showSaveError('No folder mapped', 'Pick a scripts folder in Settings to save files.');
+    }
     return { ok: false, mode: 'saveAs', reason: 'nofolder', name: safeName, error: err };
   }
 
