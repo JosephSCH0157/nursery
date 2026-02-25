@@ -41877,18 +41877,21 @@ function createSectionTitle(section) {
   }
   return el;
 }
-function renderNavPanel(panel, payload) {
+function renderNavPanel(panel, payload, opts = {}) {
   panel.innerHTML = "";
+  const hiddenItems = new Set((opts.hideItems ?? []).map((id) => id.trim()).filter(Boolean));
+  const actionHandlers = opts.extraActionHandlers ?? /* @__PURE__ */ new Map();
   payload.tree.forEach((section, idx) => {
-    const sectionEl = document.createElement("div");
-    sectionEl.style.marginTop = idx === 0 ? "0" : "12px";
-    const titleEl = createSectionTitle(section);
-    if (titleEl) sectionEl.appendChild(titleEl);
-    const nav = document.createElement("nav");
-    nav.style.display = "grid";
-    nav.style.gap = section.id === "settings" ? "6px" : "8px";
-    nav.style.marginTop = section.id === "settings" ? "4px" : "0";
+    const sectionEl2 = document.createElement("div");
+    sectionEl2.style.marginTop = idx === 0 ? "0" : "12px";
+    const titleEl2 = createSectionTitle(section);
+    if (titleEl2) sectionEl2.appendChild(titleEl2);
+    const nav2 = document.createElement("nav");
+    nav2.style.display = "grid";
+    nav2.style.gap = section.id === "settings" ? "6px" : "8px";
+    nav2.style.marginTop = section.id === "settings" ? "4px" : "0";
     section.items.forEach((item) => {
+      if (hiddenItems.has(item.id)) return;
       const href = resolveItemHref(item);
       const action = document.createElement("button");
       action.type = "button";
@@ -41905,18 +41908,59 @@ function renderNavPanel(panel, payload) {
       action.style.textAlign = "left";
       action.style.cursor = href === "#" ? "not-allowed" : "pointer";
       action.disabled = href === "#";
-      nav.appendChild(action);
+      nav2.appendChild(action);
     });
-    sectionEl.appendChild(nav);
+    sectionEl2.appendChild(nav2);
     if (section.id === "forge") {
       const hr = document.createElement("hr");
       hr.style.border = "none";
       hr.style.borderTop = "1px solid rgba(255,255,255,0.16)";
       hr.style.margin = "12px 0";
-      sectionEl.appendChild(hr);
+      sectionEl2.appendChild(hr);
     }
-    panel.appendChild(sectionEl);
+    panel.appendChild(sectionEl2);
   });
+  const extraItems = (opts.extraItems ?? []).filter((item) => !hiddenItems.has(item.id));
+  if (!extraItems.length) return;
+  const sectionEl = document.createElement("div");
+  sectionEl.style.marginTop = "12px";
+  const titleEl = document.createElement("div");
+  titleEl.textContent = "Tools";
+  titleEl.style.fontSize = "0.85rem";
+  titleEl.style.opacity = "0.8";
+  sectionEl.appendChild(titleEl);
+  const nav = document.createElement("nav");
+  nav.style.display = "grid";
+  nav.style.gap = "6px";
+  nav.style.marginTop = "4px";
+  extraItems.forEach((item) => {
+    const action = document.createElement("button");
+    action.type = "button";
+    action.textContent = item.label;
+    action.style.display = "block";
+    action.style.width = "100%";
+    action.style.padding = "6px 8px";
+    action.style.borderRadius = "8px";
+    action.style.border = "1px solid rgba(255,255,255,0.12)";
+    action.style.background = "rgba(255,255,255,0.03)";
+    action.style.color = "inherit";
+    action.style.textAlign = "left";
+    const href = resolveItemHref(item);
+    if (href !== "#") {
+      action.dataset.forgeNavHref = href;
+      action.style.cursor = "pointer";
+    } else if (typeof item.onClick === "function") {
+      action.dataset.forgeNavActionId = item.id;
+      action.style.cursor = "pointer";
+      actionHandlers.set(item.id, item.onClick);
+    } else {
+      action.style.cursor = "not-allowed";
+      action.disabled = true;
+    }
+    nav.appendChild(action);
+  });
+  sectionEl.appendChild(nav);
+  panel.appendChild(sectionEl);
 }
 function getOverlayState() {
   const win = window;
@@ -42131,10 +42175,24 @@ function navigateFromOverlay(targetHref) {
   } catch {
   }
 }
-function wireOverlayLinks(panel, closeOverlay) {
+function wireOverlayLinks(panel, closeOverlay, extraActionHandlers) {
   panel.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
+    const actionTrigger = target.closest("[data-forge-nav-action-id]");
+    if (actionTrigger) {
+      event.preventDefault();
+      const actionId = readString2(actionTrigger.dataset.forgeNavActionId) ?? null;
+      if (!actionId) return;
+      const action2 = extraActionHandlers.get(actionId);
+      if (!action2) return;
+      closeOverlay();
+      try {
+        action2();
+      } catch {
+      }
+      return;
+    }
     const action = target.closest("[data-forge-nav-href]");
     if (!action) return;
     event.preventDefault();
@@ -42148,20 +42206,27 @@ async function openForgeMenuOverlay() {
   const shell = openNavOverlayShell();
   if (!shell) return;
   const { panel, closeOverlay } = shell;
+  const opts = window.__forgeMenuInitOptions;
+  const extraActionHandlers = /* @__PURE__ */ new Map();
   const loading = document.createElement("div");
   loading.className = "loading";
   loading.textContent = "Loading navigation...";
   panel.appendChild(loading);
   const payload = await loadForgeNav();
   if (!panel.isConnected) return;
-  renderNavPanel(panel, payload);
-  wireOverlayLinks(panel, closeOverlay);
+  renderNavPanel(panel, payload, {
+    extraItems: opts?.extraItems,
+    hideItems: opts?.hideItems,
+    extraActionHandlers
+  });
+  wireOverlayLinks(panel, closeOverlay, extraActionHandlers);
 }
 function initForgeMenu(opts = {}) {
   const mountId = readString2(opts.mountId) ?? DEFAULT_MOUNT_ID;
   const mount = document.getElementById(mountId);
   if (!mount) return;
   const win = window;
+  win.__forgeMenuInitOptions = opts;
   const readyKey = `${FORGE_NAV_READY_SENTINEL}:${mountId}`;
   if (win[readyKey]) return;
   win[readyKey] = true;
