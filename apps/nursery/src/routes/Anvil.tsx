@@ -1,19 +1,20 @@
-import { useMemo, useState } from "react";
+import { useEffect } from "react";
 import { useOutletContext } from "react-router-dom";
-import { ForgeNav } from "../nav/ForgeNav";
-import { anvilNavExtras } from "../nav/anvilNavExtras";
-import { composeNav, forgeNavTree } from "../nav/forgeNavTree";
 import type { AppShellContext } from "./AppShell";
 import WorkspaceRequiredNotice from "./WorkspaceRequiredNotice";
 
+const ANVIL_FULL_PAGE_URL = "/anvil/teleprompter_pro.html";
+
 export default function AnvilRoute() {
   const shell = useOutletContext<AppShellContext>();
-  const [open, setOpen] = useState(false);
-  const anvilMenuTree = useMemo(() => composeNav(forgeNavTree, anvilNavExtras), []);
 
   if (!shell.workspaceId) {
     return <WorkspaceRequiredNotice toolName="Anvil" />;
   }
+
+  useEffect(() => {
+    window.location.replace(ANVIL_FULL_PAGE_URL);
+  }, []);
 
   return (
     <section style={{ padding: 24, display: "grid", gap: 8 }}>
