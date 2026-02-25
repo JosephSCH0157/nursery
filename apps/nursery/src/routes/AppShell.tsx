@@ -327,45 +327,47 @@ export default function AppShell() {
     setCreating(true);
     setCreateError(null);
     try {
-      const { data: workspace, error } = await supabase
+      // Prefer a single atomic RPC so row creation + owner membership are guaranteed together.
+      let workspaceId: string | null = null;
+      const { data: createdViaRpc, error: rpcError } = await supabase
         .schema("tongs")
-        .from("workspaces")
-        .insert({
-          name: "Workspace",
-        })
-        .select("id,name")
+        .rpc("create_workspace_with_owner", { _name: "Workspace" })
         .single();
 
-      if (error) {
-        const msg =
-          typeof error === "object" && error !== null && "message" in error
-            ? String((error as { message?: unknown }).message)
-            : "Unknown error";
-        setCreateError(msg);
-        return;
+      if (!rpcError && createdViaRpc && typeof createdViaRpc === "object") {
+        const id = (createdViaRpc as { id?: unknown }).id;
+        workspaceId = typeof id === "string" && id.trim() ? id : null;
       }
 
-      if (!workspace?.id) {
+      if (!workspaceId) {
+        if (rpcError) {
+          console.warn("[workspace] rpc create failed; falling back to direct insert", rpcError);
+        }
+
+        const { data: workspace, error: insertError } = await supabase
+          .schema("tongs")
+          .from("workspaces")
+          .insert({
+            name: "Workspace",
+            created_by: session.user.id,
+          })
+          .select("id,name")
+          .single();
+
+        if (insertError) {
+          setCreateError(getErrorMessage(insertError, "Failed to create workspace."));
+          return;
+        }
+        workspaceId = typeof workspace?.id === "string" && workspace.id.trim() ? workspace.id : null;
+      }
+
+      if (!workspaceId) {
         setCreateError("Failed to create workspace.");
         return;
       }
 
-      if (session.user?.id) {
-        const { error: memberError } = await supabase
-          .schema("tongs")
-          .from("workspace_members")
-          .insert({
-            workspace_id: workspace.id,
-            user_id: session.user.id,
-            role: "owner",
-          });
-        if (memberError) {
-          console.warn("[workspace] member insert failed", memberError);
-        }
-      }
-
-      await refreshWorkspaces({ force: true, preferId: workspace.id });
-      selectWorkspace(workspace.id);
+      await refreshWorkspaces({ force: true, preferId: workspaceId });
+      selectWorkspace(workspaceId);
       setCreateOpen(false);
     } finally {
       setCreating(false);
