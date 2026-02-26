@@ -564,6 +564,22 @@
   padding: 4px 8px;
 }
 
+.hs-production-mode-status {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.hs-production-action-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hs-production-action-row button {
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
 .hs-ai-chat-input {
   flex: 1 1 auto;
   min-height: 52px;

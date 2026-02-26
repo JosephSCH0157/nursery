@@ -48,6 +48,7 @@ import {
   validateAnvilTagContract,
   type AnvilTagValidation,
 } from "../lib/anvil-tag-contract";
+import { commitWorkpieceProductionArtifact, type ProductionArtifactKind } from "../lib/hearth-production-repo";
 
 const AUTOSAVE_DELAY_MS = 2200;
 const AUTOSAVE_MIN_GAP_MS = 5000;
@@ -56,8 +57,38 @@ const SESSION_SAVE_DELAY_MS = 500;
 const STORE_KIND_KEY = "hearth_store_kind";
 const DEV_MODE_KEY = "tp_dev_mode";
 const MODE_STORAGE_PREFIX = "hearth:ui:mode:v1:";
+const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 
 type HearthMode = "sparks" | "draft" | "planning" | "sources" | "revisions";
+type ProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet";
+
+type ScriptApprovalState = {
+  hasApprovedScript: boolean;
+  approvedScriptVersion: number | null;
+  approvedAt: number | null;
+};
+
+type ImageBeatSheetEntry = {
+  id: string;
+  attach_after: string;
+  description: string;
+  prompt: string;
+  match?: string;
+};
+
+const PRODUCTION_ACTION_LABEL: Record<ProductionAction, string> = {
+  seo: "Generate SEO",
+  tags: "Generate Tags",
+  thumbnails: "Thumbnail Concepts",
+  image_beat_sheet: "Image Beat Sheet",
+};
+
+const PRODUCTION_ACTION_ARTIFACT_KIND: Record<ProductionAction, ProductionArtifactKind> = {
+  seo: "seo",
+  tags: "tags",
+  thumbnails: "thumbnails",
+  image_beat_sheet: "image_beat_sheet",
+};
 
 function resolveStoreKind(): HearthStoreKind {
   if (typeof window === "undefined") return "tongs";
@@ -149,6 +180,224 @@ function writeMode(workpieceId: string | null, mode: HearthMode): void {
   } catch {
     // ignore storage failures
   }
+}
+
+function readScriptApprovalState(workpieceId: string | null): ScriptApprovalState {
+  const fallback: ScriptApprovalState = {
+    hasApprovedScript: false,
+    approvedScriptVersion: null,
+    approvedAt: null,
+  };
+  if (!workpieceId || typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(`${SCRIPT_APPROVAL_STORAGE_PREFIX}${workpieceId}`);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Partial<ScriptApprovalState>;
+    const version = typeof parsed.approvedScriptVersion === "number" && parsed.approvedScriptVersion > 0
+      ? parsed.approvedScriptVersion
+      : null;
+    const approvedAt = typeof parsed.approvedAt === "number" && Number.isFinite(parsed.approvedAt)
+      ? parsed.approvedAt
+      : null;
+    return {
+      hasApprovedScript: Boolean(parsed.hasApprovedScript && version),
+      approvedScriptVersion: version,
+      approvedAt,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function writeScriptApprovalState(workpieceId: string | null, value: ScriptApprovalState): void {
+  if (!workpieceId || typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(`${SCRIPT_APPROVAL_STORAGE_PREFIX}${workpieceId}`, JSON.stringify(value));
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function parseApprovedVersionFromNote(note: string | undefined): number | null {
+  if (!note) return null;
+  const normalized = note.trim();
+  if (!normalized) return null;
+  const tagged = normalized.match(/script_version_approved:v(\d+)/i);
+  if (tagged) {
+    const parsed = Number.parseInt(tagged[1] ?? "", 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+  const plain = normalized.match(/script\s+version\s+(\d+)\s+approved/i);
+  if (plain) {
+    const parsed = Number.parseInt(plain[1] ?? "", 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+  return null;
+}
+
+function nextApprovedScriptVersion(revisions: Revision[]): number {
+  const maxVersion = revisions.reduce((max, revision) => {
+    if (revision.kind !== "milestone") return max;
+    const parsed = parseApprovedVersionFromNote(revision.note);
+    return parsed && parsed > max ? parsed : max;
+  }, 0);
+  return maxVersion + 1;
+}
+
+function findLatestApprovedScript(revisions: Revision[]): { version: number; approvedAt: number } | null {
+  let latest: { version: number; approvedAt: number } | null = null;
+  for (const revision of revisions) {
+    if (revision.kind !== "milestone") continue;
+    const version = parseApprovedVersionFromNote(revision.note);
+    if (!version) continue;
+    if (!latest || version > latest.version || (version === latest.version && revision.createdAt > latest.approvedAt)) {
+      latest = {
+        version,
+        approvedAt: revision.createdAt,
+      };
+    }
+  }
+  return latest;
+}
+
+function isScriptApprovalStateEqual(a: ScriptApprovalState, b: ScriptApprovalState): boolean {
+  return a.hasApprovedScript === b.hasApprovedScript
+    && a.approvedScriptVersion === b.approvedScriptVersion
+    && a.approvedAt === b.approvedAt;
+}
+
+function buildProductionPrompt(args: {
+  action: ProductionAction;
+  scriptVersion: number;
+  scriptText: string;
+  episodeTitle: string;
+}): string {
+  const header = [
+    `Production mode request for approved Script Version ${args.scriptVersion}.`,
+    "Use the approved script text below as the only source for script-derived outputs.",
+    "Do not request topic basics. Do not output markdown tables.",
+    "",
+    `EPISODE_TITLE: ${args.episodeTitle || "Untitled Episode"}`,
+    `SCRIPT_VERSION: ${args.scriptVersion}`,
+    "APPROVED_SCRIPT_TEXT:",
+    args.scriptText,
+    "",
+  ];
+
+  if (args.action === "seo") {
+    return [
+      ...header,
+      "Return plain text with exact sections:",
+      "SEO_TITLES:",
+      "- 5 options total",
+      "- include labels: SAFE, SPICY, BALANCED_1, BALANCED_2, BALANCED_3",
+      "",
+      "DESCRIPTION:",
+      "- one YouTube-ready description paragraph block",
+      "",
+      "PINNED_COMMENT_IDEAS:",
+      "- 3 concise options",
+    ].join("\n");
+  }
+
+  if (args.action === "tags") {
+    return [
+      ...header,
+      "Return plain text with exact sections:",
+      "TAGS_TOP10:",
+      "- comma-separated (10 items)",
+      "",
+      "TAGS_FULL:",
+      "- comma-separated (20-35 items)",
+    ].join("\n");
+  }
+
+  if (args.action === "thumbnails") {
+    return [
+      ...header,
+      "Return plain text with exactly 5 concepts in this format:",
+      "THUMBNAIL_01",
+      "Headline: ...",
+      "Image concept: ...",
+      "Mood/style: ...",
+      "",
+      "Repeat THUMBNAIL_02 ... THUMBNAIL_05 with same fields.",
+    ].join("\n");
+  }
+
+  return [
+    ...header,
+    "Generate an image beat sheet.",
+    "Return plain text with one or more blocks in this exact format:",
+    "IMAGE_01",
+    "Attach after: \"<EXACT QUOTE FROM APPROVED SCRIPT>\"",
+    "Description: ...",
+    "Prompt: ...",
+    "Match: first occurrence",
+    "",
+    "Rules:",
+    "- Attach after must be an exact quote from APPROVED_SCRIPT_TEXT.",
+    "- If quote appears multiple times, include Match line with disambiguation.",
+    "- Use plain text prompts only.",
+  ].join("\n");
+}
+
+function parseImageBeatSheetEntries(text: string): ImageBeatSheetEntry[] {
+  const lines = text.split(/\r?\n/);
+  const entries: ImageBeatSheetEntry[] = [];
+  let current: Partial<ImageBeatSheetEntry> | null = null;
+
+  const flush = () => {
+    if (!current) return;
+    if (current.id && current.attach_after && current.description && current.prompt) {
+      entries.push({
+        id: current.id,
+        attach_after: current.attach_after,
+        description: current.description,
+        prompt: current.prompt,
+        ...(current.match ? { match: current.match } : {}),
+      });
+    }
+    current = null;
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const imageHeader = line.match(/^IMAGE_(\d{1,3})$/i);
+    if (imageHeader) {
+      flush();
+      current = { id: `IMAGE_${imageHeader[1]?.padStart(2, "0") ?? "01"}` };
+      continue;
+    }
+    if (!current) continue;
+
+    const attach = line.match(/^Attach after:\s*["“](.+)["”]\s*$/i);
+    if (attach && attach[1]) {
+      current.attach_after = attach[1].trim();
+      continue;
+    }
+
+    const description = line.match(/^Description:\s*(.+)$/i);
+    if (description && description[1]) {
+      current.description = description[1].trim();
+      continue;
+    }
+
+    const prompt = line.match(/^Prompt:\s*(.+)$/i);
+    if (prompt && prompt[1]) {
+      current.prompt = prompt[1].trim();
+      continue;
+    }
+
+    const match = line.match(/^Match:\s*(.+)$/i);
+    if (match && match[1]) {
+      current.match = match[1].trim();
+    }
+  }
+
+  flush();
+  return entries;
 }
 
 function hasExplicitWorkpieceQuery(): boolean {
@@ -452,8 +701,13 @@ export default function HearthShell() {
   const [chatError, setChatError] = useState<string | null>(null);
   const [showManualDraft, setShowManualDraft] = useState(false);
   const [showScriptPanel, setShowScriptPanel] = useState(false);
+  const [scriptApprovalState, setScriptApprovalState] = useState<ScriptApprovalState>(() =>
+    readScriptApprovalState(resolveWorkpieceId()),
+  );
   const [pendingAiProposal, setPendingAiProposal] = useState<PendingAiProposal | null>(null);
   const [isApplyingAiOps, setIsApplyingAiOps] = useState(false);
+  const [isApprovingScript, setIsApprovingScript] = useState(false);
+  const [activeProductionAction, setActiveProductionAction] = useState<ProductionAction | null>(null);
   const [aiRuntimeWarning, setAiRuntimeWarning] = useState<string | null>(null);
   const [isAiProcessing, setIsAiProcessing] = useState(false);
   const [aiTokenBalance, setAiTokenBalance] = useState<number | null>(null);
@@ -521,6 +775,12 @@ export default function HearthShell() {
   );
   const aiCreditsDepleted = aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0;
   const aiEpisodeReady = Boolean(workpieceId?.trim());
+  const hasApprovedScript = Boolean(
+    scriptApprovalState.hasApprovedScript
+    && scriptApprovalState.approvedScriptVersion
+    && scriptApprovalState.approvedScriptVersion > 0,
+  );
+  const approvedScriptVersion = hasApprovedScript ? scriptApprovalState.approvedScriptVersion : null;
   const activeEpisodeSparks = useMemo(
     () => sparks.filter((spark) => (
       (workpieceId && spark.links?.hearthWorkpieceId === workpieceId)
@@ -1046,6 +1306,58 @@ export default function HearthShell() {
   useEffect(() => {
     modeTouchedRef.current = false;
   }, [workpieceId]);
+
+  useEffect(() => {
+    const stored = readScriptApprovalState(workpieceId);
+    setScriptApprovalState(stored);
+  }, [workpieceId]);
+
+  useEffect(() => {
+    if (!workpieceId) {
+      const fallback: ScriptApprovalState = {
+        hasApprovedScript: false,
+        approvedScriptVersion: null,
+        approvedAt: null,
+      };
+      setScriptApprovalState((prev) => (isScriptApprovalStateEqual(prev, fallback) ? prev : fallback));
+      return;
+    }
+
+    const stored = readScriptApprovalState(workpieceId);
+    const scopedRevisions = activeDraft
+      ? revisions.filter((revision) => revision.draftId === activeDraft.id)
+      : [];
+    const latestApproved = findLatestApprovedScript(scopedRevisions);
+    const fromRevisions: ScriptApprovalState = latestApproved
+      ? {
+          hasApprovedScript: true,
+          approvedScriptVersion: latestApproved.version,
+          approvedAt: latestApproved.approvedAt,
+        }
+      : {
+          hasApprovedScript: false,
+          approvedScriptVersion: null,
+          approvedAt: null,
+        };
+
+    const shouldPreferRevisions = Boolean(
+      fromRevisions.hasApprovedScript
+      && (
+        !stored.hasApprovedScript
+        || (fromRevisions.approvedScriptVersion ?? 0) > (stored.approvedScriptVersion ?? 0)
+        || (
+          fromRevisions.approvedScriptVersion === stored.approvedScriptVersion
+          && (fromRevisions.approvedAt ?? 0) > (stored.approvedAt ?? 0)
+        )
+      ),
+    );
+
+    const resolved = shouldPreferRevisions ? fromRevisions : stored;
+    setScriptApprovalState((prev) => (isScriptApprovalStateEqual(prev, resolved) ? prev : resolved));
+    if (!isScriptApprovalStateEqual(stored, resolved)) {
+      writeScriptApprovalState(workpieceId, resolved);
+    }
+  }, [activeDraft, revisions, workpieceId]);
 
   useEffect(() => {
     if (!activeDraft) {
@@ -1843,15 +2155,129 @@ export default function HearthShell() {
     }
   }
 
-  async function onSendChat() {
+  async function onApproveScript() {
+    if (isApprovingScript || isSaving || isAiProcessing) return;
+    if (!activeDraft) return;
+    const episodeId = workpieceId?.trim();
+    if (!episodeId) {
+      setChatError("Select an Episode or Spark to start.");
+      return;
+    }
+    if (!activeDraft.body.trim()) {
+      setError("Script body is empty. Add script content before approval.");
+      return;
+    }
+
+    const validation = validateAnvilTagContract(activeDraft.body);
+    if (!validation.ok) {
+      setScriptValidation({
+        source: "save_gate",
+        result: validation,
+      });
+      setError(`Script tag validation failed:\n${validation.report}`);
+      return;
+    }
+
+    const scopedRevisions = revisions.filter((revision) => revision.draftId === activeDraft.id);
+    const nextVersion = nextApprovedScriptVersion(scopedRevisions);
+    const approvalNote = `script_version_approved:v${nextVersion}`;
+    setScriptValidation(null);
+    setError(null);
+    setChatError(null);
+    setIsApprovingScript(true);
+    try {
+      const now = Date.now();
+      const saved = await persistDraft({
+        draft: { ...activeDraft, updatedAt: now },
+        updatedAt: now,
+        createRevision: { kind: "milestone", note: approvalNote },
+        syncSources: false,
+        syncSession: false,
+      });
+      if (!saved) return;
+
+      const approvedAt = Date.now();
+      const nextState: ScriptApprovalState = {
+        hasApprovedScript: true,
+        approvedScriptVersion: nextVersion,
+        approvedAt,
+      };
+      setScriptApprovalState(nextState);
+      writeScriptApprovalState(episodeId, nextState);
+
+      const markerLines = [
+        `🔥 Script Version ${nextVersion} Approved`,
+        `script_version: ${nextVersion}`,
+        `timestamp: ${new Date(approvedAt).toISOString()}`,
+        "Production Mode available",
+      ];
+      setChatMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: markerLines.join("\n") },
+      ].slice(-24));
+    } finally {
+      setIsApprovingScript(false);
+    }
+  }
+
+  async function persistProductionArtifact(args: {
+    action: ProductionAction;
+    scriptVersion: number;
+    assistantText: string;
+  }) {
+    const episodeId = workpieceId?.trim();
+    if (!episodeId) return;
+
+    const generatedAt = new Date().toISOString();
+    const artifactKind = PRODUCTION_ACTION_ARTIFACT_KIND[args.action];
+    const payload = args.action === "image_beat_sheet"
+      ? {
+          script_version: args.scriptVersion,
+          generated_at: generatedAt,
+          action: args.action,
+          raw_text: args.assistantText,
+          entries: parseImageBeatSheetEntries(args.assistantText),
+        }
+      : {
+          script_version: args.scriptVersion,
+          generated_at: generatedAt,
+          action: args.action,
+          raw_text: args.assistantText,
+        };
+
+    try {
+      const committed = await commitWorkpieceProductionArtifact({
+        workpieceId: episodeId,
+        scriptVersion: args.scriptVersion,
+        kind: artifactKind,
+        payload,
+      });
+
+      if (!committed.ok) {
+        setAiRuntimeWarning(`Saved response in chat, but failed to persist ${PRODUCTION_ACTION_LABEL[args.action]}.`);
+      }
+    } catch {
+      setAiRuntimeWarning(`Saved response in chat, but failed to persist ${PRODUCTION_ACTION_LABEL[args.action]}.`);
+    }
+  }
+
+  async function sendChatMessage(args: {
+    requestContent: string;
+    displayContent?: string;
+    productionAction?: ProductionAction;
+    productionScriptVersion?: number;
+  }) {
     if (isAiProcessing) return;
-    const content = chatDraft.trim();
-    if (!content) return;
+    const requestContent = args.requestContent.trim();
+    if (!requestContent) return;
+
+    const displayContent = (args.displayContent ?? requestContent).trim();
     const episodeContext = buildActiveEpisodeContext();
     if (!episodeContext) {
       setChatError("Select an Episode or Spark to start.");
       return;
     }
+
     const lane = resolveAiLaneFromStorage();
     setAiBillingMode(lane);
     if (lane === "forge" && aiTokenBalance != null && aiTokenBalance <= 0) {
@@ -1862,19 +2288,22 @@ export default function HearthShell() {
       setAiTokenBalance(null);
     }
 
-    const userMessage: HearthChatMessage = { role: "user", content };
-    const nextMessages = [...chatMessages, userMessage].slice(-24);
-    setChatMessages(nextMessages);
+    const requestUserMessage: HearthChatMessage = { role: "user", content: requestContent };
+    const displayUserMessage: HearthChatMessage = { role: "user", content: displayContent || requestContent };
+    const requestMessages = [...chatMessages, requestUserMessage].slice(-24);
+    const displayMessages = [...chatMessages, displayUserMessage].slice(-24);
+    setChatMessages(displayMessages);
     setChatDraft("");
     setChatError(null);
     setAiRuntimeWarning(null);
     setPendingAiProposal(null);
+
     const controller = new AbortController();
     aiRequestControllerRef.current = controller;
     setIsAiProcessing(true);
 
     try {
-      const result = await requestHearthChatReply(nextMessages, episodeContext, { signal: controller.signal });
+      const result = await requestHearthChatReply(requestMessages, episodeContext, { signal: controller.signal });
       setAiBillingMode(result.runtime.billingMode);
       if (result.runtime.billingMode === "byo") {
         setAiTokenBalance(null);
@@ -1885,9 +2314,19 @@ export default function HearthShell() {
         }
         return;
       }
+
       const assistantMessage: HearthChatMessage = { role: "assistant", content: result.assistantText };
       setChatMessages((prev) => [...prev, assistantMessage].slice(-24));
-      if (result.ops.length > 0) {
+
+      if (args.productionAction && args.productionScriptVersion) {
+        await persistProductionArtifact({
+          action: args.productionAction,
+          scriptVersion: args.productionScriptVersion,
+          assistantText: result.assistantText,
+        });
+      }
+
+      if (!args.productionAction && result.ops.length > 0) {
         setPendingAiProposal({
           assistantText: result.assistantText,
           ops: result.ops,
@@ -1907,12 +2346,53 @@ export default function HearthShell() {
       } else {
         setAiRuntimeWarning("Unable to update credits.");
       }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "AI request failed.";
+      setChatError(message);
     } finally {
       if (aiRequestControllerRef.current === controller) {
         aiRequestControllerRef.current = null;
       }
       setIsAiProcessing(false);
     }
+  }
+
+  async function onRunProductionAction(action: ProductionAction) {
+    if (isAiProcessing || isApprovingScript) return;
+    if (!activeDraft) return;
+    if (!hasApprovedScript || !approvedScriptVersion) {
+      setChatError("Approve a Script Version before using production actions.");
+      return;
+    }
+    if (!activeDraft.body.trim()) {
+      setChatError("Approved script body is empty.");
+      return;
+    }
+
+    const prompt = buildProductionPrompt({
+      action,
+      scriptVersion: approvedScriptVersion,
+      scriptText: activeDraft.body,
+      episodeTitle: activeDraft.title || planningSession?.title || "",
+    });
+    const displayContent = `${PRODUCTION_ACTION_LABEL[action]} for Script Version ${approvedScriptVersion}.`;
+    setActiveProductionAction(action);
+    try {
+      await sendChatMessage({
+        requestContent: prompt,
+        displayContent,
+        productionAction: action,
+        productionScriptVersion: approvedScriptVersion,
+      });
+    } finally {
+      setActiveProductionAction(null);
+    }
+  }
+
+  async function onSendChat() {
+    const content = chatDraft.trim();
+    if (!content) return;
+    await sendChatMessage({ requestContent: content });
   }
 
   function onDiscardAiProposal() {
@@ -2157,6 +2637,9 @@ export default function HearthShell() {
       : "";
     const hasScript = Boolean((activeDraft?.body ?? "").trim());
     const showScriptEditor = showManualDraft || showScriptPanel;
+    const approvedAtText = scriptApprovalState.approvedAt
+      ? formatUpdatedAt(scriptApprovalState.approvedAt)
+      : "Unknown";
 
     return (
       <section className="hs-draft hs-draft-chat-first">
@@ -2195,6 +2678,13 @@ export default function HearthShell() {
           </button>
           <button onClick={openRevisionPanel} disabled={!activeDraft}>
             Revisions
+          </button>
+          <button
+            type="button"
+            onClick={() => void onApproveScript()}
+            disabled={!activeDraft || !hasScript || isSaving || isAiProcessing || isApprovingScript}
+          >
+            {isApprovingScript ? "Approving..." : "Approve Script"}
           </button>
           <span className="hs-status-text">{statusText}</span>
           <span className="hs-count-text">{wordCount} words · {charCount} chars</span>
@@ -2365,6 +2855,45 @@ export default function HearthShell() {
 
             {aiCreditsDepleted ? (
               <div className="hs-error-text-small">No AI credits remaining.</div>
+            ) : null}
+
+            {hasApprovedScript && approvedScriptVersion ? (
+              <div className="hs-production-mode-status">
+                Script v{approvedScriptVersion} approved · {approvedAtText}
+              </div>
+            ) : null}
+
+            {hasApprovedScript && approvedScriptVersion ? (
+              <div className="hs-production-action-row" role="group" aria-label="Production actions">
+                <button
+                  type="button"
+                  onClick={() => void onRunProductionAction("seo")}
+                  disabled={isAiProcessing || aiCreditsDepleted}
+                >
+                  {activeProductionAction === "seo" && isAiProcessing ? "Generating..." : "Generate SEO"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void onRunProductionAction("tags")}
+                  disabled={isAiProcessing || aiCreditsDepleted}
+                >
+                  {activeProductionAction === "tags" && isAiProcessing ? "Generating..." : "Generate Tags"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void onRunProductionAction("thumbnails")}
+                  disabled={isAiProcessing || aiCreditsDepleted}
+                >
+                  {activeProductionAction === "thumbnails" && isAiProcessing ? "Generating..." : "Thumbnail Concepts"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void onRunProductionAction("image_beat_sheet")}
+                  disabled={isAiProcessing || aiCreditsDepleted}
+                >
+                  {activeProductionAction === "image_beat_sheet" && isAiProcessing ? "Generating..." : "Image Beat Sheet"}
+                </button>
+              </div>
             ) : null}
 
             <div className="hs-ai-shortcut-row" role="group" aria-label="Chat shortcuts">

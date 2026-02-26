@@ -324,6 +324,29 @@ function estimateTokenFallback(messages: ChatMessage[], reply: string): number {
   return Math.max(1, Math.ceil(totalChars / 4));
 }
 
+function isGpt5FamilyModel(modelName: string): boolean {
+  return /^gpt-5(?:$|-)/i.test(modelName.trim());
+}
+
+function isTemperatureUnsupportedError(detail: string): boolean {
+  const text = detail.toLowerCase();
+  return text.includes("temperature")
+    && (text.includes("unsupported") || text.includes("only the default"));
+}
+
+function readUpstreamErrorMessage(detail: string): string | null {
+  try {
+    const parsed = JSON.parse(detail) as unknown;
+    if (!isRecord(parsed)) return null;
+    const error = parsed.error;
+    if (!isRecord(error)) return null;
+    const message = readOptionalString(error.message);
+    return message ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function tryParseJsonObject(raw: string): Record<string, unknown> | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
@@ -682,21 +705,35 @@ export function mwHearthChatApi() {
       req.once("aborted", onAborted);
 
       try {
-        let upstream: Response;
-        try {
-          upstream = await fetch("https://api.openai.com/v1/chat/completions", {
+        const modelAllowsTemperatureOverride = !isGpt5FamilyModel(model);
+        const requestedTemperature = readBehaviorTemperature(bodyRaw.behavior);
+        const completionMessages = [system, ...messages];
+        const callOpenAi = async (allowTemperatureOverride: boolean): Promise<Response> => {
+          const payload = allowTemperatureOverride
+            ? {
+                model,
+                temperature: requestedTemperature,
+                messages: completionMessages,
+              }
+            : {
+                model,
+                messages: completionMessages,
+              };
+          return fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",
             headers: {
               authorization: `Bearer ${apiKey}`,
               "content-type": "application/json",
             },
-            body: JSON.stringify({
-              model,
-              temperature: readBehaviorTemperature(bodyRaw.behavior),
-              messages: [system, ...messages],
-            }),
+            body: JSON.stringify(payload),
             signal: upstreamAbort.signal,
           });
+        };
+
+        let upstream: Response;
+        let usedTemperatureOverride = modelAllowsTemperatureOverride;
+        try {
+          upstream = await callOpenAi(usedTemperatureOverride);
         } catch (error) {
           if (clientAborted || upstreamAbort.signal.aborted) {
             return;
@@ -709,14 +746,38 @@ export function mwHearthChatApi() {
         }
 
         if (!upstream.ok) {
-          const detail = await upstream.text();
-          sendJson(res, 502, {
-            ok: false,
-            error: "OpenAI error",
-            detail,
-            ...buildBillingSnapshot(lane),
-          });
-          return;
+          let detail = await upstream.text();
+          if (
+            usedTemperatureOverride
+            && upstream.status === 400
+            && isTemperatureUnsupportedError(detail)
+          ) {
+            try {
+              upstream = await callOpenAi(false);
+              usedTemperatureOverride = false;
+            } catch (error) {
+              if (clientAborted || upstreamAbort.signal.aborted) {
+                return;
+              }
+              throw error;
+            }
+
+            if (!clientAborted && !upstream.ok) {
+              detail = await upstream.text();
+            }
+          }
+
+          if (!upstream.ok) {
+            const upstreamMessage = readUpstreamErrorMessage(detail) ?? "OpenAI error";
+            const status = upstream.status >= 400 && upstream.status <= 599 ? upstream.status : 502;
+            sendJson(res, status, {
+              ok: false,
+              error: upstreamMessage,
+              detail,
+              ...buildBillingSnapshot(lane),
+            });
+            return;
+          }
         }
 
         const payload = (await upstream.json()) as unknown;
