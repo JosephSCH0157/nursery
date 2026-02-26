@@ -268,6 +268,7 @@ function buildSystemPrompt(context: EpisodeContext): string {
     "- Speaker tags must be on their own line with nothing else on that line.",
     "- No overlaps, no missing closes, no cross-tagging.",
     "- Allowed inline pacing tokens: [pause], [beat], [reflective pause]",
+    "- Preserve pacing tokens verbatim. Do not invent or infer extra pacing tokens.",
     "- Allowed hidden notes: [note]...[/note], and [note] tags must be on their own lines.",
     "- Forbid random markup: Joe:, Brad:, **Brad:**, <speaker>, Markdown headings.",
     "- Canonical speaker mapping: S1 = Joe, S2 = Brad.",

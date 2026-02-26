@@ -256,6 +256,25 @@ async function testAnvilTagValidatorAndFormatter() {
   assert.equal(fixed.ok, true, "Formatter should produce valid canonical tag output for common label issues");
   assert.ok(formatted.includes("[s1]"), "Formatter should map Joe/S1 labels to [s1]");
   assert.ok(formatted.includes("[s2]"), "Formatter should map Brad/S2 labels to [s2]");
+
+  const cadenceScript = [
+    "# Opening",
+    "[s1] Hello there.",
+    "(pause)",
+    "Brad: Copy that.",
+  ].join("\n");
+  const cadenceFormatted = formatScriptToAnvilTagsNoAi(cadenceScript);
+  assert.ok(cadenceFormatted.includes("Opening"), "Formatter should keep heading text");
+  assert.ok(!cadenceFormatted.includes("# Opening"), "Formatter should strip markdown heading markers");
+  assert.ok(cadenceFormatted.includes("[pause]"), "Formatter should convert (pause) to [pause]");
+  assert.ok(
+    /\[s1\]\nHello there\.\n(?:\[pause\]\n)?\[\/s1\]/.test(cadenceFormatted),
+    "Formatter should force speaker tags to their own lines and close blocks",
+  );
+  assert.ok(
+    cadenceFormatted.includes("[s2]\nCopy that.\n[/s2]"),
+    "Formatter should convert Brad label into canonical S2 block",
+  );
 }
 
 async function run() {

@@ -218,6 +218,20 @@ function normalizeSpeakerLabel(label: string): "[s1]" | "[s2]" | "[g1]" | "[g2]"
   return "[g2]";
 }
 
+type SpeakerOpenToken = (typeof SPEAKER_OPEN_TOKENS)[number];
+type SpeakerCloseToken = (typeof SPEAKER_CLOSE_TOKENS)[number];
+
+function closeForSpeaker(token: SpeakerOpenToken): SpeakerCloseToken {
+  return expectedCloseFor(token);
+}
+
+function openForCloseSpeaker(token: SpeakerCloseToken): SpeakerOpenToken {
+  if (token === "[/s1]") return "[s1]";
+  if (token === "[/s2]") return "[s2]";
+  if (token === "[/g1]") return "[g1]";
+  return "[g2]";
+}
+
 export function formatScriptToAnvilTagsNoAi(input: string): string {
   let text = normalizeNewlines(String(input ?? ""))
     .replace(/[ \t]+\n/g, "\n")
@@ -230,10 +244,26 @@ export function formatScriptToAnvilTagsNoAi(input: string): string {
 
   text = text
     .replace(/^(\s*)#{1,6}\s+/gm, "$1")
+    .replace(/\(\s*(pause|beat|reflective\s+pause)\s*\)/gi, (_m, token: string) => `[${token.toLowerCase().replace(/\s+/g, " ")}]`)
     .replace(/<\s*\/?\s*[a-z][^>]*>/gi, "");
 
   const lines = text.split("\n");
   const output: string[] = [];
+  let activeSpeaker: SpeakerOpenToken | null = null;
+  let noteDepth = 0;
+
+  const closeActiveSpeaker = () => {
+    if (!activeSpeaker) return;
+    output.push(closeForSpeaker(activeSpeaker));
+    activeSpeaker = null;
+  };
+
+  const openSpeaker = (token: SpeakerOpenToken) => {
+    if (activeSpeaker === token) return;
+    closeActiveSpeaker();
+    activeSpeaker = token;
+    output.push(token);
+  };
 
   for (const rawLine of lines) {
     const trimmed = rawLine.trim();
@@ -242,11 +272,60 @@ export function formatScriptToAnvilTagsNoAi(input: string): string {
       continue;
     }
 
+    const speakerSingleLine = trimmed.match(/^\[(s1|s2|g1|g2)\]\s*([\s\S]*?)\s*\[\/\1\]$/i);
+    if (speakerSingleLine) {
+      const open = `[${speakerSingleLine[1].toLowerCase()}]` as SpeakerOpenToken;
+      const textInside = speakerSingleLine[2]?.trim() ?? "";
+      openSpeaker(open);
+      if (textInside) output.push(textInside);
+      closeActiveSpeaker();
+      continue;
+    }
+
     const oneLineNote = trimmed.match(/^\[note\]\s*(.*?)\s*\[\/note\]$/i);
     if (oneLineNote) {
+      closeActiveSpeaker();
       output.push("[note]");
       if (oneLineNote[1]) output.push(oneLineNote[1]);
       output.push("[/note]");
+      noteDepth = 0;
+      continue;
+    }
+
+    if (/^\[note\]$/i.test(trimmed)) {
+      closeActiveSpeaker();
+      noteDepth += 1;
+      output.push("[note]");
+      continue;
+    }
+
+    if (/^\[\/note\]$/i.test(trimmed)) {
+      if (noteDepth > 0) {
+        noteDepth -= 1;
+      }
+      output.push("[/note]");
+      continue;
+    }
+
+    const speakerOpenOnly = trimmed.match(/^\[(s1|s2|g1|g2)\]$/i);
+    if (speakerOpenOnly) {
+      const open = `[${speakerOpenOnly[1].toLowerCase()}]` as SpeakerOpenToken;
+      openSpeaker(open);
+      continue;
+    }
+
+    const speakerCloseOnly = trimmed.match(/^\[\/(s1|s2|g1|g2)\]$/i);
+    if (speakerCloseOnly) {
+      const close = `[/${speakerCloseOnly[1].toLowerCase()}]` as SpeakerCloseToken;
+      const matchingOpen = openForCloseSpeaker(close);
+      if (!activeSpeaker) {
+        output.push(matchingOpen);
+      } else if (activeSpeaker !== matchingOpen) {
+        closeActiveSpeaker();
+        output.push(matchingOpen);
+      }
+      output.push(close);
+      activeSpeaker = null;
       continue;
     }
 
@@ -254,30 +333,51 @@ export function formatScriptToAnvilTagsNoAi(input: string): string {
     const plainLabel = trimmed.match(/^(joe|brad|s1|s2|g1|g2)\s*:\s*(.*)$/i);
     const parenLabel = trimmed.match(/^\((joe|brad|s1|s2|g1|g2)\s*:\)\s*(.*)$/i);
     const labelMatch = markdownLabel ?? plainLabel ?? parenLabel;
-    if (labelMatch) {
+    if (labelMatch && noteDepth === 0) {
       const open = normalizeSpeakerLabel(labelMatch[1]);
-      const close = expectedCloseFor(open);
-      output.push(open);
+      openSpeaker(open);
       if (labelMatch[2]?.trim()) output.push(labelMatch[2].trim());
-      output.push(close);
       continue;
     }
 
-    const openAndText = trimmed.match(/^\[(s1|s2|g1|g2|note)\]\s*(.+)$/i);
+    const openAndText = trimmed.match(/^\[(s1|s2|g1|g2)\]\s*(.+)$/i);
     if (openAndText) {
-      output.push(`[${openAndText[1].toLowerCase()}]`);
-      output.push(openAndText[2]);
+      const open = `[${openAndText[1].toLowerCase()}]` as SpeakerOpenToken;
+      openSpeaker(open);
+      const rest = openAndText[2].trim();
+      if (rest) output.push(rest);
       continue;
     }
 
-    const textAndClose = trimmed.match(/^(.+?)\s*\[\/(s1|s2|g1|g2|note)\]$/i);
+    const textAndClose = trimmed.match(/^(.+?)\s*\[\/(s1|s2|g1|g2)\]$/i);
     if (textAndClose) {
-      output.push(textAndClose[1]);
-      output.push(`[/${textAndClose[2].toLowerCase()}]`);
+      const close = `[/${textAndClose[2].toLowerCase()}]` as SpeakerCloseToken;
+      const matchingOpen = openForCloseSpeaker(close);
+      if (!activeSpeaker) {
+        output.push(matchingOpen);
+      } else if (activeSpeaker !== matchingOpen) {
+        closeActiveSpeaker();
+        output.push(matchingOpen);
+      }
+      const textPart = textAndClose[1].trim();
+      if (textPart) output.push(textPart);
+      output.push(close);
+      activeSpeaker = null;
+      continue;
+    }
+
+    if (activeSpeaker) {
+      output.push(trimmed);
       continue;
     }
 
     output.push(trimmed);
+  }
+
+  closeActiveSpeaker();
+  while (noteDepth > 0) {
+    output.push("[/note]");
+    noteDepth -= 1;
   }
 
   const cleaned = output.join("\n")
@@ -285,4 +385,3 @@ export function formatScriptToAnvilTagsNoAi(input: string): string {
     .trim();
   return cleaned ? `${cleaned}\n` : "";
 }
-
