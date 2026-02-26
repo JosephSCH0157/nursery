@@ -60,6 +60,10 @@ const MODE_STORAGE_PREFIX = "hearth:ui:mode:v1:";
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
 const CHAT_HISTORY_MAX_MESSAGES = 200;
+const CHAT_HISTORY_MAX_STORAGE_CHARS = 650_000;
+const CHAT_HISTORY_MAX_ENTRY_CHARS = 24_000;
+const CHAT_HISTORY_WRITE_DEBOUNCE_MS = 350;
+const CHAT_HISTORY_TRUNCATED_SUFFIX = "\n\n[truncated in local cache]";
 
 type HearthMode = "sparks" | "draft" | "planning" | "sources" | "revisions";
 type ProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet";
@@ -186,10 +190,17 @@ function writeMode(workpieceId: string | null, mode: HearthMode): void {
 
 function resolveChatHistoryKey(workpieceId: string | null, draftId: string | null): string | null {
   const workpiece = workpieceId?.trim();
-  if (workpiece) return `${CHAT_HISTORY_STORAGE_PREFIX}workpiece:${workpiece}`;
+  if (workpiece) return `${CHAT_HISTORY_STORAGE_PREFIX}${workpiece}`;
   const draft = draftId?.trim();
   if (draft) return `${CHAT_HISTORY_STORAGE_PREFIX}draft:${draft}`;
   return null;
+}
+
+function resolveLegacyWorkpieceChatHistoryKey(historyKey: string): string | null {
+  if (!historyKey.startsWith(CHAT_HISTORY_STORAGE_PREFIX)) return null;
+  const suffix = historyKey.slice(CHAT_HISTORY_STORAGE_PREFIX.length);
+  if (!suffix || suffix.startsWith("draft:")) return null;
+  return `${CHAT_HISTORY_STORAGE_PREFIX}workpiece:${suffix}`;
 }
 
 function normalizeChatRole(value: unknown): HearthChatMessage["role"] | null {
@@ -199,44 +210,96 @@ function normalizeChatRole(value: unknown): HearthChatMessage["role"] | null {
   return null;
 }
 
+function trimChatContentForStorage(content: string): string {
+  const trimmed = content.trim();
+  if (!trimmed) return "";
+  if (trimmed.length <= CHAT_HISTORY_MAX_ENTRY_CHARS) return trimmed;
+  const maxLength = Math.max(1, CHAT_HISTORY_MAX_ENTRY_CHARS - CHAT_HISTORY_TRUNCATED_SUFFIX.length);
+  return `${trimmed.slice(0, maxLength)}${CHAT_HISTORY_TRUNCATED_SUFFIX}`;
+}
+
+function sanitizeChatMessageForStorage(entry: unknown): HearthChatMessage | null {
+  if (!entry || typeof entry !== "object") return null;
+  const row = entry as { role?: unknown; content?: unknown };
+  const role = normalizeChatRole(row.role);
+  if (!role || typeof row.content !== "string") return null;
+  const content = trimChatContentForStorage(row.content);
+  if (!content) return null;
+  return { role, content };
+}
+
+function sanitizeChatMessagesForStorage(messages: ReadonlyArray<unknown>): HearthChatMessage[] {
+  const normalized = messages
+    .map((entry) => sanitizeChatMessageForStorage(entry))
+    .filter((entry): entry is HearthChatMessage => Boolean(entry));
+
+  const out: HearthChatMessage[] = [];
+  let totalChars = 0;
+  for (let idx = normalized.length - 1; idx >= 0; idx -= 1) {
+    if (out.length >= CHAT_HISTORY_MAX_MESSAGES) break;
+    const message = normalized[idx]!;
+    const nextChars = totalChars + message.content.length;
+    if (out.length > 0 && nextChars > CHAT_HISTORY_MAX_STORAGE_CHARS) break;
+    out.push(message);
+    totalChars = nextChars;
+  }
+  return out.reverse();
+}
+
+function readChatHistoryFromStorageKey(storageKey: string): { found: boolean; messages: HearthChatMessage[] } {
+  if (typeof window === "undefined") return { found: false, messages: [] };
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (raw == null) return { found: false, messages: [] };
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return { found: true, messages: [] };
+    const normalized = sanitizeChatMessagesForStorage(parsed);
+    return { found: true, messages: normalized };
+  } catch {
+    return { found: true, messages: [] };
+  }
+}
+
 function readChatHistory(historyKey: string | null): HearthChatMessage[] {
   if (!historyKey || typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(historyKey);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((entry) => {
-        if (!entry || typeof entry !== "object") return null;
-        const row = entry as { role?: unknown; content?: unknown };
-        const role = normalizeChatRole(row.role);
-        if (!role || typeof row.content !== "string") return null;
-        const content = row.content.trim();
-        if (!content) return null;
-        return { role, content };
-      })
-      .filter((entry): entry is HearthChatMessage => Boolean(entry))
-      .slice(-CHAT_HISTORY_MAX_MESSAGES);
-  } catch {
-    return [];
+
+  const primary = readChatHistoryFromStorageKey(historyKey);
+  if (primary.found) {
+    return primary.messages;
   }
+
+  const legacyKey = resolveLegacyWorkpieceChatHistoryKey(historyKey);
+  if (!legacyKey) return [];
+  const legacy = readChatHistoryFromStorageKey(legacyKey);
+  if (!legacy.found) return [];
+
+  writeChatHistory(historyKey, legacy.messages);
+  try {
+    window.localStorage.removeItem(legacyKey);
+  } catch {
+    // ignore storage failures
+  }
+  return legacy.messages;
 }
 
 function writeChatHistory(historyKey: string | null, messages: HearthChatMessage[]): void {
   if (!historyKey || typeof window === "undefined") return;
+  const sanitized = sanitizeChatMessagesForStorage(messages);
   try {
-    if (messages.length === 0) {
+    if (sanitized.length === 0) {
       window.localStorage.removeItem(historyKey);
       return;
     }
-    window.localStorage.setItem(
-      historyKey,
-      JSON.stringify(messages.slice(-CHAT_HISTORY_MAX_MESSAGES)),
-    );
+    window.localStorage.setItem(historyKey, JSON.stringify(sanitized));
   } catch {
     // ignore storage failures
   }
+}
+
+function readCanonicalConversationLog(_workpieceId: string | null): HearthChatMessage[] | null {
+  // Local storage is a cache only. Once Tongs exposes canonical conversation logs,
+  // this function should load that data and hydration should prefer it.
+  return null;
 }
 
 function readScriptApprovalState(workpieceId: string | null): ScriptApprovalState {
@@ -791,8 +854,24 @@ export default function HearthShell() {
   const sessionCommitQueued = useRef(false);
   const restoredCursorDraftIdRef = useRef<string | null>(null);
   const aiRequestControllerRef = useRef<AbortController | null>(null);
+  const chatPersistTimerRef = useRef<number | null>(null);
+  const latestChatMessagesRef = useRef<HearthChatMessage[]>([]);
+  const latestChatHistoryKeyRef = useRef<string | null>(null);
   const skipChatHydrationKeyRef = useRef<string | null>(null);
   const pendingChatHydrationKeyRef = useRef<string | null>(null);
+
+  const flushChatHistoryNow = useCallback((options?: {
+    historyKey?: string | null;
+    messages?: HearthChatMessage[];
+  }) => {
+    const historyKey = options?.historyKey ?? latestChatHistoryKeyRef.current;
+    if (!historyKey) return;
+    if (chatPersistTimerRef.current) {
+      window.clearTimeout(chatPersistTimerRef.current);
+      chatPersistTimerRef.current = null;
+    }
+    writeChatHistory(historyKey, options?.messages ?? latestChatMessagesRef.current);
+  }, []);
 
   const lastAutosaveRevisionAt = useMemo(() => {
     const match = revisions.find((rev) => rev.kind === "autosave");
@@ -894,6 +973,21 @@ export default function HearthShell() {
   useEffect(() => {
     draftSnapshotRef.current = draftSnapshot;
   }, [draftSnapshot]);
+
+  useEffect(() => {
+    latestChatMessagesRef.current = chatMessages;
+  }, [chatMessages]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const flush = () => flushChatHistoryNow();
+    window.addEventListener("beforeunload", flush);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("beforeunload", flush);
+      window.removeEventListener("pagehide", flush);
+    };
+  }, [flushChatHistoryNow]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1118,7 +1212,8 @@ export default function HearthShell() {
     if (!activeDraft) return;
     const now = Date.now();
     await persistDraft({ draft: activeDraft, updatedAt: now, createRevision: null });
-  }, [activeDraft]);
+    flushChatHistoryNow();
+  }, [activeDraft, flushChatHistoryNow]);
 
   const applySessionOrigin = useCallback((origin: HearthSessionOrigin) => {
     updatePlanningSession((prev) => ({
@@ -1460,6 +1555,12 @@ export default function HearthShell() {
   }, [activeDraft?.id]);
 
   useEffect(() => {
+    const previousKey = latestChatHistoryKeyRef.current;
+    if (previousKey && previousKey !== chatHistoryKey) {
+      flushChatHistoryNow({ historyKey: previousKey });
+    }
+    latestChatHistoryKeyRef.current = chatHistoryKey;
+
     if (!chatHistoryKey) {
       pendingChatHydrationKeyRef.current = null;
       setChatMessages([]);
@@ -1467,6 +1568,16 @@ export default function HearthShell() {
       setPendingAiProposal(null);
       return;
     }
+
+    const canonicalMessages = readCanonicalConversationLog(workpieceId);
+    if (canonicalMessages && canonicalMessages.length > 0) {
+      pendingChatHydrationKeyRef.current = chatHistoryKey;
+      setChatMessages(sanitizeChatMessagesForStorage(canonicalMessages));
+      setChatError(null);
+      setPendingAiProposal(null);
+      return;
+    }
+
     if (skipChatHydrationKeyRef.current === chatHistoryKey) {
       skipChatHydrationKeyRef.current = null;
       pendingChatHydrationKeyRef.current = null;
@@ -1476,7 +1587,7 @@ export default function HearthShell() {
     setChatMessages(readChatHistory(chatHistoryKey));
     setChatError(null);
     setPendingAiProposal(null);
-  }, [chatHistoryKey]);
+  }, [chatHistoryKey, flushChatHistoryNow, workpieceId]);
 
   useEffect(() => {
     if (!chatHistoryKey) return;
@@ -1484,7 +1595,22 @@ export default function HearthShell() {
       pendingChatHydrationKeyRef.current = null;
       return;
     }
-    writeChatHistory(chatHistoryKey, chatMessages);
+
+    if (chatPersistTimerRef.current) {
+      window.clearTimeout(chatPersistTimerRef.current);
+      chatPersistTimerRef.current = null;
+    }
+    chatPersistTimerRef.current = window.setTimeout(() => {
+      writeChatHistory(chatHistoryKey, chatMessages);
+      chatPersistTimerRef.current = null;
+    }, CHAT_HISTORY_WRITE_DEBOUNCE_MS);
+
+    return () => {
+      if (chatPersistTimerRef.current) {
+        window.clearTimeout(chatPersistTimerRef.current);
+        chatPersistTimerRef.current = null;
+      }
+    };
   }, [chatHistoryKey, chatMessages]);
 
   useEffect(() => {
@@ -2317,10 +2443,12 @@ export default function HearthShell() {
         `timestamp: ${new Date(approvedAt).toISOString()}`,
         "Production Mode available",
       ];
-      setChatMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: markerLines.join("\n") },
-      ].slice(-CHAT_HISTORY_MAX_MESSAGES));
+      const markerMessage: HearthChatMessage = { role: "assistant", content: markerLines.join("\n") };
+      setChatMessages((prev) => {
+        const next = [...prev, markerMessage].slice(-CHAT_HISTORY_MAX_MESSAGES);
+        flushChatHistoryNow({ messages: next });
+        return next;
+      });
     } finally {
       setIsApprovingScript(false);
     }
