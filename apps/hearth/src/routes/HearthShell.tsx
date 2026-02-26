@@ -67,6 +67,8 @@ const CHAT_HISTORY_TRUNCATED_SUFFIX = "\n\n[truncated in local cache]";
 
 type HearthMode = "sparks" | "draft" | "planning" | "sources" | "revisions";
 type ProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet";
+type SttLane = "browser" | "ai";
+type SttState = "idle" | "listening" | "transcribing";
 
 type ScriptApprovalState = {
   hasApprovedScript: boolean;
@@ -819,6 +821,9 @@ export default function HearthShell() {
   const [chatMessages, setChatMessages] = useState<HearthChatMessage[]>([]);
   const [chatDraft, setChatDraft] = useState("");
   const [chatError, setChatError] = useState<string | null>(null);
+  const [sttLane, setSttLane] = useState<SttLane>("browser");
+  const [sttState, setSttState] = useState<SttState>("idle");
+  const [sttError, setSttError] = useState<string | null>(null);
   const [showManualDraft, setShowManualDraft] = useState(false);
   const [showScriptPanel, setShowScriptPanel] = useState(false);
   const [scriptApprovalState, setScriptApprovalState] = useState<ScriptApprovalState>(() =>
@@ -2655,6 +2660,18 @@ export default function HearthShell() {
     chatInputRef.current?.focus();
   }
 
+  function toggleStt() {
+    if (sttState === "transcribing") return;
+    setSttError(null);
+    if (sttState === "idle") {
+      setSttState("listening");
+      return;
+    }
+    if (sttState === "listening") {
+      setSttState("idle");
+    }
+  }
+
   function formatSourceDiffText(source: {
     id?: string;
     title?: string;
@@ -3151,6 +3168,30 @@ export default function HearthShell() {
             </div>
 
             <div className="hs-ai-chat-compose">
+              <select
+                value={sttLane}
+                onChange={(event) => setSttLane(event.target.value as SttLane)}
+                className="stt-lane-select"
+              >
+                <option value="browser">Free</option>
+                <option value="ai">AI</option>
+              </select>
+              <button
+                type="button"
+                onClick={toggleStt}
+                className={`mic-button ${sttState}`}
+                title={
+                  sttState === "idle"
+                    ? "Start recording"
+                    : sttState === "listening"
+                      ? "Stop recording"
+                      : "Transcribing..."
+                }
+              >
+                {sttState === "idle" ? "🎙️" : null}
+                {sttState === "listening" ? "🔴🎙️" : null}
+                {sttState === "transcribing" ? "⏳🎙️" : null}
+              </button>
               <textarea
                 ref={chatInputRef}
                 value={chatDraft}
@@ -3178,6 +3219,9 @@ export default function HearthShell() {
                 {isAiProcessing ? "Sending..." : "Send"}
               </button>
             </div>
+            {sttError ? (
+              <div className="hs-error-text-small">{sttError}</div>
+            ) : null}
           </section>
 
           {showScriptEditor ? (

@@ -553,6 +553,29 @@
   align-items: flex-end;
 }
 
+.mic-button {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 18px;
+  transition: transform 0.1s ease;
+}
+
+.mic-button.listening {
+  color: #b00020;
+  transform: scale(1.1);
+}
+
+.mic-button.transcribing {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.stt-lane-select {
+  font-size: 12px;
+  margin-right: 6px;
+}
+
 .hs-ai-shortcut-row {
   display: flex;
   gap: 8px;
