@@ -275,6 +275,44 @@ async function testAnvilTagValidatorAndFormatter() {
     cadenceFormatted.includes("[s2]\nCopy that.\n[/s2]"),
     "Formatter should convert Brad label into canonical S2 block",
   );
+
+  const cadenceFormattedTwice = formatScriptToAnvilTagsNoAi(cadenceFormatted);
+  assert.equal(
+    cadenceFormattedTwice,
+    cadenceFormatted,
+    "Formatter should be idempotent across repeated formatting passes",
+  );
+
+  const misnestedSpeakerScript = [
+    "[s1]",
+    "First line.",
+    "[s2]",
+    "Second line.",
+  ].join("\n");
+  const misnestedFormatted = formatScriptToAnvilTagsNoAi(misnestedSpeakerScript);
+  assert.ok(
+    !misnestedFormatted.includes("[s1]\n[s2]"),
+    "Formatter should not keep nested speaker opens when healing malformed scripts",
+  );
+  assert.ok(
+    misnestedFormatted.includes("[/s1]\n[s2]"),
+    "Formatter should close the currently open speaker block before opening another one",
+  );
+  assert.equal(
+    (misnestedFormatted.match(/\[\/s1\]/g) ?? []).length,
+    1,
+    "Formatter should only add one close tag for S1 when auto-closing at EOF",
+  );
+  assert.equal(
+    (misnestedFormatted.match(/\[\/s2\]/g) ?? []).length,
+    1,
+    "Formatter should close only the currently open speaker block at EOF",
+  );
+  assert.equal(
+    validateAnvilTagContract(misnestedFormatted).ok,
+    true,
+    "Formatter healing should produce a valid script without introducing invalid nesting",
+  );
 }
 
 async function run() {

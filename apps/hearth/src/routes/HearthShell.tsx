@@ -400,6 +400,8 @@ export default function HearthShell() {
   const [chatMessages, setChatMessages] = useState<HearthChatMessage[]>([]);
   const [chatDraft, setChatDraft] = useState("");
   const [chatError, setChatError] = useState<string | null>(null);
+  const [showManualDraft, setShowManualDraft] = useState(false);
+  const [showScriptPanel, setShowScriptPanel] = useState(false);
   const [pendingAiProposal, setPendingAiProposal] = useState<PendingAiProposal | null>(null);
   const [isApplyingAiOps, setIsApplyingAiOps] = useState(false);
   const [aiRuntimeWarning, setAiRuntimeWarning] = useState<string | null>(null);
@@ -421,6 +423,7 @@ export default function HearthShell() {
   const draftSnapshotRef = useRef<DraftSnapshot | null>(null);
   const sessionSaveTimer = useRef<number | null>(null);
   const bodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const sessionCommitRef = useRef<string | null>(null);
   const sessionCommitInFlight = useRef(false);
@@ -808,7 +811,7 @@ export default function HearthShell() {
       const draft = await createDraftAndOpen({
         title: spark.title,
         body: spark.body,
-      }, "planning");
+      }, "draft");
 
       const now = Date.now();
       const updatedSpark: BarStockSpark = {
@@ -958,11 +961,19 @@ export default function HearthShell() {
     }
 
     if (modeTouchedRef.current) return;
-    const defaultMode = planningSession?.origin?.created_from === "bar-stock"
-      ? "planning"
-      : "draft";
+    const defaultMode = "draft";
     setSelectedMode(defaultMode);
-  }, [planningSession?.origin?.created_from, workpieceId]);
+  }, [workpieceId]);
+
+  useEffect(() => {
+    setShowManualDraft(false);
+    setShowScriptPanel(false);
+  }, [activeDraft?.id]);
+
+  useEffect(() => {
+    if ((activeDraft?.body ?? "").trim()) return;
+    setShowScriptPanel(false);
+  }, [activeDraft?.body]);
 
   useEffect(() => {
     if (!workpieceId) return;
@@ -1794,6 +1805,11 @@ export default function HearthShell() {
     });
   }
 
+  function onUseChatShortcut(prompt: string) {
+    setChatDraft((prev) => (prev.trim() ? `${prev.trim()}\n${prompt}` : prompt));
+    chatInputRef.current?.focus();
+  }
+
   function formatSourceDiffText(source: {
     id?: string;
     title?: string;
@@ -1949,14 +1965,34 @@ export default function HearthShell() {
     const unusedSummary = unusedSourcesCount > 0
       ? ` · ${unusedSourcesCount} unused`
       : "";
+    const hasScript = Boolean((activeDraft?.body ?? "").trim());
+    const showScriptEditor = showManualDraft || showScriptPanel;
 
     return (
-      <section className="hs-draft">
-        <header className="hs-draft-header">
-          <div className="hs-draft-title">Draft</div>
-          <div className="hs-draft-updated">
-            Last updated {formatUpdatedAt(activeDraft?.updatedAt)}
+      <section className="hs-draft hs-draft-chat-first">
+        <header className="hs-draft-header hs-draft-header-chat-first">
+          <div className="hs-draft-title-wrap">
+            <div className="hs-draft-title">Project</div>
+            <div className="hs-draft-updated">
+              Last updated {formatUpdatedAt(activeDraft?.updatedAt)}
+            </div>
           </div>
+          <label className="hs-project-title">
+            <span className="hs-field-label">Project title</span>
+            <input
+              type="text"
+              value={activeDraft?.title ?? ""}
+              placeholder="Project title"
+              onChange={(event) => {
+                setActiveDraft((prev) => {
+                  if (!prev) return prev;
+                  draftEditVersionRef.current += 1;
+                  return { ...prev, title: event.target.value };
+                });
+              }}
+              disabled={!activeDraft}
+            />
+          </label>
         </header>
 
         <div className="hs-toolbar">
@@ -2015,194 +2051,225 @@ export default function HearthShell() {
           </section>
         ) : null}
 
-        <label className="hs-field">
-          <span className="hs-field-label">Title</span>
-          <input
-            type="text"
-            value={activeDraft?.title ?? ""}
-            placeholder="Draft title"
-            onChange={(event) => {
-              setActiveDraft((prev) => {
-                if (!prev) return prev;
-                draftEditVersionRef.current += 1;
-                return { ...prev, title: event.target.value };
-              });
-            }}
-            disabled={!activeDraft}
-          />
-        </label>
-
-        <label className="hs-field">
-          <span className="hs-field-label">Body</span>
-          <textarea
-            ref={bodyRef}
-            value={activeDraft?.body ?? ""}
-            placeholder="Start writing..."
-            onChange={(event) => {
-              setScriptValidation(null);
-              setActiveDraft((prev) => {
-                if (!prev) return prev;
-                draftEditVersionRef.current += 1;
-                return { ...prev, body: event.target.value };
-              });
-            }}
-            onCompositionStart={() => setIsBodyComposing(true)}
-            onCompositionEnd={() => setIsBodyComposing(false)}
-            onSelect={(event) => {
-              const target = event.target as HTMLTextAreaElement;
-              setCursorPosition(target.selectionStart);
-            }}
-            onKeyUp={(event) => {
-              const target = event.target as HTMLTextAreaElement;
-              setCursorPosition(target.selectionStart);
-            }}
-            onScroll={(event) => {
-              const target = event.target as HTMLTextAreaElement;
-              setScrollTop(target.scrollTop);
-            }}
-            disabled={!activeDraft}
-            className="hs-textarea-body"
-          />
-        </label>
-
-        <div className="hs-sources-row">
-          <span className="hs-sources-summary">Sources: {sourcesSummary}{unusedSummary}</span>
-          <button type="button" onClick={() => setMode("sources")} disabled={!workpieceId}>
-            Review sources
-          </button>
-        </div>
-
-        <section className="hs-ai-chat" aria-label="Hearth AI chat">
-          <div className="hs-ai-chat-header">
-            <div className="hs-ai-chat-title">AI Assistant</div>
+        <div className="hs-chat-stage-controls">
+          <div className="hs-manual-draft-controls">
             <button
               type="button"
-              onClick={() => {
-                setChatMessages([]);
-                setChatError(null);
-                setPendingAiProposal(null);
-              }}
-              disabled={isAiProcessing || chatMessages.length === 0}
+              onClick={() => setShowManualDraft((prev) => !prev)}
+              disabled={!activeDraft}
             >
-              Clear
+              {showManualDraft ? "Hide Manual Draft" : "Manual Draft (no AI)"}
             </button>
-          </div>
-
-          <div className="hs-ai-chat-log" role="log" aria-live="polite">
-            {chatMessages.length === 0 ? (
-              <div className="hs-ai-chat-empty">
-                Ask a question about this Episode. Context is attached automatically.
-              </div>
-            ) : (
-              chatMessages.map((message, index) => (
-                <div key={`${message.role}-${index}`} className={`hs-ai-chat-msg is-${message.role}`}>
-                  <span className="hs-ai-chat-role">{message.role === "assistant" ? "Hearth" : "You"}</span>
-                  <span className="hs-ai-chat-content">{message.content}</span>
-                </div>
-              ))
-            )}
-          </div>
-
-          {pendingAiProposal && pendingAiProposal.ops.length > 0 ? (
-            <div className="hs-ai-proposal" aria-label="Proposed AI changes">
-              <div className="hs-ai-proposal-header">
-                <div className="hs-ai-proposal-title">Proposed changes</div>
-                <div className="hs-ai-proposal-meta">
-                  {pendingAiProposal.selected.filter(Boolean).length} selected · {pendingAiProposal.ops.length} total
-                </div>
-              </div>
-
-              <div className="hs-ai-proposal-list">
-                {pendingAiProposal.ops.map((op, index) => {
-                  const diff = buildProposalDiff(op);
-                  return (
-                    <label key={`ai-op-${index}`} className="hs-ai-op-row">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(pendingAiProposal.selected[index])}
-                        onChange={() => onToggleAiProposalOp(index)}
-                        disabled={isApplyingAiOps}
-                      />
-                      <div className="hs-ai-op-body">
-                        <div className="hs-ai-op-title">{describeHearthOp(op)}</div>
-                        {diff ? (
-                          <div className="hs-ai-op-diff">
-                            <pre>{`- ${diff.before || "(empty)"}`}</pre>
-                            <pre>{`+ ${diff.after || "(empty)"}`}</pre>
-                          </div>
-                        ) : null}
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
-
-              <div className="hs-ai-proposal-actions">
-                <button
-                  type="button"
-                  onClick={() => void onApplyAiProposal("all")}
-                  disabled={isApplyingAiOps}
-                >
-                  {isApplyingAiOps ? "Applying..." : "Apply"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void onApplyAiProposal("selected")}
-                  disabled={isApplyingAiOps || pendingAiProposal.selected.every((value) => !value)}
-                >
-                  Apply selected
-                </button>
-                <button
-                  type="button"
-                  onClick={onDiscardAiProposal}
-                  disabled={isApplyingAiOps}
-                >
-                  Discard
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          {chatError ? (
-            <div className="hs-error-text-small">{chatError}</div>
-          ) : null}
-
-          {aiRuntimeWarning ? (
-            <div className="hs-error-text-small">{aiRuntimeWarning}</div>
-          ) : null}
-
-          {aiCreditsDepleted ? (
-            <div className="hs-error-text-small">No AI credits remaining.</div>
-          ) : null}
-
-          <div className="hs-ai-chat-compose">
-            <textarea
-              value={chatDraft}
-              onChange={(event) => setChatDraft(event.target.value)}
-              placeholder={aiEpisodeReady ? "Ask Hearth AI..." : "Select an Episode or Spark to start."}
-              className="hs-ai-chat-input"
-              rows={2}
-              onKeyDown={(event) => {
-                if (event.key !== "Enter" || event.shiftKey) return;
-                event.preventDefault();
-                void onSendChat();
-              }}
-              disabled={isAiProcessing || aiCreditsDepleted || !aiEpisodeReady}
-            />
-            {isAiProcessing ? (
-              <button type="button" onClick={onCancelAiRequest}>
-                Cancel
+            {hasScript ? (
+              <button
+                type="button"
+                onClick={() => setShowScriptPanel((prev) => !prev)}
+                disabled={!activeDraft}
+              >
+                {showScriptPanel ? "Hide Script panel" : "Script panel"}
               </button>
             ) : null}
-            <button
-              type="button"
-              onClick={() => void onSendChat()}
-              disabled={isAiProcessing || aiCreditsDepleted || !aiEpisodeReady || !chatDraft.trim()}
-            >
-              {isAiProcessing ? "Sending..." : "Send"}
-            </button>
           </div>
-        </section>
+          <div className="hs-field-label-muted">Write without AI (just a text editor)</div>
+        </div>
+
+        <div className={`hs-draft-stage${showScriptEditor ? " has-script-panel" : ""}`}>
+          <section className="hs-ai-chat" aria-label="Hearth AI chat">
+            <div className="hs-ai-chat-header">
+              <div className="hs-ai-chat-title">Conversation</div>
+              <button
+                type="button"
+                onClick={() => {
+                  setChatMessages([]);
+                  setChatError(null);
+                  setPendingAiProposal(null);
+                }}
+                disabled={isAiProcessing || chatMessages.length === 0}
+              >
+                Clear
+              </button>
+            </div>
+
+            <div className="hs-ai-chat-log" role="log" aria-live="polite">
+              {chatMessages.length === 0 ? (
+                <div className="hs-ai-chat-empty">
+                  Ask a question about this Episode. Context is attached automatically.
+                </div>
+              ) : (
+                chatMessages.map((message, index) => (
+                  <div key={`${message.role}-${index}`} className={`hs-ai-chat-msg is-${message.role}`}>
+                    <span className="hs-ai-chat-role">{message.role === "assistant" ? "Hearth" : "You"}</span>
+                    <span className="hs-ai-chat-content">{message.content}</span>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {pendingAiProposal && pendingAiProposal.ops.length > 0 ? (
+              <div className="hs-ai-proposal" aria-label="Proposed AI changes">
+                <div className="hs-ai-proposal-header">
+                  <div className="hs-ai-proposal-title">Proposed changes</div>
+                  <div className="hs-ai-proposal-meta">
+                    {pendingAiProposal.selected.filter(Boolean).length} selected · {pendingAiProposal.ops.length} total
+                  </div>
+                </div>
+
+                <div className="hs-ai-proposal-list">
+                  {pendingAiProposal.ops.map((op, index) => {
+                    const diff = buildProposalDiff(op);
+                    return (
+                      <label key={`ai-op-${index}`} className="hs-ai-op-row">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(pendingAiProposal.selected[index])}
+                          onChange={() => onToggleAiProposalOp(index)}
+                          disabled={isApplyingAiOps}
+                        />
+                        <div className="hs-ai-op-body">
+                          <div className="hs-ai-op-title">{describeHearthOp(op)}</div>
+                          {diff ? (
+                            <div className="hs-ai-op-diff">
+                              <pre>{`- ${diff.before || "(empty)"}`}</pre>
+                              <pre>{`+ ${diff.after || "(empty)"}`}</pre>
+                            </div>
+                          ) : null}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+
+                <div className="hs-ai-proposal-actions">
+                  <button
+                    type="button"
+                    onClick={() => void onApplyAiProposal("all")}
+                    disabled={isApplyingAiOps}
+                  >
+                    {isApplyingAiOps ? "Applying..." : "Apply"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void onApplyAiProposal("selected")}
+                    disabled={isApplyingAiOps || pendingAiProposal.selected.every((value) => !value)}
+                  >
+                    Apply selected
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onDiscardAiProposal}
+                    disabled={isApplyingAiOps}
+                  >
+                    Discard
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {chatError ? (
+              <div className="hs-error-text-small">{chatError}</div>
+            ) : null}
+
+            {aiRuntimeWarning ? (
+              <div className="hs-error-text-small">{aiRuntimeWarning}</div>
+            ) : null}
+
+            {aiCreditsDepleted ? (
+              <div className="hs-error-text-small">No AI credits remaining.</div>
+            ) : null}
+
+            <div className="hs-ai-shortcut-row" role="group" aria-label="Chat shortcuts">
+              <button type="button" onClick={() => onUseChatShortcut("Create a clear outline for this Episode.")}>
+                Outline
+              </button>
+              <button type="button" onClick={() => onUseChatShortcut("Find strong sources I should cite for this Episode.")}>
+                Find sources
+              </button>
+              <button type="button" onClick={() => onUseChatShortcut("Write a record-ready script using canonical Anvil tags.")}>
+                Write script
+              </button>
+            </div>
+
+            <div className="hs-ai-chat-compose">
+              <textarea
+                ref={chatInputRef}
+                value={chatDraft}
+                onChange={(event) => setChatDraft(event.target.value)}
+                placeholder={aiEpisodeReady ? "Talk it out... paste links... ask for an outline..." : "Select an Episode or Spark to start."}
+                className="hs-ai-chat-input"
+                rows={2}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" || event.shiftKey) return;
+                  event.preventDefault();
+                  void onSendChat();
+                }}
+                disabled={isAiProcessing || aiCreditsDepleted || !aiEpisodeReady}
+              />
+              {isAiProcessing ? (
+                <button type="button" onClick={onCancelAiRequest}>
+                  Cancel
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => void onSendChat()}
+                disabled={isAiProcessing || aiCreditsDepleted || !aiEpisodeReady || !chatDraft.trim()}
+              >
+                {isAiProcessing ? "Sending..." : "Send"}
+              </button>
+            </div>
+          </section>
+
+          {showScriptEditor ? (
+            <section className="hs-script-panel" aria-label="Manual draft editor">
+              <header className="hs-script-panel-header">
+                <div className="hs-script-panel-title">
+                  {showScriptPanel && hasScript ? "Script" : "Manual Draft"}
+                </div>
+                <div className="hs-script-panel-meta">Sources: {sourcesSummary}{unusedSummary}</div>
+              </header>
+
+              <label className="hs-field">
+                <span className="hs-field-label">Body</span>
+                <textarea
+                  ref={bodyRef}
+                  value={activeDraft?.body ?? ""}
+                  placeholder="Start writing..."
+                  onChange={(event) => {
+                    setScriptValidation(null);
+                    setActiveDraft((prev) => {
+                      if (!prev) return prev;
+                      draftEditVersionRef.current += 1;
+                      return { ...prev, body: event.target.value };
+                    });
+                  }}
+                  onCompositionStart={() => setIsBodyComposing(true)}
+                  onCompositionEnd={() => setIsBodyComposing(false)}
+                  onSelect={(event) => {
+                    const target = event.target as HTMLTextAreaElement;
+                    setCursorPosition(target.selectionStart);
+                  }}
+                  onKeyUp={(event) => {
+                    const target = event.target as HTMLTextAreaElement;
+                    setCursorPosition(target.selectionStart);
+                  }}
+                  onScroll={(event) => {
+                    const target = event.target as HTMLTextAreaElement;
+                    setScrollTop(target.scrollTop);
+                  }}
+                  disabled={!activeDraft}
+                  className="hs-textarea-body hs-textarea-script-panel"
+                />
+              </label>
+
+              <div className="hs-sources-row">
+                <span className="hs-sources-summary">Sources: {sourcesSummary}{unusedSummary}</span>
+                <button type="button" onClick={() => setMode("sources")} disabled={!workpieceId}>
+                  Review sources
+                </button>
+              </div>
+            </section>
+          ) : null}
+        </div>
       </section>
     );
   };
