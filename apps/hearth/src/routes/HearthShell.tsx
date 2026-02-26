@@ -859,6 +859,7 @@ export default function HearthShell() {
   const sessionCommitQueued = useRef(false);
   const restoredCursorDraftIdRef = useRef<string | null>(null);
   const aiRequestControllerRef = useRef<AbortController | null>(null);
+  const speechRecognitionRef = useRef<any>(null);
   const chatPersistTimerRef = useRef<number | null>(null);
   const chatMessagesRef = useRef<HearthChatMessage[]>([]);
   const latestChatHistoryKeyRef = useRef<string | null>(null);
@@ -918,6 +919,10 @@ export default function HearthShell() {
   );
   const aiCreditsDepleted = aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0;
   const aiEpisodeReady = Boolean(workpieceId?.trim());
+  const hasBrowserSpeech = (
+    typeof window !== "undefined"
+    && (Boolean((window as any).SpeechRecognition) || Boolean((window as any).webkitSpeechRecognition))
+  );
   const hasApprovedScript = Boolean(
     scriptApprovalState.hasApprovedScript
     && scriptApprovalState.approvedScriptVersion
@@ -1047,6 +1052,12 @@ export default function HearthShell() {
   useEffect(() => {
     return () => {
       aiRequestControllerRef.current?.abort();
+      try {
+        speechRecognitionRef.current?.stop();
+      } catch {
+        // ignore stop errors during teardown
+      }
+      speechRecognitionRef.current = null;
       writeHearthAiRuntimeStatus({ isAiProcessing: false });
     };
   }, []);
@@ -1617,6 +1628,13 @@ export default function HearthShell() {
       }
     };
   }, [chatHistoryKey, chatMessages]);
+
+  useEffect(() => {
+    if (hasBrowserSpeech || sttLane !== "browser") return;
+    setSttLane("ai");
+    setSttState("idle");
+    setSttError("Browser speech not supported.");
+  }, [hasBrowserSpeech, sttLane]);
 
   useEffect(() => {
     if ((activeDraft?.body ?? "").trim()) return;
@@ -2660,14 +2678,84 @@ export default function HearthShell() {
     chatInputRef.current?.focus();
   }
 
-  function toggleStt() {
-    if (sttState === "transcribing") return;
+  function startBrowserStt() {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setSttError("Browser speech not supported.");
+      setSttState("idle");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.lang = "en-US";
+
+    let finalTranscript = "";
+
+    recognition.onresult = (event: any) => {
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const result = event.results[i];
+        if (result.isFinal) {
+          const chunk = result[0]?.transcript;
+          if (typeof chunk === "string" && chunk.trim()) {
+            finalTranscript += `${chunk.trim()} `;
+          }
+        }
+      }
+    };
+
+    recognition.onerror = () => {
+      speechRecognitionRef.current = null;
+      setSttState("idle");
+      setSttError("Speech recognition error.");
+    };
+
+    recognition.onend = async () => {
+      speechRecognitionRef.current = null;
+      setSttState("idle");
+
+      const text = finalTranscript.trim();
+      if (!text) return;
+      await sendChatMessage({ requestContent: text });
+    };
+
+    speechRecognitionRef.current = recognition;
     setSttError(null);
+    setSttState("listening");
+    try {
+      recognition.start();
+    } catch {
+      speechRecognitionRef.current = null;
+      setSttState("idle");
+      setSttError("Unable to start speech recognition.");
+    }
+  }
+
+  function stopBrowserStt() {
+    try {
+      speechRecognitionRef.current?.stop();
+    } catch {
+      // onend will settle state
+    }
+  }
+
+  function onToggleMic() {
+    if (sttState === "transcribing") return;
     if (sttState === "idle") {
-      setSttState("listening");
+      setSttError(null);
+      if (sttLane === "browser") {
+        startBrowserStt();
+        return;
+      }
+      setSttError("AI STT not wired yet.");
       return;
     }
     if (sttState === "listening") {
+      if (sttLane === "browser") {
+        stopBrowserStt();
+        return;
+      }
       setSttState("idle");
     }
   }
@@ -3172,13 +3260,16 @@ export default function HearthShell() {
                 value={sttLane}
                 onChange={(event) => setSttLane(event.target.value as SttLane)}
                 className="stt-lane-select"
+                title={!hasBrowserSpeech ? "Browser speech not supported" : undefined}
               >
-                <option value="browser">Free</option>
+                <option value="browser" disabled={!hasBrowserSpeech}>
+                  Browser (Free)
+                </option>
                 <option value="ai">AI</option>
               </select>
               <button
                 type="button"
-                onClick={toggleStt}
+                onClick={onToggleMic}
                 className={`mic-button ${sttState}`}
                 title={
                   sttState === "idle"
