@@ -855,7 +855,7 @@ export default function HearthShell() {
   const restoredCursorDraftIdRef = useRef<string | null>(null);
   const aiRequestControllerRef = useRef<AbortController | null>(null);
   const chatPersistTimerRef = useRef<number | null>(null);
-  const latestChatMessagesRef = useRef<HearthChatMessage[]>([]);
+  const chatMessagesRef = useRef<HearthChatMessage[]>([]);
   const latestChatHistoryKeyRef = useRef<string | null>(null);
   const skipChatHydrationKeyRef = useRef<string | null>(null);
   const pendingChatHydrationKeyRef = useRef<string | null>(null);
@@ -870,7 +870,7 @@ export default function HearthShell() {
       window.clearTimeout(chatPersistTimerRef.current);
       chatPersistTimerRef.current = null;
     }
-    writeChatHistory(historyKey, options?.messages ?? latestChatMessagesRef.current);
+    writeChatHistory(historyKey, options?.messages ?? chatMessagesRef.current);
   }, []);
 
   const lastAutosaveRevisionAt = useMemo(() => {
@@ -975,7 +975,7 @@ export default function HearthShell() {
   }, [draftSnapshot]);
 
   useEffect(() => {
-    latestChatMessagesRef.current = chatMessages;
+    chatMessagesRef.current = chatMessages;
   }, [chatMessages]);
 
   useEffect(() => {
@@ -2206,8 +2206,8 @@ export default function HearthShell() {
     } finally {
       if (aiRequestControllerRef.current === controller) {
         aiRequestControllerRef.current = null;
+        setIsAiProcessing(false);
       }
-      setIsAiProcessing(false);
       setIsRepairingScript(false);
     }
   }
@@ -2524,8 +2524,9 @@ export default function HearthShell() {
 
     const requestUserMessage: HearthChatMessage = { role: "user", content: requestContent };
     const displayUserMessage: HearthChatMessage = { role: "user", content: displayContent || requestContent };
-    const requestMessages = [...chatMessages, requestUserMessage].slice(-CHAT_HISTORY_MAX_MESSAGES);
-    const displayMessages = [...chatMessages, displayUserMessage].slice(-CHAT_HISTORY_MAX_MESSAGES);
+    const baseMessages = chatMessagesRef.current;
+    const requestMessages = [...baseMessages, requestUserMessage].slice(-CHAT_HISTORY_MAX_MESSAGES);
+    const displayMessages = [...baseMessages, displayUserMessage].slice(-CHAT_HISTORY_MAX_MESSAGES);
     setChatMessages(displayMessages);
     setChatDraft("");
     setChatError(null);
@@ -2574,20 +2575,27 @@ export default function HearthShell() {
       }
 
       const refreshedCredits = await refreshMyAiCredits();
-      if (refreshedCredits.ok) {
+      const laneNow = resolveAiLaneFromStorage();
+      if (laneNow === "byo") {
+        setAiBillingMode("byo");
+        setAiTokenBalance(null);
+      } else if (refreshedCredits.ok) {
         setAiBillingMode(refreshedCredits.runtime.billingMode);
         setAiTokenBalance(refreshedCredits.runtime.tokenBalance);
       } else {
         setAiRuntimeWarning("Unable to update credits.");
       }
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return;
+      }
       const message = err instanceof Error ? err.message : "AI request failed.";
       setChatError(message);
     } finally {
       if (aiRequestControllerRef.current === controller) {
         aiRequestControllerRef.current = null;
+        setIsAiProcessing(false);
       }
-      setIsAiProcessing(false);
     }
   }
 
