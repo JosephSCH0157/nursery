@@ -58,6 +58,8 @@ const STORE_KIND_KEY = "hearth_store_kind";
 const DEV_MODE_KEY = "tp_dev_mode";
 const MODE_STORAGE_PREFIX = "hearth:ui:mode:v1:";
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
+const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
+const CHAT_HISTORY_MAX_MESSAGES = 200;
 
 type HearthMode = "sparks" | "draft" | "planning" | "sources" | "revisions";
 type ProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet";
@@ -177,6 +179,61 @@ function writeMode(workpieceId: string | null, mode: HearthMode): void {
   if (mode === "sparks") return;
   try {
     window.localStorage.setItem(`${MODE_STORAGE_PREFIX}${workpieceId}`, mode);
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function resolveChatHistoryKey(workpieceId: string | null, draftId: string | null): string | null {
+  const workpiece = workpieceId?.trim();
+  if (workpiece) return `${CHAT_HISTORY_STORAGE_PREFIX}workpiece:${workpiece}`;
+  const draft = draftId?.trim();
+  if (draft) return `${CHAT_HISTORY_STORAGE_PREFIX}draft:${draft}`;
+  return null;
+}
+
+function normalizeChatRole(value: unknown): HearthChatMessage["role"] | null {
+  if (value === "assistant" || value === "user" || value === "system") {
+    return value;
+  }
+  return null;
+}
+
+function readChatHistory(historyKey: string | null): HearthChatMessage[] {
+  if (!historyKey || typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(historyKey);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") return null;
+        const row = entry as { role?: unknown; content?: unknown };
+        const role = normalizeChatRole(row.role);
+        if (!role || typeof row.content !== "string") return null;
+        const content = row.content.trim();
+        if (!content) return null;
+        return { role, content };
+      })
+      .filter((entry): entry is HearthChatMessage => Boolean(entry))
+      .slice(-CHAT_HISTORY_MAX_MESSAGES);
+  } catch {
+    return [];
+  }
+}
+
+function writeChatHistory(historyKey: string | null, messages: HearthChatMessage[]): void {
+  if (!historyKey || typeof window === "undefined") return;
+  try {
+    if (messages.length === 0) {
+      window.localStorage.removeItem(historyKey);
+      return;
+    }
+    window.localStorage.setItem(
+      historyKey,
+      JSON.stringify(messages.slice(-CHAT_HISTORY_MAX_MESSAGES)),
+    );
   } catch {
     // ignore storage failures
   }
@@ -734,6 +791,8 @@ export default function HearthShell() {
   const sessionCommitQueued = useRef(false);
   const restoredCursorDraftIdRef = useRef<string | null>(null);
   const aiRequestControllerRef = useRef<AbortController | null>(null);
+  const skipChatHydrationKeyRef = useRef<string | null>(null);
+  const pendingChatHydrationKeyRef = useRef<string | null>(null);
 
   const lastAutosaveRevisionAt = useMemo(() => {
     const match = revisions.find((rev) => rev.kind === "autosave");
@@ -781,6 +840,10 @@ export default function HearthShell() {
     && scriptApprovalState.approvedScriptVersion > 0,
   );
   const approvedScriptVersion = hasApprovedScript ? scriptApprovalState.approvedScriptVersion : null;
+  const chatHistoryKey = useMemo(
+    () => resolveChatHistoryKey(workpieceId, activeDraft?.id ?? null),
+    [activeDraft?.id, workpieceId],
+  );
   const activeEpisodeSparks = useMemo(
     () => sparks.filter((spark) => (
       (workpieceId && spark.links?.hearthWorkpieceId === workpieceId)
@@ -1097,7 +1160,16 @@ export default function HearthShell() {
       }
       setWorkspaceId(resolveWorkspaceId());
       applySessionOrigin({ created_from: "scratch" });
-      await createDraftAndOpen(undefined, "draft");
+      const draft = await createDraftAndOpen(undefined, "draft");
+      const nextChatKey = resolveChatHistoryKey(created.workpieceId ?? null, draft.id);
+      if (nextChatKey) {
+        skipChatHydrationKeyRef.current = nextChatKey;
+        writeChatHistory(nextChatKey, []);
+      }
+      setChatMessages([]);
+      setChatDraft("");
+      setChatError(null);
+      setPendingAiProposal(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to start workpiece.";
       setForgeError(message);
@@ -1145,7 +1217,13 @@ export default function HearthShell() {
       if (sparkPreview) {
         markerLines.push(`Notes: ${sparkPreview}`);
       }
-      setChatMessages([{ role: "assistant", content: markerLines.join("\n") }]);
+      const markerMessage: HearthChatMessage = { role: "assistant", content: markerLines.join("\n") };
+      const nextChatKey = resolveChatHistoryKey(workpieceId ?? null, draft.id);
+      if (nextChatKey) {
+        skipChatHydrationKeyRef.current = nextChatKey;
+        writeChatHistory(nextChatKey, [markerMessage]);
+      }
+      setChatMessages([markerMessage]);
       setChatDraft("");
       setChatError(null);
       setPendingAiProposal(null);
@@ -1380,6 +1458,34 @@ export default function HearthShell() {
     setShowManualDraft(false);
     setShowScriptPanel(false);
   }, [activeDraft?.id]);
+
+  useEffect(() => {
+    if (!chatHistoryKey) {
+      pendingChatHydrationKeyRef.current = null;
+      setChatMessages([]);
+      setChatError(null);
+      setPendingAiProposal(null);
+      return;
+    }
+    if (skipChatHydrationKeyRef.current === chatHistoryKey) {
+      skipChatHydrationKeyRef.current = null;
+      pendingChatHydrationKeyRef.current = null;
+      return;
+    }
+    pendingChatHydrationKeyRef.current = chatHistoryKey;
+    setChatMessages(readChatHistory(chatHistoryKey));
+    setChatError(null);
+    setPendingAiProposal(null);
+  }, [chatHistoryKey]);
+
+  useEffect(() => {
+    if (!chatHistoryKey) return;
+    if (pendingChatHydrationKeyRef.current === chatHistoryKey) {
+      pendingChatHydrationKeyRef.current = null;
+      return;
+    }
+    writeChatHistory(chatHistoryKey, chatMessages);
+  }, [chatHistoryKey, chatMessages]);
 
   useEffect(() => {
     if ((activeDraft?.body ?? "").trim()) return;
@@ -1960,7 +2066,7 @@ export default function HearthShell() {
         role: "assistant",
         content: result.assistantText || "Applied repaired script tags.",
       };
-      setChatMessages((prev) => [...prev, assistantMessage].slice(-24));
+      setChatMessages((prev) => [...prev, assistantMessage].slice(-CHAT_HISTORY_MAX_MESSAGES));
 
       if (result.creditsWarning) {
         setAiRuntimeWarning(result.creditsWarning);
@@ -2214,7 +2320,7 @@ export default function HearthShell() {
       setChatMessages((prev) => [
         ...prev,
         { role: "assistant", content: markerLines.join("\n") },
-      ].slice(-24));
+      ].slice(-CHAT_HISTORY_MAX_MESSAGES));
     } finally {
       setIsApprovingScript(false);
     }
@@ -2290,8 +2396,8 @@ export default function HearthShell() {
 
     const requestUserMessage: HearthChatMessage = { role: "user", content: requestContent };
     const displayUserMessage: HearthChatMessage = { role: "user", content: displayContent || requestContent };
-    const requestMessages = [...chatMessages, requestUserMessage].slice(-24);
-    const displayMessages = [...chatMessages, displayUserMessage].slice(-24);
+    const requestMessages = [...chatMessages, requestUserMessage].slice(-CHAT_HISTORY_MAX_MESSAGES);
+    const displayMessages = [...chatMessages, displayUserMessage].slice(-CHAT_HISTORY_MAX_MESSAGES);
     setChatMessages(displayMessages);
     setChatDraft("");
     setChatError(null);
@@ -2316,7 +2422,7 @@ export default function HearthShell() {
       }
 
       const assistantMessage: HearthChatMessage = { role: "assistant", content: result.assistantText };
-      setChatMessages((prev) => [...prev, assistantMessage].slice(-24));
+      setChatMessages((prev) => [...prev, assistantMessage].slice(-CHAT_HISTORY_MAX_MESSAGES));
 
       if (args.productionAction && args.productionScriptVersion) {
         await persistProductionArtifact({
