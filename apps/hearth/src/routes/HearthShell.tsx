@@ -43,6 +43,11 @@ import {
   type HearthOp,
   type HearthOpsStore,
 } from "../lib/hearth-ai-ops";
+import {
+  formatScriptToAnvilTagsNoAi,
+  validateAnvilTagContract,
+  type AnvilTagValidation,
+} from "../lib/anvil-tag-contract";
 
 const AUTOSAVE_DELAY_MS = 2200;
 const AUTOSAVE_MIN_GAP_MS = 5000;
@@ -181,6 +186,11 @@ type PendingAiProposal = {
   ops: HearthOp[];
   selected: boolean[];
   context: EpisodeContext;
+};
+
+type ScriptValidationState = {
+  source: "save_gate" | "ai_apply" | "ai_repair";
+  result: AnvilTagValidation;
 };
 
 function buildDiffLines(current: string, revision: string): DiffLine[] {
@@ -372,6 +382,8 @@ export default function HearthShell() {
   const [isSavingRevision, setIsSavingRevision] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [scriptValidation, setScriptValidation] = useState<ScriptValidationState | null>(null);
+  const [isRepairingScript, setIsRepairingScript] = useState(false);
   const [searchText, setSearchText] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("updated");
   const [showArchived, setShowArchived] = useState(false);
@@ -1122,6 +1134,19 @@ export default function HearthShell() {
       setIsSaving(true);
     }
     setError(null);
+    const tagValidation = validateAnvilTagContract(args.draft.body);
+    if (!tagValidation.ok) {
+      setScriptValidation({
+        source: "save_gate",
+        result: tagValidation,
+      });
+      setError(`Script tag validation failed:\n${tagValidation.report}`);
+      if (showSavingState) {
+        setIsSaving(false);
+      }
+      return false;
+    }
+    setScriptValidation(null);
     const editVersionAtStart = draftEditVersionRef.current;
     try {
       let revisionCount = args.draft.revisionCount;
@@ -1201,6 +1226,16 @@ export default function HearthShell() {
       title: normalizeTitle(updates.title ?? draft.title),
       updatedAt: now,
     };
+    const tagValidation = validateAnvilTagContract(toSave.body);
+    if (!tagValidation.ok) {
+      setScriptValidation({
+        source: "save_gate",
+        result: tagValidation,
+      });
+      setError(`Script tag validation failed:\n${tagValidation.report}`);
+      return;
+    }
+    setScriptValidation(null);
     await store.saveDraft(toSave);
     setDrafts((prev) => prev.map((d) => (d.id === toSave.id ? toSave : d)));
     if (activeDraft?.id === toSave.id) {
@@ -1361,6 +1396,144 @@ export default function HearthShell() {
     workpieceSources,
   ]);
 
+  function findNextBodyFromOps(baseBody: string, ops: HearthOp[]): string {
+    let next = baseBody;
+    for (const op of ops) {
+      if (op.op === "set_body") {
+        next = op.value;
+      }
+    }
+    return next;
+  }
+
+  async function onFixScriptFormattingNoAi() {
+    if (!activeDraft) return;
+    const formattedBody = formatScriptToAnvilTagsNoAi(activeDraft.body);
+    const validation = validateAnvilTagContract(formattedBody);
+    if (!validation.ok) {
+      setScriptValidation({
+        source: "save_gate",
+        result: validation,
+      });
+      setError(`Script tag validation failed:\n${validation.report}`);
+      return;
+    }
+
+    const now = Date.now();
+    const saved = await persistDraft({
+      draft: { ...activeDraft, body: formattedBody, updatedAt: now },
+      updatedAt: now,
+      createRevision: null,
+      syncSources: false,
+      syncSession: false,
+    });
+    if (saved) {
+      setScriptValidation(null);
+    }
+  }
+
+  async function onAskAiRepairScript() {
+    if (isRepairingScript || isAiProcessing) return;
+    if (!activeDraft) return;
+
+    const episodeContext = buildActiveEpisodeContext();
+    if (!episodeContext) {
+      setChatError("Select an Episode or Spark to start.");
+      return;
+    }
+
+    const lane = resolveAiLaneFromStorage();
+    setAiBillingMode(lane);
+    if (lane === "forge" && aiTokenBalance != null && aiTokenBalance <= 0) {
+      setChatError("No AI credits remaining.");
+      return;
+    }
+
+    setChatError(null);
+    setAiRuntimeWarning(null);
+    setIsRepairingScript(true);
+
+    const repairMessage = [
+      "Repair this script to satisfy the canonical Anvil tag contract.",
+      "Do NOT rewrite meaning, style, or wording except where required to fix markup.",
+      "Return a set_body op with the repaired script.",
+      "Also include script_text and tag_audit.",
+      "",
+      "SCRIPT TO REPAIR:",
+      activeDraft.body,
+    ].join("\n");
+
+    const controller = new AbortController();
+    aiRequestControllerRef.current = controller;
+    setIsAiProcessing(true);
+
+    try {
+      const result = await requestHearthChatReply(
+        [{ role: "user", content: repairMessage }],
+        episodeContext,
+        { signal: controller.signal },
+      );
+
+      setAiBillingMode(result.runtime.billingMode);
+      if (result.runtime.billingMode === "byo") {
+        setAiTokenBalance(null);
+      }
+
+      if (!result.ok) {
+        if (!result.cancelled) {
+          setChatError(result.error);
+        }
+        return;
+      }
+
+      const opBody = result.ops.find((op) => op.op === "set_body");
+      const repairedBody = result.scriptText ?? (opBody && opBody.op === "set_body" ? opBody.value : "");
+      const validation = validateAnvilTagContract(repairedBody);
+      if (!validation.ok) {
+        setScriptValidation({
+          source: "ai_repair",
+          result: validation,
+        });
+        setError(`Script tag validation failed after AI repair:\n${validation.report}`);
+        return;
+      }
+
+      const now = Date.now();
+      const saved = await persistDraft({
+        draft: { ...activeDraft, body: repairedBody, updatedAt: now },
+        updatedAt: now,
+        createRevision: null,
+        syncSources: false,
+        syncSession: false,
+      });
+      if (saved) {
+        setScriptValidation(null);
+      }
+
+      const assistantMessage: HearthChatMessage = {
+        role: "assistant",
+        content: result.assistantText || "Applied repaired script tags.",
+      };
+      setChatMessages((prev) => [...prev, assistantMessage].slice(-24));
+
+      if (result.creditsWarning) {
+        setAiRuntimeWarning(result.creditsWarning);
+      }
+
+      const refreshedCredits = await refreshMyAiCredits();
+      if (refreshedCredits.ok) {
+        setAiBillingMode(refreshedCredits.runtime.billingMode);
+        setAiTokenBalance(refreshedCredits.runtime.tokenBalance);
+      }
+    } finally {
+      if (aiRequestControllerRef.current === controller) {
+        aiRequestControllerRef.current = null;
+      }
+      setIsAiProcessing(false);
+      setIsRepairingScript(false);
+    }
+  }
+
   async function onApplyAiProposal(mode: "all" | "selected") {
     if (!pendingAiProposal || isApplyingAiOps) return;
     const episodeId = workpieceId?.trim();
@@ -1378,9 +1551,21 @@ export default function HearthShell() {
       return;
     }
 
+    const projectedBody = findNextBodyFromOps(activeDraft.body, opsToApply);
+    const projectedValidation = validateAnvilTagContract(projectedBody);
+    if (!projectedValidation.ok) {
+      setScriptValidation({
+        source: "ai_apply",
+        result: projectedValidation,
+      });
+      setError(`Script tag validation failed:\n${projectedValidation.report}`);
+      return;
+    }
+
     setIsApplyingAiOps(true);
     setChatError(null);
     setError(null);
+    setScriptValidation(null);
 
     let nextDraft: Draft = { ...activeDraft };
     let draftChanged = false;
@@ -1469,13 +1654,16 @@ export default function HearthShell() {
       if (saveRequested) {
         if (draftChanged) {
           const now = Date.now();
-          await persistDraft({
+          const saved = await persistDraft({
             draft: { ...nextDraft, updatedAt: now },
             updatedAt: now,
             createRevision: null,
             syncSources: false,
             syncSession: false,
           });
+          if (!saved) {
+            return;
+          }
         } else {
           setActiveDraft((prev) => (prev ? nextDraft : prev));
         }
@@ -1790,6 +1978,43 @@ export default function HearthShell() {
           <div className="hs-error-text">{error}</div>
         ) : null}
 
+        {scriptValidation ? (
+          <section className="hs-script-validation" aria-label="Anvil tag validation">
+            <div className="hs-script-validation-title">Script Tag Contract Failed</div>
+            <div className="hs-script-validation-subtitle">
+              {scriptValidation.source === "ai_apply"
+                ? "AI proposed script changes are invalid."
+                : scriptValidation.source === "ai_repair"
+                  ? "AI repair result is still invalid."
+                  : "Draft cannot be saved until tags are valid."}
+            </div>
+            <pre className="hs-script-validation-report">{scriptValidation.result.report}</pre>
+            <div className="hs-script-validation-actions">
+              <button
+                type="button"
+                onClick={() => void onFixScriptFormattingNoAi()}
+                disabled={!activeDraft || isSaving || isRepairingScript}
+              >
+                Fix formatting (no AI)
+              </button>
+              <button
+                type="button"
+                onClick={() => void onAskAiRepairScript()}
+                disabled={!activeDraft || !aiEpisodeReady || aiCreditsDepleted || isAiProcessing || isRepairingScript}
+              >
+                {isRepairingScript ? "Repairing..." : "Ask AI to repair"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setScriptValidation(null)}
+                disabled={isRepairingScript}
+              >
+                Dismiss
+              </button>
+            </div>
+          </section>
+        ) : null}
+
         <label className="hs-field">
           <span className="hs-field-label">Title</span>
           <input
@@ -1814,6 +2039,7 @@ export default function HearthShell() {
             value={activeDraft?.body ?? ""}
             placeholder="Start writing..."
             onChange={(event) => {
+              setScriptValidation(null);
               setActiveDraft((prev) => {
                 if (!prev) return prev;
                 draftEditVersionRef.current += 1;

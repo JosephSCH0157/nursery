@@ -5,6 +5,7 @@ import type { Draft } from "../src/domain/draft";
 import type { Revision } from "../src/domain/revision";
 import { applyHearthOps, buildEpisodeContext } from "../src/lib/hearth-ai-ops";
 import { requestHearthChatReply } from "../src/lib/hearth-chat-api";
+import { formatScriptToAnvilTagsNoAi, validateAnvilTagContract } from "../src/lib/anvil-tag-contract";
 
 class MemoryStorage {
   private store = new Map<string, string>();
@@ -210,6 +211,8 @@ async function testAiRequestPayloadIncludesEpisodeId() {
     return new Response(JSON.stringify({
       assistant_text: "All set.",
       ops: [],
+      script_text: "[s1]\nHello\n[/s1]",
+      tag_audit: { speaker_blocks_closed: true },
       billing_mode: "forge",
       token_balance: 99,
       total_tokens: 11,
@@ -225,10 +228,34 @@ async function testAiRequestPayloadIncludesEpisodeId() {
       createEpisodeContextFixture(),
     );
     assert.ok(result.ok, "AI request should succeed in mocked fetch");
+    if (result.ok) {
+      assert.equal(result.scriptText, "[s1]\nHello\n[/s1]");
+      assert.equal((result.tagAudit as { speaker_blocks_closed?: boolean } | undefined)?.speaker_blocks_closed, true);
+    }
     assert.equal(capturedBody?.episode_context && (capturedBody.episode_context as { episodeId?: string }).episodeId, "episode-123");
   } finally {
     globalThis.fetch = originalFetch;
   }
+}
+
+async function testAnvilTagValidatorAndFormatter() {
+  const invalidScript = [
+    "**Brad:** intro line",
+    "(Joe:) response line",
+  ].join("\n");
+
+  const invalid = validateAnvilTagContract(invalidScript);
+  assert.equal(invalid.ok, false, "Invalid script should fail tag contract");
+  assert.ok(
+    invalid.problems.some((item) => item.includes("Forbidden markup")),
+    "Validator should report forbidden markup",
+  );
+
+  const formatted = formatScriptToAnvilTagsNoAi(invalidScript);
+  const fixed = validateAnvilTagContract(formatted);
+  assert.equal(fixed.ok, true, "Formatter should produce valid canonical tag output for common label issues");
+  assert.ok(formatted.includes("[s1]"), "Formatter should map Joe/S1 labels to [s1]");
+  assert.ok(formatted.includes("[s2]"), "Formatter should map Brad/S2 labels to [s2]");
 }
 
 async function run() {
@@ -238,6 +265,7 @@ async function run() {
   await testBuildEpisodeContextIncludesFields();
   await testApplyHearthOpsRequestsSave();
   await testAiRequestPayloadIncludesEpisodeId();
+  await testAnvilTagValidatorAndFormatter();
   // eslint-disable-next-line no-console
   console.log("Hearth confidence tests passed.");
 }

@@ -24,6 +24,8 @@ export type HearthChatResult =
       status: number;
       assistantText: string;
       ops: HearthOp[];
+      scriptText?: string;
+      tagAudit?: Record<string, unknown>;
       runtime: HearthAiRuntimeSnapshot;
       totalTokens: number | null;
       creditsWarning?: string;
@@ -462,6 +464,7 @@ export async function requestHearthChatReply(
     ?? ""
   ).trim();
   const ops = normalizeOps(readUnknownField(payload, "ops"));
+  const tagAuditRaw = readUnknownField(payload, "tag_audit");
   if (!assistantText && ops.length === 0) {
     return {
       ok: false,
@@ -476,6 +479,10 @@ export async function requestHearthChatReply(
     status: response.status,
     assistantText,
     ops,
+    scriptText: readStringField(payload, "script_text") ?? undefined,
+    tagAudit: (tagAuditRaw && isRecord(tagAuditRaw))
+      ? (tagAuditRaw as Record<string, unknown>)
+      : undefined,
     runtime,
     totalTokens: readNumberField(payload, "total_tokens"),
     creditsWarning: readStringField(payload, "credits_warning") ?? undefined,

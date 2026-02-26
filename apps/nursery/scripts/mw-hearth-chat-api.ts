@@ -39,6 +39,8 @@ type EpisodeContext = {
 type StructuredReply = {
   assistantText: string;
   ops: HearthOp[];
+  scriptText: string | null;
+  tagAudit: Record<string, unknown> | null;
 };
 
 type ReqBody = {
@@ -145,6 +147,11 @@ function readOptionalString(value: unknown): string | null {
   return trimmed ? trimmed : null;
 }
 
+function canonicalizeToken(raw: string): string {
+  const inner = raw.slice(1, -1).trim().toLowerCase().replace(/\s+/g, " ");
+  return `[${inner}]`;
+}
+
 function extractRpcTokenBalance(payload: unknown): number | null {
   const row = Array.isArray(payload) ? payload[0] : payload;
   if (!row || typeof row !== "object") return null;
@@ -247,7 +254,7 @@ function buildSystemPrompt(context: EpisodeContext): string {
     "Never ask what the topic is.",
     "Use only the provided episode_context as your factual context unless the user explicitly gives new details.",
     "Return ONLY valid JSON with this shape:",
-    "{\"assistantText\": string, \"ops\": HearthOp[]}",
+    "{\"assistantText\": string, \"ops\": HearthOp[], \"script_text\": string|null, \"tag_audit\": object|null}",
     "Allowed ops:",
     "- set_title",
     "- set_title_variant",
@@ -256,11 +263,21 @@ function buildSystemPrompt(context: EpisodeContext): string {
     "- add_source",
     "- update_source",
     "- remove_source",
+    "Tag Contract (hard rules):",
+    "- Allowed speaker blocks only: [s1]...[/s1], [s2]...[/s2], [g1]...[/g1], [g2]...[/g2]",
+    "- Speaker tags must be on their own line with nothing else on that line.",
+    "- No overlaps, no missing closes, no cross-tagging.",
+    "- Allowed inline pacing tokens: [pause], [beat], [reflective pause]",
+    "- Allowed hidden notes: [note]...[/note], and [note] tags must be on their own lines.",
+    "- Forbid random markup: Joe:, Brad:, **Brad:**, <speaker>, Markdown headings.",
+    "- Canonical speaker mapping: S1 = Joe, S2 = Brad.",
     "Rules:",
     "- assistantText must be concise plain text (no markdown).",
     "- Use ops only for concrete edits requested by the user.",
     "- If the user only asks a question, return ops as [].",
     "- Do not invent source ids for update/remove ops.",
+    "- When proposing or returning a script body, include script_text and tag_audit.",
+    "- tag_audit must briefly confirm closure, standalone tags, and no markdown/random markup.",
     "- Keep output strictly JSON (no code fences).",
     "episode_context:",
     JSON.stringify(context),
@@ -414,15 +431,78 @@ function normalizeOps(value: unknown): HearthOp[] {
   return out;
 }
 
+function buildTagAuditFromScript(scriptText: string | null): Record<string, unknown> | null {
+  const script = scriptText?.trim();
+  if (!script) return null;
+
+  const tagMatches = script.match(/\[[^\]]+\]/g) ?? [];
+  const normalizedTags = tagMatches.map((tag) => canonicalizeToken(tag));
+  const allowedTags = new Set<string>([
+    "[s1]", "[/s1]",
+    "[s2]", "[/s2]",
+    "[g1]", "[/g1]",
+    "[g2]", "[/g2]",
+    "[note]", "[/note]",
+    "[pause]", "[beat]", "[reflective pause]",
+  ]);
+  const noUnknownTags = normalizedTags.every((tag) => allowedTags.has(tag));
+
+  const speakerStandalone = !/\[(?:s1|s2|g1|g2)\]\s*\S/i.test(script) && !/\S\s*\[\/(?:s1|s2|g1|g2)\]/i.test(script);
+  const noteStandalone = !/\[note\]\s*\S/i.test(script) && !/\S\s*\[\/note\]/i.test(script);
+  const noForbiddenMarkup = (
+    !/(^|\n)\s*#{1,6}\s+\S/.test(script)
+    && !/(^|\n)\s*\*\*[^*\n]{1,80}:\*\*/i.test(script)
+    && !/(^|\n)\s*(?:joe|brad|s1|s2|g1|g2)\s*:/i.test(script)
+    && !/(^|\n)\s*\((?:joe|brad|s1|s2|g1|g2)\s*:\)/i.test(script)
+    && !/<\s*\/?\s*[a-z][^>]*>/i.test(script)
+  );
+
+  const blockRe = /\[(\/?)(s1|s2|g1|g2|note)\]/gi;
+  const stack: string[] = [];
+  let noCrossTagging = true;
+  let match: RegExpExecArray | null = null;
+  while ((match = blockRe.exec(script)) !== null) {
+    const close = Boolean(match[1]);
+    const name = match[2].toLowerCase();
+    if (!close) {
+      stack.push(name);
+      continue;
+    }
+    const top = stack.pop();
+    if (top !== name) {
+      noCrossTagging = false;
+      break;
+    }
+  }
+
+  return {
+    speaker_blocks_closed: stack.length === 0 && noCrossTagging,
+    speaker_tags_standalone_lines: speakerStandalone,
+    note_blocks_standalone_lines: noteStandalone,
+    no_cross_tagging: noCrossTagging,
+    no_unknown_tags: noUnknownTags,
+    no_forbidden_markup: noForbiddenMarkup,
+  };
+}
+
 function normalizeStructuredReply(raw: string): StructuredReply | null {
   const parsed = tryParseJsonObject(raw);
   if (!parsed) return null;
   const assistantText = readOptionalString(parsed.assistantText) ?? readOptionalString(parsed.assistant_text) ?? "";
   const ops = normalizeOps(parsed.ops);
+  const scriptText = readOptionalString(parsed.script_text) ?? null;
   if (!assistantText && ops.length === 0) return null;
+  const inferredScriptText = scriptText
+    ?? (ops.find((op) => op.op === "set_body") as { op: "set_body"; value: string } | undefined)?.value
+    ?? null;
+  const tagAudit = isRecord(parsed.tag_audit)
+    ? parsed.tag_audit
+    : buildTagAuditFromScript(inferredScriptText);
   return {
     assistantText,
     ops,
+    scriptText: inferredScriptText,
+    tagAudit,
   };
 }
 
@@ -652,6 +732,8 @@ export function mwHearthChatApi() {
         const structured = normalizeStructuredReply(rawReply) ?? {
           assistantText: rawReply,
           ops: [],
+          scriptText: null,
+          tagAudit: null,
         };
 
         if (!structured.assistantText && structured.ops.length === 0) {
@@ -700,6 +782,8 @@ export function mwHearthChatApi() {
           assistant_text: structured.assistantText,
           reply: structured.assistantText,
           ops: structured.ops,
+          script_text: structured.scriptText,
+          tag_audit: structured.tagAudit,
           total_tokens: spent,
           credits_warning: creditsWarning,
           ...buildBillingSnapshot(lane),

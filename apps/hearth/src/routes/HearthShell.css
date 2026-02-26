@@ -517,6 +517,41 @@
   flex-wrap: wrap;
 }
 
+.hs-script-validation {
+  border: 1px solid #c95f2d;
+  background: rgba(201, 95, 45, 0.08);
+  border-radius: 10px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.hs-script-validation-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.hs-script-validation-subtitle {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.hs-script-validation-report {
+  margin: 0;
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(15, 23, 42, 0.08);
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.hs-script-validation-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .hs-planning {
   display: grid;
   gap: 16px;
