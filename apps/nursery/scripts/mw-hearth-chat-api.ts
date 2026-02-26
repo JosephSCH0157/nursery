@@ -11,8 +11,39 @@ type Next = (err?: unknown) => void;
 type ChatRole = "system" | "user" | "assistant";
 type ChatMessage = { role: ChatRole; content: string };
 type BillingMode = "forge" | "byo";
+type HearthOp =
+  | { op: "set_title_variant"; slot: "A" | "B" | "C"; value: string }
+  | { op: "set_title"; value: string }
+  | { op: "set_outline"; value: string }
+  | { op: "set_body"; value: string }
+  | { op: "add_source"; source: { title?: string; url?: string; note?: string } }
+  | { op: "update_source"; id: string; patch: { title?: string; url?: string; note?: string } }
+  | { op: "remove_source"; id: string };
+
+type EpisodeContext = {
+  episodeId: string;
+  title: string;
+  titleVariants: { A: string; B: string; C: string };
+  outline: string;
+  body: string;
+  sources: Array<{
+    id: string;
+    title: string;
+    url: string;
+    note: string;
+    citedIn: string[];
+  }>;
+  sparks: Array<{ id: string; text: string }>;
+};
+
+type StructuredReply = {
+  assistantText: string;
+  ops: HearthOp[];
+};
+
 type ReqBody = {
   messages?: unknown;
+  episode_context?: unknown;
   behavior?: unknown;
   lane?: unknown;
 };
@@ -104,6 +135,16 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   });
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function readOptionalString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
 function extractRpcTokenBalance(payload: unknown): number | null {
   const row = Array.isArray(payload) ? payload[0] : payload;
   if (!row || typeof row !== "object") return null;
@@ -132,6 +173,98 @@ function toChatMessage(value: unknown): ChatMessage | null {
     role: row.role,
     content,
   };
+}
+
+function readBehaviorTemperature(value: unknown): number {
+  const behavior = readOptionalString(value);
+  if (behavior === "deterministic") return 0.1;
+  if (behavior === "careful") return 0.25;
+  if (behavior === "creative") return 0.9;
+  if (behavior === "fast") return 0.7;
+  return 0.25;
+}
+
+function normalizeEpisodeContext(value: unknown): EpisodeContext | null {
+  if (!isRecord(value)) return null;
+  const episodeId = readOptionalString(value.episodeId);
+  if (!episodeId) return null;
+
+  const titleVariantsRaw = isRecord(value.titleVariants) ? value.titleVariants : {};
+  const titleVariants = {
+    A: readOptionalString(titleVariantsRaw.A) ?? "",
+    B: readOptionalString(titleVariantsRaw.B) ?? "",
+    C: readOptionalString(titleVariantsRaw.C) ?? "",
+  };
+
+  const sourcesRaw = Array.isArray(value.sources) ? value.sources : [];
+  const sources = sourcesRaw
+    .map((entry) => {
+      if (!isRecord(entry)) return null;
+      const id = readOptionalString(entry.id);
+      if (!id) return null;
+      const citedInRaw = Array.isArray(entry.citedIn) ? entry.citedIn : [];
+      const citedIn = citedInRaw
+        .map((token) => readOptionalString(token))
+        .filter((token): token is string => !!token);
+      return {
+        id,
+        title: readOptionalString(entry.title) ?? "",
+        url: readOptionalString(entry.url) ?? "",
+        note: readOptionalString(entry.note) ?? "",
+        citedIn,
+      };
+    })
+    .filter((entry): entry is EpisodeContext["sources"][number] => !!entry);
+
+  const sparksRaw = Array.isArray(value.sparks) ? value.sparks : [];
+  const sparks = sparksRaw
+    .map((entry) => {
+      if (!isRecord(entry)) return null;
+      const id = readOptionalString(entry.id);
+      if (!id) return null;
+      return {
+        id,
+        text: readOptionalString(entry.text) ?? "",
+      };
+    })
+    .filter((entry): entry is EpisodeContext["sparks"][number] => !!entry);
+
+  return {
+    episodeId,
+    title: readOptionalString(value.title) ?? "",
+    titleVariants,
+    outline: readOptionalString(value.outline) ?? "",
+    body: readOptionalString(value.body) ?? "",
+    sources,
+    sparks,
+  };
+}
+
+function buildSystemPrompt(context: EpisodeContext): string {
+  return [
+    "You are Hearth.",
+    "You are already operating inside an Episode context.",
+    "Never ask what the topic is.",
+    "Use only the provided episode_context as your factual context unless the user explicitly gives new details.",
+    "Return ONLY valid JSON with this shape:",
+    "{\"assistantText\": string, \"ops\": HearthOp[]}",
+    "Allowed ops:",
+    "- set_title",
+    "- set_title_variant",
+    "- set_outline",
+    "- set_body",
+    "- add_source",
+    "- update_source",
+    "- remove_source",
+    "Rules:",
+    "- assistantText must be concise plain text (no markdown).",
+    "- Use ops only for concrete edits requested by the user.",
+    "- If the user only asks a question, return ops as [].",
+    "- Do not invent source ids for update/remove ops.",
+    "- Keep output strictly JSON (no code fences).",
+    "episode_context:",
+    JSON.stringify(context),
+  ].join("\n");
 }
 
 function extractAssistantReply(payload: unknown): string {
@@ -171,6 +304,126 @@ function estimateTokenFallback(messages: ChatMessage[], reply: string): number {
   const messageChars = messages.reduce((acc, message) => acc + message.content.length, 0);
   const totalChars = messageChars + reply.length;
   return Math.max(1, Math.ceil(totalChars / 4));
+}
+
+function tryParseJsonObject(raw: string): Record<string, unknown> | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    // continue
+  }
+
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (fenced && fenced[1]) {
+    try {
+      const parsed = JSON.parse(fenced[1]) as unknown;
+      return isRecord(parsed) ? parsed : null;
+    } catch {
+      // continue
+    }
+  }
+
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    const slice = trimmed.slice(start, end + 1);
+    try {
+      const parsed = JSON.parse(slice) as unknown;
+      return isRecord(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function normalizeOpPatch(value: unknown): { title?: string; url?: string; note?: string } | null {
+  if (!isRecord(value)) return null;
+  const title = readOptionalString(value.title) ?? undefined;
+  const url = readOptionalString(value.url) ?? undefined;
+  const note = readOptionalString(value.note) ?? undefined;
+  if (!title && !url && !note) return null;
+  return {
+    ...(title ? { title } : {}),
+    ...(url ? { url } : {}),
+    ...(note ? { note } : {}),
+  };
+}
+
+function normalizeOps(value: unknown): HearthOp[] {
+  if (!Array.isArray(value)) return [];
+  const out: HearthOp[] = [];
+
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    const op = readOptionalString(item.op);
+    if (!op) continue;
+
+    if (op === "set_title") {
+      const next = readOptionalString(item.value);
+      if (next != null) out.push({ op, value: next });
+      continue;
+    }
+
+    if (op === "set_title_variant") {
+      const slot = readOptionalString(item.slot);
+      const valueText = readOptionalString(item.value);
+      if ((slot === "A" || slot === "B" || slot === "C") && valueText != null) {
+        out.push({ op, slot, value: valueText });
+      }
+      continue;
+    }
+
+    if (op === "set_outline") {
+      const next = readOptionalString(item.value);
+      if (next != null) out.push({ op, value: next });
+      continue;
+    }
+
+    if (op === "set_body") {
+      const next = readOptionalString(item.value);
+      if (next != null) out.push({ op, value: next });
+      continue;
+    }
+
+    if (op === "add_source") {
+      const source = normalizeOpPatch(item.source);
+      if (source) out.push({ op, source });
+      continue;
+    }
+
+    if (op === "update_source") {
+      const id = readOptionalString(item.id);
+      const patch = normalizeOpPatch(item.patch);
+      if (id && patch) out.push({ op, id, patch });
+      continue;
+    }
+
+    if (op === "remove_source") {
+      const id = readOptionalString(item.id);
+      if (id) out.push({ op, id });
+      continue;
+    }
+  }
+
+  return out;
+}
+
+function normalizeStructuredReply(raw: string): StructuredReply | null {
+  const parsed = tryParseJsonObject(raw);
+  if (!parsed) return null;
+  const assistantText = readOptionalString(parsed.assistantText) ?? readOptionalString(parsed.assistant_text) ?? "";
+  const ops = normalizeOps(parsed.ops);
+  if (!assistantText && ops.length === 0) return null;
+  return {
+    assistantText,
+    ops,
+  };
 }
 
 export function mwHearthChatApi() {
@@ -324,9 +577,19 @@ export function mwHearthChatApi() {
         return;
       }
 
+      const episodeContext = normalizeEpisodeContext(bodyRaw.episode_context);
+      if (!episodeContext) {
+        sendJson(res, 400, {
+          ok: false,
+          error: "episode_context with episodeId is required",
+          ...buildBillingSnapshot(lane),
+        });
+        return;
+      }
+
       const system: ChatMessage = {
         role: "system",
-        content: "You are Hearth. Reply plainly. No markdown.",
+        content: buildSystemPrompt(episodeContext),
       };
 
       const upstreamAbort = new AbortController();
@@ -348,6 +611,7 @@ export function mwHearthChatApi() {
             },
             body: JSON.stringify({
               model,
+              temperature: readBehaviorTemperature(bodyRaw.behavior),
               messages: [system, ...messages],
             }),
             signal: upstreamAbort.signal,
@@ -375,11 +639,25 @@ export function mwHearthChatApi() {
         }
 
         const payload = (await upstream.json()) as unknown;
-        const reply = extractAssistantReply(payload);
-        if (!reply) {
+        const rawReply = extractAssistantReply(payload);
+        if (!rawReply) {
           sendJson(res, 502, {
             ok: false,
             error: "OpenAI returned empty response",
+            ...buildBillingSnapshot(lane),
+          });
+          return;
+        }
+
+        const structured = normalizeStructuredReply(rawReply) ?? {
+          assistantText: rawReply,
+          ops: [],
+        };
+
+        if (!structured.assistantText && structured.ops.length === 0) {
+          sendJson(res, 502, {
+            ok: false,
+            error: "Assistant returned an invalid response",
             ...buildBillingSnapshot(lane),
           });
           return;
@@ -390,7 +668,7 @@ export function mwHearthChatApi() {
         }
 
         const totalTokens = extractTotalTokens(payload);
-        const spent = totalTokens ?? estimateTokenFallback(messages, reply);
+        const spent = totalTokens ?? estimateTokenFallback(messages, rawReply);
         const openAiRequestId = upstream.headers.get("x-request-id");
         let creditsWarning: string | null = null;
 
@@ -419,7 +697,9 @@ export function mwHearthChatApi() {
 
         sendJson(res, 200, {
           ok: true,
-          reply,
+          assistant_text: structured.assistantText,
+          reply: structured.assistantText,
+          ops: structured.ops,
           total_tokens: spent,
           credits_warning: creditsWarning,
           ...buildBillingSnapshot(lane),

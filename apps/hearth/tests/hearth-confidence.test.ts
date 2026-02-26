@@ -3,6 +3,8 @@ import { LocalHearthStore } from "../src/storage/local-store";
 import { LocalSessionStore } from "../src/storage/local-session-store";
 import type { Draft } from "../src/domain/draft";
 import type { Revision } from "../src/domain/revision";
+import { applyHearthOps, buildEpisodeContext } from "../src/lib/hearth-ai-ops";
+import { requestHearthChatReply } from "../src/lib/hearth-chat-api";
 
 class MemoryStorage {
   private store = new Map<string, string>();
@@ -119,10 +121,123 @@ async function testSessionRoundtrip() {
   assert.equal(restored?.uiState?.scrollTop, 456, "Scroll position should roundtrip");
 }
 
+function createEpisodeContextFixture() {
+  return buildEpisodeContext({
+    episodeId: "episode-123",
+    draft: {
+      id: "draft-episode",
+      title: "Episode Title",
+      body: "Intro line [src_alpha] and closing [src_alpha]",
+    },
+    planningSession: {
+      title: "Planning Title",
+      title_variants: {
+        A: "Title A",
+        B: "Title B",
+        C: "Title C",
+      },
+      outline: ["Hook", "Main", "CTA"],
+    },
+    workpieceSources: [
+      { source_id: "src_alpha", notes: "Primary source" },
+    ],
+    sourceIndexById: new Map([
+      ["src_alpha", { source_id: "src_alpha", title: "Alpha Source", url: "https://example.com/alpha" }],
+    ]),
+    sparks: [
+      { id: "spark-1", body: "Spark body" },
+    ],
+  });
+}
+
+async function testBuildEpisodeContextIncludesFields() {
+  const context = createEpisodeContextFixture();
+  assert.equal(context.episodeId, "episode-123");
+  assert.equal(context.title, "Episode Title");
+  assert.equal(context.titleVariants.A, "Title A");
+  assert.equal(context.outline, "Hook\nMain\nCTA");
+  assert.equal(context.body, "Intro line [src_alpha] and closing [src_alpha]");
+  assert.equal(context.sources.length, 1);
+  assert.equal(context.sources[0]?.id, "src_alpha");
+  assert.equal(context.sources[0]?.title, "Alpha Source");
+  assert.equal(context.sources[0]?.note, "Primary source");
+  assert.deepEqual(context.sources[0]?.citedIn, ["[src_alpha]"]);
+}
+
+async function testApplyHearthOpsRequestsSave() {
+  const writes: string[] = [];
+  let requestedSave = 0;
+
+  await applyHearthOps({
+    setTitle: (value) => writes.push(`title:${value}`),
+    setTitleVariant: (slot, value) => writes.push(`variant:${slot}:${value}`),
+    setOutline: (value) => writes.push(`outline:${value}`),
+    setBody: (value) => writes.push(`body:${value}`),
+    addSource: (source) => writes.push(`add:${source.title ?? ""}`),
+    updateSource: (id, patch) => writes.push(`update:${id}:${patch.note ?? ""}`),
+    removeSource: (id) => writes.push(`remove:${id}`),
+    requestSave: (reason) => {
+      assert.equal(reason, "ai_apply_ops");
+      requestedSave += 1;
+    },
+  }, [
+    { op: "set_title", value: "New Title" },
+    { op: "set_title_variant", slot: "A", value: "A/B title" },
+    { op: "set_outline", value: "Outline" },
+    { op: "set_body", value: "Body" },
+    { op: "add_source", source: { title: "Added Source", note: "note" } },
+    { op: "update_source", id: "src_alpha", patch: { note: "updated" } },
+    { op: "remove_source", id: "src_alpha" },
+  ]);
+
+  assert.ok(writes.includes("title:New Title"));
+  assert.ok(writes.includes("variant:A:A/B title"));
+  assert.ok(writes.includes("outline:Outline"));
+  assert.ok(writes.includes("body:Body"));
+  assert.ok(writes.includes("add:Added Source"));
+  assert.ok(writes.includes("update:src_alpha:updated"));
+  assert.ok(writes.includes("remove:src_alpha"));
+  assert.equal(requestedSave, 1, "apply ops should request save once");
+}
+
+async function testAiRequestPayloadIncludesEpisodeId() {
+  resetLocalStorage();
+  const originalFetch = globalThis.fetch;
+  let capturedBody: Record<string, unknown> | null = null;
+
+  globalThis.fetch = (async (_input: unknown, init?: { body?: unknown }) => {
+    capturedBody = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null;
+    return new Response(JSON.stringify({
+      assistant_text: "All set.",
+      ops: [],
+      billing_mode: "forge",
+      token_balance: 99,
+      total_tokens: 11,
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  try {
+    const result = await requestHearthChatReply(
+      [{ role: "user", content: "Refine this." }],
+      createEpisodeContextFixture(),
+    );
+    assert.ok(result.ok, "AI request should succeed in mocked fetch");
+    assert.equal(capturedBody?.episode_context && (capturedBody.episode_context as { episodeId?: string }).episodeId, "episode-123");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
 async function run() {
   await testDraftFlagsRoundtrip();
   await testRevisionCap();
   await testSessionRoundtrip();
+  await testBuildEpisodeContextIncludesFields();
+  await testApplyHearthOpsRequestsSave();
+  await testAiRequestPayloadIncludesEpisodeId();
   // eslint-disable-next-line no-console
   console.log("Hearth confidence tests passed.");
 }

@@ -4,6 +4,7 @@ import type {
   HearthSessionIntent,
   HearthSessionLinks,
   HearthSessionOrigin,
+  HearthTitleVariants,
 } from "../domain/hearth-session";
 import { HEARTH_SESSION_SCHEMA } from "../domain/hearth-session";
 
@@ -74,6 +75,19 @@ function normalizeIntent(value: unknown): HearthSessionIntent | null {
   return null;
 }
 
+function normalizeTitleVariants(value: unknown): HearthTitleVariants | null {
+  if (!isRecord(value)) return null;
+  const A = readNullableString(value.A) ?? undefined;
+  const B = readNullableString(value.B) ?? undefined;
+  const C = readNullableString(value.C) ?? undefined;
+  if (!A && !B && !C) return null;
+  return {
+    A,
+    B,
+    C,
+  };
+}
+
 function normalizeSession(raw: unknown): HearthPlanningSession | null {
   if (!isRecord(raw)) return null;
   const schema = readString(raw.schema);
@@ -91,6 +105,7 @@ function normalizeSession(raw: unknown): HearthPlanningSession | null {
     origin: normalizeOrigin(raw.origin),
     intent: normalizeIntent(raw.intent),
     title: readNullableString(raw.title),
+    title_variants: normalizeTitleVariants(raw.title_variants),
     goals: normalizeStringArray(raw.goals),
     outline: normalizeStringArray(raw.outline),
     audience: readNullableString(raw.audience),

@@ -85,6 +85,10 @@ export type SourcesState = {
   removeSourceFromWorkpiece: (sourceId: string) => void;
   updateWorkpieceSourceNotes: (sourceId: string, notes: string) => void;
   addSourceToLibrary: (input: NewSourceInput, options?: { attachToWorkpiece?: boolean }) => Promise<ScriptSource | null>;
+  updateSourceInLibrary: (
+    sourceId: string,
+    patch: { title?: string; url?: string | null; notes?: string | null },
+  ) => Promise<ScriptSource | null>;
   loadSourceDetails: (sourceId: string) => Promise<ScriptSource | null>;
   syncSources: (options?: { silent?: boolean }) => void;
 };
@@ -340,6 +344,51 @@ export function useSourcesState(
     return source;
   }, [workspaceId, sourceIndexEntries, setStatusWithTimeout, workpieceId, attachSourceToWorkpiece]);
 
+  const updateSourceInLibrary = useCallback(async (
+    sourceId: string,
+    patch: { title?: string; url?: string | null; notes?: string | null },
+  ) => {
+    if (!workspaceId) {
+      setStatusWithTimeout({ kind: "error", message: "Workspace not resolved." });
+      return null;
+    }
+
+    const normalized = normalizeSourceId(sourceId);
+    const existing = sourceDetails[normalized] ?? await readWorkspaceSource(workspaceId, sourceId);
+    if (!existing) {
+      setStatusWithTimeout({ kind: "error", message: "Source not found." });
+      return null;
+    }
+
+    const nextSource: ScriptSource = {
+      ...existing,
+      title: typeof patch.title === "string" ? patch.title.trim() || existing.title : existing.title,
+      url: patch.url !== undefined ? normalizeOptional(patch.url) : (existing.url ?? null),
+      notes: patch.notes !== undefined ? normalizeOptional(patch.notes) : (existing.notes ?? null),
+    };
+
+    setStatusWithTimeout({ kind: "saving", message: "Updating source..." }, 0);
+    const sourceResult = await commitWorkspaceSource(workspaceId, nextSource);
+    if (!sourceResult.ok) {
+      setStatusWithTimeout({ kind: "error", message: "Failed to update source." });
+      return null;
+    }
+
+    const nextIndex = upsertIndexEntry(sourceIndexEntries, buildIndexEntryFromSource(nextSource));
+    setSourceIndexEntries(nextIndex);
+    writeSourceIndexCache(nextIndex);
+    setSourceDetails((prev) => ({ ...prev, [normalized]: nextSource }));
+
+    const indexResult = await commitWorkspaceSourcesIndex(workspaceId, nextIndex);
+    if (!indexResult.ok) {
+      setStatusWithTimeout({ kind: "error", message: "Updated source, but index update failed." });
+      return nextSource;
+    }
+
+    setStatusWithTimeout({ kind: "success", message: "Source updated." });
+    return nextSource;
+  }, [workspaceId, setStatusWithTimeout, sourceDetails, sourceIndexEntries]);
+
   const syncSources = useCallback((options?: { silent?: boolean }) => {
     if (!workpieceId) return;
     queueWorkpieceCommit(workpieceSources, { allowEmpty: false, silent: options?.silent });
@@ -427,6 +476,7 @@ export function useSourcesState(
     removeSourceFromWorkpiece,
     updateWorkpieceSourceNotes,
     addSourceToLibrary,
+    updateSourceInLibrary,
     loadSourceDetails,
     syncSources,
   };

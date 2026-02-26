@@ -1,3 +1,5 @@
+import type { EpisodeContext, HearthOp } from "./hearth-ai-ops";
+
 export type HearthAiLane = "forge" | "byo";
 export type HearthAiBehavior = "fast" | "careful" | "deterministic" | "creative";
 export type HearthChatRole = "system" | "user" | "assistant";
@@ -20,7 +22,8 @@ export type HearthChatResult =
   | {
       ok: true;
       status: number;
-      reply: string;
+      assistantText: string;
+      ops: HearthOp[];
       runtime: HearthAiRuntimeSnapshot;
       totalTokens: number | null;
       creditsWarning?: string;
@@ -78,6 +81,93 @@ function readNumberField(payload: unknown, key: string): number | null {
   if (!payload || typeof payload !== "object") return null;
   const value = (payload as Record<string, unknown>)[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readUnknownField(payload: unknown, key: string): unknown {
+  if (!payload || typeof payload !== "object") return null;
+  return (payload as Record<string, unknown>)[key];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function readOptionalString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function normalizeOpPatch(value: unknown): { title?: string; url?: string; note?: string } | null {
+  if (!isRecord(value)) return null;
+  const title = readOptionalString(value.title);
+  const url = readOptionalString(value.url);
+  const note = readOptionalString(value.note);
+  if (!title && !url && !note) return null;
+  return {
+    ...(title ? { title } : {}),
+    ...(url ? { url } : {}),
+    ...(note ? { note } : {}),
+  };
+}
+
+function normalizeOps(value: unknown): HearthOp[] {
+  if (!Array.isArray(value)) return [];
+  const out: HearthOp[] = [];
+
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    const op = readOptionalString(item.op);
+    if (!op) continue;
+
+    if (op === "set_title") {
+      const next = readOptionalString(item.value);
+      if (next !== undefined) out.push({ op, value: next });
+      continue;
+    }
+
+    if (op === "set_title_variant") {
+      const slot = readOptionalString(item.slot);
+      const valueText = readOptionalString(item.value);
+      if ((slot === "A" || slot === "B" || slot === "C") && valueText !== undefined) {
+        out.push({ op, slot, value: valueText });
+      }
+      continue;
+    }
+
+    if (op === "set_outline") {
+      const next = readOptionalString(item.value);
+      if (next !== undefined) out.push({ op, value: next });
+      continue;
+    }
+
+    if (op === "set_body") {
+      const next = readOptionalString(item.value);
+      if (next !== undefined) out.push({ op, value: next });
+      continue;
+    }
+
+    if (op === "add_source") {
+      const source = normalizeOpPatch(item.source);
+      if (source) out.push({ op, source });
+      continue;
+    }
+
+    if (op === "update_source") {
+      const id = readOptionalString(item.id);
+      const patch = normalizeOpPatch(item.patch);
+      if (id && patch) out.push({ op, id, patch });
+      continue;
+    }
+
+    if (op === "remove_source") {
+      const id = readOptionalString(item.id);
+      if (id) out.push({ op, id });
+      continue;
+    }
+  }
+
+  return out;
 }
 
 function readSupabaseConfig(): { url: string; anonKey: string } | null {
@@ -295,6 +385,7 @@ export async function fetchHearthAiStatus(): Promise<HearthAiStatusResult> {
 
 export async function requestHearthChatReply(
   messages: HearthChatMessage[],
+  episodeContext: EpisodeContext,
   options?: { signal?: AbortSignal },
 ): Promise<HearthChatResult> {
   const normalized = normalizeMessages(messages);
@@ -309,6 +400,15 @@ export async function requestHearthChatReply(
     };
   }
 
+  if (!episodeContext.episodeId.trim()) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Episode context is required.",
+      runtime: { tokenBalance: null, billingMode: lane },
+    };
+  }
+
   let response: Response;
   try {
     response = await fetch("/api/hearth/chat", {
@@ -316,6 +416,7 @@ export async function requestHearthChatReply(
       headers: buildAuthHeaders({ includeJson: true }),
       body: JSON.stringify({
         messages: normalized,
+        episode_context: episodeContext,
         behavior: settings.behavior,
         lane,
       }),
@@ -355,8 +456,13 @@ export async function requestHearthChatReply(
     };
   }
 
-  const reply = readStringField(payload, "reply")?.trim();
-  if (!reply) {
+  const assistantText = (
+    readStringField(payload, "assistant_text")
+    ?? readStringField(payload, "reply")
+    ?? ""
+  ).trim();
+  const ops = normalizeOps(readUnknownField(payload, "ops"));
+  if (!assistantText && ops.length === 0) {
     return {
       ok: false,
       status: response.status,
@@ -368,7 +474,8 @@ export async function requestHearthChatReply(
   return {
     ok: true,
     status: response.status,
-    reply,
+    assistantText,
+    ops,
     runtime,
     totalTokens: readNumberField(payload, "total_tokens"),
     creditsWarning: readStringField(payload, "credits_warning") ?? undefined,

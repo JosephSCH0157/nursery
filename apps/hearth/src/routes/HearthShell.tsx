@@ -35,6 +35,14 @@ import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import { createHearthStore } from "../storage/store-factory";
 import type { HearthStoreKind } from "../storage/hearth-store";
 import { LocalSessionStore } from "../storage/local-session-store";
+import {
+  applyHearthOps,
+  buildEpisodeContext,
+  describeHearthOp,
+  type EpisodeContext,
+  type HearthOp,
+  type HearthOpsStore,
+} from "../lib/hearth-ai-ops";
 
 const AUTOSAVE_DELAY_MS = 2200;
 const AUTOSAVE_MIN_GAP_MS = 5000;
@@ -168,6 +176,13 @@ type DiffLine = {
   status: "same" | "changed" | "added" | "removed" | "separator";
 };
 
+type PendingAiProposal = {
+  assistantText: string;
+  ops: HearthOp[];
+  selected: boolean[];
+  context: EpisodeContext;
+};
+
 function buildDiffLines(current: string, revision: string): DiffLine[] {
   const leftLines = splitLines(current);
   const rightLines = splitLines(revision);
@@ -275,12 +290,17 @@ function buildOpenInAnvilHref(workspaceId: string | null, workpieceId: string | 
 function isPlanningSessionEmpty(session: HearthPlanningSession | null): boolean {
   if (!session) return true;
   const hasTitle = Boolean(session.title && session.title.trim());
+  const hasTitleVariants = Boolean(
+    session.title_variants?.A?.trim()
+    || session.title_variants?.B?.trim()
+    || session.title_variants?.C?.trim(),
+  );
   const hasGoals = (session.goals ?? []).length > 0;
   const hasOutline = (session.outline ?? []).length > 0;
   const hasDecisions = (session.decisions ?? []).length > 0;
   const hasAudience = Boolean(session.audience && session.audience.trim());
   const hasTone = Boolean(session.tone_preset && session.tone_preset.trim());
-  return !(hasTitle || hasGoals || hasOutline || hasDecisions || hasAudience || hasTone);
+  return !(hasTitle || hasTitleVariants || hasGoals || hasOutline || hasDecisions || hasAudience || hasTone);
 }
 
 function buildSessionFingerprint(session: HearthPlanningSession): string {
@@ -290,6 +310,7 @@ function buildSessionFingerprint(session: HearthPlanningSession): string {
     origin: session.origin ?? null,
     intent: session.intent ?? null,
     title: session.title ?? "",
+    title_variants: session.title_variants ?? null,
     goals: session.goals ?? [],
     outline: session.outline ?? [],
     audience: session.audience ?? "",
@@ -297,6 +318,27 @@ function buildSessionFingerprint(session: HearthPlanningSession): string {
     links: session.links ?? null,
     decisions: session.decisions ?? [],
   });
+}
+
+function createPlanningSessionForEpisode(workpieceId: string, workspaceId: string | null): HearthPlanningSession {
+  const nowIso = new Date().toISOString();
+  return {
+    schema: HEARTH_SESSION_SCHEMA,
+    workpiece_id: workpieceId,
+    workspace_id: workspaceId,
+    created_at: nowIso,
+    updated_at: nowIso,
+    origin: null,
+    intent: null,
+    title: null,
+    title_variants: null,
+    goals: [],
+    outline: [],
+    audience: null,
+    tone_preset: null,
+    links: null,
+    decisions: [],
+  };
 }
 
 export default function HearthShell() {
@@ -346,6 +388,8 @@ export default function HearthShell() {
   const [chatMessages, setChatMessages] = useState<HearthChatMessage[]>([]);
   const [chatDraft, setChatDraft] = useState("");
   const [chatError, setChatError] = useState<string | null>(null);
+  const [pendingAiProposal, setPendingAiProposal] = useState<PendingAiProposal | null>(null);
+  const [isApplyingAiOps, setIsApplyingAiOps] = useState(false);
   const [aiRuntimeWarning, setAiRuntimeWarning] = useState<string | null>(null);
   const [isAiProcessing, setIsAiProcessing] = useState(false);
   const [aiTokenBalance, setAiTokenBalance] = useState<number | null>(null);
@@ -401,6 +445,7 @@ export default function HearthShell() {
     mode: selectedMode === "sources" ? "full" : "summary",
   });
   const workpieceSources = sourcesState.workpieceSources;
+  const sourceIndexById = sourcesState.sourceIndexById;
   const missingSourcesCount = sourcesState.missingCitedCount;
   const unusedSourcesCount = sourcesState.unusedRefsCount;
   const showHome = selectedMode === "home" || !workpieceId;
@@ -409,6 +454,14 @@ export default function HearthShell() {
     [workspaceId, workpieceId],
   );
   const aiCreditsDepleted = aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0;
+  const aiEpisodeReady = Boolean(workpieceId?.trim());
+  const activeEpisodeSparks = useMemo(
+    () => sparks.filter((spark) => (
+      (workpieceId && spark.links?.hearthWorkpieceId === workpieceId)
+      || (activeDraft?.id && spark.links?.hearthDraftId === activeDraft.id)
+    )),
+    [activeDraft?.id, sparks, workpieceId],
+  );
 
   const filteredDrafts = useMemo(() => {
     const query = searchText.trim().toLowerCase();
@@ -594,8 +647,9 @@ export default function HearthShell() {
     }
   }, [workpieceId, workspaceId]);
 
-  const syncSessionToTongs = useCallback(async () => {
-    if (!planningSession || !workpieceId) return;
+  const syncSessionToTongs = useCallback(async (overrideSession?: HearthPlanningSession | null) => {
+    const baseSession = overrideSession ?? planningSession;
+    if (!baseSession || !workpieceId) return;
     if (sessionCommitInFlight.current) {
       sessionCommitQueued.current = true;
       return;
@@ -609,24 +663,24 @@ export default function HearthShell() {
         const sourceIds = Array.from(
           new Set(workpieceSources.map((ref) => ref.source_id).filter(Boolean)),
         ).sort();
-        const sparkId = planningSession.origin?.spark_id ?? planningSession.links?.spark_id ?? null;
+        const sparkId = baseSession.origin?.spark_id ?? baseSession.links?.spark_id ?? null;
         const links = sparkId || sourceIds.length ? {
           spark_id: sparkId ?? null,
           source_ids: sourceIds.length ? sourceIds : undefined,
         } : null;
 
         const sessionForCommit: HearthPlanningSession = {
-          ...planningSession,
+          ...baseSession,
           schema: HEARTH_SESSION_SCHEMA,
           workpiece_id: workpieceId,
-          workspace_id: workspaceId ?? planningSession.workspace_id ?? null,
-          intent: planningSession.intent ?? deriveIntentFromOrigin(planningSession.origin),
+          workspace_id: workspaceId ?? baseSession.workspace_id ?? null,
+          intent: baseSession.intent ?? deriveIntentFromOrigin(baseSession.origin),
           links,
         };
 
         const fingerprint = buildSessionFingerprint(sessionForCommit);
 
-        const allowEmpty = sessionTouched;
+        const allowEmpty = overrideSession ? true : sessionTouched;
         if (!allowEmpty && isPlanningSessionEmpty(sessionForCommit)) {
           continue;
         }
@@ -644,7 +698,7 @@ export default function HearthShell() {
           sessionCommitRef.current = fingerprint;
           setSessionTouched(false);
           setPlanningSession((prev) => {
-            if (!prev) return prev;
+            if (!prev && !overrideSession) return prev;
             const next = { ...sessionForCommit, updated_at: new Date().toISOString() };
             writeHearthPlanningSessionCache(next, workpieceId);
             return next;
@@ -1287,10 +1341,195 @@ export default function HearthShell() {
     aiRequestControllerRef.current?.abort();
   }
 
+  const buildActiveEpisodeContext = useCallback((): EpisodeContext | null => {
+    const episodeId = workpieceId?.trim();
+    if (!episodeId) return null;
+    return buildEpisodeContext({
+      episodeId,
+      draft: activeDraft,
+      planningSession,
+      workpieceSources,
+      sourceIndexById,
+      sparks: activeEpisodeSparks,
+    });
+  }, [
+    activeDraft,
+    activeEpisodeSparks,
+    planningSession,
+    sourceIndexById,
+    workpieceId,
+    workpieceSources,
+  ]);
+
+  async function onApplyAiProposal(mode: "all" | "selected") {
+    if (!pendingAiProposal || isApplyingAiOps) return;
+    const episodeId = workpieceId?.trim();
+    if (!episodeId || !activeDraft) {
+      setChatError("Select an Episode or Spark to start.");
+      return;
+    }
+
+    const opsToApply = mode === "all"
+      ? pendingAiProposal.ops
+      : pendingAiProposal.ops.filter((_, index) => pendingAiProposal.selected[index]);
+
+    if (opsToApply.length === 0) {
+      setChatError("Select at least one proposed change.");
+      return;
+    }
+
+    setIsApplyingAiOps(true);
+    setChatError(null);
+    setError(null);
+
+    let nextDraft: Draft = { ...activeDraft };
+    let draftChanged = false;
+    let nextPlanningSession = planningSession
+      ? { ...planningSession }
+      : createPlanningSessionForEpisode(episodeId, workspaceId);
+    let planningChanged = false;
+    let sourcesChanged = false;
+    let saveRequested = false;
+
+    const opsStore: HearthOpsStore = {
+      setTitle: (value) => {
+        if (nextDraft.title !== value) {
+          nextDraft = { ...nextDraft, title: value };
+          draftChanged = true;
+        }
+        if ((nextPlanningSession.title ?? "") !== value) {
+          nextPlanningSession = { ...nextPlanningSession, title: value };
+          planningChanged = true;
+        }
+      },
+      setTitleVariant: (slot, value) => {
+        const current = nextPlanningSession.title_variants ?? {};
+        if ((current[slot] ?? "") === value) return;
+        nextPlanningSession = {
+          ...nextPlanningSession,
+          title_variants: {
+            ...current,
+            [slot]: value,
+          },
+        };
+        planningChanged = true;
+      },
+      setOutline: (value) => {
+        const nextOutline = parsePlanningLines(value);
+        const prevOutline = nextPlanningSession.outline ?? [];
+        if (JSON.stringify(prevOutline) === JSON.stringify(nextOutline)) return;
+        nextPlanningSession = {
+          ...nextPlanningSession,
+          outline: nextOutline,
+        };
+        planningChanged = true;
+      },
+      setBody: (value) => {
+        if (nextDraft.body === value) return;
+        nextDraft = { ...nextDraft, body: value };
+        draftChanged = true;
+      },
+      addSource: async (source) => {
+        const created = await sourcesState.addSourceToLibrary({
+          title: source.title ?? "Untitled Source",
+          type: "webpage",
+          url: source.url ?? null,
+          notes: source.note ?? null,
+        }, { attachToWorkpiece: true });
+        if (created) {
+          sourcesChanged = true;
+        }
+      },
+      updateSource: async (id, patch) => {
+        if (patch.note !== undefined) {
+          sourcesState.updateWorkpieceSourceNotes(id, patch.note);
+          sourcesChanged = true;
+        }
+        const updated = await sourcesState.updateSourceInLibrary(id, {
+          ...(patch.title !== undefined ? { title: patch.title } : {}),
+          ...(patch.url !== undefined ? { url: patch.url } : {}),
+          ...(patch.note !== undefined ? { notes: patch.note } : {}),
+        });
+        if (updated) {
+          sourcesChanged = true;
+        }
+      },
+      removeSource: (id) => {
+        sourcesState.removeSourceFromWorkpiece(id);
+        sourcesChanged = true;
+      },
+      requestSave: (reason) => {
+        saveRequested = reason === "ai_apply_ops";
+      },
+    };
+
+    try {
+      await applyHearthOps(opsStore, opsToApply);
+
+      if (saveRequested) {
+        if (draftChanged) {
+          const now = Date.now();
+          await persistDraft({
+            draft: { ...nextDraft, updatedAt: now },
+            updatedAt: now,
+            createRevision: null,
+            syncSources: false,
+            syncSession: false,
+          });
+        } else {
+          setActiveDraft((prev) => (prev ? nextDraft : prev));
+        }
+
+        if (planningChanged) {
+          const nowIso = new Date().toISOString();
+          const committedSession: HearthPlanningSession = {
+            ...nextPlanningSession,
+            workpiece_id: episodeId,
+            workspace_id: workspaceId ?? nextPlanningSession.workspace_id ?? null,
+            updated_at: nowIso,
+          };
+          setPlanningSession(committedSession);
+          writeHearthPlanningSessionCache(committedSession, episodeId);
+          setSessionTouched(true);
+          await syncSessionToTongs(committedSession);
+        }
+
+        if (sourcesChanged) {
+          sourcesState.syncSources();
+        }
+      }
+
+      if (mode === "all") {
+        setPendingAiProposal(null);
+      } else {
+        setPendingAiProposal((prev) => {
+          if (!prev) return prev;
+          const remainingOps = prev.ops.filter((_, index) => !prev.selected[index]);
+          if (remainingOps.length === 0) return null;
+          return {
+            ...prev,
+            ops: remainingOps,
+            selected: remainingOps.map(() => true),
+          };
+        });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to apply AI changes.";
+      setChatError(message);
+    } finally {
+      setIsApplyingAiOps(false);
+    }
+  }
+
   async function onSendChat() {
     if (isAiProcessing) return;
     const content = chatDraft.trim();
     if (!content) return;
+    const episodeContext = buildActiveEpisodeContext();
+    if (!episodeContext) {
+      setChatError("Select an Episode or Spark to start.");
+      return;
+    }
     const lane = resolveAiLaneFromStorage();
     setAiBillingMode(lane);
     if (lane === "forge" && aiTokenBalance != null && aiTokenBalance <= 0) {
@@ -1307,12 +1546,13 @@ export default function HearthShell() {
     setChatDraft("");
     setChatError(null);
     setAiRuntimeWarning(null);
+    setPendingAiProposal(null);
     const controller = new AbortController();
     aiRequestControllerRef.current = controller;
     setIsAiProcessing(true);
 
     try {
-      const result = await requestHearthChatReply(nextMessages, { signal: controller.signal });
+      const result = await requestHearthChatReply(nextMessages, episodeContext, { signal: controller.signal });
       setAiBillingMode(result.runtime.billingMode);
       if (result.runtime.billingMode === "byo") {
         setAiTokenBalance(null);
@@ -1323,8 +1563,16 @@ export default function HearthShell() {
         }
         return;
       }
-      const assistantMessage: HearthChatMessage = { role: "assistant", content: result.reply };
+      const assistantMessage: HearthChatMessage = { role: "assistant", content: result.assistantText };
       setChatMessages((prev) => [...prev, assistantMessage].slice(-24));
+      if (result.ops.length > 0) {
+        setPendingAiProposal({
+          assistantText: result.assistantText,
+          ops: result.ops,
+          selected: result.ops.map(() => true),
+          context: episodeContext,
+        });
+      }
 
       if (result.creditsWarning) {
         setAiRuntimeWarning(result.creditsWarning);
@@ -1343,6 +1591,80 @@ export default function HearthShell() {
       }
       setIsAiProcessing(false);
     }
+  }
+
+  function onDiscardAiProposal() {
+    setPendingAiProposal(null);
+  }
+
+  function onToggleAiProposalOp(index: number) {
+    setPendingAiProposal((prev) => {
+      if (!prev) return prev;
+      const selected = prev.selected.slice();
+      selected[index] = !selected[index];
+      return { ...prev, selected };
+    });
+  }
+
+  function formatSourceDiffText(source: {
+    id?: string;
+    title?: string;
+    url?: string;
+    note?: string;
+  }): string {
+    const parts: string[] = [];
+    if (source.id) parts.push(`id: ${source.id}`);
+    if (source.title) parts.push(`title: ${source.title}`);
+    if (source.url) parts.push(`url: ${source.url}`);
+    if (source.note) parts.push(`note: ${source.note}`);
+    return parts.join("\n") || "(empty)";
+  }
+
+  function buildProposalDiff(op: HearthOp): { before: string; after: string } | null {
+    const context = pendingAiProposal?.context;
+    if (!context) return null;
+
+    if (op.op === "set_title") {
+      return { before: context.title, after: op.value };
+    }
+    if (op.op === "set_title_variant") {
+      return {
+        before: context.titleVariants[op.slot] ?? "",
+        after: op.value,
+      };
+    }
+    if (op.op === "set_outline") {
+      return { before: context.outline, after: op.value };
+    }
+    if (op.op === "set_body") {
+      return { before: context.body, after: op.value };
+    }
+    if (op.op === "add_source") {
+      return {
+        before: "(not attached)",
+        after: formatSourceDiffText(op.source),
+      };
+    }
+    if (op.op === "update_source") {
+      const existing = context.sources.find((source) => source.id === op.id);
+      return {
+        before: formatSourceDiffText(existing ?? { id: op.id }),
+        after: formatSourceDiffText({
+          id: op.id,
+          title: op.patch.title ?? existing?.title,
+          url: op.patch.url ?? existing?.url,
+          note: op.patch.note ?? existing?.note,
+        }),
+      };
+    }
+    if (op.op === "remove_source") {
+      const existing = context.sources.find((source) => source.id === op.id);
+      return {
+        before: formatSourceDiffText(existing ?? { id: op.id }),
+        after: "(removed from Episode)",
+      };
+    }
+    return null;
   }
 
   function renderSectionedBody(text: string) {
@@ -1532,6 +1854,7 @@ export default function HearthShell() {
               onClick={() => {
                 setChatMessages([]);
                 setChatError(null);
+                setPendingAiProposal(null);
               }}
               disabled={isAiProcessing || chatMessages.length === 0}
             >
@@ -1542,7 +1865,7 @@ export default function HearthShell() {
           <div className="hs-ai-chat-log" role="log" aria-live="polite">
             {chatMessages.length === 0 ? (
               <div className="hs-ai-chat-empty">
-                Ask a quick question about this draft.
+                Ask a question about this Episode. Context is attached automatically.
               </div>
             ) : (
               chatMessages.map((message, index) => (
@@ -1553,6 +1876,66 @@ export default function HearthShell() {
               ))
             )}
           </div>
+
+          {pendingAiProposal && pendingAiProposal.ops.length > 0 ? (
+            <div className="hs-ai-proposal" aria-label="Proposed AI changes">
+              <div className="hs-ai-proposal-header">
+                <div className="hs-ai-proposal-title">Proposed changes</div>
+                <div className="hs-ai-proposal-meta">
+                  {pendingAiProposal.selected.filter(Boolean).length} selected · {pendingAiProposal.ops.length} total
+                </div>
+              </div>
+
+              <div className="hs-ai-proposal-list">
+                {pendingAiProposal.ops.map((op, index) => {
+                  const diff = buildProposalDiff(op);
+                  return (
+                    <label key={`ai-op-${index}`} className="hs-ai-op-row">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(pendingAiProposal.selected[index])}
+                        onChange={() => onToggleAiProposalOp(index)}
+                        disabled={isApplyingAiOps}
+                      />
+                      <div className="hs-ai-op-body">
+                        <div className="hs-ai-op-title">{describeHearthOp(op)}</div>
+                        {diff ? (
+                          <div className="hs-ai-op-diff">
+                            <pre>{`- ${diff.before || "(empty)"}`}</pre>
+                            <pre>{`+ ${diff.after || "(empty)"}`}</pre>
+                          </div>
+                        ) : null}
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div className="hs-ai-proposal-actions">
+                <button
+                  type="button"
+                  onClick={() => void onApplyAiProposal("all")}
+                  disabled={isApplyingAiOps}
+                >
+                  {isApplyingAiOps ? "Applying..." : "Apply"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void onApplyAiProposal("selected")}
+                  disabled={isApplyingAiOps || pendingAiProposal.selected.every((value) => !value)}
+                >
+                  Apply selected
+                </button>
+                <button
+                  type="button"
+                  onClick={onDiscardAiProposal}
+                  disabled={isApplyingAiOps}
+                >
+                  Discard
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           {chatError ? (
             <div className="hs-error-text-small">{chatError}</div>
@@ -1570,7 +1953,7 @@ export default function HearthShell() {
             <textarea
               value={chatDraft}
               onChange={(event) => setChatDraft(event.target.value)}
-              placeholder="Ask Hearth AI..."
+              placeholder={aiEpisodeReady ? "Ask Hearth AI..." : "Select an Episode or Spark to start."}
               className="hs-ai-chat-input"
               rows={2}
               onKeyDown={(event) => {
@@ -1578,7 +1961,7 @@ export default function HearthShell() {
                 event.preventDefault();
                 void onSendChat();
               }}
-              disabled={isAiProcessing || aiCreditsDepleted}
+              disabled={isAiProcessing || aiCreditsDepleted || !aiEpisodeReady}
             />
             {isAiProcessing ? (
               <button type="button" onClick={onCancelAiRequest}>
@@ -1588,7 +1971,7 @@ export default function HearthShell() {
             <button
               type="button"
               onClick={() => void onSendChat()}
-              disabled={isAiProcessing || aiCreditsDepleted || !chatDraft.trim()}
+              disabled={isAiProcessing || aiCreditsDepleted || !aiEpisodeReady || !chatDraft.trim()}
             >
               {isAiProcessing ? "Sending..." : "Send"}
             </button>

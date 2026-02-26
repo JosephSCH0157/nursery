@@ -443,6 +443,80 @@
   resize: vertical;
 }
 
+.hs-ai-proposal {
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 8px;
+  padding: 8px;
+  display: grid;
+  gap: 8px;
+  background: rgba(15, 23, 42, 0.02);
+}
+
+.hs-ai-proposal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hs-ai-proposal-title {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.hs-ai-proposal-meta {
+  font-size: 11px;
+  opacity: 0.65;
+}
+
+.hs-ai-proposal-list {
+  display: grid;
+  gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.hs-ai-op-row {
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 8px;
+  padding: 8px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+}
+
+.hs-ai-op-body {
+  display: grid;
+  gap: 6px;
+}
+
+.hs-ai-op-title {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hs-ai-op-diff {
+  display: grid;
+  gap: 4px;
+}
+
+.hs-ai-op-diff pre {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.04);
+  font-size: 11px;
+  white-space: pre-wrap;
+  line-height: 1.35;
+}
+
+.hs-ai-proposal-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .hs-planning {
   display: grid;
   gap: 16px;
