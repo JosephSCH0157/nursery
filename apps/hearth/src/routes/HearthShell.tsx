@@ -171,6 +171,37 @@ function formatUpdatedAt(value: number | undefined): string {
   }
 }
 
+function formatRelativeUpdatedAt(value: number | undefined): string {
+  if (!value) return "unknown";
+  const diffMs = Date.now() - value;
+  const absMs = Math.abs(diffMs);
+  const minuteMs = 60 * 1000;
+  const hourMs = 60 * minuteMs;
+  const dayMs = 24 * hourMs;
+  const weekMs = 7 * dayMs;
+
+  const formatUnit = (unit: Intl.RelativeTimeFormatUnit, amount: number): string => {
+    try {
+      return new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }).format(amount, unit);
+    } catch {
+      const abs = Math.abs(amount);
+      const suffix = amount <= 0 ? "ago" : "from now";
+      return `${abs} ${unit}${abs === 1 ? "" : "s"} ${suffix}`;
+    }
+  };
+
+  if (absMs < hourMs) {
+    return formatUnit("minute", -Math.max(1, Math.round(absMs / minuteMs)));
+  }
+  if (absMs < dayMs) {
+    return formatUnit("hour", -Math.round(absMs / hourMs));
+  }
+  if (absMs < weekMs) {
+    return formatUnit("day", -Math.round(absMs / dayMs));
+  }
+  return formatUnit("week", -Math.round(absMs / weekMs));
+}
+
 function normalizeTitle(title: string): string {
   const trimmed = title.trim();
   return trimmed || "Untitled Draft";
@@ -841,6 +872,23 @@ export default function HearthShell() {
         title: spark.title,
         body: spark.body,
       }, "draft");
+
+      const sparkTitle = deriveSparkTitle(spark);
+      const sparkPreview = buildSparkPreview(spark.body);
+      const markerLines = [
+        `Spark selected: ${sparkTitle}`,
+        `Spark ID: ${spark.id}`,
+      ];
+      if (spark.tags?.length) {
+        markerLines.push(`Tags: ${spark.tags.join(", ")}`);
+      }
+      if (sparkPreview) {
+        markerLines.push(`Notes: ${sparkPreview}`);
+      }
+      setChatMessages([{ role: "assistant", content: markerLines.join("\n") }]);
+      setChatDraft("");
+      setChatError(null);
+      setPendingAiProposal(null);
 
       const now = Date.now();
       const updatedSpark: BarStockSpark = {
@@ -1960,7 +2008,10 @@ export default function HearthShell() {
   }
 
   const renderSparksView = () => {
-    const canResumeLast = Boolean(session?.activeDraftId && drafts.some((draft) => draft.id === session.activeDraftId));
+    const resumeDraft = session?.activeDraftId
+      ? drafts.find((draft) => draft.id === session.activeDraftId) ?? null
+      : null;
+    const canResumeLast = Boolean(resumeDraft);
     const selectedSparkStatus = selectedSpark ? formatSparkStatus(selectedSpark) : null;
     const selectedSparkPreview = selectedSpark ? buildSparkPreview(selectedSpark.body) : "";
 
@@ -1979,6 +2030,11 @@ export default function HearthShell() {
             Resume last project
           </button>
         </div>
+        {resumeDraft ? (
+          <div className="hs-resume-context">
+            Last: {resumeDraft.title || "Untitled Draft"} · updated {formatRelativeUpdatedAt(resumeDraft.updatedAt)}
+          </div>
+        ) : null}
 
         {forgeError ? (
           <div className="hs-error-text-small">{forgeError}</div>

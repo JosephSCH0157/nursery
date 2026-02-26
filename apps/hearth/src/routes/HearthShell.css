@@ -219,6 +219,11 @@
   flex-wrap: wrap;
 }
 
+.hs-resume-context {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
 .hs-error-text {
   color: #b00020;
   font-size: 14px;
