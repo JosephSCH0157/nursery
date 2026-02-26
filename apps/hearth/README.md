@@ -15,8 +15,8 @@ Release status: included in **Forge v1.0.0** (`forge-v1.0.0`).
 
 * Not a teleprompter (that is Anvil)
 * Not a recorder
-* Not an SEO or publishing tool
-* Not an automation engine
+
+
 
 ## Design Philosophy
 

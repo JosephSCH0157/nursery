@@ -40,13 +40,7 @@ Hearth is not a teleprompter, recorder, editor, publisher, or SEO tool. It is th
   * [pause], [beat], [reflective pause]
   * [note] (hidden in Anvil)
 
-### Explicitly Excluded
 
-* SEO titles, tags, descriptions
-* Thumbnails, images, B-roll
-* Platform optimization
-* Publishing or distribution logic
-* Recording or playback
 
 If it does not help a human read the script aloud in Anvil, it does not exist in V1.
 
