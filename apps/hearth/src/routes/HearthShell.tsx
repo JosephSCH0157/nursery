@@ -57,7 +57,7 @@ const STORE_KIND_KEY = "hearth_store_kind";
 const DEV_MODE_KEY = "tp_dev_mode";
 const MODE_STORAGE_PREFIX = "hearth:ui:mode:v1:";
 
-type HearthMode = "home" | "draft" | "planning" | "sources" | "revisions";
+type HearthMode = "sparks" | "draft" | "planning" | "sources" | "revisions";
 
 function resolveStoreKind(): HearthStoreKind {
   if (typeof window === "undefined") return "tongs";
@@ -125,7 +125,14 @@ function readMode(workpieceId: string | null): HearthMode | null {
     const raw = window.localStorage.getItem(`${MODE_STORAGE_PREFIX}${workpieceId}`);
     if (!raw) return null;
     const trimmed = raw.trim();
-    if (trimmed === "draft" || trimmed === "planning" || trimmed === "sources" || trimmed === "revisions") {
+    if (trimmed === "home") return "sparks";
+    if (
+      trimmed === "sparks"
+      || trimmed === "draft"
+      || trimmed === "planning"
+      || trimmed === "sources"
+      || trimmed === "revisions"
+    ) {
       return trimmed;
     }
   } catch {
@@ -136,11 +143,22 @@ function readMode(workpieceId: string | null): HearthMode | null {
 
 function writeMode(workpieceId: string | null, mode: HearthMode): void {
   if (!workpieceId || typeof window === "undefined") return;
-  if (mode === "home") return;
+  if (mode === "sparks") return;
   try {
     window.localStorage.setItem(`${MODE_STORAGE_PREFIX}${workpieceId}`, mode);
   } catch {
     // ignore storage failures
+  }
+}
+
+function hasExplicitWorkpieceQuery(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const query = new URLSearchParams(window.location.search);
+    const keys = ["workpiece_id", "workpieceId", "workpiece", "cradle_id", "cradleId"];
+    return keys.some((key) => Boolean(query.get(key)?.trim()));
+  } catch {
+    return false;
   }
 }
 
@@ -357,9 +375,10 @@ export default function HearthShell() {
   const store = useMemo(() => createHearthStore(storeKind), [storeKind]);
   const sessionStore = useMemo(() => new LocalSessionStore(), []);
 
-  const [selectedMode, setSelectedMode] = useState<HearthMode>("home");
+  const [selectedMode, setSelectedMode] = useState<HearthMode>("sparks");
   const modeTouchedRef = useRef(false);
   const [sparks, setSparks] = useState<BarStockSpark[]>(() => readBarStockSparks());
+  const [selectedSparkId, setSelectedSparkId] = useState<string | null>(null);
   const [forgeError, setForgeError] = useState<string | null>(null);
   const [isForging, setIsForging] = useState(false);
 
@@ -463,7 +482,8 @@ export default function HearthShell() {
   const sourceIndexById = sourcesState.sourceIndexById;
   const missingSourcesCount = sourcesState.missingCitedCount;
   const unusedSourcesCount = sourcesState.unusedRefsCount;
-  const showHome = selectedMode === "home" || !workpieceId;
+  const hasActiveConversation = Boolean(activeDraft);
+  const showSparksLanding = selectedMode === "sparks" || !hasActiveConversation;
   const openInAnvilHref = useMemo(
     () => buildOpenInAnvilHref(workspaceId, workpieceId),
     [workspaceId, workpieceId],
@@ -477,6 +497,15 @@ export default function HearthShell() {
     )),
     [activeDraft?.id, sparks, workpieceId],
   );
+  const sortedSparks = useMemo(
+    () => sparks.slice().sort((a, b) => b.createdAt - a.createdAt),
+    [sparks],
+  );
+  const selectedSpark = useMemo(() => {
+    if (sortedSparks.length === 0) return null;
+    if (!selectedSparkId) return sortedSparks[0] ?? null;
+    return sortedSparks.find((spark) => spark.id === selectedSparkId) ?? sortedSparks[0] ?? null;
+  }, [selectedSparkId, sortedSparks]);
 
   const filteredDrafts = useMemo(() => {
     const query = searchText.trim().toLowerCase();
@@ -853,25 +882,32 @@ export default function HearthShell() {
         setRevisionView(tab);
       }
 
+      const explicitWorkpieceSelection = hasExplicitWorkpieceQuery();
       const preferredId = storedSession?.activeDraftId;
-      const first = preferredId ? list.find((draft) => draft.id === preferredId) : list[0];
-      if (first) {
-        restoredCursorDraftIdRef.current = null;
-        setActiveDraft(first);
-        setDraftSnapshot({ title: first.title, body: first.body, updatedAt: first.updatedAt });
-        await refreshRevisions(first.id);
-      } else {
-        restoredCursorDraftIdRef.current = null;
-        setActiveDraft(null);
-        setDraftSnapshot(null);
+      if (explicitWorkpieceSelection && preferredId) {
+        const preferredDraft = list.find((draft) => draft.id === preferredId);
+        if (preferredDraft) {
+          restoredCursorDraftIdRef.current = null;
+          setActiveDraft(preferredDraft);
+          setDraftSnapshot({ title: preferredDraft.title, body: preferredDraft.body, updatedAt: preferredDraft.updatedAt });
+          await refreshRevisions(preferredDraft.id);
+          setSelectedMode("draft");
+          return;
+        }
       }
+
+      restoredCursorDraftIdRef.current = null;
+      setActiveDraft(null);
+      setDraftSnapshot(null);
+      setRevisions([]);
+      setSelectedRevision(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load drafts.";
       setError(message);
     } finally {
       setIsLoading(false);
     }
-  }, [store, refreshRevisions, sessionStore]);
+  }, [refreshRevisions, sessionStore, store]);
 
   useEffect(() => {
     void loadInitial();
@@ -888,6 +924,21 @@ export default function HearthShell() {
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
+
+  useEffect(() => {
+    if (sortedSparks.length === 0) {
+      if (selectedSparkId) setSelectedSparkId(null);
+      return;
+    }
+    if (!selectedSparkId) {
+      setSelectedSparkId(sortedSparks[0]?.id ?? null);
+      return;
+    }
+    const exists = sortedSparks.some((spark) => spark.id === selectedSparkId);
+    if (!exists) {
+      setSelectedSparkId(sortedSparks[0]?.id ?? null);
+    }
+  }, [selectedSparkId, sortedSparks]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -949,8 +1000,8 @@ export default function HearthShell() {
   }, [workpieceId]);
 
   useEffect(() => {
-    if (!workpieceId) {
-      setSelectedMode("home");
+    if (!activeDraft) {
+      setSelectedMode("sparks");
       return;
     }
 
@@ -963,7 +1014,7 @@ export default function HearthShell() {
     if (modeTouchedRef.current) return;
     const defaultMode = "draft";
     setSelectedMode(defaultMode);
-  }, [workpieceId]);
+  }, [activeDraft, workpieceId]);
 
   useEffect(() => {
     setShowManualDraft(false);
@@ -977,7 +1028,7 @@ export default function HearthShell() {
 
   useEffect(() => {
     if (!workpieceId) return;
-    if (selectedMode === "home") return;
+    if (selectedMode === "sparks") return;
     writeMode(workpieceId, selectedMode);
   }, [selectedMode, workpieceId]);
 
@@ -1042,7 +1093,7 @@ export default function HearthShell() {
     sessionSaveTimer.current = window.setTimeout(() => {
       const tab = selectedMode === "revisions"
         ? revisionView
-        : selectedMode === "home"
+        : selectedMode === "sparks"
           ? "draft"
           : selectedMode;
       void persistSession(activeDraft?.id ?? null, tab);
@@ -1266,6 +1317,30 @@ export default function HearthShell() {
       const message = err instanceof Error ? err.message : "Failed to create draft.";
       setError(message);
     }
+  }
+
+  async function onResumeLastProject() {
+    const lastDraftId = session?.activeDraftId ?? null;
+    if (!lastDraftId) {
+      setForgeError("No last project to resume.");
+      return;
+    }
+    const lastDraft = drafts.find((draft) => draft.id === lastDraftId);
+    if (!lastDraft) {
+      setForgeError("Last project not found.");
+      return;
+    }
+    setForgeError(null);
+    await selectDraft(lastDraft);
+    setMode("draft");
+  }
+
+  async function onStartForgingSelectedSpark() {
+    if (!selectedSpark) {
+      await startFromScratch();
+      return;
+    }
+    await forgeSpark(selectedSpark);
   }
 
   function onAddDecision() {
@@ -1884,76 +1959,135 @@ export default function HearthShell() {
     );
   }
 
-  const renderHomeView = () => {
-    const sortedSparks = sparks.slice().sort((a, b) => b.createdAt - a.createdAt);
+  const renderSparksView = () => {
+    const canResumeLast = Boolean(session?.activeDraftId && drafts.some((draft) => draft.id === session.activeDraftId));
+    const selectedSparkStatus = selectedSpark ? formatSparkStatus(selectedSpark) : null;
+    const selectedSparkPreview = selectedSpark ? buildSparkPreview(selectedSpark.body) : "";
+
     return (
-      <section className="hs-home">
+      <section className="hs-home hs-sparks-landing">
         <header className="hs-home-header">
           <h2 className="hs-home-title">Hearth</h2>
-          <p className="hs-home-subtext">Select a spark or begin a new workpiece.</p>
+          <p className="hs-home-subtext">Pick a spark, then start forging in conversation.</p>
         </header>
 
-        <section className="hs-home-section">
-          <h3 className="hs-home-section-title">Start New Workpiece</h3>
-          <div className="hs-home-actions">
-            <button type="button" onClick={() => void startFromScratch()} disabled={isForging}>
-              Start from scratch
-            </button>
-            {activeDraft ? (
-              <button type="button" onClick={() => setMode("draft")}>
-                Continue last draft
-              </button>
-            ) : null}
-          </div>
-        </section>
+        <div className="hs-home-actions">
+          <button type="button" onClick={() => void startFromScratch()} disabled={isForging}>
+            New project
+          </button>
+          <button type="button" onClick={() => void onResumeLastProject()} disabled={!canResumeLast}>
+            Resume last project
+          </button>
+        </div>
 
         {forgeError ? (
           <div className="hs-error-text-small">{forgeError}</div>
         ) : null}
 
-        <section className="hs-home-barstock">
-          <h3 className="hs-home-section-title">From Bar Stock</h3>
-          {sortedSparks.length === 0 ? (
-            <p className="hs-home-empty">
-              No sparks yet. Capture ideas in Bar Stock first.
-            </p>
-          ) : (
+        <div className="hs-sparks-layout">
+          <section className="hs-home-barstock">
+            <h3 className="hs-home-section-title">Sparks</h3>
             <div className="hs-home-spark-list">
-              {sortedSparks.map((spark) => {
-                const status = formatSparkStatus(spark);
-                const preview = buildSparkPreview(spark.body);
-                return (
-                  <div
-                    key={spark.id}
-                    className="hs-spark-card"
+              <div className="hs-spark-card hs-spark-card-new">
+                <div className="hs-spark-header">
+                  <div className="hs-spark-title">New project</div>
+                </div>
+                <div className="hs-spark-preview">
+                  Start from scratch without a Spark.
+                </div>
+                <div className="hs-spark-footer">
+                  <div className="hs-spark-status">Fresh workpiece</div>
+                  <button
+                    type="button"
+                    onClick={() => void startFromScratch()}
+                    disabled={isForging}
                   >
-                    <div className="hs-spark-header">
-                      <div className="hs-spark-title">{deriveSparkTitle(spark)}</div>
-                      <div className="hs-spark-date">
-                        {formatSparkDate(spark.createdAt)}
-                      </div>
-                    </div>
-                    <div className="hs-spark-preview">
-                      {preview || "No preview available yet."}
-                    </div>
-                    <div className="hs-spark-footer">
-                      <div className="hs-spark-status">
-                        Status: {status.label}{status.detail ? ` · ${status.detail}` : ""}
-                      </div>
+                    Start forging
+                  </button>
+                </div>
+              </div>
+
+              {sortedSparks.length === 0 ? (
+                <p className="hs-home-empty">
+                  No sparks yet. Capture ideas in Bar Stock first.
+                </p>
+              ) : (
+                sortedSparks.map((spark) => {
+                  const status = formatSparkStatus(spark);
+                  const preview = buildSparkPreview(spark.body);
+                  const isSelected = selectedSpark?.id === spark.id;
+                  return (
+                    <div
+                      key={spark.id}
+                      className={`hs-spark-card${isSelected ? " is-selected" : ""}`}
+                      onMouseEnter={() => setSelectedSparkId(spark.id)}
+                    >
                       <button
                         type="button"
-                        onClick={() => void forgeSpark(spark)}
+                        className="hs-spark-select"
                         disabled={isForging}
+                        onFocus={() => setSelectedSparkId(spark.id)}
+                        onClick={() => void forgeSpark(spark)}
                       >
-                        Forge this
+                        <div className="hs-spark-header">
+                          <div className="hs-spark-title">{deriveSparkTitle(spark)}</div>
+                          <div className="hs-spark-date">
+                            {formatSparkDate(spark.createdAt)}
+                          </div>
+                        </div>
+                        <div className="hs-spark-preview">
+                          {preview || "No preview available yet."}
+                        </div>
                       </button>
+                      <div className="hs-spark-footer">
+                        <div className="hs-spark-status">
+                          Status: {status.label}{status.detail ? ` · ${status.detail}` : ""}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void forgeSpark(spark)}
+                          disabled={isForging}
+                        >
+                          Start forging
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
-          )}
-        </section>
+          </section>
+
+          <aside className="hs-spark-detail-panel">
+            <div className="hs-spark-detail-title">
+              {selectedSpark ? deriveSparkTitle(selectedSpark) : "Select a spark"}
+            </div>
+            {selectedSpark ? (
+              <>
+                <div className="hs-spark-detail-meta">
+                  {formatSparkDate(selectedSpark.createdAt)}
+                  {selectedSparkStatus ? ` · ${selectedSparkStatus.label}` : ""}
+                </div>
+                <div className="hs-spark-detail-preview">
+                  {selectedSparkPreview || selectedSpark.body || "No preview available yet."}
+                </div>
+                <div className="hs-spark-detail-actions">
+                  <button
+                    type="button"
+                    onClick={() => void onStartForgingSelectedSpark()}
+                    disabled={isForging}
+                  >
+                    Start forging
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p className="hs-home-empty">
+                Choose a spark to preview it before forging.
+              </p>
+            )}
+          </aside>
+        </div>
       </section>
     );
   };
@@ -2513,8 +2647,8 @@ export default function HearthShell() {
     </section>
   );
 
-  const mainContent = showHome
-    ? renderHomeView()
+  const mainContent = showSparksLanding
+    ? renderSparksView()
     : selectedMode === "planning"
       ? renderPlanningView()
       : selectedMode === "sources"
@@ -2553,8 +2687,8 @@ export default function HearthShell() {
             <button type="button" onClick={() => void startFromScratch()} disabled={isForging}>
               New Workpiece
             </button>
-            <button type="button" onClick={() => setMode("home")}>
-              Forge from Bar Stock
+            <button type="button" onClick={() => setMode("sparks")}>
+              Sparks
             </button>
           </div>
 
@@ -2675,7 +2809,7 @@ export default function HearthShell() {
             </ul>
           </div>
 
-          {workpieceId ? (
+          {hasActiveConversation ? (
             <div className="hs-active-workpiece">
               <div className="hs-rail-heading">Active workpiece</div>
               <button
