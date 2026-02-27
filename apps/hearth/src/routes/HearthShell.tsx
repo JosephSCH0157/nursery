@@ -2807,6 +2807,17 @@ export default function HearthShell() {
     }, STT_INLINE_FEEDBACK_MS);
   }
 
+  async function commitVoiceTranscript(rawTranscript: string) {
+    const text = rawTranscript.trim();
+    if (!text) {
+      setSttError(null);
+      showSttNotice("No speech detected.");
+      return;
+    }
+    showSttPreviewLine(text);
+    await sendChatMessage({ requestContent: text });
+  }
+
   function clearAiSttStopTimer() {
     if (aiSttStopTimerRef.current) {
       window.clearTimeout(aiSttStopTimerRef.current);
@@ -2884,15 +2895,7 @@ export default function HearthShell() {
       setAiRuntimeWarning(transcriptResult.creditsWarning);
     }
 
-    const text = transcriptResult.text.trim();
-    if (!text) {
-      setSttError(null);
-      showSttNotice("No speech detected.");
-      return;
-    }
-
-    showSttPreviewLine(text);
-    await sendChatMessage({ requestContent: text });
+    await commitVoiceTranscript(transcriptResult.text);
   }
 
   async function startAiStt() {
@@ -3009,8 +3012,7 @@ export default function HearthShell() {
 
       const blob = new Blob(chunks, { type: recordedMimeType });
       if (!blob.size) {
-        setSttError(null);
-        showSttNotice("No speech detected.");
+        await commitVoiceTranscript("");
         setSttState("idle");
         return;
       }
@@ -3129,15 +3131,7 @@ export default function HearthShell() {
     recognition.onend = async () => {
       speechRecognitionRef.current = null;
       setSttState("idle");
-
-      const text = finalTranscript.trim();
-      if (!text) {
-        setSttError(null);
-        showSttNotice("No speech detected.");
-        return;
-      }
-      showSttPreviewLine(text);
-      await sendChatMessage({ requestContent: text });
+      await commitVoiceTranscript(finalTranscript);
     };
 
     speechRecognitionRef.current = recognition;
@@ -3686,7 +3680,14 @@ export default function HearthShell() {
                 value={sttLane}
                 onChange={(event) => setSttLane(event.target.value as SttLane)}
                 className="stt-lane-select"
-                title={!hasBrowserSpeech ? "Browser speech not supported" : undefined}
+                disabled={sttState !== "idle"}
+                title={
+                  sttState !== "idle"
+                    ? "Voice lane is locked while listening/transcribing."
+                    : !hasBrowserSpeech
+                      ? "Browser speech not supported"
+                      : undefined
+                }
               >
                 <option value="browser" disabled={!hasBrowserSpeech}>
                   Browser (Free)
@@ -3699,9 +3700,11 @@ export default function HearthShell() {
                 className={`mic-button ${sttState}`}
                 title={
                   sttState === "idle"
-                    ? "Start recording"
+                    ? sttLane === "browser"
+                      ? "Voice (Free)"
+                      : "Voice (AI)"
                     : sttState === "listening"
-                      ? "Stop recording"
+                      ? "Listening... tap to stop"
                       : "Transcribing..."
                 }
               >
