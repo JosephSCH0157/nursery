@@ -319,7 +319,7 @@ function buildClarifyingQuestionReply(profile: CreatorProfile): string {
     "Before I draft, answer these quick producer questions:",
     "1) Angle: what is the main claim or takeaway for this Episode?",
     riskLine,
-    "3) Format: outline first or full script (S1=Joe, S2=Brad)?",
+    "3) Format: outline first or full script (S1/S2)?",
     "Answer these and I'll generate an outline/script.",
   ].join("\n");
 }
@@ -490,8 +490,8 @@ function buildSystemPrompt(context: EpisodeContext, creatorStyleSnippet?: string
     "- Allowed inline pacing tokens: [pause], [beat], [reflective pause]",
     "- Preserve pacing tokens verbatim. Do not invent or infer extra pacing tokens.",
     "- Allowed hidden notes: [note]...[/note], and [note] tags must be on their own lines.",
-    "- Forbid random markup: Joe:, Brad:, **Brad:**, <speaker>, Markdown headings.",
-    "- Canonical speaker mapping: S1 = Joe, S2 = Brad.",
+    "- Forbid random markup: Host 1:, Host 2:, **Host 2:**, <speaker>, Markdown headings.",
+    "- Canonical speaker mapping: S1 = Host 1, S2 = Host 2.",
     "Rules:",
     "- assistantText must be concise plain text (no markdown).",
     "- Use ops only for concrete edits requested by the user.",
