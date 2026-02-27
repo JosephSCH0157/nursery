@@ -74,6 +74,7 @@ export type HearthSttResult =
 const AI_SETTINGS_STORAGE_KEY = "forge:hearth:aiSettings:v1";
 const SUPABASE_AUTH_STORAGE_KEY = "forge-auth";
 const HEARTH_STT_BUCKET = "forge-workpieces";
+const SUPABASE_AUTH_KEY_RE = /^sb-[a-z0-9-]+-auth-token$/i;
 
 type AiSettingsSnapshot = {
   lane: HearthAiLane;
@@ -216,31 +217,120 @@ function readSupabaseConfig(): { url: string; anonKey: string } | null {
   return { url, anonKey };
 }
 
-function readAccessTokenFromStorage(): string | null {
+function readTokenString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function extractAccessTokenFromAuthPayload(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const token = extractAccessTokenFromAuthPayload(entry);
+      if (token) return token;
+    }
+    return null;
+  }
+
+  const row = value as Record<string, unknown>;
+  const direct = readTokenString(row.access_token);
+  if (direct) return direct;
+
+  const currentSession = row.currentSession;
+  if (currentSession && typeof currentSession === "object") {
+    const token = readTokenString((currentSession as Record<string, unknown>).access_token);
+    if (token) return token;
+  }
+
+  const session = row.session;
+  if (session && typeof session === "object") {
+    const token = readTokenString((session as Record<string, unknown>).access_token);
+    if (token) return token;
+  }
+
+  const currentSessionLegacy = row.current_session;
+  if (currentSessionLegacy && typeof currentSessionLegacy === "object") {
+    const token = readTokenString((currentSessionLegacy as Record<string, unknown>).access_token);
+    if (token) return token;
+  }
+
+  const nestedData = row.data;
+  if (nestedData && typeof nestedData === "object") {
+    const token = extractAccessTokenFromAuthPayload(nestedData);
+    if (token) return token;
+  }
+
+  return null;
+}
+
+function readAccessTokenFromStorageKey(key: string): string | null {
   if (typeof window === "undefined") return null;
+
   let raw: string | null = null;
   try {
-    raw = window.localStorage.getItem(SUPABASE_AUTH_STORAGE_KEY);
+    raw = window.localStorage.getItem(key);
   } catch {
     return null;
   }
   if (!raw) return null;
+
+  const direct = readTokenString(raw);
+  if (direct && direct !== "null" && direct !== "undefined" && !direct.startsWith("{") && !direct.startsWith("[")) {
+    return direct;
+  }
+
   try {
-    const parsed = JSON.parse(raw) as {
-      access_token?: unknown;
-      currentSession?: { access_token?: unknown };
-      session?: { access_token?: unknown };
-    };
-    const direct = parsed.access_token;
-    if (typeof direct === "string" && direct.trim()) return direct.trim();
-    const fromCurrent = parsed.currentSession?.access_token;
-    if (typeof fromCurrent === "string" && fromCurrent.trim()) return fromCurrent.trim();
-    const fromSession = parsed.session?.access_token;
-    if (typeof fromSession === "string" && fromSession.trim()) return fromSession.trim();
+    const parsed = JSON.parse(raw) as unknown;
+    return extractAccessTokenFromAuthPayload(parsed);
   } catch {
-    // ignore JSON parse failures
+    return null;
+  }
+}
+
+function readAccessTokenFromStorage(): string | null {
+  if (typeof window === "undefined") return null;
+
+  const primary = readAccessTokenFromStorageKey(SUPABASE_AUTH_STORAGE_KEY);
+  if (primary) return primary;
+
+  try {
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (!key || key === SUPABASE_AUTH_STORAGE_KEY) continue;
+      if (!SUPABASE_AUTH_KEY_RE.test(key)) continue;
+      const token = readAccessTokenFromStorageKey(key);
+      if (token) return token;
+    }
+  } catch {
+    // ignore storage access failures
   }
   return null;
+}
+
+async function readAccessTokenForRequest(): Promise<string | null> {
+  const fromStorage = readAccessTokenFromStorage();
+  if (fromStorage) return fromStorage;
+  if (typeof window === "undefined") return null;
+
+  const runtimeWindow = window as Window & typeof globalThis & {
+    __forge_supabase_client__?: {
+      auth?: {
+        getSession?: () => Promise<unknown>;
+      };
+    };
+  };
+
+  const getSession = runtimeWindow.__forge_supabase_client__?.auth?.getSession;
+  if (typeof getSession !== "function") return null;
+
+  try {
+    const sessionPayload = await getSession();
+    return extractAccessTokenFromAuthPayload(sessionPayload);
+  } catch {
+    return null;
+  }
 }
 
 function buildAuthHeaders(opts?: { includeJson?: boolean }): Headers {
@@ -350,7 +440,7 @@ export async function refreshMyAiCredits(): Promise<HearthAiStatusResult> {
   }
 
   const config = readSupabaseConfig();
-  const accessToken = readAccessTokenFromStorage();
+  const accessToken = await readAccessTokenForRequest();
   if (!config || !accessToken) {
     return {
       ok: false,
@@ -471,8 +561,16 @@ export async function uploadHearthSttAudio(args: {
   }
 
   const config = readSupabaseConfig();
-  const accessToken = readAccessTokenFromStorage();
-  if (!config || !accessToken) {
+  if (!config) {
+    return {
+      ok: false,
+      status: 500,
+      error: "Supabase config missing for AI transcription.",
+    };
+  }
+
+  const accessToken = await readAccessTokenForRequest();
+  if (!accessToken) {
     return {
       ok: false,
       status: 401,
@@ -552,11 +650,25 @@ export async function requestHearthSttTranscript(args: {
     };
   }
 
+  const accessToken = await readAccessTokenForRequest();
+  if (!accessToken) {
+    return {
+      ok: false,
+      status: 401,
+      error: "Sign in required for AI transcription.",
+      runtime: { tokenBalance: null, billingMode: lane },
+    };
+  }
+
+  const headers = new Headers();
+  headers.set("content-type", "application/json");
+  headers.set("authorization", `Bearer ${accessToken}`);
+
   let response: Response;
   try {
     response = await fetch("/api/hearth/stt", {
       method: "POST",
-      headers: buildAuthHeaders({ includeJson: true }),
+      headers,
       body: JSON.stringify({
         lane,
         workpiece_id: workpieceId,
