@@ -1,13 +1,13 @@
-# Podcaster's Forge (Forge v1.0) - Nursery
+# Podcaster's Forge (Forge v1.2 Fire Burning) - Nursery
 
 Nursery is the **front door** and **single login** for the Podcaster's Forge ecosystem. Users authenticate here (email + password) and then unlock the `/app` workspace where every Forge tool lives (Anvil, Hearth, Hammer, Barstock, etc.).
 
 ## Release status
 
-- Forge `v1.0.0` is released and tagged as `forge-v1.0.0`.
-- This repo documents the v1.0 baseline for Nursery and its connected tools.
+- Forge `v1.2.0` (**Fire Burning**) is released and tagged as `forge-v1.2.0`.
+- This repo documents the v1.2 baseline for Nursery and its connected tools.
 
-## Forge v1.0.0 release index
+## Forge v1.2.0 Fire Burning release index
 
 - Nursery / ForgeHub canonical doc: [`apps/nursery/FORGEHUB_V1_MANIFEST.md`](apps/nursery/FORGEHUB_V1_MANIFEST.md)
 - Bar-Stock canonical doc: [`apps/bar-stock/README.md`](apps/bar-stock/README.md)

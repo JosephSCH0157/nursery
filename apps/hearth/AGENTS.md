@@ -5,7 +5,7 @@ All contributors (human or AI) MUST follow these rules.
 
 If code behavior contradicts this document, the code is wrong.
 
-Release baseline: **Forge v1.0.0** (`forge-v1.0.0`).
+Release baseline: **Forge v1.2.0 Fire Burning** (`forge-v1.2.0`).
 
 ---
 

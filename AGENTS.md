@@ -2,7 +2,7 @@
 
 This document defines the **canonical agent roles** inside the Nursery workspace. Each agent has a clear scope, inputs/outputs, and guardrails so tools can cooperate without stepping on each other.
 
-Release baseline: **Forge v1.0.0** (`forge-v1.0.0`).
+Release baseline: **Forge v1.2.0 Fire Burning** (`forge-v1.2.0`).
 
 ---
 
