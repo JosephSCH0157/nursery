@@ -1,12 +1,24 @@
 import type { Draft, DraftId } from "../domain/draft";
 import type { Revision, RevisionId } from "../domain/revision";
+import type { HearthChatMessage } from "../lib/hearth-chat-api";
 import type { HearthStore } from "./hearth-store";
 import { cloneRevision, normalizeRevision, readRevisionRecord, writeRevisionRecord } from "./revision-storage";
 
 const DRAFTS_STORAGE_KEY = "hearth:drafts";
+const CHAT_STORAGE_KEY = "hearth:chat-local:v1";
 const MAX_REVISIONS_PER_DRAFT = 200;
+const MAX_CHAT_MESSAGES = 200;
+const MAX_CHAT_TOTAL_CHARS = 650_000;
+const MAX_CHAT_ENTRY_CHARS = 24_000;
+const CHAT_TRUNCATED_SUFFIX = "\n\n[truncated in local cache]";
 
 type DraftRecord = Record<string, Draft>;
+type ChatEntry = {
+  draftId: string;
+  updatedAt: number;
+  messages: HearthChatMessage[];
+};
+type ChatRecord = Record<string, ChatEntry>;
 
 function cloneDraft(draft: Draft): Draft {
   return { ...draft };
@@ -41,6 +53,80 @@ function normalizeDraft(value: unknown): Draft | null {
     archived,
     pinned,
   };
+}
+
+function normalizeChatRole(value: unknown): HearthChatMessage["role"] | null {
+  if (value === "assistant" || value === "user" || value === "system") {
+    return value;
+  }
+  return null;
+}
+
+function trimChatContent(content: string): string {
+  const trimmed = content.trim();
+  if (!trimmed) return "";
+  if (trimmed.length <= MAX_CHAT_ENTRY_CHARS) return trimmed;
+  const maxLength = Math.max(1, MAX_CHAT_ENTRY_CHARS - CHAT_TRUNCATED_SUFFIX.length);
+  return `${trimmed.slice(0, maxLength)}${CHAT_TRUNCATED_SUFFIX}`;
+}
+
+function normalizeChatMessage(value: unknown): HearthChatMessage | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as { role?: unknown; content?: unknown };
+  const role = normalizeChatRole(row.role);
+  if (!role || typeof row.content !== "string") return null;
+  const content = trimChatContent(row.content);
+  if (!content) return null;
+  return { role, content };
+}
+
+function sanitizeChatMessages(messages: ReadonlyArray<unknown>): HearthChatMessage[] {
+  const normalized = messages
+    .map((entry) => normalizeChatMessage(entry))
+    .filter((entry): entry is HearthChatMessage => Boolean(entry));
+
+  const out: HearthChatMessage[] = [];
+  let totalChars = 0;
+  for (let idx = normalized.length - 1; idx >= 0; idx -= 1) {
+    if (out.length >= MAX_CHAT_MESSAGES) break;
+    const message = normalized[idx]!;
+    const nextChars = totalChars + message.content.length;
+    if (out.length > 0 && nextChars > MAX_CHAT_TOTAL_CHARS) break;
+    out.push(message);
+    totalChars = nextChars;
+  }
+  return out.reverse();
+}
+
+function readChatRecord(): ChatRecord {
+  try {
+    const raw = localStorage.getItem(CHAT_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+
+    const out: ChatRecord = {};
+    for (const [draftId, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!value || typeof value !== "object") continue;
+      const row = value as { updatedAt?: unknown; messages?: unknown };
+      const updatedAt = isFiniteNumber(row.updatedAt) ? row.updatedAt : Date.now();
+      const messages = Array.isArray(row.messages) ? sanitizeChatMessages(row.messages) : [];
+      out[draftId] = {
+        draftId,
+        updatedAt,
+        messages,
+      };
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function writeChatRecord(record: ChatRecord): void {
+  localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(record));
 }
 
 function readDraftRecord(): DraftRecord {
@@ -98,6 +184,40 @@ export class LocalHearthStore implements HearthStore {
     if (!record[id]) return;
     delete record[id];
     writeDraftRecord(record);
+
+    const chatRecord = readChatRecord();
+    if (chatRecord[id]) {
+      delete chatRecord[id];
+      writeChatRecord(chatRecord);
+    }
+  }
+
+  async getChatHistory(draftId: DraftId): Promise<HearthChatMessage[]> {
+    const id = typeof draftId === "string" ? draftId.trim() : "";
+    if (!id) return [];
+    const record = readChatRecord();
+    const found = record[id];
+    return found ? sanitizeChatMessages(found.messages) : [];
+  }
+
+  async saveChatHistory(draftId: DraftId, messages: HearthChatMessage[]): Promise<void> {
+    const id = typeof draftId === "string" ? draftId.trim() : "";
+    if (!id) return;
+    const record = readChatRecord();
+    const sanitized = sanitizeChatMessages(messages);
+    if (sanitized.length === 0) {
+      if (record[id]) {
+        delete record[id];
+        writeChatRecord(record);
+      }
+      return;
+    }
+    record[id] = {
+      draftId: id,
+      updatedAt: Date.now(),
+      messages: sanitized,
+    };
+    writeChatRecord(record);
   }
 
   async listRevisions(draftId: DraftId): Promise<Revision[]> {

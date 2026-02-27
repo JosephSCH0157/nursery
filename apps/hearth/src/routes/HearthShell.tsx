@@ -270,7 +270,7 @@ function readChatHistoryFromStorageKey(storageKey: string): { found: boolean; me
   }
 }
 
-function readChatHistory(historyKey: string | null): HearthChatMessage[] {
+function readChatHistoryFromCache(historyKey: string | null): HearthChatMessage[] {
   if (!historyKey || typeof window === "undefined") return [];
 
   const primary = readChatHistoryFromStorageKey(historyKey);
@@ -283,7 +283,7 @@ function readChatHistory(historyKey: string | null): HearthChatMessage[] {
   const legacy = readChatHistoryFromStorageKey(legacyKey);
   if (!legacy.found) return [];
 
-  writeChatHistory(historyKey, legacy.messages);
+  writeChatHistoryCache(historyKey, legacy.messages);
   try {
     window.localStorage.removeItem(legacyKey);
   } catch {
@@ -292,7 +292,7 @@ function readChatHistory(historyKey: string | null): HearthChatMessage[] {
   return legacy.messages;
 }
 
-function writeChatHistory(historyKey: string | null, messages: HearthChatMessage[]): void {
+function writeChatHistoryCache(historyKey: string | null, messages: HearthChatMessage[]): void {
   if (!historyKey || typeof window === "undefined") return;
   const sanitized = sanitizeChatMessagesForStorage(messages);
   try {
@@ -304,12 +304,6 @@ function writeChatHistory(historyKey: string | null, messages: HearthChatMessage
   } catch {
     // ignore storage failures
   }
-}
-
-function readCanonicalConversationLog(_workpieceId: string | null): HearthChatMessage[] | null {
-  // Local storage is a cache only. Once Tongs exposes canonical conversation logs,
-  // this function should load that data and hydration should prefer it.
-  return null;
 }
 
 function readScriptApprovalState(workpieceId: string | null): ScriptApprovalState {
@@ -800,7 +794,7 @@ type PendingAiProposal = {
 };
 
 type ScriptValidationState = {
-  source: "save_gate" | "ai_apply" | "ai_repair";
+  source: "save_notice" | "save_gate" | "ai_apply" | "ai_repair";
   result: AnvilTagValidation;
 };
 
@@ -1067,23 +1061,31 @@ export default function HearthShell() {
   const chatPersistTimerRef = useRef<number | null>(null);
   const chatMessagesRef = useRef<HearthChatMessage[]>([]);
   const latestChatHistoryKeyRef = useRef<string | null>(null);
+  const latestChatDraftIdRef = useRef<string | null>(null);
   const skipChatHydrationKeyRef = useRef<string | null>(null);
   const pendingChatHydrationKeyRef = useRef<string | null>(null);
+  const chatHydrationSeqRef = useRef(0);
   const gateAwaitingAnswersRef = useRef(false);
   const pendingShortcutIntentRef = useRef<"outline" | "script" | null>(null);
 
   const flushChatHistoryNow = useCallback((options?: {
     historyKey?: string | null;
+    draftId?: string | null;
     messages?: HearthChatMessage[];
   }) => {
     const historyKey = options?.historyKey ?? latestChatHistoryKeyRef.current;
+    const draftId = options?.draftId ?? latestChatDraftIdRef.current;
     if (!historyKey) return;
     if (chatPersistTimerRef.current) {
       window.clearTimeout(chatPersistTimerRef.current);
       chatPersistTimerRef.current = null;
     }
-    writeChatHistory(historyKey, options?.messages ?? chatMessagesRef.current);
-  }, []);
+    const messages = options?.messages ?? chatMessagesRef.current;
+    writeChatHistoryCache(historyKey, messages);
+    if (draftId) {
+      void store.saveChatHistory(draftId, messages);
+    }
+  }, [store]);
 
   const recordInteractionEvent = useCallback((
     eventType: HearthInteractionEventType,
@@ -1446,8 +1448,30 @@ export default function HearthShell() {
     if (!activeDraft) return;
     const now = Date.now();
     await persistDraft({ draft: activeDraft, updatedAt: now, createRevision: null });
-    flushChatHistoryNow();
+    flushChatHistoryNow({ draftId: activeDraft.id });
   }, [activeDraft, flushChatHistoryNow]);
+
+  const onOpenInAnvil = useCallback(async () => {
+    if (!openInAnvilHref) return;
+    if (!activeDraft) {
+      window.location.assign(openInAnvilHref);
+      return;
+    }
+
+    const now = Date.now();
+    const saved = await persistDraft({
+      draft: { ...activeDraft, updatedAt: now },
+      updatedAt: now,
+      createRevision: null,
+      syncSources: false,
+      syncSession: false,
+      validateForAnvil: true,
+    });
+    if (!saved) return;
+
+    flushChatHistoryNow({ draftId: activeDraft.id });
+    window.location.assign(openInAnvilHref);
+  }, [activeDraft, flushChatHistoryNow, openInAnvilHref]);
 
   const applySessionOrigin = useCallback((origin: HearthSessionOrigin) => {
     updatePlanningSession((prev) => ({
@@ -1493,7 +1517,8 @@ export default function HearthShell() {
       const nextChatKey = resolveChatHistoryKey(created.workpieceId ?? null, draft.id);
       if (nextChatKey) {
         skipChatHydrationKeyRef.current = nextChatKey;
-        writeChatHistory(nextChatKey, []);
+        writeChatHistoryCache(nextChatKey, []);
+        void store.saveChatHistory(draft.id, []);
       }
       setChatMessages([]);
       setChatDraft("");
@@ -1505,7 +1530,7 @@ export default function HearthShell() {
     } finally {
       setIsForging(false);
     }
-  }, [applySessionOrigin, createDraftAndOpen, isForging]);
+  }, [applySessionOrigin, createDraftAndOpen, isForging, store]);
 
   const forgeSpark = useCallback(async (spark: BarStockSpark) => {
     if (isForging) return;
@@ -1550,7 +1575,8 @@ export default function HearthShell() {
       const nextChatKey = resolveChatHistoryKey(workpieceId ?? null, draft.id);
       if (nextChatKey) {
         skipChatHydrationKeyRef.current = nextChatKey;
-        writeChatHistory(nextChatKey, [markerMessage]);
+        writeChatHistoryCache(nextChatKey, [markerMessage]);
+        void store.saveChatHistory(draft.id, [markerMessage]);
       }
       setChatMessages([markerMessage]);
       setChatDraft("");
@@ -1578,7 +1604,7 @@ export default function HearthShell() {
     } finally {
       setIsForging(false);
     }
-  }, [applySessionOrigin, createDraftAndOpen, isForging, sparks]);
+  }, [applySessionOrigin, createDraftAndOpen, isForging, sparks, store]);
 
   const loadInitial = useCallback(async () => {
     setIsLoading(true);
@@ -1792,23 +1818,19 @@ export default function HearthShell() {
 
   useEffect(() => {
     const previousKey = latestChatHistoryKeyRef.current;
-    if (previousKey && previousKey !== chatHistoryKey) {
-      flushChatHistoryNow({ historyKey: previousKey });
+    const previousDraftId = latestChatDraftIdRef.current;
+    const nextDraftId = activeDraft?.id ?? null;
+    const shouldFlushPrevious = previousKey
+      && (previousKey !== chatHistoryKey || previousDraftId !== nextDraftId);
+    if (shouldFlushPrevious) {
+      flushChatHistoryNow({ historyKey: previousKey, draftId: previousDraftId });
     }
     latestChatHistoryKeyRef.current = chatHistoryKey;
+    latestChatDraftIdRef.current = nextDraftId;
 
     if (!chatHistoryKey) {
       pendingChatHydrationKeyRef.current = null;
       setChatMessages([]);
-      setChatError(null);
-      setPendingAiProposal(null);
-      return;
-    }
-
-    const canonicalMessages = readCanonicalConversationLog(workpieceId);
-    if (canonicalMessages && canonicalMessages.length > 0) {
-      pendingChatHydrationKeyRef.current = chatHistoryKey;
-      setChatMessages(sanitizeChatMessagesForStorage(canonicalMessages));
       setChatError(null);
       setPendingAiProposal(null);
       return;
@@ -1819,11 +1841,42 @@ export default function HearthShell() {
       pendingChatHydrationKeyRef.current = null;
       return;
     }
+
+    const hydrationSeq = chatHydrationSeqRef.current + 1;
+    chatHydrationSeqRef.current = hydrationSeq;
     pendingChatHydrationKeyRef.current = chatHistoryKey;
-    setChatMessages(readChatHistory(chatHistoryKey));
-    setChatError(null);
-    setPendingAiProposal(null);
-  }, [chatHistoryKey, flushChatHistoryNow, workpieceId]);
+
+    const draftId = nextDraftId;
+    void (async () => {
+      let hydratedMessages: HearthChatMessage[] = [];
+      let loadedFromStore = false;
+
+      if (draftId) {
+        try {
+          const storeMessages = await store.getChatHistory(draftId);
+          hydratedMessages = sanitizeChatMessagesForStorage(storeMessages);
+          loadedFromStore = hydratedMessages.length > 0;
+        } catch {
+          loadedFromStore = false;
+        }
+      }
+
+      if (!loadedFromStore) {
+        hydratedMessages = readChatHistoryFromCache(chatHistoryKey);
+        if (draftId && hydratedMessages.length > 0) {
+          void store.saveChatHistory(draftId, hydratedMessages);
+        }
+      } else {
+        writeChatHistoryCache(chatHistoryKey, hydratedMessages);
+      }
+
+      if (chatHydrationSeqRef.current !== hydrationSeq) return;
+      pendingChatHydrationKeyRef.current = null;
+      setChatMessages(hydratedMessages);
+      setChatError(null);
+      setPendingAiProposal(null);
+    })();
+  }, [activeDraft?.id, chatHistoryKey, flushChatHistoryNow, store]);
 
   useEffect(() => {
     if (!chatHistoryKey) return;
@@ -1831,13 +1884,17 @@ export default function HearthShell() {
       pendingChatHydrationKeyRef.current = null;
       return;
     }
+    const draftId = activeDraft?.id ?? null;
 
     if (chatPersistTimerRef.current) {
       window.clearTimeout(chatPersistTimerRef.current);
       chatPersistTimerRef.current = null;
     }
     chatPersistTimerRef.current = window.setTimeout(() => {
-      writeChatHistory(chatHistoryKey, chatMessages);
+      writeChatHistoryCache(chatHistoryKey, chatMessages);
+      if (draftId) {
+        void store.saveChatHistory(draftId, chatMessages);
+      }
       chatPersistTimerRef.current = null;
     }, CHAT_HISTORY_WRITE_DEBOUNCE_MS);
 
@@ -1847,7 +1904,7 @@ export default function HearthShell() {
         chatPersistTimerRef.current = null;
       }
     };
-  }, [chatHistoryKey, chatMessages]);
+  }, [activeDraft?.id, chatHistoryKey, chatMessages, store]);
 
   useEffect(() => {
     if (hasBrowserSpeech || sttLane !== "browser") return;
@@ -2076,25 +2133,26 @@ export default function HearthShell() {
     syncSources?: boolean;
     syncSession?: boolean;
     showSavingState?: boolean;
+    validateForAnvil?: boolean;
   }): Promise<boolean> {
     const showSavingState = args.showSavingState ?? true;
     if (showSavingState) {
       setIsSaving(true);
     }
     setError(null);
-    const tagValidation = validateAnvilTagContract(args.draft.body);
-    if (!tagValidation.ok) {
+    const shouldValidateForAnvil = args.validateForAnvil === true;
+    const tagValidation = shouldValidateForAnvil
+      ? validateAnvilTagContract(args.draft.body)
+      : null;
+    const hasAnvilTagWarning = Boolean(tagValidation && !tagValidation.ok);
+    if (hasAnvilTagWarning && tagValidation) {
       setScriptValidation({
-        source: "save_gate",
+        source: "save_notice",
         result: tagValidation,
       });
-      setError(`Script tag validation failed:\n${tagValidation.report}`);
-      if (showSavingState) {
-        setIsSaving(false);
-      }
-      return false;
+    } else {
+      setScriptValidation(null);
     }
-    setScriptValidation(null);
     const editVersionAtStart = draftEditVersionRef.current;
     try {
       let revisionCount = args.draft.revisionCount;
@@ -2174,15 +2232,6 @@ export default function HearthShell() {
       title: normalizeTitle(updates.title ?? draft.title),
       updatedAt: now,
     };
-    const tagValidation = validateAnvilTagContract(toSave.body);
-    if (!tagValidation.ok) {
-      setScriptValidation({
-        source: "save_gate",
-        result: tagValidation,
-      });
-      setError(`Script tag validation failed:\n${tagValidation.report}`);
-      return;
-    }
     setScriptValidation(null);
     await store.saveDraft(toSave);
     setDrafts((prev) => prev.map((d) => (d.id === toSave.id ? toSave : d)));
@@ -2747,7 +2796,7 @@ export default function HearthShell() {
       const markerMessage: HearthChatMessage = { role: "assistant", content: markerLines.join("\n") };
       setChatMessages((prev) => {
         const next = [...prev, markerMessage].slice(-CHAT_HISTORY_MAX_MESSAGES);
-        flushChatHistoryNow({ messages: next });
+        flushChatHistoryNow({ draftId: activeDraft.id, messages: next });
         return next;
       });
     } finally {
@@ -3714,7 +3763,7 @@ export default function HearthShell() {
         <div className="hs-toolbar">
           <button onClick={onCreateDraft}>New Draft</button>
           <button onClick={onSaveDraft} disabled={!activeDraft || isSaving}>
-            {isSaving ? "Saving..." : "Save"}
+            {isSaving ? "Saving..." : "Save draft"}
           </button>
           <button onClick={() => setRevisionModalOpen(true)} disabled={!activeDraft || isSaving}>
             Create Revision
@@ -3739,13 +3788,19 @@ export default function HearthShell() {
 
         {scriptValidation ? (
           <section className="hs-script-validation" aria-label="Anvil tag validation">
-            <div className="hs-script-validation-title">Script Tag Contract Failed</div>
+            <div className="hs-script-validation-title">
+              {scriptValidation.source === "save_notice"
+                ? "Script Tag Contract Warning"
+                : "Script Tag Contract Failed"}
+            </div>
             <div className="hs-script-validation-subtitle">
-              {scriptValidation.source === "ai_apply"
+              {scriptValidation.source === "save_notice"
+                ? "Saved draft. Script tags still need fixing before Anvil export."
+                : scriptValidation.source === "ai_apply"
                 ? "AI proposed script changes are invalid."
                 : scriptValidation.source === "ai_repair"
                   ? "AI repair result is still invalid."
-                  : "Draft cannot be saved until tags are valid."}
+                  : "Script tags must be valid for this action."}
             </div>
             <pre className="hs-script-validation-report">{scriptValidation.result.report}</pre>
             <div className="hs-script-validation-actions">
@@ -4496,10 +4551,7 @@ export default function HearthShell() {
               <div className="hs-rail-heading">Active workpiece</div>
               <button
                 type="button"
-                onClick={() => {
-                  if (!openInAnvilHref) return;
-                  window.location.assign(openInAnvilHref);
-                }}
+                onClick={() => void onOpenInAnvil()}
                 disabled={!openInAnvilHref}
                 className="hs-mode-button"
               >
