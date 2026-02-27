@@ -23,8 +23,10 @@ import {
 import {
   fetchHearthAiStatus,
   requestHearthChatReply,
+  requestHearthSttTranscript,
   refreshMyAiCredits,
   resolveAiLaneFromStorage,
+  uploadHearthSttAudio,
   type HearthAiLane,
   type HearthChatMessage,
 } from "../lib/hearth-chat-api";
@@ -64,6 +66,8 @@ const CHAT_HISTORY_MAX_STORAGE_CHARS = 650_000;
 const CHAT_HISTORY_MAX_ENTRY_CHARS = 24_000;
 const CHAT_HISTORY_WRITE_DEBOUNCE_MS = 350;
 const CHAT_HISTORY_TRUNCATED_SUFFIX = "\n\n[truncated in local cache]";
+const AI_STT_MAX_DURATION_MS = 5 * 60 * 1000;
+const AI_STT_MAX_BYTES = 10 * 1024 * 1024;
 
 type HearthMode = "sparks" | "draft" | "planning" | "sources" | "revisions";
 type ProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet";
@@ -587,6 +591,25 @@ function splitLines(text: string): string[] {
   return text.split(/\r?\n/);
 }
 
+function resolveAiSttMimeType(): string | null {
+  if (typeof window === "undefined") return null;
+  const mediaRecorder = window.MediaRecorder;
+  if (!mediaRecorder || typeof mediaRecorder.isTypeSupported !== "function") return null;
+  const preferred = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/ogg;codecs=opus",
+    "audio/ogg",
+    "audio/mp4",
+  ];
+  for (const candidate of preferred) {
+    if (mediaRecorder.isTypeSupported(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
 type SortKey = "updated" | "title";
 
 type DraftSnapshot = {
@@ -860,6 +883,15 @@ export default function HearthShell() {
   const restoredCursorDraftIdRef = useRef<string | null>(null);
   const aiRequestControllerRef = useRef<AbortController | null>(null);
   const speechRecognitionRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const aiSttChunksRef = useRef<BlobPart[]>([]);
+  const aiSttStartedAtRef = useRef<number | null>(null);
+  const aiSttMimeTypeRef = useRef<string>("audio/webm");
+  const aiSttEpisodeIdRef = useRef<string | null>(null);
+  const aiSttStopTimerRef = useRef<number | null>(null);
+  const aiSttDiscardNextStopRef = useRef(false);
+  const aiSttTranscribeControllerRef = useRef<AbortController | null>(null);
   const chatPersistTimerRef = useRef<number | null>(null);
   const chatMessagesRef = useRef<HearthChatMessage[]>([]);
   const latestChatHistoryKeyRef = useRef<string | null>(null);
@@ -1635,6 +1667,49 @@ export default function HearthShell() {
     setSttState("idle");
     setSttError("Browser speech not supported.");
   }, [hasBrowserSpeech, sttLane]);
+
+  useEffect(() => {
+    return () => {
+      try {
+        speechRecognitionRef.current?.abort?.();
+      } catch {
+        // ignore
+      }
+      speechRecognitionRef.current = null;
+
+      aiSttTranscribeControllerRef.current?.abort();
+      aiSttTranscribeControllerRef.current = null;
+
+      if (aiSttStopTimerRef.current) {
+        window.clearTimeout(aiSttStopTimerRef.current);
+        aiSttStopTimerRef.current = null;
+      }
+      const recorder = mediaRecorderRef.current;
+      if (recorder && recorder.state !== "inactive") {
+        aiSttDiscardNextStopRef.current = true;
+        try {
+          recorder.stop();
+        } catch {
+          // ignore
+        }
+      }
+      mediaRecorderRef.current = null;
+      aiSttChunksRef.current = [];
+      aiSttStartedAtRef.current = null;
+      aiSttEpisodeIdRef.current = null;
+      const stream = mediaStreamRef.current;
+      if (stream) {
+        for (const track of stream.getTracks()) {
+          try {
+            track.stop();
+          } catch {
+            // ignore
+          }
+        }
+      }
+      mediaStreamRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     if ((activeDraft?.body ?? "").trim()) return;
@@ -2678,6 +2753,284 @@ export default function HearthShell() {
     chatInputRef.current?.focus();
   }
 
+  function clearAiSttStopTimer() {
+    if (aiSttStopTimerRef.current) {
+      window.clearTimeout(aiSttStopTimerRef.current);
+      aiSttStopTimerRef.current = null;
+    }
+  }
+
+  function stopAiSttStream() {
+    const stream = mediaStreamRef.current;
+    if (!stream) return;
+    for (const track of stream.getTracks()) {
+      try {
+        track.stop();
+      } catch {
+        // ignore
+      }
+    }
+    mediaStreamRef.current = null;
+  }
+
+  async function commitAiSttBlob(args: {
+    episodeId: string;
+    blob: Blob;
+    mimeType: string;
+  }) {
+    const episodeId = args.episodeId.trim();
+    if (!episodeId) {
+      setSttError("Select an Episode or Spark to start.");
+      return;
+    }
+
+    const uploaded = await uploadHearthSttAudio({
+      workpieceId: episodeId,
+      blob: args.blob,
+    });
+    if (!uploaded.ok) {
+      setSttError(uploaded.error);
+      return;
+    }
+
+    const controller = new AbortController();
+    aiSttTranscribeControllerRef.current = controller;
+    let transcriptResult: Awaited<ReturnType<typeof requestHearthSttTranscript>>;
+    try {
+      transcriptResult = await requestHearthSttTranscript({
+        workpieceId: episodeId,
+        storageKey: uploaded.storageKey,
+        mimeType: uploaded.mimeType || args.mimeType,
+        signal: controller.signal,
+      });
+    } finally {
+      if (aiSttTranscribeControllerRef.current === controller) {
+        aiSttTranscribeControllerRef.current = null;
+      }
+    }
+
+    setAiBillingMode(transcriptResult.runtime.billingMode);
+    if (transcriptResult.runtime.billingMode === "byo") {
+      setAiTokenBalance(null);
+    } else {
+      setAiTokenBalance(transcriptResult.runtime.tokenBalance);
+    }
+
+    if (!transcriptResult.ok) {
+      if (!transcriptResult.cancelled) {
+        setSttError(transcriptResult.error);
+      }
+      if (transcriptResult.creditsWarning) {
+        setAiRuntimeWarning(transcriptResult.creditsWarning);
+      }
+      return;
+    }
+
+    if (transcriptResult.creditsWarning) {
+      setAiRuntimeWarning(transcriptResult.creditsWarning);
+    }
+
+    const text = transcriptResult.text.trim();
+    if (!text) {
+      setSttError("No speech detected.");
+      return;
+    }
+
+    await sendChatMessage({ requestContent: text });
+  }
+
+  async function startAiStt() {
+    if (typeof window === "undefined") return;
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setSttError("Microphone capture is not supported in this browser.");
+      setSttState("idle");
+      return;
+    }
+    if (typeof MediaRecorder === "undefined") {
+      setSttError("MediaRecorder is not available in this browser.");
+      setSttState("idle");
+      return;
+    }
+    const episodeId = workpieceId?.trim();
+    if (!episodeId) {
+      setSttError("Select an Episode or Spark to start.");
+      setSttState("idle");
+      return;
+    }
+    if (isAiProcessing) {
+      setSttError("Wait for the current AI request to finish.");
+      setSttState("idle");
+      return;
+    }
+
+    const lane = resolveAiLaneFromStorage();
+    if (lane === "forge" && aiTokenBalance != null && aiTokenBalance <= 0) {
+      setSttError("No AI credits remaining.");
+      setSttState("idle");
+      return;
+    }
+
+    setSttError(null);
+
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to access microphone.";
+      setSttError(message);
+      setSttState("idle");
+      return;
+    }
+
+    const mimeType = resolveAiSttMimeType();
+    let recorder: MediaRecorder;
+    try {
+      recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    } catch (error) {
+      for (const track of stream.getTracks()) {
+        try {
+          track.stop();
+        } catch {
+          // ignore
+        }
+      }
+      const message = error instanceof Error ? error.message : "Unable to start recorder.";
+      setSttError(message);
+      setSttState("idle");
+      return;
+    }
+
+    mediaStreamRef.current = stream;
+    mediaRecorderRef.current = recorder;
+    aiSttChunksRef.current = [];
+    aiSttStartedAtRef.current = Date.now();
+    aiSttEpisodeIdRef.current = episodeId;
+    aiSttMimeTypeRef.current = recorder.mimeType || mimeType || "audio/webm";
+    aiSttDiscardNextStopRef.current = false;
+
+    recorder.ondataavailable = (event: BlobEvent) => {
+      if (event.data && event.data.size > 0) {
+        aiSttChunksRef.current.push(event.data);
+      }
+    };
+
+    recorder.onerror = () => {
+      aiSttDiscardNextStopRef.current = true;
+      clearAiSttStopTimer();
+      mediaRecorderRef.current = null;
+      aiSttChunksRef.current = [];
+      aiSttStartedAtRef.current = null;
+      aiSttEpisodeIdRef.current = null;
+      stopAiSttStream();
+      setSttState("idle");
+      setSttError("Recording failed.");
+    };
+
+    recorder.onstop = async () => {
+      const shouldDiscard = aiSttDiscardNextStopRef.current;
+      const chunks = aiSttChunksRef.current.slice();
+      const startedAt = aiSttStartedAtRef.current;
+      const durationMs = startedAt ? Date.now() - startedAt : 0;
+      const recordedMimeType = aiSttMimeTypeRef.current || "audio/webm";
+      const episodeId = aiSttEpisodeIdRef.current;
+
+      aiSttDiscardNextStopRef.current = false;
+      mediaRecorderRef.current = null;
+      aiSttChunksRef.current = [];
+      aiSttStartedAtRef.current = null;
+      aiSttEpisodeIdRef.current = null;
+      clearAiSttStopTimer();
+      stopAiSttStream();
+
+      if (shouldDiscard) {
+        setSttState("idle");
+        return;
+      }
+
+      const blob = new Blob(chunks, { type: recordedMimeType });
+      if (!blob.size) {
+        setSttState("idle");
+        return;
+      }
+      if (!episodeId) {
+        setSttState("idle");
+        setSttError("Select an Episode or Spark to start.");
+        return;
+      }
+      if (durationMs > AI_STT_MAX_DURATION_MS + 1500) {
+        setSttState("idle");
+        setSttError("Recording exceeded the 5 minute limit.");
+        return;
+      }
+      if (blob.size > AI_STT_MAX_BYTES) {
+        setSttState("idle");
+        setSttError("Recording exceeds the 10MB limit.");
+        return;
+      }
+
+      setSttState("transcribing");
+      try {
+        await commitAiSttBlob({
+          episodeId,
+          blob,
+          mimeType: recordedMimeType,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Transcription failed.";
+        setSttError(message);
+      } finally {
+        setSttState("idle");
+      }
+    };
+
+    try {
+      recorder.start(1000);
+      setSttState("listening");
+      clearAiSttStopTimer();
+      aiSttStopTimerRef.current = window.setTimeout(() => {
+        if (mediaRecorderRef.current !== recorder) return;
+        if (recorder.state === "inactive") return;
+        stopAiStt();
+      }, AI_STT_MAX_DURATION_MS);
+    } catch (error) {
+      mediaRecorderRef.current = null;
+      aiSttChunksRef.current = [];
+      aiSttStartedAtRef.current = null;
+      aiSttEpisodeIdRef.current = null;
+      clearAiSttStopTimer();
+      stopAiSttStream();
+      const message = error instanceof Error ? error.message : "Unable to start recorder.";
+      setSttState("idle");
+      setSttError(message);
+    }
+  }
+
+  function stopAiStt() {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder) {
+      setSttState("idle");
+      return;
+    }
+    if (recorder.state === "inactive") {
+      setSttState("idle");
+      return;
+    }
+    setSttState("transcribing");
+    clearAiSttStopTimer();
+    try {
+      recorder.stop();
+    } catch {
+      aiSttDiscardNextStopRef.current = true;
+      mediaRecorderRef.current = null;
+      aiSttChunksRef.current = [];
+      aiSttStartedAtRef.current = null;
+      aiSttEpisodeIdRef.current = null;
+      stopAiSttStream();
+      setSttState("idle");
+      setSttError("Unable to stop recorder.");
+    }
+  }
+
   function startBrowserStt() {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -2748,7 +3101,7 @@ export default function HearthShell() {
         startBrowserStt();
         return;
       }
-      setSttError("AI STT not wired yet.");
+      void startAiStt();
       return;
     }
     if (sttState === "listening") {
@@ -2756,7 +3109,7 @@ export default function HearthShell() {
         stopBrowserStt();
         return;
       }
-      setSttState("idle");
+      stopAiStt();
     }
   }
 

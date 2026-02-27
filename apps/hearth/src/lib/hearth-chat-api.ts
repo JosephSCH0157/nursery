@@ -38,8 +38,42 @@ export type HearthChatResult =
       cancelled?: boolean;
     };
 
+export type HearthSttUploadResult =
+  | {
+      ok: true;
+      status: number;
+      storageKey: string;
+      mimeType: string;
+      fileSize: number;
+    }
+  | {
+      ok: false;
+      status: number;
+      error: string;
+    };
+
+export type HearthSttResult =
+  | {
+      ok: true;
+      status: number;
+      text: string;
+      runtime: HearthAiRuntimeSnapshot;
+      providerRequestId: string | null;
+      totalTokens: number | null;
+      creditsWarning?: string;
+    }
+  | {
+      ok: false;
+      status: number;
+      error: string;
+      runtime: HearthAiRuntimeSnapshot;
+      cancelled?: boolean;
+      creditsWarning?: string;
+    };
+
 const AI_SETTINGS_STORAGE_KEY = "forge:hearth:aiSettings:v1";
 const SUPABASE_AUTH_STORAGE_KEY = "forge-auth";
+const HEARTH_STT_BUCKET = "forge-workpieces";
 
 type AiSettingsSnapshot = {
   lane: HearthAiLane;
@@ -264,6 +298,44 @@ function parseCreditsPayload(payload: unknown, fallbackLane: HearthAiLane): Hear
   return readRuntimeFromPayload(payload, fallbackLane);
 }
 
+function createStorageObjectPath(parts: string[]): string {
+  return parts
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+}
+
+function createClientRequestId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function extensionFromMimeType(mimeType: string): string {
+  const normalized = mimeType.trim().toLowerCase();
+  if (!normalized) return "webm";
+  if (normalized.includes("webm")) return "webm";
+  if (normalized.includes("mpeg") || normalized.includes("mp3")) return "mp3";
+  if (normalized.includes("wav")) return "wav";
+  if (normalized.includes("ogg")) return "ogg";
+  if (normalized.includes("mp4") || normalized.includes("m4a")) return "m4a";
+  return "webm";
+}
+
+function resolveBlobMimeType(blob: Blob): string {
+  const trimmed = blob.type?.trim();
+  if (trimmed) return trimmed;
+  return "audio/webm";
+}
+
+function readStorageError(payload: unknown, fallback: string): string {
+  const message = readStringField(payload, "message") ?? readStringField(payload, "error");
+  if (message && message.trim()) return message;
+  return fallback;
+}
+
 export async function refreshMyAiCredits(): Promise<HearthAiStatusResult> {
   const lane = resolveAiLaneFromStorage();
   if (lane === "byo") {
@@ -382,6 +454,172 @@ export async function fetchHearthAiStatus(): Promise<HearthAiStatusResult> {
     ok: true,
     status: response.status,
     runtime,
+  };
+}
+
+export async function uploadHearthSttAudio(args: {
+  workpieceId: string;
+  blob: Blob;
+}): Promise<HearthSttUploadResult> {
+  const workpieceId = args.workpieceId.trim();
+  if (!workpieceId) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Workpiece id is required.",
+    };
+  }
+
+  const config = readSupabaseConfig();
+  const accessToken = readAccessTokenFromStorage();
+  if (!config || !accessToken) {
+    return {
+      ok: false,
+      status: 401,
+      error: "Sign in required for AI transcription.",
+    };
+  }
+
+  const mimeType = resolveBlobMimeType(args.blob);
+  const extension = extensionFromMimeType(mimeType);
+  const fileName = `${createClientRequestId()}.${extension}`;
+  const storageKey = `workpieces/${workpieceId}/stt/${fileName}`;
+  const storagePath = createStorageObjectPath([HEARTH_STT_BUCKET, ...storageKey.split("/")]);
+  const uploadUrl = `${config.url}/storage/v1/object/${storagePath}`;
+
+  let response: Response;
+  try {
+    response = await fetch(uploadUrl, {
+      method: "POST",
+      headers: {
+        apikey: config.anonKey,
+        authorization: `Bearer ${accessToken}`,
+        "content-type": mimeType,
+        "x-upsert": "false",
+      },
+      body: args.blob,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Upload failed.";
+    return {
+      ok: false,
+      status: 0,
+      error: message,
+    };
+  }
+
+  if (!response.ok) {
+    let payload: unknown = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    return {
+      ok: false,
+      status: response.status,
+      error: readStorageError(payload, `Upload failed (${response.status})`),
+    };
+  }
+
+  return {
+    ok: true,
+    status: response.status,
+    storageKey,
+    mimeType,
+    fileSize: args.blob.size,
+  };
+}
+
+export async function requestHearthSttTranscript(args: {
+  workpieceId: string;
+  storageKey: string;
+  mimeType?: string;
+  signal?: AbortSignal;
+}): Promise<HearthSttResult> {
+  const settings = resolveAiSettingsFromStorage();
+  const lane = settings.lane;
+  const workpieceId = args.workpieceId.trim();
+  const storageKey = args.storageKey.trim();
+  const mimeType = args.mimeType?.trim();
+
+  if (!workpieceId || !storageKey) {
+    return {
+      ok: false,
+      status: 400,
+      error: "workpieceId and storageKey are required.",
+      runtime: { tokenBalance: null, billingMode: lane },
+    };
+  }
+
+  let response: Response;
+  try {
+    response = await fetch("/api/hearth/stt", {
+      method: "POST",
+      headers: buildAuthHeaders({ includeJson: true }),
+      body: JSON.stringify({
+        lane,
+        workpiece_id: workpieceId,
+        storage_key: storageKey,
+        ...(mimeType ? { mime_type: mimeType } : {}),
+      }),
+      signal: args.signal,
+    });
+  } catch (error) {
+    const cancelled = error instanceof DOMException && error.name === "AbortError";
+    const message = cancelled
+      ? "Transcription cancelled."
+      : error instanceof Error
+        ? error.message
+        : "Network error";
+    return {
+      ok: false,
+      status: 0,
+      error: message,
+      runtime: { tokenBalance: null, billingMode: lane },
+      cancelled,
+    };
+  }
+
+  let payload: unknown = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  const runtime = readRuntimeFromPayload(payload, lane);
+  const creditsWarning = readStringField(payload, "credits_warning") ?? undefined;
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      error: readErrorText(payload, `Transcription failed (${response.status})`),
+      runtime,
+      creditsWarning,
+    };
+  }
+
+  const text = (readStringField(payload, "text") ?? "").trim();
+  if (!text) {
+    return {
+      ok: false,
+      status: response.status,
+      error: "Transcription returned empty text.",
+      runtime,
+      creditsWarning,
+    };
+  }
+
+  return {
+    ok: true,
+    status: response.status,
+    text,
+    runtime,
+    providerRequestId: readStringField(payload, "provider_request_id"),
+    totalTokens: readNumberField(payload, "total_tokens"),
+    creditsWarning,
   };
 }
 

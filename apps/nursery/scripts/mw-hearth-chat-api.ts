@@ -50,12 +50,23 @@ type ReqBody = {
   lane?: unknown;
 };
 
+type SttReqBody = {
+  workpiece_id?: unknown;
+  storage_key?: unknown;
+  mime_type?: unknown;
+  lane?: unknown;
+};
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ENV_ROOT = path.join(__dirname, "..");
 const ENV_FILES = [".env.local", ".env"];
 const CHAT_ROUTE = "/api/hearth/chat";
 const CHAT_STATUS_ROUTE = "/api/hearth/chat/status";
+const STT_ROUTE = "/api/hearth/stt";
+const STT_MAX_BYTES = 10 * 1024 * 1024;
+const DEFAULT_STT_MODEL = "gpt-4o-mini-transcribe";
+const DEFAULT_STT_BUCKET = "forge-workpieces";
 
 function loadEnvFile(filePath: string): void {
   if (!fs.existsSync(filePath)) return;
@@ -318,6 +329,30 @@ function extractTotalTokens(payload: unknown): number | null {
   return typeof total === "number" && Number.isFinite(total) && total >= 0 ? total : null;
 }
 
+function extractTranscriptionText(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const text = (payload as Record<string, unknown>).text;
+  if (typeof text !== "string") return null;
+  const trimmed = text.trim();
+  return trimmed || null;
+}
+
+function estimateTranscriptionTokenFallback(text: string): number {
+  return Math.max(1, Math.ceil(text.length / 4));
+}
+
+function inferAudioExtension(mimeType: string | null, storageKey: string): string {
+  const byMime = (mimeType ?? "").toLowerCase();
+  if (byMime.includes("webm")) return "webm";
+  if (byMime.includes("wav")) return "wav";
+  if (byMime.includes("ogg")) return "ogg";
+  if (byMime.includes("mp3") || byMime.includes("mpeg")) return "mp3";
+  if (byMime.includes("mp4") || byMime.includes("m4a")) return "m4a";
+
+  const byPath = path.extname(storageKey).replace(/^\./, "").trim().toLowerCase();
+  return byPath || "webm";
+}
+
 function estimateTokenFallback(messages: ChatMessage[], reply: string): number {
   const messageChars = messages.reduce((acc, message) => acc + message.content.length, 0);
   const totalChars = messageChars + reply.length;
@@ -533,10 +568,16 @@ function normalizeStructuredReply(raw: string): StructuredReply | null {
 export function mwHearthChatApi() {
   const apiKey = readEnv("OPENAI_API_KEY");
   const model = readEnv("HEARTH_AI_MODEL") || "gpt-5";
+  const sttModel = readEnv("HEARTH_STT_MODEL") || DEFAULT_STT_MODEL;
   const configuredBillingMode: BillingMode = readEnv("HEARTH_AI_BILLING_MODE") === "byo" ? "byo" : "forge";
   let tokenBalance = readIntegerEnv("HEARTH_AI_TOKEN_BALANCE") ?? 12430;
   const supabaseUrl = readEnv("TONGS_SUPABASE_URL") || readEnv("SUPABASE_URL");
   const supabaseServiceRoleKey = readEnv("TONGS_SERVICE_ROLE_KEY") || readEnv("SUPABASE_SERVICE_ROLE_KEY");
+  const sttBucket = (
+    readEnv("TONGS_WORKPIECE_BUCKET")
+    || readEnv("HEARTH_STT_BUCKET")
+    || DEFAULT_STT_BUCKET
+  ).trim();
   const supabaseService: SupabaseClient<Database> | null =
     supabaseUrl && supabaseServiceRoleKey
       ? createClient<Database>(supabaseUrl, supabaseServiceRoleKey, {
@@ -569,6 +610,7 @@ export function mwHearthChatApi() {
     spent: number;
     requestId: string;
     openAiRequestId: string | null;
+    reason: string;
   }): Promise<{ ok: true; tokenBalance: number | null } | { ok: false; warning: string }> {
     if (!supabaseService) {
       console.warn("[hearth-chat-api] apply_ai_token_delta skipped: supabase service env missing");
@@ -591,7 +633,7 @@ export function mwHearthChatApi() {
     const { data, error } = await rpcClient.rpc("apply_ai_token_delta", {
       p_user_id: args.userId,
       p_delta: -args.spent,
-      p_reason: "hearth:chat",
+      p_reason: args.reason,
       p_request_id: args.requestId,
       p_provider_request_id: args.openAiRequestId ?? undefined,
     });
@@ -618,7 +660,7 @@ export function mwHearthChatApi() {
       const url = new URL(rawUrl, origin);
       const pathname = url.pathname;
 
-      if (pathname !== CHAT_ROUTE && pathname !== CHAT_STATUS_ROUTE) {
+      if (pathname !== CHAT_ROUTE && pathname !== CHAT_STATUS_ROUTE && pathname !== STT_ROUTE) {
         next();
         return;
       }
@@ -636,6 +678,203 @@ export function mwHearthChatApi() {
           ok: true,
           ...buildBillingSnapshot(lane),
         });
+        return;
+      }
+
+      if (pathname === STT_ROUTE) {
+        if (method !== "POST") {
+          sendJson(res, 405, { ok: false, error: "Method not allowed" });
+          return;
+        }
+
+        const bodyRaw = (await readJsonBody(req)) as SttReqBody;
+        const lane: BillingMode = isBillingMode(bodyRaw.lane) ? bodyRaw.lane : configuredBillingMode;
+        const bearerToken = readBearerToken(req.headers.authorization);
+
+        if (!apiKey) {
+          sendJson(res, 500, {
+            ok: false,
+            error: "Missing OPENAI_API_KEY in server env",
+            ...buildBillingSnapshot(lane),
+          });
+          return;
+        }
+
+        if (lane === "forge" && tokenBalance != null && tokenBalance <= 0) {
+          sendJson(res, 402, {
+            ok: false,
+            error: "No AI credits remaining.",
+            ...buildBillingSnapshot(lane),
+          });
+          return;
+        }
+
+        if (!supabaseService) {
+          sendJson(res, 500, {
+            ok: false,
+            error: "Supabase service role is not configured.",
+            ...buildBillingSnapshot(lane),
+          });
+          return;
+        }
+
+        const userId = await resolveUserId(bearerToken);
+        if (!userId) {
+          sendJson(res, 401, {
+            ok: false,
+            error: "Authentication required.",
+            ...buildBillingSnapshot(lane),
+          });
+          return;
+        }
+
+        const workpieceId = readOptionalString(bodyRaw.workpiece_id);
+        const storageKey = readOptionalString(bodyRaw.storage_key);
+        const mimeType = readOptionalString(bodyRaw.mime_type);
+
+        if (!workpieceId || !storageKey) {
+          sendJson(res, 400, {
+            ok: false,
+            error: "workpiece_id and storage_key are required",
+            ...buildBillingSnapshot(lane),
+          });
+          return;
+        }
+
+        const expectedPrefix = `workpieces/${workpieceId}/stt/`;
+        if (!storageKey.startsWith(expectedPrefix)) {
+          sendJson(res, 400, {
+            ok: false,
+            error: "storage_key must be inside workpiece STT path",
+            ...buildBillingSnapshot(lane),
+          });
+          return;
+        }
+
+        const { data: audioBlob, error: downloadError } = await supabaseService.storage
+          .from(sttBucket)
+          .download(storageKey);
+
+        if (downloadError || !audioBlob) {
+          sendJson(res, 404, {
+            ok: false,
+            error: downloadError?.message || "Audio file not found.",
+            ...buildBillingSnapshot(lane),
+          });
+          return;
+        }
+
+        if (audioBlob.size <= 0) {
+          sendJson(res, 400, {
+            ok: false,
+            error: "Audio file is empty.",
+            ...buildBillingSnapshot(lane),
+          });
+          return;
+        }
+
+        if (audioBlob.size > STT_MAX_BYTES) {
+          sendJson(res, 413, {
+            ok: false,
+            error: "Audio file exceeds 10MB limit.",
+            ...buildBillingSnapshot(lane),
+          });
+          return;
+        }
+
+        const ext = inferAudioExtension(mimeType || audioBlob.type || null, storageKey);
+        const form = new FormData();
+        form.set("model", sttModel);
+        form.set("file", audioBlob, `speech.${ext}`);
+
+        const upstreamAbort = new AbortController();
+        let clientAborted = req.aborted === true;
+        const onAborted = () => {
+          clientAborted = true;
+          upstreamAbort.abort();
+        };
+        req.once("aborted", onAborted);
+
+        try {
+          let upstream: Response;
+          try {
+            upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+              method: "POST",
+              headers: {
+                authorization: `Bearer ${apiKey}`,
+              },
+              body: form,
+              signal: upstreamAbort.signal,
+            });
+          } catch (error) {
+            if (clientAborted || upstreamAbort.signal.aborted) {
+              return;
+            }
+            throw error;
+          }
+
+          if (clientAborted) {
+            return;
+          }
+
+          if (!upstream.ok) {
+            const detail = await upstream.text();
+            const upstreamMessage = readUpstreamErrorMessage(detail) ?? "OpenAI error";
+            const status = upstream.status >= 400 && upstream.status <= 599 ? upstream.status : 502;
+            sendJson(res, status, {
+              ok: false,
+              error: upstreamMessage,
+              detail,
+              ...buildBillingSnapshot(lane),
+            });
+            return;
+          }
+
+          const payload = (await upstream.json()) as unknown;
+          const text = extractTranscriptionText(payload);
+          if (!text) {
+            sendJson(res, 502, {
+              ok: false,
+              error: "OpenAI returned empty transcription",
+              ...buildBillingSnapshot(lane),
+            });
+            return;
+          }
+
+          const totalTokens = extractTotalTokens(payload) ?? estimateTranscriptionTokenFallback(text);
+          const openAiRequestId = upstream.headers.get("x-request-id");
+          let creditsWarning: string | null = null;
+
+          if (lane === "forge" && totalTokens > 0) {
+            const deltaResult = await applyTokenDelta({
+              userId,
+              spent: totalTokens,
+              requestId: crypto.randomUUID(),
+              openAiRequestId,
+              reason: "speech_transcription",
+            });
+            if (!deltaResult.ok) {
+              creditsWarning = deltaResult.warning;
+            } else if (deltaResult.tokenBalance != null) {
+              tokenBalance = deltaResult.tokenBalance;
+            }
+          }
+
+          if (clientAborted || req.aborted) {
+            return;
+          }
+
+          sendJson(res, 200, {
+            ok: true,
+            text,
+            total_tokens: totalTokens,
+            provider_request_id: openAiRequestId,
+            credits_warning: creditsWarning,
+            ...buildBillingSnapshot(lane),
+          });
+        } finally {
+          req.removeListener("aborted", onAborted);
+        }
         return;
       }
 
@@ -826,6 +1065,7 @@ export function mwHearthChatApi() {
               spent,
               requestId: crypto.randomUUID(),
               openAiRequestId,
+              reason: "hearth:chat",
             });
             if (!deltaResult.ok) {
               creditsWarning = deltaResult.warning;
