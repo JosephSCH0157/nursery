@@ -282,6 +282,21 @@ export default function App(props: BarstockAppProps = {}) {
     saveStoredWorkspaceId(next);
   }, [hasExternalWorkspaceState, externalWorkspaceChange]);
 
+  function navigateToHearthForEpisode(episodeId: string) {
+    const normalizedEpisodeId = episodeId.trim();
+    if (!normalizedEpisodeId) return;
+
+    const params = new URLSearchParams();
+    params.set("workpiece_id", normalizedEpisodeId);
+    if (workspaceId) {
+      params.set("workspace_id", workspaceId);
+    }
+
+    const isNurseryAppRoute = window.location.pathname.startsWith("/app/");
+    const targetPath = isNurseryAppRoute ? "/app/hearth" : "/hearth";
+    window.location.assign(`${targetPath}?${params.toString()}`);
+  }
+
   function updateSpark(s: Spark, patch: Partial<Spark>) {
     const ts = now();
     const next: Spark = { ...s, ...patch, updatedAt: ts };
@@ -724,10 +739,18 @@ export default function App(props: BarstockAppProps = {}) {
                     <button
                       onClick={async (e) => {
                         e.stopPropagation();
+                        const episodeId =
+                          typeof s.assignmentId === "string" ? s.assignmentId.trim() : "";
+                        if (episodeId) {
+                          popToast("Opening Hearth...");
+                          navigateToHearthForEpisode(episodeId);
+                          return;
+                        }
+
                         const assignmentName = assignmentNameById.get(s.assignmentId) ?? "episode";
                         const packet = buildHearthPacket(s, assignmentName);
                         const ok = await copyText(packetToClipboardText(packet));
-                        popToast(ok ? "Hearth packet copied." : "Copy failed.");
+                        popToast(ok ? "Hearth packet copied (fallback)." : "Copy failed.");
                       }}
                       style={{ cursor: "pointer" }}
                     >
