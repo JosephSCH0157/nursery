@@ -3212,7 +3212,7 @@ export default function HearthShell() {
     }
   }
 
-  function startBrowserStt() {
+  async function startBrowserStt() {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
       setSttError("Browser speech not supported.");
@@ -3241,15 +3241,27 @@ export default function HearthShell() {
 
     recognition.onerror = () => {
       speechRecognitionRef.current = null;
+      stopAiSttStream();
       setSttState("idle");
       setSttError("Speech recognition error.");
     };
 
     recognition.onend = async () => {
       speechRecognitionRef.current = null;
+      stopAiSttStream();
       setSttState("idle");
       await commitVoiceTranscript(finalTranscript);
     };
+
+    stopAiSttStream();
+    if (navigator.mediaDevices?.getUserMedia) {
+      try {
+        const previewStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaStreamRef.current = previewStream;
+      } catch {
+        mediaStreamRef.current = null;
+      }
+    }
 
     speechRecognitionRef.current = recognition;
     clearSttNoticeTimer();
@@ -3262,12 +3274,14 @@ export default function HearthShell() {
       recognition.start();
     } catch {
       speechRecognitionRef.current = null;
+      stopAiSttStream();
       setSttState("idle");
       setSttError("Unable to start speech recognition.");
     }
   }
 
   function stopBrowserStt() {
+    stopAiSttStream();
     try {
       speechRecognitionRef.current?.stop();
     } catch {
@@ -3282,7 +3296,7 @@ export default function HearthShell() {
       clearSttNoticeTimer();
       setSttNotice(null);
       if (sttLane === "browser") {
-        startBrowserStt();
+        void startBrowserStt();
         return;
       }
       void startAiStt();
