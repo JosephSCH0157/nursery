@@ -20,6 +20,6 @@
     "node": "20.20.0"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.97.0"
+    "@supabase/supabase-js": "^2.98.0"
   }
 }
