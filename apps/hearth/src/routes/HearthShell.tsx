@@ -68,6 +68,8 @@ const CHAT_HISTORY_WRITE_DEBOUNCE_MS = 350;
 const CHAT_HISTORY_TRUNCATED_SUFFIX = "\n\n[truncated in local cache]";
 const AI_STT_MAX_DURATION_MS = 5 * 60 * 1000;
 const AI_STT_MAX_BYTES = 10 * 1024 * 1024;
+const STT_INLINE_FEEDBACK_MS = 2200;
+const STT_PREVIEW_MAX_CHARS = 80;
 
 type HearthMode = "sparks" | "draft" | "planning" | "sources" | "revisions";
 type ProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet";
@@ -847,6 +849,8 @@ export default function HearthShell() {
   const [sttLane, setSttLane] = useState<SttLane>("browser");
   const [sttState, setSttState] = useState<SttState>("idle");
   const [sttError, setSttError] = useState<string | null>(null);
+  const [sttNotice, setSttNotice] = useState<string | null>(null);
+  const [sttPreview, setSttPreview] = useState<string | null>(null);
   const [showManualDraft, setShowManualDraft] = useState(false);
   const [showScriptPanel, setShowScriptPanel] = useState(false);
   const [scriptApprovalState, setScriptApprovalState] = useState<ScriptApprovalState>(() =>
@@ -892,6 +896,8 @@ export default function HearthShell() {
   const aiSttStopTimerRef = useRef<number | null>(null);
   const aiSttDiscardNextStopRef = useRef(false);
   const aiSttTranscribeControllerRef = useRef<AbortController | null>(null);
+  const sttNoticeTimerRef = useRef<number | null>(null);
+  const sttPreviewTimerRef = useRef<number | null>(null);
   const chatPersistTimerRef = useRef<number | null>(null);
   const chatMessagesRef = useRef<HearthChatMessage[]>([]);
   const latestChatHistoryKeyRef = useRef<string | null>(null);
@@ -1680,6 +1686,14 @@ export default function HearthShell() {
       aiSttTranscribeControllerRef.current?.abort();
       aiSttTranscribeControllerRef.current = null;
 
+      if (sttNoticeTimerRef.current) {
+        window.clearTimeout(sttNoticeTimerRef.current);
+        sttNoticeTimerRef.current = null;
+      }
+      if (sttPreviewTimerRef.current) {
+        window.clearTimeout(sttPreviewTimerRef.current);
+        sttPreviewTimerRef.current = null;
+      }
       if (aiSttStopTimerRef.current) {
         window.clearTimeout(aiSttStopTimerRef.current);
         aiSttStopTimerRef.current = null;
@@ -2753,6 +2767,46 @@ export default function HearthShell() {
     chatInputRef.current?.focus();
   }
 
+  function clearSttNoticeTimer() {
+    if (sttNoticeTimerRef.current) {
+      window.clearTimeout(sttNoticeTimerRef.current);
+      sttNoticeTimerRef.current = null;
+    }
+  }
+
+  function clearSttPreviewTimer() {
+    if (sttPreviewTimerRef.current) {
+      window.clearTimeout(sttPreviewTimerRef.current);
+      sttPreviewTimerRef.current = null;
+    }
+  }
+
+  function showSttNotice(message: string) {
+    const text = message.trim();
+    if (!text) return;
+    clearSttNoticeTimer();
+    setSttNotice(text);
+    sttNoticeTimerRef.current = window.setTimeout(() => {
+      setSttNotice(null);
+      sttNoticeTimerRef.current = null;
+    }, STT_INLINE_FEEDBACK_MS);
+  }
+
+  function showSttPreviewLine(transcript: string) {
+    if (!devMode) return;
+    const normalized = transcript.replace(/\s+/g, " ").trim();
+    if (!normalized) return;
+    const snippet = normalized.length > STT_PREVIEW_MAX_CHARS
+      ? `${normalized.slice(0, STT_PREVIEW_MAX_CHARS).trimEnd()}...`
+      : normalized;
+    clearSttPreviewTimer();
+    setSttPreview(`STT: "${snippet}"`);
+    sttPreviewTimerRef.current = window.setTimeout(() => {
+      setSttPreview(null);
+      sttPreviewTimerRef.current = null;
+    }, STT_INLINE_FEEDBACK_MS);
+  }
+
   function clearAiSttStopTimer() {
     if (aiSttStopTimerRef.current) {
       window.clearTimeout(aiSttStopTimerRef.current);
@@ -2832,10 +2886,12 @@ export default function HearthShell() {
 
     const text = transcriptResult.text.trim();
     if (!text) {
-      setSttError("No speech detected.");
+      setSttError(null);
+      showSttNotice("No speech detected.");
       return;
     }
 
+    showSttPreviewLine(text);
     await sendChatMessage({ requestContent: text });
   }
 
@@ -2870,6 +2926,10 @@ export default function HearthShell() {
       return;
     }
 
+    clearSttNoticeTimer();
+    setSttNotice(null);
+    clearSttPreviewTimer();
+    setSttPreview(null);
     setSttError(null);
 
     let stream: MediaStream;
@@ -2949,6 +3009,8 @@ export default function HearthShell() {
 
       const blob = new Blob(chunks, { type: recordedMimeType });
       if (!blob.size) {
+        setSttError(null);
+        showSttNotice("No speech detected.");
         setSttState("idle");
         return;
       }
@@ -3069,11 +3131,20 @@ export default function HearthShell() {
       setSttState("idle");
 
       const text = finalTranscript.trim();
-      if (!text) return;
+      if (!text) {
+        setSttError(null);
+        showSttNotice("No speech detected.");
+        return;
+      }
+      showSttPreviewLine(text);
       await sendChatMessage({ requestContent: text });
     };
 
     speechRecognitionRef.current = recognition;
+    clearSttNoticeTimer();
+    setSttNotice(null);
+    clearSttPreviewTimer();
+    setSttPreview(null);
     setSttError(null);
     setSttState("listening");
     try {
@@ -3097,6 +3168,8 @@ export default function HearthShell() {
     if (sttState === "transcribing") return;
     if (sttState === "idle") {
       setSttError(null);
+      clearSttNoticeTimer();
+      setSttNotice(null);
       if (sttLane === "browser") {
         startBrowserStt();
         return;
@@ -3663,6 +3736,12 @@ export default function HearthShell() {
                 {isAiProcessing ? "Sending..." : "Send"}
               </button>
             </div>
+            {devMode && sttPreview ? (
+              <div className="hs-field-label-muted">{sttPreview}</div>
+            ) : null}
+            {sttNotice ? (
+              <div className="hs-field-label-muted">{sttNotice}</div>
+            ) : null}
             {sttError ? (
               <div className="hs-error-text-small">{sttError}</div>
             ) : null}
