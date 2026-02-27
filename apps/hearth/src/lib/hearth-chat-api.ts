@@ -26,6 +26,7 @@ export type HearthChatResult =
       ops: HearthOp[];
       scriptText?: string;
       tagAudit?: Record<string, unknown>;
+      gate?: "clarify";
       runtime: HearthAiRuntimeSnapshot;
       totalTokens: number | null;
       creditsWarning?: string;
@@ -37,6 +38,18 @@ export type HearthChatResult =
       runtime: HearthAiRuntimeSnapshot;
       cancelled?: boolean;
     };
+
+export type HearthInteractionEventType =
+  | "chat_sent"
+  | "gate_questions_shown"
+  | "gate_answers_provided"
+  | "draft_generated"
+  | "outline_generated"
+  | "user_requested_outline"
+  | "user_requested_script"
+  | "user_explicit_draft_now"
+  | "proposal_applied"
+  | "proposal_discarded";
 
 export type HearthSttUploadResult =
   | {
@@ -75,6 +88,7 @@ const AI_SETTINGS_STORAGE_KEY = "forge:hearth:aiSettings:v1";
 const SUPABASE_AUTH_STORAGE_KEY = "forge-auth";
 const HEARTH_STT_BUCKET = "forge-workpieces";
 const SUPABASE_AUTH_KEY_RE = /^sb-[a-z0-9-]+-auth-token$/i;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type AiSettingsSnapshot = {
   lane: HearthAiLane;
@@ -127,6 +141,52 @@ function readUnknownField(payload: unknown, key: string): unknown {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function isUuid(value: string | null | undefined): value is string {
+  if (!value) return false;
+  return UUID_RE.test(value.trim());
+}
+
+function sanitizeEventPayload(payload?: Record<string, unknown>): Record<string, unknown> {
+  if (!payload) return {};
+  const out: Record<string, unknown> = {};
+  for (const [key, rawValue] of Object.entries(payload)) {
+    if (!key.trim()) continue;
+    if (typeof rawValue === "boolean") {
+      out[key] = rawValue;
+      continue;
+    }
+    if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
+      out[key] = rawValue;
+      continue;
+    }
+    if (typeof rawValue === "string") {
+      const compact = rawValue.replace(/\s+/g, " ").trim();
+      out[key] = compact.length > 220 ? `${compact.slice(0, 220)}...` : compact;
+      continue;
+    }
+    if (Array.isArray(rawValue)) {
+      const arr = rawValue
+        .slice(0, 20)
+        .map((entry) => (
+          typeof entry === "string"
+            ? entry.replace(/\s+/g, " ").trim().slice(0, 120)
+            : typeof entry === "number" && Number.isFinite(entry)
+              ? entry
+              : typeof entry === "boolean"
+                ? entry
+                : null
+        ))
+        .filter((entry) => entry != null);
+      out[key] = arr;
+      continue;
+    }
+    if (rawValue == null) {
+      out[key] = null;
+    }
+  }
+  return out;
 }
 
 function readOptionalString(value: unknown): string | undefined {
@@ -454,6 +514,76 @@ function readStorageError(payload: unknown, fallback: string): string {
   const message = readStringField(payload, "message") ?? readStringField(payload, "error");
   if (message && message.trim()) return message;
   return fallback;
+}
+
+export async function recordHearthEvent(args: {
+  eventType: HearthInteractionEventType;
+  payload?: Record<string, unknown>;
+  episodeId?: string | null;
+}): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const config = readSupabaseConfig();
+  if (!config) {
+    return {
+      ok: false,
+      status: 500,
+      error: "Supabase config missing.",
+    };
+  }
+
+  const accessToken = await readAccessTokenForRequest();
+  if (!accessToken) {
+    return {
+      ok: false,
+      status: 401,
+      error: "Sign in required.",
+    };
+  }
+
+  const headers = new Headers();
+  headers.set("apikey", config.anonKey);
+  headers.set("authorization", `Bearer ${accessToken}`);
+  headers.set("accept-profile", "tongs");
+  headers.set("content-profile", "tongs");
+  headers.set("content-type", "application/json");
+
+  const trimmedEpisodeId = args.episodeId?.trim() ?? "";
+  const payload = {
+    p_event_type: args.eventType,
+    p_payload: sanitizeEventPayload(args.payload),
+    p_episode_id: isUuid(trimmedEpisodeId) ? trimmedEpisodeId : null,
+  };
+
+  let response: Response;
+  try {
+    response = await fetch(`${config.url}/rest/v1/rpc/record_hearth_event`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Network error";
+    return {
+      ok: false,
+      status: 0,
+      error: message,
+    };
+  }
+
+  if (!response.ok) {
+    let resultPayload: unknown = null;
+    try {
+      resultPayload = await response.json();
+    } catch {
+      resultPayload = null;
+    }
+    return {
+      ok: false,
+      status: response.status,
+      error: readErrorText(resultPayload, `Event RPC failed (${response.status})`),
+    };
+  }
+
+  return { ok: true };
 }
 
 export async function refreshMyAiCredits(): Promise<HearthAiStatusResult> {
@@ -843,6 +973,8 @@ export async function requestHearthChatReply(
     ?? readStringField(payload, "reply")
     ?? ""
   ).trim();
+  const gateRaw = readStringField(payload, "gate");
+  const gate = gateRaw === "clarify" ? "clarify" : undefined;
   const ops = normalizeOps(readUnknownField(payload, "ops"));
   const tagAuditRaw = readUnknownField(payload, "tag_audit");
   if (!assistantText && ops.length === 0) {
@@ -863,6 +995,7 @@ export async function requestHearthChatReply(
     tagAudit: (tagAuditRaw && isRecord(tagAuditRaw))
       ? (tagAuditRaw as Record<string, unknown>)
       : undefined,
+    gate,
     runtime,
     totalTokens: readNumberField(payload, "total_tokens"),
     creditsWarning: readStringField(payload, "credits_warning") ?? undefined,

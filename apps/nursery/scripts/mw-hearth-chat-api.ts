@@ -43,6 +43,17 @@ type StructuredReply = {
   tagAudit: Record<string, unknown> | null;
 };
 
+type CreatorProfile = {
+  userId: string | null;
+  clarifyFirstBias: number;
+  outlineFirstBias: number;
+  scriptFirstBias: number;
+  toneStyle: string;
+  riskSensitivity: number;
+  confidence: number;
+  profileJson: Record<string, unknown>;
+};
+
 type ReqBody = {
   messages?: unknown;
   episode_context?: unknown;
@@ -67,6 +78,17 @@ const STT_ROUTE = "/api/hearth/stt";
 const STT_MAX_BYTES = 10 * 1024 * 1024;
 const DEFAULT_STT_MODEL = "gpt-4o-mini-transcribe";
 const DEFAULT_STT_BUCKET = "forge-workpieces";
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const DEFAULT_CREATOR_PROFILE: CreatorProfile = {
+  userId: null,
+  clarifyFirstBias: 0.5,
+  outlineFirstBias: 0.5,
+  scriptFirstBias: 0.5,
+  toneStyle: "neutral_conversational",
+  riskSensitivity: 0.5,
+  confidence: 0.0,
+  profileJson: {},
+};
 
 function loadEnvFile(filePath: string): void {
   if (!fs.existsSync(filePath)) return;
@@ -156,6 +178,193 @@ function readOptionalString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
+}
+
+function readErrorText(payload: unknown, fallback: string): string {
+  if (!payload || typeof payload !== "object") return fallback;
+  const row = payload as Record<string, unknown>;
+  const message = readOptionalString(row.error) ?? readOptionalString(row.message);
+  return message ?? fallback;
+}
+
+function readOptionalNumber(value: unknown): number | null {
+  if (typeof value !== "number") return null;
+  if (!Number.isFinite(value)) return null;
+  return value;
+}
+
+function clamp01(value: number): number {
+  if (value <= 0) return 0;
+  if (value >= 1) return 1;
+  return value;
+}
+
+function isUuid(value: string | null): value is string {
+  return !!value && UUID_RE.test(value);
+}
+
+function normalizeCreatorProfile(payload: unknown): CreatorProfile {
+  const rowRaw = Array.isArray(payload) ? payload[0] : payload;
+  if (!isRecord(rowRaw)) return { ...DEFAULT_CREATOR_PROFILE };
+  const profileJson = isRecord(rowRaw.profile_json)
+    ? rowRaw.profile_json
+    : {};
+  return {
+    userId: readOptionalString(rowRaw.user_id),
+    clarifyFirstBias: clamp01(readOptionalNumber(rowRaw.clarify_first_bias) ?? DEFAULT_CREATOR_PROFILE.clarifyFirstBias),
+    outlineFirstBias: clamp01(readOptionalNumber(rowRaw.outline_first_bias) ?? DEFAULT_CREATOR_PROFILE.outlineFirstBias),
+    scriptFirstBias: clamp01(readOptionalNumber(rowRaw.script_first_bias) ?? DEFAULT_CREATOR_PROFILE.scriptFirstBias),
+    toneStyle: readOptionalString(rowRaw.tone_style) ?? DEFAULT_CREATOR_PROFILE.toneStyle,
+    riskSensitivity: clamp01(readOptionalNumber(rowRaw.risk_sensitivity) ?? DEFAULT_CREATOR_PROFILE.riskSensitivity),
+    confidence: clamp01(readOptionalNumber(rowRaw.confidence) ?? DEFAULT_CREATOR_PROFILE.confidence),
+    profileJson,
+  };
+}
+
+function compactSpaces(text: string): string {
+  return text.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function hasExplicitDraftNow(text: string): boolean {
+  const normalized = compactSpaces(text);
+  return /\bdraft now\b/i.test(normalized)
+    || /\bskip questions\b/i.test(normalized)
+    || /\bno questions\b/i.test(normalized);
+}
+
+function hasExplicitDeliverableKeyword(text: string): boolean {
+  const normalized = compactSpaces(text);
+  return /\boutline\b/.test(normalized)
+    || /\bscript\b/.test(normalized)
+    || /\bdraft\b/.test(normalized)
+    || /\bbullet points?\b/.test(normalized)
+    || /\bcold open\b/.test(normalized)
+    || /\bsegments?\b/.test(normalized)
+    || /\bthumbnail\b/.test(normalized)
+    || /\bimage beat sheet\b/.test(normalized)
+    || /\bseo\b/.test(normalized)
+    || /\btags?\b/.test(normalized);
+}
+
+function requestedOutline(text: string): boolean {
+  return /\boutline\b/i.test(compactSpaces(text));
+}
+
+function requestedScript(text: string): boolean {
+  const normalized = compactSpaces(text);
+  return /\bscript\b/.test(normalized)
+    || /\bdraft\b/.test(normalized)
+    || /\bcold open\b/.test(normalized)
+    || /\bsegments?\b/.test(normalized);
+}
+
+function isProductionSupportRequest(text: string): boolean {
+  const normalized = compactSpaces(text);
+  return normalized.includes("production mode request for approved script version")
+    || normalized.includes("approved_script_text:")
+    || normalized.includes("seo_titles:")
+    || normalized.includes("tags_top10:")
+    || normalized.includes("thumbnail_01")
+    || normalized.includes("image_01");
+}
+
+function hasBroadAboutTopic(text: string): boolean {
+  const normalized = compactSpaces(text);
+  if (!/\babout\b/.test(normalized)) return false;
+  if (hasExplicitDeliverableKeyword(normalized)) return false;
+  const aboutSplit = normalized.split(/\babout\b/i);
+  const tail = aboutSplit.length > 1 ? aboutSplit.slice(1).join(" ").trim() : "";
+  if (!tail) return false;
+  const tailWords = tail
+    .replace(/[^a-z0-9\s]/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  return tailWords.length > 0 && tailWords.length <= 10;
+}
+
+function historyHasAngleToneSignals(messages: ChatMessage[]): boolean {
+  const joined = messages.map((message) => message.content.toLowerCase()).join(" ");
+  return /\bangle\b/.test(joined)
+    || /\btone\b/.test(joined)
+    || /\bneutral\b/.test(joined)
+    || /\bhot\b/.test(joined)
+    || /\bbrad\b/.test(joined)
+    || /\bs1\b/.test(joined)
+    || /\bs2\b/.test(joined)
+    || /\byoutube\b/.test(joined)
+    || /\bsources?\b/.test(joined)
+    || /\bformat\b/.test(joined);
+}
+
+function shouldAskClarifyingQuestions(args: {
+  requestText: string;
+  profile: CreatorProfile;
+  chatHistory: ChatMessage[];
+}): boolean {
+  if (isProductionSupportRequest(args.requestText)) return false;
+  if (hasExplicitDraftNow(args.requestText)) return false;
+  if (hasExplicitDeliverableKeyword(args.requestText)) return false;
+  if (args.profile.clarifyFirstBias >= 0.6) return true;
+  if (hasBroadAboutTopic(args.requestText)) return true;
+  if (!historyHasAngleToneSignals(args.chatHistory)) return true;
+  return false;
+}
+
+function buildClarifyingQuestionReply(profile: CreatorProfile): string {
+  const riskLine = profile.riskSensitivity >= 0.65
+    ? "2) Tone/risk: keep it safer and source-forward, or allow light heat?"
+    : "2) Tone/risk: neutral-conversational, newsroom-neutral, or spicy-but-safe?";
+  return [
+    "Before I draft, answer these quick producer questions:",
+    "1) Angle: what is the main claim or takeaway for this Episode?",
+    riskLine,
+    "3) Format: outline first or full script (S1=Joe, S2=Brad)?",
+    "Answer these and I'll generate an outline/script.",
+  ].join("\n");
+}
+
+function buildProfileStyleSnippet(profile: CreatorProfile, requestText: string): string {
+  const lines = ["Creator Profile Guidance (soft):"];
+
+  if (profile.toneStyle === "neutral_conversational") {
+    lines.push("- Prefer neutral conversational language over newsroom stiffness.");
+  } else if (profile.toneStyle === "newsroom_neutral") {
+    lines.push("- Keep tone newsroom-neutral, precise, and low-heat.");
+  } else if (profile.toneStyle === "spicy_but_safe") {
+    lines.push("- Keep voice punchy but safe: clear claims, no reckless hot takes.");
+  } else {
+    lines.push(`- Respect preferred tone style: ${profile.toneStyle}.`);
+  }
+
+  if (profile.riskSensitivity >= 0.65) {
+    lines.push("- High risk sensitivity: avoid unverified claims; emphasize sourcing and caution.");
+  } else if (profile.riskSensitivity <= 0.35) {
+    lines.push("- Lower risk sensitivity: still accurate, but you may use a stronger voice.");
+  }
+
+  if (profile.outlineFirstBias >= 0.6 && !/\bscript\b/i.test(requestText)) {
+    lines.push("- Workflow preference leans outline-first when the user does not explicitly ask for full script.");
+  } else if (profile.scriptFirstBias >= 0.6) {
+    lines.push("- Workflow preference leans script-first when request is explicit.");
+  }
+
+  if (profile.clarifyFirstBias <= 0.4) {
+    lines.push("- User often prefers direct drafting when the request is clear.");
+  }
+
+  return lines.join("\n");
+}
+
+function countNumberedQuestions(text: string): number {
+  const lines = text.split(/\r?\n/);
+  let count = 0;
+  for (const line of lines) {
+    if (/^\s*\d+[).]\s+/.test(line)) {
+      count += 1;
+    }
+  }
+  return count;
 }
 
 function canonicalizeToken(raw: string): string {
@@ -258,8 +467,8 @@ function normalizeEpisodeContext(value: unknown): EpisodeContext | null {
   };
 }
 
-function buildSystemPrompt(context: EpisodeContext): string {
-  return [
+function buildSystemPrompt(context: EpisodeContext, creatorStyleSnippet?: string): string {
+  const baseLines = [
     "You are Hearth.",
     "You are already operating inside an Episode context.",
     "Never ask what the topic is.",
@@ -291,9 +500,15 @@ function buildSystemPrompt(context: EpisodeContext): string {
     "- When proposing or returning a script body, include script_text and tag_audit.",
     "- tag_audit must briefly confirm closure, standalone tags, and no markdown/random markup.",
     "- Keep output strictly JSON (no code fences).",
+  ];
+  if (creatorStyleSnippet?.trim()) {
+    baseLines.push(creatorStyleSnippet.trim());
+  }
+  baseLines.push(
     "episode_context:",
     JSON.stringify(context),
-  ].join("\n");
+  );
+  return baseLines.join("\n");
 }
 
 function extractAssistantReply(payload: unknown): string {
@@ -573,6 +788,12 @@ export function mwHearthChatApi() {
   let tokenBalance = readIntegerEnv("HEARTH_AI_TOKEN_BALANCE") ?? 12430;
   const supabaseUrl = readEnv("TONGS_SUPABASE_URL") || readEnv("SUPABASE_URL");
   const supabaseServiceRoleKey = readEnv("TONGS_SERVICE_ROLE_KEY") || readEnv("SUPABASE_SERVICE_ROLE_KEY");
+  const supabaseRpcKey = (
+    readEnv("TONGS_SUPABASE_ANON_KEY")
+    || readEnv("SUPABASE_ANON_KEY")
+    || readEnv("VITE_SUPABASE_ANON_KEY")
+    || supabaseServiceRoleKey
+  );
   const sttBucket = (
     readEnv("TONGS_WORKPIECE_BUCKET")
     || readEnv("HEARTH_STT_BUCKET")
@@ -603,6 +824,100 @@ export function mwHearthChatApi() {
       return null;
     }
     return data.user?.id ?? null;
+  }
+
+  async function callUserScopedTongsRpc(args: {
+    accessToken: string;
+    fn: string;
+    payload: Record<string, unknown>;
+  }): Promise<{ ok: true; data: unknown } | { ok: false; status: number; error: string }> {
+    if (!supabaseUrl || !supabaseRpcKey) {
+      return { ok: false, status: 0, error: "Supabase RPC config missing" };
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(`${supabaseUrl}/rest/v1/rpc/${args.fn}`, {
+        method: "POST",
+        headers: {
+          apikey: supabaseRpcKey,
+          authorization: `Bearer ${args.accessToken}`,
+          "accept-profile": "tongs",
+          "content-profile": "tongs",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(args.payload),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Network error";
+      return { ok: false, status: 0, error: message };
+    }
+
+    let payload: unknown = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        error: readErrorText(payload, `RPC ${args.fn} failed (${response.status})`),
+      };
+    }
+
+    return { ok: true, data: payload };
+  }
+
+  async function loadCreatorProfileForToken(accessToken: string | null): Promise<CreatorProfile> {
+    if (!accessToken) return { ...DEFAULT_CREATOR_PROFILE };
+    const result = await callUserScopedTongsRpc({
+      accessToken,
+      fn: "get_or_create_creator_profile",
+      payload: {},
+    });
+    if (!result.ok) {
+      console.warn("[hearth-chat-api] get_or_create_creator_profile failed", {
+        status: result.status,
+        error: result.error,
+      });
+      return { ...DEFAULT_CREATOR_PROFILE };
+    }
+    return normalizeCreatorProfile(result.data);
+  }
+
+  async function recordHearthEventForToken(args: {
+    accessToken: string | null;
+    episodeId: string | null;
+    eventType: string;
+    payload?: Record<string, unknown>;
+  }): Promise<void> {
+    const accessToken = args.accessToken;
+    if (!accessToken) return;
+    const eventType = args.eventType.trim();
+    if (!eventType) return;
+
+    const rpcPayload: Record<string, unknown> = {
+      p_event_type: eventType,
+      p_payload: args.payload ?? {},
+      p_episode_id: isUuid(args.episodeId) ? args.episodeId : null,
+    };
+
+    const result = await callUserScopedTongsRpc({
+      accessToken,
+      fn: "record_hearth_event",
+      payload: rpcPayload,
+    });
+
+    if (!result.ok) {
+      console.warn("[hearth-chat-api] record_hearth_event failed", {
+        event: eventType,
+        status: result.status,
+        error: result.error,
+      });
+    }
   }
 
   async function applyTokenDelta(args: {
@@ -930,9 +1245,59 @@ export function mwHearthChatApi() {
         return;
       }
 
+      const latestUserMessageIndex = [...messages]
+        .map((message, index) => ({ message, index }))
+        .reverse()
+        .find((entry) => entry.message.role === "user")
+        ?.index;
+      const latestUserMessage = typeof latestUserMessageIndex === "number"
+        ? messages[latestUserMessageIndex] ?? null
+        : null;
+      const requestText = latestUserMessage?.content ?? "";
+      const priorMessages = typeof latestUserMessageIndex === "number"
+        ? messages.filter((_, index) => index !== latestUserMessageIndex)
+        : messages;
+      const creatorProfile = await loadCreatorProfileForToken(bearerToken);
+
+      if (shouldAskClarifyingQuestions({
+        requestText,
+        profile: creatorProfile,
+        chatHistory: priorMessages,
+      })) {
+        const clarifyReply = buildClarifyingQuestionReply(creatorProfile);
+        const questionCount = countNumberedQuestions(clarifyReply);
+        await recordHearthEventForToken({
+          accessToken: bearerToken,
+          episodeId: episodeContext.episodeId,
+          eventType: "gate_questions_shown",
+          payload: {
+            source: "middleware",
+            question_count: questionCount,
+            clarify_first_bias: creatorProfile.clarifyFirstBias,
+            confidence: creatorProfile.confidence,
+          },
+        });
+
+        sendJson(res, 200, {
+          ok: true,
+          assistant_text: clarifyReply,
+          reply: clarifyReply,
+          ops: [],
+          script_text: null,
+          tag_audit: null,
+          total_tokens: 0,
+          gate: "clarify",
+          ...buildBillingSnapshot(lane),
+        });
+        return;
+      }
+
       const system: ChatMessage = {
         role: "system",
-        content: buildSystemPrompt(episodeContext),
+        content: buildSystemPrompt(
+          episodeContext,
+          buildProfileStyleSnippet(creatorProfile, requestText),
+        ),
       };
 
       const upstreamAbort = new AbortController();
@@ -1044,6 +1409,28 @@ export function mwHearthChatApi() {
             ...buildBillingSnapshot(lane),
           });
           return;
+        }
+
+        const hasOutlineOp = structured.ops.some((op) => op.op === "set_outline");
+        const hasBodyOp = structured.ops.some((op) => op.op === "set_body");
+        if (!isProductionSupportRequest(requestText)) {
+          const generatedEventType = (
+            requestedOutline(requestText)
+            || (hasOutlineOp && !hasBodyOp)
+          ) ? "outline_generated" : "draft_generated";
+          await recordHearthEventForToken({
+            accessToken: bearerToken,
+            episodeId: episodeContext.episodeId,
+            eventType: generatedEventType,
+            payload: {
+              source: "middleware",
+              ops_count: structured.ops.length,
+              has_outline_op: hasOutlineOp,
+              has_body_op: hasBodyOp,
+              requested_outline: requestedOutline(requestText),
+              requested_script: requestedScript(requestText),
+            },
+          });
         }
 
         if (clientAborted || req.aborted) {

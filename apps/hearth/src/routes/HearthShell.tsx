@@ -22,6 +22,7 @@ import {
 } from "../lib/hearth-session-registry";
 import {
   fetchHearthAiStatus,
+  recordHearthEvent,
   requestHearthChatReply,
   requestHearthSttTranscript,
   refreshMyAiCredits,
@@ -29,6 +30,7 @@ import {
   uploadHearthSttAudio,
   type HearthAiLane,
   type HearthChatMessage,
+  type HearthInteractionEventType,
 } from "../lib/hearth-chat-api";
 import { writeHearthAiRuntimeStatus } from "../lib/ai-runtime-status";
 import { commitHearthSession, readHearthSession } from "../lib/hearth-session-repo";
@@ -612,6 +614,52 @@ function resolveAiSttMimeType(): string | null {
   return null;
 }
 
+type ChatIntentSignals = {
+  requestedOutline: boolean;
+  requestedScript: boolean;
+  explicitDraftNow: boolean;
+  hasDeliverable: boolean;
+};
+
+function detectChatIntentSignals(text: string): ChatIntentSignals {
+  const normalized = text.replace(/\s+/g, " ").trim().toLowerCase();
+  const requestedOutline = /\boutline\b/.test(normalized);
+  const requestedScript = /\bscript\b/.test(normalized)
+    || /\bdraft\b/.test(normalized)
+    || /\bcold open\b/.test(normalized)
+    || /\bsegments?\b/.test(normalized);
+  const explicitDraftNow = /\bdraft now\b/.test(normalized)
+    || /\bskip questions\b/.test(normalized)
+    || /\bno questions\b/.test(normalized);
+  const hasDeliverable = requestedOutline
+    || requestedScript
+    || /\bbullet points?\b/.test(normalized)
+    || /\bthumbnail\b/.test(normalized)
+    || /\bimage beat sheet\b/.test(normalized)
+    || /\bseo\b/.test(normalized)
+    || /\btags?\b/.test(normalized);
+  return {
+    requestedOutline,
+    requestedScript,
+    explicitDraftNow,
+    hasDeliverable,
+  };
+}
+
+function countProducerQuestions(text: string): number {
+  const lines = splitLines(text);
+  let count = 0;
+  for (const line of lines) {
+    if (/^\s*\d+[).]\s+/.test(line)) {
+      count += 1;
+    }
+  }
+  if (count > 0) return count;
+  const fallback = text.match(/\?/g)?.length ?? 0;
+  if (fallback <= 0) return 0;
+  return Math.min(3, fallback);
+}
+
 function OscilloscopeFill({
   stream,
   active,
@@ -748,6 +796,7 @@ type PendingAiProposal = {
   ops: HearthOp[];
   selected: boolean[];
   context: EpisodeContext;
+  fromGate: boolean;
 };
 
 type ScriptValidationState = {
@@ -1020,6 +1069,8 @@ export default function HearthShell() {
   const latestChatHistoryKeyRef = useRef<string | null>(null);
   const skipChatHydrationKeyRef = useRef<string | null>(null);
   const pendingChatHydrationKeyRef = useRef<string | null>(null);
+  const gateAwaitingAnswersRef = useRef(false);
+  const pendingShortcutIntentRef = useRef<"outline" | "script" | null>(null);
 
   const flushChatHistoryNow = useCallback((options?: {
     historyKey?: string | null;
@@ -1033,6 +1084,18 @@ export default function HearthShell() {
     }
     writeChatHistory(historyKey, options?.messages ?? chatMessagesRef.current);
   }, []);
+
+  const recordInteractionEvent = useCallback((
+    eventType: HearthInteractionEventType,
+    payload?: Record<string, unknown>,
+  ) => {
+    const episodeId = workpieceId?.trim() ?? null;
+    void recordHearthEvent({
+      eventType,
+      payload,
+      episodeId,
+    });
+  }, [workpieceId]);
 
   const lastAutosaveRevisionAt = useMemo(() => {
     const match = revisions.find((rev) => rev.kind === "autosave");
@@ -1723,6 +1786,8 @@ export default function HearthShell() {
   useEffect(() => {
     setShowManualDraft(false);
     setShowScriptPanel(false);
+    gateAwaitingAnswersRef.current = false;
+    pendingShortcutIntentRef.current = null;
   }, [activeDraft?.id]);
 
   useEffect(() => {
@@ -2594,6 +2659,13 @@ export default function HearthShell() {
         }
       }
 
+      recordInteractionEvent("proposal_applied", {
+        mode,
+        total_ops: pendingAiProposal.ops.length,
+        applied_ops: opsToApply.length,
+        from_gate: pendingAiProposal.fromGate,
+      });
+
       if (mode === "all") {
         setPendingAiProposal(null);
       } else {
@@ -2729,6 +2801,7 @@ export default function HearthShell() {
     displayContent?: string;
     productionAction?: ProductionAction;
     productionScriptVersion?: number;
+    source?: "typed" | "voice" | "shortcut";
   }) {
     if (isAiProcessing) return;
     const requestContent = args.requestContent.trim();
@@ -2749,6 +2822,46 @@ export default function HearthShell() {
     }
     if (lane === "byo") {
       setAiTokenBalance(null);
+    }
+
+    const source = args.source ?? "typed";
+    const isProductionRequest = Boolean(args.productionAction);
+    const intentSignals = detectChatIntentSignals(requestContent);
+    const pendingShortcutIntent = pendingShortcutIntentRef.current;
+    pendingShortcutIntentRef.current = null;
+
+    recordInteractionEvent("chat_sent", {
+      source,
+      chars: requestContent.length,
+      lane,
+      has_deliverable: intentSignals.hasDeliverable,
+      production_action: args.productionAction ?? null,
+    });
+
+    if (!isProductionRequest) {
+      if (intentSignals.requestedOutline && pendingShortcutIntent !== "outline") {
+        recordInteractionEvent("user_requested_outline", {
+          source,
+        });
+      }
+      if (intentSignals.requestedScript && pendingShortcutIntent !== "script") {
+        recordInteractionEvent("user_requested_script", {
+          source,
+        });
+      }
+      if (intentSignals.explicitDraftNow) {
+        recordInteractionEvent("user_explicit_draft_now", {
+          source,
+        });
+      }
+    }
+
+    const gateAnswering = gateAwaitingAnswersRef.current;
+    if (gateAnswering) {
+      gateAwaitingAnswersRef.current = false;
+      recordInteractionEvent("gate_answers_provided", {
+        source,
+      });
     }
 
     const requestUserMessage: HearthChatMessage = { role: "user", content: requestContent };
@@ -2779,6 +2892,14 @@ export default function HearthShell() {
         return;
       }
 
+      if (result.gate === "clarify") {
+        gateAwaitingAnswersRef.current = true;
+        recordInteractionEvent("gate_questions_shown", {
+          source: "server_gate",
+          question_count: countProducerQuestions(result.assistantText),
+        });
+      }
+
       const assistantMessage: HearthChatMessage = { role: "assistant", content: result.assistantText };
       setChatMessages((prev) => [...prev, assistantMessage].slice(-CHAT_HISTORY_MAX_MESSAGES));
 
@@ -2796,6 +2917,7 @@ export default function HearthShell() {
           ops: result.ops,
           selected: result.ops.map(() => true),
           context: episodeContext,
+          fromGate: gateAnswering,
         });
       }
 
@@ -2867,6 +2989,12 @@ export default function HearthShell() {
   }
 
   function onDiscardAiProposal() {
+    if (pendingAiProposal) {
+      recordInteractionEvent("proposal_discarded", {
+        ops_count: pendingAiProposal.ops.length,
+        from_gate: pendingAiProposal.fromGate,
+      });
+    }
     setPendingAiProposal(null);
   }
 
@@ -2880,6 +3008,23 @@ export default function HearthShell() {
   }
 
   function onUseChatShortcut(prompt: string) {
+    const signals = detectChatIntentSignals(prompt);
+    if (signals.requestedOutline) {
+      pendingShortcutIntentRef.current = "outline";
+      recordInteractionEvent("user_requested_outline", {
+        source: "shortcut_chip",
+      });
+    } else if (signals.requestedScript) {
+      pendingShortcutIntentRef.current = "script";
+      recordInteractionEvent("user_requested_script", {
+        source: "shortcut_chip",
+      });
+    }
+    if (signals.explicitDraftNow) {
+      recordInteractionEvent("user_explicit_draft_now", {
+        source: "shortcut_chip",
+      });
+    }
     setChatDraft((prev) => (prev.trim() ? `${prev.trim()}\n${prompt}` : prompt));
     chatInputRef.current?.focus();
   }
@@ -2932,7 +3077,7 @@ export default function HearthShell() {
       return;
     }
     showSttPreviewLine(text);
-    await sendChatMessage({ requestContent: text });
+    await sendChatMessage({ requestContent: text, source: "voice" });
   }
 
   function clearAiSttStopTimer() {
