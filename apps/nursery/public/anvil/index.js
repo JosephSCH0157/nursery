@@ -42352,6 +42352,808 @@ var init_forge_nav = __esm({
   }
 });
 
+// src/net/display-ws-client.ts
+function publishToNetworkDisplays(payload) {
+  if (!isSupported || !relayEnabled || typeof payload === "undefined") return;
+  try {
+    const str = JSON.stringify(payload);
+    let payloadType = null;
+    if (payload && typeof payload === "object") {
+      const candidate = payload.type;
+      if (typeof candidate === "string") {
+        payloadType = candidate;
+      }
+    }
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      if (payloadType === "scroll") {
+        queueScrollMessage(str);
+      } else {
+        socket.send(str);
+      }
+      return;
+    }
+    sendQueue.push(str);
+    if (sendQueue.length > 256) {
+      sendQueue.shift();
+    }
+  } catch {
+  }
+}
+function onNetworkDisplayStatus(fn) {
+  listeners2.add(fn);
+  fn({ ...status });
+  return () => {
+    listeners2.delete(fn);
+  };
+}
+function getNetworkDisplayStatus() {
+  return { ...status };
+}
+function enableNetworkDisplayRelay() {
+  if (!isSupported) return;
+  if (isRelayDisabled()) return;
+  if (relayEnabled) return;
+  relayEnabled = true;
+  persistRelayEnabled(true);
+  connect3();
+}
+var status, listeners2, socket, reconnectDelay, reconnectTimer, sendQueue, SCROLL_THROTTLE_MS, scrollTimer, pendingScroll, relayEnabled, RELAY_ENABLED_KEY, flushScroll, queueScrollMessage, isDisplayContext, isSupported, isRelayDisabled, notifyListeners, updateStatus2, isLocalhostHost, getWsUrl, flushQueue, scheduleReconnect, handleMessage, resetSocket, connect3, loadRelayEnabled, persistRelayEnabled;
+var init_display_ws_client = __esm({
+  "src/net/display-ws-client.ts"() {
+    "use strict";
+    status = {
+      state: "disconnected",
+      connectedDisplays: 0,
+      lastError: void 0
+    };
+    listeners2 = /* @__PURE__ */ new Set();
+    socket = null;
+    reconnectDelay = 1e3;
+    reconnectTimer = null;
+    sendQueue = [];
+    SCROLL_THROTTLE_MS = 60;
+    scrollTimer = null;
+    pendingScroll = null;
+    relayEnabled = false;
+    RELAY_ENABLED_KEY = "tp_display_ws_enabled";
+    flushScroll = () => {
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        scrollTimer = null;
+        pendingScroll = null;
+        return;
+      }
+      if (pendingScroll) {
+        try {
+          socket.send(pendingScroll);
+        } catch {
+        }
+      }
+      pendingScroll = null;
+      scrollTimer = null;
+    };
+    queueScrollMessage = (serialized) => {
+      pendingScroll = serialized;
+      if (scrollTimer) return;
+      scrollTimer = window.setTimeout(() => {
+        flushScroll();
+      }, SCROLL_THROTTLE_MS);
+    };
+    isDisplayContext = () => {
+      if (typeof window === "undefined") return false;
+      try {
+        const params = new URLSearchParams(window.location.search || "");
+        if (params.get("display") === "1") return true;
+        const path = (window.location.pathname || "").toLowerCase();
+        if (path.endsWith("/display.html") || path === "/display.html") return true;
+        if (window.__TP_FORCE_DISPLAY) return true;
+      } catch {
+      }
+      return false;
+    };
+    isSupported = typeof window !== "undefined" && typeof WebSocket !== "undefined" && !isDisplayContext();
+    isRelayDisabled = () => {
+      if (typeof window === "undefined") return false;
+      const w3 = window;
+      if (w3.__TP_DISABLE_DISPLAY_WS) return true;
+      try {
+        const params = new URLSearchParams(window.location.search || "");
+        if (params.get("ci") === "1") return true;
+        if (params.get("uiMock") === "1") return true;
+        if (params.get("mockFolder") === "1") return true;
+        if (params.get("noDisplayWs") === "1") return true;
+      } catch {
+      }
+      return false;
+    };
+    notifyListeners = () => {
+      const snapshot = { ...status };
+      listeners2.forEach((fn) => {
+        try {
+          fn(snapshot);
+        } catch {
+        }
+      });
+    };
+    updateStatus2 = (patch) => {
+      Object.assign(status, patch);
+      notifyListeners();
+    };
+    isLocalhostHost = (host) => {
+      return host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".local");
+    };
+    getWsUrl = () => {
+      if (typeof window === "undefined") return null;
+      try {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const hostname = window.location.hostname || "";
+        if (!isLocalhostHost(hostname)) {
+          return null;
+        }
+        const host = window.location.host;
+        return `${protocol}//${host}/ws/display`;
+      } catch {
+        return null;
+      }
+    };
+    flushQueue = () => {
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
+      if (!sendQueue.length) return;
+      for (const msg of sendQueue) {
+        try {
+          socket.send(msg);
+        } catch {
+        }
+      }
+      sendQueue = [];
+    };
+    scheduleReconnect = () => {
+      if (reconnectTimer || !isSupported || !relayEnabled) return;
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null;
+        connect3();
+      }, reconnectDelay);
+      reconnectDelay = Math.min(15e3, reconnectDelay * 1.5);
+    };
+    handleMessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data?.type === "tp-display-status") {
+          const connected = typeof data.connected === "number" ? data.connected : status.connectedDisplays;
+          updateStatus2({ connectedDisplays: connected });
+        }
+      } catch {
+      }
+    };
+    resetSocket = () => {
+      if (socket) {
+        try {
+          socket.close();
+        } catch {
+        }
+      }
+      socket = null;
+    };
+    connect3 = () => {
+      if (!isSupported || !relayEnabled) return;
+      if (socket && socket.readyState === WebSocket.OPEN) return;
+      updateStatus2({ state: "connecting", lastError: void 0 });
+      const url = getWsUrl();
+      if (!url) {
+        updateStatus2({ state: "error", lastError: "Unable to build ws url" });
+        return;
+      }
+      resetSocket();
+      const ws = new WebSocket(url);
+      socket = ws;
+      ws.addEventListener("open", () => {
+        reconnectDelay = 1e3;
+        updateStatus2({ state: "connected", lastError: void 0 });
+        ws.send(JSON.stringify({ type: "hello", role: "main" }));
+        flushQueue();
+      });
+      ws.addEventListener("message", handleMessage);
+      const cleanup = () => {
+        updateStatus2({ state: "disconnected", connectedDisplays: 0, lastError: void 0 });
+        socket = null;
+        scheduleReconnect();
+      };
+      ws.addEventListener("close", cleanup);
+      ws.addEventListener("error", (event) => {
+        updateStatus2({ state: "error", lastError: String(event?.reason || "WebSocket error") });
+      });
+    };
+    loadRelayEnabled = () => {
+      if (typeof window === "undefined") return false;
+      if (isRelayDisabled()) return false;
+      try {
+        return localStorage.getItem(RELAY_ENABLED_KEY) === "1";
+      } catch {
+        return false;
+      }
+    };
+    persistRelayEnabled = (on3) => {
+      if (typeof window === "undefined") return;
+      try {
+        if (on3) {
+          localStorage.setItem(RELAY_ENABLED_KEY, "1");
+        } else {
+          localStorage.removeItem(RELAY_ENABLED_KEY);
+        }
+      } catch {
+      }
+    };
+    relayEnabled = loadRelayEnabled();
+    if (isSupported && relayEnabled) {
+      connect3();
+    }
+    try {
+      window.addEventListener("beforeunload", () => {
+        socket?.close();
+      });
+    } catch {
+    }
+  }
+});
+
+// src/features/display-sync.ts
+function getDisplayChannel() {
+  if (displayCh) return displayCh;
+  try {
+    displayCh = new BroadcastChannel("tp_display");
+  } catch (err) {
+    try {
+      console.warn("[display-sync] BroadcastChannel tp_display failed", err);
+    } catch {
+    }
+    displayCh = null;
+  }
+  return displayCh;
+}
+function makeKey(raw) {
+  const text = String(raw || "");
+  return `${text.length}:${text.slice(0, 64)}`;
+}
+function publishDisplayScript(rawText, opts) {
+  if (typeof window !== "undefined" && window.__TP_FORCE_DISPLAY) return;
+  const w3 = typeof window !== "undefined" ? window : {};
+  if (w3.__TP_PUBLISHING_DISPLAY) return;
+  w3.__TP_PUBLISHING_DISPLAY = true;
+  try {
+    const text = String(rawText || "");
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const key = makeKey(text);
+    if (!opts?.force && key === lastPayloadKey) return;
+    lastPayloadKey = key;
+    latestRaw = text;
+    rev += 1;
+    try {
+      if (shouldLogLevel(2)) {
+        console.log("[publishDisplayScript]", { rev, len: text.length });
+      }
+    } catch {
+    }
+    const payload = {
+      type: "tp:script",
+      kind: "tp:script",
+      source: opts?.source ?? "main",
+      rawText: text,
+      rev,
+      textHash: key
+    };
+    const ch = getDisplayChannel();
+    if (ch) {
+      try {
+        ch.postMessage(payload);
+      } catch (err) {
+        try {
+          console.warn("[display-sync] failed to post tp_display", err);
+        } catch {
+        }
+      }
+    }
+    try {
+      publishToNetworkDisplays(payload);
+    } catch {
+    }
+  } finally {
+    w3.__TP_PUBLISHING_DISPLAY = false;
+  }
+}
+function getLatestRawScript() {
+  return latestRaw;
+}
+function pushDisplayRecordState(state8) {
+  const payload = { kind: "tp:record", state: state8 };
+  const ch = getDisplayChannel();
+  if (ch) {
+    try {
+      ch.postMessage(payload);
+    } catch {
+    }
+  }
+}
+function installDisplaySync(opts) {
+  if (displaySyncInstalled) return () => {
+  };
+  displaySyncInstalled = true;
+  const chanName = opts.channelName || "tp_display";
+  let chan2 = null;
+  const isDisplay = typeof window !== "undefined" && window.__TP_FORCE_DISPLAY === true;
+  let lastSeenRev = 0;
+  try {
+    const w3 = window;
+    w3.__TP_INSTALL_DISPLAY_SYNC = (w3.__TP_INSTALL_DISPLAY_SYNC || 0) + 1;
+    if (w3.__TP_INSTALL_DISPLAY_SYNC > 1 && (w3.__TP_DEV || w3.__TP_DEV1)) {
+      if (shouldLogLevel(1)) {
+        console.warn("[display-sync] installDisplaySync called multiple times", w3.__TP_INSTALL_DISPLAY_SYNC);
+      }
+      if (shouldLogLevel(3)) {
+        try {
+          console.trace("[display-sync] install stack");
+        } catch {
+        }
+      }
+    }
+  } catch {
+  }
+  try {
+    chan2 = new BroadcastChannel(chanName);
+  } catch (err) {
+    try {
+      console.warn("[display-sync] failed to open channel", err);
+    } catch {
+    }
+    chan2 = null;
+  }
+  const push = (force) => {
+    if (isDisplay) return;
+    try {
+      publishDisplayScript(opts.getText?.() || latestRaw || "", { force });
+    } catch {
+    }
+  };
+  const onMsg = (ev) => {
+    try {
+      const msg = ev?.data || {};
+      if (msg?.type === "display:hello" && !isDisplay) {
+        push(true);
+        return;
+      }
+      if (!isDisplay) return;
+      if (!msg || msg.type !== "tp:script" || typeof msg.rawText !== "string") return;
+      const incomingRev = typeof msg.rev === "number" ? msg.rev : 0;
+      if (incomingRev && incomingRev <= lastSeenRev) return;
+      lastSeenRev = incomingRev || lastSeenRev;
+      if (typeof opts.onApplyRemote === "function") {
+        opts.onApplyRemote(msg.rawText);
+      }
+    } catch {
+    }
+  };
+  try {
+    chan2?.addEventListener("message", onMsg);
+  } catch {
+  }
+  if (isDisplay) {
+    try {
+      chan2?.postMessage({ type: "display:hello", ts: Date.now() });
+    } catch {
+    }
+  } else {
+    try {
+      window.addEventListener("tp:scriptChanged", push);
+    } catch {
+    }
+    try {
+      push();
+    } catch {
+    }
+  }
+  return () => {
+    try {
+      window.removeEventListener("tp:scriptChanged", push);
+    } catch {
+    }
+    try {
+      chan2?.removeEventListener("message", onMsg);
+    } catch {
+    }
+    try {
+      chan2?.close();
+    } catch {
+    }
+  };
+}
+var displayCh, lastPayloadKey, rev, latestRaw, displaySyncInstalled;
+var init_display_sync = __esm({
+  "src/features/display-sync.ts"() {
+    "use strict";
+    init_display_ws_client();
+    init_dev_log();
+    displayCh = null;
+    lastPayloadKey = "";
+    rev = 0;
+    latestRaw = "";
+    displaySyncInstalled = false;
+  }
+});
+
+// src/script/validate.ts
+function validateStandardTagsText(input = "") {
+  const t = String(input || "");
+  const problems = [];
+  const allowedTagPattern = [
+    ...BLOCK_TAG_NAMES,
+    ...CUE_TAG_NAMES,
+    ...INLINE_ATTR_PATTERNS
+  ].join("|");
+  const badTag = t.match(new RegExp(`\\[(?!\\/?(?:${allowedTagPattern})\\b)[^\\]]+\\]`, "i"));
+  if (badTag) problems.push("Unknown tag: " + badTag[0]);
+  const speakerPattern = SPEAKER_TAG_NAMES.join("|");
+  if (new RegExp(`\\[(?:${speakerPattern})\\][ \\t]*\\S`, "i").test(t))
+    problems.push("Opening speaker tags must be on their own line.");
+  if (new RegExp(`\\S[ \\t]*\\[\\/(?:${speakerPattern})\\]`, "i").test(t))
+    problems.push("Closing speaker tags must be on their own line.");
+  const speakerEventRe = new RegExp(
+    `\\[(\\/)?(${speakerPattern})\\]|\\[note\\]|\\[\\/note\\]`,
+    "gi"
+  );
+  const speakerStack = [];
+  let speakerEventMatch;
+  while (speakerEventMatch = speakerEventRe.exec(t)) {
+    const token = speakerEventMatch[0].toLowerCase();
+    if (token === "[note]") {
+      if (speakerStack.length) {
+        problems.push("[note] blocks must be outside speaker sections.");
+        break;
+      }
+    } else if (token === "[/note]") {
+      continue;
+    } else {
+      const closing = !!speakerEventMatch[1];
+      if (!closing) {
+        speakerStack.push(speakerEventMatch[2].toLowerCase());
+      } else if (speakerStack.length) {
+        speakerStack.pop();
+      }
+    }
+  }
+  const stack = [];
+  const tagRe = new RegExp(`\\[(\\/)?(${BLOCK_TAG_NAMES.join("|")})\\]`, "gi");
+  let m;
+  while (m = tagRe.exec(t)) {
+    const closing = !!m[1];
+    const tag = m[2].toLowerCase();
+    if (!closing) {
+      stack.push(tag);
+    } else {
+      if (!stack.length) {
+        problems.push(`Unexpected closing [/${tag}]`);
+        break;
+      }
+      const last = stack.pop();
+      if (last !== tag) {
+        problems.push(`Mismatched closing [/${tag}] (expected [/${last}])`);
+        break;
+      }
+    }
+  }
+  if (stack.length) problems.push("Unclosed tag(s): " + stack.join(", "));
+  return { ok: problems.length === 0, report: problems.join("\n"), problems };
+}
+var init_validate = __esm({
+  "src/script/validate.ts"() {
+    "use strict";
+    init_tag_constants();
+  }
+});
+
+// src/speech/build-legacy-asr-state.ts
+function buildLegacyAsrStateFromStandardScript(canon) {
+  const w3 = window;
+  let t = canon.replace(/\[note\][\s\S]*?\[\/note\]/gi, "\n");
+  t = t.replace(/^\[(s1|s2|g1|g2)\]\s*$/gmi, "");
+  t = t.replace(/^\[\/(s1|s2|g1|g2)\]\s*$/gmi, "");
+  t = t.replace(/\[(\/?)(color|bg|b|i|u)(=[^\]]+)?\]/gi, "");
+  t = t.replace(/\[(pause|beat|reflective pause)\]/gi, " ");
+  t = t.replace(/\r/g, "").replace(/[ \t]+/g, " ");
+  const scriptWords = t.split(/\s+/).map((s) => s.trim()).filter(Boolean);
+  const paraIndex = new Array(scriptWords.length);
+  {
+    let wordIdx = 0;
+    let lineIdx = 0;
+    for (const line of t.split("\n")) {
+      const tokens = line.split(/\s+/).map((x) => x.trim()).filter(Boolean);
+      const count = tokens.length;
+      if (count > 0) {
+        const start2 = wordIdx;
+        const end = wordIdx + count - 1;
+        const entry = { start: start2, end, key: line.trim(), line: lineIdx };
+        for (let i = start2; i <= end; i++) {
+          paraIndex[i] = entry;
+        }
+      }
+      wordIdx += count;
+      lineIdx += 1;
+    }
+  }
+  w3.scriptWords = scriptWords;
+  w3.paraIndex = paraIndex;
+  if (typeof w3.currentIndex !== "number" || Number.isNaN(w3.currentIndex)) {
+    w3.currentIndex = 0;
+  }
+  try {
+    console.log("[ASR] legacy state built", {
+      scriptWords: w3.scriptWords?.length ?? 0,
+      paraIndexEntries: w3.paraIndex?.length ?? 0,
+      currentIndex: w3.currentIndex
+    });
+  } catch {
+  }
+}
+var init_build_legacy_asr_state = __esm({
+  "src/speech/build-legacy-asr-state.ts"() {
+    "use strict";
+  }
+});
+
+// src/features/apply-script.ts
+function hashText(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(16);
+}
+function getEditorEl() {
+  return document.getElementById("editor");
+}
+function applyScript(rawIn, source, opts) {
+  const raw = String(rawIn ?? "");
+  if (window.__TP_APPLY_IN_FLIGHT) return;
+  window.__TP_APPLY_IN_FLIGHT = true;
+  const normalized = (() => {
+    try {
+      return normalizeToStandardText(raw);
+    } catch {
+      return raw;
+    }
+  })();
+  const validation = validateStandardTagsText(normalized);
+  if (!validation.ok) {
+    try {
+      const msg = validation.report || "Script validation failed.";
+      window.toast?.(msg, { type: "error" });
+    } catch {
+    }
+    window.__TP_APPLY_IN_FLIGHT = false;
+    return;
+  }
+  const h = hashText(normalized);
+  if (window.__TP_LAST_APPLIED_HASH === h) {
+    window.__TP_APPLY_IN_FLIGHT = false;
+    return;
+  }
+  window.__TP_LAST_APPLIED_HASH = h;
+  if (window.__TP_DEV || window.__TP_DEV1) {
+    console.debug("[applyScript]", { source, len: normalized.length, hash: h.slice(0, 8) });
+  }
+  const prevLoading = !!window.__TP_LOADING_SCRIPT;
+  window.__TP_LOADING_SCRIPT = true;
+  try {
+    window.__tpRawScript = normalized;
+    buildLegacyAsrStateFromStandardScript(normalized);
+    const updateEditor = opts?.updateEditor ?? (source === "load" || source === "ingest" || source === "hydrate");
+    if (updateEditor) {
+      const ed = getEditorEl();
+      if (ed && ed.value !== normalized) ed.value = normalized;
+    }
+    renderScript(normalized);
+    publishDisplayScript(normalized, { source });
+    window.dispatchEvent(new CustomEvent("tp:scriptChanged", { detail: { source, text: normalized } }));
+  } finally {
+    window.__TP_LOADING_SCRIPT = prevLoading;
+    window.__TP_APPLY_IN_FLIGHT = false;
+  }
+}
+var init_apply_script = __esm({
+  "src/features/apply-script.ts"() {
+    "use strict";
+    init_render_script();
+    init_display_sync();
+    init_normalize();
+    init_validate();
+    init_build_legacy_asr_state();
+  }
+});
+
+// src/forge/workpiece-script-handoff.ts
+function readString3(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+function normalizeUuid(value) {
+  const str = readString3(value);
+  if (!str) return null;
+  return UUID_RE.test(str) ? str.toLowerCase() : null;
+}
+function readLocalStorage(key) {
+  try {
+    return readString3(window.localStorage.getItem(key));
+  } catch {
+    return null;
+  }
+}
+function writeLocalStorage(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+  }
+}
+function getQueryParam(...keys) {
+  try {
+    const q3 = new URLSearchParams(window.location.search || "");
+    for (const key of keys) {
+      const value = readString3(q3.get(key));
+      if (value) return value;
+    }
+  } catch {
+  }
+  return null;
+}
+function resolveWorkspaceId() {
+  const fromQuery = normalizeUuid(getQueryParam("workspace_id", "workspaceId", "workspace"));
+  if (fromQuery) return fromQuery;
+  const w3 = window;
+  const fromWindow = normalizeUuid(
+    w3.__forgeWorkspaceId ?? w3.__tpWorkspaceId ?? w3.__forgeWorkspace ?? w3.__tpWorkspace
+  );
+  if (fromWindow) return fromWindow;
+  for (const key of WORKSPACE_STORAGE_KEYS) {
+    const value = normalizeUuid(readLocalStorage(key));
+    if (value) return value;
+  }
+  return null;
+}
+function resolveWorkpieceId() {
+  const fromQuery = normalizeUuid(
+    getQueryParam("workpiece_id", "workpieceId", "workpiece", "cradle_id", "cradleId")
+  );
+  if (fromQuery) return fromQuery;
+  const w3 = window;
+  const fromWindow = normalizeUuid(
+    w3.__forgeWorkpieceId ?? w3.__tpWorkpieceId ?? w3.__forgeCradleId ?? w3.__tpCradleId
+  );
+  if (fromWindow) return fromWindow;
+  for (const key of WORKPIECE_STORAGE_KEYS) {
+    const value = normalizeUuid(readLocalStorage(key));
+    if (value) return value;
+  }
+  return null;
+}
+function persistWorkpiece(workspaceId, workpieceId) {
+  writeLocalStorage(ACTIVE_WORKPIECE_KEY, workpieceId);
+  if (workspaceId) {
+    writeLocalStorage(`${WORKSPACE_WORKPIECE_PREFIX}${workspaceId}`, workpieceId);
+  }
+}
+function shouldAutoloadWorkpieceScript() {
+  const open = readString3(getQueryParam("open", "intent", "action"))?.toLowerCase();
+  if (open === "script" || open === "script_primary") return true;
+  return Boolean(readString3(getQueryParam("script_path", "path")));
+}
+function resolveScriptPath() {
+  const fromQuery = readString3(getQueryParam("script_path", "path"));
+  if (!fromQuery) return DEFAULT_SCRIPT_PATH;
+  if (fromQuery.startsWith("/") || fromQuery.includes("..")) return DEFAULT_SCRIPT_PATH;
+  return fromQuery;
+}
+function resolveTongsApiToken() {
+  const fromQuery = readString3(getQueryParam("tongs_api_token", "tongsApiToken"));
+  if (fromQuery) return fromQuery;
+  const w3 = window;
+  const fromWindow = readString3(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
+  if (fromWindow) return fromWindow;
+  return readLocalStorage("forge_tongs_api_token_v1") ?? void 0;
+}
+function fileNameFromPath(path) {
+  const idx = path.lastIndexOf("/");
+  return idx >= 0 ? path.slice(idx + 1) : path;
+}
+async function readWorkpieceScript(workpieceId, path) {
+  const headers = new Headers();
+  const token = resolveTongsApiToken();
+  if (token) {
+    headers.set("authorization", `Bearer ${token}`);
+  }
+  const response = await fetch(
+    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(path)}`,
+    {
+      method: "GET",
+      headers
+    }
+  );
+  if (response.status === 404) return null;
+  if (!response.ok) return null;
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    return null;
+  }
+  if (!body || typeof body !== "object" || body.ok !== true) {
+    return null;
+  }
+  const data = body.data;
+  return typeof data === "string" ? data : null;
+}
+async function loadWorkpieceScriptOnBoot() {
+  if (booted) return;
+  booted = true;
+  if (!shouldAutoloadWorkpieceScript()) return;
+  const workpieceId = resolveWorkpieceId();
+  if (!workpieceId) return;
+  const workspaceId = resolveWorkspaceId();
+  persistWorkpiece(workspaceId, workpieceId);
+  const path = resolveScriptPath();
+  const text = await readWorkpieceScript(workpieceId, path);
+  if (!text || !text.trim()) return;
+  applyScript(text, "load", { updateEditor: true });
+  try {
+    window.__tpCurrentName = fileNameFromPath(path);
+  } catch {
+  }
+  try {
+    window.dispatchEvent(
+      new CustomEvent("tp:script-load", {
+        detail: {
+          name: fileNameFromPath(path),
+          text,
+          skipNormalize: true
+        }
+      })
+    );
+  } catch {
+  }
+}
+function bootstrapWorkpieceScriptHandoff() {
+  const w3 = window;
+  if (w3.__tpWorkpieceScriptBootLoaded) return;
+  w3.__tpWorkpieceScriptBootLoaded = true;
+  const run = () => {
+    void loadWorkpieceScriptOnBoot();
+  };
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", run, { once: true });
+  } else {
+    run();
+  }
+}
+var UUID_RE, DEFAULT_SCRIPT_PATH, WORKSPACE_STORAGE_KEYS, WORKPIECE_STORAGE_KEYS, ACTIVE_WORKPIECE_KEY, WORKSPACE_WORKPIECE_PREFIX, booted;
+var init_workpiece_script_handoff = __esm({
+  "src/forge/workpiece-script-handoff.ts"() {
+    "use strict";
+    init_apply_script();
+    UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    DEFAULT_SCRIPT_PATH = "script/script.md";
+    WORKSPACE_STORAGE_KEYS = ["forge_workspace_id_v1", "barstock_workspace_id"];
+    WORKPIECE_STORAGE_KEYS = [
+      "forge_active_workpiece_id_v1",
+      "forge_workpiece_id_v1",
+      "tp_workpiece_id"
+    ];
+    ACTIVE_WORKPIECE_KEY = "forge_active_workpiece_id_v1";
+    WORKSPACE_WORKPIECE_PREFIX = "forge_anvil_recording_workpiece_v1:";
+    booted = false;
+    if (typeof window !== "undefined") {
+      bootstrapWorkpieceScriptHandoff();
+    }
+  }
+});
+
 // src/ui/load-sample.ts
 function applySample(ed) {
   try {
@@ -42719,7 +43521,7 @@ function readNumber(value, fallback) {
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
-function readString3(value, fallback) {
+function readString4(value, fallback) {
   if (typeof value !== "string") return fallback;
   const v = value.trim();
   if (!v || v === "undefined" || v === "null") return fallback;
@@ -42728,14 +43530,14 @@ function readString3(value, fallback) {
 function normalizeTypography(input, fallback) {
   const src = input && typeof input === "object" ? input : {};
   return clampTypography({
-    fontFamily: readString3(src.fontFamily, fallback.fontFamily),
+    fontFamily: readString4(src.fontFamily, fallback.fontFamily),
     fontSizePx: readNumber(src.fontSizePx, fallback.fontSizePx),
     lineHeight: readNumber(src.lineHeight, fallback.lineHeight),
     weight: readNumber(src.weight, fallback.weight),
     letterSpacingEm: readNumber(src.letterSpacingEm, fallback.letterSpacingEm),
     wordSpacingEm: readNumber(src.wordSpacingEm, fallback.wordSpacingEm),
-    color: readString3(src.color, fallback.color),
-    background: readString3(src.background, fallback.background),
+    color: readString4(src.color, fallback.color),
+    background: readString4(src.background, fallback.background),
     maxLineWidthCh: readNumber(src.maxLineWidthCh, fallback.maxLineWidthCh),
     dimOthers: readNumber(src.dimOthers, fallback.dimOthers)
   });
@@ -43967,433 +44769,6 @@ var init_recording_session = __esm({
   }
 });
 
-// src/net/display-ws-client.ts
-function publishToNetworkDisplays(payload) {
-  if (!isSupported || !relayEnabled || typeof payload === "undefined") return;
-  try {
-    const str = JSON.stringify(payload);
-    let payloadType = null;
-    if (payload && typeof payload === "object") {
-      const candidate = payload.type;
-      if (typeof candidate === "string") {
-        payloadType = candidate;
-      }
-    }
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      if (payloadType === "scroll") {
-        queueScrollMessage(str);
-      } else {
-        socket.send(str);
-      }
-      return;
-    }
-    sendQueue.push(str);
-    if (sendQueue.length > 256) {
-      sendQueue.shift();
-    }
-  } catch {
-  }
-}
-function onNetworkDisplayStatus(fn) {
-  listeners2.add(fn);
-  fn({ ...status });
-  return () => {
-    listeners2.delete(fn);
-  };
-}
-function getNetworkDisplayStatus() {
-  return { ...status };
-}
-function enableNetworkDisplayRelay() {
-  if (!isSupported) return;
-  if (isRelayDisabled()) return;
-  if (relayEnabled) return;
-  relayEnabled = true;
-  persistRelayEnabled(true);
-  connect3();
-}
-var status, listeners2, socket, reconnectDelay, reconnectTimer, sendQueue, SCROLL_THROTTLE_MS, scrollTimer, pendingScroll, relayEnabled, RELAY_ENABLED_KEY, flushScroll, queueScrollMessage, isDisplayContext, isSupported, isRelayDisabled, notifyListeners, updateStatus2, isLocalhostHost, getWsUrl, flushQueue, scheduleReconnect, handleMessage, resetSocket, connect3, loadRelayEnabled, persistRelayEnabled;
-var init_display_ws_client = __esm({
-  "src/net/display-ws-client.ts"() {
-    "use strict";
-    status = {
-      state: "disconnected",
-      connectedDisplays: 0,
-      lastError: void 0
-    };
-    listeners2 = /* @__PURE__ */ new Set();
-    socket = null;
-    reconnectDelay = 1e3;
-    reconnectTimer = null;
-    sendQueue = [];
-    SCROLL_THROTTLE_MS = 60;
-    scrollTimer = null;
-    pendingScroll = null;
-    relayEnabled = false;
-    RELAY_ENABLED_KEY = "tp_display_ws_enabled";
-    flushScroll = () => {
-      if (!socket || socket.readyState !== WebSocket.OPEN) {
-        scrollTimer = null;
-        pendingScroll = null;
-        return;
-      }
-      if (pendingScroll) {
-        try {
-          socket.send(pendingScroll);
-        } catch {
-        }
-      }
-      pendingScroll = null;
-      scrollTimer = null;
-    };
-    queueScrollMessage = (serialized) => {
-      pendingScroll = serialized;
-      if (scrollTimer) return;
-      scrollTimer = window.setTimeout(() => {
-        flushScroll();
-      }, SCROLL_THROTTLE_MS);
-    };
-    isDisplayContext = () => {
-      if (typeof window === "undefined") return false;
-      try {
-        const params = new URLSearchParams(window.location.search || "");
-        if (params.get("display") === "1") return true;
-        const path = (window.location.pathname || "").toLowerCase();
-        if (path.endsWith("/display.html") || path === "/display.html") return true;
-        if (window.__TP_FORCE_DISPLAY) return true;
-      } catch {
-      }
-      return false;
-    };
-    isSupported = typeof window !== "undefined" && typeof WebSocket !== "undefined" && !isDisplayContext();
-    isRelayDisabled = () => {
-      if (typeof window === "undefined") return false;
-      const w3 = window;
-      if (w3.__TP_DISABLE_DISPLAY_WS) return true;
-      try {
-        const params = new URLSearchParams(window.location.search || "");
-        if (params.get("ci") === "1") return true;
-        if (params.get("uiMock") === "1") return true;
-        if (params.get("mockFolder") === "1") return true;
-        if (params.get("noDisplayWs") === "1") return true;
-      } catch {
-      }
-      return false;
-    };
-    notifyListeners = () => {
-      const snapshot = { ...status };
-      listeners2.forEach((fn) => {
-        try {
-          fn(snapshot);
-        } catch {
-        }
-      });
-    };
-    updateStatus2 = (patch) => {
-      Object.assign(status, patch);
-      notifyListeners();
-    };
-    isLocalhostHost = (host) => {
-      return host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".local");
-    };
-    getWsUrl = () => {
-      if (typeof window === "undefined") return null;
-      try {
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const hostname = window.location.hostname || "";
-        if (!isLocalhostHost(hostname)) {
-          return null;
-        }
-        const host = window.location.host;
-        return `${protocol}//${host}/ws/display`;
-      } catch {
-        return null;
-      }
-    };
-    flushQueue = () => {
-      if (!socket || socket.readyState !== WebSocket.OPEN) return;
-      if (!sendQueue.length) return;
-      for (const msg of sendQueue) {
-        try {
-          socket.send(msg);
-        } catch {
-        }
-      }
-      sendQueue = [];
-    };
-    scheduleReconnect = () => {
-      if (reconnectTimer || !isSupported || !relayEnabled) return;
-      reconnectTimer = window.setTimeout(() => {
-        reconnectTimer = null;
-        connect3();
-      }, reconnectDelay);
-      reconnectDelay = Math.min(15e3, reconnectDelay * 1.5);
-    };
-    handleMessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data?.type === "tp-display-status") {
-          const connected = typeof data.connected === "number" ? data.connected : status.connectedDisplays;
-          updateStatus2({ connectedDisplays: connected });
-        }
-      } catch {
-      }
-    };
-    resetSocket = () => {
-      if (socket) {
-        try {
-          socket.close();
-        } catch {
-        }
-      }
-      socket = null;
-    };
-    connect3 = () => {
-      if (!isSupported || !relayEnabled) return;
-      if (socket && socket.readyState === WebSocket.OPEN) return;
-      updateStatus2({ state: "connecting", lastError: void 0 });
-      const url = getWsUrl();
-      if (!url) {
-        updateStatus2({ state: "error", lastError: "Unable to build ws url" });
-        return;
-      }
-      resetSocket();
-      const ws = new WebSocket(url);
-      socket = ws;
-      ws.addEventListener("open", () => {
-        reconnectDelay = 1e3;
-        updateStatus2({ state: "connected", lastError: void 0 });
-        ws.send(JSON.stringify({ type: "hello", role: "main" }));
-        flushQueue();
-      });
-      ws.addEventListener("message", handleMessage);
-      const cleanup = () => {
-        updateStatus2({ state: "disconnected", connectedDisplays: 0, lastError: void 0 });
-        socket = null;
-        scheduleReconnect();
-      };
-      ws.addEventListener("close", cleanup);
-      ws.addEventListener("error", (event) => {
-        updateStatus2({ state: "error", lastError: String(event?.reason || "WebSocket error") });
-      });
-    };
-    loadRelayEnabled = () => {
-      if (typeof window === "undefined") return false;
-      if (isRelayDisabled()) return false;
-      try {
-        return localStorage.getItem(RELAY_ENABLED_KEY) === "1";
-      } catch {
-        return false;
-      }
-    };
-    persistRelayEnabled = (on3) => {
-      if (typeof window === "undefined") return;
-      try {
-        if (on3) {
-          localStorage.setItem(RELAY_ENABLED_KEY, "1");
-        } else {
-          localStorage.removeItem(RELAY_ENABLED_KEY);
-        }
-      } catch {
-      }
-    };
-    relayEnabled = loadRelayEnabled();
-    if (isSupported && relayEnabled) {
-      connect3();
-    }
-    try {
-      window.addEventListener("beforeunload", () => {
-        socket?.close();
-      });
-    } catch {
-    }
-  }
-});
-
-// src/features/display-sync.ts
-function getDisplayChannel() {
-  if (displayCh) return displayCh;
-  try {
-    displayCh = new BroadcastChannel("tp_display");
-  } catch (err) {
-    try {
-      console.warn("[display-sync] BroadcastChannel tp_display failed", err);
-    } catch {
-    }
-    displayCh = null;
-  }
-  return displayCh;
-}
-function makeKey(raw) {
-  const text = String(raw || "");
-  return `${text.length}:${text.slice(0, 64)}`;
-}
-function publishDisplayScript(rawText, opts) {
-  if (typeof window !== "undefined" && window.__TP_FORCE_DISPLAY) return;
-  const w3 = typeof window !== "undefined" ? window : {};
-  if (w3.__TP_PUBLISHING_DISPLAY) return;
-  w3.__TP_PUBLISHING_DISPLAY = true;
-  try {
-    const text = String(rawText || "");
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    const key = makeKey(text);
-    if (!opts?.force && key === lastPayloadKey) return;
-    lastPayloadKey = key;
-    latestRaw = text;
-    rev += 1;
-    try {
-      if (shouldLogLevel(2)) {
-        console.log("[publishDisplayScript]", { rev, len: text.length });
-      }
-    } catch {
-    }
-    const payload = {
-      type: "tp:script",
-      kind: "tp:script",
-      source: opts?.source ?? "main",
-      rawText: text,
-      rev,
-      textHash: key
-    };
-    const ch = getDisplayChannel();
-    if (ch) {
-      try {
-        ch.postMessage(payload);
-      } catch (err) {
-        try {
-          console.warn("[display-sync] failed to post tp_display", err);
-        } catch {
-        }
-      }
-    }
-    try {
-      publishToNetworkDisplays(payload);
-    } catch {
-    }
-  } finally {
-    w3.__TP_PUBLISHING_DISPLAY = false;
-  }
-}
-function getLatestRawScript() {
-  return latestRaw;
-}
-function pushDisplayRecordState(state8) {
-  const payload = { kind: "tp:record", state: state8 };
-  const ch = getDisplayChannel();
-  if (ch) {
-    try {
-      ch.postMessage(payload);
-    } catch {
-    }
-  }
-}
-function installDisplaySync(opts) {
-  if (displaySyncInstalled) return () => {
-  };
-  displaySyncInstalled = true;
-  const chanName = opts.channelName || "tp_display";
-  let chan2 = null;
-  const isDisplay = typeof window !== "undefined" && window.__TP_FORCE_DISPLAY === true;
-  let lastSeenRev = 0;
-  try {
-    const w3 = window;
-    w3.__TP_INSTALL_DISPLAY_SYNC = (w3.__TP_INSTALL_DISPLAY_SYNC || 0) + 1;
-    if (w3.__TP_INSTALL_DISPLAY_SYNC > 1 && (w3.__TP_DEV || w3.__TP_DEV1)) {
-      if (shouldLogLevel(1)) {
-        console.warn("[display-sync] installDisplaySync called multiple times", w3.__TP_INSTALL_DISPLAY_SYNC);
-      }
-      if (shouldLogLevel(3)) {
-        try {
-          console.trace("[display-sync] install stack");
-        } catch {
-        }
-      }
-    }
-  } catch {
-  }
-  try {
-    chan2 = new BroadcastChannel(chanName);
-  } catch (err) {
-    try {
-      console.warn("[display-sync] failed to open channel", err);
-    } catch {
-    }
-    chan2 = null;
-  }
-  const push = (force) => {
-    if (isDisplay) return;
-    try {
-      publishDisplayScript(opts.getText?.() || latestRaw || "", { force });
-    } catch {
-    }
-  };
-  const onMsg = (ev) => {
-    try {
-      const msg = ev?.data || {};
-      if (msg?.type === "display:hello" && !isDisplay) {
-        push(true);
-        return;
-      }
-      if (!isDisplay) return;
-      if (!msg || msg.type !== "tp:script" || typeof msg.rawText !== "string") return;
-      const incomingRev = typeof msg.rev === "number" ? msg.rev : 0;
-      if (incomingRev && incomingRev <= lastSeenRev) return;
-      lastSeenRev = incomingRev || lastSeenRev;
-      if (typeof opts.onApplyRemote === "function") {
-        opts.onApplyRemote(msg.rawText);
-      }
-    } catch {
-    }
-  };
-  try {
-    chan2?.addEventListener("message", onMsg);
-  } catch {
-  }
-  if (isDisplay) {
-    try {
-      chan2?.postMessage({ type: "display:hello", ts: Date.now() });
-    } catch {
-    }
-  } else {
-    try {
-      window.addEventListener("tp:scriptChanged", push);
-    } catch {
-    }
-    try {
-      push();
-    } catch {
-    }
-  }
-  return () => {
-    try {
-      window.removeEventListener("tp:scriptChanged", push);
-    } catch {
-    }
-    try {
-      chan2?.removeEventListener("message", onMsg);
-    } catch {
-    }
-    try {
-      chan2?.close();
-    } catch {
-    }
-  };
-}
-var displayCh, lastPayloadKey, rev, latestRaw, displaySyncInstalled;
-var init_display_sync = __esm({
-  "src/features/display-sync.ts"() {
-    "use strict";
-    init_display_ws_client();
-    init_dev_log();
-    displayCh = null;
-    lastPayloadKey = "";
-    rev = 0;
-    latestRaw = "";
-    displaySyncInstalled = false;
-  }
-});
-
 // src/features/rec-pills.ts
 function deriveRecState(opts) {
   if (!opts.recordingEnabled) return "off";
@@ -44712,24 +45087,24 @@ var init_rec_pills = __esm({
 });
 
 // src/forge/workpiece-commit.ts
-function readString4(value) {
+function readString5(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
-function normalizeUuid(value) {
-  const str = readString4(value);
+function normalizeUuid2(value) {
+  const str = readString5(value);
   if (!str) return null;
-  return UUID_RE.test(str) ? str.toLowerCase() : null;
+  return UUID_RE2.test(str) ? str.toLowerCase() : null;
 }
-function readLocalStorage(key) {
+function readLocalStorage2(key) {
   try {
-    return readString4(localStorage.getItem(key));
+    return readString5(localStorage.getItem(key));
   } catch {
     return null;
   }
 }
-function writeLocalStorage(key, value) {
+function writeLocalStorage2(key, value) {
   try {
     localStorage.setItem(key, value);
   } catch {
@@ -44737,7 +45112,7 @@ function writeLocalStorage(key, value) {
 }
 function readSessionStorage(key) {
   try {
-    return readString4(sessionStorage.getItem(key));
+    return readString5(sessionStorage.getItem(key));
   } catch {
     return null;
   }
@@ -44748,11 +45123,11 @@ function writeSessionStorage(key, value) {
   } catch {
   }
 }
-function getQueryParam(...keys) {
+function getQueryParam2(...keys) {
   try {
     const q3 = new URLSearchParams(window.location.search || "");
     for (const key of keys) {
-      const value = readString4(q3.get(key));
+      const value = readString5(q3.get(key));
       if (value) return value;
     }
   } catch {
@@ -44761,16 +45136,16 @@ function getQueryParam(...keys) {
 }
 function resolveLane() {
   const w3 = window;
-  const fromQuery = readString4(getQueryParam("forge_lane", "lane"));
+  const fromQuery = readString5(getQueryParam2("forge_lane", "lane"));
   if (fromQuery) return fromQuery;
-  const fromWindow = readString4(w3.__forgeLane ?? w3.__tpLane);
+  const fromWindow = readString5(w3.__forgeLane ?? w3.__tpLane);
   if (fromWindow) return fromWindow;
-  const fromStorage = readString4(readLocalStorage("forge_lane_v1"));
+  const fromStorage = readString5(readLocalStorage2("forge_lane_v1"));
   if (fromStorage) return fromStorage;
   return DEFAULT_LANE;
 }
 function getWrittenBy() {
-  const version5 = readString4(window.APP_VERSION) || DEFAULT_TOOL_VERSION;
+  const version5 = readString5(window.APP_VERSION) || DEFAULT_TOOL_VERSION;
   return {
     tool: "anvil",
     tool_version: version5,
@@ -44778,7 +45153,7 @@ function getWrittenBy() {
   };
 }
 function getApiToken() {
-  return readString4(window.__forgeTongsApiToken) ?? void 0;
+  return readString5(window.__forgeTongsApiToken) ?? void 0;
 }
 function getOrCreateRecordingSessionId() {
   const existing = readSessionStorage(RECORDING_SESSION_KEY);
@@ -44786,7 +45161,7 @@ function getOrCreateRecordingSessionId() {
   let next = "";
   try {
     const randomUuid = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : "";
-    next = readString4(randomUuid) || "";
+    next = readString5(randomUuid) || "";
   } catch {
   }
   if (!next) {
@@ -44799,48 +45174,48 @@ function nextCorrelationId(prefix) {
   correlationSeq += 1;
   return `${prefix}:${getOrCreateRecordingSessionId()}:${correlationSeq}`;
 }
-function resolveWorkspaceId() {
-  const fromQuery = normalizeUuid(getQueryParam("workspace_id", "workspaceId", "workspace"));
+function resolveWorkspaceId2() {
+  const fromQuery = normalizeUuid2(getQueryParam2("workspace_id", "workspaceId", "workspace"));
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = normalizeUuid(
+  const fromWindow = normalizeUuid2(
     w3.__forgeWorkspaceId ?? w3.__tpWorkspaceId ?? w3.__forgeWorkspace ?? w3.__tpWorkspace
   );
   if (fromWindow) return fromWindow;
-  for (const key of WORKSPACE_STORAGE_KEYS) {
-    const value = normalizeUuid(readLocalStorage(key));
+  for (const key of WORKSPACE_STORAGE_KEYS2) {
+    const value = normalizeUuid2(readLocalStorage2(key));
     if (value) return value;
   }
   return null;
 }
 function resolveDirectWorkpieceId() {
-  const fromQuery = normalizeUuid(
-    getQueryParam("workpiece_id", "workpieceId", "workpiece", "cradle_id", "cradleId")
+  const fromQuery = normalizeUuid2(
+    getQueryParam2("workpiece_id", "workpieceId", "workpiece", "cradle_id", "cradleId")
   );
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = normalizeUuid(
+  const fromWindow = normalizeUuid2(
     w3.__forgeWorkpieceId ?? w3.__tpWorkpieceId ?? w3.__forgeCradleId ?? w3.__tpCradleId
   );
   if (fromWindow) return fromWindow;
-  for (const key of WORKPIECE_STORAGE_KEYS) {
-    const value = normalizeUuid(readLocalStorage(key));
+  for (const key of WORKPIECE_STORAGE_KEYS2) {
+    const value = normalizeUuid2(readLocalStorage2(key));
     if (value) return value;
   }
   return null;
 }
 function loadCachedWorkpiece(workspaceId) {
   if (!workspaceId) return null;
-  return normalizeUuid(readLocalStorage(`${WORKSPACE_WORKPIECE_PREFIX}${workspaceId}`));
+  return normalizeUuid2(readLocalStorage2(`${WORKSPACE_WORKPIECE_PREFIX2}${workspaceId}`));
 }
-function persistWorkpiece(workspaceId, workpieceId) {
-  writeLocalStorage(ACTIVE_WORKPIECE_KEY, workpieceId);
+function persistWorkpiece2(workspaceId, workpieceId) {
+  writeLocalStorage2(ACTIVE_WORKPIECE_KEY2, workpieceId);
   if (workspaceId) {
-    writeLocalStorage(`${WORKSPACE_WORKPIECE_PREFIX}${workspaceId}`, workpieceId);
+    writeLocalStorage2(`${WORKSPACE_WORKPIECE_PREFIX2}${workspaceId}`, workpieceId);
   }
 }
 function inferContentType(contentType, name) {
-  const fromInput = readString4(contentType);
+  const fromInput = readString5(contentType);
   if (fromInput) return fromInput;
   const lower = name.toLowerCase();
   if (lower.endsWith(".wav")) return "audio/wav";
@@ -44867,7 +45242,7 @@ function buildHeaders(apiToken) {
 }
 async function readBodyAsJson(response) {
   const text = await response.text();
-  const raw = readString4(text);
+  const raw = readString5(text);
   if (!raw) return null;
   try {
     return JSON.parse(raw);
@@ -44877,7 +45252,7 @@ async function readBodyAsJson(response) {
 }
 function resolveCreatedWorkpieceId(body) {
   const row = body;
-  return normalizeUuid(
+  return normalizeUuid2(
     row?.data?.cradle?.id ?? row?.data?.episode?.id ?? row?.data?.workpiece?.id ?? row?.data?.id ?? row?.cradle?.id ?? row?.episode?.id ?? row?.workpiece?.id ?? row?.id
   );
 }
@@ -44939,7 +45314,7 @@ async function commitFileToWorkpiece(workpieceId, payload, apiToken) {
 async function commitRecordingBytesToTongs(input) {
   const writtenBy = getWrittenBy();
   const apiToken = getApiToken();
-  const workspaceId = resolveWorkspaceId();
+  const workspaceId = resolveWorkspaceId2();
   let workpieceId = resolveDirectWorkpieceId() || loadCachedWorkpiece(workspaceId);
   let createdCradle = false;
   if (!workpieceId) {
@@ -44965,7 +45340,7 @@ async function commitRecordingBytesToTongs(input) {
     workpieceId = created.workpieceId;
     createdCradle = true;
   }
-  persistWorkpiece(workspaceId, workpieceId);
+  persistWorkpiece2(workspaceId, workpieceId);
   const name = sanitizeFilename(input.originalName);
   const path = `recordings/${name}`;
   const contentType = inferContentType(input.contentType, name);
@@ -44995,7 +45370,7 @@ async function commitRecordingBytesToTongs(input) {
     if (replacement.ok) {
       workpieceId = replacement.workpieceId;
       createdCradle = true;
-      persistWorkpiece(workspaceId, workpieceId);
+      persistWorkpiece2(workspaceId, workpieceId);
       commit = await commitFileToWorkpiece(workpieceId, commitPayload, apiToken);
     }
   }
@@ -45017,21 +45392,21 @@ async function commitRecordingBytesToTongs(input) {
     status: commit.status
   };
 }
-var UUID_RE, DEFAULT_TOOL_VERSION, DEFAULT_LANE, WORKSPACE_STORAGE_KEYS, WORKPIECE_STORAGE_KEYS, ACTIVE_WORKPIECE_KEY, WORKSPACE_WORKPIECE_PREFIX, RECORDING_SESSION_KEY, correlationSeq;
+var UUID_RE2, DEFAULT_TOOL_VERSION, DEFAULT_LANE, WORKSPACE_STORAGE_KEYS2, WORKPIECE_STORAGE_KEYS2, ACTIVE_WORKPIECE_KEY2, WORKSPACE_WORKPIECE_PREFIX2, RECORDING_SESSION_KEY, correlationSeq;
 var init_workpiece_commit = __esm({
   "src/forge/workpiece-commit.ts"() {
     "use strict";
-    UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    UUID_RE2 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     DEFAULT_TOOL_VERSION = "1.8.5";
     DEFAULT_LANE = "forge-managed";
-    WORKSPACE_STORAGE_KEYS = ["forge_workspace_id_v1", "barstock_workspace_id"];
-    WORKPIECE_STORAGE_KEYS = [
+    WORKSPACE_STORAGE_KEYS2 = ["forge_workspace_id_v1", "barstock_workspace_id"];
+    WORKPIECE_STORAGE_KEYS2 = [
       "forge_active_workpiece_id_v1",
       "forge_workpiece_id_v1",
       "tp_workpiece_id"
     ];
-    ACTIVE_WORKPIECE_KEY = "forge_active_workpiece_id_v1";
-    WORKSPACE_WORKPIECE_PREFIX = "forge_anvil_recording_workpiece_v1:";
+    ACTIVE_WORKPIECE_KEY2 = "forge_active_workpiece_id_v1";
+    WORKSPACE_WORKPIECE_PREFIX2 = "forge_anvil_recording_workpiece_v1:";
     RECORDING_SESSION_KEY = "forge_anvil_recording_session_v1";
     correlationSeq = 0;
   }
@@ -52287,196 +52662,6 @@ function initToasts() {
 var init_toasts2 = __esm({
   "src/features/toasts.ts"() {
     "use strict";
-  }
-});
-
-// src/script/validate.ts
-function validateStandardTagsText(input = "") {
-  const t = String(input || "");
-  const problems = [];
-  const allowedTagPattern = [
-    ...BLOCK_TAG_NAMES,
-    ...CUE_TAG_NAMES,
-    ...INLINE_ATTR_PATTERNS
-  ].join("|");
-  const badTag = t.match(new RegExp(`\\[(?!\\/?(?:${allowedTagPattern})\\b)[^\\]]+\\]`, "i"));
-  if (badTag) problems.push("Unknown tag: " + badTag[0]);
-  const speakerPattern = SPEAKER_TAG_NAMES.join("|");
-  if (new RegExp(`\\[(?:${speakerPattern})\\][ \\t]*\\S`, "i").test(t))
-    problems.push("Opening speaker tags must be on their own line.");
-  if (new RegExp(`\\S[ \\t]*\\[\\/(?:${speakerPattern})\\]`, "i").test(t))
-    problems.push("Closing speaker tags must be on their own line.");
-  const speakerEventRe = new RegExp(
-    `\\[(\\/)?(${speakerPattern})\\]|\\[note\\]|\\[\\/note\\]`,
-    "gi"
-  );
-  const speakerStack = [];
-  let speakerEventMatch;
-  while (speakerEventMatch = speakerEventRe.exec(t)) {
-    const token = speakerEventMatch[0].toLowerCase();
-    if (token === "[note]") {
-      if (speakerStack.length) {
-        problems.push("[note] blocks must be outside speaker sections.");
-        break;
-      }
-    } else if (token === "[/note]") {
-      continue;
-    } else {
-      const closing = !!speakerEventMatch[1];
-      if (!closing) {
-        speakerStack.push(speakerEventMatch[2].toLowerCase());
-      } else if (speakerStack.length) {
-        speakerStack.pop();
-      }
-    }
-  }
-  const stack = [];
-  const tagRe = new RegExp(`\\[(\\/)?(${BLOCK_TAG_NAMES.join("|")})\\]`, "gi");
-  let m;
-  while (m = tagRe.exec(t)) {
-    const closing = !!m[1];
-    const tag = m[2].toLowerCase();
-    if (!closing) {
-      stack.push(tag);
-    } else {
-      if (!stack.length) {
-        problems.push(`Unexpected closing [/${tag}]`);
-        break;
-      }
-      const last = stack.pop();
-      if (last !== tag) {
-        problems.push(`Mismatched closing [/${tag}] (expected [/${last}])`);
-        break;
-      }
-    }
-  }
-  if (stack.length) problems.push("Unclosed tag(s): " + stack.join(", "));
-  return { ok: problems.length === 0, report: problems.join("\n"), problems };
-}
-var init_validate = __esm({
-  "src/script/validate.ts"() {
-    "use strict";
-    init_tag_constants();
-  }
-});
-
-// src/speech/build-legacy-asr-state.ts
-function buildLegacyAsrStateFromStandardScript(canon) {
-  const w3 = window;
-  let t = canon.replace(/\[note\][\s\S]*?\[\/note\]/gi, "\n");
-  t = t.replace(/^\[(s1|s2|g1|g2)\]\s*$/gmi, "");
-  t = t.replace(/^\[\/(s1|s2|g1|g2)\]\s*$/gmi, "");
-  t = t.replace(/\[(\/?)(color|bg|b|i|u)(=[^\]]+)?\]/gi, "");
-  t = t.replace(/\[(pause|beat|reflective pause)\]/gi, " ");
-  t = t.replace(/\r/g, "").replace(/[ \t]+/g, " ");
-  const scriptWords = t.split(/\s+/).map((s) => s.trim()).filter(Boolean);
-  const paraIndex = new Array(scriptWords.length);
-  {
-    let wordIdx = 0;
-    let lineIdx = 0;
-    for (const line of t.split("\n")) {
-      const tokens = line.split(/\s+/).map((x) => x.trim()).filter(Boolean);
-      const count = tokens.length;
-      if (count > 0) {
-        const start2 = wordIdx;
-        const end = wordIdx + count - 1;
-        const entry = { start: start2, end, key: line.trim(), line: lineIdx };
-        for (let i = start2; i <= end; i++) {
-          paraIndex[i] = entry;
-        }
-      }
-      wordIdx += count;
-      lineIdx += 1;
-    }
-  }
-  w3.scriptWords = scriptWords;
-  w3.paraIndex = paraIndex;
-  if (typeof w3.currentIndex !== "number" || Number.isNaN(w3.currentIndex)) {
-    w3.currentIndex = 0;
-  }
-  try {
-    console.log("[ASR] legacy state built", {
-      scriptWords: w3.scriptWords?.length ?? 0,
-      paraIndexEntries: w3.paraIndex?.length ?? 0,
-      currentIndex: w3.currentIndex
-    });
-  } catch {
-  }
-}
-var init_build_legacy_asr_state = __esm({
-  "src/speech/build-legacy-asr-state.ts"() {
-    "use strict";
-  }
-});
-
-// src/features/apply-script.ts
-function hashText(s) {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return (h >>> 0).toString(16);
-}
-function getEditorEl() {
-  return document.getElementById("editor");
-}
-function applyScript(rawIn, source, opts) {
-  const raw = String(rawIn ?? "");
-  if (window.__TP_APPLY_IN_FLIGHT) return;
-  window.__TP_APPLY_IN_FLIGHT = true;
-  const normalized = (() => {
-    try {
-      return normalizeToStandardText(raw);
-    } catch {
-      return raw;
-    }
-  })();
-  const validation = validateStandardTagsText(normalized);
-  if (!validation.ok) {
-    try {
-      const msg = validation.report || "Script validation failed.";
-      window.toast?.(msg, { type: "error" });
-    } catch {
-    }
-    window.__TP_APPLY_IN_FLIGHT = false;
-    return;
-  }
-  const h = hashText(normalized);
-  if (window.__TP_LAST_APPLIED_HASH === h) {
-    window.__TP_APPLY_IN_FLIGHT = false;
-    return;
-  }
-  window.__TP_LAST_APPLIED_HASH = h;
-  if (window.__TP_DEV || window.__TP_DEV1) {
-    console.debug("[applyScript]", { source, len: normalized.length, hash: h.slice(0, 8) });
-  }
-  const prevLoading = !!window.__TP_LOADING_SCRIPT;
-  window.__TP_LOADING_SCRIPT = true;
-  try {
-    window.__tpRawScript = normalized;
-    buildLegacyAsrStateFromStandardScript(normalized);
-    const updateEditor = opts?.updateEditor ?? (source === "load" || source === "ingest" || source === "hydrate");
-    if (updateEditor) {
-      const ed = getEditorEl();
-      if (ed && ed.value !== normalized) ed.value = normalized;
-    }
-    renderScript(normalized);
-    publishDisplayScript(normalized, { source });
-    window.dispatchEvent(new CustomEvent("tp:scriptChanged", { detail: { source, text: normalized } }));
-  } finally {
-    window.__TP_LOADING_SCRIPT = prevLoading;
-    window.__TP_APPLY_IN_FLIGHT = false;
-  }
-}
-var init_apply_script = __esm({
-  "src/features/apply-script.ts"() {
-    "use strict";
-    init_render_script();
-    init_display_sync();
-    init_normalize();
-    init_validate();
-    init_build_legacy_asr_state();
   }
 });
 
@@ -67381,6 +67566,7 @@ var init_index_app = __esm({
     init_recorder_settings();
     init_authProfile();
     init_forge_nav();
+    init_workpiece_script_handoff();
     init_supabaseClient();
     init_load_sample();
     init_obs_settings_bind();
