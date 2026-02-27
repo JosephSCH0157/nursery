@@ -148,7 +148,7 @@ export async function flushOutboxToTongs(args: {
         id: normalizedId,
         workspace_id: workspaceId,
         created_by: userId,
-        session_id: sp.assignmentId ?? null,
+        episode_id: sp.assignmentId ?? null,
         title: sp.title ?? null,
         body: sp.body,
         tags: Array.isArray(sp.tags) ? sp.tags : [],
