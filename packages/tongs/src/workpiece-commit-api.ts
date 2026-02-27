@@ -163,6 +163,10 @@ export type ReadJsonFileResult =
   | { found: true; data: unknown }
   | { found: false };
 
+export type ReadTextFileResult =
+  | { found: true; text: string }
+  | { found: false };
+
 export type AppendEventRequest = {
   event_name: string;
   payload?: Json;
@@ -184,6 +188,8 @@ export type TongsCommitApiService = {
   appendEvent(workpieceId: string, input: AppendEventRequest): Promise<WorkpieceEventRow>;
   readWorkpieceJson(workpieceId: string, path: string): Promise<ReadJsonFileResult>;
   readWorkspaceJson(workspaceId: string, path: string): Promise<ReadJsonFileResult>;
+  readWorkpieceText(workpieceId: string, path: string): Promise<ReadTextFileResult>;
+  readWorkspaceText(workspaceId: string, path: string): Promise<ReadTextFileResult>;
 };
 
 class HttpError extends Error {
@@ -1543,6 +1549,23 @@ export class TongsCommitService {
     return { found: true, data: parsed };
   }
 
+  async readWorkpieceText(workpieceId: string, path: string): Promise<ReadTextFileResult> {
+    await this.getCradleOrThrow(workpieceId);
+    const storageKey = buildStorageKey(workpieceId, path);
+    const bytes = await downloadStorageObject(this.supabase, this.bucket, storageKey);
+    if (!bytes) return { found: false };
+    const text = normalizeLf(stripBom(textDecoder.decode(bytes)));
+    return { found: true, text };
+  }
+
+  async readWorkspaceText(workspaceId: string, path: string): Promise<ReadTextFileResult> {
+    const storageKey = buildWorkspaceStorageKey(workspaceId, path);
+    const bytes = await downloadStorageObject(this.supabase, this.bucket, storageKey);
+    if (!bytes) return { found: false };
+    const text = normalizeLf(stripBom(textDecoder.decode(bytes)));
+    return { found: true, text };
+  }
+
   async appendEvent(workpieceId: string, input: AppendEventRequest): Promise<WorkpieceEventRow> {
     await this.getCradleOrThrow(workpieceId);
     return this.insertEvent({
@@ -1632,20 +1655,32 @@ export function createTongsCommitApiHandlerWithService(
         const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
         const url = new URL(request.url);
         const path = normalizeRelativePath(url.searchParams.get("path"));
-        if (extensionOf(path) !== ".json") {
-          throw new HttpError(400, "invalid_path", "read-file currently supports JSON paths only");
-        }
-        const result = await service.readWorkpieceJson(workpieceId, path);
-        if (!result.found) {
-          if (isBootstrapWorkpiecePath(path)) {
-            return jsonResponse(200, { ok: true, data: null, exists: false });
+        if (extensionOf(path) === ".json") {
+          const result = await service.readWorkpieceJson(workpieceId, path);
+          if (!result.found) {
+            if (isBootstrapWorkpiecePath(path)) {
+              return jsonResponse(200, { ok: true, data: null, exists: false });
+            }
+            return jsonResponse(404, {
+              ok: true,
+              exists: false,
+            });
           }
+          return jsonResponse(200, { ok: true, data: result.data });
+        }
+
+        if (!isLfTextFile(path)) {
+          throw new HttpError(400, "invalid_path", "read-file supports JSON and UTF-8 text paths only");
+        }
+
+        const result = await service.readWorkpieceText(workpieceId, path);
+        if (!result.found) {
           return jsonResponse(404, {
             ok: true,
             exists: false,
           });
         }
-        return jsonResponse(200, { ok: true, data: result.data });
+        return jsonResponse(200, { ok: true, data: result.text });
       }
 
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "read-file") {
@@ -1653,20 +1688,32 @@ export function createTongsCommitApiHandlerWithService(
         const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
         const url = new URL(request.url);
         const path = normalizeRelativePath(url.searchParams.get("path"));
-        if (extensionOf(path) !== ".json") {
-          throw new HttpError(400, "invalid_path", "read-file currently supports JSON paths only");
-        }
-        const result = await service.readWorkspaceJson(workspaceId, path);
-        if (!result.found) {
-          if (isBootstrapWorkspacePath(path)) {
-            return jsonResponse(200, { ok: true, data: null, exists: false });
+        if (extensionOf(path) === ".json") {
+          const result = await service.readWorkspaceJson(workspaceId, path);
+          if (!result.found) {
+            if (isBootstrapWorkspacePath(path)) {
+              return jsonResponse(200, { ok: true, data: null, exists: false });
+            }
+            return jsonResponse(404, {
+              ok: true,
+              exists: false,
+            });
           }
+          return jsonResponse(200, { ok: true, data: result.data });
+        }
+
+        if (!isLfTextFile(path)) {
+          throw new HttpError(400, "invalid_path", "read-file supports JSON and UTF-8 text paths only");
+        }
+
+        const result = await service.readWorkspaceText(workspaceId, path);
+        if (!result.found) {
           return jsonResponse(404, {
             ok: true,
             exists: false,
           });
         }
-        return jsonResponse(200, { ok: true, data: result.data });
+        return jsonResponse(200, { ok: true, data: result.text });
       }
 
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "append-event") {

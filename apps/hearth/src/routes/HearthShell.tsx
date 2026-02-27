@@ -34,6 +34,7 @@ import {
 } from "../lib/hearth-chat-api";
 import { writeHearthAiRuntimeStatus } from "../lib/ai-runtime-status";
 import { commitHearthSession, readHearthSession } from "../lib/hearth-session-repo";
+import { commitHearthPrimaryScript, getHearthPrimaryScriptPath } from "../lib/hearth-script-repo";
 import { useSourcesState } from "../hooks/useSourcesState";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import { createHearthStore } from "../storage/store-factory";
@@ -72,6 +73,7 @@ const AI_STT_MAX_DURATION_MS = 5 * 60 * 1000;
 const AI_STT_MAX_BYTES = 10 * 1024 * 1024;
 const STT_INLINE_FEEDBACK_MS = 2200;
 const STT_PREVIEW_MAX_CHARS = 80;
+const ANVIL_SCRIPT_PATH = getHearthPrimaryScriptPath();
 
 type HearthMode = "sparks" | "draft" | "planning" | "sources" | "revisions";
 type ProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet";
@@ -899,6 +901,8 @@ function buildOpenInAnvilHref(workspaceId: string | null, workpieceId: string | 
   const params = new URLSearchParams();
   params.set("workspace_id", workspace);
   params.set("workpiece_id", workpiece);
+  params.set("open", "script");
+  params.set("script_path", ANVIL_SCRIPT_PATH);
   return `/app/anvil?${params.toString()}`;
 }
 
@@ -1453,8 +1457,15 @@ export default function HearthShell() {
 
   const onOpenInAnvil = useCallback(async () => {
     if (!openInAnvilHref) return;
+    const episodeId = workpieceId?.trim() ?? null;
+    if (!episodeId) return;
     if (!activeDraft) {
       window.location.assign(openInAnvilHref);
+      return;
+    }
+
+    if (!activeDraft.body.trim()) {
+      setError("No script yet. Write a script before opening in Anvil.");
       return;
     }
 
@@ -1469,9 +1480,15 @@ export default function HearthShell() {
     });
     if (!saved) return;
 
+    const published = await commitHearthPrimaryScript(episodeId, activeDraft.body);
+    if (!published.ok) {
+      setError("Failed to publish script for Anvil. Try again.");
+      return;
+    }
+
     flushChatHistoryNow({ draftId: activeDraft.id });
     window.location.assign(openInAnvilHref);
-  }, [activeDraft, flushChatHistoryNow, openInAnvilHref]);
+  }, [activeDraft, flushChatHistoryNow, openInAnvilHref, workpieceId]);
 
   const applySessionOrigin = useCallback((origin: HearthSessionOrigin) => {
     updatePlanningSession((prev) => ({
