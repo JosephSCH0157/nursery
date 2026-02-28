@@ -134,6 +134,13 @@ function resolveTongsApiToken(): string | undefined {
   const w = window as ForgeWindow;
   const fromWindow = readString(w.__forgeTongsApiToken ?? w.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
+  try {
+    const meta = import.meta as unknown as { env?: Record<string, string | undefined> };
+    const fromEnv = readString(meta.env?.VITE_TONGS_API_TOKEN);
+    if (fromEnv) return fromEnv;
+  } catch {
+    // ignore env access failures
+  }
   return readLocalStorage("forge_tongs_api_token_v1") ?? undefined;
 }
 
