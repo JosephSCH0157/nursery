@@ -35,6 +35,7 @@ import {
 import { writeHearthAiRuntimeStatus } from "../lib/ai-runtime-status";
 import { commitHearthSession, readHearthSession } from "../lib/hearth-session-repo";
 import { commitHearthPrimaryScript, getHearthPrimaryScriptPath } from "../lib/hearth-script-repo";
+import { resolveTongsApiToken } from "../lib/tongs-fetch";
 import { useSourcesState } from "../hooks/useSourcesState";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import { createHearthStore } from "../storage/store-factory";
@@ -1484,6 +1485,16 @@ export default function HearthShell() {
     if (!published.ok) {
       setError("Failed to publish script for Anvil. Try again.");
       return;
+    }
+
+    // Bridge token for Anvil static runtime so /tongs calls stay authorized after redirect.
+    try {
+      const token = resolveTongsApiToken();
+      if (token) {
+        window.localStorage.setItem("forge_tongs_api_token_v1", token);
+      }
+    } catch {
+      // ignore token bridge failures
     }
 
     flushChatHistoryNow({ draftId: activeDraft.id });
