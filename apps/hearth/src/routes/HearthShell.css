@@ -1373,6 +1373,119 @@
   opacity: 0.75;
 }
 
+.hs-imap-panel {
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 10px;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+  background: rgba(15, 23, 42, 0.02);
+}
+
+.hs-imap-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.hs-imap-title {
+  font-weight: 700;
+}
+
+.hs-imap-save-state {
+  font-size: 12px;
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.hs-imap-save-state.is-saved {
+  border-color: rgba(22, 163, 74, 0.6);
+  background: rgba(22, 163, 74, 0.12);
+}
+
+.hs-imap-save-state.is-editing {
+  border-color: rgba(217, 119, 6, 0.55);
+  background: rgba(217, 119, 6, 0.12);
+}
+
+.hs-imap-save-state.is-saving {
+  border-color: rgba(37, 99, 235, 0.55);
+  background: rgba(37, 99, 235, 0.12);
+}
+
+.hs-imap-save-state.is-error,
+.hs-imap-save-state.is-offline {
+  border-color: rgba(176, 0, 32, 0.55);
+  background: rgba(176, 0, 32, 0.08);
+}
+
+.hs-imap-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hs-imap-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 340px) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.hs-imap-list {
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 8px;
+  max-height: 320px;
+  overflow: auto;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+}
+
+.hs-imap-row {
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 8px;
+  text-align: left;
+  padding: 6px 8px;
+  display: grid;
+  gap: 2px;
+  background: transparent;
+}
+
+.hs-imap-row.is-selected {
+  border-color: #557;
+  background: rgba(85, 119, 255, 0.08);
+}
+
+.hs-imap-row-anchor {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.hs-imap-row-meta {
+  font-size: 11px;
+  opacity: 0.72;
+}
+
+.hs-imap-row-desc {
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.hs-imap-editor {
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.hs-imap-empty {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
 @media (max-width: 1200px) {
   .hs-sparks-layout {
     grid-template-columns: 1fr;
@@ -1391,6 +1504,10 @@
 
 @media (max-width: 900px) {
   .hs-thumb-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hs-imap-layout {
     grid-template-columns: minmax(0, 1fr);
   }
 }

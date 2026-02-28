@@ -56,6 +56,25 @@ export type EpisodeImageMap = {
   entries: EpisodeImageMapEntry[];
 };
 
+export const EPISODE_IMAGE_MAP_INTENT_VALUES = [
+  "broll",
+  "graphic",
+  "lower-third",
+  "archival",
+  "cutaway",
+  "other",
+] as const;
+
+export const EPISODE_IMAGE_MAP_SOURCE_TYPE_VALUES = [
+  "ai",
+  "stock",
+  "archival",
+  "custom",
+] as const;
+
+export type EpisodeImageMapIntent = (typeof EPISODE_IMAGE_MAP_INTENT_VALUES)[number];
+export type EpisodeImageMapSourceType = (typeof EPISODE_IMAGE_MAP_SOURCE_TYPE_VALUES)[number];
+
 export type EpisodePackageV2 = {
   schema: typeof EPISODE_PACKAGE_V2_SCHEMA;
   seo: EpisodeSeo;
@@ -265,12 +284,55 @@ function normalizeImageMapEntries(value: unknown): EpisodeImageMapEntry[] {
       id: readString(entry.id) ?? `image-map-${String(i + 1).padStart(2, "0")}`,
       anchor,
       description,
-      intent,
-      source_type: sourceType,
+      intent: normalizeImageMapIntent(intent),
+      source_type: normalizeImageMapSourceType(sourceType),
       placement_hint: readString(entry.placement_hint) ?? readString(entry.match),
     });
   }
   return out;
+}
+
+function createImageMapEntryId(prefix = "image-map"): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function normalizeImageMapIntent(value: string | null | undefined): EpisodeImageMapIntent {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return "other";
+  if (EPISODE_IMAGE_MAP_INTENT_VALUES.includes(normalized as EpisodeImageMapIntent)) {
+    return normalized as EpisodeImageMapIntent;
+  }
+  return "other";
+}
+
+function normalizeImageMapSourceType(value: string | null | undefined): EpisodeImageMapSourceType {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return "stock";
+  if (EPISODE_IMAGE_MAP_SOURCE_TYPE_VALUES.includes(normalized as EpisodeImageMapSourceType)) {
+    return normalized as EpisodeImageMapSourceType;
+  }
+  return "stock";
+}
+
+function normalizeImageMapEntryPatch(args: {
+  entry: Partial<EpisodeImageMapEntry>;
+  fallbackId?: string;
+}): EpisodeImageMapEntry | null {
+  const anchor = readString(args.entry.anchor);
+  const description = typeof args.entry.description === "string" ? args.entry.description : "";
+  const id = readString(args.entry.id) ?? args.fallbackId ?? createImageMapEntryId();
+  if (!anchor || !id) return null;
+  return {
+    id,
+    anchor,
+    description,
+    intent: normalizeImageMapIntent(readString(args.entry.intent)),
+    source_type: normalizeImageMapSourceType(readString(args.entry.source_type)),
+    placement_hint: readString(args.entry.placement_hint) ?? null,
+  };
 }
 
 function parseSectionBody(rawText: string, sectionHeader: string): string {
@@ -660,6 +722,84 @@ export function applyProductionArtifactToEpisodePackage(args: {
     episode: nextEpisode,
     updated_at: normalizeIso(args.generatedAt, normalizeIso(hydrated.updated_at)),
   });
+}
+
+export function ensureImageMapV2(pkg: EpisodePackageV2): EpisodePackageV2 {
+  const entries = Array.isArray(pkg.image_map?.entries) ? pkg.image_map.entries : [];
+  const normalizedEntries = entries
+    .map((entry, index) => normalizeImageMapEntryPatch({
+      entry,
+      fallbackId: readString(entry.id) ?? `image-map-${String(index + 1).padStart(2, "0")}`,
+    }))
+    .filter((entry): entry is EpisodeImageMapEntry => Boolean(entry));
+
+  return {
+    ...pkg,
+    image_map: {
+      entries: normalizedEntries,
+    },
+  };
+}
+
+export function addImageMapEntry(
+  pkg: EpisodePackageV2,
+  entryPartial: Partial<EpisodeImageMapEntry>,
+): EpisodePackageV2 {
+  const normalized = ensureImageMapV2(pkg);
+  const nextEntry = normalizeImageMapEntryPatch({
+    entry: {
+      ...entryPartial,
+      id: readString(entryPartial.id) ?? createImageMapEntryId(),
+    },
+  });
+  if (!nextEntry) return normalized;
+
+  return {
+    ...normalized,
+    image_map: {
+      entries: [...normalized.image_map.entries, nextEntry],
+    },
+  };
+}
+
+export function updateImageMapEntry(
+  pkg: EpisodePackageV2,
+  entryId: string,
+  patch: Partial<EpisodeImageMapEntry>,
+): EpisodePackageV2 {
+  const normalized = ensureImageMapV2(pkg);
+  const targetId = readString(entryId);
+  if (!targetId) return normalized;
+
+  return {
+    ...normalized,
+    image_map: {
+      entries: normalized.image_map.entries.map((entry) => {
+        if (entry.id !== targetId) return entry;
+        const next = normalizeImageMapEntryPatch({
+          entry: {
+            ...entry,
+            ...patch,
+            id: entry.id,
+          },
+          fallbackId: entry.id,
+        });
+        return next ?? entry;
+      }),
+    },
+  };
+}
+
+export function removeImageMapEntry(pkg: EpisodePackageV2, entryId: string): EpisodePackageV2 {
+  const normalized = ensureImageMapV2(pkg);
+  const targetId = readString(entryId);
+  if (!targetId) return normalized;
+  return {
+    ...normalized,
+    image_map: {
+      entries: normalized.image_map.entries.filter((entry) => entry.id !== targetId),
+    },
+  };
 }
 
 export function buildDefaultMetadataDocument(args: {
