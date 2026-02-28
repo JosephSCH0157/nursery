@@ -34,11 +34,15 @@ const CONTENT_CATEGORY_VALUES = [
   "backup",
 ] as const;
 const CONTENT_CATEGORY_SET = new Set<string>(CONTENT_CATEGORY_VALUES as readonly string[]);
+const RECORDING_SESSION_STATUS_VALUES = ["planned", "active", "completed", "canceled"] as const;
+const RECORDING_SESSION_STATUS_SET = new Set<string>(RECORDING_SESSION_STATUS_VALUES);
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
 type EpisodeRow = Database["tongs"]["Tables"]["episodes"]["Row"];
+type RecordingSessionRow = Database["tongs"]["Tables"]["recording_sessions"]["Row"];
+type RecordingSessionEpisodeRow = Database["tongs"]["Tables"]["recording_session_episodes"]["Row"];
 type WorkpieceFileRow = Database["tongs"]["Tables"]["workpiece_files"]["Row"];
 type WorkpieceEventRow = Database["tongs"]["Tables"]["workpiece_events"]["Row"];
 type WorkspaceRow = Database["tongs"]["Tables"]["workspaces"]["Row"];
@@ -198,6 +202,37 @@ export type AppendEventRequest = {
   written_by: WrittenBy;
 };
 
+export type RecordingSessionStatus = (typeof RECORDING_SESSION_STATUS_VALUES)[number];
+
+export type CreateRecordingSessionRequest = {
+  title: string;
+  starts_at: string;
+  ends_at?: string | null;
+};
+
+export type UpdateRecordingSessionRequest = {
+  title?: string;
+  starts_at?: string;
+  ends_at?: string | null;
+  status?: RecordingSessionStatus;
+};
+
+export type RecordingSessionListRange = {
+  starts_at?: string;
+  ends_at?: string;
+  limit?: number;
+};
+
+export type AttachEpisodeToSessionRequest = {
+  episode_id: string;
+  position?: number;
+  notes?: string | null;
+};
+
+export type SessionEpisodeListItem = RecordingSessionEpisodeRow & {
+  episode: Pick<EpisodeRow, "id" | "workspace_id" | "label" | "created_at" | "updated_at"> | null;
+};
+
 export type WorkspaceReadyScript = {
   workspace_id: string;
   workpiece_id: string;
@@ -224,6 +259,12 @@ export type TongsCommitApiService = {
   createCradle(input: CreateCradleRequest): Promise<CreateCradleResponse>;
   commitFile(workpieceId: string, input: CommitFileRequest): Promise<CommitFileResponse>;
   commitWorkspaceFile(workspaceId: string, input: CommitFileRequest): Promise<CommitWorkspaceFileResponse>;
+  createRecordingSession(workspaceId: string, input: CreateRecordingSessionRequest): Promise<RecordingSessionRow>;
+  updateRecordingSession(sessionId: string, patch: UpdateRecordingSessionRequest): Promise<RecordingSessionRow>;
+  listRecordingSessions(workspaceId: string, range?: RecordingSessionListRange): Promise<RecordingSessionRow[]>;
+  attachEpisodeToSession(sessionId: string, input: AttachEpisodeToSessionRequest): Promise<RecordingSessionEpisodeRow>;
+  detachEpisodeFromSession(sessionId: string, episodeId: string): Promise<void>;
+  listSessionEpisodes(sessionId: string): Promise<SessionEpisodeListItem[]>;
   listWorkspaceReadyScripts(
     workspaceId: string,
     options?: ListWorkspaceReadyScriptsOptions,
@@ -1099,6 +1140,121 @@ function normalizeAppendEventRequest(body: Record<string, unknown>): AppendEvent
   };
 }
 
+function normalizeIsoTimestamp(input: unknown, field: string): string {
+  if (typeof input !== "string" || !input.trim()) {
+    throw new HttpError(400, "invalid_timestamp", `${field} must be a non-empty ISO timestamp string`);
+  }
+  const date = new Date(input);
+  if (Number.isNaN(date.valueOf())) {
+    throw new HttpError(400, "invalid_timestamp", `${field} must be a valid timestamp`);
+  }
+  return date.toISOString();
+}
+
+function normalizeOptionalIsoTimestampOrNull(input: unknown, field: string): string | null | undefined {
+  if (typeof input === "undefined") return undefined;
+  if (input === null) return null;
+  return normalizeIsoTimestamp(input, field);
+}
+
+function normalizeRecordingSessionStatus(input: unknown, field: string): RecordingSessionStatus {
+  if (typeof input !== "string") {
+    throw new HttpError(400, "invalid_status", `${field} must be one of: ${RECORDING_SESSION_STATUS_VALUES.join(", ")}`);
+  }
+  const normalized = input.trim().toLowerCase();
+  if (!RECORDING_SESSION_STATUS_SET.has(normalized)) {
+    throw new HttpError(400, "invalid_status", `${field} must be one of: ${RECORDING_SESSION_STATUS_VALUES.join(", ")}`);
+  }
+  return normalized as RecordingSessionStatus;
+}
+
+function normalizeNonNegativeInteger(input: unknown, field: string): number {
+  if (typeof input !== "number" || !Number.isInteger(input) || input < 0) {
+    throw new HttpError(400, "invalid_integer", `${field} must be a non-negative integer`);
+  }
+  return input;
+}
+
+function normalizeCreateRecordingSessionRequest(body: Record<string, unknown>): CreateRecordingSessionRequest {
+  return {
+    title: normalizeNonEmptyString(body.title, "title"),
+    starts_at: normalizeIsoTimestamp(body.starts_at, "starts_at"),
+    ends_at: normalizeOptionalIsoTimestampOrNull(body.ends_at, "ends_at"),
+  };
+}
+
+function normalizeUpdateRecordingSessionRequest(body: Record<string, unknown>): UpdateRecordingSessionRequest {
+  const patch: UpdateRecordingSessionRequest = {};
+
+  if (Object.prototype.hasOwnProperty.call(body, "title")) {
+    patch.title = normalizeNonEmptyString(body.title, "title");
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "starts_at")) {
+    patch.starts_at = normalizeIsoTimestamp(body.starts_at, "starts_at");
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "ends_at")) {
+    patch.ends_at = normalizeOptionalIsoTimestampOrNull(body.ends_at, "ends_at");
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "status")) {
+    patch.status = normalizeRecordingSessionStatus(body.status, "status");
+  }
+
+  if (Object.keys(patch).length === 0) {
+    throw new HttpError(400, "invalid_patch", "At least one updatable field is required");
+  }
+
+  return patch;
+}
+
+function normalizeRecordingSessionListRange(searchParams: URLSearchParams): RecordingSessionListRange {
+  const range: RecordingSessionListRange = {};
+
+  const startsAt = searchParams.get("starts_at");
+  if (startsAt && startsAt.trim()) {
+    range.starts_at = normalizeIsoTimestamp(startsAt, "starts_at");
+  }
+
+  const endsAt = searchParams.get("ends_at");
+  if (endsAt && endsAt.trim()) {
+    range.ends_at = normalizeIsoTimestamp(endsAt, "ends_at");
+  }
+
+  const limitRaw = searchParams.get("limit");
+  if (limitRaw && limitRaw.trim()) {
+    const parsed = Number.parseInt(limitRaw, 10);
+    if (!Number.isInteger(parsed) || parsed <= 0 || parsed > 500) {
+      throw new HttpError(400, "invalid_limit", "limit must be an integer between 1 and 500");
+    }
+    range.limit = parsed;
+  }
+
+  return range;
+}
+
+function normalizeAttachEpisodeToSessionRequest(body: Record<string, unknown>): AttachEpisodeToSessionRequest {
+  let notes: string | null | undefined;
+  if (Object.prototype.hasOwnProperty.call(body, "notes")) {
+    const raw = body.notes;
+    if (raw === null) {
+      notes = null;
+    } else if (typeof raw === "string") {
+      notes = raw;
+    } else {
+      throw new HttpError(400, "invalid_string", "notes must be a string or null");
+    }
+  }
+
+  const position = Object.prototype.hasOwnProperty.call(body, "position")
+    ? normalizeNonNegativeInteger(body.position, "position")
+    : undefined;
+
+  return {
+    episode_id: normalizeUuid(body.episode_id, "episode_id"),
+    ...(typeof position === "undefined" ? {} : { position }),
+    ...(typeof notes === "undefined" ? {} : { notes }),
+  };
+}
+
 function resolveEpisodeLabel(metadata: Json | undefined): string {
   if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
     const row = metadata as Record<string, unknown>;
@@ -1182,6 +1338,58 @@ export class TongsCommitService {
       throw new HttpError(404, "workspace_not_found", `Workspace ${workspaceId} was not found`);
     }
     return data;
+  }
+
+  private async getRecordingSessionOrThrow(sessionId: string): Promise<RecordingSessionRow> {
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("recording_sessions")
+      .select("*")
+      .eq("id", sessionId)
+      .single();
+
+    if (error) {
+      if (error.code === "PGRST116") {
+        throw new HttpError(404, "recording_session_not_found", `Recording session ${sessionId} was not found`);
+      }
+      throw new HttpError(502, "db_read_failed", "Failed to read recording session", {
+        reason: error.message,
+      });
+    }
+
+    if (!data) {
+      throw new HttpError(404, "recording_session_not_found", `Recording session ${sessionId} was not found`);
+    }
+    return data;
+  }
+
+  private async resolveRecordingSessionCreator(workspace: WorkspaceRow): Promise<string> {
+    if (workspace.created_by) return workspace.created_by;
+
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("workspace_members")
+      .select("user_id,created_at")
+      .eq("workspace_id", workspace.id)
+      .order("created_at", { ascending: true })
+      .limit(1);
+
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to resolve recording session creator", {
+        reason: error.message,
+      });
+    }
+
+    const fallback = data?.[0]?.user_id ?? null;
+    if (!fallback) {
+      throw new HttpError(
+        409,
+        "workspace_creator_missing",
+        "Workspace has no creator/member to assign recording session created_by",
+      );
+    }
+
+    return fallback;
   }
 
   private async upsertWorkpieceFile(rows: Database["tongs"]["Tables"]["workpiece_files"]["Insert"][]): Promise<void> {
@@ -1596,6 +1804,233 @@ export class TongsCommitService {
     };
   }
 
+  async createRecordingSession(
+    workspaceId: string,
+    input: CreateRecordingSessionRequest,
+  ): Promise<RecordingSessionRow> {
+    const workspace = await this.getWorkspaceOrThrow(workspaceId);
+    const createdBy = await this.resolveRecordingSessionCreator(workspace);
+    const endsAt = typeof input.ends_at === "undefined" ? null : input.ends_at;
+
+    if (endsAt && new Date(endsAt).valueOf() < new Date(input.starts_at).valueOf()) {
+      throw new HttpError(400, "invalid_time_window", "ends_at must be greater than or equal to starts_at");
+    }
+
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("recording_sessions")
+      .insert({
+        workspace_id: workspaceId,
+        title: input.title.trim(),
+        starts_at: input.starts_at,
+        ends_at: endsAt,
+        created_by: createdBy,
+      })
+      .select("*")
+      .single();
+
+    if (error) {
+      throw new HttpError(502, "db_write_failed", "Failed to create recording session", {
+        reason: error.message,
+      });
+    }
+    if (!data) {
+      throw new HttpError(502, "db_write_failed", "recording_sessions insert returned no row");
+    }
+
+    return data;
+  }
+
+  async updateRecordingSession(sessionId: string, patch: UpdateRecordingSessionRequest): Promise<RecordingSessionRow> {
+    const current = await this.getRecordingSessionOrThrow(sessionId);
+    const nextStartsAt = patch.starts_at ?? current.starts_at;
+    const nextEndsAt = Object.prototype.hasOwnProperty.call(patch, "ends_at")
+      ? (patch.ends_at ?? null)
+      : current.ends_at;
+
+    if (nextEndsAt && new Date(nextEndsAt).valueOf() < new Date(nextStartsAt).valueOf()) {
+      throw new HttpError(400, "invalid_time_window", "ends_at must be greater than or equal to starts_at");
+    }
+
+    const update: Database["tongs"]["Tables"]["recording_sessions"]["Update"] = {};
+
+    if (typeof patch.title !== "undefined") {
+      update.title = patch.title.trim();
+    }
+    if (typeof patch.starts_at !== "undefined") {
+      update.starts_at = patch.starts_at;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "ends_at")) {
+      update.ends_at = patch.ends_at ?? null;
+    }
+    if (typeof patch.status !== "undefined") {
+      update.status = patch.status;
+    }
+
+    if (Object.keys(update).length === 0) {
+      throw new HttpError(400, "invalid_patch", "At least one updatable field is required");
+    }
+
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("recording_sessions")
+      .update(update)
+      .eq("id", sessionId)
+      .select("*")
+      .single();
+
+    if (error) {
+      throw new HttpError(502, "db_write_failed", "Failed to update recording session", {
+        reason: error.message,
+      });
+    }
+    if (!data) {
+      throw new HttpError(502, "db_write_failed", "recording_sessions update returned no row");
+    }
+
+    return data;
+  }
+
+  async listRecordingSessions(
+    workspaceId: string,
+    range?: RecordingSessionListRange,
+  ): Promise<RecordingSessionRow[]> {
+    await this.getWorkspaceOrThrow(workspaceId);
+
+    let query = this.supabase
+      .schema("tongs")
+      .from("recording_sessions")
+      .select("*")
+      .eq("workspace_id", workspaceId);
+
+    if (range?.starts_at) query = query.gte("starts_at", range.starts_at);
+    if (range?.ends_at) query = query.lte("starts_at", range.ends_at);
+    if (range?.limit) query = query.limit(range.limit);
+
+    const { data, error } = await query
+      .order("starts_at", { ascending: true })
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to list recording sessions", {
+        reason: error.message,
+      });
+    }
+
+    return data ?? [];
+  }
+
+  async attachEpisodeToSession(
+    sessionId: string,
+    input: AttachEpisodeToSessionRequest,
+  ): Promise<RecordingSessionEpisodeRow> {
+    const session = await this.getRecordingSessionOrThrow(sessionId);
+    const episode = await this.getCradleOrThrow(input.episode_id);
+    if (episode.workspace_id !== session.workspace_id) {
+      throw new HttpError(
+        400,
+        "workspace_mismatch",
+        "Episode workspace must match recording session workspace",
+      );
+    }
+
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("recording_session_episodes")
+      .upsert(
+        {
+          recording_session_id: sessionId,
+          episode_id: input.episode_id,
+          position: input.position ?? 0,
+          notes: typeof input.notes === "undefined" ? null : input.notes,
+        },
+        { onConflict: "recording_session_id,episode_id" },
+      )
+      .select("*")
+      .single();
+
+    if (error) {
+      throw new HttpError(502, "db_write_failed", "Failed to attach episode to recording session", {
+        reason: error.message,
+      });
+    }
+    if (!data) {
+      throw new HttpError(502, "db_write_failed", "recording_session_episodes upsert returned no row");
+    }
+
+    return data;
+  }
+
+  async detachEpisodeFromSession(sessionId: string, episodeId: string): Promise<void> {
+    await this.getRecordingSessionOrThrow(sessionId);
+
+    const { error } = await this.supabase
+      .schema("tongs")
+      .from("recording_session_episodes")
+      .delete()
+      .eq("recording_session_id", sessionId)
+      .eq("episode_id", episodeId);
+
+    if (error) {
+      throw new HttpError(502, "db_write_failed", "Failed to detach episode from recording session", {
+        reason: error.message,
+      });
+    }
+  }
+
+  async listSessionEpisodes(sessionId: string): Promise<SessionEpisodeListItem[]> {
+    await this.getRecordingSessionOrThrow(sessionId);
+
+    const { data: links, error: linksError } = await this.supabase
+      .schema("tongs")
+      .from("recording_session_episodes")
+      .select("*")
+      .eq("recording_session_id", sessionId)
+      .order("position", { ascending: true })
+      .order("created_at", { ascending: true });
+
+    if (linksError) {
+      throw new HttpError(502, "db_read_failed", "Failed to list session episodes", {
+        reason: linksError.message,
+      });
+    }
+
+    if (!links || links.length === 0) {
+      return [];
+    }
+
+    const episodeIds = links.map((row) => row.episode_id);
+    const { data: episodes, error: episodesError } = await this.supabase
+      .schema("tongs")
+      .from("episodes")
+      .select("id,workspace_id,label,created_at,updated_at")
+      .in("id", episodeIds);
+
+    if (episodesError) {
+      throw new HttpError(502, "db_read_failed", "Failed to read linked episodes", {
+        reason: episodesError.message,
+      });
+    }
+
+    const episodeById = new Map(
+      (episodes ?? []).map((row) => [
+        row.id,
+        {
+          id: row.id,
+          workspace_id: row.workspace_id,
+          label: row.label,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+        },
+      ]),
+    );
+
+    return links.map((row) => ({
+      ...row,
+      episode: episodeById.get(row.episode_id) ?? null,
+    }));
+  }
+
   async readWorkpieceJson(workpieceId: string, path: string): Promise<ReadJsonFileResult> {
     await this.getCradleOrThrow(workpieceId);
     const storageKey = buildStorageKey(workpieceId, path);
@@ -1930,6 +2365,63 @@ export function createTongsCommitApiHandlerWithService(
         const unrecordedOnly = parseBooleanQueryFlag(url.searchParams.get("unrecorded"));
         const result = await service.listWorkspaceReadyScripts(workspaceId, { unrecordedOnly });
         return jsonResponse(200, { ok: true, data: { scripts: result } });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "recording-sessions") {
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        if (request.method === "GET") {
+          const range = normalizeRecordingSessionListRange(url.searchParams);
+          const result = await service.listRecordingSessions(workspaceId, range);
+          return jsonResponse(200, { ok: true, data: { sessions: result } });
+        }
+
+        if (request.method === "POST") {
+          const body = await parseJsonBody(request);
+          const payload = normalizeCreateRecordingSessionRequest(body);
+          const result = await service.createRecordingSession(workspaceId, payload);
+          return jsonResponse(201, { ok: true, data: result });
+        }
+
+        throw new HttpError(405, "method_not_allowed", "Expected GET or POST for this endpoint");
+      }
+
+      if (parts.length === 3 && parts[0] === "tongs" && parts[1] === "recording-sessions") {
+        requireMethod(request, "PATCH");
+        const sessionId = normalizeUuid(decodeURIComponent(parts[2]), "session_id");
+        const body = await parseJsonBody(request);
+        const payload = normalizeUpdateRecordingSessionRequest(body);
+        const result = await service.updateRecordingSession(sessionId, payload);
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "recording-sessions" && parts[3] === "episodes") {
+        const sessionId = normalizeUuid(decodeURIComponent(parts[2]), "session_id");
+        if (request.method === "GET") {
+          const result = await service.listSessionEpisodes(sessionId);
+          return jsonResponse(200, { ok: true, data: { episodes: result } });
+        }
+
+        if (request.method === "POST") {
+          const body = await parseJsonBody(request);
+          const payload = normalizeAttachEpisodeToSessionRequest(body);
+          const result = await service.attachEpisodeToSession(sessionId, payload);
+          return jsonResponse(201, { ok: true, data: result });
+        }
+
+        throw new HttpError(405, "method_not_allowed", "Expected GET or POST for this endpoint");
+      }
+
+      if (
+        parts.length === 5
+        && parts[0] === "tongs"
+        && parts[1] === "recording-sessions"
+        && parts[3] === "episodes"
+      ) {
+        requireMethod(request, "DELETE");
+        const sessionId = normalizeUuid(decodeURIComponent(parts[2]), "session_id");
+        const episodeId = normalizeUuid(decodeURIComponent(parts[4]), "episode_id");
+        await service.detachEpisodeFromSession(sessionId, episodeId);
+        return jsonResponse(200, { ok: true, data: { detached: true } });
       }
 
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "read-file") {

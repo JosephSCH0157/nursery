@@ -56,6 +56,7 @@ export type Database = {
           id: string
           workspace_id: string
           assignment_id: string | null
+          session_id: string | null
           title: string
           start_at: string
           end_at: string | null
@@ -70,6 +71,7 @@ export type Database = {
           id?: string
           workspace_id: string
           assignment_id?: string | null
+          session_id?: string | null
           title: string
           start_at: string
           end_at?: string | null
@@ -84,6 +86,7 @@ export type Database = {
           id?: string
           workspace_id?: string
           assignment_id?: string | null
+          session_id?: string | null
           title?: string
           start_at?: string
           end_at?: string | null
@@ -94,7 +97,15 @@ export type Database = {
           created_by?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "calendar_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "recording_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       episodes: {
         Row: {
@@ -162,6 +173,92 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "project_cradles_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      recording_session_episodes: {
+        Row: {
+          recording_session_id: string
+          episode_id: string
+          position: number
+          notes: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          recording_session_id: string
+          episode_id: string
+          position?: number
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          recording_session_id?: string
+          episode_id?: string
+          position?: number
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recording_session_episodes_episode_id_fkey"
+            columns: ["episode_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recording_session_episodes_recording_session_id_fkey"
+            columns: ["recording_session_id"]
+            isOneToOne: false
+            referencedRelation: "recording_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      recording_sessions: {
+        Row: {
+          id: string
+          workspace_id: string
+          title: string
+          starts_at: string
+          ends_at: string | null
+          status: string
+          created_by: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          title: string
+          starts_at: string
+          ends_at?: string | null
+          status?: string
+          created_by: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          title?: string
+          starts_at?: string
+          ends_at?: string | null
+          status?: string
+          created_by?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recording_sessions_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -466,4 +563,3 @@ export const Constants = {
     Enums: {},
   },
 } as const
-
