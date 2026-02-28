@@ -43057,6 +43057,12 @@ function resolveTongsApiToken() {
   const w3 = window;
   const fromWindow = readString3(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
+  try {
+    const meta3 = import.meta;
+    const fromEnv = readString3(meta3.env?.VITE_TONGS_API_TOKEN);
+    if (fromEnv) return fromEnv;
+  } catch {
+  }
   return readLocalStorage("forge_tongs_api_token_v1") ?? void 0;
 }
 function fileNameFromPath(path) {
@@ -45153,7 +45159,17 @@ function getWrittenBy() {
   };
 }
 function getApiToken() {
-  return readString5(window.__forgeTongsApiToken) ?? void 0;
+  const fromQuery = readString5(getQueryParam2("tongs_api_token", "tongsApiToken"));
+  if (fromQuery) return fromQuery;
+  const fromWindow = readString5(window.__forgeTongsApiToken ?? window.__tpTongsApiToken);
+  if (fromWindow) return fromWindow;
+  try {
+    const meta3 = import.meta;
+    const fromEnv = readString5(meta3.env?.VITE_TONGS_API_TOKEN);
+    if (fromEnv) return fromEnv;
+  } catch {
+  }
+  return readLocalStorage2("forge_tongs_api_token_v1") ?? void 0;
 }
 function getOrCreateRecordingSessionId() {
   const existing = readSessionStorage(RECORDING_SESSION_KEY);
