@@ -28,6 +28,12 @@ export function AiControlsPanel({ onClose }: Props) {
     saveAiSettings(next);
   }
 
+  function updateAutoApproveImageSpend(enabled: boolean) {
+    const next = { ...settings, autoApproveImageSpend: enabled };
+    setSettings(next);
+    saveAiSettings(next);
+  }
+
   function saveKey() {
     const next = { ...settings, byoKey: keyDraft };
     setSettings(next);
@@ -119,6 +125,20 @@ export function AiControlsPanel({ onClose }: Props) {
             <option value="deterministic">Deterministic</option>
             <option value="creative">Creative</option>
           </select>
+        </div>
+      </div>
+
+      <div className="forge-ai-panel__section">
+        <div className="forge-ai-panel__label">Image Spend Confirmation</div>
+        <div className="forge-ai-panel__row">
+          <label>
+            <input
+              type="checkbox"
+              checked={settings.autoApproveImageSpend === true}
+              onChange={(event) => updateAutoApproveImageSpend(event.target.checked)}
+            />
+            Always approve thumbnail generation spend
+          </label>
         </div>
       </div>
 

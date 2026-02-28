@@ -2,12 +2,13 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createTongsCommitApiHandlerWithService } from "../dist/workpiece-commit-api.js";
+import { TongsCommitService, createTongsCommitApiHandlerWithService } from "../dist/workpiece-commit-api.js";
 
 function mockService() {
   const calls = {
     createCradle: [],
     commitFile: [],
+    generateEpisodeThumbnail: [],
     createRecordingSession: [],
     updateRecordingSession: [],
     listRecordingSessions: [],
@@ -102,6 +103,53 @@ function mockService() {
           written_by_lane: input.written_by.lane,
           created_at: "2026-02-21T00:00:00.000Z",
         },
+      };
+    },
+    async generateEpisodeThumbnail(workpieceId, input) {
+      calls.generateEpisodeThumbnail.push({ workpieceId, input });
+      return {
+        version: {
+          id: "44444444-4444-4444-8444-444444444444",
+          concept_id: input.concept_id ?? "concept-01",
+          created_at: "2026-02-28T01:00:00.000Z",
+          provider: "openai",
+          prompt: input.prompt ?? "Prompt",
+          provider_request_id: "req_provider_123",
+          asset_id: "55555555-5555-4555-8555-555555555555",
+          status: "ready",
+          error: null,
+        },
+        asset: {
+          id: "55555555-5555-4555-8555-555555555555",
+          workspace_id: input.workspace_id,
+          episode_id: workpieceId,
+          path: "assets/thumbnails/111/222.png",
+          storage_bucket: "forge-workpieces",
+          storage_key: "workpieces/111/assets/thumbnails/111/222.png",
+          mime_type: "image/png",
+          bytes: 1234,
+          provider: "openai",
+          provider_request_id: "req_provider_123",
+          request_id: "req_local_123",
+        },
+        updated_episode_package: {
+          schema: "forge.episode.package.v2",
+          seo: {
+            titles: [],
+            tags: [],
+            description_short: null,
+            description_long: null,
+          },
+          thumbnail: {
+            concepts: [],
+            versions: [],
+            primary_version_id: "44444444-4444-4444-8444-444444444444",
+          },
+          image_map: {
+            entries: [],
+          },
+        },
+        primary_version_id: "44444444-4444-4444-8444-444444444444",
       };
     },
     async createRecordingSession(workspaceId, input) {
@@ -305,6 +353,233 @@ test("POST /tongs/workpieces/:id/append-event dispatches appendEvent", async () 
   assert.equal(calls.appendEvent.length, 1);
   assert.equal(calls.appendEvent[0].input.event_name, "workpiece.note");
   assert.equal(body.ok, true);
+});
+
+test("POST /tongs/workpieces/:id/generate-thumbnail dispatches generateEpisodeThumbnail", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request("http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/generate-thumbnail", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-forge-user-authorization": "Bearer user_token_abc",
+    },
+    body: JSON.stringify({
+      workspace_id: "11111111-1111-4111-8111-111111111111",
+      episode_id: "11111111-1111-4111-8111-111111111111",
+      concept_id: "concept-01",
+      confirm_spend: true,
+    }),
+  });
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.generateEpisodeThumbnail.length, 1);
+  assert.equal(calls.generateEpisodeThumbnail[0].workpieceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.generateEpisodeThumbnail[0].input.concept_id, "concept-01");
+  assert.equal(calls.generateEpisodeThumbnail[0].input.user_access_token, "user_token_abc");
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.version?.status, "ready");
+  assert.equal(typeof body.data?.asset?.storage_key, "string");
+  assert.equal(body.data?.primary_version_id, "44444444-4444-4444-8444-444444444444");
+});
+
+test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata version", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const workpieceId = "22222222-2222-4222-8222-222222222222";
+  const userId = "33333333-3333-4333-8333-333333333333";
+  const providerCalls = [];
+  const assetInsertCalls = [];
+  const commitCalls = [];
+
+  const imageProvider = {
+    async generateImage(input) {
+      providerCalls.push(input);
+      return {
+        bytesBase64: "AQID",
+        mimeType: "image/png",
+        provider: "openai",
+        providerRequestId: "req_provider_abc",
+        revisedPrompt: null,
+        tokensUsed: 123,
+      };
+    },
+  };
+
+  const supabase = {
+    schema(schemaName) {
+      assert.equal(schemaName, "tongs");
+      return {
+        from(tableName) {
+          assert.equal(tableName, "assets");
+          return {
+            insert(payload) {
+              assetInsertCalls.push(payload);
+              return {
+                select() {
+                  return {
+                    async single() {
+                      return {
+                        data: {
+                          ...payload,
+                          created_at: "2026-02-28T02:00:00.000Z",
+                          updated_at: "2026-02-28T02:00:00.000Z",
+                        },
+                        error: null,
+                      };
+                    },
+                  };
+                },
+              };
+            },
+          };
+        },
+      };
+    },
+  };
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", imageProvider);
+
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_at: "2026-02-28T00:00:00.000Z",
+    updated_at: "2026-02-28T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.getCradleOrThrow = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-02-28T00:00:00.000Z",
+    updated_at: "2026-02-28T00:00:00.000Z",
+  });
+  service.resolveUserIdFromAccessToken = async () => userId;
+  service.readWorkpieceJson = async () => ({
+    found: true,
+    data: {
+      schema: "forge.metadata.v1",
+      workpiece_id: workpieceId,
+      workspace_id: workspaceId,
+      created_at: "2026-02-28T00:00:00.000Z",
+      updated_at: "2026-02-28T00:00:00.000Z",
+      status: "draft",
+      episode: {
+        schema: "forge.episode.package.v2",
+        seo: {
+          titles: [],
+          tags: [],
+          description_short: null,
+          description_long: null,
+        },
+        thumbnail: {
+          concepts: [
+            {
+              id: "concept-01",
+              label: "Concept 01",
+              prompt_text: "Host in studio with neon glow",
+              style_preset: null,
+            },
+          ],
+          versions: [],
+          primary_version_id: null,
+        },
+        image_map: {
+          entries: [],
+        },
+      },
+    },
+  });
+  service.commitFile = async (inputWorkpieceId, input) => {
+    commitCalls.push({ inputWorkpieceId, input });
+    return {
+      workpiece_id: inputWorkpieceId,
+      path: input.path,
+      storage_key: `workpieces/${inputWorkpieceId}/${input.path}`,
+      hash: "hash_abc",
+      bytes: 3,
+      content_type: input.content_type ?? "application/octet-stream",
+      manifest_hash: "manifest_hash",
+      manifest_bytes: 123,
+      file_row: {
+        workpiece_id: inputWorkpieceId,
+        path: input.path,
+        file_type: input.file_type ?? "json",
+        content_type: input.content_type ?? "application/octet-stream",
+        bytes: 3,
+        hash_algo: "sha256",
+        hash_value: "hash_abc",
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${inputWorkpieceId}/${input.path}`,
+        written_by_tool: input.written_by.tool,
+        written_by_tool_version: input.written_by.tool_version,
+        written_by_lane: input.written_by.lane,
+        created_at: "2026-02-28T02:00:00.000Z",
+        updated_at: "2026-02-28T02:00:00.000Z",
+      },
+      manifest_row: {
+        workpiece_id: inputWorkpieceId,
+        path: "manifest.json",
+        file_type: "manifest",
+        content_type: "application/json",
+        bytes: 120,
+        hash_algo: "sha256",
+        hash_value: "manifest_hash",
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${inputWorkpieceId}/manifest.json`,
+        written_by_tool: input.written_by.tool,
+        written_by_tool_version: input.written_by.tool_version,
+        written_by_lane: input.written_by.lane,
+        created_at: "2026-02-28T02:00:00.000Z",
+        updated_at: "2026-02-28T02:00:00.000Z",
+      },
+      event: {
+        id: 99,
+        workpiece_id: inputWorkpieceId,
+        event_name: input.event_name ?? "workpiece.file.committed",
+        payload: {},
+        correlation_id: null,
+        written_by_tool: input.written_by.tool,
+        written_by_tool_version: input.written_by.tool_version,
+        written_by_lane: input.written_by.lane,
+        created_at: "2026-02-28T02:00:00.000Z",
+      },
+    };
+  };
+  service.applyAiTokenDelta = async () => ({
+    tokenBalance: 777,
+  });
+
+  const result = await service.generateEpisodeThumbnail(workpieceId, {
+    workspace_id: workspaceId,
+    episode_id: workpieceId,
+    concept_id: "concept-01",
+    confirm_spend: true,
+    lane: "forge",
+    user_access_token: "token_abc",
+  });
+
+  assert.equal(providerCalls.length, 1);
+  assert.equal(providerCalls[0].aspect, "16:9");
+  assert.match(providerCalls[0].prompt, /Host in studio with neon glow/);
+  assert.equal(assetInsertCalls.length, 1);
+  assert.equal(assetInsertCalls[0].workspace_id, workspaceId);
+  assert.equal(assetInsertCalls[0].workpiece_id, workpieceId);
+  assert.equal(assetInsertCalls[0].bytes, 3);
+  assert.equal(commitCalls.length, 2);
+  assert.equal(commitCalls[0].input.path.startsWith("assets/thumbnails/"), true);
+  assert.equal(commitCalls[1].input.path, "metadata.json");
+  assert.equal(commitCalls[1].input.json.episode.thumbnail.versions.length, 1);
+  assert.equal(commitCalls[1].input.json.episode.thumbnail.primary_version_id, result.version.id);
+  assert.equal(result.version.status, "ready");
+  assert.equal(result.primary_version_id, result.version.id);
+  assert.equal(result.asset.storage_bucket, "forge-workpieces");
 });
 
 test("POST /tongs/workspaces/:id/recording-sessions dispatches createRecordingSession", async () => {

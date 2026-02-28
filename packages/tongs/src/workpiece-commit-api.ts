@@ -1,5 +1,10 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "./db.types.js";
+import {
+  OpenAiImageProvider,
+  type GenerateImageInput,
+  type ImageProvider,
+} from "./providers/image-provider.js";
 
 export const TONGS_WORKPIECE_BUCKET = "forge-workpieces";
 
@@ -36,11 +41,14 @@ const CONTENT_CATEGORY_VALUES = [
 const CONTENT_CATEGORY_SET = new Set<string>(CONTENT_CATEGORY_VALUES as readonly string[]);
 const RECORDING_SESSION_STATUS_VALUES = ["planned", "active", "completed", "canceled"] as const;
 const RECORDING_SESSION_STATUS_SET = new Set<string>(RECORDING_SESSION_STATUS_VALUES);
+const THUMBNAIL_ASSET_PREFIX = "assets/thumbnails";
+const THUMBNAIL_DEFAULT_STYLE_HINT = "Clean, high-contrast YouTube thumbnail composition.";
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
 type EpisodeRow = Database["tongs"]["Tables"]["episodes"]["Row"];
+type AssetRow = Database["tongs"]["Tables"]["assets"]["Row"];
 type RecordingSessionRow = Database["tongs"]["Tables"]["recording_sessions"]["Row"];
 type RecordingSessionEpisodeRow = Database["tongs"]["Tables"]["recording_session_episodes"]["Row"];
 type WorkpieceFileRow = Database["tongs"]["Tables"]["workpiece_files"]["Row"];
@@ -233,6 +241,78 @@ export type SessionEpisodeListItem = RecordingSessionEpisodeRow & {
   episode: Pick<EpisodeRow, "id" | "workspace_id" | "label" | "created_at" | "updated_at"> | null;
 };
 
+export type ThumbnailVersionRecord = {
+  id: string;
+  concept_id: string;
+  created_at: string;
+  provider: string;
+  prompt: string;
+  provider_request_id: string | null;
+  asset_id: string;
+  status: "ready" | "failed";
+  error: string | null;
+};
+
+export type EpisodeThumbnailConceptRecord = {
+  id: string;
+  label: string;
+  prompt_text: string;
+  style_preset: string | null;
+};
+
+export type EpisodePackageRecord = {
+  schema: "forge.episode.package.v2";
+  seo: {
+    titles: JsonValue[];
+    tags: string[];
+    description_short: string | null;
+    description_long: string | null;
+  };
+  thumbnail: {
+    concepts: EpisodeThumbnailConceptRecord[];
+    versions: ThumbnailVersionRecord[];
+    primary_version_id: string | null;
+  };
+  image_map: {
+    entries: JsonValue[];
+  };
+};
+
+export type GenerateEpisodeThumbnailRequest = {
+  workspace_id: string;
+  episode_id: string;
+  concept_id?: string;
+  prompt?: string;
+  preset?: string | null;
+  aspect?: string | null;
+  size?: string | null;
+  lane?: "forge" | "byo";
+  confirm_spend?: boolean;
+  always_approve_ai_spend?: boolean;
+  user_access_token?: string | null;
+};
+
+export type GenerateEpisodeThumbnailResponse = {
+  version: ThumbnailVersionRecord;
+  asset: {
+    id: string;
+    workspace_id: string;
+    episode_id: string;
+    path: string;
+    storage_bucket: string;
+    storage_key: string;
+    mime_type: string;
+    bytes: number;
+    provider: string;
+    provider_request_id: string | null;
+    request_id: string;
+  };
+  updated_episode_package: EpisodePackageRecord;
+  primary_version_id: string | null;
+  credits_warning?: string;
+  token_balance?: number | null;
+};
+
 export type WorkspaceReadyScript = {
   workspace_id: string;
   workpiece_id: string;
@@ -253,12 +333,15 @@ export type TongsCommitApiOptions = {
   supabaseServiceRoleKey: string;
   bucket?: string;
   apiToken?: string;
+  openAiApiKey?: string;
+  openAiImageModel?: string;
 };
 
 export type TongsCommitApiService = {
   createCradle(input: CreateCradleRequest): Promise<CreateCradleResponse>;
   commitFile(workpieceId: string, input: CommitFileRequest): Promise<CommitFileResponse>;
   commitWorkspaceFile(workspaceId: string, input: CommitFileRequest): Promise<CommitWorkspaceFileResponse>;
+  generateEpisodeThumbnail(workpieceId: string, input: GenerateEpisodeThumbnailRequest): Promise<GenerateEpisodeThumbnailResponse>;
   createRecordingSession(workspaceId: string, input: CreateRecordingSessionRequest): Promise<RecordingSessionRow>;
   updateRecordingSession(sessionId: string, patch: UpdateRecordingSessionRequest): Promise<RecordingSessionRow>;
   listRecordingSessions(workspaceId: string, range?: RecordingSessionListRange): Promise<RecordingSessionRow[]>;
@@ -1255,6 +1338,240 @@ function normalizeAttachEpisodeToSessionRequest(body: Record<string, unknown>): 
   };
 }
 
+function normalizeOptionalBoolean(input: unknown, field: string): boolean | undefined {
+  if (typeof input === "undefined") return undefined;
+  if (typeof input !== "boolean") {
+    throw new HttpError(400, "invalid_boolean", `${field} must be a boolean`);
+  }
+  return input;
+}
+
+function normalizeOptionalLane(input: unknown): "forge" | "byo" | undefined {
+  if (typeof input === "undefined") return undefined;
+  if (input === "forge" || input === "byo") return input;
+  throw new HttpError(400, "invalid_lane", "lane must be forge or byo");
+}
+
+function normalizeGenerateEpisodeThumbnailRequest(
+  body: Record<string, unknown>,
+  workpieceId: string,
+  userAccessTokenFromHeader: string | null,
+): GenerateEpisodeThumbnailRequest {
+  const workspaceId = normalizeUuid(body.workspace_id, "workspace_id");
+  const episodeId = normalizeUuid(body.episode_id ?? workpieceId, "episode_id");
+  if (episodeId !== workpieceId) {
+    throw new HttpError(400, "episode_mismatch", "episode_id must match workpiece path id");
+  }
+
+  const conceptId = typeof body.concept_id === "string" ? normalizeNonEmptyString(body.concept_id, "concept_id") : undefined;
+  const prompt = typeof body.prompt === "string" ? normalizeNonEmptyString(body.prompt, "prompt") : undefined;
+  if (!conceptId && !prompt) {
+    throw new HttpError(400, "missing_prompt", "concept_id or prompt is required");
+  }
+
+  return {
+    workspace_id: workspaceId,
+    episode_id: episodeId,
+    concept_id: conceptId,
+    prompt,
+    preset: typeof body.preset === "undefined" ? undefined : (body.preset === null ? null : normalizeNonEmptyString(body.preset, "preset")),
+    aspect: typeof body.aspect === "undefined" ? undefined : (body.aspect === null ? null : normalizeNonEmptyString(body.aspect, "aspect")),
+    size: typeof body.size === "undefined" ? undefined : (body.size === null ? null : normalizeNonEmptyString(body.size, "size")),
+    lane: normalizeOptionalLane(body.lane),
+    confirm_spend: normalizeOptionalBoolean(body.confirm_spend, "confirm_spend"),
+    always_approve_ai_spend: normalizeOptionalBoolean(body.always_approve_ai_spend, "always_approve_ai_spend"),
+    user_access_token: userAccessTokenFromHeader ?? (typeof body.user_access_token === "string" ? normalizeNonEmptyString(body.user_access_token, "user_access_token") : undefined),
+  };
+}
+
+function randomId(prefix: string): string {
+  const cryptoApi = globalThis.crypto as Crypto | undefined;
+  if (cryptoApi && typeof cryptoApi.randomUUID === "function") {
+    return `${prefix}-${cryptoApi.randomUUID()}`;
+  }
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function randomUuid(): string {
+  const cryptoApi = globalThis.crypto as Crypto | undefined;
+  if (cryptoApi && typeof cryptoApi.randomUUID === "function") {
+    return cryptoApi.randomUUID();
+  }
+  const suffix = Math.random().toString(16).slice(2, 14).padEnd(12, "0");
+  return `00000000-0000-4000-8000-${suffix.slice(0, 12)}`;
+}
+
+function parseBase64ByteLength(base64: string): number {
+  const clean = base64.replace(/\s+/g, "");
+  const padding = clean.endsWith("==") ? 2 : clean.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((clean.length * 3) / 4) - padding);
+}
+
+function estimateImageTokenSpend(prompt: string, tokensFromProvider: number | null): number {
+  if (typeof tokensFromProvider === "number" && Number.isFinite(tokensFromProvider) && tokensFromProvider > 0) {
+    return Math.ceil(tokensFromProvider);
+  }
+  return Math.max(1, Math.ceil(prompt.length / 4));
+}
+
+function normalizeThumbnailConcept(value: unknown): EpisodeThumbnailConceptRecord | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const id = readStringField(row, "id");
+  const label = readStringField(row, "label");
+  const promptText = readStringField(row, "prompt_text");
+  if (!id || !label || !promptText) return null;
+  return {
+    id,
+    label,
+    prompt_text: promptText,
+    style_preset: readStringField(row, "style_preset"),
+  };
+}
+
+function normalizeThumbnailVersion(value: unknown): ThumbnailVersionRecord | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const id = readStringField(row, "id");
+  const conceptId = readStringField(row, "concept_id");
+  const createdAt = readStringField(row, "created_at");
+  const provider = readStringField(row, "provider");
+  const prompt = readStringField(row, "prompt");
+  const assetId = readStringField(row, "asset_id");
+  const statusRaw = readStringField(row, "status");
+  const status = statusRaw === "failed" ? "failed" : statusRaw === "ready" ? "ready" : null;
+  if (!id || !conceptId || !createdAt || !provider || !prompt || !assetId || !status) return null;
+  return {
+    id,
+    concept_id: conceptId,
+    created_at: createdAt,
+    provider,
+    prompt,
+    provider_request_id: readStringField(row, "provider_request_id"),
+    asset_id: assetId,
+    status,
+    error: readStringField(row, "error"),
+  };
+}
+
+function readStringField(row: Record<string, unknown>, key: string): string | null {
+  const value = row[key];
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function normalizeEpisodePackageRecord(metadata: Record<string, unknown>): EpisodePackageRecord {
+  const episodeRoot = (
+    metadata.episode
+    && typeof metadata.episode === "object"
+    && !Array.isArray(metadata.episode)
+  )
+    ? (metadata.episode as Record<string, unknown>)
+    : {};
+
+  const seoRoot = (
+    episodeRoot.seo
+    && typeof episodeRoot.seo === "object"
+    && !Array.isArray(episodeRoot.seo)
+  )
+    ? (episodeRoot.seo as Record<string, unknown>)
+    : {};
+
+  const thumbnailRoot = (
+    episodeRoot.thumbnail
+    && typeof episodeRoot.thumbnail === "object"
+    && !Array.isArray(episodeRoot.thumbnail)
+  )
+    ? (episodeRoot.thumbnail as Record<string, unknown>)
+    : {};
+
+  const imageMapRoot = (
+    episodeRoot.image_map
+    && typeof episodeRoot.image_map === "object"
+    && !Array.isArray(episodeRoot.image_map)
+  )
+    ? (episodeRoot.image_map as Record<string, unknown>)
+    : {};
+
+  const concepts = Array.isArray(thumbnailRoot.concepts)
+    ? thumbnailRoot.concepts.map((entry) => normalizeThumbnailConcept(entry)).filter(Boolean) as EpisodeThumbnailConceptRecord[]
+    : [];
+
+  const versions = Array.isArray(thumbnailRoot.versions)
+    ? thumbnailRoot.versions.map((entry) => normalizeThumbnailVersion(entry)).filter(Boolean) as ThumbnailVersionRecord[]
+    : [];
+
+  const tags = Array.isArray(seoRoot.tags)
+    ? seoRoot.tags
+      .map((entry) => (typeof entry === "string" ? entry.trim().toLowerCase() : ""))
+      .filter((entry) => !!entry)
+    : [];
+  const dedupedTags = Array.from(new Set(tags));
+
+  return {
+    schema: "forge.episode.package.v2",
+    seo: {
+      titles: Array.isArray(seoRoot.titles) ? seoRoot.titles as JsonValue[] : [],
+      tags: dedupedTags,
+      description_short: readStringField(seoRoot, "description_short"),
+      description_long: readStringField(seoRoot, "description_long"),
+    },
+    thumbnail: {
+      concepts,
+      versions,
+      primary_version_id: readStringField(thumbnailRoot, "primary_version_id"),
+    },
+    image_map: {
+      entries: Array.isArray(imageMapRoot.entries) ? imageMapRoot.entries as JsonValue[] : [],
+    },
+  };
+}
+
+function mirrorEpisodePackageToMetadata(
+  metadata: Record<string, unknown>,
+  episodePackage: EpisodePackageRecord,
+): Record<string, unknown> {
+  return {
+    ...metadata,
+    episode: episodePackage,
+    seo_titles: episodePackage.seo.titles,
+    tags: episodePackage.seo.tags,
+    description_short: episodePackage.seo.description_short,
+    description_long: episodePackage.seo.description_long,
+    thumbnail_concepts: episodePackage.thumbnail.concepts,
+    thumbnail_versions: episodePackage.thumbnail.versions,
+    primary_thumbnail_version_id: episodePackage.thumbnail.primary_version_id,
+    image_map_entries: episodePackage.image_map.entries,
+  };
+}
+
+function ensureMetadataBase(args: {
+  metadata: Record<string, unknown> | null;
+  workpieceId: string;
+  workspaceId: string;
+}): Record<string, unknown> {
+  const nowIso = new Date().toISOString();
+  const base = args.metadata ?? {
+    schema: "forge.metadata.v1",
+    workpiece_id: args.workpieceId,
+    workspace_id: args.workspaceId,
+    created_at: nowIso,
+    updated_at: nowIso,
+    status: "draft",
+    notes: null,
+    origin: null,
+    content_category: null,
+  };
+  if (!base.workpiece_id) base.workpiece_id = args.workpieceId;
+  if (!base.workspace_id) base.workspace_id = args.workspaceId;
+  if (!base.schema) base.schema = "forge.metadata.v1";
+  if (!base.created_at) base.created_at = nowIso;
+  if (!base.status) base.status = "draft";
+  base.updated_at = nowIso;
+  return base;
+}
+
 function resolveEpisodeLabel(metadata: Json | undefined): string {
   if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
     const row = metadata as Record<string, unknown>;
@@ -1288,10 +1605,12 @@ function readContentCategoryFromEventPayload(payload: Json): string | null {
 export class TongsCommitService {
   readonly supabase: SupabaseClient<Database>;
   readonly bucket: string;
+  readonly imageProvider: ImageProvider | null;
 
-  constructor(supabase: SupabaseClient<Database>, bucket = TONGS_WORKPIECE_BUCKET) {
+  constructor(supabase: SupabaseClient<Database>, bucket = TONGS_WORKPIECE_BUCKET, imageProvider: ImageProvider | null = null) {
     this.supabase = supabase;
     this.bucket = bucket;
+    this.imageProvider = imageProvider;
   }
 
   private async getCradleOrThrow(workpieceId: string): Promise<EpisodeRow> {
@@ -1390,6 +1709,62 @@ export class TongsCommitService {
     }
 
     return fallback;
+  }
+
+  private async resolveUserIdFromAccessToken(accessToken: string | null | undefined): Promise<string | null> {
+    const token = accessToken?.trim();
+    if (!token) return null;
+    const { data, error } = await this.supabase.auth.getUser(token);
+    if (error) {
+      throw new HttpError(401, "invalid_user_token", "Unable to resolve user from provided access token", {
+        reason: error.message,
+      });
+    }
+    return data.user?.id ?? null;
+  }
+
+  private async applyAiTokenDelta(args: {
+    userId: string;
+    spent: number;
+    requestId: string;
+    providerRequestId: string | null;
+    reason: string;
+  }): Promise<{ tokenBalance: number | null } | { warning: string }> {
+    const rpcClient = this.supabase.schema("tongs") as unknown as {
+      rpc: (
+        fn: string,
+        params: {
+          p_user_id: string;
+          p_delta: number;
+          p_reason: string;
+          p_request_id: string;
+          p_provider_request_id?: string;
+        },
+      ) => Promise<{ data: unknown; error: { message: string } | null }>;
+    };
+
+    const { data, error } = await rpcClient.rpc("apply_ai_token_delta", {
+      p_user_id: args.userId,
+      p_delta: -Math.max(0, Math.ceil(args.spent)),
+      p_reason: args.reason,
+      p_request_id: args.requestId,
+      p_provider_request_id: args.providerRequestId ?? undefined,
+    });
+
+    if (error) {
+      return { warning: "Unable to update credits." };
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+    const tokenBalance = (
+      row
+      && typeof row === "object"
+      && typeof (row as Record<string, unknown>).token_balance === "number"
+    )
+      ? ((row as Record<string, unknown>).token_balance as number)
+      : null;
+
+    return { tokenBalance };
   }
 
   private async upsertWorkpieceFile(rows: Database["tongs"]["Tables"]["workpiece_files"]["Insert"][]): Promise<void> {
@@ -1831,6 +2206,230 @@ export class TongsCommitService {
       hash,
       bytes: bytes.length,
       content_type: contentType,
+    };
+  }
+
+  async generateEpisodeThumbnail(
+    workpieceId: string,
+    input: GenerateEpisodeThumbnailRequest,
+  ): Promise<GenerateEpisodeThumbnailResponse> {
+    if (!this.imageProvider) {
+      throw new HttpError(503, "thumbnail_provider_unavailable", "Image provider is not configured");
+    }
+
+    const workspace = await this.getWorkspaceOrThrow(input.workspace_id);
+    const episode = await this.getCradleOrThrow(workpieceId);
+    if (episode.id !== input.episode_id) {
+      throw new HttpError(400, "episode_mismatch", "episode_id must match workpiece path id");
+    }
+    if (episode.workspace_id !== workspace.id) {
+      throw new HttpError(400, "workspace_mismatch", "Episode does not belong to workspace_id");
+    }
+
+    const lane = input.lane ?? "forge";
+    const requiresConfirm = lane === "forge"
+      && !input.always_approve_ai_spend
+      && !input.confirm_spend;
+    if (requiresConfirm) {
+      throw new HttpError(409, "confirmation_required", "Generating a thumbnail spends AI credits", {
+        requires_confirmation: true,
+      });
+    }
+
+    const userId = await this.resolveUserIdFromAccessToken(input.user_access_token);
+    if (!userId) {
+      throw new HttpError(401, "authentication_required", "User access token is required for thumbnail generation");
+    }
+
+    const metadataRead = await this.readWorkpieceJson(workpieceId, "metadata.json");
+    const metadataRaw = (
+      metadataRead.found
+      && metadataRead.data
+      && typeof metadataRead.data === "object"
+      && !Array.isArray(metadataRead.data)
+    )
+      ? (metadataRead.data as Record<string, unknown>)
+      : null;
+    const metadata = ensureMetadataBase({
+      metadata: metadataRaw,
+      workpieceId,
+      workspaceId: workspace.id,
+    });
+    const episodePackage = normalizeEpisodePackageRecord(metadata);
+
+    const conceptById = new Map(episodePackage.thumbnail.concepts.map((concept) => [concept.id, concept]));
+    const requestedConcept = input.concept_id ? conceptById.get(input.concept_id) ?? null : null;
+    if (input.concept_id && !requestedConcept && !input.prompt) {
+      throw new HttpError(404, "concept_not_found", `Thumbnail concept ${input.concept_id} was not found`);
+    }
+
+    const conceptId = requestedConcept?.id ?? input.concept_id ?? randomId("concept");
+    const conceptLabel = requestedConcept?.label ?? "Generated Concept";
+    const conceptPrompt = (input.prompt?.trim() || requestedConcept?.prompt_text || "").trim();
+    if (!conceptPrompt) {
+      throw new HttpError(400, "missing_prompt", "Unable to resolve prompt for thumbnail generation");
+    }
+    const stylePreset = (input.preset ?? requestedConcept?.style_preset ?? null)?.trim() || null;
+
+    if (!conceptById.has(conceptId)) {
+      episodePackage.thumbnail.concepts.push({
+        id: conceptId,
+        label: conceptLabel,
+        prompt_text: conceptPrompt,
+        style_preset: stylePreset,
+      });
+    }
+
+    const finalPrompt = [
+      conceptPrompt,
+      stylePreset ? `Style preset: ${stylePreset}` : null,
+      THUMBNAIL_DEFAULT_STYLE_HINT,
+    ].filter(Boolean).join("\n\n");
+
+    const imageResult = await this.imageProvider.generateImage({
+      prompt: finalPrompt,
+      aspect: input.aspect ?? "16:9",
+      size: input.size ?? null,
+    } as GenerateImageInput);
+
+    const requestId = randomUuid();
+    const versionId = randomUuid();
+    const assetId = randomUuid();
+    const createdAt = new Date().toISOString();
+    const extension = imageResult.mimeType.toLowerCase().includes("jpeg") ? "jpg" : "png";
+    const assetPath = `${THUMBNAIL_ASSET_PREFIX}/${workpieceId}/${versionId}.${extension}`;
+    const bytes = parseBase64ByteLength(imageResult.bytesBase64);
+
+    const writtenBy: WrittenBy = {
+      tool: "hearth",
+      tool_version: "0.0.0",
+      lane: "forge-managed",
+    };
+
+    const assetCommit = await this.commitFile(workpieceId, {
+      path: assetPath,
+      content_type: imageResult.mimeType,
+      file_type: "thumbnail_image",
+      bytes_base64: imageResult.bytesBase64,
+      written_by: writtenBy,
+      event_name: "hearth.thumbnail.asset.generated.v1",
+      event_payload: {
+        request_id: requestId,
+        provider: imageResult.provider,
+        provider_request_id: imageResult.providerRequestId,
+        concept_id: conceptId,
+      } as Json,
+      correlation_id: requestId,
+    });
+
+    const assetInsert: Database["tongs"]["Tables"]["assets"]["Insert"] = {
+      id: assetId,
+      workspace_id: workspace.id,
+      workpiece_id: workpieceId,
+      path: assetPath,
+      mime_type: imageResult.mimeType,
+      bytes,
+      storage_bucket: assetCommit.file_row.storage_bucket,
+      storage_key: assetCommit.storage_key,
+      provider: imageResult.provider,
+      provider_request_id: imageResult.providerRequestId,
+      request_id: requestId,
+      prompt: finalPrompt,
+      created_by: userId,
+    };
+
+    const { data: assetRow, error: assetError } = await this.supabase
+      .schema("tongs")
+      .from("assets")
+      .insert(assetInsert)
+      .select("*")
+      .single();
+
+    if (assetError || !assetRow) {
+      throw new HttpError(502, "db_write_failed", "Failed to register generated thumbnail asset", {
+        reason: assetError?.message,
+      });
+    }
+
+    const version: ThumbnailVersionRecord = {
+      id: versionId,
+      concept_id: conceptId,
+      created_at: createdAt,
+      provider: imageResult.provider,
+      prompt: finalPrompt,
+      provider_request_id: imageResult.providerRequestId,
+      asset_id: assetId,
+      status: "ready",
+      error: null,
+    };
+
+    const nextVersions = [...episodePackage.thumbnail.versions, version];
+    episodePackage.thumbnail.versions = nextVersions;
+    if (!episodePackage.thumbnail.primary_version_id) {
+      episodePackage.thumbnail.primary_version_id = version.id;
+    }
+
+    const nextMetadata = mirrorEpisodePackageToMetadata(
+      {
+        ...metadata,
+        updated_at: createdAt,
+      },
+      episodePackage,
+    );
+
+    await this.commitFile(workpieceId, {
+      path: "metadata.json",
+      content_type: "application/json",
+      json: nextMetadata,
+      written_by: writtenBy,
+      event_name: "hearth.thumbnail.version.generated.v1",
+      event_payload: {
+        request_id: requestId,
+        provider_request_id: imageResult.providerRequestId,
+        version_id: versionId,
+        concept_id: conceptId,
+        asset_id: assetId,
+      } as Json,
+      correlation_id: requestId,
+    });
+
+    let creditsWarning: string | undefined;
+    let tokenBalance: number | null | undefined;
+    if (lane === "forge") {
+      const spent = estimateImageTokenSpend(finalPrompt, imageResult.tokensUsed);
+      const deltaResult = await this.applyAiTokenDelta({
+        userId,
+        spent,
+        requestId,
+        providerRequestId: imageResult.providerRequestId,
+        reason: "hearth:thumbnail_generate",
+      });
+      if ("warning" in deltaResult) {
+        creditsWarning = deltaResult.warning;
+      } else {
+        tokenBalance = deltaResult.tokenBalance;
+      }
+    }
+
+    return {
+      version,
+      asset: {
+        id: assetRow.id,
+        workspace_id: assetRow.workspace_id,
+        episode_id: assetRow.workpiece_id,
+        path: assetRow.path,
+        storage_bucket: assetRow.storage_bucket,
+        storage_key: assetRow.storage_key,
+        mime_type: assetRow.mime_type,
+        bytes: assetRow.bytes,
+        provider: assetRow.provider,
+        provider_request_id: assetRow.provider_request_id,
+        request_id: assetRow.request_id ?? requestId,
+      },
+      updated_episode_package: episodePackage,
+      primary_version_id: episodePackage.thumbnail.primary_version_id,
+      ...(creditsWarning ? { credits_warning: creditsWarning } : {}),
+      ...(typeof tokenBalance === "number" ? { token_balance: tokenBalance } : {}),
     };
   }
 
@@ -2323,6 +2922,21 @@ function checkApiToken(request: Request, token: string | undefined): void {
   }
 }
 
+function readUserAccessTokenHeader(request: Request): string | null {
+  const explicit = request.headers.get("x-forge-user-token");
+  if (explicit && explicit.trim()) return explicit.trim();
+
+  const authHeader = request.headers.get("x-forge-user-authorization");
+  if (!authHeader) return null;
+  const trimmed = authHeader.trim();
+  if (!trimmed) return null;
+  if (trimmed.toLowerCase().startsWith("bearer ")) {
+    const token = trimmed.slice(7).trim();
+    return token || null;
+  }
+  return trimmed;
+}
+
 function parseBooleanQueryFlag(value: string | null): boolean {
   if (!value) return false;
   const normalized = value.trim().toLowerCase();
@@ -2344,7 +2958,12 @@ export function createTongsCommitService(options: TongsCommitApiOptions): TongsC
     },
   });
 
-  return new TongsCommitService(supabase, bucket);
+  const openAiApiKey = options.openAiApiKey?.trim();
+  const imageProvider = openAiApiKey
+    ? new OpenAiImageProvider(openAiApiKey, options.openAiImageModel?.trim() || "gpt-image-1")
+    : null;
+
+  return new TongsCommitService(supabase, bucket, imageProvider);
 }
 
 export function createTongsCommitApiHandlerWithService(
@@ -2386,6 +3005,16 @@ export function createTongsCommitApiHandlerWithService(
         const body = await parseJsonBody(request);
         const payload = normalizeCommitFileRequest(body);
         const result = await service.commitWorkspaceFile(workspaceId, payload);
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "generate-thumbnail") {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const body = await parseJsonBody(request);
+        const userAccessToken = readUserAccessTokenHeader(request);
+        const payload = normalizeGenerateEpisodeThumbnailRequest(body, workpieceId, userAccessToken);
+        const result = await service.generateEpisodeThumbnail(workpieceId, payload);
         return jsonResponse(200, { ok: true, data: result });
       }
 

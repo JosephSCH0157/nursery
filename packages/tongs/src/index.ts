@@ -10,3 +10,4 @@ export * from "./storage/storage-contract.js";
 export * from "./storage/registry-normalize.js";
 export * from "./storage/resolve-mount.js";
 export * from "./storage/storage-guard.js";
+export * from "./providers/image-provider.js";

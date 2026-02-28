@@ -125,6 +125,8 @@ function resolveConfig(): ResolvedConfig {
       supabaseServiceRoleKey: resolvedServiceRoleKey,
       apiToken,
       bucket: readEnv("TONGS_WORKPIECE_BUCKET"),
+      openAiApiKey: readEnv("OPENAI_API_KEY"),
+      openAiImageModel: readEnv("HEARTH_IMAGE_MODEL") || readEnv("HEARTH_THUMBNAIL_MODEL"),
     },
     missing,
     allowUnsafeNoToken,

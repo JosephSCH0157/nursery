@@ -51,6 +51,75 @@ export type Database = {
   }
   tongs: {
     Tables: {
+      assets: {
+        Row: {
+          id: string
+          workspace_id: string
+          workpiece_id: string
+          path: string
+          mime_type: string
+          bytes: number
+          storage_bucket: string
+          storage_key: string
+          provider: string
+          provider_request_id: string | null
+          request_id: string | null
+          prompt: string
+          created_by: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          workpiece_id: string
+          path: string
+          mime_type: string
+          bytes: number
+          storage_bucket?: string
+          storage_key: string
+          provider: string
+          provider_request_id?: string | null
+          request_id?: string | null
+          prompt: string
+          created_by: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          workpiece_id?: string
+          path?: string
+          mime_type?: string
+          bytes?: number
+          storage_bucket?: string
+          storage_key?: string
+          provider?: string
+          provider_request_id?: string | null
+          request_id?: string | null
+          prompt?: string
+          created_by?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "assets_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "assets_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       calendar_events: {
         Row: {
           id: string

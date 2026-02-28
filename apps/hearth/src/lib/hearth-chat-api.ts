@@ -93,11 +93,13 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 type AiSettingsSnapshot = {
   lane: HearthAiLane;
   behavior: HearthAiBehavior;
+  autoApproveImageSpend: boolean;
 };
 
 const DEFAULT_AI_SETTINGS: AiSettingsSnapshot = {
   lane: "forge",
   behavior: "careful",
+  autoApproveImageSpend: false,
 };
 
 function isBehavior(value: unknown): value is HearthAiBehavior {
@@ -440,10 +442,11 @@ function resolveAiSettingsFromStorage(): AiSettingsSnapshot {
   try {
     const raw = window.localStorage.getItem(AI_SETTINGS_STORAGE_KEY);
     if (!raw) return DEFAULT_AI_SETTINGS;
-    const parsed = JSON.parse(raw) as { lane?: unknown; behavior?: unknown };
+    const parsed = JSON.parse(raw) as { lane?: unknown; behavior?: unknown; autoApproveImageSpend?: unknown };
     return {
       lane: isLane(parsed.lane) ? parsed.lane : "forge",
       behavior: isBehavior(parsed.behavior) ? parsed.behavior : "careful",
+      autoApproveImageSpend: parsed.autoApproveImageSpend === true,
     };
   } catch {
     return DEFAULT_AI_SETTINGS;
@@ -469,6 +472,14 @@ function readErrorText(payload: unknown, fallback: string): string {
 
 export function resolveAiLaneFromStorage(): HearthAiLane {
   return resolveAiSettingsFromStorage().lane;
+}
+
+export async function resolveForgeUserAccessToken(): Promise<string | null> {
+  return readAccessTokenForRequest();
+}
+
+export function resolveAiThumbnailAutoApproveFromStorage(): boolean {
+  return resolveAiSettingsFromStorage().autoApproveImageSpend === true;
 }
 
 function parseCreditsPayload(payload: unknown, fallbackLane: HearthAiLane): HearthAiRuntimeSnapshot {

@@ -27,6 +27,7 @@ import {
   requestHearthSttTranscript,
   refreshMyAiCredits,
   resolveAiLaneFromStorage,
+  resolveAiThumbnailAutoApproveFromStorage,
   uploadHearthSttAudio,
   type HearthAiLane,
   type HearthChatMessage,
@@ -62,6 +63,8 @@ import {
   type AnvilTagValidation,
 } from "../lib/anvil-tag-contract";
 import { commitWorkpieceProductionArtifact, type ProductionArtifactKind } from "../lib/hearth-production-repo";
+import { generateEpisodeThumbnail, readEpisodePackageForWorkpiece } from "../lib/hearth-thumbnail-api";
+import type { EpisodePackageV2 } from "../lib/episode-package-v2";
 
 const AUTOSAVE_DELAY_MS = 2200;
 const AUTOSAVE_MIN_GAP_MS = 5000;
@@ -1122,6 +1125,13 @@ export default function HearthShell() {
   const [isAiProcessing, setIsAiProcessing] = useState(false);
   const [aiTokenBalance, setAiTokenBalance] = useState<number | null>(null);
   const [aiBillingMode, setAiBillingMode] = useState<HearthAiLane>(() => resolveAiLaneFromStorage());
+  const [episodePackage, setEpisodePackage] = useState<EpisodePackageV2 | null>(null);
+  const [selectedThumbnailConceptId, setSelectedThumbnailConceptId] = useState<string>("");
+  const [thumbnailPromptOverride, setThumbnailPromptOverride] = useState("");
+  const [thumbnailPreset, setThumbnailPreset] = useState("");
+  const [thumbnailAspect, setThumbnailAspect] = useState<"16:9" | "1:1" | "9:16">("16:9");
+  const [isThumbnailGenerating, setIsThumbnailGenerating] = useState(false);
+  const [thumbnailGenerateError, setThumbnailGenerateError] = useState<string | null>(null);
 
   const setMode = useCallback((mode: HearthMode) => {
     modeTouchedRef.current = true;
@@ -1237,6 +1247,9 @@ export default function HearthShell() {
   );
   const aiCreditsDepleted = aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0;
   const aiEpisodeReady = Boolean(workpieceId?.trim());
+  const thumbnailConcepts = episodePackage?.thumbnail.concepts ?? [];
+  const thumbnailVersions = episodePackage?.thumbnail.versions ?? [];
+  const primaryThumbnailVersionId = episodePackage?.thumbnail.primary_version_id ?? null;
   const hasBrowserSpeech = (
     typeof window !== "undefined"
     && (Boolean((window as any).SpeechRecognition) || Boolean((window as any).webkitSpeechRecognition))
@@ -1509,6 +1522,26 @@ export default function HearthShell() {
     setRevisions(list);
   }, [store]);
 
+  const refreshEpisodePackage = useCallback(async () => {
+    const episodeId = workpieceId?.trim() ?? "";
+    if (!episodeId) {
+      setEpisodePackage(null);
+      setSelectedThumbnailConceptId("");
+      setThumbnailGenerateError(null);
+      return;
+    }
+
+    const loaded = await readEpisodePackageForWorkpiece(episodeId);
+    if (!loaded.ok) {
+      setEpisodePackage(null);
+      setThumbnailGenerateError("Unable to load thumbnail metadata.");
+      return;
+    }
+
+    setEpisodePackage(loaded.episodePackage);
+    setThumbnailGenerateError(null);
+  }, [workpieceId]);
+
   const refreshReadyScripts = useCallback(async () => {
     const workspace = workspaceId?.trim() ?? "";
     if (!workspace) {
@@ -1534,6 +1567,10 @@ export default function HearthShell() {
   useEffect(() => {
     void refreshReadyScripts();
   }, [refreshReadyScripts]);
+
+  useEffect(() => {
+    void refreshEpisodePackage();
+  }, [refreshEpisodePackage]);
 
   const onSetReadyScriptCategory = useCallback(async (
     entry: HearthReadyScript,
@@ -2047,6 +2084,23 @@ export default function HearthShell() {
 
   useEffect(() => {
     modeTouchedRef.current = false;
+  }, [workpieceId]);
+
+  useEffect(() => {
+    if (thumbnailConcepts.length === 0) {
+      setSelectedThumbnailConceptId("");
+      return;
+    }
+    if (selectedThumbnailConceptId && thumbnailConcepts.some((concept) => concept.id === selectedThumbnailConceptId)) {
+      return;
+    }
+    setSelectedThumbnailConceptId(thumbnailConcepts[0]?.id ?? "");
+  }, [selectedThumbnailConceptId, thumbnailConcepts]);
+
+  useEffect(() => {
+    setThumbnailPromptOverride("");
+    setThumbnailPreset("");
+    setThumbnailAspect("16:9");
   }, [workpieceId]);
 
   useEffect(() => {
@@ -3156,6 +3210,10 @@ export default function HearthShell() {
 
       if (!committed.ok) {
         setAiRuntimeWarning(`Saved response in chat, but failed to persist ${PRODUCTION_ACTION_LABEL[args.action]}.`);
+        return;
+      }
+      if (args.action === "thumbnails") {
+        void refreshEpisodePackage();
       }
     } catch {
       setAiRuntimeWarning(`Saved response in chat, but failed to persist ${PRODUCTION_ACTION_LABEL[args.action]}.`);
@@ -3345,6 +3403,68 @@ export default function HearthShell() {
       });
     } finally {
       setActiveProductionAction(null);
+    }
+  }
+
+  async function onGenerateThumbnailVersion() {
+    if (isAiProcessing || isApprovingScript || isThumbnailGenerating) return;
+
+    const episodeId = workpieceId?.trim() ?? "";
+    const workspace = workspaceId?.trim() ?? "";
+    if (!episodeId || !workspace) {
+      setThumbnailGenerateError("Select an Episode before generating thumbnails.");
+      return;
+    }
+    if (aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0) {
+      setThumbnailGenerateError("No AI credits remaining.");
+      return;
+    }
+
+    const conceptId = selectedThumbnailConceptId.trim() || null;
+    const promptOverride = thumbnailPromptOverride.trim() || null;
+    if (!conceptId && !promptOverride) {
+      setThumbnailGenerateError("Select a concept or provide a prompt override.");
+      return;
+    }
+
+    const alwaysApproveSpend = resolveAiThumbnailAutoApproveFromStorage();
+    const confirmed = alwaysApproveSpend
+      ? true
+      : window.confirm("Generate thumbnail? This will spend credits.");
+    if (!confirmed) return;
+
+    setIsThumbnailGenerating(true);
+    setThumbnailGenerateError(null);
+    setAiRuntimeWarning(null);
+    try {
+      const generated = await generateEpisodeThumbnail({
+        workspaceId: workspace,
+        workpieceId: episodeId,
+        conceptId,
+        prompt: promptOverride,
+        preset: thumbnailPreset.trim() || null,
+        aspect: thumbnailAspect,
+        confirmSpend: confirmed,
+        alwaysApproveAiSpend: alwaysApproveSpend,
+      });
+      if (!generated.ok) {
+        setThumbnailGenerateError(generated.error);
+        return;
+      }
+
+      setEpisodePackage(generated.updatedEpisodePackage);
+      setSelectedThumbnailConceptId(generated.version.concept_id);
+      if (typeof generated.tokenBalance === "number") {
+        setAiTokenBalance(generated.tokenBalance);
+      }
+      if (generated.creditsWarning) {
+        setAiRuntimeWarning(generated.creditsWarning);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Thumbnail generation failed.";
+      setThumbnailGenerateError(message);
+    } finally {
+      setIsThumbnailGenerating(false);
     }
   }
 
@@ -4049,6 +4169,12 @@ export default function HearthShell() {
     const approvedAtText = scriptApprovalState.approvedAt
       ? formatUpdatedAt(scriptApprovalState.approvedAt)
       : "Unknown";
+    const selectedThumbnailConcept = thumbnailConcepts.find((concept) => concept.id === selectedThumbnailConceptId) ?? null;
+    const recentThumbnailVersionsText = thumbnailVersions
+      .slice(-3)
+      .reverse()
+      .map((version) => `${version.id.slice(0, 8)}:${version.status}`)
+      .join(" | ");
 
     return (
       <section className="hs-draft hs-draft-chat-first">
@@ -4309,6 +4435,73 @@ export default function HearthShell() {
                   {activeProductionAction === "image_beat_sheet" && isAiProcessing ? "Generating..." : "Image Beat Sheet"}
                 </button>
               </div>
+            ) : null}
+
+            {hasApprovedScript && approvedScriptVersion ? (
+              <section className="hs-ai-proposal" aria-label="Thumbnail generation">
+                <div className="hs-ai-proposal-header">
+                  <div className="hs-ai-proposal-title">Thumbnail Generate</div>
+                  <div className="hs-ai-proposal-meta">
+                    {thumbnailVersions.length} versions
+                    {primaryThumbnailVersionId ? ` · primary ${primaryThumbnailVersionId.slice(0, 8)}` : ""}
+                  </div>
+                </div>
+                <div className="hs-ai-shortcut-row" role="group" aria-label="Thumbnail controls">
+                  <select
+                    value={selectedThumbnailConceptId}
+                    onChange={(event) => setSelectedThumbnailConceptId(event.target.value)}
+                    disabled={isThumbnailGenerating}
+                  >
+                    <option value="">Prompt override</option>
+                    {thumbnailConcepts.map((concept) => (
+                      <option key={concept.id} value={concept.id}>
+                        {concept.label}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={thumbnailAspect}
+                    onChange={(event) => setThumbnailAspect(event.target.value as "16:9" | "1:1" | "9:16")}
+                    disabled={isThumbnailGenerating}
+                  >
+                    <option value="16:9">16:9</option>
+                    <option value="1:1">1:1</option>
+                    <option value="9:16">9:16</option>
+                  </select>
+                </div>
+                <input
+                  type="text"
+                  value={thumbnailPreset}
+                  onChange={(event) => setThumbnailPreset(event.target.value)}
+                  placeholder="Style preset (optional)"
+                  disabled={isThumbnailGenerating}
+                />
+                <textarea
+                  className="hs-ai-chat-input"
+                  rows={2}
+                  value={thumbnailPromptOverride}
+                  onChange={(event) => setThumbnailPromptOverride(event.target.value)}
+                  placeholder={selectedThumbnailConcept
+                    ? `Prompt override (optional). Using concept: ${selectedThumbnailConcept.label}`
+                    : "Prompt override (required if no concept selected)"}
+                  disabled={isThumbnailGenerating}
+                />
+                <div className="hs-ai-proposal-actions">
+                  <button
+                    type="button"
+                    onClick={() => void onGenerateThumbnailVersion()}
+                    disabled={isThumbnailGenerating || isAiProcessing || isApprovingScript}
+                  >
+                    {isThumbnailGenerating ? "Generating..." : "Generate"}
+                  </button>
+                </div>
+                {thumbnailGenerateError ? (
+                  <div className="hs-error-text-small">{thumbnailGenerateError}</div>
+                ) : null}
+                {recentThumbnailVersionsText ? (
+                  <div className="hs-field-label-muted">Recent: {recentThumbnailVersionsText}</div>
+                ) : null}
+              </section>
             ) : null}
 
             <div className="hs-ai-shortcut-row" role="group" aria-label="Chat shortcuts">
