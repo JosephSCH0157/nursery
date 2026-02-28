@@ -22,6 +22,8 @@ const WORKPIECE_KEY = "forge_hearth_script_workpiece_id_v1";
 const WORKPIECE_PREFIX = "forge_hearth_script_workpiece_v1:";
 const DEFAULT_LANE = "forge-managed";
 const DEFAULT_TOOL_VERSION = "0.0.0";
+const PRIMARY_SCRIPT_PATH = "script/script.md";
+const DEFAULT_SCRIPT_SEED = "## Draft Script\n\n";
 
 let correlationSeq = 0;
 
@@ -242,7 +244,44 @@ async function commitMetadata(args: {
   return { ok: response.ok && isCommitAck(body), status: response.status, details: body };
 }
 
-export async function createHearthWorkpiece(origin?: ForgeOrigin): Promise<CreateWorkpieceResult> {
+function normalizeScriptSeed(seed: string | null | undefined): string {
+  if (typeof seed !== "string") return DEFAULT_SCRIPT_SEED;
+  const normalized = seed.replace(/\r\n?/g, "\n");
+  return normalized.trim() ? normalized : DEFAULT_SCRIPT_SEED;
+}
+
+async function commitScriptSeed(args: {
+  workpieceId: string;
+  writtenBy: WrittenBy;
+  origin?: ForgeOrigin;
+  scriptSeed?: string | null;
+}): Promise<{ ok: boolean; status?: number; details?: unknown }> {
+  const scriptText = normalizeScriptSeed(args.scriptSeed);
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/commit-file`, {
+    method: "POST",
+    json: {
+      path: PRIMARY_SCRIPT_PATH,
+      content_type: "text/markdown; charset=utf-8",
+      written_by: args.writtenBy,
+      text: scriptText,
+      event_name: "hearth.script.seeded.v1",
+      event_payload: {
+        path: PRIMARY_SCRIPT_PATH,
+        chars: scriptText.length,
+        origin: args.origin?.created_from ?? "hearth",
+      },
+      correlation_id: nextCorrelationId("hearth-script-seed"),
+    },
+  });
+
+  const body = await readBodyAsJson(response);
+  return { ok: response.ok && isCommitAck(body), status: response.status, details: body };
+}
+
+export async function createHearthWorkpiece(
+  origin?: ForgeOrigin,
+  scriptSeed?: string | null,
+): Promise<CreateWorkpieceResult> {
   if (typeof window === "undefined") {
     return { ok: false, reason: "no_window" };
   }
@@ -253,7 +292,7 @@ export async function createHearthWorkpiece(origin?: ForgeOrigin): Promise<Creat
 
   const writtenBy = getWrittenBy();
 
-  // Success contract: cradle created -> metadata committed -> pointers persisted.
+  // Success contract: cradle created -> metadata committed -> script seeded -> pointers persisted.
   const created = await createCradle({ workspaceId, writtenBy, origin });
   if (!created.ok) return created;
   const metadata = await commitMetadata({
@@ -273,7 +312,24 @@ export async function createHearthWorkpiece(origin?: ForgeOrigin): Promise<Creat
     };
   }
 
-  // Persist only after metadata commit is acknowledged.
+  const script = await commitScriptSeed({
+    workpieceId: created.workpieceId,
+    writtenBy,
+    origin,
+    scriptSeed,
+  });
+
+  if (!script.ok) {
+    return {
+      ok: false,
+      reason: "script_seed_failed",
+      status: script.status,
+      details: script.details,
+      workpieceId: created.workpieceId,
+    };
+  }
+
+  // Persist only after cloud commit acks are complete.
   persistWorkpiece(workspaceId, created.workpieceId);
   return { ok: true, workpieceId: created.workpieceId };
 }

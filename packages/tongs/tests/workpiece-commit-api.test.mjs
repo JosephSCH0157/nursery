@@ -8,6 +8,7 @@ function mockService() {
   const calls = {
     createCradle: [],
     commitFile: [],
+    listWorkspaceReadyScripts: [],
     appendEvent: [],
   };
 
@@ -96,6 +97,21 @@ function mockService() {
           created_at: "2026-02-21T00:00:00.000Z",
         },
       };
+    },
+    async listWorkspaceReadyScripts(workspaceId, options) {
+      calls.listWorkspaceReadyScripts.push({ workspaceId, options: options ?? null });
+      return [
+        {
+          workspace_id: workspaceId,
+          workpiece_id: "11111111-1111-4111-8111-111111111111",
+          path: "script/script.md",
+          primary_script_path: "script/script.md",
+          script_paths: ["script/script.md", "scripts/script.anvil.txt"],
+          title: "Episode 1",
+          updated_at: "2026-02-21T00:00:00.000Z",
+          content_category: "evergreen",
+        },
+      ];
     },
     async appendEvent(workpieceId, input) {
       calls.appendEvent.push({ workpieceId, input });
@@ -202,5 +218,48 @@ test("POST /tongs/workpieces/:id/append-event dispatches appendEvent", async () 
   assert.equal(response.status, 201);
   assert.equal(calls.appendEvent.length, 1);
   assert.equal(calls.appendEvent[0].input.event_name, "workpiece.note");
+  assert.equal(body.ok, true);
+});
+
+test("GET /tongs/workspaces/:id/ready-scripts dispatches listWorkspaceReadyScripts", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/ready-scripts",
+    { method: "GET" },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.listWorkspaceReadyScripts.length, 1);
+  assert.equal(calls.listWorkspaceReadyScripts[0]?.workspaceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.listWorkspaceReadyScripts[0]?.options?.unrecordedOnly, false);
+  assert.equal(body.ok, true);
+  assert.equal(Array.isArray(body.data?.scripts), true);
+  assert.equal(body.data.scripts.length, 1);
+  assert.equal(body.data.scripts[0]?.content_category, "evergreen");
+  assert.equal(body.data.scripts[0]?.primary_script_path, "script/script.md");
+  assert.equal(Array.isArray(body.data.scripts[0]?.script_paths), true);
+});
+
+test("GET /tongs/workspaces/:id/ready-scripts?unrecorded=1 enables unrecorded filter", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/ready-scripts?unrecorded=1",
+    { method: "GET" },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.listWorkspaceReadyScripts.length, 1);
+  assert.equal(calls.listWorkspaceReadyScripts[0]?.workspaceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.listWorkspaceReadyScripts[0]?.options?.unrecordedOnly, true);
   assert.equal(body.ok, true);
 });

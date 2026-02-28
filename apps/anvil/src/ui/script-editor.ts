@@ -22,7 +22,7 @@ function getSidebarSelect(): HTMLSelectElement | null {
   return document.getElementById(SIDEBAR_ID) as HTMLSelectElement | null;
 }
 
-type MappedEntry = { id: string; title: string; handle?: FileSystemFileHandle };
+type ScriptEntry = { id: string; title: string; handle?: FileSystemFileHandle; source?: 'mapped' | 'ready' };
 
 type SelectRole = 'sidebar' | 'settings';
 const SETTINGS_SELECT_ID = 'scriptSelect';
@@ -30,12 +30,15 @@ const OPEN_SETTINGS_COMMAND = '__OPEN_SETTINGS__';
 const OPEN_NURSERY_STORAGE_COMMAND = '__OPEN_NURSERY_STORAGE__';
 let lastSidebarValidSelection: string | null = null;
 
-function gatherScriptEntries(): MappedEntry[] {
-  const entries = ScriptStore.getMappedEntries ? ScriptStore.getMappedEntries() as MappedEntry[] : [];
-  return entries.map((entry) => ({ id: entry.id, title: entry.title || entry.id }));
+function gatherScriptEntries(): ScriptEntry[] {
+  const entries =
+    (ScriptStore as any).getSelectableEntries
+      ? ((ScriptStore as any).getSelectableEntries() as ScriptEntry[])
+      : (ScriptStore.getMappedEntries ? ScriptStore.getMappedEntries() as ScriptEntry[] : []);
+  return entries.map((entry) => ({ id: entry.id, title: entry.title || entry.id, source: entry.source }));
 }
 
-function syncSelectFromStore(select: HTMLSelectElement | null, role: SelectRole, entries: MappedEntry[]): void {
+function syncSelectFromStore(select: HTMLSelectElement | null, role: SelectRole, entries: ScriptEntry[]): void {
   if (!select) {
     debugLog('[SCRIPT-EDITOR] syncSelectFromStore: missing select', { role });
     return;
@@ -183,7 +186,7 @@ function wireSidebarHandlers(): void {
 function getActiveScriptId(): string | null {
   const select = getSidebarSelect();
   const sidebarVal = select?.value || '';
-  const entries = ScriptStore.getMappedEntries ? ScriptStore.getMappedEntries() as MappedEntry[] : [];
+  const entries = gatherScriptEntries();
   if (sidebarVal && entries.some((e) => e.id === sidebarVal)) return sidebarVal;
   if (entries.length > 0) return entries[0].id;
   return null;

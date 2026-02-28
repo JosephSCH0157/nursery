@@ -19,6 +19,17 @@ const WORKSPACE_WORKPIECE_PREFIX = "forge_anvil_recording_workpiece_v1:";
 
 let booted = false;
 
+type ScriptReadErrorReason =
+  | "not_found"
+  | "unauthorized"
+  | "request_failed"
+  | "invalid_response"
+  | "empty";
+
+type ScriptReadResult =
+  | { ok: true; text: string }
+  | { ok: false; reason: ScriptReadErrorReason; status?: number };
+
 function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -149,7 +160,57 @@ function fileNameFromPath(path: string): string {
   return idx >= 0 ? path.slice(idx + 1) : path;
 }
 
-async function readWorkpieceScript(workpieceId: string, path: string): Promise<string | null> {
+function reportScriptHandoffError(args: {
+  workpieceId: string;
+  path: string;
+  reason: ScriptReadErrorReason;
+  status?: number;
+}): void {
+  const statusText = args.status ? ` (${args.status})` : "";
+  const message = args.reason === "not_found"
+    ? `Script not found at ${args.path}.`
+    : args.reason === "unauthorized"
+      ? `Unauthorized while loading script${statusText}. Re-open from Hearth.`
+      : args.reason === "empty"
+        ? `Script is empty at ${args.path}.`
+        : args.reason === "invalid_response"
+          ? `Invalid script payload from Tongs${statusText}.`
+          : `Failed to load script${statusText}.`;
+
+  try {
+    (window as any).__tpWorkpieceScriptLoadError = {
+      workpieceId: args.workpieceId,
+      path: args.path,
+      reason: args.reason,
+      status: args.status ?? null,
+      message,
+      at: Date.now(),
+    };
+  } catch {
+    // ignore
+  }
+
+  try {
+    window.dispatchEvent(
+      new CustomEvent("tp:workpiece-script-handoff-error", {
+        detail: {
+          workpieceId: args.workpieceId,
+          path: args.path,
+          reason: args.reason,
+          status: args.status ?? null,
+          message,
+        },
+      }),
+    );
+  } catch {
+    // ignore
+  }
+
+  try { console.warn("[anvil:workpiece-script-handoff]", message, args); } catch {}
+  try { (window as any).toast?.(message, { type: "warning" }); } catch {}
+}
+
+async function readWorkpieceScript(workpieceId: string, path: string): Promise<ScriptReadResult> {
   const headers = new Headers();
   const token = resolveTongsApiToken();
   if (token) {
@@ -164,22 +225,28 @@ async function readWorkpieceScript(workpieceId: string, path: string): Promise<s
     },
   );
 
-  if (response.status === 404) return null;
-  if (!response.ok) return null;
+  if (response.status === 404) return { ok: false, reason: "not_found", status: 404 };
+  if (response.status === 401 || response.status === 403) {
+    return { ok: false, reason: "unauthorized", status: response.status };
+  }
+  if (!response.ok) return { ok: false, reason: "request_failed", status: response.status };
 
   let body: unknown = null;
   try {
     body = await response.json();
   } catch {
-    return null;
+    return { ok: false, reason: "invalid_response", status: response.status };
   }
 
   if (!body || typeof body !== "object" || (body as { ok?: unknown }).ok !== true) {
-    return null;
+    return { ok: false, reason: "invalid_response", status: response.status };
   }
 
   const data = (body as { data?: unknown }).data;
-  return typeof data === "string" ? data : null;
+  if (typeof data !== "string") {
+    return { ok: false, reason: "invalid_response", status: response.status };
+  }
+  return { ok: true, text: data };
 }
 
 async function loadWorkpieceScriptOnBoot(): Promise<void> {
@@ -195,8 +262,26 @@ async function loadWorkpieceScriptOnBoot(): Promise<void> {
   persistWorkpiece(workspaceId, workpieceId);
 
   const path = resolveScriptPath();
-  const text = await readWorkpieceScript(workpieceId, path);
-  if (!text || !text.trim()) return;
+  const readResult = await readWorkpieceScript(workpieceId, path);
+  if (!readResult.ok) {
+    reportScriptHandoffError({
+      workpieceId,
+      path,
+      reason: readResult.reason,
+      status: readResult.status,
+    });
+    return;
+  }
+
+  const text = readResult.text;
+  if (!text.trim()) {
+    reportScriptHandoffError({
+      workpieceId,
+      path,
+      reason: "empty",
+    });
+    return;
+  }
 
   applyScript(text, "load", { updateEditor: true });
   try { (window as any).__tpCurrentName = fileNameFromPath(path); } catch {}

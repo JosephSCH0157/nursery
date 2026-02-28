@@ -65,6 +65,124 @@
   gap: 6px;
 }
 
+.hs-ready-record-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.hs-ready-record-count {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.8;
+}
+
+.hs-ready-record-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hs-ready-chip {
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  background: transparent;
+}
+
+.hs-ready-chip.is-active {
+  background: rgba(85, 119, 255, 0.08);
+  border-color: #557;
+}
+
+.hs-ready-record-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.hs-ready-record-groups {
+  display: grid;
+  gap: 10px;
+}
+
+.hs-ready-record-group {
+  display: grid;
+  gap: 6px;
+}
+
+.hs-ready-record-group-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+
+.hs-ready-record-item {
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 8px;
+  padding: 8px;
+  display: grid;
+  gap: 4px;
+  background: transparent;
+}
+
+.hs-ready-record-title {
+  font-weight: 600;
+}
+
+.hs-ready-record-meta {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.hs-ready-record-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hs-ready-urgency-badge {
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+.hs-ready-urgency-badge.is-fresh {
+  border-color: rgba(22, 163, 74, 0.55);
+  background: rgba(22, 163, 74, 0.14);
+}
+
+.hs-ready-urgency-badge.is-warming {
+  border-color: rgba(37, 99, 235, 0.55);
+  background: rgba(37, 99, 235, 0.12);
+}
+
+.hs-ready-urgency-badge.is-cooling {
+  border-color: rgba(217, 119, 6, 0.55);
+  background: rgba(217, 119, 6, 0.12);
+}
+
+.hs-ready-urgency-badge.is-cold {
+  border-color: rgba(239, 68, 68, 0.55);
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.hs-ready-record-label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
 .hs-rail-checkbox {
   display: flex;
   gap: 6px;

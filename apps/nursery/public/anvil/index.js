@@ -43069,6 +43069,43 @@ function fileNameFromPath(path) {
   const idx = path.lastIndexOf("/");
   return idx >= 0 ? path.slice(idx + 1) : path;
 }
+function reportScriptHandoffError(args) {
+  const statusText = args.status ? ` (${args.status})` : "";
+  const message = args.reason === "not_found" ? `Script not found at ${args.path}.` : args.reason === "unauthorized" ? `Unauthorized while loading script${statusText}. Re-open from Hearth.` : args.reason === "empty" ? `Script is empty at ${args.path}.` : args.reason === "invalid_response" ? `Invalid script payload from Tongs${statusText}.` : `Failed to load script${statusText}.`;
+  try {
+    window.__tpWorkpieceScriptLoadError = {
+      workpieceId: args.workpieceId,
+      path: args.path,
+      reason: args.reason,
+      status: args.status ?? null,
+      message,
+      at: Date.now()
+    };
+  } catch {
+  }
+  try {
+    window.dispatchEvent(
+      new CustomEvent("tp:workpiece-script-handoff-error", {
+        detail: {
+          workpieceId: args.workpieceId,
+          path: args.path,
+          reason: args.reason,
+          status: args.status ?? null,
+          message
+        }
+      })
+    );
+  } catch {
+  }
+  try {
+    console.warn("[anvil:workpiece-script-handoff]", message, args);
+  } catch {
+  }
+  try {
+    window.toast?.(message, { type: "warning" });
+  } catch {
+  }
+}
 async function readWorkpieceScript(workpieceId, path) {
   const headers = new Headers();
   const token = resolveTongsApiToken();
@@ -43082,19 +43119,25 @@ async function readWorkpieceScript(workpieceId, path) {
       headers
     }
   );
-  if (response.status === 404) return null;
-  if (!response.ok) return null;
+  if (response.status === 404) return { ok: false, reason: "not_found", status: 404 };
+  if (response.status === 401 || response.status === 403) {
+    return { ok: false, reason: "unauthorized", status: response.status };
+  }
+  if (!response.ok) return { ok: false, reason: "request_failed", status: response.status };
   let body = null;
   try {
     body = await response.json();
   } catch {
-    return null;
+    return { ok: false, reason: "invalid_response", status: response.status };
   }
   if (!body || typeof body !== "object" || body.ok !== true) {
-    return null;
+    return { ok: false, reason: "invalid_response", status: response.status };
   }
   const data = body.data;
-  return typeof data === "string" ? data : null;
+  if (typeof data !== "string") {
+    return { ok: false, reason: "invalid_response", status: response.status };
+  }
+  return { ok: true, text: data };
 }
 async function loadWorkpieceScriptOnBoot() {
   if (booted) return;
@@ -43105,8 +43148,25 @@ async function loadWorkpieceScriptOnBoot() {
   const workspaceId = resolveWorkspaceId();
   persistWorkpiece(workspaceId, workpieceId);
   const path = resolveScriptPath();
-  const text = await readWorkpieceScript(workpieceId, path);
-  if (!text || !text.trim()) return;
+  const readResult = await readWorkpieceScript(workpieceId, path);
+  if (!readResult.ok) {
+    reportScriptHandoffError({
+      workpieceId,
+      path,
+      reason: readResult.reason,
+      status: readResult.status
+    });
+    return;
+  }
+  const text = readResult.text;
+  if (!text.trim()) {
+    reportScriptHandoffError({
+      workpieceId,
+      path,
+      reason: "empty"
+    });
+    return;
+  }
   applyScript(text, "load", { updateEditor: true });
   try {
     window.__tpCurrentName = fileNameFromPath(path);
@@ -49120,6 +49180,186 @@ var init_mic_gate = __esm({
   }
 });
 
+// src/forge/ready-scripts.ts
+function readString6(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+function normalizeUuid3(value) {
+  const str = readString6(value);
+  if (!str) return null;
+  return UUID_RE3.test(str) ? str.toLowerCase() : null;
+}
+function readLocalStorage3(key) {
+  try {
+    return readString6(window.localStorage.getItem(key));
+  } catch {
+    return null;
+  }
+}
+function getQueryParam3(...keys) {
+  try {
+    const q3 = new URLSearchParams(window.location.search || "");
+    for (const key of keys) {
+      const value = readString6(q3.get(key));
+      if (value) return value;
+    }
+  } catch {
+  }
+  return null;
+}
+function resolveWorkspaceId3() {
+  const fromQuery = normalizeUuid3(getQueryParam3("workspace_id", "workspaceId", "workspace"));
+  if (fromQuery) return fromQuery;
+  const w3 = window;
+  const fromWindow = normalizeUuid3(
+    w3.__forgeWorkspaceId ?? w3.__tpWorkspaceId ?? w3.__forgeWorkspace ?? w3.__tpWorkspace
+  );
+  if (fromWindow) return fromWindow;
+  for (const key of WORKSPACE_STORAGE_KEYS3) {
+    const value = normalizeUuid3(readLocalStorage3(key));
+    if (value) return value;
+  }
+  return null;
+}
+function resolveTongsApiToken2() {
+  const fromQuery = readString6(getQueryParam3("tongs_api_token", "tongsApiToken"));
+  if (fromQuery) return fromQuery;
+  const w3 = window;
+  const fromWindow = readString6(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
+  if (fromWindow) return fromWindow;
+  try {
+    const meta3 = import.meta;
+    const fromEnv = readString6(meta3.env?.VITE_TONGS_API_TOKEN);
+    if (fromEnv) return fromEnv;
+  } catch {
+  }
+  return readLocalStorage3("forge_tongs_api_token_v1") ?? void 0;
+}
+function withAuthHeaders() {
+  const headers = new Headers();
+  const token = resolveTongsApiToken2();
+  if (token) {
+    headers.set("authorization", `Bearer ${token}`);
+  }
+  return headers;
+}
+function normalizeScriptPath(value) {
+  const path = readString6(value);
+  if (!path) return null;
+  if (path.startsWith("/") || path.includes("..")) return null;
+  return path;
+}
+function normalizeIso(value) {
+  const iso = readString6(value);
+  if (!iso) return void 0;
+  const timestamp = Date.parse(iso);
+  if (!Number.isFinite(timestamp)) return void 0;
+  return new Date(timestamp).toISOString();
+}
+function normalizeScriptPaths(value) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  for (const entry of value) {
+    const path = normalizeScriptPath(entry);
+    if (!path || out.includes(path)) continue;
+    out.push(path);
+  }
+  return out;
+}
+function toReadyScriptId(workpieceId, path) {
+  return `ready:${workpieceId}:${path}`;
+}
+function parseReadyScriptsPayload(payload, workspaceId) {
+  if (!payload || typeof payload !== "object") return [];
+  const root = payload;
+  if (root.ok !== true) return [];
+  const data = root.data;
+  const rowsMaybe = Array.isArray(data) ? data : data && typeof data === "object" && Array.isArray(data.scripts) ? data.scripts : [];
+  if (!rowsMaybe.length) return [];
+  const scripts = [];
+  for (const row of rowsMaybe) {
+    if (!row || typeof row !== "object") continue;
+    const item = row;
+    const rowWorkspace = normalizeUuid3(item.workspace_id) ?? workspaceId;
+    const workpieceId = normalizeUuid3(item.workpiece_id);
+    const primaryPath = normalizeScriptPath(item.primary_script_path) ?? normalizeScriptPath(item.path);
+    const scriptPaths = normalizeScriptPaths(item.script_paths);
+    const path = primaryPath ?? scriptPaths[0] ?? null;
+    if (!rowWorkspace || !workpieceId || !path) continue;
+    const normalizedScriptPaths = scriptPaths.length ? scriptPaths.includes(path) ? scriptPaths : [path, ...scriptPaths] : [path];
+    const title = readString6(item.title) ?? `Episode ${workpieceId.slice(0, 8)}`;
+    scripts.push({
+      id: toReadyScriptId(workpieceId, path),
+      workspaceId: rowWorkspace,
+      workpieceId,
+      path,
+      primaryPath: path,
+      scriptPaths: normalizedScriptPaths,
+      title,
+      updatedAt: normalizeIso(item.updated_at)
+    });
+  }
+  scripts.sort((a, b) => {
+    const aTs = a.updatedAt ?? "";
+    const bTs = b.updatedAt ?? "";
+    const byUpdated = bTs.localeCompare(aTs);
+    if (byUpdated !== 0) return byUpdated;
+    return a.title.localeCompare(b.title);
+  });
+  return scripts;
+}
+async function listWorkspaceReadyScripts() {
+  const workspaceId = resolveWorkspaceId3();
+  if (!workspaceId) return [];
+  const response = await fetch(`/tongs/workspaces/${encodeURIComponent(workspaceId)}/ready-scripts?unrecorded=1`, {
+    method: "GET",
+    headers: withAuthHeaders()
+  });
+  if (!response.ok) return [];
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    return [];
+  }
+  return parseReadyScriptsPayload(body, workspaceId);
+}
+async function readReadyScriptText(workpieceId, path) {
+  const safeWorkpieceId = normalizeUuid3(workpieceId);
+  const safePath = normalizeScriptPath(path);
+  if (!safeWorkpieceId || !safePath) return null;
+  const response = await fetch(
+    `/tongs/workpieces/${encodeURIComponent(safeWorkpieceId)}/read-file?path=${encodeURIComponent(safePath)}`,
+    {
+      method: "GET",
+      headers: withAuthHeaders()
+    }
+  );
+  if (response.status === 404) return null;
+  if (!response.ok) return null;
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    return null;
+  }
+  if (!body || typeof body !== "object" || body.ok !== true) {
+    return null;
+  }
+  const data = body.data;
+  return typeof data === "string" ? data : null;
+}
+var UUID_RE3, WORKSPACE_STORAGE_KEYS3;
+var init_ready_scripts = __esm({
+  "src/forge/ready-scripts.ts"() {
+    "use strict";
+    UUID_RE3 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    WORKSPACE_STORAGE_KEYS3 = ["forge_workspace_id_v1", "barstock_workspace_id"];
+  }
+});
+
 // src/features/scripts-store.ts
 async function ensureReadPermission(handle) {
   try {
@@ -49177,15 +49417,19 @@ async function extractDocxText(buf) {
     return "";
   }
 }
-var scriptsById, mappedHandles, lastSyncFingerprint, computeFingerprint, ScriptStore;
+var scriptsById, mappedHandles, readyRefsById, lastMappedFingerprint, lastReadyFingerprint, computeFingerprint, computeReadyFingerprint, ScriptStore;
 var init_scripts_store = __esm({
   "src/features/scripts-store.ts"() {
     "use strict";
     init_logging();
+    init_ready_scripts();
     scriptsById = /* @__PURE__ */ new Map();
     mappedHandles = /* @__PURE__ */ new Map();
-    lastSyncFingerprint = "";
+    readyRefsById = /* @__PURE__ */ new Map();
+    lastMappedFingerprint = "";
+    lastReadyFingerprint = "";
     computeFingerprint = (entries) => entries.map((e) => String(e.id || "")).sort().join("|");
+    computeReadyFingerprint = (entries) => entries.map((e) => `${String(e.id || "")}:${String(e.updatedAt || "")}:${String(e.path || "")}`).sort().join("|");
     ScriptStore = {
       list() {
         const all2 = Array.from(scriptsById.values());
@@ -49200,7 +49444,30 @@ var init_scripts_store = __esm({
         const existing = scriptsById.get(id);
         if (existing && existing.content) return existing;
         const mapped = mappedHandles.get(id);
-        if (!mapped) return existing ?? null;
+        if (!mapped) {
+          const ready = readyRefsById.get(id);
+          if (!ready) return existing ?? null;
+          try {
+            const text = await readReadyScriptText(ready.workpieceId, ready.path);
+            if (typeof text !== "string") return existing ?? null;
+            const rec2 = {
+              id: ready.id,
+              title: ready.title,
+              content: text,
+              source: "ready",
+              created: existing?.created || ready.updatedAt || (/* @__PURE__ */ new Date()).toISOString(),
+              updated: ready.updatedAt || (/* @__PURE__ */ new Date()).toISOString()
+            };
+            scriptsById.set(id, rec2);
+            return rec2;
+          } catch (err) {
+            try {
+              console.warn("[scripts-store] failed to load ready script", err);
+            } catch {
+            }
+            return existing ?? null;
+          }
+        }
         try {
           const ok = await ensureReadPermission(mapped.handle);
           if (!ok) {
@@ -49268,14 +49535,33 @@ var init_scripts_store = __esm({
           handle: m.handle
         }));
       },
+      getSelectableEntries() {
+        const mapped = Array.from(mappedHandles.values()).map((m) => ({
+          id: m.id,
+          title: m.title,
+          handle: m.handle,
+          source: "mapped"
+        }));
+        const ready = Array.from(readyRefsById.values()).map((r) => ({
+          id: r.id,
+          title: r.title,
+          source: "ready"
+        }));
+        return [...ready, ...mapped];
+      },
       syncMapped(entries) {
         const fingerprint = computeFingerprint(entries);
-        if (fingerprint && fingerprint === lastSyncFingerprint) {
+        if (fingerprint && fingerprint === lastMappedFingerprint) {
           debugLog("[SCRIPT-STORE] syncMapped skipped (unchanged)", { fingerprint, count: entries.length });
           return;
         }
-        lastSyncFingerprint = fingerprint;
+        lastMappedFingerprint = fingerprint;
         debugLog("[SCRIPT-STORE] syncMapped entries", entries);
+        for (const [id, rec2] of scriptsById.entries()) {
+          if (rec2.source === "mapped" && !entries.some((entry) => entry.id === id)) {
+            scriptsById.delete(id);
+          }
+        }
         mappedHandles.clear();
         for (const e of entries) {
           mappedHandles.set(e.id, { id: e.id, title: e.title, handle: e.handle });
@@ -49292,6 +49578,37 @@ var init_scripts_store = __esm({
         const ids = Array.from(scriptsById.keys());
         debugLog("[SCRIPT-STORE] scriptsById size after sync", scriptsById.size, ids);
         hudLog("script-store:syncMapped", { size: scriptsById.size, ids });
+        emitScriptsUpdated();
+      },
+      syncReady(entries) {
+        const fingerprint = computeReadyFingerprint(entries);
+        if (fingerprint && fingerprint === lastReadyFingerprint) {
+          debugLog("[SCRIPT-STORE] syncReady skipped (unchanged)", { fingerprint, count: entries.length });
+          return;
+        }
+        lastReadyFingerprint = fingerprint;
+        debugLog("[SCRIPT-STORE] syncReady entries", entries);
+        for (const [id, rec2] of scriptsById.entries()) {
+          if (rec2.source === "ready" && !entries.some((entry) => entry.id === id)) {
+            scriptsById.delete(id);
+          }
+        }
+        readyRefsById.clear();
+        for (const entry of entries) {
+          readyRefsById.set(entry.id, entry);
+          const existing = scriptsById.get(entry.id);
+          scriptsById.set(entry.id, {
+            id: entry.id,
+            title: entry.title,
+            content: existing?.content || "",
+            source: "ready",
+            created: existing?.created || entry.updatedAt || (/* @__PURE__ */ new Date()).toISOString(),
+            updated: entry.updatedAt || existing?.updated
+          });
+        }
+        const ids = Array.from(scriptsById.keys());
+        debugLog("[SCRIPT-STORE] scriptsById size after ready sync", scriptsById.size, ids);
+        hudLog("script-store:syncReady", { size: scriptsById.size, ids });
         emitScriptsUpdated();
       }
     };
@@ -52778,8 +53095,8 @@ function getSidebarSelect() {
   return document.getElementById(SIDEBAR_ID);
 }
 function gatherScriptEntries() {
-  const entries = ScriptStore.getMappedEntries ? ScriptStore.getMappedEntries() : [];
-  return entries.map((entry) => ({ id: entry.id, title: entry.title || entry.id }));
+  const entries = ScriptStore.getSelectableEntries ? ScriptStore.getSelectableEntries() : ScriptStore.getMappedEntries ? ScriptStore.getMappedEntries() : [];
+  return entries.map((entry) => ({ id: entry.id, title: entry.title || entry.id, source: entry.source }));
 }
 function syncSelectFromStore(select, role, entries) {
   if (!select) {
@@ -52920,7 +53237,7 @@ function wireSidebarHandlers() {
 function getActiveScriptId() {
   const select = getSidebarSelect();
   const sidebarVal = select?.value || "";
-  const entries = ScriptStore.getMappedEntries ? ScriptStore.getMappedEntries() : [];
+  const entries = gatherScriptEntries();
   if (sidebarVal && entries.some((e) => e.id === sidebarVal)) return sidebarVal;
   if (entries.length > 0) return entries[0].id;
   return null;
@@ -63805,7 +64122,6 @@ async function bindMappedFolderUI(opts) {
   };
   async function refreshList() {
     try {
-      await ensureInit();
       ensureManagementUi();
       const mockMode = !!window.__tpMockFolderMode;
       const hasPreMock = mockMode && sel && sel.options && sel.options.length > 1 && !window.__tpFolder?.get?.();
@@ -63820,7 +64136,21 @@ async function bindMappedFolderUI(opts) {
         sel.setAttribute("aria-busy", "true");
       } catch {
       }
-      const entries = await listScripts();
+      const [readyScripts, entries] = await Promise.all([
+        listWorkspaceReadyScripts().catch(() => []),
+        (async () => {
+          try {
+            await ensureInit();
+            return await listScripts();
+          } catch {
+            return [];
+          }
+        })()
+      ]);
+      try {
+        ScriptStore.syncReady(readyScripts);
+      } catch {
+      }
       const entriesFingerprint = fingerprintNames(entries);
       const prevFingerprint = lastPopulateFingerprints.get(sel);
       if (!entriesFingerprint || entriesFingerprint !== prevFingerprint) {
@@ -64296,6 +64626,7 @@ var init_mapped_folder_bind = __esm({
     init_scripts_store();
     init_logging();
     init_nursery_mounts();
+    init_ready_scripts();
     init_script_selection();
     init_script_doc();
     init_script_naming();
@@ -65974,13 +66305,26 @@ function setModeStatusLabel(mode) {
   el.textContent = label;
 }
 async function refreshScriptsSidebar() {
+  const sel = document.getElementById("scriptSelectSidebar");
   try {
-    await initMappedFolder();
-    const scripts = await listScripts();
-    if (!scripts.length) {
-      const sel2 = document.getElementById("scriptSelectSidebar");
-      if (sel2) sel2.setAttribute("aria-busy", "false");
-      return;
+    sel?.setAttribute("aria-busy", "true");
+  } catch {
+  }
+  try {
+    const [readyScripts, scripts] = await Promise.all([
+      listWorkspaceReadyScripts().catch(() => []),
+      (async () => {
+        try {
+          await initMappedFolder();
+          return await listScripts();
+        } catch {
+          return [];
+        }
+      })()
+    ]);
+    try {
+      ScriptStore.syncReady(readyScripts);
+    } catch {
     }
     const mappedEntries = scripts.map((s) => ({
       id: s.name,
@@ -65988,9 +66332,12 @@ async function refreshScriptsSidebar() {
       handle: s.handle
     }));
     ScriptStore.syncMapped(mappedEntries);
-    const sel = document.getElementById("scriptSelectSidebar");
-    if (sel) sel.setAttribute("aria-busy", "false");
   } catch {
+  } finally {
+    try {
+      sel?.setAttribute("aria-busy", "false");
+    } catch {
+    }
   }
 }
 function isMicCapturing2() {
@@ -67616,6 +67963,7 @@ var init_index_app = __esm({
     init_mic_gate();
     init_mapped_folder();
     init_scripts_store();
+    init_ready_scripts();
     init_auth_unlock();
     init_boot();
     init_mammoth();

@@ -13,7 +13,7 @@ export type ScriptRecord = {
   content: string;
   updated?: string;
   created?: string;
-  source?: 'mapped' | 'local';
+  source?: 'mapped' | 'local' | 'ready';
 };
 
 export type MappedHandle = {
@@ -23,13 +23,21 @@ export type MappedHandle = {
 };
 
 import { debugLog, hudLog } from '../env/logging';
+import { readReadyScriptText, type ReadyScriptReference } from '../forge/ready-scripts';
 
 const scriptsById = new Map<string, ScriptRecord>();
 const mappedHandles = new Map<string, MappedHandle>();
-let lastSyncFingerprint = '';
+const readyRefsById = new Map<string, ReadyScriptReference>();
+let lastMappedFingerprint = '';
+let lastReadyFingerprint = '';
 const computeFingerprint = (entries: { id: string }[]) =>
   entries
     .map((e) => String(e.id || ''))
+    .sort()
+    .join('|');
+const computeReadyFingerprint = (entries: ReadyScriptReference[]) =>
+  entries
+    .map((e) => `${String(e.id || '')}:${String(e.updatedAt || '')}:${String(e.path || '')}`)
     .sort()
     .join('|');
 
@@ -73,7 +81,28 @@ export const ScriptStore = {
     if (existing && existing.content) return existing;
 
     const mapped = mappedHandles.get(id);
-    if (!mapped) return existing ?? null;
+    if (!mapped) {
+      const ready = readyRefsById.get(id);
+      if (!ready) return existing ?? null;
+
+      try {
+        const text = await readReadyScriptText(ready.workpieceId, ready.path);
+        if (typeof text !== 'string') return existing ?? null;
+        const rec: ScriptRecord = {
+          id: ready.id,
+          title: ready.title,
+          content: text,
+          source: 'ready',
+          created: existing?.created || ready.updatedAt || new Date().toISOString(),
+          updated: ready.updatedAt || new Date().toISOString(),
+        };
+        scriptsById.set(id, rec);
+        return rec;
+      } catch (err) {
+        try { console.warn('[scripts-store] failed to load ready script', err); } catch {}
+        return existing ?? null;
+      }
+    }
 
     try {
       const ok = await ensureReadPermission(mapped.handle);
@@ -143,14 +172,35 @@ export const ScriptStore = {
     }));
   },
 
+  getSelectableEntries(): Array<{ id: string; title: string; handle?: FileSystemHandle; source: 'mapped' | 'ready' }> {
+    const mapped = Array.from(mappedHandles.values()).map((m) => ({
+      id: m.id,
+      title: m.title,
+      handle: m.handle,
+      source: 'mapped' as const,
+    }));
+    const ready = Array.from(readyRefsById.values()).map((r) => ({
+      id: r.id,
+      title: r.title,
+      source: 'ready' as const,
+    }));
+    return [...ready, ...mapped];
+  },
+
   syncMapped(entries: { id: string; title: string; handle: FileSystemHandle }[]): void {
     const fingerprint = computeFingerprint(entries);
-    if (fingerprint && fingerprint === lastSyncFingerprint) {
+    if (fingerprint && fingerprint === lastMappedFingerprint) {
       debugLog('[SCRIPT-STORE] syncMapped skipped (unchanged)', { fingerprint, count: entries.length });
       return;
     }
-    lastSyncFingerprint = fingerprint;
+    lastMappedFingerprint = fingerprint;
     debugLog('[SCRIPT-STORE] syncMapped entries', entries);
+
+    for (const [id, rec] of scriptsById.entries()) {
+      if (rec.source === 'mapped' && !entries.some((entry) => entry.id === id)) {
+        scriptsById.delete(id);
+      }
+    }
     mappedHandles.clear();
 
     for (const e of entries) {
@@ -169,6 +219,41 @@ export const ScriptStore = {
     const ids = Array.from(scriptsById.keys());
     debugLog('[SCRIPT-STORE] scriptsById size after sync', scriptsById.size, ids);
     hudLog('script-store:syncMapped', { size: scriptsById.size, ids });
+    emitScriptsUpdated();
+  },
+
+  syncReady(entries: ReadyScriptReference[]): void {
+    const fingerprint = computeReadyFingerprint(entries);
+    if (fingerprint && fingerprint === lastReadyFingerprint) {
+      debugLog('[SCRIPT-STORE] syncReady skipped (unchanged)', { fingerprint, count: entries.length });
+      return;
+    }
+    lastReadyFingerprint = fingerprint;
+    debugLog('[SCRIPT-STORE] syncReady entries', entries);
+
+    for (const [id, rec] of scriptsById.entries()) {
+      if (rec.source === 'ready' && !entries.some((entry) => entry.id === id)) {
+        scriptsById.delete(id);
+      }
+    }
+    readyRefsById.clear();
+
+    for (const entry of entries) {
+      readyRefsById.set(entry.id, entry);
+      const existing = scriptsById.get(entry.id);
+      scriptsById.set(entry.id, {
+        id: entry.id,
+        title: entry.title,
+        content: existing?.content || '',
+        source: 'ready',
+        created: existing?.created || entry.updatedAt || new Date().toISOString(),
+        updated: entry.updatedAt || existing?.updated,
+      });
+    }
+
+    const ids = Array.from(scriptsById.keys());
+    debugLog('[SCRIPT-STORE] scriptsById size after ready sync', scriptsById.size, ids);
+    hudLog('script-store:syncReady', { size: scriptsById.size, ids });
     emitScriptsUpdated();
   },
 };

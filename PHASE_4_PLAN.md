@@ -180,6 +180,25 @@ Rules:
 - [ ] Failure paths roll back/avoid stale local selected workpiece state.
 - [ ] Lint, typecheck, and gate pass.
 
+## Phase v1 Closeout Checklist (2026-02-28)
+
+Execution order for final Phase v1 closure:
+
+- [x] Close stale-local-state gap in Hearth forge failure paths (do not persist/select partial workpiece IDs on failed create).
+- [x] Guarantee minimal script seed at forge time (metadata + initial script artifact committed before success is acknowledged).
+- [x] Tighten `Open in Anvil` UX guards in Hearth (explicit user-facing errors for missing workspace/workpiece context).
+- [x] Tighten Anvil boot handoff errors (explicit unauthorized/not-found/error signal when script autoload fails).
+- [x] Complete Anvil ready-scripts dropdown integration against Tongs ready-scripts API (including primary path parsing and unrecorded queue behavior).
+- [x] Re-run targeted validation:
+  - [x] `pnpm --filter @forge/tongs test:commit-api`
+  - [x] `pnpm --filter @nursery/hearth build`
+  - [x] `pnpm --filter teleprompter build:ts`
+  - [x] `pnpm run gate`
+- [ ] Manual browser verification:
+  - [ ] Spark -> Forge in Hearth -> refresh -> same workpiece reopens
+  - [ ] Hearth `Open in Anvil` loads expected script without paste fallback
+  - [ ] Anvil Ready Scripts dropdown shows approved-unrecorded scripts in active workspace
+
 ## Notes
 
 - Keep changes thin and production-safe; avoid broad refactors unrelated to the contracts.

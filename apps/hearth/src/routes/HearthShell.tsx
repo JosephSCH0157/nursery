@@ -35,6 +35,13 @@ import {
 import { writeHearthAiRuntimeStatus } from "../lib/ai-runtime-status";
 import { commitHearthSession, readHearthSession } from "../lib/hearth-session-repo";
 import { commitHearthPrimaryScript, getHearthPrimaryScriptPath } from "../lib/hearth-script-repo";
+import {
+  HEARTH_CONTENT_CATEGORIES,
+  listHearthReadyScripts,
+  setHearthReadyScriptCategory,
+  type HearthContentCategory,
+  type HearthReadyScript,
+} from "../lib/hearth-ready-scripts";
 import { resolveTongsApiToken } from "../lib/tongs-fetch";
 import { useSourcesState } from "../hooks/useSourcesState";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
@@ -578,6 +585,42 @@ function formatRelativeUpdatedAt(value: number | undefined): string {
   return formatUnit("week", -Math.round(absMs / weekMs));
 }
 
+function dedupeDraftListById(input: Draft[]): Draft[] {
+  const byId = new Map<string, Draft>();
+  for (const draft of input) {
+    const existing = byId.get(draft.id);
+    if (!existing) {
+      byId.set(draft.id, draft);
+      continue;
+    }
+    const existingUpdatedAt = existing.updatedAt ?? existing.createdAt ?? 0;
+    const nextUpdatedAt = draft.updatedAt ?? draft.createdAt ?? 0;
+    if (nextUpdatedAt >= existingUpdatedAt) {
+      byId.set(draft.id, draft);
+    }
+  }
+  return [...byId.values()];
+}
+
+function parseIsoTimestamp(value: string | null | undefined): number | undefined {
+  if (!value) return undefined;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : undefined;
+}
+
+function deriveReadyUrgency(entry: HearthReadyScript, nowMs = Date.now()): ReadyUrgencyLevel | null {
+  if (!entry.contentCategory || !READY_URGENCY_APPLICABLE_CATEGORY_SET.has(entry.contentCategory)) {
+    return null;
+  }
+  const approvedAtMs = parseIsoTimestamp(entry.updatedAt);
+  if (!approvedAtMs) return null;
+  const ageMs = Math.max(0, nowMs - approvedAtMs);
+  if (ageMs <= 48 * 60 * 60 * 1000) return "fresh";
+  if (ageMs <= 5 * 24 * 60 * 60 * 1000) return "warming";
+  if (ageMs <= 10 * 24 * 60 * 60 * 1000) return "cooling";
+  return "cold";
+}
+
 function normalizeTitle(title: string): string {
   const trimmed = title.trim();
   return trimmed || "Untitled Draft";
@@ -775,6 +818,10 @@ function OscilloscopeFill({
 }
 
 type SortKey = "updated" | "title";
+type ReadyCategoryFilter = "all" | "uncategorized" | HearthContentCategory;
+type ReadyCategoryGroupKey = HearthContentCategory | "uncategorized";
+type ReadyUrgencyFilter = "all" | "fresh" | "cooling" | "cold";
+type ReadyUrgencyLevel = "fresh" | "warming" | "cooling" | "cold";
 
 type DraftSnapshot = {
   title: string;
@@ -799,6 +846,37 @@ type PendingAiProposal = {
 type ScriptValidationState = {
   source: "save_notice" | "save_gate" | "ai_apply" | "ai_repair";
   result: AnvilTagValidation;
+};
+
+const READY_CATEGORY_LABEL: Record<HearthContentCategory, string> = {
+  evergreen: "Evergreen",
+  hot_topic: "Hot Topic",
+  viral_reaction: "Viral / Reaction",
+  strategic_anchor: "Strategic Anchor",
+  community: "Community",
+  reflective: "Personal / Reflective",
+  explainer: "Educational / Explainer",
+  experimental: "Experimental",
+  backup: "Backup / Filler",
+};
+
+const READY_URGENCY_APPLICABLE_CATEGORY_SET = new Set<HearthContentCategory>([
+  "hot_topic",
+  "viral_reaction",
+]);
+
+const READY_URGENCY_LABEL: Record<ReadyUrgencyLevel, string> = {
+  fresh: "Fresh",
+  warming: "Warming",
+  cooling: "Cooling",
+  cold: "Cold",
+};
+
+const READY_URGENCY_RANK: Record<ReadyUrgencyLevel, number> = {
+  fresh: 0,
+  warming: 1,
+  cooling: 2,
+  cold: 3,
 };
 
 function buildDiffLines(current: string, revision: string): DiffLine[] {
@@ -894,16 +972,24 @@ function deriveIntentFromOrigin(origin: HearthSessionOrigin | null | undefined):
   return origin.created_from === "bar-stock" ? "from_spark" : "new_idea";
 }
 
-function buildOpenInAnvilHref(workspaceId: string | null, workpieceId: string | null): string | null {
+function buildOpenInAnvilHref(
+  workspaceId: string | null,
+  workpieceId: string | null,
+  scriptPath = ANVIL_SCRIPT_PATH,
+): string | null {
   const workspace = workspaceId?.trim();
   const workpiece = workpieceId?.trim();
   if (!workspace || !workpiece) return null;
+  const normalizedScriptPath = scriptPath.trim();
+  if (!normalizedScriptPath || normalizedScriptPath.startsWith("/") || normalizedScriptPath.includes("..")) {
+    return null;
+  }
 
   const params = new URLSearchParams();
   params.set("workspace_id", workspace);
   params.set("workpiece_id", workpiece);
   params.set("open", "script");
-  params.set("script_path", ANVIL_SCRIPT_PATH);
+  params.set("script_path", normalizedScriptPath);
   return `/app/anvil?${params.toString()}`;
 }
 
@@ -998,6 +1084,13 @@ export default function HearthShell() {
   const [searchText, setSearchText] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("updated");
   const [showArchived, setShowArchived] = useState(false);
+  const [readyScripts, setReadyScripts] = useState<HearthReadyScript[]>([]);
+  const [isReadyScriptsLoading, setIsReadyScriptsLoading] = useState(false);
+  const [readyScriptsError, setReadyScriptsError] = useState<string | null>(null);
+  const [readyCategoryFilter, setReadyCategoryFilter] = useState<ReadyCategoryFilter>("all");
+  const [readyUrgencyFilter, setReadyUrgencyFilter] = useState<ReadyUrgencyFilter>("all");
+  const [updatingReadyCategoryId, setUpdatingReadyCategoryId] = useState<string | null>(null);
+  const [readyCategoryError, setReadyCategoryError] = useState<string | null>(null);
   const [revisionModalOpen, setRevisionModalOpen] = useState(false);
   const [revisionNote, setRevisionNote] = useState("");
   const [revisionKind, setRevisionKind] = useState<RevisionKind>("manual");
@@ -1196,6 +1289,119 @@ export default function HearthShell() {
     return [...pinned.sort(sortFn), ...unpinned.sort(sortFn)];
   }, [drafts, searchText, sortKey, showArchived]);
 
+  const categoryFilteredReadyScripts = useMemo(() => {
+    if (readyCategoryFilter === "all") return readyScripts;
+    if (readyCategoryFilter === "uncategorized") {
+      return readyScripts.filter((entry) => !entry.contentCategory);
+    }
+    return readyScripts.filter((entry) => entry.contentCategory === readyCategoryFilter);
+  }, [readyCategoryFilter, readyScripts]);
+
+  const readyUrgencyCounts = useMemo(() => {
+    const counts = { fresh: 0, cooling: 0, cold: 0 };
+    const nowMs = Date.now();
+    for (const entry of categoryFilteredReadyScripts) {
+      const urgency = deriveReadyUrgency(entry, nowMs);
+      if (!urgency || urgency === "warming") continue;
+      counts[urgency] += 1;
+    }
+    return counts;
+  }, [categoryFilteredReadyScripts]);
+
+  const filteredReadyScripts = useMemo(() => {
+    if (readyUrgencyFilter === "all") return categoryFilteredReadyScripts;
+    const nowMs = Date.now();
+    return categoryFilteredReadyScripts.filter((entry) => deriveReadyUrgency(entry, nowMs) === readyUrgencyFilter);
+  }, [categoryFilteredReadyScripts, readyUrgencyFilter]);
+
+  const readyCategoryCounts = useMemo(() => {
+    const counts: Record<ReadyCategoryGroupKey, number> = {
+      uncategorized: 0,
+      evergreen: 0,
+      hot_topic: 0,
+      viral_reaction: 0,
+      strategic_anchor: 0,
+      community: 0,
+      reflective: 0,
+      explainer: 0,
+      experimental: 0,
+      backup: 0,
+    };
+    for (const entry of readyScripts) {
+      const key: ReadyCategoryGroupKey = entry.contentCategory ?? "uncategorized";
+      counts[key] += 1;
+    }
+    return counts;
+  }, [readyScripts]);
+
+  const readyTotalCount = readyScripts.length;
+
+  const groupedReadyScripts = useMemo(() => {
+    if (filteredReadyScripts.length === 0) return [] as Array<{
+      key: string;
+      label: string;
+      entries: HearthReadyScript[];
+    }>;
+
+    if (readyCategoryFilter !== "all") {
+      const label = readyCategoryFilter === "uncategorized"
+        ? "Uncategorized"
+        : READY_CATEGORY_LABEL[readyCategoryFilter];
+      return [{ key: readyCategoryFilter, label, entries: filteredReadyScripts }];
+    }
+
+    const grouped = new Map<ReadyCategoryGroupKey, HearthReadyScript[]>();
+    for (const entry of filteredReadyScripts) {
+      const key: ReadyCategoryGroupKey = entry.contentCategory ?? "uncategorized";
+      const existing = grouped.get(key);
+      if (existing) {
+        existing.push(entry);
+      } else {
+        grouped.set(key, [entry]);
+      }
+    }
+
+    const orderedKeys: ReadyCategoryGroupKey[] = [...HEARTH_CONTENT_CATEGORIES, "uncategorized"];
+    const nowMs = Date.now();
+    const sortEntriesForGroup = (entries: HearthReadyScript[], key: ReadyCategoryGroupKey): HearthReadyScript[] => {
+      const next = [...entries];
+      next.sort((a, b) => {
+        const aUpdated = parseIsoTimestamp(a.updatedAt) ?? 0;
+        const bUpdated = parseIsoTimestamp(b.updatedAt) ?? 0;
+
+        if (key === "hot_topic" || key === "viral_reaction") {
+          const urgencyA = deriveReadyUrgency(a, nowMs);
+          const urgencyB = deriveReadyUrgency(b, nowMs);
+          const rankA = urgencyA ? READY_URGENCY_RANK[urgencyA] : Number.MAX_SAFE_INTEGER;
+          const rankB = urgencyB ? READY_URGENCY_RANK[urgencyB] : Number.MAX_SAFE_INTEGER;
+          if (rankA !== rankB) return rankA - rankB;
+          if (bUpdated !== aUpdated) return bUpdated - aUpdated;
+          return a.title.localeCompare(b.title);
+        }
+
+        if (key === "evergreen") {
+          const aSort = aUpdated > 0 ? aUpdated : Number.MAX_SAFE_INTEGER;
+          const bSort = bUpdated > 0 ? bUpdated : Number.MAX_SAFE_INTEGER;
+          if (aSort !== bSort) return aSort - bSort;
+          return a.title.localeCompare(b.title);
+        }
+
+        if (bUpdated !== aUpdated) return bUpdated - aUpdated;
+        return a.title.localeCompare(b.title);
+      });
+      return next;
+    };
+
+    const sections: Array<{ key: string; label: string; entries: HearthReadyScript[] }> = [];
+    for (const key of orderedKeys) {
+      const entries = grouped.get(key);
+      if (!entries || entries.length === 0) continue;
+      const label = key === "uncategorized" ? "Uncategorized" : READY_CATEGORY_LABEL[key];
+      sections.push({ key, label, entries: sortEntriesForGroup(entries, key) });
+    }
+    return sections;
+  }, [filteredReadyScripts, readyCategoryFilter]);
+
   const diffLines = useMemo(() => {
     if (!selectedRevision || !activeDraft) return [];
     return buildDiffLines(activeDraft.body, selectedRevision.bodySnapshot);
@@ -1295,13 +1501,75 @@ export default function HearthShell() {
 
   const refreshDrafts = useCallback(async () => {
     const list = await store.listDrafts();
-    setDrafts(list);
+    setDrafts(dedupeDraftListById(list));
   }, [store]);
 
   const refreshRevisions = useCallback(async (draftId: string) => {
     const list = await store.listRevisions(draftId);
     setRevisions(list);
   }, [store]);
+
+  const refreshReadyScripts = useCallback(async () => {
+    const workspace = workspaceId?.trim() ?? "";
+    if (!workspace) {
+      setReadyScripts([]);
+      setReadyScriptsError(null);
+      setIsReadyScriptsLoading(false);
+      return;
+    }
+
+    setIsReadyScriptsLoading(true);
+    setReadyScriptsError(null);
+    try {
+      const entries = await listHearthReadyScripts(workspace);
+      setReadyScripts(entries);
+    } catch {
+      setReadyScripts([]);
+      setReadyScriptsError("Failed to load Ready to Record list.");
+    } finally {
+      setIsReadyScriptsLoading(false);
+    }
+  }, [workspaceId]);
+
+  useEffect(() => {
+    void refreshReadyScripts();
+  }, [refreshReadyScripts]);
+
+  const onSetReadyScriptCategory = useCallback(async (
+    entry: HearthReadyScript,
+    category: HearthContentCategory | null,
+  ) => {
+    setReadyCategoryError(null);
+    setUpdatingReadyCategoryId(entry.id);
+
+    const previousCategory = entry.contentCategory;
+    setReadyScripts((prev) => prev.map((row) => (
+      row.id === entry.id ? { ...row, contentCategory: category } : row
+    )));
+
+    try {
+      const result = await setHearthReadyScriptCategory({
+        workspaceId: entry.workspaceId,
+        workpieceId: entry.workpieceId,
+        category,
+      });
+      if (!result.ok) {
+        setReadyScripts((prev) => prev.map((row) => (
+          row.id === entry.id ? { ...row, contentCategory: previousCategory } : row
+        )));
+        setReadyCategoryError("Failed to save script category.");
+        return;
+      }
+      void refreshReadyScripts();
+    } catch {
+      setReadyScripts((prev) => prev.map((row) => (
+        row.id === entry.id ? { ...row, contentCategory: previousCategory } : row
+      )));
+      setReadyCategoryError("Failed to save script category.");
+    } finally {
+      setUpdatingReadyCategoryId(null);
+    }
+  }, [refreshReadyScripts]);
 
   const persistSession = useCallback(async (draftId: string | null, uiSelectedTab?: string) => {
     const now = Date.now();
@@ -1457,11 +1725,20 @@ export default function HearthShell() {
   }, [activeDraft, flushChatHistoryNow]);
 
   const onOpenInAnvil = useCallback(async () => {
-    if (!openInAnvilHref) return;
-    const episodeId = workpieceId?.trim() ?? null;
-    if (!episodeId) return;
+    const workspace = workspaceId?.trim() ?? "";
+    const episodeId = workpieceId?.trim() ?? "";
+    if (!workspace || !episodeId) {
+      setError("Open in Anvil requires a valid workspace and workpiece.");
+      return;
+    }
+    const href = buildOpenInAnvilHref(workspace, episodeId);
+    if (!href) {
+      setError("Open in Anvil is unavailable until context is resolved.");
+      return;
+    }
+    setError(null);
     if (!activeDraft) {
-      window.location.assign(openInAnvilHref);
+      window.location.assign(href);
       return;
     }
 
@@ -1483,7 +1760,8 @@ export default function HearthShell() {
 
     const published = await commitHearthPrimaryScript(episodeId, activeDraft.body);
     if (!published.ok) {
-      setError("Failed to publish script for Anvil. Try again.");
+      const statusText = published.status ? ` (${published.status})` : "";
+      setError(`Failed to publish script for Anvil${statusText}. Try again.`);
       return;
     }
 
@@ -1498,8 +1776,8 @@ export default function HearthShell() {
     }
 
     flushChatHistoryNow({ draftId: activeDraft.id });
-    window.location.assign(openInAnvilHref);
-  }, [activeDraft, flushChatHistoryNow, openInAnvilHref, workpieceId]);
+    window.location.assign(href);
+  }, [activeDraft, flushChatHistoryNow, workpieceId, workspaceId]);
 
   const applySessionOrigin = useCallback((origin: HearthSessionOrigin) => {
     updatePlanningSession((prev) => ({
@@ -1530,19 +1808,20 @@ export default function HearthShell() {
     setForgeError(null);
     setIsForging(true);
     try {
-      const created = await createHearthWorkpiece({ created_from: "scratch" });
+      const created = await createHearthWorkpiece(
+        { created_from: "scratch" },
+        "## Draft Script\n\n",
+      );
       if (!created.ok) {
         setForgeError("Workpiece creation failed; draft created locally.");
-        if (created.workpieceId) {
-          setWorkpieceId(created.workpieceId);
-        }
+        setWorkpieceId(null);
       } else {
         setWorkpieceId(created.workpieceId);
       }
       setWorkspaceId(resolveWorkspaceId());
       applySessionOrigin({ created_from: "scratch" });
       const draft = await createDraftAndOpen(undefined, "draft");
-      const nextChatKey = resolveChatHistoryKey(created.workpieceId ?? null, draft.id);
+      const nextChatKey = resolveChatHistoryKey(created.ok ? created.workpieceId : null, draft.id);
       if (nextChatKey) {
         skipChatHydrationKeyRef.current = nextChatKey;
         writeChatHistoryCache(nextChatKey, []);
@@ -1566,17 +1845,18 @@ export default function HearthShell() {
     setIsForging(true);
     let workpieceId: string | undefined;
     try {
+      const scriptSeed = spark.body?.trim()
+        ? spark.body
+        : `## ${deriveSparkTitle(spark)}\n\n`;
       const created = await createHearthWorkpiece({
         created_from: "bar-stock",
         spark_id: spark.id,
-      });
+      }, scriptSeed);
       if (!created.ok) {
-        workpieceId = created.workpieceId;
         setForgeError("Workpiece creation failed; draft created locally.");
+        setWorkpieceId(null);
       } else {
         workpieceId = created.workpieceId;
-      }
-      if (workpieceId) {
         setWorkpieceId(workpieceId);
       }
       setWorkspaceId(resolveWorkspaceId());
@@ -1644,7 +1924,8 @@ export default function HearthShell() {
       ]);
 
       setSession(storedSession);
-      setDrafts(list);
+      const dedupedDrafts = dedupeDraftListById(list);
+      setDrafts(dedupedDrafts);
 
       const tab = storedSession?.uiState?.selectedTab;
       if (tab === "preview" || tab === "compare" || tab === "list") {
@@ -1654,7 +1935,7 @@ export default function HearthShell() {
       const explicitWorkpieceSelection = hasExplicitWorkpieceQuery();
       const preferredId = storedSession?.activeDraftId;
       if (explicitWorkpieceSelection && preferredId) {
-        const preferredDraft = list.find((draft) => draft.id === preferredId);
+        const preferredDraft = dedupedDrafts.find((draft) => draft.id === preferredId);
         if (preferredDraft) {
           restoredCursorDraftIdRef.current = null;
           setActiveDraft(preferredDraft);
@@ -2224,7 +2505,7 @@ export default function HearthShell() {
         const next = exists
           ? prev.map((d) => (d.id === toSave.id ? toSave : d))
           : [toSave, ...prev];
-        return next;
+        return dedupeDraftListById(next);
       });
 
       if (createdRevision) {
@@ -2262,7 +2543,7 @@ export default function HearthShell() {
     };
     setScriptValidation(null);
     await store.saveDraft(toSave);
-    setDrafts((prev) => prev.map((d) => (d.id === toSave.id ? toSave : d)));
+    setDrafts((prev) => dedupeDraftListById(prev.map((d) => (d.id === toSave.id ? toSave : d))));
     if (activeDraft?.id === toSave.id) {
       setActiveDraft(toSave);
       setDraftSnapshot({ title: toSave.title, body: toSave.body, updatedAt: toSave.updatedAt });
@@ -2806,6 +3087,12 @@ export default function HearthShell() {
       });
       if (!saved) return;
 
+      const published = await commitHearthPrimaryScript(episodeId, activeDraft.body);
+      if (!published.ok) {
+        setError("Failed to publish approved script to Tongs. Try approving again.");
+        return;
+      }
+
       const approvedAt = Date.now();
       const nextState: ScriptApprovalState = {
         hasApprovedScript: true,
@@ -2827,6 +3114,7 @@ export default function HearthShell() {
         flushChatHistoryNow({ draftId: activeDraft.id, messages: next });
         return next;
       });
+      void refreshReadyScripts();
     } finally {
       setIsApprovingScript(false);
     }
@@ -4455,6 +4743,145 @@ export default function HearthShell() {
             <button type="button" onClick={() => setMode("sparks")}>
               Sparks
             </button>
+          </div>
+
+          <div className="hs-rail-section">
+            <div className="hs-ready-record-header">
+              <div className="hs-rail-heading">
+                Ready to Record
+                <span className="hs-ready-record-count">{readyTotalCount}</span>
+              </div>
+              <button type="button" onClick={() => void refreshReadyScripts()} disabled={isReadyScriptsLoading}>
+                {isReadyScriptsLoading ? "Refreshing..." : "Refresh"}
+              </button>
+            </div>
+            <div className="hs-ready-record-chips" role="group" aria-label="Ready queue category filters">
+              <button
+                type="button"
+                className={`hs-ready-chip${readyCategoryFilter === "all" ? " is-active" : ""}`}
+                onClick={() => setReadyCategoryFilter("all")}
+              >
+                All ({readyTotalCount})
+              </button>
+              {HEARTH_CONTENT_CATEGORIES.map((category) => (
+                <button
+                  key={category}
+                  type="button"
+                  className={`hs-ready-chip${readyCategoryFilter === category ? " is-active" : ""}`}
+                  onClick={() => setReadyCategoryFilter(category)}
+                >
+                  {READY_CATEGORY_LABEL[category]} ({readyCategoryCounts[category]})
+                </button>
+              ))}
+              <button
+                type="button"
+                className={`hs-ready-chip${readyCategoryFilter === "uncategorized" ? " is-active" : ""}`}
+                onClick={() => setReadyCategoryFilter("uncategorized")}
+              >
+                Uncategorized ({readyCategoryCounts.uncategorized})
+              </button>
+            </div>
+            <div className="hs-ready-record-chips" role="group" aria-label="Ready queue urgency filters">
+              <button
+                type="button"
+                className={`hs-ready-chip${readyUrgencyFilter === "all" ? " is-active" : ""}`}
+                onClick={() => setReadyUrgencyFilter("all")}
+              >
+                Urgency: All ({categoryFilteredReadyScripts.length})
+              </button>
+              <button
+                type="button"
+                className={`hs-ready-chip${readyUrgencyFilter === "fresh" ? " is-active" : ""}`}
+                onClick={() => setReadyUrgencyFilter("fresh")}
+              >
+                Fresh ({readyUrgencyCounts.fresh})
+              </button>
+              <button
+                type="button"
+                className={`hs-ready-chip${readyUrgencyFilter === "cooling" ? " is-active" : ""}`}
+                onClick={() => setReadyUrgencyFilter("cooling")}
+              >
+                Cooling ({readyUrgencyCounts.cooling})
+              </button>
+              <button
+                type="button"
+                className={`hs-ready-chip${readyUrgencyFilter === "cold" ? " is-active" : ""}`}
+                onClick={() => setReadyUrgencyFilter("cold")}
+              >
+                Cold ({readyUrgencyCounts.cold})
+              </button>
+            </div>
+            {readyScriptsError ? <div className="hs-error-text-small">{readyScriptsError}</div> : null}
+            {readyCategoryError ? <div className="hs-error-text-small">{readyCategoryError}</div> : null}
+            <div className="hs-rail-meta">Approved scripts stay here until a recording asset is committed.</div>
+            {isReadyScriptsLoading ? <p>Loading queue...</p> : null}
+            {!isReadyScriptsLoading && filteredReadyScripts.length === 0 ? (
+              <p className="hs-rail-meta">
+                {readyTotalCount === 0
+                  ? "No items yet. Approve a script to populate this queue."
+                  : readyUrgencyFilter !== "all"
+                    ? "No scripts match this urgency filter."
+                    : "No scripts match this category filter."}
+              </p>
+            ) : null}
+            {groupedReadyScripts.length > 0 ? (
+              <div className="hs-ready-record-groups">
+                {groupedReadyScripts.map((section) => (
+                  <div key={section.key} className="hs-ready-record-group">
+                    <div className="hs-ready-record-group-title">{section.label}</div>
+                    <ul className="hs-ready-record-list">
+                      {section.entries.map((entry) => {
+                        const href = buildOpenInAnvilHref(entry.workspaceId, entry.workpieceId, entry.primaryScriptPath);
+                        const updatedTs = parseIsoTimestamp(entry.updatedAt);
+                        const urgency = deriveReadyUrgency(entry);
+                        return (
+                          <li key={entry.id} className="hs-ready-record-item">
+                            <div className="hs-ready-record-title">{entry.title}</div>
+                            <div className="hs-ready-record-meta-row">
+                              <div className="hs-ready-record-meta">
+                                {updatedTs ? `Approved ${formatRelativeUpdatedAt(updatedTs)}` : "Approved script"}
+                              </div>
+                              {urgency ? (
+                                <span className={`hs-ready-urgency-badge is-${urgency}`}>
+                                  {READY_URGENCY_LABEL[urgency]}
+                                </span>
+                              ) : null}
+                            </div>
+                            <label className="hs-ready-record-label">
+                              <span>Category</span>
+                              <select
+                                value={entry.contentCategory ?? ""}
+                                disabled={updatingReadyCategoryId === entry.id}
+                                onChange={(event) => {
+                                  const value = event.target.value;
+                                  const nextCategory = value ? value as HearthContentCategory : null;
+                                  void onSetReadyScriptCategory(entry, nextCategory);
+                                }}
+                              >
+                                <option value="">Uncategorized</option>
+                                {HEARTH_CONTENT_CATEGORIES.map((category) => (
+                                  <option key={category} value={category}>{READY_CATEGORY_LABEL[category]}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!href) return;
+                                window.location.assign(href);
+                              }}
+                              disabled={!href}
+                            >
+                              Open in Anvil
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
 
           <div className="hs-rail-section">

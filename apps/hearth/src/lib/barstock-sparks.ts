@@ -63,6 +63,23 @@ function normalizeSpark(value: unknown): BarStockSpark | null {
   };
 }
 
+function compareSparkFreshness(a: BarStockSpark, b: BarStockSpark): number {
+  if (a.updatedAt !== b.updatedAt) return a.updatedAt - b.updatedAt;
+  if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+  return a.id.localeCompare(b.id);
+}
+
+function dedupeSparksById(sparks: BarStockSpark[]): BarStockSpark[] {
+  const byId = new Map<string, BarStockSpark>();
+  for (const spark of sparks) {
+    const existing = byId.get(spark.id);
+    if (!existing || compareSparkFreshness(existing, spark) <= 0) {
+      byId.set(spark.id, spark);
+    }
+  }
+  return [...byId.values()];
+}
+
 export function readBarStockSparks(): BarStockSpark[] {
   if (typeof window === "undefined") return [];
   try {
@@ -73,7 +90,8 @@ export function readBarStockSparks(): BarStockSpark[] {
     const normalized = parsed
       .map(normalizeSpark)
       .filter((spark): spark is BarStockSpark => !!spark);
-    return normalized.sort((a, b) => b.createdAt - a.createdAt);
+    const deduped = dedupeSparksById(normalized);
+    return deduped.sort((a, b) => b.createdAt - a.createdAt);
   } catch {
     return [];
   }

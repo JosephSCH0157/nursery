@@ -10,6 +10,30 @@ const DEFAULT_WRITTEN_BY = { tool: "tongs", tool_version: "0.1.0", lane: "forge-
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const BOOTSTRAP_WORKPIECE_PATHS = new Set(["script/session.json", "script/script.sources.json"]);
 const BOOTSTRAP_WORKSPACE_PATHS = new Set(["sources/index.json"]);
+const READY_SCRIPT_PATH_CANDIDATES = [
+  "script/script.published.md",
+  "script/script.md",
+  "scripts/script.anvil.txt",
+  "scripts/script.source.md",
+] as const;
+const READY_SCRIPT_PATH_SET = new Set<string>(READY_SCRIPT_PATH_CANDIDATES as readonly string[]);
+const RECORDING_PATH_PREFIXES = [
+  "recordings/",
+  "assets/recordings/",
+] as const;
+const CONTENT_CATEGORY_EVENT = "hearth.content_category.set.v1";
+const CONTENT_CATEGORY_VALUES = [
+  "evergreen",
+  "hot_topic",
+  "viral_reaction",
+  "strategic_anchor",
+  "community",
+  "reflective",
+  "explainer",
+  "experimental",
+  "backup",
+] as const;
+const CONTENT_CATEGORY_SET = new Set<string>(CONTENT_CATEGORY_VALUES as readonly string[]);
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -174,6 +198,21 @@ export type AppendEventRequest = {
   written_by: WrittenBy;
 };
 
+export type WorkspaceReadyScript = {
+  workspace_id: string;
+  workpiece_id: string;
+  path: string;
+  primary_script_path: string;
+  script_paths: string[];
+  title: string;
+  updated_at: string;
+  content_category: string | null;
+};
+
+export type ListWorkspaceReadyScriptsOptions = {
+  unrecordedOnly?: boolean;
+};
+
 export type TongsCommitApiOptions = {
   supabaseUrl: string;
   supabaseServiceRoleKey: string;
@@ -185,6 +224,10 @@ export type TongsCommitApiService = {
   createCradle(input: CreateCradleRequest): Promise<CreateCradleResponse>;
   commitFile(workpieceId: string, input: CommitFileRequest): Promise<CommitFileResponse>;
   commitWorkspaceFile(workspaceId: string, input: CommitFileRequest): Promise<CommitWorkspaceFileResponse>;
+  listWorkspaceReadyScripts(
+    workspaceId: string,
+    options?: ListWorkspaceReadyScriptsOptions,
+  ): Promise<WorkspaceReadyScript[]>;
   appendEvent(workpieceId: string, input: AppendEventRequest): Promise<WorkpieceEventRow>;
   readWorkpieceJson(workpieceId: string, path: string): Promise<ReadJsonFileResult>;
   readWorkspaceJson(workspaceId: string, path: string): Promise<ReadJsonFileResult>;
@@ -1065,6 +1108,27 @@ function resolveEpisodeLabel(metadata: Json | undefined): string {
   return "Untitled Episode";
 }
 
+function readyScriptPathPriority(path: string): number {
+  const index = READY_SCRIPT_PATH_CANDIDATES.indexOf(path as (typeof READY_SCRIPT_PATH_CANDIDATES)[number]);
+  return index >= 0 ? index : Number.MAX_SAFE_INTEGER;
+}
+
+function isRecordingPath(path: string): boolean {
+  return RECORDING_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
+}
+
+function normalizeContentCategory(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  return CONTENT_CATEGORY_SET.has(normalized) ? normalized : null;
+}
+
+function readContentCategoryFromEventPayload(payload: Json): string | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const row = payload as Record<string, unknown>;
+  return normalizeContentCategory(row.content_category);
+}
+
 export class TongsCommitService {
   readonly supabase: SupabaseClient<Database>;
   readonly bucket: string;
@@ -1566,6 +1630,207 @@ export class TongsCommitService {
     return { found: true, text };
   }
 
+  async listWorkspaceReadyScripts(
+    workspaceId: string,
+    options?: ListWorkspaceReadyScriptsOptions,
+  ): Promise<WorkspaceReadyScript[]> {
+    await this.getWorkspaceOrThrow(workspaceId);
+
+    const { data: episodes, error: episodesError } = await this.supabase
+      .schema("tongs")
+      .from("episodes")
+      .select("id,label,updated_at,created_at")
+      .eq("workspace_id", workspaceId)
+      .order("updated_at", { ascending: false })
+      .limit(500);
+
+    if (episodesError) {
+      throw new HttpError(502, "db_read_failed", "Failed to list workspace episodes", {
+        reason: episodesError.message,
+      });
+    }
+
+    if (!episodes || episodes.length === 0) {
+      return [];
+    }
+
+    const episodeById = new Map<
+      string,
+      { id: string; label: string | null; updated_at: string | null; created_at: string | null }
+    >();
+    for (const row of episodes) {
+      episodeById.set(row.id, {
+        id: row.id,
+        label: row.label ?? null,
+        updated_at: row.updated_at ?? null,
+        created_at: row.created_at ?? null,
+      });
+    }
+
+    const workpieceIds = episodes.map((row) => row.id);
+    const { data: files, error: filesError } = await this.supabase
+      .schema("tongs")
+      .from("workpiece_files")
+      .select("workpiece_id,path,updated_at,created_at")
+      .in("workpiece_id", workpieceIds)
+      .in("path", READY_SCRIPT_PATH_CANDIDATES as unknown as string[]);
+
+    if (filesError) {
+      throw new HttpError(502, "db_read_failed", "Failed to list workspace script files", {
+        reason: filesError.message,
+      });
+    }
+
+    if (!files || files.length === 0) {
+      return [];
+    }
+
+    const preferredByWorkpiece = new Map<
+      string,
+      { workpiece_id: string; path: string; updated_at: string | null; created_at: string | null }
+    >();
+    const scriptPathsByWorkpiece = new Map<string, string[]>();
+
+    for (const row of files) {
+      const workpieceId = row.workpiece_id;
+      const path = row.path;
+      if (!READY_SCRIPT_PATH_SET.has(path)) continue;
+
+      const existingPaths = scriptPathsByWorkpiece.get(workpieceId);
+      if (!existingPaths) {
+        scriptPathsByWorkpiece.set(workpieceId, [path]);
+      } else if (!existingPaths.includes(path)) {
+        existingPaths.push(path);
+      }
+
+      const existing = preferredByWorkpiece.get(workpieceId);
+      if (!existing) {
+        preferredByWorkpiece.set(workpieceId, {
+          workpiece_id: workpieceId,
+          path,
+          updated_at: row.updated_at ?? null,
+          created_at: row.created_at ?? null,
+        });
+        continue;
+      }
+
+      const currPriority = readyScriptPathPriority(path);
+      const existingPriority = readyScriptPathPriority(existing.path);
+      if (currPriority < existingPriority) {
+        preferredByWorkpiece.set(workpieceId, {
+          workpiece_id: workpieceId,
+          path,
+          updated_at: row.updated_at ?? null,
+          created_at: row.created_at ?? null,
+        });
+        continue;
+      }
+
+      if (
+        currPriority === existingPriority
+        && (row.updated_at ?? row.created_at ?? "") > (existing.updated_at ?? existing.created_at ?? "")
+      ) {
+        preferredByWorkpiece.set(workpieceId, {
+          workpiece_id: workpieceId,
+          path,
+          updated_at: row.updated_at ?? null,
+          created_at: row.created_at ?? null,
+        });
+      }
+    }
+
+    for (const scriptPaths of scriptPathsByWorkpiece.values()) {
+      scriptPaths.sort((a, b) => {
+        const byPriority = readyScriptPathPriority(a) - readyScriptPathPriority(b);
+        if (byPriority !== 0) return byPriority;
+        return a.localeCompare(b);
+      });
+    }
+
+    const recordedWorkpieceIds = new Set<string>();
+    if (options?.unrecordedOnly) {
+      const candidateIds = Array.from(preferredByWorkpiece.keys());
+      if (candidateIds.length) {
+        for (const prefix of RECORDING_PATH_PREFIXES) {
+          const { data: recordings, error: recordingsError } = await this.supabase
+            .schema("tongs")
+            .from("workpiece_files")
+            .select("workpiece_id,path")
+            .in("workpiece_id", candidateIds)
+            .like("path", `${prefix}%`)
+            .limit(5000);
+
+          if (recordingsError) {
+            throw new HttpError(502, "db_read_failed", "Failed to list workspace recording files", {
+              reason: recordingsError.message,
+            });
+          }
+
+          for (const row of recordings ?? []) {
+            const path = row.path;
+            if (isRecordingPath(path)) {
+              recordedWorkpieceIds.add(row.workpiece_id);
+            }
+          }
+        }
+      }
+    }
+
+    const categoryByWorkpiece = new Map<string, string | null>();
+    const categoryCandidateIds = Array.from(preferredByWorkpiece.keys());
+    if (categoryCandidateIds.length) {
+      const { data: categoryEvents, error: categoryEventsError } = await this.supabase
+        .schema("tongs")
+        .from("workpiece_events")
+        .select("workpiece_id,event_name,payload,created_at,id")
+        .in("workpiece_id", categoryCandidateIds)
+        .eq("event_name", CONTENT_CATEGORY_EVENT)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .limit(5000);
+
+      if (categoryEventsError) {
+        throw new HttpError(502, "db_read_failed", "Failed to list workspace content-category events", {
+          reason: categoryEventsError.message,
+        });
+      }
+
+      for (const row of categoryEvents ?? []) {
+        if (categoryByWorkpiece.has(row.workpiece_id)) continue;
+        const category = readContentCategoryFromEventPayload(row.payload);
+        categoryByWorkpiece.set(row.workpiece_id, category);
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+    const readyScripts: WorkspaceReadyScript[] = [];
+    for (const [workpieceId, file] of preferredByWorkpiece.entries()) {
+      if (recordedWorkpieceIds.has(workpieceId)) continue;
+      const episode = episodeById.get(workpieceId);
+      const title = episode?.label?.trim() || `Episode ${workpieceId.slice(0, 8)}`;
+      const scriptPaths = scriptPathsByWorkpiece.get(workpieceId) ?? [file.path];
+      const primaryScriptPath = scriptPaths[0] ?? file.path;
+      readyScripts.push({
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        path: primaryScriptPath,
+        primary_script_path: primaryScriptPath,
+        script_paths: scriptPaths,
+        title,
+        updated_at: file.updated_at ?? file.created_at ?? episode?.updated_at ?? episode?.created_at ?? nowIso,
+        content_category: categoryByWorkpiece.get(workpieceId) ?? null,
+      });
+    }
+
+    readyScripts.sort((a, b) => {
+      const byUpdated = b.updated_at.localeCompare(a.updated_at);
+      if (byUpdated !== 0) return byUpdated;
+      return a.title.localeCompare(b.title);
+    });
+
+    return readyScripts;
+  }
+
   async appendEvent(workpieceId: string, input: AppendEventRequest): Promise<WorkpieceEventRow> {
     await this.getCradleOrThrow(workpieceId);
     return this.insertEvent({
@@ -1591,6 +1856,15 @@ function checkApiToken(request: Request, token: string | undefined): void {
   if (auth !== expected) {
     throw new HttpError(401, "unauthorized", "Missing or invalid API token");
   }
+}
+
+function parseBooleanQueryFlag(value: string | null): boolean {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "1"
+    || normalized === "true"
+    || normalized === "yes"
+    || normalized === "on";
 }
 
 export function createTongsCommitService(options: TongsCommitApiOptions): TongsCommitService {
@@ -1648,6 +1922,14 @@ export function createTongsCommitApiHandlerWithService(
         const payload = normalizeCommitFileRequest(body);
         const result = await service.commitWorkspaceFile(workspaceId, payload);
         return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "ready-scripts") {
+        requireMethod(request, "GET");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const unrecordedOnly = parseBooleanQueryFlag(url.searchParams.get("unrecorded"));
+        const result = await service.listWorkspaceReadyScripts(workspaceId, { unrecordedOnly });
+        return jsonResponse(200, { ok: true, data: { scripts: result } });
       }
 
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "read-file") {
