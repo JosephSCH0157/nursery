@@ -63,8 +63,15 @@ import {
   type AnvilTagValidation,
 } from "../lib/anvil-tag-contract";
 import { commitWorkpieceProductionArtifact, type ProductionArtifactKind } from "../lib/hearth-production-repo";
-import { generateEpisodeThumbnail, readEpisodePackageForWorkpiece } from "../lib/hearth-thumbnail-api";
-import type { EpisodePackageV2 } from "../lib/episode-package-v2";
+import {
+  generateEpisodeThumbnail,
+  loadThumbnailPreviewDataUrl,
+  readEpisodePackageForWorkpiece,
+  saveEpisodePackageForWorkpiece,
+  uploadThumbnailImageVersion,
+} from "../lib/hearth-thumbnail-api";
+import type { EpisodePackageV2, EpisodeThumbnailConcept, EpisodeThumbnailVersion } from "../lib/episode-package-v2";
+import ThumbnailPanel from "../components/visuals/ThumbnailPanel";
 
 const AUTOSAVE_DELAY_MS = 2200;
 const AUTOSAVE_MIN_GAP_MS = 5000;
@@ -611,6 +618,13 @@ function parseIsoTimestamp(value: string | null | undefined): number | undefined
   return Number.isFinite(timestamp) ? timestamp : undefined;
 }
 
+function createThumbnailClientId(prefix: string): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function deriveReadyUrgency(entry: HearthReadyScript, nowMs = Date.now()): ReadyUrgencyLevel | null {
   if (!entry.contentCategory || !READY_URGENCY_APPLICABLE_CATEGORY_SET.has(entry.contentCategory)) {
     return null;
@@ -1127,11 +1141,21 @@ export default function HearthShell() {
   const [aiBillingMode, setAiBillingMode] = useState<HearthAiLane>(() => resolveAiLaneFromStorage());
   const [episodePackage, setEpisodePackage] = useState<EpisodePackageV2 | null>(null);
   const [selectedThumbnailConceptId, setSelectedThumbnailConceptId] = useState<string>("");
+  const [selectedThumbnailVersionId, setSelectedThumbnailVersionId] = useState<string | null>(null);
+  const [thumbnailConceptLabelDraft, setThumbnailConceptLabelDraft] = useState("");
+  const [thumbnailConceptPromptDraft, setThumbnailConceptPromptDraft] = useState("");
+  const [thumbnailConceptStyleDraft, setThumbnailConceptStyleDraft] = useState("");
   const [thumbnailPromptOverride, setThumbnailPromptOverride] = useState("");
-  const [thumbnailPreset, setThumbnailPreset] = useState("");
   const [thumbnailAspect, setThumbnailAspect] = useState<"16:9" | "1:1" | "9:16">("16:9");
   const [isThumbnailGenerating, setIsThumbnailGenerating] = useState(false);
+  const [isThumbnailConceptSaving, setIsThumbnailConceptSaving] = useState(false);
+  const [isThumbnailUploading, setIsThumbnailUploading] = useState(false);
   const [thumbnailGenerateError, setThumbnailGenerateError] = useState<string | null>(null);
+  const [thumbnailUploadError, setThumbnailUploadError] = useState<string | null>(null);
+  const [thumbnailPreviewState, setThumbnailPreviewState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [thumbnailPreviewDataUrl, setThumbnailPreviewDataUrl] = useState<string | null>(null);
+  const [thumbnailPreviewError, setThumbnailPreviewError] = useState<string | null>(null);
+  const [thumbnailSafeZoneEnabled, setThumbnailSafeZoneEnabled] = useState(false);
 
   const setMode = useCallback((mode: HearthMode) => {
     modeTouchedRef.current = true;
@@ -1250,6 +1274,8 @@ export default function HearthShell() {
   const thumbnailConcepts = episodePackage?.thumbnail.concepts ?? [];
   const thumbnailVersions = episodePackage?.thumbnail.versions ?? [];
   const primaryThumbnailVersionId = episodePackage?.thumbnail.primary_version_id ?? null;
+  const selectedThumbnailConcept = thumbnailConcepts.find((concept) => concept.id === selectedThumbnailConceptId) ?? null;
+  const selectedThumbnailVersion = thumbnailVersions.find((version) => version.id === selectedThumbnailVersionId) ?? null;
   const hasBrowserSpeech = (
     typeof window !== "undefined"
     && (Boolean((window as any).SpeechRecognition) || Boolean((window as any).webkitSpeechRecognition))
@@ -1527,7 +1553,12 @@ export default function HearthShell() {
     if (!episodeId) {
       setEpisodePackage(null);
       setSelectedThumbnailConceptId("");
+      setSelectedThumbnailVersionId(null);
       setThumbnailGenerateError(null);
+      setThumbnailUploadError(null);
+      setThumbnailPreviewState("idle");
+      setThumbnailPreviewDataUrl(null);
+      setThumbnailPreviewError(null);
       return;
     }
 
@@ -1535,11 +1566,19 @@ export default function HearthShell() {
     if (!loaded.ok) {
       setEpisodePackage(null);
       setThumbnailGenerateError("Unable to load thumbnail metadata.");
+      setThumbnailPreviewState("error");
+      setThumbnailPreviewDataUrl(null);
+      setThumbnailPreviewError("Unable to load thumbnail metadata.");
       return;
     }
 
     setEpisodePackage(loaded.episodePackage);
     setThumbnailGenerateError(null);
+    const versions = loaded.episodePackage.thumbnail.versions;
+    const preferredVersionId = loaded.episodePackage.thumbnail.primary_version_id
+      ?? versions[versions.length - 1]?.id
+      ?? null;
+    setSelectedThumbnailVersionId(preferredVersionId);
   }, [workpieceId]);
 
   const refreshReadyScripts = useCallback(async () => {
@@ -2098,10 +2137,83 @@ export default function HearthShell() {
   }, [selectedThumbnailConceptId, thumbnailConcepts]);
 
   useEffect(() => {
+    if (!selectedThumbnailConcept) {
+      setThumbnailConceptLabelDraft("");
+      setThumbnailConceptPromptDraft("");
+      setThumbnailConceptStyleDraft("");
+      return;
+    }
+    setThumbnailConceptLabelDraft(selectedThumbnailConcept.label);
+    setThumbnailConceptPromptDraft(selectedThumbnailConcept.prompt_text);
+    setThumbnailConceptStyleDraft(selectedThumbnailConcept.style_preset ?? "");
+  }, [selectedThumbnailConcept]);
+
+  useEffect(() => {
+    if (thumbnailVersions.length === 0) {
+      setSelectedThumbnailVersionId(null);
+      return;
+    }
+    if (
+      selectedThumbnailVersionId
+      && thumbnailVersions.some((version) => version.id === selectedThumbnailVersionId)
+    ) {
+      return;
+    }
+    const nextVersionId = primaryThumbnailVersionId
+      ?? thumbnailVersions[thumbnailVersions.length - 1]?.id
+      ?? null;
+    setSelectedThumbnailVersionId(nextVersionId);
+  }, [primaryThumbnailVersionId, selectedThumbnailVersionId, thumbnailVersions]);
+
+  useEffect(() => {
     setThumbnailPromptOverride("");
-    setThumbnailPreset("");
     setThumbnailAspect("16:9");
+    setThumbnailSafeZoneEnabled(false);
+    setThumbnailPreviewState("idle");
+    setThumbnailPreviewDataUrl(null);
+    setThumbnailPreviewError(null);
   }, [workpieceId]);
+
+  useEffect(() => {
+    const episodeId = workpieceId?.trim() ?? "";
+    if (!episodeId || !selectedThumbnailVersion) {
+      setThumbnailPreviewState("idle");
+      setThumbnailPreviewDataUrl(null);
+      setThumbnailPreviewError(null);
+      return;
+    }
+
+    if (selectedThumbnailVersion.status === "failed") {
+      setThumbnailPreviewState("error");
+      setThumbnailPreviewDataUrl(null);
+      setThumbnailPreviewError(selectedThumbnailVersion.error ?? "This version failed.");
+      return;
+    }
+
+    let cancelled = false;
+    setThumbnailPreviewState("loading");
+    setThumbnailPreviewError(null);
+
+    void loadThumbnailPreviewDataUrl({
+      workpieceId: episodeId,
+      version: selectedThumbnailVersion,
+    }).then((result) => {
+      if (cancelled) return;
+      if (!result.ok) {
+        setThumbnailPreviewState("error");
+        setThumbnailPreviewDataUrl(null);
+        setThumbnailPreviewError(result.error);
+        return;
+      }
+      setThumbnailPreviewState("ready");
+      setThumbnailPreviewDataUrl(result.dataUrl);
+      setThumbnailPreviewError(null);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedThumbnailVersion, workpieceId]);
 
   useEffect(() => {
     const stored = readScriptApprovalState(workpieceId);
@@ -3406,12 +3518,189 @@ export default function HearthShell() {
     }
   }
 
-  async function onGenerateThumbnailVersion() {
-    if (isAiProcessing || isApprovingScript || isThumbnailGenerating) return;
-
+  async function persistThumbnailEpisodePackage(
+    nextEpisodePackage: EpisodePackageV2,
+    eventName: string,
+    eventPayload: Record<string, unknown>,
+  ): Promise<EpisodePackageV2 | null> {
     const episodeId = workpieceId?.trim() ?? "";
     const workspace = workspaceId?.trim() ?? "";
     if (!episodeId || !workspace) {
+      setThumbnailGenerateError("Select an Episode before editing visuals.");
+      return null;
+    }
+    const saved = await saveEpisodePackageForWorkpiece({
+      workpieceId: episodeId,
+      workspaceId: workspace,
+      episodePackage: nextEpisodePackage,
+      eventName,
+      eventPayload,
+    });
+    if (!saved.ok) {
+      setThumbnailGenerateError(saved.error);
+      return null;
+    }
+    setEpisodePackage(saved.episodePackage);
+    return saved.episodePackage;
+  }
+
+  async function onCreateThumbnailConcept() {
+    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
+    if (!episodePackage) return;
+
+    const label = thumbnailConceptLabelDraft.trim();
+    const promptText = thumbnailConceptPromptDraft.trim();
+    if (!label || !promptText) {
+      setThumbnailGenerateError("Concept label and prompt are required.");
+      return;
+    }
+
+    const concept: EpisodeThumbnailConcept = {
+      id: createThumbnailClientId("thumb-concept"),
+      label,
+      prompt_text: promptText,
+      style_preset: thumbnailConceptStyleDraft.trim() || null,
+    };
+
+    const nextEpisodePackage: EpisodePackageV2 = {
+      ...episodePackage,
+      thumbnail: {
+        ...episodePackage.thumbnail,
+        concepts: [...episodePackage.thumbnail.concepts, concept],
+      },
+    };
+
+    setIsThumbnailConceptSaving(true);
+    setThumbnailGenerateError(null);
+    try {
+      const saved = await persistThumbnailEpisodePackage(
+        nextEpisodePackage,
+        "hearth.thumbnail.concept.created.v1",
+        { concept_id: concept.id },
+      );
+      if (!saved) return;
+      setSelectedThumbnailConceptId(concept.id);
+      setThumbnailPromptOverride("");
+    } finally {
+      setIsThumbnailConceptSaving(false);
+    }
+  }
+
+  async function onSaveSelectedThumbnailConcept() {
+    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
+    if (!episodePackage || !selectedThumbnailConceptId) return;
+
+    const label = thumbnailConceptLabelDraft.trim();
+    const promptText = thumbnailConceptPromptDraft.trim();
+    if (!label || !promptText) {
+      setThumbnailGenerateError("Concept label and prompt are required.");
+      return;
+    }
+
+    const nextConcepts = episodePackage.thumbnail.concepts.map((concept) => (
+      concept.id === selectedThumbnailConceptId
+        ? {
+            ...concept,
+            label,
+            prompt_text: promptText,
+            style_preset: thumbnailConceptStyleDraft.trim() || null,
+          }
+        : concept
+    ));
+
+    const nextEpisodePackage: EpisodePackageV2 = {
+      ...episodePackage,
+      thumbnail: {
+        ...episodePackage.thumbnail,
+        concepts: nextConcepts,
+      },
+    };
+
+    setIsThumbnailConceptSaving(true);
+    setThumbnailGenerateError(null);
+    try {
+      await persistThumbnailEpisodePackage(
+        nextEpisodePackage,
+        "hearth.thumbnail.concept.updated.v1",
+        { concept_id: selectedThumbnailConceptId },
+      );
+    } finally {
+      setIsThumbnailConceptSaving(false);
+    }
+  }
+
+  async function onDeleteSelectedThumbnailConcept() {
+    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
+    if (!episodePackage || !selectedThumbnailConceptId) return;
+    const confirmed = window.confirm("Delete this concept and its linked versions?");
+    if (!confirmed) return;
+
+    const nextConcepts = episodePackage.thumbnail.concepts.filter((concept) => concept.id !== selectedThumbnailConceptId);
+    const nextVersions = episodePackage.thumbnail.versions.filter((version) => version.concept_id !== selectedThumbnailConceptId);
+    const nextPrimary = nextVersions.some((version) => version.id === episodePackage.thumbnail.primary_version_id)
+      ? episodePackage.thumbnail.primary_version_id
+      : nextVersions[0]?.id ?? null;
+    const nextSelectedConceptId = nextConcepts[0]?.id ?? "";
+    const nextSelectedVersionId = nextPrimary ?? nextVersions[0]?.id ?? null;
+
+    const nextEpisodePackage: EpisodePackageV2 = {
+      ...episodePackage,
+      thumbnail: {
+        ...episodePackage.thumbnail,
+        concepts: nextConcepts,
+        versions: nextVersions,
+        primary_version_id: nextPrimary,
+      },
+    };
+
+    setIsThumbnailConceptSaving(true);
+    setThumbnailGenerateError(null);
+    try {
+      const saved = await persistThumbnailEpisodePackage(
+        nextEpisodePackage,
+        "hearth.thumbnail.concept.deleted.v1",
+        { concept_id: selectedThumbnailConceptId },
+      );
+      if (!saved) return;
+      setSelectedThumbnailConceptId(nextSelectedConceptId);
+      setSelectedThumbnailVersionId(nextSelectedVersionId);
+    } finally {
+      setIsThumbnailConceptSaving(false);
+    }
+  }
+
+  async function onSetPrimaryThumbnailVersion(versionId: string) {
+    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
+    if (!episodePackage) return;
+    const version = episodePackage.thumbnail.versions.find((entry) => entry.id === versionId);
+    if (!version || version.status !== "ready") return;
+
+    const nextEpisodePackage: EpisodePackageV2 = {
+      ...episodePackage,
+      thumbnail: {
+        ...episodePackage.thumbnail,
+        primary_version_id: versionId,
+      },
+    };
+
+    const saved = await persistThumbnailEpisodePackage(
+      nextEpisodePackage,
+      "hearth.thumbnail.primary.set.v1",
+      { version_id: versionId },
+    );
+    if (!saved) return;
+    setSelectedThumbnailVersionId(versionId);
+  }
+
+  async function onGenerateThumbnailVersion(options?: {
+    forceConceptId?: string | null;
+    forcePrompt?: string | null;
+  }) {
+    if (isAiProcessing || isApprovingScript || isThumbnailGenerating || isThumbnailUploading) return;
+
+    const episodeId = workpieceId?.trim() ?? "";
+    const workspace = workspaceId?.trim() ?? "";
+    if (!episodeId || !workspace || !episodePackage) {
       setThumbnailGenerateError("Select an Episode before generating thumbnails.");
       return;
     }
@@ -3420,10 +3709,18 @@ export default function HearthShell() {
       return;
     }
 
-    const conceptId = selectedThumbnailConceptId.trim() || null;
-    const promptOverride = thumbnailPromptOverride.trim() || null;
+    const conceptId = options?.forceConceptId ?? (selectedThumbnailConceptId.trim() || null);
+    const resolvedConcept = conceptId
+      ? episodePackage.thumbnail.concepts.find((concept) => concept.id === conceptId) ?? null
+      : null;
+    const promptOverride = options?.forcePrompt ?? (thumbnailPromptOverride.trim() || null);
+    const usedPrompt = (promptOverride || resolvedConcept?.prompt_text || "").trim();
     if (!conceptId && !promptOverride) {
       setThumbnailGenerateError("Select a concept or provide a prompt override.");
+      return;
+    }
+    if (!usedPrompt) {
+      setThumbnailGenerateError("Prompt is empty.");
       return;
     }
 
@@ -3435,6 +3732,7 @@ export default function HearthShell() {
 
     setIsThumbnailGenerating(true);
     setThumbnailGenerateError(null);
+    setThumbnailUploadError(null);
     setAiRuntimeWarning(null);
     try {
       const generated = await generateEpisodeThumbnail({
@@ -3442,18 +3740,49 @@ export default function HearthShell() {
         workpieceId: episodeId,
         conceptId,
         prompt: promptOverride,
-        preset: thumbnailPreset.trim() || null,
+        preset: resolvedConcept?.style_preset ?? null,
         aspect: thumbnailAspect,
         confirmSpend: confirmed,
         alwaysApproveAiSpend: alwaysApproveSpend,
       });
       if (!generated.ok) {
         setThumbnailGenerateError(generated.error);
+        const failedVersionId = createThumbnailClientId("thumb-failed-version");
+        const failedVersion: EpisodeThumbnailVersion = {
+          id: failedVersionId,
+          concept_id: conceptId ?? resolvedConcept?.id ?? "concept-failed",
+          created_at: new Date().toISOString(),
+          provider: "openai",
+          prompt: usedPrompt,
+          asset_id: `failed:${failedVersionId}`,
+          status: "failed",
+          error: generated.error,
+          provider_request_id: null,
+          asset_path: null,
+          mime_type: null,
+        };
+        const failedEpisodePackage: EpisodePackageV2 = {
+          ...episodePackage,
+          thumbnail: {
+            ...episodePackage.thumbnail,
+            versions: [...episodePackage.thumbnail.versions, failedVersion],
+          },
+        };
+        const savedFailed = await persistThumbnailEpisodePackage(
+          failedEpisodePackage,
+          "hearth.thumbnail.version.failed.v1",
+          { version_id: failedVersion.id, concept_id: failedVersion.concept_id },
+        );
+        if (savedFailed) {
+          setSelectedThumbnailVersionId(failedVersion.id);
+        }
         return;
       }
 
       setEpisodePackage(generated.updatedEpisodePackage);
       setSelectedThumbnailConceptId(generated.version.concept_id);
+      setSelectedThumbnailVersionId(generated.version.id);
+      setThumbnailPromptOverride("");
       if (typeof generated.tokenBalance === "number") {
         setAiTokenBalance(generated.tokenBalance);
       }
@@ -3465,6 +3794,82 @@ export default function HearthShell() {
       setThumbnailGenerateError(message);
     } finally {
       setIsThumbnailGenerating(false);
+    }
+  }
+
+  async function onRetryFailedThumbnailVersion(version: EpisodeThumbnailVersion) {
+    await onGenerateThumbnailVersion({
+      forceConceptId: version.concept_id,
+      forcePrompt: version.prompt,
+    });
+  }
+
+  async function onUploadThumbnailImage(file: File) {
+    if (isThumbnailUploading || isThumbnailGenerating || isThumbnailConceptSaving) return;
+    if (!episodePackage) return;
+
+    const episodeId = workpieceId?.trim() ?? "";
+    const workspace = workspaceId?.trim() ?? "";
+    if (!episodeId || !workspace) {
+      setThumbnailUploadError("Select an Episode before uploading.");
+      return;
+    }
+
+    const selectedConcept = selectedThumbnailConceptId
+      ? episodePackage.thumbnail.concepts.find((concept) => concept.id === selectedThumbnailConceptId) ?? null
+      : null;
+
+    let effectiveConcept = selectedConcept;
+    let workingEpisodePackage = episodePackage;
+    if (!effectiveConcept) {
+      effectiveConcept = {
+        id: createThumbnailClientId("thumb-concept-upload"),
+        label: "Uploaded",
+        prompt_text: "Uploaded image",
+        style_preset: null,
+      };
+      workingEpisodePackage = {
+        ...episodePackage,
+        thumbnail: {
+          ...episodePackage.thumbnail,
+          concepts: [...episodePackage.thumbnail.concepts, effectiveConcept],
+        },
+      };
+    }
+
+    setIsThumbnailUploading(true);
+    setThumbnailUploadError(null);
+    setThumbnailGenerateError(null);
+    try {
+      const uploaded = await uploadThumbnailImageVersion({
+        workpieceId: episodeId,
+        concept: effectiveConcept,
+        file,
+      });
+      if (!uploaded.ok) {
+        setThumbnailUploadError(uploaded.error);
+        return;
+      }
+
+      const nextEpisodePackage: EpisodePackageV2 = {
+        ...workingEpisodePackage,
+        thumbnail: {
+          ...workingEpisodePackage.thumbnail,
+          versions: [...workingEpisodePackage.thumbnail.versions, uploaded.version],
+          primary_version_id: uploaded.version.id,
+        },
+      };
+
+      const saved = await persistThumbnailEpisodePackage(
+        nextEpisodePackage,
+        "hearth.thumbnail.upload.version.saved.v1",
+        { version_id: uploaded.version.id, concept_id: uploaded.version.concept_id },
+      );
+      if (!saved) return;
+      setSelectedThumbnailConceptId(uploaded.version.concept_id);
+      setSelectedThumbnailVersionId(uploaded.version.id);
+    } finally {
+      setIsThumbnailUploading(false);
     }
   }
 
@@ -4169,12 +4574,6 @@ export default function HearthShell() {
     const approvedAtText = scriptApprovalState.approvedAt
       ? formatUpdatedAt(scriptApprovalState.approvedAt)
       : "Unknown";
-    const selectedThumbnailConcept = thumbnailConcepts.find((concept) => concept.id === selectedThumbnailConceptId) ?? null;
-    const recentThumbnailVersionsText = thumbnailVersions
-      .slice(-3)
-      .reverse()
-      .map((version) => `${version.id.slice(0, 8)}:${version.status}`)
-      .join(" | ");
 
     return (
       <section className="hs-draft hs-draft-chat-first">
@@ -4438,70 +4837,43 @@ export default function HearthShell() {
             ) : null}
 
             {hasApprovedScript && approvedScriptVersion ? (
-              <section className="hs-ai-proposal" aria-label="Thumbnail generation">
-                <div className="hs-ai-proposal-header">
-                  <div className="hs-ai-proposal-title">Thumbnail Generate</div>
-                  <div className="hs-ai-proposal-meta">
-                    {thumbnailVersions.length} versions
-                    {primaryThumbnailVersionId ? ` · primary ${primaryThumbnailVersionId.slice(0, 8)}` : ""}
-                  </div>
-                </div>
-                <div className="hs-ai-shortcut-row" role="group" aria-label="Thumbnail controls">
-                  <select
-                    value={selectedThumbnailConceptId}
-                    onChange={(event) => setSelectedThumbnailConceptId(event.target.value)}
-                    disabled={isThumbnailGenerating}
-                  >
-                    <option value="">Prompt override</option>
-                    {thumbnailConcepts.map((concept) => (
-                      <option key={concept.id} value={concept.id}>
-                        {concept.label}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={thumbnailAspect}
-                    onChange={(event) => setThumbnailAspect(event.target.value as "16:9" | "1:1" | "9:16")}
-                    disabled={isThumbnailGenerating}
-                  >
-                    <option value="16:9">16:9</option>
-                    <option value="1:1">1:1</option>
-                    <option value="9:16">9:16</option>
-                  </select>
-                </div>
-                <input
-                  type="text"
-                  value={thumbnailPreset}
-                  onChange={(event) => setThumbnailPreset(event.target.value)}
-                  placeholder="Style preset (optional)"
-                  disabled={isThumbnailGenerating}
-                />
-                <textarea
-                  className="hs-ai-chat-input"
-                  rows={2}
-                  value={thumbnailPromptOverride}
-                  onChange={(event) => setThumbnailPromptOverride(event.target.value)}
-                  placeholder={selectedThumbnailConcept
-                    ? `Prompt override (optional). Using concept: ${selectedThumbnailConcept.label}`
-                    : "Prompt override (required if no concept selected)"}
-                  disabled={isThumbnailGenerating}
-                />
-                <div className="hs-ai-proposal-actions">
-                  <button
-                    type="button"
-                    onClick={() => void onGenerateThumbnailVersion()}
-                    disabled={isThumbnailGenerating || isAiProcessing || isApprovingScript}
-                  >
-                    {isThumbnailGenerating ? "Generating..." : "Generate"}
-                  </button>
-                </div>
-                {thumbnailGenerateError ? (
-                  <div className="hs-error-text-small">{thumbnailGenerateError}</div>
-                ) : null}
-                {recentThumbnailVersionsText ? (
-                  <div className="hs-field-label-muted">Recent: {recentThumbnailVersionsText}</div>
-                ) : null}
-              </section>
+              <ThumbnailPanel
+                concepts={thumbnailConcepts}
+                versions={thumbnailVersions}
+                selectedConceptId={selectedThumbnailConceptId}
+                selectedVersionId={selectedThumbnailVersionId}
+                primaryVersionId={primaryThumbnailVersionId}
+                selectedConceptLabel={thumbnailConceptLabelDraft}
+                selectedConceptPrompt={thumbnailConceptPromptDraft}
+                selectedConceptStylePreset={thumbnailConceptStyleDraft}
+                promptOverride={thumbnailPromptOverride}
+                aspect={thumbnailAspect}
+                safeZoneEnabled={thumbnailSafeZoneEnabled}
+                previewDataUrl={thumbnailPreviewDataUrl}
+                previewState={thumbnailPreviewState}
+                previewError={thumbnailPreviewError}
+                generateError={thumbnailGenerateError}
+                uploadError={thumbnailUploadError}
+                isGenerating={isThumbnailGenerating}
+                isSavingConcept={isThumbnailConceptSaving}
+                isUploading={isThumbnailUploading}
+                onSelectConcept={setSelectedThumbnailConceptId}
+                onSelectedConceptLabelChange={setThumbnailConceptLabelDraft}
+                onSelectedConceptPromptChange={setThumbnailConceptPromptDraft}
+                onSelectedConceptStylePresetChange={setThumbnailConceptStyleDraft}
+                onCreateConcept={() => void onCreateThumbnailConcept()}
+                onSaveConcept={() => void onSaveSelectedThumbnailConcept()}
+                onDeleteConcept={() => void onDeleteSelectedThumbnailConcept()}
+                onPromptOverrideChange={setThumbnailPromptOverride}
+                onAspectChange={setThumbnailAspect}
+                onGenerate={() => void onGenerateThumbnailVersion()}
+                onRegenerate={() => void onGenerateThumbnailVersion({ forceConceptId: selectedThumbnailConceptId || null })}
+                onToggleSafeZone={() => setThumbnailSafeZoneEnabled((prev) => !prev)}
+                onUploadImage={(file) => void onUploadThumbnailImage(file)}
+                onSelectVersion={setSelectedThumbnailVersionId}
+                onSetPrimary={(versionId) => void onSetPrimaryThumbnailVersion(versionId)}
+                onRetryVersion={(version) => void onRetryFailedThumbnailVersion(version)}
+              />
             ) : null}
 
             <div className="hs-ai-shortcut-row" role="group" aria-label="Chat shortcuts">

@@ -31,6 +31,10 @@ export type EpisodeThumbnailVersion = {
   prompt: string;
   asset_id: string;
   status: string;
+  provider_request_id?: string | null;
+  asset_path?: string | null;
+  mime_type?: string | null;
+  error?: string | null;
 };
 
 export type EpisodeThumbnail = {
@@ -237,6 +241,10 @@ function normalizeThumbnailVersions(value: unknown): EpisodeThumbnailVersion[] {
       prompt,
       asset_id: assetId,
       status,
+      provider_request_id: readString(entry.provider_request_id),
+      asset_path: readString(entry.asset_path),
+      mime_type: readString(entry.mime_type),
+      error: readString(entry.error),
     });
   }
   return out;
@@ -680,4 +688,3 @@ export function buildDefaultMetadataDocument(args: {
   };
   return mirrorEpisodePackageV2ToLegacy(base);
 }
-

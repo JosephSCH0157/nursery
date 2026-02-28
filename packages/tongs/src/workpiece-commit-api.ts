@@ -203,6 +203,10 @@ export type ReadTextFileResult =
   | { found: true; text: string }
   | { found: false };
 
+export type ReadBinaryFileResult =
+  | { found: true; bytes_base64: string; content_type: string }
+  | { found: false };
+
 export type AppendEventRequest = {
   event_name: string;
   payload?: Json;
@@ -249,6 +253,8 @@ export type ThumbnailVersionRecord = {
   prompt: string;
   provider_request_id: string | null;
   asset_id: string;
+  asset_path: string | null;
+  mime_type: string | null;
   status: "ready" | "failed";
   error: string | null;
 };
@@ -357,6 +363,7 @@ export type TongsCommitApiService = {
   readWorkspaceJson(workspaceId: string, path: string): Promise<ReadJsonFileResult>;
   readWorkpieceText(workpieceId: string, path: string): Promise<ReadTextFileResult>;
   readWorkspaceText(workspaceId: string, path: string): Promise<ReadTextFileResult>;
+  readWorkpieceBinary(workpieceId: string, path: string): Promise<ReadBinaryFileResult>;
 };
 
 class HttpError extends Error {
@@ -605,6 +612,28 @@ function decodeBase64(base64: string): Uint8Array {
   }
 
   throw new HttpError(500, "base64_unavailable", "No base64 decoder available in runtime");
+}
+
+function encodeBase64(bytes: Uint8Array): string {
+  const globalWithBuffer = globalThis as typeof globalThis & {
+    Buffer?: {
+      from(data: Uint8Array): { toString(encoding: "base64"): string };
+    };
+  };
+
+  if (globalWithBuffer.Buffer?.from) {
+    return globalWithBuffer.Buffer.from(bytes).toString("base64");
+  }
+
+  if (typeof btoa === "function") {
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 1) {
+      binary += String.fromCharCode(bytes[i] ?? 0);
+    }
+    return btoa(binary);
+  }
+
+  throw new HttpError(500, "base64_unavailable", "No base64 encoder available in runtime");
 }
 
 function uint8ToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
@@ -1449,6 +1478,8 @@ function normalizeThumbnailVersion(value: unknown): ThumbnailVersionRecord | nul
     prompt,
     provider_request_id: readStringField(row, "provider_request_id"),
     asset_id: assetId,
+    asset_path: readStringField(row, "asset_path"),
+    mime_type: readStringField(row, "mime_type"),
     status,
     error: readStringField(row, "error"),
   };
@@ -2359,6 +2390,8 @@ export class TongsCommitService {
       prompt: finalPrompt,
       provider_request_id: imageResult.providerRequestId,
       asset_id: assetId,
+      asset_path: assetPath,
+      mime_type: imageResult.mimeType,
       status: "ready",
       error: null,
     };
@@ -2684,6 +2717,34 @@ export class TongsCommitService {
     if (!bytes) return { found: false };
     const text = normalizeLf(stripBom(textDecoder.decode(bytes)));
     return { found: true, text };
+  }
+
+  async readWorkpieceBinary(workpieceId: string, path: string): Promise<ReadBinaryFileResult> {
+    await this.getCradleOrThrow(workpieceId);
+    const storageKey = buildStorageKey(workpieceId, path);
+    const bytes = await downloadStorageObject(this.supabase, this.bucket, storageKey);
+    if (!bytes) return { found: false };
+
+    const { data: fileRow, error: fileRowError } = await this.supabase
+      .schema("tongs")
+      .from("workpiece_files")
+      .select("content_type")
+      .eq("workpiece_id", workpieceId)
+      .eq("path", path)
+      .maybeSingle();
+
+    if (fileRowError) {
+      throw new HttpError(502, "db_read_failed", "Failed to read workpiece file metadata", {
+        reason: fileRowError.message,
+      });
+    }
+
+    const contentType = fileRow?.content_type?.trim() || normalizeContentType(undefined, path);
+    return {
+      found: true,
+      bytes_base64: encodeBase64(bytes),
+      content_type: contentType,
+    };
   }
 
   async readWorkspaceText(workspaceId: string, path: string): Promise<ReadTextFileResult> {
@@ -3088,6 +3149,25 @@ export function createTongsCommitApiHandlerWithService(
         const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
         const url = new URL(request.url);
         const path = normalizeRelativePath(url.searchParams.get("path"));
+        const encoding = (url.searchParams.get("encoding") ?? "").trim().toLowerCase();
+
+        if (encoding === "base64") {
+          const result = await service.readWorkpieceBinary(workpieceId, path);
+          if (!result.found) {
+            return jsonResponse(404, {
+              ok: true,
+              exists: false,
+            });
+          }
+          return jsonResponse(200, {
+            ok: true,
+            data: {
+              bytes_base64: result.bytes_base64,
+              content_type: result.content_type,
+            },
+          });
+        }
+
         if (extensionOf(path) === ".json") {
           const result = await service.readWorkpieceJson(workpieceId, path);
           if (!result.found) {

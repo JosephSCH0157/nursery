@@ -17,6 +17,7 @@ function mockService() {
     listSessionEpisodes: [],
     listWorkspaceReadyScripts: [],
     appendEvent: [],
+    readWorkpieceBinary: [],
   };
 
   const service = {
@@ -261,6 +262,14 @@ function mockService() {
         created_at: "2026-02-21T00:00:00.000Z",
       };
     },
+    async readWorkpieceBinary(workpieceId, path) {
+      calls.readWorkpieceBinary.push({ workpieceId, path });
+      return {
+        found: true,
+        bytes_base64: "AQID",
+        content_type: "image/png",
+      };
+    },
   };
 
   return { service, calls };
@@ -385,6 +394,27 @@ test("POST /tongs/workpieces/:id/generate-thumbnail dispatches generateEpisodeTh
   assert.equal(body.data?.version?.status, "ready");
   assert.equal(typeof body.data?.asset?.storage_key, "string");
   assert.equal(body.data?.primary_version_id, "44444444-4444-4444-8444-444444444444");
+});
+
+test("GET /tongs/workpieces/:id/read-file?encoding=base64 dispatches readWorkpieceBinary", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/read-file?path=assets%2Fthumbnails%2F111%2F222.png&encoding=base64",
+    { method: "GET" },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.readWorkpieceBinary.length, 1);
+  assert.equal(calls.readWorkpieceBinary[0].workpieceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.readWorkpieceBinary[0].path, "assets/thumbnails/111/222.png");
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.content_type, "image/png");
+  assert.equal(body.data?.bytes_base64, "AQID");
 });
 
 test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata version", async () => {
