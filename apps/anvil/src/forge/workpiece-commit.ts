@@ -126,7 +126,21 @@ function getWrittenBy(): WrittenBy {
 }
 
 function getApiToken(): string | undefined {
-  return readString((window as any).__forgeTongsApiToken) ?? undefined;
+  const fromQuery = readString(getQueryParam("tongs_api_token", "tongsApiToken"));
+  if (fromQuery) return fromQuery;
+
+  const fromWindow = readString((window as any).__forgeTongsApiToken ?? (window as any).__tpTongsApiToken);
+  if (fromWindow) return fromWindow;
+
+  try {
+    const meta = import.meta as unknown as { env?: Record<string, string | undefined> };
+    const fromEnv = readString(meta.env?.VITE_TONGS_API_TOKEN);
+    if (fromEnv) return fromEnv;
+  } catch {
+    // ignore env access failures
+  }
+
+  return readLocalStorage("forge_tongs_api_token_v1") ?? undefined;
 }
 
 function getOrCreateRecordingSessionId(): string {

@@ -61,6 +61,20 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+function normalizeSparkStatus(value: unknown): "raw" | "warming" | "forged" | "archived" {
+  if (value === "raw" || value === "warming" || value === "forged" || value === "archived") {
+    return value;
+  }
+  return "raw";
+}
+
+function normalizeSparkSource(value: unknown): "typed" | "paste" | "voice" | "import" | "link" | "other" {
+  if (value === "typed" || value === "paste" || value === "voice" || value === "import" || value === "link" || value === "other") {
+    return value;
+  }
+  return "other";
+}
+
 function uniqById<T extends { id: string }>(items: T[]): T[] {
   const map = new Map<string, T>();
   for (const it of items) map.set(it.id, it);
@@ -148,12 +162,12 @@ export async function flushOutboxToTongs(args: {
         id: normalizedId,
         workspace_id: workspaceId,
         created_by: userId,
-        session_id: sp.assignmentId ?? null,
+        episode_id: sp.assignmentId ?? null,
         title: sp.title ?? null,
         body: sp.body,
         tags: Array.isArray(sp.tags) ? sp.tags : [],
-        status: sp.status,
-        source: sp.source,
+        status: normalizeSparkStatus(sp.status),
+        source: normalizeSparkSource(sp.source),
         pinned: !!sp.pinned,
         deleted_at: null
       };

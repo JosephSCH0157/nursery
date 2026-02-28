@@ -1,8 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 
 const GENERATED_TELEPROMPTER_BANNER =
   "<!-- GENERATED FILE. DO NOT EDIT. Edit apps/anvil/teleprompter_pro.html -->";
+const PNPM_BIN = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+const ANVIL_DIST_WAIT_MS = 2000;
+const ANVIL_DIST_POLL_MS = 100;
 
 function copyDir(src, dest) {
   fs.mkdirSync(dest, { recursive: true });
@@ -62,15 +66,48 @@ Do not edit files here manually; they are overwritten by sync.
   fs.writeFileSync(readmePath, body, "utf8");
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function ensureAnvilDist(src, workspaceRoot) {
+  if (fs.existsSync(src)) {
+    return;
+  }
+
+  // In recursive builds, Anvil may still be producing dist; wait briefly first.
+  const deadline = Date.now() + ANVIL_DIST_WAIT_MS;
+  while (Date.now() < deadline) {
+    await sleep(ANVIL_DIST_POLL_MS);
+    if (fs.existsSync(src)) {
+      return;
+    }
+  }
+
+  console.warn(`[sync-anvil] missing: ${src}`);
+  console.warn("[sync-anvil] running teleprompter build to generate dist.");
+
+  const buildResult = spawnSync(PNPM_BIN, ["--filter", "teleprompter", "build"], {
+    cwd: workspaceRoot,
+    stdio: "inherit",
+  });
+
+  if (buildResult.status !== 0) {
+    process.exit(buildResult.status ?? 1);
+  }
+
+  if (!fs.existsSync(src)) {
+    console.error(`[sync-anvil] missing after build: ${src}`);
+    process.exit(1);
+  }
+}
+
 const nurseryRoot = process.cwd();
 const src = path.resolve(nurseryRoot, "..", "anvil", "dist");
 const dest = path.resolve(nurseryRoot, "public", "anvil");
+const workspaceRoot = path.resolve(nurseryRoot, "..", "..");
 
-if (!fs.existsSync(src)) {
-  console.error(`[sync-anvil] missing: ${src}`);
-  console.error("[sync-anvil] build Anvil first (apps/anvil) so dist exists.");
-  process.exit(1);
-}
+await ensureAnvilDist(src, workspaceRoot);
 
 resetDir(dest);
 copyDir(src, dest);

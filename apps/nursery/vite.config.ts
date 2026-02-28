@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { resolve } from "path";
+import { mwHearthChatApi } from "./scripts/mw-hearth-chat-api";
 import { createNurseryTongsMiddleware } from "./scripts/mw-tongs-commit-api";
 
 // https://vite.dev/config/
@@ -11,6 +12,7 @@ export default defineConfig({
       name: "nursery:tongs-commit-api",
       configureServer(server) {
         server.middlewares.use(createNurseryTongsMiddleware({ routePrefix: "/tongs" }));
+        server.middlewares.use(mwHearthChatApi());
       },
     },
   ],

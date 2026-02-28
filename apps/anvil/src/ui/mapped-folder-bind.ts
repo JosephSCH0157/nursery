@@ -10,6 +10,7 @@ import {
 import { ScriptStore } from '../features/scripts-store';
 import { debugLog, hudLog } from '../env/logging';
 import { getNurseryStorageSettingsUrl } from '../forge/nursery-mounts';
+import { listWorkspaceReadyScripts } from '../forge/ready-scripts';
 import {
   consumeLastScriptId,
   loadScriptById,
@@ -381,7 +382,6 @@ export async function bindMappedFolderUI(opts: BindOpts): Promise<() => void> {
 
   async function refreshList() {
     try {
-      await ensureInit();
       ensureManagementUi();
       // In deterministic CI mock mode, preserve pre-populated options (avoid wiping to "(No scripts found)")
       const mockMode = !!(window as any).__tpMockFolderMode;
@@ -392,7 +392,18 @@ export async function bindMappedFolderUI(opts: BindOpts): Promise<() => void> {
         return;
       }
       try { sel.setAttribute('aria-busy','true'); } catch {}
-      const entries = await listScripts();
+      const [readyScripts, entries] = await Promise.all([
+        listWorkspaceReadyScripts().catch(() => []),
+        (async () => {
+          try {
+            await ensureInit();
+            return await listScripts();
+          } catch {
+            return [];
+          }
+        })(),
+      ]);
+      try { ScriptStore.syncReady(readyScripts); } catch {}
       const entriesFingerprint = fingerprintNames(entries);
       const prevFingerprint = lastPopulateFingerprints.get(sel);
       if (!entriesFingerprint || entriesFingerprint !== prevFingerprint) {

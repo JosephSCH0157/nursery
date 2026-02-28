@@ -15,6 +15,12 @@ export type HearthSessionLinks = {
   source_ids?: string[];
 };
 
+export type HearthTitleVariants = {
+  A?: string;
+  B?: string;
+  C?: string;
+};
+
 export type HearthPlanningSession = {
   schema: "forge.hearth.session.v1";
   workpiece_id?: string | null;
@@ -24,6 +30,7 @@ export type HearthPlanningSession = {
   origin?: HearthSessionOrigin | null;
   intent?: HearthSessionIntent | null;
   title?: string | null;
+  title_variants?: HearthTitleVariants | null;
   goals?: string[];
   outline?: string[];
   audience?: string | null;

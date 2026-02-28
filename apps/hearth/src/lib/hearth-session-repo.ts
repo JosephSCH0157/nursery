@@ -1,4 +1,9 @@
-import type { HearthPlanningSession, HearthSessionDecision, HearthSessionIntent } from "../domain/hearth-session";
+import type {
+  HearthPlanningSession,
+  HearthSessionDecision,
+  HearthSessionIntent,
+  HearthTitleVariants,
+} from "../domain/hearth-session";
 import { HEARTH_SESSION_PATH, HEARTH_SESSION_SCHEMA } from "../domain/hearth-session";
 import { resolveWorkspaceId } from "./sources-repo";
 import { tongsFetch } from "./tongs-fetch";
@@ -58,6 +63,19 @@ function normalizeIntent(value: unknown): HearthSessionIntent | null {
   return null;
 }
 
+function normalizeTitleVariants(value: unknown): HearthTitleVariants | null {
+  if (!isRecord(value)) return null;
+  const A = readNullableString(value.A) ?? undefined;
+  const B = readNullableString(value.B) ?? undefined;
+  const C = readNullableString(value.C) ?? undefined;
+  if (!A && !B && !C) return null;
+  return {
+    A,
+    B,
+    C,
+  };
+}
+
 function normalizeSession(raw: unknown): HearthPlanningSession | null {
   if (!isRecord(raw)) return null;
   const schema = readString(raw.schema);
@@ -75,6 +93,7 @@ function normalizeSession(raw: unknown): HearthPlanningSession | null {
     origin: isRecord(raw.origin) ? (raw.origin as HearthPlanningSession["origin"]) : undefined,
     intent: normalizeIntent(raw.intent),
     title: readNullableString(raw.title),
+    title_variants: normalizeTitleVariants(raw.title_variants),
     goals: normalizeStringArray(raw.goals),
     outline: normalizeStringArray(raw.outline),
     audience: readNullableString(raw.audience),
@@ -171,12 +190,17 @@ async function postJsonToTongs(url: string, payload: unknown): Promise<ReadResul
 
 function isSessionEmpty(session: HearthPlanningSession): boolean {
   const hasTitle = Boolean(session.title && session.title.trim());
+  const hasTitleVariants = Boolean(
+    session.title_variants?.A?.trim()
+    || session.title_variants?.B?.trim()
+    || session.title_variants?.C?.trim(),
+  );
   const hasGoals = (session.goals ?? []).length > 0;
   const hasOutline = (session.outline ?? []).length > 0;
   const hasDecisions = (session.decisions ?? []).length > 0;
   const hasAudience = Boolean(session.audience && session.audience.trim());
   const hasTone = Boolean(session.tone_preset && session.tone_preset.trim());
-  return !(hasTitle || hasGoals || hasOutline || hasDecisions || hasAudience || hasTone);
+  return !(hasTitle || hasTitleVariants || hasGoals || hasOutline || hasDecisions || hasAudience || hasTone);
 }
 
 function deriveIntent(session: HearthPlanningSession): HearthSessionIntent | null {
@@ -206,6 +230,7 @@ function buildSessionDocument(
     origin,
     intent,
     title: session.title ?? null,
+    title_variants: normalizeTitleVariants(session.title_variants),
     goals: session.goals ?? [],
     outline: session.outline ?? [],
     audience: session.audience ?? null,
@@ -226,6 +251,7 @@ function buildEmptySession(workpieceId: string): HearthPlanningSession {
     origin: null,
     intent: null,
     title: null,
+    title_variants: null,
     goals: [],
     outline: [],
     audience: null,

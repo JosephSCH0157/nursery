@@ -5,7 +5,9 @@ import { loadMountRegistry } from "../lib/mount-registry";
 import { supabase } from "../lib/supabase";
 import { listMyWorkspaces, type Workspace } from "@barstock/lib/tongs-api";
 import { ForgeNav } from "../nav/ForgeNav";
-import { forgeNavTree } from "../nav/forgeNavTree";
+import { FORGE_NAV_ACTION_AI_CONTROLS, forgeNavTree } from "../nav/forgeNavTree";
+import { parseForgeRouteContext, removeWorkspaceParams } from "../lib/forge-route-context";
+import { AiControlsPanel } from "../components/hearth/AiControlsPanel";
 
 const WORKSPACE_CACHE_KEY = "forge_workspaces_cache_v1";
 const ACTIVE_WORKSPACE_KEY = "forge_workspace_id_v1";
@@ -55,13 +57,6 @@ function saveActiveWorkspaceId(id: string | null) {
   localStorage.removeItem(LEGACY_BARSTOCK_WORKSPACE_KEY);
 }
 
-function loadWorkspaceIdFromSearch(search: string): string | null {
-  const raw = new URLSearchParams(search).get("workspace_id");
-  if (!raw) return null;
-  const trimmed = raw.trim();
-  return trimmed.length ? trimmed : null;
-}
-
 function getErrorMessage(error: unknown, fallback: string): string {
   if (error && typeof error === "object" && "message" in error) {
     const message = (error as { message?: unknown }).message;
@@ -85,7 +80,7 @@ export default function AppShell() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>(() => loadWorkspaceCache());
   const [workspaceId, setWorkspaceId] = useState<string | null>(() => {
     const fromUrl = typeof window !== "undefined"
-      ? loadWorkspaceIdFromSearch(window.location.search)
+      ? parseForgeRouteContext(window.location.search).workspaceId
       : null;
     return fromUrl ?? loadActiveWorkspaceId();
   });
@@ -103,11 +98,10 @@ export default function AppShell() {
   const [renameError, setRenameError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [workspaceGateChoice, setWorkspaceGateChoice] = useState("");
+  const [aiControlsOpen, setAiControlsOpen] = useState(false);
 
-  const urlWorkspaceId = useMemo(
-    () => loadWorkspaceIdFromSearch(location.search),
-    [location.search],
-  );
+  const urlContext = useMemo(() => parseForgeRouteContext(location.search), [location.search]);
+  const urlWorkspaceId = urlContext.workspaceId;
 
   useEffect(() => {
     const res = loadMountRegistry("default");
@@ -226,14 +220,10 @@ export default function AppShell() {
     if (!session || !urlWorkspaceId) return;
     if (!hasWorkspaceFetchSucceeded || loadingWorkspaces) return;
     if (workspaces.some((w) => w.id === urlWorkspaceId)) return;
-
-    const params = new URLSearchParams(location.search);
-    params.delete("workspace_id");
-    const nextSearch = params.toString();
     nav(
       {
         pathname: location.pathname,
-        search: nextSearch ? `?${nextSearch}` : "",
+        search: removeWorkspaceParams(location.search),
         hash: location.hash,
       },
       { replace: true },
@@ -244,6 +234,24 @@ export default function AppShell() {
     hasWorkspaceFetchSucceeded,
     loadingWorkspaces,
     workspaces,
+    location.pathname,
+    location.search,
+    location.hash,
+    nav,
+  ]);
+
+  useEffect(() => {
+    if (!urlContext.hasInvalidWorkspaceId) return;
+    nav(
+      {
+        pathname: location.pathname,
+        search: removeWorkspaceParams(location.search),
+        hash: location.hash,
+      },
+      { replace: true },
+    );
+  }, [
+    urlContext.hasInvalidWorkspaceId,
     location.pathname,
     location.search,
     location.hash,
@@ -321,45 +329,54 @@ export default function AppShell() {
     setCreating(true);
     setCreateError(null);
     try {
-      const { data: workspace, error } = await supabase
-        .schema("tongs")
-        .from("workspaces")
-        .insert({
-          name: "Workspace",
-        })
-        .select("id,name")
+      // Prefer a single atomic RPC so row creation + owner membership are guaranteed together.
+      let workspaceId: string | null = null;
+      const tongsRpcClient = supabase.schema("tongs") as unknown as {
+        rpc: (
+          fn: string,
+          args?: Record<string, unknown>,
+        ) => {
+          single: () => Promise<{ data: unknown; error: unknown }>;
+        };
+      };
+      const { data: createdViaRpc, error: rpcError } = await tongsRpcClient
+        .rpc("create_workspace_with_owner", { _name: "Workspace" })
         .single();
 
-      if (error) {
-        const msg =
-          typeof error === "object" && error !== null && "message" in error
-            ? String((error as { message?: unknown }).message)
-            : "Unknown error";
-        setCreateError(msg);
-        return;
+      if (!rpcError && createdViaRpc && typeof createdViaRpc === "object") {
+        const id = (createdViaRpc as { id?: unknown }).id;
+        workspaceId = typeof id === "string" && id.trim() ? id : null;
       }
 
-      if (!workspace?.id) {
+      if (!workspaceId) {
+        if (rpcError) {
+          console.warn("[workspace] rpc create failed; falling back to direct insert", rpcError);
+        }
+
+        const { data: workspace, error: insertError } = await supabase
+          .schema("tongs")
+          .from("workspaces")
+          .insert({
+            name: "Workspace",
+            created_by: session.user.id,
+          })
+          .select("id,name")
+          .single();
+
+        if (insertError) {
+          setCreateError(getErrorMessage(insertError, "Failed to create workspace."));
+          return;
+        }
+        workspaceId = typeof workspace?.id === "string" && workspace.id.trim() ? workspace.id : null;
+      }
+
+      if (!workspaceId) {
         setCreateError("Failed to create workspace.");
         return;
       }
 
-      if (session.user?.id) {
-        const { error: memberError } = await supabase
-          .schema("tongs")
-          .from("workspace_members")
-          .insert({
-            workspace_id: workspace.id,
-            user_id: session.user.id,
-            role: "owner",
-          });
-        if (memberError) {
-          console.warn("[workspace] member insert failed", memberError);
-        }
-      }
-
-      await refreshWorkspaces({ force: true, preferId: workspace.id });
-      selectWorkspace(workspace.id);
+      await refreshWorkspaces({ force: true, preferId: workspaceId });
+      selectWorkspace(workspaceId);
       setCreateOpen(false);
     } finally {
       setCreating(false);
@@ -405,6 +422,16 @@ export default function AppShell() {
 
     setWorkspaceGateChoice(workspaces[0]?.id ?? "");
   }, [shouldBlockWorkspaceRoute, workspaceGateChoice, workspaces]);
+
+  function onNavAction(actionId: string) {
+    if (actionId !== FORGE_NAV_ACTION_AI_CONTROLS) return;
+    setAiControlsOpen(true);
+  }
+
+  const navExtraItems = useMemo(
+    () => [{ id: "ai-controls", label: "AI Controls", actionId: FORGE_NAV_ACTION_AI_CONTROLS }],
+    [],
+  );
 
   return (
     <div
@@ -540,7 +567,7 @@ export default function AppShell() {
 
       <div style={{ display: "flex", flex: 1 }}>
         <aside style={{ width: 240, padding: 16, borderRight: "1px solid var(--forge-border)" }}>
-          <ForgeNav tree={forgeNavTree} />
+          <ForgeNav tree={forgeNavTree} extraItems={navExtraItems} onAction={onNavAction} />
         </aside>
 
         <main style={{ flex: 1, padding: 16 }}>
@@ -696,6 +723,25 @@ export default function AppShell() {
           </div>
         </div>
       )}
+
+      {aiControlsOpen ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(5, 10, 18, 0.58)",
+            display: "grid",
+            placeItems: "center",
+            padding: 16,
+            zIndex: 10000,
+          }}
+          onClick={() => setAiControlsOpen(false)}
+        >
+          <div onClick={(event) => event.stopPropagation()}>
+            <AiControlsPanel onClose={() => setAiControlsOpen(false)} />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -4,7 +4,7 @@
 
 Hearth is the conversational script-forging tool in the Podcasters Forge ecosystem. Its sole purpose is to help creators transform raw ideas (Bar Stock sparks) into record-ready scripts that conform strictly to Anvil tag rules.
 
-Release status: included in **Forge v1.0.0** (`forge-v1.0.0`).
+Release status: included in **Forge v1.2.0 Fire Burning** (`forge-v1.2.0`).
 
 Hearth is not a teleprompter, recorder, editor, publisher, or SEO tool. It is the thinking fire that gives Anvil power.
 
@@ -40,13 +40,7 @@ Hearth is not a teleprompter, recorder, editor, publisher, or SEO tool. It is th
   * [pause], [beat], [reflective pause]
   * [note] (hidden in Anvil)
 
-### Explicitly Excluded
 
-* SEO titles, tags, descriptions
-* Thumbnails, images, B-roll
-* Platform optimization
-* Publishing or distribution logic
-* Recording or playback
 
 If it does not help a human read the script aloud in Anvil, it does not exist in V1.
 

@@ -81,10 +81,10 @@ var init_tslib_es6 = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+functions-js@2.97.0/node_modules/@supabase/functions-js/dist/module/helper.js
+// ../../node_modules/.pnpm/@supabase+functions-js@2.98.0/node_modules/@supabase/functions-js/dist/module/helper.js
 var resolveFetch;
 var init_helper = __esm({
-  "../../node_modules/.pnpm/@supabase+functions-js@2.97.0/node_modules/@supabase/functions-js/dist/module/helper.js"() {
+  "../../node_modules/.pnpm/@supabase+functions-js@2.98.0/node_modules/@supabase/functions-js/dist/module/helper.js"() {
     resolveFetch = (customFetch) => {
       if (customFetch) {
         return (...args) => customFetch(...args);
@@ -94,10 +94,10 @@ var init_helper = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+functions-js@2.97.0/node_modules/@supabase/functions-js/dist/module/types.js
+// ../../node_modules/.pnpm/@supabase+functions-js@2.98.0/node_modules/@supabase/functions-js/dist/module/types.js
 var FunctionsError, FunctionsFetchError, FunctionsRelayError, FunctionsHttpError, FunctionRegion;
 var init_types = __esm({
-  "../../node_modules/.pnpm/@supabase+functions-js@2.97.0/node_modules/@supabase/functions-js/dist/module/types.js"() {
+  "../../node_modules/.pnpm/@supabase+functions-js@2.98.0/node_modules/@supabase/functions-js/dist/module/types.js"() {
     FunctionsError = class extends Error {
       constructor(message, name = "FunctionsError", context) {
         super(message);
@@ -140,10 +140,10 @@ var init_types = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+functions-js@2.97.0/node_modules/@supabase/functions-js/dist/module/FunctionsClient.js
+// ../../node_modules/.pnpm/@supabase+functions-js@2.98.0/node_modules/@supabase/functions-js/dist/module/FunctionsClient.js
 var FunctionsClient;
 var init_FunctionsClient = __esm({
-  "../../node_modules/.pnpm/@supabase+functions-js@2.97.0/node_modules/@supabase/functions-js/dist/module/FunctionsClient.js"() {
+  "../../node_modules/.pnpm/@supabase+functions-js@2.98.0/node_modules/@supabase/functions-js/dist/module/FunctionsClient.js"() {
     init_tslib_es6();
     init_helper();
     init_types();
@@ -288,14 +288,14 @@ var init_FunctionsClient = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+functions-js@2.97.0/node_modules/@supabase/functions-js/dist/module/index.js
+// ../../node_modules/.pnpm/@supabase+functions-js@2.98.0/node_modules/@supabase/functions-js/dist/module/index.js
 var init_module = __esm({
-  "../../node_modules/.pnpm/@supabase+functions-js@2.97.0/node_modules/@supabase/functions-js/dist/module/index.js"() {
+  "../../node_modules/.pnpm/@supabase+functions-js@2.98.0/node_modules/@supabase/functions-js/dist/module/index.js"() {
     init_FunctionsClient();
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+postgrest-js@2.97.0/node_modules/@supabase/postgrest-js/dist/index.mjs
+// ../../node_modules/.pnpm/@supabase+postgrest-js@2.98.0/node_modules/@supabase/postgrest-js/dist/index.mjs
 function _typeof(o) {
   "@babel/helpers - typeof";
   return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o$1) {
@@ -349,7 +349,7 @@ function _objectSpread2(e) {
 }
 var PostgrestError, PostgrestBuilder, PostgrestTransformBuilder, PostgrestReservedCharsRegexp, PostgrestFilterBuilder, PostgrestQueryBuilder, PostgrestClient;
 var init_dist = __esm({
-  "../../node_modules/.pnpm/@supabase+postgrest-js@2.97.0/node_modules/@supabase/postgrest-js/dist/index.mjs"() {
+  "../../node_modules/.pnpm/@supabase+postgrest-js@2.98.0/node_modules/@supabase/postgrest-js/dist/index.mjs"() {
     PostgrestError = class extends Error {
       /**
       * @example
@@ -1612,10 +1612,10 @@ ${cause.stack}`;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/websocket-factory.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/websocket-factory.js
 var WebSocketFactory, websocket_factory_default;
 var init_websocket_factory = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/websocket-factory.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/websocket-factory.js"() {
     WebSocketFactory = class {
       /**
        * Static-only utility – prevent instantiation.
@@ -1733,18 +1733,18 @@ Suggested solution: ${env.workaround}`;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/version.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/version.js
 var version;
 var init_version = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/version.js"() {
-    version = "2.97.0";
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/version.js"() {
+    version = "2.98.0";
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/constants.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/constants.js
 var DEFAULT_VERSION, VSN_1_0_0, VSN_2_0_0, DEFAULT_VSN, DEFAULT_TIMEOUT, WS_CLOSE_NORMAL, MAX_PUSH_BUFFER_SIZE, SOCKET_STATES, CHANNEL_STATES, CHANNEL_EVENTS, TRANSPORTS, CONNECTION_STATE;
 var init_constants = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/constants.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/constants.js"() {
     init_version();
     DEFAULT_VERSION = `realtime-js/${version}`;
     VSN_1_0_0 = "1.0.0";
@@ -1786,10 +1786,10 @@ var init_constants = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/serializer.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/serializer.js
 var Serializer;
 var init_serializer = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/serializer.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/serializer.js"() {
     Serializer = class {
       constructor(allowedMetadataKeys) {
         this.HEADER_LENGTH = 1;
@@ -1931,10 +1931,10 @@ var init_serializer = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/timer.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/timer.js
 var Timer;
 var init_timer = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/timer.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/timer.js"() {
     Timer = class {
       constructor(callback, timerCalc) {
         this.callback = callback;
@@ -1961,10 +1961,10 @@ var init_timer = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/transformers.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/transformers.js
 var PostgresTypes, convertChangeData, convertColumn, convertCell, noop, toBoolean, toNumber, toJson, toArray, toTimestampString, httpEndpointURL;
 var init_transformers = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/transformers.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/transformers.js"() {
     (function(PostgresTypes2) {
       PostgresTypes2["abstime"] = "abstime";
       PostgresTypes2["bool"] = "bool";
@@ -2128,10 +2128,10 @@ var init_transformers = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/push.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/push.js
 var Push;
 var init_push = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/lib/push.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/lib/push.js"() {
     init_constants();
     Push = class {
       /**
@@ -2233,10 +2233,10 @@ var init_push = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/RealtimePresence.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/RealtimePresence.js
 var REALTIME_PRESENCE_LISTEN_EVENTS, RealtimePresence;
 var init_RealtimePresence = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/RealtimePresence.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/RealtimePresence.js"() {
     (function(REALTIME_PRESENCE_LISTEN_EVENTS2) {
       REALTIME_PRESENCE_LISTEN_EVENTS2["SYNC"] = "sync";
       REALTIME_PRESENCE_LISTEN_EVENTS2["JOIN"] = "join";
@@ -2469,10 +2469,10 @@ var init_RealtimePresence = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/RealtimeChannel.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/RealtimeChannel.js
 var REALTIME_POSTGRES_CHANGES_LISTEN_EVENT, REALTIME_LISTEN_TYPES, REALTIME_SUBSCRIBE_STATES, RealtimeChannel;
 var init_RealtimeChannel = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/RealtimeChannel.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/RealtimeChannel.js"() {
     init_constants();
     init_push();
     init_timer();
@@ -3073,10 +3073,10 @@ var init_RealtimeChannel = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/RealtimeClient.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/RealtimeClient.js
 var noop2, CONNECTION_TIMEOUTS, RECONNECT_INTERVALS, DEFAULT_RECONNECT_FALLBACK, WORKER_SCRIPT, RealtimeClient;
 var init_RealtimeClient = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/RealtimeClient.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/RealtimeClient.js"() {
     init_websocket_factory();
     init_constants();
     init_serializer();
@@ -3586,6 +3586,18 @@ Option 2: Install and provide the "ws" package:
         this.log("transport", `connected to ${this.endpointURL()}`);
         const authPromise = this._authPromise || (this.accessToken && !this.accessTokenValue ? this.setAuth() : Promise.resolve());
         authPromise.then(() => {
+          if (this.accessTokenValue) {
+            this.channels.forEach((channel) => {
+              channel.updateJoinPayload({ access_token: this.accessTokenValue });
+            });
+            this.sendBuffer = [];
+            this.channels.forEach((channel) => {
+              if (channel._isJoining()) {
+                channel.joinPush.sent = false;
+                channel.joinPush.send();
+              }
+            });
+          }
           this.flushSendBuffer();
         }).catch((e) => {
           this.log("error", "error waiting for auth on connect", e);
@@ -3842,9 +3854,9 @@ Option 2: Install and provide the "ws" package:
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/index.js
+// ../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/index.js
 var init_module2 = __esm({
-  "../../node_modules/.pnpm/@supabase+realtime-js@2.97.0/node_modules/@supabase/realtime-js/dist/module/index.js"() {
+  "../../node_modules/.pnpm/@supabase+realtime-js@2.98.0/node_modules/@supabase/realtime-js/dist/module/index.js"() {
     init_RealtimeClient();
     init_RealtimeChannel();
     init_RealtimePresence();
@@ -4390,7 +4402,7 @@ var init_dist2 = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+storage-js@2.97.0/node_modules/@supabase/storage-js/dist/index.mjs
+// ../../node_modules/.pnpm/@supabase+storage-js@2.98.0/node_modules/@supabase/storage-js/dist/index.mjs
 function isStorageError(error) {
   return typeof error === "object" && error !== null && "__isStorageError" in error;
 }
@@ -4480,7 +4492,7 @@ function createFetchApi(namespace = "storage") {
 }
 var StorageError, StorageApiError, StorageUnknownError, resolveFetch2, isPlainObject, recursiveToCamel, isValidBucketName, _getErrorMessage, handleError, _getRequestParams, defaultApi, get, post, put, head, remove, vectorsApi, BaseApiClient, StreamDownloadBuilder, _Symbol$toStringTag, BlobDownloadBuilder, DEFAULT_SEARCH_OPTIONS, DEFAULT_FILE_OPTIONS, StorageFileApi, version2, DEFAULT_HEADERS, StorageBucketApi, StorageAnalyticsClient, VectorIndexApi, VectorDataApi, VectorBucketApi, StorageVectorsClient, VectorBucketScope, VectorIndexScope, StorageClient;
 var init_dist3 = __esm({
-  "../../node_modules/.pnpm/@supabase+storage-js@2.97.0/node_modules/@supabase/storage-js/dist/index.mjs"() {
+  "../../node_modules/.pnpm/@supabase+storage-js@2.98.0/node_modules/@supabase/storage-js/dist/index.mjs"() {
     init_dist2();
     StorageError = class extends Error {
       constructor(message, namespace = "storage", status2, statusCode) {
@@ -5502,7 +5514,7 @@ var init_dist3 = __esm({
         return params.join("&");
       }
     };
-    version2 = "2.97.0";
+    version2 = "2.98.0";
     DEFAULT_HEADERS = { "X-Client-Info": `storage-js/${version2}` };
     StorageBucketApi = class extends BaseApiClient {
       constructor(url, headers = {}, fetch$1, opts) {
@@ -6748,18 +6760,18 @@ var init_dist3 = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/version.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/version.js
 var version3;
 var init_version2 = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/version.js"() {
-    version3 = "2.97.0";
+  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/version.js"() {
+    version3 = "2.98.0";
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/constants.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/constants.js
 var AUTO_REFRESH_TICK_DURATION_MS, AUTO_REFRESH_TICK_THRESHOLD, EXPIRY_MARGIN_MS, GOTRUE_URL, STORAGE_KEY, DEFAULT_HEADERS2, API_VERSION_HEADER_NAME, API_VERSIONS, BASE64URL_REGEX, JWKS_TTL;
 var init_constants2 = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/constants.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/constants.js"() {
     init_version2();
     AUTO_REFRESH_TICK_DURATION_MS = 30 * 1e3;
     AUTO_REFRESH_TICK_THRESHOLD = 3;
@@ -6779,7 +6791,7 @@ var init_constants2 = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/errors.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/errors.js
 function isAuthError(error) {
   return typeof error === "object" && error !== null && "__isAuthError" in error;
 }
@@ -6797,7 +6809,7 @@ function isAuthRetryableFetchError(error) {
 }
 var AuthError, AuthApiError, AuthUnknownError, CustomAuthError, AuthSessionMissingError, AuthInvalidTokenResponseError, AuthInvalidCredentialsError, AuthImplicitGrantRedirectError, AuthPKCEGrantCodeExchangeError, AuthPKCECodeVerifierMissingError, AuthRetryableFetchError, AuthWeakPasswordError, AuthInvalidJwtError;
 var init_errors = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/errors.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/errors.js"() {
     AuthError = class extends Error {
       constructor(message, status2, code) {
         super(message);
@@ -6898,7 +6910,7 @@ var init_errors = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/base64url.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/base64url.js
 function byteToBase64URL(byte, state8, emit3) {
   if (byte !== null) {
     state8.queue = state8.queue << 8 | byte;
@@ -7046,7 +7058,7 @@ function bytesToBase64URL(bytes) {
 }
 var TO_BASE64URL, IGNORE_BASE64URL, FROM_BASE64URL;
 var init_base64url = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/base64url.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/base64url.js"() {
     TO_BASE64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".split("");
     IGNORE_BASE64URL = " 	\n\r=".split("");
     FROM_BASE64URL = (() => {
@@ -7065,7 +7077,7 @@ var init_base64url = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/helpers.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/helpers.js
 function expiresAt(expiresIn) {
   const timeNow = Math.round(Date.now() / 1e3);
   return timeNow + expiresIn;
@@ -7278,7 +7290,7 @@ function deepClone(obj) {
 }
 var isBrowser, localStorageWriteTests, supportsLocalStorage, resolveFetch3, looksLikeFetchResponse, setItemAsync, getItemAsync, removeItemAsync, Deferred, API_VERSION_REGEX, UUID_REGEX;
 var init_helpers = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/helpers.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/helpers.js"() {
     init_constants2();
     init_errors();
     init_base64url();
@@ -7355,7 +7367,7 @@ var init_helpers = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/fetch.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/fetch.js
 async function handleError2(error) {
   var _a;
   if (!looksLikeFetchResponse(error)) {
@@ -7482,7 +7494,7 @@ function hasSession(data) {
 }
 var _getErrorMessage2, NETWORK_ERROR_CODES, _getRequestParams2;
 var init_fetch = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/fetch.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/fetch.js"() {
     init_tslib_es6();
     init_constants2();
     init_helpers();
@@ -7501,18 +7513,18 @@ var init_fetch = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/types.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/types.js
 var SIGN_OUT_SCOPES;
 var init_types2 = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/types.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/types.js"() {
     SIGN_OUT_SCOPES = ["global", "local", "others"];
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/GoTrueAdminApi.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/GoTrueAdminApi.js
 var GoTrueAdminApi;
 var init_GoTrueAdminApi = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/GoTrueAdminApi.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/GoTrueAdminApi.js"() {
     init_tslib_es6();
     init_fetch();
     init_helpers();
@@ -7961,7 +7973,7 @@ var init_GoTrueAdminApi = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/local-storage.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/local-storage.js
 function memoryLocalStorageAdapter(store3 = {}) {
   return {
     getItem: (key) => {
@@ -7976,11 +7988,11 @@ function memoryLocalStorageAdapter(store3 = {}) {
   };
 }
 var init_local_storage = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/local-storage.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/local-storage.js"() {
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/locks.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/locks.js
 async function navigatorLock(name, acquireTimeout, fn) {
   if (internals.debug) {
     console.log("@supabase/gotrue-js: navigatorLock: acquire lock", name, acquireTimeout);
@@ -8035,15 +8047,38 @@ async function navigatorLock(name, acquireTimeout, fn) {
       }
     });
   } catch (e) {
-    if ((e === null || e === void 0 ? void 0 : e.name) === "AbortError") {
-      throw new NavigatorLockAcquireTimeoutError(`Acquiring an exclusive Navigator LockManager lock "${name}" timed out waiting ${acquireTimeout}ms`);
+    if ((e === null || e === void 0 ? void 0 : e.name) === "AbortError" && acquireTimeout > 0) {
+      if (internals.debug) {
+        console.log("@supabase/gotrue-js: navigatorLock: acquire timeout, recovering by stealing lock", name);
+      }
+      console.warn(`@supabase/gotrue-js: Lock "${name}" was not released within ${acquireTimeout}ms. This may indicate an orphaned lock from a component unmount (e.g., React Strict Mode). Forcefully acquiring the lock to recover.`);
+      return await Promise.resolve().then(() => globalThis.navigator.locks.request(name, {
+        mode: "exclusive",
+        steal: true
+      }, async (lock) => {
+        if (lock) {
+          if (internals.debug) {
+            console.log("@supabase/gotrue-js: navigatorLock: recovered (stolen)", name, lock.name);
+          }
+          try {
+            return await fn();
+          } finally {
+            if (internals.debug) {
+              console.log("@supabase/gotrue-js: navigatorLock: released (stolen)", name, lock.name);
+            }
+          }
+        } else {
+          console.warn("@supabase/gotrue-js: Navigator LockManager returned null lock even with steal: true");
+          return await fn();
+        }
+      }));
     }
     throw e;
   }
 }
 var internals, LockAcquireTimeoutError, NavigatorLockAcquireTimeoutError;
 var init_locks = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/locks.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/locks.js"() {
     init_helpers();
     internals = {
       /**
@@ -8062,7 +8097,7 @@ var init_locks = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/polyfills.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/polyfills.js
 function polyfillGlobalThis() {
   if (typeof globalThis === "object")
     return;
@@ -8082,11 +8117,11 @@ function polyfillGlobalThis() {
   }
 }
 var init_polyfills = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/polyfills.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/polyfills.js"() {
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/web3/ethereum.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/web3/ethereum.js
 function getAddress(address) {
   if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
     throw new Error(`@supabase/auth-js: Address "${address}" is invalid.`);
@@ -8154,11 +8189,11 @@ Request ID: ${requestId}`;
 ${suffix}`;
 }
 var init_ethereum = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/web3/ethereum.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/web3/ethereum.js"() {
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/webauthn.errors.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/webauthn.errors.js
 function identifyRegistrationError({ error, options }) {
   var _a, _b, _c;
   const { publicKey } = options;
@@ -8307,7 +8342,7 @@ function identifyAuthenticationError({ error, options }) {
 }
 var WebAuthnError, WebAuthnUnknownError;
 var init_webauthn_errors = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/webauthn.errors.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/webauthn.errors.js"() {
     init_webauthn();
     WebAuthnError = class extends Error {
       constructor({ message, code, cause, name }) {
@@ -8332,7 +8367,7 @@ var init_webauthn_errors = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/webauthn.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/webauthn.js
 function deserializeCredentialCreationOptions(options) {
   if (!options) {
     throw new Error("Credential creation options are required");
@@ -8542,7 +8577,7 @@ function mergeCredentialRequestOptions(baseOptions, overrides) {
 }
 var WebAuthnAbortService, webAuthnAbortService, DEFAULT_CREATION_OPTIONS, DEFAULT_REQUEST_OPTIONS, WebAuthnApi;
 var init_webauthn = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/lib/webauthn.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/webauthn.js"() {
     init_tslib_es6();
     init_base64url();
     init_errors();
@@ -8865,13 +8900,13 @@ var init_webauthn = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/GoTrueClient.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/GoTrueClient.js
 async function lockNoOp(name, acquireTimeout, fn) {
   return await fn();
 }
 var DEFAULT_OPTIONS, GLOBAL_JWKS, GoTrueClient, GoTrueClient_default;
 var init_GoTrueClient = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/GoTrueClient.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/GoTrueClient.js"() {
     init_GoTrueAdminApi();
     init_constants2();
     init_errors();
@@ -8896,8 +8931,8 @@ var init_GoTrueClient = __esm({
       debug: false,
       hasCustomAuthorizationHeader: false,
       throwOnError: false,
-      lockAcquireTimeout: 1e4,
-      // 10 seconds
+      lockAcquireTimeout: 5e3,
+      // 5 seconds
       skipAutoInitialize: false
     };
     GLOBAL_JWKS = {};
@@ -11437,26 +11472,26 @@ var init_GoTrueClient = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/AuthAdminApi.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/AuthAdminApi.js
 var init_AuthAdminApi = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/AuthAdminApi.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/AuthAdminApi.js"() {
     init_GoTrueAdminApi();
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/AuthClient.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/AuthClient.js
 var AuthClient, AuthClient_default;
 var init_AuthClient = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/AuthClient.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/AuthClient.js"() {
     init_GoTrueClient();
     AuthClient = GoTrueClient_default;
     AuthClient_default = AuthClient;
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/index.js
+// ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/index.js
 var init_module3 = __esm({
-  "../../node_modules/.pnpm/@supabase+auth-js@2.97.0/node_modules/@supabase/auth-js/dist/module/index.js"() {
+  "../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/index.js"() {
     init_GoTrueAdminApi();
     init_GoTrueClient();
     init_AuthAdminApi();
@@ -11467,7 +11502,7 @@ var init_module3 = __esm({
   }
 });
 
-// ../../node_modules/.pnpm/@supabase+supabase-js@2.97.0/node_modules/@supabase/supabase-js/dist/index.mjs
+// ../../node_modules/.pnpm/@supabase+supabase-js@2.98.0/node_modules/@supabase/supabase-js/dist/index.mjs
 function _typeof3(o) {
   "@babel/helpers - typeof";
   return _typeof3 = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o$1) {
@@ -11560,7 +11595,7 @@ function shouldShowDeprecationWarning() {
 }
 var version4, JS_ENV, DEFAULT_HEADERS3, DEFAULT_GLOBAL_OPTIONS, DEFAULT_DB_OPTIONS, DEFAULT_AUTH_OPTIONS, DEFAULT_REALTIME_OPTIONS, resolveFetch4, resolveHeadersConstructor, fetchWithAuth, SupabaseAuthClient, SupabaseClient, createClient;
 var init_dist4 = __esm({
-  "../../node_modules/.pnpm/@supabase+supabase-js@2.97.0/node_modules/@supabase/supabase-js/dist/index.mjs"() {
+  "../../node_modules/.pnpm/@supabase+supabase-js@2.98.0/node_modules/@supabase/supabase-js/dist/index.mjs"() {
     init_module();
     init_dist();
     init_module2();
@@ -11568,7 +11603,7 @@ var init_dist4 = __esm({
     init_module3();
     init_module2();
     init_module3();
-    version4 = "2.97.0";
+    version4 = "2.98.0";
     JS_ENV = "";
     if (typeof Deno !== "undefined") JS_ENV = "deno";
     else if (typeof document !== "undefined") JS_ENV = "web";
@@ -41792,8 +41827,17 @@ function getForgeHubOrigin2() {
   const fromEnv = readString2(win.FORGE_HUB_ORIGIN);
   if (fromEnv) return fromEnv;
   const fromForgeConfig = readString2(win.__forgeAppOrigin);
-  if (fromForgeConfig) return fromForgeConfig;
-  return "";
+  const currentOrigin = readString2(window.location.origin);
+  if (!fromForgeConfig) return currentOrigin ?? "";
+  try {
+    const current2 = new URL(currentOrigin ?? "http://localhost");
+    const target = new URL(fromForgeConfig);
+    const isLocalCurrent = current2.hostname === "localhost" || current2.hostname === "127.0.0.1" || current2.hostname === "::1";
+    if (isLocalCurrent) return current2.origin;
+    return target.origin;
+  } catch {
+    return currentOrigin ?? fromForgeConfig;
+  }
 }
 function getBuildId() {
   const win = window;
@@ -41828,12 +41872,11 @@ function resolveItemHref(item) {
   if (!to) return "#";
   if (/^https?:\/\//i.test(to)) return to;
   if (!(to === "/app" || to.startsWith("/app/"))) return "#";
-  const hubOrigin = getForgeHubOrigin2();
-  if (!hubOrigin) return "#";
+  const hubOrigin = getForgeHubOrigin2() || window.location.origin;
   try {
     return new URL(to, hubOrigin).toString();
   } catch {
-    return "#";
+    return to;
   }
 }
 async function loadForgeNav() {
@@ -41869,18 +41912,21 @@ function createSectionTitle(section) {
   }
   return el;
 }
-function renderNavPanel(panel, payload) {
+function renderNavPanel(panel, payload, opts = {}) {
   panel.innerHTML = "";
+  const hiddenItems = new Set((opts.hideItems ?? []).map((id) => id.trim()).filter(Boolean));
+  const actionHandlers = opts.extraActionHandlers ?? /* @__PURE__ */ new Map();
   payload.tree.forEach((section, idx) => {
-    const sectionEl = document.createElement("div");
-    sectionEl.style.marginTop = idx === 0 ? "0" : "12px";
-    const titleEl = createSectionTitle(section);
-    if (titleEl) sectionEl.appendChild(titleEl);
-    const nav = document.createElement("nav");
-    nav.style.display = "grid";
-    nav.style.gap = section.id === "settings" ? "6px" : "8px";
-    nav.style.marginTop = section.id === "settings" ? "4px" : "0";
+    const sectionEl2 = document.createElement("div");
+    sectionEl2.style.marginTop = idx === 0 ? "0" : "12px";
+    const titleEl2 = createSectionTitle(section);
+    if (titleEl2) sectionEl2.appendChild(titleEl2);
+    const nav2 = document.createElement("nav");
+    nav2.style.display = "grid";
+    nav2.style.gap = section.id === "settings" ? "6px" : "8px";
+    nav2.style.marginTop = section.id === "settings" ? "4px" : "0";
     section.items.forEach((item) => {
+      if (hiddenItems.has(item.id)) return;
       const href = resolveItemHref(item);
       const action = document.createElement("button");
       action.type = "button";
@@ -41897,18 +41943,59 @@ function renderNavPanel(panel, payload) {
       action.style.textAlign = "left";
       action.style.cursor = href === "#" ? "not-allowed" : "pointer";
       action.disabled = href === "#";
-      nav.appendChild(action);
+      nav2.appendChild(action);
     });
-    sectionEl.appendChild(nav);
+    sectionEl2.appendChild(nav2);
     if (section.id === "forge") {
       const hr = document.createElement("hr");
       hr.style.border = "none";
       hr.style.borderTop = "1px solid rgba(255,255,255,0.16)";
       hr.style.margin = "12px 0";
-      sectionEl.appendChild(hr);
+      sectionEl2.appendChild(hr);
     }
-    panel.appendChild(sectionEl);
+    panel.appendChild(sectionEl2);
   });
+  const extraItems = (opts.extraItems ?? []).filter((item) => !hiddenItems.has(item.id));
+  if (!extraItems.length) return;
+  const sectionEl = document.createElement("div");
+  sectionEl.style.marginTop = "12px";
+  const titleEl = document.createElement("div");
+  titleEl.textContent = "Tools";
+  titleEl.style.fontSize = "0.85rem";
+  titleEl.style.opacity = "0.8";
+  sectionEl.appendChild(titleEl);
+  const nav = document.createElement("nav");
+  nav.style.display = "grid";
+  nav.style.gap = "6px";
+  nav.style.marginTop = "4px";
+  extraItems.forEach((item) => {
+    const action = document.createElement("button");
+    action.type = "button";
+    action.textContent = item.label;
+    action.style.display = "block";
+    action.style.width = "100%";
+    action.style.padding = "6px 8px";
+    action.style.borderRadius = "8px";
+    action.style.border = "1px solid rgba(255,255,255,0.12)";
+    action.style.background = "rgba(255,255,255,0.03)";
+    action.style.color = "inherit";
+    action.style.textAlign = "left";
+    const href = resolveItemHref(item);
+    if (href !== "#") {
+      action.dataset.forgeNavHref = href;
+      action.style.cursor = "pointer";
+    } else if (typeof item.onClick === "function") {
+      action.dataset.forgeNavActionId = item.id;
+      action.style.cursor = "pointer";
+      actionHandlers.set(item.id, item.onClick);
+    } else {
+      action.style.cursor = "not-allowed";
+      action.disabled = true;
+    }
+    nav.appendChild(action);
+  });
+  sectionEl.appendChild(nav);
+  panel.appendChild(sectionEl);
 }
 function getOverlayState() {
   const win = window;
@@ -42123,10 +42210,24 @@ function navigateFromOverlay(targetHref) {
   } catch {
   }
 }
-function wireOverlayLinks(panel, closeOverlay) {
+function wireOverlayLinks(panel, closeOverlay, extraActionHandlers) {
   panel.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
+    const actionTrigger = target.closest("[data-forge-nav-action-id]");
+    if (actionTrigger) {
+      event.preventDefault();
+      const actionId = readString2(actionTrigger.dataset.forgeNavActionId) ?? null;
+      if (!actionId) return;
+      const action2 = extraActionHandlers.get(actionId);
+      if (!action2) return;
+      closeOverlay();
+      try {
+        action2();
+      } catch {
+      }
+      return;
+    }
     const action = target.closest("[data-forge-nav-href]");
     if (!action) return;
     event.preventDefault();
@@ -42140,20 +42241,27 @@ async function openForgeMenuOverlay() {
   const shell = openNavOverlayShell();
   if (!shell) return;
   const { panel, closeOverlay } = shell;
+  const opts = window.__forgeMenuInitOptions;
+  const extraActionHandlers = /* @__PURE__ */ new Map();
   const loading = document.createElement("div");
   loading.className = "loading";
   loading.textContent = "Loading navigation...";
   panel.appendChild(loading);
   const payload = await loadForgeNav();
   if (!panel.isConnected) return;
-  renderNavPanel(panel, payload);
-  wireOverlayLinks(panel, closeOverlay);
+  renderNavPanel(panel, payload, {
+    extraItems: opts?.extraItems,
+    hideItems: opts?.hideItems,
+    extraActionHandlers
+  });
+  wireOverlayLinks(panel, closeOverlay, extraActionHandlers);
 }
 function initForgeMenu(opts = {}) {
   const mountId = readString2(opts.mountId) ?? DEFAULT_MOUNT_ID;
   const mount = document.getElementById(mountId);
   if (!mount) return;
   const win = window;
+  win.__forgeMenuInitOptions = opts;
   const readyKey = `${FORGE_NAV_READY_SENTINEL}:${mountId}`;
   if (win[readyKey]) return;
   win[readyKey] = true;
@@ -42226,7 +42334,7 @@ var init_forge_nav = __esm({
             { id: "home", label: "Home", to: "/app" },
             { id: "tongs", label: "Tongs Calendar", to: "/app/tongs" },
             { id: "anvil", label: "Anvil", href: "/anvil/teleprompter_pro.html" },
-            { id: "hearth", label: "Hearth", href: "/apps/hearth" },
+            { id: "hearth", label: "Hearth", to: "/app/hearth" },
             { id: "hammer", label: "Hammer", to: "/app/hammer" },
             { id: "barstock", label: "Barstock", to: "/app/barstock" }
           ]
@@ -42241,6 +42349,874 @@ var init_forge_nav = __esm({
         }
       ]
     };
+  }
+});
+
+// src/net/display-ws-client.ts
+function publishToNetworkDisplays(payload) {
+  if (!isSupported || !relayEnabled || typeof payload === "undefined") return;
+  try {
+    const str = JSON.stringify(payload);
+    let payloadType = null;
+    if (payload && typeof payload === "object") {
+      const candidate = payload.type;
+      if (typeof candidate === "string") {
+        payloadType = candidate;
+      }
+    }
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      if (payloadType === "scroll") {
+        queueScrollMessage(str);
+      } else {
+        socket.send(str);
+      }
+      return;
+    }
+    sendQueue.push(str);
+    if (sendQueue.length > 256) {
+      sendQueue.shift();
+    }
+  } catch {
+  }
+}
+function onNetworkDisplayStatus(fn) {
+  listeners2.add(fn);
+  fn({ ...status });
+  return () => {
+    listeners2.delete(fn);
+  };
+}
+function getNetworkDisplayStatus() {
+  return { ...status };
+}
+function enableNetworkDisplayRelay() {
+  if (!isSupported) return;
+  if (isRelayDisabled()) return;
+  if (relayEnabled) return;
+  relayEnabled = true;
+  persistRelayEnabled(true);
+  connect3();
+}
+var status, listeners2, socket, reconnectDelay, reconnectTimer, sendQueue, SCROLL_THROTTLE_MS, scrollTimer, pendingScroll, relayEnabled, RELAY_ENABLED_KEY, flushScroll, queueScrollMessage, isDisplayContext, isSupported, isRelayDisabled, notifyListeners, updateStatus2, isLocalhostHost, getWsUrl, flushQueue, scheduleReconnect, handleMessage, resetSocket, connect3, loadRelayEnabled, persistRelayEnabled;
+var init_display_ws_client = __esm({
+  "src/net/display-ws-client.ts"() {
+    "use strict";
+    status = {
+      state: "disconnected",
+      connectedDisplays: 0,
+      lastError: void 0
+    };
+    listeners2 = /* @__PURE__ */ new Set();
+    socket = null;
+    reconnectDelay = 1e3;
+    reconnectTimer = null;
+    sendQueue = [];
+    SCROLL_THROTTLE_MS = 60;
+    scrollTimer = null;
+    pendingScroll = null;
+    relayEnabled = false;
+    RELAY_ENABLED_KEY = "tp_display_ws_enabled";
+    flushScroll = () => {
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        scrollTimer = null;
+        pendingScroll = null;
+        return;
+      }
+      if (pendingScroll) {
+        try {
+          socket.send(pendingScroll);
+        } catch {
+        }
+      }
+      pendingScroll = null;
+      scrollTimer = null;
+    };
+    queueScrollMessage = (serialized) => {
+      pendingScroll = serialized;
+      if (scrollTimer) return;
+      scrollTimer = window.setTimeout(() => {
+        flushScroll();
+      }, SCROLL_THROTTLE_MS);
+    };
+    isDisplayContext = () => {
+      if (typeof window === "undefined") return false;
+      try {
+        const params = new URLSearchParams(window.location.search || "");
+        if (params.get("display") === "1") return true;
+        const path = (window.location.pathname || "").toLowerCase();
+        if (path.endsWith("/display.html") || path === "/display.html") return true;
+        if (window.__TP_FORCE_DISPLAY) return true;
+      } catch {
+      }
+      return false;
+    };
+    isSupported = typeof window !== "undefined" && typeof WebSocket !== "undefined" && !isDisplayContext();
+    isRelayDisabled = () => {
+      if (typeof window === "undefined") return false;
+      const w3 = window;
+      if (w3.__TP_DISABLE_DISPLAY_WS) return true;
+      try {
+        const params = new URLSearchParams(window.location.search || "");
+        if (params.get("ci") === "1") return true;
+        if (params.get("uiMock") === "1") return true;
+        if (params.get("mockFolder") === "1") return true;
+        if (params.get("noDisplayWs") === "1") return true;
+      } catch {
+      }
+      return false;
+    };
+    notifyListeners = () => {
+      const snapshot = { ...status };
+      listeners2.forEach((fn) => {
+        try {
+          fn(snapshot);
+        } catch {
+        }
+      });
+    };
+    updateStatus2 = (patch) => {
+      Object.assign(status, patch);
+      notifyListeners();
+    };
+    isLocalhostHost = (host) => {
+      return host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".local");
+    };
+    getWsUrl = () => {
+      if (typeof window === "undefined") return null;
+      try {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const hostname = window.location.hostname || "";
+        if (!isLocalhostHost(hostname)) {
+          return null;
+        }
+        const host = window.location.host;
+        return `${protocol}//${host}/ws/display`;
+      } catch {
+        return null;
+      }
+    };
+    flushQueue = () => {
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
+      if (!sendQueue.length) return;
+      for (const msg of sendQueue) {
+        try {
+          socket.send(msg);
+        } catch {
+        }
+      }
+      sendQueue = [];
+    };
+    scheduleReconnect = () => {
+      if (reconnectTimer || !isSupported || !relayEnabled) return;
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null;
+        connect3();
+      }, reconnectDelay);
+      reconnectDelay = Math.min(15e3, reconnectDelay * 1.5);
+    };
+    handleMessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data?.type === "tp-display-status") {
+          const connected = typeof data.connected === "number" ? data.connected : status.connectedDisplays;
+          updateStatus2({ connectedDisplays: connected });
+        }
+      } catch {
+      }
+    };
+    resetSocket = () => {
+      if (socket) {
+        try {
+          socket.close();
+        } catch {
+        }
+      }
+      socket = null;
+    };
+    connect3 = () => {
+      if (!isSupported || !relayEnabled) return;
+      if (socket && socket.readyState === WebSocket.OPEN) return;
+      updateStatus2({ state: "connecting", lastError: void 0 });
+      const url = getWsUrl();
+      if (!url) {
+        updateStatus2({ state: "error", lastError: "Unable to build ws url" });
+        return;
+      }
+      resetSocket();
+      const ws = new WebSocket(url);
+      socket = ws;
+      ws.addEventListener("open", () => {
+        reconnectDelay = 1e3;
+        updateStatus2({ state: "connected", lastError: void 0 });
+        ws.send(JSON.stringify({ type: "hello", role: "main" }));
+        flushQueue();
+      });
+      ws.addEventListener("message", handleMessage);
+      const cleanup = () => {
+        updateStatus2({ state: "disconnected", connectedDisplays: 0, lastError: void 0 });
+        socket = null;
+        scheduleReconnect();
+      };
+      ws.addEventListener("close", cleanup);
+      ws.addEventListener("error", (event) => {
+        updateStatus2({ state: "error", lastError: String(event?.reason || "WebSocket error") });
+      });
+    };
+    loadRelayEnabled = () => {
+      if (typeof window === "undefined") return false;
+      if (isRelayDisabled()) return false;
+      try {
+        return localStorage.getItem(RELAY_ENABLED_KEY) === "1";
+      } catch {
+        return false;
+      }
+    };
+    persistRelayEnabled = (on3) => {
+      if (typeof window === "undefined") return;
+      try {
+        if (on3) {
+          localStorage.setItem(RELAY_ENABLED_KEY, "1");
+        } else {
+          localStorage.removeItem(RELAY_ENABLED_KEY);
+        }
+      } catch {
+      }
+    };
+    relayEnabled = loadRelayEnabled();
+    if (isSupported && relayEnabled) {
+      connect3();
+    }
+    try {
+      window.addEventListener("beforeunload", () => {
+        socket?.close();
+      });
+    } catch {
+    }
+  }
+});
+
+// src/features/display-sync.ts
+function getDisplayChannel() {
+  if (displayCh) return displayCh;
+  try {
+    displayCh = new BroadcastChannel("tp_display");
+  } catch (err) {
+    try {
+      console.warn("[display-sync] BroadcastChannel tp_display failed", err);
+    } catch {
+    }
+    displayCh = null;
+  }
+  return displayCh;
+}
+function makeKey(raw) {
+  const text = String(raw || "");
+  return `${text.length}:${text.slice(0, 64)}`;
+}
+function publishDisplayScript(rawText, opts) {
+  if (typeof window !== "undefined" && window.__TP_FORCE_DISPLAY) return;
+  const w3 = typeof window !== "undefined" ? window : {};
+  if (w3.__TP_PUBLISHING_DISPLAY) return;
+  w3.__TP_PUBLISHING_DISPLAY = true;
+  try {
+    const text = String(rawText || "");
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const key = makeKey(text);
+    if (!opts?.force && key === lastPayloadKey) return;
+    lastPayloadKey = key;
+    latestRaw = text;
+    rev += 1;
+    try {
+      if (shouldLogLevel(2)) {
+        console.log("[publishDisplayScript]", { rev, len: text.length });
+      }
+    } catch {
+    }
+    const payload = {
+      type: "tp:script",
+      kind: "tp:script",
+      source: opts?.source ?? "main",
+      rawText: text,
+      rev,
+      textHash: key
+    };
+    const ch = getDisplayChannel();
+    if (ch) {
+      try {
+        ch.postMessage(payload);
+      } catch (err) {
+        try {
+          console.warn("[display-sync] failed to post tp_display", err);
+        } catch {
+        }
+      }
+    }
+    try {
+      publishToNetworkDisplays(payload);
+    } catch {
+    }
+  } finally {
+    w3.__TP_PUBLISHING_DISPLAY = false;
+  }
+}
+function getLatestRawScript() {
+  return latestRaw;
+}
+function pushDisplayRecordState(state8) {
+  const payload = { kind: "tp:record", state: state8 };
+  const ch = getDisplayChannel();
+  if (ch) {
+    try {
+      ch.postMessage(payload);
+    } catch {
+    }
+  }
+}
+function installDisplaySync(opts) {
+  if (displaySyncInstalled) return () => {
+  };
+  displaySyncInstalled = true;
+  const chanName = opts.channelName || "tp_display";
+  let chan2 = null;
+  const isDisplay = typeof window !== "undefined" && window.__TP_FORCE_DISPLAY === true;
+  let lastSeenRev = 0;
+  try {
+    const w3 = window;
+    w3.__TP_INSTALL_DISPLAY_SYNC = (w3.__TP_INSTALL_DISPLAY_SYNC || 0) + 1;
+    if (w3.__TP_INSTALL_DISPLAY_SYNC > 1 && (w3.__TP_DEV || w3.__TP_DEV1)) {
+      if (shouldLogLevel(1)) {
+        console.warn("[display-sync] installDisplaySync called multiple times", w3.__TP_INSTALL_DISPLAY_SYNC);
+      }
+      if (shouldLogLevel(3)) {
+        try {
+          console.trace("[display-sync] install stack");
+        } catch {
+        }
+      }
+    }
+  } catch {
+  }
+  try {
+    chan2 = new BroadcastChannel(chanName);
+  } catch (err) {
+    try {
+      console.warn("[display-sync] failed to open channel", err);
+    } catch {
+    }
+    chan2 = null;
+  }
+  const push = (force) => {
+    if (isDisplay) return;
+    try {
+      publishDisplayScript(opts.getText?.() || latestRaw || "", { force });
+    } catch {
+    }
+  };
+  const onMsg = (ev) => {
+    try {
+      const msg = ev?.data || {};
+      if (msg?.type === "display:hello" && !isDisplay) {
+        push(true);
+        return;
+      }
+      if (!isDisplay) return;
+      if (!msg || msg.type !== "tp:script" || typeof msg.rawText !== "string") return;
+      const incomingRev = typeof msg.rev === "number" ? msg.rev : 0;
+      if (incomingRev && incomingRev <= lastSeenRev) return;
+      lastSeenRev = incomingRev || lastSeenRev;
+      if (typeof opts.onApplyRemote === "function") {
+        opts.onApplyRemote(msg.rawText);
+      }
+    } catch {
+    }
+  };
+  try {
+    chan2?.addEventListener("message", onMsg);
+  } catch {
+  }
+  if (isDisplay) {
+    try {
+      chan2?.postMessage({ type: "display:hello", ts: Date.now() });
+    } catch {
+    }
+  } else {
+    try {
+      window.addEventListener("tp:scriptChanged", push);
+    } catch {
+    }
+    try {
+      push();
+    } catch {
+    }
+  }
+  return () => {
+    try {
+      window.removeEventListener("tp:scriptChanged", push);
+    } catch {
+    }
+    try {
+      chan2?.removeEventListener("message", onMsg);
+    } catch {
+    }
+    try {
+      chan2?.close();
+    } catch {
+    }
+  };
+}
+var displayCh, lastPayloadKey, rev, latestRaw, displaySyncInstalled;
+var init_display_sync = __esm({
+  "src/features/display-sync.ts"() {
+    "use strict";
+    init_display_ws_client();
+    init_dev_log();
+    displayCh = null;
+    lastPayloadKey = "";
+    rev = 0;
+    latestRaw = "";
+    displaySyncInstalled = false;
+  }
+});
+
+// src/script/validate.ts
+function validateStandardTagsText(input = "") {
+  const t = String(input || "");
+  const problems = [];
+  const allowedTagPattern = [
+    ...BLOCK_TAG_NAMES,
+    ...CUE_TAG_NAMES,
+    ...INLINE_ATTR_PATTERNS
+  ].join("|");
+  const badTag = t.match(new RegExp(`\\[(?!\\/?(?:${allowedTagPattern})\\b)[^\\]]+\\]`, "i"));
+  if (badTag) problems.push("Unknown tag: " + badTag[0]);
+  const speakerPattern = SPEAKER_TAG_NAMES.join("|");
+  if (new RegExp(`\\[(?:${speakerPattern})\\][ \\t]*\\S`, "i").test(t))
+    problems.push("Opening speaker tags must be on their own line.");
+  if (new RegExp(`\\S[ \\t]*\\[\\/(?:${speakerPattern})\\]`, "i").test(t))
+    problems.push("Closing speaker tags must be on their own line.");
+  const speakerEventRe = new RegExp(
+    `\\[(\\/)?(${speakerPattern})\\]|\\[note\\]|\\[\\/note\\]`,
+    "gi"
+  );
+  const speakerStack = [];
+  let speakerEventMatch;
+  while (speakerEventMatch = speakerEventRe.exec(t)) {
+    const token = speakerEventMatch[0].toLowerCase();
+    if (token === "[note]") {
+      if (speakerStack.length) {
+        problems.push("[note] blocks must be outside speaker sections.");
+        break;
+      }
+    } else if (token === "[/note]") {
+      continue;
+    } else {
+      const closing = !!speakerEventMatch[1];
+      if (!closing) {
+        speakerStack.push(speakerEventMatch[2].toLowerCase());
+      } else if (speakerStack.length) {
+        speakerStack.pop();
+      }
+    }
+  }
+  const stack = [];
+  const tagRe = new RegExp(`\\[(\\/)?(${BLOCK_TAG_NAMES.join("|")})\\]`, "gi");
+  let m;
+  while (m = tagRe.exec(t)) {
+    const closing = !!m[1];
+    const tag = m[2].toLowerCase();
+    if (!closing) {
+      stack.push(tag);
+    } else {
+      if (!stack.length) {
+        problems.push(`Unexpected closing [/${tag}]`);
+        break;
+      }
+      const last = stack.pop();
+      if (last !== tag) {
+        problems.push(`Mismatched closing [/${tag}] (expected [/${last}])`);
+        break;
+      }
+    }
+  }
+  if (stack.length) problems.push("Unclosed tag(s): " + stack.join(", "));
+  return { ok: problems.length === 0, report: problems.join("\n"), problems };
+}
+var init_validate = __esm({
+  "src/script/validate.ts"() {
+    "use strict";
+    init_tag_constants();
+  }
+});
+
+// src/speech/build-legacy-asr-state.ts
+function buildLegacyAsrStateFromStandardScript(canon) {
+  const w3 = window;
+  let t = canon.replace(/\[note\][\s\S]*?\[\/note\]/gi, "\n");
+  t = t.replace(/^\[(s1|s2|g1|g2)\]\s*$/gmi, "");
+  t = t.replace(/^\[\/(s1|s2|g1|g2)\]\s*$/gmi, "");
+  t = t.replace(/\[(\/?)(color|bg|b|i|u)(=[^\]]+)?\]/gi, "");
+  t = t.replace(/\[(pause|beat|reflective pause)\]/gi, " ");
+  t = t.replace(/\r/g, "").replace(/[ \t]+/g, " ");
+  const scriptWords = t.split(/\s+/).map((s) => s.trim()).filter(Boolean);
+  const paraIndex = new Array(scriptWords.length);
+  {
+    let wordIdx = 0;
+    let lineIdx = 0;
+    for (const line of t.split("\n")) {
+      const tokens = line.split(/\s+/).map((x) => x.trim()).filter(Boolean);
+      const count = tokens.length;
+      if (count > 0) {
+        const start2 = wordIdx;
+        const end = wordIdx + count - 1;
+        const entry = { start: start2, end, key: line.trim(), line: lineIdx };
+        for (let i = start2; i <= end; i++) {
+          paraIndex[i] = entry;
+        }
+      }
+      wordIdx += count;
+      lineIdx += 1;
+    }
+  }
+  w3.scriptWords = scriptWords;
+  w3.paraIndex = paraIndex;
+  if (typeof w3.currentIndex !== "number" || Number.isNaN(w3.currentIndex)) {
+    w3.currentIndex = 0;
+  }
+  try {
+    console.log("[ASR] legacy state built", {
+      scriptWords: w3.scriptWords?.length ?? 0,
+      paraIndexEntries: w3.paraIndex?.length ?? 0,
+      currentIndex: w3.currentIndex
+    });
+  } catch {
+  }
+}
+var init_build_legacy_asr_state = __esm({
+  "src/speech/build-legacy-asr-state.ts"() {
+    "use strict";
+  }
+});
+
+// src/features/apply-script.ts
+function hashText(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(16);
+}
+function getEditorEl() {
+  return document.getElementById("editor");
+}
+function applyScript(rawIn, source, opts) {
+  const raw = String(rawIn ?? "");
+  if (window.__TP_APPLY_IN_FLIGHT) return;
+  window.__TP_APPLY_IN_FLIGHT = true;
+  const normalized = (() => {
+    try {
+      return normalizeToStandardText(raw);
+    } catch {
+      return raw;
+    }
+  })();
+  const validation = validateStandardTagsText(normalized);
+  if (!validation.ok) {
+    try {
+      const msg = validation.report || "Script validation failed.";
+      window.toast?.(msg, { type: "error" });
+    } catch {
+    }
+    window.__TP_APPLY_IN_FLIGHT = false;
+    return;
+  }
+  const h = hashText(normalized);
+  if (window.__TP_LAST_APPLIED_HASH === h) {
+    window.__TP_APPLY_IN_FLIGHT = false;
+    return;
+  }
+  window.__TP_LAST_APPLIED_HASH = h;
+  if (window.__TP_DEV || window.__TP_DEV1) {
+    console.debug("[applyScript]", { source, len: normalized.length, hash: h.slice(0, 8) });
+  }
+  const prevLoading = !!window.__TP_LOADING_SCRIPT;
+  window.__TP_LOADING_SCRIPT = true;
+  try {
+    window.__tpRawScript = normalized;
+    buildLegacyAsrStateFromStandardScript(normalized);
+    const updateEditor = opts?.updateEditor ?? (source === "load" || source === "ingest" || source === "hydrate");
+    if (updateEditor) {
+      const ed = getEditorEl();
+      if (ed && ed.value !== normalized) ed.value = normalized;
+    }
+    renderScript(normalized);
+    publishDisplayScript(normalized, { source });
+    window.dispatchEvent(new CustomEvent("tp:scriptChanged", { detail: { source, text: normalized } }));
+  } finally {
+    window.__TP_LOADING_SCRIPT = prevLoading;
+    window.__TP_APPLY_IN_FLIGHT = false;
+  }
+}
+var init_apply_script = __esm({
+  "src/features/apply-script.ts"() {
+    "use strict";
+    init_render_script();
+    init_display_sync();
+    init_normalize();
+    init_validate();
+    init_build_legacy_asr_state();
+  }
+});
+
+// src/forge/workpiece-script-handoff.ts
+function readString3(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+function normalizeUuid(value) {
+  const str = readString3(value);
+  if (!str) return null;
+  return UUID_RE.test(str) ? str.toLowerCase() : null;
+}
+function readLocalStorage(key) {
+  try {
+    return readString3(window.localStorage.getItem(key));
+  } catch {
+    return null;
+  }
+}
+function writeLocalStorage(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+  }
+}
+function getQueryParam(...keys) {
+  try {
+    const q3 = new URLSearchParams(window.location.search || "");
+    for (const key of keys) {
+      const value = readString3(q3.get(key));
+      if (value) return value;
+    }
+  } catch {
+  }
+  return null;
+}
+function resolveWorkspaceId() {
+  const fromQuery = normalizeUuid(getQueryParam("workspace_id", "workspaceId", "workspace"));
+  if (fromQuery) return fromQuery;
+  const w3 = window;
+  const fromWindow = normalizeUuid(
+    w3.__forgeWorkspaceId ?? w3.__tpWorkspaceId ?? w3.__forgeWorkspace ?? w3.__tpWorkspace
+  );
+  if (fromWindow) return fromWindow;
+  for (const key of WORKSPACE_STORAGE_KEYS) {
+    const value = normalizeUuid(readLocalStorage(key));
+    if (value) return value;
+  }
+  return null;
+}
+function resolveWorkpieceId() {
+  const fromQuery = normalizeUuid(
+    getQueryParam("workpiece_id", "workpieceId", "workpiece", "cradle_id", "cradleId")
+  );
+  if (fromQuery) return fromQuery;
+  const w3 = window;
+  const fromWindow = normalizeUuid(
+    w3.__forgeWorkpieceId ?? w3.__tpWorkpieceId ?? w3.__forgeCradleId ?? w3.__tpCradleId
+  );
+  if (fromWindow) return fromWindow;
+  for (const key of WORKPIECE_STORAGE_KEYS) {
+    const value = normalizeUuid(readLocalStorage(key));
+    if (value) return value;
+  }
+  return null;
+}
+function persistWorkpiece(workspaceId, workpieceId) {
+  writeLocalStorage(ACTIVE_WORKPIECE_KEY, workpieceId);
+  if (workspaceId) {
+    writeLocalStorage(`${WORKSPACE_WORKPIECE_PREFIX}${workspaceId}`, workpieceId);
+  }
+}
+function shouldAutoloadWorkpieceScript() {
+  const open = readString3(getQueryParam("open", "intent", "action"))?.toLowerCase();
+  if (open === "script" || open === "script_primary") return true;
+  return Boolean(readString3(getQueryParam("script_path", "path")));
+}
+function resolveScriptPath() {
+  const fromQuery = readString3(getQueryParam("script_path", "path"));
+  if (!fromQuery) return DEFAULT_SCRIPT_PATH;
+  if (fromQuery.startsWith("/") || fromQuery.includes("..")) return DEFAULT_SCRIPT_PATH;
+  return fromQuery;
+}
+function resolveTongsApiToken() {
+  const fromQuery = readString3(getQueryParam("tongs_api_token", "tongsApiToken"));
+  if (fromQuery) return fromQuery;
+  const w3 = window;
+  const fromWindow = readString3(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
+  if (fromWindow) return fromWindow;
+  try {
+    const meta3 = import.meta;
+    const fromEnv = readString3(meta3.env?.VITE_TONGS_API_TOKEN);
+    if (fromEnv) return fromEnv;
+  } catch {
+  }
+  return readLocalStorage("forge_tongs_api_token_v1") ?? void 0;
+}
+function fileNameFromPath(path) {
+  const idx = path.lastIndexOf("/");
+  return idx >= 0 ? path.slice(idx + 1) : path;
+}
+function reportScriptHandoffError(args) {
+  const statusText = args.status ? ` (${args.status})` : "";
+  const message = args.reason === "not_found" ? `Script not found at ${args.path}.` : args.reason === "unauthorized" ? `Unauthorized while loading script${statusText}. Re-open from Hearth.` : args.reason === "empty" ? `Script is empty at ${args.path}.` : args.reason === "invalid_response" ? `Invalid script payload from Tongs${statusText}.` : `Failed to load script${statusText}.`;
+  try {
+    window.__tpWorkpieceScriptLoadError = {
+      workpieceId: args.workpieceId,
+      path: args.path,
+      reason: args.reason,
+      status: args.status ?? null,
+      message,
+      at: Date.now()
+    };
+  } catch {
+  }
+  try {
+    window.dispatchEvent(
+      new CustomEvent("tp:workpiece-script-handoff-error", {
+        detail: {
+          workpieceId: args.workpieceId,
+          path: args.path,
+          reason: args.reason,
+          status: args.status ?? null,
+          message
+        }
+      })
+    );
+  } catch {
+  }
+  try {
+    console.warn("[anvil:workpiece-script-handoff]", message, args);
+  } catch {
+  }
+  try {
+    window.toast?.(message, { type: "warning" });
+  } catch {
+  }
+}
+async function readWorkpieceScript(workpieceId, path) {
+  const headers = new Headers();
+  const token = resolveTongsApiToken();
+  if (token) {
+    headers.set("authorization", `Bearer ${token}`);
+  }
+  const response = await fetch(
+    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(path)}`,
+    {
+      method: "GET",
+      headers
+    }
+  );
+  if (response.status === 404) return { ok: false, reason: "not_found", status: 404 };
+  if (response.status === 401 || response.status === 403) {
+    return { ok: false, reason: "unauthorized", status: response.status };
+  }
+  if (!response.ok) return { ok: false, reason: "request_failed", status: response.status };
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    return { ok: false, reason: "invalid_response", status: response.status };
+  }
+  if (!body || typeof body !== "object" || body.ok !== true) {
+    return { ok: false, reason: "invalid_response", status: response.status };
+  }
+  const data = body.data;
+  if (typeof data !== "string") {
+    return { ok: false, reason: "invalid_response", status: response.status };
+  }
+  return { ok: true, text: data };
+}
+async function loadWorkpieceScriptOnBoot() {
+  if (booted) return;
+  booted = true;
+  if (!shouldAutoloadWorkpieceScript()) return;
+  const workpieceId = resolveWorkpieceId();
+  if (!workpieceId) return;
+  const workspaceId = resolveWorkspaceId();
+  persistWorkpiece(workspaceId, workpieceId);
+  const path = resolveScriptPath();
+  const readResult = await readWorkpieceScript(workpieceId, path);
+  if (!readResult.ok) {
+    reportScriptHandoffError({
+      workpieceId,
+      path,
+      reason: readResult.reason,
+      status: readResult.status
+    });
+    return;
+  }
+  const text = readResult.text;
+  if (!text.trim()) {
+    reportScriptHandoffError({
+      workpieceId,
+      path,
+      reason: "empty"
+    });
+    return;
+  }
+  applyScript(text, "load", { updateEditor: true });
+  try {
+    window.__tpCurrentName = fileNameFromPath(path);
+  } catch {
+  }
+  try {
+    window.dispatchEvent(
+      new CustomEvent("tp:script-load", {
+        detail: {
+          name: fileNameFromPath(path),
+          text,
+          skipNormalize: true
+        }
+      })
+    );
+  } catch {
+  }
+}
+function bootstrapWorkpieceScriptHandoff() {
+  const w3 = window;
+  if (w3.__tpWorkpieceScriptBootLoaded) return;
+  w3.__tpWorkpieceScriptBootLoaded = true;
+  const run = () => {
+    void loadWorkpieceScriptOnBoot();
+  };
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", run, { once: true });
+  } else {
+    run();
+  }
+}
+var UUID_RE, DEFAULT_SCRIPT_PATH, WORKSPACE_STORAGE_KEYS, WORKPIECE_STORAGE_KEYS, ACTIVE_WORKPIECE_KEY, WORKSPACE_WORKPIECE_PREFIX, booted;
+var init_workpiece_script_handoff = __esm({
+  "src/forge/workpiece-script-handoff.ts"() {
+    "use strict";
+    init_apply_script();
+    UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    DEFAULT_SCRIPT_PATH = "script/script.md";
+    WORKSPACE_STORAGE_KEYS = ["forge_workspace_id_v1", "barstock_workspace_id"];
+    WORKPIECE_STORAGE_KEYS = [
+      "forge_active_workpiece_id_v1",
+      "forge_workpiece_id_v1",
+      "tp_workpiece_id"
+    ];
+    ACTIVE_WORKPIECE_KEY = "forge_active_workpiece_id_v1";
+    WORKSPACE_WORKPIECE_PREFIX = "forge_anvil_recording_workpiece_v1:";
+    booted = false;
+    if (typeof window !== "undefined") {
+      bootstrapWorkpieceScriptHandoff();
+    }
   }
 });
 
@@ -42611,7 +43587,7 @@ function readNumber(value, fallback) {
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
-function readString3(value, fallback) {
+function readString4(value, fallback) {
   if (typeof value !== "string") return fallback;
   const v = value.trim();
   if (!v || v === "undefined" || v === "null") return fallback;
@@ -42620,14 +43596,14 @@ function readString3(value, fallback) {
 function normalizeTypography(input, fallback) {
   const src = input && typeof input === "object" ? input : {};
   return clampTypography({
-    fontFamily: readString3(src.fontFamily, fallback.fontFamily),
+    fontFamily: readString4(src.fontFamily, fallback.fontFamily),
     fontSizePx: readNumber(src.fontSizePx, fallback.fontSizePx),
     lineHeight: readNumber(src.lineHeight, fallback.lineHeight),
     weight: readNumber(src.weight, fallback.weight),
     letterSpacingEm: readNumber(src.letterSpacingEm, fallback.letterSpacingEm),
     wordSpacingEm: readNumber(src.wordSpacingEm, fallback.wordSpacingEm),
-    color: readString3(src.color, fallback.color),
-    background: readString3(src.background, fallback.background),
+    color: readString4(src.color, fallback.color),
+    background: readString4(src.background, fallback.background),
     maxLineWidthCh: readNumber(src.maxLineWidthCh, fallback.maxLineWidthCh),
     dimOthers: readNumber(src.dimOthers, fallback.dimOthers)
   });
@@ -43859,433 +44835,6 @@ var init_recording_session = __esm({
   }
 });
 
-// src/net/display-ws-client.ts
-function publishToNetworkDisplays(payload) {
-  if (!isSupported || !relayEnabled || typeof payload === "undefined") return;
-  try {
-    const str = JSON.stringify(payload);
-    let payloadType = null;
-    if (payload && typeof payload === "object") {
-      const candidate = payload.type;
-      if (typeof candidate === "string") {
-        payloadType = candidate;
-      }
-    }
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      if (payloadType === "scroll") {
-        queueScrollMessage(str);
-      } else {
-        socket.send(str);
-      }
-      return;
-    }
-    sendQueue.push(str);
-    if (sendQueue.length > 256) {
-      sendQueue.shift();
-    }
-  } catch {
-  }
-}
-function onNetworkDisplayStatus(fn) {
-  listeners2.add(fn);
-  fn({ ...status });
-  return () => {
-    listeners2.delete(fn);
-  };
-}
-function getNetworkDisplayStatus() {
-  return { ...status };
-}
-function enableNetworkDisplayRelay() {
-  if (!isSupported) return;
-  if (isRelayDisabled()) return;
-  if (relayEnabled) return;
-  relayEnabled = true;
-  persistRelayEnabled(true);
-  connect3();
-}
-var status, listeners2, socket, reconnectDelay, reconnectTimer, sendQueue, SCROLL_THROTTLE_MS, scrollTimer, pendingScroll, relayEnabled, RELAY_ENABLED_KEY, flushScroll, queueScrollMessage, isDisplayContext, isSupported, isRelayDisabled, notifyListeners, updateStatus2, isLocalhostHost, getWsUrl, flushQueue, scheduleReconnect, handleMessage, resetSocket, connect3, loadRelayEnabled, persistRelayEnabled;
-var init_display_ws_client = __esm({
-  "src/net/display-ws-client.ts"() {
-    "use strict";
-    status = {
-      state: "disconnected",
-      connectedDisplays: 0,
-      lastError: void 0
-    };
-    listeners2 = /* @__PURE__ */ new Set();
-    socket = null;
-    reconnectDelay = 1e3;
-    reconnectTimer = null;
-    sendQueue = [];
-    SCROLL_THROTTLE_MS = 60;
-    scrollTimer = null;
-    pendingScroll = null;
-    relayEnabled = false;
-    RELAY_ENABLED_KEY = "tp_display_ws_enabled";
-    flushScroll = () => {
-      if (!socket || socket.readyState !== WebSocket.OPEN) {
-        scrollTimer = null;
-        pendingScroll = null;
-        return;
-      }
-      if (pendingScroll) {
-        try {
-          socket.send(pendingScroll);
-        } catch {
-        }
-      }
-      pendingScroll = null;
-      scrollTimer = null;
-    };
-    queueScrollMessage = (serialized) => {
-      pendingScroll = serialized;
-      if (scrollTimer) return;
-      scrollTimer = window.setTimeout(() => {
-        flushScroll();
-      }, SCROLL_THROTTLE_MS);
-    };
-    isDisplayContext = () => {
-      if (typeof window === "undefined") return false;
-      try {
-        const params = new URLSearchParams(window.location.search || "");
-        if (params.get("display") === "1") return true;
-        const path = (window.location.pathname || "").toLowerCase();
-        if (path.endsWith("/display.html") || path === "/display.html") return true;
-        if (window.__TP_FORCE_DISPLAY) return true;
-      } catch {
-      }
-      return false;
-    };
-    isSupported = typeof window !== "undefined" && typeof WebSocket !== "undefined" && !isDisplayContext();
-    isRelayDisabled = () => {
-      if (typeof window === "undefined") return false;
-      const w3 = window;
-      if (w3.__TP_DISABLE_DISPLAY_WS) return true;
-      try {
-        const params = new URLSearchParams(window.location.search || "");
-        if (params.get("ci") === "1") return true;
-        if (params.get("uiMock") === "1") return true;
-        if (params.get("mockFolder") === "1") return true;
-        if (params.get("noDisplayWs") === "1") return true;
-      } catch {
-      }
-      return false;
-    };
-    notifyListeners = () => {
-      const snapshot = { ...status };
-      listeners2.forEach((fn) => {
-        try {
-          fn(snapshot);
-        } catch {
-        }
-      });
-    };
-    updateStatus2 = (patch) => {
-      Object.assign(status, patch);
-      notifyListeners();
-    };
-    isLocalhostHost = (host) => {
-      return host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".local");
-    };
-    getWsUrl = () => {
-      if (typeof window === "undefined") return null;
-      try {
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const hostname = window.location.hostname || "";
-        if (!isLocalhostHost(hostname)) {
-          return null;
-        }
-        const host = window.location.host;
-        return `${protocol}//${host}/ws/display`;
-      } catch {
-        return null;
-      }
-    };
-    flushQueue = () => {
-      if (!socket || socket.readyState !== WebSocket.OPEN) return;
-      if (!sendQueue.length) return;
-      for (const msg of sendQueue) {
-        try {
-          socket.send(msg);
-        } catch {
-        }
-      }
-      sendQueue = [];
-    };
-    scheduleReconnect = () => {
-      if (reconnectTimer || !isSupported || !relayEnabled) return;
-      reconnectTimer = window.setTimeout(() => {
-        reconnectTimer = null;
-        connect3();
-      }, reconnectDelay);
-      reconnectDelay = Math.min(15e3, reconnectDelay * 1.5);
-    };
-    handleMessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data?.type === "tp-display-status") {
-          const connected = typeof data.connected === "number" ? data.connected : status.connectedDisplays;
-          updateStatus2({ connectedDisplays: connected });
-        }
-      } catch {
-      }
-    };
-    resetSocket = () => {
-      if (socket) {
-        try {
-          socket.close();
-        } catch {
-        }
-      }
-      socket = null;
-    };
-    connect3 = () => {
-      if (!isSupported || !relayEnabled) return;
-      if (socket && socket.readyState === WebSocket.OPEN) return;
-      updateStatus2({ state: "connecting", lastError: void 0 });
-      const url = getWsUrl();
-      if (!url) {
-        updateStatus2({ state: "error", lastError: "Unable to build ws url" });
-        return;
-      }
-      resetSocket();
-      const ws = new WebSocket(url);
-      socket = ws;
-      ws.addEventListener("open", () => {
-        reconnectDelay = 1e3;
-        updateStatus2({ state: "connected", lastError: void 0 });
-        ws.send(JSON.stringify({ type: "hello", role: "main" }));
-        flushQueue();
-      });
-      ws.addEventListener("message", handleMessage);
-      const cleanup = () => {
-        updateStatus2({ state: "disconnected", connectedDisplays: 0, lastError: void 0 });
-        socket = null;
-        scheduleReconnect();
-      };
-      ws.addEventListener("close", cleanup);
-      ws.addEventListener("error", (event) => {
-        updateStatus2({ state: "error", lastError: String(event?.reason || "WebSocket error") });
-      });
-    };
-    loadRelayEnabled = () => {
-      if (typeof window === "undefined") return false;
-      if (isRelayDisabled()) return false;
-      try {
-        return localStorage.getItem(RELAY_ENABLED_KEY) === "1";
-      } catch {
-        return false;
-      }
-    };
-    persistRelayEnabled = (on3) => {
-      if (typeof window === "undefined") return;
-      try {
-        if (on3) {
-          localStorage.setItem(RELAY_ENABLED_KEY, "1");
-        } else {
-          localStorage.removeItem(RELAY_ENABLED_KEY);
-        }
-      } catch {
-      }
-    };
-    relayEnabled = loadRelayEnabled();
-    if (isSupported && relayEnabled) {
-      connect3();
-    }
-    try {
-      window.addEventListener("beforeunload", () => {
-        socket?.close();
-      });
-    } catch {
-    }
-  }
-});
-
-// src/features/display-sync.ts
-function getDisplayChannel() {
-  if (displayCh) return displayCh;
-  try {
-    displayCh = new BroadcastChannel("tp_display");
-  } catch (err) {
-    try {
-      console.warn("[display-sync] BroadcastChannel tp_display failed", err);
-    } catch {
-    }
-    displayCh = null;
-  }
-  return displayCh;
-}
-function makeKey(raw) {
-  const text = String(raw || "");
-  return `${text.length}:${text.slice(0, 64)}`;
-}
-function publishDisplayScript(rawText, opts) {
-  if (typeof window !== "undefined" && window.__TP_FORCE_DISPLAY) return;
-  const w3 = typeof window !== "undefined" ? window : {};
-  if (w3.__TP_PUBLISHING_DISPLAY) return;
-  w3.__TP_PUBLISHING_DISPLAY = true;
-  try {
-    const text = String(rawText || "");
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    const key = makeKey(text);
-    if (!opts?.force && key === lastPayloadKey) return;
-    lastPayloadKey = key;
-    latestRaw = text;
-    rev += 1;
-    try {
-      if (shouldLogLevel(2)) {
-        console.log("[publishDisplayScript]", { rev, len: text.length });
-      }
-    } catch {
-    }
-    const payload = {
-      type: "tp:script",
-      kind: "tp:script",
-      source: opts?.source ?? "main",
-      rawText: text,
-      rev,
-      textHash: key
-    };
-    const ch = getDisplayChannel();
-    if (ch) {
-      try {
-        ch.postMessage(payload);
-      } catch (err) {
-        try {
-          console.warn("[display-sync] failed to post tp_display", err);
-        } catch {
-        }
-      }
-    }
-    try {
-      publishToNetworkDisplays(payload);
-    } catch {
-    }
-  } finally {
-    w3.__TP_PUBLISHING_DISPLAY = false;
-  }
-}
-function getLatestRawScript() {
-  return latestRaw;
-}
-function pushDisplayRecordState(state8) {
-  const payload = { kind: "tp:record", state: state8 };
-  const ch = getDisplayChannel();
-  if (ch) {
-    try {
-      ch.postMessage(payload);
-    } catch {
-    }
-  }
-}
-function installDisplaySync(opts) {
-  if (displaySyncInstalled) return () => {
-  };
-  displaySyncInstalled = true;
-  const chanName = opts.channelName || "tp_display";
-  let chan2 = null;
-  const isDisplay = typeof window !== "undefined" && window.__TP_FORCE_DISPLAY === true;
-  let lastSeenRev = 0;
-  try {
-    const w3 = window;
-    w3.__TP_INSTALL_DISPLAY_SYNC = (w3.__TP_INSTALL_DISPLAY_SYNC || 0) + 1;
-    if (w3.__TP_INSTALL_DISPLAY_SYNC > 1 && (w3.__TP_DEV || w3.__TP_DEV1)) {
-      if (shouldLogLevel(1)) {
-        console.warn("[display-sync] installDisplaySync called multiple times", w3.__TP_INSTALL_DISPLAY_SYNC);
-      }
-      if (shouldLogLevel(3)) {
-        try {
-          console.trace("[display-sync] install stack");
-        } catch {
-        }
-      }
-    }
-  } catch {
-  }
-  try {
-    chan2 = new BroadcastChannel(chanName);
-  } catch (err) {
-    try {
-      console.warn("[display-sync] failed to open channel", err);
-    } catch {
-    }
-    chan2 = null;
-  }
-  const push = (force) => {
-    if (isDisplay) return;
-    try {
-      publishDisplayScript(opts.getText?.() || latestRaw || "", { force });
-    } catch {
-    }
-  };
-  const onMsg = (ev) => {
-    try {
-      const msg = ev?.data || {};
-      if (msg?.type === "display:hello" && !isDisplay) {
-        push(true);
-        return;
-      }
-      if (!isDisplay) return;
-      if (!msg || msg.type !== "tp:script" || typeof msg.rawText !== "string") return;
-      const incomingRev = typeof msg.rev === "number" ? msg.rev : 0;
-      if (incomingRev && incomingRev <= lastSeenRev) return;
-      lastSeenRev = incomingRev || lastSeenRev;
-      if (typeof opts.onApplyRemote === "function") {
-        opts.onApplyRemote(msg.rawText);
-      }
-    } catch {
-    }
-  };
-  try {
-    chan2?.addEventListener("message", onMsg);
-  } catch {
-  }
-  if (isDisplay) {
-    try {
-      chan2?.postMessage({ type: "display:hello", ts: Date.now() });
-    } catch {
-    }
-  } else {
-    try {
-      window.addEventListener("tp:scriptChanged", push);
-    } catch {
-    }
-    try {
-      push();
-    } catch {
-    }
-  }
-  return () => {
-    try {
-      window.removeEventListener("tp:scriptChanged", push);
-    } catch {
-    }
-    try {
-      chan2?.removeEventListener("message", onMsg);
-    } catch {
-    }
-    try {
-      chan2?.close();
-    } catch {
-    }
-  };
-}
-var displayCh, lastPayloadKey, rev, latestRaw, displaySyncInstalled;
-var init_display_sync = __esm({
-  "src/features/display-sync.ts"() {
-    "use strict";
-    init_display_ws_client();
-    init_dev_log();
-    displayCh = null;
-    lastPayloadKey = "";
-    rev = 0;
-    latestRaw = "";
-    displaySyncInstalled = false;
-  }
-});
-
 // src/features/rec-pills.ts
 function deriveRecState(opts) {
   if (!opts.recordingEnabled) return "off";
@@ -44604,24 +45153,24 @@ var init_rec_pills = __esm({
 });
 
 // src/forge/workpiece-commit.ts
-function readString4(value) {
+function readString5(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
-function normalizeUuid(value) {
-  const str = readString4(value);
+function normalizeUuid2(value) {
+  const str = readString5(value);
   if (!str) return null;
-  return UUID_RE.test(str) ? str.toLowerCase() : null;
+  return UUID_RE2.test(str) ? str.toLowerCase() : null;
 }
-function readLocalStorage(key) {
+function readLocalStorage2(key) {
   try {
-    return readString4(localStorage.getItem(key));
+    return readString5(localStorage.getItem(key));
   } catch {
     return null;
   }
 }
-function writeLocalStorage(key, value) {
+function writeLocalStorage2(key, value) {
   try {
     localStorage.setItem(key, value);
   } catch {
@@ -44629,7 +45178,7 @@ function writeLocalStorage(key, value) {
 }
 function readSessionStorage(key) {
   try {
-    return readString4(sessionStorage.getItem(key));
+    return readString5(sessionStorage.getItem(key));
   } catch {
     return null;
   }
@@ -44640,11 +45189,11 @@ function writeSessionStorage(key, value) {
   } catch {
   }
 }
-function getQueryParam(...keys) {
+function getQueryParam2(...keys) {
   try {
     const q3 = new URLSearchParams(window.location.search || "");
     for (const key of keys) {
-      const value = readString4(q3.get(key));
+      const value = readString5(q3.get(key));
       if (value) return value;
     }
   } catch {
@@ -44653,16 +45202,16 @@ function getQueryParam(...keys) {
 }
 function resolveLane() {
   const w3 = window;
-  const fromQuery = readString4(getQueryParam("forge_lane", "lane"));
+  const fromQuery = readString5(getQueryParam2("forge_lane", "lane"));
   if (fromQuery) return fromQuery;
-  const fromWindow = readString4(w3.__forgeLane ?? w3.__tpLane);
+  const fromWindow = readString5(w3.__forgeLane ?? w3.__tpLane);
   if (fromWindow) return fromWindow;
-  const fromStorage = readString4(readLocalStorage("forge_lane_v1"));
+  const fromStorage = readString5(readLocalStorage2("forge_lane_v1"));
   if (fromStorage) return fromStorage;
   return DEFAULT_LANE;
 }
 function getWrittenBy() {
-  const version5 = readString4(window.APP_VERSION) || DEFAULT_TOOL_VERSION;
+  const version5 = readString5(window.APP_VERSION) || DEFAULT_TOOL_VERSION;
   return {
     tool: "anvil",
     tool_version: version5,
@@ -44670,7 +45219,17 @@ function getWrittenBy() {
   };
 }
 function getApiToken() {
-  return readString4(window.__forgeTongsApiToken) ?? void 0;
+  const fromQuery = readString5(getQueryParam2("tongs_api_token", "tongsApiToken"));
+  if (fromQuery) return fromQuery;
+  const fromWindow = readString5(window.__forgeTongsApiToken ?? window.__tpTongsApiToken);
+  if (fromWindow) return fromWindow;
+  try {
+    const meta3 = import.meta;
+    const fromEnv = readString5(meta3.env?.VITE_TONGS_API_TOKEN);
+    if (fromEnv) return fromEnv;
+  } catch {
+  }
+  return readLocalStorage2("forge_tongs_api_token_v1") ?? void 0;
 }
 function getOrCreateRecordingSessionId() {
   const existing = readSessionStorage(RECORDING_SESSION_KEY);
@@ -44678,7 +45237,7 @@ function getOrCreateRecordingSessionId() {
   let next = "";
   try {
     const randomUuid = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : "";
-    next = readString4(randomUuid) || "";
+    next = readString5(randomUuid) || "";
   } catch {
   }
   if (!next) {
@@ -44691,48 +45250,48 @@ function nextCorrelationId(prefix) {
   correlationSeq += 1;
   return `${prefix}:${getOrCreateRecordingSessionId()}:${correlationSeq}`;
 }
-function resolveWorkspaceId() {
-  const fromQuery = normalizeUuid(getQueryParam("workspace_id", "workspaceId", "workspace"));
+function resolveWorkspaceId2() {
+  const fromQuery = normalizeUuid2(getQueryParam2("workspace_id", "workspaceId", "workspace"));
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = normalizeUuid(
+  const fromWindow = normalizeUuid2(
     w3.__forgeWorkspaceId ?? w3.__tpWorkspaceId ?? w3.__forgeWorkspace ?? w3.__tpWorkspace
   );
   if (fromWindow) return fromWindow;
-  for (const key of WORKSPACE_STORAGE_KEYS) {
-    const value = normalizeUuid(readLocalStorage(key));
+  for (const key of WORKSPACE_STORAGE_KEYS2) {
+    const value = normalizeUuid2(readLocalStorage2(key));
     if (value) return value;
   }
   return null;
 }
 function resolveDirectWorkpieceId() {
-  const fromQuery = normalizeUuid(
-    getQueryParam("workpiece_id", "workpieceId", "workpiece", "cradle_id", "cradleId")
+  const fromQuery = normalizeUuid2(
+    getQueryParam2("workpiece_id", "workpieceId", "workpiece", "cradle_id", "cradleId")
   );
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = normalizeUuid(
+  const fromWindow = normalizeUuid2(
     w3.__forgeWorkpieceId ?? w3.__tpWorkpieceId ?? w3.__forgeCradleId ?? w3.__tpCradleId
   );
   if (fromWindow) return fromWindow;
-  for (const key of WORKPIECE_STORAGE_KEYS) {
-    const value = normalizeUuid(readLocalStorage(key));
+  for (const key of WORKPIECE_STORAGE_KEYS2) {
+    const value = normalizeUuid2(readLocalStorage2(key));
     if (value) return value;
   }
   return null;
 }
 function loadCachedWorkpiece(workspaceId) {
   if (!workspaceId) return null;
-  return normalizeUuid(readLocalStorage(`${WORKSPACE_WORKPIECE_PREFIX}${workspaceId}`));
+  return normalizeUuid2(readLocalStorage2(`${WORKSPACE_WORKPIECE_PREFIX2}${workspaceId}`));
 }
-function persistWorkpiece(workspaceId, workpieceId) {
-  writeLocalStorage(ACTIVE_WORKPIECE_KEY, workpieceId);
+function persistWorkpiece2(workspaceId, workpieceId) {
+  writeLocalStorage2(ACTIVE_WORKPIECE_KEY2, workpieceId);
   if (workspaceId) {
-    writeLocalStorage(`${WORKSPACE_WORKPIECE_PREFIX}${workspaceId}`, workpieceId);
+    writeLocalStorage2(`${WORKSPACE_WORKPIECE_PREFIX2}${workspaceId}`, workpieceId);
   }
 }
 function inferContentType(contentType, name) {
-  const fromInput = readString4(contentType);
+  const fromInput = readString5(contentType);
   if (fromInput) return fromInput;
   const lower = name.toLowerCase();
   if (lower.endsWith(".wav")) return "audio/wav";
@@ -44759,7 +45318,7 @@ function buildHeaders(apiToken) {
 }
 async function readBodyAsJson(response) {
   const text = await response.text();
-  const raw = readString4(text);
+  const raw = readString5(text);
   if (!raw) return null;
   try {
     return JSON.parse(raw);
@@ -44769,7 +45328,7 @@ async function readBodyAsJson(response) {
 }
 function resolveCreatedWorkpieceId(body) {
   const row = body;
-  return normalizeUuid(
+  return normalizeUuid2(
     row?.data?.cradle?.id ?? row?.data?.episode?.id ?? row?.data?.workpiece?.id ?? row?.data?.id ?? row?.cradle?.id ?? row?.episode?.id ?? row?.workpiece?.id ?? row?.id
   );
 }
@@ -44831,7 +45390,7 @@ async function commitFileToWorkpiece(workpieceId, payload, apiToken) {
 async function commitRecordingBytesToTongs(input) {
   const writtenBy = getWrittenBy();
   const apiToken = getApiToken();
-  const workspaceId = resolveWorkspaceId();
+  const workspaceId = resolveWorkspaceId2();
   let workpieceId = resolveDirectWorkpieceId() || loadCachedWorkpiece(workspaceId);
   let createdCradle = false;
   if (!workpieceId) {
@@ -44857,7 +45416,7 @@ async function commitRecordingBytesToTongs(input) {
     workpieceId = created.workpieceId;
     createdCradle = true;
   }
-  persistWorkpiece(workspaceId, workpieceId);
+  persistWorkpiece2(workspaceId, workpieceId);
   const name = sanitizeFilename(input.originalName);
   const path = `recordings/${name}`;
   const contentType = inferContentType(input.contentType, name);
@@ -44887,7 +45446,7 @@ async function commitRecordingBytesToTongs(input) {
     if (replacement.ok) {
       workpieceId = replacement.workpieceId;
       createdCradle = true;
-      persistWorkpiece(workspaceId, workpieceId);
+      persistWorkpiece2(workspaceId, workpieceId);
       commit = await commitFileToWorkpiece(workpieceId, commitPayload, apiToken);
     }
   }
@@ -44909,21 +45468,21 @@ async function commitRecordingBytesToTongs(input) {
     status: commit.status
   };
 }
-var UUID_RE, DEFAULT_TOOL_VERSION, DEFAULT_LANE, WORKSPACE_STORAGE_KEYS, WORKPIECE_STORAGE_KEYS, ACTIVE_WORKPIECE_KEY, WORKSPACE_WORKPIECE_PREFIX, RECORDING_SESSION_KEY, correlationSeq;
+var UUID_RE2, DEFAULT_TOOL_VERSION, DEFAULT_LANE, WORKSPACE_STORAGE_KEYS2, WORKPIECE_STORAGE_KEYS2, ACTIVE_WORKPIECE_KEY2, WORKSPACE_WORKPIECE_PREFIX2, RECORDING_SESSION_KEY, correlationSeq;
 var init_workpiece_commit = __esm({
   "src/forge/workpiece-commit.ts"() {
     "use strict";
-    UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    UUID_RE2 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     DEFAULT_TOOL_VERSION = "1.8.5";
     DEFAULT_LANE = "forge-managed";
-    WORKSPACE_STORAGE_KEYS = ["forge_workspace_id_v1", "barstock_workspace_id"];
-    WORKPIECE_STORAGE_KEYS = [
+    WORKSPACE_STORAGE_KEYS2 = ["forge_workspace_id_v1", "barstock_workspace_id"];
+    WORKPIECE_STORAGE_KEYS2 = [
       "forge_active_workpiece_id_v1",
       "forge_workpiece_id_v1",
       "tp_workpiece_id"
     ];
-    ACTIVE_WORKPIECE_KEY = "forge_active_workpiece_id_v1";
-    WORKSPACE_WORKPIECE_PREFIX = "forge_anvil_recording_workpiece_v1:";
+    ACTIVE_WORKPIECE_KEY2 = "forge_active_workpiece_id_v1";
+    WORKSPACE_WORKPIECE_PREFIX2 = "forge_anvil_recording_workpiece_v1:";
     RECORDING_SESSION_KEY = "forge_anvil_recording_session_v1";
     correlationSeq = 0;
   }
@@ -48621,6 +49180,186 @@ var init_mic_gate = __esm({
   }
 });
 
+// src/forge/ready-scripts.ts
+function readString6(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+function normalizeUuid3(value) {
+  const str = readString6(value);
+  if (!str) return null;
+  return UUID_RE3.test(str) ? str.toLowerCase() : null;
+}
+function readLocalStorage3(key) {
+  try {
+    return readString6(window.localStorage.getItem(key));
+  } catch {
+    return null;
+  }
+}
+function getQueryParam3(...keys) {
+  try {
+    const q3 = new URLSearchParams(window.location.search || "");
+    for (const key of keys) {
+      const value = readString6(q3.get(key));
+      if (value) return value;
+    }
+  } catch {
+  }
+  return null;
+}
+function resolveWorkspaceId3() {
+  const fromQuery = normalizeUuid3(getQueryParam3("workspace_id", "workspaceId", "workspace"));
+  if (fromQuery) return fromQuery;
+  const w3 = window;
+  const fromWindow = normalizeUuid3(
+    w3.__forgeWorkspaceId ?? w3.__tpWorkspaceId ?? w3.__forgeWorkspace ?? w3.__tpWorkspace
+  );
+  if (fromWindow) return fromWindow;
+  for (const key of WORKSPACE_STORAGE_KEYS3) {
+    const value = normalizeUuid3(readLocalStorage3(key));
+    if (value) return value;
+  }
+  return null;
+}
+function resolveTongsApiToken2() {
+  const fromQuery = readString6(getQueryParam3("tongs_api_token", "tongsApiToken"));
+  if (fromQuery) return fromQuery;
+  const w3 = window;
+  const fromWindow = readString6(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
+  if (fromWindow) return fromWindow;
+  try {
+    const meta3 = import.meta;
+    const fromEnv = readString6(meta3.env?.VITE_TONGS_API_TOKEN);
+    if (fromEnv) return fromEnv;
+  } catch {
+  }
+  return readLocalStorage3("forge_tongs_api_token_v1") ?? void 0;
+}
+function withAuthHeaders() {
+  const headers = new Headers();
+  const token = resolveTongsApiToken2();
+  if (token) {
+    headers.set("authorization", `Bearer ${token}`);
+  }
+  return headers;
+}
+function normalizeScriptPath(value) {
+  const path = readString6(value);
+  if (!path) return null;
+  if (path.startsWith("/") || path.includes("..")) return null;
+  return path;
+}
+function normalizeIso(value) {
+  const iso = readString6(value);
+  if (!iso) return void 0;
+  const timestamp = Date.parse(iso);
+  if (!Number.isFinite(timestamp)) return void 0;
+  return new Date(timestamp).toISOString();
+}
+function normalizeScriptPaths(value) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  for (const entry of value) {
+    const path = normalizeScriptPath(entry);
+    if (!path || out.includes(path)) continue;
+    out.push(path);
+  }
+  return out;
+}
+function toReadyScriptId(workpieceId, path) {
+  return `ready:${workpieceId}:${path}`;
+}
+function parseReadyScriptsPayload(payload, workspaceId) {
+  if (!payload || typeof payload !== "object") return [];
+  const root = payload;
+  if (root.ok !== true) return [];
+  const data = root.data;
+  const rowsMaybe = Array.isArray(data) ? data : data && typeof data === "object" && Array.isArray(data.scripts) ? data.scripts : [];
+  if (!rowsMaybe.length) return [];
+  const scripts = [];
+  for (const row of rowsMaybe) {
+    if (!row || typeof row !== "object") continue;
+    const item = row;
+    const rowWorkspace = normalizeUuid3(item.workspace_id) ?? workspaceId;
+    const workpieceId = normalizeUuid3(item.workpiece_id);
+    const primaryPath = normalizeScriptPath(item.primary_script_path) ?? normalizeScriptPath(item.path);
+    const scriptPaths = normalizeScriptPaths(item.script_paths);
+    const path = primaryPath ?? scriptPaths[0] ?? null;
+    if (!rowWorkspace || !workpieceId || !path) continue;
+    const normalizedScriptPaths = scriptPaths.length ? scriptPaths.includes(path) ? scriptPaths : [path, ...scriptPaths] : [path];
+    const title = readString6(item.title) ?? `Episode ${workpieceId.slice(0, 8)}`;
+    scripts.push({
+      id: toReadyScriptId(workpieceId, path),
+      workspaceId: rowWorkspace,
+      workpieceId,
+      path,
+      primaryPath: path,
+      scriptPaths: normalizedScriptPaths,
+      title,
+      updatedAt: normalizeIso(item.updated_at)
+    });
+  }
+  scripts.sort((a, b) => {
+    const aTs = a.updatedAt ?? "";
+    const bTs = b.updatedAt ?? "";
+    const byUpdated = bTs.localeCompare(aTs);
+    if (byUpdated !== 0) return byUpdated;
+    return a.title.localeCompare(b.title);
+  });
+  return scripts;
+}
+async function listWorkspaceReadyScripts() {
+  const workspaceId = resolveWorkspaceId3();
+  if (!workspaceId) return [];
+  const response = await fetch(`/tongs/workspaces/${encodeURIComponent(workspaceId)}/ready-scripts?unrecorded=1`, {
+    method: "GET",
+    headers: withAuthHeaders()
+  });
+  if (!response.ok) return [];
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    return [];
+  }
+  return parseReadyScriptsPayload(body, workspaceId);
+}
+async function readReadyScriptText(workpieceId, path) {
+  const safeWorkpieceId = normalizeUuid3(workpieceId);
+  const safePath = normalizeScriptPath(path);
+  if (!safeWorkpieceId || !safePath) return null;
+  const response = await fetch(
+    `/tongs/workpieces/${encodeURIComponent(safeWorkpieceId)}/read-file?path=${encodeURIComponent(safePath)}`,
+    {
+      method: "GET",
+      headers: withAuthHeaders()
+    }
+  );
+  if (response.status === 404) return null;
+  if (!response.ok) return null;
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    return null;
+  }
+  if (!body || typeof body !== "object" || body.ok !== true) {
+    return null;
+  }
+  const data = body.data;
+  return typeof data === "string" ? data : null;
+}
+var UUID_RE3, WORKSPACE_STORAGE_KEYS3;
+var init_ready_scripts = __esm({
+  "src/forge/ready-scripts.ts"() {
+    "use strict";
+    UUID_RE3 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    WORKSPACE_STORAGE_KEYS3 = ["forge_workspace_id_v1", "barstock_workspace_id"];
+  }
+});
+
 // src/features/scripts-store.ts
 async function ensureReadPermission(handle) {
   try {
@@ -48678,15 +49417,19 @@ async function extractDocxText(buf) {
     return "";
   }
 }
-var scriptsById, mappedHandles, lastSyncFingerprint, computeFingerprint, ScriptStore;
+var scriptsById, mappedHandles, readyRefsById, lastMappedFingerprint, lastReadyFingerprint, computeFingerprint, computeReadyFingerprint, ScriptStore;
 var init_scripts_store = __esm({
   "src/features/scripts-store.ts"() {
     "use strict";
     init_logging();
+    init_ready_scripts();
     scriptsById = /* @__PURE__ */ new Map();
     mappedHandles = /* @__PURE__ */ new Map();
-    lastSyncFingerprint = "";
+    readyRefsById = /* @__PURE__ */ new Map();
+    lastMappedFingerprint = "";
+    lastReadyFingerprint = "";
     computeFingerprint = (entries) => entries.map((e) => String(e.id || "")).sort().join("|");
+    computeReadyFingerprint = (entries) => entries.map((e) => `${String(e.id || "")}:${String(e.updatedAt || "")}:${String(e.path || "")}`).sort().join("|");
     ScriptStore = {
       list() {
         const all2 = Array.from(scriptsById.values());
@@ -48701,7 +49444,30 @@ var init_scripts_store = __esm({
         const existing = scriptsById.get(id);
         if (existing && existing.content) return existing;
         const mapped = mappedHandles.get(id);
-        if (!mapped) return existing ?? null;
+        if (!mapped) {
+          const ready = readyRefsById.get(id);
+          if (!ready) return existing ?? null;
+          try {
+            const text = await readReadyScriptText(ready.workpieceId, ready.path);
+            if (typeof text !== "string") return existing ?? null;
+            const rec2 = {
+              id: ready.id,
+              title: ready.title,
+              content: text,
+              source: "ready",
+              created: existing?.created || ready.updatedAt || (/* @__PURE__ */ new Date()).toISOString(),
+              updated: ready.updatedAt || (/* @__PURE__ */ new Date()).toISOString()
+            };
+            scriptsById.set(id, rec2);
+            return rec2;
+          } catch (err) {
+            try {
+              console.warn("[scripts-store] failed to load ready script", err);
+            } catch {
+            }
+            return existing ?? null;
+          }
+        }
         try {
           const ok = await ensureReadPermission(mapped.handle);
           if (!ok) {
@@ -48769,14 +49535,33 @@ var init_scripts_store = __esm({
           handle: m.handle
         }));
       },
+      getSelectableEntries() {
+        const mapped = Array.from(mappedHandles.values()).map((m) => ({
+          id: m.id,
+          title: m.title,
+          handle: m.handle,
+          source: "mapped"
+        }));
+        const ready = Array.from(readyRefsById.values()).map((r) => ({
+          id: r.id,
+          title: r.title,
+          source: "ready"
+        }));
+        return [...ready, ...mapped];
+      },
       syncMapped(entries) {
         const fingerprint = computeFingerprint(entries);
-        if (fingerprint && fingerprint === lastSyncFingerprint) {
+        if (fingerprint && fingerprint === lastMappedFingerprint) {
           debugLog("[SCRIPT-STORE] syncMapped skipped (unchanged)", { fingerprint, count: entries.length });
           return;
         }
-        lastSyncFingerprint = fingerprint;
+        lastMappedFingerprint = fingerprint;
         debugLog("[SCRIPT-STORE] syncMapped entries", entries);
+        for (const [id, rec2] of scriptsById.entries()) {
+          if (rec2.source === "mapped" && !entries.some((entry) => entry.id === id)) {
+            scriptsById.delete(id);
+          }
+        }
         mappedHandles.clear();
         for (const e of entries) {
           mappedHandles.set(e.id, { id: e.id, title: e.title, handle: e.handle });
@@ -48793,6 +49578,37 @@ var init_scripts_store = __esm({
         const ids = Array.from(scriptsById.keys());
         debugLog("[SCRIPT-STORE] scriptsById size after sync", scriptsById.size, ids);
         hudLog("script-store:syncMapped", { size: scriptsById.size, ids });
+        emitScriptsUpdated();
+      },
+      syncReady(entries) {
+        const fingerprint = computeReadyFingerprint(entries);
+        if (fingerprint && fingerprint === lastReadyFingerprint) {
+          debugLog("[SCRIPT-STORE] syncReady skipped (unchanged)", { fingerprint, count: entries.length });
+          return;
+        }
+        lastReadyFingerprint = fingerprint;
+        debugLog("[SCRIPT-STORE] syncReady entries", entries);
+        for (const [id, rec2] of scriptsById.entries()) {
+          if (rec2.source === "ready" && !entries.some((entry) => entry.id === id)) {
+            scriptsById.delete(id);
+          }
+        }
+        readyRefsById.clear();
+        for (const entry of entries) {
+          readyRefsById.set(entry.id, entry);
+          const existing = scriptsById.get(entry.id);
+          scriptsById.set(entry.id, {
+            id: entry.id,
+            title: entry.title,
+            content: existing?.content || "",
+            source: "ready",
+            created: existing?.created || entry.updatedAt || (/* @__PURE__ */ new Date()).toISOString(),
+            updated: entry.updatedAt || existing?.updated
+          });
+        }
+        const ids = Array.from(scriptsById.keys());
+        debugLog("[SCRIPT-STORE] scriptsById size after ready sync", scriptsById.size, ids);
+        hudLog("script-store:syncReady", { size: scriptsById.size, ids });
         emitScriptsUpdated();
       }
     };
@@ -52182,196 +52998,6 @@ var init_toasts2 = __esm({
   }
 });
 
-// src/script/validate.ts
-function validateStandardTagsText(input = "") {
-  const t = String(input || "");
-  const problems = [];
-  const allowedTagPattern = [
-    ...BLOCK_TAG_NAMES,
-    ...CUE_TAG_NAMES,
-    ...INLINE_ATTR_PATTERNS
-  ].join("|");
-  const badTag = t.match(new RegExp(`\\[(?!\\/?(?:${allowedTagPattern})\\b)[^\\]]+\\]`, "i"));
-  if (badTag) problems.push("Unknown tag: " + badTag[0]);
-  const speakerPattern = SPEAKER_TAG_NAMES.join("|");
-  if (new RegExp(`\\[(?:${speakerPattern})\\][ \\t]*\\S`, "i").test(t))
-    problems.push("Opening speaker tags must be on their own line.");
-  if (new RegExp(`\\S[ \\t]*\\[\\/(?:${speakerPattern})\\]`, "i").test(t))
-    problems.push("Closing speaker tags must be on their own line.");
-  const speakerEventRe = new RegExp(
-    `\\[(\\/)?(${speakerPattern})\\]|\\[note\\]|\\[\\/note\\]`,
-    "gi"
-  );
-  const speakerStack = [];
-  let speakerEventMatch;
-  while (speakerEventMatch = speakerEventRe.exec(t)) {
-    const token = speakerEventMatch[0].toLowerCase();
-    if (token === "[note]") {
-      if (speakerStack.length) {
-        problems.push("[note] blocks must be outside speaker sections.");
-        break;
-      }
-    } else if (token === "[/note]") {
-      continue;
-    } else {
-      const closing = !!speakerEventMatch[1];
-      if (!closing) {
-        speakerStack.push(speakerEventMatch[2].toLowerCase());
-      } else if (speakerStack.length) {
-        speakerStack.pop();
-      }
-    }
-  }
-  const stack = [];
-  const tagRe = new RegExp(`\\[(\\/)?(${BLOCK_TAG_NAMES.join("|")})\\]`, "gi");
-  let m;
-  while (m = tagRe.exec(t)) {
-    const closing = !!m[1];
-    const tag = m[2].toLowerCase();
-    if (!closing) {
-      stack.push(tag);
-    } else {
-      if (!stack.length) {
-        problems.push(`Unexpected closing [/${tag}]`);
-        break;
-      }
-      const last = stack.pop();
-      if (last !== tag) {
-        problems.push(`Mismatched closing [/${tag}] (expected [/${last}])`);
-        break;
-      }
-    }
-  }
-  if (stack.length) problems.push("Unclosed tag(s): " + stack.join(", "));
-  return { ok: problems.length === 0, report: problems.join("\n"), problems };
-}
-var init_validate = __esm({
-  "src/script/validate.ts"() {
-    "use strict";
-    init_tag_constants();
-  }
-});
-
-// src/speech/build-legacy-asr-state.ts
-function buildLegacyAsrStateFromStandardScript(canon) {
-  const w3 = window;
-  let t = canon.replace(/\[note\][\s\S]*?\[\/note\]/gi, "\n");
-  t = t.replace(/^\[(s1|s2|g1|g2)\]\s*$/gmi, "");
-  t = t.replace(/^\[\/(s1|s2|g1|g2)\]\s*$/gmi, "");
-  t = t.replace(/\[(\/?)(color|bg|b|i|u)(=[^\]]+)?\]/gi, "");
-  t = t.replace(/\[(pause|beat|reflective pause)\]/gi, " ");
-  t = t.replace(/\r/g, "").replace(/[ \t]+/g, " ");
-  const scriptWords = t.split(/\s+/).map((s) => s.trim()).filter(Boolean);
-  const paraIndex = new Array(scriptWords.length);
-  {
-    let wordIdx = 0;
-    let lineIdx = 0;
-    for (const line of t.split("\n")) {
-      const tokens = line.split(/\s+/).map((x) => x.trim()).filter(Boolean);
-      const count = tokens.length;
-      if (count > 0) {
-        const start2 = wordIdx;
-        const end = wordIdx + count - 1;
-        const entry = { start: start2, end, key: line.trim(), line: lineIdx };
-        for (let i = start2; i <= end; i++) {
-          paraIndex[i] = entry;
-        }
-      }
-      wordIdx += count;
-      lineIdx += 1;
-    }
-  }
-  w3.scriptWords = scriptWords;
-  w3.paraIndex = paraIndex;
-  if (typeof w3.currentIndex !== "number" || Number.isNaN(w3.currentIndex)) {
-    w3.currentIndex = 0;
-  }
-  try {
-    console.log("[ASR] legacy state built", {
-      scriptWords: w3.scriptWords?.length ?? 0,
-      paraIndexEntries: w3.paraIndex?.length ?? 0,
-      currentIndex: w3.currentIndex
-    });
-  } catch {
-  }
-}
-var init_build_legacy_asr_state = __esm({
-  "src/speech/build-legacy-asr-state.ts"() {
-    "use strict";
-  }
-});
-
-// src/features/apply-script.ts
-function hashText(s) {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return (h >>> 0).toString(16);
-}
-function getEditorEl() {
-  return document.getElementById("editor");
-}
-function applyScript(rawIn, source, opts) {
-  const raw = String(rawIn ?? "");
-  if (window.__TP_APPLY_IN_FLIGHT) return;
-  window.__TP_APPLY_IN_FLIGHT = true;
-  const normalized = (() => {
-    try {
-      return normalizeToStandardText(raw);
-    } catch {
-      return raw;
-    }
-  })();
-  const validation = validateStandardTagsText(normalized);
-  if (!validation.ok) {
-    try {
-      const msg = validation.report || "Script validation failed.";
-      window.toast?.(msg, { type: "error" });
-    } catch {
-    }
-    window.__TP_APPLY_IN_FLIGHT = false;
-    return;
-  }
-  const h = hashText(normalized);
-  if (window.__TP_LAST_APPLIED_HASH === h) {
-    window.__TP_APPLY_IN_FLIGHT = false;
-    return;
-  }
-  window.__TP_LAST_APPLIED_HASH = h;
-  if (window.__TP_DEV || window.__TP_DEV1) {
-    console.debug("[applyScript]", { source, len: normalized.length, hash: h.slice(0, 8) });
-  }
-  const prevLoading = !!window.__TP_LOADING_SCRIPT;
-  window.__TP_LOADING_SCRIPT = true;
-  try {
-    window.__tpRawScript = normalized;
-    buildLegacyAsrStateFromStandardScript(normalized);
-    const updateEditor = opts?.updateEditor ?? (source === "load" || source === "ingest" || source === "hydrate");
-    if (updateEditor) {
-      const ed = getEditorEl();
-      if (ed && ed.value !== normalized) ed.value = normalized;
-    }
-    renderScript(normalized);
-    publishDisplayScript(normalized, { source });
-    window.dispatchEvent(new CustomEvent("tp:scriptChanged", { detail: { source, text: normalized } }));
-  } finally {
-    window.__TP_LOADING_SCRIPT = prevLoading;
-    window.__TP_APPLY_IN_FLIGHT = false;
-  }
-}
-var init_apply_script = __esm({
-  "src/features/apply-script.ts"() {
-    "use strict";
-    init_render_script();
-    init_display_sync();
-    init_normalize();
-    init_validate();
-    init_build_legacy_asr_state();
-  }
-});
-
 // src/features/script-selection.ts
 function persistLastScriptId(id) {
   if (!id) return;
@@ -52469,8 +53095,8 @@ function getSidebarSelect() {
   return document.getElementById(SIDEBAR_ID);
 }
 function gatherScriptEntries() {
-  const entries = ScriptStore.getMappedEntries ? ScriptStore.getMappedEntries() : [];
-  return entries.map((entry) => ({ id: entry.id, title: entry.title || entry.id }));
+  const entries = ScriptStore.getSelectableEntries ? ScriptStore.getSelectableEntries() : ScriptStore.getMappedEntries ? ScriptStore.getMappedEntries() : [];
+  return entries.map((entry) => ({ id: entry.id, title: entry.title || entry.id, source: entry.source }));
 }
 function syncSelectFromStore(select, role, entries) {
   if (!select) {
@@ -52611,7 +53237,7 @@ function wireSidebarHandlers() {
 function getActiveScriptId() {
   const select = getSidebarSelect();
   const sidebarVal = select?.value || "";
-  const entries = ScriptStore.getMappedEntries ? ScriptStore.getMappedEntries() : [];
+  const entries = gatherScriptEntries();
   if (sidebarVal && entries.some((e) => e.id === sidebarVal)) return sidebarVal;
   if (entries.length > 0) return entries[0].id;
   return null;
@@ -63496,7 +64122,6 @@ async function bindMappedFolderUI(opts) {
   };
   async function refreshList() {
     try {
-      await ensureInit();
       ensureManagementUi();
       const mockMode = !!window.__tpMockFolderMode;
       const hasPreMock = mockMode && sel && sel.options && sel.options.length > 1 && !window.__tpFolder?.get?.();
@@ -63511,7 +64136,21 @@ async function bindMappedFolderUI(opts) {
         sel.setAttribute("aria-busy", "true");
       } catch {
       }
-      const entries = await listScripts();
+      const [readyScripts, entries] = await Promise.all([
+        listWorkspaceReadyScripts().catch(() => []),
+        (async () => {
+          try {
+            await ensureInit();
+            return await listScripts();
+          } catch {
+            return [];
+          }
+        })()
+      ]);
+      try {
+        ScriptStore.syncReady(readyScripts);
+      } catch {
+      }
       const entriesFingerprint = fingerprintNames(entries);
       const prevFingerprint = lastPopulateFingerprints.get(sel);
       if (!entriesFingerprint || entriesFingerprint !== prevFingerprint) {
@@ -63987,6 +64626,7 @@ var init_mapped_folder_bind = __esm({
     init_scripts_store();
     init_logging();
     init_nursery_mounts();
+    init_ready_scripts();
     init_script_selection();
     init_script_doc();
     init_script_naming();
@@ -65665,13 +66305,26 @@ function setModeStatusLabel(mode) {
   el.textContent = label;
 }
 async function refreshScriptsSidebar() {
+  const sel = document.getElementById("scriptSelectSidebar");
   try {
-    await initMappedFolder();
-    const scripts = await listScripts();
-    if (!scripts.length) {
-      const sel2 = document.getElementById("scriptSelectSidebar");
-      if (sel2) sel2.setAttribute("aria-busy", "false");
-      return;
+    sel?.setAttribute("aria-busy", "true");
+  } catch {
+  }
+  try {
+    const [readyScripts, scripts] = await Promise.all([
+      listWorkspaceReadyScripts().catch(() => []),
+      (async () => {
+        try {
+          await initMappedFolder();
+          return await listScripts();
+        } catch {
+          return [];
+        }
+      })()
+    ]);
+    try {
+      ScriptStore.syncReady(readyScripts);
+    } catch {
     }
     const mappedEntries = scripts.map((s) => ({
       id: s.name,
@@ -65679,9 +66332,12 @@ async function refreshScriptsSidebar() {
       handle: s.handle
     }));
     ScriptStore.syncMapped(mappedEntries);
-    const sel = document.getElementById("scriptSelectSidebar");
-    if (sel) sel.setAttribute("aria-busy", "false");
   } catch {
+  } finally {
+    try {
+      sel?.setAttribute("aria-busy", "false");
+    } catch {
+    }
   }
 }
 function isMicCapturing2() {
@@ -67273,6 +67929,7 @@ var init_index_app = __esm({
     init_recorder_settings();
     init_authProfile();
     init_forge_nav();
+    init_workpiece_script_handoff();
     init_supabaseClient();
     init_load_sample();
     init_obs_settings_bind();
@@ -67306,6 +67963,7 @@ var init_index_app = __esm({
     init_mic_gate();
     init_mapped_folder();
     init_scripts_store();
+    init_ready_scripts();
     init_auth_unlock();
     init_boot();
     init_mammoth();

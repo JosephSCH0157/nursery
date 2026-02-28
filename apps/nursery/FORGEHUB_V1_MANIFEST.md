@@ -1,6 +1,6 @@
 # ForgeHub v1.0 - Canonical Manifest
 
-Release baseline: **Forge v1.0.0** (`forge-v1.0.0`).
+Release baseline: **Forge v1.2.0 Fire Burning** (`forge-v1.2.0`).
 
 ## Purpose
 

@@ -91,6 +91,7 @@ import { renderScript } from './render-script';
 import { setRecorderEnabled } from './state/recorder-settings';
 import { ensureUserAndProfile, loadProfileSettings, saveProfileSettings, applySettingsPatch, type PersistedAppKey, type UserSettings } from './forge/authProfile';
 import { initForgeNavMenu } from './forge/forge-nav';
+import './forge/workpiece-script-handoff';
 import { hasSupabaseConfig, supabase } from './forge/supabaseClient';
 import { bindLoadSample } from './ui/load-sample';
 import { bindObsSettingsUI } from './ui/obs-settings-bind';
@@ -124,6 +125,7 @@ import { hasActiveAsrProfile, onAsr } from './asr/store';
 import { ensureMicAccess } from './asr/mic-gate';
 import { initMappedFolder, listScripts } from './fs/mapped-folder';
 import { ScriptStore } from './features/scripts-store';
+import { listWorkspaceReadyScripts } from './forge/ready-scripts';
 import { initAuthUnlock } from './features/auth-unlock';
 
 bootTrace('index-app.ts:module-eval:imports-ready');
@@ -834,23 +836,31 @@ type ScrollModeSource =
   | 'asr';
 
 async function refreshScriptsSidebar(): Promise<void> {
+  const sel = document.getElementById('scriptSelectSidebar') as HTMLSelectElement | null;
+  try { sel?.setAttribute('aria-busy', 'true'); } catch {}
   try {
-    await initMappedFolder();
-    const scripts = await listScripts();
-    if (!scripts.length) {
-      const sel = document.getElementById('scriptSelectSidebar') as HTMLSelectElement | null;
-      if (sel) sel.setAttribute('aria-busy', 'false');
-      return;
-    }
+    const [readyScripts, scripts] = await Promise.all([
+      listWorkspaceReadyScripts().catch(() => []),
+      (async () => {
+        try {
+          await initMappedFolder();
+          return await listScripts();
+        } catch {
+          return [];
+        }
+      })(),
+    ]);
+    try { ScriptStore.syncReady(readyScripts); } catch {}
     const mappedEntries = scripts.map((s) => ({
       id: s.name,
       title: s.name,
       handle: s.handle as any,
     }));
     ScriptStore.syncMapped(mappedEntries);
-    const sel = document.getElementById('scriptSelectSidebar') as HTMLSelectElement | null;
-    if (sel) sel.setAttribute('aria-busy', 'false');
   } catch {}
+  finally {
+    try { sel?.setAttribute('aria-busy', 'false'); } catch {}
+  }
 }
 
 export type ApplyUiScrollModeOptions = {

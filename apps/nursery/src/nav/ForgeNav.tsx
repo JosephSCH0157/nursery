@@ -1,10 +1,12 @@
 import * as React from "react";
 import { Link } from "react-router-dom";
-import type { ForgeNavSection } from "./forgeNavTree";
+import type { ForgeNavItem, ForgeNavSection } from "./forgeNavTree";
 
 type Props = {
   tree: ForgeNavSection[];
+  extraItems?: ForgeNavItem[];
   onNavigate?: () => void;
+  onAction?: (actionId: string) => void;
   renderSectionTitle?: (section: ForgeNavSection) => React.ReactNode;
   renderDividerAfterSectionId?: string;
   getNavStyle?: (section: ForgeNavSection) => React.CSSProperties;
@@ -13,7 +15,9 @@ type Props = {
 
 export function ForgeNav({
   tree,
+  extraItems = [],
   onNavigate,
+  onAction,
   renderSectionTitle,
   renderDividerAfterSectionId = "forge",
   getNavStyle,
@@ -51,9 +55,36 @@ export function ForgeNav({
             {titleNode}
 
             <nav style={navStyle}>
-              {section.items.map((item) => (
-                item.href
-                  ? (
+              {(section.id === "settings" ? [...section.items, ...extraItems] : section.items).map((item) => {
+                if (item.actionId) {
+                  const actionId = item.actionId;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        onAction?.(actionId);
+                        onNavigate?.();
+                      }}
+                      style={{
+                        ...itemStyle,
+                        width: "100%",
+                        textAlign: "left",
+                        background: "transparent",
+                        border: "none",
+                        padding: 0,
+                        color: "inherit",
+                        cursor: "pointer",
+                        font: "inherit",
+                      }}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                }
+
+                if (item.href) {
+                  return (
                     <a
                       key={item.id}
                       href={item.href}
@@ -62,18 +93,20 @@ export function ForgeNav({
                     >
                       {item.label}
                     </a>
-                  )
-                  : (
-                    <Link
-                      key={item.id}
-                      to={item.to ?? "#"}
-                      onClick={onNavigate}
-                      style={itemStyle}
-                    >
-                      {item.label}
-                    </Link>
-                  )
-              ))}
+                  );
+                }
+
+                return (
+                  <Link
+                    key={item.id}
+                    to={item.to ?? "#"}
+                    onClick={onNavigate}
+                    style={itemStyle}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
             </nav>
 
             {section.id === renderDividerAfterSectionId && <hr />}

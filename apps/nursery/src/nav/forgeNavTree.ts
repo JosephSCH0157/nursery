@@ -5,7 +5,10 @@ export type ForgeNavItem = {
   label: string;
   to?: string;
   href?: string;
+  actionId?: string;
 };
+
+export const FORGE_NAV_ACTION_AI_CONTROLS = "ai-controls";
 
 export type ForgeNavSection = {
   id: string;
@@ -24,9 +27,9 @@ export const forgeNavTree: ForgeNavSection[] = [
     items: [
       { id: "home", label: "Home", to: "/app" },
       { id: "barstock", label: "Barstock", to: "/app/barstock" },
-      { id: "hearth", label: "Hearth", href: "/apps/hearth" },
+      { id: "hearth", label: "Hearth", to: "/app/hearth" },
       { id: "tongs", label: "Tongs Calendar", to: "/app/tongs" },
-      { id: "anvil", label: "Anvil", href: "/anvil/teleprompter_pro.html" },
+      { id: "anvil", label: "Anvil", to: "/app/anvil" },
       { id: "hammer", label: "Hammer", to: "/app/hammer" },
       { id: "quench", label: "Quench", to: "/app/quench" },
       { id: "ledger", label: "Ledger", to: "/app/ledger" },
