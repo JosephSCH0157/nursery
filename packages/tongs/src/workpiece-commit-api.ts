@@ -1494,6 +1494,36 @@ export class TongsCommitService {
       updated_at: nowIso,
       status,
       notes: null,
+      origin: null,
+      content_category: null,
+      episode: {
+        schema: "forge.episode.package.v2",
+        seo: {
+          titles: [] as JsonValue[],
+          tags: [] as JsonValue[],
+          description_short: null,
+          description_long: null,
+        },
+        thumbnail: {
+          concepts: [] as JsonValue[],
+          versions: [] as JsonValue[],
+          primary_version_id: null,
+        },
+        image_map: {
+          entries: [] as JsonValue[],
+        },
+      },
+      seo_titles: [] as JsonValue[],
+      tags: [] as JsonValue[],
+      description_short: null,
+      description_long: null,
+      thumbnail_concepts: [] as JsonValue[],
+      thumbnail_versions: [] as JsonValue[],
+      primary_thumbnail_version_id: null,
+      image_map_entries: [] as JsonValue[],
+      image_beat_sheet: {
+        entries: [] as JsonValue[],
+      },
     };
 
     const assetsRegistryDocument = {

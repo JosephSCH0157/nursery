@@ -3148,6 +3148,7 @@ export default function HearthShell() {
     try {
       const committed = await commitWorkpieceProductionArtifact({
         workpieceId: episodeId,
+        workspaceId,
         scriptVersion: args.scriptVersion,
         kind: artifactKind,
         payload,

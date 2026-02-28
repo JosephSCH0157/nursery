@@ -1,4 +1,5 @@
 import { tongsFetch } from "./tongs-fetch";
+import { buildDefaultMetadataDocument, mirrorEpisodePackageV2ToLegacy } from "./episode-package-v2";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DEFAULT_TOOL_VERSION = "0.0.0";
@@ -259,17 +260,16 @@ export async function setHearthReadyScriptCategory(args: {
   }
 
   const nowIso = new Date().toISOString();
-  let metadata: Record<string, unknown> = {
-    schema: "forge.metadata.v1",
-    workpiece_id: workpieceId,
-    workspace_id: workspaceId,
-    created_at: nowIso,
-    updated_at: nowIso,
+  let metadata: Record<string, unknown> = buildDefaultMetadataDocument({
+    workpieceId,
+    workspaceId,
+    createdAt: nowIso,
+    updatedAt: nowIso,
     status: "draft",
     notes: null,
     origin: null,
-    content_category: null,
-  };
+    contentCategory: null,
+  });
 
   const readResponse = await tongsFetch(
     `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent("metadata.json")}`,
@@ -297,6 +297,7 @@ export async function setHearthReadyScriptCategory(args: {
 
   metadata.content_category = category;
   metadata.updated_at = nowIso;
+  metadata = mirrorEpisodePackageV2ToLegacy(metadata);
 
   const commitResponse = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/commit-file`, {
     method: "POST",
