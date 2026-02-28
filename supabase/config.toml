@@ -1,4 +1,8 @@
 
+[api]
+schemas = ["public", "graphql_public", "tongs"]
+extra_search_path = ["public", "extensions", "tongs"]
+
 [functions.create-checkout-session]
 enabled = true
 verify_jwt = true
