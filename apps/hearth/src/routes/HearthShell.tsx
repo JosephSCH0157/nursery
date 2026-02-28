@@ -75,14 +75,18 @@ import type {
   EpisodeThumbnailConcept,
   EpisodeThumbnailVersion,
   EpisodeImageMapEntry,
+  EpisodeSeoTitle,
 } from "../lib/episode-package-v2";
 import {
   addImageMapEntry,
+  ensureSeoV2,
+  normalizeSeoTags,
   removeImageMapEntry,
   updateImageMapEntry,
 } from "../lib/episode-package-v2";
 import ThumbnailPanel from "../components/visuals/ThumbnailPanel";
 import ImageMapPanel from "../components/visuals/ImageMapPanel";
+import MetadataPanel from "../components/metadata/MetadataPanel";
 
 const AUTOSAVE_DELAY_MS = 2200;
 const AUTOSAVE_MIN_GAP_MS = 5000;
@@ -659,6 +663,66 @@ function deriveScriptParagraphAnchors(scriptText: string): string[] {
   return anchors;
 }
 
+const METADATA_TAG_SUGGESTIONS_BY_CATEGORY: Record<string, string[]> = {
+  evergreen: ["evergreen", "how-to", "timeless"],
+  hot_topic: ["news", "breaking", "analysis"],
+  viral_reaction: ["reaction", "trending", "viral"],
+  strategic_anchor: ["strategy", "framework", "playbook"],
+  community: ["community", "feedback", "q-and-a"],
+  reflective: ["reflection", "lessons", "behind-the-scenes"],
+  explainer: ["explainer", "guide", "deep-dive"],
+  experimental: ["experiment", "prototype", "iteration"],
+  backup: ["backup", "quick-hit", "short-form"],
+};
+
+function normalizeMetadataTag(tag: string): string | null {
+  const cleaned = tag
+    .trim()
+    .toLowerCase()
+    .replace(/^#+/, "")
+    .replace(/[\s_]+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return cleaned || null;
+}
+
+function parseMetadataTagInput(input: string): string[] {
+  return input
+    .split(/[,\n]/g)
+    .map((part) => normalizeMetadataTag(part))
+    .filter((value): value is string => Boolean(value));
+}
+
+function buildMetadataTagSuggestions(args: {
+  currentTags: string[];
+  contentCategory: string | null;
+}): string[] {
+  const normalizedExisting = normalizeSeoTags(args.currentTags);
+  const existingSet = new Set(normalizedExisting);
+  const suggestions = new Set<string>();
+
+  const categoryTags = args.contentCategory ? (METADATA_TAG_SUGGESTIONS_BY_CATEGORY[args.contentCategory] ?? []) : [];
+  for (const tag of categoryTags) {
+    const normalized = normalizeMetadataTag(tag);
+    if (normalized) suggestions.add(normalized);
+  }
+
+  for (const tag of normalizedExisting.slice(0, 5)) {
+    const tip = normalizeMetadataTag(`${tag}-tips`);
+    const guide = normalizeMetadataTag(`${tag}-guide`);
+    if (tip) suggestions.add(tip);
+    if (guide) suggestions.add(guide);
+  }
+
+  for (const base of ["creator", "content-strategy", "video-essay"]) {
+    const normalized = normalizeMetadataTag(base);
+    if (normalized) suggestions.add(normalized);
+  }
+
+  return [...suggestions].filter((tag) => !existingSet.has(tag)).slice(0, 10);
+}
+
 function deriveReadyUrgency(entry: HearthReadyScript, nowMs = Date.now()): ReadyUrgencyLevel | null {
   if (!entry.contentCategory || !READY_URGENCY_APPLICABLE_CATEGORY_SET.has(entry.contentCategory)) {
     return null;
@@ -1199,6 +1263,14 @@ export default function HearthShell() {
   const [imageMapSaveState, setImageMapSaveState] = useState<"saved" | "editing" | "saving" | "error" | "offline">("saved");
   const [imageMapSaveError, setImageMapSaveError] = useState<string | null>(null);
   const [imageMapExportMessage, setImageMapExportMessage] = useState<string | null>(null);
+  const [metadataTitlesDraft, setMetadataTitlesDraft] = useState<EpisodeSeoTitle[]>([]);
+  const [metadataTagsDraft, setMetadataTagsDraft] = useState<string[]>([]);
+  const [metadataTagInputDraft, setMetadataTagInputDraft] = useState("");
+  const [metadataDescriptionShortDraft, setMetadataDescriptionShortDraft] = useState("");
+  const [metadataDescriptionLongDraft, setMetadataDescriptionLongDraft] = useState("");
+  const [metadataPreviewMode, setMetadataPreviewMode] = useState<"youtube" | "rss" | "plain">("youtube");
+  const [metadataSaveState, setMetadataSaveState] = useState<"saved" | "editing" | "saving" | "offline" | "error">("saved");
+  const [metadataSaveError, setMetadataSaveError] = useState<string | null>(null);
 
   const setMode = useCallback((mode: HearthMode) => {
     modeTouchedRef.current = true;
@@ -1419,6 +1491,17 @@ export default function HearthShell() {
   }, [readyScripts]);
 
   const readyTotalCount = readyScripts.length;
+  const activeReadyScript = useMemo(
+    () => readyScripts.find((entry) => entry.workpieceId === (workpieceId ?? "")) ?? null,
+    [readyScripts, workpieceId],
+  );
+  const metadataTagSuggestions = useMemo(
+    () => buildMetadataTagSuggestions({
+      currentTags: metadataTagsDraft,
+      contentCategory: activeReadyScript?.contentCategory ?? null,
+    }),
+    [activeReadyScript?.contentCategory, metadataTagsDraft],
+  );
 
   const groupedReadyScripts = useMemo(() => {
     if (filteredReadyScripts.length === 0) return [] as Array<{
@@ -2415,6 +2498,129 @@ export default function HearthShell() {
     const timer = window.setTimeout(() => setImageMapExportMessage(null), 2600);
     return () => window.clearTimeout(timer);
   }, [imageMapExportMessage]);
+
+  useEffect(() => {
+    setMetadataSaveState("saved");
+    setMetadataSaveError(null);
+    setMetadataTagInputDraft("");
+  }, [workpieceId]);
+
+  useEffect(() => {
+    if (!episodePackage) {
+      setMetadataTitlesDraft([]);
+      setMetadataTagsDraft([]);
+      setMetadataTagInputDraft("");
+      setMetadataDescriptionShortDraft("");
+      setMetadataDescriptionLongDraft("");
+      setMetadataSaveState("saved");
+      setMetadataSaveError(null);
+      return;
+    }
+    if (metadataSaveState === "editing" || metadataSaveState === "saving") {
+      return;
+    }
+
+    const normalized = ensureSeoV2(episodePackage);
+    setMetadataTitlesDraft(normalized.seo.titles);
+    setMetadataTagsDraft(normalized.seo.tags);
+    setMetadataDescriptionShortDraft(normalized.seo.description_short ?? "");
+    setMetadataDescriptionLongDraft(normalized.seo.description_long ?? "");
+    setMetadataSaveState("saved");
+    setMetadataSaveError(null);
+  }, [episodePackage, metadataSaveState]);
+
+  useEffect(() => {
+    if (metadataSaveState !== "editing") return;
+    if (!episodePackage) return;
+
+    const current = ensureSeoV2(episodePackage);
+    const normalizedTitles = metadataTitlesDraft.map((title, index) => ({
+      id: title.id,
+      label: (title.label || ["A", "B", "C"][index] || `V${index + 1}`).toUpperCase(),
+      text: title.text ?? "",
+      is_primary: Boolean(title.is_primary),
+    }));
+    const primaryId = normalizedTitles.find((title) => title.is_primary)?.id ?? normalizedTitles[0]?.id ?? null;
+    const titles = normalizedTitles.map((title) => ({
+      ...title,
+      is_primary: primaryId != null && title.id === primaryId,
+    }));
+    const nextSeo = {
+      ...current.seo,
+      titles,
+      tags: normalizeSeoTags(metadataTagsDraft),
+      description_short: metadataDescriptionShortDraft.trim() || null,
+      description_long: metadataDescriptionLongDraft.trim() || null,
+    };
+
+    const hasChanges = JSON.stringify(nextSeo) !== JSON.stringify(current.seo);
+    if (!hasChanges) {
+      setMetadataSaveState("saved");
+      setMetadataSaveError(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        setMetadataSaveState("saving");
+        setMetadataSaveError(null);
+
+        const workspace = workspaceId?.trim() ?? "";
+        const workpiece = workpieceId?.trim() ?? "";
+        if (!workspace || !workpiece) {
+          if (cancelled) return;
+          setMetadataSaveState("error");
+          setMetadataSaveError("Workspace or workpiece is missing.");
+          return;
+        }
+
+        const nextEpisodePackage: EpisodePackageV2 = {
+          ...current,
+          seo: nextSeo,
+        };
+
+        const saved = await saveEpisodePackageForWorkpiece({
+          workpieceId: workpiece,
+          workspaceId: workspace,
+          episodePackage: nextEpisodePackage,
+          eventName: "hearth.metadata.autosave.v1",
+          eventPayload: {
+            section: "seo",
+          },
+        });
+        if (cancelled) return;
+        if (!saved.ok) {
+          const online = typeof navigator === "undefined" ? true : navigator.onLine;
+          if (!online) {
+            setMetadataSaveState("offline");
+            setMetadataSaveError("Offline. Metadata edits are waiting to sync.");
+          } else {
+            setMetadataSaveState("error");
+            setMetadataSaveError(saved.error);
+          }
+          return;
+        }
+        setEpisodePackage(saved.episodePackage);
+        setMetadataSaveState("saved");
+        setMetadataSaveError(null);
+      })();
+    }, 450);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    episodePackage,
+    metadataDescriptionLongDraft,
+    metadataDescriptionShortDraft,
+    metadataSaveState,
+    metadataTagsDraft,
+    metadataTitlesDraft,
+    workpieceId,
+    workspaceId,
+  ]);
 
   useEffect(() => {
     const stored = readScriptApprovalState(workpieceId);
@@ -4301,6 +4507,64 @@ export default function HearthShell() {
     setImageMapExportMessage("Image map JSON downloaded.");
   }
 
+  function markMetadataEditing(): void {
+    if (metadataSaveState !== "editing") {
+      setMetadataSaveState("editing");
+    }
+    setMetadataSaveError(null);
+  }
+
+  function onMetadataTitleChange(titleId: string, nextText: string): void {
+    setMetadataTitlesDraft((prev) => prev.map((title) => (
+      title.id === titleId
+        ? { ...title, text: nextText }
+        : title
+    )));
+    markMetadataEditing();
+  }
+
+  function onMetadataSetPrimaryTitle(titleId: string): void {
+    setMetadataTitlesDraft((prev) => prev.map((title) => ({
+      ...title,
+      is_primary: title.id === titleId,
+    })));
+    markMetadataEditing();
+  }
+
+  function onMetadataAddTagFromInput(): void {
+    const parsed = parseMetadataTagInput(metadataTagInputDraft);
+    if (parsed.length === 0) return;
+    setMetadataTagsDraft((prev) => normalizeSeoTags([...prev, ...parsed]));
+    setMetadataTagInputDraft("");
+    markMetadataEditing();
+  }
+
+  function onMetadataRemoveTag(tag: string): void {
+    setMetadataTagsDraft((prev) => prev.filter((entry) => entry !== tag));
+    markMetadataEditing();
+  }
+
+  function onMetadataAddTagSuggestion(tag: string): void {
+    const normalized = normalizeMetadataTag(tag);
+    if (!normalized) return;
+    setMetadataTagsDraft((prev) => normalizeSeoTags([...prev, normalized]));
+    markMetadataEditing();
+  }
+
+  function onMetadataDescriptionShortChange(nextValue: string): void {
+    setMetadataDescriptionShortDraft(nextValue);
+    markMetadataEditing();
+  }
+
+  function onMetadataDescriptionLongChange(nextValue: string): void {
+    setMetadataDescriptionLongDraft(nextValue);
+    markMetadataEditing();
+  }
+
+  function onMetadataPreviewModeChange(mode: "youtube" | "rss" | "plain"): void {
+    setMetadataPreviewMode(mode);
+  }
+
   async function onSendChat() {
     const content = chatDraft.trim();
     if (!content) return;
@@ -5349,6 +5613,30 @@ export default function HearthShell() {
                 onSeedFromScript={() => void onSeedImageMapFromScript()}
                 onCopyExport={() => void onCopyImageMapExportJson()}
                 onDownloadExport={onDownloadImageMapExportJson}
+              />
+            ) : null}
+
+            {hasApprovedScript && approvedScriptVersion ? (
+              <MetadataPanel
+                titles={metadataTitlesDraft}
+                tags={metadataTagsDraft}
+                tagInput={metadataTagInputDraft}
+                tagSuggestions={metadataTagSuggestions}
+                descriptionShort={metadataDescriptionShortDraft}
+                descriptionLong={metadataDescriptionLongDraft}
+                previewMode={metadataPreviewMode}
+                saveState={metadataSaveState}
+                saveError={metadataSaveError}
+                disabled={isApprovingScript || !episodePackage}
+                onTitleChange={onMetadataTitleChange}
+                onSetPrimaryTitle={onMetadataSetPrimaryTitle}
+                onTagInputChange={setMetadataTagInputDraft}
+                onAddTagFromInput={onMetadataAddTagFromInput}
+                onRemoveTag={onMetadataRemoveTag}
+                onAddTagSuggestion={onMetadataAddTagSuggestion}
+                onDescriptionShortChange={onMetadataDescriptionShortChange}
+                onDescriptionLongChange={onMetadataDescriptionLongChange}
+                onPreviewModeChange={onMetadataPreviewModeChange}
               />
             ) : null}
 

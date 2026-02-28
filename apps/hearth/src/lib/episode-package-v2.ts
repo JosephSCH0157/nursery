@@ -92,6 +92,8 @@ type ImageBeatLegacyEntry = {
   match?: string;
 };
 
+const SEO_CORE_LABELS = ["A", "B", "C"] as const;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -722,6 +724,52 @@ export function applyProductionArtifactToEpisodePackage(args: {
     episode: nextEpisode,
     updated_at: normalizeIso(args.generatedAt, normalizeIso(hydrated.updated_at)),
   });
+}
+
+export function normalizeSeoTags(tags: string[]): string[] {
+  return dedupeTags(tags);
+}
+
+export function ensureSeoV2(pkg: EpisodePackageV2): EpisodePackageV2 {
+  const incoming = Array.isArray(pkg.seo?.titles) ? pkg.seo.titles : [];
+  const normalizedIncoming = incoming.map((title, index) => {
+    const label = readString(title.label)?.toUpperCase() ?? SEO_CORE_LABELS[index] ?? `V${index + 1}`;
+    const id = readString(title.id) ?? `seo-title-${label.toLowerCase()}`;
+    return {
+      id,
+      label,
+      text: typeof title.text === "string" ? title.text : "",
+      is_primary: Boolean(title.is_primary),
+    };
+  });
+
+  const byLabel = new Map(normalizedIncoming.map((title) => [title.label, title] as const));
+  const baseTitles = SEO_CORE_LABELS.map((label) => (
+    byLabel.get(label) ?? {
+      id: `seo-title-${label.toLowerCase()}`,
+      label,
+      text: "",
+      is_primary: label === "A",
+    }
+  ));
+  const extras = normalizedIncoming.filter((title) => !SEO_CORE_LABELS.includes(title.label as (typeof SEO_CORE_LABELS)[number]));
+  const mergedTitles = [...baseTitles, ...extras];
+  const primaryId = mergedTitles.find((title) => title.is_primary)?.id ?? mergedTitles[0]?.id ?? null;
+  const titles = mergedTitles.map((title) => ({
+    ...title,
+    is_primary: primaryId != null && title.id === primaryId,
+  }));
+
+  return {
+    ...pkg,
+    seo: {
+      ...pkg.seo,
+      titles,
+      tags: normalizeSeoTags(pkg.seo.tags ?? []),
+      description_short: readString(pkg.seo.description_short) ?? null,
+      description_long: readString(pkg.seo.description_long) ?? null,
+    },
+  };
 }
 
 export function ensureImageMapV2(pkg: EpisodePackageV2): EpisodePackageV2 {
