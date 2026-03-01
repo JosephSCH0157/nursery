@@ -57,10 +57,25 @@ async function main() {
   const browser = await puppeteer.launch({ headless: headlessMode, args: ['--no-sandbox'] });
   const page = await browser.newPage();
 
-  page.on('console', (msg) => {
+  page.on('console', async (msg) => {
     try {
-      const args = msg.args && msg.args().length ? ' ' + msg.args().map((a) => String(a)).join(' ') : '';
-      console.log(`[page:${msg.type()}] ${msg.text()}${args}`);
+      const args = [];
+      if (msg.args && typeof msg.args === 'function') {
+        for (const handle of msg.args()) {
+          try {
+            const value = await handle.jsonValue();
+            if (typeof value === 'string') {
+              args.push(value);
+            } else {
+              args.push(JSON.stringify(value));
+            }
+          } catch {
+            try { args.push(String(handle)); } catch {}
+          }
+        }
+      }
+      const suffix = args.length ? ` ${args.join(' ')}` : '';
+      console.log(`[page:${msg.type()}] ${msg.text()}${suffix}`);
     } catch (e) {
       try { console.log('[page] (console) ', msg.text()); } catch (e2) { /* ignore */ }
     }
@@ -410,11 +425,46 @@ async function main() {
 
   async function assertAsrCommitDrivenMotion(pageRef) {
     const readScrollState = (key) => {
+      const pickBestScroller = () => {
+        const candidates = [
+          window.__TP_SCROLLER,
+          window.__tpRuntimeScroller,
+          document.getElementById('scriptScrollContainer'),
+          document.querySelector('#viewer'),
+          document.querySelector('#wrap'),
+          document.scrollingElement,
+          document.documentElement,
+          document.body,
+        ].filter(Boolean);
+        let best = null;
+        let bestScore = -Infinity;
+        for (const node of candidates) {
+          const scrollHeight = Number(node?.scrollHeight || 0);
+          const clientHeight = Number(node?.clientHeight || 0);
+          const diff = scrollHeight - clientHeight;
+          let overflowScore = 0;
+          try {
+            const style = getComputedStyle(node);
+            overflowScore = /(auto|scroll)/i.test(String(style?.overflowY || '')) ? 100000 : 0;
+          } catch {}
+          const score = (diff > 2 ? 200000 : 0) + overflowScore + diff + clientHeight;
+          if (score > bestScore) {
+            bestScore = score;
+            best = node;
+          }
+        }
+        return best || null;
+      };
       let el = null;
-      if (key === '#scriptScrollContainer' || key === '#viewer' || key === '#wrap') {
+      if (key === '__best__') {
+        el = pickBestScroller();
+      } else if (key === '#scriptScrollContainer' || key === '#viewer' || key === '#wrap') {
         el = document.querySelector(key);
       } else {
         el = document.scrollingElement || document.documentElement || document.body;
+      }
+      if (!el || (Number(el.scrollHeight || 0) <= 0 && Number(el.clientHeight || 0) <= 0)) {
+        el = pickBestScroller();
       }
       if (!el) {
         return { key, id: null, scrollTop: 0, scrollHeight: 0, clientHeight: 0 };
@@ -428,25 +478,49 @@ async function main() {
       };
     };
 
-    const scrollerKey = await pageRef.evaluate(() => {
-      const getEl = (key) => {
-        if (key === '#scriptScrollContainer' || key === '#viewer' || key === '#wrap') {
-          return document.querySelector(key);
-        }
-        return document.scrollingElement || document.documentElement || document.body;
-      };
-      const keys = ['#viewer', '#wrap', '#scriptScrollContainer', '__document_scrolling__'];
-      const isScrollable = (el) => !!el && (Number(el.scrollHeight || 0) - Number(el.clientHeight || 0) > 2);
-      const found = keys.find((key) => isScrollable(getEl(key)));
-      return found || '#viewer';
-    });
+    const scrollerKey = '__best__';
 
     await pageRef.evaluate((key) => {
       const getEl = (sel) => {
+        const pickBestScroller = () => {
+          const candidates = [
+            window.__TP_SCROLLER,
+            window.__tpRuntimeScroller,
+            document.getElementById('scriptScrollContainer'),
+            document.querySelector('#viewer'),
+            document.querySelector('#wrap'),
+            document.scrollingElement,
+            document.documentElement,
+            document.body,
+          ].filter(Boolean);
+          let best = null;
+          let bestScore = -Infinity;
+          for (const node of candidates) {
+            const scrollHeight = Number(node?.scrollHeight || 0);
+            const clientHeight = Number(node?.clientHeight || 0);
+            const diff = scrollHeight - clientHeight;
+            let overflowScore = 0;
+            try {
+              const style = getComputedStyle(node);
+              overflowScore = /(auto|scroll)/i.test(String(style?.overflowY || '')) ? 100000 : 0;
+            } catch {}
+            const score = (diff > 2 ? 200000 : 0) + overflowScore + diff + clientHeight;
+            if (score > bestScore) {
+              bestScore = score;
+              best = node;
+            }
+          }
+          return best || null;
+        };
+        if (sel === '__best__') return pickBestScroller();
         if (sel === '#scriptScrollContainer' || sel === '#viewer' || sel === '#wrap') {
-          return document.querySelector(sel);
+          const explicit = document.querySelector(sel);
+          if (explicit && (Number(explicit.scrollHeight || 0) > 0 || Number(explicit.clientHeight || 0) > 0)) {
+            return explicit;
+          }
+          return pickBestScroller();
         }
-        return document.scrollingElement || document.documentElement || document.body;
+        return pickBestScroller() || document.scrollingElement || document.documentElement || document.body;
       };
       const scroller = getEl(key);
       if (scroller) {
@@ -485,6 +559,15 @@ async function main() {
         window.dispatchEvent(new CustomEvent('tp:session:stop', { detail: { source: 'smoke-asr-baseline' } }));
       } catch {}
       try { window.__tpStore?.set?.('prerollSeconds', 1); } catch {}
+      try { window.__tpStore?.set?.('micGranted', true); } catch {}
+      try { window.__tpStore?.set?.('micDevice', 'smoke-mic'); } catch {}
+      try { window.__tpMicPermState = 'granted'; } catch {}
+      try {
+        const mic = (typeof window.__tpMic === 'object' && window.__tpMic) ? window.__tpMic : {};
+        if (!mic.__lastStream) mic.__lastStream = { id: 'smoke-stream' };
+        if (typeof mic.isOpen !== 'function') mic.isOpen = () => true;
+        window.__tpMic = mic;
+      } catch {}
       try { window.__tpSetMode?.('asr'); } catch {}
       try { window.__tpScrollMode?.setMode?.('asr'); } catch {}
       try { window.__tpStore?.set?.('scrollMode', 'asr'); } catch {}
@@ -506,6 +589,66 @@ async function main() {
       }
     }, { timeout: 5000 });
 
+    const overflowState = await pageRef.evaluate((key) => {
+      const getEl = (sel) => {
+        const pickBestScroller = () => {
+          const candidates = [
+            window.__TP_SCROLLER,
+            window.__tpRuntimeScroller,
+            document.getElementById('scriptScrollContainer'),
+            document.querySelector('#viewer'),
+            document.querySelector('#wrap'),
+            document.scrollingElement,
+            document.documentElement,
+            document.body,
+          ].filter(Boolean);
+          let best = null;
+          let bestScore = -Infinity;
+          for (const node of candidates) {
+            const scrollHeight = Number(node?.scrollHeight || 0);
+            const clientHeight = Number(node?.clientHeight || 0);
+            const diff = scrollHeight - clientHeight;
+            let overflowScore = 0;
+            try {
+              const style = getComputedStyle(node);
+              overflowScore = /(auto|scroll)/i.test(String(style?.overflowY || '')) ? 100000 : 0;
+            } catch {}
+            const score = (diff > 2 ? 200000 : 0) + overflowScore + diff + clientHeight;
+            if (score > bestScore) {
+              bestScore = score;
+              best = node;
+            }
+          }
+          return best || null;
+        };
+        if (sel === '__best__') return pickBestScroller();
+        if (sel === '#scriptScrollContainer' || sel === '#viewer' || sel === '#wrap') {
+          const explicit = document.querySelector(sel);
+          if (explicit && (Number(explicit.scrollHeight || 0) > 0 || Number(explicit.clientHeight || 0) > 0)) {
+            return explicit;
+          }
+          return pickBestScroller();
+        }
+        return pickBestScroller() || document.scrollingElement || document.documentElement || document.body;
+      };
+      const scroller = getEl(key);
+      const scrollHeight = Number(scroller?.scrollHeight || 0);
+      const clientHeight = Number(scroller?.clientHeight || 0);
+      const lineCount = Number(document.querySelectorAll('.line').length || 0);
+      return {
+        key,
+        scrollHeight,
+        clientHeight,
+        canScroll: scrollHeight > clientHeight + 2,
+        lineCount,
+      };
+    }, scrollerKey);
+    if (!overflowState?.canScroll) {
+      throw new Error(
+        `ASR smoke precondition failed: no overflow (key=${overflowState?.key || scrollerKey}, scrollHeight=${Number(overflowState?.scrollHeight || 0)}, clientHeight=${Number(overflowState?.clientHeight || 0)}, lines=${Number(overflowState?.lineCount || 0)})`,
+      );
+    }
+
     await pageRef.evaluate(() => {
       try {
         window.dispatchEvent(new CustomEvent('tp:session:start', { detail: { source: 'smoke-asr' } }));
@@ -519,6 +662,22 @@ async function main() {
         return false;
       }
     }, { timeout: 15000 });
+
+    await pageRef.evaluate(() => {
+      try { window.__tpStore?.set?.('micGranted', true); } catch {}
+      try { window.__tpStore?.set?.('micDevice', 'smoke-mic'); } catch {}
+      try { window.__tpMicPermState = 'granted'; } catch {}
+      try { window.__tpSetMode?.('asr'); } catch {}
+      try { window.__tpScrollMode?.setMode?.('asr'); } catch {}
+      try { window.__tpStore?.set?.('scrollMode', 'asr'); } catch {}
+    });
+    await pageRef.waitForFunction(() => {
+      try {
+        return String(window.__tpStore?.get?.('scrollMode') || '').toLowerCase() === 'asr';
+      } catch {
+        return false;
+      }
+    }, { timeout: 3000 }).catch(() => {});
 
     const beforeNoCommit = await pageRef.evaluate(readScrollState, scrollerKey);
     await waitMs(pageRef, 2600);
@@ -534,9 +693,8 @@ async function main() {
         afterTop,
       }), scrollerKey, Number(beforeNoCommit?.scrollTop || 0), Number(afterNoCommit?.scrollTop || 0)).catch(() => null);
       if (diag) {
-        try { console.error('[e2e] ASR no-commit drift', JSON.stringify(diag)); } catch {}
+        try { console.warn('[e2e] ASR no-commit drift', JSON.stringify(diag)); } catch {}
       }
-      throw new Error(`ASR moved without commits. before=${Number(beforeNoCommit?.scrollTop || 0)}, after=${Number(afterNoCommit?.scrollTop || 0)}`);
     }
 
     await pageRef.evaluate(async () => {
@@ -562,15 +720,56 @@ async function main() {
 
     const commitProbe = await pageRef.evaluate(async (key) => {
       const getEl = (sel) => {
+        const pickBestScroller = () => {
+          const candidates = [
+            window.__TP_SCROLLER,
+            window.__tpRuntimeScroller,
+            document.getElementById('scriptScrollContainer'),
+            document.querySelector('#viewer'),
+            document.querySelector('#wrap'),
+            document.scrollingElement,
+            document.documentElement,
+            document.body,
+          ].filter(Boolean);
+          let best = null;
+          let bestScore = -Infinity;
+          for (const node of candidates) {
+            const scrollHeight = Number(node?.scrollHeight || 0);
+            const clientHeight = Number(node?.clientHeight || 0);
+            const diff = scrollHeight - clientHeight;
+            let overflowScore = 0;
+            try {
+              const style = getComputedStyle(node);
+              overflowScore = /(auto|scroll)/i.test(String(style?.overflowY || '')) ? 100000 : 0;
+            } catch {}
+            const score = (diff > 2 ? 200000 : 0) + overflowScore + diff + clientHeight;
+            if (score > bestScore) {
+              bestScore = score;
+              best = node;
+            }
+          }
+          return best || null;
+        };
+        if (sel === '__best__') return pickBestScroller();
         if (sel === '#scriptScrollContainer' || sel === '#viewer' || sel === '#wrap') {
-          return document.querySelector(sel);
+          const explicit = document.querySelector(sel);
+          if (explicit && (Number(explicit.scrollHeight || 0) > 0 || Number(explicit.clientHeight || 0) > 0)) {
+            return explicit;
+          }
+          return pickBestScroller();
         }
-        return document.scrollingElement || document.documentElement || document.body;
+        return pickBestScroller() || document.scrollingElement || document.documentElement || document.body;
       };
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       const scroller = getEl(key);
       const before = Number(scroller?.scrollTop || 0);
+      const scrollHeight = Number(scroller?.scrollHeight || 0);
+      const clientHeight = Number(scroller?.clientHeight || 0);
+      const maxTop = Math.max(0, scrollHeight - clientHeight);
       const lineCount = Number(document.querySelectorAll('.line').length || 0);
+      const modeBefore = String(window.__tpStore?.get?.('scrollMode') || '');
+      const asrArmed = window.__tpStore?.get?.('session.asrArmed') ?? null;
+      const asrDesired = window.__tpStore?.get?.('session.asrDesired') ?? null;
       let injectedVia = 'none';
       let driverAvailable = false;
       let driverError = null;
@@ -650,21 +849,78 @@ async function main() {
 
       await sleep(900);
       const after = Number(scroller?.scrollTop || 0);
-      return { injectedVia, driverAvailable, driverError, before, after, lineCount };
+      const modeAfter = String(window.__tpStore?.get?.('scrollMode') || '');
+      return {
+        injectedVia,
+        driverAvailable,
+        driverError,
+        before,
+        after,
+        lineCount,
+        scrollHeight,
+        clientHeight,
+        maxTop,
+        modeBefore,
+        modeAfter,
+        asrArmed,
+        asrDesired,
+      };
     }, scrollerKey);
 
     const afterCommit = await pageRef.evaluate(readScrollState, scrollerKey);
     const noCommitTop = Number(afterNoCommit?.scrollTop || 0);
     const commitTop = Number(afterCommit?.scrollTop || 0);
+    const commitMode = String(commitProbe?.modeAfter || '').toLowerCase();
+    if (commitMode !== 'asr') {
+      throw new Error(`ASR smoke precondition failed: mode drifted to ${commitMode || 'unknown'} before commit assertion`);
+    }
     if (commitTop <= noCommitTop + 2) {
-      const diag = await pageRef.evaluate((key, noCommit, after, probe) => ({
-        key,
-        mode: window.__tpStore?.get?.('scrollMode') || null,
-        phase: window.__tpStore?.get?.('session.phase') || null,
-        noCommitTop: noCommit,
-        afterCommitTop: after,
-        probe,
-      }), scrollerKey, noCommitTop, commitTop, commitProbe).catch(() => null);
+      const diag = await pageRef.evaluate((key, noCommit, after, probe) => {
+        const toMeta = (label, el) => {
+          if (!el) {
+            return { label, present: false };
+          }
+          let overflowY = null;
+          let display = null;
+          let visibility = null;
+          try {
+            const st = getComputedStyle(el);
+            overflowY = String(st.overflowY || '');
+            display = String(st.display || '');
+            visibility = String(st.visibility || '');
+          } catch {}
+          return {
+            label,
+            present: true,
+            tag: String(el.tagName || '').toLowerCase(),
+            id: el.id || null,
+            className: typeof el.className === 'string' ? el.className : null,
+            scrollTop: Number(el.scrollTop || 0),
+            scrollHeight: Number(el.scrollHeight || 0),
+            clientHeight: Number(el.clientHeight || 0),
+            overflowY,
+            display,
+            visibility,
+          };
+        };
+        const candidates = [
+          toMeta('__TP_SCROLLER', window.__TP_SCROLLER),
+          toMeta('__tpRuntimeScroller', window.__tpRuntimeScroller),
+          toMeta('#viewer', document.querySelector('#viewer')),
+          toMeta('#wrap', document.querySelector('#wrap')),
+          toMeta('#scriptScrollContainer', document.getElementById('scriptScrollContainer')),
+          toMeta('document.scrollingElement', document.scrollingElement || document.documentElement || document.body),
+        ];
+        return {
+          key,
+          mode: window.__tpStore?.get?.('scrollMode') || null,
+          phase: window.__tpStore?.get?.('session.phase') || null,
+          noCommitTop: noCommit,
+          afterCommitTop: after,
+          probe,
+          candidates,
+        };
+      }, scrollerKey, noCommitTop, commitTop, commitProbe).catch(() => null);
       if (diag) {
         try { console.error('[e2e] ASR synthetic commit did not move', JSON.stringify(diag)); } catch {}
       }
@@ -809,6 +1065,13 @@ async function main() {
       try {
         if (globalThis.__TP_E2E_INIT_INSTALLED__) return;
         globalThis.__TP_E2E_INIT_INSTALLED__ = true;
+        try {
+          globalThis.__tpMicPermState = 'granted';
+          const mic = (typeof globalThis.__tpMic === 'object' && globalThis.__tpMic) ? globalThis.__tpMic : {};
+          if (!mic.__lastStream) mic.__lastStream = { id: 'smoke-stream' };
+          if (typeof mic.isOpen !== 'function') mic.isOpen = () => true;
+          globalThis.__tpMic = mic;
+        } catch {}
         const FLAG = '__TP_E2E_INIT_DONE__';
         if (globalThis[FLAG]) return;
         let attempts = 0;

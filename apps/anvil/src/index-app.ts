@@ -959,10 +959,6 @@ function applyUiScrollMode(
   const source: ScrollModeSource = opts.source || 'user';
   lastScrollModeSource = source;
   let normalized = normalizeUiScrollMode(mode);
-  if (normalized === 'hybrid' && !hasActiveAsrProfile()) {
-    handleAsrBlock('NO_CALIBRATION');
-    return;
-  }
   let readiness: { ready: true; warn?: AsrWarnReason } | { ready: false; reason: AsrNotReadyReason } | null = null;
   const auto = (window as any).__tpAuto as { setEnabled?(_v: boolean): void } | undefined;
   const asrBridge = (window as any).__asrBridge as { start?: () => Promise<void> | void; stop?: () => Promise<void> | void } | undefined;
@@ -1012,6 +1008,10 @@ function applyUiScrollMode(
     } catch {}
     setScrollModeFromUi(fallback);
     try { requestAsrStop(); } catch {}
+  }
+  if (normalized === 'hybrid' && !hasActiveAsrProfile()) {
+    handleAsrBlock('NO_CALIBRATION');
+    return;
   }
   const ensureMicPermissionThenRetry = () => {
     if (micPermissionCheckPending) return;

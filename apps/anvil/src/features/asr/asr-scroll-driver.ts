@@ -1524,11 +1524,15 @@ function logCommitScrollStamp(
   const id = scroller?.id || '(none)';
   const clsRaw = typeof scroller?.className === 'string' ? scroller.className : '';
   const cls = clsRaw.trim() || '(none)';
+  const mode = getScrollMode() || 'unknown';
+  const scrollHeight = Math.round(Number(scroller?.scrollHeight || 0));
+  const clientHeight = Math.round(Number(scroller?.clientHeight || 0));
+  const maxTop = Math.max(0, scrollHeight - clientHeight);
   const role = resolveViewerRole();
   const moved = Math.round((Number(afterTop) || 0) - (Number(beforeTop) || 0));
   try {
     console.info(
-      `[ASR_COMMIT] path=${path} role=${role} writer=${writerAvailable ? 1 : 0} block=${blockId} line=${lineIdx} scroller.id=${id} scroller.class=${cls} before=${Math.round(beforeTop)} after=${Math.round(afterTop)} moved=${moved} method=${method}`,
+      `[ASR_COMMIT] path=${path} mode=${mode} role=${role} writer=${writerAvailable ? 1 : 0} block=${blockId} line=${lineIdx} scroller.id=${id} scroller.class=${cls} scrollHeight=${scrollHeight} clientHeight=${clientHeight} maxTop=${maxTop} before=${Math.round(beforeTop)} after=${Math.round(afterTop)} moved=${moved} method=${method}`,
     );
   } catch {
     // ignore
@@ -1656,16 +1660,51 @@ function assessWriterLineAddressability(
   };
 }
 
+function resolveLineHeightPx(lineEl: HTMLElement | null): number {
+  if (!lineEl) return 0;
+  try {
+    const rectHeight = lineEl.getBoundingClientRect?.().height ?? 0;
+    if (Number.isFinite(rectHeight) && rectHeight > 1) return rectHeight;
+  } catch {
+    // ignore
+  }
+  const offsetHeight = lineEl.offsetHeight || lineEl.clientHeight || 0;
+  if (Number.isFinite(offsetHeight) && offsetHeight > 1) return offsetHeight;
+  try {
+    const computed = Number.parseFloat(getComputedStyle(lineEl).lineHeight);
+    if (Number.isFinite(computed) && computed > 1) return computed;
+  } catch {
+    // ignore
+  }
+  return 24;
+}
+
+function resolveLineTopWithinScroller(scroller: HTMLElement | null, lineEl: HTMLElement | null): number {
+  if (!scroller || !lineEl) return 0;
+  try {
+    const lineRect = lineEl.getBoundingClientRect();
+    const scrollerRect = scroller.getBoundingClientRect();
+    const rectTop = lineRect.top - scrollerRect.top + scroller.scrollTop;
+    if (Number.isFinite(rectTop)) return rectTop;
+  } catch {
+    // ignore
+  }
+  const offsetTop = lineEl.offsetTop;
+  if (Number.isFinite(offsetTop)) return offsetTop;
+  return 0;
+}
+
 function computeLineTargetTop(scroller: HTMLElement | null, lineEl: HTMLElement | null): number | null {
   if (!scroller || !lineEl) return null;
-  const lineHeight = lineEl.offsetHeight || lineEl.clientHeight || 0;
+  const lineHeight = resolveLineHeightPx(lineEl);
   const markerRatioRaw =
     typeof (window as any).__TP_MARKER_PCT === 'number'
       ? Number((window as any).__TP_MARKER_PCT)
       : POST_COMMIT_ACTIVE_TARGET_RATIO;
   const markerRatio = clamp(markerRatioRaw, POST_COMMIT_ACTIVE_MIN_RATIO, POST_COMMIT_ACTIVE_MAX_RATIO);
   const markerOffsetPx = scroller.clientHeight * markerRatio - lineHeight * 0.5;
-  const raw = (lineEl.offsetTop || 0) - markerOffsetPx;
+  const lineTop = resolveLineTopWithinScroller(scroller, lineEl);
+  const raw = lineTop - markerOffsetPx;
   const biased = raw - MARKER_BIAS_PX;
   const max = Math.max(0, (scroller.scrollHeight || 0) - scroller.clientHeight);
   return clamp(biased, 0, max);
@@ -1756,11 +1795,12 @@ function estimateTargetTopFromLines(
     getLineElementByIndex(scroller, baseIdx) ||
     scroller.querySelector<HTMLElement>('.line');
   if (!baseEl) return null;
-  const lineHeight = baseEl.offsetHeight || baseEl.clientHeight || 0;
+  const lineHeight = resolveLineHeightPx(baseEl);
   if (!lineHeight) return null;
   const deltaLines = targetIdx - baseIdx;
   const offset = Math.max(0, (scroller.clientHeight - lineHeight) / 2);
-  const raw = (baseEl.offsetTop || 0) + deltaLines * lineHeight - offset;
+  const baseTop = resolveLineTopWithinScroller(scroller, baseEl);
+  const raw = baseTop + deltaLines * lineHeight - offset;
   const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
   return clamp(raw, 0, max);
 }
