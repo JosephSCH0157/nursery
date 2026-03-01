@@ -12018,17 +12018,35 @@ function isWindowScroller(sc) {
 }
 function isScrollable(el) {
   if (!el) return false;
-  if (el.scrollHeight - el.clientHeight > 2) return true;
+  const scrollHeight = Number(el.scrollHeight || 0);
+  const clientHeight = Number(el.clientHeight || 0);
+  if (scrollHeight - clientHeight > 2 && clientHeight > 0) return true;
+  if (scrollHeight <= 0 && clientHeight <= 0) return false;
   try {
     const st = getComputedStyle(el);
-    return /(auto|scroll)/.test(st.overflowY || "");
+    if (!/(auto|scroll)/.test(st.overflowY || "")) return false;
+    const rect = el.getBoundingClientRect();
+    return clientHeight > 0 || rect.height > 0;
   } catch {
     return false;
   }
 }
 function resolveActiveScroller(primary, fallback) {
+  const hasLayoutBox = (el) => {
+    if (!el) return false;
+    const scrollHeight = Number(el.scrollHeight || 0);
+    const clientHeight = Number(el.clientHeight || 0);
+    if (scrollHeight > 0 || clientHeight > 0) return true;
+    try {
+      const rect = el.getBoundingClientRect();
+      return rect.height > 0 || rect.width > 0;
+    } catch {
+      return false;
+    }
+  };
   if (isScrollable(primary)) return primary;
   if (isScrollable(fallback)) return fallback;
+  if (!hasLayoutBox(primary) && hasLayoutBox(fallback)) return fallback;
   return primary || fallback;
 }
 function describeElement(el) {
@@ -26107,11 +26125,15 @@ function logCommitScrollStamp(method, scroller, beforeTop, afterTop, lineIdx, bl
   const id = scroller?.id || "(none)";
   const clsRaw = typeof scroller?.className === "string" ? scroller.className : "";
   const cls = clsRaw.trim() || "(none)";
+  const mode = getScrollMode3() || "unknown";
+  const scrollHeight = Math.round(Number(scroller?.scrollHeight || 0));
+  const clientHeight = Math.round(Number(scroller?.clientHeight || 0));
+  const maxTop = Math.max(0, scrollHeight - clientHeight);
   const role = resolveViewerRole();
   const moved = Math.round((Number(afterTop) || 0) - (Number(beforeTop) || 0));
   try {
     console.info(
-      `[ASR_COMMIT] path=${path} role=${role} writer=${writerAvailable ? 1 : 0} block=${blockId} line=${lineIdx} scroller.id=${id} scroller.class=${cls} before=${Math.round(beforeTop)} after=${Math.round(afterTop)} moved=${moved} method=${method}`
+      `[ASR_COMMIT] path=${path} mode=${mode} role=${role} writer=${writerAvailable ? 1 : 0} block=${blockId} line=${lineIdx} scroller.id=${id} scroller.class=${cls} scrollHeight=${scrollHeight} clientHeight=${clientHeight} maxTop=${maxTop} before=${Math.round(beforeTop)} after=${Math.round(afterTop)} moved=${moved} method=${method}`
     );
   } catch {
   }
@@ -26215,13 +26237,43 @@ function assessWriterLineAddressability(scroller, targetLineIndex, totalLinesHin
     totalLinesHint
   };
 }
+function resolveLineHeightPx(lineEl) {
+  if (!lineEl) return 0;
+  try {
+    const rectHeight = lineEl.getBoundingClientRect?.().height ?? 0;
+    if (Number.isFinite(rectHeight) && rectHeight > 1) return rectHeight;
+  } catch {
+  }
+  const offsetHeight = lineEl.offsetHeight || lineEl.clientHeight || 0;
+  if (Number.isFinite(offsetHeight) && offsetHeight > 1) return offsetHeight;
+  try {
+    const computed = Number.parseFloat(getComputedStyle(lineEl).lineHeight);
+    if (Number.isFinite(computed) && computed > 1) return computed;
+  } catch {
+  }
+  return 24;
+}
+function resolveLineTopWithinScroller(scroller, lineEl) {
+  if (!scroller || !lineEl) return 0;
+  try {
+    const lineRect = lineEl.getBoundingClientRect();
+    const scrollerRect = scroller.getBoundingClientRect();
+    const rectTop = lineRect.top - scrollerRect.top + scroller.scrollTop;
+    if (Number.isFinite(rectTop)) return rectTop;
+  } catch {
+  }
+  const offsetTop = lineEl.offsetTop;
+  if (Number.isFinite(offsetTop)) return offsetTop;
+  return 0;
+}
 function computeLineTargetTop(scroller, lineEl) {
   if (!scroller || !lineEl) return null;
-  const lineHeight = lineEl.offsetHeight || lineEl.clientHeight || 0;
+  const lineHeight = resolveLineHeightPx(lineEl);
   const markerRatioRaw = typeof window.__TP_MARKER_PCT === "number" ? Number(window.__TP_MARKER_PCT) : POST_COMMIT_ACTIVE_TARGET_RATIO;
   const markerRatio = clamp4(markerRatioRaw, POST_COMMIT_ACTIVE_MIN_RATIO, POST_COMMIT_ACTIVE_MAX_RATIO);
   const markerOffsetPx3 = scroller.clientHeight * markerRatio - lineHeight * 0.5;
-  const raw = (lineEl.offsetTop || 0) - markerOffsetPx3;
+  const lineTop = resolveLineTopWithinScroller(scroller, lineEl);
+  const raw = lineTop - markerOffsetPx3;
   const biased = raw - MARKER_BIAS_PX;
   const max = Math.max(0, (scroller.scrollHeight || 0) - scroller.clientHeight);
   return clamp4(biased, 0, max);
@@ -26298,11 +26350,12 @@ function estimateTargetTopFromLines(scroller, baseLineIndex, targetLineIndex) {
   const targetIdx = Number.isFinite(targetLineIndex) ? Math.max(0, Math.floor(targetLineIndex)) : 0;
   const baseEl = getLineElementByIndex(scroller, baseIdx) || scroller.querySelector(".line");
   if (!baseEl) return null;
-  const lineHeight = baseEl.offsetHeight || baseEl.clientHeight || 0;
+  const lineHeight = resolveLineHeightPx(baseEl);
   if (!lineHeight) return null;
   const deltaLines = targetIdx - baseIdx;
   const offset = Math.max(0, (scroller.clientHeight - lineHeight) / 2);
-  const raw = (baseEl.offsetTop || 0) + deltaLines * lineHeight - offset;
+  const baseTop = resolveLineTopWithinScroller(scroller, baseEl);
+  const raw = baseTop + deltaLines * lineHeight - offset;
   const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
   return clamp4(raw, 0, max);
 }
@@ -66434,10 +66487,6 @@ function applyUiScrollMode(mode, opts = {}) {
   const source = opts.source || "user";
   lastScrollModeSource = source;
   let normalized = normalizeUiScrollMode(mode);
-  if (normalized === "hybrid" && !hasActiveAsrProfile()) {
-    handleAsrBlock("NO_CALIBRATION");
-    return;
-  }
   let readiness = null;
   const auto2 = window.__tpAuto;
   const asrBridge = window.__asrBridge;
@@ -66509,6 +66558,10 @@ function applyUiScrollMode(mode, opts = {}) {
       requestAsrStop();
     } catch {
     }
+  }
+  if (normalized === "hybrid" && !hasActiveAsrProfile()) {
+    handleAsrBlock("NO_CALIBRATION");
+    return;
   }
   const ensureMicPermissionThenRetry = () => {
     if (micPermissionCheckPending) return;

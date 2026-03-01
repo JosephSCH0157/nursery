@@ -280,7 +280,7 @@ export function buildSettingsContent(rootEl: HTMLElement | null) {
         </ul>
         <p><strong>What this subscription covers</strong></p>
         <p>
-          This plan includes Anvil only. Other tools in the Podcaster’s Forge ecosystem (script writing,
+          This plan includes Anvil only. Other tools in the Podcaster's Forge ecosystem (script writing,
           editing, publishing) are not included at this time and may become separate offers in the future.
         </p>
         <p><strong>Built for real voices</strong></p>
