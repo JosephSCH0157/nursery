@@ -95,6 +95,8 @@ const SESSION_SAVE_DELAY_MS = 500;
 const STORE_KIND_KEY = "hearth_store_kind";
 const DEV_MODE_KEY = "tp_dev_mode";
 const MODE_STORAGE_PREFIX = "hearth:ui:mode:v1:";
+const READY_ORDER_STORAGE_PREFIX = "hearth:ready-order:v1:";
+const READY_REMOVED_STORAGE_PREFIX = "hearth:ready-removed:v1:";
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
 const CHAT_HISTORY_MAX_MESSAGES = 200;
@@ -108,7 +110,8 @@ const STT_INLINE_FEEDBACK_MS = 2200;
 const STT_PREVIEW_MAX_CHARS = 80;
 const ANVIL_SCRIPT_PATH = getHearthPrimaryScriptPath();
 
-type HearthMode = "sparks" | "draft" | "planning" | "sources" | "revisions";
+type HearthMode = "sparks" | "episodes" | "ready" | "series" | "focus";
+type FocusTab = "draft" | "planning" | "sources" | "revisions";
 type ProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet";
 type SttLane = "browser" | "ai";
 type SttState = "idle" | "listening" | "transcribing";
@@ -208,14 +211,17 @@ function readMode(workpieceId: string | null): HearthMode | null {
     if (!raw) return null;
     const trimmed = raw.trim();
     if (trimmed === "home") return "sparks";
+    if (trimmed === "draft" || trimmed === "planning" || trimmed === "sources" || trimmed === "revisions") {
+      return "focus";
+    }
     if (
       trimmed === "sparks"
-      || trimmed === "draft"
-      || trimmed === "planning"
-      || trimmed === "sources"
-      || trimmed === "revisions"
+      || trimmed === "episodes"
+      || trimmed === "ready"
+      || trimmed === "series"
+      || trimmed === "focus"
     ) {
-      return trimmed;
+      return trimmed as HearthMode;
     }
   } catch {
     // ignore storage failures
@@ -228,6 +234,62 @@ function writeMode(workpieceId: string | null, mode: HearthMode): void {
   if (mode === "sparks") return;
   try {
     window.localStorage.setItem(`${MODE_STORAGE_PREFIX}${workpieceId}`, mode);
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function readReadyOrder(workspaceId: string | null): string[] {
+  if (!workspaceId || typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(`${READY_ORDER_STORAGE_PREFIX}${workspaceId}`);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((value) => (typeof value === "string" ? value.trim() : ""))
+      .filter((value) => Boolean(value));
+  } catch {
+    return [];
+  }
+}
+
+function writeReadyOrder(workspaceId: string | null, order: readonly string[]): void {
+  if (!workspaceId || typeof window === "undefined") return;
+  try {
+    if (!order.length) {
+      window.localStorage.removeItem(`${READY_ORDER_STORAGE_PREFIX}${workspaceId}`);
+      return;
+    }
+    window.localStorage.setItem(`${READY_ORDER_STORAGE_PREFIX}${workspaceId}`, JSON.stringify(order));
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function readRemovedReadyIds(workspaceId: string | null): string[] {
+  if (!workspaceId || typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(`${READY_REMOVED_STORAGE_PREFIX}${workspaceId}`);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((value) => (typeof value === "string" ? value.trim() : ""))
+      .filter((value) => Boolean(value));
+  } catch {
+    return [];
+  }
+}
+
+function writeRemovedReadyIds(workspaceId: string | null, removedIds: readonly string[]): void {
+  if (!workspaceId || typeof window === "undefined") return;
+  try {
+    if (!removedIds.length) {
+      window.localStorage.removeItem(`${READY_REMOVED_STORAGE_PREFIX}${workspaceId}`);
+      return;
+    }
+    window.localStorage.setItem(`${READY_REMOVED_STORAGE_PREFIX}${workspaceId}`, JSON.stringify(removedIds));
   } catch {
     // ignore storage failures
   }
@@ -937,6 +999,7 @@ type ReadyCategoryFilter = "all" | "uncategorized" | HearthContentCategory;
 type ReadyCategoryGroupKey = HearthContentCategory | "uncategorized";
 type ReadyUrgencyFilter = "all" | "fresh" | "cooling" | "cold";
 type ReadyUrgencyLevel = "fresh" | "warming" | "cooling" | "cold";
+type ReadyLabel = "hot" | "evergreen" | "series";
 
 type DraftSnapshot = {
   title: string;
@@ -993,6 +1056,18 @@ const READY_URGENCY_RANK: Record<ReadyUrgencyLevel, number> = {
   cooling: 2,
   cold: 3,
 };
+
+const READY_LABEL_TO_CATEGORY: Record<ReadyLabel, HearthContentCategory> = {
+  hot: "hot_topic",
+  evergreen: "evergreen",
+  series: "strategic_anchor",
+};
+
+function resolveReadyLabel(entry: HearthReadyScript): ReadyLabel {
+  if (entry.contentCategory === "hot_topic" || entry.contentCategory === "viral_reaction") return "hot";
+  if (entry.contentCategory === "strategic_anchor") return "series";
+  return "evergreen";
+}
 
 function buildDiffLines(current: string, revision: string): DiffLine[] {
   const leftLines = splitLines(current);
@@ -1168,8 +1243,8 @@ export default function HearthShell() {
   const store = useMemo(() => createHearthStore(storeKind), [storeKind]);
   const sessionStore = useMemo(() => new LocalSessionStore(), []);
 
-  const [selectedMode, setSelectedMode] = useState<HearthMode>("sparks");
-  const modeTouchedRef = useRef(false);
+  const [mode, setMode] = useState<HearthMode>("sparks");
+  const [focusTab, setFocusTab] = useState<FocusTab>("draft");
   const [sparks, setSparks] = useState<BarStockSpark[]>(() => readBarStockSparks());
   const [selectedSparkId, setSelectedSparkId] = useState<string | null>(null);
   const [forgeError, setForgeError] = useState<string | null>(null);
@@ -1206,6 +1281,9 @@ export default function HearthShell() {
   const [readyUrgencyFilter, setReadyUrgencyFilter] = useState<ReadyUrgencyFilter>("all");
   const [updatingReadyCategoryId, setUpdatingReadyCategoryId] = useState<string | null>(null);
   const [readyCategoryError, setReadyCategoryError] = useState<string | null>(null);
+  const [readyOrderIds, setReadyOrderIds] = useState<string[]>([]);
+  const [removedReadyIds, setRemovedReadyIds] = useState<string[]>([]);
+  const [draggingReadyId, setDraggingReadyId] = useState<string | null>(null);
   const [revisionModalOpen, setRevisionModalOpen] = useState(false);
   const [revisionNote, setRevisionNote] = useState("");
   const [revisionKind, setRevisionKind] = useState<RevisionKind>("manual");
@@ -1271,11 +1349,6 @@ export default function HearthShell() {
   const [metadataPreviewMode, setMetadataPreviewMode] = useState<"youtube" | "rss" | "plain">("youtube");
   const [metadataSaveState, setMetadataSaveState] = useState<"saved" | "editing" | "saving" | "offline" | "error">("saved");
   const [metadataSaveError, setMetadataSaveError] = useState<string | null>(null);
-
-  const setMode = useCallback((mode: HearthMode) => {
-    modeTouchedRef.current = true;
-    setSelectedMode(mode);
-  }, []);
 
   const autosaveTimer = useRef<number | null>(null);
   const autosaveInFlightRef = useRef(false);
@@ -1372,14 +1445,13 @@ export default function HearthShell() {
   const sessionIntent = planningSession?.intent ?? deriveIntentFromOrigin(planningSession?.origin);
   const sessionSparkId = planningSession?.origin?.spark_id ?? planningSession?.links?.spark_id ?? null;
   const sourcesState = useSourcesState(workspaceId, workpieceId, activeDraft?.body ?? "", {
-    mode: selectedMode === "sources" ? "full" : "summary",
+    mode: mode === "focus" && focusTab === "sources" ? "full" : "summary",
   });
   const workpieceSources = sourcesState.workpieceSources;
   const sourceIndexById = sourcesState.sourceIndexById;
   const missingSourcesCount = sourcesState.missingCitedCount;
   const unusedSourcesCount = sourcesState.unusedRefsCount;
-  const hasActiveConversation = Boolean(activeDraft);
-  const showSparksLanding = selectedMode === "sparks" || !hasActiveConversation;
+  const hasActiveEpisode = Boolean(activeDraft);
   const openInAnvilHref = useMemo(
     () => buildOpenInAnvilHref(workspaceId, workpieceId),
     [workspaceId, workpieceId],
@@ -1445,13 +1517,19 @@ export default function HearthShell() {
     return [...pinned.sort(sortFn), ...unpinned.sort(sortFn)];
   }, [drafts, searchText, sortKey, showArchived]);
 
+  const navigableReadyScripts = useMemo(
+    () => readyScripts.filter((entry) => Boolean(buildOpenInAnvilHref(entry.workspaceId, entry.workpieceId, entry.primaryScriptPath))),
+    [readyScripts],
+  );
+  const droppedReadyScriptsCount = Math.max(0, readyScripts.length - navigableReadyScripts.length);
+
   const categoryFilteredReadyScripts = useMemo(() => {
-    if (readyCategoryFilter === "all") return readyScripts;
+    if (readyCategoryFilter === "all") return navigableReadyScripts;
     if (readyCategoryFilter === "uncategorized") {
-      return readyScripts.filter((entry) => !entry.contentCategory);
+      return navigableReadyScripts.filter((entry) => !entry.contentCategory);
     }
-    return readyScripts.filter((entry) => entry.contentCategory === readyCategoryFilter);
-  }, [readyCategoryFilter, readyScripts]);
+    return navigableReadyScripts.filter((entry) => entry.contentCategory === readyCategoryFilter);
+  }, [navigableReadyScripts, readyCategoryFilter]);
 
   const readyUrgencyCounts = useMemo(() => {
     const counts = { fresh: 0, cooling: 0, cold: 0 };
@@ -1470,6 +1548,26 @@ export default function HearthShell() {
     return categoryFilteredReadyScripts.filter((entry) => deriveReadyUrgency(entry, nowMs) === readyUrgencyFilter);
   }, [categoryFilteredReadyScripts, readyUrgencyFilter]);
 
+  const visibleReadyScripts = useMemo(() => {
+    if (!removedReadyIds.length) return filteredReadyScripts;
+    const removedSet = new Set(removedReadyIds);
+    return filteredReadyScripts.filter((entry) => !removedSet.has(entry.id));
+  }, [filteredReadyScripts, removedReadyIds]);
+
+  const orderedReadyScripts = useMemo(() => {
+    if (!visibleReadyScripts.length) return [] as HearthReadyScript[];
+    const orderIndex = new Map<string, number>();
+    readyOrderIds.forEach((id, idx) => orderIndex.set(id, idx));
+    return [...visibleReadyScripts].sort((a, b) => {
+      const aIdx = orderIndex.get(a.id);
+      const bIdx = orderIndex.get(b.id);
+      if (aIdx != null && bIdx != null) return aIdx - bIdx;
+      if (aIdx != null) return -1;
+      if (bIdx != null) return 1;
+      return a.title.localeCompare(b.title);
+    });
+  }, [readyOrderIds, visibleReadyScripts]);
+
   const readyCategoryCounts = useMemo(() => {
     const counts: Record<ReadyCategoryGroupKey, number> = {
       uncategorized: 0,
@@ -1483,17 +1581,22 @@ export default function HearthShell() {
       experimental: 0,
       backup: 0,
     };
-    for (const entry of readyScripts) {
+    for (const entry of navigableReadyScripts) {
       const key: ReadyCategoryGroupKey = entry.contentCategory ?? "uncategorized";
       counts[key] += 1;
     }
     return counts;
-  }, [readyScripts]);
+  }, [navigableReadyScripts]);
 
-  const readyTotalCount = readyScripts.length;
+  const readyTotalCount = navigableReadyScripts.length;
+  const removedReadyCount = useMemo(() => {
+    if (!removedReadyIds.length) return 0;
+    const knownIds = new Set(navigableReadyScripts.map((entry) => entry.id));
+    return removedReadyIds.filter((id) => knownIds.has(id)).length;
+  }, [navigableReadyScripts, removedReadyIds]);
   const activeReadyScript = useMemo(
-    () => readyScripts.find((entry) => entry.workpieceId === (workpieceId ?? "")) ?? null,
-    [readyScripts, workpieceId],
+    () => navigableReadyScripts.find((entry) => entry.workpieceId === (workpieceId ?? "")) ?? null,
+    [navigableReadyScripts, workpieceId],
   );
   const metadataTagSuggestions = useMemo(
     () => buildMetadataTagSuggestions({
@@ -1746,6 +1849,40 @@ export default function HearthShell() {
   }, [refreshReadyScripts]);
 
   useEffect(() => {
+    setReadyOrderIds(readReadyOrder(workspaceId));
+    setRemovedReadyIds(readRemovedReadyIds(workspaceId));
+  }, [workspaceId]);
+
+  useEffect(() => {
+    const readyIds = navigableReadyScripts.map((entry) => entry.id);
+    const readyIdSet = new Set(readyIds);
+
+    setReadyOrderIds((prev) => {
+      const kept = prev.filter((id) => readyIdSet.has(id));
+      let changed = kept.length !== prev.length;
+      for (const id of readyIds) {
+        if (kept.includes(id)) continue;
+        kept.push(id);
+        changed = true;
+      }
+      return changed ? kept : prev;
+    });
+
+    setRemovedReadyIds((prev) => {
+      const next = prev.filter((id) => readyIdSet.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [navigableReadyScripts]);
+
+  useEffect(() => {
+    writeReadyOrder(workspaceId, readyOrderIds);
+  }, [readyOrderIds, workspaceId]);
+
+  useEffect(() => {
+    writeRemovedReadyIds(workspaceId, removedReadyIds);
+  }, [removedReadyIds, workspaceId]);
+
+  useEffect(() => {
     void refreshEpisodePackage();
   }, [refreshEpisodePackage]);
 
@@ -1785,6 +1922,32 @@ export default function HearthShell() {
     }
   }, [refreshReadyScripts]);
 
+  const onReadyLabelChange = useCallback((entry: HearthReadyScript, label: ReadyLabel) => {
+    const category = READY_LABEL_TO_CATEGORY[label] ?? "evergreen";
+    void onSetReadyScriptCategory(entry, category);
+  }, [onSetReadyScriptCategory]);
+
+  const onRemoveFromReady = useCallback((entryId: string) => {
+    setRemovedReadyIds((prev) => (prev.includes(entryId) ? prev : [...prev, entryId]));
+  }, []);
+
+  const onRestoreRemovedReady = useCallback(() => {
+    setRemovedReadyIds([]);
+  }, []);
+
+  const onReorderReady = useCallback((fromId: string, toId: string) => {
+    if (!fromId || !toId || fromId === toId) return;
+    setReadyOrderIds((prev) => {
+      const next = prev.slice();
+      const fromIdx = next.indexOf(fromId);
+      const toIdx = next.indexOf(toId);
+      if (fromIdx < 0 || toIdx < 0) return prev;
+      next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, fromId);
+      return next;
+    });
+  }, []);
+
   const persistSession = useCallback(async (draftId: string | null, uiSelectedTab?: string) => {
     const now = Date.now();
     const base: HearthSession = session ?? {
@@ -1798,7 +1961,7 @@ export default function HearthShell() {
       lastOpenedAt: now,
       updatedAt: now,
       uiState: {
-        splitPane: selectedMode === "revisions",
+        splitPane: mode === "focus" && focusTab === "revisions",
         selectedTab: uiSelectedTab ?? base.uiState?.selectedTab,
         cursorPosition: cursorPosition ?? base.uiState?.cursorPosition,
         scrollTop: scrollTop ?? base.uiState?.scrollTop,
@@ -1806,7 +1969,7 @@ export default function HearthShell() {
     };
     setSession(next);
     await sessionStore.saveSession(next);
-  }, [cursorPosition, scrollTop, selectedMode, session, sessionStore]);
+  }, [cursorPosition, focusTab, mode, scrollTop, session, sessionStore]);
 
   const selectDraft = useCallback(async (draft: Draft | null) => {
     if (!draft) {
@@ -2007,15 +2170,18 @@ export default function HearthShell() {
 
   const createDraftAndOpen = useCallback(async (
     seed?: { title?: string; body?: string },
-    mode: HearthMode = "draft",
+    modeToSet: HearthMode = "focus",
   ) => {
     const next = createDraft(seed);
     await store.saveDraft(next);
     await refreshDrafts();
     await selectDraft(next);
-    setMode(mode);
+    setMode(modeToSet);
+    if (modeToSet === "focus") {
+      setFocusTab("draft");
+    }
     return next;
-  }, [refreshDrafts, selectDraft, setMode, store]);
+  }, [refreshDrafts, selectDraft, store]);
 
   const startFromScratch = useCallback(async () => {
     if (isForging) return;
@@ -2034,7 +2200,7 @@ export default function HearthShell() {
       }
       setWorkspaceId(resolveWorkspaceId());
       applySessionOrigin({ created_from: "scratch" });
-      const draft = await createDraftAndOpen(undefined, "draft");
+      const draft = await createDraftAndOpen(undefined, "focus");
       const nextChatKey = resolveChatHistoryKey(created.ok ? created.workpieceId : null, draft.id);
       if (nextChatKey) {
         skipChatHydrationKeyRef.current = nextChatKey;
@@ -2079,7 +2245,7 @@ export default function HearthShell() {
       const draft = await createDraftAndOpen({
         title: spark.title,
         body: spark.body,
-      }, "draft");
+      }, "focus");
 
       const sparkTitle = deriveSparkTitle(spark);
       const sparkPreview = buildSparkPreview(spark.body);
@@ -2145,6 +2311,9 @@ export default function HearthShell() {
       if (tab === "preview" || tab === "compare" || tab === "list") {
         setRevisionView(tab);
       }
+      if (tab === "draft" || tab === "planning" || tab === "sources" || tab === "revisions") {
+        setFocusTab(tab);
+      }
 
       const explicitWorkpieceSelection = hasExplicitWorkpieceQuery();
       const preferredId = storedSession?.activeDraftId;
@@ -2155,7 +2324,7 @@ export default function HearthShell() {
           setActiveDraft(preferredDraft);
           setDraftSnapshot({ title: preferredDraft.title, body: preferredDraft.body, updatedAt: preferredDraft.updatedAt });
           await refreshRevisions(preferredDraft.id);
-          setSelectedMode("draft");
+          setMode("episodes");
           return;
         }
       }
@@ -2258,10 +2427,6 @@ export default function HearthShell() {
       workpiece_id: workpieceId ?? prev.workpiece_id ?? null,
     }), { touched: false });
   }, [planningSession, updatePlanningSession, workspaceId, workpieceId]);
-
-  useEffect(() => {
-    modeTouchedRef.current = false;
-  }, [workpieceId]);
 
   useEffect(() => {
     if (thumbnailConcepts.length === 0) {
@@ -2676,20 +2841,18 @@ export default function HearthShell() {
 
   useEffect(() => {
     if (!activeDraft) {
-      setSelectedMode("sparks");
+      if (mode === "focus") {
+        setMode("episodes");
+      }
       return;
     }
 
     const saved = readMode(workpieceId);
-    if (saved) {
-      setSelectedMode(saved);
-      return;
+    if (!saved || mode !== "sparks") return;
+    if (saved !== "focus") {
+      setMode(saved);
     }
-
-    if (modeTouchedRef.current) return;
-    const defaultMode = "draft";
-    setSelectedMode(defaultMode);
-  }, [activeDraft, workpieceId]);
+  }, [activeDraft, mode, workpieceId]);
 
   useEffect(() => {
     setShowManualDraft(false);
@@ -2853,9 +3016,9 @@ export default function HearthShell() {
 
   useEffect(() => {
     if (!workpieceId) return;
-    if (selectedMode === "sparks") return;
-    writeMode(workpieceId, selectedMode);
-  }, [selectedMode, workpieceId]);
+    if (mode === "sparks") return;
+    writeMode(workpieceId, mode);
+  }, [mode, workpieceId]);
 
   useEffect(() => {
     if (!activeDraft) return;
@@ -2916,11 +3079,9 @@ export default function HearthShell() {
       window.clearTimeout(sessionSaveTimer.current);
     }
     sessionSaveTimer.current = window.setTimeout(() => {
-      const tab = selectedMode === "revisions"
-        ? revisionView
-        : selectedMode === "sparks"
-          ? "draft"
-          : selectedMode;
+      const tab = mode === "focus"
+        ? (focusTab === "revisions" ? revisionView : focusTab)
+        : mode;
       void persistSession(activeDraft?.id ?? null, tab);
     }, SESSION_SAVE_DELAY_MS);
 
@@ -2930,7 +3091,7 @@ export default function HearthShell() {
         sessionSaveTimer.current = null;
       }
     };
-  }, [activeDraft?.id, cursorPosition, persistSession, revisionView, scrollTop, selectedMode]);
+  }, [activeDraft?.id, cursorPosition, focusTab, mode, persistSession, revisionView, scrollTop]);
 
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
@@ -3086,7 +3247,9 @@ export default function HearthShell() {
         setRevisionView("preview");
       }
 
-      const tab = selectedMode === "revisions" ? revisionView : "draft";
+      const tab = mode === "focus"
+        ? (focusTab === "revisions" ? revisionView : focusTab)
+        : mode;
       await persistSession(toSave.id, tab);
       if (args.syncSources) {
         sourcesState.syncSources();
@@ -3149,7 +3312,8 @@ export default function HearthShell() {
     }
     setForgeError(null);
     await selectDraft(lastDraft);
-    setMode("draft");
+    setFocusTab("draft");
+    setMode("focus");
   }
 
   async function onStartForgingSelectedSpark() {
@@ -3262,14 +3426,16 @@ export default function HearthShell() {
   }
 
   function openRevisionPanel() {
-    setMode("revisions");
+    setFocusTab("revisions");
+    setMode("focus");
     setRevisionView("list");
     setSelectedRevision(null);
     void persistSession(activeDraft?.id ?? null, "list");
   }
 
   function closeRevisionPanel() {
-    setMode("draft");
+    setFocusTab("draft");
+    setMode("focus");
     setRevisionView("list");
     setSelectedRevision(null);
     void persistSession(activeDraft?.id ?? null, "draft");
@@ -5780,7 +5946,14 @@ export default function HearthShell() {
 
               <div className="hs-sources-row">
                 <span className="hs-sources-summary">Sources: {sourcesSummary}{unusedSummary}</span>
-                <button type="button" onClick={() => setMode("sources")} disabled={!workpieceId}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFocusTab("sources");
+                    setMode("focus");
+                  }}
+                  disabled={!workpieceId}
+                >
                   Review sources
                 </button>
               </div>
@@ -6030,15 +6203,215 @@ export default function HearthShell() {
     </section>
   );
 
-  const mainContent = showSparksLanding
-    ? renderSparksView()
-    : selectedMode === "planning"
-      ? renderPlanningView()
-      : selectedMode === "sources"
-        ? renderSourcesView()
-        : selectedMode === "revisions"
-          ? renderRevisionsView()
-          : renderDraftView();
+  const renderEpisodesView = () => (
+    <section className="hs-home">
+      <header className="hs-home-header">
+        <h2 className="hs-home-title">Episodes (In Progress)</h2>
+        <p className="hs-home-subtext">Open an Episode to enter Focus Mode.</p>
+      </header>
+      <div className="hs-home-actions">
+        <button type="button" onClick={() => void startFromScratch()} disabled={isForging}>
+          New Workpiece
+        </button>
+        <button type="button" onClick={onCreateDraft}>
+          New Draft
+        </button>
+      </div>
+      <div className="hs-rail-section">
+        <label className="hs-rail-label">Search Episodes</label>
+        <input
+          ref={searchRef}
+          type="search"
+          value={searchText}
+          onChange={(event) => setSearchText(event.target.value)}
+          placeholder="Search title or body"
+        />
+        <div className="hs-rail-sort">
+          <label className="hs-rail-label">Sort</label>
+          <select value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
+            <option value="updated">Recently updated</option>
+            <option value="title">Title A-Z</option>
+          </select>
+        </div>
+      </div>
+      <ul className="hs-workpieces-list">
+        {filteredDrafts.map((draft) => (
+          <li key={draft.id}>
+            <div className={`hs-workpiece-card${activeDraft?.id === draft.id ? " is-active" : ""}`}>
+              <button
+                type="button"
+                className="hs-workpiece-button"
+                onClick={() => {
+                  void selectDraft(draft);
+                  setFocusTab("draft");
+                  setMode("focus");
+                }}
+              >
+                <div className="hs-workpiece-title-row">
+                  <div className="hs-workpiece-title">{draft.title || "Untitled Draft"}</div>
+                </div>
+                <div className="hs-workpiece-updated">Updated {formatUpdatedAt(draft.updatedAt)}</div>
+              </button>
+              <div className="hs-workpiece-actions">
+                <button type="button" onClick={() => void saveDraftMeta(draft, { pinned: !draft.pinned })}>
+                  {draft.pinned ? "Unpin" : "Pin"}
+                </button>
+                <button type="button" onClick={() => void saveDraftMeta(draft, { archived: !draft.archived })}>
+                  {draft.archived ? "Unarchive" : "Archive"}
+                </button>
+                <button type="button" onClick={() => void onDeleteDraft(draft)}>
+                  Delete
+                </button>
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+
+  const renderReadyView = () => (
+    <section className="hs-home">
+      <header className="hs-home-header">
+        <h2 className="hs-home-title">Ready</h2>
+        <p className="hs-home-subtext">Session List curated by Hearth.</p>
+      </header>
+      <div className="hs-ready-record-header">
+        <div className="hs-rail-heading">
+          Ready Items
+          <span className="hs-ready-record-count">{readyTotalCount}</span>
+        </div>
+        <button type="button" onClick={() => void refreshReadyScripts()} disabled={isReadyScriptsLoading}>
+          {isReadyScriptsLoading ? "Refreshing..." : "Refresh"}
+        </button>
+      </div>
+      {removedReadyCount > 0 ? (
+        <button type="button" onClick={onRestoreRemovedReady}>
+          Restore removed ({removedReadyCount})
+        </button>
+      ) : null}
+      {readyScriptsError ? <div className="hs-error-text-small">{readyScriptsError}</div> : null}
+      <ul className="hs-ready-record-list">
+        {orderedReadyScripts.map((entry) => {
+          const href = buildOpenInAnvilHref(entry.workspaceId, entry.workpieceId, entry.primaryScriptPath);
+          const label = resolveReadyLabel(entry);
+          return (
+            <li
+              key={entry.id}
+              className="hs-ready-record-item"
+              draggable
+              onDragStart={() => setDraggingReadyId(entry.id)}
+              onDragEnd={() => setDraggingReadyId(null)}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={() => {
+                if (draggingReadyId) onReorderReady(draggingReadyId, entry.id);
+                setDraggingReadyId(null);
+              }}
+            >
+              <div className="hs-ready-record-title">{entry.title}</div>
+              <label className="hs-ready-record-label">
+                <span>Label</span>
+                <select
+                  value={label}
+                  disabled={updatingReadyCategoryId === entry.id}
+                  onChange={(event) => onReadyLabelChange(entry, event.target.value as ReadyLabel)}
+                >
+                  <option value="hot">Hot</option>
+                  <option value="evergreen">Evergreen</option>
+                  <option value="series">Series</option>
+                </select>
+              </label>
+              <div className="hs-workpiece-actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!href) return;
+                    window.location.assign(href);
+                  }}
+                  disabled={!href}
+                >
+                  Send to Anvil
+                </button>
+                <button type="button" onClick={() => onRemoveFromReady(entry.id)}>
+                  Remove from Ready
+                </button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+
+  const renderSeriesView = () => {
+    const seriesEntries = orderedReadyScripts.filter((entry) => resolveReadyLabel(entry) === "series");
+    return (
+      <section className="hs-home">
+        <header className="hs-home-header">
+          <h2 className="hs-home-title">Series</h2>
+          <p className="hs-home-subtext">Series-focused queue.</p>
+        </header>
+        {seriesEntries.length === 0 ? (
+          <p className="hs-home-empty">No series-labeled Episodes yet.</p>
+        ) : (
+          <ul className="hs-ready-record-list">
+            {seriesEntries.map((entry) => (
+              <li key={entry.id} className="hs-ready-record-item">
+                <div className="hs-ready-record-title">{entry.title}</div>
+                <div className="hs-ready-record-meta">Ready for session planning.</div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    );
+  };
+
+  const renderFocusEditor = () => {
+    if (!hasActiveEpisode) {
+      return (
+        <section className="hs-home">
+          <header className="hs-home-header">
+            <h2 className="hs-home-title">Focus Mode</h2>
+            <p className="hs-home-subtext">Open an Episode from Episodes (In Progress) first.</p>
+          </header>
+          <div className="hs-home-actions">
+            <button type="button" onClick={() => setMode("episodes")}>
+              Go to Episodes
+            </button>
+          </div>
+        </section>
+      );
+    }
+
+    switch (focusTab) {
+      case "planning":
+        return renderPlanningView();
+      case "sources":
+        return renderSourcesView();
+      case "revisions":
+        return renderRevisionsView();
+      case "draft":
+      default:
+        return renderDraftView();
+    }
+  };
+
+  const mainContent = (() => {
+    switch (mode) {
+      case "sparks":
+        return renderSparksView();
+      case "episodes":
+        return renderEpisodesView();
+      case "ready":
+        return renderReadyView();
+      case "series":
+        return renderSeriesView();
+      case "focus":
+      default:
+        return renderFocusEditor();
+    }
+  })();
 
   const sourcesBadge = missingSourcesCount > 0 ? String(missingSourcesCount) : null;
   const sourcesBadgeTitle = missingSourcesCount > 0
@@ -6070,8 +6443,40 @@ export default function HearthShell() {
             <button type="button" onClick={() => void startFromScratch()} disabled={isForging}>
               New Workpiece
             </button>
-            <button type="button" onClick={() => setMode("sparks")}>
+            <button type="button" onClick={onCreateDraft}>
+              New Draft
+            </button>
+          </div>
+
+          <div className="hs-rail-section">
+            <div className="hs-rail-heading">Modes</div>
+            <button
+              type="button"
+              className={`hs-mode-button${mode === "sparks" ? " is-active" : ""}`}
+              onClick={() => setMode("sparks")}
+            >
               Sparks
+            </button>
+            <button
+              type="button"
+              className={`hs-mode-button${mode === "episodes" ? " is-active" : ""}`}
+              onClick={() => setMode("episodes")}
+            >
+              Episodes (In Progress)
+            </button>
+            <button
+              type="button"
+              className={`hs-mode-button${mode === "ready" ? " is-active" : ""}`}
+              onClick={() => setMode("ready")}
+            >
+              Ready
+            </button>
+            <button
+              type="button"
+              className={`hs-mode-button${mode === "series" ? " is-active" : ""}`}
+              onClick={() => setMode("series")}
+            >
+              Series
             </button>
           </div>
 
@@ -6143,6 +6548,11 @@ export default function HearthShell() {
             </div>
             {readyScriptsError ? <div className="hs-error-text-small">{readyScriptsError}</div> : null}
             {readyCategoryError ? <div className="hs-error-text-small">{readyCategoryError}</div> : null}
+            {droppedReadyScriptsCount > 0 ? (
+              <div className="hs-error-text-small">
+                Dropped {droppedReadyScriptsCount} invalid ready row{droppedReadyScriptsCount === 1 ? "" : "s"}.
+              </div>
+            ) : null}
             <div className="hs-rail-meta">Approved scripts stay here until a recording asset is committed.</div>
             {isReadyScriptsLoading ? <p>Loading queue...</p> : null}
             {!isReadyScriptsLoading && filteredReadyScripts.length === 0 ? (
@@ -6278,7 +6688,8 @@ export default function HearthShell() {
                         <button
                           onClick={() => {
                             void selectDraft(draft);
-                            setMode("draft");
+                            setFocusTab("draft");
+                            setMode("focus");
                           }}
                           className="hs-workpiece-button"
                         >
@@ -6331,7 +6742,7 @@ export default function HearthShell() {
             </ul>
           </div>
 
-          {hasActiveConversation ? (
+          {hasActiveEpisode ? (
             <div className="hs-active-workpiece">
               <div className="hs-rail-heading">Active workpiece</div>
               <button
@@ -6344,23 +6755,32 @@ export default function HearthShell() {
               </button>
               <button
                 type="button"
-                onClick={() => setMode("draft")}
-                className={`hs-mode-button${selectedMode === "draft" ? " is-active" : ""}`}
+                onClick={() => {
+                  setFocusTab("draft");
+                  setMode("focus");
+                }}
+                className={`hs-mode-button${mode === "focus" && focusTab === "draft" ? " is-active" : ""}`}
               >
                 Draft
                 <span className="hs-mode-meta">{wordCount} words</span>
               </button>
               <button
                 type="button"
-                onClick={() => setMode("planning")}
-                className={`hs-mode-button${selectedMode === "planning" ? " is-active" : ""}`}
+                onClick={() => {
+                  setFocusTab("planning");
+                  setMode("focus");
+                }}
+                className={`hs-mode-button${mode === "focus" && focusTab === "planning" ? " is-active" : ""}`}
               >
                 Planning Board
               </button>
               <button
                 type="button"
-                onClick={() => setMode("sources")}
-                className={`hs-mode-button${selectedMode === "sources" ? " is-active" : ""}`}
+                onClick={() => {
+                  setFocusTab("sources");
+                  setMode("focus");
+                }}
+                className={`hs-mode-button${mode === "focus" && focusTab === "sources" ? " is-active" : ""}`}
                 title={sourcesBadgeTitle}
               >
                 Sources
@@ -6370,14 +6790,39 @@ export default function HearthShell() {
               </button>
               <button
                 type="button"
-                onClick={() => setMode("revisions")}
-                className={`hs-mode-button${selectedMode === "revisions" ? " is-active" : ""}`}
+                onClick={() => {
+                  setFocusTab("revisions");
+                  setMode("focus");
+                }}
+                className={`hs-mode-button${mode === "focus" && focusTab === "revisions" ? " is-active" : ""}`}
               >
                 Revisions
                 <span className="hs-mode-meta">{revisions.length}</span>
               </button>
             </div>
           ) : null}
+
+          <div className="hs-rail-section">
+            <div className="hs-rail-heading">Tools</div>
+            <button
+              type="button"
+              className="hs-mode-button"
+              title={sourcesBadgeTitle}
+              onClick={() => {
+                if (!hasActiveEpisode) {
+                  setMode("episodes");
+                  return;
+                }
+                setFocusTab("sources");
+                setMode("focus");
+              }}
+            >
+              API / Ledger
+              {sourcesBadge ? (
+                <span className={`hs-sources-badge${devMode ? " is-dev" : ""}`}>{sourcesBadge}</span>
+              ) : null}
+            </button>
+          </div>
         </aside>
 
         <main className="hs-main">
