@@ -27,6 +27,7 @@ import {
   requestHearthSttTranscript,
   refreshMyAiCredits,
   resolveAiLaneFromStorage,
+  resolveAiThumbnailAutoApproveFromStorage,
   uploadHearthSttAudio,
   type HearthAiLane,
   type HearthChatMessage,
@@ -62,6 +63,30 @@ import {
   type AnvilTagValidation,
 } from "../lib/anvil-tag-contract";
 import { commitWorkpieceProductionArtifact, type ProductionArtifactKind } from "../lib/hearth-production-repo";
+import {
+  generateEpisodeThumbnail,
+  loadThumbnailPreviewDataUrl,
+  readEpisodePackageForWorkpiece,
+  saveEpisodePackageForWorkpiece,
+  uploadThumbnailImageVersion,
+} from "../lib/hearth-thumbnail-api";
+import type {
+  EpisodePackageV2,
+  EpisodeThumbnailConcept,
+  EpisodeThumbnailVersion,
+  EpisodeImageMapEntry,
+  EpisodeSeoTitle,
+} from "../lib/episode-package-v2";
+import {
+  addImageMapEntry,
+  ensureSeoV2,
+  normalizeSeoTags,
+  removeImageMapEntry,
+  updateImageMapEntry,
+} from "../lib/episode-package-v2";
+import ThumbnailPanel from "../components/visuals/ThumbnailPanel";
+import ImageMapPanel from "../components/visuals/ImageMapPanel";
+import MetadataPanel from "../components/metadata/MetadataPanel";
 
 const AUTOSAVE_DELAY_MS = 2200;
 const AUTOSAVE_MIN_GAP_MS = 5000;
@@ -608,6 +633,96 @@ function parseIsoTimestamp(value: string | null | undefined): number | undefined
   return Number.isFinite(timestamp) ? timestamp : undefined;
 }
 
+function createThumbnailClientId(prefix: string): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function buildImageMapExportDocument(entries: EpisodeImageMapEntry[]): Record<string, unknown> {
+  return {
+    schema_version: 2,
+    image_map: {
+      entries,
+    },
+  };
+}
+
+function deriveScriptParagraphAnchors(scriptText: string): string[] {
+  const normalized = scriptText.replace(/\r\n?/g, "\n");
+  const paragraphs = normalized
+    .split(/\n\s*\n/g)
+    .map((chunk) => chunk.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+
+  const anchors: string[] = [];
+  for (let index = 0; index < paragraphs.length; index += 1) {
+    anchors.push(`s1:para${index + 1}`);
+  }
+  return anchors;
+}
+
+const METADATA_TAG_SUGGESTIONS_BY_CATEGORY: Record<string, string[]> = {
+  evergreen: ["evergreen", "how-to", "timeless"],
+  hot_topic: ["news", "breaking", "analysis"],
+  viral_reaction: ["reaction", "trending", "viral"],
+  strategic_anchor: ["strategy", "framework", "playbook"],
+  community: ["community", "feedback", "q-and-a"],
+  reflective: ["reflection", "lessons", "behind-the-scenes"],
+  explainer: ["explainer", "guide", "deep-dive"],
+  experimental: ["experiment", "prototype", "iteration"],
+  backup: ["backup", "quick-hit", "short-form"],
+};
+
+function normalizeMetadataTag(tag: string): string | null {
+  const cleaned = tag
+    .trim()
+    .toLowerCase()
+    .replace(/^#+/, "")
+    .replace(/[\s_]+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return cleaned || null;
+}
+
+function parseMetadataTagInput(input: string): string[] {
+  return input
+    .split(/[,\n]/g)
+    .map((part) => normalizeMetadataTag(part))
+    .filter((value): value is string => Boolean(value));
+}
+
+function buildMetadataTagSuggestions(args: {
+  currentTags: string[];
+  contentCategory: string | null;
+}): string[] {
+  const normalizedExisting = normalizeSeoTags(args.currentTags);
+  const existingSet = new Set(normalizedExisting);
+  const suggestions = new Set<string>();
+
+  const categoryTags = args.contentCategory ? (METADATA_TAG_SUGGESTIONS_BY_CATEGORY[args.contentCategory] ?? []) : [];
+  for (const tag of categoryTags) {
+    const normalized = normalizeMetadataTag(tag);
+    if (normalized) suggestions.add(normalized);
+  }
+
+  for (const tag of normalizedExisting.slice(0, 5)) {
+    const tip = normalizeMetadataTag(`${tag}-tips`);
+    const guide = normalizeMetadataTag(`${tag}-guide`);
+    if (tip) suggestions.add(tip);
+    if (guide) suggestions.add(guide);
+  }
+
+  for (const base of ["creator", "content-strategy", "video-essay"]) {
+    const normalized = normalizeMetadataTag(base);
+    if (normalized) suggestions.add(normalized);
+  }
+
+  return [...suggestions].filter((tag) => !existingSet.has(tag)).slice(0, 10);
+}
+
 function deriveReadyUrgency(entry: HearthReadyScript, nowMs = Date.now()): ReadyUrgencyLevel | null {
   if (!entry.contentCategory || !READY_URGENCY_APPLICABLE_CATEGORY_SET.has(entry.contentCategory)) {
     return null;
@@ -1122,6 +1237,40 @@ export default function HearthShell() {
   const [isAiProcessing, setIsAiProcessing] = useState(false);
   const [aiTokenBalance, setAiTokenBalance] = useState<number | null>(null);
   const [aiBillingMode, setAiBillingMode] = useState<HearthAiLane>(() => resolveAiLaneFromStorage());
+  const [episodePackage, setEpisodePackage] = useState<EpisodePackageV2 | null>(null);
+  const [selectedThumbnailConceptId, setSelectedThumbnailConceptId] = useState<string>("");
+  const [selectedThumbnailVersionId, setSelectedThumbnailVersionId] = useState<string | null>(null);
+  const [thumbnailConceptLabelDraft, setThumbnailConceptLabelDraft] = useState("");
+  const [thumbnailConceptPromptDraft, setThumbnailConceptPromptDraft] = useState("");
+  const [thumbnailConceptStyleDraft, setThumbnailConceptStyleDraft] = useState("");
+  const [thumbnailPromptOverride, setThumbnailPromptOverride] = useState("");
+  const [thumbnailAspect, setThumbnailAspect] = useState<"16:9" | "1:1" | "9:16">("16:9");
+  const [isThumbnailGenerating, setIsThumbnailGenerating] = useState(false);
+  const [isThumbnailConceptSaving, setIsThumbnailConceptSaving] = useState(false);
+  const [isThumbnailUploading, setIsThumbnailUploading] = useState(false);
+  const [thumbnailGenerateError, setThumbnailGenerateError] = useState<string | null>(null);
+  const [thumbnailUploadError, setThumbnailUploadError] = useState<string | null>(null);
+  const [thumbnailPreviewState, setThumbnailPreviewState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [thumbnailPreviewDataUrl, setThumbnailPreviewDataUrl] = useState<string | null>(null);
+  const [thumbnailPreviewError, setThumbnailPreviewError] = useState<string | null>(null);
+  const [thumbnailSafeZoneEnabled, setThumbnailSafeZoneEnabled] = useState(false);
+  const [selectedImageMapEntryId, setSelectedImageMapEntryId] = useState<string | null>(null);
+  const [imageMapAnchorDraft, setImageMapAnchorDraft] = useState("");
+  const [imageMapDescriptionDraft, setImageMapDescriptionDraft] = useState("");
+  const [imageMapIntentDraft, setImageMapIntentDraft] = useState("broll");
+  const [imageMapSourceTypeDraft, setImageMapSourceTypeDraft] = useState("stock");
+  const [imageMapPlacementHintDraft, setImageMapPlacementHintDraft] = useState("");
+  const [imageMapSaveState, setImageMapSaveState] = useState<"saved" | "editing" | "saving" | "error" | "offline">("saved");
+  const [imageMapSaveError, setImageMapSaveError] = useState<string | null>(null);
+  const [imageMapExportMessage, setImageMapExportMessage] = useState<string | null>(null);
+  const [metadataTitlesDraft, setMetadataTitlesDraft] = useState<EpisodeSeoTitle[]>([]);
+  const [metadataTagsDraft, setMetadataTagsDraft] = useState<string[]>([]);
+  const [metadataTagInputDraft, setMetadataTagInputDraft] = useState("");
+  const [metadataDescriptionShortDraft, setMetadataDescriptionShortDraft] = useState("");
+  const [metadataDescriptionLongDraft, setMetadataDescriptionLongDraft] = useState("");
+  const [metadataPreviewMode, setMetadataPreviewMode] = useState<"youtube" | "rss" | "plain">("youtube");
+  const [metadataSaveState, setMetadataSaveState] = useState<"saved" | "editing" | "saving" | "offline" | "error">("saved");
+  const [metadataSaveError, setMetadataSaveError] = useState<string | null>(null);
 
   const setMode = useCallback((mode: HearthMode) => {
     modeTouchedRef.current = true;
@@ -1237,6 +1386,13 @@ export default function HearthShell() {
   );
   const aiCreditsDepleted = aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0;
   const aiEpisodeReady = Boolean(workpieceId?.trim());
+  const thumbnailConcepts = episodePackage?.thumbnail.concepts ?? [];
+  const thumbnailVersions = episodePackage?.thumbnail.versions ?? [];
+  const primaryThumbnailVersionId = episodePackage?.thumbnail.primary_version_id ?? null;
+  const selectedThumbnailConcept = thumbnailConcepts.find((concept) => concept.id === selectedThumbnailConceptId) ?? null;
+  const selectedThumbnailVersion = thumbnailVersions.find((version) => version.id === selectedThumbnailVersionId) ?? null;
+  const imageMapEntries = episodePackage?.image_map.entries ?? [];
+  const selectedImageMapEntry = imageMapEntries.find((entry) => entry.id === selectedImageMapEntryId) ?? null;
   const hasBrowserSpeech = (
     typeof window !== "undefined"
     && (Boolean((window as any).SpeechRecognition) || Boolean((window as any).webkitSpeechRecognition))
@@ -1335,6 +1491,17 @@ export default function HearthShell() {
   }, [readyScripts]);
 
   const readyTotalCount = readyScripts.length;
+  const activeReadyScript = useMemo(
+    () => readyScripts.find((entry) => entry.workpieceId === (workpieceId ?? "")) ?? null,
+    [readyScripts, workpieceId],
+  );
+  const metadataTagSuggestions = useMemo(
+    () => buildMetadataTagSuggestions({
+      currentTags: metadataTagsDraft,
+      contentCategory: activeReadyScript?.contentCategory ?? null,
+    }),
+    [activeReadyScript?.contentCategory, metadataTagsDraft],
+  );
 
   const groupedReadyScripts = useMemo(() => {
     if (filteredReadyScripts.length === 0) return [] as Array<{
@@ -1509,6 +1676,49 @@ export default function HearthShell() {
     setRevisions(list);
   }, [store]);
 
+  const refreshEpisodePackage = useCallback(async () => {
+    const episodeId = workpieceId?.trim() ?? "";
+    if (!episodeId) {
+      setEpisodePackage(null);
+      setSelectedThumbnailConceptId("");
+      setSelectedThumbnailVersionId(null);
+      setSelectedImageMapEntryId(null);
+      setThumbnailGenerateError(null);
+      setThumbnailUploadError(null);
+      setThumbnailPreviewState("idle");
+      setThumbnailPreviewDataUrl(null);
+      setThumbnailPreviewError(null);
+      setImageMapSaveState("saved");
+      setImageMapSaveError(null);
+      setImageMapExportMessage(null);
+      return;
+    }
+
+    const loaded = await readEpisodePackageForWorkpiece(episodeId);
+    if (!loaded.ok) {
+      setEpisodePackage(null);
+      setThumbnailGenerateError("Unable to load thumbnail metadata.");
+      setThumbnailPreviewState("error");
+      setThumbnailPreviewDataUrl(null);
+      setThumbnailPreviewError("Unable to load thumbnail metadata.");
+      return;
+    }
+
+    setEpisodePackage(loaded.episodePackage);
+    setThumbnailGenerateError(null);
+    setImageMapSaveError(null);
+    const versions = loaded.episodePackage.thumbnail.versions;
+    const preferredVersionId = loaded.episodePackage.thumbnail.primary_version_id
+      ?? versions[versions.length - 1]?.id
+      ?? null;
+    setSelectedThumbnailVersionId(preferredVersionId);
+    const imageEntries = loaded.episodePackage.image_map.entries;
+    setSelectedImageMapEntryId((prev) => {
+      if (prev && imageEntries.some((entry) => entry.id === prev)) return prev;
+      return imageEntries[0]?.id ?? null;
+    });
+  }, [workpieceId]);
+
   const refreshReadyScripts = useCallback(async () => {
     const workspace = workspaceId?.trim() ?? "";
     if (!workspace) {
@@ -1534,6 +1744,10 @@ export default function HearthShell() {
   useEffect(() => {
     void refreshReadyScripts();
   }, [refreshReadyScripts]);
+
+  useEffect(() => {
+    void refreshEpisodePackage();
+  }, [refreshEpisodePackage]);
 
   const onSetReadyScriptCategory = useCallback(async (
     entry: HearthReadyScript,
@@ -2048,6 +2262,365 @@ export default function HearthShell() {
   useEffect(() => {
     modeTouchedRef.current = false;
   }, [workpieceId]);
+
+  useEffect(() => {
+    if (thumbnailConcepts.length === 0) {
+      setSelectedThumbnailConceptId("");
+      return;
+    }
+    if (selectedThumbnailConceptId && thumbnailConcepts.some((concept) => concept.id === selectedThumbnailConceptId)) {
+      return;
+    }
+    setSelectedThumbnailConceptId(thumbnailConcepts[0]?.id ?? "");
+  }, [selectedThumbnailConceptId, thumbnailConcepts]);
+
+  useEffect(() => {
+    if (!selectedThumbnailConcept) {
+      setThumbnailConceptLabelDraft("");
+      setThumbnailConceptPromptDraft("");
+      setThumbnailConceptStyleDraft("");
+      return;
+    }
+    setThumbnailConceptLabelDraft(selectedThumbnailConcept.label);
+    setThumbnailConceptPromptDraft(selectedThumbnailConcept.prompt_text);
+    setThumbnailConceptStyleDraft(selectedThumbnailConcept.style_preset ?? "");
+  }, [selectedThumbnailConcept]);
+
+  useEffect(() => {
+    if (thumbnailVersions.length === 0) {
+      setSelectedThumbnailVersionId(null);
+      return;
+    }
+    if (
+      selectedThumbnailVersionId
+      && thumbnailVersions.some((version) => version.id === selectedThumbnailVersionId)
+    ) {
+      return;
+    }
+    const nextVersionId = primaryThumbnailVersionId
+      ?? thumbnailVersions[thumbnailVersions.length - 1]?.id
+      ?? null;
+    setSelectedThumbnailVersionId(nextVersionId);
+  }, [primaryThumbnailVersionId, selectedThumbnailVersionId, thumbnailVersions]);
+
+  useEffect(() => {
+    setThumbnailPromptOverride("");
+    setThumbnailAspect("16:9");
+    setThumbnailSafeZoneEnabled(false);
+    setThumbnailPreviewState("idle");
+    setThumbnailPreviewDataUrl(null);
+    setThumbnailPreviewError(null);
+  }, [workpieceId]);
+
+  useEffect(() => {
+    const episodeId = workpieceId?.trim() ?? "";
+    if (!episodeId || !selectedThumbnailVersion) {
+      setThumbnailPreviewState("idle");
+      setThumbnailPreviewDataUrl(null);
+      setThumbnailPreviewError(null);
+      return;
+    }
+
+    if (selectedThumbnailVersion.status === "failed") {
+      setThumbnailPreviewState("error");
+      setThumbnailPreviewDataUrl(null);
+      setThumbnailPreviewError(selectedThumbnailVersion.error ?? "This version failed.");
+      return;
+    }
+
+    let cancelled = false;
+    setThumbnailPreviewState("loading");
+    setThumbnailPreviewError(null);
+
+    void loadThumbnailPreviewDataUrl({
+      workpieceId: episodeId,
+      version: selectedThumbnailVersion,
+    }).then((result) => {
+      if (cancelled) return;
+      if (!result.ok) {
+        setThumbnailPreviewState("error");
+        setThumbnailPreviewDataUrl(null);
+        setThumbnailPreviewError(result.error);
+        return;
+      }
+      setThumbnailPreviewState("ready");
+      setThumbnailPreviewDataUrl(result.dataUrl);
+      setThumbnailPreviewError(null);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedThumbnailVersion, workpieceId]);
+
+  useEffect(() => {
+    if (imageMapEntries.length === 0) {
+      setSelectedImageMapEntryId(null);
+      return;
+    }
+    if (selectedImageMapEntryId && imageMapEntries.some((entry) => entry.id === selectedImageMapEntryId)) {
+      return;
+    }
+    setSelectedImageMapEntryId(imageMapEntries[0]?.id ?? null);
+  }, [imageMapEntries, selectedImageMapEntryId]);
+
+  useEffect(() => {
+    if (!selectedImageMapEntry) {
+      setImageMapAnchorDraft("");
+      setImageMapDescriptionDraft("");
+      setImageMapIntentDraft("broll");
+      setImageMapSourceTypeDraft("stock");
+      setImageMapPlacementHintDraft("");
+      setImageMapSaveState("saved");
+      return;
+    }
+    setImageMapAnchorDraft(selectedImageMapEntry.anchor);
+    setImageMapDescriptionDraft(selectedImageMapEntry.description);
+    setImageMapIntentDraft(selectedImageMapEntry.intent || "broll");
+    setImageMapSourceTypeDraft(selectedImageMapEntry.source_type || "stock");
+    setImageMapPlacementHintDraft(selectedImageMapEntry.placement_hint ?? "");
+    setImageMapSaveState("saved");
+  }, [selectedImageMapEntry]);
+
+  useEffect(() => {
+    if (!workpieceId) {
+      setImageMapSaveState("saved");
+      setImageMapSaveError(null);
+      setImageMapExportMessage(null);
+    }
+  }, [workpieceId]);
+
+  useEffect(() => {
+    if (imageMapSaveState !== "editing") return;
+    if (!episodePackage || !selectedImageMapEntryId) return;
+
+    const current = episodePackage.image_map.entries.find((entry) => entry.id === selectedImageMapEntryId);
+    if (!current) return;
+
+    const nextAnchor = imageMapAnchorDraft.trim();
+    const nextDescription = imageMapDescriptionDraft;
+    const nextIntent = imageMapIntentDraft.trim().toLowerCase();
+    const nextSourceType = imageMapSourceTypeDraft.trim().toLowerCase();
+    const nextPlacementHint = imageMapPlacementHintDraft.trim() || null;
+
+    const hasChanges = (
+      current.anchor !== nextAnchor
+      || current.description !== nextDescription
+      || current.intent !== nextIntent
+      || current.source_type !== nextSourceType
+      || (current.placement_hint ?? null) !== nextPlacementHint
+    );
+
+    if (!hasChanges) {
+      setImageMapSaveState("saved");
+      return;
+    }
+
+    if (!nextAnchor) {
+      setImageMapSaveState("error");
+      setImageMapSaveError("Anchor is required.");
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        setImageMapSaveState("saving");
+        setImageMapSaveError(null);
+
+        const nextEpisodePackage = updateImageMapEntry(
+          episodePackage,
+          selectedImageMapEntryId,
+          {
+            anchor: nextAnchor,
+            description: nextDescription,
+            intent: nextIntent,
+            source_type: nextSourceType,
+            placement_hint: nextPlacementHint,
+          },
+        );
+
+        const workspace = workspaceId?.trim() ?? "";
+        const workpiece = workpieceId?.trim() ?? "";
+        if (!workspace || !workpiece) {
+          if (cancelled) return;
+          setImageMapSaveState("error");
+          setImageMapSaveError("Workspace or workpiece is missing.");
+          return;
+        }
+
+        const saved = await saveEpisodePackageForWorkpiece({
+          workpieceId: workpiece,
+          workspaceId: workspace,
+          episodePackage: nextEpisodePackage,
+          eventName: "hearth.image_map.entry.autosave.v1",
+          eventPayload: {
+            entry_id: selectedImageMapEntryId,
+          },
+        });
+        if (cancelled) return;
+        if (!saved.ok) {
+          const online = typeof navigator === "undefined" ? true : navigator.onLine;
+          if (!online) {
+            setImageMapSaveState("offline");
+            setImageMapSaveError("Offline. Entry edits are waiting to sync.");
+          } else {
+            setImageMapSaveState("error");
+            setImageMapSaveError(saved.error);
+          }
+          return;
+        }
+        setEpisodePackage(saved.episodePackage);
+        setImageMapSaveState("saved");
+        setImageMapSaveError(null);
+      })();
+    }, 450);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    episodePackage,
+    imageMapAnchorDraft,
+    imageMapDescriptionDraft,
+    imageMapIntentDraft,
+    imageMapPlacementHintDraft,
+    imageMapSaveState,
+    imageMapSourceTypeDraft,
+    selectedImageMapEntryId,
+    workpieceId,
+    workspaceId,
+  ]);
+
+  useEffect(() => {
+    if (!imageMapExportMessage) return;
+    const timer = window.setTimeout(() => setImageMapExportMessage(null), 2600);
+    return () => window.clearTimeout(timer);
+  }, [imageMapExportMessage]);
+
+  useEffect(() => {
+    setMetadataSaveState("saved");
+    setMetadataSaveError(null);
+    setMetadataTagInputDraft("");
+  }, [workpieceId]);
+
+  useEffect(() => {
+    if (!episodePackage) {
+      setMetadataTitlesDraft([]);
+      setMetadataTagsDraft([]);
+      setMetadataTagInputDraft("");
+      setMetadataDescriptionShortDraft("");
+      setMetadataDescriptionLongDraft("");
+      setMetadataSaveState("saved");
+      setMetadataSaveError(null);
+      return;
+    }
+    if (metadataSaveState === "editing" || metadataSaveState === "saving") {
+      return;
+    }
+
+    const normalized = ensureSeoV2(episodePackage);
+    setMetadataTitlesDraft(normalized.seo.titles);
+    setMetadataTagsDraft(normalized.seo.tags);
+    setMetadataDescriptionShortDraft(normalized.seo.description_short ?? "");
+    setMetadataDescriptionLongDraft(normalized.seo.description_long ?? "");
+    setMetadataSaveState("saved");
+    setMetadataSaveError(null);
+  }, [episodePackage, metadataSaveState]);
+
+  useEffect(() => {
+    if (metadataSaveState !== "editing") return;
+    if (!episodePackage) return;
+
+    const current = ensureSeoV2(episodePackage);
+    const normalizedTitles = metadataTitlesDraft.map((title, index) => ({
+      id: title.id,
+      label: (title.label || ["A", "B", "C"][index] || `V${index + 1}`).toUpperCase(),
+      text: title.text ?? "",
+      is_primary: Boolean(title.is_primary),
+    }));
+    const primaryId = normalizedTitles.find((title) => title.is_primary)?.id ?? normalizedTitles[0]?.id ?? null;
+    const titles = normalizedTitles.map((title) => ({
+      ...title,
+      is_primary: primaryId != null && title.id === primaryId,
+    }));
+    const nextSeo = {
+      ...current.seo,
+      titles,
+      tags: normalizeSeoTags(metadataTagsDraft),
+      description_short: metadataDescriptionShortDraft.trim() || null,
+      description_long: metadataDescriptionLongDraft.trim() || null,
+    };
+
+    const hasChanges = JSON.stringify(nextSeo) !== JSON.stringify(current.seo);
+    if (!hasChanges) {
+      setMetadataSaveState("saved");
+      setMetadataSaveError(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        setMetadataSaveState("saving");
+        setMetadataSaveError(null);
+
+        const workspace = workspaceId?.trim() ?? "";
+        const workpiece = workpieceId?.trim() ?? "";
+        if (!workspace || !workpiece) {
+          if (cancelled) return;
+          setMetadataSaveState("error");
+          setMetadataSaveError("Workspace or workpiece is missing.");
+          return;
+        }
+
+        const nextEpisodePackage: EpisodePackageV2 = {
+          ...current,
+          seo: nextSeo,
+        };
+
+        const saved = await saveEpisodePackageForWorkpiece({
+          workpieceId: workpiece,
+          workspaceId: workspace,
+          episodePackage: nextEpisodePackage,
+          eventName: "hearth.metadata.autosave.v1",
+          eventPayload: {
+            section: "seo",
+          },
+        });
+        if (cancelled) return;
+        if (!saved.ok) {
+          const online = typeof navigator === "undefined" ? true : navigator.onLine;
+          if (!online) {
+            setMetadataSaveState("offline");
+            setMetadataSaveError("Offline. Metadata edits are waiting to sync.");
+          } else {
+            setMetadataSaveState("error");
+            setMetadataSaveError(saved.error);
+          }
+          return;
+        }
+        setEpisodePackage(saved.episodePackage);
+        setMetadataSaveState("saved");
+        setMetadataSaveError(null);
+      })();
+    }, 450);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    episodePackage,
+    metadataDescriptionLongDraft,
+    metadataDescriptionShortDraft,
+    metadataSaveState,
+    metadataTagsDraft,
+    metadataTitlesDraft,
+    workpieceId,
+    workspaceId,
+  ]);
 
   useEffect(() => {
     const stored = readScriptApprovalState(workpieceId);
@@ -3148,6 +3721,7 @@ export default function HearthShell() {
     try {
       const committed = await commitWorkpieceProductionArtifact({
         workpieceId: episodeId,
+        workspaceId,
         scriptVersion: args.scriptVersion,
         kind: artifactKind,
         payload,
@@ -3155,6 +3729,10 @@ export default function HearthShell() {
 
       if (!committed.ok) {
         setAiRuntimeWarning(`Saved response in chat, but failed to persist ${PRODUCTION_ACTION_LABEL[args.action]}.`);
+        return;
+      }
+      if (args.action === "thumbnails") {
+        void refreshEpisodePackage();
       }
     } catch {
       setAiRuntimeWarning(`Saved response in chat, but failed to persist ${PRODUCTION_ACTION_LABEL[args.action]}.`);
@@ -3345,6 +3923,646 @@ export default function HearthShell() {
     } finally {
       setActiveProductionAction(null);
     }
+  }
+
+  async function persistThumbnailEpisodePackage(
+    nextEpisodePackage: EpisodePackageV2,
+    eventName: string,
+    eventPayload: Record<string, unknown>,
+  ): Promise<EpisodePackageV2 | null> {
+    const episodeId = workpieceId?.trim() ?? "";
+    const workspace = workspaceId?.trim() ?? "";
+    if (!episodeId || !workspace) {
+      setThumbnailGenerateError("Select an Episode before editing visuals.");
+      return null;
+    }
+    const saved = await saveEpisodePackageForWorkpiece({
+      workpieceId: episodeId,
+      workspaceId: workspace,
+      episodePackage: nextEpisodePackage,
+      eventName,
+      eventPayload,
+    });
+    if (!saved.ok) {
+      setThumbnailGenerateError(saved.error);
+      return null;
+    }
+    setEpisodePackage(saved.episodePackage);
+    return saved.episodePackage;
+  }
+
+  async function onCreateThumbnailConcept() {
+    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
+    if (!episodePackage) return;
+
+    const label = thumbnailConceptLabelDraft.trim();
+    const promptText = thumbnailConceptPromptDraft.trim();
+    if (!label || !promptText) {
+      setThumbnailGenerateError("Concept label and prompt are required.");
+      return;
+    }
+
+    const concept: EpisodeThumbnailConcept = {
+      id: createThumbnailClientId("thumb-concept"),
+      label,
+      prompt_text: promptText,
+      style_preset: thumbnailConceptStyleDraft.trim() || null,
+    };
+
+    const nextEpisodePackage: EpisodePackageV2 = {
+      ...episodePackage,
+      thumbnail: {
+        ...episodePackage.thumbnail,
+        concepts: [...episodePackage.thumbnail.concepts, concept],
+      },
+    };
+
+    setIsThumbnailConceptSaving(true);
+    setThumbnailGenerateError(null);
+    try {
+      const saved = await persistThumbnailEpisodePackage(
+        nextEpisodePackage,
+        "hearth.thumbnail.concept.created.v1",
+        { concept_id: concept.id },
+      );
+      if (!saved) return;
+      setSelectedThumbnailConceptId(concept.id);
+      setThumbnailPromptOverride("");
+    } finally {
+      setIsThumbnailConceptSaving(false);
+    }
+  }
+
+  async function onSaveSelectedThumbnailConcept() {
+    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
+    if (!episodePackage || !selectedThumbnailConceptId) return;
+
+    const label = thumbnailConceptLabelDraft.trim();
+    const promptText = thumbnailConceptPromptDraft.trim();
+    if (!label || !promptText) {
+      setThumbnailGenerateError("Concept label and prompt are required.");
+      return;
+    }
+
+    const nextConcepts = episodePackage.thumbnail.concepts.map((concept) => (
+      concept.id === selectedThumbnailConceptId
+        ? {
+            ...concept,
+            label,
+            prompt_text: promptText,
+            style_preset: thumbnailConceptStyleDraft.trim() || null,
+          }
+        : concept
+    ));
+
+    const nextEpisodePackage: EpisodePackageV2 = {
+      ...episodePackage,
+      thumbnail: {
+        ...episodePackage.thumbnail,
+        concepts: nextConcepts,
+      },
+    };
+
+    setIsThumbnailConceptSaving(true);
+    setThumbnailGenerateError(null);
+    try {
+      await persistThumbnailEpisodePackage(
+        nextEpisodePackage,
+        "hearth.thumbnail.concept.updated.v1",
+        { concept_id: selectedThumbnailConceptId },
+      );
+    } finally {
+      setIsThumbnailConceptSaving(false);
+    }
+  }
+
+  async function onDeleteSelectedThumbnailConcept() {
+    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
+    if (!episodePackage || !selectedThumbnailConceptId) return;
+    const confirmed = window.confirm("Delete this concept and its linked versions?");
+    if (!confirmed) return;
+
+    const nextConcepts = episodePackage.thumbnail.concepts.filter((concept) => concept.id !== selectedThumbnailConceptId);
+    const nextVersions = episodePackage.thumbnail.versions.filter((version) => version.concept_id !== selectedThumbnailConceptId);
+    const nextPrimary = nextVersions.some((version) => version.id === episodePackage.thumbnail.primary_version_id)
+      ? episodePackage.thumbnail.primary_version_id
+      : nextVersions[0]?.id ?? null;
+    const nextSelectedConceptId = nextConcepts[0]?.id ?? "";
+    const nextSelectedVersionId = nextPrimary ?? nextVersions[0]?.id ?? null;
+
+    const nextEpisodePackage: EpisodePackageV2 = {
+      ...episodePackage,
+      thumbnail: {
+        ...episodePackage.thumbnail,
+        concepts: nextConcepts,
+        versions: nextVersions,
+        primary_version_id: nextPrimary,
+      },
+    };
+
+    setIsThumbnailConceptSaving(true);
+    setThumbnailGenerateError(null);
+    try {
+      const saved = await persistThumbnailEpisodePackage(
+        nextEpisodePackage,
+        "hearth.thumbnail.concept.deleted.v1",
+        { concept_id: selectedThumbnailConceptId },
+      );
+      if (!saved) return;
+      setSelectedThumbnailConceptId(nextSelectedConceptId);
+      setSelectedThumbnailVersionId(nextSelectedVersionId);
+    } finally {
+      setIsThumbnailConceptSaving(false);
+    }
+  }
+
+  async function onSetPrimaryThumbnailVersion(versionId: string) {
+    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
+    if (!episodePackage) return;
+    const version = episodePackage.thumbnail.versions.find((entry) => entry.id === versionId);
+    if (!version || version.status !== "ready") return;
+
+    const nextEpisodePackage: EpisodePackageV2 = {
+      ...episodePackage,
+      thumbnail: {
+        ...episodePackage.thumbnail,
+        primary_version_id: versionId,
+      },
+    };
+
+    const saved = await persistThumbnailEpisodePackage(
+      nextEpisodePackage,
+      "hearth.thumbnail.primary.set.v1",
+      { version_id: versionId },
+    );
+    if (!saved) return;
+    setSelectedThumbnailVersionId(versionId);
+  }
+
+  async function onGenerateThumbnailVersion(options?: {
+    forceConceptId?: string | null;
+    forcePrompt?: string | null;
+  }) {
+    if (isAiProcessing || isApprovingScript || isThumbnailGenerating || isThumbnailUploading) return;
+
+    const episodeId = workpieceId?.trim() ?? "";
+    const workspace = workspaceId?.trim() ?? "";
+    if (!episodeId || !workspace || !episodePackage) {
+      setThumbnailGenerateError("Select an Episode before generating thumbnails.");
+      return;
+    }
+    if (aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0) {
+      setThumbnailGenerateError("No AI credits remaining.");
+      return;
+    }
+
+    const conceptId = options?.forceConceptId ?? (selectedThumbnailConceptId.trim() || null);
+    const resolvedConcept = conceptId
+      ? episodePackage.thumbnail.concepts.find((concept) => concept.id === conceptId) ?? null
+      : null;
+    const promptOverride = options?.forcePrompt ?? (thumbnailPromptOverride.trim() || null);
+    const usedPrompt = (promptOverride || resolvedConcept?.prompt_text || "").trim();
+    if (!conceptId && !promptOverride) {
+      setThumbnailGenerateError("Select a concept or provide a prompt override.");
+      return;
+    }
+    if (!usedPrompt) {
+      setThumbnailGenerateError("Prompt is empty.");
+      return;
+    }
+
+    const alwaysApproveSpend = resolveAiThumbnailAutoApproveFromStorage();
+    const confirmed = alwaysApproveSpend
+      ? true
+      : window.confirm("Generate thumbnail? This will spend credits.");
+    if (!confirmed) return;
+
+    setIsThumbnailGenerating(true);
+    setThumbnailGenerateError(null);
+    setThumbnailUploadError(null);
+    setAiRuntimeWarning(null);
+    try {
+      const generated = await generateEpisodeThumbnail({
+        workspaceId: workspace,
+        workpieceId: episodeId,
+        conceptId,
+        prompt: promptOverride,
+        preset: resolvedConcept?.style_preset ?? null,
+        aspect: thumbnailAspect,
+        confirmSpend: confirmed,
+        alwaysApproveAiSpend: alwaysApproveSpend,
+      });
+      if (!generated.ok) {
+        setThumbnailGenerateError(generated.error);
+        const failedVersionId = createThumbnailClientId("thumb-failed-version");
+        const failedVersion: EpisodeThumbnailVersion = {
+          id: failedVersionId,
+          concept_id: conceptId ?? resolvedConcept?.id ?? "concept-failed",
+          created_at: new Date().toISOString(),
+          provider: "openai",
+          prompt: usedPrompt,
+          asset_id: `failed:${failedVersionId}`,
+          status: "failed",
+          error: generated.error,
+          provider_request_id: null,
+          asset_path: null,
+          mime_type: null,
+        };
+        const failedEpisodePackage: EpisodePackageV2 = {
+          ...episodePackage,
+          thumbnail: {
+            ...episodePackage.thumbnail,
+            versions: [...episodePackage.thumbnail.versions, failedVersion],
+          },
+        };
+        const savedFailed = await persistThumbnailEpisodePackage(
+          failedEpisodePackage,
+          "hearth.thumbnail.version.failed.v1",
+          { version_id: failedVersion.id, concept_id: failedVersion.concept_id },
+        );
+        if (savedFailed) {
+          setSelectedThumbnailVersionId(failedVersion.id);
+        }
+        return;
+      }
+
+      setEpisodePackage(generated.updatedEpisodePackage);
+      setSelectedThumbnailConceptId(generated.version.concept_id);
+      setSelectedThumbnailVersionId(generated.version.id);
+      setThumbnailPromptOverride("");
+      if (typeof generated.tokenBalance === "number") {
+        setAiTokenBalance(generated.tokenBalance);
+      }
+      if (generated.creditsWarning) {
+        setAiRuntimeWarning(generated.creditsWarning);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Thumbnail generation failed.";
+      setThumbnailGenerateError(message);
+    } finally {
+      setIsThumbnailGenerating(false);
+    }
+  }
+
+  async function onRetryFailedThumbnailVersion(version: EpisodeThumbnailVersion) {
+    await onGenerateThumbnailVersion({
+      forceConceptId: version.concept_id,
+      forcePrompt: version.prompt,
+    });
+  }
+
+  async function onUploadThumbnailImage(file: File) {
+    if (isThumbnailUploading || isThumbnailGenerating || isThumbnailConceptSaving) return;
+    if (!episodePackage) return;
+
+    const episodeId = workpieceId?.trim() ?? "";
+    const workspace = workspaceId?.trim() ?? "";
+    if (!episodeId || !workspace) {
+      setThumbnailUploadError("Select an Episode before uploading.");
+      return;
+    }
+
+    const selectedConcept = selectedThumbnailConceptId
+      ? episodePackage.thumbnail.concepts.find((concept) => concept.id === selectedThumbnailConceptId) ?? null
+      : null;
+
+    let effectiveConcept = selectedConcept;
+    let workingEpisodePackage = episodePackage;
+    if (!effectiveConcept) {
+      effectiveConcept = {
+        id: createThumbnailClientId("thumb-concept-upload"),
+        label: "Uploaded",
+        prompt_text: "Uploaded image",
+        style_preset: null,
+      };
+      workingEpisodePackage = {
+        ...episodePackage,
+        thumbnail: {
+          ...episodePackage.thumbnail,
+          concepts: [...episodePackage.thumbnail.concepts, effectiveConcept],
+        },
+      };
+    }
+
+    setIsThumbnailUploading(true);
+    setThumbnailUploadError(null);
+    setThumbnailGenerateError(null);
+    try {
+      const uploaded = await uploadThumbnailImageVersion({
+        workpieceId: episodeId,
+        concept: effectiveConcept,
+        file,
+      });
+      if (!uploaded.ok) {
+        setThumbnailUploadError(uploaded.error);
+        return;
+      }
+
+      const nextEpisodePackage: EpisodePackageV2 = {
+        ...workingEpisodePackage,
+        thumbnail: {
+          ...workingEpisodePackage.thumbnail,
+          versions: [...workingEpisodePackage.thumbnail.versions, uploaded.version],
+          primary_version_id: uploaded.version.id,
+        },
+      };
+
+      const saved = await persistThumbnailEpisodePackage(
+        nextEpisodePackage,
+        "hearth.thumbnail.upload.version.saved.v1",
+        { version_id: uploaded.version.id, concept_id: uploaded.version.concept_id },
+      );
+      if (!saved) return;
+      setSelectedThumbnailConceptId(uploaded.version.concept_id);
+      setSelectedThumbnailVersionId(uploaded.version.id);
+    } finally {
+      setIsThumbnailUploading(false);
+    }
+  }
+
+  function resolveImageMapEntriesForExport(): EpisodeImageMapEntry[] {
+    if (!episodePackage) return [];
+    if (!selectedImageMapEntryId) return episodePackage.image_map.entries;
+    const selected = episodePackage.image_map.entries.find((entry) => entry.id === selectedImageMapEntryId);
+    if (!selected) return episodePackage.image_map.entries;
+    if (imageMapSaveState !== "editing" && imageMapSaveState !== "saving") {
+      return episodePackage.image_map.entries;
+    }
+
+    const nextAnchor = imageMapAnchorDraft.trim();
+    if (!nextAnchor) return episodePackage.image_map.entries;
+    return episodePackage.image_map.entries.map((entry) => {
+      if (entry.id !== selectedImageMapEntryId) return entry;
+      return {
+        ...entry,
+        anchor: nextAnchor,
+        description: imageMapDescriptionDraft,
+        intent: imageMapIntentDraft.trim().toLowerCase(),
+        source_type: imageMapSourceTypeDraft.trim().toLowerCase(),
+        placement_hint: imageMapPlacementHintDraft.trim() || null,
+      };
+    });
+  }
+
+  async function onCreateImageMapEntry() {
+    if (!episodePackage) return;
+    const nextAnchor = `s1:para${episodePackage.image_map.entries.length + 1}`;
+    const nextEpisodePackage = addImageMapEntry(episodePackage, {
+      anchor: nextAnchor,
+      description: "",
+      intent: "broll",
+      source_type: "stock",
+      placement_hint: null,
+    });
+    const newEntry = nextEpisodePackage.image_map.entries[nextEpisodePackage.image_map.entries.length - 1] ?? null;
+    const workspace = workspaceId?.trim() ?? "";
+    const workpiece = workpieceId?.trim() ?? "";
+    if (!workspace || !workpiece || !newEntry) {
+      setImageMapSaveState("error");
+      setImageMapSaveError("Unable to create entry in current episode.");
+      return;
+    }
+
+    setImageMapSaveState("saving");
+    setImageMapSaveError(null);
+    const saved = await saveEpisodePackageForWorkpiece({
+      workpieceId: workpiece,
+      workspaceId: workspace,
+      episodePackage: nextEpisodePackage,
+      eventName: "hearth.image_map.entry.created.v1",
+      eventPayload: {
+        entry_id: newEntry.id,
+      },
+    });
+    if (!saved.ok) {
+      setImageMapSaveState("error");
+      setImageMapSaveError(saved.error);
+      return;
+    }
+    setEpisodePackage(saved.episodePackage);
+    setSelectedImageMapEntryId(newEntry.id);
+    setImageMapSaveState("saved");
+  }
+
+  async function onDuplicateImageMapEntry() {
+    if (!episodePackage || !selectedImageMapEntry) return;
+    const nextEpisodePackage = addImageMapEntry(episodePackage, {
+      anchor: selectedImageMapEntry.anchor,
+      description: selectedImageMapEntry.description,
+      intent: selectedImageMapEntry.intent,
+      source_type: selectedImageMapEntry.source_type,
+      placement_hint: selectedImageMapEntry.placement_hint ?? null,
+    });
+    const duplicated = nextEpisodePackage.image_map.entries[nextEpisodePackage.image_map.entries.length - 1] ?? null;
+    const workspace = workspaceId?.trim() ?? "";
+    const workpiece = workpieceId?.trim() ?? "";
+    if (!workspace || !workpiece || !duplicated) {
+      setImageMapSaveState("error");
+      setImageMapSaveError("Unable to duplicate entry.");
+      return;
+    }
+
+    setImageMapSaveState("saving");
+    setImageMapSaveError(null);
+    const saved = await saveEpisodePackageForWorkpiece({
+      workpieceId: workpiece,
+      workspaceId: workspace,
+      episodePackage: nextEpisodePackage,
+      eventName: "hearth.image_map.entry.duplicated.v1",
+      eventPayload: {
+        source_entry_id: selectedImageMapEntry.id,
+        entry_id: duplicated.id,
+      },
+    });
+    if (!saved.ok) {
+      setImageMapSaveState("error");
+      setImageMapSaveError(saved.error);
+      return;
+    }
+    setEpisodePackage(saved.episodePackage);
+    setSelectedImageMapEntryId(duplicated.id);
+    setImageMapSaveState("saved");
+  }
+
+  async function onDeleteImageMapEntry() {
+    if (!episodePackage || !selectedImageMapEntryId) return;
+    const confirmed = window.confirm("Delete this image map entry?");
+    if (!confirmed) return;
+
+    const nextEpisodePackage = removeImageMapEntry(episodePackage, selectedImageMapEntryId);
+    const workspace = workspaceId?.trim() ?? "";
+    const workpiece = workpieceId?.trim() ?? "";
+    if (!workspace || !workpiece) {
+      setImageMapSaveState("error");
+      setImageMapSaveError("Unable to delete entry in current episode.");
+      return;
+    }
+
+    setImageMapSaveState("saving");
+    setImageMapSaveError(null);
+    const saved = await saveEpisodePackageForWorkpiece({
+      workpieceId: workpiece,
+      workspaceId: workspace,
+      episodePackage: nextEpisodePackage,
+      eventName: "hearth.image_map.entry.deleted.v1",
+      eventPayload: {
+        entry_id: selectedImageMapEntryId,
+      },
+    });
+    if (!saved.ok) {
+      setImageMapSaveState("error");
+      setImageMapSaveError(saved.error);
+      return;
+    }
+    setEpisodePackage(saved.episodePackage);
+    setSelectedImageMapEntryId(saved.episodePackage.image_map.entries[0]?.id ?? null);
+    setImageMapSaveState("saved");
+  }
+
+  async function onSeedImageMapFromScript() {
+    if (!episodePackage) return;
+    const scriptText = activeDraft?.body ?? "";
+    const anchors = deriveScriptParagraphAnchors(scriptText);
+    if (anchors.length === 0) {
+      setImageMapExportMessage("No script paragraphs found to seed.");
+      return;
+    }
+
+    const existingAnchors = new Set(episodePackage.image_map.entries.map((entry) => entry.anchor.trim().toLowerCase()));
+    let nextEpisodePackage = episodePackage;
+    let seededCount = 0;
+    for (const anchor of anchors) {
+      const key = anchor.trim().toLowerCase();
+      if (!key || existingAnchors.has(key)) continue;
+      nextEpisodePackage = addImageMapEntry(nextEpisodePackage, {
+        anchor,
+        description: "",
+        intent: "broll",
+        source_type: "stock",
+        placement_hint: null,
+      });
+      existingAnchors.add(key);
+      seededCount += 1;
+    }
+
+    if (seededCount === 0) {
+      setImageMapExportMessage("All script anchors are already present.");
+      return;
+    }
+
+    const workspace = workspaceId?.trim() ?? "";
+    const workpiece = workpieceId?.trim() ?? "";
+    if (!workspace || !workpiece) {
+      setImageMapSaveState("error");
+      setImageMapSaveError("Unable to seed entries in current episode.");
+      return;
+    }
+
+    setImageMapSaveState("saving");
+    setImageMapSaveError(null);
+    const saved = await saveEpisodePackageForWorkpiece({
+      workpieceId: workpiece,
+      workspaceId: workspace,
+      episodePackage: nextEpisodePackage,
+      eventName: "hearth.image_map.seeded_from_script.v1",
+      eventPayload: {
+        seeded_count: seededCount,
+      },
+    });
+    if (!saved.ok) {
+      setImageMapSaveState("error");
+      setImageMapSaveError(saved.error);
+      return;
+    }
+    setEpisodePackage(saved.episodePackage);
+    setSelectedImageMapEntryId(saved.episodePackage.image_map.entries[0]?.id ?? null);
+    setImageMapSaveState("saved");
+    setImageMapExportMessage(`Seeded ${seededCount} anchor entries from script.`);
+  }
+
+  async function onCopyImageMapExportJson() {
+    const entries = resolveImageMapEntriesForExport();
+    const payload = buildImageMapExportDocument(entries);
+    const text = JSON.stringify(payload, null, 2);
+    try {
+      await navigator.clipboard.writeText(text);
+      setImageMapExportMessage("Image map JSON copied.");
+    } catch {
+      setImageMapExportMessage("Clipboard write failed.");
+    }
+  }
+
+  function onDownloadImageMapExportJson() {
+    const entries = resolveImageMapEntriesForExport();
+    const payload = buildImageMapExportDocument(entries);
+    const text = JSON.stringify(payload, null, 2);
+    const blob = new Blob([text], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const suffix = (workpieceId?.slice(0, 8) ?? "episode").toLowerCase();
+    anchor.href = url;
+    anchor.download = `image-map-${suffix}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setImageMapExportMessage("Image map JSON downloaded.");
+  }
+
+  function markMetadataEditing(): void {
+    if (metadataSaveState !== "editing") {
+      setMetadataSaveState("editing");
+    }
+    setMetadataSaveError(null);
+  }
+
+  function onMetadataTitleChange(titleId: string, nextText: string): void {
+    setMetadataTitlesDraft((prev) => prev.map((title) => (
+      title.id === titleId
+        ? { ...title, text: nextText }
+        : title
+    )));
+    markMetadataEditing();
+  }
+
+  function onMetadataSetPrimaryTitle(titleId: string): void {
+    setMetadataTitlesDraft((prev) => prev.map((title) => ({
+      ...title,
+      is_primary: title.id === titleId,
+    })));
+    markMetadataEditing();
+  }
+
+  function onMetadataAddTagFromInput(): void {
+    const parsed = parseMetadataTagInput(metadataTagInputDraft);
+    if (parsed.length === 0) return;
+    setMetadataTagsDraft((prev) => normalizeSeoTags([...prev, ...parsed]));
+    setMetadataTagInputDraft("");
+    markMetadataEditing();
+  }
+
+  function onMetadataRemoveTag(tag: string): void {
+    setMetadataTagsDraft((prev) => prev.filter((entry) => entry !== tag));
+    markMetadataEditing();
+  }
+
+  function onMetadataAddTagSuggestion(tag: string): void {
+    const normalized = normalizeMetadataTag(tag);
+    if (!normalized) return;
+    setMetadataTagsDraft((prev) => normalizeSeoTags([...prev, normalized]));
+    markMetadataEditing();
+  }
+
+  function onMetadataDescriptionShortChange(nextValue: string): void {
+    setMetadataDescriptionShortDraft(nextValue);
+    markMetadataEditing();
+  }
+
+  function onMetadataDescriptionLongChange(nextValue: string): void {
+    setMetadataDescriptionLongDraft(nextValue);
+    markMetadataEditing();
+  }
+
+  function onMetadataPreviewModeChange(mode: "youtube" | "rss" | "plain"): void {
+    setMetadataPreviewMode(mode);
   }
 
   async function onSendChat() {
@@ -4308,6 +5526,118 @@ export default function HearthShell() {
                   {activeProductionAction === "image_beat_sheet" && isAiProcessing ? "Generating..." : "Image Beat Sheet"}
                 </button>
               </div>
+            ) : null}
+
+            {hasApprovedScript && approvedScriptVersion ? (
+              <ThumbnailPanel
+                concepts={thumbnailConcepts}
+                versions={thumbnailVersions}
+                selectedConceptId={selectedThumbnailConceptId}
+                selectedVersionId={selectedThumbnailVersionId}
+                primaryVersionId={primaryThumbnailVersionId}
+                selectedConceptLabel={thumbnailConceptLabelDraft}
+                selectedConceptPrompt={thumbnailConceptPromptDraft}
+                selectedConceptStylePreset={thumbnailConceptStyleDraft}
+                promptOverride={thumbnailPromptOverride}
+                aspect={thumbnailAspect}
+                safeZoneEnabled={thumbnailSafeZoneEnabled}
+                previewDataUrl={thumbnailPreviewDataUrl}
+                previewState={thumbnailPreviewState}
+                previewError={thumbnailPreviewError}
+                generateError={thumbnailGenerateError}
+                uploadError={thumbnailUploadError}
+                isGenerating={isThumbnailGenerating}
+                isSavingConcept={isThumbnailConceptSaving}
+                isUploading={isThumbnailUploading}
+                onSelectConcept={setSelectedThumbnailConceptId}
+                onSelectedConceptLabelChange={setThumbnailConceptLabelDraft}
+                onSelectedConceptPromptChange={setThumbnailConceptPromptDraft}
+                onSelectedConceptStylePresetChange={setThumbnailConceptStyleDraft}
+                onCreateConcept={() => void onCreateThumbnailConcept()}
+                onSaveConcept={() => void onSaveSelectedThumbnailConcept()}
+                onDeleteConcept={() => void onDeleteSelectedThumbnailConcept()}
+                onPromptOverrideChange={setThumbnailPromptOverride}
+                onAspectChange={setThumbnailAspect}
+                onGenerate={() => void onGenerateThumbnailVersion()}
+                onRegenerate={() => void onGenerateThumbnailVersion({ forceConceptId: selectedThumbnailConceptId || null })}
+                onToggleSafeZone={() => setThumbnailSafeZoneEnabled((prev) => !prev)}
+                onUploadImage={(file) => void onUploadThumbnailImage(file)}
+                onSelectVersion={setSelectedThumbnailVersionId}
+                onSetPrimary={(versionId) => void onSetPrimaryThumbnailVersion(versionId)}
+                onRetryVersion={(version) => void onRetryFailedThumbnailVersion(version)}
+              />
+            ) : null}
+
+            {hasApprovedScript && approvedScriptVersion ? (
+              <ImageMapPanel
+                entries={imageMapEntries}
+                selectedEntryId={selectedImageMapEntryId}
+                draftAnchor={imageMapAnchorDraft}
+                draftDescription={imageMapDescriptionDraft}
+                draftIntent={imageMapIntentDraft}
+                draftSourceType={imageMapSourceTypeDraft}
+                draftPlacementHint={imageMapPlacementHintDraft}
+                saveState={imageMapSaveState}
+                saveError={imageMapSaveError}
+                exportMessage={imageMapExportMessage}
+                disabled={isAiProcessing || isApprovingScript}
+                onSelectEntry={setSelectedImageMapEntryId}
+                onDraftAnchorChange={(value) => {
+                  setImageMapAnchorDraft(value);
+                  setImageMapSaveState("editing");
+                  setImageMapSaveError(null);
+                }}
+                onDraftDescriptionChange={(value) => {
+                  setImageMapDescriptionDraft(value);
+                  setImageMapSaveState("editing");
+                  setImageMapSaveError(null);
+                }}
+                onDraftIntentChange={(value) => {
+                  setImageMapIntentDraft(value);
+                  setImageMapSaveState("editing");
+                  setImageMapSaveError(null);
+                }}
+                onDraftSourceTypeChange={(value) => {
+                  setImageMapSourceTypeDraft(value);
+                  setImageMapSaveState("editing");
+                  setImageMapSaveError(null);
+                }}
+                onDraftPlacementHintChange={(value) => {
+                  setImageMapPlacementHintDraft(value);
+                  setImageMapSaveState("editing");
+                  setImageMapSaveError(null);
+                }}
+                onCreateEntry={() => void onCreateImageMapEntry()}
+                onDuplicateEntry={() => void onDuplicateImageMapEntry()}
+                onDeleteEntry={() => void onDeleteImageMapEntry()}
+                onSeedFromScript={() => void onSeedImageMapFromScript()}
+                onCopyExport={() => void onCopyImageMapExportJson()}
+                onDownloadExport={onDownloadImageMapExportJson}
+              />
+            ) : null}
+
+            {hasApprovedScript && approvedScriptVersion ? (
+              <MetadataPanel
+                titles={metadataTitlesDraft}
+                tags={metadataTagsDraft}
+                tagInput={metadataTagInputDraft}
+                tagSuggestions={metadataTagSuggestions}
+                descriptionShort={metadataDescriptionShortDraft}
+                descriptionLong={metadataDescriptionLongDraft}
+                previewMode={metadataPreviewMode}
+                saveState={metadataSaveState}
+                saveError={metadataSaveError}
+                disabled={isApprovingScript || !episodePackage}
+                onTitleChange={onMetadataTitleChange}
+                onSetPrimaryTitle={onMetadataSetPrimaryTitle}
+                onTagInputChange={setMetadataTagInputDraft}
+                onAddTagFromInput={onMetadataAddTagFromInput}
+                onRemoveTag={onMetadataRemoveTag}
+                onAddTagSuggestion={onMetadataAddTagSuggestion}
+                onDescriptionShortChange={onMetadataDescriptionShortChange}
+                onDescriptionLongChange={onMetadataDescriptionLongChange}
+                onPreviewModeChange={onMetadataPreviewModeChange}
+              />
             ) : null}
 
             <div className="hs-ai-shortcut-row" role="group" aria-label="Chat shortcuts">

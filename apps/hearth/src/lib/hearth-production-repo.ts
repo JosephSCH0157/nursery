@@ -1,4 +1,8 @@
 import { tongsFetch } from "./tongs-fetch";
+import {
+  applyProductionArtifactToEpisodePackage,
+  buildDefaultMetadataDocument,
+} from "./episode-package-v2";
 
 type WrittenBy = {
   tool: string;
@@ -20,6 +24,43 @@ function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeIso(value: unknown, fallbackIso?: string): string {
+  const raw = readString(value);
+  if (!raw) return fallbackIso ?? new Date().toISOString();
+  const timestamp = Date.parse(raw);
+  if (!Number.isFinite(timestamp)) return fallbackIso ?? new Date().toISOString();
+  return new Date(timestamp).toISOString();
+}
+
+async function readJsonBody(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+function isCommitAck(body: unknown): boolean {
+  if (!isRecord(body)) return false;
+  if (body.ok === true || body.success === true) return true;
+  if (isRecord(body.data) && (body.data.ok === true || body.data.success === true)) return true;
+  return false;
+}
+
+function readRawTextFromPayload(payload: unknown): string {
+  if (!isRecord(payload)) return "";
+  return readString(payload.raw_text) ?? "";
+}
+
+function readGeneratedAtFromPayload(payload: unknown): string {
+  if (!isRecord(payload)) return new Date().toISOString();
+  return normalizeIso(payload.generated_at);
 }
 
 function resolveLane(): string {
@@ -83,8 +124,114 @@ function artifactPath(kind: ProductionArtifactKind, scriptVersion: number): stri
   return `${base}/pack.json`;
 }
 
+async function readWorkpieceMetadata(workpieceId: string): Promise<Record<string, unknown> | null> {
+  const url = `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent("metadata.json")}`;
+  const response = await tongsFetch(url, { method: "GET" });
+  const body = await readJsonBody(response);
+
+  if (response.status === 404) {
+    const exists = isRecord(body) ? body.exists : null;
+    if (exists === false) return null;
+    return null;
+  }
+
+  if (!response.ok) return null;
+  if (!isRecord(body) || body.ok !== true) return null;
+  if (!isRecord(body.data)) return null;
+  return body.data;
+}
+
+async function commitMetadataDocument(args: {
+  workpieceId: string;
+  metadata: Record<string, unknown>;
+  action: ProductionArtifactKind;
+  scriptVersion: number;
+}): Promise<ProductionCommitResult> {
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/commit-file`, {
+    method: "POST",
+    json: {
+      path: "metadata.json",
+      content_type: "application/json",
+      json: args.metadata,
+      written_by: buildWrittenBy(),
+      correlation_id: nextCorrelationId("hearth-episode-v2"),
+      event_name: "hearth.episode.package.v2",
+      event_payload: {
+        action: args.action,
+        script_version: args.scriptVersion,
+      },
+    },
+  });
+
+  const body = await readJsonBody(response);
+  if (!response.ok || !isCommitAck(body)) {
+    return {
+      ok: false,
+      status: response.status,
+      reason: "metadata_commit_failed",
+    };
+  }
+
+  return { ok: true };
+}
+
+async function syncEpisodePackageMetadata(args: {
+  workpieceId: string;
+  workspaceId?: string | null;
+  scriptVersion: number;
+  kind: ProductionArtifactKind;
+  payload: unknown;
+}): Promise<ProductionCommitResult> {
+  if (args.kind === "pack") {
+    return { ok: true };
+  }
+
+  const nowIso = new Date().toISOString();
+  const existing = await readWorkpieceMetadata(args.workpieceId);
+  const existingWorkspaceId = isRecord(existing) ? readString(existing.workspace_id) : null;
+  const existingStatus = isRecord(existing) ? readString(existing.status) : null;
+  const existingNotes = isRecord(existing) ? existing.notes ?? null : null;
+  const existingOrigin = isRecord(existing) ? existing.origin ?? null : null;
+  const existingContentCategory = isRecord(existing) ? readString(existing.content_category) : null;
+
+  const workspaceId = existingWorkspaceId ?? readString(args.workspaceId);
+  if (!workspaceId) {
+    return { ok: true };
+  }
+  const metadata = existing ?? buildDefaultMetadataDocument({
+    workpieceId: args.workpieceId,
+    workspaceId,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    status: existingStatus ?? "draft",
+    notes: existingNotes,
+    origin: existingOrigin,
+    contentCategory: existingContentCategory,
+  });
+
+  const rawText = readRawTextFromPayload(args.payload);
+  if (!rawText.trim()) {
+    return { ok: true };
+  }
+
+  const nextMetadata = applyProductionArtifactToEpisodePackage({
+    metadata,
+    action: args.kind,
+    rawText,
+    generatedAt: readGeneratedAtFromPayload(args.payload),
+  });
+
+  return commitMetadataDocument({
+    workpieceId: args.workpieceId,
+    metadata: nextMetadata,
+    action: args.kind,
+    scriptVersion: args.scriptVersion,
+  });
+}
+
 export async function commitWorkpieceProductionArtifact(args: {
   workpieceId: string;
+  workspaceId?: string | null;
   scriptVersion: number;
   kind: ProductionArtifactKind;
   payload: unknown;
@@ -115,17 +262,18 @@ export async function commitWorkpieceProductionArtifact(args: {
   }
 
   let body: unknown = null;
-  try {
-    body = await response.json();
-  } catch {
-    body = null;
-  }
-  if (!body || typeof body !== "object" || (body as { ok?: boolean }).ok !== true) {
+  body = await readJsonBody(response);
+  if (!isRecord(body) || body.ok !== true) {
     return {
       ok: false,
       status: response.status,
       reason: "invalid_response",
     };
+  }
+
+  const metadataResult = await syncEpisodePackageMetadata(args);
+  if (!metadataResult.ok) {
+    return metadataResult;
   }
 
   return { ok: true };

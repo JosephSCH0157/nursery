@@ -13,6 +13,7 @@ Nursery is the **front door** and **single login** for the Podcaster's Forge eco
 - Bar-Stock canonical doc: [`apps/bar-stock/README.md`](apps/bar-stock/README.md)
 - Tongs canonical doc: [`packages/tongs/TONGS_V1_MANIFEST.md`](packages/tongs/TONGS_V1_MANIFEST.md)
 - Hearth canonical doc (`HEARTH_V1_MANIFEST`): [`apps/hearth/HEARTH_V1_MANIFEST.md`](apps/hearth/HEARTH_V1_MANIFEST.md)
+- Hearth V2 status + contract: [`apps/hearth/HEARTH_V2_CONTRACT.md`](apps/hearth/HEARTH_V2_CONTRACT.md)
 - Anvil canonical doc: [`apps/anvil/MANIFEST.md`](apps/anvil/MANIFEST.md) (integrated link: Coming Soon)
 
 ## Repository layout

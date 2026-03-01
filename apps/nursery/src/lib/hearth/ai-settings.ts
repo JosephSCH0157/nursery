@@ -6,6 +6,7 @@ export type AiSettings = {
   lane: AiLane;
   provider: AiProvider;
   behavior: AiBehavior;
+  autoApproveImageSpend: boolean;
   byoKey?: string;
 };
 
@@ -15,6 +16,7 @@ const DEFAULTS: AiSettings = {
   lane: "forge",
   provider: "openai",
   behavior: "careful",
+  autoApproveImageSpend: false,
 };
 
 function readStorage(): string | null {
@@ -58,6 +60,7 @@ export function loadAiSettings(): AiSettings {
         parsed.behavior === "creative"
           ? parsed.behavior
           : "careful",
+      autoApproveImageSpend: parsed.autoApproveImageSpend === true,
       byoKey: typeof parsed.byoKey === "string" ? parsed.byoKey : undefined,
     };
   } catch {

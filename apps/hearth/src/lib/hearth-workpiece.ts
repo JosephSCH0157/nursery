@@ -1,4 +1,5 @@
 import { tongsFetch } from "./tongs-fetch";
+import { buildDefaultMetadataDocument } from "./episode-package-v2";
 
 type WrittenBy = {
   tool: string;
@@ -214,16 +215,15 @@ async function commitMetadata(args: {
   origin?: ForgeOrigin;
 }): Promise<{ ok: boolean; status?: number; details?: unknown }> {
   const nowIso = new Date().toISOString();
-  const payload = {
-    schema: "forge.metadata.v1",
-    workpiece_id: args.workpieceId,
-    workspace_id: args.workspaceId,
-    created_at: nowIso,
-    updated_at: nowIso,
+  const payload = buildDefaultMetadataDocument({
+    workpieceId: args.workpieceId,
+    workspaceId: args.workspaceId,
+    createdAt: nowIso,
+    updatedAt: nowIso,
     status: "draft",
     notes: null,
     origin: args.origin ?? null,
-  };
+  });
 
   const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/commit-file`, {
     method: "POST",

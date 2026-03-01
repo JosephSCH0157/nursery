@@ -1,5 +1,10 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "./db.types.js";
+import {
+  OpenAiImageProvider,
+  type GenerateImageInput,
+  type ImageProvider,
+} from "./providers/image-provider.js";
 
 export const TONGS_WORKPIECE_BUCKET = "forge-workpieces";
 
@@ -34,11 +39,18 @@ const CONTENT_CATEGORY_VALUES = [
   "backup",
 ] as const;
 const CONTENT_CATEGORY_SET = new Set<string>(CONTENT_CATEGORY_VALUES as readonly string[]);
+const RECORDING_SESSION_STATUS_VALUES = ["planned", "active", "completed", "canceled"] as const;
+const RECORDING_SESSION_STATUS_SET = new Set<string>(RECORDING_SESSION_STATUS_VALUES);
+const THUMBNAIL_ASSET_PREFIX = "assets/thumbnails";
+const THUMBNAIL_DEFAULT_STYLE_HINT = "Clean, high-contrast YouTube thumbnail composition.";
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
 type EpisodeRow = Database["tongs"]["Tables"]["episodes"]["Row"];
+type AssetRow = Database["tongs"]["Tables"]["assets"]["Row"];
+type RecordingSessionRow = Database["tongs"]["Tables"]["recording_sessions"]["Row"];
+type RecordingSessionEpisodeRow = Database["tongs"]["Tables"]["recording_session_episodes"]["Row"];
 type WorkpieceFileRow = Database["tongs"]["Tables"]["workpiece_files"]["Row"];
 type WorkpieceEventRow = Database["tongs"]["Tables"]["workpiece_events"]["Row"];
 type WorkspaceRow = Database["tongs"]["Tables"]["workspaces"]["Row"];
@@ -191,11 +203,120 @@ export type ReadTextFileResult =
   | { found: true; text: string }
   | { found: false };
 
+export type ReadBinaryFileResult =
+  | { found: true; bytes_base64: string; content_type: string }
+  | { found: false };
+
 export type AppendEventRequest = {
   event_name: string;
   payload?: Json;
   correlation_id?: string;
   written_by: WrittenBy;
+};
+
+export type RecordingSessionStatus = (typeof RECORDING_SESSION_STATUS_VALUES)[number];
+
+export type CreateRecordingSessionRequest = {
+  title: string;
+  starts_at: string;
+  ends_at?: string | null;
+};
+
+export type UpdateRecordingSessionRequest = {
+  title?: string;
+  starts_at?: string;
+  ends_at?: string | null;
+  status?: RecordingSessionStatus;
+};
+
+export type RecordingSessionListRange = {
+  starts_at?: string;
+  ends_at?: string;
+  limit?: number;
+};
+
+export type AttachEpisodeToSessionRequest = {
+  episode_id: string;
+  position?: number;
+  notes?: string | null;
+};
+
+export type SessionEpisodeListItem = RecordingSessionEpisodeRow & {
+  episode: Pick<EpisodeRow, "id" | "workspace_id" | "label" | "created_at" | "updated_at"> | null;
+};
+
+export type ThumbnailVersionRecord = {
+  id: string;
+  concept_id: string;
+  created_at: string;
+  provider: string;
+  prompt: string;
+  provider_request_id: string | null;
+  asset_id: string;
+  asset_path: string | null;
+  mime_type: string | null;
+  status: "ready" | "failed";
+  error: string | null;
+};
+
+export type EpisodeThumbnailConceptRecord = {
+  id: string;
+  label: string;
+  prompt_text: string;
+  style_preset: string | null;
+};
+
+export type EpisodePackageRecord = {
+  schema: "forge.episode.package.v2";
+  seo: {
+    titles: JsonValue[];
+    tags: string[];
+    description_short: string | null;
+    description_long: string | null;
+  };
+  thumbnail: {
+    concepts: EpisodeThumbnailConceptRecord[];
+    versions: ThumbnailVersionRecord[];
+    primary_version_id: string | null;
+  };
+  image_map: {
+    entries: JsonValue[];
+  };
+};
+
+export type GenerateEpisodeThumbnailRequest = {
+  workspace_id: string;
+  episode_id: string;
+  concept_id?: string;
+  prompt?: string;
+  preset?: string | null;
+  aspect?: string | null;
+  size?: string | null;
+  lane?: "forge" | "byo";
+  confirm_spend?: boolean;
+  always_approve_ai_spend?: boolean;
+  user_access_token?: string | null;
+};
+
+export type GenerateEpisodeThumbnailResponse = {
+  version: ThumbnailVersionRecord;
+  asset: {
+    id: string;
+    workspace_id: string;
+    episode_id: string;
+    path: string;
+    storage_bucket: string;
+    storage_key: string;
+    mime_type: string;
+    bytes: number;
+    provider: string;
+    provider_request_id: string | null;
+    request_id: string;
+  };
+  updated_episode_package: EpisodePackageRecord;
+  primary_version_id: string | null;
+  credits_warning?: string;
+  token_balance?: number | null;
 };
 
 export type WorkspaceReadyScript = {
@@ -218,12 +339,21 @@ export type TongsCommitApiOptions = {
   supabaseServiceRoleKey: string;
   bucket?: string;
   apiToken?: string;
+  openAiApiKey?: string;
+  openAiImageModel?: string;
 };
 
 export type TongsCommitApiService = {
   createCradle(input: CreateCradleRequest): Promise<CreateCradleResponse>;
   commitFile(workpieceId: string, input: CommitFileRequest): Promise<CommitFileResponse>;
   commitWorkspaceFile(workspaceId: string, input: CommitFileRequest): Promise<CommitWorkspaceFileResponse>;
+  generateEpisodeThumbnail(workpieceId: string, input: GenerateEpisodeThumbnailRequest): Promise<GenerateEpisodeThumbnailResponse>;
+  createRecordingSession(workspaceId: string, input: CreateRecordingSessionRequest): Promise<RecordingSessionRow>;
+  updateRecordingSession(sessionId: string, patch: UpdateRecordingSessionRequest): Promise<RecordingSessionRow>;
+  listRecordingSessions(workspaceId: string, range?: RecordingSessionListRange): Promise<RecordingSessionRow[]>;
+  attachEpisodeToSession(sessionId: string, input: AttachEpisodeToSessionRequest): Promise<RecordingSessionEpisodeRow>;
+  detachEpisodeFromSession(sessionId: string, episodeId: string): Promise<void>;
+  listSessionEpisodes(sessionId: string): Promise<SessionEpisodeListItem[]>;
   listWorkspaceReadyScripts(
     workspaceId: string,
     options?: ListWorkspaceReadyScriptsOptions,
@@ -233,6 +363,7 @@ export type TongsCommitApiService = {
   readWorkspaceJson(workspaceId: string, path: string): Promise<ReadJsonFileResult>;
   readWorkpieceText(workpieceId: string, path: string): Promise<ReadTextFileResult>;
   readWorkspaceText(workspaceId: string, path: string): Promise<ReadTextFileResult>;
+  readWorkpieceBinary(workpieceId: string, path: string): Promise<ReadBinaryFileResult>;
 };
 
 class HttpError extends Error {
@@ -481,6 +612,28 @@ function decodeBase64(base64: string): Uint8Array {
   }
 
   throw new HttpError(500, "base64_unavailable", "No base64 decoder available in runtime");
+}
+
+function encodeBase64(bytes: Uint8Array): string {
+  const globalWithBuffer = globalThis as typeof globalThis & {
+    Buffer?: {
+      from(data: Uint8Array): { toString(encoding: "base64"): string };
+    };
+  };
+
+  if (globalWithBuffer.Buffer?.from) {
+    return globalWithBuffer.Buffer.from(bytes).toString("base64");
+  }
+
+  if (typeof btoa === "function") {
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 1) {
+      binary += String.fromCharCode(bytes[i] ?? 0);
+    }
+    return btoa(binary);
+  }
+
+  throw new HttpError(500, "base64_unavailable", "No base64 encoder available in runtime");
 }
 
 function uint8ToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
@@ -1099,6 +1252,357 @@ function normalizeAppendEventRequest(body: Record<string, unknown>): AppendEvent
   };
 }
 
+function normalizeIsoTimestamp(input: unknown, field: string): string {
+  if (typeof input !== "string" || !input.trim()) {
+    throw new HttpError(400, "invalid_timestamp", `${field} must be a non-empty ISO timestamp string`);
+  }
+  const date = new Date(input);
+  if (Number.isNaN(date.valueOf())) {
+    throw new HttpError(400, "invalid_timestamp", `${field} must be a valid timestamp`);
+  }
+  return date.toISOString();
+}
+
+function normalizeOptionalIsoTimestampOrNull(input: unknown, field: string): string | null | undefined {
+  if (typeof input === "undefined") return undefined;
+  if (input === null) return null;
+  return normalizeIsoTimestamp(input, field);
+}
+
+function normalizeRecordingSessionStatus(input: unknown, field: string): RecordingSessionStatus {
+  if (typeof input !== "string") {
+    throw new HttpError(400, "invalid_status", `${field} must be one of: ${RECORDING_SESSION_STATUS_VALUES.join(", ")}`);
+  }
+  const normalized = input.trim().toLowerCase();
+  if (!RECORDING_SESSION_STATUS_SET.has(normalized)) {
+    throw new HttpError(400, "invalid_status", `${field} must be one of: ${RECORDING_SESSION_STATUS_VALUES.join(", ")}`);
+  }
+  return normalized as RecordingSessionStatus;
+}
+
+function normalizeNonNegativeInteger(input: unknown, field: string): number {
+  if (typeof input !== "number" || !Number.isInteger(input) || input < 0) {
+    throw new HttpError(400, "invalid_integer", `${field} must be a non-negative integer`);
+  }
+  return input;
+}
+
+function normalizeCreateRecordingSessionRequest(body: Record<string, unknown>): CreateRecordingSessionRequest {
+  return {
+    title: normalizeNonEmptyString(body.title, "title"),
+    starts_at: normalizeIsoTimestamp(body.starts_at, "starts_at"),
+    ends_at: normalizeOptionalIsoTimestampOrNull(body.ends_at, "ends_at"),
+  };
+}
+
+function normalizeUpdateRecordingSessionRequest(body: Record<string, unknown>): UpdateRecordingSessionRequest {
+  const patch: UpdateRecordingSessionRequest = {};
+
+  if (Object.prototype.hasOwnProperty.call(body, "title")) {
+    patch.title = normalizeNonEmptyString(body.title, "title");
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "starts_at")) {
+    patch.starts_at = normalizeIsoTimestamp(body.starts_at, "starts_at");
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "ends_at")) {
+    patch.ends_at = normalizeOptionalIsoTimestampOrNull(body.ends_at, "ends_at");
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "status")) {
+    patch.status = normalizeRecordingSessionStatus(body.status, "status");
+  }
+
+  if (Object.keys(patch).length === 0) {
+    throw new HttpError(400, "invalid_patch", "At least one updatable field is required");
+  }
+
+  return patch;
+}
+
+function normalizeRecordingSessionListRange(searchParams: URLSearchParams): RecordingSessionListRange {
+  const range: RecordingSessionListRange = {};
+
+  const startsAt = searchParams.get("starts_at");
+  if (startsAt && startsAt.trim()) {
+    range.starts_at = normalizeIsoTimestamp(startsAt, "starts_at");
+  }
+
+  const endsAt = searchParams.get("ends_at");
+  if (endsAt && endsAt.trim()) {
+    range.ends_at = normalizeIsoTimestamp(endsAt, "ends_at");
+  }
+
+  const limitRaw = searchParams.get("limit");
+  if (limitRaw && limitRaw.trim()) {
+    const parsed = Number.parseInt(limitRaw, 10);
+    if (!Number.isInteger(parsed) || parsed <= 0 || parsed > 500) {
+      throw new HttpError(400, "invalid_limit", "limit must be an integer between 1 and 500");
+    }
+    range.limit = parsed;
+  }
+
+  return range;
+}
+
+function normalizeAttachEpisodeToSessionRequest(body: Record<string, unknown>): AttachEpisodeToSessionRequest {
+  let notes: string | null | undefined;
+  if (Object.prototype.hasOwnProperty.call(body, "notes")) {
+    const raw = body.notes;
+    if (raw === null) {
+      notes = null;
+    } else if (typeof raw === "string") {
+      notes = raw;
+    } else {
+      throw new HttpError(400, "invalid_string", "notes must be a string or null");
+    }
+  }
+
+  const position = Object.prototype.hasOwnProperty.call(body, "position")
+    ? normalizeNonNegativeInteger(body.position, "position")
+    : undefined;
+
+  return {
+    episode_id: normalizeUuid(body.episode_id, "episode_id"),
+    ...(typeof position === "undefined" ? {} : { position }),
+    ...(typeof notes === "undefined" ? {} : { notes }),
+  };
+}
+
+function normalizeOptionalBoolean(input: unknown, field: string): boolean | undefined {
+  if (typeof input === "undefined") return undefined;
+  if (typeof input !== "boolean") {
+    throw new HttpError(400, "invalid_boolean", `${field} must be a boolean`);
+  }
+  return input;
+}
+
+function normalizeOptionalLane(input: unknown): "forge" | "byo" | undefined {
+  if (typeof input === "undefined") return undefined;
+  if (input === "forge" || input === "byo") return input;
+  throw new HttpError(400, "invalid_lane", "lane must be forge or byo");
+}
+
+function normalizeGenerateEpisodeThumbnailRequest(
+  body: Record<string, unknown>,
+  workpieceId: string,
+  userAccessTokenFromHeader: string | null,
+): GenerateEpisodeThumbnailRequest {
+  const workspaceId = normalizeUuid(body.workspace_id, "workspace_id");
+  const episodeId = normalizeUuid(body.episode_id ?? workpieceId, "episode_id");
+  if (episodeId !== workpieceId) {
+    throw new HttpError(400, "episode_mismatch", "episode_id must match workpiece path id");
+  }
+
+  const conceptId = typeof body.concept_id === "string" ? normalizeNonEmptyString(body.concept_id, "concept_id") : undefined;
+  const prompt = typeof body.prompt === "string" ? normalizeNonEmptyString(body.prompt, "prompt") : undefined;
+  if (!conceptId && !prompt) {
+    throw new HttpError(400, "missing_prompt", "concept_id or prompt is required");
+  }
+
+  return {
+    workspace_id: workspaceId,
+    episode_id: episodeId,
+    concept_id: conceptId,
+    prompt,
+    preset: typeof body.preset === "undefined" ? undefined : (body.preset === null ? null : normalizeNonEmptyString(body.preset, "preset")),
+    aspect: typeof body.aspect === "undefined" ? undefined : (body.aspect === null ? null : normalizeNonEmptyString(body.aspect, "aspect")),
+    size: typeof body.size === "undefined" ? undefined : (body.size === null ? null : normalizeNonEmptyString(body.size, "size")),
+    lane: normalizeOptionalLane(body.lane),
+    confirm_spend: normalizeOptionalBoolean(body.confirm_spend, "confirm_spend"),
+    always_approve_ai_spend: normalizeOptionalBoolean(body.always_approve_ai_spend, "always_approve_ai_spend"),
+    user_access_token: userAccessTokenFromHeader ?? (typeof body.user_access_token === "string" ? normalizeNonEmptyString(body.user_access_token, "user_access_token") : undefined),
+  };
+}
+
+function randomId(prefix: string): string {
+  const cryptoApi = globalThis.crypto as Crypto | undefined;
+  if (cryptoApi && typeof cryptoApi.randomUUID === "function") {
+    return `${prefix}-${cryptoApi.randomUUID()}`;
+  }
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function randomUuid(): string {
+  const cryptoApi = globalThis.crypto as Crypto | undefined;
+  if (cryptoApi && typeof cryptoApi.randomUUID === "function") {
+    return cryptoApi.randomUUID();
+  }
+  const suffix = Math.random().toString(16).slice(2, 14).padEnd(12, "0");
+  return `00000000-0000-4000-8000-${suffix.slice(0, 12)}`;
+}
+
+function parseBase64ByteLength(base64: string): number {
+  const clean = base64.replace(/\s+/g, "");
+  const padding = clean.endsWith("==") ? 2 : clean.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((clean.length * 3) / 4) - padding);
+}
+
+function estimateImageTokenSpend(prompt: string, tokensFromProvider: number | null): number {
+  if (typeof tokensFromProvider === "number" && Number.isFinite(tokensFromProvider) && tokensFromProvider > 0) {
+    return Math.ceil(tokensFromProvider);
+  }
+  return Math.max(1, Math.ceil(prompt.length / 4));
+}
+
+function normalizeThumbnailConcept(value: unknown): EpisodeThumbnailConceptRecord | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const id = readStringField(row, "id");
+  const label = readStringField(row, "label");
+  const promptText = readStringField(row, "prompt_text");
+  if (!id || !label || !promptText) return null;
+  return {
+    id,
+    label,
+    prompt_text: promptText,
+    style_preset: readStringField(row, "style_preset"),
+  };
+}
+
+function normalizeThumbnailVersion(value: unknown): ThumbnailVersionRecord | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const id = readStringField(row, "id");
+  const conceptId = readStringField(row, "concept_id");
+  const createdAt = readStringField(row, "created_at");
+  const provider = readStringField(row, "provider");
+  const prompt = readStringField(row, "prompt");
+  const assetId = readStringField(row, "asset_id");
+  const statusRaw = readStringField(row, "status");
+  const status = statusRaw === "failed" ? "failed" : statusRaw === "ready" ? "ready" : null;
+  if (!id || !conceptId || !createdAt || !provider || !prompt || !assetId || !status) return null;
+  return {
+    id,
+    concept_id: conceptId,
+    created_at: createdAt,
+    provider,
+    prompt,
+    provider_request_id: readStringField(row, "provider_request_id"),
+    asset_id: assetId,
+    asset_path: readStringField(row, "asset_path"),
+    mime_type: readStringField(row, "mime_type"),
+    status,
+    error: readStringField(row, "error"),
+  };
+}
+
+function readStringField(row: Record<string, unknown>, key: string): string | null {
+  const value = row[key];
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function normalizeEpisodePackageRecord(metadata: Record<string, unknown>): EpisodePackageRecord {
+  const episodeRoot = (
+    metadata.episode
+    && typeof metadata.episode === "object"
+    && !Array.isArray(metadata.episode)
+  )
+    ? (metadata.episode as Record<string, unknown>)
+    : {};
+
+  const seoRoot = (
+    episodeRoot.seo
+    && typeof episodeRoot.seo === "object"
+    && !Array.isArray(episodeRoot.seo)
+  )
+    ? (episodeRoot.seo as Record<string, unknown>)
+    : {};
+
+  const thumbnailRoot = (
+    episodeRoot.thumbnail
+    && typeof episodeRoot.thumbnail === "object"
+    && !Array.isArray(episodeRoot.thumbnail)
+  )
+    ? (episodeRoot.thumbnail as Record<string, unknown>)
+    : {};
+
+  const imageMapRoot = (
+    episodeRoot.image_map
+    && typeof episodeRoot.image_map === "object"
+    && !Array.isArray(episodeRoot.image_map)
+  )
+    ? (episodeRoot.image_map as Record<string, unknown>)
+    : {};
+
+  const concepts = Array.isArray(thumbnailRoot.concepts)
+    ? thumbnailRoot.concepts.map((entry) => normalizeThumbnailConcept(entry)).filter(Boolean) as EpisodeThumbnailConceptRecord[]
+    : [];
+
+  const versions = Array.isArray(thumbnailRoot.versions)
+    ? thumbnailRoot.versions.map((entry) => normalizeThumbnailVersion(entry)).filter(Boolean) as ThumbnailVersionRecord[]
+    : [];
+
+  const tags = Array.isArray(seoRoot.tags)
+    ? seoRoot.tags
+      .map((entry) => (typeof entry === "string" ? entry.trim().toLowerCase() : ""))
+      .filter((entry) => !!entry)
+    : [];
+  const dedupedTags = Array.from(new Set(tags));
+
+  return {
+    schema: "forge.episode.package.v2",
+    seo: {
+      titles: Array.isArray(seoRoot.titles) ? seoRoot.titles as JsonValue[] : [],
+      tags: dedupedTags,
+      description_short: readStringField(seoRoot, "description_short"),
+      description_long: readStringField(seoRoot, "description_long"),
+    },
+    thumbnail: {
+      concepts,
+      versions,
+      primary_version_id: readStringField(thumbnailRoot, "primary_version_id"),
+    },
+    image_map: {
+      entries: Array.isArray(imageMapRoot.entries) ? imageMapRoot.entries as JsonValue[] : [],
+    },
+  };
+}
+
+function mirrorEpisodePackageToMetadata(
+  metadata: Record<string, unknown>,
+  episodePackage: EpisodePackageRecord,
+): Record<string, unknown> {
+  return {
+    ...metadata,
+    episode: episodePackage,
+    seo_titles: episodePackage.seo.titles,
+    tags: episodePackage.seo.tags,
+    description_short: episodePackage.seo.description_short,
+    description_long: episodePackage.seo.description_long,
+    thumbnail_concepts: episodePackage.thumbnail.concepts,
+    thumbnail_versions: episodePackage.thumbnail.versions,
+    primary_thumbnail_version_id: episodePackage.thumbnail.primary_version_id,
+    image_map_entries: episodePackage.image_map.entries,
+  };
+}
+
+function ensureMetadataBase(args: {
+  metadata: Record<string, unknown> | null;
+  workpieceId: string;
+  workspaceId: string;
+}): Record<string, unknown> {
+  const nowIso = new Date().toISOString();
+  const base = args.metadata ?? {
+    schema: "forge.metadata.v1",
+    workpiece_id: args.workpieceId,
+    workspace_id: args.workspaceId,
+    created_at: nowIso,
+    updated_at: nowIso,
+    status: "draft",
+    notes: null,
+    origin: null,
+    content_category: null,
+  };
+  if (!base.workpiece_id) base.workpiece_id = args.workpieceId;
+  if (!base.workspace_id) base.workspace_id = args.workspaceId;
+  if (!base.schema) base.schema = "forge.metadata.v1";
+  if (!base.created_at) base.created_at = nowIso;
+  if (!base.status) base.status = "draft";
+  base.updated_at = nowIso;
+  return base;
+}
+
 function resolveEpisodeLabel(metadata: Json | undefined): string {
   if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
     const row = metadata as Record<string, unknown>;
@@ -1132,10 +1636,12 @@ function readContentCategoryFromEventPayload(payload: Json): string | null {
 export class TongsCommitService {
   readonly supabase: SupabaseClient<Database>;
   readonly bucket: string;
+  readonly imageProvider: ImageProvider | null;
 
-  constructor(supabase: SupabaseClient<Database>, bucket = TONGS_WORKPIECE_BUCKET) {
+  constructor(supabase: SupabaseClient<Database>, bucket = TONGS_WORKPIECE_BUCKET, imageProvider: ImageProvider | null = null) {
     this.supabase = supabase;
     this.bucket = bucket;
+    this.imageProvider = imageProvider;
   }
 
   private async getCradleOrThrow(workpieceId: string): Promise<EpisodeRow> {
@@ -1182,6 +1688,114 @@ export class TongsCommitService {
       throw new HttpError(404, "workspace_not_found", `Workspace ${workspaceId} was not found`);
     }
     return data;
+  }
+
+  private async getRecordingSessionOrThrow(sessionId: string): Promise<RecordingSessionRow> {
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("recording_sessions")
+      .select("*")
+      .eq("id", sessionId)
+      .single();
+
+    if (error) {
+      if (error.code === "PGRST116") {
+        throw new HttpError(404, "recording_session_not_found", `Recording session ${sessionId} was not found`);
+      }
+      throw new HttpError(502, "db_read_failed", "Failed to read recording session", {
+        reason: error.message,
+      });
+    }
+
+    if (!data) {
+      throw new HttpError(404, "recording_session_not_found", `Recording session ${sessionId} was not found`);
+    }
+    return data;
+  }
+
+  private async resolveRecordingSessionCreator(workspace: WorkspaceRow): Promise<string> {
+    if (workspace.created_by) return workspace.created_by;
+
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("workspace_members")
+      .select("user_id,created_at")
+      .eq("workspace_id", workspace.id)
+      .order("created_at", { ascending: true })
+      .limit(1);
+
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to resolve recording session creator", {
+        reason: error.message,
+      });
+    }
+
+    const fallback = data?.[0]?.user_id ?? null;
+    if (!fallback) {
+      throw new HttpError(
+        409,
+        "workspace_creator_missing",
+        "Workspace has no creator/member to assign recording session created_by",
+      );
+    }
+
+    return fallback;
+  }
+
+  private async resolveUserIdFromAccessToken(accessToken: string | null | undefined): Promise<string | null> {
+    const token = accessToken?.trim();
+    if (!token) return null;
+    const { data, error } = await this.supabase.auth.getUser(token);
+    if (error) {
+      throw new HttpError(401, "invalid_user_token", "Unable to resolve user from provided access token", {
+        reason: error.message,
+      });
+    }
+    return data.user?.id ?? null;
+  }
+
+  private async applyAiTokenDelta(args: {
+    userId: string;
+    spent: number;
+    requestId: string;
+    providerRequestId: string | null;
+    reason: string;
+  }): Promise<{ tokenBalance: number | null } | { warning: string }> {
+    const rpcClient = this.supabase.schema("tongs") as unknown as {
+      rpc: (
+        fn: string,
+        params: {
+          p_user_id: string;
+          p_delta: number;
+          p_reason: string;
+          p_request_id: string;
+          p_provider_request_id?: string;
+        },
+      ) => Promise<{ data: unknown; error: { message: string } | null }>;
+    };
+
+    const { data, error } = await rpcClient.rpc("apply_ai_token_delta", {
+      p_user_id: args.userId,
+      p_delta: -Math.max(0, Math.ceil(args.spent)),
+      p_reason: args.reason,
+      p_request_id: args.requestId,
+      p_provider_request_id: args.providerRequestId ?? undefined,
+    });
+
+    if (error) {
+      return { warning: "Unable to update credits." };
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+    const tokenBalance = (
+      row
+      && typeof row === "object"
+      && typeof (row as Record<string, unknown>).token_balance === "number"
+    )
+      ? ((row as Record<string, unknown>).token_balance as number)
+      : null;
+
+    return { tokenBalance };
   }
 
   private async upsertWorkpieceFile(rows: Database["tongs"]["Tables"]["workpiece_files"]["Insert"][]): Promise<void> {
@@ -1286,6 +1900,36 @@ export class TongsCommitService {
       updated_at: nowIso,
       status,
       notes: null,
+      origin: null,
+      content_category: null,
+      episode: {
+        schema: "forge.episode.package.v2",
+        seo: {
+          titles: [] as JsonValue[],
+          tags: [] as JsonValue[],
+          description_short: null,
+          description_long: null,
+        },
+        thumbnail: {
+          concepts: [] as JsonValue[],
+          versions: [] as JsonValue[],
+          primary_version_id: null,
+        },
+        image_map: {
+          entries: [] as JsonValue[],
+        },
+      },
+      seo_titles: [] as JsonValue[],
+      tags: [] as JsonValue[],
+      description_short: null,
+      description_long: null,
+      thumbnail_concepts: [] as JsonValue[],
+      thumbnail_versions: [] as JsonValue[],
+      primary_thumbnail_version_id: null,
+      image_map_entries: [] as JsonValue[],
+      image_beat_sheet: {
+        entries: [] as JsonValue[],
+      },
     };
 
     const assetsRegistryDocument = {
@@ -1596,6 +2240,459 @@ export class TongsCommitService {
     };
   }
 
+  async generateEpisodeThumbnail(
+    workpieceId: string,
+    input: GenerateEpisodeThumbnailRequest,
+  ): Promise<GenerateEpisodeThumbnailResponse> {
+    if (!this.imageProvider) {
+      throw new HttpError(503, "thumbnail_provider_unavailable", "Image provider is not configured");
+    }
+
+    const workspace = await this.getWorkspaceOrThrow(input.workspace_id);
+    const episode = await this.getCradleOrThrow(workpieceId);
+    if (episode.id !== input.episode_id) {
+      throw new HttpError(400, "episode_mismatch", "episode_id must match workpiece path id");
+    }
+    if (episode.workspace_id !== workspace.id) {
+      throw new HttpError(400, "workspace_mismatch", "Episode does not belong to workspace_id");
+    }
+
+    const lane = input.lane ?? "forge";
+    const requiresConfirm = lane === "forge"
+      && !input.always_approve_ai_spend
+      && !input.confirm_spend;
+    if (requiresConfirm) {
+      throw new HttpError(409, "confirmation_required", "Generating a thumbnail spends AI credits", {
+        requires_confirmation: true,
+      });
+    }
+
+    const userId = await this.resolveUserIdFromAccessToken(input.user_access_token);
+    if (!userId) {
+      throw new HttpError(401, "authentication_required", "User access token is required for thumbnail generation");
+    }
+
+    const metadataRead = await this.readWorkpieceJson(workpieceId, "metadata.json");
+    const metadataRaw = (
+      metadataRead.found
+      && metadataRead.data
+      && typeof metadataRead.data === "object"
+      && !Array.isArray(metadataRead.data)
+    )
+      ? (metadataRead.data as Record<string, unknown>)
+      : null;
+    const metadata = ensureMetadataBase({
+      metadata: metadataRaw,
+      workpieceId,
+      workspaceId: workspace.id,
+    });
+    const episodePackage = normalizeEpisodePackageRecord(metadata);
+
+    const conceptById = new Map(episodePackage.thumbnail.concepts.map((concept) => [concept.id, concept]));
+    const requestedConcept = input.concept_id ? conceptById.get(input.concept_id) ?? null : null;
+    if (input.concept_id && !requestedConcept && !input.prompt) {
+      throw new HttpError(404, "concept_not_found", `Thumbnail concept ${input.concept_id} was not found`);
+    }
+
+    const conceptId = requestedConcept?.id ?? input.concept_id ?? randomId("concept");
+    const conceptLabel = requestedConcept?.label ?? "Generated Concept";
+    const conceptPrompt = (input.prompt?.trim() || requestedConcept?.prompt_text || "").trim();
+    if (!conceptPrompt) {
+      throw new HttpError(400, "missing_prompt", "Unable to resolve prompt for thumbnail generation");
+    }
+    const stylePreset = (input.preset ?? requestedConcept?.style_preset ?? null)?.trim() || null;
+
+    if (!conceptById.has(conceptId)) {
+      episodePackage.thumbnail.concepts.push({
+        id: conceptId,
+        label: conceptLabel,
+        prompt_text: conceptPrompt,
+        style_preset: stylePreset,
+      });
+    }
+
+    const finalPrompt = [
+      conceptPrompt,
+      stylePreset ? `Style preset: ${stylePreset}` : null,
+      THUMBNAIL_DEFAULT_STYLE_HINT,
+    ].filter(Boolean).join("\n\n");
+
+    const imageResult = await this.imageProvider.generateImage({
+      prompt: finalPrompt,
+      aspect: input.aspect ?? "16:9",
+      size: input.size ?? null,
+    } as GenerateImageInput);
+
+    const requestId = randomUuid();
+    const versionId = randomUuid();
+    const assetId = randomUuid();
+    const createdAt = new Date().toISOString();
+    const extension = imageResult.mimeType.toLowerCase().includes("jpeg") ? "jpg" : "png";
+    const assetPath = `${THUMBNAIL_ASSET_PREFIX}/${workpieceId}/${versionId}.${extension}`;
+    const bytes = parseBase64ByteLength(imageResult.bytesBase64);
+
+    const writtenBy: WrittenBy = {
+      tool: "hearth",
+      tool_version: "0.0.0",
+      lane: "forge-managed",
+    };
+
+    const assetCommit = await this.commitFile(workpieceId, {
+      path: assetPath,
+      content_type: imageResult.mimeType,
+      file_type: "thumbnail_image",
+      bytes_base64: imageResult.bytesBase64,
+      written_by: writtenBy,
+      event_name: "hearth.thumbnail.asset.generated.v1",
+      event_payload: {
+        request_id: requestId,
+        provider: imageResult.provider,
+        provider_request_id: imageResult.providerRequestId,
+        concept_id: conceptId,
+      } as Json,
+      correlation_id: requestId,
+    });
+
+    const assetInsert: Database["tongs"]["Tables"]["assets"]["Insert"] = {
+      id: assetId,
+      workspace_id: workspace.id,
+      workpiece_id: workpieceId,
+      path: assetPath,
+      mime_type: imageResult.mimeType,
+      bytes,
+      storage_bucket: assetCommit.file_row.storage_bucket,
+      storage_key: assetCommit.storage_key,
+      provider: imageResult.provider,
+      provider_request_id: imageResult.providerRequestId,
+      request_id: requestId,
+      prompt: finalPrompt,
+      created_by: userId,
+    };
+
+    const { data: assetRow, error: assetError } = await this.supabase
+      .schema("tongs")
+      .from("assets")
+      .insert(assetInsert)
+      .select("*")
+      .single();
+
+    if (assetError || !assetRow) {
+      throw new HttpError(502, "db_write_failed", "Failed to register generated thumbnail asset", {
+        reason: assetError?.message,
+      });
+    }
+
+    const version: ThumbnailVersionRecord = {
+      id: versionId,
+      concept_id: conceptId,
+      created_at: createdAt,
+      provider: imageResult.provider,
+      prompt: finalPrompt,
+      provider_request_id: imageResult.providerRequestId,
+      asset_id: assetId,
+      asset_path: assetPath,
+      mime_type: imageResult.mimeType,
+      status: "ready",
+      error: null,
+    };
+
+    const nextVersions = [...episodePackage.thumbnail.versions, version];
+    episodePackage.thumbnail.versions = nextVersions;
+    if (!episodePackage.thumbnail.primary_version_id) {
+      episodePackage.thumbnail.primary_version_id = version.id;
+    }
+
+    const nextMetadata = mirrorEpisodePackageToMetadata(
+      {
+        ...metadata,
+        updated_at: createdAt,
+      },
+      episodePackage,
+    );
+
+    await this.commitFile(workpieceId, {
+      path: "metadata.json",
+      content_type: "application/json",
+      json: nextMetadata,
+      written_by: writtenBy,
+      event_name: "hearth.thumbnail.version.generated.v1",
+      event_payload: {
+        request_id: requestId,
+        provider_request_id: imageResult.providerRequestId,
+        version_id: versionId,
+        concept_id: conceptId,
+        asset_id: assetId,
+      } as Json,
+      correlation_id: requestId,
+    });
+
+    let creditsWarning: string | undefined;
+    let tokenBalance: number | null | undefined;
+    if (lane === "forge") {
+      const spent = estimateImageTokenSpend(finalPrompt, imageResult.tokensUsed);
+      const deltaResult = await this.applyAiTokenDelta({
+        userId,
+        spent,
+        requestId,
+        providerRequestId: imageResult.providerRequestId,
+        reason: "hearth:thumbnail_generate",
+      });
+      if ("warning" in deltaResult) {
+        creditsWarning = deltaResult.warning;
+      } else {
+        tokenBalance = deltaResult.tokenBalance;
+      }
+    }
+
+    return {
+      version,
+      asset: {
+        id: assetRow.id,
+        workspace_id: assetRow.workspace_id,
+        episode_id: assetRow.workpiece_id,
+        path: assetRow.path,
+        storage_bucket: assetRow.storage_bucket,
+        storage_key: assetRow.storage_key,
+        mime_type: assetRow.mime_type,
+        bytes: assetRow.bytes,
+        provider: assetRow.provider,
+        provider_request_id: assetRow.provider_request_id,
+        request_id: assetRow.request_id ?? requestId,
+      },
+      updated_episode_package: episodePackage,
+      primary_version_id: episodePackage.thumbnail.primary_version_id,
+      ...(creditsWarning ? { credits_warning: creditsWarning } : {}),
+      ...(typeof tokenBalance === "number" ? { token_balance: tokenBalance } : {}),
+    };
+  }
+
+  async createRecordingSession(
+    workspaceId: string,
+    input: CreateRecordingSessionRequest,
+  ): Promise<RecordingSessionRow> {
+    const workspace = await this.getWorkspaceOrThrow(workspaceId);
+    const createdBy = await this.resolveRecordingSessionCreator(workspace);
+    const endsAt = typeof input.ends_at === "undefined" ? null : input.ends_at;
+
+    if (endsAt && new Date(endsAt).valueOf() < new Date(input.starts_at).valueOf()) {
+      throw new HttpError(400, "invalid_time_window", "ends_at must be greater than or equal to starts_at");
+    }
+
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("recording_sessions")
+      .insert({
+        workspace_id: workspaceId,
+        title: input.title.trim(),
+        starts_at: input.starts_at,
+        ends_at: endsAt,
+        created_by: createdBy,
+      })
+      .select("*")
+      .single();
+
+    if (error) {
+      throw new HttpError(502, "db_write_failed", "Failed to create recording session", {
+        reason: error.message,
+      });
+    }
+    if (!data) {
+      throw new HttpError(502, "db_write_failed", "recording_sessions insert returned no row");
+    }
+
+    return data;
+  }
+
+  async updateRecordingSession(sessionId: string, patch: UpdateRecordingSessionRequest): Promise<RecordingSessionRow> {
+    const current = await this.getRecordingSessionOrThrow(sessionId);
+    const nextStartsAt = patch.starts_at ?? current.starts_at;
+    const nextEndsAt = Object.prototype.hasOwnProperty.call(patch, "ends_at")
+      ? (patch.ends_at ?? null)
+      : current.ends_at;
+
+    if (nextEndsAt && new Date(nextEndsAt).valueOf() < new Date(nextStartsAt).valueOf()) {
+      throw new HttpError(400, "invalid_time_window", "ends_at must be greater than or equal to starts_at");
+    }
+
+    const update: Database["tongs"]["Tables"]["recording_sessions"]["Update"] = {};
+
+    if (typeof patch.title !== "undefined") {
+      update.title = patch.title.trim();
+    }
+    if (typeof patch.starts_at !== "undefined") {
+      update.starts_at = patch.starts_at;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "ends_at")) {
+      update.ends_at = patch.ends_at ?? null;
+    }
+    if (typeof patch.status !== "undefined") {
+      update.status = patch.status;
+    }
+
+    if (Object.keys(update).length === 0) {
+      throw new HttpError(400, "invalid_patch", "At least one updatable field is required");
+    }
+
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("recording_sessions")
+      .update(update)
+      .eq("id", sessionId)
+      .select("*")
+      .single();
+
+    if (error) {
+      throw new HttpError(502, "db_write_failed", "Failed to update recording session", {
+        reason: error.message,
+      });
+    }
+    if (!data) {
+      throw new HttpError(502, "db_write_failed", "recording_sessions update returned no row");
+    }
+
+    return data;
+  }
+
+  async listRecordingSessions(
+    workspaceId: string,
+    range?: RecordingSessionListRange,
+  ): Promise<RecordingSessionRow[]> {
+    await this.getWorkspaceOrThrow(workspaceId);
+
+    let query = this.supabase
+      .schema("tongs")
+      .from("recording_sessions")
+      .select("*")
+      .eq("workspace_id", workspaceId);
+
+    if (range?.starts_at) query = query.gte("starts_at", range.starts_at);
+    if (range?.ends_at) query = query.lte("starts_at", range.ends_at);
+    if (range?.limit) query = query.limit(range.limit);
+
+    const { data, error } = await query
+      .order("starts_at", { ascending: true })
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to list recording sessions", {
+        reason: error.message,
+      });
+    }
+
+    return data ?? [];
+  }
+
+  async attachEpisodeToSession(
+    sessionId: string,
+    input: AttachEpisodeToSessionRequest,
+  ): Promise<RecordingSessionEpisodeRow> {
+    const session = await this.getRecordingSessionOrThrow(sessionId);
+    const episode = await this.getCradleOrThrow(input.episode_id);
+    if (episode.workspace_id !== session.workspace_id) {
+      throw new HttpError(
+        400,
+        "workspace_mismatch",
+        "Episode workspace must match recording session workspace",
+      );
+    }
+
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("recording_session_episodes")
+      .upsert(
+        {
+          recording_session_id: sessionId,
+          episode_id: input.episode_id,
+          position: input.position ?? 0,
+          notes: typeof input.notes === "undefined" ? null : input.notes,
+        },
+        { onConflict: "recording_session_id,episode_id" },
+      )
+      .select("*")
+      .single();
+
+    if (error) {
+      throw new HttpError(502, "db_write_failed", "Failed to attach episode to recording session", {
+        reason: error.message,
+      });
+    }
+    if (!data) {
+      throw new HttpError(502, "db_write_failed", "recording_session_episodes upsert returned no row");
+    }
+
+    return data;
+  }
+
+  async detachEpisodeFromSession(sessionId: string, episodeId: string): Promise<void> {
+    await this.getRecordingSessionOrThrow(sessionId);
+
+    const { error } = await this.supabase
+      .schema("tongs")
+      .from("recording_session_episodes")
+      .delete()
+      .eq("recording_session_id", sessionId)
+      .eq("episode_id", episodeId);
+
+    if (error) {
+      throw new HttpError(502, "db_write_failed", "Failed to detach episode from recording session", {
+        reason: error.message,
+      });
+    }
+  }
+
+  async listSessionEpisodes(sessionId: string): Promise<SessionEpisodeListItem[]> {
+    await this.getRecordingSessionOrThrow(sessionId);
+
+    const { data: links, error: linksError } = await this.supabase
+      .schema("tongs")
+      .from("recording_session_episodes")
+      .select("*")
+      .eq("recording_session_id", sessionId)
+      .order("position", { ascending: true })
+      .order("created_at", { ascending: true });
+
+    if (linksError) {
+      throw new HttpError(502, "db_read_failed", "Failed to list session episodes", {
+        reason: linksError.message,
+      });
+    }
+
+    if (!links || links.length === 0) {
+      return [];
+    }
+
+    const episodeIds = links.map((row) => row.episode_id);
+    const { data: episodes, error: episodesError } = await this.supabase
+      .schema("tongs")
+      .from("episodes")
+      .select("id,workspace_id,label,created_at,updated_at")
+      .in("id", episodeIds);
+
+    if (episodesError) {
+      throw new HttpError(502, "db_read_failed", "Failed to read linked episodes", {
+        reason: episodesError.message,
+      });
+    }
+
+    const episodeById = new Map(
+      (episodes ?? []).map((row) => [
+        row.id,
+        {
+          id: row.id,
+          workspace_id: row.workspace_id,
+          label: row.label,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+        },
+      ]),
+    );
+
+    return links.map((row) => ({
+      ...row,
+      episode: episodeById.get(row.episode_id) ?? null,
+    }));
+  }
+
   async readWorkpieceJson(workpieceId: string, path: string): Promise<ReadJsonFileResult> {
     await this.getCradleOrThrow(workpieceId);
     const storageKey = buildStorageKey(workpieceId, path);
@@ -1620,6 +2717,34 @@ export class TongsCommitService {
     if (!bytes) return { found: false };
     const text = normalizeLf(stripBom(textDecoder.decode(bytes)));
     return { found: true, text };
+  }
+
+  async readWorkpieceBinary(workpieceId: string, path: string): Promise<ReadBinaryFileResult> {
+    await this.getCradleOrThrow(workpieceId);
+    const storageKey = buildStorageKey(workpieceId, path);
+    const bytes = await downloadStorageObject(this.supabase, this.bucket, storageKey);
+    if (!bytes) return { found: false };
+
+    const { data: fileRow, error: fileRowError } = await this.supabase
+      .schema("tongs")
+      .from("workpiece_files")
+      .select("content_type")
+      .eq("workpiece_id", workpieceId)
+      .eq("path", path)
+      .maybeSingle();
+
+    if (fileRowError) {
+      throw new HttpError(502, "db_read_failed", "Failed to read workpiece file metadata", {
+        reason: fileRowError.message,
+      });
+    }
+
+    const contentType = fileRow?.content_type?.trim() || normalizeContentType(undefined, path);
+    return {
+      found: true,
+      bytes_base64: encodeBase64(bytes),
+      content_type: contentType,
+    };
   }
 
   async readWorkspaceText(workspaceId: string, path: string): Promise<ReadTextFileResult> {
@@ -1858,6 +2983,21 @@ function checkApiToken(request: Request, token: string | undefined): void {
   }
 }
 
+function readUserAccessTokenHeader(request: Request): string | null {
+  const explicit = request.headers.get("x-forge-user-token");
+  if (explicit && explicit.trim()) return explicit.trim();
+
+  const authHeader = request.headers.get("x-forge-user-authorization");
+  if (!authHeader) return null;
+  const trimmed = authHeader.trim();
+  if (!trimmed) return null;
+  if (trimmed.toLowerCase().startsWith("bearer ")) {
+    const token = trimmed.slice(7).trim();
+    return token || null;
+  }
+  return trimmed;
+}
+
 function parseBooleanQueryFlag(value: string | null): boolean {
   if (!value) return false;
   const normalized = value.trim().toLowerCase();
@@ -1879,7 +3019,12 @@ export function createTongsCommitService(options: TongsCommitApiOptions): TongsC
     },
   });
 
-  return new TongsCommitService(supabase, bucket);
+  const openAiApiKey = options.openAiApiKey?.trim();
+  const imageProvider = openAiApiKey
+    ? new OpenAiImageProvider(openAiApiKey, options.openAiImageModel?.trim() || "gpt-image-1")
+    : null;
+
+  return new TongsCommitService(supabase, bucket, imageProvider);
 }
 
 export function createTongsCommitApiHandlerWithService(
@@ -1924,6 +3069,16 @@ export function createTongsCommitApiHandlerWithService(
         return jsonResponse(200, { ok: true, data: result });
       }
 
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "generate-thumbnail") {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const body = await parseJsonBody(request);
+        const userAccessToken = readUserAccessTokenHeader(request);
+        const payload = normalizeGenerateEpisodeThumbnailRequest(body, workpieceId, userAccessToken);
+        const result = await service.generateEpisodeThumbnail(workpieceId, payload);
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "ready-scripts") {
         requireMethod(request, "GET");
         const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
@@ -1932,11 +3087,87 @@ export function createTongsCommitApiHandlerWithService(
         return jsonResponse(200, { ok: true, data: { scripts: result } });
       }
 
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "recording-sessions") {
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        if (request.method === "GET") {
+          const range = normalizeRecordingSessionListRange(url.searchParams);
+          const result = await service.listRecordingSessions(workspaceId, range);
+          return jsonResponse(200, { ok: true, data: { sessions: result } });
+        }
+
+        if (request.method === "POST") {
+          const body = await parseJsonBody(request);
+          const payload = normalizeCreateRecordingSessionRequest(body);
+          const result = await service.createRecordingSession(workspaceId, payload);
+          return jsonResponse(201, { ok: true, data: result });
+        }
+
+        throw new HttpError(405, "method_not_allowed", "Expected GET or POST for this endpoint");
+      }
+
+      if (parts.length === 3 && parts[0] === "tongs" && parts[1] === "recording-sessions") {
+        requireMethod(request, "PATCH");
+        const sessionId = normalizeUuid(decodeURIComponent(parts[2]), "session_id");
+        const body = await parseJsonBody(request);
+        const payload = normalizeUpdateRecordingSessionRequest(body);
+        const result = await service.updateRecordingSession(sessionId, payload);
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "recording-sessions" && parts[3] === "episodes") {
+        const sessionId = normalizeUuid(decodeURIComponent(parts[2]), "session_id");
+        if (request.method === "GET") {
+          const result = await service.listSessionEpisodes(sessionId);
+          return jsonResponse(200, { ok: true, data: { episodes: result } });
+        }
+
+        if (request.method === "POST") {
+          const body = await parseJsonBody(request);
+          const payload = normalizeAttachEpisodeToSessionRequest(body);
+          const result = await service.attachEpisodeToSession(sessionId, payload);
+          return jsonResponse(201, { ok: true, data: result });
+        }
+
+        throw new HttpError(405, "method_not_allowed", "Expected GET or POST for this endpoint");
+      }
+
+      if (
+        parts.length === 5
+        && parts[0] === "tongs"
+        && parts[1] === "recording-sessions"
+        && parts[3] === "episodes"
+      ) {
+        requireMethod(request, "DELETE");
+        const sessionId = normalizeUuid(decodeURIComponent(parts[2]), "session_id");
+        const episodeId = normalizeUuid(decodeURIComponent(parts[4]), "episode_id");
+        await service.detachEpisodeFromSession(sessionId, episodeId);
+        return jsonResponse(200, { ok: true, data: { detached: true } });
+      }
+
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "read-file") {
         requireMethod(request, "GET");
         const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
         const url = new URL(request.url);
         const path = normalizeRelativePath(url.searchParams.get("path"));
+        const encoding = (url.searchParams.get("encoding") ?? "").trim().toLowerCase();
+
+        if (encoding === "base64") {
+          const result = await service.readWorkpieceBinary(workpieceId, path);
+          if (!result.found) {
+            return jsonResponse(404, {
+              ok: true,
+              exists: false,
+            });
+          }
+          return jsonResponse(200, {
+            ok: true,
+            data: {
+              bytes_base64: result.bytes_base64,
+              content_type: result.content_type,
+            },
+          });
+        }
+
         if (extensionOf(path) === ".json") {
           const result = await service.readWorkpieceJson(workpieceId, path);
           if (!result.found) {

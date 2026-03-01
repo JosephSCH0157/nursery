@@ -4,6 +4,11 @@ Hearth is the conversational script-forging tool inside Podcasters Forge. It hel
 
 Release status: included in **Forge v1.2.0 Fire Burning** (`forge-v1.2.0`).
 
+## Canonical Docs
+
+* V1 baseline manifest: [`HEARTH_V1_MANIFEST.md`](./HEARTH_V1_MANIFEST.md)
+* V2 status + artifact contract: [`HEARTH_V2_CONTRACT.md`](./HEARTH_V2_CONTRACT.md)
+
 ## What Hearth Is
 
 * A thinking space for scripts
