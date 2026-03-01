@@ -230,10 +230,17 @@ export async function bindMappedFolderUI(opts: BindOpts): Promise<() => void> {
     await initMappedFolder();
   };
   const defaultChooseLabel = (btn.textContent || 'Choose Folder').trim() || 'Choose Folder';
-  const updateSourceIndicator = (mode: ScriptSourceMode, sessionTitle?: string | null) => {
+  const updateSourceIndicator = (mode: ScriptSourceMode, sessionTitle?: string | null, scriptCount?: number) => {
+    const countLabel = typeof scriptCount === 'number'
+      ? `${scriptCount} script${scriptCount === 1 ? '' : 's'}`
+      : null;
     const indicatorText = mode === 'session'
-      ? `Session: ${sessionTitle || 'not selected'}`
-      : 'Library';
+      ? (
+        sessionTitle
+          ? `Source: Session - ${sessionTitle}${countLabel ? ` (${countLabel})` : ''}`
+          : 'Source: Session - not selected'
+      )
+      : 'Source: Library';
     if (sourceIndicator) {
       sourceIndicator.textContent = indicatorText;
     }
@@ -241,7 +248,11 @@ export async function bindMappedFolderUI(opts: BindOpts): Promise<() => void> {
       sourceStatus.textContent = mode === 'session'
         ? (
           sessionTitle
-            ? `Session mode active. Scripts are loaded from "${sessionTitle}".`
+            ? (
+              countLabel
+                ? `Session mode active. ${countLabel} loaded from "${sessionTitle}".`
+                : `Session mode active. Scripts are loaded from "${sessionTitle}".`
+            )
             : 'Session mode active. Select a recording session to load scripts.'
         )
         : 'Library mode active. Scripts are loaded from Workspace Library.';
@@ -288,7 +299,7 @@ export async function bindMappedFolderUI(opts: BindOpts): Promise<() => void> {
     if (sourceSelect) sourceSelect.value = mode;
     if (recordingSessionRow) recordingSessionRow.hidden = mode !== 'session';
     if (mode === 'library') {
-      updateSourceIndicator('library');
+      updateSourceIndicator('library', null, 0);
     }
   };
 
@@ -363,7 +374,12 @@ export async function bindMappedFolderUI(opts: BindOpts): Promise<() => void> {
         });
         return;
       }
-      updateSourceIndicator('library');
+      setSelectedRecordingSessionId(null);
+      if (recordingSessionSelect) {
+        recordingSessionSelect.value = '';
+      }
+      try { ScriptStore.syncReady([]); } catch {}
+      updateSourceIndicator('library', null, 0);
       void refreshList();
     });
   }
@@ -525,9 +541,9 @@ export async function bindMappedFolderUI(opts: BindOpts): Promise<() => void> {
           } else {
             readyScripts = [];
           }
-          updateSourceIndicator('session', sessionTitle);
+          updateSourceIndicator('session', sessionTitle, readyScripts.length);
         } else {
-          updateSourceIndicator('library');
+          updateSourceIndicator('library', null, readyScripts.length);
         }
       }
 
