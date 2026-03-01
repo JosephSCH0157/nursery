@@ -11,7 +11,7 @@ import ForgeHub from "./routes/ForgeHub";
 import SettingsHome from "./routes/SettingsHome";
 import SettingsLayout from "./routes/SettingsLayout";
 import SettingsStorage from "./routes/SettingsStorage";
-import TongsCalendar from "./routes/TongsCalendar";
+import TongsRoute from "./routes/Tongs";
 import BarstockRoute from "./routes/Barstock";
 import Placeholder from "./routes/Placeholder";
 import AnvilRoute from "./routes/Anvil";
@@ -36,7 +36,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="anvil/settings" element={<Placeholder name="Anvil Settings" />} />
           <Route path="hearth" element={<HearthRoute />} />
           <Route path="hammer" element={<Placeholder name="Hammer" />} />
-          <Route path="tongs" element={<TongsCalendar />} />
+          <Route path="tongs" element={<TongsRoute />} />
           <Route path="quench" element={<Placeholder name="Quench" />} />
           <Route path="ledger" element={<Placeholder name="Ledger" />} />
           <Route path="barstock" element={<BarstockRoute />} />
