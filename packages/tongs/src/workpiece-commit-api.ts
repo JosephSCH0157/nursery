@@ -5,6 +5,7 @@ import {
   type GenerateImageInput,
   type ImageProvider,
 } from "./providers/image-provider.js";
+import type { RecordingSessionDTO, RecordingSessionItemDTO } from "./types.js";
 
 export const TONGS_WORKPIECE_BUCKET = "forge-workpieces";
 
@@ -51,6 +52,7 @@ type EpisodeRow = Database["tongs"]["Tables"]["episodes"]["Row"];
 type AssetRow = Database["tongs"]["Tables"]["assets"]["Row"];
 type RecordingSessionRow = Database["tongs"]["Tables"]["recording_sessions"]["Row"];
 type RecordingSessionEpisodeRow = Database["tongs"]["Tables"]["recording_session_episodes"]["Row"];
+type RecordingSessionItemRow = Database["tongs"]["Tables"]["recording_session_items"]["Row"];
 type WorkpieceFileRow = Database["tongs"]["Tables"]["workpiece_files"]["Row"];
 type WorkpieceEventRow = Database["tongs"]["Tables"]["workpiece_events"]["Row"];
 type WorkspaceRow = Database["tongs"]["Tables"]["workspaces"]["Row"];
@@ -220,6 +222,7 @@ export type CreateRecordingSessionRequest = {
   title: string;
   starts_at: string;
   ends_at?: string | null;
+  calendar_event_id?: string | null;
 };
 
 export type UpdateRecordingSessionRequest = {
@@ -244,6 +247,26 @@ export type AttachEpisodeToSessionRequest = {
 export type SessionEpisodeListItem = RecordingSessionEpisodeRow & {
   episode: Pick<EpisodeRow, "id" | "workspace_id" | "label" | "created_at" | "updated_at"> | null;
 };
+
+export type CreateRecordingSessionRecordRequest = {
+  workspace_id: string;
+  title?: string;
+  calendar_event_id?: string | null;
+};
+
+export type RecordingSessionListOptions = {
+  workspace_id?: string;
+  limit?: number;
+};
+
+export type ReplaceRecordingSessionItemsRequest = {
+  items: Array<{
+    episode_id: string;
+    script_path: string;
+  }>;
+};
+
+export type RecordingSessionRecord = RecordingSessionDTO;
 
 export type ThumbnailVersionRecord = {
   id: string;
@@ -348,6 +371,10 @@ export type TongsCommitApiService = {
   commitFile(workpieceId: string, input: CommitFileRequest): Promise<CommitFileResponse>;
   commitWorkspaceFile(workspaceId: string, input: CommitFileRequest): Promise<CommitWorkspaceFileResponse>;
   generateEpisodeThumbnail(workpieceId: string, input: GenerateEpisodeThumbnailRequest): Promise<GenerateEpisodeThumbnailResponse>;
+  createRecordingSessionRecord(input: CreateRecordingSessionRecordRequest): Promise<RecordingSessionRow>;
+  listRecordingSessionsForPlanner(options?: RecordingSessionListOptions): Promise<RecordingSessionRow[]>;
+  getRecordingSessionRecord(sessionId: string): Promise<RecordingSessionRecord>;
+  replaceRecordingSessionItems(sessionId: string, input: ReplaceRecordingSessionItemsRequest): Promise<RecordingSessionItemDTO[]>;
   createRecordingSession(workspaceId: string, input: CreateRecordingSessionRequest): Promise<RecordingSessionRow>;
   updateRecordingSession(sessionId: string, patch: UpdateRecordingSessionRequest): Promise<RecordingSessionRow>;
   listRecordingSessions(workspaceId: string, range?: RecordingSessionListRange): Promise<RecordingSessionRow[]>;
@@ -1269,6 +1296,12 @@ function normalizeOptionalIsoTimestampOrNull(input: unknown, field: string): str
   return normalizeIsoTimestamp(input, field);
 }
 
+function normalizeOptionalUuidOrNull(input: unknown, field: string): string | null | undefined {
+  if (typeof input === "undefined") return undefined;
+  if (input === null) return null;
+  return normalizeUuid(input, field);
+}
+
 function normalizeRecordingSessionStatus(input: unknown, field: string): RecordingSessionStatus {
   if (typeof input !== "string") {
     throw new HttpError(400, "invalid_status", `${field} must be one of: ${RECORDING_SESSION_STATUS_VALUES.join(", ")}`);
@@ -1292,6 +1325,26 @@ function normalizeCreateRecordingSessionRequest(body: Record<string, unknown>): 
     title: normalizeNonEmptyString(body.title, "title"),
     starts_at: normalizeIsoTimestamp(body.starts_at, "starts_at"),
     ends_at: normalizeOptionalIsoTimestampOrNull(body.ends_at, "ends_at"),
+    calendar_event_id: normalizeOptionalUuidOrNull(body.calendar_event_id, "calendar_event_id"),
+  };
+}
+
+function normalizeCreateRecordingSessionRecordRequest(body: Record<string, unknown>): CreateRecordingSessionRecordRequest {
+  let title: string | undefined;
+  if (Object.prototype.hasOwnProperty.call(body, "title")) {
+    if (typeof body.title !== "string") {
+      throw new HttpError(400, "invalid_string", "title must be a string");
+    }
+    const trimmed = body.title.trim();
+    if (trimmed) {
+      title = trimmed;
+    }
+  }
+
+  return {
+    workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+    ...(title ? { title } : {}),
+    calendar_event_id: normalizeOptionalUuidOrNull(body.calendar_event_id, "calendar_event_id"),
   };
 }
 
@@ -1341,6 +1394,53 @@ function normalizeRecordingSessionListRange(searchParams: URLSearchParams): Reco
   }
 
   return range;
+}
+
+function normalizeRecordingSessionListOptions(searchParams: URLSearchParams): RecordingSessionListOptions {
+  const options: RecordingSessionListOptions = {};
+
+  const workspaceId = searchParams.get("workspace_id");
+  if (workspaceId && workspaceId.trim()) {
+    options.workspace_id = normalizeUuid(workspaceId.trim(), "workspace_id");
+  }
+
+  const limitRaw = searchParams.get("limit");
+  if (limitRaw && limitRaw.trim()) {
+    const parsed = Number.parseInt(limitRaw, 10);
+    if (!Number.isInteger(parsed) || parsed <= 0 || parsed > 500) {
+      throw new HttpError(400, "invalid_limit", "limit must be an integer between 1 and 500");
+    }
+    options.limit = parsed;
+  }
+
+  return options;
+}
+
+function normalizeReplaceRecordingSessionItemsRequest(body: Record<string, unknown>): ReplaceRecordingSessionItemsRequest {
+  const rawItems = body.items;
+  if (!Array.isArray(rawItems)) {
+    throw new HttpError(400, "invalid_items", "items must be an array");
+  }
+
+  const items = rawItems.map((rawItem, index) => {
+    if (!isRecord(rawItem)) {
+      throw new HttpError(400, "invalid_items", `items[${index}] must be an object`);
+    }
+    return {
+      episode_id: normalizeUuid(rawItem.episode_id, `items[${index}].episode_id`),
+      script_path: normalizeRelativePath(rawItem.script_path),
+    };
+  });
+
+  const seenEpisodeIds = new Set<string>();
+  for (const item of items) {
+    if (seenEpisodeIds.has(item.episode_id)) {
+      throw new HttpError(400, "duplicate_episode", "items must not contain duplicate episode_id values");
+    }
+    seenEpisodeIds.add(item.episode_id);
+  }
+
+  return { items };
 }
 
 function normalizeAttachEpisodeToSessionRequest(body: Record<string, unknown>): AttachEpisodeToSessionRequest {
@@ -1633,6 +1733,24 @@ function readContentCategoryFromEventPayload(payload: Json): string | null {
   return normalizeContentCategory(row.content_category);
 }
 
+function toRecordingSessionItemDTO(row: RecordingSessionItemRow): RecordingSessionItemDTO {
+  return {
+    position: row.position,
+    episode_id: row.episode_id,
+    script_path: row.script_path,
+  };
+}
+
+function toRecordingSessionDTO(session: RecordingSessionRow, items: RecordingSessionItemRow[]): RecordingSessionDTO {
+  return {
+    id: session.id,
+    workspace_id: session.workspace_id,
+    title: session.title,
+    calendar_event_id: session.calendar_event_id,
+    items: items.map(toRecordingSessionItemDTO),
+  };
+}
+
 export class TongsCommitService {
   readonly supabase: SupabaseClient<Database>;
   readonly bucket: string;
@@ -1711,6 +1829,50 @@ export class TongsCommitService {
       throw new HttpError(404, "recording_session_not_found", `Recording session ${sessionId} was not found`);
     }
     return data;
+  }
+
+  private async listRecordingSessionItems(sessionId: string): Promise<RecordingSessionItemRow[]> {
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("recording_session_items")
+      .select("*")
+      .eq("session_id", sessionId)
+      .order("position", { ascending: true })
+      .order("episode_id", { ascending: true });
+
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to read recording session items", {
+        reason: error.message,
+      });
+    }
+
+    return data ?? [];
+  }
+
+  private async assertCalendarEventWorkspace(calendarEventId: string, workspaceId: string): Promise<void> {
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("calendar_events")
+      .select("id,workspace_id")
+      .eq("id", calendarEventId)
+      .single();
+
+    if (error) {
+      if (error.code === "PGRST116") {
+        throw new HttpError(404, "calendar_event_not_found", `Calendar event ${calendarEventId} was not found`);
+      }
+      throw new HttpError(502, "db_read_failed", "Failed to read calendar event", {
+        reason: error.message,
+      });
+    }
+
+    if (!data) {
+      throw new HttpError(404, "calendar_event_not_found", `Calendar event ${calendarEventId} was not found`);
+    }
+
+    if (data.workspace_id !== workspaceId) {
+      throw new HttpError(400, "workspace_mismatch", "calendar_event_id must belong to the same workspace");
+    }
   }
 
   private async resolveRecordingSessionCreator(workspace: WorkspaceRow): Promise<string> {
@@ -2466,6 +2628,130 @@ export class TongsCommitService {
     };
   }
 
+  async createRecordingSessionRecord(input: CreateRecordingSessionRecordRequest): Promise<RecordingSessionRow> {
+    const workspace = await this.getWorkspaceOrThrow(input.workspace_id);
+    const createdBy = await this.resolveRecordingSessionCreator(workspace);
+    const title = input.title?.trim() || "Recording Session";
+    const calendarEventId = typeof input.calendar_event_id === "undefined" ? null : input.calendar_event_id;
+
+    if (calendarEventId) {
+      await this.assertCalendarEventWorkspace(calendarEventId, input.workspace_id);
+    }
+
+    const rpcClient = this.supabase.schema("tongs") as unknown as {
+      rpc: (
+        fn: string,
+        params: {
+          p_workspace_id: string;
+          p_title: string;
+          p_created_by: string;
+          p_calendar_event_id: string | null;
+        },
+      ) => Promise<{
+        data: RecordingSessionRow | RecordingSessionRow[] | null;
+        error: { message: string } | null;
+      }>;
+    };
+
+    const { data, error } = await rpcClient.rpc("create_recording_session", {
+      p_workspace_id: input.workspace_id,
+      p_title: title,
+      p_created_by: createdBy,
+      p_calendar_event_id: calendarEventId,
+    });
+
+    if (error) {
+      throw new HttpError(502, "db_write_failed", "Failed to create recording session", {
+        reason: error.message,
+      });
+    }
+
+    const row = Array.isArray(data) ? (data[0] ?? null) : data;
+    if (!row) {
+      throw new HttpError(502, "db_write_failed", "create_recording_session returned no row");
+    }
+
+    return row;
+  }
+
+  async listRecordingSessionsForPlanner(options?: RecordingSessionListOptions): Promise<RecordingSessionRow[]> {
+    if (options?.workspace_id) {
+      await this.getWorkspaceOrThrow(options.workspace_id);
+    }
+
+    let query = this.supabase
+      .schema("tongs")
+      .from("recording_sessions")
+      .select("*");
+
+    if (options?.workspace_id) {
+      query = query.eq("workspace_id", options.workspace_id);
+    }
+    if (options?.limit) {
+      query = query.limit(options.limit);
+    }
+
+    const { data, error } = await query
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false });
+
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to list recording sessions", {
+        reason: error.message,
+      });
+    }
+
+    return data ?? [];
+  }
+
+  async getRecordingSessionRecord(sessionId: string): Promise<RecordingSessionRecord> {
+    const session = await this.getRecordingSessionOrThrow(sessionId);
+    const items = await this.listRecordingSessionItems(sessionId);
+    return toRecordingSessionDTO(session, items);
+  }
+
+  async replaceRecordingSessionItems(
+    sessionId: string,
+    input: ReplaceRecordingSessionItemsRequest,
+  ): Promise<RecordingSessionItemDTO[]> {
+    await this.getRecordingSessionOrThrow(sessionId);
+
+    const rpcClient = this.supabase.schema("tongs") as unknown as {
+      rpc: (
+        fn: string,
+        params: {
+          p_session_id: string;
+          p_items: Json;
+        },
+      ) => Promise<{
+        data: RecordingSessionItemRow[] | RecordingSessionItemRow | null;
+        error: { message: string; code?: string } | null;
+      }>;
+    };
+
+    const payload = input.items.map((item) => ({
+      episode_id: item.episode_id,
+      script_path: item.script_path,
+    })) as unknown as Json;
+
+    const { data, error } = await rpcClient.rpc("replace_recording_session_items", {
+      p_session_id: sessionId,
+      p_items: payload,
+    });
+
+    if (error) {
+      if (error.code === "P0002") {
+        throw new HttpError(404, "recording_session_not_found", `Recording session ${sessionId} was not found`);
+      }
+      throw new HttpError(502, "db_write_failed", "Failed to replace recording session items", {
+        reason: error.message,
+      });
+    }
+
+    const rows = Array.isArray(data) ? data : (data ? [data] : []);
+    return rows.map(toRecordingSessionItemDTO);
+  }
+
   async createRecordingSession(
     workspaceId: string,
     input: CreateRecordingSessionRequest,
@@ -2473,9 +2759,13 @@ export class TongsCommitService {
     const workspace = await this.getWorkspaceOrThrow(workspaceId);
     const createdBy = await this.resolveRecordingSessionCreator(workspace);
     const endsAt = typeof input.ends_at === "undefined" ? null : input.ends_at;
+    const calendarEventId = typeof input.calendar_event_id === "undefined" ? null : input.calendar_event_id;
 
     if (endsAt && new Date(endsAt).valueOf() < new Date(input.starts_at).valueOf()) {
       throw new HttpError(400, "invalid_time_window", "ends_at must be greater than or equal to starts_at");
+    }
+    if (calendarEventId) {
+      await this.assertCalendarEventWorkspace(calendarEventId, workspaceId);
     }
 
     const { data, error } = await this.supabase
@@ -2486,6 +2776,7 @@ export class TongsCommitService {
         title: input.title.trim(),
         starts_at: input.starts_at,
         ends_at: endsAt,
+        calendar_event_id: calendarEventId,
         created_by: createdBy,
       })
       .select("*")
@@ -2498,6 +2789,21 @@ export class TongsCommitService {
     }
     if (!data) {
       throw new HttpError(502, "db_write_failed", "recording_sessions insert returned no row");
+    }
+
+    if (calendarEventId) {
+      const { error: calendarLinkError } = await this.supabase
+        .schema("tongs")
+        .from("calendar_events")
+        .update({ session_id: data.id })
+        .eq("id", calendarEventId)
+        .eq("workspace_id", workspaceId);
+
+      if (calendarLinkError) {
+        throw new HttpError(502, "db_write_failed", "Failed to bind calendar event to recording session", {
+          reason: calendarLinkError.message,
+        });
+      }
     }
 
     return data;
@@ -3087,6 +3393,23 @@ export function createTongsCommitApiHandlerWithService(
         return jsonResponse(200, { ok: true, data: { scripts: result } });
       }
 
+      if (parts.length === 2 && (parts[0] === "tongs" || parts[0] === "api") && parts[1] === "recording-sessions") {
+        if (request.method === "GET") {
+          const options = normalizeRecordingSessionListOptions(url.searchParams);
+          const result = await service.listRecordingSessionsForPlanner(options);
+          return jsonResponse(200, { ok: true, data: { sessions: result } });
+        }
+
+        if (request.method === "POST") {
+          const body = await parseJsonBody(request);
+          const payload = normalizeCreateRecordingSessionRecordRequest(body);
+          const result = await service.createRecordingSessionRecord(payload);
+          return jsonResponse(201, { ok: true, data: result });
+        }
+
+        throw new HttpError(405, "method_not_allowed", "Expected GET or POST for this endpoint");
+      }
+
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "recording-sessions") {
         const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
         if (request.method === "GET") {
@@ -3105,13 +3428,35 @@ export function createTongsCommitApiHandlerWithService(
         throw new HttpError(405, "method_not_allowed", "Expected GET or POST for this endpoint");
       }
 
-      if (parts.length === 3 && parts[0] === "tongs" && parts[1] === "recording-sessions") {
-        requireMethod(request, "PATCH");
+      if (parts.length === 3 && (parts[0] === "tongs" || parts[0] === "api") && parts[1] === "recording-sessions") {
+        const sessionId = normalizeUuid(decodeURIComponent(parts[2]), "session_id");
+        if (request.method === "GET") {
+          const result = await service.getRecordingSessionRecord(sessionId);
+          return jsonResponse(200, { ok: true, data: result });
+        }
+
+        if (request.method === "PATCH") {
+          const body = await parseJsonBody(request);
+          const payload = normalizeUpdateRecordingSessionRequest(body);
+          const result = await service.updateRecordingSession(sessionId, payload);
+          return jsonResponse(200, { ok: true, data: result });
+        }
+
+        throw new HttpError(405, "method_not_allowed", "Expected GET or PATCH for this endpoint");
+      }
+
+      if (
+        parts.length === 4
+        && (parts[0] === "tongs" || parts[0] === "api")
+        && parts[1] === "recording-sessions"
+        && parts[3] === "items"
+      ) {
+        requireMethod(request, "PUT");
         const sessionId = normalizeUuid(decodeURIComponent(parts[2]), "session_id");
         const body = await parseJsonBody(request);
-        const payload = normalizeUpdateRecordingSessionRequest(body);
-        const result = await service.updateRecordingSession(sessionId, payload);
-        return jsonResponse(200, { ok: true, data: result });
+        const payload = normalizeReplaceRecordingSessionItemsRequest(body);
+        const result = await service.replaceRecordingSessionItems(sessionId, payload);
+        return jsonResponse(200, { ok: true, data: { items: result } });
       }
 
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "recording-sessions" && parts[3] === "episodes") {

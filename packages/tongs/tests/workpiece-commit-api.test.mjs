@@ -9,6 +9,10 @@ function mockService() {
     createCradle: [],
     commitFile: [],
     generateEpisodeThumbnail: [],
+    createRecordingSessionRecord: [],
+    listRecordingSessionsForPlanner: [],
+    getRecordingSessionRecord: [],
+    replaceRecordingSessionItems: [],
     createRecordingSession: [],
     updateRecordingSession: [],
     listRecordingSessions: [],
@@ -153,12 +157,69 @@ function mockService() {
         primary_version_id: "44444444-4444-4444-8444-444444444444",
       };
     },
+    async createRecordingSessionRecord(input) {
+      calls.createRecordingSessionRecord.push({ input });
+      return {
+        id: "22222222-2222-4222-8222-222222222222",
+        workspace_id: input.workspace_id,
+        title: input.title ?? "Recording Session",
+        calendar_event_id: input.calendar_event_id ?? null,
+        starts_at: "2026-03-01T10:00:00.000Z",
+        ends_at: null,
+        status: "planned",
+        created_by: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        created_at: "2026-02-28T00:00:00.000Z",
+        updated_at: "2026-02-28T00:00:00.000Z",
+      };
+    },
+    async listRecordingSessionsForPlanner(options) {
+      calls.listRecordingSessionsForPlanner.push({ options: options ?? null });
+      return [
+        {
+          id: "22222222-2222-4222-8222-222222222222",
+          workspace_id: options?.workspace_id ?? "11111111-1111-4111-8111-111111111111",
+          title: "Session A",
+          calendar_event_id: null,
+          starts_at: "2026-03-01T10:00:00.000Z",
+          ends_at: null,
+          status: "planned",
+          created_by: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          created_at: "2026-02-28T00:00:00.000Z",
+          updated_at: "2026-02-28T00:00:00.000Z",
+        },
+      ];
+    },
+    async getRecordingSessionRecord(sessionId) {
+      calls.getRecordingSessionRecord.push({ sessionId });
+      return {
+        id: sessionId,
+        workspace_id: "11111111-1111-4111-8111-111111111111",
+        title: "Session A",
+        calendar_event_id: null,
+        items: [
+          {
+            position: 1,
+            episode_id: "33333333-3333-4333-8333-333333333333",
+            script_path: "script/script.md",
+          },
+        ],
+      };
+    },
+    async replaceRecordingSessionItems(sessionId, input) {
+      calls.replaceRecordingSessionItems.push({ sessionId, input });
+      return input.items.map((item, index) => ({
+        position: index + 1,
+        episode_id: item.episode_id,
+        script_path: item.script_path,
+      }));
+    },
     async createRecordingSession(workspaceId, input) {
       calls.createRecordingSession.push({ workspaceId, input });
       return {
         id: "22222222-2222-4222-8222-222222222222",
         workspace_id: workspaceId,
         title: input.title,
+        calendar_event_id: input.calendar_event_id ?? null,
         starts_at: input.starts_at,
         ends_at: input.ends_at ?? null,
         status: "planned",
@@ -173,6 +234,7 @@ function mockService() {
         id: sessionId,
         workspace_id: "11111111-1111-4111-8111-111111111111",
         title: patch.title ?? "Session",
+        calendar_event_id: null,
         starts_at: patch.starts_at ?? "2026-03-01T10:00:00.000Z",
         ends_at: Object.prototype.hasOwnProperty.call(patch, "ends_at")
           ? patch.ends_at
@@ -190,6 +252,7 @@ function mockService() {
           id: "22222222-2222-4222-8222-222222222222",
           workspace_id: workspaceId,
           title: "Session A",
+          calendar_event_id: null,
           starts_at: "2026-03-01T10:00:00.000Z",
           ends_at: null,
           status: "planned",
@@ -657,6 +720,140 @@ test("GET /tongs/workspaces/:id/recording-sessions dispatches listRecordingSessi
   assert.equal(calls.listRecordingSessions[0].range.limit, 20);
   assert.equal(body.ok, true);
   assert.equal(Array.isArray(body.data?.sessions), true);
+});
+
+test("POST /api/recording-sessions dispatches createRecordingSessionRecord", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request("http://localhost/api/recording-sessions", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      workspace_id: "11111111-1111-4111-8111-111111111111",
+    }),
+  });
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 201);
+  assert.equal(calls.createRecordingSessionRecord.length, 1);
+  assert.equal(calls.createRecordingSessionRecord[0].input.workspace_id, "11111111-1111-4111-8111-111111111111");
+  assert.equal(typeof calls.createRecordingSessionRecord[0].input.title, "undefined");
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.title, "Recording Session");
+});
+
+test("GET /api/recording-sessions dispatches listRecordingSessionsForPlanner", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/api/recording-sessions?workspace_id=11111111-1111-4111-8111-111111111111&limit=20",
+    { method: "GET" },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.listRecordingSessionsForPlanner.length, 1);
+  assert.equal(calls.listRecordingSessionsForPlanner[0].options.workspace_id, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.listRecordingSessionsForPlanner[0].options.limit, 20);
+  assert.equal(body.ok, true);
+  assert.equal(Array.isArray(body.data?.sessions), true);
+});
+
+test("GET /api/recording-sessions/:id dispatches getRecordingSessionRecord", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/api/recording-sessions/22222222-2222-4222-8222-222222222222",
+    { method: "GET" },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.getRecordingSessionRecord.length, 1);
+  assert.equal(calls.getRecordingSessionRecord[0].sessionId, "22222222-2222-4222-8222-222222222222");
+  assert.equal(body.ok, true);
+  assert.equal(Array.isArray(body.data?.items), true);
+  assert.equal(body.data?.items[0]?.position, 1);
+});
+
+test("PUT /api/recording-sessions/:id/items dispatches replaceRecordingSessionItems", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/api/recording-sessions/22222222-2222-4222-8222-222222222222/items",
+    {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        items: [
+          {
+            episode_id: "33333333-3333-4333-8333-333333333333",
+            script_path: "script/script.md",
+          },
+          {
+            episode_id: "44444444-4444-4444-8444-444444444444",
+            script_path: "script/alt.md",
+          },
+        ],
+      }),
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.replaceRecordingSessionItems.length, 1);
+  assert.equal(calls.replaceRecordingSessionItems[0].sessionId, "22222222-2222-4222-8222-222222222222");
+  assert.equal(calls.replaceRecordingSessionItems[0].input.items.length, 2);
+  assert.equal(calls.replaceRecordingSessionItems[0].input.items[0].script_path, "script/script.md");
+  assert.equal(body.ok, true);
+  assert.equal(Array.isArray(body.data?.items), true);
+  assert.equal(body.data.items[0]?.position, 1);
+  assert.equal(body.data.items[1]?.position, 2);
+});
+
+test("PUT /api/recording-sessions/:id/items rejects duplicate episode_id", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/api/recording-sessions/22222222-2222-4222-8222-222222222222/items",
+    {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        items: [
+          {
+            episode_id: "33333333-3333-4333-8333-333333333333",
+            script_path: "script/script.md",
+          },
+          {
+            episode_id: "33333333-3333-4333-8333-333333333333",
+            script_path: "script/script-2.md",
+          },
+        ],
+      }),
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.equal(calls.replaceRecordingSessionItems.length, 0);
+  assert.equal(body.ok, false);
+  assert.equal(body.error?.code, "duplicate_episode");
 });
 
 test("PATCH /tongs/recording-sessions/:id dispatches updateRecordingSession", async () => {

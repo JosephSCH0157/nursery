@@ -41,3 +41,17 @@ export type WorkspaceMountRegistry = {
   version?: number;
   updatedAtIso?: string;
 };
+
+export type RecordingSessionItemDTO = {
+  position: number;
+  episode_id: string;
+  script_path: string;
+};
+
+export type RecordingSessionDTO = {
+  id: string;
+  workspace_id: string;
+  title: string;
+  calendar_event_id?: string | null;
+  items: RecordingSessionItemDTO[];
+};

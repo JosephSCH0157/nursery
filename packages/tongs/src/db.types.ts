@@ -291,11 +291,54 @@ export type Database = {
           },
         ]
       }
+      recording_session_items: {
+        Row: {
+          id: string
+          session_id: string
+          position: number
+          episode_id: string
+          script_path: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          session_id: string
+          position: number
+          episode_id: string
+          script_path: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          session_id?: string
+          position?: number
+          episode_id?: string
+          script_path?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recording_session_items_episode_id_fkey"
+            columns: ["episode_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recording_session_items_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "recording_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       recording_sessions: {
         Row: {
           id: string
           workspace_id: string
           title: string
+          calendar_event_id: string | null
           starts_at: string
           ends_at: string | null
           status: string
@@ -307,6 +350,7 @@ export type Database = {
           id?: string
           workspace_id: string
           title: string
+          calendar_event_id?: string | null
           starts_at: string
           ends_at?: string | null
           status?: string
@@ -318,6 +362,7 @@ export type Database = {
           id?: string
           workspace_id?: string
           title?: string
+          calendar_event_id?: string | null
           starts_at?: string
           ends_at?: string | null
           status?: string
@@ -326,6 +371,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "recording_sessions_calendar_event_id_fkey"
+            columns: ["calendar_event_id"]
+            isOneToOne: false
+            referencedRelation: "calendar_events"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "recording_sessions_workspace_id_fkey"
             columns: ["workspace_id"]
