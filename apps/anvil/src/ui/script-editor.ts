@@ -6,6 +6,7 @@ import { applyScript } from '../features/apply-script';
 import { getLastScriptId } from '../features/script-selection';
 import { getMappedFolderManagerHint, isMappedFolderManagedByNursery } from '../fs/mapped-folder';
 import { getNurseryStorageSettingsUrl } from '../forge/nursery-mounts';
+import { getScriptSourceMode } from '../forge/script-source';
 
 declare global {
   interface Window {
@@ -90,23 +91,32 @@ function syncSelectFromStore(select: HTMLSelectElement | null, role: SelectRole,
 
   select.innerHTML = '';
   if (!entries.length) {
+    const sourceMode = getScriptSourceMode();
     const managed = isMappedFolderManagedByNursery();
     const managedHint = getMappedFolderManagerHint();
     const placeholderText =
       role === 'sidebar'
-        ? (managed ? 'Manage scripts mount in Nursery...' : 'Map script folder...')
+        ? (
+          sourceMode === 'session'
+            ? 'Select recording session...'
+            : 'No library scripts yet...'
+        )
         : (
-          managed
-            ? `No Nursery scripts folder linked${managedHint ? ` (${managedHint})` : ''}. Configure it in Nursery Storage.`
-            : 'No existing scripts yet - map folder and save new ones here'
+          sourceMode === 'session'
+            ? 'Session mode active. Select a recording session source to load scripts.'
+            : (
+              managed
+                ? `Workspace library empty${managedHint ? ` (${managedHint})` : ''}.`
+                : 'Workspace library has no scripts yet.'
+            )
         );
     const placeholderValue =
       role === 'sidebar'
-        ? (managed ? OPEN_NURSERY_STORAGE_COMMAND : OPEN_SETTINGS_COMMAND)
+        ? (sourceMode === 'session' ? OPEN_SETTINGS_COMMAND : OPEN_NURSERY_STORAGE_COMMAND)
         : '';
     const placeholder = new Option(placeholderText, placeholderValue, true, true);
     if (role === 'sidebar') {
-      if (managed) {
+      if (sourceMode === 'library') {
         (placeholder as any).dataset.nurseryLink = '1';
       } else {
         (placeholder as any).dataset.settingsLink = '1';

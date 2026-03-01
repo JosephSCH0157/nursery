@@ -31,16 +31,35 @@ export function ensureSettingsFolderControls() {
     (card as any).dataset.tab = 'media';
 
     card.innerHTML = `
-      <h4>Scripts Folder</h4>
-      <div class="settings-small">Managed by Nursery Storage when connected. Standalone mode can map a local .txt / .md / .docx directory.</div>
+      <h4>Script Source</h4>
+      <div class="settings-small">Choose where Anvil loads scripts from. Recording Session is the recommended Forge path.</div>
       <div class="settings-row settings-mapped-folder">
         <div class="settings-row__controls">
-          <button id="chooseFolderBtn" type="button">Choose Folder</button>
-          <button id="recheckFolderBtn" type="button" title="Recheck permission">Recheck</button>
-          <select id="scriptSelect" class="select-md" aria-label="Mapped folder scripts" style="min-width:240px"></select>
-          <input id="folderFallback" type="file" webkitdirectory directory multiple hidden>
+          <label>
+            <span class="settings-small">Script Source</span>
+            <select id="scriptSourceSelect" class="select-md" aria-label="Script source" style="min-width:220px">
+              <option value="session">Recording Session</option>
+              <option value="library">Workspace Library</option>
+            </select>
+          </label>
+          <label id="recordingSessionRow">
+            <span class="settings-small">Recording Session</span>
+            <select id="recordingSessionSelect" class="select-md" aria-label="Recording session" style="min-width:260px"></select>
+          </label>
         </div>
       </div>
+      <div id="scriptSourceStatus" class="settings-small" style="margin-top:6px;"></div>
+      <details id="mappedFolderAdvanced" class="settings-small" style="margin-top:8px;">
+        <summary>Advanced: Legacy Folder Mapping</summary>
+        <div class="settings-row settings-mapped-folder" style="margin-top:8px;">
+          <div class="settings-row__controls">
+            <button id="chooseFolderBtn" type="button">Choose Folder</button>
+            <button id="recheckFolderBtn" type="button" title="Recheck permission">Recheck</button>
+            <select id="scriptSelect" class="select-md" aria-label="Mapped folder scripts" style="min-width:240px"></select>
+            <input id="folderFallback" type="file" webkitdirectory directory multiple hidden>
+          </div>
+        </div>
+      </details>
     `;
   } else {
     // Normalize id/classes on reused nodes

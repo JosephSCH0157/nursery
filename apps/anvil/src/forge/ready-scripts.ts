@@ -20,6 +20,29 @@ type ReadyScriptApiRow = {
   updated_at?: unknown;
 };
 
+type RecordingSessionApiRow = {
+  id?: unknown;
+  workspace_id?: unknown;
+  title?: unknown;
+  created_at?: unknown;
+  updated_at?: unknown;
+  calendar_event_id?: unknown;
+};
+
+type RecordingSessionItemApiRow = {
+  position?: unknown;
+  episode_id?: unknown;
+  script_path?: unknown;
+};
+
+type RecordingSessionDetailApiRow = {
+  id?: unknown;
+  workspace_id?: unknown;
+  title?: unknown;
+  calendar_event_id?: unknown;
+  items?: unknown;
+};
+
 export type ReadyScriptReference = {
   id: string;
   workspaceId: string;
@@ -29,6 +52,20 @@ export type ReadyScriptReference = {
   scriptPaths: string[];
   title: string;
   updatedAt?: string;
+};
+
+export type RecordingSessionSummary = {
+  id: string;
+  workspaceId: string;
+  title: string;
+  createdAt?: string;
+  updatedAt?: string;
+  calendarEventId?: string | null;
+};
+
+export type RecordingSessionScriptSet = {
+  session: RecordingSessionSummary;
+  scripts: ReadyScriptReference[];
 };
 
 function readString(value: unknown): string | null {
@@ -190,6 +227,77 @@ function parseReadyScriptsPayload(payload: unknown, workspaceId: string): ReadyS
   return scripts;
 }
 
+function parseRecordingSessionsPayload(payload: unknown, workspaceId: string): RecordingSessionSummary[] {
+  if (!payload || typeof payload !== "object") return [];
+  const root = payload as { ok?: unknown; data?: unknown };
+  if (root.ok !== true) return [];
+
+  const data = root.data as unknown;
+  const rowsMaybe = Array.isArray(data)
+    ? data
+    : (data && typeof data === "object" && Array.isArray((data as { sessions?: unknown }).sessions))
+      ? (data as { sessions: unknown[] }).sessions
+      : [];
+
+  const out: RecordingSessionSummary[] = [];
+  for (const row of rowsMaybe) {
+    if (!row || typeof row !== "object") continue;
+    const item = row as RecordingSessionApiRow;
+    const id = normalizeUuid(item.id);
+    const rowWorkspace = normalizeUuid(item.workspace_id) ?? workspaceId;
+    if (!id || !rowWorkspace) continue;
+    const title = readString(item.title) ?? "Recording Session";
+    out.push({
+      id,
+      workspaceId: rowWorkspace,
+      title,
+      createdAt: normalizeIso(item.created_at),
+      updatedAt: normalizeIso(item.updated_at),
+      calendarEventId: normalizeUuid(item.calendar_event_id),
+    });
+  }
+
+  out.sort((a, b) => {
+    const aUpdated = a.updatedAt ?? a.createdAt ?? "";
+    const bUpdated = b.updatedAt ?? b.createdAt ?? "";
+    const byUpdated = bUpdated.localeCompare(aUpdated);
+    if (byUpdated !== 0) return byUpdated;
+    return a.title.localeCompare(b.title);
+  });
+
+  return out;
+}
+
+function parseRecordingSessionDetailPayload(payload: unknown): RecordingSessionDetailApiRow | null {
+  if (!payload || typeof payload !== "object") return null;
+  const root = payload as { ok?: unknown; data?: unknown };
+  if (root.ok !== true) return null;
+  if (!root.data || typeof root.data !== "object") return null;
+  return root.data as RecordingSessionDetailApiRow;
+}
+
+function toScriptReferenceFromSessionItem(args: {
+  item: RecordingSessionItemApiRow;
+  workspaceId: string;
+  fallbackTitle: string;
+  titleByKey: Map<string, string>;
+}): ReadyScriptReference | null {
+  const workpieceId = normalizeUuid(args.item.episode_id);
+  const path = normalizeScriptPath(args.item.script_path);
+  if (!workpieceId || !path) return null;
+  const key = `${workpieceId}::${path}`;
+  const title = args.titleByKey.get(key) ?? args.fallbackTitle;
+  return {
+    id: toReadyScriptId(workpieceId, path),
+    workspaceId: args.workspaceId,
+    workpieceId,
+    path,
+    primaryPath: path,
+    scriptPaths: [path],
+    title,
+  };
+}
+
 export async function listWorkspaceReadyScripts(): Promise<ReadyScriptReference[]> {
   const workspaceId = resolveWorkspaceId();
   if (!workspaceId) return [];
@@ -207,6 +315,94 @@ export async function listWorkspaceReadyScripts(): Promise<ReadyScriptReference[
     return [];
   }
   return parseReadyScriptsPayload(body, workspaceId);
+}
+
+export async function listRecordingSessionsForWorkspace(): Promise<RecordingSessionSummary[]> {
+  const workspaceId = resolveWorkspaceId();
+  if (!workspaceId) return [];
+
+  const response = await fetch(
+    `/tongs/recording-sessions?workspace_id=${encodeURIComponent(workspaceId)}&limit=100`,
+    {
+      method: "GET",
+      headers: withAuthHeaders(),
+    },
+  );
+  if (!response.ok) return [];
+
+  let body: unknown = null;
+  try {
+    body = await response.json();
+  } catch {
+    return [];
+  }
+  return parseRecordingSessionsPayload(body, workspaceId);
+}
+
+export async function readRecordingSessionScripts(sessionId: string): Promise<RecordingSessionScriptSet | null> {
+  const safeSessionId = normalizeUuid(sessionId);
+  if (!safeSessionId) return null;
+
+  const response = await fetch(`/tongs/recording-sessions/${encodeURIComponent(safeSessionId)}`, {
+    method: "GET",
+    headers: withAuthHeaders(),
+  });
+  if (!response.ok) return null;
+
+  let body: unknown = null;
+  try {
+    body = await response.json();
+  } catch {
+    return null;
+  }
+
+  const detail = parseRecordingSessionDetailPayload(body);
+  if (!detail) return null;
+
+  const workspaceId = normalizeUuid(detail.workspace_id);
+  const parsedSessionId = normalizeUuid(detail.id);
+  if (!workspaceId || !parsedSessionId) return null;
+  const sessionTitle = readString(detail.title) ?? "Recording Session";
+
+  const workspaceReady = await listWorkspaceReadyScripts().catch(() => []);
+  const titleByKey = new Map<string, string>();
+  for (const script of workspaceReady) {
+    titleByKey.set(`${script.workpieceId}::${script.path}`, script.title);
+    for (const scriptPath of script.scriptPaths) {
+      titleByKey.set(`${script.workpieceId}::${scriptPath}`, script.title);
+    }
+  }
+
+  const rawItems = Array.isArray(detail.items) ? detail.items : [];
+  const parsedItems = rawItems
+    .filter((entry): entry is RecordingSessionItemApiRow => !!entry && typeof entry === "object")
+    .sort((a, b) => {
+      const aPos = Number.isFinite(Number(a.position)) ? Number(a.position) : 0;
+      const bPos = Number.isFinite(Number(b.position)) ? Number(b.position) : 0;
+      return aPos - bPos;
+    });
+
+  const scripts: ReadyScriptReference[] = [];
+  for (const item of parsedItems) {
+    const fallbackTitle = `Episode ${String(item.episode_id ?? "").slice(0, 8) || "unknown"}`;
+    const ref = toScriptReferenceFromSessionItem({
+      item,
+      workspaceId,
+      fallbackTitle,
+      titleByKey,
+    });
+    if (ref) scripts.push(ref);
+  }
+
+  return {
+    session: {
+      id: parsedSessionId,
+      workspaceId,
+      title: sessionTitle,
+      calendarEventId: normalizeUuid(detail.calendar_event_id),
+    },
+    scripts,
+  };
 }
 
 export async function readReadyScriptText(workpieceId: string, path: string): Promise<string | null> {

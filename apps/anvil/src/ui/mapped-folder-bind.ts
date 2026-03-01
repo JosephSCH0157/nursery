@@ -10,7 +10,19 @@ import {
 import { ScriptStore } from '../features/scripts-store';
 import { debugLog, hudLog } from '../env/logging';
 import { getNurseryStorageSettingsUrl } from '../forge/nursery-mounts';
-import { listWorkspaceReadyScripts } from '../forge/ready-scripts';
+import {
+  listRecordingSessionsForWorkspace,
+  listWorkspaceReadyScripts,
+  readRecordingSessionScripts,
+  type RecordingSessionSummary,
+} from '../forge/ready-scripts';
+import {
+  getScriptSourceMode,
+  getSelectedRecordingSessionId,
+  setScriptSourceMode,
+  setSelectedRecordingSessionId,
+  type ScriptSourceMode,
+} from '../forge/script-source';
 import {
   consumeLastScriptId,
   loadScriptById,
@@ -134,7 +146,7 @@ export async function handleChooseFolder(doc: Document = document): Promise<void
     const settingsUrl = getNurseryStorageSettingsUrl();
     const toastFn = (window as any).toast;
     if (typeof toastFn === 'function') {
-      toastFn(`Scripts folder is managed by Nursery. Configure it in Nursery > Settings > Storage (${settingsUrl}).`, {
+      toastFn(`Scripts folder is managed by The Forge. Configure it in The Forge > Settings > Storage (${settingsUrl}).`, {
         type: 'warn',
       });
     }
@@ -184,6 +196,11 @@ export async function bindMappedFolderUI(opts: BindOpts): Promise<() => void> {
   const sel = typeof opts.select === 'string' ? document.querySelector(opts.select) as HTMLSelectElement : opts.select as HTMLSelectElement;
   const fallback = opts.fallbackInput ? (typeof opts.fallbackInput === 'string' ? document.querySelector(opts.fallbackInput) as HTMLInputElement : opts.fallbackInput) : null;
   const sidebar = document.getElementById('scriptSelectSidebar') as HTMLSelectElement | null;
+  const sourceSelect = document.getElementById('scriptSourceSelect') as HTMLSelectElement | null;
+  const recordingSessionRow = document.getElementById('recordingSessionRow') as HTMLElement | null;
+  const recordingSessionSelect = document.getElementById('recordingSessionSelect') as HTMLSelectElement | null;
+  const sourceStatus = document.getElementById('scriptSourceStatus') as HTMLElement | null;
+  const sourceIndicator = document.getElementById('scriptSourceIndicator') as HTMLElement | null;
 
   if (!btn || !sel) return () => {};
   // Avoid double-binding across reinjections
@@ -213,6 +230,68 @@ export async function bindMappedFolderUI(opts: BindOpts): Promise<() => void> {
     await initMappedFolder();
   };
   const defaultChooseLabel = (btn.textContent || 'Choose Folder').trim() || 'Choose Folder';
+  const updateSourceIndicator = (mode: ScriptSourceMode, sessionTitle?: string | null) => {
+    const indicatorText = mode === 'session'
+      ? `Session: ${sessionTitle || 'not selected'}`
+      : 'Library';
+    if (sourceIndicator) {
+      sourceIndicator.textContent = indicatorText;
+    }
+    if (sourceStatus) {
+      sourceStatus.textContent = mode === 'session'
+        ? (
+          sessionTitle
+            ? `Session mode active. Scripts are loaded from "${sessionTitle}".`
+            : 'Session mode active. Select a recording session to load scripts.'
+        )
+        : 'Library mode active. Scripts are loaded from Workspace Library.';
+    }
+  };
+
+  const loadSessionOptions = async (preferredId?: string | null): Promise<RecordingSessionSummary[]> => {
+    if (!recordingSessionSelect) return [];
+    let sessions: RecordingSessionSummary[] = [];
+    try {
+      sessions = await listRecordingSessionsForWorkspace();
+    } catch {
+      sessions = [];
+    }
+
+    recordingSessionSelect.innerHTML = '';
+    if (!sessions.length) {
+      recordingSessionSelect.disabled = true;
+      recordingSessionSelect.append(new Option('No recording sessions', '', true, true));
+      setSelectedRecordingSessionId(null);
+      updateSourceIndicator('session', null);
+      return [];
+    }
+
+    recordingSessionSelect.disabled = false;
+    for (const session of sessions) {
+      recordingSessionSelect.append(new Option(session.title, session.id));
+    }
+
+    const storedId = getSelectedRecordingSessionId();
+    const targetId = preferredId ?? storedId;
+    const chosen = targetId && sessions.some((session) => session.id === targetId)
+      ? targetId
+      : sessions[0].id;
+    recordingSessionSelect.value = chosen;
+    setSelectedRecordingSessionId(chosen);
+    const selected = sessions.find((session) => session.id === chosen) ?? null;
+    updateSourceIndicator('session', selected?.title ?? null);
+    return sessions;
+  };
+
+  const applySourceUi = () => {
+    const mode = getScriptSourceMode();
+    if (sourceSelect) sourceSelect.value = mode;
+    if (recordingSessionRow) recordingSessionRow.hidden = mode !== 'session';
+    if (mode === 'library') {
+      updateSourceIndicator('library');
+    }
+  };
+
   const ensureManagementUi = () => {
     const managed = isMappedFolderManagedByNursery();
     const managedHint = getMappedFolderManagerHint();
@@ -221,12 +300,12 @@ export async function bindMappedFolderUI(opts: BindOpts): Promise<() => void> {
 
     if (managed) {
       btn.disabled = true;
-      btn.textContent = 'Managed by Nursery';
-      btn.title = `Set scripts folder in Nursery Storage (${settingsUrl}).`;
+      btn.textContent = 'Managed by The Forge';
+      btn.title = `Set scripts folder in The Forge Storage (${settingsUrl}).`;
       if (fallback) fallback.disabled = true;
       if (recheckBtn) {
         recheckBtn.disabled = true;
-        recheckBtn.title = `Managed by Nursery Storage (${settingsUrl}).`;
+        recheckBtn.title = `Managed by The Forge Storage (${settingsUrl}).`;
       }
     } else {
       btn.disabled = false;
@@ -250,11 +329,12 @@ export async function bindMappedFolderUI(opts: BindOpts): Promise<() => void> {
       card.appendChild(note);
     }
     note.textContent = managed
-      ? `Managed by Nursery Storage${managedHint ? ` (${managedHint})` : ''}.`
+      ? `Managed by The Forge Storage${managedHint ? ` (${managedHint})` : ''}.`
       : '';
   };
 
   try { (btn as any).dataset.mappedFolderWired = '1'; } catch {}
+  applySourceUi();
   btn.addEventListener('click', (ev) => {
     try { ev.preventDefault(); } catch {}
     void handleChooseFolder(document);
@@ -268,6 +348,31 @@ export async function bindMappedFolderUI(opts: BindOpts): Promise<() => void> {
         if (!files.length) { hudLog('folder:fallback:empty'); return; }
         populateSelectFromFiles(files);
       } catch {}
+    });
+  }
+
+  if (sourceSelect) {
+    sourceSelect.value = getScriptSourceMode();
+    sourceSelect.addEventListener('change', () => {
+      const nextMode: ScriptSourceMode = sourceSelect.value === 'library' ? 'library' : 'session';
+      setScriptSourceMode(nextMode);
+      applySourceUi();
+      if (nextMode === 'session') {
+        void loadSessionOptions().then(() => {
+          void refreshList();
+        });
+        return;
+      }
+      updateSourceIndicator('library');
+      void refreshList();
+    });
+  }
+
+  if (recordingSessionSelect) {
+    recordingSessionSelect.addEventListener('change', () => {
+      const nextId = (recordingSessionSelect.value || '').trim();
+      setSelectedRecordingSessionId(nextId || null);
+      void refreshList();
     });
   }
 
@@ -314,7 +419,7 @@ export async function bindMappedFolderUI(opts: BindOpts): Promise<() => void> {
         try { hudLog('folder:permission:denied', { id: sel.id }); } catch {}
         toast(
           isMappedFolderManagedByNursery()
-            ? `Allow folder access, then re-link scripts mount in Nursery Storage (${getNurseryStorageSettingsUrl()}).`
+            ? `Allow folder access, then re-link scripts mount in The Forge Storage (${getNurseryStorageSettingsUrl()}).`
             : 'Allow folder access to load scripts, or re-pick the folder in Settings.',
         );
         return;
@@ -363,7 +468,7 @@ export async function bindMappedFolderUI(opts: BindOpts): Promise<() => void> {
       try {
         toast(
           isMappedFolderManagedByNursery()
-            ? `Could not load script from Nursery-managed folder. Recheck Nursery Storage link (${getNurseryStorageSettingsUrl()}).`
+            ? `Could not load script from The Forge-managed folder. Recheck The Forge Storage link (${getNurseryStorageSettingsUrl()}).`
             : 'Could not load script from the mapped folder. Recheck permissions or pick the folder again.',
         );
       } catch {}
@@ -373,37 +478,82 @@ export async function bindMappedFolderUI(opts: BindOpts): Promise<() => void> {
 
   const off = onMappedFolder(async () => { await refreshList(); });
   const onRefresh: EventListener = () => { try { refreshList(); } catch {}; };
+  const onScriptSourceChanged: EventListener = () => {
+    applySourceUi();
+    void refreshList();
+  };
+  const onRecordingSessionChanged: EventListener = () => {
+    if (getScriptSourceMode() === 'session') {
+      void refreshList();
+    }
+  };
   try { window.addEventListener('tp:folderScripts:refresh', onRefresh); } catch {}
+  try { window.addEventListener('tp:script-source:changed', onScriptSourceChanged); } catch {}
+  try { window.addEventListener('tp:recording-session:changed', onRecordingSessionChanged); } catch {}
+  if (getScriptSourceMode() === 'session') {
+    await loadSessionOptions();
+  }
   await refreshList();
   return () => {
     try { off(); } catch {}
     try { window.removeEventListener('tp:folderScripts:refresh', onRefresh); } catch {}
+    try { window.removeEventListener('tp:script-source:changed', onScriptSourceChanged); } catch {}
+    try { window.removeEventListener('tp:recording-session:changed', onRecordingSessionChanged); } catch {}
   };
 
   async function refreshList() {
     try {
       ensureManagementUi();
+      try { sel.setAttribute('aria-busy','true'); } catch {}
+
+      let readyScripts = await listWorkspaceReadyScripts().catch(() => []);
+      let sourceMode: ScriptSourceMode = 'library';
+      let sessionTitle: string | null = null;
+      const sourceUiEnabled = !!sourceSelect;
+      if (sourceUiEnabled) {
+        sourceMode = getScriptSourceMode();
+        if (sourceMode === 'session') {
+          let sessionId = getSelectedRecordingSessionId();
+          if (!sessionId) {
+            const sessions = await loadSessionOptions();
+            sessionId = sessions[0]?.id ?? null;
+          }
+          if (sessionId) {
+            const sessionSet = await readRecordingSessionScripts(sessionId).catch(() => null);
+            readyScripts = sessionSet?.scripts ?? [];
+            sessionTitle = sessionSet?.session.title ?? null;
+          } else {
+            readyScripts = [];
+          }
+          updateSourceIndicator('session', sessionTitle);
+        } else {
+          updateSourceIndicator('library');
+        }
+      }
+
+      try { ScriptStore.syncReady(readyScripts); } catch {}
+
+      // Source-driven Forge flow does not require mapped folder entries.
+      const shouldUseMappedEntries = !sourceUiEnabled;
       // In deterministic CI mock mode, preserve pre-populated options (avoid wiping to "(No scripts found)")
       const mockMode = !!(window as any).__tpMockFolderMode;
-      const hasPreMock = mockMode && sel && sel.options && sel.options.length > 1 && !(window as any).__tpFolder?.get?.();
+      const hasPreMock = shouldUseMappedEntries && mockMode && sel && sel.options && sel.options.length > 1 && !(window as any).__tpFolder?.get?.();
       if (hasPreMock) {
-        // Skip clearing; still emit populated event for parity
         try { window.dispatchEvent(new CustomEvent('tp:folderScripts:populated', { detail: { count: sel.options.length } })); } catch {}
         return;
       }
-      try { sel.setAttribute('aria-busy','true'); } catch {}
-      const [readyScripts, entries] = await Promise.all([
-        listWorkspaceReadyScripts().catch(() => []),
-        (async () => {
+
+      const entries = shouldUseMappedEntries
+        ? await (async () => {
           try {
             await ensureInit();
             return await listScripts();
           } catch {
             return [];
           }
-        })(),
-      ]);
-      try { ScriptStore.syncReady(readyScripts); } catch {}
+        })()
+        : [];
+
       const entriesFingerprint = fingerprintNames(entries);
       const prevFingerprint = lastPopulateFingerprints.get(sel);
       if (!entriesFingerprint || entriesFingerprint !== prevFingerprint) {
@@ -430,7 +580,7 @@ function populateSelect(entries: { name: string; handle: FileSystemFileHandle }[
         if (sel.id === 'scriptSelectSidebar') {
           sel.disabled = false;
           const opt = managed
-            ? new Option('Manage scripts mount in Nursery...', OPEN_NURSERY_STORAGE_COMMAND)
+            ? new Option('Manage scripts mount in The Forge...', OPEN_NURSERY_STORAGE_COMMAND)
             : new Option('Map script folder...', '__OPEN_SETTINGS__');
           if (managed) {
             (opt as any).dataset.nurseryLink = '1';
@@ -443,7 +593,7 @@ function populateSelect(entries: { name: string; handle: FileSystemFileHandle }[
           sel.append(
             new Option(
               managed
-                ? `No Nursery scripts folder linked${managedHint ? ` (${managedHint})` : ''}. Configure it in Nursery Storage.`
+                ? `No Forge scripts folder linked${managedHint ? ` (${managedHint})` : ''}. Configure it in The Forge Storage.`
                 : 'No existing scripts yet — map folder and save new ones here',
               '',
               true,
@@ -549,7 +699,7 @@ function populateSelect(entries: { name: string; handle: FileSystemFileHandle }[
         if (sel.id === 'scriptSelectSidebar') {
           sel.disabled = false;
           const opt = managed
-            ? new Option('Manage scripts mount in Nursery...', OPEN_NURSERY_STORAGE_COMMAND)
+            ? new Option('Manage scripts mount in The Forge...', OPEN_NURSERY_STORAGE_COMMAND)
             : new Option('Map script folder...', '__OPEN_SETTINGS__');
           if (managed) {
             (opt as any).dataset.nurseryLink = '1';
@@ -562,7 +712,7 @@ function populateSelect(entries: { name: string; handle: FileSystemFileHandle }[
           sel.append(
             new Option(
               managed
-                ? `No Nursery scripts folder linked${managedHint ? ` (${managedHint})` : ''}. Configure it in Nursery Storage.`
+                ? `No Forge scripts folder linked${managedHint ? ` (${managedHint})` : ''}. Configure it in The Forge Storage.`
                 : 'No existing scripts yet — map folder and save new ones here',
               '',
               true,
@@ -663,7 +813,7 @@ function populateSelect(entries: { name: string; handle: FileSystemFileHandle }[
       s.textContent = n === 0
         ? (
           isMappedFolderManagedByNursery()
-            ? 'No Nursery scripts folder linked — configure in Nursery Storage.'
+            ? 'No Forge scripts folder linked — configure in The Forge Storage.'
             : 'No existing scripts yet — map folder and save new ones here'
         )
         : (n === 1 ? '1 script found' : `${n} scripts found`);
@@ -708,7 +858,7 @@ let _lastCount = 0; // track last script count for HUD logging
 export async function recheckMappedFolderPermissions() {
   try {
     if (isMappedFolderManagedByNursery()) {
-      toast(`Scripts folder is managed by Nursery. Configure it in Nursery > Settings > Storage (${getNurseryStorageSettingsUrl()}).`);
+      toast(`Scripts folder is managed by The Forge. Configure it in The Forge > Settings > Storage (${getNurseryStorageSettingsUrl()}).`);
       return false;
     }
     const dir = (window as any).__tpFolder?.get?.();
