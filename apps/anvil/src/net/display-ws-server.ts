@@ -235,7 +235,7 @@ export function createDisplayRelay(options?: DisplayRelayOptions): DisplayRelay 
 			socket.destroy();
 			return;
 		}
-		wss.handleUpgrade(req, socket, head, (ws) => {
+		wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
 			handleWsConnection(ws, req);
 		});
 	};

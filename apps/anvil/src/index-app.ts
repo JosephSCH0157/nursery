@@ -1929,7 +1929,7 @@ try {
 					try {
 						const scriptEl = ctx.script();
 						if (!scriptEl) return;
-						obs.observeAll(scriptEl.querySelectorAll('p'));
+						obs.observeAll(Array.from(scriptEl.querySelectorAll('p')));
 					} catch {}
 				};
 				const start = () => {
