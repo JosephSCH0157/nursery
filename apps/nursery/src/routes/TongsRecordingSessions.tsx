@@ -109,6 +109,25 @@ export default function TongsRecordingSessions() {
     return new Set(planItems.map((item) => item.episode_id));
   }, [planItems]);
 
+  const duplicatePlanKeys = useMemo(() => {
+    const keyCounts = new Map<string, number>();
+    const episodeCounts = new Map<string, number>();
+    for (const item of planItems) {
+      const key = plannerKey(item);
+      keyCounts.set(key, (keyCounts.get(key) ?? 0) + 1);
+      episodeCounts.set(item.episode_id, (episodeCounts.get(item.episode_id) ?? 0) + 1);
+    }
+    const duplicates = new Set<string>();
+    for (const item of planItems) {
+      const key = plannerKey(item);
+      if ((keyCounts.get(key) ?? 0) > 1 || (episodeCounts.get(item.episode_id) ?? 0) > 1) {
+        duplicates.add(key);
+      }
+    }
+    return duplicates;
+  }, [planItems]);
+  const hasDuplicatePlanItems = duplicatePlanKeys.size > 0;
+
   const candidateByPlannerKey = useMemo(() => {
     const out = new Map<string, ReadyScriptCandidate>();
     for (const candidate of readyCandidates) {
@@ -216,21 +235,21 @@ export default function TongsRecordingSessions() {
   }, [selectedSessionId, loadSessionDetail]);
 
   const addCandidate = useCallback((candidate: ReadyScriptCandidate) => {
-    setPlanItems((prev) => {
-      if (prev.some((item) => item.episode_id === candidate.workpiece_id)) {
-        return prev;
-      }
-      return [
-        ...prev,
-        {
-          episode_id: candidate.workpiece_id,
-          script_path: candidate.primary_script_path,
-        },
-      ];
-    });
+    if (planEpisodeIdSet.has(candidate.workpiece_id)) {
+      setSaveError("That episode+script is already in the session plan.");
+      setSaveNotice(null);
+      return;
+    }
+    setPlanItems((prev) => [
+      ...prev,
+      {
+        episode_id: candidate.workpiece_id,
+        script_path: candidate.primary_script_path,
+      },
+    ]);
     setSaveNotice(null);
     setSaveError(null);
-  }, []);
+  }, [planEpisodeIdSet]);
 
   const removePlanItem = useCallback((index: number) => {
     setPlanItems((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
@@ -272,6 +291,16 @@ export default function TongsRecordingSessions() {
 
   const savePlan = useCallback(async () => {
     if (!selectedSessionId) return;
+    if (planItems.length === 0) {
+      setSaveError(null);
+      setSaveNotice("Nothing to save.");
+      return;
+    }
+    if (hasDuplicatePlanItems) {
+      setSaveNotice(null);
+      setSaveError("That episode+script is already in the session plan.");
+      return;
+    }
     setSaveBusy(true);
     setSaveError(null);
     setSaveNotice(null);
@@ -295,11 +324,16 @@ export default function TongsRecordingSessions() {
       setSaveNotice(`Saved ${persisted.length} item${persisted.length === 1 ? "" : "s"}.`);
       await loadSessions(selectedSessionId);
     } catch (error: unknown) {
-      setSaveError(readErrorMessage(error, "Failed saving session plan."));
+      const message = readErrorMessage(error, "Failed saving session plan.");
+      setSaveError(
+        message.toLowerCase().includes("duplicate")
+          ? "That episode+script is already in the session plan."
+          : message,
+      );
     } finally {
       setSaveBusy(false);
     }
-  }, [selectedSessionId, planItems, loadSessions]);
+  }, [selectedSessionId, planItems, hasDuplicatePlanItems, loadSessions]);
 
   const createSession = useCallback(async () => {
     if (!workspaceId) return;
@@ -459,12 +493,22 @@ export default function TongsRecordingSessions() {
               {selectedSessionId ? `Session ID: ${selectedSessionId}` : "Select a session to edit the plan."}
             </div>
           </div>
-          <button type="button" onClick={() => void savePlan()} disabled={!selectedSessionId || saveBusy || !isDirty}>
+          <button
+            type="button"
+            onClick={() => void savePlan()}
+            disabled={!selectedSessionId || saveBusy || !isDirty || planItems.length === 0 || hasDuplicatePlanItems}
+          >
             {saveBusy ? "Saving..." : "Save Plan"}
           </button>
         </div>
         {detailLoading ? <div style={{ fontSize: 12, opacity: 0.72 }}>Loading session plan...</div> : null}
         {detailError ? <div style={{ color: "#ffb3b3", fontSize: 13 }}>{detailError}</div> : null}
+        {selectedSessionId && planItems.length === 0 ? <div style={{ fontSize: 12, opacity: 0.72 }}>Nothing to save.</div> : null}
+        {hasDuplicatePlanItems ? (
+          <div style={{ color: "#ffd599", fontSize: 13 }}>
+            Duplicate entry detected. Remove duplicate episode/script before saving.
+          </div>
+        ) : null}
         {saveError ? <div style={{ color: "#ffb3b3", fontSize: 13 }}>{saveError}</div> : null}
         {saveNotice ? <div style={{ color: "#b3f4c8", fontSize: 13 }}>{saveNotice}</div> : null}
 
@@ -544,6 +588,7 @@ export default function TongsRecordingSessions() {
                   {planItems.map((item, index) => {
                     const candidate = candidateByPlannerKey.get(plannerKey(item));
                     const title = candidate?.title ?? `Episode ${item.episode_id.slice(0, 8)}`;
+                    const duplicateEntry = duplicatePlanKeys.has(plannerKey(item));
                     return (
                       <li
                         key={plannerKey(item)}
@@ -558,7 +603,7 @@ export default function TongsRecordingSessions() {
                           dropAtIndex(index);
                         }}
                         style={{
-                          border: "1px solid rgba(255,255,255,0.14)",
+                          border: duplicateEntry ? "1px solid rgba(255,160,120,0.8)" : "1px solid rgba(255,255,255,0.14)",
                           borderRadius: 8,
                           padding: "8px 10px",
                           display: "grid",
@@ -570,6 +615,7 @@ export default function TongsRecordingSessions() {
                         <div style={{ fontSize: 12, opacity: 0.75 }}>Position {index + 1}</div>
                         <div style={{ fontWeight: 700 }}>{title}</div>
                         <div style={{ fontSize: 12, opacity: 0.72 }}>{item.script_path}</div>
+                        {duplicateEntry ? <div style={{ fontSize: 12, color: "#ffd599" }}>Duplicate entry</div> : null}
                         <div style={{ display: "flex", justifyContent: "flex-end" }}>
                           <button type="button" onClick={() => removePlanItem(index)}>Remove</button>
                         </div>
@@ -604,4 +650,3 @@ export default function TongsRecordingSessions() {
     </div>
   );
 }
-
