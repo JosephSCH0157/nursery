@@ -1,5 +1,10 @@
 export type DraftId = string;
 
+export type DraftAttribution = {
+  userId: string | null;
+  displayName: string | null;
+};
+
 export interface Draft {
   id: DraftId;
   title: string;
@@ -10,6 +15,8 @@ export interface Draft {
   lastRevisionAt?: number;
   archived?: boolean;
   pinned?: boolean;
+  createdBy?: DraftAttribution | null;
+  updatedBy?: DraftAttribution | null;
 }
 
 function generateDraftId(): DraftId {
@@ -36,5 +43,7 @@ export function createDraft(partial?: { title?: string; body?: string }): Draft 
     lastRevisionAt: undefined,
     archived: false,
     pinned: false,
+    createdBy: null,
+    updatedBy: null,
   };
 }

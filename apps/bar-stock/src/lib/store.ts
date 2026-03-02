@@ -1,21 +1,37 @@
-﻿import type { Spark, SparkId } from "./model";
+import type { Spark, SparkId } from "./model";
 
 const KEY = "barstock_sparks_v1";
+const KEY_PREFIX = "barstock_sparks_v2";
 
-export function loadSparks(): Spark[] {
+function normalizedScope(workspaceId?: string | null): string | null {
+  const trimmed = typeof workspaceId === "string" ? workspaceId.trim().toLowerCase() : "";
+  return trimmed || null;
+}
+
+function scopedKey(workspaceId?: string | null): string {
+  const scope = normalizedScope(workspaceId);
+  return scope ? `${KEY_PREFIX}:${scope}` : KEY;
+}
+
+function parseSparks(raw: string | null): Spark[] {
+  if (!raw) return [];
   try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return [];
     const parsed = JSON.parse(raw) as Spark[];
-    if (!Array.isArray(parsed)) return [];
-    return parsed;
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }
 }
 
-export function saveSparks(sparks: Spark[]): void {
-  localStorage.setItem(KEY, JSON.stringify(sparks));
+export function loadSparks(workspaceId?: string | null): Spark[] {
+  const key = scopedKey(workspaceId);
+  const scoped = parseSparks(localStorage.getItem(key));
+  if (scoped.length > 0 || key === KEY) return scoped;
+  return parseSparks(localStorage.getItem(KEY));
+}
+
+export function saveSparks(sparks: Spark[], workspaceId?: string | null): void {
+  localStorage.setItem(scopedKey(workspaceId), JSON.stringify(sparks));
 }
 
 export function upsertSpark(sparks: Spark[], spark: Spark): Spark[] {

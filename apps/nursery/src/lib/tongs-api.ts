@@ -1,3 +1,5 @@
+import { supabase } from "./supabase";
+
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
 type JsonObject = { [key: string]: JsonValue };
@@ -40,14 +42,28 @@ function normalizeMessage(input: unknown): string {
   return "Tongs API request failed.";
 }
 
+async function resolveUserAccessToken(): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) return null;
+    return readString(data.session?.access_token ?? null);
+  } catch {
+    return null;
+  }
+}
+
 export async function tongsApiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const token = resolveTongsApiToken();
+  const userAccessToken = await resolveUserAccessToken();
   const headers = new Headers(init?.headers ?? {});
   if (!headers.has("content-type")) {
     headers.set("content-type", "application/json");
   }
   if (token) {
     headers.set("authorization", `Bearer ${token}`);
+  }
+  if (userAccessToken && !headers.has("x-forge-user-authorization")) {
+    headers.set("x-forge-user-authorization", `Bearer ${userAccessToken}`);
   }
 
   const response = await fetch(path, {
@@ -77,4 +93,3 @@ export async function tongsApiRequest<T>(path: string, init?: RequestInit): Prom
   }
   return data;
 }
-

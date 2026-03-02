@@ -19,7 +19,13 @@ import { buildExportPayload, downloadJson, mergeSparks, parseImportJson } from "
 import { compactOutbox, drainOutbox, loadOutbox, peekOutbox, pushOutbox, saveOutbox } from "./lib/outbox";
 import { buildHearthPacket, packetToClipboardText } from "./lib/hearth-packet";
 import { supabase, supabaseAvailable } from "./lib/supabase";
-import { listGraduatedEpisodeIds, listMyWorkspaces, type Workspace } from "./lib/tongs-api";
+import {
+  listGraduatedEpisodeIds,
+  listMyWorkspaces,
+  listWorkspaceProjects,
+  listWorkspaceSparks,
+  type Workspace,
+} from "./lib/tongs-api";
 import type { Session as SupabaseSession } from "@supabase/supabase-js";
 import { flushOutboxToTongs, checkTongsOnline } from "./lib/tongs-sync";
 
@@ -117,6 +123,32 @@ function writeShowGraduatedPref(workspaceId: string | null, userId: string | nul
   }
 }
 
+function parseWorkspaceCreatedAtMs(workspace: Workspace): number {
+  if (!workspace.createdAt) return Number.MAX_SAFE_INTEGER;
+  const parsed = Date.parse(workspace.createdAt);
+  return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+}
+
+function pickPreferredWorkspaceId(
+  workspaces: Workspace[],
+  savedId: string | null,
+  currentId?: string | null,
+): string | null {
+  const hasWorkspace = (id: string | null | undefined): id is string =>
+    typeof id === "string" && workspaces.some((workspace) => workspace.id === id);
+
+  if (hasWorkspace(savedId)) return savedId;
+  if (hasWorkspace(currentId ?? null)) return currentId ?? null;
+
+  const ownerOrAdmin = [...workspaces]
+    .filter((workspace) => workspace.role === "owner" || workspace.role === "admin")
+    .sort((a, b) => parseWorkspaceCreatedAtMs(a) - parseWorkspaceCreatedAtMs(b));
+  if (ownerOrAdmin.length > 0) return ownerOrAdmin[0].id;
+
+  const ordered = [...workspaces].sort((a, b) => parseWorkspaceCreatedAtMs(a) - parseWorkspaceCreatedAtMs(b));
+  return ordered[0]?.id ?? null;
+}
+
 type WorkspaceState = {
   workspaces: Workspace[];
   workspaceId: string | null;
@@ -129,33 +161,34 @@ type BarstockAppProps = {
 };
 
 export default function App(props: BarstockAppProps = {}) {
-  const [body, setBody] = useState("");
-  const [sparks, setSparks] = useState<Spark[]>(() => loadSparks());
-  const [showGraduated, setShowGraduated] = useState<boolean>(() => readShowGraduatedPref(loadStoredWorkspaceId(), null));
-  const [graduatedEpisodeIds, setGraduatedEpisodeIds] = useState<string[]>([]);
-
-  const [assignments, setAssignments] = useState<Assignment[]>(() => loadAssignments());
-  const [activeAssignment, setActiveAssignment] = useState<AssignmentFilter>("all");
-  const [newAssignmentName, setNewAssignmentName] = useState("");
-  const [showEmptyProjects, setShowEmptyProjects] = useState(false);
-  const [session, setSession] = useState<SupabaseSession | null>(null);
-  const [email, setEmail] = useState("");
   const hasExternalWorkspaceState = !!props.workspaceState;
   const externalWorkspaces = props.workspaceState?.workspaces;
   const externalWorkspaceId = props.workspaceState?.workspaceId;
   const externalWorkspaceChange = props.workspaceState?.onWorkspaceChange;
   const showWorkspacePicker = props.showWorkspacePicker ?? !hasExternalWorkspaceState;
+  const initialWorkspaceId = hasExternalWorkspaceState
+    ? (externalWorkspaceId ?? null)
+    : loadStoredWorkspaceId();
+
+  const [body, setBody] = useState("");
+  const [workspaceId, setWorkspaceId] = useState<string | null>(initialWorkspaceId);
+  const [sparks, setSparks] = useState<Spark[]>(() => loadSparks(initialWorkspaceId));
+  const [assignments, setAssignments] = useState<Assignment[]>(() => loadAssignments(initialWorkspaceId));
+  const [showGraduated, setShowGraduated] = useState<boolean>(() => readShowGraduatedPref(initialWorkspaceId, null));
+  const [graduatedEpisodeIds, setGraduatedEpisodeIds] = useState<string[]>([]);
+  const [activeAssignment, setActiveAssignment] = useState<AssignmentFilter>("all");
+  const [newAssignmentName, setNewAssignmentName] = useState("");
+  const [showEmptyProjects, setShowEmptyProjects] = useState(false);
+  const [session, setSession] = useState<SupabaseSession | null>(null);
+  const [email, setEmail] = useState("");
 
   const [workspaces, setWorkspaces] = useState<Workspace[]>(
     () => externalWorkspaces ?? [],
   );
-  const [workspaceId, setWorkspaceId] = useState<string | null>(
-    () => (hasExternalWorkspaceState ? (externalWorkspaceId ?? null) : loadStoredWorkspaceId()),
-  );
 
   const [q, setQ] = useState<SparkQuery>({ status: "all", pinned: "all" });
   const [tongsStatus, setTongsStatus] = useState<"offline" | "online">("offline");
-  const [outboxCount, setOutboxCount] = useState(() => loadOutbox().length);
+  const [outboxCount, setOutboxCount] = useState(() => loadOutbox(initialWorkspaceId).length);
   const [syncing, setSyncing] = useState(false);
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -170,11 +203,20 @@ export default function App(props: BarstockAppProps = {}) {
   }
 
   function enqueue(op: any) {
-    pushOutbox(op);
-    const items = compactOutbox(loadOutbox());
-    saveOutbox(items);
+    pushOutbox(op, workspaceId);
+    const items = compactOutbox(loadOutbox(workspaceId));
+    saveOutbox(items, workspaceId);
     setOutboxCount(items.length);
   }
+
+  const setActiveWorkspace = useCallback((next: string | null) => {
+    if (hasExternalWorkspaceState && externalWorkspaceChange) {
+      externalWorkspaceChange(next);
+      return;
+    }
+    setWorkspaceId(next);
+    saveStoredWorkspaceId(next);
+  }, [hasExternalWorkspaceState, externalWorkspaceChange]);
 
   function normalizeAssignmentsState(inputSparks: Spark[], inputAssignments: Assignment[]) {
     const assignmentById = new Map<string, Assignment>();
@@ -284,7 +326,7 @@ export default function App(props: BarstockAppProps = {}) {
     if (!session) return popToast("Sign in first.");
     if (!workspaceId) return popToast("Pick a workspace first.");
 
-    const ops = peekOutbox();
+    const ops = peekOutbox(workspaceId);
     if (!ops.length) return popToast("Nothing to sync.");
 
     try {
@@ -302,7 +344,7 @@ export default function App(props: BarstockAppProps = {}) {
         return;
       }
 
-      drainOutbox();
+      drainOutbox(workspaceId);
       setOutboxCount(0);
       popToast(`Synced ${res.sent} item(s).`);
     } catch (e: any) {
@@ -346,12 +388,46 @@ export default function App(props: BarstockAppProps = {}) {
   }, [workspaceId, session?.user.id, showGraduated]);
 
   useEffect(() => {
-    saveSparks(sparks);
-  }, [sparks]);
+    const nextSparks = loadSparks(workspaceId);
+    const nextAssignments = loadAssignments(workspaceId);
+    const nextOutbox = compactOutbox(loadOutbox(workspaceId));
+    setSparks(nextSparks);
+    setAssignments(nextAssignments);
+    saveOutbox(nextOutbox, workspaceId);
+    setOutboxCount(nextOutbox.length);
+    setActiveAssignment("all");
+  }, [workspaceId]);
 
   useEffect(() => {
-    saveAssignments(assignments);
-  }, [assignments]);
+    saveSparks(sparks, workspaceId);
+  }, [sparks, workspaceId]);
+
+  useEffect(() => {
+    saveAssignments(assignments, workspaceId);
+  }, [assignments, workspaceId]);
+
+  useEffect(() => {
+    if (!supabaseAvailable || !session || !workspaceId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [remoteAssignments, remoteSparks] = await Promise.all([
+          listWorkspaceProjects(workspaceId),
+          listWorkspaceSparks(workspaceId),
+        ]);
+        if (cancelled) return;
+        setAssignments(remoteAssignments);
+        setSparks(remoteSparks);
+      } catch (err) {
+        if (!cancelled) {
+          console.warn("[bar-stock] failed to hydrate workspace state", err);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session, supabaseAvailable, workspaceId]);
 
   useEffect(() => {
     if (!supabaseAvailable || !session || !workspaceId) {
@@ -386,15 +462,14 @@ export default function App(props: BarstockAppProps = {}) {
         const ws = await listMyWorkspaces();
         setWorkspaces(ws);
         const saved = loadStoredWorkspaceId();
-        const pick = (saved && ws.find(x => x.id === saved)) ? saved : (ws[0]?.id ?? null);
-        setWorkspaceId(pick);
-        if (pick) saveStoredWorkspaceId(pick);
+        const pick = pickPreferredWorkspaceId(ws, saved);
+        setActiveWorkspace(pick);
       } catch (err) {
         console.error(err);
         popToast("Failed loading workspaces");
       }
     })();
-  }, [session, hasExternalWorkspaceState]);
+  }, [session, hasExternalWorkspaceState, setActiveWorkspace]);
 
   const sparkEpisodeIdsForGraduation = useMemo(() => {
     const ids = new Set<string>();
@@ -484,15 +559,6 @@ export default function App(props: BarstockAppProps = {}) {
   const syncHint = !supabaseAvailable
     ? "Cloud sync unavailable."
     : (tongsStatus === "offline" ? "Offline / local-only." : "Online.");
-
-  const setActiveWorkspace = useCallback((next: string | null) => {
-    if (hasExternalWorkspaceState && externalWorkspaceChange) {
-      externalWorkspaceChange(next);
-      return;
-    }
-    setWorkspaceId(next);
-    saveStoredWorkspaceId(next);
-  }, [hasExternalWorkspaceState, externalWorkspaceChange]);
 
   function navigateToHearthForProject(projectId: string) {
     const normalizedProjectId = projectId.trim().toLowerCase();

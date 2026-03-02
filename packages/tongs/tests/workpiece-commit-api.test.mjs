@@ -312,8 +312,16 @@ function mockService() {
         },
       ];
     },
-    async deleteReadyScript(workpieceId, path) {
-      calls.deleteReadyScript.push({ workpieceId, path });
+    async deleteReadyScript(workpieceId, path, options) {
+      calls.deleteReadyScript.push({ workpieceId, path, options: options ?? null });
+      return {
+        deleted: true,
+        already_deleted: false,
+        workpiece_id: workpieceId,
+        path,
+        removed_session_item_count: 0,
+        warnings: [],
+      };
     },
     async appendEvent(workpieceId, input) {
       calls.appendEvent.push({ workpieceId, input });
@@ -340,6 +348,192 @@ function mockService() {
   };
 
   return { service, calls };
+}
+
+function createRoleGateSupabase({ userId, workspaceId, workspaceOwnerId, memberRole }) {
+  return {
+    auth: {
+      async getUser(token) {
+        if (!token || token === "bad_token") {
+          return { data: { user: null }, error: null };
+        }
+        return { data: { user: { id: userId } }, error: null };
+      },
+    },
+    schema(schemaName) {
+      assert.equal(schemaName, "tongs");
+      return {
+        from(tableName) {
+          if (tableName === "workspaces") {
+            return {
+              select() {
+                return {
+                  eq() {
+                    return {
+                      async maybeSingle() {
+                        return {
+                          data: {
+                            id: workspaceId,
+                            created_by: workspaceOwnerId,
+                          },
+                          error: null,
+                        };
+                      },
+                    };
+                  },
+                };
+              },
+            };
+          }
+
+          if (tableName === "workspace_members") {
+            return {
+              select() {
+                return {
+                  eq() {
+                    return {
+                      eq() {
+                        return {
+                          async maybeSingle() {
+                            return {
+                              data: memberRole ? { role: memberRole } : null,
+                              error: null,
+                            };
+                          },
+                        };
+                      },
+                    };
+                  },
+                };
+              },
+            };
+          }
+
+          if (tableName === "workpiece_files") {
+            return {
+              select() {
+                return {
+                  eq() {
+                    return {
+                      eq() {
+                        return {
+                          async maybeSingle() {
+                            return {
+                              data: {
+                                workpiece_id: "11111111-1111-4111-8111-111111111111",
+                                path: "script/script.md",
+                                file_type: "script_markdown",
+                                content_type: "text/markdown; charset=utf-8",
+                                bytes: 123,
+                                hash_algo: "sha256",
+                                hash_value: "abc",
+                                storage_bucket: "forge-workpieces",
+                                storage_key: "workpieces/11111111-1111-4111-8111-111111111111/script/script.md",
+                                written_by_tool: "hearth",
+                                written_by_tool_version: "0.0.0",
+                                written_by_lane: "forge-managed",
+                                created_at: "2026-03-02T00:00:00.000Z",
+                                updated_at: "2026-03-02T00:00:00.000Z",
+                              },
+                              error: null,
+                            };
+                          },
+                        };
+                      },
+                    };
+                  },
+                };
+              },
+              delete() {
+                return {
+                  eq() {
+                    return {
+                      async eq() {
+                        return { data: null, error: null };
+                      },
+                    };
+                  },
+                };
+              },
+            };
+          }
+
+          throw new Error(`Unexpected table: ${tableName}`);
+        },
+      };
+    },
+    storage: {
+      from(bucket) {
+        assert.equal(bucket, "forge-workpieces");
+        return {
+          async upload() {
+            return { data: {}, error: null };
+          },
+          async remove() {
+            return { data: null, error: { message: "storage remove failed" } };
+          },
+        };
+      },
+    },
+  };
+}
+
+function createManifestFixture(workpieceId, workspaceId) {
+  const now = "2026-03-02T00:00:00.000Z";
+  return {
+    schema: "forge.manifest.v1",
+    workpiece_id: workpieceId,
+    workspace_id: workspaceId,
+    created_at: now,
+    updated_at: now,
+    status: "draft",
+    pointers: {
+      script_primary: "script/script.md",
+      script_format: null,
+      script_sources: null,
+      assets_registry: null,
+      session_current: null,
+      edit_current: null,
+      export_current: null,
+      publish_intent: null,
+    },
+    hashing: {
+      algo: "sha256",
+      text_newlines: "LF",
+      json: {
+        sorted_keys: true,
+        minified: true,
+        preserve_array_order: true,
+      },
+    },
+    origin: {
+      created_by: {
+        user_id: null,
+        display_name: null,
+      },
+      tool: {
+        name: "tongs",
+        version: "0.1.0",
+      },
+    },
+    files: {
+      "script/script.md": {
+        type: "script_markdown",
+        content_type: "text/markdown; charset=utf-8",
+        bytes: 123,
+        hash: {
+          algo: "sha256",
+          value: "abc",
+        },
+        written_by: {
+          tool: "hearth",
+          tool_version: "0.0.0",
+          lane: "forge-managed",
+        },
+        updated_at: now,
+      },
+    },
+  };
 }
 
 test("token guard rejects missing bearer token", async () => {
@@ -381,11 +575,15 @@ test("POST /tongs/workpieces/:id/commit-file dispatches commitFile", async () =>
 
   const request = new Request("http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/commit-file", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      "x-forge-user-authorization": "Bearer user_token_abc",
+    },
     body: JSON.stringify({
       path: "script/script.md",
       content_type: "text/markdown; charset=utf-8",
       text: "Hello world",
+      expected_previous_updated_at: "2026-03-01T00:00:00.000Z",
       written_by: {
         tool: "anvil",
         tool_version: "1.8.5",
@@ -401,6 +599,8 @@ test("POST /tongs/workpieces/:id/commit-file dispatches commitFile", async () =>
   assert.equal(calls.commitFile.length, 1);
   assert.equal(calls.commitFile[0].workpieceId, "11111111-1111-4111-8111-111111111111");
   assert.equal(calls.commitFile[0].input.path, "script/script.md");
+  assert.equal(calls.commitFile[0].input.user_access_token, "user_token_abc");
+  assert.equal(calls.commitFile[0].input.expected_previous_updated_at, "2026-03-01T00:00:00.000Z");
   assert.equal(body.ok, true);
 });
 
@@ -955,7 +1155,12 @@ test("GET /tongs/workspaces/:id/ready-scripts dispatches listWorkspaceReadyScrip
 
   const request = new Request(
     "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/ready-scripts",
-    { method: "GET" },
+    {
+      method: "GET",
+      headers: {
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+    },
   );
 
   const response = await handler(request);
@@ -965,6 +1170,7 @@ test("GET /tongs/workspaces/:id/ready-scripts dispatches listWorkspaceReadyScrip
   assert.equal(calls.listWorkspaceReadyScripts.length, 1);
   assert.equal(calls.listWorkspaceReadyScripts[0]?.workspaceId, "11111111-1111-4111-8111-111111111111");
   assert.equal(calls.listWorkspaceReadyScripts[0]?.options?.unrecordedOnly, false);
+  assert.equal(calls.listWorkspaceReadyScripts[0]?.options?.userAccessToken, "user_token_abc");
   assert.equal(body.ok, true);
   assert.equal(Array.isArray(body.data?.scripts), true);
   assert.equal(body.data.scripts.length, 1);
@@ -979,7 +1185,12 @@ test("GET /tongs/workspaces/:id/ready-scripts?unrecorded=1 enables unrecorded fi
 
   const request = new Request(
     "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/ready-scripts?unrecorded=1",
-    { method: "GET" },
+    {
+      method: "GET",
+      headers: {
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+    },
   );
 
   const response = await handler(request);
@@ -989,7 +1200,50 @@ test("GET /tongs/workspaces/:id/ready-scripts?unrecorded=1 enables unrecorded fi
   assert.equal(calls.listWorkspaceReadyScripts.length, 1);
   assert.equal(calls.listWorkspaceReadyScripts[0]?.workspaceId, "11111111-1111-4111-8111-111111111111");
   assert.equal(calls.listWorkspaceReadyScripts[0]?.options?.unrecordedOnly, true);
+  assert.equal(calls.listWorkspaceReadyScripts[0]?.options?.userAccessToken, "user_token_abc");
   assert.equal(body.ok, true);
+});
+
+test("GET /tongs/workspaces/:id/ready-scripts forwards x-forge-user-authorization token", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/ready-scripts",
+    {
+      method: "GET",
+      headers: {
+        "x-forge-user-authorization": "Bearer user_token_123",
+      },
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.listWorkspaceReadyScripts.length, 1);
+  assert.equal(calls.listWorkspaceReadyScripts[0]?.options?.userAccessToken, "user_token_123");
+  assert.equal(body.ok, true);
+});
+
+test("GET /tongs/workspaces/:id/ready-scripts requires x-forge-user-authorization header", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/ready-scripts",
+    { method: "GET" },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.equal(body.ok, false);
+  assert.equal(body.error?.code, "missing_user_token_header");
+  assert.equal(typeof body.error?.request_id, "string");
+  assert.equal(calls.listWorkspaceReadyScripts.length, 0);
 });
 
 test("DELETE /tongs/workpieces/:id/ready-script dispatches deleteReadyScript", async () => {
@@ -998,7 +1252,12 @@ test("DELETE /tongs/workpieces/:id/ready-script dispatches deleteReadyScript", a
 
   const request = new Request(
     "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/ready-script?path=script%2Fscript.md",
-    { method: "DELETE" },
+    {
+      method: "DELETE",
+      headers: {
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+    },
   );
 
   const response = await handler(request);
@@ -1008,7 +1267,289 @@ test("DELETE /tongs/workpieces/:id/ready-script dispatches deleteReadyScript", a
   assert.equal(calls.deleteReadyScript.length, 1);
   assert.equal(calls.deleteReadyScript[0]?.workpieceId, "11111111-1111-4111-8111-111111111111");
   assert.equal(calls.deleteReadyScript[0]?.path, "script/script.md");
+  assert.equal(calls.deleteReadyScript[0]?.options?.userAccessToken, "user_token_abc");
   assert.equal(body.ok, true);
   assert.equal(body.data?.deleted, true);
   assert.equal(body.data?.path, "script/script.md");
+  assert.equal(body.data?.already_deleted, false);
+  assert.equal(body.data?.removed_session_item_count, 0);
+  assert.equal(Array.isArray(body.data?.warnings), true);
+});
+
+test("DELETE /tongs/workpieces/:id/ready-script returns idempotent payload", async () => {
+  const { service } = mockService();
+  service.deleteReadyScript = async (workpieceId, path) => ({
+    deleted: true,
+    already_deleted: true,
+    workpiece_id: workpieceId,
+    path,
+    removed_session_item_count: 2,
+    warnings: ["storage_delete_failed"],
+  });
+
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/ready-script?path=script%2Fscript.md",
+    {
+      method: "DELETE",
+      headers: {
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.deleted, true);
+  assert.equal(body.data?.already_deleted, true);
+  assert.equal(body.data?.removed_session_item_count, 2);
+  assert.deepEqual(body.data?.warnings, ["storage_delete_failed"]);
+});
+
+test("DELETE /tongs/workpieces/:id/ready-script forwards x-forge-user-authorization token", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/ready-script?path=script%2Fscript.md",
+    {
+      method: "DELETE",
+      headers: {
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.deleteReadyScript.length, 1);
+  assert.equal(calls.deleteReadyScript[0]?.options?.userAccessToken, "user_token_abc");
+  assert.equal(body.ok, true);
+});
+
+test("DELETE /tongs/workpieces/:id/ready-script requires x-forge-user-authorization header", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/ready-script?path=script%2Fscript.md",
+    { method: "DELETE" },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.equal(body.ok, false);
+  assert.equal(body.error?.code, "missing_user_token_header");
+  assert.equal(typeof body.error?.request_id, "string");
+  assert.equal(calls.deleteReadyScript.length, 0);
+});
+
+test("POST /tongs/workpieces/:id/commit-file for ready path requires x-forge-user-authorization header", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request("http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/commit-file", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      path: "script/script.md",
+      content_type: "text/markdown; charset=utf-8",
+      text: "Hello world",
+      written_by: {
+        tool: "anvil",
+        tool_version: "1.8.5",
+        lane: "forge-managed",
+      },
+    }),
+  });
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.equal(body.ok, false);
+  assert.equal(body.error?.code, "missing_user_token_header");
+  assert.equal(typeof body.error?.request_id, "string");
+  assert.equal(calls.commitFile.length, 0);
+});
+
+test("DELETE /tongs/workpieces/:id/ready-script rejects traversal path before dispatch", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/ready-script?path=..%2Fscript%2Fscript.md",
+    {
+      method: "DELETE",
+      headers: {
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.equal(body.ok, false);
+  assert.equal(body.error?.code, "invalid_path");
+  assert.equal(calls.deleteReadyScript.length, 0);
+});
+
+test("TongsCommitService.deleteReadyScript denies viewer role", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const supabase = createRoleGateSupabase({
+    userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    workspaceId,
+    workspaceOwnerId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    memberRole: "viewer",
+  });
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getCradleOrThrow = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-02T00:00:00.000Z",
+    updated_at: "2026-03-02T00:00:00.000Z",
+  });
+
+  await assert.rejects(
+    () => service.deleteReadyScript(workpieceId, "script/script.md", { userAccessToken: "viewer_token" }),
+    (error) => {
+      assert.equal(error.status, 403);
+      assert.equal(error.code, "insufficient_role");
+      assert.equal(error.details?.required, "editor");
+      assert.equal(error.details?.actual, "viewer");
+      return true;
+    },
+  );
+});
+
+test("TongsCommitService.deleteReadyScript denies non-members", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const supabase = createRoleGateSupabase({
+    userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    workspaceId,
+    workspaceOwnerId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    memberRole: null,
+  });
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getCradleOrThrow = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-02T00:00:00.000Z",
+    updated_at: "2026-03-02T00:00:00.000Z",
+  });
+
+  await assert.rejects(
+    () => service.deleteReadyScript(workpieceId, "script/script.md", { userAccessToken: "memberless_token" }),
+    (error) => {
+      assert.equal(error.status, 403);
+      assert.equal(error.code, "workspace_access_denied");
+      return true;
+    },
+  );
+});
+
+test("TongsCommitService.commitFile requires user token for ready-script paths", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const supabase = createRoleGateSupabase({
+    userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    workspaceId,
+    workspaceOwnerId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    memberRole: "editor",
+  });
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getCradleOrThrow = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-02T00:00:00.000Z",
+    updated_at: "2026-03-02T00:00:00.000Z",
+  });
+
+  await assert.rejects(
+    () => service.commitFile(workpieceId, {
+      path: "script/script.md",
+      text: "ready script text",
+      written_by: {
+        tool: "hearth",
+        tool_version: "0.0.0",
+        lane: "forge-managed",
+      },
+    }),
+    (error) => {
+      assert.equal(error.status, 401);
+      assert.equal(error.code, "missing_user_token_header");
+      return true;
+    },
+  );
+});
+
+test("TongsCommitService.deleteReadyScript returns warning when storage delete fails", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const supabase = createRoleGateSupabase({
+    userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    workspaceId,
+    workspaceOwnerId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    memberRole: "editor",
+  });
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+
+  service.getCradleOrThrow = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-02T00:00:00.000Z",
+    updated_at: "2026-03-02T00:00:00.000Z",
+  });
+  service.removeRecordingSessionItemsForScript = async () => 3;
+  service.loadManifestOrDefault = async () => createManifestFixture(workpieceId, workspaceId);
+  service.upsertWorkpieceFile = async () => {};
+  service.insertEvent = async () => ({
+    id: 777,
+    workpiece_id: workpieceId,
+    event_name: "workpiece.file.deleted",
+    payload: {},
+    correlation_id: null,
+    written_by_tool: "tongs",
+    written_by_tool_version: "0.1.0",
+    written_by_lane: "forge-managed",
+    created_at: "2026-03-02T00:00:00.000Z",
+  });
+
+  const result = await service.deleteReadyScript(workpieceId, "script/script.md", {
+    userAccessToken: "editor_token",
+  });
+
+  assert.equal(result.deleted, true);
+  assert.equal(result.already_deleted, false);
+  assert.equal(result.removed_session_item_count, 3);
+  assert.deepEqual(result.warnings, ["storage_delete_failed"]);
 });

@@ -269,18 +269,39 @@ export default function TongsRecordingSessions() {
     setReadyDeleteError(null);
     setSaveNotice(null);
     try {
-      await tongsApiRequest<{ deleted: boolean; workpiece_id: string; path: string }>(
+      const result = await tongsApiRequest<{
+        deleted: boolean;
+        already_deleted?: boolean;
+        workpiece_id: string;
+        path: string;
+        removed_session_item_count?: number;
+        warnings?: string[];
+      }>(
         `/tongs/workpieces/${encodeURIComponent(candidate.workpiece_id)}/ready-script?path=${encodeURIComponent(path)}`,
         { method: "DELETE" },
       );
       await loadReadyCandidates();
-      setSaveNotice(`Deleted ready script "${label}".`);
+      if (selectedSessionId) {
+        await loadSessionDetail(selectedSessionId);
+      }
+
+      const removedCount = Number(result.removed_session_item_count ?? 0);
+      const warningCount = Array.isArray(result.warnings) ? result.warnings.length : 0;
+      const alreadyDeleted = !!result.already_deleted;
+      const actionLabel = alreadyDeleted ? "Already removed" : "Deleted";
+      const cleanupSuffix = removedCount > 0
+        ? ` Removed ${removedCount} stale plan item${removedCount === 1 ? "" : "s"}.`
+        : "";
+      const warningSuffix = warningCount > 0
+        ? " Storage cleanup warning logged."
+        : "";
+      setSaveNotice(`${actionLabel} ready script "${label}".${cleanupSuffix}${warningSuffix}`);
     } catch (error: unknown) {
       setReadyDeleteError(readErrorMessage(error, "Failed deleting ready script."));
     } finally {
       setReadyDeleteBusyKey(null);
     }
-  }, [session, loadReadyCandidates]);
+  }, [session, loadReadyCandidates, loadSessionDetail, selectedSessionId]);
 
   const removePlanItem = useCallback((index: number) => {
     setPlanItems((prev) => prev.filter((_, itemIndex) => itemIndex !== index));

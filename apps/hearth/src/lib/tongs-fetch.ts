@@ -6,6 +6,9 @@ type ForgeWindow = Window &
     __tpTongsApiToken?: unknown;
   };
 
+const SUPABASE_AUTH_STORAGE_KEY = "forge-auth";
+const SUPABASE_AUTH_KEY_RE = /^sb-[a-z0-9-]+-auth-token$/i;
+
 export type TongsFetchOptions = RequestInit & { json?: unknown };
 
 console.log("[tongsFetch] VITE_TONGS_API_TOKEN =", (import.meta as any).env?.VITE_TONGS_API_TOKEN);
@@ -22,6 +25,85 @@ function readLocalStorage(key: string): string | null {
   } catch {
     return null;
   }
+}
+
+function extractAccessTokenFromAuthPayload(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const token = extractAccessTokenFromAuthPayload(entry);
+      if (token) return token;
+    }
+    return null;
+  }
+
+  const row = value as Record<string, unknown>;
+  const direct = readString(row.access_token);
+  if (direct) return direct;
+
+  const currentSession = row.currentSession;
+  if (currentSession && typeof currentSession === "object") {
+    const token = readString((currentSession as Record<string, unknown>).access_token);
+    if (token) return token;
+  }
+
+  const session = row.session;
+  if (session && typeof session === "object") {
+    const token = readString((session as Record<string, unknown>).access_token);
+    if (token) return token;
+  }
+
+  const nestedData = row.data;
+  if (nestedData && typeof nestedData === "object") {
+    const token = extractAccessTokenFromAuthPayload(nestedData);
+    if (token) return token;
+  }
+
+  return null;
+}
+
+function readAccessTokenFromStorageKey(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  let raw: string | null = null;
+  try {
+    raw = window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+
+  const direct = readString(raw);
+  if (direct && direct !== "null" && direct !== "undefined" && !direct.startsWith("{") && !direct.startsWith("[")) {
+    return direct;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return extractAccessTokenFromAuthPayload(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function resolveUserAccessToken(): string | null {
+  if (typeof window === "undefined") return null;
+  const primary = readAccessTokenFromStorageKey(SUPABASE_AUTH_STORAGE_KEY);
+  if (primary) return primary;
+
+  try {
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (!key || key === SUPABASE_AUTH_STORAGE_KEY) continue;
+      if (!SUPABASE_AUTH_KEY_RE.test(key)) continue;
+      const token = readAccessTokenFromStorageKey(key);
+      if (token) return token;
+    }
+  } catch {
+    // ignore storage errors
+  }
+
+  return null;
 }
 
 function resolveFromQuery(): string | null {
@@ -62,9 +144,13 @@ export async function tongsFetch(url: string, options: TongsFetchOptions = {}): 
   const { json, headers: initHeaders, body: initBody, ...rest } = options;
   const headers = new Headers(initHeaders ?? {});
   const apiToken = resolveTongsApiToken();
+  const userAccessToken = resolveUserAccessToken();
 
   if (apiToken && !headers.has("authorization")) {
     headers.set("authorization", `Bearer ${apiToken}`);
+  }
+  if (userAccessToken && !headers.has("x-forge-user-authorization")) {
+    headers.set("x-forge-user-authorization", `Bearer ${userAccessToken}`);
   }
 
   let body = initBody;

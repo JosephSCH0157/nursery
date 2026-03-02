@@ -7,12 +7,13 @@ import {
   createCalendarEvent,
   updateCalendarEvent,
   deleteCalendarEvent,
+  listCalendarEventAssignments,
 } from "@forge/tongs";
 import { useMountRegistry } from "../hooks/useMountRegistry";
 import { supabase } from "../lib/supabase";
+import { tongsApiRequest } from "../lib/tongs-api";
 import { useOutletContext } from "react-router-dom";
 import type { AppShellContext } from "./AppShell";
-import { LocalHearthStore } from "@forge/hearth";
 import WorkspaceRequiredNotice from "./WorkspaceRequiredNotice";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -57,6 +58,12 @@ type RecordingSessionOption = {
   createdAtIso?: string | null;
 };
 
+type EpisodeOption = {
+  id: string;
+  label: string;
+  updatedAtIso?: string | null;
+};
+
 
 const VIEW_OPTIONS: { value: CalendarView; label: string }[] = [
   { value: "day", label: "Day" },
@@ -64,8 +71,27 @@ const VIEW_OPTIONS: { value: CalendarView; label: string }[] = [
   { value: "month", label: "Month" },
 ];
 
+type WorkspaceRole = "viewer" | "editor" | "admin" | "owner";
 
-const hearthStore = new LocalHearthStore();
+const WORKSPACE_ROLE_RANK: Record<WorkspaceRole, number> = {
+  viewer: 10,
+  editor: 20,
+  admin: 30,
+  owner: 40,
+};
+
+function normalizeWorkspaceRole(value: unknown): WorkspaceRole | null {
+  if (value === "viewer" || value === "editor" || value === "admin" || value === "owner") {
+    return value;
+  }
+  return null;
+}
+
+function workspaceRoleAtLeast(role: WorkspaceRole | null, minRole: WorkspaceRole): boolean {
+  if (!role) return false;
+  return WORKSPACE_ROLE_RANK[role] >= WORKSPACE_ROLE_RANK[minRole];
+}
+
 
 function getErrorMessage(err: unknown): string | undefined {
   if (err && typeof err === "object" && "message" in err) {
@@ -73,27 +99,6 @@ function getErrorMessage(err: unknown): string | undefined {
     return typeof message === "string" ? message : undefined;
   }
   return undefined;
-}
-
-async function ensureEventHasAssignmentId(args: {
-  supabase: SupabaseClient<Database>;
-  workspaceId: string;
-  row: CalendarEventRow;
-}): Promise<CalendarEventRow> {
-  const { supabase, workspaceId, row } = args;
-  if (row.assignment_id) return row;
-
-  const hearthSession = await hearthStore.ensureSessionForCalendarEvent({
-    workspaceId,
-    calendarEventId: row.id,
-    title: row.title,
-    scheduledStart: row.start_at,
-    scheduledEnd: row.end_at ?? undefined,
-  });
-
-  return updateCalendarEvent(supabase, workspaceId, row.id, {
-    assignment_id: hearthSession.sessionId,
-  });
 }
 
 function useLocalStorageState<T>(key: string, initialValue: T) {
@@ -309,6 +314,16 @@ export default function TongsCalendar() {
   const shell = useOutletContext<AppShellContext>();
   const workspaceId = shell?.workspaceId ?? null;
   const session = shell?.session ?? null;
+  const workspaceRole = useMemo(() => {
+    if (!workspaceId) return null;
+    const match = shell?.workspaces?.find((workspace) => workspace.id === workspaceId);
+    return normalizeWorkspaceRole(match?.role ?? null);
+  }, [shell?.workspaces, workspaceId]);
+  const canReadCalendar = workspaceRole
+    ? workspaceRoleAtLeast(workspaceRole, "viewer")
+    : Boolean(session && workspaceId);
+  const canEditCalendar = workspaceRole ? workspaceRoleAtLeast(workspaceRole, "editor") : false;
+  const canDeleteCalendar = workspaceRole ? workspaceRoleAtLeast(workspaceRole, "admin") : false;
   const { resolveMount } = useMountRegistry("default");
 
   const todayIso = useMemo(() => toDateKey(new Date()), []);
@@ -340,11 +355,16 @@ export default function TongsCalendar() {
   const [recordingSessions, setRecordingSessions] = useState<RecordingSessionOption[]>([]);
   const [recordingSessionsLoading, setRecordingSessionsLoading] = useState(false);
   const [recordingSessionsError, setRecordingSessionsError] = useState<string | null>(null);
+  const [episodes, setEpisodes] = useState<EpisodeOption[]>([]);
+  const [episodesLoading, setEpisodesLoading] = useState(false);
+  const [episodesError, setEpisodesError] = useState<string | null>(null);
+  const [eventAssignmentIdsByEventId, setEventAssignmentIdsByEventId] = useState<Record<string, string[]>>({});
 
   const [title, setTitle] = useState("Calendar event");
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
   const [linkedSessionId, setLinkedSessionId] = useState("");
+  const [linkedEpisodeIds, setLinkedEpisodeIds] = useState<string[]>([]);
   const [dateOverride, setDateOverride] = useState<string | null>(null);
   const [time, setTime] = useState(() => {
     const d = new Date();
@@ -356,7 +376,7 @@ export default function TongsCalendar() {
   const isEditingEvent = editingEventId !== null;
 
   const loadRecordingSessions = useCallback(async () => {
-    if (!workspaceId || !session) {
+    if (!workspaceId || !session || !canReadCalendar) {
       setRecordingSessions([]);
       setRecordingSessionsError(null);
       return;
@@ -386,11 +406,47 @@ export default function TongsCalendar() {
     } finally {
       setRecordingSessionsLoading(false);
     }
-  }, [workspaceId, session]);
+  }, [workspaceId, session, canReadCalendar]);
 
   useEffect(() => {
     void loadRecordingSessions();
   }, [loadRecordingSessions]);
+
+  const loadEpisodes = useCallback(async () => {
+    if (!workspaceId || !session || !canReadCalendar) {
+      setEpisodes([]);
+      setEpisodesError(null);
+      return;
+    }
+
+    setEpisodesLoading(true);
+    setEpisodesError(null);
+    try {
+      const { data, error } = await supabase
+        .schema("tongs")
+        .from("episodes")
+        .select("id,label,updated_at")
+        .eq("workspace_id", workspaceId)
+        .order("updated_at", { ascending: false });
+
+      if (error) throw error;
+      const next = (data ?? []).map((row) => ({
+        id: row.id,
+        label: row.label?.trim() || "Untitled episode",
+        updatedAtIso: row.updated_at ?? null,
+      }));
+      setEpisodes(next);
+    } catch (err: unknown) {
+      console.warn("[tongs] episodes list failed", err);
+      setEpisodesError(getErrorMessage(err) ?? "Failed loading episodes.");
+    } finally {
+      setEpisodesLoading(false);
+    }
+  }, [workspaceId, session, canReadCalendar]);
+
+  useEffect(() => {
+    void loadEpisodes();
+  }, [loadEpisodes]);
 
   const sessionTitleById = useMemo(() => {
     const map = new Map<string, string>();
@@ -400,12 +456,21 @@ export default function TongsCalendar() {
     return map;
   }, [recordingSessions]);
 
+  const episodeLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const episode of episodes) {
+      map.set(episode.id, episode.label);
+    }
+    return map;
+  }, [episodes]);
+
   const resetEventForm = useCallback((baseDate?: string) => {
     const nextBaseDate = baseDate ?? cursorDayIso;
     setTitle("Calendar event");
     setDescription("");
     setLocation("");
     setLinkedSessionId("");
+    setLinkedEpisodeIds([]);
     setAllDay(false);
     setDurationMin(60);
     setDateOverride(nextBaseDate);
@@ -414,9 +479,13 @@ export default function TongsCalendar() {
   }, [cursorDayIso]);
 
   const openNewForm = useCallback(() => {
+    if (!canEditCalendar) {
+      setLoadError("You need Editor access in this workspace to create or edit events.");
+      return;
+    }
     resetEventForm(cursorDayIso);
     setShowNew(true);
-  }, [cursorDayIso, resetEventForm]);
+  }, [canEditCalendar, cursorDayIso, resetEventForm]);
 
   const closeNewForm = useCallback(() => {
     setShowNew(false);
@@ -425,6 +494,10 @@ export default function TongsCalendar() {
   }, []);
 
   const openEditForm = useCallback((event: CalendarEvent) => {
+    if (!canEditCalendar) {
+      setLoadError("You need Editor access in this workspace to create or edit events.");
+      return;
+    }
     const start = new Date(event.startIso);
     const end = event.endIso ? new Date(event.endIso) : null;
     const parsedStart = Number.isNaN(start.getTime()) ? new Date() : start;
@@ -441,12 +514,22 @@ export default function TongsCalendar() {
     setDescription(event.description ?? "");
     setLocation(event.location ?? "");
     setLinkedSessionId(event.sessionId ?? "");
+    setLinkedEpisodeIds(eventAssignmentIdsByEventId[event.id] ?? []);
     setAllDay(!!event.allDay);
     setDurationMin(nextDuration);
     setDateOverride(nextDate);
     setTime(formatTimeInputValue(parsedStart));
     setEditingEventId(event.id);
     setShowNew(true);
+  }, [canEditCalendar, eventAssignmentIdsByEventId]);
+
+  const toggleLinkedEpisode = useCallback((episodeId: string, checked: boolean) => {
+    setLinkedEpisodeIds((prev) => {
+      if (checked) {
+        return prev.includes(episodeId) ? prev : [...prev, episodeId];
+      }
+      return prev.filter((id) => id !== episodeId);
+    });
   }, []);
 
   const syncRecordingSessionAttachment = useCallback(async (
@@ -489,13 +572,57 @@ export default function TongsCalendar() {
     }
   }, [workspaceId, session]);
 
+  const syncEventAssignments = useCallback(async (
+    calendarEventId: string,
+    nextAssignmentIds: string[],
+  ): Promise<string[]> => {
+    if (!workspaceId || !session) return [];
+
+    const normalizedTargetIds = Array.from(new Set(
+      nextAssignmentIds
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0),
+    ));
+    const currentIds = eventAssignmentIdsByEventId[calendarEventId] ?? [];
+    const currentIdSet = new Set(currentIds);
+    const targetIdSet = new Set(normalizedTargetIds);
+    const idsToAttach = normalizedTargetIds.filter((value) => !currentIdSet.has(value));
+    const idsToDetach = currentIds.filter((value) => !targetIdSet.has(value));
+    const basePath = `/tongs/workspaces/${encodeURIComponent(workspaceId)}/calendar-events/${encodeURIComponent(calendarEventId)}/assignments`;
+
+    await Promise.all(idsToAttach.map((assignmentId) => (
+      tongsApiRequest<{ assignment: { assignment_id: string } }>(basePath, {
+        method: "POST",
+        body: JSON.stringify({ assignment_id: assignmentId }),
+      })
+    )));
+
+    await Promise.all(idsToDetach.map((assignmentId) => (
+      tongsApiRequest<{ detached: boolean }>(`${basePath}/${encodeURIComponent(assignmentId)}`, {
+        method: "DELETE",
+      })
+    )));
+
+    const data = await tongsApiRequest<{ assignments: Array<{ assignment_id: string }> }>(basePath, {
+      method: "GET",
+    });
+    return Array.from(new Set(
+      (Array.isArray(data.assignments) ? data.assignments : [])
+        .map((row) => row?.assignment_id)
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0),
+    ));
+  }, [eventAssignmentIdsByEventId, session, workspaceId]);
+
   useEffect(() => {
-    if (!workspaceId || !session) {
+    if (!workspaceId || !session || !canReadCalendar) {
       setEvents([]);
+      setEventAssignmentIdsByEventId({});
       if (!session) {
         setLoadError("Trial mode: sign in to view and create cloud calendar sessions.");
       } else if (!workspaceId) {
         setLoadError("Select a workspace to view and create calendar sessions.");
+      } else if (!canReadCalendar) {
+        setLoadError("You need Viewer access in this workspace to view calendar events.");
       }
       return;
     }
@@ -513,20 +640,26 @@ export default function TongsCalendar() {
         });
         if (!alive) return;
 
-        const patchedRows = await Promise.all(
-          rows.map((r) =>
-            ensureEventHasAssignmentId({
-              supabase,
-              workspaceId,
-              row: r,
-            }).catch((err) => {
-              console.warn("[tongs] calendar assignment backfill failed", { id: r.id, err });
-              return r;
-            })
+        const links = rows.length > 0
+          ? await listCalendarEventAssignments(
+            supabase as SupabaseClient<Database>,
+            workspaceId,
+            rows.map((row) => row.id),
           )
-        );
+          : [];
+        if (!alive) return;
 
-        setEvents(patchedRows.map(rowToEvent));
+        const nextAssignments: Record<string, string[]> = {};
+        for (const row of links) {
+          const list = nextAssignments[row.event_id] ?? [];
+          if (!list.includes(row.assignment_id)) {
+            list.push(row.assignment_id);
+          }
+          nextAssignments[row.event_id] = list;
+        }
+
+        setEventAssignmentIdsByEventId(nextAssignments);
+        setEvents(rows.map(rowToEvent));
       } catch (err: unknown) {
         if (!alive) return;
         console.warn("[tongs] calendar list failed", err);
@@ -539,10 +672,13 @@ export default function TongsCalendar() {
     return () => {
       alive = false;
     };
-  }, [workspaceId, session, view, cursorDate]);
+  }, [workspaceId, session, canReadCalendar, view, cursorDate]);
 
   async function saveEvent() {
-    if (!workspaceId || !session) return;
+    if (!workspaceId || !session || !canEditCalendar) {
+      setLoadError("You need Editor access in this workspace to create or edit events.");
+      return;
+    }
     const baseStart = allDay ? new Date(`${date}T00:00:00`) : new Date(`${date}T${time}:00`);
     if (Number.isNaN(baseStart.getTime())) return;
     const minutes = Math.max(15, Math.min(8 * 60, Number(durationMin) || 60));
@@ -571,22 +707,13 @@ export default function TongsCalendar() {
           all_day: allDay,
           session_id: nextSessionId,
         });
-
-        const hearthSession = await hearthStore.ensureSessionForCalendarEvent({
-          workspaceId,
-          calendarEventId: created.id,
-          title: created.title,
-          scheduledStart: created.start_at,
-          scheduledEnd: created.end_at ?? undefined,
-        });
-
-        persistedRow = await updateCalendarEvent(supabase, workspaceId, created.id, {
-          assignment_id: hearthSession.sessionId,
-        });
+        persistedRow = created;
       }
 
       await syncRecordingSessionAttachment(persistedRow.id, nextSessionId);
+      const nextAssignmentIds = await syncEventAssignments(persistedRow.id, linkedEpisodeIds);
       await loadRecordingSessions();
+      await loadEpisodes();
 
       const event = rowToEvent({
         ...persistedRow,
@@ -607,6 +734,10 @@ export default function TongsCalendar() {
           : [event, ...withClearedConflicts];
         return next.sort((a, b) => b.startIso.localeCompare(a.startIso));
       });
+      setEventAssignmentIdsByEventId((prev) => ({
+        ...prev,
+        [event.id]: nextAssignmentIds,
+      }));
       closeNewForm();
     } catch (err: unknown) {
       console.warn("[tongs] calendar save failed", err);
@@ -615,10 +746,18 @@ export default function TongsCalendar() {
   }
 
   async function deleteEvent(id: string) {
-    if (!workspaceId || !session) return;
+    if (!workspaceId || !session || !canDeleteCalendar) {
+      setLoadError("You need Admin access in this workspace to delete events.");
+      return;
+    }
     try {
-      await deleteCalendarEvent(supabase, id);
+      await deleteCalendarEvent(supabase, workspaceId, id);
       setEvents((prev) => prev.filter((event) => event.id !== id));
+      setEventAssignmentIdsByEventId((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       await loadRecordingSessions();
     } catch (err: unknown) {
       console.warn("[tongs] calendar delete failed", err);
@@ -696,6 +835,17 @@ export default function TongsCalendar() {
     return map;
   }, [visibleEvents]);
 
+  const getEventEpisodeSummary = useCallback((eventId: string) => {
+    const ids = eventAssignmentIdsByEventId[eventId] ?? [];
+    if (ids.length === 0) return null;
+
+    const labels = ids.map((id) => episodeLabelById.get(id) ?? id.slice(0, 8));
+    if (labels.length <= 2) {
+      return labels.join(", ");
+    }
+    return `${labels[0]}, ${labels[1]} +${labels.length - 2} more`;
+  }, [eventAssignmentIdsByEventId, episodeLabelById]);
+
   const storageSummary = useMemo(() => {
     return MOUNT_ROLE_POLICY.map((policy) => formatRoleSummary(resolveMount(policy.role))).join(", ");
   }, [resolveMount]);
@@ -751,8 +901,16 @@ export default function TongsCalendar() {
 
           <button
             onClick={showNew ? closeNewForm : openNewForm}
-            disabled={!session || !workspaceId}
-            title={!session ? "Sign in to create events." : !workspaceId ? "Select a workspace first." : ""}
+            disabled={!session || !workspaceId || !canEditCalendar}
+            title={
+              !session
+                ? "Sign in to create events."
+                : !workspaceId
+                  ? "Select a workspace first."
+                  : !canEditCalendar
+                    ? "You need Editor access to create events."
+                    : ""
+            }
           >
             {showNew ? "Close" : "New Event"}
           </button>
@@ -761,6 +919,11 @@ export default function TongsCalendar() {
       {loadError ? (
         <div style={{ marginTop: 10, color: "#ffb3b3", fontSize: 13 }}>
           {loadError}
+        </div>
+      ) : null}
+      {session && workspaceId && canReadCalendar && !canEditCalendar ? (
+        <div style={{ marginTop: 10, color: "#ffd599", fontSize: 13 }}>
+          Read-only: Editor access is required to create or edit events.
         </div>
       ) : null}
       {loading ? (
@@ -784,12 +947,22 @@ export default function TongsCalendar() {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 160px", gap: 10 }}>
             <div>
               <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Title</label>
-              <input value={title} onChange={(e) => setTitle(e.target.value)} style={{ width: "100%" }} />
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                style={{ width: "100%" }}
+                disabled={!canEditCalendar}
+              />
             </div>
 
             <div>
               <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Location</label>
-              <input value={location} onChange={(e) => setLocation(e.target.value)} style={{ width: "100%" }} />
+              <input
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                style={{ width: "100%" }}
+                disabled={!canEditCalendar}
+              />
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -797,6 +970,7 @@ export default function TongsCalendar() {
                 type="checkbox"
                 checked={allDay}
                 onChange={(e) => setAllDay(e.target.checked)}
+                disabled={!canEditCalendar}
               />
               <span style={{ fontSize: 12 }}>All day</span>
             </div>
@@ -805,7 +979,12 @@ export default function TongsCalendar() {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 160px 120px 120px", gap: 10, marginTop: 10 }}>
             <div>
               <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Description (optional)</label>
-              <input value={description} onChange={(e) => setDescription(e.target.value)} style={{ width: "100%" }} />
+              <input
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                style={{ width: "100%" }}
+                disabled={!canEditCalendar}
+              />
             </div>
 
             <div>
@@ -815,12 +994,19 @@ export default function TongsCalendar() {
                 value={date}
                 onChange={(e) => setDateOverride(e.target.value)}
                 style={{ width: "100%" }}
+                disabled={!canEditCalendar}
               />
             </div>
 
             <div>
               <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Time</label>
-              <input type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ width: "100%" }} />
+              <input
+                type="time"
+                value={time}
+                onChange={(e) => setTime(e.target.value)}
+                style={{ width: "100%" }}
+                disabled={!canEditCalendar}
+              />
             </div>
 
             <div>
@@ -832,7 +1018,7 @@ export default function TongsCalendar() {
                 value={durationMin}
                 onChange={(e) => setDurationMin(Number(e.target.value))}
                 style={{ width: "100%" }}
-                disabled={allDay}
+                disabled={allDay || !canEditCalendar}
               />
             </div>
           </div>
@@ -843,7 +1029,7 @@ export default function TongsCalendar() {
               value={linkedSessionId}
               onChange={(e) => setLinkedSessionId(e.target.value)}
               style={{ width: "100%" }}
-              disabled={recordingSessionsLoading}
+              disabled={recordingSessionsLoading || !canEditCalendar}
             >
               <option value="">No recording session</option>
               {recordingSessions.map((sessionRow) => {
@@ -869,9 +1055,55 @@ export default function TongsCalendar() {
             ) : null}
           </div>
 
+          <div style={{ marginTop: 10 }}>
+            <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Attached Episodes (optional)</label>
+            <div
+              style={{
+                marginTop: 6,
+                maxHeight: 160,
+                overflowY: "auto",
+                border: "1px solid rgba(255,255,255,0.2)",
+                borderRadius: 8,
+                padding: 8,
+                display: "grid",
+                gap: 6,
+                background: "rgba(0,0,0,0.2)",
+              }}
+            >
+              {episodesLoading ? (
+                <div style={{ fontSize: 12, opacity: 0.72 }}>Loading episodes...</div>
+              ) : episodes.length === 0 ? (
+                <div style={{ fontSize: 12, opacity: 0.72 }}>No episodes available in this workspace.</div>
+              ) : (
+                episodes.map((episode) => {
+                  const checked = linkedEpisodeIds.includes(episode.id);
+                  return (
+                    <label key={episode.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => toggleLinkedEpisode(episode.id, e.target.checked)}
+                        disabled={!canEditCalendar}
+                      />
+                      <span>{episode.label}</span>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+            <div style={{ marginTop: 4, fontSize: 11, opacity: 0.68 }}>
+              Attach one or more episodes/workpieces to this calendar event.
+            </div>
+            {episodesError ? (
+              <div style={{ marginTop: 4, color: "#ffb3b3", fontSize: 12 }}>
+                {episodesError}
+              </div>
+            ) : null}
+          </div>
+
           <div style={{ marginTop: 12, display: "flex", gap: 8, justifyContent: "flex-end" }}>
             <button onClick={closeNewForm}>Cancel</button>
-            <button onClick={saveEvent}>{isEditingEvent ? "Save" : "Add"}</button>
+            <button onClick={saveEvent} disabled={!canEditCalendar}>{isEditingEvent ? "Save" : "Add"}</button>
           </div>
         </div>
       )}
@@ -892,6 +1124,7 @@ export default function TongsCalendar() {
             {dayEvents.map((event) => {
               const start = new Date(event.startIso);
               const timeLabel = Number.isNaN(start.getTime()) ? "Unknown" : formatTimeLabel(start);
+              const episodeSummary = getEventEpisodeSummary(event.id);
               return (
                 <div
                   key={event.id}
@@ -910,6 +1143,11 @@ export default function TongsCalendar() {
                   {event.sessionId ? (
                     <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
                       Session: {sessionTitleById.get(event.sessionId) ?? event.sessionId.slice(0, 8)}
+                    </div>
+                  ) : null}
+                  {episodeSummary ? (
+                    <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                      Episodes: {episodeSummary}
                     </div>
                   ) : null}
                   {event.description ? (
@@ -955,6 +1193,7 @@ export default function TongsCalendar() {
                     {dayEventsForWeek.map((event) => {
                       const start = new Date(event.startIso);
                       const timeLabel = Number.isNaN(start.getTime()) ? "Unknown" : formatTimeLabel(start);
+                      const episodeSummary = getEventEpisodeSummary(event.id);
                       return (
                         <div
                           key={event.id}
@@ -975,6 +1214,11 @@ export default function TongsCalendar() {
                           {event.sessionId ? (
                             <div style={{ marginTop: 4, fontSize: 12, opacity: 0.66 }}>
                               Session: {sessionTitleById.get(event.sessionId) ?? event.sessionId.slice(0, 8)}
+                            </div>
+                          ) : null}
+                          {episodeSummary ? (
+                            <div style={{ marginTop: 4, fontSize: 12, opacity: 0.66 }}>
+                              Episodes: {episodeSummary}
                             </div>
                           ) : null}
                         </div>
@@ -1056,6 +1300,7 @@ export default function TongsCalendar() {
           <div style={{ display: "grid", gap: 10 }}>
             {visibleEvents.map((event) => {
               const start = new Date(event.startIso);
+              const episodeSummary = getEventEpisodeSummary(event.id);
               return (
                 <div
                   key={event.id}
@@ -1082,14 +1327,19 @@ export default function TongsCalendar() {
                         Session: {sessionTitleById.get(event.sessionId) ?? event.sessionId.slice(0, 8)}
                       </div>
                     ) : null}
+                    {episodeSummary ? (
+                      <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>
+                        Episodes: {episodeSummary}
+                      </div>
+                    ) : null}
                     {event.description ? (
                       <div style={{ opacity: 0.7, fontSize: 13, marginTop: 6 }}>{event.description}</div>
                     ) : null}
                   </div>
 
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <button onClick={() => openEditForm(event)}>Edit</button>
-                    <button onClick={() => deleteEvent(event.id)}>Delete</button>
+                    {canEditCalendar ? <button onClick={() => openEditForm(event)}>Edit</button> : null}
+                    {canDeleteCalendar ? <button onClick={() => deleteEvent(event.id)}>Delete</button> : null}
                   </div>
                 </div>
               );

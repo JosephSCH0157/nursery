@@ -1,4 +1,4 @@
-﻿import type { Spark, Assignment } from "./model";
+import type { Spark, Assignment } from "./model";
 
 export type OutboxOp =
   | { op: "upsert_spark"; at: number; spark: Spark }
@@ -7,11 +7,21 @@ export type OutboxOp =
   | { op: "delete_assignment"; at: number; assignmentId: string };
 
 const KEY = "barstock_outbox_v1";
+const KEY_PREFIX = "barstock_outbox_v2";
 
-export function loadOutbox(): OutboxOp[] {
+function normalizedScope(workspaceId?: string | null): string | null {
+  const trimmed = typeof workspaceId === "string" ? workspaceId.trim().toLowerCase() : "";
+  return trimmed || null;
+}
+
+function scopedKey(workspaceId?: string | null): string {
+  const scope = normalizedScope(workspaceId);
+  return scope ? `${KEY_PREFIX}:${scope}` : KEY;
+}
+
+function parseOutbox(raw: string | null): OutboxOp[] {
+  if (!raw) return [];
   try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return [];
     const parsed = JSON.parse(raw) as OutboxOp[];
     return Array.isArray(parsed) ? parsed : [];
   } catch {
@@ -19,26 +29,33 @@ export function loadOutbox(): OutboxOp[] {
   }
 }
 
-export function saveOutbox(items: OutboxOp[]) {
-  localStorage.setItem(KEY, JSON.stringify(items));
+export function loadOutbox(workspaceId?: string | null): OutboxOp[] {
+  const key = scopedKey(workspaceId);
+  const scoped = parseOutbox(localStorage.getItem(key));
+  if (scoped.length > 0 || key === KEY) return scoped;
+  return parseOutbox(localStorage.getItem(KEY));
 }
 
-export function pushOutbox(op: OutboxOp) {
-  const items = loadOutbox();
+export function saveOutbox(items: OutboxOp[], workspaceId?: string | null): void {
+  localStorage.setItem(scopedKey(workspaceId), JSON.stringify(items));
+}
+
+export function pushOutbox(op: OutboxOp, workspaceId?: string | null): void {
+  const items = loadOutbox(workspaceId);
   items.push(op);
-  saveOutbox(items);
+  saveOutbox(items, workspaceId);
 }
 
-export function clearOutbox() {
-  saveOutbox([]);
+export function clearOutbox(workspaceId?: string | null): void {
+  saveOutbox([], workspaceId);
 }
 
-export function peekOutbox(): OutboxOp[] {
-  return loadOutbox();
+export function peekOutbox(workspaceId?: string | null): OutboxOp[] {
+  return loadOutbox(workspaceId);
 }
 
-export function drainOutbox() {
-  clearOutbox();
+export function drainOutbox(workspaceId?: string | null): void {
+  clearOutbox(workspaceId);
 }
 
 /**

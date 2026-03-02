@@ -42,6 +42,12 @@ const CONTENT_CATEGORY_VALUES = [
 const CONTENT_CATEGORY_SET = new Set<string>(CONTENT_CATEGORY_VALUES as readonly string[]);
 const RECORDING_SESSION_STATUS_VALUES = ["planned", "active", "completed", "canceled"] as const;
 const RECORDING_SESSION_STATUS_SET = new Set<string>(RECORDING_SESSION_STATUS_VALUES);
+const WORKSPACE_ROLE_RANK: Record<WorkspaceRole, number> = {
+  viewer: 10,
+  editor: 20,
+  admin: 30,
+  owner: 40,
+};
 const THUMBNAIL_ASSET_PREFIX = "assets/thumbnails";
 const THUMBNAIL_DEFAULT_STYLE_HINT = "Clean, high-contrast YouTube thumbnail composition.";
 
@@ -52,6 +58,8 @@ type EpisodeRow = Database["tongs"]["Tables"]["episodes"]["Row"];
 type RecordingSessionRow = Database["tongs"]["Tables"]["recording_sessions"]["Row"];
 type RecordingSessionEpisodeRow = Database["tongs"]["Tables"]["recording_session_episodes"]["Row"];
 type RecordingSessionItemRow = Database["tongs"]["Tables"]["recording_session_items"]["Row"];
+type CalendarEventAssignmentRow = Database["tongs"]["Tables"]["calendar_event_assignments"]["Row"];
+type HearthWorkpiecePresenceRow = Database["tongs"]["Tables"]["hearth_workpiece_presence"]["Row"];
 type WorkpieceFileRow = Database["tongs"]["Tables"]["workpiece_files"]["Row"];
 type WorkpieceEventRow = Database["tongs"]["Tables"]["workpiece_events"]["Row"];
 type WorkspaceRow = Database["tongs"]["Tables"]["workspaces"]["Row"];
@@ -59,6 +67,7 @@ type WorkspaceRow = Database["tongs"]["Tables"]["workspaces"]["Row"];
 type JsonPrimitive = string | number | boolean | null;
 type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
 type JsonObject = { [key: string]: JsonValue };
+type WorkspaceRole = "viewer" | "editor" | "admin" | "owner";
 
 type ManifestPointerKey =
   | "script_primary"
@@ -171,6 +180,8 @@ export type CommitFileRequest = {
   bytes_base64?: string;
   content_base64?: string;
   jsonl_append?: unknown;
+  user_access_token?: string | null;
+  expected_previous_updated_at?: string;
 };
 
 export type CommitFileResponse = {
@@ -256,6 +267,17 @@ export type CreateRecordingSessionRecordRequest = {
 export type RecordingSessionListOptions = {
   workspace_id?: string;
   limit?: number;
+};
+
+export type AttachCalendarEventAssignmentRequest = {
+  assignment_id: string;
+};
+
+export type HearthPresenceMode = "viewing" | "editing";
+
+export type UpsertHearthWorkpiecePresenceRequest = {
+  mode: HearthPresenceMode;
+  display_name?: string | null;
 };
 
 export type ReplaceRecordingSessionItemsRequest = {
@@ -354,6 +376,20 @@ export type WorkspaceReadyScript = {
 
 export type ListWorkspaceReadyScriptsOptions = {
   unrecordedOnly?: boolean;
+  userAccessToken?: string | null;
+};
+
+export type DeleteReadyScriptOptions = {
+  userAccessToken?: string | null;
+};
+
+export type DeleteReadyScriptResult = {
+  workpiece_id: string;
+  path: string;
+  deleted: boolean;
+  already_deleted: boolean;
+  removed_session_item_count: number;
+  warnings: string[];
 };
 
 export type TongsCommitApiOptions = {
@@ -369,7 +405,7 @@ export type TongsCommitApiService = {
   createCradle(input: CreateCradleRequest): Promise<CreateCradleResponse>;
   commitFile(workpieceId: string, input: CommitFileRequest): Promise<CommitFileResponse>;
   commitWorkspaceFile(workspaceId: string, input: CommitFileRequest): Promise<CommitWorkspaceFileResponse>;
-  deleteReadyScript(workpieceId: string, path: string): Promise<void>;
+  deleteReadyScript(workpieceId: string, path: string, options?: DeleteReadyScriptOptions): Promise<DeleteReadyScriptResult>;
   generateEpisodeThumbnail(workpieceId: string, input: GenerateEpisodeThumbnailRequest): Promise<GenerateEpisodeThumbnailResponse>;
   createRecordingSessionRecord(input: CreateRecordingSessionRecordRequest): Promise<RecordingSessionRow>;
   listRecordingSessionsForPlanner(options?: RecordingSessionListOptions): Promise<RecordingSessionRow[]>;
@@ -379,6 +415,34 @@ export type TongsCommitApiService = {
   updateRecordingSession(sessionId: string, patch: UpdateRecordingSessionRequest): Promise<RecordingSessionRow>;
   deleteRecordingSession(sessionId: string): Promise<void>;
   listRecordingSessions(workspaceId: string, range?: RecordingSessionListRange): Promise<RecordingSessionRow[]>;
+  listCalendarEventAssignmentsForEvent(
+    workspaceId: string,
+    calendarEventId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<CalendarEventAssignmentRow[]>;
+  listHearthWorkpiecePresence(
+    workspaceId: string,
+    workpieceId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HearthWorkpiecePresenceRow[]>;
+  upsertHearthWorkpiecePresence(
+    workspaceId: string,
+    workpieceId: string,
+    input: UpsertHearthWorkpiecePresenceRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HearthWorkpiecePresenceRow>;
+  attachCalendarEventAssignment(
+    workspaceId: string,
+    calendarEventId: string,
+    input: AttachCalendarEventAssignmentRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<CalendarEventAssignmentRow>;
+  detachCalendarEventAssignment(
+    workspaceId: string,
+    calendarEventId: string,
+    assignmentId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<{ detached: boolean }>;
   attachEpisodeToSession(sessionId: string, input: AttachEpisodeToSessionRequest): Promise<RecordingSessionEpisodeRow>;
   detachEpisodeFromSession(sessionId: string, episodeId: string): Promise<void>;
   listSessionEpisodes(sessionId: string): Promise<SessionEpisodeListItem[]>;
@@ -407,17 +471,29 @@ class HttpError extends Error {
   }
 }
 
-function jsonResponse(status: number, body: unknown): Response {
+function jsonResponse(status: number, body: unknown, requestId?: string): Response {
+  const headers: Record<string, string> = {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+  };
+  if (requestId) {
+    headers["x-request-id"] = requestId;
+  }
+
   return new Response(JSON.stringify(body), {
     status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "no-store",
-    },
+    headers,
   });
 }
 
-function errorResponse(error: unknown): Response {
+function createRequestId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function errorResponse(error: unknown, requestId?: string): Response {
   if (error instanceof HttpError) {
     return jsonResponse(error.status, {
       ok: false,
@@ -425,8 +501,9 @@ function errorResponse(error: unknown): Response {
         code: error.code,
         message: error.message,
         ...(typeof error.details === "undefined" ? {} : { details: error.details }),
+        ...(requestId ? { request_id: requestId } : {}),
       },
-    });
+    }, requestId);
   }
 
   const message = error instanceof Error ? error.message : "Unexpected error";
@@ -435,8 +512,9 @@ function errorResponse(error: unknown): Response {
     error: {
       code: "internal_error",
       message,
+      ...(requestId ? { request_id: requestId } : {}),
     },
-  });
+  }, requestId);
 }
 
 async function parseJsonBody(request: Request): Promise<Record<string, unknown>> {
@@ -466,6 +544,20 @@ async function parseJsonBody(request: Request): Promise<Record<string, unknown>>
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeWorkspaceRole(input: unknown): WorkspaceRole | null {
+  if (typeof input !== "string") return null;
+  const normalized = input.trim().toLowerCase();
+  if (normalized === "member") return "editor";
+  if (normalized === "viewer" || normalized === "editor" || normalized === "admin" || normalized === "owner") {
+    return normalized;
+  }
+  return null;
+}
+
+function workspaceRoleAtLeast(currentRole: WorkspaceRole, minRole: WorkspaceRole): boolean {
+  return WORKSPACE_ROLE_RANK[currentRole] >= WORKSPACE_ROLE_RANK[minRole];
 }
 
 function normalizeUuid(input: unknown, field: string): string {
@@ -1223,7 +1315,10 @@ function canonicalizeReplaceBytes(path: string, contentType: string, body: Commi
   throw new HttpError(400, "missing_content", "Commit payload must include text/json/content/bytes_base64");
 }
 
-function normalizeCommitFileRequest(body: Record<string, unknown>): CommitFileRequest {
+function normalizeCommitFileRequest(
+  body: Record<string, unknown>,
+  userAccessTokenFromHeader?: string | null,
+): CommitFileRequest {
   return {
     path: normalizeRelativePath(body.path),
     content_type: typeof body.content_type === "string" ? body.content_type : undefined,
@@ -1239,6 +1334,13 @@ function normalizeCommitFileRequest(body: Record<string, unknown>): CommitFileRe
     bytes_base64: typeof body.bytes_base64 === "string" ? body.bytes_base64 : undefined,
     content_base64: typeof body.content_base64 === "string" ? body.content_base64 : undefined,
     jsonl_append: typeof body.jsonl_append === "undefined" ? undefined : body.jsonl_append,
+    expected_previous_updated_at: typeof body.expected_previous_updated_at === "string"
+      ? normalizeIsoTimestamp(body.expected_previous_updated_at, "expected_previous_updated_at")
+      : undefined,
+    user_access_token: userAccessTokenFromHeader
+      ?? (typeof body.user_access_token === "string"
+        ? normalizeNonEmptyString(body.user_access_token, "user_access_token")
+        : undefined),
   };
 }
 
@@ -1465,6 +1567,40 @@ function normalizeAttachEpisodeToSessionRequest(body: Record<string, unknown>): 
     episode_id: normalizeUuid(body.episode_id, "episode_id"),
     ...(typeof position === "undefined" ? {} : { position }),
     ...(typeof notes === "undefined" ? {} : { notes }),
+  };
+}
+
+function normalizeAttachCalendarEventAssignmentRequest(
+  body: Record<string, unknown>,
+): AttachCalendarEventAssignmentRequest {
+  const rawAssignmentId = body.assignment_id ?? body.episode_id;
+  return {
+    assignment_id: normalizeUuid(rawAssignmentId, "assignment_id"),
+  };
+}
+
+function normalizeHearthPresenceMode(value: unknown): HearthPresenceMode {
+  const mode = normalizeNonEmptyString(value, "mode").toLowerCase();
+  if (mode === "viewing" || mode === "editing") {
+    return mode;
+  }
+  throw new HttpError(400, "invalid_mode", "mode must be viewing or editing");
+}
+
+function normalizeOptionalDisplayName(value: unknown): string | null | undefined {
+  if (typeof value === "undefined") return undefined;
+  if (value === null) return null;
+  const next = normalizeNonEmptyString(value, "display_name");
+  return next.slice(0, 120);
+}
+
+function normalizeUpsertHearthWorkpiecePresenceRequest(
+  body: Record<string, unknown>,
+): UpsertHearthWorkpiecePresenceRequest {
+  const displayName = normalizeOptionalDisplayName(body.display_name);
+  return {
+    mode: normalizeHearthPresenceMode(body.mode),
+    ...(typeof displayName === "undefined" ? {} : { display_name: displayName }),
   };
 }
 
@@ -1874,6 +2010,27 @@ export class TongsCommitService {
     return data ?? [];
   }
 
+  private async removeRecordingSessionItemsForScript(
+    workpieceId: string,
+    scriptPath: string,
+  ): Promise<number> {
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("recording_session_items")
+      .delete()
+      .eq("episode_id", workpieceId)
+      .eq("script_path", scriptPath)
+      .select("id");
+
+    if (error) {
+      throw new HttpError(502, "db_write_failed", "Failed to cleanup recording session plan items", {
+        reason: error.message,
+      });
+    }
+
+    return (data ?? []).length;
+  }
+
   private async assertCalendarEventWorkspace(calendarEventId: string, workspaceId: string): Promise<void> {
     const { data, error } = await this.supabase
       .schema("tongs")
@@ -1939,6 +2096,244 @@ export class TongsCommitService {
       });
     }
     return data.user?.id ?? null;
+  }
+
+  private async resolveWorkspaceRoleForUser(workspaceId: string, userId: string): Promise<WorkspaceRole | null> {
+    const { data: workspaceRow, error: workspaceError } = await this.supabase
+      .schema("tongs")
+      .from("workspaces")
+      .select("id,created_by")
+      .eq("id", workspaceId)
+      .maybeSingle();
+
+    if (workspaceError) {
+      throw new HttpError(502, "db_read_failed", "Failed to resolve workspace ownership", {
+        reason: workspaceError.message,
+      });
+    }
+
+    if (!workspaceRow) {
+      throw new HttpError(404, "workspace_not_found", `Workspace ${workspaceId} was not found`);
+    }
+
+    if (workspaceRow.created_by && workspaceRow.created_by === userId) {
+      return "owner";
+    }
+
+    const { data: membershipRow, error: membershipError } = await this.supabase
+      .schema("tongs")
+      .from("workspace_members")
+      .select("role")
+      .eq("workspace_id", workspaceId)
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (membershipError) {
+      throw new HttpError(502, "db_read_failed", "Failed to resolve workspace membership role", {
+        reason: membershipError.message,
+      });
+    }
+
+    return normalizeWorkspaceRole(membershipRow?.role ?? null);
+  }
+
+  private async assertWorkspaceRoleFromAccessToken(
+    workspaceId: string,
+    minRole: WorkspaceRole,
+    userAccessToken: string | null | undefined,
+  ): Promise<{ userId: string; role: WorkspaceRole }> {
+    const userId = await this.resolveUserIdFromAccessToken(userAccessToken);
+    if (!userId) {
+      throw new HttpError(
+        401,
+        "missing_user_token_header",
+        "Missing x-forge-user-authorization (or x-forge-user-token) header",
+      );
+    }
+
+    const role = await this.resolveWorkspaceRoleForUser(workspaceId, userId);
+    if (!role) {
+      throw new HttpError(403, "workspace_access_denied", "You are not a member of this workspace");
+    }
+    if (!workspaceRoleAtLeast(role, minRole)) {
+      throw new HttpError(403, "insufficient_role", `This action requires ${minRole} role or higher`, {
+        required: minRole,
+        actual: role,
+      });
+    }
+
+    return { userId, role };
+  }
+
+  private async assertWorkpieceInWorkspace(workpieceId: string, workspaceId: string): Promise<EpisodeRow> {
+    const cradle = await this.getCradleOrThrow(workpieceId);
+    if (cradle.workspace_id !== workspaceId) {
+      throw new HttpError(400, "workspace_mismatch", "workpiece_id must belong to workspace_id");
+    }
+    return cradle;
+  }
+
+  async listHearthWorkpiecePresence(
+    workspaceId: string,
+    workpieceId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HearthWorkpiecePresenceRow[]> {
+    await this.getWorkspaceOrThrow(workspaceId);
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
+
+    const activeCutoffIso = new Date(Date.now() - 60_000).toISOString();
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("hearth_workpiece_presence")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .eq("workpiece_id", workpieceId)
+      .gt("last_seen_at", activeCutoffIso)
+      .order("last_seen_at", { ascending: false });
+
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to list Hearth workpiece presence", {
+        reason: error.message,
+      });
+    }
+
+    return data ?? [];
+  }
+
+  async upsertHearthWorkpiecePresence(
+    workspaceId: string,
+    workpieceId: string,
+    input: UpsertHearthWorkpiecePresenceRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HearthWorkpiecePresenceRow> {
+    await this.getWorkspaceOrThrow(workspaceId);
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
+
+    const nowIso = new Date().toISOString();
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("hearth_workpiece_presence")
+      .upsert({
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        user_id: auth.userId,
+        display_name: typeof input.display_name === "string" ? input.display_name : null,
+        mode: input.mode,
+        last_seen_at: nowIso,
+      }, { onConflict: "workspace_id,workpiece_id,user_id" })
+      .select("*")
+      .single();
+
+    if (error) {
+      throw new HttpError(502, "db_write_failed", "Failed to upsert Hearth workpiece presence", {
+        reason: error.message,
+      });
+    }
+    if (!data) {
+      throw new HttpError(502, "db_write_failed", "hearth_workpiece_presence upsert returned no row");
+    }
+
+    return data;
+  }
+
+  async listCalendarEventAssignmentsForEvent(
+    workspaceId: string,
+    calendarEventId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<CalendarEventAssignmentRow[]> {
+    await this.getWorkspaceOrThrow(workspaceId);
+    await this.assertCalendarEventWorkspace(calendarEventId, workspaceId);
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
+
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("calendar_event_assignments")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .eq("event_id", calendarEventId)
+      .order("created_at", { ascending: true })
+      .order("assignment_id", { ascending: true });
+
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to list calendar event assignments", {
+        reason: error.message,
+      });
+    }
+
+    return data ?? [];
+  }
+
+  async attachCalendarEventAssignment(
+    workspaceId: string,
+    calendarEventId: string,
+    input: AttachCalendarEventAssignmentRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<CalendarEventAssignmentRow> {
+    await this.getWorkspaceOrThrow(workspaceId);
+    await this.assertCalendarEventWorkspace(calendarEventId, workspaceId);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
+    const episode = await this.getCradleOrThrow(input.assignment_id);
+    if (episode.workspace_id !== workspaceId) {
+      throw new HttpError(400, "workspace_mismatch", "assignment_id must belong to the same workspace");
+    }
+
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("calendar_event_assignments")
+      .upsert(
+        {
+          workspace_id: workspaceId,
+          event_id: calendarEventId,
+          assignment_id: input.assignment_id,
+          created_by: auth.userId,
+        },
+        { onConflict: "event_id,assignment_id" },
+      )
+      .select("*")
+      .single();
+
+    if (error) {
+      throw new HttpError(502, "db_write_failed", "Failed to attach episode to calendar event", {
+        reason: error.message,
+      });
+    }
+    if (!data) {
+      throw new HttpError(502, "db_write_failed", "calendar_event_assignments upsert returned no row");
+    }
+
+    return data;
+  }
+
+  async detachCalendarEventAssignment(
+    workspaceId: string,
+    calendarEventId: string,
+    assignmentId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<{ detached: boolean }> {
+    await this.getWorkspaceOrThrow(workspaceId);
+    await this.assertCalendarEventWorkspace(calendarEventId, workspaceId);
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
+
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("calendar_event_assignments")
+      .delete()
+      .eq("workspace_id", workspaceId)
+      .eq("event_id", calendarEventId)
+      .eq("assignment_id", assignmentId)
+      .select("assignment_id");
+
+    if (error) {
+      throw new HttpError(502, "db_write_failed", "Failed to detach episode from calendar event", {
+        reason: error.message,
+      });
+    }
+
+    return {
+      detached: (data ?? []).length > 0,
+    };
   }
 
   private async applyAiTokenDelta(args: {
@@ -2255,6 +2650,34 @@ export class TongsCommitService {
     if (path === MANIFEST_PATH) {
       throw new HttpError(400, "invalid_path", "manifest.json is managed by Tongs and cannot be committed directly");
     }
+    if (READY_SCRIPT_PATH_SET.has(path)) {
+      await this.assertWorkspaceRoleFromAccessToken(cradle.workspace_id, "editor", input.user_access_token);
+    }
+    if (input.expected_previous_updated_at) {
+      const { data: existingFile, error: existingFileError } = await this.supabase
+        .schema("tongs")
+        .from("workpiece_files")
+        .select("updated_at")
+        .eq("workpiece_id", cradle.id)
+        .eq("path", path)
+        .maybeSingle();
+
+      if (existingFileError) {
+        throw new HttpError(502, "db_read_failed", "Failed to read existing file metadata for conflict check", {
+          reason: existingFileError.message,
+        });
+      }
+
+      const expectedUpdatedAt = new Date(input.expected_previous_updated_at).toISOString();
+      const currentUpdatedAt = existingFile?.updated_at ? new Date(existingFile.updated_at).toISOString() : null;
+      if (currentUpdatedAt !== expectedUpdatedAt) {
+        throw new HttpError(409, "file_conflict", "File changed since last load", {
+          path,
+          expected_previous_updated_at: expectedUpdatedAt,
+          current_updated_at: currentUpdatedAt,
+        });
+      }
+    }
 
     const nowIso = new Date().toISOString();
     const contentType = normalizeContentType(input.content_type, path);
@@ -2427,12 +2850,19 @@ export class TongsCommitService {
     };
   }
 
-  async deleteReadyScript(workpieceId: string, path: string): Promise<void> {
-    const cradle = await this.getCradleOrThrow(workpieceId);
+  async deleteReadyScript(
+    workpieceId: string,
+    path: string,
+    options?: DeleteReadyScriptOptions,
+  ): Promise<DeleteReadyScriptResult> {
     const normalizedPath = normalizeRelativePath(path);
     if (!READY_SCRIPT_PATH_SET.has(normalizedPath)) {
       throw new HttpError(400, "invalid_path", "Only ready script paths can be deleted from this endpoint");
     }
+    const cradle = await this.getCradleOrThrow(workpieceId);
+    await this.assertWorkspaceRoleFromAccessToken(cradle.workspace_id, "editor", options?.userAccessToken);
+
+    const warnings: string[] = [];
 
     const { data: fileRow, error: fileRowError } = await this.supabase
       .schema("tongs")
@@ -2448,7 +2878,15 @@ export class TongsCommitService {
       });
     }
     if (!fileRow) {
-      throw new HttpError(404, "ready_script_not_found", "Ready script file was not found");
+      const removedSessionItemCount = await this.removeRecordingSessionItemsForScript(workpieceId, normalizedPath);
+      return {
+        workpiece_id: workpieceId,
+        path: normalizedPath,
+        deleted: true,
+        already_deleted: true,
+        removed_session_item_count: removedSessionItemCount,
+        warnings,
+      };
     }
 
     const { error: deleteFileError } = await this.supabase
@@ -2463,6 +2901,8 @@ export class TongsCommitService {
         reason: deleteFileError.message,
       });
     }
+
+    const removedSessionItemCount = await this.removeRecordingSessionItemsForScript(workpieceId, normalizedPath);
 
     const nowIso = new Date().toISOString();
     const writtenBy = DEFAULT_WRITTEN_BY;
@@ -2506,6 +2946,8 @@ export class TongsCommitService {
       payload: {
         path: normalizedPath,
         file_type: fileRow.file_type ?? null,
+        removed_session_item_count: removedSessionItemCount,
+        already_deleted: false,
       } as Json,
       writtenBy,
       correlationId: null,
@@ -2518,7 +2960,17 @@ export class TongsCommitService {
       .remove([storageKey]);
     if (storageDeleteError) {
       logStorageError("delete", storageBucket, storageKey, storageDeleteError);
+      warnings.push("storage_delete_failed");
     }
+
+    return {
+      workpiece_id: workpieceId,
+      path: normalizedPath,
+      deleted: true,
+      already_deleted: false,
+      removed_session_item_count: removedSessionItemCount,
+      warnings,
+    };
   }
 
   async generateEpisodeThumbnail(
@@ -3200,6 +3652,7 @@ export class TongsCommitService {
     workspaceId: string,
     options?: ListWorkspaceReadyScriptsOptions,
   ): Promise<WorkspaceReadyScript[]> {
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
     await this.getWorkspaceOrThrow(workspaceId);
 
     const { data: episodes, error: episodesError } = await this.supabase
@@ -3464,6 +3917,16 @@ function readUserAccessTokenHeader(request: Request): string | null {
   return trimmed;
 }
 
+function requireUserAccessTokenHeader(request: Request): string {
+  const token = readUserAccessTokenHeader(request);
+  if (token) return token;
+  throw new HttpError(
+    401,
+    "missing_user_token_header",
+    "Missing x-forge-user-authorization (or x-forge-user-token) header",
+  );
+}
+
 function parseBooleanQueryFlag(value: string | null): boolean {
   if (!value) return false;
   const normalized = value.trim().toLowerCase();
@@ -3499,8 +3962,14 @@ export function createTongsCommitApiHandlerWithService(
 ): (request: Request) => Promise<Response> {
   const normalizedApiToken = apiToken?.trim() || undefined;
   return async (request: Request): Promise<Response> => {
+    const requestId = createRequestId();
     if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204 });
+      return new Response(null, {
+        status: 204,
+        headers: {
+          "x-request-id": requestId,
+        },
+      });
     }
 
     try {
@@ -3521,7 +3990,15 @@ export function createTongsCommitApiHandlerWithService(
         requireMethod(request, "POST");
         const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
         const body = await parseJsonBody(request);
-        const payload = normalizeCommitFileRequest(body);
+        const userAccessToken = readUserAccessTokenHeader(request);
+        const payload = normalizeCommitFileRequest(body, userAccessToken);
+        if (READY_SCRIPT_PATH_SET.has(payload.path) && !userAccessToken) {
+          throw new HttpError(
+            401,
+            "missing_user_token_header",
+            "Missing x-forge-user-authorization (or x-forge-user-token) header",
+          );
+        }
         const result = await service.commitFile(workpieceId, payload);
         return jsonResponse(200, { ok: true, data: result });
       }
@@ -3530,7 +4007,8 @@ export function createTongsCommitApiHandlerWithService(
         requireMethod(request, "POST");
         const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
         const body = await parseJsonBody(request);
-        const payload = normalizeCommitFileRequest(body);
+        const userAccessToken = readUserAccessTokenHeader(request);
+        const payload = normalizeCommitFileRequest(body, userAccessToken);
         const result = await service.commitWorkspaceFile(workspaceId, payload);
         return jsonResponse(200, { ok: true, data: result });
       }
@@ -3539,7 +4017,7 @@ export function createTongsCommitApiHandlerWithService(
         requireMethod(request, "POST");
         const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
         const body = await parseJsonBody(request);
-        const userAccessToken = readUserAccessTokenHeader(request);
+        const userAccessToken = requireUserAccessTokenHeader(request);
         const payload = normalizeGenerateEpisodeThumbnailRequest(body, workpieceId, userAccessToken);
         const result = await service.generateEpisodeThumbnail(workpieceId, payload);
         return jsonResponse(200, { ok: true, data: result });
@@ -3549,7 +4027,8 @@ export function createTongsCommitApiHandlerWithService(
         requireMethod(request, "GET");
         const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
         const unrecordedOnly = parseBooleanQueryFlag(url.searchParams.get("unrecorded"));
-        const result = await service.listWorkspaceReadyScripts(workspaceId, { unrecordedOnly });
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.listWorkspaceReadyScripts(workspaceId, { unrecordedOnly, userAccessToken });
         return jsonResponse(200, { ok: true, data: { scripts: result } });
       }
 
@@ -3557,15 +4036,110 @@ export function createTongsCommitApiHandlerWithService(
         requireMethod(request, "DELETE");
         const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
         const path = normalizeRelativePath(url.searchParams.get("path"));
-        await service.deleteReadyScript(workpieceId, path);
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.deleteReadyScript(workpieceId, path, { userAccessToken });
         return jsonResponse(200, {
           ok: true,
           data: {
-            deleted: true,
-            workpiece_id: workpieceId,
-            path,
+            deleted: result.deleted,
+            workpiece_id: result.workpiece_id,
+            path: result.path,
+            already_deleted: result.already_deleted,
+            removed_session_item_count: result.removed_session_item_count,
+            warnings: result.warnings,
           },
         });
+      }
+
+      if (
+        parts.length === 6
+        && parts[0] === "tongs"
+        && parts[1] === "workspaces"
+        && parts[3] === "workpieces"
+        && parts[5] === "presence"
+      ) {
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[4]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+
+        if (request.method === "GET") {
+          const presence = await service.listHearthWorkpiecePresence(
+            workspaceId,
+            workpieceId,
+            { userAccessToken },
+          );
+          return jsonResponse(200, { ok: true, data: { presence } });
+        }
+
+        if (request.method === "PUT") {
+          const body = await parseJsonBody(request);
+          const payload = normalizeUpsertHearthWorkpiecePresenceRequest(body);
+          const presence = await service.upsertHearthWorkpiecePresence(
+            workspaceId,
+            workpieceId,
+            payload,
+            { userAccessToken },
+          );
+          return jsonResponse(200, { ok: true, data: { presence } });
+        }
+
+        throw new HttpError(405, "method_not_allowed", "Expected GET or PUT for this endpoint");
+      }
+
+      if (
+        parts.length === 6
+        && parts[0] === "tongs"
+        && parts[1] === "workspaces"
+        && parts[3] === "calendar-events"
+        && parts[5] === "assignments"
+      ) {
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const calendarEventId = normalizeUuid(decodeURIComponent(parts[4]), "calendar_event_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+
+        if (request.method === "GET") {
+          const assignments = await service.listCalendarEventAssignmentsForEvent(
+            workspaceId,
+            calendarEventId,
+            { userAccessToken },
+          );
+          return jsonResponse(200, { ok: true, data: { assignments } });
+        }
+
+        if (request.method === "POST") {
+          const body = await parseJsonBody(request);
+          const payload = normalizeAttachCalendarEventAssignmentRequest(body);
+          const assignment = await service.attachCalendarEventAssignment(
+            workspaceId,
+            calendarEventId,
+            payload,
+            { userAccessToken },
+          );
+          return jsonResponse(201, { ok: true, data: { assignment } });
+        }
+
+        throw new HttpError(405, "method_not_allowed", "Expected GET or POST for this endpoint");
+      }
+
+      if (
+        parts.length === 7
+        && parts[0] === "tongs"
+        && parts[1] === "workspaces"
+        && parts[3] === "calendar-events"
+        && parts[5] === "assignments"
+      ) {
+        requireMethod(request, "DELETE");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const calendarEventId = normalizeUuid(decodeURIComponent(parts[4]), "calendar_event_id");
+        const assignmentId = normalizeUuid(decodeURIComponent(parts[6]), "assignment_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.detachCalendarEventAssignment(
+          workspaceId,
+          calendarEventId,
+          assignmentId,
+          { userAccessToken },
+        );
+        return jsonResponse(200, { ok: true, data: result });
       }
 
       if (parts.length === 2 && (parts[0] === "tongs" || parts[0] === "api") && parts[1] === "recording-sessions") {
@@ -3771,7 +4345,21 @@ export function createTongsCommitApiHandlerWithService(
 
       throw new HttpError(404, "not_found", "Endpoint not found");
     } catch (error) {
-      return errorResponse(error);
+      if (error instanceof HttpError && (error.status === 401 || error.status === 403)) {
+        try {
+          console.warn("[tongs-auth-deny]", {
+            request_id: requestId,
+            code: error.code,
+            message: error.message,
+            details: error.details ?? null,
+            path: request.url,
+            method: request.method,
+          });
+        } catch {
+          // ignore logging failures
+        }
+      }
+      return errorResponse(error, requestId);
     }
   };
 }

@@ -176,6 +176,52 @@ export type Database = {
           },
         ]
       }
+      calendar_event_assignments: {
+        Row: {
+          event_id: string
+          assignment_id: string
+          workspace_id: string
+          created_at: string
+          created_by: string | null
+        }
+        Insert: {
+          event_id: string
+          assignment_id: string
+          workspace_id: string
+          created_at?: string
+          created_by?: string | null
+        }
+        Update: {
+          event_id?: string
+          assignment_id?: string
+          workspace_id?: string
+          created_at?: string
+          created_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendar_event_assignments_assignment_id_fkey"
+            columns: ["assignment_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calendar_event_assignments_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "calendar_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calendar_event_assignments_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       episodes: {
         Row: {
           id: string
@@ -201,6 +247,51 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "episodes_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hearth_workpiece_presence: {
+        Row: {
+          workspace_id: string
+          workpiece_id: string
+          user_id: string
+          display_name: string | null
+          mode: string
+          last_seen_at: string
+          created_at: string
+        }
+        Insert: {
+          workspace_id: string
+          workpiece_id: string
+          user_id: string
+          display_name?: string | null
+          mode?: string
+          last_seen_at?: string
+          created_at?: string
+        }
+        Update: {
+          workspace_id?: string
+          workpiece_id?: string
+          user_id?: string
+          display_name?: string | null
+          mode?: string
+          last_seen_at?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_workpiece_presence_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_workpiece_presence_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"

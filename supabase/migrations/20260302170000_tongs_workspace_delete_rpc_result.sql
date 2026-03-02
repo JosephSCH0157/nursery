@@ -1,5 +1,7 @@
 -- Upgrade workspace delete API to return a structured result for UI confirmation.
 
+drop function if exists tongs.delete_workspace_with_owner_check(uuid);
+
 create or replace function tongs.delete_workspace_with_owner_check(_workspace_id uuid)
 returns table (
   deleted boolean,
