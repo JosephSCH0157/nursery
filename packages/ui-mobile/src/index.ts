@@ -1,2 +1,2 @@
 export { MobilePage } from "./MobilePage";
-export { useLayoutMode, type LayoutMode } from "./useLayoutMode";
+export { useLayoutMode, getLayoutModeForWidth, type LayoutMode } from "./useLayoutMode";

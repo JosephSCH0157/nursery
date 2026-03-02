@@ -5,7 +5,7 @@ export type LayoutMode = "mobile" | "tablet" | "desktop";
 const MOBILE_MAX_WIDTH = 767;
 const TABLET_MAX_WIDTH = 1023;
 
-function getLayoutModeForWidth(width: number): LayoutMode {
+export function getLayoutModeForWidth(width: number): LayoutMode {
   if (width <= MOBILE_MAX_WIDTH) return "mobile";
   if (width <= TABLET_MAX_WIDTH) return "tablet";
   return "desktop";

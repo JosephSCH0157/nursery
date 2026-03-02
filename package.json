@@ -4,13 +4,13 @@
   "packageManager": "pnpm@10.30.1",
   "scripts": {
     "dev": "pnpm --filter nursery dev",
-    "build": "pnpm -r build",
+    "build": "pnpm --filter @forge/ui-mobile build && pnpm -r --filter=!@forge/ui-mobile build",
     "lint": "pnpm --filter nursery lint && pnpm --filter @forge/tongs lint",
-    "types": "pnpm --filter nursery typecheck && pnpm --filter @forge/tongs typecheck",
+    "types": "pnpm --filter @forge/ui-mobile typecheck && pnpm --filter nursery typecheck && pnpm --filter @forge/tongs typecheck",
     "gate": "pnpm check",
     "check": "pnpm smoke && pnpm lint && pnpm types",
     "smoke:team": "node scripts/phase-g-team-ui-smoke.mjs",
-    "smoke": "node scripts/smoke.mjs && pnpm smoke:team"
+    "smoke": "pnpm --filter @forge/ui-mobile test:contract && node scripts/smoke.mjs && pnpm smoke:team"
   },
   "devDependencies": {
     "dotenv": "^16.6.1",
