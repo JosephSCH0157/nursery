@@ -60,6 +60,7 @@ type RecordingSessionEpisodeRow = Database["tongs"]["Tables"]["recording_session
 type RecordingSessionItemRow = Database["tongs"]["Tables"]["recording_session_items"]["Row"];
 type CalendarEventAssignmentRow = Database["tongs"]["Tables"]["calendar_event_assignments"]["Row"];
 type HearthWorkpiecePresenceRow = Database["tongs"]["Tables"]["hearth_workpiece_presence"]["Row"];
+type ReadyScriptMetaRow = Database["tongs"]["Tables"]["workpiece_ready_script_meta"]["Row"];
 type WorkpieceFileRow = Database["tongs"]["Tables"]["workpiece_files"]["Row"];
 type WorkpieceEventRow = Database["tongs"]["Tables"]["workpiece_events"]["Row"];
 type WorkspaceRow = Database["tongs"]["Tables"]["workspaces"]["Row"];
@@ -372,6 +373,8 @@ export type WorkspaceReadyScript = {
   title: string;
   updated_at: string;
   content_category: string | null;
+  marked_ready_by: string | null;
+  marked_ready_at: string | null;
 };
 
 export type ListWorkspaceReadyScriptsOptions = {
@@ -389,6 +392,7 @@ export type DeleteReadyScriptResult = {
   deleted: boolean;
   already_deleted: boolean;
   removed_session_item_count: number;
+  ready_meta_deleted: boolean;
   warnings: string[];
 };
 
@@ -1878,6 +1882,10 @@ function readyScriptPathPriority(path: string): number {
   return index >= 0 ? index : Number.MAX_SAFE_INTEGER;
 }
 
+function readyScriptMetaKey(workpieceId: string, scriptPath: string): string {
+  return `${workpieceId}:${scriptPath}`;
+}
+
 function isRecordingPath(path: string): boolean {
   return RECORDING_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
 }
@@ -2029,6 +2037,58 @@ export class TongsCommitService {
     }
 
     return (data ?? []).length;
+  }
+
+  private async upsertReadyScriptMeta(
+    workspaceId: string,
+    workpieceId: string,
+    scriptPath: string,
+    userId: string,
+  ): Promise<void> {
+    const payload: Database["tongs"]["Tables"]["workpiece_ready_script_meta"]["Insert"] = {
+      workspace_id: workspaceId,
+      workpiece_id: workpieceId,
+      script_path: scriptPath,
+      marked_ready_by: userId,
+      marked_ready_at: new Date().toISOString(),
+      updated_by: userId,
+    };
+
+    const { error } = await this.supabase
+      .schema("tongs")
+      .from("workpiece_ready_script_meta")
+      .upsert(payload, {
+        onConflict: "workpiece_id,script_path",
+      });
+
+    if (error) {
+      throw new HttpError(502, "db_write_failed", "Failed to upsert ready script metadata", {
+        reason: error.message,
+      });
+    }
+  }
+
+  private async deleteReadyScriptMeta(
+    workspaceId: string,
+    workpieceId: string,
+    scriptPath: string,
+  ): Promise<boolean> {
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("workpiece_ready_script_meta")
+      .delete()
+      .eq("workspace_id", workspaceId)
+      .eq("workpiece_id", workpieceId)
+      .eq("script_path", scriptPath)
+      .select("workpiece_id,script_path");
+
+    if (error) {
+      throw new HttpError(502, "db_write_failed", "Failed to delete ready script metadata", {
+        reason: error.message,
+      });
+    }
+
+    return (data ?? []).length > 0;
   }
 
   private async assertCalendarEventWorkspace(calendarEventId: string, workspaceId: string): Promise<void> {
@@ -2647,11 +2707,16 @@ export class TongsCommitService {
   async commitFile(workpieceId: string, input: CommitFileRequest): Promise<CommitFileResponse> {
     const cradle = await this.getCradleOrThrow(workpieceId);
     const path = normalizeRelativePath(input.path);
+    let readyScriptActor: { userId: string; role: WorkspaceRole } | null = null;
     if (path === MANIFEST_PATH) {
       throw new HttpError(400, "invalid_path", "manifest.json is managed by Tongs and cannot be committed directly");
     }
     if (READY_SCRIPT_PATH_SET.has(path)) {
-      await this.assertWorkspaceRoleFromAccessToken(cradle.workspace_id, "editor", input.user_access_token);
+      readyScriptActor = await this.assertWorkspaceRoleFromAccessToken(
+        cradle.workspace_id,
+        "editor",
+        input.user_access_token,
+      );
     }
     if (input.expected_previous_updated_at) {
       const { data: existingFile, error: existingFileError } = await this.supabase
@@ -2757,6 +2822,15 @@ export class TongsCommitService {
         written_by_lane: writtenBy.lane,
       },
     ]);
+
+    if (readyScriptActor) {
+      await this.upsertReadyScriptMeta(
+        cradle.workspace_id,
+        cradle.id,
+        path,
+        readyScriptActor.userId,
+      );
+    }
 
     const eventName = input.event_name?.trim() || "workpiece.file.committed";
     const eventPayload =
@@ -2879,12 +2953,14 @@ export class TongsCommitService {
     }
     if (!fileRow) {
       const removedSessionItemCount = await this.removeRecordingSessionItemsForScript(workpieceId, normalizedPath);
+      const readyMetaDeleted = await this.deleteReadyScriptMeta(cradle.workspace_id, workpieceId, normalizedPath);
       return {
         workpiece_id: workpieceId,
         path: normalizedPath,
         deleted: true,
         already_deleted: true,
         removed_session_item_count: removedSessionItemCount,
+        ready_meta_deleted: readyMetaDeleted,
         warnings,
       };
     }
@@ -2903,6 +2979,7 @@ export class TongsCommitService {
     }
 
     const removedSessionItemCount = await this.removeRecordingSessionItemsForScript(workpieceId, normalizedPath);
+    const readyMetaDeleted = await this.deleteReadyScriptMeta(cradle.workspace_id, workpieceId, normalizedPath);
 
     const nowIso = new Date().toISOString();
     const writtenBy = DEFAULT_WRITTEN_BY;
@@ -2947,6 +3024,7 @@ export class TongsCommitService {
         path: normalizedPath,
         file_type: fileRow.file_type ?? null,
         removed_session_item_count: removedSessionItemCount,
+        ready_meta_deleted: readyMetaDeleted,
         already_deleted: false,
       } as Json,
       writtenBy,
@@ -2969,6 +3047,7 @@ export class TongsCommitService {
       deleted: true,
       already_deleted: false,
       removed_session_item_count: removedSessionItemCount,
+      ready_meta_deleted: readyMetaDeleted,
       warnings,
     };
   }
@@ -3817,6 +3896,34 @@ export class TongsCommitService {
       }
     }
 
+    const readyMetaByWorkpiecePath = new Map<
+      string,
+      Pick<ReadyScriptMetaRow, "marked_ready_by" | "marked_ready_at">
+    >();
+    const readyMetaCandidateIds = Array.from(preferredByWorkpiece.keys());
+    if (readyMetaCandidateIds.length) {
+      const { data: readyMetaRows, error: readyMetaError } = await this.supabase
+        .schema("tongs")
+        .from("workpiece_ready_script_meta")
+        .select("workpiece_id,script_path,marked_ready_by,marked_ready_at")
+        .eq("workspace_id", workspaceId)
+        .in("workpiece_id", readyMetaCandidateIds);
+
+      if (readyMetaError) {
+        throw new HttpError(502, "db_read_failed", "Failed to list ready script metadata", {
+          reason: readyMetaError.message,
+        });
+      }
+
+      for (const row of readyMetaRows ?? []) {
+        if (!READY_SCRIPT_PATH_SET.has(row.script_path)) continue;
+        readyMetaByWorkpiecePath.set(readyScriptMetaKey(row.workpiece_id, row.script_path), {
+          marked_ready_by: row.marked_ready_by,
+          marked_ready_at: row.marked_ready_at,
+        });
+      }
+    }
+
     const categoryByWorkpiece = new Map<string, string | null>();
     const categoryCandidateIds = Array.from(preferredByWorkpiece.keys());
     if (categoryCandidateIds.length) {
@@ -3854,6 +3961,12 @@ export class TongsCommitService {
         : episodeLabel;
       const scriptPaths = scriptPathsByWorkpiece.get(workpieceId) ?? [file.path];
       const primaryScriptPath = scriptPaths[0] ?? file.path;
+      const readyMeta = readyMetaByWorkpiecePath.get(readyScriptMetaKey(workpieceId, primaryScriptPath))
+        ?? readyMetaByWorkpiecePath.get(readyScriptMetaKey(workpieceId, file.path))
+        ?? scriptPaths
+          .map((scriptPath) => readyMetaByWorkpiecePath.get(readyScriptMetaKey(workpieceId, scriptPath)) ?? null)
+          .find((entry): entry is Pick<ReadyScriptMetaRow, "marked_ready_by" | "marked_ready_at"> => Boolean(entry))
+        ?? null;
       readyScripts.push({
         workspace_id: workspaceId,
         workpiece_id: workpieceId,
@@ -3863,6 +3976,8 @@ export class TongsCommitService {
         title,
         updated_at: file.updated_at ?? file.created_at ?? episode?.updated_at ?? episode?.created_at ?? nowIso,
         content_category: categoryByWorkpiece.get(workpieceId) ?? null,
+        marked_ready_by: readyMeta?.marked_ready_by ?? null,
+        marked_ready_at: readyMeta?.marked_ready_at ?? null,
       });
     }
 
@@ -4046,6 +4161,7 @@ export function createTongsCommitApiHandlerWithService(
             path: result.path,
             already_deleted: result.already_deleted,
             removed_session_item_count: result.removed_session_item_count,
+            ready_meta_deleted: result.ready_meta_deleted,
             warnings: result.warnings,
           },
         });

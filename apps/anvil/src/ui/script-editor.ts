@@ -23,7 +23,13 @@ function getSidebarSelect(): HTMLSelectElement | null {
   return document.getElementById(SIDEBAR_ID) as HTMLSelectElement | null;
 }
 
-type ScriptEntry = { id: string; title: string; handle?: FileSystemFileHandle; source?: 'mapped' | 'ready' };
+type ScriptEntry = {
+  id: string;
+  title: string;
+  subtitle?: string;
+  handle?: FileSystemFileHandle;
+  source?: 'mapped' | 'ready';
+};
 
 type SelectRole = 'sidebar' | 'settings';
 const SETTINGS_SELECT_ID = 'scriptSelect';
@@ -36,7 +42,12 @@ function gatherScriptEntries(): ScriptEntry[] {
     (ScriptStore as any).getSelectableEntries
       ? ((ScriptStore as any).getSelectableEntries() as ScriptEntry[])
       : (ScriptStore.getMappedEntries ? ScriptStore.getMappedEntries() as ScriptEntry[] : []);
-  return entries.map((entry) => ({ id: entry.id, title: entry.title || entry.id, source: entry.source }));
+  return entries.map((entry) => ({
+    id: entry.id,
+    title: entry.title || entry.id,
+    subtitle: entry.subtitle,
+    source: entry.source,
+  }));
 }
 
 function syncSelectFromStore(select: HTMLSelectElement | null, role: SelectRole, entries: ScriptEntry[]): void {
@@ -136,7 +147,9 @@ function syncSelectFromStore(select: HTMLSelectElement | null, role: SelectRole,
   for (const entry of entries) {
     const option = document.createElement('option');
     option.value = entry.id;
-    option.textContent = entry.title || entry.id;
+    option.textContent = entry.subtitle
+      ? `${entry.title || entry.id} — ${entry.subtitle}`
+      : (entry.title || entry.id);
     fragment.appendChild(option);
   }
   select.append(fragment);

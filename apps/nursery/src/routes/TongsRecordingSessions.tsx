@@ -3,6 +3,7 @@ import { useOutletContext } from "react-router-dom";
 import type { AppShellContext } from "./AppShell";
 import WorkspaceRequiredNotice from "./WorkspaceRequiredNotice";
 import { tongsApiRequest } from "../lib/tongs-api";
+import "./TongsRecordingSessions.css";
 
 type RecordingSessionSummary = {
   id: string;
@@ -36,6 +37,8 @@ type ReadyScriptCandidate = {
   title: string;
   updated_at: string;
   content_category: string | null;
+  marked_ready_by?: string | null;
+  marked_ready_at?: string | null;
 };
 
 type SessionPlannerItem = {
@@ -57,6 +60,50 @@ function formatDateTime(iso: string | null | undefined): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "Unknown date";
   return date.toLocaleString();
+}
+
+function formatRelativeTime(iso: string | null | undefined): string {
+  if (!iso) return "unknown";
+  const timestamp = Date.parse(iso);
+  if (!Number.isFinite(timestamp)) return "unknown";
+  const diffMs = Date.now() - timestamp;
+  const absMs = Math.abs(diffMs);
+  const minuteMs = 60 * 1000;
+  const hourMs = 60 * minuteMs;
+  const dayMs = 24 * hourMs;
+  const weekMs = 7 * dayMs;
+
+  const formatUnit = (unit: Intl.RelativeTimeFormatUnit, amount: number): string => {
+    try {
+      return new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }).format(amount, unit);
+    } catch {
+      const abs = Math.abs(amount);
+      const suffix = amount <= 0 ? "ago" : "from now";
+      return `${abs} ${unit}${abs === 1 ? "" : "s"} ${suffix}`;
+    }
+  };
+
+  if (absMs < hourMs) return formatUnit("minute", -Math.max(1, Math.round(absMs / minuteMs)));
+  if (absMs < dayMs) return formatUnit("hour", -Math.round(absMs / hourMs));
+  if (absMs < weekMs) return formatUnit("day", -Math.round(absMs / dayMs));
+  return formatUnit("week", -Math.round(absMs / weekMs));
+}
+
+function shortUserId(value: string | null | undefined): string {
+  const userId = (value ?? "").trim();
+  if (!userId) return "Unknown";
+  if (userId.length <= 12) return userId;
+  return `${userId.slice(0, 8)}...`;
+}
+
+function formatReadyAttribution(candidate: ReadyScriptCandidate | null | undefined): string {
+  if (!candidate) return "Ready attribution unavailable";
+  const readyBy = shortUserId(candidate.marked_ready_by ?? null);
+  const readyAt = candidate.marked_ready_at ?? candidate.updated_at ?? null;
+  if (readyAt) {
+    return `Ready by ${readyBy} • ${formatRelativeTime(readyAt)}`;
+  }
+  return `Ready by ${readyBy}`;
 }
 
 function plannerKey(item: SessionPlannerItem): string {
@@ -275,6 +322,7 @@ export default function TongsRecordingSessions() {
         workpiece_id: string;
         path: string;
         removed_session_item_count?: number;
+        ready_meta_deleted?: boolean;
         warnings?: string[];
       }>(
         `/tongs/workpieces/${encodeURIComponent(candidate.workpiece_id)}/ready-script?path=${encodeURIComponent(path)}`,
@@ -288,14 +336,16 @@ export default function TongsRecordingSessions() {
       const removedCount = Number(result.removed_session_item_count ?? 0);
       const warningCount = Array.isArray(result.warnings) ? result.warnings.length : 0;
       const alreadyDeleted = !!result.already_deleted;
+      const readyMetaDeleted = !!result.ready_meta_deleted;
       const actionLabel = alreadyDeleted ? "Already removed" : "Deleted";
       const cleanupSuffix = removedCount > 0
         ? ` Removed ${removedCount} stale plan item${removedCount === 1 ? "" : "s"}.`
         : "";
+      const metaSuffix = readyMetaDeleted ? " Ready attribution cleared." : "";
       const warningSuffix = warningCount > 0
         ? " Storage cleanup warning logged."
         : "";
-      setSaveNotice(`${actionLabel} ready script "${label}".${cleanupSuffix}${warningSuffix}`);
+      setSaveNotice(`${actionLabel} ready script "${label}".${cleanupSuffix}${metaSuffix}${warningSuffix}`);
     } catch (error: unknown) {
       setReadyDeleteError(readErrorMessage(error, "Failed deleting ready script."));
     } finally {
@@ -666,6 +716,7 @@ export default function TongsRecordingSessions() {
                     >
                       <div style={{ fontWeight: 700 }}>{candidate.title}</div>
                       <div style={{ fontSize: 12, opacity: 0.7 }}>{candidate.primary_script_path}</div>
+                      <div className="trs-ready-attribution">{formatReadyAttribution(candidate)}</div>
                       <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
                         <span style={{ fontSize: 12, opacity: 0.66 }}>
                           {formatDateTime(candidate.updated_at)}
@@ -744,6 +795,7 @@ export default function TongsRecordingSessions() {
                         <div style={{ fontSize: 12, opacity: 0.75 }}>Position {index + 1}</div>
                         <div style={{ fontWeight: 700 }}>{title}</div>
                         <div style={{ fontSize: 12, opacity: 0.72 }}>{item.script_path}</div>
+                        <div className="trs-ready-attribution">{formatReadyAttribution(candidate)}</div>
                         {duplicateEntry ? <div style={{ fontSize: 12, color: "#ffd599" }}>Duplicate entry</div> : null}
                         <div style={{ display: "flex", justifyContent: "flex-end" }}>
                           <button type="button" onClick={() => removePlanItem(index)}>Remove</button>

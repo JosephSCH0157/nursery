@@ -309,6 +309,8 @@ function mockService() {
           title: "Episode 1",
           updated_at: "2026-02-21T00:00:00.000Z",
           content_category: "evergreen",
+          marked_ready_by: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          marked_ready_at: "2026-02-21T00:00:00.000Z",
         },
       ];
     },
@@ -320,6 +322,7 @@ function mockService() {
         workpiece_id: workpieceId,
         path,
         removed_session_item_count: 0,
+        ready_meta_deleted: true,
         warnings: [],
       };
     },
@@ -398,6 +401,56 @@ function createRoleGateSupabase({ userId, workspaceId, workspaceOwnerId, memberR
                             return {
                               data: memberRole ? { role: memberRole } : null,
                               error: null,
+                            };
+                          },
+                        };
+                      },
+                    };
+                  },
+                };
+              },
+            };
+          }
+
+          if (tableName === "workpiece_ready_script_meta") {
+            return {
+              async upsert() {
+                return { data: null, error: null };
+              },
+              select() {
+                return {
+                  eq() {
+                    return {
+                      eq() {
+                        return {
+                          async in() {
+                            return { data: [], error: null };
+                          },
+                        };
+                      },
+                    };
+                  },
+                };
+              },
+              delete() {
+                return {
+                  eq() {
+                    return {
+                      eq() {
+                        return {
+                          eq() {
+                            return {
+                              async select() {
+                                return {
+                                  data: [
+                                    {
+                                      workpiece_id: "11111111-1111-4111-8111-111111111111",
+                                      script_path: "script/script.md",
+                                    },
+                                  ],
+                                  error: null,
+                                };
+                              },
                             };
                           },
                         };
@@ -1177,6 +1230,8 @@ test("GET /tongs/workspaces/:id/ready-scripts dispatches listWorkspaceReadyScrip
   assert.equal(body.data.scripts[0]?.content_category, "evergreen");
   assert.equal(body.data.scripts[0]?.primary_script_path, "script/script.md");
   assert.equal(Array.isArray(body.data.scripts[0]?.script_paths), true);
+  assert.equal(body.data.scripts[0]?.marked_ready_by, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+  assert.equal(body.data.scripts[0]?.marked_ready_at, "2026-02-21T00:00:00.000Z");
 });
 
 test("GET /tongs/workspaces/:id/ready-scripts?unrecorded=1 enables unrecorded filter", async () => {
@@ -1273,6 +1328,7 @@ test("DELETE /tongs/workpieces/:id/ready-script dispatches deleteReadyScript", a
   assert.equal(body.data?.path, "script/script.md");
   assert.equal(body.data?.already_deleted, false);
   assert.equal(body.data?.removed_session_item_count, 0);
+  assert.equal(body.data?.ready_meta_deleted, true);
   assert.equal(Array.isArray(body.data?.warnings), true);
 });
 
@@ -1284,6 +1340,7 @@ test("DELETE /tongs/workpieces/:id/ready-script returns idempotent payload", asy
     workpiece_id: workpieceId,
     path,
     removed_session_item_count: 2,
+    ready_meta_deleted: false,
     warnings: ["storage_delete_failed"],
   });
 
@@ -1306,6 +1363,7 @@ test("DELETE /tongs/workpieces/:id/ready-script returns idempotent payload", asy
   assert.equal(body.data?.deleted, true);
   assert.equal(body.data?.already_deleted, true);
   assert.equal(body.data?.removed_session_item_count, 2);
+  assert.equal(body.data?.ready_meta_deleted, false);
   assert.deepEqual(body.data?.warnings, ["storage_delete_failed"]);
 });
 
@@ -1507,6 +1565,49 @@ test("TongsCommitService.commitFile requires user token for ready-script paths",
   );
 });
 
+test("TongsCommitService.commitFile denies viewer role for ready-script paths", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const supabase = createRoleGateSupabase({
+    userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    workspaceId,
+    workspaceOwnerId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    memberRole: "viewer",
+  });
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getCradleOrThrow = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-02T00:00:00.000Z",
+    updated_at: "2026-03-02T00:00:00.000Z",
+  });
+
+  await assert.rejects(
+    () => service.commitFile(workpieceId, {
+      path: "script/script.md",
+      text: "ready script text",
+      user_access_token: "viewer_token",
+      written_by: {
+        tool: "hearth",
+        tool_version: "0.0.0",
+        lane: "forge-managed",
+      },
+    }),
+    (error) => {
+      assert.equal(error.status, 403);
+      assert.equal(error.code, "insufficient_role");
+      assert.equal(error.details?.required, "editor");
+      assert.equal(error.details?.actual, "viewer");
+      return true;
+    },
+  );
+});
+
 test("TongsCommitService.deleteReadyScript returns warning when storage delete fails", async () => {
   const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const workpieceId = "11111111-1111-4111-8111-111111111111";
@@ -1551,5 +1652,6 @@ test("TongsCommitService.deleteReadyScript returns warning when storage delete f
   assert.equal(result.deleted, true);
   assert.equal(result.already_deleted, false);
   assert.equal(result.removed_session_item_count, 3);
+  assert.equal(result.ready_meta_deleted, true);
   assert.deepEqual(result.warnings, ["storage_delete_failed"]);
 });

@@ -340,6 +340,51 @@ export type Database = {
           },
         ]
       }
+      workpiece_ready_script_meta: {
+        Row: {
+          workspace_id: string
+          workpiece_id: string
+          script_path: string
+          marked_ready_by: string
+          marked_ready_at: string
+          updated_at: string
+          updated_by: string
+        }
+        Insert: {
+          workspace_id: string
+          workpiece_id: string
+          script_path: string
+          marked_ready_by: string
+          marked_ready_at?: string
+          updated_at?: string
+          updated_by: string
+        }
+        Update: {
+          workspace_id?: string
+          workpiece_id?: string
+          script_path?: string
+          marked_ready_by?: string
+          marked_ready_at?: string
+          updated_at?: string
+          updated_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workpiece_ready_script_meta_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workpiece_ready_script_meta_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       recording_session_episodes: {
         Row: {
           recording_session_id: string

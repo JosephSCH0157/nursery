@@ -995,6 +995,13 @@ function parseIsoTimestamp(value: string | null | undefined): number | undefined
   return Number.isFinite(timestamp) ? timestamp : undefined;
 }
 
+function shortenUserIdForUi(value: string | null | undefined): string {
+  const userId = readTrimmedString(value);
+  if (!userId) return "Unknown";
+  if (userId.length <= 12) return userId;
+  return `${userId.slice(0, 8)}...`;
+}
+
 function createThumbnailClientId(prefix: string): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
@@ -1816,6 +1823,27 @@ export default function HearthShell() {
   const activeEditorName = editingPeers[0]?.displayName?.trim() || "A teammate";
   const activeViewerName = viewingPeers[0]?.displayName?.trim() || "A teammate";
   const activeUserDisplayName = hearthUser.displayName.trim() || forgeGreetingName;
+  const resolveReadyMarkerName = useCallback((entry: HearthReadyScript): string => {
+    const markerUserId = readTrimmedString(entry.markedReadyBy);
+    if (!markerUserId) return "Unknown";
+    if (hearthUser.userId && markerUserId === hearthUser.userId) return activeUserDisplayName;
+    return shortenUserIdForUi(markerUserId);
+  }, [activeUserDisplayName, hearthUser.userId]);
+  const resolveReadyAttribution = useCallback((entry: HearthReadyScript): string => {
+    const markerUserId = readTrimmedString(entry.markedReadyBy);
+    const markerTime = parseIsoTimestamp(entry.markedReadyAt) ?? parseIsoTimestamp(entry.updatedAt);
+    if (markerUserId) {
+      const markerName = resolveReadyMarkerName(entry);
+      if (markerTime) {
+        return `Marked ready by ${markerName} • ${formatRelativeUpdatedAt(markerTime)}`;
+      }
+      return `Marked ready by ${markerName}`;
+    }
+    if (markerTime) {
+      return `Approved ${formatRelativeUpdatedAt(markerTime)}`;
+    }
+    return "Approved script";
+  }, [resolveReadyMarkerName]);
   const localPresenceMode = activeDraft ? "editing" : "viewing";
   const openInAnvilHref = useMemo(
     () => buildOpenInAnvilHref(workspaceId, workpieceId),
@@ -7256,6 +7284,7 @@ export default function HearthShell() {
               }}
             >
               <div className="hs-ready-record-title">{entry.title}</div>
+              <div className="hs-ready-record-meta">{resolveReadyAttribution(entry)}</div>
               <label className="hs-ready-record-label">
                 <span>Label</span>
                 <select
@@ -7303,7 +7332,7 @@ export default function HearthShell() {
             {seriesEntries.map((entry) => (
               <li key={entry.id} className="hs-ready-record-item">
                 <div className="hs-ready-record-title">{entry.title}</div>
-                <div className="hs-ready-record-meta">Ready for session planning.</div>
+                <div className="hs-ready-record-meta">{resolveReadyAttribution(entry)}</div>
               </li>
             ))}
           </ul>
@@ -7523,7 +7552,6 @@ export default function HearthShell() {
                       {section.entries.map((entry) => {
                         const href = resolveReadyOpenHref(entry);
                         if (!href) return null;
-                        const updatedTs = parseIsoTimestamp(entry.updatedAt);
                         const urgency = deriveReadyUrgency(entry);
                         return (
                           <li key={entry.id} className="hs-ready-record-item">
@@ -7538,7 +7566,7 @@ export default function HearthShell() {
                             </button>
                             <div className="hs-ready-record-meta-row">
                               <div className="hs-ready-record-meta">
-                                {updatedTs ? `Approved ${formatRelativeUpdatedAt(updatedTs)}` : "Approved script"}
+                                {resolveReadyAttribution(entry)}
                               </div>
                               {urgency ? (
                                 <span className={`hs-ready-urgency-badge is-${urgency}`}>

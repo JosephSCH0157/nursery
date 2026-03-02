@@ -20,6 +20,8 @@ type ReadyScriptApiRow = {
   script_paths?: unknown;
   title?: unknown;
   updated_at?: unknown;
+  marked_ready_by?: unknown;
+  marked_ready_at?: unknown;
 };
 
 type RecordingSessionApiRow = {
@@ -54,6 +56,8 @@ export type ReadyScriptReference = {
   scriptPaths: string[];
   title: string;
   updatedAt?: string;
+  markedReadyBy?: string;
+  markedReadyAt?: string;
 };
 
 export type RecordingSessionSummary = {
@@ -295,6 +299,8 @@ function parseReadyScriptsPayload(payload: unknown, workspaceId: string): ReadyS
       scriptPaths: normalizedScriptPaths,
       title,
       updatedAt: normalizeIso(item.updated_at),
+      markedReadyBy: normalizeUuid(item.marked_ready_by) ?? undefined,
+      markedReadyAt: normalizeIso(item.marked_ready_at),
     });
   }
 
@@ -448,10 +454,19 @@ export async function readRecordingSessionScripts(sessionId: string): Promise<Re
 
   const workspaceReady = await listWorkspaceReadyScripts().catch(() => []);
   const titleByKey = new Map<string, string>();
+  const readyMetaByKey = new Map<string, { markedReadyBy?: string; markedReadyAt?: string }>();
   for (const script of workspaceReady) {
     titleByKey.set(`${script.workpieceId}::${script.path}`, script.title);
+    readyMetaByKey.set(`${script.workpieceId}::${script.path}`, {
+      markedReadyBy: script.markedReadyBy,
+      markedReadyAt: script.markedReadyAt,
+    });
     for (const scriptPath of script.scriptPaths) {
       titleByKey.set(`${script.workpieceId}::${scriptPath}`, script.title);
+      readyMetaByKey.set(`${script.workpieceId}::${scriptPath}`, {
+        markedReadyBy: script.markedReadyBy,
+        markedReadyAt: script.markedReadyAt,
+      });
     }
   }
 
@@ -473,7 +488,15 @@ export async function readRecordingSessionScripts(sessionId: string): Promise<Re
       fallbackTitle,
       titleByKey,
     });
-    if (ref) scripts.push(ref);
+    if (ref) {
+      const key = `${ref.workpieceId}::${ref.path}`;
+      const readyMeta = readyMetaByKey.get(key);
+      scripts.push({
+        ...ref,
+        markedReadyBy: readyMeta?.markedReadyBy,
+        markedReadyAt: readyMeta?.markedReadyAt,
+      });
+    }
   }
 
   return {

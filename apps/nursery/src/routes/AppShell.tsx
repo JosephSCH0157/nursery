@@ -8,6 +8,7 @@ import { ForgeNav } from "../nav/ForgeNav";
 import { FORGE_NAV_ACTION_AI_CONTROLS, forgeNavTree } from "../nav/forgeNavTree";
 import { parseForgeRouteContext, removeWorkspaceParams } from "../lib/forge-route-context";
 import { AiControlsPanel } from "../components/hearth/AiControlsPanel";
+import "./AppShell.css";
 
 const WORKSPACE_CACHE_KEY = "forge_workspaces_cache_v1";
 const ACTIVE_WORKSPACE_KEY = "forge_workspace_id_v1";
@@ -65,6 +66,30 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function readInviteToken(search: string): string | null {
+  const params = new URLSearchParams(search);
+  const raw = params.get("invite_token") ?? params.get("inviteToken");
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function removeInviteToken(search: string): string {
+  const params = new URLSearchParams(search);
+  params.delete("invite_token");
+  params.delete("inviteToken");
+  const next = params.toString();
+  return next ? `?${next}` : "";
+}
+
+type InvitePreview = {
+  workspace_id: string;
+  workspace_name: string;
+  role: string;
+  email: string;
+  expires_at: string;
+};
+
 export type AppShellContext = {
   workspaceId: string | null;
   workspaces: Workspace[];
@@ -105,9 +130,15 @@ export default function AppShell() {
   const [deleting, setDeleting] = useState(false);
   const [workspaceGateChoice, setWorkspaceGateChoice] = useState("");
   const [aiControlsOpen, setAiControlsOpen] = useState(false);
+  const [invitePreview, setInvitePreview] = useState<InvitePreview | null>(null);
+  const [invitePreviewLoading, setInvitePreviewLoading] = useState(false);
+  const [invitePreviewError, setInvitePreviewError] = useState<string | null>(null);
+  const [inviteAccepting, setInviteAccepting] = useState(false);
+  const invitePreviewTokenRef = useRef<string | null>(null);
 
   const urlContext = useMemo(() => parseForgeRouteContext(location.search), [location.search]);
   const urlWorkspaceId = urlContext.workspaceId;
+  const inviteToken = useMemo(() => readInviteToken(location.search), [location.search]);
 
   useEffect(() => {
     const res = loadMountRegistry("default");
@@ -269,6 +300,55 @@ export default function AppShell() {
     nav,
   ]);
 
+  useEffect(() => {
+    if (!inviteToken || !session) {
+      if (!inviteToken) {
+        invitePreviewTokenRef.current = null;
+        setInvitePreview(null);
+        setInvitePreviewError(null);
+        setInvitePreviewLoading(false);
+      }
+      return;
+    }
+
+    if (invitePreviewTokenRef.current === inviteToken) return;
+    invitePreviewTokenRef.current = inviteToken;
+    setInvitePreviewLoading(true);
+    setInvitePreviewError(null);
+
+    let cancelled = false;
+    const tongsRpcClient = supabase.schema("tongs") as unknown as {
+      rpc: (
+        fn: string,
+        args?: Record<string, unknown>,
+      ) => {
+        single: () => Promise<{ data: unknown; error: unknown }>;
+      };
+    };
+
+    void tongsRpcClient
+      .rpc("get_workspace_invite_preview", { p_token: inviteToken })
+      .single()
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) throw error;
+        setInvitePreview((data ?? null) as InvitePreview | null);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setInvitePreview(null);
+        setInvitePreviewError(getErrorMessage(err, "Failed loading invite details."));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setInvitePreviewLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [inviteToken, session]);
+
   async function onSignOut() {
     await supabase.auth.signOut();
     nav("/app", { replace: true });
@@ -286,6 +366,61 @@ export default function AppShell() {
     const next = encodeURIComponent(nextPath);
     nav(`/login?next=${next}`, { replace: false });
   }
+
+  const clearInviteToken = useCallback(() => {
+    nav(
+      {
+        pathname: location.pathname,
+        search: removeInviteToken(location.search),
+        hash: location.hash,
+      },
+      { replace: true },
+    );
+  }, [location.pathname, location.search, location.hash, nav]);
+
+  const acceptInvite = useCallback(async () => {
+    if (!session || !inviteToken) return;
+
+    setInviteAccepting(true);
+    setInvitePreviewError(null);
+    try {
+      const tongsRpcClient = supabase.schema("tongs") as unknown as {
+        rpc: (
+          fn: string,
+          args?: Record<string, unknown>,
+        ) => {
+          single: () => Promise<{ data: unknown; error: unknown }>;
+        };
+      };
+
+      const { data, error } = await tongsRpcClient
+        .rpc("accept_workspace_invite", { p_token: inviteToken })
+        .single();
+      if (error) throw error;
+
+      const resolvedWorkspaceId = (data as { workspace_id?: unknown } | null)?.workspace_id;
+      const workspaceIdFromInvite = typeof resolvedWorkspaceId === "string" && resolvedWorkspaceId.trim()
+        ? resolvedWorkspaceId
+        : invitePreview?.workspace_id ?? null;
+
+      await refreshWorkspaces({ force: true, preferId: workspaceIdFromInvite });
+      if (workspaceIdFromInvite) {
+        selectWorkspace(workspaceIdFromInvite);
+      }
+      clearInviteToken();
+    } catch (err: unknown) {
+      setInvitePreviewError(getErrorMessage(err, "Failed to accept workspace invite."));
+    } finally {
+      setInviteAccepting(false);
+    }
+  }, [
+    session,
+    inviteToken,
+    invitePreview?.workspace_id,
+    refreshWorkspaces,
+    selectWorkspace,
+    clearInviteToken,
+  ]);
 
   function openCreateWorkspace() {
     setCreateError(null);
@@ -501,6 +636,13 @@ export default function AppShell() {
   const workspaceGateLoading = shouldBlockWorkspaceRoute
     && loadingWorkspaces
     && workspaces.length === 0;
+  const invitePromptOpen = !!inviteToken;
+  const invitePromptRequiresLogin = invitePromptOpen && !session;
+  const inviteRoleLabel = useMemo(() => {
+    const role = (invitePreview?.role ?? "").trim().toLowerCase();
+    if (!role) return "Unknown";
+    return `${role[0].toUpperCase()}${role.slice(1)}`;
+  }, [invitePreview?.role]);
 
   useEffect(() => {
     if (!shouldBlockWorkspaceRoute) {
@@ -912,6 +1054,60 @@ export default function AppShell() {
           </div>
         </div>
       )}
+
+      {invitePromptOpen ? (
+        <div className="appshell-invite-backdrop">
+          <div className="appshell-invite-card">
+            <h3 className="appshell-invite-title">Workspace Invite</h3>
+            {invitePromptRequiresLogin ? (
+              <>
+                <p className="appshell-invite-copy">
+                  Sign in with the invited email address to accept this workspace invite.
+                </p>
+                <div className="appshell-invite-actions">
+                  <button type="button" onClick={clearInviteToken}>
+                    Not now
+                  </button>
+                  <button type="button" onClick={onSignIn}>
+                    Sign in
+                  </button>
+                </div>
+              </>
+            ) : invitePreviewLoading ? (
+              <p className="appshell-invite-copy">Loading invite details...</p>
+            ) : invitePreviewError ? (
+              <>
+                <div className="appshell-invite-error">{invitePreviewError}</div>
+                <div className="appshell-invite-actions">
+                  <button type="button" onClick={clearInviteToken}>
+                    Close
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="appshell-invite-copy">
+                  Accept invite to <strong>{invitePreview?.workspace_name ?? "Workspace"}</strong> as{" "}
+                  <strong>{inviteRoleLabel}</strong>.
+                </p>
+                <p className="appshell-invite-copy appshell-invite-copy--muted">
+                  Invited email: {invitePreview?.email ?? "Unknown"} • Expires {invitePreview?.expires_at
+                    ? new Date(invitePreview.expires_at).toLocaleString()
+                    : "Unknown"}
+                </p>
+                <div className="appshell-invite-actions">
+                  <button type="button" onClick={clearInviteToken} disabled={inviteAccepting}>
+                    Cancel
+                  </button>
+                  <button type="button" onClick={() => void acceptInvite()} disabled={inviteAccepting}>
+                    {inviteAccepting ? "Accepting..." : "Accept Invite"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
 
       {aiControlsOpen ? (
         <div

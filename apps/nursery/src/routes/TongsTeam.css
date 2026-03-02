@@ -1,0 +1,186 @@
+.tt-page {
+  display: grid;
+  gap: 16px;
+}
+
+.tt-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.tt-title {
+  margin: 0;
+}
+
+.tt-subtitle {
+  margin: 4px 0 0;
+  color: var(--forge-text-muted);
+  font-size: 13px;
+}
+
+.tt-workspace-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--forge-bg-elevated);
+  border: 1px solid var(--forge-border);
+  border-radius: 10px;
+  padding: 6px 10px;
+}
+
+.tt-workspace-name {
+  font-weight: 600;
+}
+
+.tt-role-badge {
+  font-size: 12px;
+  border: 1px solid rgba(147, 197, 253, 0.55);
+  border-radius: 999px;
+  padding: 2px 8px;
+  color: #bfdcff;
+}
+
+.tt-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 16px;
+}
+
+.tt-panel {
+  border: 1px solid var(--forge-border);
+  background: var(--forge-bg-elevated);
+  border-radius: 12px;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.tt-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.tt-panel-title {
+  margin: 0;
+  font-size: 16px;
+}
+
+.tt-error {
+  color: var(--forge-danger);
+  font-size: 12px;
+}
+
+.tt-notice {
+  color: var(--forge-success);
+  font-size: 12px;
+}
+
+.tt-table-wrap {
+  overflow-x: auto;
+}
+
+.tt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.tt-table th,
+.tt-table td {
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--forge-border);
+  vertical-align: top;
+  text-align: left;
+}
+
+.tt-table th {
+  color: var(--forge-text-muted);
+  font-weight: 600;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.tt-cell-primary {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.tt-cell-secondary {
+  font-size: 12px;
+  color: var(--forge-text-muted);
+}
+
+.tt-empty-cell {
+  padding: 10px;
+  color: var(--forge-text-muted);
+  font-size: 12px;
+}
+
+.tt-role-select {
+  min-width: 110px;
+}
+
+.tt-role-pill {
+  font-size: 12px;
+  border: 1px solid var(--forge-border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  display: inline-block;
+}
+
+.tt-danger-button {
+  color: var(--forge-danger);
+  border-color: var(--forge-danger);
+}
+
+.tt-leave-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tt-invite-form {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--forge-border);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(7, 11, 19, 0.35);
+}
+
+.tt-field {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.tt-field span {
+  color: var(--forge-text-muted);
+}
+
+.tt-invites-list {
+  display: grid;
+  gap: 8px;
+}
+
+.tt-invite-row {
+  border: 1px solid var(--forge-border);
+  border-radius: 10px;
+  padding: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+@media (max-width: 1100px) {
+  .tt-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -37,6 +37,8 @@ type ReadyScriptApiRow = {
   title?: unknown;
   updated_at?: unknown;
   content_category?: unknown;
+  marked_ready_by?: unknown;
+  marked_ready_at?: unknown;
 };
 
 type WrittenBy = {
@@ -58,6 +60,8 @@ export type HearthReadyScript = {
   title: string;
   updatedAt: string | null;
   contentCategory: HearthContentCategory | null;
+  markedReadyBy: string | null;
+  markedReadyAt: string | null;
 };
 
 function readString(value: unknown): string | null {
@@ -327,6 +331,8 @@ function parseReadyScriptsPayload(payload: unknown, workspaceId: string): Hearth
       title,
       updatedAt: normalizeIso(item.updated_at),
       contentCategory: normalizeCategory(item.content_category),
+      markedReadyBy: normalizeUuid(item.marked_ready_by),
+      markedReadyAt: normalizeIso(item.marked_ready_at),
     };
 
     const existing = byWorkpieceId.get(workpieceId);
