@@ -448,7 +448,7 @@ export default function TongsTeam() {
         </div>
         <div className="tt-workspace-meta">
           <span className="tt-workspace-name">{activeWorkspace?.name ?? "Workspace"}</span>
-          <span className="tt-role-badge">{workspaceRoleLabel(workspaceRole)}</span>
+          <span className="tt-role-badge">Your role: {workspaceRoleLabel(workspaceRole)}</span>
         </div>
       </header>
 
@@ -484,7 +484,20 @@ export default function TongsTeam() {
                   const isSelf = currentUserId != null && member.user_id === currentUserId;
                   const canChangeRole = canManageMembers && !isSelf;
                   const canRemove = canManageMembers && !isSelf;
-                  const roleOptions = MEMBER_ROLE_OPTIONS.filter((roleOption) => canAssignRole(workspaceRole, roleOption));
+                  const roleOptions = MEMBER_ROLE_OPTIONS.filter((roleOption) => {
+                    if (!canChangeRole) return true;
+                    return canAssignRole(workspaceRole, roleOption);
+                  });
+                  const roleSelectTitle = canChangeRole
+                    ? "Change workspace role"
+                    : isSelf
+                      ? "You cannot change your own role here."
+                      : "Admin role required";
+                  const removeActionTitle = canRemove
+                    ? "Remove member from workspace"
+                    : isSelf
+                      ? "Use Leave workspace to remove yourself."
+                      : "Admin role required";
                   return (
                     <tr key={`${member.workspace_id}:${member.user_id}`}>
                       <td>
@@ -497,44 +510,38 @@ export default function TongsTeam() {
                         </div>
                       </td>
                       <td>
-                        {canChangeRole ? (
-                          <select
-                            className="tt-role-select"
-                            value={memberRole ?? "viewer"}
-                            onChange={(event) => {
-                              const nextRole = normalizeWorkspaceRole(event.target.value);
-                              if (!nextRole) return;
-                              void onChangeMemberRole(member, nextRole);
-                            }}
-                            disabled={roleBusyUserId === member.user_id}
-                          >
-                            {roleOptions.map((roleOption) => (
-                              <option key={roleOption} value={roleOption}>
-                                {workspaceRoleLabel(roleOption)}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <span className="tt-role-pill">{workspaceRoleLabel(memberRole)}</span>
-                        )}
+                        <select
+                          className="tt-role-select"
+                          value={memberRole ?? "viewer"}
+                          onChange={(event) => {
+                            const nextRole = normalizeWorkspaceRole(event.target.value);
+                            if (!nextRole || !canChangeRole) return;
+                            void onChangeMemberRole(member, nextRole);
+                          }}
+                          disabled={!canChangeRole || roleBusyUserId === member.user_id}
+                          title={roleSelectTitle}
+                        >
+                          {roleOptions.map((roleOption) => (
+                            <option key={roleOption} value={roleOption}>
+                              {workspaceRoleLabel(roleOption)}
+                            </option>
+                          ))}
+                        </select>
                       </td>
                       <td>
                         <div className="tt-cell-primary">{formatRelativeTime(member.created_at)}</div>
                         <div className="tt-cell-secondary">{formatDateTime(member.created_at)}</div>
                       </td>
                       <td>
-                        {canRemove ? (
-                          <button
-                            type="button"
-                            className="tt-danger-button"
-                            onClick={() => void onRemoveMember(member)}
-                            disabled={removeBusyUserId === member.user_id}
-                          >
-                            {removeBusyUserId === member.user_id ? "Removing..." : "Remove"}
-                          </button>
-                        ) : (
-                          <span className="tt-cell-secondary">{isSelf ? "You" : "-"}</span>
-                        )}
+                        <button
+                          type="button"
+                          className="tt-danger-button"
+                          onClick={() => void onRemoveMember(member)}
+                          disabled={!canRemove || removeBusyUserId === member.user_id}
+                          title={removeActionTitle}
+                        >
+                          {removeBusyUserId === member.user_id ? "Removing..." : "Remove"}
+                        </button>
                       </td>
                     </tr>
                   );
@@ -624,8 +631,23 @@ export default function TongsTeam() {
               ) : null}
             </div>
           ) : (
-            <div className="tt-cell-secondary">
-              Invite creation requires Admin or Owner role.
+            <div className="tt-invite-form tt-invite-form--disabled" title="Admin role required">
+              <label className="tt-field">
+                <span>Email</span>
+                <input type="email" placeholder="teammate@example.com" disabled />
+              </label>
+              <label className="tt-field">
+                <span>Role</span>
+                <select disabled>
+                  <option>Editor</option>
+                </select>
+              </label>
+              <button type="button" disabled>
+                Create invite
+              </button>
+              <div className="tt-cell-secondary">
+                Invite creation requires Admin or Owner role.
+              </div>
             </div>
           )}
 
