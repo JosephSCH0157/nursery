@@ -9,7 +9,8 @@
     "types": "pnpm --filter nursery typecheck && pnpm --filter @forge/tongs typecheck",
     "gate": "pnpm check",
     "check": "pnpm smoke && pnpm lint && pnpm types",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke:team": "node scripts/phase-g-team-ui-smoke.mjs",
+    "smoke": "node scripts/smoke.mjs && pnpm smoke:team"
   },
   "devDependencies": {
     "dotenv": "^16.6.1",

@@ -21,6 +21,7 @@ const WORKSPACE_REQUIRED_APP_SEGMENTS = new Set([
   "quench",
   "ledger",
   "barstock",
+  "bar-stock",
   "calendar",
 ]);
 
@@ -1031,7 +1032,7 @@ export default function AppShell() {
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
               <button
                 type="button"
-                onClick={closeDeleteWorkspace}
+                onClick={() => closeDeleteWorkspace()}
                 disabled={deleting}
                 style={{ cursor: deleting ? "not-allowed" : "pointer" }}
               >

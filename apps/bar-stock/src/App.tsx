@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import "./index.css";
 
 import type { Assignment, AssignmentId, Spark, SparkStatus } from "./lib/model";
@@ -155,9 +155,30 @@ type WorkspaceState = {
   onWorkspaceChange: (id: string | null) => void;
 };
 
+type MobileRouteMode = "list" | "new" | "detail";
+
+type BarstockMobileRoute = {
+  mode: MobileRouteMode;
+  sparkId?: string;
+  onOpenSpark: (sparkId: string) => void;
+  onOpenNew: () => void;
+  onBackToList: () => void;
+};
+
+type BarstockMobilePage = {
+  title: string;
+  children: ReactNode;
+  onBack?: () => void;
+  showBack?: boolean;
+  rightAction?: ReactNode;
+  bottomBar?: ReactNode;
+};
+
 type BarstockAppProps = {
   workspaceState?: WorkspaceState;
   showWorkspacePicker?: boolean;
+  mobileRoute?: BarstockMobileRoute | null;
+  renderMobilePage?: (page: BarstockMobilePage) => ReactNode;
 };
 
 export default function App(props: BarstockAppProps = {}) {
@@ -554,7 +575,18 @@ export default function App(props: BarstockAppProps = {}) {
     [isSparkGraduated, sparks],
   );
   const graduatedSparkCount = sparks.length - activeSparkCount;
-  const canAdd = useMemo(() => body.trim().length > 0, [body]);
+  const activeWorkspaceRole = useMemo(
+    () => workspaces.find((workspace) => workspace.id === workspaceId)?.role ?? null,
+    [workspaceId, workspaces],
+  );
+  const canWrite = useMemo(() => {
+    if (!activeWorkspaceRole) return true;
+    return activeWorkspaceRole === "owner" || activeWorkspaceRole === "admin" || activeWorkspaceRole === "editor";
+  }, [activeWorkspaceRole]);
+  const canAdd = useMemo(() => canWrite && body.trim().length > 0, [body, canWrite]);
+  const mobileRoute = props.mobileRoute ?? null;
+  const isMobileRoute = mobileRoute !== null;
+  const mobileMode: MobileRouteMode = mobileRoute?.mode ?? "list";
   const syncLabel = !supabaseAvailable ? "LOCAL-ONLY" : tongsStatus.toUpperCase();
   const syncHint = !supabaseAvailable
     ? "Cloud sync unavailable."
@@ -591,6 +623,10 @@ export default function App(props: BarstockAppProps = {}) {
   }
 
   function updateSpark(s: Spark, patch: Partial<Spark>) {
+    if (!canWrite) {
+      popToast("Editor access required.");
+      return;
+    }
     const ts = now();
     const next: Spark = { ...s, ...patch, updatedAt: ts };
     setSparks(prev => upsertSpark(prev, next));
@@ -609,6 +645,10 @@ export default function App(props: BarstockAppProps = {}) {
   }
 
   function deleteSpark(id: string) {
+    if (!canWrite) {
+      popToast("Editor access required.");
+      return;
+    }
     setSparks(prev => removeSpark(prev, id));
     enqueue({ op: "delete_spark", at: now(), sparkId: id });
   }
@@ -619,6 +659,10 @@ export default function App(props: BarstockAppProps = {}) {
 
 
   function addAssignment() {
+    if (!canWrite) {
+      popToast("Editor access required.");
+      return;
+    }
     const name = newAssignmentName.trim();
     if (!name) return;
     const a = makeAssignment(name);
@@ -630,6 +674,10 @@ export default function App(props: BarstockAppProps = {}) {
   }
 
   function addSpark() {
+    if (!canWrite) {
+      popToast("Editor access required.");
+      return;
+    }
     if (!canAdd) return;
 
     const tags = extractTags(body);
@@ -740,6 +788,365 @@ export default function App(props: BarstockAppProps = {}) {
     for (const a of assignments) m.set(a.id, a.name);
     return m;
   }, [assignments]);
+
+  const renderMobilePage = useCallback((page: BarstockMobilePage): ReactNode => {
+    if (props.renderMobilePage) {
+      return props.renderMobilePage(page);
+    }
+    return (
+      <section className="barstock-mobile-fallback">
+        <header className="barstock-mobile-fallback__header">
+          <div className="barstock-mobile-fallback__left">
+            {page.showBack === false ? null : (
+              <button type="button" onClick={page.onBack}>
+                Back
+              </button>
+            )}
+          </div>
+          <h1 className="barstock-mobile-fallback__title">{page.title}</h1>
+          <div className="barstock-mobile-fallback__right">{page.rightAction}</div>
+        </header>
+        <div className="barstock-mobile-fallback__body">{page.children}</div>
+        {page.bottomBar ? (
+          <footer className="barstock-mobile-fallback__bottom">{page.bottomBar}</footer>
+        ) : null}
+      </section>
+    );
+  }, [props.renderMobilePage]);
+
+  const mobileDetailSpark = useMemo(() => {
+    if (!mobileRoute || mobileMode !== "detail" || !mobileRoute.sparkId) return null;
+    return sparks.find((spark) => spark.id === mobileRoute.sparkId) ?? null;
+  }, [mobileMode, mobileRoute, sparks]);
+
+  useEffect(() => {
+    if (!mobileRoute) return;
+    if (mobileMode !== "detail") return;
+    if (!mobileRoute.sparkId) {
+      mobileRoute.onBackToList();
+      return;
+    }
+    const existsInWorkspace = sparks.some((spark) => spark.id === mobileRoute.sparkId);
+    if (!existsInWorkspace) {
+      mobileRoute.onBackToList();
+    }
+  }, [mobileMode, mobileRoute, sparks]);
+
+  if (isMobileRoute && mobileRoute) {
+    if (mobileMode === "new") {
+      return (
+        <div className="barstock-root barstock-mobile-root">
+          {renderMobilePage({
+            title: "New Spark",
+            onBack: () => mobileRoute.onBackToList(),
+            children: (
+              <div className="barstock-mobile-content">
+                {toast ? <div className="barstock-mobile-toast">{toast}</div> : null}
+                {!canWrite ? (
+                  <p className="barstock-mobile-message">
+                    Viewer role is read-only in this workspace.
+                  </p>
+                ) : null}
+                <label className="barstock-mobile-field">
+                  <span className="barstock-mobile-field__label">Spark</span>
+                  <textarea
+                    value={body}
+                    onChange={(event) => setBody(event.target.value)}
+                    placeholder="Type here… try #tags if you want."
+                    rows={16}
+                    className="barstock-mobile-textarea"
+                  />
+                </label>
+              </div>
+            ),
+            bottomBar: (
+              <div className="barstock-mobile-actions">
+                <button
+                  type="button"
+                  className="barstock-mobile-button"
+                  onClick={() => {
+                    setBody("");
+                    mobileRoute.onBackToList();
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="barstock-mobile-button barstock-mobile-button--primary"
+                  disabled={!canAdd}
+                  onClick={() => {
+                    addSpark();
+                    if (!canWrite) return;
+                    mobileRoute.onBackToList();
+                  }}
+                >
+                  Save
+                </button>
+              </div>
+            ),
+          })}
+        </div>
+      );
+    }
+
+    if (mobileMode === "detail") {
+      if (!mobileDetailSpark) {
+        return (
+          <div className="barstock-root barstock-mobile-root">
+            {renderMobilePage({
+              title: "Spark",
+              onBack: () => mobileRoute.onBackToList(),
+              children: (
+                <div className="barstock-mobile-content">
+                  <p className="barstock-mobile-message">
+                    Spark not found in this workspace.
+                  </p>
+                </div>
+              ),
+            })}
+          </div>
+        );
+      }
+
+      const detailEditing = editingId === mobileDetailSpark.id;
+      const detailIsGraduated = isSparkGraduated(mobileDetailSpark);
+
+      return (
+        <div className="barstock-root barstock-mobile-root">
+          {renderMobilePage({
+            title: mobileDetailSpark.title?.trim() || "Spark",
+            onBack: () => mobileRoute.onBackToList(),
+            rightAction: canWrite ? (
+              detailEditing ? (
+                <button
+                  type="button"
+                  className="barstock-mobile-button"
+                  onClick={() => {
+                    setEditingId(null);
+                    setEditingBody("");
+                  }}
+                >
+                  Cancel
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="barstock-mobile-button"
+                  onClick={() => {
+                    setEditingId(mobileDetailSpark.id);
+                    setEditingBody(mobileDetailSpark.body);
+                  }}
+                >
+                  Edit
+                </button>
+              )
+            ) : null,
+            children: (
+              <div className="barstock-mobile-content">
+                {toast ? <div className="barstock-mobile-toast">{toast}</div> : null}
+                <div className="barstock-mobile-meta">
+                  <span>{new Date(mobileDetailSpark.updatedAt).toLocaleString()}</span>
+                  {detailIsGraduated ? <span>Graduated</span> : null}
+                  <span>{assignmentNameById.get(mobileDetailSpark.assignmentId ?? "") ?? "No project"}</span>
+                </div>
+
+                <label className="barstock-mobile-field">
+                  <span className="barstock-mobile-field__label">Status</span>
+                  <select
+                    value={mobileDetailSpark.status}
+                    disabled={!canWrite}
+                    onChange={(event) => setStatus(mobileDetailSpark, event.target.value as SparkStatus)}
+                  >
+                    <option value="raw">Open (Raw)</option>
+                    <option value="warming">Open (Warming)</option>
+                    <option value="forged">Forged</option>
+                    <option value="graduated">Graduated</option>
+                    <option value="archived">Archived</option>
+                  </select>
+                </label>
+
+                <label className="barstock-mobile-field">
+                  <span className="barstock-mobile-field__label">Project</span>
+                  <select
+                    value={mobileDetailSpark.assignmentId ?? ""}
+                    disabled={!canWrite}
+                    onChange={(event) => {
+                      const value = event.target.value.trim();
+                      updateSpark(mobileDetailSpark, { assignmentId: value || null });
+                    }}
+                  >
+                    <option value="">No project</option>
+                    {sortedAssignments.map((assignment) => (
+                      <option key={assignment.id} value={assignment.id}>
+                        {assignment.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {detailEditing ? (
+                  <textarea
+                    value={editingBody}
+                    onChange={(event) => setEditingBody(event.target.value)}
+                    rows={14}
+                    className="barstock-mobile-textarea"
+                  />
+                ) : (
+                  <pre className="barstock-mobile-detail-body">{mobileDetailSpark.body}</pre>
+                )}
+              </div>
+            ),
+            bottomBar: canWrite ? (
+              <div className="barstock-mobile-actions">
+                {detailEditing ? (
+                  <>
+                    <button
+                      type="button"
+                      className="barstock-mobile-button"
+                      onClick={() => {
+                        setEditingId(null);
+                        setEditingBody("");
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="barstock-mobile-button barstock-mobile-button--primary"
+                      onClick={() => {
+                        updateSpark(mobileDetailSpark, { body: editingBody });
+                        setEditingId(null);
+                        setEditingBody("");
+                        popToast("Saved.");
+                      }}
+                    >
+                      Save
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="barstock-mobile-button"
+                      disabled={!mobileDetailSpark.assignmentId}
+                      onClick={() => {
+                        if (!mobileDetailSpark.assignmentId) return;
+                        navigateToHearthForProject(mobileDetailSpark.assignmentId);
+                      }}
+                    >
+                      Launch Episode
+                    </button>
+                    <button
+                      type="button"
+                      className="barstock-mobile-button barstock-mobile-button--danger"
+                      onClick={() => {
+                        deleteSpark(mobileDetailSpark.id);
+                        mobileRoute.onBackToList();
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </>
+                )}
+              </div>
+            ) : null,
+          })}
+        </div>
+      );
+    }
+
+    return (
+      <div className="barstock-root barstock-mobile-root">
+        {renderMobilePage({
+          title: "Bar-Stock",
+          showBack: false,
+          rightAction: canWrite ? (
+            <button
+              type="button"
+              className="barstock-mobile-button barstock-mobile-button--primary"
+              onClick={() => mobileRoute.onOpenNew()}
+            >
+              New Spark
+            </button>
+          ) : null,
+          children: (
+            <div className="barstock-mobile-content">
+              {toast ? <div className="barstock-mobile-toast">{toast}</div> : null}
+              <p className="barstock-mobile-count">
+                {showGraduated
+                  ? `${activeSparkCount} active • ${graduatedSparkCount} graduated`
+                  : `${activeSparkCount} sparks • idea mine`}
+              </p>
+
+              <label className="barstock-mobile-field">
+                <span className="barstock-mobile-field__label">Project</span>
+                <select
+                  value={activeAssignment}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    setActiveAssignment(next === "all" ? "all" : next);
+                  }}
+                >
+                  <option value="all">All sparks</option>
+                  {visibleAssignments.map((assignment) => (
+                    <option key={assignment.id} value={assignment.id}>
+                      {assignment.name} ({projectCountsByAssignmentId.get(assignment.id)?.active ?? 0})
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="barstock-mobile-field">
+                <span className="barstock-mobile-field__label">Search</span>
+                <input
+                  value={q.text ?? ""}
+                  onChange={(event) => setQ((prev) => ({ ...prev, text: event.target.value }))}
+                  placeholder="Search sparks…"
+                />
+              </label>
+
+              <label className="barstock-mobile-checkbox">
+                <input
+                  type="checkbox"
+                  checked={showGraduated}
+                  onChange={(event) => setShowGraduated(event.target.checked)}
+                />
+                Show graduated
+              </label>
+
+              {filtered.length === 0 ? (
+                <p className="barstock-mobile-message">No sparks yet. Toss one in.</p>
+              ) : (
+                <div className="barstock-mobile-list">
+                  {filtered.map((spark) => {
+                    const isGraduated = isSparkGraduated(spark);
+                    return (
+                      <button
+                        key={spark.id}
+                        type="button"
+                        className="barstock-mobile-spark-row"
+                        onClick={() => mobileRoute.onOpenSpark(spark.id)}
+                      >
+                        <div className="barstock-mobile-spark-row__meta">
+                          <span>{new Date(spark.createdAt).toLocaleDateString()}</span>
+                          <span>{assignmentNameById.get(spark.assignmentId ?? "") ?? "No project"}</span>
+                          {isGraduated ? <span>Graduated</span> : null}
+                        </div>
+                        <span className="barstock-mobile-spark-row__body">
+                          {spark.body}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ),
+        })}
+      </div>
+    );
+  }
 
   return (
     <div

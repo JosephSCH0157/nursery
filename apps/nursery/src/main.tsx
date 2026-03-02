@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import "./index.css";
+import "./styles/mobile-primitives.css";
 
 import Login from "./routes/Login";
 import AppShell from "./routes/AppShell";
@@ -18,6 +19,7 @@ import AnvilRoute from "./routes/Anvil";
 import HearthRoute from "./routes/Hearth";
 import HearthStandalone from "./routes/HearthStandalone";
 import IronMineRoute from "./routes/IronMine";
+import MobilePrimitivesDemo from "./routes/MobilePrimitivesDemo";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
@@ -41,8 +43,10 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="quench" element={<Placeholder name="Quench" />} />
           <Route path="ledger" element={<Placeholder name="Ledger" />} />
           <Route path="iron-mine" element={<IronMineRoute />} />
-          <Route path="barstock" element={<BarstockRoute />} />
+          <Route path="barstock/*" element={<BarstockRoute />} />
+          <Route path="bar-stock/*" element={<BarstockRoute />} />
           <Route path="calendar" element={<Placeholder name="Calendar" />} />
+          <Route path="mobile-demo" element={<MobilePrimitivesDemo />} />
           <Route path="settings" element={<SettingsLayout />}>
             <Route index element={<SettingsHome />} />
             <Route path="storage" element={<SettingsStorage />} />

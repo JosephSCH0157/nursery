@@ -1,0 +1,48 @@
+:root {
+  --mobile-space-1: 4px;
+  --mobile-space-2: 8px;
+  --mobile-space-3: 12px;
+  --mobile-space-4: 16px;
+  --mobile-space-5: 20px;
+  --mobile-space-6: 24px;
+  --mobile-page-padding: 16px;
+  --mobile-tap-min: 44px;
+}
+
+.mobile-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.mobile-safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.mobile-tap-target {
+  min-height: var(--mobile-tap-min);
+  min-width: var(--mobile-tap-min);
+}
+
+.mobile-stack {
+  display: grid;
+  gap: var(--mobile-space-4);
+}
+
+@media (max-width: 767px) {
+  button,
+  [role="button"],
+  a.mobile-tap-target {
+    min-height: var(--mobile-tap-min);
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
