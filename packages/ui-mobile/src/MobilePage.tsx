@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
-import { useLayoutMode } from "../../hooks/useLayoutMode";
+import { useLayoutMode } from "./useLayoutMode";
 import "./MobilePage.css";
 
 type MobilePageProps = {
@@ -14,7 +13,7 @@ type MobilePageProps = {
   showBack?: boolean;
 };
 
-export default function MobilePage({
+export function MobilePage({
   title,
   children,
   rightAction,
@@ -24,16 +23,7 @@ export default function MobilePage({
   backLabel = "Back",
   showBack = true,
 }: MobilePageProps) {
-  const navigate = useNavigate();
   const layoutMode = useLayoutMode();
-
-  const handleBack = () => {
-    if (onBack) {
-      onBack();
-      return;
-    }
-    navigate(-1);
-  };
 
   return (
     <section className={`mobile-page mobile-page--${layoutMode}`}>
@@ -43,7 +33,7 @@ export default function MobilePage({
             <button
               type="button"
               className="mobile-page__back mobile-tap-target"
-              onClick={handleBack}
+              onClick={() => onBack?.()}
               aria-label={backLabel}
             >
               {backLabel}

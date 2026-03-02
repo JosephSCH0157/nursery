@@ -1,0 +1,1024 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/png" sizes="512x512" href="assets/anvil-favicon.png">
+  <title>Display</title>
+  <!-- Force display window into passive mirror mode before any bundles run -->
+  <script>
+    // LEGACY COMPAT
+    try {
+      // Mark as display explicitly (belt + suspenders)
+      window.__TP_FORCE_DISPLAY = true;
+      // Neuter any auto-scroll controllers that might boot in display context
+      window.__tpAuto = {
+        start() {},
+        stop() {},
+        set() {},
+        setEnabled() {},
+        setSpeed() {},
+        startFromPreroll() {},
+        isActive() { return false; },
+        getState() { return { enabled: false, speed: 0 }; },
+      };
+      // Disable any local scroll writer so the main window remains the SSOT for movement
+      window.__tpScrollWrite = {
+        scrollTo() { /* display is mirror-only */ },
+        scrollBy() { /* display is mirror-only */ },
+      };
+      // Freeze mode routing in display to manual so no local timers kick in
+      window.__tpMode = {
+        getMode: () => 'manual',
+        get: () => 'manual',
+        set: () => {},
+        on: (fn) => { try { fn && fn('manual'); } catch {} return () => {}; },
+      };
+    } catch {}
+  </script>
+  <script>
+    // LEGACY COMPAT
+    (function () {
+      const selectorFix = /(?:^|,)\\s*:x/g;
+      const wrap = (proto, original) => {
+        if (!original) return;
+        proto.querySelectorAll = function (selector) {
+          try {
+            return original.call(this, selector);
+          } catch (err) {
+            const shouldFix =
+              selector &&
+              typeof selector === 'string' &&
+              selectorFix.test(selector) &&
+              err &&
+              err instanceof DOMException;
+            if (shouldFix) {
+              const safeSelector = selector.replace(selectorFix, '');
+              return original.call(this, safeSelector);
+            }
+            throw err;
+          }
+        };
+      };
+      wrap(Document.prototype, Document.prototype.querySelectorAll);
+      wrap(Element.prototype, Element.prototype.querySelectorAll);
+    })();
+  </script>
+  <script>
+    // LEGACY COMPAT
+    (function () {
+      const locks = window?.navigator?.locks;
+      if (!locks || locks.__tpPatched) return;
+      const origRequest = locks.request.bind(locks);
+      locks.request = function (name, options) {
+        return origRequest(name, options)
+          .then((lock) => lock || { release() {} })
+          .catch((error) => {
+            console.warn('[display] NavigatorLock fallback', error?.message || error);
+            return { release() {} };
+          });
+      };
+      try {
+        locks.__tpPatched = true;
+      } catch {}
+    })();
+  </script>
+  <!-- BOOTSTRAP ONLY -->
+  <script type="module">
+    (async () => {
+      const importFirst = async (paths) => {
+        for (const path of paths) {
+          try {
+            await import(path);
+            return;
+          } catch {
+            // try next candidate
+          }
+        }
+      };
+      await importFirst(["./display-renderer.js", "./dist/display-renderer.js"]);
+      await importFirst(["./net/display-ws-display-client.js", "./dist/net/display-ws-display-client.js"]);
+    })().catch((err) => {
+      try { console.error('[display] failed to load renderer modules', err); } catch {}
+    });
+  </script>
+  <!-- TS bundle intentionally omitted in display window to keep it mirror-only and avoid double wiring -->
+  <style>
+          :root{--bg:#000;--fg:#e7ebf0;--edge:#1e2936;--muted:#96a0aa;--s1-color:#60a5fa;--s2-color:#facc15;--g1-color:#34d399;--g2-color:#f472b6}
+          html,body{height:100%;margin:0;overflow:hidden}
+          body{background:var(--bg);color:var(--fg);font:16px/1.5 system-ui}
+          .wrap{height:100%;overflow:auto}
+          #wrap{will-change:scroll-position;}
+          /* Speaker colors (match main app defaults / CSS vars) */
+          .speaker-s1{color:var(--s1-color,#60a5fa);font-weight:600;}
+          .speaker-s2{color:var(--s2-color,#facc15);font-weight:600;}
+          .speaker-guest1{color:var(--g1-color,#34d399);font-weight:600;}
+          .speaker-guest2{color:var(--g2-color,#f472b6);font-weight:600;}
+
+          /* Top bar legend (match main) */
+          #displayTopbar{position:fixed;top:0;left:0;right:0;height:36px;display:flex;align-items:center;pointer-events:none;z-index:1000;padding:0 10px}
+          .legend{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+          .display-active-speaker{margin-left:6px;border-color:rgba(255,255,255,0.35);background:rgba(255,255,255,0.08);}
+          .tag{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid var(--edge);border-radius:999px;font-size:12px;background:#0e141b}
+          .tag .dot{width:10px;height:10px;border-radius:50%}
+          #displayTopbar{display:flex;align-items:center;justify-content:flex-start;gap:12px}
+          #displayRecPill{display:inline-flex;align-items:center;gap:4px;padding:2px 10px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.5px;border:1px solid rgba(255,255,255,.3);background:rgba(0,0,0,.6);color:#ffb3b3;text-transform:uppercase}
+          #displayRecPill::before{content:'●';font-size:10px}
+          #displayRecPill.hidden{display:none}
+          #displayRecPill.armed{background:rgba(255,215,0,.18);color:#ffe28a}
+          #displayRecPill.live{background:rgba(220,53,69,.35);color:#ffd6d6}
+          /* Override to ensure bullet renders consistently */
+          #displayRecPill::before{content:'\2022';font-size:10px}
+          /* Rehearsal watermark (display) */
+          html.tp-mode-rehearsal::before{
+            content:'REHEARSAL';
+            position:fixed;
+            top:1rem;
+            right:1rem;
+            font-size:1.25rem;
+            font-weight:600;
+            padding:0.4rem 0.8rem;
+            border-radius:999px;
+            background:rgba(255,255,255,0.08);
+            color:rgba(255,255,255,0.9);
+            z-index:9999;
+            pointer-events:none;
+          }
+          /* Script wrapping (display typography is independent) */
+          .script{
+            margin:0;
+            padding:0;
+            white-space:pre-wrap;
+            overflow-wrap:break-word;
+            word-break:normal;
+          }
+          .u{text-decoration:underline}
+          .note{color:var(--muted);font-style:italic;margin:0 0 28px}
+          /* Align with main marker at 40% */
+          .marker{position:sticky;top:40%;height:2px;background:#7cc4ff;box-shadow:0 0 6px #7cc4ff}
+          .hud{position:fixed;right:12px;bottom:12px;font:12px/1.2 system-ui;color:#9ba7b2;opacity:.7}
+          #scrollLog{margin-top:8px;font-size:10px;text-align:left;max-width:300px;word-wrap:break-word;}
+          .btn{cursor:pointer;border:1px solid var(--edge);padding:6px 8px;border-radius:8px;background:#0e141b;color:#e7ebf0;margin-left:8px}
+          #preRoll{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.6);z-index:9999}
+          #preRoll .card{background:#0e141b;border:1px solid var(--edge);padding:24px 32px;border-radius:16px;text-align:center}
+          #preRoll .hint{font-size:14px;color:#9ba7b2}
+          #preRoll .num{font-variant-numeric:tabular-nums;font-size:64px;line-height:1;margin-top:6px}
+          /* CK watermark */
+          body.ck::after{content:"CK";position:fixed;left:10px;bottom:10px;z-index:9999;font:600 11px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;letter-spacing:2px;color:#d67d2d;opacity:.18;pointer-events:none}
+          /* Trial watermark */
+          #trialDisplayWatermark{position:fixed;inset:0;pointer-events:none;display:none;align-items:center;justify-content:center;flex-direction:column;gap:18px;z-index:9998}
+          #trialDisplayWatermark .trial-mark{width:min(34vw,280px);height:min(34vw,280px);background:url('assets/watermark.png?v=1') center/contain no-repeat;opacity:.14;filter:drop-shadow(0 6px 18px rgba(0,0,0,.45))}
+          #trialDisplayWatermark .trial-text{font:700 clamp(18px,5vw,52px)/1.1 system-ui,Segoe UI,Roboto,Arial,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#fff;opacity:.08;text-shadow:0 0 20px rgba(0,0,0,.35)}
+          /* Recorder pill overrides */
+          #displayRecPill{all: unset; display:none;}
+          .rec-pill{display:none;align-items:center;justify-content:center;height:22px;padding:0 12px;border-radius:999px;font-size:0.82rem;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;line-height:1;opacity:0;transform:scale(.98);transition:opacity 500ms ease,transform 500ms ease,color 320ms ease,background-color 320ms ease;pointer-events:none;user-select:none}
+          .rec-pill.is-visible{opacity:1;transform:scale(1)}
+          .rec-pill.rec-pill--armed{background:#ffd54f;color:#1a1f27}
+          .rec-pill.rec-pill--recording{background:#ef5350;color:#fff;animation:recPulse 2.5s ease-in-out infinite}
+          .rec-pill--display{height:18px;padding:0 10px;font-size:11px}
+          #displayRecPill::before{content:'\2022';font-size:10px;margin-right:6px}
+          @keyframes recPulse{0%{transform:scale(1);opacity:1}50%{transform:scale(1.03);opacity:.95}100%{transform:scale(1);opacity:1}}
+          /* Remote camera preview styles */
+          #mirrorCamWrap{position:fixed;left:12px;bottom:12px;width:240px;max-width:28vw;z-index:1200;}
+          #mirrorCamVideo{width:100%;max-width:100%;border:1px solid var(--edge);border-radius:12px;box-shadow:0 4px 18px -4px #000c;background:#000;display:block;}
+          #mirrorCamLoading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:12px system-ui;color:#9ba7b2;background:rgba(0,0,0,.55);border:1px solid var(--edge);border-radius:12px;-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);}
+          /* === Typography vars and application (Pack A) === */
+          :root{ --tp-font-size:40px; --tp-line-height:1.4; }
+          #viewer .script .line,
+          #viewer .script p,
+          #wrap   .script .line,
+          #wrap   .script p{
+            font-size: var(--tp-font-size, 56px) !important;
+            line-height: var(--tp-line-height, 1.4) !important;
+            color: var(--tp-fg,#e6eef8);
+            opacity: 1;
+            display: block;
+          }
+          #wrap .script .line.speaker-s1,
+          #wrap .script .line[data-speaker="s1"]{
+            color: var(--tp-speaker-s1, var(--s1-color, #60a5fa));
+          }
+          #wrap .script .line.speaker-s2,
+          #wrap .script .line[data-speaker="s2"]{
+            color: var(--tp-speaker-s2, var(--s2-color, #facc15));
+          }
+          #wrap .script .line.speaker-guest1,
+          #wrap .script .line[data-speaker="g1"]{
+            color: var(--tp-speaker-g1, var(--g1-color, #34d399));
+          }
+          #wrap .script .line.speaker-guest2,
+          #wrap .script .line[data-speaker="g2"]{
+            color: var(--tp-speaker-g2, var(--g2-color, #f472b6));
+          }
+          /* Responsive script column (main #viewer and display #wrap) */
+          #viewer .script,
+          #wrap   .script {
+            margin-inline: auto;
+            padding-inline: max(16px, 3vw);
+            font-family: var(--tp-font-family);
+            font-size: var(--tp-font-size);
+            min-width: min(20ch, 100%);
+            max-width: min(
+              calc(var(--tp-maxch, 95) * 1ch),
+              calc(100vw - 2 * max(16px, 3vw))
+            );
+          }
+        </style></head>
+        <body>
+          <header id="displayTopbar">
+              <div class="legend" id="legend"></div>
+              <span id="displayActiveSpeakerTag" class="tag display-active-speaker" hidden>Reading: --</span>
+              <span id="displayRecPill" class="rec-pill rec-pill--display">REC</span>
+          </header>
+          <div class="wrap" id="wrap"><div class="marker"></div><div class="script" id="script"></div></div>
+          <div class="hud">
+            Display
+            <button class="btn" id="flip">Flip</button>
+            <button class="btn" id="invert">Invert</button>
+            <button class="btn" id="camPiP" title="Toggle Picture-in-Picture for camera">PiP</button>
+            <div id="scrollLog"></div>
+          </div>
+          <div id="mirrorCamWrap" hidden>
+            <video id="mirrorCamVideo" autoplay muted></video>
+            <div id="mirrorCamLoading">Connecting camera...</div>
+          </div>
+          <div id="preRoll"><div class="card"><div class="hint">Begin speaking in</div><div class="num" id="preRollNum">3</div></div></div>
+          <script>
+            // LEGACY COMPAT
+            // Expose our scroll root to the opener so main can target the right viewer
+            try {
+              const setOpenerRoot = () => {
+                try {
+                  if (window.opener && !window.opener.closed) {
+                    const wrap = document.getElementById('wrap');
+                    if (wrap) window.opener.__tpDisplayViewerEl = wrap;
+                  }
+                } catch {}
+              };
+              document.addEventListener('DOMContentLoaded', setOpenerRoot);
+              // Also try again after a small delay to catch late-mount
+              setTimeout(setOpenerRoot, 250);
+            } catch {}
+            const scriptEl = document.getElementById('script');
+            const wrap = document.getElementById('wrap');
+            const preRoll = document.getElementById('preRoll');
+            const preRollNum = document.getElementById('preRollNum');
+            let lastScriptHash = '';
+            const RENDER_SCRIPT_RETRY_MS = 32;
+            let pendingScriptSnapshot = null;
+            let scriptApplyTimer = null;
+            function hashScript(text) {
+              let h = 0;
+              const s = String(text || '');
+              for (let i = 0; i < s.length; i++) {
+                h = ((h << 5) - h) + s.charCodeAt(i);
+                h |= 0;
+              }
+              return String(h >>> 0);
+            }
+            // Speakers legend (display window)
+            const legendEl = document.getElementById('legend');
+            const legendState = {
+              s1: { name: 'Joe', color: '#60a5fa' },
+              s2: { name: 'Brad', color: '#facc15' },
+            };
+            const sanitizeColorValue = (value) => {
+              try {
+                const txt = typeof value === 'string' ? value.trim() : '';
+                if (!txt) return '';
+                return txt.toLowerCase() === 'undefined' ? '' : txt;
+              } catch {
+                return '';
+              }
+            };
+            const applySpeakerColor = (role, nextColor) => {
+              const sanitized = sanitizeColorValue(nextColor);
+              if (!sanitized) return;
+              document.documentElement.style.setProperty(`--${role}-color`, sanitized);
+              legendState[role] = legendState[role] || { name: role.toUpperCase(), color: sanitized };
+              legendState[role].color = sanitized;
+            };
+            const cssColor = (varName, fallback) => {
+              try {
+                const v = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+                return v || fallback;
+              } catch { return fallback; }
+            };
+            function renderLegend() {
+              if (!legendEl) return;
+              legendEl.innerHTML = '';
+              (['s1','s2']).forEach((key) => {
+                const tag = document.createElement('span');
+                tag.className = 'tag';
+                const dot = document.createElement('span');
+                dot.className = 'dot';
+                dot.style.background = legendState[key].color || cssColor(`--${key}-color`, '#60a5fa');
+                const lbl = document.createElement('span');
+                lbl.id = `lbl-${key}`;
+                lbl.textContent = legendState[key].name;
+                tag.appendChild(dot);
+                tag.appendChild(lbl);
+                legendEl.appendChild(tag);
+              });
+            }
+            renderLegend();
+
+            const activeSpeakerTag = document.getElementById('displayActiveSpeakerTag');
+            const speakerNamesById = {};
+            const bindingSlots = { s1: null, s2: null, g1: null, g2: null };
+            const isDisplayDevMode = (() => {
+              try {
+                if (window.opener) {
+                  if (window.opener.__TP_DEV || window.opener.__TP_DEV1) return true;
+                  if (window.opener.__tpDevMode === '1') return true;
+                }
+              } catch {}
+              try {
+                const params = window.location.search || '';
+                if (/[?&]dev=1/.test(params)) return true;
+              } catch {}
+              try {
+                return localStorage.getItem('tp_dev_mode') === '1';
+              } catch {
+                return false;
+              }
+            })();
+            if (activeSpeakerTag) {
+              activeSpeakerTag.hidden = !isDisplayDevMode;
+            }
+
+            function updateActiveSpeakerTagText(slotLabel, profileName) {
+              if (!activeSpeakerTag) return;
+              if (!isDisplayDevMode) {
+                activeSpeakerTag.hidden = true;
+                return;
+              }
+              activeSpeakerTag.hidden = false;
+              const label = `Reading: ${slotLabel || 'Unknown'}${profileName ? ` (${profileName})` : ''}`;
+              activeSpeakerTag.textContent = label;
+            }
+
+            function handleSpeakerBindingsMessage(payload) {
+              if (!payload) return;
+              const bindings = payload.bindings || {};
+              Object.assign(bindingSlots, {
+                s1: bindings.s1 ?? null,
+                s2: bindings.s2 ?? null,
+                g1: bindings.g1 ?? null,
+                g2: bindings.g2 ?? null,
+              });
+              const profiles = Array.isArray(payload.profiles) ? payload.profiles : [];
+              profiles.forEach((profile) => {
+                if (profile && profile.id) {
+                  speakerNamesById[profile.id] = profile.name || '';
+                }
+              });
+              ['s1', 's2'].forEach((slotKey) => {
+                const profileName = speakerNamesById[bindingSlots[slotKey]] || legendState[slotKey]?.name;
+                if (profileName) legendState[slotKey].name = profileName;
+              });
+              renderLegend();
+            }
+
+            function handleSpeakerActiveMessage(payload) {
+              if (!payload) return;
+              const slotLabel = payload.slot ? String(payload.slot).toUpperCase() : 'Unknown';
+              const profileName = payload.profileName || speakerNamesById[payload.profileId] || '';
+              updateActiveSpeakerTagText(slotLabel, profileName);
+            }
+
+            // Color/name sync via BroadcastChannel
+            let bc = null; try { bc = new BroadcastChannel('prompter'); } catch {}
+            if (bc) {
+              bc.onmessage = (e) => {
+                const d = e?.data || {};
+                if (d.type === 'SPEAKER_COLORS') {
+                  try { applySpeakerColor('s1', d.s1); } catch {}
+                  try { applySpeakerColor('s2', d.s2); } catch {}
+                  renderLegend();
+                } else if (d.type === 'SPEAKER_NAMES') {
+                  if (typeof d.s1Name === 'string') { legendState.s1.name = d.s1Name; }
+                  if (typeof d.s2Name === 'string') { legendState.s2.name = d.s2Name; }
+                  renderLegend();
+                }
+              };
+            }
+            window.addEventListener('message', (ev) => {
+              try {
+                const payload = ev?.data || {};
+                if (payload?.type === 'speaker-colors' && payload.colors) {
+                  Object.entries(payload.colors).forEach(([role, color]) => applySpeakerColor(role, color));
+                  renderLegend();
+                }
+              } catch {}
+            });
+            // TP: zoom-guard (display) + in-app Ctrl/Cmd + Wheel zoom
+            try {
+              window.addEventListener('wheel', (e)=>{
+                try {
+                  if (e.ctrlKey || e.metaKey) {
+                    e.preventDefault();
+                    const step = 0.05;
+                    nudgeScale(e.deltaY < 0 ? +step : -step);
+                  }
+                } catch {}
+              }, { passive: false });
+              window.addEventListener('keydown', (e)=>{
+                if (e.ctrlKey || e.metaKey) {
+                  const k = (e.key||'');
+                  if (k === '+' || k === '=' || k === '-' || k === '_' || k === '0') e.preventDefault();
+                }
+              }, { capture:true });
+            } catch {}
+            // TP: display-typography-scale
+            let baseFontSize = 48, baseLineHeight = 1.35;
+            let dispScale = 1.0;
+            try { const s = parseFloat(localStorage.getItem('tp_display_font_scale_v1')); if (isFinite(s) && s > 0.3 && s < 3) dispScale = s; } catch {}
+            function applyBase(fs, lh){
+              baseFontSize = Number(fs)||48; baseLineHeight = Number(lh)||1.35; applyScaled();
+            }
+            function applyScaled(){
+              const fs = Math.max(8, Math.min(200, Math.round(baseFontSize * dispScale)));
+              const lh = Math.max(1.1, Math.min(2.0, baseLineHeight));
+              scriptEl.querySelectorAll('p,.note').forEach(p=>{ p.style.fontSize=fs+'px'; p.style.lineHeight=lh; });
+            }
+            function nudgeScale(delta){
+              dispScale = Math.max(0.5, Math.min(2.5, Math.round((dispScale + delta) * 100) / 100));
+              try { localStorage.setItem('tp_display_font_scale_v1', String(dispScale)); } catch {}
+              applyScaled();
+            }
+            function flip(){ document.body.style.transform = document.body.style.transform ? '' : 'scaleX(-1)'; }
+            function invert(){
+              if(!document.body.dataset.inv){ document.body.dataset.inv=1; document.body.style.background = '#f4f7fb'; document.body.style.color = '#0b0d10'; }
+              else { delete document.body.dataset.inv; document.body.style.background = '#000'; document.body.style.color = '#e7ebf0'; }
+            }
+            const camVid  = document.getElementById('mirrorCamVideo');
+            try { if (camVid) { camVid.playsInline = true; camVid.setAttribute('playsinline',''); camVid.setAttribute('webkit-playsinline',''); } } catch {}
+            const camWrap = document.getElementById('mirrorCamWrap');
+            const camPiP  = document.getElementById('camPiP');
+            const camLoad = document.getElementById('mirrorCamLoading');
+            // PiP toggle
+            if (camPiP) {
+              camPiP.onclick = async () => {
+                try {
+                  if (document.pictureInPictureElement) {
+                    await document.exitPictureInPicture();
+                  } else if (camVid && camVid.requestPictureInPicture) {
+                    await camVid.requestPictureInPicture();
+                  }
+                } catch {}
+              };
+            }
+            // Dynamic bottom padding so the last paragraph can sit at the marker line
+            function applyBottomPad(){
+              try{
+                const markerPct = (window.__TP_MARKER_PCT ?? 0.4);
+                const vh = (wrap && wrap.clientHeight) || window.innerHeight || 800;
+                const needForMarker = Math.floor(vh * markerPct) + 80; // cushion like main
+                const basePad = Math.max(window.innerHeight * 0.55, 360);
+                const pad = Math.max(basePad, needForMarker);
+                if (scriptEl) scriptEl.style.paddingBottom = `${pad}px`;
+              }catch{}
+            }
+
+            const recPill = document.getElementById('displayRecPill');
+            function applyRecordState(state){
+              if (!recPill) return;
+              recPill.classList.remove('rec-pill--armed','rec-pill--recording','is-visible');
+              recPill.style.display = 'none';
+              recPill.setAttribute('aria-hidden','true');
+              if (state === 'armed') {
+                recPill.textContent = 'REC ARMED';
+                recPill.classList.add('rec-pill--armed','is-visible');
+                recPill.style.display = 'inline-flex';
+                recPill.setAttribute('aria-hidden','false');
+              } else if (state === 'recording') {
+                recPill.textContent = 'REC';
+                recPill.classList.add('rec-pill--recording','is-visible');
+                recPill.style.display = 'inline-flex';
+                recPill.setAttribute('aria-hidden','false');
+              }
+            }
+            function applyTrialDisplay(active){
+              try {
+                let overlay = document.getElementById('trialDisplayWatermark');
+                if (active) {
+                  if (!overlay) {
+                    overlay = document.createElement('div');
+                    overlay.id = 'trialDisplayWatermark';
+                    overlay.innerHTML = '<div class=\"trial-mark\"></div><div class=\"trial-text\">PODCASTERSFORGE.COM</div>';
+                    document.body.appendChild(overlay);
+                  }
+                  overlay.style.display = 'flex';
+                } else if (overlay) {
+                  overlay.style.display = 'none';
+                }
+              } catch {}
+            }
+            const mapRecState = (s) => (s === 'armed' ? 'armed' : s === 'recording' ? 'recording' : 'idle');
+
+            // Call on resize (debounced 150ms; only adjust if focus changed)
+            (function(){
+              let startActive = null; let t = null;
+              window.addEventListener('resize', () => {
+                try {
+                  if (t) clearTimeout(t);
+                  if (!startActive) startActive = document.activeElement;
+                  t = setTimeout(() => {
+                    try {
+                      const now = document.activeElement;
+                      if (now !== startActive) applyBottomPad();
+                    } catch {}
+                    startActive = null;
+                  }, 150);
+                } catch {}
+              }, { passive:true });
+            })();
+
+            let pendingLineIdx = null;
+            let __dispTargetTop = 0;
+            let __dispCurTop = 0;
+            let __dispRAF = 0;
+
+            const DISP_SMOOTH_ALPHA = 0.28;
+            const DISP_SNAP_PX = 1400;
+            const DISP_EPS_PX = 0.5;
+
+            function readLineIndex(el) {
+              try {
+                if (!el || !el.closest) return null;
+                const line = el.closest('.line');
+                if (!line) return null;
+                const raw =
+                  (line.dataset && (line.dataset.line || line.dataset.i || line.dataset.index || line.dataset.lineIdx)) ||
+                  line.getAttribute('data-line') ||
+                  line.getAttribute('data-line-idx');
+                if (raw != null && raw !== '') {
+                  const n = Number(raw);
+                  if (isFinite(n)) return Math.floor(n);
+                }
+                const id = line.id || '';
+                const m = /^tp-line-(\d+)$/.exec(id);
+                if (m) return Number(m[1]);
+              } catch {}
+              return null;
+            }
+
+            function findLineElByIndex(idx) {
+              try {
+                const id = 'tp-line-' + idx;
+                let el = document.getElementById(id);
+                if (el) return el;
+                if (scriptEl) {
+                  el = scriptEl.querySelector(
+                    `.line[data-line="${idx}"],.line[data-i="${idx}"],.line[data-index="${idx}"],.line[data-line-idx="${idx}"]`,
+                  );
+                  if (el) return el;
+                  const lines = scriptEl.querySelectorAll('.line');
+                  let best = null;
+                  let bestDist = Infinity;
+                  for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i];
+                    const val = readLineIndex(line) || i;
+                    const d = Math.abs(val - idx);
+                    if (d < bestDist) {
+                      bestDist = d;
+                      best = line;
+                    }
+                  }
+                  return best;
+                }
+              } catch {}
+              return null;
+            }
+
+            function elementTopRelativeTo(el, scroller) {
+              const r1 = el.getBoundingClientRect();
+              const r2 = scroller.getBoundingClientRect();
+              const scrollTop = scroller.scrollTop || 0;
+              return r1.top - r2.top + scrollTop;
+            }
+
+            function scrollToLine(idx) {
+              if (!wrap || !isFinite(idx)) return false;
+              const line = findLineElByIndex(Math.max(0, Math.floor(idx)));
+              if (!line) return false;
+              const markerPct = window.__TP_MARKER_PCT ?? 0.4;
+              const h = wrap.clientHeight || window.innerHeight || 0;
+              const markerOffset = Math.max(0, Math.round(h * markerPct));
+              const top = elementTopRelativeTo(line, wrap) - markerOffset;
+              requestScroll(top);
+              return true;
+            }
+
+            // requestScroll: absolute pixels in the same container as viewer (animated servo)
+            function requestScroll(value) {
+              if (!wrap) return;
+              const max = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
+              const targetTop = Math.max(0, Math.min(max, Number(value)));
+              __dispTargetTop = targetTop;
+
+              if (!isFinite(__dispCurTop) || __dispCurTop === 0) {
+                __dispCurTop = wrap.scrollTop || 0;
+              }
+
+              const diff = Math.abs(__dispTargetTop - (wrap.scrollTop || 0));
+              if (diff > DISP_SNAP_PX) {
+                __dispCurTop = __dispTargetTop;
+                wrap.scrollTop = __dispTargetTop;
+                logScrollCommand(__dispTargetTop, wrap.scrollTop, __dispTargetTop - (wrap.scrollTop || 0), 'N/A', 'snapped');
+                return;
+              }
+
+              if (!__dispRAF) __dispRAF = requestAnimationFrame(__dispTick);
+            }
+
+            function __dispTick() {
+              __dispRAF = 0;
+              if (!wrap) return;
+
+              const cur = wrap.scrollTop || 0;
+              const tgt = __dispTargetTop;
+              const next = cur + (tgt - cur) * DISP_SMOOTH_ALPHA;
+              wrap.scrollTop = next;
+              __dispCurTop = next;
+
+              const remaining = Math.abs(tgt - next);
+              logScrollCommand(tgt, wrap.scrollTop, tgt - wrap.scrollTop, 'N/A', 'anim');
+
+              if (remaining > DISP_EPS_PX) {
+                __dispRAF = requestAnimationFrame(__dispTick);
+              }
+            }
+
+            function applyScrollPayload(payload) {
+              const rawLine =
+                payload && (payload.cursorLine ?? payload.line ?? payload.lineIndex ?? payload.index);
+              const cursorLine = typeof rawLine === 'number' ? rawLine : Number(rawLine);
+              if (cursorLine != null && isFinite(cursorLine)) {
+                if (scrollToLine(cursorLine)) {
+                  pendingLineIdx = null;
+                  return true;
+                }
+                pendingLineIdx = Math.max(0, Math.floor(cursorLine));
+              }
+              const ratioRaw = payload && payload.anchorRatio != null ? payload.anchorRatio : payload?.ratio;
+              const ratio = payload && typeof payload.ratio === 'number' && isFinite(payload.ratio) ? payload.ratio : null;
+              const ratioSafe = (typeof ratioRaw === 'number' && isFinite(ratioRaw)) ? ratioRaw : ratio;
+              if (ratioSafe != null) {
+                const max = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
+                const clamped = Math.max(0, Math.min(1, ratioSafe));
+                requestScroll(clamped * max);
+                return true;
+              }
+              const top = payload && typeof payload.top === 'number' && isFinite(payload.top) ? payload.top : null;
+              if (top != null) {
+                requestScroll(Math.max(0, top));
+                return true;
+              }
+              return false;
+            }
+
+            // Log scroll commands to HUD
+            function logScrollCommand(cmdTop, curTop, delta, sim, status) {
+              const logEl = document.getElementById('scrollLog');
+              if (logEl) {
+                const allowBack = status === 'allowed' && delta < 0 ? 'true' : status === 'blocked' ? 'false' : 'N/A';
+                logEl.textContent = `cmdTop=${cmdTop}px | curTop=${curTop}px | Δ=${delta}px | sim=${sim} | allowBack?=${allowBack}`;
+              }
+            }
+
+            // Compute marker offset onto the viewer (wrap) so lines align to marker without padding the script
+            function applyMarkerOffset() {
+              try {
+                const markerPct = (window.__TP_MARKER_PCT ?? 0.4);
+                const h = (wrap?.clientHeight || window.innerHeight || 0);
+                const offset = Math.max(0, Math.round(h * markerPct));
+                if (wrap) {
+                  wrap.style.paddingTop = '0px';
+                  wrap.style.scrollPaddingTop = `${offset}px`;
+                  if (offset > h * 2) console.warn('[display][marker] insane offset', { offset, h });
+                }
+                if (scriptEl) {
+                  scriptEl.style.paddingTop = `${offset}px`;
+                  scriptEl.style.scrollPaddingTop = '0px';
+                }
+              } catch {}
+            }
+
+            // Render helper: accept raw script text only (SSOT)
+            function renderScriptSnapshot(rawText) {
+              applyMarkerOffset();
+
+              const nextHash = hashScript(rawText);
+              const shouldResetScroll = !!nextHash && nextHash !== lastScriptHash;
+              if (nextHash) lastScriptHash = nextHash;
+
+              try {
+                if (!scriptEl) return;
+                scriptEl.innerHTML = '';
+                if (typeof window.renderScript === 'function') {
+                  window.renderScript(rawText, scriptEl);
+                } else {
+                  const pre = document.createElement('pre');
+                  pre.textContent = rawText;
+                  scriptEl.appendChild(pre);
+                }
+              } catch (err) {
+                try { console.warn('[display] applyScriptSnapshot failed', err); } catch {}
+              }
+              if (shouldResetScroll) {
+                try { wrap?.scrollTo({ top: 0, behavior: 'auto' }); } catch {}
+              }
+              try {
+                requestAnimationFrame(() => {
+                  applyMarkerOffset();
+                  applyBottomPad();
+                  if (shouldResetScroll) {
+                    try { wrap?.scrollTo({ top: 0, behavior: 'auto' }); } catch {}
+                  }
+                });
+                setTimeout(() => {
+                  applyMarkerOffset();
+                  applyBottomPad();
+                }, 120);
+              } catch {}
+              try {
+                if (pendingLineIdx != null) {
+                  const idx = pendingLineIdx;
+                  pendingLineIdx = null;
+                  requestAnimationFrame(() => {
+                    if (!scrollToLine(idx)) pendingLineIdx = idx;
+                  });
+                }
+              } catch {}
+            }
+
+            function flushPendingScriptSnapshot() {
+              if (!pendingScriptSnapshot) return;
+              if (typeof window.renderScript !== 'function') {
+                if (!scriptApplyTimer) {
+                  scriptApplyTimer = window.setTimeout(() => {
+                    scriptApplyTimer = null;
+                    flushPendingScriptSnapshot();
+                  }, RENDER_SCRIPT_RETRY_MS);
+                }
+                return;
+              }
+              if (scriptApplyTimer) {
+                window.clearTimeout(scriptApplyTimer);
+                scriptApplyTimer = null;
+              }
+              const next = pendingScriptSnapshot;
+              pendingScriptSnapshot = null;
+              renderScriptSnapshot(next);
+            }
+
+            function scheduleScriptSnapshot(payload) {
+              const rawText = typeof payload === 'string'
+                ? payload
+                : String(payload?.rawText ?? payload?.text ?? '');
+              if (!rawText && payload && typeof payload !== 'string') {
+                try { console.warn('[display] ignored payload without rawText'); } catch {}
+                return;
+              }
+              pendingScriptSnapshot = rawText;
+              flushPendingScriptSnapshot();
+            }
+
+            // Display-sync BroadcastChannel (minimal payloads with hash + optional full markup)
+            try {
+              const chan = new BroadcastChannel('tp_display');
+              try { chan.postMessage({ type: 'display:hello', ts: Date.now() }); } catch {}
+              chan.addEventListener('message', (e) => {
+                try {
+                  const msg = e?.data || {};
+                  if (msg && (msg.type === 'tp:script' || msg.kind === 'tp:script')) {
+                    const raw = msg.rawText ?? msg.text ?? msg.html ?? '';
+                    if (raw) {
+                      scheduleScriptSnapshot(raw);
+                      applyScaled();
+                      applyBottomPad();
+                      return;
+                    }
+                  }
+                  if (msg && msg.kind === 'tp:typography') {
+                    if (msg.fontSize && msg.lineHeight) {
+                      applyBase(msg.fontSize, msg.lineHeight);
+                    } else {
+                      applyScaled();
+                    }
+                    applyBottomPad();
+                    return;
+                  }
+                  if (msg && msg.kind === 'tp:record') {
+                    applyRecordState(msg.state || 'idle');
+                    return;
+                  }
+                  if (msg && (msg.kind === 'tp:trial' || msg.type === 'tp:trial')) {
+                    applyTrialDisplay(!!msg.on);
+                    return;
+                  }
+                  if (msg && msg.type === 'rec-state') {
+                    applyRecordState(mapRecState(msg.state));
+                    return;
+                  }
+                  if (msg && msg.t === 'display:ping') {
+                    try { chan.postMessage({ t: 'display:pong' }); } catch {}
+                  }
+                } catch {}
+              });
+            } catch {}
+
+            function handleDisplayMessage(payload) {
+              const d = payload || {};
+              if (d && (d.type === 'tp:script' || d.kind === 'tp:script')) {
+                const raw = d.rawText ?? d.text ?? d.html ?? '';
+                if (raw) {
+                  scheduleScriptSnapshot(raw);
+                } else if (d && typeof d.rawText === 'string') {
+                  scheduleScriptSnapshot(d.rawText);
+                }
+                applyScaled();
+                applyBottomPad();
+                return;
+              }
+              if (d && d.type === 'speaker-bindings') {
+                handleSpeakerBindingsMessage(d);
+                return;
+              }
+              if (d && d.type === 'speaker-active') {
+                handleSpeakerActiveMessage(d);
+                return;
+              }
+              // Scroll mirror: obey main window scroll commands
+              if (d && d.kind === 'tp:record') {
+                applyRecordState(d.state || 'idle');
+                return;
+              }
+              if (d && d.type === 'rec-state') {
+                applyRecordState(mapRecState(d.state));
+                return;
+              }
+              if (d && (d.type === 'tp:trial' || d.kind === 'tp:trial')) {
+                applyTrialDisplay(!!d.on);
+                return;
+              }
+              // Typography via postMessage
+              if (d && d.kind === 'tp:typography') {
+                try {
+                  const s = document.documentElement.style;
+                  const x = d.t || d || {};
+                  if (x.fontFamily) s.setProperty('--tp-font-family', x.fontFamily);
+                  if (x.fontSizePx != null) s.setProperty('--tp-font-size', String(x.fontSizePx) + 'px');
+                  if (x.lineHeight != null) s.setProperty('--tp-line-height', String(x.lineHeight));
+                  if (x.weight != null) s.setProperty('--tp-weight', String(x.weight));
+                  if (x.letterSpacingEm != null) s.setProperty('--tp-letter-spacing', String(x.letterSpacingEm) + 'em');
+                  if (x.wordSpacingEm != null) s.setProperty('--tp-word-spacing', String(x.wordSpacingEm) + 'em');
+                  if (x.color) s.setProperty('--tp-fg', x.color);
+                  if (x.background) s.setProperty('--tp-bg', x.background);
+                  if (x.maxLineWidthCh != null) s.setProperty('--tp-maxch', String(x.maxLineWidthCh));
+                  if (x.dimOthers != null) s.setProperty('--tp-dim', String(x.dimOthers));
+                  if (x.fontSizePx != null || x.lineHeight != null) {
+                    applyBase(x.fontSizePx, x.lineHeight);
+                  }
+                } catch {}
+                applyScaled();
+                applyBottomPad();
+                return;
+              }
+              // WebRTC camera offer/candidate handling
+              if (!window.__camPC && (d.type === 'cam-offer')) {
+                try {
+                  const pc = new RTCPeerConnection({ iceServers: [] });
+                  window.__camPC = pc;
+                  pc.ontrack = (e) => {
+                    if (camVid && e.streams && e.streams[0]) { camVid.srcObject = e.streams[0]; try { camVid.play().catch(()=>{}); } catch{} }
+                  };
+                  pc.onicecandidate = (e) => { if (e.candidate) { try { window.opener && window.opener.postMessage({ type:'cam-ice', candidate:e.candidate }, '*'); } catch {} } };
+                  pc.setRemoteDescription({ type:'offer', sdp: d.sdp }).then(async ()=>{
+                    const ans = await pc.createAnswer();
+                    await pc.setLocalDescription(ans);
+                    window.opener && window.opener.postMessage({ type:'cam-answer', sdp: ans.sdp }, '*');
+                  });
+                } catch (err) { console.warn('Display cam-offer handling failed', err); }
+                return; // stop further processing of this message
+              } else if (window.__camPC && d.type === 'cam-ice' && d.candidate) {
+                try { window.__camPC.addIceCandidate(d.candidate); } catch {}
+                return;
+              }
+              if (d && d.kind === 'tp:typography' && d.source === 'main' && d.display === 'display') {
+                try {
+                  const s = document.documentElement.style;
+                  const x = d.t || {};
+                  if (x.fontFamily) s.setProperty('--tp-font-family', x.fontFamily);
+                  if (x.fontSizePx != null) s.setProperty('--tp-font-size', String(x.fontSizePx) + 'px');
+                  if (x.lineHeight != null) s.setProperty('--tp-line-height', String(x.lineHeight));
+                  if (x.weight != null) s.setProperty('--tp-weight', String(x.weight));
+                  if (x.letterSpacingEm != null) s.setProperty('--tp-letter-spacing', String(x.letterSpacingEm) + 'em');
+                  if (x.wordSpacingEm != null) s.setProperty('--tp-word-spacing', String(x.wordSpacingEm) + 'em');
+                  if (x.color) s.setProperty('--tp-fg', x.color);
+                  if (x.background) s.setProperty('--tp-bg', x.background);
+                  if (x.maxLineWidthCh != null) s.setProperty('--tp-maxch', String(x.maxLineWidthCh));
+                  if (x.dimOthers != null) s.setProperty('--tp-dim', String(x.dimOthers));
+                  // Sync our base metrics for inline sizing
+                  if (x.fontSizePx != null || x.lineHeight != null) {
+                    applyBase(x.fontSizePx, x.lineHeight);
+                  }
+                } catch {}
+                applyScaled();
+                applyBottomPad();
+                return;
+              }
+              if(d.type==='scroll'){
+                // Guard against out-of-order scrolls using seq/ts if present
+                try{
+                  const seq = typeof d.seq === 'number' ? d.seq : 0;
+                  const ts  = typeof d.ts === 'number' ? d.ts : 0;
+                  const lastSeq = window.__dispLastSeq||0;
+                  const lastTs  = window.__dispLastTs||0;
+                  if (seq && (seq < lastSeq)) return; // older message
+                  if (seq === lastSeq && ts && lastTs && ts < lastTs) return; // tie-break on ts
+                  window.__dispLastSeq = seq || lastSeq;
+                  window.__dispLastTs = ts || lastTs;
+                } catch{}
+                if (applyScrollPayload(d)) return;
+              }
+              if(d.type==='preroll'){
+                if(d.show){ preRoll.style.display='flex'; if(typeof d.n==='number') preRollNum.textContent=String(d.n); }
+                else{ preRoll.style.display='none'; }
+              }
+              if(d.type==='toggle-ck'){
+                document.body.classList.toggle('ck', !!d.on);
+              }
+            }
+            window.__tpDisplayHandleRemote = handleDisplayMessage;
+            try { applyTrialDisplay(!!(window.opener && window.opener.__TP_TRIAL)); } catch {}
+            window.addEventListener('message', (ev) => {
+              try {
+                handleDisplayMessage(ev?.data);
+              } catch {}
+            });
+            document.getElementById('flip').onclick = flip;
+            document.getElementById('invert').onclick = invert;
+            const camPiPBtn = document.getElementById('camPiP');
+            if (camPiPBtn){
+              camPiPBtn.onclick = async () => {
+                try {
+                  const v = document.getElementById('mirrorCam');
+                  if (!v) { showCamLoading('No camera'); return; }
+                  if (document.pictureInPictureElement) {
+                    await document.exitPictureInPicture();
+                  } else if (v.requestPictureInPicture) {
+                    await v.requestPictureInPicture();
+                  }
+                } catch (e){ console.warn('PiP failed', e); }
+              };
+            }
+            window.addEventListener('keydown', (e)=>{
+              const k = (e.key||'').toLowerCase();
+              if (k === 'f'){ e.preventDefault(); flip(); }
+              if (k === 'i'){ e.preventDefault(); invert(); }
+              // In-app zoom for display only (Ctrl/Cmd + +/-/0)
+              if (e.ctrlKey || e.metaKey){
+                if (k === '+' || k === '='){ e.preventDefault(); nudgeScale(+0.05); }
+                else if (k === '-' || k === '_'){ e.preventDefault(); nudgeScale(-0.05); }
+                else if (k === '0'){ e.preventDefault(); dispScale = 1.0; try{ localStorage.setItem('tp_display_font_scale_v1','1'); }catch{} applyScaled(); }
+              }
+            });
+            // Rehearsal Mode mirror: apply tint + watermark listener
+            try {
+              function applyRehearsalDisplay(active){
+                try {
+                  document.body.classList.toggle('is-rehearsal-display', !!active);
+                  // Soft visual cue distinct from main watermark
+                  if (active) {
+                    if (!document.getElementById('rehearsalDisplayWatermark')){
+                      const w = document.createElement('div');
+                      w.id='rehearsalDisplayWatermark';
+                      w.style.cssText='position:fixed;inset:0;pointer-events:none;display:flex;align-items:center;justify-content:center;z-index:9999;font:700 clamp(20px,6vw,60px)/1 system-ui;color:#fff;opacity:.06;letter-spacing:.15em;text-transform:uppercase;';
+                      w.textContent='REHEARSAL';
+                      document.body.appendChild(w);
+                    }
+                  }
+                } catch {}
+              }
+              // Initial state (if main already set flag before spawn)
+              try { applyRehearsalDisplay(window.opener && window.opener.__TP_REHEARSAL); } catch {}
+              window.addEventListener('message', (ev)=>{
+                try {
+                  if (ev && ev.data === 'tp:rehearsal:start') applyRehearsalDisplay(true);
+                  else if (ev && ev.data === 'tp:rehearsal:stop') applyRehearsalDisplay(false);
+                } catch {}
+              });
+              // BroadcastChannel mirror (in case direct postMessage missed)
+              try {
+                const rchan = new BroadcastChannel('tp_rehearsal');
+                rchan.addEventListener('message', (e)=>{
+                  try {
+                    if (e?.data?.t === 'rehearsal' && typeof e.data.on === 'boolean') {
+                      applyRehearsalDisplay(!!e.data.on);
+                    }
+                  } catch {}
+                });
+              } catch {}
+            } catch {}
+          </script>
+        </body></html>

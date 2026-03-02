@@ -1,0 +1,496 @@
+.tongs-calendar {
+  padding: 8px;
+  max-width: 1100px;
+  display: grid;
+  gap: 12px;
+}
+
+.tongs-calendar--mobile {
+  max-width: none;
+}
+
+.tongs-calendar__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.tongs-calendar__title-wrap {
+  display: grid;
+  gap: 6px;
+}
+
+.tongs-calendar__title {
+  margin: 0;
+}
+
+.tongs-calendar__subtitle {
+  margin: 0;
+  opacity: 0.7;
+}
+
+.tongs-calendar__controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.tongs-calendar__agenda-label {
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0.85;
+}
+
+.tongs-calendar__view-toggle {
+  display: inline-flex;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.tongs-calendar__view-button {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.tongs-calendar__view-button--active {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.tongs-calendar__nav-controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.tongs-calendar__range-label {
+  font-size: 14px;
+  opacity: 0.7;
+}
+
+.tongs-calendar__new-button {
+  white-space: nowrap;
+}
+
+.tongs-calendar__message {
+  font-size: 13px;
+}
+
+.tongs-calendar__message--error {
+  color: #ffb3b3;
+}
+
+.tongs-calendar__message--warning {
+  color: #ffd599;
+}
+
+.tongs-calendar__message--subtle {
+  opacity: 0.72;
+}
+
+.tongs-calendar__form {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.tongs-calendar__form-title {
+  font-weight: 700;
+}
+
+.tongs-calendar__form-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.tongs-calendar__form-grid--three {
+  grid-template-columns: 1fr 1fr 160px;
+}
+
+.tongs-calendar__form-grid--four {
+  grid-template-columns: 1fr 160px 120px 120px;
+}
+
+.tongs-calendar__field {
+  display: grid;
+  gap: 4px;
+}
+
+.tongs-calendar__field--checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tongs-calendar__field-label {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.tongs-calendar__field input,
+.tongs-calendar__field select {
+  width: 100%;
+}
+
+.tongs-calendar__field-group {
+  display: grid;
+  gap: 6px;
+}
+
+.tongs-calendar__hint {
+  font-size: 11px;
+  opacity: 0.68;
+}
+
+.tongs-calendar__episodes-list {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.tongs-calendar__episode-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.tongs-calendar__form-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.tongs-calendar__panel {
+  margin-top: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 14px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.tongs-calendar__panel--week,
+.tongs-calendar__panel--month {
+  overflow-x: auto;
+}
+
+.tongs-calendar__panel-title {
+  font-weight: 700;
+}
+
+.tongs-calendar__day-list {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.tongs-calendar__empty {
+  opacity: 0.6;
+  font-size: 12px;
+}
+
+.tongs-calendar__event-card {
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  display: grid;
+  gap: 4px;
+}
+
+.tongs-calendar__event-card-title {
+  font-weight: 700;
+}
+
+.tongs-calendar__event-kicker {
+  font-size: 12px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.tongs-calendar__event-meta-row {
+  margin-top: 2px;
+  font-size: 12px;
+  opacity: 0.75;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tongs-calendar__event-meta-line {
+  font-size: 12px;
+  opacity: 0.72;
+}
+
+.tongs-calendar__event-description {
+  margin-top: 2px;
+  font-size: 13px;
+  opacity: 0.78;
+}
+
+.tongs-calendar__week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.tongs-calendar__week-column {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 12px;
+  min-height: 200px;
+  background: rgba(0, 0, 0, 0.2);
+  display: grid;
+  align-content: start;
+  gap: 4px;
+}
+
+.tongs-calendar__week-column-title {
+  font-weight: 700;
+}
+
+.tongs-calendar__week-column-date {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.tongs-calendar__week-column-events {
+  margin-top: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+.tongs-calendar__month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.tongs-calendar__month-day {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 10px;
+  min-height: 140px;
+  background: rgba(0, 0, 0, 0.2);
+  text-align: left;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.tongs-calendar__month-day--outside {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.tongs-calendar__month-day-label {
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.tongs-calendar__month-day--outside .tongs-calendar__month-day-label {
+  opacity: 0.45;
+}
+
+.tongs-calendar__month-day-events {
+  display: grid;
+  gap: 6px;
+}
+
+.tongs-calendar__month-day-event {
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  font-size: 12px;
+}
+
+.tongs-calendar__month-day-more {
+  font-size: 12px;
+  opacity: 0.6;
+}
+
+.tongs-calendar__events {
+  margin-top: 16px;
+  display: grid;
+  gap: 8px;
+}
+
+.tongs-calendar__events-title {
+  margin: 0;
+}
+
+.tongs-calendar__events-list {
+  display: grid;
+  gap: 10px;
+}
+
+.tongs-calendar__events-row {
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tongs-calendar__events-row-main {
+  display: grid;
+  gap: 4px;
+}
+
+.tongs-calendar__events-row-title {
+  font-weight: 600;
+}
+
+.tongs-calendar__events-row-time {
+  opacity: 0.75;
+  font-size: 13px;
+}
+
+.tongs-calendar__events-row-meta {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.tongs-calendar__events-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tongs-calendar__agenda-groups {
+  display: grid;
+  gap: 14px;
+}
+
+.tongs-calendar__agenda-group {
+  display: grid;
+  gap: 8px;
+}
+
+.tongs-calendar__agenda-group-title {
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0.82;
+}
+
+.tongs-calendar__agenda-list {
+  display: grid;
+  gap: 8px;
+}
+
+.tongs-calendar__agenda-row {
+  min-height: 44px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  text-align: left;
+  display: grid;
+  gap: 4px;
+}
+
+.tongs-calendar__agenda-row-title {
+  font-weight: 700;
+}
+
+.tongs-calendar__agenda-row-time {
+  font-size: 12px;
+  opacity: 0.82;
+}
+
+.tongs-calendar__agenda-row-meta {
+  font-size: 12px;
+  opacity: 0.72;
+}
+
+.tongs-calendar__storage {
+  margin-top: 14px;
+  font-size: 12px;
+  opacity: 0.65;
+}
+
+.tongs-calendar__mobile-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: var(--forge-bg);
+}
+
+.tongs-calendar__mobile-form {
+  display: grid;
+  gap: 12px;
+}
+
+.tongs-calendar__mobile-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.tongs-calendar__mobile-actions > button {
+  min-height: 44px;
+}
+
+.tongs-calendar--mobile .tongs-calendar__header {
+  align-items: center;
+}
+
+.tongs-calendar--mobile .tongs-calendar__title {
+  font-size: 18px;
+}
+
+.tongs-calendar--mobile .tongs-calendar__controls {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.tongs-calendar--mobile .tongs-calendar__new-button {
+  margin-left: auto;
+}
+
+.tongs-calendar--mobile .tongs-calendar__events {
+  margin-top: 4px;
+}
+
+.tongs-calendar--mobile .tongs-calendar__storage {
+  margin-bottom: 8px;
+}
+
+.tongs-calendar--mobile .tongs-calendar__form-grid--three,
+.tongs-calendar--mobile .tongs-calendar__form-grid--four {
+  grid-template-columns: 1fr;
+}
+
+@media (max-width: 980px) {
+  .tongs-calendar__form-grid--three,
+  .tongs-calendar__form-grid--four {
+    grid-template-columns: 1fr;
+  }
+
+  .tongs-calendar__events-row {
+    flex-direction: column;
+  }
+
+  .tongs-calendar__events-row-actions {
+    justify-content: flex-end;
+  }
+}

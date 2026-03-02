@@ -9,12 +9,14 @@ import {
   deleteCalendarEvent,
   listCalendarEventAssignments,
 } from "@forge/tongs";
+import { MobilePage, useLayoutMode } from "@forge/ui-mobile";
 import { useMountRegistry } from "../hooks/useMountRegistry";
 import { supabase } from "../lib/supabase";
 import { tongsApiRequest } from "../lib/tongs-api";
 import { useOutletContext } from "react-router-dom";
 import type { AppShellContext } from "./AppShell";
 import WorkspaceRequiredNotice from "./WorkspaceRequiredNotice";
+import "./TongsCalendar.css";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTH_NAMES = [
@@ -226,6 +228,26 @@ function formatTimeInputValue(date: Date): string {
   return `${hh}:${mm}`;
 }
 
+function formatEventTimeRange(event: CalendarEvent): string {
+  if (event.allDay) return "All day";
+  const start = new Date(event.startIso);
+  if (Number.isNaN(start.getTime())) return "Unknown time";
+  const end = event.endIso ? new Date(event.endIso) : null;
+  const startLabel = formatTimeLabel(start);
+  if (!end || Number.isNaN(end.getTime())) return startLabel;
+  return `${startLabel} - ${formatTimeLabel(end)}`;
+}
+
+function formatAgendaGroupLabel(date: Date): string {
+  const today = startOfDay(new Date());
+  const target = startOfDay(date);
+  const diffDays = Math.round((target.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Tomorrow";
+  if (diffDays === -1) return "Yesterday";
+  return formatDayLabel(target);
+}
+
 function buildWeekDays(weekStart: Date) {
   return Array.from({ length: 7 }, (_, index) => {
     const date = addDays(weekStart, index);
@@ -324,6 +346,8 @@ export default function TongsCalendar() {
     : Boolean(session && workspaceId);
   const canEditCalendar = workspaceRole ? workspaceRoleAtLeast(workspaceRole, "editor") : false;
   const canDeleteCalendar = workspaceRole ? workspaceRoleAtLeast(workspaceRole, "admin") : false;
+  const layoutMode = useLayoutMode();
+  const isMobile = layoutMode === "mobile";
   const { resolveMount } = useMountRegistry("default");
 
   const todayIso = useMemo(() => toDateKey(new Date()), []);
@@ -374,6 +398,7 @@ export default function TongsCalendar() {
   const [durationMin, setDurationMin] = useState(60);
   const [allDay, setAllDay] = useState(false);
   const isEditingEvent = editingEventId !== null;
+  const effectiveView: CalendarView = isMobile ? "day" : view;
 
   const loadRecordingSessions = useCallback(async () => {
     if (!workspaceId || !session || !canReadCalendar) {
@@ -493,11 +518,11 @@ export default function TongsCalendar() {
     setEditingEventId(null);
   }, []);
 
+  useEffect(() => {
+    closeNewForm();
+  }, [workspaceId, closeNewForm]);
+
   const openEditForm = useCallback((event: CalendarEvent) => {
-    if (!canEditCalendar) {
-      setLoadError("You need Editor access in this workspace to create or edit events.");
-      return;
-    }
     const start = new Date(event.startIso);
     const end = event.endIso ? new Date(event.endIso) : null;
     const parsedStart = Number.isNaN(start.getTime()) ? new Date() : start;
@@ -521,7 +546,7 @@ export default function TongsCalendar() {
     setTime(formatTimeInputValue(parsedStart));
     setEditingEventId(event.id);
     setShowNew(true);
-  }, [canEditCalendar, eventAssignmentIdsByEventId]);
+  }, [eventAssignmentIdsByEventId]);
 
   const toggleLinkedEpisode = useCallback((episodeId: string, checked: boolean) => {
     setLinkedEpisodeIds((prev) => {
@@ -631,7 +656,7 @@ export default function TongsCalendar() {
     setLoading(true);
     setLoadError(null);
 
-    const range = getViewRange(view, cursorDate);
+    const range = getViewRange(effectiveView, cursorDate);
     void (async () => {
       try {
         const rows = await listCalendarEvents(supabase, workspaceId, {
@@ -672,7 +697,7 @@ export default function TongsCalendar() {
     return () => {
       alive = false;
     };
-  }, [workspaceId, session, canReadCalendar, view, cursorDate]);
+  }, [workspaceId, session, canReadCalendar, effectiveView, cursorDate]);
 
   async function saveEvent() {
     if (!workspaceId || !session || !canEditCalendar) {
@@ -770,12 +795,12 @@ export default function TongsCalendar() {
   }
 
   function goPrev() {
-    if (view === "day") {
+    if (effectiveView === "day") {
       setViewDate(addDays(cursorDate, -1));
       return;
     }
 
-    if (view === "week") {
+    if (effectiveView === "week") {
       setViewDate(addDays(cursorDate, -7));
       return;
     }
@@ -784,12 +809,12 @@ export default function TongsCalendar() {
   }
 
   function goNext() {
-    if (view === "day") {
+    if (effectiveView === "day") {
       setViewDate(addDays(cursorDate, 1));
       return;
     }
 
-    if (view === "week") {
+    if (effectiveView === "week") {
       setViewDate(addDays(cursorDate, 7));
       return;
     }
@@ -803,12 +828,12 @@ export default function TongsCalendar() {
   }
 
   const rangeLabel = useMemo(() => {
-    if (view === "day") return formatDayLabel(cursorDate);
-    if (view === "week") return formatWeekLabel(weekStart);
+    if (effectiveView === "day") return formatDayLabel(cursorDate);
+    if (effectiveView === "week") return formatWeekLabel(weekStart);
     return formatMonthLabel(cursorDate);
-  }, [view, cursorDate, weekStart]);
+  }, [effectiveView, cursorDate, weekStart]);
 
-  const viewRange = useMemo(() => getViewRange(view, cursorDate), [view, cursorDate]);
+  const viewRange = useMemo(() => getViewRange(effectiveView, cursorDate), [effectiveView, cursorDate]);
 
   const visibleEvents = useMemo(() => {
     return events
@@ -851,55 +876,67 @@ export default function TongsCalendar() {
   }, [resolveMount]);
 
   const dayEvents = eventsByDay.get(toDateKey(cursorDate)) ?? [];
+  const agendaGroups = useMemo(() => {
+    const groups = new Map<string, CalendarEvent[]>();
+    for (const event of visibleEvents) {
+      const key = dateKeyFromIso(event.startIso);
+      if (!key) continue;
+      const list = groups.get(key) ?? [];
+      list.push(event);
+      groups.set(key, list);
+    }
+    return [...groups.entries()]
+      .map(([key, groupedEvents]) => ({
+        key,
+        date: parseDateKey(key) ?? new Date(key),
+        events: [...groupedEvents].sort((a, b) => a.startIso.localeCompare(b.startIso)),
+      }))
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+  }, [visibleEvents]);
 
   if (!workspaceId) {
     return <WorkspaceRequiredNotice toolName="Tongs Calendar" />;
   }
 
   return (
-    <div style={{ padding: 8, maxWidth: 1100 }}>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16 }}>
-        <div>
-          <h2 style={{ margin: 0 }}>Tongs Calendar</h2>
-          <p style={{ marginTop: 6, opacity: 0.7 }}>Plan sessions across scripting, recording, and releases.</p>
+    <div className={`tongs-calendar${isMobile ? " tongs-calendar--mobile" : ""}`}>
+      <div className="tongs-calendar__header">
+        <div className="tongs-calendar__title-wrap">
+          <h2 className="tongs-calendar__title">Tongs Calendar</h2>
+          <p className="tongs-calendar__subtitle">Plan sessions across scripting, recording, and releases.</p>
         </div>
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-          <div
-            style={{
-              display: "inline-flex",
-              border: "1px solid rgba(255,255,255,0.2)",
-              borderRadius: 8,
-              overflow: "hidden",
-            }}
-          >
-            {VIEW_OPTIONS.map((option) => {
-              const isActive = view === option.value;
-              return (
-                <button
-                  key={option.value}
-                  onClick={() => setView(option.value)}
-                  style={{
-                    padding: "6px 10px",
-                    border: "none",
-                    background: isActive ? "rgba(255,255,255,0.18)" : "transparent",
-                    color: "inherit",
-                  }}
-                >
-                  {option.label}
-                </button>
-              );
-            })}
+        <div className="tongs-calendar__controls">
+          {isMobile ? (
+            <span className="tongs-calendar__agenda-label">Agenda</span>
+          ) : (
+            <div className="tongs-calendar__view-toggle">
+              {VIEW_OPTIONS.map((option) => {
+                const isActive = view === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setView(option.value)}
+                    className={`tongs-calendar__view-button${isActive ? " tongs-calendar__view-button--active" : ""}`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="tongs-calendar__nav-controls">
+            <button type="button" onClick={goPrev}>Prev</button>
+            <button type="button" onClick={goToToday}>Today</button>
+            <button type="button" onClick={goNext}>Next</button>
           </div>
 
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            <button onClick={goPrev}>Prev</button>
-            <button onClick={goToToday}>Today</button>
-            <button onClick={goNext}>Next</button>
-          </div>
-
-          <div style={{ fontSize: 14, opacity: 0.7 }}>{rangeLabel}</div>
+          <div className="tongs-calendar__range-label">{rangeLabel}</div>
 
           <button
+            type="button"
+            className="tongs-calendar__new-button"
             onClick={showNew ? closeNewForm : openNewForm}
             disabled={!session || !workspaceId || !canEditCalendar}
             title={
@@ -917,307 +954,126 @@ export default function TongsCalendar() {
         </div>
       </div>
       {loadError ? (
-        <div style={{ marginTop: 10, color: "#ffb3b3", fontSize: 13 }}>
+        <div className="tongs-calendar__message tongs-calendar__message--error">
           {loadError}
         </div>
       ) : null}
       {session && workspaceId && canReadCalendar && !canEditCalendar ? (
-        <div style={{ marginTop: 10, color: "#ffd599", fontSize: 13 }}>
+        <div className="tongs-calendar__message tongs-calendar__message--warning">
           Read-only: Editor access is required to create or edit events.
         </div>
       ) : null}
       {loading ? (
-        <div style={{ marginTop: 10, opacity: 0.7, fontSize: 13 }}>
-          Loading events…
+        <div className="tongs-calendar__message tongs-calendar__message--subtle">
+          Loading events...
         </div>
       ) : null}
 
-      {showNew && (
-        <div
-          style={{
-            marginTop: 12,
-            padding: 12,
-            border: "1px solid rgba(255,255,255,0.15)",
-            borderRadius: 8,
-          }}
-        >
-          <div style={{ fontWeight: 700, marginBottom: 10 }}>
+      {!isMobile && showNew ? (
+        <section className="tongs-calendar__form">
+          <div className="tongs-calendar__form-title">
             {isEditingEvent ? "Edit Event" : "New Event"}
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 160px", gap: 10 }}>
-            <div>
-              <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Title</label>
-              <input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                style={{ width: "100%" }}
-                disabled={!canEditCalendar}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Location</label>
-              <input
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                style={{ width: "100%" }}
-                disabled={!canEditCalendar}
-              />
-            </div>
-
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input
-                type="checkbox"
-                checked={allDay}
-                onChange={(e) => setAllDay(e.target.checked)}
-                disabled={!canEditCalendar}
-              />
-              <span style={{ fontSize: 12 }}>All day</span>
-            </div>
+          <CalendarEventFormFields
+            canEditCalendar={canEditCalendar}
+            title={title}
+            description={description}
+            location={location}
+            date={date}
+            time={time}
+            durationMin={durationMin}
+            allDay={allDay}
+            linkedSessionId={linkedSessionId}
+            linkedEpisodeIds={linkedEpisodeIds}
+            editingEventId={editingEventId}
+            recordingSessions={recordingSessions}
+            recordingSessionsLoading={recordingSessionsLoading}
+            recordingSessionsError={recordingSessionsError}
+            episodes={episodes}
+            episodesLoading={episodesLoading}
+            episodesError={episodesError}
+            onTitleChange={setTitle}
+            onDescriptionChange={setDescription}
+            onLocationChange={setLocation}
+            onDateChange={(value) => setDateOverride(value)}
+            onTimeChange={setTime}
+            onDurationChange={setDurationMin}
+            onAllDayChange={setAllDay}
+            onSessionChange={setLinkedSessionId}
+            onToggleEpisode={toggleLinkedEpisode}
+          />
+          <div className="tongs-calendar__form-actions">
+            <button type="button" onClick={closeNewForm}>Cancel</button>
+            <button type="button" onClick={() => void saveEvent()} disabled={!canEditCalendar}>
+              {isEditingEvent ? "Save" : "Add"}
+            </button>
           </div>
+        </section>
+      ) : null}
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 160px 120px 120px", gap: 10, marginTop: 10 }}>
-            <div>
-              <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Description (optional)</label>
-              <input
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                style={{ width: "100%" }}
-                disabled={!canEditCalendar}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Date</label>
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDateOverride(e.target.value)}
-                style={{ width: "100%" }}
-                disabled={!canEditCalendar}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Time</label>
-              <input
-                type="time"
-                value={time}
-                onChange={(e) => setTime(e.target.value)}
-                style={{ width: "100%" }}
-                disabled={!canEditCalendar}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Minutes</label>
-              <input
-                type="number"
-                min={15}
-                max={480}
-                value={durationMin}
-                onChange={(e) => setDurationMin(Number(e.target.value))}
-                style={{ width: "100%" }}
-                disabled={allDay || !canEditCalendar}
-              />
-            </div>
-          </div>
-
-          <div style={{ marginTop: 10 }}>
-            <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Recording Session (optional)</label>
-            <select
-              value={linkedSessionId}
-              onChange={(e) => setLinkedSessionId(e.target.value)}
-              style={{ width: "100%" }}
-              disabled={recordingSessionsLoading || !canEditCalendar}
-            >
-              <option value="">No recording session</option>
-              {recordingSessions.map((sessionRow) => {
-                const linkedElsewhere = !!sessionRow.calendarEventId
-                  && sessionRow.calendarEventId !== editingEventId;
-                const label = linkedElsewhere
-                  ? `${sessionRow.title} (currently linked elsewhere)`
-                  : sessionRow.title;
-                return (
-                  <option key={sessionRow.id} value={sessionRow.id}>
-                    {label}
-                  </option>
-                );
-              })}
-            </select>
-            <div style={{ marginTop: 4, fontSize: 11, opacity: 0.68 }}>
-              Attaching a session here will move that session from any other event.
-            </div>
-            {recordingSessionsError ? (
-              <div style={{ marginTop: 4, color: "#ffb3b3", fontSize: 12 }}>
-                {recordingSessionsError}
-              </div>
-            ) : null}
-          </div>
-
-          <div style={{ marginTop: 10 }}>
-            <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Attached Episodes (optional)</label>
-            <div
-              style={{
-                marginTop: 6,
-                maxHeight: 160,
-                overflowY: "auto",
-                border: "1px solid rgba(255,255,255,0.2)",
-                borderRadius: 8,
-                padding: 8,
-                display: "grid",
-                gap: 6,
-                background: "rgba(0,0,0,0.2)",
-              }}
-            >
-              {episodesLoading ? (
-                <div style={{ fontSize: 12, opacity: 0.72 }}>Loading episodes...</div>
-              ) : episodes.length === 0 ? (
-                <div style={{ fontSize: 12, opacity: 0.72 }}>No episodes available in this workspace.</div>
-              ) : (
-                episodes.map((episode) => {
-                  const checked = linkedEpisodeIds.includes(episode.id);
-                  return (
-                    <label key={episode.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={(e) => toggleLinkedEpisode(episode.id, e.target.checked)}
-                        disabled={!canEditCalendar}
-                      />
-                      <span>{episode.label}</span>
-                    </label>
-                  );
-                })
-              )}
-            </div>
-            <div style={{ marginTop: 4, fontSize: 11, opacity: 0.68 }}>
-              Attach one or more episodes/workpieces to this calendar event.
-            </div>
-            {episodesError ? (
-              <div style={{ marginTop: 4, color: "#ffb3b3", fontSize: 12 }}>
-                {episodesError}
-              </div>
-            ) : null}
-          </div>
-
-          <div style={{ marginTop: 12, display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <button onClick={closeNewForm}>Cancel</button>
-            <button onClick={saveEvent} disabled={!canEditCalendar}>{isEditingEvent ? "Save" : "Add"}</button>
-          </div>
-        </div>
-      )}
-
-      {view === "day" && (
-        <div
-          style={{
-            marginTop: 18,
-            border: "1px solid rgba(255,255,255,0.15)",
-            borderRadius: 14,
-            padding: 12,
-            background: "rgba(255,255,255,0.05)",
-          }}
-        >
-          <div style={{ fontWeight: 700 }}>{formatDayLabel(cursorDate)}</div>
-          <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-            {dayEvents.length === 0 && <div style={{ fontSize: 12, opacity: 0.5 }}>No events</div>}
+      {!isMobile && effectiveView === "day" ? (
+        <section className="tongs-calendar__panel">
+          <div className="tongs-calendar__panel-title">{formatDayLabel(cursorDate)}</div>
+          <div className="tongs-calendar__day-list">
+            {dayEvents.length === 0 ? <div className="tongs-calendar__empty">No events</div> : null}
             {dayEvents.map((event) => {
-              const start = new Date(event.startIso);
-              const timeLabel = Number.isNaN(start.getTime()) ? "Unknown" : formatTimeLabel(start);
               const episodeSummary = getEventEpisodeSummary(event.id);
               return (
-                <div
-                  key={event.id}
-                  style={{
-                    borderRadius: 10,
-                    padding: "10px 12px",
-                    background: "rgba(255,255,255,0.08)",
-                    border: "1px solid rgba(255,255,255,0.2)",
-                  }}
-                >
-                  <div style={{ fontWeight: 700 }}>{event.title}</div>
-                  <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75, display: "flex", gap: 8 }}>
-                    <span>{event.allDay ? "All day" : timeLabel}</span>
+                <div key={event.id} className="tongs-calendar__event-card">
+                  <div className="tongs-calendar__event-card-title">{event.title}</div>
+                  <div className="tongs-calendar__event-meta-row">
+                    <span>{formatEventTimeRange(event)}</span>
                     {event.location ? <span>{event.location}</span> : null}
                   </div>
                   {event.sessionId ? (
-                    <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                    <div className="tongs-calendar__event-meta-line">
                       Session: {sessionTitleById.get(event.sessionId) ?? event.sessionId.slice(0, 8)}
                     </div>
                   ) : null}
                   {episodeSummary ? (
-                    <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                    <div className="tongs-calendar__event-meta-line">
                       Episodes: {episodeSummary}
                     </div>
                   ) : null}
                   {event.description ? (
-                    <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>{event.description}</div>
+                    <div className="tongs-calendar__event-description">{event.description}</div>
                   ) : null}
                 </div>
               );
             })}
           </div>
-        </div>
-      )}
+        </section>
+      ) : null}
 
-      {view === "week" && (
-        <div
-          style={{
-            marginTop: 18,
-            border: "1px solid rgba(255,255,255,0.15)",
-            borderRadius: 14,
-            padding: 12,
-            background: "rgba(255,255,255,0.05)",
-            overflowX: "auto",
-          }}
-        >
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(160px, 1fr))", gap: 12 }}>
+      {!isMobile && effectiveView === "week" ? (
+        <section className="tongs-calendar__panel tongs-calendar__panel--week">
+          <div className="tongs-calendar__week-grid">
             {weekDays.map((day) => {
               const dayEventsForWeek = eventsByDay.get(day.key) ?? [];
               return (
-                <div
-                  key={day.key}
-                  style={{
-                    border: "1px solid rgba(255,255,255,0.12)",
-                    borderRadius: 12,
-                    padding: 12,
-                    minHeight: 200,
-                    background: "rgba(0,0,0,0.2)",
-                  }}
-                >
-                  <div style={{ fontWeight: 700 }}>{day.label}</div>
-                  <div style={{ fontSize: 12, opacity: 0.7 }}>{day.dateLabel}</div>
-
-                  <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-                    {dayEventsForWeek.length === 0 && <div style={{ fontSize: 12, opacity: 0.5 }}>No events</div>}
+                <div key={day.key} className="tongs-calendar__week-column">
+                  <div className="tongs-calendar__week-column-title">{day.label}</div>
+                  <div className="tongs-calendar__week-column-date">{day.dateLabel}</div>
+                  <div className="tongs-calendar__week-column-events">
+                    {dayEventsForWeek.length === 0 ? <div className="tongs-calendar__empty">No events</div> : null}
                     {dayEventsForWeek.map((event) => {
-                      const start = new Date(event.startIso);
-                      const timeLabel = Number.isNaN(start.getTime()) ? "Unknown" : formatTimeLabel(start);
                       const episodeSummary = getEventEpisodeSummary(event.id);
                       return (
-                        <div
-                          key={event.id}
-                          style={{
-                            borderRadius: 10,
-                            padding: "10px 12px",
-                            background: "rgba(255,255,255,0.08)",
-                            border: "1px solid rgba(255,255,255,0.2)",
-                          }}
-                        >
-                          <div style={{ fontSize: 12, letterSpacing: 0.3, textTransform: "uppercase", opacity: 0.7 }}>
-                            {event.allDay ? "All day" : timeLabel}
+                        <div key={event.id} className="tongs-calendar__event-card">
+                          <div className="tongs-calendar__event-kicker">
+                            {formatEventTimeRange(event)}
                           </div>
-                          <div style={{ marginTop: 4, fontWeight: 700 }}>{event.title}</div>
+                          <div className="tongs-calendar__event-card-title">{event.title}</div>
                           {event.location ? (
-                            <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>{event.location}</div>
+                            <div className="tongs-calendar__event-meta-line">{event.location}</div>
                           ) : null}
                           {event.sessionId ? (
-                            <div style={{ marginTop: 4, fontSize: 12, opacity: 0.66 }}>
+                            <div className="tongs-calendar__event-meta-line">
                               Session: {sessionTitleById.get(event.sessionId) ?? event.sessionId.slice(0, 8)}
                             </div>
                           ) : null}
                           {episodeSummary ? (
-                            <div style={{ marginTop: 4, fontSize: 12, opacity: 0.66 }}>
+                            <div className="tongs-calendar__event-meta-line">
                               Episodes: {episodeSummary}
                             </div>
                           ) : null}
@@ -1229,126 +1085,403 @@ export default function TongsCalendar() {
               );
             })}
           </div>
-        </div>
-      )}
+        </section>
+      ) : null}
 
-      {view === "month" && (
-        <div
-          style={{
-            marginTop: 18,
-            border: "1px solid rgba(255,255,255,0.15)",
-            borderRadius: 14,
-            padding: 12,
-            background: "rgba(255,255,255,0.05)",
-            overflowX: "auto",
-          }}
-        >
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(140px, 1fr))", gap: 12 }}>
+      {!isMobile && effectiveView === "month" ? (
+        <section className="tongs-calendar__panel tongs-calendar__panel--month">
+          <div className="tongs-calendar__month-grid">
             {monthDays.map((day) => {
               const dayEventsForMonth = eventsByDay.get(day.key) ?? [];
-              const visible = dayEventsForMonth.slice(0, 3);
-              const hiddenCount = dayEventsForMonth.length - visible.length;
+              const limited = dayEventsForMonth.slice(0, 3);
+              const hiddenCount = dayEventsForMonth.length - limited.length;
               return (
                 <button
                   key={day.key}
                   type="button"
-                  onClick={() => {
-                    openDay(day.date);
-                  }}
-                  style={{
-                    border: "1px solid rgba(255,255,255,0.12)",
-                    borderRadius: 12,
-                    padding: 10,
-                    minHeight: 140,
-                    background: day.inMonth ? "rgba(0,0,0,0.2)" : "rgba(0,0,0,0.12)",
-                    textAlign: "left",
-                  }}
+                  className={`tongs-calendar__month-day${day.inMonth ? "" : " tongs-calendar__month-day--outside"}`}
+                  onClick={() => openDay(day.date)}
                 >
-                  <div style={{ fontSize: 12, opacity: day.inMonth ? 0.85 : 0.45 }}>{day.label}</div>
-                  <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
-                    {visible.map((event) => {
-                      return (
-                        <div
-                          key={event.id}
-                          style={{
-                            borderRadius: 8,
-                            padding: "6px 8px",
-                            background: "rgba(255,255,255,0.08)",
-                            border: "1px solid rgba(255,255,255,0.2)",
-                            fontSize: 12,
-                          }}
-                        >
-                          {event.title}
-                        </div>
-                      );
-                    })}
-                    {hiddenCount > 0 && <div style={{ fontSize: 12, opacity: 0.6 }}>+{hiddenCount} more</div>}
+                  <div className="tongs-calendar__month-day-label">{day.label}</div>
+                  <div className="tongs-calendar__month-day-events">
+                    {limited.map((event) => (
+                      <div key={event.id} className="tongs-calendar__month-day-event">
+                        {event.title}
+                      </div>
+                    ))}
+                    {hiddenCount > 0 ? (
+                      <div className="tongs-calendar__month-day-more">+{hiddenCount} more</div>
+                    ) : null}
                   </div>
                 </button>
               );
             })}
           </div>
-        </div>
-      )}
+        </section>
+      ) : null}
 
-      <div style={{ marginTop: 16 }}>
-        <h3 style={{ margin: "0 0 8px 0" }}>Events</h3>
-
+      <section className="tongs-calendar__events">
+        <h3 className="tongs-calendar__events-title">{isMobile ? "Agenda" : "Events"}</h3>
         {visibleEvents.length === 0 ? (
-          <div style={{ opacity: 0.7 }}>No events in this view.</div>
+          <div className="tongs-calendar__empty">No events in this view.</div>
+        ) : isMobile ? (
+          <div className="tongs-calendar__agenda-groups">
+            {agendaGroups.map((group) => (
+              <div key={group.key} className="tongs-calendar__agenda-group">
+                <div className="tongs-calendar__agenda-group-title">
+                  {formatAgendaGroupLabel(group.date)}
+                </div>
+                <div className="tongs-calendar__agenda-list">
+                  {group.events.map((event) => {
+                    const attachedCount = (eventAssignmentIdsByEventId[event.id] ?? []).length;
+                    return (
+                      <button
+                        key={event.id}
+                        type="button"
+                        className="tongs-calendar__agenda-row"
+                        onClick={() => openEditForm(event)}
+                      >
+                        <span className="tongs-calendar__agenda-row-title">{event.title}</span>
+                        <span className="tongs-calendar__agenda-row-time">{formatEventTimeRange(event)}</span>
+                        {event.location ? (
+                          <span className="tongs-calendar__agenda-row-meta">{event.location}</span>
+                        ) : null}
+                        {event.sessionId ? (
+                          <span className="tongs-calendar__agenda-row-meta">
+                            Session: {sessionTitleById.get(event.sessionId) ?? event.sessionId.slice(0, 8)}
+                          </span>
+                        ) : null}
+                        <span className="tongs-calendar__agenda-row-meta">
+                          {attachedCount} attached episode{attachedCount === 1 ? "" : "s"}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
         ) : (
-          <div style={{ display: "grid", gap: 10 }}>
+          <div className="tongs-calendar__events-list">
             {visibleEvents.map((event) => {
               const start = new Date(event.startIso);
               const episodeSummary = getEventEpisodeSummary(event.id);
               return (
-                <div
-                  key={event.id}
-                  style={{
-                    padding: 12,
-                    border: "1px solid rgba(255,255,255,0.12)",
-                    borderRadius: 8,
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: 12,
-                  }}
-                >
-                  <div>
-                    <div style={{ fontWeight: 600 }}>{event.title}</div>
-                    <div style={{ opacity: 0.75, fontSize: 13, marginTop: 4 }}>
+                <div key={event.id} className="tongs-calendar__events-row">
+                  <div className="tongs-calendar__events-row-main">
+                    <div className="tongs-calendar__events-row-title">{event.title}</div>
+                    <div className="tongs-calendar__events-row-time">
                       {Number.isNaN(start.getTime()) ? event.startIso : start.toLocaleString()}
                       {event.allDay ? " • All day" : ""}
                     </div>
                     {event.location ? (
-                      <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>{event.location}</div>
+                      <div className="tongs-calendar__events-row-meta">{event.location}</div>
                     ) : null}
                     {event.sessionId ? (
-                      <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>
+                      <div className="tongs-calendar__events-row-meta">
                         Session: {sessionTitleById.get(event.sessionId) ?? event.sessionId.slice(0, 8)}
                       </div>
                     ) : null}
                     {episodeSummary ? (
-                      <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>
-                        Episodes: {episodeSummary}
-                      </div>
+                      <div className="tongs-calendar__events-row-meta">Episodes: {episodeSummary}</div>
                     ) : null}
                     {event.description ? (
-                      <div style={{ opacity: 0.7, fontSize: 13, marginTop: 6 }}>{event.description}</div>
+                      <div className="tongs-calendar__event-description">{event.description}</div>
                     ) : null}
                   </div>
 
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    {canEditCalendar ? <button onClick={() => openEditForm(event)}>Edit</button> : null}
-                    {canDeleteCalendar ? <button onClick={() => deleteEvent(event.id)}>Delete</button> : null}
+                  <div className="tongs-calendar__events-row-actions">
+                    {canEditCalendar ? (
+                      <button type="button" onClick={() => openEditForm(event)}>Edit</button>
+                    ) : null}
+                    {canDeleteCalendar ? (
+                      <button type="button" onClick={() => void deleteEvent(event.id)}>Delete</button>
+                    ) : null}
                   </div>
                 </div>
               );
             })}
           </div>
         )}
+      </section>
+
+      <div className="tongs-calendar__storage">Storage: {storageSummary}</div>
+
+      {isMobile && showNew ? (
+        <div className="tongs-calendar__mobile-overlay">
+          <MobilePage
+            title={isEditingEvent ? (title.trim() || "Event") : "New Event"}
+            onBack={closeNewForm}
+            rightAction={
+              canDeleteCalendar && isEditingEvent ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!editingEventId) return;
+                    void (async () => {
+                      await deleteEvent(editingEventId);
+                      closeNewForm();
+                    })();
+                  }}
+                >
+                  Delete
+                </button>
+              ) : null
+            }
+            bottomBar={
+              <div className="tongs-calendar__mobile-actions">
+                {canEditCalendar ? (
+                  <button type="button" onClick={() => void saveEvent()}>
+                    {isEditingEvent ? "Save" : "Add"}
+                  </button>
+                ) : null}
+              </div>
+            }
+          >
+            <div className="tongs-calendar__mobile-form">
+              {!canEditCalendar ? (
+                <div className="tongs-calendar__message tongs-calendar__message--warning">
+                  Viewer access is read-only for calendar events.
+                </div>
+              ) : null}
+              <CalendarEventFormFields
+                canEditCalendar={canEditCalendar}
+                title={title}
+                description={description}
+                location={location}
+                date={date}
+                time={time}
+                durationMin={durationMin}
+                allDay={allDay}
+                linkedSessionId={linkedSessionId}
+                linkedEpisodeIds={linkedEpisodeIds}
+                editingEventId={editingEventId}
+                recordingSessions={recordingSessions}
+                recordingSessionsLoading={recordingSessionsLoading}
+                recordingSessionsError={recordingSessionsError}
+                episodes={episodes}
+                episodesLoading={episodesLoading}
+                episodesError={episodesError}
+                onTitleChange={setTitle}
+                onDescriptionChange={setDescription}
+                onLocationChange={setLocation}
+                onDateChange={(value) => setDateOverride(value)}
+                onTimeChange={setTime}
+                onDurationChange={setDurationMin}
+                onAllDayChange={setAllDay}
+                onSessionChange={setLinkedSessionId}
+                onToggleEpisode={toggleLinkedEpisode}
+              />
+            </div>
+          </MobilePage>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+type CalendarEventFormFieldsProps = {
+  canEditCalendar: boolean;
+  title: string;
+  description: string;
+  location: string;
+  date: string;
+  time: string;
+  durationMin: number;
+  allDay: boolean;
+  linkedSessionId: string;
+  linkedEpisodeIds: string[];
+  editingEventId: string | null;
+  recordingSessions: RecordingSessionOption[];
+  recordingSessionsLoading: boolean;
+  recordingSessionsError: string | null;
+  episodes: EpisodeOption[];
+  episodesLoading: boolean;
+  episodesError: string | null;
+  onTitleChange: (value: string) => void;
+  onDescriptionChange: (value: string) => void;
+  onLocationChange: (value: string) => void;
+  onDateChange: (value: string) => void;
+  onTimeChange: (value: string) => void;
+  onDurationChange: (value: number) => void;
+  onAllDayChange: (value: boolean) => void;
+  onSessionChange: (value: string) => void;
+  onToggleEpisode: (episodeId: string, checked: boolean) => void;
+};
+
+function CalendarEventFormFields({
+  canEditCalendar,
+  title,
+  description,
+  location,
+  date,
+  time,
+  durationMin,
+  allDay,
+  linkedSessionId,
+  linkedEpisodeIds,
+  editingEventId,
+  recordingSessions,
+  recordingSessionsLoading,
+  recordingSessionsError,
+  episodes,
+  episodesLoading,
+  episodesError,
+  onTitleChange,
+  onDescriptionChange,
+  onLocationChange,
+  onDateChange,
+  onTimeChange,
+  onDurationChange,
+  onAllDayChange,
+  onSessionChange,
+  onToggleEpisode,
+}: CalendarEventFormFieldsProps) {
+  return (
+    <>
+      <div className="tongs-calendar__form-grid tongs-calendar__form-grid--three">
+        <label className="tongs-calendar__field">
+          <span className="tongs-calendar__field-label">Title</span>
+          <input
+            value={title}
+            onChange={(event) => onTitleChange(event.target.value)}
+            disabled={!canEditCalendar}
+          />
+        </label>
+
+        <label className="tongs-calendar__field">
+          <span className="tongs-calendar__field-label">Location</span>
+          <input
+            value={location}
+            onChange={(event) => onLocationChange(event.target.value)}
+            disabled={!canEditCalendar}
+          />
+        </label>
+
+        <label className="tongs-calendar__field tongs-calendar__field--checkbox">
+          <input
+            type="checkbox"
+            checked={allDay}
+            onChange={(event) => onAllDayChange(event.target.checked)}
+            disabled={!canEditCalendar}
+          />
+          <span className="tongs-calendar__field-label">All day</span>
+        </label>
       </div>
 
-      <div style={{ marginTop: 14, fontSize: 12, opacity: 0.65 }}>Storage: {storageSummary}</div>
-    </div>
+      <div className="tongs-calendar__form-grid tongs-calendar__form-grid--four">
+        <label className="tongs-calendar__field">
+          <span className="tongs-calendar__field-label">Description (optional)</span>
+          <input
+            value={description}
+            onChange={(event) => onDescriptionChange(event.target.value)}
+            disabled={!canEditCalendar}
+          />
+        </label>
+
+        <label className="tongs-calendar__field">
+          <span className="tongs-calendar__field-label">Date</span>
+          <input
+            type="date"
+            value={date}
+            onChange={(event) => onDateChange(event.target.value)}
+            disabled={!canEditCalendar}
+          />
+        </label>
+
+        <label className="tongs-calendar__field">
+          <span className="tongs-calendar__field-label">Time</span>
+          <input
+            type="time"
+            value={time}
+            onChange={(event) => onTimeChange(event.target.value)}
+            disabled={!canEditCalendar}
+          />
+        </label>
+
+        <label className="tongs-calendar__field">
+          <span className="tongs-calendar__field-label">Minutes</span>
+          <input
+            type="number"
+            min={15}
+            max={480}
+            value={durationMin}
+            onChange={(event) => onDurationChange(Number(event.target.value))}
+            disabled={allDay || !canEditCalendar}
+          />
+        </label>
+      </div>
+
+      <div className="tongs-calendar__field-group">
+        <label className="tongs-calendar__field">
+          <span className="tongs-calendar__field-label">Recording Session (optional)</span>
+          <select
+            value={linkedSessionId}
+            onChange={(event) => onSessionChange(event.target.value)}
+            disabled={recordingSessionsLoading || !canEditCalendar}
+          >
+            <option value="">No recording session</option>
+            {recordingSessions.map((sessionRow) => {
+              const linkedElsewhere = !!sessionRow.calendarEventId
+                && sessionRow.calendarEventId !== editingEventId;
+              const label = linkedElsewhere
+                ? `${sessionRow.title} (currently linked elsewhere)`
+                : sessionRow.title;
+              return (
+                <option key={sessionRow.id} value={sessionRow.id}>
+                  {label}
+                </option>
+              );
+            })}
+          </select>
+        </label>
+        <div className="tongs-calendar__hint">
+          Attaching a session here will move that session from any other event.
+        </div>
+        {recordingSessionsError ? (
+          <div className="tongs-calendar__message tongs-calendar__message--error">
+            {recordingSessionsError}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="tongs-calendar__field-group">
+        <label className="tongs-calendar__field">
+          <span className="tongs-calendar__field-label">Attached Episodes (optional)</span>
+        </label>
+        <div className="tongs-calendar__episodes-list">
+          {episodesLoading ? (
+            <div className="tongs-calendar__message tongs-calendar__message--subtle">Loading episodes...</div>
+          ) : episodes.length === 0 ? (
+            <div className="tongs-calendar__message tongs-calendar__message--subtle">
+              No episodes available in this workspace.
+            </div>
+          ) : (
+            episodes.map((episode) => {
+              const checked = linkedEpisodeIds.includes(episode.id);
+              return (
+                <label key={episode.id} className="tongs-calendar__episode-row">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(event) => onToggleEpisode(episode.id, event.target.checked)}
+                    disabled={!canEditCalendar}
+                  />
+                  <span>{episode.label}</span>
+                </label>
+              );
+            })
+          )}
+        </div>
+        <div className="tongs-calendar__hint">
+          Attach one or more episodes/workpieces to this calendar event.
+        </div>
+        {episodesError ? (
+          <div className="tongs-calendar__message tongs-calendar__message--error">
+            {episodesError}
+          </div>
+        ) : null}
+      </div>
+    </>
   );
 }

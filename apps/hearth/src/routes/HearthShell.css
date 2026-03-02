@@ -235,6 +235,7 @@
   display: flex;
   justify-content: space-between;
   gap: 8px;
+  align-items: center;
 }
 
 .hs-workpiece-title {
@@ -249,6 +250,30 @@
 .hs-workpiece-updated {
   font-size: 12px;
   opacity: 0.75;
+}
+
+.hs-workpiece-presence {
+  font-size: 11px;
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+  opacity: 0.8;
+}
+
+.hs-workpiece-presence.is-editing {
+  border-color: rgba(239, 68, 68, 0.6);
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.hs-workpiece-presence.is-viewing {
+  border-color: rgba(37, 99, 235, 0.55);
+  background: rgba(37, 99, 235, 0.1);
+}
+
+.hs-workpiece-presence.is-idle {
+  border-color: rgba(148, 163, 184, 0.45);
+  background: rgba(15, 23, 42, 0.03);
 }
 
 .hs-workpiece-revisions {
@@ -307,6 +332,10 @@
   gap: 16px;
 }
 
+.hs-main--mobile {
+  gap: 12px;
+}
+
 .hs-home {
   display: grid;
   gap: 20px;
@@ -349,6 +378,33 @@
 .hs-resume-context {
   font-size: 12px;
   opacity: 0.75;
+}
+
+.hs-project-intake {
+  display: grid;
+  gap: 8px;
+}
+
+.hs-project-intake-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.hs-project-intake-meta {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.hs-project-intake-stack {
+  display: grid;
+  gap: 6px;
+}
+
+.hs-project-intake-spark {
+  font-size: 12px;
+  opacity: 0.88;
 }
 
 .hs-error-text {
@@ -1175,6 +1231,24 @@
   justify-content: flex-end;
 }
 
+.hs-mobile-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(6, 11, 20, 0.95);
+}
+
+.hs-mobile-overlay-body {
+  display: grid;
+  gap: 12px;
+}
+
+.hs-mobile-overlay-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .hs-thumb-panel {
   border: 1px solid var(--forge-border, #ddd);
   border-radius: 10px;
@@ -1687,5 +1761,32 @@
   .hs-meta-title-row button {
     grid-column: 1 / -1;
     justify-self: start;
+  }
+}
+
+@media (max-width: 767px) {
+  .hs-shell {
+    padding: 10px;
+    gap: 10px;
+  }
+
+  .hs-home-actions button {
+    min-height: 44px;
+  }
+
+  .hs-workpiece-card {
+    padding: 10px;
+  }
+
+  .hs-workpiece-actions {
+    gap: 8px;
+  }
+
+  .hs-workpiece-actions button {
+    min-height: 40px;
+  }
+
+  .hs-ready-record-item {
+    padding: 10px;
   }
 }

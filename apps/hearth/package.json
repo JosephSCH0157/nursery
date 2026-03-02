@@ -10,6 +10,7 @@
     "test:confidence": "tsx tests/hearth-confidence.test.ts"
   },
   "dependencies": {
+    "@forge/ui-mobile": "workspace:*",
     "react": "^19.2.0"
   },
   "devDependencies": {

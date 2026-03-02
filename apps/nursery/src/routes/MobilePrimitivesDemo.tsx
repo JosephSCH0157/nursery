@@ -1,6 +1,5 @@
 import { useState } from "react";
-import MobilePage from "../components/mobile/MobilePage";
-import { useLayoutMode } from "../hooks/useLayoutMode";
+import { MobilePage, useLayoutMode } from "@forge/ui-mobile";
 import "./MobilePrimitivesDemo.css";
 
 export default function MobilePrimitivesDemo() {

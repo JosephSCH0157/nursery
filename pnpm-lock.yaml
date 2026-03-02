@@ -92,12 +92,6 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
-  apps/anvil/tools:
-    devDependencies:
-      puppeteer:
-        specifier: ^24.37.5
-        version: 24.37.5(typescript@5.9.3)
-
   apps/bar-stock:
     dependencies:
       '@supabase/supabase-js':
@@ -134,6 +128,9 @@ importers:
 
   apps/hearth:
     dependencies:
+      '@forge/ui-mobile':
+        specifier: workspace:*
+        version: link:../../packages/ui-mobile
       react:
         specifier: ^19.2.0
         version: 19.2.4
@@ -156,6 +153,9 @@ importers:
       '@forge/tongs':
         specifier: workspace:*
         version: link:../../packages/tongs
+      '@forge/ui-mobile':
+        specifier: workspace:*
+        version: link:../../packages/ui-mobile
       '@supabase/supabase-js':
         specifier: ^2.98.0
         version: 2.98.0
@@ -232,6 +232,16 @@ importers:
       typescript-eslint:
         specifier: ^8.56.1
         version: 8.56.1(eslint@9.39.3)(typescript@5.9.3)
+
+  packages/ui-mobile:
+    dependencies:
+      react:
+        specifier: ^19.2.0
+        version: 19.2.4
+    devDependencies:
+      '@types/react':
+        specifier: ^19.2.5
+        version: 19.2.14
 
 packages:
 

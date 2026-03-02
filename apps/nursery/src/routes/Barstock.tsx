@@ -1,10 +1,9 @@
 import { useMemo } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import BarstockApp from "@barstock/App";
+import { MobilePage, useLayoutMode } from "@forge/ui-mobile";
 import type { AppShellContext } from "./AppShell";
 import WorkspaceRequiredNotice from "./WorkspaceRequiredNotice";
-import { useLayoutMode } from "../hooks/useLayoutMode";
-import MobilePage from "../components/mobile/MobilePage";
 
 type BarstockMobileRoute = {
   mode: "list" | "new" | "detail";

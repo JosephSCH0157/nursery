@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@forge/hearth": "workspace:*",
+    "@forge/ui-mobile": "workspace:*",
     "@forge/tongs": "workspace:*",
     "@supabase/supabase-js": "^2.98.0",
     "react": "^19.2.0",

@@ -98,6 +98,7 @@ import {
 import ThumbnailPanel from "../components/visuals/ThumbnailPanel";
 import ImageMapPanel from "../components/visuals/ImageMapPanel";
 import MetadataPanel from "../components/metadata/MetadataPanel";
+import { MobilePage, useLayoutMode } from "@forge/ui-mobile";
 
 const AUTOSAVE_DELAY_MS = 2200;
 const AUTOSAVE_MIN_GAP_MS = 5000;
@@ -1584,6 +1585,8 @@ function createPlanningSessionForEpisode(workpieceId: string, workspaceId: strin
 export default function HearthShell() {
   const storeKind = resolveStoreKind();
   const devMode = isDevMode();
+  const layoutMode = useLayoutMode();
+  const isMobile = layoutMode === "mobile";
   const store = useMemo(() => createHearthStore(storeKind), [storeKind]);
   const sessionStore = useMemo(() => new LocalSessionStore(), []);
 
@@ -1703,6 +1706,7 @@ export default function HearthShell() {
   const [metadataSaveError, setMetadataSaveError] = useState<string | null>(null);
   const [presenceRows, setPresenceRows] = useState<HearthWorkpiecePresence[]>([]);
   const [draftConflictState, setDraftConflictState] = useState<DraftConflictState | null>(null);
+  const [mobileOverlayView, setMobileOverlayView] = useState<"editor" | "ready" | null>(null);
 
   const autosaveTimer = useRef<number | null>(null);
   const autosaveInFlightRef = useRef(false);
@@ -2361,6 +2365,28 @@ export default function HearthShell() {
   useEffect(() => {
     writeRemovedReadyIds(workspaceId, removedReadyIds);
   }, [removedReadyIds, workspaceId]);
+
+  useEffect(() => {
+    if (!isMobile && mobileOverlayView) {
+      setMobileOverlayView(null);
+    }
+  }, [isMobile, mobileOverlayView]);
+
+  useEffect(() => {
+    setMobileOverlayView(null);
+  }, [workspaceId]);
+
+  useEffect(() => {
+    if (!isMobile) return;
+    if (mobileOverlayView) return;
+    if (mode === "focus" && activeDraft) {
+      setMobileOverlayView("editor");
+      return;
+    }
+    if (mode === "ready") {
+      setMobileOverlayView("ready");
+    }
+  }, [activeDraft, isMobile, mobileOverlayView, mode]);
 
   useEffect(() => {
     const workspace = workspaceId?.trim() ?? "";
@@ -6175,6 +6201,43 @@ export default function HearthShell() {
     );
   }
 
+  const openDraftInFocus = useCallback((draft: Draft) => {
+    void selectDraft(draft);
+    setFocusTab("draft");
+    setMode("focus");
+    if (isMobile) {
+      setMobileOverlayView("editor");
+    }
+  }, [isMobile, selectDraft]);
+
+  const openReadyInMobileOverlay = useCallback(() => {
+    setMode("ready");
+    if (isMobile) {
+      setMobileOverlayView("ready");
+    }
+  }, [isMobile]);
+
+  const closeMobileOverlay = useCallback(() => {
+    setMobileOverlayView(null);
+    if (isMobile) {
+      setMode("episodes");
+    }
+  }, [isMobile]);
+
+  const resolveDraftPresenceBadge = useCallback((draft: Draft): string => {
+    if (activeDraft?.id !== draft.id) return "Idle";
+    if (editingPeers.length > 0) return `${activeEditorName} editing`;
+    if (viewingPeers.length > 0) return `${activeViewerName} viewing`;
+    return "Idle";
+  }, [activeDraft?.id, activeEditorName, editingPeers.length, activeViewerName, viewingPeers.length]);
+
+  const resolveDraftPresenceClass = useCallback((draft: Draft): string => {
+    if (activeDraft?.id !== draft.id) return "is-idle";
+    if (editingPeers.length > 0) return "is-editing";
+    if (viewingPeers.length > 0) return "is-viewing";
+    return "is-idle";
+  }, [activeDraft?.id, editingPeers.length, viewingPeers.length]);
+
   const renderSparksView = () => {
     const resumeDraft = session?.activeDraftId
       ? drafts.find((draft) => draft.id === session.activeDraftId) ?? null
@@ -6198,12 +6261,12 @@ export default function HearthShell() {
         </header>
 
         {isProjectIntake ? (
-          <div className="hs-resume-context" style={{ display: "grid", gap: 8 }}>
+          <div className="hs-resume-context hs-project-intake">
             <div>
               Project: <b>{routeProjectLabel ?? "Untitled Project"}</b>
               {workpieceId ? ` · Episode ${workpieceId.slice(0, 8)}` : " · Resolving episode..."}
             </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div className="hs-project-intake-actions">
               <button
                 type="button"
                 onClick={() => void forgeProjectIntoEpisode()}
@@ -6211,20 +6274,20 @@ export default function HearthShell() {
               >
                 Forge this Project into an Episode
               </button>
-              <span style={{ opacity: 0.75, fontSize: 12 }}>
+              <span className="hs-project-intake-meta">
                 Spark Stack: {routeProjectSparks.length}
               </span>
             </div>
             {routeProjectSparks.length > 0 ? (
-              <div style={{ display: "grid", gap: 6 }}>
+              <div className="hs-project-intake-stack">
                 {routeProjectSparks.map((spark) => (
-                  <div key={spark.id} style={{ fontSize: 12, opacity: 0.88 }}>
+                  <div key={spark.id} className="hs-project-intake-spark">
                     {deriveSparkTitle(spark)}
                   </div>
                 ))}
               </div>
             ) : (
-              <div style={{ fontSize: 12, opacity: 0.75 }}>
+              <div className="hs-project-intake-meta">
                 No sparks attached to this Project yet.
               </div>
             )}
@@ -7179,8 +7242,10 @@ export default function HearthShell() {
   const renderEpisodesView = () => (
     <section className="hs-home">
       <header className="hs-home-header">
-        <h2 className="hs-home-title">Episodes (In Progress)</h2>
-        <p className="hs-home-subtext">Open an Episode to enter Focus Mode.</p>
+        <h2 className="hs-home-title">{isMobile ? "Workspace Projects" : "Episodes (In Progress)"}</h2>
+        <p className="hs-home-subtext">
+          {isMobile ? "Tap a project to open the mobile editor." : "Open an Episode to enter Focus Mode."}
+        </p>
       </header>
       <div className="hs-home-actions">
         <button type="button" onClick={() => void startFromScratch()} disabled={isForging}>
@@ -7189,6 +7254,11 @@ export default function HearthShell() {
         <button type="button" onClick={onCreateDraft}>
           New Draft
         </button>
+        {isMobile ? (
+          <button type="button" onClick={openReadyInMobileOverlay}>
+            Ready to Record
+          </button>
+        ) : null}
       </div>
       <div className="hs-rail-section">
         <label className="hs-rail-label">Search Episodes</label>
@@ -7214,14 +7284,13 @@ export default function HearthShell() {
               <button
                 type="button"
                 className="hs-workpiece-button"
-                onClick={() => {
-                  void selectDraft(draft);
-                  setFocusTab("draft");
-                  setMode("focus");
-                }}
+                onClick={() => openDraftInFocus(draft)}
               >
                 <div className="hs-workpiece-title-row">
                   <div className="hs-workpiece-title">{draft.title || "Untitled Draft"}</div>
+                  <span className={`hs-workpiece-presence ${resolveDraftPresenceClass(draft)}`}>
+                    {resolveDraftPresenceBadge(draft)}
+                  </span>
                 </div>
                 <div className="hs-workpiece-updated">Updated {formatUpdatedAt(draft.updatedAt)}</div>
                 <div className="hs-workpiece-updated">Last edited by {resolveDraftEditorName(draft)}</div>
@@ -7386,6 +7455,7 @@ export default function HearthShell() {
         return renderFocusEditor();
     }
   })();
+  const mobileMainContent = renderEpisodesView();
 
   const sourcesBadge = missingSourcesCount > 0 ? String(missingSourcesCount) : null;
   const sourcesBadgeTitle = missingSourcesCount > 0
@@ -7395,8 +7465,13 @@ export default function HearthShell() {
       : "Sources";
 
   return (
-    <section className="hs-shell">
-      <div className="hs-shell-grid">
+    <section className={`hs-shell${isMobile ? " hs-shell--mobile" : ""}`}>
+      {isMobile ? (
+        <main className="hs-main hs-main--mobile">
+          {mobileMainContent}
+        </main>
+      ) : (
+        <div className="hs-shell-grid">
         <aside
           className="hs-rail"
         >
@@ -7671,11 +7746,7 @@ export default function HearthShell() {
                         />
                       ) : (
                         <button
-                          onClick={() => {
-                            void selectDraft(draft);
-                            setFocusTab("draft");
-                            setMode("focus");
-                          }}
+                          onClick={() => openDraftInFocus(draft)}
                           className="hs-workpiece-button"
                         >
                           <div className="hs-workpiece-title-row">
@@ -7813,10 +7884,54 @@ export default function HearthShell() {
           </div>
         </aside>
 
-        <main className="hs-main">
-          {mainContent}
-        </main>
-      </div>
+          <main className="hs-main">
+            {mainContent}
+          </main>
+        </div>
+      )}
+
+      {isMobile && mobileOverlayView === "editor" ? (
+        <div className="hs-mobile-overlay">
+          <MobilePage
+            title={activeDraft?.title?.trim() || "Project Editor"}
+            onBack={closeMobileOverlay}
+            rightAction={
+              <button type="button" onClick={openReadyInMobileOverlay}>
+                Ready
+              </button>
+            }
+            bottomBar={
+              <div className="hs-mobile-overlay-actions">
+                <button type="button" onClick={() => void onSaveDraft()} disabled={!activeDraft || isSaving}>
+                  {isSaving ? "Saving..." : "Save"}
+                </button>
+              </div>
+            }
+          >
+            <div className="hs-mobile-overlay-body">
+              {renderFocusEditor()}
+            </div>
+          </MobilePage>
+        </div>
+      ) : null}
+
+      {isMobile && mobileOverlayView === "ready" ? (
+        <div className="hs-mobile-overlay">
+          <MobilePage
+            title="Ready to Record"
+            onBack={closeMobileOverlay}
+            rightAction={
+              <button type="button" onClick={() => void refreshReadyScripts()} disabled={isReadyScriptsLoading}>
+                {isReadyScriptsLoading ? "..." : "Refresh"}
+              </button>
+            }
+          >
+            <div className="hs-mobile-overlay-body">
+              {renderReadyView()}
+            </div>
+          </MobilePage>
+        </div>
+      ) : null}
 
       {revisionModalOpen ? (
         <div

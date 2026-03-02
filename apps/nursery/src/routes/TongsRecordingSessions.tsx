@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
+import { MobilePage, useLayoutMode } from "@forge/ui-mobile";
 import type { AppShellContext } from "./AppShell";
 import WorkspaceRequiredNotice from "./WorkspaceRequiredNotice";
 import { tongsApiRequest } from "../lib/tongs-api";
@@ -46,9 +47,35 @@ type SessionPlannerItem = {
   script_path: string;
 };
 
+type WorkspaceRole = "viewer" | "editor" | "admin" | "owner";
+
+const WORKSPACE_ROLE_RANK: Record<WorkspaceRole, number> = {
+  viewer: 10,
+  editor: 20,
+  admin: 30,
+  owner: 40,
+};
+
 function readErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim()) return error.message;
   return fallback;
+}
+
+function normalizeWorkspaceRole(value: unknown): WorkspaceRole | null {
+  if (value === "viewer" || value === "editor" || value === "admin" || value === "owner") {
+    return value;
+  }
+  return null;
+}
+
+function workspaceRoleAtLeast(role: WorkspaceRole | null, minimum: WorkspaceRole): boolean {
+  if (!role) return false;
+  return WORKSPACE_ROLE_RANK[role] >= WORKSPACE_ROLE_RANK[minimum];
+}
+
+function workspaceRoleLabel(role: WorkspaceRole | null): string {
+  if (!role) return "Unknown";
+  return `${role.slice(0, 1).toUpperCase()}${role.slice(1)}`;
 }
 
 function itemSignature(items: readonly SessionPlannerItem[]): string {
@@ -122,6 +149,21 @@ export default function TongsRecordingSessions() {
   const shell = useOutletContext<AppShellContext>();
   const workspaceId = shell?.workspaceId ?? null;
   const session = shell?.session ?? null;
+  const activeWorkspace = useMemo(
+    () => shell?.workspaces?.find((workspace) => workspace.id === workspaceId) ?? null,
+    [shell?.workspaces, workspaceId],
+  );
+  const workspaceRole = useMemo(
+    () => normalizeWorkspaceRole(activeWorkspace?.role ?? null),
+    [activeWorkspace?.role],
+  );
+  const canReadSessions = workspaceRole
+    ? workspaceRoleAtLeast(workspaceRole, "viewer")
+    : Boolean(session && workspaceId);
+  const canEditSessions = workspaceRole ? workspaceRoleAtLeast(workspaceRole, "editor") : false;
+  const canDeleteSessions = workspaceRole ? workspaceRoleAtLeast(workspaceRole, "admin") : false;
+  const layoutMode = useLayoutMode();
+  const isMobile = layoutMode === "mobile";
 
   const [sessions, setSessions] = useState<RecordingSessionSummary[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
@@ -152,6 +194,7 @@ export default function TongsRecordingSessions() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const [dragFromIndex, setDragFromIndex] = useState<number | null>(null);
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
 
   const currentPlanSignature = useMemo(() => itemSignature(planItems), [planItems]);
   const isDirty = currentPlanSignature !== savedPlanSignature;
@@ -191,7 +234,7 @@ export default function TongsRecordingSessions() {
   }, [readyCandidates]);
 
   const loadSessions = useCallback(async (preferredId?: string | null) => {
-    if (!workspaceId || !session) {
+    if (!workspaceId || !session || !canReadSessions) {
       setSessions([]);
       setSelectedSessionId(null);
       return;
@@ -215,10 +258,10 @@ export default function TongsRecordingSessions() {
     } finally {
       setSessionsLoading(false);
     }
-  }, [workspaceId, session]);
+  }, [workspaceId, session, canReadSessions]);
 
   const loadReadyCandidates = useCallback(async () => {
-    if (!workspaceId || !session) {
+    if (!workspaceId || !session || !canReadSessions) {
       setReadyCandidates([]);
       return;
     }
@@ -235,7 +278,7 @@ export default function TongsRecordingSessions() {
     } finally {
       setReadyLoading(false);
     }
-  }, [workspaceId, session]);
+  }, [workspaceId, session, canReadSessions]);
 
   const loadSessionDetail = useCallback(async (sessionId: string) => {
     setDetailLoading(true);
@@ -262,7 +305,7 @@ export default function TongsRecordingSessions() {
   }, []);
 
   useEffect(() => {
-    if (!workspaceId || !session) {
+    if (!workspaceId || !session || !canReadSessions) {
       setSessions([]);
       setSelectedSessionId(null);
       setSessionDetail(null);
@@ -273,19 +316,55 @@ export default function TongsRecordingSessions() {
     }
     void loadSessions();
     void loadReadyCandidates();
-  }, [workspaceId, session, loadReadyCandidates, loadSessions]);
+  }, [workspaceId, session, canReadSessions, loadReadyCandidates, loadSessions]);
 
   useEffect(() => {
-    if (!selectedSessionId) {
+    if (!selectedSessionId || !canReadSessions) {
       setSessionDetail(null);
       setPlanItems([]);
       setSavedPlanSignature("");
       return;
     }
     void loadSessionDetail(selectedSessionId);
-  }, [selectedSessionId, loadSessionDetail]);
+  }, [selectedSessionId, canReadSessions, loadSessionDetail]);
+
+  useEffect(() => {
+    setCreateOpen(false);
+    setCreateError(null);
+    setMobileDetailOpen(false);
+  }, [workspaceId]);
+
+  useEffect(() => {
+    if (!selectedSessionId) {
+      setMobileDetailOpen(false);
+    }
+  }, [selectedSessionId]);
+
+  useEffect(() => {
+    if (!isMobile) {
+      setMobileDetailOpen(false);
+    }
+  }, [isMobile]);
+
+  useEffect(() => {
+    if (!canEditSessions) {
+      setCreateOpen(false);
+    }
+  }, [canEditSessions]);
+
+  const openSession = useCallback((sessionId: string) => {
+    setSelectedSessionId(sessionId);
+    if (isMobile) {
+      setMobileDetailOpen(true);
+    }
+  }, [isMobile]);
 
   const addCandidate = useCallback((candidate: ReadyScriptCandidate) => {
+    if (!canEditSessions) {
+      setSaveNotice(null);
+      setSaveError("Editor access is required to change session plans.");
+      return;
+    }
     if (planEpisodeIdSet.has(candidate.workpiece_id)) {
       setSaveError("That episode+script is already in the session plan.");
       setSaveNotice(null);
@@ -300,10 +379,13 @@ export default function TongsRecordingSessions() {
     ]);
     setSaveNotice(null);
     setSaveError(null);
-  }, [planEpisodeIdSet]);
+  }, [canEditSessions, planEpisodeIdSet]);
 
   const deleteReadyCandidate = useCallback(async (candidate: ReadyScriptCandidate) => {
-    if (!session) return;
+    if (!session || !canEditSessions) {
+      setReadyDeleteError("Editor access is required to delete ready scripts.");
+      return;
+    }
     const label = candidate.title?.trim() || "Ready Script";
     const path = candidate.primary_script_path;
     const confirmed = window.confirm(
@@ -351,15 +433,36 @@ export default function TongsRecordingSessions() {
     } finally {
       setReadyDeleteBusyKey(null);
     }
-  }, [session, loadReadyCandidates, loadSessionDetail, selectedSessionId]);
+  }, [session, canEditSessions, loadReadyCandidates, loadSessionDetail, selectedSessionId]);
 
   const removePlanItem = useCallback((index: number) => {
+    if (!canEditSessions) return;
     setPlanItems((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
     setSaveNotice(null);
     setSaveError(null);
-  }, []);
+  }, [canEditSessions]);
+
+  const movePlanItem = useCallback((index: number, direction: -1 | 1) => {
+    if (!canEditSessions) return;
+    setPlanItems((prev) => {
+      const targetIndex = index + direction;
+      if (index < 0 || index >= prev.length) return prev;
+      if (targetIndex < 0 || targetIndex >= prev.length) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(index, 1);
+      if (!moved) return prev;
+      next.splice(targetIndex, 0, moved);
+      return next;
+    });
+    setSaveNotice(null);
+    setSaveError(null);
+  }, [canEditSessions]);
 
   const dropAtIndex = useCallback((toIndex: number) => {
+    if (!canEditSessions) {
+      setDragFromIndex(null);
+      return;
+    }
     setPlanItems((prev) => {
       if (dragFromIndex == null) return prev;
       if (dragFromIndex < 0 || dragFromIndex >= prev.length) return prev;
@@ -374,9 +477,13 @@ export default function TongsRecordingSessions() {
     setDragFromIndex(null);
     setSaveNotice(null);
     setSaveError(null);
-  }, [dragFromIndex]);
+  }, [canEditSessions, dragFromIndex]);
 
   const moveToEnd = useCallback(() => {
+    if (!canEditSessions) {
+      setDragFromIndex(null);
+      return;
+    }
     setPlanItems((prev) => {
       if (dragFromIndex == null) return prev;
       if (dragFromIndex < 0 || dragFromIndex >= prev.length) return prev;
@@ -389,10 +496,15 @@ export default function TongsRecordingSessions() {
     setDragFromIndex(null);
     setSaveNotice(null);
     setSaveError(null);
-  }, [dragFromIndex]);
+  }, [canEditSessions, dragFromIndex]);
 
   const savePlan = useCallback(async () => {
     if (!selectedSessionId) return;
+    if (!canEditSessions) {
+      setSaveNotice(null);
+      setSaveError("Editor access is required to save session plans.");
+      return;
+    }
     if (planItems.length === 0) {
       setSaveError(null);
       setSaveNotice("Nothing to save.");
@@ -435,10 +547,14 @@ export default function TongsRecordingSessions() {
     } finally {
       setSaveBusy(false);
     }
-  }, [selectedSessionId, planItems, hasDuplicatePlanItems, loadSessions]);
+  }, [selectedSessionId, canEditSessions, planItems, hasDuplicatePlanItems, loadSessions]);
 
   const createSession = useCallback(async () => {
     if (!workspaceId) return;
+    if (!canEditSessions) {
+      setCreateError("Editor access is required to create sessions.");
+      return;
+    }
     setCreateBusy(true);
     setCreateError(null);
     try {
@@ -454,15 +570,21 @@ export default function TongsRecordingSessions() {
       setCreateTitle("Recording Session");
       await loadSessions(row.id);
       setSelectedSessionId(row.id);
+      if (isMobile) {
+        setMobileDetailOpen(true);
+      }
     } catch (error: unknown) {
       setCreateError(readErrorMessage(error, "Failed creating recording session."));
     } finally {
       setCreateBusy(false);
     }
-  }, [workspaceId, createTitle, loadSessions]);
+  }, [workspaceId, canEditSessions, createTitle, loadSessions, isMobile]);
 
   const deleteSession = useCallback(async (entry: RecordingSessionSummary) => {
-    if (!workspaceId || !session) return;
+    if (!workspaceId || !session || !canDeleteSessions) {
+      setDeleteError("Admin access is required to delete sessions.");
+      return;
+    }
     const label = entry.title?.trim() || "Recording Session";
     const confirmed = window.confirm(`Delete recording session "${label}"? This cannot be undone.`);
     if (!confirmed) return;
@@ -488,6 +610,7 @@ export default function TongsRecordingSessions() {
         setPlanItems([]);
         setSavedPlanSignature("");
         setDetailError(null);
+        setMobileDetailOpen(false);
       }
 
       setSelectedSessionId(preferredId);
@@ -498,23 +621,199 @@ export default function TongsRecordingSessions() {
     } finally {
       setDeleteBusyId(null);
     }
-  }, [workspaceId, session, sessions, selectedSessionId, loadSessions]);
+  }, [workspaceId, session, canDeleteSessions, sessions, selectedSessionId, loadSessions]);
 
   if (!workspaceId) {
     return <WorkspaceRequiredNotice toolName="Tongs Recording Sessions" />;
   }
 
-  return (
-    <div style={{ padding: 8, maxWidth: 1200, display: "grid", gap: 14 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
-        <div>
-          <h2 style={{ margin: 0 }}>Recording Sessions</h2>
-          <p style={{ marginTop: 6, opacity: 0.72 }}>
-            Build deterministic session plans from Ready scripts.
-          </p>
+  const selectedSessionSummary = sessions.find((entry) => entry.id === selectedSessionId) ?? null;
+  const selectedSessionTitle = sessionDetail?.title || selectedSessionSummary?.title || "Session Plan";
+  const saveDisabled = !canEditSessions
+    || !selectedSessionId
+    || saveBusy
+    || !isDirty
+    || planItems.length === 0
+    || hasDuplicatePlanItems;
+
+  const detailBody = (
+    <>
+      <div className="trs-detail__meta">
+        {selectedSessionId ? `Session ID: ${selectedSessionId}` : "Select a session to edit the plan."}
+      </div>
+      {detailLoading ? <div className="trs-message trs-message--subtle">Loading session plan...</div> : null}
+      {detailError ? <div className="trs-message trs-message--error">{detailError}</div> : null}
+      {selectedSessionId && planItems.length === 0 ? (
+        <div className="trs-message trs-message--subtle">Nothing to save.</div>
+      ) : null}
+      {hasDuplicatePlanItems ? (
+        <div className="trs-message trs-message--warning">
+          Duplicate entry detected. Remove duplicate episode/script before saving.
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button type="button" onClick={() => setCreateOpen((prev) => !prev)}>
+      ) : null}
+      {!canEditSessions ? (
+        <div className="trs-message trs-message--warning">Viewer access is read-only for session planning.</div>
+      ) : null}
+      {saveError ? <div className="trs-message trs-message--error">{saveError}</div> : null}
+      {saveNotice ? <div className="trs-message trs-message--success">{saveNotice}</div> : null}
+
+      <div className="trs-detail-grid">
+        <section className="trs-subcard">
+          <div className="trs-subcard__title">Ready Candidates</div>
+          {readyLoading ? <div className="trs-message trs-message--subtle">Loading ready candidates...</div> : null}
+          {readyError ? <div className="trs-message trs-message--error">{readyError}</div> : null}
+          {readyDeleteError ? <div className="trs-message trs-message--error">{readyDeleteError}</div> : null}
+          {readyCandidates.length === 0 ? (
+            <div className="trs-message trs-message--subtle">No ready scripts.</div>
+          ) : (
+            <ul className="trs-list-reset trs-ready-list">
+              {readyCandidates.map((candidate) => {
+                const alreadyInPlan = planEpisodeIdSet.has(candidate.workpiece_id);
+                const candidateKey = `${candidate.workpiece_id}::${candidate.primary_script_path}`;
+                const deletingCandidate = readyDeleteBusyKey === candidateKey;
+                return (
+                  <li
+                    key={`${candidate.workpiece_id}:${candidate.primary_script_path}`}
+                    className="trs-ready-item"
+                  >
+                    <div className="trs-ready-item__title">{candidate.title}</div>
+                    <div className="trs-ready-item__path">{candidate.primary_script_path}</div>
+                    <div className="trs-ready-attribution">{formatReadyAttribution(candidate)}</div>
+                    <div className="trs-ready-item__footer">
+                      <span className="trs-ready-item__updated">{formatDateTime(candidate.updated_at)}</span>
+                      <div className="trs-ready-item__actions">
+                        <button
+                          type="button"
+                          onClick={() => addCandidate(candidate)}
+                          disabled={!canEditSessions || !selectedSessionId || alreadyInPlan || deletingCandidate}
+                          title={alreadyInPlan ? "Already in session plan" : undefined}
+                        >
+                          {alreadyInPlan ? "Added" : "Add"}
+                        </button>
+                        {canEditSessions ? (
+                          <button
+                            type="button"
+                            onClick={() => void deleteReadyCandidate(candidate)}
+                            disabled={deletingCandidate}
+                          >
+                            {deletingCandidate ? "Deleting..." : "Delete"}
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+
+        <section className="trs-subcard">
+          <div className="trs-subcard__title">Session Plan</div>
+          {!selectedSessionId ? (
+            <div className="trs-message trs-message--subtle">Select a session to build an ordered plan.</div>
+          ) : planItems.length === 0 ? (
+            <div className="trs-message trs-message--subtle">No items yet. Add from ready candidates.</div>
+          ) : (
+            <>
+              <ul className="trs-list-reset trs-plan-list">
+                {planItems.map((item, index) => {
+                  const key = plannerKey(item);
+                  const candidate = candidateByPlannerKey.get(key);
+                  const title = candidate?.title ?? `Episode ${item.episode_id.slice(0, 8)}`;
+                  const duplicateEntry = duplicatePlanKeys.has(key);
+                  const classNames = [
+                    "trs-plan-item",
+                    duplicateEntry ? "trs-plan-item--duplicate" : "",
+                    dragFromIndex === index ? "trs-plan-item--dragging" : "",
+                  ].filter(Boolean).join(" ");
+
+                  return (
+                    <li
+                      key={`${key}:${index}`}
+                      className={classNames}
+                      draggable={canEditSessions && !isMobile}
+                      onDragStart={() => {
+                        if (!canEditSessions || isMobile) return;
+                        setDragFromIndex(index);
+                      }}
+                      onDragEnd={() => setDragFromIndex(null)}
+                      onDragOver={(event) => {
+                        if (!canEditSessions || isMobile) return;
+                        event.preventDefault();
+                      }}
+                      onDrop={(event) => {
+                        if (!canEditSessions || isMobile) return;
+                        event.preventDefault();
+                        dropAtIndex(index);
+                      }}
+                    >
+                      <div className="trs-plan-item__position">Position {index + 1}</div>
+                      <div className="trs-plan-item__title">{title}</div>
+                      <div className="trs-plan-item__path">{item.script_path}</div>
+                      <div className="trs-ready-attribution">{formatReadyAttribution(candidate)}</div>
+                      {duplicateEntry ? (
+                        <div className="trs-message trs-message--warning">Duplicate entry</div>
+                      ) : null}
+                      {canEditSessions ? (
+                        <div className="trs-plan-item__actions">
+                          <button
+                            type="button"
+                            onClick={() => movePlanItem(index, -1)}
+                            disabled={index === 0}
+                          >
+                            Up
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => movePlanItem(index, 1)}
+                            disabled={index === planItems.length - 1}
+                          >
+                            Down
+                          </button>
+                          <button type="button" onClick={() => removePlanItem(index)}>Remove</button>
+                        </div>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+              {canEditSessions && !isMobile && planItems.length > 1 ? (
+                <div
+                  className="trs-plan-dropzone"
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    moveToEnd();
+                  }}
+                >
+                  Drop here to move to end
+                </div>
+              ) : null}
+            </>
+          )}
+        </section>
+      </div>
+    </>
+  );
+
+  return (
+    <div className={`trs${isMobile ? " trs--mobile" : ""}`}>
+      <header className="trs-header">
+        <div className="trs-header__title-wrap">
+          <h2 className="trs-header__title">Recording Sessions</h2>
+          <p className="trs-header__subtitle">Build deterministic session plans from ready scripts.</p>
+        </div>
+        <div className="trs-header__actions">
+          <span className="trs-role">Your role: {workspaceRoleLabel(workspaceRole)}</span>
+          <button
+            type="button"
+            onClick={() => setCreateOpen((prev) => !prev)}
+            disabled={!canEditSessions}
+            title={!canEditSessions ? "Editor access required" : undefined}
+          >
             {createOpen ? "Close" : "Create Session"}
           </button>
           <button
@@ -528,30 +827,30 @@ export default function TongsRecordingSessions() {
             Refresh
           </button>
         </div>
-      </div>
+      </header>
+
+      {!canReadSessions ? (
+        <section className="trs-card">
+          <div className="trs-message trs-message--warning">
+            You do not have workspace access to view recording sessions.
+          </div>
+        </section>
+      ) : null}
 
       {createOpen ? (
-        <div
-          style={{
-            border: "1px solid rgba(255,255,255,0.15)",
-            borderRadius: 10,
-            padding: 12,
-            display: "grid",
-            gap: 10,
-            maxWidth: 520,
-          }}
-        >
-          <div style={{ fontWeight: 700 }}>Create Session</div>
-          <label style={{ display: "grid", gap: 4 }}>
-            <span style={{ fontSize: 12, opacity: 0.75 }}>Title</span>
+        <section className="trs-card trs-create">
+          <div className="trs-card__title">Create Session</div>
+          <label className="trs-field">
+            <span className="trs-field__label">Title</span>
             <input
               value={createTitle}
               onChange={(event) => setCreateTitle(event.target.value)}
               placeholder="Recording Session"
+              disabled={!canEditSessions}
             />
           </label>
-          {createError ? <div style={{ color: "#ffb3b3", fontSize: 13 }}>{createError}</div> : null}
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          {createError ? <div className="trs-message trs-message--error">{createError}</div> : null}
+          <div className="trs-create__actions">
             <button
               type="button"
               onClick={() => {
@@ -562,272 +861,102 @@ export default function TongsRecordingSessions() {
             >
               Cancel
             </button>
-            <button type="button" onClick={() => void createSession()} disabled={createBusy}>
+            <button type="button" onClick={() => void createSession()} disabled={!canEditSessions || createBusy}>
               {createBusy ? "Creating..." : "Create"}
             </button>
           </div>
-        </div>
+        </section>
       ) : null}
 
-      <div
-        style={{
-          border: "1px solid rgba(255,255,255,0.15)",
-          borderRadius: 12,
-          padding: 12,
-          background: "rgba(255,255,255,0.04)",
-          display: "grid",
-          gap: 10,
-        }}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
-          <div style={{ fontWeight: 700 }}>Sessions</div>
-          {sessionsLoading ? <span style={{ fontSize: 12, opacity: 0.72 }}>Loading...</span> : null}
+      <section className="trs-card">
+        <div className="trs-card__header">
+          <div className="trs-card__title">Sessions</div>
+          {sessionsLoading ? <span className="trs-message trs-message--subtle">Loading...</span> : null}
         </div>
-        {sessionsError ? <div style={{ color: "#ffb3b3", fontSize: 13 }}>{sessionsError}</div> : null}
-        {deleteError ? <div style={{ color: "#ffb3b3", fontSize: 13 }}>{deleteError}</div> : null}
+        {sessionsError ? <div className="trs-message trs-message--error">{sessionsError}</div> : null}
+        {deleteError ? <div className="trs-message trs-message--error">{deleteError}</div> : null}
         {sessions.length === 0 ? (
-          <div style={{ fontSize: 13, opacity: 0.7 }}>No sessions yet.</div>
+          <div className="trs-message trs-message--subtle">No sessions yet.</div>
         ) : (
-          <div style={{ display: "grid", gap: 8 }}>
+          <div className="trs-sessions-list">
             {sessions.map((entry) => {
               const active = entry.id === selectedSessionId;
               const deletingThis = deleteBusyId === entry.id;
               return (
-                <div
-                  key={entry.id}
-                  style={{
-                    display: "flex",
-                    gap: 8,
-                    alignItems: "stretch",
-                  }}
-                >
+                <div key={entry.id} className="trs-session-row">
                   <button
                     type="button"
-                    onClick={() => setSelectedSessionId(entry.id)}
-                    style={{
-                      textAlign: "left",
-                      borderRadius: 8,
-                      border: active ? "1px solid rgba(255,255,255,0.55)" : "1px solid rgba(255,255,255,0.14)",
-                      background: active ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.18)",
-                      color: "inherit",
-                      padding: "8px 10px",
-                      flex: 1,
-                    }}
+                    className={`trs-session-row__select${active ? " trs-session-row__select--active" : ""}`}
+                    onClick={() => openSession(entry.id)}
                   >
-                    <div style={{ fontWeight: 700 }}>{entry.title || "Recording Session"}</div>
-                    <div style={{ fontSize: 12, opacity: 0.72 }}>
+                    <div className="trs-session-row__title">{entry.title || "Recording Session"}</div>
+                    <div className="trs-session-row__date">
                       {formatDateTime(entry.created_at ?? entry.updated_at ?? null)}
                     </div>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => void deleteSession(entry)}
-                    disabled={deletingThis}
-                    style={{
-                      borderRadius: 8,
-                      border: "1px solid rgba(255,120,120,0.45)",
-                      background: "rgba(120,0,0,0.28)",
-                      color: "inherit",
-                      padding: "8px 10px",
-                      minWidth: 88,
-                    }}
-                  >
-                    {deletingThis ? "Deleting..." : "Delete"}
-                  </button>
+                  {canDeleteSessions ? (
+                    <button
+                      type="button"
+                      className="trs-session-row__delete"
+                      onClick={() => void deleteSession(entry)}
+                      disabled={deletingThis}
+                    >
+                      {deletingThis ? "Deleting..." : "Delete"}
+                    </button>
+                  ) : null}
                 </div>
               );
             })}
           </div>
         )}
-      </div>
+      </section>
 
-      <div
-        style={{
-          border: "1px solid rgba(255,255,255,0.15)",
-          borderRadius: 12,
-          padding: 12,
-          background: "rgba(255,255,255,0.04)",
-          display: "grid",
-          gap: 12,
-        }}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
-          <div>
-            <div style={{ fontWeight: 700 }}>
-              {sessionDetail?.title ?? "Session Plan"}
-            </div>
-            <div style={{ fontSize: 12, opacity: 0.72 }}>
-              {selectedSessionId ? `Session ID: ${selectedSessionId}` : "Select a session to edit the plan."}
-            </div>
+      {!isMobile ? (
+        <section className="trs-card">
+          <div className="trs-detail-header">
+            <div className="trs-card__title">{selectedSessionTitle}</div>
+            {canEditSessions ? (
+              <button type="button" onClick={() => void savePlan()} disabled={saveDisabled}>
+                {saveBusy ? "Saving..." : "Save Plan"}
+              </button>
+            ) : null}
           </div>
-          <button
-            type="button"
-            onClick={() => void savePlan()}
-            disabled={!selectedSessionId || saveBusy || !isDirty || planItems.length === 0 || hasDuplicatePlanItems}
-          >
-            {saveBusy ? "Saving..." : "Save Plan"}
-          </button>
-        </div>
-        {detailLoading ? <div style={{ fontSize: 12, opacity: 0.72 }}>Loading session plan...</div> : null}
-        {detailError ? <div style={{ color: "#ffb3b3", fontSize: 13 }}>{detailError}</div> : null}
-        {selectedSessionId && planItems.length === 0 ? <div style={{ fontSize: 12, opacity: 0.72 }}>Nothing to save.</div> : null}
-        {hasDuplicatePlanItems ? (
-          <div style={{ color: "#ffd599", fontSize: 13 }}>
-            Duplicate entry detected. Remove duplicate episode/script before saving.
-          </div>
-        ) : null}
-        {saveError ? <div style={{ color: "#ffb3b3", fontSize: 13 }}>{saveError}</div> : null}
-        {saveNotice ? <div style={{ color: "#b3f4c8", fontSize: 13 }}>{saveNotice}</div> : null}
+          {detailBody}
+        </section>
+      ) : null}
 
-        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))" }}>
-          <section
-            style={{
-              border: "1px solid rgba(255,255,255,0.14)",
-              borderRadius: 10,
-              padding: 10,
-              background: "rgba(0,0,0,0.2)",
-              display: "grid",
-              gap: 10,
-              alignContent: "start",
-            }}
-          >
-            <div style={{ fontWeight: 700 }}>Ready Candidates</div>
-            {readyLoading ? <div style={{ fontSize: 12, opacity: 0.72 }}>Loading ready candidates...</div> : null}
-            {readyError ? <div style={{ color: "#ffb3b3", fontSize: 13 }}>{readyError}</div> : null}
-            {readyDeleteError ? <div style={{ color: "#ffb3b3", fontSize: 13 }}>{readyDeleteError}</div> : null}
-            {readyCandidates.length === 0 ? (
-              <div style={{ fontSize: 13, opacity: 0.7 }}>No ready scripts.</div>
-            ) : (
-              <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 8 }}>
-                {readyCandidates.map((candidate) => {
-                  const alreadyInPlan = planEpisodeIdSet.has(candidate.workpiece_id);
-                  const candidateKey = `${candidate.workpiece_id}::${candidate.primary_script_path}`;
-                  const deletingCandidate = readyDeleteBusyKey === candidateKey;
-                  return (
-                    <li
-                      key={`${candidate.workpiece_id}:${candidate.primary_script_path}`}
-                      style={{
-                        border: "1px solid rgba(255,255,255,0.14)",
-                        borderRadius: 8,
-                        padding: "8px 10px",
-                        display: "grid",
-                        gap: 6,
-                      }}
-                    >
-                      <div style={{ fontWeight: 700 }}>{candidate.title}</div>
-                      <div style={{ fontSize: 12, opacity: 0.7 }}>{candidate.primary_script_path}</div>
-                      <div className="trs-ready-attribution">{formatReadyAttribution(candidate)}</div>
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
-                        <span style={{ fontSize: 12, opacity: 0.66 }}>
-                          {formatDateTime(candidate.updated_at)}
-                        </span>
-                        <div style={{ display: "flex", gap: 6 }}>
-                          <button
-                            type="button"
-                            onClick={() => addCandidate(candidate)}
-                            disabled={!selectedSessionId || alreadyInPlan || deletingCandidate}
-                            title={alreadyInPlan ? "Already in session plan" : undefined}
-                          >
-                            {alreadyInPlan ? "Added" : "Add"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void deleteReadyCandidate(candidate)}
-                            disabled={deletingCandidate}
-                          >
-                            {deletingCandidate ? "Deleting..." : "Delete"}
-                          </button>
-                        </div>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-
-          <section
-            style={{
-              border: "1px solid rgba(255,255,255,0.14)",
-              borderRadius: 10,
-              padding: 10,
-              background: "rgba(0,0,0,0.2)",
-              display: "grid",
-              gap: 10,
-              alignContent: "start",
-            }}
-          >
-            <div style={{ fontWeight: 700 }}>Session Plan</div>
-            {!selectedSessionId ? (
-              <div style={{ fontSize: 13, opacity: 0.7 }}>Select a session to build an ordered plan.</div>
-            ) : planItems.length === 0 ? (
-              <div style={{ fontSize: 13, opacity: 0.7 }}>No items yet. Add from Ready candidates.</div>
-            ) : (
-              <>
-                <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 8 }}>
-                  {planItems.map((item, index) => {
-                    const candidate = candidateByPlannerKey.get(plannerKey(item));
-                    const title = candidate?.title ?? `Episode ${item.episode_id.slice(0, 8)}`;
-                    const duplicateEntry = duplicatePlanKeys.has(plannerKey(item));
-                    return (
-                      <li
-                        key={plannerKey(item)}
-                        draggable
-                        onDragStart={() => setDragFromIndex(index)}
-                        onDragEnd={() => setDragFromIndex(null)}
-                        onDragOver={(event) => {
-                          event.preventDefault();
-                        }}
-                        onDrop={(event) => {
-                          event.preventDefault();
-                          dropAtIndex(index);
-                        }}
-                        style={{
-                          border: duplicateEntry ? "1px solid rgba(255,160,120,0.8)" : "1px solid rgba(255,255,255,0.14)",
-                          borderRadius: 8,
-                          padding: "8px 10px",
-                          display: "grid",
-                          gap: 6,
-                          background: dragFromIndex === index ? "rgba(255,255,255,0.16)" : "transparent",
-                          cursor: "grab",
-                        }}
-                      >
-                        <div style={{ fontSize: 12, opacity: 0.75 }}>Position {index + 1}</div>
-                        <div style={{ fontWeight: 700 }}>{title}</div>
-                        <div style={{ fontSize: 12, opacity: 0.72 }}>{item.script_path}</div>
-                        <div className="trs-ready-attribution">{formatReadyAttribution(candidate)}</div>
-                        {duplicateEntry ? <div style={{ fontSize: 12, color: "#ffd599" }}>Duplicate entry</div> : null}
-                        <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                          <button type="button" onClick={() => removePlanItem(index)}>Remove</button>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-                <div
-                  onDragOver={(event) => {
-                    event.preventDefault();
+      {isMobile && mobileDetailOpen ? (
+        <div className="trs-mobile-overlay">
+          <MobilePage
+            title={selectedSessionTitle}
+            onBack={() => setMobileDetailOpen(false)}
+            rightAction={
+              canDeleteSessions && selectedSessionSummary ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void deleteSession(selectedSessionSummary);
                   }}
-                  onDrop={(event) => {
-                    event.preventDefault();
-                    moveToEnd();
-                  }}
-                  style={{
-                    border: "1px dashed rgba(255,255,255,0.3)",
-                    borderRadius: 8,
-                    padding: "8px 10px",
-                    fontSize: 12,
-                    opacity: 0.72,
-                    textAlign: "center",
-                  }}
+                  disabled={deleteBusyId === selectedSessionSummary.id}
                 >
-                  Drop here to move to end
+                  {deleteBusyId === selectedSessionSummary.id ? "Deleting..." : "Delete"}
+                </button>
+              ) : null
+            }
+            bottomBar={
+              canEditSessions ? (
+                <div className="trs-mobile-actions">
+                  <button type="button" onClick={() => void savePlan()} disabled={saveDisabled}>
+                    {saveBusy ? "Saving..." : "Save Plan"}
+                  </button>
                 </div>
-              </>
-            )}
-          </section>
+              ) : null
+            }
+          >
+            <div className="trs-mobile-detail-body">{detailBody}</div>
+          </MobilePage>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }
