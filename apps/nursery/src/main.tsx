@@ -17,6 +17,7 @@ import Placeholder from "./routes/Placeholder";
 import AnvilRoute from "./routes/Anvil";
 import HearthRoute from "./routes/Hearth";
 import HearthStandalone from "./routes/HearthStandalone";
+import IronMineRoute from "./routes/IronMine";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
@@ -39,6 +40,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="tongs" element={<TongsRoute />} />
           <Route path="quench" element={<Placeholder name="Quench" />} />
           <Route path="ledger" element={<Placeholder name="Ledger" />} />
+          <Route path="iron-mine" element={<IronMineRoute />} />
           <Route path="barstock" element={<BarstockRoute />} />
           <Route path="calendar" element={<Placeholder name="Calendar" />} />
           <Route path="settings" element={<SettingsLayout />}>

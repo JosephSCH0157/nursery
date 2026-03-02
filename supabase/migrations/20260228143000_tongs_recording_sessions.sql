@@ -16,6 +16,30 @@ create table if not exists tongs.recording_sessions (
   constraint recording_sessions_time_window_check check (ends_at is null or ends_at >= starts_at)
 );
 
+alter table if exists tongs.recording_sessions
+  add column if not exists workspace_id uuid references tongs.workspaces(id) on delete cascade;
+alter table if exists tongs.recording_sessions
+  add column if not exists title text;
+alter table if exists tongs.recording_sessions
+  add column if not exists starts_at timestamptz;
+alter table if exists tongs.recording_sessions
+  add column if not exists ends_at timestamptz;
+alter table if exists tongs.recording_sessions
+  add column if not exists status text default 'planned';
+alter table if exists tongs.recording_sessions
+  add column if not exists created_by uuid;
+alter table if exists tongs.recording_sessions
+  add column if not exists created_at timestamptz not null default now();
+alter table if exists tongs.recording_sessions
+  add column if not exists updated_at timestamptz not null default now();
+
+update tongs.recording_sessions
+set status = 'planned'
+where status is null or btrim(status) = '';
+
+alter table if exists tongs.recording_sessions
+  alter column status set default 'planned';
+
 create index if not exists recording_sessions_workspace_starts_idx
   on tongs.recording_sessions (workspace_id, starts_at);
 
@@ -41,6 +65,19 @@ create table if not exists tongs.recording_session_episodes (
   constraint recording_session_episodes_position_check check (position >= 0)
 );
 
+alter table if exists tongs.recording_session_episodes
+  add column if not exists recording_session_id uuid references tongs.recording_sessions(id) on delete cascade;
+alter table if exists tongs.recording_session_episodes
+  add column if not exists episode_id uuid references tongs.episodes(id) on delete cascade;
+alter table if exists tongs.recording_session_episodes
+  add column if not exists position integer not null default 0;
+alter table if exists tongs.recording_session_episodes
+  add column if not exists notes text;
+alter table if exists tongs.recording_session_episodes
+  add column if not exists created_at timestamptz not null default now();
+alter table if exists tongs.recording_session_episodes
+  add column if not exists updated_at timestamptz not null default now();
+
 create index if not exists recording_session_episodes_session_position_idx
   on tongs.recording_session_episodes (recording_session_id, position, created_at);
 
@@ -57,6 +94,15 @@ alter table if exists tongs.calendar_events
 
 alter table if exists tongs.calendar_events
   drop constraint if exists calendar_events_session_id_fkey;
+
+update tongs.calendar_events ce
+set session_id = null
+where ce.session_id is not null
+  and not exists (
+    select 1
+    from tongs.recording_sessions rs
+    where rs.id = ce.session_id
+  );
 
 alter table if exists tongs.calendar_events
   add constraint calendar_events_session_id_fkey

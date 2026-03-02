@@ -65,6 +65,7 @@ const FORGE_NAV_FALLBACK: ForgeNavPayload = {
         { id: "hearth", label: "Hearth", to: "/app/hearth" },
         { id: "hammer", label: "Hammer", to: "/app/hammer" },
         { id: "barstock", label: "Barstock", to: "/app/barstock" },
+        { id: "iron-mine", label: "Iron Mine", to: "/app/iron-mine" },
       ],
     },
     {

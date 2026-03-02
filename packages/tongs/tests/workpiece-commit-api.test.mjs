@@ -20,6 +20,7 @@ function mockService() {
     detachEpisodeFromSession: [],
     listSessionEpisodes: [],
     listWorkspaceReadyScripts: [],
+    deleteReadyScript: [],
     appendEvent: [],
     readWorkpieceBinary: [],
   };
@@ -310,6 +311,9 @@ function mockService() {
           content_category: "evergreen",
         },
       ];
+    },
+    async deleteReadyScript(workpieceId, path) {
+      calls.deleteReadyScript.push({ workpieceId, path });
     },
     async appendEvent(workpieceId, input) {
       calls.appendEvent.push({ workpieceId, input });
@@ -986,4 +990,25 @@ test("GET /tongs/workspaces/:id/ready-scripts?unrecorded=1 enables unrecorded fi
   assert.equal(calls.listWorkspaceReadyScripts[0]?.workspaceId, "11111111-1111-4111-8111-111111111111");
   assert.equal(calls.listWorkspaceReadyScripts[0]?.options?.unrecordedOnly, true);
   assert.equal(body.ok, true);
+});
+
+test("DELETE /tongs/workpieces/:id/ready-script dispatches deleteReadyScript", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/ready-script?path=script%2Fscript.md",
+    { method: "DELETE" },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.deleteReadyScript.length, 1);
+  assert.equal(calls.deleteReadyScript[0]?.workpieceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.deleteReadyScript[0]?.path, "script/script.md");
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.deleted, true);
+  assert.equal(body.data?.path, "script/script.md");
 });

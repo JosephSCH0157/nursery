@@ -135,6 +135,15 @@
   font-weight: 600;
 }
 
+.hs-ready-record-link {
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+}
+
 .hs-ready-record-meta {
   font-size: 12px;
   opacity: 0.75;

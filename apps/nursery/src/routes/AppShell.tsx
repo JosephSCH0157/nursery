@@ -97,6 +97,12 @@ export default function AppShell() {
   const [renameValue, setRenameValue] = useState("");
   const [renameError, setRenameError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [deleteTargetName, setDeleteTargetName] = useState("");
+  const [deleteConfirmValue, setDeleteConfirmValue] = useState("");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [workspaceGateChoice, setWorkspaceGateChoice] = useState("");
   const [aiControlsOpen, setAiControlsOpen] = useState(false);
 
@@ -299,6 +305,25 @@ export default function AppShell() {
     setRenameError(null);
   }
 
+  function openDeleteWorkspace() {
+    const current = workspaces.find(w => w.id === workspaceId);
+    if (!current) return;
+    setDeleteTargetId(current.id);
+    setDeleteTargetName(current.name ?? "");
+    setDeleteConfirmValue("");
+    setDeleteError(null);
+    setDeleteOpen(true);
+  }
+
+  function closeDeleteWorkspace(force = false) {
+    if (deleting && !force) return;
+    setDeleteOpen(false);
+    setDeleteTargetId(null);
+    setDeleteTargetName("");
+    setDeleteConfirmValue("");
+    setDeleteError(null);
+  }
+
   async function onRenameWorkspace() {
     if (!session || !workspaceId) return;
     const name = renameValue.trim();
@@ -334,6 +359,56 @@ export default function AppShell() {
       setRenameError(message);
     } finally {
       setRenaming(false);
+    }
+  }
+
+  async function onDeleteWorkspace() {
+    if (!session || !deleteTargetId) return;
+    const targetWorkspace = workspaces.find((w) => w.id === deleteTargetId);
+    const canDeleteTarget = (targetWorkspace?.role ?? null) === "owner";
+    if (!canDeleteTarget) {
+      setDeleteError("Only workspace owners can delete a workspace.");
+      return;
+    }
+    const expectedName = deleteTargetName.trim();
+    if (!expectedName) {
+      setDeleteError("Workspace name is missing. Refresh and try again.");
+      return;
+    }
+
+    if (deleteConfirmValue.trim() !== expectedName) {
+      setDeleteError(`Type "${expectedName}" to confirm deletion.`);
+      return;
+    }
+
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const tongsRpcClient = supabase.schema("tongs") as unknown as {
+        rpc: (
+          fn: string,
+          args?: Record<string, unknown>,
+        ) => {
+          single: () => Promise<{ data: unknown; error: unknown }>;
+        };
+      };
+
+      const { data, error } = await tongsRpcClient
+        .rpc("delete_workspace_with_owner_check", { _workspace_id: deleteTargetId })
+        .single();
+      if (error) throw error;
+      const deleted = (data as { deleted?: unknown } | null)?.deleted;
+      if (deleted !== true) {
+        throw new Error("Workspace delete was not confirmed by the database.");
+      }
+
+      closeDeleteWorkspace(true);
+      selectWorkspace(null);
+      await refreshWorkspaces({ force: true, preferId: null });
+    } catch (err: unknown) {
+      setDeleteError(getErrorMessage(err, "Failed to delete workspace."));
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -411,6 +486,10 @@ export default function AppShell() {
   const workspaceValue = effectiveWorkspaceId ?? "";
   const workspaceSelectDisabled = !session || loadingWorkspaces;
   const activeWorkspace = workspaces.find(w => w.id === workspaceId) ?? null;
+  const canDeleteActiveWorkspace = !!activeWorkspace && (activeWorkspace.role ?? null) === "owner";
+  const deleteConfirmationTarget = deleteTargetName.trim();
+  const deleteConfirmationMatches = deleteConfirmationTarget.length > 0
+    && deleteConfirmValue.trim() === deleteConfirmationTarget;
   const workspaceIsValid = !!activeWorkspace;
   const appSegment = useMemo(() => {
     const parts = location.pathname.split("/").filter(Boolean);
@@ -506,6 +585,29 @@ export default function AppShell() {
                   style={{ fontSize: 12, padding: "6px 8px", cursor: "pointer" }}
                 >
                   Rename
+                </button>
+                <button
+                  type="button"
+                  onClick={openDeleteWorkspace}
+                  disabled={!activeWorkspace || !session || !canDeleteActiveWorkspace}
+                  title={
+                    !session
+                      ? "Sign in to manage workspaces."
+                      : !activeWorkspace
+                        ? "Select a workspace first."
+                        : canDeleteActiveWorkspace
+                          ? "Delete workspace"
+                          : "Only workspace owners can delete a workspace."
+                  }
+                  style={{
+                    fontSize: 12,
+                    padding: "6px 8px",
+                    cursor: "pointer",
+                    color: "var(--forge-danger)",
+                    borderColor: "var(--forge-danger)",
+                  }}
+                >
+                  Delete
                 </button>
               </div>
               {renameOpen && (
@@ -732,6 +834,80 @@ export default function AppShell() {
                   {creating ? "Creating..." : "Create"}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.72)",
+            display: "grid",
+            placeItems: "center",
+            padding: 16,
+            zIndex: 1000,
+          }}
+        >
+          <div
+            style={{
+              background: "var(--forge-bg-elevated)",
+              border: "1px solid var(--forge-border)",
+              padding: 16,
+              borderRadius: 12,
+              width: "100%",
+              maxWidth: 460,
+              display: "grid",
+              gap: 10,
+            }}
+          >
+            <h3 style={{ marginTop: 0, marginBottom: 0, color: "var(--forge-danger)" }}>
+              Delete workspace
+            </h3>
+            <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, opacity: 0.92 }}>
+              This permanently deletes the workspace and all related content, including projects,
+              sparks, episodes, recordings, assets, and history. This cannot be undone.
+            </p>
+            <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, opacity: 0.78 }}>
+              Database records are deleted immediately. Uploaded storage files may remain until cleanup.
+            </p>
+            <div style={{ fontSize: 12, opacity: 0.8 }}>
+              Type <strong>{deleteConfirmationTarget}</strong> to verify.
+            </div>
+            <input
+              value={deleteConfirmValue}
+              onChange={(e) => setDeleteConfirmValue(e.target.value)}
+              placeholder={deleteConfirmationTarget}
+              autoFocus
+              style={{ padding: "8px 10px", fontSize: 12 }}
+            />
+            {deleteError && (
+              <div style={{ color: "var(--forge-danger)", fontSize: 12 }}>{deleteError}</div>
+            )}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button
+                type="button"
+                onClick={closeDeleteWorkspace}
+                disabled={deleting}
+                style={{ cursor: deleting ? "not-allowed" : "pointer" }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={onDeleteWorkspace}
+                disabled={deleting || !deleteConfirmationMatches}
+                style={{
+                  cursor: deleting || !deleteConfirmationMatches ? "not-allowed" : "pointer",
+                  background: "var(--forge-danger)",
+                  color: "white",
+                  borderColor: "var(--forge-danger)",
+                }}
+              >
+                {deleting ? "Deleting..." : "Delete workspace"}
+              </button>
             </div>
           </div>
         </div>

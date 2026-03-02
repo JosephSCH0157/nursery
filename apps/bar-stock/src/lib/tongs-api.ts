@@ -3,6 +3,7 @@ import { supabase } from "./supabase";
 export type Workspace = {
   id: string;
   name: string;
+  role?: string | null;
 };
 
 const WORKPIECE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -178,7 +179,8 @@ export async function listMyWorkspaces(): Promise<Workspace[]> {
   const out: Workspace[] = [];
   for (const row of data ?? []) {
     const w = (row as any).workspaces;
-    if (w?.id && w?.name) out.push({ id: w.id, name: w.name });
+    const role = typeof (row as any).role === "string" ? (row as any).role : null;
+    if (w?.id && w?.name) out.push({ id: w.id, name: w.name, role });
   }
   return out;
 }

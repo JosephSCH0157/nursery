@@ -33,6 +33,7 @@ export const forgeNavTree: ForgeNavSection[] = [
       { id: "hammer", label: "Hammer", to: "/app/hammer" },
       { id: "quench", label: "Quench", to: "/app/quench" },
       { id: "ledger", label: "Ledger", to: "/app/ledger" },
+      { id: "iron-mine", label: "Iron Mine", to: "/app/iron-mine" },
     ],
   },
   {

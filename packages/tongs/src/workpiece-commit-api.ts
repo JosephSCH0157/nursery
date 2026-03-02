@@ -49,7 +49,6 @@ const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
 type EpisodeRow = Database["tongs"]["Tables"]["episodes"]["Row"];
-type AssetRow = Database["tongs"]["Tables"]["assets"]["Row"];
 type RecordingSessionRow = Database["tongs"]["Tables"]["recording_sessions"]["Row"];
 type RecordingSessionEpisodeRow = Database["tongs"]["Tables"]["recording_session_episodes"]["Row"];
 type RecordingSessionItemRow = Database["tongs"]["Tables"]["recording_session_items"]["Row"];
@@ -370,6 +369,7 @@ export type TongsCommitApiService = {
   createCradle(input: CreateCradleRequest): Promise<CreateCradleResponse>;
   commitFile(workpieceId: string, input: CommitFileRequest): Promise<CommitFileResponse>;
   commitWorkspaceFile(workspaceId: string, input: CommitFileRequest): Promise<CommitWorkspaceFileResponse>;
+  deleteReadyScript(workpieceId: string, path: string): Promise<void>;
   generateEpisodeThumbnail(workpieceId: string, input: GenerateEpisodeThumbnailRequest): Promise<GenerateEpisodeThumbnailResponse>;
   createRecordingSessionRecord(input: CreateRecordingSessionRecordRequest): Promise<RecordingSessionRow>;
   listRecordingSessionsForPlanner(options?: RecordingSessionListOptions): Promise<RecordingSessionRow[]>;
@@ -377,6 +377,7 @@ export type TongsCommitApiService = {
   replaceRecordingSessionItems(sessionId: string, input: ReplaceRecordingSessionItemsRequest): Promise<RecordingSessionItemDTO[]>;
   createRecordingSession(workspaceId: string, input: CreateRecordingSessionRequest): Promise<RecordingSessionRow>;
   updateRecordingSession(sessionId: string, patch: UpdateRecordingSessionRequest): Promise<RecordingSessionRow>;
+  deleteRecordingSession(sessionId: string): Promise<void>;
   listRecordingSessions(workspaceId: string, range?: RecordingSessionListRange): Promise<RecordingSessionRow[]>;
   attachEpisodeToSession(sessionId: string, input: AttachEpisodeToSessionRequest): Promise<RecordingSessionEpisodeRow>;
   detachEpisodeFromSession(sessionId: string, episodeId: string): Promise<void>;
@@ -1068,7 +1069,7 @@ async function extractResponseDetails(error: unknown): Promise<Record<string, un
   }
 }
 
-function logStorageError(action: "download" | "upload", bucket: string, key: string, error: unknown): void {
+function logStorageError(action: "download" | "upload" | "delete", bucket: string, key: string, error: unknown): void {
   if (!shouldDebugStorage()) return;
   const serialized = safeSerializeError(error);
   const extracted = extractErrorDetails(error);
@@ -2426,6 +2427,100 @@ export class TongsCommitService {
     };
   }
 
+  async deleteReadyScript(workpieceId: string, path: string): Promise<void> {
+    const cradle = await this.getCradleOrThrow(workpieceId);
+    const normalizedPath = normalizeRelativePath(path);
+    if (!READY_SCRIPT_PATH_SET.has(normalizedPath)) {
+      throw new HttpError(400, "invalid_path", "Only ready script paths can be deleted from this endpoint");
+    }
+
+    const { data: fileRow, error: fileRowError } = await this.supabase
+      .schema("tongs")
+      .from("workpiece_files")
+      .select("*")
+      .eq("workpiece_id", workpieceId)
+      .eq("path", normalizedPath)
+      .maybeSingle();
+
+    if (fileRowError) {
+      throw new HttpError(502, "db_read_failed", "Failed to read ready script file row", {
+        reason: fileRowError.message,
+      });
+    }
+    if (!fileRow) {
+      throw new HttpError(404, "ready_script_not_found", "Ready script file was not found");
+    }
+
+    const { error: deleteFileError } = await this.supabase
+      .schema("tongs")
+      .from("workpiece_files")
+      .delete()
+      .eq("workpiece_id", workpieceId)
+      .eq("path", normalizedPath);
+
+    if (deleteFileError) {
+      throw new HttpError(502, "db_write_failed", "Failed to delete ready script file row", {
+        reason: deleteFileError.message,
+      });
+    }
+
+    const nowIso = new Date().toISOString();
+    const writtenBy = DEFAULT_WRITTEN_BY;
+    const manifest = await this.loadManifestOrDefault(cradle);
+    manifest.updated_at = nowIso;
+    delete manifest.files[normalizedPath];
+    for (const pointerKey of Object.keys(manifest.pointers) as ManifestPointerKey[]) {
+      if (manifest.pointers[pointerKey] === normalizedPath) {
+        manifest.pointers[pointerKey] = null;
+      }
+    }
+
+    const finalized = await finalizeManifestTwoPass(manifest, writtenBy, nowIso);
+    await uploadStorageObject(
+      this.supabase,
+      this.bucket,
+      buildStorageKey(workpieceId, MANIFEST_PATH),
+      finalized.manifestBytes,
+      "application/json",
+    );
+    await this.upsertWorkpieceFile([
+      {
+        workpiece_id: cradle.id,
+        path: MANIFEST_PATH,
+        file_type: "manifest",
+        content_type: "application/json",
+        bytes: finalized.finalBytes,
+        hash_algo: SHA256_ALGO,
+        hash_value: finalized.finalHash,
+        storage_bucket: this.bucket,
+        storage_key: buildStorageKey(workpieceId, MANIFEST_PATH),
+        written_by_tool: writtenBy.tool,
+        written_by_tool_version: writtenBy.tool_version,
+        written_by_lane: writtenBy.lane,
+      },
+    ]);
+
+    await this.insertEvent({
+      workpieceId,
+      eventName: "workpiece.file.deleted",
+      payload: {
+        path: normalizedPath,
+        file_type: fileRow.file_type ?? null,
+      } as Json,
+      writtenBy,
+      correlationId: null,
+    });
+
+    const storageBucket = fileRow.storage_bucket?.trim() || this.bucket;
+    const storageKey = fileRow.storage_key?.trim() || buildStorageKey(workpieceId, normalizedPath);
+    const { error: storageDeleteError } = await this.supabase.storage
+      .from(storageBucket)
+      .remove([storageKey]);
+    if (storageDeleteError) {
+      logStorageError("delete", storageBucket, storageKey, storageDeleteError);
+    }
+  }
+
   async generateEpisodeThumbnail(
     workpieceId: string,
     input: GenerateEpisodeThumbnailRequest,
@@ -2881,6 +2976,22 @@ export class TongsCommitService {
     }
 
     return data;
+  }
+
+  async deleteRecordingSession(sessionId: string): Promise<void> {
+    await this.getRecordingSessionOrThrow(sessionId);
+
+    const { error } = await this.supabase
+      .schema("tongs")
+      .from("recording_sessions")
+      .delete()
+      .eq("id", sessionId);
+
+    if (error) {
+      throw new HttpError(502, "db_write_failed", "Failed to delete recording session", {
+        reason: error.message,
+      });
+    }
   }
 
   async listRecordingSessions(
@@ -3442,6 +3553,21 @@ export function createTongsCommitApiHandlerWithService(
         return jsonResponse(200, { ok: true, data: { scripts: result } });
       }
 
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "ready-script") {
+        requireMethod(request, "DELETE");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const path = normalizeRelativePath(url.searchParams.get("path"));
+        await service.deleteReadyScript(workpieceId, path);
+        return jsonResponse(200, {
+          ok: true,
+          data: {
+            deleted: true,
+            workpiece_id: workpieceId,
+            path,
+          },
+        });
+      }
+
       if (parts.length === 2 && (parts[0] === "tongs" || parts[0] === "api") && parts[1] === "recording-sessions") {
         if (request.method === "GET") {
           const options = normalizeRecordingSessionListOptions(url.searchParams);
@@ -3491,7 +3617,18 @@ export function createTongsCommitApiHandlerWithService(
           return jsonResponse(200, { ok: true, data: result });
         }
 
-        throw new HttpError(405, "method_not_allowed", "Expected GET or PATCH for this endpoint");
+        if (request.method === "DELETE") {
+          await service.deleteRecordingSession(sessionId);
+          return jsonResponse(200, {
+            ok: true,
+            data: {
+              deleted: true,
+              session_id: sessionId,
+            },
+          });
+        }
+
+        throw new HttpError(405, "method_not_allowed", "Expected GET, PATCH, or DELETE for this endpoint");
       }
 
       if (

@@ -138,6 +138,39 @@ begin
       and column_name = 'episode_id'
   ) then
     execute $$
+      insert into tongs.barstock_assignments (
+        id,
+        workspace_id,
+        created_by,
+        title,
+        status,
+        created_at,
+        updated_at
+      )
+      select distinct on (s.episode_id)
+        s.episode_id as id,
+        s.workspace_id,
+        coalesce(s.created_by, w.created_by, wm.user_id, '00000000-0000-0000-0000-000000000000'::uuid) as created_by,
+        coalesce(nullif(trim(s.title), ''), 'Imported Project') as title,
+        'open' as status,
+        coalesce(s.created_at, now()) as created_at,
+        coalesce(s.updated_at, s.created_at, now()) as updated_at
+      from tongs.barstock_sparks s
+      left join tongs.workspaces w
+        on w.id = s.workspace_id
+      left join lateral (
+        select wm.user_id
+        from tongs.workspace_members wm
+        where wm.workspace_id = s.workspace_id
+        order by wm.created_at asc
+        limit 1
+      ) wm on true
+      where s.assignment_id is null
+        and s.episode_id is not null
+      on conflict (id) do nothing
+    $$;
+
+    execute $$
       update tongs.barstock_sparks
       set assignment_id = episode_id
       where assignment_id is null
@@ -239,14 +272,15 @@ on conflict (workspace_id, project_id) do nothing;
 
 update tongs.barstock_assignments a
 set workspace_id = s.workspace_id
-from lateral (
-  select sp.workspace_id
+from (
+  select sp.assignment_id, min(sp.workspace_id::text)::uuid as workspace_id
   from tongs.barstock_sparks sp
-  where sp.assignment_id = a.id
+  where sp.assignment_id is not null
     and sp.workspace_id is not null
-  limit 1
+  group by sp.assignment_id
 ) s
-where a.workspace_id is null;
+where a.id = s.assignment_id
+  and a.workspace_id is null;
 
 update tongs.barstock_assignments a
 set created_by = coalesce(

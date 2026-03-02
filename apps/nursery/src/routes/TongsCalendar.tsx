@@ -39,6 +39,7 @@ type CalendarView = "day" | "week" | "month";
 type CalendarEvent = {
   id: string;
   assignmentId?: string | null;
+  sessionId?: string | null;
   title: string;
   description?: string;
   location?: string;
@@ -47,6 +48,13 @@ type CalendarEvent = {
   allDay?: boolean;
   createdAtIso: string;
   updatedAtIso: string;
+};
+
+type RecordingSessionOption = {
+  id: string;
+  title: string;
+  calendarEventId?: string | null;
+  createdAtIso?: string | null;
 };
 
 
@@ -207,6 +215,12 @@ function formatTimeLabel(date: Date): string {
   return `${hours12}:${minutes} ${period}`;
 }
 
+function formatTimeInputValue(date: Date): string {
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mm = String(date.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
 function buildWeekDays(weekStart: Date) {
   return Array.from({ length: 7 }, (_, index) => {
     const date = addDays(weekStart, index);
@@ -279,6 +293,7 @@ function rowToEvent(row: CalendarEventRow): CalendarEvent {
   return normalizeEvent({
     id: row.id,
     assignmentId: row.assignment_id ?? null,
+    sessionId: row.session_id ?? null,
     title: row.title ?? "Calendar event",
     description: row.description ?? undefined,
     location: row.location ?? undefined,
@@ -320,20 +335,159 @@ export default function TongsCalendar() {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
+  const [editingEventId, setEditingEventId] = useState<string | null>(null);
+
+  const [recordingSessions, setRecordingSessions] = useState<RecordingSessionOption[]>([]);
+  const [recordingSessionsLoading, setRecordingSessionsLoading] = useState(false);
+  const [recordingSessionsError, setRecordingSessionsError] = useState<string | null>(null);
 
   const [title, setTitle] = useState("Calendar event");
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
+  const [linkedSessionId, setLinkedSessionId] = useState("");
   const [dateOverride, setDateOverride] = useState<string | null>(null);
   const [time, setTime] = useState(() => {
     const d = new Date();
-    const hh = String(d.getHours()).padStart(2, "0");
-    const mi = String(d.getMinutes()).padStart(2, "0");
-    return `${hh}:${mi}`;
+    return formatTimeInputValue(d);
   });
   const date = dateOverride ?? cursorDayIso;
   const [durationMin, setDurationMin] = useState(60);
   const [allDay, setAllDay] = useState(false);
+  const isEditingEvent = editingEventId !== null;
+
+  const loadRecordingSessions = useCallback(async () => {
+    if (!workspaceId || !session) {
+      setRecordingSessions([]);
+      setRecordingSessionsError(null);
+      return;
+    }
+
+    setRecordingSessionsLoading(true);
+    setRecordingSessionsError(null);
+    try {
+      const { data, error } = await supabase
+        .schema("tongs")
+        .from("recording_sessions")
+        .select("id,title,calendar_event_id,created_at")
+        .eq("workspace_id", workspaceId)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      const next = (data ?? []).map((row) => ({
+        id: row.id,
+        title: row.title?.trim() || "Recording Session",
+        calendarEventId: row.calendar_event_id ?? null,
+        createdAtIso: row.created_at ?? null,
+      }));
+      setRecordingSessions(next);
+    } catch (err: unknown) {
+      console.warn("[tongs] recording sessions list failed", err);
+      setRecordingSessionsError(getErrorMessage(err) ?? "Failed loading recording sessions.");
+    } finally {
+      setRecordingSessionsLoading(false);
+    }
+  }, [workspaceId, session]);
+
+  useEffect(() => {
+    void loadRecordingSessions();
+  }, [loadRecordingSessions]);
+
+  const sessionTitleById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const sessionRow of recordingSessions) {
+      map.set(sessionRow.id, sessionRow.title);
+    }
+    return map;
+  }, [recordingSessions]);
+
+  const resetEventForm = useCallback((baseDate?: string) => {
+    const nextBaseDate = baseDate ?? cursorDayIso;
+    setTitle("Calendar event");
+    setDescription("");
+    setLocation("");
+    setLinkedSessionId("");
+    setAllDay(false);
+    setDurationMin(60);
+    setDateOverride(nextBaseDate);
+    setTime(formatTimeInputValue(new Date()));
+    setEditingEventId(null);
+  }, [cursorDayIso]);
+
+  const openNewForm = useCallback(() => {
+    resetEventForm(cursorDayIso);
+    setShowNew(true);
+  }, [cursorDayIso, resetEventForm]);
+
+  const closeNewForm = useCallback(() => {
+    setShowNew(false);
+    setDateOverride(null);
+    setEditingEventId(null);
+  }, []);
+
+  const openEditForm = useCallback((event: CalendarEvent) => {
+    const start = new Date(event.startIso);
+    const end = event.endIso ? new Date(event.endIso) : null;
+    const parsedStart = Number.isNaN(start.getTime()) ? new Date() : start;
+    const nextDate = toDateKey(parsedStart);
+    const nextDuration = (() => {
+      if (event.allDay) return 60;
+      if (!end || Number.isNaN(end.getTime())) return 60;
+      const diffMinutes = Math.round((end.getTime() - parsedStart.getTime()) / 60000);
+      if (!Number.isFinite(diffMinutes) || diffMinutes <= 0) return 60;
+      return Math.max(15, Math.min(8 * 60, diffMinutes));
+    })();
+
+    setTitle(event.title || "Calendar event");
+    setDescription(event.description ?? "");
+    setLocation(event.location ?? "");
+    setLinkedSessionId(event.sessionId ?? "");
+    setAllDay(!!event.allDay);
+    setDurationMin(nextDuration);
+    setDateOverride(nextDate);
+    setTime(formatTimeInputValue(parsedStart));
+    setEditingEventId(event.id);
+    setShowNew(true);
+  }, []);
+
+  const syncRecordingSessionAttachment = useCallback(async (
+    calendarEventId: string,
+    nextSessionId: string | null,
+  ) => {
+    if (!workspaceId || !session) return;
+
+    let clearEventLinksQuery = supabase
+      .schema("tongs")
+      .from("recording_sessions")
+      .update({ calendar_event_id: null })
+      .eq("workspace_id", workspaceId)
+      .eq("calendar_event_id", calendarEventId);
+
+    if (nextSessionId) {
+      clearEventLinksQuery = clearEventLinksQuery.neq("id", nextSessionId);
+    }
+
+    const { error: clearEventLinksError } = await clearEventLinksQuery;
+    if (clearEventLinksError) throw clearEventLinksError;
+
+    if (nextSessionId) {
+      const { error: clearOtherEventBindingsError } = await supabase
+        .schema("tongs")
+        .from("calendar_events")
+        .update({ session_id: null })
+        .eq("workspace_id", workspaceId)
+        .eq("session_id", nextSessionId)
+        .neq("id", calendarEventId);
+      if (clearOtherEventBindingsError) throw clearOtherEventBindingsError;
+
+      const { error: attachSessionError } = await supabase
+        .schema("tongs")
+        .from("recording_sessions")
+        .update({ calendar_event_id: calendarEventId })
+        .eq("workspace_id", workspaceId)
+        .eq("id", nextSessionId);
+      if (attachSessionError) throw attachSessionError;
+    }
+  }, [workspaceId, session]);
 
   useEffect(() => {
     if (!workspaceId || !session) {
@@ -387,52 +541,76 @@ export default function TongsCalendar() {
     };
   }, [workspaceId, session, view, cursorDate]);
 
-  const openNewForm = useCallback(() => {
-    setDateOverride(null);
-    setShowNew(true);
-  }, []);
-
-  const closeNewForm = useCallback(() => {
-    setShowNew(false);
-    setDateOverride(null);
-  }, []);
-
-
-  async function addEvent() {
+  async function saveEvent() {
     if (!workspaceId || !session) return;
     const baseStart = allDay ? new Date(`${date}T00:00:00`) : new Date(`${date}T${time}:00`);
     if (Number.isNaN(baseStart.getTime())) return;
     const minutes = Math.max(15, Math.min(8 * 60, Number(durationMin) || 60));
     const endAt = allDay ? endOfDay(baseStart) : new Date(baseStart.getTime() + minutes * 60 * 1000);
+    const nextSessionId = linkedSessionId.trim() || null;
 
     try {
-      const row = await createCalendarEvent(supabase, workspaceId, {
-        title: title.trim() || "Calendar event",
-        description: description.trim() || undefined,
-        location: location.trim() || undefined,
-        start_at: baseStart.toISOString(),
-        end_at: endAt.toISOString(),
-        all_day: allDay,
-      });
+      let persistedRow: CalendarEventRow;
+      if (editingEventId) {
+        persistedRow = await updateCalendarEvent(supabase, workspaceId, editingEventId, {
+          title: title.trim() || "Calendar event",
+          description: description.trim() || undefined,
+          location: location.trim() || undefined,
+          start_at: baseStart.toISOString(),
+          end_at: endAt.toISOString(),
+          all_day: allDay,
+          session_id: nextSessionId,
+        });
+      } else {
+        const created = await createCalendarEvent(supabase, workspaceId, {
+          title: title.trim() || "Calendar event",
+          description: description.trim() || undefined,
+          location: location.trim() || undefined,
+          start_at: baseStart.toISOString(),
+          end_at: endAt.toISOString(),
+          all_day: allDay,
+          session_id: nextSessionId,
+        });
 
-      const hearthSession = await hearthStore.ensureSessionForCalendarEvent({
-        workspaceId,
-        calendarEventId: row.id,
-        title: row.title,
-        scheduledStart: row.start_at,
-        scheduledEnd: row.end_at ?? undefined,
-      });
+        const hearthSession = await hearthStore.ensureSessionForCalendarEvent({
+          workspaceId,
+          calendarEventId: created.id,
+          title: created.title,
+          scheduledStart: created.start_at,
+          scheduledEnd: created.end_at ?? undefined,
+        });
 
-      const patched = await updateCalendarEvent(supabase, workspaceId, row.id, {
-        assignment_id: hearthSession.sessionId,
-      });
+        persistedRow = await updateCalendarEvent(supabase, workspaceId, created.id, {
+          assignment_id: hearthSession.sessionId,
+        });
+      }
 
-      const event = rowToEvent(patched);
-      setEvents((prev) => [event, ...prev].sort((a, b) => b.startIso.localeCompare(a.startIso)));
+      await syncRecordingSessionAttachment(persistedRow.id, nextSessionId);
+      await loadRecordingSessions();
+
+      const event = rowToEvent({
+        ...persistedRow,
+        session_id: nextSessionId,
+      });
+      setEvents((prev) => {
+        const withClearedConflicts = nextSessionId
+          ? prev.map((existing) => (
+            existing.id !== event.id && existing.sessionId === nextSessionId
+              ? { ...existing, sessionId: null }
+              : existing
+          ))
+          : prev;
+
+        const exists = withClearedConflicts.some((existing) => existing.id === event.id);
+        const next = exists
+          ? withClearedConflicts.map((existing) => (existing.id === event.id ? event : existing))
+          : [event, ...withClearedConflicts];
+        return next.sort((a, b) => b.startIso.localeCompare(a.startIso));
+      });
       closeNewForm();
     } catch (err: unknown) {
-      console.warn("[tongs] calendar create failed", err);
-      setLoadError(getErrorMessage(err) ?? "Failed creating calendar event.");
+      console.warn("[tongs] calendar save failed", err);
+      setLoadError(getErrorMessage(err) ?? "Failed saving calendar event.");
     }
   }
 
@@ -441,6 +619,7 @@ export default function TongsCalendar() {
     try {
       await deleteCalendarEvent(supabase, id);
       setEvents((prev) => prev.filter((event) => event.id !== id));
+      await loadRecordingSessions();
     } catch (err: unknown) {
       console.warn("[tongs] calendar delete failed", err);
       setLoadError(getErrorMessage(err) ?? "Failed deleting calendar event.");
@@ -599,6 +778,9 @@ export default function TongsCalendar() {
             borderRadius: 8,
           }}
         >
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>
+            {isEditingEvent ? "Edit Event" : "New Event"}
+          </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 160px", gap: 10 }}>
             <div>
               <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Title</label>
@@ -655,9 +837,41 @@ export default function TongsCalendar() {
             </div>
           </div>
 
+          <div style={{ marginTop: 10 }}>
+            <label style={{ display: "block", fontSize: 12, opacity: 0.8 }}>Recording Session (optional)</label>
+            <select
+              value={linkedSessionId}
+              onChange={(e) => setLinkedSessionId(e.target.value)}
+              style={{ width: "100%" }}
+              disabled={recordingSessionsLoading}
+            >
+              <option value="">No recording session</option>
+              {recordingSessions.map((sessionRow) => {
+                const linkedElsewhere = !!sessionRow.calendarEventId
+                  && sessionRow.calendarEventId !== editingEventId;
+                const label = linkedElsewhere
+                  ? `${sessionRow.title} (currently linked elsewhere)`
+                  : sessionRow.title;
+                return (
+                  <option key={sessionRow.id} value={sessionRow.id}>
+                    {label}
+                  </option>
+                );
+              })}
+            </select>
+            <div style={{ marginTop: 4, fontSize: 11, opacity: 0.68 }}>
+              Attaching a session here will move that session from any other event.
+            </div>
+            {recordingSessionsError ? (
+              <div style={{ marginTop: 4, color: "#ffb3b3", fontSize: 12 }}>
+                {recordingSessionsError}
+              </div>
+            ) : null}
+          </div>
+
           <div style={{ marginTop: 12, display: "flex", gap: 8, justifyContent: "flex-end" }}>
             <button onClick={closeNewForm}>Cancel</button>
-            <button onClick={addEvent}>Add</button>
+            <button onClick={saveEvent}>{isEditingEvent ? "Save" : "Add"}</button>
           </div>
         </div>
       )}
@@ -693,6 +907,11 @@ export default function TongsCalendar() {
                     <span>{event.allDay ? "All day" : timeLabel}</span>
                     {event.location ? <span>{event.location}</span> : null}
                   </div>
+                  {event.sessionId ? (
+                    <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                      Session: {sessionTitleById.get(event.sessionId) ?? event.sessionId.slice(0, 8)}
+                    </div>
+                  ) : null}
                   {event.description ? (
                     <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>{event.description}</div>
                   ) : null}
@@ -752,6 +971,11 @@ export default function TongsCalendar() {
                           <div style={{ marginTop: 4, fontWeight: 700 }}>{event.title}</div>
                           {event.location ? (
                             <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>{event.location}</div>
+                          ) : null}
+                          {event.sessionId ? (
+                            <div style={{ marginTop: 4, fontSize: 12, opacity: 0.66 }}>
+                              Session: {sessionTitleById.get(event.sessionId) ?? event.sessionId.slice(0, 8)}
+                            </div>
                           ) : null}
                         </div>
                       );
@@ -853,12 +1077,18 @@ export default function TongsCalendar() {
                     {event.location ? (
                       <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>{event.location}</div>
                     ) : null}
+                    {event.sessionId ? (
+                      <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>
+                        Session: {sessionTitleById.get(event.sessionId) ?? event.sessionId.slice(0, 8)}
+                      </div>
+                    ) : null}
                     {event.description ? (
                       <div style={{ opacity: 0.7, fontSize: 13, marginTop: 6 }}>{event.description}</div>
                     ) : null}
                   </div>
 
-                  <div style={{ display: "flex", alignItems: "center" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <button onClick={() => openEditForm(event)}>Edit</button>
                     <button onClick={() => deleteEvent(event.id)}>Delete</button>
                   </div>
                 </div>

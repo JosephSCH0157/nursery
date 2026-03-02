@@ -88,6 +88,8 @@ export default function TongsRecordingSessions() {
   const [readyCandidates, setReadyCandidates] = useState<ReadyScriptCandidate[]>([]);
   const [readyLoading, setReadyLoading] = useState(false);
   const [readyError, setReadyError] = useState<string | null>(null);
+  const [readyDeleteBusyKey, setReadyDeleteBusyKey] = useState<string | null>(null);
+  const [readyDeleteError, setReadyDeleteError] = useState<string | null>(null);
 
   const [planItems, setPlanItems] = useState<SessionPlannerItem[]>([]);
   const [savedPlanSignature, setSavedPlanSignature] = useState("");
@@ -99,6 +101,8 @@ export default function TongsRecordingSessions() {
   const [createTitle, setCreateTitle] = useState("Recording Session");
   const [createBusy, setCreateBusy] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [deleteBusyId, setDeleteBusyId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const [dragFromIndex, setDragFromIndex] = useState<number | null>(null);
 
@@ -251,6 +255,33 @@ export default function TongsRecordingSessions() {
     setSaveError(null);
   }, [planEpisodeIdSet]);
 
+  const deleteReadyCandidate = useCallback(async (candidate: ReadyScriptCandidate) => {
+    if (!session) return;
+    const label = candidate.title?.trim() || "Ready Script";
+    const path = candidate.primary_script_path;
+    const confirmed = window.confirm(
+      `Delete ready script "${label}" (${path})? This removes the script file and cannot be undone.`,
+    );
+    if (!confirmed) return;
+
+    const busyKey = `${candidate.workpiece_id}::${path}`;
+    setReadyDeleteBusyKey(busyKey);
+    setReadyDeleteError(null);
+    setSaveNotice(null);
+    try {
+      await tongsApiRequest<{ deleted: boolean; workpiece_id: string; path: string }>(
+        `/tongs/workpieces/${encodeURIComponent(candidate.workpiece_id)}/ready-script?path=${encodeURIComponent(path)}`,
+        { method: "DELETE" },
+      );
+      await loadReadyCandidates();
+      setSaveNotice(`Deleted ready script "${label}".`);
+    } catch (error: unknown) {
+      setReadyDeleteError(readErrorMessage(error, "Failed deleting ready script."));
+    } finally {
+      setReadyDeleteBusyKey(null);
+    }
+  }, [session, loadReadyCandidates]);
+
   const removePlanItem = useCallback((index: number) => {
     setPlanItems((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
     setSaveNotice(null);
@@ -359,6 +390,45 @@ export default function TongsRecordingSessions() {
     }
   }, [workspaceId, createTitle, loadSessions]);
 
+  const deleteSession = useCallback(async (entry: RecordingSessionSummary) => {
+    if (!workspaceId || !session) return;
+    const label = entry.title?.trim() || "Recording Session";
+    const confirmed = window.confirm(`Delete recording session "${label}"? This cannot be undone.`);
+    if (!confirmed) return;
+
+    setDeleteBusyId(entry.id);
+    setDeleteError(null);
+    setSaveNotice(null);
+    setSaveError(null);
+
+    try {
+      await tongsApiRequest<{ deleted: boolean; session_id: string }>(
+        `/tongs/recording-sessions/${encodeURIComponent(entry.id)}`,
+        { method: "DELETE" },
+      );
+
+      const remaining = sessions.filter((row) => row.id !== entry.id);
+      const preferredId = selectedSessionId === entry.id
+        ? (remaining[0]?.id ?? null)
+        : selectedSessionId;
+
+      if (selectedSessionId === entry.id) {
+        setSessionDetail(null);
+        setPlanItems([]);
+        setSavedPlanSignature("");
+        setDetailError(null);
+      }
+
+      setSelectedSessionId(preferredId);
+      await loadSessions(preferredId);
+      setSaveNotice(`Deleted session "${label}".`);
+    } catch (error: unknown) {
+      setDeleteError(readErrorMessage(error, "Failed deleting recording session."));
+    } finally {
+      setDeleteBusyId(null);
+    }
+  }, [workspaceId, session, sessions, selectedSessionId, loadSessions]);
+
   if (!workspaceId) {
     return <WorkspaceRequiredNotice toolName="Tongs Recording Sessions" />;
   }
@@ -443,31 +513,57 @@ export default function TongsRecordingSessions() {
           {sessionsLoading ? <span style={{ fontSize: 12, opacity: 0.72 }}>Loading...</span> : null}
         </div>
         {sessionsError ? <div style={{ color: "#ffb3b3", fontSize: 13 }}>{sessionsError}</div> : null}
+        {deleteError ? <div style={{ color: "#ffb3b3", fontSize: 13 }}>{deleteError}</div> : null}
         {sessions.length === 0 ? (
           <div style={{ fontSize: 13, opacity: 0.7 }}>No sessions yet.</div>
         ) : (
           <div style={{ display: "grid", gap: 8 }}>
             {sessions.map((entry) => {
               const active = entry.id === selectedSessionId;
+              const deletingThis = deleteBusyId === entry.id;
               return (
-                <button
+                <div
                   key={entry.id}
-                  type="button"
-                  onClick={() => setSelectedSessionId(entry.id)}
                   style={{
-                    textAlign: "left",
-                    borderRadius: 8,
-                    border: active ? "1px solid rgba(255,255,255,0.55)" : "1px solid rgba(255,255,255,0.14)",
-                    background: active ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.18)",
-                    color: "inherit",
-                    padding: "8px 10px",
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "stretch",
                   }}
                 >
-                  <div style={{ fontWeight: 700 }}>{entry.title || "Recording Session"}</div>
-                  <div style={{ fontSize: 12, opacity: 0.72 }}>
-                    {formatDateTime(entry.created_at ?? entry.updated_at ?? null)}
-                  </div>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSessionId(entry.id)}
+                    style={{
+                      textAlign: "left",
+                      borderRadius: 8,
+                      border: active ? "1px solid rgba(255,255,255,0.55)" : "1px solid rgba(255,255,255,0.14)",
+                      background: active ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.18)",
+                      color: "inherit",
+                      padding: "8px 10px",
+                      flex: 1,
+                    }}
+                  >
+                    <div style={{ fontWeight: 700 }}>{entry.title || "Recording Session"}</div>
+                    <div style={{ fontSize: 12, opacity: 0.72 }}>
+                      {formatDateTime(entry.created_at ?? entry.updated_at ?? null)}
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void deleteSession(entry)}
+                    disabled={deletingThis}
+                    style={{
+                      borderRadius: 8,
+                      border: "1px solid rgba(255,120,120,0.45)",
+                      background: "rgba(120,0,0,0.28)",
+                      color: "inherit",
+                      padding: "8px 10px",
+                      minWidth: 88,
+                    }}
+                  >
+                    {deletingThis ? "Deleting..." : "Delete"}
+                  </button>
+                </div>
               );
             })}
           </div>
@@ -527,12 +623,15 @@ export default function TongsRecordingSessions() {
             <div style={{ fontWeight: 700 }}>Ready Candidates</div>
             {readyLoading ? <div style={{ fontSize: 12, opacity: 0.72 }}>Loading ready candidates...</div> : null}
             {readyError ? <div style={{ color: "#ffb3b3", fontSize: 13 }}>{readyError}</div> : null}
+            {readyDeleteError ? <div style={{ color: "#ffb3b3", fontSize: 13 }}>{readyDeleteError}</div> : null}
             {readyCandidates.length === 0 ? (
               <div style={{ fontSize: 13, opacity: 0.7 }}>No ready scripts.</div>
             ) : (
               <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 8 }}>
                 {readyCandidates.map((candidate) => {
                   const alreadyInPlan = planEpisodeIdSet.has(candidate.workpiece_id);
+                  const candidateKey = `${candidate.workpiece_id}::${candidate.primary_script_path}`;
+                  const deletingCandidate = readyDeleteBusyKey === candidateKey;
                   return (
                     <li
                       key={`${candidate.workpiece_id}:${candidate.primary_script_path}`}
@@ -550,14 +649,23 @@ export default function TongsRecordingSessions() {
                         <span style={{ fontSize: 12, opacity: 0.66 }}>
                           {formatDateTime(candidate.updated_at)}
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => addCandidate(candidate)}
-                          disabled={!selectedSessionId || alreadyInPlan}
-                          title={alreadyInPlan ? "Already in session plan" : undefined}
-                        >
-                          {alreadyInPlan ? "Added" : "Add"}
-                        </button>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button
+                            type="button"
+                            onClick={() => addCandidate(candidate)}
+                            disabled={!selectedSessionId || alreadyInPlan || deletingCandidate}
+                            title={alreadyInPlan ? "Already in session plan" : undefined}
+                          >
+                            {alreadyInPlan ? "Added" : "Add"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void deleteReadyCandidate(candidate)}
+                            disabled={deletingCandidate}
+                          >
+                            {deletingCandidate ? "Deleting..." : "Delete"}
+                          </button>
+                        </div>
                       </div>
                     </li>
                   );

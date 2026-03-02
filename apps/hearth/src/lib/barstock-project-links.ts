@@ -63,40 +63,62 @@ export function resolveBarstockProjectIdFromQuery(): string | null {
 export async function readBarstockProjectContext(args: {
   workspaceId: string;
   projectId: string;
-}): Promise<{ projectTitle: string | null; workpieceId: string | null; error?: string }> {
+}): Promise<{
+  projectExists: boolean;
+  projectTitle: string | null;
+  workpieceId: string | null;
+  error?: string;
+}> {
   const workspaceId = normalizeUuid(args.workspaceId);
   const projectId = normalizeUuid(args.projectId);
   if (!workspaceId || !projectId) {
-    return { projectTitle: null, workpieceId: null, error: "invalid_project_context" };
+    return {
+      projectExists: false,
+      projectTitle: null,
+      workpieceId: null,
+      error: "invalid_project_context",
+    };
   }
 
   const runtimeClient = getRuntimeSupabaseClient();
   if (!runtimeClient) {
-    return { projectTitle: null, workpieceId: null, error: "missing_runtime_supabase_client" };
+    return {
+      projectExists: false,
+      projectTitle: null,
+      workpieceId: null,
+      error: "missing_runtime_supabase_client",
+    };
   }
 
   const scope = resolveTongsScope(runtimeClient);
   if (typeof scope.from !== "function") {
-    return { projectTitle: null, workpieceId: null, error: "invalid_runtime_supabase_client" };
+    return {
+      projectExists: false,
+      projectTitle: null,
+      workpieceId: null,
+      error: "invalid_runtime_supabase_client",
+    };
   }
 
   const [projectResult, linkResult] = await Promise.all([
     scope
       .from("barstock_assignments")
-      .select("title")
+      .select("id,title")
       .eq("workspace_id", workspaceId)
       .eq("id", projectId)
       .maybeSingle(),
     scope
       .from("barstock_project_episode_links")
-      .select("workpiece_id")
+      .select("workpiece_id,created_at")
       .eq("workspace_id", workspaceId)
       .eq("project_id", projectId)
-      .maybeSingle(),
+      .order("created_at", { ascending: true })
+      .limit(1),
   ]);
 
   if (projectResult?.error) {
     return {
+      projectExists: false,
       projectTitle: null,
       workpieceId: null,
       error: `project_lookup_failed:${String(projectResult.error.message ?? "unknown")}`,
@@ -104,16 +126,22 @@ export async function readBarstockProjectContext(args: {
   }
 
   if (linkResult?.error) {
+    const projectTitle = readString(projectResult?.data?.title);
     return {
-      projectTitle: readString(projectResult?.data?.title),
+      projectExists: Boolean(projectResult?.data),
+      projectTitle,
       workpieceId: null,
       error: `project_link_lookup_failed:${String(linkResult.error.message ?? "unknown")}`,
     };
   }
 
+  const linkRow = Array.isArray(linkResult?.data) ? linkResult.data[0] : null;
+  const projectTitle = readString(projectResult?.data?.title);
+
   return {
-    projectTitle: readString(projectResult?.data?.title),
-    workpieceId: normalizeUuid(linkResult?.data?.workpiece_id),
+    projectExists: Boolean(projectResult?.data),
+    projectTitle,
+    workpieceId: normalizeUuid(linkRow?.workpiece_id),
   };
 }
 
@@ -139,19 +167,52 @@ export async function upsertBarstockProjectEpisodeLink(args: {
     return { ok: false, error: "invalid_runtime_supabase_client" };
   }
 
+  const existingResult = await scope
+    .from("barstock_project_episode_links")
+    .select("project_id")
+    .eq("workspace_id", workspaceId)
+    .eq("project_id", projectId)
+    .limit(1);
+
+  if (existingResult?.error) {
+    return { ok: false, error: String(existingResult.error.message ?? "unknown") };
+  }
+
+  const hasExisting = Array.isArray(existingResult?.data) && existingResult.data.length > 0;
+  if (hasExisting) {
+    const { error } = await scope
+      .from("barstock_project_episode_links")
+      .update({ workpiece_id: workpieceId })
+      .eq("workspace_id", workspaceId)
+      .eq("project_id", projectId);
+    if (error) {
+      return { ok: false, error: String(error.message ?? "unknown") };
+    }
+    return { ok: true };
+  }
+
   const { error } = await scope
     .from("barstock_project_episode_links")
-    .upsert(
-      {
-        workspace_id: workspaceId,
-        project_id: projectId,
-        workpiece_id: workpieceId,
-      },
-      { onConflict: "workspace_id,project_id" },
-    );
+    .insert({
+      workspace_id: workspaceId,
+      project_id: projectId,
+      workpiece_id: workpieceId,
+    });
 
   if (error) {
-    return { ok: false, error: String(error.message ?? "unknown") };
+    const message = String(error.message ?? "unknown");
+    if (message.toLowerCase().includes("duplicate key")) {
+      const retry = await scope
+        .from("barstock_project_episode_links")
+        .update({ workpiece_id: workpieceId })
+        .eq("workspace_id", workspaceId)
+        .eq("project_id", projectId);
+      if (!retry?.error) {
+        return { ok: true };
+      }
+      return { ok: false, error: String(retry.error.message ?? message) };
+    }
+    return { ok: false, error: message };
   }
 
   return { ok: true };

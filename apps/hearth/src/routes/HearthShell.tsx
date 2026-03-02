@@ -112,11 +112,13 @@ const CHAT_HISTORY_WRITE_DEBOUNCE_MS = 350;
 const CHAT_HISTORY_TRUNCATED_SUFFIX = "\n\n[truncated in local cache]";
 const FORGE_AUTH_STORAGE_KEY = "forge-auth";
 const SUPABASE_AUTH_KEY_RE = /supabase-auth-token/i;
+const PROJECT_PENDING_WORKPIECE_PREFIX = "hearth:project-pending-workpiece:v1:";
 const AI_STT_MAX_DURATION_MS = 5 * 60 * 1000;
 const AI_STT_MAX_BYTES = 10 * 1024 * 1024;
 const STT_INLINE_FEEDBACK_MS = 2200;
 const STT_PREVIEW_MAX_CHARS = 80;
 const ANVIL_SCRIPT_PATH = getHearthPrimaryScriptPath();
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type HearthMode = "sparks" | "episodes" | "ready" | "series" | "focus";
 type FocusTab = "draft" | "planning" | "sources" | "revisions";
@@ -163,6 +165,12 @@ function readTrimmedString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
+}
+
+function normalizeUuid(value: unknown): string | null {
+  const str = readTrimmedString(value);
+  if (!str) return null;
+  return UUID_RE.test(str) ? str.toLowerCase() : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -496,6 +504,41 @@ function writeRemovedReadyIds(workspaceId: string | null, removedIds: readonly s
       return;
     }
     window.localStorage.setItem(`${READY_REMOVED_STORAGE_PREFIX}${workspaceId}`, JSON.stringify(removedIds));
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function buildPendingProjectWorkpieceKey(workspaceId: string, projectId: string): string {
+  return `${PROJECT_PENDING_WORKPIECE_PREFIX}${workspaceId}:${projectId}`;
+}
+
+function readPendingProjectWorkpieceId(workspaceId: string, projectId: string): string | null {
+  if (typeof window === "undefined") return null;
+  const workspace = normalizeUuid(workspaceId);
+  const project = normalizeUuid(projectId);
+  if (!workspace || !project) return null;
+  const key = buildPendingProjectWorkpieceKey(workspace, project);
+  try {
+    return normalizeUuid(window.localStorage.getItem(key));
+  } catch {
+    return null;
+  }
+}
+
+function writePendingProjectWorkpieceId(workspaceId: string, projectId: string, workpieceId: string | null): void {
+  if (typeof window === "undefined") return;
+  const workspace = normalizeUuid(workspaceId);
+  const project = normalizeUuid(projectId);
+  if (!workspace || !project) return;
+  const key = buildPendingProjectWorkpieceKey(workspace, project);
+  try {
+    const normalized = normalizeUuid(workpieceId);
+    if (!normalized) {
+      window.localStorage.removeItem(key);
+      return;
+    }
+    window.localStorage.setItem(key, normalized);
   } catch {
     // ignore storage failures
   }
@@ -1422,6 +1465,10 @@ function buildOpenInAnvilHref(
   return `/app/anvil?${params.toString()}`;
 }
 
+function resolveReadyOpenHref(entry: HearthReadyScript): string | null {
+  return buildOpenInAnvilHref(entry.workspaceId, entry.workpieceId, entry.primaryScriptPath);
+}
+
 function isPlanningSessionEmpty(session: HearthPlanningSession | null): boolean {
   if (!session) return true;
   const hasTitle = Boolean(session.title && session.title.trim());
@@ -1931,6 +1978,20 @@ export default function HearthShell() {
     }
     return sections;
   }, [filteredReadyScripts, readyCategoryFilter]);
+  const launchableGroupedReadyScripts = useMemo(() => {
+    const sections = groupedReadyScripts
+      .map((section) => ({
+        ...section,
+        entries: section.entries.filter((entry) => Boolean(resolveReadyOpenHref(entry))),
+      }))
+      .filter((section) => section.entries.length > 0);
+    return sections;
+  }, [groupedReadyScripts]);
+  const launchableOrderedReadyScripts = useMemo(
+    () => orderedReadyScripts.filter((entry) => Boolean(resolveReadyOpenHref(entry))),
+    [orderedReadyScripts],
+  );
+  const hiddenNonLaunchableReadyCount = Math.max(0, filteredReadyScripts.length - launchableOrderedReadyScripts.length);
 
   const diffLines = useMemo(() => {
     if (!selectedRevision || !activeDraft) return [];
@@ -2744,12 +2805,18 @@ export default function HearthShell() {
 
       if (context.error) {
         console.warn("[hearth-project-intake] context lookup issue", context.error);
+        setForgeError("Unable to resolve this Project in Tongs. Sync Bar Stock, then retry.");
+        return;
       }
 
       const projectTitle = context.projectTitle?.trim() || null;
       setRouteProjectTitle(projectTitle);
+      if (!context.projectExists) {
+        setForgeError("Project not found in Tongs yet. Sync Bar Stock, then retry.");
+        return;
+      }
 
-      let resolvedWorkpieceId = context.workpieceId;
+      let resolvedWorkpieceId = context.workpieceId ?? readPendingProjectWorkpieceId(workspace, routeProjectId);
       if (!resolvedWorkpieceId) {
         const created = await createHearthWorkpiece(
           { created_from: "bar-stock" },
@@ -2761,6 +2828,7 @@ export default function HearthShell() {
           return;
         }
         resolvedWorkpieceId = created.workpieceId;
+        writePendingProjectWorkpieceId(workspace, routeProjectId, resolvedWorkpieceId);
       }
 
       const linked = await upsertBarstockProjectEpisodeLink({
@@ -2770,7 +2838,11 @@ export default function HearthShell() {
       });
       if (!linked.ok) {
         console.warn("[hearth-project-intake] link upsert failed", linked.error);
+        writePendingProjectWorkpieceId(workspace, routeProjectId, resolvedWorkpieceId);
+        setForgeError("Failed to link this Project to an Episode. Sync and retry.");
+        return;
       }
+      writePendingProjectWorkpieceId(workspace, routeProjectId, null);
 
       if (cancelled) return;
       projectIntakeHandledRef.current = routeProjectId;
@@ -6882,8 +6954,9 @@ export default function HearthShell() {
       ) : null}
       {readyScriptsError ? <div className="hs-error-text-small">{readyScriptsError}</div> : null}
       <ul className="hs-ready-record-list">
-        {orderedReadyScripts.map((entry) => {
-          const href = buildOpenInAnvilHref(entry.workspaceId, entry.workpieceId, entry.primaryScriptPath);
+        {launchableOrderedReadyScripts.map((entry) => {
+          const href = resolveReadyOpenHref(entry);
+          if (!href) return null;
           const label = resolveReadyLabel(entry);
           return (
             <li
@@ -6915,10 +6988,8 @@ export default function HearthShell() {
                 <button
                   type="button"
                   onClick={() => {
-                    if (!href) return;
                     window.location.assign(href);
                   }}
-                  disabled={!href}
                 >
                   Send to Anvil
                 </button>
@@ -7143,6 +7214,11 @@ export default function HearthShell() {
                 Dropped {droppedReadyScriptsCount} invalid ready row{droppedReadyScriptsCount === 1 ? "" : "s"}.
               </div>
             ) : null}
+            {hiddenNonLaunchableReadyCount > 0 ? (
+              <div className="hs-error-text-small">
+                Hidden {hiddenNonLaunchableReadyCount} non-launchable row{hiddenNonLaunchableReadyCount === 1 ? "" : "s"}.
+              </div>
+            ) : null}
             <div className="hs-rail-meta">Approved scripts stay here until a recording asset is committed.</div>
             {isReadyScriptsLoading ? <p>Loading queue...</p> : null}
             {!isReadyScriptsLoading && filteredReadyScripts.length === 0 ? (
@@ -7154,19 +7230,28 @@ export default function HearthShell() {
                     : "No scripts match this category filter."}
               </p>
             ) : null}
-            {groupedReadyScripts.length > 0 ? (
+            {launchableGroupedReadyScripts.length > 0 ? (
               <div className="hs-ready-record-groups">
-                {groupedReadyScripts.map((section) => (
+                {launchableGroupedReadyScripts.map((section) => (
                   <div key={section.key} className="hs-ready-record-group">
                     <div className="hs-ready-record-group-title">{section.label}</div>
                     <ul className="hs-ready-record-list">
                       {section.entries.map((entry) => {
-                        const href = buildOpenInAnvilHref(entry.workspaceId, entry.workpieceId, entry.primaryScriptPath);
+                        const href = resolveReadyOpenHref(entry);
+                        if (!href) return null;
                         const updatedTs = parseIsoTimestamp(entry.updatedAt);
                         const urgency = deriveReadyUrgency(entry);
                         return (
                           <li key={entry.id} className="hs-ready-record-item">
-                            <div className="hs-ready-record-title">{entry.title}</div>
+                            <button
+                              type="button"
+                              className="hs-ready-record-link"
+                              onClick={() => {
+                                window.location.assign(href);
+                              }}
+                            >
+                              <div className="hs-ready-record-title">{entry.title}</div>
+                            </button>
                             <div className="hs-ready-record-meta-row">
                               <div className="hs-ready-record-meta">
                                 {updatedTs ? `Approved ${formatRelativeUpdatedAt(updatedTs)}` : "Approved script"}
@@ -7197,10 +7282,8 @@ export default function HearthShell() {
                             <button
                               type="button"
                               onClick={() => {
-                                if (!href) return;
                                 window.location.assign(href);
                               }}
-                              disabled={!href}
                             >
                               Open in Anvil
                             </button>
