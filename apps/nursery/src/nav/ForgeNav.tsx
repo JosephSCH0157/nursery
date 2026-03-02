@@ -31,7 +31,7 @@ export function ForgeNav({
         const titleNode = renderSectionTitle?.(section) ?? (
           section.title
             ? (
-              section.title === "Nursery"
+              section.id === "forge"
                 ? <h3 style={{ marginTop: 0 }}>{section.title}</h3>
                 : (
                   <div style={{ fontSize: "0.85rem", color: "var(--forge-text-muted)" }}>

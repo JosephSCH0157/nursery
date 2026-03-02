@@ -213,7 +213,7 @@ export default function HearthStandalone() {
           <section
             role="dialog"
             aria-modal="true"
-            aria-label="Nursery menu"
+            aria-label="The Forge menu"
             style={{
               position: "absolute",
               top: 12,
@@ -242,7 +242,7 @@ export default function HearthStandalone() {
               }}
             >
               <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, letterSpacing: "0.02em" }}>
-                Nursery Menu
+                The Forge Menu
               </h2>
               <button
                 type="button"
@@ -315,7 +315,7 @@ export default function HearthStandalone() {
       >
         <button
           type="button"
-          aria-label="Open Nursery menu"
+          aria-label="Open The Forge menu"
           onClick={() => setNavOpen(true)}
           style={{
             width: 34,

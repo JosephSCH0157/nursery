@@ -188,7 +188,7 @@ All of the above MUST work without AI.
 
 - Saving is automatic and cloud-first.
 - Persistence is owned by the Workspace.
-- Local mirroring is configured at the Nursery level, not in Hearth.
+- Local mirroring is configured at the Podcaster's Forge level, not in Hearth.
 - Hearth must show clear state:
   - editing
   - saving

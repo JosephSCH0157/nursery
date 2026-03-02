@@ -29,7 +29,7 @@ const FORGE_NAV_BUTTON_ID = "forgeNavBtn";
 const FORGE_NAV_WRAPPER_ID = "forgeNavWrap";
 const DEFAULT_MOUNT_ID = "forge-menu-slot";
 const FORGE_NAV_READY_SENTINEL = "__tpForgeNavReady";
-const FORGE_NAV_POPUP_TITLE = "Nursery Menu";
+const FORGE_NAV_POPUP_TITLE = "The Forge Menu";
 const FORGE_NAV_TREE_ID = "forgeNavTree";
 const FORGE_NAV_OVERLAY_ROOT_ID = "forgeNavOverlayRoot";
 const FORGE_NAV_OVERLAY_STYLE_ID = "forgeNavOverlayStyles";
@@ -57,7 +57,7 @@ const FORGE_NAV_FALLBACK: ForgeNavPayload = {
   tree: [
     {
       id: "forge",
-      title: "Nursery",
+      title: "The Forge",
       items: [
         { id: "home", label: "Home", to: "/app" },
         { id: "tongs", label: "Tongs Calendar", to: "/app/tongs" },
@@ -451,7 +451,7 @@ function openNavOverlayShell(): { panel: HTMLDivElement; closeOverlay: () => voi
     backdrop.type = "button";
     backdrop.className = "forge-nav-overlay-backdrop";
     backdrop.dataset.forgeNavClose = "1";
-    backdrop.setAttribute("aria-label", "Close Nursery menu");
+    backdrop.setAttribute("aria-label", "Close The Forge menu");
     root.appendChild(backdrop);
 
     const panelShell = document.createElement("section");
@@ -472,7 +472,7 @@ function openNavOverlayShell(): { panel: HTMLDivElement; closeOverlay: () => voi
     closeBtn.type = "button";
     closeBtn.className = "forge-nav-overlay-close";
     closeBtn.dataset.forgeNavClose = "1";
-    closeBtn.setAttribute("aria-label", "Close Nursery menu");
+    closeBtn.setAttribute("aria-label", "Close The Forge menu");
     closeBtn.textContent = "×";
     head.appendChild(closeBtn);
 
@@ -611,9 +611,9 @@ export function initForgeMenu(opts: ForgeMenuInitOptions = {}): void {
   button.className = "forge-nav-btn";
   button.type = "button";
   button.textContent = "☰";
-  button.setAttribute("aria-label", "Open Nursery menu");
+  button.setAttribute("aria-label", "Open The Forge menu");
   button.setAttribute("aria-haspopup", "dialog");
-  button.title = "Nursery menu";
+  button.title = "The Forge menu";
   button.style.display = "inline-flex";
   button.style.alignItems = "center";
   button.style.justifyContent = "center";

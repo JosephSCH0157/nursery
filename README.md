@@ -1,15 +1,21 @@
-# Podcaster's Forge (Forge v1.2 Fire Burning) - Nursery
+# Podcaster's Forge (Forge v1.2 Fire Burning)
 
-Nursery is the **front door** and **single login** for the Podcaster's Forge ecosystem. Users authenticate here (email + password) and then unlock the `/app` workspace where every Forge tool lives (Anvil, Hearth, Hammer, Barstock, etc.).
+Podcaster's Forge is the **front door** and **single login** for the ecosystem. Users authenticate here (email + password) and then unlock the `/app` workspace where every Forge tool lives (Anvil, Hearth, Hammer, Barstock, etc.).
 
 ## Release status
 
 - Forge `v1.2.0` (**Fire Burning**) is released and tagged as `forge-v1.2.0`.
-- This repo documents the v1.2 baseline for Nursery and its connected tools.
+- This repo documents the v1.2 baseline for Podcaster's Forge and its connected tools.
+
+## SSOT Persistence Rule (Non-Negotiable)
+
+- Supabase (`tongs` schema) is the canonical SSOT for persisted state.
+- `localStorage`/in-memory data are cache-only and MUST NOT be used as persistence.
+- If persistence semantics change, include DB migration + RLS in the same change, or STOP and call out that DB changes are required with the migration SQL.
 
 ## Forge v1.2.0 Fire Burning release index
 
-- Nursery / ForgeHub canonical doc: [`apps/nursery/FORGEHUB_V1_MANIFEST.md`](apps/nursery/FORGEHUB_V1_MANIFEST.md)
+- Podcaster's Forge / ForgeHub canonical doc: [`apps/nursery/FORGEHUB_V1_MANIFEST.md`](apps/nursery/FORGEHUB_V1_MANIFEST.md)
 - Bar-Stock canonical doc: [`apps/bar-stock/README.md`](apps/bar-stock/README.md)
 - Tongs canonical doc: [`packages/tongs/TONGS_V1_MANIFEST.md`](packages/tongs/TONGS_V1_MANIFEST.md)
 - Hearth canonical doc (`HEARTH_V1_MANIFEST`): [`apps/hearth/HEARTH_V1_MANIFEST.md`](apps/hearth/HEARTH_V1_MANIFEST.md)
@@ -48,13 +54,13 @@ pnpm check
 ## Routes
 
 ### Public
-- `/login` - SPA login route for current Nursery authentication.
+- `/login` - SPA login route for current Podcaster's Forge authentication.
 - `/auth/callback` - magic-link handler for recovery/invites.
 - `/reset-password` - password reset form.
 
 ### Gated (`/app`)
 - `/app` - the Forge hub for navigating the tools.
-- `/app/anvil`, `/app/hearth`, `/app/hammer`, `/app/tongs`, `/app/quench`, `/app/ledger`, `/app/barstock`, `/app/calendar` - route mount points used by Nursery to host each tool (some remain placeholder shells in v1.0).
+- `/app/anvil`, `/app/hearth`, `/app/hammer`, `/app/tongs`, `/app/quench`, `/app/ledger`, `/app/barstock`, `/app/calendar` - route mount points used by Podcaster's Forge to host each tool (some remain placeholder shells in v1.0).
 
 ## Tech stack
 

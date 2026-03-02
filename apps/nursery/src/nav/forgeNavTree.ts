@@ -23,12 +23,12 @@ export function composeNav(base: ForgeNavSection[], extras?: ForgeNavSection[]) 
 export const forgeNavTree: ForgeNavSection[] = [
   {
     id: "forge",
-    title: "Nursery",
+    title: "The Forge",
     items: [
       { id: "home", label: "Home", to: "/app" },
       { id: "barstock", label: "Barstock", to: "/app/barstock" },
       { id: "hearth", label: "Hearth", to: "/app/hearth" },
-      { id: "tongs", label: "Tongs Calendar", to: "/app/tongs" },
+      { id: "tongs", label: "Tongs", to: "/app/tongs" },
       { id: "anvil", label: "Anvil", to: "/app/anvil" },
       { id: "hammer", label: "Hammer", to: "/app/hammer" },
       { id: "quench", label: "Quench", to: "/app/quench" },

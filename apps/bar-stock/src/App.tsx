@@ -9,7 +9,6 @@ import {
   buildAssignmentNameFromSpark,
   loadAssignments,
   makeAssignment,
-  makeAssignmentFromSpark,
   saveAssignments,
   upsertAssignment
 } from "./lib/assignments";
@@ -32,8 +31,7 @@ const ACTIVE_WORKSPACE_KEY = "forge_workspace_id_v1";
 const LEGACY_WORKSPACE_KEY = "barstock_workspace_id";
 const SHOW_GRADUATED_PREF_PREFIX = "barstock_show_graduated_v1";
 const WORKPIECE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const AUTO_ASSIGNMENT_NAME_RE = /^[a-z0-9]+_\d{4}-\d{2}-\d{2}_\d{4}$/i;
-const ASSIGNMENT_ID_MAP_KEY = "forge_barstock_assignment_id_map_v1";
+const PROJECT_ID_MAP_KEY = "forge_barstock_project_id_map_v1";
 
 function loadStoredWorkspaceId(): string | null {
   return localStorage.getItem(ACTIVE_WORKSPACE_KEY)
@@ -56,9 +54,9 @@ function normalizeWorkpieceId(value: string | null | undefined): string | null {
   return WORKPIECE_UUID_RE.test(trimmed) ? trimmed : null;
 }
 
-function loadAssignmentIdMap(): Record<string, string> {
+function loadProjectIdMap(): Record<string, string> {
   try {
-    const raw = localStorage.getItem(ASSIGNMENT_ID_MAP_KEY);
+    const raw = localStorage.getItem(PROJECT_ID_MAP_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return {};
@@ -68,27 +66,27 @@ function loadAssignmentIdMap(): Record<string, string> {
   }
 }
 
-function saveAssignmentIdMap(map: Record<string, string>): void {
+function saveProjectIdMap(map: Record<string, string>): void {
   try {
-    localStorage.setItem(ASSIGNMENT_ID_MAP_KEY, JSON.stringify(map));
+    localStorage.setItem(PROJECT_ID_MAP_KEY, JSON.stringify(map));
   } catch {
     // ignore storage failures
   }
 }
 
-function resolveAssignmentIdForSpark(sparkId: string): string {
-  const normalizedSparkId = sparkId.trim().toLowerCase();
-  if (WORKPIECE_UUID_RE.test(normalizedSparkId)) return normalizedSparkId;
+function normalizeProjectId(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (WORKPIECE_UUID_RE.test(normalized)) return normalized;
 
-  const map = loadAssignmentIdMap();
-  const existing = map[sparkId];
+  const map = loadProjectIdMap();
+  const existing = map[normalized];
   if (typeof existing === "string" && WORKPIECE_UUID_RE.test(existing)) {
     return existing.toLowerCase();
   }
 
   const generated = crypto.randomUUID();
-  map[sparkId] = generated;
-  saveAssignmentIdMap(map);
+  map[normalized] = generated;
+  saveProjectIdMap(map);
   return generated;
 }
 
@@ -139,6 +137,7 @@ export default function App(props: BarstockAppProps = {}) {
   const [assignments, setAssignments] = useState<Assignment[]>(() => loadAssignments());
   const [activeAssignment, setActiveAssignment] = useState<AssignmentFilter>("all");
   const [newAssignmentName, setNewAssignmentName] = useState("");
+  const [showEmptyProjects, setShowEmptyProjects] = useState(false);
   const [session, setSession] = useState<SupabaseSession | null>(null);
   const [email, setEmail] = useState("");
   const hasExternalWorkspaceState = !!props.workspaceState;
@@ -179,40 +178,64 @@ export default function App(props: BarstockAppProps = {}) {
 
   function normalizeAssignmentsState(inputSparks: Spark[], inputAssignments: Assignment[]) {
     const assignmentById = new Map<string, Assignment>();
-    let duplicateAssignmentIdsFound = false;
+    const updatedAssignments: Assignment[] = [];
     for (const assignment of inputAssignments) {
-      const existing = assignmentById.get(assignment.id);
+      const normalizedId = normalizeProjectId(assignment.id);
+      const createdAt = assignment.createdAt ?? now();
+      const normalized: Assignment = {
+        ...assignment,
+        id: normalizedId,
+        name: assignment.name?.trim() || "Imported Project",
+        createdAt,
+        updatedAt: assignment.updatedAt ?? createdAt,
+      };
+      const existing = assignmentById.get(normalized.id);
       if (!existing) {
-        assignmentById.set(assignment.id, assignment);
+        assignmentById.set(normalized.id, normalized);
+        if (
+          normalized.id !== assignment.id
+          || normalized.name !== assignment.name
+          || normalized.createdAt !== assignment.createdAt
+          || normalized.updatedAt !== assignment.updatedAt
+        ) {
+          updatedAssignments.push(normalized);
+        }
         continue;
       }
-      duplicateAssignmentIdsFound = true;
       const existingUpdatedAt = existing.updatedAt ?? existing.createdAt ?? 0;
-      const nextUpdatedAt = assignment.updatedAt ?? assignment.createdAt ?? 0;
+      const nextUpdatedAt = normalized.updatedAt ?? normalized.createdAt ?? 0;
       if (nextUpdatedAt >= existingUpdatedAt) {
-        assignmentById.set(assignment.id, assignment);
+        assignmentById.set(normalized.id, normalized);
+      }
+      if (
+        normalized.id !== assignment.id
+        || normalized.name !== assignment.name
+        || normalized.createdAt !== assignment.createdAt
+        || normalized.updatedAt !== assignment.updatedAt
+      ) {
+        updatedAssignments.push(normalized);
       }
     }
 
-    const nextAssignments = [...assignmentById.values()];
-    const updatedAssignments: Assignment[] = [];
     const updatedSparkById = new Map<string, Spark>();
 
     const legacyKey = "session" + "Id";
 
-    let nextSparks = inputSparks.map((s) => {
+    const nextSparks = inputSparks.map((s) => {
       const legacyId = (s as any)[legacyKey] as string | undefined;
-      let assignmentId = s.assignmentId ?? legacyId;
+      const rawAssignmentId = s.assignmentId ?? legacyId;
+      const assignmentId = typeof rawAssignmentId === "string" && rawAssignmentId.trim()
+        ? normalizeProjectId(rawAssignmentId)
+        : null;
 
-      if (!assignmentId) {
-        assignmentId = resolveAssignmentIdForSpark(s.id);
-      }
-
-      if (!assignmentById.has(assignmentId)) {
+      if (assignmentId && !assignmentById.has(assignmentId)) {
         const createdAt = s.createdAt ?? now();
-        const name = buildAssignmentNameFromSpark(s.body, createdAt);
-        const assignment = makeAssignment(name, { id: assignmentId, createdAt, updatedAt: createdAt });
-        nextAssignments.push(assignment);
+        const title = s.title?.trim() || buildAssignmentNameFromSpark(s.body, createdAt) || "Imported Project";
+        const assignment = makeAssignment(title, {
+          id: assignmentId,
+          createdAt,
+          updatedAt: s.updatedAt ?? createdAt,
+        });
         assignmentById.set(assignmentId, assignment);
         updatedAssignments.push(assignment);
       }
@@ -225,65 +248,10 @@ export default function App(props: BarstockAppProps = {}) {
       return s;
     });
 
-    const sparkRefCount = new Map<string, number>();
-    for (const spark of nextSparks) {
-      sparkRefCount.set(spark.assignmentId, (sparkRefCount.get(spark.assignmentId) ?? 0) + 1);
-    }
-
-    const assignmentsByName = new Map<string, Assignment[]>();
-    for (const assignment of nextAssignments) {
-      const key = assignment.name.trim().toLowerCase();
-      const existing = assignmentsByName.get(key);
-      if (existing) {
-        existing.push(assignment);
-      } else {
-        assignmentsByName.set(key, [assignment]);
-      }
-    }
-
-    const assignmentRemap = new Map<string, string>();
-    const removedAssignmentIds = new Set<string>();
-    for (const [nameKey, group] of assignmentsByName.entries()) {
-      if (group.length < 2) continue;
-      if (!AUTO_ASSIGNMENT_NAME_RE.test(nameKey)) continue;
-
-      const ranked = [...group].sort((a, b) => {
-        const aRefs = sparkRefCount.get(a.id) ?? 0;
-        const bRefs = sparkRefCount.get(b.id) ?? 0;
-        if (aRefs !== bRefs) return bRefs - aRefs;
-        const aPinned = a.pinned ? 1 : 0;
-        const bPinned = b.pinned ? 1 : 0;
-        if (aPinned !== bPinned) return bPinned - aPinned;
-        const aUpdated = a.updatedAt ?? a.createdAt ?? 0;
-        const bUpdated = b.updatedAt ?? b.createdAt ?? 0;
-        if (aUpdated !== bUpdated) return bUpdated - aUpdated;
-        return a.id.localeCompare(b.id);
-      });
-
-      const keeper = ranked[0];
-      for (let i = 1; i < ranked.length; i += 1) {
-        const duplicate = ranked[i];
-        removedAssignmentIds.add(duplicate.id);
-        assignmentRemap.set(duplicate.id, keeper.id);
-      }
-    }
-
-    if (assignmentRemap.size > 0) {
-      nextSparks = nextSparks.map((spark) => {
-        const remapped = assignmentRemap.get(spark.assignmentId);
-        if (!remapped || remapped === spark.assignmentId) return spark;
-        const next = { ...spark, assignmentId: remapped };
-        updatedSparkById.set(next.id, next);
-        return next;
-      });
-    }
-
-    const dedupedAssignments = nextAssignments.filter((assignment) => !removedAssignmentIds.has(assignment.id));
+    const dedupedAssignments = [...assignmentById.values()];
     const updatedSparks = [...updatedSparkById.values()];
     const changed = updatedAssignments.length > 0
       || updatedSparks.length > 0
-      || removedAssignmentIds.size > 0
-      || duplicateAssignmentIdsFound
       || dedupedAssignments.length !== inputAssignments.length;
 
     return {
@@ -292,7 +260,6 @@ export default function App(props: BarstockAppProps = {}) {
       assignments: dedupedAssignments,
       updatedSparks,
       updatedAssignments,
-      removedAssignmentIds: [...removedAssignmentIds],
     };
   }
 
@@ -309,9 +276,6 @@ export default function App(props: BarstockAppProps = {}) {
     }
     for (const s of res.updatedSparks) {
       enqueue({ op: "upsert_spark", at: ts, spark: s });
-    }
-    for (const assignmentId of res.removedAssignmentIds) {
-      enqueue({ op: "delete_assignment", at: ts, assignmentId });
     }
   }, []);
 
@@ -435,7 +399,7 @@ export default function App(props: BarstockAppProps = {}) {
   const sparkEpisodeIdsForGraduation = useMemo(() => {
     const ids = new Set<string>();
     for (const spark of sparks) {
-      const normalized = normalizeWorkpieceId(spark.assignmentId);
+      const normalized = normalizeWorkpieceId(spark.links?.hearthWorkpieceId);
       if (normalized) ids.add(normalized);
     }
     return [...ids];
@@ -480,17 +444,41 @@ export default function App(props: BarstockAppProps = {}) {
     );
   }, [graduatedEpisodeIds]);
 
+  const isSparkGraduated = useCallback((spark: Spark): boolean => {
+    if (spark.status === "graduated") return true;
+    const episodeId = normalizeWorkpieceId(spark.links?.hearthWorkpieceId);
+    return Boolean(episodeId && graduatedEpisodeIdSet.has(episodeId));
+  }, [graduatedEpisodeIdSet]);
+
+  useEffect(() => {
+    if (!graduatedEpisodeIdSet.size) return;
+    const promoted: Spark[] = [];
+    const ts = now();
+    const nextSparks = sparks.map((spark) => {
+      if (spark.status === "graduated" || spark.status === "archived") return spark;
+      const episodeId = normalizeWorkpieceId(spark.links?.hearthWorkpieceId);
+      if (!episodeId || !graduatedEpisodeIdSet.has(episodeId)) return spark;
+      const updated: Spark = { ...spark, status: "graduated", updatedAt: ts };
+      promoted.push(updated);
+      return updated;
+    });
+    if (promoted.length === 0) return;
+    setSparks(nextSparks);
+    for (const spark of promoted) {
+      enqueue({ op: "upsert_spark", at: ts, spark });
+    }
+  }, [graduatedEpisodeIdSet, sparks]);
+
   const sparksForList = useMemo(() => {
     if (showGraduated) return sparks;
-    return sparks.filter((spark) => {
-      const episodeId = normalizeWorkpieceId(spark.assignmentId);
-      if (!episodeId) return true;
-      return !graduatedEpisodeIdSet.has(episodeId);
-    });
-  }, [graduatedEpisodeIdSet, showGraduated, sparks]);
+    return sparks.filter((spark) => !isSparkGraduated(spark));
+  }, [isSparkGraduated, showGraduated, sparks]);
 
-  const hiddenGraduatedCount = sparks.length - sparksForList.length;
-  const count = sparksForList.length;
+  const activeSparkCount = useMemo(
+    () => sparks.reduce((count, spark) => (isSparkGraduated(spark) ? count : count + 1), 0),
+    [isSparkGraduated, sparks],
+  );
+  const graduatedSparkCount = sparks.length - activeSparkCount;
   const canAdd = useMemo(() => body.trim().length > 0, [body]);
   const syncLabel = !supabaseAvailable ? "LOCAL-ONLY" : tongsStatus.toUpperCase();
   const syncHint = !supabaseAvailable
@@ -506,12 +494,12 @@ export default function App(props: BarstockAppProps = {}) {
     saveStoredWorkspaceId(next);
   }, [hasExternalWorkspaceState, externalWorkspaceChange]);
 
-  function navigateToHearthForEpisode(episodeId: string) {
-    const normalizedEpisodeId = episodeId.trim();
-    if (!normalizedEpisodeId) return;
+  function navigateToHearthForProject(projectId: string) {
+    const normalizedProjectId = projectId.trim().toLowerCase();
+    if (!normalizeWorkpieceId(normalizedProjectId)) return;
 
     const params = new URLSearchParams();
-    params.set("workpiece_id", normalizedEpisodeId);
+    params.set("project_id", normalizedProjectId);
     if (workspaceId) {
       params.set("workspace_id", workspaceId);
     }
@@ -544,7 +532,10 @@ export default function App(props: BarstockAppProps = {}) {
   }
 
   function setStatus(s: Spark, status: SparkStatus) {
-    updateSpark(s, { status });
+    const nextStatus = isSparkGraduated(s) && status !== "archived"
+      ? "graduated"
+      : status;
+    updateSpark(s, { status: nextStatus });
   }
 
   function togglePin(s: Spark) {
@@ -569,7 +560,7 @@ export default function App(props: BarstockAppProps = {}) {
     enqueue({ op: "upsert_assignment", at: now(), assignment: a });
     setNewAssignmentName("");
     setActiveAssignment(a.id);
-    popToast("Assignment created.");
+    popToast("Project created.");
   }
 
   function addSpark() {
@@ -577,15 +568,9 @@ export default function App(props: BarstockAppProps = {}) {
 
     const tags = extractTags(body);
 
-    let assignmentId: AssignmentId;
-    if (activeAssignment === "all") {
-      const assignment = makeAssignmentFromSpark(body, now());
-      assignmentId = assignment.id;
-      setAssignments(prev => upsertAssignment(prev, assignment));
-      enqueue({ op: "upsert_assignment", at: now(), assignment });
-    } else {
-      assignmentId = activeAssignment;
-    }
+    const assignmentId: AssignmentId | null = activeAssignment === "all"
+      ? null
+      : activeAssignment;
 
     const s = makeSpark(body, assignmentId, {
       source: "typed",
@@ -595,6 +580,12 @@ export default function App(props: BarstockAppProps = {}) {
     setSparks(prev => upsertSpark(prev, s));
     enqueue({ op: "upsert_spark", at: now(), spark: s });
     setBody("");
+  }
+
+  function launchActiveProjectInHearth() {
+    if (!activeProject) return;
+    popToast("Opening Hearth...");
+    navigateToHearthForProject(activeProject.id);
   }
 
   const filteredByAssignment = useMemo(() => {
@@ -613,6 +604,52 @@ export default function App(props: BarstockAppProps = {}) {
       return a.name.localeCompare(b.name);
     });
   }, [assignments]);
+
+  const projectCountsByAssignmentId = useMemo(() => {
+    const counts = new Map<string, { active: number; total: number }>();
+    for (const spark of sparks) {
+      if (!spark.assignmentId) continue;
+      const current = counts.get(spark.assignmentId) ?? { active: 0, total: 0 };
+      current.total += 1;
+      if (!isSparkGraduated(spark)) {
+        current.active += 1;
+      }
+      counts.set(spark.assignmentId, current);
+    }
+    return counts;
+  }, [isSparkGraduated, sparks]);
+
+  const visibleAssignments = useMemo(() => {
+    if (showEmptyProjects) return sortedAssignments;
+    return sortedAssignments.filter((assignment) => {
+      const counts = projectCountsByAssignmentId.get(assignment.id);
+      return (counts?.active ?? 0) > 0;
+    });
+  }, [projectCountsByAssignmentId, showEmptyProjects, sortedAssignments]);
+
+  const activeProject = useMemo(
+    () => (activeAssignment === "all" ? null : assignments.find((assignment) => assignment.id === activeAssignment) ?? null),
+    [activeAssignment, assignments],
+  );
+  const activeProjectCounts = useMemo(
+    () => (activeProject ? (projectCountsByAssignmentId.get(activeProject.id) ?? { active: 0, total: 0 }) : null),
+    [activeProject, projectCountsByAssignmentId],
+  );
+  const isProjectView = activeAssignment !== "all";
+
+  useEffect(() => {
+    if (activeAssignment === "all") return;
+    if (assignments.some((assignment) => assignment.id === activeAssignment)) return;
+    setActiveAssignment("all");
+  }, [activeAssignment, assignments]);
+
+  useEffect(() => {
+    if (activeAssignment === "all") return;
+    if (showEmptyProjects) return;
+    const counts = projectCountsByAssignmentId.get(activeAssignment);
+    if ((counts?.active ?? 0) > 0) return;
+    setActiveAssignment("all");
+  }, [activeAssignment, projectCountsByAssignmentId, showEmptyProjects]);
 
   async function onImportFile(file: File) {
     const text = await file.text();
@@ -659,18 +696,10 @@ export default function App(props: BarstockAppProps = {}) {
       >
         <div style={{ fontWeight: 800, fontSize: 18 }}>Bar-Stock</div>
         <div style={{ opacity: 0.75, marginTop: 6, fontSize: 13 }}>
-          {count} sparks • idea mine
+          {showGraduated
+            ? `${activeSparkCount} active • ${graduatedSparkCount} graduated`
+            : `${activeSparkCount} sparks • idea mine`}
         </div>
-        {!showGraduated && hiddenGraduatedCount > 0 ? (
-          <div style={{ opacity: 0.65, marginTop: 4, fontSize: 12 }}>
-            {hiddenGraduatedCount} graduated hidden
-          </div>
-        ) : null}
-        {showGraduated ? (
-          <div style={{ opacity: 0.65, marginTop: 4, fontSize: 12 }}>
-            Showing graduated sparks
-          </div>
-        ) : null}
         {showWorkspacePicker ? (
           <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -725,19 +754,19 @@ export default function App(props: BarstockAppProps = {}) {
                 </button>
               </div>
             ) : (
-              <div style={{ fontSize: 12, opacity: 0.7 }}>Signed in via Nursery.</div>
+              <div style={{ fontSize: 12, opacity: 0.7 }}>Signed in via The Forge.</div>
             )}
           </div>
         ) : null}
 
         <div style={{ marginTop: 14 }}>
           <div style={{ fontWeight: 700, fontSize: 13, opacity: 0.85, marginBottom: 8 }}>
-            Assignments
+            Projects
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <SidebarItem
-              label="All"
+              label="All sparks"
               active={activeAssignment === "all"}
               onClick={() => setActiveAssignment("all")}
             />
@@ -746,15 +775,24 @@ export default function App(props: BarstockAppProps = {}) {
               —
             </div>
 
-            {sortedAssignments.length === 0 ? (
+            <label style={{ marginTop: 6, fontSize: 12, opacity: 0.8, display: "flex", gap: 6, alignItems: "center" }}>
+              <input
+                type="checkbox"
+                checked={showEmptyProjects}
+                onChange={(e) => setShowEmptyProjects(e.target.checked)}
+              />
+              Show empty projects
+            </label>
+
+            {visibleAssignments.length === 0 ? (
               <div style={{ opacity: 0.7, fontSize: 13, marginTop: 6 }}>
-                No assignments yet.
+                No active projects yet.
               </div>
             ) : (
-              sortedAssignments.map(a => (
+              visibleAssignments.map(a => (
                 <SidebarItem
                   key={a.id}
-                  label={a.name}
+                  label={`${a.name} (${projectCountsByAssignmentId.get(a.id)?.active ?? 0})`}
                   active={activeAssignment === a.id}
                   onClick={() => setActiveAssignment(a.id)}
                 />
@@ -766,7 +804,7 @@ export default function App(props: BarstockAppProps = {}) {
             <input
               value={newAssignmentName}
               onChange={(e) => setNewAssignmentName(e.target.value)}
-              placeholder="New assignment…"
+              placeholder="New project..."
               style={{ flex: 1, padding: 8 }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") addAssignment();
@@ -782,6 +820,40 @@ export default function App(props: BarstockAppProps = {}) {
             >
               Add
             </button>
+          </div>
+
+          <div style={{ marginTop: 12, fontSize: 12, opacity: 0.86, display: "grid", gap: 6 }}>
+            {activeProject ? (
+              <>
+                <div>
+                  Working on: <b>{activeProject.name}</b>
+                </div>
+                <div style={{ opacity: 0.8 }}>
+                  {activeProjectCounts?.active ?? 0} sparks ready
+                </div>
+                <button
+                  onClick={launchActiveProjectInHearth}
+                  style={{
+                    cursor: "pointer",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    padding: "8px 10px",
+                  }}
+                >
+                  Launch Episode in Hearth
+                </button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={() => setActiveAssignment("all")}
+                    style={{ cursor: "pointer", fontSize: 12 }}
+                  >
+                    Stop
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div>Working on: none</div>
+            )}
           </div>
 
           <div style={{ marginTop: 16, display: "flex", gap: 10, alignItems: "center" }}>
@@ -848,6 +920,45 @@ export default function App(props: BarstockAppProps = {}) {
           Dump the spark. No polish. No pressure.
         </p>
 
+        {activeProject ? (
+          <section
+            style={{
+              marginTop: 12,
+              padding: 12,
+              border: "1px solid var(--barstock-border)",
+              borderRadius: 10,
+              background: "var(--barstock-surface)",
+              display: "grid",
+              gap: 8,
+            }}
+          >
+            <div style={{ fontSize: 13, opacity: 0.84 }}>
+              Working on: <b>{activeProject.name}</b>
+            </div>
+            <div style={{ fontSize: 12, opacity: 0.8 }}>
+              {activeProjectCounts?.active ?? 0} sparks ready
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button
+                onClick={launchActiveProjectInHearth}
+                style={{
+                  cursor: "pointer",
+                  padding: "10px 14px",
+                  fontWeight: 700,
+                }}
+              >
+                Launch Episode in Hearth
+              </button>
+              <button
+                onClick={() => setActiveAssignment("all")}
+                style={{ cursor: "pointer" }}
+              >
+                Stop
+              </button>
+            </div>
+          </section>
+        ) : null}
+
         {toast && (
           <div
             style={{
@@ -897,9 +1008,10 @@ export default function App(props: BarstockAppProps = {}) {
             style={{ padding: 10 }}
           >
             <option value="all">All</option>
-            <option value="raw">Raw</option>
-            <option value="warming">Warming</option>
+            <option value="raw">Open (Raw)</option>
+            <option value="warming">Open (Warming)</option>
             <option value="forged">Forged</option>
+            <option value="graduated">Graduated</option>
             <option value="archived">Archived</option>
           </select>
           <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, opacity: 0.85 }}>
@@ -928,15 +1040,15 @@ export default function App(props: BarstockAppProps = {}) {
             </div>
           ) : (
             filtered.map((s) => {
-              const episodeId = normalizeWorkpieceId(s.assignmentId);
-              const isGraduated = episodeId ? graduatedEpisodeIdSet.has(episodeId) : false;
+              const linkedWorkpieceId = normalizeWorkpieceId(s.links?.hearthWorkpieceId);
+              const isGraduated = isSparkGraduated(s);
               return (
                 <div
                   key={s.id}
                   onClick={(e) => {
                     const target = e.target as HTMLElement;
                     if (target.closest("button,select,input,textarea,option")) return;
-                    setActiveAssignment(s.assignmentId);
+                    setActiveAssignment(s.assignmentId ?? "all");
                   }}
                   style={{
                     border: "1px solid var(--barstock-border)",
@@ -951,7 +1063,7 @@ export default function App(props: BarstockAppProps = {}) {
                     {new Date(s.createdAt).toLocaleString()}
                     {s.pinned ? " • pinned" : ""}
                     {" • "}
-                    {assignmentNameById.get(s.assignmentId) ?? "Unknown assignment"}
+                    {s.assignmentId ? (assignmentNameById.get(s.assignmentId) ?? "Unknown project") : "No project"}
                     {isGraduated ? " • graduated" : ""}
                   </div>
 
@@ -978,21 +1090,23 @@ export default function App(props: BarstockAppProps = {}) {
                       style={{ padding: "4px 6px" }}
                       title="Status"
                     >
-                      <option value="raw">Raw</option>
-                      <option value="warming">Warming</option>
+                      <option value="raw">Open (Raw)</option>
+                      <option value="warming">Open (Warming)</option>
                       <option value="forged">Forged</option>
+                      <option value="graduated">Graduated</option>
                       <option value="archived">Archived</option>
                     </select>
 
                     <select
-                      value={s.assignmentId}
+                      value={s.assignmentId ?? ""}
                       onChange={(e) => {
                         const v = e.target.value;
-                        updateSpark(s, { assignmentId: v });
+                        updateSpark(s, { assignmentId: v || null });
                       }}
                       style={{ padding: "4px 6px" }}
-                      title="Assignment"
+                      title="Project"
                     >
+                      <option value="">No project</option>
                       {sortedAssignments.map(a => (
                         <option key={a.id} value={a.id}>
                           {a.name}
@@ -1014,30 +1128,31 @@ export default function App(props: BarstockAppProps = {}) {
                       Copy
                     </button>
 
-                    <button
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        if (episodeId) {
-                          popToast("Opening Hearth...");
-                          navigateToHearthForEpisode(episodeId);
-                          return;
-                        }
+                    {!isProjectView ? (
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (s.assignmentId) {
+                            popToast("Opening Hearth...");
+                            navigateToHearthForProject(s.assignmentId);
+                            return;
+                          }
 
-                        const assignmentName = assignmentNameById.get(s.assignmentId) ?? "episode";
-                        const packet = buildHearthPacket(s, assignmentName);
-                        const ok = await copyText(packetToClipboardText(packet));
-                        popToast(ok ? "Hearth packet copied (fallback)." : "Copy failed.");
-                      }}
-                      style={{ cursor: "pointer" }}
-                    >
-                      Send to Hearth
-                    </button>
+                          const packet = buildHearthPacket(s, "Ungrouped spark");
+                          const ok = await copyText(packetToClipboardText(packet));
+                          popToast(ok ? "Hearth packet copied (fallback)." : "Copy failed.");
+                        }}
+                        style={{ cursor: "pointer" }}
+                      >
+                        Send to Hearth
+                      </button>
+                    ) : null}
 
-                    {isGraduated && episodeId ? (
+                    {isGraduated && linkedWorkpieceId ? (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          navigateToAnvilForEpisode(episodeId);
+                          navigateToAnvilForEpisode(linkedWorkpieceId);
                         }}
                         style={{ cursor: "pointer" }}
                       >

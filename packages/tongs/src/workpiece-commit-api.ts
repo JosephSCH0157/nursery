@@ -1712,6 +1712,30 @@ function resolveEpisodeLabel(metadata: Json | undefined): string {
   return "Untitled Episode";
 }
 
+function isPlaceholderEpisodeLabel(label: string | null | undefined): boolean {
+  const normalized = (label ?? "").trim().toLowerCase();
+  if (!normalized) return true;
+  if (normalized === "untitled" || normalized === "untitled episode") return true;
+  return /^episode [0-9a-f]{8}$/i.test(normalized);
+}
+
+function extractScriptTitleFromText(scriptText: string): string | null {
+  const lines = normalizeLf(stripBom(scriptText))
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  for (const line of lines) {
+    const cleaned = line
+      .replace(/^#{1,6}\s+/, "")
+      .replace(/^[-*+]\s+/, "")
+      .replace(/^>\s+/, "")
+      .trim();
+    if (!cleaned) continue;
+    return cleaned.length > 160 ? `${cleaned.slice(0, 157)}...` : cleaned;
+  }
+  return null;
+}
+
 function readyScriptPathPriority(path: string): number {
   const index = READY_SCRIPT_PATH_CANDIDATES.indexOf(path as (typeof READY_SCRIPT_PATH_CANDIDATES)[number]);
   return index >= 0 ? index : Number.MAX_SAFE_INTEGER;
@@ -3178,6 +3202,28 @@ export class TongsCommitService {
       });
     }
 
+    const scriptTitleFallbackByWorkpiece = new Map<string, string>();
+    for (const [workpieceId, file] of preferredByWorkpiece.entries()) {
+      const episodeLabel = episodeById.get(workpieceId)?.label ?? null;
+      if (!isPlaceholderEpisodeLabel(episodeLabel)) continue;
+
+      const candidatePaths = scriptPathsByWorkpiece.get(workpieceId) ?? [file.path];
+      for (const candidatePath of candidatePaths) {
+        const storageKey = buildStorageKey(workpieceId, candidatePath);
+        let bytes: Uint8Array | null = null;
+        try {
+          bytes = await downloadStorageObject(this.supabase, this.bucket, storageKey);
+        } catch {
+          bytes = null;
+        }
+        if (!bytes) continue;
+        const extractedTitle = extractScriptTitleFromText(textDecoder.decode(bytes));
+        if (!extractedTitle) continue;
+        scriptTitleFallbackByWorkpiece.set(workpieceId, extractedTitle);
+        break;
+      }
+    }
+
     const recordedWorkpieceIds = new Set<string>();
     if (options?.unrecordedOnly) {
       const candidateIds = Array.from(preferredByWorkpiece.keys());
@@ -3238,7 +3284,10 @@ export class TongsCommitService {
     for (const [workpieceId, file] of preferredByWorkpiece.entries()) {
       if (recordedWorkpieceIds.has(workpieceId)) continue;
       const episode = episodeById.get(workpieceId);
-      const title = episode?.label?.trim() || `Episode ${workpieceId.slice(0, 8)}`;
+      const episodeLabel = episode?.label?.trim() ?? "";
+      const title = isPlaceholderEpisodeLabel(episodeLabel)
+        ? (scriptTitleFallbackByWorkpiece.get(workpieceId) ?? `Episode ${workpieceId.slice(0, 8)}`)
+        : episodeLabel;
       const scriptPaths = scriptPathsByWorkpiece.get(workpieceId) ?? [file.path];
       const primaryScriptPath = scriptPaths[0] ?? file.path;
       readyScripts.push({

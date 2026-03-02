@@ -12,6 +12,11 @@ import {
   upsertBarStockSpark,
   writeBarStockSparks,
 } from "../lib/barstock-sparks";
+import {
+  readBarstockProjectContext,
+  resolveBarstockProjectIdFromQuery,
+  upsertBarstockProjectEpisodeLink,
+} from "../lib/barstock-project-links";
 import SourcesView from "../views/SourcesView";
 import "./HearthShell.css";
 import { createHearthWorkpiece } from "../lib/hearth-workpiece";
@@ -36,6 +41,7 @@ import {
 import { writeHearthAiRuntimeStatus } from "../lib/ai-runtime-status";
 import { commitHearthSession, readHearthSession } from "../lib/hearth-session-repo";
 import { commitHearthPrimaryScript, getHearthPrimaryScriptPath } from "../lib/hearth-script-repo";
+import { mirrorApprovedScriptToLocal, type MirrorApprovedScriptResult } from "../lib/hearth-script-mirror";
 import {
   HEARTH_CONTENT_CATEGORIES,
   listHearthReadyScripts,
@@ -104,6 +110,8 @@ const CHAT_HISTORY_MAX_STORAGE_CHARS = 650_000;
 const CHAT_HISTORY_MAX_ENTRY_CHARS = 24_000;
 const CHAT_HISTORY_WRITE_DEBOUNCE_MS = 350;
 const CHAT_HISTORY_TRUNCATED_SUFFIX = "\n\n[truncated in local cache]";
+const FORGE_AUTH_STORAGE_KEY = "forge-auth";
+const SUPABASE_AUTH_KEY_RE = /supabase-auth-token/i;
 const AI_STT_MAX_DURATION_MS = 5 * 60 * 1000;
 const AI_STT_MAX_BYTES = 10 * 1024 * 1024;
 const STT_INLINE_FEEDBACK_MS = 2200;
@@ -120,6 +128,13 @@ type ScriptApprovalState = {
   hasApprovedScript: boolean;
   approvedScriptVersion: number | null;
   approvedAt: number | null;
+};
+
+type ApprovalPersistenceStatus = {
+  cloud: "ok";
+  local: "ok" | "failed";
+  localPath?: string;
+  localMessage?: string;
 };
 
 type ImageBeatSheetEntry = {
@@ -143,6 +158,197 @@ const PRODUCTION_ACTION_ARTIFACT_KIND: Record<ProductionAction, ProductionArtifa
   thumbnails: "thumbnails",
   image_beat_sheet: "image_beat_sheet",
 };
+
+function readTrimmedString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function pickDisplayNameFromUser(user: Record<string, unknown>): string | null {
+  const metadata = isRecord(user.user_metadata) ? user.user_metadata : null;
+  return readTrimmedString(user.display_name)
+    ?? readTrimmedString(metadata?.display_name)
+    ?? readTrimmedString(metadata?.full_name)
+    ?? readTrimmedString(metadata?.name)
+    ?? readTrimmedString(user.email)
+    ?? null;
+}
+
+function pickDisplayNameFromAuthPayload(value: unknown): string | null {
+  if (!value) return null;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const nested = pickDisplayNameFromAuthPayload(item);
+      if (nested) return nested;
+    }
+    return null;
+  }
+  if (!isRecord(value)) return null;
+
+  const directUser = isRecord(value.user) ? value.user : null;
+  if (directUser) {
+    const name = pickDisplayNameFromUser(directUser);
+    if (name) return name;
+  }
+  const directDisplayName = readTrimmedString(value.display_name);
+  if (directDisplayName) return directDisplayName;
+
+  const nested = [
+    value.session,
+    value.currentSession,
+    value.current_session,
+    value.data,
+  ];
+  for (const item of nested) {
+    const name = pickDisplayNameFromAuthPayload(item);
+    if (name) return name;
+  }
+  return null;
+}
+
+function pickUserIdFromAuthPayload(value: unknown): string | null {
+  if (!value) return null;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const nested = pickUserIdFromAuthPayload(item);
+      if (nested) return nested;
+    }
+    return null;
+  }
+  if (!isRecord(value)) return null;
+
+  const directUser = isRecord(value.user) ? value.user : null;
+  const directUserId = readTrimmedString(directUser?.id);
+  if (directUserId) return directUserId;
+
+  const directId = readTrimmedString(value.user_id) ?? readTrimmedString(value.id);
+  if (directId) return directId;
+
+  const nested = [
+    value.session,
+    value.currentSession,
+    value.current_session,
+    value.data,
+  ];
+  for (const item of nested) {
+    const nestedId = pickUserIdFromAuthPayload(item);
+    if (nestedId) return nestedId;
+  }
+
+  return null;
+}
+
+async function readProfileDisplayNameFromRuntimeClient(
+  runtimeClient: unknown,
+  userId: string,
+): Promise<string | null> {
+  const trimmedUserId = userId.trim();
+  if (!trimmedUserId) return null;
+  if (!isRecord(runtimeClient)) return null;
+
+  const tryRead = async (scope: unknown): Promise<string | null> => {
+    if (!isRecord(scope)) return null;
+    const from = scope.from;
+    if (typeof from !== "function") return null;
+    const table = from.call(scope, "profiles");
+    if (!isRecord(table)) return null;
+    const select = table.select;
+    if (typeof select !== "function") return null;
+    const selected = select.call(table, "display_name");
+    if (!isRecord(selected)) return null;
+    const eq = selected.eq;
+    if (typeof eq !== "function") return null;
+    const filtered = eq.call(selected, "user_id", trimmedUserId);
+    if (!isRecord(filtered)) return null;
+
+    const maybeSingle = filtered.maybeSingle;
+    const single = filtered.single;
+    try {
+      const response = typeof maybeSingle === "function"
+        ? await maybeSingle.call(filtered)
+        : typeof single === "function"
+          ? await single.call(filtered)
+          : null;
+      if (!isRecord(response)) return null;
+      if (response.error) return null;
+      const data = isRecord(response.data) ? response.data : null;
+      return readTrimmedString(data?.display_name);
+    } catch {
+      return null;
+    }
+  };
+
+  const direct = await tryRead(runtimeClient);
+  if (direct) return direct;
+
+  const schema = runtimeClient.schema;
+  if (typeof schema === "function") {
+    try {
+      const tongsScoped = schema.call(runtimeClient, "tongs");
+      const fromTongs = await tryRead(tongsScoped);
+      if (fromTongs) return fromTongs;
+    } catch {
+      // ignore schema scoped lookup failures
+    }
+  }
+
+  return null;
+}
+
+function normalizeGreetingName(name: string | null): string {
+  const raw = (name ?? "").trim();
+  if (!raw) return "Creator";
+  const seed = raw.includes("@") ? (raw.split("@")[0] ?? "").trim() : raw;
+  const words = seed
+    .replace(/[._-]+/g, " ")
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (!words.length) return "Creator";
+  return words
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function readGreetingNameFromStorage(): string {
+  if (typeof window === "undefined") return "Creator";
+
+  const keys = [FORGE_AUTH_STORAGE_KEY];
+  try {
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (!key || key === FORGE_AUTH_STORAGE_KEY) continue;
+      if (!SUPABASE_AUTH_KEY_RE.test(key)) continue;
+      keys.push(key);
+    }
+  } catch {
+    // ignore storage access failures
+  }
+
+  for (const key of keys) {
+    try {
+      const raw = window.localStorage.getItem(key);
+      const direct = readTrimmedString(raw);
+      if (!direct) continue;
+      try {
+        const parsed = JSON.parse(direct) as unknown;
+        const parsedName = pickDisplayNameFromAuthPayload(parsed);
+        if (parsedName) return normalizeGreetingName(parsedName);
+      } catch {
+        return normalizeGreetingName(direct);
+      }
+    } catch {
+      // ignore storage access failures
+    }
+  }
+
+  return "Creator";
+}
 
 function resolveStoreKind(): HearthStoreKind {
   if (typeof window === "undefined") return "tongs";
@@ -1130,16 +1336,49 @@ function buildSparkPreview(text: string): string {
   return preview.length > 180 ? `${preview.slice(0, 177)}...` : preview;
 }
 
+function buildProjectDraftSeed(projectTitle: string, sparks: BarStockSpark[]): string {
+  const normalizedTitle = projectTitle.trim() || "Untitled Project";
+  const introLine = sparks[0] ? buildSparkPreview(sparks[0].body) : "";
+  const pointBlocks = sparks.map((spark, index) => {
+    const heading = deriveSparkTitle(spark);
+    const body = spark.body.trim() || "(empty spark)";
+    return `### Point ${index + 1}: ${heading}\n${body}`;
+  });
+
+  return [
+    `# ${normalizedTitle}`,
+    "",
+    "## Intro",
+    introLine ? `- ${introLine}` : "- Hook and frame the episode.",
+    "",
+    "## Key Points",
+    ...(pointBlocks.length ? pointBlocks : ["- No project sparks were found yet."]),
+    "",
+    "## Close",
+    "- Recap the main takeaway.",
+    "- Give the listener one next step.",
+    "",
+  ].join("\n");
+}
+
 function formatSparkStatus(spark: BarStockSpark): { label: string; detail?: string } {
+  if (spark.status === "graduated") {
+    return { label: "Graduated" };
+  }
   const workpieceId = spark.links?.hearthWorkpieceId ?? spark.links?.hearthDraftId ?? null;
   if (workpieceId) {
     const shortId = workpieceId.length > 8 ? workpieceId.slice(0, 8) : workpieceId;
-    return { label: "Used", detail: shortId };
+    return { label: "Forged", detail: shortId };
   }
   if (spark.status === "forged") {
-    return { label: "Used" };
+    return { label: "Forged" };
   }
-  return { label: "Unused" };
+  return { label: "Open" };
+}
+
+function isSparkForged(spark: BarStockSpark): boolean {
+  if (spark.links?.hearthWorkpieceId) return true;
+  return spark.status === "forged" || spark.status === "graduated";
 }
 
 function parsePlanningLines(text: string): string[] {
@@ -1249,6 +1488,8 @@ export default function HearthShell() {
   const [selectedSparkId, setSelectedSparkId] = useState<string | null>(null);
   const [forgeError, setForgeError] = useState<string | null>(null);
   const [isForging, setIsForging] = useState(false);
+  const [routeProjectId] = useState<string | null>(() => resolveBarstockProjectIdFromQuery());
+  const [routeProjectTitle, setRouteProjectTitle] = useState<string | null>(null);
 
   const [workspaceId, setWorkspaceId] = useState<string | null>(() => resolveWorkspaceId());
   const [workpieceId, setWorkpieceId] = useState<string | null>(() => resolveWorkpieceId());
@@ -1310,9 +1551,11 @@ export default function HearthShell() {
   const [pendingAiProposal, setPendingAiProposal] = useState<PendingAiProposal | null>(null);
   const [isApplyingAiOps, setIsApplyingAiOps] = useState(false);
   const [isApprovingScript, setIsApprovingScript] = useState(false);
+  const [approvalPersistenceStatus, setApprovalPersistenceStatus] = useState<ApprovalPersistenceStatus | null>(null);
   const [activeProductionAction, setActiveProductionAction] = useState<ProductionAction | null>(null);
   const [aiRuntimeWarning, setAiRuntimeWarning] = useState<string | null>(null);
   const [isAiProcessing, setIsAiProcessing] = useState(false);
+  const [forgeGreetingName, setForgeGreetingName] = useState<string>(() => readGreetingNameFromStorage());
   const [aiTokenBalance, setAiTokenBalance] = useState<number | null>(null);
   const [aiBillingMode, setAiBillingMode] = useState<HearthAiLane>(() => resolveAiLaneFromStorage());
   const [episodePackage, setEpisodePackage] = useState<EpisodePackageV2 | null>(null);
@@ -1364,6 +1607,7 @@ export default function HearthShell() {
   const sessionCommitRef = useRef<string | null>(null);
   const sessionCommitInFlight = useRef(false);
   const sessionCommitQueued = useRef(false);
+  const projectIntakeHandledRef = useRef<string | null>(null);
   const restoredCursorDraftIdRef = useRef<string | null>(null);
   const aiRequestControllerRef = useRef<AbortController | null>(null);
   const speechRecognitionRef = useRef<any>(null);
@@ -1490,11 +1734,27 @@ export default function HearthShell() {
     () => sparks.slice().sort((a, b) => b.createdAt - a.createdAt),
     [sparks],
   );
+  const routeProjectSparks = useMemo(
+    () => routeProjectId
+      ? sparks
+        .filter((spark) => spark.assignmentId === routeProjectId)
+        .sort((a, b) => a.createdAt - b.createdAt)
+      : [],
+    [routeProjectId, sparks],
+  );
+  const routeProjectLabel = useMemo(
+    () => routeProjectTitle?.trim() || (routeProjectId ? `Project ${routeProjectId.slice(0, 8)}` : null),
+    [routeProjectId, routeProjectTitle],
+  );
+  const forgeableSparks = useMemo(
+    () => sortedSparks.filter((spark) => !isSparkForged(spark)),
+    [sortedSparks],
+  );
   const selectedSpark = useMemo(() => {
-    if (sortedSparks.length === 0) return null;
-    if (!selectedSparkId) return sortedSparks[0] ?? null;
-    return sortedSparks.find((spark) => spark.id === selectedSparkId) ?? sortedSparks[0] ?? null;
-  }, [selectedSparkId, sortedSparks]);
+    if (forgeableSparks.length === 0) return null;
+    if (!selectedSparkId) return forgeableSparks[0] ?? null;
+    return forgeableSparks.find((spark) => spark.id === selectedSparkId) ?? forgeableSparks[0] ?? null;
+  }, [forgeableSparks, selectedSparkId]);
 
   const filteredDrafts = useMemo(() => {
     const query = searchText.trim().toLowerCase();
@@ -1738,6 +1998,53 @@ export default function HearthShell() {
     return () => {
       cancelled = true;
       window.removeEventListener("forge:ai:settings", onAiSettingsChange as EventListener);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let cancelled = false;
+
+    const refresh = () => {
+      if (cancelled) return;
+      setForgeGreetingName(readGreetingNameFromStorage());
+    };
+
+    refresh();
+
+    const runtimeWindow = window as typeof window & {
+      __forge_supabase_client__?: {
+        auth?: {
+          getSession?: () => Promise<unknown>;
+        };
+      };
+    };
+    const runtimeClient = runtimeWindow.__forge_supabase_client__;
+    const getSession = runtimeClient?.auth?.getSession;
+    if (typeof getSession === "function") {
+      void getSession().then(async (payload) => {
+        if (cancelled) return;
+        const userId = pickUserIdFromAuthPayload(payload);
+        const profileName = userId
+          ? await readProfileDisplayNameFromRuntimeClient(runtimeClient, userId)
+          : null;
+        if (cancelled) return;
+        const fallbackName = pickDisplayNameFromAuthPayload(payload);
+        setForgeGreetingName(normalizeGreetingName(profileName ?? fallbackName));
+      }).catch(() => {
+        // ignore auth session lookup failures
+      });
+    }
+
+    const onStorage = (event: StorageEvent) => {
+      if (!event.key || event.key === FORGE_AUTH_STORAGE_KEY || SUPABASE_AUTH_KEY_RE.test(event.key)) {
+        refresh();
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => {
+      cancelled = true;
       window.removeEventListener("storage", onStorage);
     };
   }, []);
@@ -2231,7 +2538,9 @@ export default function HearthShell() {
       const created = await createHearthWorkpiece({
         created_from: "bar-stock",
         spark_id: spark.id,
-      }, scriptSeed);
+      }, scriptSeed, {
+        title: deriveSparkTitle(spark),
+      });
       if (!created.ok) {
         setForgeError("Workpiece creation failed; draft created locally.");
         setWorkpieceId(null);
@@ -2294,6 +2603,72 @@ export default function HearthShell() {
     }
   }, [applySessionOrigin, createDraftAndOpen, isForging, sparks, store]);
 
+  const forgeProjectIntoEpisode = useCallback(async () => {
+    if (isForging) return;
+    if (!routeProjectId) return;
+
+    const episodeId = workpieceId?.trim() ?? "";
+    if (!episodeId) {
+      setForgeError("Project episode is still resolving.");
+      return;
+    }
+
+    if (routeProjectSparks.length === 0) {
+      setForgeError("No sparks are attached to this Project yet.");
+      return;
+    }
+
+    setIsForging(true);
+    setForgeError(null);
+    try {
+      const title = routeProjectLabel ?? `Project ${routeProjectId.slice(0, 8)}`;
+      const draft = await createDraftAndOpen({
+        title,
+        body: buildProjectDraftSeed(title, routeProjectSparks),
+      }, "focus");
+
+      applySessionOrigin({ created_from: "bar-stock", spark_id: routeProjectSparks[0]?.id });
+
+      const ts = Date.now();
+      const changedSparks: BarStockSpark[] = [];
+      const nextSparks = sparks.map((spark) => {
+        if (spark.assignmentId !== routeProjectId) return spark;
+        const updatedSpark: BarStockSpark = {
+          ...spark,
+          status: spark.status === "graduated" ? "graduated" : "forged",
+          updatedAt: ts,
+          links: {
+            ...spark.links,
+            hearthDraftId: draft.id,
+            hearthWorkpieceId: episodeId,
+          },
+        };
+        changedSparks.push(updatedSpark);
+        return updatedSpark;
+      });
+
+      setSparks(nextSparks);
+      writeBarStockSparks(nextSparks);
+      for (const spark of changedSparks) {
+        enqueueBarStockSpark(spark);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to forge this Project.";
+      setForgeError(message);
+    } finally {
+      setIsForging(false);
+    }
+  }, [
+    applySessionOrigin,
+    createDraftAndOpen,
+    isForging,
+    routeProjectId,
+    routeProjectLabel,
+    routeProjectSparks,
+    sparks,
+    workpieceId,
+  ]);
+
   const loadInitial = useCallback(async () => {
     setIsLoading(true);
     setError(null);
@@ -2347,6 +2722,76 @@ export default function HearthShell() {
   }, [loadInitial]);
 
   useEffect(() => {
+    if (!routeProjectId) return;
+    if (projectIntakeHandledRef.current === routeProjectId) return;
+
+    const workspace = workspaceId ?? resolveWorkspaceId();
+    if (!workspace) {
+      setForgeError("Project intake requires workspace_id.");
+      return;
+    }
+
+    let cancelled = false;
+    setIsForging(true);
+    setForgeError(null);
+
+    void (async () => {
+      const context = await readBarstockProjectContext({
+        workspaceId: workspace,
+        projectId: routeProjectId,
+      });
+      if (cancelled) return;
+
+      if (context.error) {
+        console.warn("[hearth-project-intake] context lookup issue", context.error);
+      }
+
+      const projectTitle = context.projectTitle?.trim() || null;
+      setRouteProjectTitle(projectTitle);
+
+      let resolvedWorkpieceId = context.workpieceId;
+      if (!resolvedWorkpieceId) {
+        const created = await createHearthWorkpiece(
+          { created_from: "bar-stock" },
+          "## Draft Script\n\n",
+          { title: projectTitle ?? `Project ${routeProjectId.slice(0, 8)}` },
+        );
+        if (!created.ok) {
+          setForgeError("Failed to open this Project in Hearth.");
+          return;
+        }
+        resolvedWorkpieceId = created.workpieceId;
+      }
+
+      const linked = await upsertBarstockProjectEpisodeLink({
+        workspaceId: workspace,
+        projectId: routeProjectId,
+        workpieceId: resolvedWorkpieceId,
+      });
+      if (!linked.ok) {
+        console.warn("[hearth-project-intake] link upsert failed", linked.error);
+      }
+
+      if (cancelled) return;
+      projectIntakeHandledRef.current = routeProjectId;
+      setWorkspaceId(workspace);
+      setWorkpieceId(resolvedWorkpieceId);
+    })().catch((err) => {
+      if (cancelled) return;
+      const message = err instanceof Error ? err.message : "Failed to resolve project intake.";
+      setForgeError(message);
+    }).finally(() => {
+      if (!cancelled) {
+        setIsForging(false);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [routeProjectId, workspaceId]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     const refresh = () => setSparks(readBarStockSparks());
     refresh();
@@ -2359,19 +2804,19 @@ export default function HearthShell() {
   }, []);
 
   useEffect(() => {
-    if (sortedSparks.length === 0) {
+    if (forgeableSparks.length === 0) {
       if (selectedSparkId) setSelectedSparkId(null);
       return;
     }
     if (!selectedSparkId) {
-      setSelectedSparkId(sortedSparks[0]?.id ?? null);
+      setSelectedSparkId(forgeableSparks[0]?.id ?? null);
       return;
     }
-    const exists = sortedSparks.some((spark) => spark.id === selectedSparkId);
+    const exists = forgeableSparks.some((spark) => spark.id === selectedSparkId);
     if (!exists) {
-      setSelectedSparkId(sortedSparks[0]?.id ?? null);
+      setSelectedSparkId(forgeableSparks[0]?.id ?? null);
     }
-  }, [selectedSparkId, sortedSparks]);
+  }, [forgeableSparks, selectedSparkId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2790,6 +3235,7 @@ export default function HearthShell() {
   useEffect(() => {
     const stored = readScriptApprovalState(workpieceId);
     setScriptApprovalState(stored);
+    setApprovalPersistenceStatus(null);
   }, [workpieceId]);
 
   useEffect(() => {
@@ -3785,6 +4231,41 @@ export default function HearthShell() {
     }
   }
 
+  function graduateLinkedSpark(episodeId: string): string | null {
+    const normalizedEpisodeId = episodeId.trim().toLowerCase();
+    if (!normalizedEpisodeId) return null;
+
+    const preferredSparkId = sessionSparkId?.trim() ?? "";
+    const linkedSpark = (preferredSparkId
+      ? sparks.find((spark) => spark.id === preferredSparkId)
+      : null)
+      ?? sparks.find((spark) => {
+        const linkedWorkpieceId = spark.links?.hearthWorkpieceId?.trim().toLowerCase() ?? "";
+        return linkedWorkpieceId && linkedWorkpieceId === normalizedEpisodeId;
+      });
+
+    if (!linkedSpark) return null;
+    if (linkedSpark.status === "graduated" || linkedSpark.status === "archived") {
+      return linkedSpark.id;
+    }
+
+    const now = Date.now();
+    const graduatedSpark: BarStockSpark = {
+      ...linkedSpark,
+      status: "graduated",
+      updatedAt: now,
+      links: {
+        ...linkedSpark.links,
+        hearthWorkpieceId: linkedSpark.links?.hearthWorkpieceId ?? episodeId,
+      },
+    };
+    const nextSparks = upsertBarStockSpark(sparks, graduatedSpark);
+    setSparks(nextSparks);
+    writeBarStockSparks(nextSparks);
+    enqueueBarStockSpark(graduatedSpark);
+    return graduatedSpark.id;
+  }
+
   async function onApproveScript() {
     if (isApprovingScript || isSaving || isAiProcessing) return;
     if (!activeDraft) return;
@@ -3814,6 +4295,8 @@ export default function HearthShell() {
     setScriptValidation(null);
     setError(null);
     setChatError(null);
+    setAiRuntimeWarning(null);
+    setApprovalPersistenceStatus(null);
     setIsApprovingScript(true);
     try {
       const now = Date.now();
@@ -3832,6 +4315,53 @@ export default function HearthShell() {
         return;
       }
 
+      const scriptPath = getHearthPrimaryScriptPath();
+      const mirror = await mirrorApprovedScriptToLocal({
+        workspaceId,
+        workpieceId: episodeId,
+        scriptPath,
+        scriptText: activeDraft.body,
+      });
+      const graduatedSparkId = graduateLinkedSpark(episodeId);
+      if (mirror.ok) {
+        setApprovalPersistenceStatus({
+          cloud: "ok",
+          local: "ok",
+          localPath: mirror.relativePath,
+        });
+        try {
+          console.log("[hearth-approve] saved to cloud and local mirror", {
+            workpieceId: episodeId,
+            scriptPath,
+            graduatedSparkId,
+            localRelativePath: mirror.relativePath,
+            mirrorWorkspaceId: mirror.workspaceId,
+            vaultKey: mirror.vaultKey,
+          });
+        } catch {
+          // ignore logging failures
+        }
+      } else {
+        setApprovalPersistenceStatus({
+          cloud: "ok",
+          local: "failed",
+          localMessage: mirror.message,
+        });
+        setAiRuntimeWarning(`Saved to cloud. Local mirror failed: ${mirror.message}`);
+        try {
+          console.warn("[hearth-approve] local mirror failed", {
+            workpieceId: episodeId,
+            scriptPath,
+            graduatedSparkId,
+            mirrorWorkspaceId: mirror.workspaceId,
+            reason: mirror.reason,
+            message: mirror.message,
+          });
+        } catch {
+          // ignore logging failures
+        }
+      }
+
       const approvedAt = Date.now();
       const nextState: ScriptApprovalState = {
         hasApprovedScript: true,
@@ -3845,6 +4375,9 @@ export default function HearthShell() {
         `🔥 Script Version ${nextVersion} Approved`,
         `script_version: ${nextVersion}`,
         `timestamp: ${new Date(approvedAt).toISOString()}`,
+        "saved_to_cloud: ok",
+        mirrorStatusLine(mirror),
+        graduatedSparkId ? `spark_status: graduated (${graduatedSparkId})` : "spark_status: no_linked_spark",
         "Production Mode available",
       ];
       const markerMessage: HearthChatMessage = { role: "assistant", content: markerLines.join("\n") };
@@ -3857,6 +4390,13 @@ export default function HearthShell() {
     } finally {
       setIsApprovingScript(false);
     }
+  }
+
+  function mirrorStatusLine(result: MirrorApprovedScriptResult): string {
+    if (result.ok) {
+      return `saved_to_local_mirror: ok (${result.relativePath})`;
+    }
+    return `saved_to_local_mirror: failed (${result.message})`;
   }
 
   async function persistProductionArtifact(args: {
@@ -5286,13 +5826,54 @@ export default function HearthShell() {
     const canResumeLast = Boolean(resumeDraft);
     const selectedSparkStatus = selectedSpark ? formatSparkStatus(selectedSpark) : null;
     const selectedSparkPreview = selectedSpark ? buildSparkPreview(selectedSpark.body) : "";
+    const isFreshSession = !hasActiveEpisode && !workpieceId;
+    const isProjectIntake = Boolean(routeProjectId);
+    const sparksSubtext = isProjectIntake
+      ? "Forge this Project into an Episode."
+      : isFreshSession
+      ? `Hello ${forgeGreetingName}, what would you like to forge today?`
+      : "Pick a spark, then start forging in conversation.";
 
     return (
       <section className="hs-home hs-sparks-landing">
         <header className="hs-home-header">
           <h2 className="hs-home-title">Hearth</h2>
-          <p className="hs-home-subtext">Pick a spark, then start forging in conversation.</p>
+          <p className="hs-home-subtext">{sparksSubtext}</p>
         </header>
+
+        {isProjectIntake ? (
+          <div className="hs-resume-context" style={{ display: "grid", gap: 8 }}>
+            <div>
+              Project: <b>{routeProjectLabel ?? "Untitled Project"}</b>
+              {workpieceId ? ` · Episode ${workpieceId.slice(0, 8)}` : " · Resolving episode..."}
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => void forgeProjectIntoEpisode()}
+                disabled={isForging || routeProjectSparks.length === 0 || !workpieceId}
+              >
+                Forge this Project into an Episode
+              </button>
+              <span style={{ opacity: 0.75, fontSize: 12 }}>
+                Spark Stack: {routeProjectSparks.length}
+              </span>
+            </div>
+            {routeProjectSparks.length > 0 ? (
+              <div style={{ display: "grid", gap: 6 }}>
+                {routeProjectSparks.map((spark) => (
+                  <div key={spark.id} style={{ fontSize: 12, opacity: 0.88 }}>
+                    {deriveSparkTitle(spark)}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, opacity: 0.75 }}>
+                No sparks attached to this Project yet.
+              </div>
+            )}
+          </div>
+        ) : null}
 
         <div className="hs-home-actions">
           <button type="button" onClick={() => void startFromScratch()} disabled={isForging}>
@@ -5335,12 +5916,12 @@ export default function HearthShell() {
                 </div>
               </div>
 
-              {sortedSparks.length === 0 ? (
+              {forgeableSparks.length === 0 ? (
                 <p className="hs-home-empty">
                   No sparks yet. Capture ideas in Bar Stock first.
                 </p>
               ) : (
-                sortedSparks.map((spark) => {
+                forgeableSparks.map((spark) => {
                   const status = formatSparkStatus(spark);
                   const preview = buildSparkPreview(spark.body);
                   const isSelected = selectedSpark?.id === spark.id;
@@ -5658,6 +6239,15 @@ export default function HearthShell() {
             {hasApprovedScript && approvedScriptVersion ? (
               <div className="hs-production-mode-status">
                 Script v{approvedScriptVersion} approved · {approvedAtText}
+              </div>
+            ) : null}
+
+            {approvalPersistenceStatus ? (
+              <div className="hs-field-label-muted">
+                Saved to: Cloud [OK] · Local{" "}
+                {approvalPersistenceStatus.local === "ok"
+                  ? `[OK] ${approvalPersistenceStatus.localPath ?? ""}`.trim()
+                  : `[WARN] ${approvalPersistenceStatus.localMessage ?? "mirror failed"}`}
               </div>
             ) : null}
 
@@ -6875,3 +7465,4 @@ export default function HearthShell() {
     </section>
   );
 }
+

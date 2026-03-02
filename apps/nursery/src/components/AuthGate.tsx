@@ -5,6 +5,40 @@ import { supabase } from "../lib/supabase";
 
 type Props = { children: ReactNode };
 
+const ACTIVE_WORKSPACE_KEY = "forge_workspace_id_v1";
+const LEGACY_BARSTOCK_WORKSPACE_KEY = "barstock_workspace_id";
+const WORKSPACE_QUERY_KEYS = ["workspace_id", "workspaceId", "workspace"] as const;
+
+function hasWorkspaceParam(search: string): boolean {
+  const params = new URLSearchParams(search);
+  return WORKSPACE_QUERY_KEYS.some((key) => {
+    const value = params.get(key);
+    return typeof value === "string" && value.trim().length > 0;
+  });
+}
+
+function readPersistedWorkspaceId(): string | null {
+  try {
+    return window.localStorage.getItem(ACTIVE_WORKSPACE_KEY)
+      ?? window.localStorage.getItem(LEGACY_BARSTOCK_WORKSPACE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function buildNextPath(pathname: string, search: string, hash: string): string {
+  const params = new URLSearchParams(search);
+  if (!hasWorkspaceParam(search)) {
+    const persistedWorkspaceId = readPersistedWorkspaceId();
+    if (persistedWorkspaceId) {
+      WORKSPACE_QUERY_KEYS.forEach((key) => params.delete(key));
+      params.set("workspace_id", persistedWorkspaceId);
+    }
+  }
+  const nextSearch = params.toString();
+  return `${pathname}${nextSearch ? `?${nextSearch}` : ""}${hash}`;
+}
+
 export default function AuthGate({ children }: Props) {
   const loc = useLocation();
   const [checking, setChecking] = useState(true);
@@ -48,7 +82,7 @@ export default function AuthGate({ children }: Props) {
   }
 
   if (!authed) {
-    const next = encodeURIComponent(loc.pathname + loc.search + loc.hash);
+    const next = encodeURIComponent(buildNextPath(loc.pathname, loc.search, loc.hash));
     return <Navigate to={`/login?next=${next}`} replace />;
   }
 

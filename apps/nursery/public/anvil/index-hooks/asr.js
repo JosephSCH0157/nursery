@@ -1686,17 +1686,35 @@ function getFallbackScroller() {
 }
 function isScrollable(el) {
   if (!el) return false;
-  if (el.scrollHeight - el.clientHeight > 2) return true;
+  const scrollHeight = Number(el.scrollHeight || 0);
+  const clientHeight = Number(el.clientHeight || 0);
+  if (scrollHeight - clientHeight > 2 && clientHeight > 0) return true;
+  if (scrollHeight <= 0 && clientHeight <= 0) return false;
   try {
     const st = getComputedStyle(el);
-    return /(auto|scroll)/.test(st.overflowY || "");
+    if (!/(auto|scroll)/.test(st.overflowY || "")) return false;
+    const rect = el.getBoundingClientRect();
+    return clientHeight > 0 || rect.height > 0;
   } catch {
     return false;
   }
 }
 function resolveActiveScroller(primary, fallback) {
+  const hasLayoutBox = (el) => {
+    if (!el) return false;
+    const scrollHeight = Number(el.scrollHeight || 0);
+    const clientHeight = Number(el.clientHeight || 0);
+    if (scrollHeight > 0 || clientHeight > 0) return true;
+    try {
+      const rect = el.getBoundingClientRect();
+      return rect.height > 0 || rect.width > 0;
+    } catch {
+      return false;
+    }
+  };
   if (isScrollable(primary)) return primary;
   if (isScrollable(fallback)) return fallback;
+  if (!hasLayoutBox(primary) && hasLayoutBox(fallback)) return fallback;
   return primary || fallback;
 }
 function describeElement(el) {

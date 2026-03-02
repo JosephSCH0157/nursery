@@ -136,6 +136,11 @@ export default function AppShell() {
     saveActiveWorkspaceId(id);
   }, []);
 
+  useEffect(() => {
+    if (!workspaceId) return;
+    saveActiveWorkspaceId(workspaceId);
+  }, [workspaceId]);
+
   const refreshWorkspaces = useCallback(async (opts?: { force?: boolean; preferId?: string | null }) => {
     if (!session) return;
     if (!opts?.force && workspaces.length) return;
@@ -173,7 +178,7 @@ export default function AppShell() {
     if (!userId) {
       lastSessionUserId.current = null;
       lastUrlWorkspaceRefresh.current = null;
-      setWorkspaces([]);
+      setWorkspaces((prev) => (prev.length ? [] : prev));
       setWorkspaceId(null);
       setWorkspaceLoadError(null);
       setHasWorkspaceFetchSucceeded(false);
@@ -264,7 +269,15 @@ export default function AppShell() {
   }
 
   function onSignIn() {
-    const next = encodeURIComponent(`${location.pathname}${location.search}${location.hash}`);
+    const params = new URLSearchParams(location.search);
+    if (workspaceId) {
+      params.delete("workspaceId");
+      params.delete("workspace");
+      params.set("workspace_id", workspaceId);
+    }
+    const nextSearch = params.toString();
+    const nextPath = `${location.pathname}${nextSearch ? `?${nextSearch}` : ""}${location.hash}`;
+    const next = encodeURIComponent(nextPath);
     nav(`/login?next=${next}`, { replace: false });
   }
 
@@ -455,7 +468,7 @@ export default function AppShell() {
       >
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <Link to="/app" style={{ fontWeight: 800, textDecoration: "none", color: "inherit" }}>
-            Nursery
+            The Forge
           </Link>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 12, opacity: 0.7 }}>Workspace</span>
