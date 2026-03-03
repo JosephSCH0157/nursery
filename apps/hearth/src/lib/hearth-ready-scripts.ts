@@ -84,10 +84,7 @@ function normalizePath(value: unknown): string | null {
 }
 
 function isLikelyReadyScriptPath(path: string): boolean {
-  if (READY_SCRIPT_PATH_PREFERENCE_INDEX.has(path)) return true;
-  if (!(path.startsWith("script/") || path.startsWith("scripts/"))) return false;
-  const lower = path.toLowerCase();
-  return lower.endsWith(".md") || lower.endsWith(".txt");
+  return READY_SCRIPT_PATH_PREFERENCE_INDEX.has(path);
 }
 
 function normalizeReadyScriptPath(value: unknown): string | null {
@@ -108,6 +105,23 @@ function normalizeCategory(value: unknown): HearthContentCategory | null {
   const candidate = readString(value)?.toLowerCase() ?? null;
   if (!candidate) return null;
   return CONTENT_CATEGORY_SET.has(candidate) ? (candidate as HearthContentCategory) : null;
+}
+
+function isPlaceholderReadyTitle(title: string): boolean {
+  const normalized = title.trim().toLowerCase();
+  if (!normalized) return true;
+  if (normalized === "untitled" || normalized === "untitled episode" || normalized === "untitled project") return true;
+  if (normalized === "draft script") return true;
+  if (normalized === "project") return true;
+  if (/^episode [0-9a-f]{8}$/i.test(normalized)) return true;
+  if (/^project [0-9a-f]{8}$/i.test(normalized)) return true;
+  return /^project [0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized);
+}
+
+function normalizeReadyTitle(value: unknown): string | null {
+  const title = readString(value);
+  if (!title) return null;
+  return isPlaceholderReadyTitle(title) ? null : title;
 }
 
 function resolveLane(): string {
@@ -211,14 +225,18 @@ function sortScriptPaths(paths: readonly string[]): string[] {
   return out;
 }
 
-function compareReadyScriptFreshness(a: HearthReadyScript, b: HearthReadyScript): number {
+function compareReadyScriptCandidatePriority(a: HearthReadyScript, b: HearthReadyScript): number {
+  const aMarked = a.markedReadyAt ?? "";
+  const bMarked = b.markedReadyAt ?? "";
+  const byMarked = aMarked.localeCompare(bMarked);
+  if (byMarked !== 0) return byMarked;
   const aUpdated = a.updatedAt ?? "";
   const bUpdated = b.updatedAt ?? "";
   const byUpdated = aUpdated.localeCompare(bUpdated);
   if (byUpdated !== 0) return byUpdated;
-  const byPathCount = a.scriptPaths.length - b.scriptPaths.length;
-  if (byPathCount !== 0) return byPathCount;
-  return a.title.localeCompare(b.title);
+  const byPathPriority = readyScriptPathPriority(b.primaryScriptPath) - readyScriptPathPriority(a.primaryScriptPath);
+  if (byPathPriority !== 0) return byPathPriority;
+  return b.primaryScriptPath.localeCompare(a.primaryScriptPath);
 }
 
 type DroppedReadyScriptStats = {
@@ -313,7 +331,7 @@ function parseReadyScriptsPayload(payload: unknown, workspaceId: string): Hearth
       droppedStats.missingScriptPath += 1;
       continue;
     }
-    const title = readString(item.title);
+    const title = normalizeReadyTitle(item.title);
     if (!title) {
       droppedStats.missingTitle += 1;
       continue;
@@ -341,14 +359,13 @@ function parseReadyScriptsPayload(payload: unknown, workspaceId: string): Hearth
       continue;
     }
 
-    const winner = compareReadyScriptFreshness(existing, next) <= 0 ? next : existing;
+    const winner = compareReadyScriptCandidatePriority(next, existing) >= 0 ? next : existing;
     const mergedScriptPaths = sortScriptPaths([...existing.scriptPaths, ...next.scriptPaths]);
-    const mergedPrimaryPath = mergedScriptPaths[0] ?? winner.primaryScriptPath;
     byWorkpieceId.set(workpieceId, {
       ...winner,
-      id: toScriptId(workpieceId, mergedPrimaryPath),
-      path: mergedPrimaryPath,
-      primaryScriptPath: mergedPrimaryPath,
+      id: toScriptId(workpieceId, winner.primaryScriptPath),
+      path: winner.primaryScriptPath,
+      primaryScriptPath: winner.primaryScriptPath,
       scriptPaths: mergedScriptPaths,
     });
   }

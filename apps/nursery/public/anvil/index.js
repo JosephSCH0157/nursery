@@ -42406,6 +42406,55 @@ var init_forge_nav = __esm({
   }
 });
 
+// src/net/display-ws-endpoint.ts
+function readString3(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+function resolveConfiguredBase() {
+  const w3 = typeof window !== "undefined" ? window : {};
+  const metaEnv3 = typeof import.meta !== "undefined" ? import.meta.env || {} : {};
+  return readString3(w3.__TP_DISPLAY_WS_URL) || readString3(metaEnv3.VITE_DISPLAY_WS_URL) || DEFAULT_DISPLAY_WS_BASE;
+}
+function normalizeWsBase(candidate) {
+  try {
+    const url = new URL(candidate);
+    const protocol = url.protocol.toLowerCase();
+    if (protocol === "https:") {
+      url.protocol = "wss:";
+    } else if (protocol === "http:") {
+      url.protocol = "ws:";
+    } else if (protocol !== "ws:" && protocol !== "wss:") {
+      return null;
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+function resolveDisplayWsBase() {
+  return normalizeWsBase(resolveConfiguredBase()) || DEFAULT_DISPLAY_WS_BASE;
+}
+function buildDisplayWsUrl(pairToken) {
+  const token = readString3(pairToken);
+  if (!token) return null;
+  try {
+    const url = new URL(resolveDisplayWsBase());
+    url.searchParams.set("pair", token);
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+var DEFAULT_DISPLAY_WS_BASE;
+var init_display_ws_endpoint = __esm({
+  "src/net/display-ws-endpoint.ts"() {
+    "use strict";
+    DEFAULT_DISPLAY_WS_BASE = "wss://wtvdjndyxegudufrompx.functions.supabase.co/display-ws";
+  }
+});
+
 // src/net/display-ws-client.ts
 function publishToNetworkDisplays(payload) {
   if (!isSupported || !relayEnabled || typeof payload === "undefined") return;
@@ -42443,18 +42492,36 @@ function onNetworkDisplayStatus(fn) {
 function getNetworkDisplayStatus() {
   return { ...status };
 }
+function setNetworkDisplayPairToken(token) {
+  const next = normalizePairToken(token);
+  if (relayPairToken === next) return;
+  relayPairToken = next;
+  if (!relayEnabled || !isSupported) return;
+  if (!relayPairToken) {
+    resetSocket();
+    updateStatus2({ state: "error", connectedDisplays: 0, lastError: "Pair token unavailable" });
+    return;
+  }
+  resetSocket();
+  connect3();
+}
 function enableNetworkDisplayRelay() {
   if (!isSupported) return;
   if (isRelayDisabled()) return;
   if (relayEnabled) return;
+  if (!relayPairToken) {
+    updateStatus2({ state: "error", lastError: "Pair token unavailable" });
+    return;
+  }
   relayEnabled = true;
   persistRelayEnabled(true);
   connect3();
 }
-var status, listeners2, socket, reconnectDelay, reconnectTimer, sendQueue, SCROLL_THROTTLE_MS, scrollTimer, pendingScroll, relayEnabled, RELAY_ENABLED_KEY, flushScroll, queueScrollMessage, isDisplayContext, isSupported, isRelayDisabled, notifyListeners, updateStatus2, isLocalhostHost, getWsUrl, flushQueue, scheduleReconnect, handleMessage, resetSocket, connect3, loadRelayEnabled, persistRelayEnabled;
+var status, listeners2, socket, reconnectDelay, reconnectTimer, sendQueue, SCROLL_THROTTLE_MS, scrollTimer, pendingScroll, relayEnabled, relayPairToken, RELAY_ENABLED_KEY, flushScroll, queueScrollMessage, isDisplayContext, isSupported, isRelayDisabled, notifyListeners, updateStatus2, normalizePairToken, getWsUrl, flushQueue, scheduleReconnect, handleMessage, resetSocket, connect3, loadRelayEnabled, persistRelayEnabled;
 var init_display_ws_client = __esm({
   "src/net/display-ws-client.ts"() {
     "use strict";
+    init_display_ws_endpoint();
     status = {
       state: "disconnected",
       connectedDisplays: 0,
@@ -42469,6 +42536,7 @@ var init_display_ws_client = __esm({
     scrollTimer = null;
     pendingScroll = null;
     relayEnabled = false;
+    relayPairToken = "";
     RELAY_ENABLED_KEY = "tp_display_ws_enabled";
     flushScroll = () => {
       if (!socket || socket.readyState !== WebSocket.OPEN) {
@@ -42532,22 +42600,12 @@ var init_display_ws_client = __esm({
       Object.assign(status, patch);
       notifyListeners();
     };
-    isLocalhostHost = (host) => {
-      return host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".local");
+    normalizePairToken = (value) => {
+      if (typeof value !== "string") return "";
+      return value.trim();
     };
     getWsUrl = () => {
-      if (typeof window === "undefined") return null;
-      try {
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const hostname = window.location.hostname || "";
-        if (!isLocalhostHost(hostname)) {
-          return null;
-        }
-        const host = window.location.host;
-        return `${protocol}//${host}/ws/display`;
-      } catch {
-        return null;
-      }
+      return buildDisplayWsUrl(relayPairToken);
     };
     flushQueue = () => {
       if (!socket || socket.readyState !== WebSocket.OPEN) return;
@@ -42571,6 +42629,10 @@ var init_display_ws_client = __esm({
     handleMessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+        if (data?.type === "ready") {
+          updateStatus2({ connectedDisplays: 1 });
+          return;
+        }
         if (data?.type === "tp-display-status") {
           const connected = typeof data.connected === "number" ? data.connected : status.connectedDisplays;
           updateStatus2({ connectedDisplays: connected });
@@ -42593,7 +42655,7 @@ var init_display_ws_client = __esm({
       updateStatus2({ state: "connecting", lastError: void 0 });
       const url = getWsUrl();
       if (!url) {
-        updateStatus2({ state: "error", lastError: "Unable to build ws url" });
+        updateStatus2({ state: "error", lastError: "Pair token unavailable" });
         return;
       }
       resetSocket();
@@ -42602,7 +42664,10 @@ var init_display_ws_client = __esm({
       ws.addEventListener("open", () => {
         reconnectDelay = 1e3;
         updateStatus2({ state: "connected", lastError: void 0 });
-        ws.send(JSON.stringify({ type: "hello", role: "main" }));
+        try {
+          ws.send("ping");
+        } catch {
+        }
         flushQueue();
       });
       ws.addEventListener("message", handleMessage);
@@ -43024,19 +43089,19 @@ var init_apply_script = __esm({
 });
 
 // src/forge/workpiece-script-handoff.ts
-function readString3(value) {
+function readString4(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
 function normalizeUuid(value) {
-  const str = readString3(value);
+  const str = readString4(value);
   if (!str) return null;
   return UUID_RE.test(str) ? str.toLowerCase() : null;
 }
 function readLocalStorage(key) {
   try {
-    return readString3(window.localStorage.getItem(key));
+    return readString4(window.localStorage.getItem(key));
   } catch {
     return null;
   }
@@ -43051,7 +43116,7 @@ function getQueryParam(...keys) {
   try {
     const q3 = new URLSearchParams(window.location.search || "");
     for (const key of keys) {
-      const value = readString3(q3.get(key));
+      const value = readString4(q3.get(key));
       if (value) return value;
     }
   } catch {
@@ -43095,25 +43160,25 @@ function persistWorkpiece(workspaceId, workpieceId) {
   }
 }
 function shouldAutoloadWorkpieceScript() {
-  const open = readString3(getQueryParam("open", "intent", "action"))?.toLowerCase();
+  const open = readString4(getQueryParam("open", "intent", "action"))?.toLowerCase();
   if (open === "script" || open === "script_primary") return true;
-  return Boolean(readString3(getQueryParam("script_path", "path")));
+  return Boolean(readString4(getQueryParam("script_path", "path")));
 }
 function resolveScriptPath() {
-  const fromQuery = readString3(getQueryParam("script_path", "path"));
+  const fromQuery = readString4(getQueryParam("script_path", "path"));
   if (!fromQuery) return DEFAULT_SCRIPT_PATH;
   if (fromQuery.startsWith("/") || fromQuery.includes("..")) return DEFAULT_SCRIPT_PATH;
   return fromQuery;
 }
 function resolveTongsApiToken() {
-  const fromQuery = readString3(getQueryParam("tongs_api_token", "tongsApiToken"));
+  const fromQuery = readString4(getQueryParam("tongs_api_token", "tongsApiToken"));
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = readString3(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
+  const fromWindow = readString4(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
   try {
     const meta3 = import.meta;
-    const fromEnv = readString3(meta3.env?.VITE_TONGS_API_TOKEN);
+    const fromEnv = readString4(meta3.env?.VITE_TONGS_API_TOKEN);
     if (fromEnv) return fromEnv;
   } catch {
   }
@@ -43641,7 +43706,7 @@ function readNumber(value, fallback) {
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
-function readString4(value, fallback) {
+function readString5(value, fallback) {
   if (typeof value !== "string") return fallback;
   const v = value.trim();
   if (!v || v === "undefined" || v === "null") return fallback;
@@ -43650,14 +43715,14 @@ function readString4(value, fallback) {
 function normalizeTypography(input, fallback) {
   const src = input && typeof input === "object" ? input : {};
   return clampTypography({
-    fontFamily: readString4(src.fontFamily, fallback.fontFamily),
+    fontFamily: readString5(src.fontFamily, fallback.fontFamily),
     fontSizePx: readNumber(src.fontSizePx, fallback.fontSizePx),
     lineHeight: readNumber(src.lineHeight, fallback.lineHeight),
     weight: readNumber(src.weight, fallback.weight),
     letterSpacingEm: readNumber(src.letterSpacingEm, fallback.letterSpacingEm),
     wordSpacingEm: readNumber(src.wordSpacingEm, fallback.wordSpacingEm),
-    color: readString4(src.color, fallback.color),
-    background: readString4(src.background, fallback.background),
+    color: readString5(src.color, fallback.color),
+    background: readString5(src.background, fallback.background),
     maxLineWidthCh: readNumber(src.maxLineWidthCh, fallback.maxLineWidthCh),
     dimOthers: readNumber(src.dimOthers, fallback.dimOthers)
   });
@@ -45207,19 +45272,19 @@ var init_rec_pills = __esm({
 });
 
 // src/forge/workpiece-commit.ts
-function readString5(value) {
+function readString6(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
 function normalizeUuid2(value) {
-  const str = readString5(value);
+  const str = readString6(value);
   if (!str) return null;
   return UUID_RE2.test(str) ? str.toLowerCase() : null;
 }
 function readLocalStorage2(key) {
   try {
-    return readString5(localStorage.getItem(key));
+    return readString6(localStorage.getItem(key));
   } catch {
     return null;
   }
@@ -45234,16 +45299,16 @@ function extractAccessTokenFromAuthPayload(value) {
     return null;
   }
   const row = value;
-  const direct = readString5(row.access_token);
+  const direct = readString6(row.access_token);
   if (direct) return direct;
   const currentSession3 = row.currentSession;
   if (currentSession3 && typeof currentSession3 === "object") {
-    const token = readString5(currentSession3.access_token);
+    const token = readString6(currentSession3.access_token);
     if (token) return token;
   }
   const session = row.session;
   if (session && typeof session === "object") {
-    const token = readString5(session.access_token);
+    const token = readString6(session.access_token);
     if (token) return token;
   }
   const nested = row.data;
@@ -45261,7 +45326,7 @@ function readAccessTokenFromStorageKey(key) {
     return null;
   }
   if (!raw) return null;
-  const direct = readString5(raw);
+  const direct = readString6(raw);
   if (direct && direct !== "null" && direct !== "undefined" && !direct.startsWith("{") && !direct.startsWith("[")) {
     return direct;
   }
@@ -45295,7 +45360,7 @@ function writeLocalStorage2(key, value) {
 }
 function readSessionStorage(key) {
   try {
-    return readString5(sessionStorage.getItem(key));
+    return readString6(sessionStorage.getItem(key));
   } catch {
     return null;
   }
@@ -45310,7 +45375,7 @@ function getQueryParam2(...keys) {
   try {
     const q3 = new URLSearchParams(window.location.search || "");
     for (const key of keys) {
-      const value = readString5(q3.get(key));
+      const value = readString6(q3.get(key));
       if (value) return value;
     }
   } catch {
@@ -45319,16 +45384,16 @@ function getQueryParam2(...keys) {
 }
 function resolveLane() {
   const w3 = window;
-  const fromQuery = readString5(getQueryParam2("forge_lane", "lane"));
+  const fromQuery = readString6(getQueryParam2("forge_lane", "lane"));
   if (fromQuery) return fromQuery;
-  const fromWindow = readString5(w3.__forgeLane ?? w3.__tpLane);
+  const fromWindow = readString6(w3.__forgeLane ?? w3.__tpLane);
   if (fromWindow) return fromWindow;
-  const fromStorage = readString5(readLocalStorage2("forge_lane_v1"));
+  const fromStorage = readString6(readLocalStorage2("forge_lane_v1"));
   if (fromStorage) return fromStorage;
   return DEFAULT_LANE;
 }
 function getWrittenBy() {
-  const version5 = readString5(window.APP_VERSION) || DEFAULT_TOOL_VERSION;
+  const version5 = readString6(window.APP_VERSION) || DEFAULT_TOOL_VERSION;
   return {
     tool: "anvil",
     tool_version: version5,
@@ -45336,13 +45401,13 @@ function getWrittenBy() {
   };
 }
 function getApiToken() {
-  const fromQuery = readString5(getQueryParam2("tongs_api_token", "tongsApiToken"));
+  const fromQuery = readString6(getQueryParam2("tongs_api_token", "tongsApiToken"));
   if (fromQuery) return fromQuery;
-  const fromWindow = readString5(window.__forgeTongsApiToken ?? window.__tpTongsApiToken);
+  const fromWindow = readString6(window.__forgeTongsApiToken ?? window.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
   try {
     const meta3 = import.meta;
-    const fromEnv = readString5(meta3.env?.VITE_TONGS_API_TOKEN);
+    const fromEnv = readString6(meta3.env?.VITE_TONGS_API_TOKEN);
     if (fromEnv) return fromEnv;
   } catch {
   }
@@ -45354,7 +45419,7 @@ function getOrCreateRecordingSessionId() {
   let next = "";
   try {
     const randomUuid = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : "";
-    next = readString5(randomUuid) || "";
+    next = readString6(randomUuid) || "";
   } catch {
   }
   if (!next) {
@@ -45408,7 +45473,7 @@ function persistWorkpiece2(workspaceId, workpieceId) {
   }
 }
 function inferContentType(contentType, name) {
-  const fromInput = readString5(contentType);
+  const fromInput = readString6(contentType);
   if (fromInput) return fromInput;
   const lower = name.toLowerCase();
   if (lower.endsWith(".wav")) return "audio/wav";
@@ -45439,7 +45504,7 @@ function buildHeaders(apiToken) {
 }
 async function readBodyAsJson(response) {
   const text = await response.text();
-  const raw = readString5(text);
+  const raw = readString6(text);
   if (!raw) return null;
   try {
     return JSON.parse(raw);
@@ -49304,19 +49369,19 @@ var init_mic_gate = __esm({
 });
 
 // src/forge/ready-scripts.ts
-function readString6(value) {
+function readString7(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
 function normalizeUuid3(value) {
-  const str = readString6(value);
+  const str = readString7(value);
   if (!str) return null;
   return UUID_RE3.test(str) ? str.toLowerCase() : null;
 }
 function readLocalStorage3(key) {
   try {
-    return readString6(window.localStorage.getItem(key));
+    return readString7(window.localStorage.getItem(key));
   } catch {
     return null;
   }
@@ -49331,16 +49396,16 @@ function extractAccessTokenFromAuthPayload2(value) {
     return null;
   }
   const row = value;
-  const direct = readString6(row.access_token);
+  const direct = readString7(row.access_token);
   if (direct) return direct;
   const currentSession3 = row.currentSession;
   if (currentSession3 && typeof currentSession3 === "object") {
-    const token = readString6(currentSession3.access_token);
+    const token = readString7(currentSession3.access_token);
     if (token) return token;
   }
   const session = row.session;
   if (session && typeof session === "object") {
-    const token = readString6(session.access_token);
+    const token = readString7(session.access_token);
     if (token) return token;
   }
   const nested = row.data;
@@ -49358,7 +49423,7 @@ function readAccessTokenFromStorageKey2(key) {
     return null;
   }
   if (!raw) return null;
-  const direct = readString6(raw);
+  const direct = readString7(raw);
   if (direct && direct !== "null" && direct !== "undefined" && !direct.startsWith("{") && !direct.startsWith("[")) {
     return direct;
   }
@@ -49388,7 +49453,7 @@ function getQueryParam3(...keys) {
   try {
     const q3 = new URLSearchParams(window.location.search || "");
     for (const key of keys) {
-      const value = readString6(q3.get(key));
+      const value = readString7(q3.get(key));
       if (value) return value;
     }
   } catch {
@@ -49410,14 +49475,14 @@ function resolveWorkspaceId3() {
   return null;
 }
 function resolveTongsApiToken2() {
-  const fromQuery = readString6(getQueryParam3("tongs_api_token", "tongsApiToken"));
+  const fromQuery = readString7(getQueryParam3("tongs_api_token", "tongsApiToken"));
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = readString6(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
+  const fromWindow = readString7(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
   try {
     const meta3 = import.meta;
-    const fromEnv = readString6(meta3.env?.VITE_TONGS_API_TOKEN);
+    const fromEnv = readString7(meta3.env?.VITE_TONGS_API_TOKEN);
     if (fromEnv) return fromEnv;
   } catch {
   }
@@ -49436,13 +49501,13 @@ function withAuthHeaders() {
   return headers;
 }
 function normalizeScriptPath(value) {
-  const path = readString6(value);
+  const path = readString7(value);
   if (!path) return null;
   if (path.startsWith("/") || path.includes("..")) return null;
   return path;
 }
 function normalizeIso(value) {
-  const iso = readString6(value);
+  const iso = readString7(value);
   if (!iso) return void 0;
   const timestamp = Date.parse(iso);
   if (!Number.isFinite(timestamp)) return void 0;
@@ -49479,7 +49544,7 @@ function parseReadyScriptsPayload(payload, workspaceId) {
     const path = primaryPath ?? scriptPaths[0] ?? null;
     if (!rowWorkspace || !workpieceId || !path) continue;
     const normalizedScriptPaths = scriptPaths.length ? scriptPaths.includes(path) ? scriptPaths : [path, ...scriptPaths] : [path];
-    const title = readString6(item.title) ?? `Episode ${workpieceId.slice(0, 8)}`;
+    const title = readString7(item.title) ?? `Episode ${workpieceId.slice(0, 8)}`;
     scripts.push({
       id: toReadyScriptId(workpieceId, path),
       workspaceId: rowWorkspace,
@@ -49515,7 +49580,7 @@ function parseRecordingSessionsPayload(payload, workspaceId) {
     const id = normalizeUuid3(item.id);
     const rowWorkspace = normalizeUuid3(item.workspace_id) ?? workspaceId;
     if (!id || !rowWorkspace) continue;
-    const title = readString6(item.title) ?? "Recording Session";
+    const title = readString7(item.title) ?? "Recording Session";
     out.push({
       id,
       workspaceId: rowWorkspace,
@@ -49611,7 +49676,7 @@ async function readRecordingSessionScripts(sessionId) {
   const workspaceId = normalizeUuid3(detail.workspace_id);
   const parsedSessionId = normalizeUuid3(detail.id);
   if (!workspaceId || !parsedSessionId) return null;
-  const sessionTitle = readString6(detail.title) ?? "Recording Session";
+  const sessionTitle = readString7(detail.title) ?? "Recording Session";
   const workspaceReady = await listWorkspaceReadyScripts().catch(() => []);
   const titleByKey = /* @__PURE__ */ new Map();
   const readyMetaByKey = /* @__PURE__ */ new Map();
@@ -49997,14 +50062,14 @@ var init_scripts_store = __esm({
 });
 
 // src/forge/script-source.ts
-function readString7(value) {
+function readString8(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
 function readLocalStorage4(key) {
   try {
-    return readString7(window.localStorage.getItem(key));
+    return readString8(window.localStorage.getItem(key));
   } catch {
     return null;
   }
@@ -60950,7 +61015,11 @@ async function requestPairQr(opts) {
   const res = await fetch(PAIR_QR_URL, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      ...SUPABASE_ANON_KEY2 ? {
+        apikey: String(SUPABASE_ANON_KEY2),
+        Authorization: `Bearer ${String(SUPABASE_ANON_KEY2)}`
+      } : {}
     },
     body: JSON.stringify(payload)
   });
@@ -60977,14 +61046,15 @@ async function requestPairQr(opts) {
 function pairingApiUrl() {
   return PAIR_QR_URL;
 }
-var w2, metaEnv2, PAIR_QR_URL, DEFAULT_PAIR_PATH, DEFAULT_TTL_MINUTES, DEFAULT_METADATA;
+var w2, metaEnv2, PAIR_QR_URL, SUPABASE_ANON_KEY2, DEFAULT_PAIR_PATH, DEFAULT_TTL_MINUTES, DEFAULT_METADATA;
 var init_pairing_api = __esm({
   "src/pairing/pairing-api.ts"() {
     "use strict";
     w2 = typeof window !== "undefined" ? window : {};
     metaEnv2 = typeof import.meta !== "undefined" ? import.meta.env || {} : {};
     PAIR_QR_URL = w2.__TP_PAIR_QR_URL || metaEnv2.VITE_PAIR_QR_URL || "";
-    DEFAULT_PAIR_PATH = "/display/pair";
+    SUPABASE_ANON_KEY2 = w2.__forgeSupabaseAnonKey || metaEnv2.VITE_SUPABASE_ANON_KEY || "";
+    DEFAULT_PAIR_PATH = "/display.html";
     DEFAULT_TTL_MINUTES = Number(w2.__TP_PAIR_QR_TTL_MINUTES ?? metaEnv2.VITE_PAIR_QR_TTL_MINUTES ?? 10);
     DEFAULT_METADATA = typeof w2.__TP_PAIR_QR_METADATA === "object" && w2.__TP_PAIR_QR_METADATA !== null ? { ...w2.__TP_PAIR_QR_METADATA } : { role: "display", app: "anvil" };
   }
@@ -61120,7 +61190,7 @@ function buildModal() {
     <header>Pair Tablet Display</header>
     <div class="display-pairing-body">
       <div class="display-pairing-field">
-        <label>LAN URL</label>
+        <label>Pair URL</label>
         <div class="display-pairing-input">
           <input readonly placeholder="Click refresh to generate" />
           <button type="button" class="chip display-pairing-btn-copy">Copy</button>
@@ -61128,7 +61198,7 @@ function buildModal() {
       </div>
       <div class="display-pairing-field display-pairing-status">
         <span class="display-pairing-status-text">Connected: 0</span>
-        <span class="display-pairing-status-ws">ws://.../ws/display</span>
+        <span class="display-pairing-status-ws">wss://.../display-ws</span>
       </div>
       <div class="display-pairing-field">
     <div class="display-pairing-qr">
@@ -61143,7 +61213,7 @@ function buildModal() {
           </div>
         </div>
         <div class="display-pairing-tip">
-          Make sure both devices are on the same LAN (guest Wi-Fi / client isolation may block the WS connection). Allow inbound connections from Windows Firewall when using a Private network profile.
+          Share this URL or QR with the tablet. Pairing tokens expire automatically, so refresh if the code is stale.
         </div>
       </div>
     </div>
@@ -61183,7 +61253,6 @@ function toggleModal(on3) {
   if (!elements) return;
   elements.mask.classList.toggle("is-visible", on3);
   if (on3) {
-    enableNetworkDisplayRelay();
     refreshStatus();
     ensurePairingToken();
   } else {
@@ -61200,15 +61269,18 @@ function updateWsLabel(url) {
     modalElements.wsLabel.textContent = url;
   }
 }
-function resolveDefaultWsUrl() {
+function resolveDisplayPairPath() {
   try {
-    const origin = window.location.origin;
-    const url = new URL("/ws/display", origin);
-    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    return url.toString();
+    const pathname = window.location.pathname || "/";
+    if (pathname.endsWith("/display.html")) return pathname;
+    if (pathname.endsWith("/")) return `${pathname}display.html`;
+    const slash = pathname.lastIndexOf("/");
+    if (slash >= 0) {
+      return `${pathname.slice(0, slash + 1)}display.html`;
+    }
   } catch {
-    return "ws://.../ws/display";
   }
+  return "/display.html";
 }
 function updateInput(url) {
   if (modalElements?.input) {
@@ -61258,10 +61330,11 @@ async function ensurePairingToken() {
   if (!modalElements) return;
   isRefreshing = true;
   updateStatusText("Generating token...");
+  setNetworkDisplayPairToken(null);
   _currentPairing = null;
   clearExpiryTimer();
   const baseUrl = window.location.origin;
-  const pairPath = "/display/pair";
+  const pairPath = resolveDisplayPairPath();
   try {
     const pairing = await requestPairQr({
       baseUrl,
@@ -61272,8 +61345,12 @@ async function ensurePairingToken() {
     const expiresMs = Number.isFinite(Date.parse(pairing.expiresAt)) ? Date.parse(pairing.expiresAt) : Date.now() + 10 * 60 * 1e3;
     _currentPairing = { ...pairing, expiresMs };
     updateInput(pairing.pairUrl);
+    updateWsLabel(buildDisplayWsUrl(pairing.token) || resolveDisplayWsBase());
     renderQrSvg(pairing.qrSvg);
     updateStatusText(`Expires at ${new Date(expiresMs).toLocaleTimeString()}`);
+    setNetworkDisplayPairToken(pairing.token);
+    enableNetworkDisplayRelay();
+    refreshStatus();
     if (typeof window !== "undefined") {
       const devFlag = Boolean(window.__TP_DEV || window.__TP_DEV1);
       if (devFlag) {
@@ -61295,6 +61372,7 @@ async function ensurePairingToken() {
     startExpirySchedule(expiresMs);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unable to generate pairing token.";
+    setNetworkDisplayPairToken(null);
     updateStatusText(message);
   } finally {
     isRefreshing = false;
@@ -61302,7 +61380,12 @@ async function ensurePairingToken() {
 }
 function refreshStatus() {
   const current2 = getNetworkDisplayStatus();
-  modalElements?.status && (modalElements.status.textContent = `Connected: ${current2.connectedDisplays}`);
+  if (!modalElements?.status) return;
+  if (current2.state === "error" && current2.lastError) {
+    modalElements.status.textContent = `Connected: ${current2.connectedDisplays} (${current2.lastError})`;
+    return;
+  }
+  modalElements.status.textContent = `Connected: ${current2.connectedDisplays}`;
 }
 function bindModalEvents() {
   if (!modalElements) return;
@@ -61339,8 +61422,12 @@ function initDisplayPairingPanel() {
   const elements = buildModal();
   if (!elements) return;
   bindModalEvents();
-  updateWsLabel(resolveDefaultWsUrl());
-  onNetworkDisplayStatus(({ connectedDisplays }) => {
+  updateWsLabel(resolveDisplayWsBase());
+  onNetworkDisplayStatus(({ connectedDisplays, state: state8, lastError }) => {
+    if (state8 === "error" && lastError) {
+      elements.status.textContent = `Connected: ${connectedDisplays} (${lastError})`;
+      return;
+    }
     elements.status.textContent = `Connected: ${connectedDisplays}`;
   });
   pairBtn.addEventListener("click", () => toggleModal(true));
@@ -61350,6 +61437,7 @@ var init_display_pairing = __esm({
   "src/ui/display-pairing.ts"() {
     "use strict";
     init_display_ws_client();
+    init_display_ws_endpoint();
     init_pairing_api();
     modalElements = null;
     _currentPairing = null;

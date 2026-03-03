@@ -60,7 +60,6 @@ type RecordingSessionEpisodeRow = Database["tongs"]["Tables"]["recording_session
 type RecordingSessionItemRow = Database["tongs"]["Tables"]["recording_session_items"]["Row"];
 type CalendarEventAssignmentRow = Database["tongs"]["Tables"]["calendar_event_assignments"]["Row"];
 type HearthWorkpiecePresenceRow = Database["tongs"]["Tables"]["hearth_workpiece_presence"]["Row"];
-type ReadyScriptMetaRow = Database["tongs"]["Tables"]["workpiece_ready_script_meta"]["Row"];
 type WorkpieceFileRow = Database["tongs"]["Tables"]["workpiece_files"]["Row"];
 type WorkpieceEventRow = Database["tongs"]["Tables"]["workpiece_events"]["Row"];
 type WorkspaceRow = Database["tongs"]["Tables"]["workspaces"]["Row"];
@@ -1856,8 +1855,25 @@ function resolveEpisodeLabel(metadata: Json | undefined): string {
 function isPlaceholderEpisodeLabel(label: string | null | undefined): boolean {
   const normalized = (label ?? "").trim().toLowerCase();
   if (!normalized) return true;
-  if (normalized === "untitled" || normalized === "untitled episode") return true;
+  if (normalized === "untitled" || normalized === "untitled episode" || normalized === "untitled project") return true;
+  if (normalized === "draft script") return true;
   return /^episode [0-9a-f]{8}$/i.test(normalized);
+}
+
+function isGenericProjectLabel(label: string | null | undefined): boolean {
+  const normalized = (label ?? "").trim().toLowerCase();
+  if (!normalized) return false;
+  if (normalized === "project") return true;
+  if (/^project [0-9a-f]{8}$/i.test(normalized)) return true;
+  return /^project [0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized);
+}
+
+function sanitizeReadyDisplayTitle(title: string | null | undefined): string | null {
+  const trimmed = (title ?? "").trim();
+  if (!trimmed) return null;
+  if (isPlaceholderEpisodeLabel(trimmed)) return null;
+  if (isGenericProjectLabel(trimmed)) return null;
+  return trimmed;
 }
 
 function extractScriptTitleFromText(scriptText: string): string | null {
@@ -1872,6 +1888,7 @@ function extractScriptTitleFromText(scriptText: string): string | null {
       .replace(/^>\s+/, "")
       .trim();
     if (!cleaned) continue;
+    if (!sanitizeReadyDisplayTitle(cleaned)) continue;
     return cleaned.length > 160 ? `${cleaned.slice(0, 157)}...` : cleaned;
   }
   return null;
@@ -2064,6 +2081,21 @@ export class TongsCommitService {
     if (error) {
       throw new HttpError(502, "db_write_failed", "Failed to upsert ready script metadata", {
         reason: error.message,
+      });
+    }
+
+    // Ready queue invariant: exactly one active ready pointer per workpiece.
+    const { error: cleanupError } = await this.supabase
+      .schema("tongs")
+      .from("workpiece_ready_script_meta")
+      .delete()
+      .eq("workspace_id", workspaceId)
+      .eq("workpiece_id", workpieceId)
+      .neq("script_path", scriptPath);
+
+    if (cleanupError) {
+      throw new HttpError(502, "db_write_failed", "Failed to supersede previous ready script pointers", {
+        reason: cleanupError.message,
       });
     }
   }
@@ -3783,7 +3815,7 @@ export class TongsCommitService {
       return [];
     }
 
-    const preferredByWorkpiece = new Map<
+    const fileByWorkpiecePath = new Map<
       string,
       { workpiece_id: string; path: string; updated_at: string | null; created_at: string | null }
     >();
@@ -3801,9 +3833,10 @@ export class TongsCommitService {
         existingPaths.push(path);
       }
 
-      const existing = preferredByWorkpiece.get(workpieceId);
-      if (!existing) {
-        preferredByWorkpiece.set(workpieceId, {
+      const readyKey = readyScriptMetaKey(workpieceId, path);
+      const existingFile = fileByWorkpiecePath.get(readyKey);
+      if (!existingFile) {
+        fileByWorkpiecePath.set(readyKey, {
           workpiece_id: workpieceId,
           path,
           updated_at: row.updated_at ?? null,
@@ -3812,23 +3845,8 @@ export class TongsCommitService {
         continue;
       }
 
-      const currPriority = readyScriptPathPriority(path);
-      const existingPriority = readyScriptPathPriority(existing.path);
-      if (currPriority < existingPriority) {
-        preferredByWorkpiece.set(workpieceId, {
-          workpiece_id: workpieceId,
-          path,
-          updated_at: row.updated_at ?? null,
-          created_at: row.created_at ?? null,
-        });
-        continue;
-      }
-
-      if (
-        currPriority === existingPriority
-        && (row.updated_at ?? row.created_at ?? "") > (existing.updated_at ?? existing.created_at ?? "")
-      ) {
-        preferredByWorkpiece.set(workpieceId, {
+      if ((row.updated_at ?? row.created_at ?? "") > (existingFile.updated_at ?? existingFile.created_at ?? "")) {
+        fileByWorkpiecePath.set(readyKey, {
           workpiece_id: workpieceId,
           path,
           updated_at: row.updated_at ?? null,
@@ -3845,12 +3863,102 @@ export class TongsCommitService {
       });
     }
 
+    const readyPointerByWorkpiece = new Map<
+      string,
+      {
+        workpiece_id: string;
+        script_path: string;
+        marked_ready_by: string | null;
+        marked_ready_at: string | null;
+      }
+    >();
+    const readyPathsByWorkpiece = new Map<string, string[]>();
+    const readyMetaCandidateIds = workpieceIds;
+    if (readyMetaCandidateIds.length) {
+      const { data: readyMetaRows, error: readyMetaError } = await this.supabase
+        .schema("tongs")
+        .from("workpiece_ready_script_meta")
+        .select("workpiece_id,script_path,marked_ready_by,marked_ready_at")
+        .eq("workspace_id", workspaceId)
+        .in("workpiece_id", readyMetaCandidateIds);
+
+      if (readyMetaError) {
+        throw new HttpError(502, "db_read_failed", "Failed to list ready script metadata", {
+          reason: readyMetaError.message,
+        });
+      }
+
+      for (const row of readyMetaRows ?? []) {
+        if (!READY_SCRIPT_PATH_SET.has(row.script_path)) continue;
+        const readyKey = readyScriptMetaKey(row.workpiece_id, row.script_path);
+        if (!fileByWorkpiecePath.has(readyKey)) continue;
+
+        const existing = readyPointerByWorkpiece.get(row.workpiece_id);
+        const existingMarkedAt = existing?.marked_ready_at ?? "";
+        const nextMarkedAt = row.marked_ready_at ?? "";
+        if (existing && existingMarkedAt > nextMarkedAt) {
+          const knownPaths = readyPathsByWorkpiece.get(row.workpiece_id);
+          if (!knownPaths) {
+            readyPathsByWorkpiece.set(row.workpiece_id, [row.script_path]);
+          } else if (!knownPaths.includes(row.script_path)) {
+            knownPaths.push(row.script_path);
+          }
+          continue;
+        }
+
+        if (existing && existingMarkedAt === nextMarkedAt) {
+          const existingPathPriority = readyScriptPathPriority(existing.script_path);
+          const nextPathPriority = readyScriptPathPriority(row.script_path);
+          if (
+            nextPathPriority > existingPathPriority
+            || (nextPathPriority === existingPathPriority && row.script_path > existing.script_path)
+          ) {
+            const knownPaths = readyPathsByWorkpiece.get(row.workpiece_id);
+            if (!knownPaths) {
+              readyPathsByWorkpiece.set(row.workpiece_id, [row.script_path]);
+            } else if (!knownPaths.includes(row.script_path)) {
+              knownPaths.push(row.script_path);
+            }
+            continue;
+          }
+        }
+
+        readyPointerByWorkpiece.set(row.workpiece_id, {
+          workpiece_id: row.workpiece_id,
+          script_path: row.script_path,
+          marked_ready_by: row.marked_ready_by,
+          marked_ready_at: row.marked_ready_at,
+        });
+
+        const knownPaths = readyPathsByWorkpiece.get(row.workpiece_id);
+        if (!knownPaths) {
+          readyPathsByWorkpiece.set(row.workpiece_id, [row.script_path]);
+        } else if (!knownPaths.includes(row.script_path)) {
+          knownPaths.push(row.script_path);
+        }
+      }
+    }
+
+    if (readyPointerByWorkpiece.size === 0) {
+      return [];
+    }
+
+    for (const readyPaths of readyPathsByWorkpiece.values()) {
+      readyPaths.sort((a, b) => {
+        const byPriority = readyScriptPathPriority(a) - readyScriptPathPriority(b);
+        if (byPriority !== 0) return byPriority;
+        return a.localeCompare(b);
+      });
+    }
+
     const scriptTitleFallbackByWorkpiece = new Map<string, string>();
-    for (const [workpieceId, file] of preferredByWorkpiece.entries()) {
+    for (const [workpieceId, readyPaths] of readyPathsByWorkpiece.entries()) {
       const episodeLabel = episodeById.get(workpieceId)?.label ?? null;
       if (!isPlaceholderEpisodeLabel(episodeLabel)) continue;
 
-      const candidatePaths = scriptPathsByWorkpiece.get(workpieceId) ?? [file.path];
+      const candidatePaths = readyPaths.length
+        ? readyPaths
+        : (scriptPathsByWorkpiece.get(workpieceId) ?? []);
       for (const candidatePath of candidatePaths) {
         const storageKey = buildStorageKey(workpieceId, candidatePath);
         let bytes: Uint8Array | null = null;
@@ -3869,7 +3977,7 @@ export class TongsCommitService {
 
     const recordedWorkpieceIds = new Set<string>();
     if (options?.unrecordedOnly) {
-      const candidateIds = Array.from(preferredByWorkpiece.keys());
+      const candidateIds = Array.from(readyPathsByWorkpiece.keys());
       if (candidateIds.length) {
         for (const prefix of RECORDING_PATH_PREFIXES) {
           const { data: recordings, error: recordingsError } = await this.supabase
@@ -3896,36 +4004,8 @@ export class TongsCommitService {
       }
     }
 
-    const readyMetaByWorkpiecePath = new Map<
-      string,
-      Pick<ReadyScriptMetaRow, "marked_ready_by" | "marked_ready_at">
-    >();
-    const readyMetaCandidateIds = Array.from(preferredByWorkpiece.keys());
-    if (readyMetaCandidateIds.length) {
-      const { data: readyMetaRows, error: readyMetaError } = await this.supabase
-        .schema("tongs")
-        .from("workpiece_ready_script_meta")
-        .select("workpiece_id,script_path,marked_ready_by,marked_ready_at")
-        .eq("workspace_id", workspaceId)
-        .in("workpiece_id", readyMetaCandidateIds);
-
-      if (readyMetaError) {
-        throw new HttpError(502, "db_read_failed", "Failed to list ready script metadata", {
-          reason: readyMetaError.message,
-        });
-      }
-
-      for (const row of readyMetaRows ?? []) {
-        if (!READY_SCRIPT_PATH_SET.has(row.script_path)) continue;
-        readyMetaByWorkpiecePath.set(readyScriptMetaKey(row.workpiece_id, row.script_path), {
-          marked_ready_by: row.marked_ready_by,
-          marked_ready_at: row.marked_ready_at,
-        });
-      }
-    }
-
     const categoryByWorkpiece = new Map<string, string | null>();
-    const categoryCandidateIds = Array.from(preferredByWorkpiece.keys());
+    const categoryCandidateIds = Array.from(readyPathsByWorkpiece.keys());
     if (categoryCandidateIds.length) {
       const { data: categoryEvents, error: categoryEventsError } = await this.supabase
         .schema("tongs")
@@ -3952,21 +4032,21 @@ export class TongsCommitService {
 
     const nowIso = new Date().toISOString();
     const readyScripts: WorkspaceReadyScript[] = [];
-    for (const [workpieceId, file] of preferredByWorkpiece.entries()) {
+    for (const [workpieceId, readyPointer] of readyPointerByWorkpiece.entries()) {
       if (recordedWorkpieceIds.has(workpieceId)) continue;
+      const readyKey = readyScriptMetaKey(workpieceId, readyPointer.script_path);
+      const file = fileByWorkpiecePath.get(readyKey);
+      if (!file) continue;
       const episode = episodeById.get(workpieceId);
       const episodeLabel = episode?.label?.trim() ?? "";
-      const title = isPlaceholderEpisodeLabel(episodeLabel)
-        ? (scriptTitleFallbackByWorkpiece.get(workpieceId) ?? `Episode ${workpieceId.slice(0, 8)}`)
-        : episodeLabel;
-      const scriptPaths = scriptPathsByWorkpiece.get(workpieceId) ?? [file.path];
-      const primaryScriptPath = scriptPaths[0] ?? file.path;
-      const readyMeta = readyMetaByWorkpiecePath.get(readyScriptMetaKey(workpieceId, primaryScriptPath))
-        ?? readyMetaByWorkpiecePath.get(readyScriptMetaKey(workpieceId, file.path))
-        ?? scriptPaths
-          .map((scriptPath) => readyMetaByWorkpiecePath.get(readyScriptMetaKey(workpieceId, scriptPath)) ?? null)
-          .find((entry): entry is Pick<ReadyScriptMetaRow, "marked_ready_by" | "marked_ready_at"> => Boolean(entry))
-        ?? null;
+      const title = sanitizeReadyDisplayTitle(episodeLabel)
+        ?? sanitizeReadyDisplayTitle(scriptTitleFallbackByWorkpiece.get(workpieceId));
+      if (!title) continue;
+      const primaryScriptPath = readyPointer.script_path;
+      const knownPaths = readyPathsByWorkpiece.get(workpieceId) ?? [primaryScriptPath];
+      const scriptPaths = knownPaths.includes(primaryScriptPath)
+        ? knownPaths
+        : [primaryScriptPath, ...knownPaths];
       readyScripts.push({
         workspace_id: workspaceId,
         workpiece_id: workpieceId,
@@ -3974,10 +4054,15 @@ export class TongsCommitService {
         primary_script_path: primaryScriptPath,
         script_paths: scriptPaths,
         title,
-        updated_at: file.updated_at ?? file.created_at ?? episode?.updated_at ?? episode?.created_at ?? nowIso,
+        updated_at: readyPointer.marked_ready_at
+          ?? file.updated_at
+          ?? file.created_at
+          ?? episode?.updated_at
+          ?? episode?.created_at
+          ?? nowIso,
         content_category: categoryByWorkpiece.get(workpieceId) ?? null,
-        marked_ready_by: readyMeta?.marked_ready_by ?? null,
-        marked_ready_at: readyMeta?.marked_ready_at ?? null,
+        marked_ready_by: readyPointer.marked_ready_by ?? null,
+        marked_ready_at: readyPointer.marked_ready_at ?? null,
       });
     }
 
