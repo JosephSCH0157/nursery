@@ -20,7 +20,7 @@ const PAIR_QR_URL =
   metaEnv.VITE_PAIR_QR_URL ||
   '';
 
-const DEFAULT_PAIR_PATH = '/display/pair';
+const DEFAULT_PAIR_PATH = '/display.html';
 const DEFAULT_TTL_MINUTES = Number(w.__TP_PAIR_QR_TTL_MINUTES ?? metaEnv.VITE_PAIR_QR_TTL_MINUTES ?? 10);
 const DEFAULT_METADATA =
   typeof w.__TP_PAIR_QR_METADATA === 'object' && w.__TP_PAIR_QR_METADATA !== null

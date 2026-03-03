@@ -1,4 +1,4 @@
-const DISPLAY_WS_PATH = '/ws/display';
+import { buildDisplayWsUrl } from './display-ws-endpoint';
 
 const hasDisplayPair = () => {
   try {
@@ -26,82 +26,84 @@ const isDisplayContext = () => {
 const shouldStart = Boolean(pairToken && isDisplayContext());
 
 if (shouldStart) {
-  const wsUrl = (() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${protocol}//${window.location.host}${DISPLAY_WS_PATH}`;
-  })();
-
-  let socket: WebSocket | null = null;
-  let reconnectTimer: number | null = null;
-  let backoff = 1000;
-
-  const scheduleReconnect = () => {
-    if (reconnectTimer) return;
-    reconnectTimer = window.setTimeout(() => {
-      reconnectTimer = null;
-      connect();
-    }, backoff);
-    backoff = Math.min(15000, backoff + 500);
-  };
-
-  const sendHandshake = () => {
-    if (!socket) return;
-    socket.send(JSON.stringify({ type: 'hello', role: 'display', token: pairToken }));
-  };
-
-  const deliverPayload = (data: string) => {
+  const wsUrl = buildDisplayWsUrl(pairToken);
+  if (!wsUrl) {
     try {
-      const payload = JSON.parse(data);
-      const handler = (window as any).__tpDisplayHandleRemote as ((payload: any) => void) | undefined;
-      if (typeof handler === 'function') {
-        handler(payload);
-      }
-    } catch {
-      // ignore non-JSON payloads
-    }
-  };
-
-  const connect = () => {
-    if (socket && socket.readyState === WebSocket.OPEN) return;
-    try {
-      socket?.close();
+      console.warn('[display-ws] missing/invalid websocket endpoint');
     } catch {}
-    socket = new WebSocket(wsUrl);
+  } else {
 
-    socket.addEventListener('open', () => {
-      backoff = 1000;
-      sendHandshake();
-    });
+    let socket: WebSocket | null = null;
+    let reconnectTimer: number | null = null;
+    let backoff = 1000;
 
-    socket.addEventListener('message', (event) => {
-      if (typeof event.data === 'string') {
-        deliverPayload(event.data);
+    const scheduleReconnect = () => {
+      if (reconnectTimer) return;
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, backoff);
+      backoff = Math.min(15000, backoff + 500);
+    };
+
+    const deliverPayload = (data: string) => {
+      try {
+        const payload = JSON.parse(data);
+        const handler = (window as any).__tpDisplayHandleRemote as ((payload: any) => void) | undefined;
+        if (typeof handler === 'function') {
+          handler(payload);
+        }
+      } catch {
+        // ignore non-JSON payloads
       }
-    });
+    };
 
-    socket.addEventListener('close', () => {
-      socket = null;
-      scheduleReconnect();
-    });
+    const connect = () => {
+      if (socket && socket.readyState === WebSocket.OPEN) return;
+      try {
+        socket?.close();
+      } catch {}
+      socket = new WebSocket(wsUrl);
 
-    socket.addEventListener('error', () => {
-      socket?.close();
-    });
-  };
+      socket.addEventListener('open', () => {
+        backoff = 1000;
+        try {
+          socket?.send('ping');
+        } catch {}
+      });
 
-  try {
-    window.addEventListener('beforeunload', () => {
-      try { socket?.close(); } catch {}
-    });
-  } catch {}
+      socket.addEventListener('message', (event) => {
+        if (typeof event.data === 'string') {
+          deliverPayload(event.data);
+        }
+      });
 
-  const waitForHandler = () => {
-    const ready = typeof (window as any).__tpDisplayHandleRemote === 'function';
-    if (ready) {
-      connect();
-    } else {
-      window.setTimeout(waitForHandler, 50);
-    }
-  };
-  waitForHandler();
+      socket.addEventListener('close', () => {
+        socket = null;
+        scheduleReconnect();
+      });
+
+      socket.addEventListener('error', () => {
+        socket?.close();
+      });
+    };
+
+    try {
+      window.addEventListener('beforeunload', () => {
+        try {
+          socket?.close();
+        } catch {}
+      });
+    } catch {}
+
+    const waitForHandler = () => {
+      const ready = typeof (window as any).__tpDisplayHandleRemote === 'function';
+      if (ready) {
+        connect();
+      } else {
+        window.setTimeout(waitForHandler, 50);
+      }
+    };
+    waitForHandler();
+  }
 }

@@ -85,7 +85,7 @@ serve(async (req) => {
     (body.baseUrl || "").trim() ||
       new URL(req.url).searchParams.get("baseUrl") ||
       "";
-  const pairPath = (body.pairPath || "/pair").trim() || "/pair";
+  const pairPath = (body.pairPath || "/display.html").trim() || "/display.html";
   const ttlMinutes = Number(body.ttlMinutes ?? 10);
   const ttl = Number.isFinite(ttlMinutes) && ttlMinutes > 0 ? ttlMinutes : 10;
 
@@ -134,7 +134,7 @@ serve(async (req) => {
   }
 
   const pairUrl = new URL(pairPath, baseUrl);
-  pairUrl.searchParams.set("t", token);
+  pairUrl.searchParams.set("pair", token);
 
   const qrSvg = await QRCode.toString(pairUrl.toString(), {
     type: "svg",

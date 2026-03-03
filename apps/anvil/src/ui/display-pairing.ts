@@ -1,4 +1,10 @@
-import { enableNetworkDisplayRelay, getNetworkDisplayStatus, onNetworkDisplayStatus } from '../net/display-ws-client';
+import {
+  enableNetworkDisplayRelay,
+  getNetworkDisplayStatus,
+  onNetworkDisplayStatus,
+  setNetworkDisplayPairToken,
+} from '../net/display-ws-client';
+import { buildDisplayWsUrl, resolveDisplayWsBase } from '../net/display-ws-endpoint';
 import type { PairQrPayload } from '../pairing/pairing-api';
 import { pairingApiUrl, requestPairQr } from '../pairing/pairing-api';
 
@@ -154,7 +160,7 @@ function buildModal(): Elements | null {
     <header>Pair Tablet Display</header>
     <div class="display-pairing-body">
       <div class="display-pairing-field">
-        <label>LAN URL</label>
+        <label>Pair URL</label>
         <div class="display-pairing-input">
           <input readonly placeholder="Click refresh to generate" />
           <button type="button" class="chip display-pairing-btn-copy">Copy</button>
@@ -162,7 +168,7 @@ function buildModal(): Elements | null {
       </div>
       <div class="display-pairing-field display-pairing-status">
         <span class="display-pairing-status-text">Connected: 0</span>
-        <span class="display-pairing-status-ws">ws://.../ws/display</span>
+        <span class="display-pairing-status-ws">wss://.../display-ws</span>
       </div>
       <div class="display-pairing-field">
     <div class="display-pairing-qr">
@@ -177,7 +183,7 @@ function buildModal(): Elements | null {
           </div>
         </div>
         <div class="display-pairing-tip">
-          Make sure both devices are on the same LAN (guest Wi-Fi / client isolation may block the WS connection). Allow inbound connections from Windows Firewall when using a Private network profile.
+          Share this URL or QR with the tablet. Pairing tokens expire automatically, so refresh if the code is stale.
         </div>
       </div>
     </div>
@@ -224,7 +230,6 @@ function toggleModal(on: boolean) {
   if (!elements) return;
   elements.mask.classList.toggle('is-visible', on);
   if (on) {
-    enableNetworkDisplayRelay();
     refreshStatus();
     ensurePairingToken();
   } else {
@@ -244,15 +249,19 @@ function updateWsLabel(url: string) {
   }
 }
 
-function resolveDefaultWsUrl(): string {
+function resolveDisplayPairPath(): string {
   try {
-    const origin = window.location.origin;
-    const url = new URL('/ws/display', origin);
-    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-    return url.toString();
+    const pathname = window.location.pathname || '/';
+    if (pathname.endsWith('/display.html')) return pathname;
+    if (pathname.endsWith('/')) return `${pathname}display.html`;
+    const slash = pathname.lastIndexOf('/');
+    if (slash >= 0) {
+      return `${pathname.slice(0, slash + 1)}display.html`;
+    }
   } catch {
-    return 'ws://.../ws/display';
+    // ignore
   }
+  return '/display.html';
 }
 
 function updateInput(url: string) {
@@ -309,10 +318,11 @@ async function ensurePairingToken() {
   if (!modalElements) return;
   isRefreshing = true;
   updateStatusText('Generating token...');
+  setNetworkDisplayPairToken(null);
   _currentPairing = null;
   clearExpiryTimer();
   const baseUrl = window.location.origin;
-  const pairPath = '/display/pair';
+  const pairPath = resolveDisplayPairPath();
   try {
     const pairing = await requestPairQr({
       baseUrl,
@@ -327,8 +337,12 @@ async function ensurePairingToken() {
 
     _currentPairing = { ...pairing, expiresMs };
     updateInput(pairing.pairUrl);
+    updateWsLabel(buildDisplayWsUrl(pairing.token) || resolveDisplayWsBase());
     renderQrSvg(pairing.qrSvg);
     updateStatusText(`Expires at ${new Date(expiresMs).toLocaleTimeString()}`);
+    setNetworkDisplayPairToken(pairing.token);
+    enableNetworkDisplayRelay();
+    refreshStatus();
     if (typeof window !== 'undefined') {
       const devFlag = Boolean((window as any).__TP_DEV || (window as any).__TP_DEV1);
       if (devFlag) {
@@ -350,6 +364,7 @@ async function ensurePairingToken() {
     startExpirySchedule(expiresMs);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unable to generate pairing token.';
+    setNetworkDisplayPairToken(null);
     updateStatusText(message);
   } finally {
     isRefreshing = false;
@@ -358,7 +373,12 @@ async function ensurePairingToken() {
 
 function refreshStatus() {
   const current = getNetworkDisplayStatus();
-  modalElements?.status && (modalElements.status.textContent = `Connected: ${current.connectedDisplays}`);
+  if (!modalElements?.status) return;
+  if (current.state === 'error' && current.lastError) {
+    modalElements.status.textContent = `Connected: ${current.connectedDisplays} (${current.lastError})`;
+    return;
+  }
+  modalElements.status.textContent = `Connected: ${current.connectedDisplays}`;
 }
 
 function bindModalEvents() {
@@ -397,8 +417,12 @@ function initDisplayPairingPanel() {
   const elements = buildModal();
   if (!elements) return;
   bindModalEvents();
-  updateWsLabel(resolveDefaultWsUrl());
-  onNetworkDisplayStatus(({ connectedDisplays }) => {
+  updateWsLabel(resolveDisplayWsBase());
+  onNetworkDisplayStatus(({ connectedDisplays, state, lastError }) => {
+    if (state === 'error' && lastError) {
+      elements.status.textContent = `Connected: ${connectedDisplays} (${lastError})`;
+      return;
+    }
     elements.status.textContent = `Connected: ${connectedDisplays}`;
   });
 
