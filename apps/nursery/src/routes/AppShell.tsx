@@ -72,6 +72,32 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function isMissingOrgServicesError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const row = error as {
+    code?: unknown;
+    message?: unknown;
+    details?: unknown;
+    hint?: unknown;
+    status?: unknown;
+  };
+
+  const code = typeof row.code === "string" ? row.code.trim().toUpperCase() : "";
+  if (code === "PGRST202" || code === "404") return true;
+
+  if (typeof row.status === "number" && row.status === 404) return true;
+
+  const text = [
+    typeof row.message === "string" ? row.message : "",
+    typeof row.details === "string" ? row.details : "",
+    typeof row.hint === "string" ? row.hint : "",
+  ].join(" ").toLowerCase();
+  return text.includes("get_or_create_my_personal_org_id")
+    || text.includes("could not find the function")
+    || text.includes("function")
+      && text.includes("not found");
+}
+
 function readInviteToken(search: string): string | null {
   const params = new URLSearchParams(search);
   const raw = params.get("invite_token") ?? params.get("inviteToken");
@@ -681,7 +707,11 @@ export default function AppShell() {
           .rpc("get_or_create_my_personal_org_id")
           .single();
         if (orgError) {
-          setCreateError(getErrorMessage(orgError, "Failed to resolve organization for workspace."));
+          setCreateError(
+            isMissingOrgServicesError(orgError)
+              ? "Org services are not available yet - deploy the DB migration, then retry."
+              : getErrorMessage(orgError, "Failed to resolve organization for workspace."),
+          );
           return;
         }
         const resolvedOrgId = (orgData as { org_id?: unknown } | null)?.org_id;
@@ -689,7 +719,7 @@ export default function AppShell() {
           ? resolvedOrgId
           : null;
         if (!orgId) {
-          setCreateError("Failed to resolve organization for workspace.");
+          setCreateError("Org services are not available yet - deploy the DB migration, then retry.");
           return;
         }
 

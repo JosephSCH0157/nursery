@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generated_at": "2026-03-03T03:23:25.232Z",
+  "generated_at": "2026-03-03T11:00:34.329Z",
   "tree": [
     {
       "id": "forge",
@@ -61,6 +61,16 @@
           "id": "settings-home",
           "label": "Settings home",
           "to": "/app/settings"
+        },
+        {
+          "id": "org",
+          "label": "Organization",
+          "to": "/app/settings/org"
+        },
+        {
+          "id": "org-teams",
+          "label": "Org Teams",
+          "to": "/app/settings/org/teams"
         },
         {
           "id": "storage",

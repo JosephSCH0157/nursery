@@ -106,9 +106,13 @@ async function main() {
   const projectRef = inferProjectRef(supabaseUrl);
   if (!projectRef) throw new Error("Could not infer Supabase project ref from URL");
 
-  const keyRows = JSON.parse(execSync(`supabase projects api-keys --project-ref ${projectRef} -o json`, { encoding: "utf8" }));
-  const serviceRoleKey = keyRows.find((row) => row.id === "service_role" && typeof row.api_key === "string")?.api_key ?? null;
-  if (!serviceRoleKey) throw new Error("service_role key not available via Supabase CLI");
+  const envServiceRoleKey = (process.env.SUPABASE_SERVICE_ROLE_KEY ?? env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim();
+  let serviceRoleKey = envServiceRoleKey || null;
+  if (!serviceRoleKey) {
+    const keyRows = JSON.parse(execSync(`supabase projects api-keys --project-ref ${projectRef} -o json`, { encoding: "utf8" }));
+    serviceRoleKey = keyRows.find((row) => row.id === "service_role" && typeof row.api_key === "string")?.api_key ?? null;
+  }
+  if (!serviceRoleKey) throw new Error("service_role key not available via SUPABASE_SERVICE_ROLE_KEY or Supabase CLI");
 
   const admin = createClient(supabaseUrl, serviceRoleKey, {
     db: { schema: "tongs" },

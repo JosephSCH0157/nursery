@@ -11,8 +11,8 @@ Date: 2026-02-27
 - Voice input in Hearth with Browser STT and AI STT lanes, plus composer-state UX.
 - Creator profile + interaction event foundations for Producer Gate and learning loop in Tongs/Hearth API.
 - Bar-Stock to Hearth handoff stabilized around Episode/Workpiece linkage.
+- Adaptive Style Alignment shipped behind workspace feature flags (default OFF).
 
 ## Canonical Baseline
 
 This release updates the workspace baseline from `forge-v1.0.0` to `forge-v1.2.0` and names it **Fire Burning**.
-
