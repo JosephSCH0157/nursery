@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import type { AppShellContext } from "./AppShell";
+import "./SettingsOrg.css";
 
 type OrgRow = {
   org_id: string;
@@ -143,34 +144,24 @@ export default function SettingsOrg() {
   }, [session, selectedOrgId]);
 
   return (
-    <section
-      style={{
-        border: "1px solid var(--forge-border)",
-        borderRadius: 12,
-        background: "var(--forge-bg-elevated)",
-        padding: 16,
-        maxWidth: 860,
-        display: "grid",
-        gap: 12,
-      }}
-    >
-      <header style={{ display: "grid", gap: 6 }}>
-        <h3 style={{ margin: 0 }}>Organization</h3>
-        <p style={{ margin: 0, color: "var(--forge-text-muted)" }}>
+    <section className="settings-org">
+      <header className="settings-org__header">
+        <h3 className="settings-org__title">Organization</h3>
+        <p className="settings-org__copy">
           Read-only organization details for this slice. Team grants and org-managed access land in later slices.
         </p>
       </header>
 
       {!session ? (
-        <p style={{ margin: 0, color: "var(--forge-text-muted)" }}>
+        <p className="settings-org__copy">
           Sign in to view organizations.
         </p>
       ) : null}
 
       {session ? (
         <>
-          <div style={{ display: "grid", gap: 8, maxWidth: 420 }}>
-            <label htmlFor="org-picker" style={{ fontSize: 12, color: "var(--forge-text-muted)" }}>
+          <div className="settings-org__picker">
+            <label htmlFor="org-picker" className="settings-org__label">
               Organization
             </label>
             <select
@@ -178,7 +169,7 @@ export default function SettingsOrg() {
               value={selectedOrgId}
               onChange={(event) => setSelectedOrgId(event.target.value)}
               disabled={loadingOrgs || orgs.length === 0}
-              style={{ padding: "6px 8px" }}
+              className="settings-org__select"
             >
               {orgs.length === 0 ? (
                 <option value="">
@@ -191,11 +182,11 @@ export default function SettingsOrg() {
                 </option>
               ))}
             </select>
-            {orgsError ? <div style={{ color: "var(--forge-danger)", fontSize: 13 }}>{orgsError}</div> : null}
+            {orgsError ? <div className="settings-org__error">{orgsError}</div> : null}
           </div>
 
           {activeOrg ? (
-            <div style={{ display: "grid", gap: 4 }}>
+            <div className="settings-org__meta">
               <div><strong>Name:</strong> {activeOrg.org_name}</div>
               <div><strong>Your role:</strong> {labelRole(activeOrg.my_org_role)}</div>
               <div><strong>Created:</strong> {formatDate(activeOrg.created_at)}</div>
@@ -203,31 +194,31 @@ export default function SettingsOrg() {
             </div>
           ) : null}
 
-          <div style={{ borderTop: "1px solid var(--forge-border)", paddingTop: 10, display: "grid", gap: 8 }}>
-            <h4 style={{ margin: 0 }}>Members</h4>
+          <div className="settings-org__members">
+            <h4 className="settings-org__members-title">Members</h4>
             {loadingMembers ? (
-              <p style={{ margin: 0, color: "var(--forge-text-muted)" }}>Loading members...</p>
+              <p className="settings-org__copy">Loading members...</p>
             ) : null}
             {membersError ? (
-              <div style={{ color: "var(--forge-danger)", fontSize: 13 }}>{membersError}</div>
+              <div className="settings-org__error">{membersError}</div>
             ) : null}
             {!loadingMembers && !membersError && selectedOrgId && members.length === 0 ? (
-              <p style={{ margin: 0, color: "var(--forge-text-muted)" }}>No members found.</p>
+              <p className="settings-org__copy">No members found.</p>
             ) : null}
             {!loadingMembers && !membersError && members.length > 0 ? (
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <table className="settings-org__table">
                 <thead>
                   <tr>
-                    <th style={{ textAlign: "left", padding: "6px 8px", borderBottom: "1px solid var(--forge-border)" }}>
+                    <th className="settings-org__th">
                       Email
                     </th>
-                    <th style={{ textAlign: "left", padding: "6px 8px", borderBottom: "1px solid var(--forge-border)" }}>
+                    <th className="settings-org__th">
                       Role
                     </th>
-                    <th style={{ textAlign: "left", padding: "6px 8px", borderBottom: "1px solid var(--forge-border)" }}>
+                    <th className="settings-org__th">
                       Joined
                     </th>
-                    <th style={{ textAlign: "left", padding: "6px 8px", borderBottom: "1px solid var(--forge-border)" }}>
+                    <th className="settings-org__th">
                       User ID
                     </th>
                   </tr>
@@ -235,16 +226,16 @@ export default function SettingsOrg() {
                 <tbody>
                   {members.map((member) => (
                     <tr key={member.user_id}>
-                      <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--forge-border)" }}>
+                      <td className="settings-org__td">
                         {member.user_email || "Unknown"}
                       </td>
-                      <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--forge-border)" }}>
+                      <td className="settings-org__td">
                         {labelRole(member.org_role)}
                       </td>
-                      <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--forge-border)" }}>
+                      <td className="settings-org__td">
                         {formatDate(member.created_at)}
                       </td>
-                      <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--forge-border)" }}>
+                      <td className="settings-org__td">
                         <code>{shortId(member.user_id)}</code>
                       </td>
                     </tr>

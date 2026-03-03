@@ -18,6 +18,7 @@ import { clearMountRegistry, loadMountRegistry, saveMountRegistry } from "../lib
 import { removeHandle, setHandle } from "../lib/handle-vault";
 import { isAutoMirrorEnabled, loadLastMirrorStatus, mirrorRoleSnapshot, setAutoMirrorEnabled } from "../lib/mirror";
 import type { AppShellContext } from "./AppShell";
+import "./SettingsStorage.css";
 
 const STORAGE_OPTIONS: { label: string; value: MountTargetType }[] = [
   { label: "Local", value: "local" },
@@ -276,36 +277,28 @@ export default function SettingsStorage() {
   }
 
   return (
-    <div
-      style={{
-        border: "1px solid var(--forge-border)",
-        borderRadius: 10,
-        padding: 18,
-        background: "var(--forge-bg-elevated)",
-        maxWidth: 820,
-      }}
-    >
-      <h3 style={{ marginTop: 0 }}>Storage / Mounts</h3>
-      <p style={{ marginTop: 0, color: "var(--forge-text-muted)" }}>
+    <div className="settings-storage">
+      <h3 className="settings-storage__title">Storage / Mounts</h3>
+      <p className="settings-storage__copy">
         Choose where role-specific data lives. Every tool will read these settings automatically.
       </p>
       {!session ? (
-        <p style={{ marginTop: 0, color: "var(--forge-text-muted)", fontSize: 13 }}>
+        <p className="settings-storage__trial-note">
           Trial mode: storage mappings are local to this browser until you sign in.
         </p>
       ) : null}
 
       {status && (
-        <div style={{ marginBottom: 12, fontSize: "0.9rem", color: "var(--forge-text-muted)" }}>
+        <div className="settings-storage__status">
           <strong>Status:</strong> {status}
         </div>
       )}
 
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+      <table className="settings-storage__table">
         <thead>
           <tr>
-            <th style={{ textAlign: "left", padding: "8px 0" }}>Role</th>
-            <th style={{ textAlign: "left", padding: "8px 0" }}>Storage target</th>
+            <th className="settings-storage__th">Role</th>
+            <th className="settings-storage__th">Storage target</th>
           </tr>
         </thead>
         <tbody>
@@ -327,24 +320,24 @@ export default function SettingsStorage() {
               : false;
 
             return (
-              <tr key={policy.role} style={{ borderTop: "1px solid var(--forge-border)" }}>
-                <td style={{ padding: "12px 0" }}>
+              <tr key={policy.role} className="settings-storage__row">
+                <td className="settings-storage__cell">
                   {policy.label}
                   {isLocalOnly && (
-                    <span style={{ marginLeft: 8, fontSize: 12, color: "var(--forge-text-muted)" }}>Local-only</span>
+                    <span className="settings-storage__role-tag">Local-only</span>
                   )}
                   {isCloudCanonical && (
-                    <span style={{ marginLeft: 8, fontSize: 12, color: "var(--forge-text-muted)" }}>Cloud canonical</span>
+                    <span className="settings-storage__role-tag">Cloud canonical</span>
                   )}
                 </td>
-                <td style={{ padding: "12px 0" }}>
-                  <div style={{ fontWeight: 600 }}>
+                <td className="settings-storage__cell">
+                  <div className="settings-storage__target-title">
                     {resolved.canonicalTarget.target === "tongs_cloud" ? "Cloud (canonical)" : "Local only"}
                   </div>
 
                   {isLocalOnly && (
-                    <div style={{ marginTop: 6, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                      <div style={{ fontSize: 12, color: "var(--forge-text-muted)" }}>
+                    <div className="settings-storage__inline-row">
+                      <div className="settings-storage__muted">
                         Folder: {localHint ?? "not set"}
                       </div>
                       <button onClick={() => setLocalFolder(policy.role)}>Choose folder</button>
@@ -355,8 +348,8 @@ export default function SettingsStorage() {
                   )}
 
                   {isCloudCanonical && (
-                    <div style={{ marginTop: 6 }}>
-                      <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div className="settings-storage__section">
+                      <label className="settings-storage__label-inline">
                         <input
                           type="checkbox"
                           checked={mirrorEnabled}
@@ -365,8 +358,8 @@ export default function SettingsStorage() {
                         <span>Mirror to local</span>
                       </label>
                       {mirrorEnabled && (
-                        <div style={{ marginTop: 6, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                          <div style={{ fontSize: 12, color: "var(--forge-text-muted)" }}>
+                        <div className="settings-storage__inline-row">
+                          <div className="settings-storage__muted">
                             Mirror folder: {mirrorHint ?? "not set"}
                           </div>
                           <button onClick={() => setMirrorFolder(policy.role)}>Choose folder</button>
@@ -384,9 +377,9 @@ export default function SettingsStorage() {
                         </div>
                       )}
                       {mirrorEnabled && (policy.role === "barstock" || policy.role === "scripts") && (
-                        <div style={{ marginTop: 8, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+                        <div className="settings-storage__auto-row">
                           {policy.role === "barstock" && (
-                            <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <label className="settings-storage__label-inline">
                               <input
                                 type="checkbox"
                                 checked={autoMirrorEnabled}
@@ -395,7 +388,7 @@ export default function SettingsStorage() {
                               <span>Auto mirror at session end</span>
                             </label>
                           )}
-                          <div style={{ fontSize: 12, color: "var(--forge-text-muted)" }}>
+                          <div className="settings-storage__muted">
                             Last mirrored: {formatMirrorTime(lastMirror?.at)}{" "}
                             {lastMirror
                               ? `(${lastMirror.reason}, ${lastMirror.ok ? "ok" : "failed"})`
@@ -407,7 +400,7 @@ export default function SettingsStorage() {
                   )}
 
                   {!isLocalOnly && !isCloudCanonical && (
-                    <div style={{ marginTop: 6, display: "flex", gap: 8, alignItems: "center" }}>
+                    <div className="settings-storage__inline-row">
                       <select value={resolved.canonicalTarget.target}>
                         {STORAGE_OPTIONS.map((opt) => (
                           <option key={opt.value} value={opt.value}>
@@ -424,7 +417,7 @@ export default function SettingsStorage() {
         </tbody>
       </table>
 
-      <div style={{ marginTop: 18, display: "flex", gap: 10 }}>
+      <div className="settings-storage__actions">
         <button onClick={handleSave} disabled={!registry || isSaving || !hasChanges}>
           {isSaving ? "Saving..." : "Save changes"}
         </button>

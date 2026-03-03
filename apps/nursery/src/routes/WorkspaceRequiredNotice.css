@@ -1,0 +1,30 @@
+.workspace-required-notice {
+  border: 1px solid var(--forge-border);
+  border-radius: 12px;
+  background: var(--forge-bg-elevated);
+  padding: 16px;
+  max-width: 560px;
+  display: grid;
+  gap: 10px;
+}
+
+.workspace-required-notice__title {
+  margin: 0;
+}
+
+.workspace-required-notice__copy {
+  margin: 0;
+  color: var(--forge-text-muted);
+}
+
+.workspace-required-notice__meta {
+  margin: 0;
+  color: var(--forge-text-muted);
+  font-size: 13px;
+}
+
+.workspace-required-notice a:focus-visible {
+  outline: 2px solid rgba(147, 197, 253, 0.6);
+  outline-offset: 2px;
+  border-radius: 4px;
+}

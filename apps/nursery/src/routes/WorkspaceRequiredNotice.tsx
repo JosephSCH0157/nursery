@@ -1,4 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
+import "./WorkspaceRequiredNotice.css";
 
 type WorkspaceRequiredNoticeProps = {
   toolName: string;
@@ -22,27 +23,17 @@ export default function WorkspaceRequiredNotice({
   const workspaceAccessDenied = !!deniedWorkspaceId || deniedFromState;
 
   return (
-    <section
-      style={{
-        border: "1px solid var(--forge-border)",
-        borderRadius: 12,
-        background: "var(--forge-bg-elevated)",
-        padding: 16,
-        maxWidth: 560,
-        display: "grid",
-        gap: 10,
-      }}
-    >
-      <h2 style={{ margin: 0 }}>
+    <section className="workspace-required-notice">
+      <h2 className="workspace-required-notice__title">
         {workspaceAccessDenied ? `${toolName} access denied for this workspace.` : `${toolName} requires a workspace.`}
       </h2>
-      <p style={{ margin: 0, color: "var(--forge-text-muted)" }}>
+      <p className="workspace-required-notice__copy">
         {workspaceAccessDenied
           ? "You don't have access to this workspace. Go to Home and select a workspace you belong to before continuing."
           : "Workspace ID is missing. Go to Home and select a workspace before continuing."}
       </p>
       {workspaceAccessDenied && deniedWorkspaceId ? (
-        <p style={{ margin: 0, color: "var(--forge-text-muted)", fontSize: 13 }}>
+        <p className="workspace-required-notice__meta">
           Requested workspace: {deniedWorkspaceId}
         </p>
       ) : null}

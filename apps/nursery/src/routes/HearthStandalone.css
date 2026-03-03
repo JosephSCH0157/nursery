@@ -173,3 +173,11 @@
   min-height: 0;
   overflow: hidden;
 }
+
+.hearth-standalone__menu-close:focus-visible,
+.hearth-standalone__menu-trigger:focus-visible,
+.hearth-standalone__store-link:focus-visible,
+.hearth-standalone__auth-link:focus-visible {
+  outline: 2px solid rgba(147, 197, 253, 0.7);
+  outline-offset: 2px;
+}
