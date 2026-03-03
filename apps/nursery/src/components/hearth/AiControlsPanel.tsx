@@ -14,6 +14,8 @@ import {
   isStyleAlignmentPaused,
   resetStyleProfile,
   setStyleAlignmentPaused,
+  WORKSPACE_FEATURES_CHANGED_EVENT,
+  type WorkspaceFeaturesChangedEventDetail,
   type WorkspaceFeatures,
 } from "@hearth/lib/hearth-style-service";
 
@@ -50,6 +52,16 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
   const [resetBusy, setResetBusy] = React.useState(false);
   const [resetNotice, setResetNotice] = React.useState<string | null>(null);
   const canManageFeatures = roleCanManageFeatures(workspaceRole);
+  const setFeatureSnapshot = React.useCallback((next: WorkspaceFeatures | null) => {
+    setFeatures(next);
+    if (!next || next.adaptiveStyleAlignmentEnabled !== true) {
+      setInsightsOpen(false);
+      setInsightsError(null);
+      setInsightsLines([]);
+      setInsightsMeta(null);
+      setResetNotice(null);
+    }
+  }, []);
 
   React.useEffect(() => {
     setAlignmentPaused(isStyleAlignmentPaused(workspaceId));
@@ -64,7 +76,7 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
     setResetNotice(null);
 
     if (!workspaceId) {
-      setFeatures(null);
+      setFeatureSnapshot(null);
       setFeaturesError(null);
       return () => {
         cancelled = true;
@@ -77,11 +89,11 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
       .then((result) => {
         if (cancelled) return;
         if (!result.ok) {
-          setFeatures(null);
+          setFeatureSnapshot(null);
           setFeaturesError(result.error);
           return;
         }
-        setFeatures(result.data);
+        setFeatureSnapshot(result.data);
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -96,7 +108,25 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
     return () => {
       cancelled = true;
     };
-  }, [workspaceId]);
+  }, [workspaceId, setFeatureSnapshot]);
+
+  React.useEffect(() => {
+    if (!workspaceId || typeof window === "undefined") return;
+
+    const onWorkspaceFeaturesChanged = (event: Event) => {
+      const custom = event as CustomEvent<WorkspaceFeaturesChangedEventDetail>;
+      const detail = custom.detail;
+      if (!detail || detail.workspaceId !== workspaceId) return;
+      setFeaturesLoading(false);
+      setFeaturesError(null);
+      setFeatureSnapshot(detail.features);
+    };
+
+    window.addEventListener(WORKSPACE_FEATURES_CHANGED_EVENT, onWorkspaceFeaturesChanged as EventListener);
+    return () => {
+      window.removeEventListener(WORKSPACE_FEATURES_CHANGED_EVENT, onWorkspaceFeaturesChanged as EventListener);
+    };
+  }, [workspaceId, setFeatureSnapshot]);
 
   function updateLane(lane: AiLane) {
     const next = { ...settings, lane };

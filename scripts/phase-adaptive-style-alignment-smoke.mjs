@@ -294,6 +294,32 @@ async function main() {
       allPassed = false;
     }
 
+    const accelerateOn = await rpcOne(users.admin.client, "set_adaptive_style_features", {
+      p_workspace_id: workspaceId,
+      p_alignment_enabled: true,
+      p_ai_accelerate_enabled: true,
+    }, "admin enable AI accelerate");
+    if (accelerateOn?.adaptive_style_alignment_enabled === true
+      && accelerateOn?.adaptive_style_ai_accelerate_enabled === true) {
+      pass("Admin can enable AI accelerate");
+    } else {
+      fail("Admin can enable AI accelerate", JSON.stringify(accelerateOn));
+      allPassed = false;
+    }
+
+    const accelerateOff = await rpcOne(users.admin.client, "set_adaptive_style_features", {
+      p_workspace_id: workspaceId,
+      p_alignment_enabled: true,
+      p_ai_accelerate_enabled: false,
+    }, "admin disable AI accelerate");
+    if (accelerateOff?.adaptive_style_alignment_enabled === true
+      && accelerateOff?.adaptive_style_ai_accelerate_enabled === false) {
+      pass("Admin can disable AI accelerate");
+    } else {
+      fail("Admin can disable AI accelerate", JSON.stringify(accelerateOff));
+      allPassed = false;
+    }
+
     const upsertEnabled = await users.editor.client.rpc("upsert_style_profile_metrics", {
       p_workspace_id: workspaceId,
       p_avg_sentence_length: 12,
@@ -343,6 +369,39 @@ async function main() {
       pass("Profile read returns updated row");
     } else {
       fail("Profile read returns updated row", profileRead.error?.message ?? JSON.stringify(profileRow));
+      allPassed = false;
+    }
+
+    const auditRows = ensureNoError(
+      await admin.from("hearth_interaction_events")
+        .select("event_type,workspace_id,user_id,payload,created_at")
+        .eq("workspace_id", workspaceId)
+        .eq("event_type", "workspace.feature.toggled")
+        .order("created_at", { ascending: false })
+        .limit(20),
+      "query feature toggle audit events",
+    );
+    const hasAuditForFlag = (flagName) => auditRows.some((row) => {
+      const payload = row && typeof row.payload === "object" && row.payload !== null ? row.payload : null;
+      if (!payload) return false;
+      return payload.workspace_id === workspaceId
+        && payload.flag_name === flagName
+        && typeof payload.old === "boolean"
+        && typeof payload.new === "boolean"
+        && payload.actor_user_id === users.admin.userId
+        && typeof payload.timestamp === "string"
+        && payload.timestamp.length > 0;
+    });
+    if (hasAuditForFlag("adaptive_style_alignment_enabled")) {
+      pass("Feature toggle audit emits alignment flag events");
+    } else {
+      fail("Feature toggle audit emits alignment flag events", JSON.stringify(auditRows[0] ?? null));
+      allPassed = false;
+    }
+    if (hasAuditForFlag("adaptive_style_ai_accelerate_enabled")) {
+      pass("Feature toggle audit emits AI accelerate flag events");
+    } else {
+      fail("Feature toggle audit emits AI accelerate flag events", JSON.stringify(auditRows[0] ?? null));
       allPassed = false;
     }
 
