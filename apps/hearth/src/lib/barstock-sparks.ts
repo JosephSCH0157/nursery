@@ -14,7 +14,12 @@ export type BarStockSpark = {
 };
 
 const SPARKS_KEY = "barstock_sparks_v1";
+const SPARKS_KEY_PREFIX = "barstock_sparks_v2";
 const OUTBOX_KEY = "barstock_outbox_v1";
+const OUTBOX_KEY_PREFIX = "barstock_outbox_v2";
+const WORKSPACE_STORAGE_KEYS = ["forge_workspace_id_v1", "barstock_workspace_id"] as const;
+const WORKSPACE_QUERY_KEYS = ["workspace_id", "workspaceId", "workspace"] as const;
+const SPARK_QUERY_KEYS = ["spark_id", "sparkId", "barstock_spark_id"] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -28,6 +33,60 @@ function readString(value: unknown): string | null {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function normalizeScope(value: unknown): string | null {
+  const str = readString(value);
+  return str ? str.toLowerCase() : null;
+}
+
+function resolveWorkspaceScope(workspaceId?: string | null): string | null {
+  const explicit = normalizeScope(workspaceId);
+  if (explicit) return explicit;
+  if (typeof window === "undefined") return null;
+
+  try {
+    const params = new URLSearchParams(window.location.search || "");
+    for (const key of WORKSPACE_QUERY_KEYS) {
+      const value = normalizeScope(params.get(key));
+      if (value) return value;
+    }
+  } catch {
+    // ignore query parsing failures
+  }
+
+  for (const key of WORKSPACE_STORAGE_KEYS) {
+    try {
+      const value = normalizeScope(window.localStorage.getItem(key));
+      if (value) return value;
+    } catch {
+      // ignore storage failures
+    }
+  }
+
+  return null;
+}
+
+function sparksStorageKey(scope: string | null): string {
+  return scope ? `${SPARKS_KEY_PREFIX}:${scope}` : SPARKS_KEY;
+}
+
+function outboxStorageKey(scope: string | null): string {
+  return scope ? `${OUTBOX_KEY_PREFIX}:${scope}` : OUTBOX_KEY;
+}
+
+function parseSparkArray(raw: string | null): BarStockSpark[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    const normalized = parsed
+      .map(normalizeSpark)
+      .filter((spark): spark is BarStockSpark => !!spark);
+    return dedupeSparksById(normalized).sort((a, b) => b.createdAt - a.createdAt);
+  } catch {
+    return [];
+  }
 }
 
 function normalizeSpark(value: unknown): BarStockSpark | null {
@@ -83,27 +142,24 @@ function dedupeSparksById(sparks: BarStockSpark[]): BarStockSpark[] {
   return [...byId.values()];
 }
 
-export function readBarStockSparks(): BarStockSpark[] {
+export function readBarStockSparks(workspaceId?: string | null): BarStockSpark[] {
   if (typeof window === "undefined") return [];
+  const scope = resolveWorkspaceScope(workspaceId);
+
   try {
-    const raw = window.localStorage.getItem(SPARKS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    const normalized = parsed
-      .map(normalizeSpark)
-      .filter((spark): spark is BarStockSpark => !!spark);
-    const deduped = dedupeSparksById(normalized);
-    return deduped.sort((a, b) => b.createdAt - a.createdAt);
+    const scoped = parseSparkArray(window.localStorage.getItem(sparksStorageKey(scope)));
+    if (scoped.length > 0 || !scope) return scoped;
+    return parseSparkArray(window.localStorage.getItem(SPARKS_KEY));
   } catch {
     return [];
   }
 }
 
-export function writeBarStockSparks(sparks: BarStockSpark[]): void {
+export function writeBarStockSparks(sparks: BarStockSpark[], workspaceId?: string | null): void {
   if (typeof window === "undefined") return;
+  const scope = resolveWorkspaceScope(workspaceId);
   try {
-    window.localStorage.setItem(SPARKS_KEY, JSON.stringify(sparks));
+    window.localStorage.setItem(sparksStorageKey(scope), JSON.stringify(sparks));
   } catch {
     // ignore storage failures
   }
@@ -117,14 +173,21 @@ export function upsertBarStockSpark(sparks: BarStockSpark[], spark: BarStockSpar
   return next;
 }
 
-export function isBarStockKey(key: string | null): boolean {
-  return key === SPARKS_KEY;
+export function isBarStockKey(key: string | null, workspaceId?: string | null): boolean {
+  if (!key) return false;
+  if (key === SPARKS_KEY) return true;
+  if (!key.startsWith(`${SPARKS_KEY_PREFIX}:`)) return false;
+  const scope = resolveWorkspaceScope(workspaceId);
+  if (!scope) return true;
+  return key === sparksStorageKey(scope);
 }
 
-export function enqueueBarStockSpark(spark: BarStockSpark): void {
+export function enqueueBarStockSpark(spark: BarStockSpark, workspaceId?: string | null): void {
   if (typeof window === "undefined") return;
+  const scope = resolveWorkspaceScope(workspaceId);
+  const key = outboxStorageKey(scope);
   try {
-    const raw = window.localStorage.getItem(OUTBOX_KEY);
+    const raw = window.localStorage.getItem(key) ?? window.localStorage.getItem(OUTBOX_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
     const list = Array.isArray(parsed) ? parsed : [];
 
@@ -140,15 +203,29 @@ export function enqueueBarStockSpark(spark: BarStockSpark): void {
       }
 
       list[index] = { op: "upsert_spark", at: Date.now(), spark };
-      window.localStorage.setItem(OUTBOX_KEY, JSON.stringify(list));
+      window.localStorage.setItem(key, JSON.stringify(list));
       return;
     }
 
     list.push({ op: "upsert_spark", at: Date.now(), spark });
-    window.localStorage.setItem(OUTBOX_KEY, JSON.stringify(list));
+    window.localStorage.setItem(key, JSON.stringify(list));
   } catch {
     // ignore outbox failures
   }
+}
+
+export function resolveBarstockSparkIdFromQuery(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const params = new URLSearchParams(window.location.search || "");
+    for (const key of SPARK_QUERY_KEYS) {
+      const value = readString(params.get(key));
+      if (value) return value;
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 function buildSparkOutboxSignature(spark: BarStockSpark): string {
