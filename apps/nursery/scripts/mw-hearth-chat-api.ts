@@ -43,6 +43,8 @@ type StructuredReply = {
   tagAudit: Record<string, unknown> | null;
 };
 
+type ReadinessNudgeCategory = "sourcing" | "risk";
+
 type CreatorProfile = {
   userId: string | null;
   clarifyFirstBias: number;
@@ -79,6 +81,11 @@ const STT_MAX_BYTES = 10 * 1024 * 1024;
 const DEFAULT_STT_MODEL = "gpt-4o-mini-transcribe";
 const DEFAULT_STT_BUCKET = "forge-workpieces";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const READINESS_CHECK_RE = /\b(are we ready|ready to record|record now|can i record|good to record|ready for anvil|ship this|go live)\b/i;
+const READINESS_DEEP_REVIEW_RE = /\b(again|recheck|double check|deeper|strict|hard mode|harsh|be tough|second pass)\b/i;
+const SOURCING_NUDGE_RE = /\b(source|sources|sourcing|citation|citations|cite|evidence|verify|fact[- ]?check|corroborat)\b/i;
+const RISK_NUDGE_RE = /\b(risk|risky|legal|defamation|liability|compliance|sensitive claim|hot take)\b/i;
+const RECORD_ANYWAY_RE = /\b(record anyway|record now anyway|ok to record anyway|okay to record anyway|go ahead and record)\b/i;
 const DEFAULT_CREATOR_PROFILE: CreatorProfile = {
   userId: null,
   clarifyFirstBias: 0.5,
@@ -256,6 +263,74 @@ function requestedScript(text: string): boolean {
     || /\bdraft\b/.test(normalized)
     || /\bcold open\b/.test(normalized)
     || /\bsegments?\b/.test(normalized);
+}
+
+function isReadinessCheckRequest(text: string): boolean {
+  const normalized = compactSpaces(text);
+  return READINESS_CHECK_RE.test(normalized);
+}
+
+function requestedDeepReadinessReview(text: string): boolean {
+  const normalized = compactSpaces(text);
+  return READINESS_DEEP_REVIEW_RE.test(normalized);
+}
+
+function detectReadinessNudgeCategory(text: string): ReadinessNudgeCategory | null {
+  const normalized = compactSpaces(text);
+  if (!normalized) return null;
+  if (SOURCING_NUDGE_RE.test(normalized)) return "sourcing";
+  if (RISK_NUDGE_RE.test(normalized)) return "risk";
+  return null;
+}
+
+function splitAssistantSentences(text: string): string[] {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) return [];
+  const matches = normalized.match(/[^.!?]+[.!?]*/g) ?? [];
+  return matches
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+}
+
+function normalizeReadinessAssistantText(args: {
+  assistantText: string;
+  priorAssistantText: string;
+  allowRepeatedNudge: boolean;
+}): string {
+  const sentences = splitAssistantSentences(args.assistantText);
+  if (!sentences.length) {
+    return "If you want, it's okay to record anyway and we can tighten one pass after.";
+  }
+
+  const priorCategory = detectReadinessNudgeCategory(args.priorAssistantText);
+  const out: string[] = [];
+  let keptNudgeCategory: ReadinessNudgeCategory | null = null;
+
+  for (const sentence of sentences) {
+    const sentenceCategory = detectReadinessNudgeCategory(sentence);
+    if (!sentenceCategory) {
+      out.push(sentence);
+      continue;
+    }
+
+    // Cap readiness guidance to one nudge per check.
+    if (keptNudgeCategory) continue;
+
+    // Avoid repeating the same nudge across checks unless the user asked for strict re-review.
+    if (!args.allowRepeatedNudge && priorCategory && sentenceCategory === priorCategory) continue;
+
+    keptNudgeCategory = sentenceCategory;
+    out.push(sentence);
+  }
+
+  let normalized = out.join(" ").replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    normalized = "If you want, it's okay to record anyway and we can tighten one pass after.";
+  } else if (!RECORD_ANYWAY_RE.test(normalized)) {
+    normalized = `${normalized} If you want, it's okay to record anyway and we can tighten one pass after.`;
+  }
+
+  return normalized.replace(/\s+/g, " ").trim();
 }
 
 function isProductionSupportRequest(text: string): boolean {
@@ -467,7 +542,15 @@ function normalizeEpisodeContext(value: unknown): EpisodeContext | null {
   };
 }
 
-function buildSystemPrompt(context: EpisodeContext, creatorStyleSnippet?: string): string {
+function buildSystemPrompt(
+  context: EpisodeContext,
+  creatorStyleSnippet?: string,
+  options?: {
+    readinessCheck?: boolean;
+    allowRepeatedReadinessNudge?: boolean;
+    priorReadinessNudge?: ReadinessNudgeCategory | null;
+  },
+): string {
   const baseLines = [
     "You are Hearth.",
     "You are already operating inside an Episode context.",
@@ -501,6 +584,22 @@ function buildSystemPrompt(context: EpisodeContext, creatorStyleSnippet?: string
     "- tag_audit must briefly confirm closure, standalone tags, and no markdown/random markup.",
     "- Keep output strictly JSON (no code fences).",
   ];
+
+  if (options?.readinessCheck) {
+    baseLines.push(
+      "Readiness check policy:",
+      "- If the current draft is solid, explicitly say it is ready to record.",
+      "- Provide at most one sourcing/risk nudge in this reply.",
+      "- Phrase nudges as workflow guidance, not emotion or drama.",
+      "- Always include an OK-to-record-anyway path in a calm producer tone.",
+    );
+    if (options.priorReadinessNudge && !options.allowRepeatedReadinessNudge) {
+      baseLines.push(
+        `- Prior assistant nudge already covered: ${options.priorReadinessNudge}. Do not repeat it unless user explicitly asks for strict re-review.`,
+      );
+    }
+  }
+
   if (creatorStyleSnippet?.trim()) {
     baseLines.push(creatorStyleSnippet.trim());
   }
@@ -1257,6 +1356,13 @@ export function mwHearthChatApi() {
       const priorMessages = typeof latestUserMessageIndex === "number"
         ? messages.filter((_, index) => index !== latestUserMessageIndex)
         : messages;
+      const readinessCheckRequested = isReadinessCheckRequest(requestText);
+      const allowRepeatedReadinessNudge = requestedDeepReadinessReview(requestText);
+      const priorAssistantMessage = [...priorMessages]
+        .reverse()
+        .find((entry) => entry.role === "assistant")
+        ?.content ?? "";
+      const priorReadinessNudge = detectReadinessNudgeCategory(priorAssistantMessage);
       const creatorProfile = await loadCreatorProfileForToken(bearerToken);
 
       if (shouldAskClarifyingQuestions({
@@ -1297,6 +1403,11 @@ export function mwHearthChatApi() {
         content: buildSystemPrompt(
           episodeContext,
           buildProfileStyleSnippet(creatorProfile, requestText),
+          {
+            readinessCheck: readinessCheckRequested,
+            allowRepeatedReadinessNudge,
+            priorReadinessNudge,
+          },
         ),
       };
 
@@ -1401,6 +1512,16 @@ export function mwHearthChatApi() {
           scriptText: null,
           tagAudit: null,
         };
+
+        if (readinessCheckRequested) {
+          structured.assistantText = normalizeReadinessAssistantText({
+            assistantText: structured.assistantText,
+            priorAssistantText: priorAssistantMessage,
+            allowRepeatedNudge: allowRepeatedReadinessNudge,
+          });
+          // Readiness checks should return guidance only, not apply edits.
+          structured.ops = [];
+        }
 
         if (!structured.assistantText && structured.ops.length === 0) {
           sendJson(res, 502, {
