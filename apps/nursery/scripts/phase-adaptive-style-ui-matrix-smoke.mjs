@@ -25,7 +25,12 @@ function parseEnvFile(filePath) {
 
 async function waitForUrl(url, timeoutMs = 180_000) {
   const started = Date.now();
+  let attempts = 0;
   while ((Date.now() - started) < timeoutMs) {
+    attempts += 1;
+    if (attempts % 10 === 0) {
+      console.log(`[ui-matrix] waiting for dev server at ${url}...`);
+    }
     try {
       const response = await fetch(url, { method: "GET" });
       if (response.ok || response.status >= 300) {
@@ -58,6 +63,7 @@ function fail(message) {
 
 async function main() {
   const repoRoot = path.resolve(__dirname, "..", "..", "..");
+  console.log("[ui-matrix] starting");
   const env = {
     ...parseEnvFile(path.join(repoRoot, "apps/nursery/.env")),
     ...parseEnvFile(path.join(repoRoot, "apps/nursery/.env.local")),
@@ -76,6 +82,7 @@ async function main() {
   let devServer = null;
 
   if (!externalBaseUrl) {
+    console.log("[ui-matrix] starting nursery dev server");
     devServer = spawn("pnpm", ["--filter", "nursery", "dev", "--host", "127.0.0.1", "--port", "4173"], {
       cwd: repoRoot,
       stdio: "ignore",
@@ -83,6 +90,7 @@ async function main() {
       env: process.env,
     });
     await waitForUrl(baseUrl, 240_000);
+    console.log("[ui-matrix] dev server is ready");
   }
 
   const admin = createClient(supabaseUrl, serviceRoleKey, {
@@ -168,6 +176,7 @@ async function main() {
   };
 
   try {
+    console.log("[ui-matrix] creating users + workspace");
     users.owner = await createUser("owner");
     users.admin = await createUser("admin");
     users.editor = await createUser("editor");
@@ -184,10 +193,12 @@ async function main() {
     await inviteAndAccept(users.owner, users.editor, "editor");
     await inviteAndAccept(users.owner, users.viewer, "viewer");
 
+    console.log("[ui-matrix] launching browser");
     browser = await chromium.launch({ headless: true });
 
     // OWNER
     {
+      console.log("[ui-matrix] checking Owner");
       const { context, page } = await loginAs(users.owner, `/app/settings?workspace_id=${workspaceId}`);
       const alignment = page.getByLabel("Enable Adaptive Style Alignment");
       const accelerate = page.getByLabel("Enable AI Accelerate");
@@ -242,6 +253,7 @@ async function main() {
     let adminSettingsContext = null;
     let adminSettingsPage = null;
     {
+      console.log("[ui-matrix] checking Admin");
       const loggedIn = await loginAs(users.admin, `/app/settings?workspace_id=${workspaceId}`);
       adminSettingsContext = loggedIn.context;
       adminSettingsPage = loggedIn.page;
@@ -274,6 +286,7 @@ async function main() {
 
     // EDITOR SETTINGS
     {
+      console.log("[ui-matrix] checking Editor");
       const { context, page } = await loginAs(users.editor, `/app/settings?workspace_id=${workspaceId}`);
       const alignment = page.getByLabel("Enable Adaptive Style Alignment");
       const accelerate = page.getByLabel("Enable AI Accelerate");
@@ -297,6 +310,7 @@ async function main() {
 
     // VIEWER SETTINGS
     {
+      console.log("[ui-matrix] checking Viewer");
       const { context, page } = await loginAs(users.viewer, `/app/settings?workspace_id=${workspaceId}`);
       const alignment = page.getByLabel("Enable Adaptive Style Alignment");
       const accelerate = page.getByLabel("Enable AI Accelerate");
@@ -319,6 +333,7 @@ async function main() {
     }
 
     // Editor Hearth open with AI Controls section visible while ON.
+    console.log("[ui-matrix] verifying Hearth open while ON");
     const editorHearth = await loginAs(users.editor, `/app/hearth?workspace_id=${workspaceId}`);
     await editorHearth.page.getByRole("button", { name: "AI Controls" }).click();
     await editorHearth.page.getByText("AI Controls", { exact: true }).waitFor({ state: "visible", timeout: 20_000 });
@@ -370,6 +385,7 @@ async function main() {
 
     // NON-MEMBER
     {
+      console.log("[ui-matrix] checking Non-member");
       const { context, page } = await loginAs(users.nonMember, `/app/settings?workspace_id=${workspaceId}`);
       await page.getByText("Settings requires a workspace.").waitFor({ state: "visible", timeout: 30_000 });
       const stripped = !page.url().includes(`workspace_id=${workspaceId}`);
@@ -425,6 +441,7 @@ async function main() {
     };
     console.log(`UI_MATRIX_JSON: ${JSON.stringify(output)}`);
   } finally {
+    console.log("[ui-matrix] cleanup");
     try {
       if (browser) {
         await browser.close();

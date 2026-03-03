@@ -5,8 +5,8 @@ import { loadMountRegistry } from "../lib/mount-registry";
 import { supabase } from "../lib/supabase";
 import { listMyWorkspaces, type Workspace } from "@barstock/lib/tongs-api";
 import { ForgeNav } from "../nav/ForgeNav";
-import { FORGE_NAV_ACTION_AI_CONTROLS, forgeNavTree } from "../nav/forgeNavTree";
-import { parseForgeRouteContext, removeWorkspaceParams } from "../lib/forge-route-context";
+import { FORGE_NAV_ACTION_AI_CONTROLS, forgeNavTree, type ForgeNavSection } from "../nav/forgeNavTree";
+import { buildForgeRouteHref, parseForgeRouteContext, removeWorkspaceParams } from "../lib/forge-route-context";
 import { AiControlsPanel } from "../components/hearth/AiControlsPanel";
 import "./AppShell.css";
 
@@ -81,6 +81,11 @@ function removeInviteToken(search: string): string {
   params.delete("inviteToken");
   const next = params.toString();
   return next ? `?${next}` : "";
+}
+
+function searchFromHref(href: string): string {
+  const q = href.indexOf("?");
+  return q >= 0 ? href.slice(q) : "";
 }
 
 type InvitePreview = {
@@ -172,7 +177,24 @@ export default function AppShell() {
   const selectWorkspace = useCallback((id: string | null) => {
     setWorkspaceId(id);
     saveActiveWorkspaceId(id);
-  }, []);
+    if (!location.pathname.startsWith("/app")) return;
+
+    const nextHref = buildForgeRouteHref(location.pathname, {
+      search: location.search,
+      workspaceId: id,
+      workpieceId: urlContext.workpieceId,
+    });
+    const nextSearch = searchFromHref(nextHref);
+    if (nextSearch === location.search) return;
+    nav(
+      {
+        pathname: location.pathname,
+        search: nextSearch,
+        hash: location.hash,
+      },
+      { replace: true },
+    );
+  }, [location.pathname, location.search, location.hash, nav, urlContext.workpieceId]);
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -298,6 +320,38 @@ export default function AppShell() {
     location.pathname,
     location.search,
     location.hash,
+    nav,
+  ]);
+
+  useEffect(() => {
+    if (!session) return;
+    if (!location.pathname.startsWith("/app")) return;
+    const selectedWorkspaceId = workspaceId && workspaces.some((workspace) => workspace.id === workspaceId)
+      ? workspaceId
+      : null;
+    const nextHref = buildForgeRouteHref(location.pathname, {
+      search: location.search,
+      workspaceId: selectedWorkspaceId,
+      workpieceId: urlContext.workpieceId,
+    });
+    const nextSearch = searchFromHref(nextHref);
+    if (nextSearch === location.search) return;
+    nav(
+      {
+        pathname: location.pathname,
+        search: nextSearch,
+        hash: location.hash,
+      },
+      { replace: true },
+    );
+  }, [
+    session,
+    workspaceId,
+    workspaces,
+    location.pathname,
+    location.search,
+    location.hash,
+    urlContext.workpieceId,
     nav,
   ]);
 
@@ -667,6 +721,34 @@ export default function AppShell() {
     () => [{ id: "ai-controls", label: "AI Controls", actionId: FORGE_NAV_ACTION_AI_CONTROLS }],
     [],
   );
+  const selectedWorkspaceId = workspaceId && workspaces.some((workspace) => workspace.id === workspaceId)
+    ? workspaceId
+    : null;
+  const homeHref = useMemo(
+    () => buildForgeRouteHref("/app", {
+      search: location.search,
+      workspaceId: selectedWorkspaceId,
+      workpieceId: urlContext.workpieceId,
+    }),
+    [location.search, selectedWorkspaceId, urlContext.workpieceId],
+  );
+  const navTreeWithWorkspace = useMemo<ForgeNavSection[]>(
+    () => forgeNavTree.map((section) => ({
+      ...section,
+      items: section.items.map((item) => {
+        if (!item.to || !item.to.startsWith("/app")) return item;
+        return {
+          ...item,
+          to: buildForgeRouteHref(item.to, {
+            search: location.search,
+            workspaceId: selectedWorkspaceId,
+            workpieceId: urlContext.workpieceId,
+          }),
+        };
+      }),
+    })),
+    [location.search, selectedWorkspaceId, urlContext.workpieceId],
+  );
 
   return (
     <div
@@ -689,7 +771,7 @@ export default function AppShell() {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <Link to="/app" style={{ fontWeight: 800, textDecoration: "none", color: "inherit" }}>
+          <Link to={homeHref} style={{ fontWeight: 800, textDecoration: "none", color: "inherit" }}>
             The Forge
           </Link>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -825,7 +907,7 @@ export default function AppShell() {
 
       <div style={{ display: "flex", flex: 1 }}>
         <aside style={{ width: 240, padding: 16, borderRight: "1px solid var(--forge-border)" }}>
-          <ForgeNav tree={forgeNavTree} extraItems={navExtraItems} onAction={onNavAction} />
+          <ForgeNav tree={navTreeWithWorkspace} extraItems={navExtraItems} onAction={onNavAction} />
         </aside>
 
         <main style={{ flex: 1, padding: 16 }}>
