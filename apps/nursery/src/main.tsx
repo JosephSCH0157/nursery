@@ -11,6 +11,7 @@ import ResetPassword from "./routes/ResetPassword";
 import ForgeHub from "./routes/ForgeHub";
 import SettingsHome from "./routes/SettingsHome";
 import SettingsLayout from "./routes/SettingsLayout";
+import SettingsOrg from "./routes/SettingsOrg";
 import SettingsStorage from "./routes/SettingsStorage";
 import TongsRoute from "./routes/Tongs";
 import BarstockRoute from "./routes/Barstock";
@@ -49,6 +50,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="mobile-demo" element={<MobilePrimitivesDemo />} />
           <Route path="settings" element={<SettingsLayout />}>
             <Route index element={<SettingsHome />} />
+            <Route path="org" element={<SettingsOrg />} />
             <Route path="storage" element={<SettingsStorage />} />
           </Route>
         </Route>

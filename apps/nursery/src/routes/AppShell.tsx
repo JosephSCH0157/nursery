@@ -677,12 +677,29 @@ export default function AppShell() {
           console.warn("[workspace] rpc create failed; falling back to direct insert", rpcError);
         }
 
+        const { data: orgData, error: orgError } = await tongsRpcClient
+          .rpc("get_or_create_my_personal_org_id")
+          .single();
+        if (orgError) {
+          setCreateError(getErrorMessage(orgError, "Failed to resolve organization for workspace."));
+          return;
+        }
+        const resolvedOrgId = (orgData as { org_id?: unknown } | null)?.org_id;
+        const orgId = typeof resolvedOrgId === "string" && resolvedOrgId.trim()
+          ? resolvedOrgId
+          : null;
+        if (!orgId) {
+          setCreateError("Failed to resolve organization for workspace.");
+          return;
+        }
+
         const { data: workspace, error: insertError } = await supabase
           .schema("tongs")
           .from("workspaces")
           .insert({
             name: "Workspace",
             created_by: session.user.id,
+            org_id: orgId,
           })
           .select("id,name")
           .single();
