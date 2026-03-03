@@ -6992,6 +6992,7 @@ export default function HearthShell() {
 
             <div className="hs-ai-chat-compose">
               <select
+                aria-label="Voice lane"
                 value={sttLane}
                 onChange={(event) => setSttLane(event.target.value as SttLane)}
                 className="stt-lane-select"
@@ -7208,6 +7209,7 @@ export default function HearthShell() {
         <div className="hs-decision-input-row">
           <input
             type="text"
+            aria-label="Decision draft"
             value={decisionDraft}
             placeholder="Add a decision"
             onChange={(event) => setDecisionDraft(event.target.value)}
@@ -7231,6 +7233,7 @@ export default function HearthShell() {
                 </div>
                 <input
                   type="text"
+                  aria-label={`Decision note ${idx + 1}`}
                   value={decision.text}
                   onChange={(event) => onUpdateDecision(idx, event.target.value)}
                 />
@@ -7399,6 +7402,7 @@ export default function HearthShell() {
       <div className="hs-rail-section">
         <label className="hs-rail-label">Search Episodes</label>
         <input
+          aria-label="Search episodes"
           ref={searchRef}
           type="search"
           value={searchText}
@@ -7407,7 +7411,7 @@ export default function HearthShell() {
         />
         <div className="hs-rail-sort">
           <label className="hs-rail-label">Sort</label>
-          <select value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
+          <select aria-label="Sort episodes" value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
             <option value="updated">Recently updated</option>
             <option value="title">Title A-Z</option>
           </select>
@@ -7827,6 +7831,7 @@ export default function HearthShell() {
           <div className="hs-rail-section">
             <label className="hs-rail-label">Search workspace projects</label>
             <input
+              aria-label="Search workspace projects"
               ref={searchRef}
               type="search"
               value={searchText}
@@ -7835,7 +7840,7 @@ export default function HearthShell() {
             />
             <div className="hs-rail-sort">
               <label className="hs-rail-label">Sort</label>
-              <select value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
+              <select aria-label="Sort workspace projects" value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
                 <option value="updated">Recently updated</option>
                 <option value="title">Title A-Z</option>
               </select>
@@ -7865,6 +7870,7 @@ export default function HearthShell() {
                     >
                       {isEditing ? (
                         <input
+                          aria-label="Edit project title"
                           value={editingTitle}
                           onChange={(event) => setEditingTitle(event.target.value)}
                           onKeyDown={(event) => {

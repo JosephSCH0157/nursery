@@ -865,6 +865,7 @@ export default function App(props: BarstockAppProps = {}) {
                 <label className="barstock-mobile-field">
                   <span className="barstock-mobile-field__label">Spark</span>
                   <textarea
+                    aria-label="Spark text"
                     value={body}
                     onChange={(event) => setBody(event.target.value)}
                     placeholder="Type here… try #tags if you want."
@@ -969,6 +970,7 @@ export default function App(props: BarstockAppProps = {}) {
                 <label className="barstock-mobile-field">
                   <span className="barstock-mobile-field__label">Status</span>
                   <select
+                    aria-label="Spark status"
                     value={mobileDetailSpark.status}
                     disabled={!canWrite}
                     onChange={(event) => setStatus(mobileDetailSpark, event.target.value as SparkStatus)}
@@ -984,6 +986,7 @@ export default function App(props: BarstockAppProps = {}) {
                 <label className="barstock-mobile-field">
                   <span className="barstock-mobile-field__label">Project</span>
                   <select
+                    aria-label="Spark project"
                     value={mobileDetailSpark.assignmentId ?? ""}
                     disabled={!canWrite}
                     onChange={(event) => {
@@ -1002,6 +1005,7 @@ export default function App(props: BarstockAppProps = {}) {
 
                 {detailEditing ? (
                   <textarea
+                    aria-label="Edit spark text"
                     value={editingBody}
                     onChange={(event) => setEditingBody(event.target.value)}
                     rows={14}
@@ -1187,6 +1191,7 @@ export default function App(props: BarstockAppProps = {}) {
             ) : session ? (
               <div className="barstock-workspace-controls">
                 <select
+                  aria-label="Workspace"
                   value={workspaceId ?? ""}
                   onChange={(e) => {
                     const v = e.target.value || null;
@@ -1207,6 +1212,7 @@ export default function App(props: BarstockAppProps = {}) {
             ) : STANDALONE ? (
               <div className="barstock-workspace-controls">
                 <input
+                  aria-label="Email for magic link"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="email for magic link"
@@ -1274,6 +1280,7 @@ export default function App(props: BarstockAppProps = {}) {
 
           <div className="barstock-sidebar__new-project-row">
             <input
+              aria-label="New project name"
               value={newAssignmentName}
               onChange={(e) => setNewAssignmentName(e.target.value)}
               placeholder="New project..."
@@ -1410,6 +1417,7 @@ export default function App(props: BarstockAppProps = {}) {
 
         <div className="barstock-main__composer">
           <textarea
+            aria-label="New spark text"
             value={body}
             onChange={(e) => setBody(e.target.value)}
             placeholder="Type here… try #tags if you want."
@@ -1428,12 +1436,14 @@ export default function App(props: BarstockAppProps = {}) {
         {/* Filters */}
         <div className="barstock-main__filters">
           <input
+            aria-label="Search sparks"
             value={q.text ?? ""}
             onChange={(e) => setQ(prev => ({ ...prev, text: e.target.value }))}
             placeholder="Search sparks…"
             className="barstock-main__filter-search"
           />
           <select
+            aria-label="Filter by spark status"
             value={q.status ?? "all"}
             onChange={(e) => setQ(prev => ({ ...prev, status: e.target.value as any }))}
             className="barstock-main__filter-status"
@@ -1502,6 +1512,7 @@ export default function App(props: BarstockAppProps = {}) {
                       </span>
                     ) : null}
                     <select
+                      aria-label="Spark status"
                       value={s.status}
                       onChange={(e) => setStatus(s, e.target.value as SparkStatus)}
                       className="barstock-spark-card__compact-select"
@@ -1515,6 +1526,7 @@ export default function App(props: BarstockAppProps = {}) {
                     </select>
 
                     <select
+                      aria-label="Spark project"
                       value={s.assignmentId ?? ""}
                       onChange={(e) => {
                         const v = e.target.value;
@@ -1612,6 +1624,7 @@ export default function App(props: BarstockAppProps = {}) {
 
                 {editingId === s.id ? (
                   <textarea
+                    aria-label="Edit spark text"
                     value={editingBody}
                     onChange={(e) => setEditingBody(e.target.value)}
                     rows={4}

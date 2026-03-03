@@ -522,6 +522,7 @@ export default function SettingsOrgTeams() {
                 <div className="settings-org-teams__create-row">
                   <input
                     type="text"
+                    aria-label="New team name"
                     placeholder="New team name"
                     value={newTeamName}
                     onChange={(event) => setNewTeamName(event.target.value)}
@@ -581,6 +582,7 @@ export default function SettingsOrgTeams() {
                     <div className="settings-org-teams__edit-row">
                       <input
                         type="text"
+                        aria-label="Team name"
                         value={renameTeamName}
                         onChange={(event) => setRenameTeamName(event.target.value)}
                         placeholder="Team name"
@@ -611,11 +613,13 @@ export default function SettingsOrgTeams() {
                       <div className="settings-org-teams__create-row">
                         <input
                           type="email"
+                          aria-label="Member email"
                           value={newMemberEmail}
                           onChange={(event) => setNewMemberEmail(event.target.value)}
                           placeholder="User email"
                         />
                         <select
+                          aria-label="Member role"
                           value={newMemberRole}
                           onChange={(event) => setNewMemberRole(normalizeTeamRole(event.target.value))}
                         >
