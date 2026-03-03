@@ -69,7 +69,7 @@ jobs:
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.72.7
 
       - name: Validate smoke:team secrets
         run: |
