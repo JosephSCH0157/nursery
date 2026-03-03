@@ -1,4 +1,5 @@
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const WARNED_MISSING_WORKSPACE_NAV_KEYS = new Set<string>();
 
 const WORKSPACE_PARAM_KEYS = ["workspace_id", "workspaceId", "workspace"] as const;
 const WORKPIECE_PARAM_KEYS = [
@@ -97,4 +98,29 @@ export function removeWorkspaceParams(search: string): string {
   deleteParams(params, WORKSPACE_PARAM_KEYS);
   const nextSearch = params.toString();
   return nextSearch ? `?${nextSearch}` : "";
+}
+
+export function warnMissingWorkspaceParamInDev(args: {
+  source: string;
+  href: string;
+  workspaceId: string | null;
+}): void {
+  if (!import.meta.env.DEV) return;
+  if (!args.workspaceId) return;
+  if (typeof window === "undefined") return;
+  try {
+    const parsed = new URL(args.href, window.location.origin);
+    if (!parsed.pathname.startsWith("/app")) return;
+    if (normalizeUuid(parsed.searchParams.get("workspace_id"))) return;
+    const key = `${args.source}|${parsed.pathname}`;
+    if (WARNED_MISSING_WORKSPACE_NAV_KEYS.has(key)) return;
+    WARNED_MISSING_WORKSPACE_NAV_KEYS.add(key);
+    console.warn("[workspace] ForgeNav link missing workspace_id", {
+      source: args.source,
+      href: args.href,
+      workspaceId: args.workspaceId,
+    });
+  } catch {
+    // ignore malformed hrefs
+  }
 }

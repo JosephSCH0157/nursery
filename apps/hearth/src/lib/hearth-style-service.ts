@@ -598,7 +598,14 @@ export function clearWorkspaceFeatureCache(workspaceId?: string | null): void {
   STYLE_PROFILE_CACHE.delete(normalized);
 }
 
-export function resolveWorkspaceIdFromSearch(search: string): string | null {
+export type ResolveWorkspaceIdFromSearchOptions = {
+  allowLocalStorageFallback?: boolean;
+};
+
+export function resolveWorkspaceIdFromSearch(
+  search: string,
+  options?: ResolveWorkspaceIdFromSearchOptions,
+): string | null {
   try {
     const params = new URLSearchParams(search);
     const fromQuery = normalizeUuid(
@@ -611,12 +618,17 @@ export function resolveWorkspaceIdFromSearch(search: string): string | null {
     // ignore parsing failures
   }
 
+  if (!options?.allowLocalStorageFallback) return null;
   if (typeof window === "undefined") return null;
   try {
     return normalizeUuid(window.localStorage.getItem("forge_workspace_id_v1"));
   } catch {
     return null;
   }
+}
+
+export function resolveWorkspaceIdFromSearchWithFallback(search: string): string | null {
+  return resolveWorkspaceIdFromSearch(search, { allowLocalStorageFallback: true });
 }
 
 export function isStyleAlignmentPaused(workspaceId: string | null): boolean {

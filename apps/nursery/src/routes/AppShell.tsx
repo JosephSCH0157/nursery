@@ -6,7 +6,12 @@ import { supabase } from "../lib/supabase";
 import { listMyWorkspaces, type Workspace } from "@barstock/lib/tongs-api";
 import { ForgeNav } from "../nav/ForgeNav";
 import { FORGE_NAV_ACTION_AI_CONTROLS, forgeNavTree, type ForgeNavSection } from "../nav/forgeNavTree";
-import { buildForgeRouteHref, parseForgeRouteContext, removeWorkspaceParams } from "../lib/forge-route-context";
+import {
+  buildForgeRouteHref,
+  parseForgeRouteContext,
+  removeWorkspaceParams,
+  warnMissingWorkspaceParamInDev,
+} from "../lib/forge-route-context";
 import { AiControlsPanel } from "../components/hearth/AiControlsPanel";
 import "./AppShell.css";
 
@@ -98,6 +103,7 @@ type InvitePreview = {
 
 export type AppShellContext = {
   workspaceId: string | null;
+  workspaceAccessDeniedId: string | null;
   workspaces: Workspace[];
   selectWorkspace: (id: string | null) => void;
   refreshWorkspaces: (opts?: { force?: boolean; preferId?: string | null }) => Promise<void>;
@@ -118,6 +124,7 @@ export default function AppShell() {
   const [loadingWorkspaces, setLoadingWorkspaces] = useState(false);
   const [workspaceLoadError, setWorkspaceLoadError] = useState<string | null>(null);
   const [hasWorkspaceFetchSucceeded, setHasWorkspaceFetchSucceeded] = useState(false);
+  const [workspaceAccessDeniedId, setWorkspaceAccessDeniedId] = useState<string | null>(null);
   const lastSessionUserId = useRef<string | null>(null);
   const lastUrlWorkspaceRefresh = useRef<string | null>(null);
 
@@ -175,6 +182,7 @@ export default function AppShell() {
   }, []);
 
   const selectWorkspace = useCallback((id: string | null) => {
+    if (id) setWorkspaceAccessDeniedId(null);
     setWorkspaceId(id);
     saveActiveWorkspaceId(id);
     if (!location.pathname.startsWith("/app")) return;
@@ -215,6 +223,13 @@ export default function AppShell() {
       const preferId = opts?.preferId ?? null;
       const current = workspaceId;
       const saved = loadActiveWorkspaceId();
+      const requestedWorkspaceMissingMembership = !!urlWorkspaceId && !ws.some((w) => w.id === urlWorkspaceId);
+      if (requestedWorkspaceMissingMembership) {
+        setWorkspaceAccessDeniedId(urlWorkspaceId);
+        setWorkspaceId(null);
+        saveActiveWorkspaceId(null);
+        return;
+      }
       const pick =
         (preferId && ws.some(w => w.id === preferId)) ? preferId
           : (urlWorkspaceId && ws.some(w => w.id === urlWorkspaceId)) ? urlWorkspaceId
@@ -242,6 +257,7 @@ export default function AppShell() {
       setWorkspaceId(null);
       setWorkspaceLoadError(null);
       setHasWorkspaceFetchSucceeded(false);
+      setWorkspaceAccessDeniedId(null);
       return;
     }
 
@@ -252,7 +268,7 @@ export default function AppShell() {
     }
 
     if (workspaceId && workspaces.some(w => w.id === workspaceId)) return;
-    if (!workspaceId && workspaces.length === 0) return;
+    if (workspaces.length === 0) return;
     const saved = loadActiveWorkspaceId();
     const pick =
       (urlWorkspaceId && workspaces.some((w) => w.id === urlWorkspaceId)) ? urlWorkspaceId
@@ -285,13 +301,20 @@ export default function AppShell() {
     if (!session || !urlWorkspaceId) return;
     if (!hasWorkspaceFetchSucceeded || loadingWorkspaces) return;
     if (workspaces.some((w) => w.id === urlWorkspaceId)) return;
+    setWorkspaceAccessDeniedId(urlWorkspaceId);
     nav(
       {
         pathname: location.pathname,
         search: removeWorkspaceParams(location.search),
         hash: location.hash,
       },
-      { replace: true },
+      {
+        replace: true,
+        state: {
+          forgeWorkspaceAccessDenied: true,
+          deniedWorkspaceId: urlWorkspaceId,
+        },
+      },
     );
   }, [
     session,
@@ -306,17 +329,32 @@ export default function AppShell() {
   ]);
 
   useEffect(() => {
+    if (location.pathname !== "/app") return;
+    if (!workspaceAccessDeniedId) return;
+    setWorkspaceAccessDeniedId(null);
+  }, [location.pathname, workspaceAccessDeniedId]);
+
+  useEffect(() => {
     if (!urlContext.hasInvalidWorkspaceId) return;
+    const nextHref = buildForgeRouteHref(location.pathname, {
+      search: location.search,
+      workspaceId: urlWorkspaceId,
+      workpieceId: urlContext.workpieceId,
+    });
+    const nextSearch = searchFromHref(nextHref);
+    if (nextSearch === location.search) return;
     nav(
       {
         pathname: location.pathname,
-        search: removeWorkspaceParams(location.search),
+        search: nextSearch,
         hash: location.hash,
       },
       { replace: true },
     );
   }, [
     urlContext.hasInvalidWorkspaceId,
+    urlWorkspaceId,
+    urlContext.workpieceId,
     location.pathname,
     location.search,
     location.hash,
@@ -326,6 +364,12 @@ export default function AppShell() {
   useEffect(() => {
     if (!session) return;
     if (!location.pathname.startsWith("/app")) return;
+    if (!hasWorkspaceFetchSucceeded) return;
+    if (urlWorkspaceId && !workspaces.some((workspace) => workspace.id === urlWorkspaceId)) {
+      // Let the explicit non-member handler strip workspace params so it can tag
+      // history state with an access-denied reason for downstream notices.
+      return;
+    }
     const selectedWorkspaceId = workspaceId && workspaces.some((workspace) => workspace.id === workspaceId)
       ? workspaceId
       : null;
@@ -346,11 +390,13 @@ export default function AppShell() {
     );
   }, [
     session,
+    hasWorkspaceFetchSucceeded,
     workspaceId,
     workspaces,
     location.pathname,
     location.search,
     location.hash,
+    urlWorkspaceId,
     urlContext.workpieceId,
     nav,
   ]);
@@ -737,13 +783,19 @@ export default function AppShell() {
       ...section,
       items: section.items.map((item) => {
         if (!item.to || !item.to.startsWith("/app")) return item;
+        const nextTo = buildForgeRouteHref(item.to, {
+          search: location.search,
+          workspaceId: selectedWorkspaceId,
+          workpieceId: urlContext.workpieceId,
+        });
+        warnMissingWorkspaceParamInDev({
+          source: `AppShell:${section.id}:${item.id}`,
+          href: nextTo,
+          workspaceId: selectedWorkspaceId,
+        });
         return {
           ...item,
-          to: buildForgeRouteHref(item.to, {
-            search: location.search,
-            workspaceId: selectedWorkspaceId,
-            workpieceId: urlContext.workpieceId,
-          }),
+          to: nextTo,
         };
       }),
     })),
@@ -1004,6 +1056,7 @@ export default function AppShell() {
             <Outlet
               context={{
                 workspaceId,
+                workspaceAccessDeniedId,
                 workspaces,
                 selectWorkspace,
                 refreshWorkspaces,

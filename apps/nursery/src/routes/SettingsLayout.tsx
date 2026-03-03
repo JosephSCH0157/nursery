@@ -1,6 +1,9 @@
-import { Outlet } from "react-router-dom";
+import { Outlet, useOutletContext } from "react-router-dom";
+import type { AppShellContext } from "./AppShell";
 
 export default function SettingsLayout() {
+  const shell = useOutletContext<AppShellContext>();
+
   return (
     <section style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <header>
@@ -10,7 +13,7 @@ export default function SettingsLayout() {
         </p>
       </header>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        <Outlet />
+        <Outlet context={shell} />
       </div>
     </section>
   );

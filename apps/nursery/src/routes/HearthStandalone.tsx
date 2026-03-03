@@ -6,11 +6,15 @@ import {
   readHearthAiRuntimeStatus,
   type HearthAiRuntimeStatus,
 } from "@hearth/lib/ai-runtime-status";
-import { resolveWorkspaceIdFromSearch } from "@hearth/lib/hearth-style-service";
 import { ForgeNav } from "../nav/ForgeNav";
 import { FORGE_NAV_ACTION_AI_CONTROLS, forgeNavTree } from "../nav/forgeNavTree";
 import { supabase } from "../lib/supabase";
 import { AiControlsPanel } from "../components/hearth/AiControlsPanel";
+import {
+  buildForgeRouteHref,
+  parseForgeRouteContext,
+  warnMissingWorkspaceParamInDev,
+} from "../lib/forge-route-context";
 
 type StoreKind = "local" | "tongs";
 
@@ -132,9 +136,33 @@ export default function HearthStandalone() {
   const { session, loading } = useForgeSession();
   const aiStatus = useAiStatus();
   const location = useLocation();
+  const routeContext = useMemo(() => parseForgeRouteContext(location.search), [location.search]);
   const devMode = useMemo(() => isDevMode(location.search), [location.search]);
   const storeKind = useMemo(() => resolveStoreKind(location.search), [location.search]);
-  const workspaceId = useMemo(() => resolveWorkspaceIdFromSearch(location.search), [location.search]);
+  const workspaceId = routeContext.workspaceId;
+  const navTreeWithContext = useMemo(
+    () => forgeNavTree.map((section) => ({
+      ...section,
+      items: section.items.map((item) => {
+        if (!item.to || !item.to.startsWith("/app")) return item;
+        const nextTo = buildForgeRouteHref(item.to, {
+          search: location.search,
+          workspaceId: routeContext.workspaceId,
+          workpieceId: routeContext.workpieceId,
+        });
+        warnMissingWorkspaceParamInDev({
+          source: `HearthStandalone:${section.id}:${item.id}`,
+          href: nextTo,
+          workspaceId: routeContext.workspaceId,
+        });
+        return {
+          ...item,
+          to: nextTo,
+        };
+      }),
+    })),
+    [location.search, routeContext.workspaceId, routeContext.workpieceId],
+  );
 
   const loginHref = useMemo(() => {
     const next = encodeURIComponent(
@@ -268,7 +296,7 @@ export default function HearthStandalone() {
             </div>
             <div style={{ flex: "1 1 auto", overflow: "auto", padding: "10px 14px" }}>
               <ForgeNav
-                tree={forgeNavTree}
+                tree={navTreeWithContext}
                 extraItems={navExtraItems}
                 onNavigate={() => setNavOpen(false)}
                 onAction={onNavAction}

@@ -16,6 +16,7 @@ function canManageWorkspaceFeatures(role: string | null | undefined): boolean {
 export default function SettingsHome() {
   const shell = useOutletContext<AppShellContext>();
   const workspaceId = shell?.workspaceId ?? null;
+  const workspaceAccessDeniedId = shell?.workspaceAccessDeniedId ?? null;
   const activeWorkspace = useMemo(
     () => shell?.workspaces?.find((workspace) => workspace.id === workspaceId) ?? null,
     [shell?.workspaces, workspaceId],
@@ -96,7 +97,12 @@ export default function SettingsHome() {
   }
 
   if (!workspaceId) {
-    return <WorkspaceRequiredNotice toolName="Settings" />;
+    return (
+      <WorkspaceRequiredNotice
+        toolName="Settings"
+        accessDeniedWorkspaceId={workspaceAccessDeniedId}
+      />
+    );
   }
 
   return (

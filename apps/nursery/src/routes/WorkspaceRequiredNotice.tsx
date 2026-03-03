@@ -1,10 +1,26 @@
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 
 type WorkspaceRequiredNoticeProps = {
   toolName: string;
+  accessDeniedWorkspaceId?: string | null;
 };
 
-export default function WorkspaceRequiredNotice({ toolName }: WorkspaceRequiredNoticeProps) {
+export default function WorkspaceRequiredNotice({
+  toolName,
+  accessDeniedWorkspaceId = null,
+}: WorkspaceRequiredNoticeProps) {
+  const location = useLocation();
+  const deniedState = location.state as {
+    forgeWorkspaceAccessDenied?: unknown;
+    deniedWorkspaceId?: unknown;
+  } | null;
+  const deniedFromState = deniedState?.forgeWorkspaceAccessDenied === true;
+  const deniedWorkspaceIdFromState = typeof deniedState?.deniedWorkspaceId === "string"
+    ? deniedState.deniedWorkspaceId.trim()
+    : "";
+  const deniedWorkspaceId = accessDeniedWorkspaceId ?? deniedWorkspaceIdFromState;
+  const workspaceAccessDenied = !!deniedWorkspaceId || deniedFromState;
+
   return (
     <section
       style={{
@@ -17,10 +33,19 @@ export default function WorkspaceRequiredNotice({ toolName }: WorkspaceRequiredN
         gap: 10,
       }}
     >
-      <h2 style={{ margin: 0 }}>{toolName} requires a workspace.</h2>
+      <h2 style={{ margin: 0 }}>
+        {workspaceAccessDenied ? `${toolName} access denied for this workspace.` : `${toolName} requires a workspace.`}
+      </h2>
       <p style={{ margin: 0, color: "var(--forge-text-muted)" }}>
-        Workspace ID is missing. Go to Home and select a workspace before continuing.
+        {workspaceAccessDenied
+          ? "You don't have access to this workspace. Go to Home and select a workspace you belong to before continuing."
+          : "Workspace ID is missing. Go to Home and select a workspace before continuing."}
       </p>
+      {workspaceAccessDenied && deniedWorkspaceId ? (
+        <p style={{ margin: 0, color: "var(--forge-text-muted)", fontSize: 13 }}>
+          Requested workspace: {deniedWorkspaceId}
+        </p>
+      ) : null}
       <div>
         <Link to="/app">Go to Home and Select Workspace</Link>
       </div>
