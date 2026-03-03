@@ -4,6 +4,10 @@
     "target": "ES2023",
     "lib": ["ES2023"],
     "module": "ESNext",
+    "baseUrl": ".",
+    "paths": {
+      "@forge/tongs": ["../../packages/tongs/dist/index.d.ts"]
+    },
     "types": ["node"],
     "skipLibCheck": true,
 

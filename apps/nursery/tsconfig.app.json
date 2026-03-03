@@ -8,7 +8,8 @@
     "baseUrl": ".",
     "paths": {
       "@barstock/*": ["../bar-stock/src/*"],
-      "@hearth/*": ["../hearth/src/*"]
+      "@hearth/*": ["../hearth/src/*"],
+      "@forge/tongs": ["../../packages/tongs/dist/index.d.ts"]
     },
     "types": ["vite/client"],
     "skipLibCheck": true,
