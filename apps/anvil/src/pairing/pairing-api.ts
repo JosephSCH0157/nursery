@@ -19,6 +19,10 @@ const PAIR_QR_URL =
   w.__TP_PAIR_QR_URL ||
   metaEnv.VITE_PAIR_QR_URL ||
   '';
+const SUPABASE_ANON_KEY =
+  w.__forgeSupabaseAnonKey ||
+  metaEnv.VITE_SUPABASE_ANON_KEY ||
+  '';
 
 const DEFAULT_PAIR_PATH = '/display.html';
 const DEFAULT_TTL_MINUTES = Number(w.__TP_PAIR_QR_TTL_MINUTES ?? metaEnv.VITE_PAIR_QR_TTL_MINUTES ?? 10);
@@ -49,6 +53,12 @@ export async function requestPairQr(opts: PairQrOpts): Promise<PairQrPayload> {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      ...(SUPABASE_ANON_KEY
+        ? {
+            apikey: String(SUPABASE_ANON_KEY),
+            Authorization: `Bearer ${String(SUPABASE_ANON_KEY)}`,
+          }
+        : {}),
     },
     body: JSON.stringify(payload),
   });

@@ -20,7 +20,13 @@ function normalizeWsBase(candidate: string): string | null {
   try {
     const url = new URL(candidate);
     const protocol = url.protocol.toLowerCase();
-    if (protocol !== 'ws:' && protocol !== 'wss:') return null;
+    if (protocol === 'https:') {
+      url.protocol = 'wss:';
+    } else if (protocol === 'http:') {
+      url.protocol = 'ws:';
+    } else if (protocol !== 'ws:' && protocol !== 'wss:') {
+      return null;
+    }
     return url.toString();
   } catch {
     return null;
