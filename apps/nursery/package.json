@@ -14,10 +14,13 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "preview": "vite preview",
-    "smoke:tongs-commit-api": "node scripts/smoke-tongs-commit-api.mjs"
+    "smoke:tongs-commit-api": "node scripts/smoke-tongs-commit-api.mjs",
+    "test:playwright:auth": "playwright test -c playwright.config.ts playwright/auth.capture.spec.ts --headed --workers=1",
+    "test:playwright:surgical": "playwright test -c playwright.config.ts playwright/library_to_session_switching.spec.ts"
   },
   "dependencies": {
     "@forge/hearth": "workspace:*",
+    "@forge/ui-mobile": "workspace:*",
     "@forge/tongs": "workspace:*",
     "@supabase/supabase-js": "^2.98.0",
     "react": "^19.2.0",
@@ -34,6 +37,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
+    "playwright": "^1.58.2",
     "tsx": "^4.21.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.56.1",

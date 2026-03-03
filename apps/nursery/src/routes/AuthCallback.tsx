@@ -2,6 +2,16 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 
+const AUTH_NEXT_STORAGE_KEY = "forge_auth_next_v1";
+
+function normalizeNextPath(raw: string | null): string {
+  if (!raw) return "/app";
+  const trimmed = raw.trim();
+  if (!trimmed) return "/app";
+  if (!trimmed.startsWith("/") || trimmed.startsWith("//")) return "/app";
+  return trimmed;
+}
+
 function readCallbackType(): string | null {
   try {
     const searchType = new URLSearchParams(window.location.search).get("type");
@@ -36,6 +46,34 @@ function readCallbackError(): string | null {
   return null;
 }
 
+function readCallbackNext(): string {
+  try {
+    const next = new URLSearchParams(window.location.search).get("next");
+    if (next) return normalizeNextPath(next);
+  } catch {
+    // ignore
+  }
+  try {
+    const next = new URLSearchParams(window.location.hash.replace(/^#/, "")).get("next");
+    if (next) return normalizeNextPath(next);
+  } catch {
+    // ignore
+  }
+  try {
+    return normalizeNextPath(window.sessionStorage.getItem(AUTH_NEXT_STORAGE_KEY));
+  } catch {
+    return "/app";
+  }
+}
+
+function clearCallbackNext(): void {
+  try {
+    window.sessionStorage.removeItem(AUTH_NEXT_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 async function waitForSession(attempts = 10, delayMs = 120) {
   for (let i = 0; i < attempts; i += 1) {
     const { data, error } = await supabase.auth.getSession();
@@ -55,6 +93,7 @@ export default function AuthCallback() {
   useEffect(() => {
     (async () => {
       try {
+        const next = readCallbackNext();
         const callbackError = readCallbackError();
         if (callbackError) {
           throw new Error(callbackError);
@@ -62,6 +101,7 @@ export default function AuthCallback() {
 
         const type = readCallbackType();
         if (type === "recovery") {
+          clearCallbackNext();
           nav("/reset-password", { replace: true });
           return;
         }
@@ -74,15 +114,17 @@ export default function AuthCallback() {
 
         const session = await waitForSession();
         if (session) {
-          nav("/app", { replace: true });
+          clearCallbackNext();
+          nav(next, { replace: true });
           return;
         }
 
-        nav("/login?reason=callback_session_missing", { replace: true });
+        nav(`/login?reason=callback_session_missing&next=${encodeURIComponent(next)}`, { replace: true });
       } catch (e: unknown) {
         const message = e instanceof Error ? e.message : "Auth callback failed.";
         setErr(message);
-        nav("/login?reason=callback_failed", { replace: true });
+        const next = readCallbackNext();
+        nav(`/login?reason=callback_failed&next=${encodeURIComponent(next)}`, { replace: true });
       }
     })();
   }, [nav]);

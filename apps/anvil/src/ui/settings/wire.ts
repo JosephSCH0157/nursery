@@ -117,8 +117,8 @@ async function wireAutoRecord(rootEl: HTMLElement | null | undefined, store?: Ap
       if (pickBtn) {
         pickBtn.disabled = managed;
         if (managed) {
-          pickBtn.textContent = 'Managed by Nursery';
-          pickBtn.title = 'Recordings folder is managed in Nursery Storage settings.';
+          pickBtn.textContent = 'Managed by The Forge';
+          pickBtn.title = 'Recordings folder is managed in The Forge Storage settings.';
         } else {
           pickBtn.textContent = 'Change auto-save folder';
           pickBtn.title = '';
@@ -126,11 +126,11 @@ async function wireAutoRecord(rootEl: HTMLElement | null | undefined, store?: Ap
       }
       if (clearBtn) {
         clearBtn.disabled = managed;
-        clearBtn.title = managed ? 'Recordings folder is managed in Nursery Storage settings.' : '';
+        clearBtn.title = managed ? 'Recordings folder is managed in The Forge Storage settings.' : '';
       }
       if (!nameEl) return;
       if (managed) {
-        nameEl.textContent = dir?.name || managedHint || 'Managed by Nursery (not linked)';
+        nameEl.textContent = dir?.name || managedHint || 'Managed by The Forge (not linked)';
         return;
       }
       if (dir) {
@@ -171,7 +171,7 @@ async function pickFolder({ force }: { force?: boolean } = {}) {
       }
       const settingsUrl = getNurseryStorageSettingsUrl();
       (window as any).toast?.(
-        `Recordings folder is managed by Nursery but not linked in this origin (${window.location.origin}). Auto-record will continue and recordings will download until Storage is linked (${settingsUrl}).`,
+        `Recordings folder is managed by The Forge but not linked in this origin (${window.location.origin}). Auto-record will continue and recordings will download until Storage is linked (${settingsUrl}).`,
         { type: 'warn' },
       );
       return true;
@@ -243,7 +243,7 @@ async function pickFolder({ force }: { force?: boolean } = {}) {
         if (api?.isManaged?.()) {
           const settingsUrl = getNurseryStorageSettingsUrl();
           (window as any).toast?.(
-            `Recordings folder is managed by Nursery. Update it in Nursery > Settings > Storage (${settingsUrl}).`,
+            `Recordings folder is managed by The Forge. Update it in The Forge > Settings > Storage (${settingsUrl}).`,
             { type: 'warn' },
           );
           return;

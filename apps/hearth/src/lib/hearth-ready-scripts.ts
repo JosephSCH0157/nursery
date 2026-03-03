@@ -16,6 +16,17 @@ const CONTENT_CATEGORY_VALUES = [
   "backup",
 ] as const;
 const CONTENT_CATEGORY_SET = new Set<string>(CONTENT_CATEGORY_VALUES as readonly string[]);
+const READY_SCRIPT_PATH_PREFERENCE = [
+  "script/script.published.md",
+  "script/script.md",
+  "scripts/script.anvil.txt",
+  "scripts/script.source.md",
+] as const;
+const READY_SCRIPT_PATH_PREFERENCE_INDEX = new Map<string, number>(
+  READY_SCRIPT_PATH_PREFERENCE.map((path, index) => [path, index]),
+);
+const DROPPED_READY_ROWS_LOGGED_BY_WORKSPACE = new Set<string>();
+const READY_RAIL_DEBUG_QUERY_KEYS = ["debug_ready_rail", "debugReadyRail", "readyRailDebug"] as const;
 
 type ReadyScriptApiRow = {
   workspace_id?: unknown;
@@ -26,6 +37,8 @@ type ReadyScriptApiRow = {
   title?: unknown;
   updated_at?: unknown;
   content_category?: unknown;
+  marked_ready_by?: unknown;
+  marked_ready_at?: unknown;
 };
 
 type WrittenBy = {
@@ -47,6 +60,8 @@ export type HearthReadyScript = {
   title: string;
   updatedAt: string | null;
   contentCategory: HearthContentCategory | null;
+  markedReadyBy: string | null;
+  markedReadyAt: string | null;
 };
 
 function readString(value: unknown): string | null {
@@ -64,8 +79,21 @@ function normalizeUuid(value: unknown): string | null {
 function normalizePath(value: unknown): string | null {
   const path = readString(value);
   if (!path) return null;
-  if (path.startsWith("/") || path.includes("..")) return null;
+  if (path.startsWith("/") || path.includes("..") || path.includes("\\")) return null;
   return path;
+}
+
+function isLikelyReadyScriptPath(path: string): boolean {
+  if (READY_SCRIPT_PATH_PREFERENCE_INDEX.has(path)) return true;
+  if (!(path.startsWith("script/") || path.startsWith("scripts/"))) return false;
+  const lower = path.toLowerCase();
+  return lower.endsWith(".md") || lower.endsWith(".txt");
+}
+
+function normalizeReadyScriptPath(value: unknown): string | null {
+  const path = normalizePath(value);
+  if (!path) return null;
+  return isLikelyReadyScriptPath(path) ? path : null;
 }
 
 function normalizeIso(value: unknown): string | null {
@@ -156,12 +184,31 @@ function normalizeScriptPaths(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   const paths: string[] = [];
   for (const entry of value) {
-    const path = normalizePath(entry);
+    const path = normalizeReadyScriptPath(entry);
     if (path && !paths.includes(path)) {
       paths.push(path);
     }
   }
-  return paths;
+  return sortScriptPaths(paths);
+}
+
+function readyScriptPathPriority(path: string): number {
+  return READY_SCRIPT_PATH_PREFERENCE_INDEX.get(path) ?? READY_SCRIPT_PATH_PREFERENCE.length;
+}
+
+function sortScriptPaths(paths: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const path of paths) {
+    if (path && !out.includes(path)) {
+      out.push(path);
+    }
+  }
+  out.sort((a, b) => {
+    const byPriority = readyScriptPathPriority(a) - readyScriptPathPriority(b);
+    if (byPriority !== 0) return byPriority;
+    return a.localeCompare(b);
+  });
+  return out;
 }
 
 function compareReadyScriptFreshness(a: HearthReadyScript, b: HearthReadyScript): number {
@@ -174,6 +221,68 @@ function compareReadyScriptFreshness(a: HearthReadyScript, b: HearthReadyScript)
   return a.title.localeCompare(b.title);
 }
 
+type DroppedReadyScriptStats = {
+  invalidIdentity: number;
+  missingScriptPath: number;
+  missingTitle: number;
+};
+
+function readBoolean(value: unknown): boolean | null {
+  const normalized = readString(value)?.toLowerCase();
+  if (!normalized) return null;
+  if (normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on") return true;
+  if (normalized === "0" || normalized === "false" || normalized === "no" || normalized === "off") return false;
+  return null;
+}
+
+function shouldLogDroppedReadyRows(): boolean {
+  try {
+    const metaEnv = (import.meta as { env?: Record<string, unknown> }).env;
+    if (metaEnv?.DEV === true) return true;
+    const fromEnv = readBoolean(metaEnv?.VITE_DEBUG_READY_RAIL);
+    if (fromEnv !== null) return fromEnv;
+  } catch {
+    // ignore env failures
+  }
+
+  if (typeof window === "undefined") return false;
+
+  try {
+    const params = new URLSearchParams(window.location.search || "");
+    for (const key of READY_RAIL_DEBUG_QUERY_KEYS) {
+      const value = readBoolean(params.get(key));
+      if (value !== null) return value;
+    }
+  } catch {
+    // ignore query parsing failures
+  }
+
+  try {
+    return window.localStorage.getItem("tp_dev_mode") === "1";
+  } catch {
+    return false;
+  }
+}
+
+function logDroppedReadyScriptRowsOnce(workspaceId: string, stats: DroppedReadyScriptStats): void {
+  const totalDropped = stats.invalidIdentity + stats.missingScriptPath + stats.missingTitle;
+  if (totalDropped <= 0) return;
+  if (!shouldLogDroppedReadyRows()) return;
+  if (DROPPED_READY_ROWS_LOGGED_BY_WORKSPACE.has(workspaceId)) return;
+  DROPPED_READY_ROWS_LOGGED_BY_WORKSPACE.add(workspaceId);
+  try {
+    console.warn("[hearth-ready-scripts] dropped invalid ready rows", {
+      workspaceId,
+      totalDropped,
+      invalidIdentity: stats.invalidIdentity,
+      missingScriptPath: stats.missingScriptPath,
+      missingTitle: stats.missingTitle,
+    });
+  } catch {
+    // ignore logging failures
+  }
+}
+
 function parseReadyScriptsPayload(payload: unknown, workspaceId: string): HearthReadyScript[] {
   if (!payload || typeof payload !== "object") return [];
   const root = payload as { ok?: unknown; data?: unknown };
@@ -182,20 +291,36 @@ function parseReadyScriptsPayload(payload: unknown, workspaceId: string): Hearth
   const scripts = (root.data as { scripts?: unknown } | null | undefined)?.scripts;
   if (!Array.isArray(scripts)) return [];
 
-  const byId = new Map<string, HearthReadyScript>();
+  const byWorkpieceId = new Map<string, HearthReadyScript>();
+  const droppedStats: DroppedReadyScriptStats = {
+    invalidIdentity: 0,
+    missingScriptPath: 0,
+    missingTitle: 0,
+  };
   for (const row of scripts) {
     if (!row || typeof row !== "object") continue;
     const item = row as ReadyScriptApiRow;
     const rowWorkspaceId = normalizeUuid(item.workspace_id) ?? workspaceId;
     const workpieceId = normalizeUuid(item.workpiece_id);
-    const primaryPath = normalizePath(item.primary_script_path) ?? normalizePath(item.path);
+    if (!rowWorkspaceId || !workpieceId) {
+      droppedStats.invalidIdentity += 1;
+      continue;
+    }
+    const primaryPath = normalizeReadyScriptPath(item.primary_script_path) ?? normalizeReadyScriptPath(item.path);
     const scriptPaths = normalizeScriptPaths(item.script_paths);
     const path = primaryPath ?? scriptPaths[0] ?? null;
-    if (!rowWorkspaceId || !workpieceId || !path) continue;
-    const normalizedScriptPaths = scriptPaths.length
+    if (!path) {
+      droppedStats.missingScriptPath += 1;
+      continue;
+    }
+    const title = readString(item.title);
+    if (!title) {
+      droppedStats.missingTitle += 1;
+      continue;
+    }
+    const normalizedScriptPaths = sortScriptPaths(scriptPaths.length
       ? (scriptPaths.includes(path) ? scriptPaths : [path, ...scriptPaths])
-      : [path];
-    const title = readString(item.title) ?? `Episode ${workpieceId.slice(0, 8)}`;
+      : [path]);
     const next: HearthReadyScript = {
       id: toScriptId(workpieceId, path),
       workspaceId: rowWorkspaceId,
@@ -206,15 +331,31 @@ function parseReadyScriptsPayload(payload: unknown, workspaceId: string): Hearth
       title,
       updatedAt: normalizeIso(item.updated_at),
       contentCategory: normalizeCategory(item.content_category),
+      markedReadyBy: normalizeUuid(item.marked_ready_by),
+      markedReadyAt: normalizeIso(item.marked_ready_at),
     };
 
-    const existing = byId.get(next.id);
-    if (!existing || compareReadyScriptFreshness(existing, next) <= 0) {
-      byId.set(next.id, next);
+    const existing = byWorkpieceId.get(workpieceId);
+    if (!existing) {
+      byWorkpieceId.set(workpieceId, next);
+      continue;
     }
+
+    const winner = compareReadyScriptFreshness(existing, next) <= 0 ? next : existing;
+    const mergedScriptPaths = sortScriptPaths([...existing.scriptPaths, ...next.scriptPaths]);
+    const mergedPrimaryPath = mergedScriptPaths[0] ?? winner.primaryScriptPath;
+    byWorkpieceId.set(workpieceId, {
+      ...winner,
+      id: toScriptId(workpieceId, mergedPrimaryPath),
+      path: mergedPrimaryPath,
+      primaryScriptPath: mergedPrimaryPath,
+      scriptPaths: mergedScriptPaths,
+    });
   }
 
-  const out = [...byId.values()];
+  logDroppedReadyScriptRowsOnce(workspaceId, droppedStats);
+
+  const out = [...byWorkpieceId.values()];
   out.sort((a, b) => {
     const aUpdated = a.updatedAt ?? "";
     const bUpdated = b.updatedAt ?? "";

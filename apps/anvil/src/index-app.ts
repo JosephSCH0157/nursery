@@ -123,9 +123,9 @@ import { showToast } from './ui/toasts';
 import { computeAsrReadiness, type AsrWarnReason, type AsrNotReadyReason } from './asr/readiness';
 import { hasActiveAsrProfile, onAsr } from './asr/store';
 import { ensureMicAccess } from './asr/mic-gate';
-import { initMappedFolder, listScripts } from './fs/mapped-folder';
 import { ScriptStore } from './features/scripts-store';
-import { listWorkspaceReadyScripts } from './forge/ready-scripts';
+import { listWorkspaceReadyScripts, readRecordingSessionScripts } from './forge/ready-scripts';
+import { getScriptSourceMode, getSelectedRecordingSessionId } from './forge/script-source';
 import { initAuthUnlock } from './features/auth-unlock';
 
 bootTrace('index-app.ts:module-eval:imports-ready');
@@ -837,26 +837,29 @@ type ScrollModeSource =
 
 async function refreshScriptsSidebar(): Promise<void> {
   const sel = document.getElementById('scriptSelectSidebar') as HTMLSelectElement | null;
+  const indicator = document.getElementById('scriptSourceIndicator') as HTMLElement | null;
   try { sel?.setAttribute('aria-busy', 'true'); } catch {}
   try {
-    const [readyScripts, scripts] = await Promise.all([
-      listWorkspaceReadyScripts().catch(() => []),
-      (async () => {
-        try {
-          await initMappedFolder();
-          return await listScripts();
-        } catch {
-          return [];
+    const sourceMode = getScriptSourceMode();
+    let readyScripts = await listWorkspaceReadyScripts().catch(() => []);
+    if (sourceMode === 'session') {
+      const sessionId = getSelectedRecordingSessionId();
+      if (sessionId) {
+        const sessionSet = await readRecordingSessionScripts(sessionId).catch(() => null);
+        readyScripts = sessionSet?.scripts ?? [];
+        if (indicator) {
+          indicator.textContent = `Session: ${sessionSet?.session.title || 'not selected'}`;
         }
-      })(),
-    ]);
+      } else {
+        readyScripts = [];
+        if (indicator) indicator.textContent = 'Session: not selected';
+      }
+    } else if (indicator) {
+      indicator.textContent = 'Library';
+    }
     try { ScriptStore.syncReady(readyScripts); } catch {}
-    const mappedEntries = scripts.map((s) => ({
-      id: s.name,
-      title: s.name,
-      handle: s.handle as any,
-    }));
-    ScriptStore.syncMapped(mappedEntries);
+    // Forge mode uses session/library sources and does not require mapped folder entries.
+    ScriptStore.syncMapped([]);
   } catch {}
   finally {
     try { sel?.setAttribute('aria-busy', 'false'); } catch {}
@@ -959,10 +962,6 @@ function applyUiScrollMode(
   const source: ScrollModeSource = opts.source || 'user';
   lastScrollModeSource = source;
   let normalized = normalizeUiScrollMode(mode);
-  if (normalized === 'hybrid' && !hasActiveAsrProfile()) {
-    handleAsrBlock('NO_CALIBRATION');
-    return;
-  }
   let readiness: { ready: true; warn?: AsrWarnReason } | { ready: false; reason: AsrNotReadyReason } | null = null;
   const auto = (window as any).__tpAuto as { setEnabled?(_v: boolean): void } | undefined;
   const asrBridge = (window as any).__asrBridge as { start?: () => Promise<void> | void; stop?: () => Promise<void> | void } | undefined;
@@ -1012,6 +1011,10 @@ function applyUiScrollMode(
     } catch {}
     setScrollModeFromUi(fallback);
     try { requestAsrStop(); } catch {}
+  }
+  if (normalized === 'hybrid' && !hasActiveAsrProfile()) {
+    handleAsrBlock('NO_CALIBRATION');
+    return;
   }
   const ensureMicPermissionThenRetry = () => {
     if (micPermissionCheckPending) return;
@@ -1926,7 +1929,7 @@ try {
 					try {
 						const scriptEl = ctx.script();
 						if (!scriptEl) return;
-						obs.observeAll(scriptEl.querySelectorAll('p'));
+						obs.observeAll(Array.from(scriptEl.querySelectorAll('p')));
 					} catch {}
 				};
 				const start = () => {

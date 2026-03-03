@@ -9,6 +9,8 @@ type ForgeWindow = Window & typeof globalThis & {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const WORKSPACE_STORAGE_KEYS = ["forge_workspace_id_v1", "barstock_workspace_id"] as const;
+const SUPABASE_AUTH_STORAGE_KEY = "forge-auth";
+const SUPABASE_AUTH_KEY_RE = /^sb-[a-z0-9-]+-auth-token$/i;
 
 type ReadyScriptApiRow = {
   workspace_id?: unknown;
@@ -18,6 +20,31 @@ type ReadyScriptApiRow = {
   script_paths?: unknown;
   title?: unknown;
   updated_at?: unknown;
+  marked_ready_by?: unknown;
+  marked_ready_at?: unknown;
+};
+
+type RecordingSessionApiRow = {
+  id?: unknown;
+  workspace_id?: unknown;
+  title?: unknown;
+  created_at?: unknown;
+  updated_at?: unknown;
+  calendar_event_id?: unknown;
+};
+
+type RecordingSessionItemApiRow = {
+  position?: unknown;
+  episode_id?: unknown;
+  script_path?: unknown;
+};
+
+type RecordingSessionDetailApiRow = {
+  id?: unknown;
+  workspace_id?: unknown;
+  title?: unknown;
+  calendar_event_id?: unknown;
+  items?: unknown;
 };
 
 export type ReadyScriptReference = {
@@ -29,6 +56,22 @@ export type ReadyScriptReference = {
   scriptPaths: string[];
   title: string;
   updatedAt?: string;
+  markedReadyBy?: string;
+  markedReadyAt?: string;
+};
+
+export type RecordingSessionSummary = {
+  id: string;
+  workspaceId: string;
+  title: string;
+  createdAt?: string;
+  updatedAt?: string;
+  calendarEventId?: string | null;
+};
+
+export type RecordingSessionScriptSet = {
+  session: RecordingSessionSummary;
+  scripts: ReadyScriptReference[];
 };
 
 function readString(value: unknown): string | null {
@@ -49,6 +92,82 @@ function readLocalStorage(key: string): string | null {
   } catch {
     return null;
   }
+}
+
+function extractAccessTokenFromAuthPayload(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const token = extractAccessTokenFromAuthPayload(entry);
+      if (token) return token;
+    }
+    return null;
+  }
+
+  const row = value as Record<string, unknown>;
+  const direct = readString(row.access_token);
+  if (direct) return direct;
+
+  const currentSession = row.currentSession;
+  if (currentSession && typeof currentSession === "object") {
+    const token = readString((currentSession as Record<string, unknown>).access_token);
+    if (token) return token;
+  }
+
+  const session = row.session;
+  if (session && typeof session === "object") {
+    const token = readString((session as Record<string, unknown>).access_token);
+    if (token) return token;
+  }
+
+  const nested = row.data;
+  if (nested && typeof nested === "object") {
+    const token = extractAccessTokenFromAuthPayload(nested);
+    if (token) return token;
+  }
+
+  return null;
+}
+
+function readAccessTokenFromStorageKey(key: string): string | null {
+  let raw: string | null = null;
+  try {
+    raw = window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+
+  const direct = readString(raw);
+  if (direct && direct !== "null" && direct !== "undefined" && !direct.startsWith("{") && !direct.startsWith("[")) {
+    return direct;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return extractAccessTokenFromAuthPayload(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function resolveUserAccessToken(): string | null {
+  const primary = readAccessTokenFromStorageKey(SUPABASE_AUTH_STORAGE_KEY);
+  if (primary) return primary;
+
+  try {
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (!key || key === SUPABASE_AUTH_STORAGE_KEY) continue;
+      if (!SUPABASE_AUTH_KEY_RE.test(key)) continue;
+      const token = readAccessTokenFromStorageKey(key);
+      if (token) return token;
+    }
+  } catch {
+    // ignore storage errors
+  }
+
+  return null;
 }
 
 function getQueryParam(...keys: string[]): string | null {
@@ -104,8 +223,12 @@ function resolveTongsApiToken(): string | undefined {
 function withAuthHeaders(): Headers {
   const headers = new Headers();
   const token = resolveTongsApiToken();
+  const userAccessToken = resolveUserAccessToken();
   if (token) {
     headers.set("authorization", `Bearer ${token}`);
+  }
+  if (userAccessToken) {
+    headers.set("x-forge-user-authorization", `Bearer ${userAccessToken}`);
   }
   return headers;
 }
@@ -176,6 +299,8 @@ function parseReadyScriptsPayload(payload: unknown, workspaceId: string): ReadyS
       scriptPaths: normalizedScriptPaths,
       title,
       updatedAt: normalizeIso(item.updated_at),
+      markedReadyBy: normalizeUuid(item.marked_ready_by) ?? undefined,
+      markedReadyAt: normalizeIso(item.marked_ready_at),
     });
   }
 
@@ -188,6 +313,77 @@ function parseReadyScriptsPayload(payload: unknown, workspaceId: string): ReadyS
   });
 
   return scripts;
+}
+
+function parseRecordingSessionsPayload(payload: unknown, workspaceId: string): RecordingSessionSummary[] {
+  if (!payload || typeof payload !== "object") return [];
+  const root = payload as { ok?: unknown; data?: unknown };
+  if (root.ok !== true) return [];
+
+  const data = root.data as unknown;
+  const rowsMaybe = Array.isArray(data)
+    ? data
+    : (data && typeof data === "object" && Array.isArray((data as { sessions?: unknown }).sessions))
+      ? (data as { sessions: unknown[] }).sessions
+      : [];
+
+  const out: RecordingSessionSummary[] = [];
+  for (const row of rowsMaybe) {
+    if (!row || typeof row !== "object") continue;
+    const item = row as RecordingSessionApiRow;
+    const id = normalizeUuid(item.id);
+    const rowWorkspace = normalizeUuid(item.workspace_id) ?? workspaceId;
+    if (!id || !rowWorkspace) continue;
+    const title = readString(item.title) ?? "Recording Session";
+    out.push({
+      id,
+      workspaceId: rowWorkspace,
+      title,
+      createdAt: normalizeIso(item.created_at),
+      updatedAt: normalizeIso(item.updated_at),
+      calendarEventId: normalizeUuid(item.calendar_event_id),
+    });
+  }
+
+  out.sort((a, b) => {
+    const aUpdated = a.updatedAt ?? a.createdAt ?? "";
+    const bUpdated = b.updatedAt ?? b.createdAt ?? "";
+    const byUpdated = bUpdated.localeCompare(aUpdated);
+    if (byUpdated !== 0) return byUpdated;
+    return a.title.localeCompare(b.title);
+  });
+
+  return out;
+}
+
+function parseRecordingSessionDetailPayload(payload: unknown): RecordingSessionDetailApiRow | null {
+  if (!payload || typeof payload !== "object") return null;
+  const root = payload as { ok?: unknown; data?: unknown };
+  if (root.ok !== true) return null;
+  if (!root.data || typeof root.data !== "object") return null;
+  return root.data as RecordingSessionDetailApiRow;
+}
+
+function toScriptReferenceFromSessionItem(args: {
+  item: RecordingSessionItemApiRow;
+  workspaceId: string;
+  fallbackTitle: string;
+  titleByKey: Map<string, string>;
+}): ReadyScriptReference | null {
+  const workpieceId = normalizeUuid(args.item.episode_id);
+  const path = normalizeScriptPath(args.item.script_path);
+  if (!workpieceId || !path) return null;
+  const key = `${workpieceId}::${path}`;
+  const title = args.titleByKey.get(key) ?? args.fallbackTitle;
+  return {
+    id: toReadyScriptId(workpieceId, path),
+    workspaceId: args.workspaceId,
+    workpieceId,
+    path,
+    primaryPath: path,
+    scriptPaths: [path],
+    title,
+  };
 }
 
 export async function listWorkspaceReadyScripts(): Promise<ReadyScriptReference[]> {
@@ -207,6 +403,111 @@ export async function listWorkspaceReadyScripts(): Promise<ReadyScriptReference[
     return [];
   }
   return parseReadyScriptsPayload(body, workspaceId);
+}
+
+export async function listRecordingSessionsForWorkspace(): Promise<RecordingSessionSummary[]> {
+  const workspaceId = resolveWorkspaceId();
+  if (!workspaceId) return [];
+
+  const response = await fetch(
+    `/tongs/recording-sessions?workspace_id=${encodeURIComponent(workspaceId)}&limit=100`,
+    {
+      method: "GET",
+      headers: withAuthHeaders(),
+    },
+  );
+  if (!response.ok) return [];
+
+  let body: unknown = null;
+  try {
+    body = await response.json();
+  } catch {
+    return [];
+  }
+  return parseRecordingSessionsPayload(body, workspaceId);
+}
+
+export async function readRecordingSessionScripts(sessionId: string): Promise<RecordingSessionScriptSet | null> {
+  const safeSessionId = normalizeUuid(sessionId);
+  if (!safeSessionId) return null;
+
+  const response = await fetch(`/tongs/recording-sessions/${encodeURIComponent(safeSessionId)}`, {
+    method: "GET",
+    headers: withAuthHeaders(),
+  });
+  if (!response.ok) return null;
+
+  let body: unknown = null;
+  try {
+    body = await response.json();
+  } catch {
+    return null;
+  }
+
+  const detail = parseRecordingSessionDetailPayload(body);
+  if (!detail) return null;
+
+  const workspaceId = normalizeUuid(detail.workspace_id);
+  const parsedSessionId = normalizeUuid(detail.id);
+  if (!workspaceId || !parsedSessionId) return null;
+  const sessionTitle = readString(detail.title) ?? "Recording Session";
+
+  const workspaceReady = await listWorkspaceReadyScripts().catch(() => []);
+  const titleByKey = new Map<string, string>();
+  const readyMetaByKey = new Map<string, { markedReadyBy?: string; markedReadyAt?: string }>();
+  for (const script of workspaceReady) {
+    titleByKey.set(`${script.workpieceId}::${script.path}`, script.title);
+    readyMetaByKey.set(`${script.workpieceId}::${script.path}`, {
+      markedReadyBy: script.markedReadyBy,
+      markedReadyAt: script.markedReadyAt,
+    });
+    for (const scriptPath of script.scriptPaths) {
+      titleByKey.set(`${script.workpieceId}::${scriptPath}`, script.title);
+      readyMetaByKey.set(`${script.workpieceId}::${scriptPath}`, {
+        markedReadyBy: script.markedReadyBy,
+        markedReadyAt: script.markedReadyAt,
+      });
+    }
+  }
+
+  const rawItems = Array.isArray(detail.items) ? detail.items : [];
+  const parsedItems = rawItems
+    .filter((entry): entry is RecordingSessionItemApiRow => !!entry && typeof entry === "object")
+    .sort((a, b) => {
+      const aPos = Number.isFinite(Number(a.position)) ? Number(a.position) : 0;
+      const bPos = Number.isFinite(Number(b.position)) ? Number(b.position) : 0;
+      return aPos - bPos;
+    });
+
+  const scripts: ReadyScriptReference[] = [];
+  for (const item of parsedItems) {
+    const fallbackTitle = `Episode ${String(item.episode_id ?? "").slice(0, 8) || "unknown"}`;
+    const ref = toScriptReferenceFromSessionItem({
+      item,
+      workspaceId,
+      fallbackTitle,
+      titleByKey,
+    });
+    if (ref) {
+      const key = `${ref.workpieceId}::${ref.path}`;
+      const readyMeta = readyMetaByKey.get(key);
+      scripts.push({
+        ...ref,
+        markedReadyBy: readyMeta?.markedReadyBy,
+        markedReadyAt: readyMeta?.markedReadyAt,
+      });
+    }
+  }
+
+  return {
+    session: {
+      id: parsedSessionId,
+      workspaceId,
+      title: sessionTitle,
+      calendarEventId: normalizeUuid(detail.calendar_event_id),
+    },
+    scripts,
+  };
 }
 
 export async function readReadyScriptText(workpieceId: string, path: string): Promise<string | null> {

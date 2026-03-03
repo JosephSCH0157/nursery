@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Hearth is the conversational script-forging tool in the Podcasters Forge ecosystem. Its sole purpose is to help creators transform raw ideas (Bar Stock sparks) into record-ready scripts that conform strictly to Anvil tag rules.
+Hearth is the conversational script-forging tool in the Podcaster's Forge ecosystem. Its sole purpose is to help creators transform raw ideas (Bar Stock sparks) into record-ready scripts that conform strictly to Anvil tag rules.
 
 Release status: included in **Forge v1.2.0 Fire Burning** (`forge-v1.2.0`).
 
@@ -71,7 +71,7 @@ If it does not help a human read the script aloud in Anvil, it does not exist in
 
 ### Global Navigation
 
-* Nursery links and settings live exclusively in a hamburger menu (top-left)
+* The Forge links and settings live exclusively in a hamburger menu (top-left)
 
 ---
 

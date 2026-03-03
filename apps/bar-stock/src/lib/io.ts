@@ -1,5 +1,5 @@
 ﻿import type { Spark } from "./model";
-import { makeSpark, newId, now } from "./model";
+import { makeSpark, now } from "./model";
 
 export type ImportResult = {
   imported: number;
@@ -38,7 +38,7 @@ function asStringArray(v: unknown): string[] | null {
  *  - Spark[] (raw array)
  *  - { sparks: Spark[] } (loose)
  *
- * Anything malformed becomes a “best effort” Spark via makeSpark(body, assignmentId).
+ * Anything malformed becomes a "best effort" Spark via makeSpark(body, assignmentId).
  */
 export function parseImportJson(rawText: string): { sparks: Spark[]; errors: number } {
   let parsed: unknown;
@@ -75,13 +75,19 @@ export function parseImportJson(rawText: string): { sparks: Spark[]; errors: num
     const id = asString(item.id) ?? undefined;
     const legacyKey = "session" + "Id";
     const assignmentId =
-      asString((item as any).assignmentId) ?? asString((item as any)[legacyKey]) ?? newId();
+      asString((item as any).assignmentId) ?? asString((item as any)[legacyKey]) ?? null;
     const createdAt = asNumber(item.createdAt) ?? now();
     const updatedAt = asNumber(item.updatedAt) ?? createdAt;
     const tags = asStringArray(item.tags) ?? [];
     const status = asString(item.status) as any;
     const source = asString(item.source) as any;
     const pinned = asBool(item.pinned) ?? false;
+    const links = isObject(item.links)
+      ? {
+          hearthDraftId: asString((item.links as Record<string, unknown>).hearthDraftId) ?? undefined,
+          hearthWorkpieceId: asString((item.links as Record<string, unknown>).hearthWorkpieceId) ?? undefined,
+        }
+      : undefined;
 
     // Build a “real” Spark, then overlay safe fields
     const s = makeSpark(body, assignmentId, {
@@ -91,13 +97,21 @@ export function parseImportJson(rawText: string): { sparks: Spark[]; errors: num
       tags,
       pinned,
       status:
-        status === "raw" || status === "warming" || status === "forged" || status === "archived"
+        status === "raw"
+        || status === "warming"
+        || status === "forged"
+        || status === "graduated"
+        || status === "archived"
           ? status
           : "raw",
       source:
         source === "typed" || source === "paste" || source === "voice" || source === "import" || source === "link" || source === "other"
           ? source
-          : "import"
+          : "import",
+      links:
+        links?.hearthDraftId || links?.hearthWorkpieceId
+          ? links
+          : undefined,
     });
 
     sparks.push(s);

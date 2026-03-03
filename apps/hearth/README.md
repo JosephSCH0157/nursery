@@ -1,6 +1,6 @@
 # Hearth
 
-Hearth is the conversational script-forging tool inside Podcasters Forge. It helps creators turn raw ideas into calm, readable, record-ready scripts without pressure, automation creep, or premature optimization.
+Hearth is the conversational script-forging tool inside Podcaster's Forge. It helps creators turn raw ideas into calm, readable, record-ready scripts without pressure, automation creep, or premature optimization.
 
 Release status: included in **Forge v1.2.0 Fire Burning** (`forge-v1.2.0`).
 

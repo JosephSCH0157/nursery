@@ -12,7 +12,7 @@ It normalizes mount decisions, enforces role-based storage policy, and provides 
 - Define canonical mount target resolution (`local` vs `tongs_cloud`) by role policy.
 - Normalize and validate workspace mount registries.
 - Provide typed accessors/contracts for Tongs-backed records (including calendar events and workspace metadata).
-- Act as single source of truth for storage decisioning contracts consumed by Nursery and tool apps.
+- Act as single source of truth for storage decisioning contracts consumed by Podcaster's Forge and tool apps.
 
 ## Non-goals
 

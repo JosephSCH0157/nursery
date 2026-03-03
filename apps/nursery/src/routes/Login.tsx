@@ -3,6 +3,17 @@ import type { FormEvent } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 
+const FORGE_LOGIN_LOGO_PATH = "/assets/podcasters-forge-logo.png";
+const AUTH_NEXT_STORAGE_KEY = "forge_auth_next_v1";
+
+function clearAuthNextPath(): void {
+  try {
+    window.sessionStorage.removeItem(AUTH_NEXT_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 function normalizeNextPath(raw: string | null): string {
   if (!raw) return "/app";
   const trimmed = raw.trim();
@@ -56,10 +67,21 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
+  const [showLogo, setShowLogo] = useState(true);
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(AUTH_NEXT_STORAGE_KEY, next);
+    } catch {
+      // ignore session storage failures
+    }
+  }, [next]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      if (data.session) nav(next, { replace: true });
+      if (!data.session) return;
+      clearAuthNextPath();
+      nav(next, { replace: true });
     });
   }, [nav, next]);
 
@@ -86,6 +108,7 @@ export default function Login() {
         return;
       }
 
+      clearAuthNextPath();
       nav(next, { replace: true });
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Sign-in request failed.";
@@ -127,9 +150,23 @@ export default function Login() {
 
   return (
     <div style={{ padding: 24, fontFamily: "system-ui", maxWidth: 520 }}>
+      {showLogo ? (
+        <img
+          src={FORGE_LOGIN_LOGO_PATH}
+          alt="Podcaster's Forge logo"
+          onError={() => setShowLogo(false)}
+          style={{
+            display: "block",
+            width: "min(320px, 100%)",
+            height: "auto",
+            marginBottom: 16,
+            borderRadius: 12,
+          }}
+        />
+      ) : null}
       <h1 style={{ marginBottom: 8 }}>Podcaster's Forge</h1>
       <p style={{ marginTop: 0, opacity: 0.8 }}>
-        Sign in to access Nursery, Anvil, Hearth, Hammer, and Barstock.
+        Sign in to access Podcaster's Forge, Anvil, Hearth, Hammer, and Barstock.
       </p>
       {reason ? <div style={{ marginBottom: 12, color: "crimson" }}>{reason}</div> : null}
 

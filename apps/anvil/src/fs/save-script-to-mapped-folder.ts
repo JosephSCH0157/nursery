@@ -14,7 +14,7 @@ export async function saveToMappedFolder(
   const dir = getMappedFolder();
   if (!dir) {
     if (isMappedFolderManagedByNursery()) {
-      return { ok: false, reason: `No Nursery scripts folder linked (${getNurseryStorageSettingsUrl()})` };
+      return { ok: false, reason: `No Forge scripts folder linked (${getNurseryStorageSettingsUrl()})` };
     }
     return { ok: false, reason: 'No folder mapped' };
   }

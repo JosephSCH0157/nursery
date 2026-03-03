@@ -8,6 +8,7 @@ import { ForgeNav } from "../nav/ForgeNav";
 import { FORGE_NAV_ACTION_AI_CONTROLS, forgeNavTree } from "../nav/forgeNavTree";
 import { parseForgeRouteContext, removeWorkspaceParams } from "../lib/forge-route-context";
 import { AiControlsPanel } from "../components/hearth/AiControlsPanel";
+import "./AppShell.css";
 
 const WORKSPACE_CACHE_KEY = "forge_workspaces_cache_v1";
 const ACTIVE_WORKSPACE_KEY = "forge_workspace_id_v1";
@@ -20,6 +21,7 @@ const WORKSPACE_REQUIRED_APP_SEGMENTS = new Set([
   "quench",
   "ledger",
   "barstock",
+  "bar-stock",
   "calendar",
 ]);
 
@@ -65,6 +67,30 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function readInviteToken(search: string): string | null {
+  const params = new URLSearchParams(search);
+  const raw = params.get("invite_token") ?? params.get("inviteToken");
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function removeInviteToken(search: string): string {
+  const params = new URLSearchParams(search);
+  params.delete("invite_token");
+  params.delete("inviteToken");
+  const next = params.toString();
+  return next ? `?${next}` : "";
+}
+
+type InvitePreview = {
+  workspace_id: string;
+  workspace_name: string;
+  role: string;
+  email: string;
+  expires_at: string;
+};
+
 export type AppShellContext = {
   workspaceId: string | null;
   workspaces: Workspace[];
@@ -97,11 +123,23 @@ export default function AppShell() {
   const [renameValue, setRenameValue] = useState("");
   const [renameError, setRenameError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [deleteTargetName, setDeleteTargetName] = useState("");
+  const [deleteConfirmValue, setDeleteConfirmValue] = useState("");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [workspaceGateChoice, setWorkspaceGateChoice] = useState("");
   const [aiControlsOpen, setAiControlsOpen] = useState(false);
+  const [invitePreview, setInvitePreview] = useState<InvitePreview | null>(null);
+  const [invitePreviewLoading, setInvitePreviewLoading] = useState(false);
+  const [invitePreviewError, setInvitePreviewError] = useState<string | null>(null);
+  const [inviteAccepting, setInviteAccepting] = useState(false);
+  const invitePreviewTokenRef = useRef<string | null>(null);
 
   const urlContext = useMemo(() => parseForgeRouteContext(location.search), [location.search]);
   const urlWorkspaceId = urlContext.workspaceId;
+  const inviteToken = useMemo(() => readInviteToken(location.search), [location.search]);
 
   useEffect(() => {
     const res = loadMountRegistry("default");
@@ -135,6 +173,11 @@ export default function AppShell() {
     setWorkspaceId(id);
     saveActiveWorkspaceId(id);
   }, []);
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    saveActiveWorkspaceId(workspaceId);
+  }, [workspaceId]);
 
   const refreshWorkspaces = useCallback(async (opts?: { force?: boolean; preferId?: string | null }) => {
     if (!session) return;
@@ -173,7 +216,7 @@ export default function AppShell() {
     if (!userId) {
       lastSessionUserId.current = null;
       lastUrlWorkspaceRefresh.current = null;
-      setWorkspaces([]);
+      setWorkspaces((prev) => (prev.length ? [] : prev));
       setWorkspaceId(null);
       setWorkspaceLoadError(null);
       setHasWorkspaceFetchSucceeded(false);
@@ -258,15 +301,127 @@ export default function AppShell() {
     nav,
   ]);
 
+  useEffect(() => {
+    if (!inviteToken || !session) {
+      if (!inviteToken) {
+        invitePreviewTokenRef.current = null;
+        setInvitePreview(null);
+        setInvitePreviewError(null);
+        setInvitePreviewLoading(false);
+      }
+      return;
+    }
+
+    if (invitePreviewTokenRef.current === inviteToken) return;
+    invitePreviewTokenRef.current = inviteToken;
+    setInvitePreviewLoading(true);
+    setInvitePreviewError(null);
+
+    let cancelled = false;
+    const tongsRpcClient = supabase.schema("tongs") as unknown as {
+      rpc: (
+        fn: string,
+        args?: Record<string, unknown>,
+      ) => {
+        single: () => Promise<{ data: unknown; error: unknown }>;
+      };
+    };
+
+    void tongsRpcClient
+      .rpc("get_workspace_invite_preview", { p_token: inviteToken })
+      .single()
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) throw error;
+        setInvitePreview((data ?? null) as InvitePreview | null);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setInvitePreview(null);
+        setInvitePreviewError(getErrorMessage(err, "Failed loading invite details."));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setInvitePreviewLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [inviteToken, session]);
+
   async function onSignOut() {
     await supabase.auth.signOut();
     nav("/app", { replace: true });
   }
 
   function onSignIn() {
-    const next = encodeURIComponent(`${location.pathname}${location.search}${location.hash}`);
+    const params = new URLSearchParams(location.search);
+    if (workspaceId) {
+      params.delete("workspaceId");
+      params.delete("workspace");
+      params.set("workspace_id", workspaceId);
+    }
+    const nextSearch = params.toString();
+    const nextPath = `${location.pathname}${nextSearch ? `?${nextSearch}` : ""}${location.hash}`;
+    const next = encodeURIComponent(nextPath);
     nav(`/login?next=${next}`, { replace: false });
   }
+
+  const clearInviteToken = useCallback(() => {
+    nav(
+      {
+        pathname: location.pathname,
+        search: removeInviteToken(location.search),
+        hash: location.hash,
+      },
+      { replace: true },
+    );
+  }, [location.pathname, location.search, location.hash, nav]);
+
+  const acceptInvite = useCallback(async () => {
+    if (!session || !inviteToken) return;
+
+    setInviteAccepting(true);
+    setInvitePreviewError(null);
+    try {
+      const tongsRpcClient = supabase.schema("tongs") as unknown as {
+        rpc: (
+          fn: string,
+          args?: Record<string, unknown>,
+        ) => {
+          single: () => Promise<{ data: unknown; error: unknown }>;
+        };
+      };
+
+      const { data, error } = await tongsRpcClient
+        .rpc("accept_workspace_invite", { p_token: inviteToken })
+        .single();
+      if (error) throw error;
+
+      const resolvedWorkspaceId = (data as { workspace_id?: unknown } | null)?.workspace_id;
+      const workspaceIdFromInvite = typeof resolvedWorkspaceId === "string" && resolvedWorkspaceId.trim()
+        ? resolvedWorkspaceId
+        : invitePreview?.workspace_id ?? null;
+
+      await refreshWorkspaces({ force: true, preferId: workspaceIdFromInvite });
+      if (workspaceIdFromInvite) {
+        selectWorkspace(workspaceIdFromInvite);
+      }
+      clearInviteToken();
+    } catch (err: unknown) {
+      setInvitePreviewError(getErrorMessage(err, "Failed to accept workspace invite."));
+    } finally {
+      setInviteAccepting(false);
+    }
+  }, [
+    session,
+    inviteToken,
+    invitePreview?.workspace_id,
+    refreshWorkspaces,
+    selectWorkspace,
+    clearInviteToken,
+  ]);
 
   function openCreateWorkspace() {
     setCreateError(null);
@@ -284,6 +439,25 @@ export default function AppShell() {
   function closeRenameWorkspace() {
     setRenameOpen(false);
     setRenameError(null);
+  }
+
+  function openDeleteWorkspace() {
+    const current = workspaces.find(w => w.id === workspaceId);
+    if (!current) return;
+    setDeleteTargetId(current.id);
+    setDeleteTargetName(current.name ?? "");
+    setDeleteConfirmValue("");
+    setDeleteError(null);
+    setDeleteOpen(true);
+  }
+
+  function closeDeleteWorkspace(force = false) {
+    if (deleting && !force) return;
+    setDeleteOpen(false);
+    setDeleteTargetId(null);
+    setDeleteTargetName("");
+    setDeleteConfirmValue("");
+    setDeleteError(null);
   }
 
   async function onRenameWorkspace() {
@@ -321,6 +495,56 @@ export default function AppShell() {
       setRenameError(message);
     } finally {
       setRenaming(false);
+    }
+  }
+
+  async function onDeleteWorkspace() {
+    if (!session || !deleteTargetId) return;
+    const targetWorkspace = workspaces.find((w) => w.id === deleteTargetId);
+    const canDeleteTarget = (targetWorkspace?.role ?? null) === "owner";
+    if (!canDeleteTarget) {
+      setDeleteError("Only workspace owners can delete a workspace.");
+      return;
+    }
+    const expectedName = deleteTargetName.trim();
+    if (!expectedName) {
+      setDeleteError("Workspace name is missing. Refresh and try again.");
+      return;
+    }
+
+    if (deleteConfirmValue.trim() !== expectedName) {
+      setDeleteError(`Type "${expectedName}" to confirm deletion.`);
+      return;
+    }
+
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const tongsRpcClient = supabase.schema("tongs") as unknown as {
+        rpc: (
+          fn: string,
+          args?: Record<string, unknown>,
+        ) => {
+          single: () => Promise<{ data: unknown; error: unknown }>;
+        };
+      };
+
+      const { data, error } = await tongsRpcClient
+        .rpc("delete_workspace_with_owner_check", { _workspace_id: deleteTargetId })
+        .single();
+      if (error) throw error;
+      const deleted = (data as { deleted?: unknown } | null)?.deleted;
+      if (deleted !== true) {
+        throw new Error("Workspace delete was not confirmed by the database.");
+      }
+
+      closeDeleteWorkspace(true);
+      selectWorkspace(null);
+      await refreshWorkspaces({ force: true, preferId: null });
+    } catch (err: unknown) {
+      setDeleteError(getErrorMessage(err, "Failed to delete workspace."));
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -398,6 +622,10 @@ export default function AppShell() {
   const workspaceValue = effectiveWorkspaceId ?? "";
   const workspaceSelectDisabled = !session || loadingWorkspaces;
   const activeWorkspace = workspaces.find(w => w.id === workspaceId) ?? null;
+  const canDeleteActiveWorkspace = !!activeWorkspace && (activeWorkspace.role ?? null) === "owner";
+  const deleteConfirmationTarget = deleteTargetName.trim();
+  const deleteConfirmationMatches = deleteConfirmationTarget.length > 0
+    && deleteConfirmValue.trim() === deleteConfirmationTarget;
   const workspaceIsValid = !!activeWorkspace;
   const appSegment = useMemo(() => {
     const parts = location.pathname.split("/").filter(Boolean);
@@ -409,6 +637,13 @@ export default function AppShell() {
   const workspaceGateLoading = shouldBlockWorkspaceRoute
     && loadingWorkspaces
     && workspaces.length === 0;
+  const invitePromptOpen = !!inviteToken;
+  const invitePromptRequiresLogin = invitePromptOpen && !session;
+  const inviteRoleLabel = useMemo(() => {
+    const role = (invitePreview?.role ?? "").trim().toLowerCase();
+    if (!role) return "Unknown";
+    return `${role[0].toUpperCase()}${role.slice(1)}`;
+  }, [invitePreview?.role]);
 
   useEffect(() => {
     if (!shouldBlockWorkspaceRoute) {
@@ -455,7 +690,7 @@ export default function AppShell() {
       >
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <Link to="/app" style={{ fontWeight: 800, textDecoration: "none", color: "inherit" }}>
-            Nursery
+            The Forge
           </Link>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 12, opacity: 0.7 }}>Workspace</span>
@@ -493,6 +728,29 @@ export default function AppShell() {
                   style={{ fontSize: 12, padding: "6px 8px", cursor: "pointer" }}
                 >
                   Rename
+                </button>
+                <button
+                  type="button"
+                  onClick={openDeleteWorkspace}
+                  disabled={!activeWorkspace || !session || !canDeleteActiveWorkspace}
+                  title={
+                    !session
+                      ? "Sign in to manage workspaces."
+                      : !activeWorkspace
+                        ? "Select a workspace first."
+                        : canDeleteActiveWorkspace
+                          ? "Delete workspace"
+                          : "Only workspace owners can delete a workspace."
+                  }
+                  style={{
+                    fontSize: 12,
+                    padding: "6px 8px",
+                    cursor: "pointer",
+                    color: "var(--forge-danger)",
+                    borderColor: "var(--forge-danger)",
+                  }}
+                >
+                  Delete
                 </button>
               </div>
               {renameOpen && (
@@ -724,6 +982,134 @@ export default function AppShell() {
         </div>
       )}
 
+      {deleteOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.72)",
+            display: "grid",
+            placeItems: "center",
+            padding: 16,
+            zIndex: 1000,
+          }}
+        >
+          <div
+            style={{
+              background: "var(--forge-bg-elevated)",
+              border: "1px solid var(--forge-border)",
+              padding: 16,
+              borderRadius: 12,
+              width: "100%",
+              maxWidth: 460,
+              display: "grid",
+              gap: 10,
+            }}
+          >
+            <h3 style={{ marginTop: 0, marginBottom: 0, color: "var(--forge-danger)" }}>
+              Delete workspace
+            </h3>
+            <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, opacity: 0.92 }}>
+              This permanently deletes the workspace and all related content, including projects,
+              sparks, episodes, recordings, assets, and history. This cannot be undone.
+            </p>
+            <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, opacity: 0.78 }}>
+              Database records are deleted immediately. Uploaded storage files may remain until cleanup.
+            </p>
+            <div style={{ fontSize: 12, opacity: 0.8 }}>
+              Type <strong>{deleteConfirmationTarget}</strong> to verify.
+            </div>
+            <input
+              value={deleteConfirmValue}
+              onChange={(e) => setDeleteConfirmValue(e.target.value)}
+              placeholder={deleteConfirmationTarget}
+              autoFocus
+              style={{ padding: "8px 10px", fontSize: 12 }}
+            />
+            {deleteError && (
+              <div style={{ color: "var(--forge-danger)", fontSize: 12 }}>{deleteError}</div>
+            )}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => closeDeleteWorkspace()}
+                disabled={deleting}
+                style={{ cursor: deleting ? "not-allowed" : "pointer" }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={onDeleteWorkspace}
+                disabled={deleting || !deleteConfirmationMatches}
+                style={{
+                  cursor: deleting || !deleteConfirmationMatches ? "not-allowed" : "pointer",
+                  background: "var(--forge-danger)",
+                  color: "white",
+                  borderColor: "var(--forge-danger)",
+                }}
+              >
+                {deleting ? "Deleting..." : "Delete workspace"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {invitePromptOpen ? (
+        <div className="appshell-invite-backdrop">
+          <div className="appshell-invite-card">
+            <h3 className="appshell-invite-title">Workspace Invite</h3>
+            {invitePromptRequiresLogin ? (
+              <>
+                <p className="appshell-invite-copy">
+                  Sign in with the invited email address to accept this workspace invite.
+                </p>
+                <div className="appshell-invite-actions">
+                  <button type="button" onClick={clearInviteToken}>
+                    Not now
+                  </button>
+                  <button type="button" onClick={onSignIn}>
+                    Sign in
+                  </button>
+                </div>
+              </>
+            ) : invitePreviewLoading ? (
+              <p className="appshell-invite-copy">Loading invite details...</p>
+            ) : invitePreviewError ? (
+              <>
+                <div className="appshell-invite-error">{invitePreviewError}</div>
+                <div className="appshell-invite-actions">
+                  <button type="button" onClick={clearInviteToken}>
+                    Close
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="appshell-invite-copy">
+                  Accept invite to <strong>{invitePreview?.workspace_name ?? "Workspace"}</strong> as{" "}
+                  <strong>{inviteRoleLabel}</strong>.
+                </p>
+                <p className="appshell-invite-copy appshell-invite-copy--muted">
+                  Invited email: {invitePreview?.email ?? "Unknown"} • Expires {invitePreview?.expires_at
+                    ? new Date(invitePreview.expires_at).toLocaleString()
+                    : "Unknown"}
+                </p>
+                <div className="appshell-invite-actions">
+                  <button type="button" onClick={clearInviteToken} disabled={inviteAccepting}>
+                    Cancel
+                  </button>
+                  <button type="button" onClick={() => void acceptInvite()} disabled={inviteAccepting}>
+                    {inviteAccepting ? "Accepting..." : "Accept Invite"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
+
       {aiControlsOpen ? (
         <div
           style={{
@@ -738,7 +1124,11 @@ export default function AppShell() {
           onClick={() => setAiControlsOpen(false)}
         >
           <div onClick={(event) => event.stopPropagation()}>
-            <AiControlsPanel onClose={() => setAiControlsOpen(false)} />
+            <AiControlsPanel
+              onClose={() => setAiControlsOpen(false)}
+              workspaceId={workspaceId}
+              workspaceRole={activeWorkspace?.role ?? null}
+            />
           </div>
         </div>
       ) : null}

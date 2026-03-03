@@ -4,6 +4,7 @@ export type BarStockSpark = {
   updatedAt: number;
   title?: string;
   body: string;
+  assignmentId?: string;
   tags?: string[];
   status?: string;
   links?: {
@@ -37,6 +38,7 @@ function normalizeSpark(value: unknown): BarStockSpark | null {
   const createdAt = isFiniteNumber(value.createdAt) ? value.createdAt : Date.now();
   const updatedAt = isFiniteNumber(value.updatedAt) ? value.updatedAt : createdAt;
   const title = readString(value.title) ?? undefined;
+  const assignmentId = readString(value.assignmentId) ?? undefined;
   const tags = Array.isArray(value.tags)
     ? value.tags.map((tag) => readString(tag)).filter(Boolean) as string[]
     : undefined;
@@ -57,6 +59,7 @@ function normalizeSpark(value: unknown): BarStockSpark | null {
     updatedAt,
     title,
     body,
+    assignmentId,
     tags,
     status,
     links,
@@ -124,9 +127,40 @@ export function enqueueBarStockSpark(spark: BarStockSpark): void {
     const raw = window.localStorage.getItem(OUTBOX_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
     const list = Array.isArray(parsed) ? parsed : [];
+
+    const signature = buildSparkOutboxSignature(spark);
+    for (let index = list.length - 1; index >= 0; index -= 1) {
+      const op = list[index];
+      if (!isRecord(op) || readString(op.op) !== "upsert_spark" || !isRecord(op.spark)) continue;
+      const existingSpark = normalizeSpark(op.spark);
+      if (!existingSpark || existingSpark.id !== spark.id) continue;
+
+      if (buildSparkOutboxSignature(existingSpark) === signature) {
+        return;
+      }
+
+      list[index] = { op: "upsert_spark", at: Date.now(), spark };
+      window.localStorage.setItem(OUTBOX_KEY, JSON.stringify(list));
+      return;
+    }
+
     list.push({ op: "upsert_spark", at: Date.now(), spark });
     window.localStorage.setItem(OUTBOX_KEY, JSON.stringify(list));
   } catch {
     // ignore outbox failures
   }
+}
+
+function buildSparkOutboxSignature(spark: BarStockSpark): string {
+  const tags = Array.isArray(spark.tags) ? spark.tags.map((tag) => readString(tag) ?? "").filter(Boolean) : [];
+  return JSON.stringify({
+    id: spark.id,
+    title: spark.title ?? null,
+    body: spark.body,
+    assignmentId: spark.assignmentId ?? null,
+    tags,
+    status: spark.status ?? null,
+    hearthDraftId: spark.links?.hearthDraftId ?? null,
+    hearthWorkpieceId: spark.links?.hearthWorkpieceId ?? null,
+  });
 }

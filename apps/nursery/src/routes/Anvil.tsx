@@ -5,6 +5,26 @@ import WorkspaceRequiredNotice from "./WorkspaceRequiredNotice";
 import { buildForgeRouteHref, parseForgeRouteContext } from "../lib/forge-route-context";
 
 const ANVIL_FULL_PAGE_URL = "/anvil/teleprompter_pro.html";
+const TONGS_TOKEN_STORAGE_KEY = "forge_tongs_api_token_v1";
+
+function readString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function resolveClientTongsToken(search: string): string | null {
+  try {
+    const params = new URLSearchParams(search);
+    const fromQuery = readString(params.get("tongs_api_token") ?? params.get("tongsApiToken"));
+    if (fromQuery) return fromQuery;
+  } catch {
+    // Ignore malformed query strings.
+  }
+
+  const fromEnv = readString((import.meta as { env?: Record<string, string | undefined> }).env?.VITE_TONGS_API_TOKEN);
+  return fromEnv;
+}
 
 export default function AnvilRoute() {
   const shell = useOutletContext<AppShellContext>();
@@ -22,8 +42,16 @@ export default function AnvilRoute() {
 
   useEffect(() => {
     if (!shell.workspaceId) return;
+    try {
+      const token = resolveClientTongsToken(location.search);
+      if (token) {
+        window.localStorage.setItem(TONGS_TOKEN_STORAGE_KEY, token);
+      }
+    } catch {
+      // Ignore storage failures; Anvil still may resolve token via env/query.
+    }
     window.location.replace(anvilHref);
-  }, [anvilHref, shell.workspaceId]);
+  }, [anvilHref, location.search, shell.workspaceId]);
 
   if (!shell.workspaceId) {
     return <WorkspaceRequiredNotice toolName="Anvil" />;

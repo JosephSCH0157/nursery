@@ -4,7 +4,7 @@ Release baseline: **Forge v1.2.0 Fire Burning** (`forge-v1.2.0`).
 
 ## Purpose
 
-ForgeHub is Nursery's authenticated workspace shell and routing hub.
+ForgeHub is the authenticated workspace shell and routing hub for Podcaster's Forge.
 It is the entrypoint where a signed-in user navigates to Forge tools (`/app/*`) under one session.
 
 ## Responsibilities

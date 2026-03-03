@@ -1,16 +1,26 @@
-﻿import type { Assignment, AssignmentId } from "./model";
+import type { Assignment, AssignmentId } from "./model";
 import { newId, now } from "./model";
 
 const KEY = "barstock_assignments_v1";
 const LEGACY_KEY = "barstock_sessions_v1";
+const KEY_PREFIX = "barstock_assignments_v2";
 const STOP_WORDS = new Set([
   "a", "an", "the", "and", "or", "but", "to", "of", "for", "in", "on", "at", "by", "with", "from"
 ]);
 
-export function loadAssignments(): Assignment[] {
+function normalizedScope(workspaceId?: string | null): string | null {
+  const trimmed = typeof workspaceId === "string" ? workspaceId.trim().toLowerCase() : "";
+  return trimmed || null;
+}
+
+function scopedKey(workspaceId?: string | null): string {
+  const scope = normalizedScope(workspaceId);
+  return scope ? `${KEY_PREFIX}:${scope}` : KEY;
+}
+
+function parseAssignments(raw: string | null): Assignment[] {
+  if (!raw) return [];
   try {
-    const raw = localStorage.getItem(KEY) ?? localStorage.getItem(LEGACY_KEY);
-    if (!raw) return [];
     const parsed = JSON.parse(raw) as Assignment[];
     return Array.isArray(parsed) ? parsed : [];
   } catch {
@@ -18,8 +28,15 @@ export function loadAssignments(): Assignment[] {
   }
 }
 
-export function saveAssignments(assignments: Assignment[]): void {
-  localStorage.setItem(KEY, JSON.stringify(assignments));
+export function loadAssignments(workspaceId?: string | null): Assignment[] {
+  const key = scopedKey(workspaceId);
+  const scoped = parseAssignments(localStorage.getItem(key));
+  if (scoped.length > 0 || key === KEY) return scoped;
+  return parseAssignments(localStorage.getItem(KEY) ?? localStorage.getItem(LEGACY_KEY));
+}
+
+export function saveAssignments(assignments: Assignment[], workspaceId?: string | null): void {
+  localStorage.setItem(scopedKey(workspaceId), JSON.stringify(assignments));
 }
 
 export function buildAssignmentNameFromSpark(body: string, at: number = now()): string {

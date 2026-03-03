@@ -4,6 +4,10 @@ import type { Database } from "./db.types.js";
 export type CalendarEventRow = Database["tongs"]["Tables"]["calendar_events"]["Row"];
 export type CalendarEventInsert = Database["tongs"]["Tables"]["calendar_events"]["Insert"];
 export type CalendarEventUpdate = Database["tongs"]["Tables"]["calendar_events"]["Update"];
+export type CalendarEventAssignmentRow =
+  Database["tongs"]["Tables"]["calendar_event_assignments"]["Row"];
+export type CalendarEventAssignmentInsert =
+  Database["tongs"]["Tables"]["calendar_event_assignments"]["Insert"];
 
 export type CalendarEventRange = {
   startAt?: string;
@@ -79,13 +83,80 @@ export async function updateCalendarEvent(
 
 export async function deleteCalendarEvent(
   supabase: SupabaseClient<Database>,
+  workspaceId: string,
   id: string,
 ): Promise<void> {
   const { error } = await supabase
     .schema("tongs")
     .from("calendar_events")
     .delete()
+    .eq("workspace_id", workspaceId)
     .eq("id", id);
 
   if (error) throw error;
+}
+
+export async function listCalendarEventAssignments(
+  supabase: SupabaseClient<Database>,
+  workspaceId: string,
+  eventIds?: string[],
+): Promise<CalendarEventAssignmentRow[]> {
+  let query = supabase
+    .schema("tongs")
+    .from("calendar_event_assignments")
+    .select("*")
+    .eq("workspace_id", workspaceId);
+
+  if (eventIds && eventIds.length > 0) {
+    query = query.in("event_id", eventIds);
+  }
+
+  const { data, error } = await query
+    .order("event_id", { ascending: true })
+    .order("created_at", { ascending: true });
+
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function replaceCalendarEventAssignments(
+  supabase: SupabaseClient<Database>,
+  workspaceId: string,
+  eventId: string,
+  assignmentIds: string[],
+): Promise<CalendarEventAssignmentRow[]> {
+  const uniqueAssignmentIds = Array.from(
+    new Set(
+      assignmentIds
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0),
+    ),
+  );
+
+  const { error: deleteError } = await supabase
+    .schema("tongs")
+    .from("calendar_event_assignments")
+    .delete()
+    .eq("workspace_id", workspaceId)
+    .eq("event_id", eventId);
+  if (deleteError) throw deleteError;
+
+  if (uniqueAssignmentIds.length === 0) {
+    return [];
+  }
+
+  const payload: CalendarEventAssignmentInsert[] = uniqueAssignmentIds.map((assignmentId) => ({
+    workspace_id: workspaceId,
+    event_id: eventId,
+    assignment_id: assignmentId,
+  }));
+
+  const { data, error } = await supabase
+    .schema("tongs")
+    .from("calendar_event_assignments")
+    .insert(payload)
+    .select("*");
+
+  if (error) throw error;
+  return data ?? [];
 }

@@ -71,8 +71,8 @@ export async function saveScriptAs(
     logSaveFail('saveAs', safeName, err);
     if (isMappedFolderManagedByNursery()) {
       showSaveError(
-        'No Nursery scripts folder linked',
-        `Configure scripts storage in Nursery > Settings > Storage (${getNurseryStorageSettingsUrl()}).`,
+        'No Forge scripts folder linked',
+        `Configure scripts storage in The Forge > Settings > Storage (${getNurseryStorageSettingsUrl()}).`,
       );
     } else {
       showSaveError('No folder mapped', 'Pick a scripts folder in Settings to save files.');

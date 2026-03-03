@@ -41,6 +41,46 @@ const computeReadyFingerprint = (entries: ReadyScriptReference[]) =>
     .sort()
     .join('|');
 
+function shortUserId(value: string | null | undefined): string {
+  const userId = String(value ?? "").trim();
+  if (!userId) return "Unknown";
+  if (userId.length <= 12) return userId;
+  return `${userId.slice(0, 8)}...`;
+}
+
+function formatRelativeTime(iso: string | null | undefined): string {
+  if (!iso) return "unknown";
+  const timestamp = Date.parse(iso);
+  if (!Number.isFinite(timestamp)) return "unknown";
+  const diffMs = Date.now() - timestamp;
+  const absMs = Math.abs(diffMs);
+  const minuteMs = 60 * 1000;
+  const hourMs = 60 * minuteMs;
+  const dayMs = 24 * hourMs;
+  const weekMs = 7 * dayMs;
+
+  const formatUnit = (unit: Intl.RelativeTimeFormatUnit, amount: number): string => {
+    try {
+      return new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }).format(amount, unit);
+    } catch {
+      const abs = Math.abs(amount);
+      const suffix = amount <= 0 ? "ago" : "from now";
+      return `${abs} ${unit}${abs === 1 ? "" : "s"} ${suffix}`;
+    }
+  };
+
+  if (absMs < hourMs) return formatUnit("minute", -Math.max(1, Math.round(absMs / minuteMs)));
+  if (absMs < dayMs) return formatUnit("hour", -Math.round(absMs / hourMs));
+  if (absMs < weekMs) return formatUnit("day", -Math.round(absMs / dayMs));
+  return formatUnit("week", -Math.round(absMs / weekMs));
+}
+
+function formatReadyAttribution(entry: ReadyScriptReference): string {
+  const by = shortUserId(entry.markedReadyBy);
+  const at = entry.markedReadyAt ?? entry.updatedAt ?? null;
+  return at ? `Ready by ${by} (${formatRelativeTime(at)})` : `Ready by ${by}`;
+}
+
 async function ensureReadPermission(handle: FileSystemHandle): Promise<boolean> {
   try {
     const h: any = handle as any;
@@ -172,7 +212,7 @@ export const ScriptStore = {
     }));
   },
 
-  getSelectableEntries(): Array<{ id: string; title: string; handle?: FileSystemHandle; source: 'mapped' | 'ready' }> {
+  getSelectableEntries(): Array<{ id: string; title: string; subtitle?: string; handle?: FileSystemHandle; source: 'mapped' | 'ready' }> {
     const mapped = Array.from(mappedHandles.values()).map((m) => ({
       id: m.id,
       title: m.title,
@@ -182,6 +222,7 @@ export const ScriptStore = {
     const ready = Array.from(readyRefsById.values()).map((r) => ({
       id: r.id,
       title: r.title,
+      subtitle: formatReadyAttribution(r),
       source: 'ready' as const,
     }));
     return [...ready, ...mapped];

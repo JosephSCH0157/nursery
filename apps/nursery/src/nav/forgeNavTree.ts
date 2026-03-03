@@ -23,16 +23,17 @@ export function composeNav(base: ForgeNavSection[], extras?: ForgeNavSection[]) 
 export const forgeNavTree: ForgeNavSection[] = [
   {
     id: "forge",
-    title: "Nursery",
+    title: "The Forge",
     items: [
       { id: "home", label: "Home", to: "/app" },
       { id: "barstock", label: "Barstock", to: "/app/barstock" },
       { id: "hearth", label: "Hearth", to: "/app/hearth" },
-      { id: "tongs", label: "Tongs Calendar", to: "/app/tongs" },
+      { id: "tongs", label: "Tongs", to: "/app/tongs" },
       { id: "anvil", label: "Anvil", to: "/app/anvil" },
       { id: "hammer", label: "Hammer", to: "/app/hammer" },
       { id: "quench", label: "Quench", to: "/app/quench" },
       { id: "ledger", label: "Ledger", to: "/app/ledger" },
+      { id: "iron-mine", label: "Iron Mine", to: "/app/iron-mine" },
     ],
   },
   {
@@ -41,6 +42,7 @@ export const forgeNavTree: ForgeNavSection[] = [
     items: [
       { id: "settings-home", label: "Settings home", to: "/app/settings" },
       { id: "storage", label: "Storage (Mounts)", to: "/app/settings/storage" },
+      { id: "mobile-demo", label: "Mobile Demo", to: "/app/mobile-demo" },
     ],
   },
 ];

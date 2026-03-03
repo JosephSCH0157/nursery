@@ -7,22 +7,98 @@ const GENERATED_TELEPROMPTER_BANNER =
 const PNPM_BIN = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const ANVIL_DIST_WAIT_MS = 2000;
 const ANVIL_DIST_POLL_MS = 100;
+const RESET_DIR_MAX_RETRIES = 10;
+const RESET_DIR_RETRY_DELAY_MS = 50;
+const RESET_DIR_BACKOFF_ATTEMPTS = 8;
+const COPY_WRITE_BACKOFF_ATTEMPTS = 6;
+const RETRYABLE_RM_CODES = new Set(["ENOTEMPTY", "EBUSY", "EPERM"]);
+const RETRYABLE_IO_CODES = new Set(["ENOTEMPTY", "EBUSY", "EPERM"]);
 
-function copyDir(src, dest) {
+function isRetryableRmError(error) {
+  if (!error || typeof error !== "object") return false;
+  const code = "code" in error ? String(error.code) : "";
+  return RETRYABLE_RM_CODES.has(code);
+}
+
+function isRetryableIoError(error) {
+  if (!error || typeof error !== "object") return false;
+  const code = "code" in error ? String(error.code) : "";
+  return RETRYABLE_IO_CODES.has(code);
+}
+
+async function copyFileRobust(src, dest) {
+  for (let attempt = 0; attempt < COPY_WRITE_BACKOFF_ATTEMPTS; attempt += 1) {
+    try {
+      fs.copyFileSync(src, dest);
+      return true;
+    } catch (error) {
+      if (!isRetryableIoError(error)) throw error;
+      if (attempt === COPY_WRITE_BACKOFF_ATTEMPTS - 1) {
+        console.warn(`[sync-anvil] skipping locked file during copy: ${dest}`);
+        return false;
+      }
+      await sleep(RESET_DIR_RETRY_DELAY_MS * (attempt + 1));
+    }
+  }
+  return false;
+}
+
+async function writeFileRobust(filePath, contents) {
+  for (let attempt = 0; attempt < COPY_WRITE_BACKOFF_ATTEMPTS; attempt += 1) {
+    try {
+      fs.writeFileSync(filePath, contents, "utf8");
+      return true;
+    } catch (error) {
+      if (!isRetryableIoError(error)) throw error;
+      if (attempt === COPY_WRITE_BACKOFF_ATTEMPTS - 1) {
+        console.warn(`[sync-anvil] skipping locked file write: ${filePath}`);
+        return false;
+      }
+      await sleep(RESET_DIR_RETRY_DELAY_MS * (attempt + 1));
+    }
+  }
+  return false;
+}
+
+async function copyDir(src, dest) {
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
     const s = path.join(src, entry.name);
     const d = path.join(dest, entry.name);
     if (entry.isDirectory()) {
-      copyDir(s, d);
+      await copyDir(s, d);
     } else {
-      fs.copyFileSync(s, d);
+      await copyFileRobust(s, d);
     }
   }
 }
 
-function resetDir(dir) {
-  fs.rmSync(dir, { recursive: true, force: true });
+async function rmDirRobust(dir) {
+  for (let attempt = 0; attempt < RESET_DIR_BACKOFF_ATTEMPTS; attempt += 1) {
+    try {
+      fs.rmSync(dir, {
+        recursive: true,
+        force: true,
+        maxRetries: RESET_DIR_MAX_RETRIES,
+        retryDelay: RESET_DIR_RETRY_DELAY_MS,
+      });
+      return true;
+    } catch (error) {
+      if (!isRetryableRmError(error)) throw error;
+      if (attempt === RESET_DIR_BACKOFF_ATTEMPTS - 1) {
+        return false;
+      }
+      await sleep(RESET_DIR_RETRY_DELAY_MS * (attempt + 1));
+    }
+  }
+  return false;
+}
+
+async function resetDir(dir) {
+  const removed = await rmDirRobust(dir);
+  if (!removed) {
+    console.warn(`[sync-anvil] directory reset incomplete; continuing with in-place copy: ${dir}`);
+  }
   fs.mkdirSync(dir, { recursive: true });
 }
 
@@ -39,16 +115,17 @@ function stripHostShimStylesheet(html) {
     .replace(/[ \t]*<link\s+href=["']\/anvil\/host-shim\.css["']\s+rel=["']stylesheet["']\s*>\r?\n?/gi, "");
 }
 
-function tagGeneratedTeleprompter(filePath) {
+async function tagGeneratedTeleprompter(filePath) {
   if (!fs.existsSync(filePath)) {
-    throw new Error(`[sync-anvil] missing expected file: ${filePath}`);
+    console.warn(`[sync-anvil] missing expected file for tagging: ${filePath}`);
+    return false;
   }
   const html = fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
   const normalized = stripGeneratedBanner(html);
   const cleaned = stripHostShimStylesheet(normalized);
   const newline = cleaned.includes("\r\n") ? "\r\n" : "\n";
   const tagged = `${GENERATED_TELEPROMPTER_BANNER}${newline}${cleaned}`;
-  fs.writeFileSync(filePath, tagged, "utf8");
+  return writeFileRobust(filePath, tagged);
 }
 
 function writeGeneratedReadme(destDir) {
@@ -109,14 +186,19 @@ const workspaceRoot = path.resolve(nurseryRoot, "..", "..");
 
 await ensureAnvilDist(src, workspaceRoot);
 
-resetDir(dest);
-copyDir(src, dest);
+await resetDir(dest);
+await copyDir(src, dest);
 
 const mirroredTeleprompter = path.join(dest, "teleprompter_pro.html");
-tagGeneratedTeleprompter(mirroredTeleprompter);
+await tagGeneratedTeleprompter(mirroredTeleprompter);
 const legacyHostShimPath = path.join(dest, "host-shim.css");
 if (fs.existsSync(legacyHostShimPath)) {
-  fs.rmSync(legacyHostShimPath, { force: true });
+  try {
+    fs.rmSync(legacyHostShimPath, { force: true });
+  } catch (error) {
+    if (!isRetryableRmError(error)) throw error;
+    console.warn(`[sync-anvil] could not remove locked legacy host shim: ${legacyHostShimPath}`);
+  }
 }
 writeGeneratedReadme(dest);
 

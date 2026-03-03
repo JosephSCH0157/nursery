@@ -65,6 +65,9 @@ function normalizeSparkStatus(value: unknown): "raw" | "warming" | "forged" | "a
   if (value === "raw" || value === "warming" || value === "forged" || value === "archived") {
     return value;
   }
+  // Graduation is derived from approved/published script signals in Tongs; keep
+  // canonical barstock_sparks.status in supported states for now.
+  if (value === "graduated") return "forged";
   return "raw";
 }
 
@@ -135,14 +138,15 @@ export async function flushOutboxToTongs(args: {
       id: s.id,
       workspace_id: workspaceId,
       created_by: userId,
-      name: s.name,
-      pinned: !!s.pinned,
-      deleted_at: null
+      title: s.name,
+      status: "open",
+      created_at: new Date(s.createdAt ?? Date.now()).toISOString(),
+      updated_at: new Date(s.updatedAt ?? s.createdAt ?? Date.now()).toISOString(),
     }));
 
     const { error } = await supabase
       .schema("tongs")
-      .from("barstock_sessions")
+      .from("barstock_assignments")
       .upsert(rows, { onConflict: "id" });
 
     if (error) {
@@ -162,14 +166,16 @@ export async function flushOutboxToTongs(args: {
         id: normalizedId,
         workspace_id: workspaceId,
         created_by: userId,
-        episode_id: sp.assignmentId ?? null,
+        assignment_id: sp.assignmentId ?? null,
         title: sp.title ?? null,
         body: sp.body,
         tags: Array.isArray(sp.tags) ? sp.tags : [],
         status: normalizeSparkStatus(sp.status),
         source: normalizeSparkSource(sp.source),
         pinned: !!sp.pinned,
-        deleted_at: null
+        deleted_at: null,
+        created_at: new Date(sp.createdAt ?? Date.now()).toISOString(),
+        updated_at: new Date(sp.updatedAt ?? sp.createdAt ?? Date.now()).toISOString(),
       };
     });
 
@@ -194,8 +200,8 @@ export async function flushOutboxToTongs(args: {
   if (deleteAssignmentIds.length) {
     const { error } = await supabase
       .schema("tongs")
-      .from("barstock_sessions")
-      .update({ deleted_at: nowIso() })
+      .from("barstock_assignments")
+      .update({ status: "archived", updated_at: nowIso() })
       .eq("workspace_id", workspaceId)
       .in("id", [...new Set(deleteAssignmentIds)]);
 

@@ -2,7 +2,7 @@
 
 **Barstock is where ideas go before they're ready to behave.**
 
-Barstock is the raw idea capture layer of **Podcasters Forge** — the place for half-formed thoughts, rants, sparks, premises, and moments of clarity that show up at inconvenient times.
+Barstock is the raw idea capture layer of **Podcaster's Forge** — the place for half-formed thoughts, rants, sparks, premises, and moments of clarity that show up at inconvenient times.
 
 Release status: included in **Forge v1.2.0 Fire Burning** (`forge-v1.2.0`).
 
@@ -71,7 +71,7 @@ Authorship stays with the creator — always.
 
 ---
 
-## How Barstock Fits Into Podcasters Forge
+## How Barstock Fits Into Podcaster's Forge
 
 Barstock is the first step in a larger creative workflow:
 

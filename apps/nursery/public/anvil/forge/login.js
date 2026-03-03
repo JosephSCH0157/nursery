@@ -11630,7 +11630,7 @@ function setStatus(message) {
 }
 async function redirectToNurseryAuth() {
   const target = getRedirectTarget();
-  setStatus("Login moved to Nursery. Redirecting...");
+  setStatus("Login moved to Podcaster's Forge. Redirecting...");
   try {
     const { data, error } = await supabase.auth.getSession();
     if (!error && data?.session) {

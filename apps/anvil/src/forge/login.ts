@@ -1,6 +1,6 @@
 // src/forge/login.ts
 // Legacy Anvil login page shim.
-// Auth is now owned by Nursery at /login.
+// Auth is now owned by Podcaster's Forge at /login.
 import { supabase } from './supabaseClient';
 
 function getRedirectTarget(): string {
@@ -24,7 +24,7 @@ function setStatus(message: string): void {
 
 async function redirectToNurseryAuth(): Promise<void> {
   const target = getRedirectTarget();
-  setStatus('Login moved to Nursery. Redirecting...');
+  setStatus("Login moved to Podcaster's Forge. Redirecting...");
 
   try {
     const { data, error } = await supabase.auth.getSession();

@@ -1,8 +1,11 @@
 import { supabase } from "./supabase";
+import type { Assignment, Spark, SparkSource, SparkStatus } from "./model";
 
 export type Workspace = {
   id: string;
   name: string;
+  role?: string | null;
+  createdAt?: string | null;
 };
 
 const WORKPIECE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -31,6 +34,44 @@ type GraduationCacheEntry = {
 };
 
 const graduationCache = new Map<string, GraduationCacheEntry>();
+
+const FALLBACK_SPARK_STATUS: SparkStatus = "raw";
+const FALLBACK_SPARK_SOURCE: SparkSource = "other";
+
+function parseTimestampToMs(value: unknown): number {
+  if (typeof value !== "string") return Date.now();
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : Date.now();
+}
+
+function normalizeSparkStatus(value: unknown): SparkStatus {
+  if (value === "raw" || value === "warming" || value === "forged" || value === "archived" || value === "graduated") {
+    return value;
+  }
+  return FALLBACK_SPARK_STATUS;
+}
+
+function normalizeSparkSource(value: unknown): SparkSource {
+  if (value === "typed" || value === "paste" || value === "voice" || value === "import" || value === "link" || value === "other") {
+    return value;
+  }
+  return FALLBACK_SPARK_SOURCE;
+}
+
+function workspaceRoleRank(value: string | null | undefined): number {
+  switch (value) {
+    case "owner":
+      return 4;
+    case "admin":
+      return 3;
+    case "editor":
+      return 2;
+    case "viewer":
+      return 1;
+    default:
+      return 0;
+  }
+}
 
 function normalizeWorkpieceId(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -166,10 +207,20 @@ export async function listGraduatedEpisodeIds(
 export async function listMyWorkspaces(): Promise<Workspace[]> {
   if (!supabase) return [];
 
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError) {
+    throw authError;
+  }
+  const userId = authData.user?.id ?? null;
+  if (!userId) {
+    return [];
+  }
+
   const { data, error } = await supabase
     .schema("tongs")
     .from("workspace_members")
-    .select("workspace_id, role, workspaces!workspace_members_workspace_id_fkey(id, name)");
+    .select("workspace_id, role, workspaces!workspace_members_workspace_id_fkey(id, name, created_at)")
+    .eq("user_id", userId);
 
   if (error) {
     throw error;
@@ -178,7 +229,97 @@ export async function listMyWorkspaces(): Promise<Workspace[]> {
   const out: Workspace[] = [];
   for (const row of data ?? []) {
     const w = (row as any).workspaces;
-    if (w?.id && w?.name) out.push({ id: w.id, name: w.name });
+    const role = typeof (row as any).role === "string" ? (row as any).role : null;
+    const createdAt = typeof w?.created_at === "string" ? w.created_at : null;
+    if (w?.id && w?.name) out.push({ id: w.id, name: w.name, role, createdAt });
   }
+
+  out.sort((a, b) => {
+    const aRole = workspaceRoleRank(a.role);
+    const bRole = workspaceRoleRank(b.role);
+    if (aRole !== bRole) return bRole - aRole;
+    const aCreated = parseTimestampToMs(a.createdAt);
+    const bCreated = parseTimestampToMs(b.createdAt);
+    if (aCreated !== bCreated) return aCreated - bCreated;
+    return a.name.localeCompare(b.name);
+  });
+
+  return out;
+}
+
+export async function listWorkspaceProjects(workspaceId: string): Promise<Assignment[]> {
+  if (!supabase || !workspaceId.trim()) return [];
+
+  const normalizedWorkspaceId = workspaceId.trim();
+  const { data, error } = await supabase
+    .schema("tongs")
+    .from("barstock_assignments")
+    .select("id,title,status,created_at,updated_at")
+    .eq("workspace_id", normalizedWorkspaceId)
+    .neq("status", "archived")
+    .order("updated_at", { ascending: false });
+
+  if (error) throw error;
+
+  const out: Assignment[] = [];
+  for (const row of data ?? []) {
+    const id = typeof (row as any).id === "string" ? (row as any).id : "";
+    const title = typeof (row as any).title === "string" ? (row as any).title.trim() : "";
+    if (!id || !title) continue;
+    out.push({
+      id,
+      name: title,
+      createdAt: parseTimestampToMs((row as any).created_at),
+      updatedAt: parseTimestampToMs((row as any).updated_at),
+    });
+  }
+
+  return out;
+}
+
+export async function listWorkspaceSparks(workspaceId: string): Promise<Spark[]> {
+  if (!supabase || !workspaceId.trim()) return [];
+
+  const normalizedWorkspaceId = workspaceId.trim();
+  const { data, error } = await supabase
+    .schema("tongs")
+    .from("barstock_sparks")
+    .select("id,assignment_id,title,body,tags,status,source,pinned,created_at,updated_at,deleted_at")
+    .eq("workspace_id", normalizedWorkspaceId)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+
+  const out: Spark[] = [];
+  for (const row of data ?? []) {
+    const id = typeof (row as any).id === "string" ? (row as any).id : "";
+    const body = typeof (row as any).body === "string" ? (row as any).body : "";
+    if (!id || !body.trim()) continue;
+
+    const assignmentId = typeof (row as any).assignment_id === "string" && (row as any).assignment_id.trim()
+      ? (row as any).assignment_id.trim()
+      : null;
+    const title = typeof (row as any).title === "string" && (row as any).title.trim()
+      ? (row as any).title.trim()
+      : undefined;
+    const tags = Array.isArray((row as any).tags)
+      ? (row as any).tags.filter((tag: unknown): tag is string => typeof tag === "string")
+      : [];
+
+    out.push({
+      id,
+      assignmentId,
+      title,
+      body,
+      tags,
+      status: normalizeSparkStatus((row as any).status),
+      source: normalizeSparkSource((row as any).source),
+      pinned: Boolean((row as any).pinned),
+      createdAt: parseTimestampToMs((row as any).created_at),
+      updatedAt: parseTimestampToMs((row as any).updated_at),
+    });
+  }
+
   return out;
 }

@@ -1,6 +1,6 @@
 export type SparkId = string;
 
-export type SparkStatus = "raw" | "warming" | "forged" | "archived";
+export type SparkStatus = "raw" | "warming" | "forged" | "graduated" | "archived";
 
 export type SparkSource =
   | "typed"
@@ -33,11 +33,12 @@ export type Spark = {
 
   source: SparkSource;
   pinned?: boolean;
-  assignmentId: AssignmentId;
+  assignmentId: AssignmentId | null;
 
   // future-friendly: connection to other Forge tools without committing now
   links?: {
     hearthDraftId?: string;
+    hearthWorkpieceId?: string;
     tongsAssetId?: string;
   };
 };
@@ -56,7 +57,7 @@ export function now(): number {
   return Date.now();
 }
 
-export function makeSpark(body: string, assignmentId: AssignmentId, partial?: Partial<Spark>): Spark {
+export function makeSpark(body: string, assignmentId: AssignmentId | null, partial?: Partial<Spark>): Spark {
   const t = now();
   const id = isUuid(partial?.id) ? partial.id : crypto.randomUUID();
   return {

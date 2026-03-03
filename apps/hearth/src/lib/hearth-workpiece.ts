@@ -185,7 +185,13 @@ async function createCradle(args: {
   workspaceId: string;
   writtenBy: WrittenBy;
   origin?: ForgeOrigin;
+  title?: string | null;
 }): Promise<CreateWorkpieceResult> {
+  const metadata: Record<string, unknown> = {};
+  if (args.origin) metadata.origin = args.origin;
+  const title = readString(args.title);
+  if (title) metadata.title = title;
+
   const response = await tongsFetch("/tongs/cradles", {
     method: "POST",
     json: {
@@ -195,7 +201,7 @@ async function createCradle(args: {
         name: "hearth",
         version: args.writtenBy.tool_version,
       },
-      metadata: args.origin ? { origin: args.origin } : {},
+      metadata,
       correlation_id: nextCorrelationId("hearth-create-cradle"),
     },
   });
@@ -281,6 +287,7 @@ async function commitScriptSeed(args: {
 export async function createHearthWorkpiece(
   origin?: ForgeOrigin,
   scriptSeed?: string | null,
+  options?: { title?: string | null },
 ): Promise<CreateWorkpieceResult> {
   if (typeof window === "undefined") {
     return { ok: false, reason: "no_window" };
@@ -293,7 +300,12 @@ export async function createHearthWorkpiece(
   const writtenBy = getWrittenBy();
 
   // Success contract: cradle created -> metadata committed -> script seeded -> pointers persisted.
-  const created = await createCradle({ workspaceId, writtenBy, origin });
+  const created = await createCradle({
+    workspaceId,
+    writtenBy,
+    origin,
+    title: options?.title ?? null,
+  });
   if (!created.ok) return created;
   const metadata = await commitMetadata({
     workpieceId: created.workpieceId,

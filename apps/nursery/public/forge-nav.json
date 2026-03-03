@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "generated_at": "2026-03-01T00:18:23.777Z",
+  "generated_at": "2026-03-03T02:27:38.252Z",
   "tree": [
     {
       "id": "forge",
-      "title": "Nursery",
+      "title": "The Forge",
       "items": [
         {
           "id": "home",
@@ -23,7 +23,7 @@
         },
         {
           "id": "tongs",
-          "label": "Tongs Calendar",
+          "label": "Tongs",
           "to": "/app/tongs"
         },
         {
@@ -45,6 +45,11 @@
           "id": "ledger",
           "label": "Ledger",
           "to": "/app/ledger"
+        },
+        {
+          "id": "iron-mine",
+          "label": "Iron Mine",
+          "to": "/app/iron-mine"
         }
       ]
     },
@@ -61,6 +66,11 @@
           "id": "storage",
           "label": "Storage (Mounts)",
           "to": "/app/settings/storage"
+        },
+        {
+          "id": "mobile-demo",
+          "label": "Mobile Demo",
+          "to": "/app/mobile-demo"
         }
       ]
     }

@@ -1,6 +1,7 @@
 import { Link, useOutletContext } from "react-router-dom";
 import type { ForgeAppId } from "@forge/tongs";
 import type { AppShellContext } from "./AppShell";
+import forgeInteriorImage from "../../../../assets/forge-interior.png";
 
 type HubLink = {
   to?: string;
@@ -12,7 +13,7 @@ type HubLink = {
 
 const TOOL_META: Record<ForgeAppId, Omit<HubLink, "to" | "href">> = {
   nursery: {
-    name: "Nursery",
+    name: "The Forge",
     hint: "Authentication Hub",
     desc: "Sign in once to unlock the Forge tools.",
   },
@@ -58,6 +59,12 @@ function linkFor(appId: ForgeAppId): HubLink {
 const LINKS: HubLink[] = [
   linkFor("barstock"),
   {
+    to: "/app/iron-mine",
+    name: "Iron Mine",
+    hint: "Community forum (Discord)",
+    desc: "Join the Podcaster's Forge community in Discord.",
+  },
+  {
     to: "/app/hearth",
     ...TOOL_META.hearth,
   },
@@ -79,9 +86,33 @@ const LINKS: HubLink[] = [
 export default function ForgeHub() {
   const shell = useOutletContext<AppShellContext>();
   const session = shell?.session ?? null;
+  const showBackdrop = !!session;
 
   return (
-    <div style={{ padding: 24, fontFamily: "system-ui, Segoe UI, Arial, sans-serif" }}>
+    <div
+      style={{
+        padding: 24,
+        fontFamily: "system-ui, Segoe UI, Arial, sans-serif",
+        position: "relative",
+        borderRadius: showBackdrop ? 16 : undefined,
+        overflow: showBackdrop ? "hidden" : undefined,
+      }}
+    >
+      {showBackdrop ? (
+        <div
+          aria-hidden
+          style={{
+            position: "absolute",
+            inset: 0,
+            backgroundImage:
+              `linear-gradient(180deg, rgba(10,10,12,0.74), rgba(6,8,12,0.84)), url('${forgeInteriorImage}')`,
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+            backgroundRepeat: "no-repeat",
+          }}
+        />
+      ) : null}
+      <div style={{ position: "relative", zIndex: 1 }}>
       <h1 style={{ margin: 0 }}>Podcaster's Forge</h1>
       <p style={{ marginTop: 8, opacity: 0.75 }}>Choose a tool to get started.</p>
       {!session ? (
@@ -163,6 +194,7 @@ export default function ForgeHub() {
             </Link>
           )
         ))}
+      </div>
       </div>
     </div>
   );

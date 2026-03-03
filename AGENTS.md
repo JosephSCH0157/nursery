@@ -1,14 +1,35 @@
-# Nursery Agents
+# Podcaster's Forge Agents
 
-This document defines the **canonical agent roles** inside the Nursery workspace. Each agent has a clear scope, inputs/outputs, and guardrails so tools can cooperate without stepping on each other.
+This document defines the **canonical agent roles** inside the Podcaster's Forge workspace. Each agent has a clear scope, inputs/outputs, and guardrails so tools can cooperate without stepping on each other.
 
 Release baseline: **Forge v1.2.0 Fire Burning** (`forge-v1.2.0`).
 
 ---
 
+## SSOT / Persistence Policy (Canonical)
+
+The Supabase database (`tongs` schema) is the canonical single source of truth (SSOT) for all persisted state: workspaces, projects, sparks, episodes/workpieces, links, approvals, credits, and any user data that must survive refresh/reload/device changes.
+
+Local storage and in-memory state are non-canonical caches only (UI convenience). They MUST NOT be relied on for persistence or correctness.
+
+If a feature requires saving, syncing, or retrieving persisted state, it MUST go through Supabase (direct queries/RPC via the existing data access layer).
+
+If an edit request would require schema changes, migrations, RLS policies, or triggers, the agent MUST:
+
+1. STOP and call it out explicitly ("This requires a DB migration / RLS update.")
+2. Provide the SQL migration and the exact app code changes needed to use it.
+
+The agent MUST NEVER fake persistence by writing to local files or `localStorage` as a substitute.
+
+Fail-safe rule: when in doubt about persistence, assume it belongs in Supabase and ask/flag it rather than inventing a local workaround.
+
+Hard gate: if a requested change touches persistence semantics, relationships, lifecycle, or query behavior, the agent MUST NOT implement only UI changes and hope. It MUST either include migration + RLS updates in the same change set, or stop and state: "DB changes required; here is the migration."
+
+---
+
 ## 🏗️ Core System Agents
 
-### **Nursery** (Orchestrator)
+### **Podcaster's Forge** (Orchestrator)
 
 **Role:** Workspace coordinator and contract enforcer.
 
@@ -126,4 +147,4 @@ Canonical storage contract: `TONGS_PATH_CHARTER.md`.
 
 ---
 
-*Last updated: 2026‑02‑07*
+*Last updated: 2026-03-02*

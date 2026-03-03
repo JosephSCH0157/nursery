@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import "./index.css";
 
 import type { Assignment, AssignmentId, Spark, SparkStatus } from "./lib/model";
@@ -9,7 +9,6 @@ import {
   buildAssignmentNameFromSpark,
   loadAssignments,
   makeAssignment,
-  makeAssignmentFromSpark,
   saveAssignments,
   upsertAssignment
 } from "./lib/assignments";
@@ -20,7 +19,13 @@ import { buildExportPayload, downloadJson, mergeSparks, parseImportJson } from "
 import { compactOutbox, drainOutbox, loadOutbox, peekOutbox, pushOutbox, saveOutbox } from "./lib/outbox";
 import { buildHearthPacket, packetToClipboardText } from "./lib/hearth-packet";
 import { supabase, supabaseAvailable } from "./lib/supabase";
-import { listGraduatedEpisodeIds, listMyWorkspaces, type Workspace } from "./lib/tongs-api";
+import {
+  listGraduatedEpisodeIds,
+  listMyWorkspaces,
+  listWorkspaceProjects,
+  listWorkspaceSparks,
+  type Workspace,
+} from "./lib/tongs-api";
 import type { Session as SupabaseSession } from "@supabase/supabase-js";
 import { flushOutboxToTongs, checkTongsOnline } from "./lib/tongs-sync";
 
@@ -32,8 +37,7 @@ const ACTIVE_WORKSPACE_KEY = "forge_workspace_id_v1";
 const LEGACY_WORKSPACE_KEY = "barstock_workspace_id";
 const SHOW_GRADUATED_PREF_PREFIX = "barstock_show_graduated_v1";
 const WORKPIECE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const AUTO_ASSIGNMENT_NAME_RE = /^[a-z0-9]+_\d{4}-\d{2}-\d{2}_\d{4}$/i;
-const ASSIGNMENT_ID_MAP_KEY = "forge_barstock_assignment_id_map_v1";
+const PROJECT_ID_MAP_KEY = "forge_barstock_project_id_map_v1";
 
 function loadStoredWorkspaceId(): string | null {
   return localStorage.getItem(ACTIVE_WORKSPACE_KEY)
@@ -56,9 +60,9 @@ function normalizeWorkpieceId(value: string | null | undefined): string | null {
   return WORKPIECE_UUID_RE.test(trimmed) ? trimmed : null;
 }
 
-function loadAssignmentIdMap(): Record<string, string> {
+function loadProjectIdMap(): Record<string, string> {
   try {
-    const raw = localStorage.getItem(ASSIGNMENT_ID_MAP_KEY);
+    const raw = localStorage.getItem(PROJECT_ID_MAP_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return {};
@@ -68,27 +72,27 @@ function loadAssignmentIdMap(): Record<string, string> {
   }
 }
 
-function saveAssignmentIdMap(map: Record<string, string>): void {
+function saveProjectIdMap(map: Record<string, string>): void {
   try {
-    localStorage.setItem(ASSIGNMENT_ID_MAP_KEY, JSON.stringify(map));
+    localStorage.setItem(PROJECT_ID_MAP_KEY, JSON.stringify(map));
   } catch {
     // ignore storage failures
   }
 }
 
-function resolveAssignmentIdForSpark(sparkId: string): string {
-  const normalizedSparkId = sparkId.trim().toLowerCase();
-  if (WORKPIECE_UUID_RE.test(normalizedSparkId)) return normalizedSparkId;
+function normalizeProjectId(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (WORKPIECE_UUID_RE.test(normalized)) return normalized;
 
-  const map = loadAssignmentIdMap();
-  const existing = map[sparkId];
+  const map = loadProjectIdMap();
+  const existing = map[normalized];
   if (typeof existing === "string" && WORKPIECE_UUID_RE.test(existing)) {
     return existing.toLowerCase();
   }
 
   const generated = crypto.randomUUID();
-  map[sparkId] = generated;
-  saveAssignmentIdMap(map);
+  map[normalized] = generated;
+  saveProjectIdMap(map);
   return generated;
 }
 
@@ -119,44 +123,93 @@ function writeShowGraduatedPref(workspaceId: string | null, userId: string | nul
   }
 }
 
+function parseWorkspaceCreatedAtMs(workspace: Workspace): number {
+  if (!workspace.createdAt) return Number.MAX_SAFE_INTEGER;
+  const parsed = Date.parse(workspace.createdAt);
+  return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+}
+
+function pickPreferredWorkspaceId(
+  workspaces: Workspace[],
+  savedId: string | null,
+  currentId?: string | null,
+): string | null {
+  const hasWorkspace = (id: string | null | undefined): id is string =>
+    typeof id === "string" && workspaces.some((workspace) => workspace.id === id);
+
+  if (hasWorkspace(savedId)) return savedId;
+  if (hasWorkspace(currentId ?? null)) return currentId ?? null;
+
+  const ownerOrAdmin = [...workspaces]
+    .filter((workspace) => workspace.role === "owner" || workspace.role === "admin")
+    .sort((a, b) => parseWorkspaceCreatedAtMs(a) - parseWorkspaceCreatedAtMs(b));
+  if (ownerOrAdmin.length > 0) return ownerOrAdmin[0].id;
+
+  const ordered = [...workspaces].sort((a, b) => parseWorkspaceCreatedAtMs(a) - parseWorkspaceCreatedAtMs(b));
+  return ordered[0]?.id ?? null;
+}
+
 type WorkspaceState = {
   workspaces: Workspace[];
   workspaceId: string | null;
   onWorkspaceChange: (id: string | null) => void;
 };
 
+type MobileRouteMode = "list" | "new" | "detail";
+
+type BarstockMobileRoute = {
+  mode: MobileRouteMode;
+  sparkId?: string;
+  onOpenSpark: (sparkId: string) => void;
+  onOpenNew: () => void;
+  onBackToList: () => void;
+};
+
+type BarstockMobilePage = {
+  title: string;
+  children: ReactNode;
+  onBack?: () => void;
+  showBack?: boolean;
+  rightAction?: ReactNode;
+  bottomBar?: ReactNode;
+};
+
 type BarstockAppProps = {
   workspaceState?: WorkspaceState;
   showWorkspacePicker?: boolean;
+  mobileRoute?: BarstockMobileRoute | null;
+  renderMobilePage?: (page: BarstockMobilePage) => ReactNode;
 };
 
 export default function App(props: BarstockAppProps = {}) {
-  const [body, setBody] = useState("");
-  const [sparks, setSparks] = useState<Spark[]>(() => loadSparks());
-  const [showGraduated, setShowGraduated] = useState<boolean>(() => readShowGraduatedPref(loadStoredWorkspaceId(), null));
-  const [graduatedEpisodeIds, setGraduatedEpisodeIds] = useState<string[]>([]);
-
-  const [assignments, setAssignments] = useState<Assignment[]>(() => loadAssignments());
-  const [activeAssignment, setActiveAssignment] = useState<AssignmentFilter>("all");
-  const [newAssignmentName, setNewAssignmentName] = useState("");
-  const [session, setSession] = useState<SupabaseSession | null>(null);
-  const [email, setEmail] = useState("");
   const hasExternalWorkspaceState = !!props.workspaceState;
   const externalWorkspaces = props.workspaceState?.workspaces;
   const externalWorkspaceId = props.workspaceState?.workspaceId;
   const externalWorkspaceChange = props.workspaceState?.onWorkspaceChange;
   const showWorkspacePicker = props.showWorkspacePicker ?? !hasExternalWorkspaceState;
+  const initialWorkspaceId = hasExternalWorkspaceState
+    ? (externalWorkspaceId ?? null)
+    : loadStoredWorkspaceId();
+
+  const [body, setBody] = useState("");
+  const [workspaceId, setWorkspaceId] = useState<string | null>(initialWorkspaceId);
+  const [sparks, setSparks] = useState<Spark[]>(() => loadSparks(initialWorkspaceId));
+  const [assignments, setAssignments] = useState<Assignment[]>(() => loadAssignments(initialWorkspaceId));
+  const [showGraduated, setShowGraduated] = useState<boolean>(() => readShowGraduatedPref(initialWorkspaceId, null));
+  const [graduatedEpisodeIds, setGraduatedEpisodeIds] = useState<string[]>([]);
+  const [activeAssignment, setActiveAssignment] = useState<AssignmentFilter>("all");
+  const [newAssignmentName, setNewAssignmentName] = useState("");
+  const [showEmptyProjects, setShowEmptyProjects] = useState(false);
+  const [session, setSession] = useState<SupabaseSession | null>(null);
+  const [email, setEmail] = useState("");
 
   const [workspaces, setWorkspaces] = useState<Workspace[]>(
     () => externalWorkspaces ?? [],
   );
-  const [workspaceId, setWorkspaceId] = useState<string | null>(
-    () => (hasExternalWorkspaceState ? (externalWorkspaceId ?? null) : loadStoredWorkspaceId()),
-  );
 
   const [q, setQ] = useState<SparkQuery>({ status: "all", pinned: "all" });
   const [tongsStatus, setTongsStatus] = useState<"offline" | "online">("offline");
-  const [outboxCount, setOutboxCount] = useState(() => loadOutbox().length);
+  const [outboxCount, setOutboxCount] = useState(() => loadOutbox(initialWorkspaceId).length);
   const [syncing, setSyncing] = useState(false);
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -171,48 +224,81 @@ export default function App(props: BarstockAppProps = {}) {
   }
 
   function enqueue(op: any) {
-    pushOutbox(op);
-    const items = compactOutbox(loadOutbox());
-    saveOutbox(items);
+    pushOutbox(op, workspaceId);
+    const items = compactOutbox(loadOutbox(workspaceId));
+    saveOutbox(items, workspaceId);
     setOutboxCount(items.length);
   }
 
+  const setActiveWorkspace = useCallback((next: string | null) => {
+    if (hasExternalWorkspaceState && externalWorkspaceChange) {
+      externalWorkspaceChange(next);
+      return;
+    }
+    setWorkspaceId(next);
+    saveStoredWorkspaceId(next);
+  }, [hasExternalWorkspaceState, externalWorkspaceChange]);
+
   function normalizeAssignmentsState(inputSparks: Spark[], inputAssignments: Assignment[]) {
     const assignmentById = new Map<string, Assignment>();
-    let duplicateAssignmentIdsFound = false;
+    const updatedAssignments: Assignment[] = [];
     for (const assignment of inputAssignments) {
-      const existing = assignmentById.get(assignment.id);
+      const normalizedId = normalizeProjectId(assignment.id);
+      const createdAt = assignment.createdAt ?? now();
+      const normalized: Assignment = {
+        ...assignment,
+        id: normalizedId,
+        name: assignment.name?.trim() || "Imported Project",
+        createdAt,
+        updatedAt: assignment.updatedAt ?? createdAt,
+      };
+      const existing = assignmentById.get(normalized.id);
       if (!existing) {
-        assignmentById.set(assignment.id, assignment);
+        assignmentById.set(normalized.id, normalized);
+        if (
+          normalized.id !== assignment.id
+          || normalized.name !== assignment.name
+          || normalized.createdAt !== assignment.createdAt
+          || normalized.updatedAt !== assignment.updatedAt
+        ) {
+          updatedAssignments.push(normalized);
+        }
         continue;
       }
-      duplicateAssignmentIdsFound = true;
       const existingUpdatedAt = existing.updatedAt ?? existing.createdAt ?? 0;
-      const nextUpdatedAt = assignment.updatedAt ?? assignment.createdAt ?? 0;
+      const nextUpdatedAt = normalized.updatedAt ?? normalized.createdAt ?? 0;
       if (nextUpdatedAt >= existingUpdatedAt) {
-        assignmentById.set(assignment.id, assignment);
+        assignmentById.set(normalized.id, normalized);
+      }
+      if (
+        normalized.id !== assignment.id
+        || normalized.name !== assignment.name
+        || normalized.createdAt !== assignment.createdAt
+        || normalized.updatedAt !== assignment.updatedAt
+      ) {
+        updatedAssignments.push(normalized);
       }
     }
 
-    const nextAssignments = [...assignmentById.values()];
-    const updatedAssignments: Assignment[] = [];
     const updatedSparkById = new Map<string, Spark>();
 
     const legacyKey = "session" + "Id";
 
-    let nextSparks = inputSparks.map((s) => {
+    const nextSparks = inputSparks.map((s) => {
       const legacyId = (s as any)[legacyKey] as string | undefined;
-      let assignmentId = s.assignmentId ?? legacyId;
+      const rawAssignmentId = s.assignmentId ?? legacyId;
+      const assignmentId = typeof rawAssignmentId === "string" && rawAssignmentId.trim()
+        ? normalizeProjectId(rawAssignmentId)
+        : null;
 
-      if (!assignmentId) {
-        assignmentId = resolveAssignmentIdForSpark(s.id);
-      }
-
-      if (!assignmentById.has(assignmentId)) {
+      if (assignmentId && !assignmentById.has(assignmentId)) {
         const createdAt = s.createdAt ?? now();
-        const name = buildAssignmentNameFromSpark(s.body, createdAt);
-        const assignment = makeAssignment(name, { id: assignmentId, createdAt, updatedAt: createdAt });
-        nextAssignments.push(assignment);
+        const title = s.title?.trim() || buildAssignmentNameFromSpark(s.body, createdAt) || "Imported Project";
+        const assignment = makeAssignment(title, {
+          id: assignmentId,
+          createdAt,
+          updatedAt: s.updatedAt ?? createdAt,
+        });
         assignmentById.set(assignmentId, assignment);
         updatedAssignments.push(assignment);
       }
@@ -225,65 +311,10 @@ export default function App(props: BarstockAppProps = {}) {
       return s;
     });
 
-    const sparkRefCount = new Map<string, number>();
-    for (const spark of nextSparks) {
-      sparkRefCount.set(spark.assignmentId, (sparkRefCount.get(spark.assignmentId) ?? 0) + 1);
-    }
-
-    const assignmentsByName = new Map<string, Assignment[]>();
-    for (const assignment of nextAssignments) {
-      const key = assignment.name.trim().toLowerCase();
-      const existing = assignmentsByName.get(key);
-      if (existing) {
-        existing.push(assignment);
-      } else {
-        assignmentsByName.set(key, [assignment]);
-      }
-    }
-
-    const assignmentRemap = new Map<string, string>();
-    const removedAssignmentIds = new Set<string>();
-    for (const [nameKey, group] of assignmentsByName.entries()) {
-      if (group.length < 2) continue;
-      if (!AUTO_ASSIGNMENT_NAME_RE.test(nameKey)) continue;
-
-      const ranked = [...group].sort((a, b) => {
-        const aRefs = sparkRefCount.get(a.id) ?? 0;
-        const bRefs = sparkRefCount.get(b.id) ?? 0;
-        if (aRefs !== bRefs) return bRefs - aRefs;
-        const aPinned = a.pinned ? 1 : 0;
-        const bPinned = b.pinned ? 1 : 0;
-        if (aPinned !== bPinned) return bPinned - aPinned;
-        const aUpdated = a.updatedAt ?? a.createdAt ?? 0;
-        const bUpdated = b.updatedAt ?? b.createdAt ?? 0;
-        if (aUpdated !== bUpdated) return bUpdated - aUpdated;
-        return a.id.localeCompare(b.id);
-      });
-
-      const keeper = ranked[0];
-      for (let i = 1; i < ranked.length; i += 1) {
-        const duplicate = ranked[i];
-        removedAssignmentIds.add(duplicate.id);
-        assignmentRemap.set(duplicate.id, keeper.id);
-      }
-    }
-
-    if (assignmentRemap.size > 0) {
-      nextSparks = nextSparks.map((spark) => {
-        const remapped = assignmentRemap.get(spark.assignmentId);
-        if (!remapped || remapped === spark.assignmentId) return spark;
-        const next = { ...spark, assignmentId: remapped };
-        updatedSparkById.set(next.id, next);
-        return next;
-      });
-    }
-
-    const dedupedAssignments = nextAssignments.filter((assignment) => !removedAssignmentIds.has(assignment.id));
+    const dedupedAssignments = [...assignmentById.values()];
     const updatedSparks = [...updatedSparkById.values()];
     const changed = updatedAssignments.length > 0
       || updatedSparks.length > 0
-      || removedAssignmentIds.size > 0
-      || duplicateAssignmentIdsFound
       || dedupedAssignments.length !== inputAssignments.length;
 
     return {
@@ -292,7 +323,6 @@ export default function App(props: BarstockAppProps = {}) {
       assignments: dedupedAssignments,
       updatedSparks,
       updatedAssignments,
-      removedAssignmentIds: [...removedAssignmentIds],
     };
   }
 
@@ -310,9 +340,6 @@ export default function App(props: BarstockAppProps = {}) {
     for (const s of res.updatedSparks) {
       enqueue({ op: "upsert_spark", at: ts, spark: s });
     }
-    for (const assignmentId of res.removedAssignmentIds) {
-      enqueue({ op: "delete_assignment", at: ts, assignmentId });
-    }
   }, []);
 
   const onSyncNow = useCallback(async () => {
@@ -320,7 +347,7 @@ export default function App(props: BarstockAppProps = {}) {
     if (!session) return popToast("Sign in first.");
     if (!workspaceId) return popToast("Pick a workspace first.");
 
-    const ops = peekOutbox();
+    const ops = peekOutbox(workspaceId);
     if (!ops.length) return popToast("Nothing to sync.");
 
     try {
@@ -338,7 +365,7 @@ export default function App(props: BarstockAppProps = {}) {
         return;
       }
 
-      drainOutbox();
+      drainOutbox(workspaceId);
       setOutboxCount(0);
       popToast(`Synced ${res.sent} item(s).`);
     } catch (e: any) {
@@ -382,12 +409,46 @@ export default function App(props: BarstockAppProps = {}) {
   }, [workspaceId, session?.user.id, showGraduated]);
 
   useEffect(() => {
-    saveSparks(sparks);
-  }, [sparks]);
+    const nextSparks = loadSparks(workspaceId);
+    const nextAssignments = loadAssignments(workspaceId);
+    const nextOutbox = compactOutbox(loadOutbox(workspaceId));
+    setSparks(nextSparks);
+    setAssignments(nextAssignments);
+    saveOutbox(nextOutbox, workspaceId);
+    setOutboxCount(nextOutbox.length);
+    setActiveAssignment("all");
+  }, [workspaceId]);
 
   useEffect(() => {
-    saveAssignments(assignments);
-  }, [assignments]);
+    saveSparks(sparks, workspaceId);
+  }, [sparks, workspaceId]);
+
+  useEffect(() => {
+    saveAssignments(assignments, workspaceId);
+  }, [assignments, workspaceId]);
+
+  useEffect(() => {
+    if (!supabaseAvailable || !session || !workspaceId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [remoteAssignments, remoteSparks] = await Promise.all([
+          listWorkspaceProjects(workspaceId),
+          listWorkspaceSparks(workspaceId),
+        ]);
+        if (cancelled) return;
+        setAssignments(remoteAssignments);
+        setSparks(remoteSparks);
+      } catch (err) {
+        if (!cancelled) {
+          console.warn("[bar-stock] failed to hydrate workspace state", err);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session, supabaseAvailable, workspaceId]);
 
   useEffect(() => {
     if (!supabaseAvailable || !session || !workspaceId) {
@@ -422,20 +483,19 @@ export default function App(props: BarstockAppProps = {}) {
         const ws = await listMyWorkspaces();
         setWorkspaces(ws);
         const saved = loadStoredWorkspaceId();
-        const pick = (saved && ws.find(x => x.id === saved)) ? saved : (ws[0]?.id ?? null);
-        setWorkspaceId(pick);
-        if (pick) saveStoredWorkspaceId(pick);
+        const pick = pickPreferredWorkspaceId(ws, saved);
+        setActiveWorkspace(pick);
       } catch (err) {
         console.error(err);
         popToast("Failed loading workspaces");
       }
     })();
-  }, [session, hasExternalWorkspaceState]);
+  }, [session, hasExternalWorkspaceState, setActiveWorkspace]);
 
   const sparkEpisodeIdsForGraduation = useMemo(() => {
     const ids = new Set<string>();
     for (const spark of sparks) {
-      const normalized = normalizeWorkpieceId(spark.assignmentId);
+      const normalized = normalizeWorkpieceId(spark.links?.hearthWorkpieceId);
       if (normalized) ids.add(normalized);
     }
     return [...ids];
@@ -480,38 +540,64 @@ export default function App(props: BarstockAppProps = {}) {
     );
   }, [graduatedEpisodeIds]);
 
+  const isSparkGraduated = useCallback((spark: Spark): boolean => {
+    if (spark.status === "graduated") return true;
+    const episodeId = normalizeWorkpieceId(spark.links?.hearthWorkpieceId);
+    return Boolean(episodeId && graduatedEpisodeIdSet.has(episodeId));
+  }, [graduatedEpisodeIdSet]);
+
+  useEffect(() => {
+    if (!graduatedEpisodeIdSet.size) return;
+    const promoted: Spark[] = [];
+    const ts = now();
+    const nextSparks = sparks.map((spark) => {
+      if (spark.status === "graduated" || spark.status === "archived") return spark;
+      const episodeId = normalizeWorkpieceId(spark.links?.hearthWorkpieceId);
+      if (!episodeId || !graduatedEpisodeIdSet.has(episodeId)) return spark;
+      const updated: Spark = { ...spark, status: "graduated", updatedAt: ts };
+      promoted.push(updated);
+      return updated;
+    });
+    if (promoted.length === 0) return;
+    setSparks(nextSparks);
+    for (const spark of promoted) {
+      enqueue({ op: "upsert_spark", at: ts, spark });
+    }
+  }, [graduatedEpisodeIdSet, sparks]);
+
   const sparksForList = useMemo(() => {
     if (showGraduated) return sparks;
-    return sparks.filter((spark) => {
-      const episodeId = normalizeWorkpieceId(spark.assignmentId);
-      if (!episodeId) return true;
-      return !graduatedEpisodeIdSet.has(episodeId);
-    });
-  }, [graduatedEpisodeIdSet, showGraduated, sparks]);
+    return sparks.filter((spark) => !isSparkGraduated(spark));
+  }, [isSparkGraduated, showGraduated, sparks]);
 
-  const hiddenGraduatedCount = sparks.length - sparksForList.length;
-  const count = sparksForList.length;
-  const canAdd = useMemo(() => body.trim().length > 0, [body]);
+  const activeSparkCount = useMemo(
+    () => sparks.reduce((count, spark) => (isSparkGraduated(spark) ? count : count + 1), 0),
+    [isSparkGraduated, sparks],
+  );
+  const graduatedSparkCount = sparks.length - activeSparkCount;
+  const activeWorkspaceRole = useMemo(
+    () => workspaces.find((workspace) => workspace.id === workspaceId)?.role ?? null,
+    [workspaceId, workspaces],
+  );
+  const canWrite = useMemo(() => {
+    if (!activeWorkspaceRole) return true;
+    return activeWorkspaceRole === "owner" || activeWorkspaceRole === "admin" || activeWorkspaceRole === "editor";
+  }, [activeWorkspaceRole]);
+  const canAdd = useMemo(() => canWrite && body.trim().length > 0, [body, canWrite]);
+  const mobileRoute = props.mobileRoute ?? null;
+  const isMobileRoute = mobileRoute !== null;
+  const mobileMode: MobileRouteMode = mobileRoute?.mode ?? "list";
   const syncLabel = !supabaseAvailable ? "LOCAL-ONLY" : tongsStatus.toUpperCase();
   const syncHint = !supabaseAvailable
     ? "Cloud sync unavailable."
     : (tongsStatus === "offline" ? "Offline / local-only." : "Online.");
 
-  const setActiveWorkspace = useCallback((next: string | null) => {
-    if (hasExternalWorkspaceState && externalWorkspaceChange) {
-      externalWorkspaceChange(next);
-      return;
-    }
-    setWorkspaceId(next);
-    saveStoredWorkspaceId(next);
-  }, [hasExternalWorkspaceState, externalWorkspaceChange]);
-
-  function navigateToHearthForEpisode(episodeId: string) {
-    const normalizedEpisodeId = episodeId.trim();
-    if (!normalizedEpisodeId) return;
+  function navigateToHearthForProject(projectId: string) {
+    const normalizedProjectId = projectId.trim().toLowerCase();
+    if (!normalizeWorkpieceId(normalizedProjectId)) return;
 
     const params = new URLSearchParams();
-    params.set("workpiece_id", normalizedEpisodeId);
+    params.set("project_id", normalizedProjectId);
     if (workspaceId) {
       params.set("workspace_id", workspaceId);
     }
@@ -537,6 +623,10 @@ export default function App(props: BarstockAppProps = {}) {
   }
 
   function updateSpark(s: Spark, patch: Partial<Spark>) {
+    if (!canWrite) {
+      popToast("Editor access required.");
+      return;
+    }
     const ts = now();
     const next: Spark = { ...s, ...patch, updatedAt: ts };
     setSparks(prev => upsertSpark(prev, next));
@@ -544,7 +634,10 @@ export default function App(props: BarstockAppProps = {}) {
   }
 
   function setStatus(s: Spark, status: SparkStatus) {
-    updateSpark(s, { status });
+    const nextStatus = isSparkGraduated(s) && status !== "archived"
+      ? "graduated"
+      : status;
+    updateSpark(s, { status: nextStatus });
   }
 
   function togglePin(s: Spark) {
@@ -552,6 +645,10 @@ export default function App(props: BarstockAppProps = {}) {
   }
 
   function deleteSpark(id: string) {
+    if (!canWrite) {
+      popToast("Editor access required.");
+      return;
+    }
     setSparks(prev => removeSpark(prev, id));
     enqueue({ op: "delete_spark", at: now(), sparkId: id });
   }
@@ -562,6 +659,10 @@ export default function App(props: BarstockAppProps = {}) {
 
 
   function addAssignment() {
+    if (!canWrite) {
+      popToast("Editor access required.");
+      return;
+    }
     const name = newAssignmentName.trim();
     if (!name) return;
     const a = makeAssignment(name);
@@ -569,23 +670,21 @@ export default function App(props: BarstockAppProps = {}) {
     enqueue({ op: "upsert_assignment", at: now(), assignment: a });
     setNewAssignmentName("");
     setActiveAssignment(a.id);
-    popToast("Assignment created.");
+    popToast("Project created.");
   }
 
   function addSpark() {
+    if (!canWrite) {
+      popToast("Editor access required.");
+      return;
+    }
     if (!canAdd) return;
 
     const tags = extractTags(body);
 
-    let assignmentId: AssignmentId;
-    if (activeAssignment === "all") {
-      const assignment = makeAssignmentFromSpark(body, now());
-      assignmentId = assignment.id;
-      setAssignments(prev => upsertAssignment(prev, assignment));
-      enqueue({ op: "upsert_assignment", at: now(), assignment });
-    } else {
-      assignmentId = activeAssignment;
-    }
+    const assignmentId: AssignmentId | null = activeAssignment === "all"
+      ? null
+      : activeAssignment;
 
     const s = makeSpark(body, assignmentId, {
       source: "typed",
@@ -595,6 +694,12 @@ export default function App(props: BarstockAppProps = {}) {
     setSparks(prev => upsertSpark(prev, s));
     enqueue({ op: "upsert_spark", at: now(), spark: s });
     setBody("");
+  }
+
+  function launchActiveProjectInHearth() {
+    if (!activeProject) return;
+    popToast("Opening Hearth...");
+    navigateToHearthForProject(activeProject.id);
   }
 
   const filteredByAssignment = useMemo(() => {
@@ -613,6 +718,52 @@ export default function App(props: BarstockAppProps = {}) {
       return a.name.localeCompare(b.name);
     });
   }, [assignments]);
+
+  const projectCountsByAssignmentId = useMemo(() => {
+    const counts = new Map<string, { active: number; total: number }>();
+    for (const spark of sparks) {
+      if (!spark.assignmentId) continue;
+      const current = counts.get(spark.assignmentId) ?? { active: 0, total: 0 };
+      current.total += 1;
+      if (!isSparkGraduated(spark)) {
+        current.active += 1;
+      }
+      counts.set(spark.assignmentId, current);
+    }
+    return counts;
+  }, [isSparkGraduated, sparks]);
+
+  const visibleAssignments = useMemo(() => {
+    if (showEmptyProjects) return sortedAssignments;
+    return sortedAssignments.filter((assignment) => {
+      const counts = projectCountsByAssignmentId.get(assignment.id);
+      return (counts?.active ?? 0) > 0;
+    });
+  }, [projectCountsByAssignmentId, showEmptyProjects, sortedAssignments]);
+
+  const activeProject = useMemo(
+    () => (activeAssignment === "all" ? null : assignments.find((assignment) => assignment.id === activeAssignment) ?? null),
+    [activeAssignment, assignments],
+  );
+  const activeProjectCounts = useMemo(
+    () => (activeProject ? (projectCountsByAssignmentId.get(activeProject.id) ?? { active: 0, total: 0 }) : null),
+    [activeProject, projectCountsByAssignmentId],
+  );
+  const isProjectView = activeAssignment !== "all";
+
+  useEffect(() => {
+    if (activeAssignment === "all") return;
+    if (assignments.some((assignment) => assignment.id === activeAssignment)) return;
+    setActiveAssignment("all");
+  }, [activeAssignment, assignments]);
+
+  useEffect(() => {
+    if (activeAssignment === "all") return;
+    if (showEmptyProjects) return;
+    const counts = projectCountsByAssignmentId.get(activeAssignment);
+    if ((counts?.active ?? 0) > 0) return;
+    setActiveAssignment("all");
+  }, [activeAssignment, projectCountsByAssignmentId, showEmptyProjects]);
 
   async function onImportFile(file: File) {
     const text = await file.text();
@@ -638,6 +789,365 @@ export default function App(props: BarstockAppProps = {}) {
     return m;
   }, [assignments]);
 
+  const renderMobilePage = useCallback((page: BarstockMobilePage): ReactNode => {
+    if (props.renderMobilePage) {
+      return props.renderMobilePage(page);
+    }
+    return (
+      <section className="barstock-mobile-fallback">
+        <header className="barstock-mobile-fallback__header">
+          <div className="barstock-mobile-fallback__left">
+            {page.showBack === false ? null : (
+              <button type="button" onClick={page.onBack}>
+                Back
+              </button>
+            )}
+          </div>
+          <h1 className="barstock-mobile-fallback__title">{page.title}</h1>
+          <div className="barstock-mobile-fallback__right">{page.rightAction}</div>
+        </header>
+        <div className="barstock-mobile-fallback__body">{page.children}</div>
+        {page.bottomBar ? (
+          <footer className="barstock-mobile-fallback__bottom">{page.bottomBar}</footer>
+        ) : null}
+      </section>
+    );
+  }, [props.renderMobilePage]);
+
+  const mobileDetailSpark = useMemo(() => {
+    if (!mobileRoute || mobileMode !== "detail" || !mobileRoute.sparkId) return null;
+    return sparks.find((spark) => spark.id === mobileRoute.sparkId) ?? null;
+  }, [mobileMode, mobileRoute, sparks]);
+
+  useEffect(() => {
+    if (!mobileRoute) return;
+    if (mobileMode !== "detail") return;
+    if (!mobileRoute.sparkId) {
+      mobileRoute.onBackToList();
+      return;
+    }
+    const existsInWorkspace = sparks.some((spark) => spark.id === mobileRoute.sparkId);
+    if (!existsInWorkspace) {
+      mobileRoute.onBackToList();
+    }
+  }, [mobileMode, mobileRoute, sparks]);
+
+  if (isMobileRoute && mobileRoute) {
+    if (mobileMode === "new") {
+      return (
+        <div className="barstock-root barstock-mobile-root">
+          {renderMobilePage({
+            title: "New Spark",
+            onBack: () => mobileRoute.onBackToList(),
+            children: (
+              <div className="barstock-mobile-content">
+                {toast ? <div className="barstock-mobile-toast">{toast}</div> : null}
+                {!canWrite ? (
+                  <p className="barstock-mobile-message">
+                    Viewer role is read-only in this workspace.
+                  </p>
+                ) : null}
+                <label className="barstock-mobile-field">
+                  <span className="barstock-mobile-field__label">Spark</span>
+                  <textarea
+                    value={body}
+                    onChange={(event) => setBody(event.target.value)}
+                    placeholder="Type here… try #tags if you want."
+                    rows={16}
+                    className="barstock-mobile-textarea"
+                  />
+                </label>
+              </div>
+            ),
+            bottomBar: (
+              <div className="barstock-mobile-actions">
+                <button
+                  type="button"
+                  className="barstock-mobile-button"
+                  onClick={() => {
+                    setBody("");
+                    mobileRoute.onBackToList();
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="barstock-mobile-button barstock-mobile-button--primary"
+                  disabled={!canAdd}
+                  onClick={() => {
+                    addSpark();
+                    if (!canWrite) return;
+                    mobileRoute.onBackToList();
+                  }}
+                >
+                  Save
+                </button>
+              </div>
+            ),
+          })}
+        </div>
+      );
+    }
+
+    if (mobileMode === "detail") {
+      if (!mobileDetailSpark) {
+        return (
+          <div className="barstock-root barstock-mobile-root">
+            {renderMobilePage({
+              title: "Spark",
+              onBack: () => mobileRoute.onBackToList(),
+              children: (
+                <div className="barstock-mobile-content">
+                  <p className="barstock-mobile-message">
+                    Spark not found in this workspace.
+                  </p>
+                </div>
+              ),
+            })}
+          </div>
+        );
+      }
+
+      const detailEditing = editingId === mobileDetailSpark.id;
+      const detailIsGraduated = isSparkGraduated(mobileDetailSpark);
+
+      return (
+        <div className="barstock-root barstock-mobile-root">
+          {renderMobilePage({
+            title: mobileDetailSpark.title?.trim() || "Spark",
+            onBack: () => mobileRoute.onBackToList(),
+            rightAction: canWrite ? (
+              detailEditing ? (
+                <button
+                  type="button"
+                  className="barstock-mobile-button"
+                  onClick={() => {
+                    setEditingId(null);
+                    setEditingBody("");
+                  }}
+                >
+                  Cancel
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="barstock-mobile-button"
+                  onClick={() => {
+                    setEditingId(mobileDetailSpark.id);
+                    setEditingBody(mobileDetailSpark.body);
+                  }}
+                >
+                  Edit
+                </button>
+              )
+            ) : null,
+            children: (
+              <div className="barstock-mobile-content">
+                {toast ? <div className="barstock-mobile-toast">{toast}</div> : null}
+                <div className="barstock-mobile-meta">
+                  <span>{new Date(mobileDetailSpark.updatedAt).toLocaleString()}</span>
+                  {detailIsGraduated ? <span>Graduated</span> : null}
+                  <span>{assignmentNameById.get(mobileDetailSpark.assignmentId ?? "") ?? "No project"}</span>
+                </div>
+
+                <label className="barstock-mobile-field">
+                  <span className="barstock-mobile-field__label">Status</span>
+                  <select
+                    value={mobileDetailSpark.status}
+                    disabled={!canWrite}
+                    onChange={(event) => setStatus(mobileDetailSpark, event.target.value as SparkStatus)}
+                  >
+                    <option value="raw">Open (Raw)</option>
+                    <option value="warming">Open (Warming)</option>
+                    <option value="forged">Forged</option>
+                    <option value="graduated">Graduated</option>
+                    <option value="archived">Archived</option>
+                  </select>
+                </label>
+
+                <label className="barstock-mobile-field">
+                  <span className="barstock-mobile-field__label">Project</span>
+                  <select
+                    value={mobileDetailSpark.assignmentId ?? ""}
+                    disabled={!canWrite}
+                    onChange={(event) => {
+                      const value = event.target.value.trim();
+                      updateSpark(mobileDetailSpark, { assignmentId: value || null });
+                    }}
+                  >
+                    <option value="">No project</option>
+                    {sortedAssignments.map((assignment) => (
+                      <option key={assignment.id} value={assignment.id}>
+                        {assignment.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {detailEditing ? (
+                  <textarea
+                    value={editingBody}
+                    onChange={(event) => setEditingBody(event.target.value)}
+                    rows={14}
+                    className="barstock-mobile-textarea"
+                  />
+                ) : (
+                  <pre className="barstock-mobile-detail-body">{mobileDetailSpark.body}</pre>
+                )}
+              </div>
+            ),
+            bottomBar: canWrite ? (
+              <div className="barstock-mobile-actions">
+                {detailEditing ? (
+                  <>
+                    <button
+                      type="button"
+                      className="barstock-mobile-button"
+                      onClick={() => {
+                        setEditingId(null);
+                        setEditingBody("");
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="barstock-mobile-button barstock-mobile-button--primary"
+                      onClick={() => {
+                        updateSpark(mobileDetailSpark, { body: editingBody });
+                        setEditingId(null);
+                        setEditingBody("");
+                        popToast("Saved.");
+                      }}
+                    >
+                      Save
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="barstock-mobile-button"
+                      disabled={!mobileDetailSpark.assignmentId}
+                      onClick={() => {
+                        if (!mobileDetailSpark.assignmentId) return;
+                        navigateToHearthForProject(mobileDetailSpark.assignmentId);
+                      }}
+                    >
+                      Launch Episode
+                    </button>
+                    <button
+                      type="button"
+                      className="barstock-mobile-button barstock-mobile-button--danger"
+                      onClick={() => {
+                        deleteSpark(mobileDetailSpark.id);
+                        mobileRoute.onBackToList();
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </>
+                )}
+              </div>
+            ) : null,
+          })}
+        </div>
+      );
+    }
+
+    return (
+      <div className="barstock-root barstock-mobile-root">
+        {renderMobilePage({
+          title: "Bar-Stock",
+          showBack: false,
+          rightAction: canWrite ? (
+            <button
+              type="button"
+              className="barstock-mobile-button barstock-mobile-button--primary"
+              onClick={() => mobileRoute.onOpenNew()}
+            >
+              New Spark
+            </button>
+          ) : null,
+          children: (
+            <div className="barstock-mobile-content">
+              {toast ? <div className="barstock-mobile-toast">{toast}</div> : null}
+              <p className="barstock-mobile-count">
+                {showGraduated
+                  ? `${activeSparkCount} active • ${graduatedSparkCount} graduated`
+                  : `${activeSparkCount} sparks • idea mine`}
+              </p>
+
+              <label className="barstock-mobile-field">
+                <span className="barstock-mobile-field__label">Project</span>
+                <select
+                  value={activeAssignment}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    setActiveAssignment(next === "all" ? "all" : next);
+                  }}
+                >
+                  <option value="all">All sparks</option>
+                  {visibleAssignments.map((assignment) => (
+                    <option key={assignment.id} value={assignment.id}>
+                      {assignment.name} ({projectCountsByAssignmentId.get(assignment.id)?.active ?? 0})
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="barstock-mobile-field">
+                <span className="barstock-mobile-field__label">Search</span>
+                <input
+                  value={q.text ?? ""}
+                  onChange={(event) => setQ((prev) => ({ ...prev, text: event.target.value }))}
+                  placeholder="Search sparks…"
+                />
+              </label>
+
+              <label className="barstock-mobile-checkbox">
+                <input
+                  type="checkbox"
+                  checked={showGraduated}
+                  onChange={(event) => setShowGraduated(event.target.checked)}
+                />
+                Show graduated
+              </label>
+
+              {filtered.length === 0 ? (
+                <p className="barstock-mobile-message">No sparks yet. Toss one in.</p>
+              ) : (
+                <div className="barstock-mobile-list">
+                  {filtered.map((spark) => {
+                    const isGraduated = isSparkGraduated(spark);
+                    return (
+                      <button
+                        key={spark.id}
+                        type="button"
+                        className="barstock-mobile-spark-row"
+                        onClick={() => mobileRoute.onOpenSpark(spark.id)}
+                      >
+                        <div className="barstock-mobile-spark-row__meta">
+                          <span>{new Date(spark.createdAt).toLocaleDateString()}</span>
+                          <span>{assignmentNameById.get(spark.assignmentId ?? "") ?? "No project"}</span>
+                          {isGraduated ? <span>Graduated</span> : null}
+                        </div>
+                        <span className="barstock-mobile-spark-row__body">
+                          {spark.body}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ),
+        })}
+      </div>
+    );
+  }
+
   return (
     <div
       className="barstock-root"
@@ -659,18 +1169,10 @@ export default function App(props: BarstockAppProps = {}) {
       >
         <div style={{ fontWeight: 800, fontSize: 18 }}>Bar-Stock</div>
         <div style={{ opacity: 0.75, marginTop: 6, fontSize: 13 }}>
-          {count} sparks • idea mine
+          {showGraduated
+            ? `${activeSparkCount} active • ${graduatedSparkCount} graduated`
+            : `${activeSparkCount} sparks • idea mine`}
         </div>
-        {!showGraduated && hiddenGraduatedCount > 0 ? (
-          <div style={{ opacity: 0.65, marginTop: 4, fontSize: 12 }}>
-            {hiddenGraduatedCount} graduated hidden
-          </div>
-        ) : null}
-        {showGraduated ? (
-          <div style={{ opacity: 0.65, marginTop: 4, fontSize: 12 }}>
-            Showing graduated sparks
-          </div>
-        ) : null}
         {showWorkspacePicker ? (
           <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -725,19 +1227,19 @@ export default function App(props: BarstockAppProps = {}) {
                 </button>
               </div>
             ) : (
-              <div style={{ fontSize: 12, opacity: 0.7 }}>Signed in via Nursery.</div>
+              <div style={{ fontSize: 12, opacity: 0.7 }}>Signed in via The Forge.</div>
             )}
           </div>
         ) : null}
 
         <div style={{ marginTop: 14 }}>
           <div style={{ fontWeight: 700, fontSize: 13, opacity: 0.85, marginBottom: 8 }}>
-            Assignments
+            Projects
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <SidebarItem
-              label="All"
+              label="All sparks"
               active={activeAssignment === "all"}
               onClick={() => setActiveAssignment("all")}
             />
@@ -746,15 +1248,24 @@ export default function App(props: BarstockAppProps = {}) {
               —
             </div>
 
-            {sortedAssignments.length === 0 ? (
+            <label style={{ marginTop: 6, fontSize: 12, opacity: 0.8, display: "flex", gap: 6, alignItems: "center" }}>
+              <input
+                type="checkbox"
+                checked={showEmptyProjects}
+                onChange={(e) => setShowEmptyProjects(e.target.checked)}
+              />
+              Show empty projects
+            </label>
+
+            {visibleAssignments.length === 0 ? (
               <div style={{ opacity: 0.7, fontSize: 13, marginTop: 6 }}>
-                No assignments yet.
+                No active projects yet.
               </div>
             ) : (
-              sortedAssignments.map(a => (
+              visibleAssignments.map(a => (
                 <SidebarItem
                   key={a.id}
-                  label={a.name}
+                  label={`${a.name} (${projectCountsByAssignmentId.get(a.id)?.active ?? 0})`}
                   active={activeAssignment === a.id}
                   onClick={() => setActiveAssignment(a.id)}
                 />
@@ -766,7 +1277,7 @@ export default function App(props: BarstockAppProps = {}) {
             <input
               value={newAssignmentName}
               onChange={(e) => setNewAssignmentName(e.target.value)}
-              placeholder="New assignment…"
+              placeholder="New project..."
               style={{ flex: 1, padding: 8 }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") addAssignment();
@@ -782,6 +1293,40 @@ export default function App(props: BarstockAppProps = {}) {
             >
               Add
             </button>
+          </div>
+
+          <div style={{ marginTop: 12, fontSize: 12, opacity: 0.86, display: "grid", gap: 6 }}>
+            {activeProject ? (
+              <>
+                <div>
+                  Working on: <b>{activeProject.name}</b>
+                </div>
+                <div style={{ opacity: 0.8 }}>
+                  {activeProjectCounts?.active ?? 0} sparks ready
+                </div>
+                <button
+                  onClick={launchActiveProjectInHearth}
+                  style={{
+                    cursor: "pointer",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    padding: "8px 10px",
+                  }}
+                >
+                  Launch Episode in Hearth
+                </button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={() => setActiveAssignment("all")}
+                    style={{ cursor: "pointer", fontSize: 12 }}
+                  >
+                    Stop
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div>Working on: none</div>
+            )}
           </div>
 
           <div style={{ marginTop: 16, display: "flex", gap: 10, alignItems: "center" }}>
@@ -848,6 +1393,45 @@ export default function App(props: BarstockAppProps = {}) {
           Dump the spark. No polish. No pressure.
         </p>
 
+        {activeProject ? (
+          <section
+            style={{
+              marginTop: 12,
+              padding: 12,
+              border: "1px solid var(--barstock-border)",
+              borderRadius: 10,
+              background: "var(--barstock-surface)",
+              display: "grid",
+              gap: 8,
+            }}
+          >
+            <div style={{ fontSize: 13, opacity: 0.84 }}>
+              Working on: <b>{activeProject.name}</b>
+            </div>
+            <div style={{ fontSize: 12, opacity: 0.8 }}>
+              {activeProjectCounts?.active ?? 0} sparks ready
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button
+                onClick={launchActiveProjectInHearth}
+                style={{
+                  cursor: "pointer",
+                  padding: "10px 14px",
+                  fontWeight: 700,
+                }}
+              >
+                Launch Episode in Hearth
+              </button>
+              <button
+                onClick={() => setActiveAssignment("all")}
+                style={{ cursor: "pointer" }}
+              >
+                Stop
+              </button>
+            </div>
+          </section>
+        ) : null}
+
         {toast && (
           <div
             style={{
@@ -897,9 +1481,10 @@ export default function App(props: BarstockAppProps = {}) {
             style={{ padding: 10 }}
           >
             <option value="all">All</option>
-            <option value="raw">Raw</option>
-            <option value="warming">Warming</option>
+            <option value="raw">Open (Raw)</option>
+            <option value="warming">Open (Warming)</option>
             <option value="forged">Forged</option>
+            <option value="graduated">Graduated</option>
             <option value="archived">Archived</option>
           </select>
           <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, opacity: 0.85 }}>
@@ -928,15 +1513,15 @@ export default function App(props: BarstockAppProps = {}) {
             </div>
           ) : (
             filtered.map((s) => {
-              const episodeId = normalizeWorkpieceId(s.assignmentId);
-              const isGraduated = episodeId ? graduatedEpisodeIdSet.has(episodeId) : false;
+              const linkedWorkpieceId = normalizeWorkpieceId(s.links?.hearthWorkpieceId);
+              const isGraduated = isSparkGraduated(s);
               return (
                 <div
                   key={s.id}
                   onClick={(e) => {
                     const target = e.target as HTMLElement;
                     if (target.closest("button,select,input,textarea,option")) return;
-                    setActiveAssignment(s.assignmentId);
+                    setActiveAssignment(s.assignmentId ?? "all");
                   }}
                   style={{
                     border: "1px solid var(--barstock-border)",
@@ -951,7 +1536,7 @@ export default function App(props: BarstockAppProps = {}) {
                     {new Date(s.createdAt).toLocaleString()}
                     {s.pinned ? " • pinned" : ""}
                     {" • "}
-                    {assignmentNameById.get(s.assignmentId) ?? "Unknown assignment"}
+                    {s.assignmentId ? (assignmentNameById.get(s.assignmentId) ?? "Unknown project") : "No project"}
                     {isGraduated ? " • graduated" : ""}
                   </div>
 
@@ -978,21 +1563,23 @@ export default function App(props: BarstockAppProps = {}) {
                       style={{ padding: "4px 6px" }}
                       title="Status"
                     >
-                      <option value="raw">Raw</option>
-                      <option value="warming">Warming</option>
+                      <option value="raw">Open (Raw)</option>
+                      <option value="warming">Open (Warming)</option>
                       <option value="forged">Forged</option>
+                      <option value="graduated">Graduated</option>
                       <option value="archived">Archived</option>
                     </select>
 
                     <select
-                      value={s.assignmentId}
+                      value={s.assignmentId ?? ""}
                       onChange={(e) => {
                         const v = e.target.value;
-                        updateSpark(s, { assignmentId: v });
+                        updateSpark(s, { assignmentId: v || null });
                       }}
                       style={{ padding: "4px 6px" }}
-                      title="Assignment"
+                      title="Project"
                     >
+                      <option value="">No project</option>
                       {sortedAssignments.map(a => (
                         <option key={a.id} value={a.id}>
                           {a.name}
@@ -1014,30 +1601,31 @@ export default function App(props: BarstockAppProps = {}) {
                       Copy
                     </button>
 
-                    <button
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        if (episodeId) {
-                          popToast("Opening Hearth...");
-                          navigateToHearthForEpisode(episodeId);
-                          return;
-                        }
+                    {!isProjectView ? (
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (s.assignmentId) {
+                            popToast("Opening Hearth...");
+                            navigateToHearthForProject(s.assignmentId);
+                            return;
+                          }
 
-                        const assignmentName = assignmentNameById.get(s.assignmentId) ?? "episode";
-                        const packet = buildHearthPacket(s, assignmentName);
-                        const ok = await copyText(packetToClipboardText(packet));
-                        popToast(ok ? "Hearth packet copied (fallback)." : "Copy failed.");
-                      }}
-                      style={{ cursor: "pointer" }}
-                    >
-                      Send to Hearth
-                    </button>
+                          const packet = buildHearthPacket(s, "Ungrouped spark");
+                          const ok = await copyText(packetToClipboardText(packet));
+                          popToast(ok ? "Hearth packet copied (fallback)." : "Copy failed.");
+                        }}
+                        style={{ cursor: "pointer" }}
+                      >
+                        Send to Hearth
+                      </button>
+                    ) : null}
 
-                    {isGraduated && episodeId ? (
+                    {isGraduated && linkedWorkpieceId ? (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          navigateToAnvilForEpisode(episodeId);
+                          navigateToAnvilForEpisode(linkedWorkpieceId);
                         }}
                         style={{ cursor: "pointer" }}
                       >

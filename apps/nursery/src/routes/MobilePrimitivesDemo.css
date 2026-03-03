@@ -1,0 +1,54 @@
+.mpd-card {
+  border: 1px solid var(--forge-border);
+  border-radius: 12px;
+  background: var(--forge-bg-elevated);
+  padding: var(--mobile-space-4);
+  display: grid;
+  gap: var(--mobile-space-3);
+}
+
+.mpd-heading {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.mpd-copy {
+  margin: 0;
+  color: var(--forge-text-muted);
+  line-height: 1.4;
+}
+
+.mpd-field {
+  display: grid;
+  gap: var(--mobile-space-2);
+  font-size: 13px;
+}
+
+.mpd-field span {
+  color: var(--forge-text-muted);
+}
+
+.mpd-bottom-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--mobile-space-2);
+}
+
+.mpd-button {
+  border-radius: 10px;
+  border: 1px solid var(--forge-border);
+  padding: 0 14px;
+  min-height: var(--mobile-tap-min);
+}
+
+.mpd-button--ghost {
+  background: transparent;
+}
+
+.mpd-button--primary {
+  background: var(--forge-link);
+  color: #0a1020;
+  border-color: transparent;
+  font-weight: 600;
+}

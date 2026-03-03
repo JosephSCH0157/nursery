@@ -180,3 +180,41 @@ textarea:focus-visible {
   justify-content: flex-end;
   margin-top: 10px;
 }
+
+.forge-ai-panel__style-status {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.forge-ai-panel__style-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.forge-ai-panel__style-confidence {
+  font-size: 12px;
+  opacity: 0.82;
+}
+
+.forge-ai-panel__style-insights {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: grid;
+  gap: 8px;
+}
+
+.forge-ai-panel__style-meta {
+  font-size: 12px;
+  opacity: 0.78;
+}
+
+.forge-ai-panel__style-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  opacity: 0.92;
+}

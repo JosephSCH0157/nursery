@@ -1,0 +1,21 @@
+.tongs-page {
+  display: grid;
+  gap: 10px;
+}
+
+.tongs-mode-row {
+  display: flex;
+  gap: 8px;
+  padding: 8px 8px 0;
+  flex-wrap: wrap;
+}
+
+.tongs-mode-button {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: inherit;
+}
+
+.tongs-mode-button--active {
+  background: rgba(255, 255, 255, 0.18);
+}

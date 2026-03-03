@@ -6,7 +6,7 @@ export type HearthPacketV2 = {
   version: 2;
   createdAt: string; // ISO
   sparkId: string;
-  episodeId: string;
+  episodeId: string | null;
   episodeLabel: string;
   tags: string[];
   status: string;
