@@ -10,7 +10,8 @@
     "gate": "pnpm check",
     "check": "pnpm smoke && pnpm lint && pnpm types",
     "smoke:team": "node scripts/phase-g-team-ui-smoke.mjs",
-    "smoke": "pnpm --filter @forge/ui-mobile test:contract && node scripts/smoke.mjs && pnpm smoke:team"
+    "smoke:adaptive-style": "node scripts/phase-adaptive-style-alignment-smoke.mjs",
+    "smoke": "pnpm --filter @forge/ui-mobile test:contract && node scripts/smoke.mjs && pnpm smoke:team && pnpm smoke:adaptive-style"
   },
   "devDependencies": {
     "dotenv": "^16.6.1",

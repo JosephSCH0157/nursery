@@ -1124,7 +1124,11 @@ export default function AppShell() {
           onClick={() => setAiControlsOpen(false)}
         >
           <div onClick={(event) => event.stopPropagation()}>
-            <AiControlsPanel onClose={() => setAiControlsOpen(false)} />
+            <AiControlsPanel
+              onClose={() => setAiControlsOpen(false)}
+              workspaceId={workspaceId}
+              workspaceRole={activeWorkspace?.role ?? null}
+            />
           </div>
         </div>
       ) : null}

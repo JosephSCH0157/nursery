@@ -99,6 +99,7 @@ import ThumbnailPanel from "../components/visuals/ThumbnailPanel";
 import ImageMapPanel from "../components/visuals/ImageMapPanel";
 import MetadataPanel from "../components/metadata/MetadataPanel";
 import { MobilePage, useLayoutMode } from "@forge/ui-mobile";
+import { updateStyleProfileFromReadyCheckpoint } from "../lib/hearth-style-service";
 
 const AUTOSAVE_DELAY_MS = 2200;
 const AUTOSAVE_MIN_GAP_MS = 5000;
@@ -4753,6 +4754,29 @@ export default function HearthShell() {
       setScriptApprovalState(nextState);
       writeScriptApprovalState(episodeId, nextState);
 
+      let styleAlignmentMarker: string | null = null;
+      const styleUpdate = await updateStyleProfileFromReadyCheckpoint({
+        workspaceId,
+        scriptText: activeDraft.body,
+      });
+      if (styleUpdate.ok) {
+        if (!styleUpdate.skipped) {
+          const scriptsCount = styleUpdate.profile.scriptsAnalyzedCount;
+          styleAlignmentMarker = `style_alignment: updated (scripts_analyzed: ${scriptsCount})`;
+        } else if (styleUpdate.reason === "paused") {
+          styleAlignmentMarker = "style_alignment: paused";
+        }
+      } else {
+        try {
+          console.warn("[hearth-style] style profile update skipped after approval", {
+            status: styleUpdate.status,
+            error: styleUpdate.error,
+          });
+        } catch {
+          // ignore logging failures
+        }
+      }
+
       const markerLines = [
         `🔥 Script Version ${nextVersion} Approved`,
         `script_version: ${nextVersion}`,
@@ -4760,6 +4784,7 @@ export default function HearthShell() {
         "saved_to_cloud: ok",
         mirrorStatusLine(mirror),
         graduatedSparkId ? `spark_status: graduated (${graduatedSparkId})` : "spark_status: no_linked_spark",
+        ...(styleAlignmentMarker ? [styleAlignmentMarker] : []),
         "Production Mode available",
       ];
       const markerMessage: HearthChatMessage = { role: "assistant", content: markerLines.join("\n") };

@@ -1,0 +1,64 @@
+.settings-home {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-home__panel {
+  border: 1px solid var(--forge-border);
+  border-radius: 8px;
+  padding: 16px;
+  background: var(--forge-bg-elevated);
+  max-width: 680px;
+  display: grid;
+  gap: 10px;
+}
+
+.settings-home__title {
+  margin: 0;
+}
+
+.settings-home__subtitle {
+  margin: 0;
+}
+
+.settings-home__copy {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.settings-home__divider {
+  height: 1px;
+  background: var(--forge-border);
+}
+
+.settings-home__toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.settings-home__hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--forge-text-muted);
+}
+
+.settings-home__error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--forge-danger);
+}
+
+.settings-home__notice {
+  margin: 0;
+  font-size: 12px;
+  color: #9fd9ff;
+}
+
+.settings-home__actions {
+  display: flex;
+  justify-content: flex-end;
+}

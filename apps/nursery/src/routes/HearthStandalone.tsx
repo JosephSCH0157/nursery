@@ -6,6 +6,7 @@ import {
   readHearthAiRuntimeStatus,
   type HearthAiRuntimeStatus,
 } from "@hearth/lib/ai-runtime-status";
+import { resolveWorkspaceIdFromSearch } from "@hearth/lib/hearth-style-service";
 import { ForgeNav } from "../nav/ForgeNav";
 import { FORGE_NAV_ACTION_AI_CONTROLS, forgeNavTree } from "../nav/forgeNavTree";
 import { supabase } from "../lib/supabase";
@@ -133,6 +134,7 @@ export default function HearthStandalone() {
   const location = useLocation();
   const devMode = useMemo(() => isDevMode(location.search), [location.search]);
   const storeKind = useMemo(() => resolveStoreKind(location.search), [location.search]);
+  const workspaceId = useMemo(() => resolveWorkspaceIdFromSearch(location.search), [location.search]);
 
   const loginHref = useMemo(() => {
     const next = encodeURIComponent(
@@ -294,7 +296,10 @@ export default function HearthStandalone() {
           onClick={() => setAiControlsOpen(false)}
         >
           <div onClick={(event) => event.stopPropagation()}>
-            <AiControlsPanel onClose={() => setAiControlsOpen(false)} />
+            <AiControlsPanel
+              onClose={() => setAiControlsOpen(false)}
+              workspaceId={workspaceId}
+            />
           </div>
         </div>
       ) : null}
