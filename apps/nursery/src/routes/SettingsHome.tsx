@@ -36,23 +36,19 @@ export default function SettingsHome() {
   useEffect(() => {
     let cancelled = false;
     if (!workspaceId) {
-      setAlignmentEnabled(false);
-      setAccelerateEnabled(false);
-      setDirty(false);
-      setError(null);
-      setNotice(null);
       return () => {
         cancelled = true;
       };
     }
 
-    setLoading(true);
-    setError(null);
-    setNotice(null);
-    setDirty(false);
+    void (async () => {
+      setLoading(true);
+      setError(null);
+      setNotice(null);
+      setDirty(false);
 
-    void getWorkspaceFeatures(workspaceId, { force: true })
-      .then((result) => {
+      try {
+        const result = await getWorkspaceFeatures(workspaceId, { force: true });
         if (cancelled) return;
         if (!result.ok) {
           setError(result.error);
@@ -60,15 +56,15 @@ export default function SettingsHome() {
         }
         setAlignmentEnabled(result.data.adaptiveStyleAlignmentEnabled);
         setAccelerateEnabled(result.data.adaptiveStyleAiAccelerateEnabled);
-      })
-      .catch((reason: unknown) => {
+      } catch (reason: unknown) {
         if (cancelled) return;
         setError(reason instanceof Error ? reason.message : "Failed to load workspace features.");
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setLoading(false);
-      });
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    })();
 
     return () => {
       cancelled = true;
