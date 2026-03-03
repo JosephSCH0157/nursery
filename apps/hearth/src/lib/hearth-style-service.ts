@@ -1,9 +1,13 @@
 import { resolveForgeUserAccessToken } from "./hearth-chat-api";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const FEATURE_CACHE = new Map<string, WorkspaceFeatures>();
+const FEATURE_CACHE_TTL_MS = 45_000;
+const WORKSPACE_FEATURES_STORAGE_KEY = "forge:workspace-features:changed:v1";
+export const WORKSPACE_FEATURES_CHANGED_EVENT = "forge:workspace-features:changed";
+const FEATURE_CACHE = new Map<string, FeatureCacheEntry>();
 const STYLE_PROFILE_CACHE = new Map<string, StyleProfile | null>();
 const ALIGNMENT_PAUSE_PREFIX = "hearth:style-alignment-paused:v1:";
+let workspaceFeatureSyncInitialized = false;
 
 type SupabaseConfig = {
   url: string;
@@ -26,6 +30,17 @@ export type WorkspaceFeatures = {
   workspaceId: string;
   adaptiveStyleAlignmentEnabled: boolean;
   adaptiveStyleAiAccelerateEnabled: boolean;
+};
+
+type FeatureCacheEntry = {
+  data: WorkspaceFeatures;
+  fetchedAtMs: number;
+};
+
+export type WorkspaceFeaturesChangedEventDetail = {
+  workspaceId: string;
+  features: WorkspaceFeatures;
+  origin: "rpc" | "storage";
 };
 
 export type StyleMetrics = {
@@ -100,6 +115,12 @@ type RpcErrorPayload = {
   error?: unknown;
 };
 
+type WorkspaceFeatureBroadcastPayload = {
+  workspace_id?: unknown;
+  adaptive_style_alignment_enabled?: unknown;
+  adaptive_style_ai_accelerate_enabled?: unknown;
+};
+
 function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -128,6 +149,91 @@ function readTokenString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function cacheWorkspaceFeatures(features: WorkspaceFeatures): void {
+  FEATURE_CACHE.set(features.workspaceId, {
+    data: features,
+    fetchedAtMs: Date.now(),
+  });
+}
+
+function readCachedWorkspaceFeatures(workspaceId: string): WorkspaceFeatures | null {
+  const cached = FEATURE_CACHE.get(workspaceId);
+  if (!cached) return null;
+  if ((Date.now() - cached.fetchedAtMs) > FEATURE_CACHE_TTL_MS) {
+    FEATURE_CACHE.delete(workspaceId);
+    return null;
+  }
+  return cached.data;
+}
+
+function toWorkspaceFeaturesFromBroadcastPayload(payload: unknown): WorkspaceFeatures | null {
+  if (!isRecord(payload)) return null;
+  const raw = payload as WorkspaceFeatureBroadcastPayload;
+  const workspaceId = normalizeUuid(raw.workspace_id);
+  if (!workspaceId) return null;
+  return {
+    workspaceId,
+    adaptiveStyleAlignmentEnabled: raw.adaptive_style_alignment_enabled === true,
+    adaptiveStyleAiAccelerateEnabled: raw.adaptive_style_ai_accelerate_enabled === true,
+  };
+}
+
+function dispatchWorkspaceFeaturesChanged(detail: WorkspaceFeaturesChangedEventDetail): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.dispatchEvent(new CustomEvent<WorkspaceFeaturesChangedEventDetail>(WORKSPACE_FEATURES_CHANGED_EVENT, {
+      detail,
+    }));
+  } catch {
+    // ignore event dispatch failures
+  }
+}
+
+function broadcastWorkspaceFeaturesChanged(features: WorkspaceFeatures): void {
+  if (typeof window === "undefined") return;
+  try {
+    const payload = {
+      workspace_id: features.workspaceId,
+      adaptive_style_alignment_enabled: features.adaptiveStyleAlignmentEnabled,
+      adaptive_style_ai_accelerate_enabled: features.adaptiveStyleAiAccelerateEnabled,
+      emitted_at: new Date().toISOString(),
+      nonce: Math.random().toString(36).slice(2),
+    };
+    window.localStorage.setItem(WORKSPACE_FEATURES_STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore storage write failures
+  }
+}
+
+function ensureWorkspaceFeatureSync(): void {
+  if (workspaceFeatureSyncInitialized) return;
+  if (typeof window === "undefined") return;
+  workspaceFeatureSyncInitialized = true;
+  window.addEventListener("storage", (event) => {
+    if (event.key !== WORKSPACE_FEATURES_STORAGE_KEY) return;
+    if (!event.newValue) return;
+    let parsed: unknown = null;
+    try {
+      parsed = JSON.parse(event.newValue);
+    } catch {
+      return;
+    }
+    const features = toWorkspaceFeaturesFromBroadcastPayload(parsed);
+    if (!features) return;
+    cacheWorkspaceFeatures(features);
+    STYLE_PROFILE_CACHE.delete(features.workspaceId);
+    dispatchWorkspaceFeaturesChanged({
+      workspaceId: features.workspaceId,
+      features,
+      origin: "storage",
+    });
+  });
 }
 
 function readSupabaseConfig(): SupabaseConfig | null {
@@ -492,7 +598,14 @@ export function clearWorkspaceFeatureCache(workspaceId?: string | null): void {
   STYLE_PROFILE_CACHE.delete(normalized);
 }
 
-export function resolveWorkspaceIdFromSearch(search: string): string | null {
+export type ResolveWorkspaceIdFromSearchOptions = {
+  allowLocalStorageFallback?: boolean;
+};
+
+export function resolveWorkspaceIdFromSearch(
+  search: string,
+  options?: ResolveWorkspaceIdFromSearchOptions,
+): string | null {
   try {
     const params = new URLSearchParams(search);
     const fromQuery = normalizeUuid(
@@ -505,12 +618,17 @@ export function resolveWorkspaceIdFromSearch(search: string): string | null {
     // ignore parsing failures
   }
 
+  if (!options?.allowLocalStorageFallback) return null;
   if (typeof window === "undefined") return null;
   try {
     return normalizeUuid(window.localStorage.getItem("forge_workspace_id_v1"));
   } catch {
     return null;
   }
+}
+
+export function resolveWorkspaceIdFromSearchWithFallback(search: string): string | null {
+  return resolveWorkspaceIdFromSearch(search, { allowLocalStorageFallback: true });
 }
 
 export function isStyleAlignmentPaused(workspaceId: string | null): boolean {
@@ -542,13 +660,14 @@ export async function getWorkspaceFeatures(
   workspaceId: string,
   options?: { force?: boolean },
 ): Promise<RpcSuccess<WorkspaceFeatures> | RpcFailure> {
+  ensureWorkspaceFeatureSync();
   const normalizedWorkspaceId = normalizeUuid(workspaceId);
   if (!normalizedWorkspaceId) {
     return { ok: false, status: 400, error: "workspace_id is required." };
   }
 
   if (!options?.force) {
-    const cached = FEATURE_CACHE.get(normalizedWorkspaceId);
+    const cached = readCachedWorkspaceFeatures(normalizedWorkspaceId);
     if (cached) {
       return { ok: true, status: 200, data: cached };
     }
@@ -561,7 +680,7 @@ export async function getWorkspaceFeatures(
   if (!rpc.ok) return rpc;
 
   const features = toWorkspaceFeatures(rpc.data, normalizedWorkspaceId);
-  FEATURE_CACHE.set(normalizedWorkspaceId, features);
+  cacheWorkspaceFeatures(features);
   return {
     ok: true,
     status: rpc.status,
@@ -576,6 +695,7 @@ export async function setAdaptiveStyleFeatures(
     aiAccelerateEnabled: boolean;
   },
 ): Promise<RpcSuccess<WorkspaceFeatures> | RpcFailure> {
+  ensureWorkspaceFeatureSync();
   const normalizedWorkspaceId = normalizeUuid(workspaceId);
   if (!normalizedWorkspaceId) {
     return { ok: false, status: 400, error: "workspace_id is required." };
@@ -592,7 +712,14 @@ export async function setAdaptiveStyleFeatures(
   if (!rpc.ok) return rpc;
 
   const features = toWorkspaceFeatures(rpc.data, normalizedWorkspaceId);
-  FEATURE_CACHE.set(normalizedWorkspaceId, features);
+  cacheWorkspaceFeatures(features);
+  STYLE_PROFILE_CACHE.delete(normalizedWorkspaceId);
+  dispatchWorkspaceFeaturesChanged({
+    workspaceId: normalizedWorkspaceId,
+    features,
+    origin: "rpc",
+  });
+  broadcastWorkspaceFeaturesChanged(features);
   return {
     ok: true,
     status: rpc.status,
@@ -659,6 +786,7 @@ export async function updateStyleProfileFromReadyCheckpoint(args: {
   scriptText: string;
   adaptationWeight?: number;
 }): Promise<StyleUpdateResult> {
+  ensureWorkspaceFeatureSync();
   const workspaceId = normalizeUuid(args.workspaceId);
   if (!workspaceId) {
     return {
@@ -675,7 +803,7 @@ export async function updateStyleProfileFromReadyCheckpoint(args: {
       ok: true,
       skipped: true,
       reason: "empty_script",
-      features: FEATURE_CACHE.get(workspaceId) ?? null,
+      features: readCachedWorkspaceFeatures(workspaceId),
     };
   }
 
@@ -684,11 +812,13 @@ export async function updateStyleProfileFromReadyCheckpoint(args: {
       ok: true,
       skipped: true,
       reason: "paused",
-      features: FEATURE_CACHE.get(workspaceId) ?? null,
+      features: readCachedWorkspaceFeatures(workspaceId),
     };
   }
 
-  const featureResult = await getWorkspaceFeatures(workspaceId);
+  // Always force-refresh feature flags before write attempts so admin kill-switches
+  // are honored immediately even when a Hearth tab has warmed cache.
+  const featureResult = await getWorkspaceFeatures(workspaceId, { force: true });
   if (!featureResult.ok) {
     return {
       ok: false,

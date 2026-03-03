@@ -16,6 +16,7 @@ function canManageWorkspaceFeatures(role: string | null | undefined): boolean {
 export default function SettingsHome() {
   const shell = useOutletContext<AppShellContext>();
   const workspaceId = shell?.workspaceId ?? null;
+  const workspaceAccessDeniedId = shell?.workspaceAccessDeniedId ?? null;
   const activeWorkspace = useMemo(
     () => shell?.workspaces?.find((workspace) => workspace.id === workspaceId) ?? null,
     [shell?.workspaces, workspaceId],
@@ -30,6 +31,7 @@ export default function SettingsHome() {
   const [dirty, setDirty] = useState(false);
 
   const canEdit = canManageWorkspaceFeatures(activeWorkspace?.role ?? null);
+  const adminOnlyTooltip = !canEdit ? "Admins only" : undefined;
 
   useEffect(() => {
     let cancelled = false;
@@ -95,7 +97,12 @@ export default function SettingsHome() {
   }
 
   if (!workspaceId) {
-    return <WorkspaceRequiredNotice toolName="Settings" />;
+    return (
+      <WorkspaceRequiredNotice
+        toolName="Settings"
+        accessDeniedWorkspaceId={workspaceAccessDeniedId}
+      />
+    );
   }
 
   return (
@@ -113,10 +120,11 @@ export default function SettingsHome() {
           Keep this off by default. Turn on per workspace when you are ready for profile learning at Ready checkpoints.
         </p>
 
-        <label className="settings-home__toggle">
+        <label className="settings-home__toggle" title={adminOnlyTooltip}>
           <input
             type="checkbox"
             checked={alignmentEnabled}
+            title={adminOnlyTooltip}
             disabled={!canEdit || loading || saving}
             onChange={(event) => {
               const next = event.target.checked;
@@ -128,10 +136,11 @@ export default function SettingsHome() {
           <span>Enable Adaptive Style Alignment</span>
         </label>
 
-        <label className="settings-home__toggle">
+        <label className="settings-home__toggle" title={adminOnlyTooltip}>
           <input
             type="checkbox"
             checked={accelerateEnabled}
+            title={adminOnlyTooltip}
             disabled={!canEdit || loading || saving || !alignmentEnabled}
             onChange={(event) => {
               setAccelerateEnabled(event.target.checked);

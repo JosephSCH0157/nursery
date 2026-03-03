@@ -1,0 +1,96 @@
+.forge-hub {
+  padding: 24px;
+  font-family: system-ui, Segoe UI, Arial, sans-serif;
+  position: relative;
+}
+
+.forge-hub.is-backed {
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.forge-hub__backdrop {
+  position: absolute;
+  inset: 0;
+  background-image: var(--forge-hub-backdrop);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.forge-hub__content {
+  position: relative;
+  z-index: 1;
+}
+
+.forge-hub__title {
+  margin: 0;
+}
+
+.forge-hub__subtitle {
+  margin-top: 8px;
+  opacity: 0.75;
+}
+
+.forge-hub__trial-banner {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 13px;
+  opacity: 0.92;
+}
+
+.forge-hub__grid {
+  display: grid;
+  gap: 12px;
+  max-width: 820px;
+  margin-top: 18px;
+}
+
+.forge-hub__card {
+  display: block;
+  padding: 14px 16px;
+  border-radius: 12px;
+  text-decoration: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.92);
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.forge-hub__card:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(244, 207, 160, 0.35);
+}
+
+.forge-hub__card:focus-visible {
+  outline: 2px solid rgba(147, 197, 253, 0.75);
+  outline-offset: 2px;
+  border-color: rgba(244, 207, 160, 0.35);
+}
+
+.forge-hub__card-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.forge-hub__card-title {
+  font-weight: 800;
+  letter-spacing: 0.3px;
+}
+
+.forge-hub__card-hint {
+  opacity: 0.75;
+  font-size: 13px;
+}
+
+.forge-hub__card-desc {
+  margin-top: 6px;
+  opacity: 0.8;
+  font-size: 14px;
+  line-height: 1.35;
+}

@@ -41,6 +41,7 @@ export const forgeNavTree: ForgeNavSection[] = [
     title: "Settings",
     items: [
       { id: "settings-home", label: "Settings home", to: "/app/settings" },
+      { id: "org", label: "Organization", to: "/app/settings/org" },
       { id: "storage", label: "Storage (Mounts)", to: "/app/settings/storage" },
       { id: "mobile-demo", label: "Mobile Demo", to: "/app/mobile-demo" },
     ],

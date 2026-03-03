@@ -1,7 +1,9 @@
 import { Link, useOutletContext } from "react-router-dom";
+import type { CSSProperties } from "react";
 import type { ForgeAppId } from "@forge/tongs";
 import type { AppShellContext } from "./AppShell";
 import forgeInteriorImage from "../../../../assets/forge-interior.png";
+import "./ForgeHub.css";
 
 type HubLink = {
   to?: string;
@@ -87,110 +89,53 @@ export default function ForgeHub() {
   const shell = useOutletContext<AppShellContext>();
   const session = shell?.session ?? null;
   const showBackdrop = !!session;
+  const backdropStyle = {
+    "--forge-hub-backdrop":
+      `linear-gradient(180deg, rgba(10,10,12,0.74), rgba(6,8,12,0.84)), url('${forgeInteriorImage}')`,
+  } as CSSProperties;
 
   return (
-    <div
-      style={{
-        padding: 24,
-        fontFamily: "system-ui, Segoe UI, Arial, sans-serif",
-        position: "relative",
-        borderRadius: showBackdrop ? 16 : undefined,
-        overflow: showBackdrop ? "hidden" : undefined,
-      }}
-    >
+    <div className={`forge-hub${showBackdrop ? " is-backed" : ""}`}>
       {showBackdrop ? (
-        <div
-          aria-hidden
-          style={{
-            position: "absolute",
-            inset: 0,
-            backgroundImage:
-              `linear-gradient(180deg, rgba(10,10,12,0.74), rgba(6,8,12,0.84)), url('${forgeInteriorImage}')`,
-            backgroundSize: "cover",
-            backgroundPosition: "center",
-            backgroundRepeat: "no-repeat",
-          }}
-        />
+        <div aria-hidden className="forge-hub__backdrop" style={backdropStyle} />
       ) : null}
-      <div style={{ position: "relative", zIndex: 1 }}>
-      <h1 style={{ margin: 0 }}>Podcaster's Forge</h1>
-      <p style={{ marginTop: 8, opacity: 0.75 }}>Choose a tool to get started.</p>
+      <div className="forge-hub__content">
+      <h1 className="forge-hub__title">Podcaster's Forge</h1>
+      <p className="forge-hub__subtitle">Choose a tool to get started.</p>
       {!session ? (
-        <div
-          style={{
-            marginTop: 12,
-            padding: "10px 12px",
-            borderRadius: 10,
-            border: "1px solid rgba(255,255,255,0.15)",
-            background: "rgba(255,255,255,0.04)",
-            fontSize: 13,
-            opacity: 0.92,
-          }}
-        >
+        <div className="forge-hub__trial-banner">
           Anonymous trial mode: explore the workspace and tools with limited access.{" "}
           <Link to={`/login?next=${encodeURIComponent("/app")}`}>Sign in</Link> to unlock full features.
         </div>
       ) : null}
 
-      <div style={{ display: "grid", gap: 12, maxWidth: 820, marginTop: 18 }}>
+      <div className="forge-hub__grid">
         {LINKS.map((x) => (
           x.href ? (
             <a
               key={x.href}
               href={x.href}
               title={x.hint}
-              style={{
-                display: "block",
-                padding: "14px 16px",
-                borderRadius: 12,
-                textDecoration: "none",
-                border: "1px solid rgba(255,255,255,0.10)",
-                background: "rgba(255,255,255,0.04)",
-                color: "rgba(255,255,255,0.92)",
-              }}
-              onMouseEnter={(e) => {
-                (e.currentTarget.style.background = "rgba(255,255,255,0.07)");
-                (e.currentTarget.style.borderColor = "rgba(244,207,160,0.35)");
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget.style.background = "rgba(255,255,255,0.04)");
-                (e.currentTarget.style.borderColor = "rgba(255,255,255,0.10)");
-              }}
+              className="forge-hub__card"
             >
-              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
-                <div style={{ fontWeight: 800, letterSpacing: 0.3 }}>{x.name}</div>
-                <div style={{ opacity: 0.75, fontSize: 13 }}>{x.hint}</div>
+              <div className="forge-hub__card-header">
+                <div className="forge-hub__card-title">{x.name}</div>
+                <div className="forge-hub__card-hint">{x.hint}</div>
               </div>
-              <div style={{ marginTop: 6, opacity: 0.8, fontSize: 14, lineHeight: 1.35 }}>{x.desc}</div>
+              <div className="forge-hub__card-desc">{x.desc}</div>
             </a>
           ) : (
             <Link
               key={x.to}
               to={x.to ?? "/app"}
               title={x.hint}
-              style={{
-                display: "block",
-                padding: "14px 16px",
-                borderRadius: 12,
-                textDecoration: "none",
-                border: "1px solid rgba(255,255,255,0.10)",
-                background: "rgba(255,255,255,0.04)",
-                color: "rgba(255,255,255,0.92)",
-              }}
-              onMouseEnter={(e) => {
-                (e.currentTarget.style.background = "rgba(255,255,255,0.07)");
-                (e.currentTarget.style.borderColor = "rgba(244,207,160,0.35)");
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget.style.background = "rgba(255,255,255,0.04)");
-                (e.currentTarget.style.borderColor = "rgba(255,255,255,0.10)");
-              }}
+              className="forge-hub__card"
             >
-              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
-                <div style={{ fontWeight: 800, letterSpacing: 0.3 }}>{x.name}</div>
-                <div style={{ opacity: 0.75, fontSize: 13 }}>{x.hint}</div>
+              <div className="forge-hub__card-header">
+                <div className="forge-hub__card-title">{x.name}</div>
+                <div className="forge-hub__card-hint">{x.hint}</div>
               </div>
-              <div style={{ marginTop: 6, opacity: 0.8, fontSize: 14, lineHeight: 1.35 }}>{x.desc}</div>
+              <div className="forge-hub__card-desc">{x.desc}</div>
             </Link>
           )
         ))}

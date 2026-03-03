@@ -1,0 +1,80 @@
+.settings-org {
+  border: 1px solid var(--forge-border);
+  border-radius: 12px;
+  background: var(--forge-bg-elevated);
+  padding: 16px;
+  max-width: 860px;
+  display: grid;
+  gap: 12px;
+}
+
+.settings-org__header {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-org__title {
+  margin: 0;
+}
+
+.settings-org__copy {
+  margin: 0;
+  color: var(--forge-text-muted);
+}
+
+.settings-org__picker {
+  display: grid;
+  gap: 8px;
+  max-width: 420px;
+}
+
+.settings-org__label {
+  font-size: 12px;
+  color: var(--forge-text-muted);
+}
+
+.settings-org__select {
+  padding: 6px 8px;
+}
+
+.settings-org__error {
+  color: var(--forge-danger);
+  font-size: 13px;
+}
+
+.settings-org__meta {
+  display: grid;
+  gap: 4px;
+}
+
+.settings-org__members {
+  border-top: 1px solid var(--forge-border);
+  padding-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.settings-org__members-title {
+  margin: 0;
+}
+
+.settings-org__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.settings-org__th {
+  text-align: left;
+}
+
+.settings-org__th,
+.settings-org__td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--forge-border);
+}
+
+.settings-org__select:focus-visible {
+  outline: 2px solid rgba(147, 197, 253, 0.6);
+  outline-offset: 2px;
+}

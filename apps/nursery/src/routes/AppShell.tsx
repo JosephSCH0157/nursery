@@ -5,8 +5,13 @@ import { loadMountRegistry } from "../lib/mount-registry";
 import { supabase } from "../lib/supabase";
 import { listMyWorkspaces, type Workspace } from "@barstock/lib/tongs-api";
 import { ForgeNav } from "../nav/ForgeNav";
-import { FORGE_NAV_ACTION_AI_CONTROLS, forgeNavTree } from "../nav/forgeNavTree";
-import { parseForgeRouteContext, removeWorkspaceParams } from "../lib/forge-route-context";
+import { FORGE_NAV_ACTION_AI_CONTROLS, forgeNavTree, type ForgeNavSection } from "../nav/forgeNavTree";
+import {
+  buildForgeRouteHref,
+  parseForgeRouteContext,
+  removeWorkspaceParams,
+  warnMissingWorkspaceParamInDev,
+} from "../lib/forge-route-context";
 import { AiControlsPanel } from "../components/hearth/AiControlsPanel";
 import "./AppShell.css";
 
@@ -83,6 +88,11 @@ function removeInviteToken(search: string): string {
   return next ? `?${next}` : "";
 }
 
+function searchFromHref(href: string): string {
+  const q = href.indexOf("?");
+  return q >= 0 ? href.slice(q) : "";
+}
+
 type InvitePreview = {
   workspace_id: string;
   workspace_name: string;
@@ -93,6 +103,7 @@ type InvitePreview = {
 
 export type AppShellContext = {
   workspaceId: string | null;
+  workspaceAccessDeniedId: string | null;
   workspaces: Workspace[];
   selectWorkspace: (id: string | null) => void;
   refreshWorkspaces: (opts?: { force?: boolean; preferId?: string | null }) => Promise<void>;
@@ -113,6 +124,7 @@ export default function AppShell() {
   const [loadingWorkspaces, setLoadingWorkspaces] = useState(false);
   const [workspaceLoadError, setWorkspaceLoadError] = useState<string | null>(null);
   const [hasWorkspaceFetchSucceeded, setHasWorkspaceFetchSucceeded] = useState(false);
+  const [workspaceAccessDeniedId, setWorkspaceAccessDeniedId] = useState<string | null>(null);
   const lastSessionUserId = useRef<string | null>(null);
   const lastUrlWorkspaceRefresh = useRef<string | null>(null);
 
@@ -170,9 +182,27 @@ export default function AppShell() {
   }, []);
 
   const selectWorkspace = useCallback((id: string | null) => {
+    if (id) setWorkspaceAccessDeniedId(null);
     setWorkspaceId(id);
     saveActiveWorkspaceId(id);
-  }, []);
+    if (!location.pathname.startsWith("/app")) return;
+
+    const nextHref = buildForgeRouteHref(location.pathname, {
+      search: location.search,
+      workspaceId: id,
+      workpieceId: urlContext.workpieceId,
+    });
+    const nextSearch = searchFromHref(nextHref);
+    if (nextSearch === location.search) return;
+    nav(
+      {
+        pathname: location.pathname,
+        search: nextSearch,
+        hash: location.hash,
+      },
+      { replace: true },
+    );
+  }, [location.pathname, location.search, location.hash, nav, urlContext.workpieceId]);
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -193,6 +223,13 @@ export default function AppShell() {
       const preferId = opts?.preferId ?? null;
       const current = workspaceId;
       const saved = loadActiveWorkspaceId();
+      const requestedWorkspaceMissingMembership = !!urlWorkspaceId && !ws.some((w) => w.id === urlWorkspaceId);
+      if (requestedWorkspaceMissingMembership) {
+        setWorkspaceAccessDeniedId(urlWorkspaceId);
+        setWorkspaceId(null);
+        saveActiveWorkspaceId(null);
+        return;
+      }
       const pick =
         (preferId && ws.some(w => w.id === preferId)) ? preferId
           : (urlWorkspaceId && ws.some(w => w.id === urlWorkspaceId)) ? urlWorkspaceId
@@ -220,6 +257,7 @@ export default function AppShell() {
       setWorkspaceId(null);
       setWorkspaceLoadError(null);
       setHasWorkspaceFetchSucceeded(false);
+      setWorkspaceAccessDeniedId(null);
       return;
     }
 
@@ -230,7 +268,7 @@ export default function AppShell() {
     }
 
     if (workspaceId && workspaces.some(w => w.id === workspaceId)) return;
-    if (!workspaceId && workspaces.length === 0) return;
+    if (workspaces.length === 0) return;
     const saved = loadActiveWorkspaceId();
     const pick =
       (urlWorkspaceId && workspaces.some((w) => w.id === urlWorkspaceId)) ? urlWorkspaceId
@@ -263,13 +301,20 @@ export default function AppShell() {
     if (!session || !urlWorkspaceId) return;
     if (!hasWorkspaceFetchSucceeded || loadingWorkspaces) return;
     if (workspaces.some((w) => w.id === urlWorkspaceId)) return;
+    setWorkspaceAccessDeniedId(urlWorkspaceId);
     nav(
       {
         pathname: location.pathname,
         search: removeWorkspaceParams(location.search),
         hash: location.hash,
       },
-      { replace: true },
+      {
+        replace: true,
+        state: {
+          forgeWorkspaceAccessDenied: true,
+          deniedWorkspaceId: urlWorkspaceId,
+        },
+      },
     );
   }, [
     session,
@@ -284,20 +329,75 @@ export default function AppShell() {
   ]);
 
   useEffect(() => {
+    if (location.pathname !== "/app") return;
+    if (!workspaceAccessDeniedId) return;
+    setWorkspaceAccessDeniedId(null);
+  }, [location.pathname, workspaceAccessDeniedId]);
+
+  useEffect(() => {
     if (!urlContext.hasInvalidWorkspaceId) return;
+    const nextHref = buildForgeRouteHref(location.pathname, {
+      search: location.search,
+      workspaceId: urlWorkspaceId,
+      workpieceId: urlContext.workpieceId,
+    });
+    const nextSearch = searchFromHref(nextHref);
+    if (nextSearch === location.search) return;
     nav(
       {
         pathname: location.pathname,
-        search: removeWorkspaceParams(location.search),
+        search: nextSearch,
         hash: location.hash,
       },
       { replace: true },
     );
   }, [
     urlContext.hasInvalidWorkspaceId,
+    urlWorkspaceId,
+    urlContext.workpieceId,
     location.pathname,
     location.search,
     location.hash,
+    nav,
+  ]);
+
+  useEffect(() => {
+    if (!session) return;
+    if (!location.pathname.startsWith("/app")) return;
+    if (!hasWorkspaceFetchSucceeded) return;
+    if (urlWorkspaceId && !workspaces.some((workspace) => workspace.id === urlWorkspaceId)) {
+      // Let the explicit non-member handler strip workspace params so it can tag
+      // history state with an access-denied reason for downstream notices.
+      return;
+    }
+    const selectedWorkspaceId = workspaceId && workspaces.some((workspace) => workspace.id === workspaceId)
+      ? workspaceId
+      : null;
+    const nextHref = buildForgeRouteHref(location.pathname, {
+      search: location.search,
+      workspaceId: selectedWorkspaceId,
+      workpieceId: urlContext.workpieceId,
+    });
+    const nextSearch = searchFromHref(nextHref);
+    if (nextSearch === location.search) return;
+    nav(
+      {
+        pathname: location.pathname,
+        search: nextSearch,
+        hash: location.hash,
+      },
+      { replace: true },
+    );
+  }, [
+    session,
+    hasWorkspaceFetchSucceeded,
+    workspaceId,
+    workspaces,
+    location.pathname,
+    location.search,
+    location.hash,
+    urlWorkspaceId,
+    urlContext.workpieceId,
     nav,
   ]);
 
@@ -577,12 +677,29 @@ export default function AppShell() {
           console.warn("[workspace] rpc create failed; falling back to direct insert", rpcError);
         }
 
+        const { data: orgData, error: orgError } = await tongsRpcClient
+          .rpc("get_or_create_my_personal_org_id")
+          .single();
+        if (orgError) {
+          setCreateError(getErrorMessage(orgError, "Failed to resolve organization for workspace."));
+          return;
+        }
+        const resolvedOrgId = (orgData as { org_id?: unknown } | null)?.org_id;
+        const orgId = typeof resolvedOrgId === "string" && resolvedOrgId.trim()
+          ? resolvedOrgId
+          : null;
+        if (!orgId) {
+          setCreateError("Failed to resolve organization for workspace.");
+          return;
+        }
+
         const { data: workspace, error: insertError } = await supabase
           .schema("tongs")
           .from("workspaces")
           .insert({
             name: "Workspace",
             created_by: session.user.id,
+            org_id: orgId,
           })
           .select("id,name")
           .single();
@@ -667,35 +784,52 @@ export default function AppShell() {
     () => [{ id: "ai-controls", label: "AI Controls", actionId: FORGE_NAV_ACTION_AI_CONTROLS }],
     [],
   );
+  const selectedWorkspaceId = workspaceId && workspaces.some((workspace) => workspace.id === workspaceId)
+    ? workspaceId
+    : null;
+  const homeHref = useMemo(
+    () => buildForgeRouteHref("/app", {
+      search: location.search,
+      workspaceId: selectedWorkspaceId,
+      workpieceId: urlContext.workpieceId,
+    }),
+    [location.search, selectedWorkspaceId, urlContext.workpieceId],
+  );
+  const navTreeWithWorkspace = useMemo<ForgeNavSection[]>(
+    () => forgeNavTree.map((section) => ({
+      ...section,
+      items: section.items.map((item) => {
+        if (!item.to || !item.to.startsWith("/app")) return item;
+        const nextTo = buildForgeRouteHref(item.to, {
+          search: location.search,
+          workspaceId: selectedWorkspaceId,
+          workpieceId: urlContext.workpieceId,
+        });
+        warnMissingWorkspaceParamInDev({
+          source: `AppShell:${section.id}:${item.id}`,
+          href: nextTo,
+          workspaceId: selectedWorkspaceId,
+        });
+        return {
+          ...item,
+          to: nextTo,
+        };
+      }),
+    })),
+    [location.search, selectedWorkspaceId, urlContext.workpieceId],
+  );
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        fontFamily: "system-ui",
-        display: "flex",
-        flexDirection: "column",
-        color: "var(--forge-text)",
-      }}
-    >
-      <header
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "10px 16px",
-          borderBottom: "1px solid var(--forge-border)",
-          gap: 16,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <Link to="/app" style={{ fontWeight: 800, textDecoration: "none", color: "inherit" }}>
+    <div className="appshell-root">
+      <header className="appshell-header">
+        <div className="appshell-header-left">
+          <Link to={homeHref} className="appshell-brand-link">
             The Forge
           </Link>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 12, opacity: 0.7 }}>Workspace</span>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div className="appshell-workspace-group">
+            <span className="appshell-workspace-label">Workspace</span>
+            <div className="appshell-workspace-stack">
+              <div className="appshell-workspace-controls">
                 <select
                   value={workspaceValue}
                   disabled={workspaceSelectDisabled}
@@ -707,7 +841,7 @@ export default function AppShell() {
                     }
                     selectWorkspace(v || null);
                   }}
-                  style={{ padding: "6px 8px", fontSize: 12, minWidth: 220 }}
+                  className="appshell-workspace-select"
                 >
                   <option value="" disabled>
                     {loadingWorkspaces
@@ -725,7 +859,7 @@ export default function AppShell() {
                   type="button"
                   onClick={openRenameWorkspace}
                   disabled={!activeWorkspace || !session}
-                  style={{ fontSize: 12, padding: "6px 8px", cursor: "pointer" }}
+                  className="appshell-workspace-button"
                 >
                   Rename
                 </button>
@@ -738,28 +872,22 @@ export default function AppShell() {
                       ? "Sign in to manage workspaces."
                       : !activeWorkspace
                         ? "Select a workspace first."
-                        : canDeleteActiveWorkspace
+                      : canDeleteActiveWorkspace
                           ? "Delete workspace"
                           : "Only workspace owners can delete a workspace."
                   }
-                  style={{
-                    fontSize: 12,
-                    padding: "6px 8px",
-                    cursor: "pointer",
-                    color: "var(--forge-danger)",
-                    borderColor: "var(--forge-danger)",
-                  }}
+                  className="appshell-workspace-button appshell-workspace-button--danger"
                 >
                   Delete
                 </button>
               </div>
               {renameOpen && (
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div className="appshell-rename-row">
                   <input
                     value={renameValue}
                     onChange={(e) => setRenameValue(e.target.value)}
                     placeholder="Workspace name"
-                    style={{ padding: "6px 8px", fontSize: 12, minWidth: 220 }}
+                    className="appshell-rename-input"
                   />
                   <button type="button" onClick={onRenameWorkspace} disabled={renaming}>
                     Save
@@ -768,7 +896,7 @@ export default function AppShell() {
                     Cancel
                   </button>
                   {renameError && (
-                    <span style={{ color: "var(--forge-danger)", fontSize: 12 }}>
+                    <span className="appshell-inline-error">
                       {renameError}
                     </span>
                   )}
@@ -778,31 +906,22 @@ export default function AppShell() {
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div className="appshell-user-controls">
           <div
-            style={{
-              width: 28,
-              height: 28,
-              borderRadius: 999,
-              background: "var(--forge-bg-raised)",
-              color: "var(--forge-text)",
-              display: "grid",
-              placeItems: "center",
-              fontSize: 12,
-            }}
+            className="appshell-avatar"
             title={session?.user?.email ?? "Trial mode"}
           >
             {initials}
           </div>
-          <span style={{ fontSize: 12, opacity: 0.8 }}>
+          <span className="appshell-user-email">
             {session?.user?.email ?? "Anonymous trial"}
           </span>
           {session ? (
-            <button onClick={onSignOut} style={{ cursor: "pointer" }}>
+            <button onClick={onSignOut} className="appshell-auth-button">
               Sign out
             </button>
           ) : (
-            <button onClick={onSignIn} style={{ cursor: "pointer" }}>
+            <button onClick={onSignIn} className="appshell-auth-button">
               Sign in
             </button>
           )}
@@ -810,47 +929,29 @@ export default function AppShell() {
       </header>
 
       {inTrialMode ? (
-        <div
-          style={{
-            padding: "10px 16px",
-            borderBottom: "1px solid var(--forge-border)",
-            background: "rgba(255, 255, 255, 0.03)",
-            fontSize: 13,
-            opacity: 0.9,
-          }}
-        >
+        <div className="appshell-trial-banner">
           Trial mode is active. You can explore tools with limited access. Sign in to unlock cloud workspaces, calendar writes, and full persistence.
         </div>
       ) : null}
 
-      <div style={{ display: "flex", flex: 1 }}>
-        <aside style={{ width: 240, padding: 16, borderRight: "1px solid var(--forge-border)" }}>
-          <ForgeNav tree={forgeNavTree} extraItems={navExtraItems} onAction={onNavAction} />
+      <div className="appshell-body">
+        <aside className="appshell-nav">
+          <ForgeNav tree={navTreeWithWorkspace} extraItems={navExtraItems} onAction={onNavAction} />
         </aside>
 
-        <main style={{ flex: 1, padding: 16 }}>
+        <main className="appshell-main">
           {shouldBlockWorkspaceRoute ? (
-            <section
-              style={{
-                border: "1px solid var(--forge-border)",
-                borderRadius: 14,
-                background: "var(--forge-bg-elevated)",
-                padding: 18,
-                maxWidth: 560,
-                display: "grid",
-                gap: 12,
-              }}
-            >
-              <h2 style={{ margin: 0 }}>You need a workspace to use the Forge.</h2>
+            <section className="appshell-workspace-gate">
+              <h2 className="appshell-workspace-gate-title">You need a workspace to use the Forge.</h2>
               {workspaceGateLoading ? (
-                <p style={{ margin: 0, opacity: 0.8 }}>Loading workspaces...</p>
+                <p className="appshell-muted-text">Loading workspaces...</p>
               ) : workspaceLoadError && workspaces.length === 0 ? (
                 <>
-                  <p style={{ margin: 0, opacity: 0.8 }}>
+                  <p className="appshell-muted-text">
                     Could not load workspaces right now.
                   </p>
-                  <div style={{ color: "var(--forge-danger)", fontSize: 13 }}>{workspaceLoadError}</div>
-                  <div style={{ display: "flex", gap: 8 }}>
+                  <div className="appshell-error-text">{workspaceLoadError}</div>
+                  <div className="appshell-row">
                     <button
                       type="button"
                       onClick={() => void refreshWorkspaces({ force: true, preferId: urlWorkspaceId })}
@@ -862,10 +963,10 @@ export default function AppShell() {
                 </>
               ) : workspaces.length === 0 ? (
                 <>
-                  <p style={{ margin: 0, opacity: 0.8 }}>
+                  <p className="appshell-muted-text">
                     Create your first workspace before opening tools.
                   </p>
-                  <div style={{ display: "flex", gap: 8 }}>
+                  <div className="appshell-row">
                     <button type="button" onClick={openCreateWorkspace} disabled={creating}>
                       Create workspace
                     </button>
@@ -880,19 +981,19 @@ export default function AppShell() {
                 </>
               ) : (
                 <>
-                  <p style={{ margin: 0, opacity: 0.8 }}>
+                  <p className="appshell-muted-text">
                     Select a workspace to continue.
                   </p>
                   {workspaceLoadError && (
-                    <div style={{ color: "var(--forge-danger)", fontSize: 13 }}>
+                    <div className="appshell-error-text">
                       {workspaceLoadError}
                     </div>
                   )}
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <div className="appshell-row appshell-row--wrap">
                     <select
                       value={workspaceGateChoice}
                       onChange={(e) => setWorkspaceGateChoice(e.target.value)}
-                      style={{ minWidth: 240, padding: "6px 8px" }}
+                      className="appshell-gate-select"
                     >
                       <option value="" disabled>Select workspace</option>
                       {workspaces.map((w) => (
@@ -922,6 +1023,7 @@ export default function AppShell() {
             <Outlet
               context={{
                 workspaceId,
+                workspaceAccessDeniedId,
                 workspaces,
                 selectWorkspace,
                 refreshWorkspaces,
@@ -933,46 +1035,26 @@ export default function AppShell() {
       </div>
 
       {createOpen && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0, 0, 0, 0.65)",
-            display: "grid",
-            placeItems: "center",
-            padding: 16,
-          }}
-        >
-          <div
-            style={{
-              background: "var(--forge-bg-elevated)",
-              border: "1px solid var(--forge-border)",
-              padding: 16,
-              borderRadius: 12,
-              width: "100%",
-              maxWidth: 420,
-            }}
-          >
-            <h3 style={{ marginTop: 0 }}>Create workspace</h3>
-            <div style={{ display: "grid", gap: 10 }}>
-              <div style={{ fontSize: 12, opacity: 0.7 }}>
+        <div className="appshell-modal-backdrop">
+          <div className="appshell-modal-card">
+            <h3 className="appshell-modal-title">Create workspace</h3>
+            <div className="appshell-modal-body">
+              <div className="appshell-modal-kicker">
                 This creates an ID-only workspace container.
               </div>
               {createError && (
-                <div style={{ color: "var(--forge-danger)", fontSize: 12 }}>{createError}</div>
+                <div className="appshell-modal-error">{createError}</div>
               )}
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <div className="appshell-modal-actions">
                 <button
                   onClick={() => setCreateOpen(false)}
                   disabled={creating}
-                  style={{ cursor: creating ? "not-allowed" : "pointer" }}
                 >
                   Cancel
                 </button>
                 <button
                   onClick={onCreateWorkspace}
                   disabled={creating}
-                  style={{ cursor: creating ? "not-allowed" : "pointer" }}
                 >
                   {creating ? "Creating..." : "Create"}
                 </button>
@@ -983,40 +1065,19 @@ export default function AppShell() {
       )}
 
       {deleteOpen && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0, 0, 0, 0.72)",
-            display: "grid",
-            placeItems: "center",
-            padding: 16,
-            zIndex: 1000,
-          }}
-        >
-          <div
-            style={{
-              background: "var(--forge-bg-elevated)",
-              border: "1px solid var(--forge-border)",
-              padding: 16,
-              borderRadius: 12,
-              width: "100%",
-              maxWidth: 460,
-              display: "grid",
-              gap: 10,
-            }}
-          >
-            <h3 style={{ marginTop: 0, marginBottom: 0, color: "var(--forge-danger)" }}>
+        <div className="appshell-modal-backdrop appshell-modal-backdrop--danger">
+          <div className="appshell-modal-card appshell-modal-card--danger">
+            <h3 className="appshell-modal-title appshell-modal-title--danger">
               Delete workspace
             </h3>
-            <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, opacity: 0.92 }}>
+            <p className="appshell-modal-copy">
               This permanently deletes the workspace and all related content, including projects,
               sparks, episodes, recordings, assets, and history. This cannot be undone.
             </p>
-            <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, opacity: 0.78 }}>
+            <p className="appshell-modal-copy appshell-modal-copy--muted">
               Database records are deleted immediately. Uploaded storage files may remain until cleanup.
             </p>
-            <div style={{ fontSize: 12, opacity: 0.8 }}>
+            <div className="appshell-modal-kicker">
               Type <strong>{deleteConfirmationTarget}</strong> to verify.
             </div>
             <input
@@ -1024,17 +1085,16 @@ export default function AppShell() {
               onChange={(e) => setDeleteConfirmValue(e.target.value)}
               placeholder={deleteConfirmationTarget}
               autoFocus
-              style={{ padding: "8px 10px", fontSize: 12 }}
+              className="appshell-modal-input"
             />
             {deleteError && (
-              <div style={{ color: "var(--forge-danger)", fontSize: 12 }}>{deleteError}</div>
+              <div className="appshell-modal-error">{deleteError}</div>
             )}
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <div className="appshell-modal-actions">
               <button
                 type="button"
                 onClick={() => closeDeleteWorkspace()}
                 disabled={deleting}
-                style={{ cursor: deleting ? "not-allowed" : "pointer" }}
               >
                 Cancel
               </button>
@@ -1042,12 +1102,7 @@ export default function AppShell() {
                 type="button"
                 onClick={onDeleteWorkspace}
                 disabled={deleting || !deleteConfirmationMatches}
-                style={{
-                  cursor: deleting || !deleteConfirmationMatches ? "not-allowed" : "pointer",
-                  background: "var(--forge-danger)",
-                  color: "white",
-                  borderColor: "var(--forge-danger)",
-                }}
+                className="appshell-danger-button"
               >
                 {deleting ? "Deleting..." : "Delete workspace"}
               </button>
@@ -1112,15 +1167,7 @@ export default function AppShell() {
 
       {aiControlsOpen ? (
         <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(5, 10, 18, 0.58)",
-            display: "grid",
-            placeItems: "center",
-            padding: 16,
-            zIndex: 10000,
-          }}
+          className="appshell-ai-controls-backdrop"
           onClick={() => setAiControlsOpen(false)}
         >
           <div onClick={(event) => event.stopPropagation()}>
