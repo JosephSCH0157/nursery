@@ -1,8 +1,8 @@
 {
   "files": [],
   "references": [
+    { "path": "../../packages/tongs/tsconfig.json" },
     { "path": "./tsconfig.app.json" },
-    { "path": "./tsconfig.node.json" },
-    { "path": "../../packages/tongs/tsconfig.json" }
+    { "path": "./tsconfig.node.json" }
   ]
 }
