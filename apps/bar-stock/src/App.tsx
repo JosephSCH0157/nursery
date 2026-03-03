@@ -1349,6 +1349,7 @@ export default function App(props: BarstockAppProps = {}) {
             <input
               ref={importRef}
               type="file"
+              aria-label="Import sparks JSON file"
               accept="application/json"
               className="barstock-hidden-input"
               onChange={(e) => {
