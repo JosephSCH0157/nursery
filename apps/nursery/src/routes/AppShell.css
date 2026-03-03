@@ -1,3 +1,268 @@
+.appshell-root {
+  min-height: 100vh;
+  font-family: system-ui;
+  display: flex;
+  flex-direction: column;
+  color: var(--forge-text);
+}
+
+.appshell-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--forge-border);
+  gap: 16px;
+}
+
+.appshell-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.appshell-brand-link {
+  font-weight: 800;
+  text-decoration: none;
+  color: inherit;
+}
+
+.appshell-workspace-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.appshell-workspace-label {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.appshell-workspace-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.appshell-workspace-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.appshell-workspace-select {
+  padding: 6px 8px;
+  font-size: 12px;
+  min-width: 220px;
+}
+
+.appshell-workspace-button {
+  font-size: 12px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.appshell-workspace-button--danger {
+  color: var(--forge-danger);
+  border-color: var(--forge-danger);
+}
+
+.appshell-rename-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.appshell-rename-input {
+  padding: 6px 8px;
+  font-size: 12px;
+  min-width: 220px;
+}
+
+.appshell-inline-error {
+  color: var(--forge-danger);
+  font-size: 12px;
+}
+
+.appshell-user-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.appshell-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--forge-bg-raised);
+  color: var(--forge-text);
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+}
+
+.appshell-user-email {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.appshell-auth-button {
+  cursor: pointer;
+}
+
+.appshell-trial-banner {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--forge-border);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+.appshell-body {
+  display: flex;
+  flex: 1;
+}
+
+.appshell-nav {
+  width: 240px;
+  padding: 16px;
+  border-right: 1px solid var(--forge-border);
+}
+
+.appshell-main {
+  flex: 1;
+  padding: 16px;
+}
+
+.appshell-workspace-gate {
+  border: 1px solid var(--forge-border);
+  border-radius: 14px;
+  background: var(--forge-bg-elevated);
+  padding: 18px;
+  max-width: 560px;
+  display: grid;
+  gap: 12px;
+}
+
+.appshell-workspace-gate-title {
+  margin: 0;
+}
+
+.appshell-muted-text {
+  margin: 0;
+  opacity: 0.8;
+}
+
+.appshell-error-text {
+  color: var(--forge-danger);
+  font-size: 13px;
+}
+
+.appshell-row {
+  display: flex;
+  gap: 8px;
+}
+
+.appshell-row--wrap {
+  flex-wrap: wrap;
+}
+
+.appshell-gate-select {
+  min-width: 240px;
+  padding: 6px 8px;
+}
+
+.appshell-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.appshell-modal-backdrop--danger {
+  background: rgba(0, 0, 0, 0.72);
+  z-index: 1000;
+}
+
+.appshell-modal-card {
+  background: var(--forge-bg-elevated);
+  border: 1px solid var(--forge-border);
+  padding: 16px;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 420px;
+}
+
+.appshell-modal-card--danger {
+  max-width: 460px;
+  display: grid;
+  gap: 10px;
+}
+
+.appshell-modal-title {
+  margin-top: 0;
+}
+
+.appshell-modal-title--danger {
+  margin-bottom: 0;
+  color: var(--forge-danger);
+}
+
+.appshell-modal-body {
+  display: grid;
+  gap: 10px;
+}
+
+.appshell-modal-kicker {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.appshell-modal-copy {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.92;
+}
+
+.appshell-modal-copy--muted {
+  opacity: 0.78;
+}
+
+.appshell-modal-input {
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.appshell-modal-error {
+  color: var(--forge-danger);
+  font-size: 12px;
+}
+
+.appshell-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.appshell-danger-button {
+  background: var(--forge-danger);
+  color: #fff;
+  border-color: var(--forge-danger);
+}
+
+.appshell-ai-controls-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 10, 18, 0.58);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  z-index: 10000;
+}
+
 .appshell-invite-backdrop {
   position: fixed;
   inset: 0;

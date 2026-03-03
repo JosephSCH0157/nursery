@@ -15,6 +15,7 @@ import {
   parseForgeRouteContext,
   warnMissingWorkspaceParamInDev,
 } from "../lib/forge-route-context";
+import "./HearthStandalone.css";
 
 type StoreKind = "local" | "tongs";
 
@@ -215,86 +216,40 @@ export default function HearthStandalone() {
     : aiStatus.isAiProcessing
       ? "AI: Active"
       : "AI: Idle";
-  const storeLinkStyle = (active: boolean) => ({
-    fontSize: 12,
-    opacity: active ? 1 : 0.6,
-    textDecoration: active ? "underline" : "none",
-    textUnderlineOffset: "3px",
-    color: "inherit",
-  });
   const navExtraItems = useMemo(
     () => [{ id: "ai-controls", label: "AI Controls", actionId: FORGE_NAV_ACTION_AI_CONTROLS }],
     [],
   );
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+    <div className="hearth-standalone">
       {navOpen ? (
         <div
           role="presentation"
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(5, 10, 18, 0.58)",
-            zIndex: 9999,
-          }}
+          className="hearth-standalone__overlay"
           onClick={() => setNavOpen(false)}
         >
           <section
             role="dialog"
             aria-modal="true"
             aria-label="The Forge menu"
-            style={{
-              position: "absolute",
-              top: 12,
-              left: 12,
-              bottom: 12,
-              width: "min(360px, calc(100vw - 24px))",
-              borderRadius: 14,
-              border: "1px solid rgba(255, 255, 255, 0.16)",
-              background: "#0b1020",
-              color: "#eaf0ff",
-              boxShadow: "0 18px 40px rgba(0, 0, 0, 0.42)",
-              display: "flex",
-              flexDirection: "column",
-              overflow: "hidden",
-            }}
+            className="hearth-standalone__menu"
             onClick={(event) => event.stopPropagation()}
           >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 10,
-                padding: "14px 14px 10px",
-                borderBottom: "1px solid rgba(255, 255, 255, 0.1)",
-              }}
-            >
-              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, letterSpacing: "0.02em" }}>
+            <div className="hearth-standalone__menu-header">
+              <h2 className="hearth-standalone__menu-title">
                 The Forge Menu
               </h2>
               <button
                 type="button"
                 aria-label="Close menu"
                 onClick={() => setNavOpen(false)}
-                style={{
-                  width: 32,
-                  height: 32,
-                  border: "1px solid rgba(255, 255, 255, 0.22)",
-                  borderRadius: 8,
-                  background: "rgba(255, 255, 255, 0.04)",
-                  color: "inherit",
-                  cursor: "pointer",
-                  fontSize: 18,
-                  lineHeight: 1,
-                  padding: 0,
-                }}
+                className="hearth-standalone__menu-close"
               >
                 ×
               </button>
             </div>
-            <div style={{ flex: "1 1 auto", overflow: "auto", padding: "10px 14px" }}>
+            <div className="hearth-standalone__menu-body">
               <ForgeNav
                 tree={navTreeWithContext}
                 extraItems={navExtraItems}
@@ -302,7 +257,7 @@ export default function HearthStandalone() {
                 onAction={onNavAction}
               />
             </div>
-            <div style={{ padding: "0 14px 12px", opacity: 0.74, fontSize: 12 }}>
+            <div className="hearth-standalone__menu-footer">
               Select an item to navigate.
             </div>
           </section>
@@ -312,15 +267,7 @@ export default function HearthStandalone() {
       {aiControlsOpen ? (
         <div
           role="presentation"
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(5, 10, 18, 0.58)",
-            zIndex: 10000,
-            display: "grid",
-            placeItems: "center",
-            padding: 16,
-          }}
+          className="hearth-standalone__overlay hearth-standalone__overlay--panel"
           onClick={() => setAiControlsOpen(false)}
         >
           <div onClick={(event) => event.stopPropagation()}>
@@ -332,65 +279,25 @@ export default function HearthStandalone() {
         </div>
       ) : null}
 
-      <header
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          padding: "10px 14px",
-          borderBottom: "1px solid var(--forge-border)",
-          background: "linear-gradient(180deg, rgba(12,18,32,0.9), rgba(12,18,32,0.7))",
-          position: "sticky",
-          top: 0,
-          zIndex: 5,
-          flexWrap: "wrap",
-        }}
-      >
+      <header className="hearth-standalone__header">
         <button
           type="button"
           aria-label="Open The Forge menu"
           onClick={() => setNavOpen(true)}
-          style={{
-            width: 34,
-            height: 34,
-            borderRadius: 10,
-            border: "1px solid rgba(255,255,255,0.28)",
-            background: "rgba(14,20,32,0.92)",
-            color: "rgba(233,240,255,0.96)",
-            fontSize: 18,
-            fontWeight: 700,
-            lineHeight: 1,
-            padding: 0,
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
+          className="hearth-standalone__menu-trigger"
         >
           ☰
         </button>
-        <strong style={{ fontSize: 16 }}>Hearth</strong>
+        <strong className="hearth-standalone__title">Hearth</strong>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
-          <span
-            style={{
-              padding: "4px 10px",
-              borderRadius: 999,
-              background: "rgba(255,255,255,0.08)",
-              fontSize: 12,
-              fontWeight: 600,
-            }}
-          >
+        <div className="hearth-standalone__status-row">
+          <span className="hearth-standalone__pill hearth-standalone__pill--credits">
             {aiBalanceLabel}
           </span>
           <span
-            style={{
-              padding: "4px 10px",
-              borderRadius: 999,
-              background: aiStatus.isAiProcessing ? "rgba(121, 226, 166, 0.2)" : "rgba(255,255,255,0.08)",
-              color: aiStatus.isAiProcessing ? "#b9f3d2" : "inherit",
-              fontSize: 12,
-              fontWeight: 600,
-            }}
+            className={`hearth-standalone__pill hearth-standalone__pill--activity${
+              aiStatus.isAiProcessing ? " is-active" : ""
+            }`}
           >
             {aiPillText}
           </span>
@@ -399,30 +306,23 @@ export default function HearthStandalone() {
             <>
               <Link
                 to="/apps/hearth?store=local"
-                style={storeLinkStyle(storeKind === "local")}
+                className={`hearth-standalone__store-link${storeKind === "local" ? " is-active" : ""}`}
               >
                 Dev store: Local
               </Link>
               <Link
                 to="/apps/hearth?store=tongs"
-                style={storeLinkStyle(storeKind === "tongs")}
+                className={`hearth-standalone__store-link${storeKind === "tongs" ? " is-active" : ""}`}
               >
                 Dev store: Tongs
               </Link>
-              <span style={{ fontSize: 11, opacity: 0.6 }}>
+              <span className="hearth-standalone__store-caption">
                 Dev store: {storeKind}
               </span>
             </>
           ) : null}
 
-          <span
-            style={{
-              padding: "4px 10px",
-              borderRadius: 999,
-              background: "rgba(255,255,255,0.06)",
-              fontSize: 12,
-            }}
-          >
+          <span className="hearth-standalone__pill hearth-standalone__pill--session">
             {loading ? "Checking session..." : `Logged in as ${displayName}`}
           </span>
 
@@ -431,19 +331,19 @@ export default function HearthStandalone() {
               type="button"
               onClick={() => void onLogout()}
               disabled={loggingOut}
-              style={{ padding: "6px 10px", fontSize: 12 }}
+              className="hearth-standalone__auth-button"
             >
               {loggingOut ? "Signing out..." : "Log out"}
             </button>
           ) : (
-            <Link to={loginHref} style={{ fontSize: 12 }}>
+            <Link to={loginHref} className="hearth-standalone__auth-link">
               Sign in
             </Link>
           )}
         </div>
       </header>
 
-      <main style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+      <main className="hearth-standalone__main">
         <HearthShell />
       </main>
     </div>

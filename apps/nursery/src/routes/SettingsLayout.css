@@ -1,0 +1,20 @@
+.settings-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-layout__title {
+  margin: 0;
+}
+
+.settings-layout__copy {
+  margin: 4px 0 0;
+  color: var(--forge-text-muted);
+}
+
+.settings-layout__content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
