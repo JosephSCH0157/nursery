@@ -418,7 +418,7 @@ export default function SettingsOrgTeams() {
       }
       setNewMemberEmail("");
       setNewMemberRole("member");
-      setNotice("Team member updated.");
+      setNotice("Added to team. Org access granted as Member.");
       await Promise.all([loadMembers(), loadTeams()]);
     } catch (error: unknown) {
       setMemberError(
@@ -607,26 +607,31 @@ export default function SettingsOrgTeams() {
                   </div>
 
                   {canManage ? (
-                    <div className="settings-org-teams__create-row">
-                      <input
-                        type="email"
-                        value={newMemberEmail}
-                        onChange={(event) => setNewMemberEmail(event.target.value)}
-                        placeholder="User email"
-                      />
-                      <select
-                        value={newMemberRole}
-                        onChange={(event) => setNewMemberRole(normalizeTeamRole(event.target.value))}
-                      >
-                        {TEAM_ROLE_OPTIONS.map((roleOption) => (
-                          <option key={roleOption} value={roleOption}>
-                            {teamRoleLabel(roleOption)}
-                          </option>
-                        ))}
-                      </select>
-                      <button type="button" onClick={() => void onAddTeamMember()} disabled={addingMember}>
-                        {addingMember ? "Adding..." : "Add member"}
-                      </button>
+                    <div>
+                      <div className="settings-org-teams__create-row">
+                        <input
+                          type="email"
+                          value={newMemberEmail}
+                          onChange={(event) => setNewMemberEmail(event.target.value)}
+                          placeholder="User email"
+                        />
+                        <select
+                          value={newMemberRole}
+                          onChange={(event) => setNewMemberRole(normalizeTeamRole(event.target.value))}
+                        >
+                          {TEAM_ROLE_OPTIONS.map((roleOption) => (
+                            <option key={roleOption} value={roleOption}>
+                              {teamRoleLabel(roleOption)}
+                            </option>
+                          ))}
+                        </select>
+                        <button type="button" onClick={() => void onAddTeamMember()} disabled={addingMember}>
+                          {addingMember ? "Adding..." : "Add member"}
+                        </button>
+                      </div>
+                      <p className="settings-org-teams__hint">
+                        Team members are automatically added to the organization as Members.
+                      </p>
                     </div>
                   ) : null}
 

@@ -479,3 +479,32 @@ export async function setHearthReadyScriptCategory(args: {
 
   return { ok: true };
 }
+
+export async function removeHearthReadyScript(args: {
+  workpieceId: string;
+  path: string;
+}): Promise<{ ok: true } | { ok: false; status?: number; reason: string }> {
+  const workpieceId = normalizeUuid(args.workpieceId);
+  const path = normalizeReadyScriptPath(args.path);
+  if (!workpieceId || !path) {
+    return { ok: false, reason: "invalid_ids" };
+  }
+
+  const response = await tongsFetch(
+    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/ready-script?path=${encodeURIComponent(path)}`,
+    { method: "DELETE" },
+  );
+  if (response.status === 404) {
+    return { ok: true };
+  }
+  if (!response.ok) {
+    return { ok: false, status: response.status, reason: "delete_failed" };
+  }
+
+  const body = await readBodyAsJson(response);
+  if (!isCommitAck(body)) {
+    return { ok: false, status: response.status, reason: "delete_failed" };
+  }
+
+  return { ok: true };
+}

@@ -27,6 +27,51 @@ function readLocalStorage(key: string): string | null {
   }
 }
 
+function decodeBase64Url(input: string): string | null {
+  if (!input) return null;
+  const normalized = input.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+  try {
+    return atob(padded);
+  } catch {
+    return null;
+  }
+}
+
+function parseJwtPayload(token: string): Record<string, unknown> | null {
+  const parts = token.split(".");
+  if (parts.length < 2) return null;
+  const json = decodeBase64Url(parts[1]);
+  if (!json) return null;
+  try {
+    const parsed = JSON.parse(json) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function readJwtExpiryMs(token: string): number | null {
+  const payload = parseJwtPayload(token);
+  if (!payload) return null;
+  const exp = payload.exp;
+  if (typeof exp !== "number" || !Number.isFinite(exp)) return null;
+  return Math.trunc(exp * 1000);
+}
+
+function isExpiredAccessToken(token: string): boolean {
+  const expiryMs = readJwtExpiryMs(token);
+  if (!expiryMs) return false;
+  return expiryMs <= Date.now() + 5000;
+}
+
+function sanitizeAccessToken(token: string | null): string | null {
+  if (!token) return null;
+  return isExpiredAccessToken(token) ? null : token;
+}
+
 function extractAccessTokenFromAuthPayload(value: unknown): string | null {
   if (!value || typeof value !== "object") return null;
 
@@ -40,18 +85,18 @@ function extractAccessTokenFromAuthPayload(value: unknown): string | null {
 
   const row = value as Record<string, unknown>;
   const direct = readString(row.access_token);
-  if (direct) return direct;
+  if (direct) return sanitizeAccessToken(direct);
 
   const currentSession = row.currentSession;
   if (currentSession && typeof currentSession === "object") {
     const token = readString((currentSession as Record<string, unknown>).access_token);
-    if (token) return token;
+    if (token) return sanitizeAccessToken(token);
   }
 
   const session = row.session;
   if (session && typeof session === "object") {
     const token = readString((session as Record<string, unknown>).access_token);
-    if (token) return token;
+    if (token) return sanitizeAccessToken(token);
   }
 
   const nestedData = row.data;
@@ -75,18 +120,19 @@ function readAccessTokenFromStorageKey(key: string): string | null {
 
   const direct = readString(raw);
   if (direct && direct !== "null" && direct !== "undefined" && !direct.startsWith("{") && !direct.startsWith("[")) {
-    return direct;
+    return sanitizeAccessToken(direct);
   }
 
   try {
     const parsed = JSON.parse(raw) as unknown;
-    return extractAccessTokenFromAuthPayload(parsed);
+    const token = extractAccessTokenFromAuthPayload(parsed);
+    return sanitizeAccessToken(token);
   } catch {
     return null;
   }
 }
 
-function resolveUserAccessToken(): string | null {
+function resolveUserAccessTokenFromStorage(): string | null {
   if (typeof window === "undefined") return null;
   const primary = readAccessTokenFromStorageKey(SUPABASE_AUTH_STORAGE_KEY);
   if (primary) return primary;
@@ -104,6 +150,31 @@ function resolveUserAccessToken(): string | null {
   }
 
   return null;
+}
+
+async function resolveUserAccessToken(): Promise<string | null> {
+  const fromStorage = resolveUserAccessTokenFromStorage();
+  if (fromStorage) return fromStorage;
+  if (typeof window === "undefined") return null;
+
+  const runtimeWindow = window as Window & typeof globalThis & {
+    __forge_supabase_client__?: {
+      auth?: {
+        getSession?: () => Promise<unknown>;
+      };
+    };
+  };
+
+  const getSession = runtimeWindow.__forge_supabase_client__?.auth?.getSession;
+  if (typeof getSession !== "function") return null;
+
+  try {
+    const sessionPayload = await getSession();
+    const token = extractAccessTokenFromAuthPayload(sessionPayload);
+    return sanitizeAccessToken(token);
+  } catch {
+    return null;
+  }
 }
 
 function resolveFromQuery(): string | null {
@@ -144,7 +215,7 @@ export async function tongsFetch(url: string, options: TongsFetchOptions = {}): 
   const { json, headers: initHeaders, body: initBody, ...rest } = options;
   const headers = new Headers(initHeaders ?? {});
   const apiToken = resolveTongsApiToken();
-  const userAccessToken = resolveUserAccessToken();
+  const userAccessToken = await resolveUserAccessToken();
 
   if (apiToken && !headers.has("authorization")) {
     headers.set("authorization", `Bearer ${apiToken}`);

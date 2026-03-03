@@ -9,6 +9,7 @@ import {
   enqueueBarStockSpark,
   isBarStockKey,
   readBarStockSparks,
+  resolveBarstockSparkIdFromQuery,
   upsertBarStockSpark,
   writeBarStockSparks,
 } from "../lib/barstock-sparks";
@@ -45,6 +46,7 @@ import { mirrorApprovedScriptToLocal, type MirrorApprovedScriptResult } from "..
 import {
   HEARTH_CONTENT_CATEGORIES,
   listHearthReadyScripts,
+  removeHearthReadyScript,
   setHearthReadyScriptCategory,
   type HearthContentCategory,
   type HearthReadyScript,
@@ -1593,15 +1595,15 @@ export default function HearthShell() {
 
   const [mode, setMode] = useState<HearthMode>("sparks");
   const [focusTab, setFocusTab] = useState<FocusTab>("draft");
-  const [sparks, setSparks] = useState<BarStockSpark[]>(() => readBarStockSparks());
+  const [workspaceId, setWorkspaceId] = useState<string | null>(() => resolveWorkspaceId());
+  const [workpieceId, setWorkpieceId] = useState<string | null>(() => resolveWorkpieceId());
+  const [sparks, setSparks] = useState<BarStockSpark[]>(() => readBarStockSparks(resolveWorkspaceId()));
   const [selectedSparkId, setSelectedSparkId] = useState<string | null>(null);
   const [forgeError, setForgeError] = useState<string | null>(null);
   const [isForging, setIsForging] = useState(false);
   const [routeProjectId] = useState<string | null>(() => resolveBarstockProjectIdFromQuery());
+  const [routeSparkId] = useState<string | null>(() => resolveBarstockSparkIdFromQuery());
   const [routeProjectTitle, setRouteProjectTitle] = useState<string | null>(null);
-
-  const [workspaceId, setWorkspaceId] = useState<string | null>(() => resolveWorkspaceId());
-  const [workpieceId, setWorkpieceId] = useState<string | null>(() => resolveWorkpieceId());
 
   const [planningSession, setPlanningSession] = useState<HearthPlanningSession | null>(() =>
     readHearthPlanningSessionCache(resolveWorkpieceId()),
@@ -1631,6 +1633,7 @@ export default function HearthShell() {
   const [readyUrgencyFilter, setReadyUrgencyFilter] = useState<ReadyUrgencyFilter>("all");
   const [updatingReadyCategoryId, setUpdatingReadyCategoryId] = useState<string | null>(null);
   const [readyCategoryError, setReadyCategoryError] = useState<string | null>(null);
+  const [removingReadyIds, setRemovingReadyIds] = useState<string[]>([]);
   const [readyOrderIds, setReadyOrderIds] = useState<string[]>([]);
   const [removedReadyIds, setRemovedReadyIds] = useState<string[]>([]);
   const [draggingReadyId, setDraggingReadyId] = useState<string | null>(null);
@@ -1724,6 +1727,7 @@ export default function HearthShell() {
   const sessionCommitInFlight = useRef(false);
   const sessionCommitQueued = useRef(false);
   const projectIntakeHandledRef = useRef<string | null>(null);
+  const sparkIntakeHandledRef = useRef<string | null>(null);
   const previousWorkspaceIdRef = useRef<string | null>(workspaceId);
   const restoredCursorDraftIdRef = useRef<string | null>(null);
   const aiRequestControllerRef = useRef<AbortController | null>(null);
@@ -2329,6 +2333,53 @@ export default function HearthShell() {
     }
   }, [workspaceId]);
 
+  const readReadyScriptText = useCallback(async (entry: HearthReadyScript): Promise<string | null> => {
+    try {
+      const response = await tongsFetch(
+        `/tongs/workpieces/${encodeURIComponent(entry.workpieceId)}/read-file?path=${encodeURIComponent(entry.primaryScriptPath)}`,
+        { method: "GET" },
+      );
+      if (!response.ok) return null;
+      const body = await response.json() as { data?: unknown };
+      return typeof body?.data === "string" ? body.data : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const upsertDraftFromReadyEntry = useCallback(async (entry: HearthReadyScript, scriptText: string | null) => {
+    const existing = drafts.find((draft) => draft.id === entry.workpieceId) ?? null;
+    const now = Date.now();
+    const attribution = buildDraftAttribution(hearthUser);
+    const title = entry.title.trim() || existing?.title || "Untitled Draft";
+    const existingBody = existing?.body?.trim() ? existing.body : null;
+    const snapshotBody = scriptText && scriptText.trim().length ? scriptText : null;
+    const body = existingBody ?? snapshotBody ?? "## Draft Script\n\n";
+
+    const draft: Draft = existing
+      ? {
+          ...existing,
+          title,
+          body,
+          archived: false,
+          updatedAt: now,
+          updatedBy: attribution,
+        }
+      : {
+          ...createDraft({ title, body }),
+          id: entry.workpieceId,
+          title,
+          body,
+          createdAt: now,
+          updatedAt: now,
+          createdBy: attribution,
+          updatedBy: attribution,
+        };
+
+    await store.saveDraft(draft);
+    await refreshDrafts();
+  }, [drafts, hearthUser, refreshDrafts, store]);
+
   useEffect(() => {
     void refreshReadyScripts();
   }, [refreshReadyScripts]);
@@ -2477,9 +2528,52 @@ export default function HearthShell() {
     void onSetReadyScriptCategory(entry, category);
   }, [onSetReadyScriptCategory]);
 
-  const onRemoveFromReady = useCallback((entryId: string) => {
-    setRemovedReadyIds((prev) => (prev.includes(entryId) ? prev : [...prev, entryId]));
-  }, []);
+  const onRemoveFromReady = useCallback(async (entry: HearthReadyScript) => {
+    if (!entry.id || removingReadyIds.includes(entry.id)) return;
+
+    setReadyScriptsError(null);
+    setRemovedReadyIds((prev) => (prev.includes(entry.id) ? prev : [...prev, entry.id]));
+    setRemovingReadyIds((prev) => (prev.includes(entry.id) ? prev : [...prev, entry.id]));
+
+    const scriptText = await readReadyScriptText(entry);
+    try {
+      const removed = await removeHearthReadyScript({
+        workpieceId: entry.workpieceId,
+        path: entry.primaryScriptPath,
+      });
+      if (!removed.ok) {
+        setRemovedReadyIds((prev) => prev.filter((id) => id !== entry.id));
+        setReadyScriptsError("Failed to remove script from Ready.");
+        return;
+      }
+
+      await upsertDraftFromReadyEntry(entry, scriptText);
+
+      if (workpieceId?.trim() === entry.workpieceId) {
+        const nextApprovalState: ScriptApprovalState = {
+          hasApprovedScript: false,
+          approvedScriptVersion: 0,
+          approvedAt: null,
+        };
+        setScriptApprovalState(nextApprovalState);
+        writeScriptApprovalState(entry.workpieceId, nextApprovalState);
+      }
+
+      setMode("episodes");
+      await refreshReadyScripts();
+    } catch {
+      setRemovedReadyIds((prev) => prev.filter((id) => id !== entry.id));
+      setReadyScriptsError("Failed to remove script from Ready.");
+    } finally {
+      setRemovingReadyIds((prev) => prev.filter((id) => id !== entry.id));
+    }
+  }, [
+    readReadyScriptText,
+    refreshReadyScripts,
+    removingReadyIds,
+    upsertDraftFromReadyEntry,
+    workpieceId,
+  ]);
 
   const onRestoreRemovedReady = useCallback(() => {
     setRemovedReadyIds([]);
@@ -2867,15 +2961,15 @@ export default function HearthShell() {
       };
       const nextSparks = upsertBarStockSpark(sparks, updatedSpark);
       setSparks(nextSparks);
-      writeBarStockSparks(nextSparks);
-      enqueueBarStockSpark(updatedSpark);
+      writeBarStockSparks(nextSparks, workspaceId);
+      enqueueBarStockSpark(updatedSpark, workspaceId);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Forge failed.";
       setForgeError(message);
     } finally {
       setIsForging(false);
     }
-  }, [applySessionOrigin, createDraftAndOpen, isForging, sparks, store]);
+  }, [applySessionOrigin, createDraftAndOpen, isForging, sparks, store, workspaceId]);
 
   const forgeProjectIntoEpisode = useCallback(async () => {
     if (isForging) return;
@@ -2922,9 +3016,9 @@ export default function HearthShell() {
       });
 
       setSparks(nextSparks);
-      writeBarStockSparks(nextSparks);
+      writeBarStockSparks(nextSparks, workspaceId);
       for (const spark of changedSparks) {
-        enqueueBarStockSpark(spark);
+        enqueueBarStockSpark(spark, workspaceId);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to forge this Project.";
@@ -2940,6 +3034,7 @@ export default function HearthShell() {
     routeProjectLabel,
     routeProjectSparks,
     sparks,
+    workspaceId,
     workpieceId,
   ]);
 
@@ -3026,6 +3121,7 @@ export default function HearthShell() {
     previousWorkspaceIdRef.current = workspaceId;
 
     projectIntakeHandledRef.current = null;
+    sparkIntakeHandledRef.current = null;
     setWorkpieceId(null);
     setPlanningSession(null);
     setSessionTouched(false);
@@ -3125,16 +3221,31 @@ export default function HearthShell() {
   }, [routeProjectId, workspaceId]);
 
   useEffect(() => {
+    if (routeProjectId || !routeSparkId) return;
+    if (forgeableSparks.length === 0) return;
+
+    const routeSpark = forgeableSparks.find((spark) => spark.id === routeSparkId);
+    if (!routeSpark) return;
+
+    const intakeKey = `${workspaceId ?? "none"}:${routeSparkId}`;
+    if (sparkIntakeHandledRef.current === intakeKey) return;
+    sparkIntakeHandledRef.current = intakeKey;
+
+    setMode("sparks");
+    setSelectedSparkId(routeSpark.id);
+  }, [forgeableSparks, routeProjectId, routeSparkId, workspaceId]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
-    const refresh = () => setSparks(readBarStockSparks());
+    const refresh = () => setSparks(readBarStockSparks(workspaceId));
     refresh();
     const onStorage = (event: StorageEvent) => {
-      if (!isBarStockKey(event.key)) return;
+      if (!isBarStockKey(event.key, workspaceId)) return;
       refresh();
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, []);
+  }, [workspaceId]);
 
   useEffect(() => {
     if (forgeableSparks.length === 0) {
@@ -4644,8 +4755,8 @@ export default function HearthShell() {
     };
     const nextSparks = upsertBarStockSpark(sparks, graduatedSpark);
     setSparks(nextSparks);
-    writeBarStockSparks(nextSparks);
-    enqueueBarStockSpark(graduatedSpark);
+    writeBarStockSparks(nextSparks, workspaceId);
+    enqueueBarStockSpark(graduatedSpark, workspaceId);
     return graduatedSpark.id;
   }
 
@@ -7400,8 +7511,12 @@ export default function HearthShell() {
                 >
                   Send to Anvil
                 </button>
-                <button type="button" onClick={() => onRemoveFromReady(entry.id)}>
-                  Remove from Ready
+                <button
+                  type="button"
+                  onClick={() => void onRemoveFromReady(entry)}
+                  disabled={removingReadyIds.includes(entry.id)}
+                >
+                  {removingReadyIds.includes(entry.id) ? "Removing..." : "Remove from Ready"}
                 </button>
               </div>
             </li>

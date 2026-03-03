@@ -17,7 +17,6 @@ import { extractTags, normalizeTag, querySparks, type SparkQuery } from "./lib/q
 import { copyText } from "./lib/clip";
 import { buildExportPayload, downloadJson, mergeSparks, parseImportJson } from "./lib/io";
 import { compactOutbox, drainOutbox, loadOutbox, peekOutbox, pushOutbox, saveOutbox } from "./lib/outbox";
-import { buildHearthPacket, packetToClipboardText } from "./lib/hearth-packet";
 import { supabase, supabaseAvailable } from "./lib/supabase";
 import {
   listGraduatedEpisodeIds,
@@ -598,6 +597,21 @@ export default function App(props: BarstockAppProps = {}) {
 
     const params = new URLSearchParams();
     params.set("project_id", normalizedProjectId);
+    if (workspaceId) {
+      params.set("workspace_id", workspaceId);
+    }
+
+    const isNurseryAppRoute = window.location.pathname.startsWith("/app/");
+    const targetPath = isNurseryAppRoute ? "/app/hearth" : "/hearth";
+    window.location.assign(`${targetPath}?${params.toString()}`);
+  }
+
+  function navigateToHearthForSpark(sparkId: string) {
+    const normalizedSparkId = sparkId.trim().toLowerCase();
+    if (!normalizeWorkpieceId(normalizedSparkId)) return;
+
+    const params = new URLSearchParams();
+    params.set("spark_id", normalizedSparkId);
     if (workspaceId) {
       params.set("workspace_id", workspaceId);
     }
@@ -1610,10 +1624,8 @@ export default function App(props: BarstockAppProps = {}) {
                             navigateToHearthForProject(s.assignmentId);
                             return;
                           }
-
-                          const packet = buildHearthPacket(s, "Ungrouped spark");
-                          const ok = await copyText(packetToClipboardText(packet));
-                          popToast(ok ? "Hearth packet copied (fallback)." : "Copy failed.");
+                          popToast("Opening Hearth...");
+                          navigateToHearthForSpark(s.id);
                         }}
                         style={{ cursor: "pointer" }}
                       >

@@ -14,15 +14,36 @@ type PairQrOpts = {
 
 const w = typeof window !== 'undefined' ? (window as any) : {};
 const metaEnv = typeof import.meta !== 'undefined' ? (import.meta as any).env || {} : {};
+const DEFAULT_PAIR_QR_URL = 'https://wtvdjndyxegudufrompx.functions.supabase.co/pair-qr';
+
+function readString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeBaseUrl(input: string): string | null {
+  try {
+    const parsed = new URL(input);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
 
 const PAIR_QR_URL =
-  w.__TP_PAIR_QR_URL ||
-  metaEnv.VITE_PAIR_QR_URL ||
-  '';
+  readString(w.__TP_PAIR_QR_URL) ||
+  readString(metaEnv.VITE_PAIR_QR_URL) ||
+  DEFAULT_PAIR_QR_URL;
 const SUPABASE_ANON_KEY =
-  w.__forgeSupabaseAnonKey ||
-  metaEnv.VITE_SUPABASE_ANON_KEY ||
+  readString(w.__forgeSupabaseAnonKey) ||
+  readString(metaEnv.VITE_SUPABASE_ANON_KEY) ||
   '';
+const PAIR_BASE_URL_OVERRIDE =
+  readString(w.__TP_PAIR_BASE_URL) ||
+  readString(metaEnv.VITE_PAIR_BASE_URL) ||
+  null;
 
 const DEFAULT_PAIR_PATH = '/display.html';
 const DEFAULT_TTL_MINUTES = Number(w.__TP_PAIR_QR_TTL_MINUTES ?? metaEnv.VITE_PAIR_QR_TTL_MINUTES ?? 10);
@@ -89,6 +110,15 @@ export async function requestPairQr(opts: PairQrOpts): Promise<PairQrPayload> {
 
 export function pairingApiUrl(): string {
   return PAIR_QR_URL;
+}
+
+export function resolvePairBaseUrl(fallbackBaseUrl?: string): string {
+  const override = PAIR_BASE_URL_OVERRIDE ? normalizeBaseUrl(PAIR_BASE_URL_OVERRIDE) : null;
+  if (override) return override;
+  const fallback = fallbackBaseUrl ? normalizeBaseUrl(fallbackBaseUrl) : null;
+  if (fallback) return fallback;
+  const runtime = typeof window !== 'undefined' ? normalizeBaseUrl(window.location.origin) : null;
+  return runtime || 'http://localhost:5173';
 }
 
 export type { PairQrPayload };

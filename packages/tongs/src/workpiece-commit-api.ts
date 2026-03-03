@@ -3939,6 +3939,57 @@ export class TongsCommitService {
       }
     }
 
+    for (const [workpieceId, scriptPaths] of scriptPathsByWorkpiece.entries()) {
+      const knownPaths = readyPathsByWorkpiece.get(workpieceId);
+      if (!knownPaths) {
+        readyPathsByWorkpiece.set(workpieceId, [...scriptPaths]);
+      } else {
+        for (const path of scriptPaths) {
+          if (!knownPaths.includes(path)) knownPaths.push(path);
+        }
+      }
+
+      if (readyPointerByWorkpiece.has(workpieceId)) continue;
+
+      let winnerPath: string | null = null;
+      let winnerFile: { workpiece_id: string; path: string; updated_at: string | null; created_at: string | null } | null = null;
+      for (const path of scriptPaths) {
+        const candidateFile = fileByWorkpiecePath.get(readyScriptMetaKey(workpieceId, path));
+        if (!candidateFile) continue;
+        if (!winnerPath || !winnerFile) {
+          winnerPath = path;
+          winnerFile = candidateFile;
+          continue;
+        }
+
+        const winnerStamp = winnerFile.updated_at ?? winnerFile.created_at ?? "";
+        const candidateStamp = candidateFile.updated_at ?? candidateFile.created_at ?? "";
+        if (candidateStamp > winnerStamp) {
+          winnerPath = path;
+          winnerFile = candidateFile;
+          continue;
+        }
+        if (candidateStamp < winnerStamp) {
+          continue;
+        }
+
+        const winnerPriority = readyScriptPathPriority(winnerPath);
+        const candidatePriority = readyScriptPathPriority(path);
+        if (candidatePriority < winnerPriority || (candidatePriority === winnerPriority && path < winnerPath)) {
+          winnerPath = path;
+          winnerFile = candidateFile;
+        }
+      }
+
+      if (!winnerPath || !winnerFile) continue;
+      readyPointerByWorkpiece.set(workpieceId, {
+        workpiece_id: workpieceId,
+        script_path: winnerPath,
+        marked_ready_by: null,
+        marked_ready_at: winnerFile.updated_at ?? winnerFile.created_at ?? null,
+      });
+    }
+
     if (readyPointerByWorkpiece.size === 0) {
       return [];
     }
