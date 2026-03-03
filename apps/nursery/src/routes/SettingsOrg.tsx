@@ -50,6 +50,15 @@ function shortId(value: string): string {
 export default function SettingsOrg() {
   const shell = useOutletContext<AppShellContext>();
   const session = shell?.session ?? null;
+  const tongsRpcClient = useMemo(
+    () => supabase.schema("tongs") as unknown as {
+      rpc: (
+        fn: string,
+        args?: Record<string, unknown>,
+      ) => Promise<{ data: unknown; error: unknown }>;
+    },
+    [],
+  );
 
   const [orgs, setOrgs] = useState<OrgRow[]>([]);
   const [loadingOrgs, setLoadingOrgs] = useState(false);
@@ -78,10 +87,9 @@ export default function SettingsOrg() {
     setLoadingOrgs(true);
     setOrgsError(null);
 
-    void supabase
-      .schema("tongs")
-      .rpc("list_my_orgs")
-      .then(({ data, error }) => {
+    void (async () => {
+      try {
+        const { data, error } = await tongsRpcClient.rpc("list_my_orgs");
         if (cancelled) return;
         if (error) throw error;
         const rows = Array.isArray(data) ? data as OrgRow[] : [];
@@ -90,22 +98,22 @@ export default function SettingsOrg() {
           if (current && rows.some((row) => row.org_id === current)) return current;
           return rows[0]?.org_id ?? "";
         });
-      })
-      .catch((error: unknown) => {
+      } catch (error: unknown) {
         if (cancelled) return;
         setOrgs([]);
         setSelectedOrgId("");
         setOrgsError(toErrorMessage(error, "Failed loading organizations."));
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setLoadingOrgs(false);
-      });
+      } finally {
+        if (!cancelled) {
+          setLoadingOrgs(false);
+        }
+      }
+    })();
 
     return () => {
       cancelled = true;
     };
-  }, [session]);
+  }, [session, tongsRpcClient]);
 
   useEffect(() => {
     if (!session || !selectedOrgId) {
@@ -119,29 +127,30 @@ export default function SettingsOrg() {
     setLoadingMembers(true);
     setMembersError(null);
 
-    void supabase
-      .schema("tongs")
-      .rpc("list_org_members", { p_org_id: selectedOrgId })
-      .then(({ data, error }) => {
+    void (async () => {
+      try {
+        const { data, error } = await tongsRpcClient.rpc("list_org_members", {
+          p_org_id: selectedOrgId,
+        });
         if (cancelled) return;
         if (error) throw error;
         const rows = Array.isArray(data) ? data as OrgMemberRow[] : [];
         setMembers(rows);
-      })
-      .catch((error: unknown) => {
+      } catch (error: unknown) {
         if (cancelled) return;
         setMembers([]);
         setMembersError(toErrorMessage(error, "Failed loading organization members."));
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setLoadingMembers(false);
-      });
+      } finally {
+        if (!cancelled) {
+          setLoadingMembers(false);
+        }
+      }
+    })();
 
     return () => {
       cancelled = true;
     };
-  }, [session, selectedOrgId]);
+  }, [session, selectedOrgId, tongsRpcClient]);
 
   return (
     <section className="settings-org">
