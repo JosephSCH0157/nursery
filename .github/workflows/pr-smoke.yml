@@ -33,8 +33,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Prebuild @forge/tongs
-        run: pnpm --filter @forge/tongs build
+      - name: Prebuild @forge/tongs (fresh emit)
+        run: |
+          rm -f packages/tongs/tsconfig.tsbuildinfo
+          pnpm --filter @forge/tongs build
+          test -f packages/tongs/dist/index.d.ts
 
       - name: Run smoke:core
         run: pnpm smoke:core
