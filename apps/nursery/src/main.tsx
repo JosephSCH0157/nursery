@@ -12,6 +12,7 @@ import ForgeHub from "./routes/ForgeHub";
 import SettingsHome from "./routes/SettingsHome";
 import SettingsLayout from "./routes/SettingsLayout";
 import SettingsOrg from "./routes/SettingsOrg";
+import SettingsOrgTeams from "./routes/SettingsOrgTeams";
 import SettingsStorage from "./routes/SettingsStorage";
 import TongsRoute from "./routes/Tongs";
 import BarstockRoute from "./routes/Barstock";
@@ -51,6 +52,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="settings" element={<SettingsLayout />}>
             <Route index element={<SettingsHome />} />
             <Route path="org" element={<SettingsOrg />} />
+            <Route path="org/teams" element={<SettingsOrgTeams />} />
+            <Route path="org/teams/:teamId" element={<SettingsOrgTeams />} />
             <Route path="storage" element={<SettingsStorage />} />
           </Route>
         </Route>

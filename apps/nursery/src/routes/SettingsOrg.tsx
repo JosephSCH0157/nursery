@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useOutletContext } from "react-router-dom";
+import { Link, useLocation, useOutletContext } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import type { AppShellContext } from "./AppShell";
 import "./SettingsOrg.css";
@@ -28,6 +28,32 @@ function toErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function isMissingOrgServicesError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const row = error as {
+    code?: unknown;
+    message?: unknown;
+    details?: unknown;
+    hint?: unknown;
+    status?: unknown;
+  };
+
+  const code = typeof row.code === "string" ? row.code.trim().toUpperCase() : "";
+  if (code === "PGRST202" || code === "404") return true;
+  if (typeof row.status === "number" && row.status === 404) return true;
+
+  const text = [
+    typeof row.message === "string" ? row.message : "",
+    typeof row.details === "string" ? row.details : "",
+    typeof row.hint === "string" ? row.hint : "",
+  ].join(" ").toLowerCase();
+
+  return text.includes("list_my_orgs")
+    || text.includes("list_org_members")
+    || text.includes("could not find the function")
+    || (text.includes("function") && text.includes("not found"));
+}
+
 function labelRole(role: string | null | undefined): string {
   const normalized = (role ?? "").trim().toLowerCase();
   if (normalized === "owner" || normalized === "admin" || normalized === "member") {
@@ -50,6 +76,16 @@ function shortId(value: string): string {
 export default function SettingsOrg() {
   const shell = useOutletContext<AppShellContext>();
   const session = shell?.session ?? null;
+  const location = useLocation();
+  const tongsRpcClient = useMemo(
+    () => supabase.schema("tongs") as unknown as {
+      rpc: (
+        fn: string,
+        args?: Record<string, unknown>,
+      ) => Promise<{ data: unknown; error: unknown }>;
+    },
+    [],
+  );
 
   const [orgs, setOrgs] = useState<OrgRow[]>([]);
   const [loadingOrgs, setLoadingOrgs] = useState(false);
@@ -78,10 +114,9 @@ export default function SettingsOrg() {
     setLoadingOrgs(true);
     setOrgsError(null);
 
-    void supabase
-      .schema("tongs")
-      .rpc("list_my_orgs")
-      .then(({ data, error }) => {
+    void (async () => {
+      try {
+        const { data, error } = await tongsRpcClient.rpc("list_my_orgs");
         if (cancelled) return;
         if (error) throw error;
         const rows = Array.isArray(data) ? data as OrgRow[] : [];
@@ -90,22 +125,26 @@ export default function SettingsOrg() {
           if (current && rows.some((row) => row.org_id === current)) return current;
           return rows[0]?.org_id ?? "";
         });
-      })
-      .catch((error: unknown) => {
+      } catch (error: unknown) {
         if (cancelled) return;
         setOrgs([]);
         setSelectedOrgId("");
-        setOrgsError(toErrorMessage(error, "Failed loading organizations."));
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setLoadingOrgs(false);
-      });
+        setOrgsError(
+          isMissingOrgServicesError(error)
+            ? "Org services are not available yet - deploy the DB migration, then retry."
+            : toErrorMessage(error, "Failed loading organizations."),
+        );
+      } finally {
+        if (!cancelled) {
+          setLoadingOrgs(false);
+        }
+      }
+    })();
 
     return () => {
       cancelled = true;
     };
-  }, [session]);
+  }, [session, tongsRpcClient]);
 
   useEffect(() => {
     if (!session || !selectedOrgId) {
@@ -119,36 +158,52 @@ export default function SettingsOrg() {
     setLoadingMembers(true);
     setMembersError(null);
 
-    void supabase
-      .schema("tongs")
-      .rpc("list_org_members", { p_org_id: selectedOrgId })
-      .then(({ data, error }) => {
+    void (async () => {
+      try {
+        const { data, error } = await tongsRpcClient.rpc("list_org_members", {
+          p_org_id: selectedOrgId,
+        });
         if (cancelled) return;
         if (error) throw error;
         const rows = Array.isArray(data) ? data as OrgMemberRow[] : [];
         setMembers(rows);
-      })
-      .catch((error: unknown) => {
+      } catch (error: unknown) {
         if (cancelled) return;
         setMembers([]);
-        setMembersError(toErrorMessage(error, "Failed loading organization members."));
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setLoadingMembers(false);
-      });
+        setMembersError(
+          isMissingOrgServicesError(error)
+            ? "Org services are not available yet - deploy the DB migration, then retry."
+            : toErrorMessage(error, "Failed loading organization members."),
+        );
+      } finally {
+        if (!cancelled) {
+          setLoadingMembers(false);
+        }
+      }
+    })();
 
     return () => {
       cancelled = true;
     };
-  }, [session, selectedOrgId]);
+  }, [session, selectedOrgId, tongsRpcClient]);
 
   return (
     <section className="settings-org">
       <header className="settings-org__header">
-        <h3 className="settings-org__title">Organization</h3>
+        <div className="settings-org__header-row">
+          <h3 className="settings-org__title">Organization</h3>
+          <Link
+            to={{
+              pathname: "/app/settings/org/teams",
+              search: location.search,
+              hash: location.hash,
+            }}
+          >
+            Manage Teams
+          </Link>
+        </div>
         <p className="settings-org__copy">
-          Read-only organization details for this slice. Team grants and org-managed access land in later slices.
+          Organization details and member visibility. Team management lives under Manage Teams.
         </p>
       </header>
 
