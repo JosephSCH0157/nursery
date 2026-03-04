@@ -48,6 +48,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="barstock/*" element={<BarstockRoute />} />
           <Route path="bar-stock/*" element={<BarstockRoute />} />
           <Route path="calendar" element={<Placeholder name="Calendar" />} />
+          <Route path="billing/success" element={<Placeholder name="Billing Success" />} />
+          <Route path="billing/cancel" element={<Placeholder name="Billing Cancel" />} />
           <Route path="mobile-demo" element={<MobilePrimitivesDemo />} />
           <Route path="settings" element={<SettingsLayout />}>
             <Route index element={<SettingsHome />} />
