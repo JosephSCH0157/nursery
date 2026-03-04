@@ -1,7 +1,7 @@
 import type { Draft, DraftAttribution, DraftId } from "../domain/draft";
 import type { Revision, RevisionId } from "../domain/revision";
 import type { HearthChatMessage } from "../lib/hearth-chat-api";
-import type { HearthStore } from "./hearth-store";
+import type { HearthStore, SaveDraftOptions } from "./hearth-store";
 import { cloneRevision, normalizeRevision, readRevisionRecord, writeRevisionRecord } from "./revision-storage";
 import { tongsFetch } from "../lib/tongs-fetch";
 
@@ -483,7 +483,7 @@ async function commitDraftSnapshot(
     drafts: Draft[];
   },
   writtenBy: WrittenBy,
-  options?: { expectedPreviousUpdatedAt?: string },
+  options?: { expectedPreviousUpdatedAt?: string; reason?: string },
 ): Promise<
   | { ok: true; fileUpdatedAt: string | null }
   | { ok: false; status: number; reason: "request_failed" | "conflict" | "invalid_response"; details?: CommitConflictDetails }
@@ -503,6 +503,7 @@ async function commitDraftSnapshot(
         schemaVersion: 1,
         count: snapshot.drafts.length,
         updatedAt: snapshot.updatedAt,
+        reason: readString(options?.reason) ?? "manual",
       },
       correlation_id: nextCorrelationId("hearth-drafts-commit"),
     },
@@ -769,7 +770,7 @@ export class TongsHearthStore implements HearthStore {
     return found ? cloneDraft(found) : null;
   }
 
-  async saveDraft(draft: Draft): Promise<void> {
+  async saveDraft(draft: Draft, options?: SaveDraftOptions): Promise<void> {
     const normalized = normalizeDraft(draft);
     if (!normalized) {
       throw new Error("Invalid draft payload");
@@ -783,7 +784,7 @@ export class TongsHearthStore implements HearthStore {
     cache.drafts[normalized.id] = cloneDraft(normalized);
     cache.draftWorkspaceById[normalized.id] = workspaceId;
     writeCache(cache);
-    await this.syncDraftsToTongs(cache, workspaceId);
+    await this.syncDraftsToTongs(cache, workspaceId, options?.reason);
   }
 
   async deleteDraft(id: DraftId): Promise<void> {
@@ -907,7 +908,11 @@ export class TongsHearthStore implements HearthStore {
     writeCache(cache);
   }
 
-  private async syncDraftsToTongs(cache: TongsCacheV1, workspaceIdInput?: string | null): Promise<void> {
+  private async syncDraftsToTongs(
+    cache: TongsCacheV1,
+    workspaceIdInput?: string | null,
+    reason?: string,
+  ): Promise<void> {
     const workspaceId = workspaceIdInput ?? resolveWorkspaceId();
     if (!workspaceId) return;
 
@@ -929,7 +934,10 @@ export class TongsHearthStore implements HearthStore {
     };
 
     const expectedPreviousUpdatedAt = readDraftSnapshotUpdatedAt(cache, workspaceId) ?? undefined;
-    const firstTry = await commitDraftSnapshot(workpieceId, snapshot, writtenBy, { expectedPreviousUpdatedAt });
+    const firstTry = await commitDraftSnapshot(workpieceId, snapshot, writtenBy, {
+      expectedPreviousUpdatedAt,
+      reason,
+    });
     if (firstTry.ok) {
       writeDraftSnapshotUpdatedAt(cache, workspaceId, firstTry.fileUpdatedAt);
       writeCache(cache);
@@ -946,7 +954,7 @@ export class TongsHearthStore implements HearthStore {
     if (!replacementId) return;
     persistWorkpieceId(workspaceId, replacementId, cache);
     writeDraftSnapshotUpdatedAt(cache, workspaceId, null);
-    const secondTry = await commitDraftSnapshot(replacementId, snapshot, writtenBy);
+    const secondTry = await commitDraftSnapshot(replacementId, snapshot, writtenBy, { reason });
     if (secondTry.ok) {
       writeDraftSnapshotUpdatedAt(cache, workspaceId, secondTry.fileUpdatedAt);
       writeCache(cache);

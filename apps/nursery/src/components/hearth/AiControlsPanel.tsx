@@ -51,6 +51,7 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
   const [alignmentPaused, setAlignmentPaused] = React.useState(() => isStyleAlignmentPaused(workspaceId));
   const [resetBusy, setResetBusy] = React.useState(false);
   const [resetNotice, setResetNotice] = React.useState<string | null>(null);
+  const insightsContainerRef = React.useRef<HTMLDivElement | null>(null);
   const canManageFeatures = roleCanManageFeatures(workspaceRole);
   const setFeatureSnapshot = React.useCallback((next: WorkspaceFeatures | null) => {
     setFeatures(next);
@@ -166,8 +167,16 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
   }
 
   async function onViewStyleInsights() {
-    if (!workspaceId) return;
+    if (!workspaceId) {
+      setInsightsError("Select a workspace to view style insights.");
+      setInsightsOpen(true);
+      return;
+    }
     if (insightsLoading) return;
+    if (insightsOpen) {
+      setInsightsOpen(false);
+      return;
+    }
     setInsightsLoading(true);
     setInsightsError(null);
     setResetNotice(null);
@@ -178,10 +187,10 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
         return;
       }
       if (!result.enabled) {
-        setInsightsError(null);
+        setInsightsError("Adaptive Style Alignment is off for this workspace. Enable it in Settings.");
         setInsightsMeta(null);
         setInsightsLines([]);
-        setInsightsOpen(false);
+        setInsightsOpen(true);
         return;
       }
       const scriptsAnalyzedCount = result.profile?.scriptsAnalyzedCount ?? 0;
@@ -191,8 +200,30 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
       });
       setInsightsLines(result.insights);
       setInsightsOpen(true);
+      requestAnimationFrame(() => {
+        insightsContainerRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      });
     } finally {
       setInsightsLoading(false);
+    }
+  }
+
+  async function onAccelerate() {
+    if (!workspaceId) {
+      setResetNotice("Select a workspace to use Accelerate.");
+      return;
+    }
+    if (alignmentPaused) {
+      setStyleAlignmentPaused(workspaceId, false);
+      setAlignmentPaused(false);
+    }
+    setResetNotice("Accelerate mode active. Approve scripts to increase adaptation speed.");
+    if (!insightsOpen || insightsLines.length === 0) {
+      await onViewStyleInsights();
+    } else {
+      requestAnimationFrame(() => {
+        insightsContainerRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      });
     }
   }
 
@@ -347,10 +378,10 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
               onClick={() => void onViewStyleInsights()}
               disabled={insightsLoading}
             >
-              {insightsLoading ? "Loading..." : "View Style Insights"}
+              {insightsLoading ? "Loading..." : insightsOpen ? "Hide Style Insights" : "View Style Insights"}
             </button>
             {accelerateEnabled ? (
-              <button type="button">
+              <button type="button" onClick={() => void onAccelerate()}>
                 Accelerate
               </button>
             ) : null}
@@ -367,7 +398,7 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
             <div className="forge-ai-panel__hint">Alignment is paused on this device.</div>
           ) : null}
           {insightsOpen ? (
-            <div className="forge-ai-panel__style-insights">
+            <div className="forge-ai-panel__style-insights" ref={insightsContainerRef}>
               <div className="forge-ai-panel__style-meta">
                 Scripts analyzed: {insightsMeta?.scriptsAnalyzedCount ?? 0}
               </div>

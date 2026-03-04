@@ -141,6 +141,8 @@ type FocusTab = "draft" | "planning" | "sources" | "revisions";
 type ProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet";
 type SttLane = "browser" | "ai";
 type SttState = "idle" | "listening" | "transcribing";
+type AiAutosaveReasonCode = "ai_outline" | "ai_script" | "ai_repair" | "ai_rewrite";
+type AiAutosaveReason = `autosave:${AiAutosaveReasonCode}`;
 
 type ScriptApprovalState = {
   hasApprovedScript: boolean;
@@ -163,6 +165,12 @@ type HearthUserContext = {
 type DraftConflictState = {
   message: string;
   localBody: string;
+};
+
+type PendingAiAutosave = {
+  draftId: string;
+  body: string;
+  reasonCode: AiAutosaveReasonCode;
 };
 
 type ImageBeatSheetEntry = {
@@ -1195,6 +1203,20 @@ function detectChatIntentSignals(text: string): ChatIntentSignals {
   };
 }
 
+function detectAiAutosaveReasonCode(text: string): AiAutosaveReasonCode {
+  const normalized = text.replace(/\s+/g, " ").trim().toLowerCase();
+  if (!normalized) return "ai_rewrite";
+  if (/\b(correct|repair|fix|tag audit|cleanup)\b/.test(normalized)) return "ai_repair";
+  if (/\b(rewrite|improve|shorten|punch up|edit|revise|polish|tighten)\b/.test(normalized)) return "ai_rewrite";
+  if (/\boutline|bullet points?|beats?\b/.test(normalized)) return "ai_outline";
+  if (/\b(write|script|draft|cold open|segments?)\b/.test(normalized)) return "ai_script";
+  return "ai_rewrite";
+}
+
+function toAiAutosaveReason(reasonCode: AiAutosaveReasonCode): AiAutosaveReason {
+  return `autosave:${reasonCode}`;
+}
+
 function countProducerQuestions(text: string): number {
   const lines = splitLines(text);
   let count = 0;
@@ -1351,6 +1373,7 @@ type PendingAiProposal = {
   selected: boolean[];
   context: EpisodeContext;
   fromGate: boolean;
+  autosaveReasonCode: AiAutosaveReasonCode;
 };
 
 type ScriptValidationState = {
@@ -1642,6 +1665,8 @@ export default function HearthShell() {
   const [isSavingRevision, setIsSavingRevision] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [aiAutosaveStatusAt, setAiAutosaveStatusAt] = useState<number | null>(null);
+  const [aiAutosaveWarning, setAiAutosaveWarning] = useState<string | null>(null);
   const [scriptValidation, setScriptValidation] = useState<ScriptValidationState | null>(null);
   const [isRepairingScript, setIsRepairingScript] = useState(false);
   const [searchText, setSearchText] = useState("");
@@ -1737,6 +1762,7 @@ export default function HearthShell() {
   const autosaveTimer = useRef<number | null>(null);
   const autosaveInFlightRef = useRef(false);
   const autosaveQueuedRef = useRef(false);
+  const pendingAiAutosaveRef = useRef<PendingAiAutosave | null>(null);
   const lastAutosaveCommitAtRef = useRef(0);
   const draftEditVersionRef = useRef(0);
   const activeDraftRef = useRef<Draft | null>(null);
@@ -1843,7 +1869,15 @@ export default function HearthShell() {
 
   const wordCount = useMemo(() => countWords(activeDraft?.body ?? ""), [activeDraft?.body]);
   const charCount = useMemo(() => activeDraft?.body?.length ?? 0, [activeDraft?.body]);
-  const statusText = isSaving ? "Saving..." : isDirty ? "Unsaved changes" : "Saved";
+  const aiSavedStatusText = useMemo(
+    () => (aiAutosaveStatusAt ? `Saved • ${formatUpdatedAt(aiAutosaveStatusAt)}` : null),
+    [aiAutosaveStatusAt],
+  );
+  const statusText = isSaving
+    ? "Saving..."
+    : isDirty
+      ? "Unsaved changes"
+      : aiSavedStatusText ?? "Saved";
   const sessionTitle = planningSession?.title ?? "";
   const sessionGoalsText = useMemo(
     () => (planningSession?.goals ?? []).join("\n"),
@@ -2161,6 +2195,12 @@ export default function HearthShell() {
   useEffect(() => {
     activeDraftRef.current = activeDraft;
   }, [activeDraft]);
+
+  useEffect(() => {
+    pendingAiAutosaveRef.current = null;
+    setAiAutosaveWarning(null);
+    setAiAutosaveStatusAt(null);
+  }, [activeDraft?.id]);
 
   useEffect(() => {
     draftSnapshotRef.current = draftSnapshot;
@@ -2791,7 +2831,16 @@ export default function HearthShell() {
   const onSaveDraft = useCallback(async () => {
     if (!activeDraft) return;
     const now = Date.now();
-    await persistDraft({ draft: activeDraft, updatedAt: now, createRevision: null });
+    const saved = await persistDraft({
+      draft: activeDraft,
+      updatedAt: now,
+      createRevision: null,
+      saveReason: "manual",
+    });
+    if (!saved) return;
+    pendingAiAutosaveRef.current = null;
+    setAiAutosaveWarning(null);
+    setAiAutosaveStatusAt(now);
     flushChatHistoryNow({ draftId: activeDraft.id });
   }, [activeDraft, flushChatHistoryNow]);
 
@@ -4094,6 +4143,45 @@ export default function HearthShell() {
     return () => window.removeEventListener("keydown", handleKey);
   }, [activeDraft, onSaveDraft, revisionModalOpen]);
 
+  function queueAiAutosave(args: {
+    draft: Draft;
+    previousBody: string;
+    reasonCode: AiAutosaveReasonCode;
+  }) {
+    if (args.draft.body === args.previousBody) return;
+    pendingAiAutosaveRef.current = {
+      draftId: args.draft.id,
+      body: args.draft.body,
+      reasonCode: args.reasonCode,
+    };
+    setAiAutosaveWarning(null);
+    if (autosaveTimer.current) {
+      window.clearTimeout(autosaveTimer.current);
+      autosaveTimer.current = null;
+    }
+    void handleAutosave();
+  }
+
+  function onRetryAiAutosave() {
+    const active = activeDraftRef.current;
+    const snapshot = draftSnapshotRef.current;
+    if (!active || !snapshot) return;
+    if (active.body === snapshot.body) {
+      setAiAutosaveWarning(null);
+      pendingAiAutosaveRef.current = null;
+      return;
+    }
+    if (!pendingAiAutosaveRef.current || pendingAiAutosaveRef.current.draftId !== active.id) {
+      pendingAiAutosaveRef.current = {
+        draftId: active.id,
+        body: active.body,
+        reasonCode: "ai_rewrite",
+      };
+    }
+    setAiAutosaveWarning(null);
+    void handleAutosave();
+  }
+
   async function handleAutosave() {
     if (autosaveInFlightRef.current) {
       autosaveQueuedRef.current = true;
@@ -4115,13 +4203,33 @@ export default function HearthShell() {
           continue;
         }
 
-        const draftIsDirty = draft.title !== snapshot.title || draft.body !== snapshot.body;
+        const titleIsDirty = draft.title !== snapshot.title;
+        const bodyIsDirty = draft.body !== snapshot.body;
+        const draftIsDirty = titleIsDirty || bodyIsDirty;
         if (!draftIsDirty) {
+          const pending = pendingAiAutosaveRef.current;
+          if (pending && pending.draftId === draft.id && pending.body === draft.body) {
+            pendingAiAutosaveRef.current = null;
+          }
           continue;
         }
 
+        const pendingAiAutosave = pendingAiAutosaveRef.current;
+        const aiAutosaveForActiveDraft = pendingAiAutosave && pendingAiAutosave.draftId === draft.id
+          ? pendingAiAutosave
+          : null;
+        const aiAutosaveMatchesCurrentBody = Boolean(aiAutosaveForActiveDraft && aiAutosaveForActiveDraft.body === draft.body);
+        const isAiAutosave = Boolean(aiAutosaveMatchesCurrentBody && bodyIsDirty);
+
+        if (aiAutosaveForActiveDraft && !aiAutosaveMatchesCurrentBody) {
+          pendingAiAutosaveRef.current = null;
+        }
+
         const now = Date.now();
-        const shouldAutoRevision = !lastAutosaveRevisionAt
+        const aiAutosaveReason = isAiAutosave && aiAutosaveForActiveDraft
+          ? toAiAutosaveReason(aiAutosaveForActiveDraft.reasonCode)
+          : null;
+        const shouldAutoRevision = isAiAutosave || !lastAutosaveRevisionAt
           || now - lastAutosaveRevisionAt >= AUTOSAVE_REVISION_GAP_MS;
 
         const saved = await persistDraft({
@@ -4129,15 +4237,24 @@ export default function HearthShell() {
           updatedAt: now,
           createRevision: shouldAutoRevision ? {
             kind: "autosave",
-            note: "Autosave",
+            note: aiAutosaveReason ?? "Autosave",
           } : null,
           syncSources: false,
           syncSession: false,
           showSavingState: false,
+          quietFailure: isAiAutosave,
+          saveReason: aiAutosaveReason ?? "autosave:typing",
         });
 
         if (saved) {
           lastAutosaveCommitAtRef.current = now;
+          if (isAiAutosave) {
+            pendingAiAutosaveRef.current = null;
+            setAiAutosaveWarning(null);
+            setAiAutosaveStatusAt(now);
+          }
+        } else if (isAiAutosave) {
+          setAiAutosaveWarning("Not saved (offline/permission).");
         }
       } while (autosaveQueuedRef.current);
     } finally {
@@ -4153,13 +4270,18 @@ export default function HearthShell() {
     syncSession?: boolean;
     showSavingState?: boolean;
     validateForAnvil?: boolean;
+    quietFailure?: boolean;
+    saveReason?: string;
   }): Promise<boolean> {
     const showSavingState = args.showSavingState ?? true;
+    const quietFailure = args.quietFailure ?? false;
     if (showSavingState) {
       setIsSaving(true);
     }
-    setDraftConflictState(null);
-    setError(null);
+    if (!quietFailure) {
+      setDraftConflictState(null);
+      setError(null);
+    }
     const shouldValidateForAnvil = args.validateForAnvil === true;
     const tagValidation = shouldValidateForAnvil
       ? validateAnvilTagContract(args.draft.body)
@@ -4203,7 +4325,7 @@ export default function HearthShell() {
         updatedBy: buildDraftAttribution(hearthUser),
       };
 
-      await store.saveDraft(toSave);
+      await store.saveDraft(toSave, { reason: args.saveReason });
 
       const latestActiveDraft = activeDraftRef.current;
       const hasNewerEdits = latestActiveDraft?.id === toSave.id
@@ -4241,16 +4363,20 @@ export default function HearthShell() {
     } catch (err) {
       const conflict = parseDraftConflictError(err);
       if (conflict) {
-        const withLocalBody: DraftConflictState = {
-          ...conflict,
-          localBody: args.draft.body,
-        };
-        setDraftConflictState(withLocalBody);
-        setError(withLocalBody.message);
+        if (!quietFailure) {
+          const withLocalBody: DraftConflictState = {
+            ...conflict,
+            localBody: args.draft.body,
+          };
+          setDraftConflictState(withLocalBody);
+          setError(withLocalBody.message);
+        }
         return false;
       }
-      const message = err instanceof Error ? err.message : "Failed to save draft.";
-      setError(message);
+      if (!quietFailure) {
+        const message = err instanceof Error ? err.message : "Failed to save draft.";
+        setError(message);
+      }
       return false;
     } finally {
       if (showSavingState) {
@@ -4557,17 +4683,28 @@ export default function HearthShell() {
         return;
       }
 
-      const now = Date.now();
-      const saved = await persistDraft({
-        draft: { ...activeDraft, body: repairedBody, updatedAt: now },
-        updatedAt: now,
-        createRevision: null,
-        syncSources: false,
-        syncSession: false,
-      });
-      if (saved) {
-        setScriptValidation(null);
+      const previousBody = activeDraft.body;
+      const bodyChanged = repairedBody !== previousBody;
+      if (bodyChanged) {
+        const now = Date.now();
+        const nextDraft: Draft = { ...activeDraft, body: repairedBody, updatedAt: now };
+        draftEditVersionRef.current += 1;
+        activeDraftRef.current = nextDraft;
+        setActiveDraft((prev) => (prev && prev.id === nextDraft.id ? nextDraft : prev));
+        setDrafts((prev) => {
+          const exists = prev.some((draft) => draft.id === nextDraft.id);
+          const next = exists
+            ? prev.map((draft) => (draft.id === nextDraft.id ? nextDraft : draft))
+            : [nextDraft, ...prev];
+          return dedupeDraftListById(next);
+        });
+        queueAiAutosave({
+          draft: nextDraft,
+          previousBody,
+          reasonCode: "ai_repair",
+        });
       }
+      setScriptValidation(null);
 
       const assistantMessage: HearthChatMessage = {
         role: "assistant",
@@ -4715,17 +4852,24 @@ export default function HearthShell() {
 
       if (saveRequested) {
         if (draftChanged) {
+          const previousBody = activeDraft.body;
           const now = Date.now();
-          const saved = await persistDraft({
-            draft: { ...nextDraft, updatedAt: now },
-            updatedAt: now,
-            createRevision: null,
-            syncSources: false,
-            syncSession: false,
+          const stagedDraft: Draft = { ...nextDraft, updatedAt: now };
+          draftEditVersionRef.current += 1;
+          activeDraftRef.current = stagedDraft;
+          setActiveDraft((prev) => (prev && prev.id === stagedDraft.id ? stagedDraft : prev));
+          setDrafts((prev) => {
+            const exists = prev.some((draft) => draft.id === stagedDraft.id);
+            const next = exists
+              ? prev.map((draft) => (draft.id === stagedDraft.id ? stagedDraft : draft))
+              : [stagedDraft, ...prev];
+            return dedupeDraftListById(next);
           });
-          if (!saved) {
-            return;
-          }
+          queueAiAutosave({
+            draft: stagedDraft,
+            previousBody,
+            reasonCode: pendingAiProposal.autosaveReasonCode,
+          });
         } else {
           setActiveDraft((prev) => (prev ? nextDraft : prev));
         }
@@ -5047,6 +5191,7 @@ export default function HearthShell() {
     const source = args.source ?? "typed";
     const isProductionRequest = Boolean(args.productionAction);
     const intentSignals = detectChatIntentSignals(requestContent);
+    const autosaveReasonCode = detectAiAutosaveReasonCode(requestContent);
     const pendingShortcutIntent = pendingShortcutIntentRef.current;
     pendingShortcutIntentRef.current = null;
 
@@ -5138,6 +5283,7 @@ export default function HearthShell() {
           selected: result.ops.map(() => true),
           context: episodeContext,
           fromGate: gateAnswering,
+          autosaveReasonCode,
         });
       }
 
@@ -6698,6 +6844,17 @@ export default function HearthShell() {
           </label>
           <span className="hs-status-text">{statusText}</span>
           <span className="hs-count-text">{wordCount} words · {charCount} chars</span>
+          {aiAutosaveWarning ? (
+            <span className="hs-autosave-warning" role="status" aria-live="polite">
+              {aiAutosaveWarning}
+              <button type="button" onClick={onRetryAiAutosave}>
+                Retry
+              </button>
+              <button type="button" onClick={() => void onSaveDraft()}>
+                Save now
+              </button>
+            </span>
+          ) : null}
         </div>
 
         {editingPeers.length > 0 ? (

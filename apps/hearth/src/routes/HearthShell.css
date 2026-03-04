@@ -605,6 +605,19 @@
   opacity: 0.6;
 }
 
+.hs-autosave-warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #a84308;
+}
+
+.hs-autosave-warning button {
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
 .hs-field {
   display: grid;
   gap: 6px;

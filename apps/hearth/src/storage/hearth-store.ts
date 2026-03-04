@@ -4,10 +4,14 @@ import type { HearthChatMessage } from "../lib/hearth-chat-api";
 
 export type HearthStoreKind = "local" | "tongs";
 
+export type SaveDraftOptions = {
+  reason?: string;
+};
+
 export interface HearthStore {
   listDrafts(): Promise<Draft[]>;
   getDraft(id: DraftId): Promise<Draft | null>;
-  saveDraft(draft: Draft): Promise<void>;
+  saveDraft(draft: Draft, options?: SaveDraftOptions): Promise<void>;
   deleteDraft(id: DraftId): Promise<void>;
   getChatHistory(draftId: DraftId): Promise<HearthChatMessage[]>;
   saveChatHistory(draftId: DraftId, messages: HearthChatMessage[]): Promise<void>;
