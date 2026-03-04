@@ -22,10 +22,12 @@ type HearthOp =
 
 type EpisodeContext = {
   episodeId: string;
+  workspaceId: string | null;
   title: string;
   titleVariants: { A: string; B: string; C: string };
   outline: string;
   body: string;
+  tonePreset: string | null;
   sources: Array<{
     id: string;
     title: string;
@@ -54,6 +56,16 @@ type CreatorProfile = {
   riskSensitivity: number;
   confidence: number;
   profileJson: Record<string, unknown>;
+};
+
+type WritingProfile = {
+  workspaceId: string | null;
+  userId: string | null;
+  defaultAudience: string | null;
+  defaultStructure: string | null;
+  styleNotes: string | null;
+  lastUsedTonePreset: string | null;
+  updatedAt: string | null;
 };
 
 type ReqBody = {
@@ -95,6 +107,16 @@ const DEFAULT_CREATOR_PROFILE: CreatorProfile = {
   riskSensitivity: 0.5,
   confidence: 0.0,
   profileJson: {},
+};
+
+const DEFAULT_WRITING_PROFILE: WritingProfile = {
+  workspaceId: null,
+  userId: null,
+  defaultAudience: null,
+  defaultStructure: null,
+  styleNotes: null,
+  lastUsedTonePreset: "neutral_conversational",
+  updatedAt: null,
 };
 
 function loadEnvFile(filePath: string): void {
@@ -225,6 +247,23 @@ function normalizeCreatorProfile(payload: unknown): CreatorProfile {
     riskSensitivity: clamp01(readOptionalNumber(rowRaw.risk_sensitivity) ?? DEFAULT_CREATOR_PROFILE.riskSensitivity),
     confidence: clamp01(readOptionalNumber(rowRaw.confidence) ?? DEFAULT_CREATOR_PROFILE.confidence),
     profileJson,
+  };
+}
+
+function normalizeWritingProfile(payload: unknown): WritingProfile {
+  const rowRaw = Array.isArray(payload) ? payload[0] : payload;
+  if (!isRecord(rowRaw)) return { ...DEFAULT_WRITING_PROFILE };
+  const workspaceId = readOptionalString(rowRaw.workspace_id);
+  const userId = readOptionalString(rowRaw.user_id);
+  const tonePreset = readOptionalString(rowRaw.last_used_tone_preset);
+  return {
+    workspaceId: isUuid(workspaceId) ? workspaceId : null,
+    userId: isUuid(userId) ? userId : null,
+    defaultAudience: readOptionalString(rowRaw.default_audience),
+    defaultStructure: readOptionalString(rowRaw.default_structure),
+    styleNotes: readOptionalString(rowRaw.style_notes),
+    lastUsedTonePreset: tonePreset ? tonePreset.toLowerCase() : DEFAULT_WRITING_PROFILE.lastUsedTonePreset,
+    updatedAt: readOptionalString(rowRaw.updated_at),
   };
 }
 
@@ -387,30 +426,50 @@ function shouldAskClarifyingQuestions(args: {
 }
 
 function buildClarifyingQuestionReply(profile: CreatorProfile): string {
-  const riskLine = profile.riskSensitivity >= 0.65
-    ? "2) Tone/risk: keep it safer and source-forward, or allow light heat?"
-    : "2) Tone/risk: neutral-conversational, newsroom-neutral, or spicy-but-safe?";
   return [
     "Before I draft, answer these quick producer questions:",
     "1) Angle: what is the main claim or takeaway for this Episode?",
-    riskLine,
-    "3) Format: outline first or full script (S1/S2)?",
+    profile.riskSensitivity >= 0.65
+      ? "2) Guardrails: any claims that need extra sourcing caution?"
+      : "2) Guardrails: any must-include facts, names, or sources?",
     "Answer these and I'll generate an outline/script.",
   ].join("\n");
 }
 
-function buildProfileStyleSnippet(profile: CreatorProfile, requestText: string): string {
+function resolveTonePreset(args: {
+  contextTonePreset: string | null;
+  writingProfile: WritingProfile;
+}): string {
+  const contextTone = readOptionalString(args.contextTonePreset)?.toLowerCase();
+  if (contextTone) return contextTone;
+  const profileTone = readOptionalString(args.writingProfile.lastUsedTonePreset)?.toLowerCase();
+  if (profileTone) return profileTone;
+  return "neutral_conversational";
+}
+
+function describeTonePreset(tonePreset: string): string {
+  if (tonePreset === "newsroom_neutral") {
+    return "Keep tone newsroom-neutral, precise, and low-heat.";
+  }
+  if (tonePreset === "spicy_but_safe") {
+    return "Keep voice punchy but safe: clear claims, no reckless hot takes.";
+  }
+  return "Prefer neutral conversational language over newsroom stiffness.";
+}
+
+function buildProfileStyleSnippet(
+  profile: CreatorProfile,
+  writingProfile: WritingProfile,
+  requestText: string,
+  contextTonePreset: string | null,
+): string {
   const lines = ["Creator Profile Guidance (soft):"];
 
-  if (profile.toneStyle === "neutral_conversational") {
-    lines.push("- Prefer neutral conversational language over newsroom stiffness.");
-  } else if (profile.toneStyle === "newsroom_neutral") {
-    lines.push("- Keep tone newsroom-neutral, precise, and low-heat.");
-  } else if (profile.toneStyle === "spicy_but_safe") {
-    lines.push("- Keep voice punchy but safe: clear claims, no reckless hot takes.");
-  } else {
-    lines.push(`- Respect preferred tone style: ${profile.toneStyle}.`);
-  }
+  const effectiveTonePreset = resolveTonePreset({
+    contextTonePreset,
+    writingProfile,
+  });
+  lines.push(`- Tone preset for this request: ${effectiveTonePreset}. ${describeTonePreset(effectiveTonePreset)}`);
 
   if (profile.riskSensitivity >= 0.65) {
     lines.push("- High risk sensitivity: avoid unverified claims; emphasize sourcing and caution.");
@@ -427,6 +486,24 @@ function buildProfileStyleSnippet(profile: CreatorProfile, requestText: string):
   if (profile.clarifyFirstBias <= 0.4) {
     lines.push("- User often prefers direct drafting when the request is clear.");
   }
+
+  if (writingProfile.defaultAudience) {
+    lines.push(`- Audience default: ${writingProfile.defaultAudience}.`);
+  } else {
+    lines.push("- Audience default: general podcast listeners.");
+  }
+
+  if (writingProfile.defaultStructure) {
+    lines.push(`- Structure default: ${writingProfile.defaultStructure}.`);
+  } else {
+    lines.push("- Structure default: neutral flow (hook, context, points, close).");
+  }
+
+  if (writingProfile.styleNotes) {
+    lines.push(`- Style notes: ${writingProfile.styleNotes}.`);
+  }
+
+  lines.push("- Do not ask follow-up questions about audience, structure, or tone. Use these defaults and generate immediately.");
 
   return lines.join("\n");
 }
@@ -490,6 +567,14 @@ function normalizeEpisodeContext(value: unknown): EpisodeContext | null {
   if (!isRecord(value)) return null;
   const episodeId = readOptionalString(value.episodeId);
   if (!episodeId) return null;
+  const workspaceId = (
+    readOptionalString(value.workspaceId)
+    ?? readOptionalString(value.workspace_id)
+  );
+  const tonePreset = (
+    readOptionalString(value.tonePreset)
+    ?? readOptionalString(value.tone_preset)
+  );
 
   const titleVariantsRaw = isRecord(value.titleVariants) ? value.titleVariants : {};
   const titleVariants = {
@@ -533,10 +618,12 @@ function normalizeEpisodeContext(value: unknown): EpisodeContext | null {
 
   return {
     episodeId,
+    workspaceId: isUuid(workspaceId) ? workspaceId : null,
     title: readOptionalString(value.title) ?? "",
     titleVariants,
     outline: readOptionalString(value.outline) ?? "",
     body: readOptionalString(value.body) ?? "",
+    tonePreset: tonePreset ? tonePreset.toLowerCase() : null,
     sources,
     sparks,
   };
@@ -579,9 +666,11 @@ function buildSystemPrompt(
     "- assistantText must be concise plain text (no markdown).",
     "- Use ops only for concrete edits requested by the user.",
     "- If the user only asks a question, return ops as [].",
+    "- For outline requests, prefer set_outline only and do not emit set_body unless explicitly asked for a full script.",
     "- Do not invent source ids for update/remove ops.",
     "- When proposing or returning a script body, include script_text and tag_audit.",
     "- tag_audit must briefly confirm closure, standalone tags, and no markdown/random markup.",
+    "- Do not ask the user to choose audience, structure, or tone during generation.",
     "- Keep output strictly JSON (no code fences).",
   ];
 
@@ -987,6 +1076,34 @@ export function mwHearthChatApi() {
     return normalizeCreatorProfile(result.data);
   }
 
+  async function loadWritingProfileForToken(
+    accessToken: string | null,
+    workspaceId: string | null,
+  ): Promise<WritingProfile> {
+    if (!accessToken || !isUuid(workspaceId)) {
+      return {
+        ...DEFAULT_WRITING_PROFILE,
+        workspaceId: isUuid(workspaceId) ? workspaceId : null,
+      };
+    }
+    const result = await callUserScopedTongsRpc({
+      accessToken,
+      fn: "get_my_writing_profile",
+      payload: { p_workspace_id: workspaceId },
+    });
+    if (!result.ok) {
+      console.warn("[hearth-chat-api] get_my_writing_profile failed", {
+        status: result.status,
+        error: result.error,
+      });
+      return {
+        ...DEFAULT_WRITING_PROFILE,
+        workspaceId,
+      };
+    }
+    return normalizeWritingProfile(result.data);
+  }
+
   async function recordHearthEventForToken(args: {
     accessToken: string | null;
     episodeId: string | null;
@@ -1364,6 +1481,7 @@ export function mwHearthChatApi() {
         ?.content ?? "";
       const priorReadinessNudge = detectReadinessNudgeCategory(priorAssistantMessage);
       const creatorProfile = await loadCreatorProfileForToken(bearerToken);
+      const writingProfile = await loadWritingProfileForToken(bearerToken, episodeContext.workspaceId);
 
       if (shouldAskClarifyingQuestions({
         requestText,
@@ -1402,7 +1520,12 @@ export function mwHearthChatApi() {
         role: "system",
         content: buildSystemPrompt(
           episodeContext,
-          buildProfileStyleSnippet(creatorProfile, requestText),
+          buildProfileStyleSnippet(
+            creatorProfile,
+            writingProfile,
+            requestText,
+            episodeContext.tonePreset,
+          ),
           {
             readinessCheck: readinessCheckRequested,
             allowRepeatedReadinessNudge,

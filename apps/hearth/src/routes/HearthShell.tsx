@@ -101,7 +101,12 @@ import ThumbnailPanel from "../components/visuals/ThumbnailPanel";
 import ImageMapPanel from "../components/visuals/ImageMapPanel";
 import MetadataPanel from "../components/metadata/MetadataPanel";
 import { MobilePage, useLayoutMode } from "@forge/ui-mobile";
-import { updateStyleProfileFromReadyCheckpoint } from "../lib/hearth-style-service";
+import {
+  getMyWritingProfile,
+  setMyWritingTonePreset,
+  updateStyleProfileFromReadyCheckpoint,
+  type WritingProfile,
+} from "../lib/hearth-style-service";
 
 const AUTOSAVE_DELAY_MS = 2200;
 const AUTOSAVE_MIN_GAP_MS = 5000;
@@ -182,6 +187,13 @@ const PRODUCTION_ACTION_ARTIFACT_KIND: Record<ProductionAction, ProductionArtifa
   image_beat_sheet: "image_beat_sheet",
 };
 
+const TONE_PRESET_OPTIONS = [
+  { value: "neutral_conversational", label: "Neutral conversational" },
+  { value: "newsroom_neutral", label: "Newsroom neutral" },
+  { value: "spicy_but_safe", label: "Spicy but safe" },
+] as const;
+const DEFAULT_TONE_PRESET = "neutral_conversational";
+
 function readTrimmedString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -192,6 +204,15 @@ function normalizeUuid(value: unknown): string | null {
   const str = readTrimmedString(value);
   if (!str) return null;
   return UUID_RE.test(str) ? str.toLowerCase() : null;
+}
+
+function normalizeTonePreset(value: unknown): string | null {
+  const raw = readTrimmedString(value);
+  if (!raw) return null;
+  const normalized = raw.toLowerCase();
+  return TONE_PRESET_OPTIONS.some((option) => option.value === normalized)
+    ? normalized
+    : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1667,6 +1688,7 @@ export default function HearthShell() {
   const [activeProductionAction, setActiveProductionAction] = useState<ProductionAction | null>(null);
   const [aiRuntimeWarning, setAiRuntimeWarning] = useState<string | null>(null);
   const [isAiProcessing, setIsAiProcessing] = useState(false);
+  const [writingProfile, setWritingProfile] = useState<WritingProfile | null>(null);
   const [forgeGreetingName, setForgeGreetingName] = useState<string>(() => readGreetingNameFromStorage());
   const [hearthUser, setHearthUser] = useState<HearthUserContext>({
     userId: null,
@@ -1784,6 +1806,31 @@ export default function HearthShell() {
     });
   }, [workpieceId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (!workspaceId) {
+      setWritingProfile(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void getMyWritingProfile(workspaceId, { force: true })
+      .then((result) => {
+        if (cancelled || !result.ok) return;
+        setWritingProfile(result.data);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setWritingProfile(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
+
   const lastAutosaveRevisionAt = useMemo(() => {
     const match = revisions.find((rev) => rev.kind === "autosave");
     return match?.createdAt ?? null;
@@ -1806,6 +1853,8 @@ export default function HearthShell() {
     () => (planningSession?.outline ?? []).join("\n"),
     [planningSession?.outline],
   );
+  const workspaceTonePreset = normalizeTonePreset(writingProfile?.lastUsedTonePreset) ?? DEFAULT_TONE_PRESET;
+  const activeTonePreset = normalizeTonePreset(planningSession?.tone_preset) ?? workspaceTonePreset;
   const sessionDecisions = planningSession?.decisions ?? [];
   const sessionIntent = planningSession?.intent ?? deriveIntentFromOrigin(planningSession?.origin);
   const sessionSparkId = planningSession?.origin?.spark_id ?? planningSession?.links?.spark_id ?? null;
@@ -4390,6 +4439,7 @@ export default function HearthShell() {
     if (!episodeId) return null;
     return buildEpisodeContext({
       episodeId,
+      workspaceId,
       draft: activeDraft,
       planningSession,
       workpieceSources,
@@ -4560,15 +4610,18 @@ export default function HearthShell() {
       return;
     }
 
-    const projectedBody = findNextBodyFromOps(activeDraft.body, opsToApply);
-    const projectedValidation = validateAnvilTagContract(projectedBody);
-    if (!projectedValidation.ok) {
-      setScriptValidation({
-        source: "ai_apply",
-        result: projectedValidation,
-      });
-      setError(`Script tag validation failed:\n${projectedValidation.report}`);
-      return;
+    const bodyWillChange = opsToApply.some((op) => op.op === "set_body");
+    if (bodyWillChange) {
+      const projectedBody = findNextBodyFromOps(activeDraft.body, opsToApply);
+      const projectedValidation = validateAnvilTagContract(projectedBody);
+      if (!projectedValidation.ok) {
+        setScriptValidation({
+          source: "ai_apply",
+          result: projectedValidation,
+        });
+        setError(`Script tag validation failed:\n${projectedValidation.report}`);
+        return;
+      }
     }
 
     setIsApplyingAiOps(true);
@@ -6556,6 +6609,20 @@ export default function HearthShell() {
     );
   };
 
+  function onChangeTonePreset(nextTonePresetRaw: string) {
+    const nextTonePreset = normalizeTonePreset(nextTonePresetRaw);
+    if (!nextTonePreset) return;
+    updatePlanningSession((prev) => ({
+      ...prev,
+      tone_preset: nextTonePreset,
+    }));
+    if (!workspaceId) return;
+    void setMyWritingTonePreset(workspaceId, nextTonePreset).then((result) => {
+      if (!result.ok) return;
+      setWritingProfile(result.data);
+    });
+  }
+
   const renderDraftView = () => {
     const sourcesSummary = missingSourcesCount > 0
       ? `${missingSourcesCount} missing citation${missingSourcesCount === 1 ? "" : "s"}`
@@ -6617,6 +6684,18 @@ export default function HearthShell() {
           >
             {isApprovingScript ? "Approving..." : "Approve Script"}
           </button>
+          <label className="hs-tone-control">
+            <span>Tone</span>
+            <select
+              value={activeTonePreset}
+              onChange={(event) => onChangeTonePreset(event.target.value)}
+              disabled={!activeDraft}
+            >
+              {TONE_PRESET_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
           <span className="hs-status-text">{statusText}</span>
           <span className="hs-count-text">{wordCount} words · {charCount} chars</span>
         </div>

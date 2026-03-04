@@ -60,5 +60,22 @@
 
 .settings-home__actions {
   display: flex;
+  gap: 8px;
   justify-content: flex-end;
+}
+
+.settings-home__field {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-home__field-label {
+  font-size: 13px;
+  color: var(--forge-text-muted);
+}
+
+.settings-home__field input,
+.settings-home__field select,
+.settings-home__field textarea {
+  width: 100%;
 }

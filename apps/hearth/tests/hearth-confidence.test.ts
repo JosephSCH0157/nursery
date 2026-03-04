@@ -125,6 +125,7 @@ async function testSessionRoundtrip() {
 function createEpisodeContextFixture() {
   return buildEpisodeContext({
     episodeId: "episode-123",
+    workspaceId: "2980fc39-8c8b-489a-a900-8d3bd3248432",
     draft: {
       id: "draft-episode",
       title: "Episode Title",
@@ -138,6 +139,7 @@ function createEpisodeContextFixture() {
         C: "Title C",
       },
       outline: ["Hook", "Main", "CTA"],
+      tone_preset: "newsroom_neutral",
     },
     workpieceSources: [
       { source_id: "src_alpha", notes: "Primary source" },
@@ -154,9 +156,11 @@ function createEpisodeContextFixture() {
 async function testBuildEpisodeContextIncludesFields() {
   const context = createEpisodeContextFixture();
   assert.equal(context.episodeId, "episode-123");
+  assert.equal(context.workspaceId, "2980fc39-8c8b-489a-a900-8d3bd3248432");
   assert.equal(context.title, "Episode Title");
   assert.equal(context.titleVariants.A, "Title A");
   assert.equal(context.outline, "Hook\nMain\nCTA");
+  assert.equal(context.tonePreset, "newsroom_neutral");
   assert.equal(context.body, "Intro line [src_alpha] and closing [src_alpha]");
   assert.equal(context.sources.length, 1);
   assert.equal(context.sources[0]?.id, "src_alpha");

@@ -6,6 +6,7 @@ const WORKSPACE_FEATURES_STORAGE_KEY = "forge:workspace-features:changed:v1";
 export const WORKSPACE_FEATURES_CHANGED_EVENT = "forge:workspace-features:changed";
 const FEATURE_CACHE = new Map<string, FeatureCacheEntry>();
 const STYLE_PROFILE_CACHE = new Map<string, StyleProfile | null>();
+const WRITING_PROFILE_CACHE = new Map<string, WritingProfile | null>();
 const ALIGNMENT_PAUSE_PREFIX = "hearth:style-alignment-paused:v1:";
 let workspaceFeatureSyncInitialized = false;
 
@@ -68,6 +69,22 @@ export type StyleProfile = {
   lastUpdated: string | null;
 };
 
+export type WritingProfile = {
+  workspaceId: string;
+  userId: string;
+  defaultAudience: string | null;
+  defaultStructure: string | null;
+  styleNotes: string | null;
+  lastUsedTonePreset: string | null;
+  updatedAt: string | null;
+};
+
+export type WritingProfileInput = {
+  defaultAudience?: string | null;
+  defaultStructure?: string | null;
+  styleNotes?: string | null;
+};
+
 export type StyleUpdateResult =
   | {
       ok: true;
@@ -108,6 +125,16 @@ type StyleProfileRpcRow = {
   adaptation_weight?: unknown;
   scripts_analyzed_count?: unknown;
   last_updated?: unknown;
+};
+
+type WritingProfileRpcRow = {
+  workspace_id?: unknown;
+  user_id?: unknown;
+  default_audience?: unknown;
+  default_structure?: unknown;
+  style_notes?: unknown;
+  last_used_tone_preset?: unknown;
+  updated_at?: unknown;
 };
 
 type RpcErrorPayload = {
@@ -389,6 +416,23 @@ function toStyleProfile(row: unknown, workspaceId: string): StyleProfile | null 
   };
 }
 
+function toWritingProfile(row: unknown, workspaceId: string): WritingProfile | null {
+  const raw = (Array.isArray(row) ? row[0] : row) as WritingProfileRpcRow | undefined;
+  if (!raw || typeof raw !== "object") return null;
+  const resolvedWorkspaceId = normalizeUuid(raw.workspace_id) ?? workspaceId;
+  const userId = normalizeUuid(raw.user_id);
+  if (!resolvedWorkspaceId || !userId) return null;
+  return {
+    workspaceId: resolvedWorkspaceId,
+    userId,
+    defaultAudience: readString(raw.default_audience),
+    defaultStructure: readString(raw.default_structure),
+    styleNotes: readString(raw.style_notes),
+    lastUsedTonePreset: readString(raw.last_used_tone_preset),
+    updatedAt: readString(raw.updated_at),
+  };
+}
+
 function tokenizeWords(text: string): string[] {
   return text
     .toLowerCase()
@@ -592,10 +636,12 @@ export function clearWorkspaceFeatureCache(workspaceId?: string | null): void {
   if (!normalized) {
     FEATURE_CACHE.clear();
     STYLE_PROFILE_CACHE.clear();
+    WRITING_PROFILE_CACHE.clear();
     return;
   }
   FEATURE_CACHE.delete(normalized);
   STYLE_PROFILE_CACHE.delete(normalized);
+  WRITING_PROFILE_CACHE.delete(normalized);
 }
 
 export type ResolveWorkspaceIdFromSearchOptions = {
@@ -752,6 +798,144 @@ export async function getStyleProfile(
 
   const profile = toStyleProfile(rpc.data, normalizedWorkspaceId);
   STYLE_PROFILE_CACHE.set(normalizedWorkspaceId, profile);
+  return {
+    ok: true,
+    status: rpc.status,
+    data: profile,
+  };
+}
+
+export async function getMyWritingProfile(
+  workspaceId: string,
+  options?: { force?: boolean },
+): Promise<RpcSuccess<WritingProfile | null> | RpcFailure> {
+  const normalizedWorkspaceId = normalizeUuid(workspaceId);
+  if (!normalizedWorkspaceId) {
+    return { ok: false, status: 400, error: "workspace_id is required." };
+  }
+
+  if (!options?.force && WRITING_PROFILE_CACHE.has(normalizedWorkspaceId)) {
+    return {
+      ok: true,
+      status: 200,
+      data: WRITING_PROFILE_CACHE.get(normalizedWorkspaceId) ?? null,
+    };
+  }
+
+  const rpc = await callTongsRpc<WritingProfileRpcRow[] | WritingProfileRpcRow>(
+    "get_my_writing_profile",
+    { p_workspace_id: normalizedWorkspaceId },
+  );
+  if (!rpc.ok) return rpc;
+
+  const profile = toWritingProfile(rpc.data, normalizedWorkspaceId);
+  WRITING_PROFILE_CACHE.set(normalizedWorkspaceId, profile);
+  return {
+    ok: true,
+    status: rpc.status,
+    data: profile,
+  };
+}
+
+export async function saveMyWritingProfile(
+  workspaceId: string,
+  input: WritingProfileInput,
+): Promise<RpcSuccess<WritingProfile> | RpcFailure> {
+  const normalizedWorkspaceId = normalizeUuid(workspaceId);
+  if (!normalizedWorkspaceId) {
+    return { ok: false, status: 400, error: "workspace_id is required." };
+  }
+
+  const rpc = await callTongsRpc<WritingProfileRpcRow[] | WritingProfileRpcRow>(
+    "set_my_writing_profile",
+    {
+      p_workspace_id: normalizedWorkspaceId,
+      p_default_audience: input.defaultAudience ?? null,
+      p_default_structure: input.defaultStructure ?? null,
+      p_style_notes: input.styleNotes ?? null,
+    },
+  );
+  if (!rpc.ok) return rpc;
+
+  const profile = toWritingProfile(rpc.data, normalizedWorkspaceId);
+  if (!profile) {
+    return {
+      ok: false,
+      status: 502,
+      error: "Writing profile update returned an invalid payload.",
+    };
+  }
+  WRITING_PROFILE_CACHE.set(normalizedWorkspaceId, profile);
+  return {
+    ok: true,
+    status: rpc.status,
+    data: profile,
+  };
+}
+
+export async function resetMyWritingProfile(
+  workspaceId: string,
+): Promise<RpcSuccess<WritingProfile> | RpcFailure> {
+  const normalizedWorkspaceId = normalizeUuid(workspaceId);
+  if (!normalizedWorkspaceId) {
+    return { ok: false, status: 400, error: "workspace_id is required." };
+  }
+
+  const rpc = await callTongsRpc<WritingProfileRpcRow[] | WritingProfileRpcRow>(
+    "reset_my_writing_profile",
+    { p_workspace_id: normalizedWorkspaceId },
+  );
+  if (!rpc.ok) return rpc;
+
+  const profile = toWritingProfile(rpc.data, normalizedWorkspaceId);
+  if (!profile) {
+    return {
+      ok: false,
+      status: 502,
+      error: "Writing profile reset returned an invalid payload.",
+    };
+  }
+
+  WRITING_PROFILE_CACHE.set(normalizedWorkspaceId, profile);
+  return {
+    ok: true,
+    status: rpc.status,
+    data: profile,
+  };
+}
+
+export async function setMyWritingTonePreset(
+  workspaceId: string,
+  tonePreset: string,
+): Promise<RpcSuccess<WritingProfile> | RpcFailure> {
+  const normalizedWorkspaceId = normalizeUuid(workspaceId);
+  if (!normalizedWorkspaceId) {
+    return { ok: false, status: 400, error: "workspace_id is required." };
+  }
+  const normalizedTonePreset = readString(tonePreset);
+  if (!normalizedTonePreset) {
+    return { ok: false, status: 400, error: "tone_preset is required." };
+  }
+
+  const rpc = await callTongsRpc<WritingProfileRpcRow[] | WritingProfileRpcRow>(
+    "set_my_writing_tone_preset",
+    {
+      p_workspace_id: normalizedWorkspaceId,
+      p_tone_preset: normalizedTonePreset,
+    },
+  );
+  if (!rpc.ok) return rpc;
+
+  const profile = toWritingProfile(rpc.data, normalizedWorkspaceId);
+  if (!profile) {
+    return {
+      ok: false,
+      status: 502,
+      error: "Writing tone preset update returned an invalid payload.",
+    };
+  }
+
+  WRITING_PROFILE_CACHE.set(normalizedWorkspaceId, profile);
   return {
     ok: true,
     status: rpc.status,
