@@ -28,12 +28,12 @@ export interface SimpleEngine {
 
 export interface SessionSource {
   get(): SessionState;
-  subscribe(cb: (sess: SessionState) => void): void;
+  subscribe(cb: (sess: SessionState) => void): void | (() => void);
 }
 
 export interface ScrollModeSource {
   get(): ScrollMode;
-  subscribe(cb: (mode: ScrollMode) => void): void;
+  subscribe(cb: (mode: ScrollMode) => void): void | (() => void);
 }
 
 export interface ModeRouterDeps {
@@ -54,6 +54,28 @@ let stepEngine: SimpleEngine | null = null;
 let lastAuto = false;
 let lastAsr = false;
 let lastStep = false;
+let routerEpoch = 0;
+let disposeModeSub: (() => void) | null = null;
+let disposeSessionSub: (() => void) | null = null;
+let staleModeDrops = 0;
+let staleSessionDrops = 0;
+
+function updateRouterDiag(extra: Record<string, unknown> = {}): void {
+  try {
+    if (typeof window === 'undefined') return;
+    const w = window as any;
+    const prev = w.__tpModeRouterDiag || {};
+    w.__tpModeRouterDiag = {
+      ...prev,
+      epoch: routerEpoch,
+      staleModeDrops,
+      staleSessionDrops,
+      hasModeSub: !!disposeModeSub,
+      hasSessionSub: !!disposeSessionSub,
+      ...extra,
+    };
+  } catch {}
+}
 
 function isDevMode(): boolean {
   try {
@@ -132,6 +154,17 @@ function syncEngines() {
 }
 
 export function initScrollModeRouter(deps: ModeRouterDeps) {
+  routerEpoch += 1;
+  const epoch = routerEpoch;
+  try { disposeModeSub?.(); } catch {}
+  try { disposeSessionSub?.(); } catch {}
+  disposeModeSub = null;
+  disposeSessionSub = null;
+  updateRouterDiag({
+    initCount: Number(((typeof window !== 'undefined' ? (window as any).__tpModeRouterDiag?.initCount : 0) || 0)) + 1,
+    phase: 'reinit',
+  });
+
   autoEngine = deps.auto;
   asrEngine = deps.asr;
   stepEngine = deps.step;
@@ -141,16 +174,30 @@ export function initScrollModeRouter(deps: ModeRouterDeps) {
 
   syncEngines();
 
-  deps.scrollMode.subscribe((mode) => {
+  const modeUnsub = deps.scrollMode.subscribe((mode) => {
+    if (epoch !== routerEpoch) {
+      staleModeDrops += 1;
+      updateRouterDiag({ phase: 'stale-mode-drop' });
+      return;
+    }
     if (!mode) return;
     currentMode = mode;
     syncEngines();
   });
+  disposeModeSub = typeof modeUnsub === 'function' ? modeUnsub : null;
+  updateRouterDiag({ phase: 'mode-subscribed' });
 
-  deps.session.subscribe((sess) => {
+  const sessionUnsub = deps.session.subscribe((sess) => {
+    if (epoch !== routerEpoch) {
+      staleSessionDrops += 1;
+      updateRouterDiag({ phase: 'stale-session-drop' });
+      return;
+    }
     currentSession = sess;
     syncEngines();
   });
+  disposeSessionSub = typeof sessionUnsub === 'function' ? sessionUnsub : null;
+  updateRouterDiag({ phase: 'session-subscribed' });
 }
 
 // Back-compat wrapper for older call sites/tests expecting a router object.

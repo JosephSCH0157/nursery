@@ -117,6 +117,8 @@ try {
   console.warn('[ROUTER_STAMP]', (globalThis as any).__tp_router_stamp);
 } catch {}
 export const ROUTER_STAMP = (globalThis as any).__tp_router_stamp;
+let scrollRouterInstalled = false;
+let scrollRouterInstallCount = 0;
 
 if (typeof window !== 'undefined') {
   try {
@@ -2364,8 +2366,8 @@ const PAUSE_DRIFT_SCALE = 0.95;
 const PAUSE_LOOKAHEAD_LINES = 10;
 const HYBRID_PAUSE_TOKENS = ['[pause]', '[beat]', '[reflective pause]'] as const;
 const GRACE_MIN_SCALE = 0.9;
-const HYBRID_BASELINE_FLOOR_PXPS = 24;
-const HYBRID_WPM_CAL_MULT_DEFAULT = 2.5;
+const HYBRID_BASELINE_FLOOR_PXPS = 18;
+const HYBRID_WPM_CAL_MULT_DEFAULT = 2.0;
 const HYBRID_WPM_CAL_MULT_MIN = 0.25;
 const HYBRID_WPM_CAL_MULT_MAX = 8;
 const HYBRID_ASSIST_CAP_FRAC = 0.35;
@@ -3402,6 +3404,41 @@ function installScrollRouter(opts) {
     }
   }
   setProcessorAndFlush();
+  scrollRouterInstallCount += 1;
+  try {
+    if (typeof window !== 'undefined') {
+      const w = window as any;
+      w.__tpScrollRouterDiag = {
+        ...(w.__tpScrollRouterDiag || {}),
+        installCount: scrollRouterInstallCount,
+        installed: scrollRouterInstalled,
+        routerStamp: ROUTER_STAMP,
+      };
+    }
+  } catch {}
+  if (scrollRouterInstalled) {
+    try {
+      console.info('[SCROLL_ROUTER] install skipped (already installed)', {
+        mode: state2.mode,
+        hasViewer: !!viewer,
+        hasScroller: !!scrollerEl,
+        installCount: scrollRouterInstallCount,
+      });
+    } catch {}
+    return;
+  }
+  scrollRouterInstalled = true;
+  try {
+    if (typeof window !== 'undefined') {
+      const w = window as any;
+      w.__tpScrollRouterDiag = {
+        ...(w.__tpScrollRouterDiag || {}),
+        installCount: scrollRouterInstallCount,
+        installed: true,
+        routerStamp: ROUTER_STAMP,
+      };
+    }
+  } catch {}
   try {
     console.warn('[SCROLL_ROUTER] installScrollRouter ENTER', {
       viewerInstance: viewerInstallFlag,

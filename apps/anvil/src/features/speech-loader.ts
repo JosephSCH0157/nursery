@@ -3909,17 +3909,6 @@ export function installSpeech(): void {
         () => {
           const session = getSession();
           if (session.phase === 'preroll' || session.phase === 'live') {
-            const mode = getScrollMode();
-            const needsSpeech = mode === 'asr' || mode === 'hybrid';
-            if (needsSpeech && !running) {
-              try {
-                console.warn('[session/stop] ignoring stop click because speech backend never ran', {
-                  mode,
-                  phase: session.phase,
-                });
-              } catch {}
-              return;
-            }
             try { console.debug('[session/stop] click in phase=', session.phase); } catch {}
             const stopIntent = { source: 'recBtn', phase: session.phase, reason: 'user' };
             dispatchSessionIntent(false, stopIntent);

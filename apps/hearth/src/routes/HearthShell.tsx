@@ -1213,6 +1213,41 @@ function detectAiAutosaveReasonCode(text: string): AiAutosaveReasonCode {
   return "ai_rewrite";
 }
 
+function readLatestOutlineFromOps(ops: HearthOp[]): string | null {
+  for (let idx = ops.length - 1; idx >= 0; idx -= 1) {
+    const op = ops[idx];
+    if (op?.op !== "set_outline") continue;
+    const outline = op.value.trim();
+    return outline.length ? outline : null;
+  }
+  return null;
+}
+
+function buildAssistantMessageContent(args: {
+  assistantText: string;
+  ops: HearthOp[];
+  autosaveReasonCode: AiAutosaveReasonCode;
+}): string {
+  const assistantText = args.assistantText.trim();
+  const outlineFromOps = readLatestOutlineFromOps(args.ops);
+
+  if (args.autosaveReasonCode === "ai_outline") {
+    if (outlineFromOps) {
+      if (!assistantText) {
+        return `Outline draft:\n${outlineFromOps}`;
+      }
+      if (assistantText.includes(outlineFromOps)) {
+        return assistantText;
+      }
+      return `${assistantText}\n\n${outlineFromOps}`;
+    }
+  }
+
+  if (assistantText) return assistantText;
+  if (args.ops.length > 0) return "Proposed updates are ready to review.";
+  return "Response received.";
+}
+
 function toAiAutosaveReason(reasonCode: AiAutosaveReasonCode): AiAutosaveReason {
   return `autosave:${reasonCode}`;
 }
@@ -3158,14 +3193,36 @@ export default function HearthShell() {
       }
 
       const explicitWorkpieceSelection = hasExplicitWorkpieceQuery();
-      const preferredId = storedSession?.activeDraftId;
-      if (explicitWorkpieceSelection && preferredId) {
-        const preferredDraft = dedupedDrafts.find((draft) => draft.id === preferredId);
-        if (preferredDraft) {
+      const candidateDraftIds: string[] = [];
+      const pushCandidateDraftId = (value: string | null | undefined) => {
+        const next = value?.trim();
+        if (!next || candidateDraftIds.includes(next)) return;
+        candidateDraftIds.push(next);
+      };
+
+      pushCandidateDraftId(storedSession?.activeDraftId ?? null);
+      pushCandidateDraftId(activeDraftRef.current?.id ?? null);
+
+      const preferredDraft = candidateDraftIds
+        .map((id) => dedupedDrafts.find((draft) => draft.id === id) ?? null)
+        .find((draft): draft is Draft => Boolean(draft))
+        ?? null;
+      if (preferredDraft) {
+        restoredCursorDraftIdRef.current = null;
+        setActiveDraft(preferredDraft);
+        setDraftSnapshot({ title: preferredDraft.title, body: preferredDraft.body, updatedAt: preferredDraft.updatedAt });
+        await refreshRevisions(preferredDraft.id);
+        setMode("episodes");
+        return;
+      }
+
+      if (explicitWorkpieceSelection && dedupedDrafts.length === 1) {
+        const soleDraft = dedupedDrafts[0];
+        if (soleDraft) {
           restoredCursorDraftIdRef.current = null;
-          setActiveDraft(preferredDraft);
-          setDraftSnapshot({ title: preferredDraft.title, body: preferredDraft.body, updatedAt: preferredDraft.updatedAt });
-          await refreshRevisions(preferredDraft.id);
+          setActiveDraft(soleDraft);
+          setDraftSnapshot({ title: soleDraft.title, body: soleDraft.body, updatedAt: soleDraft.updatedAt });
+          await refreshRevisions(soleDraft.id);
           setMode("episodes");
           return;
         }
@@ -5265,7 +5322,13 @@ export default function HearthShell() {
         });
       }
 
-      const assistantMessage: HearthChatMessage = { role: "assistant", content: result.assistantText };
+      const keepOutlineInChatOnly = !args.productionAction && autosaveReasonCode === "ai_outline";
+      const assistantContent = buildAssistantMessageContent({
+        assistantText: result.assistantText,
+        ops: result.ops,
+        autosaveReasonCode,
+      });
+      const assistantMessage: HearthChatMessage = { role: "assistant", content: assistantContent };
       setChatMessages((prev) => [...prev, assistantMessage].slice(-CHAT_HISTORY_MAX_MESSAGES));
 
       if (args.productionAction && args.productionScriptVersion) {
@@ -5276,11 +5339,25 @@ export default function HearthShell() {
         });
       }
 
-      if (!args.productionAction && result.ops.length > 0) {
+      const proposalOps = keepOutlineInChatOnly ? [] : result.ops;
+      if (keepOutlineInChatOnly) {
+        recordInteractionEvent("outline_generated", {
+          source,
+          has_outline: Boolean(readLatestOutlineFromOps(result.ops)),
+          ops_count: result.ops.length,
+        });
+      } else if (!args.productionAction && result.ops.some((op) => op.op === "set_body")) {
+        recordInteractionEvent("draft_generated", {
+          source,
+          ops_count: result.ops.length,
+        });
+      }
+
+      if (!args.productionAction && proposalOps.length > 0) {
         setPendingAiProposal({
-          assistantText: result.assistantText,
-          ops: result.ops,
-          selected: result.ops.map(() => true),
+          assistantText: assistantContent,
+          ops: proposalOps,
+          selected: proposalOps.map(() => true),
           context: episodeContext,
           fromGate: gateAnswering,
           autosaveReasonCode,

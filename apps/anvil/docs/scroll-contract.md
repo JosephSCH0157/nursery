@@ -24,6 +24,7 @@ When `scrollMode='asr'`:
 - No preroll event may trigger movement.
 - Movement trigger is ASR commit only.
 - ASR movement authority is single-lane: `speech-loader -> asr-scroll-driver` commit path.
+- Lifecycle and transcript wiring are single-instance: repeated init/mode toggles must not stack duplicate subscriptions/listeners in the same window.
 - Auto-motor authority is single-lane: `scroll-router` owns `__tpAuto` enable/disable state; bridge modules must not toggle it.
 - Legacy namespace recognizer backend (`window.__tpSpeech.startRecognizer`) is compatibility-only and opt-in (`window.__tpAllowLegacySpeechNamespace===true` or `?legacySpeechNs=1`).
 - Legacy `window.__tpAsrMode` runtime is compatibility-only and opt-in (`window.__tpAllowLegacyAsrMode===true` or `?legacyAsrMode=1`); default runtime must stay on speech-loader shim ownership.
@@ -65,9 +66,9 @@ When `scrollMode='asr'`:
 - Strong same-line final `+1` nudge may bypass short-line ambiguity HOLD only when lexical overlap with current line is high, with no bridge skip and adjacent speakable target only.
 - Same-line final forward promotion should not be blocked just because current-line recenter delta is outside the near-band; when bounded/floor-qualified, it should commit forward through normal clamp path.
 - In strict matcher mode, if same-line final remains pinned after nudge arbitration but confidence/overlap are strong, a bounded cue-bridge fallback forward pick is allowed (`forceReason='final-forward-fallback'`).
-- Dev tuning may enable permissive matcher mode (`__tpAsrPermissiveMatcher` or `asr_matcher=permissive`, default-on in dev): guard branches (`tie`, `low_sim`, short-line ambiguity hold) log but do not hard-block forward commit progression.
+- Dev tuning may enable permissive matcher mode explicitly (`__tpAsrPermissiveMatcher` or `asr_matcher=permissive`): guard branches (`tie`, `low_sim`, short-line ambiguity hold) log but do not hard-block forward commit progression.
 - In permissive matcher mode, same-line final completions may promote a bounded `+1` speakable advance (`forceReason='permissive-final-advance'`), and pending commit gate must honor that bypass at progressive floor.
-- Permissive same-line final forward promotion is evidence- and position-gated: require meaningful lexical overlap and block only true run-ahead (cursor materially ahead of marker); when marker is ahead (lag), permissive forward advance may proceed.
+- Permissive same-line final forward promotion is evidence- and position-gated: require minimum lexical overlap evidence (`>=2` overlap tokens plus overlap-ratio floor) and block only true run-ahead (cursor materially ahead of marker); when marker is ahead (lag), permissive forward advance may proceed.
 - Final forward promotions (`final-forward-nudge`, `final-forward-fallback`, `permissive-final-advance`) must carry through pending arbitration so bounded forward picks are not re-blocked by low-sim/tie gates during live armed ASR.
 - In permissive matcher mode, ambiguity HOLD is non-blocking for bounded final forward advance; hold may log, but it must not trap same-line finals at the cursor.
 - Multi-line cue-bridge commits require stronger confidence (`sim>=0.45`); low-floor bypass is not allowed for multi-line bridge jumps.

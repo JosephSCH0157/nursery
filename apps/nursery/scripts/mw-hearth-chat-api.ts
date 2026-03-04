@@ -68,6 +68,31 @@ type WritingProfile = {
   updatedAt: string | null;
 };
 
+type StyleSample = {
+  sampleId: string;
+  sourceKind: string;
+  sourceLabel: string | null;
+  sourceWorkpieceId: string | null;
+  sourcePath: string | null;
+  content: string;
+  contentChars: number;
+  updatedAt: string | null;
+};
+
+type RecentScriptReference = {
+  workspaceId: string;
+  workpieceId: string;
+  scriptPath: string;
+  title: string;
+  markedReadyAt: string | null;
+};
+
+type ScriptExcerpt = {
+  title: string;
+  scriptPath: string;
+  excerpt: string;
+};
+
 type ReqBody = {
   messages?: unknown;
   episode_context?: unknown;
@@ -93,6 +118,13 @@ const STT_MAX_BYTES = 10 * 1024 * 1024;
 const DEFAULT_STT_MODEL = "gpt-4o-mini-transcribe";
 const DEFAULT_STT_BUCKET = "forge-workpieces";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const STYLE_SAMPLE_RPC_LIMIT = 10;
+const STYLE_SAMPLE_EXCERPT_MAX_CHARS = 320;
+const STYLE_SAMPLE_TOTAL_MAX_CHARS = 3_200;
+const RECENT_SCRIPT_RPC_LIMIT = 4;
+const RECENT_SCRIPT_EXCERPT_MAX_CHARS = 520;
+const RECENT_SCRIPT_EXCERPT_TOTAL_MAX_CHARS = 1_800;
+const STYLE_CORPUS_SNIPPET_MAX_CHARS = 5_600;
 const READINESS_CHECK_RE = /\b(are we ready|ready to record|record now|can i record|good to record|ready for anvil|ship this|go live)\b/i;
 const READINESS_DEEP_REVIEW_RE = /\b(again|recheck|double check|deeper|strict|hard mode|harsh|be tough|second pass)\b/i;
 const SOURCING_NUDGE_RE = /\b(source|sources|sourcing|citation|citations|cite|evidence|verify|fact[- ]?check|corroborat)\b/i;
@@ -265,6 +297,99 @@ function normalizeWritingProfile(payload: unknown): WritingProfile {
     lastUsedTonePreset: tonePreset ? tonePreset.toLowerCase() : DEFAULT_WRITING_PROFILE.lastUsedTonePreset,
     updatedAt: readOptionalString(rowRaw.updated_at),
   };
+}
+
+function normalizeStyleSample(payload: unknown): StyleSample | null {
+  if (!isRecord(payload)) return null;
+  const sampleId = readOptionalString(payload.sample_id);
+  const content = readOptionalString(payload.content);
+  if (!isUuid(sampleId) || !content) return null;
+  return {
+    sampleId,
+    sourceKind: readOptionalString(payload.source_kind)?.toLowerCase() ?? "other",
+    sourceLabel: readOptionalString(payload.source_label),
+    sourceWorkpieceId: readOptionalString(payload.source_workpiece_id),
+    sourcePath: readOptionalString(payload.source_path),
+    content,
+    contentChars: Math.max(0, Math.floor(readOptionalNumber(payload.content_chars) ?? content.length)),
+    updatedAt: readOptionalString(payload.updated_at),
+  };
+}
+
+function normalizeStyleSamples(payload: unknown): StyleSample[] {
+  const rows = Array.isArray(payload) ? payload : (payload ? [payload] : []);
+  const out: StyleSample[] = [];
+  for (const row of rows) {
+    const normalized = normalizeStyleSample(row);
+    if (normalized) out.push(normalized);
+  }
+  return out;
+}
+
+function normalizeRecentScriptReference(payload: unknown): RecentScriptReference | null {
+  if (!isRecord(payload)) return null;
+  const workspaceId = readOptionalString(payload.workspace_id);
+  const workpieceId = readOptionalString(payload.workpiece_id);
+  const scriptPath = normalizeRelativePath(readOptionalString(payload.script_path));
+  if (!isUuid(workspaceId) || !isUuid(workpieceId) || !scriptPath) return null;
+  return {
+    workspaceId,
+    workpieceId,
+    scriptPath,
+    title: readOptionalString(payload.title) ?? `Episode ${workpieceId.slice(0, 8)}`,
+    markedReadyAt: readOptionalString(payload.marked_ready_at),
+  };
+}
+
+function normalizeRecentScriptReferences(payload: unknown): RecentScriptReference[] {
+  const rows = Array.isArray(payload) ? payload : (payload ? [payload] : []);
+  const out: RecentScriptReference[] = [];
+  for (const row of rows) {
+    const normalized = normalizeRecentScriptReference(row);
+    if (normalized) out.push(normalized);
+  }
+  return out;
+}
+
+function normalizeRelativePath(value: string | null): string | null {
+  const path = readOptionalString(value);
+  if (!path) return null;
+  if (path.startsWith("/")) return null;
+  if (path.includes("..")) return null;
+  if (path.includes("\\")) return null;
+  return path;
+}
+
+function condenseWhitespace(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function buildStyleCorpusSnippet(args: {
+  styleSamples: StyleSample[];
+  recentScriptExcerpts: ScriptExcerpt[];
+}): string {
+  const lines: string[] = [];
+  if (args.recentScriptExcerpts.length > 0) {
+    lines.push("Recent approved script cues (voice-only, not factual authority):");
+    for (let index = 0; index < args.recentScriptExcerpts.length; index += 1) {
+      const item = args.recentScriptExcerpts[index];
+      lines.push(`- Script ${index + 1}: ${item.title} [${item.scriptPath}] -> ${item.excerpt}`);
+    }
+  }
+  if (args.styleSamples.length > 0) {
+    lines.push("Imported style sample cues (voice-only, not factual authority):");
+    for (let index = 0; index < args.styleSamples.length; index += 1) {
+      const item = args.styleSamples[index];
+      const label = item.sourceLabel ?? `sample-${index + 1}`;
+      lines.push(`- Sample ${index + 1}: ${label} [${item.sourceKind}] -> ${item.content}`);
+    }
+  }
+  if (lines.length === 0) return "";
+  lines.push("Mirror cadence, phrasing, and framing from these cues while keeping facts bound to episode_context.");
+  const joined = lines.join("\n");
+  if (joined.length <= STYLE_CORPUS_SNIPPET_MAX_CHARS) return joined;
+  const cap = Math.max(0, STYLE_CORPUS_SNIPPET_MAX_CHARS - 3);
+  return `${joined.slice(0, cap)}...`;
 }
 
 function compactSpaces(text: string): string {
@@ -1104,6 +1229,103 @@ export function mwHearthChatApi() {
     return normalizeWritingProfile(result.data);
   }
 
+  async function loadStyleSamplesForToken(
+    accessToken: string | null,
+    workspaceId: string | null,
+  ): Promise<StyleSample[]> {
+    if (!accessToken || !isUuid(workspaceId)) return [];
+    const result = await callUserScopedTongsRpc({
+      accessToken,
+      fn: "list_my_style_samples",
+      payload: {
+        p_workspace_id: workspaceId,
+        p_limit: STYLE_SAMPLE_RPC_LIMIT,
+      },
+    });
+    if (!result.ok) {
+      console.warn("[hearth-chat-api] list_my_style_samples failed", {
+        status: result.status,
+        error: result.error,
+      });
+      return [];
+    }
+
+    const out: StyleSample[] = [];
+    let remainingChars = STYLE_SAMPLE_TOTAL_MAX_CHARS;
+    for (const row of normalizeStyleSamples(result.data)) {
+      if (remainingChars < 60) break;
+      const condensed = condenseWhitespace(row.content);
+      if (!condensed) continue;
+      const cap = Math.min(STYLE_SAMPLE_EXCERPT_MAX_CHARS, remainingChars);
+      if (cap <= 0) break;
+      const excerpt = condensed.length > cap ? `${condensed.slice(0, Math.max(0, cap - 3))}...` : condensed;
+      if (!excerpt) continue;
+      out.push({
+        ...row,
+        content: excerpt,
+      });
+      remainingChars -= excerpt.length;
+    }
+    return out;
+  }
+
+  async function loadRecentScriptReferencesForToken(
+    accessToken: string | null,
+    workspaceId: string | null,
+  ): Promise<RecentScriptReference[]> {
+    if (!accessToken || !isUuid(workspaceId)) return [];
+    const result = await callUserScopedTongsRpc({
+      accessToken,
+      fn: "list_my_recent_script_references",
+      payload: {
+        p_workspace_id: workspaceId,
+        p_limit: RECENT_SCRIPT_RPC_LIMIT,
+      },
+    });
+    if (!result.ok) {
+      console.warn("[hearth-chat-api] list_my_recent_script_references failed", {
+        status: result.status,
+        error: result.error,
+      });
+      return [];
+    }
+    return normalizeRecentScriptReferences(result.data)
+      .filter((ref) => ref.workspaceId === workspaceId);
+  }
+
+  async function loadRecentScriptExcerpts(refs: RecentScriptReference[]): Promise<ScriptExcerpt[]> {
+    if (!supabaseService || refs.length === 0) return [];
+
+    const out: ScriptExcerpt[] = [];
+    let remainingChars = RECENT_SCRIPT_EXCERPT_TOTAL_MAX_CHARS;
+    for (const ref of refs) {
+      if (remainingChars < 100) break;
+      const storageKey = `workpieces/${ref.workpieceId}/${ref.scriptPath}`;
+      const { data, error } = await supabaseService.storage
+        .from(sttBucket)
+        .download(storageKey);
+      if (error || !data) {
+        continue;
+      }
+
+      const rawText = condenseWhitespace(await data.text());
+      if (!rawText) continue;
+
+      const cap = Math.min(RECENT_SCRIPT_EXCERPT_MAX_CHARS, remainingChars);
+      const excerpt = rawText.length > cap ? `${rawText.slice(0, Math.max(0, cap - 3))}...` : rawText;
+      if (!excerpt) continue;
+
+      out.push({
+        title: ref.title,
+        scriptPath: ref.scriptPath,
+        excerpt,
+      });
+      remainingChars -= excerpt.length;
+    }
+
+    return out;
+  }
+
   async function recordHearthEventForToken(args: {
     accessToken: string | null;
     episodeId: string | null;
@@ -1516,16 +1738,31 @@ export function mwHearthChatApi() {
         return;
       }
 
+      const styleGuidanceSections = [
+        buildProfileStyleSnippet(
+          creatorProfile,
+          writingProfile,
+          requestText,
+          episodeContext.tonePreset,
+        ),
+      ];
+
+      const styleSamples = await loadStyleSamplesForToken(bearerToken, episodeContext.workspaceId);
+      const recentScriptRefs = await loadRecentScriptReferencesForToken(bearerToken, episodeContext.workspaceId);
+      const recentScriptExcerpts = await loadRecentScriptExcerpts(recentScriptRefs);
+      const styleCorpusSnippet = buildStyleCorpusSnippet({
+        styleSamples,
+        recentScriptExcerpts,
+      });
+      if (styleCorpusSnippet) {
+        styleGuidanceSections.push(styleCorpusSnippet);
+      }
+
       const system: ChatMessage = {
         role: "system",
         content: buildSystemPrompt(
           episodeContext,
-          buildProfileStyleSnippet(
-            creatorProfile,
-            writingProfile,
-            requestText,
-            episodeContext.tonePreset,
-          ),
+          styleGuidanceSections.filter((section) => section.trim().length > 0).join("\n"),
           {
             readinessCheck: readinessCheckRequested,
             allowRepeatedReadinessNudge,
