@@ -25,9 +25,12 @@ function getConfiguredPriceId(): string {
 }
 
 async function startCheckout(priceId: string): Promise<void> {
-  const origin = window.location.origin;
-  const successUrl = `${origin}/account.html?checkout=success`;
-  const cancelUrl = `${origin}/account.html?checkout=canceled`;
+  const currentUrl = new URL(window.location.href);
+  currentUrl.search = "";
+  currentUrl.hash = "";
+  const accountBaseUrl = currentUrl.toString();
+  const successUrl = `${accountBaseUrl}?checkout=success`;
+  const cancelUrl = `${accountBaseUrl}?checkout=canceled`;
 
   const { data, error } = await supabase.functions.invoke('create-checkout-session', {
     body: {
@@ -43,6 +46,15 @@ async function startCheckout(priceId: string): Promise<void> {
   const url = typeof payload.url === 'string' ? payload.url.trim() : '';
   if (!url) {
     throw new Error('Checkout session missing url.');
+  }
+
+  try {
+    if (window.top && window.top !== window) {
+      window.top.location.assign(url);
+      return;
+    }
+  } catch {
+    // ignore cross-frame access and fallback to current window redirect
   }
 
   window.location.assign(url);
