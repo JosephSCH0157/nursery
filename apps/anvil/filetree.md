@@ -7,7 +7,7 @@ This file is the human-readable map of the repo. The full machine listing is kep
 ## Runtime entry surfaces
 - `teleprompter_pro.html` is the main app shell.
 - `display.html` is the paired display window shell.
-- `login.html`, `account.html`, `reset.html`, and `pricing.html` are auth/account pages.
+- `login.html`, `account.html`, and `reset.html` are auth/account pages.
 - `teleprompter_pro.css` and `assets/` provide shared styling and static assets.
 
 ## Source of truth (TypeScript)
