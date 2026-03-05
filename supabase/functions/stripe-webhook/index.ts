@@ -18,6 +18,16 @@ function normalizeCustomerId(
     : null;
 }
 
+function normalizePeriodEndIso(value: unknown): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return new Date(value * 1000).toISOString();
+}
+
+function hasPaidAccess(status: string | null | undefined): boolean {
+  if (!status) return false;
+  return status === "active" || status === "trialing";
+}
+
 async function requireProfileByCustomerId(
   supabase: ReturnType<typeof createClient>,
   customerId: string,
@@ -109,6 +119,10 @@ serve(async (req) => {
         const subscription = event.data.object as Stripe.Subscription;
         const customerId = normalizeCustomerId(subscription.customer);
         const status = subscription.status;
+        const periodEnd = normalizePeriodEndIso(subscription.current_period_end);
+        const subscriptionId =
+          typeof subscription.id === "string" ? subscription.id : null;
+        const paid = hasPaidAccess(status);
         const userIdFromMetadata =
           subscription.metadata?.supabase_user_id?.trim() || null;
 
@@ -119,14 +133,20 @@ serve(async (req) => {
         if (userIdFromMetadata) {
           await updateProfileByUserId(supabase, userIdFromMetadata, {
             stripe_customer_id: customerId,
+            stripe_subscription_id: subscriptionId,
             subscription_status: status,
+            current_period_end: periodEnd,
+            anvil_paid: paid,
           });
           break;
         }
 
         const userId = await requireProfileByCustomerId(supabase, customerId);
         await updateProfileByUserId(supabase, userId, {
+          stripe_subscription_id: subscriptionId,
           subscription_status: status,
+          current_period_end: periodEnd,
+          anvil_paid: paid,
         });
 
         break;
@@ -145,14 +165,20 @@ serve(async (req) => {
         if (userIdFromMetadata) {
           await updateProfileByUserId(supabase, userIdFromMetadata, {
             stripe_customer_id: customerId,
+            stripe_subscription_id: null,
             subscription_status: "canceled",
+            current_period_end: null,
+            anvil_paid: false,
           });
           break;
         }
 
         const userId = await requireProfileByCustomerId(supabase, customerId);
         await updateProfileByUserId(supabase, userId, {
+          stripe_subscription_id: null,
           subscription_status: "canceled",
+          current_period_end: null,
+          anvil_paid: false,
         });
 
         break;

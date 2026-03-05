@@ -269,6 +269,20 @@ export function buildSettingsContent(rootEl: HTMLElement | null) {
           </div>
           <div class="settings-meta">3 months · Save $5</div>
         </div>
+        <div
+          id="billingStatusPanel"
+          class="settings-small"
+          style="margin-top:10px;padding:10px;border:1px solid rgba(255,255,255,0.08);border-radius:10px;display:grid;gap:4px;"
+        >
+          <div><strong>Billing status</strong></div>
+          <div id="billingStatusSummary">Billing: loading...</div>
+          <div>Paid: <span id="billingStatusPaid">--</span></div>
+          <div>Tier: <span id="billingStatusTier">--</span></div>
+          <div>Status: <span id="billingStatusSubscription">--</span></div>
+          <div>Period end: <span id="billingStatusPeriodEnd">--</span></div>
+          <div>Customer: <span id="billingStatusCustomer">--</span></div>
+          <div>Subscription: <span id="billingStatusSubId">--</span></div>
+        </div>
         <p><strong>What’s included</strong></p>
         <ul>
           <li>Speech-synced & Hybrid scrolling keeps you in rhythm without rigid pacing.</li>

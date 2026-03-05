@@ -1,5 +1,6 @@
 import type { Session } from '@supabase/supabase-js';
 import { hasSupabaseConfig, supabase } from '../forge/supabaseClient';
+import { refreshEntitlements, setFreeEntitlements } from '../forge/entitlements';
 import { appStore } from '../state/app-store';
 import { setSessionPhase } from '../state/session';
 import { showToast } from '../ui/toasts';
@@ -292,6 +293,13 @@ function applyAuthState(session: Session | null): void {
   syncAuthHeader();
   syncIronMineUi();
   syncTrialClass();
+  try {
+    if (hasSupabaseConfig) {
+      void refreshEntitlements(supabase);
+    } else {
+      setFreeEntitlements();
+    }
+  } catch {}
   onSessionPhaseChange();
 }
 
