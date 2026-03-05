@@ -12,17 +12,26 @@ serve(async (req) => {
   const body = await req.text();
   const signature = req.headers.get("stripe-signature");
 
-  let event;
+  let event: Stripe.Event;
 
   try {
-    event = stripe.webhooks.constructEvent(
+    event = await stripe.webhooks.constructEventAsync(
       body,
       signature!,
       endpointSecret,
     );
   } catch (err) {
-    console.error("Webhook signature failed:", err.message);
-    return new Response("Signature verification failed", { status: 400 });
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("Webhook signature failed:", err);
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        where: "signature",
+        eventType: null,
+        message: msg,
+      }),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    );
   }
 
   const supabase = createClient(
@@ -100,8 +109,17 @@ serve(async (req) => {
         console.log(`Unhandled event: ${event.type}`);
     }
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
     console.error("Webhook processing failed:", err);
-    return new Response("Webhook handler failed", { status: 400 });
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        where: "webhook_processing",
+        eventType: event.type ?? null,
+        message: msg,
+      }),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    );
   }
 
   return new Response(JSON.stringify({ received: true }), {
