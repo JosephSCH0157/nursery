@@ -1,32 +1,165 @@
-// Follow this setup guide to integrate the Deno language server with your editor:
-// https://deno.land/manual/getting_started/setup_your_environment
-// This enables autocomplete, go to definition, etc.
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import Stripe from "https://esm.sh/stripe@14.25.0?target=deno";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// Setup type definitions for built-in Supabase Runtime APIs
-import "jsr:@supabase/functions-js/edge-runtime.d.ts"
+type CreateCheckoutSessionBody = {
+  priceId?: string;
+  price_id?: string;
+  successUrl?: string;
+  cancelUrl?: string;
+};
 
-console.log("Hello from Functions!")
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
 
-Deno.serve(async (req) => {
-  const { name } = await req.json()
-  const data = {
-    message: `Hello ${name}!`,
+function json(status: number, body: unknown) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+function getBearerToken(req: Request): string | null {
+  const auth = req.headers.get("authorization") ?? "";
+  if (!auth.startsWith("Bearer ")) return null;
+  const token = auth.slice("Bearer ".length).trim();
+  return token || null;
+}
+
+const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
+const supabaseUrl = Deno.env.get("SUPABASE_URL");
+const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const defaultSuccessUrl = Deno.env.get("STRIPE_SUCCESS_URL") ?? "";
+const defaultCancelUrl = Deno.env.get("STRIPE_CANCEL_URL") ?? "";
+
+const stripe = stripeSecretKey
+  ? new Stripe(stripeSecretKey, { apiVersion: "2024-06-20" })
+  : null;
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
   }
 
-  return new Response(
-    JSON.stringify(data),
-    { headers: { "Content-Type": "application/json" } },
-  )
-})
+  if (req.method !== "POST") {
+    return json(405, { error: "Method not allowed" });
+  }
 
-/* To invoke locally:
+  if (!stripe || !supabaseUrl || !serviceRoleKey) {
+    return json(500, {
+      error:
+        "Missing env vars: STRIPE_SECRET_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY",
+    });
+  }
 
-  1. Run `supabase start` (see: https://supabase.com/docs/reference/cli/supabase-start)
-  2. Make an HTTP request:
+  const token = getBearerToken(req);
+  if (!token) {
+    return json(401, { error: "Missing bearer token" });
+  }
 
-  curl -i --location --request POST 'http://127.0.0.1:54321/functions/v1/create-checkout-session' \
-    --header 'Authorization: Bearer eyJhbGciOiJFUzI1NiIsImtpZCI6ImI4MTI2OWYxLTIxZDgtNGYyZS1iNzE5LWMyMjQwYTg0MGQ5MCIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjIwODUwNzY5Njh9.ghzG48xO49Jrx4C_tVAv7C4rb4pzLr6Oa9EzWPQ0Ra7wq5Tea-g4eU2H1JZthuFkWQzJJcrD-_NM89VtEbLfxg' \
-    --header 'Content-Type: application/json' \
-    --data '{"name":"Functions"}'
+  const body = await req.json().catch(() => ({} as CreateCheckoutSessionBody));
+  const rawPriceId = body?.priceId ?? body?.price_id;
+  const priceId = typeof rawPriceId === "string" ? rawPriceId.trim() : "";
+  const successUrl = body.successUrl?.trim() || defaultSuccessUrl;
+  const cancelUrl = body.cancelUrl?.trim() || defaultCancelUrl;
 
-*/
+  if (!priceId) {
+    return json(400, { error: "Missing priceId" });
+  }
+
+  if (!successUrl || !cancelUrl) {
+    return json(400, {
+      error:
+        "Missing checkout params. Provide successUrl/cancelUrl or set STRIPE_SUCCESS_URL/STRIPE_CANCEL_URL.",
+    });
+  }
+
+  const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false },
+  });
+
+  const { data: authData, error: authError } = await supabaseAdmin.auth.getUser(
+    token,
+  );
+  if (authError || !authData?.user) {
+    return json(401, { error: "Invalid auth token" });
+  }
+
+  const user = authData.user;
+
+  try {
+    let stripeCustomerId: string | null = null;
+
+    try {
+      const { data: profileRow, error: profErr } = await supabaseAdmin
+        .from("profiles")
+        .select("stripe_customer_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (profErr) throw profErr;
+
+      if (
+        profileRow?.stripe_customer_id &&
+        typeof profileRow.stripe_customer_id === "string"
+      ) {
+        stripeCustomerId = profileRow.stripe_customer_id.trim();
+      }
+    } catch (e) {
+      throw new Error(
+        `Failed to read profiles.stripe_customer_id: ${String(e)}`,
+      );
+    }
+
+    if (!stripeCustomerId) {
+      const customer = await stripe.customers.create({
+        email: user.email ?? undefined,
+        metadata: {
+          supabase_user_id: user.id,
+          forge_product: "podcasters_forge",
+        },
+      });
+
+      stripeCustomerId = customer.id;
+
+      const { error: upErr } = await supabaseAdmin
+        .from("profiles")
+        .update({ stripe_customer_id: stripeCustomerId })
+        .eq("user_id", user.id);
+
+      if (upErr) {
+        throw new Error(`Failed to store stripe_customer_id: ${upErr.message}`);
+      }
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      mode: "subscription",
+      line_items: [{ price: priceId, quantity: 1 }],
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      customer: stripeCustomerId,
+      client_reference_id: user.id,
+      metadata: {
+        supabase_user_id: user.id,
+        forge_product: "podcasters_forge",
+      },
+      subscription_data: {
+        metadata: {
+          supabase_user_id: user.id,
+          forge_product: "podcasters_forge",
+        },
+      },
+    });
+
+    return json(200, {
+      url: session.url,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return json(500, { error: msg });
+  }
+});
