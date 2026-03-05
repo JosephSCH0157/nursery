@@ -24,14 +24,19 @@ export default function SubscriptionsRoute() {
         display: "grid",
         gap: 12,
         height: "calc(100vh - 140px)",
+        background: "#0b1220",
+        color: "#e6edf7",
+        border: "1px solid rgba(148, 163, 184, 0.25)",
+        borderRadius: 12,
+        padding: 12,
       }}
     >
       <header style={{ display: "grid", gap: 6 }}>
         <h2 style={{ margin: 0 }}>Forge Subscriptions</h2>
-        <div style={{ fontSize: 13, opacity: 0.8 }}>
+        <div style={{ fontSize: 13, opacity: 0.84 }}>
           Manage your Forge plan and billing.
           {" "}
-          <a href={accountHref} target="_blank" rel="noreferrer">
+          <a href={accountHref} target="_blank" rel="noreferrer" style={{ color: "#93c5fd" }}>
             Open in new tab
           </a>
         </div>
@@ -43,12 +48,11 @@ export default function SubscriptionsRoute() {
         style={{
           width: "100%",
           height: "100%",
-          border: "1px solid var(--forge-border)",
+          border: "1px solid rgba(148, 163, 184, 0.35)",
           borderRadius: 10,
-          background: "var(--forge-bg-elevated)",
+          background: "#0b1220",
         }}
       />
     </section>
   );
 }
-
