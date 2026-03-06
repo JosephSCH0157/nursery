@@ -221,14 +221,31 @@
   color: #bff3c0;
 }
 
-.forge-login-card__footer {
-  margin: 0.35rem 0 0;
-  color: rgba(227, 235, 255, 0.85);
-  font-size: 0.84rem;
+.forge-login-card__footer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  margin-top: 0.35rem;
 }
 
-.forge-login-card__footer a {
+.forge-login-card__footer-link {
+  flex: 1 1 180px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.7rem;
+  padding: 0.72rem 1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(244, 207, 160, 0.34);
+  background: rgba(3, 7, 18, 0.25);
   color: #f4cfa0;
+  text-decoration: none;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.forge-login-card__footer-link:hover {
+  background: rgba(19, 31, 63, 0.45);
 }
 
 @media (max-width: 1080px) {

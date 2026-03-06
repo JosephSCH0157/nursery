@@ -11619,7 +11619,7 @@ var supabase = supabaseClient || createSupabaseStub("[supabaseClient] Supabase n
 // src/forge/login.ts
 function getRedirectTarget() {
   const params = new URLSearchParams(window.location.search || "");
-  return params.get("next") || params.get("redirect") || params.get("return") || "/anvil/teleprompter_pro.html";
+  return params.get("next") || params.get("redirect") || params.get("return") || "/app/anvil";
 }
 function buildNurseryLoginHref(target) {
   return `/login?next=${encodeURIComponent(target)}`;

@@ -239,9 +239,19 @@ export default function Login() {
             ) : null}
           </form>
 
-          <p className="forge-login-card__footer">
-            Need access? <a href="/anvil/beta/" target="_blank" rel="noopener noreferrer">Request an invite</a>.
-          </p>
+          <div className="forge-login-card__footer-actions" aria-label="Account access actions">
+            <a
+              className="forge-login-card__footer-link"
+              href="/anvil/beta/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Request Access
+            </a>
+            <a className="forge-login-card__footer-link" href="/anvil/account.html">
+              Open Account
+            </a>
+          </div>
           {devMode ? <p className="forge-login-card__dev-next">dev next: {next}</p> : null}
         </div>
       </section>

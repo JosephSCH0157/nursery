@@ -267,66 +267,26 @@
       </div>
       <div class="tp-login-content">
         <div class="tp-login-card">
-          <div class="tp-login-title">Anvil</div>
+          <div class="tp-login-title">Login Moved to Podcaster's Forge</div>
           <div class="tp-login-subtitle">
-            Forge your voice. Shape your story.<br>
-            <span style="font-size:0.8rem; opacity:0.7;">Private beta Â· invite required</span>
+            Nursery is the canonical home for sign-in.<br>
+            <span style="font-size:0.8rem; opacity:0.7;">You are being redirected there now.</span>
           </div>
           <button type="button" id="loginBackBtn" class="tp-login-back">Back</button>
 
           <div class="tp-beta-cta">
             <a
-              href="/beta/"
-              target="_blank"
-              rel="noopener noreferrer"
+              id="canonical-login-link"
+              href="/login?next=%2Fapp%2Fanvil"
               class="tp-beta-link"
             >
-              Apply to join the Beta Here
+              Continue to Login
             </a>
           </div>
 
-          <form id="login-form">
-            <div class="tp-login-field">
-              <label for="email">Email</label>
-              <input
-                id="email"
-                type="email"
-                autocomplete="email"
-                required
-              />
-            </div>
-
-            <div class="tp-login-field">
-              <label for="password">Password</label>
-              <input
-                id="password"
-                type="password"
-                autocomplete="current-password"
-                required
-              />
-            </div>
-
-            <button type="submit" class="tp-login-button">Sign In</button>
-
-            <div class="tp-login-secondary">
-              Need access?
-              <a
-                href="/beta/"
-                target="_blank"
-                rel="noopener noreferrer"
-                style="color:#f4cfa0;text-decoration:underline;"
-              >Apply for the beta</a>
-            </div>
-            <div class="tp-beta-notice">Open For Beta Only At This Time</div>
-
-            <div class="tp-login-secondary">
-              <button type="button" id="forgot-password" class="tp-linkish-btn" style="background:none;border:none;color:#f4cfa0;cursor:pointer;padding:0;text-decoration:underline;">Forgot your password?</button>
-            </div>
-          </form>
-
-          <p id="error" aria-live="polite"></p>
-          <div class="tp-login-footnote">By signing in you agree not to blame the Anvil if your show blows up.</div>
-          <div class="tp-login-footnote" style="margin-top:0.4rem;">Brought to you by Black Anvil Studios</div>
+          <p id="error" aria-live="polite">Redirecting to the Nursery login...</p>
+          <div class="tp-login-footnote">If the redirect stalls, use Continue to Login.</div>
+          <div class="tp-login-footnote" style="margin-top:0.4rem;">Anvil now lives inside Nursery.</div>
         </div>
       </div>
     </main>
@@ -383,6 +343,18 @@
     </script>
     <script>
       (function () {
+        var link = document.getElementById('canonical-login-link');
+        if (link) {
+          try {
+            var params = new URLSearchParams(window.location.search || '');
+            var target = params.get('next') || params.get('redirect') || params.get('return') || '/app/anvil';
+            link.href = '/login?next=' + encodeURIComponent(target);
+          } catch (_) {}
+        }
+      })();
+    </script>
+    <script>
+      (function () {
         var backBtn = document.getElementById('loginBackBtn');
         if (!backBtn) return;
         backBtn.addEventListener('click', function () {
@@ -392,7 +364,7 @@
               return;
             }
           } catch (_) {}
-          window.location.href = '/teleprompter_pro.html';
+          window.location.href = '/app';
         });
       })();
     </script>
