@@ -9,6 +9,8 @@ type CreateCheckoutSessionBody = {
   cancelUrl?: string;
 };
 
+type StripeMetadata = Record<string, string>;
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -28,6 +30,16 @@ function getBearerToken(req: Request): string | null {
   if (!auth.startsWith("Bearer ")) return null;
   const token = auth.slice("Bearer ".length).trim();
   return token || null;
+}
+
+function readMetadataString(
+  metadata: Stripe.Metadata | null | undefined,
+  key: string,
+): string | null {
+  const value = metadata?.[key];
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
@@ -136,24 +148,49 @@ serve(async (req) => {
       }
     }
 
-    const session = await stripe.checkout.sessions.create({
-      mode: "subscription",
+    const price = await stripe.prices.retrieve(priceId);
+    const packType = readMetadataString(price.metadata, "forge_pack_type");
+    const packId = readMetadataString(price.metadata, "forge_pack_id");
+    const isAiCreditPack = packType === "ai_credits";
+    const isRecurringPrice = !!price.recurring;
+
+    if (isAiCreditPack && isRecurringPrice) {
+      return json(400, {
+        error: "AI credit pack prices must be one-time Stripe prices.",
+      });
+    }
+
+    const mode: Stripe.Checkout.SessionCreateParams.Mode = isAiCreditPack
+      ? "payment"
+      : isRecurringPrice
+      ? "subscription"
+      : "payment";
+
+    const sessionMetadata: StripeMetadata = {
+      supabase_user_id: user.id,
+      forge_user_id: user.id,
+      forge_product: "podcasters_forge",
+    };
+    if (packType) sessionMetadata.forge_pack_type = packType;
+    if (packId) sessionMetadata.forge_pack_id = packId;
+
+    const sessionParams: Stripe.Checkout.SessionCreateParams = {
+      mode,
       line_items: [{ price: priceId, quantity: 1 }],
       success_url: successUrl,
       cancel_url: cancelUrl,
       customer: stripeCustomerId,
       client_reference_id: user.id,
-      metadata: {
-        supabase_user_id: user.id,
-        forge_product: "podcasters_forge",
-      },
-      subscription_data: {
-        metadata: {
-          supabase_user_id: user.id,
-          forge_product: "podcasters_forge",
-        },
-      },
-    });
+      metadata: sessionMetadata,
+    };
+
+    if (mode === "subscription") {
+      sessionParams.subscription_data = {
+        metadata: sessionMetadata,
+      };
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionParams);
 
     return json(200, {
       url: session.url,
