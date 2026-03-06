@@ -15,7 +15,7 @@ Podcaster's Forge is the **front door** and **single login** for the ecosystem. 
 
 ## Forge v1.2.0 Fire Burning release index
 
-- Forge system architecture map (canonical): [`FORGE_SYSTEM_ARCHITECTURE_MAP.md`](FORGE_SYSTEM_ARCHITECTURE_MAP.md)
+- Forge system architecture (canonical): [`docs/FORGE_SYSTEM_ARCHITECTURE.md`](docs/FORGE_SYSTEM_ARCHITECTURE.md)
 - Podcaster's Forge / ForgeHub canonical doc: [`apps/nursery/FORGEHUB_V1_MANIFEST.md`](apps/nursery/FORGEHUB_V1_MANIFEST.md)
 - Bar-Stock canonical doc: [`apps/bar-stock/README.md`](apps/bar-stock/README.md)
 - Tongs canonical doc: [`packages/tongs/TONGS_V1_MANIFEST.md`](packages/tongs/TONGS_V1_MANIFEST.md)

@@ -1,4 +1,4 @@
-# Forge System Architecture Map (Canonical View)
+# Forge System Architecture (Canonical View)
 
 ## 1) The Big Picture
 
