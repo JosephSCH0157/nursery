@@ -79,6 +79,7 @@ export default defineConfig({
     alias: {
       "@barstock": resolve(__dirname, "../bar-stock/src"),
       "@hearth": resolve(__dirname, "../hearth/src"),
+      "@hammer": resolve(__dirname, "../hammer/src"),
     },
   },
   server: {
