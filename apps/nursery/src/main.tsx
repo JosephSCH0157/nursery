@@ -24,6 +24,7 @@ import IronMineRoute from "./routes/IronMine";
 import MobilePrimitivesDemo from "./routes/MobilePrimitivesDemo";
 import SubscriptionsRoute from "./routes/Subscriptions";
 import HammerRoute from "./routes/Hammer";
+import HammerEditorRoute from "./routes/HammerEditor";
 import HammerRelinkRoute from "./routes/HammerRelink";
 import HammerStandalone from "./routes/HammerStandalone";
 
@@ -65,7 +66,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         </Route>
 
         <Route path="/app/hammer" element={<HammerStandalone />}>
-          <Route index element={<HammerRoute />} />
+          <Route index element={<HammerEditorRoute />} />
           <Route path="dev/cards" element={<HammerRoute />} />
           <Route path="dev/relink" element={<HammerRelinkRoute />} />
         </Route>
