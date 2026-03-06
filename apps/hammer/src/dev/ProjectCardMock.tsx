@@ -1,5 +1,6 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { CSSProperties, JSX } from "react";
+import { useNavigate } from "react-router-dom";
 import type { ResolveMediaResult } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import type {
   BadgeChipProps,
@@ -7,6 +8,10 @@ import type {
   MediaCtaPayload,
 } from "../media/projectCardMediaBadge";
 import { toProjectCardBadgeChip } from "../media/projectCardMediaBadge";
+import {
+  dispatchMediaCtaAction,
+  type MediaCtaDispatchResult,
+} from "../media/mediaCtaActionMap";
 
 interface ProjectCardMockProps {
   devMode?: boolean;
@@ -152,14 +157,6 @@ function isDevModeFromRuntime(): boolean {
   }
 }
 
-function dispatchCta(payload: MediaCtaPayload): void {
-  try {
-    console.log("[hammer:project-card-mock] dispatchCta", payload);
-  } catch {
-    // no-op
-  }
-}
-
 function renderBadgeChip(
   chip: BadgeChipProps,
   onCtaClick: (payload: MediaCtaPayload) => void,
@@ -191,10 +188,12 @@ function renderBadgeChip(
 }
 
 export default function ProjectCardMock(props: ProjectCardMockProps): JSX.Element {
+  const navigate = useNavigate();
   const devMode = useMemo(
     () => (typeof props.devMode === "boolean" ? props.devMode : isDevModeFromRuntime()),
     [props.devMode],
   );
+  const [lastDispatch, setLastDispatch] = useState<MediaCtaDispatchResult | null>(null);
 
   const cards = useMemo(
     () =>
@@ -208,8 +207,11 @@ export default function ProjectCardMock(props: ProjectCardMockProps): JSX.Elemen
   );
 
   const onCtaClick = useCallback((payload: MediaCtaPayload) => {
-    dispatchCta(payload);
-  }, []);
+    const result = dispatchMediaCtaAction(payload, {
+      navigate,
+    });
+    setLastDispatch(result);
+  }, [navigate]);
 
   return (
     <section
@@ -226,9 +228,27 @@ export default function ProjectCardMock(props: ProjectCardMockProps): JSX.Elemen
       <header style={{ display: "grid", gap: 4 }}>
         <h2 style={{ margin: 0 }}>Hammer Project Cards (Mock)</h2>
         <div style={{ opacity: 0.78, fontSize: 13 }}>
-          Adapter proof-of-life for media resolver -> badge chip props. Dev mode:{" "}
+          Adapter proof-of-life for media resolver to badge chip props. Dev mode:{" "}
           <strong>{String(devMode)}</strong>
         </div>
+        {lastDispatch ? (
+          <div
+            style={{
+              marginTop: 6,
+              fontSize: 12,
+              border: "1px dashed rgba(148, 163, 184, 0.35)",
+              borderRadius: 8,
+              padding: "6px 8px",
+              color: "#b8c7db",
+              background: "rgba(2, 6, 23, 0.45)",
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            last dispatch: {lastDispatch.action}
+            {"\n"}route: {lastDispatch.route || "(none)"}
+            {"\n"}event: {lastDispatch.eventName || "(none)"}
+          </div>
+        ) : null}
       </header>
 
       <div style={{ display: "grid", gap: 10 }}>

@@ -44,6 +44,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="hearth" element={<HearthRoute />} />
           <Route path="hammer" element={<HammerRoute />} />
           <Route path="hammer/dev/cards" element={<HammerRoute />} />
+          <Route path="hammer/dev/relink" element={<Placeholder name="Hammer Relink (Stub)" />} />
           <Route path="tongs" element={<TongsRoute />} />
           <Route path="quench" element={<Placeholder name="Quench" />} />
           <Route path="ledger" element={<Placeholder name="Ledger" />} />
