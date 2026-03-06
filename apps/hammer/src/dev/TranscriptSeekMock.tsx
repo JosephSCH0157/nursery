@@ -6,39 +6,27 @@ import type {
   ResolveMediaResult,
   WorkspaceMediaMapping,
 } from "../../../../packages/contracts/hammer/media-resolver.contract";
+import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import { toMediaBadgeViewModel } from "../media/mediaBadgeViewModel";
 import { V1HammerMediaResolver } from "../media/resolveMedia";
 import { loadWorkspaceMapping } from "../media/workspaceMapping";
-
-type TranscriptRow = {
-  id: string;
-  startSec: number;
-  speaker: "S1" | "S2" | "G1" | "G2";
-  text: string;
-};
+import { DEFAULT_TRANSCRIPT_FIXTURE_ID, getDevTranscriptSegments } from "./transcriptFixtures";
 
 type PreviewQuery = {
   workspaceId: string;
   mediaId: string;
   mediaLocalRelpath: string;
   mediaRootAbs: string | null;
+  transcriptFixtureId: string;
+  transcriptJson: string | null;
 };
 
 const DEFAULT_WORKSPACE_ID = "ws_demo";
 const DEFAULT_MEDIA_ID = "media_local_01";
 const DEFAULT_MEDIA_RELPATH = "recordings/episode014.mp4";
 const FALLBACK_DURATION_SEC = 32;
-
-const MOCK_TRANSCRIPT: TranscriptRow[] = [
-  { id: "r1", startSec: 3, speaker: "S1", text: "Let me start with this." },
-  { id: "r2", startSec: 7, speaker: "S2", text: "Right, and that is exactly the tension." },
-  { id: "r3", startSec: 10, speaker: "S1", text: "Here is the real problem we keep seeing." },
-  { id: "r4", startSec: 14, speaker: "S2", text: "Most teams optimize output, not signal." },
-  { id: "r5", startSec: 17, speaker: "S1", text: "That is why workflow quality breaks first." },
-  { id: "r6", startSec: 21, speaker: "G1", text: "Can we anchor this to one repeatable pattern?" },
-  { id: "r7", startSec: 24, speaker: "S1", text: "Yes, transcript-driven edits become deterministic." },
-  { id: "r8", startSec: 28, speaker: "S2", text: "Then shorts packaging is mostly review, not rescue." },
-];
+const MIN_SEGMENT_DURATION_SEC = 0.2;
+const UNKNOWN_SPEAKER = "UNK";
 
 const ROOT_STYLE: CSSProperties = {
   display: "grid",
@@ -67,12 +55,21 @@ function formatClock(totalSec: number): string {
   return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 }
 
-function pickTranscriptRowForTime(rows: TranscriptRow[], timeSec: number): string | null {
-  let active: string | null = null;
-  for (const row of rows) {
-    if (row.startSec <= timeSec) active = row.id;
+function pickTranscriptSegmentForTime(
+  segments: HammerTranscriptSegment[],
+  timeSec: number,
+): string | null {
+  for (const segment of segments) {
+    if (timeSec >= segment.start_sec && timeSec < segment.end_sec) {
+      return segment.segment_id;
+    }
   }
-  return active;
+
+  let fallback: string | null = null;
+  for (const segment of segments) {
+    if (segment.start_sec <= timeSec) fallback = segment.segment_id;
+  }
+  return fallback;
 }
 
 function readTrimmed(params: URLSearchParams, key: string): string | null {
@@ -98,11 +95,124 @@ function readPreviewQuery(search: string): PreviewQuery {
   const mediaRootAbs = readTrimmed(params, "media_root_abs")
     ?? readTrimmed(params, "local_root_abs")
     ?? readTrimmed(params, "media_root");
+  const transcriptFixtureId = readTrimmed(params, "transcript_fixture")
+    ?? readTrimmed(params, "transcriptFixture")
+    ?? DEFAULT_TRANSCRIPT_FIXTURE_ID;
+  const transcriptJson = readTrimmed(params, "transcript_json")
+    ?? readTrimmed(params, "transcript");
   return {
     workspaceId,
     mediaId,
     mediaLocalRelpath,
     mediaRootAbs,
+    transcriptFixtureId,
+    transcriptJson,
+  };
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function readString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized.length ? normalized : null;
+}
+
+function readNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function normalizeTranscriptSegment(input: unknown, index: number): HammerTranscriptSegment | null {
+  const row = readRecord(input);
+  if (!row) return null;
+
+  const startSec = readNumber(row.start_sec);
+  if (startSec == null || startSec < 0) return null;
+  const rawEndSec = readNumber(row.end_sec);
+  const endSec = rawEndSec == null || rawEndSec <= startSec
+    ? startSec + MIN_SEGMENT_DURATION_SEC
+    : rawEndSec;
+
+  const text = readString(row.text);
+  if (!text) return null;
+
+  const speaker = readString(row.speaker) ?? UNKNOWN_SPEAKER;
+  const segmentId = readString(row.segment_id) ?? `seg_${index + 1}`;
+
+  return {
+    segment_id: segmentId,
+    start_sec: startSec,
+    end_sec: endSec,
+    speaker,
+    text,
+  };
+}
+
+function parseTranscriptSegmentsJson(raw: string): HammerTranscriptSegment[] {
+  const tryParse = (source: string): unknown => JSON.parse(source);
+  let parsed: unknown;
+  try {
+    parsed = tryParse(raw);
+  } catch {
+    parsed = tryParse(decodeURIComponent(raw));
+  }
+
+  const parsedRecord = readRecord(parsed);
+  const maybeSegments = Array.isArray(parsed)
+    ? parsed
+    : (parsedRecord && Array.isArray(parsedRecord.segments) ? parsedRecord.segments : null);
+  if (!maybeSegments) return [];
+
+  const normalized = maybeSegments
+    .map((row, index) => normalizeTranscriptSegment(row, index))
+    .filter((row): row is HammerTranscriptSegment => Boolean(row))
+    .sort((a, b) => a.start_sec - b.start_sec);
+
+  return normalized;
+}
+
+type TranscriptLoadResult = {
+  segments: HammerTranscriptSegment[];
+  sourceLabel: string;
+  error: string | null;
+};
+
+function loadTranscriptFromQuery(query: PreviewQuery): TranscriptLoadResult {
+  if (query.transcriptJson) {
+    try {
+      const fromQuery = parseTranscriptSegmentsJson(query.transcriptJson);
+      if (fromQuery.length > 0) {
+        return {
+          segments: fromQuery,
+          sourceLabel: "query:transcript_json",
+          error: null,
+        };
+      }
+      return {
+        segments: getDevTranscriptSegments(query.transcriptFixtureId),
+        sourceLabel: `fixture:${query.transcriptFixtureId}`,
+        error: "transcript_json did not contain valid segments. Falling back to fixture.",
+      };
+    } catch (error) {
+      return {
+        segments: getDevTranscriptSegments(query.transcriptFixtureId),
+        sourceLabel: `fixture:${query.transcriptFixtureId}`,
+        error: toErrorMessage(error, "Failed to parse transcript_json. Falling back to fixture."),
+      };
+    }
+  }
+
+  return {
+    segments: getDevTranscriptSegments(query.transcriptFixtureId),
+    sourceLabel: `fixture:${query.transcriptFixtureId}`,
+    error: null,
   };
 }
 
@@ -145,6 +255,12 @@ export default function TranscriptSeekMock(): JSX.Element {
     () => readPreviewQuery(location.search),
     [location.search],
   );
+  const transcriptLoad = useMemo(
+    () => loadTranscriptFromQuery(query),
+    [query],
+  );
+  const transcriptSegments = transcriptLoad.segments;
+  const firstSegment = transcriptSegments[0] ?? null;
   const mediaRef = useMemo<MediaRef>(
     () => ({
       media_id: query.mediaId,
@@ -158,10 +274,12 @@ export default function TranscriptSeekMock(): JSX.Element {
   const [resolveResult, setResolveResult] = useState<ResolveMediaResult | null>(null);
   const [resolving, setResolving] = useState(true);
   const [resolveError, setResolveError] = useState<string | null>(null);
-  const [currentSec, setCurrentSec] = useState(MOCK_TRANSCRIPT[0]?.startSec ?? 0);
+  const [currentSec, setCurrentSec] = useState(firstSegment?.start_sec ?? 0);
   const [durationSec, setDurationSec] = useState(FALLBACK_DURATION_SEC);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [selectedRowId, setSelectedRowId] = useState<string | null>(MOCK_TRANSCRIPT[0]?.id ?? null);
+  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(
+    firstSegment?.segment_id ?? null,
+  );
   const [videoError, setVideoError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -202,23 +320,23 @@ export default function TranscriptSeekMock(): JSX.Element {
   );
 
   useEffect(() => {
-    setCurrentSec(MOCK_TRANSCRIPT[0]?.startSec ?? 0);
-    setSelectedRowId(MOCK_TRANSCRIPT[0]?.id ?? null);
+    setCurrentSec(firstSegment?.start_sec ?? 0);
+    setSelectedSegmentId(firstSegment?.segment_id ?? null);
     setDurationSec(FALLBACK_DURATION_SEC);
     setIsPlaying(false);
     setVideoError(null);
-  }, [videoSrc]);
+  }, [firstSegment?.segment_id, firstSegment?.start_sec, videoSrc]);
 
   useEffect(() => {
-    const active = pickTranscriptRowForTime(MOCK_TRANSCRIPT, currentSec);
-    if (active && active !== selectedRowId) {
-      setSelectedRowId(active);
+    const active = pickTranscriptSegmentForTime(transcriptSegments, currentSec);
+    if (active && active !== selectedSegmentId) {
+      setSelectedSegmentId(active);
     }
-  }, [currentSec, selectedRowId]);
+  }, [currentSec, selectedSegmentId, transcriptSegments]);
 
-  const selectedRow = useMemo(
-    () => MOCK_TRANSCRIPT.find((row) => row.id === selectedRowId) ?? null,
-    [selectedRowId],
+  const selectedSegment = useMemo(
+    () => transcriptSegments.find((segment) => segment.segment_id === selectedSegmentId) ?? null,
+    [selectedSegmentId, transcriptSegments],
   );
 
   const effectiveDurationSec = durationSec > 0 ? durationSec : FALLBACK_DURATION_SEC;
@@ -250,7 +368,7 @@ export default function TranscriptSeekMock(): JSX.Element {
       video.currentTime = bounded;
     }
     setCurrentSec(bounded);
-    if (rowId) setSelectedRowId(rowId);
+    if (rowId) setSelectedSegmentId(rowId);
   }
 
   return (
@@ -261,37 +379,52 @@ export default function TranscriptSeekMock(): JSX.Element {
           <div style={{ fontSize: 13, opacity: 0.78 }}>
             Click a row to seek the real preview playhead.
           </div>
+          <div style={{ fontSize: 12, opacity: 0.72 }}>
+            source: {transcriptLoad.sourceLabel}
+          </div>
+          {transcriptLoad.error ? (
+            <div style={{ fontSize: 12, color: "#fde68a" }}>
+              {transcriptLoad.error}
+            </div>
+          ) : null}
         </header>
 
         <div style={{ display: "grid", gap: 6, overflow: "auto", maxHeight: "calc(100vh - 230px)" }}>
-          {MOCK_TRANSCRIPT.map((row) => {
-            const isSelected = row.id === selectedRowId;
-            return (
-              <button
-                key={row.id}
-                type="button"
-                onClick={() => seekTo(row.startSec, row.id)}
-                style={{
-                  border: isSelected
-                    ? "1px solid rgba(96, 165, 250, 0.72)"
-                    : "1px solid rgba(148, 163, 184, 0.22)",
-                  borderRadius: 10,
-                  background: isSelected
-                    ? "rgba(59, 130, 246, 0.2)"
-                    : "rgba(2, 6, 23, 0.42)",
-                  textAlign: "left",
-                  padding: "8px 10px",
-                  display: "grid",
-                  gap: 3,
-                }}
-              >
-                <div style={{ fontSize: 12, opacity: 0.85 }}>
-                  {formatClock(row.startSec)} {row.speaker}
-                </div>
-                <div style={{ fontSize: 13, lineHeight: 1.35 }}>{row.text}</div>
-              </button>
-            );
-          })}
+          {transcriptSegments.length > 0 ? (
+            transcriptSegments.map((segment) => {
+              const isSelected = segment.segment_id === selectedSegmentId;
+              return (
+                <button
+                  key={segment.segment_id}
+                  type="button"
+                  onClick={() => seekTo(segment.start_sec, segment.segment_id)}
+                  style={{
+                    border: isSelected
+                      ? "1px solid rgba(96, 165, 250, 0.72)"
+                      : "1px solid rgba(148, 163, 184, 0.22)",
+                    borderRadius: 10,
+                    background: isSelected
+                      ? "rgba(59, 130, 246, 0.2)"
+                      : "rgba(2, 6, 23, 0.42)",
+                    textAlign: "left",
+                    padding: "8px 10px",
+                    display: "grid",
+                    gap: 3,
+                  }}
+                >
+                  <div style={{ fontSize: 12, opacity: 0.85 }}>
+                    {formatClock(segment.start_sec)}-{formatClock(segment.end_sec)} {segment.speaker}
+                  </div>
+                  <div style={{ fontSize: 13, lineHeight: 1.35 }}>{segment.text}</div>
+                  <div style={{ fontSize: 11, opacity: 0.62 }}>id: {segment.segment_id}</div>
+                </button>
+              );
+            })
+          ) : (
+            <div style={{ fontSize: 13, opacity: 0.78 }}>
+              No transcript segments loaded.
+            </div>
+          )}
         </div>
       </div>
 
@@ -426,8 +559,6 @@ export default function TranscriptSeekMock(): JSX.Element {
               type="button"
               disabled={!canControlVideo}
               onClick={() => {
-                const firstRow = MOCK_TRANSCRIPT[0];
-                if (!firstRow) return;
                 const video = videoRef.current;
                 if (video) {
                   video.pause();
@@ -435,7 +566,7 @@ export default function TranscriptSeekMock(): JSX.Element {
                 }
                 setIsPlaying(false);
                 setCurrentSec(0);
-                setSelectedRowId(firstRow.id);
+                setSelectedSegmentId(firstSegment?.segment_id ?? null);
               }}
             >
               Reset
@@ -453,8 +584,8 @@ export default function TranscriptSeekMock(): JSX.Element {
             background: "rgba(2, 6, 23, 0.45)",
           }}
         >
-          {selectedRow
-            ? `Selected row: ${formatClock(selectedRow.startSec)} ${selectedRow.speaker} - ${selectedRow.text}`
+          {selectedSegment
+            ? `Selected segment: ${selectedSegment.segment_id} (${formatClock(selectedSegment.start_sec)}-${formatClock(selectedSegment.end_sec)}) ${selectedSegment.speaker} - ${selectedSegment.text}`
             : "No row selected."}
         </div>
       </div>

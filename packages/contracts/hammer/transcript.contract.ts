@@ -1,0 +1,12 @@
+export interface HammerTranscriptSegment {
+  segment_id: string;
+  start_sec: number;
+  end_sec: number;
+  speaker: string;
+  text: string;
+}
+
+export interface HammerTranscript {
+  media_id: string;
+  segments: HammerTranscriptSegment[];
+}

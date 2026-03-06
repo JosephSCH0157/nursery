@@ -1,6 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { resolve, join, dirname } from "path";
+import { resolve, join, dirname, isAbsolute } from "path";
 import fs from "node:fs";
 import fsPromises from "node:fs/promises";
 import { mwHearthChatApi } from "./scripts/mw-hearth-chat-api";
@@ -9,6 +9,7 @@ import { createNurseryTongsMiddleware } from "./scripts/mw-tongs-commit-api";
 const RETRYABLE_PUBLIC_COPY_CODES = new Set(["EPERM", "EBUSY", "ENOTEMPTY"]);
 const PUBLIC_COPY_RETRIES = 6;
 const PUBLIC_COPY_RETRY_DELAY_MS = 50;
+const EXTRA_FS_ALLOW_ENV_KEYS = ["FORGE_VITE_FS_ALLOW", "FORGE_MEDIA_ROOTS"] as const;
 
 function isRetryableCopyError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -53,6 +54,24 @@ async function copyPublicDirResilient(srcDir: string, destDir: string): Promise<
   }
 }
 
+function readExtraFsAllowRoots(): string[] {
+  const raw = EXTRA_FS_ALLOW_ENV_KEYS
+    .map((key) => process.env[key] ?? "")
+    .find((value) => value.trim().length > 0)
+    ?? "";
+  if (!raw.trim()) return [];
+
+  const roots = new Set<string>();
+  for (const part of raw.split(/[;\n,]+/)) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    roots.add(isAbsolute(trimmed) ? trimmed : resolve(__dirname, trimmed));
+  }
+  return Array.from(roots);
+}
+
+const EXTRA_FS_ALLOW_ROOTS = readExtraFsAllowRoots();
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
@@ -84,7 +103,11 @@ export default defineConfig({
   },
   server: {
     fs: {
-      allow: [resolve(__dirname, ".."), resolve(__dirname, "../..")],
+      allow: [
+        resolve(__dirname, ".."),
+        resolve(__dirname, "../.."),
+        ...EXTRA_FS_ALLOW_ROOTS,
+      ],
     },
   },
   build: {
