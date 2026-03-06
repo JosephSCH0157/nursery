@@ -72,7 +72,11 @@ async function probeExists(probeFn: LocalProbeFn | undefined, absolutePath: stri
 }
 
 export class V1HammerMediaResolver implements HammerMediaResolver {
-  constructor(private readonly deps: ResolveMediaRuntimeDeps = {}) {}
+  private readonly deps: ResolveMediaRuntimeDeps;
+
+  constructor(deps: ResolveMediaRuntimeDeps = {}) {
+    this.deps = deps;
+  }
 
   async resolveMedia(
     workspaceMapping: WorkspaceMediaMapping | null,
