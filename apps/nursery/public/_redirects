@@ -1,5 +1,9 @@
 /anvil     /anvil/teleprompter_pro.html  200
 /anvil/*  /anvil/:splat  200
+/beta     /beta/index.html  200
+/beta/thanks  /beta/thanks.html  200
+/anvil/beta  /beta/index.html  301
+/anvil/beta/*  /beta/:splat  301
 /login    /index.html    200
 /auth/callback  /index.html  200
 /reset-password  /index.html  200

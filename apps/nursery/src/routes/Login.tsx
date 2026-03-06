@@ -177,9 +177,7 @@ export default function Login() {
             </a>
             <a
               className="forge-login-card__beta"
-              href="/anvil/beta/"
-              target="_blank"
-              rel="noopener noreferrer"
+              href="/beta/index.html"
             >
               Apply For Beta
             </a>
@@ -242,9 +240,7 @@ export default function Login() {
           <div className="forge-login-card__footer-actions" aria-label="Account access actions">
             <a
               className="forge-login-card__footer-link"
-              href="/anvil/beta/"
-              target="_blank"
-              rel="noopener noreferrer"
+              href="/beta/index.html"
             >
               Request Access
             </a>

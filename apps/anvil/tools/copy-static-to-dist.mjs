@@ -21,6 +21,12 @@ const copy = (src, dest) => {
   console.log('[copy-static] copied', src, '->', dest);
 };
 
+const removeStale = (dest) => {
+  if (!fs.existsSync(dest)) return;
+  fs.rmSync(dest, { recursive: true, force: true });
+  console.log('[copy-static] removed stale path', dest);
+};
+
 const STATIC_PATHS = [
   'teleprompter_pro.html',
   'teleprompter_pro.css',
@@ -47,6 +53,8 @@ const SPEECH_STUBS = [
   { src: path.join('speech-stubs', 'matcher.js'), dest: path.join('speech', 'matcher.js') },
   { src: path.join('speech-stubs', 'orchestrator.js'), dest: path.join('speech', 'orchestrator.js') },
 ];
+
+removeStale(path.join(DIST, 'beta'));
 
 for (const rel of STATIC_PATHS) {
   copy(path.join(ROOT, rel), path.join(DIST, rel));
