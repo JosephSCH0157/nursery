@@ -6,6 +6,6 @@
     "e2e": "node teleprompter_e2e.js"
   },
   "devDependencies": {
-    "puppeteer": "^24.37.5"
+    "puppeteer": "^24.38.0"
   }
 }
