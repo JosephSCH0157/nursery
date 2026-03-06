@@ -4,6 +4,9 @@
 window.__forgeSupabaseUrl = 'https://wtvdjndyxegudufrompx.supabase.co';
 window.__forgeSupabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind0dmRqbmR5eGVndWR1ZnJvbXB4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUzOTM1NTgsImV4cCI6MjA4MDk2OTU1OH0.J8QSPxk8pmJUTEyZU7vpQn7W6G_TBS7RPoCX9B42Vug';
 window.__forgeAnvilPriceId = window.__forgeAnvilPriceId || 'price_1T7MWa1OSG3CCNl8tAtHR2LY';
+window.__forgeAiPriceId_base = window.__forgeAiPriceId_base || '';
+window.__forgeAiPriceId_mid = window.__forgeAiPriceId_mid || '';
+window.__forgeAiPriceId_high = window.__forgeAiPriceId_high || '';
 // Optional overrides for production reset links:
 window.__forgeAppOrigin = window.__forgeAppOrigin || 'https://podcastersforge.com';
 window.__forgeResetRedirectUrl = window.__forgeResetRedirectUrl || 'https://podcastersforge.com/reset';

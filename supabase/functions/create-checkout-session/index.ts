@@ -160,6 +160,31 @@ serve(async (req) => {
       });
     }
 
+    if (isAiCreditPack) {
+      const { data: aiCreditsRow, error: aiCreditsError } = await supabaseAdmin
+        .schema("tongs")
+        .from("ai_credits")
+        .select("billing_mode")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (aiCreditsError) {
+        throw new Error(
+          `Failed to read tongs.ai_credits.billing_mode: ${aiCreditsError.message}`,
+        );
+      }
+
+      const billingMode = typeof aiCreditsRow?.billing_mode === "string"
+        ? aiCreditsRow.billing_mode.trim().toLowerCase()
+        : "forge";
+
+      if (billingMode === "byo") {
+        return json(400, {
+          error: "BYO_KEY_USERS_CANNOT_PURCHASE_FORGE_CREDITS",
+        });
+      }
+    }
+
     const mode: Stripe.Checkout.SessionCreateParams.Mode = isAiCreditPack
       ? "payment"
       : isRecurringPrice

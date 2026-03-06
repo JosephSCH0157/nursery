@@ -11681,13 +11681,100 @@ async function ensureUserAndProfile() {
 }
 
 // src/forge/account.ts
-function getConfiguredPriceId() {
+function escapeHtml(value) {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+}
+function normalizeString(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+function readWindowConfig(key) {
+  const w2 = typeof window !== "undefined" ? window : {};
+  return normalizeString(w2[key]);
+}
+function getConfiguredPlanPriceId() {
   const w2 = typeof window !== "undefined" ? window : {};
   const meta2 = typeof import.meta !== "undefined" ? import.meta : {};
   const metaEnv2 = meta2.env || {};
   return String(
     w2.__forgeAnvilPriceId || metaEnv2.VITE_STRIPE_ANVIL_PRICE_ID || metaEnv2.VITE_STRIPE_PRICE_ID || ""
   ).trim();
+}
+function getConfiguredAiPriceId(key) {
+  const meta2 = typeof import.meta !== "undefined" ? import.meta : {};
+  const metaEnv2 = meta2.env || {};
+  const envKey = key === "base" ? metaEnv2.VITE_STRIPE_AI_PRICE_ID_BASE : key === "mid" ? metaEnv2.VITE_STRIPE_AI_PRICE_ID_MID : metaEnv2.VITE_STRIPE_AI_PRICE_ID_HIGH;
+  return String(readWindowConfig(`__forgeAiPriceId_${key}`) || envKey || "").trim();
+}
+function getConfiguredAiPacks() {
+  return [
+    {
+      key: "base",
+      label: "AI Base",
+      amountLabel: "$10",
+      tokensLabel: "1,000,000",
+      priceId: getConfiguredAiPriceId("base")
+    },
+    {
+      key: "mid",
+      label: "AI Mid",
+      amountLabel: "$25",
+      tokensLabel: "3,000,000",
+      priceId: getConfiguredAiPriceId("mid")
+    },
+    {
+      key: "high",
+      label: "AI High",
+      amountLabel: "$50",
+      tokensLabel: "7,000,000",
+      priceId: getConfiguredAiPriceId("high")
+    }
+  ];
+}
+function isFounderTier(tier) {
+  return tier.trim().toLowerCase() === "founder";
+}
+function getCheckoutStatus() {
+  const params = new URLSearchParams(window.location.search || "");
+  const raw = params.get("checkout");
+  if (!raw) return null;
+  const value = raw.trim().toLowerCase();
+  if (value === "success") return "success";
+  if (value === "canceled") return "canceled";
+  return null;
+}
+function getCheckoutStatusMessage() {
+  const checkoutStatus = getCheckoutStatus();
+  if (checkoutStatus === "success") return "Thanks - credits will appear in a moment.";
+  if (checkoutStatus === "canceled") return "Checkout canceled.";
+  const params = new URLSearchParams(window.location.search || "");
+  if (params.has("session_id")) return "Checkout received - processing...";
+  return null;
+}
+function formatTokenBalance(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
+  return Math.max(0, Math.floor(value)).toLocaleString();
+}
+function parseTokenBalance(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+async function fetchAiCreditsSnapshot() {
+  const tongsClient = supabase.schema("tongs");
+  const { data, error } = await tongsClient.rpc("get_my_ai_credits");
+  if (error) {
+    throw new Error(error.message || "Failed to load AI credits state.");
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  const rawMode = normalizeString(row?.billing_mode);
+  const billingMode = rawMode === "forge" || rawMode === "byo" ? rawMode : "unknown";
+  return {
+    billingMode,
+    tokenBalance: parseTokenBalance(row?.token_balance)
+  };
 }
 async function startCheckout(priceId) {
   const currentUrl = new URL(window.location.href);
@@ -11722,9 +11809,14 @@ function renderAccount(ctx) {
   const root = document.getElementById("account-details");
   if (!root) return;
   const { user, profile } = ctx;
-  const email = user.email || "(no email)";
-  const displayName = profile.display_name || "(no display name)";
-  const tier = profile.tier || "free";
+  const email = escapeHtml(user.email || "(no email)");
+  const displayName = escapeHtml(profile.display_name || "(no display name)");
+  const tierRaw = profile.tier || "free";
+  const tier = escapeHtml(tierRaw);
+  const isFounder = isFounderTier(tierRaw);
+  const checkoutMessage = getCheckoutStatusMessage();
+  const planPriceId = getConfiguredPlanPriceId();
+  const aiPacks = getConfiguredAiPacks();
   root.innerHTML = `
     <h2>Profile</h2>
     <p><strong>Email:</strong> ${email}</p>
@@ -11733,8 +11825,23 @@ function renderAccount(ctx) {
 
     <h2>Plan & Billing</h2>
     <p>Your current plan is <strong>${tier}</strong>.</p>
-    <button id="upgrade-btn" type="button">Upgrade plan</button>
-    <p id="upgrade-msg" aria-live="polite"></p>
+    ${isFounder ? '<p class="account-note">Founder access is admin-assigned.</p>' : ""}
+    ${isFounder ? "" : '<button id="upgrade-btn" type="button">Upgrade plan</button>'}
+    <p id="upgrade-msg" aria-live="polite">${!isFounder && checkoutMessage ? escapeHtml(checkoutMessage) : ""}</p>
+
+    <h2>Forge AI Credits</h2>
+    <section id="ai-pack-section" class="pack-section">
+      <p>Buy credits for Forge-managed AI usage.</p>
+      <div class="pack-row">
+        ${aiPacks.map(
+    (pack) => `<button id="ai-pack-${pack.key}" type="button" data-pack="${pack.key}">Buy ${pack.amountLabel} (${pack.tokensLabel} tokens)</button>`
+  ).join("")}
+      </div>
+      <p id="ai-pack-balance" class="account-note">Balance: loading...</p>
+      <p id="ai-pack-mode" class="account-note">AI billing mode: loading...</p>
+      <p id="ai-pack-msg" aria-live="polite">${checkoutMessage ? escapeHtml(checkoutMessage) : ""}</p>
+      <p id="ai-pack-help" class="account-note"></p>
+    </section>
 
     <h2>Session</h2>
     <button id="logout-btn" type="button">Log out</button>
@@ -11742,13 +11849,77 @@ function renderAccount(ctx) {
   const logoutBtn = document.getElementById("logout-btn");
   const upgradeBtn = document.getElementById("upgrade-btn");
   const upgradeMsg = document.getElementById("upgrade-msg");
-  const priceId = getConfiguredPriceId();
+  const aiSection = document.getElementById("ai-pack-section");
+  const aiBalanceEl = document.getElementById("ai-pack-balance");
+  const aiModeEl = document.getElementById("ai-pack-mode");
+  const aiHelpEl = document.getElementById("ai-pack-help");
+  const aiMsgEl = document.getElementById("ai-pack-msg");
   const setUpgradeMessage = (message) => {
     if (upgradeMsg) {
       upgradeMsg.textContent = message;
     }
   };
-  if (!priceId) {
+  const setAiMessage = (message) => {
+    if (aiMsgEl) aiMsgEl.textContent = message;
+  };
+  let aiLocked = true;
+  let aiLockReason = "Loading AI billing mode...";
+  const applyAiAvailability = () => {
+    if (aiSection) {
+      aiSection.classList.toggle("is-disabled", aiLocked);
+    }
+    for (const pack of aiPacks) {
+      const button = document.getElementById(`ai-pack-${pack.key}`);
+      if (!button) continue;
+      const missingPrice = !pack.priceId;
+      button.disabled = aiLocked || missingPrice;
+      if (missingPrice) {
+        button.title = `${pack.label} price ID is not configured.`;
+      } else if (aiLocked && aiLockReason) {
+        button.title = aiLockReason;
+      } else {
+        button.title = "";
+      }
+    }
+    if (aiHelpEl) {
+      if (aiLocked && aiLockReason) {
+        aiHelpEl.textContent = aiLockReason;
+      } else if (aiPacks.some((pack) => !pack.priceId)) {
+        aiHelpEl.textContent = "One or more AI pack price IDs are not configured.";
+      } else {
+        aiHelpEl.textContent = "Choose a pack to launch Stripe checkout.";
+      }
+    }
+  };
+  const refreshAiCredits = async () => {
+    try {
+      const snapshot = await fetchAiCreditsSnapshot();
+      if (aiBalanceEl) {
+        aiBalanceEl.textContent = `Balance: ${formatTokenBalance(snapshot.tokenBalance)} tokens`;
+      }
+      if (aiModeEl) {
+        const modeLabel = snapshot.billingMode === "forge" ? "Forge-managed" : snapshot.billingMode === "byo" ? "BYO" : "Unknown";
+        aiModeEl.textContent = `AI billing mode: ${modeLabel}`;
+      }
+      if (snapshot.billingMode === "byo") {
+        aiLocked = true;
+        aiLockReason = "Forge AI Credits are only for Forge-managed AI. You are currently using your own provider key.";
+      } else {
+        aiLocked = false;
+        aiLockReason = "";
+      }
+      applyAiAvailability();
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : typeof error === "string" ? error : "Failed to load AI mode.";
+      aiLocked = true;
+      aiLockReason = "Unable to load AI billing mode. Refresh and try again.";
+      applyAiAvailability();
+      setAiMessage(`AI mode error: ${msg}`);
+      if (aiBalanceEl) aiBalanceEl.textContent = "Balance: --";
+      if (aiModeEl) aiModeEl.textContent = "AI billing mode: unknown";
+    }
+  };
+  if (!planPriceId && upgradeBtn) {
     if (upgradeBtn) {
       upgradeBtn.disabled = true;
       upgradeBtn.title = "Missing Stripe price ID configuration.";
@@ -11763,14 +11934,14 @@ function renderAccount(ctx) {
   }
   if (upgradeBtn) {
     upgradeBtn.addEventListener("click", async () => {
-      if (!priceId) return;
+      if (!planPriceId) return;
       const button = upgradeBtn;
       const prevText = button.textContent || "Upgrade plan";
       button.disabled = true;
       button.textContent = "Redirecting...";
       setUpgradeMessage("");
       try {
-        await startCheckout(priceId);
+        await startCheckout(planPriceId);
       } catch (error) {
         const msg = error instanceof Error ? error.message : typeof error === "string" ? error : "Checkout failed.";
         setUpgradeMessage(`Checkout error: ${msg}`);
@@ -11778,6 +11949,38 @@ function renderAccount(ctx) {
         button.textContent = prevText;
       }
     });
+  }
+  for (const pack of aiPacks) {
+    const button = document.getElementById(`ai-pack-${pack.key}`);
+    if (!button) continue;
+    const defaultLabel = button.textContent || `Buy ${pack.amountLabel}`;
+    button.dataset.defaultLabel = defaultLabel;
+    button.addEventListener("click", async () => {
+      if (aiLocked || !pack.priceId) return;
+      const allButtons = aiPacks.map((entry) => document.getElementById(`ai-pack-${entry.key}`)).filter(Boolean);
+      for (const btn of allButtons) {
+        btn.disabled = true;
+      }
+      button.textContent = "Redirecting...";
+      setAiMessage("");
+      try {
+        await startCheckout(pack.priceId);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : typeof error === "string" ? error : "Checkout failed.";
+        setAiMessage(`Checkout error: ${msg}`);
+        for (const btn of allButtons) {
+          btn.textContent = btn.dataset.defaultLabel || "Buy";
+        }
+        applyAiAvailability();
+      }
+    });
+  }
+  applyAiAvailability();
+  void refreshAiCredits();
+  if (getCheckoutStatus() === "success") {
+    window.setTimeout(() => {
+      void refreshAiCredits();
+    }, 2500);
   }
 }
 async function main() {

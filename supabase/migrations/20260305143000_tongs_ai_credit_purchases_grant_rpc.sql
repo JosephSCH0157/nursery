@@ -48,6 +48,7 @@ declare
   v_event_id text;
   v_session_id text;
   v_currency text;
+  v_billing_mode text;
 begin
   if p_user_id is null then
     raise exception 'p_user_id required'
@@ -82,6 +83,17 @@ begin
   insert into tongs.ai_credits (user_id)
   values (p_user_id)
   on conflict (user_id) do nothing;
+
+  select c.billing_mode
+  into v_billing_mode
+  from tongs.ai_credits c
+  where c.user_id = p_user_id
+  for update;
+
+  if v_billing_mode = 'byo' then
+    raise exception 'BYO_KEY_USERS_CANNOT_PURCHASE_FORGE_CREDITS'
+      using errcode = '22023';
+  end if;
 
   insert into tongs.ai_credit_purchases (
     stripe_event_id,
@@ -140,4 +152,3 @@ grant execute on function tongs.grant_ai_credits(
 ) to service_role;
 
 commit;
-

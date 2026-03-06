@@ -276,7 +276,8 @@ serve(async (req) => {
     }
   } catch (err) {
     console.error("Webhook processing failed:", err);
-    return new Response("Webhook handler failed", { status: 400 });
+    const message = err instanceof Error ? err.message : String(err);
+    return new Response(message || "Webhook handler failed", { status: 400 });
   }
 
   return new Response(JSON.stringify({ received: true }), {
