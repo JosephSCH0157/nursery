@@ -24,6 +24,10 @@ interface MockProject {
   result: ResolveMediaResult;
 }
 
+interface MockProjectCard extends MockProject {
+  chip: BadgeChipProps;
+}
+
 const MOCK_PROJECTS: MockProject[] = [
   {
     projectId: "project_local_ok",
@@ -161,6 +165,7 @@ function renderBadgeChip(
   chip: BadgeChipProps,
   onCtaClick: (payload: MediaCtaPayload) => void,
 ): JSX.Element {
+  const ctaPayload = chip.ctaPayload;
   return (
     <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
       <span
@@ -178,8 +183,8 @@ function renderBadgeChip(
       >
         {chip.text}
       </span>
-      {chip.ctaText && chip.ctaPayload ? (
-        <button type="button" style={CTA_STYLE} onClick={() => onCtaClick(chip.ctaPayload)}>
+      {chip.ctaText && ctaPayload ? (
+        <button type="button" style={CTA_STYLE} onClick={() => onCtaClick(ctaPayload)}>
           {chip.ctaText}
         </button>
       ) : null}
@@ -195,7 +200,7 @@ export default function ProjectCardMock(props: ProjectCardMockProps): JSX.Elemen
   );
   const [lastDispatch, setLastDispatch] = useState<MediaCtaDispatchResult | null>(null);
 
-  const cards = useMemo(
+  const cards = useMemo<MockProjectCard[]>(
     () =>
       MOCK_PROJECTS.map((project) => ({
         ...project,

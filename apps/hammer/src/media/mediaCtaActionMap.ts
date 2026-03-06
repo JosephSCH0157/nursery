@@ -52,11 +52,17 @@ function buildRoute(payload: MediaCtaPayload): string {
   const params = new URLSearchParams();
   pushParam(params, "workspace_id", payload.workspaceId);
   pushParam(params, "media_id", payload.mediaId);
+  params.set("action", payload.action);
 
   switch (payload.action) {
     case "OPEN_WORKSPACE_SETTINGS":
       return withQuery("/app/settings/storage", params);
     case "RELINK_MEDIA":
+      {
+        const returnParams = new URLSearchParams();
+        pushParam(returnParams, "workspace_id", payload.workspaceId);
+        params.set("return_to", withQuery("/app/hammer/dev/cards", returnParams));
+      }
       return withQuery("/app/hammer/dev/relink", params);
     case "ENABLE_CLOUD_MEDIA":
       params.set("section", "cloud-media");
@@ -109,7 +115,6 @@ export function dispatchMediaCtaAction(
     detail,
     reason: "action_map_stub_v1",
   };
-  logger("[hammer:media] CTA dispatched", result);
+  logger("[hammer:media] CTA dispatched", { ...result });
   return result;
 }
-

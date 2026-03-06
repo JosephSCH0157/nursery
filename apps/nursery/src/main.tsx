@@ -24,6 +24,8 @@ import IronMineRoute from "./routes/IronMine";
 import MobilePrimitivesDemo from "./routes/MobilePrimitivesDemo";
 import SubscriptionsRoute from "./routes/Subscriptions";
 import HammerRoute from "./routes/Hammer";
+import HammerRelinkRoute from "./routes/HammerRelink";
+import HammerStandalone from "./routes/HammerStandalone";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
@@ -42,9 +44,6 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="anvil/help" element={<Placeholder name="Anvil Help" />} />
           <Route path="anvil/settings" element={<Placeholder name="Anvil Settings" />} />
           <Route path="hearth" element={<HearthRoute />} />
-          <Route path="hammer" element={<HammerRoute />} />
-          <Route path="hammer/dev/cards" element={<HammerRoute />} />
-          <Route path="hammer/dev/relink" element={<Placeholder name="Hammer Relink (Stub)" />} />
           <Route path="tongs" element={<TongsRoute />} />
           <Route path="quench" element={<Placeholder name="Quench" />} />
           <Route path="ledger" element={<Placeholder name="Ledger" />} />
@@ -63,6 +62,12 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="org/teams/:teamId" element={<SettingsOrgTeams />} />
             <Route path="storage" element={<SettingsStorage />} />
           </Route>
+        </Route>
+
+        <Route path="/app/hammer" element={<HammerStandalone />}>
+          <Route index element={<HammerRoute />} />
+          <Route path="dev/cards" element={<HammerRoute />} />
+          <Route path="dev/relink" element={<HammerRelinkRoute />} />
         </Route>
 
         <Route path="/apps/hearth" element={<HearthStandalone />} />
