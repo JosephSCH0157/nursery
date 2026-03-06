@@ -14895,6 +14895,8 @@ try {
 } catch {
 }
 var ROUTER_STAMP = globalThis.__tp_router_stamp;
+var scrollRouterInstalled = false;
+var scrollRouterInstallCount = 0;
 if (typeof window !== "undefined") {
   try {
     window.__tp_router_probe = "scroll-router loaded";
@@ -16801,8 +16803,8 @@ var PAUSE_DRIFT_SCALE = 0.95;
 var PAUSE_LOOKAHEAD_LINES = 10;
 var HYBRID_PAUSE_TOKENS = ["[pause]", "[beat]", "[reflective pause]"];
 var GRACE_MIN_SCALE = 0.9;
-var HYBRID_BASELINE_FLOOR_PXPS = 24;
-var HYBRID_WPM_CAL_MULT_DEFAULT = 2.5;
+var HYBRID_BASELINE_FLOOR_PXPS = 18;
+var HYBRID_WPM_CAL_MULT_DEFAULT = 2;
 var HYBRID_WPM_CAL_MULT_MIN = 0.25;
 var HYBRID_WPM_CAL_MULT_MAX = 8;
 var HYBRID_ASSIST_CAP_FRAC = 0.35;
@@ -17796,6 +17798,44 @@ function installScrollRouter(opts) {
     }
   }
   setProcessorAndFlush();
+  scrollRouterInstallCount += 1;
+  try {
+    if (typeof window !== "undefined") {
+      const w2 = window;
+      w2.__tpScrollRouterDiag = {
+        ...w2.__tpScrollRouterDiag || {},
+        installCount: scrollRouterInstallCount,
+        installed: scrollRouterInstalled,
+        routerStamp: ROUTER_STAMP
+      };
+    }
+  } catch {
+  }
+  if (scrollRouterInstalled) {
+    try {
+      console.info("[SCROLL_ROUTER] install skipped (already installed)", {
+        mode: state22.mode,
+        hasViewer: !!viewer,
+        hasScroller: !!scrollerEl,
+        installCount: scrollRouterInstallCount
+      });
+    } catch {
+    }
+    return;
+  }
+  scrollRouterInstalled = true;
+  try {
+    if (typeof window !== "undefined") {
+      const w2 = window;
+      w2.__tpScrollRouterDiag = {
+        ...w2.__tpScrollRouterDiag || {},
+        installCount: scrollRouterInstallCount,
+        installed: true,
+        routerStamp: ROUTER_STAMP
+      };
+    }
+  } catch {
+  }
   try {
     console.warn("[SCROLL_ROUTER] installScrollRouter ENTER", {
       viewerInstance: viewerInstallFlag,

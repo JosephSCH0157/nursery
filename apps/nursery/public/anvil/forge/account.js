@@ -11681,6 +11681,43 @@ async function ensureUserAndProfile() {
 }
 
 // src/forge/account.ts
+function getConfiguredPriceId() {
+  const w2 = typeof window !== "undefined" ? window : {};
+  const meta2 = typeof import.meta !== "undefined" ? import.meta : {};
+  const metaEnv2 = meta2.env || {};
+  return String(
+    w2.__forgeAnvilPriceId || metaEnv2.VITE_STRIPE_ANVIL_PRICE_ID || metaEnv2.VITE_STRIPE_PRICE_ID || ""
+  ).trim();
+}
+async function startCheckout(priceId) {
+  const currentUrl = new URL(window.location.href);
+  currentUrl.search = "";
+  currentUrl.hash = "";
+  const accountBaseUrl = currentUrl.toString();
+  const successUrl = `${accountBaseUrl}?checkout=success`;
+  const cancelUrl = `${accountBaseUrl}?checkout=canceled`;
+  const { data, error } = await supabase.functions.invoke("create-checkout-session", {
+    body: {
+      price_id: priceId,
+      successUrl,
+      cancelUrl
+    }
+  });
+  if (error) throw error;
+  const payload = data || {};
+  const url = typeof payload.url === "string" ? payload.url.trim() : "";
+  if (!url) {
+    throw new Error("Checkout session missing url.");
+  }
+  try {
+    if (window.top && window.top !== window) {
+      window.top.location.assign(url);
+      return;
+    }
+  } catch {
+  }
+  window.location.assign(url);
+}
 function renderAccount(ctx) {
   const root = document.getElementById("account-details");
   if (!root) return;
@@ -11696,13 +11733,28 @@ function renderAccount(ctx) {
 
     <h2>Plan & Billing</h2>
     <p>Your current plan is <strong>${tier}</strong>.</p>
-    <button id="upgrade-btn" type="button">Upgrade plan (stub)</button>
+    <button id="upgrade-btn" type="button">Upgrade plan</button>
+    <p id="upgrade-msg" aria-live="polite"></p>
 
     <h2>Session</h2>
     <button id="logout-btn" type="button">Log out</button>
   `;
   const logoutBtn = document.getElementById("logout-btn");
   const upgradeBtn = document.getElementById("upgrade-btn");
+  const upgradeMsg = document.getElementById("upgrade-msg");
+  const priceId = getConfiguredPriceId();
+  const setUpgradeMessage = (message) => {
+    if (upgradeMsg) {
+      upgradeMsg.textContent = message;
+    }
+  };
+  if (!priceId) {
+    if (upgradeBtn) {
+      upgradeBtn.disabled = true;
+      upgradeBtn.title = "Missing Stripe price ID configuration.";
+    }
+    setUpgradeMessage("Upgrade is not configured in this environment.");
+  }
   if (logoutBtn) {
     logoutBtn.addEventListener("click", async () => {
       await supabase.auth.signOut();
@@ -11710,8 +11762,21 @@ function renderAccount(ctx) {
     });
   }
   if (upgradeBtn) {
-    upgradeBtn.addEventListener("click", () => {
-      alert("Upgrade flow not implemented yet.");
+    upgradeBtn.addEventListener("click", async () => {
+      if (!priceId) return;
+      const button = upgradeBtn;
+      const prevText = button.textContent || "Upgrade plan";
+      button.disabled = true;
+      button.textContent = "Redirecting...";
+      setUpgradeMessage("");
+      try {
+        await startCheckout(priceId);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : typeof error === "string" ? error : "Checkout failed.";
+        setUpgradeMessage(`Checkout error: ${msg}`);
+        button.disabled = false;
+        button.textContent = prevText;
+      }
     });
   }
 }
