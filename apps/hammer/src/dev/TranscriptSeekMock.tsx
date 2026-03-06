@@ -546,7 +546,9 @@ export default function TranscriptSeekMock(): JSX.Element {
                 style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}
               >
                 <span>
-                  {instruction.type} -> {instruction.segment_id}
+                  {instruction.type}
+                  {" -> "}
+                  {instruction.segment_id}
                 </span>
                 <span style={{ opacity: 0.66 }}>{instruction.instruction_id}</span>
                 <button
