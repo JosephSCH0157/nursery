@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import "./Login.css";
 const AUTH_NEXT_STORAGE_KEY = "forge_auth_next_v1";
@@ -60,6 +60,7 @@ export default function Login() {
   const next = useNextParam();
   const reason = useLoginReason();
   const devMode = (import.meta as { env?: Record<string, unknown> }).env?.DEV === true;
+  const signupHref = `/signup?next=${encodeURIComponent(next)}`;
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -169,18 +170,13 @@ export default function Login() {
           <p className="forge-login-card__subtitle">
             Forge your voice. Shape your story.
           </p>
-          <p className="forge-login-card__meta">Private beta · invite required</p>
+          <p className="forge-login-card__meta">Private beta · account creation available</p>
 
           <div className="forge-login-card__actions">
             <a className="forge-login-card__back" href="/">
               Back
             </a>
-            <a
-              className="forge-login-card__beta"
-              href="/beta/index.html"
-            >
-              Apply For Beta
-            </a>
+            <Link className="forge-login-card__beta" to={signupHref}>Create Account</Link>
           </div>
 
           {reason ? (
@@ -237,17 +233,9 @@ export default function Login() {
             ) : null}
           </form>
 
-          <div className="forge-login-card__footer-actions" aria-label="Account access actions">
-            <a
-              className="forge-login-card__footer-link"
-              href="/beta/index.html"
-            >
-              Request Access
-            </a>
-            <a className="forge-login-card__footer-link" href="/anvil/account.html">
-              Open Account
-            </a>
-          </div>
+          <p className="forge-login-card__footer">
+            Need beta access instead? <a href="/beta/index.html">Apply for beta</a>.
+          </p>
           {devMode ? <p className="forge-login-card__dev-next">dev next: {next}</p> : null}
         </div>
       </section>
