@@ -2,14 +2,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, JSX, ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import type {
-  MediaRef,
   ResolveMediaResult,
-  WorkspaceMediaMapping,
 } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import type {
   HammerEditPlan,
   HammerPreviewMode,
 } from "../../../../packages/contracts/hammer/edit-plan.contract";
+import type {
+  HammerLaunchContext,
+  HammerLaunchSourceMode,
+} from "../../../../packages/contracts/hammer/launch-context.contract";
 import type {
   HammerDeleteInstruction,
   HammerEditInstruction,
@@ -25,7 +27,6 @@ import {
   buildPlaybackRanges,
   buildTranscriptOverlayRows,
   findPlaybackRangeByTime,
-  MIN_SEGMENT_DURATION_SEC,
   PREVIEW_EPSILON_SEC,
   resolveCurrentPlayableSeekTarget,
   resolveNextPlayableSeekTarget,
@@ -40,19 +41,16 @@ import type {
   TranscriptPlaybackRange,
   TranscriptSeekTarget,
 } from "../lib/transcriptPreview";
+import {
+  loadHammerLaunchWorkspaceMapping,
+  parseHammerEditPlanJson,
+  resolveHammerLaunchContext,
+} from "../lib/launchContext";
+import type { ResolvedHammerLaunchContext } from "../lib/launchContext";
 import { toMediaBadgeViewModel } from "../media/mediaBadgeViewModel";
 import { V1HammerMediaResolver } from "../media/resolveMedia";
-import { loadWorkspaceMapping } from "../media/workspaceMapping";
-import { DEFAULT_TRANSCRIPT_FIXTURE_ID, getDevTranscriptSegments } from "./transcriptFixtures";
-
-type PreviewQuery = {
-  workspaceId: string;
-  mediaId: string;
-  mediaLocalRelpath: string;
-  mediaRootAbs: string | null;
-  transcriptFixtureId: string;
-  transcriptJson: string | null;
-};
+import { resolveHammerDevLaunchContext } from "./hammerLaunchPresets";
+import { getDevTranscriptSegments } from "./transcriptFixtures";
 
 type PreviewSkipEvent = {
   reason: PreviewSkipReason;
@@ -69,26 +67,24 @@ type EditPlanMetaState = {
   baselineOrigin: "fresh" | "reloaded";
 };
 
-type SessionSourceMode = "dev-tone" | "mapped-media" | "tongs-media";
 type EditPlanStatus = "clean" | "dirty" | "reloaded";
 
 type HammerSessionState = {
   sessionId: string;
-  transcriptLoaded: boolean;
-  sourceMode: SessionSourceMode;
+  sourceMode: HammerLaunchSourceMode;
   previewMode: HammerPreviewMode;
   editPlanStatus: EditPlanStatus;
 };
 
-const DEFAULT_WORKSPACE_ID = "ws_demo";
-const DEFAULT_MEDIA_ID = "media_local_01";
-const DEFAULT_MEDIA_RELPATH = "recordings/episode014.mp4";
 const DEFAULT_PREVIEW_MODE: HammerPreviewMode = "edit-aware";
 const HAMMER_EDIT_PLAN_VERSION = "1";
 const HAMMER_DEV_TOOL_VERSION = "forge-v1.2.0/hammer-dev";
 const FALLBACK_DURATION_SEC = 32;
 const DEV_AUDIO_SAMPLE_RATE = 8_000;
-const UNKNOWN_SPEAKER = "UNK";
+
+type TranscriptSeekMockProps = {
+  launchContext?: HammerLaunchContext;
+};
 
 const ROOT_STYLE: CSSProperties = {
   display: "grid",
@@ -360,163 +356,6 @@ function createDevAudioWavBlob(durationSec: number): Blob {
   return new Blob([buffer], { type: "audio/wav" });
 }
 
-function readTrimmed(params: URLSearchParams, key: string): string | null {
-  const raw = params.get(key);
-  if (!raw) return null;
-  const next = raw.trim();
-  return next.length ? next : null;
-}
-
-function readPreviewQuery(search: string): PreviewQuery {
-  const params = new URLSearchParams(search);
-  const workspaceId = readTrimmed(params, "workspace_id")
-    ?? readTrimmed(params, "workspaceId")
-    ?? readTrimmed(params, "workspace")
-    ?? DEFAULT_WORKSPACE_ID;
-  const mediaId = readTrimmed(params, "media_id")
-    ?? readTrimmed(params, "mediaId")
-    ?? DEFAULT_MEDIA_ID;
-  const mediaLocalRelpath = readTrimmed(params, "media_local_relpath")
-    ?? readTrimmed(params, "media_relpath")
-    ?? readTrimmed(params, "local_relpath")
-    ?? DEFAULT_MEDIA_RELPATH;
-  const mediaRootAbs = readTrimmed(params, "media_root_abs")
-    ?? readTrimmed(params, "local_root_abs")
-    ?? readTrimmed(params, "media_root");
-  const transcriptFixtureId = readTrimmed(params, "transcript_fixture")
-    ?? readTrimmed(params, "transcriptFixture")
-    ?? DEFAULT_TRANSCRIPT_FIXTURE_ID;
-  const transcriptJson = readTrimmed(params, "transcript_json")
-    ?? readTrimmed(params, "transcript");
-  return {
-    workspaceId,
-    mediaId,
-    mediaLocalRelpath,
-    mediaRootAbs,
-    transcriptFixtureId,
-    transcriptJson,
-  };
-}
-
-function readRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
-}
-
-function readString(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const normalized = value.trim();
-  return normalized.length ? normalized : null;
-}
-
-function readNumber(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return null;
-}
-
-function normalizeTranscriptSegment(input: unknown, index: number): HammerTranscriptSegment | null {
-  const row = readRecord(input);
-  if (!row) return null;
-
-  const startSec = readNumber(row.start_sec);
-  if (startSec == null || startSec < 0) return null;
-  const rawEndSec = readNumber(row.end_sec);
-  const endSec = rawEndSec == null || rawEndSec <= startSec
-    ? startSec + MIN_SEGMENT_DURATION_SEC
-    : rawEndSec;
-
-  const text = readString(row.text);
-  if (!text) return null;
-
-  const speaker = readString(row.speaker) ?? UNKNOWN_SPEAKER;
-  const segmentId = readString(row.segment_id) ?? `seg_${index + 1}`;
-
-  return {
-    segment_id: segmentId,
-    start_sec: startSec,
-    end_sec: endSec,
-    speaker,
-    text,
-  };
-}
-
-function parseTranscriptSegmentsJson(raw: string): HammerTranscriptSegment[] {
-  const tryParse = (source: string): unknown => JSON.parse(source);
-  let parsed: unknown;
-  try {
-    parsed = tryParse(raw);
-  } catch {
-    parsed = tryParse(decodeURIComponent(raw));
-  }
-
-  const parsedRecord = readRecord(parsed);
-  const maybeSegments = Array.isArray(parsed)
-    ? parsed
-    : (parsedRecord && Array.isArray(parsedRecord.segments) ? parsedRecord.segments : null);
-  if (!maybeSegments) return [];
-
-  const normalized = maybeSegments
-    .map((row, index) => normalizeTranscriptSegment(row, index))
-    .filter((row): row is HammerTranscriptSegment => Boolean(row))
-    .sort((a, b) => a.start_sec - b.start_sec);
-
-  return normalized;
-}
-
-type TranscriptLoadResult = {
-  segments: HammerTranscriptSegment[];
-  sourceLabel: string;
-  error: string | null;
-};
-
-function loadTranscriptFromQuery(query: PreviewQuery): TranscriptLoadResult {
-  if (query.transcriptJson) {
-    try {
-      const fromQuery = parseTranscriptSegmentsJson(query.transcriptJson);
-      if (fromQuery.length > 0) {
-        return {
-          segments: fromQuery,
-          sourceLabel: "query:transcript_json",
-          error: null,
-        };
-      }
-      return {
-        segments: getDevTranscriptSegments(query.transcriptFixtureId),
-        sourceLabel: `fixture:${query.transcriptFixtureId}`,
-        error: "transcript_json did not contain valid segments. Falling back to fixture.",
-      };
-    } catch (error) {
-      return {
-        segments: getDevTranscriptSegments(query.transcriptFixtureId),
-        sourceLabel: `fixture:${query.transcriptFixtureId}`,
-        error: toErrorMessage(error, "Failed to parse transcript_json. Falling back to fixture."),
-      };
-    }
-  }
-
-  return {
-    segments: getDevTranscriptSegments(query.transcriptFixtureId),
-    sourceLabel: `fixture:${query.transcriptFixtureId}`,
-    error: null,
-  };
-}
-
-async function resolveWorkspace(
-  workspaceId: string,
-  mediaRootAbs: string | null,
-): Promise<WorkspaceMediaMapping | null> {
-  if (mediaRootAbs) {
-    return {
-      workspace_id: workspaceId,
-      local_root_abs: mediaRootAbs,
-    };
-  }
-  return loadWorkspaceMapping(workspaceId);
-}
-
 function toBrowserVideoSrc(playableUri: string): string {
   const value = playableUri.trim();
   if (!value) return "";
@@ -579,166 +418,83 @@ function createEditPlanMeta(
   };
 }
 
-function readInstruction(input: unknown): HammerEditInstruction | null {
-  const row = readRecord(input);
-  if (!row) return null;
-
-  const instructionId = readString(row.instruction_id);
-  const segmentId = readString(row.segment_id);
-  const type = readString(row.type);
-  const createdAt = readString(row.created_at);
-  if (!instructionId || !segmentId || !type || !createdAt) return null;
-
-  switch (type) {
-    case "delete":
-      return {
-        instruction_id: instructionId,
-        segment_id: segmentId,
-        type,
-        created_at: createdAt,
-      };
-    case "mute":
-      return {
-        instruction_id: instructionId,
-        segment_id: segmentId,
-        type,
-        created_at: createdAt,
-      };
-    case "trim": {
-      const trimStartSec = readNumber(row.trim_start_sec);
-      const trimEndSec = readNumber(row.trim_end_sec);
-      return {
-        instruction_id: instructionId,
-        segment_id: segmentId,
-        type,
-        trim_start_sec: trimStartSec ?? undefined,
-        trim_end_sec: trimEndSec ?? undefined,
-        created_at: createdAt,
-      };
-    }
-    case "split": {
-      const splitAtSec = readNumber(row.split_at_sec);
-      if (splitAtSec == null) return null;
-      return {
-        instruction_id: instructionId,
-        segment_id: segmentId,
-        type,
-        split_at_sec: splitAtSec,
-        created_at: createdAt,
-      };
-    }
-    case "merge": {
-      const mergeWithSegmentId = readString(row.merge_with_segment_id);
-      if (!mergeWithSegmentId) return null;
-      return {
-        instruction_id: instructionId,
-        segment_id: segmentId,
-        type,
-        merge_with_segment_id: mergeWithSegmentId,
-        created_at: createdAt,
-      };
-    }
-    default:
-      return null;
-  }
-}
-
-function parseEditPlanJson(raw: string): { plan: HammerEditPlan | null; error: string | null } {
-  if (!raw.trim()) {
-    return {
-      plan: null,
-      error: "Edit plan JSON is empty.",
-    };
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    return {
-      plan: null,
-      error: toErrorMessage(error, "Failed to parse edit plan JSON."),
-    };
-  }
-
-  const record = readRecord(parsed);
-  if (!record) {
-    return {
-      plan: null,
-      error: "Edit plan must be a JSON object.",
-    };
-  }
-
-  const editPlanId = readString(record.edit_plan_id);
-  const version = readString(record.version);
-  const createdAt = readString(record.created_at);
-  const updatedAt = readString(record.updated_at);
-  const sourceTranscriptId = readString(record.source_transcript_id);
-  const previewMode = readString(record.preview_mode);
-  const toolVersion = readString(record.tool_version);
-  const workspaceId = readString(record.workspace_id);
-  const workpieceId = readString(record.workpiece_id);
-  const sessionId = readString(record.session_id);
-  const instructionsInput = Array.isArray(record.instructions) ? record.instructions : null;
-
-  if (!editPlanId || !version || !createdAt || !updatedAt || !sourceTranscriptId || !instructionsInput) {
-    return {
-      plan: null,
-      error: "Edit plan is missing one or more required fields.",
-    };
-  }
-
-  if (previewMode && previewMode !== "raw" && previewMode !== "edit-aware") {
-    return {
-      plan: null,
-      error: `Unsupported preview_mode: ${previewMode}.`,
-    };
-  }
-
-  const instructions: HammerEditInstruction[] = [];
-  for (const input of instructionsInput) {
-    const instruction = readInstruction(input);
-    if (!instruction) {
-      return {
-        plan: null,
-        error: "Edit plan contains an invalid instruction.",
-      };
-    }
-    instructions.push(instruction);
-  }
-
+function createReloadedEditPlanMeta(
+  plan: HammerEditPlan,
+  previewMode: HammerPreviewMode,
+): EditPlanMetaState {
+  const signature = createEditPlanSignature(
+    plan.source_transcript_id,
+    previewMode,
+    plan.instructions,
+  );
   return {
-    plan: {
-      edit_plan_id: editPlanId,
-      version,
-      created_at: createdAt,
-      updated_at: updatedAt,
-      source_transcript_id: sourceTranscriptId,
-      preview_mode: previewMode as HammerPreviewMode | undefined,
-      tool_version: toolVersion ?? undefined,
-      workspace_id: workspaceId ?? undefined,
-      workpiece_id: workpieceId ?? undefined,
-      session_id: sessionId ?? undefined,
-      instructions,
-    },
-    error: null,
+    editPlanId: plan.edit_plan_id,
+    createdAt: plan.created_at,
+    updatedAt: plan.updated_at,
+    baselineSignature: signature,
+    lastSignature: signature,
+    baselineOrigin: "reloaded",
   };
 }
 
-export default function TranscriptSeekMock(): JSX.Element {
+function createLaunchEditPlanMeta(
+  resolvedLaunch: ResolvedHammerLaunchContext,
+): EditPlanMetaState {
+  if (resolvedLaunch.initial_edit_plan) {
+    return createReloadedEditPlanMeta(
+      resolvedLaunch.initial_edit_plan,
+      resolvedLaunch.initial_preview_mode,
+    );
+  }
+
+  return createEditPlanMeta(
+    resolvedLaunch.transcript.source_label,
+    resolvedLaunch.initial_preview_mode,
+    [],
+  );
+}
+
+function buildInitialEditPlanJsonDraft(
+  resolvedLaunch: ResolvedHammerLaunchContext,
+): string {
+  if (!resolvedLaunch.initial_edit_plan) {
+    return "";
+  }
+
+  const initialPlan: HammerEditPlan = {
+    ...resolvedLaunch.initial_edit_plan,
+    preview_mode: resolvedLaunch.initial_preview_mode,
+    workspace_id: resolvedLaunch.launch_context.workspace_id,
+    workpiece_id: resolvedLaunch.launch_context.workpiece_id,
+    session_id: resolvedLaunch.initial_session_id
+      ?? resolvedLaunch.initial_edit_plan.session_id,
+    instructions: cloneEditInstructions(resolvedLaunch.initial_edit_plan.instructions),
+  };
+
+  return JSON.stringify(initialPlan, null, 2);
+}
+
+export default function TranscriptSeekMock(
+  props: TranscriptSeekMockProps,
+): JSX.Element {
   const location = useLocation();
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const transcriptScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const activeRowRef = useRef<HTMLDivElement | null>(null);
   const resolver = useMemo(() => new V1HammerMediaResolver(), []);
-  const query = useMemo(
-    () => readPreviewQuery(location.search),
-    [location.search],
+  const launchContext = useMemo(
+    () => props.launchContext ?? resolveHammerDevLaunchContext(location.search),
+    [location.search, props.launchContext],
   );
-  const transcriptLoad = useMemo(
-    () => loadTranscriptFromQuery(query),
-    [query],
+  const launchContextSignature = useMemo(
+    () => JSON.stringify(launchContext),
+    [launchContext],
   );
+  const resolvedLaunch = useMemo(
+    () => resolveHammerLaunchContext(launchContext, { getFixtureSegments: getDevTranscriptSegments }),
+    [launchContext],
+  );
+  const transcriptLoad = resolvedLaunch.transcript;
   const transcriptSegments = transcriptLoad.segments;
   const firstSegment = transcriptSegments[0] ?? null;
   const transcriptDurationSec = useMemo(
@@ -748,18 +504,9 @@ export default function TranscriptSeekMock(): JSX.Element {
     ),
     [transcriptSegments],
   );
-  const mediaRef = useMemo<MediaRef>(
-    () => ({
-      media_id: query.mediaId,
-      kind: "recording_video",
-      source_hint: "local",
-      local_relpath: query.mediaLocalRelpath,
-      duration_ms: FALLBACK_DURATION_SEC * 1000,
-    }),
-    [query.mediaId, query.mediaLocalRelpath],
-  );
+  const mediaRef = resolvedLaunch.media.media_ref;
   const [resolveResult, setResolveResult] = useState<ResolveMediaResult | null>(null);
-  const [resolving, setResolving] = useState(true);
+  const [resolving, setResolving] = useState(resolvedLaunch.media.requires_resolution);
   const [resolveError, setResolveError] = useState<string | null>(null);
   const [currentTimeSec, setCurrentTimeSec] = useState(0);
   const [durationSec, setDurationSec] = useState(FALLBACK_DURATION_SEC);
@@ -771,25 +518,40 @@ export default function TranscriptSeekMock(): JSX.Element {
   const [selectedOverlayRowId, setSelectedOverlayRowId] = useState<string | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [lastPreviewSkip, setLastPreviewSkip] = useState<PreviewSkipEvent | null>(null);
-  const [editInstructions, setEditInstructions] = useState<HammerEditInstruction[]>([]);
+  const [editInstructions, setEditInstructions] = useState<HammerEditInstruction[]>(
+    () => cloneEditInstructions(resolvedLaunch.initial_edit_plan?.instructions ?? []),
+  );
   const [devAudioSrc, setDevAudioSrc] = useState<string | null>(null);
   const [preferDevAudioFallback, setPreferDevAudioFallback] = useState(false);
-  const [previewMode, setPreviewMode] = useState<HammerPreviewMode>(DEFAULT_PREVIEW_MODE);
-  const [sessionId, setSessionId] = useState(() => createEntityId("session"));
-  const [editPlanMeta, setEditPlanMeta] = useState<EditPlanMetaState>(() => (
-    createEditPlanMeta(transcriptLoad.sourceLabel, DEFAULT_PREVIEW_MODE, [])
-  ));
-  const [editPlanJsonDraft, setEditPlanJsonDraft] = useState("");
+  const [previewMode, setPreviewMode] = useState<HammerPreviewMode>(
+    () => resolvedLaunch.initial_preview_mode,
+  );
+  const [sessionId, setSessionId] = useState(
+    () => resolvedLaunch.initial_session_id ?? createEntityId("session"),
+  );
+  const [editPlanMeta, setEditPlanMeta] = useState<EditPlanMetaState>(
+    () => createLaunchEditPlanMeta(resolvedLaunch),
+  );
+  const [editPlanJsonDraft, setEditPlanJsonDraft] = useState(
+    () => buildInitialEditPlanJsonDraft(resolvedLaunch),
+  );
   const [editPlanFeedback, setEditPlanFeedback] = useState<string | null>(null);
   const [editPlanFeedbackTone, setEditPlanFeedbackTone] = useState<"neutral" | "success" | "warning">("neutral");
 
   useEffect(() => {
+    if (!resolvedLaunch.media.requires_resolution || !mediaRef) {
+      setResolving(false);
+      setResolveError(null);
+      setResolveResult(null);
+      return;
+    }
+
     let active = true;
     setResolving(true);
     setResolveError(null);
     setResolveResult(null);
 
-    void resolveWorkspace(query.workspaceId, query.mediaRootAbs)
+    void loadHammerLaunchWorkspaceMapping(resolvedLaunch)
       .then(async (workspaceMapping) => {
         const result = await resolver.resolveMedia(workspaceMapping, mediaRef);
         if (!active) return;
@@ -807,7 +569,7 @@ export default function TranscriptSeekMock(): JSX.Element {
     return () => {
       active = false;
     };
-  }, [mediaRef, query.mediaRootAbs, query.workspaceId, resolver]);
+  }, [mediaRef, resolvedLaunch, resolver]);
 
   const badgeVm = useMemo(
     () => (resolveResult ? toMediaBadgeViewModel(resolveResult, true) : null),
@@ -825,9 +587,10 @@ export default function TranscriptSeekMock(): JSX.Element {
   );
   const playbackSourceLabel = useMemo(() => {
     if (!playbackSrc) return "none";
+    if (resolvedLaunch.media.kind === "dev-tone") return "dev-tone";
     if (preferDevAudioFallback || !resolvedMediaSrc) return "dev-tone";
-    return "mapped-media";
-  }, [playbackSrc, preferDevAudioFallback, resolvedMediaSrc]);
+    return resolvedLaunch.media.source_label;
+  }, [playbackSrc, preferDevAudioFallback, resolvedLaunch.media.kind, resolvedLaunch.media.source_label, resolvedMediaSrc]);
 
   useEffect(() => {
     const blob = createDevAudioWavBlob(transcriptDurationSec);
@@ -851,14 +614,14 @@ export default function TranscriptSeekMock(): JSX.Element {
   }, [firstSegment?.segment_id, resolvedMediaSrc]);
 
   useEffect(() => {
-    setEditInstructions([]);
-    setPreviewMode(DEFAULT_PREVIEW_MODE);
-    setSessionId(createEntityId("session"));
-    setEditPlanMeta(createEditPlanMeta(transcriptLoad.sourceLabel, DEFAULT_PREVIEW_MODE, []));
-    setEditPlanJsonDraft("");
+    setEditInstructions(cloneEditInstructions(resolvedLaunch.initial_edit_plan?.instructions ?? []));
+    setPreviewMode(resolvedLaunch.initial_preview_mode);
+    setSessionId(resolvedLaunch.initial_session_id ?? createEntityId("session"));
+    setEditPlanMeta(createLaunchEditPlanMeta(resolvedLaunch));
+    setEditPlanJsonDraft(buildInitialEditPlanJsonDraft(resolvedLaunch));
     setEditPlanFeedback(null);
     setEditPlanFeedbackTone("neutral");
-  }, [mediaRef.media_id, transcriptLoad.sourceLabel]);
+  }, [launchContextSignature, resolvedLaunch]);
 
   useEffect(() => {
     if (previewMode === "raw" || editInstructions.length === 0) {
@@ -970,7 +733,7 @@ export default function TranscriptSeekMock(): JSX.Element {
     && selectedNextSegment
     && selectedNextSegment.speaker === selectedSegment.speaker,
   );
-  const transcriptSourceId = transcriptLoad.sourceLabel;
+  const transcriptSourceId = transcriptLoad.source_label;
   const currentEditPlanSignature = useMemo(
     () => createEditPlanSignature(transcriptSourceId, previewMode, editInstructions),
     [editInstructions, previewMode, transcriptSourceId],
@@ -980,18 +743,15 @@ export default function TranscriptSeekMock(): JSX.Element {
     : editPlanMeta.baselineOrigin === "reloaded"
     ? "reloaded"
     : "clean";
-  const sourceMode: SessionSourceMode = resolvedMediaSrc && !preferDevAudioFallback
-    ? "mapped-media"
-    : "dev-tone";
+  const sourceMode = resolvedLaunch.launch_context.source_mode;
   const sessionState = useMemo<HammerSessionState>(
     () => ({
       sessionId,
-      transcriptLoaded: transcriptSegments.length > 0,
       sourceMode,
       previewMode,
       editPlanStatus,
     }),
-    [editPlanStatus, previewMode, sessionId, sourceMode, transcriptSegments.length],
+    [editPlanStatus, previewMode, sessionId, sourceMode],
   );
   const currentEditPlan = useMemo<HammerEditPlan>(
     () => ({
@@ -1002,11 +762,22 @@ export default function TranscriptSeekMock(): JSX.Element {
       source_transcript_id: transcriptSourceId,
       preview_mode: previewMode,
       tool_version: HAMMER_DEV_TOOL_VERSION,
-      workspace_id: query.workspaceId,
+      workspace_id: resolvedLaunch.launch_context.workspace_id,
+      workpiece_id: resolvedLaunch.launch_context.workpiece_id,
       session_id: sessionId,
       instructions: cloneEditInstructions(editInstructions),
     }),
-    [editInstructions, editPlanMeta.createdAt, editPlanMeta.editPlanId, editPlanMeta.updatedAt, previewMode, query.workspaceId, sessionId, transcriptSourceId],
+    [
+      editInstructions,
+      editPlanMeta.createdAt,
+      editPlanMeta.editPlanId,
+      editPlanMeta.updatedAt,
+      previewMode,
+      resolvedLaunch.launch_context.workpiece_id,
+      resolvedLaunch.launch_context.workspace_id,
+      sessionId,
+      transcriptSourceId,
+    ],
   );
 
   useEffect(() => {
@@ -1239,7 +1010,7 @@ export default function TranscriptSeekMock(): JSX.Element {
   }
 
   function loadEditPlan() {
-    const parsed = parseEditPlanJson(editPlanJsonDraft);
+    const parsed = parseHammerEditPlanJson(editPlanJsonDraft);
     if (!parsed.plan) {
       setEditPlanFeedback(parsed.error ?? "Failed to load edit plan.");
       setEditPlanFeedbackTone("warning");
@@ -1433,7 +1204,7 @@ export default function TranscriptSeekMock(): JSX.Element {
             <span style={PILL_BASE_STYLE}>source {sessionState.sourceMode}</span>
           </div>
           <div style={{ display: "grid", gap: 4, fontSize: 12 }}>
-            <div>transcript source: {transcriptLoad.sourceLabel}</div>
+            <div>transcript source: {transcriptLoad.source_label}</div>
             <div>session: {sessionState.sessionId}</div>
             <div>edit plan instructions: {editInstructions.length} (portable overlay state)</div>
           </div>
@@ -1835,12 +1606,18 @@ export default function TranscriptSeekMock(): JSX.Element {
           action={<span style={PILL_BASE_STYLE}>{playbackSourceLabel}</span>}
         >
           <div style={{ display: "grid", gap: 4, fontSize: 12 }}>
-            <div>media_id: <strong>{mediaRef.media_id}</strong></div>
-            <div>workspace_id: {query.workspaceId}</div>
-            <div>local_relpath: {mediaRef.local_relpath}</div>
+            <div>media source kind: {resolvedLaunch.launch_context.media.kind}</div>
+            <div>media source label: {resolvedLaunch.media.source_label}</div>
+            <div>media_id: <strong>{mediaRef?.media_id ?? "none"}</strong></div>
+            <div>workspace_id: {resolvedLaunch.launch_context.workspace_id}</div>
+            <div>local_relpath: {mediaRef?.local_relpath ?? "n/a"}</div>
             <div>source mode: {sessionState.sourceMode}</div>
           </div>
-          {resolving ? (
+          {!resolvedLaunch.media.requires_resolution ? (
+            <div style={{ fontSize: 13, opacity: 0.82 }}>
+              Launch context requested generated dev-tone media. No external media resolution is required.
+            </div>
+          ) : resolving ? (
             <div style={{ fontSize: 13, opacity: 0.82 }}>Resolving media...</div>
           ) : resolveError ? (
             <div style={{ color: "#fecaca", fontSize: 13 }}>{resolveError}</div>
@@ -1991,7 +1768,44 @@ export default function TranscriptSeekMock(): JSX.Element {
         </HammerPaneSection>
       </div>
 
-      <div style={{ ...PANE_STYLE, gridTemplateRows: "minmax(0, 0.9fr) minmax(0, 1.1fr)" }}>
+      <div style={{ ...PANE_STYLE, gridTemplateRows: "auto minmax(0, 0.85fr) minmax(0, 1.15fr)" }}>
+        <HammerPaneSection
+          title="Launch Context"
+          subtitle="This shows the single launch object currently driving Hammer startup and source resolution."
+          action={<span style={PILL_BASE_STYLE}>{resolvedLaunch.launch_context.source_mode}</span>}
+        >
+          <div style={INSPECTOR_GRID_STYLE}>
+            <div>
+              <div style={{ fontSize: 11, opacity: 0.62 }}>source mode</div>
+              <div>{resolvedLaunch.launch_context.source_mode}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, opacity: 0.62 }}>workspace id</div>
+              <div style={MONO_STYLE}>{resolvedLaunch.launch_context.workspace_id}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, opacity: 0.62 }}>workpiece id</div>
+              <div style={MONO_STYLE}>{resolvedLaunch.launch_context.workpiece_id}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, opacity: 0.62 }}>session id</div>
+              <div style={MONO_STYLE}>{resolvedLaunch.initial_session_id ?? "none"}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, opacity: 0.62 }}>transcript source kind</div>
+              <div>{resolvedLaunch.launch_context.transcript.kind}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, opacity: 0.62 }}>media source kind</div>
+              <div>{resolvedLaunch.launch_context.media.kind}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, opacity: 0.62 }}>edit plan present</div>
+              <div>{resolvedLaunch.initial_edit_plan ? "yes" : "no"}</div>
+            </div>
+          </div>
+        </HammerPaneSection>
+
         <HammerPaneSection
           title="Selected Row Inspector"
           subtitle="This is the debugging truth panel for the current row: identity, ancestry, timing, instruction effects, and resolved seek behavior."
