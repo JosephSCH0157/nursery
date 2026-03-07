@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, JSX } from "react";
+import type { CSSProperties, JSX, ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import type {
   MediaRef,
@@ -92,9 +92,10 @@ const UNKNOWN_SPEAKER = "UNK";
 
 const ROOT_STYLE: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "minmax(340px, 0.95fr) minmax(420px, 1.05fr)",
+  gridTemplateColumns: "minmax(340px, 1.05fr) minmax(400px, 0.95fr) minmax(320px, 0.92fr)",
   gap: 14,
   minHeight: "calc(100vh - 138px)",
+  alignItems: "stretch",
 };
 
 const PANEL_STYLE: CSSProperties = {
@@ -105,6 +106,112 @@ const PANEL_STYLE: CSSProperties = {
   alignContent: "start",
   minHeight: 0,
 };
+
+const PANE_STYLE: CSSProperties = {
+  ...PANEL_STYLE,
+  padding: 12,
+  gap: 12,
+  minWidth: 0,
+  overflow: "hidden",
+};
+
+const SECTION_STYLE: CSSProperties = {
+  border: "1px dashed rgba(148, 163, 184, 0.35)",
+  borderRadius: 12,
+  padding: "10px 12px",
+  display: "grid",
+  gap: 10,
+  minHeight: 0,
+  background: "rgba(2, 6, 23, 0.45)",
+  color: "#c8d6ea",
+};
+
+const SECTION_HEADER_STYLE: CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  justifyContent: "space-between",
+  gap: 10,
+  flexWrap: "wrap",
+};
+
+const SECTION_BODY_STYLE: CSSProperties = {
+  display: "grid",
+  gap: 10,
+  minHeight: 0,
+};
+
+const SECTION_TITLE_STYLE: CSSProperties = {
+  margin: 0,
+  fontSize: 16,
+  color: "#dbe8ff",
+};
+
+const SECTION_SUBTITLE_STYLE: CSSProperties = {
+  fontSize: 12,
+  opacity: 0.72,
+  maxWidth: 560,
+};
+
+const META_STRIP_STYLE: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  flexWrap: "wrap",
+  fontSize: 12,
+};
+
+const PILL_BASE_STYLE: CSSProperties = {
+  borderRadius: 999,
+  padding: "2px 8px",
+  border: "1px solid rgba(148, 163, 184, 0.24)",
+  background: "rgba(15, 23, 42, 0.55)",
+  color: "#dbe8ff",
+};
+
+const ACTION_ROW_STYLE: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  flexWrap: "wrap",
+};
+
+const MONO_STYLE: CSSProperties = {
+  fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace",
+};
+
+const INSPECTOR_GRID_STYLE: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: 8,
+};
+
+type HammerPaneSectionProps = {
+  title: string;
+  subtitle?: string;
+  action?: ReactNode;
+  children: ReactNode;
+  sectionStyle?: CSSProperties;
+  bodyStyle?: CSSProperties;
+};
+
+function HammerPaneSection(props: HammerPaneSectionProps): JSX.Element {
+  return (
+    <section style={{ ...SECTION_STYLE, ...props.sectionStyle }}>
+      <header style={SECTION_HEADER_STYLE}>
+        <div style={{ display: "grid", gap: 4 }}>
+          <h3 style={SECTION_TITLE_STYLE}>{props.title}</h3>
+          {props.subtitle ? (
+            <div style={SECTION_SUBTITLE_STYLE}>{props.subtitle}</div>
+          ) : null}
+        </div>
+        {props.action ? <div>{props.action}</div> : null}
+      </header>
+      <div style={{ ...SECTION_BODY_STYLE, ...props.bodyStyle }}>
+        {props.children}
+      </div>
+    </section>
+  );
+}
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
@@ -140,6 +247,40 @@ function formatSeekTargetLabel(target: TranscriptSeekTarget): string {
 
 function formatFlagState(value: boolean): string {
   return value ? "yes" : "no";
+}
+
+function formatSegmentAncestry(segmentIds: string[]): string {
+  if (segmentIds.length === 0) return "none";
+  return segmentIds.join(" -> ");
+}
+
+function formatInstructionEffects(row: TranscriptOverlayRow | null): string {
+  if (!row) return "none";
+  const effects: string[] = [];
+  if (row.is_deleted) effects.push("delete");
+  if (row.is_muted) effects.push("mute");
+  if (row.is_trimmed) effects.push("trim");
+  if (row.split_instruction) effects.push("split");
+  if (row.merge_instruction) effects.push("merge");
+  return effects.length > 0 ? effects.join(", ") : "none";
+}
+
+function getEditPlanStatusBadgeStyle(status: EditPlanStatus): CSSProperties {
+  if (status === "dirty") {
+    return {
+      ...PILL_BASE_STYLE,
+      background: "rgba(245, 158, 11, 0.16)",
+      color: "#fde68a",
+    };
+  }
+  if (status === "reloaded") {
+    return {
+      ...PILL_BASE_STYLE,
+      background: "rgba(14, 165, 233, 0.16)",
+      color: "#bae6fd",
+    };
+  }
+  return PILL_BASE_STYLE;
 }
 
 function formatInstructionDetail(instruction: HammerEditInstruction): string | null {
@@ -1265,60 +1406,148 @@ export default function TranscriptSeekMock(): JSX.Element {
     });
   }
 
+  const selectedRowEffects = formatInstructionEffects(selectedOverlayRow);
+  const selectedRowPreviewStatus = [
+    `current ${formatClock(currentTimeSec)}`,
+    `raw ${formatPlaybackRangeLabel(rawActivePlaybackRange)}`,
+    `playable ${formatPlaybackRangeLabel(activePlayableRange)}`,
+    `skip ${lastPreviewSkip?.reason ?? "none"}`,
+  ].join(" · ");
+
   return (
     <section style={ROOT_STYLE}>
-      <div style={{ ...PANEL_STYLE, padding: 12, gap: 12 }}>
-        <header style={{ display: "grid", gap: 2 }}>
-          <h2 style={{ margin: 0, fontSize: 18 }}>Transcript Preview</h2>
-          <div style={{ fontSize: 13, opacity: 0.78 }}>
-            Click a row to seek the current preview. Transcript text stays canonical; the edit plan only reshapes the overlay.
+      <div style={{ ...PANE_STYLE, gridTemplateRows: "auto auto auto minmax(0, 1fr)" }}>
+        <HammerPaneSection
+          title="Transcript Console"
+          subtitle="Canonical transcript state stays on the left. Overlay rows and preview behavior derive from the edit plan."
+          action={(
+            <span style={getEditPlanStatusBadgeStyle(sessionState.editPlanStatus)}>
+              plan {sessionState.editPlanStatus}
+            </span>
+          )}
+        >
+          <div style={META_STRIP_STYLE}>
+            <span style={PILL_BASE_STYLE}>{transcriptSegments.length} segments</span>
+            <span style={PILL_BASE_STYLE}>{overlayRows.length} rows</span>
+            <span style={PILL_BASE_STYLE}>preview {sessionState.previewMode}</span>
+            <span style={PILL_BASE_STYLE}>source {sessionState.sourceMode}</span>
           </div>
-          <div style={{ fontSize: 12, opacity: 0.72 }}>
-            transcript source: {transcriptLoad.sourceLabel}
-          </div>
-          <div style={{ fontSize: 12, opacity: 0.72 }}>
-            edit plan instructions: {editInstructions.length} (portable overlay state)
+          <div style={{ display: "grid", gap: 4, fontSize: 12 }}>
+            <div>transcript source: {transcriptLoad.sourceLabel}</div>
+            <div>session: {sessionState.sessionId}</div>
+            <div>edit plan instructions: {editInstructions.length} (portable overlay state)</div>
           </div>
           {transcriptLoad.error ? (
             <div style={{ fontSize: 12, color: "#fde68a" }}>
               {transcriptLoad.error}
             </div>
           ) : null}
-          <div
-            style={{
-              marginTop: 8,
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              flexWrap: "wrap",
-              padding: "8px 10px",
-              borderRadius: 10,
-              border: "1px solid rgba(148, 163, 184, 0.24)",
-              background: "rgba(2, 6, 23, 0.38)",
-              fontSize: 12,
-              color: "#dbe8ff",
-            }}
-          >
-            <span>{formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}</span>
+          <div style={{ fontSize: 12, opacity: 0.72 }}>
+            Click a row to seek the current preview. Transcript text stays canonical; the edit plan only reshapes the overlay.
+          </div>
+        </HammerPaneSection>
+
+        <HammerPaneSection
+          title="Transport Controls"
+          subtitle="Navigation uses the pure transcript preview helpers. Deleted spans are skipped only when edit-aware preview is active."
+          action={(
             <span
               style={{
-                borderRadius: 999,
-                padding: "2px 8px",
-                border: "1px solid rgba(148, 163, 184, 0.24)",
-                background: isPlaying ? "rgba(20, 184, 166, 0.16)" : "rgba(15, 23, 42, 0.55)",
+                ...PILL_BASE_STYLE,
+                background: isPlaying ? "rgba(20, 184, 166, 0.16)" : PILL_BASE_STYLE.background,
+                color: isPlaying ? "#99f6e4" : PILL_BASE_STYLE.color,
               }}
             >
               {isPlaying ? "PLAYING" : "PAUSED"}
             </span>
+          )}
+        >
+          <div style={META_STRIP_STYLE}>
+            <span>{formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}</span>
             <span>active raw: {formatPlaybackRangeLabel(rawActivePlaybackRange)}</span>
             <span>active playable: {formatPlaybackRangeLabel(activePlayableRange)}</span>
             <span>skip: {lastPreviewSkip?.reason ?? "none"}</span>
+          </div>
+          <div style={{ ...META_STRIP_STYLE, opacity: 0.8 }}>
             <span>deleted rows: {sessionState.previewMode === "edit-aware" ? "skipped" : "raw playback"}</span>
             <span>muted rows: structural only</span>
-            <span>preview mode: {sessionState.previewMode}</span>
-            <span style={{ opacity: 0.72 }}>source mode: {sessionState.sourceMode}</span>
+            <span>source mode: {sessionState.sourceMode}</span>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+          <div style={ACTION_ROW_STYLE}>
+            <button
+              type="button"
+              disabled={previousPlayableTarget.timeSec == null}
+              onClick={() => seekToResolvedTarget(previousPlayableTarget)}
+              title={formatSeekTargetLabel(previousPlayableTarget)}
+            >
+              Prev playable
+            </button>
+            <button type="button" onClick={() => void onTogglePlayback()} disabled={!canControlAudio}>
+              {isPlaying ? "Pause" : "Play"}
+            </button>
+            <button
+              type="button"
+              disabled={nextPlayableTarget.timeSec == null}
+              onClick={() => seekToResolvedTarget(nextPlayableTarget)}
+              title={formatSeekTargetLabel(nextPlayableTarget)}
+            >
+              Next playable
+            </button>
+            <button
+              type="button"
+              disabled={jumpToActiveTarget.timeSec == null}
+              onClick={() => seekToResolvedTarget(jumpToActiveTarget)}
+              title={formatSeekTargetLabel(jumpToActiveTarget)}
+            >
+              Jump to active
+            </button>
+            <button
+              type="button"
+              onClick={() => setPreviewMode((currentMode) => (
+                currentMode === "edit-aware" ? "raw" : "edit-aware"
+              ))}
+            >
+              {previewMode === "edit-aware" ? "Switch to raw" : "Switch to edit-aware"}
+            </button>
+            <button
+              type="button"
+              disabled={!canControlAudio}
+              onClick={() => resetPreview()}
+            >
+              Reset
+            </button>
+          </div>
+          <div style={{ fontSize: 12, opacity: 0.74 }}>
+            prev: {formatSeekTargetLabel(previousPlayableTarget)}
+            {" · "}
+            active: {formatSeekTargetLabel(jumpToActiveTarget)}
+            {" · "}
+            next: {formatSeekTargetLabel(nextPlayableTarget)}
+          </div>
+        </HammerPaneSection>
+
+        <HammerPaneSection
+          title="Row Actions"
+          subtitle="Row edits stay grouped here so transport and plan controls do not scatter across the shell."
+          action={(
+            <span style={PILL_BASE_STYLE}>
+              {selectedOverlayRow ? formatOverlayRowLabel(selectedOverlayRow) : "no row selected"}
+            </span>
+          )}
+        >
+          {selectedSegment ? (
+            <div style={{ display: "grid", gap: 4, fontSize: 12 }}>
+              <div style={{ color: "#dbe8ff" }}>
+                {selectedSegment.segment_id} · {selectedSegment.speaker}
+              </div>
+              <div style={{ opacity: 0.76 }}>{selectedSegment.text}</div>
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, opacity: 0.76 }}>
+              Select a transcript row to inspect it and apply segment-level edit instructions.
+            </div>
+          )}
+          <div style={ACTION_ROW_STYLE}>
             <button
               type="button"
               disabled={!selectedSegment}
@@ -1369,65 +1598,29 @@ export default function TranscriptSeekMock(): JSX.Element {
             >
               {selectedSegmentMergeInstruction ? "Undo merge" : "Merge with next"}
             </button>
-            <button
-              type="button"
-              disabled={editInstructions.length === 0}
-              onClick={() => clearEdits()}
-            >
-              Clear edits
-            </button>
           </div>
-        </header>
+          {!canMergeSelected && selectedNextSegment ? (
+            <div style={{ fontSize: 12, opacity: 0.66 }}>
+              Merge disabled for the selected row because the next segment speaker does not match.
+            </div>
+          ) : null}
+        </HammerPaneSection>
 
-        <div
-          style={{
-            border: "1px dashed rgba(148, 163, 184, 0.35)",
-            borderRadius: 10,
-            padding: "8px 10px",
-            display: "grid",
-            gap: 6,
-            fontSize: 12,
-            color: "#c8d6ea",
-            background: "rgba(2, 6, 23, 0.42)",
-          }}
-        >
-          <strong style={{ color: "#dbe8ff" }}>Session State</strong>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <span>transcript: {sessionState.transcriptLoaded ? "loaded" : "empty"}</span>
-            <span>source mode: {sessionState.sourceMode}</span>
-            <span>preview mode: {sessionState.previewMode}</span>
-            <span
-              style={{
-                borderRadius: 999,
-                padding: "2px 8px",
-                border: "1px solid rgba(148, 163, 184, 0.24)",
-                background: sessionState.editPlanStatus === "dirty"
-                  ? "rgba(245, 158, 11, 0.16)"
-                  : sessionState.editPlanStatus === "reloaded"
-                  ? "rgba(14, 165, 233, 0.16)"
-                  : "rgba(15, 23, 42, 0.55)",
-                color: sessionState.editPlanStatus === "dirty"
-                  ? "#fde68a"
-                  : sessionState.editPlanStatus === "reloaded"
-                  ? "#bae6fd"
-                  : "#dbe8ff",
-              }}
-            >
-              edit plan: {sessionState.editPlanStatus}
+        <HammerPaneSection
+          title="Transcript Overlay"
+          subtitle="Overlay rows remain the operational list for preview and navigation. This pane becomes the left-column workbench."
+          action={(
+            <span style={PILL_BASE_STYLE}>
+              active {activeOverlayRow ? formatOverlayRowLabel(activeOverlayRow) : "none"}
             </span>
-            <span>session: {sessionState.sessionId}</span>
-          </div>
-          <div style={{ opacity: 0.72 }}>
-            {sessionState.previewMode === "edit-aware"
-              ? "Edit-aware preview is active. Transport controls follow playable rows and skip deleted spans."
-              : "Raw preview is active. Transport keeps using playable navigation, but playback itself ignores the edit plan."}
-          </div>
-        </div>
-
-        <div
+          )}
+          sectionStyle={{ minHeight: 0, overflow: "hidden" }}
+          bodyStyle={{ minHeight: 0, overflow: "hidden" }}
+        >
+          <div
           ref={transcriptScrollContainerRef}
           data-testid="transcript-scroll-container"
-          style={{ display: "grid", gap: 8, overflow: "auto", maxHeight: "calc(100vh - 260px)" }}
+          style={{ display: "grid", gap: 8, overflow: "auto", minHeight: 0 }}
         >
           {overlayRows.length > 0 ? (
             overlayRows.map((row) => {
@@ -1632,179 +1825,21 @@ export default function TranscriptSeekMock(): JSX.Element {
             </div>
           )}
         </div>
-
-        <div
-          style={{
-            border: "1px dashed rgba(148, 163, 184, 0.35)",
-            borderRadius: 10,
-            padding: "8px 10px",
-            display: "grid",
-            gap: 6,
-            fontSize: 12,
-            color: "#b8c7db",
-            background: "rgba(2, 6, 23, 0.45)",
-          }}
-        >
-          <strong style={{ color: "#dbe8ff" }}>Edit Stack</strong>
-          {editInstructions.length === 0 ? (
-            <div>No edits yet.</div>
-          ) : (
-            editInstructions.map((instruction) => {
-              const detail = formatInstructionDetail(instruction);
-              return (
-                <div
-                  key={instruction.instruction_id}
-                  style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}
-                >
-                  <span
-                    style={{
-                      minWidth: 60,
-                      fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace",
-                      color: "#dbe8ff",
-                    }}
-                  >
-                    {instruction.type.toUpperCase()}
-                  </span>
-                  <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace" }}>
-                    {formatInstructionTarget(instruction)}
-                  </span>
-                  {detail ? (
-                    <span style={{ opacity: 0.68 }}>{detail}</span>
-                  ) : null}
-                  <span style={{ opacity: 0.56 }}>{instruction.instruction_id}</span>
-                  <button
-                    type="button"
-                    onClick={() => removeInstruction(instruction.instruction_id)}
-                    style={{ padding: "2px 8px", fontSize: 11 }}
-                  >
-                    Remove
-                  </button>
-                </div>
-              );
-            })
-          )}
-        </div>
-
-        <div
-          style={{
-            border: "1px dashed rgba(148, 163, 184, 0.35)",
-            borderRadius: 10,
-            padding: "8px 10px",
-            display: "grid",
-            gap: 8,
-            fontSize: 12,
-            color: "#b8c7db",
-            background: "rgba(2, 6, 23, 0.45)",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-            <strong style={{ color: "#dbe8ff" }}>Edit Plan JSON</strong>
-            <span
-              style={{
-                opacity: 0.9,
-                borderRadius: 999,
-                padding: "2px 8px",
-                border: "1px solid rgba(148, 163, 184, 0.24)",
-                background: sessionState.editPlanStatus === "dirty"
-                  ? "rgba(245, 158, 11, 0.16)"
-                  : sessionState.editPlanStatus === "reloaded"
-                  ? "rgba(14, 165, 233, 0.16)"
-                  : "rgba(15, 23, 42, 0.55)",
-                color: sessionState.editPlanStatus === "dirty"
-                  ? "#fde68a"
-                  : sessionState.editPlanStatus === "reloaded"
-                  ? "#bae6fd"
-                  : "#dbe8ff",
-              }}
-            >
-              {currentEditPlan.edit_plan_id} · {currentEditPlan.version} · {sessionState.editPlanStatus}
-            </span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <button
-              type="button"
-              data-testid="edit-plan-export"
-              onClick={() => exportEditPlan()}
-            >
-              Export Edit Plan
-            </button>
-            <button
-              type="button"
-              data-testid="edit-plan-load"
-              onClick={() => loadEditPlan()}
-            >
-              Load Edit Plan
-            </button>
-            <span style={{ opacity: 0.72 }}>
-              Round-trip this JSON to restore overlay rows and preview semantics.
-            </span>
-          </div>
-          {editPlanFeedback ? (
-            <div
-              style={{
-                color: editPlanFeedbackTone === "warning"
-                  ? "#fde68a"
-                  : editPlanFeedbackTone === "success"
-                  ? "#a7f3d0"
-                  : "#c8d6ea",
-              }}
-            >
-              {editPlanFeedback}
-            </div>
-          ) : null}
-          <textarea
-            data-testid="edit-plan-json"
-            value={editPlanJsonDraft}
-            onChange={(event) => {
-              setEditPlanJsonDraft(event.target.value);
-              setEditPlanFeedback(null);
-              setEditPlanFeedbackTone("neutral");
-            }}
-            spellCheck={false}
-            placeholder="Export the current edit plan, clear edits, then paste or reload the JSON here."
-            style={{
-              width: "100%",
-              minHeight: 180,
-              resize: "vertical",
-              borderRadius: 10,
-              border: "1px solid rgba(148, 163, 184, 0.26)",
-              background: "rgba(2, 6, 23, 0.65)",
-              color: "#dbe8ff",
-              padding: 10,
-              fontSize: 12,
-              fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace",
-            }}
-          />
-        </div>
+        </HammerPaneSection>
       </div>
 
-      <div style={{ ...PANEL_STYLE, padding: 14, gap: 12 }}>
-        <header style={{ display: "grid", gap: 4 }}>
-          <h2 style={{ margin: 0, fontSize: 18 }}>Playback Preview</h2>
-          <div style={{ fontSize: 13, opacity: 0.8 }}>
-            media_id: <strong>{mediaRef.media_id}</strong>
-          </div>
-          <div style={{ fontSize: 12, opacity: 0.7 }}>
-            local_relpath: {mediaRef.local_relpath}
-          </div>
-          <div style={{ fontSize: 12, opacity: 0.7 }}>
-            workspace_id: {query.workspaceId}
-          </div>
-          <div style={{ fontSize: 12, opacity: 0.7 }}>
-            source mode: {sessionState.sourceMode} ({playbackSourceLabel})
-          </div>
-        </header>
-
-        <div
-          style={{
-            border: "1px solid rgba(148, 163, 184, 0.28)",
-            borderRadius: 12,
-            background: "linear-gradient(145deg, rgba(11, 20, 38, 0.9), rgba(2, 6, 23, 0.84))",
-            padding: 12,
-            display: "grid",
-            gap: 10,
-          }}
+      <div style={{ ...PANE_STYLE, gridTemplateRows: "auto minmax(0, 1fr)" }}>
+        <HammerPaneSection
+          title="Media Source Status"
+          subtitle="Media wiring stays separate from transport and edit-plan controls. This pane is the future home for real source health."
+          action={<span style={PILL_BASE_STYLE}>{playbackSourceLabel}</span>}
         >
+          <div style={{ display: "grid", gap: 4, fontSize: 12 }}>
+            <div>media_id: <strong>{mediaRef.media_id}</strong></div>
+            <div>workspace_id: {query.workspaceId}</div>
+            <div>local_relpath: {mediaRef.local_relpath}</div>
+            <div>source mode: {sessionState.sourceMode}</div>
+          </div>
           {resolving ? (
             <div style={{ fontSize: 13, opacity: 0.82 }}>Resolving media...</div>
           ) : resolveError ? (
@@ -1817,9 +1852,8 @@ export default function TranscriptSeekMock(): JSX.Element {
                   {badgeVm?.tooltip ? ` - ${badgeVm.tooltip}` : ""}
                 </div>
               ) : null}
-
               {resolveResult?.status === "ok" ? (
-                <div style={{ fontSize: 12, opacity: 0.72 }}>
+                <div style={{ ...MONO_STYLE, fontSize: 12, opacity: 0.72 }}>
                   resolved_uri: {resolveResult.playable_uri}
                 </div>
               ) : null}
@@ -1830,177 +1864,154 @@ export default function TranscriptSeekMock(): JSX.Element {
                   Falling back to dev-tone preview audio.
                 </div>
               ) : null}
-              {playbackSrc ? (
-                <audio
-                  ref={audioRef}
-                  src={playbackSrc}
-                  controls
-                  preload="metadata"
-                  data-testid="hammer-audio-player"
-                  style={{ width: "100%" }}
-                  onLoadedMetadata={(event) => {
-                    const nextDuration = event.currentTarget.duration;
-                    if (Number.isFinite(nextDuration) && nextDuration > 0) {
-                      setDurationSec(nextDuration);
-                    }
-                  }}
-                  onTimeUpdate={(event) => {
-                    setCurrentTimeSec(event.currentTarget.currentTime);
-                  }}
-                  onPlay={() => setIsPlaying(true)}
-                  onPause={() => setIsPlaying(false)}
-                  onEnded={() => setIsPlaying(false)}
-                  onError={() => {
-                    setIsPlaying(false);
-                    if (resolvedMediaSrc && !preferDevAudioFallback && devAudioSrc) {
-                      setPreferDevAudioFallback(true);
-                      setPlaybackError("Mapped media failed to load. Switched to dev-tone preview audio.");
-                      return;
-                    }
-                    setPlaybackError("Preview audio failed to load.");
-                  }}
-                />
-              ) : (
-                <div style={{ fontSize: 13, color: "#fde68a" }}>
-                  No playback source is available yet.
-                </div>
-              )}
             </>
           )}
+        </HammerPaneSection>
 
-          {playbackError ? (
-            <div style={{ color: "#fecaca", fontSize: 12 }}>{playbackError}</div>
-          ) : null}
-
-          <div style={{ fontSize: 13, opacity: 0.85 }}>
-            Time: {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)} · {sessionState.previewMode} preview
-          </div>
-          <div style={{ display: "grid", gap: 6 }}>
+        <HammerPaneSection
+          title="Preview Stage"
+          subtitle="The center pane stays intentionally simple for now: live media, playhead, and the active preview state."
+          action={<span style={PILL_BASE_STYLE}>{sessionState.previewMode} preview</span>}
+          sectionStyle={{ minHeight: 0, overflow: "hidden" }}
+          bodyStyle={{ minHeight: 0, overflow: "auto" }}
+        >
+          <div
+            style={{
+              border: "1px solid rgba(148, 163, 184, 0.28)",
+              borderRadius: 12,
+              background: "linear-gradient(145deg, rgba(11, 20, 38, 0.9), rgba(2, 6, 23, 0.84))",
+              padding: 12,
+              display: "grid",
+              gap: 12,
+            }}
+          >
             <div
               style={{
-                height: 10,
-                borderRadius: 999,
-                border: "1px solid rgba(148, 163, 184, 0.25)",
-                background: "rgba(2, 6, 23, 0.75)",
-                overflow: "hidden",
+                border: "1px solid rgba(148, 163, 184, 0.18)",
+                borderRadius: 12,
+                background: "rgba(15, 23, 42, 0.54)",
+                padding: 12,
+                display: "grid",
+                gap: 8,
               }}
             >
-              <div
-                style={{
-                  width: `${progressPercent}%`,
-                  height: "100%",
-                  background: "linear-gradient(90deg, rgba(96, 165, 250, 0.75), rgba(14, 165, 233, 0.85))",
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                <strong style={{ color: "#dbe8ff" }}>Active Preview</strong>
+                <span style={{ fontSize: 12, opacity: 0.76 }}>
+                  {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
+                </span>
+              </div>
+              <div style={{ fontSize: 16, color: "#dbe8ff" }}>
+                {activeOverlayRow ? formatOverlayRowLabel(activeOverlayRow) : "No active row"}
+              </div>
+              <div style={{ fontSize: 12, opacity: 0.72 }}>
+                selected row: {selectedOverlayRow ? formatOverlayRowLabel(selectedOverlayRow) : "none"}
+                {" · "}
+                skip: {lastPreviewSkip?.reason ?? "none"}
+              </div>
+            </div>
+
+            {resolving ? (
+              <div style={{ fontSize: 13, opacity: 0.82 }}>Resolving media...</div>
+            ) : resolveError ? (
+              <div style={{ color: "#fecaca", fontSize: 13 }}>{resolveError}</div>
+            ) : playbackSrc ? (
+              <audio
+                ref={audioRef}
+                src={playbackSrc}
+                controls
+                preload="metadata"
+                data-testid="hammer-audio-player"
+                style={{ width: "100%" }}
+                onLoadedMetadata={(event) => {
+                  const nextDuration = event.currentTarget.duration;
+                  if (Number.isFinite(nextDuration) && nextDuration > 0) {
+                    setDurationSec(nextDuration);
+                  }
+                }}
+                onTimeUpdate={(event) => {
+                  setCurrentTimeSec(event.currentTarget.currentTime);
+                }}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+                onEnded={() => setIsPlaying(false)}
+                onError={() => {
+                  setIsPlaying(false);
+                  if (resolvedMediaSrc && !preferDevAudioFallback && devAudioSrc) {
+                    setPreferDevAudioFallback(true);
+                    setPlaybackError("Mapped media failed to load. Switched to dev-tone preview audio.");
+                    return;
+                  }
+                  setPlaybackError("Preview audio failed to load.");
                 }}
               />
-            </div>
-            <input
-              type="range"
-              min={0}
-              max={effectiveDurationSec}
-              step={0.1}
-              value={currentTimeSec}
-              onChange={(event) => seekTo(Number(event.target.value))}
-              aria-label="Playback playhead"
-              disabled={!canControlAudio}
-            />
-          </div>
+            ) : (
+              <div style={{ fontSize: 13, color: "#fde68a" }}>
+                No playback source is available yet.
+              </div>
+            )}
 
-          <div style={{ display: "grid", gap: 8 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <button
-                type="button"
-                disabled={previousPlayableTarget.timeSec == null}
-                onClick={() => seekToResolvedTarget(previousPlayableTarget)}
-                title={formatSeekTargetLabel(previousPlayableTarget)}
-              >
-                Prev playable
-              </button>
-              <button type="button" onClick={() => void onTogglePlayback()} disabled={!canControlAudio}>
-                {isPlaying ? "Pause" : "Play"}
-              </button>
-              <button
-                type="button"
-                disabled={nextPlayableTarget.timeSec == null}
-                onClick={() => seekToResolvedTarget(nextPlayableTarget)}
-                title={formatSeekTargetLabel(nextPlayableTarget)}
-              >
-                Next playable
-              </button>
-              <button
-                type="button"
-                disabled={jumpToActiveTarget.timeSec == null}
-                onClick={() => seekToResolvedTarget(jumpToActiveTarget)}
-                title={formatSeekTargetLabel(jumpToActiveTarget)}
-              >
-                Jump to active
-              </button>
-              <button
-                type="button"
-                onClick={() => setPreviewMode((currentMode) => (
-                  currentMode === "edit-aware" ? "raw" : "edit-aware"
-                ))}
-              >
-                {previewMode === "edit-aware" ? "Switch to raw" : "Switch to edit-aware"}
-              </button>
-              <button
-                type="button"
-                disabled={!canControlAudio}
-                onClick={() => resetPreview()}
-              >
-                Reset
-              </button>
-            </div>
-            <div style={{ fontSize: 12, opacity: 0.74 }}>
-              prev: {formatSeekTargetLabel(previousPlayableTarget)}
-              {" · "}
-              active: {formatSeekTargetLabel(jumpToActiveTarget)}
-              {" · "}
-              next: {formatSeekTargetLabel(nextPlayableTarget)}
-            </div>
-          </div>
-        </div>
+            {playbackError ? (
+              <div style={{ color: "#fecaca", fontSize: 12 }}>{playbackError}</div>
+            ) : null}
 
-        <div
-          style={{
-            border: "1px dashed rgba(148, 163, 184, 0.35)",
-            borderRadius: 10,
-            padding: "8px 10px",
-            display: "grid",
-            gap: 4,
-            fontSize: 13,
-            color: "#b8c7db",
-            background: "rgba(2, 6, 23, 0.45)",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-            <strong style={{ color: "#dbe8ff" }}>Selected Row Inspector</strong>
-            <span style={{ opacity: 0.72 }}>
-              active row: {activeOverlayRow ? formatOverlayRowLabel(activeOverlayRow) : "none"}
-            </span>
-          </div>
-          {selectedOverlayRow ? (
-            <>
+            <div style={{ fontSize: 13, opacity: 0.85 }}>
+              Time: {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)} · {sessionState.previewMode} preview
+            </div>
+            <div style={{ display: "grid", gap: 6 }}>
               <div
                 style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                  gap: 8,
+                  height: 10,
+                  borderRadius: 999,
+                  border: "1px solid rgba(148, 163, 184, 0.25)",
+                  background: "rgba(2, 6, 23, 0.75)",
+                  overflow: "hidden",
                 }}
               >
+                <div
+                  style={{
+                    width: `${progressPercent}%`,
+                    height: "100%",
+                    background: "linear-gradient(90deg, rgba(96, 165, 250, 0.75), rgba(14, 165, 233, 0.85))",
+                  }}
+                />
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={effectiveDurationSec}
+                step={0.1}
+                value={currentTimeSec}
+                onChange={(event) => seekTo(Number(event.target.value))}
+                aria-label="Playback playhead"
+                disabled={!canControlAudio}
+              />
+            </div>
+          </div>
+        </HammerPaneSection>
+      </div>
+
+      <div style={{ ...PANE_STYLE, gridTemplateRows: "minmax(0, 0.9fr) minmax(0, 1.1fr)" }}>
+        <HammerPaneSection
+          title="Selected Row Inspector"
+          subtitle="This is the debugging truth panel for the current row: identity, ancestry, timing, instruction effects, and resolved seek behavior."
+          action={<span style={PILL_BASE_STYLE}>{selectedOverlayRow ? selectedOverlayRow.row_id : "none"}</span>}
+          sectionStyle={{ minHeight: 0, overflow: "hidden" }}
+          bodyStyle={{ minHeight: 0, overflow: "auto" }}
+        >
+          {selectedOverlayRow ? (
+            <>
+              <div style={INSPECTOR_GRID_STYLE}>
                 <div>
-                  <div style={{ fontSize: 11, opacity: 0.62 }}>row id</div>
-                  <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace" }}>
-                    {selectedOverlayRow.row_id}
-                  </div>
+                  <div style={{ fontSize: 11, opacity: 0.62 }}>row identity</div>
+                  <div style={MONO_STYLE}>{selectedOverlayRow.row_id}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, opacity: 0.62 }}>source segment ids</div>
-                  <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace" }}>
-                    {selectedOverlayRow.source_segment_ids.join(" + ")}
-                  </div>
+                  <div style={{ fontSize: 11, opacity: 0.62 }}>source segment ancestry</div>
+                  <div style={MONO_STYLE}>{formatSegmentAncestry(selectedOverlayRow.source_segment_ids)}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, opacity: 0.62 }}>start / end</div>
+                  <div style={{ fontSize: 11, opacity: 0.62 }}>raw timing</div>
                   <div>
                     {formatTimeDetail(selectedOverlayRow.start_sec)}
                     {" -> "}
@@ -2008,7 +2019,7 @@ export default function TranscriptSeekMock(): JSX.Element {
                   </div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, opacity: 0.62 }}>playable start / end</div>
+                  <div style={{ fontSize: 11, opacity: 0.62 }}>playable timing</div>
                   <div>
                     {formatTimeDetail(selectedOverlayPlaybackRange?.playable_start_sec ?? null)}
                     {" -> "}
@@ -2018,6 +2029,10 @@ export default function TranscriptSeekMock(): JSX.Element {
                 <div>
                   <div style={{ fontSize: 11, opacity: 0.62 }}>playable slices</div>
                   <div>{formatPlayableSlices(selectedOverlayPlaybackRange)}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, opacity: 0.62 }}>instruction effects</div>
+                  <div>{selectedRowEffects}</div>
                 </div>
                 <div>
                   <div style={{ fontSize: 11, opacity: 0.62 }}>flags</div>
@@ -2034,8 +2049,12 @@ export default function TranscriptSeekMock(): JSX.Element {
                   </div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, opacity: 0.62 }}>resolved seek target</div>
+                  <div style={{ fontSize: 11, opacity: 0.62 }}>seek target</div>
                   <div>{formatSeekTargetLabel(selectedOverlaySeekTarget)}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, opacity: 0.62 }}>preview status</div>
+                  <div>{selectedRowPreviewStatus}</div>
                 </div>
               </div>
               {selectedSegment ? (
@@ -2049,9 +2068,156 @@ export default function TranscriptSeekMock(): JSX.Element {
               ) : null}
             </>
           ) : (
-            "No row selected."
+            <div style={{ fontSize: 12, opacity: 0.78 }}>No row selected.</div>
           )}
-        </div>
+        </HammerPaneSection>
+
+        <HammerPaneSection
+          title="Edit Plan Panel"
+          subtitle="Plan state, round-trip controls, and the instruction stack live together so plan-level operations stay out of row editing."
+          action={(
+            <span style={getEditPlanStatusBadgeStyle(sessionState.editPlanStatus)}>
+              {currentEditPlan.edit_plan_id} · {sessionState.editPlanStatus}
+            </span>
+          )}
+          sectionStyle={{ minHeight: 0, overflow: "hidden" }}
+          bodyStyle={{ minHeight: 0, overflow: "auto" }}
+        >
+          <div style={INSPECTOR_GRID_STYLE}>
+            <div>
+              <div style={{ fontSize: 11, opacity: 0.62 }}>plan id</div>
+              <div style={MONO_STYLE}>{currentEditPlan.edit_plan_id}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, opacity: 0.62 }}>preview mode</div>
+              <div>{sessionState.previewMode}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, opacity: 0.62 }}>instruction count</div>
+              <div>{editInstructions.length}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, opacity: 0.62 }}>status</div>
+              <div>{sessionState.editPlanStatus}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, opacity: 0.62 }}>created</div>
+              <div>{currentEditPlan.created_at}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, opacity: 0.62 }}>updated</div>
+              <div>{currentEditPlan.updated_at}</div>
+            </div>
+          </div>
+
+          <div style={ACTION_ROW_STYLE}>
+            <button
+              type="button"
+              disabled={editInstructions.length === 0}
+              onClick={() => clearEdits()}
+            >
+              Clear edits
+            </button>
+            <button
+              type="button"
+              data-testid="edit-plan-export"
+              onClick={() => exportEditPlan()}
+            >
+              Export Edit Plan
+            </button>
+            <button
+              type="button"
+              data-testid="edit-plan-load"
+              onClick={() => loadEditPlan()}
+            >
+              Load Edit Plan
+            </button>
+          </div>
+          <div style={{ fontSize: 12, opacity: 0.72 }}>
+            Round-trip this JSON to restore overlay rows and preview semantics.
+          </div>
+          {editPlanFeedback ? (
+            <div
+              style={{
+                color: editPlanFeedbackTone === "warning"
+                  ? "#fde68a"
+                  : editPlanFeedbackTone === "success"
+                  ? "#a7f3d0"
+                  : "#c8d6ea",
+              }}
+            >
+              {editPlanFeedback}
+            </div>
+          ) : null}
+
+          <div style={{ display: "grid", gap: 6 }}>
+            <strong style={{ color: "#dbe8ff" }}>Instruction Stack</strong>
+            {editInstructions.length === 0 ? (
+              <div style={{ fontSize: 12, opacity: 0.78 }}>No edits yet.</div>
+            ) : (
+              editInstructions.map((instruction) => {
+                const detail = formatInstructionDetail(instruction);
+                return (
+                  <div
+                    key={instruction.instruction_id}
+                    style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}
+                  >
+                    <span
+                      style={{
+                        minWidth: 60,
+                        ...MONO_STYLE,
+                        color: "#dbe8ff",
+                      }}
+                    >
+                      {instruction.type.toUpperCase()}
+                    </span>
+                    <span style={MONO_STYLE}>
+                      {formatInstructionTarget(instruction)}
+                    </span>
+                    {detail ? (
+                      <span style={{ opacity: 0.68 }}>{detail}</span>
+                    ) : null}
+                    <span style={{ opacity: 0.56 }}>{instruction.instruction_id}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeInstruction(instruction.instruction_id)}
+                      style={{ padding: "2px 8px", fontSize: 11 }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <div style={{ display: "grid", gap: 8 }}>
+            <strong style={{ color: "#dbe8ff" }}>Edit Plan JSON</strong>
+            <textarea
+              data-testid="edit-plan-json"
+              value={editPlanJsonDraft}
+              onChange={(event) => {
+                setEditPlanJsonDraft(event.target.value);
+                setEditPlanFeedback(null);
+                setEditPlanFeedbackTone("neutral");
+              }}
+              spellCheck={false}
+              placeholder="Export the current edit plan, clear edits, then paste or reload the JSON here."
+              style={{
+                width: "100%",
+                minHeight: 180,
+                resize: "vertical",
+                borderRadius: 10,
+                border: "1px solid rgba(148, 163, 184, 0.26)",
+                background: "rgba(2, 6, 23, 0.65)",
+                color: "#dbe8ff",
+                padding: 10,
+                fontSize: 12,
+                ...MONO_STYLE,
+              }}
+            />
+          </div>
+        </HammerPaneSection>
       </div>
     </section>
   );
