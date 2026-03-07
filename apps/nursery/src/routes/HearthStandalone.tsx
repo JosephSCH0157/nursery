@@ -217,7 +217,10 @@ export default function HearthStandalone() {
       ? "AI: Active"
       : "AI: Idle";
   const navExtraItems = useMemo(
-    () => [{ id: "ai-controls", label: "AI Controls", actionId: FORGE_NAV_ACTION_AI_CONTROLS }],
+    () => [
+      { id: "ai-controls", label: "AI Controls", actionId: FORGE_NAV_ACTION_AI_CONTROLS },
+      { id: "forge-subscriptions", label: "Forge Subscriptions", to: "/app/subscriptions" },
+    ],
     [],
   );
 

@@ -12,10 +12,12 @@ export type EpisodeTitleVariants = {
 
 export type EpisodeContext = {
   episodeId: string;
+  workspaceId: string | null;
   title: string;
   titleVariants: EpisodeTitleVariants;
   outline: string;
   body: string;
+  tonePreset: string | null;
   sources: Array<{
     id: string;
     title: string;
@@ -42,8 +44,9 @@ export type HearthAiReplyPayload = {
 
 type BuildEpisodeContextInput = {
   episodeId: string;
+  workspaceId: string | null;
   draft: Pick<Draft, "id" | "title" | "body"> | null;
-  planningSession: Pick<HearthPlanningSession, "title" | "title_variants" | "outline"> | null;
+  planningSession: Pick<HearthPlanningSession, "title" | "title_variants" | "outline" | "tone_preset"> | null;
   workpieceSources: Array<Pick<WorkpieceSourceRef, "source_id" | "notes">>;
   sourceIndexById: Map<string, Pick<SourceIndexEntry, "source_id" | "title" | "url">>;
   sparks: Array<Pick<BarStockSpark, "id" | "body">>;
@@ -71,10 +74,12 @@ export function buildEpisodeContext(input: BuildEpisodeContextInput): EpisodeCon
 
   return {
     episodeId: input.episodeId,
+    workspaceId: input.workspaceId,
     title: (input.draft?.title ?? input.planningSession?.title ?? "").trim(),
     titleVariants: normalizeTitleVariants(input.planningSession?.title_variants),
     outline: (input.planningSession?.outline ?? []).join("\n"),
     body,
+    tonePreset: input.planningSession?.tone_preset?.trim() ?? null,
     sources: input.workpieceSources.map((ref) => {
       const normalized = normalizeSourceId(ref.source_id);
       const entry = input.sourceIndexById.get(normalized);

@@ -1,4 +1,5 @@
 import { resolveForgeUserAccessToken } from "./hearth-chat-api";
+import { tongsFetch } from "./tongs-fetch";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const FEATURE_CACHE_TTL_MS = 45_000;
@@ -6,6 +7,7 @@ const WORKSPACE_FEATURES_STORAGE_KEY = "forge:workspace-features:changed:v1";
 export const WORKSPACE_FEATURES_CHANGED_EVENT = "forge:workspace-features:changed";
 const FEATURE_CACHE = new Map<string, FeatureCacheEntry>();
 const STYLE_PROFILE_CACHE = new Map<string, StyleProfile | null>();
+const WRITING_PROFILE_CACHE = new Map<string, WritingProfile | null>();
 const ALIGNMENT_PAUSE_PREFIX = "hearth:style-alignment-paused:v1:";
 let workspaceFeatureSyncInitialized = false;
 
@@ -68,6 +70,54 @@ export type StyleProfile = {
   lastUpdated: string | null;
 };
 
+export type WritingProfile = {
+  workspaceId: string;
+  userId: string;
+  defaultAudience: string | null;
+  defaultStructure: string | null;
+  styleNotes: string | null;
+  lastUsedTonePreset: string | null;
+  updatedAt: string | null;
+};
+
+export type WritingProfileInput = {
+  defaultAudience?: string | null;
+  defaultStructure?: string | null;
+  styleNotes?: string | null;
+};
+
+export type StyleSampleSourceKind = "upload" | "paste" | "forge_script" | "forge_transcript" | "other";
+
+export type StyleSample = {
+  sampleId: string;
+  workspaceId: string;
+  userId: string;
+  sourceKind: StyleSampleSourceKind;
+  sourceLabel: string | null;
+  sourceWorkpieceId: string | null;
+  sourcePath: string | null;
+  content: string;
+  contentChars: number;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+export type StyleSampleInput = {
+  sourceKind: StyleSampleSourceKind;
+  sourceLabel?: string | null;
+  sourceWorkpieceId?: string | null;
+  sourcePath?: string | null;
+  content: string;
+};
+
+export type RecentScriptReference = {
+  workspaceId: string;
+  workpieceId: string;
+  scriptPath: string;
+  title: string;
+  markedReadyAt: string | null;
+};
+
 export type StyleUpdateResult =
   | {
       ok: true;
@@ -108,6 +158,38 @@ type StyleProfileRpcRow = {
   adaptation_weight?: unknown;
   scripts_analyzed_count?: unknown;
   last_updated?: unknown;
+};
+
+type WritingProfileRpcRow = {
+  workspace_id?: unknown;
+  user_id?: unknown;
+  default_audience?: unknown;
+  default_structure?: unknown;
+  style_notes?: unknown;
+  last_used_tone_preset?: unknown;
+  updated_at?: unknown;
+};
+
+type StyleSampleRpcRow = {
+  sample_id?: unknown;
+  workspace_id?: unknown;
+  user_id?: unknown;
+  source_kind?: unknown;
+  source_label?: unknown;
+  source_workpiece_id?: unknown;
+  source_path?: unknown;
+  content?: unknown;
+  content_chars?: unknown;
+  created_at?: unknown;
+  updated_at?: unknown;
+};
+
+type RecentScriptReferenceRpcRow = {
+  workspace_id?: unknown;
+  workpiece_id?: unknown;
+  script_path?: unknown;
+  title?: unknown;
+  marked_ready_at?: unknown;
 };
 
 type RpcErrorPayload = {
@@ -389,6 +471,84 @@ function toStyleProfile(row: unknown, workspaceId: string): StyleProfile | null 
   };
 }
 
+function toWritingProfile(row: unknown, workspaceId: string): WritingProfile | null {
+  const raw = (Array.isArray(row) ? row[0] : row) as WritingProfileRpcRow | undefined;
+  if (!raw || typeof raw !== "object") return null;
+  const resolvedWorkspaceId = normalizeUuid(raw.workspace_id) ?? workspaceId;
+  const userId = normalizeUuid(raw.user_id);
+  if (!resolvedWorkspaceId || !userId) return null;
+  return {
+    workspaceId: resolvedWorkspaceId,
+    userId,
+    defaultAudience: readString(raw.default_audience),
+    defaultStructure: readString(raw.default_structure),
+    styleNotes: readString(raw.style_notes),
+    lastUsedTonePreset: readString(raw.last_used_tone_preset),
+    updatedAt: readString(raw.updated_at),
+  };
+}
+
+function normalizeStyleSampleSourceKind(value: unknown): StyleSampleSourceKind | null {
+  const kind = readString(value)?.toLowerCase() ?? null;
+  if (kind === "upload") return "upload";
+  if (kind === "paste") return "paste";
+  if (kind === "forge_script") return "forge_script";
+  if (kind === "forge_transcript") return "forge_transcript";
+  if (kind === "other") return "other";
+  return null;
+}
+
+function normalizeRelativePath(value: unknown): string | null {
+  const path = readString(value);
+  if (!path) return null;
+  if (path.startsWith("/")) return null;
+  if (path.includes("..")) return null;
+  if (path.includes("\\")) return null;
+  return path;
+}
+
+function toStyleSample(row: unknown, workspaceId: string): StyleSample | null {
+  const raw = row as StyleSampleRpcRow | null | undefined;
+  if (!raw || typeof raw !== "object") return null;
+  const sampleId = normalizeUuid(raw.sample_id);
+  const resolvedWorkspaceId = normalizeUuid(raw.workspace_id) ?? workspaceId;
+  const userId = normalizeUuid(raw.user_id);
+  const sourceKind = normalizeStyleSampleSourceKind(raw.source_kind) ?? "other";
+  const contentRaw = typeof raw.content === "string" ? raw.content : "";
+  const content = contentRaw.trim();
+  if (!sampleId || !resolvedWorkspaceId || !userId || !content) return null;
+
+  return {
+    sampleId,
+    workspaceId: resolvedWorkspaceId,
+    userId,
+    sourceKind,
+    sourceLabel: readString(raw.source_label),
+    sourceWorkpieceId: normalizeUuid(raw.source_workpiece_id),
+    sourcePath: normalizeRelativePath(raw.source_path),
+    content,
+    contentChars: Math.max(0, Math.floor(readNumber(raw.content_chars) ?? content.length)),
+    createdAt: readString(raw.created_at),
+    updatedAt: readString(raw.updated_at),
+  };
+}
+
+function toRecentScriptReference(row: unknown, workspaceId: string): RecentScriptReference | null {
+  const raw = row as RecentScriptReferenceRpcRow | null | undefined;
+  if (!raw || typeof raw !== "object") return null;
+  const resolvedWorkspaceId = normalizeUuid(raw.workspace_id) ?? workspaceId;
+  const workpieceId = normalizeUuid(raw.workpiece_id);
+  const scriptPath = normalizeRelativePath(raw.script_path);
+  if (!resolvedWorkspaceId || !workpieceId || !scriptPath) return null;
+  return {
+    workspaceId: resolvedWorkspaceId,
+    workpieceId,
+    scriptPath,
+    title: readString(raw.title) ?? `Episode ${workpieceId.slice(0, 8)}`,
+    markedReadyAt: readString(raw.marked_ready_at),
+  };
+}
+
 function tokenizeWords(text: string): string[] {
   return text
     .toLowerCase()
@@ -592,10 +752,12 @@ export function clearWorkspaceFeatureCache(workspaceId?: string | null): void {
   if (!normalized) {
     FEATURE_CACHE.clear();
     STYLE_PROFILE_CACHE.clear();
+    WRITING_PROFILE_CACHE.clear();
     return;
   }
   FEATURE_CACHE.delete(normalized);
   STYLE_PROFILE_CACHE.delete(normalized);
+  WRITING_PROFILE_CACHE.delete(normalized);
 }
 
 export type ResolveWorkspaceIdFromSearchOptions = {
@@ -756,6 +918,393 @@ export async function getStyleProfile(
     ok: true,
     status: rpc.status,
     data: profile,
+  };
+}
+
+export async function getMyWritingProfile(
+  workspaceId: string,
+  options?: { force?: boolean },
+): Promise<RpcSuccess<WritingProfile | null> | RpcFailure> {
+  const normalizedWorkspaceId = normalizeUuid(workspaceId);
+  if (!normalizedWorkspaceId) {
+    return { ok: false, status: 400, error: "workspace_id is required." };
+  }
+
+  if (!options?.force && WRITING_PROFILE_CACHE.has(normalizedWorkspaceId)) {
+    return {
+      ok: true,
+      status: 200,
+      data: WRITING_PROFILE_CACHE.get(normalizedWorkspaceId) ?? null,
+    };
+  }
+
+  const rpc = await callTongsRpc<WritingProfileRpcRow[] | WritingProfileRpcRow>(
+    "get_my_writing_profile",
+    { p_workspace_id: normalizedWorkspaceId },
+  );
+  if (!rpc.ok) return rpc;
+
+  const profile = toWritingProfile(rpc.data, normalizedWorkspaceId);
+  WRITING_PROFILE_CACHE.set(normalizedWorkspaceId, profile);
+  return {
+    ok: true,
+    status: rpc.status,
+    data: profile,
+  };
+}
+
+export async function saveMyWritingProfile(
+  workspaceId: string,
+  input: WritingProfileInput,
+): Promise<RpcSuccess<WritingProfile> | RpcFailure> {
+  const normalizedWorkspaceId = normalizeUuid(workspaceId);
+  if (!normalizedWorkspaceId) {
+    return { ok: false, status: 400, error: "workspace_id is required." };
+  }
+
+  const rpc = await callTongsRpc<WritingProfileRpcRow[] | WritingProfileRpcRow>(
+    "set_my_writing_profile",
+    {
+      p_workspace_id: normalizedWorkspaceId,
+      p_default_audience: input.defaultAudience ?? null,
+      p_default_structure: input.defaultStructure ?? null,
+      p_style_notes: input.styleNotes ?? null,
+    },
+  );
+  if (!rpc.ok) return rpc;
+
+  const profile = toWritingProfile(rpc.data, normalizedWorkspaceId);
+  if (!profile) {
+    return {
+      ok: false,
+      status: 502,
+      error: "Writing profile update returned an invalid payload.",
+    };
+  }
+  WRITING_PROFILE_CACHE.set(normalizedWorkspaceId, profile);
+  return {
+    ok: true,
+    status: rpc.status,
+    data: profile,
+  };
+}
+
+export async function resetMyWritingProfile(
+  workspaceId: string,
+): Promise<RpcSuccess<WritingProfile> | RpcFailure> {
+  const normalizedWorkspaceId = normalizeUuid(workspaceId);
+  if (!normalizedWorkspaceId) {
+    return { ok: false, status: 400, error: "workspace_id is required." };
+  }
+
+  const rpc = await callTongsRpc<WritingProfileRpcRow[] | WritingProfileRpcRow>(
+    "reset_my_writing_profile",
+    { p_workspace_id: normalizedWorkspaceId },
+  );
+  if (!rpc.ok) return rpc;
+
+  const profile = toWritingProfile(rpc.data, normalizedWorkspaceId);
+  if (!profile) {
+    return {
+      ok: false,
+      status: 502,
+      error: "Writing profile reset returned an invalid payload.",
+    };
+  }
+
+  WRITING_PROFILE_CACHE.set(normalizedWorkspaceId, profile);
+  return {
+    ok: true,
+    status: rpc.status,
+    data: profile,
+  };
+}
+
+export async function setMyWritingTonePreset(
+  workspaceId: string,
+  tonePreset: string,
+): Promise<RpcSuccess<WritingProfile> | RpcFailure> {
+  const normalizedWorkspaceId = normalizeUuid(workspaceId);
+  if (!normalizedWorkspaceId) {
+    return { ok: false, status: 400, error: "workspace_id is required." };
+  }
+  const normalizedTonePreset = readString(tonePreset);
+  if (!normalizedTonePreset) {
+    return { ok: false, status: 400, error: "tone_preset is required." };
+  }
+
+  const rpc = await callTongsRpc<WritingProfileRpcRow[] | WritingProfileRpcRow>(
+    "set_my_writing_tone_preset",
+    {
+      p_workspace_id: normalizedWorkspaceId,
+      p_tone_preset: normalizedTonePreset,
+    },
+  );
+  if (!rpc.ok) return rpc;
+
+  const profile = toWritingProfile(rpc.data, normalizedWorkspaceId);
+  if (!profile) {
+    return {
+      ok: false,
+      status: 502,
+      error: "Writing tone preset update returned an invalid payload.",
+    };
+  }
+
+  WRITING_PROFILE_CACHE.set(normalizedWorkspaceId, profile);
+  return {
+    ok: true,
+    status: rpc.status,
+    data: profile,
+  };
+}
+
+export async function addMyStyleSample(
+  workspaceId: string,
+  input: StyleSampleInput,
+): Promise<RpcSuccess<StyleSample> | RpcFailure> {
+  const normalizedWorkspaceId = normalizeUuid(workspaceId);
+  if (!normalizedWorkspaceId) {
+    return { ok: false, status: 400, error: "workspace_id is required." };
+  }
+
+  const sourceKind = normalizeStyleSampleSourceKind(input.sourceKind);
+  if (!sourceKind) {
+    return { ok: false, status: 400, error: "source_kind is required." };
+  }
+
+  const content = readString(input.content);
+  if (!content) {
+    return { ok: false, status: 400, error: "content is required." };
+  }
+
+  const sourcePath = input.sourcePath == null ? null : normalizeRelativePath(input.sourcePath);
+  if (input.sourcePath != null && !sourcePath) {
+    return { ok: false, status: 400, error: "source_path must be a safe relative path." };
+  }
+
+  const rpc = await callTongsRpc<StyleSampleRpcRow[] | StyleSampleRpcRow>(
+    "add_my_style_sample",
+    {
+      p_workspace_id: normalizedWorkspaceId,
+      p_source_kind: sourceKind,
+      p_source_label: readString(input.sourceLabel ?? null),
+      p_source_workpiece_id: normalizeUuid(input.sourceWorkpieceId) ?? null,
+      p_source_path: sourcePath,
+      p_content: content,
+    },
+  );
+  if (!rpc.ok) return rpc;
+
+  const sample = toStyleSample(rpc.data, normalizedWorkspaceId);
+  if (!sample) {
+    return {
+      ok: false,
+      status: 502,
+      error: "Style sample insert returned an invalid payload.",
+    };
+  }
+
+  return {
+    ok: true,
+    status: rpc.status,
+    data: sample,
+  };
+}
+
+export async function addMyStyleSamples(
+  workspaceId: string,
+  inputs: readonly StyleSampleInput[],
+): Promise<
+  | RpcSuccess<{
+      inserted: number;
+      failed: number;
+      errors: string[];
+      samples: StyleSample[];
+    }>
+  | RpcFailure
+> {
+  if (inputs.length === 0) {
+    return {
+      ok: true,
+      status: 200,
+      data: {
+        inserted: 0,
+        failed: 0,
+        errors: [],
+        samples: [],
+      },
+    };
+  }
+
+  const samples: StyleSample[] = [];
+  const errors: string[] = [];
+  let fallbackFailure: RpcFailure | null = null;
+
+  for (let index = 0; index < inputs.length; index += 1) {
+    const result = await addMyStyleSample(workspaceId, inputs[index]);
+    if (!result.ok) {
+      if (!fallbackFailure) fallbackFailure = result;
+      errors.push(`Sample ${index + 1}: ${result.error}`);
+      continue;
+    }
+    samples.push(result.data);
+  }
+
+  if (samples.length === 0 && fallbackFailure) {
+    return {
+      ok: false,
+      status: fallbackFailure.status,
+      error: errors[0] ?? fallbackFailure.error,
+    };
+  }
+
+  return {
+    ok: true,
+    status: 200,
+    data: {
+      inserted: samples.length,
+      failed: errors.length,
+      errors,
+      samples,
+    },
+  };
+}
+
+export async function listMyStyleSamples(
+  workspaceId: string,
+  options?: { limit?: number },
+): Promise<RpcSuccess<StyleSample[]> | RpcFailure> {
+  const normalizedWorkspaceId = normalizeUuid(workspaceId);
+  if (!normalizedWorkspaceId) {
+    return { ok: false, status: 400, error: "workspace_id is required." };
+  }
+
+  const limitRaw = options?.limit;
+  const limit = Number.isFinite(limitRaw)
+    ? Math.max(1, Math.min(500, Math.floor(limitRaw as number)))
+    : 200;
+
+  const rpc = await callTongsRpc<StyleSampleRpcRow[] | StyleSampleRpcRow>(
+    "list_my_style_samples",
+    {
+      p_workspace_id: normalizedWorkspaceId,
+      p_limit: limit,
+    },
+  );
+  if (!rpc.ok) return rpc;
+
+  const rows = Array.isArray(rpc.data) ? rpc.data : (rpc.data ? [rpc.data] : []);
+  const samples = rows
+    .map((row) => toStyleSample(row, normalizedWorkspaceId))
+    .filter((row): row is StyleSample => Boolean(row));
+
+  return {
+    ok: true,
+    status: rpc.status,
+    data: samples,
+  };
+}
+
+export async function listRecentWorkspaceScriptReferences(
+  workspaceId: string,
+  options?: { limit?: number },
+): Promise<RpcSuccess<RecentScriptReference[]> | RpcFailure> {
+  const normalizedWorkspaceId = normalizeUuid(workspaceId);
+  if (!normalizedWorkspaceId) {
+    return { ok: false, status: 400, error: "workspace_id is required." };
+  }
+
+  const limitRaw = options?.limit;
+  const limit = Number.isFinite(limitRaw)
+    ? Math.max(1, Math.min(100, Math.floor(limitRaw as number)))
+    : 24;
+
+  const rpc = await callTongsRpc<RecentScriptReferenceRpcRow[] | RecentScriptReferenceRpcRow>(
+    "list_my_recent_script_references",
+    {
+      p_workspace_id: normalizedWorkspaceId,
+      p_limit: limit,
+    },
+  );
+  if (!rpc.ok) return rpc;
+
+  const rows = Array.isArray(rpc.data) ? rpc.data : (rpc.data ? [rpc.data] : []);
+  const refs = rows
+    .map((row) => toRecentScriptReference(row, normalizedWorkspaceId))
+    .filter((row): row is RecentScriptReference => Boolean(row));
+
+  return {
+    ok: true,
+    status: rpc.status,
+    data: refs,
+  };
+}
+
+type TongsReadTextPayload = {
+  ok?: unknown;
+  data?: unknown;
+  exists?: unknown;
+  error?: unknown;
+  message?: unknown;
+};
+
+export async function readWorkpieceStyleSourceText(
+  workpieceId: string,
+  path: string,
+): Promise<RpcSuccess<string> | RpcFailure> {
+  const normalizedWorkpieceId = normalizeUuid(workpieceId);
+  if (!normalizedWorkpieceId) {
+    return { ok: false, status: 400, error: "workpiece_id is required." };
+  }
+  const normalizedPath = normalizeRelativePath(path);
+  if (!normalizedPath) {
+    return { ok: false, status: 400, error: "path must be a safe relative path." };
+  }
+
+  let response: Response;
+  try {
+    response = await tongsFetch(
+      `/tongs/workpieces/${encodeURIComponent(normalizedWorkpieceId)}/read-file?path=${encodeURIComponent(normalizedPath)}`,
+      { method: "GET" },
+    );
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      error: error instanceof Error ? error.message : "Network error",
+    };
+  }
+
+  let payload: unknown = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      error: readRpcError(payload, `read-file failed (${response.status})`),
+    };
+  }
+
+  const row = (isRecord(payload) ? payload : null) as TongsReadTextPayload | null;
+  const text = typeof row?.data === "string" ? row.data.trim() : "";
+  if (!text) {
+    return {
+      ok: false,
+      status: 404,
+      error: "Selected Forge file is empty or unavailable.",
+    };
+  }
+
+  return {
+    ok: true,
+    status: response.status,
+    data: text,
   };
 }
 

@@ -30,6 +30,17 @@ const WORKSPACE_REQUIRED_APP_SEGMENTS = new Set([
   "calendar",
 ]);
 
+function getAppSegment(pathname: string): string | null {
+  const parts = pathname.split("/").filter(Boolean);
+  if (parts[0] !== "app") return null;
+  return parts[1] ?? null;
+}
+
+function routeRequiresWorkspace(pathname: string): boolean {
+  const appSegment = getAppSegment(pathname);
+  return !!(appSegment && WORKSPACE_REQUIRED_APP_SEGMENTS.has(appSegment));
+}
+
 function loadWorkspaceCache(): Workspace[] {
   try {
     const raw = localStorage.getItem(WORKSPACE_CACHE_KEY);
@@ -153,6 +164,7 @@ export default function AppShell() {
   const [workspaceAccessDeniedId, setWorkspaceAccessDeniedId] = useState<string | null>(null);
   const lastSessionUserId = useRef<string | null>(null);
   const lastUrlWorkspaceRefresh = useRef<string | null>(null);
+  const lastCanonicalNavTarget = useRef<string | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -399,13 +411,20 @@ export default function AppShell() {
     const selectedWorkspaceId = workspaceId && workspaces.some((workspace) => workspace.id === workspaceId)
       ? workspaceId
       : null;
+    const enforceWorkspaceInUrl = routeRequiresWorkspace(location.pathname);
+    const targetWorkspaceId = enforceWorkspaceInUrl
+      ? selectedWorkspaceId
+      : urlWorkspaceId;
     const nextHref = buildForgeRouteHref(location.pathname, {
       search: location.search,
-      workspaceId: selectedWorkspaceId,
+      workspaceId: targetWorkspaceId,
       workpieceId: urlContext.workpieceId,
     });
     const nextSearch = searchFromHref(nextHref);
     if (nextSearch === location.search) return;
+    const targetKey = `${location.pathname}|${nextSearch}|${location.hash}`;
+    if (lastCanonicalNavTarget.current === targetKey) return;
+    lastCanonicalNavTarget.current = targetKey;
     nav(
       {
         pathname: location.pathname,
@@ -426,6 +445,10 @@ export default function AppShell() {
     urlContext.workpieceId,
     nav,
   ]);
+
+  useEffect(() => {
+    lastCanonicalNavTarget.current = null;
+  }, [location.pathname, location.search, location.hash]);
 
   useEffect(() => {
     if (!inviteToken || !session) {
@@ -739,6 +762,24 @@ export default function AppShell() {
           return;
         }
         workspaceId = typeof workspace?.id === "string" && workspace.id.trim() ? workspace.id : null;
+        if (!workspaceId) {
+          setCreateError("Failed to create workspace.");
+          return;
+        }
+
+        const { error: memberInsertError } = await supabase
+          .schema("tongs")
+          .from("workspace_members")
+          .insert({
+            workspace_id: workspaceId,
+            user_id: session.user.id,
+            role: "owner",
+            created_by: session.user.id,
+          });
+        if (memberInsertError) {
+          setCreateError(getErrorMessage(memberInsertError, "Failed to create workspace membership."));
+          return;
+        }
       }
 
       if (!workspaceId) {
@@ -774,11 +815,7 @@ export default function AppShell() {
   const deleteConfirmationMatches = deleteConfirmationTarget.length > 0
     && deleteConfirmValue.trim() === deleteConfirmationTarget;
   const workspaceIsValid = !!activeWorkspace;
-  const appSegment = useMemo(() => {
-    const parts = location.pathname.split("/").filter(Boolean);
-    if (parts[0] !== "app") return null;
-    return parts[1] ?? null;
-  }, [location.pathname]);
+  const appSegment = useMemo(() => getAppSegment(location.pathname), [location.pathname]);
   const routeNeedsWorkspace = !!(appSegment && WORKSPACE_REQUIRED_APP_SEGMENTS.has(appSegment));
   const shouldBlockWorkspaceRoute = !!session && routeNeedsWorkspace && !workspaceIsValid;
   const workspaceGateLoading = shouldBlockWorkspaceRoute
@@ -811,7 +848,10 @@ export default function AppShell() {
   }
 
   const navExtraItems = useMemo(
-    () => [{ id: "ai-controls", label: "AI Controls", actionId: FORGE_NAV_ACTION_AI_CONTROLS }],
+    () => [
+      { id: "ai-controls", label: "AI Controls", actionId: FORGE_NAV_ACTION_AI_CONTROLS },
+      { id: "forge-subscriptions", label: "Forge Subscriptions", to: "/app/subscriptions" },
+    ],
     [],
   );
   const selectedWorkspaceId = workspaceId && workspaces.some((workspace) => workspace.id === workspaceId)

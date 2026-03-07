@@ -9,6 +9,7 @@
     "paths": {
       "@barstock/*": ["../bar-stock/src/*"],
       "@hearth/*": ["../hearth/src/*"],
+      "@hammer/*": ["../hammer/src/*"],
       "@forge/tongs": ["../../packages/tongs/dist/index.d.ts"]
     },
     "types": ["vite/client"],

@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
-
-const FORGE_LOGIN_LOGO_PATH = "/assets/podcasters-forge-logo.png";
+import "./Login.css";
 const AUTH_NEXT_STORAGE_KEY = "forge_auth_next_v1";
 
 function clearAuthNextPath(): void {
@@ -60,6 +59,8 @@ export default function Login() {
   const nav = useNavigate();
   const next = useNextParam();
   const reason = useLoginReason();
+  const devMode = (import.meta as { env?: Record<string, unknown> }).env?.DEV === true;
+  const signupHref = `/signup?next=${encodeURIComponent(next)}`;
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -67,7 +68,6 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
-  const [showLogo, setShowLogo] = useState(true);
 
   useEffect(() => {
     try {
@@ -149,61 +149,96 @@ export default function Login() {
   }
 
   return (
-    <div style={{ padding: 24, fontFamily: "system-ui", maxWidth: 520 }}>
-      {showLogo ? (
-        <img
-          src={FORGE_LOGIN_LOGO_PATH}
-          alt="Podcaster's Forge logo"
-          onError={() => setShowLogo(false)}
-          style={{
-            display: "block",
-            width: "min(320px, 100%)",
-            height: "auto",
-            marginBottom: 16,
-            borderRadius: 12,
-          }}
+    <main className="forge-login-page">
+      <div className="forge-login-page__brand">
+        Podcaster&apos;s <span>Forge</span>
+      </div>
+      <section className="forge-login-page__video-shell" aria-label="Anvil intro video">
+        <iframe
+          src="https://www.youtube-nocookie.com/embed/lH1E6ojjSsg?rel=0&modestbranding=1"
+          title="Anvil intro and demo"
+          loading="lazy"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          referrerPolicy="strict-origin-when-cross-origin"
+          allowFullScreen
         />
-      ) : null}
-      <h1 style={{ marginBottom: 8 }}>Podcaster's Forge</h1>
-      <p style={{ marginTop: 0, opacity: 0.8 }}>
-        Sign in to access Podcaster's Forge, Anvil, Hearth, Hammer, and Barstock.
-      </p>
-      {reason ? <div style={{ marginBottom: 12, color: "crimson" }}>{reason}</div> : null}
+      </section>
 
-      <form onSubmit={onSignIn} style={{ display: "grid", gap: 12 }}>
-        <label style={{ display: "grid", gap: 6 }}>
-          <span>Email</span>
-          <input
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            type="email"
-            autoComplete="email"
-            required
-          />
-        </label>
+      <section className="forge-login-page__panel">
+        <div className="forge-login-card">
+          <h1 className="forge-login-card__title">Podcaster&apos;s Forge</h1>
+          <p className="forge-login-card__subtitle">
+            Forge your voice. Shape your story.
+          </p>
+          <p className="forge-login-card__meta">Private beta · account creation available</p>
 
-        <label style={{ display: "grid", gap: 6 }}>
-          <span>Password</span>
-          <input
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            type="password"
-            autoComplete="current-password"
-            required
-          />
-        </label>
+          <div className="forge-login-card__actions">
+            <a className="forge-login-card__back" href="/">
+              Back
+            </a>
+            <Link className="forge-login-card__beta" to={signupHref}>Create Account</Link>
+          </div>
 
-        <button type="submit" disabled={busy}>
-          {busy ? "Signing in..." : "Sign in"}
-        </button>
+          {reason ? (
+            <div className="forge-login-card__notice is-error" role="alert" aria-live="assertive">
+              {reason}
+            </div>
+          ) : null}
 
-        <button type="button" onClick={onForgotPassword} disabled={busy}>
-          Forgot password
-        </button>
+          <form onSubmit={onSignIn} className="forge-login-form">
+            <label className="forge-login-field">
+              <span>Email</span>
+              <input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                type="email"
+                autoComplete="email"
+                required
+              />
+            </label>
 
-        {err ? <div style={{ color: "crimson" }}>{err}</div> : null}
-        {msg ? <div style={{ color: "green" }}>{msg}</div> : null}
-      </form>
-    </div>
+            <label className="forge-login-field">
+              <span>Password</span>
+              <input
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                type="password"
+                autoComplete="current-password"
+                required
+              />
+            </label>
+
+            <button type="submit" disabled={busy} className="forge-login-button forge-login-button--primary">
+              {busy ? "Signing in..." : "Sign in"}
+            </button>
+
+            <button
+              type="button"
+              onClick={onForgotPassword}
+              disabled={busy}
+              className="forge-login-button forge-login-button--ghost"
+            >
+              Forgot password
+            </button>
+
+            {err ? (
+              <div className="forge-login-card__notice is-error" role="alert" aria-live="assertive">
+                {err}
+              </div>
+            ) : null}
+            {msg ? (
+              <div className="forge-login-card__notice is-success" role="status" aria-live="polite">
+                {msg}
+              </div>
+            ) : null}
+          </form>
+
+          <p className="forge-login-card__footer">
+            Need beta access instead? <a href="/beta/index.html">Apply for beta</a>.
+          </p>
+          {devMode ? <p className="forge-login-card__dev-next">dev next: {next}</p> : null}
+        </div>
+      </section>
+    </main>
   );
 }

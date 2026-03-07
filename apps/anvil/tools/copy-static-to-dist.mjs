@@ -3,6 +3,13 @@ import path from 'node:path';
 
 const ROOT = path.resolve('.');
 const DIST = path.join(ROOT, 'dist');
+const CANONICAL_FORGE_CONFIG = path.resolve(
+  ROOT,
+  '..',
+  'nursery',
+  'public',
+  'forge-config.js',
+);
 
 const copy = (src, dest) => {
   if (!fs.existsSync(src)) {
@@ -12,6 +19,12 @@ const copy = (src, dest) => {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.cpSync(src, dest, { recursive: true });
   console.log('[copy-static] copied', src, '->', dest);
+};
+
+const removeStale = (dest) => {
+  if (!fs.existsSync(dest)) return;
+  fs.rmSync(dest, { recursive: true, force: true });
+  console.log('[copy-static] removed stale path', dest);
 };
 
 const STATIC_PATHS = [
@@ -32,7 +45,6 @@ const STATIC_PATHS = [
   'atom.xml',
   'site.webmanifest',
   'assets',
-  'forge-config.js',
   path.join('adapters', 'obsBridge.js'),
 ];
 
@@ -42,9 +54,13 @@ const SPEECH_STUBS = [
   { src: path.join('speech-stubs', 'orchestrator.js'), dest: path.join('speech', 'orchestrator.js') },
 ];
 
+removeStale(path.join(DIST, 'beta'));
+
 for (const rel of STATIC_PATHS) {
   copy(path.join(ROOT, rel), path.join(DIST, rel));
 }
+
+copy(CANONICAL_FORGE_CONFIG, path.join(DIST, 'forge-config.js'));
 
 for (const stub of SPEECH_STUBS) {
   copy(path.join(ROOT, stub.src), path.join(DIST, stub.dest));

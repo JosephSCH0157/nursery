@@ -9,6 +9,7 @@ import {
   enqueueBarStockSpark,
   isBarStockKey,
   readBarStockSparks,
+  resolveBarstockSparkIdFromQuery,
   upsertBarStockSpark,
   writeBarStockSparks,
 } from "../lib/barstock-sparks";
@@ -45,6 +46,7 @@ import { mirrorApprovedScriptToLocal, type MirrorApprovedScriptResult } from "..
 import {
   HEARTH_CONTENT_CATEGORIES,
   listHearthReadyScripts,
+  removeHearthReadyScript,
   setHearthReadyScriptCategory,
   type HearthContentCategory,
   type HearthReadyScript,
@@ -99,7 +101,12 @@ import ThumbnailPanel from "../components/visuals/ThumbnailPanel";
 import ImageMapPanel from "../components/visuals/ImageMapPanel";
 import MetadataPanel from "../components/metadata/MetadataPanel";
 import { MobilePage, useLayoutMode } from "@forge/ui-mobile";
-import { updateStyleProfileFromReadyCheckpoint } from "../lib/hearth-style-service";
+import {
+  getMyWritingProfile,
+  setMyWritingTonePreset,
+  updateStyleProfileFromReadyCheckpoint,
+  type WritingProfile,
+} from "../lib/hearth-style-service";
 
 const AUTOSAVE_DELAY_MS = 2200;
 const AUTOSAVE_MIN_GAP_MS = 5000;
@@ -134,6 +141,8 @@ type FocusTab = "draft" | "planning" | "sources" | "revisions";
 type ProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet";
 type SttLane = "browser" | "ai";
 type SttState = "idle" | "listening" | "transcribing";
+type AiAutosaveReasonCode = "ai_outline" | "ai_script" | "ai_repair" | "ai_rewrite";
+type AiAutosaveReason = `autosave:${AiAutosaveReasonCode}`;
 
 type ScriptApprovalState = {
   hasApprovedScript: boolean;
@@ -158,6 +167,12 @@ type DraftConflictState = {
   localBody: string;
 };
 
+type PendingAiAutosave = {
+  draftId: string;
+  body: string;
+  reasonCode: AiAutosaveReasonCode;
+};
+
 type ImageBeatSheetEntry = {
   id: string;
   attach_after: string;
@@ -180,6 +195,13 @@ const PRODUCTION_ACTION_ARTIFACT_KIND: Record<ProductionAction, ProductionArtifa
   image_beat_sheet: "image_beat_sheet",
 };
 
+const TONE_PRESET_OPTIONS = [
+  { value: "neutral_conversational", label: "Neutral conversational" },
+  { value: "newsroom_neutral", label: "Newsroom neutral" },
+  { value: "spicy_but_safe", label: "Spicy but safe" },
+] as const;
+const DEFAULT_TONE_PRESET = "neutral_conversational";
+
 function readTrimmedString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -190,6 +212,15 @@ function normalizeUuid(value: unknown): string | null {
   const str = readTrimmedString(value);
   if (!str) return null;
   return UUID_RE.test(str) ? str.toLowerCase() : null;
+}
+
+function normalizeTonePreset(value: unknown): string | null {
+  const raw = readTrimmedString(value);
+  if (!raw) return null;
+  const normalized = raw.toLowerCase();
+  return TONE_PRESET_OPTIONS.some((option) => option.value === normalized)
+    ? normalized
+    : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1172,6 +1203,55 @@ function detectChatIntentSignals(text: string): ChatIntentSignals {
   };
 }
 
+function detectAiAutosaveReasonCode(text: string): AiAutosaveReasonCode {
+  const normalized = text.replace(/\s+/g, " ").trim().toLowerCase();
+  if (!normalized) return "ai_rewrite";
+  if (/\b(correct|repair|fix|tag audit|cleanup)\b/.test(normalized)) return "ai_repair";
+  if (/\b(rewrite|improve|shorten|punch up|edit|revise|polish|tighten)\b/.test(normalized)) return "ai_rewrite";
+  if (/\boutline|bullet points?|beats?\b/.test(normalized)) return "ai_outline";
+  if (/\b(write|script|draft|cold open|segments?)\b/.test(normalized)) return "ai_script";
+  return "ai_rewrite";
+}
+
+function readLatestOutlineFromOps(ops: HearthOp[]): string | null {
+  for (let idx = ops.length - 1; idx >= 0; idx -= 1) {
+    const op = ops[idx];
+    if (op?.op !== "set_outline") continue;
+    const outline = op.value.trim();
+    return outline.length ? outline : null;
+  }
+  return null;
+}
+
+function buildAssistantMessageContent(args: {
+  assistantText: string;
+  ops: HearthOp[];
+  autosaveReasonCode: AiAutosaveReasonCode;
+}): string {
+  const assistantText = args.assistantText.trim();
+  const outlineFromOps = readLatestOutlineFromOps(args.ops);
+
+  if (args.autosaveReasonCode === "ai_outline") {
+    if (outlineFromOps) {
+      if (!assistantText) {
+        return `Outline draft:\n${outlineFromOps}`;
+      }
+      if (assistantText.includes(outlineFromOps)) {
+        return assistantText;
+      }
+      return `${assistantText}\n\n${outlineFromOps}`;
+    }
+  }
+
+  if (assistantText) return assistantText;
+  if (args.ops.length > 0) return "Proposed updates are ready to review.";
+  return "Response received.";
+}
+
+function toAiAutosaveReason(reasonCode: AiAutosaveReasonCode): AiAutosaveReason {
+  return `autosave:${reasonCode}`;
+}
+
 function countProducerQuestions(text: string): number {
   const lines = splitLines(text);
   let count = 0;
@@ -1328,6 +1408,7 @@ type PendingAiProposal = {
   selected: boolean[];
   context: EpisodeContext;
   fromGate: boolean;
+  autosaveReasonCode: AiAutosaveReasonCode;
 };
 
 type ScriptValidationState = {
@@ -1593,15 +1674,15 @@ export default function HearthShell() {
 
   const [mode, setMode] = useState<HearthMode>("sparks");
   const [focusTab, setFocusTab] = useState<FocusTab>("draft");
-  const [sparks, setSparks] = useState<BarStockSpark[]>(() => readBarStockSparks());
+  const [workspaceId, setWorkspaceId] = useState<string | null>(() => resolveWorkspaceId());
+  const [workpieceId, setWorkpieceId] = useState<string | null>(() => resolveWorkpieceId());
+  const [sparks, setSparks] = useState<BarStockSpark[]>(() => readBarStockSparks(resolveWorkspaceId()));
   const [selectedSparkId, setSelectedSparkId] = useState<string | null>(null);
   const [forgeError, setForgeError] = useState<string | null>(null);
   const [isForging, setIsForging] = useState(false);
   const [routeProjectId] = useState<string | null>(() => resolveBarstockProjectIdFromQuery());
+  const [routeSparkId] = useState<string | null>(() => resolveBarstockSparkIdFromQuery());
   const [routeProjectTitle, setRouteProjectTitle] = useState<string | null>(null);
-
-  const [workspaceId, setWorkspaceId] = useState<string | null>(() => resolveWorkspaceId());
-  const [workpieceId, setWorkpieceId] = useState<string | null>(() => resolveWorkpieceId());
 
   const [planningSession, setPlanningSession] = useState<HearthPlanningSession | null>(() =>
     readHearthPlanningSessionCache(resolveWorkpieceId()),
@@ -1619,6 +1700,8 @@ export default function HearthShell() {
   const [isSavingRevision, setIsSavingRevision] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [aiAutosaveStatusAt, setAiAutosaveStatusAt] = useState<number | null>(null);
+  const [aiAutosaveWarning, setAiAutosaveWarning] = useState<string | null>(null);
   const [scriptValidation, setScriptValidation] = useState<ScriptValidationState | null>(null);
   const [isRepairingScript, setIsRepairingScript] = useState(false);
   const [searchText, setSearchText] = useState("");
@@ -1631,6 +1714,7 @@ export default function HearthShell() {
   const [readyUrgencyFilter, setReadyUrgencyFilter] = useState<ReadyUrgencyFilter>("all");
   const [updatingReadyCategoryId, setUpdatingReadyCategoryId] = useState<string | null>(null);
   const [readyCategoryError, setReadyCategoryError] = useState<string | null>(null);
+  const [removingReadyIds, setRemovingReadyIds] = useState<string[]>([]);
   const [readyOrderIds, setReadyOrderIds] = useState<string[]>([]);
   const [removedReadyIds, setRemovedReadyIds] = useState<string[]>([]);
   const [draggingReadyId, setDraggingReadyId] = useState<string | null>(null);
@@ -1664,6 +1748,7 @@ export default function HearthShell() {
   const [activeProductionAction, setActiveProductionAction] = useState<ProductionAction | null>(null);
   const [aiRuntimeWarning, setAiRuntimeWarning] = useState<string | null>(null);
   const [isAiProcessing, setIsAiProcessing] = useState(false);
+  const [writingProfile, setWritingProfile] = useState<WritingProfile | null>(null);
   const [forgeGreetingName, setForgeGreetingName] = useState<string>(() => readGreetingNameFromStorage());
   const [hearthUser, setHearthUser] = useState<HearthUserContext>({
     userId: null,
@@ -1712,6 +1797,7 @@ export default function HearthShell() {
   const autosaveTimer = useRef<number | null>(null);
   const autosaveInFlightRef = useRef(false);
   const autosaveQueuedRef = useRef(false);
+  const pendingAiAutosaveRef = useRef<PendingAiAutosave | null>(null);
   const lastAutosaveCommitAtRef = useRef(0);
   const draftEditVersionRef = useRef(0);
   const activeDraftRef = useRef<Draft | null>(null);
@@ -1724,6 +1810,7 @@ export default function HearthShell() {
   const sessionCommitInFlight = useRef(false);
   const sessionCommitQueued = useRef(false);
   const projectIntakeHandledRef = useRef<string | null>(null);
+  const sparkIntakeHandledRef = useRef<string | null>(null);
   const previousWorkspaceIdRef = useRef<string | null>(workspaceId);
   const restoredCursorDraftIdRef = useRef<string | null>(null);
   const aiRequestControllerRef = useRef<AbortController | null>(null);
@@ -1780,6 +1867,31 @@ export default function HearthShell() {
     });
   }, [workpieceId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (!workspaceId) {
+      setWritingProfile(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void getMyWritingProfile(workspaceId, { force: true })
+      .then((result) => {
+        if (cancelled || !result.ok) return;
+        setWritingProfile(result.data);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setWritingProfile(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
+
   const lastAutosaveRevisionAt = useMemo(() => {
     const match = revisions.find((rev) => rev.kind === "autosave");
     return match?.createdAt ?? null;
@@ -1792,7 +1904,15 @@ export default function HearthShell() {
 
   const wordCount = useMemo(() => countWords(activeDraft?.body ?? ""), [activeDraft?.body]);
   const charCount = useMemo(() => activeDraft?.body?.length ?? 0, [activeDraft?.body]);
-  const statusText = isSaving ? "Saving..." : isDirty ? "Unsaved changes" : "Saved";
+  const aiSavedStatusText = useMemo(
+    () => (aiAutosaveStatusAt ? `Saved • ${formatUpdatedAt(aiAutosaveStatusAt)}` : null),
+    [aiAutosaveStatusAt],
+  );
+  const statusText = isSaving
+    ? "Saving..."
+    : isDirty
+      ? "Unsaved changes"
+      : aiSavedStatusText ?? "Saved";
   const sessionTitle = planningSession?.title ?? "";
   const sessionGoalsText = useMemo(
     () => (planningSession?.goals ?? []).join("\n"),
@@ -1802,6 +1922,8 @@ export default function HearthShell() {
     () => (planningSession?.outline ?? []).join("\n"),
     [planningSession?.outline],
   );
+  const workspaceTonePreset = normalizeTonePreset(writingProfile?.lastUsedTonePreset) ?? DEFAULT_TONE_PRESET;
+  const activeTonePreset = normalizeTonePreset(planningSession?.tone_preset) ?? workspaceTonePreset;
   const sessionDecisions = planningSession?.decisions ?? [];
   const sessionIntent = planningSession?.intent ?? deriveIntentFromOrigin(planningSession?.origin);
   const sessionSparkId = planningSession?.origin?.spark_id ?? planningSession?.links?.spark_id ?? null;
@@ -2110,6 +2232,12 @@ export default function HearthShell() {
   }, [activeDraft]);
 
   useEffect(() => {
+    pendingAiAutosaveRef.current = null;
+    setAiAutosaveWarning(null);
+    setAiAutosaveStatusAt(null);
+  }, [activeDraft?.id]);
+
+  useEffect(() => {
     draftSnapshotRef.current = draftSnapshot;
   }, [draftSnapshot]);
 
@@ -2329,6 +2457,53 @@ export default function HearthShell() {
     }
   }, [workspaceId]);
 
+  const readReadyScriptText = useCallback(async (entry: HearthReadyScript): Promise<string | null> => {
+    try {
+      const response = await tongsFetch(
+        `/tongs/workpieces/${encodeURIComponent(entry.workpieceId)}/read-file?path=${encodeURIComponent(entry.primaryScriptPath)}`,
+        { method: "GET" },
+      );
+      if (!response.ok) return null;
+      const body = await response.json() as { data?: unknown };
+      return typeof body?.data === "string" ? body.data : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const upsertDraftFromReadyEntry = useCallback(async (entry: HearthReadyScript, scriptText: string | null) => {
+    const existing = drafts.find((draft) => draft.id === entry.workpieceId) ?? null;
+    const now = Date.now();
+    const attribution = buildDraftAttribution(hearthUser);
+    const title = entry.title.trim() || existing?.title || "Untitled Draft";
+    const existingBody = existing?.body?.trim() ? existing.body : null;
+    const snapshotBody = scriptText && scriptText.trim().length ? scriptText : null;
+    const body = existingBody ?? snapshotBody ?? "## Draft Script\n\n";
+
+    const draft: Draft = existing
+      ? {
+          ...existing,
+          title,
+          body,
+          archived: false,
+          updatedAt: now,
+          updatedBy: attribution,
+        }
+      : {
+          ...createDraft({ title, body }),
+          id: entry.workpieceId,
+          title,
+          body,
+          createdAt: now,
+          updatedAt: now,
+          createdBy: attribution,
+          updatedBy: attribution,
+        };
+
+    await store.saveDraft(draft);
+    await refreshDrafts();
+  }, [drafts, hearthUser, refreshDrafts, store]);
+
   useEffect(() => {
     void refreshReadyScripts();
   }, [refreshReadyScripts]);
@@ -2477,9 +2652,52 @@ export default function HearthShell() {
     void onSetReadyScriptCategory(entry, category);
   }, [onSetReadyScriptCategory]);
 
-  const onRemoveFromReady = useCallback((entryId: string) => {
-    setRemovedReadyIds((prev) => (prev.includes(entryId) ? prev : [...prev, entryId]));
-  }, []);
+  const onRemoveFromReady = useCallback(async (entry: HearthReadyScript) => {
+    if (!entry.id || removingReadyIds.includes(entry.id)) return;
+
+    setReadyScriptsError(null);
+    setRemovedReadyIds((prev) => (prev.includes(entry.id) ? prev : [...prev, entry.id]));
+    setRemovingReadyIds((prev) => (prev.includes(entry.id) ? prev : [...prev, entry.id]));
+
+    const scriptText = await readReadyScriptText(entry);
+    try {
+      const removed = await removeHearthReadyScript({
+        workpieceId: entry.workpieceId,
+        path: entry.primaryScriptPath,
+      });
+      if (!removed.ok) {
+        setRemovedReadyIds((prev) => prev.filter((id) => id !== entry.id));
+        setReadyScriptsError("Failed to remove script from Ready.");
+        return;
+      }
+
+      await upsertDraftFromReadyEntry(entry, scriptText);
+
+      if (workpieceId?.trim() === entry.workpieceId) {
+        const nextApprovalState: ScriptApprovalState = {
+          hasApprovedScript: false,
+          approvedScriptVersion: 0,
+          approvedAt: null,
+        };
+        setScriptApprovalState(nextApprovalState);
+        writeScriptApprovalState(entry.workpieceId, nextApprovalState);
+      }
+
+      setMode("episodes");
+      await refreshReadyScripts();
+    } catch {
+      setRemovedReadyIds((prev) => prev.filter((id) => id !== entry.id));
+      setReadyScriptsError("Failed to remove script from Ready.");
+    } finally {
+      setRemovingReadyIds((prev) => prev.filter((id) => id !== entry.id));
+    }
+  }, [
+    readReadyScriptText,
+    refreshReadyScripts,
+    removingReadyIds,
+    upsertDraftFromReadyEntry,
+    workpieceId,
+  ]);
 
   const onRestoreRemovedReady = useCallback(() => {
     setRemovedReadyIds([]);
@@ -2648,7 +2866,16 @@ export default function HearthShell() {
   const onSaveDraft = useCallback(async () => {
     if (!activeDraft) return;
     const now = Date.now();
-    await persistDraft({ draft: activeDraft, updatedAt: now, createRevision: null });
+    const saved = await persistDraft({
+      draft: activeDraft,
+      updatedAt: now,
+      createRevision: null,
+      saveReason: "manual",
+    });
+    if (!saved) return;
+    pendingAiAutosaveRef.current = null;
+    setAiAutosaveWarning(null);
+    setAiAutosaveStatusAt(now);
     flushChatHistoryNow({ draftId: activeDraft.id });
   }, [activeDraft, flushChatHistoryNow]);
 
@@ -2867,15 +3094,15 @@ export default function HearthShell() {
       };
       const nextSparks = upsertBarStockSpark(sparks, updatedSpark);
       setSparks(nextSparks);
-      writeBarStockSparks(nextSparks);
-      enqueueBarStockSpark(updatedSpark);
+      writeBarStockSparks(nextSparks, workspaceId);
+      enqueueBarStockSpark(updatedSpark, workspaceId);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Forge failed.";
       setForgeError(message);
     } finally {
       setIsForging(false);
     }
-  }, [applySessionOrigin, createDraftAndOpen, isForging, sparks, store]);
+  }, [applySessionOrigin, createDraftAndOpen, isForging, sparks, store, workspaceId]);
 
   const forgeProjectIntoEpisode = useCallback(async () => {
     if (isForging) return;
@@ -2922,9 +3149,9 @@ export default function HearthShell() {
       });
 
       setSparks(nextSparks);
-      writeBarStockSparks(nextSparks);
+      writeBarStockSparks(nextSparks, workspaceId);
       for (const spark of changedSparks) {
-        enqueueBarStockSpark(spark);
+        enqueueBarStockSpark(spark, workspaceId);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to forge this Project.";
@@ -2940,6 +3167,7 @@ export default function HearthShell() {
     routeProjectLabel,
     routeProjectSparks,
     sparks,
+    workspaceId,
     workpieceId,
   ]);
 
@@ -2965,14 +3193,36 @@ export default function HearthShell() {
       }
 
       const explicitWorkpieceSelection = hasExplicitWorkpieceQuery();
-      const preferredId = storedSession?.activeDraftId;
-      if (explicitWorkpieceSelection && preferredId) {
-        const preferredDraft = dedupedDrafts.find((draft) => draft.id === preferredId);
-        if (preferredDraft) {
+      const candidateDraftIds: string[] = [];
+      const pushCandidateDraftId = (value: string | null | undefined) => {
+        const next = value?.trim();
+        if (!next || candidateDraftIds.includes(next)) return;
+        candidateDraftIds.push(next);
+      };
+
+      pushCandidateDraftId(storedSession?.activeDraftId ?? null);
+      pushCandidateDraftId(activeDraftRef.current?.id ?? null);
+
+      const preferredDraft = candidateDraftIds
+        .map((id) => dedupedDrafts.find((draft) => draft.id === id) ?? null)
+        .find((draft): draft is Draft => Boolean(draft))
+        ?? null;
+      if (preferredDraft) {
+        restoredCursorDraftIdRef.current = null;
+        setActiveDraft(preferredDraft);
+        setDraftSnapshot({ title: preferredDraft.title, body: preferredDraft.body, updatedAt: preferredDraft.updatedAt });
+        await refreshRevisions(preferredDraft.id);
+        setMode("episodes");
+        return;
+      }
+
+      if (explicitWorkpieceSelection && dedupedDrafts.length === 1) {
+        const soleDraft = dedupedDrafts[0];
+        if (soleDraft) {
           restoredCursorDraftIdRef.current = null;
-          setActiveDraft(preferredDraft);
-          setDraftSnapshot({ title: preferredDraft.title, body: preferredDraft.body, updatedAt: preferredDraft.updatedAt });
-          await refreshRevisions(preferredDraft.id);
+          setActiveDraft(soleDraft);
+          setDraftSnapshot({ title: soleDraft.title, body: soleDraft.body, updatedAt: soleDraft.updatedAt });
+          await refreshRevisions(soleDraft.id);
           setMode("episodes");
           return;
         }
@@ -3026,6 +3276,7 @@ export default function HearthShell() {
     previousWorkspaceIdRef.current = workspaceId;
 
     projectIntakeHandledRef.current = null;
+    sparkIntakeHandledRef.current = null;
     setWorkpieceId(null);
     setPlanningSession(null);
     setSessionTouched(false);
@@ -3125,16 +3376,31 @@ export default function HearthShell() {
   }, [routeProjectId, workspaceId]);
 
   useEffect(() => {
+    if (routeProjectId || !routeSparkId) return;
+    if (forgeableSparks.length === 0) return;
+
+    const routeSpark = forgeableSparks.find((spark) => spark.id === routeSparkId);
+    if (!routeSpark) return;
+
+    const intakeKey = `${workspaceId ?? "none"}:${routeSparkId}`;
+    if (sparkIntakeHandledRef.current === intakeKey) return;
+    sparkIntakeHandledRef.current = intakeKey;
+
+    setMode("sparks");
+    setSelectedSparkId(routeSpark.id);
+  }, [forgeableSparks, routeProjectId, routeSparkId, workspaceId]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
-    const refresh = () => setSparks(readBarStockSparks());
+    const refresh = () => setSparks(readBarStockSparks(workspaceId));
     refresh();
     const onStorage = (event: StorageEvent) => {
-      if (!isBarStockKey(event.key)) return;
+      if (!isBarStockKey(event.key, workspaceId)) return;
       refresh();
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, []);
+  }, [workspaceId]);
 
   useEffect(() => {
     if (forgeableSparks.length === 0) {
@@ -3934,6 +4200,45 @@ export default function HearthShell() {
     return () => window.removeEventListener("keydown", handleKey);
   }, [activeDraft, onSaveDraft, revisionModalOpen]);
 
+  function queueAiAutosave(args: {
+    draft: Draft;
+    previousBody: string;
+    reasonCode: AiAutosaveReasonCode;
+  }) {
+    if (args.draft.body === args.previousBody) return;
+    pendingAiAutosaveRef.current = {
+      draftId: args.draft.id,
+      body: args.draft.body,
+      reasonCode: args.reasonCode,
+    };
+    setAiAutosaveWarning(null);
+    if (autosaveTimer.current) {
+      window.clearTimeout(autosaveTimer.current);
+      autosaveTimer.current = null;
+    }
+    void handleAutosave();
+  }
+
+  function onRetryAiAutosave() {
+    const active = activeDraftRef.current;
+    const snapshot = draftSnapshotRef.current;
+    if (!active || !snapshot) return;
+    if (active.body === snapshot.body) {
+      setAiAutosaveWarning(null);
+      pendingAiAutosaveRef.current = null;
+      return;
+    }
+    if (!pendingAiAutosaveRef.current || pendingAiAutosaveRef.current.draftId !== active.id) {
+      pendingAiAutosaveRef.current = {
+        draftId: active.id,
+        body: active.body,
+        reasonCode: "ai_rewrite",
+      };
+    }
+    setAiAutosaveWarning(null);
+    void handleAutosave();
+  }
+
   async function handleAutosave() {
     if (autosaveInFlightRef.current) {
       autosaveQueuedRef.current = true;
@@ -3955,13 +4260,33 @@ export default function HearthShell() {
           continue;
         }
 
-        const draftIsDirty = draft.title !== snapshot.title || draft.body !== snapshot.body;
+        const titleIsDirty = draft.title !== snapshot.title;
+        const bodyIsDirty = draft.body !== snapshot.body;
+        const draftIsDirty = titleIsDirty || bodyIsDirty;
         if (!draftIsDirty) {
+          const pending = pendingAiAutosaveRef.current;
+          if (pending && pending.draftId === draft.id && pending.body === draft.body) {
+            pendingAiAutosaveRef.current = null;
+          }
           continue;
         }
 
+        const pendingAiAutosave = pendingAiAutosaveRef.current;
+        const aiAutosaveForActiveDraft = pendingAiAutosave && pendingAiAutosave.draftId === draft.id
+          ? pendingAiAutosave
+          : null;
+        const aiAutosaveMatchesCurrentBody = Boolean(aiAutosaveForActiveDraft && aiAutosaveForActiveDraft.body === draft.body);
+        const isAiAutosave = Boolean(aiAutosaveMatchesCurrentBody && bodyIsDirty);
+
+        if (aiAutosaveForActiveDraft && !aiAutosaveMatchesCurrentBody) {
+          pendingAiAutosaveRef.current = null;
+        }
+
         const now = Date.now();
-        const shouldAutoRevision = !lastAutosaveRevisionAt
+        const aiAutosaveReason = isAiAutosave && aiAutosaveForActiveDraft
+          ? toAiAutosaveReason(aiAutosaveForActiveDraft.reasonCode)
+          : null;
+        const shouldAutoRevision = isAiAutosave || !lastAutosaveRevisionAt
           || now - lastAutosaveRevisionAt >= AUTOSAVE_REVISION_GAP_MS;
 
         const saved = await persistDraft({
@@ -3969,15 +4294,24 @@ export default function HearthShell() {
           updatedAt: now,
           createRevision: shouldAutoRevision ? {
             kind: "autosave",
-            note: "Autosave",
+            note: aiAutosaveReason ?? "Autosave",
           } : null,
           syncSources: false,
           syncSession: false,
           showSavingState: false,
+          quietFailure: isAiAutosave,
+          saveReason: aiAutosaveReason ?? "autosave:typing",
         });
 
         if (saved) {
           lastAutosaveCommitAtRef.current = now;
+          if (isAiAutosave) {
+            pendingAiAutosaveRef.current = null;
+            setAiAutosaveWarning(null);
+            setAiAutosaveStatusAt(now);
+          }
+        } else if (isAiAutosave) {
+          setAiAutosaveWarning("Not saved (offline/permission).");
         }
       } while (autosaveQueuedRef.current);
     } finally {
@@ -3993,13 +4327,18 @@ export default function HearthShell() {
     syncSession?: boolean;
     showSavingState?: boolean;
     validateForAnvil?: boolean;
+    quietFailure?: boolean;
+    saveReason?: string;
   }): Promise<boolean> {
     const showSavingState = args.showSavingState ?? true;
+    const quietFailure = args.quietFailure ?? false;
     if (showSavingState) {
       setIsSaving(true);
     }
-    setDraftConflictState(null);
-    setError(null);
+    if (!quietFailure) {
+      setDraftConflictState(null);
+      setError(null);
+    }
     const shouldValidateForAnvil = args.validateForAnvil === true;
     const tagValidation = shouldValidateForAnvil
       ? validateAnvilTagContract(args.draft.body)
@@ -4043,7 +4382,7 @@ export default function HearthShell() {
         updatedBy: buildDraftAttribution(hearthUser),
       };
 
-      await store.saveDraft(toSave);
+      await store.saveDraft(toSave, { reason: args.saveReason });
 
       const latestActiveDraft = activeDraftRef.current;
       const hasNewerEdits = latestActiveDraft?.id === toSave.id
@@ -4081,16 +4420,20 @@ export default function HearthShell() {
     } catch (err) {
       const conflict = parseDraftConflictError(err);
       if (conflict) {
-        const withLocalBody: DraftConflictState = {
-          ...conflict,
-          localBody: args.draft.body,
-        };
-        setDraftConflictState(withLocalBody);
-        setError(withLocalBody.message);
+        if (!quietFailure) {
+          const withLocalBody: DraftConflictState = {
+            ...conflict,
+            localBody: args.draft.body,
+          };
+          setDraftConflictState(withLocalBody);
+          setError(withLocalBody.message);
+        }
         return false;
       }
-      const message = err instanceof Error ? err.message : "Failed to save draft.";
-      setError(message);
+      if (!quietFailure) {
+        const message = err instanceof Error ? err.message : "Failed to save draft.";
+        setError(message);
+      }
       return false;
     } finally {
       if (showSavingState) {
@@ -4279,6 +4622,7 @@ export default function HearthShell() {
     if (!episodeId) return null;
     return buildEpisodeContext({
       episodeId,
+      workspaceId,
       draft: activeDraft,
       planningSession,
       workpieceSources,
@@ -4396,17 +4740,28 @@ export default function HearthShell() {
         return;
       }
 
-      const now = Date.now();
-      const saved = await persistDraft({
-        draft: { ...activeDraft, body: repairedBody, updatedAt: now },
-        updatedAt: now,
-        createRevision: null,
-        syncSources: false,
-        syncSession: false,
-      });
-      if (saved) {
-        setScriptValidation(null);
+      const previousBody = activeDraft.body;
+      const bodyChanged = repairedBody !== previousBody;
+      if (bodyChanged) {
+        const now = Date.now();
+        const nextDraft: Draft = { ...activeDraft, body: repairedBody, updatedAt: now };
+        draftEditVersionRef.current += 1;
+        activeDraftRef.current = nextDraft;
+        setActiveDraft((prev) => (prev && prev.id === nextDraft.id ? nextDraft : prev));
+        setDrafts((prev) => {
+          const exists = prev.some((draft) => draft.id === nextDraft.id);
+          const next = exists
+            ? prev.map((draft) => (draft.id === nextDraft.id ? nextDraft : draft))
+            : [nextDraft, ...prev];
+          return dedupeDraftListById(next);
+        });
+        queueAiAutosave({
+          draft: nextDraft,
+          previousBody,
+          reasonCode: "ai_repair",
+        });
       }
+      setScriptValidation(null);
 
       const assistantMessage: HearthChatMessage = {
         role: "assistant",
@@ -4449,15 +4804,18 @@ export default function HearthShell() {
       return;
     }
 
-    const projectedBody = findNextBodyFromOps(activeDraft.body, opsToApply);
-    const projectedValidation = validateAnvilTagContract(projectedBody);
-    if (!projectedValidation.ok) {
-      setScriptValidation({
-        source: "ai_apply",
-        result: projectedValidation,
-      });
-      setError(`Script tag validation failed:\n${projectedValidation.report}`);
-      return;
+    const bodyWillChange = opsToApply.some((op) => op.op === "set_body");
+    if (bodyWillChange) {
+      const projectedBody = findNextBodyFromOps(activeDraft.body, opsToApply);
+      const projectedValidation = validateAnvilTagContract(projectedBody);
+      if (!projectedValidation.ok) {
+        setScriptValidation({
+          source: "ai_apply",
+          result: projectedValidation,
+        });
+        setError(`Script tag validation failed:\n${projectedValidation.report}`);
+        return;
+      }
     }
 
     setIsApplyingAiOps(true);
@@ -4551,17 +4909,24 @@ export default function HearthShell() {
 
       if (saveRequested) {
         if (draftChanged) {
+          const previousBody = activeDraft.body;
           const now = Date.now();
-          const saved = await persistDraft({
-            draft: { ...nextDraft, updatedAt: now },
-            updatedAt: now,
-            createRevision: null,
-            syncSources: false,
-            syncSession: false,
+          const stagedDraft: Draft = { ...nextDraft, updatedAt: now };
+          draftEditVersionRef.current += 1;
+          activeDraftRef.current = stagedDraft;
+          setActiveDraft((prev) => (prev && prev.id === stagedDraft.id ? stagedDraft : prev));
+          setDrafts((prev) => {
+            const exists = prev.some((draft) => draft.id === stagedDraft.id);
+            const next = exists
+              ? prev.map((draft) => (draft.id === stagedDraft.id ? stagedDraft : draft))
+              : [stagedDraft, ...prev];
+            return dedupeDraftListById(next);
           });
-          if (!saved) {
-            return;
-          }
+          queueAiAutosave({
+            draft: stagedDraft,
+            previousBody,
+            reasonCode: pendingAiProposal.autosaveReasonCode,
+          });
         } else {
           setActiveDraft((prev) => (prev ? nextDraft : prev));
         }
@@ -4644,8 +5009,8 @@ export default function HearthShell() {
     };
     const nextSparks = upsertBarStockSpark(sparks, graduatedSpark);
     setSparks(nextSparks);
-    writeBarStockSparks(nextSparks);
-    enqueueBarStockSpark(graduatedSpark);
+    writeBarStockSparks(nextSparks, workspaceId);
+    enqueueBarStockSpark(graduatedSpark, workspaceId);
     return graduatedSpark.id;
   }
 
@@ -4883,6 +5248,7 @@ export default function HearthShell() {
     const source = args.source ?? "typed";
     const isProductionRequest = Boolean(args.productionAction);
     const intentSignals = detectChatIntentSignals(requestContent);
+    const autosaveReasonCode = detectAiAutosaveReasonCode(requestContent);
     const pendingShortcutIntent = pendingShortcutIntentRef.current;
     pendingShortcutIntentRef.current = null;
 
@@ -4956,7 +5322,13 @@ export default function HearthShell() {
         });
       }
 
-      const assistantMessage: HearthChatMessage = { role: "assistant", content: result.assistantText };
+      const keepOutlineInChatOnly = !args.productionAction && autosaveReasonCode === "ai_outline";
+      const assistantContent = buildAssistantMessageContent({
+        assistantText: result.assistantText,
+        ops: result.ops,
+        autosaveReasonCode,
+      });
+      const assistantMessage: HearthChatMessage = { role: "assistant", content: assistantContent };
       setChatMessages((prev) => [...prev, assistantMessage].slice(-CHAT_HISTORY_MAX_MESSAGES));
 
       if (args.productionAction && args.productionScriptVersion) {
@@ -4967,13 +5339,28 @@ export default function HearthShell() {
         });
       }
 
-      if (!args.productionAction && result.ops.length > 0) {
+      const proposalOps = keepOutlineInChatOnly ? [] : result.ops;
+      if (keepOutlineInChatOnly) {
+        recordInteractionEvent("outline_generated", {
+          source,
+          has_outline: Boolean(readLatestOutlineFromOps(result.ops)),
+          ops_count: result.ops.length,
+        });
+      } else if (!args.productionAction && result.ops.some((op) => op.op === "set_body")) {
+        recordInteractionEvent("draft_generated", {
+          source,
+          ops_count: result.ops.length,
+        });
+      }
+
+      if (!args.productionAction && proposalOps.length > 0) {
         setPendingAiProposal({
-          assistantText: result.assistantText,
-          ops: result.ops,
-          selected: result.ops.map(() => true),
+          assistantText: assistantContent,
+          ops: proposalOps,
+          selected: proposalOps.map(() => true),
           context: episodeContext,
           fromGate: gateAnswering,
+          autosaveReasonCode,
         });
       }
 
@@ -6445,6 +6832,20 @@ export default function HearthShell() {
     );
   };
 
+  function onChangeTonePreset(nextTonePresetRaw: string) {
+    const nextTonePreset = normalizeTonePreset(nextTonePresetRaw);
+    if (!nextTonePreset) return;
+    updatePlanningSession((prev) => ({
+      ...prev,
+      tone_preset: nextTonePreset,
+    }));
+    if (!workspaceId) return;
+    void setMyWritingTonePreset(workspaceId, nextTonePreset).then((result) => {
+      if (!result.ok) return;
+      setWritingProfile(result.data);
+    });
+  }
+
   const renderDraftView = () => {
     const sourcesSummary = missingSourcesCount > 0
       ? `${missingSourcesCount} missing citation${missingSourcesCount === 1 ? "" : "s"}`
@@ -6506,8 +6907,31 @@ export default function HearthShell() {
           >
             {isApprovingScript ? "Approving..." : "Approve Script"}
           </button>
+          <label className="hs-tone-control">
+            <span>Tone</span>
+            <select
+              value={activeTonePreset}
+              onChange={(event) => onChangeTonePreset(event.target.value)}
+              disabled={!activeDraft}
+            >
+              {TONE_PRESET_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
           <span className="hs-status-text">{statusText}</span>
           <span className="hs-count-text">{wordCount} words · {charCount} chars</span>
+          {aiAutosaveWarning ? (
+            <span className="hs-autosave-warning" role="status" aria-live="polite">
+              {aiAutosaveWarning}
+              <button type="button" onClick={onRetryAiAutosave}>
+                Retry
+              </button>
+              <button type="button" onClick={() => void onSaveDraft()}>
+                Save now
+              </button>
+            </span>
+          ) : null}
         </div>
 
         {editingPeers.length > 0 ? (
@@ -6881,6 +7305,7 @@ export default function HearthShell() {
 
             <div className="hs-ai-chat-compose">
               <select
+                aria-label="Voice lane"
                 value={sttLane}
                 onChange={(event) => setSttLane(event.target.value as SttLane)}
                 className="stt-lane-select"
@@ -7097,6 +7522,7 @@ export default function HearthShell() {
         <div className="hs-decision-input-row">
           <input
             type="text"
+            aria-label="Decision draft"
             value={decisionDraft}
             placeholder="Add a decision"
             onChange={(event) => setDecisionDraft(event.target.value)}
@@ -7120,6 +7546,7 @@ export default function HearthShell() {
                 </div>
                 <input
                   type="text"
+                  aria-label={`Decision note ${idx + 1}`}
                   value={decision.text}
                   onChange={(event) => onUpdateDecision(idx, event.target.value)}
                 />
@@ -7288,6 +7715,7 @@ export default function HearthShell() {
       <div className="hs-rail-section">
         <label className="hs-rail-label">Search Episodes</label>
         <input
+          aria-label="Search episodes"
           ref={searchRef}
           type="search"
           value={searchText}
@@ -7296,7 +7724,7 @@ export default function HearthShell() {
         />
         <div className="hs-rail-sort">
           <label className="hs-rail-label">Sort</label>
-          <select value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
+          <select aria-label="Sort episodes" value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
             <option value="updated">Recently updated</option>
             <option value="title">Title A-Z</option>
           </select>
@@ -7400,8 +7828,12 @@ export default function HearthShell() {
                 >
                   Send to Anvil
                 </button>
-                <button type="button" onClick={() => onRemoveFromReady(entry.id)}>
-                  Remove from Ready
+                <button
+                  type="button"
+                  onClick={() => void onRemoveFromReady(entry)}
+                  disabled={removingReadyIds.includes(entry.id)}
+                >
+                  {removingReadyIds.includes(entry.id) ? "Removing..." : "Remove from Ready"}
                 </button>
               </div>
             </li>
@@ -7712,6 +8144,7 @@ export default function HearthShell() {
           <div className="hs-rail-section">
             <label className="hs-rail-label">Search workspace projects</label>
             <input
+              aria-label="Search workspace projects"
               ref={searchRef}
               type="search"
               value={searchText}
@@ -7720,7 +8153,7 @@ export default function HearthShell() {
             />
             <div className="hs-rail-sort">
               <label className="hs-rail-label">Sort</label>
-              <select value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
+              <select aria-label="Sort workspace projects" value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
                 <option value="updated">Recently updated</option>
                 <option value="title">Title A-Z</option>
               </select>
@@ -7750,6 +8183,7 @@ export default function HearthShell() {
                     >
                       {isEditing ? (
                         <input
+                          aria-label="Edit project title"
                           value={editingTitle}
                           onChange={(event) => setEditingTitle(event.target.value)}
                           onKeyDown={(event) => {

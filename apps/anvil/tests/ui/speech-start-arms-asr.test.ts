@@ -32,4 +32,32 @@ describe('speech start arming', () => {
 
     addSpy.mockRestore();
   });
+
+  test('stop click in live ASR always emits session stop intent', async () => {
+    const { appStore } = await import('../../src/state/app-store');
+    const { initSession, setSessionPhase } = await import('../../src/state/session');
+    const { installSpeech } = await import('../../src/features/speech-loader');
+    const dispatchSpy = jest.spyOn(window, 'dispatchEvent');
+
+    initSession();
+    (window as any).__tpStore = appStore;
+    appStore.set('scrollMode', 'asr' as any);
+    installSpeech();
+
+    setSessionPhase('live');
+    const recBtn = document.getElementById('recBtn') as HTMLButtonElement | null;
+    expect(recBtn).toBeTruthy();
+    recBtn?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(appStore.get('session.phase')).toBe('wrap');
+    expect(
+      dispatchSpy.mock.calls.some((call) => {
+        const evt = call[0] as Event;
+        return evt?.type === 'tp:session:stop';
+      }),
+    ).toBe(true);
+
+    dispatchSpy.mockRestore();
+  });
 });

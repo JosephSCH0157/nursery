@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Anvil Closed Beta Application</title>
+  <title>Podcaster's Forge Beta Application</title>
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; padding: 24px; background: #0b0c10; color: #e9edf1; }
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; padding: 24px; background: #0b0c10; color: #e9edf1; }
     .wrap { max-width: 820px; margin: 0 auto; }
     h1 { margin: 0 0 8px; font-size: 28px; }
     p { line-height: 1.5; color: #c9d1d9; }
@@ -36,61 +36,47 @@
     }
     .small { font-size: 13px; color: #9aa6b2; margin-top: 10px; }
     .hr { height: 1px; background: #222633; margin: 16px 0; }
-    .beta-logo{
-      display:block;
-      height:56px;
-      width:auto;
-      margin: 0 auto 14px auto;
-    }
+    a { color: #ff9e4a; }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <img
-      class="beta-logo"
-      src="/assets/anvil_teleprompter_logo.png"
-      alt="Anvil Teleprompter"
-      loading="eager"
-    />
-    <h1>Apply for the Anvil Closed Beta</h1>
-    <p>Built by a creator, for creators who actually record.</p>
+    <h1>Apply for the Podcaster's Forge Beta</h1>
+    <p>Nursery is the home base. Anvil is one of the tools inside it.</p>
 
     <div class="card">
       <p>
-        Anvil is a browser-based teleprompter + recording workflow built out of real frustration:
-        missed lines, broken flow, awkward eye contact, and tools that weren’t designed for real sessions.
+        Podcaster's Forge is being opened carefully to active creators who are recording, iterating,
+        and willing to give sharp feedback.
       </p>
       <p>
-        This is a small, intentional closed beta. We’re inviting active creators in waves to keep feedback focused
-        and the experience stable.
+        This beta is still intentionally limited. Applications are reviewed manually and invites are sent in waves
+        as capacity opens up.
       </p>
       <div class="hr"></div>
       <p><b>What to expect:</b></p>
       <ul>
-        <li>Applications reviewed manually</li>
-        <li>Responses go out <b>during the first week of February</b></li>
-        <li>If accepted, you’ll get an email with setup + account access</li>
+        <li>Applications are reviewed by hand</li>
+        <li>Invites go out in batches, not instantly</li>
+        <li>If accepted, you will get setup instructions and account access by email</li>
       </ul>
     </div>
 
     <div class="card">
       <h2 style="margin:0 0 8px; font-size:20px;">Beta Application</h2>
 
-      <!-- NETLIFY FORM: KEEP THESE ATTRIBUTES -->
       <form
         name="anvil-beta-application"
         method="POST"
         data-netlify="true"
         data-netlify-honeypot="bot-field"
-        action="/beta/thanks"
+        action="/beta/thanks.html"
       >
-        <!-- REQUIRED hidden input for Netlify Forms -->
         <input type="hidden" name="form-name" value="anvil-beta-application" />
 
-        <!-- Honeypot -->
         <p style="display:none;">
           <label>
-            Don’t fill this out:
+            Don't fill this out:
             <input name="bot-field" />
           </label>
         </p>
@@ -126,7 +112,7 @@
           <option>Occasionally / seasonal</option>
         </select>
 
-        <label for="goals">What are you hoping Anvil helps you with most?</label>
+        <label for="goals">What are you hoping Forge helps you with most?</label>
         <textarea id="goals" name="goals" required></textarea>
 
         <label for="teleprompter_used">Have you used a teleprompter before? If so, which ones? (optional)</label>
@@ -138,10 +124,10 @@
         <label for="notes">Anything else we should know? (optional)</label>
         <textarea id="notes" name="notes"></textarea>
 
-        <button type="submit">Apply for Closed Beta</button>
+        <button type="submit">Apply for Beta Access</button>
 
         <div class="small">
-          By applying, you understand this is a closed beta and invitations are limited.
+          By applying, you understand this is a limited beta and access is not immediate.
         </div>
       </form>
     </div>

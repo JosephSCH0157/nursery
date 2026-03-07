@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import "./index.css";
+import "./App.css";
 
 import type { Assignment, AssignmentId, Spark, SparkStatus } from "./lib/model";
 import { makeSpark, now } from "./lib/model";
@@ -17,7 +18,6 @@ import { extractTags, normalizeTag, querySparks, type SparkQuery } from "./lib/q
 import { copyText } from "./lib/clip";
 import { buildExportPayload, downloadJson, mergeSparks, parseImportJson } from "./lib/io";
 import { compactOutbox, drainOutbox, loadOutbox, peekOutbox, pushOutbox, saveOutbox } from "./lib/outbox";
-import { buildHearthPacket, packetToClipboardText } from "./lib/hearth-packet";
 import { supabase, supabaseAvailable } from "./lib/supabase";
 import {
   listGraduatedEpisodeIds,
@@ -607,6 +607,21 @@ export default function App(props: BarstockAppProps = {}) {
     window.location.assign(`${targetPath}?${params.toString()}`);
   }
 
+  function navigateToHearthForSpark(sparkId: string) {
+    const normalizedSparkId = sparkId.trim().toLowerCase();
+    if (!normalizeWorkpieceId(normalizedSparkId)) return;
+
+    const params = new URLSearchParams();
+    params.set("spark_id", normalizedSparkId);
+    if (workspaceId) {
+      params.set("workspace_id", workspaceId);
+    }
+
+    const isNurseryAppRoute = window.location.pathname.startsWith("/app/");
+    const targetPath = isNurseryAppRoute ? "/app/hearth" : "/hearth";
+    window.location.assign(`${targetPath}?${params.toString()}`);
+  }
+
   function navigateToAnvilForEpisode(episodeId: string) {
     const normalizedEpisodeId = episodeId.trim();
     if (!normalizedEpisodeId) return;
@@ -850,6 +865,7 @@ export default function App(props: BarstockAppProps = {}) {
                 <label className="barstock-mobile-field">
                   <span className="barstock-mobile-field__label">Spark</span>
                   <textarea
+                    aria-label="Spark text"
                     value={body}
                     onChange={(event) => setBody(event.target.value)}
                     placeholder="Type here… try #tags if you want."
@@ -954,6 +970,7 @@ export default function App(props: BarstockAppProps = {}) {
                 <label className="barstock-mobile-field">
                   <span className="barstock-mobile-field__label">Status</span>
                   <select
+                    aria-label="Spark status"
                     value={mobileDetailSpark.status}
                     disabled={!canWrite}
                     onChange={(event) => setStatus(mobileDetailSpark, event.target.value as SparkStatus)}
@@ -969,6 +986,7 @@ export default function App(props: BarstockAppProps = {}) {
                 <label className="barstock-mobile-field">
                   <span className="barstock-mobile-field__label">Project</span>
                   <select
+                    aria-label="Spark project"
                     value={mobileDetailSpark.assignmentId ?? ""}
                     disabled={!canWrite}
                     onChange={(event) => {
@@ -987,6 +1005,7 @@ export default function App(props: BarstockAppProps = {}) {
 
                 {detailEditing ? (
                   <textarea
+                    aria-label="Edit spark text"
                     value={editingBody}
                     onChange={(event) => setEditingBody(event.target.value)}
                     rows={14}
@@ -1149,68 +1168,55 @@ export default function App(props: BarstockAppProps = {}) {
   }
 
   return (
-    <div
-      className="barstock-root"
-      style={{
-        display: "grid",
-        gridTemplateColumns: "260px 1fr",
-        minHeight: "100vh",
-        fontFamily: "system-ui, sans-serif",
-        color: "var(--barstock-text)",
-        background: "var(--barstock-bg)",
-      }}
-    >
+    <div className="barstock-root barstock-layout">
       {/* Sidebar */}
-      <aside
-        style={{
-          borderRight: "1px solid var(--barstock-border)",
-          padding: 14
-        }}
-      >
-        <div style={{ fontWeight: 800, fontSize: 18 }}>Bar-Stock</div>
-        <div style={{ opacity: 0.75, marginTop: 6, fontSize: 13 }}>
+      <aside className="barstock-sidebar">
+        <div className="barstock-sidebar__title">Bar-Stock</div>
+        <div className="barstock-sidebar__summary">
           {showGraduated
             ? `${activeSparkCount} active • ${graduatedSparkCount} graduated`
             : `${activeSparkCount} sparks • idea mine`}
         </div>
         {showWorkspacePicker ? (
-          <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div className="barstock-workspace-row">
+            <div className="barstock-workspace-user">
               <strong>Bar-Stock</strong>
               {session ? (
-                <span style={{ opacity: 0.7 }}>{session.user.email}</span>
+                <span className="barstock-workspace-email">{session.user.email}</span>
               ) : null}
             </div>
 
             {!supabaseAvailable ? (
-              <div style={{ fontSize: 12, opacity: 0.7 }}>Cloud sync unavailable.</div>
+              <div className="barstock-workspace-muted">Cloud sync unavailable.</div>
             ) : session ? (
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <div className="barstock-workspace-controls">
                 <select
+                  aria-label="Workspace"
                   value={workspaceId ?? ""}
                   onChange={(e) => {
                     const v = e.target.value || null;
                     setActiveWorkspace(v);
                   }}
-                  style={{ padding: "6px", fontSize: 12 }}
+                  className="barstock-workspace-select"
                 >
                   {workspaces.map(w => (
                     <option key={w.id} value={w.id}>{w.name}</option>
                   ))}
                 </select>
                 {STANDALONE ? (
-                  <button onClick={() => supabase?.auth.signOut()} style={{ cursor: "pointer" }}>
+                  <button onClick={() => supabase?.auth.signOut()}>
                     Sign out
                   </button>
                 ) : null}
               </div>
             ) : STANDALONE ? (
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <div className="barstock-workspace-controls">
                 <input
+                  aria-label="Email for magic link"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="email for magic link"
-                  style={{ padding: "6px", fontSize: 12 }}
+                  className="barstock-workspace-input"
                 />
                 <button
                   onClick={async () => {
@@ -1221,34 +1227,33 @@ export default function App(props: BarstockAppProps = {}) {
                     });
                     popToast(error ? error.message : "Magic link sent.");
                   }}
-                  style={{ cursor: "pointer" }}
                 >
                   Send link
                 </button>
               </div>
             ) : (
-              <div style={{ fontSize: 12, opacity: 0.7 }}>Signed in via The Forge.</div>
+              <div className="barstock-workspace-muted">Signed in via The Forge.</div>
             )}
           </div>
         ) : null}
 
-        <div style={{ marginTop: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 13, opacity: 0.85, marginBottom: 8 }}>
+        <div className="barstock-sidebar__section">
+          <div className="barstock-sidebar__section-title">
             Projects
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div className="barstock-sidebar__project-list">
             <SidebarItem
               label="All sparks"
               active={activeAssignment === "all"}
               onClick={() => setActiveAssignment("all")}
             />
 
-            <div style={{ marginTop: 10, opacity: 0.7, fontSize: 12 }}>
+            <div className="barstock-sidebar__separator">
               —
             </div>
 
-            <label style={{ marginTop: 6, fontSize: 12, opacity: 0.8, display: "flex", gap: 6, alignItems: "center" }}>
+            <label className="barstock-sidebar__checkbox">
               <input
                 type="checkbox"
                 checked={showEmptyProjects}
@@ -1258,7 +1263,7 @@ export default function App(props: BarstockAppProps = {}) {
             </label>
 
             {visibleAssignments.length === 0 ? (
-              <div style={{ opacity: 0.7, fontSize: 13, marginTop: 6 }}>
+              <div className="barstock-sidebar__empty">
                 No active projects yet.
               </div>
             ) : (
@@ -1273,12 +1278,13 @@ export default function App(props: BarstockAppProps = {}) {
             )}
           </div>
 
-          <div style={{ marginTop: 14, display: "flex", gap: 8 }}>
+          <div className="barstock-sidebar__new-project-row">
             <input
+              aria-label="New project name"
               value={newAssignmentName}
               onChange={(e) => setNewAssignmentName(e.target.value)}
               placeholder="New project..."
-              style={{ flex: 1, padding: 8 }}
+              className="barstock-sidebar__new-project-input"
               onKeyDown={(e) => {
                 if (e.key === "Enter") addAssignment();
               }}
@@ -1286,39 +1292,31 @@ export default function App(props: BarstockAppProps = {}) {
             <button
               onClick={addAssignment}
               disabled={!newAssignmentName.trim()}
-              style={{
-                padding: "8px 10px",
-                cursor: newAssignmentName.trim() ? "pointer" : "not-allowed"
-              }}
+              className="barstock-sidebar__new-project-add"
             >
               Add
             </button>
           </div>
 
-          <div style={{ marginTop: 12, fontSize: 12, opacity: 0.86, display: "grid", gap: 6 }}>
+          <div className="barstock-sidebar__active-project">
             {activeProject ? (
               <>
                 <div>
                   Working on: <b>{activeProject.name}</b>
                 </div>
-                <div style={{ opacity: 0.8 }}>
+                <div className="barstock-sidebar__active-project-meta">
                   {activeProjectCounts?.active ?? 0} sparks ready
                 </div>
                 <button
                   onClick={launchActiveProjectInHearth}
-                  style={{
-                    cursor: "pointer",
-                    fontSize: 13,
-                    fontWeight: 700,
-                    padding: "8px 10px",
-                  }}
+                  className="barstock-sidebar__launch-button"
                 >
                   Launch Episode in Hearth
                 </button>
-                <div style={{ display: "flex", gap: 8 }}>
+                <div className="barstock-sidebar__active-project-actions">
                   <button
                     onClick={() => setActiveAssignment("all")}
-                    style={{ cursor: "pointer", fontSize: 12 }}
+                    className="barstock-sidebar__stop-button"
                   >
                     Stop
                   </button>
@@ -1329,7 +1327,7 @@ export default function App(props: BarstockAppProps = {}) {
             )}
           </div>
 
-          <div style={{ marginTop: 16, display: "flex", gap: 10, alignItems: "center" }}>
+          <div className="barstock-sidebar__import-export-row">
             <button
               onClick={() => {
                 const d = new Date();
@@ -1340,20 +1338,20 @@ export default function App(props: BarstockAppProps = {}) {
                 downloadJson(filename, buildExportPayload(sparks));
                 popToast("Exported.");
               }}
-              style={{ cursor: "pointer" }}
             >
               Export
             </button>
 
-            <button onClick={() => importRef.current?.click()} style={{ cursor: "pointer" }}>
+            <button onClick={() => importRef.current?.click()}>
               Import
             </button>
 
             <input
               ref={importRef}
               type="file"
+              aria-label="Import sparks JSON file"
               accept="application/json"
-              style={{ display: "none" }}
+              className="barstock-hidden-input"
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 e.target.value = "";
@@ -1361,23 +1359,18 @@ export default function App(props: BarstockAppProps = {}) {
               }}
             />
           </div>
-          <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--barstock-border)" }}>
-            <div style={{ fontWeight: 700, fontSize: 13, opacity: 0.85 }}>Forge Sync</div>
-            <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
+          <div className="barstock-sidebar__sync">
+            <div className="barstock-sidebar__section-title">Forge Sync</div>
+            <div className="barstock-sidebar__sync-status">
               Status: <b>{syncLabel}</b> - Outbox: <b>{outboxCount}</b>
             </div>
-            <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
+            <div className="barstock-sidebar__sync-hint">
               {syncHint}
             </div>
-            <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+            <div className="barstock-sidebar__sync-actions">
               <button
                 onClick={onSyncNow}
                 disabled={!supabaseAvailable || tongsStatus !== "online" || !session || !workspaceId || syncing || outboxCount === 0}
-                style={{
-                  cursor: !supabaseAvailable || tongsStatus !== "online" || !session || !workspaceId || syncing || outboxCount === 0
-                    ? "not-allowed"
-                    : "pointer"
-                }}
               >
                 {syncing ? "Syncing..." : "Sync now"}
               </button>
@@ -1387,44 +1380,29 @@ export default function App(props: BarstockAppProps = {}) {
       </aside>
 
       {/* Main */}
-      <main style={{ padding: 20, maxWidth: 980 }}>
-        <h1 style={{ margin: 0 }}>Sparks</h1>
-        <p style={{ marginTop: 8, opacity: 0.8 }}>
+      <main className="barstock-main">
+        <h1 className="barstock-main__title">Sparks</h1>
+        <p className="barstock-main__subtitle">
           Dump the spark. No polish. No pressure.
         </p>
 
         {activeProject ? (
-          <section
-            style={{
-              marginTop: 12,
-              padding: 12,
-              border: "1px solid var(--barstock-border)",
-              borderRadius: 10,
-              background: "var(--barstock-surface)",
-              display: "grid",
-              gap: 8,
-            }}
-          >
-            <div style={{ fontSize: 13, opacity: 0.84 }}>
+          <section className="barstock-main__active-project-card">
+            <div className="barstock-main__active-project-title">
               Working on: <b>{activeProject.name}</b>
             </div>
-            <div style={{ fontSize: 12, opacity: 0.8 }}>
+            <div className="barstock-main__active-project-meta">
               {activeProjectCounts?.active ?? 0} sparks ready
             </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div className="barstock-main__active-project-actions">
               <button
                 onClick={launchActiveProjectInHearth}
-                style={{
-                  cursor: "pointer",
-                  padding: "10px 14px",
-                  fontWeight: 700,
-                }}
+                className="barstock-main__launch-button"
               >
                 Launch Episode in Hearth
               </button>
               <button
                 onClick={() => setActiveAssignment("all")}
-                style={{ cursor: "pointer" }}
               >
                 Stop
               </button>
@@ -1433,52 +1411,43 @@ export default function App(props: BarstockAppProps = {}) {
         ) : null}
 
         {toast && (
-          <div
-            style={{
-              marginTop: 10,
-              padding: "8px 10px",
-              border: "1px solid var(--barstock-border)",
-              borderRadius: 8,
-              background: "var(--barstock-surface)",
-            }}
-          >
+          <div className="barstock-main__toast">
             {toast}
           </div>
         )}
 
-        <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+        <div className="barstock-main__composer">
           <textarea
+            aria-label="New spark text"
             value={body}
             onChange={(e) => setBody(e.target.value)}
             placeholder="Type here… try #tags if you want."
             rows={4}
-            style={{ flex: 1, padding: 12, fontSize: 14 }}
+            className="barstock-main__composer-textarea"
           />
           <button
             onClick={addSpark}
             disabled={!canAdd}
-            style={{
-              padding: "10px 14px",
-              fontWeight: 600,
-              cursor: canAdd ? "pointer" : "not-allowed"
-            }}
+            className="barstock-main__composer-button"
           >
             Add Spark
           </button>
         </div>
 
         {/* Filters */}
-        <div style={{ display: "flex", gap: 10, marginTop: 12, alignItems: "center" }}>
+        <div className="barstock-main__filters">
           <input
+            aria-label="Search sparks"
             value={q.text ?? ""}
             onChange={(e) => setQ(prev => ({ ...prev, text: e.target.value }))}
             placeholder="Search sparks…"
-            style={{ flex: 1, padding: 10 }}
+            className="barstock-main__filter-search"
           />
           <select
+            aria-label="Filter by spark status"
             value={q.status ?? "all"}
             onChange={(e) => setQ(prev => ({ ...prev, status: e.target.value as any }))}
-            style={{ padding: 10 }}
+            className="barstock-main__filter-status"
           >
             <option value="all">All</option>
             <option value="raw">Open (Raw)</option>
@@ -1487,7 +1456,7 @@ export default function App(props: BarstockAppProps = {}) {
             <option value="graduated">Graduated</option>
             <option value="archived">Archived</option>
           </select>
-          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, opacity: 0.85 }}>
+          <label className="barstock-main__filter-checkbox">
             <input
               type="checkbox"
               checked={showGraduated}
@@ -1498,17 +1467,17 @@ export default function App(props: BarstockAppProps = {}) {
         </div>
 
         {q.tag && (
-          <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
+          <div className="barstock-main__tag-filter">
             Filtering by tag: <b>#{q.tag}</b>{" "}
-            <button onClick={() => setQ(prev => ({ ...prev, tag: undefined }))} style={{ cursor: "pointer" }}>
+            <button onClick={() => setQ(prev => ({ ...prev, tag: undefined }))}>
               clear
             </button>
           </div>
         )}
 
-        <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 10 }}>
+        <div className="barstock-main__spark-list">
           {filtered.length === 0 ? (
-            <div style={{ opacity: 0.75, marginTop: 8 }}>
+            <div className="barstock-main__empty">
               No sparks yet. Toss one in.
             </div>
           ) : (
@@ -1523,16 +1492,10 @@ export default function App(props: BarstockAppProps = {}) {
                     if (target.closest("button,select,input,textarea,option")) return;
                     setActiveAssignment(s.assignmentId ?? "all");
                   }}
-                  style={{
-                    border: "1px solid var(--barstock-border)",
-                    borderRadius: 10,
-                    padding: 12,
-                    background: "var(--barstock-surface)",
-                    opacity: showGraduated && isGraduated ? 0.82 : 1,
-                  }}
+                  className={`barstock-spark-card${showGraduated && isGraduated ? " is-graduated-dimmed" : ""}`}
                 >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-                  <div style={{ opacity: 0.7, fontSize: 12 }}>
+                <div className="barstock-spark-card__head">
+                  <div className="barstock-spark-card__meta">
                     {new Date(s.createdAt).toLocaleString()}
                     {s.pinned ? " • pinned" : ""}
                     {" • "}
@@ -1540,27 +1503,20 @@ export default function App(props: BarstockAppProps = {}) {
                     {isGraduated ? " • graduated" : ""}
                   </div>
 
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <div className="barstock-spark-card__actions">
                     {isGraduated ? (
                       <span
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 700,
-                          letterSpacing: 0.2,
-                          border: "1px solid var(--barstock-border)",
-                          borderRadius: 999,
-                          padding: "2px 8px",
-                          opacity: 0.9,
-                        }}
+                        className="barstock-spark-card__graduated-badge"
                         title="This spark has graduated to an approved/published script."
                       >
                         GRADUATED
                       </span>
                     ) : null}
                     <select
+                      aria-label="Spark status"
                       value={s.status}
                       onChange={(e) => setStatus(s, e.target.value as SparkStatus)}
-                      style={{ padding: "4px 6px" }}
+                      className="barstock-spark-card__compact-select"
                       title="Status"
                     >
                       <option value="raw">Open (Raw)</option>
@@ -1571,12 +1527,13 @@ export default function App(props: BarstockAppProps = {}) {
                     </select>
 
                     <select
+                      aria-label="Spark project"
                       value={s.assignmentId ?? ""}
                       onChange={(e) => {
                         const v = e.target.value;
                         updateSpark(s, { assignmentId: v || null });
                       }}
-                      style={{ padding: "4px 6px" }}
+                      className="barstock-spark-card__compact-select"
                       title="Project"
                     >
                       <option value="">No project</option>
@@ -1587,7 +1544,7 @@ export default function App(props: BarstockAppProps = {}) {
                       ))}
                     </select>
 
-                    <button onClick={() => togglePin(s)} style={{ cursor: "pointer" }}>
+                    <button onClick={() => togglePin(s)}>
                       {s.pinned ? "Unpin" : "Pin"}
                     </button>
 
@@ -1596,7 +1553,6 @@ export default function App(props: BarstockAppProps = {}) {
                         const ok = await copyText(s.body);
                         popToast(ok ? "Copied." : "Copy failed.");
                       }}
-                      style={{ cursor: "pointer" }}
                     >
                       Copy
                     </button>
@@ -1610,12 +1566,9 @@ export default function App(props: BarstockAppProps = {}) {
                             navigateToHearthForProject(s.assignmentId);
                             return;
                           }
-
-                          const packet = buildHearthPacket(s, "Ungrouped spark");
-                          const ok = await copyText(packetToClipboardText(packet));
-                          popToast(ok ? "Hearth packet copied (fallback)." : "Copy failed.");
+                            popToast("Opening Hearth...");
+                            navigateToHearthForSpark(s.id);
                         }}
-                        style={{ cursor: "pointer" }}
                       >
                         Send to Hearth
                       </button>
@@ -1627,7 +1580,6 @@ export default function App(props: BarstockAppProps = {}) {
                           e.stopPropagation();
                           navigateToAnvilForEpisode(linkedWorkpieceId);
                         }}
-                        style={{ cursor: "pointer" }}
                       >
                         Open in Anvil
                       </button>
@@ -1642,7 +1594,6 @@ export default function App(props: BarstockAppProps = {}) {
                             setEditingBody("");
                             popToast("Saved.");
                           }}
-                          style={{ cursor: "pointer" }}
                         >
                           Save
                         </button>
@@ -1651,7 +1602,6 @@ export default function App(props: BarstockAppProps = {}) {
                             setEditingId(null);
                             setEditingBody("");
                           }}
-                          style={{ cursor: "pointer" }}
                         >
                           Cancel
                         </button>
@@ -1662,13 +1612,12 @@ export default function App(props: BarstockAppProps = {}) {
                           setEditingId(s.id);
                           setEditingBody(s.body);
                         }}
-                        style={{ cursor: "pointer" }}
                       >
                         Edit
                       </button>
                     )}
 
-                    <button onClick={() => deleteSpark(s.id)} style={{ cursor: "pointer" }}>
+                    <button onClick={() => deleteSpark(s.id)}>
                       Delete
                     </button>
                   </div>
@@ -1676,32 +1625,25 @@ export default function App(props: BarstockAppProps = {}) {
 
                 {editingId === s.id ? (
                   <textarea
+                    aria-label="Edit spark text"
                     value={editingBody}
                     onChange={(e) => setEditingBody(e.target.value)}
                     rows={4}
-                    style={{ width: "100%", marginTop: 10, padding: 10, fontSize: 14 }}
+                    className="barstock-spark-card__edit-textarea"
                   />
                 ) : (
-                  <pre style={{ margin: "10px 0 0", whiteSpace: "pre-wrap", fontFamily: "inherit" }}>
+                  <pre className="barstock-spark-card__body">
                     {s.body}
                   </pre>
                 )}
 
                 {s.tags.length > 0 && (
-                  <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <div className="barstock-spark-card__tags">
                     {s.tags.map((t) => (
                       <button
                         key={t}
                         onClick={() => onTagClick(t)}
-                        style={{
-                          cursor: "pointer",
-                          border: "1px solid var(--barstock-border)",
-                          borderRadius: 999,
-                          padding: "4px 10px",
-                          fontSize: 12,
-                          opacity: 0.9,
-                          background: "rgba(26, 38, 61, 0.65)",
-                        }}
+                        className="barstock-spark-card__tag-button"
                         title="Filter by tag"
                       >
                         #{normalizeTag(t)}
@@ -1723,17 +1665,7 @@ function SidebarItem(props: { label: string; active: boolean; onClick: () => voi
   return (
     <button
       onClick={props.onClick}
-      style={{
-        textAlign: "left",
-        width: "100%",
-        padding: "8px 10px",
-        borderRadius: 10,
-        border: "1px solid var(--barstock-border)",
-        cursor: "pointer",
-        fontWeight: props.active ? 800 : 600,
-        opacity: props.active ? 1 : 0.85,
-        background: props.active ? "var(--barstock-surface-strong)" : "transparent"
-      }}
+      className={`barstock-sidebar-item${props.active ? " is-active" : ""}`}
     >
       {props.label}
     </button>

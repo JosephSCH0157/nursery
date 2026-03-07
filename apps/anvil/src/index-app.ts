@@ -127,6 +127,7 @@ import { ScriptStore } from './features/scripts-store';
 import { listWorkspaceReadyScripts, readRecordingSessionScripts } from './forge/ready-scripts';
 import { getScriptSourceMode, getSelectedRecordingSessionId } from './forge/script-source';
 import { initAuthUnlock } from './features/auth-unlock';
+import { refreshEntitlements, setFreeEntitlements } from './forge/entitlements';
 
 bootTrace('index-app.ts:module-eval:imports-ready');
 
@@ -2074,6 +2075,23 @@ export async function boot() {
 					}
 				}
 				bootTrace('boot():auth-hydrate:done', { profileUserId: profileUserId || null });
+				try {
+					if (hasSupabaseConfig) {
+						void refreshEntitlements(supabase);
+						try {
+							const params = new URLSearchParams(window.location.search || '');
+							const cameFromCheckout =
+								params.has('session_id') || params.get('checkout') === 'success';
+							if (cameFromCheckout) {
+								window.setTimeout(() => {
+									void refreshEntitlements(supabase);
+								}, 3000);
+							}
+						} catch {}
+					} else {
+						setFreeEntitlements();
+					}
+				} catch {}
 
 				// Early: folder card injection + async watcher (before any user opens Settings)
           try { ensureSettingsFolderControls(); } catch {}

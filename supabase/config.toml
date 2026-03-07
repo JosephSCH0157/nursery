@@ -16,7 +16,7 @@ entrypoint = "./functions/create-checkout-session/index.ts"
 
 [functions.stripe-webhook]
 enabled = true
-verify_jwt = true
+verify_jwt = false
 import_map = "./functions/stripe-webhook/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
@@ -24,3 +24,14 @@ entrypoint = "./functions/stripe-webhook/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/stripe-webhook/*.html" ]
+
+[functions.display-ws]
+enabled = true
+verify_jwt = false
+import_map = "./functions/display-ws/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/display-ws/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/display-ws/*.html" ]

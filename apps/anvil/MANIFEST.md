@@ -67,6 +67,7 @@ In `scrollMode='asr'`:
 - `session.asrArmed` gates ASR movement permission only (commit may process bookkeeping while unarmed, but must not write scroll).
 - Must only move on ASR commit (`tp:asr:commit` or canonical equivalent).
 - ASR movement authority is single-lane: `speech-loader -> asr-scroll-driver` commit path owns movement in ASR mode.
+- Transcript/ASR lifecycle wiring must be single-instance per window: repeated mode-router or scroll-router init/toggle cycles must not stack duplicate subscriptions/listeners.
 - Runtime auto-motor authority is single-lane: `scroll-router` owns `__tpAuto` enablement; ASR bridge helpers must not toggle auto enablement.
 - Legacy namespace recognizer backend (`window.__tpSpeech.startRecognizer`) is compatibility-only and opt-in (`window.__tpAllowLegacySpeechNamespace === true` or `?legacySpeechNs=1`).
 - Legacy `window.__tpAsrMode` runtime is compatibility-only and opt-in (`window.__tpAllowLegacyAsrMode === true` or `?legacyAsrMode=1`); default runtime must use speech-loader shim ownership.
@@ -106,9 +107,9 @@ In `scrollMode='asr'`:
 - Same-line strong-final plain `+1` nudge may bypass short-line ambiguity HOLD only when current-line lexical overlap is strong (high token hit count and ratio), with no bridge skip and adjacent speakable target only.
 - Same-line final forward promotion is commit-priority, not recenter-priority: bounded speakable advance may proceed even when current-line marker delta is outside recenter-near band, as long as commit clamps/floors are satisfied.
 - Strict matcher lane may apply a bounded final-forward fallback (`forceReason='final-forward-fallback'`) when same-line final confidence/overlap are strong but no forward pick survived nudge arbitration; fallback target remains cue-bridge bounded and speakable.
-- Dev tuning may run a permissive matcher lane (enabled by `__tpAsrPermissiveMatcher` / `asr_matcher=permissive`, default-on in dev): tie/low-sim/ambiguity guards log diagnostics but should not hard-stop forward commit selection.
+- Dev tuning may run a permissive matcher lane (enabled explicitly by `__tpAsrPermissiveMatcher` / `asr_matcher=permissive`): tie/low-sim/ambiguity guards log diagnostics but should not hard-stop forward commit selection.
 - In permissive matcher lane, same-line final completions may promote to bounded `+1` speakable advance (`forceReason='permissive-final-advance'`) and pending commit gating must honor that bypass at progressive floor.
-- Permissive same-line final forward promotion requires lexical overlap and marker-position consistency: bounded advance may proceed with meaningful overlap unless cursor has drifted materially ahead of marker; marker-ahead lag scenarios may still permissively advance.
+- Permissive same-line final forward promotion requires lexical overlap and marker-position consistency: bounded advance may proceed only with minimum overlap evidence (`>=2` overlap tokens and overlap ratio floor) unless cursor has drifted materially ahead of marker; marker-ahead lag scenarios may still permissively advance.
 - Same-line final forward promotions (`final-forward-nudge` / `final-forward-fallback` / `permissive-final-advance`) must propagate into pending gating so low-sim/tie arbitration cannot re-block bounded forward progress in live armed ASR.
 - Same-line final forward promotions that carry a valid cue-bridge delta (`+2..+3`) may raise commit clamp to that bounded cue-bridge cap so clamp does not demote the commit onto a cue-only line and trigger `cue_commit_blocked`.
 - In permissive matcher lane, ambiguity HOLD is diagnostic-only: active hold must not suppress bounded forward final advance when same-line final evidence is strong enough to progress.
@@ -166,7 +167,7 @@ In `scrollMode='hybrid'`:
 - Hybrid matcher/runtime readiness must resolve from the same ASR block SSOT used by ASR driver (`asr-block-store` metadata + runtime readiness globals), and diagnostics should include `blocksReady`, `blockCount`, matcher source feed, and current script hash/sig.
 - When speech activity is present but blocks are not yet ready (`backendReady && !blocksReady && speechHeardRecently`), Hybrid must enter a temporary blocks-not-ready hold lane.
 - In that hold lane, no-match/off-script degradation is diagnostic-only (no hard off-script decay or hard-no-match gating), and velocity should remain in stable fallback/recovery behavior until blocks become ready.
-- Hybrid speed setting unit is WPM (`wpmTarget` / `tp_baseline_wpm`); Hybrid base px/s is derived via runtime WPM conversion (`convertWpmToPxPerSec`) with a Hybrid-only calibration multiplier (`HYBRID_WPM_CAL_MULT`, default 2.5; optional override `tp_hybrid_wpm_cal_mult`), and timed/auto px/s is fallback seed only when no valid WPM source is available.
+- Hybrid speed setting unit is WPM (`wpmTarget` / `tp_baseline_wpm`); Hybrid base px/s is derived via runtime WPM conversion (`convertWpmToPxPerSec`) with a Hybrid-only calibration multiplier (`HYBRID_WPM_CAL_MULT`, default 2.0; optional override `tp_hybrid_wpm_cal_mult`), and timed/auto px/s is fallback seed only when no valid WPM source is available.
 - Hybrid pre-clamp velocity math must apply finite guards and bounded per-multiplier caps (reactive/policy/assist/correction factors) before composition; capped/non-finite multipliers are dev-traced for root-cause attribution.
 - Hybrid max velocity ceiling must be dynamic (`max(basePxps * K, ABS_MIN)` with policy-dependent `K`), so `max_clamp` remains a spike guard rather than the dominant steady-state limiter.
 - Hybrid speech-presence ownership is activity-driven (recognizer/VAD traffic), not semantic match-driven (`noMatch`/low-sim must not be interpreted as silence).

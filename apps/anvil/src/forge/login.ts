@@ -9,7 +9,7 @@ function getRedirectTarget(): string {
     params.get('next') ||
     params.get('redirect') ||
     params.get('return') ||
-    '/anvil/teleprompter_pro.html'
+    '/app/anvil'
   );
 }
 

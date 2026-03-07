@@ -63,10 +63,12 @@ function isMissingOrgServicesError(error: unknown): boolean {
   return text.includes("list_my_orgs")
     || text.includes("list_org_teams")
     || text.includes("list_team_members")
+    || text.includes("resolve_org_user_by_email")
     || text.includes("create_org_team")
     || text.includes("rename_org_team")
     || text.includes("delete_org_team")
     || text.includes("add_team_member")
+    || text.includes("add_team_member_by_email")
     || text.includes("remove_team_member")
     || text.includes("could not find the function")
     || (text.includes("function") && text.includes("not found"));
@@ -148,7 +150,7 @@ export default function SettingsOrgTeams() {
   const [renamingTeam, setRenamingTeam] = useState(false);
   const [deletingTeam, setDeletingTeam] = useState(false);
 
-  const [newMemberUserId, setNewMemberUserId] = useState("");
+  const [newMemberEmail, setNewMemberEmail] = useState("");
   const [newMemberRole, setNewMemberRole] = useState<TeamRole>("member");
   const [addingMember, setAddingMember] = useState(false);
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
@@ -393,9 +395,9 @@ export default function SettingsOrgTeams() {
 
   async function onAddTeamMember() {
     if (!session || !activeTeam || !canManage || addingMember) return;
-    const userId = newMemberUserId.trim();
-    if (!userId) {
-      setMemberError("User ID is required.");
+    const email = newMemberEmail.trim().toLowerCase();
+    if (!email) {
+      setMemberError("Email is required.");
       return;
     }
 
@@ -403,15 +405,20 @@ export default function SettingsOrgTeams() {
     setMemberError(null);
     setNotice(null);
     try {
-      const { error } = await tongsRpcClient.rpc("add_team_member", {
+      const { data, error } = await tongsRpcClient.rpc("add_team_member_by_email", {
         p_team_id: activeTeam.team_id,
-        p_user_id: userId,
+        p_email: email,
         p_team_role: newMemberRole,
       });
       if (error) throw error;
-      setNewMemberUserId("");
+      const rows = Array.isArray(data) ? data : [];
+      if (rows.length === 0) {
+        setMemberError("User not found.");
+        return;
+      }
+      setNewMemberEmail("");
       setNewMemberRole("member");
-      setNotice("Team member updated.");
+      setNotice("Added to team. Org access granted as Member.");
       await Promise.all([loadMembers(), loadTeams()]);
     } catch (error: unknown) {
       setMemberError(
@@ -515,6 +522,7 @@ export default function SettingsOrgTeams() {
                 <div className="settings-org-teams__create-row">
                   <input
                     type="text"
+                    aria-label="New team name"
                     placeholder="New team name"
                     value={newTeamName}
                     onChange={(event) => setNewTeamName(event.target.value)}
@@ -574,6 +582,7 @@ export default function SettingsOrgTeams() {
                     <div className="settings-org-teams__edit-row">
                       <input
                         type="text"
+                        aria-label="Team name"
                         value={renameTeamName}
                         onChange={(event) => setRenameTeamName(event.target.value)}
                         placeholder="Team name"
@@ -600,26 +609,33 @@ export default function SettingsOrgTeams() {
                   </div>
 
                   {canManage ? (
-                    <div className="settings-org-teams__create-row">
-                      <input
-                        type="text"
-                        value={newMemberUserId}
-                        onChange={(event) => setNewMemberUserId(event.target.value)}
-                        placeholder="User ID (uuid)"
-                      />
-                      <select
-                        value={newMemberRole}
-                        onChange={(event) => setNewMemberRole(normalizeTeamRole(event.target.value))}
-                      >
-                        {TEAM_ROLE_OPTIONS.map((roleOption) => (
-                          <option key={roleOption} value={roleOption}>
-                            {teamRoleLabel(roleOption)}
-                          </option>
-                        ))}
-                      </select>
-                      <button type="button" onClick={() => void onAddTeamMember()} disabled={addingMember}>
-                        {addingMember ? "Adding..." : "Add member"}
-                      </button>
+                    <div>
+                      <div className="settings-org-teams__create-row">
+                        <input
+                          type="email"
+                          aria-label="Member email"
+                          value={newMemberEmail}
+                          onChange={(event) => setNewMemberEmail(event.target.value)}
+                          placeholder="User email"
+                        />
+                        <select
+                          aria-label="Member role"
+                          value={newMemberRole}
+                          onChange={(event) => setNewMemberRole(normalizeTeamRole(event.target.value))}
+                        >
+                          {TEAM_ROLE_OPTIONS.map((roleOption) => (
+                            <option key={roleOption} value={roleOption}>
+                              {teamRoleLabel(roleOption)}
+                            </option>
+                          ))}
+                        </select>
+                        <button type="button" onClick={() => void onAddTeamMember()} disabled={addingMember}>
+                          {addingMember ? "Adding..." : "Add member"}
+                        </button>
+                      </div>
+                      <p className="settings-org-teams__hint">
+                        Team members are automatically added to the organization as Members.
+                      </p>
                     </div>
                   ) : null}
 

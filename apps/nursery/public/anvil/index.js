@@ -2326,17 +2326,17 @@ var init_RealtimePresence = __esm({
        * @internal
        */
       static syncState(currentState2, newState, onJoin, onLeave) {
-        const state8 = this.cloneDeep(currentState2);
+        const state9 = this.cloneDeep(currentState2);
         const transformedState = this.transformState(newState);
         const joins = {};
         const leaves = {};
-        this.map(state8, (key, presences) => {
+        this.map(state9, (key, presences) => {
           if (!transformedState[key]) {
             leaves[key] = presences;
           }
         });
         this.map(transformedState, (key, newPresences) => {
-          const currentPresences = state8[key];
+          const currentPresences = state9[key];
           if (currentPresences) {
             const newPresenceRefs = newPresences.map((m) => m.presence_ref);
             const curPresenceRefs = currentPresences.map((m) => m.presence_ref);
@@ -2352,7 +2352,7 @@ var init_RealtimePresence = __esm({
             joins[key] = newPresences;
           }
         });
-        return this.syncDiff(state8, { joins, leaves }, onJoin, onLeave);
+        return this.syncDiff(state9, { joins, leaves }, onJoin, onLeave);
       }
       /**
        * Used to sync a diff of presence join and leave events from the
@@ -2364,7 +2364,7 @@ var init_RealtimePresence = __esm({
        *
        * @internal
        */
-      static syncDiff(state8, diff, onJoin, onLeave) {
+      static syncDiff(state9, diff, onJoin, onLeave) {
         const { joins, leaves } = {
           joins: this.transformState(diff.joins),
           leaves: this.transformState(diff.leaves)
@@ -2379,27 +2379,27 @@ var init_RealtimePresence = __esm({
         }
         this.map(joins, (key, newPresences) => {
           var _a;
-          const currentPresences = (_a = state8[key]) !== null && _a !== void 0 ? _a : [];
-          state8[key] = this.cloneDeep(newPresences);
+          const currentPresences = (_a = state9[key]) !== null && _a !== void 0 ? _a : [];
+          state9[key] = this.cloneDeep(newPresences);
           if (currentPresences.length > 0) {
-            const joinedPresenceRefs = state8[key].map((m) => m.presence_ref);
+            const joinedPresenceRefs = state9[key].map((m) => m.presence_ref);
             const curPresences = currentPresences.filter((m) => joinedPresenceRefs.indexOf(m.presence_ref) < 0);
-            state8[key].unshift(...curPresences);
+            state9[key].unshift(...curPresences);
           }
           onJoin(key, currentPresences, newPresences);
         });
         this.map(leaves, (key, leftPresences) => {
-          let currentPresences = state8[key];
+          let currentPresences = state9[key];
           if (!currentPresences)
             return;
           const presenceRefsToRemove = leftPresences.map((m) => m.presence_ref);
           currentPresences = currentPresences.filter((m) => presenceRefsToRemove.indexOf(m.presence_ref) < 0);
-          state8[key] = currentPresences;
+          state9[key] = currentPresences;
           onLeave(key, currentPresences, leftPresences);
           if (currentPresences.length === 0)
-            delete state8[key];
+            delete state9[key];
         });
-        return state8;
+        return state9;
       }
       /** @internal */
       static map(obj, func) {
@@ -2428,10 +2428,10 @@ var init_RealtimePresence = __esm({
        *
        * @internal
        */
-      static transformState(state8) {
-        state8 = this.cloneDeep(state8);
-        return Object.getOwnPropertyNames(state8).reduce((newState, key) => {
-          const presences = state8[key];
+      static transformState(state9) {
+        state9 = this.cloneDeep(state9);
+        return Object.getOwnPropertyNames(state9).reduce((newState, key) => {
+          const presences = state9[key];
           if ("metas" in presences) {
             newState[key] = presences.metas.map((presence) => {
               presence["presence_ref"] = presence["phx_ref"];
@@ -3703,11 +3703,11 @@ Option 2: Install and provide the "ws" package:
        * Set connection state with proper state management
        * @internal
        */
-      _setConnectionState(state8, manual = false) {
-        this._connectionState = state8;
-        if (state8 === "connecting") {
+      _setConnectionState(state9, manual = false) {
+        this._connectionState = state9;
+        if (state9 === "connecting") {
           this._wasManualDisconnect = false;
-        } else if (state8 === "disconnecting") {
+        } else if (state9 === "disconnecting") {
           this._wasManualDisconnect = manual;
         }
       }
@@ -6911,33 +6911,33 @@ var init_errors = __esm({
 });
 
 // ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/base64url.js
-function byteToBase64URL(byte, state8, emit3) {
+function byteToBase64URL(byte, state9, emit3) {
   if (byte !== null) {
-    state8.queue = state8.queue << 8 | byte;
-    state8.queuedBits += 8;
-    while (state8.queuedBits >= 6) {
-      const pos = state8.queue >> state8.queuedBits - 6 & 63;
+    state9.queue = state9.queue << 8 | byte;
+    state9.queuedBits += 8;
+    while (state9.queuedBits >= 6) {
+      const pos = state9.queue >> state9.queuedBits - 6 & 63;
       emit3(TO_BASE64URL[pos]);
-      state8.queuedBits -= 6;
+      state9.queuedBits -= 6;
     }
-  } else if (state8.queuedBits > 0) {
-    state8.queue = state8.queue << 6 - state8.queuedBits;
-    state8.queuedBits = 6;
-    while (state8.queuedBits >= 6) {
-      const pos = state8.queue >> state8.queuedBits - 6 & 63;
+  } else if (state9.queuedBits > 0) {
+    state9.queue = state9.queue << 6 - state9.queuedBits;
+    state9.queuedBits = 6;
+    while (state9.queuedBits >= 6) {
+      const pos = state9.queue >> state9.queuedBits - 6 & 63;
       emit3(TO_BASE64URL[pos]);
-      state8.queuedBits -= 6;
+      state9.queuedBits -= 6;
     }
   }
 }
-function byteFromBase64URL(charCode, state8, emit3) {
+function byteFromBase64URL(charCode, state9, emit3) {
   const bits = FROM_BASE64URL[charCode];
   if (bits > -1) {
-    state8.queue = state8.queue << 6 | bits;
-    state8.queuedBits += 6;
-    while (state8.queuedBits >= 8) {
-      emit3(state8.queue >> state8.queuedBits - 8 & 255);
-      state8.queuedBits -= 8;
+    state9.queue = state9.queue << 6 | bits;
+    state9.queuedBits += 6;
+    while (state9.queuedBits >= 8) {
+      emit3(state9.queue >> state9.queuedBits - 8 & 255);
+      state9.queuedBits -= 8;
     }
   } else if (bits === -2) {
     return;
@@ -6997,47 +6997,47 @@ function stringToUTF8(str, emit3) {
     codepointToUTF8(codepoint, emit3);
   }
 }
-function stringFromUTF8(byte, state8, emit3) {
-  if (state8.utf8seq === 0) {
+function stringFromUTF8(byte, state9, emit3) {
+  if (state9.utf8seq === 0) {
     if (byte <= 127) {
       emit3(byte);
       return;
     }
     for (let leadingBit = 1; leadingBit < 6; leadingBit += 1) {
       if ((byte >> 7 - leadingBit & 1) === 0) {
-        state8.utf8seq = leadingBit;
+        state9.utf8seq = leadingBit;
         break;
       }
     }
-    if (state8.utf8seq === 2) {
-      state8.codepoint = byte & 31;
-    } else if (state8.utf8seq === 3) {
-      state8.codepoint = byte & 15;
-    } else if (state8.utf8seq === 4) {
-      state8.codepoint = byte & 7;
+    if (state9.utf8seq === 2) {
+      state9.codepoint = byte & 31;
+    } else if (state9.utf8seq === 3) {
+      state9.codepoint = byte & 15;
+    } else if (state9.utf8seq === 4) {
+      state9.codepoint = byte & 7;
     } else {
       throw new Error("Invalid UTF-8 sequence");
     }
-    state8.utf8seq -= 1;
-  } else if (state8.utf8seq > 0) {
+    state9.utf8seq -= 1;
+  } else if (state9.utf8seq > 0) {
     if (byte <= 127) {
       throw new Error("Invalid UTF-8 sequence");
     }
-    state8.codepoint = state8.codepoint << 6 | byte & 63;
-    state8.utf8seq -= 1;
-    if (state8.utf8seq === 0) {
-      emit3(state8.codepoint);
+    state9.codepoint = state9.codepoint << 6 | byte & 63;
+    state9.utf8seq -= 1;
+    if (state9.utf8seq === 0) {
+      emit3(state9.codepoint);
     }
   }
 }
 function base64UrlToUint8Array(str) {
   const result = [];
-  const state8 = { queue: 0, queuedBits: 0 };
+  const state9 = { queue: 0, queuedBits: 0 };
   const onByte = (byte) => {
     result.push(byte);
   };
   for (let i = 0; i < str.length; i += 1) {
-    byteFromBase64URL(str.charCodeAt(i), state8, onByte);
+    byteFromBase64URL(str.charCodeAt(i), state9, onByte);
   }
   return new Uint8Array(result);
 }
@@ -7048,12 +7048,12 @@ function stringToUint8Array(str) {
 }
 function bytesToBase64URL(bytes) {
   const result = [];
-  const state8 = { queue: 0, queuedBits: 0 };
+  const state9 = { queue: 0, queuedBits: 0 };
   const onChar = (char) => {
     result.push(char);
   };
-  bytes.forEach((byte) => byteToBase64URL(byte, state8, onChar));
-  byteToBase64URL(null, state8, onChar);
+  bytes.forEach((byte) => byteToBase64URL(byte, state9, onChar));
+  byteToBase64URL(null, state9, onChar);
   return result.join("");
 }
 var TO_BASE64URL, IGNORE_BASE64URL, FROM_BASE64URL;
@@ -13434,7 +13434,7 @@ var init_autoscroll = __esm({
 function createScrollBrain() {
   const PLL_GAIN = 0.4;
   const PLL_SMOOTH = 0.12;
-  const state8 = {
+  const state9 = {
     mode: "rehearsal",
     ticking: false,
     rafId: null,
@@ -13458,31 +13458,31 @@ function createScrollBrain() {
     lastCenteredLine: null
   };
   const resetForMode = (mode) => {
-    state8.pll = { errPx: 0, lastErrTs: now(), smoothedErr: 0, gain: PLL_GAIN, smoothFactor: PLL_SMOOTH };
-    state8.silence = { isSilent: false, lastChangeTs: now() };
-    state8.targetSpeedPxPerSec = 0;
-    state8.effectiveSpeedPxPerSec = 0;
-    state8.manualNudgePx = 0;
-    state8.lastCenteredLine = null;
-    state8.mode = mode;
+    state9.pll = { errPx: 0, lastErrTs: now(), smoothedErr: 0, gain: PLL_GAIN, smoothFactor: PLL_SMOOTH };
+    state9.silence = { isSilent: false, lastChangeTs: now() };
+    state9.targetSpeedPxPerSec = 0;
+    state9.effectiveSpeedPxPerSec = 0;
+    state9.manualNudgePx = 0;
+    state9.lastCenteredLine = null;
+    state9.mode = mode;
   };
   const tick = (ts) => {
-    if (!state8.ticking) {
-      state8.rafId = null;
+    if (!state9.ticking) {
+      state9.rafId = null;
       return;
     }
     if (!debugEnabled) debugEnabled = isScrollDebug();
-    const last = state8.lastTickTs ?? ts;
+    const last = state9.lastTickTs ?? ts;
     const dtMs = ts - last;
-    state8.lastTickTs = ts;
+    state9.lastTickTs = ts;
     const dtSec = dtMs > 0 ? dtMs / 1e3 : 0;
-    const mode = state8.mode;
-    const base = state8.targetSpeedPxPerSec || 0;
+    const mode = state9.mode;
+    const base = state9.targetSpeedPxPerSec || 0;
     let effectiveSpeed = base;
     const isClamped = clampActive();
-    const silenceHold = mode === "hybrid" && state8.silence.isSilent;
+    const silenceHold = mode === "hybrid" && state9.silence.isSilent;
     if (mode === "hybrid" && !silenceHold) {
-      effectiveSpeed += state8.pll.smoothedErr * state8.pll.gain;
+      effectiveSpeed += state9.pll.smoothedErr * state9.pll.gain;
     }
     if (mode === "hybrid" && silenceHold) {
       effectiveSpeed = 0;
@@ -13491,11 +13491,11 @@ function createScrollBrain() {
       effectiveSpeed = 0;
     }
     if (effectiveSpeed < 0 || !Number.isFinite(effectiveSpeed)) effectiveSpeed = 0;
-    state8.effectiveSpeedPxPerSec = effectiveSpeed;
+    state9.effectiveSpeedPxPerSec = effectiveSpeed;
     let dy = effectiveSpeed * dtSec;
-    if (state8.manualNudgePx) {
-      dy += state8.manualNudgePx;
-      state8.manualNudgePx = 0;
+    if (state9.manualNudgePx) {
+      dy += state9.manualNudgePx;
+      state9.manualNudgePx = 0;
     }
     if (Number.isFinite(dy) && dy !== 0 && !isClamped) {
       scrollByPx(dy);
@@ -13510,63 +13510,63 @@ function createScrollBrain() {
         try {
           console.log("[scroll-brain]", {
             mode,
-            target: state8.targetSpeedPxPerSec || 0,
+            target: state9.targetSpeedPxPerSec || 0,
             effective: effectiveSpeed,
             clamp: isClamped,
-            silent: state8.silence.isSilent,
-            pllErr: state8.pll?.smoothedErr ?? 0
+            silent: state9.silence.isSilent,
+            pllErr: state9.pll?.smoothedErr ?? 0
           });
         } catch {
         }
       }
     }
-    state8.rafId = typeof requestAnimationFrame === "function" ? requestAnimationFrame(tick) : null;
+    state9.rafId = typeof requestAnimationFrame === "function" ? requestAnimationFrame(tick) : null;
   };
   const startEngine = () => {
-    if (state8.ticking) return;
-    state8.ticking = true;
-    state8.lastTickTs = null;
-    state8.rafId = typeof requestAnimationFrame === "function" ? requestAnimationFrame(tick) : null;
+    if (state9.ticking) return;
+    state9.ticking = true;
+    state9.lastTickTs = null;
+    state9.rafId = typeof requestAnimationFrame === "function" ? requestAnimationFrame(tick) : null;
   };
   const stopEngine = () => {
-    state8.ticking = false;
-    if (state8.rafId && typeof cancelAnimationFrame === "function") {
-      cancelAnimationFrame(state8.rafId);
+    state9.ticking = false;
+    if (state9.rafId && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(state9.rafId);
     }
-    state8.rafId = null;
-    state8.lastTickTs = null;
+    state9.rafId = null;
+    state9.lastTickTs = null;
   };
   const setMode2 = (mode) => {
-    if (state8.mode === mode) return;
+    if (state9.mode === mode) return;
     stopEngine();
     resetForMode(mode);
   };
-  const getMode = () => state8.mode;
+  const getMode = () => state9.mode;
   const setTargetSpeed = (pxPerSec) => {
     const v = Number(pxPerSec);
-    state8.targetSpeedPxPerSec = Number.isFinite(v) && v > 0 ? v : 0;
+    state9.targetSpeedPxPerSec = Number.isFinite(v) && v > 0 ? v : 0;
   };
   const setMetrics = (pxPerLine, pxPerWord) => {
     const line = Number(pxPerLine);
     const word = Number(pxPerWord);
-    if (Number.isFinite(line) && line > 0) state8.pxPerLine = line;
-    if (Number.isFinite(word) && word > 0) state8.pxPerWord = word;
+    if (Number.isFinite(line) && line > 0) state9.pxPerLine = line;
+    if (Number.isFinite(word) && word > 0) state9.pxPerWord = word;
   };
   const reportAsrSample = (sample) => {
-    if (state8.mode !== "hybrid") return;
+    if (state9.mode !== "hybrid") return;
     if (!sample || typeof sample.errPx !== "number") return;
     const ts = typeof sample.ts === "number" ? sample.ts : now();
-    state8.pll.errPx = sample.errPx;
-    state8.pll.lastErrTs = ts;
-    const alpha = state8.pll.smoothFactor;
-    state8.pll.smoothedErr = state8.pll.smoothedErr * (1 - alpha) + sample.errPx * alpha;
+    state9.pll.errPx = sample.errPx;
+    state9.pll.lastErrTs = ts;
+    const alpha = state9.pll.smoothFactor;
+    state9.pll.smoothedErr = state9.pll.smoothedErr * (1 - alpha) + sample.errPx * alpha;
   };
   const reportAsrSilence = (isSilent, ts) => {
-    state8.silence.isSilent = !!isSilent;
-    state8.silence.lastChangeTs = typeof ts === "number" ? ts : now();
+    state9.silence.isSilent = !!isSilent;
+    state9.silence.lastChangeTs = typeof ts === "number" ? ts : now();
   };
   const centerOnLine = (lineIndex) => {
-    state8.lastCenteredLine = Number.isFinite(lineIndex) ? Math.max(0, Math.floor(lineIndex)) : null;
+    state9.lastCenteredLine = Number.isFinite(lineIndex) ? Math.max(0, Math.floor(lineIndex)) : null;
   };
   const onSpeechSample = (sample) => {
     try {
@@ -13577,7 +13577,7 @@ function createScrollBrain() {
   const nudge = (deltaPx) => {
     const delta = Number(deltaPx);
     if (!Number.isFinite(delta) || delta === 0) return;
-    state8.manualNudgePx += delta;
+    state9.manualNudgePx += delta;
   };
   return {
     setMode: setMode2,
@@ -13595,17 +13595,17 @@ function createScrollBrain() {
     setBaseSpeedPx: (px) => {
       const val = Number(px);
       if (Number.isFinite(val)) {
-        state8.targetSpeedPxPerSec = val;
-        state8.effectiveSpeedPxPerSec = val;
+        state9.targetSpeedPxPerSec = val;
+        state9.effectiveSpeedPxPerSec = val;
       }
     },
     onManualSpeedAdjust: (delta) => {
       const d = Number(delta);
       if (Number.isFinite(d)) {
-        state8.targetSpeedPxPerSec += d;
+        state9.targetSpeedPxPerSec += d;
       }
     },
-    getCurrentSpeedPx: () => state8.effectiveSpeedPxPerSec
+    getCurrentSpeedPx: () => state9.effectiveSpeedPxPerSec
   };
 }
 var now, debugEnabled, debugCounter, isScrollDebug;
@@ -14538,50 +14538,50 @@ function ensureExistingState() {
   }
   return {};
 }
-function sanitizeState(state8) {
-  if (!ALLOWED_PAGES.has(state8.page)) {
-    state8.page = "scripts";
+function sanitizeState(state9) {
+  if (!ALLOWED_PAGES.has(state9.page)) {
+    state9.page = "scripts";
   }
-  if (!ALLOWED_OVERLAYS.has(state8.overlay)) {
-    state8.overlay = "none";
+  if (!ALLOWED_OVERLAYS.has(state9.overlay)) {
+    state9.overlay = "none";
     try {
       localStorage.removeItem(OVERLAY_KEY);
     } catch {
     }
   }
-  if (state8.scrollMode === "manual") {
-    state8.scrollMode = "step";
+  if (state9.scrollMode === "manual") {
+    state9.scrollMode = "step";
   }
-  if (!state8.asrProfiles || typeof state8.asrProfiles !== "object") {
-    state8.asrProfiles = {};
+  if (!state9.asrProfiles || typeof state9.asrProfiles !== "object") {
+    state9.asrProfiles = {};
   }
-  if (state8.asrActiveProfileId && typeof state8.asrActiveProfileId !== "string") {
-    state8.asrActiveProfileId = null;
+  if (state9.asrActiveProfileId && typeof state9.asrActiveProfileId !== "string") {
+    state9.asrActiveProfileId = null;
   }
-  if (!state8.asrTuningProfiles || typeof state8.asrTuningProfiles !== "object") {
-    state8.asrTuningProfiles = {};
+  if (!state9.asrTuningProfiles || typeof state9.asrTuningProfiles !== "object") {
+    state9.asrTuningProfiles = {};
   }
-  if (state8.asrTuningActiveProfileId && typeof state8.asrTuningActiveProfileId !== "string") {
-    state8.asrTuningActiveProfileId = null;
+  if (state9.asrTuningActiveProfileId && typeof state9.asrTuningActiveProfileId !== "string") {
+    state9.asrTuningActiveProfileId = null;
   }
-  if (typeof state8.asrLastAppliedAt !== "number") {
-    state8.asrLastAppliedAt = 0;
+  if (typeof state9.asrLastAppliedAt !== "number") {
+    state9.asrLastAppliedAt = 0;
   }
-  if (!state8.asrLastAppliedSummary || typeof state8.asrLastAppliedSummary !== "object") {
-    state8.asrLastAppliedSummary = {};
+  if (!state9.asrLastAppliedSummary || typeof state9.asrLastAppliedSummary !== "object") {
+    state9.asrLastAppliedSummary = {};
   }
-  if (typeof state8.asrLastApplyOk !== "boolean") {
-    state8.asrLastApplyOk = false;
+  if (typeof state9.asrLastApplyOk !== "boolean") {
+    state9.asrLastApplyOk = false;
   }
-  if (!state8.settingsSaveStatus || typeof state8.settingsSaveStatus !== "object") {
-    state8.settingsSaveStatus = { state: "idle", at: 0 };
+  if (!state9.settingsSaveStatus || typeof state9.settingsSaveStatus !== "object") {
+    state9.settingsSaveStatus = { state: "idle", at: 0 };
   }
-  return state8;
+  return state9;
 }
 function createAppStore(initial2) {
   const subs7 = /* @__PURE__ */ Object.create(null);
   const baseState = buildInitialState();
-  const state8 = sanitizeState(
+  const state9 = sanitizeState(
     Object.assign(
       {},
       baseState,
@@ -14589,7 +14589,7 @@ function createAppStore(initial2) {
       initial2 || {}
     )
   );
-  function notify2(key, value) {
+  function notify3(key, value) {
     try {
       const k = String(key);
       const fns = subs7[k] || [];
@@ -14604,7 +14604,7 @@ function createAppStore(initial2) {
   }
   function get4(key) {
     try {
-      return state8[key];
+      return state9[key];
     } catch {
       return void 0;
     }
@@ -14617,9 +14617,9 @@ function createAppStore(initial2) {
       if (key === "overlay") {
         value = ALLOWED_OVERLAYS.has(value) ? value : "none";
       }
-      const prev2 = state8[key];
+      const prev2 = state9[key];
       if (prev2 === value) return value;
-      state8[key] = value;
+      state9[key] = value;
       if (key === "scrollMode") {
         try {
           const ctx = getScrollModeAuditContext();
@@ -14627,7 +14627,7 @@ function createAppStore(initial2) {
             writer: ctx?.writer || "unknown",
             from: prev2,
             to: value,
-            phase: state8["session.phase"],
+            phase: state9["session.phase"],
             source: ctx?.meta?.source,
             via: ctx?.meta?.via,
             stack: !!ctx?.meta?.stack
@@ -14662,7 +14662,7 @@ function createAppStore(initial2) {
         }
       } catch {
       }
-      notify2(key, value);
+      notify3(key, value);
       return value;
     } catch {
       return value;
@@ -14675,7 +14675,7 @@ function createAppStore(initial2) {
     subs7[k] = subs7[k] || [];
     subs7[k].push(fn);
     try {
-      fn(state8[key]);
+      fn(state9[key]);
     } catch {
     }
     return function unsubscribe() {
@@ -14707,8 +14707,8 @@ function createAppStore(initial2) {
     set,
     subscribe,
     subscribeAll,
-    state: state8,
-    getSnapshot: () => ({ ...state8 })
+    state: state9,
+    getSnapshot: () => ({ ...state9 })
   };
   try {
     if (!IS_TEST) {
@@ -15213,8 +15213,8 @@ function onAsr(fn) {
   return () => subs.delete(fn);
 }
 function hasActiveAsrProfile() {
-  const state8 = getAsrState();
-  return !!(state8?.activeProfileId && state8.profiles?.[state8.activeProfileId]);
+  const state9 = getAsrState();
+  return !!(state9?.activeProfileId && state9.profiles?.[state9.activeProfileId]);
 }
 var KEY, ACTIVE_KEY, store, stateFromStore, state, subs, storeSyncSuppressed, getAsrState;
 var init_store = __esm({
@@ -15323,8 +15323,8 @@ function formatChip(activeLabel) {
 function renderOptions() {
   const select = getSelect();
   if (!select) return;
-  const state8 = getAsrState();
-  const entries = Object.entries(state8.profiles || {});
+  const state9 = getAsrState();
+  const entries = Object.entries(state9.profiles || {});
   select.innerHTML = "";
   const placeholder = document.createElement("option");
   placeholder.value = "";
@@ -15336,7 +15336,7 @@ function renderOptions() {
     opt.textContent = profile.label || id;
     select.appendChild(opt);
   });
-  const activeId = state8.activeProfileId || "";
+  const activeId = state9.activeProfileId || "";
   const hasActive = activeId && entries.some(([id]) => id === activeId);
   if (!hasActive && activeId) {
     setActiveProfile("");
@@ -15347,7 +15347,7 @@ function renderOptions() {
   } else {
     select.value = "";
   }
-  updateStatusElements(hasActive ? state8.profiles[activeId] : null);
+  updateStatusElements(hasActive ? state9.profiles[activeId] : null);
 }
 function updateStatusElements(activeProfile) {
   const statusEl = getStatusEl();
@@ -16136,7 +16136,7 @@ function computeHybridModeHint(errorLines, weakMatch) {
   }
   return lines > 0 ? "CATCHING UP" : "LETTING YOU CATCH UP";
 }
-function renderHybridCtrlHud(state8) {
+function renderHybridCtrlHud(state9) {
   if (!HYBRID_CTRL_ENABLED) return;
   if (typeof document === "undefined") return;
   const container = document.body || document.documentElement;
@@ -16160,28 +16160,28 @@ function renderHybridCtrlHud(state8) {
     container.appendChild(hud);
   }
   const parts = [
-    `mode=${state8.modeHint}`,
-    `target=${formatHudNumber(state8.targetTop, 1)}`,
-    `curr=${formatHudNumber(state8.currentTop, 1)}`,
-    `err=${formatHudNumber(state8.errorPx, 1)}`,
-    `errLines=${formatHudNumber(state8.errorLines, 1)}`,
-    `markerIdx=${formatHudNumber(state8.markerIdx, 0)}`,
-    `bestIdx=${formatHudNumber(state8.bestIdx, 0)}`,
-    `lineTarget=${formatHudNumber(state8.lineTargetMult, 2)}`,
-    `lineMult=${formatHudNumber(state8.lineMult, 2)}`,
-    `lineSrc=${state8.lineSource}`,
-    `base=${formatHudNumber(state8.basePxps, 1)}`,
-    `baseCorr=${formatHudNumber(state8.baseWithCorrection, 1)}`,
-    `mult=${formatHudNumber(state8.mult, 2)}`,
-    `ctrl=${formatHudNumber(state8.ctrlMultApplied, 2)}`,
-    `scale=${formatHudNumber(state8.effectiveScaleApplied, 2)}`,
-    `final=${formatHudNumber(state8.finalPxps, 1)}`,
-    `silence=${formatHudNumber(state8.silenceMs, 0)}ms`,
-    `silenceCap=${formatHudNumber(state8.silenceCap, 2)}`,
-    `off=${formatHudNumber(state8.offScriptSeverity, 2)}`,
-    `offCap=${formatHudNumber(state8.offScriptCap, 2)}`,
-    `eligible=${state8.eligible ? "yes" : "no"}(${state8.eligibleReason})`,
-    `writer=${state8.writerSource ?? "n/a"}`
+    `mode=${state9.modeHint}`,
+    `target=${formatHudNumber(state9.targetTop, 1)}`,
+    `curr=${formatHudNumber(state9.currentTop, 1)}`,
+    `err=${formatHudNumber(state9.errorPx, 1)}`,
+    `errLines=${formatHudNumber(state9.errorLines, 1)}`,
+    `markerIdx=${formatHudNumber(state9.markerIdx, 0)}`,
+    `bestIdx=${formatHudNumber(state9.bestIdx, 0)}`,
+    `lineTarget=${formatHudNumber(state9.lineTargetMult, 2)}`,
+    `lineMult=${formatHudNumber(state9.lineMult, 2)}`,
+    `lineSrc=${state9.lineSource}`,
+    `base=${formatHudNumber(state9.basePxps, 1)}`,
+    `baseCorr=${formatHudNumber(state9.baseWithCorrection, 1)}`,
+    `mult=${formatHudNumber(state9.mult, 2)}`,
+    `ctrl=${formatHudNumber(state9.ctrlMultApplied, 2)}`,
+    `scale=${formatHudNumber(state9.effectiveScaleApplied, 2)}`,
+    `final=${formatHudNumber(state9.finalPxps, 1)}`,
+    `silence=${formatHudNumber(state9.silenceMs, 0)}ms`,
+    `silenceCap=${formatHudNumber(state9.silenceCap, 2)}`,
+    `off=${formatHudNumber(state9.offScriptSeverity, 2)}`,
+    `offCap=${formatHudNumber(state9.offScriptCap, 2)}`,
+    `eligible=${state9.eligible ? "yes" : "no"}(${state9.eligibleReason})`,
+    `writer=${state9.writerSource ?? "n/a"}`
   ];
   hud.textContent = parts.join(" | ");
 }
@@ -18119,6 +18119,44 @@ function installScrollRouter(opts) {
     }
   }
   setProcessorAndFlush();
+  scrollRouterInstallCount += 1;
+  try {
+    if (typeof window !== "undefined") {
+      const w3 = window;
+      w3.__tpScrollRouterDiag = {
+        ...w3.__tpScrollRouterDiag || {},
+        installCount: scrollRouterInstallCount,
+        installed: scrollRouterInstalled,
+        routerStamp: ROUTER_STAMP
+      };
+    }
+  } catch {
+  }
+  if (scrollRouterInstalled) {
+    try {
+      console.info("[SCROLL_ROUTER] install skipped (already installed)", {
+        mode: state22.mode,
+        hasViewer: !!viewer,
+        hasScroller: !!scrollerEl,
+        installCount: scrollRouterInstallCount
+      });
+    } catch {
+    }
+    return;
+  }
+  scrollRouterInstalled = true;
+  try {
+    if (typeof window !== "undefined") {
+      const w3 = window;
+      w3.__tpScrollRouterDiag = {
+        ...w3.__tpScrollRouterDiag || {},
+        installCount: scrollRouterInstallCount,
+        installed: true,
+        routerStamp: ROUTER_STAMP
+      };
+    }
+  } catch {
+  }
   try {
     console.warn("[SCROLL_ROUTER] installScrollRouter ENTER", {
       viewerInstance: viewerInstallFlag,
@@ -21761,7 +21799,7 @@ function installScrollRouter(opts) {
   } catch {
   }
 }
-var isDevMode2, ASR_COMPLETION_GATE_KEY, asrCompletionGateBypassLogged, viewerRole, ROUTER_STAMP, AUTO_INTENT_WIRE_STAMP, __AUTO_INTENT_WIRE_SENTINEL, autoIntentListenerWired, autoIntentProcessor, pendingAutoIntentDetail, scrollerEl, auto, scrollIntentListenerWired, legacyAsrIntentLaneBlockedLogged, ASR_INTENT_DEBOUNCE_MS, ASR_INTENT_STABLE_MS, ASR_INTENT_FIRST_STABLE_MS, ASR_INTENT_WARMUP_MS, ASR_INTENT_MIN_CONF, ASR_TELEMETRY_MAX_REJECTS, ASR_TELEMETRY_WINDOW_MS, ASR_MATCH_WINDOW_MS, ASR_MATCH_MAX, asrIntentLiveSince, committedBlockIdx, lastCommitAt, lastCandidate, stableSince, asrMotorConflictLogged, scrollWriteWarned, guardHandlerErrorLogged, hybridScrollGraceListenerInstalled, hybridModeMismatchLogged, recentAsrMatches, asrBlockLineCacheRef, asrBlockLineCache, hybridSilence, offScriptSinceMs, offScriptDurationMs, hybridSilence2, HYBRID_CTRL_DEBUG_THROTTLE_MS, lastHybridCtrlDebugTs, HYBRID_TRUTH_THROTTLE_MS, lastHybridTruthAt, HYBRID_OFFSCRIPT_HUD_THROTTLE_MS, lastHybridOffScriptHudAt, profileStore, profilePersister, nowMs, KNOWN_SCROLL_MODES, hybridProgrammaticScrollUntilMs, tpLastWriter, HYBRID_LOG_THROTTLE_MS, HYBRID_VERBOSE_FLAG, HYBRID_TRACE_FLAG, lastHybridScaleLogAt, lastHybridPaceLogAt, lastHybridBrakeLogAt, lastHybridVelocityLogAt, HYBRID_MOTOR_LOG_THROTTLE_MS, lastHybridMotorVelocityLogAt, lastHybridMotorVelocitySignature, lastHybridBrakeSignature, lastHybridVelocitySignature, isHybridVerboseDevMode, hybridTraceLastAt, hybridTraceLastSig, KEY2, state2, subs2, getUiPrefs, onUiPrefs, LS_KEY, LEGACY_LS_KEYS, DEFAULTS, state22, viewer, scrollWriter, smokeAutoMovementScheduled, hybridMotor, HYBRID_SILENCE_SOFT_MS, HYBRID_PAUSE_SILENCE_SOFT_MS, HYBRID_SILENCE_HARD_STOP_MS, LIVE_GRACE_MS, HYBRID_SPEECH_PRESENT_HOLD_MS, HYBRID_HARD_NOMATCH_OFFSCRIPT_GRACE_MS, OFFSCRIPT_MILD, OFFSCRIPT_DEEP, RECOVERY_SCALE, HYBRID_ON_SCRIPT_SIM, HYBRID_OFFSCRIPT_MILD_SIM, HYBRID_GRACE_DURATION_MS, OFFSCRIPT_SCALE, SILENCE_SCALE, PAUSE_DRIFT_SCALE, PAUSE_LOOKAHEAD_LINES, HYBRID_PAUSE_TOKENS, GRACE_MIN_SCALE, HYBRID_BASELINE_FLOOR_PXPS, HYBRID_WPM_CAL_MULT_DEFAULT, HYBRID_WPM_CAL_MULT_MIN, HYBRID_WPM_CAL_MULT_MAX, HYBRID_ASSIST_CAP_FRAC, HYBRID_EVENT_TTL_MIN, HYBRID_EVENT_TTL_MAX, HYBRID_BRAKE_DEFAULT_TTL, HYBRID_ASSIST_DEFAULT_TTL, HYBRID_ASSIST_MAX_BOOST, OFFSCRIPT_EVIDENCE_THRESHOLD, OFFSCRIPT_EVIDENCE_RESET_MS, OFFSCRIPT_DECAY_T1_MS, OFFSCRIPT_DECAY_T2_MS, OFFSCRIPT_DECAY_T3_MS, OFFSCRIPT_DECAY_T4_MS, OFFSCRIPT_DECAY_CRAWL, HYBRID_OFFSCRIPT_SPEECH_FLOOR_MULT, ON_SCRIPT_LOCK_HOLD_MS, PAUSE_ASSIST_TAIL_MS, IGNORED_ASR_PURSUIT_LOG_THROTTLE_MS, MANUAL_SCROLL_LOG_THROTTLE_MS, PROGRAMMATIC_WRITER_GRACE_MS, PROGRAMMATIC_WRITER_LOG_THROTTLE_MS, HYBRID_CTRL_LOG_THROTTLE_MS, HYBRID_CTRL_CONF_MIN, HYBRID_CTRL_ANCHOR_RECENCY_MS, HYBRID_CTRL_ENABLED, HYBRID_CTRL_KP, HYBRID_CTRL_ASSIST_MAX, HYBRID_CTRL_BRAKE_MIN, HYBRID_CTRL_MIN_MULT, HYBRID_CTRL_SILENCE_SHORT_MS, HYBRID_CTRL_SILENCE_LONG_MS, HYBRID_CTRL_SILENCE_SHORT_CAP, HYBRID_CTRL_SILENCE_LONG_CAP, HYBRID_CTRL_LINE_PX_DEFAULT, HYBRID_CTRL_DRIFT_WEAK_PX, HYBRID_CTRL_MIN_PXPS, HYBRID_CTRL_OFFSCRIPT_SIM_THRESHOLD, HYBRID_CTRL_OFFSCRIPT_LINE_DELTA, HYBRID_CTRL_OFFSCRIPT_PENALTY, HYBRID_CTRL_LINE_ERROR_RANGE, HYBRID_CTRL_LINE_CURVE_EXP, HYBRID_CTRL_LINE_POS_MULT_DELTA, HYBRID_CTRL_LINE_NEG_MULT_DELTA, HYBRID_CTRL_LINE_MAX_MULT, HYBRID_CTRL_LINE_MIN_MULT, HYBRID_CTRL_LINE_SMOOTH_TAU_MS, HYBRID_CTRL_LINE_RATE_LIMIT_PER_SEC, HYBRID_CTRL_LINE_RATE_LIMIT_BEHIND_MULT, HYBRID_ON_TARGET_PX, HYBRID_CTRL_ON_TARGET_STABLE_PX, HYBRID_CTRL_ON_TARGET_MULT_MIN, HYBRID_CTRL_ON_TARGET_MULT_MAX, HYBRID_CTRL_ON_TARGET_VELOCITY_EPS, HYBRID_CTRL_MODE_DEADBAND_LINES, HYBRID_CTRL_BASE_MAX_MULT, HYBRID_CTRL_AGGRO_MAX_MULT, HYBRID_CTRL_DYNAMIC_MAX_MULT, HYBRID_CTRL_DYNAMIC_MAX_MULT_AGGRO, HYBRID_CTRL_DYNAMIC_MAX_ABS_MIN_PXPS, HYBRID_CTRL_DYNAMIC_MAX_ABS_MIN_PXPS_AGGRO, HYBRID_CTRL_CTRL_MULT_MAX, HYBRID_CTRL_REACTIVE_MULT_MAX, HYBRID_CTRL_POLICY_MULT_MIN, HYBRID_CTRL_POLICY_MULT_MAX, HYBRID_CTRL_PRECLAMP_SCALE_MAX, HYBRID_REACTIVE_BEHIND_BASE, HYBRID_REACTIVE_BEHIND_ACC_THRESHOLD, HYBRID_REACTIVE_BEHIND_ACC_BONUS, HYBRID_CTRL_ASSIST_BEHIND_BOOST_FRAC, HYBRID_ON_TARGET_LINES, HYBRID_MULT_DEBUG_THROTTLE_MS, HYBRID_POLICY_LOG_THROTTLE_MS, HYBRID_ONSCRIPT_SIM_MIN, HYBRID_CTRL_PARAM_ENABLED, HYBRID_CTRL_DEV_OVERRIDE_PHASES_MS, HYBRID_CTRL_DEV_OVERRIDE_MULTS, HYBRID_CTRL_DEV_OVERRIDE_DURATION_MS, hybridCtrlDevOverrideStart, hybridCtrlDevOverrideDone, lastHybridMultDebugAt, lastHybridGateFingerprint, lastAsrMatch, hybridLastMatch, hybridMatchSeen, hybridLastNoMatch, hybridMatcherSource, hybridMatcherSourceDetail, lastHybridMatcherProbeAt, HYBRID_HARD_NOMATCH_SIM_MIN, HYBRID_MATCHER_PROBE_THROTTLE_MS, HYBRID_BLOCKS_NOT_READY_HOLD_MS, hybridBasePxps, hybridScale, hybridBrakeState, hybridAssistState, pauseAssistTailBoost, pauseAssistTailUntil, lastIgnoredAsrPursuitLogAt, hybridVelocityRefreshRaf, hybridTargetHintState, speechActive, hybridCommitBoostUntilMs, hybridLastGoodTargetTop, hybridWantedRunning, liveGraceWindowEndsAt, lastManualScrollBrakeLogAt, lastProgrammaticWriterStamp, lastProgrammaticWriterLogAt, lastHybridCtrlLogAt, hybridCtrl, hybridSessionPhase, sliderTouchedThisSession, offScriptEvidence, lastOffScriptEvidenceTs, offScriptStreak, onScriptStreak, lastGoodMatchAtMs, hybridGraceUntil, WPM_USER_DEDUPE_MS, lastUserWpmPx, lastUserWpmAt, WPM_USER_SOURCES, liveSessionWpmLocked, wpmSliderUserTouched, suppressWpmUiEcho, lastWpmIntent, userWpmLocked, isHybridBypass, creepRaf, creepLast, enabledNow, activeMotorBrain, speaking, gateTimer;
+var isDevMode2, ASR_COMPLETION_GATE_KEY, asrCompletionGateBypassLogged, viewerRole, ROUTER_STAMP, scrollRouterInstalled, scrollRouterInstallCount, AUTO_INTENT_WIRE_STAMP, __AUTO_INTENT_WIRE_SENTINEL, autoIntentListenerWired, autoIntentProcessor, pendingAutoIntentDetail, scrollerEl, auto, scrollIntentListenerWired, legacyAsrIntentLaneBlockedLogged, ASR_INTENT_DEBOUNCE_MS, ASR_INTENT_STABLE_MS, ASR_INTENT_FIRST_STABLE_MS, ASR_INTENT_WARMUP_MS, ASR_INTENT_MIN_CONF, ASR_TELEMETRY_MAX_REJECTS, ASR_TELEMETRY_WINDOW_MS, ASR_MATCH_WINDOW_MS, ASR_MATCH_MAX, asrIntentLiveSince, committedBlockIdx, lastCommitAt, lastCandidate, stableSince, asrMotorConflictLogged, scrollWriteWarned, guardHandlerErrorLogged, hybridScrollGraceListenerInstalled, hybridModeMismatchLogged, recentAsrMatches, asrBlockLineCacheRef, asrBlockLineCache, hybridSilence, offScriptSinceMs, offScriptDurationMs, hybridSilence2, HYBRID_CTRL_DEBUG_THROTTLE_MS, lastHybridCtrlDebugTs, HYBRID_TRUTH_THROTTLE_MS, lastHybridTruthAt, HYBRID_OFFSCRIPT_HUD_THROTTLE_MS, lastHybridOffScriptHudAt, profileStore, profilePersister, nowMs, KNOWN_SCROLL_MODES, hybridProgrammaticScrollUntilMs, tpLastWriter, HYBRID_LOG_THROTTLE_MS, HYBRID_VERBOSE_FLAG, HYBRID_TRACE_FLAG, lastHybridScaleLogAt, lastHybridPaceLogAt, lastHybridBrakeLogAt, lastHybridVelocityLogAt, HYBRID_MOTOR_LOG_THROTTLE_MS, lastHybridMotorVelocityLogAt, lastHybridMotorVelocitySignature, lastHybridBrakeSignature, lastHybridVelocitySignature, isHybridVerboseDevMode, hybridTraceLastAt, hybridTraceLastSig, KEY2, state2, subs2, getUiPrefs, onUiPrefs, LS_KEY, LEGACY_LS_KEYS, DEFAULTS, state22, viewer, scrollWriter, smokeAutoMovementScheduled, hybridMotor, HYBRID_SILENCE_SOFT_MS, HYBRID_PAUSE_SILENCE_SOFT_MS, HYBRID_SILENCE_HARD_STOP_MS, LIVE_GRACE_MS, HYBRID_SPEECH_PRESENT_HOLD_MS, HYBRID_HARD_NOMATCH_OFFSCRIPT_GRACE_MS, OFFSCRIPT_MILD, OFFSCRIPT_DEEP, RECOVERY_SCALE, HYBRID_ON_SCRIPT_SIM, HYBRID_OFFSCRIPT_MILD_SIM, HYBRID_GRACE_DURATION_MS, OFFSCRIPT_SCALE, SILENCE_SCALE, PAUSE_DRIFT_SCALE, PAUSE_LOOKAHEAD_LINES, HYBRID_PAUSE_TOKENS, GRACE_MIN_SCALE, HYBRID_BASELINE_FLOOR_PXPS, HYBRID_WPM_CAL_MULT_DEFAULT, HYBRID_WPM_CAL_MULT_MIN, HYBRID_WPM_CAL_MULT_MAX, HYBRID_ASSIST_CAP_FRAC, HYBRID_EVENT_TTL_MIN, HYBRID_EVENT_TTL_MAX, HYBRID_BRAKE_DEFAULT_TTL, HYBRID_ASSIST_DEFAULT_TTL, HYBRID_ASSIST_MAX_BOOST, OFFSCRIPT_EVIDENCE_THRESHOLD, OFFSCRIPT_EVIDENCE_RESET_MS, OFFSCRIPT_DECAY_T1_MS, OFFSCRIPT_DECAY_T2_MS, OFFSCRIPT_DECAY_T3_MS, OFFSCRIPT_DECAY_T4_MS, OFFSCRIPT_DECAY_CRAWL, HYBRID_OFFSCRIPT_SPEECH_FLOOR_MULT, ON_SCRIPT_LOCK_HOLD_MS, PAUSE_ASSIST_TAIL_MS, IGNORED_ASR_PURSUIT_LOG_THROTTLE_MS, MANUAL_SCROLL_LOG_THROTTLE_MS, PROGRAMMATIC_WRITER_GRACE_MS, PROGRAMMATIC_WRITER_LOG_THROTTLE_MS, HYBRID_CTRL_LOG_THROTTLE_MS, HYBRID_CTRL_CONF_MIN, HYBRID_CTRL_ANCHOR_RECENCY_MS, HYBRID_CTRL_ENABLED, HYBRID_CTRL_KP, HYBRID_CTRL_ASSIST_MAX, HYBRID_CTRL_BRAKE_MIN, HYBRID_CTRL_MIN_MULT, HYBRID_CTRL_SILENCE_SHORT_MS, HYBRID_CTRL_SILENCE_LONG_MS, HYBRID_CTRL_SILENCE_SHORT_CAP, HYBRID_CTRL_SILENCE_LONG_CAP, HYBRID_CTRL_LINE_PX_DEFAULT, HYBRID_CTRL_DRIFT_WEAK_PX, HYBRID_CTRL_MIN_PXPS, HYBRID_CTRL_OFFSCRIPT_SIM_THRESHOLD, HYBRID_CTRL_OFFSCRIPT_LINE_DELTA, HYBRID_CTRL_OFFSCRIPT_PENALTY, HYBRID_CTRL_LINE_ERROR_RANGE, HYBRID_CTRL_LINE_CURVE_EXP, HYBRID_CTRL_LINE_POS_MULT_DELTA, HYBRID_CTRL_LINE_NEG_MULT_DELTA, HYBRID_CTRL_LINE_MAX_MULT, HYBRID_CTRL_LINE_MIN_MULT, HYBRID_CTRL_LINE_SMOOTH_TAU_MS, HYBRID_CTRL_LINE_RATE_LIMIT_PER_SEC, HYBRID_CTRL_LINE_RATE_LIMIT_BEHIND_MULT, HYBRID_ON_TARGET_PX, HYBRID_CTRL_ON_TARGET_STABLE_PX, HYBRID_CTRL_ON_TARGET_MULT_MIN, HYBRID_CTRL_ON_TARGET_MULT_MAX, HYBRID_CTRL_ON_TARGET_VELOCITY_EPS, HYBRID_CTRL_MODE_DEADBAND_LINES, HYBRID_CTRL_BASE_MAX_MULT, HYBRID_CTRL_AGGRO_MAX_MULT, HYBRID_CTRL_DYNAMIC_MAX_MULT, HYBRID_CTRL_DYNAMIC_MAX_MULT_AGGRO, HYBRID_CTRL_DYNAMIC_MAX_ABS_MIN_PXPS, HYBRID_CTRL_DYNAMIC_MAX_ABS_MIN_PXPS_AGGRO, HYBRID_CTRL_CTRL_MULT_MAX, HYBRID_CTRL_REACTIVE_MULT_MAX, HYBRID_CTRL_POLICY_MULT_MIN, HYBRID_CTRL_POLICY_MULT_MAX, HYBRID_CTRL_PRECLAMP_SCALE_MAX, HYBRID_REACTIVE_BEHIND_BASE, HYBRID_REACTIVE_BEHIND_ACC_THRESHOLD, HYBRID_REACTIVE_BEHIND_ACC_BONUS, HYBRID_CTRL_ASSIST_BEHIND_BOOST_FRAC, HYBRID_ON_TARGET_LINES, HYBRID_MULT_DEBUG_THROTTLE_MS, HYBRID_POLICY_LOG_THROTTLE_MS, HYBRID_ONSCRIPT_SIM_MIN, HYBRID_CTRL_PARAM_ENABLED, HYBRID_CTRL_DEV_OVERRIDE_PHASES_MS, HYBRID_CTRL_DEV_OVERRIDE_MULTS, HYBRID_CTRL_DEV_OVERRIDE_DURATION_MS, hybridCtrlDevOverrideStart, hybridCtrlDevOverrideDone, lastHybridMultDebugAt, lastHybridGateFingerprint, lastAsrMatch, hybridLastMatch, hybridMatchSeen, hybridLastNoMatch, hybridMatcherSource, hybridMatcherSourceDetail, lastHybridMatcherProbeAt, HYBRID_HARD_NOMATCH_SIM_MIN, HYBRID_MATCHER_PROBE_THROTTLE_MS, HYBRID_BLOCKS_NOT_READY_HOLD_MS, hybridBasePxps, hybridScale, hybridBrakeState, hybridAssistState, pauseAssistTailBoost, pauseAssistTailUntil, lastIgnoredAsrPursuitLogAt, hybridVelocityRefreshRaf, hybridTargetHintState, speechActive, hybridCommitBoostUntilMs, hybridLastGoodTargetTop, hybridWantedRunning, liveGraceWindowEndsAt, lastManualScrollBrakeLogAt, lastProgrammaticWriterStamp, lastProgrammaticWriterLogAt, lastHybridCtrlLogAt, hybridCtrl, hybridSessionPhase, sliderTouchedThisSession, offScriptEvidence, lastOffScriptEvidenceTs, offScriptStreak, onScriptStreak, lastGoodMatchAtMs, hybridGraceUntil, WPM_USER_DEDUPE_MS, lastUserWpmPx, lastUserWpmAt, WPM_USER_SOURCES, liveSessionWpmLocked, wpmSliderUserTouched, suppressWpmUiEcho, lastWpmIntent, userWpmLocked, isHybridBypass, creepRaf, creepLast, enabledNow, activeMotorBrain, speaking, gateTimer;
 var init_router_impl = __esm({
   "src/features/scroll/scroll-router/router-impl.ts"() {
     "use strict";
@@ -21839,6 +21877,8 @@ var init_router_impl = __esm({
     } catch {
     }
     ROUTER_STAMP = globalThis.__tp_router_stamp;
+    scrollRouterInstalled = false;
+    scrollRouterInstallCount = 0;
     if (typeof window !== "undefined") {
       try {
         window.__tp_router_probe = "scroll-router loaded";
@@ -22039,8 +22079,8 @@ var init_router_impl = __esm({
     PAUSE_LOOKAHEAD_LINES = 10;
     HYBRID_PAUSE_TOKENS = ["[pause]", "[beat]", "[reflective pause]"];
     GRACE_MIN_SCALE = 0.9;
-    HYBRID_BASELINE_FLOOR_PXPS = 24;
-    HYBRID_WPM_CAL_MULT_DEFAULT = 2.5;
+    HYBRID_BASELINE_FLOOR_PXPS = 18;
+    HYBRID_WPM_CAL_MULT_DEFAULT = 2;
     HYBRID_WPM_CAL_MULT_MIN = 0.25;
     HYBRID_WPM_CAL_MULT_MAX = 8;
     HYBRID_ASSIST_CAP_FRAC = 0.35;
@@ -22950,10 +22990,10 @@ function readStorage() {
     };
   }
 }
-function writeStorage(state8) {
+function writeStorage(state9) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(STORAGE_KEY3, JSON.stringify(state8));
+    window.localStorage.setItem(STORAGE_KEY3, JSON.stringify(state9));
   } catch {
   }
 }
@@ -23818,8 +23858,8 @@ async function idbDel(key) {
 }
 async function verifyPermission(handle, mode = "read") {
   try {
-    const state8 = await handle.queryPermission?.({ mode });
-    if (state8 === "granted") return true;
+    const state9 = await handle.queryPermission?.({ mode });
+    if (state9 === "granted") return true;
     const req = await handle.requestPermission?.({ mode });
     return req === "granted";
   } catch {
@@ -25906,11 +25946,13 @@ function isPermissiveAsrMatcherEnabled() {
       return false;
     }
     const ls = w3.localStorage;
+    if (ls?.getItem("tp_asr_permissive_matcher") === "0") return false;
+    if (ls?.getItem("tp_asr_loose_matcher") === "0") return false;
     if (ls?.getItem("tp_asr_permissive_matcher") === "1") return true;
     if (ls?.getItem("tp_asr_loose_matcher") === "1") return true;
   } catch {
   }
-  return isDevMode4();
+  return false;
 }
 function shouldForcePixelAsrCommitPath() {
   if (typeof window === "undefined") return false;
@@ -27932,13 +27974,13 @@ function createAsrScrollDriver(options = {}) {
   }
   applyTuningProfile(getActiveAsrTuningProfile());
   attachManualScrollWatcher();
-  const unsubscribe = speechStore.subscribe((state8) => {
+  const unsubscribe = speechStore.subscribe((state9) => {
     if (disposed) return;
-    if (typeof state8.threshold === "number" && !isDevMode4() && !areAsrThresholdsDirty()) {
-      threshold = clamp4(state8.threshold, 0, 1);
+    if (typeof state9.threshold === "number" && !isDevMode4() && !areAsrThresholdsDirty()) {
+      threshold = clamp4(state9.threshold, 0, 1);
       setAsrDriverThresholds({ candidateMinSim: threshold });
     }
-    const nextCalm = !!state8.calmModeEnabled;
+    const nextCalm = !!state9.calmModeEnabled;
     if (nextCalm !== calmModeEnabled) {
       calmModeEnabled = nextCalm;
       syncMotionTuning(getAsrDriverThresholds(), Date.now());
@@ -32777,7 +32819,7 @@ function createAsrScrollDriver(options = {}) {
     const preNudgeStrongFinalHoldBypass = isFinal && rawIdx === cursorLine && conf >= Math.max(
       effectiveThreshold,
       permissiveMatcher ? DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM : DEFAULT_STRONG_FORWARD_COMMIT_SIM
-    ) && overlapTokensCurrent.length >= (permissiveMatcher ? 2 : DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_TOKENS) && overlapRatioCurrent >= (permissiveMatcher ? 0.25 : DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_RATIO);
+    ) && overlapTokensCurrent.length >= (permissiveMatcher ? DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS : DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_TOKENS) && overlapRatioCurrent >= (permissiveMatcher ? DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO : DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_RATIO);
     const permissiveMarkerConsistencyOk = markerIdx < 0 || markerIdx >= cursorLine - Math.max(DEFAULT_PERMISSIVE_FINAL_MARKER_BACK_TOLERANCE_LINES, consistencyMarkerBandLines);
     const preNudgeHoldReason = preNudgeAmbiguity.reason || "short_line_ambiguous";
     if (preNudgeShortLineAmbiguous && !ambiguityHoldActive && !preNudgeStrongFinalHoldBypass && !permissiveMatcher) {
@@ -32795,7 +32837,7 @@ function createAsrScrollDriver(options = {}) {
     }
     const blockCueBridgeForHold = !permissiveMatcher && (ambiguityHoldActive || preNudgeShortLineAmbiguous);
     const finalMatchNudgeEligible = isFinal && rawIdx === cursorLine && conf >= effectiveThreshold && cueBridgeNudgeEvidenceOk && !blockCueBridgeForHold;
-    const permissiveFinalNudgeEligible = permissiveMatcher && isFinal && rawIdx === cursorLine && permissiveMarkerConsistencyOk && conf >= DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM && preNudgeBestOverlapHits >= DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS && (overlapTokensCurrent.length >= 2 || overlapRatioCurrent >= DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO);
+    const permissiveFinalNudgeEligible = permissiveMatcher && isFinal && rawIdx === cursorLine && permissiveMarkerConsistencyOk && conf >= DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM && preNudgeBestOverlapHits >= DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS && overlapTokensCurrent.length >= DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS && overlapRatioCurrent >= DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO;
     const strongFinalNudgeHoldBypass = preNudgeStrongFinalHoldBypass && blockCueBridgeForHold;
     const stableInterimNudgeEligible = !isFinal && isSessionAsrArmed() && commitCount > 0 && bufferGrowing && rawIdx === cursorLine && conf >= DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM && stableInterimMs >= DEFAULT_STABLE_INTERIM_NUDGE_MS && now3 - lastStableInterimNudgeAt >= DEFAULT_STABLE_INTERIM_NUDGE_COOLDOWN_MS && cueBridgeNudgeEvidenceOk && !blockCueBridgeForHold;
     if (finalMatchNudgeEligible || stableInterimNudgeEligible || strongFinalNudgeHoldBypass || permissiveFinalNudgeEligible) {
@@ -32840,7 +32882,7 @@ function createAsrScrollDriver(options = {}) {
         }
       }
     }
-    const permissiveFinalFallbackEligible = permissiveMatcher && isFinal && rawIdx === cursorLine && permissiveMarkerConsistencyOk && conf >= DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM && preNudgeBestOverlapHits >= DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS && (overlapTokensCurrent.length >= 2 || overlapRatioCurrent >= DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO);
+    const permissiveFinalFallbackEligible = permissiveMatcher && isFinal && rawIdx === cursorLine && permissiveMarkerConsistencyOk && conf >= DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM && preNudgeBestOverlapHits >= DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS && overlapTokensCurrent.length >= DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS && overlapRatioCurrent >= DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO;
     const strictFinalFallbackEligible = !permissiveMatcher && isFinal && rawIdx === cursorLine && cueBridgeNudgeEvidenceOk && conf >= Math.max(effectiveThreshold, DEFAULT_STRONG_FORWARD_COMMIT_SIM) && overlapTokensCurrent.length >= DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_TOKENS && overlapRatioCurrent >= DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_RATIO;
     if (permissiveFinalFallbackEligible || strictFinalFallbackEligible) {
       const fallbackBridge = findNextSpeakableWithinBridge(
@@ -33025,6 +33067,24 @@ function createAsrScrollDriver(options = {}) {
       snippet,
       matchId
     });
+    if (!isFinal) {
+      const runtimeMode = getScrollMode3();
+      if (runtimeMode === "asr") {
+        if (isDevMode4()) {
+          warnGuard("interim_commit_blocked", [
+            `current=${cursorLine}`,
+            `best=${rawIdx}`,
+            `delta=${rawIdx - cursorLine}`,
+            `sim=${formatLogScore(conf)}`,
+            snippet ? `clue="${snippet}"` : ""
+          ]);
+        }
+        return;
+      }
+      if (!interimEligible) {
+        return;
+      }
+    }
     if (topScoresSpeakable.length >= 2) {
       let near = null;
       let far = null;
@@ -33606,7 +33666,7 @@ function createAsrScrollDriver(options = {}) {
   }
   return driver;
 }
-var DEFAULT_MIN_LINE_ADVANCE, DEFAULT_SEEK_THROTTLE_MS, DEFAULT_INTERIM_SCALE, DEFAULT_MATCH_BACKTRACK_LINES, DEFAULT_MATCH_LOOKAHEAD_LINES, DEFAULT_MATCH_LOOKAHEAD_STEPS, DEFAULT_LOOKAHEAD_BUMP_COOLDOWN_MS, DEFAULT_LOOKAHEAD_BEHIND_HITS, DEFAULT_LOOKAHEAD_BEHIND_WINDOW_MS, DEFAULT_LOOKAHEAD_STALL_MS, DEFAULT_BAND_BACK_TOLERANCE_LINES, DEFAULT_SAME_LINE_THROTTLE_MS, DEFAULT_CREEP_PX, DEFAULT_CREEP_NEAR_PX, DEFAULT_CREEP_BUDGET_PX, DEFAULT_SCROLL_TRUTH_SETTLE_FRAMES, DEFAULT_SCROLL_TRUTH_MISMATCH_PX, DEFAULT_SCROLL_TRUTH_GLIDE_SAFETY_MS, DEFAULT_SCROLL_TRUTH_GLIDE_MAX_WAIT_MS, DEFAULT_SCROLL_TRUTH_AHEAD_TOLERANCE_LINES, DEFAULT_DEADBAND_PX, DEFAULT_MAX_VEL_PX_PER_SEC, DEFAULT_MAX_VEL_MED_PX_PER_SEC, DEFAULT_MAX_VEL_CATCHUP_PX_PER_SEC, DEFAULT_MAX_ACCEL_PX_PER_SEC2, DEFAULT_MIN_STEP_PX, DEFAULT_MAX_STEP_PX, DEFAULT_CATCHUP_MED_MIN_PX, DEFAULT_CATCHUP_FAST_MIN_PX, DEFAULT_MAX_TARGET_JUMP_PX, DEFAULT_MAX_TARGET_JUMP_HYBRID_PX, DEFAULT_PURSUE_KP, DEFAULT_PURSUE_MANUAL_CANCEL_PX, DEFAULT_NO_TARGET_RETRY_SIM, DEFAULT_NO_TARGET_RETRY_MAX_DELTA, DEFAULT_NO_TARGET_RETRY_FRAMES, DEFAULT_LINE_MISSING_LOOKUP_FRAMES, DEFAULT_NO_TARGET_RETRY_WINDOW_MS, DEFAULT_STRONG_WINDOW_MS, DEFAULT_FINAL_EVIDENCE_LEAD_LINES, MARKER_BIAS_PX, DEFAULT_REALIGN_LEAD_LINES, DEFAULT_REALIGN_LOOKBACK_LINES, DEFAULT_REALIGN_SIM, DEFAULT_LAG_RELOCK_BEHIND_HITS, DEFAULT_LAG_RELOCK_WINDOW_MS, DEFAULT_LAG_RELOCK_MIN_DELTA, DEFAULT_LAG_RELOCK_MIN_TOKENS, DEFAULT_LAG_RELOCK_MIN_CHARS, DEFAULT_LAG_RELOCK_LOOKAHEAD_BONUS, DEFAULT_LAG_RELOCK_DURATION_MS, DEFAULT_LAG_RELOCK_LOW_SIM_FLOOR, DEFAULT_RELOCK_SIM_FLOOR, DEFAULT_RELOCK_OVERLAP_RATIO, DEFAULT_RELOCK_SPAN_MIN_LINES, DEFAULT_RELOCK_REPEAT_WINDOW_MS, DEFAULT_RELOCK_REPEAT_MIN, DEFAULT_RESYNC_WINDOW_MS, DEFAULT_RESYNC_LOOKAHEAD_BONUS, DEFAULT_RESYNC_COOLDOWN_MS, DEFAULT_STRONG_BACK_SIM, DEFAULT_BACK_CONFIRM_HITS, DEFAULT_BACK_CONFIRM_WINDOW_MS, DEFAULT_BEHIND_RECOVERY_MS, DEFAULT_BEHIND_RECOVERY_MAX_LINES, DEFAULT_BEHIND_RECOVERY_MIN_SIM, DEFAULT_BEHIND_RECOVERY_COOLDOWN_MS, DEFAULT_AMBIGUITY_SIM_DELTA, DEFAULT_AMBIGUITY_NEAR_LINES, DEFAULT_AMBIGUITY_FAR_LINES, DEFAULT_MIN_TOKEN_COUNT, DEFAULT_MIN_EVIDENCE_CHARS, DEFAULT_INTERIM_HYSTERESIS_BONUS, DEFAULT_INTERIM_STABLE_REPEATS, DEFAULT_SAME_LINE_LOW_SIM_RELAX, DEFAULT_FORWARD_TIE_EPS, DEFAULT_FORWARD_PROGRESS_WINDOW_MS, DEFAULT_FORWARD_BIAS_RECENT_LINES, DEFAULT_FORWARD_BIAS_WINDOW_MS, DEFAULT_FORWARD_BIAS_LOOKAHEAD_LINES, DEFAULT_FORWARD_BIAS_SIM_SLACK, DEFAULT_SHORT_FINAL_MIN_TOKENS, DEFAULT_SHORT_FINAL_MAX_TOKENS, DEFAULT_SHORT_FINAL_WINDOW_MS, DEFAULT_SHORT_FINAL_LOOKAHEAD_LINES, DEFAULT_SHORT_FINAL_SIM_SLACK, DEFAULT_FORWARD_WINDOW_MAX_LINES, DEFAULT_FORWARD_WINDOW_MIN_TOKENS, DEFAULT_OUTRUN_RELAXED_SIM, DEFAULT_OUTRUN_WINDOW_MS, DEFAULT_OUTRUN_LOOKAHEAD_LINES, DEFAULT_OUTRUN_BEHIND_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_MAX_DELTA, DEFAULT_OUTRUN_BEHIND_WIN_MARGIN, DEFAULT_OUTRUN_BEHIND_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_TOKENS, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_OVERLAP_TOKENS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_EXTRA_CHARS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_SIM, DEFAULT_FORCED_RATE_WINDOW_MS, DEFAULT_FORCED_RATE_MAX, DEFAULT_FORCED_COOLDOWN_MS, DEFAULT_FORCED_MIN_TOKENS, DEFAULT_FORCED_MIN_CHARS, DEFAULT_SLAM_DUNK_SIM, DEFAULT_SLAM_DUNK_MAX_DELTA, DEFAULT_CONFIRMATION_RELAXED_SIM, DEFAULT_CONFIRMATION_RELAXED_MAX_DELTA, DEFAULT_NO_MATCH_WINDOW_MS, DEFAULT_NO_MATCH_BUMP_HITS, DEFAULT_NO_MATCH_RELOCK_HITS, GUARD_THROTTLE_MS, DEFAULT_SHORT_TOKEN_MAX, DEFAULT_SHORT_TOKEN_BOOST, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, DEFAULT_STABLE_INTERIM_NUDGE_MS, DEFAULT_STABLE_INTERIM_NUDGE_COOLDOWN_MS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_TOKENS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_RATIO, DEFAULT_STABLE_INTERIM_PREFIX_MAX_TAIL_DRIFT_TOKENS, DEFAULT_NOISE_INTERIM_MIN_TOKENS, DEFAULT_NOISE_INTERIM_MIN_CHARS, DEFAULT_STARVATION_COMMIT_GAP_MS, DEFAULT_STARVATION_WARN_COOLDOWN_MS, DEFAULT_STARVATION_RELOCK_LOOKAHEAD_LINES, DEFAULT_STARVATION_RELOCK_SIM_SLACK, DEFAULT_STARVATION_RELOCK_COOLDOWN_MS, DEFAULT_LOST_FORWARD_WALL_RELOCK_STREAK, DEFAULT_FINAL_CONTINUATION_SIM_EPS, BAD_CURSOR_ON_CUE_LOG_THROTTLE_MS, DEFAULT_STALL_COMMIT_MS, DEFAULT_STALL_LOG_COOLDOWN_MS, DEFAULT_LOW_SIM_FLOOR, DEFAULT_STUCK_RESYNC_WINDOW_MS, DEFAULT_STUCK_RESYNC_LOOKAHEAD_BONUS, DEFAULT_STUCK_RESYNC_BACKTRACK_LINES, DEFAULT_STUCK_RELOCK_SIM, DEFAULT_GENERIC_SIM_DELTA, DEFAULT_GENERIC_MIN_CANDIDATES, DEFAULT_GENERIC_MAX_TOKENS, DEFAULT_META_OVERLAP_RATIO, DEFAULT_LAG_DELTA_LINES, DEFAULT_LAG_WINDOW_MATCHES, DEFAULT_LAG_MIN_FORWARD_HITS, DEFAULT_LAG_FORCE_DELTA_LINES, DEFAULT_LAG_FORCE_HITS, DEFAULT_CATCHUP_MODE_MAX_JUMP, DEFAULT_CATCHUP_MODE_MIN_SIM, DEFAULT_CATCHUP_MODE_DURATION_MS, DEFAULT_CATCHUP_LOOKAHEAD_BONUS, POST_CATCHUP_MS, POST_CATCHUP_DROP, POST_CATCHUP_MAX_DELTA, POST_CATCHUP_REQUIRE_IN_BAND, DELTA_SMALL_MAX_LINES, DELTA_MED_MAX_LINES, DELTA_LARGE_MIN_LINES, DELTA_MIN_SIM_SMALL, DELTA_MIN_SIM_MED, DELTA_MIN_SIM_LARGE, LARGE_DELTA_CONFIRM_HITS, LARGE_DELTA_CONFIRM_WINDOW_MS, LARGE_DELTA_CONFIRM_SPREAD, OVERSHOOT_RISK_DELTA_LINES, OVERSHOOT_RISK_WINDOW_MS, OVERSHOOT_RISK_MIN_SIM, BEHIND_RECOVERY_WINDOW_MS, BEHIND_RECOVERY_HITS, BEHIND_RECOVERY_CLUSTER_SPREAD, BEHIND_RECOVERY_MIN_DELTA, BEHIND_RECOVERY_MAX_REWIND, BEHIND_RECOVERY_MIN_SIM, BEHIND_RECOVERY_COOLDOWN_MS, POST_CATCHUP_SAMPLES, DEFAULT_BACKJUMP_BLOCK_LINES, DEFAULT_FREEZE_LOW_SIM_HITS, DEFAULT_FREEZE_LOW_SIM_WINDOW_MS, EVENT_RING_MAX, EVENT_DUMP_COUNT, BEHIND_DEBT_WINDOW_LINES, BEHIND_DEBT_DECAY, BEHIND_DEBT_CAP, RECOVERY_BIG_JUMP_LINES, RECOVERY_SIM_MIN, RECOVERY_STREAK_REQUIRED, RECOVERY_SIM_SLACK, MANUAL_ANCHOR_MIN_SCROLL_PX, MANUAL_ANCHOR_MAX_SCROLL_WINDOW_MS, MANUAL_ANCHOR_PENDING_TIMEOUT_MS, MANUAL_ANCHOR_WINDOW_LINES, MANUAL_ANCHOR_SIM_SLACK, MAX_LINES_PER_COMMIT, DELTA_SMOOTHING_FACTOR, TAPER_EXPONENT, TAPER_MIN, GLIDE_MIN_MS, GLIDE_MAX_MS, GLIDE_DEFAULT_MS, MICRO_DELTA_LINE_RATIO, MICRO_PURSUE_MS, MICRO_PURSUE_MAX_PXPS, MIN_PX_PER_SEC, WITHIN_BLOCK_CONTINUITY_SIM_SLACK, POST_COMMIT_ACTIVE_MAX_RATIO, POST_COMMIT_ACTIVE_TARGET_RATIO, POST_COMMIT_ACTIVE_MIN_RATIO, POST_COMMIT_ACTIVE_BAND_RADIUS, POST_COMMIT_MIN_READABLE_LINES_BELOW, POST_COMMIT_READABILITY_LOOKAHEAD_LINES, POST_COMMIT_READABLE_BOTTOM_PAD_PX, POST_COMMIT_NEXT_LINE_VIS_GUARD_PX, POST_COMMIT_MIN_NUDGE_PX, POST_COMMIT_MAX_FORWARD_NUDGE_LINES, COMMIT_BAND_RESEED_BACK_LINES, COMMIT_BAND_RESEED_AHEAD_LINES, COMMIT_BAND_RESEED_TTL_MS, DEFAULT_STUCK_WATCHDOG_FINAL_EVENTS, DEFAULT_STUCK_WATCHDOG_NO_COMMIT_MS, DEFAULT_STUCK_WATCHDOG_COOLDOWN_MS, DEFAULT_STUCK_WATCHDOG_MAX_DELTA_LINES, DEFAULT_STUCK_WATCHDOG_FORWARD_FLOOR, DEFAULT_STUCK_WATCHDOG_COMMIT_CAP_LINES, DEFAULT_ALLOW_BEHIND_REANCHOR, DEFAULT_STUCK_WATCHDOG_INTERIM_EVENTS, DEFAULT_STUCK_WATCHDOG_INTERIM_RECENT_MS, DEFAULT_COMMIT_CLAMP_MAX_DELTA_LINES, DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES, DEFAULT_CUE_BRIDGE_BYPASS_MAX_SKIPPED_LINES, DEFAULT_CUE_BRIDGE_STRONG_SIM, DEFAULT_CUE_BRIDGE_LARGE_GAP, DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS, DEFAULT_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS, DEFAULT_MULTI_JUMP_MIN_SIM, DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS, DEFAULT_MULTI_JUMP_HARD_DENY_SIM, DEFAULT_AMBIGUITY_HOLD_MIN_SIM, DEFAULT_AMBIGUITY_HOLD_NEAR_WINDOW_LINES, DEFAULT_AMBIG_SHORT_LINE_MAX_CONTENT_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_OVERLAP_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_SIM, DEFAULT_AMBIG_SHORT_LINE_RUNNERUP_MARGIN, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_RATIO, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_TOKENS, DEFAULT_HOLD_ANCHOR_LOOKAHEAD_LINES, DEFAULT_HOLD_ANCHOR_MIN_SIM, DEFAULT_HOLD_ANCHOR_MARGIN, DEFAULT_HOLD_ANCHOR_MIN_CONTENT_TOKENS, DEFAULT_HOLD_ANCHOR_MIN_SHARED_CONTENT_HITS, DEFAULT_HOLD_ANCHOR_NEAR_DELTA_LINES, DEFAULT_HOLD_ANCHOR_NEAR_MIN_SIM, DEFAULT_HOLD_ANCHOR_COMMIT_CAP_LINES, HOLD_TICK_LOG_THROTTLE_MS, DEFAULT_NO_PROGRESS_STREAK_TRIGGER, DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES, DEFAULT_LOST_FORWARD_MIN_SIM, DEFAULT_LOST_HEALTHY_LOCK_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_CONTENT_HITS, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MIN_HITS, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_MIN_SIM, LOST_FORWARD_WINDOW_STEPS, LOST_FORWARD_STAGE_STREAKS, DEFAULT_TELEPORT_MIN_TOKENS, DEFAULT_TELEPORT_COMPETITIVE_MARGIN, DEFAULT_TELEPORT_STANDARD_CAP_LINES, DEFAULT_TELEPORT_DEEP_CAP_LINES, ANCHOR_RARE_TOKEN_MIN_LEN, DEFAULT_MICRO_RELOCK_MARGIN, DEFAULT_MICRO_RELOCK_COOLDOWN_MS, DEFAULT_MICRO_RELOCK_PREFERRED_TTL_MS, DEFAULT_GRACE_ROLLBACK_WINDOW_MS, DEFAULT_GRACE_ROLLBACK_MIN_PREV_SIM, DEFAULT_GRACE_ROLLBACK_MAX_CURRENT_SIM, DEFAULT_GRACE_ROLLBACK_MIN_MARGIN, DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS, DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO, DEFAULT_PERMISSIVE_FINAL_MARKER_BACK_TOLERANCE_LINES, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_MIN_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_SIM_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_SPARSE_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_CONF_CAP, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_RATIO, DEFAULT_WEAK_CURRENT_FORWARD_MAX_DELTA, DEFAULT_WEAK_CURRENT_FORWARD_MAX_SPAN, DEFAULT_WEAK_CURRENT_FORWARD_INTERIM_MIN_SIM, DEFAULT_WEAK_CURRENT_FORWARD_FINAL_MIN_SIM, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_TOKENS, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_RATIO, DEFAULT_FIRST_COMMIT_NEAR_START_MAX_DELTA, DEFAULT_WRITER_ADDRESSABLE_MIN_INDEXED_LINES, DEFAULT_WRITER_ADDRESSABLE_MIN_RATIO, DEFAULT_WRITER_ADDRESSABLE_MIN_FLOOR, DEFAULT_BEHIND_CANDIDATE_MIN_SIM, DEFAULT_BEHIND_CANDIDATE_MIN_TOKENS, DEFAULT_BEHIND_CANDIDATE_MIN_CHARS, DEFAULT_CURRENT_OVERRIDE_MIN_SIM, CUE_LINE_BRACKET_RE, CUE_LINE_WORD_RE, SPEAKER_TAG_ONLY_RE, NOTE_TAG_ONLY_RE, NOTE_INLINE_BLOCK_RE, MAX_CUE_SKIP_LOOKAHEAD_LINES, ANCHOR_STOPWORDS, INDEXED_LINE_SELECTOR, MOTION_PRESET_NORMAL, MOTION_PRESET_CALM, MOTION_OVERRIDE_EPS, MOTION_KEYS, guardLastAt, logLastAt, guardStatusLastAt, activeGuardCounts, guardEvents, GUARD_DEBUG_REASONS, LOG_THROTTLE_MS, HUD_STATUS_THROTTLE_MS, HUD_PURSUE_THROTTLE_MS, lastPursueHudAt, SUMMARY_TOAST_DEDUPE_MS, SUMMARY_MIN_DURATION_MS, DRIVER_ACTIVE_DISPOSE_MIN_MS, NAN_GUARD_THROTTLE_MS, MAX_REPORTED_RUN_KEYS, reportedSummaryRunKeys, lastSummaryToastKey, lastSummaryToastAt, nanGuardLastAt, HYBRID_BRAKE_TTL_MS, HYBRID_ASSIST_TTL_MS, HYBRID_TARGET_HINT_TTL_MS, HYBRID_ASSIST_MAX_BOOST_PXPS, HYBRID_TARGET_HINT_MIN_DELTA_PX, HYBRID_TARGET_HINT_MIN_INTERVAL_MS, lastHybridTargetHintTop, lastHybridTargetHintTs, getNowMs, warnedMissingTargetTop;
+var DEFAULT_MIN_LINE_ADVANCE, DEFAULT_SEEK_THROTTLE_MS, DEFAULT_INTERIM_SCALE, DEFAULT_MATCH_BACKTRACK_LINES, DEFAULT_MATCH_LOOKAHEAD_LINES, DEFAULT_MATCH_LOOKAHEAD_STEPS, DEFAULT_LOOKAHEAD_BUMP_COOLDOWN_MS, DEFAULT_LOOKAHEAD_BEHIND_HITS, DEFAULT_LOOKAHEAD_BEHIND_WINDOW_MS, DEFAULT_LOOKAHEAD_STALL_MS, DEFAULT_BAND_BACK_TOLERANCE_LINES, DEFAULT_SAME_LINE_THROTTLE_MS, DEFAULT_CREEP_PX, DEFAULT_CREEP_NEAR_PX, DEFAULT_CREEP_BUDGET_PX, DEFAULT_SCROLL_TRUTH_SETTLE_FRAMES, DEFAULT_SCROLL_TRUTH_MISMATCH_PX, DEFAULT_SCROLL_TRUTH_GLIDE_SAFETY_MS, DEFAULT_SCROLL_TRUTH_GLIDE_MAX_WAIT_MS, DEFAULT_SCROLL_TRUTH_AHEAD_TOLERANCE_LINES, DEFAULT_DEADBAND_PX, DEFAULT_MAX_VEL_PX_PER_SEC, DEFAULT_MAX_VEL_MED_PX_PER_SEC, DEFAULT_MAX_VEL_CATCHUP_PX_PER_SEC, DEFAULT_MAX_ACCEL_PX_PER_SEC2, DEFAULT_MIN_STEP_PX, DEFAULT_MAX_STEP_PX, DEFAULT_CATCHUP_MED_MIN_PX, DEFAULT_CATCHUP_FAST_MIN_PX, DEFAULT_MAX_TARGET_JUMP_PX, DEFAULT_MAX_TARGET_JUMP_HYBRID_PX, DEFAULT_PURSUE_KP, DEFAULT_PURSUE_MANUAL_CANCEL_PX, DEFAULT_NO_TARGET_RETRY_SIM, DEFAULT_NO_TARGET_RETRY_MAX_DELTA, DEFAULT_NO_TARGET_RETRY_FRAMES, DEFAULT_LINE_MISSING_LOOKUP_FRAMES, DEFAULT_NO_TARGET_RETRY_WINDOW_MS, DEFAULT_STRONG_WINDOW_MS, DEFAULT_FINAL_EVIDENCE_LEAD_LINES, MARKER_BIAS_PX, DEFAULT_REALIGN_LEAD_LINES, DEFAULT_REALIGN_LOOKBACK_LINES, DEFAULT_REALIGN_SIM, DEFAULT_LAG_RELOCK_BEHIND_HITS, DEFAULT_LAG_RELOCK_WINDOW_MS, DEFAULT_LAG_RELOCK_MIN_DELTA, DEFAULT_LAG_RELOCK_MIN_TOKENS, DEFAULT_LAG_RELOCK_MIN_CHARS, DEFAULT_LAG_RELOCK_LOOKAHEAD_BONUS, DEFAULT_LAG_RELOCK_DURATION_MS, DEFAULT_LAG_RELOCK_LOW_SIM_FLOOR, DEFAULT_RELOCK_SIM_FLOOR, DEFAULT_RELOCK_OVERLAP_RATIO, DEFAULT_RELOCK_SPAN_MIN_LINES, DEFAULT_RELOCK_REPEAT_WINDOW_MS, DEFAULT_RELOCK_REPEAT_MIN, DEFAULT_RESYNC_WINDOW_MS, DEFAULT_RESYNC_LOOKAHEAD_BONUS, DEFAULT_RESYNC_COOLDOWN_MS, DEFAULT_STRONG_BACK_SIM, DEFAULT_BACK_CONFIRM_HITS, DEFAULT_BACK_CONFIRM_WINDOW_MS, DEFAULT_BEHIND_RECOVERY_MS, DEFAULT_BEHIND_RECOVERY_MAX_LINES, DEFAULT_BEHIND_RECOVERY_MIN_SIM, DEFAULT_BEHIND_RECOVERY_COOLDOWN_MS, DEFAULT_AMBIGUITY_SIM_DELTA, DEFAULT_AMBIGUITY_NEAR_LINES, DEFAULT_AMBIGUITY_FAR_LINES, DEFAULT_MIN_TOKEN_COUNT, DEFAULT_MIN_EVIDENCE_CHARS, DEFAULT_INTERIM_HYSTERESIS_BONUS, DEFAULT_INTERIM_STABLE_REPEATS, DEFAULT_SAME_LINE_LOW_SIM_RELAX, DEFAULT_FORWARD_TIE_EPS, DEFAULT_FORWARD_PROGRESS_WINDOW_MS, DEFAULT_FORWARD_BIAS_RECENT_LINES, DEFAULT_FORWARD_BIAS_WINDOW_MS, DEFAULT_FORWARD_BIAS_LOOKAHEAD_LINES, DEFAULT_FORWARD_BIAS_SIM_SLACK, DEFAULT_SHORT_FINAL_MIN_TOKENS, DEFAULT_SHORT_FINAL_MAX_TOKENS, DEFAULT_SHORT_FINAL_WINDOW_MS, DEFAULT_SHORT_FINAL_LOOKAHEAD_LINES, DEFAULT_SHORT_FINAL_SIM_SLACK, DEFAULT_FORWARD_WINDOW_MAX_LINES, DEFAULT_FORWARD_WINDOW_MIN_TOKENS, DEFAULT_OUTRUN_RELAXED_SIM, DEFAULT_OUTRUN_WINDOW_MS, DEFAULT_OUTRUN_LOOKAHEAD_LINES, DEFAULT_OUTRUN_BEHIND_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_MAX_DELTA, DEFAULT_OUTRUN_BEHIND_WIN_MARGIN, DEFAULT_OUTRUN_BEHIND_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_TOKENS, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_OVERLAP_TOKENS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_EXTRA_CHARS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_SIM, DEFAULT_FORCED_RATE_WINDOW_MS, DEFAULT_FORCED_RATE_MAX, DEFAULT_FORCED_COOLDOWN_MS, DEFAULT_FORCED_MIN_TOKENS, DEFAULT_FORCED_MIN_CHARS, DEFAULT_SLAM_DUNK_SIM, DEFAULT_SLAM_DUNK_MAX_DELTA, DEFAULT_CONFIRMATION_RELAXED_SIM, DEFAULT_CONFIRMATION_RELAXED_MAX_DELTA, DEFAULT_NO_MATCH_WINDOW_MS, DEFAULT_NO_MATCH_BUMP_HITS, DEFAULT_NO_MATCH_RELOCK_HITS, GUARD_THROTTLE_MS, DEFAULT_SHORT_TOKEN_MAX, DEFAULT_SHORT_TOKEN_BOOST, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, DEFAULT_STABLE_INTERIM_NUDGE_MS, DEFAULT_STABLE_INTERIM_NUDGE_COOLDOWN_MS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_TOKENS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_RATIO, DEFAULT_STABLE_INTERIM_PREFIX_MAX_TAIL_DRIFT_TOKENS, DEFAULT_NOISE_INTERIM_MIN_TOKENS, DEFAULT_NOISE_INTERIM_MIN_CHARS, DEFAULT_STARVATION_COMMIT_GAP_MS, DEFAULT_STARVATION_WARN_COOLDOWN_MS, DEFAULT_STARVATION_RELOCK_LOOKAHEAD_LINES, DEFAULT_STARVATION_RELOCK_SIM_SLACK, DEFAULT_STARVATION_RELOCK_COOLDOWN_MS, DEFAULT_LOST_FORWARD_WALL_RELOCK_STREAK, DEFAULT_FINAL_CONTINUATION_SIM_EPS, BAD_CURSOR_ON_CUE_LOG_THROTTLE_MS, DEFAULT_STALL_COMMIT_MS, DEFAULT_STALL_LOG_COOLDOWN_MS, DEFAULT_LOW_SIM_FLOOR, DEFAULT_STUCK_RESYNC_WINDOW_MS, DEFAULT_STUCK_RESYNC_LOOKAHEAD_BONUS, DEFAULT_STUCK_RESYNC_BACKTRACK_LINES, DEFAULT_STUCK_RELOCK_SIM, DEFAULT_GENERIC_SIM_DELTA, DEFAULT_GENERIC_MIN_CANDIDATES, DEFAULT_GENERIC_MAX_TOKENS, DEFAULT_META_OVERLAP_RATIO, DEFAULT_LAG_DELTA_LINES, DEFAULT_LAG_WINDOW_MATCHES, DEFAULT_LAG_MIN_FORWARD_HITS, DEFAULT_LAG_FORCE_DELTA_LINES, DEFAULT_LAG_FORCE_HITS, DEFAULT_CATCHUP_MODE_MAX_JUMP, DEFAULT_CATCHUP_MODE_MIN_SIM, DEFAULT_CATCHUP_MODE_DURATION_MS, DEFAULT_CATCHUP_LOOKAHEAD_BONUS, POST_CATCHUP_MS, POST_CATCHUP_DROP, POST_CATCHUP_MAX_DELTA, POST_CATCHUP_REQUIRE_IN_BAND, DELTA_SMALL_MAX_LINES, DELTA_MED_MAX_LINES, DELTA_LARGE_MIN_LINES, DELTA_MIN_SIM_SMALL, DELTA_MIN_SIM_MED, DELTA_MIN_SIM_LARGE, LARGE_DELTA_CONFIRM_HITS, LARGE_DELTA_CONFIRM_WINDOW_MS, LARGE_DELTA_CONFIRM_SPREAD, OVERSHOOT_RISK_DELTA_LINES, OVERSHOOT_RISK_WINDOW_MS, OVERSHOOT_RISK_MIN_SIM, BEHIND_RECOVERY_WINDOW_MS, BEHIND_RECOVERY_HITS, BEHIND_RECOVERY_CLUSTER_SPREAD, BEHIND_RECOVERY_MIN_DELTA, BEHIND_RECOVERY_MAX_REWIND, BEHIND_RECOVERY_MIN_SIM, BEHIND_RECOVERY_COOLDOWN_MS, POST_CATCHUP_SAMPLES, DEFAULT_BACKJUMP_BLOCK_LINES, DEFAULT_FREEZE_LOW_SIM_HITS, DEFAULT_FREEZE_LOW_SIM_WINDOW_MS, EVENT_RING_MAX, EVENT_DUMP_COUNT, BEHIND_DEBT_WINDOW_LINES, BEHIND_DEBT_DECAY, BEHIND_DEBT_CAP, RECOVERY_BIG_JUMP_LINES, RECOVERY_SIM_MIN, RECOVERY_STREAK_REQUIRED, RECOVERY_SIM_SLACK, MANUAL_ANCHOR_MIN_SCROLL_PX, MANUAL_ANCHOR_MAX_SCROLL_WINDOW_MS, MANUAL_ANCHOR_PENDING_TIMEOUT_MS, MANUAL_ANCHOR_WINDOW_LINES, MANUAL_ANCHOR_SIM_SLACK, MAX_LINES_PER_COMMIT, DELTA_SMOOTHING_FACTOR, TAPER_EXPONENT, TAPER_MIN, GLIDE_MIN_MS, GLIDE_MAX_MS, GLIDE_DEFAULT_MS, MICRO_DELTA_LINE_RATIO, MICRO_PURSUE_MS, MICRO_PURSUE_MAX_PXPS, MIN_PX_PER_SEC, WITHIN_BLOCK_CONTINUITY_SIM_SLACK, POST_COMMIT_ACTIVE_MAX_RATIO, POST_COMMIT_ACTIVE_TARGET_RATIO, POST_COMMIT_ACTIVE_MIN_RATIO, POST_COMMIT_ACTIVE_BAND_RADIUS, POST_COMMIT_MIN_READABLE_LINES_BELOW, POST_COMMIT_READABILITY_LOOKAHEAD_LINES, POST_COMMIT_READABLE_BOTTOM_PAD_PX, POST_COMMIT_NEXT_LINE_VIS_GUARD_PX, POST_COMMIT_MIN_NUDGE_PX, POST_COMMIT_MAX_FORWARD_NUDGE_LINES, COMMIT_BAND_RESEED_BACK_LINES, COMMIT_BAND_RESEED_AHEAD_LINES, COMMIT_BAND_RESEED_TTL_MS, DEFAULT_STUCK_WATCHDOG_FINAL_EVENTS, DEFAULT_STUCK_WATCHDOG_NO_COMMIT_MS, DEFAULT_STUCK_WATCHDOG_COOLDOWN_MS, DEFAULT_STUCK_WATCHDOG_MAX_DELTA_LINES, DEFAULT_STUCK_WATCHDOG_FORWARD_FLOOR, DEFAULT_STUCK_WATCHDOG_COMMIT_CAP_LINES, DEFAULT_ALLOW_BEHIND_REANCHOR, DEFAULT_STUCK_WATCHDOG_INTERIM_EVENTS, DEFAULT_STUCK_WATCHDOG_INTERIM_RECENT_MS, DEFAULT_COMMIT_CLAMP_MAX_DELTA_LINES, DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES, DEFAULT_CUE_BRIDGE_BYPASS_MAX_SKIPPED_LINES, DEFAULT_CUE_BRIDGE_STRONG_SIM, DEFAULT_CUE_BRIDGE_LARGE_GAP, DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS, DEFAULT_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS, DEFAULT_MULTI_JUMP_MIN_SIM, DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS, DEFAULT_MULTI_JUMP_HARD_DENY_SIM, DEFAULT_AMBIGUITY_HOLD_MIN_SIM, DEFAULT_AMBIGUITY_HOLD_NEAR_WINDOW_LINES, DEFAULT_AMBIG_SHORT_LINE_MAX_CONTENT_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_OVERLAP_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_SIM, DEFAULT_AMBIG_SHORT_LINE_RUNNERUP_MARGIN, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_RATIO, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_TOKENS, DEFAULT_HOLD_ANCHOR_LOOKAHEAD_LINES, DEFAULT_HOLD_ANCHOR_MIN_SIM, DEFAULT_HOLD_ANCHOR_MARGIN, DEFAULT_HOLD_ANCHOR_MIN_CONTENT_TOKENS, DEFAULT_HOLD_ANCHOR_MIN_SHARED_CONTENT_HITS, DEFAULT_HOLD_ANCHOR_NEAR_DELTA_LINES, DEFAULT_HOLD_ANCHOR_NEAR_MIN_SIM, DEFAULT_HOLD_ANCHOR_COMMIT_CAP_LINES, HOLD_TICK_LOG_THROTTLE_MS, DEFAULT_NO_PROGRESS_STREAK_TRIGGER, DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES, DEFAULT_LOST_FORWARD_MIN_SIM, DEFAULT_LOST_HEALTHY_LOCK_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_CONTENT_HITS, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MIN_HITS, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_MIN_SIM, LOST_FORWARD_WINDOW_STEPS, LOST_FORWARD_STAGE_STREAKS, DEFAULT_TELEPORT_MIN_TOKENS, DEFAULT_TELEPORT_COMPETITIVE_MARGIN, DEFAULT_TELEPORT_STANDARD_CAP_LINES, DEFAULT_TELEPORT_DEEP_CAP_LINES, ANCHOR_RARE_TOKEN_MIN_LEN, DEFAULT_MICRO_RELOCK_MARGIN, DEFAULT_MICRO_RELOCK_COOLDOWN_MS, DEFAULT_MICRO_RELOCK_PREFERRED_TTL_MS, DEFAULT_GRACE_ROLLBACK_WINDOW_MS, DEFAULT_GRACE_ROLLBACK_MIN_PREV_SIM, DEFAULT_GRACE_ROLLBACK_MAX_CURRENT_SIM, DEFAULT_GRACE_ROLLBACK_MIN_MARGIN, DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS, DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO, DEFAULT_PERMISSIVE_FINAL_MARKER_BACK_TOLERANCE_LINES, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_MIN_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_SIM_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_SPARSE_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_CONF_CAP, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_RATIO, DEFAULT_WEAK_CURRENT_FORWARD_MAX_DELTA, DEFAULT_WEAK_CURRENT_FORWARD_MAX_SPAN, DEFAULT_WEAK_CURRENT_FORWARD_INTERIM_MIN_SIM, DEFAULT_WEAK_CURRENT_FORWARD_FINAL_MIN_SIM, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_TOKENS, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_RATIO, DEFAULT_FIRST_COMMIT_NEAR_START_MAX_DELTA, DEFAULT_WRITER_ADDRESSABLE_MIN_INDEXED_LINES, DEFAULT_WRITER_ADDRESSABLE_MIN_RATIO, DEFAULT_WRITER_ADDRESSABLE_MIN_FLOOR, DEFAULT_BEHIND_CANDIDATE_MIN_SIM, DEFAULT_BEHIND_CANDIDATE_MIN_TOKENS, DEFAULT_BEHIND_CANDIDATE_MIN_CHARS, DEFAULT_CURRENT_OVERRIDE_MIN_SIM, CUE_LINE_BRACKET_RE, CUE_LINE_WORD_RE, SPEAKER_TAG_ONLY_RE, NOTE_TAG_ONLY_RE, NOTE_INLINE_BLOCK_RE, MAX_CUE_SKIP_LOOKAHEAD_LINES, ANCHOR_STOPWORDS, INDEXED_LINE_SELECTOR, MOTION_PRESET_NORMAL, MOTION_PRESET_CALM, MOTION_OVERRIDE_EPS, MOTION_KEYS, guardLastAt, logLastAt, guardStatusLastAt, activeGuardCounts, guardEvents, GUARD_DEBUG_REASONS, LOG_THROTTLE_MS, HUD_STATUS_THROTTLE_MS, HUD_PURSUE_THROTTLE_MS, lastPursueHudAt, SUMMARY_TOAST_DEDUPE_MS, SUMMARY_MIN_DURATION_MS, DRIVER_ACTIVE_DISPOSE_MIN_MS, NAN_GUARD_THROTTLE_MS, MAX_REPORTED_RUN_KEYS, reportedSummaryRunKeys, lastSummaryToastKey, lastSummaryToastAt, nanGuardLastAt, HYBRID_BRAKE_TTL_MS, HYBRID_ASSIST_TTL_MS, HYBRID_TARGET_HINT_TTL_MS, HYBRID_ASSIST_MAX_BOOST_PXPS, HYBRID_TARGET_HINT_MIN_DELTA_PX, HYBRID_TARGET_HINT_MIN_INTERVAL_MS, lastHybridTargetHintTop, lastHybridTargetHintTs, getNowMs, warnedMissingTargetTop;
 var init_asr_scroll_driver = __esm({
   "src/features/asr/asr-scroll-driver.ts"() {
     "use strict";
@@ -33908,7 +33968,8 @@ var init_asr_scroll_driver = __esm({
     DEFAULT_GRACE_ROLLBACK_MIN_MARGIN = 0.35;
     DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS = 5e3;
     DEFAULT_STRONG_FORWARD_COMMIT_SIM = 0.82;
-    DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS = 1;
+    DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS = 2;
+    DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS = 2;
     DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO = 0.25;
     DEFAULT_PERMISSIVE_FINAL_MARKER_BACK_TOLERANCE_LINES = 1;
     DEFAULT_WEAK_CURRENT_OVERLAP_MAX_TOKENS = 1;
@@ -34371,6 +34432,17 @@ var init_recording_settings = __esm({
 });
 
 // src/recording/recorderRegistry.ts
+function withTimeout(taskOrFactory, timeoutMs, context) {
+  const timeout = Math.max(0, Math.floor(timeoutMs));
+  const task = typeof taskOrFactory === "function" ? Promise.resolve().then(taskOrFactory) : Promise.resolve(taskOrFactory);
+  if (timeout <= 0) return task;
+  return Promise.race([
+    task,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`[recording-timeout] ${context} exceeded ${timeout}ms`)), timeout);
+    })
+  ]);
+}
 function emitRecordingState(recording) {
   try {
     if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
@@ -34378,6 +34450,22 @@ function emitRecordingState(recording) {
         new CustomEvent("tp:recording:state", { detail: { recording: !!recording } })
       );
     }
+  } catch {
+  }
+}
+function emitStopPhase(phase, detail = {}) {
+  try {
+    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+      window.dispatchEvent(
+        new CustomEvent("tp:recording:stop-phase", {
+          detail: { phase, ...detail }
+        })
+      );
+    }
+  } catch {
+  }
+  try {
+    console.info("[recording] stop_phase", { phase, ...detail });
   } catch {
   }
 }
@@ -34394,67 +34482,144 @@ function registerRecorders(options) {
 }
 async function startSessionRecording(opts) {
   if (sessionRecording) return;
-  const engine = opts?.engine ?? getRecordingEngine();
-  const obsEnabled = !!opts?.obsEnabled;
-  const tasks = [];
-  const core = registry.get("core");
-  if (core && engine === "core") {
-    try {
-      console.debug("[recording-session] startRecorders: core available", { engine, obsEnabled });
-    } catch {
-    }
-    tasks.push(
-      core.isAvailable().then((ok) => ok ? core.start() : void 0).catch((err) => {
-        console.warn("[recording] core start failed", err);
-      })
-    );
-  } else {
-    console.warn('[recording] no "core" recorder registered');
-  }
-  if (engine === "obs" && obsEnabled) {
-    const obs = registry.get("obs");
-    if (obs) {
+  if (startInFlight) return startInFlight;
+  startInFlight = (async () => {
+    const engine = opts?.engine ?? getRecordingEngine();
+    const obsEnabled = !!opts?.obsEnabled;
+    const tasks = [];
+    activeSessionRecorderIds.clear();
+    const queueStart = (backend) => {
+      tasks.push(
+        (async () => {
+          const id = backend.id;
+          const available = await withTimeout(
+            () => backend.isAvailable(),
+            RECORDER_TIMEOUT_MS.availability,
+            `${id}:isAvailable:start`
+          ).catch((err) => {
+            console.warn("[recording] availability probe failed (start)", id, err);
+            return false;
+          });
+          if (!available) return { id, started: false };
+          await withTimeout(
+            () => backend.start(),
+            RECORDER_TIMEOUT_MS.start,
+            `${id}:start`
+          ).catch((err) => {
+            console.warn("[recording] start failed", id, err);
+            throw err;
+          });
+          return { id, started: true };
+        })().catch(() => ({ id: backend.id, started: false }))
+      );
+    };
+    const core = registry.get("core");
+    if (core && engine === "core") {
       try {
-        console.debug("[recording-session] startRecorders: obs available", { engine });
+        console.debug("[recording-session] startRecorders: core available", { engine, obsEnabled });
       } catch {
       }
-      tasks.push(
-        obs.isAvailable().then((ok) => ok ? obs.start() : void 0).catch((err) => {
-          console.warn("[recording] obs start failed", err);
-        })
-      );
+      queueStart(core);
+    } else {
+      console.warn('[recording] no "core" recorder registered');
     }
-  }
-  if (tasks.length === 0) return;
+    if (engine === "obs" && obsEnabled) {
+      const obs = registry.get("obs");
+      if (obs) {
+        try {
+          console.debug("[recording-session] startRecorders: obs available", { engine });
+        } catch {
+        }
+        queueStart(obs);
+      }
+    }
+    if (tasks.length === 0) return;
+    try {
+      console.debug("[recording-session] startRecorders", { count: tasks.length, enabled: true });
+    } catch {
+    }
+    const results = await Promise.all(tasks);
+    results.forEach((result) => {
+      if (result?.started) activeSessionRecorderIds.add(result.id);
+    });
+    if (activeSessionRecorderIds.size === 0) return;
+    sessionRecording = true;
+    emitRecordingState(true);
+  })();
   try {
-    console.debug("[recording-session] startRecorders", { count: tasks.length, enabled: true });
-  } catch {
+    await startInFlight;
+  } finally {
+    startInFlight = null;
   }
-  await Promise.all(tasks);
-  sessionRecording = true;
-  emitRecordingState(true);
 }
 async function stopSessionRecording() {
   if (!sessionRecording) return;
-  const tasks = listRecorders().map(
-    (rec2) => rec2.isAvailable().then((ok) => ok ? rec2.stop() : void 0).catch((err) => {
-      console.warn("[recording] stop failed", rec2.id, err);
-    })
-  );
-  await Promise.all(tasks);
-  sessionRecording = false;
-  emitRecordingState(false);
+  if (stopInFlight) return stopInFlight;
+  stopInFlight = (async () => {
+    const startedAt = Date.now();
+    const targetRecorders = activeSessionRecorderIds.size > 0 ? Array.from(activeSessionRecorderIds.values()).map((id) => registry.get(id)).filter((rec2) => !!rec2) : listRecorders();
+    emitStopPhase("begin", {
+      recorderCount: targetRecorders.length,
+      scopedToSession: activeSessionRecorderIds.size > 0
+    });
+    const tasks = targetRecorders.map(async (rec2) => {
+      emitStopPhase("probe", { recorderId: rec2.id });
+      const available = await withTimeout(
+        () => rec2.isAvailable(),
+        RECORDER_TIMEOUT_MS.availability,
+        `${rec2.id}:isAvailable:stop`
+      ).catch((err) => {
+        console.warn("[recording] availability probe failed (stop)", rec2.id, err);
+        return false;
+      });
+      if (!available) return;
+      emitStopPhase("stop-call", { recorderId: rec2.id });
+      await withTimeout(
+        () => rec2.stop(),
+        RECORDER_TIMEOUT_MS.stop,
+        `${rec2.id}:stop`
+      ).catch((err) => {
+        console.warn("[recording] stop failed", rec2.id, err);
+      });
+    });
+    await Promise.allSettled(tasks);
+    activeSessionRecorderIds.clear();
+    sessionRecording = false;
+    emitRecordingState(false);
+    const elapsedMs = Math.max(0, Date.now() - startedAt);
+    emitStopPhase("end", { elapsedMs });
+    if (elapsedMs > STOP_SLOW_WARN_MS) {
+      try {
+        console.warn("[recording] stop exceeded latency budget", { elapsedMs, budgetMs: STOP_SLOW_WARN_MS });
+      } catch {
+      }
+    }
+  })();
+  try {
+    await stopInFlight;
+  } finally {
+    stopInFlight = null;
+  }
 }
 function isSessionRecording() {
   return sessionRecording;
 }
-var registry, sessionRecording;
+var registry, sessionRecording, activeSessionRecorderIds, startInFlight, stopInFlight, RECORDER_TIMEOUT_MS, STOP_SLOW_WARN_MS;
 var init_recorderRegistry = __esm({
   "src/recording/recorderRegistry.ts"() {
     "use strict";
     init_recording_settings();
     registry = /* @__PURE__ */ new Map();
     sessionRecording = false;
+    activeSessionRecorderIds = /* @__PURE__ */ new Set();
+    startInFlight = null;
+    stopInFlight = null;
+    RECORDER_TIMEOUT_MS = {
+      availability: 1500,
+      start: 5e3,
+      stop: 2e3
+    };
+    STOP_SLOW_WARN_MS = 2e3;
   }
 });
 
@@ -34791,8 +34956,8 @@ function getTpSpeechNamespace() {
     } catch {
     }
     try {
-      subscribeSpeechStore(store3, (state8) => {
-        latestSpeechStoreState = state8;
+      subscribeSpeechStore(store3, (state9) => {
+        latestSpeechStoreState = state9;
       });
     } catch {
     }
@@ -36397,8 +36562,8 @@ function setListeningUi(listening) {
   } catch {
   }
 }
-function emitAsrState(state8, reason) {
-  const payload = { state: state8, reason };
+function emitAsrState(state9, reason) {
+  const payload = { state: state9, reason };
   try {
     window.__tpBus?.emit?.("tp:asr:state", payload);
   } catch {
@@ -36411,8 +36576,8 @@ function emitAsrState(state8, reason) {
     document.dispatchEvent(new CustomEvent("tp:asr:state", { detail: payload }));
   } catch {
   }
-  emitHudSnapshot(`asr-state:${String(state8 || "").toLowerCase() || "unknown"}`);
-  emitAsrHeartbeat(`state:${String(state8 || "").toLowerCase() || "unknown"}`, { force: true });
+  emitHudSnapshot(`asr-state:${String(state9 || "").toLowerCase() || "unknown"}`);
+  emitAsrHeartbeat(`state:${String(state9 || "").toLowerCase() || "unknown"}`, { force: true });
 }
 function shouldAutoRestartSpeech() {
   if (suppressRecognizerAutoRestart) return false;
@@ -38182,18 +38347,6 @@ function installSpeech() {
         () => {
           const session = getSession();
           if (session.phase === "preroll" || session.phase === "live") {
-            const mode2 = getScrollMode4();
-            const needsSpeech = mode2 === "asr" || mode2 === "hybrid";
-            if (needsSpeech && !running) {
-              try {
-                console.warn("[session/stop] ignoring stop click because speech backend never ran", {
-                  mode: mode2,
-                  phase: session.phase
-                });
-              } catch {
-              }
-              return;
-            }
             try {
               console.debug("[session/stop] click in phase=", session.phase);
             } catch {
@@ -38468,12 +38621,12 @@ function loadState() {
     return cloneState(DEFAULT_STATE);
   }
 }
-function persistState(state8) {
+function persistState(state9) {
   try {
     if (typeof window === "undefined") return;
     const toStore = {
-      enabled: cloneState(state8.enabled),
-      configs: cloneState(state8.configs)
+      enabled: cloneState(state9.enabled),
+      configs: cloneState(state9.configs)
     };
     toStore.configs.obs.password = "";
     window.localStorage.setItem(STORAGE_KEY7, JSON.stringify(toStore));
@@ -38688,8 +38841,8 @@ function connectViaBridge() {
     return;
   }
   const run = async () => {
-    const state8 = getRecorderSettings();
-    if (!state8.enabled.obs) {
+    const state9 = getRecorderSettings();
+    if (!state9.enabled.obs) {
       closeBridge();
       return;
     }
@@ -38702,9 +38855,9 @@ function connectViaBridge() {
     }
     await safeInvoke(
       "configure",
-      () => bridge.configure?.({ url: state8.configs.obs.url, password: state8.configs.obs.password || "" })
+      () => bridge.configure?.({ url: state9.configs.obs.url, password: state9.configs.obs.password || "" })
     );
-    logObsCommand("configure", { url: state8.configs.obs.url });
+    logObsCommand("configure", { url: state9.configs.obs.url });
     await safeInvoke("setArmed", () => bridge.setArmed?.(true));
     bridgeArmed = true;
     logObsCommand("setArmed", { armed: true });
@@ -38922,16 +39075,16 @@ function setTrackedTimeout(fn, ms) {
   }
   return h;
 }
-function _emitRecState(state8, detail = null) {
+function _emitRecState(state9, detail = null) {
   try {
-    _recState = state8;
+    _recState = state9;
     _recDetail = detail || null;
     if (typeof window !== "undefined") {
       try {
-        window.__recState = { state: state8, adapter: _recAdapter, detail: _recDetail, ts: Date.now() };
+        window.__recState = { state: state9, adapter: _recAdapter, detail: _recDetail, ts: Date.now() };
       } catch {
       }
-      const payload = { adapter: _recAdapter, state: state8, detail: _recDetail };
+      const payload = { adapter: _recAdapter, state: state9, detail: _recDetail };
       try {
         const key = String(payload.adapter || "") + "|" + String(payload.state || "") + "|" + (payload.detail && payload.detail.fallback ? "F" : "");
         if (key === __lastRecKey) return;
@@ -39454,18 +39607,18 @@ function ensureObsDisconnectFallback() {
     window.__tpObsDisconnectWired = true;
     _onObsDisconnectCb = async () => {
       try {
-        const state8 = _recState;
+        const state9 = _recState;
         const bridgeAdapter = registry2.get("bridge");
         const isAuto = __tpReadAutoRecordPref();
         try {
           recStats.disconnects++;
         } catch {
         }
-        if (state8 === "starting") {
+        if (state9 === "starting") {
           await startObsWithConfirm({ timeoutMs: 900, retryDelayMs: 300 });
           return;
         }
-        if (state8 === "recording") {
+        if (state9 === "recording") {
           _emitRecState("stopping", { reason: "disconnect" });
           if (isAuto && bridgeAdapter) {
             try {
@@ -40320,24 +40473,24 @@ function mapObsTextToStatus(txt, ok) {
   return ok ? "connected" : "disconnected";
 }
 function readObsSettings(src) {
-  let state8 = src;
-  if (!state8) {
+  let state9 = src;
+  if (!state9) {
     try {
-      state8 = getRecorderSettings();
+      state9 = getRecorderSettings();
     } catch {
-      state8 = null;
+      state9 = null;
     }
   }
-  const hasCfg = !!state8?.configs?.obs;
+  const hasCfg = !!state9?.configs?.obs;
   if (!hasCfg) {
     try {
       console.warn("[obs-wiring] No OBS settings yet; using defaults");
     } catch {
     }
   }
-  const enabled2 = Boolean(state8?.enabled?.obs);
-  const url = hasCfg && state8?.configs?.obs?.url || DEFAULT_OBS_URL;
-  const pass = hasCfg && state8?.configs?.obs?.password || "";
+  const enabled2 = Boolean(state9?.enabled?.obs);
+  const url = hasCfg && state9?.configs?.obs?.url || DEFAULT_OBS_URL;
+  const pass = hasCfg && state9?.configs?.obs?.password || "";
   return { enabled: enabled2, url, pass };
 }
 async function applyObsStateFromSettings() {
@@ -42052,23 +42205,23 @@ function renderNavPanel(panel, payload, opts = {}) {
 }
 function getOverlayState() {
   const win = window;
-  const state8 = win.__forgeNavOverlayState;
-  if (!state8 || !state8.root) return null;
-  return state8;
+  const state9 = win.__forgeNavOverlayState;
+  if (!state9 || !state9.root) return null;
+  return state9;
 }
-function setOverlayState(state8) {
+function setOverlayState(state9) {
   const win = window;
-  win.__forgeNavOverlayState = state8;
+  win.__forgeNavOverlayState = state9;
 }
 function closeForgeMenuOverlay() {
-  const state8 = getOverlayState();
-  if (state8) {
+  const state9 = getOverlayState();
+  if (state9) {
     try {
-      document.removeEventListener("keydown", state8.onKeydown, true);
+      document.removeEventListener("keydown", state9.onKeydown, true);
     } catch {
     }
     try {
-      state8.root.remove();
+      state9.root.remove();
     } catch {
     }
     setOverlayState(null);
@@ -42217,8 +42370,8 @@ function openNavOverlayShell() {
     panelShell.appendChild(hint);
     root.appendChild(panelShell);
     const closeOverlay = () => {
-      const state8 = getOverlayState();
-      if (state8 && state8.root !== root) return;
+      const state9 = getOverlayState();
+      if (state9 && state9.root !== root) return;
       try {
         document.removeEventListener("keydown", onKeydown2, true);
       } catch {
@@ -42406,6 +42559,55 @@ var init_forge_nav = __esm({
   }
 });
 
+// src/net/display-ws-endpoint.ts
+function readString3(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+function resolveConfiguredBase() {
+  const w3 = typeof window !== "undefined" ? window : {};
+  const metaEnv3 = typeof import.meta !== "undefined" ? import.meta.env || {} : {};
+  return readString3(w3.__TP_DISPLAY_WS_URL) || readString3(metaEnv3.VITE_DISPLAY_WS_URL) || DEFAULT_DISPLAY_WS_BASE;
+}
+function normalizeWsBase(candidate) {
+  try {
+    const url = new URL(candidate);
+    const protocol = url.protocol.toLowerCase();
+    if (protocol === "https:") {
+      url.protocol = "wss:";
+    } else if (protocol === "http:") {
+      url.protocol = "ws:";
+    } else if (protocol !== "ws:" && protocol !== "wss:") {
+      return null;
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+function resolveDisplayWsBase() {
+  return normalizeWsBase(resolveConfiguredBase()) || DEFAULT_DISPLAY_WS_BASE;
+}
+function buildDisplayWsUrl(pairToken) {
+  const token = readString3(pairToken);
+  if (!token) return null;
+  try {
+    const url = new URL(resolveDisplayWsBase());
+    url.searchParams.set("pair", token);
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+var DEFAULT_DISPLAY_WS_BASE;
+var init_display_ws_endpoint = __esm({
+  "src/net/display-ws-endpoint.ts"() {
+    "use strict";
+    DEFAULT_DISPLAY_WS_BASE = "wss://wtvdjndyxegudufrompx.functions.supabase.co/display-ws";
+  }
+});
+
 // src/net/display-ws-client.ts
 function publishToNetworkDisplays(payload) {
   if (!isSupported || !relayEnabled || typeof payload === "undefined") return;
@@ -42443,18 +42645,36 @@ function onNetworkDisplayStatus(fn) {
 function getNetworkDisplayStatus() {
   return { ...status };
 }
+function setNetworkDisplayPairToken(token) {
+  const next = normalizePairToken(token);
+  if (relayPairToken === next) return;
+  relayPairToken = next;
+  if (!relayEnabled || !isSupported) return;
+  if (!relayPairToken) {
+    resetSocket();
+    updateStatus2({ state: "error", connectedDisplays: 0, lastError: "Pair token unavailable" });
+    return;
+  }
+  resetSocket();
+  connect3();
+}
 function enableNetworkDisplayRelay() {
   if (!isSupported) return;
   if (isRelayDisabled()) return;
   if (relayEnabled) return;
+  if (!relayPairToken) {
+    updateStatus2({ state: "error", lastError: "Pair token unavailable" });
+    return;
+  }
   relayEnabled = true;
   persistRelayEnabled(true);
   connect3();
 }
-var status, listeners2, socket, reconnectDelay, reconnectTimer, sendQueue, SCROLL_THROTTLE_MS, scrollTimer, pendingScroll, relayEnabled, RELAY_ENABLED_KEY, flushScroll, queueScrollMessage, isDisplayContext, isSupported, isRelayDisabled, notifyListeners, updateStatus2, isLocalhostHost, getWsUrl, flushQueue, scheduleReconnect, handleMessage, resetSocket, connect3, loadRelayEnabled, persistRelayEnabled;
+var status, listeners2, socket, reconnectDelay, reconnectTimer, sendQueue, SCROLL_THROTTLE_MS, scrollTimer, pendingScroll, relayEnabled, relayPairToken, RELAY_ENABLED_KEY, flushScroll, queueScrollMessage, isDisplayContext, isSupported, isRelayDisabled, notifyListeners, updateStatus2, normalizePairToken, getWsUrl, flushQueue, scheduleReconnect, handleMessage, resetSocket, connect3, loadRelayEnabled, persistRelayEnabled;
 var init_display_ws_client = __esm({
   "src/net/display-ws-client.ts"() {
     "use strict";
+    init_display_ws_endpoint();
     status = {
       state: "disconnected",
       connectedDisplays: 0,
@@ -42469,6 +42689,7 @@ var init_display_ws_client = __esm({
     scrollTimer = null;
     pendingScroll = null;
     relayEnabled = false;
+    relayPairToken = "";
     RELAY_ENABLED_KEY = "tp_display_ws_enabled";
     flushScroll = () => {
       if (!socket || socket.readyState !== WebSocket.OPEN) {
@@ -42532,22 +42753,12 @@ var init_display_ws_client = __esm({
       Object.assign(status, patch);
       notifyListeners();
     };
-    isLocalhostHost = (host) => {
-      return host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".local");
+    normalizePairToken = (value) => {
+      if (typeof value !== "string") return "";
+      return value.trim();
     };
     getWsUrl = () => {
-      if (typeof window === "undefined") return null;
-      try {
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const hostname = window.location.hostname || "";
-        if (!isLocalhostHost(hostname)) {
-          return null;
-        }
-        const host = window.location.host;
-        return `${protocol}//${host}/ws/display`;
-      } catch {
-        return null;
-      }
+      return buildDisplayWsUrl(relayPairToken);
     };
     flushQueue = () => {
       if (!socket || socket.readyState !== WebSocket.OPEN) return;
@@ -42571,6 +42782,10 @@ var init_display_ws_client = __esm({
     handleMessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+        if (data?.type === "ready") {
+          updateStatus2({ connectedDisplays: 1 });
+          return;
+        }
         if (data?.type === "tp-display-status") {
           const connected = typeof data.connected === "number" ? data.connected : status.connectedDisplays;
           updateStatus2({ connectedDisplays: connected });
@@ -42593,7 +42808,7 @@ var init_display_ws_client = __esm({
       updateStatus2({ state: "connecting", lastError: void 0 });
       const url = getWsUrl();
       if (!url) {
-        updateStatus2({ state: "error", lastError: "Unable to build ws url" });
+        updateStatus2({ state: "error", lastError: "Pair token unavailable" });
         return;
       }
       resetSocket();
@@ -42602,7 +42817,10 @@ var init_display_ws_client = __esm({
       ws.addEventListener("open", () => {
         reconnectDelay = 1e3;
         updateStatus2({ state: "connected", lastError: void 0 });
-        ws.send(JSON.stringify({ type: "hello", role: "main" }));
+        try {
+          ws.send("ping");
+        } catch {
+        }
         flushQueue();
       });
       ws.addEventListener("message", handleMessage);
@@ -42717,8 +42935,8 @@ function publishDisplayScript(rawText, opts) {
 function getLatestRawScript() {
   return latestRaw;
 }
-function pushDisplayRecordState(state8) {
-  const payload = { kind: "tp:record", state: state8 };
+function pushDisplayRecordState(state9) {
+  const payload = { kind: "tp:record", state: state9 };
   const ch = getDisplayChannel();
   if (ch) {
     try {
@@ -43024,19 +43242,19 @@ var init_apply_script = __esm({
 });
 
 // src/forge/workpiece-script-handoff.ts
-function readString3(value) {
+function readString4(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
 function normalizeUuid(value) {
-  const str = readString3(value);
+  const str = readString4(value);
   if (!str) return null;
   return UUID_RE.test(str) ? str.toLowerCase() : null;
 }
 function readLocalStorage(key) {
   try {
-    return readString3(window.localStorage.getItem(key));
+    return readString4(window.localStorage.getItem(key));
   } catch {
     return null;
   }
@@ -43051,7 +43269,7 @@ function getQueryParam(...keys) {
   try {
     const q3 = new URLSearchParams(window.location.search || "");
     for (const key of keys) {
-      const value = readString3(q3.get(key));
+      const value = readString4(q3.get(key));
       if (value) return value;
     }
   } catch {
@@ -43095,25 +43313,25 @@ function persistWorkpiece(workspaceId, workpieceId) {
   }
 }
 function shouldAutoloadWorkpieceScript() {
-  const open = readString3(getQueryParam("open", "intent", "action"))?.toLowerCase();
+  const open = readString4(getQueryParam("open", "intent", "action"))?.toLowerCase();
   if (open === "script" || open === "script_primary") return true;
-  return Boolean(readString3(getQueryParam("script_path", "path")));
+  return Boolean(readString4(getQueryParam("script_path", "path")));
 }
 function resolveScriptPath() {
-  const fromQuery = readString3(getQueryParam("script_path", "path"));
+  const fromQuery = readString4(getQueryParam("script_path", "path"));
   if (!fromQuery) return DEFAULT_SCRIPT_PATH;
   if (fromQuery.startsWith("/") || fromQuery.includes("..")) return DEFAULT_SCRIPT_PATH;
   return fromQuery;
 }
 function resolveTongsApiToken() {
-  const fromQuery = readString3(getQueryParam("tongs_api_token", "tongsApiToken"));
+  const fromQuery = readString4(getQueryParam("tongs_api_token", "tongsApiToken"));
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = readString3(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
+  const fromWindow = readString4(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
   try {
     const meta3 = import.meta;
-    const fromEnv = readString3(meta3.env?.VITE_TONGS_API_TOKEN);
+    const fromEnv = readString4(meta3.env?.VITE_TONGS_API_TOKEN);
     if (fromEnv) return fromEnv;
   } catch {
   }
@@ -43366,8 +43584,8 @@ function handleToggle(on3, sourceId) {
   const fromSidebar = sourceId === SIDEBAR_ENABLE_ID;
   if (enabling && fromSidebar) {
     try {
-      const state8 = getRecorderSettings();
-      const cfg = state8?.configs?.obs || {};
+      const state9 = getRecorderSettings();
+      const cfg = state9?.configs?.obs || {};
       const url = String(cfg.url ?? "");
       const host = String(cfg.host ?? "");
       const hasRemoteHost = !!host && host !== "localhost" && host !== "127.0.0.1";
@@ -43445,11 +43663,11 @@ function bindObsSettingsUI(doc = document) {
       console.info("[OBS-UI] wiring settings/sidebar controls");
     } catch {
     }
-    subscribeRecorderSettings((state8) => {
+    subscribeRecorderSettings((state9) => {
       syncing = true;
       try {
-        syncEnabledCheckboxes(doc, !!state8.enabled.obs);
-        const url = state8.configs.obs.url || "";
+        syncEnabledCheckboxes(doc, !!state9.enabled.obs);
+        const url = state9.configs.obs.url || "";
         try {
           const parsed = new URL(url);
           if (hostEl && hostEl !== doc.activeElement) {
@@ -43462,7 +43680,7 @@ function bindObsSettingsUI(doc = document) {
           if (portEl && portEl !== doc.activeElement) portEl.value = "4455";
         }
         if (passEl && passEl !== doc.activeElement) {
-          passEl.value = state8.configs.obs.password || "";
+          passEl.value = state9.configs.obs.password || "";
         }
       } finally {
         syncing = false;
@@ -43641,7 +43859,7 @@ function readNumber(value, fallback) {
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
-function readString4(value, fallback) {
+function readString5(value, fallback) {
   if (typeof value !== "string") return fallback;
   const v = value.trim();
   if (!v || v === "undefined" || v === "null") return fallback;
@@ -43650,14 +43868,14 @@ function readString4(value, fallback) {
 function normalizeTypography(input, fallback) {
   const src = input && typeof input === "object" ? input : {};
   return clampTypography({
-    fontFamily: readString4(src.fontFamily, fallback.fontFamily),
+    fontFamily: readString5(src.fontFamily, fallback.fontFamily),
     fontSizePx: readNumber(src.fontSizePx, fallback.fontSizePx),
     lineHeight: readNumber(src.lineHeight, fallback.lineHeight),
     weight: readNumber(src.weight, fallback.weight),
     letterSpacingEm: readNumber(src.letterSpacingEm, fallback.letterSpacingEm),
     wordSpacingEm: readNumber(src.wordSpacingEm, fallback.wordSpacingEm),
-    color: readString4(src.color, fallback.color),
-    background: readString4(src.background, fallback.background),
+    color: readString5(src.color, fallback.color),
+    background: readString5(src.background, fallback.background),
     maxLineWidthCh: readNumber(src.maxLineWidthCh, fallback.maxLineWidthCh),
     dimOthers: readNumber(src.dimOthers, fallback.dimOthers)
   });
@@ -45039,20 +45257,20 @@ function announceState(live, prev2, next) {
   }
   if (msg) live.textContent = msg;
 }
-function broadcastState(state8) {
+function broadcastState(state9) {
   if (isDisplayContext2()) return;
   try {
     bc = bc || new BroadcastChannel("tp_rec_state");
-    bc.postMessage({ type: "rec-state", state: state8 });
+    bc.postMessage({ type: "rec-state", state: state9 });
   } catch {
   }
   try {
     const send = window.sendToDisplay;
-    if (typeof send === "function") send({ type: "rec-state", state: state8 });
+    if (typeof send === "function") send({ type: "rec-state", state: state9 });
   } catch {
   }
   try {
-    pushDisplayRecordState(state8 === "off" ? "idle" : state8 === "armed" ? "armed" : "recording");
+    pushDisplayRecordState(state9 === "off" ? "idle" : state9 === "armed" ? "armed" : "recording");
   } catch {
   }
 }
@@ -45207,19 +45425,19 @@ var init_rec_pills = __esm({
 });
 
 // src/forge/workpiece-commit.ts
-function readString5(value) {
+function readString6(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
 function normalizeUuid2(value) {
-  const str = readString5(value);
+  const str = readString6(value);
   if (!str) return null;
   return UUID_RE2.test(str) ? str.toLowerCase() : null;
 }
 function readLocalStorage2(key) {
   try {
-    return readString5(localStorage.getItem(key));
+    return readString6(localStorage.getItem(key));
   } catch {
     return null;
   }
@@ -45234,16 +45452,16 @@ function extractAccessTokenFromAuthPayload(value) {
     return null;
   }
   const row = value;
-  const direct = readString5(row.access_token);
+  const direct = readString6(row.access_token);
   if (direct) return direct;
   const currentSession3 = row.currentSession;
   if (currentSession3 && typeof currentSession3 === "object") {
-    const token = readString5(currentSession3.access_token);
+    const token = readString6(currentSession3.access_token);
     if (token) return token;
   }
   const session = row.session;
   if (session && typeof session === "object") {
-    const token = readString5(session.access_token);
+    const token = readString6(session.access_token);
     if (token) return token;
   }
   const nested = row.data;
@@ -45261,7 +45479,7 @@ function readAccessTokenFromStorageKey(key) {
     return null;
   }
   if (!raw) return null;
-  const direct = readString5(raw);
+  const direct = readString6(raw);
   if (direct && direct !== "null" && direct !== "undefined" && !direct.startsWith("{") && !direct.startsWith("[")) {
     return direct;
   }
@@ -45295,7 +45513,7 @@ function writeLocalStorage2(key, value) {
 }
 function readSessionStorage(key) {
   try {
-    return readString5(sessionStorage.getItem(key));
+    return readString6(sessionStorage.getItem(key));
   } catch {
     return null;
   }
@@ -45310,7 +45528,7 @@ function getQueryParam2(...keys) {
   try {
     const q3 = new URLSearchParams(window.location.search || "");
     for (const key of keys) {
-      const value = readString5(q3.get(key));
+      const value = readString6(q3.get(key));
       if (value) return value;
     }
   } catch {
@@ -45319,16 +45537,16 @@ function getQueryParam2(...keys) {
 }
 function resolveLane() {
   const w3 = window;
-  const fromQuery = readString5(getQueryParam2("forge_lane", "lane"));
+  const fromQuery = readString6(getQueryParam2("forge_lane", "lane"));
   if (fromQuery) return fromQuery;
-  const fromWindow = readString5(w3.__forgeLane ?? w3.__tpLane);
+  const fromWindow = readString6(w3.__forgeLane ?? w3.__tpLane);
   if (fromWindow) return fromWindow;
-  const fromStorage = readString5(readLocalStorage2("forge_lane_v1"));
+  const fromStorage = readString6(readLocalStorage2("forge_lane_v1"));
   if (fromStorage) return fromStorage;
   return DEFAULT_LANE;
 }
 function getWrittenBy() {
-  const version5 = readString5(window.APP_VERSION) || DEFAULT_TOOL_VERSION;
+  const version5 = readString6(window.APP_VERSION) || DEFAULT_TOOL_VERSION;
   return {
     tool: "anvil",
     tool_version: version5,
@@ -45336,13 +45554,13 @@ function getWrittenBy() {
   };
 }
 function getApiToken() {
-  const fromQuery = readString5(getQueryParam2("tongs_api_token", "tongsApiToken"));
+  const fromQuery = readString6(getQueryParam2("tongs_api_token", "tongsApiToken"));
   if (fromQuery) return fromQuery;
-  const fromWindow = readString5(window.__forgeTongsApiToken ?? window.__tpTongsApiToken);
+  const fromWindow = readString6(window.__forgeTongsApiToken ?? window.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
   try {
     const meta3 = import.meta;
-    const fromEnv = readString5(meta3.env?.VITE_TONGS_API_TOKEN);
+    const fromEnv = readString6(meta3.env?.VITE_TONGS_API_TOKEN);
     if (fromEnv) return fromEnv;
   } catch {
   }
@@ -45354,7 +45572,7 @@ function getOrCreateRecordingSessionId() {
   let next = "";
   try {
     const randomUuid = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : "";
-    next = readString5(randomUuid) || "";
+    next = readString6(randomUuid) || "";
   } catch {
   }
   if (!next) {
@@ -45408,7 +45626,7 @@ function persistWorkpiece2(workspaceId, workpieceId) {
   }
 }
 function inferContentType(contentType, name) {
-  const fromInput = readString5(contentType);
+  const fromInput = readString6(contentType);
   if (fromInput) return fromInput;
   const lower = name.toLowerCase();
   if (lower.endsWith(".wav")) return "audio/wav";
@@ -45439,7 +45657,7 @@ function buildHeaders(apiToken) {
 }
 async function readBodyAsJson(response) {
   const text = await response.text();
-  const raw = readString5(text);
+  const raw = readString6(text);
   if (!raw) return null;
   try {
     return JSON.parse(raw);
@@ -47923,8 +48141,8 @@ function initScrollStripHud(opts) {
       modeEl.textContent = `Mode: ${label}`;
     }
     if (stateEl) {
-      const state8 = detail.running ? "Running" : "Waiting";
-      stateEl.textContent = `Scroll: ${state8}`;
+      const state9 = detail.running ? "Running" : "Waiting";
+      stateEl.textContent = `Scroll: ${state9}`;
     }
     if (posEl && detail.activeIdx != null && detail.lineCount != null && detail.lineCount > 0) {
       const idx = detail.activeIdx + 1;
@@ -48422,9 +48640,9 @@ function loadState2() {
     return { open: false, frozen: false, popout: false, x: 12, y: 120 };
   }
 }
-function saveState(state8) {
+function saveState(state9) {
   try {
-    localStorage.setItem(LS_STATE, JSON.stringify(state8));
+    localStorage.setItem(LS_STATE, JSON.stringify(state9));
   } catch {
   }
 }
@@ -48469,20 +48687,20 @@ function initHudPopup(opts = {}) {
   }
   const storeLines = [];
   let snapshotText = "";
-  const state8 = loadState2();
+  const state9 = loadState2();
   if (isPopout) {
-    state8.open = true;
-    state8.popout = true;
+    state9.open = true;
+    state9.popout = true;
   }
   const wrap = document.createElement("div");
   wrap.className = "tp-hud-popup";
   wrap.setAttribute("role", "dialog");
   wrap.setAttribute("aria-label", "Debug HUD");
   wrap.style.position = "fixed";
-  wrap.style.left = `${state8.x}px`;
-  wrap.style.top = `${state8.y}px`;
-  wrap.style.display = state8.open ? "block" : "none";
-  wrap.dataset.open = state8.open ? "1" : "0";
+  wrap.style.left = `${state9.x}px`;
+  wrap.style.top = `${state9.y}px`;
+  wrap.style.display = state9.open ? "block" : "none";
+  wrap.dataset.open = state9.open ? "1" : "0";
   const head2 = document.createElement("div");
   head2.className = "tp-hud-popup__head";
   const title = document.createElement("div");
@@ -48504,10 +48722,10 @@ function initHudPopup(opts = {}) {
   const btnPopout = makeBtn("Pop out");
   const btnDock = makeBtn("Dock");
   const btnClose = makeBtn("\xD7", "tp-hud-btn--close");
-  btnFreeze.dataset.on = state8.frozen ? "1" : "0";
-  btnFreeze.textContent = state8.frozen ? "Frozen" : "Freeze";
-  btnPopout.style.display = state8.popout ? "none" : "";
-  btnDock.style.display = state8.popout ? "" : "none";
+  btnFreeze.dataset.on = state9.frozen ? "1" : "0";
+  btnFreeze.textContent = state9.frozen ? "Frozen" : "Freeze";
+  btnPopout.style.display = state9.popout ? "none" : "";
+  btnDock.style.display = state9.popout ? "" : "none";
   btns.append(btnDump, btnCopy, btnClear, btnFreeze, btnPopout, btnDock, btnClose);
   head2.append(title, btns);
   const body = document.createElement("div");
@@ -48527,9 +48745,9 @@ function initHudPopup(opts = {}) {
     const y = clamp6(Number(wrap.style.top) || 0, 0, maxY);
     wrap.style.left = `${x}px`;
     wrap.style.top = `${y}px`;
-    state8.x = x;
-    state8.y = y;
-    saveState(state8);
+    state9.x = x;
+    state9.y = y;
+    saveState(state9);
   };
   let dragging = false;
   let startX = 0;
@@ -48581,7 +48799,7 @@ function initHudPopup(opts = {}) {
     }
   };
   const log = (line, data) => {
-    if (!state8.open || state8.frozen) return;
+    if (!state9.open || state9.frozen) return;
     const prefix = `[${nowStamp()}] `;
     appendLine(prefix + line);
     if (data !== void 0) {
@@ -48637,30 +48855,30 @@ function initHudPopup(opts = {}) {
     if (!isPopout) broadcastSnapshot(snapshotText);
   };
   const setOpen = (next) => {
-    state8.open = next;
+    state9.open = next;
     wrap.dataset.open = next ? "1" : "0";
     wrap.style.display = next ? "block" : "none";
-    saveState(state8);
+    saveState(state9);
     if (!isPopout) {
       broadcastState2();
     }
   };
   const setFrozen = (next) => {
-    state8.frozen = next;
+    state9.frozen = next;
     btnFreeze.dataset.on = next ? "1" : "0";
     btnFreeze.textContent = next ? "Frozen" : "Freeze";
-    saveState(state8);
+    saveState(state9);
     if (!isPopout) broadcastState2();
   };
   const setPopout = (next) => {
-    state8.popout = next;
+    state9.popout = next;
     btnPopout.style.display = next ? "none" : "";
     btnDock.style.display = next ? "" : "none";
-    saveState(state8);
+    saveState(state9);
     if (!isPopout) broadcastState2();
   };
   const openPopout = () => {
-    if (state8.popout) return;
+    if (state9.popout) return;
     const features = [
       "popup=yes",
       "width=520",
@@ -48677,7 +48895,7 @@ function initHudPopup(opts = {}) {
     }
     window.__tpHudPopoutWin = win;
     setPopout(true);
-    bridge.send({ type: "hud:state", state: state8 });
+    bridge.send({ type: "hud:state", state: state9 });
   };
   const closePopout = () => {
     setPopout(false);
@@ -48691,7 +48909,7 @@ function initHudPopup(opts = {}) {
     }
   };
   const broadcastState2 = () => {
-    bridge.send({ type: "hud:state", state: state8 });
+    bridge.send({ type: "hud:state", state: state9 });
   };
   const broadcastAppend = (lines) => {
     if (!lines.length) return;
@@ -48745,7 +48963,7 @@ function initHudPopup(opts = {}) {
     }
   });
   btnClose.addEventListener("click", () => setOpen(false));
-  btnFreeze.addEventListener("click", () => setFrozen(!state8.frozen));
+  btnFreeze.addEventListener("click", () => setFrozen(!state9.frozen));
   btnClear.addEventListener("click", () => clear());
   btnCopy.addEventListener("click", () => copyText());
   btnDump.addEventListener("click", () => dumpSnapshot("DUMP"));
@@ -48759,7 +48977,7 @@ function initHudPopup(opts = {}) {
     if (e.repeat) return;
     if (e.ctrlKey || e.altKey || e.metaKey) return;
     if (e.code !== "Backquote") return;
-    setOpen(!state8.open);
+    setOpen(!state9.open);
     e.preventDefault();
   }, { capture: true });
   window.addEventListener("message", (e) => {
@@ -48769,14 +48987,14 @@ function initHudPopup(opts = {}) {
       setPopout(false);
     }
   });
-  if (!state8.popout && state8.open) {
+  if (!state9.popout && state9.open) {
     broadcastState2();
   }
   window.addEventListener("beforeunload", () => {
     bridge.close();
   });
   return {
-    isOpen: () => state8.open,
+    isOpen: () => state9.open,
     setOpen,
     log,
     dumpSnapshot,
@@ -48785,7 +49003,7 @@ function initHudPopup(opts = {}) {
     appendLines: (lines) => lines.forEach((line) => appendLine(line)),
     setSnapshotText,
     copyText,
-    getState: () => ({ ...state8 }),
+    getState: () => ({ ...state9 }),
     openPopout,
     closePopout,
     setPopout
@@ -48801,10 +49019,10 @@ var init_popup = __esm({
 });
 
 // src/hud/shouldShowHud.ts
-function shouldShowHud(state8) {
-  const hudSupported = !!state8?.hudSupported;
-  const hudEnabledByUser = !!state8?.hudEnabledByUser;
-  const page = state8?.page || "scripts";
+function shouldShowHud(state9) {
+  const hudSupported = !!state9?.hudSupported;
+  const hudEnabledByUser = !!state9?.hudEnabledByUser;
+  const page = state9?.page || "scripts";
   if (!hudSupported) return false;
   if (!hudEnabledByUser) return false;
   return page !== "display";
@@ -49184,19 +49402,19 @@ function initAsrPersistence() {
   };
   syncToStore(initialState);
   try {
-    speechStore2.subscribe((state8) => {
+    speechStore2.subscribe((state9) => {
       const toSave = {
-        engine: state8.engine,
-        lang: state8.lang,
-        interim: state8.interim,
-        threshold: state8.threshold,
-        endpointingMs: state8.endpointingMs,
-        fillerFilter: state8.fillerFilter,
-        manualAnchorAdoptEnabled: state8.manualAnchorAdoptEnabled,
-        calmModeEnabled: state8.calmModeEnabled
+        engine: state9.engine,
+        lang: state9.lang,
+        interim: state9.interim,
+        threshold: state9.threshold,
+        endpointingMs: state9.endpointingMs,
+        fillerFilter: state9.fillerFilter,
+        manualAnchorAdoptEnabled: state9.manualAnchorAdoptEnabled,
+        calmModeEnabled: state9.calmModeEnabled
       };
       savePersistedAsrSettings(toSave);
-      syncToStore(state8);
+      syncToStore(state9);
     });
   } catch (err) {
     try {
@@ -49271,8 +49489,8 @@ async function attemptGetUserMedia() {
   }
 }
 async function ensureMicAccess() {
-  const state8 = await queryMicPermission();
-  if (state8 === "denied") {
+  const state9 = await queryMicPermission();
+  if (state9 === "denied") {
     try {
       appStoreSingleton.set("micGranted", false);
     } catch {
@@ -49283,7 +49501,7 @@ async function ensureMicAccess() {
     }
     return { allowed: false, reason: "NO_PERMISSION" };
   }
-  if (state8 === "granted") {
+  if (state9 === "granted") {
     try {
       appStoreSingleton.set("micGranted", true);
     } catch {
@@ -49304,19 +49522,19 @@ var init_mic_gate = __esm({
 });
 
 // src/forge/ready-scripts.ts
-function readString6(value) {
+function readString7(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
 function normalizeUuid3(value) {
-  const str = readString6(value);
+  const str = readString7(value);
   if (!str) return null;
   return UUID_RE3.test(str) ? str.toLowerCase() : null;
 }
 function readLocalStorage3(key) {
   try {
-    return readString6(window.localStorage.getItem(key));
+    return readString7(window.localStorage.getItem(key));
   } catch {
     return null;
   }
@@ -49331,16 +49549,16 @@ function extractAccessTokenFromAuthPayload2(value) {
     return null;
   }
   const row = value;
-  const direct = readString6(row.access_token);
+  const direct = readString7(row.access_token);
   if (direct) return direct;
   const currentSession3 = row.currentSession;
   if (currentSession3 && typeof currentSession3 === "object") {
-    const token = readString6(currentSession3.access_token);
+    const token = readString7(currentSession3.access_token);
     if (token) return token;
   }
   const session = row.session;
   if (session && typeof session === "object") {
-    const token = readString6(session.access_token);
+    const token = readString7(session.access_token);
     if (token) return token;
   }
   const nested = row.data;
@@ -49358,7 +49576,7 @@ function readAccessTokenFromStorageKey2(key) {
     return null;
   }
   if (!raw) return null;
-  const direct = readString6(raw);
+  const direct = readString7(raw);
   if (direct && direct !== "null" && direct !== "undefined" && !direct.startsWith("{") && !direct.startsWith("[")) {
     return direct;
   }
@@ -49388,7 +49606,7 @@ function getQueryParam3(...keys) {
   try {
     const q3 = new URLSearchParams(window.location.search || "");
     for (const key of keys) {
-      const value = readString6(q3.get(key));
+      const value = readString7(q3.get(key));
       if (value) return value;
     }
   } catch {
@@ -49410,14 +49628,14 @@ function resolveWorkspaceId3() {
   return null;
 }
 function resolveTongsApiToken2() {
-  const fromQuery = readString6(getQueryParam3("tongs_api_token", "tongsApiToken"));
+  const fromQuery = readString7(getQueryParam3("tongs_api_token", "tongsApiToken"));
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = readString6(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
+  const fromWindow = readString7(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
   try {
     const meta3 = import.meta;
-    const fromEnv = readString6(meta3.env?.VITE_TONGS_API_TOKEN);
+    const fromEnv = readString7(meta3.env?.VITE_TONGS_API_TOKEN);
     if (fromEnv) return fromEnv;
   } catch {
   }
@@ -49436,13 +49654,13 @@ function withAuthHeaders() {
   return headers;
 }
 function normalizeScriptPath(value) {
-  const path = readString6(value);
+  const path = readString7(value);
   if (!path) return null;
   if (path.startsWith("/") || path.includes("..")) return null;
   return path;
 }
 function normalizeIso(value) {
-  const iso = readString6(value);
+  const iso = readString7(value);
   if (!iso) return void 0;
   const timestamp = Date.parse(iso);
   if (!Number.isFinite(timestamp)) return void 0;
@@ -49479,7 +49697,7 @@ function parseReadyScriptsPayload(payload, workspaceId) {
     const path = primaryPath ?? scriptPaths[0] ?? null;
     if (!rowWorkspace || !workpieceId || !path) continue;
     const normalizedScriptPaths = scriptPaths.length ? scriptPaths.includes(path) ? scriptPaths : [path, ...scriptPaths] : [path];
-    const title = readString6(item.title) ?? `Episode ${workpieceId.slice(0, 8)}`;
+    const title = readString7(item.title) ?? `Episode ${workpieceId.slice(0, 8)}`;
     scripts.push({
       id: toReadyScriptId(workpieceId, path),
       workspaceId: rowWorkspace,
@@ -49515,7 +49733,7 @@ function parseRecordingSessionsPayload(payload, workspaceId) {
     const id = normalizeUuid3(item.id);
     const rowWorkspace = normalizeUuid3(item.workspace_id) ?? workspaceId;
     if (!id || !rowWorkspace) continue;
-    const title = readString6(item.title) ?? "Recording Session";
+    const title = readString7(item.title) ?? "Recording Session";
     out.push({
       id,
       workspaceId: rowWorkspace,
@@ -49611,7 +49829,7 @@ async function readRecordingSessionScripts(sessionId) {
   const workspaceId = normalizeUuid3(detail.workspace_id);
   const parsedSessionId = normalizeUuid3(detail.id);
   if (!workspaceId || !parsedSessionId) return null;
-  const sessionTitle = readString6(detail.title) ?? "Recording Session";
+  const sessionTitle = readString7(detail.title) ?? "Recording Session";
   const workspaceReady = await listWorkspaceReadyScripts().catch(() => []);
   const titleByKey = /* @__PURE__ */ new Map();
   const readyMetaByKey = /* @__PURE__ */ new Map();
@@ -49742,8 +49960,8 @@ async function ensureReadPermission(handle) {
     const hasQuery = typeof h?.queryPermission === "function";
     const hasRequest = typeof h?.requestPermission === "function";
     if (!hasQuery && !hasRequest) return true;
-    const state8 = hasQuery ? await h.queryPermission({ mode: "read" }) : null;
-    if (state8 === "granted") return true;
+    const state9 = hasQuery ? await h.queryPermission({ mode: "read" }) : null;
+    if (state9 === "granted") return true;
     if (!hasRequest) return true;
     const req = await h.requestPermission({ mode: "read" });
     return req === "granted";
@@ -49997,14 +50215,14 @@ var init_scripts_store = __esm({
 });
 
 // src/forge/script-source.ts
-function readString7(value) {
+function readString8(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
 function readLocalStorage4(key) {
   try {
-    return readString7(window.localStorage.getItem(key));
+    return readString8(window.localStorage.getItem(key));
   } catch {
     return null;
   }
@@ -50062,6 +50280,94 @@ var init_script_source = __esm({
     "use strict";
     SOURCE_KEY = "forge_anvil_script_source_v1";
     RECORDING_SESSION_KEY2 = "forge_anvil_recording_session_v1";
+  }
+});
+
+// src/forge/entitlements.ts
+function notify2(next) {
+  state7 = next;
+  subscribers2.forEach((fn) => {
+    try {
+      fn(next);
+    } catch {
+    }
+  });
+}
+function toNullableString(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+function normalizeEntitlements(row) {
+  return {
+    tier: toNullableString(row?.tier) ?? "free",
+    anvil_paid: Boolean(row?.anvil_paid),
+    subscription_status: toNullableString(row?.subscription_status),
+    stripe_customer_id: toNullableString(row?.stripe_customer_id),
+    stripe_subscription_id: toNullableString(row?.stripe_subscription_id),
+    current_period_end: toNullableString(row?.current_period_end)
+  };
+}
+function getEntitlementsState() {
+  return state7;
+}
+function subscribeEntitlements(fn) {
+  subscribers2.add(fn);
+  return () => {
+    subscribers2.delete(fn);
+  };
+}
+function setFreeEntitlements() {
+  const next = { status: "ready", ent: FREE_ENTITLEMENTS };
+  notify2(next);
+  return next;
+}
+async function refreshEntitlements(supabase2) {
+  try {
+    notify2({ status: "loading", ent: null });
+    const { data: authData, error: authError } = await supabase2.auth.getUser();
+    if (authError) throw authError;
+    const user = authData?.user;
+    if (!user) {
+      return setFreeEntitlements();
+    }
+    const { data, error } = await supabase2.from("profiles").select(
+      "tier, anvil_paid, subscription_status, stripe_customer_id, stripe_subscription_id, current_period_end"
+    ).eq("user_id", user.id).maybeSingle();
+    if (error) throw error;
+    const next = {
+      status: "ready",
+      ent: normalizeEntitlements(data || {})
+    };
+    notify2(next);
+    return next;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : typeof error === "string" ? error : "Unknown entitlement error";
+    const next = { status: "error", ent: null, error: message };
+    notify2(next);
+    return next;
+  }
+}
+function isPaid(ent) {
+  if (!ent) return false;
+  if (ent.anvil_paid) return true;
+  if (ent.tier && ent.tier !== "free") return true;
+  return ent.subscription_status === "active";
+}
+var FREE_ENTITLEMENTS, state7, subscribers2;
+var init_entitlements = __esm({
+  "src/forge/entitlements.ts"() {
+    "use strict";
+    FREE_ENTITLEMENTS = {
+      tier: "free",
+      anvil_paid: false,
+      subscription_status: null,
+      stripe_customer_id: null,
+      stripe_subscription_id: null,
+      current_period_end: null
+    };
+    state7 = { status: "idle", ent: null };
+    subscribers2 = /* @__PURE__ */ new Set();
   }
 });
 
@@ -50357,6 +50663,14 @@ function applyAuthState(session) {
   syncAuthHeader();
   syncIronMineUi();
   syncTrialClass();
+  try {
+    if (hasSupabaseConfig) {
+      void refreshEntitlements(supabase);
+    } else {
+      setFreeEntitlements();
+    }
+  } catch {
+  }
   onSessionPhaseChange();
 }
 async function loadInitialAuthState() {
@@ -50402,6 +50716,7 @@ var init_auth_unlock = __esm({
   "src/features/auth-unlock.ts"() {
     "use strict";
     init_supabaseClient();
+    init_entitlements();
     init_app_store();
     init_session();
     init_toasts();
@@ -50984,8 +51299,8 @@ function renderProfileOptions() {
   try {
     const select = getProfileSelect();
     if (!select) return;
-    const state8 = getAsrState();
-    const entries = Object.entries(state8.profiles || {});
+    const state9 = getAsrState();
+    const entries = Object.entries(state9.profiles || {});
     select.innerHTML = "";
     const placeholder = document.createElement("option");
     placeholder.value = "";
@@ -50997,7 +51312,7 @@ function renderProfileOptions() {
       opt.textContent = profile.label || id;
       select.appendChild(opt);
     });
-    const active = state8.activeProfileId;
+    const active = state9.activeProfileId;
     select.value = active && entries.some(([id]) => id === active) ? active : "";
   } catch {
   }
@@ -51514,6 +51829,20 @@ function buildSettingsContent(rootEl2) {
           </div>
           <div class="settings-meta">3 months \xB7 Save $5</div>
         </div>
+        <div
+          id="billingStatusPanel"
+          class="settings-small"
+          style="margin-top:10px;padding:10px;border:1px solid rgba(255,255,255,0.08);border-radius:10px;display:grid;gap:4px;"
+        >
+          <div><strong>Billing status</strong></div>
+          <div id="billingStatusSummary">Billing: loading...</div>
+          <div>Paid: <span id="billingStatusPaid">--</span></div>
+          <div>Tier: <span id="billingStatusTier">--</span></div>
+          <div>Status: <span id="billingStatusSubscription">--</span></div>
+          <div>Period end: <span id="billingStatusPeriodEnd">--</span></div>
+          <div>Customer: <span id="billingStatusCustomer">--</span></div>
+          <div>Subscription: <span id="billingStatusSubId">--</span></div>
+        </div>
         <p><strong>What\u2019s included</strong></p>
         <ul>
           <li>Speech-synced & Hybrid scrolling keeps you in rhythm without rigid pacing.</li>
@@ -51666,24 +51995,24 @@ var init_builder = __esm({
 
 // src/settings/uiPrefs.ts
 function setUiPrefs(p) {
-  state7 = { ...state7, ...p };
+  state8 = { ...state8, ...p };
   try {
-    localStorage.setItem(KEY6, JSON.stringify(state7));
+    localStorage.setItem(KEY6, JSON.stringify(state8));
   } catch {
   }
   subs6.forEach((fn) => {
     try {
-      fn(state7);
+      fn(state8);
     } catch {
     }
   });
 }
-var KEY6, state7, subs6, getUiPrefs2;
+var KEY6, state8, subs6, getUiPrefs2;
 var init_uiPrefs = __esm({
   "src/settings/uiPrefs.ts"() {
     "use strict";
     KEY6 = "tp_ui_prefs_v1";
-    state7 = (() => {
+    state8 = (() => {
       try {
         const parsed = JSON.parse(localStorage.getItem(KEY6) || "{}") || {};
         return { linkTypography: false, hybridGate: "db_or_vad", hybridUseProfileId: parsed.hybridUseProfileId || null, ...parsed };
@@ -51692,7 +52021,7 @@ var init_uiPrefs = __esm({
       }
     })();
     subs6 = /* @__PURE__ */ new Set();
-    getUiPrefs2 = () => state7;
+    getUiPrefs2 = () => state8;
   }
 });
 
@@ -52606,26 +52935,26 @@ function queryAsrInputs(card) {
     calm: q3("#asrCalmMode")
   };
 }
-function applyAsrStateToInputs(inputs, state8) {
+function applyAsrStateToInputs(inputs, state9) {
   const { eng, lang, interim, fillers, thresh, endms } = inputs;
-  if (eng && typeof state8.engine === "string") {
+  if (eng && typeof state9.engine === "string") {
     try {
-      eng.value = state8.engine;
+      eng.value = state9.engine;
     } catch {
     }
   }
-  if (lang && typeof state8.lang === "string") {
-    lang.value = state8.lang;
+  if (lang && typeof state9.lang === "string") {
+    lang.value = state9.lang;
   }
-  if (interim) interim.checked = !!state8.interim;
-  if (fillers) fillers.checked = !!state8.fillerFilter;
-  if (thresh && typeof state8.threshold === "number") {
-    thresh.value = String(state8.threshold);
+  if (interim) interim.checked = !!state9.interim;
+  if (fillers) fillers.checked = !!state9.fillerFilter;
+  if (thresh && typeof state9.threshold === "number") {
+    thresh.value = String(state9.threshold);
   }
-  if (endms && typeof state8.endpointingMs === "number") {
-    endms.value = String(state8.endpointingMs);
+  if (endms && typeof state9.endpointingMs === "number") {
+    endms.value = String(state9.endpointingMs);
   }
-  if (inputs.calm) inputs.calm.checked = !!state8.calmModeEnabled;
+  if (inputs.calm) inputs.calm.checked = !!state9.calmModeEnabled;
 }
 function attachAsrInputListeners(inputs) {
   const { eng, lang, interim, fillers, thresh, endms, calm } = inputs;
@@ -52736,8 +53065,8 @@ function hydrateAsrSettingsCard(root = document) {
   const card = findAsrCard(root);
   if (!card) return;
   const inputs = queryAsrInputs(card);
-  const state8 = getAsrSettings();
-  withAsrHydration(() => applyAsrStateToInputs(inputs, state8));
+  const state9 = getAsrSettings();
+  withAsrHydration(() => applyAsrStateToInputs(inputs, state9));
 }
 function mountAsrSettings(root = document, store3) {
   const card = wireAsrSettingsCard(root, store3);
@@ -53042,6 +53371,72 @@ function logSettingsHydrationSnapshot(store3) {
   } catch {
   }
 }
+function setBillingField(rootEl2, id, value) {
+  const el = rootEl2.querySelector(`#${id}`);
+  if (!el) return;
+  el.textContent = value;
+}
+function formatPeriodEnd(raw) {
+  if (!raw) return "none";
+  const dt = new Date(raw);
+  if (Number.isNaN(dt.getTime())) return raw;
+  return dt.toLocaleString();
+}
+function renderBillingStatus(rootEl2, state9) {
+  const summary = rootEl2.querySelector("#billingStatusSummary");
+  if (!summary) return;
+  if (state9.status === "idle" || state9.status === "loading") {
+    summary.textContent = "Billing: loading...";
+    setBillingField(rootEl2, "billingStatusPaid", "--");
+    setBillingField(rootEl2, "billingStatusTier", "--");
+    setBillingField(rootEl2, "billingStatusSubscription", "--");
+    setBillingField(rootEl2, "billingStatusPeriodEnd", "--");
+    setBillingField(rootEl2, "billingStatusCustomer", "--");
+    setBillingField(rootEl2, "billingStatusSubId", "--");
+    return;
+  }
+  if (state9.status === "error") {
+    summary.textContent = `Billing: error (${state9.error})`;
+    setBillingField(rootEl2, "billingStatusPaid", "false");
+    setBillingField(rootEl2, "billingStatusTier", "unknown");
+    setBillingField(rootEl2, "billingStatusSubscription", "unknown");
+    setBillingField(rootEl2, "billingStatusPeriodEnd", "unknown");
+    setBillingField(rootEl2, "billingStatusCustomer", "unknown");
+    setBillingField(rootEl2, "billingStatusSubId", "unknown");
+    return;
+  }
+  const ent = state9.ent;
+  const paid = isPaid(ent);
+  summary.textContent = paid ? "Founders: active" : "Founders: inactive";
+  setBillingField(rootEl2, "billingStatusPaid", String(paid));
+  setBillingField(rootEl2, "billingStatusTier", ent.tier || "free");
+  setBillingField(rootEl2, "billingStatusSubscription", ent.subscription_status || "none");
+  setBillingField(rootEl2, "billingStatusPeriodEnd", formatPeriodEnd(ent.current_period_end));
+  setBillingField(rootEl2, "billingStatusCustomer", ent.stripe_customer_id || "none");
+  setBillingField(rootEl2, "billingStatusSubId", ent.stripe_subscription_id || "none");
+}
+function wireBillingStatus(rootEl2) {
+  const summary = rootEl2.querySelector("#billingStatusSummary");
+  if (!summary) return;
+  try {
+    entitlementsUnsub?.();
+  } catch {
+  }
+  entitlementsUnsub = null;
+  const render = (state9) => {
+    renderBillingStatus(rootEl2, state9);
+  };
+  render(getEntitlementsState());
+  entitlementsUnsub = subscribeEntitlements(render);
+  const current2 = getEntitlementsState();
+  if (current2.status === "idle") {
+    if (hasSupabaseConfig) {
+      void refreshEntitlements(supabase);
+    } else {
+      setFreeEntitlements();
+    }
+  }
+}
 function mountSettings(rootEl2, store3) {
   setSettingsHydrating(true);
   try {
@@ -53110,6 +53505,10 @@ function mountSettings(rootEl2, store3) {
     }
     try {
       syncSettingsValues(resolvedStore);
+    } catch {
+    }
+    try {
+      wireBillingStatus(rootEl2);
     } catch {
     }
     try {
@@ -53299,7 +53698,7 @@ function syncSettingsValues(store3) {
 function flushPendingSettingsEdits(store3) {
   flushAsrSettingsToStore(store3);
 }
-var settings_default;
+var entitlementsUnsub, settings_default;
 var init_settings = __esm({
   "src/ui/settings/index.ts"() {
     "use strict";
@@ -53314,6 +53713,9 @@ var init_settings = __esm({
     init_speech_store();
     init_typography_presets();
     init_ui_scale();
+    init_entitlements();
+    init_supabaseClient();
+    entitlementsUnsub = null;
     try {
       window.__tp = window.__tp || {};
       window.__tp.settings = window.__tp.settings || {};
@@ -54853,6 +55255,23 @@ var init_auto_adapter = __esm({
 });
 
 // src/features/scroll/mode-router.ts
+function updateRouterDiag(extra = {}) {
+  try {
+    if (typeof window === "undefined") return;
+    const w3 = window;
+    const prev2 = w3.__tpModeRouterDiag || {};
+    w3.__tpModeRouterDiag = {
+      ...prev2,
+      epoch: routerEpoch,
+      staleModeDrops,
+      staleSessionDrops,
+      hasModeSub: !!disposeModeSub,
+      hasSessionSub: !!disposeSessionSub,
+      ...extra
+    };
+  } catch {
+  }
+}
 function isDevMode9() {
   try {
     const w3 = window;
@@ -54919,23 +55338,53 @@ function syncEngines() {
   lastStep = applySimpleEngine(stepEngine, wantStep, lastStep);
 }
 function initScrollModeRouter(deps) {
+  routerEpoch += 1;
+  const epoch = routerEpoch;
+  try {
+    disposeModeSub?.();
+  } catch {
+  }
+  try {
+    disposeSessionSub?.();
+  } catch {
+  }
+  disposeModeSub = null;
+  disposeSessionSub = null;
+  updateRouterDiag({
+    initCount: Number((typeof window !== "undefined" ? window.__tpModeRouterDiag?.initCount : 0) || 0) + 1,
+    phase: "reinit"
+  });
   autoEngine = deps.auto;
   asrEngine2 = deps.asr;
   stepEngine = deps.step;
   currentMode2 = deps.scrollMode.get();
   currentSession2 = deps.session.get();
   syncEngines();
-  deps.scrollMode.subscribe((mode) => {
+  const modeUnsub = deps.scrollMode.subscribe((mode) => {
+    if (epoch !== routerEpoch) {
+      staleModeDrops += 1;
+      updateRouterDiag({ phase: "stale-mode-drop" });
+      return;
+    }
     if (!mode) return;
     currentMode2 = mode;
     syncEngines();
   });
-  deps.session.subscribe((sess) => {
+  disposeModeSub = typeof modeUnsub === "function" ? modeUnsub : null;
+  updateRouterDiag({ phase: "mode-subscribed" });
+  const sessionUnsub = deps.session.subscribe((sess) => {
+    if (epoch !== routerEpoch) {
+      staleSessionDrops += 1;
+      updateRouterDiag({ phase: "stale-session-drop" });
+      return;
+    }
     currentSession2 = sess;
     syncEngines();
   });
+  disposeSessionSub = typeof sessionUnsub === "function" ? sessionUnsub : null;
+  updateRouterDiag({ phase: "session-subscribed" });
 }
-var currentMode2, currentSession2, autoEngine, asrEngine2, stepEngine, lastAuto, lastAsr, lastStep;
+var currentMode2, currentSession2, autoEngine, asrEngine2, stepEngine, lastAuto, lastAsr, lastStep, routerEpoch, disposeModeSub, disposeSessionSub, staleModeDrops, staleSessionDrops;
 var init_mode_router = __esm({
   "src/features/scroll/mode-router.ts"() {
     "use strict";
@@ -54948,6 +55397,11 @@ var init_mode_router = __esm({
     lastAuto = false;
     lastAsr = false;
     lastStep = false;
+    routerEpoch = 0;
+    disposeModeSub = null;
+    disposeSessionSub = null;
+    staleModeDrops = 0;
+    staleSessionDrops = 0;
   }
 });
 
@@ -55926,25 +56380,25 @@ function bindCameraUI() {
       camToggleSpinner.style.display = "none";
       camToggleSpinner.setAttribute("aria-hidden", "true");
     }
-    const setToggleState = (state8) => {
+    const setToggleState = (state9) => {
       if (camToggleLabel) {
-        if (state8 === "on") camToggleLabel.textContent = "Camera: On";
-        else if (state8 === "starting") camToggleLabel.textContent = "Camera: Starting\u2026";
-        else if (state8 === "error") camToggleLabel.textContent = "Camera: Error";
+        if (state9 === "on") camToggleLabel.textContent = "Camera: On";
+        else if (state9 === "starting") camToggleLabel.textContent = "Camera: Starting\u2026";
+        else if (state9 === "error") camToggleLabel.textContent = "Camera: Error";
         else camToggleLabel.textContent = "Camera: Off";
       }
       if (camToggleSpinner) {
-        const show2 = state8 === "starting";
+        const show2 = state9 === "starting";
         camToggleSpinner.style.display = show2 ? "" : "none";
         camToggleSpinner.setAttribute("aria-hidden", show2 ? "false" : "true");
       }
-      if (state8 === "on") {
+      if (state9 === "on") {
         camToggleBtn.setAttribute("aria-pressed", "true");
         camToggleBtn.disabled = false;
-      } else if (state8 === "starting") {
+      } else if (state9 === "starting") {
         camToggleBtn.setAttribute("aria-pressed", api.isActive() ? "true" : "false");
         camToggleBtn.disabled = true;
-      } else if (state8 === "error") {
+      } else if (state9 === "error") {
         camToggleBtn.setAttribute("aria-pressed", "false");
         camToggleBtn.disabled = false;
       } else {
@@ -56167,14 +56621,14 @@ function getMicUiState() {
   if (permission === "denied") return { state: "blocked", permission, capturing };
   return { state: "idle", permission, capturing };
 }
-function updateMicPill(state8) {
+function updateMicPill(state9) {
   try {
     const pill = document.getElementById("permChip");
     if (!pill) return;
-    const label = state8 === "capturing" ? "Mic: capturing" : state8 === "granted" ? "Mic: granted" : state8 === "blocked" ? "Mic: blocked" : "Mic: idle";
+    const label = state9 === "capturing" ? "Mic: capturing" : state9 === "granted" ? "Mic: granted" : state9 === "blocked" ? "Mic: blocked" : "Mic: idle";
     pill.textContent = label;
-    pill.dataset.micState = state8;
-    pill.classList.toggle("mic-active", state8 === "capturing");
+    pill.dataset.micState = state9;
+    pill.classList.toggle("mic-active", state9 === "capturing");
   } catch {
   }
 }
@@ -58420,8 +58874,8 @@ async function ensureWelcomeScript() {
       return;
     }
     await waitForScriptStabilization(1200);
-    const state8 = await resolveWelcomeState();
-    if (state8.seen) {
+    const state9 = await resolveWelcomeState();
+    if (state9.seen) {
       welcomeCheckDone = true;
       return;
     }
@@ -58430,9 +58884,9 @@ async function ensureWelcomeScript() {
       welcomeCheckDone = true;
       return;
     }
-    const script = buildWelcomeScript(state8.displayName);
+    const script = buildWelcomeScript(state9.displayName);
     applyScript(script, "load", { updateEditor: true });
-    await state8.markSeen();
+    await state9.markSeen();
     welcomeCheckDone = true;
   } catch {
   } finally {
@@ -58447,8 +58901,8 @@ async function loadWelcomeGuide(opts) {
     const ok = window.confirm("Replace current script with the Welcome Guide?");
     if (!ok) return;
   }
-  const state8 = await resolveWelcomeState();
-  const script = buildWelcomeScript(state8.displayName);
+  const state9 = await resolveWelcomeState();
+  const script = buildWelcomeScript(state9.displayName);
   applyScript(script, "load", { updateEditor: true });
 }
 async function devResetWelcomeSeen() {
@@ -59137,12 +59591,12 @@ var init_camera = __esm({
           } catch {
           }
         }, stop4 = function() {
-          if (!state8.stream) return;
+          if (!state9.stream) return;
           try {
-            for (const t of state8.stream.getTracks()) t.stop();
+            for (const t of state9.stream.getTracks()) t.stop();
           } catch {
           }
-          state8.stream = null;
+          state9.stream = null;
           const videoEl = document.getElementById("camVideo");
           if (videoEl) {
             try {
@@ -59161,14 +59615,14 @@ var init_camera = __esm({
         };
         var emit3 = emit4, stop3 = stop4;
         const cam = window.__tpCamera = window.__tpCamera || {};
-        const state8 = { stream: null, starting: false };
+        const state9 = { stream: null, starting: false };
         async function start2() {
-          if (state8.starting) return;
-          if (state8.stream) {
+          if (state9.starting) return;
+          if (state9.stream) {
             emit4("tp:camera:started", { resumed: true });
             return;
           }
-          state8.starting = true;
+          state9.starting = true;
           emit4("tp:camera:starting");
           try {
             console.debug("[CAM] hardened start \u2192 request");
@@ -59177,7 +59631,7 @@ var init_camera = __esm({
           try {
             const constraints = { video: true, audio: false };
             const stream = await navigator.mediaDevices.getUserMedia(constraints);
-            state8.stream = stream;
+            state9.stream = stream;
             const videoEl = document.getElementById("camVideo");
             if (videoEl) {
               try {
@@ -59211,7 +59665,7 @@ var init_camera = __esm({
             }
             throw err;
           } finally {
-            state8.starting = false;
+            state9.starting = false;
           }
         }
         cam.startCamera = start2;
@@ -60935,6 +61389,20 @@ var init_dom = __esm({
 });
 
 // src/pairing/pairing-api.ts
+function readString9(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+function normalizeBaseUrl(input) {
+  try {
+    const parsed = new URL(input);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
 async function requestPairQr(opts) {
   if (!PAIR_QR_URL) {
     throw new Error("Pairing endpoint unavailable (configure __TP_PAIR_QR_URL or VITE_PAIR_QR_URL).");
@@ -60950,7 +61418,11 @@ async function requestPairQr(opts) {
   const res = await fetch(PAIR_QR_URL, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      ...SUPABASE_ANON_KEY2 ? {
+        apikey: String(SUPABASE_ANON_KEY2),
+        Authorization: `Bearer ${String(SUPABASE_ANON_KEY2)}`
+      } : {}
     },
     body: JSON.stringify(payload)
   });
@@ -60977,14 +61449,25 @@ async function requestPairQr(opts) {
 function pairingApiUrl() {
   return PAIR_QR_URL;
 }
-var w2, metaEnv2, PAIR_QR_URL, DEFAULT_PAIR_PATH, DEFAULT_TTL_MINUTES, DEFAULT_METADATA;
+function resolvePairBaseUrl(fallbackBaseUrl) {
+  const override = PAIR_BASE_URL_OVERRIDE ? normalizeBaseUrl(PAIR_BASE_URL_OVERRIDE) : null;
+  if (override) return override;
+  const fallback = fallbackBaseUrl ? normalizeBaseUrl(fallbackBaseUrl) : null;
+  if (fallback) return fallback;
+  const runtime = typeof window !== "undefined" ? normalizeBaseUrl(window.location.origin) : null;
+  return runtime || "http://localhost:5173";
+}
+var w2, metaEnv2, DEFAULT_PAIR_QR_URL, PAIR_QR_URL, SUPABASE_ANON_KEY2, PAIR_BASE_URL_OVERRIDE, DEFAULT_PAIR_PATH, DEFAULT_TTL_MINUTES, DEFAULT_METADATA;
 var init_pairing_api = __esm({
   "src/pairing/pairing-api.ts"() {
     "use strict";
     w2 = typeof window !== "undefined" ? window : {};
     metaEnv2 = typeof import.meta !== "undefined" ? import.meta.env || {} : {};
-    PAIR_QR_URL = w2.__TP_PAIR_QR_URL || metaEnv2.VITE_PAIR_QR_URL || "";
-    DEFAULT_PAIR_PATH = "/display/pair";
+    DEFAULT_PAIR_QR_URL = "https://wtvdjndyxegudufrompx.functions.supabase.co/pair-qr";
+    PAIR_QR_URL = readString9(w2.__TP_PAIR_QR_URL) || readString9(metaEnv2.VITE_PAIR_QR_URL) || DEFAULT_PAIR_QR_URL;
+    SUPABASE_ANON_KEY2 = readString9(w2.__forgeSupabaseAnonKey) || readString9(metaEnv2.VITE_SUPABASE_ANON_KEY) || "";
+    PAIR_BASE_URL_OVERRIDE = readString9(w2.__TP_PAIR_BASE_URL) || readString9(metaEnv2.VITE_PAIR_BASE_URL) || null;
+    DEFAULT_PAIR_PATH = "/display.html";
     DEFAULT_TTL_MINUTES = Number(w2.__TP_PAIR_QR_TTL_MINUTES ?? metaEnv2.VITE_PAIR_QR_TTL_MINUTES ?? 10);
     DEFAULT_METADATA = typeof w2.__TP_PAIR_QR_METADATA === "object" && w2.__TP_PAIR_QR_METADATA !== null ? { ...w2.__TP_PAIR_QR_METADATA } : { role: "display", app: "anvil" };
   }
@@ -61102,6 +61585,42 @@ function ensureStyles() {
       margin-top: 4px;
       line-height: 1.25;
     }
+    .display-pairing-warning {
+      display: none;
+      margin-top: 8px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 201, 132, 0.42);
+      background: rgba(107, 70, 3, 0.35);
+      color: #ffdca9;
+      font-size: 0.78rem;
+      line-height: 1.25;
+    }
+    .display-pairing-warning.is-visible {
+      display: block;
+    }
+    .display-pairing-debug {
+      margin-top: 8px;
+      display: grid;
+      gap: 4px;
+    }
+    .display-pairing-debug-line {
+      display: grid;
+      grid-template-columns: 132px 1fr;
+      gap: 8px;
+      align-items: baseline;
+      font-size: 0.74rem;
+      color: #a9b8d0;
+    }
+    .display-pairing-debug-key {
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: #90a4c4;
+    }
+    .display-pairing-debug-value {
+      overflow-wrap: anywhere;
+      color: #d8e5ff;
+    }
   `;
   const style = document.createElement("style");
   style.id = "displayPairingStyles";
@@ -61120,7 +61639,7 @@ function buildModal() {
     <header>Pair Tablet Display</header>
     <div class="display-pairing-body">
       <div class="display-pairing-field">
-        <label>LAN URL</label>
+        <label>Pair URL</label>
         <div class="display-pairing-input">
           <input readonly placeholder="Click refresh to generate" />
           <button type="button" class="chip display-pairing-btn-copy">Copy</button>
@@ -61128,7 +61647,7 @@ function buildModal() {
       </div>
       <div class="display-pairing-field display-pairing-status">
         <span class="display-pairing-status-text">Connected: 0</span>
-        <span class="display-pairing-status-ws">ws://.../ws/display</span>
+        <span class="display-pairing-status-ws">wss://.../display-ws</span>
       </div>
       <div class="display-pairing-field">
     <div class="display-pairing-qr">
@@ -61143,7 +61662,22 @@ function buildModal() {
           </div>
         </div>
         <div class="display-pairing-tip">
-          Make sure both devices are on the same LAN (guest Wi-Fi / client isolation may block the WS connection). Allow inbound connections from Windows Firewall when using a Private network profile.
+          Share this URL or QR with the tablet. Pairing tokens expire automatically, so refresh if the code is stale.
+        </div>
+        <div class="display-pairing-warning" role="status" aria-live="polite"></div>
+        <div class="display-pairing-debug" aria-label="Pairing diagnostics">
+          <div class="display-pairing-debug-line">
+            <span class="display-pairing-debug-key">Resolved Base URL:</span>
+            <span class="display-pairing-debug-value display-pairing-debug-base">-</span>
+          </div>
+          <div class="display-pairing-debug-line">
+            <span class="display-pairing-debug-key">QR Endpoint:</span>
+            <span class="display-pairing-debug-value display-pairing-debug-qr">-</span>
+          </div>
+          <div class="display-pairing-debug-line">
+            <span class="display-pairing-debug-key">WS Endpoint:</span>
+            <span class="display-pairing-debug-value display-pairing-debug-ws">-</span>
+          </div>
         </div>
       </div>
     </div>
@@ -61158,10 +61692,14 @@ function buildModal() {
   const status2 = panel.querySelector(".display-pairing-status-text");
   const expiry = panel.querySelector(".display-pairing-status-expiry");
   const wsLabel = panel.querySelector(".display-pairing-status-ws");
+  const baseLabel = panel.querySelector(".display-pairing-debug-base");
+  const qrLabel = panel.querySelector(".display-pairing-debug-qr");
+  const wsDebugLabel = panel.querySelector(".display-pairing-debug-ws");
+  const warning = panel.querySelector(".display-pairing-warning");
   const close = panel.querySelector(".display-pairing-btn-close");
   const refresh = panel.querySelector(".display-pairing-btn-refresh");
   const copy = panel.querySelector(".display-pairing-btn-copy");
-  if (!input || !qr || !status2 || !wsLabel || !close || !refresh || !copy) {
+  if (!input || !qr || !status2 || !wsLabel || !baseLabel || !qrLabel || !wsDebugLabel || !warning || !close || !refresh || !copy) {
     mask.remove();
     return null;
   }
@@ -61169,7 +61707,7 @@ function buildModal() {
     mask.remove();
     return null;
   }
-  modalElements = { mask, input, qr, status: status2, wsLabel, close, refresh, copy, expiry };
+  modalElements = { mask, input, qr, status: status2, wsLabel, baseLabel, qrLabel, wsDebugLabel, warning, close, refresh, copy, expiry };
   return modalElements;
 }
 function clearExpiryTimer() {
@@ -61183,7 +61721,6 @@ function toggleModal(on3) {
   if (!elements) return;
   elements.mask.classList.toggle("is-visible", on3);
   if (on3) {
-    enableNetworkDisplayRelay();
     refreshStatus();
     ensurePairingToken();
   } else {
@@ -61199,16 +61736,78 @@ function updateWsLabel(url) {
   if (modalElements?.wsLabel) {
     modalElements.wsLabel.textContent = url;
   }
-}
-function resolveDefaultWsUrl() {
-  try {
-    const origin = window.location.origin;
-    const url = new URL("/ws/display", origin);
-    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    return url.toString();
-  } catch {
-    return "ws://.../ws/display";
+  if (modalElements?.wsDebugLabel) {
+    modalElements.wsDebugLabel.textContent = url;
   }
+}
+function isLoopbackHost(hostname) {
+  const normalized = hostname.trim().toLowerCase();
+  if (!normalized) return false;
+  if (normalized === "localhost") return true;
+  if (normalized === "::1" || normalized === "[::1]") return true;
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(normalized);
+}
+function isPrivateIpv4(hostname) {
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(hostname.trim());
+  if (!match) return false;
+  const octets = match.slice(1).map((chunk) => Number(chunk));
+  if (octets.some((value) => !Number.isInteger(value) || value < 0 || value > 255)) return false;
+  if (octets[0] === 10) return true;
+  if (octets[0] === 192 && octets[1] === 168) return true;
+  if (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) return true;
+  return false;
+}
+function resolveReachableBaseHint() {
+  try {
+    const protocol = window.location.protocol || "http:";
+    const hostname = window.location.hostname || "";
+    const port = window.location.port || "";
+    if (hostname && isPrivateIpv4(hostname) && !isLoopbackHost(hostname)) {
+      return `${protocol}//${hostname}${port ? `:${port}` : ""}`;
+    }
+  } catch {
+  }
+  return "http://192.168.x.x:5173";
+}
+function updateLocalhostWarning(baseUrl) {
+  const warningEl = modalElements?.warning;
+  if (!warningEl) return;
+  let warningText = "";
+  try {
+    const parsed = new URL(baseUrl);
+    if (isLoopbackHost(parsed.hostname)) {
+      const hint = resolveReachableBaseHint();
+      warningText = `This QR points to localhost. A tablet can't reach your computer at localhost. Use your LAN IP (${hint}) or a tunnel/Netlify.`;
+    }
+  } catch {
+    const hint = resolveReachableBaseHint();
+    warningText = `This QR base URL is invalid. Use your LAN IP (${hint}) or a tunnel/Netlify.`;
+  }
+  warningEl.textContent = warningText;
+  warningEl.classList.toggle("is-visible", Boolean(warningText));
+}
+function updatePairingDiagnostics(baseUrl) {
+  if (modalElements?.baseLabel) {
+    modalElements.baseLabel.textContent = baseUrl;
+  }
+  if (modalElements?.qrLabel) {
+    modalElements.qrLabel.textContent = pairingApiUrl() || "(not configured)";
+  }
+  updateWsLabel(resolveDisplayWsBase());
+  updateLocalhostWarning(baseUrl);
+}
+function resolveDisplayPairPath() {
+  try {
+    const pathname = window.location.pathname || "/";
+    if (pathname.endsWith("/display.html")) return pathname;
+    if (pathname.endsWith("/")) return `${pathname}display.html`;
+    const slash = pathname.lastIndexOf("/");
+    if (slash >= 0) {
+      return `${pathname.slice(0, slash + 1)}display.html`;
+    }
+  } catch {
+  }
+  return "/display.html";
 }
 function updateInput(url) {
   if (modalElements?.input) {
@@ -61258,10 +61857,12 @@ async function ensurePairingToken() {
   if (!modalElements) return;
   isRefreshing = true;
   updateStatusText("Generating token...");
+  setNetworkDisplayPairToken(null);
   _currentPairing = null;
   clearExpiryTimer();
-  const baseUrl = window.location.origin;
-  const pairPath = "/display/pair";
+  const baseUrl = resolvePairBaseUrl(window.location.origin);
+  const pairPath = resolveDisplayPairPath();
+  updatePairingDiagnostics(baseUrl);
   try {
     const pairing = await requestPairQr({
       baseUrl,
@@ -61272,8 +61873,12 @@ async function ensurePairingToken() {
     const expiresMs = Number.isFinite(Date.parse(pairing.expiresAt)) ? Date.parse(pairing.expiresAt) : Date.now() + 10 * 60 * 1e3;
     _currentPairing = { ...pairing, expiresMs };
     updateInput(pairing.pairUrl);
+    updateWsLabel(resolveDisplayWsBase());
     renderQrSvg(pairing.qrSvg);
     updateStatusText(`Expires at ${new Date(expiresMs).toLocaleTimeString()}`);
+    setNetworkDisplayPairToken(pairing.token);
+    enableNetworkDisplayRelay();
+    refreshStatus();
     if (typeof window !== "undefined") {
       const devFlag = Boolean(window.__TP_DEV || window.__TP_DEV1);
       if (devFlag) {
@@ -61295,6 +61900,7 @@ async function ensurePairingToken() {
     startExpirySchedule(expiresMs);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unable to generate pairing token.";
+    setNetworkDisplayPairToken(null);
     updateStatusText(message);
   } finally {
     isRefreshing = false;
@@ -61302,7 +61908,12 @@ async function ensurePairingToken() {
 }
 function refreshStatus() {
   const current2 = getNetworkDisplayStatus();
-  modalElements?.status && (modalElements.status.textContent = `Connected: ${current2.connectedDisplays}`);
+  if (!modalElements?.status) return;
+  if (current2.state === "error" && current2.lastError) {
+    modalElements.status.textContent = `Connected: ${current2.connectedDisplays} (${current2.lastError})`;
+    return;
+  }
+  modalElements.status.textContent = `Connected: ${current2.connectedDisplays}`;
 }
 function bindModalEvents() {
   if (!modalElements) return;
@@ -61339,8 +61950,12 @@ function initDisplayPairingPanel() {
   const elements = buildModal();
   if (!elements) return;
   bindModalEvents();
-  updateWsLabel(resolveDefaultWsUrl());
-  onNetworkDisplayStatus(({ connectedDisplays }) => {
+  updatePairingDiagnostics(resolvePairBaseUrl(window.location.origin));
+  onNetworkDisplayStatus(({ connectedDisplays, state: state9, lastError }) => {
+    if (state9 === "error" && lastError) {
+      elements.status.textContent = `Connected: ${connectedDisplays} (${lastError})`;
+      return;
+    }
     elements.status.textContent = `Connected: ${connectedDisplays}`;
   });
   pairBtn.addEventListener("click", () => toggleModal(true));
@@ -61350,6 +61965,7 @@ var init_display_pairing = __esm({
   "src/ui/display-pairing.ts"() {
     "use strict";
     init_display_ws_client();
+    init_display_ws_endpoint();
     init_pairing_api();
     modalElements = null;
     _currentPairing = null;
@@ -65494,23 +66110,23 @@ function installScrollWriteGuard(scroller) {
   const el = scroller;
   if (el.__tpScrollGuardInstalled) return;
   el.__tpScrollGuardInstalled = true;
-  const state8 = { scroller: el };
-  el.__tpScrollGuardState = state8;
+  const state9 = { scroller: el };
+  el.__tpScrollGuardState = state9;
   const desc = findScrollTopDescriptor(el);
-  if (desc?.get) state8.originalScrollTopGet = desc.get.bind(el);
-  if (desc?.set) state8.originalScrollTopSet = desc.set.bind(el);
+  if (desc?.get) state9.originalScrollTopGet = desc.get.bind(el);
+  if (desc?.set) state9.originalScrollTopSet = desc.set.bind(el);
   try {
     Object.defineProperty(el, "scrollTop", {
       configurable: true,
       enumerable: desc?.enumerable ?? true,
       get() {
-        if (state8.originalScrollTopGet) return state8.originalScrollTopGet();
+        if (state9.originalScrollTopGet) return state9.originalScrollTopGet();
         return 0;
       },
       set(value) {
         if (!shouldAllow()) logWrite("scrollTop=", el, value);
-        if (state8.originalScrollTopSet) {
-          state8.originalScrollTopSet(Number(value) || 0);
+        if (state9.originalScrollTopSet) {
+          state9.originalScrollTopSet(Number(value) || 0);
         }
       }
     });
@@ -65518,10 +66134,10 @@ function installScrollWriteGuard(scroller) {
   }
   try {
     if (typeof el.scrollTo === "function") {
-      state8.originalScrollTo = el.scrollTo.bind(el);
+      state9.originalScrollTo = el.scrollTo.bind(el);
       el.scrollTo = function(...args) {
         if (!shouldAllow()) logWrite("scrollTo()", el, args?.[0]);
-        return state8.originalScrollTo?.(...args);
+        return state9.originalScrollTo?.(...args);
       };
     }
   } catch {
@@ -66536,16 +67152,16 @@ function getAsrModeState() {
   const asrMode = resolveCompatAsrMode();
   if (asrMode && typeof asrMode.getState === "function") {
     try {
-      const state8 = asrMode.getState();
-      return typeof state8 === "string" ? state8.toLowerCase() : null;
+      const state9 = asrMode.getState();
+      return typeof state9 === "string" ? state9.toLowerCase() : null;
     } catch {
     }
   }
   return null;
 }
 function isAsrEngineEngaged() {
-  const state8 = getAsrModeState();
-  return state8 === "running" || state8 === "listening" || state8 === "ready";
+  const state9 = getAsrModeState();
+  return state9 === "running" || state9 === "listening" || state9 === "ready";
 }
 function isAsrOverlayActive() {
   return selectPrefersAsr || isAsrEngineEngaged();
@@ -66993,9 +67609,9 @@ function waitForActiveAsrProfile(timeoutMs = 6e4) {
       }
       resolve(ok);
     };
-    const unsub = onAsr((state8) => {
+    const unsub = onAsr((state9) => {
       try {
-        if (state8?.activeProfileId && state8.profiles?.[state8.activeProfileId]) {
+        if (state9?.activeProfileId && state9.profiles?.[state9.activeProfileId]) {
           finish(true);
         }
       } catch {
@@ -67401,8 +68017,8 @@ function initScrollModeUiSync() {
     const handleAsrStateEvent = (ev) => {
       try {
         const detail = ev?.detail || {};
-        const state8 = String(detail.state || "").toLowerCase();
-        const engaged = state8 === "running" || state8 === "listening";
+        const state9 = String(detail.state || "").toLowerCase();
+        const engaged = state9 === "running" || state9 === "listening";
         updateOverlayFromEngineState(engaged, detail.reason);
       } catch {
       }
@@ -67811,6 +68427,24 @@ async function boot() {
       }
     }
     bootTrace("boot():auth-hydrate:done", { profileUserId: profileUserId || null });
+    try {
+      if (hasSupabaseConfig) {
+        void refreshEntitlements(supabase);
+        try {
+          const params = new URLSearchParams(window.location.search || "");
+          const cameFromCheckout = params.has("session_id") || params.get("checkout") === "success";
+          if (cameFromCheckout) {
+            window.setTimeout(() => {
+              void refreshEntitlements(supabase);
+            }, 3e3);
+          }
+        } catch {
+        }
+      } else {
+        setFreeEntitlements();
+      }
+    } catch {
+    }
     try {
       ensureSettingsFolderControls();
     } catch {
@@ -68573,6 +69207,7 @@ var init_index_app = __esm({
     init_ready_scripts();
     init_script_source();
     init_auth_unlock();
+    init_entitlements();
     init_boot();
     init_mammoth();
     init_settings();

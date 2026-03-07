@@ -15,11 +15,17 @@ Podcaster's Forge is the **front door** and **single login** for the ecosystem. 
 
 ## Forge v1.2.0 Fire Burning release index
 
+- Forge system architecture (canonical): [`docs/FORGE_SYSTEM_ARCHITECTURE.md`](docs/FORGE_SYSTEM_ARCHITECTURE.md)
 - Podcaster's Forge / ForgeHub canonical doc: [`apps/nursery/FORGEHUB_V1_MANIFEST.md`](apps/nursery/FORGEHUB_V1_MANIFEST.md)
 - Bar-Stock canonical doc: [`apps/bar-stock/README.md`](apps/bar-stock/README.md)
 - Tongs canonical doc: [`packages/tongs/TONGS_V1_MANIFEST.md`](packages/tongs/TONGS_V1_MANIFEST.md)
 - Hearth canonical doc (`HEARTH_V1_MANIFEST`): [`apps/hearth/HEARTH_V1_MANIFEST.md`](apps/hearth/HEARTH_V1_MANIFEST.md)
 - Hearth V2 status + contract: [`apps/hearth/HEARTH_V2_CONTRACT.md`](apps/hearth/HEARTH_V2_CONTRACT.md)
+- Hammer canonical doc: [`docs/HAMMER_MANIFEST.md`](docs/HAMMER_MANIFEST.md)
+- Hammer orientation README: [`apps/hammer/README.md`](apps/hammer/README.md)
+- Quench canonical doc: [`docs/QUENCH_MANIFEST.md`](docs/QUENCH_MANIFEST.md)
+- Quench technical architecture: [`apps/quench/QUENCH_TECHNICAL_ARCHITECTURE.md`](apps/quench/QUENCH_TECHNICAL_ARCHITECTURE.md)
+- Quench orientation README: [`apps/quench/README.md`](apps/quench/README.md)
 - Anvil canonical doc: [`apps/anvil/MANIFEST.md`](apps/anvil/MANIFEST.md) (integrated link: Coming Soon)
 
 ## Repository layout

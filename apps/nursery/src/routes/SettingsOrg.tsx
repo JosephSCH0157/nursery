@@ -50,8 +50,25 @@ function isMissingOrgServicesError(error: unknown): boolean {
 
   return text.includes("list_my_orgs")
     || text.includes("list_org_members")
+    || text.includes("count_missing_org_members_for_org")
+    || text.includes("repair_org_members_from_teams")
     || text.includes("could not find the function")
     || (text.includes("function") && text.includes("not found"));
+}
+
+function readCountField(data: unknown, key: string): number {
+  const rows = Array.isArray(data) ? data : [];
+  const first = rows[0];
+  if (!first || typeof first !== "object") return 0;
+  const value = (first as Record<string, unknown>)[key];
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return Math.trunc(value);
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number.parseInt(value.trim(), 10);
+    if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+  }
+  return 0;
 }
 
 function labelRole(role: string | null | undefined): string {
@@ -95,6 +112,11 @@ export default function SettingsOrg() {
   const [members, setMembers] = useState<OrgMemberRow[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [membersError, setMembersError] = useState<string | null>(null);
+  const [missingMemberCount, setMissingMemberCount] = useState<number>(0);
+  const [loadingMismatch, setLoadingMismatch] = useState(false);
+  const [mismatchError, setMismatchError] = useState<string | null>(null);
+  const [repairingMismatch, setRepairingMismatch] = useState(false);
+  const [repairNotice, setRepairNotice] = useState<string | null>(null);
 
   const activeOrg = useMemo(
     () => orgs.find((org) => org.org_id === selectedOrgId) ?? null,
@@ -151,6 +173,10 @@ export default function SettingsOrg() {
       setMembers([]);
       setMembersError(null);
       setLoadingMembers(false);
+      setMissingMemberCount(0);
+      setMismatchError(null);
+      setLoadingMismatch(false);
+      setRepairNotice(null);
       return;
     }
 
@@ -186,6 +212,82 @@ export default function SettingsOrg() {
       cancelled = true;
     };
   }, [session, selectedOrgId, tongsRpcClient]);
+
+  useEffect(() => {
+    if (!session || !selectedOrgId) {
+      setMissingMemberCount(0);
+      setMismatchError(null);
+      setLoadingMismatch(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingMismatch(true);
+    setMismatchError(null);
+
+    void (async () => {
+      try {
+        const { data, error } = await tongsRpcClient.rpc("count_missing_org_members_for_org", {
+          p_org_id: selectedOrgId,
+        });
+        if (cancelled) return;
+        if (error) throw error;
+        setMissingMemberCount(readCountField(data, "missing_members_count"));
+      } catch (error: unknown) {
+        if (cancelled) return;
+        setMissingMemberCount(0);
+        setMismatchError(
+          isMissingOrgServicesError(error)
+            ? "Org services are not available yet - deploy the DB migration, then retry."
+            : toErrorMessage(error, "Failed loading org/team membership diagnostics."),
+        );
+      } finally {
+        if (!cancelled) {
+          setLoadingMismatch(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedOrgId, session, tongsRpcClient]);
+
+  async function onRepairMembershipMismatch() {
+    if (!session || !selectedOrgId || repairingMismatch) return;
+    setRepairingMismatch(true);
+    setMismatchError(null);
+    setRepairNotice(null);
+    try {
+      const { data, error } = await tongsRpcClient.rpc("repair_org_members_from_teams", {
+        p_org_id: selectedOrgId,
+      });
+      if (error) throw error;
+      const repaired = readCountField(data, "repaired_members_count");
+      setRepairNotice(
+        repaired > 0
+          ? `Repaired ${repaired} org member record(s).`
+          : "No org/team membership mismatches found.",
+      );
+
+      const [membersResponse, countResponse] = await Promise.all([
+        tongsRpcClient.rpc("list_org_members", { p_org_id: selectedOrgId }),
+        tongsRpcClient.rpc("count_missing_org_members_for_org", { p_org_id: selectedOrgId }),
+      ]);
+      if (membersResponse.error) throw membersResponse.error;
+      if (countResponse.error) throw countResponse.error;
+      setMembers(Array.isArray(membersResponse.data) ? membersResponse.data as OrgMemberRow[] : []);
+      setMissingMemberCount(readCountField(countResponse.data, "missing_members_count"));
+    } catch (error: unknown) {
+      setMismatchError(
+        isMissingOrgServicesError(error)
+          ? "Org services are not available yet - deploy the DB migration, then retry."
+          : toErrorMessage(error, "Failed repairing membership mismatch."),
+      );
+    } finally {
+      setRepairingMismatch(false);
+    }
+  }
 
   return (
     <section className="settings-org">
@@ -238,6 +340,7 @@ export default function SettingsOrg() {
               ))}
             </select>
             {orgsError ? <div className="settings-org__error">{orgsError}</div> : null}
+            {repairNotice ? <div className="settings-org__notice">{repairNotice}</div> : null}
           </div>
 
           {activeOrg ? (
@@ -251,6 +354,25 @@ export default function SettingsOrg() {
 
           <div className="settings-org__members">
             <h4 className="settings-org__members-title">Members</h4>
+            {loadingMismatch ? (
+              <p className="settings-org__copy">Checking org/team membership consistency...</p>
+            ) : null}
+            {!loadingMismatch && missingMemberCount > 0 ? (
+              <div className="settings-org__warning">
+                <p className="settings-org__warning-copy">
+                  Membership mismatch detected: {missingMemberCount} user(s) are in teams but missing org membership.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void onRepairMembershipMismatch()}
+                  disabled={repairingMismatch}
+                  className="settings-org__warning-button"
+                >
+                  {repairingMismatch ? "Repairing..." : "Repair"}
+                </button>
+              </div>
+            ) : null}
+            {mismatchError ? <div className="settings-org__error">{mismatchError}</div> : null}
             {loadingMembers ? (
               <p className="settings-org__copy">Loading members...</p>
             ) : null}

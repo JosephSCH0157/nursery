@@ -469,7 +469,8 @@ const DEFAULT_GRACE_ROLLBACK_MAX_CURRENT_SIM = 0.25;
 const DEFAULT_GRACE_ROLLBACK_MIN_MARGIN = 0.35;
 const DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS = 5000;
 const DEFAULT_STRONG_FORWARD_COMMIT_SIM = 0.82;
-const DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS = 1;
+const DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS = 2;
+const DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS = 2;
 const DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO = 0.25;
 const DEFAULT_PERMISSIVE_FINAL_MARKER_BACK_TOLERANCE_LINES = 1;
 const DEFAULT_WEAK_CURRENT_OVERLAP_MAX_TOKENS = 1;
@@ -1225,13 +1226,15 @@ function isPermissiveAsrMatcherEnabled(): boolean {
       return false;
     }
     const ls = w.localStorage;
+    if (ls?.getItem('tp_asr_permissive_matcher') === '0') return false;
+    if (ls?.getItem('tp_asr_loose_matcher') === '0') return false;
     if (ls?.getItem('tp_asr_permissive_matcher') === '1') return true;
     if (ls?.getItem('tp_asr_loose_matcher') === '1') return true;
   } catch {
     // ignore
   }
-  // Default permissive behavior in dev to prioritize progress during tuning.
-  return isDevMode();
+  // Default lane is strict. Permissive mode is explicit-only.
+  return false;
 }
 
 function shouldForcePixelAsrCommitPath(): boolean {
@@ -9398,10 +9401,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         permissiveMatcher ? DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM : DEFAULT_STRONG_FORWARD_COMMIT_SIM,
       ) &&
       overlapTokensCurrent.length >= (
-        permissiveMatcher ? 2 : DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_TOKENS
+        permissiveMatcher
+          ? DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS
+          : DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_TOKENS
       ) &&
       overlapRatioCurrent >= (
-        permissiveMatcher ? 0.25 : DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_RATIO
+        permissiveMatcher
+          ? DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO
+          : DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_RATIO
       );
     const permissiveMarkerConsistencyOk =
       markerIdx < 0 ||
@@ -9444,10 +9451,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       permissiveMarkerConsistencyOk &&
       conf >= DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM &&
       preNudgeBestOverlapHits >= DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS &&
-      (
-        overlapTokensCurrent.length >= 2 ||
-        overlapRatioCurrent >= DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO
-      );
+      overlapTokensCurrent.length >= DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS &&
+      overlapRatioCurrent >= DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO;
     const strongFinalNudgeHoldBypass =
       preNudgeStrongFinalHoldBypass &&
       blockCueBridgeForHold;
@@ -9535,10 +9540,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       permissiveMarkerConsistencyOk &&
       conf >= DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM &&
       preNudgeBestOverlapHits >= DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS &&
-      (
-        overlapTokensCurrent.length >= 2 ||
-        overlapRatioCurrent >= DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO
-      );
+      overlapTokensCurrent.length >= DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS &&
+      overlapRatioCurrent >= DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO;
     const strictFinalFallbackEligible =
       !permissiveMatcher &&
       isFinal &&
@@ -9772,6 +9775,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       snippet,
       matchId,
     });
+    if (!isFinal) {
+      const runtimeMode = getScrollMode();
+      if (runtimeMode === 'asr') {
+        if (isDevMode()) {
+          warnGuard('interim_commit_blocked', [
+            `current=${cursorLine}`,
+            `best=${rawIdx}`,
+            `delta=${rawIdx - cursorLine}`,
+            `sim=${formatLogScore(conf)}`,
+            snippet ? `clue="${snippet}"` : '',
+          ]);
+        }
+        return;
+      }
+      if (!interimEligible) {
+        return;
+      }
+    }
     if (topScoresSpeakable.length >= 2) {
       let near: { idx: number; score: number; dist: number } | null = null;
       let far: { idx: number; score: number; dist: number } | null = null;

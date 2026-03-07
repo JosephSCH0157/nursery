@@ -5,6 +5,7 @@ import "./index.css";
 import "./styles/mobile-primitives.css";
 
 import Login from "./routes/Login";
+import Signup from "./routes/Signup";
 import AppShell from "./routes/AppShell";
 import AuthCallback from "./routes/AuthCallback";
 import ResetPassword from "./routes/ResetPassword";
@@ -22,12 +23,18 @@ import HearthRoute from "./routes/Hearth";
 import HearthStandalone from "./routes/HearthStandalone";
 import IronMineRoute from "./routes/IronMine";
 import MobilePrimitivesDemo from "./routes/MobilePrimitivesDemo";
+import SubscriptionsRoute from "./routes/Subscriptions";
+import HammerRoute from "./routes/Hammer";
+import HammerEditorRoute from "./routes/HammerEditor";
+import HammerRelinkRoute from "./routes/HammerRelink";
+import HammerStandalone from "./routes/HammerStandalone";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<Signup />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
         <Route path="/reset-password" element={<ResetPassword />} />
 
@@ -40,7 +47,6 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="anvil/help" element={<Placeholder name="Anvil Help" />} />
           <Route path="anvil/settings" element={<Placeholder name="Anvil Settings" />} />
           <Route path="hearth" element={<HearthRoute />} />
-          <Route path="hammer" element={<Placeholder name="Hammer" />} />
           <Route path="tongs" element={<TongsRoute />} />
           <Route path="quench" element={<Placeholder name="Quench" />} />
           <Route path="ledger" element={<Placeholder name="Ledger" />} />
@@ -48,6 +54,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="barstock/*" element={<BarstockRoute />} />
           <Route path="bar-stock/*" element={<BarstockRoute />} />
           <Route path="calendar" element={<Placeholder name="Calendar" />} />
+          <Route path="subscriptions" element={<SubscriptionsRoute />} />
+          <Route path="billing/success" element={<Placeholder name="Billing Success" />} />
+          <Route path="billing/cancel" element={<Placeholder name="Billing Cancel" />} />
           <Route path="mobile-demo" element={<MobilePrimitivesDemo />} />
           <Route path="settings" element={<SettingsLayout />}>
             <Route index element={<SettingsHome />} />
@@ -56,6 +65,12 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="org/teams/:teamId" element={<SettingsOrgTeams />} />
             <Route path="storage" element={<SettingsStorage />} />
           </Route>
+        </Route>
+
+        <Route path="/app/hammer" element={<HammerStandalone />}>
+          <Route index element={<HammerEditorRoute />} />
+          <Route path="dev/cards" element={<HammerRoute />} />
+          <Route path="dev/relink" element={<HammerRelinkRoute />} />
         </Route>
 
         <Route path="/apps/hearth" element={<HearthStandalone />} />

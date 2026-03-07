@@ -583,6 +583,18 @@
   align-items: center;
 }
 
+.hs-tone-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.hs-tone-control select {
+  min-width: 180px;
+}
+
 .hs-status-text {
   font-size: 12px;
   opacity: 0.75;
@@ -591,6 +603,19 @@
 .hs-count-text {
   font-size: 12px;
   opacity: 0.6;
+}
+
+.hs-autosave-warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #a84308;
+}
+
+.hs-autosave-warning button {
+  font-size: 11px;
+  padding: 2px 8px;
 }
 
 .hs-field {

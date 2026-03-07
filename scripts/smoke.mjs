@@ -2,10 +2,28 @@ import { spawn } from "node:child_process";
 import http from "node:http";
 import https from "node:https";
 
-const DEV_COMMAND = "pnpm";
-const DEV_ARGS = ["dev"];
-const BUILD_COMMAND = "pnpm";
-const BUILD_ARGS = ["build"];
+function resolvePnpmInvocation() {
+  const execPath = process.env.npm_execpath;
+  if (typeof execPath === "string" && /pnpm(?:\.c?js)?$/i.test(execPath)) {
+    return {
+      command: process.execPath,
+      args: [execPath],
+      label: "npm_execpath pnpm",
+    };
+  }
+
+  return {
+    command: process.platform === "win32" ? "corepack.cmd" : "corepack",
+    args: ["pnpm"],
+    label: "corepack pnpm",
+  };
+}
+
+const PNPM = resolvePnpmInvocation();
+const DEV_COMMAND = PNPM.command;
+const DEV_ARGS = [...PNPM.args, "dev"];
+const BUILD_COMMAND = PNPM.command;
+const BUILD_ARGS = [...PNPM.args, "build"];
 
 const DEFAULT_URL = "http://localhost:5173/";
 const TIMEOUT_MS = 30_000;
@@ -123,7 +141,7 @@ function stopProcess(child) {
 async function main() {
   await runCommand(BUILD_COMMAND, BUILD_ARGS);
 
-  log("booting via pnpm dev");
+  log(`booting via ${PNPM.label} dev`);
   const dev = spawnCmd(DEV_COMMAND, DEV_ARGS, { stdio: ["ignore", "pipe", "pipe"] });
   let devUrl = DEFAULT_URL;
   let buffer = "";

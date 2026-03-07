@@ -1,0 +1,24 @@
+{
+  "name": "@forge/hammer",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node -e \"console.log('Hammer runs through Nursery.')\"",
+    "build": "node -e \"console.log('Hammer builds through Nursery.')\"",
+    "preview": "node -e \"console.log('Hammer previews through Nursery.')\"",
+    "types": "tsc -p tsconfig.json --noEmit",
+    "test:preview": "tsx tests/transcriptPreview.test.ts"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.13.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.5",
+    "@types/react-dom": "^19.2.3",
+    "tsx": "^4.21.0",
+    "typescript": "~5.9.3"
+  }
+}

@@ -1,6 +1,12 @@
-import { enableNetworkDisplayRelay, getNetworkDisplayStatus, onNetworkDisplayStatus } from '../net/display-ws-client';
+import {
+  enableNetworkDisplayRelay,
+  getNetworkDisplayStatus,
+  onNetworkDisplayStatus,
+  setNetworkDisplayPairToken,
+} from '../net/display-ws-client';
+import { resolveDisplayWsBase } from '../net/display-ws-endpoint';
 import type { PairQrPayload } from '../pairing/pairing-api';
-import { pairingApiUrl, requestPairQr } from '../pairing/pairing-api';
+import { pairingApiUrl, requestPairQr, resolvePairBaseUrl } from '../pairing/pairing-api';
 
 type PairingState = PairQrPayload & { expiresMs: number };
 
@@ -10,6 +16,10 @@ type Elements = {
   qr: HTMLElement;
   status: HTMLElement;
   wsLabel: HTMLElement;
+  baseLabel: HTMLElement;
+  qrLabel: HTMLElement;
+  wsDebugLabel: HTMLElement;
+  warning: HTMLElement;
   close: HTMLButtonElement;
   refresh: HTMLButtonElement;
   copy: HTMLButtonElement;
@@ -134,6 +144,42 @@ function ensureStyles() {
       margin-top: 4px;
       line-height: 1.25;
     }
+    .display-pairing-warning {
+      display: none;
+      margin-top: 8px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 201, 132, 0.42);
+      background: rgba(107, 70, 3, 0.35);
+      color: #ffdca9;
+      font-size: 0.78rem;
+      line-height: 1.25;
+    }
+    .display-pairing-warning.is-visible {
+      display: block;
+    }
+    .display-pairing-debug {
+      margin-top: 8px;
+      display: grid;
+      gap: 4px;
+    }
+    .display-pairing-debug-line {
+      display: grid;
+      grid-template-columns: 132px 1fr;
+      gap: 8px;
+      align-items: baseline;
+      font-size: 0.74rem;
+      color: #a9b8d0;
+    }
+    .display-pairing-debug-key {
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: #90a4c4;
+    }
+    .display-pairing-debug-value {
+      overflow-wrap: anywhere;
+      color: #d8e5ff;
+    }
   `;
   const style = document.createElement('style');
   style.id = 'displayPairingStyles';
@@ -154,7 +200,7 @@ function buildModal(): Elements | null {
     <header>Pair Tablet Display</header>
     <div class="display-pairing-body">
       <div class="display-pairing-field">
-        <label>LAN URL</label>
+        <label>Pair URL</label>
         <div class="display-pairing-input">
           <input readonly placeholder="Click refresh to generate" />
           <button type="button" class="chip display-pairing-btn-copy">Copy</button>
@@ -162,7 +208,7 @@ function buildModal(): Elements | null {
       </div>
       <div class="display-pairing-field display-pairing-status">
         <span class="display-pairing-status-text">Connected: 0</span>
-        <span class="display-pairing-status-ws">ws://.../ws/display</span>
+        <span class="display-pairing-status-ws">wss://.../display-ws</span>
       </div>
       <div class="display-pairing-field">
     <div class="display-pairing-qr">
@@ -177,7 +223,22 @@ function buildModal(): Elements | null {
           </div>
         </div>
         <div class="display-pairing-tip">
-          Make sure both devices are on the same LAN (guest Wi-Fi / client isolation may block the WS connection). Allow inbound connections from Windows Firewall when using a Private network profile.
+          Share this URL or QR with the tablet. Pairing tokens expire automatically, so refresh if the code is stale.
+        </div>
+        <div class="display-pairing-warning" role="status" aria-live="polite"></div>
+        <div class="display-pairing-debug" aria-label="Pairing diagnostics">
+          <div class="display-pairing-debug-line">
+            <span class="display-pairing-debug-key">Resolved Base URL:</span>
+            <span class="display-pairing-debug-value display-pairing-debug-base">-</span>
+          </div>
+          <div class="display-pairing-debug-line">
+            <span class="display-pairing-debug-key">QR Endpoint:</span>
+            <span class="display-pairing-debug-value display-pairing-debug-qr">-</span>
+          </div>
+          <div class="display-pairing-debug-line">
+            <span class="display-pairing-debug-key">WS Endpoint:</span>
+            <span class="display-pairing-debug-value display-pairing-debug-ws">-</span>
+          </div>
         </div>
       </div>
     </div>
@@ -194,11 +255,15 @@ function buildModal(): Elements | null {
   const status = panel.querySelector<HTMLElement>('.display-pairing-status-text');
   const expiry = panel.querySelector<HTMLElement>('.display-pairing-status-expiry');
   const wsLabel = panel.querySelector<HTMLElement>('.display-pairing-status-ws');
+  const baseLabel = panel.querySelector<HTMLElement>('.display-pairing-debug-base');
+  const qrLabel = panel.querySelector<HTMLElement>('.display-pairing-debug-qr');
+  const wsDebugLabel = panel.querySelector<HTMLElement>('.display-pairing-debug-ws');
+  const warning = panel.querySelector<HTMLElement>('.display-pairing-warning');
   const close = panel.querySelector<HTMLButtonElement>('.display-pairing-btn-close');
   const refresh = panel.querySelector<HTMLButtonElement>('.display-pairing-btn-refresh');
   const copy = panel.querySelector<HTMLButtonElement>('.display-pairing-btn-copy');
 
-  if (!input || !qr || !status || !wsLabel || !close || !refresh || !copy) {
+  if (!input || !qr || !status || !wsLabel || !baseLabel || !qrLabel || !wsDebugLabel || !warning || !close || !refresh || !copy) {
     mask.remove();
     return null;
   }
@@ -208,7 +273,7 @@ function buildModal(): Elements | null {
     return null;
   }
 
-  modalElements = { mask, input, qr, status, wsLabel, close, refresh, copy, expiry };
+  modalElements = { mask, input, qr, status, wsLabel, baseLabel, qrLabel, wsDebugLabel, warning, close, refresh, copy, expiry };
   return modalElements;
 }
 
@@ -224,7 +289,6 @@ function toggleModal(on: boolean) {
   if (!elements) return;
   elements.mask.classList.toggle('is-visible', on);
   if (on) {
-    enableNetworkDisplayRelay();
     refreshStatus();
     ensurePairingToken();
   } else {
@@ -242,17 +306,87 @@ function updateWsLabel(url: string) {
   if (modalElements?.wsLabel) {
     modalElements.wsLabel.textContent = url;
   }
+  if (modalElements?.wsDebugLabel) {
+    modalElements.wsDebugLabel.textContent = url;
+  }
 }
 
-function resolveDefaultWsUrl(): string {
+function isLoopbackHost(hostname: string): boolean {
+  const normalized = hostname.trim().toLowerCase();
+  if (!normalized) return false;
+  if (normalized === 'localhost') return true;
+  if (normalized === '::1' || normalized === '[::1]') return true;
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(normalized);
+}
+
+function isPrivateIpv4(hostname: string): boolean {
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(hostname.trim());
+  if (!match) return false;
+  const octets = match.slice(1).map((chunk) => Number(chunk));
+  if (octets.some((value) => !Number.isInteger(value) || value < 0 || value > 255)) return false;
+  if (octets[0] === 10) return true;
+  if (octets[0] === 192 && octets[1] === 168) return true;
+  if (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) return true;
+  return false;
+}
+
+function resolveReachableBaseHint(): string {
   try {
-    const origin = window.location.origin;
-    const url = new URL('/ws/display', origin);
-    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-    return url.toString();
+    const protocol = window.location.protocol || 'http:';
+    const hostname = window.location.hostname || '';
+    const port = window.location.port || '';
+    if (hostname && isPrivateIpv4(hostname) && !isLoopbackHost(hostname)) {
+      return `${protocol}//${hostname}${port ? `:${port}` : ''}`;
+    }
   } catch {
-    return 'ws://.../ws/display';
+    // ignore
   }
+  return 'http://192.168.x.x:5173';
+}
+
+function updateLocalhostWarning(baseUrl: string) {
+  const warningEl = modalElements?.warning;
+  if (!warningEl) return;
+  let warningText = '';
+  try {
+    const parsed = new URL(baseUrl);
+    if (isLoopbackHost(parsed.hostname)) {
+      const hint = resolveReachableBaseHint();
+      warningText = `This QR points to localhost. A tablet can't reach your computer at localhost. Use your LAN IP (${hint}) or a tunnel/Netlify.`;
+    }
+  } catch {
+    const hint = resolveReachableBaseHint();
+    warningText = `This QR base URL is invalid. Use your LAN IP (${hint}) or a tunnel/Netlify.`;
+  }
+
+  warningEl.textContent = warningText;
+  warningEl.classList.toggle('is-visible', Boolean(warningText));
+}
+
+function updatePairingDiagnostics(baseUrl: string) {
+  if (modalElements?.baseLabel) {
+    modalElements.baseLabel.textContent = baseUrl;
+  }
+  if (modalElements?.qrLabel) {
+    modalElements.qrLabel.textContent = pairingApiUrl() || '(not configured)';
+  }
+  updateWsLabel(resolveDisplayWsBase());
+  updateLocalhostWarning(baseUrl);
+}
+
+function resolveDisplayPairPath(): string {
+  try {
+    const pathname = window.location.pathname || '/';
+    if (pathname.endsWith('/display.html')) return pathname;
+    if (pathname.endsWith('/')) return `${pathname}display.html`;
+    const slash = pathname.lastIndexOf('/');
+    if (slash >= 0) {
+      return `${pathname.slice(0, slash + 1)}display.html`;
+    }
+  } catch {
+    // ignore
+  }
+  return '/display.html';
 }
 
 function updateInput(url: string) {
@@ -309,10 +443,12 @@ async function ensurePairingToken() {
   if (!modalElements) return;
   isRefreshing = true;
   updateStatusText('Generating token...');
+  setNetworkDisplayPairToken(null);
   _currentPairing = null;
   clearExpiryTimer();
-  const baseUrl = window.location.origin;
-  const pairPath = '/display/pair';
+  const baseUrl = resolvePairBaseUrl(window.location.origin);
+  const pairPath = resolveDisplayPairPath();
+  updatePairingDiagnostics(baseUrl);
   try {
     const pairing = await requestPairQr({
       baseUrl,
@@ -327,8 +463,12 @@ async function ensurePairingToken() {
 
     _currentPairing = { ...pairing, expiresMs };
     updateInput(pairing.pairUrl);
+    updateWsLabel(resolveDisplayWsBase());
     renderQrSvg(pairing.qrSvg);
     updateStatusText(`Expires at ${new Date(expiresMs).toLocaleTimeString()}`);
+    setNetworkDisplayPairToken(pairing.token);
+    enableNetworkDisplayRelay();
+    refreshStatus();
     if (typeof window !== 'undefined') {
       const devFlag = Boolean((window as any).__TP_DEV || (window as any).__TP_DEV1);
       if (devFlag) {
@@ -350,6 +490,7 @@ async function ensurePairingToken() {
     startExpirySchedule(expiresMs);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unable to generate pairing token.';
+    setNetworkDisplayPairToken(null);
     updateStatusText(message);
   } finally {
     isRefreshing = false;
@@ -358,7 +499,12 @@ async function ensurePairingToken() {
 
 function refreshStatus() {
   const current = getNetworkDisplayStatus();
-  modalElements?.status && (modalElements.status.textContent = `Connected: ${current.connectedDisplays}`);
+  if (!modalElements?.status) return;
+  if (current.state === 'error' && current.lastError) {
+    modalElements.status.textContent = `Connected: ${current.connectedDisplays} (${current.lastError})`;
+    return;
+  }
+  modalElements.status.textContent = `Connected: ${current.connectedDisplays}`;
 }
 
 function bindModalEvents() {
@@ -397,8 +543,12 @@ function initDisplayPairingPanel() {
   const elements = buildModal();
   if (!elements) return;
   bindModalEvents();
-  updateWsLabel(resolveDefaultWsUrl());
-  onNetworkDisplayStatus(({ connectedDisplays }) => {
+  updatePairingDiagnostics(resolvePairBaseUrl(window.location.origin));
+  onNetworkDisplayStatus(({ connectedDisplays, state, lastError }) => {
+    if (state === 'error' && lastError) {
+      elements.status.textContent = `Connected: ${connectedDisplays} (${lastError})`;
+      return;
+    }
     elements.status.textContent = `Connected: ${connectedDisplays}`;
   });
 

@@ -315,6 +315,51 @@ function readTokenString(value: unknown): string | null {
   return trimmed ? trimmed : null;
 }
 
+function decodeBase64Url(input: string): string | null {
+  if (!input) return null;
+  const normalized = input.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+  try {
+    return atob(padded);
+  } catch {
+    return null;
+  }
+}
+
+function parseJwtPayload(token: string): Record<string, unknown> | null {
+  const parts = token.split(".");
+  if (parts.length < 2) return null;
+  const payload = decodeBase64Url(parts[1]);
+  if (!payload) return null;
+  try {
+    const parsed = JSON.parse(payload) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function readJwtExpiryMs(token: string): number | null {
+  const payload = parseJwtPayload(token);
+  if (!payload) return null;
+  const exp = payload.exp;
+  if (typeof exp !== "number" || !Number.isFinite(exp)) return null;
+  return Math.trunc(exp * 1000);
+}
+
+function isExpiredAccessToken(token: string): boolean {
+  const expiryMs = readJwtExpiryMs(token);
+  if (!expiryMs) return false;
+  return expiryMs <= Date.now() + 5000;
+}
+
+function sanitizeAccessToken(token: string | null): string | null {
+  if (!token) return null;
+  return isExpiredAccessToken(token) ? null : token;
+}
+
 function extractAccessTokenFromAuthPayload(value: unknown): string | null {
   if (!value || typeof value !== "object") return null;
 
@@ -328,24 +373,24 @@ function extractAccessTokenFromAuthPayload(value: unknown): string | null {
 
   const row = value as Record<string, unknown>;
   const direct = readTokenString(row.access_token);
-  if (direct) return direct;
+  if (direct) return sanitizeAccessToken(direct);
 
   const currentSession = row.currentSession;
   if (currentSession && typeof currentSession === "object") {
     const token = readTokenString((currentSession as Record<string, unknown>).access_token);
-    if (token) return token;
+    if (token) return sanitizeAccessToken(token);
   }
 
   const session = row.session;
   if (session && typeof session === "object") {
     const token = readTokenString((session as Record<string, unknown>).access_token);
-    if (token) return token;
+    if (token) return sanitizeAccessToken(token);
   }
 
   const currentSessionLegacy = row.current_session;
   if (currentSessionLegacy && typeof currentSessionLegacy === "object") {
     const token = readTokenString((currentSessionLegacy as Record<string, unknown>).access_token);
-    if (token) return token;
+    if (token) return sanitizeAccessToken(token);
   }
 
   const nestedData = row.data;
@@ -370,12 +415,13 @@ function readAccessTokenFromStorageKey(key: string): string | null {
 
   const direct = readTokenString(raw);
   if (direct && direct !== "null" && direct !== "undefined" && !direct.startsWith("{") && !direct.startsWith("[")) {
-    return direct;
+    return sanitizeAccessToken(direct);
   }
 
   try {
     const parsed = JSON.parse(raw) as unknown;
-    return extractAccessTokenFromAuthPayload(parsed);
+    const token = extractAccessTokenFromAuthPayload(parsed);
+    return sanitizeAccessToken(token);
   } catch {
     return null;
   }
@@ -419,18 +465,19 @@ async function readAccessTokenForRequest(): Promise<string | null> {
 
   try {
     const sessionPayload = await getSession();
-    return extractAccessTokenFromAuthPayload(sessionPayload);
+    const token = extractAccessTokenFromAuthPayload(sessionPayload);
+    return sanitizeAccessToken(token);
   } catch {
     return null;
   }
 }
 
-function buildAuthHeaders(opts?: { includeJson?: boolean }): Headers {
+async function buildAuthHeaders(opts?: { includeJson?: boolean }): Promise<Headers> {
   const headers = new Headers();
   if (opts?.includeJson !== false) {
     headers.set("content-type", "application/json");
   }
-  const accessToken = readAccessTokenFromStorage();
+  const accessToken = await readAccessTokenForRequest();
   if (accessToken) {
     headers.set("authorization", `Bearer ${accessToken}`);
   }
@@ -681,7 +728,7 @@ export async function fetchHearthAiStatus(): Promise<HearthAiStatusResult> {
   try {
     response = await fetch(`/api/hearth/chat/status?${query.toString()}`, {
       method: "GET",
-      headers: buildAuthHeaders({ includeJson: true }),
+      headers: await buildAuthHeaders({ includeJson: true }),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Network error";
@@ -936,7 +983,7 @@ export async function requestHearthChatReply(
   try {
     response = await fetch("/api/hearth/chat", {
       method: "POST",
-      headers: buildAuthHeaders({ includeJson: true }),
+      headers: await buildAuthHeaders({ includeJson: true }),
       body: JSON.stringify({
         messages: normalized,
         episode_context: episodeContext,

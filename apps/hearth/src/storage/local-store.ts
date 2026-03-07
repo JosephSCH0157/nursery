@@ -1,7 +1,7 @@
 import type { Draft, DraftId } from "../domain/draft";
 import type { Revision, RevisionId } from "../domain/revision";
 import type { HearthChatMessage } from "../lib/hearth-chat-api";
-import type { HearthStore } from "./hearth-store";
+import type { HearthStore, SaveDraftOptions } from "./hearth-store";
 import { cloneRevision, normalizeRevision, readRevisionRecord, writeRevisionRecord } from "./revision-storage";
 
 const DRAFTS_STORAGE_KEY = "hearth:drafts";
@@ -168,7 +168,7 @@ export class LocalHearthStore implements HearthStore {
     return found ? cloneDraft(found) : null;
   }
 
-  async saveDraft(draft: Draft): Promise<void> {
+  async saveDraft(draft: Draft, _options?: SaveDraftOptions): Promise<void> {
     const normalized = normalizeDraft(draft);
     if (!normalized) {
       throw new Error("Invalid draft payload");

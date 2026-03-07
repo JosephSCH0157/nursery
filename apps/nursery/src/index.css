@@ -218,3 +218,125 @@ textarea:focus-visible {
   font-size: 12px;
   opacity: 0.92;
 }
+
+.forge-ai-panel__learning-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(4, 8, 16, 0.72);
+  backdrop-filter: blur(2px);
+}
+
+.forge-ai-panel__learning-modal {
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  background: rgba(13, 20, 35, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 14px;
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.forge-ai-panel__learning-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.forge-ai-panel__learning-title {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.forge-ai-panel__learning-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.forge-ai-panel__learning-tabs button[data-active="1"] {
+  border-color: rgba(147, 197, 253, 0.75);
+  background: rgba(147, 197, 253, 0.2);
+}
+
+.forge-ai-panel__learning-body {
+  display: grid;
+  gap: 10px;
+}
+
+.forge-ai-panel__learning-section {
+  display: grid;
+  gap: 8px;
+}
+
+.forge-ai-panel__learning-textarea {
+  width: 100%;
+  min-height: 130px;
+  resize: vertical;
+}
+
+.forge-ai-panel__forge-list {
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.forge-ai-panel__forge-item {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 12px;
+  opacity: 0.92;
+}
+
+.forge-ai-panel__forge-item input {
+  margin-top: 2px;
+}
+
+.forge-ai-panel__learning-preview {
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  padding-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.forge-ai-panel__learning-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.forge-ai-panel__learning-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.forge-ai-panel__learning-item-head button {
+  padding: 4px 8px;
+}
+
+.forge-ai-panel__learning-snippet {
+  opacity: 0.88;
+  line-height: 1.4;
+}
+
+.forge-ai-panel__learning-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

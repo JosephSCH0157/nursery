@@ -211,7 +211,7 @@ test("adaptive style settings ui role matrix", async ({ browser, baseURL }) => {
 
   const createdUserIds: string[] = [];
   let workspaceId: string | null = null;
-  let users: {
+  const users: {
     owner?: UserSession;
     admin?: UserSession;
     editor?: UserSession;

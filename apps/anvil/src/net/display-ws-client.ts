@@ -1,3 +1,5 @@
+import { buildDisplayWsUrl } from './display-ws-endpoint';
+
 type RelayState = 'disconnected' | 'connecting' | 'connected' | 'error';
 
 export type RelayStatus = {
@@ -21,6 +23,7 @@ const SCROLL_THROTTLE_MS = 60;
 let scrollTimer: number | null = null;
 let pendingScroll: string | null = null;
 let relayEnabled = false;
+let relayPairToken = '';
 const RELAY_ENABLED_KEY = 'tp_display_ws_enabled';
 
 const flushScroll = () => {
@@ -96,28 +99,13 @@ const updateStatus = (patch: Partial<RelayStatus>) => {
   notifyListeners();
 };
 
-const isLocalhostHost = (host: string): boolean => {
-  return (
-    host === 'localhost' ||
-    host === '127.0.0.1' ||
-    host === '::1' ||
-    host.endsWith('.local')
-  );
+const normalizePairToken = (value: unknown): string => {
+  if (typeof value !== 'string') return '';
+  return value.trim();
 };
 
 const getWsUrl = () => {
-  if (typeof window === 'undefined') return null;
-  try {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const hostname = window.location.hostname || '';
-    if (!isLocalhostHost(hostname)) {
-      return null;
-    }
-    const host = window.location.host;
-    return `${protocol}//${host}/ws/display`;
-  } catch {
-    return null;
-  }
+  return buildDisplayWsUrl(relayPairToken);
 };
 
 const flushQueue = () => {
@@ -145,6 +133,10 @@ const scheduleReconnect = () => {
 const handleMessage = (event: MessageEvent<string>) => {
   try {
     const data = JSON.parse(event.data);
+    if (data?.type === 'ready') {
+      updateStatus({ connectedDisplays: 1 });
+      return;
+    }
     if (data?.type === 'tp-display-status') {
       const connected = typeof data.connected === 'number' ? data.connected : status.connectedDisplays;
       updateStatus({ connectedDisplays: connected });
@@ -169,7 +161,7 @@ const connect = () => {
   updateStatus({ state: 'connecting', lastError: undefined });
   const url = getWsUrl();
   if (!url) {
-    updateStatus({ state: 'error', lastError: 'Unable to build ws url' });
+    updateStatus({ state: 'error', lastError: 'Pair token unavailable' });
     return;
   }
   resetSocket();
@@ -179,7 +171,9 @@ const connect = () => {
   ws.addEventListener('open', () => {
     reconnectDelay = 1000;
     updateStatus({ state: 'connected', lastError: undefined });
-    ws.send(JSON.stringify({ type: 'hello', role: 'main' }));
+    try {
+      ws.send('ping');
+    } catch {}
     flushQueue();
   });
 
@@ -272,10 +266,28 @@ export function getNetworkDisplayStatus(): RelayStatus {
   return { ...status };
 }
 
+export function setNetworkDisplayPairToken(token: string | null): void {
+  const next = normalizePairToken(token);
+  if (relayPairToken === next) return;
+  relayPairToken = next;
+  if (!relayEnabled || !isSupported) return;
+  if (!relayPairToken) {
+    resetSocket();
+    updateStatus({ state: 'error', connectedDisplays: 0, lastError: 'Pair token unavailable' });
+    return;
+  }
+  resetSocket();
+  connect();
+}
+
 export function enableNetworkDisplayRelay(): void {
   if (!isSupported) return;
   if (isRelayDisabled()) return;
   if (relayEnabled) return;
+  if (!relayPairToken) {
+    updateStatus({ state: 'error', lastError: 'Pair token unavailable' });
+    return;
+  }
   relayEnabled = true;
   persistRelayEnabled(true);
   connect();
