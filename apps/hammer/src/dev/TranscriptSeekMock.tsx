@@ -76,6 +76,34 @@ type HammerSessionState = {
   editPlanStatus: EditPlanStatus;
 };
 
+type TimelineClip = {
+  id: string;
+  start_sec: number;
+  end_sec: number;
+  label: string;
+  tone: string;
+};
+
+type TimelineTrack = {
+  id: string;
+  label: string;
+  clips: TimelineClip[];
+};
+
+type HammerPaneLayout = {
+  left_px: number;
+  center_px: number;
+  right_px: number;
+};
+
+type HammerPaneResizeHandle = "left-center" | "center-right";
+
+type HammerPaneResizeState = {
+  handle: HammerPaneResizeHandle;
+  startClientX: number;
+  startLayout: HammerPaneLayout;
+};
+
 const DEFAULT_PREVIEW_MODE: HammerPreviewMode = "edit-aware";
 const HAMMER_EDIT_PLAN_VERSION = "1";
 const HAMMER_DEV_TOOL_VERSION = "forge-v1.2.0/hammer-dev";
@@ -86,9 +114,58 @@ type TranscriptSeekMockProps = {
   launchContext?: HammerLaunchContext;
 };
 
+type WorkPanelView = "script" | "assets";
+type AssetPanelView = "video" | "images" | "music";
+type HammerToolId = "polish" | "audio" | "video" | "captions" | "details" | "export";
+type TimelineToolId = "select" | "hand" | "cut" | "marker" | "comment" | "text";
+
+const LEFT_PANEL_MIN_PX = 320;
+const LEFT_PANEL_MAX_PX = 540;
+const CENTER_PANEL_MIN_PX = 360;
+const CENTER_PANEL_MAX_PX = 760;
+const RIGHT_PANEL_MIN_PX = 300;
+const RIGHT_PANEL_MAX_PX = 520;
+const PANE_DIVIDER_WIDTH_PX = 10;
+const TOOL_STRIP_WIDTH_PX = 72;
+const SESSION_PANE_LAYOUT_VERSION = "v1";
+const DEFAULT_PANE_LAYOUT: HammerPaneLayout = {
+  left_px: 380,
+  center_px: 440,
+  right_px: 360,
+};
+
+const WORK_PANEL_VIEWS: Array<{ id: WorkPanelView; label: string }> = [
+  { id: "script", label: "Script" },
+  { id: "assets", label: "Assets" },
+];
+
+const ASSET_PANEL_VIEWS: Array<{ id: AssetPanelView; label: string }> = [
+  { id: "video", label: "Video" },
+  { id: "images", label: "Images" },
+  { id: "music", label: "Music" },
+];
+
+const HAMMER_TOOL_ORDER: Array<{ id: HammerToolId; label: string; shortLabel: string }> = [
+  { id: "polish", label: "Polish", shortLabel: "P" },
+  { id: "audio", label: "Audio", shortLabel: "A" },
+  { id: "video", label: "Video", shortLabel: "V" },
+  { id: "captions", label: "Captions", shortLabel: "C" },
+  { id: "details", label: "Details", shortLabel: "D" },
+  { id: "export", label: "Export", shortLabel: "E" },
+];
+
+const TIMELINE_TOOL_ORDER: Array<{ id: TimelineToolId; label: string }> = [
+  { id: "select", label: "Select" },
+  { id: "hand", label: "Hand / Move" },
+  { id: "cut", label: "Cut / Split" },
+  { id: "marker", label: "Marker" },
+  { id: "comment", label: "Comment" },
+  { id: "text", label: "Text" },
+];
+
 const ROOT_STYLE: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "minmax(340px, 1.05fr) minmax(400px, 0.95fr) minmax(320px, 0.92fr)",
+  gridTemplateRows: "minmax(0, 1fr) minmax(220px, 0.42fr)",
   gap: 14,
   minHeight: "calc(100vh - 138px)",
   alignItems: "stretch",
@@ -179,6 +256,43 @@ const INSPECTOR_GRID_STYLE: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
   gap: 8,
+};
+
+const TAB_ROW_STYLE: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  flexWrap: "wrap",
+};
+
+const TOOL_STRIP_STYLE: CSSProperties = {
+  ...PANEL_STYLE,
+  padding: 10,
+  gap: 10,
+  alignContent: "start",
+};
+
+const TIMELINE_PANE_STYLE: CSSProperties = {
+  ...PANE_STYLE,
+  minHeight: 0,
+};
+
+const TRACK_VIEWPORT_STYLE: CSSProperties = {
+  position: "relative",
+  minHeight: 48,
+  borderRadius: 10,
+  border: "1px solid rgba(148, 163, 184, 0.18)",
+  background: "rgba(2, 6, 23, 0.68)",
+  overflow: "hidden",
+};
+
+const PANE_DIVIDER_STYLE: CSSProperties = {
+  border: "none",
+  borderRadius: 999,
+  background: "rgba(30, 41, 59, 0.92)",
+  cursor: "col-resize",
+  padding: 0,
+  minHeight: 0,
 };
 
 type HammerPaneSectionProps = {
@@ -277,6 +391,89 @@ function getEditPlanStatusBadgeStyle(status: EditPlanStatus): CSSProperties {
     };
   }
   return PILL_BASE_STYLE;
+}
+
+function getToggleButtonStyle(active: boolean): CSSProperties {
+  return {
+    borderRadius: 999,
+    border: "1px solid rgba(148, 163, 184, 0.28)",
+    background: active ? "rgba(59, 130, 246, 0.2)" : "rgba(15, 23, 42, 0.64)",
+    color: active ? "#dbe8ff" : "#c8d6ea",
+    padding: "6px 12px",
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: "pointer",
+  };
+}
+
+function getToolStripButtonStyle(active: boolean): CSSProperties {
+  return {
+    borderRadius: 14,
+    border: "1px solid rgba(148, 163, 184, 0.24)",
+    background: active ? "rgba(59, 130, 246, 0.22)" : "rgba(15, 23, 42, 0.7)",
+    color: active ? "#dbe8ff" : "#c8d6ea",
+    display: "grid",
+    gap: 4,
+    padding: "10px 8px",
+    cursor: "pointer",
+    textAlign: "center",
+  };
+}
+
+function getPaneDividerStyle(active: boolean): CSSProperties {
+  return {
+    ...PANE_DIVIDER_STYLE,
+    boxShadow: active
+      ? "inset 0 0 0 1px rgba(96, 165, 250, 0.54)"
+      : "inset 0 0 0 1px rgba(148, 163, 184, 0.18)",
+    background: active ? "rgba(59, 130, 246, 0.16)" : PANE_DIVIDER_STYLE.background,
+  };
+}
+
+function clampPaneLayout(layout: HammerPaneLayout): HammerPaneLayout {
+  return {
+    left_px: clamp(layout.left_px, LEFT_PANEL_MIN_PX, LEFT_PANEL_MAX_PX),
+    center_px: clamp(layout.center_px, CENTER_PANEL_MIN_PX, CENTER_PANEL_MAX_PX),
+    right_px: clamp(layout.right_px, RIGHT_PANEL_MIN_PX, RIGHT_PANEL_MAX_PX),
+  };
+}
+
+function readSessionPaneLayout(storageKey: string): HammerPaneLayout | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.sessionStorage.getItem(storageKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<HammerPaneLayout> | null;
+    if (!parsed) return null;
+    if (
+      typeof parsed.left_px !== "number"
+      || typeof parsed.center_px !== "number"
+      || typeof parsed.right_px !== "number"
+    ) {
+      return null;
+    }
+    return clampPaneLayout({
+      left_px: parsed.left_px,
+      center_px: parsed.center_px,
+      right_px: parsed.right_px,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function writeSessionPaneLayout(
+  storageKey: string,
+  layout: HammerPaneLayout,
+): void {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.sessionStorage.setItem(storageKey, JSON.stringify(clampPaneLayout(layout)));
+  } catch {
+    // Session-level pane caching is convenience-only. Ignore storage failures.
+  }
 }
 
 function formatInstructionDetail(instruction: HammerEditInstruction): string | null {
@@ -481,6 +678,7 @@ export default function TranscriptSeekMock(
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const transcriptScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const activeRowRef = useRef<HTMLDivElement | null>(null);
+  const paneResizeStateRef = useRef<HammerPaneResizeState | null>(null);
   const resolver = useMemo(() => new V1HammerMediaResolver(), []);
   const launchContext = useMemo(
     () => props.launchContext ?? resolveHammerDevLaunchContext(location.search),
@@ -493,6 +691,18 @@ export default function TranscriptSeekMock(
   const resolvedLaunch = useMemo(
     () => resolveHammerLaunchContext(launchContext, { getFixtureSegments: getDevTranscriptSegments }),
     [launchContext],
+  );
+  const paneLayoutStorageKey = useMemo(
+    () => [
+      "hammer-pane-layout",
+      SESSION_PANE_LAYOUT_VERSION,
+      resolvedLaunch.launch_context.workspace_id,
+      resolvedLaunch.launch_context.workpiece_id,
+    ].join(":"),
+    [
+      resolvedLaunch.launch_context.workpiece_id,
+      resolvedLaunch.launch_context.workspace_id,
+    ],
   );
   const transcriptLoad = resolvedLaunch.transcript;
   const transcriptSegments = transcriptLoad.segments;
@@ -537,6 +747,85 @@ export default function TranscriptSeekMock(
   );
   const [editPlanFeedback, setEditPlanFeedback] = useState<string | null>(null);
   const [editPlanFeedbackTone, setEditPlanFeedbackTone] = useState<"neutral" | "success" | "warning">("neutral");
+  const [activeWorkPanel, setActiveWorkPanel] = useState<WorkPanelView>("script");
+  const [activeAssetPanel, setActiveAssetPanel] = useState<AssetPanelView>("video");
+  const [activeTool, setActiveTool] = useState<HammerToolId>("polish");
+  const [activeTimelineTool, setActiveTimelineTool] = useState<TimelineToolId>("select");
+  const [showDebugPanels, setShowDebugPanels] = useState(false);
+  const [paneLayout, setPaneLayout] = useState<HammerPaneLayout>(DEFAULT_PANE_LAYOUT);
+  const [activeResizeHandle, setActiveResizeHandle] = useState<HammerPaneResizeHandle | null>(null);
+
+  useEffect(() => {
+    const persistedLayout = readSessionPaneLayout(paneLayoutStorageKey);
+    setPaneLayout(persistedLayout ?? DEFAULT_PANE_LAYOUT);
+  }, [paneLayoutStorageKey]);
+
+  useEffect(() => {
+    writeSessionPaneLayout(paneLayoutStorageKey, paneLayout);
+  }, [paneLayout, paneLayoutStorageKey]);
+
+  useEffect(() => {
+    if (!activeResizeHandle) return;
+
+    const onMouseMove = (event: MouseEvent) => {
+      const resizeState = paneResizeStateRef.current;
+      if (!resizeState) return;
+
+      const delta = event.clientX - resizeState.startClientX;
+
+      if (resizeState.handle === "left-center") {
+        const lowerBound = Math.max(
+          LEFT_PANEL_MIN_PX - resizeState.startLayout.left_px,
+          resizeState.startLayout.center_px - CENTER_PANEL_MAX_PX,
+        );
+        const upperBound = Math.min(
+          LEFT_PANEL_MAX_PX - resizeState.startLayout.left_px,
+          resizeState.startLayout.center_px - CENTER_PANEL_MIN_PX,
+        );
+        const boundedDelta = clamp(delta, lowerBound, upperBound);
+        setPaneLayout(clampPaneLayout({
+          ...resizeState.startLayout,
+          left_px: resizeState.startLayout.left_px + boundedDelta,
+          center_px: resizeState.startLayout.center_px - boundedDelta,
+        }));
+        return;
+      }
+
+      const lowerBound = Math.max(
+        CENTER_PANEL_MIN_PX - resizeState.startLayout.center_px,
+        resizeState.startLayout.right_px - RIGHT_PANEL_MAX_PX,
+      );
+      const upperBound = Math.min(
+        CENTER_PANEL_MAX_PX - resizeState.startLayout.center_px,
+        resizeState.startLayout.right_px - RIGHT_PANEL_MIN_PX,
+      );
+      const boundedDelta = clamp(delta, lowerBound, upperBound);
+      setPaneLayout(clampPaneLayout({
+        ...resizeState.startLayout,
+        center_px: resizeState.startLayout.center_px + boundedDelta,
+        right_px: resizeState.startLayout.right_px - boundedDelta,
+      }));
+    };
+
+    const onMouseUp = () => {
+      paneResizeStateRef.current = null;
+      setActiveResizeHandle(null);
+    };
+
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+
+    return () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, [activeResizeHandle]);
 
   useEffect(() => {
     if (!resolvedLaunch.media.requires_resolution || !mediaRef) {
@@ -1051,6 +1340,15 @@ export default function TranscriptSeekMock(
     setEditPlanFeedbackTone("warning");
   }
 
+  function beginPaneResize(handle: HammerPaneResizeHandle, clientX: number) {
+    paneResizeStateRef.current = {
+      handle,
+      startClientX: clientX,
+      startLayout: paneLayout,
+    };
+    setActiveResizeHandle(handle);
+  }
+
   function removeInstruction(instructionId: string) {
     setEditInstructions((prev) => prev.filter((instruction) => instruction.instruction_id !== instructionId));
   }
@@ -1185,9 +1483,300 @@ export default function TranscriptSeekMock(
     `skip ${lastPreviewSkip?.reason ?? "none"}`,
   ].join(" · ");
 
+  const projectAssets = useMemo(
+    () => ({
+      video: [
+        {
+          id: mediaRef?.media_id ?? "dev-tone-preview",
+          title: mediaRef?.media_id ? "Primary recording" : "Generated preview tone",
+          detail: mediaRef?.local_relpath ?? resolvedLaunch.media.source_label,
+          status: resolvedLaunch.media.kind === "dev-tone"
+            ? "linked preview proxy"
+            : resolveResult?.status ?? "launch-linked",
+        },
+      ],
+      images: [] as Array<{ id: string; title: string; detail: string; status: string }>,
+      music: [] as Array<{ id: string; title: string; detail: string; status: string }>,
+    }),
+    [mediaRef?.local_relpath, mediaRef?.media_id, resolvedLaunch.media.kind, resolvedLaunch.media.source_label, resolveResult?.status],
+  );
+
+  const activeAssetItems = projectAssets[activeAssetPanel];
+
+  const toolPanelContent = useMemo((): JSX.Element => {
+    switch (activeTool) {
+      case "polish":
+        return (
+          <div style={{ display: "grid", gap: 10 }}>
+            <div style={META_STRIP_STYLE}>
+              <span style={PILL_BASE_STYLE}>Studio Sound</span>
+              <span style={PILL_BASE_STYLE}>Filler cleanup</span>
+              <span style={PILL_BASE_STYLE}>Gap tightening</span>
+              <span style={PILL_BASE_STYLE}>Retake cleanup</span>
+            </div>
+            <div style={{ fontSize: 13, opacity: 0.82 }}>
+              Polish is the first pass. It stays focused on spoken-content cleanup and enhancement, not on marketplace features or random utilities.
+            </div>
+            <div style={{ fontSize: 12, opacity: 0.72 }}>
+              Current edit plan: {editInstructions.length} instructions · {sessionState.editPlanStatus}
+            </div>
+          </div>
+        );
+      case "audio":
+        return (
+          <div style={{ display: "grid", gap: 10 }}>
+            <div style={META_STRIP_STYLE}>
+              <span style={PILL_BASE_STYLE}>dialogue track</span>
+              <span style={PILL_BASE_STYLE}>music bed</span>
+              <span style={PILL_BASE_STYLE}>voice polish</span>
+            </div>
+            <div style={{ fontSize: 13, opacity: 0.82 }}>
+              Audio stays focused on spoken clarity, bed levels, and episode consistency. Processing remains non-destructive.
+            </div>
+            <div style={{ fontSize: 12, opacity: 0.72 }}>
+              playback source: {playbackSourceLabel} · preview {sessionState.previewMode}
+            </div>
+          </div>
+        );
+      case "video":
+        return (
+          <div style={{ display: "grid", gap: 10 }}>
+            <div style={META_STRIP_STYLE}>
+              <span style={PILL_BASE_STYLE}>main video</span>
+              <span style={PILL_BASE_STYLE}>picture-in-picture</span>
+              <span style={PILL_BASE_STYLE}>visual cleanup</span>
+            </div>
+            <div style={{ fontSize: 13, opacity: 0.82 }}>
+              Video controls stay tied to the current project and launch context. Preview remains moderate so the timeline and transcript keep equal weight.
+            </div>
+            <div style={{ fontSize: 12, opacity: 0.72 }}>
+              source: {resolvedLaunch.media.source_label} · media kind {resolvedLaunch.launch_context.media.kind}
+            </div>
+          </div>
+        );
+      case "captions":
+        return (
+          <div style={{ display: "grid", gap: 10 }}>
+            <div style={META_STRIP_STYLE}>
+              <span style={PILL_BASE_STYLE}>{transcriptSegments.length} transcript segments</span>
+              <span style={PILL_BASE_STYLE}>{overlayRows.length} caption rows</span>
+            </div>
+            <div style={{ fontSize: 13, opacity: 0.82 }}>
+              Captions follow the transcript and timeline together. This panel owns subtitle timing and caption track preparation.
+            </div>
+          </div>
+        );
+      case "details":
+        return (
+          <div style={{ display: "grid", gap: 10 }}>
+            <div style={INSPECTOR_GRID_STYLE}>
+              <div>
+                <div style={{ fontSize: 11, opacity: 0.62 }}>workspace</div>
+                <div style={MONO_STYLE}>{resolvedLaunch.launch_context.workspace_id}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, opacity: 0.62 }}>workpiece</div>
+                <div style={MONO_STYLE}>{resolvedLaunch.launch_context.workpiece_id}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, opacity: 0.62 }}>source mode</div>
+                <div>{resolvedLaunch.launch_context.source_mode}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, opacity: 0.62 }}>preview mode</div>
+                <div>{sessionState.previewMode}</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 13, opacity: 0.78 }}>
+              Details carries project-level editing context and source metadata. Debug surfaces stay hidden unless you explicitly open them.
+            </div>
+          </div>
+        );
+      case "export":
+        return (
+          <div style={{ display: "grid", gap: 10 }}>
+            <div style={META_STRIP_STYLE}>
+              <span style={getEditPlanStatusBadgeStyle(sessionState.editPlanStatus)}>
+                {sessionState.editPlanStatus}
+              </span>
+              <span style={PILL_BASE_STYLE}>main edit</span>
+              <span style={PILL_BASE_STYLE}>shorts</span>
+            </div>
+            <div style={{ fontSize: 13, opacity: 0.82 }}>
+              Export is the final delivery stage inside Hammer. Render/output controls belong here, separate from the editing work panels.
+            </div>
+            <div style={{ fontSize: 12, opacity: 0.72 }}>
+              current plan {currentEditPlan.edit_plan_id} · instructions {editInstructions.length}
+            </div>
+          </div>
+        );
+      default:
+        return <></>;
+    }
+  }, [
+    activeTool,
+    currentEditPlan.edit_plan_id,
+    editInstructions.length,
+    overlayRows.length,
+    playbackSourceLabel,
+    projectAssets,
+    resolvedLaunch.launch_context.media.kind,
+    resolvedLaunch.launch_context.source_mode,
+    resolvedLaunch.launch_context.workpiece_id,
+    resolvedLaunch.launch_context.workspace_id,
+    resolvedLaunch.media.source_label,
+    sessionState.editPlanStatus,
+    sessionState.previewMode,
+    transcriptSegments.length,
+  ]);
+
+  const timelineTracks = useMemo<TimelineTrack[]>(
+    () => {
+      const primaryClips = overlayRows.map((row) => ({
+        id: row.row_id,
+        start_sec: row.start_sec,
+        end_sec: row.end_sec,
+        label: row.anchor_segment_id,
+        tone: row.is_deleted
+          ? "#dc2626"
+          : row.structure === "merge"
+          ? "#0ea5e9"
+          : row.structure === "split"
+          ? "#818cf8"
+          : "#60a5fa",
+      }));
+
+      return [
+        { id: "video-main", label: "Main Video", clips: primaryClips },
+        { id: "video-pip", label: "Picture-in-Picture", clips: [] },
+        {
+          id: "audio-dialogue",
+          label: "Main Audio",
+          clips: primaryClips.map((clip) => ({ ...clip, tone: "#34d399" })),
+        },
+        {
+          id: "audio-bed",
+          label: "Music / Bed Audio",
+          clips: selectedSegmentMuteInstruction
+            ? [{ id: "music-bed", start_sec: 0, end_sec: effectiveDurationSec, label: "bed", tone: "#f59e0b" }]
+            : [],
+        },
+        {
+          id: "text",
+          label: "Text",
+          clips: selectedOverlayRow
+            ? [{
+              id: `text_${selectedOverlayRow.row_id}`,
+              start_sec: selectedOverlayRow.start_sec,
+              end_sec: selectedOverlayRow.end_sec,
+              label: "text",
+              tone: "#f472b6",
+            }]
+            : [],
+        },
+        {
+          id: "captions",
+          label: "Captions",
+          clips: primaryClips.map((clip) => ({ ...clip, tone: "#c084fc" })),
+        },
+      ];
+    },
+    [effectiveDurationSec, overlayRows, selectedOverlayRow, selectedSegmentMuteInstruction],
+  );
+
+  const playheadPercent = clamp((currentTimeSec / effectiveDurationSec) * 100, 0, 100);
+  const activeToolDefinition = HAMMER_TOOL_ORDER.find((tool) => tool.id === activeTool) ?? HAMMER_TOOL_ORDER[0];
+  const upperPaneMinWidth = paneLayout.left_px
+    + paneLayout.center_px
+    + paneLayout.right_px
+    + TOOL_STRIP_WIDTH_PX
+    + (PANE_DIVIDER_WIDTH_PX * 2);
+
   return (
     <section style={ROOT_STYLE}>
-      <div style={{ ...PANE_STYLE, gridTemplateRows: "auto auto auto minmax(0, 1fr)" }}>
+      <div style={{ minHeight: 0, overflowX: "auto", overflowY: "hidden" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: [
+              `${paneLayout.left_px}px`,
+              `${PANE_DIVIDER_WIDTH_PX}px`,
+              `minmax(${paneLayout.center_px}px, 1fr)`,
+              `${PANE_DIVIDER_WIDTH_PX}px`,
+              `${paneLayout.right_px}px`,
+              `${TOOL_STRIP_WIDTH_PX}px`,
+            ].join(" "),
+            gap: 0,
+            alignItems: "stretch",
+            minHeight: "100%",
+            minWidth: upperPaneMinWidth,
+          }}
+        >
+          <div
+            style={{
+              ...PANE_STYLE,
+              display: "grid",
+              gridTemplateRows: activeWorkPanel === "script"
+                ? "auto auto auto auto minmax(0, 1fr)"
+                : "auto auto minmax(0, 1fr)",
+            }}
+          >
+        <HammerPaneSection
+          title="Work Panel"
+          subtitle="Hammer keeps transcript-first editing and project-linked assets in one left-side work region."
+          action={(
+            <div style={TAB_ROW_STYLE}>
+              {WORK_PANEL_VIEWS.map((panel) => (
+                <button
+                  key={panel.id}
+                  type="button"
+                  onClick={() => setActiveWorkPanel(panel.id)}
+                  style={getToggleButtonStyle(activeWorkPanel === panel.id)}
+                >
+                  {panel.label}
+                </button>
+              ))}
+            </div>
+          )}
+        >
+          {activeWorkPanel === "script" ? (
+            <>
+              <div style={META_STRIP_STYLE}>
+                <span style={PILL_BASE_STYLE}>{transcriptSegments.length} segments</span>
+                <span style={PILL_BASE_STYLE}>{overlayRows.length} rows</span>
+                <span style={PILL_BASE_STYLE}>preview {sessionState.previewMode}</span>
+                <span style={PILL_BASE_STYLE}>source {sessionState.sourceMode}</span>
+              </div>
+              <div style={{ display: "grid", gap: 4, fontSize: 12 }}>
+                <div>transcript source: {transcriptLoad.source_label}</div>
+                <div>session: {sessionState.sessionId}</div>
+                <div>edit plan instructions: {editInstructions.length}</div>
+              </div>
+              {transcriptLoad.error ? (
+                <div style={{ fontSize: 12, color: "#fde68a" }}>
+                  {transcriptLoad.error}
+                </div>
+              ) : null}
+              <div style={{ fontSize: 12, opacity: 0.72 }}>
+                Script view is the canonical transcript surface for split, merge, mute, trim, delete, and transcript navigation.
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={META_STRIP_STYLE}>
+                <span style={PILL_BASE_STYLE}>{projectAssets.video.length} video</span>
+                <span style={PILL_BASE_STYLE}>{projectAssets.images.length} images</span>
+                <span style={PILL_BASE_STYLE}>{projectAssets.music.length} music</span>
+              </div>
+              <div style={{ fontSize: 13, opacity: 0.78 }}>
+                Assets shows only media already linked to this project. No stock browsing, generators, or generic upload playgrounds belong here.
+              </div>
+            </>
+          )}
+        </HammerPaneSection>
+
+        {activeWorkPanel === "script" ? (
+        <>
         <HammerPaneSection
           title="Transcript Console"
           subtitle="Canonical transcript state stays on the left. Overlay rows and preview behavior derive from the edit plan."
@@ -1597,9 +2186,76 @@ export default function TranscriptSeekMock(
           )}
         </div>
         </HammerPaneSection>
+        </>
+        ) : (
+          <HammerPaneSection
+            title="Project Assets"
+            subtitle="Project-linked assets stay scoped to this workpiece and remain separate from stock or AI media tooling."
+            action={(
+              <div style={TAB_ROW_STYLE}>
+                {ASSET_PANEL_VIEWS.map((panel) => (
+                  <button
+                    key={panel.id}
+                    type="button"
+                    onClick={() => setActiveAssetPanel(panel.id)}
+                    style={getToggleButtonStyle(activeAssetPanel === panel.id)}
+                  >
+                    {panel.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            sectionStyle={{ minHeight: 0, overflow: "hidden" }}
+            bodyStyle={{ minHeight: 0, overflow: "auto" }}
+          >
+            {activeAssetItems.length > 0 ? (
+              activeAssetItems.map((asset) => (
+                <div
+                  key={asset.id}
+                  style={{
+                    border: "1px solid rgba(148, 163, 184, 0.18)",
+                    borderRadius: 10,
+                    background: "rgba(2, 6, 23, 0.42)",
+                    padding: "10px 12px",
+                    display: "grid",
+                    gap: 6,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                    <strong style={{ color: "#dbe8ff" }}>{asset.title}</strong>
+                    <span style={PILL_BASE_STYLE}>{asset.status}</span>
+                  </div>
+                  <div style={{ fontSize: 12, opacity: 0.74, ...MONO_STYLE }}>{asset.id}</div>
+                  <div style={{ fontSize: 12, opacity: 0.82 }}>{asset.detail}</div>
+                </div>
+              ))
+            ) : (
+              <div style={{ fontSize: 13, opacity: 0.78 }}>
+                No {activeAssetPanel} assets are linked to this workpiece yet.
+              </div>
+            )}
+          </HammerPaneSection>
+        )}
       </div>
 
-      <div style={{ ...PANE_STYLE, gridTemplateRows: "auto minmax(0, 1fr)" }}>
+      <button
+        type="button"
+        aria-label="Resize left and center Hammer panes"
+        title="Drag to resize the left and center panes"
+        onMouseDown={(event) => {
+          event.preventDefault();
+          beginPaneResize("left-center", event.clientX);
+        }}
+        style={getPaneDividerStyle(activeResizeHandle === "left-center")}
+      />
+
+      <div
+        style={{
+          ...PANE_STYLE,
+          display: "grid",
+          gridTemplateRows: "auto minmax(0, 1fr)",
+        }}
+      >
         <HammerPaneSection
           title="Media Source Status"
           subtitle="Media wiring stays separate from transport and edit-plan controls. This pane is the future home for real source health."
@@ -1768,7 +2424,47 @@ export default function TranscriptSeekMock(
         </HammerPaneSection>
       </div>
 
-      <div style={{ ...PANE_STYLE, gridTemplateRows: "auto minmax(0, 0.85fr) minmax(0, 1.15fr)" }}>
+      <button
+        type="button"
+        aria-label="Resize center and right Hammer panes"
+        title="Drag to resize the center and right panes"
+        onMouseDown={(event) => {
+          event.preventDefault();
+          beginPaneResize("center-right", event.clientX);
+        }}
+        style={getPaneDividerStyle(activeResizeHandle === "center-right")}
+      />
+
+      <div
+        style={{
+          ...PANE_STYLE,
+          display: "grid",
+          gap: 12,
+          alignContent: "start",
+          overflow: "auto",
+        }}
+      >
+        <HammerPaneSection
+          title={`${activeToolDefinition.label} Panel`}
+          subtitle="The far-right workflow strip selects the tool. This content panel changes immediately and deterministically with the current tool."
+          action={(
+            <div style={ACTION_ROW_STYLE}>
+              <span style={PILL_BASE_STYLE}>{activeToolDefinition.label}</span>
+              <button
+                type="button"
+                onClick={() => setShowDebugPanels((current) => !current)}
+                style={getToggleButtonStyle(showDebugPanels)}
+              >
+                {showDebugPanels ? "Hide Debug" : "Show Debug"}
+              </button>
+            </div>
+          )}
+        >
+          {toolPanelContent}
+        </HammerPaneSection>
+
+        {showDebugPanels ? (
+          <>
         <HammerPaneSection
           title="Launch Context"
           subtitle="This shows the single launch object currently driving Hammer startup and source resolution."
@@ -2030,6 +2726,140 @@ export default function TranscriptSeekMock(
                 ...MONO_STYLE,
               }}
             />
+          </div>
+        </HammerPaneSection>
+        </>
+        ) : (
+          <HammerPaneSection
+            title="Debug Panels"
+            subtitle="Launch context, inspector, and edit-plan round-trip diagnostics are hidden until explicitly requested."
+            action={<span style={PILL_BASE_STYLE}>hidden</span>}
+          >
+            <div style={{ fontSize: 13, opacity: 0.78 }}>
+              Toggle debug to inspect launch payloads, row truth data, and edit-plan JSON round-trip state without turning the main editor into a diagnostics console.
+            </div>
+          </HammerPaneSection>
+        )}
+      </div>
+
+      <div style={TOOL_STRIP_STYLE}>
+        <div style={{ display: "grid", gap: 4, justifyItems: "center" }}>
+          <strong style={{ color: "#dbe8ff", fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+            Tools
+          </strong>
+          <span style={{ fontSize: 11, opacity: 0.62, textAlign: "center" }}>
+            Fixed workflow strip
+          </span>
+        </div>
+        {HAMMER_TOOL_ORDER.map((tool) => (
+          <button
+            key={tool.id}
+            type="button"
+            onClick={() => setActiveTool(tool.id)}
+            style={getToolStripButtonStyle(activeTool === tool.id)}
+          >
+            <strong style={{ fontSize: 18, lineHeight: 1 }}>{tool.shortLabel}</strong>
+            <span style={{ fontSize: 11 }}>{tool.label}</span>
+          </button>
+        ))}
+      </div>
+        </div>
+      </div>
+
+      <div style={TIMELINE_PANE_STYLE}>
+        <HammerPaneSection
+          title="Timeline"
+          subtitle="Hammer stays transcript-first, but the bottom timeline remains a real multi-track editing surface for placement, layering, and track-aware work."
+          action={(
+            <div style={TAB_ROW_STYLE}>
+              {TIMELINE_TOOL_ORDER.map((tool) => (
+                <button
+                  key={tool.id}
+                  type="button"
+                  onClick={() => setActiveTimelineTool(tool.id)}
+                  style={getToggleButtonStyle(activeTimelineTool === tool.id)}
+                >
+                  {tool.label}
+                </button>
+              ))}
+            </div>
+          )}
+          sectionStyle={{ minHeight: 0, overflow: "hidden" }}
+          bodyStyle={{ minHeight: 0, overflow: "auto" }}
+        >
+          <div style={META_STRIP_STYLE}>
+            <span style={PILL_BASE_STYLE}>tool {activeTimelineTool}</span>
+            <span style={PILL_BASE_STYLE}>tracks {timelineTracks.length}</span>
+            <span style={PILL_BASE_STYLE}>playhead {formatClock(currentTimeSec)}</span>
+          </div>
+          <div style={{ display: "grid", gap: 10 }}>
+            {timelineTracks.map((track) => (
+              <div
+                key={track.id}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "150px minmax(0, 1fr)",
+                  gap: 12,
+                  alignItems: "center",
+                }}
+              >
+                <div style={{ display: "grid", gap: 4 }}>
+                  <strong style={{ color: "#dbe8ff", fontSize: 13 }}>{track.label}</strong>
+                  <span style={{ fontSize: 11, opacity: 0.64 }}>{track.id}</span>
+                </div>
+                <div style={TRACK_VIEWPORT_STYLE}>
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      background: "linear-gradient(90deg, rgba(15, 23, 42, 0.72), rgba(2, 6, 23, 0.92))",
+                    }}
+                  />
+                  {track.clips.map((clip) => {
+                    const left = clamp((clip.start_sec / effectiveDurationSec) * 100, 0, 100);
+                    const width = clamp(((clip.end_sec - clip.start_sec) / effectiveDurationSec) * 100, 1.2, 100);
+                    return (
+                      <div
+                        key={clip.id}
+                        title={`${clip.label} · ${formatClock(clip.start_sec)}-${formatClock(clip.end_sec)}`}
+                        style={{
+                          position: "absolute",
+                          top: 8,
+                          bottom: 8,
+                          left: `${left}%`,
+                          width: `${width}%`,
+                          minWidth: 10,
+                          borderRadius: 8,
+                          background: clip.tone,
+                          border: "1px solid rgba(255, 255, 255, 0.18)",
+                          padding: "4px 8px",
+                          overflow: "hidden",
+                          whiteSpace: "nowrap",
+                          textOverflow: "ellipsis",
+                          color: "#0f172a",
+                          fontSize: 11,
+                          fontWeight: 700,
+                        }}
+                      >
+                        {clip.label}
+                      </div>
+                    );
+                  })}
+                  <div
+                    aria-hidden="true"
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      bottom: 0,
+                      left: `${playheadPercent}%`,
+                      width: 2,
+                      background: "#f8fafc",
+                      boxShadow: "0 0 0 1px rgba(248, 250, 252, 0.28)",
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
           </div>
         </HammerPaneSection>
       </div>

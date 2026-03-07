@@ -4,6 +4,10 @@ import {
   getHammerDevLaunchPreset,
   resolveHammerDevLaunchContext,
 } from "../src/dev/hammerLaunchPresets";
+import {
+  getHammerStubLaunchScenario,
+  readHammerStubLaunchScenarioId,
+} from "../src/dev/hammerStubLaunches";
 import { DEFAULT_TRANSCRIPT_FIXTURE_ID, getDevTranscriptSegments } from "../src/dev/transcriptFixtures";
 import {
   loadHammerLaunchWorkspaceMapping,
@@ -72,6 +76,28 @@ const resolverDeps = {
   assert.equal(derived.transcript.kind, "tongs-stub");
   assert.equal(derived.media.kind, "tongs-stub");
   assert.equal(derived.preview_mode, "raw");
+}
+
+{
+  const scenario = getHammerStubLaunchScenario("existing-edit-plan");
+  const resolved = resolveHammerLaunchContext(scenario.launchContext, resolverDeps);
+
+  assert.equal(scenario.launchContext.workspace_id, "11111111-1111-4111-8111-111111111111");
+  assert.equal(scenario.launchContext.workpiece_id, "33333333-3333-4333-8333-333333333333");
+  assert.equal(scenario.launchContext.edit_plan?.workpiece_id, "33333333-3333-4333-8333-333333333333");
+  assert.equal(resolved.initial_edit_plan?.edit_plan_id, "plan_tongs_stub_v1");
+  assert.equal(resolved.initial_preview_mode, "raw");
+}
+
+{
+  const scenario = getHammerStubLaunchScenario("mapped-media-missing");
+  const resolved = resolveHammerLaunchContext(scenario.launchContext, resolverDeps);
+
+  assert.equal(resolved.launch_context.source_mode, "mapped");
+  assert.equal(resolved.media.kind, "mapped-local");
+  assert.equal(resolved.initial_edit_plan, null);
+  assert.equal(readHammerStubLaunchScenarioId("?hammer_stub=mapped-media-missing"), "mapped-media-missing");
+  assert.equal(readHammerStubLaunchScenarioId("?hammer_stub=unknown"), null);
 }
 
 console.log("Hammer launch context tests passed.");
