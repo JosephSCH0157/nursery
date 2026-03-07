@@ -25,6 +25,7 @@
     "node": "20.20.0"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.98.0"
+    "@supabase/supabase-js": "^2.98.0",
+    "postmark": "^4.0.7"
   }
 }

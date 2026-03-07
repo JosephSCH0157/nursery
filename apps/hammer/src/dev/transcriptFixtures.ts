@@ -29,7 +29,7 @@ const FIXTURE_INDEX: Record<string, HammerTranscriptSegment[]> = {
       segment_id: "seg_004",
       start_sec: 14,
       end_sec: 17,
-      speaker: "S2",
+      speaker: "S1",
       text: "Most teams optimize output, not signal.",
     },
     {
