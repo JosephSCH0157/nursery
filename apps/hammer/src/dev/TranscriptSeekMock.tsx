@@ -56,11 +56,36 @@ type TranscriptOverlayRow = {
   end_sec: number;
   structure: "base" | "split" | "merge";
   blocks: TranscriptOverlayBlock[];
+  timing_blocks: TranscriptOverlayBlock[];
   split_instruction: HammerSplitInstruction | null;
   merge_instruction: HammerMergeInstruction | null;
   is_deleted: boolean;
   is_muted: boolean;
   is_trimmed: boolean;
+};
+
+type TranscriptPlayableSlice = {
+  start_sec: number;
+  end_sec: number;
+};
+
+type TranscriptPlaybackRange = {
+  row_id: string;
+  anchor_segment_id: string;
+  start_sec: number;
+  end_sec: number;
+  playable_start_sec: number | null;
+  playable_end_sec: number | null;
+  playable_slices: TranscriptPlayableSlice[];
+  is_deleted: boolean;
+  is_muted: boolean;
+  source_segment_ids: string[];
+};
+
+type PreviewSkipEvent = {
+  reason: "deleted" | "trim-start" | "trim-end";
+  from_row_id: string | null;
+  to_row_id: string | null;
 };
 
 const DEFAULT_WORKSPACE_ID = "ws_demo";
@@ -69,6 +94,8 @@ const DEFAULT_MEDIA_RELPATH = "recordings/episode014.mp4";
 const FALLBACK_DURATION_SEC = 32;
 const MIN_SEGMENT_DURATION_SEC = 0.2;
 const MIN_SPLIT_EDGE_SEC = 0.05;
+const MIN_TRIMMED_DURATION_SEC = 0.15;
+const PREVIEW_EPSILON_SEC = 0.05;
 const DEV_AUDIO_SAMPLE_RATE = 8_000;
 const UNKNOWN_SPEAKER = "UNK";
 
@@ -107,6 +134,15 @@ function formatInstructionDetail(instruction: HammerEditInstruction): string | n
   if (instruction.type === "split") {
     return `@ ${instruction.split_at_sec.toFixed(2)}s`;
   }
+  if (instruction.type === "trim") {
+    const trimStart = instruction.trim_start_sec != null
+      ? instruction.trim_start_sec.toFixed(2)
+      : "--";
+    const trimEnd = instruction.trim_end_sec != null
+      ? instruction.trim_end_sec.toFixed(2)
+      : "--";
+    return `@ ${trimStart}s-${trimEnd}s`;
+  }
   return null;
 }
 
@@ -117,19 +153,6 @@ function formatInstructionTarget(instruction: HammerEditInstruction): string {
   return instruction.segment_id;
 }
 
-function pickPlayableOverlayRowIdForTime(
-  overlayRows: TranscriptOverlayRow[],
-  timeSec: number,
-): string | null {
-  for (const row of overlayRows) {
-    if (row.is_deleted) continue;
-    if (timeSec >= row.start_sec && timeSec < row.end_sec) {
-      return row.row_id;
-    }
-  }
-  return null;
-}
-
 function formatOverlayRowLabel(row: TranscriptOverlayRow | null): string {
   if (!row) return "none";
   const primaryBlock = row.blocks[0] ?? null;
@@ -138,6 +161,11 @@ function formatOverlayRowLabel(row: TranscriptOverlayRow | null): string {
     return `${row.speaker} ${row.anchor_segment_id} + ${row.next_segment_id}`;
   }
   return `${row.speaker}${blockLabel}`.trim();
+}
+
+function formatPlaybackRangeLabel(range: TranscriptPlaybackRange | null): string {
+  if (!range) return "none";
+  return range.row_id;
 }
 
 function writeAscii(view: DataView, offset: number, value: string): void {
@@ -177,6 +205,37 @@ function createDevAudioWavBlob(durationSec: number): Blob {
   }
 
   return new Blob([buffer], { type: "audio/wav" });
+}
+
+function resolveTrimBounds(
+  segment: HammerTranscriptSegment,
+  trimInstruction: HammerTrimInstruction | null,
+): TranscriptPlayableSlice | null {
+  const rawStart = trimInstruction?.trim_start_sec ?? segment.start_sec;
+  const rawEnd = trimInstruction?.trim_end_sec ?? segment.end_sec;
+  const trimStartSec = clamp(rawStart, segment.start_sec, segment.end_sec);
+  const trimEndSec = clamp(rawEnd, segment.start_sec, segment.end_sec);
+  if ((trimEndSec - trimStartSec) < MIN_TRIMMED_DURATION_SEC) {
+    return null;
+  }
+  return {
+    start_sec: trimStartSec,
+    end_sec: trimEndSec,
+  };
+}
+
+function buildDefaultTrimInstruction(
+  segment: HammerTranscriptSegment,
+): Pick<HammerTrimInstruction, "trim_start_sec" | "trim_end_sec"> {
+  const duration = Math.max(segment.end_sec - segment.start_sec, MIN_SEGMENT_DURATION_SEC);
+  const maxInset = Math.max((duration / 2) - (MIN_TRIMMED_DURATION_SEC / 2), 0);
+  const inset = maxInset > 0
+    ? Math.min(Math.max(duration * 0.18, 0.05), maxInset)
+    : 0;
+  return {
+    trim_start_sec: Number((segment.start_sec + inset).toFixed(3)),
+    trim_end_sec: Number((segment.end_sec - inset).toFixed(3)),
+  };
 }
 
 function readTrimmed(params: URLSearchParams, key: string): string | null {
@@ -491,7 +550,8 @@ function buildOverlayFlags(
   instructionIndex: InstructionIndex,
 ): Pick<TranscriptOverlayRow, "is_deleted" | "is_muted" | "is_trimmed"> {
   return {
-    is_deleted: sourceSegmentIds.some((segmentId) => instructionIndex.deleteBySegmentId.has(segmentId)),
+    is_deleted: sourceSegmentIds.length > 0
+      && sourceSegmentIds.every((segmentId) => instructionIndex.deleteBySegmentId.has(segmentId)),
     is_muted: sourceSegmentIds.some((segmentId) => instructionIndex.muteBySegmentId.has(segmentId)),
     is_trimmed: sourceSegmentIds.some((segmentId) => instructionIndex.trimBySegmentId.has(segmentId)),
   };
@@ -541,6 +601,7 @@ function buildTranscriptOverlayRows(
         end_sec: mergedBlock.end_sec,
         structure: "merge",
         blocks: [mergedBlock],
+        timing_blocks: [...segmentBlocks, ...nextBlocks],
         split_instruction: splitInstruction,
         merge_instruction: mergeInstruction,
         ...buildOverlayFlags(sourceSegmentIds, instructionIndex),
@@ -561,6 +622,7 @@ function buildTranscriptOverlayRows(
           end_sec: block.end_sec,
           structure: "split",
           blocks: [block],
+          timing_blocks: [block],
           split_instruction: splitInstruction,
           merge_instruction: mergeInstruction,
           ...buildOverlayFlags([segment.segment_id], instructionIndex),
@@ -579,6 +641,7 @@ function buildTranscriptOverlayRows(
       end_sec: segmentBlocks[0].end_sec,
       structure: "base",
       blocks: [segmentBlocks[0]],
+      timing_blocks: [segmentBlocks[0]],
       split_instruction: splitInstruction,
       merge_instruction: mergeInstruction,
       ...buildOverlayFlags([segment.segment_id], instructionIndex),
@@ -586,6 +649,141 @@ function buildTranscriptOverlayRows(
   }
 
   return rows;
+}
+
+function buildPlaybackRanges(
+  overlayRows: TranscriptOverlayRow[],
+  segmentById: Map<string, HammerTranscriptSegment>,
+  instructionIndex: InstructionIndex,
+): TranscriptPlaybackRange[] {
+  return overlayRows.map((row) => {
+    const playableSlices = row.timing_blocks
+      .map((block) => {
+        const sourceSegmentId = block.source_segment_ids[0] ?? row.anchor_segment_id;
+        const sourceSegment = segmentById.get(sourceSegmentId);
+        if (!sourceSegment) return null;
+        if (instructionIndex.deleteBySegmentId.has(sourceSegmentId)) return null;
+
+        const trimBounds = resolveTrimBounds(
+          sourceSegment,
+          instructionIndex.trimBySegmentId.get(sourceSegmentId) ?? null,
+        );
+        if (!trimBounds) return null;
+
+        const playableStartSec = Math.max(block.start_sec, trimBounds.start_sec);
+        const playableEndSec = Math.min(block.end_sec, trimBounds.end_sec);
+        if ((playableEndSec - playableStartSec) < PREVIEW_EPSILON_SEC) {
+          return null;
+        }
+
+        return {
+          start_sec: playableStartSec,
+          end_sec: playableEndSec,
+        };
+      })
+      .filter((slice): slice is TranscriptPlayableSlice => Boolean(slice));
+
+    return {
+      row_id: row.row_id,
+      anchor_segment_id: row.anchor_segment_id,
+      start_sec: row.start_sec,
+      end_sec: row.end_sec,
+      playable_start_sec: playableSlices[0]?.start_sec ?? null,
+      playable_end_sec: playableSlices[playableSlices.length - 1]?.end_sec ?? null,
+      playable_slices: playableSlices,
+      is_deleted: playableSlices.length === 0,
+      is_muted: row.is_muted,
+      source_segment_ids: row.source_segment_ids,
+    };
+  });
+}
+
+function getPlayableRows(playbackRanges: TranscriptPlaybackRange[]): TranscriptPlaybackRange[] {
+  return playbackRanges.filter((range) => range.playable_slices.length > 0);
+}
+
+function findRowByTime(
+  playbackRanges: TranscriptPlaybackRange[],
+  timeSec: number,
+  mode: "raw" | "playable" = "raw",
+): TranscriptPlaybackRange | null {
+  for (const range of playbackRanges) {
+    if (mode === "raw") {
+      if (timeSec >= range.start_sec && timeSec < range.end_sec) {
+        return range;
+      }
+      continue;
+    }
+
+    if (range.playable_slices.some((slice) => timeSec >= slice.start_sec && timeSec < slice.end_sec)) {
+      return range;
+    }
+  }
+  return null;
+}
+
+function findNextPlayableSlice(
+  playbackRange: TranscriptPlaybackRange,
+  timeSec: number,
+): TranscriptPlayableSlice | null {
+  for (const slice of playbackRange.playable_slices) {
+    if (timeSec < slice.start_sec - PREVIEW_EPSILON_SEC) {
+      return slice;
+    }
+    if (timeSec >= slice.start_sec && timeSec < slice.end_sec) {
+      return slice;
+    }
+  }
+  return null;
+}
+
+function findNextPlayableRow(
+  playbackRanges: TranscriptPlaybackRange[],
+  timeSec: number,
+): TranscriptPlaybackRange | null {
+  return getPlayableRows(playbackRanges).find((range) => (
+    (range.playable_start_sec ?? Number.POSITIVE_INFINITY) >= (timeSec - PREVIEW_EPSILON_SEC)
+  )) ?? null;
+}
+
+function findPreviousPlayableRow(
+  playbackRanges: TranscriptPlaybackRange[],
+  timeSec: number,
+): TranscriptPlaybackRange | null {
+  const playableRows = getPlayableRows(playbackRanges);
+  for (let index = playableRows.length - 1; index >= 0; index -= 1) {
+    const range = playableRows[index];
+    if ((range.playable_end_sec ?? Number.NEGATIVE_INFINITY) <= (timeSec + PREVIEW_EPSILON_SEC)) {
+      return range;
+    }
+  }
+  return null;
+}
+
+function resolveSeekTargetForRow(
+  playbackRange: TranscriptPlaybackRange,
+  playbackRanges: TranscriptPlaybackRange[],
+): { row_id: string | null; timeSec: number | null } {
+  const firstPlayableSlice = playbackRange.playable_slices[0] ?? null;
+  if (firstPlayableSlice) {
+    return {
+      row_id: playbackRange.row_id,
+      timeSec: firstPlayableSlice.start_sec,
+    };
+  }
+
+  const nextPlayableRow = findNextPlayableRow(playbackRanges, playbackRange.end_sec - PREVIEW_EPSILON_SEC);
+  if (nextPlayableRow?.playable_start_sec != null) {
+    return {
+      row_id: nextPlayableRow.row_id,
+      timeSec: nextPlayableRow.playable_start_sec,
+    };
+  }
+
+  return {
+    row_id: null,
+    timeSec: null,
+  };
 }
 
 export default function TranscriptSeekMock(): JSX.Element {
@@ -633,6 +831,7 @@ export default function TranscriptSeekMock(): JSX.Element {
   );
   const [selectedOverlayRowId, setSelectedOverlayRowId] = useState<string | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [lastPreviewSkip, setLastPreviewSkip] = useState<PreviewSkipEvent | null>(null);
   const [editInstructions, setEditInstructions] = useState<HammerEditInstruction[]>([]);
   const [devAudioSrc, setDevAudioSrc] = useState<string | null>(null);
   const [preferDevAudioFallback, setPreferDevAudioFallback] = useState(false);
@@ -700,12 +899,19 @@ export default function TranscriptSeekMock(): JSX.Element {
     setDurationSec(FALLBACK_DURATION_SEC);
     setIsPlaying(false);
     setPlaybackError(null);
+    setLastPreviewSkip(null);
     setPreferDevAudioFallback(false);
   }, [firstSegment?.segment_id, resolvedMediaSrc]);
 
   useEffect(() => {
     setEditInstructions([]);
   }, [mediaRef.media_id, transcriptLoad.sourceLabel]);
+
+  useEffect(() => {
+    if (editInstructions.length === 0) {
+      setLastPreviewSkip(null);
+    }
+  }, [editInstructions.length]);
 
   const instructionIndex = useMemo(
     () => buildInstructionIndex(editInstructions),
@@ -739,12 +945,27 @@ export default function TranscriptSeekMock(): JSX.Element {
     [instructionIndex, transcriptSegments],
   );
 
+  const playbackRanges = useMemo(
+    () => buildPlaybackRanges(overlayRows, segmentById, instructionIndex),
+    [instructionIndex, overlayRows, segmentById],
+  );
+
+  const rawActivePlaybackRange = useMemo(
+    () => findRowByTime(playbackRanges, currentTimeSec, "raw"),
+    [currentTimeSec, playbackRanges],
+  );
+
+  const activePlayableRange = useMemo(
+    () => findRowByTime(playbackRanges, currentTimeSec, "playable"),
+    [currentTimeSec, playbackRanges],
+  );
+
   useEffect(() => {
-    const nextActiveOverlayRowId = pickPlayableOverlayRowIdForTime(overlayRows, currentTimeSec);
+    const nextActiveOverlayRowId = activePlayableRange?.row_id ?? null;
     if (nextActiveOverlayRowId !== activeOverlayRowId) {
       setActiveOverlayRowId(nextActiveOverlayRowId);
     }
-  }, [activeOverlayRowId, currentTimeSec, overlayRows]);
+  }, [activeOverlayRowId, activePlayableRange]);
 
   useEffect(() => {
     if (!overlayRows.length) {
@@ -769,6 +990,69 @@ export default function TranscriptSeekMock(): JSX.Element {
     });
   }, [overlayRows, selectedSegmentId]);
 
+  const effectiveDurationSec = durationSec > 0 ? durationSec : FALLBACK_DURATION_SEC;
+  const progressPercent = useMemo(
+    () => clamp((currentTimeSec / effectiveDurationSec) * 100, 0, 100),
+    [currentTimeSec, effectiveDurationSec],
+  );
+
+  const canControlAudio = Boolean(playbackSrc);
+  const canMergeSelected = Boolean(
+    selectedSegment
+    && selectedNextSegment
+    && selectedNextSegment.speaker === selectedSegment.speaker,
+  );
+  const previewModeLabel = editInstructions.length > 0 ? "edit-aware" : "raw";
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const rawRange = rawActivePlaybackRange;
+    if (!rawRange) return;
+
+    const nextPlayableSlice = findNextPlayableSlice(rawRange, currentTimeSec);
+    if (nextPlayableSlice) {
+      if (currentTimeSec < nextPlayableSlice.start_sec - PREVIEW_EPSILON_SEC) {
+        audio.currentTime = nextPlayableSlice.start_sec;
+        setCurrentTimeSec(nextPlayableSlice.start_sec);
+        setLastPreviewSkip({
+          reason: rawRange.is_deleted ? "deleted" : "trim-start",
+          from_row_id: rawRange.row_id,
+          to_row_id: rawRange.row_id,
+        });
+      }
+      return;
+    }
+
+    const nextPlayableRow = findNextPlayableRow(playbackRanges, currentTimeSec);
+    if (nextPlayableRow?.playable_start_sec != null) {
+      audio.currentTime = nextPlayableRow.playable_start_sec;
+      setCurrentTimeSec(nextPlayableRow.playable_start_sec);
+      setLastPreviewSkip({
+        reason: rawRange.is_deleted ? "deleted" : "trim-end",
+        from_row_id: rawRange.row_id,
+        to_row_id: nextPlayableRow.row_id,
+      });
+      return;
+    }
+
+    const previousPlayableRow = findPreviousPlayableRow(playbackRanges, currentTimeSec);
+    const pauseAtSec = previousPlayableRow?.playable_end_sec
+      ?? rawRange.playable_end_sec
+      ?? effectiveDurationSec;
+    if (currentTimeSec >= pauseAtSec - PREVIEW_EPSILON_SEC || rawRange.is_deleted) {
+      audio.pause();
+      audio.currentTime = pauseAtSec;
+      setCurrentTimeSec(pauseAtSec);
+      setIsPlaying(false);
+      setLastPreviewSkip({
+        reason: rawRange.is_deleted ? "deleted" : "trim-end",
+        from_row_id: rawRange.row_id,
+        to_row_id: null,
+      });
+    }
+  }, [currentTimeSec, effectiveDurationSec, playbackRanges, rawActivePlaybackRange]);
+
   const selectedOverlayRow = useMemo(
     () => (
       selectedOverlayRowId
@@ -792,6 +1076,16 @@ export default function TranscriptSeekMock(): JSX.Element {
     [instructionIndex, selectedSegment],
   );
 
+  const selectedSegmentMuteInstruction = useMemo(
+    () => (selectedSegment ? instructionIndex.muteBySegmentId.get(selectedSegment.segment_id) ?? null : null),
+    [instructionIndex, selectedSegment],
+  );
+
+  const selectedSegmentTrimInstruction = useMemo(
+    () => (selectedSegment ? instructionIndex.trimBySegmentId.get(selectedSegment.segment_id) ?? null : null),
+    [instructionIndex, selectedSegment],
+  );
+
   const selectedSegmentSplitInstruction = useMemo(
     () => (selectedSegment ? instructionIndex.splitBySegmentId.get(selectedSegment.segment_id) ?? null : null),
     [instructionIndex, selectedSegment],
@@ -800,19 +1094,6 @@ export default function TranscriptSeekMock(): JSX.Element {
   const selectedSegmentMergeInstruction = useMemo(
     () => (selectedSegment ? instructionIndex.mergeBySegmentId.get(selectedSegment.segment_id) ?? null : null),
     [instructionIndex, selectedSegment],
-  );
-
-  const effectiveDurationSec = durationSec > 0 ? durationSec : FALLBACK_DURATION_SEC;
-  const progressPercent = useMemo(
-    () => clamp((currentTimeSec / effectiveDurationSec) * 100, 0, 100),
-    [currentTimeSec, effectiveDurationSec],
-  );
-
-  const canControlAudio = Boolean(playbackSrc);
-  const canMergeSelected = Boolean(
-    selectedSegment
-    && selectedNextSegment
-    && selectedNextSegment.speaker === selectedSegment.speaker,
   );
 
   useEffect(() => {
@@ -858,7 +1139,32 @@ export default function TranscriptSeekMock(): JSX.Element {
   }
 
   function seekToRow(row: TranscriptOverlayRow) {
-    seekTo(row.start_sec, row.row_id, row.anchor_segment_id);
+    const playbackRange = playbackRanges.find((range) => range.row_id === row.row_id) ?? null;
+    if (!playbackRange) {
+      seekTo(row.start_sec, row.row_id, row.anchor_segment_id);
+      return;
+    }
+
+    const resolvedSeekTarget = resolveSeekTargetForRow(playbackRange, playbackRanges);
+    if (resolvedSeekTarget.timeSec == null) {
+      const pauseAtSec = playbackRange.playable_end_sec ?? effectiveDurationSec;
+      seekTo(pauseAtSec, row.row_id, row.anchor_segment_id);
+      setLastPreviewSkip({
+        reason: playbackRange.is_deleted ? "deleted" : "trim-end",
+        from_row_id: row.row_id,
+        to_row_id: null,
+      });
+      return;
+    }
+
+    seekTo(resolvedSeekTarget.timeSec, row.row_id, row.anchor_segment_id);
+    if (resolvedSeekTarget.row_id !== row.row_id || resolvedSeekTarget.timeSec > row.start_sec + PREVIEW_EPSILON_SEC) {
+      setLastPreviewSkip({
+        reason: playbackRange.is_deleted ? "deleted" : "trim-start",
+        from_row_id: row.row_id,
+        to_row_id: resolvedSeekTarget.row_id,
+      });
+    }
   }
 
   function removeInstruction(instructionId: string) {
@@ -879,6 +1185,49 @@ export default function TranscriptSeekMock(): JSX.Element {
         instruction_id: createInstructionId(),
         segment_id: segmentId,
         type: "delete",
+        created_at: new Date().toISOString(),
+      };
+      return [...prev, next];
+    });
+  }
+
+  function toggleMuteInstruction(segmentId: string) {
+    setEditInstructions((prev) => {
+      const existing = prev.find((instruction) => (
+        instruction.type === "mute"
+        && instruction.segment_id === segmentId
+      ));
+      if (existing) {
+        return prev.filter((instruction) => instruction.instruction_id !== existing.instruction_id);
+      }
+
+      const next: HammerMuteInstruction = {
+        instruction_id: createInstructionId(),
+        segment_id: segmentId,
+        type: "mute",
+        created_at: new Date().toISOString(),
+      };
+      return [...prev, next];
+    });
+  }
+
+  function toggleTrimInstruction(segment: HammerTranscriptSegment) {
+    setEditInstructions((prev) => {
+      const existing = prev.find((instruction) => (
+        instruction.type === "trim"
+        && instruction.segment_id === segment.segment_id
+      ));
+      if (existing) {
+        return prev.filter((instruction) => instruction.instruction_id !== existing.instruction_id);
+      }
+
+      const defaults = buildDefaultTrimInstruction(segment);
+      const next: HammerTrimInstruction = {
+        instruction_id: createInstructionId(),
+        segment_id: segment.segment_id,
+        type: "trim",
+        trim_start_sec: defaults.trim_start_sec,
+        trim_end_sec: defaults.trim_end_sec,
         created_at: new Date().toISOString(),
       };
       return [...prev, next];
@@ -989,7 +1338,13 @@ export default function TranscriptSeekMock(): JSX.Element {
             >
               {isPlaying ? "PLAYING" : "PAUSED"}
             </span>
-            <span>active: {formatOverlayRowLabel(activeOverlayRow)}</span>
+            <span>active raw: {formatPlaybackRangeLabel(rawActivePlaybackRange)}</span>
+            <span>active playable: {formatPlaybackRangeLabel(activePlayableRange)}</span>
+            <span>skip: {lastPreviewSkip?.reason ?? "none"}</span>
+            <span>
+              deleted skip: {lastPreviewSkip?.reason === "deleted" ? "yes" : "no"}
+            </span>
+            <span>preview: {previewModeLabel}</span>
             <span style={{ opacity: 0.72 }}>src: {playbackSourceLabel}</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
@@ -1002,6 +1357,26 @@ export default function TranscriptSeekMock(): JSX.Element {
               }}
             >
               {selectedSegmentDeleteInstruction ? "Restore segment" : "Delete segment"}
+            </button>
+            <button
+              type="button"
+              disabled={!selectedSegment}
+              onClick={() => {
+                if (!selectedSegment) return;
+                toggleMuteInstruction(selectedSegment.segment_id);
+              }}
+            >
+              {selectedSegmentMuteInstruction ? "Unmute row" : "Mute row"}
+            </button>
+            <button
+              type="button"
+              disabled={!selectedSegment}
+              onClick={() => {
+                if (!selectedSegment) return;
+                toggleTrimInstruction(selectedSegment);
+              }}
+            >
+              {selectedSegmentTrimInstruction ? "Undo trim" : "Trim row"}
             </button>
             <button
               type="button"
@@ -1046,7 +1421,10 @@ export default function TranscriptSeekMock(): JSX.Element {
               const nextSegment = row.next_segment_id
                 ? (segmentById.get(row.next_segment_id) ?? null)
                 : null;
+              const rowPlaybackRange = playbackRanges.find((range) => range.row_id === row.row_id) ?? null;
               const rowDeleteInstruction = instructionIndex.deleteBySegmentId.get(anchorSegment.segment_id) ?? null;
+              const rowMuteInstruction = instructionIndex.muteBySegmentId.get(anchorSegment.segment_id) ?? null;
+              const rowTrimInstruction = instructionIndex.trimBySegmentId.get(anchorSegment.segment_id) ?? null;
               const rowSplitInstruction = instructionIndex.splitBySegmentId.get(anchorSegment.segment_id) ?? null;
               const rowMergeInstruction = instructionIndex.mergeBySegmentId.get(anchorSegment.segment_id) ?? null;
               const canMergeRow = Boolean(
@@ -1059,6 +1437,8 @@ export default function TranscriptSeekMock(): JSX.Element {
                 ? "rgba(45, 212, 191, 0.95)"
                 : row.is_deleted
                 ? "rgba(239, 68, 68, 0.62)"
+                : row.is_muted
+                ? "rgba(245, 158, 11, 0.56)"
                 : row.structure === "merge"
                 ? "rgba(56, 189, 248, 0.52)"
                 : row.structure === "split"
@@ -1070,6 +1450,8 @@ export default function TranscriptSeekMock(): JSX.Element {
                 ? "rgba(13, 148, 136, 0.2)"
                 : row.is_deleted
                 ? "rgba(239, 68, 68, 0.12)"
+                : row.is_muted
+                ? "rgba(180, 83, 9, 0.15)"
                 : row.structure === "merge"
                 ? "rgba(8, 145, 178, 0.14)"
                 : row.structure === "split"
@@ -1089,6 +1471,9 @@ export default function TranscriptSeekMock(): JSX.Element {
                   data-overlay-row-id={row.row_id}
                   data-active={isActive ? "true" : "false"}
                   data-deleted={row.is_deleted ? "true" : "false"}
+                  data-muted={row.is_muted ? "true" : "false"}
+                  data-playable-start={rowPlaybackRange?.playable_start_sec ?? ""}
+                  data-playable-end={rowPlaybackRange?.playable_end_sec ?? ""}
                   style={{
                     border: `1px solid ${borderColor}`,
                     borderRadius: 10,
@@ -1186,6 +1571,20 @@ export default function TranscriptSeekMock(): JSX.Element {
                       style={{ padding: "4px 8px", fontSize: 11 }}
                     >
                       {rowDeleteInstruction ? "Restore" : "Delete"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleMuteInstruction(anchorSegment.segment_id)}
+                      style={{ padding: "4px 8px", fontSize: 11 }}
+                    >
+                      {rowMuteInstruction ? "Unmute" : "Mute"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleTrimInstruction(anchorSegment)}
+                      style={{ padding: "4px 8px", fontSize: 11 }}
+                    >
+                      {rowTrimInstruction ? "Undo trim" : "Trim"}
                     </button>
                     <button
                       type="button"

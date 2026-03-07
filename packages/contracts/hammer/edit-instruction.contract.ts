@@ -22,6 +22,8 @@ export interface HammerMuteInstruction extends HammerEditInstructionBase {
 
 export interface HammerTrimInstruction extends HammerEditInstructionBase {
   type: "trim";
+  trim_start_sec?: number;
+  trim_end_sec?: number;
 }
 
 export interface HammerSplitInstruction extends HammerEditInstructionBase {
