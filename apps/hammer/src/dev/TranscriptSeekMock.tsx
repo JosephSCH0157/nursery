@@ -27,6 +27,9 @@ import {
   findPlaybackRangeByTime,
   MIN_SEGMENT_DURATION_SEC,
   PREVIEW_EPSILON_SEC,
+  resolveCurrentPlayableSeekTarget,
+  resolveNextPlayableSeekTarget,
+  resolvePreviousPlayableSeekTarget,
   resolvePreviewBoundaryAction,
   resolveSeekTargetForRow,
   resolveSplitAtSec,
@@ -35,6 +38,7 @@ import type {
   PreviewSkipReason,
   TranscriptOverlayRow,
   TranscriptPlaybackRange,
+  TranscriptSeekTarget,
 } from "../lib/transcriptPreview";
 import { toMediaBadgeViewModel } from "../media/mediaBadgeViewModel";
 import { V1HammerMediaResolver } from "../media/resolveMedia";
@@ -62,10 +66,11 @@ type EditPlanMetaState = {
   updatedAt: string;
   baselineSignature: string;
   lastSignature: string;
+  baselineOrigin: "fresh" | "reloaded";
 };
 
 type SessionSourceMode = "dev-tone" | "mapped-media" | "tongs-media";
-type EditPlanStatus = "clean" | "dirty";
+type EditPlanStatus = "clean" | "dirty" | "reloaded";
 
 type HammerSessionState = {
   sessionId: string;
@@ -110,6 +115,31 @@ function formatClock(totalSec: number): string {
   const mm = Math.floor(sec / 60);
   const ss = sec % 60;
   return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+}
+
+function formatTimeDetail(totalSec: number | null): string {
+  if (totalSec == null || !Number.isFinite(totalSec)) return "none";
+  return `${formatClock(totalSec)} (${totalSec.toFixed(2)}s)`;
+}
+
+function formatPlayableSlices(playbackRange: TranscriptPlaybackRange | null): string {
+  if (!playbackRange || playbackRange.playable_slices.length === 0) {
+    return "none";
+  }
+
+  return playbackRange.playable_slices
+    .map((slice) => `${formatClock(slice.start_sec)}-${formatClock(slice.end_sec)}`)
+    .join(" | ");
+}
+
+function formatSeekTargetLabel(target: TranscriptSeekTarget): string {
+  if (target.timeSec == null) return "none";
+  if (!target.row_id) return formatTimeDetail(target.timeSec);
+  return `${target.row_id} @ ${formatTimeDetail(target.timeSec)}`;
+}
+
+function formatFlagState(value: boolean): string {
+  return value ? "yes" : "no";
 }
 
 function formatInstructionDetail(instruction: HammerEditInstruction): string | null {
@@ -404,6 +434,7 @@ function createEditPlanMeta(
     updatedAt: now,
     baselineSignature: signature,
     lastSignature: signature,
+    baselineOrigin: "fresh",
   };
 }
 
@@ -736,6 +767,11 @@ export default function TranscriptSeekMock(): JSX.Element {
     [previewInstructionIndex, transcriptSegments],
   );
 
+  const overlayRowById = useMemo(
+    () => new Map(overlayRows.map((row) => [row.row_id, row])),
+    [overlayRows],
+  );
+
   const playbackRanges = useMemo(
     () => buildPlaybackRanges(overlayRows, segmentById, previewInstructionIndex),
     [overlayRows, previewInstructionIndex, segmentById],
@@ -798,9 +834,11 @@ export default function TranscriptSeekMock(): JSX.Element {
     () => createEditPlanSignature(transcriptSourceId, previewMode, editInstructions),
     [editInstructions, previewMode, transcriptSourceId],
   );
-  const editPlanStatus: EditPlanStatus = currentEditPlanSignature === editPlanMeta.baselineSignature
-    ? "clean"
-    : "dirty";
+  const editPlanStatus: EditPlanStatus = currentEditPlanSignature !== editPlanMeta.baselineSignature
+    ? "dirty"
+    : editPlanMeta.baselineOrigin === "reloaded"
+    ? "reloaded"
+    : "clean";
   const sourceMode: SessionSourceMode = resolvedMediaSrc && !preferDevAudioFallback
     ? "mapped-media"
     : "dev-tone";
@@ -896,6 +934,39 @@ export default function TranscriptSeekMock(): JSX.Element {
     [activeOverlayRowId, overlayRows],
   );
 
+  const selectedOverlayPlaybackRange = useMemo(
+    () => (
+      selectedOverlayRow
+        ? playbackRanges.find((range) => range.row_id === selectedOverlayRow.row_id) ?? null
+        : null
+    ),
+    [playbackRanges, selectedOverlayRow],
+  );
+
+  const selectedOverlaySeekTarget = useMemo<TranscriptSeekTarget>(
+    () => (
+      selectedOverlayPlaybackRange
+        ? resolveSeekTargetForRow(selectedOverlayPlaybackRange, playbackRanges)
+        : { row_id: null, timeSec: null }
+    ),
+    [playbackRanges, selectedOverlayPlaybackRange],
+  );
+
+  const previousPlayableTarget = useMemo(
+    () => resolvePreviousPlayableSeekTarget(playbackRanges, currentTimeSec),
+    [currentTimeSec, playbackRanges],
+  );
+
+  const nextPlayableTarget = useMemo(
+    () => resolveNextPlayableSeekTarget(playbackRanges, currentTimeSec),
+    [currentTimeSec, playbackRanges],
+  );
+
+  const jumpToActiveTarget = useMemo(
+    () => resolveCurrentPlayableSeekTarget(playbackRanges, currentTimeSec),
+    [currentTimeSec, playbackRanges],
+  );
+
   const selectedSegmentDeleteInstruction = useMemo(
     () => (selectedSegment ? instructionIndex.deleteBySegmentId.get(selectedSegment.segment_id) ?? null : null),
     [instructionIndex, selectedSegment],
@@ -963,6 +1034,13 @@ export default function TranscriptSeekMock(): JSX.Element {
     if (selectedSegmentRowId) setSelectedSegmentId(selectedSegmentRowId);
   }
 
+  function seekToResolvedTarget(target: TranscriptSeekTarget) {
+    if (target.timeSec == null) return;
+    const targetRow = target.row_id ? (overlayRowById.get(target.row_id) ?? null) : null;
+    seekTo(target.timeSec, targetRow?.row_id, targetRow?.anchor_segment_id);
+    setLastPreviewSkip(null);
+  }
+
   function seekToRow(row: TranscriptOverlayRow) {
     const playbackRange = playbackRanges.find((range) => range.row_id === row.row_id) ?? null;
     if (!playbackRange) {
@@ -990,6 +1068,20 @@ export default function TranscriptSeekMock(): JSX.Element {
         to_row_id: resolvedSeekTarget.row_id,
       });
     }
+  }
+
+  function resetPreview() {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+    setIsPlaying(false);
+    setCurrentTimeSec(0);
+    setActiveOverlayRowId(null);
+    setSelectedSegmentId(firstSegment?.segment_id ?? null);
+    setSelectedOverlayRowId(overlayRows[0]?.row_id ?? null);
+    setLastPreviewSkip(null);
   }
 
   function clearEdits() {
@@ -1031,6 +1123,7 @@ export default function TranscriptSeekMock(): JSX.Element {
       updatedAt: nextPlan.updated_at,
       baselineSignature: nextSignature,
       lastSignature: nextSignature,
+      baselineOrigin: "reloaded",
     });
     setLastPreviewSkip(null);
     setEditPlanJsonDraft(JSON.stringify(nextPlan, null, 2));
@@ -1303,29 +1396,31 @@ export default function TranscriptSeekMock(): JSX.Element {
             <span>transcript: {sessionState.transcriptLoaded ? "loaded" : "empty"}</span>
             <span>source mode: {sessionState.sourceMode}</span>
             <span>preview mode: {sessionState.previewMode}</span>
-            <span>edit plan: {sessionState.editPlanStatus}</span>
+            <span
+              style={{
+                borderRadius: 999,
+                padding: "2px 8px",
+                border: "1px solid rgba(148, 163, 184, 0.24)",
+                background: sessionState.editPlanStatus === "dirty"
+                  ? "rgba(245, 158, 11, 0.16)"
+                  : sessionState.editPlanStatus === "reloaded"
+                  ? "rgba(14, 165, 233, 0.16)"
+                  : "rgba(15, 23, 42, 0.55)",
+                color: sessionState.editPlanStatus === "dirty"
+                  ? "#fde68a"
+                  : sessionState.editPlanStatus === "reloaded"
+                  ? "#bae6fd"
+                  : "#dbe8ff",
+              }}
+            >
+              edit plan: {sessionState.editPlanStatus}
+            </span>
             <span>session: {sessionState.sessionId}</span>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <button
-              type="button"
-              disabled={sessionState.previewMode === "edit-aware"}
-              onClick={() => setPreviewMode("edit-aware")}
-            >
-              Edit-aware preview
-            </button>
-            <button
-              type="button"
-              disabled={sessionState.previewMode === "raw"}
-              onClick={() => setPreviewMode("raw")}
-            >
-              Raw preview
-            </button>
-            <span style={{ opacity: 0.72 }}>
-              {sessionState.previewMode === "edit-aware"
-                ? "Deleted rows skip in preview. Mute remains structural-only."
-                : "Raw preview ignores the edit plan, but the loaded instructions remain below."}
-            </span>
+          <div style={{ opacity: 0.72 }}>
+            {sessionState.previewMode === "edit-aware"
+              ? "Edit-aware preview is active. Transport controls follow playable rows and skip deleted spans."
+              : "Raw preview is active. Transport keeps using playable navigation, but playback itself ignores the edit plan."}
           </div>
         </div>
 
@@ -1604,7 +1699,24 @@ export default function TranscriptSeekMock(): JSX.Element {
         >
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
             <strong style={{ color: "#dbe8ff" }}>Edit Plan JSON</strong>
-            <span style={{ opacity: 0.74 }}>
+            <span
+              style={{
+                opacity: 0.9,
+                borderRadius: 999,
+                padding: "2px 8px",
+                border: "1px solid rgba(148, 163, 184, 0.24)",
+                background: sessionState.editPlanStatus === "dirty"
+                  ? "rgba(245, 158, 11, 0.16)"
+                  : sessionState.editPlanStatus === "reloaded"
+                  ? "rgba(14, 165, 233, 0.16)"
+                  : "rgba(15, 23, 42, 0.55)",
+                color: sessionState.editPlanStatus === "dirty"
+                  ? "#fde68a"
+                  : sessionState.editPlanStatus === "reloaded"
+                  ? "#bae6fd"
+                  : "#dbe8ff",
+              }}
+            >
               {currentEditPlan.edit_plan_id} · {currentEditPlan.version} · {sessionState.editPlanStatus}
             </span>
           </div>
@@ -1793,28 +1905,58 @@ export default function TranscriptSeekMock(): JSX.Element {
             />
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <button type="button" onClick={() => void onTogglePlayback()} disabled={!canControlAudio}>
-              {isPlaying ? "Pause" : "Play"}
-            </button>
-            <button
-              type="button"
-              disabled={!canControlAudio}
-              onClick={() => {
-                const audio = audioRef.current;
-                if (audio) {
-                  audio.pause();
-                  audio.currentTime = 0;
-                }
-                setIsPlaying(false);
-                setCurrentTimeSec(0);
-                setActiveOverlayRowId(null);
-                setSelectedSegmentId(firstSegment?.segment_id ?? null);
-                setSelectedOverlayRowId(overlayRows[0]?.row_id ?? null);
-              }}
-            >
-              Reset
-            </button>
+          <div style={{ display: "grid", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                disabled={previousPlayableTarget.timeSec == null}
+                onClick={() => seekToResolvedTarget(previousPlayableTarget)}
+                title={formatSeekTargetLabel(previousPlayableTarget)}
+              >
+                Prev playable
+              </button>
+              <button type="button" onClick={() => void onTogglePlayback()} disabled={!canControlAudio}>
+                {isPlaying ? "Pause" : "Play"}
+              </button>
+              <button
+                type="button"
+                disabled={nextPlayableTarget.timeSec == null}
+                onClick={() => seekToResolvedTarget(nextPlayableTarget)}
+                title={formatSeekTargetLabel(nextPlayableTarget)}
+              >
+                Next playable
+              </button>
+              <button
+                type="button"
+                disabled={jumpToActiveTarget.timeSec == null}
+                onClick={() => seekToResolvedTarget(jumpToActiveTarget)}
+                title={formatSeekTargetLabel(jumpToActiveTarget)}
+              >
+                Jump to active
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewMode((currentMode) => (
+                  currentMode === "edit-aware" ? "raw" : "edit-aware"
+                ))}
+              >
+                {previewMode === "edit-aware" ? "Switch to raw" : "Switch to edit-aware"}
+              </button>
+              <button
+                type="button"
+                disabled={!canControlAudio}
+                onClick={() => resetPreview()}
+              >
+                Reset
+              </button>
+            </div>
+            <div style={{ fontSize: 12, opacity: 0.74 }}>
+              prev: {formatSeekTargetLabel(previousPlayableTarget)}
+              {" · "}
+              active: {formatSeekTargetLabel(jumpToActiveTarget)}
+              {" · "}
+              next: {formatSeekTargetLabel(nextPlayableTarget)}
+            </div>
           </div>
         </div>
 
@@ -1830,30 +1972,79 @@ export default function TranscriptSeekMock(): JSX.Element {
             background: "rgba(2, 6, 23, 0.45)",
           }}
         >
-          {selectedSegment ? (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+            <strong style={{ color: "#dbe8ff" }}>Selected Row Inspector</strong>
+            <span style={{ opacity: 0.72 }}>
+              active row: {activeOverlayRow ? formatOverlayRowLabel(activeOverlayRow) : "none"}
+            </span>
+          </div>
+          {selectedOverlayRow ? (
             <>
-              <div>
-                Selected segment: {selectedSegment.segment_id} (
-                {formatClock(selectedSegment.start_sec)}-{formatClock(selectedSegment.end_sec)})
-                {" "}
-                {selectedSegment.speaker}
-                {" - "}
-                {selectedSegment.text}
-              </div>
-              {selectedOverlayRow ? (
-                <div style={{ fontSize: 12, opacity: 0.74 }}>
-                  Overlay row: {selectedOverlayRow.structure}
-                  {" · "}
-                  {selectedOverlayRow.source_segment_ids.join(" + ")}
-                  {" · "}
-                  {formatClock(selectedOverlayRow.start_sec)}-{formatClock(selectedOverlayRow.end_sec)}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                  gap: 8,
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: 11, opacity: 0.62 }}>row id</div>
+                  <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace" }}>
+                    {selectedOverlayRow.row_id}
+                  </div>
                 </div>
-              ) : null}
-              {activeOverlayRow ? (
-                <div style={{ fontSize: 12, opacity: 0.74 }}>
-                  Active preview row: {formatOverlayRowLabel(activeOverlayRow)}
+                <div>
+                  <div style={{ fontSize: 11, opacity: 0.62 }}>source segment ids</div>
+                  <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace" }}>
+                    {selectedOverlayRow.source_segment_ids.join(" + ")}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, opacity: 0.62 }}>start / end</div>
+                  <div>
+                    {formatTimeDetail(selectedOverlayRow.start_sec)}
+                    {" -> "}
+                    {formatTimeDetail(selectedOverlayRow.end_sec)}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, opacity: 0.62 }}>playable start / end</div>
+                  <div>
+                    {formatTimeDetail(selectedOverlayPlaybackRange?.playable_start_sec ?? null)}
+                    {" -> "}
+                    {formatTimeDetail(selectedOverlayPlaybackRange?.playable_end_sec ?? null)}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, opacity: 0.62 }}>playable slices</div>
+                  <div>{formatPlayableSlices(selectedOverlayPlaybackRange)}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, opacity: 0.62 }}>flags</div>
+                  <div>
+                    deleted={formatFlagState(selectedOverlayRow.is_deleted)}
+                    {" · "}
+                    muted={formatFlagState(selectedOverlayRow.is_muted)}
+                    {" · "}
+                    trimmed={formatFlagState(selectedOverlayRow.is_trimmed)}
+                    {" · "}
+                    merged={formatFlagState(selectedOverlayRow.structure === "merge")}
+                    {" · "}
+                    split={formatFlagState(selectedOverlayRow.structure === "split")}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, opacity: 0.62 }}>resolved seek target</div>
+                  <div>{formatSeekTargetLabel(selectedOverlaySeekTarget)}</div>
+                </div>
+              </div>
+              {selectedSegment ? (
+                <div style={{ fontSize: 12, opacity: 0.76 }}>
+                  selected segment: {selectedSegment.segment_id}
                   {" · "}
-                  {formatClock(activeOverlayRow.start_sec)}-{formatClock(activeOverlayRow.end_sec)}
+                  {selectedSegment.speaker}
+                  {" · "}
+                  {selectedSegment.text}
                 </div>
               ) : null}
             </>

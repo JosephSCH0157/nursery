@@ -61,6 +61,11 @@ export type TranscriptPlaybackRange = {
   source_segment_ids: string[];
 };
 
+export type TranscriptSeekTarget = {
+  row_id: string | null;
+  timeSec: number | null;
+};
+
 export type PreviewSkipReason = "deleted" | "trim-start" | "trim-end";
 
 export type PreviewBoundaryAction =
@@ -438,6 +443,31 @@ export function findNextPlayableSlice(
   return null;
 }
 
+function findNextPlayableSliceAfter(
+  playbackRange: TranscriptPlaybackRange,
+  timeSec: number,
+): TranscriptPlayableSlice | null {
+  for (const slice of playbackRange.playable_slices) {
+    if (slice.start_sec > timeSec + PREVIEW_EPSILON_SEC) {
+      return slice;
+    }
+  }
+  return null;
+}
+
+function findPreviousPlayableSliceBefore(
+  playbackRange: TranscriptPlaybackRange,
+  timeSec: number,
+): TranscriptPlayableSlice | null {
+  for (let index = playbackRange.playable_slices.length - 1; index >= 0; index -= 1) {
+    const slice = playbackRange.playable_slices[index];
+    if (slice.end_sec < timeSec - PREVIEW_EPSILON_SEC) {
+      return slice;
+    }
+  }
+  return null;
+}
+
 export function findNextPlayableRow(
   playbackRanges: TranscriptPlaybackRange[],
   timeSec: number,
@@ -464,7 +494,7 @@ export function findPreviousPlayableRow(
 export function resolveSeekTargetForRow(
   playbackRange: TranscriptPlaybackRange,
   playbackRanges: TranscriptPlaybackRange[],
-): { row_id: string | null; timeSec: number | null } {
+): TranscriptSeekTarget {
   const firstPlayableSlice = playbackRange.playable_slices[0] ?? null;
   if (firstPlayableSlice) {
     return {
@@ -485,6 +515,128 @@ export function resolveSeekTargetForRow(
     row_id: null,
     timeSec: null,
   };
+}
+
+function toPlayableSeekTarget(playbackRange: TranscriptPlaybackRange | null): TranscriptSeekTarget {
+  if (!playbackRange || playbackRange.playable_start_sec == null) {
+    return {
+      row_id: null,
+      timeSec: null,
+    };
+  }
+
+  return {
+    row_id: playbackRange.row_id,
+    timeSec: playbackRange.playable_start_sec,
+  };
+}
+
+export function resolveCurrentPlayableSeekTarget(
+  playbackRanges: TranscriptPlaybackRange[],
+  currentTimeSec: number,
+): TranscriptSeekTarget {
+  const activePlayableRange = findPlaybackRangeByTime(playbackRanges, currentTimeSec, "playable");
+  if (activePlayableRange?.playable_start_sec != null) {
+    return {
+      row_id: activePlayableRange.row_id,
+      timeSec: activePlayableRange.playable_start_sec,
+    };
+  }
+
+  const rawPlaybackRange = findPlaybackRangeByTime(playbackRanges, currentTimeSec, "raw");
+  if (rawPlaybackRange) {
+    const nextPlayableSlice = findNextPlayableSlice(rawPlaybackRange, currentTimeSec);
+    if (nextPlayableSlice) {
+      return {
+        row_id: rawPlaybackRange.row_id,
+        timeSec: nextPlayableSlice.start_sec,
+      };
+    }
+
+    return toPlayableSeekTarget(findNextPlayableRow(playbackRanges, rawPlaybackRange.end_sec + PREVIEW_EPSILON_SEC));
+  }
+
+  return toPlayableSeekTarget(findNextPlayableRow(playbackRanges, currentTimeSec));
+}
+
+export function resolveNextPlayableSeekTarget(
+  playbackRanges: TranscriptPlaybackRange[],
+  currentTimeSec: number,
+): TranscriptSeekTarget {
+  const activePlayableRange = findPlaybackRangeByTime(playbackRanges, currentTimeSec, "playable");
+  if (activePlayableRange) {
+    const nextPlayableSlice = findNextPlayableSliceAfter(activePlayableRange, currentTimeSec);
+    if (nextPlayableSlice) {
+      return {
+        row_id: activePlayableRange.row_id,
+        timeSec: nextPlayableSlice.start_sec,
+      };
+    }
+
+    return toPlayableSeekTarget(
+      findNextPlayableRow(
+        playbackRanges,
+        (activePlayableRange.playable_end_sec ?? currentTimeSec) + PREVIEW_EPSILON_SEC,
+      ),
+    );
+  }
+
+  const rawPlaybackRange = findPlaybackRangeByTime(playbackRanges, currentTimeSec, "raw");
+  if (rawPlaybackRange) {
+    const nextPlayableSlice = findNextPlayableSliceAfter(rawPlaybackRange, currentTimeSec);
+    if (nextPlayableSlice) {
+      return {
+        row_id: rawPlaybackRange.row_id,
+        timeSec: nextPlayableSlice.start_sec,
+      };
+    }
+
+    return toPlayableSeekTarget(
+      findNextPlayableRow(playbackRanges, rawPlaybackRange.end_sec + PREVIEW_EPSILON_SEC),
+    );
+  }
+
+  return toPlayableSeekTarget(findNextPlayableRow(playbackRanges, currentTimeSec + PREVIEW_EPSILON_SEC));
+}
+
+export function resolvePreviousPlayableSeekTarget(
+  playbackRanges: TranscriptPlaybackRange[],
+  currentTimeSec: number,
+): TranscriptSeekTarget {
+  const activePlayableRange = findPlaybackRangeByTime(playbackRanges, currentTimeSec, "playable");
+  if (activePlayableRange) {
+    const previousPlayableSlice = findPreviousPlayableSliceBefore(activePlayableRange, currentTimeSec);
+    if (previousPlayableSlice) {
+      return {
+        row_id: activePlayableRange.row_id,
+        timeSec: previousPlayableSlice.start_sec,
+      };
+    }
+
+    return toPlayableSeekTarget(
+      findPreviousPlayableRow(
+        playbackRanges,
+        (activePlayableRange.playable_start_sec ?? currentTimeSec) - PREVIEW_EPSILON_SEC,
+      ),
+    );
+  }
+
+  const rawPlaybackRange = findPlaybackRangeByTime(playbackRanges, currentTimeSec, "raw");
+  if (rawPlaybackRange) {
+    const previousPlayableSlice = findPreviousPlayableSliceBefore(rawPlaybackRange, currentTimeSec);
+    if (previousPlayableSlice) {
+      return {
+        row_id: rawPlaybackRange.row_id,
+        timeSec: previousPlayableSlice.start_sec,
+      };
+    }
+
+    return toPlayableSeekTarget(
+      findPreviousPlayableRow(playbackRanges, rawPlaybackRange.start_sec - PREVIEW_EPSILON_SEC),
+    );
+  }
+
+  return toPlayableSeekTarget(findPreviousPlayableRow(playbackRanges, currentTimeSec - PREVIEW_EPSILON_SEC));
 }
 
 export function resolvePreviewBoundaryAction(
