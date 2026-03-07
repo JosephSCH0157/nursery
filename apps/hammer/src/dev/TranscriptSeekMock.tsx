@@ -7,6 +7,10 @@ import type {
   WorkspaceMediaMapping,
 } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import type {
+  HammerEditPlan,
+  HammerPreviewMode,
+} from "../../../../packages/contracts/hammer/edit-plan.contract";
+import type {
   HammerDeleteInstruction,
   HammerEditInstruction,
   HammerMergeInstruction,
@@ -15,6 +19,23 @@ import type {
   HammerTrimInstruction,
 } from "../../../../packages/contracts/hammer/edit-instruction.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
+import {
+  buildDefaultTrimInstruction,
+  buildInstructionIndex,
+  buildPlaybackRanges,
+  buildTranscriptOverlayRows,
+  findPlaybackRangeByTime,
+  MIN_SEGMENT_DURATION_SEC,
+  PREVIEW_EPSILON_SEC,
+  resolvePreviewBoundaryAction,
+  resolveSeekTargetForRow,
+  resolveSplitAtSec,
+} from "../lib/transcriptPreview";
+import type {
+  PreviewSkipReason,
+  TranscriptOverlayRow,
+  TranscriptPlaybackRange,
+} from "../lib/transcriptPreview";
 import { toMediaBadgeViewModel } from "../media/mediaBadgeViewModel";
 import { V1HammerMediaResolver } from "../media/resolveMedia";
 import { loadWorkspaceMapping } from "../media/workspaceMapping";
@@ -29,73 +50,38 @@ type PreviewQuery = {
   transcriptJson: string | null;
 };
 
-type InstructionIndex = {
-  deleteBySegmentId: Map<string, HammerDeleteInstruction>;
-  muteBySegmentId: Map<string, HammerMuteInstruction>;
-  trimBySegmentId: Map<string, HammerTrimInstruction>;
-  splitBySegmentId: Map<string, HammerSplitInstruction>;
-  mergeBySegmentId: Map<string, HammerMergeInstruction>;
-};
-
-type TranscriptOverlayBlock = {
-  block_id: string;
-  start_sec: number;
-  end_sec: number;
-  label: string | null;
-  text: string;
-  source_segment_ids: string[];
-};
-
-type TranscriptOverlayRow = {
-  row_id: string;
-  anchor_segment_id: string;
-  next_segment_id: string | null;
-  source_segment_ids: string[];
-  speaker: string;
-  start_sec: number;
-  end_sec: number;
-  structure: "base" | "split" | "merge";
-  blocks: TranscriptOverlayBlock[];
-  timing_blocks: TranscriptOverlayBlock[];
-  split_instruction: HammerSplitInstruction | null;
-  merge_instruction: HammerMergeInstruction | null;
-  is_deleted: boolean;
-  is_muted: boolean;
-  is_trimmed: boolean;
-};
-
-type TranscriptPlayableSlice = {
-  start_sec: number;
-  end_sec: number;
-};
-
-type TranscriptPlaybackRange = {
-  row_id: string;
-  anchor_segment_id: string;
-  start_sec: number;
-  end_sec: number;
-  playable_start_sec: number | null;
-  playable_end_sec: number | null;
-  playable_slices: TranscriptPlayableSlice[];
-  is_deleted: boolean;
-  is_muted: boolean;
-  source_segment_ids: string[];
-};
-
 type PreviewSkipEvent = {
-  reason: "deleted" | "trim-start" | "trim-end";
+  reason: PreviewSkipReason;
   from_row_id: string | null;
   to_row_id: string | null;
+};
+
+type EditPlanMetaState = {
+  editPlanId: string;
+  createdAt: string;
+  updatedAt: string;
+  baselineSignature: string;
+  lastSignature: string;
+};
+
+type SessionSourceMode = "dev-tone" | "mapped-media" | "tongs-media";
+type EditPlanStatus = "clean" | "dirty";
+
+type HammerSessionState = {
+  sessionId: string;
+  transcriptLoaded: boolean;
+  sourceMode: SessionSourceMode;
+  previewMode: HammerPreviewMode;
+  editPlanStatus: EditPlanStatus;
 };
 
 const DEFAULT_WORKSPACE_ID = "ws_demo";
 const DEFAULT_MEDIA_ID = "media_local_01";
 const DEFAULT_MEDIA_RELPATH = "recordings/episode014.mp4";
+const DEFAULT_PREVIEW_MODE: HammerPreviewMode = "edit-aware";
+const HAMMER_EDIT_PLAN_VERSION = "1";
+const HAMMER_DEV_TOOL_VERSION = "forge-v1.2.0/hammer-dev";
 const FALLBACK_DURATION_SEC = 32;
-const MIN_SEGMENT_DURATION_SEC = 0.2;
-const MIN_SPLIT_EDGE_SEC = 0.05;
-const MIN_TRIMMED_DURATION_SEC = 0.15;
-const PREVIEW_EPSILON_SEC = 0.05;
 const DEV_AUDIO_SAMPLE_RATE = 8_000;
 const UNKNOWN_SPEAKER = "UNK";
 
@@ -117,10 +103,6 @@ const PANEL_STYLE: CSSProperties = {
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
-}
-
-function uniqueIds(values: string[]): string[] {
-  return Array.from(new Set(values));
 }
 
 function formatClock(totalSec: number): string {
@@ -205,37 +187,6 @@ function createDevAudioWavBlob(durationSec: number): Blob {
   }
 
   return new Blob([buffer], { type: "audio/wav" });
-}
-
-function resolveTrimBounds(
-  segment: HammerTranscriptSegment,
-  trimInstruction: HammerTrimInstruction | null,
-): TranscriptPlayableSlice | null {
-  const rawStart = trimInstruction?.trim_start_sec ?? segment.start_sec;
-  const rawEnd = trimInstruction?.trim_end_sec ?? segment.end_sec;
-  const trimStartSec = clamp(rawStart, segment.start_sec, segment.end_sec);
-  const trimEndSec = clamp(rawEnd, segment.start_sec, segment.end_sec);
-  if ((trimEndSec - trimStartSec) < MIN_TRIMMED_DURATION_SEC) {
-    return null;
-  }
-  return {
-    start_sec: trimStartSec,
-    end_sec: trimEndSec,
-  };
-}
-
-function buildDefaultTrimInstruction(
-  segment: HammerTranscriptSegment,
-): Pick<HammerTrimInstruction, "trim_start_sec" | "trim_end_sec"> {
-  const duration = Math.max(segment.end_sec - segment.start_sec, MIN_SEGMENT_DURATION_SEC);
-  const maxInset = Math.max((duration / 2) - (MIN_TRIMMED_DURATION_SEC / 2), 0);
-  const inset = maxInset > 0
-    ? Math.min(Math.max(duration * 0.18, 0.05), maxInset)
-    : 0;
-  return {
-    trim_start_sec: Number((segment.start_sec + inset).toFixed(3)),
-    trim_end_sec: Number((segment.end_sec - inset).toFixed(3)),
-  };
 }
 
 function readTrimmed(params: URLSearchParams, key: string): string | null {
@@ -413,376 +364,192 @@ function toErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-function createInstructionId(): string {
+function createEntityId(prefix: string): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
+    return `${prefix}_${crypto.randomUUID()}`;
   }
-  return `ins_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
+  return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
 }
 
-function buildInstructionIndex(instructions: HammerEditInstruction[]): InstructionIndex {
-  const index: InstructionIndex = {
-    deleteBySegmentId: new Map<string, HammerDeleteInstruction>(),
-    muteBySegmentId: new Map<string, HammerMuteInstruction>(),
-    trimBySegmentId: new Map<string, HammerTrimInstruction>(),
-    splitBySegmentId: new Map<string, HammerSplitInstruction>(),
-    mergeBySegmentId: new Map<string, HammerMergeInstruction>(),
-  };
-
-  for (const instruction of instructions) {
-    switch (instruction.type) {
-      case "delete":
-        index.deleteBySegmentId.set(instruction.segment_id, instruction);
-        break;
-      case "mute":
-        index.muteBySegmentId.set(instruction.segment_id, instruction);
-        break;
-      case "trim":
-        index.trimBySegmentId.set(instruction.segment_id, instruction);
-        break;
-      case "split":
-        index.splitBySegmentId.set(instruction.segment_id, instruction);
-        break;
-      case "merge":
-        index.mergeBySegmentId.set(instruction.segment_id, instruction);
-        break;
-    }
-  }
-
-  return index;
+function createInstructionId(): string {
+  return createEntityId("ins");
 }
 
-function getSegmentMidpointSec(segment: HammerTranscriptSegment): number {
-  return segment.start_sec + ((segment.end_sec - segment.start_sec) / 2);
+function cloneEditInstructions(instructions: HammerEditInstruction[]): HammerEditInstruction[] {
+  return instructions.map((instruction) => ({ ...instruction }));
 }
 
-function normalizeSplitAtSec(segment: HammerTranscriptSegment, proposedSec: number): number {
-  const duration = Math.max(segment.end_sec - segment.start_sec, MIN_SEGMENT_DURATION_SEC);
-  if (duration <= MIN_SPLIT_EDGE_SEC * 2) {
-    return segment.start_sec + (duration / 2);
-  }
-  return clamp(
-    proposedSec,
-    segment.start_sec + MIN_SPLIT_EDGE_SEC,
-    segment.end_sec - MIN_SPLIT_EDGE_SEC,
-  );
-}
-
-function resolveSplitAtSec(segment: HammerTranscriptSegment, currentSec: number): number {
-  const useCurrentSec = currentSec > segment.start_sec && currentSec < segment.end_sec;
-  const sourceSec = useCurrentSec ? currentSec : getSegmentMidpointSec(segment);
-  return normalizeSplitAtSec(segment, sourceSec);
-}
-
-function splitTextForDisplay(text: string, ratio: number): [string, string] {
-  const words = text.trim().split(/\s+/).filter(Boolean);
-  if (words.length < 2) return [text, text];
-
-  const splitIndex = clamp(
-    Math.round(words.length * clamp(ratio, 0.1, 0.9)),
-    1,
-    words.length - 1,
-  );
-  return [
-    words.slice(0, splitIndex).join(" "),
-    words.slice(splitIndex).join(" "),
-  ];
-}
-
-function createBaseBlock(segment: HammerTranscriptSegment): TranscriptOverlayBlock {
-  return {
-    block_id: segment.segment_id,
-    start_sec: segment.start_sec,
-    end_sec: segment.end_sec,
-    label: null,
-    text: segment.text,
-    source_segment_ids: [segment.segment_id],
-  };
-}
-
-function createSplitBlocks(
-  segment: HammerTranscriptSegment,
-  instruction: HammerSplitInstruction,
-): TranscriptOverlayBlock[] {
-  const splitAtSec = normalizeSplitAtSec(segment, instruction.split_at_sec);
-  const ratio = clamp(
-    (splitAtSec - segment.start_sec) / Math.max(segment.end_sec - segment.start_sec, MIN_SEGMENT_DURATION_SEC),
-    0.1,
-    0.9,
-  );
-  const [firstText, secondText] = splitTextForDisplay(segment.text, ratio);
-
-  return [
-    {
-      block_id: `${segment.segment_id}::split-a`,
-      start_sec: segment.start_sec,
-      end_sec: splitAtSec,
-      label: "Split A",
-      text: firstText,
-      source_segment_ids: [segment.segment_id],
-    },
-    {
-      block_id: `${segment.segment_id}::split-b`,
-      start_sec: splitAtSec,
-      end_sec: segment.end_sec,
-      label: "Split B",
-      text: secondText,
-      source_segment_ids: [segment.segment_id],
-    },
-  ];
-}
-
-function createMergedBlock(blocks: TranscriptOverlayBlock[]): TranscriptOverlayBlock {
-  const first = blocks[0];
-  const last = blocks[blocks.length - 1];
-  return {
-    block_id: `${first.block_id}::merge`,
-    start_sec: first.start_sec,
-    end_sec: last.end_sec,
-    label: "Merged",
-    text: blocks.map((block) => block.text).join(" ").replace(/\s+/g, " ").trim(),
-    source_segment_ids: uniqueIds(blocks.flatMap((block) => block.source_segment_ids)),
-  };
-}
-
-function buildOverlayFlags(
-  sourceSegmentIds: string[],
-  instructionIndex: InstructionIndex,
-): Pick<TranscriptOverlayRow, "is_deleted" | "is_muted" | "is_trimmed"> {
-  return {
-    is_deleted: sourceSegmentIds.length > 0
-      && sourceSegmentIds.every((segmentId) => instructionIndex.deleteBySegmentId.has(segmentId)),
-    is_muted: sourceSegmentIds.some((segmentId) => instructionIndex.muteBySegmentId.has(segmentId)),
-    is_trimmed: sourceSegmentIds.some((segmentId) => instructionIndex.trimBySegmentId.has(segmentId)),
-  };
-}
-
-function buildTranscriptOverlayRows(
-  segments: HammerTranscriptSegment[],
-  instructionIndex: InstructionIndex,
-): TranscriptOverlayRow[] {
-  const rows: TranscriptOverlayRow[] = [];
-  const hiddenByMerge = new Set<string>();
-
-  // Structural instructions reshape the overlay before behavioral flags are layered on top.
-  for (let index = 0; index < segments.length; index += 1) {
-    const segment = segments[index];
-    if (hiddenByMerge.has(segment.segment_id)) continue;
-
-    const nextSegment = segments[index + 1] ?? null;
-    const splitInstruction = instructionIndex.splitBySegmentId.get(segment.segment_id) ?? null;
-    const mergeInstruction = instructionIndex.mergeBySegmentId.get(segment.segment_id) ?? null;
-    const segmentBlocks = splitInstruction
-      ? createSplitBlocks(segment, splitInstruction)
-      : [createBaseBlock(segment)];
-
-    const canApplyMerge = Boolean(
-      mergeInstruction
-      && nextSegment
-      && mergeInstruction.merge_with_segment_id === nextSegment.segment_id
-      && nextSegment.speaker === segment.speaker,
-    );
-
-    if (canApplyMerge && nextSegment) {
-      const nextSplitInstruction = instructionIndex.splitBySegmentId.get(nextSegment.segment_id) ?? null;
-      const nextBlocks = nextSplitInstruction
-        ? createSplitBlocks(nextSegment, nextSplitInstruction)
-        : [createBaseBlock(nextSegment)];
-      const mergedBlock = createMergedBlock([...segmentBlocks, ...nextBlocks]);
-      const sourceSegmentIds = mergedBlock.source_segment_ids;
-
-      rows.push({
-        row_id: `${segment.segment_id}::merge`,
-        anchor_segment_id: segment.segment_id,
-        next_segment_id: nextSegment.segment_id,
-        source_segment_ids: sourceSegmentIds,
-        speaker: segment.speaker,
-        start_sec: mergedBlock.start_sec,
-        end_sec: mergedBlock.end_sec,
-        structure: "merge",
-        blocks: [mergedBlock],
-        timing_blocks: [...segmentBlocks, ...nextBlocks],
-        split_instruction: splitInstruction,
-        merge_instruction: mergeInstruction,
-        ...buildOverlayFlags(sourceSegmentIds, instructionIndex),
-      });
-      hiddenByMerge.add(nextSegment.segment_id);
-      continue;
-    }
-
-    if (splitInstruction) {
-      for (const block of segmentBlocks) {
-        rows.push({
-          row_id: block.block_id,
-          anchor_segment_id: segment.segment_id,
-          next_segment_id: nextSegment?.segment_id ?? null,
-          source_segment_ids: [segment.segment_id],
-          speaker: segment.speaker,
-          start_sec: block.start_sec,
-          end_sec: block.end_sec,
-          structure: "split",
-          blocks: [block],
-          timing_blocks: [block],
-          split_instruction: splitInstruction,
-          merge_instruction: mergeInstruction,
-          ...buildOverlayFlags([segment.segment_id], instructionIndex),
-        });
-      }
-      continue;
-    }
-
-    rows.push({
-      row_id: segment.segment_id,
-      anchor_segment_id: segment.segment_id,
-      next_segment_id: nextSegment?.segment_id ?? null,
-      source_segment_ids: [segment.segment_id],
-      speaker: segment.speaker,
-      start_sec: segmentBlocks[0].start_sec,
-      end_sec: segmentBlocks[0].end_sec,
-      structure: "base",
-      blocks: [segmentBlocks[0]],
-      timing_blocks: [segmentBlocks[0]],
-      split_instruction: splitInstruction,
-      merge_instruction: mergeInstruction,
-      ...buildOverlayFlags([segment.segment_id], instructionIndex),
-    });
-  }
-
-  return rows;
-}
-
-function buildPlaybackRanges(
-  overlayRows: TranscriptOverlayRow[],
-  segmentById: Map<string, HammerTranscriptSegment>,
-  instructionIndex: InstructionIndex,
-): TranscriptPlaybackRange[] {
-  return overlayRows.map((row) => {
-    const playableSlices = row.timing_blocks
-      .map((block) => {
-        const sourceSegmentId = block.source_segment_ids[0] ?? row.anchor_segment_id;
-        const sourceSegment = segmentById.get(sourceSegmentId);
-        if (!sourceSegment) return null;
-        if (instructionIndex.deleteBySegmentId.has(sourceSegmentId)) return null;
-
-        const trimBounds = resolveTrimBounds(
-          sourceSegment,
-          instructionIndex.trimBySegmentId.get(sourceSegmentId) ?? null,
-        );
-        if (!trimBounds) return null;
-
-        const playableStartSec = Math.max(block.start_sec, trimBounds.start_sec);
-        const playableEndSec = Math.min(block.end_sec, trimBounds.end_sec);
-        if ((playableEndSec - playableStartSec) < PREVIEW_EPSILON_SEC) {
-          return null;
-        }
-
-        return {
-          start_sec: playableStartSec,
-          end_sec: playableEndSec,
-        };
-      })
-      .filter((slice): slice is TranscriptPlayableSlice => Boolean(slice));
-
-    return {
-      row_id: row.row_id,
-      anchor_segment_id: row.anchor_segment_id,
-      start_sec: row.start_sec,
-      end_sec: row.end_sec,
-      playable_start_sec: playableSlices[0]?.start_sec ?? null,
-      playable_end_sec: playableSlices[playableSlices.length - 1]?.end_sec ?? null,
-      playable_slices: playableSlices,
-      is_deleted: playableSlices.length === 0,
-      is_muted: row.is_muted,
-      source_segment_ids: row.source_segment_ids,
-    };
+function createEditPlanSignature(
+  sourceTranscriptId: string,
+  previewMode: HammerPreviewMode,
+  instructions: HammerEditInstruction[],
+): string {
+  return JSON.stringify({
+    source_transcript_id: sourceTranscriptId,
+    preview_mode: previewMode,
+    instructions,
   });
 }
 
-function getPlayableRows(playbackRanges: TranscriptPlaybackRange[]): TranscriptPlaybackRange[] {
-  return playbackRanges.filter((range) => range.playable_slices.length > 0);
+function createEditPlanMeta(
+  sourceTranscriptId: string,
+  previewMode: HammerPreviewMode,
+  instructions: HammerEditInstruction[],
+): EditPlanMetaState {
+  const now = new Date().toISOString();
+  const signature = createEditPlanSignature(sourceTranscriptId, previewMode, instructions);
+  return {
+    editPlanId: createEntityId("plan"),
+    createdAt: now,
+    updatedAt: now,
+    baselineSignature: signature,
+    lastSignature: signature,
+  };
 }
 
-function findRowByTime(
-  playbackRanges: TranscriptPlaybackRange[],
-  timeSec: number,
-  mode: "raw" | "playable" = "raw",
-): TranscriptPlaybackRange | null {
-  for (const range of playbackRanges) {
-    if (mode === "raw") {
-      if (timeSec >= range.start_sec && timeSec < range.end_sec) {
-        return range;
-      }
-      continue;
-    }
+function readInstruction(input: unknown): HammerEditInstruction | null {
+  const row = readRecord(input);
+  if (!row) return null;
 
-    if (range.playable_slices.some((slice) => timeSec >= slice.start_sec && timeSec < slice.end_sec)) {
-      return range;
+  const instructionId = readString(row.instruction_id);
+  const segmentId = readString(row.segment_id);
+  const type = readString(row.type);
+  const createdAt = readString(row.created_at);
+  if (!instructionId || !segmentId || !type || !createdAt) return null;
+
+  switch (type) {
+    case "delete":
+      return {
+        instruction_id: instructionId,
+        segment_id: segmentId,
+        type,
+        created_at: createdAt,
+      };
+    case "mute":
+      return {
+        instruction_id: instructionId,
+        segment_id: segmentId,
+        type,
+        created_at: createdAt,
+      };
+    case "trim": {
+      const trimStartSec = readNumber(row.trim_start_sec);
+      const trimEndSec = readNumber(row.trim_end_sec);
+      return {
+        instruction_id: instructionId,
+        segment_id: segmentId,
+        type,
+        trim_start_sec: trimStartSec ?? undefined,
+        trim_end_sec: trimEndSec ?? undefined,
+        created_at: createdAt,
+      };
     }
+    case "split": {
+      const splitAtSec = readNumber(row.split_at_sec);
+      if (splitAtSec == null) return null;
+      return {
+        instruction_id: instructionId,
+        segment_id: segmentId,
+        type,
+        split_at_sec: splitAtSec,
+        created_at: createdAt,
+      };
+    }
+    case "merge": {
+      const mergeWithSegmentId = readString(row.merge_with_segment_id);
+      if (!mergeWithSegmentId) return null;
+      return {
+        instruction_id: instructionId,
+        segment_id: segmentId,
+        type,
+        merge_with_segment_id: mergeWithSegmentId,
+        created_at: createdAt,
+      };
+    }
+    default:
+      return null;
   }
-  return null;
 }
 
-function findNextPlayableSlice(
-  playbackRange: TranscriptPlaybackRange,
-  timeSec: number,
-): TranscriptPlayableSlice | null {
-  for (const slice of playbackRange.playable_slices) {
-    if (timeSec < slice.start_sec - PREVIEW_EPSILON_SEC) {
-      return slice;
-    }
-    if (timeSec >= slice.start_sec && timeSec < slice.end_sec) {
-      return slice;
-    }
-  }
-  return null;
-}
-
-function findNextPlayableRow(
-  playbackRanges: TranscriptPlaybackRange[],
-  timeSec: number,
-): TranscriptPlaybackRange | null {
-  return getPlayableRows(playbackRanges).find((range) => (
-    (range.playable_start_sec ?? Number.POSITIVE_INFINITY) >= (timeSec - PREVIEW_EPSILON_SEC)
-  )) ?? null;
-}
-
-function findPreviousPlayableRow(
-  playbackRanges: TranscriptPlaybackRange[],
-  timeSec: number,
-): TranscriptPlaybackRange | null {
-  const playableRows = getPlayableRows(playbackRanges);
-  for (let index = playableRows.length - 1; index >= 0; index -= 1) {
-    const range = playableRows[index];
-    if ((range.playable_end_sec ?? Number.NEGATIVE_INFINITY) <= (timeSec + PREVIEW_EPSILON_SEC)) {
-      return range;
-    }
-  }
-  return null;
-}
-
-function resolveSeekTargetForRow(
-  playbackRange: TranscriptPlaybackRange,
-  playbackRanges: TranscriptPlaybackRange[],
-): { row_id: string | null; timeSec: number | null } {
-  const firstPlayableSlice = playbackRange.playable_slices[0] ?? null;
-  if (firstPlayableSlice) {
+function parseEditPlanJson(raw: string): { plan: HammerEditPlan | null; error: string | null } {
+  if (!raw.trim()) {
     return {
-      row_id: playbackRange.row_id,
-      timeSec: firstPlayableSlice.start_sec,
+      plan: null,
+      error: "Edit plan JSON is empty.",
     };
   }
 
-  const nextPlayableRow = findNextPlayableRow(playbackRanges, playbackRange.end_sec - PREVIEW_EPSILON_SEC);
-  if (nextPlayableRow?.playable_start_sec != null) {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
     return {
-      row_id: nextPlayableRow.row_id,
-      timeSec: nextPlayableRow.playable_start_sec,
+      plan: null,
+      error: toErrorMessage(error, "Failed to parse edit plan JSON."),
     };
+  }
+
+  const record = readRecord(parsed);
+  if (!record) {
+    return {
+      plan: null,
+      error: "Edit plan must be a JSON object.",
+    };
+  }
+
+  const editPlanId = readString(record.edit_plan_id);
+  const version = readString(record.version);
+  const createdAt = readString(record.created_at);
+  const updatedAt = readString(record.updated_at);
+  const sourceTranscriptId = readString(record.source_transcript_id);
+  const previewMode = readString(record.preview_mode);
+  const toolVersion = readString(record.tool_version);
+  const workspaceId = readString(record.workspace_id);
+  const workpieceId = readString(record.workpiece_id);
+  const sessionId = readString(record.session_id);
+  const instructionsInput = Array.isArray(record.instructions) ? record.instructions : null;
+
+  if (!editPlanId || !version || !createdAt || !updatedAt || !sourceTranscriptId || !instructionsInput) {
+    return {
+      plan: null,
+      error: "Edit plan is missing one or more required fields.",
+    };
+  }
+
+  if (previewMode && previewMode !== "raw" && previewMode !== "edit-aware") {
+    return {
+      plan: null,
+      error: `Unsupported preview_mode: ${previewMode}.`,
+    };
+  }
+
+  const instructions: HammerEditInstruction[] = [];
+  for (const input of instructionsInput) {
+    const instruction = readInstruction(input);
+    if (!instruction) {
+      return {
+        plan: null,
+        error: "Edit plan contains an invalid instruction.",
+      };
+    }
+    instructions.push(instruction);
   }
 
   return {
-    row_id: null,
-    timeSec: null,
+    plan: {
+      edit_plan_id: editPlanId,
+      version,
+      created_at: createdAt,
+      updated_at: updatedAt,
+      source_transcript_id: sourceTranscriptId,
+      preview_mode: previewMode as HammerPreviewMode | undefined,
+      tool_version: toolVersion ?? undefined,
+      workspace_id: workspaceId ?? undefined,
+      workpiece_id: workpieceId ?? undefined,
+      session_id: sessionId ?? undefined,
+      instructions,
+    },
+    error: null,
   };
 }
 
@@ -835,6 +602,14 @@ export default function TranscriptSeekMock(): JSX.Element {
   const [editInstructions, setEditInstructions] = useState<HammerEditInstruction[]>([]);
   const [devAudioSrc, setDevAudioSrc] = useState<string | null>(null);
   const [preferDevAudioFallback, setPreferDevAudioFallback] = useState(false);
+  const [previewMode, setPreviewMode] = useState<HammerPreviewMode>(DEFAULT_PREVIEW_MODE);
+  const [sessionId, setSessionId] = useState(() => createEntityId("session"));
+  const [editPlanMeta, setEditPlanMeta] = useState<EditPlanMetaState>(() => (
+    createEditPlanMeta(transcriptLoad.sourceLabel, DEFAULT_PREVIEW_MODE, [])
+  ));
+  const [editPlanJsonDraft, setEditPlanJsonDraft] = useState("");
+  const [editPlanFeedback, setEditPlanFeedback] = useState<string | null>(null);
+  const [editPlanFeedbackTone, setEditPlanFeedbackTone] = useState<"neutral" | "success" | "warning">("neutral");
 
   useEffect(() => {
     let active = true;
@@ -878,8 +653,8 @@ export default function TranscriptSeekMock(): JSX.Element {
   );
   const playbackSourceLabel = useMemo(() => {
     if (!playbackSrc) return "none";
-    if (preferDevAudioFallback || !resolvedMediaSrc) return "dev:generated_tone";
-    return "resolved:local_media";
+    if (preferDevAudioFallback || !resolvedMediaSrc) return "dev-tone";
+    return "mapped-media";
   }, [playbackSrc, preferDevAudioFallback, resolvedMediaSrc]);
 
   useEffect(() => {
@@ -905,17 +680,33 @@ export default function TranscriptSeekMock(): JSX.Element {
 
   useEffect(() => {
     setEditInstructions([]);
+    setPreviewMode(DEFAULT_PREVIEW_MODE);
+    setSessionId(createEntityId("session"));
+    setEditPlanMeta(createEditPlanMeta(transcriptLoad.sourceLabel, DEFAULT_PREVIEW_MODE, []));
+    setEditPlanJsonDraft("");
+    setEditPlanFeedback(null);
+    setEditPlanFeedbackTone("neutral");
   }, [mediaRef.media_id, transcriptLoad.sourceLabel]);
 
   useEffect(() => {
-    if (editInstructions.length === 0) {
+    if (previewMode === "raw" || editInstructions.length === 0) {
       setLastPreviewSkip(null);
     }
-  }, [editInstructions.length]);
+  }, [editInstructions.length, previewMode]);
 
   const instructionIndex = useMemo(
     () => buildInstructionIndex(editInstructions),
     [editInstructions],
+  );
+
+  const previewInstructions = useMemo(
+    () => (previewMode === "edit-aware" ? editInstructions : []),
+    [editInstructions, previewMode],
+  );
+
+  const previewInstructionIndex = useMemo(
+    () => buildInstructionIndex(previewInstructions),
+    [previewInstructions],
   );
 
   const segmentById = useMemo(
@@ -941,22 +732,22 @@ export default function TranscriptSeekMock(): JSX.Element {
   }, [selectedSegment, segmentIndexById, transcriptSegments]);
 
   const overlayRows = useMemo(
-    () => buildTranscriptOverlayRows(transcriptSegments, instructionIndex),
-    [instructionIndex, transcriptSegments],
+    () => buildTranscriptOverlayRows(transcriptSegments, previewInstructionIndex),
+    [previewInstructionIndex, transcriptSegments],
   );
 
   const playbackRanges = useMemo(
-    () => buildPlaybackRanges(overlayRows, segmentById, instructionIndex),
-    [instructionIndex, overlayRows, segmentById],
+    () => buildPlaybackRanges(overlayRows, segmentById, previewInstructionIndex),
+    [overlayRows, previewInstructionIndex, segmentById],
   );
 
   const rawActivePlaybackRange = useMemo(
-    () => findRowByTime(playbackRanges, currentTimeSec, "raw"),
+    () => findPlaybackRangeByTime(playbackRanges, currentTimeSec, "raw"),
     [currentTimeSec, playbackRanges],
   );
 
   const activePlayableRange = useMemo(
-    () => findRowByTime(playbackRanges, currentTimeSec, "playable"),
+    () => findPlaybackRangeByTime(playbackRanges, currentTimeSec, "playable"),
     [currentTimeSec, playbackRanges],
   );
 
@@ -1002,55 +793,89 @@ export default function TranscriptSeekMock(): JSX.Element {
     && selectedNextSegment
     && selectedNextSegment.speaker === selectedSegment.speaker,
   );
-  const previewModeLabel = editInstructions.length > 0 ? "edit-aware" : "raw";
+  const transcriptSourceId = transcriptLoad.sourceLabel;
+  const currentEditPlanSignature = useMemo(
+    () => createEditPlanSignature(transcriptSourceId, previewMode, editInstructions),
+    [editInstructions, previewMode, transcriptSourceId],
+  );
+  const editPlanStatus: EditPlanStatus = currentEditPlanSignature === editPlanMeta.baselineSignature
+    ? "clean"
+    : "dirty";
+  const sourceMode: SessionSourceMode = resolvedMediaSrc && !preferDevAudioFallback
+    ? "mapped-media"
+    : "dev-tone";
+  const sessionState = useMemo<HammerSessionState>(
+    () => ({
+      sessionId,
+      transcriptLoaded: transcriptSegments.length > 0,
+      sourceMode,
+      previewMode,
+      editPlanStatus,
+    }),
+    [editPlanStatus, previewMode, sessionId, sourceMode, transcriptSegments.length],
+  );
+  const currentEditPlan = useMemo<HammerEditPlan>(
+    () => ({
+      edit_plan_id: editPlanMeta.editPlanId,
+      version: HAMMER_EDIT_PLAN_VERSION,
+      created_at: editPlanMeta.createdAt,
+      updated_at: editPlanMeta.updatedAt,
+      source_transcript_id: transcriptSourceId,
+      preview_mode: previewMode,
+      tool_version: HAMMER_DEV_TOOL_VERSION,
+      workspace_id: query.workspaceId,
+      session_id: sessionId,
+      instructions: cloneEditInstructions(editInstructions),
+    }),
+    [editInstructions, editPlanMeta.createdAt, editPlanMeta.editPlanId, editPlanMeta.updatedAt, previewMode, query.workspaceId, sessionId, transcriptSourceId],
+  );
+
+  useEffect(() => {
+    setEditPlanMeta((currentMeta) => {
+      if (currentMeta.lastSignature === currentEditPlanSignature) {
+        return currentMeta;
+      }
+      return {
+        ...currentMeta,
+        updatedAt: new Date().toISOString(),
+        lastSignature: currentEditPlanSignature,
+      };
+    });
+  }, [currentEditPlanSignature]);
 
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    const rawRange = rawActivePlaybackRange;
-    if (!rawRange) return;
-
-    const nextPlayableSlice = findNextPlayableSlice(rawRange, currentTimeSec);
-    if (nextPlayableSlice) {
-      if (currentTimeSec < nextPlayableSlice.start_sec - PREVIEW_EPSILON_SEC) {
-        audio.currentTime = nextPlayableSlice.start_sec;
-        setCurrentTimeSec(nextPlayableSlice.start_sec);
-        setLastPreviewSkip({
-          reason: rawRange.is_deleted ? "deleted" : "trim-start",
-          from_row_id: rawRange.row_id,
-          to_row_id: rawRange.row_id,
-        });
-      }
+    const nextAction = resolvePreviewBoundaryAction(
+      rawActivePlaybackRange,
+      playbackRanges,
+      currentTimeSec,
+      effectiveDurationSec,
+    );
+    if (nextAction.kind === "none" || !rawActivePlaybackRange) {
       return;
     }
 
-    const nextPlayableRow = findNextPlayableRow(playbackRanges, currentTimeSec);
-    if (nextPlayableRow?.playable_start_sec != null) {
-      audio.currentTime = nextPlayableRow.playable_start_sec;
-      setCurrentTimeSec(nextPlayableRow.playable_start_sec);
+    if (nextAction.kind === "seek") {
+      audio.currentTime = nextAction.time_sec;
+      setCurrentTimeSec(nextAction.time_sec);
       setLastPreviewSkip({
-        reason: rawRange.is_deleted ? "deleted" : "trim-end",
-        from_row_id: rawRange.row_id,
-        to_row_id: nextPlayableRow.row_id,
+        reason: nextAction.reason,
+        from_row_id: rawActivePlaybackRange.row_id,
+        to_row_id: nextAction.to_row_id,
       });
       return;
     }
 
-    const previousPlayableRow = findPreviousPlayableRow(playbackRanges, currentTimeSec);
-    const pauseAtSec = previousPlayableRow?.playable_end_sec
-      ?? rawRange.playable_end_sec
-      ?? effectiveDurationSec;
-    if (currentTimeSec >= pauseAtSec - PREVIEW_EPSILON_SEC || rawRange.is_deleted) {
-      audio.pause();
-      audio.currentTime = pauseAtSec;
-      setCurrentTimeSec(pauseAtSec);
-      setIsPlaying(false);
-      setLastPreviewSkip({
-        reason: rawRange.is_deleted ? "deleted" : "trim-end",
-        from_row_id: rawRange.row_id,
-        to_row_id: null,
-      });
-    }
+    audio.pause();
+    audio.currentTime = nextAction.time_sec;
+    setCurrentTimeSec(nextAction.time_sec);
+    setIsPlaying(false);
+    setLastPreviewSkip({
+      reason: nextAction.reason,
+      from_row_id: rawActivePlaybackRange.row_id,
+      to_row_id: null,
+    });
   }, [currentTimeSec, effectiveDurationSec, playbackRanges, rawActivePlaybackRange]);
 
   const selectedOverlayRow = useMemo(
@@ -1165,6 +990,60 @@ export default function TranscriptSeekMock(): JSX.Element {
         to_row_id: resolvedSeekTarget.row_id,
       });
     }
+  }
+
+  function clearEdits() {
+    setEditInstructions([]);
+    setLastPreviewSkip(null);
+    setEditPlanFeedback(null);
+    setEditPlanFeedbackTone("neutral");
+  }
+
+  function exportEditPlan() {
+    setEditPlanJsonDraft(JSON.stringify(currentEditPlan, null, 2));
+    setEditPlanFeedback("Edit plan exported to the dev JSON buffer.");
+    setEditPlanFeedbackTone("success");
+  }
+
+  function loadEditPlan() {
+    const parsed = parseEditPlanJson(editPlanJsonDraft);
+    if (!parsed.plan) {
+      setEditPlanFeedback(parsed.error ?? "Failed to load edit plan.");
+      setEditPlanFeedbackTone("warning");
+      return;
+    }
+
+    const nextPlan = parsed.plan;
+    const nextInstructions = cloneEditInstructions(nextPlan.instructions);
+    const nextPreviewMode = nextPlan.preview_mode ?? DEFAULT_PREVIEW_MODE;
+    const nextSignature = createEditPlanSignature(
+      nextPlan.source_transcript_id,
+      nextPreviewMode,
+      nextInstructions,
+    );
+
+    setEditInstructions(nextInstructions);
+    setPreviewMode(nextPreviewMode);
+    setSessionId(nextPlan.session_id ?? createEntityId("session"));
+    setEditPlanMeta({
+      editPlanId: nextPlan.edit_plan_id,
+      createdAt: nextPlan.created_at,
+      updatedAt: nextPlan.updated_at,
+      baselineSignature: nextSignature,
+      lastSignature: nextSignature,
+    });
+    setLastPreviewSkip(null);
+    setEditPlanJsonDraft(JSON.stringify(nextPlan, null, 2));
+    if (nextPlan.source_transcript_id === transcriptSourceId) {
+      setEditPlanFeedback("Edit plan loaded. Overlay and preview state restored.");
+      setEditPlanFeedbackTone("success");
+      return;
+    }
+
+    setEditPlanFeedback(
+      `Edit plan loaded from ${nextPlan.source_transcript_id}. Applying it to ${transcriptSourceId}.`,
+    );
+    setEditPlanFeedbackTone("warning");
   }
 
   function removeInstruction(instructionId: string) {
@@ -1297,15 +1176,15 @@ export default function TranscriptSeekMock(): JSX.Element {
     <section style={ROOT_STYLE}>
       <div style={{ ...PANEL_STYLE, padding: 12, gap: 12 }}>
         <header style={{ display: "grid", gap: 2 }}>
-          <h2 style={{ margin: 0, fontSize: 18 }}>Transcript</h2>
+          <h2 style={{ margin: 0, fontSize: 18 }}>Transcript Preview</h2>
           <div style={{ fontSize: 13, opacity: 0.78 }}>
-            Click a row to seek the audio preview.
+            Click a row to seek the current preview. Transcript text stays canonical; the edit plan only reshapes the overlay.
           </div>
           <div style={{ fontSize: 12, opacity: 0.72 }}>
-            source: {transcriptLoad.sourceLabel}
+            transcript source: {transcriptLoad.sourceLabel}
           </div>
           <div style={{ fontSize: 12, opacity: 0.72 }}>
-            edit instructions: {editInstructions.length} (in-memory overlay)
+            edit plan instructions: {editInstructions.length} (portable overlay state)
           </div>
           {transcriptLoad.error ? (
             <div style={{ fontSize: 12, color: "#fde68a" }}>
@@ -1341,11 +1220,10 @@ export default function TranscriptSeekMock(): JSX.Element {
             <span>active raw: {formatPlaybackRangeLabel(rawActivePlaybackRange)}</span>
             <span>active playable: {formatPlaybackRangeLabel(activePlayableRange)}</span>
             <span>skip: {lastPreviewSkip?.reason ?? "none"}</span>
-            <span>
-              deleted skip: {lastPreviewSkip?.reason === "deleted" ? "yes" : "no"}
-            </span>
-            <span>preview: {previewModeLabel}</span>
-            <span style={{ opacity: 0.72 }}>src: {playbackSourceLabel}</span>
+            <span>deleted rows: {sessionState.previewMode === "edit-aware" ? "skipped" : "raw playback"}</span>
+            <span>muted rows: structural only</span>
+            <span>preview mode: {sessionState.previewMode}</span>
+            <span style={{ opacity: 0.72 }}>source mode: {sessionState.sourceMode}</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
             <button
@@ -1401,12 +1279,55 @@ export default function TranscriptSeekMock(): JSX.Element {
             <button
               type="button"
               disabled={editInstructions.length === 0}
-              onClick={() => setEditInstructions([])}
+              onClick={() => clearEdits()}
             >
               Clear edits
             </button>
           </div>
         </header>
+
+        <div
+          style={{
+            border: "1px dashed rgba(148, 163, 184, 0.35)",
+            borderRadius: 10,
+            padding: "8px 10px",
+            display: "grid",
+            gap: 6,
+            fontSize: 12,
+            color: "#c8d6ea",
+            background: "rgba(2, 6, 23, 0.42)",
+          }}
+        >
+          <strong style={{ color: "#dbe8ff" }}>Session State</strong>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span>transcript: {sessionState.transcriptLoaded ? "loaded" : "empty"}</span>
+            <span>source mode: {sessionState.sourceMode}</span>
+            <span>preview mode: {sessionState.previewMode}</span>
+            <span>edit plan: {sessionState.editPlanStatus}</span>
+            <span>session: {sessionState.sessionId}</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              disabled={sessionState.previewMode === "edit-aware"}
+              onClick={() => setPreviewMode("edit-aware")}
+            >
+              Edit-aware preview
+            </button>
+            <button
+              type="button"
+              disabled={sessionState.previewMode === "raw"}
+              onClick={() => setPreviewMode("raw")}
+            >
+              Raw preview
+            </button>
+            <span style={{ opacity: 0.72 }}>
+              {sessionState.previewMode === "edit-aware"
+                ? "Deleted rows skip in preview. Mute remains structural-only."
+                : "Raw preview ignores the edit plan, but the loaded instructions remain below."}
+            </span>
+          </div>
+        </div>
 
         <div
           ref={transcriptScrollContainerRef}
@@ -1629,7 +1550,7 @@ export default function TranscriptSeekMock(): JSX.Element {
             background: "rgba(2, 6, 23, 0.45)",
           }}
         >
-          <strong style={{ color: "#dbe8ff" }}>Edit Stack (In Memory)</strong>
+          <strong style={{ color: "#dbe8ff" }}>Edit Stack</strong>
           {editInstructions.length === 0 ? (
             <div>No edits yet.</div>
           ) : (
@@ -1668,11 +1589,86 @@ export default function TranscriptSeekMock(): JSX.Element {
             })
           )}
         </div>
+
+        <div
+          style={{
+            border: "1px dashed rgba(148, 163, 184, 0.35)",
+            borderRadius: 10,
+            padding: "8px 10px",
+            display: "grid",
+            gap: 8,
+            fontSize: 12,
+            color: "#b8c7db",
+            background: "rgba(2, 6, 23, 0.45)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+            <strong style={{ color: "#dbe8ff" }}>Edit Plan JSON</strong>
+            <span style={{ opacity: 0.74 }}>
+              {currentEditPlan.edit_plan_id} · {currentEditPlan.version} · {sessionState.editPlanStatus}
+            </span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              data-testid="edit-plan-export"
+              onClick={() => exportEditPlan()}
+            >
+              Export Edit Plan
+            </button>
+            <button
+              type="button"
+              data-testid="edit-plan-load"
+              onClick={() => loadEditPlan()}
+            >
+              Load Edit Plan
+            </button>
+            <span style={{ opacity: 0.72 }}>
+              Round-trip this JSON to restore overlay rows and preview semantics.
+            </span>
+          </div>
+          {editPlanFeedback ? (
+            <div
+              style={{
+                color: editPlanFeedbackTone === "warning"
+                  ? "#fde68a"
+                  : editPlanFeedbackTone === "success"
+                  ? "#a7f3d0"
+                  : "#c8d6ea",
+              }}
+            >
+              {editPlanFeedback}
+            </div>
+          ) : null}
+          <textarea
+            data-testid="edit-plan-json"
+            value={editPlanJsonDraft}
+            onChange={(event) => {
+              setEditPlanJsonDraft(event.target.value);
+              setEditPlanFeedback(null);
+              setEditPlanFeedbackTone("neutral");
+            }}
+            spellCheck={false}
+            placeholder="Export the current edit plan, clear edits, then paste or reload the JSON here."
+            style={{
+              width: "100%",
+              minHeight: 180,
+              resize: "vertical",
+              borderRadius: 10,
+              border: "1px solid rgba(148, 163, 184, 0.26)",
+              background: "rgba(2, 6, 23, 0.65)",
+              color: "#dbe8ff",
+              padding: 10,
+              fontSize: 12,
+              fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace",
+            }}
+          />
+        </div>
       </div>
 
       <div style={{ ...PANEL_STYLE, padding: 14, gap: 12 }}>
         <header style={{ display: "grid", gap: 4 }}>
-          <h2 style={{ margin: 0, fontSize: 18 }}>Playback (Audio Sync)</h2>
+          <h2 style={{ margin: 0, fontSize: 18 }}>Playback Preview</h2>
           <div style={{ fontSize: 13, opacity: 0.8 }}>
             media_id: <strong>{mediaRef.media_id}</strong>
           </div>
@@ -1683,7 +1679,7 @@ export default function TranscriptSeekMock(): JSX.Element {
             workspace_id: {query.workspaceId}
           </div>
           <div style={{ fontSize: 12, opacity: 0.7 }}>
-            playback_src: {playbackSourceLabel}
+            source mode: {sessionState.sourceMode} ({playbackSourceLabel})
           </div>
         </header>
 
@@ -1719,7 +1715,7 @@ export default function TranscriptSeekMock(): JSX.Element {
                 <div style={{ fontSize: 13, color: "#fde68a" }}>
                   {resolveResult.user_message}
                   {" "}
-                  Using generated dev audio.
+                  Falling back to dev-tone preview audio.
                 </div>
               ) : null}
               {playbackSrc ? (
@@ -1746,10 +1742,10 @@ export default function TranscriptSeekMock(): JSX.Element {
                     setIsPlaying(false);
                     if (resolvedMediaSrc && !preferDevAudioFallback && devAudioSrc) {
                       setPreferDevAudioFallback(true);
-                      setPlaybackError("Resolved media failed to load. Switched to generated dev audio.");
+                      setPlaybackError("Mapped media failed to load. Switched to dev-tone preview audio.");
                       return;
                     }
-                    setPlaybackError("Audio failed to load.");
+                    setPlaybackError("Preview audio failed to load.");
                   }}
                 />
               ) : (
@@ -1765,7 +1761,7 @@ export default function TranscriptSeekMock(): JSX.Element {
           ) : null}
 
           <div style={{ fontSize: 13, opacity: 0.85 }}>
-            Time: {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
+            Time: {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)} · {sessionState.previewMode} preview
           </div>
           <div style={{ display: "grid", gap: 6 }}>
             <div
@@ -1855,7 +1851,7 @@ export default function TranscriptSeekMock(): JSX.Element {
               ) : null}
               {activeOverlayRow ? (
                 <div style={{ fontSize: 12, opacity: 0.74 }}>
-                  Active row: {formatOverlayRowLabel(activeOverlayRow)}
+                  Active preview row: {formatOverlayRowLabel(activeOverlayRow)}
                   {" · "}
                   {formatClock(activeOverlayRow.start_sec)}-{formatClock(activeOverlayRow.end_sec)}
                 </div>
