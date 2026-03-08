@@ -613,6 +613,55 @@
   flex-wrap: wrap;
 }
 
+.hammer-script-row__status-list {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.hammer-script-row__status-pill {
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.76);
+  color: #dbe8ff;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.hammer-script-row__status-pill.is-delete {
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(127, 29, 29, 0.28);
+  color: #fca5a5;
+}
+
+.hammer-script-row__status-pill.is-mute {
+  border-color: rgba(245, 158, 11, 0.28);
+  background: rgba(120, 53, 15, 0.26);
+  color: #fde68a;
+}
+
+.hammer-script-row__status-pill.is-trim {
+  border-color: rgba(129, 140, 248, 0.28);
+  background: rgba(67, 56, 202, 0.2);
+  color: #c4b5fd;
+}
+
+.hammer-script-row__status-pill.is-split {
+  border-color: rgba(99, 102, 241, 0.28);
+  background: rgba(49, 46, 129, 0.26);
+  color: #c7d2fe;
+}
+
+.hammer-script-row__status-pill.is-merge {
+  border-color: rgba(56, 189, 248, 0.28);
+  background: rgba(8, 47, 73, 0.3);
+  color: #bae6fd;
+}
+
 .hammer-script-blocks {
   display: grid;
   gap: 6px;

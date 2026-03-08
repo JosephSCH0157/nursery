@@ -79,6 +79,12 @@ type HammerSessionState = {
 };
 
 type HammerWorkflowTone = "ready" | "active" | "blocked" | "future";
+type TranscriptRowStageMarkerTone = "delete" | "mute" | "trim" | "split" | "merge";
+type TranscriptRowStageMarker = {
+  id: TranscriptRowStageMarkerTone;
+  label: string;
+  tone: TranscriptRowStageMarkerTone;
+};
 
 type TimelineClip = {
   id: string;
@@ -368,6 +374,17 @@ function getWorkflowStatusClassName(tone: HammerWorkflowTone): string {
   );
 }
 
+function getTranscriptRowStageMarkerClassName(tone: TranscriptRowStageMarkerTone): string {
+  return cx(
+    "hammer-script-row__status-pill",
+    tone === "delete" && "is-delete",
+    tone === "mute" && "is-mute",
+    tone === "trim" && "is-trim",
+    tone === "split" && "is-split",
+    tone === "merge" && "is-merge",
+  );
+}
+
 function formatMediaKindLabel(kind: MediaKind | null | undefined): string {
   switch (kind) {
     case "recording_video":
@@ -610,6 +627,32 @@ function formatOverlayRowLabel(row: TranscriptOverlayRow | null): string {
 function formatPlaybackRangeLabel(range: TranscriptPlaybackRange | null): string {
   if (!range) return "none";
   return range.row_id;
+}
+
+function getTranscriptRowStageMarkers(row: TranscriptOverlayRow): TranscriptRowStageMarker[] {
+  const markers: TranscriptRowStageMarker[] = [];
+
+  if (row.is_deleted) {
+    markers.push({ id: "delete", label: "Delete staged", tone: "delete" });
+  }
+
+  if (row.is_muted) {
+    markers.push({ id: "mute", label: "Mute staged", tone: "mute" });
+  }
+
+  if (row.is_trimmed) {
+    markers.push({ id: "trim", label: "Trim staged", tone: "trim" });
+  }
+
+  if (row.split_instruction || row.structure === "split") {
+    markers.push({ id: "split", label: "Split staged", tone: "split" });
+  }
+
+  if (row.merge_instruction || row.structure === "merge") {
+    markers.push({ id: "merge", label: "Merge staged", tone: "merge" });
+  }
+
+  return markers;
 }
 
 function writeAscii(view: DataView, offset: number, value: string): void {
@@ -2785,6 +2828,7 @@ export default function TranscriptSeekMock(
               if (!anchorSegment) return null;
 
               const rowPlaybackRange = playbackRanges.find((range) => range.row_id === row.row_id) ?? null;
+              const rowStageMarkers = getTranscriptRowStageMarkers(row);
               const isSelected = row.row_id === selectedOverlayRowId;
               const isActive = row.row_id === activeOverlayRowId;
               const borderColor = isActive
@@ -2850,19 +2894,22 @@ export default function TranscriptSeekMock(
                         <span className="hammer-copy-sm hammer-copy-muted">
                           {formatClock(row.start_sec)}-{formatClock(row.end_sec)} {row.speaker}
                         </span>
-                        {row.structure !== "base" ? (
-                          <span className="hammer-pill">{row.structure}</span>
-                        ) : null}
                         {isActive ? (
                           <span className="hammer-copy-sm" style={{ color: "#99f6e4" }}>active</span>
                         ) : null}
-                        {row.is_muted ? (
-                          <span className="hammer-copy-sm" style={{ color: "#fde68a" }}>mute</span>
-                        ) : null}
-                        {row.is_trimmed ? (
-                          <span className="hammer-copy-sm" style={{ color: "#c4b5fd" }}>trim</span>
-                        ) : null}
                       </div>
+                      {rowStageMarkers.length > 0 ? (
+                        <div className="hammer-script-row__status-list">
+                          {rowStageMarkers.map((marker) => (
+                            <span
+                              key={marker.id}
+                              className={getTranscriptRowStageMarkerClassName(marker.tone)}
+                            >
+                              {marker.label}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
 
                       <div className="hammer-script-blocks">
                         {row.blocks.map((block) => (
