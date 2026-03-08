@@ -1897,205 +1897,206 @@ export default function TranscriptSeekMock(
               <span className="hammer-pill">{previewSourceStatusLabel}</span>
             </div>
           )}
-          sectionStyle={{ minHeight: 0, overflow: "hidden" }}
-          bodyStyle={{ minHeight: 0, overflow: "auto" }}
-          bodyClassName="hammer-stack-10"
+          sectionClassName="hammer-preview-panel"
+          bodyClassName="hammer-preview-panel__body"
         >
-          <div className="hammer-monitor">
-            <div className="hammer-monitor__chrome">
-              <div className="hammer-stack-4">
-                <div className="hammer-label">Preview Window</div>
-                <div className="hammer-copy-sm hammer-copy-muted">{previewSourceDetail}</div>
-              </div>
-              <div className="hammer-meta-strip">
-                <span className="hammer-pill">{playbackSourceLabel}</span>
-                <span className="hammer-pill">
-                  {selectedOverlayRow ? selectedOverlayRow.row_id : "no row selected"}
-                </span>
-              </div>
-            </div>
-
-            <div className="hammer-monitor__surface">
-              <div className="hammer-monitor__center">
-                {resolving ? (
-                  <>
-                    <div className="hammer-monitor__eyebrow">Connecting Preview</div>
-                    <h4 className="hammer-monitor__title">Resolving project media</h4>
-                    <div className="hammer-monitor__hint">{previewSourceDetail}</div>
-                  </>
-                ) : resolveError ? (
-                  <>
-                    <div className="hammer-monitor__eyebrow">Preview Warning</div>
-                    <h4 className="hammer-monitor__title">Preview source needs attention</h4>
-                    <div className="hammer-monitor__hint">{previewSourceDetail}</div>
-                  </>
-                ) : !playbackSrc ? (
-                  <>
-                    <div className="hammer-monitor__eyebrow">Preview Offline</div>
-                    <h4 className="hammer-monitor__title">No playback source available</h4>
-                    <div className="hammer-monitor__hint">
-                      Add or resolve project media to use the preview monitor.
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="hammer-monitor__eyebrow">Video Preview</div>
-                    <h4 className="hammer-monitor__title">
-                      {activeOverlayRow
-                        ? formatOverlayRowLabel(activeOverlayRow)
-                        : selectedOverlayRow
-                        ? formatOverlayRowLabel(selectedOverlayRow)
-                        : "Ready for review"}
-                    </h4>
-                    <div className="hammer-monitor__hint">{previewSourceDetail}</div>
-                    <div className="hammer-meta-strip">
-                      <span className="hammer-pill">
-                        {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
-                      </span>
-                      <span className="hammer-pill">
-                        selected {selectedOverlayRow ? selectedOverlayRow.row_id : "none"}
-                      </span>
-                      {lastPreviewSkip ? (
-                        <span className="hammer-pill">skip {lastPreviewSkip.reason}</span>
-                      ) : null}
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {!resolving && !resolveError && playbackSrc ? (
-            <>
-              <audio
-                ref={audioRef}
-                src={playbackSrc}
-                className="hammer-audio-hidden"
-                preload="metadata"
-                data-testid="hammer-audio-player"
-                onLoadedMetadata={(event) => {
-                  const nextDuration = event.currentTarget.duration;
-                  if (Number.isFinite(nextDuration) && nextDuration > 0) {
-                    setDurationSec(nextDuration);
-                  }
-                }}
-                onTimeUpdate={(event) => {
-                  setCurrentTimeSec(event.currentTarget.currentTime);
-                }}
-                onPlay={() => setIsPlaying(true)}
-                onPause={() => setIsPlaying(false)}
-                onEnded={() => setIsPlaying(false)}
-                onError={() => {
-                  setIsPlaying(false);
-                  if (resolvedMediaSrc && !preferDevAudioFallback && devAudioSrc) {
-                    setPreferDevAudioFallback(true);
-                    setPlaybackError("Mapped media failed to load. Switched to dev-tone preview audio.");
-                    return;
-                  }
-                  setPlaybackError("Preview audio failed to load.");
-                }}
-              />
-            </>
-          ) : null}
-
-          {playbackError ? (
-            <div className="hammer-copy-sm hammer-copy-error">{playbackError}</div>
-          ) : null}
-
-          <div className="hammer-preview-transport">
-            <div className="hammer-preview-transport__head">
-              <div className="hammer-stack-4">
-                <strong className="hammer-copy-strong">Transport</strong>
-                <div className="hammer-copy-sm hammer-copy-muted">
-                  Playback, seek, and preview-mode controls stay with the monitor instead of the transcript pane.
+          <div className="hammer-preview-stage">
+            <div className="hammer-monitor">
+              <div className="hammer-monitor__chrome">
+                <div className="hammer-stack-4">
+                  <div className="hammer-label">Preview Window</div>
+                  <div className="hammer-copy-sm hammer-copy-muted">{previewSourceDetail}</div>
+                </div>
+                <div className="hammer-meta-strip">
+                  <span className="hammer-pill">{playbackSourceLabel}</span>
+                  <span className="hammer-pill">
+                    {selectedOverlayRow ? selectedOverlayRow.row_id : "no row selected"}
+                  </span>
                 </div>
               </div>
-              <div className="hammer-meta-strip">
-                <span className={cx("hammer-pill", isPlaying && "hammer-pill--playing")}>
-                  {isPlaying ? "playing" : "paused"}
-                </span>
-                <span className="hammer-pill">{sessionState.previewMode}</span>
+
+              <div className="hammer-monitor__surface">
+                <div className="hammer-monitor__center">
+                  {resolving ? (
+                    <>
+                      <div className="hammer-monitor__eyebrow">Connecting Preview</div>
+                      <h4 className="hammer-monitor__title">Resolving project media</h4>
+                      <div className="hammer-monitor__hint">{previewSourceDetail}</div>
+                    </>
+                  ) : resolveError ? (
+                    <>
+                      <div className="hammer-monitor__eyebrow">Preview Warning</div>
+                      <h4 className="hammer-monitor__title">Preview source needs attention</h4>
+                      <div className="hammer-monitor__hint">{previewSourceDetail}</div>
+                    </>
+                  ) : !playbackSrc ? (
+                    <>
+                      <div className="hammer-monitor__eyebrow">Preview Offline</div>
+                      <h4 className="hammer-monitor__title">No playback source available</h4>
+                      <div className="hammer-monitor__hint">
+                        Add or resolve project media to use the preview monitor.
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="hammer-monitor__eyebrow">Video Preview</div>
+                      <h4 className="hammer-monitor__title">
+                        {activeOverlayRow
+                          ? formatOverlayRowLabel(activeOverlayRow)
+                          : selectedOverlayRow
+                          ? formatOverlayRowLabel(selectedOverlayRow)
+                          : "Ready for review"}
+                      </h4>
+                      <div className="hammer-monitor__hint">{previewSourceDetail}</div>
+                      <div className="hammer-meta-strip">
+                        <span className="hammer-pill">
+                          {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
+                        </span>
+                        <span className="hammer-pill">
+                          selected {selectedOverlayRow ? selectedOverlayRow.row_id : "none"}
+                        </span>
+                        {lastPreviewSkip ? (
+                          <span className="hammer-pill">skip {lastPreviewSkip.reason}</span>
+                        ) : null}
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
 
-            <div className="hammer-action-row">
-              <button
-                type="button"
-                onClick={() => seekToResolvedTarget(previousPlayableTarget)}
-                disabled={previousPlayableTarget.timeSec == null}
-                className="hammer-button-xs"
-              >
-                Prev playable
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  void onTogglePlayback();
-                }}
-                disabled={!canControlAudio}
-                className="hammer-button-xs"
-              >
-                {isPlaying ? "Pause" : "Play"}
-              </button>
-              <button
-                type="button"
-                onClick={() => seekToResolvedTarget(nextPlayableTarget)}
-                disabled={nextPlayableTarget.timeSec == null}
-                className="hammer-button-xs"
-              >
-                Next playable
-              </button>
-              <button
-                type="button"
-                onClick={() => seekToResolvedTarget(jumpToActiveTarget)}
-                disabled={jumpToActiveTarget.timeSec == null}
-                className="hammer-button-xs"
-              >
-                Jump to active
-              </button>
-              <button
-                type="button"
-                onClick={() => setPreviewMode((current) => (current === "raw" ? "edit-aware" : "raw"))}
-                className="hammer-button-xs"
-              >
-                {sessionState.previewMode === "raw" ? "Edit-aware" : "Raw"}
-              </button>
-              <button
-                type="button"
-                onClick={resetPreview}
-                className="hammer-button-xs"
-              >
-                Reset
-              </button>
-            </div>
-
-            <div className="hammer-copy-md">
-              Time: {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
-              {" · "}
-              Source: {previewSourceStatusLabel}
-              {" · "}
-              Skip: {lastPreviewSkip?.reason ?? "none"}
-            </div>
-
-            <div className="hammer-stack-6">
-              <div className="hammer-progress-track">
-                <div
-                  className="hammer-progress-fill"
-                  style={{
-                    width: `${progressPercent}%`,
+            {!resolving && !resolveError && playbackSrc ? (
+              <>
+                <audio
+                  ref={audioRef}
+                  src={playbackSrc}
+                  className="hammer-audio-hidden"
+                  preload="metadata"
+                  data-testid="hammer-audio-player"
+                  onLoadedMetadata={(event) => {
+                    const nextDuration = event.currentTarget.duration;
+                    if (Number.isFinite(nextDuration) && nextDuration > 0) {
+                      setDurationSec(nextDuration);
+                    }
+                  }}
+                  onTimeUpdate={(event) => {
+                    setCurrentTimeSec(event.currentTarget.currentTime);
+                  }}
+                  onPlay={() => setIsPlaying(true)}
+                  onPause={() => setIsPlaying(false)}
+                  onEnded={() => setIsPlaying(false)}
+                  onError={() => {
+                    setIsPlaying(false);
+                    if (resolvedMediaSrc && !preferDevAudioFallback && devAudioSrc) {
+                      setPreferDevAudioFallback(true);
+                      setPlaybackError("Mapped media failed to load. Switched to dev-tone preview audio.");
+                      return;
+                    }
+                    setPlaybackError("Preview audio failed to load.");
                   }}
                 />
+              </>
+            ) : null}
+
+            {playbackError ? (
+              <div className="hammer-preview-feedback hammer-copy-sm hammer-copy-error">{playbackError}</div>
+            ) : null}
+
+            <div className="hammer-preview-transport">
+              <div className="hammer-preview-transport__head">
+                <div className="hammer-stack-4">
+                  <strong className="hammer-copy-strong">Transport</strong>
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    Playback, seek, and preview-mode controls stay with the monitor instead of the transcript pane.
+                  </div>
+                </div>
+                <div className="hammer-meta-strip">
+                  <span className={cx("hammer-pill", isPlaying && "hammer-pill--playing")}>
+                    {isPlaying ? "playing" : "paused"}
+                  </span>
+                  <span className="hammer-pill">{sessionState.previewMode}</span>
+                </div>
               </div>
-              <input
-                type="range"
-                min={0}
-                max={effectiveDurationSec}
-                step={0.1}
-                value={currentTimeSec}
-                onChange={(event) => seekTo(Number(event.target.value))}
-                aria-label="Playback playhead"
-                disabled={!canControlAudio}
-              />
+
+              <div className="hammer-action-row">
+                <button
+                  type="button"
+                  onClick={() => seekToResolvedTarget(previousPlayableTarget)}
+                  disabled={previousPlayableTarget.timeSec == null}
+                  className="hammer-button-xs"
+                >
+                  Prev playable
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void onTogglePlayback();
+                  }}
+                  disabled={!canControlAudio}
+                  className="hammer-button-xs"
+                >
+                  {isPlaying ? "Pause" : "Play"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => seekToResolvedTarget(nextPlayableTarget)}
+                  disabled={nextPlayableTarget.timeSec == null}
+                  className="hammer-button-xs"
+                >
+                  Next playable
+                </button>
+                <button
+                  type="button"
+                  onClick={() => seekToResolvedTarget(jumpToActiveTarget)}
+                  disabled={jumpToActiveTarget.timeSec == null}
+                  className="hammer-button-xs"
+                >
+                  Jump to active
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewMode((current) => (current === "raw" ? "edit-aware" : "raw"))}
+                  className="hammer-button-xs"
+                >
+                  {sessionState.previewMode === "raw" ? "Edit-aware" : "Raw"}
+                </button>
+                <button
+                  type="button"
+                  onClick={resetPreview}
+                  className="hammer-button-xs"
+                >
+                  Reset
+                </button>
+              </div>
+
+              <div className="hammer-copy-md">
+                Time: {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
+                {" · "}
+                Source: {previewSourceStatusLabel}
+                {" · "}
+                Skip: {lastPreviewSkip?.reason ?? "none"}
+              </div>
+
+              <div className="hammer-stack-6">
+                <div className="hammer-progress-track">
+                  <div
+                    className="hammer-progress-fill"
+                    style={{
+                      width: `${progressPercent}%`,
+                    }}
+                  />
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={effectiveDurationSec}
+                  step={0.1}
+                  value={currentTimeSec}
+                  onChange={(event) => seekTo(Number(event.target.value))}
+                  aria-label="Playback playhead"
+                  disabled={!canControlAudio}
+                />
+              </div>
             </div>
           </div>
         </HammerPaneSection>

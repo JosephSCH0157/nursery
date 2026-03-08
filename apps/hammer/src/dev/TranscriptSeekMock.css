@@ -374,6 +374,8 @@
   overflow: hidden;
   background: rgba(3, 7, 18, 0.92);
   display: grid;
+  width: min(100%, 746px);
+  justify-self: center;
 }
 
 .hammer-monitor__chrome {
@@ -388,10 +390,12 @@
 }
 
 .hammer-monitor__surface {
+  width: 100%;
   aspect-ratio: 16 / 9;
   display: grid;
   place-items: center;
-  padding: 24px;
+  max-height: 420px;
+  padding: clamp(16px, 3vw, 24px);
   background:
     radial-gradient(circle at top, rgba(59, 130, 246, 0.18), transparent 45%),
     linear-gradient(180deg, rgba(15, 23, 42, 0.88), rgba(2, 6, 23, 0.96));
@@ -432,6 +436,8 @@
   padding: 12px;
   display: grid;
   gap: 10px;
+  width: min(100%, 746px);
+  justify-self: center;
 }
 
 .hammer-preview-transport__head {
@@ -448,6 +454,29 @@
 
 .hammer-audio-hidden {
   display: none;
+}
+
+.hammer-preview-panel {
+  align-self: start;
+  overflow: hidden;
+}
+
+.hammer-preview-panel__body {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  overflow: auto;
+}
+
+.hammer-preview-stage {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  justify-items: center;
+}
+
+.hammer-preview-feedback {
+  width: min(100%, 746px);
 }
 
 .hammer-preview-card {
