@@ -1,0 +1,131 @@
+.hammer-project-library {
+  display: grid;
+  gap: 18px;
+  color: #dbe8ff;
+}
+
+.hammer-project-library__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.92), rgba(2, 6, 23, 0.94));
+}
+
+.hammer-project-library__intro {
+  display: grid;
+  gap: 6px;
+  max-width: 720px;
+}
+
+.hammer-project-library__eyebrow {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.64;
+}
+
+.hammer-project-library__title {
+  margin: 0;
+  font-size: 30px;
+}
+
+.hammer-project-library__summary {
+  font-size: 14px;
+  line-height: 1.5;
+  opacity: 0.78;
+}
+
+.hammer-project-library__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.hammer-project-library__button {
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-weight: 600;
+  cursor: pointer;
+  color: #dbe8ff;
+}
+
+.hammer-project-library__button:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+
+.hammer-project-library__button--primary {
+  border: 1px solid rgba(96, 165, 250, 0.62);
+  background: rgba(59, 130, 246, 0.18);
+}
+
+.hammer-project-library__button--secondary {
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.hammer-project-library__section {
+  display: grid;
+  gap: 12px;
+}
+
+.hammer-project-library__section-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.hammer-project-library__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.hammer-project-library__card {
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.76);
+  overflow: hidden;
+  display: grid;
+  gap: 0;
+  cursor: pointer;
+  text-align: left;
+  color: #dbe8ff;
+  box-shadow: none;
+}
+
+.hammer-project-library__card.is-selected {
+  border-color: rgba(96, 165, 250, 0.72);
+  box-shadow: 0 16px 32px rgba(37, 99, 235, 0.14);
+}
+
+.hammer-project-library__poster {
+  min-height: 148px;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.hammer-project-library__card-body {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+}
+
+.hammer-project-library__card-title {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.hammer-project-library__card-summary {
+  font-size: 12px;
+  opacity: 0.72;
+}
