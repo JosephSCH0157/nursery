@@ -886,6 +886,7 @@ export default function TranscriptSeekMock(
   const [selectedDevRecordingId, setSelectedDevRecordingId] = useState<string | null>(null);
   const [currentTimeSec, setCurrentTimeSec] = useState(0);
   const [durationSec, setDurationSec] = useState(FALLBACK_DURATION_SEC);
+  const [previewVideoAspectRatio, setPreviewVideoAspectRatio] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [activeOverlayRowId, setActiveOverlayRowId] = useState<string | null>(null);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(
@@ -1234,6 +1235,9 @@ export default function TranscriptSeekMock(
   );
   const showPreviewVideo = previewUsesResolvedMedia && isVideoMediaKind(activeMediaKind);
   const showPreviewAudioPlayer = previewUsesResolvedMedia && isAudioMediaKind(activeMediaKind);
+  const previewMonitorAspectRatio = showPreviewVideo && previewVideoAspectRatio && previewVideoAspectRatio > 0
+    ? `${previewVideoAspectRatio}`
+    : "16 / 9";
 
   useEffect(() => {
     const blob = createDevAudioWavBlob(transcriptDurationSec);
@@ -1250,6 +1254,7 @@ export default function TranscriptSeekMock(
     setSelectedSegmentId(firstSegment?.segment_id ?? null);
     setSelectedOverlayRowId(null);
     setDurationSec(FALLBACK_DURATION_SEC);
+    setPreviewVideoAspectRatio(null);
     setIsPlaying(false);
     setPlaybackError(null);
     setLastPreviewSkip(null);
@@ -1817,6 +1822,15 @@ export default function TranscriptSeekMock(
     if (Number.isFinite(duration) && duration > 0) {
       setDurationSec(duration);
     }
+  }
+
+  function handleVideoLoadedMetadata(video: HTMLVideoElement) {
+    handlePlaybackLoadedMetadata(video.duration);
+    if (video.videoWidth > 0 && video.videoHeight > 0) {
+      setPreviewVideoAspectRatio(video.videoWidth / video.videoHeight);
+      return;
+    }
+    setPreviewVideoAspectRatio(null);
   }
 
   function handlePlaybackTimeUpdate(currentTime: number) {
@@ -3736,7 +3750,10 @@ export default function TranscriptSeekMock(
                 </div>
               </div>
 
-              <div className={cx("hammer-monitor__surface", (showPreviewVideo || showPreviewAudioPlayer) && "has-media")}>
+              <div
+                className={cx("hammer-monitor__surface", (showPreviewVideo || showPreviewAudioPlayer) && "has-media")}
+                style={{ aspectRatio: previewMonitorAspectRatio }}
+              >
                 {showPreviewVideo ? (
                   <video
                     ref={(node) => {
@@ -3747,7 +3764,7 @@ export default function TranscriptSeekMock(
                     preload="metadata"
                     className="hammer-monitor__media"
                     data-testid="hammer-video-player"
-                    onLoadedMetadata={(event) => handlePlaybackLoadedMetadata(event.currentTarget.duration)}
+                    onLoadedMetadata={(event) => handleVideoLoadedMetadata(event.currentTarget)}
                     onTimeUpdate={(event) => handlePlaybackTimeUpdate(event.currentTarget.currentTime)}
                     onPlay={() => setIsPlaying(true)}
                     onPause={() => setIsPlaying(false)}
