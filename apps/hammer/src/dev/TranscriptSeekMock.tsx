@@ -144,6 +144,11 @@ type WorkPanelView = "script" | "assets";
 type AssetPanelView = "video" | "images" | "music";
 type HammerToolId = "polish" | "audio" | "video" | "captions" | "details" | "export";
 type TimelineToolId = "select" | "hand" | "cut" | "marker" | "comment" | "text";
+type StagedEditGroup = {
+  type: HammerEditInstruction["type"];
+  title: string;
+  instructions: HammerEditInstruction[];
+};
 
 const LEFT_PANEL_MIN_PX = 320;
 const LEFT_PANEL_MAX_PX = 540;
@@ -187,6 +192,14 @@ const TIMELINE_TOOL_ORDER: Array<{ id: TimelineToolId; label: string }> = [
   { id: "marker", label: "Marker" },
   { id: "comment", label: "Comment" },
   { id: "text", label: "Text" },
+];
+
+const STAGED_EDIT_GROUP_ORDER: HammerEditInstruction["type"][] = [
+  "delete",
+  "mute",
+  "trim",
+  "split",
+  "merge",
 ];
 
 const FILLER_PATTERN = /\b(um|uh|you know|like|sort of|kind of|i mean)\b/i;
@@ -519,27 +532,69 @@ function writeSessionPaneLayout(
   }
 }
 
-function formatInstructionDetail(instruction: HammerEditInstruction): string | null {
-  if (instruction.type === "split") {
-    return `@ ${instruction.split_at_sec.toFixed(2)}s`;
-  }
-  if (instruction.type === "trim") {
-    const trimStart = instruction.trim_start_sec != null
-      ? instruction.trim_start_sec.toFixed(2)
-      : "--";
-    const trimEnd = instruction.trim_end_sec != null
-      ? instruction.trim_end_sec.toFixed(2)
-      : "--";
-    return `@ ${trimStart}s-${trimEnd}s`;
-  }
-  return null;
+function formatStagedEditCountLabel(count: number): string {
+  return `${count} staged`;
 }
 
-function formatInstructionTarget(instruction: HammerEditInstruction): string {
-  if (instruction.type === "merge") {
-    return `${instruction.segment_id} + ${instruction.merge_with_segment_id}`;
+function formatSegmentLabel(segmentId: string, segmentIndexById: Map<string, number>): string {
+  const index = segmentIndexById.get(segmentId);
+  if (index != null) {
+    return `Segment ${index + 1}`;
   }
-  return instruction.segment_id;
+
+  const trailingDigits = segmentId.match(/(\d+)$/);
+  if (trailingDigits) {
+    return `Segment ${Number.parseInt(trailingDigits[1], 10)}`;
+  }
+
+  return `Segment ${segmentId}`;
+}
+
+function formatStagedEditGroupTitle(type: HammerEditInstruction["type"]): string {
+  switch (type) {
+    case "delete":
+      return "Remove segments";
+    case "mute":
+      return "Mute";
+    case "trim":
+      return "Trim segments";
+    case "split":
+      return "Split segments";
+    case "merge":
+      return "Merge segments";
+    default:
+      return type;
+  }
+}
+
+function formatStagedEditInstructionLabel(
+  instruction: HammerEditInstruction,
+  segmentIndexById: Map<string, number>,
+): string {
+  const segmentLabel = formatSegmentLabel(instruction.segment_id, segmentIndexById);
+  if (instruction.type === "merge") {
+    return `${segmentLabel} + ${formatSegmentLabel(instruction.merge_with_segment_id, segmentIndexById)}`;
+  }
+  return segmentLabel;
+}
+
+function formatInstructionDetail(instruction: HammerEditInstruction): string | null {
+  if (instruction.type === "split") {
+    return `Split at ${instruction.split_at_sec.toFixed(2)}s`;
+  }
+  if (instruction.type === "trim") {
+    if (instruction.trim_start_sec != null && instruction.trim_end_sec != null) {
+      return `Keep ${instruction.trim_start_sec.toFixed(2)}s-${instruction.trim_end_sec.toFixed(2)}s`;
+    }
+    if (instruction.trim_start_sec != null) {
+      return `Trim start to ${instruction.trim_start_sec.toFixed(2)}s`;
+    }
+    if (instruction.trim_end_sec != null) {
+      return `Trim end to ${instruction.trim_end_sec.toFixed(2)}s`;
+    }
+    return "Trim timing staged";
+  }
+  return null;
 }
 
 function formatOverlayRowLabel(row: TranscriptOverlayRow | null): string {
@@ -1298,7 +1353,37 @@ export default function TranscriptSeekMock(
   const trimInstructionCount = instructionIndex.trimBySegmentId.size;
   const mergeInstructionCount = instructionIndex.mergeBySegmentId.size;
   const muteInstructionCount = instructionIndex.muteBySegmentId.size;
+  const stagedInstructionCount = editInstructions.length;
   const blurBackgroundBlocked = resolvedLaunch.launch_context.media.kind === "dev-tone";
+  const stagedEditGroups = useMemo<StagedEditGroup[]>(
+    () => {
+      const instructionsByType = new Map<HammerEditInstruction["type"], HammerEditInstruction[]>();
+
+      for (const instruction of editInstructions) {
+        const existing = instructionsByType.get(instruction.type);
+        if (existing) {
+          existing.push(instruction);
+          continue;
+        }
+        instructionsByType.set(instruction.type, [instruction]);
+      }
+
+      return STAGED_EDIT_GROUP_ORDER.reduce<StagedEditGroup[]>((groups, type) => {
+        const instructions = instructionsByType.get(type);
+        if (!instructions || instructions.length === 0) {
+          return groups;
+        }
+
+        groups.push({
+          type,
+          title: formatStagedEditGroupTitle(type),
+          instructions,
+        });
+        return groups;
+      }, []);
+    },
+    [editInstructions],
+  );
   const mutedDialogueDurationSec = useMemo(
     () => transcriptSegments.reduce((sum, segment) => (
       instructionIndex.muteBySegmentId.has(segment.segment_id)
@@ -3344,13 +3429,6 @@ export default function TranscriptSeekMock(
           <div className="hammer-action-row">
             <button
               type="button"
-              disabled={editInstructions.length === 0}
-              onClick={() => clearEdits()}
-            >
-              Clear edits
-            </button>
-            <button
-              type="button"
               data-testid="edit-plan-export"
               onClick={() => exportEditPlan()}
             >
@@ -3381,44 +3459,61 @@ export default function TranscriptSeekMock(
             </div>
           ) : null}
 
-          <div style={{ display: "grid", gap: 6 }}>
-            <strong style={{ color: "#dbe8ff" }}>Instruction Stack</strong>
-            {editInstructions.length === 0 ? (
-              <div style={{ fontSize: 12, opacity: 0.78 }}>No edits yet.</div>
+          <div className="hammer-staged-edits">
+            <div className="hammer-staged-edits__header">
+              <strong className="hammer-staged-edits__title">Staged Edits</strong>
+              <span className="hammer-pill">{formatStagedEditCountLabel(stagedInstructionCount)}</span>
+            </div>
+            {stagedInstructionCount === 0 ? (
+              <div className="hammer-staged-edits__empty">
+                <div className="hammer-copy-strong">No staged edits yet.</div>
+                <div className="hammer-copy-sm hammer-copy-muted">
+                  Select a segment and use the tool panel to stage changes.
+                </div>
+              </div>
             ) : (
-              editInstructions.map((instruction) => {
-                const detail = formatInstructionDetail(instruction);
-                return (
-                  <div
-                    key={instruction.instruction_id}
-                    style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}
+              <>
+                <div className="hammer-staged-edits__groups">
+                  {stagedEditGroups.map((group) => (
+                    <section key={group.type} className="hammer-staged-edits__group">
+                      <div className="hammer-staged-edits__group-title">{group.title}</div>
+                      <div className="hammer-staged-edits__items">
+                        {group.instructions.map((instruction) => {
+                          const detail = formatInstructionDetail(instruction);
+                          return (
+                            <div key={instruction.instruction_id} className="hammer-staged-edits__item">
+                              <div className="hammer-staged-edits__item-main">
+                                <div className="hammer-staged-edits__item-label">
+                                  {formatStagedEditInstructionLabel(instruction, segmentIndexById)}
+                                </div>
+                                {detail ? (
+                                  <div className="hammer-staged-edits__item-detail">{detail}</div>
+                                ) : null}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => removeInstruction(instruction.instruction_id)}
+                                className="hammer-button-xs"
+                              >
+                                Undo
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+                <div className="hammer-staged-edits__footer">
+                  <button
+                    type="button"
+                    onClick={() => clearEdits()}
+                    className="hammer-button-xs"
                   >
-                    <span
-                      style={{
-                        minWidth: 60,
-                        color: "#dbe8ff",
-                      }}
-                      className="hammer-mono"
-                    >
-                      {instruction.type.toUpperCase()}
-                    </span>
-                    <span className="hammer-mono">
-                      {formatInstructionTarget(instruction)}
-                    </span>
-                    {detail ? (
-                      <span style={{ opacity: 0.68 }}>{detail}</span>
-                    ) : null}
-                    <span style={{ opacity: 0.56 }}>{instruction.instruction_id}</span>
-                    <button
-                      type="button"
-                      onClick={() => removeInstruction(instruction.instruction_id)}
-                      style={{ padding: "2px 8px", fontSize: 11 }}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                );
-              })
+                    Clear All
+                  </button>
+                </div>
+              </>
             )}
           </div>
 
