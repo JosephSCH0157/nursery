@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, JSX, ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import type {
+  MediaKind,
   ResolveMediaResult,
 } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import type {
@@ -91,6 +92,18 @@ type TimelineTrack = {
   id: string;
   label: string;
   clips: TimelineClip[];
+};
+
+type HammerProjectAsset = {
+  id: string;
+  title: string;
+  kindLabel: string;
+  sourceLabel: string;
+  detail: string;
+  status: string;
+  usageHint: string;
+  workpieceId: string;
+  durationLabel: string | null;
 };
 
 type HammerPaneLayout = {
@@ -241,6 +254,11 @@ function formatClock(totalSec: number): string {
   return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 }
 
+function formatDurationMs(totalMs: number | null | undefined): string | null {
+  if (totalMs == null || !Number.isFinite(totalMs) || totalMs <= 0) return null;
+  return formatClock(totalMs / 1000);
+}
+
 function formatTimeDetail(totalSec: number | null): string {
   if (totalSec == null || !Number.isFinite(totalSec)) return "none";
   return `${formatClock(totalSec)} (${totalSec.toFixed(2)}s)`;
@@ -319,6 +337,40 @@ function getWorkflowStatusClassName(tone: HammerWorkflowTone): string {
     tone === "blocked" && "is-blocked",
     tone === "future" && "is-future",
   );
+}
+
+function formatMediaKindLabel(kind: MediaKind | null | undefined): string {
+  switch (kind) {
+    case "recording_video":
+      return "Recording Video";
+    case "recording_audio":
+      return "Recording Audio";
+    case "export_video":
+      return "Export Video";
+    case "export_audio":
+      return "Export Audio";
+    case "asset_image":
+      return "Image Asset";
+    case "asset_broll":
+      return "B-Roll Asset";
+    case "asset_audio":
+      return "Audio Asset";
+    default:
+      return "Linked Asset";
+  }
+}
+
+function formatSourceModeLabel(mode: HammerLaunchSourceMode): string {
+  switch (mode) {
+    case "dev":
+      return "Dev launch";
+    case "mapped":
+      return "Mapped media";
+    case "tongs":
+      return "Tongs-linked";
+    default:
+      return mode;
+  }
 }
 
 function clampPaneLayout(layout: HammerPaneLayout): HammerPaneLayout {
@@ -1456,26 +1508,77 @@ export default function TranscriptSeekMock(
     `playable ${formatPlaybackRangeLabel(activePlayableRange)}`,
     `skip ${lastPreviewSkip?.reason ?? "none"}`,
   ].join(" · ");
+  const sourceModeLabel = formatSourceModeLabel(resolvedLaunch.launch_context.source_mode);
+  const resolvedDurationMs = resolveResult?.status === "ok" ? resolveResult.duration_ms ?? null : null;
+  const primaryAssetDurationLabel = formatDurationMs(mediaRef?.duration_ms ?? resolvedDurationMs)
+    ?? formatClock(transcriptDurationSec);
 
   const projectAssets = useMemo(
-    () => ({
-      video: [
-        {
-          id: mediaRef?.media_id ?? "dev-tone-preview",
-          title: mediaRef?.media_id ? "Primary recording" : "Generated preview tone",
-          detail: mediaRef?.local_relpath ?? resolvedLaunch.media.source_label,
-          status: resolvedLaunch.media.kind === "dev-tone"
-            ? "linked preview proxy"
-            : resolveResult?.status ?? "launch-linked",
-        },
-      ],
-      images: [] as Array<{ id: string; title: string; detail: string; status: string }>,
-      music: [] as Array<{ id: string; title: string; detail: string; status: string }>,
-    }),
-    [mediaRef?.local_relpath, mediaRef?.media_id, resolvedLaunch.media.kind, resolvedLaunch.media.source_label, resolveResult?.status],
+    () => {
+      const assets: Record<AssetPanelView, HammerProjectAsset[]> = {
+        video: [],
+        images: [],
+        music: [],
+      };
+
+      const primaryAsset: HammerProjectAsset = {
+        id: mediaRef?.media_id ?? "media_dev_tone_preview",
+        title: mediaRef?.media_id ? "Primary Source Media" : "Generated Preview Proxy",
+        kindLabel: mediaRef ? formatMediaKindLabel(mediaRef.kind) : "Preview Proxy",
+        sourceLabel: sourceModeLabel,
+        detail: mediaRef?.local_relpath ?? resolvedLaunch.media.source_label,
+        status: resolvedLaunch.media.kind === "dev-tone"
+          ? "preview proxy"
+          : resolveResult?.status === "ok"
+          ? "linked"
+          : resolveResult?.status === "unresolved"
+          ? "needs relink"
+          : "launch-linked",
+        usageHint: resolvedLaunch.media.kind === "dev-tone"
+          ? "This proxy keeps Hammer previewable in dev mode until a real workpiece media source is attached."
+          : "This is the launch-linked source media backing the current edit and preview path.",
+        workpieceId: resolvedLaunch.launch_context.workpiece_id,
+        durationLabel: primaryAssetDurationLabel,
+      };
+
+      if (!mediaRef || mediaRef.kind === "recording_video" || mediaRef.kind === "export_video" || mediaRef.kind === "recording_audio" || mediaRef.kind === "export_audio" || resolvedLaunch.media.kind === "dev-tone") {
+        assets.video.push(primaryAsset);
+      } else if (mediaRef.kind === "asset_image" || mediaRef.kind === "asset_broll") {
+        assets.images.push(primaryAsset);
+      } else if (mediaRef.kind === "asset_audio") {
+        assets.music.push(primaryAsset);
+      } else {
+        assets.video.push(primaryAsset);
+      }
+
+      return assets;
+    },
+    [
+      mediaRef,
+      primaryAssetDurationLabel,
+      resolveResult?.status,
+      resolvedLaunch.launch_context.workpiece_id,
+      resolvedLaunch.media.kind,
+      resolvedLaunch.media.source_label,
+      sourceModeLabel,
+    ],
   );
 
   const activeAssetItems = projectAssets[activeAssetPanel];
+  const activeAssetViewDefinition = ASSET_PANEL_VIEWS.find((panel) => panel.id === activeAssetPanel) ?? ASSET_PANEL_VIEWS[0];
+  const linkedAssetCount = projectAssets.video.length + projectAssets.images.length + projectAssets.music.length;
+  const activeAssetEmptyMessage = useMemo(() => {
+    switch (activeAssetPanel) {
+      case "video":
+        return "No video media is linked to this workpiece yet.";
+      case "images":
+        return "No images are linked to this workpiece yet.";
+      case "music":
+        return "No music assets are available for this edit yet.";
+      default:
+        return "No assets are linked to this workpiece yet.";
+    }
+  }, [activeAssetPanel]);
   const previewSourceStatusLabel = useMemo(() => {
     if (!playbackSrc) return "Preview source unavailable";
     if (!resolvedLaunch.media.requires_resolution) return "Generated preview tone ready";
@@ -2239,21 +2342,71 @@ export default function TranscriptSeekMock(
               <span className="hammer-pill">{projectAssets.video.length} video</span>
               <span className="hammer-pill">{projectAssets.images.length} images</span>
               <span className="hammer-pill">{projectAssets.music.length} music</span>
+              <span className="hammer-pill">{linkedAssetCount} linked</span>
+            </div>
+            <div className="hammer-assets-context">
+              <div className="hammer-assets-context__head">
+                <strong className="hammer-copy-strong">{activeAssetViewDefinition.label} Collection</strong>
+                <span className="hammer-pill">{sourceModeLabel}</span>
+              </div>
+              <div className="hammer-inspector-grid">
+                <div>
+                  <div className="hammer-label">workpiece</div>
+                  <div className="hammer-mono">{resolvedLaunch.launch_context.workpiece_id}</div>
+                </div>
+                <div>
+                  <div className="hammer-label">source mode</div>
+                  <div>{sourceModeLabel}</div>
+                </div>
+                <div>
+                  <div className="hammer-label">media source</div>
+                  <div>{resolvedLaunch.media.source_label}</div>
+                </div>
+                <div>
+                  <div className="hammer-label">collection</div>
+                  <div>{activeAssetViewDefinition.label}</div>
+                </div>
+              </div>
             </div>
             {activeAssetItems.length > 0 ? (
               activeAssetItems.map((asset) => (
                 <div key={asset.id} className="hammer-asset-card">
                   <div className="hammer-asset-card__header">
-                    <strong className="hammer-copy-strong">{asset.title}</strong>
-                    <span className="hammer-pill">{asset.status}</span>
+                    <div className="hammer-stack-4">
+                      <strong className="hammer-copy-strong">{asset.title}</strong>
+                      <div className="hammer-copy-sm hammer-copy-muted">{asset.usageHint}</div>
+                    </div>
+                    <div className="hammer-inline-list">
+                      <span className="hammer-pill">{asset.kindLabel}</span>
+                      <span className="hammer-pill">{asset.status}</span>
+                    </div>
+                  </div>
+                  <div className="hammer-asset-card__meta-grid">
+                    <div>
+                      <div className="hammer-label">source</div>
+                      <div>{asset.sourceLabel}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">duration</div>
+                      <div>{asset.durationLabel ?? "n/a"}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">workpiece</div>
+                      <div className="hammer-mono">{asset.workpieceId}</div>
+                    </div>
                   </div>
                   <div className="hammer-copy-sm hammer-copy-muted hammer-mono">{asset.id}</div>
                   <div className="hammer-copy-sm">{asset.detail}</div>
                 </div>
               ))
             ) : (
-              <div className="hammer-copy-md hammer-copy-dim">
-                No {activeAssetPanel} assets are linked to this workpiece yet.
+              <div className="hammer-assets-empty-state">
+                <div className="hammer-copy-md hammer-copy-dim">
+                  {activeAssetEmptyMessage}
+                </div>
+                <div className="hammer-copy-sm hammer-copy-muted">
+                  When this workpiece gains {activeAssetPanel} assets through its launch context or Tongs-linked media, they will appear here.
+                </div>
               </div>
             )}
           </HammerPaneSection>
