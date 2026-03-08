@@ -398,6 +398,28 @@
   flex-wrap: wrap;
 }
 
+.hammer-staged-edits__item-button {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.hammer-staged-edits__item-button:hover .hammer-staged-edits__item-label,
+.hammer-staged-edits__item-button:focus-visible .hammer-staged-edits__item-label {
+  color: #f8fbff;
+}
+
+.hammer-staged-edits__item-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.28);
+  border-radius: 8px;
+}
+
 .hammer-staged-edits__item-main {
   display: grid;
   gap: 4px;
@@ -408,6 +430,7 @@
   font-size: 13px;
 }
 
+.hammer-staged-edits__item-context,
 .hammer-staged-edits__item-detail {
   color: #c8d6ea;
   font-size: 12px;
@@ -613,6 +636,14 @@
   flex-wrap: wrap;
 }
 
+.hammer-script-row {
+  position: relative;
+}
+
+.hammer-script-row.is-revealed {
+  animation: hammer-script-row-reveal 900ms ease;
+}
+
 .hammer-script-row__status-list {
   display: flex;
   align-items: center;
@@ -674,6 +705,23 @@
   background: rgba(2, 6, 23, 0.32);
   display: grid;
   gap: 3px;
+}
+
+@keyframes hammer-script-row-reveal {
+  0% {
+    outline: 0 solid rgba(96, 165, 250, 0);
+    outline-offset: 0;
+  }
+
+  30% {
+    outline: 2px solid rgba(96, 165, 250, 0.7);
+    outline-offset: 0;
+  }
+
+  100% {
+    outline: 2px solid rgba(96, 165, 250, 0);
+    outline-offset: 6px;
+  }
 }
 
 .hammer-monitor {

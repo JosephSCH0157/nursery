@@ -595,6 +595,20 @@ function formatStagedEditInstructionLabel(
   return segmentLabel;
 }
 
+function formatStagedEditInstructionContext(
+  instruction: HammerEditInstruction,
+  segmentById: Map<string, HammerTranscriptSegment>,
+): string | null {
+  const segment = segmentById.get(instruction.segment_id) ?? null;
+  if (!segment) return null;
+
+  const compactText = segment.text.length > 88
+    ? `${segment.text.slice(0, 85).trimEnd()}...`
+    : segment.text;
+
+  return `${segment.speaker} · ${compactText}`;
+}
+
 function formatInstructionDetail(instruction: HammerEditInstruction): string | null {
   if (instruction.type === "split") {
     return `Split at ${instruction.split_at_sec.toFixed(2)}s`;
@@ -818,7 +832,9 @@ export default function TranscriptSeekMock(
   const location = useLocation();
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const transcriptScrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const transcriptRowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const activeRowRef = useRef<HTMLDivElement | null>(null);
+  const transcriptRevealTimeoutRef = useRef<number | null>(null);
   const paneResizeStateRef = useRef<HammerPaneResizeState | null>(null);
   const resolver = useMemo(() => new V1HammerMediaResolver(), []);
   const launchContext = useMemo(
@@ -867,6 +883,8 @@ export default function TranscriptSeekMock(
     firstSegment?.segment_id ?? null,
   );
   const [selectedOverlayRowId, setSelectedOverlayRowId] = useState<string | null>(null);
+  const [revealedTranscriptRowId, setRevealedTranscriptRowId] = useState<string | null>(null);
+  const [pendingTranscriptRevealRowId, setPendingTranscriptRevealRowId] = useState<string | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [lastPreviewSkip, setLastPreviewSkip] = useState<PreviewSkipEvent | null>(null);
   const [editInstructions, setEditInstructions] = useState<HammerEditInstruction[]>(
@@ -1116,6 +1134,26 @@ export default function TranscriptSeekMock(
 
   const overlayRowById = useMemo(
     () => new Map(overlayRows.map((row) => [row.row_id, row])),
+    [overlayRows],
+  );
+  const overlayRowBySegmentId = useMemo(
+    () => {
+      const nextMap = new Map<string, TranscriptOverlayRow>();
+
+      for (const row of overlayRows) {
+        if (!nextMap.has(row.anchor_segment_id)) {
+          nextMap.set(row.anchor_segment_id, row);
+        }
+
+        for (const sourceSegmentId of row.source_segment_ids) {
+          if (!nextMap.has(sourceSegmentId)) {
+            nextMap.set(sourceSegmentId, row);
+          }
+        }
+      }
+
+      return nextMap;
+    },
     [overlayRows],
   );
 
@@ -1529,6 +1567,14 @@ export default function TranscriptSeekMock(
     studioSoundPrepared,
   ]);
 
+  useEffect(() => (
+    () => {
+      if (transcriptRevealTimeoutRef.current != null) {
+        window.clearTimeout(transcriptRevealTimeoutRef.current);
+      }
+    }
+  ), []);
+
   useEffect(() => {
     const container = transcriptScrollContainerRef.current;
     const activeRowElement = activeRowRef.current;
@@ -1545,6 +1591,36 @@ export default function TranscriptSeekMock(
       behavior: "smooth",
     });
   }, [activeOverlayRowId]);
+
+  useEffect(() => {
+    if (!pendingTranscriptRevealRowId) return;
+
+    const container = transcriptScrollContainerRef.current;
+    const rowElement = transcriptRowRefs.current.get(pendingTranscriptRevealRowId) ?? null;
+    if (!container || !rowElement) return;
+
+    const centeredTop = rowElement.offsetTop - (container.clientHeight / 2) + (rowElement.clientHeight / 2);
+    const boundedTop = clamp(
+      centeredTop,
+      0,
+      Math.max(container.scrollHeight - container.clientHeight, 0),
+    );
+    container.scrollTo({
+      top: boundedTop,
+      behavior: "smooth",
+    });
+
+    setRevealedTranscriptRowId(pendingTranscriptRevealRowId);
+    if (transcriptRevealTimeoutRef.current != null) {
+      window.clearTimeout(transcriptRevealTimeoutRef.current);
+    }
+    transcriptRevealTimeoutRef.current = window.setTimeout(() => {
+      setRevealedTranscriptRowId((currentRowId) => (
+        currentRowId === pendingTranscriptRevealRowId ? null : currentRowId
+      ));
+    }, 900);
+    setPendingTranscriptRevealRowId(null);
+  }, [overlayRows, pendingTranscriptRevealRowId]);
 
   async function onTogglePlayback() {
     const audio = audioRef.current;
@@ -1604,6 +1680,54 @@ export default function TranscriptSeekMock(
         from_row_id: row.row_id,
         to_row_id: resolvedSeekTarget.row_id,
       });
+    }
+  }
+
+  function revealTranscriptRow(rowId: string): boolean {
+    const container = transcriptScrollContainerRef.current;
+    const rowElement = transcriptRowRefs.current.get(rowId) ?? null;
+    if (!container || !rowElement) {
+      return false;
+    }
+
+    const centeredTop = rowElement.offsetTop - (container.clientHeight / 2) + (rowElement.clientHeight / 2);
+    const boundedTop = clamp(
+      centeredTop,
+      0,
+      Math.max(container.scrollHeight - container.clientHeight, 0),
+    );
+    container.scrollTo({
+      top: boundedTop,
+      behavior: "smooth",
+    });
+
+    setRevealedTranscriptRowId(rowId);
+    if (transcriptRevealTimeoutRef.current != null) {
+      window.clearTimeout(transcriptRevealTimeoutRef.current);
+    }
+    transcriptRevealTimeoutRef.current = window.setTimeout(() => {
+      setRevealedTranscriptRowId((currentRowId) => (currentRowId === rowId ? null : currentRowId));
+    }, 900);
+    return true;
+  }
+
+  function inspectStagedInstruction(instruction: HammerEditInstruction) {
+    const targetRow = overlayRowBySegmentId.get(instruction.segment_id)
+      ?? (instruction.type === "merge"
+        ? overlayRowBySegmentId.get(instruction.merge_with_segment_id) ?? null
+        : null);
+
+    setActiveWorkPanel("script");
+    setSelectedSegmentId(instruction.segment_id);
+    setPendingTranscriptRevealRowId(null);
+
+    if (!targetRow) {
+      return;
+    }
+
+    setSelectedOverlayRowId(targetRow.row_id);
+    if (!revealTranscriptRow(targetRow.row_id)) {
+      setPendingTranscriptRevealRowId(targetRow.row_id);
     }
   }
 
@@ -2862,10 +2986,19 @@ export default function TranscriptSeekMock(
                 <div
                   key={row.row_id}
                   ref={(element) => {
+                    if (element) {
+                      transcriptRowRefs.current.set(row.row_id, element);
+                    } else {
+                      transcriptRowRefs.current.delete(row.row_id);
+                    }
                     if (isActive) {
                       activeRowRef.current = element;
                     }
                   }}
+                  className={cx(
+                    "hammer-script-row",
+                    revealedTranscriptRowId === row.row_id && "is-revealed",
+                  )}
                   data-overlay-row-id={row.row_id}
                   data-active={isActive ? "true" : "false"}
                   data-deleted={row.is_deleted ? "true" : "false"}
@@ -3526,17 +3659,27 @@ export default function TranscriptSeekMock(
                       <div className="hammer-staged-edits__group-title">{group.title}</div>
                       <div className="hammer-staged-edits__items">
                         {group.instructions.map((instruction) => {
+                          const context = formatStagedEditInstructionContext(instruction, segmentById);
                           const detail = formatInstructionDetail(instruction);
                           return (
                             <div key={instruction.instruction_id} className="hammer-staged-edits__item">
-                              <div className="hammer-staged-edits__item-main">
-                                <div className="hammer-staged-edits__item-label">
-                                  {formatStagedEditInstructionLabel(instruction, segmentIndexById)}
+                              <button
+                                type="button"
+                                onClick={() => inspectStagedInstruction(instruction)}
+                                className="hammer-staged-edits__item-button"
+                              >
+                                <div className="hammer-staged-edits__item-main">
+                                  <div className="hammer-staged-edits__item-label">
+                                    {formatStagedEditInstructionLabel(instruction, segmentIndexById)}
+                                  </div>
+                                  {context ? (
+                                    <div className="hammer-staged-edits__item-context">{context}</div>
+                                  ) : null}
+                                  {detail ? (
+                                    <div className="hammer-staged-edits__item-detail">{detail}</div>
+                                  ) : null}
                                 </div>
-                                {detail ? (
-                                  <div className="hammer-staged-edits__item-detail">{detail}</div>
-                                ) : null}
-                              </div>
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => removeInstruction(instruction.instruction_id)}
