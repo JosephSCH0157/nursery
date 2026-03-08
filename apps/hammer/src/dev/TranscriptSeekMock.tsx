@@ -188,6 +188,7 @@ const RIGHT_PANEL_MAX_PX = 520;
 const PANE_DIVIDER_WIDTH_PX = 10;
 const TOOL_STRIP_WIDTH_PX = 72;
 const SESSION_PANE_LAYOUT_VERSION = "v1";
+const TRANSCRIPT_REVEAL_TOP_PADDING_PX = 18;
 const DEFAULT_PANE_LAYOUT: HammerPaneLayout = {
   left_px: 380,
   center_px: 440,
@@ -822,6 +823,18 @@ function buildInitialEditPlanJsonDraft(
   };
 
   return JSON.stringify(initialPlan, null, 2);
+}
+
+function resolveTranscriptRevealScrollTop(
+  container: HTMLDivElement,
+  rowElement: HTMLDivElement,
+): number {
+  const preferredTop = rowElement.offsetTop - TRANSCRIPT_REVEAL_TOP_PADDING_PX;
+  return clamp(
+    preferredTop,
+    0,
+    Math.max(container.scrollHeight - container.clientHeight, 0),
+  );
 }
 
 export default function TranscriptSeekMock(
@@ -1795,12 +1808,7 @@ export default function TranscriptSeekMock(
     const rowElement = transcriptRowRefs.current.get(pendingTranscriptRevealRowId) ?? null;
     if (!container || !rowElement) return;
 
-    const centeredTop = rowElement.offsetTop - (container.clientHeight / 2) + (rowElement.clientHeight / 2);
-    const boundedTop = clamp(
-      centeredTop,
-      0,
-      Math.max(container.scrollHeight - container.clientHeight, 0),
-    );
+    const boundedTop = resolveTranscriptRevealScrollTop(container, rowElement);
     container.scrollTo({
       top: boundedTop,
       behavior: "smooth",
@@ -1959,12 +1967,7 @@ export default function TranscriptSeekMock(
       return false;
     }
 
-    const centeredTop = rowElement.offsetTop - (container.clientHeight / 2) + (rowElement.clientHeight / 2);
-    const boundedTop = clamp(
-      centeredTop,
-      0,
-      Math.max(container.scrollHeight - container.clientHeight, 0),
-    );
+    const boundedTop = resolveTranscriptRevealScrollTop(container, rowElement);
     container.scrollTo({
       top: boundedTop,
       behavior: "smooth",
@@ -2431,9 +2434,6 @@ export default function TranscriptSeekMock(
   ]);
   const selectionSummaryTitle = selectedSegment ? "Primary segment" : "No active selection";
   const selectionSummaryCountLabel = selectedSegment ? "1 segment selected" : "No segment selected";
-  const selectionSummaryDetail = selectedSegment
-    ? "Next tool actions will target the current transcript selection."
-    : "Select a transcript row to tell Hammer what the next tool action should act on.";
   const selectionSummaryScopeLabel = selectedOverlayRow
     ? formatOverlayRowLabel(selectedOverlayRow)
     : selectedSegment
@@ -3079,6 +3079,247 @@ export default function TranscriptSeekMock(
     transcriptSegments.length,
   ]);
 
+  const detailsDebugContent = activeTool === "details" && showDebugPanels ? (
+    <div className="hammer-stack-10">
+      <div className="hammer-workflow-card">
+        <div className="hammer-workflow-card__header">
+          <div className="hammer-stack-4">
+            <strong className="hammer-copy-strong">Launch Context</strong>
+            <div className="hammer-copy-sm hammer-copy-muted">
+              Current startup payload and source resolution context.
+            </div>
+          </div>
+          <span className="hammer-pill">{resolvedLaunch.launch_context.source_mode}</span>
+        </div>
+        <div className="hammer-inspector-grid">
+          <div>
+            <div className="hammer-label">source mode</div>
+            <div>{resolvedLaunch.launch_context.source_mode}</div>
+          </div>
+          <div>
+            <div className="hammer-label">workspace id</div>
+            <div className="hammer-mono">{resolvedLaunch.launch_context.workspace_id}</div>
+          </div>
+          <div>
+            <div className="hammer-label">workpiece id</div>
+            <div className="hammer-mono">{resolvedLaunch.launch_context.workpiece_id}</div>
+          </div>
+          <div>
+            <div className="hammer-label">session id</div>
+            <div className="hammer-mono">{resolvedLaunch.initial_session_id ?? "none"}</div>
+          </div>
+          <div>
+            <div className="hammer-label">transcript source kind</div>
+            <div>{resolvedLaunch.launch_context.transcript.kind}</div>
+          </div>
+          <div>
+            <div className="hammer-label">media source kind</div>
+            <div>{resolvedLaunch.launch_context.media.kind}</div>
+          </div>
+          <div>
+            <div className="hammer-label">edit plan present</div>
+            <div>{resolvedLaunch.initial_edit_plan ? "yes" : "no"}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="hammer-workflow-card">
+        <div className="hammer-workflow-card__header">
+          <div className="hammer-stack-4">
+            <strong className="hammer-copy-strong">Selected Row Inspector</strong>
+            <div className="hammer-copy-sm hammer-copy-muted">
+              Identity, timing, instruction effects, and resolved seek behavior.
+            </div>
+          </div>
+          <span className="hammer-pill">{selectedOverlayRow ? selectedOverlayRow.row_id : "none"}</span>
+        </div>
+        {selectedOverlayRow ? (
+          <div className="hammer-stack-10">
+            <div className="hammer-inspector-grid">
+              <div>
+                <div className="hammer-label">row identity</div>
+                <div className="hammer-mono">{selectedOverlayRow.row_id}</div>
+              </div>
+              <div>
+                <div className="hammer-label">source segment ancestry</div>
+                <div className="hammer-mono">{formatSegmentAncestry(selectedOverlayRow.source_segment_ids)}</div>
+              </div>
+              <div>
+                <div className="hammer-label">raw timing</div>
+                <div>
+                  {formatTimeDetail(selectedOverlayRow.start_sec)}
+                  {" -> "}
+                  {formatTimeDetail(selectedOverlayRow.end_sec)}
+                </div>
+              </div>
+              <div>
+                <div className="hammer-label">playable timing</div>
+                <div>
+                  {formatTimeDetail(selectedOverlayPlaybackRange?.playable_start_sec ?? null)}
+                  {" -> "}
+                  {formatTimeDetail(selectedOverlayPlaybackRange?.playable_end_sec ?? null)}
+                </div>
+              </div>
+              <div>
+                <div className="hammer-label">playable slices</div>
+                <div>{formatPlayableSlices(selectedOverlayPlaybackRange)}</div>
+              </div>
+              <div>
+                <div className="hammer-label">instruction effects</div>
+                <div>{selectedRowEffects}</div>
+              </div>
+              <div>
+                <div className="hammer-label">flags</div>
+                <div>
+                  deleted={formatFlagState(selectedOverlayRow.is_deleted)}
+                  {" · "}
+                  muted={formatFlagState(selectedOverlayRow.is_muted)}
+                  {" · "}
+                  trimmed={formatFlagState(selectedOverlayRow.is_trimmed)}
+                  {" · "}
+                  merged={formatFlagState(selectedOverlayRow.structure === "merge")}
+                  {" · "}
+                  split={formatFlagState(selectedOverlayRow.structure === "split")}
+                </div>
+              </div>
+              <div>
+                <div className="hammer-label">seek target</div>
+                <div>{formatSeekTargetLabel(selectedOverlaySeekTarget)}</div>
+              </div>
+              <div>
+                <div className="hammer-label">preview status</div>
+                <div>{selectedRowPreviewStatus}</div>
+              </div>
+            </div>
+            {selectedSegment ? (
+              <div className="hammer-copy-sm hammer-copy-muted">
+                selected segment: {selectedSegment.segment_id}
+                {" · "}
+                {selectedSegment.speaker}
+                {" · "}
+                {selectedSegment.text}
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div className="hammer-copy-sm hammer-copy-muted">No row selected.</div>
+        )}
+      </div>
+
+      <div className="hammer-workflow-card">
+        <div className="hammer-workflow-card__header">
+          <div className="hammer-stack-4">
+            <strong className="hammer-copy-strong">Edit Plan</strong>
+            <div className="hammer-copy-sm hammer-copy-muted">
+              Round-trip controls, staged edits, and JSON draft state.
+            </div>
+          </div>
+          <span className={getEditPlanStatusBadgeClassName(sessionState.editPlanStatus)}>
+            {currentEditPlan.edit_plan_id} · {sessionState.editPlanStatus}
+          </span>
+        </div>
+
+        <div className="hammer-inspector-grid">
+          <div>
+            <div className="hammer-label">plan id</div>
+            <div className="hammer-mono">{currentEditPlan.edit_plan_id}</div>
+          </div>
+          <div>
+            <div className="hammer-label">preview mode</div>
+            <div>{sessionState.previewMode}</div>
+          </div>
+          <div>
+            <div className="hammer-label">instruction count</div>
+            <div>{editInstructions.length}</div>
+          </div>
+          <div>
+            <div className="hammer-label">status</div>
+            <div>{sessionState.editPlanStatus}</div>
+          </div>
+          <div>
+            <div className="hammer-label">created</div>
+            <div>{currentEditPlan.created_at}</div>
+          </div>
+          <div>
+            <div className="hammer-label">updated</div>
+            <div>{currentEditPlan.updated_at}</div>
+          </div>
+        </div>
+
+        <div className="hammer-action-row">
+          <button
+            type="button"
+            data-testid="edit-plan-export"
+            onClick={() => exportEditPlan()}
+            className="hammer-button-xs"
+          >
+            Export Edit Plan
+          </button>
+          <button
+            type="button"
+            data-testid="edit-plan-load"
+            onClick={() => loadEditPlan()}
+            className="hammer-button-xs"
+          >
+            Load Edit Plan
+          </button>
+        </div>
+        <div className="hammer-copy-sm hammer-copy-muted">
+          Round-trip this JSON to restore overlay rows and preview semantics.
+        </div>
+        {editPlanFeedback ? (
+          <div
+            style={{
+              color: editPlanFeedbackTone === "warning"
+                ? "#fde68a"
+                : editPlanFeedbackTone === "success"
+                ? "#a7f3d0"
+                : "#c8d6ea",
+            }}
+          >
+            {editPlanFeedback}
+          </div>
+        ) : null}
+
+        <StagedEditsPanel
+          instructions={editInstructions}
+          segmentById={segmentById}
+          segmentIndexById={segmentIndexById}
+          onUndoInstruction={removeInstruction}
+          onClearAll={clearEdits}
+          onNavigateToInstruction={inspectStagedInstruction}
+        />
+
+        <div style={{ display: "grid", gap: 8 }}>
+          <strong style={{ color: "#dbe8ff" }}>Edit Plan JSON</strong>
+          <textarea
+            data-testid="edit-plan-json"
+            value={editPlanJsonDraft}
+            onChange={(event) => {
+              setEditPlanJsonDraft(event.target.value);
+              setEditPlanFeedback(null);
+              setEditPlanFeedbackTone("neutral");
+            }}
+            spellCheck={false}
+            placeholder="Export the current edit plan, clear edits, then paste or reload the JSON here."
+            style={{
+              width: "100%",
+              minHeight: 180,
+              resize: "vertical",
+              borderRadius: 10,
+              border: "1px solid rgba(148, 163, 184, 0.26)",
+              background: "rgba(2, 6, 23, 0.65)",
+              color: "#dbe8ff",
+              padding: 10,
+              fontSize: 12,
+            }}
+            className="hammer-mono"
+          />
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   const timelineTracks = useMemo<TimelineTrack[]>(
     () => {
       const primaryClips = overlayRows.map((row) => ({
@@ -3310,8 +3551,8 @@ export default function TranscriptSeekMock(
               at playhead {playheadOverlayRow ? formatOverlayRowLabel(playheadOverlayRow) : "none"}
             </span>
           )}
-          sectionStyle={{ minHeight: 0, overflow: "hidden" }}
-          bodyStyle={{ minHeight: 0, overflow: "hidden" }}
+          sectionStyle={{ minHeight: 0, overflow: "hidden", gridTemplateRows: "auto minmax(0, 1fr)" }}
+          bodyStyle={{ minHeight: 0, overflow: "hidden", gridTemplateRows: "minmax(0, 1fr)" }}
         >
           <div
             ref={transcriptScrollContainerRef}
@@ -3993,286 +4234,41 @@ export default function TranscriptSeekMock(
         className={getPaneDividerClassName(activeResizeHandle === "center-right")}
       />
 
-      <div className="hammer-pane hammer-pane--right">
-        <div className="hammer-selection-summary">
-          <div className="hammer-selection-summary__head">
-            <div className="hammer-stack-4">
-              <span className="hammer-selection-summary__eyebrow">Selection</span>
-              <strong className="hammer-selection-summary__title">{selectionSummaryTitle}</strong>
-            </div>
-            <span className="hammer-pill">{selectionSummaryCountLabel}</span>
-          </div>
-          <div className="hammer-copy-sm hammer-copy-muted">{selectionSummaryDetail}</div>
-          {selectedSegment ? (
-            <div className="hammer-meta-strip">
-              <span className="hammer-pill">scope {selectionSummaryScopeLabel}</span>
-              <span className="hammer-pill">{selectedSegment.segment_id}</span>
-              <span className="hammer-pill">{selectedSegment.speaker}</span>
-            </div>
-          ) : null}
-        </div>
-
+      <div
+        className="hammer-pane hammer-pane--right"
+        style={{ gridTemplateRows: "minmax(0, 1fr)", overflow: "hidden" }}
+      >
         <HammerPaneSection
           title={activeToolDefinition.label}
           subtitle={activeToolHint}
           action={(
             <div className="hammer-action-row">
-              <span className="hammer-pill">{activeToolDefinition.label}</span>
+              <span className="hammer-pill">{selectionSummaryCountLabel}</span>
+              <span className="hammer-pill">{selectionSummaryTitle}</span>
+              {selectedSegment ? (
+                <span className="hammer-pill">scope {selectionSummaryScopeLabel}</span>
+              ) : null}
               <span className={getEditPlanStatusBadgeClassName(sessionState.editPlanStatus)}>
                 {sessionState.editPlanStatus}
               </span>
-              <button
-                type="button"
-                onClick={() => setShowDebugPanels((current) => !current)}
-                className={getToggleButtonClassName(showDebugPanels)}
-                aria-pressed={showDebugPanels}
-              >
-                {showDebugPanels ? "Hide Debug" : "Show Debug"}
-              </button>
+              {activeTool === "details" ? (
+                <button
+                  type="button"
+                  onClick={() => setShowDebugPanels((current) => !current)}
+                  className={getToggleButtonClassName(showDebugPanels)}
+                  aria-pressed={showDebugPanels}
+                >
+                  {showDebugPanels ? "Hide Debug" : "Show Debug"}
+                </button>
+              ) : null}
             </div>
           )}
+          sectionStyle={{ minHeight: 0, overflow: "hidden", gridTemplateRows: "auto minmax(0, 1fr)" }}
+          bodyStyle={{ minHeight: 0, overflow: "auto" }}
         >
           {toolPanelContent}
+          {detailsDebugContent}
         </HammerPaneSection>
-
-        {showDebugPanels ? (
-          <>
-        <HammerPaneSection
-          title="Launch Context"
-          subtitle="This shows the single launch object currently driving Hammer startup and source resolution."
-          action={<span className="hammer-pill">{resolvedLaunch.launch_context.source_mode}</span>}
-        >
-          <div className="hammer-inspector-grid">
-            <div>
-              <div style={{ fontSize: 11, opacity: 0.62 }}>source mode</div>
-              <div>{resolvedLaunch.launch_context.source_mode}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 11, opacity: 0.62 }}>workspace id</div>
-              <div className="hammer-mono">{resolvedLaunch.launch_context.workspace_id}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 11, opacity: 0.62 }}>workpiece id</div>
-              <div className="hammer-mono">{resolvedLaunch.launch_context.workpiece_id}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 11, opacity: 0.62 }}>session id</div>
-              <div className="hammer-mono">{resolvedLaunch.initial_session_id ?? "none"}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 11, opacity: 0.62 }}>transcript source kind</div>
-              <div>{resolvedLaunch.launch_context.transcript.kind}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 11, opacity: 0.62 }}>media source kind</div>
-              <div>{resolvedLaunch.launch_context.media.kind}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 11, opacity: 0.62 }}>edit plan present</div>
-              <div>{resolvedLaunch.initial_edit_plan ? "yes" : "no"}</div>
-            </div>
-          </div>
-        </HammerPaneSection>
-
-        <HammerPaneSection
-          title="Selected Row Inspector"
-          subtitle="This is the debugging truth panel for the current row: identity, ancestry, timing, instruction effects, and resolved seek behavior."
-          action={<span className="hammer-pill">{selectedOverlayRow ? selectedOverlayRow.row_id : "none"}</span>}
-          sectionStyle={{ minHeight: 0, overflow: "hidden" }}
-          bodyStyle={{ minHeight: 0, overflow: "auto" }}
-        >
-          {selectedOverlayRow ? (
-            <>
-              <div className="hammer-inspector-grid">
-                <div>
-                  <div style={{ fontSize: 11, opacity: 0.62 }}>row identity</div>
-                  <div className="hammer-mono">{selectedOverlayRow.row_id}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, opacity: 0.62 }}>source segment ancestry</div>
-                  <div className="hammer-mono">{formatSegmentAncestry(selectedOverlayRow.source_segment_ids)}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, opacity: 0.62 }}>raw timing</div>
-                  <div>
-                    {formatTimeDetail(selectedOverlayRow.start_sec)}
-                    {" -> "}
-                    {formatTimeDetail(selectedOverlayRow.end_sec)}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, opacity: 0.62 }}>playable timing</div>
-                  <div>
-                    {formatTimeDetail(selectedOverlayPlaybackRange?.playable_start_sec ?? null)}
-                    {" -> "}
-                    {formatTimeDetail(selectedOverlayPlaybackRange?.playable_end_sec ?? null)}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, opacity: 0.62 }}>playable slices</div>
-                  <div>{formatPlayableSlices(selectedOverlayPlaybackRange)}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, opacity: 0.62 }}>instruction effects</div>
-                  <div>{selectedRowEffects}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, opacity: 0.62 }}>flags</div>
-                  <div>
-                    deleted={formatFlagState(selectedOverlayRow.is_deleted)}
-                    {" · "}
-                    muted={formatFlagState(selectedOverlayRow.is_muted)}
-                    {" · "}
-                    trimmed={formatFlagState(selectedOverlayRow.is_trimmed)}
-                    {" · "}
-                    merged={formatFlagState(selectedOverlayRow.structure === "merge")}
-                    {" · "}
-                    split={formatFlagState(selectedOverlayRow.structure === "split")}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, opacity: 0.62 }}>seek target</div>
-                  <div>{formatSeekTargetLabel(selectedOverlaySeekTarget)}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, opacity: 0.62 }}>preview status</div>
-                  <div>{selectedRowPreviewStatus}</div>
-                </div>
-              </div>
-              {selectedSegment ? (
-                <div style={{ fontSize: 12, opacity: 0.76 }}>
-                  selected segment: {selectedSegment.segment_id}
-                  {" · "}
-                  {selectedSegment.speaker}
-                  {" · "}
-                  {selectedSegment.text}
-                </div>
-              ) : null}
-            </>
-          ) : (
-            <div style={{ fontSize: 12, opacity: 0.78 }}>No row selected.</div>
-          )}
-        </HammerPaneSection>
-
-        <HammerPaneSection
-          title="Edit Plan Panel"
-          subtitle="Plan state, round-trip controls, and the instruction stack live together so plan-level operations stay out of row editing."
-          action={(
-            <span className={getEditPlanStatusBadgeClassName(sessionState.editPlanStatus)}>
-              {currentEditPlan.edit_plan_id} · {sessionState.editPlanStatus}
-            </span>
-          )}
-          sectionStyle={{ minHeight: 0, overflow: "hidden" }}
-          bodyStyle={{ minHeight: 0, overflow: "auto" }}
-        >
-          <div className="hammer-inspector-grid">
-            <div>
-              <div style={{ fontSize: 11, opacity: 0.62 }}>plan id</div>
-              <div className="hammer-mono">{currentEditPlan.edit_plan_id}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 11, opacity: 0.62 }}>preview mode</div>
-              <div>{sessionState.previewMode}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 11, opacity: 0.62 }}>instruction count</div>
-              <div>{editInstructions.length}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 11, opacity: 0.62 }}>status</div>
-              <div>{sessionState.editPlanStatus}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 11, opacity: 0.62 }}>created</div>
-              <div>{currentEditPlan.created_at}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 11, opacity: 0.62 }}>updated</div>
-              <div>{currentEditPlan.updated_at}</div>
-            </div>
-          </div>
-
-          <div className="hammer-action-row">
-            <button
-              type="button"
-              data-testid="edit-plan-export"
-              onClick={() => exportEditPlan()}
-            >
-              Export Edit Plan
-            </button>
-            <button
-              type="button"
-              data-testid="edit-plan-load"
-              onClick={() => loadEditPlan()}
-            >
-              Load Edit Plan
-            </button>
-          </div>
-          <div style={{ fontSize: 12, opacity: 0.72 }}>
-            Round-trip this JSON to restore overlay rows and preview semantics.
-          </div>
-          {editPlanFeedback ? (
-            <div
-              style={{
-                color: editPlanFeedbackTone === "warning"
-                  ? "#fde68a"
-                  : editPlanFeedbackTone === "success"
-                  ? "#a7f3d0"
-                  : "#c8d6ea",
-              }}
-            >
-              {editPlanFeedback}
-            </div>
-          ) : null}
-
-          <StagedEditsPanel
-            instructions={editInstructions}
-            segmentById={segmentById}
-            segmentIndexById={segmentIndexById}
-            onUndoInstruction={removeInstruction}
-            onClearAll={clearEdits}
-            onNavigateToInstruction={inspectStagedInstruction}
-          />
-
-          <div style={{ display: "grid", gap: 8 }}>
-            <strong style={{ color: "#dbe8ff" }}>Edit Plan JSON</strong>
-            <textarea
-              data-testid="edit-plan-json"
-              value={editPlanJsonDraft}
-              onChange={(event) => {
-                setEditPlanJsonDraft(event.target.value);
-                setEditPlanFeedback(null);
-                setEditPlanFeedbackTone("neutral");
-              }}
-              spellCheck={false}
-              placeholder="Export the current edit plan, clear edits, then paste or reload the JSON here."
-              style={{
-                width: "100%",
-                minHeight: 180,
-                resize: "vertical",
-                borderRadius: 10,
-                border: "1px solid rgba(148, 163, 184, 0.26)",
-                background: "rgba(2, 6, 23, 0.65)",
-                color: "#dbe8ff",
-                padding: 10,
-                fontSize: 12,
-              }}
-              className="hammer-mono"
-            />
-          </div>
-        </HammerPaneSection>
-        </>
-        ) : (
-          <HammerPaneSection
-            title="Debug Panels"
-            subtitle="Launch context, inspector, and edit-plan round-trip diagnostics are hidden until explicitly requested."
-            action={<span className="hammer-pill">hidden</span>}
-          >
-            <div style={{ fontSize: 13, opacity: 0.78 }}>
-              Toggle debug to inspect launch payloads, row truth data, and edit-plan JSON round-trip state without turning the main editor into a diagnostics console.
-            </div>
-          </HammerPaneSection>
-        )}
       </div>
 
       <div className="hammer-pane hammer-pane--tool-strip">
