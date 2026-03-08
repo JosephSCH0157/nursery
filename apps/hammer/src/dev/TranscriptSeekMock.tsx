@@ -77,6 +77,8 @@ type HammerSessionState = {
   editPlanStatus: EditPlanStatus;
 };
 
+type HammerWorkflowTone = "ready" | "active" | "blocked" | "future";
+
 type TimelineClip = {
   id: string;
   start_sec: number;
@@ -164,6 +166,9 @@ const TIMELINE_TOOL_ORDER: Array<{ id: TimelineToolId; label: string }> = [
   { id: "text", label: "Text" },
 ];
 
+const FILLER_PATTERN = /\b(um|uh|you know|like|sort of|kind of|i mean)\b/i;
+const GAP_TIGHTENING_THRESHOLD_SEC = 0.35;
+
 type HammerPaneSectionProps = {
   title: string;
   subtitle?: string;
@@ -175,8 +180,35 @@ type HammerPaneSectionProps = {
   bodyClassName?: string;
 };
 
+type HammerWorkflowCardProps = {
+  title: string;
+  tone: HammerWorkflowTone;
+  statusLabel: string;
+  description: ReactNode;
+  meta?: ReactNode;
+  actions?: ReactNode;
+};
+
 function cx(...tokens: Array<string | false | null | undefined>): string {
   return tokens.filter(Boolean).join(" ");
+}
+
+function HammerWorkflowCard(props: HammerWorkflowCardProps): JSX.Element {
+  return (
+    <section className="hammer-workflow-card">
+      <header className="hammer-workflow-card__header">
+        <div className="hammer-stack-4">
+          <h4 className="hammer-workflow-card__title">{props.title}</h4>
+          <div className="hammer-copy-sm hammer-copy-muted">{props.description}</div>
+        </div>
+        <span className={getWorkflowStatusClassName(props.tone)}>
+          {props.statusLabel}
+        </span>
+      </header>
+      {props.meta ? <div className="hammer-workflow-card__meta">{props.meta}</div> : null}
+      {props.actions ? <div className="hammer-action-row">{props.actions}</div> : null}
+    </section>
+  );
 }
 
 function HammerPaneSection(props: HammerPaneSectionProps): JSX.Element {
@@ -239,6 +271,15 @@ function formatSegmentAncestry(segmentIds: string[]): string {
   return segmentIds.join(" -> ");
 }
 
+function hasLikelyFillerText(text: string): boolean {
+  return FILLER_PATTERN.test(text);
+}
+
+function formatGapLabel(value: number | null): string {
+  if (value == null || value <= 0) return "none";
+  return `${value.toFixed(2)}s`;
+}
+
 function formatInstructionEffects(row: TranscriptOverlayRow | null): string {
   if (!row) return "none";
   const effects: string[] = [];
@@ -268,6 +309,16 @@ function getToolStripButtonClassName(active: boolean): string {
 
 function getPaneDividerClassName(active: boolean): string {
   return cx("hammer-editor-shell__divider", active && "is-active");
+}
+
+function getWorkflowStatusClassName(tone: HammerWorkflowTone): string {
+  return cx(
+    "hammer-workflow-status",
+    tone === "ready" && "is-ready",
+    tone === "active" && "is-active",
+    tone === "blocked" && "is-blocked",
+    tone === "future" && "is-future",
+  );
 }
 
 function clampPaneLayout(layout: HammerPaneLayout): HammerPaneLayout {
@@ -592,6 +643,7 @@ export default function TranscriptSeekMock(
   const [activeTool, setActiveTool] = useState<HammerToolId>("polish");
   const [activeTimelineTool, setActiveTimelineTool] = useState<TimelineToolId>("select");
   const [showDebugPanels, setShowDebugPanels] = useState(false);
+  const [studioSoundPrepared, setStudioSoundPrepared] = useState(false);
   const [paneLayout, setPaneLayout] = useState<HammerPaneLayout>(DEFAULT_PANE_LAYOUT);
   const [activeResizeHandle, setActiveResizeHandle] = useState<HammerPaneResizeHandle | null>(null);
 
@@ -793,6 +845,13 @@ export default function TranscriptSeekMock(
     const index = segmentIndexById.get(selectedSegment.segment_id);
     if (index == null) return null;
     return transcriptSegments[index + 1] ?? null;
+  }, [selectedSegment, segmentIndexById, transcriptSegments]);
+
+  const selectedPreviousSegment = useMemo(() => {
+    if (!selectedSegment) return null;
+    const index = segmentIndexById.get(selectedSegment.segment_id);
+    if (index == null || index <= 0) return null;
+    return transcriptSegments[index - 1] ?? null;
   }, [selectedSegment, segmentIndexById, transcriptSegments]);
 
   const overlayRows = useMemo(
@@ -1032,6 +1091,81 @@ export default function TranscriptSeekMock(
     () => (selectedSegment ? instructionIndex.mergeBySegmentId.get(selectedSegment.segment_id) ?? null : null),
     [instructionIndex, selectedSegment],
   );
+
+  const fillerCandidateCount = useMemo(
+    () => transcriptSegments.filter((segment) => hasLikelyFillerText(segment.text)).length,
+    [transcriptSegments],
+  );
+
+  const sameSpeakerContinuationCount = useMemo(
+    () => transcriptSegments.slice(0, -1).filter((segment, index) => (
+      transcriptSegments[index + 1]?.speaker === segment.speaker
+    )).length,
+    [transcriptSegments],
+  );
+
+  const selectedGapBeforeSec = useMemo(
+    () => (selectedSegment && selectedPreviousSegment
+      ? Math.max(selectedSegment.start_sec - selectedPreviousSegment.end_sec, 0)
+      : null),
+    [selectedPreviousSegment, selectedSegment],
+  );
+
+  const selectedGapAfterSec = useMemo(
+    () => (selectedSegment && selectedNextSegment
+      ? Math.max(selectedNextSegment.start_sec - selectedSegment.end_sec, 0)
+      : null),
+    [selectedNextSegment, selectedSegment],
+  );
+
+  const selectedDurationSec = useMemo(
+    () => (selectedSegment ? Math.max(selectedSegment.end_sec - selectedSegment.start_sec, 0) : null),
+    [selectedSegment],
+  );
+
+  const hasSelectedGapOpportunity = Boolean(
+    (selectedGapBeforeSec != null && selectedGapBeforeSec >= GAP_TIGHTENING_THRESHOLD_SEC)
+    || (selectedGapAfterSec != null && selectedGapAfterSec >= GAP_TIGHTENING_THRESHOLD_SEC),
+  );
+
+  const selectedSegmentLooksLikeFiller = selectedSegment ? hasLikelyFillerText(selectedSegment.text) : false;
+  const deleteInstructionCount = instructionIndex.deleteBySegmentId.size;
+  const trimInstructionCount = instructionIndex.trimBySegmentId.size;
+  const mergeInstructionCount = instructionIndex.mergeBySegmentId.size;
+  const muteInstructionCount = instructionIndex.muteBySegmentId.size;
+  const blurBackgroundBlocked = resolvedLaunch.launch_context.media.kind === "dev-tone";
+
+  const polishSummaryItems = useMemo(() => {
+    const items: string[] = [];
+
+    if (studioSoundPrepared) {
+      items.push("Studio Sound is prepared for the final audio pass.");
+    }
+
+    if (deleteInstructionCount > 0) {
+      items.push(`${deleteInstructionCount} transcript cuts are staged for cleanup.`);
+    }
+
+    if (trimInstructionCount > 0) {
+      items.push(`${trimInstructionCount} timing trims are staged for tighter pacing.`);
+    }
+
+    if (mergeInstructionCount > 0) {
+      items.push(`${mergeInstructionCount} same-speaker continuations are merged for retake cleanup.`);
+    }
+
+    if (muteInstructionCount > 0) {
+      items.push(`${muteInstructionCount} muted segments are preserved in the current edit plan.`);
+    }
+
+    return items;
+  }, [
+    deleteInstructionCount,
+    mergeInstructionCount,
+    muteInstructionCount,
+    studioSoundPrepared,
+    trimInstructionCount,
+  ]);
 
   useEffect(() => {
     const container = transcriptScrollContainerRef.current;
@@ -1342,6 +1476,26 @@ export default function TranscriptSeekMock(
   );
 
   const activeAssetItems = projectAssets[activeAssetPanel];
+  const previewSourceStatusLabel = useMemo(() => {
+    if (!playbackSrc) return "Preview source unavailable";
+    if (!resolvedLaunch.media.requires_resolution) return "Generated preview tone ready";
+    if (preferDevAudioFallback || !resolvedMediaSrc) return "Running on dev-tone fallback";
+    return "Mapped media connected";
+  }, [
+    playbackSrc,
+    preferDevAudioFallback,
+    resolvedLaunch.media.requires_resolution,
+    resolvedMediaSrc,
+  ]);
+  const previewSourceDetail = useMemo(() => {
+    if (resolving) return "Resolving project media for preview.";
+    if (resolveError) return resolveError;
+    if (resolveResult?.status === "unresolved") {
+      return `${resolveResult.user_message} Preview is using the fallback tone.`;
+    }
+    if (badgeVm?.tooltip) return badgeVm.tooltip;
+    return "Select a script row to verify timing, cuts, and pacing.";
+  }, [badgeVm?.tooltip, resolveError, resolveResult, resolving]);
 
   const toolPanelContent = useMemo((): JSX.Element => {
     switch (activeTool) {
@@ -1349,16 +1503,242 @@ export default function TranscriptSeekMock(
         return (
           <div className="hammer-stack-10">
             <div className="hammer-meta-strip">
-              <span className="hammer-pill">Studio Sound</span>
-              <span className="hammer-pill">Filler cleanup</span>
-              <span className="hammer-pill">Gap tightening</span>
-              <span className="hammer-pill">Retake cleanup</span>
+              <span className="hammer-pill">{selectedOverlayRow ? selectedOverlayRow.row_id : "select a row"}</span>
+              <span className={getEditPlanStatusBadgeClassName(sessionState.editPlanStatus)}>
+                {sessionState.editPlanStatus}
+              </span>
+              <span className="hammer-pill">{editInstructions.length} plan actions</span>
+              <span className="hammer-pill">{previewSourceStatusLabel}</span>
             </div>
             <div className="hammer-copy-md">
               Polish is the first pass. It stays focused on spoken-content cleanup and enhancement, not on marketplace features or random utilities.
             </div>
-            <div className="hammer-copy-sm hammer-copy-muted">
-              Current edit plan: {editInstructions.length} instructions · {sessionState.editPlanStatus}
+
+            <div className="hammer-polish-focus">
+              <div className="hammer-polish-focus__head">
+                <strong className="hammer-copy-strong">Current Focus</strong>
+                <span className="hammer-pill">{selectedRowEffects}</span>
+              </div>
+              {selectedOverlayRow && selectedSegment ? (
+                <div className="hammer-stack-6">
+                  <div className="hammer-copy-md">
+                    {formatOverlayRowLabel(selectedOverlayRow)}
+                  </div>
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    {selectedSegment.text}
+                  </div>
+                  <div className="hammer-meta-strip">
+                    <span className="hammer-pill">duration {formatGapLabel(selectedDurationSec)}</span>
+                    <span className="hammer-pill">before gap {formatGapLabel(selectedGapBeforeSec)}</span>
+                    <span className="hammer-pill">after gap {formatGapLabel(selectedGapAfterSec)}</span>
+                  </div>
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    {selectedRowPreviewStatus}
+                  </div>
+                </div>
+              ) : (
+                <div className="hammer-copy-sm hammer-copy-muted">
+                  Select a transcript line in the left Script panel to drive filler cleanup, pacing trims, and retake review.
+                </div>
+              )}
+            </div>
+
+            <div className="hammer-workflow-grid">
+              <HammerWorkflowCard
+                title="Studio Sound"
+                tone={studioSoundPrepared ? "active" : playbackSrc ? "ready" : "blocked"}
+                statusLabel={studioSoundPrepared ? "Prepared" : playbackSrc ? "Ready" : "Unavailable"}
+                description="Prepare dialogue enhancement for the final spoken-audio pass without changing the transcript edit plan."
+                meta={(
+                  <div className="hammer-meta-strip">
+                    <span className="hammer-pill">{playbackSourceLabel}</span>
+                    <span className="hammer-pill">{studioSoundPrepared ? "queued for export" : "not queued"}</span>
+                  </div>
+                )}
+                actions={(
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    onClick={() => setStudioSoundPrepared((current) => !current)}
+                    disabled={!playbackSrc}
+                  >
+                    {studioSoundPrepared ? "Remove from pass" : "Prepare audio pass"}
+                  </button>
+                )}
+              />
+
+              <HammerWorkflowCard
+                title="Filler Cleanup"
+                tone={selectedSegmentDeleteInstruction ? "active" : selectedSegment ? "ready" : "blocked"}
+                statusLabel={selectedSegmentDeleteInstruction ? "Cut staged" : selectedSegment ? "Ready" : "Select a row"}
+                description="Review the selected transcript line and stage a spoken-content cut when it reads like filler, drift, or unnecessary repetition."
+                meta={(
+                  <div className="hammer-stack-6">
+                    <div className="hammer-meta-strip">
+                      <span className="hammer-pill">auto hits {fillerCandidateCount}</span>
+                      <span className="hammer-pill">{selectedSegmentLooksLikeFiller ? "likely filler" : "manual review"}</span>
+                    </div>
+                    <div className="hammer-copy-sm hammer-copy-muted">
+                      {selectedSegment
+                        ? selectedSegmentLooksLikeFiller
+                          ? "The selected line matches the current filler-phrase heuristic."
+                          : "No filler phrase was auto-detected here, but you can still stage a manual cleanup cut."
+                        : "Select a transcript row to stage or restore a filler cut."}
+                    </div>
+                  </div>
+                )}
+                actions={(
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    onClick={() => {
+                      if (!selectedSegment) return;
+                      toggleDeleteInstruction(selectedSegment.segment_id);
+                    }}
+                    disabled={!selectedSegment}
+                  >
+                    {selectedSegmentDeleteInstruction ? "Restore selected line" : "Cut selected line"}
+                  </button>
+                )}
+              />
+
+              <HammerWorkflowCard
+                title="Gap Tightening"
+                tone={selectedSegmentTrimInstruction ? "active" : selectedSegment ? "ready" : "blocked"}
+                statusLabel={selectedSegmentTrimInstruction ? "Trim staged" : selectedSegment ? "Ready" : "Select a row"}
+                description="Use transcript selection to tighten pacing around the current line and stage non-destructive trim instructions in the edit plan."
+                meta={(
+                  <div className="hammer-stack-6">
+                    <div className="hammer-meta-strip">
+                      <span className="hammer-pill">before {formatGapLabel(selectedGapBeforeSec)}</span>
+                      <span className="hammer-pill">after {formatGapLabel(selectedGapAfterSec)}</span>
+                      <span className="hammer-pill">{hasSelectedGapOpportunity ? "gap candidate" : "manual tighten"}</span>
+                    </div>
+                    <div className="hammer-copy-sm hammer-copy-muted">
+                      {selectedSegment
+                        ? hasSelectedGapOpportunity
+                          ? "The selected line has surrounding slack that can be tightened."
+                          : "No large transcript gap is detected here, but you can still stage a pacing trim."
+                        : "Select a transcript row to stage or restore timing trims."}
+                    </div>
+                  </div>
+                )}
+                actions={(
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    onClick={() => {
+                      if (!selectedSegment) return;
+                      toggleTrimInstruction(selectedSegment);
+                    }}
+                    disabled={!selectedSegment}
+                  >
+                    {selectedSegmentTrimInstruction ? "Undo timing trim" : "Tighten selected line"}
+                  </button>
+                )}
+              />
+
+              <HammerWorkflowCard
+                title="Retake Cleanup"
+                tone={selectedSegmentMergeInstruction ? "active" : canMergeSelected ? "ready" : "blocked"}
+                statusLabel={selectedSegmentMergeInstruction ? "Merge staged" : canMergeSelected ? "Ready" : "Unavailable"}
+                description="Clean up back-to-back same-speaker takes by merging the selected line into its continuation when the transcript supports it."
+                meta={(
+                  <div className="hammer-stack-6">
+                    <div className="hammer-meta-strip">
+                      <span className="hammer-pill">continuations {sameSpeakerContinuationCount}</span>
+                      <span className="hammer-pill">
+                        {selectedNextSegment ? `next ${selectedNextSegment.speaker}` : "end of transcript"}
+                      </span>
+                    </div>
+                    <div className="hammer-copy-sm hammer-copy-muted">
+                      {selectedSegmentMergeInstruction
+                        ? "This merge is already staged in the current edit plan."
+                        : canMergeSelected
+                        ? `The next line (${selectedNextSegment?.segment_id}) continues the same speaker and can be merged.`
+                        : "Select a row with a same-speaker continuation to stage retake cleanup."}
+                    </div>
+                  </div>
+                )}
+                actions={(
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    onClick={() => {
+                      if (!selectedSegment) return;
+                      toggleMergeInstruction(selectedSegment, selectedNextSegment);
+                    }}
+                    disabled={!selectedSegment || (!selectedSegmentMergeInstruction && !canMergeSelected)}
+                  >
+                    {selectedSegmentMergeInstruction ? "Undo merge" : "Merge with next line"}
+                  </button>
+                )}
+              />
+
+              <HammerWorkflowCard
+                title="Blur Background"
+                tone={blurBackgroundBlocked ? "blocked" : "future"}
+                statusLabel={blurBackgroundBlocked ? "Unavailable" : "Future"}
+                description="Background cleanup belongs in Polish, but it should only appear as a project-linked video enhancement once a real video polish path exists."
+                meta={(
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    {blurBackgroundBlocked
+                      ? "This launch is using preview-tone or non-video media, so background blur is intentionally unavailable."
+                      : "Mapped video is present, but the blur engine is not wired into Hammer yet."}
+                  </div>
+                )}
+              />
+
+              <HammerWorkflowCard
+                title="Eye Contact"
+                tone="future"
+                statusLabel="Future"
+                description="Eye contact correction remains a later Polish-stage enhancement once Hammer owns the video adjustment pipeline."
+                meta={(
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    Keep the slot visible, but do not fake the feature before the video engine exists.
+                  </div>
+                )}
+              />
+            </div>
+
+            <div className="hammer-polish-output">
+              <div className="hammer-polish-output__head">
+                <strong className="hammer-copy-strong">Polish Output</strong>
+                <span className="hammer-pill">{currentEditPlan.edit_plan_id}</span>
+              </div>
+              <div className="hammer-inspector-grid">
+                <div>
+                  <div className="hammer-label">cuts</div>
+                  <div>{deleteInstructionCount}</div>
+                </div>
+                <div>
+                  <div className="hammer-label">trims</div>
+                  <div>{trimInstructionCount}</div>
+                </div>
+                <div>
+                  <div className="hammer-label">merges</div>
+                  <div>{mergeInstructionCount}</div>
+                </div>
+                <div>
+                  <div className="hammer-label">studio sound</div>
+                  <div>{studioSoundPrepared ? "prepared" : "not queued"}</div>
+                </div>
+              </div>
+              {polishSummaryItems.length > 0 ? (
+                <ul className="hammer-polish-output__list">
+                  {polishSummaryItems.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="hammer-copy-sm hammer-copy-muted">
+                  No polish actions are staged yet. Select a row and start the first cleanup pass.
+                </div>
+              )}
+              <div className="hammer-copy-sm hammer-copy-muted">
+                Current preview: {selectedRowPreviewStatus}
+              </div>
             </div>
           </div>
         );
@@ -1456,17 +1836,47 @@ export default function TranscriptSeekMock(
   }, [
     activeTool,
     currentEditPlan.edit_plan_id,
+    blurBackgroundBlocked,
+    canMergeSelected,
+    currentTimeSec,
+    deleteInstructionCount,
     editInstructions.length,
+    fillerCandidateCount,
+    hasSelectedGapOpportunity,
+    instructionIndex.deleteBySegmentId,
+    instructionIndex.mergeBySegmentId,
+    instructionIndex.muteBySegmentId,
+    instructionIndex.trimBySegmentId,
+    mergeInstructionCount,
+    muteInstructionCount,
     overlayRows.length,
     playbackSourceLabel,
+    playbackSrc,
+    polishSummaryItems,
     projectAssets,
+    previewSourceStatusLabel,
     resolvedLaunch.launch_context.media.kind,
     resolvedLaunch.launch_context.source_mode,
     resolvedLaunch.launch_context.workpiece_id,
     resolvedLaunch.launch_context.workspace_id,
     resolvedLaunch.media.source_label,
+    sameSpeakerContinuationCount,
+    selectedDurationSec,
+    selectedGapAfterSec,
+    selectedGapBeforeSec,
+    selectedNextSegment,
+    selectedOverlayRow,
+    selectedRowEffects,
+    selectedRowPreviewStatus,
+    selectedSegment,
+    selectedSegmentDeleteInstruction,
+    selectedSegmentLooksLikeFiller,
+    selectedSegmentMergeInstruction,
+    selectedSegmentTrimInstruction,
     sessionState.editPlanStatus,
     sessionState.previewMode,
+    studioSoundPrepared,
+    trimInstructionCount,
     transcriptSegments.length,
   ]);
 
@@ -1531,26 +1941,6 @@ export default function TranscriptSeekMock(
     + paneLayout.right_px
     + TOOL_STRIP_WIDTH_PX
     + (PANE_DIVIDER_WIDTH_PX * 2);
-  const previewSourceStatusLabel = useMemo(() => {
-    if (!playbackSrc) return "Preview source unavailable";
-    if (!resolvedLaunch.media.requires_resolution) return "Generated preview tone ready";
-    if (preferDevAudioFallback || !resolvedMediaSrc) return "Running on dev-tone fallback";
-    return "Mapped media connected";
-  }, [
-    playbackSrc,
-    preferDevAudioFallback,
-    resolvedLaunch.media.requires_resolution,
-    resolvedMediaSrc,
-  ]);
-  const previewSourceDetail = useMemo(() => {
-    if (resolving) return "Resolving project media for preview.";
-    if (resolveError) return resolveError;
-    if (resolveResult?.status === "unresolved") {
-      return `${resolveResult.user_message} Preview is using the fallback tone.`;
-    }
-    if (badgeVm?.tooltip) return badgeVm.tooltip;
-    return "Select a script row to verify timing, cuts, and pacing.";
-  }, [badgeVm?.tooltip, resolveError, resolveResult, resolving]);
 
   return (
     <section className="hammer-editor-shell">
