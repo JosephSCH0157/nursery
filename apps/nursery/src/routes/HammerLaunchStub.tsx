@@ -1,4 +1,3 @@
-import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import {
   buildHammerEditorHref,
   buildHammerRouteState,

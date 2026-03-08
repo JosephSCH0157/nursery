@@ -51,6 +51,7 @@ import { toMediaBadgeViewModel } from "../media/mediaBadgeViewModel";
 import { V1HammerMediaResolver } from "../media/resolveMedia";
 import { resolveHammerDevLaunchContext } from "./hammerLaunchPresets";
 import { getDevTranscriptSegments } from "./transcriptFixtures";
+import "./TranscriptSeekMock.css";
 
 type PreviewSkipEvent = {
   reason: PreviewSkipReason;
@@ -163,138 +164,6 @@ const TIMELINE_TOOL_ORDER: Array<{ id: TimelineToolId; label: string }> = [
   { id: "text", label: "Text" },
 ];
 
-const ROOT_STYLE: CSSProperties = {
-  display: "grid",
-  gridTemplateRows: "minmax(0, 1fr) minmax(220px, 0.42fr)",
-  gap: 14,
-  minHeight: "calc(100vh - 138px)",
-  alignItems: "stretch",
-};
-
-const PANEL_STYLE: CSSProperties = {
-  border: "1px solid rgba(148, 163, 184, 0.28)",
-  borderRadius: 12,
-  background: "rgba(15, 23, 38, 0.74)",
-  display: "grid",
-  alignContent: "start",
-  minHeight: 0,
-};
-
-const PANE_STYLE: CSSProperties = {
-  ...PANEL_STYLE,
-  padding: 12,
-  gap: 12,
-  minWidth: 0,
-  overflow: "hidden",
-};
-
-const SECTION_STYLE: CSSProperties = {
-  border: "1px dashed rgba(148, 163, 184, 0.35)",
-  borderRadius: 12,
-  padding: "10px 12px",
-  display: "grid",
-  gap: 10,
-  minHeight: 0,
-  background: "rgba(2, 6, 23, 0.45)",
-  color: "#c8d6ea",
-};
-
-const SECTION_HEADER_STYLE: CSSProperties = {
-  display: "flex",
-  alignItems: "flex-start",
-  justifyContent: "space-between",
-  gap: 10,
-  flexWrap: "wrap",
-};
-
-const SECTION_BODY_STYLE: CSSProperties = {
-  display: "grid",
-  gap: 10,
-  minHeight: 0,
-};
-
-const SECTION_TITLE_STYLE: CSSProperties = {
-  margin: 0,
-  fontSize: 16,
-  color: "#dbe8ff",
-};
-
-const SECTION_SUBTITLE_STYLE: CSSProperties = {
-  fontSize: 12,
-  opacity: 0.72,
-  maxWidth: 560,
-};
-
-const META_STRIP_STYLE: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  flexWrap: "wrap",
-  fontSize: 12,
-};
-
-const PILL_BASE_STYLE: CSSProperties = {
-  borderRadius: 999,
-  padding: "2px 8px",
-  border: "1px solid rgba(148, 163, 184, 0.24)",
-  background: "rgba(15, 23, 42, 0.55)",
-  color: "#dbe8ff",
-};
-
-const ACTION_ROW_STYLE: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  flexWrap: "wrap",
-};
-
-const MONO_STYLE: CSSProperties = {
-  fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace",
-};
-
-const INSPECTOR_GRID_STYLE: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-  gap: 8,
-};
-
-const TAB_ROW_STYLE: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  flexWrap: "wrap",
-};
-
-const TOOL_STRIP_STYLE: CSSProperties = {
-  ...PANEL_STYLE,
-  padding: 10,
-  gap: 10,
-  alignContent: "start",
-};
-
-const TIMELINE_PANE_STYLE: CSSProperties = {
-  ...PANE_STYLE,
-  minHeight: 0,
-};
-
-const TRACK_VIEWPORT_STYLE: CSSProperties = {
-  position: "relative",
-  minHeight: 48,
-  borderRadius: 10,
-  border: "1px solid rgba(148, 163, 184, 0.18)",
-  background: "rgba(2, 6, 23, 0.68)",
-  overflow: "hidden",
-};
-
-const PANE_DIVIDER_STYLE: CSSProperties = {
-  border: "none",
-  borderRadius: 999,
-  background: "rgba(30, 41, 59, 0.92)",
-  cursor: "col-resize",
-  padding: 0,
-  minHeight: 0,
-};
-
 type HammerPaneSectionProps = {
   title: string;
   subtitle?: string;
@@ -302,21 +171,27 @@ type HammerPaneSectionProps = {
   children: ReactNode;
   sectionStyle?: CSSProperties;
   bodyStyle?: CSSProperties;
+  sectionClassName?: string;
+  bodyClassName?: string;
 };
+
+function cx(...tokens: Array<string | false | null | undefined>): string {
+  return tokens.filter(Boolean).join(" ");
+}
 
 function HammerPaneSection(props: HammerPaneSectionProps): JSX.Element {
   return (
-    <section style={{ ...SECTION_STYLE, ...props.sectionStyle }}>
-      <header style={SECTION_HEADER_STYLE}>
-        <div style={{ display: "grid", gap: 4 }}>
-          <h3 style={SECTION_TITLE_STYLE}>{props.title}</h3>
+    <section className={cx("hammer-pane-section", props.sectionClassName)} style={props.sectionStyle}>
+      <header className="hammer-pane-section__header">
+        <div className="hammer-pane-section__title-wrap">
+          <h3 className="hammer-pane-section__title">{props.title}</h3>
           {props.subtitle ? (
-            <div style={SECTION_SUBTITLE_STYLE}>{props.subtitle}</div>
+            <div className="hammer-pane-section__subtitle">{props.subtitle}</div>
           ) : null}
         </div>
         {props.action ? <div>{props.action}</div> : null}
       </header>
-      <div style={{ ...SECTION_BODY_STYLE, ...props.bodyStyle }}>
+      <div className={cx("hammer-pane-section__body", props.bodyClassName)} style={props.bodyStyle}>
         {props.children}
       </div>
     </section>
@@ -375,59 +250,24 @@ function formatInstructionEffects(row: TranscriptOverlayRow | null): string {
   return effects.length > 0 ? effects.join(", ") : "none";
 }
 
-function getEditPlanStatusBadgeStyle(status: EditPlanStatus): CSSProperties {
-  if (status === "dirty") {
-    return {
-      ...PILL_BASE_STYLE,
-      background: "rgba(245, 158, 11, 0.16)",
-      color: "#fde68a",
-    };
-  }
-  if (status === "reloaded") {
-    return {
-      ...PILL_BASE_STYLE,
-      background: "rgba(14, 165, 233, 0.16)",
-      color: "#bae6fd",
-    };
-  }
-  return PILL_BASE_STYLE;
+function getEditPlanStatusBadgeClassName(status: EditPlanStatus): string {
+  return cx(
+    "hammer-pill",
+    status === "dirty" && "hammer-pill--dirty",
+    status === "reloaded" && "hammer-pill--reloaded",
+  );
 }
 
-function getToggleButtonStyle(active: boolean): CSSProperties {
-  return {
-    borderRadius: 999,
-    border: "1px solid rgba(148, 163, 184, 0.28)",
-    background: active ? "rgba(59, 130, 246, 0.2)" : "rgba(15, 23, 42, 0.64)",
-    color: active ? "#dbe8ff" : "#c8d6ea",
-    padding: "6px 12px",
-    fontSize: 12,
-    fontWeight: 600,
-    cursor: "pointer",
-  };
+function getToggleButtonClassName(active: boolean): string {
+  return cx("hammer-toggle-button", active && "is-active");
 }
 
-function getToolStripButtonStyle(active: boolean): CSSProperties {
-  return {
-    borderRadius: 14,
-    border: "1px solid rgba(148, 163, 184, 0.24)",
-    background: active ? "rgba(59, 130, 246, 0.22)" : "rgba(15, 23, 42, 0.7)",
-    color: active ? "#dbe8ff" : "#c8d6ea",
-    display: "grid",
-    gap: 4,
-    padding: "10px 8px",
-    cursor: "pointer",
-    textAlign: "center",
-  };
+function getToolStripButtonClassName(active: boolean): string {
+  return cx("hammer-tool-button", active && "is-active");
 }
 
-function getPaneDividerStyle(active: boolean): CSSProperties {
-  return {
-    ...PANE_DIVIDER_STYLE,
-    boxShadow: active
-      ? "inset 0 0 0 1px rgba(96, 165, 250, 0.54)"
-      : "inset 0 0 0 1px rgba(148, 163, 184, 0.18)",
-    background: active ? "rgba(59, 130, 246, 0.16)" : PANE_DIVIDER_STYLE.background,
-  };
+function getPaneDividerClassName(active: boolean): string {
+  return cx("hammer-editor-shell__divider", active && "is-active");
 }
 
 function clampPaneLayout(layout: HammerPaneLayout): HammerPaneLayout {
@@ -1507,105 +1347,105 @@ export default function TranscriptSeekMock(
     switch (activeTool) {
       case "polish":
         return (
-          <div style={{ display: "grid", gap: 10 }}>
-            <div style={META_STRIP_STYLE}>
-              <span style={PILL_BASE_STYLE}>Studio Sound</span>
-              <span style={PILL_BASE_STYLE}>Filler cleanup</span>
-              <span style={PILL_BASE_STYLE}>Gap tightening</span>
-              <span style={PILL_BASE_STYLE}>Retake cleanup</span>
+          <div className="hammer-stack-10">
+            <div className="hammer-meta-strip">
+              <span className="hammer-pill">Studio Sound</span>
+              <span className="hammer-pill">Filler cleanup</span>
+              <span className="hammer-pill">Gap tightening</span>
+              <span className="hammer-pill">Retake cleanup</span>
             </div>
-            <div style={{ fontSize: 13, opacity: 0.82 }}>
+            <div className="hammer-copy-md">
               Polish is the first pass. It stays focused on spoken-content cleanup and enhancement, not on marketplace features or random utilities.
             </div>
-            <div style={{ fontSize: 12, opacity: 0.72 }}>
+            <div className="hammer-copy-sm hammer-copy-muted">
               Current edit plan: {editInstructions.length} instructions · {sessionState.editPlanStatus}
             </div>
           </div>
         );
       case "audio":
         return (
-          <div style={{ display: "grid", gap: 10 }}>
-            <div style={META_STRIP_STYLE}>
-              <span style={PILL_BASE_STYLE}>dialogue track</span>
-              <span style={PILL_BASE_STYLE}>music bed</span>
-              <span style={PILL_BASE_STYLE}>voice polish</span>
+          <div className="hammer-stack-10">
+            <div className="hammer-meta-strip">
+              <span className="hammer-pill">dialogue track</span>
+              <span className="hammer-pill">music bed</span>
+              <span className="hammer-pill">voice polish</span>
             </div>
-            <div style={{ fontSize: 13, opacity: 0.82 }}>
+            <div className="hammer-copy-md">
               Audio stays focused on spoken clarity, bed levels, and episode consistency. Processing remains non-destructive.
             </div>
-            <div style={{ fontSize: 12, opacity: 0.72 }}>
+            <div className="hammer-copy-sm hammer-copy-muted">
               playback source: {playbackSourceLabel} · preview {sessionState.previewMode}
             </div>
           </div>
         );
       case "video":
         return (
-          <div style={{ display: "grid", gap: 10 }}>
-            <div style={META_STRIP_STYLE}>
-              <span style={PILL_BASE_STYLE}>main video</span>
-              <span style={PILL_BASE_STYLE}>picture-in-picture</span>
-              <span style={PILL_BASE_STYLE}>visual cleanup</span>
+          <div className="hammer-stack-10">
+            <div className="hammer-meta-strip">
+              <span className="hammer-pill">main video</span>
+              <span className="hammer-pill">picture-in-picture</span>
+              <span className="hammer-pill">visual cleanup</span>
             </div>
-            <div style={{ fontSize: 13, opacity: 0.82 }}>
+            <div className="hammer-copy-md">
               Video controls stay tied to the current project and launch context. Preview remains moderate so the timeline and transcript keep equal weight.
             </div>
-            <div style={{ fontSize: 12, opacity: 0.72 }}>
+            <div className="hammer-copy-sm hammer-copy-muted">
               source: {resolvedLaunch.media.source_label} · media kind {resolvedLaunch.launch_context.media.kind}
             </div>
           </div>
         );
       case "captions":
         return (
-          <div style={{ display: "grid", gap: 10 }}>
-            <div style={META_STRIP_STYLE}>
-              <span style={PILL_BASE_STYLE}>{transcriptSegments.length} transcript segments</span>
-              <span style={PILL_BASE_STYLE}>{overlayRows.length} caption rows</span>
+          <div className="hammer-stack-10">
+            <div className="hammer-meta-strip">
+              <span className="hammer-pill">{transcriptSegments.length} transcript segments</span>
+              <span className="hammer-pill">{overlayRows.length} caption rows</span>
             </div>
-            <div style={{ fontSize: 13, opacity: 0.82 }}>
+            <div className="hammer-copy-md">
               Captions follow the transcript and timeline together. This panel owns subtitle timing and caption track preparation.
             </div>
           </div>
         );
       case "details":
         return (
-          <div style={{ display: "grid", gap: 10 }}>
-            <div style={INSPECTOR_GRID_STYLE}>
+          <div className="hammer-stack-10">
+            <div className="hammer-inspector-grid">
               <div>
-                <div style={{ fontSize: 11, opacity: 0.62 }}>workspace</div>
-                <div style={MONO_STYLE}>{resolvedLaunch.launch_context.workspace_id}</div>
+                <div className="hammer-label">workspace</div>
+                <div className="hammer-mono">{resolvedLaunch.launch_context.workspace_id}</div>
               </div>
               <div>
-                <div style={{ fontSize: 11, opacity: 0.62 }}>workpiece</div>
-                <div style={MONO_STYLE}>{resolvedLaunch.launch_context.workpiece_id}</div>
+                <div className="hammer-label">workpiece</div>
+                <div className="hammer-mono">{resolvedLaunch.launch_context.workpiece_id}</div>
               </div>
               <div>
-                <div style={{ fontSize: 11, opacity: 0.62 }}>source mode</div>
+                <div className="hammer-label">source mode</div>
                 <div>{resolvedLaunch.launch_context.source_mode}</div>
               </div>
               <div>
-                <div style={{ fontSize: 11, opacity: 0.62 }}>preview mode</div>
+                <div className="hammer-label">preview mode</div>
                 <div>{sessionState.previewMode}</div>
               </div>
             </div>
-            <div style={{ fontSize: 13, opacity: 0.78 }}>
+            <div className="hammer-copy-md hammer-copy-dim">
               Details carries project-level editing context and source metadata. Debug surfaces stay hidden unless you explicitly open them.
             </div>
           </div>
         );
       case "export":
         return (
-          <div style={{ display: "grid", gap: 10 }}>
-            <div style={META_STRIP_STYLE}>
-              <span style={getEditPlanStatusBadgeStyle(sessionState.editPlanStatus)}>
+          <div className="hammer-stack-10">
+            <div className="hammer-meta-strip">
+              <span className={getEditPlanStatusBadgeClassName(sessionState.editPlanStatus)}>
                 {sessionState.editPlanStatus}
               </span>
-              <span style={PILL_BASE_STYLE}>main edit</span>
-              <span style={PILL_BASE_STYLE}>shorts</span>
+              <span className="hammer-pill">main edit</span>
+              <span className="hammer-pill">shorts</span>
             </div>
-            <div style={{ fontSize: 13, opacity: 0.82 }}>
+            <div className="hammer-copy-md">
               Export is the final delivery stage inside Hammer. Render/output controls belong here, separate from the editing work panels.
             </div>
-            <div style={{ fontSize: 12, opacity: 0.72 }}>
+            <div className="hammer-copy-sm hammer-copy-muted">
               current plan {currentEditPlan.edit_plan_id} · instructions {editInstructions.length}
             </div>
           </div>
@@ -1693,11 +1533,11 @@ export default function TranscriptSeekMock(
     + (PANE_DIVIDER_WIDTH_PX * 2);
 
   return (
-    <section style={ROOT_STYLE}>
-      <div style={{ minHeight: 0, overflowX: "auto", overflowY: "hidden" }}>
+    <section className="hammer-editor-shell">
+      <div className="hammer-editor-shell__upper-wrap">
         <div
+          className="hammer-editor-shell__upper"
           style={{
-            display: "grid",
             gridTemplateColumns: [
               `${paneLayout.left_px}px`,
               `${PANE_DIVIDER_WIDTH_PX}px`,
@@ -1706,16 +1546,12 @@ export default function TranscriptSeekMock(
               `${paneLayout.right_px}px`,
               `${TOOL_STRIP_WIDTH_PX}px`,
             ].join(" "),
-            gap: 0,
-            alignItems: "stretch",
-            minHeight: "100%",
             minWidth: upperPaneMinWidth,
           }}
         >
           <div
+            className="hammer-pane hammer-pane--left"
             style={{
-              ...PANE_STYLE,
-              display: "grid",
               gridTemplateRows: activeWorkPanel === "script"
                 ? "auto auto auto auto minmax(0, 1fr)"
                 : "auto auto minmax(0, 1fr)",
@@ -1725,13 +1561,13 @@ export default function TranscriptSeekMock(
           title="Work Panel"
           subtitle="Hammer keeps transcript-first editing and project-linked assets in one left-side work region."
           action={(
-            <div style={TAB_ROW_STYLE}>
+            <div className="hammer-tab-row">
               {WORK_PANEL_VIEWS.map((panel) => (
                 <button
                   key={panel.id}
                   type="button"
                   onClick={() => setActiveWorkPanel(panel.id)}
-                  style={getToggleButtonStyle(activeWorkPanel === panel.id)}
+                  className={getToggleButtonClassName(activeWorkPanel === panel.id)}
                 >
                   {panel.label}
                 </button>
@@ -1741,39 +1577,39 @@ export default function TranscriptSeekMock(
         >
           {activeWorkPanel === "script" ? (
             <>
-              <div style={META_STRIP_STYLE}>
-                <span style={PILL_BASE_STYLE}>{transcriptSegments.length} segments</span>
-                <span style={PILL_BASE_STYLE}>{overlayRows.length} rows</span>
-                <span style={PILL_BASE_STYLE}>preview {sessionState.previewMode}</span>
-                <span style={PILL_BASE_STYLE}>source {sessionState.sourceMode}</span>
-              </div>
-              <div style={{ display: "grid", gap: 4, fontSize: 12 }}>
-                <div>transcript source: {transcriptLoad.source_label}</div>
-                <div>session: {sessionState.sessionId}</div>
-                <div>edit plan instructions: {editInstructions.length}</div>
-              </div>
-              {transcriptLoad.error ? (
-                <div style={{ fontSize: 12, color: "#fde68a" }}>
-                  {transcriptLoad.error}
-                </div>
-              ) : null}
-              <div style={{ fontSize: 12, opacity: 0.72 }}>
-                Script view is the canonical transcript surface for split, merge, mute, trim, delete, and transcript navigation.
-              </div>
-            </>
-          ) : (
-            <>
-              <div style={META_STRIP_STYLE}>
-                <span style={PILL_BASE_STYLE}>{projectAssets.video.length} video</span>
-                <span style={PILL_BASE_STYLE}>{projectAssets.images.length} images</span>
-                <span style={PILL_BASE_STYLE}>{projectAssets.music.length} music</span>
-              </div>
-              <div style={{ fontSize: 13, opacity: 0.78 }}>
-                Assets shows only media already linked to this project. No stock browsing, generators, or generic upload playgrounds belong here.
-              </div>
-            </>
-          )}
-        </HammerPaneSection>
+                  <div className="hammer-meta-strip">
+                    <span className="hammer-pill">{transcriptSegments.length} segments</span>
+                    <span className="hammer-pill">{overlayRows.length} rows</span>
+                    <span className="hammer-pill">preview {sessionState.previewMode}</span>
+                    <span className="hammer-pill">source {sessionState.sourceMode}</span>
+                  </div>
+                  <div className="hammer-copy-sm" style={{ display: "grid", gap: 4 }}>
+                    <div>transcript source: {transcriptLoad.source_label}</div>
+                    <div>session: {sessionState.sessionId}</div>
+                    <div>edit plan instructions: {editInstructions.length}</div>
+                  </div>
+                  {transcriptLoad.error ? (
+                    <div className="hammer-copy-sm hammer-copy-warning">
+                      {transcriptLoad.error}
+                    </div>
+                  ) : null}
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    Script view is the canonical transcript surface for split, merge, mute, trim, delete, and transcript navigation.
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="hammer-meta-strip">
+                    <span className="hammer-pill">{projectAssets.video.length} video</span>
+                    <span className="hammer-pill">{projectAssets.images.length} images</span>
+                    <span className="hammer-pill">{projectAssets.music.length} music</span>
+                  </div>
+                  <div className="hammer-copy-md hammer-copy-dim">
+                    Assets shows only media already linked to this project. No stock browsing, generators, or generic upload playgrounds belong here.
+                  </div>
+                </>
+              )}
+            </HammerPaneSection>
 
         {activeWorkPanel === "script" ? (
         <>
@@ -1781,16 +1617,16 @@ export default function TranscriptSeekMock(
           title="Transcript Console"
           subtitle="Canonical transcript state stays on the left. Overlay rows and preview behavior derive from the edit plan."
           action={(
-            <span style={getEditPlanStatusBadgeStyle(sessionState.editPlanStatus)}>
+            <span className={getEditPlanStatusBadgeClassName(sessionState.editPlanStatus)}>
               plan {sessionState.editPlanStatus}
             </span>
           )}
         >
-          <div style={META_STRIP_STYLE}>
-            <span style={PILL_BASE_STYLE}>{transcriptSegments.length} segments</span>
-            <span style={PILL_BASE_STYLE}>{overlayRows.length} rows</span>
-            <span style={PILL_BASE_STYLE}>preview {sessionState.previewMode}</span>
-            <span style={PILL_BASE_STYLE}>source {sessionState.sourceMode}</span>
+          <div className="hammer-meta-strip">
+            <span className="hammer-pill">{transcriptSegments.length} segments</span>
+            <span className="hammer-pill">{overlayRows.length} rows</span>
+            <span className="hammer-pill">preview {sessionState.previewMode}</span>
+            <span className="hammer-pill">source {sessionState.sourceMode}</span>
           </div>
           <div style={{ display: "grid", gap: 4, fontSize: 12 }}>
             <div>transcript source: {transcriptLoad.source_label}</div>
@@ -1811,29 +1647,23 @@ export default function TranscriptSeekMock(
           title="Transport Controls"
           subtitle="Navigation uses the pure transcript preview helpers. Deleted spans are skipped only when edit-aware preview is active."
           action={(
-            <span
-              style={{
-                ...PILL_BASE_STYLE,
-                background: isPlaying ? "rgba(20, 184, 166, 0.16)" : PILL_BASE_STYLE.background,
-                color: isPlaying ? "#99f6e4" : PILL_BASE_STYLE.color,
-              }}
-            >
+            <span className={cx("hammer-pill", isPlaying && "hammer-pill--playing")}>
               {isPlaying ? "PLAYING" : "PAUSED"}
             </span>
           )}
         >
-          <div style={META_STRIP_STYLE}>
+          <div className="hammer-meta-strip">
             <span>{formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}</span>
             <span>active raw: {formatPlaybackRangeLabel(rawActivePlaybackRange)}</span>
             <span>active playable: {formatPlaybackRangeLabel(activePlayableRange)}</span>
             <span>skip: {lastPreviewSkip?.reason ?? "none"}</span>
           </div>
-          <div style={{ ...META_STRIP_STYLE, opacity: 0.8 }}>
+          <div className="hammer-meta-strip hammer-copy-muted">
             <span>deleted rows: {sessionState.previewMode === "edit-aware" ? "skipped" : "raw playback"}</span>
             <span>muted rows: structural only</span>
             <span>source mode: {sessionState.sourceMode}</span>
           </div>
-          <div style={ACTION_ROW_STYLE}>
+          <div className="hammer-action-row">
             <button
               type="button"
               disabled={previousPlayableTarget.timeSec == null}
@@ -1890,7 +1720,7 @@ export default function TranscriptSeekMock(
           title="Row Actions"
           subtitle="Row edits stay grouped here so transport and plan controls do not scatter across the shell."
           action={(
-            <span style={PILL_BASE_STYLE}>
+            <span className="hammer-pill">
               {selectedOverlayRow ? formatOverlayRowLabel(selectedOverlayRow) : "no row selected"}
             </span>
           )}
@@ -1907,7 +1737,7 @@ export default function TranscriptSeekMock(
               Select a transcript row to inspect it and apply segment-level edit instructions.
             </div>
           )}
-          <div style={ACTION_ROW_STYLE}>
+          <div className="hammer-action-row">
             <button
               type="button"
               disabled={!selectedSegment}
@@ -1970,7 +1800,7 @@ export default function TranscriptSeekMock(
           title="Transcript Overlay"
           subtitle="Overlay rows remain the operational list for preview and navigation. This pane becomes the left-column workbench."
           action={(
-            <span style={PILL_BASE_STYLE}>
+            <span className="hammer-pill">
               active {activeOverlayRow ? formatOverlayRowLabel(activeOverlayRow) : "none"}
             </span>
           )}
@@ -2192,13 +2022,13 @@ export default function TranscriptSeekMock(
             title="Project Assets"
             subtitle="Project-linked assets stay scoped to this workpiece and remain separate from stock or AI media tooling."
             action={(
-              <div style={TAB_ROW_STYLE}>
+              <div className="hammer-tab-row">
                 {ASSET_PANEL_VIEWS.map((panel) => (
                   <button
                     key={panel.id}
                     type="button"
                     onClick={() => setActiveAssetPanel(panel.id)}
-                    style={getToggleButtonStyle(activeAssetPanel === panel.id)}
+                    className={getToggleButtonClassName(activeAssetPanel === panel.id)}
                   >
                     {panel.label}
                   </button>
@@ -2210,27 +2040,17 @@ export default function TranscriptSeekMock(
           >
             {activeAssetItems.length > 0 ? (
               activeAssetItems.map((asset) => (
-                <div
-                  key={asset.id}
-                  style={{
-                    border: "1px solid rgba(148, 163, 184, 0.18)",
-                    borderRadius: 10,
-                    background: "rgba(2, 6, 23, 0.42)",
-                    padding: "10px 12px",
-                    display: "grid",
-                    gap: 6,
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                    <strong style={{ color: "#dbe8ff" }}>{asset.title}</strong>
-                    <span style={PILL_BASE_STYLE}>{asset.status}</span>
+                <div key={asset.id} className="hammer-asset-card">
+                  <div className="hammer-asset-card__header">
+                    <strong className="hammer-copy-strong">{asset.title}</strong>
+                    <span className="hammer-pill">{asset.status}</span>
                   </div>
-                  <div style={{ fontSize: 12, opacity: 0.74, ...MONO_STYLE }}>{asset.id}</div>
-                  <div style={{ fontSize: 12, opacity: 0.82 }}>{asset.detail}</div>
+                  <div className="hammer-copy-sm hammer-copy-muted hammer-mono">{asset.id}</div>
+                  <div className="hammer-copy-sm">{asset.detail}</div>
                 </div>
               ))
             ) : (
-              <div style={{ fontSize: 13, opacity: 0.78 }}>
+              <div className="hammer-copy-md hammer-copy-dim">
                 No {activeAssetPanel} assets are linked to this workpiece yet.
               </div>
             )}
@@ -2246,20 +2066,17 @@ export default function TranscriptSeekMock(
           event.preventDefault();
           beginPaneResize("left-center", event.clientX);
         }}
-        style={getPaneDividerStyle(activeResizeHandle === "left-center")}
+        className={getPaneDividerClassName(activeResizeHandle === "left-center")}
       />
 
       <div
-        style={{
-          ...PANE_STYLE,
-          display: "grid",
-          gridTemplateRows: "auto minmax(0, 1fr)",
-        }}
+        className="hammer-pane hammer-pane--center"
+        style={{ gridTemplateRows: "auto minmax(0, 1fr)" }}
       >
         <HammerPaneSection
           title="Media Source Status"
           subtitle="Media wiring stays separate from transport and edit-plan controls. This pane is the future home for real source health."
-          action={<span style={PILL_BASE_STYLE}>{playbackSourceLabel}</span>}
+          action={<span className="hammer-pill">{playbackSourceLabel}</span>}
         >
           <div style={{ display: "grid", gap: 4, fontSize: 12 }}>
             <div>media source kind: {resolvedLaunch.launch_context.media.kind}</div>
@@ -2286,12 +2103,12 @@ export default function TranscriptSeekMock(
                 </div>
               ) : null}
               {resolveResult?.status === "ok" ? (
-                <div style={{ ...MONO_STYLE, fontSize: 12, opacity: 0.72 }}>
+                <div className="hammer-copy-sm hammer-copy-muted hammer-mono">
                   resolved_uri: {resolveResult.playable_uri}
                 </div>
               ) : null}
               {resolveResult?.status === "unresolved" ? (
-                <div style={{ fontSize: 13, color: "#fde68a" }}>
+                <div className="hammer-copy-md hammer-copy-warning">
                   {resolveResult.user_message}
                   {" "}
                   Falling back to dev-tone preview audio.
@@ -2304,40 +2121,22 @@ export default function TranscriptSeekMock(
         <HammerPaneSection
           title="Preview Stage"
           subtitle="The center pane stays intentionally simple for now: live media, playhead, and the active preview state."
-          action={<span style={PILL_BASE_STYLE}>{sessionState.previewMode} preview</span>}
+          action={<span className="hammer-pill">{sessionState.previewMode} preview</span>}
           sectionStyle={{ minHeight: 0, overflow: "hidden" }}
           bodyStyle={{ minHeight: 0, overflow: "auto" }}
         >
-          <div
-            style={{
-              border: "1px solid rgba(148, 163, 184, 0.28)",
-              borderRadius: 12,
-              background: "linear-gradient(145deg, rgba(11, 20, 38, 0.9), rgba(2, 6, 23, 0.84))",
-              padding: 12,
-              display: "grid",
-              gap: 12,
-            }}
-          >
-            <div
-              style={{
-                border: "1px solid rgba(148, 163, 184, 0.18)",
-                borderRadius: 12,
-                background: "rgba(15, 23, 42, 0.54)",
-                padding: 12,
-                display: "grid",
-                gap: 8,
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                <strong style={{ color: "#dbe8ff" }}>Active Preview</strong>
-                <span style={{ fontSize: 12, opacity: 0.76 }}>
+          <div className="hammer-preview-card">
+            <div className="hammer-preview-card__summary">
+              <div className="hammer-preview-card__summary-head">
+                <strong className="hammer-copy-strong">Active Preview</strong>
+                <span className="hammer-copy-sm hammer-copy-muted">
                   {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
                 </span>
               </div>
-              <div style={{ fontSize: 16, color: "#dbe8ff" }}>
+              <div className="hammer-copy-lg">
                 {activeOverlayRow ? formatOverlayRowLabel(activeOverlayRow) : "No active row"}
               </div>
-              <div style={{ fontSize: 12, opacity: 0.72 }}>
+              <div className="hammer-copy-sm hammer-copy-muted">
                 selected row: {selectedOverlayRow ? formatOverlayRowLabel(selectedOverlayRow) : "none"}
                 {" · "}
                 skip: {lastPreviewSkip?.reason ?? "none"}
@@ -2345,9 +2144,9 @@ export default function TranscriptSeekMock(
             </div>
 
             {resolving ? (
-              <div style={{ fontSize: 13, opacity: 0.82 }}>Resolving media...</div>
+              <div className="hammer-copy-md hammer-copy-dim">Resolving media...</div>
             ) : resolveError ? (
-              <div style={{ color: "#fecaca", fontSize: 13 }}>{resolveError}</div>
+              <div className="hammer-copy-md hammer-copy-error">{resolveError}</div>
             ) : playbackSrc ? (
               <audio
                 ref={audioRef}
@@ -2379,33 +2178,24 @@ export default function TranscriptSeekMock(
                 }}
               />
             ) : (
-              <div style={{ fontSize: 13, color: "#fde68a" }}>
+              <div className="hammer-copy-md hammer-copy-warning">
                 No playback source is available yet.
               </div>
             )}
 
             {playbackError ? (
-              <div style={{ color: "#fecaca", fontSize: 12 }}>{playbackError}</div>
+              <div className="hammer-copy-sm hammer-copy-error">{playbackError}</div>
             ) : null}
 
-            <div style={{ fontSize: 13, opacity: 0.85 }}>
+            <div className="hammer-copy-md">
               Time: {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)} · {sessionState.previewMode} preview
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              <div
-                style={{
-                  height: 10,
-                  borderRadius: 999,
-                  border: "1px solid rgba(148, 163, 184, 0.25)",
-                  background: "rgba(2, 6, 23, 0.75)",
-                  overflow: "hidden",
-                }}
-              >
+              <div className="hammer-progress-track">
                 <div
+                  className="hammer-progress-fill"
                   style={{
                     width: `${progressPercent}%`,
-                    height: "100%",
-                    background: "linear-gradient(90deg, rgba(96, 165, 250, 0.75), rgba(14, 165, 233, 0.85))",
                   }}
                 />
               </div>
@@ -2432,28 +2222,20 @@ export default function TranscriptSeekMock(
           event.preventDefault();
           beginPaneResize("center-right", event.clientX);
         }}
-        style={getPaneDividerStyle(activeResizeHandle === "center-right")}
+        className={getPaneDividerClassName(activeResizeHandle === "center-right")}
       />
 
-      <div
-        style={{
-          ...PANE_STYLE,
-          display: "grid",
-          gap: 12,
-          alignContent: "start",
-          overflow: "auto",
-        }}
-      >
+      <div className="hammer-pane hammer-pane--right">
         <HammerPaneSection
           title={`${activeToolDefinition.label} Panel`}
           subtitle="The far-right workflow strip selects the tool. This content panel changes immediately and deterministically with the current tool."
           action={(
-            <div style={ACTION_ROW_STYLE}>
-              <span style={PILL_BASE_STYLE}>{activeToolDefinition.label}</span>
+            <div className="hammer-action-row">
+              <span className="hammer-pill">{activeToolDefinition.label}</span>
               <button
                 type="button"
                 onClick={() => setShowDebugPanels((current) => !current)}
-                style={getToggleButtonStyle(showDebugPanels)}
+                className={getToggleButtonClassName(showDebugPanels)}
               >
                 {showDebugPanels ? "Hide Debug" : "Show Debug"}
               </button>
@@ -2468,24 +2250,24 @@ export default function TranscriptSeekMock(
         <HammerPaneSection
           title="Launch Context"
           subtitle="This shows the single launch object currently driving Hammer startup and source resolution."
-          action={<span style={PILL_BASE_STYLE}>{resolvedLaunch.launch_context.source_mode}</span>}
+          action={<span className="hammer-pill">{resolvedLaunch.launch_context.source_mode}</span>}
         >
-          <div style={INSPECTOR_GRID_STYLE}>
+          <div className="hammer-inspector-grid">
             <div>
               <div style={{ fontSize: 11, opacity: 0.62 }}>source mode</div>
               <div>{resolvedLaunch.launch_context.source_mode}</div>
             </div>
             <div>
               <div style={{ fontSize: 11, opacity: 0.62 }}>workspace id</div>
-              <div style={MONO_STYLE}>{resolvedLaunch.launch_context.workspace_id}</div>
+              <div className="hammer-mono">{resolvedLaunch.launch_context.workspace_id}</div>
             </div>
             <div>
               <div style={{ fontSize: 11, opacity: 0.62 }}>workpiece id</div>
-              <div style={MONO_STYLE}>{resolvedLaunch.launch_context.workpiece_id}</div>
+              <div className="hammer-mono">{resolvedLaunch.launch_context.workpiece_id}</div>
             </div>
             <div>
               <div style={{ fontSize: 11, opacity: 0.62 }}>session id</div>
-              <div style={MONO_STYLE}>{resolvedLaunch.initial_session_id ?? "none"}</div>
+              <div className="hammer-mono">{resolvedLaunch.initial_session_id ?? "none"}</div>
             </div>
             <div>
               <div style={{ fontSize: 11, opacity: 0.62 }}>transcript source kind</div>
@@ -2505,20 +2287,20 @@ export default function TranscriptSeekMock(
         <HammerPaneSection
           title="Selected Row Inspector"
           subtitle="This is the debugging truth panel for the current row: identity, ancestry, timing, instruction effects, and resolved seek behavior."
-          action={<span style={PILL_BASE_STYLE}>{selectedOverlayRow ? selectedOverlayRow.row_id : "none"}</span>}
+          action={<span className="hammer-pill">{selectedOverlayRow ? selectedOverlayRow.row_id : "none"}</span>}
           sectionStyle={{ minHeight: 0, overflow: "hidden" }}
           bodyStyle={{ minHeight: 0, overflow: "auto" }}
         >
           {selectedOverlayRow ? (
             <>
-              <div style={INSPECTOR_GRID_STYLE}>
+              <div className="hammer-inspector-grid">
                 <div>
                   <div style={{ fontSize: 11, opacity: 0.62 }}>row identity</div>
-                  <div style={MONO_STYLE}>{selectedOverlayRow.row_id}</div>
+                  <div className="hammer-mono">{selectedOverlayRow.row_id}</div>
                 </div>
                 <div>
                   <div style={{ fontSize: 11, opacity: 0.62 }}>source segment ancestry</div>
-                  <div style={MONO_STYLE}>{formatSegmentAncestry(selectedOverlayRow.source_segment_ids)}</div>
+                  <div className="hammer-mono">{formatSegmentAncestry(selectedOverlayRow.source_segment_ids)}</div>
                 </div>
                 <div>
                   <div style={{ fontSize: 11, opacity: 0.62 }}>raw timing</div>
@@ -2586,17 +2368,17 @@ export default function TranscriptSeekMock(
           title="Edit Plan Panel"
           subtitle="Plan state, round-trip controls, and the instruction stack live together so plan-level operations stay out of row editing."
           action={(
-            <span style={getEditPlanStatusBadgeStyle(sessionState.editPlanStatus)}>
+            <span className={getEditPlanStatusBadgeClassName(sessionState.editPlanStatus)}>
               {currentEditPlan.edit_plan_id} · {sessionState.editPlanStatus}
             </span>
           )}
           sectionStyle={{ minHeight: 0, overflow: "hidden" }}
           bodyStyle={{ minHeight: 0, overflow: "auto" }}
         >
-          <div style={INSPECTOR_GRID_STYLE}>
+          <div className="hammer-inspector-grid">
             <div>
               <div style={{ fontSize: 11, opacity: 0.62 }}>plan id</div>
-              <div style={MONO_STYLE}>{currentEditPlan.edit_plan_id}</div>
+              <div className="hammer-mono">{currentEditPlan.edit_plan_id}</div>
             </div>
             <div>
               <div style={{ fontSize: 11, opacity: 0.62 }}>preview mode</div>
@@ -2620,7 +2402,7 @@ export default function TranscriptSeekMock(
             </div>
           </div>
 
-          <div style={ACTION_ROW_STYLE}>
+          <div className="hammer-action-row">
             <button
               type="button"
               disabled={editInstructions.length === 0}
@@ -2675,13 +2457,13 @@ export default function TranscriptSeekMock(
                     <span
                       style={{
                         minWidth: 60,
-                        ...MONO_STYLE,
                         color: "#dbe8ff",
                       }}
+                      className="hammer-mono"
                     >
                       {instruction.type.toUpperCase()}
                     </span>
-                    <span style={MONO_STYLE}>
+                    <span className="hammer-mono">
                       {formatInstructionTarget(instruction)}
                     </span>
                     {detail ? (
@@ -2723,8 +2505,8 @@ export default function TranscriptSeekMock(
                 color: "#dbe8ff",
                 padding: 10,
                 fontSize: 12,
-                ...MONO_STYLE,
               }}
+              className="hammer-mono"
             />
           </div>
         </HammerPaneSection>
@@ -2733,7 +2515,7 @@ export default function TranscriptSeekMock(
           <HammerPaneSection
             title="Debug Panels"
             subtitle="Launch context, inspector, and edit-plan round-trip diagnostics are hidden until explicitly requested."
-            action={<span style={PILL_BASE_STYLE}>hidden</span>}
+            action={<span className="hammer-pill">hidden</span>}
           >
             <div style={{ fontSize: 13, opacity: 0.78 }}>
               Toggle debug to inspect launch payloads, row truth data, and edit-plan JSON round-trip state without turning the main editor into a diagnostics console.
@@ -2742,12 +2524,12 @@ export default function TranscriptSeekMock(
         )}
       </div>
 
-      <div style={TOOL_STRIP_STYLE}>
-        <div style={{ display: "grid", gap: 4, justifyItems: "center" }}>
-          <strong style={{ color: "#dbe8ff", fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+      <div className="hammer-pane hammer-pane--tool-strip">
+        <div className="hammer-tool-strip__head">
+          <strong className="hammer-tool-strip__title">
             Tools
           </strong>
-          <span style={{ fontSize: 11, opacity: 0.62, textAlign: "center" }}>
+          <span className="hammer-tool-strip__caption">
             Fixed workflow strip
           </span>
         </div>
@@ -2756,7 +2538,7 @@ export default function TranscriptSeekMock(
             key={tool.id}
             type="button"
             onClick={() => setActiveTool(tool.id)}
-            style={getToolStripButtonStyle(activeTool === tool.id)}
+            className={getToolStripButtonClassName(activeTool === tool.id)}
           >
             <strong style={{ fontSize: 18, lineHeight: 1 }}>{tool.shortLabel}</strong>
             <span style={{ fontSize: 11 }}>{tool.label}</span>
@@ -2766,18 +2548,18 @@ export default function TranscriptSeekMock(
         </div>
       </div>
 
-      <div style={TIMELINE_PANE_STYLE}>
+      <div className="hammer-pane hammer-pane--timeline">
         <HammerPaneSection
           title="Timeline"
           subtitle="Hammer stays transcript-first, but the bottom timeline remains a real multi-track editing surface for placement, layering, and track-aware work."
           action={(
-            <div style={TAB_ROW_STYLE}>
+            <div className="hammer-tab-row">
               {TIMELINE_TOOL_ORDER.map((tool) => (
                 <button
                   key={tool.id}
                   type="button"
                   onClick={() => setActiveTimelineTool(tool.id)}
-                  style={getToggleButtonStyle(activeTimelineTool === tool.id)}
+                  className={getToggleButtonClassName(activeTimelineTool === tool.id)}
                 >
                   {tool.label}
                 </button>
@@ -2787,34 +2569,20 @@ export default function TranscriptSeekMock(
           sectionStyle={{ minHeight: 0, overflow: "hidden" }}
           bodyStyle={{ minHeight: 0, overflow: "auto" }}
         >
-          <div style={META_STRIP_STYLE}>
-            <span style={PILL_BASE_STYLE}>tool {activeTimelineTool}</span>
-            <span style={PILL_BASE_STYLE}>tracks {timelineTracks.length}</span>
-            <span style={PILL_BASE_STYLE}>playhead {formatClock(currentTimeSec)}</span>
+          <div className="hammer-meta-strip">
+            <span className="hammer-pill">tool {activeTimelineTool}</span>
+            <span className="hammer-pill">tracks {timelineTracks.length}</span>
+            <span className="hammer-pill">playhead {formatClock(currentTimeSec)}</span>
           </div>
           <div style={{ display: "grid", gap: 10 }}>
             {timelineTracks.map((track) => (
-              <div
-                key={track.id}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "150px minmax(0, 1fr)",
-                  gap: 12,
-                  alignItems: "center",
-                }}
-              >
-                <div style={{ display: "grid", gap: 4 }}>
-                  <strong style={{ color: "#dbe8ff", fontSize: 13 }}>{track.label}</strong>
-                  <span style={{ fontSize: 11, opacity: 0.64 }}>{track.id}</span>
+              <div key={track.id} className="hammer-timeline-track">
+                <div className="hammer-timeline-track__label">
+                  <strong className="hammer-timeline-track__title">{track.label}</strong>
+                  <span className="hammer-timeline-track__meta">{track.id}</span>
                 </div>
-                <div style={TRACK_VIEWPORT_STYLE}>
-                  <div
-                    style={{
-                      position: "absolute",
-                      inset: 0,
-                      background: "linear-gradient(90deg, rgba(15, 23, 42, 0.72), rgba(2, 6, 23, 0.92))",
-                    }}
-                  />
+                <div className="hammer-track-viewport">
+                  <div className="hammer-track-viewport__backdrop" />
                   {track.clips.map((clip) => {
                     const left = clamp((clip.start_sec / effectiveDurationSec) * 100, 0, 100);
                     const width = clamp(((clip.end_sec - clip.start_sec) / effectiveDurationSec) * 100, 1.2, 100);
@@ -2822,23 +2590,11 @@ export default function TranscriptSeekMock(
                       <div
                         key={clip.id}
                         title={`${clip.label} · ${formatClock(clip.start_sec)}-${formatClock(clip.end_sec)}`}
+                        className="hammer-timeline-clip"
                         style={{
-                          position: "absolute",
-                          top: 8,
-                          bottom: 8,
                           left: `${left}%`,
                           width: `${width}%`,
-                          minWidth: 10,
-                          borderRadius: 8,
                           background: clip.tone,
-                          border: "1px solid rgba(255, 255, 255, 0.18)",
-                          padding: "4px 8px",
-                          overflow: "hidden",
-                          whiteSpace: "nowrap",
-                          textOverflow: "ellipsis",
-                          color: "#0f172a",
-                          fontSize: 11,
-                          fontWeight: 700,
                         }}
                       >
                         {clip.label}
@@ -2847,15 +2603,8 @@ export default function TranscriptSeekMock(
                   })}
                   <div
                     aria-hidden="true"
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      bottom: 0,
-                      left: `${playheadPercent}%`,
-                      width: 2,
-                      background: "#f8fafc",
-                      boxShadow: "0 0 0 1px rgba(248, 250, 252, 0.28)",
-                    }}
+                    className="hammer-track-viewport__playhead"
+                    style={{ left: `${playheadPercent}%` }}
                   />
                 </div>
               </div>
