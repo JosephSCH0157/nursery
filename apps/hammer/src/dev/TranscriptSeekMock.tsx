@@ -86,6 +86,10 @@ type TimelineClip = {
   end_sec: number;
   label: string;
   tone: string;
+  linked_row_id?: string | null;
+  linked_segment_id?: string | null;
+  editable?: boolean;
+  ripple_hint?: boolean;
 };
 
 type TimelineTrack = {
@@ -370,6 +374,25 @@ function formatSourceModeLabel(mode: HammerLaunchSourceMode): string {
       return "Tongs-linked";
     default:
       return mode;
+  }
+}
+
+function getTimelineToolHint(tool: TimelineToolId): string {
+  switch (tool) {
+    case "select":
+      return "Select mode keeps transcript-linked clips in focus so you can inspect the current row across tracks.";
+    case "hand":
+      return "Hand / Move mode is reserved for timeline navigation and future repositioning work.";
+    case "cut":
+      return "Cut / Split mode exposes trim edges and ripple cues where downstream timing would shift.";
+    case "marker":
+      return "Marker mode is the future home for review anchors and editorial notes.";
+    case "comment":
+      return "Comment mode will add discussion anchors without changing the edit plan.";
+    case "text":
+      return "Text mode prepares title cards and transcript-linked overlays without leaving Hammer.";
+    default:
+      return "Timeline tools stay grounded in the current transcript and edit-plan state.";
   }
 }
 
@@ -1297,6 +1320,18 @@ export default function TranscriptSeekMock(
     }
   }
 
+  function selectTimelineClip(clip: TimelineClip) {
+    if (clip.linked_row_id) {
+      const linkedRow = overlayRowById.get(clip.linked_row_id) ?? null;
+      if (linkedRow) {
+        seekToRow(linkedRow);
+        return;
+      }
+    }
+
+    seekTo(clip.start_sec, undefined, clip.linked_segment_id ?? undefined);
+  }
+
   function resetPreview() {
     const audio = audioRef.current;
     if (audio) {
@@ -1508,6 +1543,28 @@ export default function TranscriptSeekMock(
     `playable ${formatPlaybackRangeLabel(activePlayableRange)}`,
     `skip ${lastPreviewSkip?.reason ?? "none"}`,
   ].join(" · ");
+  const timelineFocusRow = activeOverlayRow ?? selectedOverlayRow;
+  const timelineFocusLabel = timelineFocusRow ? formatOverlayRowLabel(timelineFocusRow) : "none";
+  const timelineToolHint = getTimelineToolHint(activeTimelineTool);
+  const selectedRowHasTimelineEditCue = Boolean(
+    selectedOverlayRow?.is_deleted
+    || selectedOverlayRow?.is_trimmed
+    || selectedSegmentDeleteInstruction
+    || selectedSegmentTrimInstruction
+    || selectedSegmentSplitInstruction
+    || selectedSegmentMergeInstruction,
+  );
+  const timelineRippleLabel = !selectedOverlayRow
+    ? "Select a transcript row to see where ripple or trim behavior would matter."
+    : selectedOverlayRow.is_deleted || selectedSegmentDeleteInstruction
+    ? "This row is staged as a cut, so downstream row-linked clips would close the gap."
+    : selectedOverlayRow.is_trimmed || selectedSegmentTrimInstruction
+    ? "This row has a timing trim staged; trim edges show where the edit would tighten."
+    : selectedSegmentSplitInstruction
+    ? "This row has a split staged; the cut point is now the primary timeline cue."
+    : selectedSegmentMergeInstruction
+    ? "This row is merged into the next same-speaker line, reducing the visible boundary."
+    : "No ripple or trim action is staged on the selected row yet.";
   const sourceModeLabel = formatSourceModeLabel(resolvedLaunch.launch_context.source_mode);
   const resolvedDurationMs = resolveResult?.status === "ok" ? resolveResult.duration_ms ?? null : null;
   const primaryAssetDurationLabel = formatDurationMs(mediaRef?.duration_ms ?? resolvedDurationMs)
@@ -1997,6 +2054,10 @@ export default function TranscriptSeekMock(
           : row.structure === "split"
           ? "#818cf8"
           : "#60a5fa",
+        linked_row_id: row.row_id,
+        linked_segment_id: row.anchor_segment_id,
+        editable: true,
+        ripple_hint: row.is_deleted || row.is_trimmed || row.structure !== "base",
       }));
 
       return [
@@ -2011,7 +2072,17 @@ export default function TranscriptSeekMock(
           id: "audio-bed",
           label: "Music / Bed Audio",
           clips: selectedSegmentMuteInstruction
-            ? [{ id: "music-bed", start_sec: 0, end_sec: effectiveDurationSec, label: "bed", tone: "#f59e0b" }]
+            ? [{
+              id: "music-bed",
+              start_sec: 0,
+              end_sec: effectiveDurationSec,
+              label: "bed",
+              tone: "#f59e0b",
+              linked_row_id: selectedOverlayRow?.row_id ?? null,
+              linked_segment_id: selectedOverlayRow?.anchor_segment_id ?? null,
+              editable: false,
+              ripple_hint: false,
+            }]
             : [],
         },
         {
@@ -2024,6 +2095,10 @@ export default function TranscriptSeekMock(
               end_sec: selectedOverlayRow.end_sec,
               label: "text",
               tone: "#f472b6",
+              linked_row_id: selectedOverlayRow.row_id,
+              linked_segment_id: selectedOverlayRow.anchor_segment_id,
+              editable: true,
+              ripple_hint: selectedOverlayRow.is_trimmed || selectedOverlayRow.is_deleted,
             }]
             : [],
         },
@@ -3004,32 +3079,102 @@ export default function TranscriptSeekMock(
             <span className="hammer-pill">tool {activeTimelineTool}</span>
             <span className="hammer-pill">tracks {timelineTracks.length}</span>
             <span className="hammer-pill">playhead {formatClock(currentTimeSec)}</span>
+            <span className="hammer-pill">focus {timelineFocusLabel}</span>
           </div>
-          <div style={{ display: "grid", gap: 10 }}>
+          <div className="hammer-timeline-status">
+            <div className="hammer-timeline-status__head">
+              <div className="hammer-stack-4">
+                <strong className="hammer-copy-strong">Timeline Focus</strong>
+                <div className="hammer-copy-sm hammer-copy-muted">{timelineToolHint}</div>
+              </div>
+              <div className="hammer-meta-strip">
+                <span className={cx("hammer-pill", activeOverlayRow && "hammer-pill--playing")}>
+                  active {activeOverlayRow ? activeOverlayRow.row_id : "none"}
+                </span>
+                <span className="hammer-pill">selected {selectedOverlayRow ? selectedOverlayRow.row_id : "none"}</span>
+              </div>
+            </div>
+            <div className="hammer-inspector-grid">
+              <div>
+                <div className="hammer-label">current transcript row</div>
+                <div>{timelineFocusLabel}</div>
+              </div>
+              <div>
+                <div className="hammer-label">tool feedback</div>
+                <div>{TIMELINE_TOOL_ORDER.find((tool) => tool.id === activeTimelineTool)?.label ?? activeTimelineTool}</div>
+              </div>
+              <div>
+                <div className="hammer-label">trim / ripple cue</div>
+                <div>{timelineRippleLabel}</div>
+              </div>
+              <div>
+                <div className="hammer-label">edit state</div>
+                <div>{selectedRowHasTimelineEditCue ? selectedRowEffects : "no staged clip edit"}</div>
+              </div>
+            </div>
+          </div>
+          <div className="hammer-timeline-track-list">
             {timelineTracks.map((track) => (
               <div key={track.id} className="hammer-timeline-track">
+                {(() => {
+                  const trackHasSelectedClip = track.clips.some((clip) => clip.linked_row_id === selectedOverlayRow?.row_id);
+                  const trackHasActiveClip = track.clips.some((clip) => clip.linked_row_id === activeOverlayRow?.row_id);
+
+                  return (
+                    <>
                 <div className="hammer-timeline-track__label">
                   <strong className="hammer-timeline-track__title">{track.label}</strong>
-                  <span className="hammer-timeline-track__meta">{track.id}</span>
+                  <span className="hammer-timeline-track__meta">
+                    {track.id}
+                    {trackHasSelectedClip ? " · selected row" : trackHasActiveClip ? " · active playback" : ""}
+                  </span>
                 </div>
-                <div className="hammer-track-viewport">
+                <div className={cx(
+                  "hammer-track-viewport",
+                  trackHasSelectedClip && "is-selected",
+                  trackHasActiveClip && "is-active",
+                )}>
                   <div className="hammer-track-viewport__backdrop" />
                   {track.clips.map((clip) => {
                     const left = clamp((clip.start_sec / effectiveDurationSec) * 100, 0, 100);
                     const width = clamp(((clip.end_sec - clip.start_sec) / effectiveDurationSec) * 100, 1.2, 100);
+                    const isSelected = clip.linked_row_id === selectedOverlayRow?.row_id;
+                    const isActive = clip.linked_row_id === activeOverlayRow?.row_id
+                      || (currentTimeSec >= clip.start_sec && currentTimeSec <= clip.end_sec && !clip.linked_row_id);
+                    const showTrimHandles = activeTimelineTool === "cut" && clip.editable && (isSelected || isActive);
+                    const showRippleCue = (activeTimelineTool === "cut" || activeTimelineTool === "select")
+                      && clip.ripple_hint
+                      && (isSelected || isActive);
                     return (
-                      <div
+                      <button
                         key={clip.id}
+                        type="button"
                         title={`${clip.label} · ${formatClock(clip.start_sec)}-${formatClock(clip.end_sec)}`}
-                        className="hammer-timeline-clip"
+                        onClick={() => selectTimelineClip(clip)}
+                        className={cx(
+                          "hammer-timeline-clip",
+                          clip.editable && "is-editable",
+                          isSelected && "is-selected",
+                          isActive && "is-active",
+                          showTrimHandles && "has-trim-handles",
+                        )}
                         style={{
                           left: `${left}%`,
                           width: `${width}%`,
                           background: clip.tone,
                         }}
                       >
+                        {showTrimHandles ? (
+                          <>
+                            <span className="hammer-timeline-clip__trim-handle hammer-timeline-clip__trim-handle--start" />
+                            <span className="hammer-timeline-clip__trim-handle hammer-timeline-clip__trim-handle--end" />
+                          </>
+                        ) : null}
                         {clip.label}
-                      </div>
+                        {showRippleCue ? (
+                          <span className="hammer-timeline-clip__ripple-cue">Ripple</span>
+                        ) : null}
+                      </button>
                     );
                   })}
                   <div
@@ -3038,6 +3183,9 @@ export default function TranscriptSeekMock(
                     style={{ left: `${playheadPercent}%` }}
                   />
                 </div>
+                    </>
+                  );
+                })()}
               </div>
             ))}
           </div>
