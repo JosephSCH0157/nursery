@@ -818,6 +818,7 @@ export default function TranscriptSeekMock(
   const transcriptRowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const activeRowRef = useRef<HTMLDivElement | null>(null);
   const transcriptRevealTimeoutRef = useRef<number | null>(null);
+  const suppressNextPreviewBoundaryActionRef = useRef(false);
   const paneResizeStateRef = useRef<HammerPaneResizeState | null>(null);
   const resolver = useMemo(() => new V1HammerMediaResolver(), []);
   const launchContext = useMemo(
@@ -1455,6 +1456,10 @@ export default function TranscriptSeekMock(
   useEffect(() => {
     const media = mediaElementRef.current;
     if (!media) return;
+    if (suppressNextPreviewBoundaryActionRef.current) {
+      suppressNextPreviewBoundaryActionRef.current = false;
+      return;
+    }
     const nextAction = resolvePreviewBoundaryAction(
       rawActivePlaybackRange,
       playbackRanges,
@@ -1804,8 +1809,16 @@ export default function TranscriptSeekMock(
     media.pause();
   }
 
-  function seekTo(nextSec: number, selectedRowId?: string, selectedSegmentRowId?: string) {
+  function seekTo(
+    nextSec: number,
+    selectedRowId?: string,
+    selectedSegmentRowId?: string,
+    options?: { suppressPreviewBoundaryOnce?: boolean },
+  ) {
     const bounded = clamp(nextSec, 0, effectiveDurationSec);
+    if (options?.suppressPreviewBoundaryOnce) {
+      suppressNextPreviewBoundaryActionRef.current = true;
+    }
     const media = mediaElementRef.current;
     if (media) {
       media.currentTime = bounded;
@@ -1819,6 +1832,16 @@ export default function TranscriptSeekMock(
     if (target.timeSec == null) return;
     const targetRow = target.row_id ? (overlayRowById.get(target.row_id) ?? null) : null;
     seekTo(target.timeSec, targetRow?.row_id, targetRow?.anchor_segment_id);
+    setLastPreviewSkip(null);
+  }
+
+  function selectTranscriptRow(row: TranscriptOverlayRow) {
+    seekTo(
+      row.start_sec,
+      row.row_id,
+      row.anchor_segment_id,
+      { suppressPreviewBoundaryOnce: true },
+    );
     setLastPreviewSkip(null);
   }
 
@@ -3290,7 +3313,7 @@ export default function TranscriptSeekMock(
                 >
                     <button
                       type="button"
-                      onClick={() => seekToRow(row)}
+                      onClick={() => selectTranscriptRow(row)}
                       aria-current={isActive ? "true" : undefined}
                       className="hammer-script-row__button"
                     >
