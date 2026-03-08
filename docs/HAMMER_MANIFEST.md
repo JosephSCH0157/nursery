@@ -9,6 +9,10 @@ The interface must support spoken-content editing workflows without turning into
 
 These rules define the canonical Hammer interface.
 
+Companion interaction architecture:
+
+- [`docs/HAMMER_EDITOR_ARCHITECTURE.md`](./HAMMER_EDITOR_ARCHITECTURE.md)
+
 ---
 
 # 1. Entry Flow

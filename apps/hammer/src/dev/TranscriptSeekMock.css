@@ -154,11 +154,22 @@
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.hammer-toggle-button:hover {
+  border-color: rgba(96, 165, 250, 0.38);
+  color: #dbe8ff;
 }
 
 .hammer-toggle-button.is-active {
   background: rgba(59, 130, 246, 0.2);
   color: #dbe8ff;
+}
+
+.hammer-toggle-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.32);
 }
 
 .hammer-editor-shell__divider {
@@ -186,11 +197,23 @@
   padding: 10px 8px;
   cursor: pointer;
   text-align: center;
+  transition: border-color 140ms ease, background 140ms ease, color 140ms ease, transform 140ms ease;
+}
+
+.hammer-tool-button:hover {
+  border-color: rgba(96, 165, 250, 0.36);
+  color: #dbe8ff;
+  transform: translateY(-1px);
 }
 
 .hammer-tool-button.is-active {
   background: rgba(59, 130, 246, 0.22);
   color: #dbe8ff;
+}
+
+.hammer-tool-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.32);
 }
 
 .hammer-tool-strip__head {
@@ -291,11 +314,22 @@
   padding: 6px 10px;
   font-size: 12px;
   cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+}
+
+.hammer-button-xs:hover:not(:disabled) {
+  border-color: rgba(96, 165, 250, 0.4);
+  background: rgba(30, 41, 59, 0.92);
 }
 
 .hammer-button-xs:disabled {
   opacity: 0.52;
   cursor: not-allowed;
+}
+
+.hammer-button-xs:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.32);
 }
 
 .hammer-asset-card {
@@ -407,7 +441,8 @@
   color: #c7d2fe;
 }
 
-.hammer-polish-focus {
+.hammer-polish-focus,
+.hammer-audio-focus {
   border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 12px;
   background: rgba(2, 6, 23, 0.42);
@@ -417,7 +452,9 @@
 }
 
 .hammer-polish-focus__head,
-.hammer-polish-output__head {
+.hammer-polish-output__head,
+.hammer-audio-focus__head,
+.hammer-audio-output__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -425,7 +462,8 @@
   flex-wrap: wrap;
 }
 
-.hammer-polish-output {
+.hammer-polish-output,
+.hammer-audio-output {
   border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 12px;
   background: rgba(2, 6, 23, 0.42);
@@ -434,7 +472,8 @@
   gap: 10px;
 }
 
-.hammer-polish-output__list {
+.hammer-polish-output__list,
+.hammer-audio-output__list {
   margin: 0;
   padding-left: 18px;
   display: grid;
@@ -474,6 +513,10 @@
   gap: 6px;
   color: inherit;
   cursor: pointer;
+}
+
+.hammer-script-row__button:focus-visible {
+  outline: none;
 }
 
 .hammer-script-row__meta {
@@ -654,6 +697,49 @@
   align-items: center;
 }
 
+.hammer-timeline-ruler {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 12px;
+  align-items: end;
+}
+
+.hammer-timeline-ruler__label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.58;
+  color: #c8d6ea;
+}
+
+.hammer-timeline-ruler__track {
+  position: relative;
+  min-height: 24px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  margin-bottom: 2px;
+}
+
+.hammer-timeline-ruler__tick {
+  position: absolute;
+  bottom: 0;
+  transform: translateX(-50%);
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+}
+
+.hammer-timeline-ruler__tick::before {
+  content: "";
+  width: 1px;
+  height: 8px;
+  background: rgba(148, 163, 184, 0.34);
+}
+
+.hammer-timeline-ruler__tick-label {
+  font-size: 10px;
+  color: rgba(200, 214, 234, 0.72);
+}
+
 .hammer-timeline-track-list {
   display: grid;
   gap: 10px;
@@ -715,6 +801,17 @@
   background: linear-gradient(90deg, rgba(15, 23, 42, 0.72), rgba(2, 6, 23, 0.92));
 }
 
+.hammer-track-viewport__empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 0 16px;
+  font-size: 12px;
+  color: rgba(200, 214, 234, 0.62);
+  text-align: center;
+}
+
 .hammer-timeline-clip {
   position: absolute;
   top: 8px;
@@ -734,10 +831,15 @@
   align-content: center;
   text-align: left;
   box-shadow: none;
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease, opacity 140ms ease;
 }
 
 .hammer-timeline-clip.is-editable {
   cursor: pointer;
+}
+
+.hammer-timeline-clip:hover {
+  transform: translateY(-1px);
 }
 
 .hammer-timeline-clip.is-selected {
@@ -753,6 +855,11 @@
 .hammer-timeline-clip.has-trim-handles {
   padding-left: 14px;
   padding-right: 14px;
+}
+
+.hammer-timeline-clip:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(248, 250, 252, 0.28), 0 0 0 4px rgba(96, 165, 250, 0.28);
 }
 
 .hammer-timeline-clip__trim-handle {
@@ -794,4 +901,10 @@
   width: 2px;
   background: #f8fafc;
   box-shadow: 0 0 0 1px rgba(248, 250, 252, 0.28);
+}
+
+.hammer-track-viewport__playhead--ruler {
+  top: auto;
+  bottom: -1px;
+  height: 18px;
 }
