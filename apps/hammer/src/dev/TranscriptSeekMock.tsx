@@ -379,6 +379,21 @@ function formatExtensionLabel(extension: string): string {
   return normalized ? normalized.toUpperCase() : "MEDIA";
 }
 
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tagName = target.tagName.toLowerCase();
+  if (tagName === "input" || tagName === "textarea" || tagName === "select") {
+    return true;
+  }
+  return target.isContentEditable;
+}
+
+function formatSnippet(text: string, maxLength = 56): string {
+  const normalized = text.trim().replace(/\s+/g, " ");
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
+}
+
 function buildHammerDevMediaUrl(localRootAbs: string, localRelpath: string): string {
   const params = new URLSearchParams({
     local_root_abs: localRootAbs,
@@ -816,7 +831,6 @@ export default function TranscriptSeekMock(
   const mediaElementRef = useRef<HTMLMediaElement | null>(null);
   const transcriptScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const transcriptRowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const activeRowRef = useRef<HTMLDivElement | null>(null);
   const transcriptRevealTimeoutRef = useRef<number | null>(null);
   const suppressNextPreviewBoundaryActionRef = useRef(false);
   const paneResizeStateRef = useRef<HammerPaneResizeState | null>(null);
@@ -975,9 +989,9 @@ export default function TranscriptSeekMock(
     : `Transcript: ${transcriptLoad.source_label}`;
   const transcriptStatusDetail = activeDevRecording
     ? activeDevRecording.transcript_sidecar_relpath
-      ? "A transcript sidecar was found for this media. Hammer is still using the current transcript until transcript import is wired."
-      : "No transcript found for this media. Hammer is keeping the current transcript as a mock fallback."
-    : "Select a recording below to attach real media while Hammer keeps the current transcript stable.";
+      ? "Sidecar found. Hammer is still using the current transcript until import is wired."
+      : "No transcript found. Hammer is keeping the current transcript as a mock fallback."
+    : "Attach a recording below while Hammer keeps the current transcript stable.";
 
   useEffect(() => {
     const persistedLayout = readSessionPaneLayout(paneLayoutStorageKey);
@@ -1509,6 +1523,47 @@ export default function TranscriptSeekMock(
     ),
     [activeOverlayRowId, overlayRows],
   );
+  const playheadOverlayRow = useMemo(
+    () => (
+      activeOverlayRow
+      ?? (rawActivePlaybackRange?.row_id
+        ? overlayRowById.get(rawActivePlaybackRange.row_id) ?? null
+        : null)
+    ),
+    [activeOverlayRow, overlayRowById, rawActivePlaybackRange?.row_id],
+  );
+  const playheadSegment = useMemo(
+    () => (playheadOverlayRow ? (segmentById.get(playheadOverlayRow.anchor_segment_id) ?? null) : null),
+    [playheadOverlayRow, segmentById],
+  );
+  const playheadSegmentTitle = playheadOverlayRow
+    ? `${playheadOverlayRow.speaker} - "${formatSnippet(playheadSegment?.text ?? playheadOverlayRow.blocks[0]?.text ?? playheadOverlayRow.anchor_segment_id)}"`
+    : "No segment at playhead";
+  const playheadSegmentDetail = playheadOverlayRow
+    ? `${playheadOverlayRow.anchor_segment_id} · ${formatClock(playheadOverlayRow.start_sec)}-${formatClock(playheadOverlayRow.end_sec)}`
+    : !playbackSrc
+    ? "Preview is offline, so there is no active transcript segment yet."
+    : "Move the playhead or start playback to see which transcript segment Hammer is currently on.";
+  const segmentStepBaseRow = selectedOverlayRow ?? playheadOverlayRow ?? overlayRows[0] ?? null;
+  const segmentStepBaseIndex = useMemo(
+    () => (segmentStepBaseRow ? overlayRows.findIndex((row) => row.row_id === segmentStepBaseRow.row_id) : -1),
+    [overlayRows, segmentStepBaseRow],
+  );
+  const previousSegmentRow = segmentStepBaseIndex > 0
+    ? overlayRows[segmentStepBaseIndex - 1] ?? null
+    : null;
+  const nextSegmentRow = segmentStepBaseIndex >= 0
+    ? overlayRows[segmentStepBaseIndex + 1] ?? null
+    : null;
+  function stepToPreviousSegment() {
+    if (!previousSegmentRow) return;
+    selectTranscriptRow(previousSegmentRow);
+  }
+
+  function stepToNextSegment() {
+    if (!nextSegmentRow) return;
+    selectTranscriptRow(nextSegmentRow);
+  }
 
   const selectedOverlayPlaybackRange = useMemo(
     () => (
@@ -1729,23 +1784,6 @@ export default function TranscriptSeekMock(
   ), []);
 
   useEffect(() => {
-    const container = transcriptScrollContainerRef.current;
-    const activeRowElement = activeRowRef.current;
-    if (!container || !activeRowElement || !activeOverlayRowId) return;
-
-    const centeredTop = activeRowElement.offsetTop - (container.clientHeight / 2) + (activeRowElement.clientHeight / 2);
-    const boundedTop = clamp(
-      centeredTop,
-      0,
-      Math.max(container.scrollHeight - container.clientHeight, 0),
-    );
-    container.scrollTo({
-      top: boundedTop,
-      behavior: "smooth",
-    });
-  }, [activeOverlayRowId]);
-
-  useEffect(() => {
     if (!pendingTranscriptRevealRowId) return;
 
     const container = transcriptScrollContainerRef.current;
@@ -1844,6 +1882,32 @@ export default function TranscriptSeekMock(
     );
     setLastPreviewSkip(null);
   }
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      if (isEditableTarget(event.target)) return;
+      if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+
+      if (event.key === "ArrowUp") {
+        if (!previousSegmentRow) return;
+        event.preventDefault();
+        stepToPreviousSegment();
+        return;
+      }
+
+      if (event.key === "ArrowDown") {
+        if (!nextSegmentRow) return;
+        event.preventDefault();
+        stepToNextSegment();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [nextSegmentRow, previousSegmentRow]);
 
   function seekToRow(row: TranscriptOverlayRow) {
     const playbackRange = playbackRanges.find((range) => range.row_id === row.row_id) ?? null;
@@ -2262,8 +2326,8 @@ export default function TranscriptSeekMock(
   const previewSourceDetail = useMemo(() => {
     if (resolving) {
       return activeDevRecording
-        ? "Connecting the selected recording for preview."
-        : "Resolving project media for preview.";
+        ? "Connecting the selected recording."
+        : "Resolving project media.";
     }
     if (resolveError) return resolveError;
     if (resolveResult?.status === "unresolved") {
@@ -2271,11 +2335,11 @@ export default function TranscriptSeekMock(
     }
     if (activeDevRecording) {
       return activeDevRecording.transcript_sidecar_relpath
-        ? "Selected recording is attached. Transcript import is not wired yet, so Hammer is still using the current transcript."
-        : "Selected recording is attached. No transcript was found, so Hammer is using the current transcript as a mock fallback.";
+        ? "Selected recording attached. Hammer is still using the current transcript."
+        : "Selected recording attached. Hammer is using the current transcript as a mock fallback.";
     }
     if (badgeVm?.tooltip) return badgeVm.tooltip;
-    return "Select a script row to verify timing, cuts, and pacing.";
+    return "Select a script row to verify timing and cuts.";
   }, [activeDevRecording, badgeVm?.tooltip, resolveError, resolveResult, resolving]);
   const previewPlaybackTruthLabel = useMemo(() => {
     if (!playbackSrc) return "Unavailable";
@@ -2294,12 +2358,12 @@ export default function TranscriptSeekMock(
       return "Preview transport does not have a playable source yet.";
     }
     if (activeMediaUsesDevTone) {
-      return "Preview is running on the generated dev fallback because no media is attached.";
+      return "Preview is running on the generated dev fallback.";
     }
     if (preferDevAudioFallback || !resolvedMediaSrc) {
       return activeDevRecording
-        ? "The selected recording is attached, but transport is still running on the dev fallback."
-        : "Mapped launch media is not driving transport, so preview is running on the dev fallback.";
+        ? "The selected recording is attached, but transport is still on the dev fallback."
+        : "Launch media is not driving transport, so preview is still on the dev fallback.";
     }
     return activeDevRecording
       ? "Transport is playing from the selected recording."
@@ -2323,8 +2387,8 @@ export default function TranscriptSeekMock(
   }, [activeDevRecording, transcriptLoad.kind]);
   const previewModeTruthLabel = sessionState.previewMode === "raw" ? "Raw preview" : "Edit-aware preview";
   const previewModeTruthDetail = sessionState.previewMode === "raw"
-    ? "Transport ignores staged edits and lets you inspect the untouched source behavior."
-    : "Transport follows the staged edit plan so you can review timing and cut intent.";
+    ? "Transport ignores staged edits."
+    : "Transport follows the staged edit plan.";
   const previewTruthSummary = useMemo(() => {
     if (!playbackSrc) {
       return "Preview is offline right now.";
@@ -2337,7 +2401,7 @@ export default function TranscriptSeekMock(
         ? activeDevRecording.transcript_sidecar_relpath
           ? "Media is attached, playback is still on the dev fallback, and Hammer is holding the current transcript."
           : "Media is attached, playback is still on the dev fallback, and Hammer is still using the mock transcript."
-        : "Launch media is attached, but preview is still running on the dev fallback.";
+        : "Launch media is attached, but preview is still on the dev fallback.";
     }
     return activeDevRecording
       ? activeDevRecording.transcript_sidecar_relpath
@@ -3106,13 +3170,13 @@ export default function TranscriptSeekMock(
         >
           <div
             className="hammer-pane hammer-pane--left"
-            style={{ gridTemplateRows: "minmax(0, 1fr)" }}
+            style={{ gridTemplateRows: activeWorkPanel === "script" ? "auto minmax(0, 1fr)" : "minmax(0, 1fr)" }}
           >
         {activeWorkPanel === "script" ? (
         <>
         <HammerPaneSection
           title="Script"
-          subtitle="Transcript navigation is the primary editing surface. Select a line to seek the monitor and apply spoken-content edits."
+          subtitle="Select a line to seek preview and stage spoken-content edits."
           action={(
             <div className="hammer-tab-row">
               {WORK_PANEL_VIEWS.map((panel) => (
@@ -3201,7 +3265,7 @@ export default function TranscriptSeekMock(
               </div>
               {!canMergeSelected && selectedNextSegment ? (
                 <div className="hammer-copy-sm hammer-copy-muted">
-                  Merge is disabled because the next segment speaker does not match.
+                  Merge is disabled because the next speaker does not match.
                 </div>
               ) : null}
               {transcriptLoad.error ? (
@@ -3213,7 +3277,7 @@ export default function TranscriptSeekMock(
           ) : (
             <div className="hammer-script-panel__selection">
               <div className="hammer-copy-sm hammer-copy-muted">
-              Select a transcript row to inspect it and apply segment-level edit instructions.
+              Select a transcript row to inspect it and apply segment-level edits.
               </div>
               {transcriptLoad.error ? (
                 <div className="hammer-copy-sm hammer-copy-warning">
@@ -3226,10 +3290,10 @@ export default function TranscriptSeekMock(
 
         <HammerPaneSection
           title="Transcript"
-          subtitle="Click any line to seek the monitor. Transcript editing and preview navigation operate on the same current project state."
+          subtitle="Click a line to seek preview. Transcript editing and preview navigation stay on the same project state."
           action={(
             <span className="hammer-pill">
-              active {activeOverlayRow ? formatOverlayRowLabel(activeOverlayRow) : "none"}
+              at playhead {playheadOverlayRow ? formatOverlayRowLabel(playheadOverlayRow) : "none"}
             </span>
           )}
           sectionStyle={{ minHeight: 0, overflow: "hidden" }}
@@ -3248,10 +3312,8 @@ export default function TranscriptSeekMock(
               const rowPlaybackRange = playbackRanges.find((range) => range.row_id === row.row_id) ?? null;
               const rowStageMarkers = getTranscriptRowStageMarkers(row);
               const isSelected = row.row_id === selectedOverlayRowId;
-              const isActive = row.row_id === activeOverlayRowId;
-              const borderColor = isActive
-                ? "rgba(45, 212, 191, 0.95)"
-                : row.is_deleted
+              const isAtPlayhead = row.row_id === playheadOverlayRow?.row_id;
+              const borderColor = row.is_deleted
                 ? "rgba(239, 68, 68, 0.62)"
                 : row.is_muted
                 ? "rgba(245, 158, 11, 0.56)"
@@ -3262,9 +3324,7 @@ export default function TranscriptSeekMock(
                 : isSelected
                 ? "rgba(96, 165, 250, 0.72)"
                 : "rgba(148, 163, 184, 0.22)";
-              const background = isActive
-                ? "rgba(13, 148, 136, 0.2)"
-                : row.is_deleted
+              const background = row.is_deleted
                 ? "rgba(239, 68, 68, 0.12)"
                 : row.is_muted
                 ? "rgba(180, 83, 9, 0.15)"
@@ -3275,6 +3335,11 @@ export default function TranscriptSeekMock(
                 : isSelected
                 ? "rgba(59, 130, 246, 0.2)"
                 : "rgba(2, 6, 23, 0.42)";
+              const boxShadow = isAtPlayhead
+                ? isSelected
+                  ? "inset 3px 0 0 rgba(45, 212, 191, 0.88), 0 0 0 1px rgba(96, 165, 250, 0.12)"
+                  : "inset 3px 0 0 rgba(45, 212, 191, 0.88), 0 0 0 1px rgba(45, 212, 191, 0.14)"
+                : "none";
 
               return (
                 <div
@@ -3285,16 +3350,13 @@ export default function TranscriptSeekMock(
                     } else {
                       transcriptRowRefs.current.delete(row.row_id);
                     }
-                    if (isActive) {
-                      activeRowRef.current = element;
-                    }
                   }}
                   className={cx(
                     "hammer-script-row",
                     revealedTranscriptRowId === row.row_id && "is-revealed",
                   )}
                   data-overlay-row-id={row.row_id}
-                  data-active={isActive ? "true" : "false"}
+                  data-playhead={isAtPlayhead ? "true" : "false"}
                   data-deleted={row.is_deleted ? "true" : "false"}
                   data-muted={row.is_muted ? "true" : "false"}
                   data-playable-start={rowPlaybackRange?.playable_start_sec ?? ""}
@@ -3307,22 +3369,22 @@ export default function TranscriptSeekMock(
                     display: "grid",
                     gap: 8,
                     opacity: row.is_deleted ? 0.86 : 1,
-                    boxShadow: isActive ? "0 0 0 1px rgba(45, 212, 191, 0.2), 0 8px 24px rgba(13, 148, 136, 0.12)" : "none",
+                    boxShadow,
                     transition: "border-color 140ms ease, background 140ms ease, box-shadow 140ms ease",
                   }}
                 >
                     <button
                       type="button"
                       onClick={() => selectTranscriptRow(row)}
-                      aria-current={isActive ? "true" : undefined}
+                      aria-current={isAtPlayhead ? "true" : undefined}
                       className="hammer-script-row__button"
                     >
                       <div className="hammer-script-row__meta">
                         <span className="hammer-copy-sm hammer-copy-muted">
                           {formatClock(row.start_sec)}-{formatClock(row.end_sec)} {row.speaker}
                         </span>
-                        {isActive ? (
-                          <span className="hammer-copy-sm" style={{ color: "#99f6e4" }}>active</span>
+                        {isAtPlayhead ? (
+                          <span className="hammer-script-row__playhead">At playhead</span>
                         ) : null}
                       </div>
                       {rowStageMarkers.length > 0 ? (
@@ -3493,7 +3555,7 @@ export default function TranscriptSeekMock(
       >
         <HammerPaneSection
           title="Preview Monitor"
-          subtitle="The monitor stays modest inside the workspace, but it is the unmistakable place to verify playback, timing, and pacing."
+          subtitle="Verify playback, timing, and pacing."
           action={(
             <div className="hammer-action-row">
               <span className={cx("hammer-pill", isPlaying && "hammer-pill--playing")}>
@@ -3507,105 +3569,155 @@ export default function TranscriptSeekMock(
           bodyClassName="hammer-preview-panel__body"
         >
           <div className="hammer-preview-stage">
-            <div className="hammer-dev-media-loader">
-              <div className="hammer-dev-media-loader__head">
-                <div className="hammer-stack-4">
-                  <div className="hammer-label">Source Media</div>
-                  <div className="hammer-copy-lg hammer-copy-strong">{activeMediaDisplayTitle}</div>
-                  <div className="hammer-copy-sm hammer-copy-muted">{activeMediaDetailLabel}</div>
-                </div>
-                <div className="hammer-action-row">
-                  <span className="hammer-pill">
-                    {activeDevRecording
-                      ? "Dev recording attached"
-                      : activeMediaUsesDevTone
-                      ? "Preview proxy active"
-                      : "Launch media active"}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setDevRecordingsRefreshToken((current) => current + 1)}
-                    disabled={devRecordingsLoading}
-                    className="hammer-button-xs"
-                  >
-                    {devRecordingsLoading ? "Scanning..." : "Refresh recordings"}
-                  </button>
-                  {activeDevRecording ? (
+            <div className="hammer-preview-stage__context">
+              <div className="hammer-dev-media-loader">
+                <div className="hammer-dev-media-loader__head">
+                  <div className="hammer-stack-4">
+                    <div className="hammer-label">Source Media</div>
+                    <div className="hammer-copy-lg hammer-copy-strong">{activeMediaDisplayTitle}</div>
+                    <div className="hammer-copy-sm hammer-copy-muted">{activeMediaDetailLabel}</div>
+                  </div>
+                  <div className="hammer-action-row">
+                    <span className="hammer-pill">
+                      {activeDevRecording
+                        ? "Dev recording attached"
+                        : activeMediaUsesDevTone
+                        ? "Preview proxy active"
+                        : "Launch media active"}
+                    </span>
                     <button
                       type="button"
-                      onClick={() => setSelectedDevRecordingId(null)}
+                      onClick={() => setDevRecordingsRefreshToken((current) => current + 1)}
+                      disabled={devRecordingsLoading}
                       className="hammer-button-xs"
                     >
-                      Use launch media
+                      {devRecordingsLoading ? "Scanning..." : "Refresh recordings"}
                     </button>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="hammer-dev-media-loader__context">
-                <div className="hammer-stack-4">
-                  <div className="hammer-copy-sm hammer-copy-strong">{transcriptStatusLabel}</div>
-                  <div className="hammer-copy-sm hammer-copy-muted">{transcriptStatusDetail}</div>
-                </div>
-                <div className="hammer-stack-4">
-                  <div className="hammer-label">
-                    {devRecordingsRootMapping?.local_root_abs === launchWorkspaceMapping?.local_root_abs
-                      ? "Mapped folder"
-                      : "Dev folder"}
-                  </div>
-                  <div className="hammer-copy-sm hammer-copy-muted hammer-mono">
-                    {devRecordingsDirectoryAbs ?? devRecordingsRootMapping?.local_root_abs ?? "Unavailable"}
-                  </div>
-                  {workspaceMappingError ? (
-                    <div className="hammer-copy-sm hammer-copy-muted">{workspaceMappingError}</div>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="hammer-dev-media-loader__list">
-                {devRecordingsLoading && devRecordings.length === 0 ? (
-                  <div className="hammer-dev-media-loader__empty">
-                    Scanning the recordings folder for local media.
-                  </div>
-                ) : devRecordingsError ? (
-                  <div className="hammer-dev-media-loader__empty is-error">
-                    {devRecordingsError}
-                  </div>
-                ) : devRecordings.length === 0 ? (
-                  <div className="hammer-dev-media-loader__empty">
-                    No recordings were found in the current folder yet.
-                  </div>
-                ) : (
-                  devRecordings.map((recording) => {
-                    const modifiedLabel = formatDateTimeLabel(recording.modified_at);
-                    const isActive = recording.media_id === activeDevRecording?.media_id;
-                    return (
+                    {activeDevRecording ? (
                       <button
-                        key={recording.media_id}
                         type="button"
-                        onClick={() => setSelectedDevRecordingId(recording.media_id)}
-                        className={cx("hammer-dev-media-loader__item", isActive && "is-active")}
+                        onClick={() => setSelectedDevRecordingId(null)}
+                        className="hammer-button-xs"
                       >
-                        <div className="hammer-dev-media-loader__item-main">
-                          <div className="hammer-dev-media-loader__item-title">{recording.name}</div>
-                          <div className="hammer-dev-media-loader__item-meta">
-                            <span>{formatExtensionLabel(recording.extension)}</span>
-                            <span>{formatByteSize(recording.byte_size)}</span>
-                            {modifiedLabel ? <span>{modifiedLabel}</span> : null}
-                          </div>
-                          <div className="hammer-dev-media-loader__item-status">
-                            {recording.transcript_sidecar_relpath
-                              ? "Transcript sidecar detected"
-                              : "Transcript: mock fallback"}
-                          </div>
-                        </div>
-                        <span className="hammer-pill">
-                          {isActive ? "Attached" : "Load recording"}
-                        </span>
+                        Use launch media
                       </button>
-                    );
-                  })
-                )}
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="hammer-dev-media-loader__context">
+                  <div className="hammer-stack-4">
+                    <div className="hammer-copy-sm hammer-copy-strong">{transcriptStatusLabel}</div>
+                    <div className="hammer-copy-sm hammer-copy-muted">{transcriptStatusDetail}</div>
+                  </div>
+                  <div className="hammer-stack-4">
+                    <div className="hammer-label">
+                      {devRecordingsRootMapping?.local_root_abs === launchWorkspaceMapping?.local_root_abs
+                        ? "Mapped folder"
+                        : "Dev folder"}
+                    </div>
+                    <div className="hammer-copy-sm hammer-copy-muted hammer-mono">
+                      {devRecordingsDirectoryAbs ?? devRecordingsRootMapping?.local_root_abs ?? "Unavailable"}
+                    </div>
+                    {workspaceMappingError ? (
+                      <div className="hammer-copy-sm hammer-copy-muted">{workspaceMappingError}</div>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="hammer-dev-media-loader__list">
+                  {devRecordingsLoading && devRecordings.length === 0 ? (
+                    <div className="hammer-dev-media-loader__empty">
+                      Scanning the recordings folder for local media.
+                    </div>
+                  ) : devRecordingsError ? (
+                    <div className="hammer-dev-media-loader__empty is-error">
+                      {devRecordingsError}
+                    </div>
+                  ) : devRecordings.length === 0 ? (
+                    <div className="hammer-dev-media-loader__empty">
+                      No recordings were found in the current folder yet.
+                    </div>
+                  ) : (
+                    devRecordings.map((recording) => {
+                      const modifiedLabel = formatDateTimeLabel(recording.modified_at);
+                      const isActive = recording.media_id === activeDevRecording?.media_id;
+                      return (
+                        <button
+                          key={recording.media_id}
+                          type="button"
+                          onClick={() => setSelectedDevRecordingId(recording.media_id)}
+                          className={cx("hammer-dev-media-loader__item", isActive && "is-active")}
+                        >
+                          <div className="hammer-dev-media-loader__item-main">
+                            <div className="hammer-dev-media-loader__item-title">{recording.name}</div>
+                            <div className="hammer-dev-media-loader__item-meta">
+                              <span>{formatExtensionLabel(recording.extension)}</span>
+                              <span>{formatByteSize(recording.byte_size)}</span>
+                              {modifiedLabel ? <span>{modifiedLabel}</span> : null}
+                            </div>
+                            <div className="hammer-dev-media-loader__item-status">
+                              {recording.transcript_sidecar_relpath
+                                ? "Transcript sidecar detected"
+                                : "Transcript: mock fallback"}
+                            </div>
+                          </div>
+                          <span className="hammer-pill">
+                            {isActive ? "Attached" : "Load recording"}
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              <div className="hammer-preview-card">
+                <div className="hammer-preview-card__summary">
+                  <div className="hammer-preview-card__summary-head">
+                    <div className="hammer-stack-4">
+                      <div className="hammer-label">Preview Truth</div>
+                      <strong className="hammer-copy-strong">Current preview state</strong>
+                      <div className="hammer-copy-sm hammer-copy-muted">{previewTruthSummary}</div>
+                    </div>
+                    <div className="hammer-meta-strip">
+                      <span className="hammer-pill">{previewPlaybackTruthLabel}</span>
+                      <span className="hammer-pill">{previewModeTruthLabel}</span>
+                    </div>
+                  </div>
+
+                  <div className="hammer-preview-truth-grid">
+                    <div className="hammer-preview-truth-item">
+                      <div className="hammer-label">Preview source</div>
+                      <div className="hammer-copy-md hammer-copy-strong">{activeMediaDisplayTitle}</div>
+                      <div className="hammer-copy-sm hammer-copy-muted">{activeMediaDetailLabel}</div>
+                    </div>
+
+                    <div className="hammer-preview-truth-item">
+                      <div className="hammer-label">Playback</div>
+                      <div className="hammer-copy-md hammer-copy-strong">{previewPlaybackTruthLabel}</div>
+                      <div className="hammer-copy-sm hammer-copy-muted">{previewPlaybackTruthDetail}</div>
+                    </div>
+
+                    <div className="hammer-preview-truth-item">
+                      <div className="hammer-label">Transcript</div>
+                      <div className="hammer-copy-md hammer-copy-strong">{previewTranscriptTruthLabel}</div>
+                      <div className="hammer-copy-sm hammer-copy-muted">{transcriptStatusDetail}</div>
+                    </div>
+
+                    <div className="hammer-preview-truth-item">
+                      <div className="hammer-label">Preview mode</div>
+                      <div className="hammer-copy-md hammer-copy-strong">{previewModeTruthLabel}</div>
+                      <div className="hammer-copy-sm hammer-copy-muted">{previewModeTruthDetail}</div>
+                    </div>
+
+                    <div className="hammer-preview-truth-item">
+                      <div className="hammer-label">Current segment</div>
+                      <div className="hammer-copy-md hammer-copy-strong">{playheadSegmentTitle}</div>
+                      <div className="hammer-copy-sm hammer-copy-muted">{playheadSegmentDetail}</div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -3733,48 +3845,6 @@ export default function TranscriptSeekMock(
               <div className="hammer-preview-feedback hammer-copy-sm hammer-copy-error">{playbackError}</div>
             ) : null}
 
-            <div className="hammer-preview-card">
-              <div className="hammer-preview-card__summary">
-                <div className="hammer-preview-card__summary-head">
-                  <div className="hammer-stack-4">
-                    <div className="hammer-label">Preview Truth</div>
-                    <strong className="hammer-copy-strong">Current preview state</strong>
-                    <div className="hammer-copy-sm hammer-copy-muted">{previewTruthSummary}</div>
-                  </div>
-                  <div className="hammer-meta-strip">
-                    <span className="hammer-pill">{previewPlaybackTruthLabel}</span>
-                    <span className="hammer-pill">{previewModeTruthLabel}</span>
-                  </div>
-                </div>
-
-                <div className="hammer-preview-truth-grid">
-                  <div className="hammer-preview-truth-item">
-                    <div className="hammer-label">Preview source</div>
-                    <div className="hammer-copy-md hammer-copy-strong">{activeMediaDisplayTitle}</div>
-                    <div className="hammer-copy-sm hammer-copy-muted">{activeMediaDetailLabel}</div>
-                  </div>
-
-                  <div className="hammer-preview-truth-item">
-                    <div className="hammer-label">Playback</div>
-                    <div className="hammer-copy-md hammer-copy-strong">{previewPlaybackTruthLabel}</div>
-                    <div className="hammer-copy-sm hammer-copy-muted">{previewPlaybackTruthDetail}</div>
-                  </div>
-
-                  <div className="hammer-preview-truth-item">
-                    <div className="hammer-label">Transcript</div>
-                    <div className="hammer-copy-md hammer-copy-strong">{previewTranscriptTruthLabel}</div>
-                    <div className="hammer-copy-sm hammer-copy-muted">{transcriptStatusDetail}</div>
-                  </div>
-
-                  <div className="hammer-preview-truth-item">
-                    <div className="hammer-label">Preview mode</div>
-                    <div className="hammer-copy-md hammer-copy-strong">{previewModeTruthLabel}</div>
-                    <div className="hammer-copy-sm hammer-copy-muted">{previewModeTruthDetail}</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
             <div className="hammer-preview-transport">
               <div className="hammer-preview-transport__head">
                 <div className="hammer-stack-4">
@@ -3792,6 +3862,15 @@ export default function TranscriptSeekMock(
               </div>
 
               <div className="hammer-action-row">
+                <button
+                  type="button"
+                  onClick={stepToPreviousSegment}
+                  disabled={!previousSegmentRow}
+                  className="hammer-button-xs"
+                  title="Previous segment (Alt+Up)"
+                >
+                  Prev segment
+                </button>
                 <button
                   type="button"
                   onClick={() => seekToResolvedTarget(previousPlayableTarget)}
@@ -3817,6 +3896,15 @@ export default function TranscriptSeekMock(
                   className="hammer-button-xs"
                 >
                   Next playable
+                </button>
+                <button
+                  type="button"
+                  onClick={stepToNextSegment}
+                  disabled={!nextSegmentRow}
+                  className="hammer-button-xs"
+                  title="Next segment (Alt+Down)"
+                >
+                  Next segment
                 </button>
                 <button
                   type="button"
