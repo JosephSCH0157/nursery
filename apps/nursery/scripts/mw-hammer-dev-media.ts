@@ -6,10 +6,19 @@ import type { MediaKind } from "../../../packages/contracts/hammer/media-resolve
 
 type Next = (err?: unknown) => void;
 
-const ROUTE = "/api/hammer/dev-recordings";
+const RECORDINGS_ROUTE = "/api/hammer/dev-recordings";
+const MEDIA_ROUTE = "/api/hammer/dev-media";
 const DEFAULT_SUBDIR = "recordings";
 const ALLOWED_MEDIA_EXTENSIONS = new Set([".mp4", ".webm", ".mov", ".wav", ".mp3", ".m4a"]);
 const TRANSCRIPT_SIDECAR_EXTENSIONS = [".json", ".srt", ".vtt", ".txt"];
+const MEDIA_CONTENT_TYPES: Partial<Record<string, string>> = {
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+  ".mov": "video/quicktime",
+  ".wav": "audio/wav",
+  ".mp3": "audio/mpeg",
+  ".m4a": "audio/mp4",
+};
 
 type DevRecordingEntry = {
   media_id: string;
@@ -17,6 +26,7 @@ type DevRecordingEntry = {
   extension: string;
   kind: MediaKind;
   local_relpath: string;
+  playback_url: string;
   transcript_sidecar_relpath: string | null;
   byte_size: number | null;
   modified_at: string | null;
@@ -44,10 +54,18 @@ function normalizeRelpath(rootAbs: string, absolutePath: string): string | null 
   return relative.split(path.sep).join("/");
 }
 
-function isSafeSubdir(value: string): boolean {
+function isSafeRelpath(value: string): boolean {
   const normalized = value.replace(/\\/g, "/");
   const parts = normalized.split("/").filter(Boolean);
   return parts.length > 0 && parts.every((part) => part !== "." && part !== "..");
+}
+
+function buildPlaybackUrl(localRootAbs: string, localRelpath: string): string {
+  const params = new URLSearchParams({
+    local_root_abs: localRootAbs,
+    local_relpath: localRelpath,
+  });
+  return `${MEDIA_ROUTE}?${params.toString()}`;
 }
 
 function inferMediaKind(extension: string): MediaKind {
@@ -66,7 +84,7 @@ function createDevMediaId(localRelpath: string): string {
 
 async function resolveDirectoryAbs(localRootAbs: string, folder: string | null): Promise<string> {
   if (folder) {
-    if (!isSafeSubdir(folder)) {
+    if (!isSafeRelpath(folder)) {
       throw new Error("Invalid recordings subdirectory.");
     }
     return path.join(localRootAbs, ...folder.replace(/\\/g, "/").split("/").filter(Boolean));
@@ -83,6 +101,115 @@ async function resolveDirectoryAbs(localRootAbs: string, folder: string | null):
   }
 
   return localRootAbs;
+}
+
+function resolveMediaFileAbs(localRootAbs: string, localRelpath: string): string | null {
+  if (!isSafeRelpath(localRelpath)) {
+    return null;
+  }
+
+  const rootAbs = path.resolve(localRootAbs);
+  const absolutePath = path.resolve(rootAbs, ...localRelpath.replace(/\\/g, "/").split("/").filter(Boolean));
+  const relative = path.relative(rootAbs, absolutePath);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+    return null;
+  }
+
+  return absolutePath;
+}
+
+function readHeaderString(value: string | string[] | undefined): string | null {
+  if (Array.isArray(value)) {
+    return readTrimmed(value[0]);
+  }
+  return readTrimmed(value);
+}
+
+function parseByteRange(rangeHeader: string, totalSize: number): { start: number; end: number } | null {
+  const match = /^bytes=(\d*)-(\d*)$/i.exec(rangeHeader);
+  if (!match) return null;
+
+  const [, startRaw, endRaw] = match;
+  if (!startRaw && !endRaw) return null;
+
+  if (!startRaw) {
+    const suffixSize = Number(endRaw);
+    if (!Number.isFinite(suffixSize) || suffixSize <= 0) return null;
+    const boundedSuffixSize = Math.min(suffixSize, totalSize);
+    return {
+      start: totalSize - boundedSuffixSize,
+      end: totalSize - 1,
+    };
+  }
+
+  const start = Number(startRaw);
+  if (!Number.isFinite(start) || start < 0 || start >= totalSize) return null;
+
+  const end = endRaw
+    ? Number(endRaw)
+    : totalSize - 1;
+  if (!Number.isFinite(end) || end < start) return null;
+
+  return {
+    start,
+    end: Math.min(end, totalSize - 1),
+  };
+}
+
+async function streamMediaFile(
+  req: IncomingMessage,
+  res: ServerResponse,
+  localRootAbs: string,
+  localRelpath: string,
+): Promise<void> {
+  const absolutePath = resolveMediaFileAbs(localRootAbs, localRelpath);
+  if (!absolutePath) {
+    sendJson(res, 400, { ok: false, error: "local_relpath is invalid for this mapped media root." });
+    return;
+  }
+
+  let stat;
+  try {
+    stat = await fsPromises.stat(absolutePath);
+  } catch {
+    sendJson(res, 404, { ok: false, error: "Requested media file was not found." });
+    return;
+  }
+
+  if (!stat.isFile()) {
+    sendJson(res, 404, { ok: false, error: "Requested media path is not a file." });
+    return;
+  }
+
+  const extension = path.extname(absolutePath).toLowerCase();
+  const contentType = MEDIA_CONTENT_TYPES[extension] ?? "application/octet-stream";
+  const rangeHeader = readHeaderString(req.headers.range);
+  const totalSize = stat.size;
+
+  res.setHeader("content-type", contentType);
+  res.setHeader("accept-ranges", "bytes");
+  res.setHeader("cache-control", "no-store");
+
+  if (rangeHeader) {
+    const range = parseByteRange(rangeHeader, totalSize);
+    if (!range) {
+      res.statusCode = 416;
+      res.setHeader("content-range", `bytes */${totalSize}`);
+      res.end();
+      return;
+    }
+
+    const chunkSize = range.end - range.start + 1;
+    res.statusCode = 206;
+    res.setHeader("content-length", chunkSize);
+    res.setHeader("content-range", `bytes ${range.start}-${range.end}/${totalSize}`);
+    fs.createReadStream(absolutePath, { start: range.start, end: range.end }).pipe(res);
+    return;
+  }
+
+  res.statusCode = 200;
+  res.setHeader("content-length", totalSize);
+  fs.createReadStream(absolutePath).pipe(res);
 }
 
 async function listRecordingEntries(localRootAbs: string, folder: string | null): Promise<{
@@ -133,6 +260,7 @@ async function listRecordingEntries(localRootAbs: string, folder: string | null)
       extension,
       kind: inferMediaKind(extension),
       local_relpath: localRelpath,
+      playback_url: buildPlaybackUrl(localRootAbs, localRelpath),
       transcript_sidecar_relpath: transcriptSidecarRelpath,
       byte_size: byteSize,
       modified_at: modifiedAt,
@@ -162,7 +290,7 @@ export function createHammerDevMediaMiddleware() {
       const rawUrl = req.url || "";
       const origin = `http://${req.headers.host || "localhost"}`;
       const url = new URL(rawUrl, origin);
-      if (url.pathname !== ROUTE) {
+      if (url.pathname !== RECORDINGS_ROUTE && url.pathname !== MEDIA_ROUTE) {
         next();
         return;
       }
@@ -182,6 +310,16 @@ export function createHammerDevMediaMiddleware() {
 
       if (!fs.existsSync(localRootAbs)) {
         sendJson(res, 404, { ok: false, error: "Mapped media root was not found on this machine." });
+        return;
+      }
+
+      if (url.pathname === MEDIA_ROUTE) {
+        const localRelpath = readTrimmed(url.searchParams.get("local_relpath"));
+        if (!localRelpath) {
+          sendJson(res, 400, { ok: false, error: "local_relpath is required." });
+          return;
+        }
+        await streamMediaFile(req, res, localRootAbs, localRelpath);
         return;
       }
 

@@ -145,6 +145,7 @@ type HammerDevRecordingEntry = {
   extension: string;
   kind: MediaKind;
   local_relpath: string;
+  playback_url: string;
   transcript_sidecar_relpath: string | null;
   byte_size: number | null;
   modified_at: string | null;
@@ -376,6 +377,22 @@ function formatDateTimeLabel(value: string | null | undefined): string | null {
 function formatExtensionLabel(extension: string): string {
   const normalized = extension.trim().replace(/^\./, "");
   return normalized ? normalized.toUpperCase() : "MEDIA";
+}
+
+function buildHammerDevMediaUrl(localRootAbs: string, localRelpath: string): string {
+  const params = new URLSearchParams({
+    local_root_abs: localRootAbs,
+    local_relpath: localRelpath,
+  });
+  return `/api/hammer/dev-media?${params.toString()}`;
+}
+
+function isVideoMediaKind(kind: MediaKind | null | undefined): boolean {
+  return kind === "recording_video" || kind === "export_video";
+}
+
+function isAudioMediaKind(kind: MediaKind | null | undefined): boolean {
+  return kind === "recording_audio" || kind === "export_audio" || kind === "asset_audio";
 }
 
 function formatInstructionEffects(row: TranscriptOverlayRow | null): string {
@@ -796,7 +813,7 @@ export default function TranscriptSeekMock(
   props: TranscriptSeekMockProps,
 ): JSX.Element {
   const location = useLocation();
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const mediaElementRef = useRef<HTMLMediaElement | null>(null);
   const transcriptScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const transcriptRowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const activeRowRef = useRef<HTMLDivElement | null>(null);
@@ -1169,8 +1186,20 @@ export default function TranscriptSeekMock(
 
   const resolvedPlayableUri = resolveResult?.status === "ok" ? resolveResult.playable_uri : null;
   const resolvedMediaSrc = useMemo(
-    () => (resolvedPlayableUri ? toBrowserVideoSrc(resolvedPlayableUri) : null),
-    [resolvedPlayableUri],
+    () => {
+      if (activeDevRecording?.playback_url) {
+        return activeDevRecording.playback_url;
+      }
+
+      const localRootAbs = activeMediaWorkspaceMapping?.local_root_abs;
+      const localRelpath = activeMediaRef?.local_relpath;
+      if (localRootAbs && localRelpath) {
+        return buildHammerDevMediaUrl(localRootAbs, localRelpath);
+      }
+
+      return resolvedPlayableUri ? toBrowserVideoSrc(resolvedPlayableUri) : null;
+    },
+    [activeDevRecording?.playback_url, activeMediaRef?.local_relpath, activeMediaWorkspaceMapping?.local_root_abs, resolvedPlayableUri],
   );
   const playbackSrc = useMemo(
     () => ((preferDevAudioFallback || !resolvedMediaSrc) ? devAudioSrc : resolvedMediaSrc),
@@ -1182,6 +1211,14 @@ export default function TranscriptSeekMock(
     if (preferDevAudioFallback || !resolvedMediaSrc) return "dev-tone";
     return activeMediaSourceLabel;
   }, [activeMediaSourceLabel, activeMediaUsesDevTone, playbackSrc, preferDevAudioFallback, resolvedMediaSrc]);
+  const previewUsesResolvedMedia = Boolean(
+    playbackSrc
+    && resolvedMediaSrc
+    && !preferDevAudioFallback
+    && playbackSrc === resolvedMediaSrc,
+  );
+  const showPreviewVideo = previewUsesResolvedMedia && isVideoMediaKind(activeMediaKind);
+  const showPreviewAudioPlayer = previewUsesResolvedMedia && isAudioMediaKind(activeMediaKind);
 
   useEffect(() => {
     const blob = createDevAudioWavBlob(transcriptDurationSec);
@@ -1349,7 +1386,7 @@ export default function TranscriptSeekMock(
     [currentTimeSec, effectiveDurationSec],
   );
 
-  const canControlAudio = Boolean(playbackSrc);
+  const canControlPlayback = Boolean(playbackSrc);
   const canMergeSelected = Boolean(
     selectedSegment
     && selectedNextSegment
@@ -1416,8 +1453,8 @@ export default function TranscriptSeekMock(
   }, [currentEditPlanSignature]);
 
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
+    const media = mediaElementRef.current;
+    if (!media) return;
     const nextAction = resolvePreviewBoundaryAction(
       rawActivePlaybackRange,
       playbackRanges,
@@ -1429,7 +1466,7 @@ export default function TranscriptSeekMock(
     }
 
     if (nextAction.kind === "seek") {
-      audio.currentTime = nextAction.time_sec;
+      media.currentTime = nextAction.time_sec;
       setCurrentTimeSec(nextAction.time_sec);
       setLastPreviewSkip({
         reason: nextAction.reason,
@@ -1439,8 +1476,8 @@ export default function TranscriptSeekMock(
       return;
     }
 
-    audio.pause();
-    audio.currentTime = nextAction.time_sec;
+    media.pause();
+    media.currentTime = nextAction.time_sec;
     setCurrentTimeSec(nextAction.time_sec);
     setIsPlaying(false);
     setLastPreviewSkip({
@@ -1733,25 +1770,45 @@ export default function TranscriptSeekMock(
     setPendingTranscriptRevealRowId(null);
   }, [overlayRows, pendingTranscriptRevealRowId]);
 
+  function handlePlaybackLoadedMetadata(duration: number) {
+    if (Number.isFinite(duration) && duration > 0) {
+      setDurationSec(duration);
+    }
+  }
+
+  function handlePlaybackTimeUpdate(currentTime: number) {
+    setCurrentTimeSec(currentTime);
+  }
+
+  function handlePlaybackFailure() {
+    setIsPlaying(false);
+    if (resolvedMediaSrc && !preferDevAudioFallback && devAudioSrc) {
+      setPreferDevAudioFallback(true);
+      setPlaybackError("Mapped media failed to load. Switched to dev-tone preview audio.");
+      return;
+    }
+    setPlaybackError("Preview media failed to load.");
+  }
+
   async function onTogglePlayback() {
-    const audio = audioRef.current;
-    if (!audio) return;
-    if (audio.paused) {
+    const media = mediaElementRef.current;
+    if (!media) return;
+    if (media.paused) {
       try {
-        await audio.play();
+        await media.play();
       } catch (error) {
         setPlaybackError(toErrorMessage(error, "Playback failed."));
       }
       return;
     }
-    audio.pause();
+    media.pause();
   }
 
   function seekTo(nextSec: number, selectedRowId?: string, selectedSegmentRowId?: string) {
     const bounded = clamp(nextSec, 0, effectiveDurationSec);
-    const audio = audioRef.current;
-    if (audio) {
-      audio.currentTime = bounded;
+    const media = mediaElementRef.current;
+    if (media) {
+      media.currentTime = bounded;
     }
     setCurrentTimeSec(bounded);
     if (selectedRowId) setSelectedOverlayRowId(selectedRowId);
@@ -1855,10 +1912,10 @@ export default function TranscriptSeekMock(
   }
 
   function resetPreview() {
-    const audio = audioRef.current;
-    if (audio) {
-      audio.pause();
-      audio.currentTime = 0;
+    const media = mediaElementRef.current;
+    if (media) {
+      media.pause();
+      media.currentTime = 0;
     }
     setIsPlaying(false);
     setCurrentTimeSec(0);
@@ -2197,6 +2254,80 @@ export default function TranscriptSeekMock(
     if (badgeVm?.tooltip) return badgeVm.tooltip;
     return "Select a script row to verify timing, cuts, and pacing.";
   }, [activeDevRecording, badgeVm?.tooltip, resolveError, resolveResult, resolving]);
+  const previewPlaybackTruthLabel = useMemo(() => {
+    if (!playbackSrc) return "Unavailable";
+    if (activeMediaUsesDevTone) return "Dev fallback";
+    if (preferDevAudioFallback || !resolvedMediaSrc) return "Dev fallback";
+    return activeDevRecording ? "Attached media" : "Launch media";
+  }, [
+    activeDevRecording,
+    activeMediaUsesDevTone,
+    playbackSrc,
+    preferDevAudioFallback,
+    resolvedMediaSrc,
+  ]);
+  const previewPlaybackTruthDetail = useMemo(() => {
+    if (!playbackSrc) {
+      return "Preview transport does not have a playable source yet.";
+    }
+    if (activeMediaUsesDevTone) {
+      return "Preview is running on the generated dev fallback because no media is attached.";
+    }
+    if (preferDevAudioFallback || !resolvedMediaSrc) {
+      return activeDevRecording
+        ? "The selected recording is attached, but transport is still running on the dev fallback."
+        : "Mapped launch media is not driving transport, so preview is running on the dev fallback.";
+    }
+    return activeDevRecording
+      ? "Transport is playing from the selected recording."
+      : "Transport is playing from the launch-linked media.";
+  }, [
+    activeDevRecording,
+    activeMediaUsesDevTone,
+    playbackSrc,
+    preferDevAudioFallback,
+    resolvedMediaSrc,
+  ]);
+  const previewTranscriptTruthLabel = useMemo(() => {
+    if (activeDevRecording) {
+      return activeDevRecording.transcript_sidecar_relpath
+        ? "Sidecar detected"
+        : "Mock fallback";
+    }
+    return transcriptLoad.kind === "fixture"
+      ? "Mock fallback"
+      : "Current transcript";
+  }, [activeDevRecording, transcriptLoad.kind]);
+  const previewModeTruthLabel = sessionState.previewMode === "raw" ? "Raw preview" : "Edit-aware preview";
+  const previewModeTruthDetail = sessionState.previewMode === "raw"
+    ? "Transport ignores staged edits and lets you inspect the untouched source behavior."
+    : "Transport follows the staged edit plan so you can review timing and cut intent.";
+  const previewTruthSummary = useMemo(() => {
+    if (!playbackSrc) {
+      return "Preview is offline right now.";
+    }
+    if (activeMediaUsesDevTone) {
+      return "No media is attached, so preview is running on the dev fallback.";
+    }
+    if (preferDevAudioFallback || !resolvedMediaSrc) {
+      return activeDevRecording
+        ? activeDevRecording.transcript_sidecar_relpath
+          ? "Media is attached, playback is still on the dev fallback, and Hammer is holding the current transcript."
+          : "Media is attached, playback is still on the dev fallback, and Hammer is still using the mock transcript."
+        : "Launch media is attached, but preview is still running on the dev fallback.";
+    }
+    return activeDevRecording
+      ? activeDevRecording.transcript_sidecar_relpath
+        ? "Attached media is driving preview while Hammer keeps the current transcript active."
+        : "Attached media is driving preview while Hammer keeps the mock transcript active."
+      : "Launch media is driving preview.";
+  }, [
+    activeDevRecording,
+    activeMediaUsesDevTone,
+    playbackSrc,
+    preferDevAudioFallback,
+    resolvedMediaSrc,
+  ]);
   const selectionSummaryTitle = selectedSegment ? "Primary segment" : "No active selection";
   const selectionSummaryCountLabel = selectedSegment ? "1 segment selected" : "No segment selected";
   const selectionSummaryDetail = selectedSegment
@@ -3458,7 +3589,8 @@ export default function TranscriptSeekMock(
             <div className="hammer-monitor">
               <div className="hammer-monitor__chrome">
                 <div className="hammer-stack-4">
-                  <div className="hammer-label">Preview Window</div>
+                  <div className="hammer-label">Preview Source</div>
+                  <div className="hammer-copy-sm hammer-copy-strong">{activeMediaDisplayTitle}</div>
                   <div className="hammer-copy-sm hammer-copy-muted">{previewSourceDetail}</div>
                 </div>
                 <div className="hammer-meta-strip">
@@ -3469,85 +3601,107 @@ export default function TranscriptSeekMock(
                 </div>
               </div>
 
-              <div className="hammer-monitor__surface">
-                <div className="hammer-monitor__center">
-                  {resolving ? (
-                    <>
-                      <div className="hammer-monitor__eyebrow">Connecting Preview</div>
-                      <h4 className="hammer-monitor__title">Resolving project media</h4>
-                      <div className="hammer-monitor__hint">{previewSourceDetail}</div>
-                    </>
-                  ) : resolveError ? (
-                    <>
-                      <div className="hammer-monitor__eyebrow">Preview Warning</div>
-                      <h4 className="hammer-monitor__title">Preview source needs attention</h4>
-                      <div className="hammer-monitor__hint">{previewSourceDetail}</div>
-                    </>
-                  ) : !playbackSrc ? (
-                    <>
-                      <div className="hammer-monitor__eyebrow">Preview Offline</div>
-                      <h4 className="hammer-monitor__title">No playback source available</h4>
-                      <div className="hammer-monitor__hint">
-                        Add or resolve project media to use the preview monitor.
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="hammer-monitor__eyebrow">Video Preview</div>
-                      <h4 className="hammer-monitor__title">
-                        {activeOverlayRow
-                          ? formatOverlayRowLabel(activeOverlayRow)
-                          : selectedOverlayRow
-                          ? formatOverlayRowLabel(selectedOverlayRow)
-                          : "Ready for review"}
-                      </h4>
-                      <div className="hammer-monitor__hint">{previewSourceDetail}</div>
-                      <div className="hammer-meta-strip">
-                        <span className="hammer-pill">
-                          {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
-                        </span>
-                        <span className="hammer-pill">
-                          selected {selectedOverlayRow ? selectedOverlayRow.row_id : "none"}
-                        </span>
-                        {lastPreviewSkip ? (
-                          <span className="hammer-pill">skip {lastPreviewSkip.reason}</span>
-                        ) : null}
-                      </div>
-                    </>
-                  )}
-                </div>
+              <div className={cx("hammer-monitor__surface", (showPreviewVideo || showPreviewAudioPlayer) && "has-media")}>
+                {showPreviewVideo ? (
+                  <video
+                    ref={(node) => {
+                      mediaElementRef.current = node;
+                    }}
+                    src={playbackSrc ?? undefined}
+                    controls
+                    preload="metadata"
+                    className="hammer-monitor__media"
+                    data-testid="hammer-video-player"
+                    onLoadedMetadata={(event) => handlePlaybackLoadedMetadata(event.currentTarget.duration)}
+                    onTimeUpdate={(event) => handlePlaybackTimeUpdate(event.currentTarget.currentTime)}
+                    onPlay={() => setIsPlaying(true)}
+                    onPause={() => setIsPlaying(false)}
+                    onEnded={() => setIsPlaying(false)}
+                    onError={handlePlaybackFailure}
+                  />
+                ) : showPreviewAudioPlayer ? (
+                  <div className="hammer-monitor__center">
+                    <div className="hammer-monitor__eyebrow">Audio Preview</div>
+                    <h4 className="hammer-monitor__title">{activeMediaDisplayTitle}</h4>
+                    <div className="hammer-monitor__hint">{previewSourceDetail}</div>
+                    <audio
+                      ref={(node) => {
+                        mediaElementRef.current = node;
+                      }}
+                      src={playbackSrc ?? undefined}
+                      controls
+                      preload="metadata"
+                      className="hammer-monitor__audio"
+                      data-testid="hammer-audio-player"
+                      onLoadedMetadata={(event) => handlePlaybackLoadedMetadata(event.currentTarget.duration)}
+                      onTimeUpdate={(event) => handlePlaybackTimeUpdate(event.currentTarget.currentTime)}
+                      onPlay={() => setIsPlaying(true)}
+                      onPause={() => setIsPlaying(false)}
+                      onEnded={() => setIsPlaying(false)}
+                      onError={handlePlaybackFailure}
+                    />
+                  </div>
+                ) : (
+                  <div className="hammer-monitor__center">
+                    {resolving ? (
+                      <>
+                        <div className="hammer-monitor__eyebrow">Connecting Preview</div>
+                        <h4 className="hammer-monitor__title">Resolving project media</h4>
+                        <div className="hammer-monitor__hint">{previewSourceDetail}</div>
+                      </>
+                    ) : resolveError ? (
+                      <>
+                        <div className="hammer-monitor__eyebrow">Preview Warning</div>
+                        <h4 className="hammer-monitor__title">Preview source needs attention</h4>
+                        <div className="hammer-monitor__hint">{previewSourceDetail}</div>
+                      </>
+                    ) : !playbackSrc ? (
+                      <>
+                        <div className="hammer-monitor__eyebrow">Preview Offline</div>
+                        <h4 className="hammer-monitor__title">No playback source available</h4>
+                        <div className="hammer-monitor__hint">
+                          Add or resolve project media to use the preview monitor.
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="hammer-monitor__eyebrow">Preview Source</div>
+                        <h4 className="hammer-monitor__title">{activeMediaDisplayTitle}</h4>
+                        <div className="hammer-monitor__hint">{previewSourceDetail}</div>
+                        <div className="hammer-meta-strip">
+                          <span className="hammer-pill">
+                            {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
+                          </span>
+                          <span className="hammer-pill">
+                            selected {selectedOverlayRow ? selectedOverlayRow.row_id : "none"}
+                          </span>
+                          {lastPreviewSkip ? (
+                            <span className="hammer-pill">skip {lastPreviewSkip.reason}</span>
+                          ) : null}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
-            {!resolving && !resolveError && playbackSrc ? (
+            {!resolving && !resolveError && playbackSrc && !showPreviewVideo && !showPreviewAudioPlayer ? (
               <>
                 <audio
-                  ref={audioRef}
+                  ref={(node) => {
+                    mediaElementRef.current = node;
+                  }}
                   src={playbackSrc}
                   className="hammer-audio-hidden"
                   preload="metadata"
                   data-testid="hammer-audio-player"
-                  onLoadedMetadata={(event) => {
-                    const nextDuration = event.currentTarget.duration;
-                    if (Number.isFinite(nextDuration) && nextDuration > 0) {
-                      setDurationSec(nextDuration);
-                    }
-                  }}
-                  onTimeUpdate={(event) => {
-                    setCurrentTimeSec(event.currentTarget.currentTime);
-                  }}
+                  onLoadedMetadata={(event) => handlePlaybackLoadedMetadata(event.currentTarget.duration)}
+                  onTimeUpdate={(event) => handlePlaybackTimeUpdate(event.currentTarget.currentTime)}
                   onPlay={() => setIsPlaying(true)}
                   onPause={() => setIsPlaying(false)}
                   onEnded={() => setIsPlaying(false)}
-                  onError={() => {
-                    setIsPlaying(false);
-                    if (resolvedMediaSrc && !preferDevAudioFallback && devAudioSrc) {
-                      setPreferDevAudioFallback(true);
-                      setPlaybackError("Mapped media failed to load. Switched to dev-tone preview audio.");
-                      return;
-                    }
-                    setPlaybackError("Preview audio failed to load.");
-                  }}
+                  onError={handlePlaybackFailure}
                 />
               </>
             ) : null}
@@ -3555,6 +3709,48 @@ export default function TranscriptSeekMock(
             {playbackError ? (
               <div className="hammer-preview-feedback hammer-copy-sm hammer-copy-error">{playbackError}</div>
             ) : null}
+
+            <div className="hammer-preview-card">
+              <div className="hammer-preview-card__summary">
+                <div className="hammer-preview-card__summary-head">
+                  <div className="hammer-stack-4">
+                    <div className="hammer-label">Preview Truth</div>
+                    <strong className="hammer-copy-strong">Current preview state</strong>
+                    <div className="hammer-copy-sm hammer-copy-muted">{previewTruthSummary}</div>
+                  </div>
+                  <div className="hammer-meta-strip">
+                    <span className="hammer-pill">{previewPlaybackTruthLabel}</span>
+                    <span className="hammer-pill">{previewModeTruthLabel}</span>
+                  </div>
+                </div>
+
+                <div className="hammer-preview-truth-grid">
+                  <div className="hammer-preview-truth-item">
+                    <div className="hammer-label">Preview source</div>
+                    <div className="hammer-copy-md hammer-copy-strong">{activeMediaDisplayTitle}</div>
+                    <div className="hammer-copy-sm hammer-copy-muted">{activeMediaDetailLabel}</div>
+                  </div>
+
+                  <div className="hammer-preview-truth-item">
+                    <div className="hammer-label">Playback</div>
+                    <div className="hammer-copy-md hammer-copy-strong">{previewPlaybackTruthLabel}</div>
+                    <div className="hammer-copy-sm hammer-copy-muted">{previewPlaybackTruthDetail}</div>
+                  </div>
+
+                  <div className="hammer-preview-truth-item">
+                    <div className="hammer-label">Transcript</div>
+                    <div className="hammer-copy-md hammer-copy-strong">{previewTranscriptTruthLabel}</div>
+                    <div className="hammer-copy-sm hammer-copy-muted">{transcriptStatusDetail}</div>
+                  </div>
+
+                  <div className="hammer-preview-truth-item">
+                    <div className="hammer-label">Preview mode</div>
+                    <div className="hammer-copy-md hammer-copy-strong">{previewModeTruthLabel}</div>
+                    <div className="hammer-copy-sm hammer-copy-muted">{previewModeTruthDetail}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
 
             <div className="hammer-preview-transport">
               <div className="hammer-preview-transport__head">
@@ -3586,7 +3782,7 @@ export default function TranscriptSeekMock(
                   onClick={() => {
                     void onTogglePlayback();
                   }}
-                  disabled={!canControlAudio}
+                  disabled={!canControlPlayback}
                   className="hammer-button-xs"
                 >
                   {isPlaying ? "Pause" : "Play"}
@@ -3626,7 +3822,9 @@ export default function TranscriptSeekMock(
               <div className="hammer-copy-md">
                 Time: {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
                 {" · "}
-                Source: {previewSourceStatusLabel}
+                Playback: {previewPlaybackTruthLabel}
+                {" · "}
+                Transcript: {previewTranscriptTruthLabel}
                 {" · "}
                 Skip: {lastPreviewSkip?.reason ?? "none"}
               </div>
@@ -3648,7 +3846,7 @@ export default function TranscriptSeekMock(
                   value={currentTimeSec}
                   onChange={(event) => seekTo(Number(event.target.value))}
                   aria-label="Playback playhead"
-                  disabled={!canControlAudio}
+                  disabled={!canControlPlayback}
                 />
               </div>
             </div>
