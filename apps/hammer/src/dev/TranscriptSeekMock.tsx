@@ -2726,7 +2726,7 @@ export default function TranscriptSeekMock(
               Video controls stay tied to the current project and launch context. Preview remains moderate so the timeline and transcript keep equal weight.
             </div>
             <div className="hammer-copy-sm hammer-copy-muted">
-              source: {activeMediaSourceLabel} · media kind {activeMediaKind ?? resolvedLaunch.launch_context.media.kind}
+              source: {activeMediaSourceLabel} · media kind {activeMediaKind ? formatMediaKindLabel(activeMediaKind) : resolvedLaunch.launch_context.media.kind}
             </div>
           </div>
         );
