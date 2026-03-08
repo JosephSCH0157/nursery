@@ -1531,6 +1531,26 @@ export default function TranscriptSeekMock(
     + paneLayout.right_px
     + TOOL_STRIP_WIDTH_PX
     + (PANE_DIVIDER_WIDTH_PX * 2);
+  const previewSourceStatusLabel = useMemo(() => {
+    if (!playbackSrc) return "Preview source unavailable";
+    if (!resolvedLaunch.media.requires_resolution) return "Generated preview tone ready";
+    if (preferDevAudioFallback || !resolvedMediaSrc) return "Running on dev-tone fallback";
+    return "Mapped media connected";
+  }, [
+    playbackSrc,
+    preferDevAudioFallback,
+    resolvedLaunch.media.requires_resolution,
+    resolvedMediaSrc,
+  ]);
+  const previewSourceDetail = useMemo(() => {
+    if (resolving) return "Resolving project media for preview.";
+    if (resolveError) return resolveError;
+    if (resolveResult?.status === "unresolved") {
+      return `${resolveResult.user_message} Preview is using the fallback tone.`;
+    }
+    if (badgeVm?.tooltip) return badgeVm.tooltip;
+    return "Select a script row to verify timing, cuts, and pacing.";
+  }, [badgeVm?.tooltip, resolveError, resolveResult, resolving]);
 
   return (
     <section className="hammer-editor-shell">
@@ -1551,15 +1571,13 @@ export default function TranscriptSeekMock(
         >
           <div
             className="hammer-pane hammer-pane--left"
-            style={{
-              gridTemplateRows: activeWorkPanel === "script"
-                ? "auto auto auto auto minmax(0, 1fr)"
-                : "auto auto minmax(0, 1fr)",
-            }}
+            style={{ gridTemplateRows: "minmax(0, 1fr)" }}
           >
+        {activeWorkPanel === "script" ? (
+        <>
         <HammerPaneSection
-          title="Work Panel"
-          subtitle="Hammer keeps transcript-first editing and project-linked assets in one left-side work region."
+          title="Script"
+          subtitle="Transcript navigation is the primary editing surface. Select a line to seek the monitor and apply spoken-content edits."
           action={(
             <div className="hammer-tab-row">
               {WORK_PANEL_VIEWS.map((panel) => (
@@ -1575,230 +1593,99 @@ export default function TranscriptSeekMock(
             </div>
           )}
         >
-          {activeWorkPanel === "script" ? (
-            <>
-                  <div className="hammer-meta-strip">
-                    <span className="hammer-pill">{transcriptSegments.length} segments</span>
-                    <span className="hammer-pill">{overlayRows.length} rows</span>
-                    <span className="hammer-pill">preview {sessionState.previewMode}</span>
-                    <span className="hammer-pill">source {sessionState.sourceMode}</span>
-                  </div>
-                  <div className="hammer-copy-sm" style={{ display: "grid", gap: 4 }}>
-                    <div>transcript source: {transcriptLoad.source_label}</div>
-                    <div>session: {sessionState.sessionId}</div>
-                    <div>edit plan instructions: {editInstructions.length}</div>
-                  </div>
-                  {transcriptLoad.error ? (
-                    <div className="hammer-copy-sm hammer-copy-warning">
-                      {transcriptLoad.error}
-                    </div>
-                  ) : null}
-                  <div className="hammer-copy-sm hammer-copy-muted">
-                    Script view is the canonical transcript surface for split, merge, mute, trim, delete, and transcript navigation.
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="hammer-meta-strip">
-                    <span className="hammer-pill">{projectAssets.video.length} video</span>
-                    <span className="hammer-pill">{projectAssets.images.length} images</span>
-                    <span className="hammer-pill">{projectAssets.music.length} music</span>
-                  </div>
-                  <div className="hammer-copy-md hammer-copy-dim">
-                    Assets shows only media already linked to this project. No stock browsing, generators, or generic upload playgrounds belong here.
-                  </div>
-                </>
-              )}
-            </HammerPaneSection>
-
-        {activeWorkPanel === "script" ? (
-        <>
-        <HammerPaneSection
-          title="Transcript Console"
-          subtitle="Canonical transcript state stays on the left. Overlay rows and preview behavior derive from the edit plan."
-          action={(
-            <span className={getEditPlanStatusBadgeClassName(sessionState.editPlanStatus)}>
-              plan {sessionState.editPlanStatus}
-            </span>
-          )}
-        >
           <div className="hammer-meta-strip">
-            <span className="hammer-pill">{transcriptSegments.length} segments</span>
-            <span className="hammer-pill">{overlayRows.length} rows</span>
-            <span className="hammer-pill">preview {sessionState.previewMode}</span>
-            <span className="hammer-pill">source {sessionState.sourceMode}</span>
+            <span className="hammer-pill">{overlayRows.length} lines</span>
+            <span className="hammer-pill">{selectedOverlayRow ? "line selected" : "select a line"}</span>
+            <span className="hammer-pill">{activeOverlayRow ? "preview locked" : "ready to preview"}</span>
           </div>
-          <div style={{ display: "grid", gap: 4, fontSize: 12 }}>
-            <div>transcript source: {transcriptLoad.source_label}</div>
-            <div>session: {sessionState.sessionId}</div>
-            <div>edit plan instructions: {editInstructions.length} (portable overlay state)</div>
-          </div>
-          {transcriptLoad.error ? (
-            <div style={{ fontSize: 12, color: "#fde68a" }}>
-              {transcriptLoad.error}
-            </div>
-          ) : null}
-          <div style={{ fontSize: 12, opacity: 0.72 }}>
-            Click a row to seek the current preview. Transcript text stays canonical; the edit plan only reshapes the overlay.
-          </div>
-        </HammerPaneSection>
-
-        <HammerPaneSection
-          title="Transport Controls"
-          subtitle="Navigation uses the pure transcript preview helpers. Deleted spans are skipped only when edit-aware preview is active."
-          action={(
-            <span className={cx("hammer-pill", isPlaying && "hammer-pill--playing")}>
-              {isPlaying ? "PLAYING" : "PAUSED"}
-            </span>
-          )}
-        >
-          <div className="hammer-meta-strip">
-            <span>{formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}</span>
-            <span>active raw: {formatPlaybackRangeLabel(rawActivePlaybackRange)}</span>
-            <span>active playable: {formatPlaybackRangeLabel(activePlayableRange)}</span>
-            <span>skip: {lastPreviewSkip?.reason ?? "none"}</span>
-          </div>
-          <div className="hammer-meta-strip hammer-copy-muted">
-            <span>deleted rows: {sessionState.previewMode === "edit-aware" ? "skipped" : "raw playback"}</span>
-            <span>muted rows: structural only</span>
-            <span>source mode: {sessionState.sourceMode}</span>
-          </div>
-          <div className="hammer-action-row">
-            <button
-              type="button"
-              disabled={previousPlayableTarget.timeSec == null}
-              onClick={() => seekToResolvedTarget(previousPlayableTarget)}
-              title={formatSeekTargetLabel(previousPlayableTarget)}
-            >
-              Prev playable
-            </button>
-            <button type="button" onClick={() => void onTogglePlayback()} disabled={!canControlAudio}>
-              {isPlaying ? "Pause" : "Play"}
-            </button>
-            <button
-              type="button"
-              disabled={nextPlayableTarget.timeSec == null}
-              onClick={() => seekToResolvedTarget(nextPlayableTarget)}
-              title={formatSeekTargetLabel(nextPlayableTarget)}
-            >
-              Next playable
-            </button>
-            <button
-              type="button"
-              disabled={jumpToActiveTarget.timeSec == null}
-              onClick={() => seekToResolvedTarget(jumpToActiveTarget)}
-              title={formatSeekTargetLabel(jumpToActiveTarget)}
-            >
-              Jump to active
-            </button>
-            <button
-              type="button"
-              onClick={() => setPreviewMode((currentMode) => (
-                currentMode === "edit-aware" ? "raw" : "edit-aware"
-              ))}
-            >
-              {previewMode === "edit-aware" ? "Switch to raw" : "Switch to edit-aware"}
-            </button>
-            <button
-              type="button"
-              disabled={!canControlAudio}
-              onClick={() => resetPreview()}
-            >
-              Reset
-            </button>
-          </div>
-          <div style={{ fontSize: 12, opacity: 0.74 }}>
-            prev: {formatSeekTargetLabel(previousPlayableTarget)}
-            {" · "}
-            active: {formatSeekTargetLabel(jumpToActiveTarget)}
-            {" · "}
-            next: {formatSeekTargetLabel(nextPlayableTarget)}
-          </div>
-        </HammerPaneSection>
-
-        <HammerPaneSection
-          title="Row Actions"
-          subtitle="Row edits stay grouped here so transport and plan controls do not scatter across the shell."
-          action={(
-            <span className="hammer-pill">
-              {selectedOverlayRow ? formatOverlayRowLabel(selectedOverlayRow) : "no row selected"}
-            </span>
-          )}
-        >
           {selectedSegment ? (
-            <div style={{ display: "grid", gap: 4, fontSize: 12 }}>
-              <div style={{ color: "#dbe8ff" }}>
+            <div className="hammer-script-panel__selection">
+              <div className="hammer-stack-4">
+                <div className="hammer-copy-sm hammer-copy-strong">
                 {selectedSegment.segment_id} · {selectedSegment.speaker}
+                </div>
+                <div className="hammer-copy-sm hammer-copy-muted">{selectedSegment.text}</div>
               </div>
-              <div style={{ opacity: 0.76 }}>{selectedSegment.text}</div>
+              <div className="hammer-action-row">
+                <button
+                  type="button"
+                  disabled={!selectedSegment}
+                  onClick={() => {
+                    if (!selectedSegment) return;
+                    toggleDeleteInstruction(selectedSegment.segment_id);
+                  }}
+                >
+                  {selectedSegmentDeleteInstruction ? "Restore" : "Delete"}
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedSegment}
+                  onClick={() => {
+                    if (!selectedSegment) return;
+                    toggleMuteInstruction(selectedSegment.segment_id);
+                  }}
+                >
+                  {selectedSegmentMuteInstruction ? "Unmute" : "Mute"}
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedSegment}
+                  onClick={() => {
+                    if (!selectedSegment) return;
+                    toggleTrimInstruction(selectedSegment);
+                  }}
+                >
+                  {selectedSegmentTrimInstruction ? "Undo trim" : "Trim"}
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedSegment}
+                  onClick={() => {
+                    if (!selectedSegment) return;
+                    toggleSplitInstruction(selectedSegment);
+                  }}
+                >
+                  {selectedSegmentSplitInstruction ? "Undo split" : "Split"}
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedSegment || (!selectedSegmentMergeInstruction && !canMergeSelected)}
+                  onClick={() => {
+                    if (!selectedSegment) return;
+                    toggleMergeInstruction(selectedSegment, selectedNextSegment);
+                  }}
+                >
+                  {selectedSegmentMergeInstruction ? "Undo merge" : "Merge with next"}
+                </button>
+              </div>
+              {!canMergeSelected && selectedNextSegment ? (
+                <div className="hammer-copy-sm hammer-copy-muted">
+                  Merge is disabled because the next segment speaker does not match.
+                </div>
+              ) : null}
+              {transcriptLoad.error ? (
+                <div className="hammer-copy-sm hammer-copy-warning">
+                  {transcriptLoad.error}
+                </div>
+              ) : null}
             </div>
           ) : (
-            <div style={{ fontSize: 12, opacity: 0.76 }}>
+            <div className="hammer-script-panel__selection">
+              <div className="hammer-copy-sm hammer-copy-muted">
               Select a transcript row to inspect it and apply segment-level edit instructions.
+              </div>
+              {transcriptLoad.error ? (
+                <div className="hammer-copy-sm hammer-copy-warning">
+                  {transcriptLoad.error}
+                </div>
+              ) : null}
             </div>
           )}
-          <div className="hammer-action-row">
-            <button
-              type="button"
-              disabled={!selectedSegment}
-              onClick={() => {
-                if (!selectedSegment) return;
-                toggleDeleteInstruction(selectedSegment.segment_id);
-              }}
-            >
-              {selectedSegmentDeleteInstruction ? "Restore segment" : "Delete segment"}
-            </button>
-            <button
-              type="button"
-              disabled={!selectedSegment}
-              onClick={() => {
-                if (!selectedSegment) return;
-                toggleMuteInstruction(selectedSegment.segment_id);
-              }}
-            >
-              {selectedSegmentMuteInstruction ? "Unmute row" : "Mute row"}
-            </button>
-            <button
-              type="button"
-              disabled={!selectedSegment}
-              onClick={() => {
-                if (!selectedSegment) return;
-                toggleTrimInstruction(selectedSegment);
-              }}
-            >
-              {selectedSegmentTrimInstruction ? "Undo trim" : "Trim row"}
-            </button>
-            <button
-              type="button"
-              disabled={!selectedSegment}
-              onClick={() => {
-                if (!selectedSegment) return;
-                toggleSplitInstruction(selectedSegment);
-              }}
-            >
-              {selectedSegmentSplitInstruction ? "Undo split" : "Split segment"}
-            </button>
-            <button
-              type="button"
-              disabled={!selectedSegment || (!selectedSegmentMergeInstruction && !canMergeSelected)}
-              onClick={() => {
-                if (!selectedSegment) return;
-                toggleMergeInstruction(selectedSegment, selectedNextSegment);
-              }}
-            >
-              {selectedSegmentMergeInstruction ? "Undo merge" : "Merge with next"}
-            </button>
-          </div>
-          {!canMergeSelected && selectedNextSegment ? (
-            <div style={{ fontSize: 12, opacity: 0.66 }}>
-              Merge disabled for the selected row because the next segment speaker does not match.
-            </div>
-          ) : null}
         </HammerPaneSection>
 
         <HammerPaneSection
-          title="Transcript Overlay"
-          subtitle="Overlay rows remain the operational list for preview and navigation. This pane becomes the left-column workbench."
+          title="Transcript"
+          subtitle="Click any line to seek the monitor. Transcript editing and preview navigation operate on the same current project state."
           action={(
             <span className="hammer-pill">
               active {activeOverlayRow ? formatOverlayRowLabel(activeOverlayRow) : "none"}
@@ -1808,28 +1695,16 @@ export default function TranscriptSeekMock(
           bodyStyle={{ minHeight: 0, overflow: "hidden" }}
         >
           <div
-          ref={transcriptScrollContainerRef}
-          data-testid="transcript-scroll-container"
-          style={{ display: "grid", gap: 8, overflow: "auto", minHeight: 0 }}
-        >
+            ref={transcriptScrollContainerRef}
+            data-testid="transcript-scroll-container"
+            className="hammer-script-panel__list"
+          >
           {overlayRows.length > 0 ? (
             overlayRows.map((row) => {
               const anchorSegment = segmentById.get(row.anchor_segment_id) ?? null;
               if (!anchorSegment) return null;
 
-              const nextSegment = row.next_segment_id
-                ? (segmentById.get(row.next_segment_id) ?? null)
-                : null;
               const rowPlaybackRange = playbackRanges.find((range) => range.row_id === row.row_id) ?? null;
-              const rowDeleteInstruction = instructionIndex.deleteBySegmentId.get(anchorSegment.segment_id) ?? null;
-              const rowMuteInstruction = instructionIndex.muteBySegmentId.get(anchorSegment.segment_id) ?? null;
-              const rowTrimInstruction = instructionIndex.trimBySegmentId.get(anchorSegment.segment_id) ?? null;
-              const rowSplitInstruction = instructionIndex.splitBySegmentId.get(anchorSegment.segment_id) ?? null;
-              const rowMergeInstruction = instructionIndex.mergeBySegmentId.get(anchorSegment.segment_id) ?? null;
-              const canMergeRow = Boolean(
-                nextSegment
-                && nextSegment.speaker === anchorSegment.speaker,
-              );
               const isSelected = row.row_id === selectedOverlayRowId;
               const isActive = row.row_id === activeOverlayRowId;
               const borderColor = isActive
@@ -1885,150 +1760,70 @@ export default function TranscriptSeekMock(
                     transition: "border-color 140ms ease, background 140ms ease, box-shadow 140ms ease",
                   }}
                 >
-                  <button
-                    type="button"
-                    onClick={() => seekToRow(row)}
-                    aria-current={isActive ? "true" : undefined}
-                    style={{
-                      border: "none",
-                      background: "transparent",
-                      textAlign: "left",
-                      padding: 0,
-                      display: "grid",
-                      gap: 6,
-                      color: "inherit",
-                      cursor: "pointer",
-                    }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 12, opacity: 0.85 }}>
-                        {formatClock(row.start_sec)}-{formatClock(row.end_sec)} {row.speaker}
-                      </span>
-                      <span style={{ fontSize: 11, opacity: 0.72 }}>
-                        id: {row.anchor_segment_id}
-                        {row.next_segment_id ? ` + ${row.next_segment_id}` : ""}
-                      </span>
-                      {row.structure !== "base" ? (
-                        <span
-                          style={{
-                            fontSize: 11,
-                            borderRadius: 999,
-                            padding: "1px 8px",
-                            border: "1px solid rgba(191, 219, 254, 0.26)",
-                            background: "rgba(15, 23, 42, 0.45)",
-                          }}
-                        >
-                          {row.structure}
+                    <button
+                      type="button"
+                      onClick={() => seekToRow(row)}
+                      aria-current={isActive ? "true" : undefined}
+                      className="hammer-script-row__button"
+                    >
+                      <div className="hammer-script-row__meta">
+                        <span className="hammer-copy-sm hammer-copy-muted">
+                          {formatClock(row.start_sec)}-{formatClock(row.end_sec)} {row.speaker}
                         </span>
-                      ) : null}
-                      {isActive ? (
-                        <span style={{ fontSize: 11, color: "#99f6e4" }}>active</span>
-                      ) : null}
-                      {row.is_muted ? (
-                        <span style={{ fontSize: 11, color: "#fde68a" }}>mute</span>
-                      ) : null}
-                      {row.is_trimmed ? (
-                        <span style={{ fontSize: 11, color: "#c4b5fd" }}>trim</span>
-                      ) : null}
-                    </div>
+                        {row.structure !== "base" ? (
+                          <span className="hammer-pill">{row.structure}</span>
+                        ) : null}
+                        {isActive ? (
+                          <span className="hammer-copy-sm" style={{ color: "#99f6e4" }}>active</span>
+                        ) : null}
+                        {row.is_muted ? (
+                          <span className="hammer-copy-sm" style={{ color: "#fde68a" }}>mute</span>
+                        ) : null}
+                        {row.is_trimmed ? (
+                          <span className="hammer-copy-sm" style={{ color: "#c4b5fd" }}>trim</span>
+                        ) : null}
+                      </div>
 
-                    <div style={{ display: "grid", gap: 6 }}>
-                      {row.blocks.map((block) => (
-                        <div
-                          key={block.block_id}
-                          style={{
-                            border: "1px solid rgba(148, 163, 184, 0.18)",
-                            borderRadius: 8,
-                            padding: "7px 8px",
-                            background: "rgba(2, 6, 23, 0.32)",
-                            display: "grid",
-                            gap: 3,
-                          }}
-                        >
-                          <div style={{ fontSize: 11, opacity: 0.68 }}>
-                            {block.label ? `${block.label} · ` : ""}
-                            {formatClock(block.start_sec)}-{formatClock(block.end_sec)}
+                      <div className="hammer-script-blocks">
+                        {row.blocks.map((block) => (
+                          <div key={block.block_id} className="hammer-script-block">
+                            <div className="hammer-label">
+                              {block.label ? `${block.label} · ` : ""}
+                              {formatClock(block.start_sec)}-{formatClock(block.end_sec)}
+                            </div>
+                            <div
+                              className="hammer-copy-md"
+                              style={{ textDecoration: row.is_deleted ? "line-through" : "none" }}
+                            >
+                              {block.text}
+                            </div>
                           </div>
-                          <div
-                            style={{
-                              fontSize: 13,
-                              lineHeight: 1.35,
-                              textDecoration: row.is_deleted ? "line-through" : "none",
-                            }}
-                          >
-                            {block.text}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </button>
-
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                    <button
-                      type="button"
-                      onClick={() => toggleDeleteInstruction(anchorSegment.segment_id)}
-                      style={{ padding: "4px 8px", fontSize: 11 }}
-                    >
-                      {rowDeleteInstruction ? "Restore" : "Delete"}
+                        ))}
+                      </div>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => toggleMuteInstruction(anchorSegment.segment_id)}
-                      style={{ padding: "4px 8px", fontSize: 11 }}
-                    >
-                      {rowMuteInstruction ? "Unmute" : "Mute"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => toggleTrimInstruction(anchorSegment)}
-                      style={{ padding: "4px 8px", fontSize: 11 }}
-                    >
-                      {rowTrimInstruction ? "Undo trim" : "Trim"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => toggleSplitInstruction(anchorSegment)}
-                      style={{ padding: "4px 8px", fontSize: 11 }}
-                    >
-                      {rowSplitInstruction ? "Undo split" : "Split"}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!rowMergeInstruction && !canMergeRow}
-                      onClick={() => toggleMergeInstruction(anchorSegment, nextSegment)}
-                      style={{ padding: "4px 8px", fontSize: 11 }}
-                    >
-                      {rowMergeInstruction ? "Undo merge" : "Merge with next"}
-                    </button>
-                    {!canMergeRow && nextSegment ? (
-                      <span style={{ fontSize: 11, opacity: 0.66 }}>
-                        merge disabled: speaker mismatch
-                      </span>
-                    ) : null}
                   </div>
-                </div>
-              );
-            })
-          ) : (
-            <div style={{ fontSize: 13, opacity: 0.78 }}>
-              No transcript segments loaded.
-            </div>
-          )}
+                );
+              })
+            ) : (
+              <div className="hammer-copy-md hammer-copy-dim">
+                No transcript segments loaded.
+              </div>
+            )}
         </div>
         </HammerPaneSection>
         </>
         ) : (
           <HammerPaneSection
-            title="Project Assets"
-            subtitle="Project-linked assets stay scoped to this workpiece and remain separate from stock or AI media tooling."
+            title="Assets"
+            subtitle="Assets stays limited to project-linked video, images, and music already attached to this workpiece."
             action={(
               <div className="hammer-tab-row">
-                {ASSET_PANEL_VIEWS.map((panel) => (
+                {WORK_PANEL_VIEWS.map((panel) => (
                   <button
                     key={panel.id}
                     type="button"
-                    onClick={() => setActiveAssetPanel(panel.id)}
-                    className={getToggleButtonClassName(activeAssetPanel === panel.id)}
+                    onClick={() => setActiveWorkPanel(panel.id)}
+                    className={getToggleButtonClassName(activeWorkPanel === panel.id)}
                   >
                     {panel.label}
                   </button>
@@ -2038,6 +1833,23 @@ export default function TranscriptSeekMock(
             sectionStyle={{ minHeight: 0, overflow: "hidden" }}
             bodyStyle={{ minHeight: 0, overflow: "auto" }}
           >
+            <div className="hammer-tab-row">
+              {ASSET_PANEL_VIEWS.map((panel) => (
+                <button
+                  key={panel.id}
+                  type="button"
+                  onClick={() => setActiveAssetPanel(panel.id)}
+                  className={getToggleButtonClassName(activeAssetPanel === panel.id)}
+                >
+                  {panel.label}
+                </button>
+              ))}
+            </div>
+            <div className="hammer-meta-strip">
+              <span className="hammer-pill">{projectAssets.video.length} video</span>
+              <span className="hammer-pill">{projectAssets.images.length} images</span>
+              <span className="hammer-pill">{projectAssets.music.length} music</span>
+            </div>
             {activeAssetItems.length > 0 ? (
               activeAssetItems.map((asset) => (
                 <div key={asset.id} className="hammer-asset-card">
@@ -2071,90 +1883,96 @@ export default function TranscriptSeekMock(
 
       <div
         className="hammer-pane hammer-pane--center"
-        style={{ gridTemplateRows: "auto minmax(0, 1fr)" }}
+        style={{ gridTemplateRows: "minmax(0, 1fr)" }}
       >
         <HammerPaneSection
-          title="Media Source Status"
-          subtitle="Media wiring stays separate from transport and edit-plan controls. This pane is the future home for real source health."
-          action={<span className="hammer-pill">{playbackSourceLabel}</span>}
-        >
-          <div style={{ display: "grid", gap: 4, fontSize: 12 }}>
-            <div>media source kind: {resolvedLaunch.launch_context.media.kind}</div>
-            <div>media source label: {resolvedLaunch.media.source_label}</div>
-            <div>media_id: <strong>{mediaRef?.media_id ?? "none"}</strong></div>
-            <div>workspace_id: {resolvedLaunch.launch_context.workspace_id}</div>
-            <div>local_relpath: {mediaRef?.local_relpath ?? "n/a"}</div>
-            <div>source mode: {sessionState.sourceMode}</div>
-          </div>
-          {!resolvedLaunch.media.requires_resolution ? (
-            <div style={{ fontSize: 13, opacity: 0.82 }}>
-              Launch context requested generated dev-tone media. No external media resolution is required.
+          title="Preview Monitor"
+          subtitle="The monitor stays modest inside the workspace, but it is the unmistakable place to verify playback, timing, and pacing."
+          action={(
+            <div className="hammer-action-row">
+              <span className={cx("hammer-pill", isPlaying && "hammer-pill--playing")}>
+                {isPlaying ? "Playing" : "Paused"}
+              </span>
+              <span className="hammer-pill">{sessionState.previewMode} preview</span>
+              <span className="hammer-pill">{previewSourceStatusLabel}</span>
             </div>
-          ) : resolving ? (
-            <div style={{ fontSize: 13, opacity: 0.82 }}>Resolving media...</div>
-          ) : resolveError ? (
-            <div style={{ color: "#fecaca", fontSize: 13 }}>{resolveError}</div>
-          ) : (
-            <>
-              {resolveResult ? (
-                <div style={{ fontSize: 12, opacity: 0.82 }}>
-                  {badgeVm?.badge.label}
-                  {badgeVm?.tooltip ? ` - ${badgeVm.tooltip}` : ""}
-                </div>
-              ) : null}
-              {resolveResult?.status === "ok" ? (
-                <div className="hammer-copy-sm hammer-copy-muted hammer-mono">
-                  resolved_uri: {resolveResult.playable_uri}
-                </div>
-              ) : null}
-              {resolveResult?.status === "unresolved" ? (
-                <div className="hammer-copy-md hammer-copy-warning">
-                  {resolveResult.user_message}
-                  {" "}
-                  Falling back to dev-tone preview audio.
-                </div>
-              ) : null}
-            </>
           )}
-        </HammerPaneSection>
-
-        <HammerPaneSection
-          title="Preview Stage"
-          subtitle="The center pane stays intentionally simple for now: live media, playhead, and the active preview state."
-          action={<span className="hammer-pill">{sessionState.previewMode} preview</span>}
           sectionStyle={{ minHeight: 0, overflow: "hidden" }}
           bodyStyle={{ minHeight: 0, overflow: "auto" }}
+          bodyClassName="hammer-stack-10"
         >
-          <div className="hammer-preview-card">
-            <div className="hammer-preview-card__summary">
-              <div className="hammer-preview-card__summary-head">
-                <strong className="hammer-copy-strong">Active Preview</strong>
-                <span className="hammer-copy-sm hammer-copy-muted">
-                  {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
+          <div className="hammer-monitor">
+            <div className="hammer-monitor__chrome">
+              <div className="hammer-stack-4">
+                <div className="hammer-label">Preview Window</div>
+                <div className="hammer-copy-sm hammer-copy-muted">{previewSourceDetail}</div>
+              </div>
+              <div className="hammer-meta-strip">
+                <span className="hammer-pill">{playbackSourceLabel}</span>
+                <span className="hammer-pill">
+                  {selectedOverlayRow ? selectedOverlayRow.row_id : "no row selected"}
                 </span>
-              </div>
-              <div className="hammer-copy-lg">
-                {activeOverlayRow ? formatOverlayRowLabel(activeOverlayRow) : "No active row"}
-              </div>
-              <div className="hammer-copy-sm hammer-copy-muted">
-                selected row: {selectedOverlayRow ? formatOverlayRowLabel(selectedOverlayRow) : "none"}
-                {" · "}
-                skip: {lastPreviewSkip?.reason ?? "none"}
               </div>
             </div>
 
-            {resolving ? (
-              <div className="hammer-copy-md hammer-copy-dim">Resolving media...</div>
-            ) : resolveError ? (
-              <div className="hammer-copy-md hammer-copy-error">{resolveError}</div>
-            ) : playbackSrc ? (
+            <div className="hammer-monitor__surface">
+              <div className="hammer-monitor__center">
+                {resolving ? (
+                  <>
+                    <div className="hammer-monitor__eyebrow">Connecting Preview</div>
+                    <h4 className="hammer-monitor__title">Resolving project media</h4>
+                    <div className="hammer-monitor__hint">{previewSourceDetail}</div>
+                  </>
+                ) : resolveError ? (
+                  <>
+                    <div className="hammer-monitor__eyebrow">Preview Warning</div>
+                    <h4 className="hammer-monitor__title">Preview source needs attention</h4>
+                    <div className="hammer-monitor__hint">{previewSourceDetail}</div>
+                  </>
+                ) : !playbackSrc ? (
+                  <>
+                    <div className="hammer-monitor__eyebrow">Preview Offline</div>
+                    <h4 className="hammer-monitor__title">No playback source available</h4>
+                    <div className="hammer-monitor__hint">
+                      Add or resolve project media to use the preview monitor.
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="hammer-monitor__eyebrow">Video Preview</div>
+                    <h4 className="hammer-monitor__title">
+                      {activeOverlayRow
+                        ? formatOverlayRowLabel(activeOverlayRow)
+                        : selectedOverlayRow
+                        ? formatOverlayRowLabel(selectedOverlayRow)
+                        : "Ready for review"}
+                    </h4>
+                    <div className="hammer-monitor__hint">{previewSourceDetail}</div>
+                    <div className="hammer-meta-strip">
+                      <span className="hammer-pill">
+                        {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
+                      </span>
+                      <span className="hammer-pill">
+                        selected {selectedOverlayRow ? selectedOverlayRow.row_id : "none"}
+                      </span>
+                      {lastPreviewSkip ? (
+                        <span className="hammer-pill">skip {lastPreviewSkip.reason}</span>
+                      ) : null}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {!resolving && !resolveError && playbackSrc ? (
+            <>
               <audio
                 ref={audioRef}
                 src={playbackSrc}
-                controls
+                className="hammer-audio-hidden"
                 preload="metadata"
                 data-testid="hammer-audio-player"
-                style={{ width: "100%" }}
                 onLoadedMetadata={(event) => {
                   const nextDuration = event.currentTarget.duration;
                   if (Number.isFinite(nextDuration) && nextDuration > 0) {
@@ -2177,20 +1995,89 @@ export default function TranscriptSeekMock(
                   setPlaybackError("Preview audio failed to load.");
                 }}
               />
-            ) : (
-              <div className="hammer-copy-md hammer-copy-warning">
-                No playback source is available yet.
-              </div>
-            )}
+            </>
+          ) : null}
 
-            {playbackError ? (
-              <div className="hammer-copy-sm hammer-copy-error">{playbackError}</div>
-            ) : null}
+          {playbackError ? (
+            <div className="hammer-copy-sm hammer-copy-error">{playbackError}</div>
+          ) : null}
+
+          <div className="hammer-preview-transport">
+            <div className="hammer-preview-transport__head">
+              <div className="hammer-stack-4">
+                <strong className="hammer-copy-strong">Transport</strong>
+                <div className="hammer-copy-sm hammer-copy-muted">
+                  Playback, seek, and preview-mode controls stay with the monitor instead of the transcript pane.
+                </div>
+              </div>
+              <div className="hammer-meta-strip">
+                <span className={cx("hammer-pill", isPlaying && "hammer-pill--playing")}>
+                  {isPlaying ? "playing" : "paused"}
+                </span>
+                <span className="hammer-pill">{sessionState.previewMode}</span>
+              </div>
+            </div>
+
+            <div className="hammer-action-row">
+              <button
+                type="button"
+                onClick={() => seekToResolvedTarget(previousPlayableTarget)}
+                disabled={previousPlayableTarget.timeSec == null}
+                className="hammer-button-xs"
+              >
+                Prev playable
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void onTogglePlayback();
+                }}
+                disabled={!canControlAudio}
+                className="hammer-button-xs"
+              >
+                {isPlaying ? "Pause" : "Play"}
+              </button>
+              <button
+                type="button"
+                onClick={() => seekToResolvedTarget(nextPlayableTarget)}
+                disabled={nextPlayableTarget.timeSec == null}
+                className="hammer-button-xs"
+              >
+                Next playable
+              </button>
+              <button
+                type="button"
+                onClick={() => seekToResolvedTarget(jumpToActiveTarget)}
+                disabled={jumpToActiveTarget.timeSec == null}
+                className="hammer-button-xs"
+              >
+                Jump to active
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewMode((current) => (current === "raw" ? "edit-aware" : "raw"))}
+                className="hammer-button-xs"
+              >
+                {sessionState.previewMode === "raw" ? "Edit-aware" : "Raw"}
+              </button>
+              <button
+                type="button"
+                onClick={resetPreview}
+                className="hammer-button-xs"
+              >
+                Reset
+              </button>
+            </div>
 
             <div className="hammer-copy-md">
-              Time: {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)} · {sessionState.previewMode} preview
+              Time: {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
+              {" · "}
+              Source: {previewSourceStatusLabel}
+              {" · "}
+              Skip: {lastPreviewSkip?.reason ?? "none"}
             </div>
-            <div style={{ display: "grid", gap: 6 }}>
+
+            <div className="hammer-stack-6">
               <div className="hammer-progress-track">
                 <div
                   className="hammer-progress-fill"
