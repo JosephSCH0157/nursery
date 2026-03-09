@@ -1725,10 +1725,6 @@ export default function TranscriptSeekMock(
   const polishSummaryItems = useMemo(() => {
     const items: string[] = [];
 
-    if (studioSoundPrepared) {
-      items.push("Studio Sound is prepared for the final audio pass.");
-    }
-
     if (deleteInstructionCount > 0) {
       items.push(`${deleteInstructionCount} transcript cuts are staged for cleanup.`);
     }
@@ -1750,7 +1746,6 @@ export default function TranscriptSeekMock(
     deleteInstructionCount,
     mergeInstructionCount,
     muteInstructionCount,
-    studioSoundPrepared,
     trimInstructionCount,
   ]);
   const audioSummaryItems = useMemo(() => {
@@ -2488,29 +2483,6 @@ export default function TranscriptSeekMock(
 
             <div className="hammer-workflow-grid">
               <HammerWorkflowCard
-                title="Studio Sound"
-                tone={studioSoundPrepared ? "active" : playbackSrc ? "ready" : "blocked"}
-                statusLabel={studioSoundPrepared ? "Prepared" : playbackSrc ? "Ready" : "Unavailable"}
-                description="Prepare dialogue enhancement for the final spoken-audio pass without changing the transcript edit plan."
-                meta={(
-                  <div className="hammer-meta-strip">
-                    <span className="hammer-pill">{playbackSourceLabel}</span>
-                    <span className="hammer-pill">{studioSoundPrepared ? "queued for export" : "not queued"}</span>
-                  </div>
-                )}
-                actions={(
-                  <button
-                    type="button"
-                    className="hammer-button-xs"
-                    onClick={() => setStudioSoundPrepared((current) => !current)}
-                    disabled={!playbackSrc}
-                  >
-                    {studioSoundPrepared ? "Remove from pass" : "Prepare audio pass"}
-                  </button>
-                )}
-              />
-
-              <HammerWorkflowCard
                 title="Filler Cleanup"
                 tone={selectedSegmentDeleteInstruction ? "active" : selectedSegment ? "ready" : "blocked"}
                 statusLabel={selectedSegmentDeleteInstruction ? "Cut staged" : selectedSegment ? "Ready" : "Select a row"}
@@ -2617,32 +2589,6 @@ export default function TranscriptSeekMock(
                   </button>
                 )}
               />
-
-              <HammerWorkflowCard
-                title="Blur Background"
-                tone={blurBackgroundBlocked ? "blocked" : "future"}
-                statusLabel={blurBackgroundBlocked ? "Unavailable" : "Future"}
-                description="Background cleanup belongs in Polish, but it should only appear as a project-linked video enhancement once a real video polish path exists."
-                meta={(
-                  <div className="hammer-copy-sm hammer-copy-muted">
-                    {blurBackgroundBlocked
-                      ? "This launch is using preview-tone or non-video media, so background blur is intentionally unavailable."
-                      : "Mapped video is present, but the blur engine is not wired into Hammer yet."}
-                  </div>
-                )}
-              />
-
-              <HammerWorkflowCard
-                title="Eye Contact"
-                tone="future"
-                statusLabel="Future"
-                description="Eye contact correction remains a later Polish-stage enhancement once Hammer owns the video adjustment pipeline."
-                meta={(
-                  <div className="hammer-copy-sm hammer-copy-muted">
-                    Keep the slot visible, but do not fake the feature before the video engine exists.
-                  </div>
-                )}
-              />
             </div>
 
             <div className="hammer-polish-output">
@@ -2662,10 +2608,6 @@ export default function TranscriptSeekMock(
                 <div>
                   <div className="hammer-label">merges</div>
                   <div>{mergeInstructionCount}</div>
-                </div>
-                <div>
-                  <div className="hammer-label">studio sound</div>
-                  <div>{studioSoundPrepared ? "prepared" : "not queued"}</div>
                 </div>
               </div>
               {polishSummaryItems.length > 0 ? (
@@ -2955,10 +2897,37 @@ export default function TranscriptSeekMock(
               <span className="hammer-pill">visual cleanup</span>
             </div>
             <div className="hammer-copy-md">
-              Video controls stay tied to the current project and launch context. Preview remains moderate so the timeline and transcript keep equal weight.
+              Video stays focused on framing and visual cleanup tied to the current project media.
             </div>
             <div className="hammer-copy-sm hammer-copy-muted">
               source: {activeMediaSourceLabel} · media kind {activeMediaKind ? formatMediaKindLabel(activeMediaKind) : resolvedLaunch.launch_context.media.kind}
+            </div>
+            <div className="hammer-workflow-grid">
+              <HammerWorkflowCard
+                title="Blur Background"
+                tone={blurBackgroundBlocked ? "blocked" : "future"}
+                statusLabel={blurBackgroundBlocked ? "Unavailable" : "Future"}
+                description="Background cleanup belongs in Video once Hammer owns the visual polish path for the current media."
+                meta={(
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    {blurBackgroundBlocked
+                      ? "This launch is using preview-tone or non-video media, so background blur is intentionally unavailable."
+                      : "Mapped video is present, but the blur engine is not wired into Hammer yet."}
+                  </div>
+                )}
+              />
+
+              <HammerWorkflowCard
+                title="Eye Contact"
+                tone="future"
+                statusLabel="Future"
+                description="Eye contact correction belongs in Video once Hammer owns the visual adjustment pipeline."
+                meta={(
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    Keep the slot visible, but do not fake the feature before the video engine exists.
+                  </div>
+                )}
+              />
             </div>
           </div>
         );
