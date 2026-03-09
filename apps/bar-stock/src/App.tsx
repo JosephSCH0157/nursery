@@ -225,6 +225,7 @@ export default function App(props: BarstockAppProps = {}) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingBody, setEditingBody] = useState("");
   const [toast, setToast] = useState<string | null>(null);
+  const sessionUserId = session?.user.id ?? null;
 
   const importRef = useRef<HTMLInputElement | null>(null);
 
@@ -438,7 +439,7 @@ export default function App(props: BarstockAppProps = {}) {
   }, [assignments, workspaceId]);
 
   useEffect(() => {
-    if (!supabaseAvailable || !session || !workspaceId) return;
+    if (!supabaseAvailable || !sessionUserId || !workspaceId) return;
     let cancelled = false;
     (async () => {
       try {
@@ -458,10 +459,10 @@ export default function App(props: BarstockAppProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, [session, supabaseAvailable, workspaceId]);
+  }, [sessionUserId, supabaseAvailable, workspaceId]);
 
   useEffect(() => {
-    if (!supabaseAvailable || !session || !workspaceId) {
+    if (!supabaseAvailable || !sessionUserId || !workspaceId) {
       setTongsStatus("offline");
       return;
     }
@@ -478,11 +479,11 @@ export default function App(props: BarstockAppProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, [supabaseAvailable, session, workspaceId]);
+  }, [supabaseAvailable, sessionUserId, workspaceId]);
 
   useEffect(() => {
     if (hasExternalWorkspaceState) return;
-    if (!session) {
+    if (!sessionUserId) {
       setWorkspaces([]);
       setWorkspaceId(null);
       return;
@@ -500,7 +501,7 @@ export default function App(props: BarstockAppProps = {}) {
         popToast("Failed loading workspaces");
       }
     })();
-  }, [session, hasExternalWorkspaceState, setActiveWorkspace]);
+  }, [sessionUserId, hasExternalWorkspaceState, setActiveWorkspace]);
 
   const sparkEpisodeIdsForGraduation = useMemo(() => {
     const ids = new Set<string>();
@@ -512,7 +513,7 @@ export default function App(props: BarstockAppProps = {}) {
   }, [sparks]);
 
   useEffect(() => {
-    if (!supabaseAvailable || !session || !workspaceId) {
+    if (!supabaseAvailable || !sessionUserId || !workspaceId) {
       setGraduatedEpisodeIds([]);
       return;
     }
@@ -540,7 +541,7 @@ export default function App(props: BarstockAppProps = {}) {
       cancelled = true;
       window.removeEventListener("focus", onFocus);
     };
-  }, [session, sparkEpisodeIdsForGraduation, supabaseAvailable, workspaceId]);
+  }, [sessionUserId, sparkEpisodeIdsForGraduation, supabaseAvailable, workspaceId]);
 
   const graduatedEpisodeIdSet = useMemo(() => {
     return new Set(
