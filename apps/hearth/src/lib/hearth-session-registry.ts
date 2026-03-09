@@ -10,6 +10,7 @@ import { HEARTH_SESSION_SCHEMA } from "../domain/hearth-session";
 
 const SESSION_PREFIX = "hearth:script:session:v1:";
 const SESSION_FALLBACK_KEY = "hearth:script:session:v1";
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -21,6 +22,12 @@ function readNullableString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
+}
+
+function normalizeUuid(value: unknown): string | null {
+  const text = readNullableString(value);
+  if (!text) return null;
+  return UUID_RE.test(text) ? text.toLowerCase() : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -98,8 +105,8 @@ function normalizeSession(raw: unknown): HearthPlanningSession | null {
 
   const session: HearthPlanningSession = {
     schema: HEARTH_SESSION_SCHEMA,
-    workpiece_id: readNullableString(raw.workpiece_id),
-    workspace_id: readNullableString(raw.workspace_id),
+    workpiece_id: normalizeUuid(raw.workpiece_id),
+    workspace_id: normalizeUuid(raw.workspace_id),
     created_at: createdAt,
     updated_at: updatedAt,
     origin: normalizeOrigin(raw.origin),

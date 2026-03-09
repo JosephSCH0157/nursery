@@ -2567,7 +2567,9 @@ export default function HearthShell() {
   useEffect(() => {
     const workspace = workspaceId?.trim() ?? "";
     const workpiece = workpieceId?.trim() ?? "";
-    if (!workspace || !workpiece) {
+    const normalizedWorkspaceId = normalizeUuid(workspace);
+    const normalizedWorkpieceId = normalizeUuid(workpiece);
+    if (!normalizedWorkspaceId || !normalizedWorkpieceId) {
       setPresenceRows([]);
       return;
     }
@@ -2578,12 +2580,12 @@ export default function HearthShell() {
     const syncPresence = async () => {
       try {
         await upsertHearthWorkpiecePresence({
-          workspaceId: workspace,
-          workpieceId: workpiece,
+          workspaceId: normalizedWorkspaceId,
+          workpieceId: normalizedWorkpieceId,
           mode: localPresenceMode,
           displayName: activeUserDisplayName,
         });
-        const rows = await listHearthWorkpiecePresence(workspace, workpiece);
+        const rows = await listHearthWorkpiecePresence(normalizedWorkspaceId, normalizedWorkpieceId);
         if (!cancelled) {
           setPresenceRows(rows);
         }
@@ -3422,12 +3424,17 @@ export default function HearthShell() {
     const refreshSession = () => {
       const cached = readHearthPlanningSessionCache(workpieceId);
       if (cached) {
-        setPlanningSession(cached);
-        if (!workpieceId && cached.workpiece_id) {
-          setWorkpieceId(cached.workpiece_id);
+        const normalizedCached: HearthPlanningSession = {
+          ...cached,
+          workpiece_id: normalizeUuid(cached.workpiece_id),
+          workspace_id: normalizeUuid(cached.workspace_id),
+        };
+        setPlanningSession(normalizedCached);
+        if (!workpieceId && normalizedCached.workpiece_id) {
+          setWorkpieceId(normalizedCached.workpiece_id);
         }
-        if (!workspaceId && cached.workspace_id) {
-          setWorkspaceId(cached.workspace_id);
+        if (!workspaceId && normalizedCached.workspace_id) {
+          setWorkspaceId(normalizedCached.workspace_id);
         }
       }
     };
@@ -3441,17 +3448,23 @@ export default function HearthShell() {
   }, [workpieceId, workspaceId]);
 
   useEffect(() => {
-    if (!workpieceId) return;
+    const normalizedWorkpieceId = normalizeUuid(workpieceId);
+    if (!normalizedWorkpieceId) return;
     let cancelled = false;
-    readHearthSession(workpieceId)
+    readHearthSession(normalizedWorkpieceId)
       .then((session) => {
         if (cancelled || !session) return;
-        setPlanningSession(session);
+        const normalizedSession: HearthPlanningSession = {
+          ...session,
+          workpiece_id: normalizeUuid(session.workpiece_id),
+          workspace_id: normalizeUuid(session.workspace_id),
+        };
+        setPlanningSession(normalizedSession);
         setSessionTouched(false);
-        sessionCommitRef.current = buildSessionFingerprint(session);
-        writeHearthPlanningSessionCache(session, workpieceId);
-        if (!workspaceId && session.workspace_id) {
-          setWorkspaceId(session.workspace_id);
+        sessionCommitRef.current = buildSessionFingerprint(normalizedSession);
+        writeHearthPlanningSessionCache(normalizedSession, normalizedWorkpieceId);
+        if (!workspaceId && normalizedSession.workspace_id) {
+          setWorkspaceId(normalizedSession.workspace_id);
         }
       })
       .catch(() => {});
@@ -3461,8 +3474,8 @@ export default function HearthShell() {
   }, [workpieceId, workspaceId]);
 
   useEffect(() => {
-    const workspace = workspaceId?.trim() ?? "";
-    const workpiece = workpieceId?.trim() ?? "";
+    const workspace = normalizeUuid(workspaceId);
+    const workpiece = normalizeUuid(workpieceId);
     if (!workspace || !workpiece) return;
 
     let cancelled = false;

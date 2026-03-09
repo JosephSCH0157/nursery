@@ -84,8 +84,11 @@ export async function listHearthWorkpiecePresence(
   workspaceId: string,
   workpieceId: string,
 ): Promise<HearthWorkpiecePresence[]> {
+  const safeWorkspaceId = normalizeUuid(workspaceId);
+  const safeWorkpieceId = normalizeUuid(workpieceId);
+  if (!safeWorkspaceId || !safeWorkpieceId) return [];
   const response = await tongsFetch(
-    `/tongs/workspaces/${encodeURIComponent(workspaceId)}/workpieces/${encodeURIComponent(workpieceId)}/presence`,
+    `/tongs/workspaces/${encodeURIComponent(safeWorkspaceId)}/workpieces/${encodeURIComponent(safeWorkpieceId)}/presence`,
     { method: "GET" },
   );
   if (!response.ok) return [];
@@ -104,8 +107,11 @@ export async function upsertHearthWorkpiecePresence(args: {
   mode: HearthPresenceMode;
   displayName?: string | null;
 }): Promise<HearthWorkpiecePresence | null> {
+  const safeWorkspaceId = normalizeUuid(args.workspaceId);
+  const safeWorkpieceId = normalizeUuid(args.workpieceId);
+  if (!safeWorkspaceId || !safeWorkpieceId) return null;
   const response = await tongsFetch(
-    `/tongs/workspaces/${encodeURIComponent(args.workspaceId)}/workpieces/${encodeURIComponent(args.workpieceId)}/presence`,
+    `/tongs/workspaces/${encodeURIComponent(safeWorkspaceId)}/workpieces/${encodeURIComponent(safeWorkpieceId)}/presence`,
     {
       method: "PUT",
       json: {
