@@ -145,11 +145,10 @@ function dedupeSparksById(sparks: BarStockSpark[]): BarStockSpark[] {
 export function readBarStockSparks(workspaceId?: string | null): BarStockSpark[] {
   if (typeof window === "undefined") return [];
   const scope = resolveWorkspaceScope(workspaceId);
+  if (!scope) return [];
 
   try {
-    const scoped = parseSparkArray(window.localStorage.getItem(sparksStorageKey(scope)));
-    if (scoped.length > 0 || !scope) return scoped;
-    return parseSparkArray(window.localStorage.getItem(SPARKS_KEY));
+    return parseSparkArray(window.localStorage.getItem(sparksStorageKey(scope)));
   } catch {
     return [];
   }
@@ -175,19 +174,19 @@ export function upsertBarStockSpark(sparks: BarStockSpark[], spark: BarStockSpar
 
 export function isBarStockKey(key: string | null, workspaceId?: string | null): boolean {
   if (!key) return false;
-  if (key === SPARKS_KEY) return true;
-  if (!key.startsWith(`${SPARKS_KEY_PREFIX}:`)) return false;
   const scope = resolveWorkspaceScope(workspaceId);
-  if (!scope) return true;
+  if (!scope) return false;
+  if (!key.startsWith(`${SPARKS_KEY_PREFIX}:`)) return false;
   return key === sparksStorageKey(scope);
 }
 
 export function enqueueBarStockSpark(spark: BarStockSpark, workspaceId?: string | null): void {
   if (typeof window === "undefined") return;
   const scope = resolveWorkspaceScope(workspaceId);
+  if (!scope) return;
   const key = outboxStorageKey(scope);
   try {
-    const raw = window.localStorage.getItem(key) ?? window.localStorage.getItem(OUTBOX_KEY);
+    const raw = window.localStorage.getItem(key);
     const parsed = raw ? JSON.parse(raw) : [];
     const list = Array.isArray(parsed) ? parsed : [];
 

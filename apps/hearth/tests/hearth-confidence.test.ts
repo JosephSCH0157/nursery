@@ -40,6 +40,13 @@ function resetLocalStorage(): LocalStorageLike {
     value: storage,
     configurable: true,
   });
+  Object.defineProperty(globalThis, "window", {
+    value: {
+      localStorage: storage,
+      location: { search: "" },
+    },
+    configurable: true,
+  });
   return storage;
 }
 
@@ -100,7 +107,8 @@ async function testRevisionCap() {
 }
 
 async function testSessionRoundtrip() {
-  resetLocalStorage();
+  const storage = resetLocalStorage();
+  storage.setItem("forge_workspace_id_v1", "2980fc39-8c8b-489a-a900-8d3bd3248432");
   const sessionStore = new LocalSessionStore();
   await sessionStore.saveSession({
     id: "default",

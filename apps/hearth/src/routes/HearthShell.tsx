@@ -1685,7 +1685,7 @@ export default function HearthShell() {
   const [routeProjectTitle, setRouteProjectTitle] = useState<string | null>(null);
 
   const [planningSession, setPlanningSession] = useState<HearthPlanningSession | null>(() =>
-    readHearthPlanningSessionCache(resolveWorkpieceId()),
+    readHearthPlanningSessionCache(resolveWorkpieceId(), resolveWorkspaceId()),
   );
   const [sessionTouched, setSessionTouched] = useState(false);
   const [decisionDraft, setDecisionDraft] = useState("");
@@ -2787,7 +2787,11 @@ export default function HearthShell() {
         intent: next.intent ?? deriveIntentFromOrigin(next.origin),
       };
 
-      writeHearthPlanningSessionCache(updated, workpieceId ?? updated.workpiece_id ?? null);
+      writeHearthPlanningSessionCache(
+        updated,
+        workpieceId ?? updated.workpiece_id ?? null,
+        workspaceId ?? updated.workspace_id ?? null,
+      );
       return updated;
     });
 
@@ -2849,7 +2853,7 @@ export default function HearthShell() {
           setPlanningSession((prev) => {
             if (!prev && !overrideSession) return prev;
             const next = { ...sessionForCommit, updated_at: new Date().toISOString() };
-            writeHearthPlanningSessionCache(next, workpieceId);
+            writeHearthPlanningSessionCache(next, workpieceId, workspaceId ?? next.workspace_id ?? null);
             return next;
           });
         }
@@ -3422,7 +3426,7 @@ export default function HearthShell() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const refreshSession = () => {
-      const cached = readHearthPlanningSessionCache(workpieceId);
+      const cached = readHearthPlanningSessionCache(workpieceId, workspaceId);
       if (cached) {
         const normalizedCached: HearthPlanningSession = {
           ...cached,
@@ -3462,7 +3466,11 @@ export default function HearthShell() {
         setPlanningSession(normalizedSession);
         setSessionTouched(false);
         sessionCommitRef.current = buildSessionFingerprint(normalizedSession);
-        writeHearthPlanningSessionCache(normalizedSession, normalizedWorkpieceId);
+        writeHearthPlanningSessionCache(
+          normalizedSession,
+          normalizedWorkpieceId,
+          workspaceId ?? normalizedSession.workspace_id ?? null,
+        );
         if (!workspaceId && normalizedSession.workspace_id) {
           setWorkspaceId(normalizedSession.workspace_id);
         }
@@ -3498,6 +3506,8 @@ export default function HearthShell() {
         const workpieceWorkspaceId = normalizeUuid(body?.data?.workspace_id);
         if (!cancelled && workpieceWorkspaceId && workpieceWorkspaceId !== workspace) {
           setError("This workpiece belongs to another workspace. Switch workspace to open it.");
+          setPlanningSession(null);
+          setPresenceRows([]);
           setWorkpieceId(null);
         }
       } catch {
@@ -4953,7 +4963,11 @@ export default function HearthShell() {
             updated_at: nowIso,
           };
           setPlanningSession(committedSession);
-          writeHearthPlanningSessionCache(committedSession, episodeId);
+          writeHearthPlanningSessionCache(
+            committedSession,
+            episodeId,
+            workspaceId ?? committedSession.workspace_id ?? null,
+          );
           setSessionTouched(true);
           await syncSessionToTongs(committedSession);
         }

@@ -31,7 +31,8 @@ function parseAssignments(raw: string | null): Assignment[] {
 export function loadAssignments(workspaceId?: string | null): Assignment[] {
   const key = scopedKey(workspaceId);
   const scoped = parseAssignments(localStorage.getItem(key));
-  if (scoped.length > 0 || key === KEY) return scoped;
+  if (normalizedScope(workspaceId)) return scoped;
+  if (key === KEY) return scoped;
   return parseAssignments(localStorage.getItem(KEY) ?? localStorage.getItem(LEGACY_KEY));
 }
 

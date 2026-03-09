@@ -29,6 +29,7 @@ const DEFAULT_TOOL_VERSION = "0.0.0";
 let correlationSeq = 0;
 
 const WORKSPACE_KEYS = ["forge_workspace_id_v1", "barstock_workspace_id"] as const;
+const WORKPIECE_PREFIX = "forge_hearth_script_workpiece_v1:";
 const WORKPIECE_KEYS = [
   "forge_hearth_script_workpiece_id_v1",
   "forge_active_workpiece_id_v1",
@@ -93,6 +94,9 @@ export function resolveWorkspaceId(): string | null {
 }
 
 export function resolveWorkpieceId(): string | null {
+  const workspaceId = resolveWorkspaceId();
+  if (!workspaceId) return null;
+
   const fromQuery = normalizeUuid(
     getQueryParam("workpiece_id", "workpieceId", "workpiece", "cradle_id", "cradleId"),
   );
@@ -109,10 +113,8 @@ export function resolveWorkpieceId(): string | null {
   );
   if (fromWindow) return fromWindow;
 
-  for (const key of WORKPIECE_KEYS) {
-    const value = normalizeUuid(readLocalStorage(key));
-    if (value) return value;
-  }
+  const scoped = normalizeUuid(readLocalStorage(`${WORKPIECE_PREFIX}${workspaceId}`));
+  if (scoped) return scoped;
 
   return null;
 }
