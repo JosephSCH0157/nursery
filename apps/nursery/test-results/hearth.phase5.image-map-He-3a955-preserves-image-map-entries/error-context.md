@@ -1,0 +1,1842 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - button "Open The Forge menu" [ref=e5] [cursor=pointer]: ☰
+    - strong [ref=e6]: Hearth
+    - generic [ref=e7]:
+      - generic [ref=e8]: "AI Credits: 1,468,610"
+      - generic [ref=e9]: "AI: Idle"
+      - generic "Forge has an authenticated session and can use cloud metadata endpoints." [ref=e10]: "Forge Cloud: Connected"
+      - generic [ref=e11]: Logged in as jschramer@gmail.com
+      - button "Log out" [ref=e12] [cursor=pointer]
+  - main [ref=e13]:
+    - generic [ref=e15]:
+      - complementary [ref=e16]:
+        - generic [ref=e17]:
+          - generic [ref=e18]: Hearth
+          - generic [ref=e19]: Workpiece 4c8b5d55
+        - generic [ref=e20]:
+          - generic [ref=e21]: Primary actions
+          - button "New Workpiece" [ref=e22] [cursor=pointer]
+          - button "New Draft" [ref=e23] [cursor=pointer]
+        - generic [ref=e24]:
+          - generic [ref=e25]: Modes
+          - button "Sparks" [ref=e26] [cursor=pointer]
+          - button "Episodes (In Progress)" [ref=e27] [cursor=pointer]
+          - button "Ready" [ref=e28] [cursor=pointer]
+          - button "Series" [ref=e29] [cursor=pointer]
+        - generic [ref=e30]:
+          - generic [ref=e31]:
+            - generic [ref=e32]: Ready to Record25
+            - button "Refresh" [ref=e33] [cursor=pointer]
+          - group "Ready queue category filters" [ref=e34]:
+            - button "All (25)" [ref=e35] [cursor=pointer]
+            - button "Evergreen (0)" [ref=e36] [cursor=pointer]
+            - button "Hot Topic (0)" [ref=e37] [cursor=pointer]
+            - button "Viral / Reaction (0)" [ref=e38] [cursor=pointer]
+            - button "Strategic Anchor (0)" [ref=e39] [cursor=pointer]
+            - button "Community (0)" [ref=e40] [cursor=pointer]
+            - button "Personal / Reflective (0)" [ref=e41] [cursor=pointer]
+            - button "Educational / Explainer (0)" [ref=e42] [cursor=pointer]
+            - button "Experimental (0)" [ref=e43] [cursor=pointer]
+            - button "Backup / Filler (0)" [ref=e44] [cursor=pointer]
+            - button "Uncategorized (25)" [ref=e45] [cursor=pointer]
+          - group "Ready queue urgency filters" [ref=e46]:
+            - 'button "Urgency: All (25)" [ref=e47] [cursor=pointer]'
+            - button "Fresh (0)" [ref=e48] [cursor=pointer]
+            - button "Cooling (0)" [ref=e49] [cursor=pointer]
+            - button "Cold (0)" [ref=e50] [cursor=pointer]
+          - generic [ref=e51]: Approved scripts stay here until a recording asset is committed.
+          - generic [ref=e53]:
+            - generic [ref=e54]: Uncategorized
+            - list [ref=e55]:
+              - listitem [ref=e56]:
+                - button "Phase 4 spark 1773168786399 47a46f17" [ref=e57] [cursor=pointer]:
+                  - generic [ref=e58]: Phase 4 spark 1773168786399 47a46f17
+                - generic [ref=e60]: Marked ready by Jschramer • 2 hours ago
+                - generic [ref=e61]:
+                  - generic [ref=e62]: Category
+                  - combobox "Category" [ref=e63]:
+                    - option "Uncategorized" [selected]
+                    - option "Evergreen"
+                    - option "Hot Topic"
+                    - option "Viral / Reaction"
+                    - option "Strategic Anchor"
+                    - option "Community"
+                    - option "Personal / Reflective"
+                    - option "Educational / Explainer"
+                    - option "Experimental"
+                    - option "Backup / Filler"
+                - button "Open in Hearth" [ref=e64] [cursor=pointer]
+                - button "Open in Anvil" [ref=e65] [cursor=pointer]
+              - listitem [ref=e66]:
+                - button "are drivers getting less polite?" [ref=e67] [cursor=pointer]:
+                  - generic [ref=e68]: are drivers getting less polite?
+                - generic [ref=e70]: Marked ready by Jschramer • 2 hours ago
+                - generic [ref=e71]:
+                  - generic [ref=e72]: Category
+                  - combobox "Category" [ref=e73]:
+                    - option "Uncategorized" [selected]
+                    - option "Evergreen"
+                    - option "Hot Topic"
+                    - option "Viral / Reaction"
+                    - option "Strategic Anchor"
+                    - option "Community"
+                    - option "Personal / Reflective"
+                    - option "Educational / Explainer"
+                    - option "Experimental"
+                    - option "Backup / Filler"
+                - button "Open in Hearth" [ref=e74] [cursor=pointer]
+                - button "Open in Anvil" [ref=e75] [cursor=pointer]
+              - listitem [ref=e76]:
+                - button "Phase 4 spark 1773168489890 f040e8b6" [ref=e77] [cursor=pointer]:
+                  - generic [ref=e78]: Phase 4 spark 1773168489890 f040e8b6
+                - generic [ref=e80]: Marked ready by Jschramer • 2 hours ago
+                - generic [ref=e81]:
+                  - generic [ref=e82]: Category
+                  - combobox "Category" [ref=e83]:
+                    - option "Uncategorized" [selected]
+                    - option "Evergreen"
+                    - option "Hot Topic"
+                    - option "Viral / Reaction"
+                    - option "Strategic Anchor"
+                    - option "Community"
+                    - option "Personal / Reflective"
+                    - option "Educational / Explainer"
+                    - option "Experimental"
+                    - option "Backup / Filler"
+                - button "Open in Hearth" [ref=e84] [cursor=pointer]
+                - button "Open in Anvil" [ref=e85] [cursor=pointer]
+              - listitem [ref=e86]:
+                - button "Phase 4 spark 1773168337713 5adc5e1a" [ref=e87] [cursor=pointer]:
+                  - generic [ref=e88]: Phase 4 spark 1773168337713 5adc5e1a
+                - generic [ref=e90]: Marked ready by Jschramer • 2 hours ago
+                - generic [ref=e91]:
+                  - generic [ref=e92]: Category
+                  - combobox "Category" [ref=e93]:
+                    - option "Uncategorized" [selected]
+                    - option "Evergreen"
+                    - option "Hot Topic"
+                    - option "Viral / Reaction"
+                    - option "Strategic Anchor"
+                    - option "Community"
+                    - option "Personal / Reflective"
+                    - option "Educational / Explainer"
+                    - option "Experimental"
+                    - option "Backup / Filler"
+                - button "Open in Hearth" [ref=e94] [cursor=pointer]
+                - button "Open in Anvil" [ref=e95] [cursor=pointer]
+              - listitem [ref=e96]:
+                - button "Phase 4 spark 1773168189563 aa07b878" [ref=e97] [cursor=pointer]:
+                  - generic [ref=e98]: Phase 4 spark 1773168189563 aa07b878
+                - generic [ref=e100]: Marked ready by Jschramer • 2 hours ago
+                - generic [ref=e101]:
+                  - generic [ref=e102]: Category
+                  - combobox "Category" [ref=e103]:
+                    - option "Uncategorized" [selected]
+                    - option "Evergreen"
+                    - option "Hot Topic"
+                    - option "Viral / Reaction"
+                    - option "Strategic Anchor"
+                    - option "Community"
+                    - option "Personal / Reflective"
+                    - option "Educational / Explainer"
+                    - option "Experimental"
+                    - option "Backup / Filler"
+                - button "Open in Hearth" [ref=e104] [cursor=pointer]
+                - button "Open in Anvil" [ref=e105] [cursor=pointer]
+              - listitem [ref=e106]:
+                - button "Phase 4 spark 1773167904136 a58d1309" [ref=e107] [cursor=pointer]:
+                  - generic [ref=e108]: Phase 4 spark 1773167904136 a58d1309
+                - generic [ref=e110]: Marked ready by Jschramer • 3 hours ago
+                - generic [ref=e111]:
+                  - generic [ref=e112]: Category
+                  - combobox "Category" [ref=e113]:
+                    - option "Uncategorized" [selected]
+                    - option "Evergreen"
+                    - option "Hot Topic"
+                    - option "Viral / Reaction"
+                    - option "Strategic Anchor"
+                    - option "Community"
+                    - option "Personal / Reflective"
+                    - option "Educational / Explainer"
+                    - option "Experimental"
+                    - option "Backup / Filler"
+                - button "Open in Hearth" [ref=e114] [cursor=pointer]
+                - button "Open in Anvil" [ref=e115] [cursor=pointer]
+              - listitem [ref=e116]:
+                - button "Phase 4 spark 1773167711850 c41dac44" [ref=e117] [cursor=pointer]:
+                  - generic [ref=e118]: Phase 4 spark 1773167711850 c41dac44
+                - generic [ref=e120]: Marked ready by Jschramer • 3 hours ago
+                - generic [ref=e121]:
+                  - generic [ref=e122]: Category
+                  - combobox "Category" [ref=e123]:
+                    - option "Uncategorized" [selected]
+                    - option "Evergreen"
+                    - option "Hot Topic"
+                    - option "Viral / Reaction"
+                    - option "Strategic Anchor"
+                    - option "Community"
+                    - option "Personal / Reflective"
+                    - option "Educational / Explainer"
+                    - option "Experimental"
+                    - option "Backup / Filler"
+                - button "Open in Hearth" [ref=e124] [cursor=pointer]
+                - button "Open in Anvil" [ref=e125] [cursor=pointer]
+              - listitem [ref=e126]:
+                - button "Phase 4 spark 1773167513346 cf8b2515" [ref=e127] [cursor=pointer]:
+                  - generic [ref=e128]: Phase 4 spark 1773167513346 cf8b2515
+                - generic [ref=e130]: Marked ready by Jschramer • 3 hours ago
+                - generic [ref=e131]:
+                  - generic [ref=e132]: Category
+                  - combobox "Category" [ref=e133]:
+                    - option "Uncategorized" [selected]
+                    - option "Evergreen"
+                    - option "Hot Topic"
+                    - option "Viral / Reaction"
+                    - option "Strategic Anchor"
+                    - option "Community"
+                    - option "Personal / Reflective"
+                    - option "Educational / Explainer"
+                    - option "Experimental"
+                    - option "Backup / Filler"
+                - button "Open in Hearth" [ref=e134] [cursor=pointer]
+                - button "Open in Anvil" [ref=e135] [cursor=pointer]
+              - listitem [ref=e136]:
+                - button "Phase 4 spark 1773158954343 267d48f4" [ref=e137] [cursor=pointer]:
+                  - generic [ref=e138]: Phase 4 spark 1773158954343 267d48f4
+                - generic [ref=e140]: Marked ready by Jschramer • 5 hours ago
+                - generic [ref=e141]:
+                  - generic [ref=e142]: Category
+                  - combobox "Category" [ref=e143]:
+                    - option "Uncategorized" [selected]
+                    - option "Evergreen"
+                    - option "Hot Topic"
+                    - option "Viral / Reaction"
+                    - option "Strategic Anchor"
+                    - option "Community"
+                    - option "Personal / Reflective"
+                    - option "Educational / Explainer"
+                    - option "Experimental"
+                    - option "Backup / Filler"
+                - button "Open in Hearth" [ref=e144] [cursor=pointer]
+                - button "Open in Anvil" [ref=e145] [cursor=pointer]
+              - listitem [ref=e146]:
+                - button "Phase 4 spark 1773158896450 cd415b50" [ref=e147] [cursor=pointer]:
+                  - generic [ref=e148]: Phase 4 spark 1773158896450 cd415b50
+                - generic [ref=e150]: Marked ready by Jschramer • 5 hours ago
+                - generic [ref=e151]:
+                  - generic [ref=e152]: Category
+                  - combobox "Category" [ref=e153]:
+                    - option "Uncategorized" [selected]
+                    - option "Evergreen"
+                    - option "Hot Topic"
+                    - option "Viral / Reaction"
+                    - option "Strategic Anchor"
+                    - option "Community"
+                    - option "Personal / Reflective"
+                    - option "Educational / Explainer"
+                    - option "Experimental"
+                    - option "Backup / Filler"
+                - button "Open in Hearth" [ref=e154] [cursor=pointer]
+                - button "Open in Anvil" [ref=e155] [cursor=pointer]
+              - listitem [ref=e156]:
+                - button "Phase 4 spark 1773158735716 c93a4a51" [ref=e157] [cursor=pointer]:
+                  - generic [ref=e158]: Phase 4 spark 1773158735716 c93a4a51
+                - generic [ref=e160]: Marked ready by Jschramer • 5 hours ago
+                - generic [ref=e161]:
+                  - generic [ref=e162]: Category
+                  - combobox "Category" [ref=e163]:
+                    - option "Uncategorized" [selected]
+                    - option "Evergreen"
+                    - option "Hot Topic"
+                    - option "Viral / Reaction"
+                    - option "Strategic Anchor"
+                    - option "Community"
+                    - option "Personal / Reflective"
+                    - option "Educational / Explainer"
+                    - option "Experimental"
+                    - option "Backup / Filler"
+                - button "Open in Hearth" [ref=e164] [cursor=pointer]
+                - button "Open in Anvil" [ref=e165] [cursor=pointer]
+              - listitem [ref=e166]:
+                - button "Phase 4 spark 1773158661304 47fb2b9f" [ref=e167] [cursor=pointer]:
+                  - generic [ref=e168]: Phase 4 spark 1773158661304 47fb2b9f
+                - generic [ref=e170]: Marked ready by Jschramer • 5 hours ago
+                - generic [ref=e171]:
+                  - generic [ref=e172]: Category
+                  - combobox "Category" [ref=e173]:
+                    - option "Uncategorized" [selected]
+                    - option "Evergreen"
+                    - option "Hot Topic"
+                    - option "Viral / Reaction"
+                    - option "Strategic Anchor"
+                    - option "Community"
+                    - option "Personal / Reflective"
+                    - option "Educational / Explainer"
+                    - option "Experimental"
+                    - option "Backup / Filler"
+                - button "Open in Hearth" [ref=e174] [cursor=pointer]
+                - button "Open in Anvil" [ref=e175] [cursor=pointer]
+              - listitem [ref=e176]:
+                - button "Phase 4 spark 1773158477111 88ca41b6" [ref=e177] [cursor=pointer]:
+                  - generic [ref=e178]: Phase 4 spark 1773158477111 88ca41b6
+                - generic [ref=e180]: Marked ready by Jschramer • 5 hours ago
+                - generic [ref=e181]:
+                  - generic [ref=e182]: Category
+                  - combobox "Category" [ref=e183]:
+                    - option "Uncategorized" [selected]
+                    - option "Evergreen"
+                    - option "Hot Topic"
+                    - option "Viral / Reaction"
+                    - option "Strategic Anchor"
+                    - option "Community"
+                    - option "Personal / Reflective"
+                    - option "Educational / Explainer"
+                    - option "Experimental"
+                    - option "Backup / Filler"
+                - button "Open in Hearth" [ref=e184] [cursor=pointer]
+                - button "Open in Anvil" [ref=e185] [cursor=pointer]
+              - listitem [ref=e186]:
+                - button "Phase 4 spark 1773158477111 88ca41b6" [ref=e187] [cursor=pointer]:
+                  - generic [ref=e188]: Phase 4 spark 1773158477111 88ca41b6
+                - generic [ref=e190]: Marked ready by Jschramer • 5 hours ago
+                - generic [ref=e191]:
+                  - generic [ref=e192]: Category
+                  - combobox "Category" [ref=e193]:
+                    - option "Uncategorized" [selected]
+                    - option "Evergreen"
+                    - option "Hot Topic"
+                    - option "Viral / Reaction"
+                    - option "Strategic Anchor"
+                    - option "Community"
+                    - option "Personal / Reflective"
+                    - option "Educational / Explainer"
+                    - option "Experimental"
+                    - option "Backup / Filler"
+                - button "Open in Hearth" [ref=e194] [cursor=pointer]
+                - button "Open in Anvil" [ref=e195] [cursor=pointer]
+              - listitem [ref=e196]:
+                - button "Phase 4 spark 1773157912432 39f2d8dd" [ref=e197] [cursor=pointer]:
+                  - generic [ref=e198]: Phase 4 spark 1773157912432 39f2d8dd
+                - generic [ref=e200]: Marked ready by Jschramer • 5 hours ago
+                - generic [ref=e201]:
+                  - generic [ref=e202]: Category
+                  - combobox "Category" [ref=e203]:
+                    - option "Uncategorized" [selected]
+                    - option "Evergreen"
+                    - option "Hot Topic"
+                    - option "Viral / Reaction"
+                    - option "Strategic Anchor"
+                    - option "Community"
+                    - option "Personal / Reflective"
+                    - option "Educational / Explainer"
+                    - option "Experimental"
+                    - option "Backup / Filler"
+                - button "Open in Hearth" [ref=e204] [cursor=pointer]
+                - button "Open in Anvil" [ref=e205] [cursor=pointer]
+              - listitem [ref=e206]:
+                - button "Phase 4 spark 1773157397273 f79c8fb8" [ref=e207] [cursor=pointer]:
+                  - generic [ref=e208]: Phase 4 spark 1773157397273 f79c8fb8
+                - generic [ref=e210]: Marked ready by Jschramer • 5 hours ago
+                - generic [ref=e211]:
+                  - generic [ref=e212]: Category
+                  - combobox "Category" [ref=e213]:
+                    - option "Uncategorized" [selected]
+                    - option "Evergreen"
+                    - option "Hot Topic"
+                    - option "Viral / Reaction"
+                    - option "Strategic Anchor"
+                    - option "Community"
+                    - option "Personal / Reflective"
+                    - option "Educational / Explainer"
+                    - option "Experimental"
+                    - option "Backup / Filler"
+                - button "Open in Hearth" [ref=e214] [cursor=pointer]
+                - button "Open in Anvil" [ref=e215] [cursor=pointer]
+              - listitem [ref=e216]:
+                - button "Phase 4 spark 1773156100093 351fea84" [ref=e217] [cursor=pointer]:
+                  - generic [ref=e218]: Phase 4 spark 1773156100093 351fea84
+                - generic [ref=e220]: Marked ready by Jschramer • 6 hours ago
+                - generic [ref=e221]:
+                  - generic [ref=e222]: Category
+                  - combobox "Category" [ref=e223]:
+                    - option "Uncategorized" [selected]
+                    - option "Evergreen"
+                    - option "Hot Topic"
+                    - option "Viral / Reaction"
+                    - option "Strategic Anchor"
+                    - option "Community"
+                    - option "Personal / Reflective"
+                    - option "Educational / Explainer"
+                    - option "Experimental"
+                    - option "Backup / Filler"
+                - button "Open in Hearth" [ref=e224] [cursor=pointer]
+                - button "Open in Anvil" [ref=e225] [cursor=pointer]
+              - listitem [ref=e226]:
+                - button "Phase 4 spark 1773156016787 24682062" [ref=e227] [cursor=pointer]:
+                  - generic [ref=e228]: Phase 4 spark 1773156016787 24682062
+                - generic [ref=e230]: Marked ready by Jschramer • 6 hours ago
+                - generic [ref=e231]:
+                  - generic [ref=e232]: Category
+                  - combobox "Category" [ref=e233]:
+                    - option "Uncategorized" [selected]
+                    - option "Evergreen"
+                    - option "Hot Topic"
+                    - option "Viral / Reaction"
+                    - option "Strategic Anchor"
+                    - option "Community"
+                    - option "Personal / Reflective"
+                    - option "Educational / Explainer"
+                    - option "Experimental"
+                    - option "Backup / Filler"
+                - button "Open in Hearth" [ref=e234] [cursor=pointer]
+                - button "Open in Anvil" [ref=e235] [cursor=pointer]
+              - listitem [ref=e236]:
+                - button "Phase 4 spark 1773154752954 bcc6550c" [ref=e237] [cursor=pointer]:
+                  - generic [ref=e238]: Phase 4 spark 1773154752954 bcc6550c
+                - generic [ref=e240]: Marked ready by Jschramer • 6 hours ago
+                - generic [ref=e241]:
+                  - generic [ref=e242]: Category
+                  - combobox "Category" [ref=e243]:
+                    - option "Uncategorized" [selected]
+                    - option "Evergreen"
+                    - option "Hot Topic"
+                    - option "Viral / Reaction"
+                    - option "Strategic Anchor"
+                    - option "Community"
+                    - option "Personal / Reflective"
+                    - option "Educational / Explainer"
+                    - option "Experimental"
+                    - option "Backup / Filler"
+                - button "Open in Hearth" [ref=e244] [cursor=pointer]
+                - button "Open in Anvil" [ref=e245] [cursor=pointer]
+              - listitem [ref=e246]:
+                - button "Phase 4 spark 1773153436251 1c23ddae" [ref=e247] [cursor=pointer]:
+                  - generic [ref=e248]: Phase 4 spark 1773153436251 1c23ddae
+                - generic [ref=e250]: Marked ready by Jschramer • 7 hours ago
+                - generic [ref=e251]:
+                  - generic [ref=e252]: Category
+                  - combobox "Category" [ref=e253]:
+                    - option "Uncategorized" [selected]
+                    - option "Evergreen"
+                    - option "Hot Topic"
+                    - option "Viral / Reaction"
+                    - option "Strategic Anchor"
+                    - option "Community"
+                    - option "Personal / Reflective"
+                    - option "Educational / Explainer"
+                    - option "Experimental"
+                    - option "Backup / Filler"
+                - button "Open in Hearth" [ref=e254] [cursor=pointer]
+                - button "Open in Anvil" [ref=e255] [cursor=pointer]
+              - listitem [ref=e256]:
+                - button "writing a podcasters tool suite from scratch with the help o" [ref=e257] [cursor=pointer]:
+                  - generic [ref=e258]: writing a podcasters tool suite from scratch with the help o
+                - generic [ref=e260]: Marked ready by Jschramer • 19 hours ago
+                - generic [ref=e261]:
+                  - generic [ref=e262]: Category
+                  - combobox "Category" [ref=e263]:
+                    - option "Uncategorized" [selected]
+                    - option "Evergreen"
+                    - option "Hot Topic"
+                    - option "Viral / Reaction"
+                    - option "Strategic Anchor"
+                    - option "Community"
+                    - option "Personal / Reflective"
+                    - option "Educational / Explainer"
+                    - option "Experimental"
+                    - option "Backup / Filler"
+                - button "Open in Hearth" [ref=e264] [cursor=pointer]
+                - button "Open in Anvil" [ref=e265] [cursor=pointer]
+              - listitem [ref=e266]:
+                - button "writing a podcasters tool suite from scratch with the help o" [ref=e267] [cursor=pointer]:
+                  - generic [ref=e268]: writing a podcasters tool suite from scratch with the help o
+                - generic [ref=e270]: Marked ready by Jschramer • 19 hours ago
+                - generic [ref=e271]:
+                  - generic [ref=e272]: Category
+                  - combobox "Category" [ref=e273]:
+                    - option "Uncategorized" [selected]
+                    - option "Evergreen"
+                    - option "Hot Topic"
+                    - option "Viral / Reaction"
+                    - option "Strategic Anchor"
+                    - option "Community"
+                    - option "Personal / Reflective"
+                    - option "Educational / Explainer"
+                    - option "Experimental"
+                    - option "Backup / Filler"
+                - button "Open in Hearth" [ref=e274] [cursor=pointer]
+                - button "Open in Anvil" [ref=e275] [cursor=pointer]
+              - listitem [ref=e276]:
+                - button "writing a podcasters tool suite from scratch with the help o" [ref=e277] [cursor=pointer]:
+                  - generic [ref=e278]: writing a podcasters tool suite from scratch with the help o
+                - generic [ref=e280]: Marked ready by Jschramer • 19 hours ago
+                - generic [ref=e281]:
+                  - generic [ref=e282]: Category
+                  - combobox "Category" [ref=e283]:
+                    - option "Uncategorized" [selected]
+                    - option "Evergreen"
+                    - option "Hot Topic"
+                    - option "Viral / Reaction"
+                    - option "Strategic Anchor"
+                    - option "Community"
+                    - option "Personal / Reflective"
+                    - option "Educational / Explainer"
+                    - option "Experimental"
+                    - option "Backup / Filler"
+                - button "Open in Hearth" [ref=e284] [cursor=pointer]
+                - button "Open in Anvil" [ref=e285] [cursor=pointer]
+              - listitem [ref=e286]:
+                - button "writing a podcasters tool suite from scratch with the help o" [ref=e287] [cursor=pointer]:
+                  - generic [ref=e288]: writing a podcasters tool suite from scratch with the help o
+                - generic [ref=e290]: Marked ready by Jschramer • 19 hours ago
+                - generic [ref=e291]:
+                  - generic [ref=e292]: Category
+                  - combobox "Category" [ref=e293]:
+                    - option "Uncategorized" [selected]
+                    - option "Evergreen"
+                    - option "Hot Topic"
+                    - option "Viral / Reaction"
+                    - option "Strategic Anchor"
+                    - option "Community"
+                    - option "Personal / Reflective"
+                    - option "Educational / Explainer"
+                    - option "Experimental"
+                    - option "Backup / Filler"
+                - button "Open in Hearth" [ref=e294] [cursor=pointer]
+                - button "Open in Anvil" [ref=e295] [cursor=pointer]
+              - listitem [ref=e296]:
+                - button "writing a podcasters tool suite from scratch with the help o" [ref=e297] [cursor=pointer]:
+                  - generic [ref=e298]: writing a podcasters tool suite from scratch with the help o
+                - generic [ref=e300]: Marked ready by Jschramer • 19 hours ago
+                - generic [ref=e301]:
+                  - generic [ref=e302]: Category
+                  - combobox "Category" [ref=e303]:
+                    - option "Uncategorized" [selected]
+                    - option "Evergreen"
+                    - option "Hot Topic"
+                    - option "Viral / Reaction"
+                    - option "Strategic Anchor"
+                    - option "Community"
+                    - option "Personal / Reflective"
+                    - option "Educational / Explainer"
+                    - option "Experimental"
+                    - option "Backup / Filler"
+                - button "Open in Hearth" [ref=e304] [cursor=pointer]
+                - button "Open in Anvil" [ref=e305] [cursor=pointer]
+        - generic [ref=e306]:
+          - generic [ref=e307]: Search workspace projects
+          - searchbox "Search workspace projects" [ref=e308]
+          - generic [ref=e309]:
+            - generic [ref=e310]: Sort
+            - combobox "Sort workspace projects" [ref=e311]:
+              - option "Recently updated" [selected]
+              - option "Title A-Z"
+          - generic [ref=e312]:
+            - checkbox "Show archived" [ref=e313]
+            - text: Show archived
+        - generic [ref=e314]:
+          - generic [ref=e315]: Workspace Projects
+          - paragraph [ref=e316]: Loading workspace projects...
+          - list [ref=e317]:
+            - listitem [ref=e318]:
+              - generic [ref=e319]:
+                - button "Untitled Episode Updated 3/10/2026, 5:11:11 PM No attached draft buffer yet" [ref=e320] [cursor=pointer]:
+                  - generic [ref=e322]: Untitled Episode
+                  - generic [ref=e323]: Updated 3/10/2026, 5:11:11 PM
+                  - generic [ref=e324]: No attached draft buffer yet
+                - generic [ref=e325]: Revisions -
+            - listitem [ref=e326]:
+              - generic [ref=e327]:
+                - button "Untitled Episode Updated 3/10/2026, 5:11:11 PM No attached draft buffer yet" [ref=e328] [cursor=pointer]:
+                  - generic [ref=e330]: Untitled Episode
+                  - generic [ref=e331]: Updated 3/10/2026, 5:11:11 PM
+                  - generic [ref=e332]: No attached draft buffer yet
+                - generic [ref=e333]: Revisions -
+            - listitem [ref=e334]:
+              - generic [ref=e335]:
+                - button "Untitled Episode Updated 3/10/2026, 5:11:10 PM No attached draft buffer yet" [ref=e336] [cursor=pointer]:
+                  - generic [ref=e338]: Untitled Episode
+                  - generic [ref=e339]: Updated 3/10/2026, 5:11:10 PM
+                  - generic [ref=e340]: No attached draft buffer yet
+                - generic [ref=e341]: Revisions -
+            - listitem [ref=e342]:
+              - generic [ref=e343]:
+                - button "Untitled Episode Updated 3/10/2026, 5:11:10 PM No attached draft buffer yet" [ref=e344] [cursor=pointer]:
+                  - generic [ref=e346]: Untitled Episode
+                  - generic [ref=e347]: Updated 3/10/2026, 5:11:10 PM
+                  - generic [ref=e348]: No attached draft buffer yet
+                - generic [ref=e349]: Revisions -
+            - listitem [ref=e350]:
+              - generic [ref=e351]:
+                - button "Untitled Episode Updated 3/10/2026, 5:08:58 PM No attached draft buffer yet" [ref=e352] [cursor=pointer]:
+                  - generic [ref=e354]: Untitled Episode
+                  - generic [ref=e355]: Updated 3/10/2026, 5:08:58 PM
+                  - generic [ref=e356]: No attached draft buffer yet
+                - generic [ref=e357]: Revisions -
+            - listitem [ref=e358]:
+              - generic [ref=e359]:
+                - button "Untitled Episode Updated 3/10/2026, 5:08:57 PM No attached draft buffer yet" [ref=e360] [cursor=pointer]:
+                  - generic [ref=e362]: Untitled Episode
+                  - generic [ref=e363]: Updated 3/10/2026, 5:08:57 PM
+                  - generic [ref=e364]: No attached draft buffer yet
+                - generic [ref=e365]: Revisions -
+            - listitem [ref=e366]:
+              - generic [ref=e367]:
+                - button "Untitled Episode Updated 3/10/2026, 5:08:57 PM No attached draft buffer yet" [ref=e368] [cursor=pointer]:
+                  - generic [ref=e370]: Untitled Episode
+                  - generic [ref=e371]: Updated 3/10/2026, 5:08:57 PM
+                  - generic [ref=e372]: No attached draft buffer yet
+                - generic [ref=e373]: Revisions -
+            - listitem [ref=e374]:
+              - generic [ref=e375]:
+                - button "Untitled Episode Updated 3/10/2026, 5:08:57 PM No attached draft buffer yet" [ref=e376] [cursor=pointer]:
+                  - generic [ref=e378]: Untitled Episode
+                  - generic [ref=e379]: Updated 3/10/2026, 5:08:57 PM
+                  - generic [ref=e380]: No attached draft buffer yet
+                - generic [ref=e381]: Revisions -
+            - listitem [ref=e382]:
+              - generic [ref=e383]:
+                - button "Untitled Episode Updated 3/10/2026, 5:08:57 PM No attached draft buffer yet" [ref=e384] [cursor=pointer]:
+                  - generic [ref=e386]: Untitled Episode
+                  - generic [ref=e387]: Updated 3/10/2026, 5:08:57 PM
+                  - generic [ref=e388]: No attached draft buffer yet
+                - generic [ref=e389]: Revisions -
+            - listitem [ref=e390]:
+              - generic [ref=e391]:
+                - button "Untitled Episode Updated 3/10/2026, 5:05:40 PM No attached draft buffer yet" [ref=e392] [cursor=pointer]:
+                  - generic [ref=e394]: Untitled Episode
+                  - generic [ref=e395]: Updated 3/10/2026, 5:05:40 PM
+                  - generic [ref=e396]: No attached draft buffer yet
+                - generic [ref=e397]: Revisions -
+            - listitem [ref=e398]:
+              - generic [ref=e399]:
+                - button "Untitled Episode Updated 3/10/2026, 5:05:39 PM No attached draft buffer yet" [ref=e400] [cursor=pointer]:
+                  - generic [ref=e402]: Untitled Episode
+                  - generic [ref=e403]: Updated 3/10/2026, 5:05:39 PM
+                  - generic [ref=e404]: No attached draft buffer yet
+                - generic [ref=e405]: Revisions -
+            - listitem [ref=e406]:
+              - generic [ref=e407]:
+                - button "Untitled Episode Updated 3/10/2026, 5:05:39 PM No attached draft buffer yet" [ref=e408] [cursor=pointer]:
+                  - generic [ref=e410]: Untitled Episode
+                  - generic [ref=e411]: Updated 3/10/2026, 5:05:39 PM
+                  - generic [ref=e412]: No attached draft buffer yet
+                - generic [ref=e413]: Revisions -
+            - listitem [ref=e414]:
+              - generic [ref=e415]:
+                - button "Untitled Episode Updated 3/10/2026, 5:05:39 PM No attached draft buffer yet" [ref=e416] [cursor=pointer]:
+                  - generic [ref=e418]: Untitled Episode
+                  - generic [ref=e419]: Updated 3/10/2026, 5:05:39 PM
+                  - generic [ref=e420]: No attached draft buffer yet
+                - generic [ref=e421]: Revisions -
+            - listitem [ref=e422]:
+              - generic [ref=e423]:
+                - button "Untitled Episode Updated 3/10/2026, 5:03:01 PM No attached draft buffer yet" [ref=e424] [cursor=pointer]:
+                  - generic [ref=e426]: Untitled Episode
+                  - generic [ref=e427]: Updated 3/10/2026, 5:03:01 PM
+                  - generic [ref=e428]: No attached draft buffer yet
+                - generic [ref=e429]: Revisions -
+            - listitem [ref=e430]:
+              - generic [ref=e431]:
+                - button "Untitled Episode Updated 3/10/2026, 5:03:00 PM No attached draft buffer yet" [ref=e432] [cursor=pointer]:
+                  - generic [ref=e434]: Untitled Episode
+                  - generic [ref=e435]: Updated 3/10/2026, 5:03:00 PM
+                  - generic [ref=e436]: No attached draft buffer yet
+                - generic [ref=e437]: Revisions -
+            - listitem [ref=e438]:
+              - generic [ref=e439]:
+                - button "Untitled Episode Updated 3/10/2026, 5:00:02 PM No attached draft buffer yet" [ref=e440] [cursor=pointer]:
+                  - generic [ref=e442]: Untitled Episode
+                  - generic [ref=e443]: Updated 3/10/2026, 5:00:02 PM
+                  - generic [ref=e444]: No attached draft buffer yet
+                - generic [ref=e445]: Revisions -
+            - listitem [ref=e446]:
+              - generic [ref=e447]:
+                - button "Untitled Episode Updated 3/10/2026, 5:00:02 PM No attached draft buffer yet" [ref=e448] [cursor=pointer]:
+                  - generic [ref=e450]: Untitled Episode
+                  - generic [ref=e451]: Updated 3/10/2026, 5:00:02 PM
+                  - generic [ref=e452]: No attached draft buffer yet
+                - generic [ref=e453]: Revisions -
+            - listitem [ref=e454]:
+              - generic [ref=e455]:
+                - button "Untitled Episode Updated 3/10/2026, 5:00:01 PM No attached draft buffer yet" [ref=e456] [cursor=pointer]:
+                  - generic [ref=e458]: Untitled Episode
+                  - generic [ref=e459]: Updated 3/10/2026, 5:00:01 PM
+                  - generic [ref=e460]: No attached draft buffer yet
+                - generic [ref=e461]: Revisions -
+            - listitem [ref=e462]:
+              - generic [ref=e463]:
+                - button "Untitled Episode Updated 3/10/2026, 5:00:01 PM No attached draft buffer yet" [ref=e464] [cursor=pointer]:
+                  - generic [ref=e466]: Untitled Episode
+                  - generic [ref=e467]: Updated 3/10/2026, 5:00:01 PM
+                  - generic [ref=e468]: No attached draft buffer yet
+                - generic [ref=e469]: Revisions -
+            - listitem [ref=e470]:
+              - generic [ref=e471]:
+                - button "Untitled Episode Updated 3/10/2026, 4:57:13 PM No attached draft buffer yet" [ref=e472] [cursor=pointer]:
+                  - generic [ref=e474]: Untitled Episode
+                  - generic [ref=e475]: Updated 3/10/2026, 4:57:13 PM
+                  - generic [ref=e476]: No attached draft buffer yet
+                - generic [ref=e477]: Revisions -
+            - listitem [ref=e478]:
+              - generic [ref=e479]:
+                - button "Untitled Episode Updated 3/10/2026, 4:57:13 PM No attached draft buffer yet" [ref=e480] [cursor=pointer]:
+                  - generic [ref=e482]: Untitled Episode
+                  - generic [ref=e483]: Updated 3/10/2026, 4:57:13 PM
+                  - generic [ref=e484]: No attached draft buffer yet
+                - generic [ref=e485]: Revisions -
+            - listitem [ref=e486]:
+              - generic [ref=e487]:
+                - button "Untitled Episode Updated 3/10/2026, 4:57:12 PM No attached draft buffer yet" [ref=e488] [cursor=pointer]:
+                  - generic [ref=e490]: Untitled Episode
+                  - generic [ref=e491]: Updated 3/10/2026, 4:57:12 PM
+                  - generic [ref=e492]: No attached draft buffer yet
+                - generic [ref=e493]: Revisions -
+            - listitem [ref=e494]:
+              - generic [ref=e495]:
+                - button "Untitled Episode Updated 3/10/2026, 4:57:12 PM No attached draft buffer yet" [ref=e496] [cursor=pointer]:
+                  - generic [ref=e498]: Untitled Episode
+                  - generic [ref=e499]: Updated 3/10/2026, 4:57:12 PM
+                  - generic [ref=e500]: No attached draft buffer yet
+                - generic [ref=e501]: Revisions -
+            - listitem [ref=e502]:
+              - generic [ref=e503]:
+                - button "Untitled Episode Updated 3/10/2026, 4:55:18 PM No attached draft buffer yet" [ref=e504] [cursor=pointer]:
+                  - generic [ref=e506]: Untitled Episode
+                  - generic [ref=e507]: Updated 3/10/2026, 4:55:18 PM
+                  - generic [ref=e508]: No attached draft buffer yet
+                - generic [ref=e509]: Revisions -
+            - listitem [ref=e510]:
+              - generic [ref=e511]:
+                - button "Untitled Episode Updated 3/10/2026, 4:55:18 PM No attached draft buffer yet" [ref=e512] [cursor=pointer]:
+                  - generic [ref=e514]: Untitled Episode
+                  - generic [ref=e515]: Updated 3/10/2026, 4:55:18 PM
+                  - generic [ref=e516]: No attached draft buffer yet
+                - generic [ref=e517]: Revisions -
+            - listitem [ref=e518]:
+              - generic [ref=e519]:
+                - button "Untitled Episode Updated 3/10/2026, 4:55:17 PM No attached draft buffer yet" [ref=e520] [cursor=pointer]:
+                  - generic [ref=e522]: Untitled Episode
+                  - generic [ref=e523]: Updated 3/10/2026, 4:55:17 PM
+                  - generic [ref=e524]: No attached draft buffer yet
+                - generic [ref=e525]: Revisions -
+            - listitem [ref=e526]:
+              - generic [ref=e527]:
+                - button "Untitled Episode Updated 3/10/2026, 4:55:17 PM No attached draft buffer yet" [ref=e528] [cursor=pointer]:
+                  - generic [ref=e530]: Untitled Episode
+                  - generic [ref=e531]: Updated 3/10/2026, 4:55:17 PM
+                  - generic [ref=e532]: No attached draft buffer yet
+                - generic [ref=e533]: Revisions -
+            - listitem [ref=e534]:
+              - generic [ref=e535]:
+                - button "Untitled Episode Updated 3/10/2026, 4:53:36 PM No attached draft buffer yet" [ref=e536] [cursor=pointer]:
+                  - generic [ref=e538]: Untitled Episode
+                  - generic [ref=e539]: Updated 3/10/2026, 4:53:36 PM
+                  - generic [ref=e540]: No attached draft buffer yet
+                - generic [ref=e541]: Revisions -
+            - listitem [ref=e542]:
+              - generic [ref=e543]:
+                - button "Untitled Episode Updated 3/10/2026, 4:53:35 PM No attached draft buffer yet" [ref=e544] [cursor=pointer]:
+                  - generic [ref=e546]: Untitled Episode
+                  - generic [ref=e547]: Updated 3/10/2026, 4:53:35 PM
+                  - generic [ref=e548]: No attached draft buffer yet
+                - generic [ref=e549]: Revisions -
+            - listitem [ref=e550]:
+              - generic [ref=e551]:
+                - button "Untitled Episode Updated 3/10/2026, 4:53:34 PM No attached draft buffer yet" [ref=e552] [cursor=pointer]:
+                  - generic [ref=e554]: Untitled Episode
+                  - generic [ref=e555]: Updated 3/10/2026, 4:53:34 PM
+                  - generic [ref=e556]: No attached draft buffer yet
+                - generic [ref=e557]: Revisions -
+            - listitem [ref=e558]:
+              - generic [ref=e559]:
+                - button "Untitled Episode Updated 3/10/2026, 4:52:10 PM No attached draft buffer yet" [ref=e560] [cursor=pointer]:
+                  - generic [ref=e562]: Untitled Episode
+                  - generic [ref=e563]: Updated 3/10/2026, 4:52:10 PM
+                  - generic [ref=e564]: No attached draft buffer yet
+                - generic [ref=e565]: Revisions -
+            - listitem [ref=e566]:
+              - generic [ref=e567]:
+                - button "Untitled Episode Updated 3/10/2026, 4:52:09 PM No attached draft buffer yet" [ref=e568] [cursor=pointer]:
+                  - generic [ref=e570]: Untitled Episode
+                  - generic [ref=e571]: Updated 3/10/2026, 4:52:09 PM
+                  - generic [ref=e572]: No attached draft buffer yet
+                - generic [ref=e573]: Revisions -
+            - listitem [ref=e574]:
+              - generic [ref=e575]:
+                - button "Untitled Episode Updated 3/10/2026, 4:52:09 PM No attached draft buffer yet" [ref=e576] [cursor=pointer]:
+                  - generic [ref=e578]: Untitled Episode
+                  - generic [ref=e579]: Updated 3/10/2026, 4:52:09 PM
+                  - generic [ref=e580]: No attached draft buffer yet
+                - generic [ref=e581]: Revisions -
+            - listitem [ref=e582]:
+              - generic [ref=e583]:
+                - button "Untitled Episode Updated 3/10/2026, 4:52:09 PM No attached draft buffer yet" [ref=e584] [cursor=pointer]:
+                  - generic [ref=e586]: Untitled Episode
+                  - generic [ref=e587]: Updated 3/10/2026, 4:52:09 PM
+                  - generic [ref=e588]: No attached draft buffer yet
+                - generic [ref=e589]: Revisions -
+            - listitem [ref=e590]:
+              - generic [ref=e591]:
+                - button "Untitled Episode Updated 3/10/2026, 4:50:17 PM No attached draft buffer yet" [ref=e592] [cursor=pointer]:
+                  - generic [ref=e594]: Untitled Episode
+                  - generic [ref=e595]: Updated 3/10/2026, 4:50:17 PM
+                  - generic [ref=e596]: No attached draft buffer yet
+                - generic [ref=e597]: Revisions -
+            - listitem [ref=e598]:
+              - generic [ref=e599]:
+                - button "Untitled Episode Updated 3/10/2026, 4:50:16 PM No attached draft buffer yet" [ref=e600] [cursor=pointer]:
+                  - generic [ref=e602]: Untitled Episode
+                  - generic [ref=e603]: Updated 3/10/2026, 4:50:16 PM
+                  - generic [ref=e604]: No attached draft buffer yet
+                - generic [ref=e605]: Revisions -
+            - listitem [ref=e606]:
+              - generic [ref=e607]:
+                - button "Untitled Episode Updated 3/10/2026, 4:50:16 PM No attached draft buffer yet" [ref=e608] [cursor=pointer]:
+                  - generic [ref=e610]: Untitled Episode
+                  - generic [ref=e611]: Updated 3/10/2026, 4:50:16 PM
+                  - generic [ref=e612]: No attached draft buffer yet
+                - generic [ref=e613]: Revisions -
+            - listitem [ref=e614]:
+              - generic [ref=e615]:
+                - button "Phase 4 spark 1773168786399 47a46f17 Updated 3/10/2026, 2:53:27 PM Last edited by Jschramer" [ref=e616] [cursor=pointer]:
+                  - generic [ref=e618]: Phase 4 spark 1773168786399 47a46f17
+                  - generic [ref=e619]: Updated 3/10/2026, 2:53:27 PM
+                  - generic [ref=e620]: Last edited by Jschramer
+                - generic [ref=e621]: Revisions 0
+                - generic [ref=e622]:
+                  - button "Pin" [ref=e623] [cursor=pointer]
+                  - button "Rename" [ref=e624] [cursor=pointer]
+                  - button "Archive" [ref=e625] [cursor=pointer]
+                  - button "Delete" [ref=e626] [cursor=pointer]
+            - listitem [ref=e627]:
+              - generic [ref=e628]:
+                - button "Untitled Episode Updated 3/10/2026, 2:53:16 PM No attached draft buffer yet" [ref=e629] [cursor=pointer]:
+                  - generic [ref=e631]: Untitled Episode
+                  - generic [ref=e632]: Updated 3/10/2026, 2:53:16 PM
+                  - generic [ref=e633]: No attached draft buffer yet
+                - generic [ref=e634]: Revisions -
+            - listitem [ref=e635]:
+              - generic [ref=e636]:
+                - button "Untitled Episode Updated 3/10/2026, 2:53:15 PM No attached draft buffer yet" [ref=e637] [cursor=pointer]:
+                  - generic [ref=e639]: Untitled Episode
+                  - generic [ref=e640]: Updated 3/10/2026, 2:53:15 PM
+                  - generic [ref=e641]: No attached draft buffer yet
+                - generic [ref=e642]: Revisions -
+            - listitem [ref=e643]:
+              - generic [ref=e644]:
+                - button "Phase 4 spark 1773168489890 f040e8b6 Updated 3/10/2026, 2:48:36 PM Last edited by Jschramer" [ref=e645] [cursor=pointer]:
+                  - generic [ref=e647]: Phase 4 spark 1773168489890 f040e8b6
+                  - generic [ref=e648]: Updated 3/10/2026, 2:48:36 PM
+                  - generic [ref=e649]: Last edited by Jschramer
+                - generic [ref=e650]: Revisions 0
+                - generic [ref=e651]:
+                  - button "Pin" [ref=e652] [cursor=pointer]
+                  - button "Rename" [ref=e653] [cursor=pointer]
+                  - button "Archive" [ref=e654] [cursor=pointer]
+                  - button "Delete" [ref=e655] [cursor=pointer]
+            - listitem [ref=e656]:
+              - generic [ref=e657]:
+                - button "Untitled Episode Updated 3/10/2026, 2:48:25 PM No attached draft buffer yet" [ref=e658] [cursor=pointer]:
+                  - generic [ref=e660]: Untitled Episode
+                  - generic [ref=e661]: Updated 3/10/2026, 2:48:25 PM
+                  - generic [ref=e662]: No attached draft buffer yet
+                - generic [ref=e663]: Revisions -
+            - listitem [ref=e664]:
+              - generic [ref=e665]:
+                - button "Untitled Episode Updated 3/10/2026, 2:48:24 PM No attached draft buffer yet" [ref=e666] [cursor=pointer]:
+                  - generic [ref=e668]: Untitled Episode
+                  - generic [ref=e669]: Updated 3/10/2026, 2:48:24 PM
+                  - generic [ref=e670]: No attached draft buffer yet
+                - generic [ref=e671]: Revisions -
+            - listitem [ref=e672]:
+              - generic [ref=e673]:
+                - button "Untitled Episode Updated 3/10/2026, 2:48:24 PM No attached draft buffer yet" [ref=e674] [cursor=pointer]:
+                  - generic [ref=e676]: Untitled Episode
+                  - generic [ref=e677]: Updated 3/10/2026, 2:48:24 PM
+                  - generic [ref=e678]: No attached draft buffer yet
+                - generic [ref=e679]: Revisions -
+            - listitem [ref=e680]:
+              - generic [ref=e681]:
+                - button "Untitled Episode Updated 3/10/2026, 2:48:23 PM No attached draft buffer yet" [ref=e682] [cursor=pointer]:
+                  - generic [ref=e684]: Untitled Episode
+                  - generic [ref=e685]: Updated 3/10/2026, 2:48:23 PM
+                  - generic [ref=e686]: No attached draft buffer yet
+                - generic [ref=e687]: Revisions -
+            - listitem [ref=e688]:
+              - generic [ref=e689]:
+                - button "Untitled Episode Updated 3/10/2026, 2:48:22 PM No attached draft buffer yet" [ref=e690] [cursor=pointer]:
+                  - generic [ref=e692]: Untitled Episode
+                  - generic [ref=e693]: Updated 3/10/2026, 2:48:22 PM
+                  - generic [ref=e694]: No attached draft buffer yet
+                - generic [ref=e695]: Revisions -
+            - listitem [ref=e696]:
+              - generic [ref=e697]:
+                - button "Untitled Episode Updated 3/10/2026, 2:48:20 PM No attached draft buffer yet" [ref=e698] [cursor=pointer]:
+                  - generic [ref=e700]: Untitled Episode
+                  - generic [ref=e701]: Updated 3/10/2026, 2:48:20 PM
+                  - generic [ref=e702]: No attached draft buffer yet
+                - generic [ref=e703]: Revisions -
+            - listitem [ref=e704]:
+              - generic [ref=e705]:
+                - button "Phase 4 spark 1773168337713 5adc5e1a Updated 3/10/2026, 2:46:03 PM Last edited by Jschramer" [ref=e706] [cursor=pointer]:
+                  - generic [ref=e708]: Phase 4 spark 1773168337713 5adc5e1a
+                  - generic [ref=e709]: Updated 3/10/2026, 2:46:03 PM
+                  - generic [ref=e710]: Last edited by Jschramer
+                - generic [ref=e711]: Revisions 0
+                - generic [ref=e712]:
+                  - button "Pin" [ref=e713] [cursor=pointer]
+                  - button "Rename" [ref=e714] [cursor=pointer]
+                  - button "Archive" [ref=e715] [cursor=pointer]
+                  - button "Delete" [ref=e716] [cursor=pointer]
+            - listitem [ref=e717]:
+              - generic [ref=e718]:
+                - button "Untitled Episode Updated 3/10/2026, 2:45:50 PM No attached draft buffer yet" [ref=e719] [cursor=pointer]:
+                  - generic [ref=e721]: Untitled Episode
+                  - generic [ref=e722]: Updated 3/10/2026, 2:45:50 PM
+                  - generic [ref=e723]: No attached draft buffer yet
+                - generic [ref=e724]: Revisions -
+            - listitem [ref=e725]:
+              - generic [ref=e726]:
+                - button "Untitled Episode Updated 3/10/2026, 2:45:48 PM No attached draft buffer yet" [ref=e727] [cursor=pointer]:
+                  - generic [ref=e729]: Untitled Episode
+                  - generic [ref=e730]: Updated 3/10/2026, 2:45:48 PM
+                  - generic [ref=e731]: No attached draft buffer yet
+                - generic [ref=e732]: Revisions -
+            - listitem [ref=e733]:
+              - generic [ref=e734]:
+                - button "Phase 4 spark 1773168189563 aa07b878 Updated 3/10/2026, 2:43:28 PM Last edited by Jschramer" [ref=e735] [cursor=pointer]:
+                  - generic [ref=e737]: Phase 4 spark 1773168189563 aa07b878
+                  - generic [ref=e738]: Updated 3/10/2026, 2:43:28 PM
+                  - generic [ref=e739]: Last edited by Jschramer
+                - generic [ref=e740]: Revisions 0
+                - generic [ref=e741]:
+                  - button "Pin" [ref=e742] [cursor=pointer]
+                  - button "Rename" [ref=e743] [cursor=pointer]
+                  - button "Archive" [ref=e744] [cursor=pointer]
+                  - button "Delete" [ref=e745] [cursor=pointer]
+            - listitem [ref=e746]:
+              - generic [ref=e747]:
+                - button "Untitled Episode Updated 3/10/2026, 2:43:25 PM No attached draft buffer yet" [ref=e748] [cursor=pointer]:
+                  - generic [ref=e750]: Untitled Episode
+                  - generic [ref=e751]: Updated 3/10/2026, 2:43:25 PM
+                  - generic [ref=e752]: No attached draft buffer yet
+                - generic [ref=e753]: Revisions -
+            - listitem [ref=e754]:
+              - generic [ref=e755]:
+                - button "Untitled Episode Updated 3/10/2026, 2:43:24 PM No attached draft buffer yet" [ref=e756] [cursor=pointer]:
+                  - generic [ref=e758]: Untitled Episode
+                  - generic [ref=e759]: Updated 3/10/2026, 2:43:24 PM
+                  - generic [ref=e760]: No attached draft buffer yet
+                - generic [ref=e761]: Revisions -
+            - listitem [ref=e762]:
+              - generic [ref=e763]:
+                - button "Untitled Episode Updated 3/10/2026, 2:43:23 PM No attached draft buffer yet" [ref=e764] [cursor=pointer]:
+                  - generic [ref=e766]: Untitled Episode
+                  - generic [ref=e767]: Updated 3/10/2026, 2:43:23 PM
+                  - generic [ref=e768]: No attached draft buffer yet
+                - generic [ref=e769]: Revisions -
+            - listitem [ref=e770]:
+              - generic [ref=e771]:
+                - button "Untitled Episode Updated 3/10/2026, 2:43:22 PM No attached draft buffer yet" [ref=e772] [cursor=pointer]:
+                  - generic [ref=e774]: Untitled Episode
+                  - generic [ref=e775]: Updated 3/10/2026, 2:43:22 PM
+                  - generic [ref=e776]: No attached draft buffer yet
+                - generic [ref=e777]: Revisions -
+            - listitem [ref=e778]:
+              - generic [ref=e779]:
+                - button "Untitled Episode Updated 3/10/2026, 2:41:45 PM No attached draft buffer yet" [ref=e780] [cursor=pointer]:
+                  - generic [ref=e782]: Untitled Episode
+                  - generic [ref=e783]: Updated 3/10/2026, 2:41:45 PM
+                  - generic [ref=e784]: No attached draft buffer yet
+                - generic [ref=e785]: Revisions -
+            - listitem [ref=e786]:
+              - generic [ref=e787]:
+                - button "Untitled Episode Updated 3/10/2026, 2:41:43 PM No attached draft buffer yet" [ref=e788] [cursor=pointer]:
+                  - generic [ref=e790]: Untitled Episode
+                  - generic [ref=e791]: Updated 3/10/2026, 2:41:43 PM
+                  - generic [ref=e792]: No attached draft buffer yet
+                - generic [ref=e793]: Revisions -
+            - listitem [ref=e794]:
+              - generic [ref=e795]:
+                - button "Phase 4 spark 1773167904136 a58d1309 Updated 3/10/2026, 2:38:41 PM Last edited by Jschramer" [ref=e796] [cursor=pointer]:
+                  - generic [ref=e798]: Phase 4 spark 1773167904136 a58d1309
+                  - generic [ref=e799]: Updated 3/10/2026, 2:38:41 PM
+                  - generic [ref=e800]: Last edited by Jschramer
+                - generic [ref=e801]: Revisions 0
+                - generic [ref=e802]:
+                  - button "Pin" [ref=e803] [cursor=pointer]
+                  - button "Rename" [ref=e804] [cursor=pointer]
+                  - button "Archive" [ref=e805] [cursor=pointer]
+                  - button "Delete" [ref=e806] [cursor=pointer]
+            - listitem [ref=e807]:
+              - generic [ref=e808]:
+                - button "Untitled Episode Updated 3/10/2026, 2:38:36 PM No attached draft buffer yet" [ref=e809] [cursor=pointer]:
+                  - generic [ref=e811]: Untitled Episode
+                  - generic [ref=e812]: Updated 3/10/2026, 2:38:36 PM
+                  - generic [ref=e813]: No attached draft buffer yet
+                - generic [ref=e814]: Revisions -
+            - listitem [ref=e815]:
+              - generic [ref=e816]:
+                - button "Untitled Episode Updated 3/10/2026, 2:38:35 PM No attached draft buffer yet" [ref=e817] [cursor=pointer]:
+                  - generic [ref=e819]: Untitled Episode
+                  - generic [ref=e820]: Updated 3/10/2026, 2:38:35 PM
+                  - generic [ref=e821]: No attached draft buffer yet
+                - generic [ref=e822]: Revisions -
+            - listitem [ref=e823]:
+              - generic [ref=e824]:
+                - button "Untitled Episode Updated 3/10/2026, 2:38:33 PM No attached draft buffer yet" [ref=e825] [cursor=pointer]:
+                  - generic [ref=e827]: Untitled Episode
+                  - generic [ref=e828]: Updated 3/10/2026, 2:38:33 PM
+                  - generic [ref=e829]: No attached draft buffer yet
+                - generic [ref=e830]: Revisions -
+            - listitem [ref=e831]:
+              - generic [ref=e832]:
+                - button "Phase 4 spark 1773167711850 c41dac44 Updated 3/10/2026, 2:35:41 PM Last edited by Jschramer" [ref=e833] [cursor=pointer]:
+                  - generic [ref=e835]: Phase 4 spark 1773167711850 c41dac44
+                  - generic [ref=e836]: Updated 3/10/2026, 2:35:41 PM
+                  - generic [ref=e837]: Last edited by Jschramer
+                - generic [ref=e838]: Revisions 0
+                - generic [ref=e839]:
+                  - button "Pin" [ref=e840] [cursor=pointer]
+                  - button "Rename" [ref=e841] [cursor=pointer]
+                  - button "Archive" [ref=e842] [cursor=pointer]
+                  - button "Delete" [ref=e843] [cursor=pointer]
+            - listitem [ref=e844]:
+              - generic [ref=e845]:
+                - button "Untitled Episode Updated 3/10/2026, 2:35:26 PM No attached draft buffer yet" [ref=e846] [cursor=pointer]:
+                  - generic [ref=e848]: Untitled Episode
+                  - generic [ref=e849]: Updated 3/10/2026, 2:35:26 PM
+                  - generic [ref=e850]: No attached draft buffer yet
+                - generic [ref=e851]: Revisions -
+            - listitem [ref=e852]:
+              - generic [ref=e853]:
+                - button "Untitled Episode Updated 3/10/2026, 2:35:26 PM No attached draft buffer yet" [ref=e854] [cursor=pointer]:
+                  - generic [ref=e856]: Untitled Episode
+                  - generic [ref=e857]: Updated 3/10/2026, 2:35:26 PM
+                  - generic [ref=e858]: No attached draft buffer yet
+                - generic [ref=e859]: Revisions -
+            - listitem [ref=e860]:
+              - generic [ref=e861]:
+                - button "Untitled Episode Updated 3/10/2026, 2:35:24 PM No attached draft buffer yet" [ref=e862] [cursor=pointer]:
+                  - generic [ref=e864]: Untitled Episode
+                  - generic [ref=e865]: Updated 3/10/2026, 2:35:24 PM
+                  - generic [ref=e866]: No attached draft buffer yet
+                - generic [ref=e867]: Revisions -
+            - listitem [ref=e868]:
+              - generic [ref=e869]:
+                - button "Phase 4 spark 1773167513346 cf8b2515 Updated 3/10/2026, 2:32:13 PM Last edited by Jschramer" [ref=e870] [cursor=pointer]:
+                  - generic [ref=e872]: Phase 4 spark 1773167513346 cf8b2515
+                  - generic [ref=e873]: Updated 3/10/2026, 2:32:13 PM
+                  - generic [ref=e874]: Last edited by Jschramer
+                - generic [ref=e875]: Revisions 0
+                - generic [ref=e876]:
+                  - button "Pin" [ref=e877] [cursor=pointer]
+                  - button "Rename" [ref=e878] [cursor=pointer]
+                  - button "Archive" [ref=e879] [cursor=pointer]
+                  - button "Delete" [ref=e880] [cursor=pointer]
+            - listitem [ref=e881]:
+              - generic [ref=e882]:
+                - button "Untitled Episode Updated 3/10/2026, 2:32:08 PM No attached draft buffer yet" [ref=e883] [cursor=pointer]:
+                  - generic [ref=e885]: Untitled Episode
+                  - generic [ref=e886]: Updated 3/10/2026, 2:32:08 PM
+                  - generic [ref=e887]: No attached draft buffer yet
+                - generic [ref=e888]: Revisions -
+            - listitem [ref=e889]:
+              - generic [ref=e890]:
+                - button "Untitled Episode Updated 3/10/2026, 2:32:08 PM No attached draft buffer yet" [ref=e891] [cursor=pointer]:
+                  - generic [ref=e893]: Untitled Episode
+                  - generic [ref=e894]: Updated 3/10/2026, 2:32:08 PM
+                  - generic [ref=e895]: No attached draft buffer yet
+                - generic [ref=e896]: Revisions -
+            - listitem [ref=e897]:
+              - generic [ref=e898]:
+                - button "Untitled Episode Updated 3/10/2026, 2:32:08 PM No attached draft buffer yet" [ref=e899] [cursor=pointer]:
+                  - generic [ref=e901]: Untitled Episode
+                  - generic [ref=e902]: Updated 3/10/2026, 2:32:08 PM
+                  - generic [ref=e903]: No attached draft buffer yet
+                - generic [ref=e904]: Revisions -
+            - listitem [ref=e905]:
+              - generic [ref=e906]:
+                - button "Untitled Episode Updated 3/10/2026, 2:32:07 PM No attached draft buffer yet" [ref=e907] [cursor=pointer]:
+                  - generic [ref=e909]: Untitled Episode
+                  - generic [ref=e910]: Updated 3/10/2026, 2:32:07 PM
+                  - generic [ref=e911]: No attached draft buffer yet
+                - generic [ref=e912]: Revisions -
+            - listitem [ref=e913]:
+              - generic [ref=e914]:
+                - button "Untitled Episode Updated 3/10/2026, 2:32:07 PM No attached draft buffer yet" [ref=e915] [cursor=pointer]:
+                  - generic [ref=e917]: Untitled Episode
+                  - generic [ref=e918]: Updated 3/10/2026, 2:32:07 PM
+                  - generic [ref=e919]: No attached draft buffer yet
+                - generic [ref=e920]: Revisions -
+            - listitem [ref=e921]:
+              - generic [ref=e922]:
+                - button "Untitled Episode Updated 3/10/2026, 2:32:07 PM No attached draft buffer yet" [ref=e923] [cursor=pointer]:
+                  - generic [ref=e925]: Untitled Episode
+                  - generic [ref=e926]: Updated 3/10/2026, 2:32:07 PM
+                  - generic [ref=e927]: No attached draft buffer yet
+                - generic [ref=e928]: Revisions -
+            - listitem [ref=e929]:
+              - generic [ref=e930]:
+                - button "Phase 4 spark 1773158954343 267d48f4 Updated 3/10/2026, 12:09:40 PM No attached draft buffer yet" [ref=e931] [cursor=pointer]:
+                  - generic [ref=e933]: Phase 4 spark 1773158954343 267d48f4
+                  - generic [ref=e934]: Updated 3/10/2026, 12:09:40 PM
+                  - generic [ref=e935]: No attached draft buffer yet
+                - generic [ref=e936]: Revisions -
+            - listitem [ref=e937]:
+              - generic [ref=e938]:
+                - button "Untitled Episode Updated 3/10/2026, 12:09:31 PM No attached draft buffer yet" [ref=e939] [cursor=pointer]:
+                  - generic [ref=e941]: Untitled Episode
+                  - generic [ref=e942]: Updated 3/10/2026, 12:09:31 PM
+                  - generic [ref=e943]: No attached draft buffer yet
+                - generic [ref=e944]: Revisions -
+            - listitem [ref=e945]:
+              - generic [ref=e946]:
+                - button "Untitled Episode Updated 3/10/2026, 12:09:31 PM No attached draft buffer yet" [ref=e947] [cursor=pointer]:
+                  - generic [ref=e949]: Untitled Episode
+                  - generic [ref=e950]: Updated 3/10/2026, 12:09:31 PM
+                  - generic [ref=e951]: No attached draft buffer yet
+                - generic [ref=e952]: Revisions -
+            - listitem [ref=e953]:
+              - generic [ref=e954]:
+                - button "Untitled Episode Updated 3/10/2026, 12:09:30 PM No attached draft buffer yet" [ref=e955] [cursor=pointer]:
+                  - generic [ref=e957]: Untitled Episode
+                  - generic [ref=e958]: Updated 3/10/2026, 12:09:30 PM
+                  - generic [ref=e959]: No attached draft buffer yet
+                - generic [ref=e960]: Revisions -
+            - listitem [ref=e961]:
+              - generic [ref=e962]:
+                - button "Untitled Episode Updated 3/10/2026, 12:09:30 PM No attached draft buffer yet" [ref=e963] [cursor=pointer]:
+                  - generic [ref=e965]: Untitled Episode
+                  - generic [ref=e966]: Updated 3/10/2026, 12:09:30 PM
+                  - generic [ref=e967]: No attached draft buffer yet
+                - generic [ref=e968]: Revisions -
+            - listitem [ref=e969]:
+              - generic [ref=e970]:
+                - button "Untitled Episode Updated 3/10/2026, 12:09:30 PM No attached draft buffer yet" [ref=e971] [cursor=pointer]:
+                  - generic [ref=e973]: Untitled Episode
+                  - generic [ref=e974]: Updated 3/10/2026, 12:09:30 PM
+                  - generic [ref=e975]: No attached draft buffer yet
+                - generic [ref=e976]: Revisions -
+            - listitem [ref=e977]:
+              - generic [ref=e978]:
+                - button "Phase 4 spark 1773158896450 cd415b50 Updated 3/10/2026, 12:08:29 PM No attached draft buffer yet" [ref=e979] [cursor=pointer]:
+                  - generic [ref=e981]: Phase 4 spark 1773158896450 cd415b50
+                  - generic [ref=e982]: Updated 3/10/2026, 12:08:29 PM
+                  - generic [ref=e983]: No attached draft buffer yet
+                - generic [ref=e984]: Revisions -
+            - listitem [ref=e985]:
+              - generic [ref=e986]:
+                - button "Untitled Episode Updated 3/10/2026, 12:08:26 PM No attached draft buffer yet" [ref=e987] [cursor=pointer]:
+                  - generic [ref=e989]: Untitled Episode
+                  - generic [ref=e990]: Updated 3/10/2026, 12:08:26 PM
+                  - generic [ref=e991]: No attached draft buffer yet
+                - generic [ref=e992]: Revisions -
+            - listitem [ref=e993]:
+              - generic [ref=e994]:
+                - button "Untitled Episode Updated 3/10/2026, 12:08:25 PM No attached draft buffer yet" [ref=e995] [cursor=pointer]:
+                  - generic [ref=e997]: Untitled Episode
+                  - generic [ref=e998]: Updated 3/10/2026, 12:08:25 PM
+                  - generic [ref=e999]: No attached draft buffer yet
+                - generic [ref=e1000]: Revisions -
+            - listitem [ref=e1001]:
+              - generic [ref=e1002]:
+                - button "Untitled Episode Updated 3/10/2026, 12:08:25 PM No attached draft buffer yet" [ref=e1003] [cursor=pointer]:
+                  - generic [ref=e1005]: Untitled Episode
+                  - generic [ref=e1006]: Updated 3/10/2026, 12:08:25 PM
+                  - generic [ref=e1007]: No attached draft buffer yet
+                - generic [ref=e1008]: Revisions -
+            - listitem [ref=e1009]:
+              - generic [ref=e1010]:
+                - button "Untitled Episode Updated 3/10/2026, 12:08:25 PM No attached draft buffer yet" [ref=e1011] [cursor=pointer]:
+                  - generic [ref=e1013]: Untitled Episode
+                  - generic [ref=e1014]: Updated 3/10/2026, 12:08:25 PM
+                  - generic [ref=e1015]: No attached draft buffer yet
+                - generic [ref=e1016]: Revisions -
+            - listitem [ref=e1017]:
+              - generic [ref=e1018]:
+                - button "Untitled Episode Updated 3/10/2026, 12:08:24 PM No attached draft buffer yet" [ref=e1019] [cursor=pointer]:
+                  - generic [ref=e1021]: Untitled Episode
+                  - generic [ref=e1022]: Updated 3/10/2026, 12:08:24 PM
+                  - generic [ref=e1023]: No attached draft buffer yet
+                - generic [ref=e1024]: Revisions -
+            - listitem [ref=e1025]:
+              - generic [ref=e1026]:
+                - button "Phase 4 spark 1773158735716 c93a4a51 Updated 3/10/2026, 12:05:53 PM No attached draft buffer yet" [ref=e1027] [cursor=pointer]:
+                  - generic [ref=e1029]: Phase 4 spark 1773158735716 c93a4a51
+                  - generic [ref=e1030]: Updated 3/10/2026, 12:05:53 PM
+                  - generic [ref=e1031]: No attached draft buffer yet
+                - generic [ref=e1032]: Revisions -
+            - listitem [ref=e1033]:
+              - generic [ref=e1034]:
+                - button "Untitled Episode Updated 3/10/2026, 12:05:48 PM No attached draft buffer yet" [ref=e1035] [cursor=pointer]:
+                  - generic [ref=e1037]: Untitled Episode
+                  - generic [ref=e1038]: Updated 3/10/2026, 12:05:48 PM
+                  - generic [ref=e1039]: No attached draft buffer yet
+                - generic [ref=e1040]: Revisions -
+            - listitem [ref=e1041]:
+              - generic [ref=e1042]:
+                - button "Phase 4 spark 1773158661304 47fb2b9f Updated 3/10/2026, 12:04:30 PM No attached draft buffer yet" [ref=e1043] [cursor=pointer]:
+                  - generic [ref=e1045]: Phase 4 spark 1773158661304 47fb2b9f
+                  - generic [ref=e1046]: Updated 3/10/2026, 12:04:30 PM
+                  - generic [ref=e1047]: No attached draft buffer yet
+                - generic [ref=e1048]: Revisions -
+            - listitem [ref=e1049]:
+              - generic [ref=e1050]:
+                - button "Phase 4 spark 1773158477111 88ca41b6 Updated 3/10/2026, 12:01:35 PM No attached draft buffer yet" [ref=e1051] [cursor=pointer]:
+                  - generic [ref=e1053]: Phase 4 spark 1773158477111 88ca41b6
+                  - generic [ref=e1054]: Updated 3/10/2026, 12:01:35 PM
+                  - generic [ref=e1055]: No attached draft buffer yet
+                - generic [ref=e1056]: Revisions -
+            - listitem [ref=e1057]:
+              - generic [ref=e1058]:
+                - button "Phase 4 spark 1773158477111 88ca41b6 Updated 3/10/2026, 12:01:23 PM No attached draft buffer yet" [ref=e1059] [cursor=pointer]:
+                  - generic [ref=e1061]: Phase 4 spark 1773158477111 88ca41b6
+                  - generic [ref=e1062]: Updated 3/10/2026, 12:01:23 PM
+                  - generic [ref=e1063]: No attached draft buffer yet
+                - generic [ref=e1064]: Revisions -
+            - listitem [ref=e1065]:
+              - generic [ref=e1066]:
+                - button "Phase 4 spark 1773157912432 39f2d8dd Updated 3/10/2026, 11:52:02 AM No attached draft buffer yet" [ref=e1067] [cursor=pointer]:
+                  - generic [ref=e1069]: Phase 4 spark 1773157912432 39f2d8dd
+                  - generic [ref=e1070]: Updated 3/10/2026, 11:52:02 AM
+                  - generic [ref=e1071]: No attached draft buffer yet
+                - generic [ref=e1072]: Revisions -
+            - listitem [ref=e1073]:
+              - generic [ref=e1074]:
+                - button "Phase 4 spark 1773157397273 f79c8fb8 Updated 3/10/2026, 11:46:29 AM No attached draft buffer yet" [ref=e1075] [cursor=pointer]:
+                  - generic [ref=e1077]: Phase 4 spark 1773157397273 f79c8fb8
+                  - generic [ref=e1078]: Updated 3/10/2026, 11:46:29 AM
+                  - generic [ref=e1079]: No attached draft buffer yet
+                - generic [ref=e1080]: Revisions -
+            - listitem [ref=e1081]:
+              - generic [ref=e1082]:
+                - button "Phase 4 spark 1773156100093 351fea84 Updated 3/10/2026, 11:24:16 AM No attached draft buffer yet" [ref=e1083] [cursor=pointer]:
+                  - generic [ref=e1085]: Phase 4 spark 1773156100093 351fea84
+                  - generic [ref=e1086]: Updated 3/10/2026, 11:24:16 AM
+                  - generic [ref=e1087]: No attached draft buffer yet
+                - generic [ref=e1088]: Revisions -
+            - listitem [ref=e1089]:
+              - generic [ref=e1090]:
+                - button "Phase 4 spark 1773156016787 24682062 Updated 3/10/2026, 11:20:26 AM No attached draft buffer yet" [ref=e1091] [cursor=pointer]:
+                  - generic [ref=e1093]: Phase 4 spark 1773156016787 24682062
+                  - generic [ref=e1094]: Updated 3/10/2026, 11:20:26 AM
+                  - generic [ref=e1095]: No attached draft buffer yet
+                - generic [ref=e1096]: Revisions -
+            - listitem [ref=e1097]:
+              - generic [ref=e1098]:
+                - button "Phase 4 spark 1773154752954 bcc6550c Updated 3/10/2026, 10:59:22 AM No attached draft buffer yet" [ref=e1099] [cursor=pointer]:
+                  - generic [ref=e1101]: Phase 4 spark 1773154752954 bcc6550c
+                  - generic [ref=e1102]: Updated 3/10/2026, 10:59:22 AM
+                  - generic [ref=e1103]: No attached draft buffer yet
+                - generic [ref=e1104]: Revisions -
+            - listitem [ref=e1105]:
+              - generic [ref=e1106]:
+                - button "Phase 4 spark 1773153436251 1c23ddae Updated 3/10/2026, 10:37:34 AM No attached draft buffer yet" [ref=e1107] [cursor=pointer]:
+                  - generic [ref=e1109]: Phase 4 spark 1773153436251 1c23ddae
+                  - generic [ref=e1110]: Updated 3/10/2026, 10:37:34 AM
+                  - generic [ref=e1111]: No attached draft buffer yet
+                - generic [ref=e1112]: Revisions -
+            - listitem [ref=e1113]:
+              - generic [ref=e1114]:
+                - button "Untitled Episode Updated 3/10/2026, 10:27:30 AM No attached draft buffer yet" [ref=e1115] [cursor=pointer]:
+                  - generic [ref=e1117]: Untitled Episode
+                  - generic [ref=e1118]: Updated 3/10/2026, 10:27:30 AM
+                  - generic [ref=e1119]: No attached draft buffer yet
+                - generic [ref=e1120]: Revisions -
+            - listitem [ref=e1121]:
+              - generic [ref=e1122]:
+                - button "Untitled Episode Updated 3/10/2026, 10:27:29 AM No attached draft buffer yet" [ref=e1123] [cursor=pointer]:
+                  - generic [ref=e1125]: Untitled Episode
+                  - generic [ref=e1126]: Updated 3/10/2026, 10:27:29 AM
+                  - generic [ref=e1127]: No attached draft buffer yet
+                - generic [ref=e1128]: Revisions -
+            - listitem [ref=e1129]:
+              - generic [ref=e1130]:
+                - button "Untitled Episode Updated 3/10/2026, 10:27:28 AM No attached draft buffer yet" [ref=e1131] [cursor=pointer]:
+                  - generic [ref=e1133]: Untitled Episode
+                  - generic [ref=e1134]: Updated 3/10/2026, 10:27:28 AM
+                  - generic [ref=e1135]: No attached draft buffer yet
+                - generic [ref=e1136]: Revisions -
+            - listitem [ref=e1137]:
+              - generic [ref=e1138]:
+                - button "are drivers getting less polite? Updated 3/9/2026, 11:06:39 PM Last edited by Jschramer" [ref=e1139] [cursor=pointer]:
+                  - generic [ref=e1141]: are drivers getting less polite?
+                  - generic [ref=e1142]: Updated 3/9/2026, 11:06:39 PM
+                  - generic [ref=e1143]: Last edited by Jschramer
+                - generic [ref=e1144]: Revisions 0
+                - generic [ref=e1145]:
+                  - button "Pin" [ref=e1146] [cursor=pointer]
+                  - button "Rename" [ref=e1147] [cursor=pointer]
+                  - button "Archive" [ref=e1148] [cursor=pointer]
+                  - button "Delete" [ref=e1149] [cursor=pointer]
+            - listitem [ref=e1150]:
+              - generic [ref=e1151]:
+                - button "writing a podcasters tool suite from scratch with the help o Updated 3/9/2026, 10:40:08 PM No attached draft buffer yet" [ref=e1152] [cursor=pointer]:
+                  - generic [ref=e1154]: writing a podcasters tool suite from scratch with the help o
+                  - generic [ref=e1155]: Updated 3/9/2026, 10:40:08 PM
+                  - generic [ref=e1156]: No attached draft buffer yet
+                - generic [ref=e1157]: Revisions -
+            - listitem [ref=e1158]:
+              - generic [ref=e1159]:
+                - button "writing a podcasters tool suite from scratch with the help o Updated 3/9/2026, 10:34:36 PM No attached draft buffer yet" [ref=e1160] [cursor=pointer]:
+                  - generic [ref=e1162]: writing a podcasters tool suite from scratch with the help o
+                  - generic [ref=e1163]: Updated 3/9/2026, 10:34:36 PM
+                  - generic [ref=e1164]: No attached draft buffer yet
+                - generic [ref=e1165]: Revisions -
+            - listitem [ref=e1166]:
+              - generic [ref=e1167]:
+                - button "writing a podcasters tool suite from scratch with the help o Updated 3/9/2026, 10:15:53 PM No attached draft buffer yet" [ref=e1168] [cursor=pointer]:
+                  - generic [ref=e1170]: writing a podcasters tool suite from scratch with the help o
+                  - generic [ref=e1171]: Updated 3/9/2026, 10:15:53 PM
+                  - generic [ref=e1172]: No attached draft buffer yet
+                - generic [ref=e1173]: Revisions -
+            - listitem [ref=e1174]:
+              - generic [ref=e1175]:
+                - button "writing a podcasters tool suite from scratch with the help o Updated 3/9/2026, 10:15:47 PM No attached draft buffer yet" [ref=e1176] [cursor=pointer]:
+                  - generic [ref=e1178]: writing a podcasters tool suite from scratch with the help o
+                  - generic [ref=e1179]: Updated 3/9/2026, 10:15:47 PM
+                  - generic [ref=e1180]: No attached draft buffer yet
+                - generic [ref=e1181]: Revisions -
+            - listitem [ref=e1182]:
+              - generic [ref=e1183]:
+                - button "writing a podcasters tool suite from scratch with the help o Updated 3/9/2026, 10:15:37 PM No attached draft buffer yet" [ref=e1184] [cursor=pointer]:
+                  - generic [ref=e1186]: writing a podcasters tool suite from scratch with the help o
+                  - generic [ref=e1187]: Updated 3/9/2026, 10:15:37 PM
+                  - generic [ref=e1188]: No attached draft buffer yet
+                - generic [ref=e1189]: Revisions -
+            - listitem [ref=e1190]:
+              - generic [ref=e1191]:
+                - button "growing up as a roman male concubine Updated 3/9/2026, 9:44:15 PM No attached draft buffer yet" [ref=e1192] [cursor=pointer]:
+                  - generic [ref=e1194]: growing up as a roman male concubine
+                  - generic [ref=e1195]: Updated 3/9/2026, 9:44:15 PM
+                  - generic [ref=e1196]: No attached draft buffer yet
+                - generic [ref=e1197]: Revisions -
+            - listitem [ref=e1198]:
+              - generic [ref=e1199]:
+                - button "Untitled Episode Updated 3/9/2026, 9:29:41 PM No attached draft buffer yet" [ref=e1200] [cursor=pointer]:
+                  - generic [ref=e1202]: Untitled Episode
+                  - generic [ref=e1203]: Updated 3/9/2026, 9:29:41 PM
+                  - generic [ref=e1204]: No attached draft buffer yet
+                - generic [ref=e1205]: Revisions -
+            - listitem [ref=e1206]:
+              - generic [ref=e1207]:
+                - button "Smart consumers are buying 20 year old cars Updated 3/4/2026, 7:10:54 AM No attached draft buffer yet" [ref=e1208] [cursor=pointer]:
+                  - generic [ref=e1210]: Smart consumers are buying 20 year old cars
+                  - generic [ref=e1211]: Updated 3/4/2026, 7:10:54 AM
+                  - generic [ref=e1212]: No attached draft buffer yet
+                - generic [ref=e1213]: Revisions -
+            - listitem [ref=e1214]:
+              - generic [ref=e1215]:
+                - button "did Illan Ohmar leak US battle plans to iran? Updated 3/3/2026, 6:15:54 PM No attached draft buffer yet" [ref=e1216] [cursor=pointer]:
+                  - generic [ref=e1218]: did Illan Ohmar leak US battle plans to iran?
+                  - generic [ref=e1219]: Updated 3/3/2026, 6:15:54 PM
+                  - generic [ref=e1220]: No attached draft buffer yet
+                - generic [ref=e1221]: Revisions -
+            - listitem [ref=e1222]:
+              - generic [ref=e1223]:
+                - button "Untitled Episode Updated 3/3/2026, 1:33:06 PM No attached draft buffer yet" [ref=e1224] [cursor=pointer]:
+                  - generic [ref=e1226]: Untitled Episode
+                  - generic [ref=e1227]: Updated 3/3/2026, 1:33:06 PM
+                  - generic [ref=e1228]: No attached draft buffer yet
+                - generic [ref=e1229]: Revisions -
+            - listitem [ref=e1230]:
+              - generic [ref=e1231]:
+                - button "Untitled Episode Updated 3/3/2026, 1:32:59 PM No attached draft buffer yet" [ref=e1232] [cursor=pointer]:
+                  - generic [ref=e1234]: Untitled Episode
+                  - generic [ref=e1235]: Updated 3/3/2026, 1:32:59 PM
+                  - generic [ref=e1236]: No attached draft buffer yet
+                - generic [ref=e1237]: Revisions -
+            - listitem [ref=e1238]:
+              - generic [ref=e1239]:
+                - button "new project 2 Updated 3/3/2026, 1:31:40 PM No attached draft buffer yet" [ref=e1240] [cursor=pointer]:
+                  - generic [ref=e1242]: new project 2
+                  - generic [ref=e1243]: Updated 3/3/2026, 1:31:40 PM
+                  - generic [ref=e1244]: No attached draft buffer yet
+                - generic [ref=e1245]: Revisions -
+            - listitem [ref=e1246]:
+              - generic [ref=e1247]:
+                - button "assignment 1 Updated 3/3/2026, 1:29:51 PM No attached draft buffer yet" [ref=e1248] [cursor=pointer]:
+                  - generic [ref=e1250]: assignment 1
+                  - generic [ref=e1251]: Updated 3/3/2026, 1:29:51 PM
+                  - generic [ref=e1252]: No attached draft buffer yet
+                - generic [ref=e1253]: Revisions -
+            - listitem [ref=e1254]:
+              - generic [ref=e1255]:
+                - button "Untitled Episode Updated 3/2/2026, 2:50:24 PM No attached draft buffer yet" [ref=e1256] [cursor=pointer]:
+                  - generic [ref=e1258]: Untitled Episode
+                  - generic [ref=e1259]: Updated 3/2/2026, 2:50:24 PM
+                  - generic [ref=e1260]: No attached draft buffer yet
+                - generic [ref=e1261]: Revisions -
+            - listitem [ref=e1262]:
+              - generic [ref=e1263]:
+                - button "Untitled Episode Updated 3/2/2026, 2:22:12 PM No attached draft buffer yet" [ref=e1264] [cursor=pointer]:
+                  - generic [ref=e1266]: Untitled Episode
+                  - generic [ref=e1267]: Updated 3/2/2026, 2:22:12 PM
+                  - generic [ref=e1268]: No attached draft buffer yet
+                - generic [ref=e1269]: Revisions -
+            - listitem [ref=e1270]:
+              - generic [ref=e1271]:
+                - button "Project 82cf0349 Updated 3/2/2026, 9:22:12 AM No attached draft buffer yet" [ref=e1272] [cursor=pointer]:
+                  - generic [ref=e1274]: Project 82cf0349
+                  - generic [ref=e1275]: Updated 3/2/2026, 9:22:12 AM
+                  - generic [ref=e1276]: No attached draft buffer yet
+                - generic [ref=e1277]: Revisions -
+            - listitem [ref=e1278]:
+              - generic [ref=e1279]:
+                - button "Untitled Episode Updated 3/2/2026, 5:14:16 AM No attached draft buffer yet" [ref=e1280] [cursor=pointer]:
+                  - generic [ref=e1282]: Untitled Episode
+                  - generic [ref=e1283]: Updated 3/2/2026, 5:14:16 AM
+                  - generic [ref=e1284]: No attached draft buffer yet
+                - generic [ref=e1285]: Revisions -
+            - listitem [ref=e1286]:
+              - generic [ref=e1287]:
+                - button "inside assignment 2 Updated 3/2/2026, 5:14:07 AM No attached draft buffer yet" [ref=e1288] [cursor=pointer]:
+                  - generic [ref=e1290]: inside assignment 2
+                  - generic [ref=e1291]: Updated 3/2/2026, 5:14:07 AM
+                  - generic [ref=e1292]: No attached draft buffer yet
+                - generic [ref=e1293]: Revisions -
+            - listitem [ref=e1294]:
+              - generic [ref=e1295]:
+                - button "Untitled Episode Updated 3/2/2026, 3:18:02 AM No attached draft buffer yet" [ref=e1296] [cursor=pointer]:
+                  - generic [ref=e1298]: Untitled Episode
+                  - generic [ref=e1299]: Updated 3/2/2026, 3:18:02 AM
+                  - generic [ref=e1300]: No attached draft buffer yet
+                - generic [ref=e1301]: Revisions -
+            - listitem [ref=e1302]:
+              - generic [ref=e1303]:
+                - button "Untitled Episode Updated 3/1/2026, 7:42:41 PM No attached draft buffer yet" [ref=e1304] [cursor=pointer]:
+                  - generic [ref=e1306]: Untitled Episode
+                  - generic [ref=e1307]: Updated 3/1/2026, 7:42:41 PM
+                  - generic [ref=e1308]: No attached draft buffer yet
+                - generic [ref=e1309]: Revisions -
+            - listitem [ref=e1310]:
+              - generic [ref=e1311]:
+                - button "Untitled Episode Updated 3/1/2026, 7:42:41 PM No attached draft buffer yet" [ref=e1312] [cursor=pointer]:
+                  - generic [ref=e1314]: Untitled Episode
+                  - generic [ref=e1315]: Updated 3/1/2026, 7:42:41 PM
+                  - generic [ref=e1316]: No attached draft buffer yet
+                - generic [ref=e1317]: Revisions -
+            - listitem [ref=e1318]:
+              - generic [ref=e1319]:
+                - button "Untitled Episode Updated 3/1/2026, 7:42:35 PM No attached draft buffer yet" [ref=e1320] [cursor=pointer]:
+                  - generic [ref=e1322]: Untitled Episode
+                  - generic [ref=e1323]: Updated 3/1/2026, 7:42:35 PM
+                  - generic [ref=e1324]: No attached draft buffer yet
+                - generic [ref=e1325]: Revisions -
+            - listitem [ref=e1326]:
+              - generic [ref=e1327]:
+                - button "Untitled Episode Updated 2/28/2026, 6:35:25 PM No attached draft buffer yet" [ref=e1328] [cursor=pointer]:
+                  - generic [ref=e1330]: Untitled Episode
+                  - generic [ref=e1331]: Updated 2/28/2026, 6:35:25 PM
+                  - generic [ref=e1332]: No attached draft buffer yet
+                - generic [ref=e1333]: Revisions -
+            - listitem [ref=e1334]:
+              - generic [ref=e1335]:
+                - button "Untitled Episode Updated 2/28/2026, 6:33:52 PM No attached draft buffer yet" [ref=e1336] [cursor=pointer]:
+                  - generic [ref=e1338]: Untitled Episode
+                  - generic [ref=e1339]: Updated 2/28/2026, 6:33:52 PM
+                  - generic [ref=e1340]: No attached draft buffer yet
+                - generic [ref=e1341]: Revisions -
+            - listitem [ref=e1342]:
+              - generic [ref=e1343]:
+                - button "Untitled Episode Updated 2/28/2026, 3:25:12 AM No attached draft buffer yet" [ref=e1344] [cursor=pointer]:
+                  - generic [ref=e1346]: Untitled Episode
+                  - generic [ref=e1347]: Updated 2/28/2026, 3:25:12 AM
+                  - generic [ref=e1348]: No attached draft buffer yet
+                - generic [ref=e1349]: Revisions -
+            - listitem [ref=e1350]:
+              - generic [ref=e1351]:
+                - button "Untitled Episode Updated 2/28/2026, 3:11:33 AM No attached draft buffer yet" [ref=e1352] [cursor=pointer]:
+                  - generic [ref=e1354]: Untitled Episode
+                  - generic [ref=e1355]: Updated 2/28/2026, 3:11:33 AM
+                  - generic [ref=e1356]: No attached draft buffer yet
+                - generic [ref=e1357]: Revisions -
+            - listitem [ref=e1358]:
+              - generic [ref=e1359]:
+                - button "Untitled Episode Updated 2/27/2026, 7:41:37 PM No attached draft buffer yet" [ref=e1360] [cursor=pointer]:
+                  - generic [ref=e1362]: Untitled Episode
+                  - generic [ref=e1363]: Updated 2/27/2026, 7:41:37 PM
+                  - generic [ref=e1364]: No attached draft buffer yet
+                - generic [ref=e1365]: Revisions -
+            - listitem [ref=e1366]:
+              - generic [ref=e1367]:
+                - button "Untitled Episode Updated 2/27/2026, 7:36:43 PM No attached draft buffer yet" [ref=e1368] [cursor=pointer]:
+                  - generic [ref=e1370]: Untitled Episode
+                  - generic [ref=e1371]: Updated 2/27/2026, 7:36:43 PM
+                  - generic [ref=e1372]: No attached draft buffer yet
+                - generic [ref=e1373]: Revisions -
+            - listitem [ref=e1374]:
+              - generic [ref=e1375]:
+                - button "Untitled Episode Updated 2/27/2026, 7:36:41 PM No attached draft buffer yet" [ref=e1376] [cursor=pointer]:
+                  - generic [ref=e1378]: Untitled Episode
+                  - generic [ref=e1379]: Updated 2/27/2026, 7:36:41 PM
+                  - generic [ref=e1380]: No attached draft buffer yet
+                - generic [ref=e1381]: Revisions -
+            - listitem [ref=e1382]:
+              - generic [ref=e1383]:
+                - button "Untitled Episode Updated 2/27/2026, 7:36:37 PM No attached draft buffer yet" [ref=e1384] [cursor=pointer]:
+                  - generic [ref=e1386]: Untitled Episode
+                  - generic [ref=e1387]: Updated 2/27/2026, 7:36:37 PM
+                  - generic [ref=e1388]: No attached draft buffer yet
+                - generic [ref=e1389]: Revisions -
+            - listitem [ref=e1390]:
+              - generic [ref=e1391]:
+                - button "Untitled Episode Updated 2/27/2026, 7:36:37 PM No attached draft buffer yet" [ref=e1392] [cursor=pointer]:
+                  - generic [ref=e1394]: Untitled Episode
+                  - generic [ref=e1395]: Updated 2/27/2026, 7:36:37 PM
+                  - generic [ref=e1396]: No attached draft buffer yet
+                - generic [ref=e1397]: Revisions -
+            - listitem [ref=e1398]:
+              - generic [ref=e1399]:
+                - button "Untitled Episode Updated 2/27/2026, 6:54:42 PM No attached draft buffer yet" [ref=e1400] [cursor=pointer]:
+                  - generic [ref=e1402]: Untitled Episode
+                  - generic [ref=e1403]: Updated 2/27/2026, 6:54:42 PM
+                  - generic [ref=e1404]: No attached draft buffer yet
+                - generic [ref=e1405]: Revisions -
+            - listitem [ref=e1406]:
+              - generic [ref=e1407]:
+                - button "Untitled Episode Updated 2/27/2026, 3:26:30 PM No attached draft buffer yet" [ref=e1408] [cursor=pointer]:
+                  - generic [ref=e1410]: Untitled Episode
+                  - generic [ref=e1411]: Updated 2/27/2026, 3:26:30 PM
+                  - generic [ref=e1412]: No attached draft buffer yet
+                - generic [ref=e1413]: Revisions -
+            - listitem [ref=e1414]:
+              - generic [ref=e1415]:
+                - button "Untitled Episode Updated 2/27/2026, 3:08:05 PM No attached draft buffer yet" [ref=e1416] [cursor=pointer]:
+                  - generic [ref=e1418]: Untitled Episode
+                  - generic [ref=e1419]: Updated 2/27/2026, 3:08:05 PM
+                  - generic [ref=e1420]: No attached draft buffer yet
+                - generic [ref=e1421]: Revisions -
+            - listitem [ref=e1422]:
+              - generic [ref=e1423]:
+                - button "Untitled Episode Updated 2/27/2026, 2:33:47 AM No attached draft buffer yet" [ref=e1424] [cursor=pointer]:
+                  - generic [ref=e1426]: Untitled Episode
+                  - generic [ref=e1427]: Updated 2/27/2026, 2:33:47 AM
+                  - generic [ref=e1428]: No attached draft buffer yet
+                - generic [ref=e1429]: Revisions -
+            - listitem [ref=e1430]:
+              - generic [ref=e1431]:
+                - button "Untitled Episode Updated 2/27/2026, 2:25:55 AM No attached draft buffer yet" [ref=e1432] [cursor=pointer]:
+                  - generic [ref=e1434]: Untitled Episode
+                  - generic [ref=e1435]: Updated 2/27/2026, 2:25:55 AM
+                  - generic [ref=e1436]: No attached draft buffer yet
+                - generic [ref=e1437]: Revisions -
+            - listitem [ref=e1438]:
+              - generic [ref=e1439]:
+                - button "Untitled Episode Updated 2/27/2026, 2:20:53 AM No attached draft buffer yet" [ref=e1440] [cursor=pointer]:
+                  - generic [ref=e1442]: Untitled Episode
+                  - generic [ref=e1443]: Updated 2/27/2026, 2:20:53 AM
+                  - generic [ref=e1444]: No attached draft buffer yet
+                - generic [ref=e1445]: Revisions -
+            - listitem [ref=e1446]:
+              - generic [ref=e1447]:
+                - button "Untitled Episode Updated 2/26/2026, 8:20:27 PM No attached draft buffer yet" [ref=e1448] [cursor=pointer]:
+                  - generic [ref=e1450]: Untitled Episode
+                  - generic [ref=e1451]: Updated 2/26/2026, 8:20:27 PM
+                  - generic [ref=e1452]: No attached draft buffer yet
+                - generic [ref=e1453]: Revisions -
+            - listitem [ref=e1454]:
+              - generic [ref=e1455]:
+                - button "Untitled Episode Updated 2/25/2026, 2:38:18 PM No attached draft buffer yet" [ref=e1456] [cursor=pointer]:
+                  - generic [ref=e1458]: Untitled Episode
+                  - generic [ref=e1459]: Updated 2/25/2026, 2:38:18 PM
+                  - generic [ref=e1460]: No attached draft buffer yet
+                - generic [ref=e1461]: Revisions -
+            - listitem [ref=e1462]:
+              - generic [ref=e1463]:
+                - button "Untitled Episode Updated 2/25/2026, 2:38:14 PM No attached draft buffer yet" [ref=e1464] [cursor=pointer]:
+                  - generic [ref=e1466]: Untitled Episode
+                  - generic [ref=e1467]: Updated 2/25/2026, 2:38:14 PM
+                  - generic [ref=e1468]: No attached draft buffer yet
+                - generic [ref=e1469]: Revisions -
+            - listitem [ref=e1470]:
+              - generic [ref=e1471]:
+                - button "Untitled Episode Updated 2/24/2026, 8:02:23 PM No attached draft buffer yet" [ref=e1472] [cursor=pointer]:
+                  - generic [ref=e1474]: Untitled Episode
+                  - generic [ref=e1475]: Updated 2/24/2026, 8:02:23 PM
+                  - generic [ref=e1476]: No attached draft buffer yet
+                - generic [ref=e1477]: Revisions -
+            - listitem [ref=e1478]:
+              - generic [ref=e1479]:
+                - button "Untitled Episode Updated 2/24/2026, 8:02:18 PM No attached draft buffer yet" [ref=e1480] [cursor=pointer]:
+                  - generic [ref=e1482]: Untitled Episode
+                  - generic [ref=e1483]: Updated 2/24/2026, 8:02:18 PM
+                  - generic [ref=e1484]: No attached draft buffer yet
+                - generic [ref=e1485]: Revisions -
+            - listitem [ref=e1486]:
+              - generic [ref=e1487]:
+                - button "Untitled Episode Updated 2/24/2026, 7:49:40 PM No attached draft buffer yet" [ref=e1488] [cursor=pointer]:
+                  - generic [ref=e1490]: Untitled Episode
+                  - generic [ref=e1491]: Updated 2/24/2026, 7:49:40 PM
+                  - generic [ref=e1492]: No attached draft buffer yet
+                - generic [ref=e1493]: Revisions -
+            - listitem [ref=e1494]:
+              - generic [ref=e1495]:
+                - button "Untitled Episode Updated 2/24/2026, 7:49:38 PM No attached draft buffer yet" [ref=e1496] [cursor=pointer]:
+                  - generic [ref=e1498]: Untitled Episode
+                  - generic [ref=e1499]: Updated 2/24/2026, 7:49:38 PM
+                  - generic [ref=e1500]: No attached draft buffer yet
+                - generic [ref=e1501]: Revisions -
+            - listitem [ref=e1502]:
+              - generic [ref=e1503]:
+                - button "Untitled Episode Updated 2/24/2026, 7:31:28 PM No attached draft buffer yet" [ref=e1504] [cursor=pointer]:
+                  - generic [ref=e1506]: Untitled Episode
+                  - generic [ref=e1507]: Updated 2/24/2026, 7:31:28 PM
+                  - generic [ref=e1508]: No attached draft buffer yet
+                - generic [ref=e1509]: Revisions -
+            - listitem [ref=e1510]:
+              - generic [ref=e1511]:
+                - button "Untitled Episode Updated 2/24/2026, 7:31:28 PM No attached draft buffer yet" [ref=e1512] [cursor=pointer]:
+                  - generic [ref=e1514]: Untitled Episode
+                  - generic [ref=e1515]: Updated 2/24/2026, 7:31:28 PM
+                  - generic [ref=e1516]: No attached draft buffer yet
+                - generic [ref=e1517]: Revisions -
+            - listitem [ref=e1518]:
+              - generic [ref=e1519]:
+                - button "Untitled Episode Updated 2/24/2026, 7:31:25 PM No attached draft buffer yet" [ref=e1520] [cursor=pointer]:
+                  - generic [ref=e1522]: Untitled Episode
+                  - generic [ref=e1523]: Updated 2/24/2026, 7:31:25 PM
+                  - generic [ref=e1524]: No attached draft buffer yet
+                - generic [ref=e1525]: Revisions -
+            - listitem [ref=e1526]:
+              - generic [ref=e1527]:
+                - button "Untitled Episode Updated 2/24/2026, 7:31:22 PM No attached draft buffer yet" [ref=e1528] [cursor=pointer]:
+                  - generic [ref=e1530]: Untitled Episode
+                  - generic [ref=e1531]: Updated 2/24/2026, 7:31:22 PM
+                  - generic [ref=e1532]: No attached draft buffer yet
+                - generic [ref=e1533]: Revisions -
+            - listitem [ref=e1534]:
+              - generic [ref=e1535]:
+                - button "Untitled Episode Updated 2/24/2026, 7:31:20 PM No attached draft buffer yet" [ref=e1536] [cursor=pointer]:
+                  - generic [ref=e1538]: Untitled Episode
+                  - generic [ref=e1539]: Updated 2/24/2026, 7:31:20 PM
+                  - generic [ref=e1540]: No attached draft buffer yet
+                - generic [ref=e1541]: Revisions -
+            - listitem [ref=e1542]:
+              - generic [ref=e1543]:
+                - button "Untitled Episode Updated 2/24/2026, 7:31:18 PM No attached draft buffer yet" [ref=e1544] [cursor=pointer]:
+                  - generic [ref=e1546]: Untitled Episode
+                  - generic [ref=e1547]: Updated 2/24/2026, 7:31:18 PM
+                  - generic [ref=e1548]: No attached draft buffer yet
+                - generic [ref=e1549]: Revisions -
+            - listitem [ref=e1550]:
+              - generic [ref=e1551]:
+                - button "Untitled Episode Updated 2/24/2026, 7:31:16 PM No attached draft buffer yet" [ref=e1552] [cursor=pointer]:
+                  - generic [ref=e1554]: Untitled Episode
+                  - generic [ref=e1555]: Updated 2/24/2026, 7:31:16 PM
+                  - generic [ref=e1556]: No attached draft buffer yet
+                - generic [ref=e1557]: Revisions -
+            - listitem [ref=e1558]:
+              - generic [ref=e1559]:
+                - button "Untitled Episode Updated 2/24/2026, 7:31:14 PM No attached draft buffer yet" [ref=e1560] [cursor=pointer]:
+                  - generic [ref=e1562]: Untitled Episode
+                  - generic [ref=e1563]: Updated 2/24/2026, 7:31:14 PM
+                  - generic [ref=e1564]: No attached draft buffer yet
+                - generic [ref=e1565]: Revisions -
+            - listitem [ref=e1566]:
+              - generic [ref=e1567]:
+                - button "Untitled Episode Updated 2/24/2026, 7:31:11 PM No attached draft buffer yet" [ref=e1568] [cursor=pointer]:
+                  - generic [ref=e1570]: Untitled Episode
+                  - generic [ref=e1571]: Updated 2/24/2026, 7:31:11 PM
+                  - generic [ref=e1572]: No attached draft buffer yet
+                - generic [ref=e1573]: Revisions -
+            - listitem [ref=e1574]:
+              - generic [ref=e1575]:
+                - button "Untitled Episode Updated 2/24/2026, 7:31:09 PM No attached draft buffer yet" [ref=e1576] [cursor=pointer]:
+                  - generic [ref=e1578]: Untitled Episode
+                  - generic [ref=e1579]: Updated 2/24/2026, 7:31:09 PM
+                  - generic [ref=e1580]: No attached draft buffer yet
+                - generic [ref=e1581]: Revisions -
+            - listitem [ref=e1582]:
+              - generic [ref=e1583]:
+                - button "Untitled Episode Updated 2/24/2026, 7:31:07 PM No attached draft buffer yet" [ref=e1584] [cursor=pointer]:
+                  - generic [ref=e1586]: Untitled Episode
+                  - generic [ref=e1587]: Updated 2/24/2026, 7:31:07 PM
+                  - generic [ref=e1588]: No attached draft buffer yet
+                - generic [ref=e1589]: Revisions -
+            - listitem [ref=e1590]:
+              - generic [ref=e1591]:
+                - button "Untitled Episode Updated 2/24/2026, 7:31:05 PM No attached draft buffer yet" [ref=e1592] [cursor=pointer]:
+                  - generic [ref=e1594]: Untitled Episode
+                  - generic [ref=e1595]: Updated 2/24/2026, 7:31:05 PM
+                  - generic [ref=e1596]: No attached draft buffer yet
+                - generic [ref=e1597]: Revisions -
+            - listitem [ref=e1598]:
+              - generic [ref=e1599]:
+                - button "Untitled Episode Updated 2/24/2026, 7:31:03 PM No attached draft buffer yet" [ref=e1600] [cursor=pointer]:
+                  - generic [ref=e1602]: Untitled Episode
+                  - generic [ref=e1603]: Updated 2/24/2026, 7:31:03 PM
+                  - generic [ref=e1604]: No attached draft buffer yet
+                - generic [ref=e1605]: Revisions -
+            - listitem [ref=e1606]:
+              - generic [ref=e1607]:
+                - button "Untitled Episode Updated 2/24/2026, 7:31:00 PM No attached draft buffer yet" [ref=e1608] [cursor=pointer]:
+                  - generic [ref=e1610]: Untitled Episode
+                  - generic [ref=e1611]: Updated 2/24/2026, 7:31:00 PM
+                  - generic [ref=e1612]: No attached draft buffer yet
+                - generic [ref=e1613]: Revisions -
+            - listitem [ref=e1614]:
+              - generic [ref=e1615]:
+                - button "Untitled Episode Updated 2/24/2026, 7:30:58 PM No attached draft buffer yet" [ref=e1616] [cursor=pointer]:
+                  - generic [ref=e1618]: Untitled Episode
+                  - generic [ref=e1619]: Updated 2/24/2026, 7:30:58 PM
+                  - generic [ref=e1620]: No attached draft buffer yet
+                - generic [ref=e1621]: Revisions -
+            - listitem [ref=e1622]:
+              - generic [ref=e1623]:
+                - button "Untitled Episode Updated 2/24/2026, 7:30:56 PM No attached draft buffer yet" [ref=e1624] [cursor=pointer]:
+                  - generic [ref=e1626]: Untitled Episode
+                  - generic [ref=e1627]: Updated 2/24/2026, 7:30:56 PM
+                  - generic [ref=e1628]: No attached draft buffer yet
+                - generic [ref=e1629]: Revisions -
+            - listitem [ref=e1630]:
+              - generic [ref=e1631]:
+                - button "Untitled Episode Updated 2/24/2026, 7:30:54 PM No attached draft buffer yet" [ref=e1632] [cursor=pointer]:
+                  - generic [ref=e1634]: Untitled Episode
+                  - generic [ref=e1635]: Updated 2/24/2026, 7:30:54 PM
+                  - generic [ref=e1636]: No attached draft buffer yet
+                - generic [ref=e1637]: Revisions -
+            - listitem [ref=e1638]:
+              - generic [ref=e1639]:
+                - button "Untitled Episode Updated 2/24/2026, 7:30:52 PM No attached draft buffer yet" [ref=e1640] [cursor=pointer]:
+                  - generic [ref=e1642]: Untitled Episode
+                  - generic [ref=e1643]: Updated 2/24/2026, 7:30:52 PM
+                  - generic [ref=e1644]: No attached draft buffer yet
+                - generic [ref=e1645]: Revisions -
+            - listitem [ref=e1646]:
+              - generic [ref=e1647]:
+                - button "Untitled Episode Updated 2/24/2026, 7:30:49 PM No attached draft buffer yet" [ref=e1648] [cursor=pointer]:
+                  - generic [ref=e1650]: Untitled Episode
+                  - generic [ref=e1651]: Updated 2/24/2026, 7:30:49 PM
+                  - generic [ref=e1652]: No attached draft buffer yet
+                - generic [ref=e1653]: Revisions -
+            - listitem [ref=e1654]:
+              - generic [ref=e1655]:
+                - button "Untitled Episode Updated 2/24/2026, 7:30:47 PM No attached draft buffer yet" [ref=e1656] [cursor=pointer]:
+                  - generic [ref=e1658]: Untitled Episode
+                  - generic [ref=e1659]: Updated 2/24/2026, 7:30:47 PM
+                  - generic [ref=e1660]: No attached draft buffer yet
+                - generic [ref=e1661]: Revisions -
+            - listitem [ref=e1662]:
+              - generic [ref=e1663]:
+                - button "Untitled Episode Updated 2/24/2026, 7:30:44 PM No attached draft buffer yet" [ref=e1664] [cursor=pointer]:
+                  - generic [ref=e1666]: Untitled Episode
+                  - generic [ref=e1667]: Updated 2/24/2026, 7:30:44 PM
+                  - generic [ref=e1668]: No attached draft buffer yet
+                - generic [ref=e1669]: Revisions -
+            - listitem [ref=e1670]:
+              - generic [ref=e1671]:
+                - button "Untitled Episode Updated 2/24/2026, 7:30:41 PM No attached draft buffer yet" [ref=e1672] [cursor=pointer]:
+                  - generic [ref=e1674]: Untitled Episode
+                  - generic [ref=e1675]: Updated 2/24/2026, 7:30:41 PM
+                  - generic [ref=e1676]: No attached draft buffer yet
+                - generic [ref=e1677]: Revisions -
+            - listitem [ref=e1678]:
+              - generic [ref=e1679]:
+                - button "Untitled Episode Updated 2/24/2026, 7:30:40 PM No attached draft buffer yet" [ref=e1680] [cursor=pointer]:
+                  - generic [ref=e1682]: Untitled Episode
+                  - generic [ref=e1683]: Updated 2/24/2026, 7:30:40 PM
+                  - generic [ref=e1684]: No attached draft buffer yet
+                - generic [ref=e1685]: Revisions -
+            - listitem [ref=e1686]:
+              - generic [ref=e1687]:
+                - button "Untitled Episode Updated 2/24/2026, 7:30:37 PM No attached draft buffer yet" [ref=e1688] [cursor=pointer]:
+                  - generic [ref=e1690]: Untitled Episode
+                  - generic [ref=e1691]: Updated 2/24/2026, 7:30:37 PM
+                  - generic [ref=e1692]: No attached draft buffer yet
+                - generic [ref=e1693]: Revisions -
+            - listitem [ref=e1694]:
+              - generic [ref=e1695]:
+                - button "Untitled Episode Updated 2/24/2026, 7:30:35 PM No attached draft buffer yet" [ref=e1696] [cursor=pointer]:
+                  - generic [ref=e1698]: Untitled Episode
+                  - generic [ref=e1699]: Updated 2/24/2026, 7:30:35 PM
+                  - generic [ref=e1700]: No attached draft buffer yet
+                - generic [ref=e1701]: Revisions -
+            - listitem [ref=e1702]:
+              - generic [ref=e1703]:
+                - button "Untitled Episode Updated 2/24/2026, 7:30:33 PM No attached draft buffer yet" [ref=e1704] [cursor=pointer]:
+                  - generic [ref=e1706]: Untitled Episode
+                  - generic [ref=e1707]: Updated 2/24/2026, 7:30:33 PM
+                  - generic [ref=e1708]: No attached draft buffer yet
+                - generic [ref=e1709]: Revisions -
+            - listitem [ref=e1710]:
+              - generic [ref=e1711]:
+                - button "Untitled Episode Updated 2/24/2026, 7:30:31 PM No attached draft buffer yet" [ref=e1712] [cursor=pointer]:
+                  - generic [ref=e1714]: Untitled Episode
+                  - generic [ref=e1715]: Updated 2/24/2026, 7:30:31 PM
+                  - generic [ref=e1716]: No attached draft buffer yet
+                - generic [ref=e1717]: Revisions -
+        - generic [ref=e1718]:
+          - generic [ref=e1719]: Active workpiece
+          - button "Open in Anvil" [ref=e1720] [cursor=pointer]
+          - button "Draft5 words" [ref=e1721] [cursor=pointer]:
+            - text: Draft
+            - generic [ref=e1722]: 5 words
+          - button "Planning Board" [ref=e1723] [cursor=pointer]
+          - button "Sources" [ref=e1724] [cursor=pointer]
+          - button "Revisions0" [ref=e1725] [cursor=pointer]
+        - generic [ref=e1726]:
+          - generic [ref=e1727]: Tools
+          - button "API / Ledger" [ref=e1728] [cursor=pointer]
+      - main [ref=e1729]:
+        - generic [ref=e1730]:
+          - generic [ref=e1731]:
+            - generic [ref=e1732]:
+              - generic [ref=e1733]: Project
+              - generic [ref=e1734]: Last updated 3/10/2026, 2:32:21 PM
+              - generic [ref=e1735]: Editing as Jschramer · Last edited by Jschramer
+            - generic [ref=e1736]:
+              - generic [ref=e1737]: Project title
+              - textbox "Project title" [ref=e1738]: Phase 4 spark 1773167513346 cf8b2515
+          - generic [ref=e1739]:
+            - button "New Draft" [ref=e1740] [cursor=pointer]
+            - button "Save draft" [ref=e1741] [cursor=pointer]
+            - button "Delete Draft" [ref=e1742] [cursor=pointer]
+            - button "Create Revision" [ref=e1743] [cursor=pointer]
+            - button "Revisions" [ref=e1744] [cursor=pointer]
+            - button "Approve Script" [ref=e1745] [cursor=pointer]
+            - generic [ref=e1746]:
+              - generic [ref=e1747]: Tone
+              - combobox "Tone" [ref=e1748]:
+                - option "Neutral conversational"
+                - option "Newsroom neutral"
+                - option "Spicy but safe" [selected]
+            - generic [ref=e1749]: Saved
+            - generic [ref=e1750]: 5 words · 36 chars
+          - region "Anvil tag validation" [ref=e1751]:
+            - generic [ref=e1752]: Script Tag Contract Failed
+            - generic [ref=e1753]: Script tags must be valid for this action.
+            - generic [ref=e1754]: "[line 1] Text must be inside [s1]/[s2]/[g1]/[g2] or [note] blocks."
+            - generic [ref=e1755]:
+              - button "Fix formatting (no AI)" [active] [ref=e1756] [cursor=pointer]
+              - button "Ask AI to repair" [ref=e1757] [cursor=pointer]
+              - button "Dismiss" [ref=e1758] [cursor=pointer]
+          - generic [ref=e1759]:
+            - generic [ref=e1760]:
+              - button "Manual Draft (no AI)" [ref=e1761] [cursor=pointer]
+              - button "Script panel" [ref=e1762] [cursor=pointer]
+            - generic [ref=e1763]: Write without AI (just a text editor)
+          - region "Hearth AI chat" [ref=e1765]:
+            - generic [ref=e1766]:
+              - generic [ref=e1767]: Conversation
+              - button "Clear" [disabled] [ref=e1768]
+            - log [ref=e1769]:
+              - generic [ref=e1770]: Ask a question about this Episode. Context is attached automatically.
+            - group "Chat shortcuts" [ref=e1771]:
+              - button "Outline" [ref=e1772] [cursor=pointer]
+              - button "Find sources" [ref=e1773] [cursor=pointer]
+              - button "Write script" [ref=e1774] [cursor=pointer]
+            - generic [ref=e1775]:
+              - combobox "Voice lane" [ref=e1776]:
+                - option "Browser (Free)" [selected]
+                - option "AI"
+              - button "🎙️" [ref=e1777] [cursor=pointer]
+              - textbox "Talk it out... paste links... ask for an outline..." [ref=e1779]
+              - button "Send" [disabled] [ref=e1780]
+```

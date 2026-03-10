@@ -43,7 +43,9 @@ export type HearthPhase4VerifiedArtifact = {
     script_snippet: string;
   };
   ready: {
+    visible_items: Array<{ workpiece_id: string; title: string }>;
     visible_titles: string[];
+    hidden_items: Array<{ workpiece_id: string; title: string }>;
     hidden_titles: string[];
   };
 };
@@ -443,8 +445,28 @@ export function readHearthPhase4Artifact(
   const visibleTitles = Array.isArray(ready?.visible_titles)
     ? ready.visible_titles.map((value) => readString(value)).filter((value): value is string => Boolean(value))
     : [];
+  const visibleItems = Array.isArray(ready?.visible_items)
+    ? ready.visible_items.map((value) => {
+      if (!isRecord(value)) return null;
+      const workpieceId = normalizeUuid(value.workpiece_id);
+      const title = readString(value.title);
+      return workpieceId && title
+        ? { workpiece_id: workpieceId, title }
+        : null;
+    }).filter((value): value is { workpiece_id: string; title: string } => Boolean(value))
+    : [];
   const hiddenTitles = Array.isArray(ready?.hidden_titles)
     ? ready.hidden_titles.map((value) => readString(value)).filter((value): value is string => Boolean(value))
+    : [];
+  const hiddenItems = Array.isArray(ready?.hidden_items)
+    ? ready.hidden_items.map((value) => {
+      if (!isRecord(value)) return null;
+      const workpieceId = normalizeUuid(value.workpiece_id);
+      const title = readString(value.title);
+      return workpieceId && title
+        ? { workpiece_id: workpieceId, title }
+        : null;
+    }).filter((value): value is { workpiece_id: string; title: string } => Boolean(value))
     : [];
   const verifiedAt = readString(parsed.verified_at);
   const storageStatePath = readString(parsed.storage_state_path);
@@ -476,7 +498,9 @@ export function readHearthPhase4Artifact(
       script_snippet: handoffScriptSnippet,
     },
     ready: {
+      visible_items: visibleItems,
       visible_titles: visibleTitles,
+      hidden_items: hiddenItems,
       hidden_titles: hiddenTitles,
     },
   };

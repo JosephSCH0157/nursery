@@ -207,10 +207,30 @@ async function main(): Promise<void> {
     .filter((entry) => !entry.hidden_at)
     .map((entry) => entry.title.trim())
     .filter((title, index, all) => title.length > 0 && all.indexOf(title) === index);
+  const visibleReadyItems = readyScripts
+    .filter((entry) => !entry.hidden_at)
+    .map((entry) => ({
+      workpiece_id: entry.workpiece_id,
+      title: entry.title.trim(),
+    }))
+    .filter((entry, index, all) => (
+      entry.title.length > 0
+      && all.findIndex((candidate) => candidate.workpiece_id === entry.workpiece_id) === index
+    ));
   const hiddenReadyTitles = readyScripts
     .filter((entry) => !!entry.hidden_at)
     .map((entry) => entry.title.trim())
     .filter((title, index, all) => title.length > 0 && all.indexOf(title) === index);
+  const hiddenReadyItems = readyScripts
+    .filter((entry) => !!entry.hidden_at)
+    .map((entry) => ({
+      workpiece_id: entry.workpiece_id,
+      title: entry.title.trim(),
+    }))
+    .filter((entry, index, all) => (
+      entry.title.length > 0
+      && all.findIndex((candidate) => candidate.workpiece_id === entry.workpiece_id) === index
+    ));
 
   if (visibleReadyTitles.length < 2) {
     fail(
@@ -238,7 +258,9 @@ async function main(): Promise<void> {
       script_snippet: buildScriptSnippet(primaryScript.text),
     },
     ready: {
+      visible_items: visibleReadyItems,
       visible_titles: visibleReadyTitles,
+      hidden_items: hiddenReadyItems,
       hidden_titles: hiddenReadyTitles,
     },
   };
