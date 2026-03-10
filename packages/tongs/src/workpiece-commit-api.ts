@@ -63,6 +63,7 @@ type HearthWorkpiecePresenceRow = Database["tongs"]["Tables"]["hearth_workpiece_
 type WorkpieceFileRow = Database["tongs"]["Tables"]["workpiece_files"]["Row"];
 type WorkpieceEventRow = Database["tongs"]["Tables"]["workpiece_events"]["Row"];
 type WorkspaceRow = Database["tongs"]["Tables"]["workspaces"]["Row"];
+type WorkspaceReadyQueueStateRow = Database["tongs"]["Tables"]["workspace_ready_queue_state"]["Row"];
 
 type JsonPrimitive = string | number | boolean | null;
 type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
@@ -374,15 +375,34 @@ export type WorkspaceReadyScript = {
   content_category: string | null;
   marked_ready_by: string | null;
   marked_ready_at: string | null;
+  queue_rank: number | null;
+  hidden_at: string | null;
+  hidden_by: string | null;
 };
 
 export type ListWorkspaceReadyScriptsOptions = {
   unrecordedOnly?: boolean;
+  includeHidden?: boolean;
   userAccessToken?: string | null;
 };
 
 export type DeleteReadyScriptOptions = {
   userAccessToken?: string | null;
+};
+
+export type WorkspaceReadyQueueStateEntry = {
+  workpiece_id: string;
+  queue_rank?: number | null;
+  hidden?: boolean | null;
+};
+
+export type UpdateWorkspaceReadyQueueStateRequest = {
+  entries: WorkspaceReadyQueueStateEntry[];
+};
+
+export type UpdateWorkspaceReadyQueueStateResult = {
+  updated_count: number;
+  deleted_count: number;
 };
 
 export type DeleteReadyScriptResult = {
@@ -453,6 +473,11 @@ export type TongsCommitApiService = {
     workspaceId: string,
     options?: ListWorkspaceReadyScriptsOptions,
   ): Promise<WorkspaceReadyScript[]>;
+  updateWorkspaceReadyQueueState(
+    workspaceId: string,
+    input: UpdateWorkspaceReadyQueueStateRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<UpdateWorkspaceReadyQueueStateResult>;
   appendEvent(workpieceId: string, input: AppendEventRequest): Promise<WorkpieceEventRow>;
   readWorkpieceJson(workpieceId: string, path: string): Promise<ReadJsonFileResult>;
   readWorkspaceJson(workspaceId: string, path: string): Promise<ReadJsonFileResult>;
@@ -1653,6 +1678,64 @@ function normalizeGenerateEpisodeThumbnailRequest(
   };
 }
 
+function normalizeOptionalReadyQueueRank(input: unknown, field: string): number | null | undefined {
+  if (typeof input === "undefined") return undefined;
+  if (input === null) return null;
+  return normalizeNonNegativeInteger(input, field);
+}
+
+function normalizeOptionalReadyHidden(input: unknown, field: string): boolean | null | undefined {
+  if (typeof input === "undefined") return undefined;
+  if (input === null) return null;
+  if (typeof input !== "boolean") {
+    throw new HttpError(400, "invalid_boolean", `${field} must be a boolean or null`);
+  }
+  return input;
+}
+
+function normalizeUpdateWorkspaceReadyQueueStateRequest(
+  body: Record<string, unknown>,
+): UpdateWorkspaceReadyQueueStateRequest {
+  const rawEntries = body.entries;
+  if (!Array.isArray(rawEntries)) {
+    throw new HttpError(400, "invalid_entries", "entries must be an array");
+  }
+
+  const seenWorkpieceIds = new Set<string>();
+  const entries = rawEntries.map((rawEntry, index) => {
+    if (!isRecord(rawEntry)) {
+      throw new HttpError(400, "invalid_entries", `entries[${index}] must be an object`);
+    }
+
+    const workpieceId = normalizeUuid(rawEntry.workpiece_id, `entries[${index}].workpiece_id`);
+    if (seenWorkpieceIds.has(workpieceId)) {
+      throw new HttpError(400, "duplicate_workpiece", "entries must not contain duplicate workpiece_id values");
+    }
+    seenWorkpieceIds.add(workpieceId);
+
+    const hasQueueRank = Object.prototype.hasOwnProperty.call(rawEntry, "queue_rank");
+    const hasHidden = Object.prototype.hasOwnProperty.call(rawEntry, "hidden");
+    if (!hasQueueRank && !hasHidden) {
+      throw new HttpError(400, "invalid_entries", `entries[${index}] must include queue_rank and/or hidden`);
+    }
+
+    const queueRank = hasQueueRank
+      ? normalizeOptionalReadyQueueRank(rawEntry.queue_rank, `entries[${index}].queue_rank`)
+      : undefined;
+    const hidden = hasHidden
+      ? normalizeOptionalReadyHidden(rawEntry.hidden, `entries[${index}].hidden`)
+      : undefined;
+
+    return {
+      workpiece_id: workpieceId,
+      ...(typeof queueRank === "undefined" ? {} : { queue_rank: queueRank }),
+      ...(typeof hidden === "undefined" ? {} : { hidden }),
+    };
+  });
+
+  return { entries };
+}
+
 function randomId(prefix: string): string {
   const cryptoApi = globalThis.crypto as Crypto | undefined;
   if (cryptoApi && typeof cryptoApi.randomUUID === "function") {
@@ -1899,6 +1982,22 @@ function readyScriptPathPriority(path: string): number {
   return index >= 0 ? index : Number.MAX_SAFE_INTEGER;
 }
 
+function compareWorkspaceReadyScripts(a: WorkspaceReadyScript, b: WorkspaceReadyScript): number {
+  const aRank = a.queue_rank;
+  const bRank = b.queue_rank;
+  if (aRank != null && bRank != null) {
+    if (aRank !== bRank) return aRank - bRank;
+  } else if (aRank != null) {
+    return -1;
+  } else if (bRank != null) {
+    return 1;
+  }
+
+  const byUpdated = b.updated_at.localeCompare(a.updated_at);
+  if (byUpdated !== 0) return byUpdated;
+  return a.title.localeCompare(b.title);
+}
+
 function readyScriptMetaKey(workpieceId: string, scriptPath: string): string {
   return `${workpieceId}:${scriptPath}`;
 }
@@ -2121,6 +2220,140 @@ export class TongsCommitService {
     }
 
     return (data ?? []).length > 0;
+  }
+
+  private async assertWorkpiecesInWorkspace(workspaceId: string, workpieceIds: readonly string[]): Promise<void> {
+    const uniqueIds = Array.from(new Set(workpieceIds.filter(Boolean)));
+    if (uniqueIds.length === 0) return;
+
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("episodes")
+      .select("id")
+      .eq("workspace_id", workspaceId)
+      .in("id", uniqueIds);
+
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to validate workpiece workspace membership", {
+        reason: error.message,
+      });
+    }
+
+    const foundIds = new Set((data ?? []).map((row) => row.id));
+    for (const workpieceId of uniqueIds) {
+      if (!foundIds.has(workpieceId)) {
+        throw new HttpError(400, "workspace_mismatch", "workpiece_id must belong to workspace_id", {
+          workpiece_id: workpieceId,
+        });
+      }
+    }
+  }
+
+  private async listReadyQueueState(
+    workspaceId: string,
+    workpieceIds: readonly string[],
+  ): Promise<Map<string, WorkspaceReadyQueueStateRow>> {
+    const uniqueIds = Array.from(new Set(workpieceIds.filter(Boolean)));
+    const out = new Map<string, WorkspaceReadyQueueStateRow>();
+    if (uniqueIds.length === 0) return out;
+
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("workspace_ready_queue_state")
+      .select("workspace_id,workpiece_id,queue_rank,hidden_at,hidden_by,updated_at,updated_by")
+      .eq("workspace_id", workspaceId)
+      .in("workpiece_id", uniqueIds);
+
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to list workspace ready queue state", {
+        reason: error.message,
+      });
+    }
+
+    for (const row of data ?? []) {
+      out.set(row.workpiece_id, row);
+    }
+    return out;
+  }
+
+  async updateWorkspaceReadyQueueState(
+    workspaceId: string,
+    input: UpdateWorkspaceReadyQueueStateRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<UpdateWorkspaceReadyQueueStateResult> {
+    await this.getWorkspaceOrThrow(workspaceId);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
+
+    const workpieceIds = input.entries.map((entry) => entry.workpiece_id);
+    await this.assertWorkpiecesInWorkspace(workspaceId, workpieceIds);
+
+    const existingByWorkpiece = await this.listReadyQueueState(workspaceId, workpieceIds);
+    const nowIso = new Date().toISOString();
+    const upsertRows: Database["tongs"]["Tables"]["workspace_ready_queue_state"]["Insert"][] = [];
+    const deleteIds: string[] = [];
+
+    for (const entry of input.entries) {
+      const existing = existingByWorkpiece.get(entry.workpiece_id) ?? null;
+      const nextQueueRank = Object.prototype.hasOwnProperty.call(entry, "queue_rank")
+        ? (entry.queue_rank ?? null)
+        : (existing?.queue_rank ?? null);
+
+      const hasHidden = Object.prototype.hasOwnProperty.call(entry, "hidden");
+      const nextHidden = hasHidden ? (entry.hidden ?? false) : (existing?.hidden_at != null);
+      const hiddenAt = nextHidden ? nowIso : null;
+      const hiddenBy = nextHidden ? auth.userId : null;
+
+      if (nextQueueRank == null && hiddenAt == null) {
+        if (existing) {
+          deleteIds.push(entry.workpiece_id);
+        }
+        continue;
+      }
+
+      upsertRows.push({
+        workspace_id: workspaceId,
+        workpiece_id: entry.workpiece_id,
+        queue_rank: nextQueueRank,
+        hidden_at: hiddenAt,
+        hidden_by: hiddenBy,
+        updated_by: auth.userId,
+      });
+    }
+
+    if (deleteIds.length > 0) {
+      const { error } = await this.supabase
+        .schema("tongs")
+        .from("workspace_ready_queue_state")
+        .delete()
+        .eq("workspace_id", workspaceId)
+        .in("workpiece_id", deleteIds);
+
+      if (error) {
+        throw new HttpError(502, "db_write_failed", "Failed to clear ready queue state", {
+          reason: error.message,
+        });
+      }
+    }
+
+    if (upsertRows.length > 0) {
+      const { error } = await this.supabase
+        .schema("tongs")
+        .from("workspace_ready_queue_state")
+        .upsert(upsertRows, {
+          onConflict: "workspace_id,workpiece_id",
+        });
+
+      if (error) {
+        throw new HttpError(502, "db_write_failed", "Failed to update ready queue state", {
+          reason: error.message,
+        });
+      }
+    }
+
+    return {
+      updated_count: upsertRows.length,
+      deleted_count: deleteIds.length,
+    };
   }
 
   private async assertCalendarEventWorkspace(calendarEventId: string, workspaceId: string): Promise<void> {
@@ -4106,6 +4339,11 @@ export class TongsCommitService {
       }
     }
 
+    const queueStateByWorkpiece = await this.listReadyQueueState(
+      workspaceId,
+      Array.from(readyPathsByWorkpiece.keys()),
+    );
+
     const nowIso = new Date().toISOString();
     const readyScripts: WorkspaceReadyScript[] = [];
     for (const [workpieceId, readyPointer] of readyPointerByWorkpiece.entries()) {
@@ -4123,7 +4361,8 @@ export class TongsCommitService {
       const scriptPaths = knownPaths.includes(primaryScriptPath)
         ? knownPaths
         : [primaryScriptPath, ...knownPaths];
-      readyScripts.push({
+      const queueState = queueStateByWorkpiece.get(workpieceId) ?? null;
+      const next: WorkspaceReadyScript = {
         workspace_id: workspaceId,
         workpiece_id: workpieceId,
         path: primaryScriptPath,
@@ -4139,14 +4378,15 @@ export class TongsCommitService {
         content_category: categoryByWorkpiece.get(workpieceId) ?? null,
         marked_ready_by: readyPointer.marked_ready_by ?? null,
         marked_ready_at: readyPointer.marked_ready_at ?? null,
-      });
+        queue_rank: queueState?.queue_rank ?? null,
+        hidden_at: queueState?.hidden_at ?? null,
+        hidden_by: queueState?.hidden_by ?? null,
+      };
+      if (next.hidden_at && !options?.includeHidden) continue;
+      readyScripts.push(next);
     }
 
-    readyScripts.sort((a, b) => {
-      const byUpdated = b.updated_at.localeCompare(a.updated_at);
-      if (byUpdated !== 0) return byUpdated;
-      return a.title.localeCompare(b.title);
-    });
+    readyScripts.sort(compareWorkspaceReadyScripts);
 
     return readyScripts;
   }
@@ -4303,9 +4543,24 @@ export function createTongsCommitApiHandlerWithService(
         requireMethod(request, "GET");
         const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
         const unrecordedOnly = parseBooleanQueryFlag(url.searchParams.get("unrecorded"));
+        const includeHidden = parseBooleanQueryFlag(url.searchParams.get("include_hidden"));
         const userAccessToken = requireUserAccessTokenHeader(request);
-        const result = await service.listWorkspaceReadyScripts(workspaceId, { unrecordedOnly, userAccessToken });
+        const result = await service.listWorkspaceReadyScripts(workspaceId, {
+          unrecordedOnly,
+          includeHidden,
+          userAccessToken,
+        });
         return jsonResponse(200, { ok: true, data: { scripts: result } });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "ready-queue-state") {
+        requireMethod(request, "POST");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const body = await parseJsonBody(request);
+        const payload = normalizeUpdateWorkspaceReadyQueueStateRequest(body);
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.updateWorkspaceReadyQueueState(workspaceId, payload, { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
       }
 
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "ready-script") {

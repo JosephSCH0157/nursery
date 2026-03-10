@@ -39,6 +39,9 @@ type ReadyScriptApiRow = {
   content_category?: unknown;
   marked_ready_by?: unknown;
   marked_ready_at?: unknown;
+  queue_rank?: unknown;
+  hidden_at?: unknown;
+  hidden_by?: unknown;
 };
 
 type WrittenBy = {
@@ -62,6 +65,15 @@ export type HearthReadyScript = {
   contentCategory: HearthContentCategory | null;
   markedReadyBy: string | null;
   markedReadyAt: string | null;
+  queueRank: number | null;
+  hiddenAt: string | null;
+  hiddenBy: string | null;
+};
+
+export type HearthReadyQueueStateEntry = {
+  workpieceId: string;
+  queueRank?: number | null;
+  hidden?: boolean | null;
 };
 
 function readString(value: unknown): string | null {
@@ -99,6 +111,12 @@ function normalizeIso(value: unknown): string | null {
   const timestamp = Date.parse(iso);
   if (!Number.isFinite(timestamp)) return null;
   return new Date(timestamp).toISOString();
+}
+
+function normalizeQueueRank(value: unknown): number | null {
+  if (value == null) return null;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) return null;
+  return value;
 }
 
 function normalizeCategory(value: unknown): HearthContentCategory | null {
@@ -225,20 +243,6 @@ function sortScriptPaths(paths: readonly string[]): string[] {
   return out;
 }
 
-function compareReadyScriptCandidatePriority(a: HearthReadyScript, b: HearthReadyScript): number {
-  const aMarked = a.markedReadyAt ?? "";
-  const bMarked = b.markedReadyAt ?? "";
-  const byMarked = aMarked.localeCompare(bMarked);
-  if (byMarked !== 0) return byMarked;
-  const aUpdated = a.updatedAt ?? "";
-  const bUpdated = b.updatedAt ?? "";
-  const byUpdated = aUpdated.localeCompare(bUpdated);
-  if (byUpdated !== 0) return byUpdated;
-  const byPathPriority = readyScriptPathPriority(b.primaryScriptPath) - readyScriptPathPriority(a.primaryScriptPath);
-  if (byPathPriority !== 0) return byPathPriority;
-  return b.primaryScriptPath.localeCompare(a.primaryScriptPath);
-}
-
 type DroppedReadyScriptStats = {
   invalidIdentity: number;
   missingScriptPath: number;
@@ -309,7 +313,8 @@ function parseReadyScriptsPayload(payload: unknown, workspaceId: string): Hearth
   const scripts = (root.data as { scripts?: unknown } | null | undefined)?.scripts;
   if (!Array.isArray(scripts)) return [];
 
-  const byWorkpieceId = new Map<string, HearthReadyScript>();
+  const byWorkpieceId = new Map<string, number>();
+  const out: HearthReadyScript[] = [];
   const droppedStats: DroppedReadyScriptStats = {
     invalidIdentity: 0,
     missingScriptPath: 0,
@@ -351,35 +356,28 @@ function parseReadyScriptsPayload(payload: unknown, workspaceId: string): Hearth
       contentCategory: normalizeCategory(item.content_category),
       markedReadyBy: normalizeUuid(item.marked_ready_by),
       markedReadyAt: normalizeIso(item.marked_ready_at),
+      queueRank: normalizeQueueRank(item.queue_rank),
+      hiddenAt: normalizeIso(item.hidden_at),
+      hiddenBy: normalizeUuid(item.hidden_by),
     };
 
-    const existing = byWorkpieceId.get(workpieceId);
-    if (!existing) {
-      byWorkpieceId.set(workpieceId, next);
+    const existingIndex = byWorkpieceId.get(workpieceId);
+    if (existingIndex == null) {
+      byWorkpieceId.set(workpieceId, out.length);
+      out.push(next);
       continue;
     }
 
-    const winner = compareReadyScriptCandidatePriority(next, existing) >= 0 ? next : existing;
+    const existing = out[existingIndex]!;
     const mergedScriptPaths = sortScriptPaths([...existing.scriptPaths, ...next.scriptPaths]);
-    byWorkpieceId.set(workpieceId, {
-      ...winner,
-      id: toScriptId(workpieceId, winner.primaryScriptPath),
-      path: winner.primaryScriptPath,
-      primaryScriptPath: winner.primaryScriptPath,
+    out[existingIndex] = {
+      ...existing,
       scriptPaths: mergedScriptPaths,
-    });
+    };
   }
 
   logDroppedReadyScriptRowsOnce(workspaceId, droppedStats);
 
-  const out = [...byWorkpieceId.values()];
-  out.sort((a, b) => {
-    const aUpdated = a.updatedAt ?? "";
-    const bUpdated = b.updatedAt ?? "";
-    const byUpdated = bUpdated.localeCompare(aUpdated);
-    if (byUpdated !== 0) return byUpdated;
-    return a.title.localeCompare(b.title);
-  });
   return out;
 }
 
@@ -387,7 +385,7 @@ export async function listHearthReadyScripts(workspaceId: string): Promise<Heart
   const safeWorkspaceId = normalizeUuid(workspaceId);
   if (!safeWorkspaceId) return [];
 
-  const url = `/tongs/workspaces/${encodeURIComponent(safeWorkspaceId)}/ready-scripts?unrecorded=1`;
+  const url = `/tongs/workspaces/${encodeURIComponent(safeWorkspaceId)}/ready-scripts?unrecorded=1&include_hidden=1`;
   const response = await tongsFetch(url, { method: "GET" });
   if (!response.ok) return [];
 
@@ -399,6 +397,94 @@ export async function listHearthReadyScripts(workspaceId: string): Promise<Heart
   }
 
   return parseReadyScriptsPayload(body, safeWorkspaceId);
+}
+
+export async function updateHearthReadyQueueState(args: {
+  workspaceId: string;
+  entries: HearthReadyQueueStateEntry[];
+}): Promise<{ ok: true; updatedCount: number; deletedCount: number } | { ok: false; status?: number; reason: string }> {
+  const workspaceId = normalizeUuid(args.workspaceId);
+  if (!workspaceId) {
+    return { ok: false, reason: "invalid_workspace_id" };
+  }
+
+  const entries = args.entries
+    .map((entry) => {
+      const workpieceId = normalizeUuid(entry.workpieceId);
+      if (!workpieceId) return null;
+
+      const next: { workpiece_id: string; queue_rank?: number | null; hidden?: boolean | null } = {
+        workpiece_id: workpieceId,
+      };
+
+      if (Object.prototype.hasOwnProperty.call(entry, "queueRank")) {
+        next.queue_rank = normalizeQueueRank(entry.queueRank) ?? null;
+      }
+
+      if (Object.prototype.hasOwnProperty.call(entry, "hidden")) {
+        next.hidden = typeof entry.hidden === "boolean" ? entry.hidden : null;
+      }
+
+      if (!Object.prototype.hasOwnProperty.call(next, "queue_rank") && !Object.prototype.hasOwnProperty.call(next, "hidden")) {
+        return null;
+      }
+      return next;
+    })
+    .filter((entry): entry is { workpiece_id: string; queue_rank?: number | null; hidden?: boolean | null } => Boolean(entry));
+
+  if (!entries.length) {
+    return { ok: false, reason: "invalid_entries" };
+  }
+
+  const response = await tongsFetch(`/tongs/workspaces/${encodeURIComponent(workspaceId)}/ready-queue-state`, {
+    method: "POST",
+    json: { entries },
+  });
+  if (!response.ok) {
+    return { ok: false, status: response.status, reason: "update_failed" };
+  }
+
+  const body = await readBodyAsJson(response);
+  const data = (body as { data?: { updated_count?: unknown; deleted_count?: unknown } } | null)?.data;
+  return {
+    ok: true,
+    updatedCount: typeof data?.updated_count === "number" ? data.updated_count : 0,
+    deletedCount: typeof data?.deleted_count === "number" ? data.deleted_count : 0,
+  };
+}
+
+export async function reorderHearthReadyScripts(args: {
+  workspaceId: string;
+  orderedWorkpieceIds: string[];
+}): Promise<{ ok: true; updatedCount: number; deletedCount: number } | { ok: false; status?: number; reason: string }> {
+  const uniqueIds: string[] = [];
+  for (const value of args.orderedWorkpieceIds) {
+    const workpieceId = normalizeUuid(value);
+    if (!workpieceId || uniqueIds.includes(workpieceId)) continue;
+    uniqueIds.push(workpieceId);
+  }
+
+  return updateHearthReadyQueueState({
+    workspaceId: args.workspaceId,
+    entries: uniqueIds.map((workpieceId, index) => ({
+      workpieceId,
+      queueRank: index,
+    })),
+  });
+}
+
+export async function setHearthReadyScriptHidden(args: {
+  workspaceId: string;
+  workpieceId: string;
+  hidden: boolean;
+}): Promise<{ ok: true; updatedCount: number; deletedCount: number } | { ok: false; status?: number; reason: string }> {
+  return updateHearthReadyQueueState({
+    workspaceId: args.workspaceId,
+    entries: [{
+      workpieceId: args.workpieceId,
+      hidden: args.hidden,
+    }],
+  });
 }
 
 export async function setHearthReadyScriptCategory(args: {

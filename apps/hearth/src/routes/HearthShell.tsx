@@ -46,8 +46,10 @@ import { mirrorApprovedScriptToLocal, type MirrorApprovedScriptResult } from "..
 import {
   HEARTH_CONTENT_CATEGORIES,
   listHearthReadyScripts,
-  removeHearthReadyScript,
+  reorderHearthReadyScripts,
   setHearthReadyScriptCategory,
+  setHearthReadyScriptHidden,
+  updateHearthReadyQueueState,
   type HearthContentCategory,
   type HearthReadyScript,
 } from "../lib/hearth-ready-scripts";
@@ -115,8 +117,6 @@ const SESSION_SAVE_DELAY_MS = 500;
 const STORE_KIND_KEY = "hearth_store_kind";
 const DEV_MODE_KEY = "tp_dev_mode";
 const MODE_STORAGE_PREFIX = "hearth:ui:mode:v1:";
-const READY_ORDER_STORAGE_PREFIX = "hearth:ready-order:v1:";
-const READY_REMOVED_STORAGE_PREFIX = "hearth:ready-removed:v1:";
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
 const CHAT_HISTORY_MAX_MESSAGES = 200;
@@ -525,62 +525,6 @@ function writeMode(workpieceId: string | null, mode: HearthMode): void {
   if (mode === "sparks") return;
   try {
     window.localStorage.setItem(`${MODE_STORAGE_PREFIX}${workpieceId}`, mode);
-  } catch {
-    // ignore storage failures
-  }
-}
-
-function readReadyOrder(workspaceId: string | null): string[] {
-  if (!workspaceId || typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(`${READY_ORDER_STORAGE_PREFIX}${workspaceId}`);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((value) => (typeof value === "string" ? value.trim() : ""))
-      .filter((value) => Boolean(value));
-  } catch {
-    return [];
-  }
-}
-
-function writeReadyOrder(workspaceId: string | null, order: readonly string[]): void {
-  if (!workspaceId || typeof window === "undefined") return;
-  try {
-    if (!order.length) {
-      window.localStorage.removeItem(`${READY_ORDER_STORAGE_PREFIX}${workspaceId}`);
-      return;
-    }
-    window.localStorage.setItem(`${READY_ORDER_STORAGE_PREFIX}${workspaceId}`, JSON.stringify(order));
-  } catch {
-    // ignore storage failures
-  }
-}
-
-function readRemovedReadyIds(workspaceId: string | null): string[] {
-  if (!workspaceId || typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(`${READY_REMOVED_STORAGE_PREFIX}${workspaceId}`);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((value) => (typeof value === "string" ? value.trim() : ""))
-      .filter((value) => Boolean(value));
-  } catch {
-    return [];
-  }
-}
-
-function writeRemovedReadyIds(workspaceId: string | null, removedIds: readonly string[]): void {
-  if (!workspaceId || typeof window === "undefined") return;
-  try {
-    if (!removedIds.length) {
-      window.localStorage.removeItem(`${READY_REMOVED_STORAGE_PREFIX}${workspaceId}`);
-      return;
-    }
-    window.localStorage.setItem(`${READY_REMOVED_STORAGE_PREFIX}${workspaceId}`, JSON.stringify(removedIds));
   } catch {
     // ignore storage failures
   }
@@ -1245,6 +1189,32 @@ function deriveReadyUrgency(entry: HearthReadyScript, nowMs = Date.now()): Ready
   return "cold";
 }
 
+function reorderVisibleReadyEntries(
+  entries: readonly HearthReadyScript[],
+  fromId: string,
+  toId: string,
+): HearthReadyScript[] {
+  if (!fromId || !toId || fromId === toId) return [...entries];
+
+  const visible = entries.filter((entry) => !entry.hiddenAt);
+  const fromIndex = visible.findIndex((entry) => entry.id === fromId);
+  const toIndex = visible.findIndex((entry) => entry.id === toId);
+  if (fromIndex < 0 || toIndex < 0) return [...entries];
+
+  const reorderedVisible = visible.slice();
+  const [moved] = reorderedVisible.splice(fromIndex, 1);
+  if (!moved) return [...entries];
+  reorderedVisible.splice(toIndex, 0, moved);
+
+  let visibleIndex = 0;
+  return entries.map((entry) => {
+    if (entry.hiddenAt) return entry;
+    const next = reorderedVisible[visibleIndex] ?? entry;
+    visibleIndex += 1;
+    return next;
+  });
+}
+
 function normalizeTitle(title: string): string {
   const trimmed = title.trim();
   return trimmed || "Untitled Draft";
@@ -1547,13 +1517,6 @@ const READY_URGENCY_LABEL: Record<ReadyUrgencyLevel, string> = {
   cold: "Cold",
 };
 
-const READY_URGENCY_RANK: Record<ReadyUrgencyLevel, number> = {
-  fresh: 0,
-  warming: 1,
-  cooling: 2,
-  cold: 3,
-};
-
 const READY_LABEL_TO_CATEGORY: Record<ReadyLabel, HearthContentCategory> = {
   hot: "hot_topic",
   evergreen: "evergreen",
@@ -1828,8 +1791,7 @@ export default function HearthShell() {
   const [updatingReadyCategoryId, setUpdatingReadyCategoryId] = useState<string | null>(null);
   const [readyCategoryError, setReadyCategoryError] = useState<string | null>(null);
   const [removingReadyIds, setRemovingReadyIds] = useState<string[]>([]);
-  const [readyOrderIds, setReadyOrderIds] = useState<string[]>([]);
-  const [removedReadyIds, setRemovedReadyIds] = useState<string[]>([]);
+  const [isRestoringReady, setIsRestoringReady] = useState(false);
   const [draggingReadyId, setDraggingReadyId] = useState<string | null>(null);
   const [revisionModalOpen, setRevisionModalOpen] = useState(false);
   const [revisionNote, setRevisionNote] = useState("");
@@ -2178,14 +2140,18 @@ export default function HearthShell() {
   }, [deferDesktopRailCollections, drafts, searchText, sortKey, showArchived]);
 
   const readyScriptsForDisplay = deferDesktopRailCollections ? EMPTY_READY_SCRIPT_LIST : readyScripts;
+  const visibleReadyScriptsForDisplay = useMemo(
+    () => readyScriptsForDisplay.filter((entry) => !entry.hiddenAt),
+    [readyScriptsForDisplay],
+  );
 
   const categoryFilteredReadyScripts = useMemo(() => {
-    if (readyCategoryFilter === "all") return readyScriptsForDisplay;
+    if (readyCategoryFilter === "all") return visibleReadyScriptsForDisplay;
     if (readyCategoryFilter === "uncategorized") {
-      return readyScriptsForDisplay.filter((entry) => !entry.contentCategory);
+      return visibleReadyScriptsForDisplay.filter((entry) => !entry.contentCategory);
     }
-    return readyScriptsForDisplay.filter((entry) => entry.contentCategory === readyCategoryFilter);
-  }, [readyCategoryFilter, readyScriptsForDisplay]);
+    return visibleReadyScriptsForDisplay.filter((entry) => entry.contentCategory === readyCategoryFilter);
+  }, [readyCategoryFilter, visibleReadyScriptsForDisplay]);
 
   const readyUrgencyCounts = useMemo(() => {
     const counts = { fresh: 0, cooling: 0, cold: 0 };
@@ -2205,24 +2171,12 @@ export default function HearthShell() {
   }, [categoryFilteredReadyScripts, readyUrgencyFilter]);
 
   const visibleReadyScripts = useMemo(() => {
-    if (!removedReadyIds.length) return filteredReadyScripts;
-    const removedSet = new Set(removedReadyIds);
-    return filteredReadyScripts.filter((entry) => !removedSet.has(entry.id));
-  }, [filteredReadyScripts, removedReadyIds]);
+    return filteredReadyScripts;
+  }, [filteredReadyScripts]);
 
   const orderedReadyScripts = useMemo(() => {
-    if (!visibleReadyScripts.length) return [] as HearthReadyScript[];
-    const orderIndex = new Map<string, number>();
-    readyOrderIds.forEach((id, idx) => orderIndex.set(id, idx));
-    return [...visibleReadyScripts].sort((a, b) => {
-      const aIdx = orderIndex.get(a.id);
-      const bIdx = orderIndex.get(b.id);
-      if (aIdx != null && bIdx != null) return aIdx - bIdx;
-      if (aIdx != null) return -1;
-      if (bIdx != null) return 1;
-      return a.title.localeCompare(b.title);
-    });
-  }, [readyOrderIds, visibleReadyScripts]);
+    return visibleReadyScripts;
+  }, [visibleReadyScripts]);
 
   const readyCategoryCounts = useMemo(() => {
     const counts: Record<ReadyCategoryGroupKey, number> = {
@@ -2237,19 +2191,17 @@ export default function HearthShell() {
       experimental: 0,
       backup: 0,
     };
-    for (const entry of readyScriptsForDisplay) {
+    for (const entry of visibleReadyScriptsForDisplay) {
       const key: ReadyCategoryGroupKey = entry.contentCategory ?? "uncategorized";
       counts[key] += 1;
     }
     return counts;
-  }, [readyScriptsForDisplay]);
+  }, [visibleReadyScriptsForDisplay]);
 
-  const readyTotalCount = readyScriptsForDisplay.length;
+  const readyTotalCount = visibleReadyScriptsForDisplay.length;
   const removedReadyCount = useMemo(() => {
-    if (!removedReadyIds.length) return 0;
-    const knownIds = new Set(readyScriptsForDisplay.map((entry) => entry.id));
-    return removedReadyIds.filter((id) => knownIds.has(id)).length;
-  }, [readyScriptsForDisplay, removedReadyIds]);
+    return readyScriptsForDisplay.filter((entry) => Boolean(entry.hiddenAt)).length;
+  }, [readyScriptsForDisplay]);
   const activeReadyScript = useMemo(
     () => readyScriptsForDisplay.find((entry) => entry.workpieceId === (workpieceId ?? "")) ?? null,
     [readyScriptsForDisplay, workpieceId],
@@ -2288,42 +2240,12 @@ export default function HearthShell() {
     }
 
     const orderedKeys: ReadyCategoryGroupKey[] = [...HEARTH_CONTENT_CATEGORIES, "uncategorized"];
-    const nowMs = Date.now();
-    const sortEntriesForGroup = (entries: HearthReadyScript[], key: ReadyCategoryGroupKey): HearthReadyScript[] => {
-      const next = [...entries];
-      next.sort((a, b) => {
-        const aUpdated = parseIsoTimestamp(a.updatedAt) ?? 0;
-        const bUpdated = parseIsoTimestamp(b.updatedAt) ?? 0;
-
-        if (key === "hot_topic" || key === "viral_reaction") {
-          const urgencyA = deriveReadyUrgency(a, nowMs);
-          const urgencyB = deriveReadyUrgency(b, nowMs);
-          const rankA = urgencyA ? READY_URGENCY_RANK[urgencyA] : Number.MAX_SAFE_INTEGER;
-          const rankB = urgencyB ? READY_URGENCY_RANK[urgencyB] : Number.MAX_SAFE_INTEGER;
-          if (rankA !== rankB) return rankA - rankB;
-          if (bUpdated !== aUpdated) return bUpdated - aUpdated;
-          return a.title.localeCompare(b.title);
-        }
-
-        if (key === "evergreen") {
-          const aSort = aUpdated > 0 ? aUpdated : Number.MAX_SAFE_INTEGER;
-          const bSort = bUpdated > 0 ? bUpdated : Number.MAX_SAFE_INTEGER;
-          if (aSort !== bSort) return aSort - bSort;
-          return a.title.localeCompare(b.title);
-        }
-
-        if (bUpdated !== aUpdated) return bUpdated - aUpdated;
-        return a.title.localeCompare(b.title);
-      });
-      return next;
-    };
-
     const sections: Array<{ key: string; label: string; entries: HearthReadyScript[] }> = [];
     for (const key of orderedKeys) {
       const entries = grouped.get(key);
       if (!entries || entries.length === 0) continue;
       const label = key === "uncategorized" ? "Uncategorized" : READY_CATEGORY_LABEL[key];
-      sections.push({ key, label, entries: sortEntriesForGroup(entries, key) });
+      sections.push({ key, label, entries });
     }
     return sections;
   }, [filteredReadyScripts, readyCategoryFilter]);
@@ -2643,40 +2565,6 @@ export default function HearthShell() {
   }, [deferDesktopRailCollections, refreshReadyScripts]);
 
   useEffect(() => {
-    setReadyOrderIds(readReadyOrder(workspaceId));
-    setRemovedReadyIds(readRemovedReadyIds(workspaceId));
-  }, [workspaceId]);
-
-  useEffect(() => {
-    const readyIds = readyScriptsForDisplay.map((entry) => entry.id);
-    const readyIdSet = new Set(readyIds);
-
-    setReadyOrderIds((prev) => {
-      const kept = prev.filter((id) => readyIdSet.has(id));
-      let changed = kept.length !== prev.length;
-      for (const id of readyIds) {
-        if (kept.includes(id)) continue;
-        kept.push(id);
-        changed = true;
-      }
-      return changed ? kept : prev;
-    });
-
-    setRemovedReadyIds((prev) => {
-      const next = prev.filter((id) => readyIdSet.has(id));
-      return next.length === prev.length ? prev : next;
-    });
-  }, [readyScriptsForDisplay]);
-
-  useEffect(() => {
-    writeReadyOrder(workspaceId, readyOrderIds);
-  }, [readyOrderIds, workspaceId]);
-
-  useEffect(() => {
-    writeRemovedReadyIds(workspaceId, removedReadyIds);
-  }, [removedReadyIds, workspaceId]);
-
-  useEffect(() => {
     if (!isMobile && mobileOverlayView) {
       setMobileOverlayView(null);
     }
@@ -2799,65 +2687,107 @@ export default function HearthShell() {
     if (!entry.id || removingReadyIds.includes(entry.id)) return;
 
     setReadyScriptsError(null);
-    setRemovedReadyIds((prev) => (prev.includes(entry.id) ? prev : [...prev, entry.id]));
     setRemovingReadyIds((prev) => (prev.includes(entry.id) ? prev : [...prev, entry.id]));
+    setReadyScripts((prev) => prev.map((row) => (
+      row.id === entry.id
+        ? {
+            ...row,
+            hiddenAt: new Date().toISOString(),
+            hiddenBy: hearthUser.userId ?? row.hiddenBy,
+          }
+        : row
+    )));
 
-    const scriptText = await readReadyScriptText(entry);
     try {
-      const removed = await removeHearthReadyScript({
+      const result = await setHearthReadyScriptHidden({
+        workspaceId: entry.workspaceId,
         workpieceId: entry.workpieceId,
-        path: entry.primaryScriptPath,
+        hidden: true,
       });
-      if (!removed.ok) {
-        setRemovedReadyIds((prev) => prev.filter((id) => id !== entry.id));
-        setReadyScriptsError("Failed to remove script from Ready.");
+      if (!result.ok) {
+        setReadyScriptsError("Failed to hide script from Ready.");
+        await refreshReadyScripts();
         return;
       }
-
-      await upsertDraftFromReadyEntry(entry, scriptText);
-
-      if (workpieceId?.trim() === entry.workpieceId) {
-        const nextApprovalState: ScriptApprovalState = {
-          hasApprovedScript: false,
-          approvedScriptVersion: 0,
-          approvedAt: null,
-        };
-        setScriptApprovalState(nextApprovalState);
-        writeScriptApprovalState(entry.workpieceId, nextApprovalState);
-      }
-
-      setMode("episodes");
       await refreshReadyScripts();
     } catch {
-      setRemovedReadyIds((prev) => prev.filter((id) => id !== entry.id));
-      setReadyScriptsError("Failed to remove script from Ready.");
+      setReadyScriptsError("Failed to hide script from Ready.");
+      await refreshReadyScripts();
     } finally {
       setRemovingReadyIds((prev) => prev.filter((id) => id !== entry.id));
     }
   }, [
-    readReadyScriptText,
     refreshReadyScripts,
+    hearthUser.userId,
     removingReadyIds,
-    upsertDraftFromReadyEntry,
-    workpieceId,
   ]);
 
-  const onRestoreRemovedReady = useCallback(() => {
-    setRemovedReadyIds([]);
-  }, []);
+  const onRestoreRemovedReady = useCallback(async () => {
+    const normalizedWorkspaceId = normalizeUuid(workspaceId);
+    const hiddenEntries = readyScripts.filter((entry) => entry.hiddenAt);
+    if (!normalizedWorkspaceId || hiddenEntries.length === 0 || isRestoringReady) return;
 
-  const onReorderReady = useCallback((fromId: string, toId: string) => {
-    if (!fromId || !toId || fromId === toId) return;
-    setReadyOrderIds((prev) => {
-      const next = prev.slice();
-      const fromIdx = next.indexOf(fromId);
-      const toIdx = next.indexOf(toId);
-      if (fromIdx < 0 || toIdx < 0) return prev;
-      next.splice(fromIdx, 1);
-      next.splice(toIdx, 0, fromId);
-      return next;
-    });
-  }, []);
+    setReadyScriptsError(null);
+    setIsRestoringReady(true);
+    setReadyScripts((prev) => prev.map((entry) => (
+      entry.hiddenAt
+        ? { ...entry, hiddenAt: null, hiddenBy: null }
+        : entry
+    )));
+
+    try {
+      const result = await updateHearthReadyQueueState({
+        workspaceId: normalizedWorkspaceId,
+        entries: hiddenEntries.map((entry) => ({
+          workpieceId: entry.workpieceId,
+          hidden: false,
+        })),
+      });
+      if (!result.ok) {
+        setReadyScriptsError("Failed to restore hidden Ready items.");
+        await refreshReadyScripts();
+        return;
+      }
+      await refreshReadyScripts();
+    } catch {
+      setReadyScriptsError("Failed to restore hidden Ready items.");
+      await refreshReadyScripts();
+    } finally {
+      setIsRestoringReady(false);
+    }
+  }, [isRestoringReady, readyScripts, refreshReadyScripts, workspaceId]);
+
+  const onReorderReady = useCallback(async (fromId: string, toId: string) => {
+    const normalizedWorkspaceId = normalizeUuid(workspaceId);
+    if (!normalizedWorkspaceId || !fromId || !toId || fromId === toId) return;
+
+    const reordered = reorderVisibleReadyEntries(readyScripts, fromId, toId);
+    const changed = reordered.some((entry, index) => entry !== readyScripts[index]);
+    if (!changed) return;
+
+    const orderedVisibleIds = reordered
+      .filter((entry) => !entry.hiddenAt)
+      .map((entry) => entry.workpieceId);
+
+    setReadyScriptsError(null);
+    setReadyScripts(reordered);
+
+    try {
+      const result = await reorderHearthReadyScripts({
+        workspaceId: normalizedWorkspaceId,
+        orderedWorkpieceIds: orderedVisibleIds,
+      });
+      if (!result.ok) {
+        setReadyScriptsError("Failed to reorder Ready queue.");
+        await refreshReadyScripts();
+        return;
+      }
+      await refreshReadyScripts();
+    } catch {
+      setReadyScriptsError("Failed to reorder Ready queue.");
+      await refreshReadyScripts();
+    }
+  }, [readyScripts, refreshReadyScripts, workspaceId]);
 
   const persistSession = useCallback(async (draftId: string | null, uiSelectedTab?: string) => {
     const now = Date.now();
@@ -8151,8 +8081,8 @@ export default function HearthShell() {
         </button>
       </div>
       {removedReadyCount > 0 ? (
-        <button type="button" onClick={onRestoreRemovedReady}>
-          Restore removed ({removedReadyCount})
+        <button type="button" onClick={() => void onRestoreRemovedReady()} disabled={isRestoringReady}>
+          {isRestoringReady ? "Restoring..." : `Restore hidden (${removedReadyCount})`}
         </button>
       ) : null}
       {readyScriptsError ? <div className="hs-error-text-small">{readyScriptsError}</div> : null}
@@ -8209,7 +8139,7 @@ export default function HearthShell() {
                   onClick={() => void onRemoveFromReady(entry)}
                   disabled={removingReadyIds.includes(entry.id)}
                 >
-                  {removingReadyIds.includes(entry.id) ? "Removing..." : "Remove from Ready"}
+                  {removingReadyIds.includes(entry.id) ? "Hiding..." : "Hide from Ready"}
                 </button>
               </div>
             </li>
@@ -8451,7 +8381,9 @@ export default function HearthShell() {
                 {!isReadyScriptsLoading && filteredReadyScripts.length === 0 ? (
                   <p className="hs-rail-meta">
                     {readyTotalCount === 0
-                      ? "No items yet. Approve a script to populate this queue."
+                      ? removedReadyCount > 0
+                        ? "All ready items are hidden. Restore hidden items to show them here."
+                        : "No items yet. Approve a script to populate this queue."
                       : readyUrgencyFilter !== "all"
                         ? "No scripts match this urgency filter."
                         : "No scripts match this category filter."}
