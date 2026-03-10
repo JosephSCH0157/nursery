@@ -2145,19 +2145,13 @@ export default function HearthShell() {
 
   const readyScriptsForDisplay = deferDesktopRailCollections ? EMPTY_READY_SCRIPT_LIST : readyScripts;
 
-  const navigableReadyScripts = useMemo(
-    () => readyScriptsForDisplay.filter((entry) => Boolean(buildOpenInAnvilHref(entry.workspaceId, entry.workpieceId, entry.primaryScriptPath))),
-    [readyScriptsForDisplay],
-  );
-  const droppedReadyScriptsCount = Math.max(0, readyScriptsForDisplay.length - navigableReadyScripts.length);
-
   const categoryFilteredReadyScripts = useMemo(() => {
-    if (readyCategoryFilter === "all") return navigableReadyScripts;
+    if (readyCategoryFilter === "all") return readyScriptsForDisplay;
     if (readyCategoryFilter === "uncategorized") {
-      return navigableReadyScripts.filter((entry) => !entry.contentCategory);
+      return readyScriptsForDisplay.filter((entry) => !entry.contentCategory);
     }
-    return navigableReadyScripts.filter((entry) => entry.contentCategory === readyCategoryFilter);
-  }, [navigableReadyScripts, readyCategoryFilter]);
+    return readyScriptsForDisplay.filter((entry) => entry.contentCategory === readyCategoryFilter);
+  }, [readyCategoryFilter, readyScriptsForDisplay]);
 
   const readyUrgencyCounts = useMemo(() => {
     const counts = { fresh: 0, cooling: 0, cold: 0 };
@@ -2209,22 +2203,22 @@ export default function HearthShell() {
       experimental: 0,
       backup: 0,
     };
-    for (const entry of navigableReadyScripts) {
+    for (const entry of readyScriptsForDisplay) {
       const key: ReadyCategoryGroupKey = entry.contentCategory ?? "uncategorized";
       counts[key] += 1;
     }
     return counts;
-  }, [navigableReadyScripts]);
+  }, [readyScriptsForDisplay]);
 
-  const readyTotalCount = navigableReadyScripts.length;
+  const readyTotalCount = readyScriptsForDisplay.length;
   const removedReadyCount = useMemo(() => {
     if (!removedReadyIds.length) return 0;
-    const knownIds = new Set(navigableReadyScripts.map((entry) => entry.id));
+    const knownIds = new Set(readyScriptsForDisplay.map((entry) => entry.id));
     return removedReadyIds.filter((id) => knownIds.has(id)).length;
-  }, [navigableReadyScripts, removedReadyIds]);
+  }, [readyScriptsForDisplay, removedReadyIds]);
   const activeReadyScript = useMemo(
-    () => navigableReadyScripts.find((entry) => entry.workpieceId === (workpieceId ?? "")) ?? null,
-    [navigableReadyScripts, workpieceId],
+    () => readyScriptsForDisplay.find((entry) => entry.workpieceId === (workpieceId ?? "")) ?? null,
+    [readyScriptsForDisplay, workpieceId],
   );
   const metadataTagSuggestions = useMemo(
     () => buildMetadataTagSuggestions({
@@ -2299,21 +2293,6 @@ export default function HearthShell() {
     }
     return sections;
   }, [filteredReadyScripts, readyCategoryFilter]);
-  const launchableGroupedReadyScripts = useMemo(() => {
-    const sections = groupedReadyScripts
-      .map((section) => ({
-        ...section,
-        entries: section.entries.filter((entry) => Boolean(resolveReadyOpenHref(entry))),
-      }))
-      .filter((section) => section.entries.length > 0);
-    return sections;
-  }, [groupedReadyScripts]);
-  const launchableOrderedReadyScripts = useMemo(
-    () => orderedReadyScripts.filter((entry) => Boolean(resolveReadyOpenHref(entry))),
-    [orderedReadyScripts],
-  );
-  const hiddenNonLaunchableReadyCount = Math.max(0, filteredReadyScripts.length - launchableOrderedReadyScripts.length);
-
   const diffLines = useMemo(() => {
     if (!selectedRevision || !activeDraft) return [];
     return buildDiffLines(activeDraft.body, selectedRevision.bodySnapshot);
@@ -2594,6 +2573,7 @@ export default function HearthShell() {
 
     await store.saveDraft(draft);
     await refreshDrafts();
+    return draft;
   }, [drafts, hearthUser, refreshDrafts, store]);
 
   useEffect(() => {
@@ -2607,7 +2587,7 @@ export default function HearthShell() {
   }, [workspaceId]);
 
   useEffect(() => {
-    const readyIds = navigableReadyScripts.map((entry) => entry.id);
+    const readyIds = readyScriptsForDisplay.map((entry) => entry.id);
     const readyIdSet = new Set(readyIds);
 
     setReadyOrderIds((prev) => {
@@ -2625,7 +2605,7 @@ export default function HearthShell() {
       const next = prev.filter((id) => readyIdSet.has(id));
       return next.length === prev.length ? prev : next;
     });
-  }, [navigableReadyScripts]);
+  }, [readyScriptsForDisplay]);
 
   useEffect(() => {
     writeReadyOrder(workspaceId, readyOrderIds);
@@ -4676,16 +4656,36 @@ export default function HearthShell() {
   }
 
   async function onDeleteDraft(draft: Draft) {
-    const confirmDelete = window.confirm("Delete this draft? This cannot be undone.");
+    const draftTitle = draft.title.trim() || "Untitled Draft";
+    const confirmDelete = window.confirm(`Delete "${draftTitle}"? This cannot be undone.`);
     if (!confirmDelete) return;
     setError(null);
     try {
+      const deletingActiveDraft = activeDraft?.id === draft.id;
       await store.deleteDraft(draft.id);
-      await refreshDrafts();
-      if (activeDraft?.id === draft.id) {
-        await selectDraft(null);
+      const nextDrafts = dedupeDraftListById(await store.listDrafts());
+      setDrafts(nextDrafts);
+
+      if (deletingActiveDraft) {
+        const replacementDraft = nextDrafts.find((candidate) => !candidate.archived) ?? nextDrafts[0] ?? null;
+        if (replacementDraft) {
+          await selectDraft(replacementDraft);
+          if (mode === "focus") {
+            setFocusTab("draft");
+          }
+        } else {
+          await selectDraft(null);
+          await persistSession(null, "draft");
+          setFocusTab("draft");
+          setMode("episodes");
+          if (isMobile && mobileOverlayView === "editor") {
+            setMobileOverlayView(null);
+          }
+        }
+        return;
       }
-      await persistSession(activeDraft?.id === draft.id ? null : activeDraft?.id ?? null, "draft");
+
+      await persistSession(activeDraft?.id ?? null, "draft");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to delete draft.";
       setError(message);
@@ -6771,6 +6771,25 @@ export default function HearthShell() {
     }
   }, [isMobile, selectDraft]);
 
+  const onOpenReadyScriptInHearth = useCallback(async (entry: HearthReadyScript) => {
+    setError(null);
+    try {
+      const scriptText = await readReadyScriptText(entry);
+      const draft = await upsertDraftFromReadyEntry(entry, scriptText);
+      setWorkspaceId(entry.workspaceId);
+      setWorkpieceId(entry.workpieceId);
+      await selectDraft(draft);
+      setFocusTab("draft");
+      setMode("focus");
+      if (isMobile) {
+        setMobileOverlayView("editor");
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to open approved script in Hearth.";
+      setError(message);
+    }
+  }, [isMobile, readReadyScriptText, selectDraft, upsertDraftFromReadyEntry]);
+
   const openReadyInMobileOverlay = useCallback(() => {
     setMode("ready");
     if (isMobile) {
@@ -7042,6 +7061,9 @@ export default function HearthShell() {
           <button onClick={onCreateDraft}>New Draft</button>
           <button onClick={onSaveDraft} disabled={!activeDraft || isSaving}>
             {isSaving ? "Saving..." : "Save draft"}
+          </button>
+          <button onClick={() => activeDraft && void onDeleteDraft(activeDraft)} disabled={!activeDraft || isSaving}>
+            Delete Draft
           </button>
           <button onClick={() => setRevisionModalOpen(true)} disabled={!activeDraft || isSaving}>
             Create Revision
@@ -7953,9 +7975,8 @@ export default function HearthShell() {
       ) : null}
       {readyScriptsError ? <div className="hs-error-text-small">{readyScriptsError}</div> : null}
       <ul className="hs-ready-record-list">
-        {launchableOrderedReadyScripts.map((entry) => {
-          const href = resolveReadyOpenHref(entry);
-          if (!href) return null;
+        {orderedReadyScripts.map((entry) => {
+          const anvilHref = resolveReadyOpenHref(entry);
           const label = resolveReadyLabel(entry);
           return (
             <li
@@ -7987,9 +8008,17 @@ export default function HearthShell() {
               <div className="hs-workpiece-actions">
                 <button
                   type="button"
+                  onClick={() => void onOpenReadyScriptInHearth(entry)}
+                >
+                  Open in Hearth
+                </button>
+                <button
+                  type="button"
                   onClick={() => {
-                    window.location.assign(href);
+                    if (!anvilHref) return;
+                    window.location.assign(anvilHref);
                   }}
+                  disabled={!anvilHref}
                 >
                   Send to Anvil
                 </button>
@@ -8228,16 +8257,6 @@ export default function HearthShell() {
                 </div>
                 {readyScriptsError ? <div className="hs-error-text-small">{readyScriptsError}</div> : null}
                 {readyCategoryError ? <div className="hs-error-text-small">{readyCategoryError}</div> : null}
-                {droppedReadyScriptsCount > 0 ? (
-                  <div className="hs-error-text-small">
-                    Dropped {droppedReadyScriptsCount} invalid ready row{droppedReadyScriptsCount === 1 ? "" : "s"}.
-                  </div>
-                ) : null}
-                {hiddenNonLaunchableReadyCount > 0 ? (
-                  <div className="hs-error-text-small">
-                    Hidden {hiddenNonLaunchableReadyCount} non-launchable row{hiddenNonLaunchableReadyCount === 1 ? "" : "s"}.
-                  </div>
-                ) : null}
                 <div className="hs-rail-meta">Approved scripts stay here until a recording asset is committed.</div>
                 {isReadyScriptsLoading ? <p>Loading queue...</p> : null}
                 {!isReadyScriptsLoading && filteredReadyScripts.length === 0 ? (
@@ -8249,24 +8268,21 @@ export default function HearthShell() {
                         : "No scripts match this category filter."}
                   </p>
                 ) : null}
-                {launchableGroupedReadyScripts.length > 0 ? (
+                {groupedReadyScripts.length > 0 ? (
                   <div className="hs-ready-record-groups">
-                    {launchableGroupedReadyScripts.map((section) => (
+                    {groupedReadyScripts.map((section) => (
                       <div key={section.key} className="hs-ready-record-group">
                         <div className="hs-ready-record-group-title">{section.label}</div>
                         <ul className="hs-ready-record-list">
                           {section.entries.map((entry) => {
-                            const href = resolveReadyOpenHref(entry);
-                            if (!href) return null;
+                            const anvilHref = resolveReadyOpenHref(entry);
                             const urgency = deriveReadyUrgency(entry);
                             return (
                               <li key={entry.id} className="hs-ready-record-item">
                                 <button
                                   type="button"
                                   className="hs-ready-record-link"
-                                  onClick={() => {
-                                    window.location.assign(href);
-                                  }}
+                                  onClick={() => void onOpenReadyScriptInHearth(entry)}
                                 >
                                   <div className="hs-ready-record-title">{entry.title}</div>
                                 </button>
@@ -8299,9 +8315,17 @@ export default function HearthShell() {
                                 </label>
                                 <button
                                   type="button"
+                                  onClick={() => void onOpenReadyScriptInHearth(entry)}
+                                >
+                                  Open in Hearth
+                                </button>
+                                <button
+                                  type="button"
                                   onClick={() => {
-                                    window.location.assign(href);
+                                    if (!anvilHref) return;
+                                    window.location.assign(anvilHref);
                                   }}
+                                  disabled={!anvilHref}
                                 >
                                   Open in Anvil
                                 </button>
@@ -8537,6 +8561,9 @@ export default function HearthShell() {
             }
             bottomBar={
               <div className="hs-mobile-overlay-actions">
+                <button type="button" onClick={() => activeDraft && void onDeleteDraft(activeDraft)} disabled={!activeDraft || isSaving}>
+                  Delete
+                </button>
                 <button type="button" onClick={() => void onSaveDraft()} disabled={!activeDraft || isSaving}>
                   {isSaving ? "Saving..." : "Save"}
                 </button>
