@@ -5,38 +5,20 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@forge/tongs";
+import {
+  HEARTH_AI_ROUTES,
+  isHearthAiLane as isBillingMode,
+  normalizeEpisodeContext,
+  normalizeHearthChatMessage as toChatMessage,
+  normalizeHearthOps as normalizeOps,
+  readHearthBehaviorTemperature as readBehaviorTemperature,
+  type EpisodeContext,
+  type HearthAiLane as BillingMode,
+  type HearthChatMessage as ChatMessage,
+  type HearthOp,
+} from "../../hearth/src/lib/hearth-ai-runtime-contract";
 
 type Next = (err?: unknown) => void;
-
-type ChatRole = "system" | "user" | "assistant";
-type ChatMessage = { role: ChatRole; content: string };
-type BillingMode = "forge" | "byo";
-type HearthOp =
-  | { op: "set_title_variant"; slot: "A" | "B" | "C"; value: string }
-  | { op: "set_title"; value: string }
-  | { op: "set_outline"; value: string }
-  | { op: "set_body"; value: string }
-  | { op: "add_source"; source: { title?: string; url?: string; note?: string } }
-  | { op: "update_source"; id: string; patch: { title?: string; url?: string; note?: string } }
-  | { op: "remove_source"; id: string };
-
-type EpisodeContext = {
-  episodeId: string;
-  workspaceId: string | null;
-  title: string;
-  titleVariants: { A: string; B: string; C: string };
-  outline: string;
-  body: string;
-  tonePreset: string | null;
-  sources: Array<{
-    id: string;
-    title: string;
-    url: string;
-    note: string;
-    citedIn: string[];
-  }>;
-  sparks: Array<{ id: string; text: string }>;
-};
 
 type StructuredReply = {
   assistantText: string;
@@ -111,9 +93,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ENV_ROOT = path.join(__dirname, "..");
 const ENV_FILES = [".env.local", ".env"];
-const CHAT_ROUTE = "/api/hearth/chat";
-const CHAT_STATUS_ROUTE = "/api/hearth/chat/status";
-const STT_ROUTE = "/api/hearth/stt";
 const STT_MAX_BYTES = 10 * 1024 * 1024;
 const DEFAULT_STT_MODEL = "gpt-4o-mini-transcribe";
 const DEFAULT_STT_BUCKET = "forge-workpieces";
@@ -658,102 +637,6 @@ function extractRpcTokenBalance(payload: unknown): number | null {
     : null;
 }
 
-function isRole(value: unknown): value is ChatRole {
-  return value === "system" || value === "user" || value === "assistant";
-}
-
-function isBillingMode(value: unknown): value is BillingMode {
-  return value === "forge" || value === "byo";
-}
-
-function toChatMessage(value: unknown): ChatMessage | null {
-  if (!value || typeof value !== "object") return null;
-  const row = value as Record<string, unknown>;
-  if (!isRole(row.role)) return null;
-  if (typeof row.content !== "string") return null;
-  const content = row.content.trim();
-  if (!content) return null;
-  return {
-    role: row.role,
-    content,
-  };
-}
-
-function readBehaviorTemperature(value: unknown): number {
-  const behavior = readOptionalString(value);
-  if (behavior === "deterministic") return 0.1;
-  if (behavior === "careful") return 0.25;
-  if (behavior === "creative") return 0.9;
-  if (behavior === "fast") return 0.7;
-  return 0.25;
-}
-
-function normalizeEpisodeContext(value: unknown): EpisodeContext | null {
-  if (!isRecord(value)) return null;
-  const episodeId = readOptionalString(value.episodeId);
-  if (!episodeId) return null;
-  const workspaceId = (
-    readOptionalString(value.workspaceId)
-    ?? readOptionalString(value.workspace_id)
-  );
-  const tonePreset = (
-    readOptionalString(value.tonePreset)
-    ?? readOptionalString(value.tone_preset)
-  );
-
-  const titleVariantsRaw = isRecord(value.titleVariants) ? value.titleVariants : {};
-  const titleVariants = {
-    A: readOptionalString(titleVariantsRaw.A) ?? "",
-    B: readOptionalString(titleVariantsRaw.B) ?? "",
-    C: readOptionalString(titleVariantsRaw.C) ?? "",
-  };
-
-  const sourcesRaw = Array.isArray(value.sources) ? value.sources : [];
-  const sources = sourcesRaw
-    .map((entry) => {
-      if (!isRecord(entry)) return null;
-      const id = readOptionalString(entry.id);
-      if (!id) return null;
-      const citedInRaw = Array.isArray(entry.citedIn) ? entry.citedIn : [];
-      const citedIn = citedInRaw
-        .map((token) => readOptionalString(token))
-        .filter((token): token is string => !!token);
-      return {
-        id,
-        title: readOptionalString(entry.title) ?? "",
-        url: readOptionalString(entry.url) ?? "",
-        note: readOptionalString(entry.note) ?? "",
-        citedIn,
-      };
-    })
-    .filter((entry): entry is EpisodeContext["sources"][number] => !!entry);
-
-  const sparksRaw = Array.isArray(value.sparks) ? value.sparks : [];
-  const sparks = sparksRaw
-    .map((entry) => {
-      if (!isRecord(entry)) return null;
-      const id = readOptionalString(entry.id);
-      if (!id) return null;
-      return {
-        id,
-        text: readOptionalString(entry.text) ?? "",
-      };
-    })
-    .filter((entry): entry is EpisodeContext["sparks"][number] => !!entry);
-
-  return {
-    episodeId,
-    workspaceId: isUuid(workspaceId) ? workspaceId : null,
-    title: readOptionalString(value.title) ?? "",
-    titleVariants,
-    outline: readOptionalString(value.outline) ?? "",
-    body: readOptionalString(value.body) ?? "",
-    tonePreset: tonePreset ? tonePreset.toLowerCase() : null,
-    sources,
-    sparks,
-  };
-}
-
 function buildSystemPrompt(
   context: EpisodeContext,
   creatorStyleSnippet?: string,
@@ -944,78 +827,6 @@ function tryParseJsonObject(raw: string): Record<string, unknown> | null {
   }
 
   return null;
-}
-
-function normalizeOpPatch(value: unknown): { title?: string; url?: string; note?: string } | null {
-  if (!isRecord(value)) return null;
-  const title = readOptionalString(value.title) ?? undefined;
-  const url = readOptionalString(value.url) ?? undefined;
-  const note = readOptionalString(value.note) ?? undefined;
-  if (!title && !url && !note) return null;
-  return {
-    ...(title ? { title } : {}),
-    ...(url ? { url } : {}),
-    ...(note ? { note } : {}),
-  };
-}
-
-function normalizeOps(value: unknown): HearthOp[] {
-  if (!Array.isArray(value)) return [];
-  const out: HearthOp[] = [];
-
-  for (const item of value) {
-    if (!isRecord(item)) continue;
-    const op = readOptionalString(item.op);
-    if (!op) continue;
-
-    if (op === "set_title") {
-      const next = readOptionalString(item.value);
-      if (next != null) out.push({ op, value: next });
-      continue;
-    }
-
-    if (op === "set_title_variant") {
-      const slot = readOptionalString(item.slot);
-      const valueText = readOptionalString(item.value);
-      if ((slot === "A" || slot === "B" || slot === "C") && valueText != null) {
-        out.push({ op, slot, value: valueText });
-      }
-      continue;
-    }
-
-    if (op === "set_outline") {
-      const next = readOptionalString(item.value);
-      if (next != null) out.push({ op, value: next });
-      continue;
-    }
-
-    if (op === "set_body") {
-      const next = readOptionalString(item.value);
-      if (next != null) out.push({ op, value: next });
-      continue;
-    }
-
-    if (op === "add_source") {
-      const source = normalizeOpPatch(item.source);
-      if (source) out.push({ op, source });
-      continue;
-    }
-
-    if (op === "update_source") {
-      const id = readOptionalString(item.id);
-      const patch = normalizeOpPatch(item.patch);
-      if (id && patch) out.push({ op, id, patch });
-      continue;
-    }
-
-    if (op === "remove_source") {
-      const id = readOptionalString(item.id);
-      if (id) out.push({ op, id });
-      continue;
-    }
-  }
-
-  return out;
 }
 
 function buildTagAuditFromScript(scriptText: string | null): Record<string, unknown> | null {
@@ -1413,14 +1224,18 @@ export function mwHearthChatApi() {
       const url = new URL(rawUrl, origin);
       const pathname = url.pathname;
 
-      if (pathname !== CHAT_ROUTE && pathname !== CHAT_STATUS_ROUTE && pathname !== STT_ROUTE) {
+      if (
+        pathname !== HEARTH_AI_ROUTES.chat
+        && pathname !== HEARTH_AI_ROUTES.chatStatus
+        && pathname !== HEARTH_AI_ROUTES.stt
+      ) {
         next();
         return;
       }
 
       const method = (req.method || "GET").toUpperCase();
 
-      if (pathname === CHAT_STATUS_ROUTE) {
+      if (pathname === HEARTH_AI_ROUTES.chatStatus) {
         if (method !== "GET") {
           sendJson(res, 405, { ok: false, error: "Method not allowed" });
           return;
@@ -1434,7 +1249,7 @@ export function mwHearthChatApi() {
         return;
       }
 
-      if (pathname === STT_ROUTE) {
+      if (pathname === HEARTH_AI_ROUTES.stt) {
         if (method !== "POST") {
           sendJson(res, 405, { ok: false, error: "Method not allowed" });
           return;
