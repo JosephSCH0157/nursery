@@ -19,6 +19,7 @@ function mockService() {
     attachEpisodeToSession: [],
     detachEpisodeFromSession: [],
     listSessionEpisodes: [],
+    listWorkspaceEpisodes: [],
     listWorkspaceReadyScripts: [],
     updateWorkspaceReadyQueueState: [],
     deleteReadyScript: [],
@@ -295,6 +296,18 @@ function mockService() {
             created_at: "2026-02-20T00:00:00.000Z",
             updated_at: "2026-02-21T00:00:00.000Z",
           },
+        },
+      ];
+    },
+    async listWorkspaceEpisodes(workspaceId, options) {
+      calls.listWorkspaceEpisodes.push({ workspaceId, options: options ?? null });
+      return [
+        {
+          id: "11111111-1111-4111-8111-111111111111",
+          workspace_id: workspaceId,
+          label: "Episode 1",
+          created_at: "2026-02-20T00:00:00.000Z",
+          updated_at: "2026-02-21T00:00:00.000Z",
         },
       ];
     },
@@ -605,6 +618,7 @@ function createReadyQueueSupabase({
                             return {
                               data: ordered.slice(0, limit).map((row) => ({
                                 id: row.id,
+                                workspace_id: row.workspace_id,
                                 label: row.label ?? null,
                                 updated_at: row.updated_at ?? null,
                                 created_at: row.created_at ?? null,
@@ -1521,6 +1535,54 @@ test("GET /tongs/workspaces/:id/ready-scripts dispatches listWorkspaceReadyScrip
   assert.equal(body.data.scripts[0]?.marked_ready_at, "2026-02-21T00:00:00.000Z");
 });
 
+test("GET /tongs/workspaces/:id/episodes dispatches listWorkspaceEpisodes", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/episodes",
+    {
+      method: "GET",
+      headers: {
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.listWorkspaceEpisodes.length, 1);
+  assert.equal(calls.listWorkspaceEpisodes[0]?.workspaceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.listWorkspaceEpisodes[0]?.options?.userAccessToken, "user_token_abc");
+  assert.equal(body.ok, true);
+  assert.equal(Array.isArray(body.data?.episodes), true);
+  assert.equal(body.data.episodes.length, 1);
+  assert.equal(body.data.episodes[0]?.workspace_id, "11111111-1111-4111-8111-111111111111");
+  assert.equal(body.data.episodes[0]?.label, "Episode 1");
+});
+
+test("GET /tongs/workspaces/:id/episodes requires x-forge-user-authorization header", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/episodes",
+    {
+      method: "GET",
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.equal(calls.listWorkspaceEpisodes.length, 0);
+  assert.equal(body.ok, false);
+  assert.equal(body.error?.code, "missing_user_token_header");
+});
+
 test("GET /tongs/workspaces/:id/ready-scripts?unrecorded=1 enables unrecorded filter", async () => {
   const { service, calls } = mockService();
   const handler = createTongsCommitApiHandlerWithService(service);
@@ -1847,6 +1909,65 @@ test("TongsCommitService.listWorkspaceReadyScripts hides hidden queue rows by de
   assert.equal(result.some((row) => row.workpiece_id === workpieceB), false);
   assert.equal(result.some((row) => row.workpiece_id === workpieceC), false);
   assert.equal(state.queueStateRows.length, 4);
+});
+
+test("TongsCommitService.listWorkspaceEpisodes returns workspace-scoped summaries ordered by freshness", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const otherWorkspaceId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const viewerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+  const { ...supabase } = createReadyQueueSupabase({
+    workspaceId,
+    episodes: [
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        workspace_id: workspaceId,
+        label: "Newest Episode",
+        updated_at: "2026-03-10T10:00:00.000Z",
+        created_at: "2026-03-01T10:00:00.000Z",
+      },
+      {
+        id: "22222222-2222-4222-8222-222222222222",
+        workspace_id: workspaceId,
+        label: "Older Episode",
+        updated_at: "2026-03-08T10:00:00.000Z",
+        created_at: "2026-03-01T09:00:00.000Z",
+      },
+      {
+        id: "33333333-3333-4333-8333-333333333333",
+        workspace_id: otherWorkspaceId,
+        label: "Other Workspace Episode",
+        updated_at: "2026-03-11T10:00:00.000Z",
+        created_at: "2026-03-01T08:00:00.000Z",
+      },
+    ],
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: viewerId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: viewerId, role: "viewer" });
+
+  const result = await service.listWorkspaceEpisodes(workspaceId, {
+    userAccessToken: "viewer_token",
+  });
+
+  assert.deepEqual(
+    result.map((row) => row.id),
+    [
+      "11111111-1111-4111-8111-111111111111",
+      "22222222-2222-4222-8222-222222222222",
+    ],
+  );
+  assert.equal(result[0]?.workspace_id, workspaceId);
+  assert.equal(result[0]?.label, "Newest Episode");
+  assert.equal(result[1]?.label, "Older Episode");
+  assert.equal(result.some((row) => row.workspace_id === otherWorkspaceId), false);
 });
 
 test("TongsCommitService.listWorkspaceReadyScripts includes hidden ranked entries and preserves queue state across ready-path changes", async () => {

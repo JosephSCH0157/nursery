@@ -380,6 +380,15 @@ export type WorkspaceReadyScript = {
   hidden_by: string | null;
 };
 
+export type WorkspaceEpisodeSummary = Pick<
+  EpisodeRow,
+  "id" | "workspace_id" | "label" | "created_at" | "updated_at"
+>;
+
+export type ListWorkspaceEpisodesOptions = {
+  userAccessToken?: string | null;
+};
+
 export type ListWorkspaceReadyScriptsOptions = {
   unrecordedOnly?: boolean;
   includeHidden?: boolean;
@@ -469,6 +478,10 @@ export type TongsCommitApiService = {
   attachEpisodeToSession(sessionId: string, input: AttachEpisodeToSessionRequest): Promise<RecordingSessionEpisodeRow>;
   detachEpisodeFromSession(sessionId: string, episodeId: string): Promise<void>;
   listSessionEpisodes(sessionId: string): Promise<SessionEpisodeListItem[]>;
+  listWorkspaceEpisodes(
+    workspaceId: string,
+    options?: ListWorkspaceEpisodesOptions,
+  ): Promise<WorkspaceEpisodeSummary[]>;
   listWorkspaceReadyScripts(
     workspaceId: string,
     options?: ListWorkspaceReadyScriptsOptions,
@@ -4017,6 +4030,36 @@ export class TongsCommitService {
     return { found: true, text, file_row: null };
   }
 
+  async listWorkspaceEpisodes(
+    workspaceId: string,
+    options?: ListWorkspaceEpisodesOptions,
+  ): Promise<WorkspaceEpisodeSummary[]> {
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
+    await this.getWorkspaceOrThrow(workspaceId);
+
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("episodes")
+      .select("id,workspace_id,label,created_at,updated_at")
+      .eq("workspace_id", workspaceId)
+      .order("updated_at", { ascending: false })
+      .limit(500);
+
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to list workspace episodes", {
+        reason: error.message,
+      });
+    }
+
+    return (data ?? []).map((row) => ({
+      id: row.id,
+      workspace_id: row.workspace_id,
+      label: row.label ?? null,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+  }
+
   async listWorkspaceReadyScripts(
     workspaceId: string,
     options?: ListWorkspaceReadyScriptsOptions,
@@ -4551,6 +4594,14 @@ export function createTongsCommitApiHandlerWithService(
           userAccessToken,
         });
         return jsonResponse(200, { ok: true, data: { scripts: result } });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "episodes") {
+        requireMethod(request, "GET");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.listWorkspaceEpisodes(workspaceId, { userAccessToken });
+        return jsonResponse(200, { ok: true, data: { episodes: result } });
       }
 
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "ready-queue-state") {

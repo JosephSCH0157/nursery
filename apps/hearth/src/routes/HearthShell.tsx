@@ -41,7 +41,20 @@ import {
 } from "../lib/hearth-chat-api";
 import { writeHearthAiRuntimeStatus } from "../lib/ai-runtime-status";
 import { commitHearthSession, readHearthSession } from "../lib/hearth-session-repo";
-import { commitHearthPrimaryScript, getHearthPrimaryScriptPath } from "../lib/hearth-script-repo";
+import {
+  commitHearthPrimaryScript,
+  getHearthPrimaryScriptPath,
+  readHearthPrimaryScript,
+} from "../lib/hearth-script-repo";
+import {
+  listHearthWorkpieces,
+  type HearthWorkpieceSummary,
+} from "../lib/hearth-workpieces";
+import {
+  selectActiveWorkpieceContext,
+  selectDraftForWorkpiece,
+  selectWorkpieceNavItems,
+} from "../lib/hearth-nav-model";
 import { mirrorApprovedScriptToLocal, type MirrorApprovedScriptResult } from "../lib/hearth-script-mirror";
 import {
   HEARTH_CONTENT_CATEGORIES,
@@ -202,6 +215,7 @@ const TONE_PRESET_OPTIONS = [
 ] as const;
 const DEFAULT_TONE_PRESET = "neutral_conversational";
 const EMPTY_DRAFT_LIST: Draft[] = [];
+const EMPTY_WORKPIECE_SUMMARY_LIST: HearthWorkpieceSummary[] = [];
 const EMPTY_READY_SCRIPT_LIST: HearthReadyScript[] = [];
 
 function readTrimmedString(value: unknown): string | null {
@@ -1765,6 +1779,9 @@ export default function HearthShell() {
   const [sessionTouched, setSessionTouched] = useState(false);
   const [decisionDraft, setDecisionDraft] = useState("");
 
+  const [workpieceSummaries, setWorkpieceSummaries] = useState<HearthWorkpieceSummary[]>([]);
+  const [isWorkpiecesLoading, setIsWorkpiecesLoading] = useState(false);
+  const [workpiecesError, setWorkpiecesError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [activeDraft, setActiveDraft] = useState<Draft | null>(null);
   const [revisions, setRevisions] = useState<Revision[]>([]);
@@ -2012,7 +2029,24 @@ export default function HearthShell() {
   const sourceIndexById = sourcesState.sourceIndexById;
   const missingSourcesCount = sourcesState.missingCitedCount;
   const unusedSourcesCount = sourcesState.unusedRefsCount;
-  const hasActiveEpisode = Boolean(activeDraft);
+  const preferredDraftIdsByWorkpiece = useMemo(() => {
+    const next = new Map<string, string | null>();
+    if (workpieceId && activeDraft?.id) {
+      next.set(workpieceId, activeDraft.id);
+    }
+    return next;
+  }, [activeDraft?.id, workpieceId]);
+  const activeWorkpieceContext = useMemo(() => selectActiveWorkpieceContext({
+    activeWorkpieceId: workpieceId,
+    workpieces: workpieceSummaries,
+    drafts,
+    readyScripts,
+    sparks,
+    revisions,
+    preferredDraftId: activeDraft?.id ?? session?.activeDraftId ?? null,
+  }), [activeDraft?.id, drafts, readyScripts, revisions, session?.activeDraftId, sparks, workpieceId, workpieceSummaries]);
+  const draftsById = useMemo(() => new Map(drafts.map((draft) => [draft.id, draft] as const)), [drafts]);
+  const hasActiveEpisode = Boolean(workpieceId);
   const presencePeers = useMemo(
     () => presenceRows.filter((row) => !hearthUser.userId || row.userId !== hearthUser.userId),
     [hearthUser.userId, presenceRows],
@@ -2116,28 +2150,31 @@ export default function HearthShell() {
     return forgeableSparks.find((spark) => spark.id === selectedSparkId) ?? forgeableSparks[0] ?? null;
   }, [forgeableSparks, selectedSparkId]);
   const deferDesktopRailCollections = !isMobile && mode === "sparks" && !hasActiveEpisode;
-
-  const filteredDrafts = useMemo(() => {
-    if (deferDesktopRailCollections) return EMPTY_DRAFT_LIST;
-    const query = searchText.trim().toLowerCase();
-    const filtered = drafts
-      .filter((draft) => (showArchived ? true : !draft.archived))
-      .filter((draft) => {
-        if (!query) return true;
-        const title = draft.title.toLowerCase();
-        const body = draft.body.toLowerCase();
-        return title.includes(query) || body.includes(query);
-      });
-
-    const pinned = filtered.filter((draft) => draft.pinned);
-    const unpinned = filtered.filter((draft) => !draft.pinned);
-
-    const sortFn = sortKey === "title"
-      ? (a: Draft, b: Draft) => a.title.localeCompare(b.title)
-      : (a: Draft, b: Draft) => b.updatedAt - a.updatedAt;
-
-    return [...pinned.sort(sortFn), ...unpinned.sort(sortFn)];
-  }, [deferDesktopRailCollections, drafts, searchText, sortKey, showArchived]);
+  const workpieceNavItems = useMemo(() => selectWorkpieceNavItems({
+    workpieces: deferDesktopRailCollections ? EMPTY_WORKPIECE_SUMMARY_LIST : workpieceSummaries,
+    drafts,
+    readyScripts,
+    sparks,
+    searchText,
+    sortKey,
+    preferredDraftIdsByWorkpiece,
+  }), [
+    deferDesktopRailCollections,
+    drafts,
+    preferredDraftIdsByWorkpiece,
+    readyScripts,
+    searchText,
+    sortKey,
+    sparks,
+    workpieceSummaries,
+  ]);
+  const filteredWorkpieceNavItems = useMemo(() => {
+    if (showArchived) return workpieceNavItems;
+    return workpieceNavItems.filter((item) => {
+      const draft = item.draftId ? draftsById.get(item.draftId) ?? null : null;
+      return !draft?.archived;
+    });
+  }, [draftsById, showArchived, workpieceNavItems]);
 
   const readyScriptsForDisplay = deferDesktopRailCollections ? EMPTY_READY_SCRIPT_LIST : readyScripts;
   const visibleReadyScriptsForDisplay = useMemo(
@@ -2422,10 +2459,71 @@ export default function HearthShell() {
     setAiRuntimeWarning(message);
   }, []);
 
-  const refreshDrafts = useCallback(async () => {
-    const list = await store.listDrafts();
-    setDrafts(dedupeDraftListById(list));
+  const refreshWorkpieces = useCallback(async (overrideWorkspaceId?: string | null): Promise<HearthWorkpieceSummary[]> => {
+    const workspace = normalizeUuid(overrideWorkspaceId ?? workspaceId);
+    if (!workspace) {
+      setWorkpieceSummaries([]);
+      setWorkpiecesError(null);
+      setIsWorkpiecesLoading(false);
+      return [];
+    }
+
+    setIsWorkpiecesLoading(true);
+    setWorkpiecesError(null);
+    try {
+      const list = await listHearthWorkpieces(workspace);
+      setWorkpieceSummaries(list);
+      return list;
+    } catch {
+      setWorkpieceSummaries([]);
+      setWorkpiecesError("Failed to load Episodes.");
+      return [];
+    } finally {
+      setIsWorkpiecesLoading(false);
+    }
+  }, [workspaceId]);
+
+  const refreshDrafts = useCallback(async (): Promise<Draft[]> => {
+    const list = dedupeDraftListById(await store.listDrafts());
+    setDrafts(list);
+    return list;
   }, [store]);
+
+  const resolveWorkpieceIdForDraftId = useCallback((
+    draftId: string | null | undefined,
+    options?: {
+      drafts?: readonly Draft[];
+      workpieces?: readonly HearthWorkpieceSummary[];
+    },
+  ): string | null => {
+    const candidateDraftId = readTrimmedString(draftId);
+    if (!candidateDraftId) return null;
+    if (workpieceId && activeDraft?.id === candidateDraftId) {
+      return workpieceId;
+    }
+
+    const availableWorkpieces = options?.workpieces ?? workpieceSummaries;
+    const availableDrafts = options?.drafts ?? drafts;
+
+    const directWorkpieceId = normalizeUuid(candidateDraftId);
+    if (directWorkpieceId && availableWorkpieces.some((entry) => entry.workpieceId === directWorkpieceId)) {
+      return directWorkpieceId;
+    }
+
+    for (const workpiece of availableWorkpieces) {
+      const match = selectDraftForWorkpiece({
+        workpieceId: workpiece.workpieceId,
+        drafts: availableDrafts,
+        sparks,
+        preferredDraftId: candidateDraftId,
+      });
+      if (match?.id === candidateDraftId) {
+        return workpiece.workpieceId;
+      }
+    }
+
+    return null;
+  }, [activeDraft?.id, drafts, sparks, workpieceId, workpieceSummaries]);
 
   const refreshRevisions = useCallback(async (
     currentWorkpieceId: string | null,
@@ -2511,53 +2609,10 @@ export default function HearthShell() {
     }
   }, [workspaceId]);
 
-  const readReadyScriptText = useCallback(async (entry: HearthReadyScript): Promise<string | null> => {
-    try {
-      const response = await tongsFetch(
-        `/tongs/workpieces/${encodeURIComponent(entry.workpieceId)}/read-file?path=${encodeURIComponent(entry.primaryScriptPath)}`,
-        { method: "GET" },
-      );
-      if (!response.ok) return null;
-      const body = await response.json() as { data?: unknown };
-      return typeof body?.data === "string" ? body.data : null;
-    } catch {
-      return null;
-    }
-  }, []);
-
-  const upsertDraftFromReadyEntry = useCallback(async (entry: HearthReadyScript, scriptText: string | null) => {
-    const existing = drafts.find((draft) => draft.id === entry.workpieceId) ?? null;
-    const now = Date.now();
-    const attribution = buildDraftAttribution(hearthUser);
-    const title = entry.title.trim() || existing?.title || "Untitled Draft";
-    const existingBody = existing?.body?.trim() ? existing.body : null;
-    const snapshotBody = scriptText && scriptText.trim().length ? scriptText : null;
-    const body = existingBody ?? snapshotBody ?? "## Draft Script\n\n";
-
-    const draft: Draft = existing
-      ? {
-          ...existing,
-          title,
-          body,
-          archived: false,
-          updatedAt: now,
-          updatedBy: attribution,
-        }
-      : {
-          ...createDraft({ title, body }),
-          id: entry.workpieceId,
-          title,
-          body,
-          createdAt: now,
-          updatedAt: now,
-          createdBy: attribution,
-          updatedBy: attribution,
-        };
-
-    await store.saveDraft(draft);
-    await refreshDrafts();
-    return draft;
-  }, [drafts, hearthUser, refreshDrafts, store]);
+  useEffect(() => {
+    if (deferDesktopRailCollections) return;
+    void refreshWorkpieces();
+  }, [deferDesktopRailCollections, refreshWorkpieces]);
 
   useEffect(() => {
     if (deferDesktopRailCollections) return;
@@ -3061,34 +3116,169 @@ export default function HearthShell() {
     }), { touched: false });
   }, [updatePlanningSession]);
 
-  const createDraftAndOpen = useCallback(async (
-    seed?: { title?: string; body?: string },
-    modeToSet: HearthMode = "focus",
-    options?: { revisionWorkpieceId?: string | null },
-  ) => {
+  const hydrateOrCreateDraftBufferForWorkpiece = useCallback(async (
+    targetWorkpieceId: string,
+    options?: {
+      drafts?: readonly Draft[];
+      workpieces?: readonly HearthWorkpieceSummary[];
+      preferredDraftId?: string | null;
+      seed?: { title?: string; body?: string };
+    },
+  ): Promise<Draft | null> => {
+    const normalizedWorkpieceId = normalizeUuid(targetWorkpieceId);
+    if (!normalizedWorkpieceId) return null;
+
+    const availableDrafts = options?.drafts ?? drafts;
+    const existingDraft = selectDraftForWorkpiece({
+      workpieceId: normalizedWorkpieceId,
+      drafts: availableDrafts,
+      sparks,
+      preferredDraftId: options?.preferredDraftId ?? null,
+    });
+    if (existingDraft) return existingDraft;
+
+    const availableWorkpieces = options?.workpieces ?? workpieceSummaries;
+    const workpieceSummary = availableWorkpieces.find((entry) => entry.workpieceId === normalizedWorkpieceId) ?? null;
+    const scriptRead = await readHearthPrimaryScript(normalizedWorkpieceId);
+    if (!scriptRead.ok) {
+      setAiRuntimeWarning("Opened Episode, but Hearth could not load the canonical script snapshot.");
+    }
+
+    const seedBody = options?.seed?.body ?? "";
+    const body = seedBody.trim()
+      ? seedBody
+      : scriptRead.ok && scriptRead.data.text != null
+        ? scriptRead.data.text
+        : "## Draft Script\n\n";
+    const title = workpieceSummary?.title
+      ?? readTrimmedString(options?.seed?.title)
+      ?? `Episode ${normalizedWorkpieceId.slice(0, 8)}`;
+    const updatedAt = scriptRead.ok
+      ? parseIsoTimestamp(scriptRead.data.updatedAt) ?? Date.now()
+      : Date.now();
     const attribution = buildDraftAttribution(hearthUser);
-    const next = {
-      ...createDraft(seed),
+    const draft: Draft = {
+      ...createDraft({ title, body }),
+      id: normalizedWorkpieceId,
+      title,
+      body,
+      createdAt: updatedAt,
+      updatedAt,
+      archived: false,
+      pinned: false,
       createdBy: attribution,
       updatedBy: attribution,
     };
+
     try {
-      await store.saveDraft(next, { reason: "create" });
+      await store.saveDraft(draft, { reason: "hydrate_workpiece" });
     } catch (err) {
       if (!parseDraftConflictError(err)) {
         throw err;
       }
-      await refreshDrafts();
-      await store.saveDraft(next, { reason: "create" });
     }
-    await refreshDrafts();
-    if (modeToSet === "focus") {
-      setFocusTab("draft");
+
+    const latestDrafts = await refreshDrafts();
+    return selectDraftForWorkpiece({
+      workpieceId: normalizedWorkpieceId,
+      drafts: latestDrafts,
+      sparks,
+      preferredDraftId: options?.preferredDraftId ?? normalizedWorkpieceId,
+    });
+  }, [drafts, hearthUser, refreshDrafts, sparks, store, workpieceSummaries]);
+
+  const openWorkpieceInFocus = useCallback(async (
+    targetWorkpieceId: string,
+    options?: {
+      workspaceId?: string | null;
+      drafts?: readonly Draft[];
+      workpieces?: readonly HearthWorkpieceSummary[];
+      preferredDraftId?: string | null;
+      seed?: { title?: string; body?: string };
+    },
+  ): Promise<Draft | null> => {
+    const normalizedWorkpieceId = normalizeUuid(targetWorkpieceId);
+    if (!normalizedWorkpieceId) return null;
+
+    const targetWorkspaceId = normalizeUuid(options?.workspaceId ?? workspaceId) ?? workspaceId;
+    if (targetWorkspaceId && targetWorkspaceId !== workspaceId) {
+      setWorkspaceId(targetWorkspaceId);
     }
-    setMode(modeToSet);
-    await selectDraft(next, options);
-    return next;
-  }, [hearthUser, refreshDrafts, selectDraft, store]);
+    setWorkpieceId(normalizedWorkpieceId);
+    setFocusTab("draft");
+    setMode("focus");
+
+    let availableWorkpieces = options?.workpieces ?? workpieceSummaries;
+    if (
+      availableWorkpieces.length === 0
+      || !availableWorkpieces.some((entry) => entry.workpieceId === normalizedWorkpieceId)
+    ) {
+      availableWorkpieces = await refreshWorkpieces(targetWorkspaceId);
+    }
+
+    const draft = await hydrateOrCreateDraftBufferForWorkpiece(normalizedWorkpieceId, {
+      drafts: options?.drafts ?? drafts,
+      workpieces: availableWorkpieces,
+      preferredDraftId: options?.preferredDraftId ?? null,
+      seed: options?.seed,
+    });
+
+    if (draft) {
+      await selectDraft(draft, { revisionWorkpieceId: normalizedWorkpieceId });
+    } else {
+      setDraftSnapshot(null);
+      setActiveDraft(null);
+    }
+
+    if (isMobile) {
+      setMobileOverlayView("editor");
+    }
+
+    return draft;
+  }, [
+    drafts,
+    hydrateOrCreateDraftBufferForWorkpiece,
+    isMobile,
+    refreshWorkpieces,
+    selectDraft,
+    workpieceSummaries,
+    workspaceId,
+  ]);
+
+  const createDraftAndOpen = useCallback(async (
+    targetWorkpieceId: string,
+    seed?: { title?: string; body?: string },
+    modeToSet: HearthMode = "focus",
+    options?: {
+      revisionWorkpieceId?: string | null;
+      workspaceId?: string | null;
+      drafts?: readonly Draft[];
+      workpieces?: readonly HearthWorkpieceSummary[];
+    },
+  ) => {
+    const normalizedWorkpieceId = normalizeUuid(targetWorkpieceId);
+    if (!normalizedWorkpieceId) {
+      throw new Error("A workpiece is required before creating a Hearth draft buffer.");
+    }
+
+    const draft = await openWorkpieceInFocus(normalizedWorkpieceId, {
+      workspaceId: options?.workspaceId ?? null,
+      drafts: options?.drafts,
+      workpieces: options?.workpieces,
+      preferredDraftId: normalizedWorkpieceId,
+      seed,
+    });
+
+    if (modeToSet !== "focus") {
+      setMode(modeToSet);
+    }
+
+    if (draft && options?.revisionWorkpieceId && options.revisionWorkpieceId !== normalizedWorkpieceId) {
+      await selectDraft(draft, { revisionWorkpieceId: options.revisionWorkpieceId });
+    }
+
+    return draft;
+  }, [openWorkpieceInFocus, selectDraft]);
 
   const startFromScratch = useCallback(async () => {
     if (isForging) return;
@@ -3100,17 +3290,22 @@ export default function HearthShell() {
         "## Draft Script\n\n",
       );
       if (!created.ok) {
-        setForgeError("Workpiece creation failed; draft created locally.");
+        setForgeError("Workpiece creation failed.");
         setWorkpieceId(null);
-      } else {
-        setWorkpieceId(created.workpieceId);
+        return;
       }
+      setWorkpieceId(created.workpieceId);
       setWorkspaceId(resolveWorkspaceId());
       applySessionOrigin({ created_from: "scratch" });
-      const draft = await createDraftAndOpen(undefined, "focus", {
-        revisionWorkpieceId: created.ok ? created.workpieceId : null,
+      const draft = await createDraftAndOpen(created.workpieceId, undefined, "focus", {
+        revisionWorkpieceId: created.workpieceId,
+        workspaceId: resolveWorkspaceId(),
       });
-      const nextChatKey = resolveChatHistoryKey(created.ok ? created.workpieceId : null, draft.id);
+      if (!draft) {
+        setForgeError("Workpiece opened, but Hearth could not hydrate a draft buffer.");
+        return;
+      }
+      const nextChatKey = resolveChatHistoryKey(created.workpieceId, draft.id);
       if (nextChatKey) {
         skipChatHydrationKeyRef.current = nextChatKey;
         writeChatHistoryCache(nextChatKey, []);
@@ -3145,22 +3340,27 @@ export default function HearthShell() {
         title: sparkTitle,
       });
       if (!created.ok) {
-        setForgeError("Workpiece creation failed; draft created locally.");
+        setForgeError("Workpiece creation failed.");
         setWorkpieceId(null);
-      } else {
-        workpieceId = created.workpieceId;
-        setWorkpieceId(workpieceId);
+        return;
       }
+      workpieceId = created.workpieceId;
+      setWorkpieceId(workpieceId);
       setWorkspaceId(resolveWorkspaceId());
       applySessionOrigin({ created_from: "bar-stock", spark_id: spark.id });
       pendingDraftEditorPanelRef.current = scriptSeed.trim() ? "script" : "manual";
 
-      const draft = await createDraftAndOpen({
+      const draft = await createDraftAndOpen(workpieceId, {
         title: sparkTitle,
         body: scriptSeed,
       }, "focus", {
         revisionWorkpieceId: workpieceId ?? null,
+        workspaceId: resolveWorkspaceId(),
       });
+      if (!draft) {
+        setForgeError("Episode opened, but Hearth could not hydrate a draft buffer.");
+        return;
+      }
 
       const sparkPreview = buildSparkPreview(spark.body);
       const markerLines = [
@@ -3227,10 +3427,14 @@ export default function HearthShell() {
     setForgeError(null);
     try {
       const title = routeProjectLabel ?? `Project ${routeProjectId.slice(0, 8)}`;
-      const draft = await createDraftAndOpen({
+      const draft = await createDraftAndOpen(episodeId, {
         title,
         body: buildProjectDraftSeed(title, routeProjectSparks),
       }, "focus");
+      if (!draft) {
+        setForgeError("Episode opened, but Hearth could not hydrate a draft buffer.");
+        return;
+      }
 
       applySessionOrigin({ created_from: "bar-stock", spark_id: routeProjectSparks[0]?.id });
 
@@ -3282,7 +3486,9 @@ export default function HearthShell() {
       if (incomingBarStockIntakeRoute) {
         setSession(null);
         restoredCursorDraftIdRef.current = null;
+        setWorkpieceSummaries([]);
         setDrafts([]);
+        setWorkpieceId(null);
         setActiveDraft(null);
         setDraftSnapshot(null);
         setRevisions([]);
@@ -3290,14 +3496,20 @@ export default function HearthShell() {
         return;
       }
 
-      const [storedSession, list] = await Promise.all([
+      const workspace = normalizeUuid(workspaceId) ?? resolveWorkspaceId();
+      const [storedSession, list, loadedWorkpieces] = await Promise.all([
         sessionStore.getSession(),
         store.listDrafts(),
+        workspace
+          ? listHearthWorkpieces(workspace).catch(() => [] as HearthWorkpieceSummary[])
+          : Promise.resolve([] as HearthWorkpieceSummary[]),
       ]);
 
       setSession(storedSession);
       const dedupedDrafts = dedupeDraftListById(list);
       setDrafts(dedupedDrafts);
+      setWorkpieceSummaries(loadedWorkpieces);
+      setWorkpiecesError(null);
 
       const tab = storedSession?.uiState?.selectedTab;
       if (tab === "preview" || tab === "compare" || tab === "list") {
@@ -3307,7 +3519,6 @@ export default function HearthShell() {
         setFocusTab(tab);
       }
 
-      const explicitWorkpieceSelection = hasExplicitWorkpieceQuery();
       const candidateDraftIds: string[] = [];
       const pushCandidateDraftId = (value: string | null | undefined) => {
         const next = value?.trim();
@@ -3318,32 +3529,28 @@ export default function HearthShell() {
       pushCandidateDraftId(storedSession?.activeDraftId ?? null);
       pushCandidateDraftId(activeDraftRef.current?.id ?? null);
 
-      const preferredDraft = candidateDraftIds
-        .map((id) => dedupedDrafts.find((draft) => draft.id === id) ?? null)
-        .find((draft): draft is Draft => Boolean(draft))
+      const explicitWorkpieceId = normalizeUuid(workpieceId);
+      const resolvedWorkpieceId = explicitWorkpieceId
+        ?? candidateDraftIds
+          .map((draftId) => resolveWorkpieceIdForDraftId(draftId, {
+            drafts: dedupedDrafts,
+            workpieces: loadedWorkpieces,
+          }))
+          .find((value): value is string => Boolean(value))
         ?? null;
-      if (preferredDraft) {
-        restoredCursorDraftIdRef.current = null;
-        setActiveDraft(preferredDraft);
-        setDraftSnapshot({ title: preferredDraft.title, body: preferredDraft.body, updatedAt: preferredDraft.updatedAt });
-        await refreshRevisions(resolveRevisionWorkpieceId(), preferredDraft.id);
-        setMode("episodes");
+
+      if (resolvedWorkpieceId) {
+        await openWorkpieceInFocus(resolvedWorkpieceId, {
+          workspaceId: workspace,
+          drafts: dedupedDrafts,
+          workpieces: loadedWorkpieces,
+          preferredDraftId: storedSession?.activeDraftId ?? activeDraftRef.current?.id ?? null,
+        });
         return;
       }
 
-      if (explicitWorkpieceSelection && dedupedDrafts.length === 1) {
-        const soleDraft = dedupedDrafts[0];
-        if (soleDraft) {
-          restoredCursorDraftIdRef.current = null;
-          setActiveDraft(soleDraft);
-          setDraftSnapshot({ title: soleDraft.title, body: soleDraft.body, updatedAt: soleDraft.updatedAt });
-          await refreshRevisions(resolveRevisionWorkpieceId(), soleDraft.id);
-          setMode("episodes");
-          return;
-        }
-      }
-
       restoredCursorDraftIdRef.current = null;
+      setWorkpieceId(null);
       setActiveDraft(null);
       setDraftSnapshot(null);
       setRevisions([]);
@@ -3354,7 +3561,15 @@ export default function HearthShell() {
     } finally {
       setIsLoading(false);
     }
-  }, [incomingBarStockIntakeRoute, refreshRevisions, resolveRevisionWorkpieceId, sessionStore, store, workspaceId]);
+  }, [
+    incomingBarStockIntakeRoute,
+    openWorkpieceInFocus,
+    resolveWorkpieceIdForDraftId,
+    sessionStore,
+    store,
+    workpieceId,
+    workspaceId,
+  ]);
 
   useEffect(() => {
     void loadInitial();
@@ -3395,6 +3610,8 @@ export default function HearthShell() {
     setWorkpieceId(null);
     setPlanningSession(null);
     setSessionTouched(false);
+    setWorkpieceSummaries([]);
+    setWorkpiecesError(null);
     setDrafts([]);
     setActiveDraft(null);
     setDraftSnapshot(null);
@@ -4649,8 +4866,15 @@ export default function HearthShell() {
 
   async function onCreateDraft() {
     setError(null);
+    const activeWorkpieceId = normalizeUuid(workpieceId);
+    if (!activeWorkpieceId) {
+      setError("Select or create an Episode first.");
+      return;
+    }
     try {
-      await createDraftAndOpen(undefined, "focus");
+      await createDraftAndOpen(activeWorkpieceId, undefined, "focus", {
+        workspaceId,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to create draft.";
       setError(message);
@@ -4663,15 +4887,15 @@ export default function HearthShell() {
       setForgeError("No last project to resume.");
       return;
     }
-    const lastDraft = drafts.find((draft) => draft.id === lastDraftId);
-    if (!lastDraft) {
+    const lastWorkpieceId = resolveWorkpieceIdForDraftId(lastDraftId);
+    if (!lastWorkpieceId) {
       setForgeError("Last project not found.");
       return;
     }
     setForgeError(null);
-    setFocusTab("draft");
-    setMode("focus");
-    await selectDraft(lastDraft);
+    await openWorkpieceInFocus(lastWorkpieceId, {
+      preferredDraftId: lastDraftId,
+    });
   }
 
   async function onStartForgingSelectedSpark() {
@@ -4724,22 +4948,44 @@ export default function HearthShell() {
       setDrafts(nextDrafts);
 
       if (deletingActiveDraft) {
+        const activeWorkpieceId = normalizeUuid(workpieceId);
+        if (activeWorkpieceId) {
+          const replacementDraft = selectDraftForWorkpiece({
+            workpieceId: activeWorkpieceId,
+            drafts: nextDrafts,
+            sparks,
+            preferredDraftId: activeWorkpieceId,
+          });
+          if (replacementDraft) {
+            await selectDraft(replacementDraft, { revisionWorkpieceId: activeWorkpieceId });
+          } else {
+            await openWorkpieceInFocus(activeWorkpieceId, {
+              drafts: nextDrafts,
+              preferredDraftId: activeWorkpieceId,
+            });
+          }
+          if (mode === "focus") {
+            setFocusTab("draft");
+          }
+          return;
+        }
+
         const replacementDraft = nextDrafts.find((candidate) => !candidate.archived) ?? nextDrafts[0] ?? null;
         if (replacementDraft) {
           await selectDraft(replacementDraft);
           if (mode === "focus") {
             setFocusTab("draft");
           }
-        } else {
-          await selectDraft(null);
-          await persistSession(null, "draft");
-          setFocusTab("draft");
-          setMode("episodes");
-          if (isMobile && mobileOverlayView === "editor") {
-            setMobileOverlayView(null);
-          }
+          return;
         }
-        return;
+
+        await selectDraft(null);
+        await persistSession(null, "draft");
+        setFocusTab("draft");
+        setMode("episodes");
+        if (isMobile && mobileOverlayView === "editor") {
+          setMobileOverlayView(null);
+        }
       }
 
       await persistSession(activeDraft?.id ?? null, "draft");
@@ -6851,33 +7097,18 @@ export default function HearthShell() {
     );
   }
 
-  const openDraftInFocus = useCallback((draft: Draft) => {
-    setFocusTab("draft");
-    setMode("focus");
-    void selectDraft(draft);
-    if (isMobile) {
-      setMobileOverlayView("editor");
-    }
-  }, [isMobile, selectDraft]);
-
   const onOpenReadyScriptInHearth = useCallback(async (entry: HearthReadyScript) => {
     setError(null);
     try {
-      const scriptText = await readReadyScriptText(entry);
-      const draft = await upsertDraftFromReadyEntry(entry, scriptText);
-      setWorkspaceId(entry.workspaceId);
-      setWorkpieceId(entry.workpieceId);
-      setFocusTab("draft");
-      setMode("focus");
-      await selectDraft(draft);
-      if (isMobile) {
-        setMobileOverlayView("editor");
-      }
+      await openWorkpieceInFocus(entry.workpieceId, {
+        workspaceId: entry.workspaceId,
+        preferredDraftId: activeDraft?.id ?? null,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to open approved script in Hearth.";
       setError(message);
     }
-  }, [isMobile, readReadyScriptText, selectDraft, upsertDraftFromReadyEntry]);
+  }, [activeDraft?.id, openWorkpieceInFocus]);
 
   const openReadyInMobileOverlay = useCallback(() => {
     setMode("ready");
@@ -6893,25 +7124,29 @@ export default function HearthShell() {
     }
   }, [isMobile]);
 
-  const resolveDraftPresenceBadge = useCallback((draft: Draft): string => {
-    if (activeDraft?.id !== draft.id) return "Idle";
+  const resolveWorkpiecePresenceBadge = useCallback((targetWorkpieceId: string): string => {
+    if (workpieceId !== targetWorkpieceId) return "Idle";
     if (editingPeers.length > 0) return `${activeEditorName} editing`;
     if (viewingPeers.length > 0) return `${activeViewerName} viewing`;
     return "Idle";
-  }, [activeDraft?.id, activeEditorName, editingPeers.length, activeViewerName, viewingPeers.length]);
+  }, [activeEditorName, editingPeers.length, activeViewerName, viewingPeers.length, workpieceId]);
 
-  const resolveDraftPresenceClass = useCallback((draft: Draft): string => {
-    if (activeDraft?.id !== draft.id) return "is-idle";
+  const resolveWorkpiecePresenceClass = useCallback((targetWorkpieceId: string): string => {
+    if (workpieceId !== targetWorkpieceId) return "is-idle";
     if (editingPeers.length > 0) return "is-editing";
     if (viewingPeers.length > 0) return "is-viewing";
     return "is-idle";
-  }, [activeDraft?.id, editingPeers.length, viewingPeers.length]);
+  }, [editingPeers.length, viewingPeers.length, workpieceId]);
 
   const renderSparksView = () => {
+    const resumeWorkpieceId = resolveWorkpieceIdForDraftId(session?.activeDraftId ?? null);
+    const resumeWorkpiece = resumeWorkpieceId
+      ? workpieceSummaries.find((entry) => entry.workpieceId === resumeWorkpieceId) ?? null
+      : null;
     const resumeDraft = session?.activeDraftId
       ? drafts.find((draft) => draft.id === session.activeDraftId) ?? null
       : null;
-    const canResumeLast = Boolean(resumeDraft);
+    const canResumeLast = Boolean(resumeWorkpieceId);
     const selectedSparkStatus = selectedSpark ? formatSparkStatus(selectedSpark) : null;
     const selectedSparkPreview = selectedSpark ? buildSparkPreview(selectedSpark.body) : "";
     const isFreshSession = !hasActiveEpisode && !workpieceId;
@@ -6971,9 +7206,14 @@ export default function HearthShell() {
             Resume last project
           </button>
         </div>
-        {resumeDraft ? (
+        {resumeWorkpieceId ? (
           <div className="hs-resume-context">
-            Last: {resumeDraft.title || "Untitled Draft"} · updated {formatRelativeUpdatedAt(resumeDraft.updatedAt)}
+            Last: {resumeWorkpiece?.title ?? resumeDraft?.title ?? "Untitled Episode"} · updated {" "}
+            {formatRelativeUpdatedAt(
+              resumeWorkpiece?.updatedAtMs
+              ?? resumeDraft?.updatedAt
+              ?? Date.now(),
+            )}
           </div>
         ) : null}
 
@@ -8019,7 +8259,7 @@ export default function HearthShell() {
           type="search"
           value={searchText}
           onChange={(event) => setSearchText(event.target.value)}
-          placeholder="Search title or body"
+          placeholder="Search Episode titles"
         />
         <div className="hs-rail-sort">
           <label className="hs-rail-label">Sort</label>
@@ -8030,37 +8270,48 @@ export default function HearthShell() {
         </div>
       </div>
       <ul className="hs-workpieces-list">
-        {filteredDrafts.map((draft) => (
-          <li key={draft.id}>
-            <div className={`hs-workpiece-card${activeDraft?.id === draft.id ? " is-active" : ""}`}>
+        {filteredWorkpieceNavItems.map((item) => {
+          const draft = item.draftId ? draftsById.get(item.draftId) ?? null : null;
+          const isActive = workpieceId === item.workpieceId;
+          const updatedAt = item.updatedAtMs || draft?.updatedAt || Date.now();
+          return (
+          <li key={item.workpieceId}>
+            <div className={`hs-workpiece-card${isActive ? " is-active" : ""}`}>
               <button
                 type="button"
                 className="hs-workpiece-button"
-                onClick={() => openDraftInFocus(draft)}
+                onClick={() => void openWorkpieceInFocus(item.workpieceId, {
+                  preferredDraftId: item.draftId,
+                })}
               >
                 <div className="hs-workpiece-title-row">
-                  <div className="hs-workpiece-title">{draft.title || "Untitled Draft"}</div>
-                  <span className={`hs-workpiece-presence ${resolveDraftPresenceClass(draft)}`}>
-                    {resolveDraftPresenceBadge(draft)}
+                  <div className="hs-workpiece-title">{item.title}</div>
+                  <span className={`hs-workpiece-presence ${resolveWorkpiecePresenceClass(item.workpieceId)}`}>
+                    {resolveWorkpiecePresenceBadge(item.workpieceId)}
                   </span>
                 </div>
-                <div className="hs-workpiece-updated">Updated {formatUpdatedAt(draft.updatedAt)}</div>
-                <div className="hs-workpiece-updated">Last edited by {resolveDraftEditorName(draft)}</div>
+                <div className="hs-workpiece-updated">Updated {formatUpdatedAt(updatedAt)}</div>
+                <div className="hs-workpiece-updated">
+                  {draft ? `Last edited by ${resolveDraftEditorName(draft)}` : "No attached draft buffer yet"}
+                </div>
               </button>
-              <div className="hs-workpiece-actions">
-                <button type="button" onClick={() => void saveDraftMeta(draft, { pinned: !draft.pinned })}>
-                  {draft.pinned ? "Unpin" : "Pin"}
-                </button>
-                <button type="button" onClick={() => void saveDraftMeta(draft, { archived: !draft.archived })}>
-                  {draft.archived ? "Unarchive" : "Archive"}
-                </button>
-                <button type="button" onClick={() => void onDeleteDraft(draft)}>
-                  Delete
-                </button>
-              </div>
+              {draft ? (
+                <div className="hs-workpiece-actions">
+                  <button type="button" onClick={() => void saveDraftMeta(draft, { pinned: !draft.pinned })}>
+                    {draft.pinned ? "Unpin" : "Pin"}
+                  </button>
+                  <button type="button" onClick={() => void saveDraftMeta(draft, { archived: !draft.archived })}>
+                    {draft.archived ? "Unarchive" : "Archive"}
+                  </button>
+                  <button type="button" onClick={() => void onDeleteDraft(draft)}>
+                    Delete
+                  </button>
+                </div>
+              ) : null}
             </div>
           </li>
-        ))}
+        );
+        })}
       </ul>
     </section>
   );
@@ -8163,7 +8414,16 @@ export default function HearthShell() {
           <ul className="hs-ready-record-list">
             {seriesEntries.map((entry) => (
               <li key={entry.id} className="hs-ready-record-item">
-                <div className="hs-ready-record-title">{entry.title}</div>
+                <button
+                  type="button"
+                  className="hs-ready-record-link"
+                  onClick={() => void openWorkpieceInFocus(entry.workpieceId, {
+                    workspaceId: entry.workspaceId,
+                    preferredDraftId: entry.workpieceId,
+                  })}
+                >
+                  <div className="hs-ready-record-title">{entry.title}</div>
+                </button>
                 <div className="hs-ready-record-meta">{resolveReadyAttribution(entry)}</div>
               </li>
             ))}
@@ -8184,6 +8444,34 @@ export default function HearthShell() {
           <div className="hs-home-actions">
             <button type="button" onClick={() => setMode("episodes")}>
               Go to Episodes
+            </button>
+          </div>
+        </section>
+      );
+    }
+
+    if (!activeDraft) {
+      return (
+        <section className="hs-home">
+          <header className="hs-home-header">
+            <h2 className="hs-home-title">{activeWorkpieceContext.workpiece?.title ?? "Episode"}</h2>
+            <p className="hs-home-subtext">Hydrating the attached draft buffer for this Episode.</p>
+          </header>
+          <div className="hs-home-actions">
+            <button
+              type="button"
+              onClick={() => {
+                if (!workpieceId) return;
+                void openWorkpieceInFocus(workpieceId, {
+                  preferredDraftId: session?.activeDraftId ?? null,
+                });
+              }}
+              disabled={!workpieceId}
+            >
+              Retry draft hydration
+            </button>
+            <button type="button" onClick={() => setMode("episodes")}>
+              Back to Episodes
             </button>
           </div>
         </section>
@@ -8468,7 +8756,7 @@ export default function HearthShell() {
                   type="search"
                   value={searchText}
                   onChange={(event) => setSearchText(event.target.value)}
-                  placeholder="Search title or body"
+                  placeholder="Search Episode titles"
                 />
                 <div className="hs-rail-sort">
                   <label className="hs-rail-label">Sort</label>
@@ -8489,14 +8777,20 @@ export default function HearthShell() {
 
               <div className="hs-rail-section">
                 <div className="hs-rail-heading">Workspace Projects</div>
-                {isLoading ? <p>Loading workspace projects...</p> : null}
-                {!isLoading && drafts.length === 0 ? <p>No workspace projects yet.</p> : null}
+                {isLoading || isWorkpiecesLoading ? <p>Loading workspace projects...</p> : null}
+                {workpiecesError ? <div className="hs-error-text-small">{workpiecesError}</div> : null}
+                {!isLoading && !isWorkpiecesLoading && filteredWorkpieceNavItems.length === 0
+                  ? <p>No workspace projects yet.</p>
+                  : null}
                 <ul className="hs-workpieces-list">
-                  {filteredDrafts.map((draft) => {
-                    const isActive = activeDraft?.id === draft.id;
-                    const isEditing = editingDraftId === draft.id;
+                  {filteredWorkpieceNavItems.map((item) => {
+                    const draft = item.draftId ? draftsById.get(item.draftId) ?? null : null;
+                    const draftId = draft?.id ?? null;
+                    const isActive = workpieceId === item.workpieceId;
+                    const isEditing = Boolean(draftId) && editingDraftId === draftId;
+                    const updatedAt = item.updatedAtMs || draft?.updatedAt || Date.now();
                     return (
-                      <li key={draft.id}>
+                      <li key={item.workpieceId}>
                         <div
                           className={`hs-workpiece-card${isActive ? " is-active" : ""}`}
                         >
@@ -8506,6 +8800,7 @@ export default function HearthShell() {
                               value={editingTitle}
                               onChange={(event) => setEditingTitle(event.target.value)}
                               onKeyDown={(event) => {
+                                if (!draft) return;
                                 if (event.key === "Enter") {
                                   event.preventDefault();
                                   void saveDraftMeta(draft, { title: editingTitle });
@@ -8516,7 +8811,7 @@ export default function HearthShell() {
                                 }
                               }}
                               onBlur={() => {
-                                if (editingDraftId === draft.id) {
+                                if (draft && editingDraftId === draft.id) {
                                   void saveDraftMeta(draft, { title: editingTitle });
                                   setEditingDraftId(null);
                                 }
@@ -8524,54 +8819,58 @@ export default function HearthShell() {
                             />
                           ) : (
                             <button
-                              onClick={() => openDraftInFocus(draft)}
+                              onClick={() => void openWorkpieceInFocus(item.workpieceId, {
+                                preferredDraftId: item.draftId,
+                              })}
                               className="hs-workpiece-button"
                             >
                               <div className="hs-workpiece-title-row">
-                                <div className="hs-workpiece-title">{draft.title || "Untitled Draft"}</div>
-                                {draft.pinned ? (
+                                <div className="hs-workpiece-title">{item.title}</div>
+                                {draft?.pinned ? (
                                   <span className="hs-workpiece-pin" aria-label="Pinned" title="Pinned">
                                     PIN
                                   </span>
                                 ) : null}
                               </div>
                               <div className="hs-workpiece-updated">
-                                Updated {formatUpdatedAt(draft.updatedAt)}
+                                Updated {formatUpdatedAt(updatedAt)}
                               </div>
                               <div className="hs-workpiece-updated">
-                                Last edited by {resolveDraftEditorName(draft)}
+                                {draft ? `Last edited by ${resolveDraftEditorName(draft)}` : "No attached draft buffer yet"}
                               </div>
                             </button>
                           )}
                           <div className="hs-workpiece-revisions">
-                            Revisions {draft.revisionCount ?? "-"}
+                            Revisions {draft?.revisionCount ?? "-"}
                           </div>
-                          <div className="hs-workpiece-actions">
-                            <button
-                              type="button"
-                              onClick={() => void saveDraftMeta(draft, { pinned: !draft.pinned })}
-                            >
-                              {draft.pinned ? "Unpin" : "Pin"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingDraftId(draft.id);
-                                setEditingTitle(draft.title);
-                              }}
-                            >
-                              Rename
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void saveDraftMeta(draft, { archived: !draft.archived })}
-                            >
-                              {draft.archived ? "Unarchive" : "Archive"}
-                            </button>
-                            <button type="button" onClick={() => void onDeleteDraft(draft)}>
-                              Delete
-                            </button>
-                          </div>
+                          {draft ? (
+                            <div className="hs-workpiece-actions">
+                              <button
+                                type="button"
+                                onClick={() => void saveDraftMeta(draft, { pinned: !draft.pinned })}
+                              >
+                                {draft.pinned ? "Unpin" : "Pin"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingDraftId(draft.id);
+                                  setEditingTitle(draft.title);
+                                }}
+                              >
+                                Rename
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void saveDraftMeta(draft, { archived: !draft.archived })}
+                              >
+                                {draft.archived ? "Unarchive" : "Archive"}
+                              </button>
+                              <button type="button" onClick={() => void onDeleteDraft(draft)}>
+                                Delete
+                              </button>
+                            </div>
+                          ) : null}
                         </div>
                       </li>
                     );
