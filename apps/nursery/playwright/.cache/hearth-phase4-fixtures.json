@@ -1,0 +1,30 @@
+{
+  "verified_at": "2026-03-10T16:08:56.102Z",
+  "storage_state_path": "D:\\nursery\\nursery\\apps\\nursery\\playwright\\.auth\\state.json",
+  "workspace_id": "2980fc39-8c8b-489a-a900-8d3bd3248432",
+  "workpiece_id": "cf464ad0-8745-43df-99ee-7bfca5dddcd8",
+  "selected_workspace_id": "2980fc39-8c8b-489a-a900-8d3bd3248432",
+  "invalid_workspace_id": "00000000-0000-4000-8000-000000000000",
+  "handoff": {
+    "title": "are drivers getting less polite?",
+    "script_path": "script/script.md",
+    "script_snippet": "are drivers getting less polite?"
+  },
+  "ready": {
+    "visible_titles": [
+      "Phase 4 spark 1773158896450 cd415b50",
+      "Phase 4 spark 1773158735716 c93a4a51",
+      "Phase 4 spark 1773158661304 47fb2b9f",
+      "Phase 4 spark 1773158477111 88ca41b6",
+      "Phase 4 spark 1773157912432 39f2d8dd",
+      "Phase 4 spark 1773157397273 f79c8fb8",
+      "Phase 4 spark 1773156100093 351fea84",
+      "Phase 4 spark 1773156016787 24682062",
+      "Phase 4 spark 1773154752954 bcc6550c",
+      "Phase 4 spark 1773153436251 1c23ddae",
+      "are drivers getting less polite?",
+      "writing a podcasters tool suite from scratch with the help o"
+    ],
+    "hidden_titles": []
+  }
+}

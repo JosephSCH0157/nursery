@@ -934,6 +934,42 @@ function hasIncomingBarStockIntakeQuery(): boolean {
   }
 }
 
+function replaceHearthRouteContext(workspaceId: string | null, workpieceId: string | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const workspaceKeys = ["workspace_id", "workspaceId", "workspace"];
+    const workpieceKeys = ["workpiece_id", "workpieceId", "workpiece", "cradle_id", "cradleId"];
+    const intakeKeys = [
+      "spark_id",
+      "sparkId",
+      "barstock_spark_id",
+      "project_id",
+      "projectId",
+      "barstock_project_id",
+    ];
+
+    for (const key of [...workspaceKeys, ...workpieceKeys, ...intakeKeys]) {
+      params.delete(key);
+    }
+
+    const normalizedWorkspaceId = normalizeUuid(workspaceId);
+    const normalizedWorkpieceId = normalizeUuid(workpieceId);
+    if (normalizedWorkspaceId) {
+      params.set("workspace_id", normalizedWorkspaceId);
+    }
+    if (normalizedWorkpieceId) {
+      params.set("workpiece_id", normalizedWorkpieceId);
+    }
+
+    const nextSearch = params.toString();
+    const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`;
+    window.history.replaceState(window.history.state, "", nextUrl);
+  } catch {
+    // ignore route cleanup failures
+  }
+}
+
 async function writeTextToClipboard(text: string): Promise<boolean> {
   if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
     try {
@@ -1892,6 +1928,7 @@ export default function HearthShell() {
   const pendingAiAutosaveRef = useRef<PendingAiAutosave | null>(null);
   const lastAutosaveCommitAtRef = useRef(0);
   const draftEditVersionRef = useRef(0);
+  const workpieceIdRef = useRef<string | null>(workpieceId);
   const activeDraftRef = useRef<Draft | null>(null);
   const draftSnapshotRef = useRef<DraftSnapshot | null>(null);
   const sessionSaveTimer = useRef<number | null>(null);
@@ -1903,6 +1940,7 @@ export default function HearthShell() {
   const sessionCommitQueued = useRef(false);
   const projectIntakeHandledRef = useRef<string | null>(null);
   const sparkIntakeHandledRef = useRef<string | null>(null);
+  const intakeResetKeyRef = useRef<string | null>(null);
   const previousWorkspaceIdRef = useRef<string | null>(workspaceId);
   const restoredCursorDraftIdRef = useRef<string | null>(null);
   const restoredModeDraftKeyRef = useRef<string | null>(null);
@@ -2293,6 +2331,10 @@ export default function HearthShell() {
   useEffect(() => {
     activeDraftRef.current = activeDraft;
   }, [activeDraft]);
+
+  useEffect(() => {
+    workpieceIdRef.current = workpieceId;
+  }, [workpieceId]);
 
   useEffect(() => {
     pendingAiAutosaveRef.current = null;
@@ -3204,6 +3246,7 @@ export default function HearthShell() {
       setWorkspaceId(targetWorkspaceId);
     }
     setWorkpieceId(normalizedWorkpieceId);
+    replaceHearthRouteContext(targetWorkspaceId ?? null, normalizedWorkpieceId);
     setFocusTab("draft");
     setMode("focus");
 
@@ -3483,15 +3526,19 @@ export default function HearthShell() {
     setError(null);
     try {
       if (incomingBarStockIntakeRoute) {
-        setSession(null);
-        restoredCursorDraftIdRef.current = null;
-        setWorkpieceSummaries([]);
-        setDrafts([]);
-        setWorkpieceId(null);
-        setActiveDraft(null);
-        setDraftSnapshot(null);
-        setRevisions([]);
-        setSelectedRevision(null);
+        const intakeResetKey = `${normalizeUuid(workspaceId) ?? resolveWorkspaceId() ?? "none"}:${routeProjectId ?? routeSparkId ?? "none"}`;
+        if (intakeResetKeyRef.current !== intakeResetKey) {
+          intakeResetKeyRef.current = intakeResetKey;
+          setSession(null);
+          restoredCursorDraftIdRef.current = null;
+          setWorkpieceSummaries([]);
+          setDrafts([]);
+          setWorkpieceId(null);
+          setActiveDraft(null);
+          setDraftSnapshot(null);
+          setRevisions([]);
+          setSelectedRevision(null);
+        }
         return;
       }
 
@@ -3528,7 +3575,7 @@ export default function HearthShell() {
       pushCandidateDraftId(storedSession?.activeDraftId ?? null);
       pushCandidateDraftId(activeDraftRef.current?.id ?? null);
 
-      const explicitWorkpieceId = normalizeUuid(workpieceId);
+      const explicitWorkpieceId = normalizeUuid(workpieceIdRef.current);
       const resolvedWorkpieceId = explicitWorkpieceId
         ?? candidateDraftIds
           .map((draftId) => resolveWorkpieceIdForDraftId(draftId, {
@@ -3563,10 +3610,11 @@ export default function HearthShell() {
   }, [
     incomingBarStockIntakeRoute,
     openWorkpieceInFocus,
+    routeProjectId,
+    routeSparkId,
     resolveWorkpieceIdForDraftId,
     sessionStore,
     store,
-    workpieceId,
     workspaceId,
   ]);
 

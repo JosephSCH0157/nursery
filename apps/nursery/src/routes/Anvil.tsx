@@ -12,18 +12,35 @@ export default function AnvilRoute() {
   const shell = useOutletContext<AppShellContext>();
   const location = useLocation();
   const context = useMemo(() => parseForgeRouteContext(location.search), [location.search]);
+  const requestedWorkspaceId = context.workspaceId;
+  const requestedWorkspaceKnown = useMemo(
+    () => !!requestedWorkspaceId && shell.workspaces.some((workspace) => workspace.id === requestedWorkspaceId),
+    [requestedWorkspaceId, shell.workspaces],
+  );
+  const resolvedWorkspaceId = useMemo(() => {
+    if (requestedWorkspaceKnown) return requestedWorkspaceId;
+    if (shell.workspaceId && shell.workspaces.some((workspace) => workspace.id === shell.workspaceId)) {
+      return shell.workspaceId;
+    }
+    return shell.workspaces[0]?.id ?? null;
+  }, [requestedWorkspaceId, requestedWorkspaceKnown, shell.workspaceId, shell.workspaces]);
+  const waitingForWorkspaceResolution = Boolean(
+    requestedWorkspaceId
+    && !requestedWorkspaceKnown
+    && (!shell.hasWorkspaceFetchSucceeded || shell.loadingWorkspaces),
+  );
   const anvilHref = useMemo(
     () =>
       buildForgeRouteHref(ANVIL_FULL_PAGE_URL, {
         search: location.search,
-        workspaceId: shell.workspaceId,
+        workspaceId: resolvedWorkspaceId,
         workpieceId: context.workpieceId,
       }),
-    [context.workpieceId, location.search, shell.workspaceId],
+    [context.workpieceId, location.search, resolvedWorkspaceId],
   );
 
   useEffect(() => {
-    if (!shell.workspaceId) return;
+    if (!resolvedWorkspaceId || waitingForWorkspaceResolution) return;
     try {
       const token = resolveTongsRequestApiToken();
       if (token) {
@@ -33,9 +50,18 @@ export default function AnvilRoute() {
       // Ignore storage failures; Anvil still may resolve token via env/query.
     }
     window.location.replace(anvilHref);
-  }, [anvilHref, location.search, shell.workspaceId]);
+  }, [anvilHref, location.search, resolvedWorkspaceId, waitingForWorkspaceResolution]);
 
-  if (!shell.workspaceId) {
+  if (waitingForWorkspaceResolution) {
+    return (
+      <section style={{ padding: 24, display: "grid", gap: 8 }}>
+        <h2 style={{ margin: 0 }}>Resolving workspace access...</h2>
+        <p style={{ margin: 0 }}>Validating the requested Anvil workspace before opening the teleprompter.</p>
+      </section>
+    );
+  }
+
+  if (!resolvedWorkspaceId) {
     return <WorkspaceRequiredNotice toolName="Anvil" />;
   }
 

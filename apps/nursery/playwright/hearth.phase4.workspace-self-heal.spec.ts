@@ -17,6 +17,8 @@ test.describe("Hearth Phase 4 workspace self-heal", () => {
         workpieceId: artifact.workpiece_id,
       }),
       expectedWorkspaceId: artifact.selected_workspace_id,
+      allowAnyResolvedWorkspace: true,
+      disallowedWorkspaceIds: [artifact.invalid_workspace_id],
       expectedWorkpieceId: artifact.workpiece_id,
       expectedPathPrefix: "/apps/hearth",
     });
@@ -32,6 +34,8 @@ test.describe("Hearth Phase 4 workspace self-heal", () => {
         workpieceId: artifact.workpiece_id,
       }),
       expectedWorkspaceId: artifact.selected_workspace_id,
+      allowAnyResolvedWorkspace: true,
+      disallowedWorkspaceIds: [artifact.invalid_workspace_id],
       expectedWorkpieceId: artifact.workpiece_id,
       expectedPathPrefix: "/anvil/teleprompter_pro.html",
     });

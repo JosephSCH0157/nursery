@@ -143,6 +143,8 @@ export type AppShellContext = {
   workspaceId: string | null;
   workspaceAccessDeniedId: string | null;
   workspaces: Workspace[];
+  loadingWorkspaces: boolean;
+  hasWorkspaceFetchSucceeded: boolean;
   selectWorkspace: (id: string | null) => void;
   refreshWorkspaces: (opts?: { force?: boolean; preferId?: string | null }) => Promise<void>;
   session: SupabaseSession | null;
@@ -268,18 +270,28 @@ export default function AppShell() {
       const current = workspaceId;
       const saved = loadActiveWorkspaceId();
       const requestedWorkspaceMissingMembership = !!urlWorkspaceId && !ws.some((w) => w.id === urlWorkspaceId);
+      const fallbackSelection =
+        (saved && ws.some((w) => w.id === saved)) ? saved
+          : (current && ws.some((w) => w.id === current)) ? current
+            : (ws[0]?.id ?? null);
       if (requestedWorkspaceMissingMembership) {
         setWorkspaceAccessDeniedId(urlWorkspaceId);
-        setWorkspaceId(null);
-        saveActiveWorkspaceId(null);
+        if (fallbackSelection) {
+          if (fallbackSelection !== workspaceId) {
+            selectWorkspace(fallbackSelection);
+          } else {
+            saveActiveWorkspaceId(fallbackSelection);
+          }
+        } else {
+          setWorkspaceId(null);
+          saveActiveWorkspaceId(null);
+        }
         return;
       }
       const pick =
         (preferId && ws.some(w => w.id === preferId)) ? preferId
           : (urlWorkspaceId && ws.some(w => w.id === urlWorkspaceId)) ? urlWorkspaceId
-            : (saved && ws.some(w => w.id === saved)) ? saved
-              : (current && ws.some(w => w.id === current)) ? current
-                : (ws[0]?.id ?? null);
+            : fallbackSelection;
 
       if (pick !== workspaceId) {
         selectWorkspace(pick);
@@ -1107,6 +1119,8 @@ export default function AppShell() {
                 workspaceId,
                 workspaceAccessDeniedId,
                 workspaces,
+                loadingWorkspaces,
+                hasWorkspaceFetchSucceeded,
                 selectWorkspace,
                 refreshWorkspaces,
                 session,
