@@ -1,12 +1,23 @@
 import type { Draft, DraftId } from "../domain/draft";
 import type { Revision, RevisionId } from "../domain/revision";
 import type { HearthChatMessage } from "../lib/hearth-chat-api";
+import {
+  applyRevisionCap,
+  createEmptyRevisionSnapshot,
+  entryToRevision,
+  normalizeRevisionSnapshot,
+  revisionToEntry,
+} from "../lib/hearth-revisions-contract";
 import type { HearthStore, SaveDraftOptions } from "./hearth-store";
-import { cloneRevision, normalizeRevision, readRevisionRecord, writeRevisionRecord } from "./revision-storage";
+import {
+  cloneRevision,
+  loadRevisionSnapshotFallback,
+  normalizeRevision,
+  saveRevisionSnapshotFallback,
+} from "./revision-storage";
 
 const DRAFTS_STORAGE_KEY = "hearth:drafts";
 const CHAT_STORAGE_KEY = "hearth:chat-local:v1";
-const MAX_REVISIONS_PER_DRAFT = 200;
 const MAX_CHAT_MESSAGES = 200;
 const MAX_CHAT_TOTAL_CHARS = 650_000;
 const MAX_CHAT_ENTRY_CHARS = 24_000;
@@ -220,43 +231,59 @@ export class LocalHearthStore implements HearthStore {
     writeChatRecord(record);
   }
 
-  async listRevisions(draftId: DraftId): Promise<Revision[]> {
-    const record = readRevisionRecord();
-    return Object.values(record)
-      .filter((rev) => rev.draftId === draftId)
+  async listRevisions(workpieceId: string, draftId?: DraftId | null): Promise<Revision[]> {
+    const snapshot = loadRevisionSnapshotFallback(workpieceId);
+    if (!snapshot) return [];
+
+    let revisions = snapshot.revisions.map((entry) => entryToRevision(entry));
+    if (draftId?.trim()) {
+      revisions = revisions.filter((revision) => revision.draftId === draftId);
+    }
+
+    return revisions
       .sort((a, b) => b.createdAt - a.createdAt)
       .map(cloneRevision);
   }
 
-  async getRevision(id: RevisionId): Promise<Revision | null> {
-    const record = readRevisionRecord();
-    const found = record[id];
-    return found ? cloneRevision(found) : null;
+  async getRevision(workpieceId: string, id: RevisionId): Promise<Revision | null> {
+    const snapshot = loadRevisionSnapshotFallback(workpieceId);
+    if (!snapshot) return null;
+
+    const found = snapshot.revisions.find((entry) => entry.id === id);
+    return found ? cloneRevision(entryToRevision(found)) : null;
   }
 
-  async saveRevision(revision: Revision): Promise<void> {
+  async saveRevision(workpieceId: string, revision: Revision): Promise<void> {
+    const normalizedWorkpieceId = typeof workpieceId === "string" ? workpieceId.trim() : "";
+    if (!normalizedWorkpieceId) {
+      throw new Error("missing_workpiece");
+    }
+
     const normalized = normalizeRevision(revision);
     if (!normalized) {
       throw new Error("Invalid revision payload");
     }
 
-    const record = readRevisionRecord();
-    record[normalized.id] = cloneRevision(normalized);
-    const byDraft = Object.values(record)
-      .filter((rev) => rev.draftId === normalized.draftId)
-      .sort((a, b) => b.createdAt - a.createdAt);
-    if (byDraft.length > MAX_REVISIONS_PER_DRAFT) {
-      for (const stale of byDraft.slice(MAX_REVISIONS_PER_DRAFT)) {
-        delete record[stale.id];
-      }
+    const entry = revisionToEntry(normalized);
+    const snapshot = loadRevisionSnapshotFallback(normalizedWorkpieceId)
+      ?? createEmptyRevisionSnapshot(normalizedWorkpieceId);
+    const nextSnapshot = normalizeRevisionSnapshot(normalizedWorkpieceId, {
+      ...snapshot,
+      updated_at: new Date().toISOString(),
+      revisions: applyRevisionCap([
+        ...snapshot.revisions.filter((item) => item.id !== entry.id),
+        entry,
+      ]),
+    });
+    if (!nextSnapshot) {
+      throw new Error("Invalid revision snapshot");
     }
-    writeRevisionRecord(record);
+    saveRevisionSnapshotFallback(normalizedWorkpieceId, nextSnapshot);
   }
 
-  async restoreRevision(id: RevisionId): Promise<{ title: string; body: string } | null> {
-    const record = readRevisionRecord();
-    const found = record[id];
-    if (!found) return null;
-    return { title: found.titleSnapshot, body: found.bodySnapshot };
+  async restoreRevision(workpieceId: string, id: RevisionId): Promise<{ title: string; body: string } | null> {
+    const revision = await this.getRevision(workpieceId, id);
+    if (!revision) return null;
+    return { title: revision.titleSnapshot, body: revision.bodySnapshot };
   }
 }

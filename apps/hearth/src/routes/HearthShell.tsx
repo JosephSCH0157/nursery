@@ -1806,6 +1806,7 @@ export default function HearthShell() {
   const [activeDraft, setActiveDraft] = useState<Draft | null>(null);
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [selectedRevision, setSelectedRevision] = useState<Revision | null>(null);
+  const revisionWorkpieceId = useMemo(() => normalizeUuid(workpieceId), [workpieceId]);
   const [draftSnapshot, setDraftSnapshot] = useState<DraftSnapshot | null>(null);
 
   const [isSaving, setIsSaving] = useState(false);
@@ -2487,14 +2488,40 @@ export default function HearthShell() {
     return () => window.clearTimeout(timer);
   }, [aiRuntimeWarning]);
 
+  const resolveRevisionWorkpieceId = useCallback((override?: string | null) => (
+    normalizeUuid(override) ?? revisionWorkpieceId
+  ), [revisionWorkpieceId]);
+
+  const reportRevisionPersistenceWarning = useCallback((kind: RevisionKind | null, message: string) => {
+    if (kind === "autosave") {
+      setAiAutosaveWarning(message);
+      return;
+    }
+    setAiRuntimeWarning(message);
+  }, []);
+
   const refreshDrafts = useCallback(async () => {
     const list = await store.listDrafts();
     setDrafts(dedupeDraftListById(list));
   }, [store]);
 
-  const refreshRevisions = useCallback(async (draftId: string) => {
-    const list = await store.listRevisions(draftId);
+  const refreshRevisions = useCallback(async (
+    currentWorkpieceId: string | null,
+    draftId?: string | null,
+  ): Promise<Revision[]> => {
+    const resolvedWorkpieceId = normalizeUuid(currentWorkpieceId);
+    if (!resolvedWorkpieceId) {
+      setRevisions([]);
+      setSelectedRevision(null);
+      return [];
+    }
+    const list = await store.listRevisions(resolvedWorkpieceId, draftId?.trim() ? draftId : null);
     setRevisions(list);
+    setSelectedRevision((prev) => {
+      if (!prev) return null;
+      return list.find((revision) => revision.id === prev.id) ?? null;
+    });
+    return list;
   }, [store]);
 
   const refreshEpisodePackage = useCallback(async () => {
@@ -2855,7 +2882,10 @@ export default function HearthShell() {
     await sessionStore.saveSession(next);
   }, [cursorPosition, focusTab, mode, scrollTop, session, sessionStore]);
 
-  const selectDraft = useCallback(async (draft: Draft | null) => {
+  const selectDraft = useCallback(async (
+    draft: Draft | null,
+    options?: { revisionWorkpieceId?: string | null },
+  ) => {
     setDraftConflictState(null);
     if (!draft) {
       restoredCursorDraftIdRef.current = null;
@@ -2868,9 +2898,9 @@ export default function HearthShell() {
     restoredCursorDraftIdRef.current = null;
     setActiveDraft(draft);
     setDraftSnapshot({ title: draft.title, body: draft.body, updatedAt: draft.updatedAt });
-    await refreshRevisions(draft.id);
+    await refreshRevisions(resolveRevisionWorkpieceId(options?.revisionWorkpieceId), draft.id);
     await persistSession(draft.id, "draft");
-  }, [persistSession, refreshRevisions]);
+  }, [persistSession, refreshRevisions, resolveRevisionWorkpieceId]);
 
   const updatePlanningSession = useCallback((
     updater: (prev: HearthPlanningSession) => HearthPlanningSession,
@@ -3104,6 +3134,7 @@ export default function HearthShell() {
   const createDraftAndOpen = useCallback(async (
     seed?: { title?: string; body?: string },
     modeToSet: HearthMode = "focus",
+    options?: { revisionWorkpieceId?: string | null },
   ) => {
     const attribution = buildDraftAttribution(hearthUser);
     const next = {
@@ -3125,7 +3156,7 @@ export default function HearthShell() {
       setFocusTab("draft");
     }
     setMode(modeToSet);
-    await selectDraft(next);
+    await selectDraft(next, options);
     return next;
   }, [hearthUser, refreshDrafts, selectDraft, store]);
 
@@ -3146,7 +3177,9 @@ export default function HearthShell() {
       }
       setWorkspaceId(resolveWorkspaceId());
       applySessionOrigin({ created_from: "scratch" });
-      const draft = await createDraftAndOpen(undefined, "focus");
+      const draft = await createDraftAndOpen(undefined, "focus", {
+        revisionWorkpieceId: created.ok ? created.workpieceId : null,
+      });
       const nextChatKey = resolveChatHistoryKey(created.ok ? created.workpieceId : null, draft.id);
       if (nextChatKey) {
         skipChatHydrationKeyRef.current = nextChatKey;
@@ -3195,7 +3228,9 @@ export default function HearthShell() {
       const draft = await createDraftAndOpen({
         title: sparkTitle,
         body: scriptSeed,
-      }, "focus");
+      }, "focus", {
+        revisionWorkpieceId: workpieceId ?? null,
+      });
 
       const sparkPreview = buildSparkPreview(spark.body);
       const markerLines = [
@@ -3361,7 +3396,7 @@ export default function HearthShell() {
         restoredCursorDraftIdRef.current = null;
         setActiveDraft(preferredDraft);
         setDraftSnapshot({ title: preferredDraft.title, body: preferredDraft.body, updatedAt: preferredDraft.updatedAt });
-        await refreshRevisions(preferredDraft.id);
+        await refreshRevisions(resolveRevisionWorkpieceId(), preferredDraft.id);
         setMode("episodes");
         return;
       }
@@ -3372,7 +3407,7 @@ export default function HearthShell() {
           restoredCursorDraftIdRef.current = null;
           setActiveDraft(soleDraft);
           setDraftSnapshot({ title: soleDraft.title, body: soleDraft.body, updatedAt: soleDraft.updatedAt });
-          await refreshRevisions(soleDraft.id);
+          await refreshRevisions(resolveRevisionWorkpieceId(), soleDraft.id);
           setMode("episodes");
           return;
         }
@@ -3389,7 +3424,7 @@ export default function HearthShell() {
     } finally {
       setIsLoading(false);
     }
-  }, [incomingBarStockIntakeRoute, refreshRevisions, sessionStore, store, workspaceId]);
+  }, [incomingBarStockIntakeRoute, refreshRevisions, resolveRevisionWorkpieceId, sessionStore, store, workspaceId]);
 
   useEffect(() => {
     void loadInitial();
@@ -4302,8 +4337,8 @@ export default function HearthShell() {
 
   useEffect(() => {
     if (!activeDraft) return;
-    void refreshRevisions(activeDraft.id);
-  }, [activeDraft?.id, refreshRevisions]);
+    void refreshRevisions(revisionWorkpieceId, activeDraft.id);
+  }, [activeDraft?.id, refreshRevisions, revisionWorkpieceId]);
 
   useEffect(() => {
     if (!activeDraft) return;
@@ -4555,6 +4590,7 @@ export default function HearthShell() {
       let revisionCount = args.draft.revisionCount;
       let lastRevisionAt = args.draft.lastRevisionAt;
       let createdRevision: Revision | null = null;
+      let refreshedRevisions: Revision[] | null = null;
 
       if (args.createRevision) {
         createdRevision = createRevision({
@@ -4564,10 +4600,31 @@ export default function HearthShell() {
           kind: args.createRevision.kind,
           note: args.createRevision.note,
         });
-        await store.saveRevision(createdRevision);
-        revisionCount = (revisionCount ?? revisions.length) + 1;
-        lastRevisionAt = createdRevision.createdAt;
-        setRevisions((prev) => [createdRevision!, ...prev]);
+        const activeRevisionWorkpieceId = resolveRevisionWorkpieceId();
+        if (!activeRevisionWorkpieceId) {
+          reportRevisionPersistenceWarning(
+            args.createRevision.kind,
+            "Saved draft, but revision history is unavailable until this draft is attached to an Episode.",
+          );
+        } else {
+          try {
+            await store.saveRevision(activeRevisionWorkpieceId, createdRevision);
+            if (args.createRevision.kind === "autosave") {
+              setAiAutosaveWarning(null);
+            } else {
+              setAiRuntimeWarning(null);
+            }
+          } catch (err) {
+            const message = err instanceof Error && err.message === "revision_snapshot_sync_failed"
+              ? "Saved draft, but revision history was kept locally and not synced to cloud."
+              : "Saved draft, but revision history could not be synced.";
+            reportRevisionPersistenceWarning(args.createRevision.kind, message);
+          }
+
+          refreshedRevisions = await refreshRevisions(activeRevisionWorkpieceId, args.draft.id);
+          revisionCount = refreshedRevisions.length;
+          lastRevisionAt = refreshedRevisions[0]?.createdAt;
+        }
       }
 
       const toSave: Draft = {
@@ -4598,8 +4655,9 @@ export default function HearthShell() {
         return dedupeDraftListById(next);
       });
 
-      if (createdRevision) {
-        setSelectedRevision(createdRevision);
+      if (createdRevision && refreshedRevisions) {
+        const selected = refreshedRevisions.find((revision) => revision.id === createdRevision?.id) ?? null;
+        setSelectedRevision(selected);
         setRevisionView("preview");
       }
 
@@ -4779,7 +4837,16 @@ export default function HearthShell() {
     const confirmRestore = window.confirm("Restore this revision? This will overwrite the current draft content.");
     if (!confirmRestore) return;
 
-    const snapshot = await store.restoreRevision(revision.id);
+    const activeRevisionWorkpieceId = resolveRevisionWorkpieceId();
+    if (!activeRevisionWorkpieceId) {
+      reportRevisionPersistenceWarning(
+        revision.kind,
+        "Revision restore is unavailable until this draft is attached to an Episode.",
+      );
+      return;
+    }
+
+    const snapshot = await store.restoreRevision(activeRevisionWorkpieceId, revision.id);
     if (!snapshot) {
       setError("Revision not found.");
       return;
@@ -4792,21 +4859,44 @@ export default function HearthShell() {
       body: snapshot.body,
       updatedAt: now,
     };
-    await persistDraft({ draft: restored, updatedAt: now, createRevision: null });
-    setSelectedRevision(revision);
-    setRevisionView("preview");
+    const restoredOk = await persistDraft({
+      draft: restored,
+      updatedAt: now,
+      createRevision: { kind: "manual", note: "Restored from revision" },
+    });
+    if (restoredOk) {
+      setRevisionView("preview");
+    }
   }
 
   async function onUpdateRevisionNote(revision: Revision, note: string) {
     setIsSavingRevision(true);
     try {
+      const activeRevisionWorkpieceId = resolveRevisionWorkpieceId();
+      if (!activeRevisionWorkpieceId) {
+        reportRevisionPersistenceWarning(
+          revision.kind,
+          "Revision note updates are unavailable until this draft is attached to an Episode.",
+        );
+        return;
+      }
+
       const updated: Revision = {
         ...revision,
         note: note.trim() || undefined,
       };
-      await store.saveRevision(updated);
-      setRevisions((prev) => prev.map((rev) => (rev.id === updated.id ? updated : rev)));
-      setSelectedRevision(updated);
+      try {
+        await store.saveRevision(activeRevisionWorkpieceId, updated);
+        setAiRuntimeWarning(null);
+      } catch {
+        reportRevisionPersistenceWarning(
+          revision.kind,
+          "Saved revision note locally, but cloud sync failed.",
+        );
+      }
+
+      const latest = await refreshRevisions(activeRevisionWorkpieceId, updated.draftId);
+      setSelectedRevision(latest.find((item) => item.id === updated.id) ?? null);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to update revision note.";
       setError(message);

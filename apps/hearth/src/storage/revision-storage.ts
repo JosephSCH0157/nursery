@@ -1,8 +1,13 @@
 import type { Revision, RevisionKind } from "../domain/revision";
+import {
+  HEARTH_REVISIONS_SCHEMA_VERSION,
+  normalizeRevisionSnapshot,
+  type HearthRevisionSnapshot,
+} from "../lib/hearth-revisions-contract";
 
-const REVISIONS_STORAGE_KEY = "hearth:revisions";
-
-type RevisionRecord = Record<string, Revision>;
+function revisionFallbackStorageKey(workpieceId: string): string {
+  return `hearth:revisions:v${HEARTH_REVISIONS_SCHEMA_VERSION}:${workpieceId}`;
+}
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
@@ -38,29 +43,44 @@ export function normalizeRevision(value: unknown, idOverride?: string): Revision
   };
 }
 
-export function readRevisionRecord(): RevisionRecord {
+export function loadRevisionSnapshotFallback(workpieceId: string): HearthRevisionSnapshot | null {
+  const normalizedWorkpieceId = typeof workpieceId === "string" ? workpieceId.trim() : "";
+  if (!normalizedWorkpieceId) return null;
   try {
-    const raw = localStorage.getItem(REVISIONS_STORAGE_KEY);
-    if (!raw) return {};
-
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {};
-    }
-
-    const out: RevisionRecord = {};
-    for (const [id, value] of Object.entries(parsed as Record<string, unknown>)) {
-      const normalized = normalizeRevision(value, id);
-      if (normalized) out[normalized.id] = normalized;
-    }
-    return out;
+    const raw = localStorage.getItem(revisionFallbackStorageKey(normalizedWorkpieceId));
+    if (!raw) return null;
+    return normalizeRevisionSnapshot(normalizedWorkpieceId, JSON.parse(raw));
   } catch {
-    return {};
+    return null;
   }
 }
 
-export function writeRevisionRecord(record: RevisionRecord): void {
-  localStorage.setItem(REVISIONS_STORAGE_KEY, JSON.stringify(record));
+export function saveRevisionSnapshotFallback(
+  workpieceId: string,
+  snapshot: HearthRevisionSnapshot,
+): void {
+  const normalizedWorkpieceId = typeof workpieceId === "string" ? workpieceId.trim() : "";
+  if (!normalizedWorkpieceId) return;
+  const normalizedSnapshot = normalizeRevisionSnapshot(normalizedWorkpieceId, snapshot);
+  if (!normalizedSnapshot) return;
+  try {
+    localStorage.setItem(
+      revisionFallbackStorageKey(normalizedWorkpieceId),
+      JSON.stringify(normalizedSnapshot),
+    );
+  } catch {
+    // ignore
+  }
+}
+
+export function clearRevisionSnapshotFallback(workpieceId: string): void {
+  const normalizedWorkpieceId = typeof workpieceId === "string" ? workpieceId.trim() : "";
+  if (!normalizedWorkpieceId) return;
+  try {
+    localStorage.removeItem(revisionFallbackStorageKey(normalizedWorkpieceId));
+  } catch {
+    // ignore
+  }
 }
 
 export function cloneRevision(revision: Revision): Revision {

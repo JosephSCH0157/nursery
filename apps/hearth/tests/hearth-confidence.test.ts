@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
+import {
+  createEmptyRevisionSnapshot,
+  revisionToEntry,
+  type HearthRevisionSnapshot,
+} from "../src/lib/hearth-revisions-contract";
 import { LocalHearthStore } from "../src/storage/local-store";
 import { LocalSessionStore } from "../src/storage/local-session-store";
+import {
+  loadRevisionSnapshotFallback,
+  saveRevisionSnapshotFallback,
+} from "../src/storage/revision-storage";
+import { TongsHearthStore } from "../src/storage/tongs-store";
 import type { Draft } from "../src/domain/draft";
 import type { Revision } from "../src/domain/revision";
 import { applyHearthOps, buildEpisodeContext } from "../src/lib/hearth-ai-ops";
@@ -25,6 +35,14 @@ class MemoryStorage {
   clear() {
     this.store.clear();
   }
+
+  key(index: number) {
+    return Array.from(this.store.keys())[index] ?? null;
+  }
+
+  get length() {
+    return this.store.size;
+  }
 }
 
 type LocalStorageLike = {
@@ -36,6 +54,7 @@ type LocalStorageLike = {
 
 function resetLocalStorage(): LocalStorageLike {
   const storage = new MemoryStorage();
+  storage.setItem("forge_tongs_api_token_v1", "DEV_TOKEN");
   Object.defineProperty(globalThis, "localStorage", {
     value: storage,
     configurable: true,
@@ -78,6 +97,119 @@ function createRevision(id: string, draftId: string, createdAt: number): Revisio
   };
 }
 
+const WORKPIECE_A = "2980fc39-8c8b-489a-a900-8d3bd3248432";
+const WORKPIECE_B = "54d58d65-7abf-4d50-b17f-5905f4b1ee61";
+
+function buildRevisionSnapshot(workpieceId: string, revisions: Revision[]): HearthRevisionSnapshot {
+  return {
+    ...createEmptyRevisionSnapshot(workpieceId),
+    updated_at: new Date().toISOString(),
+    revisions: revisions.map((revision) => revisionToEntry(revision)),
+  };
+}
+
+function installTongsRevisionFetchHarness(options?: { failReads?: boolean }) {
+  const originalFetch = globalThis.fetch;
+  const files = new Map<string, { json: unknown; updatedAt: string }>();
+  let sequence = 0;
+
+  const keyFor = (workpieceId: string, path: string) => `${workpieceId}:${path}`;
+  const nextUpdatedAt = () => {
+    sequence += 1;
+    return new Date(Date.UTC(2026, 2, 10, 12, 0, sequence)).toISOString();
+  };
+
+  globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+    const rawUrl = typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : String(input);
+    const url = new URL(rawUrl, "https://example.test");
+    const match = url.pathname.match(/^\/tongs\/workpieces\/([^/]+)\/(read-file|commit-file)$/);
+    if (!match) {
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    const workpieceId = decodeURIComponent(match[1] ?? "");
+    const action = match[2];
+    if (action === "read-file") {
+      if (options?.failReads) {
+        return new Response(JSON.stringify({ ok: false }), {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      const path = url.searchParams.get("path") ?? "";
+      const found = files.get(keyFor(workpieceId, path));
+      if (!found) {
+        return new Response(JSON.stringify({ ok: true, exists: false }), {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      return new Response(JSON.stringify({
+        ok: true,
+        data: found.json,
+        file_row: { updated_at: found.updatedAt },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    const body = init?.body ? JSON.parse(String(init.body)) as {
+      path?: string;
+      json?: unknown;
+      expected_previous_updated_at?: string;
+    } : {};
+    const path = typeof body.path === "string" ? body.path : "";
+    const existing = files.get(keyFor(workpieceId, path));
+    if (body.expected_previous_updated_at && existing && existing.updatedAt !== body.expected_previous_updated_at) {
+      return new Response(JSON.stringify({
+        error: {
+          code: "file_conflict",
+          details: {
+            path,
+            expected_previous_updated_at: body.expected_previous_updated_at,
+            current_updated_at: existing.updatedAt,
+          },
+        },
+      }), {
+        status: 409,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    const updatedAt = nextUpdatedAt();
+    files.set(keyFor(workpieceId, path), { json: body.json ?? null, updatedAt });
+    return new Response(JSON.stringify({
+      ok: true,
+      data: { file_row: { updated_at: updatedAt } },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  return {
+    restore() {
+      globalThis.fetch = originalFetch;
+    },
+    setSnapshot(workpieceId: string, snapshot: HearthRevisionSnapshot) {
+      files.set(keyFor(workpieceId, "hearth/revisions.v1.json"), {
+        json: snapshot,
+        updatedAt: nextUpdatedAt(),
+      });
+    },
+  };
+}
+
 async function testDraftFlagsRoundtrip() {
   resetLocalStorage();
   const store = new LocalHearthStore();
@@ -97,13 +229,100 @@ async function testRevisionCap() {
   await store.saveDraft(draft);
 
   for (let i = 0; i < 201; i += 1) {
-    await store.saveRevision(createRevision(`rev-${i}`, draft.id, 1000 + i));
+    await store.saveRevision(WORKPIECE_A, createRevision(`rev-${i}`, draft.id, 1000 + i));
   }
 
-  const revisions = await store.listRevisions(draft.id);
+  const revisions = await store.listRevisions(WORKPIECE_A, draft.id);
   assert.equal(revisions.length, 200, "Should cap revisions at 200");
   assert.equal(revisions[0]?.id, "rev-200", "Newest revision should be first");
   assert.equal(revisions[revisions.length - 1]?.id, "rev-1", "Oldest should be pruned");
+}
+
+async function testTongsRevisionRoundtrip() {
+  resetLocalStorage();
+  const harness = installTongsRevisionFetchHarness();
+  const store = new TongsHearthStore();
+
+  try {
+    const revision = createRevision("rev-remote", "draft-remote", 1_000);
+    await store.saveRevision(WORKPIECE_A, revision);
+
+    const revisions = await store.listRevisions(WORKPIECE_A, revision.draftId);
+    assert.equal(revisions.length, 1, "Tongs-backed revision should roundtrip");
+    assert.equal(revisions[0]?.id, revision.id, "Saved revision should load from canonical snapshot");
+
+    const restored = await store.restoreRevision(WORKPIECE_A, revision.id);
+    assert.equal(restored?.title, revision.titleSnapshot, "Restore should read canonical title snapshot");
+    assert.equal(restored?.body, revision.bodySnapshot, "Restore should read canonical body snapshot");
+  } finally {
+    harness.restore();
+  }
+}
+
+async function testTongsRevisionIsolationByWorkpiece() {
+  resetLocalStorage();
+  const harness = installTongsRevisionFetchHarness();
+  const store = new TongsHearthStore();
+
+  try {
+    await store.saveRevision(WORKPIECE_A, createRevision("rev-a", "draft-a", 1_000));
+    await store.saveRevision(WORKPIECE_B, createRevision("rev-b", "draft-b", 2_000));
+
+    const revisionsA = await store.listRevisions(WORKPIECE_A);
+    const revisionsB = await store.listRevisions(WORKPIECE_B);
+    assert.deepEqual(revisionsA.map((revision) => revision.id), ["rev-a"]);
+    assert.deepEqual(revisionsB.map((revision) => revision.id), ["rev-b"]);
+  } finally {
+    harness.restore();
+  }
+}
+
+async function testTongsRevisionFallbackPrecedence() {
+  resetLocalStorage();
+  const store = new TongsHearthStore();
+  const staleRevision = createRevision("rev-stale", "draft-stale", 1_000);
+  saveRevisionSnapshotFallback(WORKPIECE_A, buildRevisionSnapshot(WORKPIECE_A, [staleRevision]));
+
+  const harness = installTongsRevisionFetchHarness();
+  try {
+    const remoteRevision = createRevision("rev-remote", "draft-remote", 2_000);
+    harness.setSnapshot(WORKPIECE_A, buildRevisionSnapshot(WORKPIECE_A, [remoteRevision]));
+
+    const revisions = await store.listRevisions(WORKPIECE_A);
+    assert.deepEqual(revisions.map((revision) => revision.id), ["rev-remote"], "Remote snapshot should beat stale fallback");
+
+    const mirroredFallback = loadRevisionSnapshotFallback(WORKPIECE_A);
+    assert.equal(mirroredFallback?.revisions[0]?.id, "rev-remote", "Fallback mirror should be updated from remote");
+  } finally {
+    harness.restore();
+  }
+
+  const failHarness = installTongsRevisionFetchHarness({ failReads: true });
+  try {
+    const revisions = await store.listRevisions(WORKPIECE_A);
+    assert.deepEqual(revisions.map((revision) => revision.id), ["rev-remote"], "Fallback should be used when canonical read fails");
+  } finally {
+    failHarness.restore();
+  }
+}
+
+async function testTongsRevisionCap() {
+  resetLocalStorage();
+  const harness = installTongsRevisionFetchHarness();
+  const store = new TongsHearthStore();
+
+  try {
+    for (let i = 0; i < 201; i += 1) {
+      await store.saveRevision(WORKPIECE_A, createRevision(`remote-${i}`, "draft-remote", 1_000 + i));
+    }
+
+    const revisions = await store.listRevisions(WORKPIECE_A, "draft-remote");
+    assert.equal(revisions.length, 200, "Canonical snapshot should cap revision history");
+    assert.equal(revisions[0]?.id, "remote-200");
+    assert.equal(revisions[revisions.length - 1]?.id, "remote-1");
+  } finally {
+    harness.restore();
+  }
 }
 
 async function testSessionRoundtrip() {
@@ -330,6 +549,10 @@ async function testAnvilTagValidatorAndFormatter() {
 async function run() {
   await testDraftFlagsRoundtrip();
   await testRevisionCap();
+  await testTongsRevisionRoundtrip();
+  await testTongsRevisionIsolationByWorkpiece();
+  await testTongsRevisionFallbackPrecedence();
+  await testTongsRevisionCap();
   await testSessionRoundtrip();
   await testBuildEpisodeContextIncludesFields();
   await testApplyHearthOpsRequestsSave();
