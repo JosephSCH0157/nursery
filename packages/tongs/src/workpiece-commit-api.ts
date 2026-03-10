@@ -208,11 +208,11 @@ export type CommitWorkspaceFileResponse = {
 };
 
 export type ReadJsonFileResult =
-  | { found: true; data: unknown }
+  | { found: true; data: unknown; file_row: { updated_at: string | null } | null }
   | { found: false };
 
 export type ReadTextFileResult =
-  | { found: true; text: string }
+  | { found: true; text: string; file_row: { updated_at: string | null } | null }
   | { found: false };
 
 export type ReadBinaryFileResult =
@@ -3697,13 +3697,37 @@ export class TongsCommitService {
     }));
   }
 
+  private async readWorkpieceFileUpdatedAt(
+    workpieceId: string,
+    path: string,
+  ): Promise<{ updated_at: string | null } | null> {
+    const { data: fileRow, error: fileRowError } = await this.supabase
+      .schema("tongs")
+      .from("workpiece_files")
+      .select("updated_at")
+      .eq("workpiece_id", workpieceId)
+      .eq("path", path)
+      .maybeSingle();
+
+    if (fileRowError) {
+      throw new HttpError(502, "db_read_failed", "Failed to read workpiece file metadata", {
+        reason: fileRowError.message,
+      });
+    }
+
+    return {
+      updated_at: fileRow?.updated_at ?? null,
+    };
+  }
+
   async readWorkpieceJson(workpieceId: string, path: string): Promise<ReadJsonFileResult> {
     await this.getCradleOrThrow(workpieceId);
     const storageKey = buildStorageKey(workpieceId, path);
     const bytes = await downloadStorageObject(this.supabase, this.bucket, storageKey);
     if (!bytes) return { found: false };
+    const fileRow = await this.readWorkpieceFileUpdatedAt(workpieceId, path);
     const parsed = parseJsonText(textDecoder.decode(bytes), path);
-    return { found: true, data: parsed };
+    return { found: true, data: parsed, file_row: fileRow };
   }
 
   async readWorkspaceJson(workspaceId: string, path: string): Promise<ReadJsonFileResult> {
@@ -3711,7 +3735,7 @@ export class TongsCommitService {
     const bytes = await downloadStorageObject(this.supabase, this.bucket, storageKey);
     if (!bytes) return { found: false };
     const parsed = parseJsonText(textDecoder.decode(bytes), path);
-    return { found: true, data: parsed };
+    return { found: true, data: parsed, file_row: null };
   }
 
   async readWorkpieceText(workpieceId: string, path: string): Promise<ReadTextFileResult> {
@@ -3719,8 +3743,9 @@ export class TongsCommitService {
     const storageKey = buildStorageKey(workpieceId, path);
     const bytes = await downloadStorageObject(this.supabase, this.bucket, storageKey);
     if (!bytes) return { found: false };
+    const fileRow = await this.readWorkpieceFileUpdatedAt(workpieceId, path);
     const text = normalizeLf(stripBom(textDecoder.decode(bytes)));
-    return { found: true, text };
+    return { found: true, text, file_row: fileRow };
   }
 
   async readWorkpieceBinary(workpieceId: string, path: string): Promise<ReadBinaryFileResult> {
@@ -3756,7 +3781,7 @@ export class TongsCommitService {
     const bytes = await downloadStorageObject(this.supabase, this.bucket, storageKey);
     if (!bytes) return { found: false };
     const text = normalizeLf(stripBom(textDecoder.decode(bytes)));
-    return { found: true, text };
+    return { found: true, text, file_row: null };
   }
 
   async listWorkspaceReadyScripts(
@@ -4536,7 +4561,7 @@ export function createTongsCommitApiHandlerWithService(
               exists: false,
             });
           }
-          return jsonResponse(200, { ok: true, data: result.data });
+          return jsonResponse(200, { ok: true, data: result.data, file_row: result.file_row ?? null });
         }
 
         if (!isLfTextFile(path)) {
@@ -4550,7 +4575,7 @@ export function createTongsCommitApiHandlerWithService(
             exists: false,
           });
         }
-        return jsonResponse(200, { ok: true, data: result.text });
+        return jsonResponse(200, { ok: true, data: result.text, file_row: result.file_row ?? null });
       }
 
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "read-file") {

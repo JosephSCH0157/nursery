@@ -375,8 +375,8 @@ function normalizeGreetingName(name: string | null): string {
     .join(" ");
 }
 
-function readGreetingNameFromStorage(): string {
-  if (typeof window === "undefined") return "Creator";
+function listAuthStorageValues(): string[] {
+  if (typeof window === "undefined") return [];
 
   const keys = [FORGE_AUTH_STORAGE_KEY];
   try {
@@ -390,20 +390,45 @@ function readGreetingNameFromStorage(): string {
     // ignore storage access failures
   }
 
+  const values: string[] = [];
   for (const key of keys) {
     try {
       const raw = window.localStorage.getItem(key);
       const direct = readTrimmedString(raw);
-      if (!direct) continue;
-      try {
-        const parsed = JSON.parse(direct) as unknown;
-        const parsedName = pickDisplayNameFromAuthPayload(parsed);
-        if (parsedName) return normalizeGreetingName(parsedName);
-      } catch {
-        return normalizeGreetingName(direct);
+      if (direct) {
+        values.push(direct);
       }
     } catch {
       // ignore storage access failures
+    }
+  }
+  return values;
+}
+
+function readAuthUserIdFromStorage(): string | null {
+  for (const raw of listAuthStorageValues()) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      const userId = pickUserIdFromAuthPayload(parsed);
+      if (userId) return userId;
+    } catch {
+      // ignore non-JSON auth storage values
+    }
+  }
+
+  return null;
+}
+
+function readGreetingNameFromStorage(): string {
+  if (typeof window === "undefined") return "Creator";
+
+  for (const raw of listAuthStorageValues()) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      const parsedName = pickDisplayNameFromAuthPayload(parsed);
+      if (parsedName) return normalizeGreetingName(parsedName);
+    } catch {
+      return normalizeGreetingName(raw);
     }
   }
 
@@ -1838,7 +1863,7 @@ export default function HearthShell() {
   const [writingProfile, setWritingProfile] = useState<WritingProfile | null>(null);
   const [forgeGreetingName, setForgeGreetingName] = useState<string>(() => readGreetingNameFromStorage());
   const [hearthUser, setHearthUser] = useState<HearthUserContext>({
-    userId: null,
+    userId: readAuthUserIdFromStorage(),
     displayName: readGreetingNameFromStorage(),
   });
   const [aiTokenBalance, setAiTokenBalance] = useState<number | null>(null);
@@ -2384,11 +2409,12 @@ export default function HearthShell() {
     const refresh = () => {
       if (cancelled) return;
       const greeting = readGreetingNameFromStorage();
+      const userId = readAuthUserIdFromStorage();
       setForgeGreetingName(greeting);
-      setHearthUser((prev) => ({
-        userId: prev.userId,
+      setHearthUser({
+        userId,
         displayName: greeting,
-      }));
+      });
     };
 
     refresh();
@@ -2660,12 +2686,19 @@ export default function HearthShell() {
 
     const syncPresence = async () => {
       try {
-        await upsertHearthWorkpiecePresence({
+        const ownPresence = await upsertHearthWorkpiecePresence({
           workspaceId: normalizedWorkspaceId,
           workpieceId: normalizedWorkpieceId,
           mode: localPresenceMode,
           displayName: activeUserDisplayName,
         });
+        if (!cancelled && ownPresence?.userId) {
+          setHearthUser((prev) => (
+            prev.userId === ownPresence.userId
+              ? prev
+              : { ...prev, userId: ownPresence.userId }
+          ));
+        }
         const rows = await listHearthWorkpiecePresence(normalizedWorkspaceId, normalizedWorkpieceId);
         if (!cancelled) {
           setPresenceRows(rows);

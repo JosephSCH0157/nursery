@@ -378,7 +378,7 @@ async function readJsonBody(response: Response): Promise<unknown> {
 }
 
 async function readJsonFromTongs(url: string): Promise<
-  { ok: true; data: unknown | null } | { ok: false; status?: number; reason: string }
+  { ok: true; data: unknown | null; fileUpdatedAt: string | null } | { ok: false; status?: number; reason: string }
 > {
   const response = await tongsFetch(url);
   if (response.status === 404) {
@@ -389,7 +389,7 @@ async function readJsonFromTongs(url: string): Promise<
       && (body as { ok?: boolean }).ok === true
       && (body as { exists?: boolean }).exists === false
     ) {
-      return { ok: true, data: null };
+      return { ok: true, data: null, fileUpdatedAt: null };
     }
     return { ok: false, status: 404, reason: "not_found" };
   }
@@ -403,7 +403,15 @@ async function readJsonFromTongs(url: string): Promise<
     return { ok: false, status: response.status, reason: "invalid_response" };
   }
 
-  return { ok: true, data: (body as { data?: unknown }).data ?? null };
+  return {
+    ok: true,
+    data: (body as { data?: unknown }).data ?? null,
+    fileUpdatedAt: readString(
+      (body as { file_row?: { updated_at?: unknown } })?.file_row?.updated_at,
+    ) ?? readString(
+      (body as { data?: { file_row?: { updated_at?: unknown } } })?.data?.file_row?.updated_at,
+    ),
+  };
 }
 
 function resolveCreatedWorkpieceId(body: unknown): string | null {
@@ -573,16 +581,21 @@ function parseDraftSnapshot(data: unknown): { drafts: Draft[]; updatedAt: string
 
 async function readDraftSnapshot(
   workpieceId: string,
-): Promise<{ drafts: Draft[]; updatedAt: string | null } | null> {
+): Promise<{ drafts: Draft[]; updatedAt: string | null; fileUpdatedAt: string | null } | null> {
   const url = `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(
     TONGS_DRAFT_SNAPSHOT_PATH,
   )}`;
   const result = await readJsonFromTongs(url);
   if (!result.ok) return null;
   if (result.data == null) {
-    return { drafts: [], updatedAt: null };
+    return { drafts: [], updatedAt: null, fileUpdatedAt: result.fileUpdatedAt };
   }
-  return parseDraftSnapshot(result.data);
+  const parsed = parseDraftSnapshot(result.data);
+  if (!parsed) return null;
+  return {
+    ...parsed,
+    fileUpdatedAt: result.fileUpdatedAt,
+  };
 }
 
 function buildChatSnapshot(cache: TongsCacheV1, workspaceId: string): {
@@ -921,7 +934,7 @@ export class TongsHearthStore implements HearthStore {
     if (!workpieceId) return;
     const remote = await readDraftSnapshot(workpieceId);
     if (remote == null) return;
-    writeDraftSnapshotUpdatedAt(cache, workspaceId, remote.updatedAt);
+    writeDraftSnapshotUpdatedAt(cache, workspaceId, remote.fileUpdatedAt ?? remote.updatedAt);
     for (const draft of remote.drafts) {
       cache.drafts[draft.id] = draft;
       cache.draftWorkspaceById[draft.id] = workspaceId;
