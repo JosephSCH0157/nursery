@@ -46,8 +46,10 @@ type CommitConflictDetails = {
 };
 
 const TONGS_CACHE_KEY = "hearth:tongs:cache:v1";
-const TONGS_WORKPIECE_KEY = "forge_hearth_workpiece_id_v1";
-const TONGS_WORKPIECE_BY_WORKSPACE_PREFIX = "forge_hearth_workpiece_v1:";
+const TONGS_WORKPIECE_KEY = "forge_hearth_script_workpiece_id_v1";
+const TONGS_WORKPIECE_BY_WORKSPACE_PREFIX = "forge_hearth_script_workpiece_v1:";
+const LEGACY_TONGS_WORKPIECE_KEY = "forge_hearth_workpiece_id_v1";
+const LEGACY_TONGS_WORKPIECE_BY_WORKSPACE_PREFIX = "forge_hearth_workpiece_v1:";
 const TONGS_DRAFT_SNAPSHOT_PATH = "hearth/drafts.v1.json";
 const TONGS_CHAT_SNAPSHOT_PATH = "hearth/chat.v1.json";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -670,18 +672,39 @@ async function readChatSnapshot(
   return parseChatSnapshot(result.data);
 }
 
+function syncCachedWorkpieceId(workspaceId: string, workpieceId: string, cache: TongsCacheV1): string {
+  if (cache.workpieceByWorkspace[workspaceId] === workpieceId) {
+    return workpieceId;
+  }
+  cache.workpieceByWorkspace[workspaceId] = workpieceId;
+  delete cache.draftSnapshotUpdatedAtByWorkspace[workspaceId];
+  writeCache(cache);
+  return workpieceId;
+}
+
 function resolveCachedWorkpieceId(workspaceId: string, cache: TongsCacheV1): string | null {
+  const fromScopedKey =
+    normalizeUuid(readLocalStorage(`${TONGS_WORKPIECE_BY_WORKSPACE_PREFIX}${workspaceId}`))
+    ?? normalizeUuid(readLocalStorage(`${LEGACY_TONGS_WORKPIECE_BY_WORKSPACE_PREFIX}${workspaceId}`));
+  if (fromScopedKey) {
+    return syncCachedWorkpieceId(workspaceId, fromScopedKey, cache);
+  }
+
+  const fromGlobal = normalizeUuid(readLocalStorage(TONGS_WORKPIECE_KEY))
+    ?? normalizeUuid(readLocalStorage(LEGACY_TONGS_WORKPIECE_KEY));
+  if (fromGlobal) {
+    return syncCachedWorkpieceId(workspaceId, fromGlobal, cache);
+  }
+
   const fromMap = normalizeUuid(cache.workpieceByWorkspace[workspaceId]);
   if (fromMap) return fromMap;
-
-  const fromScopedKey = normalizeUuid(readLocalStorage(`${TONGS_WORKPIECE_BY_WORKSPACE_PREFIX}${workspaceId}`));
-  if (fromScopedKey) return fromScopedKey;
   return null;
 }
 
 function persistWorkpieceId(workspaceId: string, workpieceId: string, cache: TongsCacheV1): void {
   cache.workpieceByWorkspace[workspaceId] = workpieceId;
   writeCache(cache);
+  writeLocalStorage(TONGS_WORKPIECE_KEY, workpieceId);
   writeLocalStorage(`${TONGS_WORKPIECE_BY_WORKSPACE_PREFIX}${workspaceId}`, workpieceId);
 }
 
@@ -898,6 +921,7 @@ export class TongsHearthStore implements HearthStore {
     if (!workpieceId) return;
     const remote = await readDraftSnapshot(workpieceId);
     if (remote == null) return;
+    writeDraftSnapshotUpdatedAt(cache, workspaceId, remote.updatedAt);
     for (const draft of remote.drafts) {
       cache.drafts[draft.id] = draft;
       cache.draftWorkspaceById[draft.id] = workspaceId;

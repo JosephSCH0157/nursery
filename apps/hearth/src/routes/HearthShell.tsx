@@ -1901,6 +1901,7 @@ export default function HearthShell() {
   const sparkIntakeHandledRef = useRef<string | null>(null);
   const previousWorkspaceIdRef = useRef<string | null>(workspaceId);
   const restoredCursorDraftIdRef = useRef<string | null>(null);
+  const restoredModeDraftKeyRef = useRef<string | null>(null);
   const aiRequestControllerRef = useRef<AbortController | null>(null);
   const speechRecognitionRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -3070,13 +3071,21 @@ export default function HearthShell() {
       createdBy: attribution,
       updatedBy: attribution,
     };
-    await store.saveDraft(next);
+    try {
+      await store.saveDraft(next, { reason: "create" });
+    } catch (err) {
+      if (!parseDraftConflictError(err)) {
+        throw err;
+      }
+      await refreshDrafts();
+      await store.saveDraft(next, { reason: "create" });
+    }
     await refreshDrafts();
-    await selectDraft(next);
-    setMode(modeToSet);
     if (modeToSet === "focus") {
       setFocusTab("draft");
     }
+    setMode(modeToSet);
+    await selectDraft(next);
     return next;
   }, [hearthUser, refreshDrafts, selectDraft, store]);
 
@@ -4052,18 +4061,27 @@ export default function HearthShell() {
 
   useEffect(() => {
     if (!activeDraft) {
+      restoredModeDraftKeyRef.current = null;
       if (mode === "focus") {
         setMode("episodes");
       }
       return;
     }
 
+    const restoreKey = `${workpieceId ?? "none"}:${activeDraft.id}`;
+    if (mode !== "sparks") {
+      restoredModeDraftKeyRef.current = restoreKey;
+      return;
+    }
+    if (restoredModeDraftKeyRef.current === restoreKey) return;
+
+    restoredModeDraftKeyRef.current = restoreKey;
     const saved = readMode(workpieceId);
-    if (!saved || mode !== "sparks") return;
+    if (!saved) return;
     if (saved !== "focus") {
       setMode(saved);
     }
-  }, [activeDraft, mode, workpieceId]);
+  }, [activeDraft?.id, mode, workpieceId]);
 
   useEffect(() => {
     setShowManualDraft(false);
@@ -4612,9 +4630,9 @@ export default function HearthShell() {
       return;
     }
     setForgeError(null);
-    await selectDraft(lastDraft);
     setFocusTab("draft");
     setMode("focus");
+    await selectDraft(lastDraft);
   }
 
   async function onStartForgingSelectedSpark() {
@@ -6763,9 +6781,9 @@ export default function HearthShell() {
   }
 
   const openDraftInFocus = useCallback((draft: Draft) => {
-    void selectDraft(draft);
     setFocusTab("draft");
     setMode("focus");
+    void selectDraft(draft);
     if (isMobile) {
       setMobileOverlayView("editor");
     }
@@ -6778,9 +6796,9 @@ export default function HearthShell() {
       const draft = await upsertDraftFromReadyEntry(entry, scriptText);
       setWorkspaceId(entry.workspaceId);
       setWorkpieceId(entry.workpieceId);
-      await selectDraft(draft);
       setFocusTab("draft");
       setMode("focus");
+      await selectDraft(draft);
       if (isMobile) {
         setMobileOverlayView("editor");
       }
