@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <script type="module">import { injectIntoGlobalHook } from "/@react-refresh";
+injectIntoGlobalHook(window);
+window.$RefreshReg$ = () => {};
+window.$RefreshSig$ = () => (type) => type;</script>
+
+    <script type="module" src="/@vite/client"></script>
+
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="application-name" content="Podcaster's Forge" />
+    <meta
+      name="description"
+      content="Podcaster's Forge unifies your production workflow across Sparks, scripts, recording, and publishing."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Podcaster's Forge" />
+    <meta
+      property="og:description"
+      content="Podcaster's Forge unifies your production workflow across Sparks, scripts, recording, and publishing."
+    />
+    <title>Podcaster's Forge</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
