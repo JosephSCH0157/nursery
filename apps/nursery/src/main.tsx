@@ -30,6 +30,9 @@ import HammerEditorRoute from "./routes/HammerEditor";
 import HammerLaunchStubRoute from "./routes/HammerLaunchStub";
 import HammerRelinkRoute from "./routes/HammerRelink";
 import HammerStandalone from "./routes/HammerStandalone";
+import { seedTongsRequestTokenBridge } from "./lib/tongs-request-token";
+
+seedTongsRequestTokenBridge();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

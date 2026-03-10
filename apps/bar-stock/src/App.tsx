@@ -27,7 +27,7 @@ import {
   type Workspace,
 } from "./lib/tongs-api";
 import type { Session as SupabaseSession } from "@supabase/supabase-js";
-import { flushOutboxToTongs, checkTongsOnline } from "./lib/tongs-sync";
+import { flushOutboxToTongs } from "./lib/tongs-sync";
 
 type AssignmentFilter = "all" | AssignmentId;
 
@@ -163,6 +163,7 @@ type WorkspaceState = {
   workspaces: Workspace[];
   workspaceId: string | null;
   onWorkspaceChange: (id: string | null) => void;
+  isCloudConnected?: boolean;
 };
 
 type MobileRouteMode = "list" | "new" | "detail";
@@ -196,6 +197,7 @@ export default function App(props: BarstockAppProps = {}) {
   const externalWorkspaces = props.workspaceState?.workspaces;
   const externalWorkspaceId = props.workspaceState?.workspaceId;
   const externalWorkspaceChange = props.workspaceState?.onWorkspaceChange;
+  const externalCloudConnected = props.workspaceState?.isCloudConnected;
   const showWorkspacePicker = props.showWorkspacePicker ?? !hasExternalWorkspaceState;
   const initialWorkspaceId = hasExternalWorkspaceState
     ? (externalWorkspaceId ?? null)
@@ -218,7 +220,9 @@ export default function App(props: BarstockAppProps = {}) {
   );
 
   const [q, setQ] = useState<SparkQuery>({ status: "all", pinned: "all" });
-  const [tongsStatus, setTongsStatus] = useState<"offline" | "online">("offline");
+  const [isBrowserOnline, setIsBrowserOnline] = useState<boolean>(() => (
+    typeof navigator === "undefined" ? true : navigator.onLine
+  ));
   const [outboxCount, setOutboxCount] = useState(() => loadOutbox(initialWorkspaceId).length);
   const [syncing, setSyncing] = useState(false);
 
@@ -226,6 +230,17 @@ export default function App(props: BarstockAppProps = {}) {
   const [editingBody, setEditingBody] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const sessionUserId = session?.user.id ?? null;
+  const syncOnline = useMemo(() => {
+    if (!supabaseAvailable || !workspaceId) return false;
+    if (hasExternalWorkspaceState) return externalCloudConnected === true;
+    return isBrowserOnline && !!sessionUserId;
+  }, [
+    externalCloudConnected,
+    hasExternalWorkspaceState,
+    isBrowserOnline,
+    sessionUserId,
+    workspaceId,
+  ]);
 
   const importRef = useRef<HTMLInputElement | null>(null);
 
@@ -388,11 +403,22 @@ export default function App(props: BarstockAppProps = {}) {
   }, [session, workspaceId, supabaseAvailable]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const sync = () => setIsBrowserOnline(typeof navigator === "undefined" ? true : navigator.onLine);
+    window.addEventListener("online", sync);
+    window.addEventListener("offline", sync);
+    return () => {
+      window.removeEventListener("online", sync);
+      window.removeEventListener("offline", sync);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!supabaseAvailable) return;
-    if (tongsStatus !== "online") return;
+    if (!syncOnline) return;
     if (outboxCount === 0) return;
     onSyncNow();
-  }, [supabaseAvailable, tongsStatus, outboxCount, onSyncNow]);
+  }, [supabaseAvailable, syncOnline, outboxCount, onSyncNow]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -460,26 +486,6 @@ export default function App(props: BarstockAppProps = {}) {
       cancelled = true;
     };
   }, [sessionUserId, supabaseAvailable, workspaceId]);
-
-  useEffect(() => {
-    if (!supabaseAvailable || !sessionUserId || !workspaceId) {
-      setTongsStatus("offline");
-      return;
-    }
-
-    let cancelled = false;
-
-    (async () => {
-      const online = await checkTongsOnline(workspaceId, { reason: "effect" });
-      if (!cancelled) {
-        setTongsStatus(online ? "online" : "offline");
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [supabaseAvailable, sessionUserId, workspaceId]);
 
   useEffect(() => {
     if (hasExternalWorkspaceState) return;
@@ -598,10 +604,18 @@ export default function App(props: BarstockAppProps = {}) {
   const mobileRoute = props.mobileRoute ?? null;
   const isMobileRoute = mobileRoute !== null;
   const mobileMode: MobileRouteMode = mobileRoute?.mode ?? "list";
-  const syncLabel = !supabaseAvailable ? "LOCAL-ONLY" : tongsStatus.toUpperCase();
+  const syncLabel = !supabaseAvailable ? "LOCAL-ONLY" : (syncOnline ? "ONLINE" : "OFFLINE");
   const syncHint = !supabaseAvailable
     ? "Cloud sync unavailable."
-    : (tongsStatus === "offline" ? "Offline / local-only." : "Online.");
+    : (!workspaceId
+        ? "Pick a workspace first."
+        : hasExternalWorkspaceState && sessionUserId && !syncOnline
+          ? "Forge Cloud is not connected."
+          : !sessionUserId
+            ? "Sign in to enable cloud sync."
+            : !isBrowserOnline
+              ? "Browser is offline."
+              : "Online.");
 
   function navigateToHearthForProject(projectId: string) {
     const normalizedProjectId = projectId.trim().toLowerCase();
@@ -1381,7 +1395,7 @@ export default function App(props: BarstockAppProps = {}) {
             <div className="barstock-sidebar__sync-actions">
               <button
                 onClick={onSyncNow}
-                disabled={!supabaseAvailable || tongsStatus !== "online" || !session || !workspaceId || syncing || outboxCount === 0}
+                disabled={!supabaseAvailable || !syncOnline || !session || !workspaceId || syncing || outboxCount === 0}
               >
                 {syncing ? "Syncing..." : "Sync now"}
               </button>

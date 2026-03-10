@@ -56,7 +56,7 @@ import {
   upsertHearthWorkpiecePresence,
   type HearthWorkpiecePresence,
 } from "../lib/hearth-presence";
-import { resolveTongsApiToken, tongsFetch } from "../lib/tongs-fetch";
+import { resolveTongsRequestApiToken, tongsFetch } from "../lib/tongs-fetch";
 import { useSourcesState } from "../hooks/useSourcesState";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import { createHearthStore } from "../storage/store-factory";
@@ -933,6 +933,25 @@ function hasExplicitWorkpieceQuery(): boolean {
   }
 }
 
+function hasIncomingBarStockIntakeQuery(): boolean {
+  if (typeof window === "undefined") return false;
+  if (hasExplicitWorkpieceQuery()) return false;
+  try {
+    const query = new URLSearchParams(window.location.search);
+    const keys = [
+      "spark_id",
+      "sparkId",
+      "barstock_spark_id",
+      "project_id",
+      "projectId",
+      "barstock_project_id",
+    ];
+    return keys.some((key) => Boolean(query.get(key)?.trim()));
+  } catch {
+    return false;
+  }
+}
+
 function formatUpdatedAt(value: number | undefined): string {
   if (!value) return "Unknown";
   try {
@@ -1673,11 +1692,14 @@ export default function HearthShell() {
   const isMobile = layoutMode === "mobile";
   const store = useMemo(() => createHearthStore(storeKind), [storeKind]);
   const sessionStore = useMemo(() => new LocalSessionStore(), []);
+  const [incomingBarStockIntakeRoute] = useState<boolean>(() => hasIncomingBarStockIntakeQuery());
 
   const [mode, setMode] = useState<HearthMode>("sparks");
   const [focusTab, setFocusTab] = useState<FocusTab>("draft");
   const [workspaceId, setWorkspaceId] = useState<string | null>(() => resolveWorkspaceId());
-  const [workpieceId, setWorkpieceId] = useState<string | null>(() => resolveWorkpieceId());
+  const [workpieceId, setWorkpieceId] = useState<string | null>(() => (
+    incomingBarStockIntakeRoute ? null : resolveWorkpieceId()
+  ));
   const [sparks, setSparks] = useState<BarStockSpark[]>(() => readBarStockSparks(resolveWorkspaceId()));
   const [selectedSparkId, setSelectedSparkId] = useState<string | null>(null);
   const [forgeError, setForgeError] = useState<string | null>(null);
@@ -1686,9 +1708,11 @@ export default function HearthShell() {
   const [routeSparkId] = useState<string | null>(() => resolveBarstockSparkIdFromQuery());
   const [routeProjectTitle, setRouteProjectTitle] = useState<string | null>(null);
 
-  const [planningSession, setPlanningSession] = useState<HearthPlanningSession | null>(() =>
-    readHearthPlanningSessionCache(resolveWorkpieceId(), resolveWorkspaceId()),
-  );
+  const [planningSession, setPlanningSession] = useState<HearthPlanningSession | null>(() => (
+    incomingBarStockIntakeRoute
+      ? null
+      : readHearthPlanningSessionCache(resolveWorkpieceId(), resolveWorkspaceId())
+  ));
   const [sessionTouched, setSessionTouched] = useState(false);
   const [decisionDraft, setDecisionDraft] = useState("");
 
@@ -1741,7 +1765,7 @@ export default function HearthShell() {
   const [showManualDraft, setShowManualDraft] = useState(false);
   const [showScriptPanel, setShowScriptPanel] = useState(false);
   const [scriptApprovalState, setScriptApprovalState] = useState<ScriptApprovalState>(() =>
-    readScriptApprovalState(resolveWorkpieceId()),
+    readScriptApprovalState(incomingBarStockIntakeRoute ? null : resolveWorkpieceId()),
   );
   const [pendingAiProposal, setPendingAiProposal] = useState<PendingAiProposal | null>(null);
   const [isApplyingAiOps, setIsApplyingAiOps] = useState(false);
@@ -2960,7 +2984,7 @@ export default function HearthShell() {
 
     // Bridge token for Anvil static runtime so /tongs calls stay authorized after redirect.
     try {
-      const token = resolveTongsApiToken();
+      const token = resolveTongsRequestApiToken();
       if (token) {
         window.localStorage.setItem("forge_tongs_api_token_v1", token);
       }
@@ -3188,6 +3212,17 @@ export default function HearthShell() {
     setIsLoading(true);
     setError(null);
     try {
+      if (incomingBarStockIntakeRoute) {
+        setSession(null);
+        restoredCursorDraftIdRef.current = null;
+        setDrafts([]);
+        setActiveDraft(null);
+        setDraftSnapshot(null);
+        setRevisions([]);
+        setSelectedRevision(null);
+        return;
+      }
+
       const [storedSession, list] = await Promise.all([
         sessionStore.getSession(),
         store.listDrafts(),
@@ -3252,7 +3287,7 @@ export default function HearthShell() {
     } finally {
       setIsLoading(false);
     }
-  }, [refreshRevisions, sessionStore, store, workspaceId]);
+  }, [incomingBarStockIntakeRoute, refreshRevisions, sessionStore, store, workspaceId]);
 
   useEffect(() => {
     void loadInitial();
@@ -3431,6 +3466,12 @@ export default function HearthShell() {
   }, [forgeableSparks, selectedSparkId]);
 
   useEffect(() => {
+    if (incomingBarStockIntakeRoute && !workpieceId) {
+      setPlanningSession(null);
+      setSessionTouched(false);
+      return;
+    }
+
     if (typeof window === "undefined") return;
     const refreshSession = () => {
       const cached = readHearthPlanningSessionCache(workpieceId, workspaceId);
@@ -3456,7 +3497,7 @@ export default function HearthShell() {
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, [workpieceId, workspaceId]);
+  }, [incomingBarStockIntakeRoute, workpieceId, workspaceId]);
 
   useEffect(() => {
     const normalizedWorkpieceId = normalizeUuid(workpieceId);

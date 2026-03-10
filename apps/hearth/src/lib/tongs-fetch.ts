@@ -190,15 +190,14 @@ function resolveFromQuery(): string | null {
   }
 }
 
-export function resolveTongsApiToken(): string | undefined {
+function resolveRawTongsApiToken(): string | null {
   if (typeof window !== "undefined") {
-    const fromQuery = resolveFromQuery();
-    const sanitizedFromQuery = sanitizeTongsApiToken(fromQuery);
-    if (sanitizedFromQuery) return sanitizedFromQuery;
+    const fromQuery = readString(resolveFromQuery());
+    if (fromQuery) return fromQuery;
 
     try {
       const w = window as ForgeWindow;
-      const fromWindow = sanitizeTongsApiToken(readString(w.__forgeTongsApiToken ?? w.__tpTongsApiToken));
+      const fromWindow = readString(w.__forgeTongsApiToken ?? w.__tpTongsApiToken);
       if (fromWindow) return fromWindow;
     } catch {
       // ignore
@@ -206,20 +205,29 @@ export function resolveTongsApiToken(): string | undefined {
   }
 
   const metaEnv = import.meta as unknown as TongsEnv;
-  const fromEnv = sanitizeTongsApiToken(readString(metaEnv.env?.VITE_TONGS_API_TOKEN));
+  const fromEnv = readString(metaEnv.env?.VITE_TONGS_API_TOKEN);
   if (fromEnv) return fromEnv;
 
   if (typeof window !== "undefined") {
-    return sanitizeTongsApiToken(readLocalStorage("forge_tongs_api_token_v1")) ?? undefined;
+    return readLocalStorage("forge_tongs_api_token_v1");
   }
 
-  return undefined;
+  return null;
+}
+
+export function resolveTongsApiToken(): string | undefined {
+  return sanitizeTongsApiToken(resolveRawTongsApiToken()) ?? undefined;
+}
+
+export function resolveTongsRequestApiToken(): string | undefined {
+  return resolveRawTongsApiToken() ?? undefined;
 }
 
 export async function tongsFetch(url: string, options: TongsFetchOptions = {}): Promise<Response> {
   const { json, headers: initHeaders, body: initBody, ...rest } = options;
   const headers = new Headers(initHeaders ?? {});
-  const apiToken = resolveTongsApiToken();
+  // Keep DEV_TOKEN out of status/UI heuristics, but still send it to the local middleware in dev.
+  const apiToken = resolveTongsRequestApiToken();
   const userAccessToken = await resolveUserAccessToken();
   const hasAuth = Boolean(apiToken || userAccessToken);
 
