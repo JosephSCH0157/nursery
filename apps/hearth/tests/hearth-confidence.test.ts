@@ -20,6 +20,10 @@ import {
   reorderHearthReadyScripts,
   setHearthReadyScriptHidden,
 } from "../src/lib/hearth-ready-scripts";
+import {
+  getWorkpieceImageMap,
+  saveWorkpieceImageMap,
+} from "../src/lib/hearth-image-map-repo";
 import { readHearthPrimaryScript } from "../src/lib/hearth-script-repo";
 import {
   listHearthWorkpieces,
@@ -297,6 +301,106 @@ function installReadyQueueFetchHarness() {
     },
     listRequests,
     queueUpdates,
+  };
+}
+
+function installImageMapFetchHarness() {
+  const originalFetch = globalThis.fetch;
+  const getRequests: string[] = [];
+  const saveRequests: Array<{
+    workpieceId: string;
+    body: {
+      workspace_id?: string;
+      entries?: unknown[];
+      expected_metadata_updated_at?: string | null;
+    };
+  }> = [];
+  let getPayload: unknown = {
+    image_map: {
+      workpiece_id: WORKPIECE_A,
+      workspace_id: WORKSPACE_ID,
+      entries: [],
+      metadata_updated_at: null,
+    },
+    asset: null,
+  };
+  let savePayload: unknown = getPayload;
+  let conflictMode = false;
+
+  globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+    const rawUrl = typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : String(input);
+    const url = new URL(rawUrl, "https://example.test");
+    const match = url.pathname.match(/^\/tongs\/workpieces\/([^/]+)\/image-map$/);
+    if (!match) {
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    const workpieceId = decodeURIComponent(match[1] ?? "");
+    const method = init?.method ?? "GET";
+    if (method === "GET") {
+      getRequests.push(workpieceId);
+      return new Response(JSON.stringify({
+        ok: true,
+        data: getPayload,
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    const body = init?.body
+      ? JSON.parse(String(init.body)) as {
+        workspace_id?: string;
+        entries?: unknown[];
+        expected_metadata_updated_at?: string | null;
+      }
+      : {};
+    saveRequests.push({ workpieceId, body });
+
+    if (conflictMode) {
+      return new Response(JSON.stringify({
+        ok: false,
+        error: {
+          code: "image_map_conflict",
+          message: "Image map changed since last load.",
+        },
+      }), {
+        status: 409,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({
+      ok: true,
+      data: savePayload,
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  return {
+    restore() {
+      globalThis.fetch = originalFetch;
+    },
+    setGetPayload(value: unknown) {
+      getPayload = value;
+    },
+    setSavePayload(value: unknown) {
+      savePayload = value;
+    },
+    setConflictMode(value: boolean) {
+      conflictMode = value;
+    },
+    getRequests,
+    saveRequests,
   };
 }
 
@@ -605,6 +709,152 @@ async function testReadyQueueHiddenMutationPayload() {
       workspaceId: WORKSPACE_ID,
       entries: [{ workpiece_id: WORKPIECE_A, hidden: true }],
     });
+  } finally {
+    harness.restore();
+  }
+}
+
+async function testImageMapRepoReadNormalizesSemanticEntriesAndAssetSummary() {
+  resetLocalStorage();
+  const harness = installImageMapFetchHarness();
+  harness.setGetPayload({
+    image_map: {
+      workpiece_id: WORKPIECE_A,
+      workspace_id: WORKSPACE_ID,
+      entries: [
+        {
+          id: "image-map-01",
+          anchor: "s1:para1",
+          description: "wide skyline",
+          intent: "broll",
+          source_type: "script",
+          placement_hint: "after-hook",
+        },
+      ],
+      metadata_updated_at: "2026-03-10T16:20:00.000Z",
+    },
+    asset: {
+      id: "asset-image-map",
+      asset_kind: "image_map_json",
+      status: "ready",
+      path: "assets/image-map/image-map.v1.json",
+      storage_bucket: "forge-workpieces",
+      storage_key: `workpieces/${WORKPIECE_A}/assets/image-map/image-map.v1.json`,
+      metadata_json: {
+        schema: "forge.image-map.v1",
+        entry_count: 1,
+      },
+      created_at: "2026-03-10T16:20:00.000Z",
+      updated_at: "2026-03-10T16:20:00.000Z",
+      supersedes_asset_id: null,
+    },
+  });
+
+  try {
+    const result = await getWorkpieceImageMap(WORKPIECE_A);
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.imageMap.workpieceId, WORKPIECE_A);
+      assert.equal(result.imageMap.workspaceId, WORKSPACE_ID);
+      assert.equal(result.imageMap.entries[0]?.source_type, "stock");
+      assert.equal(result.imageMap.metadataUpdatedAt, "2026-03-10T16:20:00.000Z");
+      assert.equal(result.imageMap.asset?.assetKind, "image_map_json");
+      assert.equal(result.imageMap.asset?.entryCount, 1);
+    }
+    assert.deepEqual(harness.getRequests, [WORKPIECE_A]);
+  } finally {
+    harness.restore();
+  }
+}
+
+async function testImageMapRepoSaveForwardsExpectedTimestampAndReturnsLatestOnConflict() {
+  resetLocalStorage();
+  const harness = installImageMapFetchHarness();
+  harness.setSavePayload({
+    image_map: {
+      workpiece_id: WORKPIECE_A,
+      workspace_id: WORKSPACE_ID,
+      entries: [
+        {
+          id: "image-map-01",
+          anchor: "s1:para1",
+          description: "wide skyline",
+          intent: "broll",
+          source_type: "stock",
+          placement_hint: "after-hook",
+        },
+      ],
+      metadata_updated_at: "2026-03-10T16:25:00.000Z",
+    },
+    asset: {
+      id: "asset-image-map-next",
+      asset_kind: "image_map_json",
+      status: "ready",
+      path: "assets/image-map/image-map.v1.json",
+      storage_bucket: "forge-workpieces",
+      storage_key: `workpieces/${WORKPIECE_A}/assets/image-map/image-map.v1.json`,
+      metadata_json: {
+        schema: "forge.image-map.v1",
+        entry_count: 1,
+      },
+      created_at: "2026-03-10T16:25:00.000Z",
+      updated_at: "2026-03-10T16:25:00.000Z",
+      supersedes_asset_id: "asset-image-map",
+    },
+  });
+
+  try {
+    const saveResult = await saveWorkpieceImageMap({
+      workpieceId: WORKPIECE_A,
+      workspaceId: WORKSPACE_ID,
+      entries: [
+        {
+          id: "image-map-01",
+          anchor: "s1:para1",
+          description: "wide skyline",
+          intent: "broll",
+          source_type: "stock",
+          placement_hint: "after-hook",
+        },
+      ],
+      expectedMetadataUpdatedAt: "2026-03-10T16:20:00.000Z",
+    });
+    assert.equal(saveResult.ok, true);
+    assert.equal(harness.saveRequests.length, 1);
+    assert.equal(harness.saveRequests[0]?.body.expected_metadata_updated_at, "2026-03-10T16:20:00.000Z");
+
+    harness.setConflictMode(true);
+    harness.setGetPayload({
+      image_map: {
+        workpiece_id: WORKPIECE_A,
+        workspace_id: WORKSPACE_ID,
+        entries: [
+          {
+            id: "image-map-latest",
+            anchor: "s1:para9",
+            description: "latest state",
+            intent: "graphic",
+            source_type: "stock",
+            placement_hint: null,
+          },
+        ],
+        metadata_updated_at: "2026-03-10T16:30:00.000Z",
+      },
+      asset: null,
+    });
+
+    const conflictResult = await saveWorkpieceImageMap({
+      workpieceId: WORKPIECE_A,
+      workspaceId: WORKSPACE_ID,
+      entries: [],
+      expectedMetadataUpdatedAt: "2026-03-10T16:25:00.000Z",
+    });
+    assert.equal(conflictResult.ok, false);
+    if (!conflictResult.ok) {
+      assert.equal(conflictResult.reason, "conflict");
+      assert.equal(conflictResult.latest?.entries[0]?.id, "image-map-latest");
+      assert.equal(conflictResult.latest?.metadataUpdatedAt, "2026-03-10T16:30:00.000Z");
+    }
   } finally {
     harness.restore();
   }
@@ -979,6 +1229,8 @@ async function run() {
   await testReadyScriptsRoundtripIgnoresLegacyLocalOrder();
   await testReadyQueueReorderPayload();
   await testReadyQueueHiddenMutationPayload();
+  await testImageMapRepoReadNormalizesSemanticEntriesAndAssetSummary();
+  await testImageMapRepoSaveForwardsExpectedTimestampAndReturnsLatestOnConflict();
   await testWorkpieceListRoundtripAndPrimaryScriptRead();
   await testWorkpieceNavModelStaysWorkpieceFirst();
   await testActiveWorkpieceContextResolvesAttachedArtifactsWithoutCreatingNavRows();

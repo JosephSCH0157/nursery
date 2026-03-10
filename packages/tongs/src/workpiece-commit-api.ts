@@ -50,10 +50,20 @@ const WORKSPACE_ROLE_RANK: Record<WorkspaceRole, number> = {
 };
 const THUMBNAIL_ASSET_PREFIX = "assets/thumbnails";
 const THUMBNAIL_DEFAULT_STYLE_HINT = "Clean, high-contrast YouTube thumbnail composition.";
+const IMAGE_MAP_ASSET_PATH = "assets/image-map/image-map.v1.json";
+const IMAGE_MAP_ASSET_KIND = "image_map_json" as const;
+const IMAGE_MAP_ASSET_SCHEMA = "forge.image-map.v1" as const;
+const IMAGE_MAP_ASSET_STATUS_VALUES = ["ready", "superseded"] as const;
+const IMAGE_MAP_ASSET_STATUS_SET = new Set<string>(IMAGE_MAP_ASSET_STATUS_VALUES);
+const IMAGE_MAP_INTENT_VALUES = ["broll", "graphic", "lower-third", "archival", "cutaway", "other"] as const;
+const IMAGE_MAP_INTENT_SET = new Set<string>(IMAGE_MAP_INTENT_VALUES);
+const IMAGE_MAP_SOURCE_TYPE_VALUES = ["ai", "stock", "archival", "custom"] as const;
+const IMAGE_MAP_SOURCE_TYPE_SET = new Set<string>(IMAGE_MAP_SOURCE_TYPE_VALUES);
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
+type AssetRow = Database["tongs"]["Tables"]["assets"]["Row"];
 type EpisodeRow = Database["tongs"]["Tables"]["episodes"]["Row"];
 type RecordingSessionRow = Database["tongs"]["Tables"]["recording_sessions"]["Row"];
 type RecordingSessionEpisodeRow = Database["tongs"]["Tables"]["recording_session_episodes"]["Row"];
@@ -311,6 +321,15 @@ export type EpisodeThumbnailConceptRecord = {
   style_preset: string | null;
 };
 
+export type EpisodeImageMapEntryRecord = {
+  id: string;
+  anchor: string;
+  description: string;
+  intent: string;
+  source_type: string;
+  placement_hint?: string | null;
+};
+
 export type EpisodePackageRecord = {
   schema: "forge.episode.package.v2";
   seo: {
@@ -325,8 +344,40 @@ export type EpisodePackageRecord = {
     primary_version_id: string | null;
   };
   image_map: {
-    entries: JsonValue[];
+    entries: EpisodeImageMapEntryRecord[];
   };
+};
+
+export type ImageMapAssetSummary = {
+  id: string;
+  asset_kind: typeof IMAGE_MAP_ASSET_KIND;
+  status: "ready";
+  path: typeof IMAGE_MAP_ASSET_PATH;
+  storage_bucket: string;
+  storage_key: string;
+  metadata_json: {
+    schema: typeof IMAGE_MAP_ASSET_SCHEMA;
+    entry_count: number;
+  };
+  created_at: string;
+  updated_at: string;
+  supersedes_asset_id: string | null;
+};
+
+export type WorkpieceImageMapResponseData = {
+  image_map: {
+    workpiece_id: string;
+    workspace_id: string;
+    entries: EpisodeImageMapEntryRecord[];
+    metadata_updated_at: string | null;
+  };
+  asset: ImageMapAssetSummary | null;
+};
+
+export type SaveWorkpieceImageMapRequest = {
+  workspace_id: string;
+  entries: EpisodeImageMapEntryRecord[];
+  expected_metadata_updated_at?: string | null;
 };
 
 export type GenerateEpisodeThumbnailRequest = {
@@ -491,6 +542,15 @@ export type TongsCommitApiService = {
     input: UpdateWorkspaceReadyQueueStateRequest,
     options?: { userAccessToken?: string | null },
   ): Promise<UpdateWorkspaceReadyQueueStateResult>;
+  getWorkpieceImageMap(
+    workpieceId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<WorkpieceImageMapResponseData>;
+  saveWorkpieceImageMap(
+    workpieceId: string,
+    input: SaveWorkpieceImageMapRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<WorkpieceImageMapResponseData>;
   appendEvent(workpieceId: string, input: AppendEventRequest): Promise<WorkpieceEventRow>;
   readWorkpieceJson(workpieceId: string, path: string): Promise<ReadJsonFileResult>;
   readWorkspaceJson(workspaceId: string, path: string): Promise<ReadJsonFileResult>;
@@ -1749,6 +1809,136 @@ function normalizeUpdateWorkspaceReadyQueueStateRequest(
   return { entries };
 }
 
+function normalizeImageMapIntent(value: unknown): string {
+  const normalized = readStringField({ value }, "value")?.toLowerCase() ?? null;
+  if (!normalized) return "other";
+  return IMAGE_MAP_INTENT_SET.has(normalized) ? normalized : "other";
+}
+
+function normalizeImageMapSourceType(value: unknown): string {
+  const normalized = readStringField({ value }, "value")?.toLowerCase() ?? null;
+  if (!normalized) return "stock";
+  return IMAGE_MAP_SOURCE_TYPE_SET.has(normalized) ? normalized : "stock";
+}
+
+function normalizeEpisodeImageMapEntry(
+  value: unknown,
+  index: number,
+): EpisodeImageMapEntryRecord {
+  if (!isRecord(value)) {
+    throw new HttpError(400, "invalid_entries", `entries[${index}] must be an object`);
+  }
+
+  const fallbackId = `image-map-${String(index + 1).padStart(2, "0")}`;
+  const id = readStringField(value, "id") ?? fallbackId;
+  const anchor = readStringField(value, "anchor");
+  if (!anchor) {
+    throw new HttpError(400, "invalid_entries", `entries[${index}].anchor must be a non-empty string`);
+  }
+
+  const descriptionRaw = value.description;
+  const description = typeof descriptionRaw === "string"
+    ? descriptionRaw
+    : descriptionRaw == null
+      ? ""
+      : String(descriptionRaw);
+
+  return {
+    id,
+    anchor,
+    description,
+    intent: normalizeImageMapIntent(value.intent),
+    source_type: normalizeImageMapSourceType(value.source_type),
+    placement_hint: readStringField(value, "placement_hint"),
+  };
+}
+
+function normalizeEpisodeImageMapEntries(value: unknown): EpisodeImageMapEntryRecord[] {
+  if (!Array.isArray(value)) return [];
+  const out: EpisodeImageMapEntryRecord[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    out.push(normalizeEpisodeImageMapEntry(value[index], index));
+  }
+  return out;
+}
+
+function normalizeSaveWorkpieceImageMapRequest(
+  body: Record<string, unknown>,
+): SaveWorkpieceImageMapRequest {
+  const rawEntries = body.entries;
+  if (!Array.isArray(rawEntries)) {
+    throw new HttpError(400, "invalid_entries", "entries must be an array");
+  }
+
+  const entries = normalizeEpisodeImageMapEntries(rawEntries);
+  const seenIds = new Set<string>();
+  for (const entry of entries) {
+    if (seenIds.has(entry.id)) {
+      throw new HttpError(400, "duplicate_entry_id", "entries must not contain duplicate ids", {
+        entry_id: entry.id,
+      });
+    }
+    seenIds.add(entry.id);
+  }
+
+  return {
+    workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+    entries,
+    ...(Object.prototype.hasOwnProperty.call(body, "expected_metadata_updated_at")
+      ? {
+        expected_metadata_updated_at: body.expected_metadata_updated_at === null
+          ? null
+          : normalizeIsoTimestamp(body.expected_metadata_updated_at, "expected_metadata_updated_at"),
+      }
+      : {}),
+  };
+}
+
+function buildImageMapAssetDocument(
+  workpieceId: string,
+  entries: EpisodeImageMapEntryRecord[],
+): Record<string, unknown> {
+  return {
+    schema: IMAGE_MAP_ASSET_SCHEMA,
+    workpiece_id: workpieceId,
+    entries,
+  };
+}
+
+function readImageMapAssetMetadata(value: unknown): ImageMapAssetSummary["metadata_json"] | null {
+  if (!isRecord(value)) return null;
+  const schema = readStringField(value, "schema");
+  const entryCountRaw = value.entry_count;
+  if (schema !== IMAGE_MAP_ASSET_SCHEMA || typeof entryCountRaw !== "number" || !Number.isFinite(entryCountRaw)) {
+    return null;
+  }
+  return {
+    schema: IMAGE_MAP_ASSET_SCHEMA,
+    entry_count: Math.max(0, Math.trunc(entryCountRaw)),
+  };
+}
+
+function normalizeImageMapAssetSummary(row: AssetRow | null | undefined): ImageMapAssetSummary | null {
+  if (!row) return null;
+  if (row.asset_kind !== IMAGE_MAP_ASSET_KIND || row.status !== "ready" || row.path !== IMAGE_MAP_ASSET_PATH) {
+    return null;
+  }
+  const metadataJson = readImageMapAssetMetadata(row.metadata_json);
+  if (!metadataJson) return null;
+  return {
+    id: row.id,
+    asset_kind: IMAGE_MAP_ASSET_KIND,
+    status: "ready",
+    path: IMAGE_MAP_ASSET_PATH,
+    storage_bucket: row.storage_bucket,
+    storage_key: row.storage_key,
+    metadata_json: metadataJson,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    supersedes_asset_id: row.supersedes_asset_id,
+  };
+}
+
 function randomId(prefix: string): string {
   const cryptoApi = globalThis.crypto as Crypto | undefined;
   if (cryptoApi && typeof cryptoApi.randomUUID === "function") {
@@ -1890,7 +2080,7 @@ function normalizeEpisodePackageRecord(metadata: Record<string, unknown>): Episo
       primary_version_id: readStringField(thumbnailRoot, "primary_version_id"),
     },
     image_map: {
-      entries: Array.isArray(imageMapRoot.entries) ? imageMapRoot.entries as JsonValue[] : [],
+      entries: normalizeEpisodeImageMapEntries(imageMapRoot.entries),
     },
   };
 }
@@ -2509,6 +2699,111 @@ export class TongsCommitService {
       throw new HttpError(400, "workspace_mismatch", "workpiece_id must belong to workspace_id");
     }
     return cradle;
+  }
+
+  private async readWorkpieceImageMapState(
+    workpieceId: string,
+    workspaceId: string,
+  ): Promise<{
+    metadata: Record<string, unknown>;
+    episodePackage: EpisodePackageRecord;
+    metadataUpdatedAt: string | null;
+  }> {
+    const metadataRead = await this.readWorkpieceJson(workpieceId, "metadata.json");
+    const metadataRaw = (
+      metadataRead.found
+      && metadataRead.data
+      && typeof metadataRead.data === "object"
+      && !Array.isArray(metadataRead.data)
+    )
+      ? (metadataRead.data as Record<string, unknown>)
+      : null;
+    const metadata = ensureMetadataBase({
+      metadata: metadataRaw,
+      workpieceId,
+      workspaceId,
+    });
+    const episodePackage = normalizeEpisodePackageRecord(metadata);
+    return {
+      metadata,
+      episodePackage,
+      metadataUpdatedAt: metadataRead.found ? metadataRead.file_row?.updated_at ?? null : null,
+    };
+  }
+
+  private async getCurrentReadyImageMapAsset(
+    workspaceId: string,
+    workpieceId: string,
+  ): Promise<AssetRow | null> {
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("assets")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .eq("workpiece_id", workpieceId)
+      .eq("asset_kind", IMAGE_MAP_ASSET_KIND)
+      .eq("status", "ready")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to read current image map asset", {
+        reason: error.message,
+      });
+    }
+
+    return data?.[0] ?? null;
+  }
+
+  private async supersedeImageMapAsset(assetId: string): Promise<void> {
+    const { error } = await this.supabase
+      .schema("tongs")
+      .from("assets")
+      .update({ status: "superseded" })
+      .eq("id", assetId);
+
+    if (error) {
+      throw new HttpError(502, "db_write_failed", "Failed to supersede prior image map asset", {
+        reason: error.message,
+      });
+    }
+  }
+
+  private async insertImageMapAssetRow(
+    row: Database["tongs"]["Tables"]["assets"]["Insert"],
+  ): Promise<AssetRow> {
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("assets")
+      .insert(row)
+      .select("*")
+      .single();
+
+    if (error || !data) {
+      throw new HttpError(502, "db_write_failed", "Failed to register image map asset", {
+        reason: error?.message ?? "missing_asset_row",
+      });
+    }
+
+    return data;
+  }
+
+  private buildWorkpieceImageMapResponse(args: {
+    workpieceId: string;
+    workspaceId: string;
+    entries: EpisodeImageMapEntryRecord[];
+    metadataUpdatedAt: string | null;
+    assetRow: AssetRow | null;
+  }): WorkpieceImageMapResponseData {
+    return {
+      image_map: {
+        workpiece_id: args.workpieceId,
+        workspace_id: args.workspaceId,
+        entries: args.entries,
+        metadata_updated_at: args.metadataUpdatedAt,
+      },
+      asset: normalizeImageMapAssetSummary(args.assetRow),
+    };
   }
 
   async listHearthWorkpiecePresence(
@@ -4060,6 +4355,142 @@ export class TongsCommitService {
     }));
   }
 
+  async getWorkpieceImageMap(
+    workpieceId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<WorkpieceImageMapResponseData> {
+    const cradle = await this.getCradleOrThrow(workpieceId);
+    await this.assertWorkspaceRoleFromAccessToken(cradle.workspace_id, "viewer", options?.userAccessToken);
+
+    const state = await this.readWorkpieceImageMapState(workpieceId, cradle.workspace_id);
+    const assetRow = await this.getCurrentReadyImageMapAsset(cradle.workspace_id, workpieceId);
+    return this.buildWorkpieceImageMapResponse({
+      workpieceId,
+      workspaceId: cradle.workspace_id,
+      entries: state.episodePackage.image_map.entries,
+      metadataUpdatedAt: state.metadataUpdatedAt,
+      assetRow,
+    });
+  }
+
+  async saveWorkpieceImageMap(
+    workpieceId: string,
+    input: SaveWorkpieceImageMapRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<WorkpieceImageMapResponseData> {
+    await this.getWorkspaceOrThrow(input.workspace_id);
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+
+    const current = await this.readWorkpieceImageMapState(workpieceId, input.workspace_id);
+    const currentReadyAsset = await this.getCurrentReadyImageMapAsset(input.workspace_id, workpieceId);
+    if (typeof input.expected_metadata_updated_at !== "undefined") {
+      const expected = input.expected_metadata_updated_at ?? null;
+      const currentMetadataUpdatedAt = current.metadataUpdatedAt ?? null;
+      if (currentMetadataUpdatedAt !== expected) {
+        throw new HttpError(409, "image_map_conflict", "Image map changed since last load.", {
+          expected_metadata_updated_at: expected,
+          current_metadata_updated_at: currentMetadataUpdatedAt,
+        });
+      }
+    }
+
+    const nextEpisodePackage: EpisodePackageRecord = {
+      ...current.episodePackage,
+      image_map: {
+        entries: input.entries,
+      },
+    };
+    const nextMetadata = mirrorEpisodePackageToMetadata(
+      {
+        ...current.metadata,
+      },
+      nextEpisodePackage,
+    );
+    const writtenBy: WrittenBy = {
+      tool: "hearth",
+      tool_version: "0.0.0",
+      lane: "forge-managed",
+    };
+
+    let metadataCommit: CommitFileResponse;
+    try {
+      metadataCommit = await this.commitFile(workpieceId, {
+        path: "metadata.json",
+        content_type: "application/json",
+        json: nextMetadata,
+        written_by: writtenBy,
+        event_name: "hearth.image_map.package.saved.v1",
+        event_payload: {
+          entry_count: input.entries.length,
+        } as Json,
+        correlation_id: randomUuid(),
+        ...(typeof input.expected_metadata_updated_at !== "undefined" && input.expected_metadata_updated_at !== null
+          ? { expected_previous_updated_at: input.expected_metadata_updated_at }
+          : {}),
+      });
+    } catch (error) {
+      if (error instanceof HttpError && error.code === "file_conflict") {
+        const details = (error.details && typeof error.details === "object")
+          ? error.details as Record<string, unknown>
+          : null;
+        throw new HttpError(409, "image_map_conflict", "Image map changed since last load.", {
+          expected_metadata_updated_at: readStringField(details ?? {}, "expected_previous_updated_at"),
+          current_metadata_updated_at: readStringField(details ?? {}, "current_updated_at"),
+        });
+      }
+      throw error;
+    }
+
+    const assetCommit = await this.commitFile(workpieceId, {
+      path: IMAGE_MAP_ASSET_PATH,
+      content_type: "application/json",
+      file_type: "json",
+      json: buildImageMapAssetDocument(workpieceId, input.entries),
+      written_by: writtenBy,
+      event_name: "hearth.image_map.asset.saved.v1",
+      event_payload: {
+        entry_count: input.entries.length,
+        supersedes_asset_id: currentReadyAsset?.id ?? null,
+      } as Json,
+      correlation_id: randomUuid(),
+    });
+
+    if (currentReadyAsset) {
+      await this.supersedeImageMapAsset(currentReadyAsset.id);
+    }
+
+    const assetRow = await this.insertImageMapAssetRow({
+      workspace_id: input.workspace_id,
+      workpiece_id: workpieceId,
+      path: IMAGE_MAP_ASSET_PATH,
+      mime_type: "application/json",
+      bytes: assetCommit.bytes,
+      storage_bucket: assetCommit.file_row.storage_bucket,
+      storage_key: assetCommit.storage_key,
+      provider: "hearth",
+      provider_request_id: null,
+      request_id: assetCommit.event.correlation_id ?? assetCommit.event.id.toString(),
+      prompt: null,
+      created_by: auth.userId,
+      asset_kind: IMAGE_MAP_ASSET_KIND,
+      status: "ready",
+      metadata_json: {
+        schema: IMAGE_MAP_ASSET_SCHEMA,
+        entry_count: input.entries.length,
+      } as Json,
+      supersedes_asset_id: currentReadyAsset?.id ?? null,
+    });
+
+    return this.buildWorkpieceImageMapResponse({
+      workpieceId,
+      workspaceId: input.workspace_id,
+      entries: nextEpisodePackage.image_map.entries,
+      metadataUpdatedAt: metadataCommit.file_row.updated_at ?? current.metadata.updated_at ?? null,
+      assetRow,
+    });
+  }
+
   async listWorkspaceReadyScripts(
     workspaceId: string,
     options?: ListWorkspaceReadyScriptsOptions,
@@ -4580,6 +5011,25 @@ export function createTongsCommitApiHandlerWithService(
         const payload = normalizeGenerateEpisodeThumbnailRequest(body, workpieceId, userAccessToken);
         const result = await service.generateEpisodeThumbnail(workpieceId, payload);
         return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "image-map") {
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+
+        if (request.method === "GET") {
+          const result = await service.getWorkpieceImageMap(workpieceId, { userAccessToken });
+          return jsonResponse(200, { ok: true, data: result });
+        }
+
+        if (request.method === "PUT") {
+          const body = await parseJsonBody(request);
+          const payload = normalizeSaveWorkpieceImageMapRequest(body);
+          const result = await service.saveWorkpieceImageMap(workpieceId, payload, { userAccessToken });
+          return jsonResponse(200, { ok: true, data: result });
+        }
+
+        throw new HttpError(405, "method_not_allowed", "Method not allowed");
       }
 
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "ready-scripts") {

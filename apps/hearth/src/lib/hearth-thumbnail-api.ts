@@ -72,7 +72,7 @@ export type GenerateEpisodeThumbnailResult =
     };
 
 export type SaveEpisodePackageResult =
-  | { ok: true; status: number; episodePackage: EpisodePackageV2 }
+  | { ok: true; status: number; episodePackage: EpisodePackageV2; metadataUpdatedAt: string | null }
   | { ok: false; status: number; error: string };
 
 export type ThumbnailPreviewResult =
@@ -355,7 +355,10 @@ async function commitMetadataDocument(args: {
   metadata: Record<string, unknown>;
   eventName: string;
   eventPayload: Record<string, unknown>;
-}): Promise<{ ok: true; status: number } | { ok: false; status: number; error: string }> {
+}): Promise<
+  | { ok: true; status: number; metadataUpdatedAt: string | null }
+  | { ok: false; status: number; error: string }
+> {
   const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/commit-file`, {
     method: "POST",
     json: {
@@ -381,6 +384,11 @@ async function commitMetadataDocument(args: {
   return {
     ok: true,
     status: response.status,
+    metadataUpdatedAt: isRecord(body)
+      && isRecord(body.data)
+      && isRecord(body.data.file_row)
+      ? readString(body.data.file_row.updated_at)
+      : null,
   };
 }
 
@@ -443,6 +451,7 @@ export async function saveEpisodePackageForWorkpiece(args: {
     ok: true,
     status: committed.status,
     episodePackage: hydrateEpisodePackageV2(nextMetadata),
+    metadataUpdatedAt: committed.metadataUpdatedAt,
   };
 }
 

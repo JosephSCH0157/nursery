@@ -21,6 +21,8 @@ function mockService() {
     listSessionEpisodes: [],
     listWorkspaceEpisodes: [],
     listWorkspaceReadyScripts: [],
+    getWorkpieceImageMap: [],
+    saveWorkpieceImageMap: [],
     updateWorkspaceReadyQueueState: [],
     deleteReadyScript: [],
     appendEvent: [],
@@ -330,6 +332,67 @@ function mockService() {
           hidden_by: null,
         },
       ];
+    },
+    async getWorkpieceImageMap(workpieceId, options) {
+      calls.getWorkpieceImageMap.push({ workpieceId, options: options ?? null });
+      return {
+        image_map: {
+          workpiece_id: workpieceId,
+          workspace_id: "11111111-1111-4111-8111-111111111111",
+          entries: [
+            {
+              id: "image-map-01",
+              anchor: "s1:para1",
+              description: "city skyline",
+              intent: "broll",
+              source_type: "stock",
+              placement_hint: null,
+            },
+          ],
+          metadata_updated_at: "2026-03-10T15:00:00.000Z",
+        },
+        asset: {
+          id: "66666666-6666-4666-8666-666666666666",
+          asset_kind: "image_map_json",
+          status: "ready",
+          path: "assets/image-map/image-map.v1.json",
+          storage_bucket: "forge-workpieces",
+          storage_key: `workpieces/${workpieceId}/assets/image-map/image-map.v1.json`,
+          metadata_json: {
+            schema: "forge.image-map.v1",
+            entry_count: 1,
+          },
+          created_at: "2026-03-10T15:00:00.000Z",
+          updated_at: "2026-03-10T15:00:00.000Z",
+          supersedes_asset_id: null,
+        },
+      };
+    },
+    async saveWorkpieceImageMap(workpieceId, input, options) {
+      calls.saveWorkpieceImageMap.push({ workpieceId, input, options: options ?? null });
+      return {
+        image_map: {
+          workpiece_id: workpieceId,
+          workspace_id: input.workspace_id,
+          entries: input.entries,
+          metadata_updated_at: "2026-03-10T15:05:00.000Z",
+        },
+        asset: {
+          id: "77777777-7777-4777-8777-777777777777",
+          asset_kind: "image_map_json",
+          status: "ready",
+          path: "assets/image-map/image-map.v1.json",
+          storage_bucket: "forge-workpieces",
+          storage_key: `workpieces/${workpieceId}/assets/image-map/image-map.v1.json`,
+          metadata_json: {
+            schema: "forge.image-map.v1",
+            entry_count: input.entries.length,
+          },
+          created_at: "2026-03-10T15:05:00.000Z",
+          updated_at: "2026-03-10T15:05:00.000Z",
+          supersedes_asset_id: "66666666-6666-4666-8666-666666666666",
+        },
+      };
     },
     async updateWorkspaceReadyQueueState(workspaceId, input, options) {
       calls.updateWorkspaceReadyQueueState.push({ workspaceId, input, options: options ?? null });
@@ -831,6 +894,100 @@ function createReadyQueueSupabase({
   };
 }
 
+function createImageMapAssetSupabase({ assets = [] } = {}) {
+  const state = {
+    assetRows: assets.map((row) => ({ ...row })),
+    insertCalls: [],
+    updateCalls: [],
+  };
+
+  return {
+    state,
+    schema(schemaName) {
+      assert.equal(schemaName, "tongs");
+      return {
+        from(tableName) {
+          if (tableName !== "assets") {
+            throw new Error(`Unexpected table: ${tableName}`);
+          }
+
+          return {
+            select() {
+              const filters = {};
+              return {
+                eq(field, value) {
+                  filters[field] = value;
+                  return this;
+                },
+                order(field, options) {
+                  return {
+                    async limit(limit) {
+                      const rows = state.assetRows
+                        .filter((row) => Object.entries(filters).every(([key, value]) => row[key] === value))
+                        .sort((left, right) => {
+                          const leftValue = left[field] ?? null;
+                          const rightValue = right[field] ?? null;
+                          if (leftValue === rightValue) return 0;
+                          if (leftValue == null) return 1;
+                          if (rightValue == null) return -1;
+                          return options?.ascending === false
+                            ? String(rightValue).localeCompare(String(leftValue))
+                            : String(leftValue).localeCompare(String(rightValue));
+                        });
+                      return {
+                        data: rows.slice(0, limit).map((row) => ({ ...row })),
+                        error: null,
+                      };
+                    },
+                  };
+                },
+              };
+            },
+            insert(row) {
+              const inserted = {
+                created_at: row.created_at ?? "2026-03-10T16:05:00.000Z",
+                updated_at: row.updated_at ?? "2026-03-10T16:05:00.000Z",
+                ...row,
+              };
+              return {
+                select() {
+                  return {
+                    async single() {
+                      state.insertCalls.push({ ...inserted });
+                      state.assetRows.push({ ...inserted });
+                      return {
+                        data: { ...inserted },
+                        error: null,
+                      };
+                    },
+                  };
+                },
+              };
+            },
+            update(patch) {
+              return {
+                async eq(field, value) {
+                  state.updateCalls.push({ patch: { ...patch }, [field]: value });
+                  state.assetRows = state.assetRows.map((row) => (
+                    row[field] === value
+                      ? {
+                        ...row,
+                        ...patch,
+                        updated_at: "2026-03-10T16:05:00.000Z",
+                      }
+                      : row
+                  ));
+                  return { data: null, error: null };
+                },
+              };
+            },
+          };
+        },
+      };
+    },
+  };
+}
+
 function createManifestFixture(workpieceId, workspaceId) {
   const now = "2026-03-02T00:00:00.000Z";
   return {
@@ -1014,6 +1171,92 @@ test("POST /tongs/workpieces/:id/generate-thumbnail dispatches generateEpisodeTh
   assert.equal(body.data?.version?.status, "ready");
   assert.equal(typeof body.data?.asset?.storage_key, "string");
   assert.equal(body.data?.primary_version_id, "44444444-4444-4444-8444-444444444444");
+});
+
+test("GET /tongs/workpieces/:id/image-map dispatches getWorkpieceImageMap", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/image-map",
+    {
+      method: "GET",
+      headers: {
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.getWorkpieceImageMap.length, 1);
+  assert.equal(calls.getWorkpieceImageMap[0]?.workpieceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.getWorkpieceImageMap[0]?.options?.userAccessToken, "user_token_abc");
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.image_map?.workpiece_id, "11111111-1111-4111-8111-111111111111");
+  assert.equal(body.data?.asset?.asset_kind, "image_map_json");
+});
+
+test("PUT /tongs/workpieces/:id/image-map dispatches saveWorkpieceImageMap", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/image-map",
+    {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+      body: JSON.stringify({
+        workspace_id: "11111111-1111-4111-8111-111111111111",
+        entries: [
+          {
+            id: "image-map-01",
+            anchor: "s1:para1",
+            description: "city skyline",
+            intent: "broll",
+            source_type: "stock",
+            placement_hint: null,
+          },
+        ],
+        expected_metadata_updated_at: "2026-03-10T15:00:00.000Z",
+      }),
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.saveWorkpieceImageMap.length, 1);
+  assert.equal(calls.saveWorkpieceImageMap[0]?.workpieceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.saveWorkpieceImageMap[0]?.options?.userAccessToken, "user_token_abc");
+  assert.equal(calls.saveWorkpieceImageMap[0]?.input?.workspace_id, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.saveWorkpieceImageMap[0]?.input?.expected_metadata_updated_at, "2026-03-10T15:00:00.000Z");
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.asset?.metadata_json?.entry_count, 1);
+});
+
+test("GET /tongs/workpieces/:id/image-map requires x-forge-user-authorization header", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/image-map",
+    { method: "GET" },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.equal(body.ok, false);
+  assert.equal(body.error?.code, "missing_user_token_header");
+  assert.equal(calls.getWorkpieceImageMap.length, 0);
 });
 
 test("GET /tongs/workpieces/:id/read-file?encoding=base64 dispatches readWorkpieceBinary", async () => {
@@ -1967,6 +2210,321 @@ test("TongsCommitService.listWorkspaceEpisodes returns workspace-scoped summarie
   assert.equal(result[0]?.label, "Newest Episode");
   assert.equal(result[1]?.label, "Older Episode");
   assert.equal(result.some((row) => row.workspace_id === otherWorkspaceId), false);
+});
+
+test("TongsCommitService.getWorkpieceImageMap returns normalized semantic entries plus current asset summary", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const viewerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const { ...supabase } = createImageMapAssetSupabase({
+    assets: [
+      {
+        id: "asset-current",
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        path: "assets/image-map/image-map.v1.json",
+        mime_type: "application/json",
+        bytes: 123,
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${workpieceId}/assets/image-map/image-map.v1.json`,
+        provider: "hearth",
+        provider_request_id: null,
+        request_id: "req-current",
+        prompt: null,
+        created_by: viewerId,
+        created_at: "2026-03-10T16:00:00.000Z",
+        updated_at: "2026-03-10T16:00:00.000Z",
+        asset_kind: "image_map_json",
+        status: "ready",
+        metadata_json: {
+          schema: "forge.image-map.v1",
+          entry_count: 1,
+        },
+        supersedes_asset_id: null,
+      },
+    ],
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getCradleOrThrow = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-02T00:00:00.000Z",
+    updated_at: "2026-03-02T00:00:00.000Z",
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: viewerId, role: "viewer" });
+  service.readWorkpieceJson = async () => ({
+    found: true,
+    data: {
+      episode: {
+        schema: "forge.episode.package.v2",
+        image_map: {
+          entries: [
+            {
+              id: "image-map-01",
+              anchor: "s1:para1",
+              description: "wide city skyline",
+              intent: "broll",
+              source_type: "script",
+              placement_hint: "after-hook",
+            },
+          ],
+        },
+      },
+    },
+    file_row: { updated_at: "2026-03-10T15:59:00.000Z" },
+  });
+
+  const result = await service.getWorkpieceImageMap(workpieceId, {
+    userAccessToken: "viewer_token",
+  });
+
+  assert.equal(result.image_map.workpiece_id, workpieceId);
+  assert.equal(result.image_map.workspace_id, workspaceId);
+  assert.equal(result.image_map.metadata_updated_at, "2026-03-10T15:59:00.000Z");
+  assert.equal(result.image_map.entries.length, 1);
+  assert.equal(result.image_map.entries[0]?.source_type, "stock");
+  assert.equal(result.asset?.asset_kind, "image_map_json");
+  assert.equal(result.asset?.metadata_json.entry_count, 1);
+});
+
+test("TongsCommitService.saveWorkpieceImageMap writes metadata, asset file, and superseded asset lineage", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const editorId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const commitCalls = [];
+  const { state, ...supabase } = createImageMapAssetSupabase({
+    assets: [
+      {
+        id: "asset-old",
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        path: "assets/image-map/image-map.v1.json",
+        mime_type: "application/json",
+        bytes: 111,
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${workpieceId}/assets/image-map/image-map.v1.json`,
+        provider: "hearth",
+        provider_request_id: null,
+        request_id: "req-old",
+        prompt: null,
+        created_by: editorId,
+        created_at: "2026-03-10T15:00:00.000Z",
+        updated_at: "2026-03-10T15:00:00.000Z",
+        asset_kind: "image_map_json",
+        status: "ready",
+        metadata_json: {
+          schema: "forge.image-map.v1",
+          entry_count: 1,
+        },
+        supersedes_asset_id: null,
+      },
+    ],
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: editorId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkpieceInWorkspace = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-02T00:00:00.000Z",
+    updated_at: "2026-03-02T00:00:00.000Z",
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: editorId, role: "editor" });
+  service.readWorkpieceJson = async () => ({
+    found: true,
+    data: {
+      schema: "forge.metadata.v1",
+      workpiece_id: workpieceId,
+      workspace_id: workspaceId,
+      episode: {
+        schema: "forge.episode.package.v2",
+        image_map: {
+          entries: [],
+        },
+      },
+    },
+    file_row: { updated_at: "2026-03-10T15:30:00.000Z" },
+  });
+  service.commitFile = async (targetWorkpieceId, input) => {
+    commitCalls.push({ targetWorkpieceId, input });
+    return {
+      workpiece_id: targetWorkpieceId,
+      path: input.path,
+      storage_key: `workpieces/${targetWorkpieceId}/${input.path}`,
+      hash: "hash-file",
+      bytes: input.path === "metadata.json" ? 222 : 333,
+      content_type: input.content_type || "application/json",
+      manifest_hash: "hash-manifest",
+      manifest_bytes: 456,
+      file_row: {
+        workpiece_id: targetWorkpieceId,
+        path: input.path,
+        file_type: "json",
+        content_type: input.content_type || "application/json",
+        bytes: input.path === "metadata.json" ? 222 : 333,
+        hash_algo: "sha256",
+        hash_value: "hash-file",
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${targetWorkpieceId}/${input.path}`,
+        written_by_tool: input.written_by.tool,
+        written_by_tool_version: input.written_by.tool_version,
+        written_by_lane: input.written_by.lane,
+        created_at: "2026-03-10T16:05:00.000Z",
+        updated_at: input.path === "metadata.json"
+          ? "2026-03-10T16:05:00.000Z"
+          : "2026-03-10T16:05:01.000Z",
+      },
+      manifest_row: {
+        workpiece_id: targetWorkpieceId,
+        path: "manifest.json",
+        file_type: "manifest",
+        content_type: "application/json",
+        bytes: 456,
+        hash_algo: "sha256",
+        hash_value: "hash-manifest",
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${targetWorkpieceId}/manifest.json`,
+        written_by_tool: input.written_by.tool,
+        written_by_tool_version: input.written_by.tool_version,
+        written_by_lane: input.written_by.lane,
+        created_at: "2026-03-10T16:05:00.000Z",
+        updated_at: "2026-03-10T16:05:00.000Z",
+      },
+      event: {
+        id: 900,
+        workpiece_id: targetWorkpieceId,
+        event_name: input.event_name || "workpiece.file.committed",
+        payload: {},
+        correlation_id: "corr-123",
+        written_by_tool: input.written_by.tool,
+        written_by_tool_version: input.written_by.tool_version,
+        written_by_lane: input.written_by.lane,
+        created_at: "2026-03-10T16:05:00.000Z",
+      },
+    };
+  };
+
+  const result = await service.saveWorkpieceImageMap(
+    workpieceId,
+    {
+      workspace_id: workspaceId,
+      entries: [
+        {
+          id: "image-map-01",
+          anchor: "s1:para1",
+          description: "wide city skyline",
+          intent: "broll",
+          source_type: "stock",
+          placement_hint: "after-hook",
+        },
+      ],
+      expected_metadata_updated_at: "2026-03-10T15:30:00.000Z",
+    },
+    { userAccessToken: "editor_token" },
+  );
+
+  assert.equal(commitCalls.length, 2);
+  assert.equal(commitCalls[0]?.input.path, "metadata.json");
+  assert.equal(commitCalls[1]?.input.path, "assets/image-map/image-map.v1.json");
+  assert.equal(commitCalls[0]?.input.json?.episode?.image_map?.entries?.length, 1);
+  assert.equal(commitCalls[1]?.input.json?.schema, "forge.image-map.v1");
+  assert.equal(commitCalls[1]?.input.json?.workpiece_id, workpieceId);
+  assert.equal(state.updateCalls.length, 1);
+  assert.equal(state.updateCalls[0]?.id, "asset-old");
+  assert.equal(state.updateCalls[0]?.patch?.status, "superseded");
+  assert.equal(state.insertCalls.length, 1);
+  assert.equal(state.insertCalls[0]?.asset_kind, "image_map_json");
+  assert.equal(state.insertCalls[0]?.status, "ready");
+  assert.equal(state.insertCalls[0]?.prompt, null);
+  assert.equal(state.insertCalls[0]?.supersedes_asset_id, "asset-old");
+  assert.equal(result.image_map.metadata_updated_at, "2026-03-10T16:05:00.000Z");
+  assert.equal(result.asset?.supersedes_asset_id, "asset-old");
+});
+
+test("TongsCommitService.saveWorkpieceImageMap rejects stale metadata timestamps with image_map_conflict", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const editorId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const commitCalls = [];
+  const { state, ...supabase } = createImageMapAssetSupabase();
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: editorId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkpieceInWorkspace = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-02T00:00:00.000Z",
+    updated_at: "2026-03-02T00:00:00.000Z",
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: editorId, role: "editor" });
+  service.readWorkpieceJson = async () => ({
+    found: true,
+    data: {
+      schema: "forge.metadata.v1",
+      workpiece_id: workpieceId,
+      workspace_id: workspaceId,
+      episode: {
+        schema: "forge.episode.package.v2",
+        image_map: { entries: [] },
+      },
+    },
+    file_row: { updated_at: "2026-03-10T16:10:00.000Z" },
+  });
+  service.commitFile = async (...args) => {
+    commitCalls.push(args);
+    throw new Error("commitFile should not be called on stale conflict");
+  };
+
+  await assert.rejects(
+    () => service.saveWorkpieceImageMap(
+      workpieceId,
+      {
+        workspace_id: workspaceId,
+        entries: [],
+        expected_metadata_updated_at: "2026-03-10T16:00:00.000Z",
+      },
+      { userAccessToken: "editor_token" },
+    ),
+    (error) => {
+      assert.equal(error.status, 409);
+      assert.equal(error.code, "image_map_conflict");
+      assert.equal(error.details?.expected_metadata_updated_at, "2026-03-10T16:00:00.000Z");
+      assert.equal(error.details?.current_metadata_updated_at, "2026-03-10T16:10:00.000Z");
+      return true;
+    },
+  );
+
+  assert.equal(commitCalls.length, 0);
+  assert.equal(state.insertCalls.length, 0);
+  assert.equal(state.updateCalls.length, 0);
 });
 
 test("TongsCommitService.listWorkspaceReadyScripts includes hidden ranked entries and preserves queue state across ready-path changes", async () => {

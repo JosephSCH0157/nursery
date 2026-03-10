@@ -98,6 +98,10 @@ import {
   saveEpisodePackageForWorkpiece,
   uploadThumbnailImageVersion,
 } from "../lib/hearth-thumbnail-api";
+import {
+  getWorkpieceImageMap,
+  saveWorkpieceImageMap,
+} from "../lib/hearth-image-map-repo";
 import type {
   EpisodePackageV2,
   EpisodeThumbnailConcept,
@@ -1142,9 +1146,23 @@ function createThumbnailClientId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function buildImageMapExportDocument(entries: EpisodeImageMapEntry[]): Record<string, unknown> {
+function buildImageMapExportDocument(
+  workpieceId: string | null,
+  entries: EpisodeImageMapEntry[],
+): Record<string, unknown> {
   return {
-    schema_version: 2,
+    schema: "forge.image-map.v1",
+    ...(workpieceId ? { workpiece_id: workpieceId } : {}),
+    entries,
+  };
+}
+
+function replaceEpisodePackageImageMap(
+  pkg: EpisodePackageV2,
+  entries: EpisodeImageMapEntry[],
+): EpisodePackageV2 {
+  return {
+    ...pkg,
     image_map: {
       entries,
     },
@@ -1906,6 +1924,7 @@ export default function HearthShell() {
   const [imageMapIntentDraft, setImageMapIntentDraft] = useState("broll");
   const [imageMapSourceTypeDraft, setImageMapSourceTypeDraft] = useState("stock");
   const [imageMapPlacementHintDraft, setImageMapPlacementHintDraft] = useState("");
+  const [imageMapMetadataUpdatedAt, setImageMapMetadataUpdatedAt] = useState<string | null>(null);
   const [imageMapSaveState, setImageMapSaveState] = useState<"saved" | "editing" | "saving" | "error" | "offline">("saved");
   const [imageMapSaveError, setImageMapSaveError] = useState<string | null>(null);
   const [imageMapExportMessage, setImageMapExportMessage] = useState<string | null>(null);
@@ -2589,6 +2608,7 @@ export default function HearthShell() {
     const episodeId = workpieceId?.trim() ?? "";
     if (!episodeId) {
       setEpisodePackage(null);
+      setImageMapMetadataUpdatedAt(null);
       setSelectedThumbnailConceptId("");
       setSelectedThumbnailVersionId(null);
       setSelectedImageMapEntryId(null);
@@ -2606,6 +2626,7 @@ export default function HearthShell() {
     const loaded = await readEpisodePackageForWorkpiece(episodeId);
     if (!loaded.ok) {
       setEpisodePackage(null);
+      setImageMapMetadataUpdatedAt(null);
       setThumbnailGenerateError("Unable to load thumbnail metadata.");
       setThumbnailPreviewState("error");
       setThumbnailPreviewDataUrl(null);
@@ -2613,15 +2634,24 @@ export default function HearthShell() {
       return;
     }
 
-    setEpisodePackage(loaded.episodePackage);
+    let nextEpisodePackage = loaded.episodePackage;
+    const imageMapLoaded = await getWorkpieceImageMap(episodeId);
+    if (imageMapLoaded.ok) {
+      nextEpisodePackage = replaceEpisodePackageImageMap(loaded.episodePackage, imageMapLoaded.imageMap.entries);
+      setImageMapMetadataUpdatedAt(imageMapLoaded.imageMap.metadataUpdatedAt);
+    } else {
+      setImageMapMetadataUpdatedAt(null);
+    }
+
+    setEpisodePackage(nextEpisodePackage);
     setThumbnailGenerateError(null);
     setImageMapSaveError(null);
-    const versions = loaded.episodePackage.thumbnail.versions;
-    const preferredVersionId = loaded.episodePackage.thumbnail.primary_version_id
+    const versions = nextEpisodePackage.thumbnail.versions;
+    const preferredVersionId = nextEpisodePackage.thumbnail.primary_version_id
       ?? versions[versions.length - 1]?.id
       ?? null;
     setSelectedThumbnailVersionId(preferredVersionId);
-    const imageEntries = loaded.episodePackage.image_map.entries;
+    const imageEntries = nextEpisodePackage.image_map.entries;
     setSelectedImageMapEntryId((prev) => {
       if (prev && imageEntries.some((entry) => entry.id === prev)) return prev;
       return imageEntries[0]?.id ?? null;
@@ -4040,6 +4070,7 @@ export default function HearthShell() {
 
   useEffect(() => {
     if (!workpieceId) {
+      setImageMapMetadataUpdatedAt(null);
       setImageMapSaveState("saved");
       setImageMapSaveError(null);
       setImageMapExportMessage(null);
@@ -4096,23 +4127,8 @@ export default function HearthShell() {
           },
         );
 
-        const workspace = workspaceId?.trim() ?? "";
-        const workpiece = workpieceId?.trim() ?? "";
-        if (!workspace || !workpiece) {
-          if (cancelled) return;
-          setImageMapSaveState("error");
-          setImageMapSaveError("Workspace or workpiece is missing.");
-          return;
-        }
-
-        const saved = await saveEpisodePackageForWorkpiece({
-          workpieceId: workpiece,
-          workspaceId: workspace,
-          episodePackage: nextEpisodePackage,
-          eventName: "hearth.image_map.entry.autosave.v1",
-          eventPayload: {
-            entry_id: selectedImageMapEntryId,
-          },
+        const saved = await persistImageMapEntries({
+          entries: nextEpisodePackage.image_map.entries,
         });
         if (cancelled) return;
         if (!saved.ok) {
@@ -4126,7 +4142,6 @@ export default function HearthShell() {
           }
           return;
         }
-        setEpisodePackage(saved.episodePackage);
         setImageMapSaveState("saved");
         setImageMapSaveError(null);
       })();
@@ -4264,6 +4279,7 @@ export default function HearthShell() {
           return;
         }
         setEpisodePackage(saved.episodePackage);
+        setImageMapMetadataUpdatedAt(saved.metadataUpdatedAt);
         setMetadataSaveState("saved");
         setMetadataSaveError(null);
       })();
@@ -5983,7 +5999,64 @@ export default function HearthShell() {
       return null;
     }
     setEpisodePackage(saved.episodePackage);
+    setImageMapMetadataUpdatedAt(saved.metadataUpdatedAt);
     return saved.episodePackage;
+  }
+
+  async function persistImageMapEntries(args: {
+    entries: EpisodeImageMapEntry[];
+  }): Promise<{ ok: true; episodePackage: EpisodePackageV2 } | { ok: false; error: string }> {
+    if (!episodePackage) {
+      return {
+        ok: false,
+        error: "Unable to save image map for this episode.",
+      };
+    }
+
+    const workspace = workspaceId?.trim() ?? "";
+    const workpiece = workpieceId?.trim() ?? "";
+    if (!workspace || !workpiece) {
+      return {
+        ok: false,
+        error: "Workspace or workpiece is missing.",
+      };
+    }
+
+    const saved = await saveWorkpieceImageMap({
+      workpieceId: workpiece,
+      workspaceId: workspace,
+      entries: args.entries,
+      expectedMetadataUpdatedAt: imageMapMetadataUpdatedAt,
+    });
+
+    if (!saved.ok) {
+      if (saved.reason === "conflict" && saved.latest) {
+        const latest = saved.latest;
+        setEpisodePackage((prev) => (
+          prev ? replaceEpisodePackageImageMap(prev, latest.entries) : prev
+        ));
+        setImageMapMetadataUpdatedAt(latest.metadataUpdatedAt);
+        return {
+          ok: false,
+          error: "Image map changed on another client. Latest entries have been reloaded.",
+        };
+      }
+
+      return {
+        ok: false,
+        error: saved.reason === "invalid_response"
+          ? "Image map save returned an invalid response."
+          : "Unable to save image map.",
+      };
+    }
+
+    const nextEpisodePackage = replaceEpisodePackageImageMap(episodePackage, saved.imageMap.entries);
+    setEpisodePackage(nextEpisodePackage);
+    setImageMapMetadataUpdatedAt(saved.imageMap.metadataUpdatedAt);
+    return {
+      ok: true,
+      episodePackage: nextEpisodePackage,
+    };
   }
 
   async function onCreateThumbnailConcept() {
@@ -6221,7 +6294,16 @@ export default function HearthShell() {
         return;
       }
 
-      setEpisodePackage(generated.updatedEpisodePackage);
+      let nextEpisodePackage = generated.updatedEpisodePackage;
+      const refreshedImageMap = await getWorkpieceImageMap(episodeId);
+      if (refreshedImageMap.ok) {
+        nextEpisodePackage = replaceEpisodePackageImageMap(
+          generated.updatedEpisodePackage,
+          refreshedImageMap.imageMap.entries,
+        );
+        setImageMapMetadataUpdatedAt(refreshedImageMap.imageMap.metadataUpdatedAt);
+      }
+      setEpisodePackage(nextEpisodePackage);
       setSelectedThumbnailConceptId(generated.version.concept_id);
       setSelectedThumbnailVersionId(generated.version.id);
       setThumbnailPromptOverride("");
@@ -6350,9 +6432,7 @@ export default function HearthShell() {
       placement_hint: null,
     });
     const newEntry = nextEpisodePackage.image_map.entries[nextEpisodePackage.image_map.entries.length - 1] ?? null;
-    const workspace = workspaceId?.trim() ?? "";
-    const workpiece = workpieceId?.trim() ?? "";
-    if (!workspace || !workpiece || !newEntry) {
+    if (!newEntry) {
       setImageMapSaveState("error");
       setImageMapSaveError("Unable to create entry in current episode.");
       return;
@@ -6360,21 +6440,14 @@ export default function HearthShell() {
 
     setImageMapSaveState("saving");
     setImageMapSaveError(null);
-    const saved = await saveEpisodePackageForWorkpiece({
-      workpieceId: workpiece,
-      workspaceId: workspace,
-      episodePackage: nextEpisodePackage,
-      eventName: "hearth.image_map.entry.created.v1",
-      eventPayload: {
-        entry_id: newEntry.id,
-      },
+    const saved = await persistImageMapEntries({
+      entries: nextEpisodePackage.image_map.entries,
     });
     if (!saved.ok) {
       setImageMapSaveState("error");
       setImageMapSaveError(saved.error);
       return;
     }
-    setEpisodePackage(saved.episodePackage);
     setSelectedImageMapEntryId(newEntry.id);
     setImageMapSaveState("saved");
   }
@@ -6389,9 +6462,7 @@ export default function HearthShell() {
       placement_hint: selectedImageMapEntry.placement_hint ?? null,
     });
     const duplicated = nextEpisodePackage.image_map.entries[nextEpisodePackage.image_map.entries.length - 1] ?? null;
-    const workspace = workspaceId?.trim() ?? "";
-    const workpiece = workpieceId?.trim() ?? "";
-    if (!workspace || !workpiece || !duplicated) {
+    if (!duplicated) {
       setImageMapSaveState("error");
       setImageMapSaveError("Unable to duplicate entry.");
       return;
@@ -6399,22 +6470,14 @@ export default function HearthShell() {
 
     setImageMapSaveState("saving");
     setImageMapSaveError(null);
-    const saved = await saveEpisodePackageForWorkpiece({
-      workpieceId: workpiece,
-      workspaceId: workspace,
-      episodePackage: nextEpisodePackage,
-      eventName: "hearth.image_map.entry.duplicated.v1",
-      eventPayload: {
-        source_entry_id: selectedImageMapEntry.id,
-        entry_id: duplicated.id,
-      },
+    const saved = await persistImageMapEntries({
+      entries: nextEpisodePackage.image_map.entries,
     });
     if (!saved.ok) {
       setImageMapSaveState("error");
       setImageMapSaveError(saved.error);
       return;
     }
-    setEpisodePackage(saved.episodePackage);
     setSelectedImageMapEntryId(duplicated.id);
     setImageMapSaveState("saved");
   }
@@ -6425,31 +6488,16 @@ export default function HearthShell() {
     if (!confirmed) return;
 
     const nextEpisodePackage = removeImageMapEntry(episodePackage, selectedImageMapEntryId);
-    const workspace = workspaceId?.trim() ?? "";
-    const workpiece = workpieceId?.trim() ?? "";
-    if (!workspace || !workpiece) {
-      setImageMapSaveState("error");
-      setImageMapSaveError("Unable to delete entry in current episode.");
-      return;
-    }
-
     setImageMapSaveState("saving");
     setImageMapSaveError(null);
-    const saved = await saveEpisodePackageForWorkpiece({
-      workpieceId: workpiece,
-      workspaceId: workspace,
-      episodePackage: nextEpisodePackage,
-      eventName: "hearth.image_map.entry.deleted.v1",
-      eventPayload: {
-        entry_id: selectedImageMapEntryId,
-      },
+    const saved = await persistImageMapEntries({
+      entries: nextEpisodePackage.image_map.entries,
     });
     if (!saved.ok) {
       setImageMapSaveState("error");
       setImageMapSaveError(saved.error);
       return;
     }
-    setEpisodePackage(saved.episodePackage);
     setSelectedImageMapEntryId(saved.episodePackage.image_map.entries[0]?.id ?? null);
     setImageMapSaveState("saved");
   }
@@ -6485,31 +6533,16 @@ export default function HearthShell() {
       return;
     }
 
-    const workspace = workspaceId?.trim() ?? "";
-    const workpiece = workpieceId?.trim() ?? "";
-    if (!workspace || !workpiece) {
-      setImageMapSaveState("error");
-      setImageMapSaveError("Unable to seed entries in current episode.");
-      return;
-    }
-
     setImageMapSaveState("saving");
     setImageMapSaveError(null);
-    const saved = await saveEpisodePackageForWorkpiece({
-      workpieceId: workpiece,
-      workspaceId: workspace,
-      episodePackage: nextEpisodePackage,
-      eventName: "hearth.image_map.seeded_from_script.v1",
-      eventPayload: {
-        seeded_count: seededCount,
-      },
+    const saved = await persistImageMapEntries({
+      entries: nextEpisodePackage.image_map.entries,
     });
     if (!saved.ok) {
       setImageMapSaveState("error");
       setImageMapSaveError(saved.error);
       return;
     }
-    setEpisodePackage(saved.episodePackage);
     setSelectedImageMapEntryId(saved.episodePackage.image_map.entries[0]?.id ?? null);
     setImageMapSaveState("saved");
     setImageMapExportMessage(`Seeded ${seededCount} anchor entries from script.`);
@@ -6517,7 +6550,7 @@ export default function HearthShell() {
 
   async function onCopyImageMapExportJson() {
     const entries = resolveImageMapEntriesForExport();
-    const payload = buildImageMapExportDocument(entries);
+    const payload = buildImageMapExportDocument(workpieceId?.trim() ?? null, entries);
     const text = JSON.stringify(payload, null, 2);
     const copied = await writeTextToClipboard(text);
     setImageMapExportMessage(copied ? "Image map JSON copied." : "Clipboard write failed.");
@@ -6525,7 +6558,7 @@ export default function HearthShell() {
 
   function onDownloadImageMapExportJson() {
     const entries = resolveImageMapEntriesForExport();
-    const payload = buildImageMapExportDocument(entries);
+    const payload = buildImageMapExportDocument(workpieceId?.trim() ?? null, entries);
     const text = JSON.stringify(payload, null, 2);
     const blob = new Blob([text], { type: "application/json;charset=utf-8" });
     const url = URL.createObjectURL(blob);
