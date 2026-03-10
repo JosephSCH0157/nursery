@@ -1902,6 +1902,7 @@ export default function HearthShell() {
   const previousWorkspaceIdRef = useRef<string | null>(workspaceId);
   const restoredCursorDraftIdRef = useRef<string | null>(null);
   const restoredModeDraftKeyRef = useRef<string | null>(null);
+  const pendingDraftEditorPanelRef = useRef<"script" | "manual" | null>(null);
   const aiRequestControllerRef = useRef<AbortController | null>(null);
   const speechRecognitionRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -3137,14 +3138,15 @@ export default function HearthShell() {
     setIsForging(true);
     let workpieceId: string | undefined;
     try {
+      const sparkTitle = deriveSparkTitle(spark);
       const scriptSeed = spark.body?.trim()
         ? spark.body
-        : `## ${deriveSparkTitle(spark)}\n\n`;
+        : `## ${sparkTitle}\n\n`;
       const created = await createHearthWorkpiece({
         created_from: "bar-stock",
         spark_id: spark.id,
       }, scriptSeed, {
-        title: deriveSparkTitle(spark),
+        title: sparkTitle,
       });
       if (!created.ok) {
         setForgeError("Workpiece creation failed; draft created locally.");
@@ -3155,13 +3157,13 @@ export default function HearthShell() {
       }
       setWorkspaceId(resolveWorkspaceId());
       applySessionOrigin({ created_from: "bar-stock", spark_id: spark.id });
+      pendingDraftEditorPanelRef.current = scriptSeed.trim() ? "script" : "manual";
 
       const draft = await createDraftAndOpen({
-        title: spark.title,
-        body: spark.body,
+        title: sparkTitle,
+        body: scriptSeed,
       }, "focus");
 
-      const sparkTitle = deriveSparkTitle(spark);
       const sparkPreview = buildSparkPreview(spark.body);
       const markerLines = [
         `Spark selected: ${sparkTitle}`,
@@ -4098,8 +4100,10 @@ export default function HearthShell() {
   }, [activeDraft?.id, mode, workpieceId]);
 
   useEffect(() => {
-    setShowManualDraft(false);
-    setShowScriptPanel(false);
+    const nextPanel = pendingDraftEditorPanelRef.current;
+    setShowManualDraft(nextPanel === "manual");
+    setShowScriptPanel(nextPanel === "script");
+    pendingDraftEditorPanelRef.current = null;
     gateAwaitingAnswersRef.current = false;
     pendingShortcutIntentRef.current = null;
   }, [activeDraft?.id]);
