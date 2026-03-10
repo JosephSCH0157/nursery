@@ -8,6 +8,7 @@ Release status: included in **Forge v1.2.0 Fire Burning** (`forge-v1.2.0`).
 
 * V1 baseline manifest: [`HEARTH_V1_MANIFEST.md`](./HEARTH_V1_MANIFEST.md)
 * V2 status + artifact contract: [`HEARTH_V2_CONTRACT.md`](./HEARTH_V2_CONTRACT.md)
+* Navigation contract: [`HEARTH_NAVIGATION_CONTRACT.md`](./HEARTH_NAVIGATION_CONTRACT.md)
 * Reality snapshot: [`HEARTH_REALITY_SNAPSHOT.md`](./HEARTH_REALITY_SNAPSHOT.md)
 
 ## What Hearth Is

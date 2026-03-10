@@ -225,3 +225,17 @@ Hearth prioritizes:
 - human judgment over shortcuts
 
 This is intentional.
+
+---
+
+## 13. Navigation Boundary
+
+Hearth navigation is governed by `HEARTH_NAVIGATION_CONTRACT.md`.
+
+Non-negotiable rule:
+
+- Persistence is not navigation.
+
+Contributors MUST keep intermediate editorial artifacts attached to the active workpiece shell by default.
+
+Intermediate artifacts MUST NOT be modeled as peer navigation entities in the left rail.

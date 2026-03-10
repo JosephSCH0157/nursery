@@ -952,6 +952,67 @@ function hasIncomingBarStockIntakeQuery(): boolean {
   }
 }
 
+async function writeTextToClipboard(text: string): Promise<boolean> {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall back for browsers that reject Clipboard API writes.
+    }
+  }
+
+  if (typeof document === "undefined") return false;
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  textarea.style.pointerEvents = "none";
+  textarea.style.left = "-9999px";
+
+  const selection = document.getSelection();
+  const previousRanges = selection
+    ? Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index))
+    : [];
+
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+
+  try {
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    document.body.removeChild(textarea);
+    if (selection) {
+      selection.removeAllRanges();
+      for (const range of previousRanges) {
+        selection.addRange(range);
+      }
+    }
+  }
+}
+
+function CopyIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <rect x="9" y="9" width="11" height="11" rx="2" ry="2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path
+        d="M15 6V5a2 2 0 0 0-2-2H5A2 2 0 0 0 3 5v8a2 2 0 0 0 2 2h1"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function formatUpdatedAt(value: number | undefined): string {
   if (!value) return "Unknown";
   try {
@@ -1808,6 +1869,7 @@ export default function HearthShell() {
   const [imageMapSaveState, setImageMapSaveState] = useState<"saved" | "editing" | "saving" | "error" | "offline">("saved");
   const [imageMapSaveError, setImageMapSaveError] = useState<string | null>(null);
   const [imageMapExportMessage, setImageMapExportMessage] = useState<string | null>(null);
+  const [scriptPanelCopyMessage, setScriptPanelCopyMessage] = useState<string | null>(null);
   const [metadataTitlesDraft, setMetadataTitlesDraft] = useState<EpisodeSeoTitle[]>([]);
   const [metadataTagsDraft, setMetadataTagsDraft] = useState<string[]>([]);
   const [metadataTagInputDraft, setMetadataTagInputDraft] = useState("");
@@ -2934,12 +2996,22 @@ export default function HearthShell() {
     const text = draftConflictState?.localBody?.trim() ?? "";
     if (!text) return;
     try {
-      await navigator.clipboard.writeText(text);
+      const copied = await writeTextToClipboard(text);
+      if (!copied) {
+        throw new Error("copy_failed");
+      }
       setError("Copied your local draft text to clipboard.");
     } catch {
       setError("Unable to copy local text. Select and copy manually.");
     }
   }, [draftConflictState?.localBody]);
+
+  const onCopyScriptPanelText = useCallback(async () => {
+    const text = activeDraft?.body ?? "";
+    if (!text.trim()) return;
+    const copied = await writeTextToClipboard(text);
+    setScriptPanelCopyMessage(copied ? "Copied to clipboard." : "Clipboard write failed.");
+  }, [activeDraft?.body]);
 
   const onOpenInAnvil = useCallback(async () => {
     const workspace = workspaceId?.trim() ?? "";
@@ -3815,6 +3887,12 @@ export default function HearthShell() {
     const timer = window.setTimeout(() => setImageMapExportMessage(null), 2600);
     return () => window.clearTimeout(timer);
   }, [imageMapExportMessage]);
+
+  useEffect(() => {
+    if (!scriptPanelCopyMessage) return;
+    const timer = window.setTimeout(() => setScriptPanelCopyMessage(null), 2600);
+    return () => window.clearTimeout(timer);
+  }, [scriptPanelCopyMessage]);
 
   useEffect(() => {
     setMetadataSaveState("saved");
@@ -6059,12 +6137,8 @@ export default function HearthShell() {
     const entries = resolveImageMapEntriesForExport();
     const payload = buildImageMapExportDocument(entries);
     const text = JSON.stringify(payload, null, 2);
-    try {
-      await navigator.clipboard.writeText(text);
-      setImageMapExportMessage("Image map JSON copied.");
-    } catch {
-      setImageMapExportMessage("Clipboard write failed.");
-    }
+    const copied = await writeTextToClipboard(text);
+    setImageMapExportMessage(copied ? "Image map JSON copied." : "Clipboard write failed.");
   }
 
   function onDownloadImageMapExportJson() {
@@ -7469,7 +7543,23 @@ export default function HearthShell() {
                 <div className="hs-script-panel-title">
                   {showScriptPanel && hasScript ? "Script" : "Manual Draft"}
                 </div>
-                <div className="hs-script-panel-meta">Sources: {sourcesSummary}{unusedSummary}</div>
+                <div className="hs-script-panel-header-actions">
+                  {scriptPanelCopyMessage ? (
+                    <div className="hs-field-label-muted">{scriptPanelCopyMessage}</div>
+                  ) : null}
+                  <div className="hs-script-panel-meta">Sources: {sourcesSummary}{unusedSummary}</div>
+                  <button
+                    type="button"
+                    className="hs-script-panel-copy"
+                    onClick={() => void onCopyScriptPanelText()}
+                    disabled={!activeDraft || !activeDraft.body.trim()}
+                    title="Copy panel text to clipboard"
+                    aria-label="Copy panel text to clipboard"
+                  >
+                    <CopyIcon />
+                    <span>Copy</span>
+                  </button>
+                </div>
               </header>
 
               <label className="hs-field">
