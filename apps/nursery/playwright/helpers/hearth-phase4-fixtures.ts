@@ -50,6 +50,7 @@ export type HearthPhase4VerifiedArtifact = {
 
 export type StorageSession = {
   accessToken: string;
+  accessTokenExpiresAtMs: number | null;
   refreshToken: string | null;
   userId: string | null;
   selectedWorkspaceId: string | null;
@@ -208,6 +209,31 @@ function extractAccessToken(value: unknown): string | null {
   return null;
 }
 
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  const parts = token.split(".");
+  if (parts.length < 2) return null;
+  const payload = readString(parts[1]);
+  if (!payload) return null;
+
+  try {
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+    const decoded = Buffer.from(padded, "base64").toString("utf8");
+    const parsed = JSON.parse(decoded) as unknown;
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractAccessTokenExpiryMs(token: string): number | null {
+  const payload = decodeJwtPayload(token);
+  if (!payload) return null;
+  const exp = payload.exp;
+  if (typeof exp !== "number" || !Number.isFinite(exp) || exp <= 0) return null;
+  return exp * 1000;
+}
+
 function extractRefreshToken(value: unknown): string | null {
   if (!value) return null;
   if (Array.isArray(value)) {
@@ -329,6 +355,7 @@ export function readStorageSession(storageStatePath: string = getPlaywrightStora
 
   return {
     accessToken,
+    accessTokenExpiresAtMs: extractAccessTokenExpiryMs(accessToken),
     refreshToken: extractRefreshToken(parsedAuth),
     userId: extractUserId(parsedAuth),
     selectedWorkspaceId,

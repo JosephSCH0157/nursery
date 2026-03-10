@@ -81,12 +81,18 @@ async function resolveFreshAccessToken(args: {
     refresh_token: args.refreshToken,
   });
   if (error) {
-    throw new Error(`Unable to refresh Playwright auth session: ${error.message}`);
+    throw new Error(
+      `Unable to refresh Playwright auth session: ${error.message}. ` +
+      "Run pnpm --filter nursery test:playwright:auth to capture a fresh session.",
+    );
   }
 
   const nextToken = readString(data.session?.access_token);
   if (!nextToken) {
-    throw new Error("Unable to refresh Playwright auth session: missing access token.");
+    throw new Error(
+      "Unable to refresh Playwright auth session: missing access token. " +
+      "Run pnpm --filter nursery test:playwright:auth to capture a fresh session.",
+    );
   }
   return nextToken;
 }
