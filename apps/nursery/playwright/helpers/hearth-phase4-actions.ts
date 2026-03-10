@@ -108,6 +108,6 @@ export async function assertSelfHealReplaceBehavior(page: Page, args: {
   expect(currentUrl).not.toContain("workspace_id=00000000");
   if (args.previousUrl) {
     await page.goBack({ waitUntil: "load" });
-    await expect(page).toHaveURL(new RegExp(args.previousUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))));
+    await expect(page).toHaveURL(new RegExp(args.previousUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
 }

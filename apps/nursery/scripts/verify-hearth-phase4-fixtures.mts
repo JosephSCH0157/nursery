@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createClient } from "@supabase/supabase-js";
 import {
   createTongsCommitService,
   type WorkspaceEpisodeSummary,
-  type WorkspaceReadyScript,
 } from "../../../packages/tongs/src/workpiece-commit-api.ts";
 import {
   getHearthPhase4ArtifactPath,
@@ -60,6 +60,37 @@ function writeArtifact(artifactPath: string, artifact: HearthPhase4VerifiedArtif
   fs.writeFileSync(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
 }
 
+async function resolveFreshAccessToken(args: {
+  supabaseUrl: string;
+  anonKey: string | null;
+  accessToken: string;
+  refreshToken: string | null;
+}): Promise<string> {
+  if (!args.anonKey || !args.refreshToken) {
+    return args.accessToken;
+  }
+
+  const client = createClient(args.supabaseUrl, args.anonKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+  const { data, error } = await client.auth.setSession({
+    access_token: args.accessToken,
+    refresh_token: args.refreshToken,
+  });
+  if (error) {
+    throw new Error(`Unable to refresh Playwright auth session: ${error.message}`);
+  }
+
+  const nextToken = readString(data.session?.access_token);
+  if (!nextToken) {
+    throw new Error("Unable to refresh Playwright auth session: missing access token.");
+  }
+  return nextToken;
+}
+
 async function main(): Promise<void> {
   const env = loadNurseryEnv();
   const fixtures = getHearthPhase4Fixtures(env);
@@ -71,6 +102,9 @@ async function main(): Promise<void> {
     ?? readString(env.VITE_SUPABASE_URL);
   const supabaseServiceRoleKey = readString(env.TONGS_SERVICE_ROLE_KEY)
     ?? readString(env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabaseAnonKey = readString(env.TONGS_SUPABASE_ANON_KEY)
+    ?? readString(env.SUPABASE_ANON_KEY)
+    ?? readString(env.VITE_SUPABASE_ANON_KEY);
 
   if (!supabaseUrl) fail("Missing TONGS_SUPABASE_URL, SUPABASE_URL, or VITE_SUPABASE_URL.");
   if (!supabaseServiceRoleKey) fail("Missing TONGS_SERVICE_ROLE_KEY or SUPABASE_SERVICE_ROLE_KEY.");
@@ -81,7 +115,12 @@ async function main(): Promise<void> {
   });
 
   const selectedWorkspaceId = storageSession.selectedWorkspaceId ?? fixtures.workspaceId;
-  const accessToken = storageSession.accessToken;
+  const accessToken = await resolveFreshAccessToken({
+    supabaseUrl,
+    anonKey: supabaseAnonKey,
+    accessToken: storageSession.accessToken,
+    refreshToken: storageSession.refreshToken,
+  });
 
   const [selectedWorkspaceEpisodes, workspaceEpisodes, readyScripts, primaryScript] = await Promise.all([
     service.listWorkspaceEpisodes(selectedWorkspaceId, { userAccessToken: accessToken }),

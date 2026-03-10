@@ -59,13 +59,11 @@ export async function expectNoPasteFallback(page: Page): Promise<void> {
 }
 
 export async function expectReadyCandidateTitles(page: Page, titles: string[]): Promise<void> {
-  const readyTitles = await expect
-    .poll(async () => {
-      return page.locator("#scriptSelectSidebar option[value^='ready:']").evaluateAll((options) =>
-        options
-          .map((option) => option.textContent?.trim() ?? "")
-          .filter((value) => value.length > 0),
-      );
-    })
+  await expect
+    .poll(async () => page.locator("#scriptSelectSidebar option[value^='ready:']").evaluateAll((options) =>
+      options
+        .map((option) => option.textContent?.trim() ?? "")
+        .filter((value) => value.length > 0),
+    ))
     .toEqual(titles);
 }
