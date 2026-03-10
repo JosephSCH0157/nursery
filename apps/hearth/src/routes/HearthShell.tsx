@@ -2111,6 +2111,12 @@ export default function HearthShell() {
     () => routeProjectTitle?.trim() || (routeProjectId ? `Project ${routeProjectId.slice(0, 8)}` : null),
     [routeProjectId, routeProjectTitle],
   );
+  const routeSpark = useMemo(
+    () => routeProjectId || !routeSparkId
+      ? null
+      : sparks.find((spark) => spark.id === routeSparkId) ?? null,
+    [routeProjectId, routeSparkId, sparks],
+  );
   const forgeableSparks = useMemo(
     () => sortedSparks.filter((spark) => !isSparkForged(spark)),
     [sortedSparks],
@@ -3486,18 +3492,26 @@ export default function HearthShell() {
 
   useEffect(() => {
     if (routeProjectId || !routeSparkId) return;
-    if (forgeableSparks.length === 0) return;
-
-    const routeSpark = forgeableSparks.find((spark) => spark.id === routeSparkId);
-    if (!routeSpark) return;
 
     const intakeKey = `${workspaceId ?? "none"}:${routeSparkId}`;
     if (sparkIntakeHandledRef.current === intakeKey) return;
-    sparkIntakeHandledRef.current = intakeKey;
+    if (!routeSpark) {
+      if (sparks.length > 0) {
+        sparkIntakeHandledRef.current = intakeKey;
+        setForgeError("Spark not found in Bar Stock. Sync and retry.");
+      }
+      return;
+    }
 
-    setMode("sparks");
+    sparkIntakeHandledRef.current = intakeKey;
     setSelectedSparkId(routeSpark.id);
-  }, [forgeableSparks, routeProjectId, routeSparkId, workspaceId]);
+    if (isSparkForged(routeSpark)) {
+      setMode("episodes");
+      setForgeError("This spark is already attached to Hearth. Open its Episode from Episodes.");
+      return;
+    }
+    void forgeSpark(routeSpark);
+  }, [forgeSpark, routeProjectId, routeSpark, routeSparkId, sparks.length, workspaceId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -7018,6 +7032,29 @@ export default function HearthShell() {
     );
   };
 
+  const renderSparkRouteBootstrapView = () => {
+    const sparkTitle = routeSpark ? deriveSparkTitle(routeSpark) : "Opening spark";
+    return (
+      <section className="hs-home hs-sparks-landing">
+        <header className="hs-home-header">
+          <h2 className="hs-home-title">Lighting the forge...</h2>
+          <p className="hs-home-subtext">
+            {routeSpark
+              ? `Opening ${sparkTitle} from Bar Stock.`
+              : "Opening your spark from Bar Stock."}
+          </p>
+        </header>
+        {forgeError ? (
+          <div className="hs-error-text-small">{forgeError}</div>
+        ) : (
+          <div className="hs-resume-context">
+            Preparing the workpiece and dropping you into the fire.
+          </div>
+        )}
+      </section>
+    );
+  };
+
   function onChangeTonePreset(nextTonePresetRaw: string) {
     const nextTonePreset = normalizeTonePreset(nextTonePresetRaw);
     if (!nextTonePreset) return;
@@ -8109,7 +8146,14 @@ export default function HearthShell() {
     }
   };
 
+  const showSparkRouteBootstrap = Boolean(
+    incomingBarStockIntakeRoute && routeSparkId && !routeProjectId && !hasActiveEpisode && !forgeError,
+  );
+
   const mainContent = (() => {
+    if (showSparkRouteBootstrap) {
+      return renderSparkRouteBootstrapView();
+    }
     switch (mode) {
       case "sparks":
         return renderSparksView();
