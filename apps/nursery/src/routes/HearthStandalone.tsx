@@ -15,6 +15,7 @@ import {
   parseForgeRouteContext,
   warnMissingWorkspaceParamInDev,
 } from "../lib/forge-route-context";
+import { useForgeCloudStatus } from "../lib/forge-cloud-status";
 import "./HearthStandalone.css";
 
 type StoreKind = "local" | "tongs";
@@ -140,6 +141,11 @@ export default function HearthStandalone() {
   const routeContext = useMemo(() => parseForgeRouteContext(location.search), [location.search]);
   const devMode = useMemo(() => isDevMode(location.search), [location.search]);
   const storeKind = useMemo(() => resolveStoreKind(location.search), [location.search]);
+  const cloud = useForgeCloudStatus({
+    session,
+    sessionLoading: loading,
+    localOnly: storeKind === "local",
+  });
   const workspaceId = routeContext.workspaceId;
   const navTreeWithContext = useMemo(
     () => forgeNavTree.map((section) => ({
@@ -303,6 +309,12 @@ export default function HearthStandalone() {
             }`}
           >
             {aiPillText}
+          </span>
+          <span
+            className={`hearth-standalone__pill hearth-standalone__pill--cloud is-${cloud.status}`}
+            title={cloud.detail}
+          >
+            {cloud.label}
           </span>
 
           {devMode ? (

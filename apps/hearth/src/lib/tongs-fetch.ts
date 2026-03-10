@@ -8,6 +8,7 @@ type ForgeWindow = Window &
 
 const SUPABASE_AUTH_STORAGE_KEY = "forge-auth";
 const SUPABASE_AUTH_KEY_RE = /^sb-[a-z0-9-]+-auth-token$/i;
+const PLACEHOLDER_TONGS_TOKENS = new Set(["DEV_TOKEN"]);
 
 export type TongsFetchOptions = RequestInit & { json?: unknown };
 
@@ -15,6 +16,11 @@ function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
+}
+
+function sanitizeTongsApiToken(token: string | null): string | null {
+  if (!token) return null;
+  return PLACEHOLDER_TONGS_TOKENS.has(token) ? null : token;
 }
 
 function readLocalStorage(key: string): string | null {
@@ -187,11 +193,12 @@ function resolveFromQuery(): string | null {
 export function resolveTongsApiToken(): string | undefined {
   if (typeof window !== "undefined") {
     const fromQuery = resolveFromQuery();
-    if (fromQuery) return fromQuery;
+    const sanitizedFromQuery = sanitizeTongsApiToken(fromQuery);
+    if (sanitizedFromQuery) return sanitizedFromQuery;
 
     try {
       const w = window as ForgeWindow;
-      const fromWindow = readString(w.__forgeTongsApiToken ?? w.__tpTongsApiToken);
+      const fromWindow = sanitizeTongsApiToken(readString(w.__forgeTongsApiToken ?? w.__tpTongsApiToken));
       if (fromWindow) return fromWindow;
     } catch {
       // ignore
@@ -199,11 +206,11 @@ export function resolveTongsApiToken(): string | undefined {
   }
 
   const metaEnv = import.meta as unknown as TongsEnv;
-  const fromEnv = readString(metaEnv.env?.VITE_TONGS_API_TOKEN);
+  const fromEnv = sanitizeTongsApiToken(readString(metaEnv.env?.VITE_TONGS_API_TOKEN));
   if (fromEnv) return fromEnv;
 
   if (typeof window !== "undefined") {
-    return readLocalStorage("forge_tongs_api_token_v1") ?? undefined;
+    return sanitizeTongsApiToken(readLocalStorage("forge_tongs_api_token_v1")) ?? undefined;
   }
 
   return undefined;
@@ -214,6 +221,22 @@ export async function tongsFetch(url: string, options: TongsFetchOptions = {}): 
   const headers = new Headers(initHeaders ?? {});
   const apiToken = resolveTongsApiToken();
   const userAccessToken = await resolveUserAccessToken();
+  const hasAuth = Boolean(apiToken || userAccessToken);
+
+  if (!hasAuth) {
+    return new Response(JSON.stringify({
+      ok: false,
+      error: {
+        code: "missing_tongs_auth",
+        message: "Tongs auth is not configured for this browser session.",
+      },
+    }), {
+      status: 401,
+      headers: {
+        "content-type": "application/json",
+      },
+    });
+  }
 
   if (apiToken && !headers.has("authorization")) {
     headers.set("authorization", `Bearer ${apiToken}`);

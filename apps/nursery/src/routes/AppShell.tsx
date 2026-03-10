@@ -12,6 +12,7 @@ import {
   removeWorkspaceParams,
   warnMissingWorkspaceParamInDev,
 } from "../lib/forge-route-context";
+import { useForgeCloudStatus, type ForgeCloudState } from "../lib/forge-cloud-status";
 import { AiControlsPanel } from "../components/hearth/AiControlsPanel";
 import "./AppShell.css";
 
@@ -145,12 +146,14 @@ export type AppShellContext = {
   selectWorkspace: (id: string | null) => void;
   refreshWorkspaces: (opts?: { force?: boolean; preferId?: string | null }) => Promise<void>;
   session: SupabaseSession | null;
+  cloud: ForgeCloudState;
 };
 
 export default function AppShell() {
   const nav = useNavigate();
   const location = useLocation();
   const [session, setSession] = useState<SupabaseSession | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
   const [workspaces, setWorkspaces] = useState<Workspace[]>(() => loadWorkspaceCache());
   const [workspaceId, setWorkspaceId] = useState<string | null>(() => {
     const fromUrl = typeof window !== "undefined"
@@ -190,6 +193,7 @@ export default function AppShell() {
   const urlContext = useMemo(() => parseForgeRouteContext(location.search), [location.search]);
   const urlWorkspaceId = urlContext.workspaceId;
   const inviteToken = useMemo(() => readInviteToken(location.search), [location.search]);
+  const cloud = useForgeCloudStatus({ session, sessionLoading });
 
   useEffect(() => {
     const res = loadMountRegistry("default");
@@ -206,11 +210,13 @@ export default function AppShell() {
     supabase.auth.getSession().then(({ data }) => {
       if (!alive) return;
       setSession(data.session ?? null);
+      setSessionLoading(false);
     });
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
       if (!alive) return;
       setSession(s ?? null);
+      setSessionLoading(false);
     });
 
     return () => {
@@ -978,6 +984,12 @@ export default function AppShell() {
 
         <div className="appshell-user-controls">
           <div
+            className={`appshell-cloud-pill appshell-cloud-pill--${cloud.status}`}
+            title={cloud.detail}
+          >
+            {cloud.label}
+          </div>
+          <div
             className="appshell-avatar"
             title={session?.user?.email ?? "Trial mode"}
           >
@@ -1098,6 +1110,7 @@ export default function AppShell() {
                 selectWorkspace,
                 refreshWorkspaces,
                 session,
+                cloud,
               } satisfies AppShellContext}
             />
           )}

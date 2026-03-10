@@ -90,6 +90,39 @@
   gap: 10px;
 }
 
+.appshell-cloud-pill {
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.appshell-cloud-pill--connected {
+  background: rgba(83, 190, 120, 0.16);
+  border-color: rgba(83, 190, 120, 0.28);
+  color: #c8f7d8;
+}
+
+.appshell-cloud-pill--auth_missing {
+  background: rgba(237, 180, 82, 0.16);
+  border-color: rgba(237, 180, 82, 0.26);
+  color: #fbe3a8;
+}
+
+.appshell-cloud-pill--local_only {
+  background: rgba(108, 135, 255, 0.16);
+  border-color: rgba(108, 135, 255, 0.24);
+  color: #d7e1ff;
+}
+
+.appshell-cloud-pill--offline {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: rgba(234, 240, 255, 0.88);
+}
+
 .appshell-avatar {
   width: 28px;
   height: 28px;
