@@ -556,7 +556,6 @@ function createRoleGateSupabase({ userId, workspaceId, workspaceOwnerId, memberR
 }
 
 function createReadyQueueSupabase({
-  workspaceId,
   episodes = [],
   files = [],
   readyMeta = [],

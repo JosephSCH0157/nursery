@@ -19,6 +19,37 @@ async function ensureWorkpieceRailVisible(page: Parameters<typeof test>[0]["page
   await expect(railList).toBeVisible();
 }
 
+async function waitForStableWorkpieceCount(
+  page: Parameters<typeof test>[0]["page"],
+  args: { minCount?: number; timeout?: number } = {},
+): Promise<number> {
+  const minCount = args.minCount ?? 1;
+  const timeout = args.timeout ?? 30_000;
+  const loadingIndicator = page.getByText("Loading workspace projects...");
+  const railCards = page.locator(".hs-rail .hs-workpiece-card");
+  const startedAt = Date.now();
+  let lastCount = -1;
+  let stableRounds = 0;
+
+  while (Date.now() - startedAt < timeout) {
+    const count = await railCards.count();
+    const loadingCount = await loadingIndicator.count();
+    if (count >= minCount) {
+      stableRounds = count === lastCount ? stableRounds + 1 : 1;
+      lastCount = count;
+      if ((loadingCount === 0 && stableRounds >= 2) || stableRounds >= 4) {
+        return count;
+      }
+    } else {
+      lastCount = count;
+      stableRounds = 0;
+    }
+    await page.waitForTimeout(500);
+  }
+
+  throw new Error(`Timed out waiting for stable workpiece count >= ${minCount}`);
+}
+
 test.describe("Hearth Phase 4 spark forge restore", () => {
   test("Spark -> Forge -> refresh reopens the same workpiece with stable rail count", async ({ page }) => {
     const artifact = readHearthPhase4Artifact();
@@ -26,12 +57,7 @@ test.describe("Hearth Phase 4 spark forge restore", () => {
 
     await openHearth(page, { workspaceId: artifact.workspace_id });
     await ensureWorkpieceRailVisible(page);
-    await expect(page.getByText("Loading workspace projects...")).toHaveCount(0);
-    await expect
-      .poll(() => page.locator(".hs-rail .hs-workpiece-card").count(), { timeout: 30_000 })
-      .toBeGreaterThan(0);
-
-    const beforeCount = await page.locator(".hs-rail .hs-workpiece-card").count();
+    const beforeCount = await waitForStableWorkpieceCount(page);
 
     await openBarstock(page, { workspaceId: artifact.workspace_id });
     const newSparkInput = page.getByLabel("New spark text");
@@ -58,10 +84,11 @@ test.describe("Hearth Phase 4 spark forge restore", () => {
     await expect(page.getByText(`Opening ${sparkTitle} from Bar Stock.`, { exact: true })).toBeVisible();
 
     await expect(forgedRailCard).toBeVisible({ timeout: 60_000 });
-    await expect
-      .poll(() => page.locator(".hs-rail .hs-workpiece-card").count())
-      .toBe(beforeCount + 1);
-    const afterCount = await page.locator(".hs-rail .hs-workpiece-card").count();
+    await expect(page.locator(".hs-rail .hs-workpiece-card", {
+      has: page.getByText(sparkTitle, { exact: true }),
+    })).toHaveCount(1);
+    const afterCount = await waitForStableWorkpieceCount(page, { minCount: beforeCount + 1, timeout: 60_000 });
+    expect(afterCount).toBe(beforeCount + 1);
     await expect(page.locator(".hs-rail .hs-workpiece-card.is-active")).toHaveCount(1);
 
     await page.reload({ waitUntil: "load" });
@@ -82,6 +109,9 @@ test.describe("Hearth Phase 4 spark forge restore", () => {
     await expect(page.locator(".hs-rail .hs-workpiece-card.is-active")).toHaveCount(1);
     await expect(page.locator(".hs-rail .hs-workpieces-list")).toBeVisible();
     await expect(forgedRailCard).toBeVisible();
-    expect(await page.locator(".hs-rail .hs-workpiece-card").count()).toBe(afterCount);
+    await expect(page.locator(".hs-rail .hs-workpiece-card", {
+      has: page.getByText(sparkTitle, { exact: true }),
+    })).toHaveCount(1);
+    expect(await waitForStableWorkpieceCount(page, { minCount: afterCount, timeout: 60_000 })).toBe(afterCount);
   });
 });

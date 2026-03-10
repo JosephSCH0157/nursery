@@ -17,6 +17,7 @@
     "smoke:tongs-commit-api": "node scripts/smoke-tongs-commit-api.mjs",
     "test:hearth-runtime": "tsx tests/hearth-ai-runtime.test.mts",
     "verify:playwright:auth": "tsx scripts/verify-playwright-auth-state.mts",
+    "generate:playwright:auth": "tsx scripts/generate-playwright-auth-state.mts && pnpm verify:playwright:auth",
     "preflight:hearth-phase4": "tsx scripts/verify-hearth-phase4-fixtures.mts",
     "test:playwright:auth": "playwright test -c playwright.config.ts playwright/auth.capture.spec.ts --headed --workers=1 && pnpm verify:playwright:auth",
     "test:playwright:surgical": "playwright test -c playwright.config.ts playwright/library_to_session_switching.spec.ts",
