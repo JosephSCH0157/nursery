@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@14.25.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { findStripeCatalogPriceById } from "../_shared/stripe-catalog.ts";
 
 type CreateCheckoutSessionBody = {
   priceId?: string;
@@ -83,6 +84,11 @@ serve(async (req) => {
     return json(400, { error: "Missing priceId" });
   }
 
+  const catalogPrice = findStripeCatalogPriceById(priceId);
+  if (!catalogPrice) {
+    return json(400, { error: "Unknown Stripe catalog priceId" });
+  }
+
   if (!successUrl || !cancelUrl) {
     return json(400, {
       error:
@@ -149,9 +155,26 @@ serve(async (req) => {
     }
 
     const price = await stripe.prices.retrieve(priceId);
-    const packType = readMetadataString(price.metadata, "forge_pack_type");
-    const packId = readMetadataString(price.metadata, "forge_pack_id");
-    const isAiCreditPack = packType === "ai_credits";
+    const stripeProductId = typeof price.product === "string"
+      ? price.product.trim()
+      : null;
+    const matchesCatalogProduct = stripeProductId === catalogPrice.liveProductId
+      || stripeProductId === catalogPrice.testProductId;
+
+    if (!matchesCatalogProduct) {
+      return json(400, {
+        error: "Stripe price/product does not match the Forge catalog.",
+      });
+    }
+
+    const packType = catalogPrice.kind === "pack"
+      ? catalogPrice.packType
+      : readMetadataString(price.metadata, "forge_pack_type");
+    const packId = catalogPrice.kind === "pack"
+      ? catalogPrice.packId
+      : readMetadataString(price.metadata, "forge_pack_id");
+    const isAiCreditPack = catalogPrice.kind === "pack"
+      && catalogPrice.packType === "ai_credits";
     const isRecurringPrice = !!price.recurring;
 
     if (isAiCreditPack && isRecurringPrice) {
@@ -196,8 +219,23 @@ serve(async (req) => {
       forge_user_id: user.id,
       forge_product: "podcasters_forge",
     };
+    if (catalogPrice.kind === "plan") {
+      sessionMetadata.forge_plan_id = catalogPrice.planId;
+      sessionMetadata.forge_interval = catalogPrice.interval;
+    }
+    if (catalogPrice.kind === "addon") {
+      sessionMetadata.forge_addon = catalogPrice.addonId;
+      sessionMetadata.forge_interval = catalogPrice.interval;
+    }
+    if (catalogPrice.kind === "storage") {
+      sessionMetadata.forge_storage_level = catalogPrice.storageLevel;
+      sessionMetadata.forge_interval = catalogPrice.interval;
+    }
     if (packType) sessionMetadata.forge_pack_type = packType;
     if (packId) sessionMetadata.forge_pack_id = packId;
+    if (catalogPrice.kind === "pack") {
+      sessionMetadata.forge_interval = catalogPrice.interval;
+    }
 
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
       mode,

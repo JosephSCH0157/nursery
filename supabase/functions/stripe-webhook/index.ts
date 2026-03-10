@@ -1,18 +1,13 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@14.25.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { findStripeCatalogAiPackById } from "../_shared/stripe-catalog.ts";
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
   apiVersion: "2024-06-20",
 });
 
 const endpointSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET")!;
-
-const AI_PACK_TOKENS: Record<string, number> = {
-  ai_base: 1_000_000,
-  ai_mid: 3_000_000,
-  ai_high: 7_000_000,
-};
 
 function normalizeCustomerId(
   customer: string | Stripe.Customer | Stripe.DeletedCustomer | null,
@@ -51,9 +46,10 @@ function resolveUserIdFromCheckoutSession(
 }
 
 function resolveAiPackTokens(packId: string): number | null {
-  const tokens = AI_PACK_TOKENS[packId];
-  if (!Number.isFinite(tokens) || tokens <= 0) return null;
-  return Math.trunc(tokens);
+  const pack = findStripeCatalogAiPackById(packId);
+  if (!pack) return null;
+  if (!Number.isFinite(pack.tokenAmount) || pack.tokenAmount <= 0) return null;
+  return Math.trunc(pack.tokenAmount);
 }
 
 async function requireProfileByCustomerId(
