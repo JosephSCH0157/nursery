@@ -46,6 +46,7 @@ export default function BarstockRoute() {
         workspaces: ctx.workspaces,
         workspaceId: ctx.workspaceId,
         onWorkspaceChange: ctx.selectWorkspace,
+        isCloudConnected: ctx.cloud.status === "connected",
       }}
       showWorkspacePicker={false}
       mobileRoute={isMobileLayout

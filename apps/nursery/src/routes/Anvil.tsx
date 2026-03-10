@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { useLocation, useOutletContext } from "react-router-dom";
-import { resolveTongsApiToken } from "@hearth/lib/tongs-fetch";
+import { resolveTongsRequestApiToken } from "@hearth/lib/tongs-fetch";
 import type { AppShellContext } from "./AppShell";
 import WorkspaceRequiredNotice from "./WorkspaceRequiredNotice";
 import { buildForgeRouteHref, parseForgeRouteContext } from "../lib/forge-route-context";
@@ -25,7 +25,7 @@ export default function AnvilRoute() {
   useEffect(() => {
     if (!shell.workspaceId) return;
     try {
-      const token = resolveTongsApiToken();
+      const token = resolveTongsRequestApiToken();
       if (token) {
         window.localStorage.setItem(TONGS_TOKEN_STORAGE_KEY, token);
       }

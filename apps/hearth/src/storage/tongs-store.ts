@@ -1,8 +1,23 @@
 import type { Draft, DraftAttribution, DraftId } from "../domain/draft";
 import type { Revision, RevisionId } from "../domain/revision";
+import {
+  HEARTH_REVISIONS_PATH,
+  applyRevisionCap,
+  createEmptyRevisionSnapshot,
+  entryToRevision,
+  normalizeRevisionSnapshot,
+  revisionToEntry,
+  type HearthRevisionEntry,
+  type HearthRevisionSnapshot,
+} from "../lib/hearth-revisions-contract";
 import type { HearthChatMessage } from "../lib/hearth-chat-api";
 import type { HearthStore, SaveDraftOptions } from "./hearth-store";
-import { cloneRevision, normalizeRevision, readRevisionRecord, writeRevisionRecord } from "./revision-storage";
+import {
+  cloneRevision,
+  loadRevisionSnapshotFallback,
+  normalizeRevision,
+  saveRevisionSnapshotFallback,
+} from "./revision-storage";
 import { tongsFetch } from "../lib/tongs-fetch";
 
 type WrittenBy = {
@@ -46,12 +61,13 @@ type CommitConflictDetails = {
 };
 
 const TONGS_CACHE_KEY = "hearth:tongs:cache:v1";
-const TONGS_WORKPIECE_KEY = "forge_hearth_workpiece_id_v1";
-const TONGS_WORKPIECE_BY_WORKSPACE_PREFIX = "forge_hearth_workpiece_v1:";
+const TONGS_WORKPIECE_KEY = "forge_hearth_script_workpiece_id_v1";
+const TONGS_WORKPIECE_BY_WORKSPACE_PREFIX = "forge_hearth_script_workpiece_v1:";
+const LEGACY_TONGS_WORKPIECE_KEY = "forge_hearth_workpiece_id_v1";
+const LEGACY_TONGS_WORKPIECE_BY_WORKSPACE_PREFIX = "forge_hearth_workpiece_v1:";
 const TONGS_DRAFT_SNAPSHOT_PATH = "hearth/drafts.v1.json";
 const TONGS_CHAT_SNAPSHOT_PATH = "hearth/chat.v1.json";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const MAX_REVISIONS_PER_DRAFT = 200;
 const MAX_CHAT_MESSAGES = 200;
 const MAX_CHAT_TOTAL_CHARS = 650_000;
 const MAX_CHAT_ENTRY_CHARS = 24_000;
@@ -376,7 +392,7 @@ async function readJsonBody(response: Response): Promise<unknown> {
 }
 
 async function readJsonFromTongs(url: string): Promise<
-  { ok: true; data: unknown | null } | { ok: false; status?: number; reason: string }
+  { ok: true; data: unknown | null; fileUpdatedAt: string | null } | { ok: false; status?: number; reason: string }
 > {
   const response = await tongsFetch(url);
   if (response.status === 404) {
@@ -387,7 +403,7 @@ async function readJsonFromTongs(url: string): Promise<
       && (body as { ok?: boolean }).ok === true
       && (body as { exists?: boolean }).exists === false
     ) {
-      return { ok: true, data: null };
+      return { ok: true, data: null, fileUpdatedAt: null };
     }
     return { ok: false, status: 404, reason: "not_found" };
   }
@@ -401,7 +417,15 @@ async function readJsonFromTongs(url: string): Promise<
     return { ok: false, status: response.status, reason: "invalid_response" };
   }
 
-  return { ok: true, data: (body as { data?: unknown }).data ?? null };
+  return {
+    ok: true,
+    data: (body as { data?: unknown }).data ?? null,
+    fileUpdatedAt: readString(
+      (body as { file_row?: { updated_at?: unknown } })?.file_row?.updated_at,
+    ) ?? readString(
+      (body as { data?: { file_row?: { updated_at?: unknown } } })?.data?.file_row?.updated_at,
+    ),
+  };
 }
 
 function resolveCreatedWorkpieceId(body: unknown): string | null {
@@ -571,16 +595,146 @@ function parseDraftSnapshot(data: unknown): { drafts: Draft[]; updatedAt: string
 
 async function readDraftSnapshot(
   workpieceId: string,
-): Promise<{ drafts: Draft[]; updatedAt: string | null } | null> {
+): Promise<{ drafts: Draft[]; updatedAt: string | null; fileUpdatedAt: string | null } | null> {
   const url = `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(
     TONGS_DRAFT_SNAPSHOT_PATH,
   )}`;
   const result = await readJsonFromTongs(url);
   if (!result.ok) return null;
   if (result.data == null) {
-    return { drafts: [], updatedAt: null };
+    return { drafts: [], updatedAt: null, fileUpdatedAt: result.fileUpdatedAt };
   }
-  return parseDraftSnapshot(result.data);
+  const parsed = parseDraftSnapshot(result.data);
+  if (!parsed) return null;
+  return {
+    ...parsed,
+    fileUpdatedAt: result.fileUpdatedAt,
+  };
+}
+
+function sortRevisionEntriesDesc(entries: readonly HearthRevisionEntry[]): HearthRevisionEntry[] {
+  return entries
+    .slice()
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+}
+
+function buildNormalizedRevisionSnapshot(
+  workpieceId: string,
+  revisions: readonly HearthRevisionEntry[],
+): HearthRevisionSnapshot {
+  const snapshot = normalizeRevisionSnapshot(workpieceId, {
+    schema_version: 1,
+    workpiece_id: workpieceId,
+    updated_at: new Date().toISOString(),
+    revisions: applyRevisionCap(sortRevisionEntriesDesc(revisions)),
+  });
+  if (!snapshot) {
+    throw new Error("invalid_revision_snapshot");
+  }
+  return snapshot;
+}
+
+function normalizeRevisionEntryForWorkpiece(
+  workpieceId: string,
+  entry: HearthRevisionEntry,
+): HearthRevisionEntry | null {
+  return normalizeRevisionSnapshot(workpieceId, {
+    ...createEmptyRevisionSnapshot(workpieceId),
+    revisions: [entry],
+  })?.revisions[0] ?? null;
+}
+
+function parseHearthRevisionSnapshot(
+  workpieceId: string,
+  data: unknown,
+): HearthRevisionSnapshot | null {
+  return normalizeRevisionSnapshot(workpieceId, data);
+}
+
+async function readHearthRevisionSnapshotFromTongs(
+  workpieceId: string,
+): Promise<{ snapshot: HearthRevisionSnapshot; fileUpdatedAt: string | null } | null> {
+  const url = `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(
+    HEARTH_REVISIONS_PATH,
+  )}`;
+  const result = await readJsonFromTongs(url);
+  if (!result.ok) return null;
+  if (result.data == null) {
+    return {
+      snapshot: createEmptyRevisionSnapshot(workpieceId),
+      fileUpdatedAt: result.fileUpdatedAt,
+    };
+  }
+  const snapshot = parseHearthRevisionSnapshot(workpieceId, result.data);
+  if (!snapshot) return null;
+  return {
+    snapshot,
+    fileUpdatedAt: result.fileUpdatedAt,
+  };
+}
+
+async function commitHearthRevisionSnapshot(
+  workpieceId: string,
+  snapshot: HearthRevisionSnapshot,
+  writtenBy: WrittenBy,
+  options?: { expectedPreviousUpdatedAt?: string; reason?: string },
+): Promise<
+  | { ok: true; fileUpdatedAt: string | null }
+  | { ok: false; status: number; reason: "request_failed" | "conflict" | "invalid_response"; details?: CommitConflictDetails }
+> {
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/commit-file`, {
+    method: "POST",
+    json: {
+      path: HEARTH_REVISIONS_PATH,
+      content_type: "application/json",
+      json: snapshot,
+      written_by: writtenBy,
+      ...(options?.expectedPreviousUpdatedAt
+        ? { expected_previous_updated_at: options.expectedPreviousUpdatedAt }
+        : {}),
+      event_name: "hearth.revisions.snapshot.v1",
+      event_payload: {
+        schema_version: snapshot.schema_version,
+        count: snapshot.revisions.length,
+        updated_at: snapshot.updated_at,
+        reason: readString(options?.reason) ?? "manual",
+      },
+      correlation_id: nextCorrelationId("hearth-revisions-commit"),
+    },
+  });
+
+  const body = await readJsonBody(response);
+  if (!response.ok) {
+    const errorBody = body as {
+      error?: {
+        code?: unknown;
+        details?: unknown;
+      };
+    } | null;
+    if (response.status === 409 && errorBody?.error?.code === "file_conflict") {
+      const detailsRaw = errorBody.error.details;
+      const details: CommitConflictDetails | undefined = detailsRaw && typeof detailsRaw === "object"
+        ? {
+          path: readString((detailsRaw as Record<string, unknown>).path) ?? HEARTH_REVISIONS_PATH,
+          expected_previous_updated_at: readString(
+            (detailsRaw as Record<string, unknown>).expected_previous_updated_at,
+          ),
+          current_updated_at: readString((detailsRaw as Record<string, unknown>).current_updated_at),
+        }
+        : undefined;
+      return { ok: false, status: 409, reason: "conflict", details };
+    }
+    return { ok: false, status: response.status, reason: "request_failed" };
+  }
+
+  if (!isCommitAck(body)) {
+    return { ok: false, status: response.status, reason: "invalid_response" };
+  }
+
+  const fileUpdatedAt = readString(
+    (body as { data?: { file_row?: { updated_at?: unknown } } })?.data?.file_row?.updated_at,
+  );
+  return { ok: true, fileUpdatedAt };
 }
 
 function buildChatSnapshot(cache: TongsCacheV1, workspaceId: string): {
@@ -670,18 +824,39 @@ async function readChatSnapshot(
   return parseChatSnapshot(result.data);
 }
 
+function syncCachedWorkpieceId(workspaceId: string, workpieceId: string, cache: TongsCacheV1): string {
+  if (cache.workpieceByWorkspace[workspaceId] === workpieceId) {
+    return workpieceId;
+  }
+  cache.workpieceByWorkspace[workspaceId] = workpieceId;
+  delete cache.draftSnapshotUpdatedAtByWorkspace[workspaceId];
+  writeCache(cache);
+  return workpieceId;
+}
+
 function resolveCachedWorkpieceId(workspaceId: string, cache: TongsCacheV1): string | null {
+  const fromScopedKey =
+    normalizeUuid(readLocalStorage(`${TONGS_WORKPIECE_BY_WORKSPACE_PREFIX}${workspaceId}`))
+    ?? normalizeUuid(readLocalStorage(`${LEGACY_TONGS_WORKPIECE_BY_WORKSPACE_PREFIX}${workspaceId}`));
+  if (fromScopedKey) {
+    return syncCachedWorkpieceId(workspaceId, fromScopedKey, cache);
+  }
+
+  const fromGlobal = normalizeUuid(readLocalStorage(TONGS_WORKPIECE_KEY))
+    ?? normalizeUuid(readLocalStorage(LEGACY_TONGS_WORKPIECE_KEY));
+  if (fromGlobal) {
+    return syncCachedWorkpieceId(workspaceId, fromGlobal, cache);
+  }
+
   const fromMap = normalizeUuid(cache.workpieceByWorkspace[workspaceId]);
   if (fromMap) return fromMap;
-
-  const fromScopedKey = normalizeUuid(readLocalStorage(`${TONGS_WORKPIECE_BY_WORKSPACE_PREFIX}${workspaceId}`));
-  if (fromScopedKey) return fromScopedKey;
   return null;
 }
 
 function persistWorkpieceId(workspaceId: string, workpieceId: string, cache: TongsCacheV1): void {
   cache.workpieceByWorkspace[workspaceId] = workpieceId;
   writeCache(cache);
+  writeLocalStorage(TONGS_WORKPIECE_KEY, workpieceId);
   writeLocalStorage(`${TONGS_WORKPIECE_BY_WORKSPACE_PREFIX}${workspaceId}`, workpieceId);
 }
 
@@ -853,44 +1028,216 @@ export class TongsHearthStore implements HearthStore {
     await this.syncChatsToTongs(cache, workspaceId);
   }
 
-  async listRevisions(draftId: DraftId): Promise<Revision[]> {
-    const record = readRevisionRecord();
-    return Object.values(record)
-      .filter((rev) => rev.draftId === draftId)
+  async getHearthRevisionSnapshot(workpieceId: string): Promise<HearthRevisionSnapshot | null> {
+    const normalizedWorkpieceId = normalizeUuid(workpieceId);
+    if (!normalizedWorkpieceId) return null;
+
+    const remote = await readHearthRevisionSnapshotFromTongs(normalizedWorkpieceId);
+    if (remote) {
+      saveRevisionSnapshotFallback(normalizedWorkpieceId, remote.snapshot);
+      return remote.snapshot;
+    }
+
+    return loadRevisionSnapshotFallback(normalizedWorkpieceId);
+  }
+
+  async saveHearthRevisionSnapshot(
+    workpieceId: string,
+    snapshot: HearthRevisionSnapshot,
+  ): Promise<void> {
+    const normalizedWorkpieceId = normalizeUuid(workpieceId);
+    if (!normalizedWorkpieceId) {
+      throw new Error("missing_workpiece");
+    }
+
+    const normalizedSnapshot = normalizeRevisionSnapshot(normalizedWorkpieceId, snapshot);
+    if (!normalizedSnapshot) {
+      throw new Error("invalid_revision_snapshot");
+    }
+
+    await this.replaceHearthRevisionHistory(normalizedWorkpieceId, normalizedSnapshot.revisions);
+  }
+
+  async appendHearthRevisionEntry(
+    workpieceId: string,
+    entry: HearthRevisionEntry,
+  ): Promise<HearthRevisionSnapshot> {
+    const normalizedWorkpieceId = normalizeUuid(workpieceId);
+    if (!normalizedWorkpieceId) {
+      throw new Error("missing_workpiece");
+    }
+
+    const normalizedEntry = normalizeRevisionEntryForWorkpiece(normalizedWorkpieceId, entry);
+    if (!normalizedEntry) {
+      throw new Error("invalid_revision_entry");
+    }
+
+    const remote = await readHearthRevisionSnapshotFromTongs(normalizedWorkpieceId);
+    if (!remote) {
+      const fallbackBase = loadRevisionSnapshotFallback(normalizedWorkpieceId)
+        ?? createEmptyRevisionSnapshot(normalizedWorkpieceId);
+      const fallbackSnapshot = buildNormalizedRevisionSnapshot(
+        normalizedWorkpieceId,
+        [...fallbackBase.revisions.filter((item) => item.id !== normalizedEntry.id), normalizedEntry],
+      );
+      saveRevisionSnapshotFallback(normalizedWorkpieceId, fallbackSnapshot);
+      throw new Error("revision_snapshot_sync_failed");
+    }
+
+    const writtenBy = buildWrittenBy();
+    let nextSnapshot = buildNormalizedRevisionSnapshot(
+      normalizedWorkpieceId,
+      [...remote.snapshot.revisions.filter((item) => item.id !== normalizedEntry.id), normalizedEntry],
+    );
+
+    const firstTry = await commitHearthRevisionSnapshot(
+      normalizedWorkpieceId,
+      nextSnapshot,
+      writtenBy,
+      { expectedPreviousUpdatedAt: remote.fileUpdatedAt ?? undefined, reason: "append" },
+    );
+
+    if (firstTry.ok) {
+      saveRevisionSnapshotFallback(normalizedWorkpieceId, nextSnapshot);
+      return nextSnapshot;
+    }
+
+    if (firstTry.reason === "conflict") {
+      const latest = await readHearthRevisionSnapshotFromTongs(normalizedWorkpieceId);
+      if (latest) {
+        nextSnapshot = buildNormalizedRevisionSnapshot(
+          normalizedWorkpieceId,
+          [...latest.snapshot.revisions.filter((item) => item.id !== normalizedEntry.id), normalizedEntry],
+        );
+
+        const secondTry = await commitHearthRevisionSnapshot(
+          normalizedWorkpieceId,
+          nextSnapshot,
+          writtenBy,
+          { expectedPreviousUpdatedAt: latest.fileUpdatedAt ?? undefined, reason: "append_retry" },
+        );
+
+        if (secondTry.ok) {
+          saveRevisionSnapshotFallback(normalizedWorkpieceId, nextSnapshot);
+          return nextSnapshot;
+        }
+      }
+    }
+
+    saveRevisionSnapshotFallback(normalizedWorkpieceId, nextSnapshot);
+    throw new Error("revision_snapshot_sync_failed");
+  }
+
+  async replaceHearthRevisionHistory(
+    workpieceId: string,
+    revisions: HearthRevisionEntry[],
+  ): Promise<HearthRevisionSnapshot> {
+    const normalizedWorkpieceId = normalizeUuid(workpieceId);
+    if (!normalizedWorkpieceId) {
+      throw new Error("missing_workpiece");
+    }
+
+    const normalizedSnapshot = buildNormalizedRevisionSnapshot(normalizedWorkpieceId, revisions);
+    const remote = await readHearthRevisionSnapshotFromTongs(normalizedWorkpieceId);
+    if (!remote) {
+      saveRevisionSnapshotFallback(normalizedWorkpieceId, normalizedSnapshot);
+      throw new Error("revision_snapshot_sync_failed");
+    }
+
+    const writtenBy = buildWrittenBy();
+    const firstTry = await commitHearthRevisionSnapshot(
+      normalizedWorkpieceId,
+      normalizedSnapshot,
+      writtenBy,
+      { expectedPreviousUpdatedAt: remote.fileUpdatedAt ?? undefined, reason: "replace" },
+    );
+
+    if (firstTry.ok) {
+      saveRevisionSnapshotFallback(normalizedWorkpieceId, normalizedSnapshot);
+      return normalizedSnapshot;
+    }
+
+    if (firstTry.reason === "conflict") {
+      const latest = await readHearthRevisionSnapshotFromTongs(normalizedWorkpieceId);
+      if (latest) {
+        const mergedById = new Map<string, HearthRevisionEntry>();
+        for (const entry of latest.snapshot.revisions) {
+          mergedById.set(entry.id, entry);
+        }
+        for (const entry of normalizedSnapshot.revisions) {
+          mergedById.set(entry.id, entry);
+        }
+
+        const mergedSnapshot = buildNormalizedRevisionSnapshot(
+          normalizedWorkpieceId,
+          Array.from(mergedById.values()),
+        );
+
+        const secondTry = await commitHearthRevisionSnapshot(
+          normalizedWorkpieceId,
+          mergedSnapshot,
+          writtenBy,
+          { expectedPreviousUpdatedAt: latest.fileUpdatedAt ?? undefined, reason: "replace_retry" },
+        );
+
+        if (secondTry.ok) {
+          saveRevisionSnapshotFallback(normalizedWorkpieceId, mergedSnapshot);
+          return mergedSnapshot;
+        }
+
+        saveRevisionSnapshotFallback(normalizedWorkpieceId, mergedSnapshot);
+        throw new Error("revision_snapshot_sync_failed");
+      }
+    }
+
+    saveRevisionSnapshotFallback(normalizedWorkpieceId, normalizedSnapshot);
+    throw new Error("revision_snapshot_sync_failed");
+  }
+
+  async listRevisions(workpieceId: string, draftId?: DraftId | null): Promise<Revision[]> {
+    const snapshot = await this.getHearthRevisionSnapshot(workpieceId);
+    if (!snapshot) return [];
+
+    let revisions = snapshot.revisions.map((entry) => entryToRevision(entry));
+    if (draftId?.trim()) {
+      revisions = revisions.filter((revision) => revision.draftId === draftId);
+    }
+
+    return revisions
       .sort((a, b) => b.createdAt - a.createdAt)
       .map(cloneRevision);
   }
 
-  async getRevision(id: RevisionId): Promise<Revision | null> {
-    const record = readRevisionRecord();
-    const found = record[id];
-    return found ? cloneRevision(found) : null;
+  async getRevision(workpieceId: string, id: RevisionId): Promise<Revision | null> {
+    const revisionId = typeof id === "string" ? id.trim() : "";
+    if (!revisionId) return null;
+
+    const snapshot = await this.getHearthRevisionSnapshot(workpieceId);
+    if (!snapshot) return null;
+
+    const entry = snapshot.revisions.find((item) => item.id === revisionId);
+    if (!entry) return null;
+
+    return cloneRevision(entryToRevision(entry));
   }
 
-  async saveRevision(revision: Revision): Promise<void> {
+  async saveRevision(workpieceId: string, revision: Revision): Promise<void> {
     const normalized = normalizeRevision(revision);
     if (!normalized) {
       throw new Error("Invalid revision payload");
     }
 
-    const record = readRevisionRecord();
-    record[normalized.id] = cloneRevision(normalized);
-    const byDraft = Object.values(record)
-      .filter((rev) => rev.draftId === normalized.draftId)
-      .sort((a, b) => b.createdAt - a.createdAt);
-    if (byDraft.length > MAX_REVISIONS_PER_DRAFT) {
-      for (const stale of byDraft.slice(MAX_REVISIONS_PER_DRAFT)) {
-        delete record[stale.id];
-      }
-    }
-    writeRevisionRecord(record);
+    await this.appendHearthRevisionEntry(workpieceId, revisionToEntry(normalized));
   }
 
-  async restoreRevision(id: RevisionId): Promise<{ title: string; body: string } | null> {
-    const record = readRevisionRecord();
-    const found = record[id];
-    if (!found) return null;
-    return { title: found.titleSnapshot, body: found.bodySnapshot };
+  async restoreRevision(workpieceId: string, id: RevisionId): Promise<{ title: string; body: string } | null> {
+    const revision = await this.getRevision(workpieceId, id);
+    if (!revision) return null;
+
+    return {
+      title: revision.titleSnapshot,
+      body: revision.bodySnapshot,
+    };
   }
 
   private async hydrateWorkspaceDrafts(cache: TongsCacheV1, workspaceId: string): Promise<void> {
@@ -898,6 +1245,7 @@ export class TongsHearthStore implements HearthStore {
     if (!workpieceId) return;
     const remote = await readDraftSnapshot(workpieceId);
     if (remote == null) return;
+    writeDraftSnapshotUpdatedAt(cache, workspaceId, remote.fileUpdatedAt ?? remote.updatedAt);
     for (const draft of remote.drafts) {
       cache.drafts[draft.id] = draft;
       cache.draftWorkspaceById[draft.id] = workspaceId;

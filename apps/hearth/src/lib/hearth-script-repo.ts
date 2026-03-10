@@ -1,6 +1,7 @@
 import { tongsFetch } from "./tongs-fetch";
 
 type CommitResult = { ok: true } | { ok: false; status?: number; reason: string };
+type ReadResult<T> = { ok: true; data: T } | { ok: false; status?: number; reason: string };
 
 type WrittenBy = {
   tool: string;
@@ -98,6 +99,58 @@ async function readBodyAsJson(response: Response): Promise<unknown> {
 
 export function getHearthPrimaryScriptPath(): string {
   return PRIMARY_SCRIPT_PATH;
+}
+
+export async function readHearthPrimaryScript(
+  workpieceId: string,
+): Promise<ReadResult<{ text: string | null; updatedAt: string | null }>> {
+  const response = await tongsFetch(
+    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(PRIMARY_SCRIPT_PATH)}`,
+    { method: "GET" },
+  );
+
+  if (response.status === 404) {
+    let body: unknown = null;
+    try {
+      body = await response.json();
+    } catch {
+      // ignore
+    }
+    if (
+      body
+      && typeof body === "object"
+      && (body as { ok?: boolean }).ok === true
+      && (body as { exists?: boolean }).exists === false
+    ) {
+      return { ok: true, data: { text: null, updatedAt: null } };
+    }
+    return { ok: false, status: 404, reason: "not_found" };
+  }
+
+  if (!response.ok) {
+    return { ok: false, status: response.status, reason: "request_failed" };
+  }
+
+  const body = await readBodyAsJson(response);
+  const row = body as {
+    ok?: unknown;
+    data?: unknown;
+    file_row?: {
+      updated_at?: unknown;
+    } | null;
+  } | null;
+
+  if (row?.ok !== true) {
+    return { ok: false, status: response.status, reason: "invalid_response" };
+  }
+
+  return {
+    ok: true,
+    data: {
+      text: typeof row?.data === "string" ? row.data : null,
+      updatedAt: readString(row?.file_row?.updated_at) ?? null,
+    },
+  };
 }
 
 export async function commitHearthPrimaryScript(

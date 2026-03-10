@@ -1,18 +1,28 @@
-import type { EpisodeContext, HearthOp } from "./hearth-ai-ops";
+import {
+  HEARTH_AI_ROUTES,
+  isHearthAiBehavior as isBehavior,
+  isHearthAiLane as isLane,
+  normalizeHearthChatMessages as normalizeMessages,
+  parseHearthAiStatusResponse,
+  parseHearthChatResponse,
+  parseHearthSttResponse,
+  readHearthAiErrorText as readErrorText,
+  readHearthAiRuntimeSnapshot as readRuntimeFromPayload,
+  type EpisodeContext,
+  type HearthAiBehavior,
+  type HearthAiLane,
+  type HearthAiRuntimeSnapshot,
+  type HearthChatMessage,
+  type HearthOp,
+} from "./hearth-ai-runtime-contract";
 
-export type HearthAiLane = "forge" | "byo";
-export type HearthAiBehavior = "fast" | "careful" | "deterministic" | "creative";
-export type HearthChatRole = "system" | "user" | "assistant";
-
-export type HearthChatMessage = {
-  role: HearthChatRole;
-  content: string;
-};
-
-export type HearthAiRuntimeSnapshot = {
-  tokenBalance: number | null;
-  billingMode: HearthAiLane;
-};
+export type {
+  HearthAiBehavior,
+  HearthAiLane,
+  HearthAiRuntimeSnapshot,
+  HearthChatMessage,
+  HearthChatRole,
+} from "./hearth-ai-runtime-contract";
 
 export type HearthAiStatusResult =
   | { ok: true; status: number; runtime: HearthAiRuntimeSnapshot }
@@ -102,47 +112,10 @@ const DEFAULT_AI_SETTINGS: AiSettingsSnapshot = {
   autoApproveImageSpend: false,
 };
 
-function isBehavior(value: unknown): value is HearthAiBehavior {
-  return value === "fast" || value === "careful" || value === "deterministic" || value === "creative";
-}
-
-function isLane(value: unknown): value is HearthAiLane {
-  return value === "forge" || value === "byo";
-}
-
-function normalizeMessages(messages: HearthChatMessage[]): HearthChatMessage[] {
-  return messages
-    .filter((message) => (
-      (message.role === "system" || message.role === "user" || message.role === "assistant")
-        && typeof message.content === "string"
-    ))
-    .map((message) => ({
-      role: message.role,
-      content: message.content.trim(),
-    }))
-    .filter((message) => message.content.length > 0)
-    .slice(-24);
-}
-
 function readStringField(payload: unknown, key: string): string | null {
   if (!payload || typeof payload !== "object") return null;
   const value = (payload as Record<string, unknown>)[key];
   return typeof value === "string" ? value : null;
-}
-
-function readNumberField(payload: unknown, key: string): number | null {
-  if (!payload || typeof payload !== "object") return null;
-  const value = (payload as Record<string, unknown>)[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function readUnknownField(payload: unknown, key: string): unknown {
-  if (!payload || typeof payload !== "object") return null;
-  return (payload as Record<string, unknown>)[key];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function isUuid(value: string | null | undefined): value is string {
@@ -188,84 +161,6 @@ function sanitizeEventPayload(payload?: Record<string, unknown>): Record<string,
       out[key] = null;
     }
   }
-  return out;
-}
-
-function readOptionalString(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed ? trimmed : undefined;
-}
-
-function normalizeOpPatch(value: unknown): { title?: string; url?: string; note?: string } | null {
-  if (!isRecord(value)) return null;
-  const title = readOptionalString(value.title);
-  const url = readOptionalString(value.url);
-  const note = readOptionalString(value.note);
-  if (!title && !url && !note) return null;
-  return {
-    ...(title ? { title } : {}),
-    ...(url ? { url } : {}),
-    ...(note ? { note } : {}),
-  };
-}
-
-function normalizeOps(value: unknown): HearthOp[] {
-  if (!Array.isArray(value)) return [];
-  const out: HearthOp[] = [];
-
-  for (const item of value) {
-    if (!isRecord(item)) continue;
-    const op = readOptionalString(item.op);
-    if (!op) continue;
-
-    if (op === "set_title") {
-      const next = readOptionalString(item.value);
-      if (next !== undefined) out.push({ op, value: next });
-      continue;
-    }
-
-    if (op === "set_title_variant") {
-      const slot = readOptionalString(item.slot);
-      const valueText = readOptionalString(item.value);
-      if ((slot === "A" || slot === "B" || slot === "C") && valueText !== undefined) {
-        out.push({ op, slot, value: valueText });
-      }
-      continue;
-    }
-
-    if (op === "set_outline") {
-      const next = readOptionalString(item.value);
-      if (next !== undefined) out.push({ op, value: next });
-      continue;
-    }
-
-    if (op === "set_body") {
-      const next = readOptionalString(item.value);
-      if (next !== undefined) out.push({ op, value: next });
-      continue;
-    }
-
-    if (op === "add_source") {
-      const source = normalizeOpPatch(item.source);
-      if (source) out.push({ op, source });
-      continue;
-    }
-
-    if (op === "update_source") {
-      const id = readOptionalString(item.id);
-      const patch = normalizeOpPatch(item.patch);
-      if (id && patch) out.push({ op, id, patch });
-      continue;
-    }
-
-    if (op === "remove_source") {
-      const id = readOptionalString(item.id);
-      if (id) out.push({ op, id });
-      continue;
-    }
-  }
-
   return out;
 }
 
@@ -500,23 +395,6 @@ function resolveAiSettingsFromStorage(): AiSettingsSnapshot {
   }
 }
 
-function readRuntimeFromPayload(payload: unknown, fallbackLane: HearthAiLane): HearthAiRuntimeSnapshot {
-  const billingModeRaw = readStringField(payload, "billing_mode");
-  const billingMode = isLane(billingModeRaw) ? billingModeRaw : fallbackLane;
-  const tokenBalanceRaw = readNumberField(payload, "token_balance");
-  const tokenBalance = billingMode === "forge" ? tokenBalanceRaw : null;
-  return {
-    tokenBalance,
-    billingMode,
-  };
-}
-
-function readErrorText(payload: unknown, fallback: string): string {
-  const errorText = readStringField(payload, "error");
-  if (errorText && errorText.trim()) return errorText;
-  return fallback;
-}
-
 export function resolveAiLaneFromStorage(): HearthAiLane {
   return resolveAiSettingsFromStorage().lane;
 }
@@ -534,6 +412,16 @@ function parseCreditsPayload(payload: unknown, fallbackLane: HearthAiLane): Hear
     return readRuntimeFromPayload(payload[0], fallbackLane);
   }
   return readRuntimeFromPayload(payload, fallbackLane);
+}
+
+function runtimeFromResponse(payload: {
+  billing_mode: HearthAiLane;
+  token_balance: number | null;
+}): HearthAiRuntimeSnapshot {
+  return {
+    billingMode: payload.billing_mode,
+    tokenBalance: payload.token_balance,
+  };
 }
 
 function createStorageObjectPath(parts: string[]): string {
@@ -726,7 +614,7 @@ export async function fetchHearthAiStatus(): Promise<HearthAiStatusResult> {
   let response: Response;
 
   try {
-    response = await fetch(`/api/hearth/chat/status?${query.toString()}`, {
+    response = await fetch(`${HEARTH_AI_ROUTES.chatStatus}?${query.toString()}`, {
       method: "GET",
       headers: await buildAuthHeaders({ includeJson: true }),
     });
@@ -747,7 +635,7 @@ export async function fetchHearthAiStatus(): Promise<HearthAiStatusResult> {
     payload = null;
   }
 
-  const runtime = readRuntimeFromPayload(payload, lane);
+  const runtime = runtimeFromResponse(parseHearthAiStatusResponse(payload, lane));
 
   if (!response.ok) {
     return {
@@ -884,7 +772,7 @@ export async function requestHearthSttTranscript(args: {
 
   let response: Response;
   try {
-    response = await fetch("/api/hearth/stt", {
+    response = await fetch(HEARTH_AI_ROUTES.stt, {
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -918,8 +806,9 @@ export async function requestHearthSttTranscript(args: {
     payload = null;
   }
 
-  const runtime = readRuntimeFromPayload(payload, lane);
-  const creditsWarning = readStringField(payload, "credits_warning") ?? undefined;
+  const parsed = parseHearthSttResponse(payload, lane);
+  const runtime = parsed ? runtimeFromResponse(parsed) : readRuntimeFromPayload(payload, lane);
+  const creditsWarning = parsed?.credits_warning ?? undefined;
 
   if (!response.ok) {
     return {
@@ -931,7 +820,7 @@ export async function requestHearthSttTranscript(args: {
     };
   }
 
-  const text = (readStringField(payload, "text") ?? "").trim();
+  const text = parsed?.text ?? "";
   if (!text) {
     return {
       ok: false,
@@ -947,8 +836,8 @@ export async function requestHearthSttTranscript(args: {
     status: response.status,
     text,
     runtime,
-    providerRequestId: readStringField(payload, "provider_request_id"),
-    totalTokens: readNumberField(payload, "total_tokens"),
+    providerRequestId: parsed?.provider_request_id ?? null,
+    totalTokens: parsed?.total_tokens ?? null,
     creditsWarning,
   };
 }
@@ -981,7 +870,7 @@ export async function requestHearthChatReply(
 
   let response: Response;
   try {
-    response = await fetch("/api/hearth/chat", {
+    response = await fetch(HEARTH_AI_ROUTES.chat, {
       method: "POST",
       headers: await buildAuthHeaders({ includeJson: true }),
       body: JSON.stringify({
@@ -1015,7 +904,8 @@ export async function requestHearthChatReply(
     payload = null;
   }
 
-  const runtime = readRuntimeFromPayload(payload, lane);
+  const parsed = parseHearthChatResponse(payload, lane);
+  const runtime = parsed ? runtimeFromResponse(parsed) : readRuntimeFromPayload(payload, lane);
 
   if (!response.ok) {
     return {
@@ -1026,15 +916,9 @@ export async function requestHearthChatReply(
     };
   }
 
-  const assistantText = (
-    readStringField(payload, "assistant_text")
-    ?? readStringField(payload, "reply")
-    ?? ""
-  ).trim();
-  const gateRaw = readStringField(payload, "gate");
-  const gate = gateRaw === "clarify" ? "clarify" : undefined;
-  const ops = normalizeOps(readUnknownField(payload, "ops"));
-  const tagAuditRaw = readUnknownField(payload, "tag_audit");
+  const assistantText = parsed?.assistant_text ?? "";
+  const gate = parsed?.gate;
+  const ops = parsed?.ops ?? [];
   if (!assistantText && ops.length === 0) {
     return {
       ok: false,
@@ -1049,13 +933,11 @@ export async function requestHearthChatReply(
     status: response.status,
     assistantText,
     ops,
-    scriptText: readStringField(payload, "script_text") ?? undefined,
-    tagAudit: (tagAuditRaw && isRecord(tagAuditRaw))
-      ? (tagAuditRaw as Record<string, unknown>)
-      : undefined,
+    scriptText: parsed?.script_text ?? undefined,
+    tagAudit: parsed?.tag_audit ?? undefined,
     gate,
     runtime,
-    totalTokens: readNumberField(payload, "total_tokens"),
-    creditsWarning: readStringField(payload, "credits_warning") ?? undefined,
+    totalTokens: parsed?.total_tokens ?? null,
+    creditsWarning: parsed?.credits_warning ?? undefined,
   };
 }

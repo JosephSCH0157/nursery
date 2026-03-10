@@ -41,13 +41,28 @@ import {
 } from "../lib/hearth-chat-api";
 import { writeHearthAiRuntimeStatus } from "../lib/ai-runtime-status";
 import { commitHearthSession, readHearthSession } from "../lib/hearth-session-repo";
-import { commitHearthPrimaryScript, getHearthPrimaryScriptPath } from "../lib/hearth-script-repo";
+import {
+  commitHearthPrimaryScript,
+  getHearthPrimaryScriptPath,
+  readHearthPrimaryScript,
+} from "../lib/hearth-script-repo";
+import {
+  listHearthWorkpieces,
+  type HearthWorkpieceSummary,
+} from "../lib/hearth-workpieces";
+import {
+  selectActiveWorkpieceContext,
+  selectDraftForWorkpiece,
+  selectWorkpieceNavItems,
+} from "../lib/hearth-nav-model";
 import { mirrorApprovedScriptToLocal, type MirrorApprovedScriptResult } from "../lib/hearth-script-mirror";
 import {
   HEARTH_CONTENT_CATEGORIES,
   listHearthReadyScripts,
-  removeHearthReadyScript,
+  reorderHearthReadyScripts,
   setHearthReadyScriptCategory,
+  setHearthReadyScriptHidden,
+  updateHearthReadyQueueState,
   type HearthContentCategory,
   type HearthReadyScript,
 } from "../lib/hearth-ready-scripts";
@@ -56,7 +71,7 @@ import {
   upsertHearthWorkpiecePresence,
   type HearthWorkpiecePresence,
 } from "../lib/hearth-presence";
-import { resolveTongsApiToken, tongsFetch } from "../lib/tongs-fetch";
+import { resolveTongsRequestApiToken, tongsFetch } from "../lib/tongs-fetch";
 import { useSourcesState } from "../hooks/useSourcesState";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import { createHearthStore } from "../storage/store-factory";
@@ -115,8 +130,6 @@ const SESSION_SAVE_DELAY_MS = 500;
 const STORE_KIND_KEY = "hearth_store_kind";
 const DEV_MODE_KEY = "tp_dev_mode";
 const MODE_STORAGE_PREFIX = "hearth:ui:mode:v1:";
-const READY_ORDER_STORAGE_PREFIX = "hearth:ready-order:v1:";
-const READY_REMOVED_STORAGE_PREFIX = "hearth:ready-removed:v1:";
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
 const CHAT_HISTORY_MAX_MESSAGES = 200;
@@ -201,7 +214,7 @@ const TONE_PRESET_OPTIONS = [
   { value: "spicy_but_safe", label: "Spicy but safe" },
 ] as const;
 const DEFAULT_TONE_PRESET = "neutral_conversational";
-const EMPTY_DRAFT_LIST: Draft[] = [];
+const EMPTY_WORKPIECE_SUMMARY_LIST: HearthWorkpieceSummary[] = [];
 const EMPTY_READY_SCRIPT_LIST: HearthReadyScript[] = [];
 
 function readTrimmedString(value: unknown): string | null {
@@ -375,8 +388,8 @@ function normalizeGreetingName(name: string | null): string {
     .join(" ");
 }
 
-function readGreetingNameFromStorage(): string {
-  if (typeof window === "undefined") return "Creator";
+function listAuthStorageValues(): string[] {
+  if (typeof window === "undefined") return [];
 
   const keys = [FORGE_AUTH_STORAGE_KEY];
   try {
@@ -390,20 +403,45 @@ function readGreetingNameFromStorage(): string {
     // ignore storage access failures
   }
 
+  const values: string[] = [];
   for (const key of keys) {
     try {
       const raw = window.localStorage.getItem(key);
       const direct = readTrimmedString(raw);
-      if (!direct) continue;
-      try {
-        const parsed = JSON.parse(direct) as unknown;
-        const parsedName = pickDisplayNameFromAuthPayload(parsed);
-        if (parsedName) return normalizeGreetingName(parsedName);
-      } catch {
-        return normalizeGreetingName(direct);
+      if (direct) {
+        values.push(direct);
       }
     } catch {
       // ignore storage access failures
+    }
+  }
+  return values;
+}
+
+function readAuthUserIdFromStorage(): string | null {
+  for (const raw of listAuthStorageValues()) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      const userId = pickUserIdFromAuthPayload(parsed);
+      if (userId) return userId;
+    } catch {
+      // ignore non-JSON auth storage values
+    }
+  }
+
+  return null;
+}
+
+function readGreetingNameFromStorage(): string {
+  if (typeof window === "undefined") return "Creator";
+
+  for (const raw of listAuthStorageValues()) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      const parsedName = pickDisplayNameFromAuthPayload(parsed);
+      if (parsedName) return normalizeGreetingName(parsedName);
+    } catch {
+      return normalizeGreetingName(raw);
     }
   }
 
@@ -500,62 +538,6 @@ function writeMode(workpieceId: string | null, mode: HearthMode): void {
   if (mode === "sparks") return;
   try {
     window.localStorage.setItem(`${MODE_STORAGE_PREFIX}${workpieceId}`, mode);
-  } catch {
-    // ignore storage failures
-  }
-}
-
-function readReadyOrder(workspaceId: string | null): string[] {
-  if (!workspaceId || typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(`${READY_ORDER_STORAGE_PREFIX}${workspaceId}`);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((value) => (typeof value === "string" ? value.trim() : ""))
-      .filter((value) => Boolean(value));
-  } catch {
-    return [];
-  }
-}
-
-function writeReadyOrder(workspaceId: string | null, order: readonly string[]): void {
-  if (!workspaceId || typeof window === "undefined") return;
-  try {
-    if (!order.length) {
-      window.localStorage.removeItem(`${READY_ORDER_STORAGE_PREFIX}${workspaceId}`);
-      return;
-    }
-    window.localStorage.setItem(`${READY_ORDER_STORAGE_PREFIX}${workspaceId}`, JSON.stringify(order));
-  } catch {
-    // ignore storage failures
-  }
-}
-
-function readRemovedReadyIds(workspaceId: string | null): string[] {
-  if (!workspaceId || typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(`${READY_REMOVED_STORAGE_PREFIX}${workspaceId}`);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((value) => (typeof value === "string" ? value.trim() : ""))
-      .filter((value) => Boolean(value));
-  } catch {
-    return [];
-  }
-}
-
-function writeRemovedReadyIds(workspaceId: string | null, removedIds: readonly string[]): void {
-  if (!workspaceId || typeof window === "undefined") return;
-  try {
-    if (!removedIds.length) {
-      window.localStorage.removeItem(`${READY_REMOVED_STORAGE_PREFIX}${workspaceId}`);
-      return;
-    }
-    window.localStorage.setItem(`${READY_REMOVED_STORAGE_PREFIX}${workspaceId}`, JSON.stringify(removedIds));
   } catch {
     // ignore storage failures
   }
@@ -933,6 +915,86 @@ function hasExplicitWorkpieceQuery(): boolean {
   }
 }
 
+function hasIncomingBarStockIntakeQuery(): boolean {
+  if (typeof window === "undefined") return false;
+  if (hasExplicitWorkpieceQuery()) return false;
+  try {
+    const query = new URLSearchParams(window.location.search);
+    const keys = [
+      "spark_id",
+      "sparkId",
+      "barstock_spark_id",
+      "project_id",
+      "projectId",
+      "barstock_project_id",
+    ];
+    return keys.some((key) => Boolean(query.get(key)?.trim()));
+  } catch {
+    return false;
+  }
+}
+
+async function writeTextToClipboard(text: string): Promise<boolean> {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall back for browsers that reject Clipboard API writes.
+    }
+  }
+
+  if (typeof document === "undefined") return false;
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  textarea.style.pointerEvents = "none";
+  textarea.style.left = "-9999px";
+
+  const selection = document.getSelection();
+  const previousRanges = selection
+    ? Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index))
+    : [];
+
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+
+  try {
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    document.body.removeChild(textarea);
+    if (selection) {
+      selection.removeAllRanges();
+      for (const range of previousRanges) {
+        selection.addRange(range);
+      }
+    }
+  }
+}
+
+function CopyIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <rect x="9" y="9" width="11" height="11" rx="2" ry="2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path
+        d="M15 6V5a2 2 0 0 0-2-2H5A2 2 0 0 0 3 5v8a2 2 0 0 0 2 2h1"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function formatUpdatedAt(value: number | undefined): string {
   if (!value) return "Unknown";
   try {
@@ -1138,6 +1200,32 @@ function deriveReadyUrgency(entry: HearthReadyScript, nowMs = Date.now()): Ready
   if (ageMs <= 5 * 24 * 60 * 60 * 1000) return "warming";
   if (ageMs <= 10 * 24 * 60 * 60 * 1000) return "cooling";
   return "cold";
+}
+
+function reorderVisibleReadyEntries(
+  entries: readonly HearthReadyScript[],
+  fromId: string,
+  toId: string,
+): HearthReadyScript[] {
+  if (!fromId || !toId || fromId === toId) return [...entries];
+
+  const visible = entries.filter((entry) => !entry.hiddenAt);
+  const fromIndex = visible.findIndex((entry) => entry.id === fromId);
+  const toIndex = visible.findIndex((entry) => entry.id === toId);
+  if (fromIndex < 0 || toIndex < 0) return [...entries];
+
+  const reorderedVisible = visible.slice();
+  const [moved] = reorderedVisible.splice(fromIndex, 1);
+  if (!moved) return [...entries];
+  reorderedVisible.splice(toIndex, 0, moved);
+
+  let visibleIndex = 0;
+  return entries.map((entry) => {
+    if (entry.hiddenAt) return entry;
+    const next = reorderedVisible[visibleIndex] ?? entry;
+    visibleIndex += 1;
+    return next;
+  });
 }
 
 function normalizeTitle(title: string): string {
@@ -1442,13 +1530,6 @@ const READY_URGENCY_LABEL: Record<ReadyUrgencyLevel, string> = {
   cold: "Cold",
 };
 
-const READY_URGENCY_RANK: Record<ReadyUrgencyLevel, number> = {
-  fresh: 0,
-  warming: 1,
-  cooling: 2,
-  cold: 3,
-};
-
 const READY_LABEL_TO_CATEGORY: Record<ReadyLabel, HearthContentCategory> = {
   hot: "hot_topic",
   evergreen: "evergreen",
@@ -1673,11 +1754,14 @@ export default function HearthShell() {
   const isMobile = layoutMode === "mobile";
   const store = useMemo(() => createHearthStore(storeKind), [storeKind]);
   const sessionStore = useMemo(() => new LocalSessionStore(), []);
+  const [incomingBarStockIntakeRoute] = useState<boolean>(() => hasIncomingBarStockIntakeQuery());
 
   const [mode, setMode] = useState<HearthMode>("sparks");
   const [focusTab, setFocusTab] = useState<FocusTab>("draft");
   const [workspaceId, setWorkspaceId] = useState<string | null>(() => resolveWorkspaceId());
-  const [workpieceId, setWorkpieceId] = useState<string | null>(() => resolveWorkpieceId());
+  const [workpieceId, setWorkpieceId] = useState<string | null>(() => (
+    incomingBarStockIntakeRoute ? null : resolveWorkpieceId()
+  ));
   const [sparks, setSparks] = useState<BarStockSpark[]>(() => readBarStockSparks(resolveWorkspaceId()));
   const [selectedSparkId, setSelectedSparkId] = useState<string | null>(null);
   const [forgeError, setForgeError] = useState<string | null>(null);
@@ -1686,16 +1770,22 @@ export default function HearthShell() {
   const [routeSparkId] = useState<string | null>(() => resolveBarstockSparkIdFromQuery());
   const [routeProjectTitle, setRouteProjectTitle] = useState<string | null>(null);
 
-  const [planningSession, setPlanningSession] = useState<HearthPlanningSession | null>(() =>
-    readHearthPlanningSessionCache(resolveWorkpieceId(), resolveWorkspaceId()),
-  );
+  const [planningSession, setPlanningSession] = useState<HearthPlanningSession | null>(() => (
+    incomingBarStockIntakeRoute
+      ? null
+      : readHearthPlanningSessionCache(resolveWorkpieceId(), resolveWorkspaceId())
+  ));
   const [sessionTouched, setSessionTouched] = useState(false);
   const [decisionDraft, setDecisionDraft] = useState("");
 
+  const [workpieceSummaries, setWorkpieceSummaries] = useState<HearthWorkpieceSummary[]>([]);
+  const [isWorkpiecesLoading, setIsWorkpiecesLoading] = useState(false);
+  const [workpiecesError, setWorkpiecesError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [activeDraft, setActiveDraft] = useState<Draft | null>(null);
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [selectedRevision, setSelectedRevision] = useState<Revision | null>(null);
+  const revisionWorkpieceId = useMemo(() => normalizeUuid(workpieceId), [workpieceId]);
   const [draftSnapshot, setDraftSnapshot] = useState<DraftSnapshot | null>(null);
 
   const [isSaving, setIsSaving] = useState(false);
@@ -1717,8 +1807,7 @@ export default function HearthShell() {
   const [updatingReadyCategoryId, setUpdatingReadyCategoryId] = useState<string | null>(null);
   const [readyCategoryError, setReadyCategoryError] = useState<string | null>(null);
   const [removingReadyIds, setRemovingReadyIds] = useState<string[]>([]);
-  const [readyOrderIds, setReadyOrderIds] = useState<string[]>([]);
-  const [removedReadyIds, setRemovedReadyIds] = useState<string[]>([]);
+  const [isRestoringReady, setIsRestoringReady] = useState(false);
   const [draggingReadyId, setDraggingReadyId] = useState<string | null>(null);
   const [revisionModalOpen, setRevisionModalOpen] = useState(false);
   const [revisionNote, setRevisionNote] = useState("");
@@ -1741,7 +1830,7 @@ export default function HearthShell() {
   const [showManualDraft, setShowManualDraft] = useState(false);
   const [showScriptPanel, setShowScriptPanel] = useState(false);
   const [scriptApprovalState, setScriptApprovalState] = useState<ScriptApprovalState>(() =>
-    readScriptApprovalState(resolveWorkpieceId()),
+    readScriptApprovalState(incomingBarStockIntakeRoute ? null : resolveWorkpieceId()),
   );
   const [pendingAiProposal, setPendingAiProposal] = useState<PendingAiProposal | null>(null);
   const [isApplyingAiOps, setIsApplyingAiOps] = useState(false);
@@ -1753,7 +1842,7 @@ export default function HearthShell() {
   const [writingProfile, setWritingProfile] = useState<WritingProfile | null>(null);
   const [forgeGreetingName, setForgeGreetingName] = useState<string>(() => readGreetingNameFromStorage());
   const [hearthUser, setHearthUser] = useState<HearthUserContext>({
-    userId: null,
+    userId: readAuthUserIdFromStorage(),
     displayName: readGreetingNameFromStorage(),
   });
   const [aiTokenBalance, setAiTokenBalance] = useState<number | null>(null);
@@ -1784,6 +1873,7 @@ export default function HearthShell() {
   const [imageMapSaveState, setImageMapSaveState] = useState<"saved" | "editing" | "saving" | "error" | "offline">("saved");
   const [imageMapSaveError, setImageMapSaveError] = useState<string | null>(null);
   const [imageMapExportMessage, setImageMapExportMessage] = useState<string | null>(null);
+  const [scriptPanelCopyMessage, setScriptPanelCopyMessage] = useState<string | null>(null);
   const [metadataTitlesDraft, setMetadataTitlesDraft] = useState<EpisodeSeoTitle[]>([]);
   const [metadataTagsDraft, setMetadataTagsDraft] = useState<string[]>([]);
   const [metadataTagInputDraft, setMetadataTagInputDraft] = useState("");
@@ -1815,6 +1905,8 @@ export default function HearthShell() {
   const sparkIntakeHandledRef = useRef<string | null>(null);
   const previousWorkspaceIdRef = useRef<string | null>(workspaceId);
   const restoredCursorDraftIdRef = useRef<string | null>(null);
+  const restoredModeDraftKeyRef = useRef<string | null>(null);
+  const pendingDraftEditorPanelRef = useRef<"script" | "manual" | null>(null);
   const aiRequestControllerRef = useRef<AbortController | null>(null);
   const speechRecognitionRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -1936,7 +2028,24 @@ export default function HearthShell() {
   const sourceIndexById = sourcesState.sourceIndexById;
   const missingSourcesCount = sourcesState.missingCitedCount;
   const unusedSourcesCount = sourcesState.unusedRefsCount;
-  const hasActiveEpisode = Boolean(activeDraft);
+  const preferredDraftIdsByWorkpiece = useMemo(() => {
+    const next = new Map<string, string | null>();
+    if (workpieceId && activeDraft?.id) {
+      next.set(workpieceId, activeDraft.id);
+    }
+    return next;
+  }, [activeDraft?.id, workpieceId]);
+  const activeWorkpieceContext = useMemo(() => selectActiveWorkpieceContext({
+    activeWorkpieceId: workpieceId,
+    workpieces: workpieceSummaries,
+    drafts,
+    readyScripts,
+    sparks,
+    revisions,
+    preferredDraftId: activeDraft?.id ?? session?.activeDraftId ?? null,
+  }), [activeDraft?.id, drafts, readyScripts, revisions, session?.activeDraftId, sparks, workpieceId, workpieceSummaries]);
+  const draftsById = useMemo(() => new Map(drafts.map((draft) => [draft.id, draft] as const)), [drafts]);
+  const hasActiveEpisode = Boolean(workpieceId);
   const presencePeers = useMemo(
     () => presenceRows.filter((row) => !hearthUser.userId || row.userId !== hearthUser.userId),
     [hearthUser.userId, presenceRows],
@@ -2024,6 +2133,12 @@ export default function HearthShell() {
     () => routeProjectTitle?.trim() || (routeProjectId ? `Project ${routeProjectId.slice(0, 8)}` : null),
     [routeProjectId, routeProjectTitle],
   );
+  const routeSpark = useMemo(
+    () => routeProjectId || !routeSparkId
+      ? null
+      : sparks.find((spark) => spark.id === routeSparkId) ?? null,
+    [routeProjectId, routeSparkId, sparks],
+  );
   const forgeableSparks = useMemo(
     () => sortedSparks.filter((spark) => !isSparkForged(spark)),
     [sortedSparks],
@@ -2034,44 +2149,45 @@ export default function HearthShell() {
     return forgeableSparks.find((spark) => spark.id === selectedSparkId) ?? forgeableSparks[0] ?? null;
   }, [forgeableSparks, selectedSparkId]);
   const deferDesktopRailCollections = !isMobile && mode === "sparks" && !hasActiveEpisode;
-
-  const filteredDrafts = useMemo(() => {
-    if (deferDesktopRailCollections) return EMPTY_DRAFT_LIST;
-    const query = searchText.trim().toLowerCase();
-    const filtered = drafts
-      .filter((draft) => (showArchived ? true : !draft.archived))
-      .filter((draft) => {
-        if (!query) return true;
-        const title = draft.title.toLowerCase();
-        const body = draft.body.toLowerCase();
-        return title.includes(query) || body.includes(query);
-      });
-
-    const pinned = filtered.filter((draft) => draft.pinned);
-    const unpinned = filtered.filter((draft) => !draft.pinned);
-
-    const sortFn = sortKey === "title"
-      ? (a: Draft, b: Draft) => a.title.localeCompare(b.title)
-      : (a: Draft, b: Draft) => b.updatedAt - a.updatedAt;
-
-    return [...pinned.sort(sortFn), ...unpinned.sort(sortFn)];
-  }, [deferDesktopRailCollections, drafts, searchText, sortKey, showArchived]);
+  const workpieceNavItems = useMemo(() => selectWorkpieceNavItems({
+    workpieces: deferDesktopRailCollections ? EMPTY_WORKPIECE_SUMMARY_LIST : workpieceSummaries,
+    drafts,
+    readyScripts,
+    sparks,
+    searchText,
+    sortKey,
+    preferredDraftIdsByWorkpiece,
+  }), [
+    deferDesktopRailCollections,
+    drafts,
+    preferredDraftIdsByWorkpiece,
+    readyScripts,
+    searchText,
+    sortKey,
+    sparks,
+    workpieceSummaries,
+  ]);
+  const filteredWorkpieceNavItems = useMemo(() => {
+    if (showArchived) return workpieceNavItems;
+    return workpieceNavItems.filter((item) => {
+      const draft = item.draftId ? draftsById.get(item.draftId) ?? null : null;
+      return !draft?.archived;
+    });
+  }, [draftsById, showArchived, workpieceNavItems]);
 
   const readyScriptsForDisplay = deferDesktopRailCollections ? EMPTY_READY_SCRIPT_LIST : readyScripts;
-
-  const navigableReadyScripts = useMemo(
-    () => readyScriptsForDisplay.filter((entry) => Boolean(buildOpenInAnvilHref(entry.workspaceId, entry.workpieceId, entry.primaryScriptPath))),
+  const visibleReadyScriptsForDisplay = useMemo(
+    () => readyScriptsForDisplay.filter((entry) => !entry.hiddenAt),
     [readyScriptsForDisplay],
   );
-  const droppedReadyScriptsCount = Math.max(0, readyScriptsForDisplay.length - navigableReadyScripts.length);
 
   const categoryFilteredReadyScripts = useMemo(() => {
-    if (readyCategoryFilter === "all") return navigableReadyScripts;
+    if (readyCategoryFilter === "all") return visibleReadyScriptsForDisplay;
     if (readyCategoryFilter === "uncategorized") {
-      return navigableReadyScripts.filter((entry) => !entry.contentCategory);
+      return visibleReadyScriptsForDisplay.filter((entry) => !entry.contentCategory);
     }
-    return navigableReadyScripts.filter((entry) => entry.contentCategory === readyCategoryFilter);
-  }, [navigableReadyScripts, readyCategoryFilter]);
+    return visibleReadyScriptsForDisplay.filter((entry) => entry.contentCategory === readyCategoryFilter);
+  }, [readyCategoryFilter, visibleReadyScriptsForDisplay]);
 
   const readyUrgencyCounts = useMemo(() => {
     const counts = { fresh: 0, cooling: 0, cold: 0 };
@@ -2091,24 +2207,12 @@ export default function HearthShell() {
   }, [categoryFilteredReadyScripts, readyUrgencyFilter]);
 
   const visibleReadyScripts = useMemo(() => {
-    if (!removedReadyIds.length) return filteredReadyScripts;
-    const removedSet = new Set(removedReadyIds);
-    return filteredReadyScripts.filter((entry) => !removedSet.has(entry.id));
-  }, [filteredReadyScripts, removedReadyIds]);
+    return filteredReadyScripts;
+  }, [filteredReadyScripts]);
 
   const orderedReadyScripts = useMemo(() => {
-    if (!visibleReadyScripts.length) return [] as HearthReadyScript[];
-    const orderIndex = new Map<string, number>();
-    readyOrderIds.forEach((id, idx) => orderIndex.set(id, idx));
-    return [...visibleReadyScripts].sort((a, b) => {
-      const aIdx = orderIndex.get(a.id);
-      const bIdx = orderIndex.get(b.id);
-      if (aIdx != null && bIdx != null) return aIdx - bIdx;
-      if (aIdx != null) return -1;
-      if (bIdx != null) return 1;
-      return a.title.localeCompare(b.title);
-    });
-  }, [readyOrderIds, visibleReadyScripts]);
+    return visibleReadyScripts;
+  }, [visibleReadyScripts]);
 
   const readyCategoryCounts = useMemo(() => {
     const counts: Record<ReadyCategoryGroupKey, number> = {
@@ -2123,22 +2227,20 @@ export default function HearthShell() {
       experimental: 0,
       backup: 0,
     };
-    for (const entry of navigableReadyScripts) {
+    for (const entry of visibleReadyScriptsForDisplay) {
       const key: ReadyCategoryGroupKey = entry.contentCategory ?? "uncategorized";
       counts[key] += 1;
     }
     return counts;
-  }, [navigableReadyScripts]);
+  }, [visibleReadyScriptsForDisplay]);
 
-  const readyTotalCount = navigableReadyScripts.length;
+  const readyTotalCount = visibleReadyScriptsForDisplay.length;
   const removedReadyCount = useMemo(() => {
-    if (!removedReadyIds.length) return 0;
-    const knownIds = new Set(navigableReadyScripts.map((entry) => entry.id));
-    return removedReadyIds.filter((id) => knownIds.has(id)).length;
-  }, [navigableReadyScripts, removedReadyIds]);
+    return readyScriptsForDisplay.filter((entry) => Boolean(entry.hiddenAt)).length;
+  }, [readyScriptsForDisplay]);
   const activeReadyScript = useMemo(
-    () => navigableReadyScripts.find((entry) => entry.workpieceId === (workpieceId ?? "")) ?? null,
-    [navigableReadyScripts, workpieceId],
+    () => readyScriptsForDisplay.find((entry) => entry.workpieceId === (workpieceId ?? "")) ?? null,
+    [readyScriptsForDisplay, workpieceId],
   );
   const metadataTagSuggestions = useMemo(
     () => buildMetadataTagSuggestions({
@@ -2174,60 +2276,15 @@ export default function HearthShell() {
     }
 
     const orderedKeys: ReadyCategoryGroupKey[] = [...HEARTH_CONTENT_CATEGORIES, "uncategorized"];
-    const nowMs = Date.now();
-    const sortEntriesForGroup = (entries: HearthReadyScript[], key: ReadyCategoryGroupKey): HearthReadyScript[] => {
-      const next = [...entries];
-      next.sort((a, b) => {
-        const aUpdated = parseIsoTimestamp(a.updatedAt) ?? 0;
-        const bUpdated = parseIsoTimestamp(b.updatedAt) ?? 0;
-
-        if (key === "hot_topic" || key === "viral_reaction") {
-          const urgencyA = deriveReadyUrgency(a, nowMs);
-          const urgencyB = deriveReadyUrgency(b, nowMs);
-          const rankA = urgencyA ? READY_URGENCY_RANK[urgencyA] : Number.MAX_SAFE_INTEGER;
-          const rankB = urgencyB ? READY_URGENCY_RANK[urgencyB] : Number.MAX_SAFE_INTEGER;
-          if (rankA !== rankB) return rankA - rankB;
-          if (bUpdated !== aUpdated) return bUpdated - aUpdated;
-          return a.title.localeCompare(b.title);
-        }
-
-        if (key === "evergreen") {
-          const aSort = aUpdated > 0 ? aUpdated : Number.MAX_SAFE_INTEGER;
-          const bSort = bUpdated > 0 ? bUpdated : Number.MAX_SAFE_INTEGER;
-          if (aSort !== bSort) return aSort - bSort;
-          return a.title.localeCompare(b.title);
-        }
-
-        if (bUpdated !== aUpdated) return bUpdated - aUpdated;
-        return a.title.localeCompare(b.title);
-      });
-      return next;
-    };
-
     const sections: Array<{ key: string; label: string; entries: HearthReadyScript[] }> = [];
     for (const key of orderedKeys) {
       const entries = grouped.get(key);
       if (!entries || entries.length === 0) continue;
       const label = key === "uncategorized" ? "Uncategorized" : READY_CATEGORY_LABEL[key];
-      sections.push({ key, label, entries: sortEntriesForGroup(entries, key) });
+      sections.push({ key, label, entries });
     }
     return sections;
   }, [filteredReadyScripts, readyCategoryFilter]);
-  const launchableGroupedReadyScripts = useMemo(() => {
-    const sections = groupedReadyScripts
-      .map((section) => ({
-        ...section,
-        entries: section.entries.filter((entry) => Boolean(resolveReadyOpenHref(entry))),
-      }))
-      .filter((section) => section.entries.length > 0);
-    return sections;
-  }, [groupedReadyScripts]);
-  const launchableOrderedReadyScripts = useMemo(
-    () => orderedReadyScripts.filter((entry) => Boolean(resolveReadyOpenHref(entry))),
-    [orderedReadyScripts],
-  );
-  const hiddenNonLaunchableReadyCount = Math.max(0, filteredReadyScripts.length - launchableOrderedReadyScripts.length);
-
   const diffLines = useMemo(() => {
     if (!selectedRevision || !activeDraft) return [];
     return buildDiffLines(activeDraft.body, selectedRevision.bodySnapshot);
@@ -2311,11 +2368,12 @@ export default function HearthShell() {
     const refresh = () => {
       if (cancelled) return;
       const greeting = readGreetingNameFromStorage();
+      const userId = readAuthUserIdFromStorage();
       setForgeGreetingName(greeting);
-      setHearthUser((prev) => ({
-        userId: prev.userId,
+      setHearthUser({
+        userId,
         displayName: greeting,
-      }));
+      });
     };
 
     refresh();
@@ -2388,14 +2446,101 @@ export default function HearthShell() {
     return () => window.clearTimeout(timer);
   }, [aiRuntimeWarning]);
 
-  const refreshDrafts = useCallback(async () => {
-    const list = await store.listDrafts();
-    setDrafts(dedupeDraftListById(list));
+  const resolveRevisionWorkpieceId = useCallback((override?: string | null) => (
+    normalizeUuid(override) ?? revisionWorkpieceId
+  ), [revisionWorkpieceId]);
+
+  const reportRevisionPersistenceWarning = useCallback((kind: RevisionKind | null, message: string) => {
+    if (kind === "autosave") {
+      setAiAutosaveWarning(message);
+      return;
+    }
+    setAiRuntimeWarning(message);
+  }, []);
+
+  const refreshWorkpieces = useCallback(async (overrideWorkspaceId?: string | null): Promise<HearthWorkpieceSummary[]> => {
+    const workspace = normalizeUuid(overrideWorkspaceId ?? workspaceId);
+    if (!workspace) {
+      setWorkpieceSummaries([]);
+      setWorkpiecesError(null);
+      setIsWorkpiecesLoading(false);
+      return [];
+    }
+
+    setIsWorkpiecesLoading(true);
+    setWorkpiecesError(null);
+    try {
+      const list = await listHearthWorkpieces(workspace);
+      setWorkpieceSummaries(list);
+      return list;
+    } catch {
+      setWorkpieceSummaries([]);
+      setWorkpiecesError("Failed to load Episodes.");
+      return [];
+    } finally {
+      setIsWorkpiecesLoading(false);
+    }
+  }, [workspaceId]);
+
+  const refreshDrafts = useCallback(async (): Promise<Draft[]> => {
+    const list = dedupeDraftListById(await store.listDrafts());
+    setDrafts(list);
+    return list;
   }, [store]);
 
-  const refreshRevisions = useCallback(async (draftId: string) => {
-    const list = await store.listRevisions(draftId);
+  const resolveWorkpieceIdForDraftId = useCallback((
+    draftId: string | null | undefined,
+    options?: {
+      drafts?: readonly Draft[];
+      workpieces?: readonly HearthWorkpieceSummary[];
+    },
+  ): string | null => {
+    const candidateDraftId = readTrimmedString(draftId);
+    if (!candidateDraftId) return null;
+    if (workpieceId && activeDraft?.id === candidateDraftId) {
+      return workpieceId;
+    }
+
+    const availableWorkpieces = options?.workpieces ?? workpieceSummaries;
+    const availableDrafts = options?.drafts ?? drafts;
+
+    const directWorkpieceId = normalizeUuid(candidateDraftId);
+    if (directWorkpieceId && availableWorkpieces.some((entry) => entry.workpieceId === directWorkpieceId)) {
+      return directWorkpieceId;
+    }
+
+    for (const workpiece of availableWorkpieces) {
+      const match = selectDraftForWorkpiece({
+        workpieceId: workpiece.workpieceId,
+        drafts: availableDrafts,
+        sparks,
+        preferredDraftId: candidateDraftId,
+      });
+      if (match?.id === candidateDraftId) {
+        return workpiece.workpieceId;
+      }
+    }
+
+    return null;
+  }, [activeDraft?.id, drafts, sparks, workpieceId, workpieceSummaries]);
+
+  const refreshRevisions = useCallback(async (
+    currentWorkpieceId: string | null,
+    draftId?: string | null,
+  ): Promise<Revision[]> => {
+    const resolvedWorkpieceId = normalizeUuid(currentWorkpieceId);
+    if (!resolvedWorkpieceId) {
+      setRevisions([]);
+      setSelectedRevision(null);
+      return [];
+    }
+    const list = await store.listRevisions(resolvedWorkpieceId, draftId?.trim() ? draftId : null);
     setRevisions(list);
+    setSelectedRevision((prev) => {
+      if (!prev) return null;
+      return list.find((revision) => revision.id === prev.id) ?? null;
+    });
+    return list;
   }, [store]);
 
   const refreshEpisodePackage = useCallback(async () => {
@@ -2463,91 +2608,15 @@ export default function HearthShell() {
     }
   }, [workspaceId]);
 
-  const readReadyScriptText = useCallback(async (entry: HearthReadyScript): Promise<string | null> => {
-    try {
-      const response = await tongsFetch(
-        `/tongs/workpieces/${encodeURIComponent(entry.workpieceId)}/read-file?path=${encodeURIComponent(entry.primaryScriptPath)}`,
-        { method: "GET" },
-      );
-      if (!response.ok) return null;
-      const body = await response.json() as { data?: unknown };
-      return typeof body?.data === "string" ? body.data : null;
-    } catch {
-      return null;
-    }
-  }, []);
-
-  const upsertDraftFromReadyEntry = useCallback(async (entry: HearthReadyScript, scriptText: string | null) => {
-    const existing = drafts.find((draft) => draft.id === entry.workpieceId) ?? null;
-    const now = Date.now();
-    const attribution = buildDraftAttribution(hearthUser);
-    const title = entry.title.trim() || existing?.title || "Untitled Draft";
-    const existingBody = existing?.body?.trim() ? existing.body : null;
-    const snapshotBody = scriptText && scriptText.trim().length ? scriptText : null;
-    const body = existingBody ?? snapshotBody ?? "## Draft Script\n\n";
-
-    const draft: Draft = existing
-      ? {
-          ...existing,
-          title,
-          body,
-          archived: false,
-          updatedAt: now,
-          updatedBy: attribution,
-        }
-      : {
-          ...createDraft({ title, body }),
-          id: entry.workpieceId,
-          title,
-          body,
-          createdAt: now,
-          updatedAt: now,
-          createdBy: attribution,
-          updatedBy: attribution,
-        };
-
-    await store.saveDraft(draft);
-    await refreshDrafts();
-  }, [drafts, hearthUser, refreshDrafts, store]);
+  useEffect(() => {
+    if (deferDesktopRailCollections) return;
+    void refreshWorkpieces();
+  }, [deferDesktopRailCollections, refreshWorkpieces]);
 
   useEffect(() => {
     if (deferDesktopRailCollections) return;
     void refreshReadyScripts();
   }, [deferDesktopRailCollections, refreshReadyScripts]);
-
-  useEffect(() => {
-    setReadyOrderIds(readReadyOrder(workspaceId));
-    setRemovedReadyIds(readRemovedReadyIds(workspaceId));
-  }, [workspaceId]);
-
-  useEffect(() => {
-    const readyIds = navigableReadyScripts.map((entry) => entry.id);
-    const readyIdSet = new Set(readyIds);
-
-    setReadyOrderIds((prev) => {
-      const kept = prev.filter((id) => readyIdSet.has(id));
-      let changed = kept.length !== prev.length;
-      for (const id of readyIds) {
-        if (kept.includes(id)) continue;
-        kept.push(id);
-        changed = true;
-      }
-      return changed ? kept : prev;
-    });
-
-    setRemovedReadyIds((prev) => {
-      const next = prev.filter((id) => readyIdSet.has(id));
-      return next.length === prev.length ? prev : next;
-    });
-  }, [navigableReadyScripts]);
-
-  useEffect(() => {
-    writeReadyOrder(workspaceId, readyOrderIds);
-  }, [readyOrderIds, workspaceId]);
-
-  useEffect(() => {
-    writeRemovedReadyIds(workspaceId, removedReadyIds);
-  }, [removedReadyIds, workspaceId]);
 
   useEffect(() => {
     if (!isMobile && mobileOverlayView) {
@@ -2586,12 +2655,19 @@ export default function HearthShell() {
 
     const syncPresence = async () => {
       try {
-        await upsertHearthWorkpiecePresence({
+        const ownPresence = await upsertHearthWorkpiecePresence({
           workspaceId: normalizedWorkspaceId,
           workpieceId: normalizedWorkpieceId,
           mode: localPresenceMode,
           displayName: activeUserDisplayName,
         });
+        if (!cancelled && ownPresence?.userId) {
+          setHearthUser((prev) => (
+            prev.userId === ownPresence.userId
+              ? prev
+              : { ...prev, userId: ownPresence.userId }
+          ));
+        }
         const rows = await listHearthWorkpiecePresence(normalizedWorkspaceId, normalizedWorkpieceId);
         if (!cancelled) {
           setPresenceRows(rows);
@@ -2665,65 +2741,107 @@ export default function HearthShell() {
     if (!entry.id || removingReadyIds.includes(entry.id)) return;
 
     setReadyScriptsError(null);
-    setRemovedReadyIds((prev) => (prev.includes(entry.id) ? prev : [...prev, entry.id]));
     setRemovingReadyIds((prev) => (prev.includes(entry.id) ? prev : [...prev, entry.id]));
+    setReadyScripts((prev) => prev.map((row) => (
+      row.id === entry.id
+        ? {
+            ...row,
+            hiddenAt: new Date().toISOString(),
+            hiddenBy: hearthUser.userId ?? row.hiddenBy,
+          }
+        : row
+    )));
 
-    const scriptText = await readReadyScriptText(entry);
     try {
-      const removed = await removeHearthReadyScript({
+      const result = await setHearthReadyScriptHidden({
+        workspaceId: entry.workspaceId,
         workpieceId: entry.workpieceId,
-        path: entry.primaryScriptPath,
+        hidden: true,
       });
-      if (!removed.ok) {
-        setRemovedReadyIds((prev) => prev.filter((id) => id !== entry.id));
-        setReadyScriptsError("Failed to remove script from Ready.");
+      if (!result.ok) {
+        setReadyScriptsError("Failed to hide script from Ready.");
+        await refreshReadyScripts();
         return;
       }
-
-      await upsertDraftFromReadyEntry(entry, scriptText);
-
-      if (workpieceId?.trim() === entry.workpieceId) {
-        const nextApprovalState: ScriptApprovalState = {
-          hasApprovedScript: false,
-          approvedScriptVersion: 0,
-          approvedAt: null,
-        };
-        setScriptApprovalState(nextApprovalState);
-        writeScriptApprovalState(entry.workpieceId, nextApprovalState);
-      }
-
-      setMode("episodes");
       await refreshReadyScripts();
     } catch {
-      setRemovedReadyIds((prev) => prev.filter((id) => id !== entry.id));
-      setReadyScriptsError("Failed to remove script from Ready.");
+      setReadyScriptsError("Failed to hide script from Ready.");
+      await refreshReadyScripts();
     } finally {
       setRemovingReadyIds((prev) => prev.filter((id) => id !== entry.id));
     }
   }, [
-    readReadyScriptText,
     refreshReadyScripts,
+    hearthUser.userId,
     removingReadyIds,
-    upsertDraftFromReadyEntry,
-    workpieceId,
   ]);
 
-  const onRestoreRemovedReady = useCallback(() => {
-    setRemovedReadyIds([]);
-  }, []);
+  const onRestoreRemovedReady = useCallback(async () => {
+    const normalizedWorkspaceId = normalizeUuid(workspaceId);
+    const hiddenEntries = readyScripts.filter((entry) => entry.hiddenAt);
+    if (!normalizedWorkspaceId || hiddenEntries.length === 0 || isRestoringReady) return;
 
-  const onReorderReady = useCallback((fromId: string, toId: string) => {
-    if (!fromId || !toId || fromId === toId) return;
-    setReadyOrderIds((prev) => {
-      const next = prev.slice();
-      const fromIdx = next.indexOf(fromId);
-      const toIdx = next.indexOf(toId);
-      if (fromIdx < 0 || toIdx < 0) return prev;
-      next.splice(fromIdx, 1);
-      next.splice(toIdx, 0, fromId);
-      return next;
-    });
-  }, []);
+    setReadyScriptsError(null);
+    setIsRestoringReady(true);
+    setReadyScripts((prev) => prev.map((entry) => (
+      entry.hiddenAt
+        ? { ...entry, hiddenAt: null, hiddenBy: null }
+        : entry
+    )));
+
+    try {
+      const result = await updateHearthReadyQueueState({
+        workspaceId: normalizedWorkspaceId,
+        entries: hiddenEntries.map((entry) => ({
+          workpieceId: entry.workpieceId,
+          hidden: false,
+        })),
+      });
+      if (!result.ok) {
+        setReadyScriptsError("Failed to restore hidden Ready items.");
+        await refreshReadyScripts();
+        return;
+      }
+      await refreshReadyScripts();
+    } catch {
+      setReadyScriptsError("Failed to restore hidden Ready items.");
+      await refreshReadyScripts();
+    } finally {
+      setIsRestoringReady(false);
+    }
+  }, [isRestoringReady, readyScripts, refreshReadyScripts, workspaceId]);
+
+  const onReorderReady = useCallback(async (fromId: string, toId: string) => {
+    const normalizedWorkspaceId = normalizeUuid(workspaceId);
+    if (!normalizedWorkspaceId || !fromId || !toId || fromId === toId) return;
+
+    const reordered = reorderVisibleReadyEntries(readyScripts, fromId, toId);
+    const changed = reordered.some((entry, index) => entry !== readyScripts[index]);
+    if (!changed) return;
+
+    const orderedVisibleIds = reordered
+      .filter((entry) => !entry.hiddenAt)
+      .map((entry) => entry.workpieceId);
+
+    setReadyScriptsError(null);
+    setReadyScripts(reordered);
+
+    try {
+      const result = await reorderHearthReadyScripts({
+        workspaceId: normalizedWorkspaceId,
+        orderedWorkpieceIds: orderedVisibleIds,
+      });
+      if (!result.ok) {
+        setReadyScriptsError("Failed to reorder Ready queue.");
+        await refreshReadyScripts();
+        return;
+      }
+      await refreshReadyScripts();
+    } catch {
+      setReadyScriptsError("Failed to reorder Ready queue.");
+      await refreshReadyScripts();
+    }
+  }, [readyScripts, refreshReadyScripts, workspaceId]);
 
   const persistSession = useCallback(async (draftId: string | null, uiSelectedTab?: string) => {
     const now = Date.now();
@@ -2748,7 +2866,10 @@ export default function HearthShell() {
     await sessionStore.saveSession(next);
   }, [cursorPosition, focusTab, mode, scrollTop, session, sessionStore]);
 
-  const selectDraft = useCallback(async (draft: Draft | null) => {
+  const selectDraft = useCallback(async (
+    draft: Draft | null,
+    options?: { revisionWorkpieceId?: string | null },
+  ) => {
     setDraftConflictState(null);
     if (!draft) {
       restoredCursorDraftIdRef.current = null;
@@ -2761,9 +2882,9 @@ export default function HearthShell() {
     restoredCursorDraftIdRef.current = null;
     setActiveDraft(draft);
     setDraftSnapshot({ title: draft.title, body: draft.body, updatedAt: draft.updatedAt });
-    await refreshRevisions(draft.id);
+    await refreshRevisions(resolveRevisionWorkpieceId(options?.revisionWorkpieceId), draft.id);
     await persistSession(draft.id, "draft");
-  }, [persistSession, refreshRevisions]);
+  }, [persistSession, refreshRevisions, resolveRevisionWorkpieceId]);
 
   const updatePlanningSession = useCallback((
     updater: (prev: HearthPlanningSession) => HearthPlanningSession,
@@ -2910,12 +3031,22 @@ export default function HearthShell() {
     const text = draftConflictState?.localBody?.trim() ?? "";
     if (!text) return;
     try {
-      await navigator.clipboard.writeText(text);
+      const copied = await writeTextToClipboard(text);
+      if (!copied) {
+        throw new Error("copy_failed");
+      }
       setError("Copied your local draft text to clipboard.");
     } catch {
       setError("Unable to copy local text. Select and copy manually.");
     }
   }, [draftConflictState?.localBody]);
+
+  const onCopyScriptPanelText = useCallback(async () => {
+    const text = activeDraft?.body ?? "";
+    if (!text.trim()) return;
+    const copied = await writeTextToClipboard(text);
+    setScriptPanelCopyMessage(copied ? "Copied to clipboard." : "Clipboard write failed.");
+  }, [activeDraft?.body]);
 
   const onOpenInAnvil = useCallback(async () => {
     const workspace = workspaceId?.trim() ?? "";
@@ -2960,7 +3091,7 @@ export default function HearthShell() {
 
     // Bridge token for Anvil static runtime so /tongs calls stay authorized after redirect.
     try {
-      const token = resolveTongsApiToken();
+      const token = resolveTongsRequestApiToken();
       if (token) {
         window.localStorage.setItem("forge_tongs_api_token_v1", token);
       }
@@ -2984,25 +3115,169 @@ export default function HearthShell() {
     }), { touched: false });
   }, [updatePlanningSession]);
 
-  const createDraftAndOpen = useCallback(async (
-    seed?: { title?: string; body?: string },
-    modeToSet: HearthMode = "focus",
-  ) => {
+  const hydrateOrCreateDraftBufferForWorkpiece = useCallback(async (
+    targetWorkpieceId: string,
+    options?: {
+      drafts?: readonly Draft[];
+      workpieces?: readonly HearthWorkpieceSummary[];
+      preferredDraftId?: string | null;
+      seed?: { title?: string; body?: string };
+    },
+  ): Promise<Draft | null> => {
+    const normalizedWorkpieceId = normalizeUuid(targetWorkpieceId);
+    if (!normalizedWorkpieceId) return null;
+
+    const availableDrafts = options?.drafts ?? drafts;
+    const existingDraft = selectDraftForWorkpiece({
+      workpieceId: normalizedWorkpieceId,
+      drafts: availableDrafts,
+      sparks,
+      preferredDraftId: options?.preferredDraftId ?? null,
+    });
+    if (existingDraft) return existingDraft;
+
+    const availableWorkpieces = options?.workpieces ?? workpieceSummaries;
+    const workpieceSummary = availableWorkpieces.find((entry) => entry.workpieceId === normalizedWorkpieceId) ?? null;
+    const scriptRead = await readHearthPrimaryScript(normalizedWorkpieceId);
+    if (!scriptRead.ok) {
+      setAiRuntimeWarning("Opened Episode, but Hearth could not load the canonical script snapshot.");
+    }
+
+    const seedBody = options?.seed?.body ?? "";
+    const body = seedBody.trim()
+      ? seedBody
+      : scriptRead.ok && scriptRead.data.text != null
+        ? scriptRead.data.text
+        : "## Draft Script\n\n";
+    const title = workpieceSummary?.title
+      ?? readTrimmedString(options?.seed?.title)
+      ?? `Episode ${normalizedWorkpieceId.slice(0, 8)}`;
+    const updatedAt = scriptRead.ok
+      ? parseIsoTimestamp(scriptRead.data.updatedAt) ?? Date.now()
+      : Date.now();
     const attribution = buildDraftAttribution(hearthUser);
-    const next = {
-      ...createDraft(seed),
+    const draft: Draft = {
+      ...createDraft({ title, body }),
+      id: normalizedWorkpieceId,
+      title,
+      body,
+      createdAt: updatedAt,
+      updatedAt,
+      archived: false,
+      pinned: false,
       createdBy: attribution,
       updatedBy: attribution,
     };
-    await store.saveDraft(next);
-    await refreshDrafts();
-    await selectDraft(next);
-    setMode(modeToSet);
-    if (modeToSet === "focus") {
-      setFocusTab("draft");
+
+    try {
+      await store.saveDraft(draft, { reason: "hydrate_workpiece" });
+    } catch (err) {
+      if (!parseDraftConflictError(err)) {
+        throw err;
+      }
     }
-    return next;
-  }, [hearthUser, refreshDrafts, selectDraft, store]);
+
+    const latestDrafts = await refreshDrafts();
+    return selectDraftForWorkpiece({
+      workpieceId: normalizedWorkpieceId,
+      drafts: latestDrafts,
+      sparks,
+      preferredDraftId: options?.preferredDraftId ?? normalizedWorkpieceId,
+    });
+  }, [drafts, hearthUser, refreshDrafts, sparks, store, workpieceSummaries]);
+
+  const openWorkpieceInFocus = useCallback(async (
+    targetWorkpieceId: string,
+    options?: {
+      workspaceId?: string | null;
+      drafts?: readonly Draft[];
+      workpieces?: readonly HearthWorkpieceSummary[];
+      preferredDraftId?: string | null;
+      seed?: { title?: string; body?: string };
+    },
+  ): Promise<Draft | null> => {
+    const normalizedWorkpieceId = normalizeUuid(targetWorkpieceId);
+    if (!normalizedWorkpieceId) return null;
+
+    const targetWorkspaceId = normalizeUuid(options?.workspaceId ?? workspaceId) ?? workspaceId;
+    if (targetWorkspaceId && targetWorkspaceId !== workspaceId) {
+      setWorkspaceId(targetWorkspaceId);
+    }
+    setWorkpieceId(normalizedWorkpieceId);
+    setFocusTab("draft");
+    setMode("focus");
+
+    let availableWorkpieces = options?.workpieces ?? workpieceSummaries;
+    if (
+      availableWorkpieces.length === 0
+      || !availableWorkpieces.some((entry) => entry.workpieceId === normalizedWorkpieceId)
+    ) {
+      availableWorkpieces = await refreshWorkpieces(targetWorkspaceId);
+    }
+
+    const draft = await hydrateOrCreateDraftBufferForWorkpiece(normalizedWorkpieceId, {
+      drafts: options?.drafts ?? drafts,
+      workpieces: availableWorkpieces,
+      preferredDraftId: options?.preferredDraftId ?? null,
+      seed: options?.seed,
+    });
+
+    if (draft) {
+      await selectDraft(draft, { revisionWorkpieceId: normalizedWorkpieceId });
+    } else {
+      setDraftSnapshot(null);
+      setActiveDraft(null);
+    }
+
+    if (isMobile) {
+      setMobileOverlayView("editor");
+    }
+
+    return draft;
+  }, [
+    drafts,
+    hydrateOrCreateDraftBufferForWorkpiece,
+    isMobile,
+    refreshWorkpieces,
+    selectDraft,
+    workpieceSummaries,
+    workspaceId,
+  ]);
+
+  const createDraftAndOpen = useCallback(async (
+    targetWorkpieceId: string,
+    seed?: { title?: string; body?: string },
+    modeToSet: HearthMode = "focus",
+    options?: {
+      revisionWorkpieceId?: string | null;
+      workspaceId?: string | null;
+      drafts?: readonly Draft[];
+      workpieces?: readonly HearthWorkpieceSummary[];
+    },
+  ) => {
+    const normalizedWorkpieceId = normalizeUuid(targetWorkpieceId);
+    if (!normalizedWorkpieceId) {
+      throw new Error("A workpiece is required before creating a Hearth draft buffer.");
+    }
+
+    const draft = await openWorkpieceInFocus(normalizedWorkpieceId, {
+      workspaceId: options?.workspaceId ?? null,
+      drafts: options?.drafts,
+      workpieces: options?.workpieces,
+      preferredDraftId: normalizedWorkpieceId,
+      seed,
+    });
+
+    if (modeToSet !== "focus") {
+      setMode(modeToSet);
+    }
+
+    if (draft && options?.revisionWorkpieceId && options.revisionWorkpieceId !== normalizedWorkpieceId) {
+      await selectDraft(draft, { revisionWorkpieceId: options.revisionWorkpieceId });
+    }
+
+    return draft;
+  }, [openWorkpieceInFocus, selectDraft]);
 
   const startFromScratch = useCallback(async () => {
     if (isForging) return;
@@ -3014,15 +3289,22 @@ export default function HearthShell() {
         "## Draft Script\n\n",
       );
       if (!created.ok) {
-        setForgeError("Workpiece creation failed; draft created locally.");
+        setForgeError("Workpiece creation failed.");
         setWorkpieceId(null);
-      } else {
-        setWorkpieceId(created.workpieceId);
+        return;
       }
+      setWorkpieceId(created.workpieceId);
       setWorkspaceId(resolveWorkspaceId());
       applySessionOrigin({ created_from: "scratch" });
-      const draft = await createDraftAndOpen(undefined, "focus");
-      const nextChatKey = resolveChatHistoryKey(created.ok ? created.workpieceId : null, draft.id);
+      const draft = await createDraftAndOpen(created.workpieceId, undefined, "focus", {
+        revisionWorkpieceId: created.workpieceId,
+        workspaceId: resolveWorkspaceId(),
+      });
+      if (!draft) {
+        setForgeError("Workpiece opened, but Hearth could not hydrate a draft buffer.");
+        return;
+      }
+      const nextChatKey = resolveChatHistoryKey(created.workpieceId, draft.id);
       if (nextChatKey) {
         skipChatHydrationKeyRef.current = nextChatKey;
         writeChatHistoryCache(nextChatKey, []);
@@ -3046,31 +3328,39 @@ export default function HearthShell() {
     setIsForging(true);
     let workpieceId: string | undefined;
     try {
+      const sparkTitle = deriveSparkTitle(spark);
       const scriptSeed = spark.body?.trim()
         ? spark.body
-        : `## ${deriveSparkTitle(spark)}\n\n`;
+        : `## ${sparkTitle}\n\n`;
       const created = await createHearthWorkpiece({
         created_from: "bar-stock",
         spark_id: spark.id,
       }, scriptSeed, {
-        title: deriveSparkTitle(spark),
+        title: sparkTitle,
       });
       if (!created.ok) {
-        setForgeError("Workpiece creation failed; draft created locally.");
+        setForgeError("Workpiece creation failed.");
         setWorkpieceId(null);
-      } else {
-        workpieceId = created.workpieceId;
-        setWorkpieceId(workpieceId);
+        return;
       }
+      workpieceId = created.workpieceId;
+      setWorkpieceId(workpieceId);
       setWorkspaceId(resolveWorkspaceId());
       applySessionOrigin({ created_from: "bar-stock", spark_id: spark.id });
+      pendingDraftEditorPanelRef.current = scriptSeed.trim() ? "script" : "manual";
 
-      const draft = await createDraftAndOpen({
-        title: spark.title,
-        body: spark.body,
-      }, "focus");
+      const draft = await createDraftAndOpen(workpieceId, {
+        title: sparkTitle,
+        body: scriptSeed,
+      }, "focus", {
+        revisionWorkpieceId: workpieceId ?? null,
+        workspaceId: resolveWorkspaceId(),
+      });
+      if (!draft) {
+        setForgeError("Episode opened, but Hearth could not hydrate a draft buffer.");
+        return;
+      }
 
-      const sparkTitle = deriveSparkTitle(spark);
       const sparkPreview = buildSparkPreview(spark.body);
       const markerLines = [
         `Spark selected: ${sparkTitle}`,
@@ -3136,10 +3426,14 @@ export default function HearthShell() {
     setForgeError(null);
     try {
       const title = routeProjectLabel ?? `Project ${routeProjectId.slice(0, 8)}`;
-      const draft = await createDraftAndOpen({
+      const draft = await createDraftAndOpen(episodeId, {
         title,
         body: buildProjectDraftSeed(title, routeProjectSparks),
       }, "focus");
+      if (!draft) {
+        setForgeError("Episode opened, but Hearth could not hydrate a draft buffer.");
+        return;
+      }
 
       applySessionOrigin({ created_from: "bar-stock", spark_id: routeProjectSparks[0]?.id });
 
@@ -3188,14 +3482,33 @@ export default function HearthShell() {
     setIsLoading(true);
     setError(null);
     try {
-      const [storedSession, list] = await Promise.all([
+      if (incomingBarStockIntakeRoute) {
+        setSession(null);
+        restoredCursorDraftIdRef.current = null;
+        setWorkpieceSummaries([]);
+        setDrafts([]);
+        setWorkpieceId(null);
+        setActiveDraft(null);
+        setDraftSnapshot(null);
+        setRevisions([]);
+        setSelectedRevision(null);
+        return;
+      }
+
+      const workspace = normalizeUuid(workspaceId) ?? resolveWorkspaceId();
+      const [storedSession, list, loadedWorkpieces] = await Promise.all([
         sessionStore.getSession(),
         store.listDrafts(),
+        workspace
+          ? listHearthWorkpieces(workspace).catch(() => [] as HearthWorkpieceSummary[])
+          : Promise.resolve([] as HearthWorkpieceSummary[]),
       ]);
 
       setSession(storedSession);
       const dedupedDrafts = dedupeDraftListById(list);
       setDrafts(dedupedDrafts);
+      setWorkpieceSummaries(loadedWorkpieces);
+      setWorkpiecesError(null);
 
       const tab = storedSession?.uiState?.selectedTab;
       if (tab === "preview" || tab === "compare" || tab === "list") {
@@ -3205,7 +3518,6 @@ export default function HearthShell() {
         setFocusTab(tab);
       }
 
-      const explicitWorkpieceSelection = hasExplicitWorkpieceQuery();
       const candidateDraftIds: string[] = [];
       const pushCandidateDraftId = (value: string | null | undefined) => {
         const next = value?.trim();
@@ -3216,32 +3528,28 @@ export default function HearthShell() {
       pushCandidateDraftId(storedSession?.activeDraftId ?? null);
       pushCandidateDraftId(activeDraftRef.current?.id ?? null);
 
-      const preferredDraft = candidateDraftIds
-        .map((id) => dedupedDrafts.find((draft) => draft.id === id) ?? null)
-        .find((draft): draft is Draft => Boolean(draft))
+      const explicitWorkpieceId = normalizeUuid(workpieceId);
+      const resolvedWorkpieceId = explicitWorkpieceId
+        ?? candidateDraftIds
+          .map((draftId) => resolveWorkpieceIdForDraftId(draftId, {
+            drafts: dedupedDrafts,
+            workpieces: loadedWorkpieces,
+          }))
+          .find((value): value is string => Boolean(value))
         ?? null;
-      if (preferredDraft) {
-        restoredCursorDraftIdRef.current = null;
-        setActiveDraft(preferredDraft);
-        setDraftSnapshot({ title: preferredDraft.title, body: preferredDraft.body, updatedAt: preferredDraft.updatedAt });
-        await refreshRevisions(preferredDraft.id);
-        setMode("episodes");
+
+      if (resolvedWorkpieceId) {
+        await openWorkpieceInFocus(resolvedWorkpieceId, {
+          workspaceId: workspace,
+          drafts: dedupedDrafts,
+          workpieces: loadedWorkpieces,
+          preferredDraftId: storedSession?.activeDraftId ?? activeDraftRef.current?.id ?? null,
+        });
         return;
       }
 
-      if (explicitWorkpieceSelection && dedupedDrafts.length === 1) {
-        const soleDraft = dedupedDrafts[0];
-        if (soleDraft) {
-          restoredCursorDraftIdRef.current = null;
-          setActiveDraft(soleDraft);
-          setDraftSnapshot({ title: soleDraft.title, body: soleDraft.body, updatedAt: soleDraft.updatedAt });
-          await refreshRevisions(soleDraft.id);
-          setMode("episodes");
-          return;
-        }
-      }
-
       restoredCursorDraftIdRef.current = null;
+      setWorkpieceId(null);
       setActiveDraft(null);
       setDraftSnapshot(null);
       setRevisions([]);
@@ -3252,7 +3560,15 @@ export default function HearthShell() {
     } finally {
       setIsLoading(false);
     }
-  }, [refreshRevisions, sessionStore, store, workspaceId]);
+  }, [
+    incomingBarStockIntakeRoute,
+    openWorkpieceInFocus,
+    resolveWorkpieceIdForDraftId,
+    sessionStore,
+    store,
+    workpieceId,
+    workspaceId,
+  ]);
 
   useEffect(() => {
     void loadInitial();
@@ -3293,6 +3609,8 @@ export default function HearthShell() {
     setWorkpieceId(null);
     setPlanningSession(null);
     setSessionTouched(false);
+    setWorkpieceSummaries([]);
+    setWorkpiecesError(null);
     setDrafts([]);
     setActiveDraft(null);
     setDraftSnapshot(null);
@@ -3390,18 +3708,26 @@ export default function HearthShell() {
 
   useEffect(() => {
     if (routeProjectId || !routeSparkId) return;
-    if (forgeableSparks.length === 0) return;
-
-    const routeSpark = forgeableSparks.find((spark) => spark.id === routeSparkId);
-    if (!routeSpark) return;
 
     const intakeKey = `${workspaceId ?? "none"}:${routeSparkId}`;
     if (sparkIntakeHandledRef.current === intakeKey) return;
-    sparkIntakeHandledRef.current = intakeKey;
+    if (!routeSpark) {
+      if (sparks.length > 0) {
+        sparkIntakeHandledRef.current = intakeKey;
+        setForgeError("Spark not found in Bar Stock. Sync and retry.");
+      }
+      return;
+    }
 
-    setMode("sparks");
+    sparkIntakeHandledRef.current = intakeKey;
     setSelectedSparkId(routeSpark.id);
-  }, [forgeableSparks, routeProjectId, routeSparkId, workspaceId]);
+    if (isSparkForged(routeSpark)) {
+      setMode("episodes");
+      setForgeError("This spark is already attached to Hearth. Open its Episode from Episodes.");
+      return;
+    }
+    void forgeSpark(routeSpark);
+  }, [forgeSpark, routeProjectId, routeSpark, routeSparkId, sparks.length, workspaceId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -3431,6 +3757,12 @@ export default function HearthShell() {
   }, [forgeableSparks, selectedSparkId]);
 
   useEffect(() => {
+    if (incomingBarStockIntakeRoute && !workpieceId) {
+      setPlanningSession(null);
+      setSessionTouched(false);
+      return;
+    }
+
     if (typeof window === "undefined") return;
     const refreshSession = () => {
       const cached = readHearthPlanningSessionCache(workpieceId, workspaceId);
@@ -3456,7 +3788,7 @@ export default function HearthShell() {
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, [workpieceId, workspaceId]);
+  }, [incomingBarStockIntakeRoute, workpieceId, workspaceId]);
 
   useEffect(() => {
     const normalizedWorkpieceId = normalizeUuid(workpieceId);
@@ -3776,6 +4108,12 @@ export default function HearthShell() {
   }, [imageMapExportMessage]);
 
   useEffect(() => {
+    if (!scriptPanelCopyMessage) return;
+    const timer = window.setTimeout(() => setScriptPanelCopyMessage(null), 2600);
+    return () => window.clearTimeout(timer);
+  }, [scriptPanelCopyMessage]);
+
+  useEffect(() => {
     setMetadataSaveState("saved");
     setMetadataSaveError(null);
     setMetadataTagInputDraft("");
@@ -3953,22 +4291,33 @@ export default function HearthShell() {
 
   useEffect(() => {
     if (!activeDraft) {
+      restoredModeDraftKeyRef.current = null;
       if (mode === "focus") {
         setMode("episodes");
       }
       return;
     }
 
+    const restoreKey = `${workpieceId ?? "none"}:${activeDraft.id}`;
+    if (mode !== "sparks") {
+      restoredModeDraftKeyRef.current = restoreKey;
+      return;
+    }
+    if (restoredModeDraftKeyRef.current === restoreKey) return;
+
+    restoredModeDraftKeyRef.current = restoreKey;
     const saved = readMode(workpieceId);
-    if (!saved || mode !== "sparks") return;
+    if (!saved) return;
     if (saved !== "focus") {
       setMode(saved);
     }
-  }, [activeDraft, mode, workpieceId]);
+  }, [activeDraft?.id, mode, workpieceId]);
 
   useEffect(() => {
-    setShowManualDraft(false);
-    setShowScriptPanel(false);
+    const nextPanel = pendingDraftEditorPanelRef.current;
+    setShowManualDraft(nextPanel === "manual");
+    setShowScriptPanel(nextPanel === "script");
+    pendingDraftEditorPanelRef.current = null;
     gateAwaitingAnswersRef.current = false;
     pendingShortcutIntentRef.current = null;
   }, [activeDraft?.id]);
@@ -4134,8 +4483,8 @@ export default function HearthShell() {
 
   useEffect(() => {
     if (!activeDraft) return;
-    void refreshRevisions(activeDraft.id);
-  }, [activeDraft?.id, refreshRevisions]);
+    void refreshRevisions(revisionWorkpieceId, activeDraft.id);
+  }, [activeDraft?.id, refreshRevisions, revisionWorkpieceId]);
 
   useEffect(() => {
     if (!activeDraft) return;
@@ -4387,6 +4736,7 @@ export default function HearthShell() {
       let revisionCount = args.draft.revisionCount;
       let lastRevisionAt = args.draft.lastRevisionAt;
       let createdRevision: Revision | null = null;
+      let refreshedRevisions: Revision[] | null = null;
 
       if (args.createRevision) {
         createdRevision = createRevision({
@@ -4396,10 +4746,31 @@ export default function HearthShell() {
           kind: args.createRevision.kind,
           note: args.createRevision.note,
         });
-        await store.saveRevision(createdRevision);
-        revisionCount = (revisionCount ?? revisions.length) + 1;
-        lastRevisionAt = createdRevision.createdAt;
-        setRevisions((prev) => [createdRevision!, ...prev]);
+        const activeRevisionWorkpieceId = resolveRevisionWorkpieceId();
+        if (!activeRevisionWorkpieceId) {
+          reportRevisionPersistenceWarning(
+            args.createRevision.kind,
+            "Saved draft, but revision history is unavailable until this draft is attached to an Episode.",
+          );
+        } else {
+          try {
+            await store.saveRevision(activeRevisionWorkpieceId, createdRevision);
+            if (args.createRevision.kind === "autosave") {
+              setAiAutosaveWarning(null);
+            } else {
+              setAiRuntimeWarning(null);
+            }
+          } catch (err) {
+            const message = err instanceof Error && err.message === "revision_snapshot_sync_failed"
+              ? "Saved draft, but revision history was kept locally and not synced to cloud."
+              : "Saved draft, but revision history could not be synced.";
+            reportRevisionPersistenceWarning(args.createRevision.kind, message);
+          }
+
+          refreshedRevisions = await refreshRevisions(activeRevisionWorkpieceId, args.draft.id);
+          revisionCount = refreshedRevisions.length;
+          lastRevisionAt = refreshedRevisions[0]?.createdAt;
+        }
       }
 
       const toSave: Draft = {
@@ -4430,8 +4801,9 @@ export default function HearthShell() {
         return dedupeDraftListById(next);
       });
 
-      if (createdRevision) {
-        setSelectedRevision(createdRevision);
+      if (createdRevision && refreshedRevisions) {
+        const selected = refreshedRevisions.find((revision) => revision.id === createdRevision?.id) ?? null;
+        setSelectedRevision(selected);
         setRevisionView("preview");
       }
 
@@ -4493,8 +4865,15 @@ export default function HearthShell() {
 
   async function onCreateDraft() {
     setError(null);
+    const activeWorkpieceId = normalizeUuid(workpieceId);
+    if (!activeWorkpieceId) {
+      setError("Select or create an Episode first.");
+      return;
+    }
     try {
-      await createDraftAndOpen(undefined, "focus");
+      await createDraftAndOpen(activeWorkpieceId, undefined, "focus", {
+        workspaceId,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to create draft.";
       setError(message);
@@ -4507,15 +4886,15 @@ export default function HearthShell() {
       setForgeError("No last project to resume.");
       return;
     }
-    const lastDraft = drafts.find((draft) => draft.id === lastDraftId);
-    if (!lastDraft) {
+    const lastWorkpieceId = resolveWorkpieceIdForDraftId(lastDraftId);
+    if (!lastWorkpieceId) {
       setForgeError("Last project not found.");
       return;
     }
     setForgeError(null);
-    await selectDraft(lastDraft);
-    setFocusTab("draft");
-    setMode("focus");
+    await openWorkpieceInFocus(lastWorkpieceId, {
+      preferredDraftId: lastDraftId,
+    });
   }
 
   async function onStartForgingSelectedSpark() {
@@ -4557,16 +4936,58 @@ export default function HearthShell() {
   }
 
   async function onDeleteDraft(draft: Draft) {
-    const confirmDelete = window.confirm("Delete this draft? This cannot be undone.");
+    const draftTitle = draft.title.trim() || "Untitled Draft";
+    const confirmDelete = window.confirm(`Delete "${draftTitle}"? This cannot be undone.`);
     if (!confirmDelete) return;
     setError(null);
     try {
+      const deletingActiveDraft = activeDraft?.id === draft.id;
       await store.deleteDraft(draft.id);
-      await refreshDrafts();
-      if (activeDraft?.id === draft.id) {
+      const nextDrafts = dedupeDraftListById(await store.listDrafts());
+      setDrafts(nextDrafts);
+
+      if (deletingActiveDraft) {
+        const activeWorkpieceId = normalizeUuid(workpieceId);
+        if (activeWorkpieceId) {
+          const replacementDraft = selectDraftForWorkpiece({
+            workpieceId: activeWorkpieceId,
+            drafts: nextDrafts,
+            sparks,
+            preferredDraftId: activeWorkpieceId,
+          });
+          if (replacementDraft) {
+            await selectDraft(replacementDraft, { revisionWorkpieceId: activeWorkpieceId });
+          } else {
+            await openWorkpieceInFocus(activeWorkpieceId, {
+              drafts: nextDrafts,
+              preferredDraftId: activeWorkpieceId,
+            });
+          }
+          if (mode === "focus") {
+            setFocusTab("draft");
+          }
+          return;
+        }
+
+        const replacementDraft = nextDrafts.find((candidate) => !candidate.archived) ?? nextDrafts[0] ?? null;
+        if (replacementDraft) {
+          await selectDraft(replacementDraft);
+          if (mode === "focus") {
+            setFocusTab("draft");
+          }
+          return;
+        }
+
         await selectDraft(null);
+        await persistSession(null, "draft");
+        setFocusTab("draft");
+        setMode("episodes");
+        if (isMobile && mobileOverlayView === "editor") {
+          setMobileOverlayView(null);
+        }
       }
-      await persistSession(activeDraft?.id === draft.id ? null : activeDraft?.id ?? null, "draft");
+
+      await persistSession(activeDraft?.id ?? null, "draft");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to delete draft.";
       setError(message);
@@ -4591,7 +5012,16 @@ export default function HearthShell() {
     const confirmRestore = window.confirm("Restore this revision? This will overwrite the current draft content.");
     if (!confirmRestore) return;
 
-    const snapshot = await store.restoreRevision(revision.id);
+    const activeRevisionWorkpieceId = resolveRevisionWorkpieceId();
+    if (!activeRevisionWorkpieceId) {
+      reportRevisionPersistenceWarning(
+        revision.kind,
+        "Revision restore is unavailable until this draft is attached to an Episode.",
+      );
+      return;
+    }
+
+    const snapshot = await store.restoreRevision(activeRevisionWorkpieceId, revision.id);
     if (!snapshot) {
       setError("Revision not found.");
       return;
@@ -4604,21 +5034,44 @@ export default function HearthShell() {
       body: snapshot.body,
       updatedAt: now,
     };
-    await persistDraft({ draft: restored, updatedAt: now, createRevision: null });
-    setSelectedRevision(revision);
-    setRevisionView("preview");
+    const restoredOk = await persistDraft({
+      draft: restored,
+      updatedAt: now,
+      createRevision: { kind: "manual", note: "Restored from revision" },
+    });
+    if (restoredOk) {
+      setRevisionView("preview");
+    }
   }
 
   async function onUpdateRevisionNote(revision: Revision, note: string) {
     setIsSavingRevision(true);
     try {
+      const activeRevisionWorkpieceId = resolveRevisionWorkpieceId();
+      if (!activeRevisionWorkpieceId) {
+        reportRevisionPersistenceWarning(
+          revision.kind,
+          "Revision note updates are unavailable until this draft is attached to an Episode.",
+        );
+        return;
+      }
+
       const updated: Revision = {
         ...revision,
         note: note.trim() || undefined,
       };
-      await store.saveRevision(updated);
-      setRevisions((prev) => prev.map((rev) => (rev.id === updated.id ? updated : rev)));
-      setSelectedRevision(updated);
+      try {
+        await store.saveRevision(activeRevisionWorkpieceId, updated);
+        setAiRuntimeWarning(null);
+      } catch {
+        reportRevisionPersistenceWarning(
+          revision.kind,
+          "Saved revision note locally, but cloud sync failed.",
+        );
+      }
+
+      const latest = await refreshRevisions(activeRevisionWorkpieceId, updated.draftId);
+      setSelectedRevision(latest.find((item) => item.id === updated.id) ?? null);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to update revision note.";
       setError(message);
@@ -6018,12 +6471,8 @@ export default function HearthShell() {
     const entries = resolveImageMapEntriesForExport();
     const payload = buildImageMapExportDocument(entries);
     const text = JSON.stringify(payload, null, 2);
-    try {
-      await navigator.clipboard.writeText(text);
-      setImageMapExportMessage("Image map JSON copied.");
-    } catch {
-      setImageMapExportMessage("Clipboard write failed.");
-    }
+    const copied = await writeTextToClipboard(text);
+    setImageMapExportMessage(copied ? "Image map JSON copied." : "Clipboard write failed.");
   }
 
   function onDownloadImageMapExportJson() {
@@ -6647,14 +7096,18 @@ export default function HearthShell() {
     );
   }
 
-  const openDraftInFocus = useCallback((draft: Draft) => {
-    void selectDraft(draft);
-    setFocusTab("draft");
-    setMode("focus");
-    if (isMobile) {
-      setMobileOverlayView("editor");
+  const onOpenReadyScriptInHearth = useCallback(async (entry: HearthReadyScript) => {
+    setError(null);
+    try {
+      await openWorkpieceInFocus(entry.workpieceId, {
+        workspaceId: entry.workspaceId,
+        preferredDraftId: activeDraft?.id ?? null,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to open approved script in Hearth.";
+      setError(message);
     }
-  }, [isMobile, selectDraft]);
+  }, [activeDraft?.id, openWorkpieceInFocus]);
 
   const openReadyInMobileOverlay = useCallback(() => {
     setMode("ready");
@@ -6670,25 +7123,29 @@ export default function HearthShell() {
     }
   }, [isMobile]);
 
-  const resolveDraftPresenceBadge = useCallback((draft: Draft): string => {
-    if (activeDraft?.id !== draft.id) return "Idle";
+  const resolveWorkpiecePresenceBadge = useCallback((targetWorkpieceId: string): string => {
+    if (workpieceId !== targetWorkpieceId) return "Idle";
     if (editingPeers.length > 0) return `${activeEditorName} editing`;
     if (viewingPeers.length > 0) return `${activeViewerName} viewing`;
     return "Idle";
-  }, [activeDraft?.id, activeEditorName, editingPeers.length, activeViewerName, viewingPeers.length]);
+  }, [activeEditorName, editingPeers.length, activeViewerName, viewingPeers.length, workpieceId]);
 
-  const resolveDraftPresenceClass = useCallback((draft: Draft): string => {
-    if (activeDraft?.id !== draft.id) return "is-idle";
+  const resolveWorkpiecePresenceClass = useCallback((targetWorkpieceId: string): string => {
+    if (workpieceId !== targetWorkpieceId) return "is-idle";
     if (editingPeers.length > 0) return "is-editing";
     if (viewingPeers.length > 0) return "is-viewing";
     return "is-idle";
-  }, [activeDraft?.id, editingPeers.length, viewingPeers.length]);
+  }, [editingPeers.length, viewingPeers.length, workpieceId]);
 
   const renderSparksView = () => {
+    const resumeWorkpieceId = resolveWorkpieceIdForDraftId(session?.activeDraftId ?? null);
+    const resumeWorkpiece = resumeWorkpieceId
+      ? workpieceSummaries.find((entry) => entry.workpieceId === resumeWorkpieceId) ?? null
+      : null;
     const resumeDraft = session?.activeDraftId
       ? drafts.find((draft) => draft.id === session.activeDraftId) ?? null
       : null;
-    const canResumeLast = Boolean(resumeDraft);
+    const canResumeLast = Boolean(resumeWorkpieceId);
     const selectedSparkStatus = selectedSpark ? formatSparkStatus(selectedSpark) : null;
     const selectedSparkPreview = selectedSpark ? buildSparkPreview(selectedSpark.body) : "";
     const isFreshSession = !hasActiveEpisode && !workpieceId;
@@ -6748,9 +7205,14 @@ export default function HearthShell() {
             Resume last project
           </button>
         </div>
-        {resumeDraft ? (
+        {resumeWorkpieceId ? (
           <div className="hs-resume-context">
-            Last: {resumeDraft.title || "Untitled Draft"} · updated {formatRelativeUpdatedAt(resumeDraft.updatedAt)}
+            Last: {resumeWorkpiece?.title ?? resumeDraft?.title ?? "Untitled Episode"} · updated {" "}
+            {formatRelativeUpdatedAt(
+              resumeWorkpiece?.updatedAtMs
+              ?? resumeDraft?.updatedAt
+              ?? Date.now(),
+            )}
           </div>
         ) : null}
 
@@ -6866,6 +7328,29 @@ export default function HearthShell() {
     );
   };
 
+  const renderSparkRouteBootstrapView = () => {
+    const sparkTitle = routeSpark ? deriveSparkTitle(routeSpark) : "Opening spark";
+    return (
+      <section className="hs-home hs-sparks-landing">
+        <header className="hs-home-header">
+          <h2 className="hs-home-title">Lighting the forge...</h2>
+          <p className="hs-home-subtext">
+            {routeSpark
+              ? `Opening ${sparkTitle} from Bar Stock.`
+              : "Opening your spark from Bar Stock."}
+          </p>
+        </header>
+        {forgeError ? (
+          <div className="hs-error-text-small">{forgeError}</div>
+        ) : (
+          <div className="hs-resume-context">
+            Preparing the workpiece and dropping you into the fire.
+          </div>
+        )}
+      </section>
+    );
+  };
+
   function onChangeTonePreset(nextTonePresetRaw: string) {
     const nextTonePreset = normalizeTonePreset(nextTonePresetRaw);
     if (!nextTonePreset) return;
@@ -6927,6 +7412,9 @@ export default function HearthShell() {
           <button onClick={onCreateDraft}>New Draft</button>
           <button onClick={onSaveDraft} disabled={!activeDraft || isSaving}>
             {isSaving ? "Saving..." : "Save draft"}
+          </button>
+          <button onClick={() => activeDraft && void onDeleteDraft(activeDraft)} disabled={!activeDraft || isSaving}>
+            Delete Draft
           </button>
           <button onClick={() => setRevisionModalOpen(true)} disabled={!activeDraft || isSaving}>
             Create Revision
@@ -7428,7 +7916,23 @@ export default function HearthShell() {
                 <div className="hs-script-panel-title">
                   {showScriptPanel && hasScript ? "Script" : "Manual Draft"}
                 </div>
-                <div className="hs-script-panel-meta">Sources: {sourcesSummary}{unusedSummary}</div>
+                <div className="hs-script-panel-header-actions">
+                  {scriptPanelCopyMessage ? (
+                    <div className="hs-field-label-muted">{scriptPanelCopyMessage}</div>
+                  ) : null}
+                  <div className="hs-script-panel-meta">Sources: {sourcesSummary}{unusedSummary}</div>
+                  <button
+                    type="button"
+                    className="hs-script-panel-copy"
+                    onClick={() => void onCopyScriptPanelText()}
+                    disabled={!activeDraft || !activeDraft.body.trim()}
+                    title="Copy panel text to clipboard"
+                    aria-label="Copy panel text to clipboard"
+                  >
+                    <CopyIcon />
+                    <span>Copy</span>
+                  </button>
+                </div>
               </header>
 
               <label className="hs-field">
@@ -7754,7 +8258,7 @@ export default function HearthShell() {
           type="search"
           value={searchText}
           onChange={(event) => setSearchText(event.target.value)}
-          placeholder="Search title or body"
+          placeholder="Search Episode titles"
         />
         <div className="hs-rail-sort">
           <label className="hs-rail-label">Sort</label>
@@ -7765,37 +8269,48 @@ export default function HearthShell() {
         </div>
       </div>
       <ul className="hs-workpieces-list">
-        {filteredDrafts.map((draft) => (
-          <li key={draft.id}>
-            <div className={`hs-workpiece-card${activeDraft?.id === draft.id ? " is-active" : ""}`}>
+        {filteredWorkpieceNavItems.map((item) => {
+          const draft = item.draftId ? draftsById.get(item.draftId) ?? null : null;
+          const isActive = workpieceId === item.workpieceId;
+          const updatedAt = item.updatedAtMs || draft?.updatedAt || Date.now();
+          return (
+          <li key={item.workpieceId}>
+            <div className={`hs-workpiece-card${isActive ? " is-active" : ""}`}>
               <button
                 type="button"
                 className="hs-workpiece-button"
-                onClick={() => openDraftInFocus(draft)}
+                onClick={() => void openWorkpieceInFocus(item.workpieceId, {
+                  preferredDraftId: item.draftId,
+                })}
               >
                 <div className="hs-workpiece-title-row">
-                  <div className="hs-workpiece-title">{draft.title || "Untitled Draft"}</div>
-                  <span className={`hs-workpiece-presence ${resolveDraftPresenceClass(draft)}`}>
-                    {resolveDraftPresenceBadge(draft)}
+                  <div className="hs-workpiece-title">{item.title}</div>
+                  <span className={`hs-workpiece-presence ${resolveWorkpiecePresenceClass(item.workpieceId)}`}>
+                    {resolveWorkpiecePresenceBadge(item.workpieceId)}
                   </span>
                 </div>
-                <div className="hs-workpiece-updated">Updated {formatUpdatedAt(draft.updatedAt)}</div>
-                <div className="hs-workpiece-updated">Last edited by {resolveDraftEditorName(draft)}</div>
+                <div className="hs-workpiece-updated">Updated {formatUpdatedAt(updatedAt)}</div>
+                <div className="hs-workpiece-updated">
+                  {draft ? `Last edited by ${resolveDraftEditorName(draft)}` : "No attached draft buffer yet"}
+                </div>
               </button>
-              <div className="hs-workpiece-actions">
-                <button type="button" onClick={() => void saveDraftMeta(draft, { pinned: !draft.pinned })}>
-                  {draft.pinned ? "Unpin" : "Pin"}
-                </button>
-                <button type="button" onClick={() => void saveDraftMeta(draft, { archived: !draft.archived })}>
-                  {draft.archived ? "Unarchive" : "Archive"}
-                </button>
-                <button type="button" onClick={() => void onDeleteDraft(draft)}>
-                  Delete
-                </button>
-              </div>
+              {draft ? (
+                <div className="hs-workpiece-actions">
+                  <button type="button" onClick={() => void saveDraftMeta(draft, { pinned: !draft.pinned })}>
+                    {draft.pinned ? "Unpin" : "Pin"}
+                  </button>
+                  <button type="button" onClick={() => void saveDraftMeta(draft, { archived: !draft.archived })}>
+                    {draft.archived ? "Unarchive" : "Archive"}
+                  </button>
+                  <button type="button" onClick={() => void onDeleteDraft(draft)}>
+                    Delete
+                  </button>
+                </div>
+              ) : null}
             </div>
           </li>
-        ))}
+        );
+        })}
       </ul>
     </section>
   );
@@ -7816,15 +8331,14 @@ export default function HearthShell() {
         </button>
       </div>
       {removedReadyCount > 0 ? (
-        <button type="button" onClick={onRestoreRemovedReady}>
-          Restore removed ({removedReadyCount})
+        <button type="button" onClick={() => void onRestoreRemovedReady()} disabled={isRestoringReady}>
+          {isRestoringReady ? "Restoring..." : `Restore hidden (${removedReadyCount})`}
         </button>
       ) : null}
       {readyScriptsError ? <div className="hs-error-text-small">{readyScriptsError}</div> : null}
       <ul className="hs-ready-record-list">
-        {launchableOrderedReadyScripts.map((entry) => {
-          const href = resolveReadyOpenHref(entry);
-          if (!href) return null;
+        {orderedReadyScripts.map((entry) => {
+          const anvilHref = resolveReadyOpenHref(entry);
           const label = resolveReadyLabel(entry);
           return (
             <li
@@ -7856,9 +8370,17 @@ export default function HearthShell() {
               <div className="hs-workpiece-actions">
                 <button
                   type="button"
+                  onClick={() => void onOpenReadyScriptInHearth(entry)}
+                >
+                  Open in Hearth
+                </button>
+                <button
+                  type="button"
                   onClick={() => {
-                    window.location.assign(href);
+                    if (!anvilHref) return;
+                    window.location.assign(anvilHref);
                   }}
+                  disabled={!anvilHref}
                 >
                   Send to Anvil
                 </button>
@@ -7867,7 +8389,7 @@ export default function HearthShell() {
                   onClick={() => void onRemoveFromReady(entry)}
                   disabled={removingReadyIds.includes(entry.id)}
                 >
-                  {removingReadyIds.includes(entry.id) ? "Removing..." : "Remove from Ready"}
+                  {removingReadyIds.includes(entry.id) ? "Hiding..." : "Hide from Ready"}
                 </button>
               </div>
             </li>
@@ -7891,7 +8413,16 @@ export default function HearthShell() {
           <ul className="hs-ready-record-list">
             {seriesEntries.map((entry) => (
               <li key={entry.id} className="hs-ready-record-item">
-                <div className="hs-ready-record-title">{entry.title}</div>
+                <button
+                  type="button"
+                  className="hs-ready-record-link"
+                  onClick={() => void openWorkpieceInFocus(entry.workpieceId, {
+                    workspaceId: entry.workspaceId,
+                    preferredDraftId: entry.workpieceId,
+                  })}
+                >
+                  <div className="hs-ready-record-title">{entry.title}</div>
+                </button>
                 <div className="hs-ready-record-meta">{resolveReadyAttribution(entry)}</div>
               </li>
             ))}
@@ -7918,6 +8449,34 @@ export default function HearthShell() {
       );
     }
 
+    if (!activeDraft) {
+      return (
+        <section className="hs-home">
+          <header className="hs-home-header">
+            <h2 className="hs-home-title">{activeWorkpieceContext.workpiece?.title ?? "Episode"}</h2>
+            <p className="hs-home-subtext">Hydrating the attached draft buffer for this Episode.</p>
+          </header>
+          <div className="hs-home-actions">
+            <button
+              type="button"
+              onClick={() => {
+                if (!workpieceId) return;
+                void openWorkpieceInFocus(workpieceId, {
+                  preferredDraftId: session?.activeDraftId ?? null,
+                });
+              }}
+              disabled={!workpieceId}
+            >
+              Retry draft hydration
+            </button>
+            <button type="button" onClick={() => setMode("episodes")}>
+              Back to Episodes
+            </button>
+          </div>
+        </section>
+      );
+    }
+
     switch (focusTab) {
       case "planning":
         return renderPlanningView();
@@ -7931,7 +8490,14 @@ export default function HearthShell() {
     }
   };
 
+  const showSparkRouteBootstrap = Boolean(
+    incomingBarStockIntakeRoute && routeSparkId && !routeProjectId && !hasActiveEpisode && !forgeError,
+  );
+
   const mainContent = (() => {
+    if (showSparkRouteBootstrap) {
+      return renderSparkRouteBootstrapView();
+    }
     switch (mode) {
       case "sparks":
         return renderSparksView();
@@ -8097,45 +8663,34 @@ export default function HearthShell() {
                 </div>
                 {readyScriptsError ? <div className="hs-error-text-small">{readyScriptsError}</div> : null}
                 {readyCategoryError ? <div className="hs-error-text-small">{readyCategoryError}</div> : null}
-                {droppedReadyScriptsCount > 0 ? (
-                  <div className="hs-error-text-small">
-                    Dropped {droppedReadyScriptsCount} invalid ready row{droppedReadyScriptsCount === 1 ? "" : "s"}.
-                  </div>
-                ) : null}
-                {hiddenNonLaunchableReadyCount > 0 ? (
-                  <div className="hs-error-text-small">
-                    Hidden {hiddenNonLaunchableReadyCount} non-launchable row{hiddenNonLaunchableReadyCount === 1 ? "" : "s"}.
-                  </div>
-                ) : null}
                 <div className="hs-rail-meta">Approved scripts stay here until a recording asset is committed.</div>
                 {isReadyScriptsLoading ? <p>Loading queue...</p> : null}
                 {!isReadyScriptsLoading && filteredReadyScripts.length === 0 ? (
                   <p className="hs-rail-meta">
                     {readyTotalCount === 0
-                      ? "No items yet. Approve a script to populate this queue."
+                      ? removedReadyCount > 0
+                        ? "All ready items are hidden. Restore hidden items to show them here."
+                        : "No items yet. Approve a script to populate this queue."
                       : readyUrgencyFilter !== "all"
                         ? "No scripts match this urgency filter."
                         : "No scripts match this category filter."}
                   </p>
                 ) : null}
-                {launchableGroupedReadyScripts.length > 0 ? (
+                {groupedReadyScripts.length > 0 ? (
                   <div className="hs-ready-record-groups">
-                    {launchableGroupedReadyScripts.map((section) => (
+                    {groupedReadyScripts.map((section) => (
                       <div key={section.key} className="hs-ready-record-group">
                         <div className="hs-ready-record-group-title">{section.label}</div>
                         <ul className="hs-ready-record-list">
                           {section.entries.map((entry) => {
-                            const href = resolveReadyOpenHref(entry);
-                            if (!href) return null;
+                            const anvilHref = resolveReadyOpenHref(entry);
                             const urgency = deriveReadyUrgency(entry);
                             return (
                               <li key={entry.id} className="hs-ready-record-item">
                                 <button
                                   type="button"
                                   className="hs-ready-record-link"
-                                  onClick={() => {
-                                    window.location.assign(href);
-                                  }}
+                                  onClick={() => void onOpenReadyScriptInHearth(entry)}
                                 >
                                   <div className="hs-ready-record-title">{entry.title}</div>
                                 </button>
@@ -8168,9 +8723,17 @@ export default function HearthShell() {
                                 </label>
                                 <button
                                   type="button"
+                                  onClick={() => void onOpenReadyScriptInHearth(entry)}
+                                >
+                                  Open in Hearth
+                                </button>
+                                <button
+                                  type="button"
                                   onClick={() => {
-                                    window.location.assign(href);
+                                    if (!anvilHref) return;
+                                    window.location.assign(anvilHref);
                                   }}
+                                  disabled={!anvilHref}
                                 >
                                   Open in Anvil
                                 </button>
@@ -8192,7 +8755,7 @@ export default function HearthShell() {
                   type="search"
                   value={searchText}
                   onChange={(event) => setSearchText(event.target.value)}
-                  placeholder="Search title or body"
+                  placeholder="Search Episode titles"
                 />
                 <div className="hs-rail-sort">
                   <label className="hs-rail-label">Sort</label>
@@ -8213,14 +8776,20 @@ export default function HearthShell() {
 
               <div className="hs-rail-section">
                 <div className="hs-rail-heading">Workspace Projects</div>
-                {isLoading ? <p>Loading workspace projects...</p> : null}
-                {!isLoading && drafts.length === 0 ? <p>No workspace projects yet.</p> : null}
+                {isLoading || isWorkpiecesLoading ? <p>Loading workspace projects...</p> : null}
+                {workpiecesError ? <div className="hs-error-text-small">{workpiecesError}</div> : null}
+                {!isLoading && !isWorkpiecesLoading && filteredWorkpieceNavItems.length === 0
+                  ? <p>No workspace projects yet.</p>
+                  : null}
                 <ul className="hs-workpieces-list">
-                  {filteredDrafts.map((draft) => {
-                    const isActive = activeDraft?.id === draft.id;
-                    const isEditing = editingDraftId === draft.id;
+                  {filteredWorkpieceNavItems.map((item) => {
+                    const draft = item.draftId ? draftsById.get(item.draftId) ?? null : null;
+                    const draftId = draft?.id ?? null;
+                    const isActive = workpieceId === item.workpieceId;
+                    const isEditing = Boolean(draftId) && editingDraftId === draftId;
+                    const updatedAt = item.updatedAtMs || draft?.updatedAt || Date.now();
                     return (
-                      <li key={draft.id}>
+                      <li key={item.workpieceId}>
                         <div
                           className={`hs-workpiece-card${isActive ? " is-active" : ""}`}
                         >
@@ -8230,6 +8799,7 @@ export default function HearthShell() {
                               value={editingTitle}
                               onChange={(event) => setEditingTitle(event.target.value)}
                               onKeyDown={(event) => {
+                                if (!draft) return;
                                 if (event.key === "Enter") {
                                   event.preventDefault();
                                   void saveDraftMeta(draft, { title: editingTitle });
@@ -8240,7 +8810,7 @@ export default function HearthShell() {
                                 }
                               }}
                               onBlur={() => {
-                                if (editingDraftId === draft.id) {
+                                if (draft && editingDraftId === draft.id) {
                                   void saveDraftMeta(draft, { title: editingTitle });
                                   setEditingDraftId(null);
                                 }
@@ -8248,54 +8818,58 @@ export default function HearthShell() {
                             />
                           ) : (
                             <button
-                              onClick={() => openDraftInFocus(draft)}
+                              onClick={() => void openWorkpieceInFocus(item.workpieceId, {
+                                preferredDraftId: item.draftId,
+                              })}
                               className="hs-workpiece-button"
                             >
                               <div className="hs-workpiece-title-row">
-                                <div className="hs-workpiece-title">{draft.title || "Untitled Draft"}</div>
-                                {draft.pinned ? (
+                                <div className="hs-workpiece-title">{item.title}</div>
+                                {draft?.pinned ? (
                                   <span className="hs-workpiece-pin" aria-label="Pinned" title="Pinned">
                                     PIN
                                   </span>
                                 ) : null}
                               </div>
                               <div className="hs-workpiece-updated">
-                                Updated {formatUpdatedAt(draft.updatedAt)}
+                                Updated {formatUpdatedAt(updatedAt)}
                               </div>
                               <div className="hs-workpiece-updated">
-                                Last edited by {resolveDraftEditorName(draft)}
+                                {draft ? `Last edited by ${resolveDraftEditorName(draft)}` : "No attached draft buffer yet"}
                               </div>
                             </button>
                           )}
                           <div className="hs-workpiece-revisions">
-                            Revisions {draft.revisionCount ?? "-"}
+                            Revisions {draft?.revisionCount ?? "-"}
                           </div>
-                          <div className="hs-workpiece-actions">
-                            <button
-                              type="button"
-                              onClick={() => void saveDraftMeta(draft, { pinned: !draft.pinned })}
-                            >
-                              {draft.pinned ? "Unpin" : "Pin"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingDraftId(draft.id);
-                                setEditingTitle(draft.title);
-                              }}
-                            >
-                              Rename
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void saveDraftMeta(draft, { archived: !draft.archived })}
-                            >
-                              {draft.archived ? "Unarchive" : "Archive"}
-                            </button>
-                            <button type="button" onClick={() => void onDeleteDraft(draft)}>
-                              Delete
-                            </button>
-                          </div>
+                          {draft ? (
+                            <div className="hs-workpiece-actions">
+                              <button
+                                type="button"
+                                onClick={() => void saveDraftMeta(draft, { pinned: !draft.pinned })}
+                              >
+                                {draft.pinned ? "Unpin" : "Pin"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingDraftId(draft.id);
+                                  setEditingTitle(draft.title);
+                                }}
+                              >
+                                Rename
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void saveDraftMeta(draft, { archived: !draft.archived })}
+                              >
+                                {draft.archived ? "Unarchive" : "Archive"}
+                              </button>
+                              <button type="button" onClick={() => void onDeleteDraft(draft)}>
+                                Delete
+                              </button>
+                            </div>
+                          ) : null}
                         </div>
                       </li>
                     );
@@ -8406,6 +8980,9 @@ export default function HearthShell() {
             }
             bottomBar={
               <div className="hs-mobile-overlay-actions">
+                <button type="button" onClick={() => activeDraft && void onDeleteDraft(activeDraft)} disabled={!activeDraft || isSaving}>
+                  Delete
+                </button>
                 <button type="button" onClick={() => void onSaveDraft()} disabled={!activeDraft || isSaving}>
                   {isSaving ? "Saving..." : "Save"}
                 </button>

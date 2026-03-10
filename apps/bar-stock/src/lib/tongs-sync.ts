@@ -13,11 +13,7 @@ type SyncOp =
   | { op: "upsert_session"; session: Assignment }
   | { op: "delete_session"; sessionId: string };
 
-const DEV = import.meta.env.DEV;
 const SPARK_ID_MAP_KEY = "forge_barstock_spark_idmap_v1";
-const TONGS_ONLINE_TTL_MS = 30_000;
-
-const tongsOnlineCache = new Map<string, { at: number; value: boolean }>();
 
 function isUuid(v: unknown): v is string {
   return typeof v === "string"
@@ -230,38 +226,4 @@ export async function flushOutboxToTongs(args: {
   }
 
   return result;
-}
-
-export async function checkTongsOnline(
-  workspaceId: string,
-  opts?: { reason?: string; reloadToken?: number; force?: boolean; role?: string },
-): Promise<boolean> {
-  if (!supabase) return false;
-  const role = opts?.role ?? "barstock";
-  const cacheKey = `${workspaceId}:${role}`;
-  const now = Date.now();
-  const cached = tongsOnlineCache.get(cacheKey);
-  if (!opts?.force && cached && now - cached.at < TONGS_ONLINE_TTL_MS) {
-    return cached.value;
-  }
-
-  if (DEV) {
-    console.info("[tongs-sync] mount_registry fetch", {
-      workspaceId,
-      role,
-      reason: opts?.reason ?? "effect",
-      reloadToken: opts?.reloadToken,
-      probe: "workspaces",
-    });
-  }
-  const { data, error } = await supabase
-    .schema("tongs")
-    .from("workspaces")
-    .select("id")
-    .eq("id", workspaceId)
-    .limit(1);
-
-  const online = !error && !!data && data.length > 0;
-  tongsOnlineCache.set(cacheKey, { at: now, value: online });
-  return online;
 }

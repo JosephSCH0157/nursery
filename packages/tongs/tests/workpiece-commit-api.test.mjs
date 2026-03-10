@@ -19,7 +19,9 @@ function mockService() {
     attachEpisodeToSession: [],
     detachEpisodeFromSession: [],
     listSessionEpisodes: [],
+    listWorkspaceEpisodes: [],
     listWorkspaceReadyScripts: [],
+    updateWorkspaceReadyQueueState: [],
     deleteReadyScript: [],
     appendEvent: [],
     readWorkpieceBinary: [],
@@ -297,6 +299,18 @@ function mockService() {
         },
       ];
     },
+    async listWorkspaceEpisodes(workspaceId, options) {
+      calls.listWorkspaceEpisodes.push({ workspaceId, options: options ?? null });
+      return [
+        {
+          id: "11111111-1111-4111-8111-111111111111",
+          workspace_id: workspaceId,
+          label: "Episode 1",
+          created_at: "2026-02-20T00:00:00.000Z",
+          updated_at: "2026-02-21T00:00:00.000Z",
+        },
+      ];
+    },
     async listWorkspaceReadyScripts(workspaceId, options) {
       calls.listWorkspaceReadyScripts.push({ workspaceId, options: options ?? null });
       return [
@@ -311,8 +325,18 @@ function mockService() {
           content_category: "evergreen",
           marked_ready_by: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
           marked_ready_at: "2026-02-21T00:00:00.000Z",
+          queue_rank: 0,
+          hidden_at: null,
+          hidden_by: null,
         },
       ];
+    },
+    async updateWorkspaceReadyQueueState(workspaceId, input, options) {
+      calls.updateWorkspaceReadyQueueState.push({ workspaceId, input, options: options ?? null });
+      return {
+        updated_count: input.entries.length,
+        deleted_count: 0,
+      };
     },
     async deleteReadyScript(workpieceId, path, options) {
       calls.deleteReadyScript.push({ workpieceId, path, options: options ?? null });
@@ -527,6 +551,283 @@ function createRoleGateSupabase({ userId, workspaceId, workspaceOwnerId, memberR
           },
         };
       },
+    },
+  };
+}
+
+function createReadyQueueSupabase({
+  workspaceId,
+  episodes = [],
+  files = [],
+  readyMeta = [],
+  queueState = [],
+  events = [],
+} = {}) {
+  const state = {
+    queueStateRows: queueState.map((row) => ({ ...row })),
+    upsertCalls: [],
+    deleteCalls: [],
+  };
+
+  function compareNullableValues(a, b, ascending = true) {
+    if (a == null && b == null) return 0;
+    if (a == null) return 1;
+    if (b == null) return -1;
+    if (a < b) return ascending ? -1 : 1;
+    if (a > b) return ascending ? 1 : -1;
+    return 0;
+  }
+
+  function sortRows(rows, field, ascending = true) {
+    return rows.slice().sort((left, right) => compareNullableValues(left[field], right[field], ascending));
+  }
+
+  return {
+    state,
+    schema(schemaName) {
+      assert.equal(schemaName, "tongs");
+      return {
+        from(tableName) {
+          if (tableName === "episodes") {
+            return {
+              select() {
+                let workspaceFilter = null;
+                return {
+                  eq(field, value) {
+                    assert.equal(field, "workspace_id");
+                    workspaceFilter = value;
+                    return {
+                      async in(innerField, values) {
+                        assert.equal(innerField, "id");
+                        const idSet = new Set(values);
+                        return {
+                          data: episodes
+                            .filter((row) => row.workspace_id === workspaceFilter && idSet.has(row.id))
+                            .map((row) => ({ id: row.id })),
+                          error: null,
+                        };
+                      },
+                      order(orderField, options) {
+                        return {
+                          async limit(limit) {
+                            const ordered = sortRows(
+                              episodes.filter((row) => row.workspace_id === workspaceFilter),
+                              orderField,
+                              options?.ascending ?? true,
+                            );
+                            return {
+                              data: ordered.slice(0, limit).map((row) => ({
+                                id: row.id,
+                                workspace_id: row.workspace_id,
+                                label: row.label ?? null,
+                                updated_at: row.updated_at ?? null,
+                                created_at: row.created_at ?? null,
+                              })),
+                              error: null,
+                            };
+                          },
+                        };
+                      },
+                    };
+                  },
+                };
+              },
+            };
+          }
+
+          if (tableName === "workpiece_files") {
+            return {
+              select() {
+                let workpieceFilter = null;
+                return {
+                  in(field, values) {
+                    assert.equal(field, "workpiece_id");
+                    workpieceFilter = new Set(values);
+                    return {
+                      async in(innerField, innerValues) {
+                        assert.equal(innerField, "path");
+                        const pathFilter = new Set(innerValues);
+                        return {
+                          data: files.filter(
+                            (row) => workpieceFilter.has(row.workpiece_id) && pathFilter.has(row.path),
+                          ),
+                          error: null,
+                        };
+                      },
+                      like(innerField, pattern) {
+                        assert.equal(innerField, "path");
+                        const prefix = String(pattern).replace(/%$/, "");
+                        return {
+                          async limit(limit) {
+                            return {
+                              data: files
+                                .filter(
+                                  (row) => workpieceFilter.has(row.workpiece_id) && row.path.startsWith(prefix),
+                                )
+                                .slice(0, limit),
+                              error: null,
+                            };
+                          },
+                        };
+                      },
+                    };
+                  },
+                };
+              },
+            };
+          }
+
+          if (tableName === "workpiece_ready_script_meta") {
+            return {
+              select() {
+                let workspaceFilter = null;
+                return {
+                  eq(field, value) {
+                    assert.equal(field, "workspace_id");
+                    workspaceFilter = value;
+                    return {
+                      async in(innerField, values) {
+                        assert.equal(innerField, "workpiece_id");
+                        const idSet = new Set(values);
+                        return {
+                          data: readyMeta.filter(
+                            (row) => row.workspace_id === workspaceFilter && idSet.has(row.workpiece_id),
+                          ),
+                          error: null,
+                        };
+                      },
+                    };
+                  },
+                };
+              },
+            };
+          }
+
+          if (tableName === "workspace_ready_queue_state") {
+            return {
+              select() {
+                let workspaceFilter = null;
+                return {
+                  eq(field, value) {
+                    assert.equal(field, "workspace_id");
+                    workspaceFilter = value;
+                    return {
+                      async in(innerField, values) {
+                        assert.equal(innerField, "workpiece_id");
+                        const idSet = new Set(values);
+                        return {
+                          data: state.queueStateRows.filter(
+                            (row) => row.workspace_id === workspaceFilter && idSet.has(row.workpiece_id),
+                          ),
+                          error: null,
+                        };
+                      },
+                    };
+                  },
+                };
+              },
+              async upsert(rows, options) {
+                state.upsertCalls.push({
+                  rows: rows.map((row) => ({ ...row })),
+                  options: options ?? null,
+                });
+                for (const row of rows) {
+                  const index = state.queueStateRows.findIndex(
+                    (existing) => existing.workspace_id === row.workspace_id && existing.workpiece_id === row.workpiece_id,
+                  );
+                  const nextRow = {
+                    updated_at: "2026-03-10T14:45:00.000Z",
+                    ...row,
+                  };
+                  if (index >= 0) {
+                    state.queueStateRows[index] = {
+                      ...state.queueStateRows[index],
+                      ...nextRow,
+                    };
+                  } else {
+                    state.queueStateRows.push(nextRow);
+                  }
+                }
+                return { data: null, error: null };
+              },
+              delete() {
+                let workspaceFilter = null;
+                return {
+                  eq(field, value) {
+                    assert.equal(field, "workspace_id");
+                    workspaceFilter = value;
+                    return {
+                      async in(innerField, values) {
+                        assert.equal(innerField, "workpiece_id");
+                        const idSet = new Set(values);
+                        const deletedRows = [];
+                        state.queueStateRows = state.queueStateRows.filter((row) => {
+                          const shouldDelete = row.workspace_id === workspaceFilter && idSet.has(row.workpiece_id);
+                          if (shouldDelete) deletedRows.push({ ...row });
+                          return !shouldDelete;
+                        });
+                        state.deleteCalls.push({
+                          workspace_id: workspaceFilter,
+                          workpiece_ids: [...idSet],
+                        });
+                        return { data: deletedRows, error: null };
+                      },
+                    };
+                  },
+                };
+              },
+            };
+          }
+
+          if (tableName === "workpiece_events") {
+            return {
+              select() {
+                let workpieceFilter = null;
+                let eventNameFilter = null;
+                let ordered = events.slice();
+                return {
+                  in(field, values) {
+                    assert.equal(field, "workpiece_id");
+                    workpieceFilter = new Set(values);
+                    return {
+                      eq(innerField, innerValue) {
+                        assert.equal(innerField, "event_name");
+                        eventNameFilter = innerValue;
+                        return {
+                          order(orderField, options) {
+                            ordered = sortRows(
+                              events.filter(
+                                (row) => workpieceFilter.has(row.workpiece_id) && row.event_name === eventNameFilter,
+                              ),
+                              orderField,
+                              options?.ascending ?? true,
+                            );
+                            return {
+                              order(nextOrderField, nextOptions) {
+                                ordered = sortRows(ordered, nextOrderField, nextOptions?.ascending ?? true);
+                                return {
+                                  async limit(limit) {
+                                    return {
+                                      data: ordered.slice(0, limit),
+                                      error: null,
+                                    };
+                                  },
+                                };
+                              },
+                            };
+                          },
+                        };
+                      },
+                    };
+                  },
+                };
+              },
+            };
+          }
+
+          throw new Error(`Unexpected table: ${tableName}`);
+        },
+      };
     },
   };
 }
@@ -1234,6 +1535,54 @@ test("GET /tongs/workspaces/:id/ready-scripts dispatches listWorkspaceReadyScrip
   assert.equal(body.data.scripts[0]?.marked_ready_at, "2026-02-21T00:00:00.000Z");
 });
 
+test("GET /tongs/workspaces/:id/episodes dispatches listWorkspaceEpisodes", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/episodes",
+    {
+      method: "GET",
+      headers: {
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.listWorkspaceEpisodes.length, 1);
+  assert.equal(calls.listWorkspaceEpisodes[0]?.workspaceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.listWorkspaceEpisodes[0]?.options?.userAccessToken, "user_token_abc");
+  assert.equal(body.ok, true);
+  assert.equal(Array.isArray(body.data?.episodes), true);
+  assert.equal(body.data.episodes.length, 1);
+  assert.equal(body.data.episodes[0]?.workspace_id, "11111111-1111-4111-8111-111111111111");
+  assert.equal(body.data.episodes[0]?.label, "Episode 1");
+});
+
+test("GET /tongs/workspaces/:id/episodes requires x-forge-user-authorization header", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/episodes",
+    {
+      method: "GET",
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.equal(calls.listWorkspaceEpisodes.length, 0);
+  assert.equal(body.ok, false);
+  assert.equal(body.error?.code, "missing_user_token_header");
+});
+
 test("GET /tongs/workspaces/:id/ready-scripts?unrecorded=1 enables unrecorded filter", async () => {
   const { service, calls } = mockService();
   const handler = createTongsCommitApiHandlerWithService(service);
@@ -1257,6 +1606,32 @@ test("GET /tongs/workspaces/:id/ready-scripts?unrecorded=1 enables unrecorded fi
   assert.equal(calls.listWorkspaceReadyScripts[0]?.options?.unrecordedOnly, true);
   assert.equal(calls.listWorkspaceReadyScripts[0]?.options?.userAccessToken, "user_token_abc");
   assert.equal(body.ok, true);
+});
+
+test("GET /tongs/workspaces/:id/ready-scripts?include_hidden=1 enables hidden queue rows", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/ready-scripts?include_hidden=1",
+    {
+      method: "GET",
+      headers: {
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.listWorkspaceReadyScripts.length, 1);
+  assert.equal(calls.listWorkspaceReadyScripts[0]?.options?.includeHidden, true);
+  assert.equal(body.ok, true);
+  assert.equal(body.data.scripts[0]?.queue_rank, 0);
+  assert.equal(body.data.scripts[0]?.hidden_at, null);
+  assert.equal(body.data.scripts[0]?.hidden_by, null);
 });
 
 test("GET /tongs/workspaces/:id/ready-scripts forwards x-forge-user-authorization token", async () => {
@@ -1330,6 +1705,561 @@ test("DELETE /tongs/workpieces/:id/ready-script dispatches deleteReadyScript", a
   assert.equal(body.data?.removed_session_item_count, 0);
   assert.equal(body.data?.ready_meta_deleted, true);
   assert.equal(Array.isArray(body.data?.warnings), true);
+});
+
+test("POST /tongs/workspaces/:id/ready-queue-state dispatches updateWorkspaceReadyQueueState", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/ready-queue-state",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+      body: JSON.stringify({
+        entries: [
+          {
+            workpiece_id: "22222222-2222-4222-8222-222222222222",
+            queue_rank: 0,
+          },
+          {
+            workpiece_id: "33333333-3333-4333-8333-333333333333",
+            hidden: true,
+          },
+        ],
+      }),
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.updateWorkspaceReadyQueueState.length, 1);
+  assert.equal(calls.updateWorkspaceReadyQueueState[0]?.workspaceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.updateWorkspaceReadyQueueState[0]?.options?.userAccessToken, "user_token_abc");
+  assert.deepEqual(calls.updateWorkspaceReadyQueueState[0]?.input?.entries, [
+    {
+      workpiece_id: "22222222-2222-4222-8222-222222222222",
+      queue_rank: 0,
+    },
+    {
+      workpiece_id: "33333333-3333-4333-8333-333333333333",
+      hidden: true,
+    },
+  ]);
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.updated_count, 2);
+  assert.equal(body.data?.deleted_count, 0);
+});
+
+test("POST /tongs/workspaces/:id/ready-queue-state requires x-forge-user-authorization header", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/ready-queue-state",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        entries: [{ workpiece_id: "22222222-2222-4222-8222-222222222222", hidden: true }],
+      }),
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.equal(body.ok, false);
+  assert.equal(body.error?.code, "missing_user_token_header");
+  assert.equal(calls.updateWorkspaceReadyQueueState.length, 0);
+});
+
+test("TongsCommitService.listWorkspaceReadyScripts hides hidden queue rows by default and ignores orphan queue state", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const otherWorkspaceId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const viewerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const workpieceA = "11111111-1111-4111-8111-111111111111";
+  const workpieceB = "22222222-2222-4222-8222-222222222222";
+  const workpieceC = "33333333-3333-4333-8333-333333333333";
+
+  const { state, ...supabase } = createReadyQueueSupabase({
+    workspaceId,
+    episodes: [
+      {
+        id: workpieceA,
+        workspace_id: workspaceId,
+        label: "Ready Alpha",
+        updated_at: "2026-03-09T10:00:00.000Z",
+        created_at: "2026-03-01T10:00:00.000Z",
+      },
+      {
+        id: workpieceB,
+        workspace_id: workspaceId,
+        label: "Ready Beta",
+        updated_at: "2026-03-08T10:00:00.000Z",
+        created_at: "2026-03-01T09:00:00.000Z",
+      },
+      {
+        id: workpieceC,
+        workspace_id: workspaceId,
+        label: "Ready Gamma",
+        updated_at: "2026-03-07T10:00:00.000Z",
+        created_at: "2026-03-01T08:00:00.000Z",
+      },
+    ],
+    files: [
+      {
+        workpiece_id: workpieceA,
+        path: "script/script.md",
+        updated_at: "2026-03-09T10:30:00.000Z",
+        created_at: "2026-03-09T10:00:00.000Z",
+      },
+      {
+        workpiece_id: workpieceB,
+        path: "scripts/script.anvil.txt",
+        updated_at: "2026-03-08T10:30:00.000Z",
+        created_at: "2026-03-08T10:00:00.000Z",
+      },
+    ],
+    readyMeta: [
+      {
+        workspace_id: workspaceId,
+        workpiece_id: workpieceA,
+        script_path: "script/script.md",
+        marked_ready_by: viewerId,
+        marked_ready_at: "2026-03-09T10:30:00.000Z",
+      },
+      {
+        workspace_id: workspaceId,
+        workpiece_id: workpieceB,
+        script_path: "scripts/script.anvil.txt",
+        marked_ready_by: viewerId,
+        marked_ready_at: "2026-03-08T10:30:00.000Z",
+      },
+    ],
+    queueState: [
+      {
+        workspace_id: workspaceId,
+        workpiece_id: workpieceA,
+        queue_rank: 5,
+        hidden_at: null,
+        hidden_by: null,
+        updated_at: "2026-03-10T12:00:00.000Z",
+        updated_by: viewerId,
+      },
+      {
+        workspace_id: workspaceId,
+        workpiece_id: workpieceB,
+        queue_rank: 0,
+        hidden_at: "2026-03-10T12:30:00.000Z",
+        hidden_by: viewerId,
+        updated_at: "2026-03-10T12:30:00.000Z",
+        updated_by: viewerId,
+      },
+      {
+        workspace_id: workspaceId,
+        workpiece_id: workpieceC,
+        queue_rank: 99,
+        hidden_at: null,
+        hidden_by: null,
+        updated_at: "2026-03-10T13:00:00.000Z",
+        updated_by: viewerId,
+      },
+      {
+        workspace_id: otherWorkspaceId,
+        workpiece_id: workpieceA,
+        queue_rank: 0,
+        hidden_at: "2026-03-09T00:00:00.000Z",
+        hidden_by: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        updated_at: "2026-03-09T00:00:00.000Z",
+        updated_by: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      },
+    ],
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: viewerId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: viewerId, role: "viewer" });
+
+  const result = await service.listWorkspaceReadyScripts(workspaceId, {
+    userAccessToken: "viewer_token",
+  });
+
+  assert.equal(result.length, 1);
+  assert.equal(result[0]?.workpiece_id, workpieceA);
+  assert.equal(result[0]?.queue_rank, 5);
+  assert.equal(result[0]?.hidden_at, null);
+  assert.equal(result[0]?.hidden_by, null);
+  assert.equal(result[0]?.primary_script_path, "script/script.md");
+  assert.deepEqual(result[0]?.script_paths, ["script/script.md"]);
+  assert.equal(result.some((row) => row.workpiece_id === workpieceB), false);
+  assert.equal(result.some((row) => row.workpiece_id === workpieceC), false);
+  assert.equal(state.queueStateRows.length, 4);
+});
+
+test("TongsCommitService.listWorkspaceEpisodes returns workspace-scoped summaries ordered by freshness", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const otherWorkspaceId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const viewerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+  const { ...supabase } = createReadyQueueSupabase({
+    workspaceId,
+    episodes: [
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        workspace_id: workspaceId,
+        label: "Newest Episode",
+        updated_at: "2026-03-10T10:00:00.000Z",
+        created_at: "2026-03-01T10:00:00.000Z",
+      },
+      {
+        id: "22222222-2222-4222-8222-222222222222",
+        workspace_id: workspaceId,
+        label: "Older Episode",
+        updated_at: "2026-03-08T10:00:00.000Z",
+        created_at: "2026-03-01T09:00:00.000Z",
+      },
+      {
+        id: "33333333-3333-4333-8333-333333333333",
+        workspace_id: otherWorkspaceId,
+        label: "Other Workspace Episode",
+        updated_at: "2026-03-11T10:00:00.000Z",
+        created_at: "2026-03-01T08:00:00.000Z",
+      },
+    ],
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: viewerId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: viewerId, role: "viewer" });
+
+  const result = await service.listWorkspaceEpisodes(workspaceId, {
+    userAccessToken: "viewer_token",
+  });
+
+  assert.deepEqual(
+    result.map((row) => row.id),
+    [
+      "11111111-1111-4111-8111-111111111111",
+      "22222222-2222-4222-8222-222222222222",
+    ],
+  );
+  assert.equal(result[0]?.workspace_id, workspaceId);
+  assert.equal(result[0]?.label, "Newest Episode");
+  assert.equal(result[1]?.label, "Older Episode");
+  assert.equal(result.some((row) => row.workspace_id === otherWorkspaceId), false);
+});
+
+test("TongsCommitService.listWorkspaceReadyScripts includes hidden ranked entries and preserves queue state across ready-path changes", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const viewerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const workpieceA = "11111111-1111-4111-8111-111111111111";
+  const workpieceB = "22222222-2222-4222-8222-222222222222";
+  const workpieceC = "33333333-3333-4333-8333-333333333333";
+
+  const { ...supabase } = createReadyQueueSupabase({
+    workspaceId,
+    episodes: [
+      {
+        id: workpieceA,
+        workspace_id: workspaceId,
+        label: "Ready Alpha",
+        updated_at: "2026-03-09T10:00:00.000Z",
+        created_at: "2026-03-01T10:00:00.000Z",
+      },
+      {
+        id: workpieceB,
+        workspace_id: workspaceId,
+        label: "Ready Beta",
+        updated_at: "2026-03-08T10:00:00.000Z",
+        created_at: "2026-03-01T09:00:00.000Z",
+      },
+      {
+        id: workpieceC,
+        workspace_id: workspaceId,
+        label: "Ready Gamma",
+        updated_at: "2026-03-07T10:00:00.000Z",
+        created_at: "2026-03-01T08:00:00.000Z",
+      },
+    ],
+    files: [
+      {
+        workpiece_id: workpieceA,
+        path: "script/script.md",
+        updated_at: "2026-03-09T10:30:00.000Z",
+        created_at: "2026-03-09T10:00:00.000Z",
+      },
+      {
+        workpiece_id: workpieceB,
+        path: "scripts/script.anvil.txt",
+        updated_at: "2026-03-08T10:30:00.000Z",
+        created_at: "2026-03-08T10:00:00.000Z",
+      },
+    ],
+    readyMeta: [
+      {
+        workspace_id: workspaceId,
+        workpiece_id: workpieceA,
+        script_path: "script/script.md",
+        marked_ready_by: viewerId,
+        marked_ready_at: "2026-03-09T10:30:00.000Z",
+      },
+      {
+        workspace_id: workspaceId,
+        workpiece_id: workpieceB,
+        script_path: "scripts/script.anvil.txt",
+        marked_ready_by: viewerId,
+        marked_ready_at: "2026-03-08T10:30:00.000Z",
+      },
+    ],
+    queueState: [
+      {
+        workspace_id: workspaceId,
+        workpiece_id: workpieceA,
+        queue_rank: 5,
+        hidden_at: null,
+        hidden_by: null,
+        updated_at: "2026-03-10T12:00:00.000Z",
+        updated_by: viewerId,
+      },
+      {
+        workspace_id: workspaceId,
+        workpiece_id: workpieceB,
+        queue_rank: 0,
+        hidden_at: "2026-03-10T12:30:00.000Z",
+        hidden_by: viewerId,
+        updated_at: "2026-03-10T12:30:00.000Z",
+        updated_by: viewerId,
+      },
+      {
+        workspace_id: workspaceId,
+        workpiece_id: workpieceC,
+        queue_rank: 99,
+        hidden_at: "2026-03-10T13:00:00.000Z",
+        hidden_by: viewerId,
+        updated_at: "2026-03-10T13:00:00.000Z",
+        updated_by: viewerId,
+      },
+    ],
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: viewerId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: viewerId, role: "viewer" });
+
+  const result = await service.listWorkspaceReadyScripts(workspaceId, {
+    userAccessToken: "viewer_token",
+    includeHidden: true,
+  });
+
+  assert.deepEqual(
+    result.map((row) => row.workpiece_id),
+    [workpieceB, workpieceA],
+  );
+  assert.equal(result[0]?.primary_script_path, "scripts/script.anvil.txt");
+  assert.deepEqual(result[0]?.script_paths, ["scripts/script.anvil.txt"]);
+  assert.equal(result[0]?.queue_rank, 0);
+  assert.equal(result[0]?.hidden_at, "2026-03-10T12:30:00.000Z");
+  assert.equal(result[0]?.hidden_by, viewerId);
+  assert.equal(result.some((row) => row.workpiece_id === workpieceC), false);
+});
+
+test("TongsCommitService.updateWorkspaceReadyQueueState upserts rank and hide state while clearing empty rows", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const otherWorkspaceId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const editorId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const workpieceA = "11111111-1111-4111-8111-111111111111";
+  const workpieceB = "22222222-2222-4222-8222-222222222222";
+  const workpieceC = "33333333-3333-4333-8333-333333333333";
+
+  const { state, ...supabase } = createReadyQueueSupabase({
+    workspaceId,
+    episodes: [
+      {
+        id: workpieceA,
+        workspace_id: workspaceId,
+        label: "Ready Alpha",
+        updated_at: "2026-03-09T10:00:00.000Z",
+        created_at: "2026-03-01T10:00:00.000Z",
+      },
+      {
+        id: workpieceB,
+        workspace_id: workspaceId,
+        label: "Ready Beta",
+        updated_at: "2026-03-08T10:00:00.000Z",
+        created_at: "2026-03-01T09:00:00.000Z",
+      },
+      {
+        id: workpieceC,
+        workspace_id: workspaceId,
+        label: "Ready Gamma",
+        updated_at: "2026-03-07T10:00:00.000Z",
+        created_at: "2026-03-01T08:00:00.000Z",
+      },
+    ],
+    queueState: [
+      {
+        workspace_id: workspaceId,
+        workpiece_id: workpieceA,
+        queue_rank: 7,
+        hidden_at: null,
+        hidden_by: null,
+        updated_at: "2026-03-09T10:00:00.000Z",
+        updated_by: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      },
+      {
+        workspace_id: workspaceId,
+        workpiece_id: workpieceB,
+        queue_rank: null,
+        hidden_at: "2026-03-09T11:00:00.000Z",
+        hidden_by: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+        updated_at: "2026-03-09T11:00:00.000Z",
+        updated_by: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+      },
+      {
+        workspace_id: otherWorkspaceId,
+        workpiece_id: workpieceA,
+        queue_rank: 55,
+        hidden_at: null,
+        hidden_by: null,
+        updated_at: "2026-03-09T12:00:00.000Z",
+        updated_by: "99999999-9999-4999-8999-999999999999",
+      },
+    ],
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: editorId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: editorId, role: "editor" });
+
+  const result = await service.updateWorkspaceReadyQueueState(
+    workspaceId,
+    {
+      entries: [
+        { workpiece_id: workpieceA, hidden: true },
+        { workpiece_id: workpieceB, queue_rank: null, hidden: false },
+        { workpiece_id: workpieceC, queue_rank: 0 },
+      ],
+    },
+    { userAccessToken: "editor_token" },
+  );
+
+  assert.deepEqual(result, {
+    updated_count: 2,
+    deleted_count: 1,
+  });
+  assert.equal(state.upsertCalls.length, 1);
+  assert.equal(state.deleteCalls.length, 1);
+  assert.deepEqual(state.deleteCalls[0], {
+    workspace_id: workspaceId,
+    workpiece_ids: [workpieceB],
+  });
+
+  const updatedA = state.queueStateRows.find(
+    (row) => row.workspace_id === workspaceId && row.workpiece_id === workpieceA,
+  );
+  const insertedC = state.queueStateRows.find(
+    (row) => row.workspace_id === workspaceId && row.workpiece_id === workpieceC,
+  );
+  const preservedOtherWorkspace = state.queueStateRows.find(
+    (row) => row.workspace_id === otherWorkspaceId && row.workpiece_id === workpieceA,
+  );
+
+  assert.equal(updatedA?.queue_rank, 7);
+  assert.equal(typeof updatedA?.hidden_at, "string");
+  assert.equal(updatedA?.hidden_by, editorId);
+  assert.equal(updatedA?.updated_by, editorId);
+  assert.equal(insertedC?.queue_rank, 0);
+  assert.equal(insertedC?.hidden_at, null);
+  assert.equal(insertedC?.hidden_by, null);
+  assert.equal(insertedC?.updated_by, editorId);
+  assert.equal(
+    state.queueStateRows.some((row) => row.workspace_id === workspaceId && row.workpiece_id === workpieceB),
+    false,
+  );
+  assert.equal(preservedOtherWorkspace?.queue_rank, 55);
+  assert.equal(preservedOtherWorkspace?.hidden_at, null);
+});
+
+test("TongsCommitService.updateWorkspaceReadyQueueState rejects workpieces outside the workspace", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const editorId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const workpieceA = "11111111-1111-4111-8111-111111111111";
+  const foreignWorkpiece = "44444444-4444-4444-8444-444444444444";
+
+  const { ...supabase } = createReadyQueueSupabase({
+    workspaceId,
+    episodes: [
+      {
+        id: workpieceA,
+        workspace_id: workspaceId,
+        label: "Ready Alpha",
+        updated_at: "2026-03-09T10:00:00.000Z",
+        created_at: "2026-03-01T10:00:00.000Z",
+      },
+    ],
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: editorId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: editorId, role: "editor" });
+
+  await assert.rejects(
+    () => service.updateWorkspaceReadyQueueState(
+      workspaceId,
+      {
+        entries: [
+          { workpiece_id: workpieceA, queue_rank: 0 },
+          { workpiece_id: foreignWorkpiece, hidden: true },
+        ],
+      },
+      { userAccessToken: "editor_token" },
+    ),
+    (error) => {
+      assert.equal(error.status, 400);
+      assert.equal(error.code, "workspace_mismatch");
+      assert.equal(error.details?.workpiece_id, foreignWorkpiece);
+      return true;
+    },
+  );
 });
 
 test("DELETE /tongs/workpieces/:id/ready-script returns idempotent payload", async () => {
@@ -1654,4 +2584,64 @@ test("TongsCommitService.deleteReadyScript returns warning when storage delete f
   assert.equal(result.removed_session_item_count, 3);
   assert.equal(result.ready_meta_deleted, true);
   assert.deepEqual(result.warnings, ["storage_delete_failed"]);
+});
+
+test("TongsCommitService.deleteReadyScript does not touch ready queue state", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const queueStateAccesses = [];
+  const baseSupabase = createRoleGateSupabase({
+    userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    workspaceId,
+    workspaceOwnerId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    memberRole: "editor",
+  });
+  const supabase = {
+    ...baseSupabase,
+    schema(schemaName) {
+      const scoped = baseSupabase.schema(schemaName);
+      return {
+        from(tableName) {
+          if (tableName === "workspace_ready_queue_state") {
+            queueStateAccesses.push(tableName);
+          }
+          return scoped.from(tableName);
+        },
+      };
+    },
+  };
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+
+  service.getCradleOrThrow = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-02T00:00:00.000Z",
+    updated_at: "2026-03-02T00:00:00.000Z",
+  });
+  service.removeRecordingSessionItemsForScript = async () => 0;
+  service.loadManifestOrDefault = async () => createManifestFixture(workpieceId, workspaceId);
+  service.upsertWorkpieceFile = async () => {};
+  service.insertEvent = async () => ({
+    id: 778,
+    workpiece_id: workpieceId,
+    event_name: "workpiece.file.deleted",
+    payload: {},
+    correlation_id: null,
+    written_by_tool: "tongs",
+    written_by_tool_version: "0.1.0",
+    written_by_lane: "forge-managed",
+    created_at: "2026-03-02T00:00:00.000Z",
+  });
+
+  const result = await service.deleteReadyScript(workpieceId, "script/script.md", {
+    userAccessToken: "editor_token",
+  });
+
+  assert.equal(result.deleted, true);
+  assert.deepEqual(queueStateAccesses, []);
 });

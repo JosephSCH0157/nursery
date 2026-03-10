@@ -15,8 +15,8 @@ export interface HearthStore {
   deleteDraft(id: DraftId): Promise<void>;
   getChatHistory(draftId: DraftId): Promise<HearthChatMessage[]>;
   saveChatHistory(draftId: DraftId, messages: HearthChatMessage[]): Promise<void>;
-  listRevisions(draftId: DraftId): Promise<Revision[]>;
-  getRevision(id: RevisionId): Promise<Revision | null>;
-  saveRevision(revision: Revision): Promise<void>;
-  restoreRevision(id: RevisionId): Promise<{ title: string; body: string } | null>;
+  listRevisions(workpieceId: string, draftId?: DraftId | null): Promise<Revision[]>;
+  getRevision(workpieceId: string, id: RevisionId): Promise<Revision | null>;
+  saveRevision(workpieceId: string, revision: Revision): Promise<void>;
+  restoreRevision(workpieceId: string, id: RevisionId): Promise<{ title: string; body: string } | null>;
 }

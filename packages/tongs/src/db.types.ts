@@ -385,6 +385,51 @@ export type Database = {
           },
         ]
       }
+      workspace_ready_queue_state: {
+        Row: {
+          workspace_id: string
+          workpiece_id: string
+          queue_rank: number | null
+          hidden_at: string | null
+          hidden_by: string | null
+          updated_at: string
+          updated_by: string
+        }
+        Insert: {
+          workspace_id: string
+          workpiece_id: string
+          queue_rank?: number | null
+          hidden_at?: string | null
+          hidden_by?: string | null
+          updated_at?: string
+          updated_by: string
+        }
+        Update: {
+          workspace_id?: string
+          workpiece_id?: string
+          queue_rank?: number | null
+          hidden_at?: string | null
+          hidden_by?: string | null
+          updated_at?: string
+          updated_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_ready_queue_state_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workspace_ready_queue_state_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       recording_session_episodes: {
         Row: {
           recording_session_id: string
