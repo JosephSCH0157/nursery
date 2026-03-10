@@ -21,6 +21,16 @@ const WORKSPACE_STORAGE_KEYS = ["forge_workspace_id_v1", "barstock_workspace_id"
 const WORKSPACE_QUERY_KEYS = ["workspace_id", "workspaceId", "workspace"] as const;
 const SPARK_QUERY_KEYS = ["spark_id", "sparkId", "barstock_spark_id"] as const;
 
+type BrowserWindowLike = {
+  location: {
+    search?: string;
+  };
+  localStorage: {
+    getItem(key: string): string | null;
+    setItem(key: string, value: string): void;
+  };
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -40,13 +50,19 @@ function normalizeScope(value: unknown): string | null {
   return str ? str.toLowerCase() : null;
 }
 
+function getBrowserWindow(): BrowserWindowLike | null {
+  const candidate = globalThis as typeof globalThis & { window?: BrowserWindowLike };
+  return candidate.window ?? null;
+}
+
 function resolveWorkspaceScope(workspaceId?: string | null): string | null {
   const explicit = normalizeScope(workspaceId);
   if (explicit) return explicit;
-  if (typeof window === "undefined") return null;
+  const browserWindow = getBrowserWindow();
+  if (!browserWindow) return null;
 
   try {
-    const params = new URLSearchParams(window.location.search || "");
+    const params = new URLSearchParams(browserWindow.location.search || "");
     for (const key of WORKSPACE_QUERY_KEYS) {
       const value = normalizeScope(params.get(key));
       if (value) return value;
@@ -57,7 +73,7 @@ function resolveWorkspaceScope(workspaceId?: string | null): string | null {
 
   for (const key of WORKSPACE_STORAGE_KEYS) {
     try {
-      const value = normalizeScope(window.localStorage.getItem(key));
+      const value = normalizeScope(browserWindow.localStorage.getItem(key));
       if (value) return value;
     } catch {
       // ignore storage failures
@@ -143,22 +159,24 @@ function dedupeSparksById(sparks: BarStockSpark[]): BarStockSpark[] {
 }
 
 export function readBarStockSparks(workspaceId?: string | null): BarStockSpark[] {
-  if (typeof window === "undefined") return [];
+  const browserWindow = getBrowserWindow();
+  if (!browserWindow) return [];
   const scope = resolveWorkspaceScope(workspaceId);
   if (!scope) return [];
 
   try {
-    return parseSparkArray(window.localStorage.getItem(sparksStorageKey(scope)));
+    return parseSparkArray(browserWindow.localStorage.getItem(sparksStorageKey(scope)));
   } catch {
     return [];
   }
 }
 
 export function writeBarStockSparks(sparks: BarStockSpark[], workspaceId?: string | null): void {
-  if (typeof window === "undefined") return;
+  const browserWindow = getBrowserWindow();
+  if (!browserWindow) return;
   const scope = resolveWorkspaceScope(workspaceId);
   try {
-    window.localStorage.setItem(sparksStorageKey(scope), JSON.stringify(sparks));
+    browserWindow.localStorage.setItem(sparksStorageKey(scope), JSON.stringify(sparks));
   } catch {
     // ignore storage failures
   }
@@ -181,12 +199,13 @@ export function isBarStockKey(key: string | null, workspaceId?: string | null): 
 }
 
 export function enqueueBarStockSpark(spark: BarStockSpark, workspaceId?: string | null): void {
-  if (typeof window === "undefined") return;
+  const browserWindow = getBrowserWindow();
+  if (!browserWindow) return;
   const scope = resolveWorkspaceScope(workspaceId);
   if (!scope) return;
   const key = outboxStorageKey(scope);
   try {
-    const raw = window.localStorage.getItem(key);
+    const raw = browserWindow.localStorage.getItem(key);
     const parsed = raw ? JSON.parse(raw) : [];
     const list = Array.isArray(parsed) ? parsed : [];
 
@@ -202,21 +221,22 @@ export function enqueueBarStockSpark(spark: BarStockSpark, workspaceId?: string 
       }
 
       list[index] = { op: "upsert_spark", at: Date.now(), spark };
-      window.localStorage.setItem(key, JSON.stringify(list));
+      browserWindow.localStorage.setItem(key, JSON.stringify(list));
       return;
     }
 
     list.push({ op: "upsert_spark", at: Date.now(), spark });
-    window.localStorage.setItem(key, JSON.stringify(list));
+    browserWindow.localStorage.setItem(key, JSON.stringify(list));
   } catch {
     // ignore outbox failures
   }
 }
 
 export function resolveBarstockSparkIdFromQuery(): string | null {
-  if (typeof window === "undefined") return null;
+  const browserWindow = getBrowserWindow();
+  if (!browserWindow) return null;
   try {
-    const params = new URLSearchParams(window.location.search || "");
+    const params = new URLSearchParams(browserWindow.location.search || "");
     for (const key of SPARK_QUERY_KEYS) {
       const value = readString(params.get(key));
       if (value) return value;

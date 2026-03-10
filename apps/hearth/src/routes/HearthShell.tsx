@@ -214,7 +214,6 @@ const TONE_PRESET_OPTIONS = [
   { value: "spicy_but_safe", label: "Spicy but safe" },
 ] as const;
 const DEFAULT_TONE_PRESET = "neutral_conversational";
-const EMPTY_DRAFT_LIST: Draft[] = [];
 const EMPTY_WORKPIECE_SUMMARY_LIST: HearthWorkpieceSummary[] = [];
 const EMPTY_READY_SCRIPT_LIST: HearthReadyScript[] = [];
 

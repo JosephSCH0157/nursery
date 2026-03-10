@@ -30,12 +30,6 @@ let correlationSeq = 0;
 
 const WORKSPACE_KEYS = ["forge_workspace_id_v1", "barstock_workspace_id"] as const;
 const WORKPIECE_PREFIX = "forge_hearth_script_workpiece_v1:";
-const WORKPIECE_KEYS = [
-  "forge_hearth_script_workpiece_id_v1",
-  "forge_active_workpiece_id_v1",
-  "forge_workpiece_id_v1",
-  "tp_workpiece_id",
-];
 
 function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
