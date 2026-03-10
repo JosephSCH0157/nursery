@@ -90,6 +90,7 @@ Edits are stored as instruction layers in Tongs. Users can undo, reset edits, an
 
 - Status: V1 in development
 - Canonical manifest: [`../../docs/HAMMER_MANIFEST.md`](../../docs/HAMMER_MANIFEST.md)
+- Interaction architecture: [`../../docs/HAMMER_EDITOR_ARCHITECTURE.md`](../../docs/HAMMER_EDITOR_ARCHITECTURE.md)
 - Architecture context: [`../../docs/FORGE_SYSTEM_ARCHITECTURE.md`](../../docs/FORGE_SYSTEM_ARCHITECTURE.md)
 
 ## Local Development

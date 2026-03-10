@@ -32,7 +32,8 @@ function parseOutbox(raw: string | null): OutboxOp[] {
 export function loadOutbox(workspaceId?: string | null): OutboxOp[] {
   const key = scopedKey(workspaceId);
   const scoped = parseOutbox(localStorage.getItem(key));
-  if (scoped.length > 0 || key === KEY) return scoped;
+  if (normalizedScope(workspaceId)) return scoped;
+  if (key === KEY) return scoped;
   return parseOutbox(localStorage.getItem(KEY));
 }
 

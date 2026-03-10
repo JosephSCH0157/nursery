@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import { resolve, join, dirname, isAbsolute } from "path";
 import fs from "node:fs";
 import fsPromises from "node:fs/promises";
+import { createHammerDevMediaMiddleware } from "./scripts/mw-hammer-dev-media";
 import { mwHearthChatApi } from "./scripts/mw-hearth-chat-api";
 import { createNurseryTongsMiddleware } from "./scripts/mw-tongs-commit-api";
 
@@ -91,6 +92,7 @@ export default defineConfig({
       configureServer(server) {
         server.middlewares.use(createNurseryTongsMiddleware({ routePrefix: "/tongs" }));
         server.middlewares.use(mwHearthChatApi());
+        server.middlewares.use(createHammerDevMediaMiddleware());
       },
     },
   ],

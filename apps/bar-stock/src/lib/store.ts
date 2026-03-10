@@ -26,7 +26,8 @@ function parseSparks(raw: string | null): Spark[] {
 export function loadSparks(workspaceId?: string | null): Spark[] {
   const key = scopedKey(workspaceId);
   const scoped = parseSparks(localStorage.getItem(key));
-  if (scoped.length > 0 || key === KEY) return scoped;
+  if (normalizedScope(workspaceId)) return scoped;
+  if (key === KEY) return scoped;
   return parseSparks(localStorage.getItem(KEY));
 }
 

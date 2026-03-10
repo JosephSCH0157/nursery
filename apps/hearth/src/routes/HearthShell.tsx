@@ -201,6 +201,8 @@ const TONE_PRESET_OPTIONS = [
   { value: "spicy_but_safe", label: "Spicy but safe" },
 ] as const;
 const DEFAULT_TONE_PRESET = "neutral_conversational";
+const EMPTY_DRAFT_LIST: Draft[] = [];
+const EMPTY_READY_SCRIPT_LIST: HearthReadyScript[] = [];
 
 function readTrimmedString(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -1685,7 +1687,7 @@ export default function HearthShell() {
   const [routeProjectTitle, setRouteProjectTitle] = useState<string | null>(null);
 
   const [planningSession, setPlanningSession] = useState<HearthPlanningSession | null>(() =>
-    readHearthPlanningSessionCache(resolveWorkpieceId()),
+    readHearthPlanningSessionCache(resolveWorkpieceId(), resolveWorkspaceId()),
   );
   const [sessionTouched, setSessionTouched] = useState(false);
   const [decisionDraft, setDecisionDraft] = useState("");
@@ -2031,8 +2033,10 @@ export default function HearthShell() {
     if (!selectedSparkId) return forgeableSparks[0] ?? null;
     return forgeableSparks.find((spark) => spark.id === selectedSparkId) ?? forgeableSparks[0] ?? null;
   }, [forgeableSparks, selectedSparkId]);
+  const deferDesktopRailCollections = !isMobile && mode === "sparks" && !hasActiveEpisode;
 
   const filteredDrafts = useMemo(() => {
+    if (deferDesktopRailCollections) return EMPTY_DRAFT_LIST;
     const query = searchText.trim().toLowerCase();
     const filtered = drafts
       .filter((draft) => (showArchived ? true : !draft.archived))
@@ -2051,13 +2055,15 @@ export default function HearthShell() {
       : (a: Draft, b: Draft) => b.updatedAt - a.updatedAt;
 
     return [...pinned.sort(sortFn), ...unpinned.sort(sortFn)];
-  }, [drafts, searchText, sortKey, showArchived]);
+  }, [deferDesktopRailCollections, drafts, searchText, sortKey, showArchived]);
+
+  const readyScriptsForDisplay = deferDesktopRailCollections ? EMPTY_READY_SCRIPT_LIST : readyScripts;
 
   const navigableReadyScripts = useMemo(
-    () => readyScripts.filter((entry) => Boolean(buildOpenInAnvilHref(entry.workspaceId, entry.workpieceId, entry.primaryScriptPath))),
-    [readyScripts],
+    () => readyScriptsForDisplay.filter((entry) => Boolean(buildOpenInAnvilHref(entry.workspaceId, entry.workpieceId, entry.primaryScriptPath))),
+    [readyScriptsForDisplay],
   );
-  const droppedReadyScriptsCount = Math.max(0, readyScripts.length - navigableReadyScripts.length);
+  const droppedReadyScriptsCount = Math.max(0, readyScriptsForDisplay.length - navigableReadyScripts.length);
 
   const categoryFilteredReadyScripts = useMemo(() => {
     if (readyCategoryFilter === "all") return navigableReadyScripts;
@@ -2505,8 +2511,9 @@ export default function HearthShell() {
   }, [drafts, hearthUser, refreshDrafts, store]);
 
   useEffect(() => {
+    if (deferDesktopRailCollections) return;
     void refreshReadyScripts();
-  }, [refreshReadyScripts]);
+  }, [deferDesktopRailCollections, refreshReadyScripts]);
 
   useEffect(() => {
     setReadyOrderIds(readReadyOrder(workspaceId));
@@ -2567,7 +2574,9 @@ export default function HearthShell() {
   useEffect(() => {
     const workspace = workspaceId?.trim() ?? "";
     const workpiece = workpieceId?.trim() ?? "";
-    if (!workspace || !workpiece) {
+    const normalizedWorkspaceId = normalizeUuid(workspace);
+    const normalizedWorkpieceId = normalizeUuid(workpiece);
+    if (!normalizedWorkspaceId || !normalizedWorkpieceId) {
       setPresenceRows([]);
       return;
     }
@@ -2578,12 +2587,12 @@ export default function HearthShell() {
     const syncPresence = async () => {
       try {
         await upsertHearthWorkpiecePresence({
-          workspaceId: workspace,
-          workpieceId: workpiece,
+          workspaceId: normalizedWorkspaceId,
+          workpieceId: normalizedWorkpieceId,
           mode: localPresenceMode,
           displayName: activeUserDisplayName,
         });
-        const rows = await listHearthWorkpiecePresence(workspace, workpiece);
+        const rows = await listHearthWorkpiecePresence(normalizedWorkspaceId, normalizedWorkpieceId);
         if (!cancelled) {
           setPresenceRows(rows);
         }
@@ -2785,7 +2794,11 @@ export default function HearthShell() {
         intent: next.intent ?? deriveIntentFromOrigin(next.origin),
       };
 
-      writeHearthPlanningSessionCache(updated, workpieceId ?? updated.workpiece_id ?? null);
+      writeHearthPlanningSessionCache(
+        updated,
+        workpieceId ?? updated.workpiece_id ?? null,
+        workspaceId ?? updated.workspace_id ?? null,
+      );
       return updated;
     });
 
@@ -2847,7 +2860,7 @@ export default function HearthShell() {
           setPlanningSession((prev) => {
             if (!prev && !overrideSession) return prev;
             const next = { ...sessionForCommit, updated_at: new Date().toISOString() };
-            writeHearthPlanningSessionCache(next, workpieceId);
+            writeHearthPlanningSessionCache(next, workpieceId, workspaceId ?? next.workspace_id ?? null);
             return next;
           });
         }
@@ -3420,14 +3433,19 @@ export default function HearthShell() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const refreshSession = () => {
-      const cached = readHearthPlanningSessionCache(workpieceId);
+      const cached = readHearthPlanningSessionCache(workpieceId, workspaceId);
       if (cached) {
-        setPlanningSession(cached);
-        if (!workpieceId && cached.workpiece_id) {
-          setWorkpieceId(cached.workpiece_id);
+        const normalizedCached: HearthPlanningSession = {
+          ...cached,
+          workpiece_id: normalizeUuid(cached.workpiece_id),
+          workspace_id: normalizeUuid(cached.workspace_id),
+        };
+        setPlanningSession(normalizedCached);
+        if (!workpieceId && normalizedCached.workpiece_id) {
+          setWorkpieceId(normalizedCached.workpiece_id);
         }
-        if (!workspaceId && cached.workspace_id) {
-          setWorkspaceId(cached.workspace_id);
+        if (!workspaceId && normalizedCached.workspace_id) {
+          setWorkspaceId(normalizedCached.workspace_id);
         }
       }
     };
@@ -3441,17 +3459,27 @@ export default function HearthShell() {
   }, [workpieceId, workspaceId]);
 
   useEffect(() => {
-    if (!workpieceId) return;
+    const normalizedWorkpieceId = normalizeUuid(workpieceId);
+    if (!normalizedWorkpieceId) return;
     let cancelled = false;
-    readHearthSession(workpieceId)
+    readHearthSession(normalizedWorkpieceId)
       .then((session) => {
         if (cancelled || !session) return;
-        setPlanningSession(session);
+        const normalizedSession: HearthPlanningSession = {
+          ...session,
+          workpiece_id: normalizeUuid(session.workpiece_id),
+          workspace_id: normalizeUuid(session.workspace_id),
+        };
+        setPlanningSession(normalizedSession);
         setSessionTouched(false);
-        sessionCommitRef.current = buildSessionFingerprint(session);
-        writeHearthPlanningSessionCache(session, workpieceId);
-        if (!workspaceId && session.workspace_id) {
-          setWorkspaceId(session.workspace_id);
+        sessionCommitRef.current = buildSessionFingerprint(normalizedSession);
+        writeHearthPlanningSessionCache(
+          normalizedSession,
+          normalizedWorkpieceId,
+          workspaceId ?? normalizedSession.workspace_id ?? null,
+        );
+        if (!workspaceId && normalizedSession.workspace_id) {
+          setWorkspaceId(normalizedSession.workspace_id);
         }
       })
       .catch(() => {});
@@ -3461,8 +3489,8 @@ export default function HearthShell() {
   }, [workpieceId, workspaceId]);
 
   useEffect(() => {
-    const workspace = workspaceId?.trim() ?? "";
-    const workpiece = workpieceId?.trim() ?? "";
+    const workspace = normalizeUuid(workspaceId);
+    const workpiece = normalizeUuid(workpieceId);
     if (!workspace || !workpiece) return;
 
     let cancelled = false;
@@ -3485,6 +3513,8 @@ export default function HearthShell() {
         const workpieceWorkspaceId = normalizeUuid(body?.data?.workspace_id);
         if (!cancelled && workpieceWorkspaceId && workpieceWorkspaceId !== workspace) {
           setError("This workpiece belongs to another workspace. Switch workspace to open it.");
+          setPlanningSession(null);
+          setPresenceRows([]);
           setWorkpieceId(null);
         }
       } catch {
@@ -4940,7 +4970,11 @@ export default function HearthShell() {
             updated_at: nowIso,
           };
           setPlanningSession(committedSession);
-          writeHearthPlanningSessionCache(committedSession, episodeId);
+          writeHearthPlanningSessionCache(
+            committedSession,
+            episodeId,
+            workspaceId ?? committedSession.workspace_id ?? null,
+          );
           setSessionTouched(true);
           await syncSessionToTongs(committedSession);
         }
@@ -7986,279 +8020,290 @@ export default function HearthShell() {
             </button>
           </div>
 
-          <div className="hs-rail-section">
-            <div className="hs-ready-record-header">
-              <div className="hs-rail-heading">
-                Ready to Record
-                <span className="hs-ready-record-count">{readyTotalCount}</span>
+          {deferDesktopRailCollections ? (
+            <div className="hs-rail-section">
+              <div className="hs-rail-heading">Workspace Queue</div>
+              <div className="hs-rail-meta">
+                Ready items and workspace projects load after you open or start an Episode.
               </div>
-              <button type="button" onClick={() => void refreshReadyScripts()} disabled={isReadyScriptsLoading}>
-                {isReadyScriptsLoading ? "Refreshing..." : "Refresh"}
-              </button>
             </div>
-            <div className="hs-ready-record-chips" role="group" aria-label="Ready queue category filters">
-              <button
-                type="button"
-                className={`hs-ready-chip${readyCategoryFilter === "all" ? " is-active" : ""}`}
-                onClick={() => setReadyCategoryFilter("all")}
-              >
-                All ({readyTotalCount})
-              </button>
-              {HEARTH_CONTENT_CATEGORIES.map((category) => (
-                <button
-                  key={category}
-                  type="button"
-                  className={`hs-ready-chip${readyCategoryFilter === category ? " is-active" : ""}`}
-                  onClick={() => setReadyCategoryFilter(category)}
-                >
-                  {READY_CATEGORY_LABEL[category]} ({readyCategoryCounts[category]})
-                </button>
-              ))}
-              <button
-                type="button"
-                className={`hs-ready-chip${readyCategoryFilter === "uncategorized" ? " is-active" : ""}`}
-                onClick={() => setReadyCategoryFilter("uncategorized")}
-              >
-                Uncategorized ({readyCategoryCounts.uncategorized})
-              </button>
-            </div>
-            <div className="hs-ready-record-chips" role="group" aria-label="Ready queue urgency filters">
-              <button
-                type="button"
-                className={`hs-ready-chip${readyUrgencyFilter === "all" ? " is-active" : ""}`}
-                onClick={() => setReadyUrgencyFilter("all")}
-              >
-                Urgency: All ({categoryFilteredReadyScripts.length})
-              </button>
-              <button
-                type="button"
-                className={`hs-ready-chip${readyUrgencyFilter === "fresh" ? " is-active" : ""}`}
-                onClick={() => setReadyUrgencyFilter("fresh")}
-              >
-                Fresh ({readyUrgencyCounts.fresh})
-              </button>
-              <button
-                type="button"
-                className={`hs-ready-chip${readyUrgencyFilter === "cooling" ? " is-active" : ""}`}
-                onClick={() => setReadyUrgencyFilter("cooling")}
-              >
-                Cooling ({readyUrgencyCounts.cooling})
-              </button>
-              <button
-                type="button"
-                className={`hs-ready-chip${readyUrgencyFilter === "cold" ? " is-active" : ""}`}
-                onClick={() => setReadyUrgencyFilter("cold")}
-              >
-                Cold ({readyUrgencyCounts.cold})
-              </button>
-            </div>
-            {readyScriptsError ? <div className="hs-error-text-small">{readyScriptsError}</div> : null}
-            {readyCategoryError ? <div className="hs-error-text-small">{readyCategoryError}</div> : null}
-            {droppedReadyScriptsCount > 0 ? (
-              <div className="hs-error-text-small">
-                Dropped {droppedReadyScriptsCount} invalid ready row{droppedReadyScriptsCount === 1 ? "" : "s"}.
-              </div>
-            ) : null}
-            {hiddenNonLaunchableReadyCount > 0 ? (
-              <div className="hs-error-text-small">
-                Hidden {hiddenNonLaunchableReadyCount} non-launchable row{hiddenNonLaunchableReadyCount === 1 ? "" : "s"}.
-              </div>
-            ) : null}
-            <div className="hs-rail-meta">Approved scripts stay here until a recording asset is committed.</div>
-            {isReadyScriptsLoading ? <p>Loading queue...</p> : null}
-            {!isReadyScriptsLoading && filteredReadyScripts.length === 0 ? (
-              <p className="hs-rail-meta">
-                {readyTotalCount === 0
-                  ? "No items yet. Approve a script to populate this queue."
-                  : readyUrgencyFilter !== "all"
-                    ? "No scripts match this urgency filter."
-                    : "No scripts match this category filter."}
-              </p>
-            ) : null}
-            {launchableGroupedReadyScripts.length > 0 ? (
-              <div className="hs-ready-record-groups">
-                {launchableGroupedReadyScripts.map((section) => (
-                  <div key={section.key} className="hs-ready-record-group">
-                    <div className="hs-ready-record-group-title">{section.label}</div>
-                    <ul className="hs-ready-record-list">
-                      {section.entries.map((entry) => {
-                        const href = resolveReadyOpenHref(entry);
-                        if (!href) return null;
-                        const urgency = deriveReadyUrgency(entry);
-                        return (
-                          <li key={entry.id} className="hs-ready-record-item">
-                            <button
-                              type="button"
-                              className="hs-ready-record-link"
-                              onClick={() => {
-                                window.location.assign(href);
-                              }}
-                            >
-                              <div className="hs-ready-record-title">{entry.title}</div>
-                            </button>
-                            <div className="hs-ready-record-meta-row">
-                              <div className="hs-ready-record-meta">
-                                {resolveReadyAttribution(entry)}
-                              </div>
-                              {urgency ? (
-                                <span className={`hs-ready-urgency-badge is-${urgency}`}>
-                                  {READY_URGENCY_LABEL[urgency]}
-                                </span>
-                              ) : null}
-                            </div>
-                            <label className="hs-ready-record-label">
-                              <span>Category</span>
-                              <select
-                                value={entry.contentCategory ?? ""}
-                                disabled={updatingReadyCategoryId === entry.id}
-                                onChange={(event) => {
-                                  const value = event.target.value;
-                                  const nextCategory = value ? value as HearthContentCategory : null;
-                                  void onSetReadyScriptCategory(entry, nextCategory);
-                                }}
-                              >
-                                <option value="">Uncategorized</option>
-                                {HEARTH_CONTENT_CATEGORIES.map((category) => (
-                                  <option key={category} value={category}>{READY_CATEGORY_LABEL[category]}</option>
-                                ))}
-                              </select>
-                            </label>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                window.location.assign(href);
-                              }}
-                            >
-                              Open in Anvil
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
+          ) : (
+            <>
+              <div className="hs-rail-section">
+                <div className="hs-ready-record-header">
+                  <div className="hs-rail-heading">
+                    Ready to Record
+                    <span className="hs-ready-record-count">{readyTotalCount}</span>
                   </div>
-                ))}
-              </div>
-            ) : null}
-          </div>
-
-          <div className="hs-rail-section">
-            <label className="hs-rail-label">Search workspace projects</label>
-            <input
-              aria-label="Search workspace projects"
-              ref={searchRef}
-              type="search"
-              value={searchText}
-              onChange={(event) => setSearchText(event.target.value)}
-              placeholder="Search title or body"
-            />
-            <div className="hs-rail-sort">
-              <label className="hs-rail-label">Sort</label>
-              <select aria-label="Sort workspace projects" value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
-                <option value="updated">Recently updated</option>
-                <option value="title">Title A-Z</option>
-              </select>
-            </div>
-            <label className="hs-rail-checkbox">
-              <input
-                type="checkbox"
-                checked={showArchived}
-                onChange={(event) => setShowArchived(event.target.checked)}
-              />
-              Show archived
-            </label>
-          </div>
-
-          <div className="hs-rail-section">
-            <div className="hs-rail-heading">Workspace Projects</div>
-            {isLoading ? <p>Loading workspace projects...</p> : null}
-            {!isLoading && drafts.length === 0 ? <p>No workspace projects yet.</p> : null}
-            <ul className="hs-workpieces-list">
-              {filteredDrafts.map((draft) => {
-                const isActive = activeDraft?.id === draft.id;
-                const isEditing = editingDraftId === draft.id;
-                return (
-                  <li key={draft.id}>
-                    <div
-                      className={`hs-workpiece-card${isActive ? " is-active" : ""}`}
+                  <button type="button" onClick={() => void refreshReadyScripts()} disabled={isReadyScriptsLoading}>
+                    {isReadyScriptsLoading ? "Refreshing..." : "Refresh"}
+                  </button>
+                </div>
+                <div className="hs-ready-record-chips" role="group" aria-label="Ready queue category filters">
+                  <button
+                    type="button"
+                    className={`hs-ready-chip${readyCategoryFilter === "all" ? " is-active" : ""}`}
+                    onClick={() => setReadyCategoryFilter("all")}
+                  >
+                    All ({readyTotalCount})
+                  </button>
+                  {HEARTH_CONTENT_CATEGORIES.map((category) => (
+                    <button
+                      key={category}
+                      type="button"
+                      className={`hs-ready-chip${readyCategoryFilter === category ? " is-active" : ""}`}
+                      onClick={() => setReadyCategoryFilter(category)}
                     >
-                      {isEditing ? (
-                        <input
-                          aria-label="Edit project title"
-                          value={editingTitle}
-                          onChange={(event) => setEditingTitle(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              void saveDraftMeta(draft, { title: editingTitle });
-                              setEditingDraftId(null);
-                            }
-                            if (event.key === "Escape") {
-                              setEditingDraftId(null);
-                            }
-                          }}
-                          onBlur={() => {
-                            if (editingDraftId === draft.id) {
-                              void saveDraftMeta(draft, { title: editingTitle });
-                              setEditingDraftId(null);
-                            }
-                          }}
-                        />
-                      ) : (
-                        <button
-                          onClick={() => openDraftInFocus(draft)}
-                          className="hs-workpiece-button"
-                        >
-                          <div className="hs-workpiece-title-row">
-                            <div className="hs-workpiece-title">{draft.title || "Untitled Draft"}</div>
-                            {draft.pinned ? (
-                              <span className="hs-workpiece-pin" aria-label="Pinned" title="Pinned">
-                                PIN
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="hs-workpiece-updated">
-                            Updated {formatUpdatedAt(draft.updatedAt)}
-                          </div>
-                          <div className="hs-workpiece-updated">
-                            Last edited by {resolveDraftEditorName(draft)}
-                          </div>
-                        </button>
-                      )}
-                      <div className="hs-workpiece-revisions">
-                        Revisions {draft.revisionCount ?? "-"}
+                      {READY_CATEGORY_LABEL[category]} ({readyCategoryCounts[category]})
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className={`hs-ready-chip${readyCategoryFilter === "uncategorized" ? " is-active" : ""}`}
+                    onClick={() => setReadyCategoryFilter("uncategorized")}
+                  >
+                    Uncategorized ({readyCategoryCounts.uncategorized})
+                  </button>
+                </div>
+                <div className="hs-ready-record-chips" role="group" aria-label="Ready queue urgency filters">
+                  <button
+                    type="button"
+                    className={`hs-ready-chip${readyUrgencyFilter === "all" ? " is-active" : ""}`}
+                    onClick={() => setReadyUrgencyFilter("all")}
+                  >
+                    Urgency: All ({categoryFilteredReadyScripts.length})
+                  </button>
+                  <button
+                    type="button"
+                    className={`hs-ready-chip${readyUrgencyFilter === "fresh" ? " is-active" : ""}`}
+                    onClick={() => setReadyUrgencyFilter("fresh")}
+                  >
+                    Fresh ({readyUrgencyCounts.fresh})
+                  </button>
+                  <button
+                    type="button"
+                    className={`hs-ready-chip${readyUrgencyFilter === "cooling" ? " is-active" : ""}`}
+                    onClick={() => setReadyUrgencyFilter("cooling")}
+                  >
+                    Cooling ({readyUrgencyCounts.cooling})
+                  </button>
+                  <button
+                    type="button"
+                    className={`hs-ready-chip${readyUrgencyFilter === "cold" ? " is-active" : ""}`}
+                    onClick={() => setReadyUrgencyFilter("cold")}
+                  >
+                    Cold ({readyUrgencyCounts.cold})
+                  </button>
+                </div>
+                {readyScriptsError ? <div className="hs-error-text-small">{readyScriptsError}</div> : null}
+                {readyCategoryError ? <div className="hs-error-text-small">{readyCategoryError}</div> : null}
+                {droppedReadyScriptsCount > 0 ? (
+                  <div className="hs-error-text-small">
+                    Dropped {droppedReadyScriptsCount} invalid ready row{droppedReadyScriptsCount === 1 ? "" : "s"}.
+                  </div>
+                ) : null}
+                {hiddenNonLaunchableReadyCount > 0 ? (
+                  <div className="hs-error-text-small">
+                    Hidden {hiddenNonLaunchableReadyCount} non-launchable row{hiddenNonLaunchableReadyCount === 1 ? "" : "s"}.
+                  </div>
+                ) : null}
+                <div className="hs-rail-meta">Approved scripts stay here until a recording asset is committed.</div>
+                {isReadyScriptsLoading ? <p>Loading queue...</p> : null}
+                {!isReadyScriptsLoading && filteredReadyScripts.length === 0 ? (
+                  <p className="hs-rail-meta">
+                    {readyTotalCount === 0
+                      ? "No items yet. Approve a script to populate this queue."
+                      : readyUrgencyFilter !== "all"
+                        ? "No scripts match this urgency filter."
+                        : "No scripts match this category filter."}
+                  </p>
+                ) : null}
+                {launchableGroupedReadyScripts.length > 0 ? (
+                  <div className="hs-ready-record-groups">
+                    {launchableGroupedReadyScripts.map((section) => (
+                      <div key={section.key} className="hs-ready-record-group">
+                        <div className="hs-ready-record-group-title">{section.label}</div>
+                        <ul className="hs-ready-record-list">
+                          {section.entries.map((entry) => {
+                            const href = resolveReadyOpenHref(entry);
+                            if (!href) return null;
+                            const urgency = deriveReadyUrgency(entry);
+                            return (
+                              <li key={entry.id} className="hs-ready-record-item">
+                                <button
+                                  type="button"
+                                  className="hs-ready-record-link"
+                                  onClick={() => {
+                                    window.location.assign(href);
+                                  }}
+                                >
+                                  <div className="hs-ready-record-title">{entry.title}</div>
+                                </button>
+                                <div className="hs-ready-record-meta-row">
+                                  <div className="hs-ready-record-meta">
+                                    {resolveReadyAttribution(entry)}
+                                  </div>
+                                  {urgency ? (
+                                    <span className={`hs-ready-urgency-badge is-${urgency}`}>
+                                      {READY_URGENCY_LABEL[urgency]}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <label className="hs-ready-record-label">
+                                  <span>Category</span>
+                                  <select
+                                    value={entry.contentCategory ?? ""}
+                                    disabled={updatingReadyCategoryId === entry.id}
+                                    onChange={(event) => {
+                                      const value = event.target.value;
+                                      const nextCategory = value ? value as HearthContentCategory : null;
+                                      void onSetReadyScriptCategory(entry, nextCategory);
+                                    }}
+                                  >
+                                    <option value="">Uncategorized</option>
+                                    {HEARTH_CONTENT_CATEGORIES.map((category) => (
+                                      <option key={category} value={category}>{READY_CATEGORY_LABEL[category]}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    window.location.assign(href);
+                                  }}
+                                >
+                                  Open in Anvil
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
                       </div>
-                      <div className="hs-workpiece-actions">
-                        <button
-                          type="button"
-                          onClick={() => void saveDraftMeta(draft, { pinned: !draft.pinned })}
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="hs-rail-section">
+                <label className="hs-rail-label">Search workspace projects</label>
+                <input
+                  aria-label="Search workspace projects"
+                  ref={searchRef}
+                  type="search"
+                  value={searchText}
+                  onChange={(event) => setSearchText(event.target.value)}
+                  placeholder="Search title or body"
+                />
+                <div className="hs-rail-sort">
+                  <label className="hs-rail-label">Sort</label>
+                  <select aria-label="Sort workspace projects" value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
+                    <option value="updated">Recently updated</option>
+                    <option value="title">Title A-Z</option>
+                  </select>
+                </div>
+                <label className="hs-rail-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={showArchived}
+                    onChange={(event) => setShowArchived(event.target.checked)}
+                  />
+                  Show archived
+                </label>
+              </div>
+
+              <div className="hs-rail-section">
+                <div className="hs-rail-heading">Workspace Projects</div>
+                {isLoading ? <p>Loading workspace projects...</p> : null}
+                {!isLoading && drafts.length === 0 ? <p>No workspace projects yet.</p> : null}
+                <ul className="hs-workpieces-list">
+                  {filteredDrafts.map((draft) => {
+                    const isActive = activeDraft?.id === draft.id;
+                    const isEditing = editingDraftId === draft.id;
+                    return (
+                      <li key={draft.id}>
+                        <div
+                          className={`hs-workpiece-card${isActive ? " is-active" : ""}`}
                         >
-                          {draft.pinned ? "Unpin" : "Pin"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingDraftId(draft.id);
-                            setEditingTitle(draft.title);
-                          }}
-                        >
-                          Rename
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void saveDraftMeta(draft, { archived: !draft.archived })}
-                        >
-                          {draft.archived ? "Unarchive" : "Archive"}
-                        </button>
-                        <button type="button" onClick={() => void onDeleteDraft(draft)}>
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
+                          {isEditing ? (
+                            <input
+                              aria-label="Edit project title"
+                              value={editingTitle}
+                              onChange={(event) => setEditingTitle(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  event.preventDefault();
+                                  void saveDraftMeta(draft, { title: editingTitle });
+                                  setEditingDraftId(null);
+                                }
+                                if (event.key === "Escape") {
+                                  setEditingDraftId(null);
+                                }
+                              }}
+                              onBlur={() => {
+                                if (editingDraftId === draft.id) {
+                                  void saveDraftMeta(draft, { title: editingTitle });
+                                  setEditingDraftId(null);
+                                }
+                              }}
+                            />
+                          ) : (
+                            <button
+                              onClick={() => openDraftInFocus(draft)}
+                              className="hs-workpiece-button"
+                            >
+                              <div className="hs-workpiece-title-row">
+                                <div className="hs-workpiece-title">{draft.title || "Untitled Draft"}</div>
+                                {draft.pinned ? (
+                                  <span className="hs-workpiece-pin" aria-label="Pinned" title="Pinned">
+                                    PIN
+                                  </span>
+                                ) : null}
+                              </div>
+                              <div className="hs-workpiece-updated">
+                                Updated {formatUpdatedAt(draft.updatedAt)}
+                              </div>
+                              <div className="hs-workpiece-updated">
+                                Last edited by {resolveDraftEditorName(draft)}
+                              </div>
+                            </button>
+                          )}
+                          <div className="hs-workpiece-revisions">
+                            Revisions {draft.revisionCount ?? "-"}
+                          </div>
+                          <div className="hs-workpiece-actions">
+                            <button
+                              type="button"
+                              onClick={() => void saveDraftMeta(draft, { pinned: !draft.pinned })}
+                            >
+                              {draft.pinned ? "Unpin" : "Pin"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingDraftId(draft.id);
+                                setEditingTitle(draft.title);
+                              }}
+                            >
+                              Rename
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void saveDraftMeta(draft, { archived: !draft.archived })}
+                            >
+                              {draft.archived ? "Unarchive" : "Archive"}
+                            </button>
+                            <button type="button" onClick={() => void onDeleteDraft(draft)}>
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            </>
+          )}
 
           {hasActiveEpisode ? (
             <div className="hs-active-workpiece">

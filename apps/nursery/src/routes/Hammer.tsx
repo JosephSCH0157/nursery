@@ -1,6 +1,6 @@
-import ProjectCardMock from "@hammer/dev/ProjectCardMock";
+import HammerProjectLibrary from "@hammer/app/HammerProjectLibrary";
 
 export default function HammerRoute() {
-  return <ProjectCardMock />;
+  return <HammerProjectLibrary />;
 }
 

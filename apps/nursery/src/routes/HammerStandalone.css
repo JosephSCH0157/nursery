@@ -127,6 +127,77 @@
   font-size: 16px;
 }
 
+.hammer-standalone__brand {
+  display: grid;
+  gap: 2px;
+}
+
+.hammer-standalone__version {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(219, 232, 255, 0.62);
+}
+
+.hammer-standalone__project-block {
+  display: grid;
+  gap: 4px;
+  min-width: 180px;
+}
+
+.hammer-standalone__project-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #f8fbff;
+}
+
+.hammer-standalone__project-menu {
+  position: relative;
+}
+
+.hammer-standalone__project-menu-trigger {
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.72);
+  color: #dbe8ff;
+  font-size: 12px;
+}
+
+.hammer-standalone__project-menu-trigger::-webkit-details-marker {
+  display: none;
+}
+
+.hammer-standalone__project-menu-body {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  display: grid;
+  gap: 6px;
+  min-width: 180px;
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: rgba(2, 6, 23, 0.96);
+  box-shadow: 0 16px 30px rgba(0, 0, 0, 0.36);
+}
+
+.hammer-standalone__project-menu-item {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.84);
+  color: #dbe8ff;
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 12px;
+  cursor: pointer;
+}
+
 .hammer-standalone__header-meta {
   margin-left: auto;
   display: flex;
@@ -142,12 +213,19 @@
   background: rgba(148, 163, 184, 0.18);
 }
 
+.hammer-standalone__meta-button,
 .hammer-standalone__back-link {
   padding: 4px 8px;
   border: 1px solid rgba(148, 163, 184, 0.35);
   border-radius: 999px;
   font-size: 12px;
   color: #dbe8ff;
+  background: rgba(15, 23, 42, 0.72);
+  text-decoration: none;
+}
+
+.hammer-standalone__meta-button {
+  cursor: pointer;
 }
 
 .hammer-standalone__main {
@@ -161,7 +239,21 @@
 .hammer-standalone__menu-trigger:focus-visible,
 .hammer-standalone__drawer-body a:focus-visible,
 .hammer-standalone__drawer-action:focus-visible,
+.hammer-standalone__meta-button:focus-visible,
+.hammer-standalone__project-menu-item:focus-visible,
+.hammer-standalone__project-menu-trigger:focus-visible,
 .hammer-standalone__back-link:focus-visible {
   outline: 2px solid rgba(147, 197, 253, 0.7);
   outline-offset: 2px;
+}
+
+@media (max-width: 940px) {
+  .hammer-standalone__header {
+    flex-wrap: wrap;
+  }
+
+  .hammer-standalone__header-meta {
+    margin-left: 0;
+    width: 100%;
+  }
 }

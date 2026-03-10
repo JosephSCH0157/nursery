@@ -410,7 +410,8 @@ export function useSourcesState(
   }, []);
 
   useEffect(() => {
-    if (!workspaceId && !workpieceId) return;
+    const shouldReadWorkspaceIndex = Boolean(workspaceId) && mode === "full";
+    if (!shouldReadWorkspaceIndex && !workpieceId) return;
     let cancelled = false;
 
     const refreshFromTongs = async () => {
@@ -429,7 +430,7 @@ export function useSourcesState(
         );
       }
 
-      if (workspaceId) {
+      if (shouldReadWorkspaceIndex && workspaceId) {
         tasks.push(
           readWorkspaceSourcesIndex(workspaceId)
             .then((index) => {
@@ -451,7 +452,7 @@ export function useSourcesState(
     return () => {
       cancelled = true;
     };
-  }, [workspaceId, workpieceId]);
+  }, [mode, workspaceId, workpieceId]);
 
   useEffect(() => () => {
     if (statusTimer.current) {

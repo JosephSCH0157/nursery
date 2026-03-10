@@ -37,7 +37,7 @@ const ACTIVE_WORKSPACE_KEY = "forge_workspace_id_v1";
 const LEGACY_WORKSPACE_KEY = "barstock_workspace_id";
 const SHOW_GRADUATED_PREF_PREFIX = "barstock_show_graduated_v1";
 const WORKPIECE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const PROJECT_ID_MAP_KEY = "forge_barstock_project_id_map_v1";
+const PROJECT_ID_MAP_PREFIX = "forge_barstock_project_id_map_v2";
 
 function loadStoredWorkspaceId(): string | null {
   return localStorage.getItem(ACTIVE_WORKSPACE_KEY)
@@ -60,9 +60,19 @@ function normalizeWorkpieceId(value: string | null | undefined): string | null {
   return WORKPIECE_UUID_RE.test(trimmed) ? trimmed : null;
 }
 
-function loadProjectIdMap(): Record<string, string> {
+function normalizedWorkspaceScope(workspaceId?: string | null): string | null {
+  const trimmed = typeof workspaceId === "string" ? workspaceId.trim().toLowerCase() : "";
+  return trimmed || null;
+}
+
+function projectIdMapKey(workspaceId?: string | null): string {
+  const scope = normalizedWorkspaceScope(workspaceId);
+  return scope ? `${PROJECT_ID_MAP_PREFIX}:${scope}` : PROJECT_ID_MAP_PREFIX;
+}
+
+function loadProjectIdMap(workspaceId?: string | null): Record<string, string> {
   try {
-    const raw = localStorage.getItem(PROJECT_ID_MAP_KEY);
+    const raw = localStorage.getItem(projectIdMapKey(workspaceId));
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return {};
@@ -72,19 +82,19 @@ function loadProjectIdMap(): Record<string, string> {
   }
 }
 
-function saveProjectIdMap(map: Record<string, string>): void {
+function saveProjectIdMap(map: Record<string, string>, workspaceId?: string | null): void {
   try {
-    localStorage.setItem(PROJECT_ID_MAP_KEY, JSON.stringify(map));
+    localStorage.setItem(projectIdMapKey(workspaceId), JSON.stringify(map));
   } catch {
     // ignore storage failures
   }
 }
 
-function normalizeProjectId(value: string): string {
+function normalizeProjectId(value: string, workspaceId?: string | null): string {
   const normalized = value.trim().toLowerCase();
   if (WORKPIECE_UUID_RE.test(normalized)) return normalized;
 
-  const map = loadProjectIdMap();
+  const map = loadProjectIdMap(workspaceId);
   const existing = map[normalized];
   if (typeof existing === "string" && WORKPIECE_UUID_RE.test(existing)) {
     return existing.toLowerCase();
@@ -92,7 +102,7 @@ function normalizeProjectId(value: string): string {
 
   const generated = crypto.randomUUID();
   map[normalized] = generated;
-  saveProjectIdMap(map);
+  saveProjectIdMap(map, workspaceId);
   return generated;
 }
 
@@ -215,6 +225,7 @@ export default function App(props: BarstockAppProps = {}) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingBody, setEditingBody] = useState("");
   const [toast, setToast] = useState<string | null>(null);
+  const sessionUserId = session?.user.id ?? null;
 
   const importRef = useRef<HTMLInputElement | null>(null);
 
@@ -239,11 +250,11 @@ export default function App(props: BarstockAppProps = {}) {
     saveStoredWorkspaceId(next);
   }, [hasExternalWorkspaceState, externalWorkspaceChange]);
 
-  function normalizeAssignmentsState(inputSparks: Spark[], inputAssignments: Assignment[]) {
+  function normalizeAssignmentsState(inputSparks: Spark[], inputAssignments: Assignment[], scopeWorkspaceId: string | null) {
     const assignmentById = new Map<string, Assignment>();
     const updatedAssignments: Assignment[] = [];
     for (const assignment of inputAssignments) {
-      const normalizedId = normalizeProjectId(assignment.id);
+      const normalizedId = normalizeProjectId(assignment.id, scopeWorkspaceId);
       const createdAt = assignment.createdAt ?? now();
       const normalized: Assignment = {
         ...assignment,
@@ -288,7 +299,7 @@ export default function App(props: BarstockAppProps = {}) {
       const legacyId = (s as any)[legacyKey] as string | undefined;
       const rawAssignmentId = s.assignmentId ?? legacyId;
       const assignmentId = typeof rawAssignmentId === "string" && rawAssignmentId.trim()
-        ? normalizeProjectId(rawAssignmentId)
+        ? normalizeProjectId(rawAssignmentId, scopeWorkspaceId)
         : null;
 
       if (assignmentId && !assignmentById.has(assignmentId)) {
@@ -327,7 +338,7 @@ export default function App(props: BarstockAppProps = {}) {
   }
 
   useEffect(() => {
-    const res = normalizeAssignmentsState(sparks, assignments);
+    const res = normalizeAssignmentsState(sparks, assignments, workspaceId);
     if (!res.changed) return;
 
     setAssignments(res.assignments);
@@ -428,7 +439,7 @@ export default function App(props: BarstockAppProps = {}) {
   }, [assignments, workspaceId]);
 
   useEffect(() => {
-    if (!supabaseAvailable || !session || !workspaceId) return;
+    if (!supabaseAvailable || !sessionUserId || !workspaceId) return;
     let cancelled = false;
     (async () => {
       try {
@@ -448,10 +459,10 @@ export default function App(props: BarstockAppProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, [session, supabaseAvailable, workspaceId]);
+  }, [sessionUserId, supabaseAvailable, workspaceId]);
 
   useEffect(() => {
-    if (!supabaseAvailable || !session || !workspaceId) {
+    if (!supabaseAvailable || !sessionUserId || !workspaceId) {
       setTongsStatus("offline");
       return;
     }
@@ -468,11 +479,11 @@ export default function App(props: BarstockAppProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, [supabaseAvailable, session, workspaceId]);
+  }, [supabaseAvailable, sessionUserId, workspaceId]);
 
   useEffect(() => {
     if (hasExternalWorkspaceState) return;
-    if (!session) {
+    if (!sessionUserId) {
       setWorkspaces([]);
       setWorkspaceId(null);
       return;
@@ -490,7 +501,7 @@ export default function App(props: BarstockAppProps = {}) {
         popToast("Failed loading workspaces");
       }
     })();
-  }, [session, hasExternalWorkspaceState, setActiveWorkspace]);
+  }, [sessionUserId, hasExternalWorkspaceState, setActiveWorkspace]);
 
   const sparkEpisodeIdsForGraduation = useMemo(() => {
     const ids = new Set<string>();
@@ -502,7 +513,7 @@ export default function App(props: BarstockAppProps = {}) {
   }, [sparks]);
 
   useEffect(() => {
-    if (!supabaseAvailable || !session || !workspaceId) {
+    if (!supabaseAvailable || !sessionUserId || !workspaceId) {
       setGraduatedEpisodeIds([]);
       return;
     }
@@ -530,7 +541,7 @@ export default function App(props: BarstockAppProps = {}) {
       cancelled = true;
       window.removeEventListener("focus", onFocus);
     };
-  }, [session, sparkEpisodeIdsForGraduation, supabaseAvailable, workspaceId]);
+  }, [sessionUserId, sparkEpisodeIdsForGraduation, supabaseAvailable, workspaceId]);
 
   const graduatedEpisodeIdSet = useMemo(() => {
     return new Set(

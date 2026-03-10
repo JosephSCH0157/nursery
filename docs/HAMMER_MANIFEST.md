@@ -1,449 +1,370 @@
-# HAMMER V1 MANIFEST (CANONICAL DRAFT)
+# Hammer UI Manifest
 
-Tool: Hammer  
-Forge Role: Non-destructive podcast-first video/audio editor  
-Status: Canonical Draft - V1 Architecture Locked
+## Canonical User Interface Layout and Editor Flow
 
-## 1. Purpose
+This document defines the canonical user interface layout and workflow for the Hammer editor inside Podcasters Forge.
 
-Hammer is the editing workstation of Podcaster's Forge.
+Hammer is a transcript-first editing tool with a real timeline.
+The interface must support spoken-content editing workflows without turning into a consumer creator app or a developer diagnostics panel.
 
-Its job is to transform recorded sessions into publishable episodes and shorts while preserving the integrity of the original media.
+These rules define the canonical Hammer interface.
 
-Hammer prioritizes:
+Companion interaction architecture:
 
-- dialogue editing
-- transcript-driven workflows
-- repeatable creator pipelines
-- non-destructive editing
-- minimal friction for podcast production
+- [`docs/HAMMER_EDITOR_ARCHITECTURE.md`](./HAMMER_EDITOR_ARCHITECTURE.md)
 
-Hammer is not intended to compete with cinematic editors like Premiere, Final Cut, or DaVinci.
+---
 
-Instead it is optimized for:
+# 1. Entry Flow
 
-- podcasts
-- interview shows
-- commentary shows
-- panel discussions
-- remote guest sessions
+Hammer MUST NOT open directly into the editor.
 
-Hammer may also edit general media, but that is secondary to its podcast-first design.
+Hammer opens to a Project Library screen.
 
-## 2. Design Philosophy
+The Project Library screen MUST include:
 
-Hammer deliberately blends the strongest concepts from three existing tools.
+- New Project
+- Open Project
+- a visible Project Library grid of existing Hammer projects
 
-### Descript
+Each project card MUST display:
 
-- transcript-based editing
-- speech cleanup tools
-- dialogue-first workflows
+- project thumbnail or poster frame
+- project title
 
-Hammer intentionally does not replicate AI voice rewriting.
+The Project Library MUST remain visually minimal.
 
-Transcript edits control timeline cuts only.
+The following MUST NOT appear on the Project Library screen:
 
-### ElevateIO
+- template stores
+- stock media libraries
+- AI media generators
+- advertisements
+- marketplace links
+- unrelated side navigation
 
-- creator workflow acceleration
-- upstream intelligence
-- shorts packaging pipeline
+Selecting a project opens the Hammer editor.
 
-Hearth performs heavy discovery work so Hammer focuses on editing and approval.
+---
 
-### Windows Movie Maker
+# 2. Top Bar
 
-- simplicity
-- intuitive timeline
-- low track count
-- quick learning curve
+The Hammer editor MUST use the standard Forge tool chrome.
 
-Hammer intentionally avoids complex multi-track editing systems.
+The Hammer top bar MUST include:
 
-## 3. Tool Role Inside Forge
+- hamburger menu (far left)
+- Hammer label and version
+- project title
+- project title dropdown
+- workspace identifier
+- AI indicators
+- logged-in user
+- logout control
 
-Forge Pipeline:
+The project title dropdown MUST allow switching between related project outputs such as:
 
-- Hearth -> Idea development + metadata + assets
-- Anvil -> Recording
-- Tongs -> Canonical storage + manifests
-- Hammer -> Editing
-- Quench -> Publishing + distribution
-- Ledger -> Analytics
+- main edit
+- clips
+- shorts
+- alternate cuts
+- trailers
 
-Hammer never owns canonical data storage.
+This dropdown is part of the editing workflow and MUST remain visible.
 
-It operates entirely through Tongs contracts.
+---
 
-## 4. Storage Model
+# 3. Editor Layout Regions
 
-### 4.1 Canonical Data Ownership
+The Hammer editor consists of the following layout regions:
 
-Tongs is the canonical database and metadata store.
+- Top bar
+- Left work panel
+- Center preview panel
+- Right content panel
+- Far-right tool menu strip
+- Bottom full-width timeline
 
-Tongs owns:
+Hammer MUST present itself as a production workspace, not a diagnostics console.
 
-- episode titles
-- transcripts
-- asset metadata
-- shorts metadata
-- edit instructions
-- manifests
+---
 
-Hammer reads and writes through the Tongs contract layer.
+# 4. Resizable Upper Panes
 
-### 4.2 Media Bytes (V1 Policy)
+The three main upper panes MUST be horizontally resizable by dragging the dividers between them.
 
-Until Forge revenue supports cloud media storage:
+The resizable panes are:
 
-Large media files remain local.
+- left work panel
+- center preview panel
+- right content panel
 
-Media locations:
+The far-right vertical tool strip is fixed width and MUST NOT participate in pane resizing.
 
-| Data Type | Location |
-| --- | --- |
-| Metadata | Tongs |
-| Transcripts | Tongs |
-| Shorts metadata | Tongs |
-| Assets metadata | Tongs |
-| Raw recordings | mapped local folder |
-| Rendered exports | mapped local folder |
+Resizing changes width only. It MUST NOT change height.
 
-Hammer therefore resolves media from two locations.
+The top bar and bottom full-width timeline remain structurally fixed.
 
-### 4.3 Media Resolver
+Hammer MUST enforce sensible minimum and maximum pane widths so the editor does not collapse into unusable states.
 
-Hammer resolves media in this order:
+Hammer SHOULD preserve pane sizes for at least the current session.
 
-1. mapped folder local path
-2. cloud path (future)
-3. unresolved state
+---
 
-If media is missing locally:
+# 5. Left Work Panel
 
-Hammer displays Media Missing but allows metadata browsing.
+The left panel is a switchable work panel.
 
-### 4.4 Workspace Media Mapping
+It MUST support switching between:
 
-Mapped media roots are configured per workspace.
+- Script
+- Assets
 
-Each machine may map the workspace root to a different physical path.
+If Assets is subdivided, the subdivisions MUST be:
 
-Example:
-
-Machine A
-
-`D:\ForgeMedia\`
-
-Machine B
-
-`/mnt/media/forge/`
-
-Hammer resolves paths relative to the workspace mapping.
-
-## 5. Project Entry
-
-When Hammer launches it presents a project library.
-
-Each project card displays:
-
-- episode title
-- recording date
-- duration
-- thumbnail (optional)
-- recording source
-
-Users may also import external media.
-
-External media editing is supported but lacks transcript automation unless transcripts exist.
-
-## 6. Editor Layout
-
-Hammer uses a single main editing workspace.
-
-Top Bar
-
-Left Panel   |   Preview   |   Tools Panel
-
-Timeline
-
-### 6.1 Left Panel
-
-Default tab: Transcript
-
-Tabs include:
-
-- Transcript
+- Video
 - Images
-- B-roll
-- Audio
-- Graphics
-- Templates
-- Exports
+- Music
 
-Within each tab content may be organized in folders or collections.
+These may appear as sub-tabs within the Assets panel.
 
-This creates a hybrid tab + folder asset system.
+---
 
-## 7. Top Bar
+## 5.1 Script View
 
-From left to right:
+Script view displays the working transcript or script for the project.
 
-- Menu
-- Hammer
-- Version
-- Reset Edits
-- Undo
-- Active Target Dropdown
-- Full Episode
-- Shorts
-- AI Controls
-- User Account
-- Logout
+Script view supports transcript-based editing actions such as:
 
-### 7.1 Reset Behavior
+- segment selection
+- split
+- merge
+- delete
+- mute
+- trim
+- transcript navigation
 
-Reset removes edit metadata only.
+Script editing is a primary Hammer editing surface.
 
-Source media remains untouched.
+---
 
-Reset requires confirmation.
+## 5.2 Assets View
 
-## 8. Timeline Structure
+Assets view displays media associated with the project via Tongs.
 
-Hammer uses a simplified track model.
+Assets view MUST display only project-linked assets.
 
-- V2 Overlays (images / B-roll)
-- V1 Main Video
-- A2 Secondary Audio (music / effects)
-- A1 Dialogue
+Assets view MUST NOT behave like:
 
-### 8.1 Overlay Behavior
+- a stock library
+- an AI generator
+- a marketplace
+- an unrelated upload interface
 
-V2 overlays render visually over V1.
+Assets in this panel represent project-linked media.
 
-Default B-roll behavior is overlay.
+---
 
-Users may optionally choose replacement behavior.
+# 6. Center Preview Panel
 
-### 8.2 AutoRipple
+The center panel is the preview monitor.
 
-Default: ON
+The preview monitor MUST remain moderate in size.
 
-Removing timeline segments automatically closes gaps.
+Hammer is not a full-screen compositor.
 
-All tracks shift together to preserve sync.
+The preview monitor supports:
 
-## 9. Transcript Editing
+- playback
+- edit verification
+- timing confirmation
+- visual confirmation
+- audio confirmation
 
-Transcript editing is the primary editing method.
+The preview monitor MUST NOT dominate the interface.
 
-Capabilities:
+---
 
-- delete words
-- delete phrases
-- remove segments
-- navigate playback
+# 7. Right Content Panel and Tool Menu Strip
 
-Transcript edits translate directly into timeline cuts.
+Hammer uses a two-part tool system on the right side:
 
-Hammer does not generate replacement dialogue.
+- Right Content Panel
+- Far-Right Tool Menu Strip
 
-## 10. Polish Tools
+These two regions have separate responsibilities.
 
-Located in Polish Mode.
+---
 
-Tools include:
+## 7.1 Far-Right Tool Menu Strip
 
-- filler removal
-- retake removal
-- silence trimming
-- jump-cut smoothing
+The far-right vertical strip is the tool selector.
 
-### 10.1 Aggressiveness Slider
+Selecting a tool changes the contents of the right content panel.
 
-Controls how aggressively content is removed.
+The order of tools MUST follow the real editing workflow.
 
-Levels:
+Tool order MUST NOT be alphabetical or arbitrary.
 
-- Conservative
-- Balanced
-- Aggressive
+---
 
-Meaningful conversational responses must never be removed as filler.
+# 8. Canonical Tool Order
 
-### 10.2 Approval Modes
+The canonical tool order is:
 
-Users may choose:
+1. Polish
+2. Audio
+3. Video
+4. Captions
+5. Details
+6. Export
 
-- Auto Apply
-- Review Major Edits
-- Review All Edits
+This order reflects the editing workflow and MUST be preserved unless the manifest is intentionally revised.
 
-All operations remain undoable.
+---
 
-## 11. Audio Mode
+# 9. Tool Categories
 
-Audio Mode provides Studio Sound controls.
+## 9.1 Polish
 
-Controls include:
+Polish contains early cleanup and enhancement tools.
 
-- noise reduction
-- EQ shaping
-- compression
-- de-essing
-- low-cut filters
+Examples include:
 
-Hammer may recommend settings but users retain full control.
+- Studio Sound
+- filler-word cleanup
+- retake cleanup
+- gap tightening
+- blur background
+- eye contact
 
-### 11.1 Scope
+Polish represents the first editing pass.
 
-Users may apply settings to:
+---
 
-- this episode
-- all future episodes
-- saved preset
+## 9.2 Audio
 
-Processing remains non-destructive.
+Audio contains audio-related editing tools and adjustments.
 
-## 12. Video Mode
+---
 
-Video Mode manages visual overlays.
+## 9.3 Video
 
-Assets placed on V2 include:
+Video contains video-related editing tools and adjustments.
 
-- Hearth-generated images
-- B-roll
-- charts
-- graphics
-- screenshots
+---
 
-### 12.1 Intro and Outro Templates
+## 9.4 Captions
 
-Users may build reusable templates.
+Captions contains subtitle and caption management tools.
 
-Templates include:
+---
 
-- video
-- audio
-- overlays
-- timing
+## 9.5 Details
 
-Templates may be applied to future episodes.
+Details contains project metadata and project-level editing settings.
 
-Workspace defaults may automatically apply.
+---
 
-## 13. Shorts Mode
+## 9.6 Export
 
-Hearth provides short candidate metadata.
+Export contains final rendering and delivery controls.
 
-Metadata includes:
+---
 
-- timestamps
-- titles
-- SEO
-- description
+# 10. Timeline
 
-Hammer allows users to:
+Hammer uses a full-width bottom timeline.
 
-- preview candidate shorts
-- trim boundaries
-- approve or reject
+The timeline MUST span the full width of the editor.
 
-Approved shorts pass to Quench ready for publishing.
+The timeline MUST support multiple tracks, including:
 
-### 13.1 Active Speaker Framing
+- main video
+- additional video tracks
+- picture-in-picture
+- main audio
+- music or audio bed
+- text
+- captions
 
-For vertical clips Hammer tracks speaker slots:
+The timeline MUST support standard editing tools such as:
 
-- S1
-- S2
-- G1
-- G2
+- select
+- hand or move
+- cut or split
+- marker
+- comment
+- text insertion
 
-Frame focus shifts to the active speaker.
+Hammer is transcript-first but remains a real timeline editor.
 
-Transitions use fast animated pans.
+---
 
-## 14. Macros
+# 11. Transcript and Timeline Relationship
 
-Macros allow automated workflows.
+Hammer is a hybrid editor.
 
-Example macros:
+Hammer combines:
 
-- Podcast Cleanup
-- Shorts Package
-- Final Export
+- transcript editing
+- timeline editing
+- project-linked asset handling
 
-Macros bundle multiple operations into a single command.
+Transcript editing is primary for spoken-content editing.
 
-## 15. Export
+Timeline editing is primary for layered media and track placement.
 
-Exports are generated locally during V1.
+Both editing surfaces operate on the same project state.
 
-Naming uses the canonical episode title from Tongs.
+---
 
-Examples:
+# 12. Design Boundaries
 
-- Episode Title - Full.mp4
-- Episode Title - Short 01.mp4
+Hammer MUST NOT include:
 
-Hammer registers export metadata in Tongs.
+- template stores
+- stock marketplaces
+- ads
+- unrelated side navigation
+- AI-generated media gimmicks
+- creator-app clutter
 
-Rendered files remain local.
+Hammer is a focused Forge editing tool.
 
-## 16. Session Locking
+---
 
-Hammer uses single-editor locking in V1.
+# 13. Design Intent
 
-Only one user may actively edit a project at a time.
+Hammer intentionally combines the strengths of:
 
-Future versions may support collaborative editing.
+- transcript-first editing tools
+- practical multi-track timeline editors
+- simple project asset organization
 
-## 17. Failure Handling
+Hammer should feel like a professional spoken-content editing workspace.
 
-Hammer must gracefully handle:
+Hammer MUST NOT resemble:
 
-- missing media
-- missing mapped folders
-- incomplete assets
+- a debug console
+- a toy editor
+- a marketplace
+- an AI media toybox
 
-Metadata browsing remains possible even if media is unavailable.
+---
 
-## 18. Non-Destructive Editing Guarantee
+# 14. Change Discipline
 
-Hammer never alters source recordings.
+If a proposed change:
 
-All edits exist as instruction layers stored in Tongs.
+- removes the Project Library entry flow
+- collapses the tool strip and content panel distinction
+- removes the full-width timeline
+- converts project assets into a generic media browser
+- makes preview dominate the editor
+- introduces marketplace or generator clutter
 
-Reset removes edits without touching original files.
+STOP.
 
-## 19. V1 Non-Goals
-
-Hammer V1 intentionally excludes:
-
-- cinematic multi-track editing
-- AI voice replacement
-- complex color grading
-- advanced VFX pipelines
-
-These fall outside Hammer's mission.
-
-## 20. Future Expansion (V2+)
-
-Planned expansions include:
-
-- cloud media storage
-- collaborative editing
-- GPU accelerated preview rendering
-- enhanced highlight detection
-- deeper Quench automation
-
-## Closing Statement
-
-Hammer is the editing forge of Podcaster's Forge.
-
-It converts recorded conversations into polished content through a workflow designed specifically for creators.
-
-Hammer prioritizes clarity, speed, and trust over cinematic complexity.
+That change is not a tweak.
+It is a design change and MUST be evaluated against this manifest.

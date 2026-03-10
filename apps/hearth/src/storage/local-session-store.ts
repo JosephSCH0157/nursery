@@ -2,7 +2,10 @@ import type { DraftId } from "../domain/draft";
 import type { HearthSession } from "../domain/session";
 import type { SessionStore } from "./session-store";
 
-const SESSION_STORAGE_KEY = "hearth:session";
+const SESSION_STORAGE_PREFIX = "hearth:session:v2:";
+const WORKSPACE_QUERY_KEYS = ["workspace_id", "workspaceId", "workspace"] as const;
+const WORKSPACE_STORAGE_KEYS = ["forge_workspace_id_v1", "barstock_workspace_id"] as const;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
@@ -12,6 +15,51 @@ function normalizeDraftId(value: unknown): DraftId | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function readString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function normalizeUuid(value: unknown): string | null {
+  const text = readString(value);
+  if (!text) return null;
+  return UUID_RE.test(text) ? text.toLowerCase() : null;
+}
+
+function readLocalStorage(key: string): string | null {
+  try {
+    return readString(localStorage.getItem(key));
+  } catch {
+    return null;
+  }
+}
+
+function resolveWorkspaceId(): string | null {
+  try {
+    const params = new URLSearchParams(window.location.search || "");
+    for (const key of WORKSPACE_QUERY_KEYS) {
+      const value = normalizeUuid(params.get(key));
+      if (value) return value;
+    }
+  } catch {
+    // ignore
+  }
+
+  for (const key of WORKSPACE_STORAGE_KEYS) {
+    const value = normalizeUuid(readLocalStorage(key));
+    if (value) return value;
+  }
+
+  return null;
+}
+
+function resolveSessionStorageKey(): string | null {
+  const workspaceId = resolveWorkspaceId();
+  if (!workspaceId) return null;
+  return `${SESSION_STORAGE_PREFIX}${workspaceId}`;
 }
 
 function normalizeSession(value: unknown): HearthSession | null {
@@ -50,8 +98,10 @@ function normalizeSession(value: unknown): HearthSession | null {
 }
 
 function readSession(): HearthSession | null {
+  const key = resolveSessionStorageKey();
+  if (!key) return null;
   try {
-    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
     return normalizeSession(parsed);
@@ -61,7 +111,9 @@ function readSession(): HearthSession | null {
 }
 
 function writeSession(session: HearthSession): void {
-  localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+  const key = resolveSessionStorageKey();
+  if (!key) return;
+  localStorage.setItem(key, JSON.stringify(session));
 }
 
 export class LocalSessionStore implements SessionStore {
@@ -74,8 +126,10 @@ export class LocalSessionStore implements SessionStore {
   }
 
   async clearSession(): Promise<void> {
+    const key = resolveSessionStorageKey();
+    if (!key) return;
     try {
-      localStorage.removeItem(SESSION_STORAGE_KEY);
+      localStorage.removeItem(key);
     } catch {
       // ignore
     }

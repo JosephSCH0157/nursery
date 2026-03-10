@@ -676,15 +676,12 @@ function resolveCachedWorkpieceId(workspaceId: string, cache: TongsCacheV1): str
 
   const fromScopedKey = normalizeUuid(readLocalStorage(`${TONGS_WORKPIECE_BY_WORKSPACE_PREFIX}${workspaceId}`));
   if (fromScopedKey) return fromScopedKey;
-
-  const fromGlobal = normalizeUuid(readLocalStorage(TONGS_WORKPIECE_KEY));
-  return fromGlobal ?? null;
+  return null;
 }
 
 function persistWorkpieceId(workspaceId: string, workpieceId: string, cache: TongsCacheV1): void {
   cache.workpieceByWorkspace[workspaceId] = workpieceId;
   writeCache(cache);
-  writeLocalStorage(TONGS_WORKPIECE_KEY, workpieceId);
   writeLocalStorage(`${TONGS_WORKPIECE_BY_WORKSPACE_PREFIX}${workspaceId}`, workpieceId);
 }
 
