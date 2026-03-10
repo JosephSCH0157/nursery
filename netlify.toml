@@ -3,6 +3,27 @@
   command = "pnpm install && pnpm build"
   publish = "apps/nursery/dist"
 
+  [functions]
+    directory = "apps/nursery/netlify/functions"
+
+[[redirects]]
+  from = "/api/hearth/chat"
+  to = "/.netlify/functions/hearth-chat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/hearth/chat/status"
+  to = "/.netlify/functions/hearth-chat-status"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/hearth/stt"
+  to = "/.netlify/functions/hearth-stt"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/*"
   to = "/index.html"

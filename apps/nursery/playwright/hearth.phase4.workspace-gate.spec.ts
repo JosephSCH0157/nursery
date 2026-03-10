@@ -1,0 +1,33 @@
+import { test } from "playwright/test";
+import {
+  expectNoAnvilShellMounted,
+  expectNoHearthShellMounted,
+  expectWorkspaceRequiredNotice,
+} from "./helpers/hearth-phase4-assertions";
+import { buildAnvilUrl, buildHearthUrl } from "./helpers/hearth-phase4-fixtures";
+
+test.describe("Hearth Phase 4 workspace gate", () => {
+  test("Hearth shows workspace-required notice without a workspace context", async ({ browser }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    await page.goto(buildHearthUrl(), { waitUntil: "load" });
+
+    await expectWorkspaceRequiredNotice(page, "Hearth");
+    await expectNoHearthShellMounted(page);
+
+    await context.close();
+  });
+
+  test("Anvil shows workspace-required notice without a workspace context", async ({ browser }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    await page.goto(buildAnvilUrl(), { waitUntil: "load" });
+
+    await expectWorkspaceRequiredNotice(page, "Anvil");
+    await expectNoAnvilShellMounted(page);
+
+    await context.close();
+  });
+});

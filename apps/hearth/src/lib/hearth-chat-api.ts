@@ -164,13 +164,6 @@ function sanitizeEventPayload(payload?: Record<string, unknown>): Record<string,
   return out;
 }
 
-function readOptionalString(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed ? trimmed : undefined;
-}
-
-
 function readSupabaseConfig(): { url: string; anonKey: string } | null {
   const meta = import.meta as unknown as {
     env?: Record<string, string | undefined>;
