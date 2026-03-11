@@ -16,8 +16,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
-    "dev:commit-api": "npm run build && npm exec -- node ./dev/commit-api-server.mjs",
-    "test:commit-api": "npm run build && npm exec -- node --test tests/workpiece-commit-api.test.mjs"
+    "dev:commit-api": "tsc -p tsconfig.json && node ./dev/commit-api-server.mjs",
+    "test:commit-api": "tsc -p tsconfig.json && node --test tests/workpiece-commit-api.test.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

@@ -752,6 +752,11 @@ export default function TongsRecordingSessions() {
                       <div className="trs-plan-item__title">{title}</div>
                       <div className="trs-plan-item__path">{item.script_path}</div>
                       <div className="trs-ready-attribution">{formatReadyAttribution(candidate)}</div>
+                      {!candidate ? (
+                        <div className="trs-message trs-message--warning">
+                          No longer in active Ready candidates. Restore or re-ready in Hearth before recording.
+                        </div>
+                      ) : null}
                       {duplicateEntry ? (
                         <div className="trs-message trs-message--warning">Duplicate entry</div>
                       ) : null}

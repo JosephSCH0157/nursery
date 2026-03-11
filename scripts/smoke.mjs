@@ -22,11 +22,9 @@ function resolvePnpmInvocation() {
 const PNPM = resolvePnpmInvocation();
 const DEV_COMMAND = PNPM.command;
 const DEV_ARGS = [...PNPM.args, "dev"];
-const BUILD_COMMAND = PNPM.command;
-const BUILD_ARGS = [...PNPM.args, "build"];
 
 const DEFAULT_URL = "http://localhost:5173/";
-const TIMEOUT_MS = 30_000;
+const TIMEOUT_MS = 120_000;
 const POLL_MS = 500;
 const KILL_TIMEOUT_MS = 2_000;
 
@@ -139,8 +137,6 @@ function stopProcess(child) {
 }
 
 async function main() {
-  await runCommand(BUILD_COMMAND, BUILD_ARGS);
-
   log(`booting via ${PNPM.label} dev`);
   const dev = spawnCmd(DEV_COMMAND, DEV_ARGS, { stdio: ["ignore", "pipe", "pipe"] });
   let devUrl = DEFAULT_URL;

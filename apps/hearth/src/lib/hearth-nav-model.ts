@@ -14,6 +14,8 @@ export type HearthWorkpieceNavItem = {
   updatedAt: string | null;
   createdAtMs: number;
   updatedAtMs: number;
+  archivedAt: string | null;
+  isArchived: boolean;
   draftId: string | null;
   readyEntry: HearthReadyScript | null;
   sparkCount: number;
@@ -134,6 +136,8 @@ export function selectWorkpieceNavItems(args: {
         updatedAt: workpiece.updatedAt,
         createdAtMs: workpiece.createdAtMs,
         updatedAtMs: workpiece.updatedAtMs,
+        archivedAt: workpiece.archivedAt,
+        isArchived: workpiece.isArchived,
         draftId: draft?.id ?? null,
         readyEntry: readyByWorkpieceId.get(workpiece.workpieceId) ?? null,
         sparkCount: linkedSparks.length,

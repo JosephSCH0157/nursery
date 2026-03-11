@@ -4,6 +4,10 @@ This document supersedes all prior lifecycle descriptions of Sparks, Episodes, W
 
 Companion operational reference: `STATE_MACHINE_DIAGRAM.md`.
 
+Related implementation planning:
+
+- `WORKPIECE_DELETION_POLICY_PLAN.md` for archive, hard-delete, and purge rollout planning.
+
 ## Purpose
 
 This is the canonical lifecycle constitution for idea capture, editorial shaping, persistence ownership, recording handoff, and cleanup across:

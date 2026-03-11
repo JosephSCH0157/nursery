@@ -439,11 +439,21 @@ export type WorkspaceReadyScript = {
 
 export type WorkspaceEpisodeSummary = Pick<
   EpisodeRow,
-  "id" | "workspace_id" | "label" | "created_at" | "updated_at"
+  "id" | "workspace_id" | "label" | "created_at" | "updated_at" | "archived_at" | "archived_by" | "archive_reason"
 >;
 
 export type ListWorkspaceEpisodesOptions = {
+  includeArchived?: boolean;
   userAccessToken?: string | null;
+};
+
+export type ArchiveWorkpieceRequest = {
+  workspace_id: string;
+  reason?: string | null;
+};
+
+export type RestoreWorkpieceRequest = {
+  workspace_id: string;
 };
 
 export type ListWorkspaceReadyScriptsOptions = {
@@ -539,6 +549,16 @@ export type TongsCommitApiService = {
     workspaceId: string,
     options?: ListWorkspaceEpisodesOptions,
   ): Promise<WorkspaceEpisodeSummary[]>;
+  archiveWorkpiece(
+    workpieceId: string,
+    input: ArchiveWorkpieceRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<WorkspaceEpisodeSummary>;
+  restoreWorkpiece(
+    workpieceId: string,
+    input: RestoreWorkpieceRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<WorkspaceEpisodeSummary>;
   listWorkspaceReadyScripts(
     workspaceId: string,
     options?: ListWorkspaceReadyScriptsOptions,
@@ -1900,6 +1920,21 @@ function normalizeSaveWorkpieceImageMapRequest(
   };
 }
 
+function normalizeArchiveWorkpieceRequest(body: Record<string, unknown>): ArchiveWorkpieceRequest {
+  return {
+    workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+    ...(Object.prototype.hasOwnProperty.call(body, "reason")
+      ? { reason: readNullableStringField(body, "reason") }
+      : {}),
+  };
+}
+
+function normalizeRestoreWorkpieceRequest(body: Record<string, unknown>): RestoreWorkpieceRequest {
+  return {
+    workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+  };
+}
+
 function buildImageMapAssetDocument(
   workpieceId: string,
   entries: EpisodeImageMapEntryRecord[],
@@ -2020,6 +2055,16 @@ function normalizeThumbnailVersion(value: unknown): ThumbnailVersionRecord | nul
 function readStringField(row: Record<string, unknown>, key: string): string | null {
   const value = row[key];
   if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function readNullableStringField(row: Record<string, unknown>, key: string): string | null {
+  const value = row[key];
+  if (value == null) return null;
+  if (typeof value !== "string") {
+    throw new HttpError(400, "invalid_string", `Invalid ${key}`);
+  }
   const trimmed = value.trim();
   return trimmed || null;
 }
@@ -2189,6 +2234,19 @@ function extractScriptTitleFromText(scriptText: string): string | null {
 function readyScriptPathPriority(path: string): number {
   const index = READY_SCRIPT_PATH_CANDIDATES.indexOf(path as (typeof READY_SCRIPT_PATH_CANDIDATES)[number]);
   return index >= 0 ? index : Number.MAX_SAFE_INTEGER;
+}
+
+function toWorkspaceEpisodeSummary(row: EpisodeRow): WorkspaceEpisodeSummary {
+  return {
+    id: row.id,
+    workspace_id: row.workspace_id,
+    label: row.label ?? null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    archived_at: row.archived_at ?? null,
+    archived_by: row.archived_by ?? null,
+    archive_reason: row.archive_reason ?? null,
+  };
 }
 
 function compareWorkspaceReadyScripts(a: WorkspaceReadyScript, b: WorkspaceReadyScript): number {
@@ -4338,11 +4396,17 @@ export class TongsCommitService {
     await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
     await this.getWorkspaceOrThrow(workspaceId);
 
-    const { data, error } = await this.supabase
+    let query = this.supabase
       .schema("tongs")
       .from("episodes")
-      .select("id,workspace_id,label,created_at,updated_at")
-      .eq("workspace_id", workspaceId)
+      .select("id,workspace_id,label,created_at,updated_at,archived_at,archived_by,archive_reason")
+      .eq("workspace_id", workspaceId);
+
+    if (!options?.includeArchived) {
+      query = query.is("archived_at", null);
+    }
+
+    const { data, error } = await query
       .order("updated_at", { ascending: false })
       .limit(500);
 
@@ -4352,13 +4416,108 @@ export class TongsCommitService {
       });
     }
 
-    return (data ?? []).map((row) => ({
-      id: row.id,
-      workspace_id: row.workspace_id,
-      label: row.label ?? null,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    }));
+    return (data ?? []).map((row) => toWorkspaceEpisodeSummary(row));
+  }
+
+  async archiveWorkpiece(
+    workpieceId: string,
+    input: ArchiveWorkpieceRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<WorkspaceEpisodeSummary> {
+    await this.getWorkspaceOrThrow(input.workspace_id);
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const archivedAt = new Date().toISOString();
+
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("episodes")
+      .update({
+        archived_at: archivedAt,
+        archived_by: auth.userId,
+        archive_reason: input.reason ?? null,
+      })
+      .eq("id", workpieceId)
+      .eq("workspace_id", input.workspace_id)
+      .select("id,workspace_id,label,created_at,updated_at,archived_at,archived_by,archive_reason")
+      .single();
+
+    if (error) {
+      throw new HttpError(502, "db_write_failed", "Failed to archive workpiece", {
+        reason: error.message,
+      });
+    }
+    if (!data) {
+      throw new HttpError(502, "db_write_failed", "episodes archive update returned no row");
+    }
+
+    await this.insertEvent({
+      workpieceId,
+      eventName: "hearth.workpiece.archived.v1",
+      payload: {
+        workspace_id: input.workspace_id,
+        archived_at: archivedAt,
+        reason: input.reason ?? null,
+      },
+      writtenBy: {
+        tool: "hearth",
+        tool_version: "0.0.0",
+        lane: "forge-managed",
+      },
+      correlationId: null,
+    });
+
+    return toWorkspaceEpisodeSummary(data);
+  }
+
+  async restoreWorkpiece(
+    workpieceId: string,
+    input: RestoreWorkpieceRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<WorkspaceEpisodeSummary> {
+    await this.getWorkspaceOrThrow(input.workspace_id);
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const restoredAt = new Date().toISOString();
+
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("episodes")
+      .update({
+        archived_at: null,
+        archived_by: null,
+        archive_reason: null,
+      })
+      .eq("id", workpieceId)
+      .eq("workspace_id", input.workspace_id)
+      .select("id,workspace_id,label,created_at,updated_at,archived_at,archived_by,archive_reason")
+      .single();
+
+    if (error) {
+      throw new HttpError(502, "db_write_failed", "Failed to restore workpiece", {
+        reason: error.message,
+      });
+    }
+    if (!data) {
+      throw new HttpError(502, "db_write_failed", "episodes restore update returned no row");
+    }
+
+    await this.insertEvent({
+      workpieceId,
+      eventName: "hearth.workpiece.restored.v1",
+      payload: {
+        workspace_id: input.workspace_id,
+        restored_at: restoredAt,
+      },
+      writtenBy: {
+        tool: "hearth",
+        tool_version: "0.0.0",
+        lane: "forge-managed",
+      },
+      correlationId: null,
+    });
+
+    return toWorkspaceEpisodeSummary(data);
   }
 
   async getWorkpieceImageMap(
@@ -4509,6 +4668,7 @@ export class TongsCommitService {
       .from("episodes")
       .select("id,label,updated_at,created_at")
       .eq("workspace_id", workspaceId)
+      .is("archived_at", null)
       .order("updated_at", { ascending: false })
       .limit(500);
 
@@ -5056,8 +5216,29 @@ export function createTongsCommitApiHandlerWithService(
         requireMethod(request, "GET");
         const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
         const userAccessToken = requireUserAccessTokenHeader(request);
-        const result = await service.listWorkspaceEpisodes(workspaceId, { userAccessToken });
+        const includeArchived = parseBooleanQueryFlag(url.searchParams.get("include_archived"));
+        const result = await service.listWorkspaceEpisodes(workspaceId, { userAccessToken, includeArchived });
         return jsonResponse(200, { ok: true, data: { episodes: result } });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "archive") {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const body = await parseJsonBody(request);
+        const payload = normalizeArchiveWorkpieceRequest(body);
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.archiveWorkpiece(workpieceId, payload, { userAccessToken });
+        return jsonResponse(200, { ok: true, data: { workpiece: result } });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "restore") {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const body = await parseJsonBody(request);
+        const payload = normalizeRestoreWorkpieceRequest(body);
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.restoreWorkpiece(workpieceId, payload, { userAccessToken });
+        return jsonResponse(200, { ok: true, data: { workpiece: result } });
       }
 
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "ready-queue-state") {

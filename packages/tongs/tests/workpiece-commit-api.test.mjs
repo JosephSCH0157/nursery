@@ -20,6 +20,8 @@ function mockService() {
     detachEpisodeFromSession: [],
     listSessionEpisodes: [],
     listWorkspaceEpisodes: [],
+    archiveWorkpiece: [],
+    restoreWorkpiece: [],
     listWorkspaceReadyScripts: [],
     getWorkpieceImageMap: [],
     saveWorkpieceImageMap: [],
@@ -311,8 +313,37 @@ function mockService() {
           label: "Episode 1",
           created_at: "2026-02-20T00:00:00.000Z",
           updated_at: "2026-02-21T00:00:00.000Z",
+          archived_at: null,
+          archived_by: null,
+          archive_reason: null,
         },
       ];
+    },
+    async archiveWorkpiece(workpieceId, input, options) {
+      calls.archiveWorkpiece.push({ workpieceId, input, options: options ?? null });
+      return {
+        id: workpieceId,
+        workspace_id: input.workspace_id,
+        label: "Episode 1",
+        created_at: "2026-02-20T00:00:00.000Z",
+        updated_at: "2026-02-21T00:00:00.000Z",
+        archived_at: "2026-03-11T14:00:00.000Z",
+        archived_by: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        archive_reason: input.reason ?? null,
+      };
+    },
+    async restoreWorkpiece(workpieceId, input, options) {
+      calls.restoreWorkpiece.push({ workpieceId, input, options: options ?? null });
+      return {
+        id: workpieceId,
+        workspace_id: input.workspace_id,
+        label: "Episode 1",
+        created_at: "2026-02-20T00:00:00.000Z",
+        updated_at: "2026-02-21T00:00:00.000Z",
+        archived_at: null,
+        archived_by: null,
+        archive_reason: null,
+      };
     },
     async listWorkspaceReadyScripts(workspaceId, options) {
       calls.listWorkspaceReadyScripts.push({ workspaceId, options: options ?? null });
@@ -664,41 +695,91 @@ function createReadyQueueSupabase({
           if (tableName === "episodes") {
             return {
               select() {
-                let workspaceFilter = null;
+                const filters = {};
                 return {
                   eq(field, value) {
-                    assert.equal(field, "workspace_id");
-                    workspaceFilter = value;
+                    filters[field] = value;
+                    return this;
+                  },
+                  is(field, value) {
+                    filters[field] = value;
+                    return this;
+                  },
+                  async single() {
+                    const row = episodes.find((candidate) => (
+                      Object.entries(filters).every(([key, value]) => candidate[key] === value)
+                    )) ?? null;
+                    if (!row) {
+                      return { data: null, error: { code: "PGRST116", message: "No rows" } };
+                    }
+                    return { data: { ...row }, error: null };
+                  },
+                  async maybeSingle() {
+                    const row = episodes.find((candidate) => (
+                      Object.entries(filters).every(([key, value]) => candidate[key] === value)
+                    )) ?? null;
+                    return { data: row ? { ...row } : null, error: null };
+                  },
+                  async in(innerField, values) {
+                    assert.equal(innerField, "id");
+                    const idSet = new Set(values);
                     return {
-                      async in(innerField, values) {
-                        assert.equal(innerField, "id");
-                        const idSet = new Set(values);
+                      data: episodes
+                        .filter((row) => Object.entries(filters).every(([key, value]) => row[key] === value) && idSet.has(row.id))
+                        .map((row) => ({ id: row.id })),
+                      error: null,
+                    };
+                  },
+                  order(orderField, options) {
+                    return {
+                      async limit(limit) {
+                        const ordered = sortRows(
+                          episodes.filter((row) => Object.entries(filters).every(([key, value]) => row[key] === value)),
+                          orderField,
+                          options?.ascending ?? true,
+                        );
                         return {
-                          data: episodes
-                            .filter((row) => row.workspace_id === workspaceFilter && idSet.has(row.id))
-                            .map((row) => ({ id: row.id })),
+                          data: ordered.slice(0, limit).map((row) => ({
+                            id: row.id,
+                            workspace_id: row.workspace_id,
+                            label: row.label ?? null,
+                            updated_at: row.updated_at ?? null,
+                            created_at: row.created_at ?? null,
+                            archived_at: row.archived_at ?? null,
+                            archived_by: row.archived_by ?? null,
+                            archive_reason: row.archive_reason ?? null,
+                          })),
                           error: null,
                         };
                       },
-                      order(orderField, options) {
+                    };
+                  },
+                };
+              },
+              update(patch) {
+                const filters = {};
+                return {
+                  eq(field, value) {
+                    filters[field] = value;
+                    return this;
+                  },
+                  select() {
+                    return {
+                      async single() {
+                        const index = episodes.findIndex((candidate) => (
+                          Object.entries(filters).every(([key, value]) => candidate[key] === value)
+                        ));
+                        if (index < 0) {
+                          return { data: null, error: { message: "No rows" } };
+                        }
+                        episodes[index] = {
+                          ...episodes[index],
+                          ...patch,
+                          updated_at: "2026-03-11T14:00:00.000Z",
+                        };
                         return {
-                          async limit(limit) {
-                            const ordered = sortRows(
-                              episodes.filter((row) => row.workspace_id === workspaceFilter),
-                              orderField,
-                              options?.ascending ?? true,
-                            );
-                            return {
-                              data: ordered.slice(0, limit).map((row) => ({
-                                id: row.id,
-                                workspace_id: row.workspace_id,
-                                label: row.label ?? null,
-                                updated_at: row.updated_at ?? null,
-                                created_at: row.created_at ?? null,
-                              })),
-                              error: null,
-                            };
-                          },
+                          data: { ...episodes[index] },
+                          error: null,
                         };
                       },
                     };
@@ -854,6 +935,26 @@ function createReadyQueueSupabase({
 
           if (tableName === "workpiece_events") {
             return {
+              insert(row) {
+                const inserted = {
+                  id: events.length + 1,
+                  created_at: "2026-03-11T14:05:00.000Z",
+                  ...row,
+                };
+                return {
+                  select() {
+                    return {
+                      async single() {
+                        events.push({ ...inserted });
+                        return {
+                          data: { ...inserted },
+                          error: null,
+                        };
+                      },
+                    };
+                  },
+                };
+              },
               select() {
                 let workpieceFilter = null;
                 let eventNameFilter = null;
@@ -1834,11 +1935,13 @@ test("GET /tongs/workspaces/:id/episodes dispatches listWorkspaceEpisodes", asyn
   assert.equal(calls.listWorkspaceEpisodes.length, 1);
   assert.equal(calls.listWorkspaceEpisodes[0]?.workspaceId, "11111111-1111-4111-8111-111111111111");
   assert.equal(calls.listWorkspaceEpisodes[0]?.options?.userAccessToken, "user_token_abc");
+  assert.equal(calls.listWorkspaceEpisodes[0]?.options?.includeArchived, false);
   assert.equal(body.ok, true);
   assert.equal(Array.isArray(body.data?.episodes), true);
   assert.equal(body.data.episodes.length, 1);
   assert.equal(body.data.episodes[0]?.workspace_id, "11111111-1111-4111-8111-111111111111");
   assert.equal(body.data.episodes[0]?.label, "Episode 1");
+  assert.equal(body.data.episodes[0]?.archived_at, null);
 });
 
 test("GET /tongs/workspaces/:id/episodes requires x-forge-user-authorization header", async () => {
@@ -1859,6 +1962,91 @@ test("GET /tongs/workspaces/:id/episodes requires x-forge-user-authorization hea
   assert.equal(calls.listWorkspaceEpisodes.length, 0);
   assert.equal(body.ok, false);
   assert.equal(body.error?.code, "missing_user_token_header");
+});
+
+test("GET /tongs/workspaces/:id/episodes?include_archived=1 enables archived rows", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/episodes?include_archived=1",
+    {
+      method: "GET",
+      headers: {
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.listWorkspaceEpisodes.length, 1);
+  assert.equal(calls.listWorkspaceEpisodes[0]?.options?.includeArchived, true);
+  assert.equal(body.ok, true);
+});
+
+test("POST /tongs/workpieces/:id/archive dispatches archiveWorkpiece", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/archive",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+      body: JSON.stringify({
+        workspace_id: "22222222-2222-4222-8222-222222222222",
+        reason: "duplicate cleanup",
+      }),
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.archiveWorkpiece.length, 1);
+  assert.equal(calls.archiveWorkpiece[0]?.workpieceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.archiveWorkpiece[0]?.input?.workspace_id, "22222222-2222-4222-8222-222222222222");
+  assert.equal(calls.archiveWorkpiece[0]?.input?.reason, "duplicate cleanup");
+  assert.equal(calls.archiveWorkpiece[0]?.options?.userAccessToken, "user_token_abc");
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.workpiece?.archived_at, "2026-03-11T14:00:00.000Z");
+});
+
+test("POST /tongs/workpieces/:id/restore dispatches restoreWorkpiece", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/restore",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+      body: JSON.stringify({
+        workspace_id: "22222222-2222-4222-8222-222222222222",
+      }),
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.restoreWorkpiece.length, 1);
+  assert.equal(calls.restoreWorkpiece[0]?.workpieceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.restoreWorkpiece[0]?.input?.workspace_id, "22222222-2222-4222-8222-222222222222");
+  assert.equal(calls.restoreWorkpiece[0]?.options?.userAccessToken, "user_token_abc");
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.workpiece?.archived_at, null);
 });
 
 test("GET /tongs/workspaces/:id/ready-scripts?unrecorded=1 enables unrecorded filter", async () => {
@@ -2060,13 +2248,14 @@ test("POST /tongs/workspaces/:id/ready-queue-state requires x-forge-user-authori
   assert.equal(calls.updateWorkspaceReadyQueueState.length, 0);
 });
 
-test("TongsCommitService.listWorkspaceReadyScripts hides hidden queue rows by default and ignores orphan queue state", async () => {
+test("TongsCommitService.listWorkspaceReadyScripts hides hidden and archived queue rows by default and ignores orphan queue state", async () => {
   const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const otherWorkspaceId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
   const viewerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
   const workpieceA = "11111111-1111-4111-8111-111111111111";
   const workpieceB = "22222222-2222-4222-8222-222222222222";
   const workpieceC = "33333333-3333-4333-8333-333333333333";
+  const workpieceD = "44444444-4444-4444-8444-444444444444";
 
   const { state, ...supabase } = createReadyQueueSupabase({
     workspaceId,
@@ -2077,6 +2266,9 @@ test("TongsCommitService.listWorkspaceReadyScripts hides hidden queue rows by de
         label: "Ready Alpha",
         updated_at: "2026-03-09T10:00:00.000Z",
         created_at: "2026-03-01T10:00:00.000Z",
+        archived_at: null,
+        archived_by: null,
+        archive_reason: null,
       },
       {
         id: workpieceB,
@@ -2084,6 +2276,9 @@ test("TongsCommitService.listWorkspaceReadyScripts hides hidden queue rows by de
         label: "Ready Beta",
         updated_at: "2026-03-08T10:00:00.000Z",
         created_at: "2026-03-01T09:00:00.000Z",
+        archived_at: null,
+        archived_by: null,
+        archive_reason: null,
       },
       {
         id: workpieceC,
@@ -2091,6 +2286,19 @@ test("TongsCommitService.listWorkspaceReadyScripts hides hidden queue rows by de
         label: "Ready Gamma",
         updated_at: "2026-03-07T10:00:00.000Z",
         created_at: "2026-03-01T08:00:00.000Z",
+        archived_at: null,
+        archived_by: null,
+        archive_reason: null,
+      },
+      {
+        id: workpieceD,
+        workspace_id: workspaceId,
+        label: "Ready Delta",
+        updated_at: "2026-03-06T10:00:00.000Z",
+        created_at: "2026-03-01T07:00:00.000Z",
+        archived_at: "2026-03-10T15:00:00.000Z",
+        archived_by: viewerId,
+        archive_reason: "sent back to archive",
       },
     ],
     files: [
@@ -2105,6 +2313,12 @@ test("TongsCommitService.listWorkspaceReadyScripts hides hidden queue rows by de
         path: "scripts/script.anvil.txt",
         updated_at: "2026-03-08T10:30:00.000Z",
         created_at: "2026-03-08T10:00:00.000Z",
+      },
+      {
+        workpiece_id: workpieceD,
+        path: "script/script.md",
+        updated_at: "2026-03-06T10:30:00.000Z",
+        created_at: "2026-03-06T10:00:00.000Z",
       },
     ],
     readyMeta: [
@@ -2121,6 +2335,13 @@ test("TongsCommitService.listWorkspaceReadyScripts hides hidden queue rows by de
         script_path: "scripts/script.anvil.txt",
         marked_ready_by: viewerId,
         marked_ready_at: "2026-03-08T10:30:00.000Z",
+      },
+      {
+        workspace_id: workspaceId,
+        workpiece_id: workpieceD,
+        script_path: "script/script.md",
+        marked_ready_by: viewerId,
+        marked_ready_at: "2026-03-06T10:30:00.000Z",
       },
     ],
     queueState: [
@@ -2186,6 +2407,7 @@ test("TongsCommitService.listWorkspaceReadyScripts hides hidden queue rows by de
   assert.deepEqual(result[0]?.script_paths, ["script/script.md"]);
   assert.equal(result.some((row) => row.workpiece_id === workpieceB), false);
   assert.equal(result.some((row) => row.workpiece_id === workpieceC), false);
+  assert.equal(result.some((row) => row.workpiece_id === workpieceD), false);
   assert.equal(state.queueStateRows.length, 4);
 });
 
@@ -2203,6 +2425,9 @@ test("TongsCommitService.listWorkspaceEpisodes returns workspace-scoped summarie
         label: "Newest Episode",
         updated_at: "2026-03-10T10:00:00.000Z",
         created_at: "2026-03-01T10:00:00.000Z",
+        archived_at: null,
+        archived_by: null,
+        archive_reason: null,
       },
       {
         id: "22222222-2222-4222-8222-222222222222",
@@ -2210,6 +2435,9 @@ test("TongsCommitService.listWorkspaceEpisodes returns workspace-scoped summarie
         label: "Older Episode",
         updated_at: "2026-03-08T10:00:00.000Z",
         created_at: "2026-03-01T09:00:00.000Z",
+        archived_at: "2026-03-11T09:00:00.000Z",
+        archived_by: viewerId,
+        archive_reason: "duplicate cleanup",
       },
       {
         id: "33333333-3333-4333-8333-333333333333",
@@ -2217,6 +2445,9 @@ test("TongsCommitService.listWorkspaceEpisodes returns workspace-scoped summarie
         label: "Other Workspace Episode",
         updated_at: "2026-03-11T10:00:00.000Z",
         created_at: "2026-03-01T08:00:00.000Z",
+        archived_at: null,
+        archived_by: null,
+        archive_reason: null,
       },
     ],
   });
@@ -2239,13 +2470,124 @@ test("TongsCommitService.listWorkspaceEpisodes returns workspace-scoped summarie
     result.map((row) => row.id),
     [
       "11111111-1111-4111-8111-111111111111",
-      "22222222-2222-4222-8222-222222222222",
     ],
   );
   assert.equal(result[0]?.workspace_id, workspaceId);
   assert.equal(result[0]?.label, "Newest Episode");
-  assert.equal(result[1]?.label, "Older Episode");
   assert.equal(result.some((row) => row.workspace_id === otherWorkspaceId), false);
+  assert.equal(result.some((row) => row.archived_at != null), false);
+});
+
+test("TongsCommitService.listWorkspaceEpisodes includes archived rows when requested", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const viewerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+  const { ...supabase } = createReadyQueueSupabase({
+    workspaceId,
+    episodes: [
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        workspace_id: workspaceId,
+        label: "Active Episode",
+        updated_at: "2026-03-10T10:00:00.000Z",
+        created_at: "2026-03-01T10:00:00.000Z",
+        archived_at: null,
+        archived_by: null,
+        archive_reason: null,
+      },
+      {
+        id: "22222222-2222-4222-8222-222222222222",
+        workspace_id: workspaceId,
+        label: "Archived Episode",
+        updated_at: "2026-03-11T10:00:00.000Z",
+        created_at: "2026-03-01T09:00:00.000Z",
+        archived_at: "2026-03-11T09:00:00.000Z",
+        archived_by: viewerId,
+        archive_reason: "cleanup",
+      },
+    ],
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: viewerId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: viewerId, role: "viewer" });
+
+  const result = await service.listWorkspaceEpisodes(workspaceId, {
+    userAccessToken: "viewer_token",
+    includeArchived: true,
+  });
+
+  assert.deepEqual(
+    result.map((row) => row.id),
+    [
+      "22222222-2222-4222-8222-222222222222",
+      "11111111-1111-4111-8111-111111111111",
+    ],
+  );
+  assert.equal(result[0]?.archived_at, "2026-03-11T09:00:00.000Z");
+});
+
+test("TongsCommitService.archiveWorkpiece and restoreWorkpiece update episodes and append events", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const editorId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const events = [];
+
+  const { ...supabase } = createReadyQueueSupabase({
+    workspaceId,
+    episodes: [
+      {
+        id: workpieceId,
+        workspace_id: workspaceId,
+        label: "Archivable Episode",
+        updated_at: "2026-03-10T10:00:00.000Z",
+        created_at: "2026-03-01T10:00:00.000Z",
+        archived_at: null,
+        archived_by: null,
+        archive_reason: null,
+      },
+    ],
+    events,
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: editorId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: editorId, role: "editor" });
+
+  const archived = await service.archiveWorkpiece(workpieceId, {
+    workspace_id: workspaceId,
+    reason: "duplicate cleanup",
+  }, {
+    userAccessToken: "editor_token",
+  });
+  assert.equal(archived.archived_by, editorId);
+  assert.equal(archived.archive_reason, "duplicate cleanup");
+  assert.ok(typeof archived.archived_at === "string");
+
+  const restored = await service.restoreWorkpiece(workpieceId, {
+    workspace_id: workspaceId,
+  }, {
+    userAccessToken: "editor_token",
+  });
+  assert.equal(restored.archived_at, null);
+  assert.equal(restored.archived_by, null);
+  assert.equal(restored.archive_reason, null);
+
+  assert.equal(events.length, 2);
+  assert.equal(events[0]?.event_name, "hearth.workpiece.archived.v1");
+  assert.equal(events[1]?.event_name, "hearth.workpiece.restored.v1");
 });
 
 test("TongsCommitService.getWorkpieceImageMap returns normalized semantic entries plus current asset summary", async () => {

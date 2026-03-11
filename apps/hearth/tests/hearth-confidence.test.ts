@@ -28,7 +28,9 @@ import {
 import { readHearthPrimaryScript } from "../src/lib/hearth-script-repo";
 import { resolveBarStockSparkHearthWorkpieceId } from "../src/lib/barstock-sparks";
 import {
+  archiveHearthWorkpiece,
   listHearthWorkpieces,
+  restoreHearthWorkpiece,
   type HearthWorkpieceSummary,
 } from "../src/lib/hearth-workpieces";
 import {
@@ -120,6 +122,7 @@ function createRevision(id: string, draftId: string, createdAt: number): Revisio
 const WORKPIECE_A = "2980fc39-8c8b-489a-a900-8d3bd3248432";
 const WORKPIECE_B = "54d58d65-7abf-4d50-b17f-5905f4b1ee61";
 const WORKSPACE_ID = "2b2ef7aa-44d4-4d0d-93d7-b0aa4ec2b99d";
+const ARCHIVE_ACTOR_ID = "6f4a0a73-19d2-4926-bf70-ebf2b9306db4";
 
 function buildRevisionSnapshot(workpieceId: string, revisions: Revision[]): HearthRevisionSnapshot {
   return {
@@ -422,8 +425,10 @@ function installImageMapFetchHarness() {
 
 function installWorkpieceFetchHarness() {
   const originalFetch = globalThis.fetch;
-  const listRequests: string[] = [];
+  const listRequests: Array<{ workspaceId: string; includeArchived: string | null }> = [];
   const scriptReads: string[] = [];
+  const archiveRequests: Array<{ workpieceId: string; body: Record<string, unknown> | null }> = [];
+  const restoreRequests: Array<{ workpieceId: string; body: Record<string, unknown> | null }> = [];
   let episodesPayload: unknown[] = [];
   const primaryScripts = new Map<string, { text: string | null; updatedAt: string | null }>();
 
@@ -437,11 +442,88 @@ function installWorkpieceFetchHarness() {
 
     const episodesMatch = url.pathname.match(/^\/tongs\/workspaces\/([^/]+)\/episodes$/);
     if (episodesMatch && (init?.method ?? "GET") === "GET") {
-      listRequests.push(decodeURIComponent(episodesMatch[1] ?? ""));
+      listRequests.push({
+        workspaceId: decodeURIComponent(episodesMatch[1] ?? ""),
+        includeArchived: url.searchParams.get("include_archived"),
+      });
       return new Response(JSON.stringify({
         ok: true,
         data: {
           episodes: episodesPayload,
+        },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    const archiveMatch = url.pathname.match(/^\/tongs\/workpieces\/([^/]+)\/archive$/);
+    if (archiveMatch && (init?.method ?? "GET") === "POST") {
+      const workpieceId = decodeURIComponent(archiveMatch[1] ?? "");
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null;
+      archiveRequests.push({ workpieceId, body });
+
+      const currentRow = (episodesPayload.find((entry) => (
+        entry && typeof entry === "object" && !Array.isArray(entry) && (entry as { id?: unknown }).id === workpieceId
+      )) as Record<string, unknown> | undefined) ?? {};
+      const archivedRow = {
+        ...currentRow,
+        id: workpieceId,
+        workspace_id: typeof body?.workspace_id === "string" ? body.workspace_id : WORKSPACE_ID,
+        label: currentRow.label ?? null,
+        created_at: currentRow.created_at ?? "2026-03-10T12:00:00.000Z",
+        updated_at: "2026-03-11T15:30:00.000Z",
+        archived_at: "2026-03-11T15:30:00.000Z",
+        archived_by: ARCHIVE_ACTOR_ID,
+        archive_reason: typeof body?.reason === "string" ? body.reason : null,
+      };
+      episodesPayload = episodesPayload.map((entry) => (
+        entry && typeof entry === "object" && !Array.isArray(entry) && (entry as { id?: unknown }).id === workpieceId
+          ? archivedRow
+          : entry
+      ));
+
+      return new Response(JSON.stringify({
+        ok: true,
+        data: {
+          workpiece: archivedRow,
+        },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    const restoreMatch = url.pathname.match(/^\/tongs\/workpieces\/([^/]+)\/restore$/);
+    if (restoreMatch && (init?.method ?? "GET") === "POST") {
+      const workpieceId = decodeURIComponent(restoreMatch[1] ?? "");
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null;
+      restoreRequests.push({ workpieceId, body });
+
+      const currentRow = (episodesPayload.find((entry) => (
+        entry && typeof entry === "object" && !Array.isArray(entry) && (entry as { id?: unknown }).id === workpieceId
+      )) as Record<string, unknown> | undefined) ?? {};
+      const restoredRow = {
+        ...currentRow,
+        id: workpieceId,
+        workspace_id: typeof body?.workspace_id === "string" ? body.workspace_id : WORKSPACE_ID,
+        label: currentRow.label ?? null,
+        created_at: currentRow.created_at ?? "2026-03-10T12:00:00.000Z",
+        updated_at: "2026-03-11T15:35:00.000Z",
+        archived_at: null,
+        archived_by: null,
+        archive_reason: null,
+      };
+      episodesPayload = episodesPayload.map((entry) => (
+        entry && typeof entry === "object" && !Array.isArray(entry) && (entry as { id?: unknown }).id === workpieceId
+          ? restoredRow
+          : entry
+      ));
+
+      return new Response(JSON.stringify({
+        ok: true,
+        data: {
+          workpiece: restoredRow,
         },
       }), {
         status: 200,
@@ -489,6 +571,8 @@ function installWorkpieceFetchHarness() {
       primaryScripts.set(workpieceId, { text, updatedAt });
     },
     listRequests,
+    archiveRequests,
+    restoreRequests,
     scriptReads,
   };
 }
@@ -506,6 +590,10 @@ function createWorkpieceSummary(
     updatedAt: "2026-03-10T12:00:00.000Z",
     createdAtMs: Date.parse("2026-03-10T12:00:00.000Z"),
     updatedAtMs: Date.parse("2026-03-10T12:00:00.000Z"),
+    archivedAt: null,
+    archivedBy: null,
+    archiveReason: null,
+    isArchived: false,
     ...overrides,
   };
 }
@@ -923,7 +1011,7 @@ async function testWorkpieceListRoundtripAndPrimaryScriptRead() {
 
   try {
     const workpieces = await listHearthWorkpieces(WORKSPACE_ID);
-    assert.equal(harness.listRequests[0], WORKSPACE_ID);
+    assert.deepEqual(harness.listRequests[0], { workspaceId: WORKSPACE_ID, includeArchived: null });
     assert.deepEqual(
       workpieces.map((entry) => entry.workpieceId),
       [WORKPIECE_B, WORKPIECE_A],
@@ -945,6 +1033,69 @@ async function testWorkpieceListRoundtripAndPrimaryScriptRead() {
       assert.equal(missing.data.text, null, "Missing primary script should stay a non-fatal empty read");
     }
     assert.deepEqual(harness.scriptReads, [WORKPIECE_A, WORKPIECE_B]);
+  } finally {
+    harness.restore();
+  }
+}
+
+async function testWorkpieceArchiveRoundtripUsesCanonicalEndpoints() {
+  resetLocalStorage();
+  const harness = installWorkpieceFetchHarness();
+  harness.setEpisodesPayload([
+    {
+      id: WORKPIECE_A,
+      workspace_id: WORKSPACE_ID,
+      label: "Archive Candidate",
+      created_at: "2026-03-08T12:00:00.000Z",
+      updated_at: "2026-03-10T12:00:00.000Z",
+      archived_at: null,
+      archived_by: null,
+      archive_reason: null,
+    },
+    {
+      id: WORKPIECE_B,
+      workspace_id: WORKSPACE_ID,
+      label: "Already Archived",
+      created_at: "2026-03-09T12:00:00.000Z",
+      updated_at: "2026-03-10T13:00:00.000Z",
+      archived_at: "2026-03-10T14:00:00.000Z",
+      archived_by: ARCHIVE_ACTOR_ID,
+      archive_reason: "duplicate",
+    },
+  ]);
+
+  try {
+    const listed = await listHearthWorkpieces(WORKSPACE_ID, { includeArchived: true });
+    assert.deepEqual(harness.listRequests[0], { workspaceId: WORKSPACE_ID, includeArchived: "1" });
+    assert.equal(listed.find((entry) => entry.workpieceId === WORKPIECE_B)?.isArchived, true);
+
+    const archived = await archiveHearthWorkpiece({
+      workspaceId: WORKSPACE_ID,
+      workpieceId: WORKPIECE_A,
+      reason: "duplicate",
+    });
+    assert.equal(archived.isArchived, true);
+    assert.equal(archived.archiveReason, "duplicate");
+    assert.deepEqual(harness.archiveRequests[0], {
+      workpieceId: WORKPIECE_A,
+      body: {
+        workspace_id: WORKSPACE_ID,
+        reason: "duplicate",
+      },
+    });
+
+    const restored = await restoreHearthWorkpiece({
+      workspaceId: WORKSPACE_ID,
+      workpieceId: WORKPIECE_A,
+    });
+    assert.equal(restored.isArchived, false);
+    assert.equal(restored.archiveReason, null);
+    assert.deepEqual(harness.restoreRequests[0], {
+      workpieceId: WORKPIECE_A,
+      body: {
+        workspace_id: WORKSPACE_ID,
+      },
+    });
   } finally {
     harness.restore();
   }
@@ -1293,6 +1444,7 @@ async function run() {
   await testImageMapRepoReadNormalizesSemanticEntriesAndAssetSummary();
   await testImageMapRepoSaveForwardsExpectedTimestampAndReturnsLatestOnConflict();
   await testWorkpieceListRoundtripAndPrimaryScriptRead();
+  await testWorkpieceArchiveRoundtripUsesCanonicalEndpoints();
   await testWorkpieceNavModelStaysWorkpieceFirst();
   await testActiveWorkpieceContextResolvesAttachedArtifactsWithoutCreatingNavRows();
   await testForgedSparkRouteResolutionPrefersBoundWorkpiece();

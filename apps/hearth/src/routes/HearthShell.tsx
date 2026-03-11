@@ -48,7 +48,9 @@ import {
   readHearthPrimaryScript,
 } from "../lib/hearth-script-repo";
 import {
+  archiveHearthWorkpiece,
   listHearthWorkpieces,
+  restoreHearthWorkpiece,
   type HearthWorkpieceSummary,
 } from "../lib/hearth-workpieces";
 import {
@@ -1864,6 +1866,8 @@ export default function HearthShell() {
   const [readyCategoryError, setReadyCategoryError] = useState<string | null>(null);
   const [removingReadyIds, setRemovingReadyIds] = useState<string[]>([]);
   const [sendingBackReadyIds, setSendingBackReadyIds] = useState<string[]>([]);
+  const [archivingWorkpieceIds, setArchivingWorkpieceIds] = useState<string[]>([]);
+  const [restoringWorkpieceIds, setRestoringWorkpieceIds] = useState<string[]>([]);
   const [isRestoringReady, setIsRestoringReady] = useState(false);
   const [draggingReadyId, setDraggingReadyId] = useState<string | null>(null);
   const [revisionModalOpen, setRevisionModalOpen] = useState(false);
@@ -2105,6 +2109,8 @@ export default function HearthShell() {
     revisions,
     preferredDraftId: activeDraft?.id ?? session?.activeDraftId ?? null,
   }), [activeDraft?.id, drafts, readyScripts, revisions, session?.activeDraftId, sparks, workpieceId, workpieceSummaries]);
+  const activeWorkpiece = activeWorkpieceContext.workpiece;
+  const activeWorkpieceIsArchived = Boolean(activeWorkpiece?.isArchived);
   const draftsById = useMemo(() => new Map(drafts.map((draft) => [draft.id, draft] as const)), [drafts]);
   const hasActiveEpisode = Boolean(workpieceId);
   const presencePeers = useMemo(
@@ -2145,8 +2151,8 @@ export default function HearthShell() {
   }, [resolveReadyMarkerName]);
   const localPresenceMode = activeDraft ? "editing" : "viewing";
   const openInAnvilHref = useMemo(
-    () => buildOpenInAnvilHref(workspaceId, workpieceId),
-    [workspaceId, workpieceId],
+    () => (activeWorkpieceIsArchived ? null : buildOpenInAnvilHref(workspaceId, workpieceId)),
+    [activeWorkpieceIsArchived, workspaceId, workpieceId],
   );
   const aiCreditsDepleted = aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0;
   const aiEpisodeReady = Boolean(workpieceId?.trim());
@@ -2230,11 +2236,8 @@ export default function HearthShell() {
   ]);
   const filteredWorkpieceNavItems = useMemo(() => {
     if (showArchived) return workpieceNavItems;
-    return workpieceNavItems.filter((item) => {
-      const draft = item.draftId ? draftsById.get(item.draftId) ?? null : null;
-      return !draft?.archived;
-    });
-  }, [draftsById, showArchived, workpieceNavItems]);
+    return workpieceNavItems.filter((item) => !item.isArchived);
+  }, [showArchived, workpieceNavItems]);
 
   const readyScriptsForDisplay = deferDesktopRailCollections ? EMPTY_READY_SCRIPT_LIST : readyScripts;
   const visibleReadyScriptsForDisplay = useMemo(
@@ -2523,8 +2526,17 @@ export default function HearthShell() {
     setAiRuntimeWarning(message);
   }, []);
 
-  const refreshWorkpieces = useCallback(async (overrideWorkspaceId?: string | null): Promise<HearthWorkpieceSummary[]> => {
+  const refreshWorkpieces = useCallback(async (
+    overrideWorkspaceId?: string | null,
+    options?: { includeArchived?: boolean },
+  ): Promise<HearthWorkpieceSummary[]> => {
     const workspace = normalizeUuid(overrideWorkspaceId ?? workspaceId);
+    const activeWorkpieceId = normalizeUuid(workpieceId);
+    const includeArchived = options?.includeArchived ?? (
+      showArchived || Boolean(
+        activeWorkpieceId && workpieceSummaries.some((entry) => entry.workpieceId === activeWorkpieceId && entry.isArchived)
+      )
+    );
     if (!workspace) {
       setWorkpieceSummaries([]);
       setWorkpiecesError(null);
@@ -2535,7 +2547,7 @@ export default function HearthShell() {
     setIsWorkpiecesLoading(true);
     setWorkpiecesError(null);
     try {
-      const list = await listHearthWorkpieces(workspace);
+      const list = await listHearthWorkpieces(workspace, { includeArchived });
       setWorkpieceSummaries(list);
       return list;
     } catch {
@@ -2545,7 +2557,7 @@ export default function HearthShell() {
     } finally {
       setIsWorkpiecesLoading(false);
     }
-  }, [workspaceId]);
+  }, [showArchived, workspaceId, workpieceId, workpieceSummaries]);
 
   const refreshDrafts = useCallback(async (): Promise<Draft[]> => {
     const list = dedupeDraftListById(await store.listDrafts());
@@ -3131,6 +3143,10 @@ export default function HearthShell() {
       setError("Open in Anvil requires a valid workspace and workpiece.");
       return;
     }
+    if (activeWorkpieceIsArchived) {
+      setError("This workpiece is archived. Restore it in Hearth before opening in Anvil.");
+      return;
+    }
     const href = buildOpenInAnvilHref(workspace, episodeId);
     if (!href) {
       setError("Open in Anvil is unavailable until context is resolved.");
@@ -3177,7 +3193,7 @@ export default function HearthShell() {
 
     flushChatHistoryNow({ draftId: activeDraft.id });
     window.location.assign(href);
-  }, [activeDraft, flushChatHistoryNow, workpieceId, workspaceId]);
+  }, [activeDraft, activeWorkpieceIsArchived, flushChatHistoryNow, persistDraft, workpieceId, workspaceId]);
 
   const applySessionOrigin = useCallback((origin: HearthSessionOrigin) => {
     updatePlanningSession((prev) => ({
@@ -3291,7 +3307,17 @@ export default function HearthShell() {
         availableWorkpieces.length === 0
         || !availableWorkpieces.some((entry) => entry.workpieceId === normalizedWorkpieceId)
       ) {
-        availableWorkpieces = await refreshWorkpieces(targetWorkspaceId);
+        availableWorkpieces = await refreshWorkpieces(targetWorkspaceId, { includeArchived: true });
+      }
+
+      const targetWorkpiece = availableWorkpieces.find((entry) => entry.workpieceId === normalizedWorkpieceId) ?? null;
+      if (targetWorkpiece?.isArchived) {
+        await selectDraft(null);
+        await persistSession(null, "draft");
+        if (isMobile) {
+          setMobileOverlayView("editor");
+        }
+        return null;
       }
 
       const draft = await hydrateOrCreateDraftBufferForWorkpiece(normalizedWorkpieceId, {
@@ -3320,6 +3346,7 @@ export default function HearthShell() {
     drafts,
     hydrateOrCreateDraftBufferForWorkpiece,
     isMobile,
+    persistSession,
     refreshWorkpieces,
     selectDraft,
     workpieceSummaries,
@@ -3586,7 +3613,9 @@ export default function HearthShell() {
         sessionStore.getSession(),
         store.listDrafts(),
         workspace
-          ? listHearthWorkpieces(workspace).catch(() => [] as HearthWorkpieceSummary[])
+          ? listHearthWorkpieces(workspace, {
+              includeArchived: Boolean(normalizeUuid(workpieceIdRef.current)),
+            }).catch(() => [] as HearthWorkpieceSummary[])
           : Promise.resolve([] as HearthWorkpieceSummary[]),
       ]);
 
@@ -5019,7 +5048,7 @@ export default function HearthShell() {
 
   async function onDeleteDraft(draft: Draft) {
     const draftTitle = draft.title.trim() || "Untitled Draft";
-    const confirmDelete = window.confirm(`Delete "${draftTitle}"? This cannot be undone.`);
+    const confirmDelete = window.confirm(`Delete draft buffer "${draftTitle}"? This cannot be undone.`);
     if (!confirmDelete) return;
     setError(null);
     try {
@@ -5071,10 +5100,104 @@ export default function HearthShell() {
 
       await persistSession(activeDraft?.id ?? null, "draft");
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to delete draft.";
+      const message = err instanceof Error ? err.message : "Failed to delete draft buffer.";
       setError(message);
     }
   }
+
+  const onArchiveWorkpiece = useCallback(async (targetWorkpieceId: string) => {
+    const normalizedWorkspaceId = normalizeUuid(workspaceId);
+    const normalizedWorkpieceId = normalizeUuid(targetWorkpieceId);
+    if (!normalizedWorkspaceId || !normalizedWorkpieceId || archivingWorkpieceIds.includes(normalizedWorkpieceId)) {
+      return;
+    }
+
+    setError(null);
+    setArchivingWorkpieceIds((prev) => (
+      prev.includes(normalizedWorkpieceId) ? prev : [...prev, normalizedWorkpieceId]
+    ));
+
+    try {
+      await archiveHearthWorkpiece({
+        workspaceId: normalizedWorkspaceId,
+        workpieceId: normalizedWorkpieceId,
+      });
+
+      const archivingActiveWorkpiece = workpieceId === normalizedWorkpieceId;
+      if (archivingActiveWorkpiece) {
+        await selectDraft(null);
+        await persistSession(null, "draft");
+        if (!showArchived) {
+          setWorkpieceId(null);
+          setMode("episodes");
+          setFocusTab("draft");
+          if (isMobile && mobileOverlayView === "editor") {
+            setMobileOverlayView(null);
+          }
+        }
+      }
+
+      await refreshWorkpieces(normalizedWorkspaceId, { includeArchived: showArchived });
+    } catch {
+      setError("Failed to archive workpiece.");
+    } finally {
+      setArchivingWorkpieceIds((prev) => prev.filter((id) => id !== normalizedWorkpieceId));
+    }
+  }, [
+    archivingWorkpieceIds,
+    isMobile,
+    mobileOverlayView,
+    persistSession,
+    refreshWorkpieces,
+    selectDraft,
+    showArchived,
+    workpieceId,
+    workspaceId,
+  ]);
+
+  const onRestoreWorkpiece = useCallback(async (
+    targetWorkpieceId: string,
+    options?: { openAfterRestore?: boolean },
+  ) => {
+    const normalizedWorkspaceId = normalizeUuid(workspaceId);
+    const normalizedWorkpieceId = normalizeUuid(targetWorkpieceId);
+    if (!normalizedWorkspaceId || !normalizedWorkpieceId || restoringWorkpieceIds.includes(normalizedWorkpieceId)) {
+      return;
+    }
+
+    setError(null);
+    setRestoringWorkpieceIds((prev) => (
+      prev.includes(normalizedWorkpieceId) ? prev : [...prev, normalizedWorkpieceId]
+    ));
+
+    try {
+      await restoreHearthWorkpiece({
+        workspaceId: normalizedWorkspaceId,
+        workpieceId: normalizedWorkpieceId,
+      });
+      await refreshWorkpieces(normalizedWorkspaceId, {
+        includeArchived: showArchived || Boolean(options?.openAfterRestore),
+      });
+
+      if (options?.openAfterRestore) {
+        await openWorkpieceInFocus(normalizedWorkpieceId, {
+          workspaceId: normalizedWorkspaceId,
+          preferredDraftId: activeDraft?.id ?? normalizedWorkpieceId,
+        });
+      }
+    } catch {
+      setError("Failed to restore workpiece.");
+    } finally {
+      setRestoringWorkpieceIds((prev) => prev.filter((id) => id !== normalizedWorkpieceId));
+    }
+  }, [
+    activeDraft?.id,
+    openWorkpieceInFocus,
+    refreshWorkpieces,
+    restoringWorkpieceIds,
+    showArchived,
+    workspaceId,
+  ]);
 
   async function onConfirmRevision() {
     if (!activeDraft) return;
@@ -7549,7 +7672,7 @@ export default function HearthShell() {
             {isSaving ? "Saving..." : "Save draft"}
           </button>
           <button onClick={() => activeDraft && void onDeleteDraft(activeDraft)} disabled={!activeDraft || isSaving}>
-            Delete Draft
+            Delete Draft Buffer
           </button>
           <button onClick={() => setRevisionModalOpen(true)} disabled={!activeDraft || isSaving}>
             Create Revision
@@ -8408,6 +8531,8 @@ export default function HearthShell() {
           const draft = item.draftId ? draftsById.get(item.draftId) ?? null : null;
           const isActive = workpieceId === item.workpieceId;
           const updatedAt = item.updatedAtMs || draft?.updatedAt || Date.now();
+          const isArchiving = archivingWorkpieceIds.includes(item.workpieceId);
+          const isRestoring = restoringWorkpieceIds.includes(item.workpieceId);
           return (
           <li key={item.workpieceId}>
             <div className={`hs-workpiece-card${isActive ? " is-active" : ""}`}>
@@ -8429,19 +8554,31 @@ export default function HearthShell() {
                   {draft ? `Last edited by ${resolveDraftEditorName(draft)}` : "No attached draft buffer yet"}
                 </div>
               </button>
-              {draft ? (
-                <div className="hs-workpiece-actions">
+              <div className="hs-workpiece-actions">
+                {draft && !item.isArchived ? (
                   <button type="button" onClick={() => void saveDraftMeta(draft, { pinned: !draft.pinned })}>
                     {draft.pinned ? "Unpin" : "Pin"}
                   </button>
-                  <button type="button" onClick={() => void saveDraftMeta(draft, { archived: !draft.archived })}>
-                    {draft.archived ? "Unarchive" : "Archive"}
-                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => void (
+                    item.isArchived
+                      ? onRestoreWorkpiece(item.workpieceId)
+                      : onArchiveWorkpiece(item.workpieceId)
+                  )}
+                  disabled={isArchiving || isRestoring}
+                >
+                  {item.isArchived
+                    ? isRestoring ? "Restoring..." : "Restore Workpiece"
+                    : isArchiving ? "Archiving..." : "Archive Workpiece"}
+                </button>
+                {draft ? (
                   <button type="button" onClick={() => void onDeleteDraft(draft)}>
-                    Delete
+                    Delete Draft Buffer
                   </button>
-                </div>
-              ) : null}
+                ) : null}
+              </div>
             </div>
           </li>
         );
@@ -8585,6 +8722,34 @@ export default function HearthShell() {
           <div className="hs-home-actions">
             <button type="button" onClick={() => setMode("episodes")}>
               Go to Episodes
+            </button>
+          </div>
+        </section>
+      );
+    }
+
+    if (activeWorkpieceContext.workpiece?.isArchived) {
+      const archivedWorkpiece = activeWorkpieceContext.workpiece;
+      const isRestoringArchivedWorkpiece = restoringWorkpieceIds.includes(archivedWorkpiece.workpieceId);
+      return (
+        <section className="hs-home">
+          <header className="hs-home-header">
+            <h2 className="hs-home-title">{archivedWorkpiece.title}</h2>
+            <p className="hs-home-subtext">This workpiece is archived. Restore it before continuing editorial work.</p>
+          </header>
+          {archivedWorkpiece.archiveReason ? (
+            <div className="hs-rail-meta">Archive reason: {archivedWorkpiece.archiveReason}</div>
+          ) : null}
+          <div className="hs-home-actions">
+            <button
+              type="button"
+              onClick={() => void onRestoreWorkpiece(archivedWorkpiece.workpieceId, { openAfterRestore: true })}
+              disabled={isRestoringArchivedWorkpiece}
+            >
+              {isRestoringArchivedWorkpiece ? "Restoring..." : "Restore Workpiece"}
+            </button>
+            <button type="button" onClick={() => setMode("episodes")}>
+              Back to Episodes
             </button>
           </div>
         </section>
@@ -8937,6 +9102,8 @@ export default function HearthShell() {
                     const isActive = workpieceId === item.workpieceId;
                     const isEditing = Boolean(draftId) && editingDraftId === draftId;
                     const updatedAt = item.updatedAtMs || draft?.updatedAt || Date.now();
+                    const isArchiving = archivingWorkpieceIds.includes(item.workpieceId);
+                    const isRestoring = restoringWorkpieceIds.includes(item.workpieceId);
                     return (
                       <li key={item.workpieceId}>
                         <div
@@ -8991,7 +9158,7 @@ export default function HearthShell() {
                           <div className="hs-workpiece-revisions">
                             Revisions {draft?.revisionCount ?? "-"}
                           </div>
-                          {draft ? (
+                          {draft && !item.isArchived ? (
                             <div className="hs-workpiece-actions">
                               <button
                                 type="button"
@@ -9008,17 +9175,28 @@ export default function HearthShell() {
                               >
                                 Rename
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => void saveDraftMeta(draft, { archived: !draft.archived })}
-                              >
-                                {draft.archived ? "Unarchive" : "Archive"}
-                              </button>
-                              <button type="button" onClick={() => void onDeleteDraft(draft)}>
-                                Delete
-                              </button>
                             </div>
                           ) : null}
+                          <div className="hs-workpiece-actions">
+                            <button
+                              type="button"
+                              onClick={() => void (
+                                item.isArchived
+                                  ? onRestoreWorkpiece(item.workpieceId)
+                                  : onArchiveWorkpiece(item.workpieceId)
+                              )}
+                              disabled={isArchiving || isRestoring}
+                            >
+                              {item.isArchived
+                                ? isRestoring ? "Restoring..." : "Restore Workpiece"
+                                : isArchiving ? "Archiving..." : "Archive Workpiece"}
+                            </button>
+                            {draft ? (
+                              <button type="button" onClick={() => void onDeleteDraft(draft)}>
+                                Delete Draft Buffer
+                              </button>
+                            ) : null}
+                          </div>
                         </div>
                       </li>
                     );
@@ -9031,60 +9209,79 @@ export default function HearthShell() {
           {hasActiveEpisode ? (
             <div className="hs-active-workpiece">
               <div className="hs-rail-heading">Active workpiece</div>
-              <button
-                type="button"
-                onClick={() => void onOpenInAnvil()}
-                disabled={!openInAnvilHref}
-                className="hs-mode-button"
-              >
-                Open in Anvil
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setFocusTab("draft");
-                  setMode("focus");
-                }}
-                className={`hs-mode-button${mode === "focus" && focusTab === "draft" ? " is-active" : ""}`}
-              >
-                Draft
-                <span className="hs-mode-meta">{wordCount} words</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setFocusTab("planning");
-                  setMode("focus");
-                }}
-                className={`hs-mode-button${mode === "focus" && focusTab === "planning" ? " is-active" : ""}`}
-              >
-                Planning Board
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setFocusTab("sources");
-                  setMode("focus");
-                }}
-                className={`hs-mode-button${mode === "focus" && focusTab === "sources" ? " is-active" : ""}`}
-                title={sourcesBadgeTitle}
-              >
-                Sources
-                {sourcesBadge ? (
-                  <span className={`hs-sources-badge${devMode ? " is-dev" : ""}`}>{sourcesBadge}</span>
-                ) : null}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setFocusTab("revisions");
-                  setMode("focus");
-                }}
-                className={`hs-mode-button${mode === "focus" && focusTab === "revisions" ? " is-active" : ""}`}
-              >
-                Revisions
-                <span className="hs-mode-meta">{revisions.length}</span>
-              </button>
+              {activeWorkpieceIsArchived && activeWorkpiece ? (
+                <>
+                  <div className="hs-rail-meta">Archived workpieces are hidden records. Restore before editing or recording.</div>
+                  {activeWorkpiece.archiveReason ? (
+                    <div className="hs-rail-meta">Archive reason: {activeWorkpiece.archiveReason}</div>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => void onRestoreWorkpiece(activeWorkpiece.workpieceId, { openAfterRestore: true })}
+                    disabled={restoringWorkpieceIds.includes(activeWorkpiece.workpieceId)}
+                    className="hs-mode-button"
+                  >
+                    {restoringWorkpieceIds.includes(activeWorkpiece.workpieceId) ? "Restoring..." : "Restore Workpiece"}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void onOpenInAnvil()}
+                    disabled={!openInAnvilHref}
+                    className="hs-mode-button"
+                  >
+                    Open in Anvil
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFocusTab("draft");
+                      setMode("focus");
+                    }}
+                    className={`hs-mode-button${mode === "focus" && focusTab === "draft" ? " is-active" : ""}`}
+                  >
+                    Draft
+                    <span className="hs-mode-meta">{wordCount} words</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFocusTab("planning");
+                      setMode("focus");
+                    }}
+                    className={`hs-mode-button${mode === "focus" && focusTab === "planning" ? " is-active" : ""}`}
+                  >
+                    Planning Board
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFocusTab("sources");
+                      setMode("focus");
+                    }}
+                    className={`hs-mode-button${mode === "focus" && focusTab === "sources" ? " is-active" : ""}`}
+                    title={sourcesBadgeTitle}
+                  >
+                    Sources
+                    {sourcesBadge ? (
+                      <span className={`hs-sources-badge${devMode ? " is-dev" : ""}`}>{sourcesBadge}</span>
+                    ) : null}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFocusTab("revisions");
+                      setMode("focus");
+                    }}
+                    className={`hs-mode-button${mode === "focus" && focusTab === "revisions" ? " is-active" : ""}`}
+                  >
+                    Revisions
+                    <span className="hs-mode-meta">{revisions.length}</span>
+                  </button>
+                </>
+              )}
             </div>
           ) : null}
 
@@ -9128,14 +9325,28 @@ export default function HearthShell() {
               </button>
             }
             bottomBar={
-              <div className="hs-mobile-overlay-actions">
-                <button type="button" onClick={() => activeDraft && void onDeleteDraft(activeDraft)} disabled={!activeDraft || isSaving}>
-                  Delete
-                </button>
-                <button type="button" onClick={() => void onSaveDraft()} disabled={!activeDraft || isSaving}>
-                  {isSaving ? "Saving..." : "Save"}
-                </button>
-              </div>
+              activeWorkpieceContext.workpiece?.isArchived ? (
+                <div className="hs-mobile-overlay-actions">
+                  <button
+                    type="button"
+                    onClick={() => activeWorkpieceContext.workpiece && void onRestoreWorkpiece(activeWorkpieceContext.workpiece.workpieceId, { openAfterRestore: true })}
+                    disabled={!activeWorkpieceContext.workpiece || restoringWorkpieceIds.includes(activeWorkpieceContext.workpiece.workpieceId)}
+                  >
+                    {activeWorkpieceContext.workpiece && restoringWorkpieceIds.includes(activeWorkpieceContext.workpiece.workpieceId)
+                      ? "Restoring..."
+                      : "Restore Workpiece"}
+                  </button>
+                </div>
+              ) : (
+                <div className="hs-mobile-overlay-actions">
+                  <button type="button" onClick={() => activeDraft && void onDeleteDraft(activeDraft)} disabled={!activeDraft || isSaving}>
+                    Delete Draft Buffer
+                  </button>
+                  <button type="button" onClick={() => void onSaveDraft()} disabled={!activeDraft || isSaving}>
+                    {isSaving ? "Saving..." : "Save"}
+                  </button>
+                </div>
+              )
             }
           >
             <div className="hs-mobile-overlay-body">

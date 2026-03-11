@@ -4,6 +4,21 @@ Companion reference only. Constitutional lifecycle semantics are defined in `FOR
 
 This document turns the lifecycle canon into operational diagrams and policy guidance without replacing the canon.
 
+Deletion implementation planning lives separately in `WORKPIECE_DELETION_POLICY_PLAN.md` so this document can stay operational instead of procedural.
+
+## State And Authority Table
+
+| State | Meaning | Authority | Canonical Persistence | Allowed Transitions | Auto Cleanup | User Delete? | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `spark_unfinished` | Bar-Stock intake object that has not yet completed forge/record lifecycle | Bar-Stock for capture and owner intent; Tongs for persisted record if stored canonically | Spark record and provenance links in Tongs-backed paths | `spark_unfinished -> workpiece_warming`, `spark_unfinished -> spark_deleted` | None | Yes | Spark is persistent while useful, but not a forever artifact |
+| `spark_deleted` | Spark removed by the owner before completion or by the system after successful completion | Bar-Stock cleanup rules and system lifecycle cleanup | Canonical delete or tombstone policy in Tongs-backed spark storage | Terminal | System may auto-delete after `recorded` | Yes | Spark deletion must never destroy the superseding workpiece |
+| `workpiece_warming` | Active editorial shaping in Hearth | Hearth for editorial actions; Tongs for persisted truth | Workpiece row, package files, metadata, revisions, and derived artifacts in Tongs | `warming -> ready`, `warming -> recorded` only through kept-take truth after prior readiness path, reversible from higher states | None | Not as a lifecycle action; archive/delete is separate policy | Durable production container and cross-tool identity |
+| `workpiece_ready` | Editorially ready for scheduling or recording | Hearth editorial state; Tongs persistence | Canonical workpiece-backed ready state and ready-script metadata paths | `ready -> warming`, `ready -> scheduled`, `ready -> recorded` | None | No | Ready is reversible, not approval, not lock, not terminal |
+| `workpiece_scheduled` | Associated with a recording session | Calendar/Tongs scheduling truth | Session and session-item/session-episode records in Tongs | `scheduled -> ready`, `scheduled -> warming`, `scheduled -> recorded` | None | No | Scheduling should not become implicit lock-in |
+| `workpiece_recorded` | At least one kept take exists and recording truth is established | Anvil/Tongs receipt truth | Take receipts, recording metadata, and kept-take truth in Tongs-backed paths | `recorded -> ready`, `recorded -> warming` | System may delete original Spark after successful completion | No | Recorded is not terminal; old takes remain lineage |
+| `workpiece_archived` | Recommended future “soft delete” posture for hiding durable work without destroying lineage | Tongs canonical lifecycle once implemented | Future canonical archive fields and hidden/default-filter behavior | `archived -> warming`, `archived -> ready`, `archived -> scheduled`, `archived -> recorded` after restore | None | User-triggered archive/restore, once implemented | Recommended policy only; not a claim that full archive semantics already exist |
+| `workpiece_hard_deleted` | Recommended future destructive purge for eligible workpieces | Admin/workspace authority under strict rules | Future purge path and dependency cleanup rules | Terminal | None | Restricted future action | Recommended policy only; blocked whenever lineage or downstream references must be preserved |
+
 ## Lifecycle State Diagram
 
 This reflects the current canonical lifecycle and authority boundaries:
@@ -188,60 +203,16 @@ Expected behavior:
 - Bar Stock cleans itself up only after successful completion.
 - Until then, unfinished Sparks remain user-manageable.
 
-## Recommended Workpiece Deletion Policy
+## Workpiece Deletion Planning
 
-This section is recommended policy, not a claim that the current product already implements full workpiece deletion semantics.
+Recommended workpiece deletion implementation is defined in `WORKPIECE_DELETION_POLICY_PLAN.md`.
 
-### Tier 1: Spark Deletion
+Operational rule here stays narrow:
 
-Allowed now.
-
-- User may delete an unfinished Spark.
-- System deletes original Spark after forged + recorded.
-- This is lightweight deletion.
-
-### Tier 2: Workpiece Archive
-
-Preferred default for most "delete" requests.
-
-Behavior:
-
-- Hide from normal views.
-- Preserve metadata, script, asset lineage, scheduling history, and take receipts.
-- Allow restore.
-
-Use archive for:
-
-- abandoned ideas that were already forged
-- duplicate workpieces
-- projects the user wants out of the way
-- content that still has audit value
-
-Recommendation:
-
-- The everyday "delete" button in the UI should map to archive behavior.
-
-### Tier 3: Hard Delete
-
-Rare, intentional, and constrained.
-
-Recommended hard-delete gate:
-
-- user has sufficient workspace authority
-- workpiece is not referenced by an active session
-- user confirms destructive deletion
-- system can cleanly handle dependent files, asset rows, and receipts
-
-Suggested rule:
-
-- if the workpiece has no kept takes, hard delete may be allowed
-- if the workpiece has kept takes or published downstream artifacts, hard delete should usually be blocked or elevated to admin-only purge
-
-Recommendation:
-
-- Do not implement general hard delete yet.
-- Implement archive first.
-- Preserve lineage by default.
+- Spark deletion is lightweight lifecycle cleanup.
+- Workpiece deletion must preserve lineage by default.
+- Archive should be the everyday user-facing delete posture once implemented.
+- Hard delete should stay exceptional.
 
 ## Edge Case Guidance
 

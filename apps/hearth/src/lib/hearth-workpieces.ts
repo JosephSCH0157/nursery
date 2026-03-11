@@ -8,6 +8,9 @@ export type HearthWorkpieceSummaryApiRow = {
   label?: unknown;
   created_at?: unknown;
   updated_at?: unknown;
+  archived_at?: unknown;
+  archived_by?: unknown;
+  archive_reason?: unknown;
 };
 
 export type HearthWorkpieceSummary = {
@@ -19,6 +22,25 @@ export type HearthWorkpieceSummary = {
   updatedAt: string | null;
   createdAtMs: number;
   updatedAtMs: number;
+  archivedAt: string | null;
+  archivedBy: string | null;
+  archiveReason: string | null;
+  isArchived: boolean;
+};
+
+export type ListHearthWorkpiecesOptions = {
+  includeArchived?: boolean;
+};
+
+export type ArchiveHearthWorkpieceInput = {
+  workspaceId: string;
+  workpieceId: string;
+  reason?: string | null;
+};
+
+export type RestoreHearthWorkpieceInput = {
+  workspaceId: string;
+  workpieceId: string;
 };
 
 function readString(value: unknown): string | null {
@@ -58,6 +80,9 @@ function parseWorkpieceSummaryRow(
 
   const createdAt = normalizeIso(item.created_at);
   const updatedAt = normalizeIso(item.updated_at);
+  const archivedAt = normalizeIso(item.archived_at);
+  const archivedBy = normalizeUuid(item.archived_by);
+  const archiveReason = readString(item.archive_reason);
 
   return {
     workpieceId,
@@ -68,6 +93,10 @@ function parseWorkpieceSummaryRow(
     updatedAt,
     createdAtMs: createdAt ? Date.parse(createdAt) : 0,
     updatedAtMs: updatedAt ? Date.parse(updatedAt) : 0,
+    archivedAt,
+    archivedBy,
+    archiveReason,
+    isArchived: Boolean(archivedAt),
   };
 }
 
@@ -100,11 +129,33 @@ export function parseHearthWorkpiecesPayload(
   });
 }
 
-export async function listHearthWorkpieces(workspaceId: string): Promise<HearthWorkpieceSummary[]> {
+function parseWorkpieceSummaryFromMutationPayload(
+  workspaceId: string,
+  payload: unknown,
+): HearthWorkpieceSummary | null {
+  const normalizedWorkspaceId = normalizeUuid(workspaceId);
+  if (!normalizedWorkspaceId) return null;
+
+  const body = payload as {
+    ok?: unknown;
+    data?: {
+      workpiece?: unknown;
+    };
+  } | null;
+  const item = body?.data?.workpiece;
+  if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+  return parseWorkpieceSummaryRow(item as HearthWorkpieceSummaryApiRow, normalizedWorkspaceId);
+}
+
+export async function listHearthWorkpieces(
+  workspaceId: string,
+  options?: ListHearthWorkpiecesOptions,
+): Promise<HearthWorkpieceSummary[]> {
   const normalizedWorkspaceId = normalizeUuid(workspaceId);
   if (!normalizedWorkspaceId) return [];
 
-  const response = await tongsFetch(`/tongs/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/episodes`, {
+  const search = options?.includeArchived ? "?include_archived=1" : "";
+  const response = await tongsFetch(`/tongs/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/episodes${search}`, {
     method: "GET",
   });
   if (!response.ok) {
@@ -113,4 +164,59 @@ export async function listHearthWorkpieces(workspaceId: string): Promise<HearthW
 
   const body = await response.json();
   return parseHearthWorkpiecesPayload(normalizedWorkspaceId, body);
+}
+
+export async function archiveHearthWorkpiece(
+  input: ArchiveHearthWorkpieceInput,
+): Promise<HearthWorkpieceSummary> {
+  const workspaceId = normalizeUuid(input.workspaceId);
+  const workpieceId = normalizeUuid(input.workpieceId);
+  if (!workspaceId || !workpieceId) {
+    throw new Error("workpiece_archive_failed");
+  }
+
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/archive`, {
+    method: "POST",
+    json: {
+      workspace_id: workspaceId,
+      reason: input.reason ?? null,
+    },
+  });
+  if (!response.ok) {
+    throw new Error("workpiece_archive_failed");
+  }
+
+  const body = await response.json();
+  const summary = parseWorkpieceSummaryFromMutationPayload(workspaceId, body);
+  if (!summary) {
+    throw new Error("workpiece_archive_failed");
+  }
+  return summary;
+}
+
+export async function restoreHearthWorkpiece(
+  input: RestoreHearthWorkpieceInput,
+): Promise<HearthWorkpieceSummary> {
+  const workspaceId = normalizeUuid(input.workspaceId);
+  const workpieceId = normalizeUuid(input.workpieceId);
+  if (!workspaceId || !workpieceId) {
+    throw new Error("workpiece_restore_failed");
+  }
+
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/restore`, {
+    method: "POST",
+    json: {
+      workspace_id: workspaceId,
+    },
+  });
+  if (!response.ok) {
+    throw new Error("workpiece_restore_failed");
+  }
+
+  const body = await response.json();
+  const summary = parseWorkpieceSummaryFromMutationPayload(workspaceId, body);
+  if (!summary) {
+    throw new Error("workpiece_restore_failed");
+  }
+  return summary;
 }

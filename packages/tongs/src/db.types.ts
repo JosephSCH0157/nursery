@@ -236,6 +236,9 @@ export type Database = {
       }
       episodes: {
         Row: {
+          archive_reason: string | null
+          archived_at: string | null
+          archived_by: string | null
           id: string
           workspace_id: string
           label: string
@@ -243,6 +246,9 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          archive_reason?: string | null
+          archived_at?: string | null
+          archived_by?: string | null
           id?: string
           workspace_id: string
           label: string
@@ -250,6 +256,9 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          archive_reason?: string | null
+          archived_at?: string | null
+          archived_by?: string | null
           id?: string
           workspace_id?: string
           label?: string
