@@ -4,6 +4,10 @@ Implementation lock only. Constitutional lifecycle semantics are defined in `FOR
 
 Date locked: 2026-03-11
 
+Execution plan:
+
+- `LOCAL_MIRROR_SSOT_SLICE_4_IMPLEMENTATION_PLAN.md`
+
 ## Decision
 
 Slice 4 is locked to the following rule:

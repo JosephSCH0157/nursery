@@ -214,6 +214,8 @@ Lock source: `LOCAL_MIRROR_SSOT_SLICE_4_DERIVED_ARTIFACT_LOCK.md`
 
 Ingest reference: `LOCAL_MIRROR_INGEST_STATE_MACHINE.md`
 
+Execution plan: `LOCAL_MIRROR_SSOT_SLICE_4_IMPLEMENTATION_PLAN.md`
+
 ### Slice 5 - Cross-Tool Handoff
 
 - Anvil handoff
