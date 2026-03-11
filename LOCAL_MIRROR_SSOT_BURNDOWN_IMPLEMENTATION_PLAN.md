@@ -197,6 +197,8 @@ Status: complete
 
 Lock source: `LOCAL_MIRROR_SSOT_SLICE_3_CANDIDACY_LOCK.md`
 
+Execution plan: `LOCAL_MIRROR_SSOT_SLICE_3_IMPLEMENTATION_PLAN.md`
+
 ### Slice 4 - Derived Artifact Truth
 
 - derived asset presence
