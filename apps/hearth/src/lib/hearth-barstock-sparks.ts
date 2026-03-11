@@ -120,6 +120,36 @@ export function mergeBarStockSparkSources(
   });
 }
 
+export function isCanonicalSparkDiscoveryResolved(
+  workspaceId: string | null | undefined,
+  discoveryWorkspaceId: string | null | undefined,
+): boolean {
+  const normalizedWorkspaceId = normalizeUuid(workspaceId);
+  if (!normalizedWorkspaceId) return true;
+  return normalizeUuid(discoveryWorkspaceId) === normalizedWorkspaceId;
+}
+
+export function resolveCanonicalSparkIntakeError(args: {
+  routeProjectId?: string | null;
+  routeSparkId?: string | null;
+  workspaceId?: string | null;
+  discoveryWorkspaceId?: string | null;
+  spark?: BarStockSpark | null;
+}): string | null {
+  if (readString(args.routeProjectId) || !readString(args.routeSparkId)) return null;
+
+  const normalizedWorkspaceId = normalizeUuid(args.workspaceId);
+  if (!normalizedWorkspaceId) {
+    return "Spark intake requires workspace_id.";
+  }
+
+  if (!isCanonicalSparkDiscoveryResolved(normalizedWorkspaceId, args.discoveryWorkspaceId)) {
+    return null;
+  }
+
+  return args.spark ? null : "Spark not found in Bar Stock. Sync and retry.";
+}
+
 export function parseHearthBarStockSparksPayload(
   payload: unknown,
 ): BarStockSpark[] {

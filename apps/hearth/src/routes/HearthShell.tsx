@@ -8,15 +8,15 @@ import {
   type BarStockSpark,
   enqueueBarStockSpark,
   isBarStockKey,
-  readBarStockSparks,
   resolveBarStockSparkHearthWorkpieceId,
   resolveBarstockSparkIdFromQuery,
   upsertBarStockSpark,
   writeBarStockSparks,
 } from "../lib/barstock-sparks";
 import {
+  isCanonicalSparkDiscoveryResolved,
   listHearthBarStockSparks,
-  mergeBarStockSparkSources,
+  resolveCanonicalSparkIntakeError,
 } from "../lib/hearth-barstock-sparks";
 import {
   readBarstockProjectContext,
@@ -1824,8 +1824,9 @@ export default function HearthShell() {
   const [workpieceId, setWorkpieceId] = useState<string | null>(() => (
     incomingBarStockIntakeRoute ? null : resolveWorkpieceId()
   ));
-  const [sparks, setSparks] = useState<BarStockSpark[]>(() => readBarStockSparks(resolveWorkspaceId()));
-  const [isSparksLoading, setIsSparksLoading] = useState(false);
+  const [sparks, setSparks] = useState<BarStockSpark[]>([]);
+  const [isSparksLoading, setIsSparksLoading] = useState<boolean>(() => Boolean(normalizeUuid(resolveWorkspaceId())));
+  const [sparkDiscoveryWorkspaceId, setSparkDiscoveryWorkspaceId] = useState<string | null>(null);
   const [selectedSparkId, setSelectedSparkId] = useState<string | null>(null);
   const [forgeError, setForgeError] = useState<string | null>(null);
   const [isForging, setIsForging] = useState(false);
@@ -3727,6 +3728,9 @@ export default function HearthShell() {
 
     projectIntakeHandledRef.current = null;
     sparkIntakeHandledRef.current = null;
+    setSparks([]);
+    setSparkDiscoveryWorkspaceId(null);
+    setIsSparksLoading(Boolean(normalizeUuid(workspaceId)));
     setWorkpieceId(null);
     setPlanningSession(null);
     setSessionTouched(false);
@@ -3832,11 +3836,21 @@ export default function HearthShell() {
 
     const intakeKey = `${workspaceId ?? "none"}:${routeSparkId}`;
     if (sparkIntakeHandledRef.current === intakeKey) return;
-    if (!routeSpark) {
-      if (!isSparksLoading) {
-        sparkIntakeHandledRef.current = intakeKey;
-        setForgeError("Spark not found in Bar Stock. Sync and retry.");
-      }
+
+    const intakeError = resolveCanonicalSparkIntakeError({
+      routeProjectId,
+      routeSparkId,
+      workspaceId,
+      discoveryWorkspaceId: sparkDiscoveryWorkspaceId,
+      spark: routeSpark,
+    });
+    if (intakeError) {
+      sparkIntakeHandledRef.current = intakeKey;
+      setForgeError(intakeError);
+      return;
+    }
+
+    if (!isCanonicalSparkDiscoveryResolved(workspaceId, sparkDiscoveryWorkspaceId) || isSparksLoading) {
       return;
     }
 
@@ -3857,28 +3871,43 @@ export default function HearthShell() {
       return;
     }
     void forgeSpark(routeSpark);
-  }, [forgeSpark, isSparksLoading, openWorkpieceInFocus, routeProjectId, routeSpark, routeSparkId, workspaceId]);
+  }, [
+    forgeSpark,
+    isSparksLoading,
+    openWorkpieceInFocus,
+    routeProjectId,
+    routeSpark,
+    routeSparkId,
+    sparkDiscoveryWorkspaceId,
+    workspaceId,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     let cancelled = false;
     const refresh = async () => {
-      const local = readBarStockSparks(workspaceId);
-      if (!workspaceId) {
-        if (!cancelled) setSparks(local);
+      const normalizedWorkspaceId = normalizeUuid(workspaceId);
+      if (!normalizedWorkspaceId) {
+        if (!cancelled) {
+          setSparks([]);
+          setSparkDiscoveryWorkspaceId(null);
+          setIsSparksLoading(false);
+        }
         return;
       }
 
       if (!cancelled) setIsSparksLoading(true);
       try {
-        const remote = await listHearthBarStockSparks(workspaceId);
+        const remote = await listHearthBarStockSparks(normalizedWorkspaceId);
         if (cancelled) return;
-        setSparks(mergeBarStockSparkSources(remote, local));
+        setSparks(remote);
       } catch {
         if (cancelled) return;
-        setSparks(local);
       } finally {
-        if (!cancelled) setIsSparksLoading(false);
+        if (!cancelled) {
+          setSparkDiscoveryWorkspaceId(normalizedWorkspaceId);
+          setIsSparksLoading(false);
+        }
       }
     };
 

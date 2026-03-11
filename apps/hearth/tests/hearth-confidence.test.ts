@@ -28,8 +28,9 @@ import {
 import { readHearthPrimaryScript } from "../src/lib/hearth-script-repo";
 import { resolveBarStockSparkHearthWorkpieceId } from "../src/lib/barstock-sparks";
 import {
+  isCanonicalSparkDiscoveryResolved,
   listHearthBarStockSparks,
-  mergeBarStockSparkSources,
+  resolveCanonicalSparkIntakeError,
 } from "../src/lib/hearth-barstock-sparks";
 import {
   archiveHearthWorkpiece,
@@ -1036,7 +1037,7 @@ async function testImageMapRepoSaveForwardsExpectedTimestampAndReturnsLatestOnCo
   }
 }
 
-async function testBarStockSparkListRoundtripAndMerge() {
+async function testBarStockSparkListDiscoveryStaysCanonicalAcrossClients() {
   resetLocalStorage();
   const localSpark = {
     id: "7fce5928-fcab-4f41-9894-09a7254f78e1",
@@ -1054,7 +1055,7 @@ async function testBarStockSparkListRoundtripAndMerge() {
   const harness = installSparkFetchHarness();
   harness.setSparksPayload([
     {
-      id: localSpark.id,
+      id: "47d34493-ce9f-4cce-9406-5ba4720d4745",
       workspace_id: WORKSPACE_ID,
       assignment_id: null,
       title: "Remote Canonical Spark",
@@ -1080,21 +1081,65 @@ async function testBarStockSparkListRoundtripAndMerge() {
   ]);
 
   try {
-    const remote = await listHearthBarStockSparks(WORKSPACE_ID);
-    assert.deepEqual(harness.listRequests, [WORKSPACE_ID]);
-    assert.equal(remote.length, 2);
-    assert.equal(remote[0]?.title, "Remote Canonical Spark");
-    assert.equal(resolveBarStockSparkHearthWorkpieceId(remote[1]), WORKPIECE_B);
+    const firstClient = await listHearthBarStockSparks(WORKSPACE_ID);
+    resetLocalStorage();
+    const secondClient = await listHearthBarStockSparks(WORKSPACE_ID);
 
-    const merged = mergeBarStockSparkSources(remote, [localSpark]);
-    const mergedLocal = merged.find((spark) => spark.id === localSpark.id);
-    assert.equal(mergedLocal?.title, "Remote Canonical Spark");
-    assert.equal(mergedLocal?.status, "forged");
-    assert.equal(resolveBarStockSparkHearthWorkpieceId(mergedLocal), WORKPIECE_A);
-    assert.equal(mergedLocal?.links?.hearthDraftId, "draft-local");
+    assert.deepEqual(harness.listRequests, [WORKSPACE_ID, WORKSPACE_ID]);
+    assert.equal(firstClient.length, 2);
+    assert.equal(firstClient[0]?.title, "Remote Canonical Spark");
+    assert.equal(resolveBarStockSparkHearthWorkpieceId(firstClient[1]), WORKPIECE_B);
+    assert.equal(
+      firstClient.some((spark) => spark.id === localSpark.id),
+      false,
+      "Local mirror residue must not determine canonical spark discovery",
+    );
+    assert.deepEqual(
+      secondClient,
+      firstClient,
+      "A second client should observe the same canonical entry truth without mirror state",
+    );
   } finally {
     harness.restore();
   }
+}
+
+async function testSparkIntakeWaitsForCanonicalDiscoveryBeforeDeclaringMissing() {
+  const sparkId = "7fce5928-fcab-4f41-9894-09a7254f78e1";
+
+  assert.equal(
+    resolveCanonicalSparkIntakeError({
+      routeSparkId: sparkId,
+      workspaceId: WORKSPACE_ID,
+      discoveryWorkspaceId: null,
+      spark: null,
+    }),
+    null,
+    "Deep-link intake should wait for canonical spark discovery before declaring a spark missing",
+  );
+  assert.equal(
+    isCanonicalSparkDiscoveryResolved(WORKSPACE_ID, null),
+    false,
+    "Discovery should be unresolved until the current workspace has completed canonical spark loading",
+  );
+  assert.equal(
+    resolveCanonicalSparkIntakeError({
+      routeSparkId: sparkId,
+      workspaceId: null,
+      discoveryWorkspaceId: null,
+      spark: null,
+    }),
+    "Spark intake requires workspace_id.",
+  );
+  assert.equal(
+    resolveCanonicalSparkIntakeError({
+      routeSparkId: sparkId,
+      workspaceId: WORKSPACE_ID,
+      discoveryWorkspaceId: WORKSPACE_ID,
+      spark: null,
+    }),
+    "Spark not found in Bar Stock. Sync and retry.",
+  );
 }
 
 async function testWorkpieceListRoundtripAndPrimaryScriptRead() {
@@ -1552,7 +1597,8 @@ async function run() {
   await testReadyScriptRemovalDeletesAllCanonicalPaths();
   await testImageMapRepoReadNormalizesSemanticEntriesAndAssetSummary();
   await testImageMapRepoSaveForwardsExpectedTimestampAndReturnsLatestOnConflict();
-  await testBarStockSparkListRoundtripAndMerge();
+  await testBarStockSparkListDiscoveryStaysCanonicalAcrossClients();
+  await testSparkIntakeWaitsForCanonicalDiscoveryBeforeDeclaringMissing();
   await testWorkpieceListRoundtripAndPrimaryScriptRead();
   await testWorkpieceArchiveRoundtripUsesCanonicalEndpoints();
   await testWorkpieceNavModelStaysWorkpieceFirst();

@@ -6,6 +6,8 @@ For system behavior of ideas, scripts, persistence, and recording:
 - `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`
 - `STATE_MACHINE_DIAGRAM.md`
 - `WORKPIECE_DELETION_POLICY_PLAN.md`
+- `LOCAL_MIRROR_SSOT_BURNDOWN_LOCK.md`
+- `LOCAL_MIRROR_SSOT_BURNDOWN_IMPLEMENTATION_PLAN.md`
 
 ## Release status
 

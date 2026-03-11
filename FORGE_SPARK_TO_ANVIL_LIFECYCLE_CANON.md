@@ -7,6 +7,7 @@ Companion operational reference: `STATE_MACHINE_DIAGRAM.md`.
 Related implementation planning:
 
 - `WORKPIECE_DELETION_POLICY_PLAN.md` for archive, hard-delete, and purge rollout planning.
+- `LOCAL_MIRROR_SSOT_BURNDOWN_LOCK.md` and `LOCAL_MIRROR_SSOT_BURNDOWN_IMPLEMENTATION_PLAN.md` for removing mirror-backed authority from product behavior.
 
 ## Purpose
 
