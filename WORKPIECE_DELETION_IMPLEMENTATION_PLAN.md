@@ -8,6 +8,10 @@ Completion note:
 
 - `WORKPIECE_DELETION_SLICE_1_COMPLETION.md`
 
+Next lock:
+
+- `WORKPIECE_DELETION_SLICE_2_RESTORE_REINTEGRATION_LOCK.md`
+
 This requires a DB migration / RLS update.
 
 ## Purpose

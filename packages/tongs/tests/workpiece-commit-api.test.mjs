@@ -19,6 +19,7 @@ function mockService() {
     attachEpisodeToSession: [],
     detachEpisodeFromSession: [],
     listSessionEpisodes: [],
+    listWorkspaceSparks: [],
     listWorkspaceEpisodes: [],
     archiveWorkpiece: [],
     restoreWorkpiece: [],
@@ -301,6 +302,23 @@ function mockService() {
             created_at: "2026-02-20T00:00:00.000Z",
             updated_at: "2026-02-21T00:00:00.000Z",
           },
+        },
+      ];
+    },
+    async listWorkspaceSparks(workspaceId, options) {
+      calls.listWorkspaceSparks.push({ workspaceId, options: options ?? null });
+      return [
+        {
+          id: "77777777-7777-4777-8777-777777777777",
+          workspace_id: workspaceId,
+          assignment_id: "88888888-8888-4888-8888-888888888888",
+          title: "Spark 1",
+          body: "Spark body",
+          tags: ["community"],
+          status: "forged",
+          created_at: "2026-03-10T10:00:00.000Z",
+          updated_at: "2026-03-10T11:00:00.000Z",
+          linked_workpiece_id: "99999999-9999-4999-8999-999999999999",
         },
       ];
     },
@@ -1880,6 +1898,48 @@ test("DELETE /tongs/recording-sessions/:id/episodes/:episodeId dispatches detach
   assert.equal(calls.detachEpisodeFromSession[0].sessionId, "22222222-2222-4222-8222-222222222222");
   assert.equal(calls.detachEpisodeFromSession[0].episodeId, "33333333-3333-4333-8333-333333333333");
   assert.equal(body.ok, true);
+});
+
+test("GET /tongs/workspaces/:id/sparks dispatches listWorkspaceSparks", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/sparks",
+    {
+      method: "GET",
+      headers: {
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.listWorkspaceSparks.length, 1);
+  assert.equal(calls.listWorkspaceSparks[0]?.workspaceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.listWorkspaceSparks[0]?.options?.userAccessToken, "user_token_abc");
+  assert.equal(body.ok, true);
+  assert.equal(Array.isArray(body.data?.sparks), true);
+  assert.equal(body.data.sparks.length, 1);
+  assert.equal(body.data.sparks[0]?.linked_workpiece_id, "99999999-9999-4999-8999-999999999999");
+});
+
+test("GET /tongs/workspaces/:id/sparks requires x-forge-user-authorization header", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/sparks",
+    { method: "GET" },
+  );
+
+  const response = await handler(request);
+
+  assert.equal(response.status, 401);
+  assert.equal(calls.listWorkspaceSparks.length, 0);
 });
 
 test("GET /tongs/workspaces/:id/ready-scripts dispatches listWorkspaceReadyScripts", async () => {

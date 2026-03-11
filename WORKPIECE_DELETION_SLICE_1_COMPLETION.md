@@ -64,3 +64,7 @@ That slice should lock the post-restore rules:
 - when restored workpieces re-enter session-candidate surfaces
 - how stale archived session-plan references recover after restore
 - whether restore should preserve prior ready-state visibility immediately or require explicit editorial re-ready
+
+Locked in:
+
+- `WORKPIECE_DELETION_SLICE_2_RESTORE_REINTEGRATION_LOCK.md`

@@ -15,6 +15,10 @@ import {
   writeBarStockSparks,
 } from "../lib/barstock-sparks";
 import {
+  listHearthBarStockSparks,
+  mergeBarStockSparkSources,
+} from "../lib/hearth-barstock-sparks";
+import {
   readBarstockProjectContext,
   resolveBarstockProjectIdFromQuery,
   upsertBarstockProjectEpisodeLink,
@@ -1821,6 +1825,7 @@ export default function HearthShell() {
     incomingBarStockIntakeRoute ? null : resolveWorkpieceId()
   ));
   const [sparks, setSparks] = useState<BarStockSpark[]>(() => readBarStockSparks(resolveWorkspaceId()));
+  const [isSparksLoading, setIsSparksLoading] = useState(false);
   const [selectedSparkId, setSelectedSparkId] = useState<string | null>(null);
   const [forgeError, setForgeError] = useState<string | null>(null);
   const [isForging, setIsForging] = useState(false);
@@ -2206,15 +2211,15 @@ export default function HearthShell() {
       : sparks.find((spark) => spark.id === routeSparkId) ?? null,
     [routeProjectId, routeSparkId, sparks],
   );
-  const forgeableSparks = useMemo(
-    () => sortedSparks.filter((spark) => !isSparkForged(spark)),
+  const visibleSparks = useMemo(
+    () => sortedSparks.filter((spark) => spark.status !== "archived"),
     [sortedSparks],
   );
   const selectedSpark = useMemo(() => {
-    if (forgeableSparks.length === 0) return null;
-    if (!selectedSparkId) return forgeableSparks[0] ?? null;
-    return forgeableSparks.find((spark) => spark.id === selectedSparkId) ?? forgeableSparks[0] ?? null;
-  }, [forgeableSparks, selectedSparkId]);
+    if (visibleSparks.length === 0) return null;
+    if (!selectedSparkId) return visibleSparks[0] ?? null;
+    return visibleSparks.find((spark) => spark.id === selectedSparkId) ?? visibleSparks[0] ?? null;
+  }, [selectedSparkId, visibleSparks]);
   const deferDesktopRailCollections = !isMobile && mode === "sparks" && !hasActiveEpisode;
   const workpieceNavItems = useMemo(() => selectWorkpieceNavItems({
     workpieces: deferDesktopRailCollections ? EMPTY_WORKPIECE_SUMMARY_LIST : workpieceSummaries,
@@ -3828,7 +3833,7 @@ export default function HearthShell() {
     const intakeKey = `${workspaceId ?? "none"}:${routeSparkId}`;
     if (sparkIntakeHandledRef.current === intakeKey) return;
     if (!routeSpark) {
-      if (sparks.length > 0) {
+      if (!isSparksLoading) {
         sparkIntakeHandledRef.current = intakeKey;
         setForgeError("Spark not found in Bar Stock. Sync and retry.");
       }
@@ -3852,34 +3857,57 @@ export default function HearthShell() {
       return;
     }
     void forgeSpark(routeSpark);
-  }, [forgeSpark, openWorkpieceInFocus, routeProjectId, routeSpark, routeSparkId, sparks.length, workspaceId]);
+  }, [forgeSpark, isSparksLoading, openWorkpieceInFocus, routeProjectId, routeSpark, routeSparkId, workspaceId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const refresh = () => setSparks(readBarStockSparks(workspaceId));
-    refresh();
+    let cancelled = false;
+    const refresh = async () => {
+      const local = readBarStockSparks(workspaceId);
+      if (!workspaceId) {
+        if (!cancelled) setSparks(local);
+        return;
+      }
+
+      if (!cancelled) setIsSparksLoading(true);
+      try {
+        const remote = await listHearthBarStockSparks(workspaceId);
+        if (cancelled) return;
+        setSparks(mergeBarStockSparkSources(remote, local));
+      } catch {
+        if (cancelled) return;
+        setSparks(local);
+      } finally {
+        if (!cancelled) setIsSparksLoading(false);
+      }
+    };
+
+    void refresh();
     const onStorage = (event: StorageEvent) => {
       if (!isBarStockKey(event.key, workspaceId)) return;
-      refresh();
+      void refresh();
     };
     window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("storage", onStorage);
+    };
   }, [workspaceId]);
 
   useEffect(() => {
-    if (forgeableSparks.length === 0) {
+    if (visibleSparks.length === 0) {
       if (selectedSparkId) setSelectedSparkId(null);
       return;
     }
     if (!selectedSparkId) {
-      setSelectedSparkId(forgeableSparks[0]?.id ?? null);
+      setSelectedSparkId(visibleSparks[0]?.id ?? null);
       return;
     }
-    const exists = forgeableSparks.some((spark) => spark.id === selectedSparkId);
+    const exists = visibleSparks.some((spark) => spark.id === selectedSparkId);
     if (!exists) {
-      setSelectedSparkId(forgeableSparks[0]?.id ?? null);
+      setSelectedSparkId(visibleSparks[0]?.id ?? null);
     }
-  }, [forgeableSparks, selectedSparkId]);
+  }, [selectedSparkId, visibleSparks]);
 
   useEffect(() => {
     if (incomingBarStockIntakeRoute && !workpieceId) {
@@ -5008,12 +5036,36 @@ export default function HearthShell() {
     });
   }
 
+  async function onActivateSpark(spark: BarStockSpark) {
+    setSelectedSparkId(spark.id);
+    const linkedWorkpieceId = resolveBarStockSparkHearthWorkpieceId(spark);
+    if (linkedWorkpieceId) {
+      setForgeError(null);
+      await openWorkpieceInFocus(linkedWorkpieceId, {
+        workspaceId,
+        preferredDraftId: spark.links?.hearthDraftId ?? null,
+      });
+      return;
+    }
+    if (isSparkForged(spark)) {
+      setForgeError("This spark is already attached to Hearth, but its Episode link could not be resolved.");
+      return;
+    }
+    await forgeSpark(spark);
+  }
+
+  function resolveSparkActionLabel(spark: BarStockSpark): string {
+    if (resolveBarStockSparkHearthWorkpieceId(spark)) return "Open in Hearth";
+    if (isSparkForged(spark)) return "Episode link missing";
+    return "Start forging";
+  }
+
   async function onStartForgingSelectedSpark() {
     if (!selectedSpark) {
       await startFromScratch();
       return;
     }
-    await forgeSpark(selectedSpark);
+    await onActivateSpark(selectedSpark);
   }
 
   function onAddDecision() {
@@ -7501,15 +7553,18 @@ export default function HearthShell() {
                 </div>
               </div>
 
-              {forgeableSparks.length === 0 ? (
+              {visibleSparks.length === 0 ? (
                 <p className="hs-home-empty">
-                  No sparks yet. Capture ideas in Bar Stock first.
+                  {isSparksLoading
+                    ? "Loading sparks from Bar Stock..."
+                    : "No sparks yet. Capture ideas in Bar Stock first."}
                 </p>
               ) : (
-                forgeableSparks.map((spark) => {
+                visibleSparks.map((spark) => {
                   const status = formatSparkStatus(spark);
                   const preview = buildSparkPreview(spark.body);
                   const isSelected = selectedSpark?.id === spark.id;
+                  const actionLabel = resolveSparkActionLabel(spark);
                   return (
                     <div
                       key={spark.id}
@@ -7521,7 +7576,7 @@ export default function HearthShell() {
                         className="hs-spark-select"
                         disabled={isForging}
                         onFocus={() => setSelectedSparkId(spark.id)}
-                        onClick={() => void forgeSpark(spark)}
+                        onClick={() => void onActivateSpark(spark)}
                       >
                         <div className="hs-spark-header">
                           <div className="hs-spark-title">{deriveSparkTitle(spark)}</div>
@@ -7539,10 +7594,10 @@ export default function HearthShell() {
                         </div>
                         <button
                           type="button"
-                          onClick={() => void forgeSpark(spark)}
+                          onClick={() => void onActivateSpark(spark)}
                           disabled={isForging}
                         >
-                          Start forging
+                          {actionLabel}
                         </button>
                       </div>
                     </div>
@@ -7571,7 +7626,7 @@ export default function HearthShell() {
                     onClick={() => void onStartForgingSelectedSpark()}
                     disabled={isForging}
                   >
-                    Start forging
+                    {selectedSpark ? resolveSparkActionLabel(selectedSpark) : "Start forging"}
                   </button>
                 </div>
               </>

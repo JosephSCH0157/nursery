@@ -28,6 +28,10 @@ import {
 import { readHearthPrimaryScript } from "../src/lib/hearth-script-repo";
 import { resolveBarStockSparkHearthWorkpieceId } from "../src/lib/barstock-sparks";
 import {
+  listHearthBarStockSparks,
+  mergeBarStockSparkSources,
+} from "../src/lib/hearth-barstock-sparks";
+import {
   archiveHearthWorkpiece,
   listHearthWorkpieces,
   restoreHearthWorkpiece,
@@ -577,6 +581,50 @@ function installWorkpieceFetchHarness() {
   };
 }
 
+function installSparkFetchHarness() {
+  const originalFetch = globalThis.fetch;
+  const listRequests: string[] = [];
+  let sparksPayload: unknown[] = [];
+
+  globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+    const rawUrl = typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : String(input);
+    const url = new URL(rawUrl, "https://example.test");
+
+    const sparksMatch = url.pathname.match(/^\/tongs\/workspaces\/([^/]+)\/sparks$/);
+    if (sparksMatch && (init?.method ?? "GET") === "GET") {
+      listRequests.push(decodeURIComponent(sparksMatch[1] ?? ""));
+      return new Response(JSON.stringify({
+        ok: true,
+        data: {
+          sparks: sparksPayload,
+        },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  return {
+    restore() {
+      globalThis.fetch = originalFetch;
+    },
+    setSparksPayload(value: unknown[]) {
+      sparksPayload = value;
+    },
+    listRequests,
+  };
+}
+
 function createWorkpieceSummary(
   workpieceId: string,
   overrides?: Partial<HearthWorkpieceSummary>,
@@ -983,6 +1031,67 @@ async function testImageMapRepoSaveForwardsExpectedTimestampAndReturnsLatestOnCo
       assert.equal(conflictResult.latest?.entries[0]?.id, "image-map-latest");
       assert.equal(conflictResult.latest?.metadataUpdatedAt, "2026-03-10T16:30:00.000Z");
     }
+  } finally {
+    harness.restore();
+  }
+}
+
+async function testBarStockSparkListRoundtripAndMerge() {
+  resetLocalStorage();
+  const localSpark = {
+    id: "7fce5928-fcab-4f41-9894-09a7254f78e1",
+    body: "Local overlay spark",
+    createdAt: Date.parse("2026-03-10T09:00:00.000Z"),
+    updatedAt: Date.parse("2026-03-10T11:30:00.000Z"),
+    status: "forged",
+    links: {
+      hearthWorkpieceId: WORKPIECE_A,
+      hearthDraftId: "draft-local",
+    },
+  };
+  globalThis.localStorage.setItem("barstock_sparks_v2:2b2ef7aa-44d4-4d0d-93d7-b0aa4ec2b99d", JSON.stringify([localSpark]));
+
+  const harness = installSparkFetchHarness();
+  harness.setSparksPayload([
+    {
+      id: localSpark.id,
+      workspace_id: WORKSPACE_ID,
+      assignment_id: null,
+      title: "Remote Canonical Spark",
+      body: "Remote canonical body",
+      tags: ["news"],
+      status: "raw",
+      created_at: "2026-03-10T09:00:00.000Z",
+      updated_at: "2026-03-10T11:00:00.000Z",
+      linked_workpiece_id: null,
+    },
+    {
+      id: "919a34cf-8481-429c-b9bf-2b319ed72b19",
+      workspace_id: WORKSPACE_ID,
+      assignment_id: "3d829722-f4e1-4f35-9d16-5e10cfcf1bd8",
+      title: "Project-linked Spark",
+      body: "Remote project body",
+      tags: [],
+      status: "forged",
+      created_at: "2026-03-10T08:30:00.000Z",
+      updated_at: "2026-03-10T10:30:00.000Z",
+      linked_workpiece_id: WORKPIECE_B,
+    },
+  ]);
+
+  try {
+    const remote = await listHearthBarStockSparks(WORKSPACE_ID);
+    assert.deepEqual(harness.listRequests, [WORKSPACE_ID]);
+    assert.equal(remote.length, 2);
+    assert.equal(remote[0]?.title, "Remote Canonical Spark");
+    assert.equal(resolveBarStockSparkHearthWorkpieceId(remote[1]), WORKPIECE_B);
+
+    const merged = mergeBarStockSparkSources(remote, [localSpark]);
+    const mergedLocal = merged.find((spark) => spark.id === localSpark.id);
+    assert.equal(mergedLocal?.title, "Remote Canonical Spark");
+    assert.equal(mergedLocal?.status, "forged");
+    assert.equal(resolveBarStockSparkHearthWorkpieceId(mergedLocal), WORKPIECE_A);
+    assert.equal(mergedLocal?.links?.hearthDraftId, "draft-local");
   } finally {
     harness.restore();
   }
@@ -1443,6 +1552,7 @@ async function run() {
   await testReadyScriptRemovalDeletesAllCanonicalPaths();
   await testImageMapRepoReadNormalizesSemanticEntriesAndAssetSummary();
   await testImageMapRepoSaveForwardsExpectedTimestampAndReturnsLatestOnConflict();
+  await testBarStockSparkListRoundtripAndMerge();
   await testWorkpieceListRoundtripAndPrimaryScriptRead();
   await testWorkpieceArchiveRoundtripUsesCanonicalEndpoints();
   await testWorkpieceNavModelStaysWorkpieceFirst();

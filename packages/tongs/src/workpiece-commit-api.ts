@@ -437,10 +437,27 @@ export type WorkspaceReadyScript = {
   hidden_by: string | null;
 };
 
+export type WorkspaceSparkSummary = {
+  id: string;
+  workspace_id: string;
+  assignment_id: string | null;
+  title: string | null;
+  body: string;
+  tags: string[];
+  status: string;
+  created_at: string;
+  updated_at: string;
+  linked_workpiece_id: string | null;
+};
+
 export type WorkspaceEpisodeSummary = Pick<
   EpisodeRow,
   "id" | "workspace_id" | "label" | "created_at" | "updated_at" | "archived_at" | "archived_by" | "archive_reason"
 >;
+
+export type ListWorkspaceSparksOptions = {
+  userAccessToken?: string | null;
+};
 
 export type ListWorkspaceEpisodesOptions = {
   includeArchived?: boolean;
@@ -545,6 +562,10 @@ export type TongsCommitApiService = {
   attachEpisodeToSession(sessionId: string, input: AttachEpisodeToSessionRequest): Promise<RecordingSessionEpisodeRow>;
   detachEpisodeFromSession(sessionId: string, episodeId: string): Promise<void>;
   listSessionEpisodes(sessionId: string): Promise<SessionEpisodeListItem[]>;
+  listWorkspaceSparks(
+    workspaceId: string,
+    options?: ListWorkspaceSparksOptions,
+  ): Promise<WorkspaceSparkSummary[]>;
   listWorkspaceEpisodes(
     workspaceId: string,
     options?: ListWorkspaceEpisodesOptions,
@@ -2246,6 +2267,34 @@ function toWorkspaceEpisodeSummary(row: EpisodeRow): WorkspaceEpisodeSummary {
     archived_at: row.archived_at ?? null,
     archived_by: row.archived_by ?? null,
     archive_reason: row.archive_reason ?? null,
+  };
+}
+
+function toWorkspaceSparkSummary(
+  row: {
+    id: string;
+    workspace_id: string;
+    assignment_id: string | null;
+    title: string | null;
+    body: string;
+    tags: string[] | null;
+    status: string | null;
+    created_at: string;
+    updated_at: string;
+  },
+  linkedWorkpieceId: string | null,
+): WorkspaceSparkSummary {
+  return {
+    id: row.id,
+    workspace_id: row.workspace_id,
+    assignment_id: row.assignment_id,
+    title: row.title,
+    body: row.body,
+    tags: Array.isArray(row.tags) ? row.tags.filter((value): value is string => typeof value === "string") : [],
+    status: typeof row.status === "string" && row.status.trim() ? row.status : "raw",
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    linked_workpiece_id: linkedWorkpieceId,
   };
 }
 
@@ -4419,6 +4468,73 @@ export class TongsCommitService {
     return (data ?? []).map((row) => toWorkspaceEpisodeSummary(row));
   }
 
+  async listWorkspaceSparks(
+    workspaceId: string,
+    options?: ListWorkspaceSparksOptions,
+  ): Promise<WorkspaceSparkSummary[]> {
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
+    await this.getWorkspaceOrThrow(workspaceId);
+
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("barstock_sparks")
+      .select("id,workspace_id,assignment_id,title,body,tags,status,created_at,updated_at")
+      .eq("workspace_id", workspaceId)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
+      .limit(500);
+
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to list workspace sparks", {
+        reason: error.message,
+      });
+    }
+
+    const sparkRows = (data ?? []).map((row) => ({
+      id: typeof row.id === "string" ? row.id : "",
+      workspace_id: typeof row.workspace_id === "string" ? row.workspace_id : workspaceId,
+      assignment_id: typeof row.assignment_id === "string" ? row.assignment_id : null,
+      title: typeof row.title === "string" ? row.title : null,
+      body: typeof row.body === "string" ? row.body : "",
+      tags: Array.isArray(row.tags) ? row.tags : [],
+      status: typeof row.status === "string" ? row.status : "raw",
+      created_at: typeof row.created_at === "string" ? row.created_at : new Date(0).toISOString(),
+      updated_at: typeof row.updated_at === "string" ? row.updated_at : new Date(0).toISOString(),
+    })).filter((row) => row.id && row.body.trim().length > 0);
+
+    const assignmentIds = [...new Set(
+      sparkRows
+        .map((row) => row.assignment_id)
+        .filter((value): value is string => typeof value === "string" && value.length > 0),
+    )];
+
+    const linkedWorkpieceIdsByAssignment = new Map<string, string>();
+    if (assignmentIds.length > 0) {
+      const { data: links, error: linksError } = await this.supabase
+        .schema("tongs")
+        .from("barstock_project_episode_links")
+        .select("project_id,workpiece_id")
+        .eq("workspace_id", workspaceId)
+        .in("project_id", assignmentIds);
+
+      if (linksError) {
+        throw new HttpError(502, "db_read_failed", "Failed to resolve workspace spark links", {
+          reason: linksError.message,
+        });
+      }
+
+      for (const row of links ?? []) {
+        if (typeof row.project_id !== "string" || typeof row.workpiece_id !== "string") continue;
+        linkedWorkpieceIdsByAssignment.set(row.project_id, row.workpiece_id);
+      }
+    }
+
+    return sparkRows.map((row) => toWorkspaceSparkSummary(
+      row,
+      row.assignment_id ? linkedWorkpieceIdsByAssignment.get(row.assignment_id) ?? null : null,
+    ));
+  }
+
   async archiveWorkpiece(
     workpieceId: string,
     input: ArchiveWorkpieceRequest,
@@ -5210,6 +5326,14 @@ export function createTongsCommitApiHandlerWithService(
           userAccessToken,
         });
         return jsonResponse(200, { ok: true, data: { scripts: result } });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "sparks") {
+        requireMethod(request, "GET");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.listWorkspaceSparks(workspaceId, { userAccessToken });
+        return jsonResponse(200, { ok: true, data: { sparks: result } });
       }
 
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "episodes") {

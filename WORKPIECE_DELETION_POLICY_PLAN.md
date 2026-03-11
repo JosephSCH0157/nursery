@@ -10,6 +10,10 @@ Slice 1 completion note:
 
 - `WORKPIECE_DELETION_SLICE_1_COMPLETION.md`
 
+Slice 2 restore reintegration lock:
+
+- `WORKPIECE_DELETION_SLICE_2_RESTORE_REINTEGRATION_LOCK.md`
+
 This document does not claim that full workpiece archive or hard-delete semantics are already implemented in product code.
 
 ## Purpose
