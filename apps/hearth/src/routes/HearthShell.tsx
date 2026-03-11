@@ -1954,6 +1954,8 @@ export default function HearthShell() {
   const workpieceIdRef = useRef<string | null>(workpieceId);
   const activeDraftRef = useRef<Draft | null>(null);
   const draftSnapshotRef = useRef<DraftSnapshot | null>(null);
+  const draftsRef = useRef<Draft[]>(drafts);
+  const workpieceSummariesRef = useRef<HearthWorkpieceSummary[]>(workpieceSummaries);
   const sessionSaveTimer = useRef<number | null>(null);
   const bodyRef = useRef<HTMLTextAreaElement | null>(null);
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -2378,6 +2380,14 @@ export default function HearthShell() {
   }, [draftSnapshot]);
 
   useEffect(() => {
+    draftsRef.current = drafts;
+  }, [drafts]);
+
+  useEffect(() => {
+    workpieceSummariesRef.current = workpieceSummaries;
+  }, [workpieceSummaries]);
+
+  useEffect(() => {
     chatMessagesRef.current = chatMessages;
   }, [chatMessages]);
 
@@ -2537,12 +2547,14 @@ export default function HearthShell() {
   ): Promise<HearthWorkpieceSummary[]> => {
     const workspace = normalizeUuid(overrideWorkspaceId ?? workspaceId);
     const activeWorkpieceId = normalizeUuid(workpieceId);
+    const currentWorkpieceSummaries = workpieceSummariesRef.current;
     const includeArchived = options?.includeArchived ?? (
       showArchived || Boolean(
-        activeWorkpieceId && workpieceSummaries.some((entry) => entry.workpieceId === activeWorkpieceId && entry.isArchived)
+        activeWorkpieceId && currentWorkpieceSummaries.some((entry) => entry.workpieceId === activeWorkpieceId && entry.isArchived)
       )
     );
     if (!workspace) {
+      workpieceSummariesRef.current = [];
       setWorkpieceSummaries([]);
       setWorkpiecesError(null);
       setIsWorkpiecesLoading(false);
@@ -2553,19 +2565,22 @@ export default function HearthShell() {
     setWorkpiecesError(null);
     try {
       const list = await listHearthWorkpieces(workspace, { includeArchived });
+      workpieceSummariesRef.current = list;
       setWorkpieceSummaries(list);
       return list;
     } catch {
+      workpieceSummariesRef.current = [];
       setWorkpieceSummaries([]);
       setWorkpiecesError("Failed to load Episodes.");
       return [];
     } finally {
       setIsWorkpiecesLoading(false);
     }
-  }, [showArchived, workspaceId, workpieceId, workpieceSummaries]);
+  }, [showArchived, workspaceId, workpieceId]);
 
   const refreshDrafts = useCallback(async (): Promise<Draft[]> => {
     const list = dedupeDraftListById(await store.listDrafts());
+    draftsRef.current = list;
     setDrafts(list);
     return list;
   }, [store]);
@@ -2583,8 +2598,8 @@ export default function HearthShell() {
       return workpieceId;
     }
 
-    const availableWorkpieces = options?.workpieces ?? workpieceSummaries;
-    const availableDrafts = options?.drafts ?? drafts;
+    const availableWorkpieces = options?.workpieces ?? workpieceSummariesRef.current;
+    const availableDrafts = options?.drafts ?? draftsRef.current;
 
     const directWorkpieceId = normalizeUuid(candidateDraftId);
     if (directWorkpieceId && availableWorkpieces.some((entry) => entry.workpieceId === directWorkpieceId)) {
@@ -2604,7 +2619,7 @@ export default function HearthShell() {
     }
 
     return null;
-  }, [activeDraft?.id, drafts, sparks, workpieceId, workpieceSummaries]);
+  }, [activeDraft?.id, sparks, workpieceId]);
 
   const refreshRevisions = useCallback(async (
     currentWorkpieceId: string | null,
@@ -3255,7 +3270,7 @@ export default function HearthShell() {
     const normalizedWorkpieceId = normalizeUuid(targetWorkpieceId);
     if (!normalizedWorkpieceId) return null;
 
-    const availableDrafts = options?.drafts ?? drafts;
+    const availableDrafts = options?.drafts ?? draftsRef.current;
     const existingDraft = selectDraftForWorkpiece({
       workpieceId: normalizedWorkpieceId,
       drafts: availableDrafts,
@@ -3267,6 +3282,7 @@ export default function HearthShell() {
     const canonicalDrafts = dedupeDraftListById(await store.listWorkpieceDrafts(normalizedWorkpieceId));
     if (canonicalDrafts.length > 0) {
       const mergedDrafts = dedupeDraftListById([...availableDrafts, ...canonicalDrafts]);
+      draftsRef.current = mergedDrafts;
       setDrafts(mergedDrafts);
       const canonicalDraft = selectDraftForWorkpiece({
         workpieceId: normalizedWorkpieceId,
@@ -3284,7 +3300,7 @@ export default function HearthShell() {
       if (canonicalDraft) return canonicalDraft;
     }
 
-    const availableWorkpieces = options?.workpieces ?? workpieceSummaries;
+    const availableWorkpieces = options?.workpieces ?? workpieceSummariesRef.current;
     const workpieceSummary = availableWorkpieces.find((entry) => entry.workpieceId === normalizedWorkpieceId) ?? null;
     const scriptRead = await readHearthPrimaryScript(normalizedWorkpieceId);
     if (!scriptRead.ok) {
@@ -3332,7 +3348,7 @@ export default function HearthShell() {
       sparks,
       preferredDraftId: options?.preferredDraftId ?? normalizedWorkpieceId,
     });
-  }, [drafts, hearthUser, refreshDrafts, sparks, store, workpieceSummaries]);
+  }, [hearthUser, refreshDrafts, sparks, store]);
 
   const openWorkpieceInFocus = useCallback(async (
     targetWorkpieceId: string,
@@ -3358,7 +3374,7 @@ export default function HearthShell() {
     setMode("focus");
 
     try {
-      let availableWorkpieces = options?.workpieces ?? workpieceSummaries;
+      let availableWorkpieces = options?.workpieces ?? workpieceSummariesRef.current;
       if (
         availableWorkpieces.length === 0
         || !availableWorkpieces.some((entry) => entry.workpieceId === normalizedWorkpieceId)
@@ -3377,7 +3393,7 @@ export default function HearthShell() {
       }
 
       const draft = await hydrateOrCreateDraftBufferForWorkpiece(normalizedWorkpieceId, {
-        drafts: options?.drafts ?? drafts,
+        drafts: options?.drafts ?? draftsRef.current,
         workpieces: availableWorkpieces,
         preferredDraftId: options?.preferredDraftId ?? null,
         seed: options?.seed,
@@ -3399,13 +3415,11 @@ export default function HearthShell() {
       pendingFocusOpenCountRef.current = Math.max(0, pendingFocusOpenCountRef.current - 1);
     }
   }, [
-    drafts,
     hydrateOrCreateDraftBufferForWorkpiece,
     isMobile,
     persistSession,
     refreshWorkpieces,
     selectDraft,
-    workpieceSummaries,
     workspaceId,
   ]);
 
@@ -3677,7 +3691,9 @@ export default function HearthShell() {
 
       setSession(storedSession);
       const dedupedDrafts = dedupeDraftListById(list);
+      draftsRef.current = dedupedDrafts;
       setDrafts(dedupedDrafts);
+      workpieceSummariesRef.current = loadedWorkpieces;
       setWorkpieceSummaries(loadedWorkpieces);
       setWorkpiecesError(null);
 
