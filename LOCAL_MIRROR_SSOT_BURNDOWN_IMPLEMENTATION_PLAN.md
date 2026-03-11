@@ -9,6 +9,10 @@ Completion notes:
 - `LOCAL_MIRROR_SSOT_SLICE_1_COMPLETION.md`
 - `LOCAL_MIRROR_SSOT_SLICE_2_COMPLETION.md`
 
+Execution locks:
+
+- `LOCAL_MIRROR_SSOT_SLICE_3_CANDIDACY_LOCK.md`
+
 **Mirrors may accelerate access; they may not determine reality.**
 
 ## Purpose
@@ -190,6 +194,8 @@ Status: complete
 - Ready lists
 - planner/session candidates
 - stale-vs-active determination
+
+Lock source: `LOCAL_MIRROR_SSOT_SLICE_3_CANDIDACY_LOCK.md`
 
 ### Slice 4 - Derived Artifact Truth
 
