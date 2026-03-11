@@ -233,3 +233,24 @@ export function generateImageMapEntriesFromScript(scriptText: string): EpisodeIm
 
   return entries;
 }
+
+export function resolveImageMapAnchorContext(
+  scriptText: string,
+  anchor: EpisodeImageMapScriptAnchor | null,
+): { before: string | null; after: string | null } {
+  if (!anchor) {
+    return { before: null, after: null };
+  }
+  const paragraphs = extractParagraphs(scriptText);
+  const paragraph = paragraphs.find((candidate) => candidate.paragraphId === anchor.paragraph_id) ?? null;
+  if (!paragraph) {
+    return { before: null, after: null };
+  }
+
+  const beforeSentence = paragraph.sentences.find((sentence) => sentence.sentenceIndex === anchor.sentence_start - 1) ?? null;
+  const afterSentence = paragraph.sentences.find((sentence) => sentence.sentenceIndex === anchor.sentence_end + 1) ?? null;
+  return {
+    before: beforeSentence?.text ?? null,
+    after: afterSentence?.text ?? null,
+  };
+}

@@ -55,9 +55,24 @@ export type EpisodeImageMapScriptAnchor = {
   speaker_block_id?: string | null;
 };
 
+export const EPISODE_IMAGE_MAP_VISUAL_MODE_VALUES = [
+  "comparison",
+  "map",
+  "location",
+  "event_scene",
+  "concept_illustration",
+  "person_figure",
+  "object_detail",
+] as const;
+
+export type EpisodeImageMapVisualMode = (typeof EPISODE_IMAGE_MAP_VISUAL_MODE_VALUES)[number];
+
 export type EpisodeImageMapAssetRef = {
   asset_id: string;
   path?: string | null;
+  variant_label?: string | null;
+  visual_mode?: EpisodeImageMapVisualMode | null;
+  mime_type?: string | null;
 };
 
 export type EpisodeImageMapEntry = {
@@ -387,15 +402,33 @@ function normalizeImageMapAssetRefs(value: unknown): EpisodeImageMapAssetRef[] {
       out.push({
         asset_id: assetId,
         path: readString(entry.path),
+        variant_label: readString(entry.variant_label),
+        visual_mode: normalizeImageMapVisualMode(readString(entry.visual_mode)),
+        mime_type: readString(entry.mime_type),
       });
       continue;
     }
     const assetId = readString(entry);
     if (!assetId || seen.has(assetId)) continue;
     seen.add(assetId);
-    out.push({ asset_id: assetId, path: null });
+    out.push({
+      asset_id: assetId,
+      path: null,
+      variant_label: null,
+      visual_mode: null,
+      mime_type: null,
+    });
   }
   return out;
+}
+
+function normalizeImageMapVisualMode(value: string | null | undefined): EpisodeImageMapVisualMode | null {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return null;
+  if (EPISODE_IMAGE_MAP_VISUAL_MODE_VALUES.includes(normalized as EpisodeImageMapVisualMode)) {
+    return normalized as EpisodeImageMapVisualMode;
+  }
+  return null;
 }
 
 function normalizeImageMapScriptAnchor(value: unknown): EpisodeImageMapScriptAnchor | null {

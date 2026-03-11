@@ -108,9 +108,11 @@ import {
 } from "../lib/hearth-thumbnail-api";
 import {
   getWorkpieceImageMap,
+  generateWorkpieceImageMapCandidates,
+  loadImageMapCandidatePreviewDataUrl,
   saveWorkpieceImageMap,
 } from "../lib/hearth-image-map-repo";
-import { generateImageMapEntriesFromScript } from "../lib/hearth-image-map-beats";
+import { generateImageMapEntriesFromScript, resolveImageMapAnchorContext } from "../lib/hearth-image-map-beats";
 import type {
   EpisodePackageV2,
   EpisodeThumbnailConcept,
@@ -1929,9 +1931,15 @@ export default function HearthShell() {
   const [imageMapSaveState, setImageMapSaveState] = useState<"saved" | "editing" | "saving" | "error" | "offline">("saved");
   const [imageMapSaveError, setImageMapSaveError] = useState<string | null>(null);
   const [imageMapExportMessage, setImageMapExportMessage] = useState<string | null>(null);
+  const [isImageMapCandidateGenerating, setIsImageMapCandidateGenerating] = useState(false);
+  const [imageMapCandidateError, setImageMapCandidateError] = useState<string | null>(null);
+  const [imageMapCandidatePreviewStateById, setImageMapCandidatePreviewStateById] = useState<Record<string, "loading" | "ready" | "error">>({});
+  const [imageMapCandidatePreviewUrlById, setImageMapCandidatePreviewUrlById] = useState<Record<string, string>>({});
+  const [imageMapCandidatePreviewErrorById, setImageMapCandidatePreviewErrorById] = useState<Record<string, string>>({});
   const [scriptPanelCopyMessage, setScriptPanelCopyMessage] = useState<string | null>(null);
   const episodePackageRequestSeqRef = useRef(0);
   const thumbnailPreviewRequestSeqRef = useRef(0);
+  const imageMapCandidatePreviewRequestSeqRef = useRef(0);
   const artifactStateWorkpieceIdRef = useRef<string | null>(null);
   const [metadataTitlesDraft, setMetadataTitlesDraft] = useState<EpisodeSeoTitle[]>([]);
   const [metadataTagsDraft, setMetadataTagsDraft] = useState<string[]>([]);
@@ -2163,6 +2171,15 @@ export default function HearthShell() {
   const selectedThumbnailVersion = thumbnailVersions.find((version) => version.id === selectedThumbnailVersionId) ?? null;
   const imageMapEntries = episodePackage?.image_map.entries ?? [];
   const selectedImageMapEntry = imageMapEntries.find((entry) => entry.id === selectedImageMapEntryId) ?? null;
+  const selectedImageMapCandidates = selectedImageMapEntry?.candidate_assets ?? [];
+  const imageMapCandidateCards = selectedImageMapCandidates.map((candidate) => ({
+    id: candidate.asset_id,
+    variantLabel: candidate.variant_label ?? "candidate",
+    visualMode: candidate.visual_mode ?? null,
+    previewState: imageMapCandidatePreviewStateById[candidate.asset_id] ?? "loading",
+    previewDataUrl: imageMapCandidatePreviewUrlById[candidate.asset_id] ?? null,
+    previewError: imageMapCandidatePreviewErrorById[candidate.asset_id] ?? null,
+  }));
   const hasBrowserSpeech = (
     typeof window !== "undefined"
     && (Boolean((window as any).SpeechRecognition) || Boolean((window as any).webkitSpeechRecognition))
@@ -4243,7 +4260,73 @@ export default function HearthShell() {
     setImageMapSourceTypeDraft(selectedImageMapEntry.source_type || "stock");
     setImageMapPlacementHintDraft(selectedImageMapEntry.placement_hint ?? "");
     setImageMapSaveState("saved");
+    setImageMapCandidateError(null);
   }, [selectedImageMapEntry]);
+
+  useEffect(() => {
+    const episodeId = workpieceId?.trim() ?? "";
+    const previewSeq = imageMapCandidatePreviewRequestSeqRef.current + 1;
+    imageMapCandidatePreviewRequestSeqRef.current = previewSeq;
+
+    if (!episodeId || !selectedImageMapEntry) {
+      setImageMapCandidatePreviewStateById({});
+      setImageMapCandidatePreviewUrlById({});
+      setImageMapCandidatePreviewErrorById({});
+      return;
+    }
+
+    const candidates = selectedImageMapEntry.candidate_assets.filter((asset) => asset.asset_id && asset.path);
+    if (candidates.length === 0) {
+      setImageMapCandidatePreviewStateById({});
+      setImageMapCandidatePreviewUrlById({});
+      setImageMapCandidatePreviewErrorById({});
+      return;
+    }
+
+    const loadingState = Object.fromEntries(candidates.map((asset) => [asset.asset_id, "loading"] as const));
+    setImageMapCandidatePreviewStateById(loadingState);
+    setImageMapCandidatePreviewUrlById({});
+    setImageMapCandidatePreviewErrorById({});
+
+    let cancelled = false;
+    void Promise.all(candidates.map(async (asset) => {
+      const result = await loadImageMapCandidatePreviewDataUrl({
+        workpieceId: episodeId,
+        path: asset.path,
+        mimeType: asset.mime_type ?? null,
+      });
+      return { assetId: asset.asset_id, result };
+    })).then((results) => {
+      if (
+        cancelled
+        || imageMapCandidatePreviewRequestSeqRef.current !== previewSeq
+        || (workpieceId?.trim() ?? "") !== episodeId
+        || selectedImageMapEntryId !== selectedImageMapEntry.id
+      ) {
+        return;
+      }
+
+      const nextState: Record<string, "loading" | "ready" | "error"> = {};
+      const nextUrls: Record<string, string> = {};
+      const nextErrors: Record<string, string> = {};
+      for (const { assetId, result } of results) {
+        if (result.ok) {
+          nextState[assetId] = "ready";
+          nextUrls[assetId] = result.dataUrl;
+        } else {
+          nextState[assetId] = "error";
+          nextErrors[assetId] = result.error;
+        }
+      }
+      setImageMapCandidatePreviewStateById(nextState);
+      setImageMapCandidatePreviewUrlById(nextUrls);
+      setImageMapCandidatePreviewErrorById(nextErrors);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedImageMapEntry, selectedImageMapEntryId, workpieceId]);
 
   useEffect(() => {
     if (!workpieceId) {
@@ -4251,6 +4334,10 @@ export default function HearthShell() {
       setImageMapSaveState("saved");
       setImageMapSaveError(null);
       setImageMapExportMessage(null);
+      setImageMapCandidateError(null);
+      setImageMapCandidatePreviewStateById({});
+      setImageMapCandidatePreviewUrlById({});
+      setImageMapCandidatePreviewErrorById({});
     }
   }, [workpieceId]);
 
@@ -4304,6 +4391,9 @@ export default function HearthShell() {
             prompt_basis: nextDescription,
             intent: nextIntent,
             source_type: nextSourceType,
+            candidate_assets: [],
+            selected_asset_id: null,
+            status: current.script_anchor ? "mapped" : "draft",
             placement_hint: nextPlacementHint,
           },
         );
@@ -4325,6 +4415,7 @@ export default function HearthShell() {
         }
         setImageMapSaveState("saved");
         setImageMapSaveError(null);
+        setImageMapCandidateError(null);
       })();
     }, 450);
 
@@ -6767,6 +6858,91 @@ export default function HearthShell() {
     };
   }
 
+  async function onGenerateImageMapCandidates() {
+    if (isAiProcessing || isApprovingScript || isImageMapCandidateGenerating) return;
+    if (!episodePackage || !selectedImageMapEntry) return;
+
+    const episodeId = workpieceId?.trim() ?? "";
+    const workspace = workspaceId?.trim() ?? "";
+    if (!episodeId || !workspace) {
+      setImageMapCandidateError("Select an Episode before generating still candidates.");
+      return;
+    }
+    if (imageMapSaveState === "editing" || imageMapSaveState === "saving") {
+      setImageMapCandidateError("Save the image-map entry before generating candidates.");
+      return;
+    }
+    if (!selectedImageMapEntry.script_anchor) {
+      setImageMapCandidateError("This visual beat needs an exact script anchor before candidate generation.");
+      return;
+    }
+    if (aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0) {
+      setImageMapCandidateError("No AI credits remaining.");
+      return;
+    }
+
+    const canonicalScript = await readCanonicalScriptForImageMapGeneration();
+    if (!canonicalScript.ok) {
+      setImageMapCandidateError(canonicalScript.message);
+      return;
+    }
+    const context = resolveImageMapAnchorContext(canonicalScript.text, selectedImageMapEntry.script_anchor);
+
+    const alwaysApproveSpend = resolveAiThumbnailAutoApproveFromStorage();
+    const confirmed = alwaysApproveSpend
+      ? true
+      : window.confirm("Generate two still candidates for this visual beat? This will spend AI credits.");
+    if (!confirmed) return;
+
+    setIsImageMapCandidateGenerating(true);
+    setImageMapCandidateError(null);
+    setAiRuntimeWarning(null);
+    try {
+      const generated = await generateWorkpieceImageMapCandidates({
+        workpieceId: episodeId,
+        workspaceId: workspace,
+        imageMapEntryId: selectedImageMapEntry.id,
+        expectedMetadataUpdatedAt: imageMapMetadataUpdatedAt,
+        contextBefore: context.before,
+        contextAfter: context.after,
+        aspect: thumbnailAspect,
+        confirmSpend: confirmed,
+        alwaysApproveAiSpend: alwaysApproveSpend,
+      });
+
+      if (!generated.ok) {
+        if (generated.reason === "conflict" && generated.latest && episodePackage) {
+          setEpisodePackage(replaceEpisodePackageImageMap(episodePackage, generated.latest.entries));
+          setImageMapMetadataUpdatedAt(generated.latest.metadataUpdatedAt);
+        }
+        setImageMapCandidateError(
+          generated.error
+            ?? (generated.reason === "conflict"
+              ? "Image map changed since last load. Reloaded the latest canonical state."
+              : "Still-candidate generation failed.")
+        );
+        return;
+      }
+
+      if (episodePackage) {
+        setEpisodePackage(replaceEpisodePackageImageMap(episodePackage, generated.imageMap.entries));
+      }
+      setImageMapMetadataUpdatedAt(generated.imageMap.metadataUpdatedAt);
+      setImageMapExportMessage(`Generated ${generated.generatedAssets.length} still candidates for the selected visual beat.`);
+      if (typeof generated.tokenBalance === "number") {
+        setAiTokenBalance(generated.tokenBalance);
+      }
+      if (generated.creditsWarning) {
+        setAiRuntimeWarning(generated.creditsWarning);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Still-candidate generation failed.";
+      setImageMapCandidateError(message);
+    } finally {
+      setIsImageMapCandidateGenerating(false);
+    }
+  }
+
   async function onCreateImageMapEntry() {
     if (!episodePackage) return;
     const nextAnchor = `manual:p${episodePackage.image_map.entries.length + 1}`;
@@ -6817,9 +6993,9 @@ export default function HearthShell() {
       source_type: selectedImageMapEntry.source_type,
       beat_order: selectedImageMapEntry.beat_order,
       paragraph_beat_order: selectedImageMapEntry.paragraph_beat_order,
-      candidate_assets: selectedImageMapEntry.candidate_assets,
-      selected_asset_id: selectedImageMapEntry.selected_asset_id,
-      status: selectedImageMapEntry.status,
+      candidate_assets: [],
+      selected_asset_id: null,
+      status: selectedImageMapEntry.script_anchor ? "mapped" : "draft",
       placement_hint: selectedImageMapEntry.placement_hint ?? null,
     });
     const duplicated = nextEpisodePackage.image_map.entries[nextEpisodePackage.image_map.entries.length - 1] ?? null;
@@ -8226,6 +8402,9 @@ export default function HearthShell() {
                 saveState={imageMapSaveState}
                 saveError={imageMapSaveError}
                 exportMessage={imageMapExportMessage}
+                candidateCards={imageMapCandidateCards}
+                candidateGenerateBusy={isImageMapCandidateGenerating}
+                candidateGenerateError={imageMapCandidateError}
                 disabled={isAiProcessing || isApprovingScript}
                 onSelectEntry={setSelectedImageMapEntryId}
                 onDraftAnchorChange={(value) => {
@@ -8257,6 +8436,7 @@ export default function HearthShell() {
                 onDuplicateEntry={() => void onDuplicateImageMapEntry()}
                 onDeleteEntry={() => void onDeleteImageMapEntry()}
                 onSeedFromScript={() => void onSeedImageMapFromScript()}
+                onGenerateCandidates={() => void onGenerateImageMapCandidates()}
                 onCopyExport={() => void onCopyImageMapExportJson()}
                 onDownloadExport={onDownloadImageMapExportJson}
               />

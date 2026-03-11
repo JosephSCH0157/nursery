@@ -22,7 +22,9 @@ import {
   setHearthReadyScriptHidden,
 } from "../src/lib/hearth-ready-scripts";
 import {
+  generateWorkpieceImageMapCandidates,
   getWorkpieceImageMap,
+  loadImageMapCandidatePreviewDataUrl,
   saveWorkpieceImageMap,
 } from "../src/lib/hearth-image-map-repo";
 import { readHearthPrimaryScript } from "../src/lib/hearth-script-repo";
@@ -371,6 +373,16 @@ function installImageMapFetchHarness() {
       expected_metadata_updated_at?: string | null;
     };
   }> = [];
+  const generateRequests: Array<{
+    workpieceId: string;
+    body: {
+      workspace_id?: string;
+      image_map_entry_id?: string;
+      expected_metadata_updated_at?: string | null;
+      context_before?: string | null;
+      context_after?: string | null;
+    };
+  }> = [];
   let getPayload: unknown = {
     image_map: {
       workpiece_id: WORKPIECE_A,
@@ -381,7 +393,19 @@ function installImageMapFetchHarness() {
     asset: null,
   };
   let savePayload: unknown = getPayload;
+  let generatePayload: unknown = {
+    image_map: {
+      workpiece_id: WORKPIECE_A,
+      workspace_id: WORKSPACE_ID,
+      entries: [],
+      metadata_updated_at: "2026-03-10T16:20:00.000Z",
+    },
+    asset: null,
+    generated_assets: [],
+  };
   let conflictMode = false;
+  let generateConflictMode = false;
+  const previewFiles = new Map<string, { bytesBase64: string; contentType: string }>();
 
   globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     const rawUrl = typeof input === "string"
@@ -391,6 +415,60 @@ function installImageMapFetchHarness() {
         : String(input);
     const url = new URL(rawUrl, "https://example.test");
     const match = url.pathname.match(/^\/tongs\/workpieces\/([^/]+)\/image-map$/);
+    const generateMatch = url.pathname.match(/^\/tongs\/workpieces\/([^/]+)\/image-map\/generate-candidates$/);
+    const readMatch = url.pathname.match(/^\/tongs\/workpieces\/([^/]+)\/read-file$/);
+    if (readMatch) {
+      const path = url.searchParams.get("path") ?? "";
+      const preview = previewFiles.get(path);
+      if (!preview) {
+        return new Response(JSON.stringify({ ok: false }), {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({
+        ok: true,
+        data: {
+          bytes_base64: preview.bytesBase64,
+          content_type: preview.contentType,
+        },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (generateMatch) {
+      const workpieceId = decodeURIComponent(generateMatch[1] ?? "");
+      const body = init?.body
+        ? JSON.parse(String(init.body)) as {
+          workspace_id?: string;
+          image_map_entry_id?: string;
+          expected_metadata_updated_at?: string | null;
+          context_before?: string | null;
+          context_after?: string | null;
+        }
+        : {};
+      generateRequests.push({ workpieceId, body });
+      if (generateConflictMode) {
+        return new Response(JSON.stringify({
+          ok: false,
+          error: {
+            code: "image_map_conflict",
+            message: "Image map changed since last load.",
+          },
+        }), {
+          status: 409,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({
+        ok: true,
+        data: generatePayload,
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
     if (!match) {
       return new Response(JSON.stringify({ ok: true }), {
         status: 200,
@@ -452,11 +530,21 @@ function installImageMapFetchHarness() {
     setSavePayload(value: unknown) {
       savePayload = value;
     },
+    setGeneratePayload(value: unknown) {
+      generatePayload = value;
+    },
     setConflictMode(value: boolean) {
       conflictMode = value;
     },
+    setGenerateConflictMode(value: boolean) {
+      generateConflictMode = value;
+    },
+    setPreviewFile(path: string, bytesBase64: string, contentType = "image/png") {
+      previewFiles.set(path, { bytesBase64, contentType });
+    },
     getRequests,
     saveRequests,
+    generateRequests,
   };
 }
 
@@ -1197,6 +1285,126 @@ async function testImageMapRepoRejectsMismatchedCanonicalAttachment() {
   }
 }
 
+async function testImageMapCandidateGenerationRoundTripsCanonicalRefs() {
+  resetLocalStorage();
+  const harness = installImageMapFetchHarness();
+  harness.setGeneratePayload({
+    image_map: {
+      workpiece_id: WORKPIECE_A,
+      workspace_id: WORKSPACE_ID,
+      entries: [
+        buildImageMapEntryFixture("image-map-01", {
+          source_type: "ai",
+          status: "candidates_generated",
+          candidate_assets: [
+            {
+              asset_id: "candidate-a",
+              path: "assets/image-map/candidates/a.png",
+              variant_label: "explainer",
+              visual_mode: "comparison",
+              mime_type: "image/png",
+            },
+            {
+              asset_id: "candidate-b",
+              path: "assets/image-map/candidates/b.png",
+              variant_label: "illustrative",
+              visual_mode: "comparison",
+              mime_type: "image/png",
+            },
+          ],
+        }),
+      ],
+      metadata_updated_at: "2026-03-10T18:00:00.000Z",
+    },
+    asset: null,
+    generated_assets: [
+      {
+        id: "candidate-a",
+        workspace_id: WORKSPACE_ID,
+        episode_id: WORKPIECE_A,
+        image_map_entry_id: "image-map-01",
+        path: "assets/image-map/candidates/a.png",
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${WORKPIECE_A}/assets/image-map/candidates/a.png`,
+        mime_type: "image/png",
+        bytes: 256,
+        provider: "openai",
+        provider_request_id: "req-a",
+        request_id: "request-a",
+        variant_label: "explainer",
+        visual_mode: "comparison",
+        prompt: "Prompt A",
+      },
+      {
+        id: "candidate-b",
+        workspace_id: WORKSPACE_ID,
+        episode_id: WORKPIECE_A,
+        image_map_entry_id: "image-map-01",
+        path: "assets/image-map/candidates/b.png",
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${WORKPIECE_A}/assets/image-map/candidates/b.png`,
+        mime_type: "image/png",
+        bytes: 257,
+        provider: "openai",
+        provider_request_id: "req-b",
+        request_id: "request-b",
+        variant_label: "illustrative",
+        visual_mode: "comparison",
+        prompt: "Prompt B",
+      },
+    ],
+    token_balance: 17,
+  });
+
+  try {
+    const result = await generateWorkpieceImageMapCandidates({
+      workpieceId: WORKPIECE_A,
+      workspaceId: WORKSPACE_ID,
+      imageMapEntryId: "image-map-01",
+      expectedMetadataUpdatedAt: "2026-03-10T16:20:00.000Z",
+      contextBefore: "Prior sentence.",
+      contextAfter: "Following sentence.",
+      aspect: "16:9",
+      confirmSpend: true,
+      alwaysApproveAiSpend: true,
+    });
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.generatedAssets.length, 2);
+      assert.equal(result.generatedAssets[0]?.variantLabel, "explainer");
+      assert.equal(result.generatedAssets[1]?.visualMode, "comparison");
+      assert.equal(result.imageMap.entries[0]?.candidate_assets[1]?.variant_label, "illustrative");
+      assert.equal(result.tokenBalance, 17);
+    }
+    assert.equal(harness.generateRequests.length, 1);
+    assert.equal(harness.generateRequests[0]?.body.image_map_entry_id, "image-map-01");
+    assert.equal(harness.generateRequests[0]?.body.context_before, "Prior sentence.");
+  } finally {
+    harness.restore();
+  }
+}
+
+async function testImageMapCandidatePreviewLoaderReadsCanonicalFilePath() {
+  resetLocalStorage();
+  const harness = installImageMapFetchHarness();
+  harness.setPreviewFile("assets/image-map/candidates/a.png", "cHJldmlldy1pbWFnZQ==", "image/png");
+
+  try {
+    const result = await loadImageMapCandidatePreviewDataUrl({
+      workpieceId: WORKPIECE_A,
+      path: "assets/image-map/candidates/a.png",
+      mimeType: "image/png",
+    });
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.match(result.dataUrl, /^data:image\/png;base64,/);
+      assert.equal(result.path, "assets/image-map/candidates/a.png");
+    }
+  } finally {
+    harness.restore();
+  }
+}
+
 function testGenerateImageMapEntriesFromScriptEmitsMultipleBeatsWithinParagraph() {
   const scriptText = [
     "## History",
@@ -1220,7 +1428,13 @@ function testGenerateImageMapEntriesFromScriptEmitsMultipleBeatsWithinParagraph(
 
 function testEnsureImageMapV2RoundTripsStructuredEntries() {
   const entry = buildImageMapEntryFixture("image-map-structured", {
-    candidate_assets: [{ asset_id: "asset-a", path: "assets/image-a.png" }],
+    candidate_assets: [{
+      asset_id: "asset-a",
+      path: "assets/image-a.png",
+      variant_label: "explainer",
+      visual_mode: "map",
+      mime_type: "image/png",
+    }],
     selected_asset_id: "asset-a",
     status: "selected",
   });
@@ -1235,6 +1449,8 @@ function testEnsureImageMapV2RoundTripsStructuredEntries() {
   assert.equal(pkg.image_map.entries.length, 1);
   assert.equal(pkg.image_map.entries[0]?.script_anchor?.paragraph_id, "s1:p1");
   assert.equal(pkg.image_map.entries[0]?.candidate_assets[0]?.asset_id, "asset-a");
+  assert.equal(pkg.image_map.entries[0]?.candidate_assets[0]?.variant_label, "explainer");
+  assert.equal(pkg.image_map.entries[0]?.candidate_assets[0]?.visual_mode, "map");
   assert.equal(pkg.image_map.entries[0]?.selected_asset_id, "asset-a");
   assert.equal(pkg.image_map.entries[0]?.status, "selected");
 }
@@ -1844,6 +2060,8 @@ async function run() {
   await testImageMapRepoReadNormalizesSemanticEntriesAndAssetSummary();
   await testImageMapRepoSaveForwardsExpectedTimestampAndReturnsLatestOnConflict();
   await testImageMapRepoRejectsMismatchedCanonicalAttachment();
+  await testImageMapCandidateGenerationRoundTripsCanonicalRefs();
+  await testImageMapCandidatePreviewLoaderReadsCanonicalFilePath();
   testGenerateImageMapEntriesFromScriptEmitsMultipleBeatsWithinParagraph();
   testEnsureImageMapV2RoundTripsStructuredEntries();
   await testBarStockSparkListDiscoveryStaysCanonicalAcrossClients();

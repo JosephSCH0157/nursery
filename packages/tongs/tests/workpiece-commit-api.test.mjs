@@ -9,6 +9,7 @@ function mockService() {
     createCradle: [],
     commitFile: [],
     generateEpisodeThumbnail: [],
+    generateImageMapCandidates: [],
     createRecordingSessionRecord: [],
     listRecordingSessionsForPlanner: [],
     getRecordingSessionRecord: [],
@@ -164,6 +165,114 @@ function mockService() {
           },
         },
         primary_version_id: "44444444-4444-4444-8444-444444444444",
+      };
+    },
+    async generateImageMapCandidates(workpieceId, input, options) {
+      calls.generateImageMapCandidates.push({ workpieceId, input, options: options ?? null });
+      return {
+        image_map: {
+          workpiece_id: workpieceId,
+          workspace_id: input.workspace_id,
+          entries: [
+            {
+              id: input.image_map_entry_id,
+              anchor: "s1:p1#sent1",
+              script_anchor: {
+                section_id: "s1",
+                paragraph_id: "s1:p1",
+                paragraph_order: 1,
+                sentence_start: 1,
+                sentence_end: 1,
+                char_start: 0,
+                char_end: 27,
+                span_text: "Jackson faced overwhelming odds.",
+                speaker_block_id: null,
+              },
+              description: "Jackson faced overwhelming odds.",
+              visual_intent: "Strategic troop comparison",
+              prompt_basis: "Strategic troop comparison near New Orleans",
+              intent: "broll",
+              source_type: "ai",
+              beat_order: 1,
+              paragraph_beat_order: 1,
+              candidate_assets: [
+                {
+                  asset_id: "candidate-01",
+                  path: `assets/image-map/candidates/${workpieceId}/${input.image_map_entry_id}/explainer.png`,
+                  variant_label: "explainer",
+                  visual_mode: "comparison",
+                  mime_type: "image/png",
+                },
+                {
+                  asset_id: "candidate-02",
+                  path: `assets/image-map/candidates/${workpieceId}/${input.image_map_entry_id}/illustrative.png`,
+                  variant_label: "illustrative",
+                  visual_mode: "comparison",
+                  mime_type: "image/png",
+                },
+              ],
+              selected_asset_id: null,
+              status: "candidates_generated",
+              placement_hint: null,
+            },
+          ],
+          metadata_updated_at: "2026-03-11T19:05:00.000Z",
+        },
+        asset: {
+          id: "77777777-7777-4777-8777-777777777777",
+          asset_kind: "image_map_json",
+          status: "ready",
+          path: "assets/image-map/image-map.v1.json",
+          storage_bucket: "forge-workpieces",
+          storage_key: `workpieces/${workpieceId}/assets/image-map/image-map.v1.json`,
+          metadata_json: {
+            schema: "forge.image-map.v1",
+            entry_count: 1,
+          },
+          created_at: "2026-03-11T19:05:00.000Z",
+          updated_at: "2026-03-11T19:05:00.000Z",
+          supersedes_asset_id: null,
+        },
+        generated_assets: [
+          {
+            id: "candidate-01",
+            workspace_id: input.workspace_id,
+            episode_id: workpieceId,
+            image_map_entry_id: input.image_map_entry_id,
+            path: `assets/image-map/candidates/${workpieceId}/${input.image_map_entry_id}/explainer.png`,
+            storage_bucket: "forge-workpieces",
+            storage_key: `workpieces/${workpieceId}/assets/image-map/candidates/${workpieceId}/${input.image_map_entry_id}/explainer.png`,
+            mime_type: "image/png",
+            bytes: 1234,
+            provider: "openai",
+            provider_request_id: "req_provider_01",
+            request_id: "req_local_01",
+            variant_label: "explainer",
+            visual_mode: "comparison",
+            prompt: "Prompt explainer",
+            status: "ready",
+          },
+          {
+            id: "candidate-02",
+            workspace_id: input.workspace_id,
+            episode_id: workpieceId,
+            image_map_entry_id: input.image_map_entry_id,
+            path: `assets/image-map/candidates/${workpieceId}/${input.image_map_entry_id}/illustrative.png`,
+            storage_bucket: "forge-workpieces",
+            storage_key: `workpieces/${workpieceId}/assets/image-map/candidates/${workpieceId}/${input.image_map_entry_id}/illustrative.png`,
+            mime_type: "image/png",
+            bytes: 1266,
+            provider: "openai",
+            provider_request_id: "req_provider_02",
+            request_id: "req_local_02",
+            variant_label: "illustrative",
+            visual_mode: "comparison",
+            prompt: "Prompt illustrative",
+            status: "ready",
+          },
+        ],
+        credits_warning: null,
+        token_balance: 777,
       };
     },
     async createRecordingSessionRecord(input) {
@@ -1115,6 +1224,16 @@ function createImageMapAssetSupabase({ assets = [] } = {}) {
     updateCalls: [],
   };
 
+  function matchesFilters(row, filters, containsFilters) {
+    const basicMatch = Object.entries(filters).every(([key, value]) => row[key] === value);
+    if (!basicMatch) return false;
+    return containsFilters.every(({ field, value }) => {
+      const rowValue = row[field];
+      if (!rowValue || typeof rowValue !== "object") return false;
+      return Object.entries(value).every(([innerKey, innerValue]) => rowValue[innerKey] === innerValue);
+    });
+  }
+
   return {
     state,
     schema(schemaName) {
@@ -1128,26 +1247,33 @@ function createImageMapAssetSupabase({ assets = [] } = {}) {
           return {
             select() {
               const filters = {};
+              const containsFilters = [];
               return {
                 eq(field, value) {
                   filters[field] = value;
                   return this;
                 },
+                contains(field, value) {
+                  containsFilters.push({ field, value });
+                  return this;
+                },
                 order(field, options) {
+                  const rows = state.assetRows
+                    .filter((row) => matchesFilters(row, filters, containsFilters))
+                    .sort((left, right) => {
+                      const leftValue = left[field] ?? null;
+                      const rightValue = right[field] ?? null;
+                      if (leftValue === rightValue) return 0;
+                      if (leftValue == null) return 1;
+                      if (rightValue == null) return -1;
+                      return options?.ascending === false
+                        ? String(rightValue).localeCompare(String(leftValue))
+                        : String(leftValue).localeCompare(String(rightValue));
+                    });
                   return {
+                    data: rows.map((row) => ({ ...row })),
+                    error: null,
                     async limit(limit) {
-                      const rows = state.assetRows
-                        .filter((row) => Object.entries(filters).every(([key, value]) => row[key] === value))
-                        .sort((left, right) => {
-                          const leftValue = left[field] ?? null;
-                          const rightValue = right[field] ?? null;
-                          if (leftValue === rightValue) return 0;
-                          if (leftValue == null) return 1;
-                          if (rightValue == null) return -1;
-                          return options?.ascending === false
-                            ? String(rightValue).localeCompare(String(leftValue))
-                            : String(leftValue).localeCompare(String(rightValue));
-                        });
                       return {
                         data: rows.slice(0, limit).map((row) => ({ ...row })),
                         error: null,
@@ -1184,6 +1310,19 @@ function createImageMapAssetSupabase({ assets = [] } = {}) {
                   state.updateCalls.push({ patch: { ...patch }, [field]: value });
                   state.assetRows = state.assetRows.map((row) => (
                     row[field] === value
+                      ? {
+                        ...row,
+                        ...patch,
+                        updated_at: "2026-03-10T16:05:00.000Z",
+                      }
+                      : row
+                  ));
+                  return { data: null, error: null };
+                },
+                async in(field, values) {
+                  state.updateCalls.push({ patch: { ...patch }, [field]: [...values] });
+                  state.assetRows = state.assetRows.map((row) => (
+                    values.includes(row[field])
                       ? {
                         ...row,
                         ...patch,
@@ -1385,6 +1524,43 @@ test("POST /tongs/workpieces/:id/generate-thumbnail dispatches generateEpisodeTh
   assert.equal(body.data?.version?.status, "ready");
   assert.equal(typeof body.data?.asset?.storage_key, "string");
   assert.equal(body.data?.primary_version_id, "44444444-4444-4444-8444-444444444444");
+});
+
+test("POST /tongs/workpieces/:id/image-map/generate-candidates dispatches generateImageMapCandidates", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/image-map/generate-candidates",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+      body: JSON.stringify({
+        workspace_id: "11111111-1111-4111-8111-111111111111",
+        image_map_entry_id: "image-map-01",
+        expected_metadata_updated_at: "2026-03-11T19:00:00.000Z",
+        context_before: "Jackson's men watched the British column advance.",
+        context_after: "The Mississippi delta made retreat impossible.",
+        confirm_spend: true,
+      }),
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.generateImageMapCandidates.length, 1);
+  assert.equal(calls.generateImageMapCandidates[0]?.workpieceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.generateImageMapCandidates[0]?.input.image_map_entry_id, "image-map-01");
+  assert.equal(calls.generateImageMapCandidates[0]?.input.context_before, "Jackson's men watched the British column advance.");
+  assert.equal(calls.generateImageMapCandidates[0]?.input.user_access_token, "user_token_abc");
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.generated_assets?.length, 2);
+  assert.equal(body.data?.image_map?.entries?.[0]?.candidate_assets?.length, 2);
 });
 
 test("GET /tongs/workpieces/:id/image-map dispatches getWorkpieceImageMap", async () => {
@@ -1712,6 +1888,283 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
   assert.equal(result.version.status, "ready");
   assert.equal(result.primary_version_id, result.version.id);
   assert.equal(result.asset.storage_bucket, "forge-workpieces");
+});
+
+test("TongsCommitService.generateImageMapCandidates writes candidate assets and canonical image-map refs", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const workpieceId = "22222222-2222-4222-8222-222222222222";
+  const userId = "33333333-3333-4333-8333-333333333333";
+  const providerCalls = [];
+  const commitCalls = [];
+  const { state, ...supabase } = createImageMapAssetSupabase({
+    assets: [
+      {
+        id: "asset-old-image-map",
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        path: "assets/image-map/image-map.v1.json",
+        mime_type: "application/json",
+        bytes: 111,
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${workpieceId}/assets/image-map/image-map.v1.json`,
+        provider: "hearth",
+        provider_request_id: null,
+        request_id: "req-old-image-map",
+        prompt: null,
+        created_by: userId,
+        created_at: "2026-03-11T18:00:00.000Z",
+        updated_at: "2026-03-11T18:00:00.000Z",
+        asset_kind: "image_map_json",
+        status: "ready",
+        metadata_json: {
+          schema: "forge.image-map.v1",
+          entry_count: 1,
+        },
+        supersedes_asset_id: null,
+      },
+      {
+        id: "asset-old-candidate-a",
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        path: `assets/image-map/candidates/${workpieceId}/image-map-01/explainer-old.png`,
+        mime_type: "image/png",
+        bytes: 222,
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${workpieceId}/assets/image-map/candidates/${workpieceId}/image-map-01/explainer-old.png`,
+        provider: "openai",
+        provider_request_id: "req-old-a",
+        request_id: "req-local-old-a",
+        prompt: "old prompt",
+        created_by: userId,
+        created_at: "2026-03-11T18:01:00.000Z",
+        updated_at: "2026-03-11T18:01:00.000Z",
+        asset_kind: "image_map_candidate_image",
+        status: "ready",
+        metadata_json: {
+          schema: "forge.image-map-candidate.v1",
+          image_map_entry_id: "image-map-01",
+          variant_label: "explainer",
+          visual_mode: "comparison",
+        },
+        supersedes_asset_id: null,
+      },
+      {
+        id: "asset-old-candidate-b",
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        path: `assets/image-map/candidates/${workpieceId}/image-map-01/illustrative-old.png`,
+        mime_type: "image/png",
+        bytes: 223,
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${workpieceId}/assets/image-map/candidates/${workpieceId}/image-map-01/illustrative-old.png`,
+        provider: "openai",
+        provider_request_id: "req-old-b",
+        request_id: "req-local-old-b",
+        prompt: "old prompt",
+        created_by: userId,
+        created_at: "2026-03-11T18:02:00.000Z",
+        updated_at: "2026-03-11T18:02:00.000Z",
+        asset_kind: "image_map_candidate_image",
+        status: "ready",
+        metadata_json: {
+          schema: "forge.image-map-candidate.v1",
+          image_map_entry_id: "image-map-01",
+          variant_label: "illustrative",
+          visual_mode: "comparison",
+        },
+        supersedes_asset_id: null,
+      },
+    ],
+  });
+
+  const imageProvider = {
+    async generateImage(input) {
+      providerCalls.push(input);
+      const index = providerCalls.length;
+      return {
+        bytesBase64: index === 1 ? "AQID" : "BAUG",
+        mimeType: "image/png",
+        provider: "openai",
+        providerRequestId: `req_provider_${index}`,
+        revisedPrompt: null,
+        tokensUsed: 120 + index,
+      };
+    },
+  };
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", imageProvider);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: userId,
+    created_at: "2026-03-11T17:00:00.000Z",
+    updated_at: "2026-03-11T17:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkpieceInWorkspace = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-11T17:00:00.000Z",
+    updated_at: "2026-03-11T17:00:00.000Z",
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId, role: "editor" });
+  service.readWorkpieceJson = async () => ({
+    found: true,
+    data: {
+      schema: "forge.metadata.v1",
+      workpiece_id: workpieceId,
+      workspace_id: workspaceId,
+      episode: {
+        schema: "forge.episode.package.v2",
+        image_map: {
+          entries: [
+            {
+              id: "image-map-01",
+              anchor: "s1:p1#sent1-2",
+              script_anchor: {
+                section_id: "s1",
+                paragraph_id: "s1:p1",
+                paragraph_order: 1,
+                sentence_start: 1,
+                sentence_end: 2,
+                char_start: 0,
+                char_end: 72,
+                span_text: "Jackson faced 8,000 British troops against 3,500 defenders near New Orleans.",
+                speaker_block_id: null,
+              },
+              description: "Strategic troop comparison near New Orleans",
+              visual_intent: "Strategic troop comparison",
+              prompt_basis: "Troop-count comparison near New Orleans",
+              intent: "broll",
+              source_type: "script",
+              beat_order: 1,
+              paragraph_beat_order: 1,
+              candidate_assets: [],
+              selected_asset_id: null,
+              status: "mapped",
+              placement_hint: null,
+            },
+          ],
+        },
+      },
+    },
+    file_row: { updated_at: "2026-03-11T18:30:00.000Z" },
+  });
+  service.commitFile = async (inputWorkpieceId, input) => {
+    commitCalls.push({ inputWorkpieceId, input });
+    return {
+      workpiece_id: inputWorkpieceId,
+      path: input.path,
+      storage_key: `workpieces/${inputWorkpieceId}/${input.path}`,
+      hash: "hash_abc",
+      bytes: input.path.endsWith(".png") ? 3 : 200,
+      content_type: input.content_type ?? "application/octet-stream",
+      manifest_hash: "manifest_hash",
+      manifest_bytes: 123,
+      file_row: {
+        workpiece_id: inputWorkpieceId,
+        path: input.path,
+        file_type: input.file_type ?? "json",
+        content_type: input.content_type ?? "application/octet-stream",
+        bytes: input.path.endsWith(".png") ? 3 : 200,
+        hash_algo: "sha256",
+        hash_value: "hash_abc",
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${inputWorkpieceId}/${input.path}`,
+        written_by_tool: input.written_by.tool,
+        written_by_tool_version: input.written_by.tool_version,
+        written_by_lane: input.written_by.lane,
+        created_at: "2026-03-11T19:00:00.000Z",
+        updated_at: input.path === "metadata.json"
+          ? "2026-03-11T19:00:00.000Z"
+          : "2026-03-11T19:00:01.000Z",
+      },
+      manifest_row: {
+        workpiece_id: inputWorkpieceId,
+        path: "manifest.json",
+        file_type: "manifest",
+        content_type: "application/json",
+        bytes: 120,
+        hash_algo: "sha256",
+        hash_value: "manifest_hash",
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${inputWorkpieceId}/manifest.json`,
+        written_by_tool: input.written_by.tool,
+        written_by_tool_version: input.written_by.tool_version,
+        written_by_lane: input.written_by.lane,
+        created_at: "2026-03-11T19:00:00.000Z",
+        updated_at: "2026-03-11T19:00:00.000Z",
+      },
+      event: {
+        id: 99,
+        workpiece_id: inputWorkpieceId,
+        event_name: input.event_name ?? "workpiece.file.committed",
+        payload: {},
+        correlation_id: null,
+        written_by_tool: input.written_by.tool,
+        written_by_tool_version: input.written_by.tool_version,
+        written_by_lane: input.written_by.lane,
+        created_at: "2026-03-11T19:00:00.000Z",
+      },
+    };
+  };
+  service.applyAiTokenDelta = async () => ({
+    tokenBalance: 777,
+  });
+
+  const result = await service.generateImageMapCandidates(workpieceId, {
+    workspace_id: workspaceId,
+    image_map_entry_id: "image-map-01",
+    context_before: "British forces regrouped after Napoleon's defeat.",
+    context_after: "The Mississippi delta made New Orleans strategically decisive.",
+    confirm_spend: true,
+    lane: "forge",
+    user_access_token: "token_abc",
+  });
+
+  assert.equal(providerCalls.length, 2);
+  assert.equal(providerCalls[0]?.aspect, "16:9");
+  assert.match(providerCalls[0]?.prompt ?? "", /Exact beat span:/);
+  assert.match(providerCalls[0]?.prompt ?? "", /Jackson faced 8,000 British troops/);
+  assert.match(providerCalls[0]?.prompt ?? "", /Variant goal: make the beat clearer and more diagrammatic or explanatory/);
+  assert.match(providerCalls[1]?.prompt ?? "", /Variant goal: make the beat more cinematic and illustrative/);
+  assert.notEqual(providerCalls[0]?.prompt, providerCalls[1]?.prompt);
+  assert.match(providerCalls[0]?.prompt ?? "", /Do not render text, labels, captions, numbers, or map lettering into the image/);
+
+  assert.equal(commitCalls.length, 4);
+  assert.equal(commitCalls[0]?.input.path.includes("assets/image-map/candidates/"), true);
+  assert.equal(commitCalls[1]?.input.path.includes("assets/image-map/candidates/"), true);
+  assert.equal(commitCalls[2]?.input.path, "metadata.json");
+  assert.equal(commitCalls[3]?.input.path, "assets/image-map/image-map.v1.json");
+
+  const candidateInserts = state.insertCalls.filter((row) => row.asset_kind === "image_map_candidate_image");
+  assert.equal(candidateInserts.length, 2);
+  assert.equal(candidateInserts[0]?.status, "ready");
+  assert.equal(candidateInserts[0]?.metadata_json?.schema, "forge.image-map-candidate.v1");
+  assert.equal(candidateInserts[0]?.metadata_json?.image_map_entry_id, "image-map-01");
+  assert.equal(candidateInserts[0]?.metadata_json?.variant_label, "explainer");
+  assert.equal(candidateInserts[1]?.metadata_json?.variant_label, "illustrative");
+  assert.equal(candidateInserts[0]?.prompt?.includes("Exact beat span:"), true);
+
+  assert.equal(result.generated_assets.length, 2);
+  assert.equal(result.generated_assets[0]?.variant_label, "explainer");
+  assert.equal(result.generated_assets[1]?.variant_label, "illustrative");
+  assert.equal(result.image_map.entries[0]?.candidate_assets.length, 2);
+  assert.equal(result.image_map.entries[0]?.candidate_assets[0]?.variant_label, "explainer");
+  assert.equal(result.image_map.entries[0]?.candidate_assets[1]?.variant_label, "illustrative");
+  assert.equal(result.image_map.entries[0]?.status, "candidates_generated");
+  assert.equal(result.image_map.entries[0]?.selected_asset_id, null);
+  assert.equal(result.token_balance, 777);
+
+  const candidateSupersedeCall = state.updateCalls.find((row) => Array.isArray(row.id));
+  assert.deepEqual([...candidateSupersedeCall.id].sort(), ["asset-old-candidate-a", "asset-old-candidate-b"]);
+  assert.equal(candidateSupersedeCall?.patch?.status, "superseded");
+  const imageMapSupersedeCall = state.updateCalls.find((row) => row.id === "asset-old-image-map");
+  assert.equal(imageMapSupersedeCall?.patch?.status, "superseded");
 });
 
 test("POST /tongs/workspaces/:id/recording-sessions dispatches createRecordingSession", async () => {
