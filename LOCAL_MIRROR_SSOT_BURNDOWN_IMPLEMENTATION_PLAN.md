@@ -15,6 +15,7 @@ Execution locks:
 
 - `LOCAL_MIRROR_SSOT_SLICE_3_CANDIDACY_LOCK.md`
 - `LOCAL_MIRROR_SSOT_SLICE_4_DERIVED_ARTIFACT_LOCK.md`
+- `LOCAL_MIRROR_SSOT_SLICE_5_CROSS_TOOL_HANDOFF_LOCK.md`
 - `LOCAL_MIRROR_INGEST_STATE_MACHINE.md`
 
 **Mirrors may accelerate access; they may not determine reality.**
@@ -223,6 +224,8 @@ Status: complete
 
 - Anvil handoff
 - any remaining tool-entry assumptions that still need prior local context
+
+Lock source: `LOCAL_MIRROR_SSOT_SLICE_5_CROSS_TOOL_HANDOFF_LOCK.md`
 
 ## Verification Plan
 
