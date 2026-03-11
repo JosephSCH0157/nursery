@@ -18,6 +18,10 @@ Slice 2 execution plan:
 
 - `WORKPIECE_DELETION_SLICE_2_IMPLEMENTATION_PLAN.md`
 
+Slice 2 completion note:
+
+- `WORKPIECE_DELETION_SLICE_2_COMPLETION.md`
+
 This document does not claim that full workpiece archive or hard-delete semantics are already implemented in product code.
 
 ## Purpose

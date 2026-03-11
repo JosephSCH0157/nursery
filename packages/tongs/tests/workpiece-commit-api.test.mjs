@@ -686,6 +686,8 @@ function createReadyQueueSupabase({
   events = [],
 } = {}) {
   const state = {
+    fileRows: files.map((row) => ({ ...row })),
+    readyMetaRows: readyMeta.map((row) => ({ ...row })),
     queueStateRows: queueState.map((row) => ({ ...row })),
     upsertCalls: [],
     deleteCalls: [],
@@ -811,35 +813,65 @@ function createReadyQueueSupabase({
             return {
               select() {
                 let workpieceFilter = null;
-                return {
-                  in(field, values) {
-                    assert.equal(field, "workpiece_id");
-                    workpieceFilter = new Set(values);
+                const withWorkpieceFilter = {
+                  async in(innerField, innerValues) {
+                    assert.equal(innerField, "path");
+                    const pathFilter = new Set(innerValues);
                     return {
-                      async in(innerField, innerValues) {
-                        assert.equal(innerField, "path");
-                        const pathFilter = new Set(innerValues);
+                      data: state.fileRows.filter(
+                        (row) => workpieceFilter.has(row.workpiece_id) && pathFilter.has(row.path),
+                      ),
+                      error: null,
+                    };
+                  },
+                  like(innerField, pattern) {
+                    assert.equal(innerField, "path");
+                    const prefix = String(pattern).replace(/%$/, "");
+                    return {
+                      async limit(limit) {
                         return {
-                          data: files.filter(
-                            (row) => workpieceFilter.has(row.workpiece_id) && pathFilter.has(row.path),
-                          ),
+                          data: state.fileRows
+                            .filter(
+                              (row) => workpieceFilter.has(row.workpiece_id) && row.path.startsWith(prefix),
+                            )
+                            .slice(0, limit),
                           error: null,
                         };
                       },
-                      like(innerField, pattern) {
+                    };
+                  },
+                };
+                return {
+                  eq(field, value) {
+                    assert.equal(field, "workpiece_id");
+                    workpieceFilter = new Set([value]);
+                    return withWorkpieceFilter;
+                  },
+                  in(field, values) {
+                    assert.equal(field, "workpiece_id");
+                    workpieceFilter = new Set(values);
+                    return withWorkpieceFilter;
+                  },
+                };
+              },
+              delete() {
+                return {
+                  eq(field, value) {
+                    assert.equal(field, "workpiece_id");
+                    const workpieceId = value;
+                    return {
+                      async in(innerField, values) {
                         assert.equal(innerField, "path");
-                        const prefix = String(pattern).replace(/%$/, "");
+                        const pathSet = new Set(values);
+                        const deletedRows = [];
+                        state.fileRows = state.fileRows.filter((row) => {
+                          const shouldDelete = row.workpiece_id === workpieceId && pathSet.has(row.path);
+                          if (shouldDelete) deletedRows.push({ ...row });
+                          return !shouldDelete;
+                        });
                         return {
-                          async limit(limit) {
-                            return {
-                              data: files
-                                .filter(
-                                  (row) => workpieceFilter.has(row.workpiece_id) && row.path.startsWith(prefix),
-                                )
-                                .slice(0, limit),
-                              error: null,
-                            };
-                          },
+                          data: deletedRows,
+                          error: null,
                         };
                       },
                     };
@@ -862,10 +894,44 @@ function createReadyQueueSupabase({
                         assert.equal(innerField, "workpiece_id");
                         const idSet = new Set(values);
                         return {
-                          data: readyMeta.filter(
+                          data: state.readyMetaRows.filter(
                             (row) => row.workspace_id === workspaceFilter && idSet.has(row.workpiece_id),
                           ),
                           error: null,
+                        };
+                      },
+                    };
+                  },
+                };
+              },
+              delete() {
+                let workspaceFilter = null;
+                return {
+                  eq(field, value) {
+                    assert.equal(field, "workspace_id");
+                    workspaceFilter = value;
+                    return {
+                      eq(innerField, innerValue) {
+                        assert.equal(innerField, "workpiece_id");
+                        const workpieceId = innerValue;
+                        return {
+                          async select() {
+                            const deletedRows = [];
+                            state.readyMetaRows = state.readyMetaRows.filter((row) => {
+                              const shouldDelete = row.workspace_id === workspaceFilter && row.workpiece_id === workpieceId;
+                              if (shouldDelete) {
+                                deletedRows.push({
+                                  workpiece_id: row.workpiece_id,
+                                  script_path: row.script_path,
+                                });
+                              }
+                              return !shouldDelete;
+                            });
+                            return {
+                              data: deletedRows,
+                              error: null,
+                            };
+                          },
                         };
                       },
                     };
@@ -1020,6 +1086,18 @@ function createReadyQueueSupabase({
           throw new Error(`Unexpected table: ${tableName}`);
         },
       };
+    },
+    storage: {
+      from() {
+        return {
+          async upload() {
+            return { data: {}, error: null };
+          },
+          async remove() {
+            return { data: null, error: null };
+          },
+        };
+      },
     },
   };
 }
@@ -2648,6 +2726,101 @@ test("TongsCommitService.archiveWorkpiece and restoreWorkpiece update episodes a
   assert.equal(events.length, 2);
   assert.equal(events[0]?.event_name, "hearth.workpiece.archived.v1");
   assert.equal(events[1]?.event_name, "hearth.workpiece.restored.v1");
+});
+
+test("TongsCommitService.restoreWorkpiece clears active ready eligibility without deleting planner history", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const editorId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const events = [];
+
+  const { state, ...supabase } = createReadyQueueSupabase({
+    workspaceId,
+    episodes: [
+      {
+        id: workpieceId,
+        workspace_id: workspaceId,
+        label: "Restorable Ready Episode",
+        updated_at: "2026-03-10T10:00:00.000Z",
+        created_at: "2026-03-01T10:00:00.000Z",
+        archived_at: "2026-03-11T09:00:00.000Z",
+        archived_by: editorId,
+        archive_reason: "pause work",
+      },
+    ],
+    files: [
+      {
+        workpiece_id: workpieceId,
+        path: "script/script.md",
+        updated_at: "2026-03-10T10:30:00.000Z",
+        created_at: "2026-03-10T10:00:00.000Z",
+        file_type: "script_markdown",
+        content_type: "text/markdown; charset=utf-8",
+        bytes: 123,
+        hash_algo: "sha256",
+        hash_value: "abc",
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${workpieceId}/script/script.md`,
+      },
+    ],
+    readyMeta: [
+      {
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        script_path: "script/script.md",
+        marked_ready_by: editorId,
+        marked_ready_at: "2026-03-10T10:30:00.000Z",
+      },
+    ],
+    events,
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: editorId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: editorId, role: "editor" });
+  service.getCradleOrThrow = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Restorable Ready Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-01T10:00:00.000Z",
+    updated_at: "2026-03-10T10:00:00.000Z",
+  });
+  service.loadManifestOrDefault = async () => createManifestFixture(workpieceId, workspaceId);
+  service.upsertWorkpieceFile = async () => {};
+
+  const beforeRestore = await service.listWorkspaceReadyScripts(workspaceId, {
+    userAccessToken: "editor_token",
+  });
+  assert.equal(beforeRestore.length, 0, "Archived workpieces are excluded before restore");
+
+  const restored = await service.restoreWorkpiece(workpieceId, {
+    workspace_id: workspaceId,
+  }, {
+    userAccessToken: "editor_token",
+  });
+
+  assert.equal(restored.archived_at, null);
+  assert.equal(state.fileRows.some((row) => row.workpiece_id === workpieceId && row.path === "script/script.md"), false);
+  assert.equal(state.readyMetaRows.some((row) => row.workpiece_id === workpieceId), false);
+
+  const afterRestore = await service.listWorkspaceReadyScripts(workspaceId, {
+    userAccessToken: "editor_token",
+  });
+  assert.deepEqual(afterRestore, [], "Restore should not silently reinstate Ready candidacy");
+
+  assert.equal(events.at(-1)?.event_name, "hearth.workpiece.restored.v1");
+  assert.deepEqual(events.at(-1)?.payload?.cleared_ready_paths, ["script/script.md"]);
+  assert.equal(events.at(-1)?.payload?.ready_revalidation_required, true);
 });
 
 test("TongsCommitService.getWorkpieceImageMap returns normalized semantic entries plus current asset summary", async () => {

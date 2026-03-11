@@ -5227,6 +5227,7 @@ export default function HearthShell() {
         workspaceId: normalizedWorkspaceId,
         workpieceId: normalizedWorkpieceId,
       });
+      setAiRuntimeWarning("Restored. Review and re-ready before recording.");
       await refreshWorkpieces(normalizedWorkspaceId, {
         includeArchived: showArchived || Boolean(options?.openAfterRestore),
       });
@@ -8790,7 +8791,7 @@ export default function HearthShell() {
         <section className="hs-home">
           <header className="hs-home-header">
             <h2 className="hs-home-title">{archivedWorkpiece.title}</h2>
-            <p className="hs-home-subtext">This workpiece is archived. Restore it before continuing editorial work.</p>
+            <p className="hs-home-subtext">This workpiece is archived. Restore it to review, then re-ready it before recording.</p>
           </header>
           {archivedWorkpiece.archiveReason ? (
             <div className="hs-rail-meta">Archive reason: {archivedWorkpiece.archiveReason}</div>
@@ -9266,7 +9267,7 @@ export default function HearthShell() {
               <div className="hs-rail-heading">Active workpiece</div>
               {activeWorkpieceIsArchived && activeWorkpiece ? (
                 <>
-                  <div className="hs-rail-meta">Archived workpieces are hidden records. Restore before editing or recording.</div>
+                  <div className="hs-rail-meta">Archived workpieces are hidden records. Restore to review, then re-ready before recording.</div>
                   {activeWorkpiece.archiveReason ? (
                     <div className="hs-rail-meta">Archive reason: {activeWorkpiece.archiveReason}</div>
                   ) : null}

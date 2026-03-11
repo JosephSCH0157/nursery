@@ -2,6 +2,12 @@
 
 Implementation plan only. Constitutional lifecycle semantics are defined in `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`. Operational lifecycle behavior is summarized in `STATE_MACHINE_DIAGRAM.md`. Policy intent is defined in `WORKPIECE_DELETION_POLICY_PLAN.md`. Slice 2 restore semantics are locked in `WORKPIECE_DELETION_SLICE_2_RESTORE_REINTEGRATION_LOCK.md`.
 
+Slice 2 status: completed on 2026-03-11.
+
+Completion note:
+
+- `WORKPIECE_DELETION_SLICE_2_COMPLETION.md`
+
 **Restore returns access, not active recording eligibility.**
 
 ## Purpose
@@ -199,3 +205,5 @@ Slice 2 is complete when all of the following are true:
 - stale planner/session references are surfaced as stale rather than revived
 - restore UI copy consistently tells the truth
 - verification proves the non-reinstatement rule end to end
+
+Slice 2 meets these criteria. The remaining work belongs to later deletion/archive slices, not to restore reintegration.

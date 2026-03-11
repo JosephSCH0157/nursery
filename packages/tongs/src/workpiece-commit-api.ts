@@ -2538,6 +2538,126 @@ export class TongsCommitService {
     return (data ?? []).length > 0;
   }
 
+  private async clearReadyEligibilityOnRestore(
+    cradle: EpisodeRow,
+  ): Promise<{
+    clearedPaths: string[];
+    clearedReadyMetaCount: number;
+    warnings: string[];
+  }> {
+    const warnings: string[] = [];
+    const { data: readyFileRows, error: readyFileRowsError } = await this.supabase
+      .schema("tongs")
+      .from("workpiece_files")
+      .select("*")
+      .eq("workpiece_id", cradle.id)
+      .in("path", READY_SCRIPT_PATH_CANDIDATES as unknown as string[]);
+
+    if (readyFileRowsError) {
+      throw new HttpError(502, "db_read_failed", "Failed to read ready script rows during restore", {
+        reason: readyFileRowsError.message,
+      });
+    }
+
+    const readyFiles = (readyFileRows ?? []).filter((row) => READY_SCRIPT_PATH_SET.has(row.path));
+    const clearedPaths = Array.from(new Set(readyFiles.map((row) => row.path)));
+    const nowIso = new Date().toISOString();
+
+    if (clearedPaths.length > 0) {
+      const manifest = await this.loadManifestOrDefault(cradle);
+      manifest.updated_at = nowIso;
+      for (const path of clearedPaths) {
+        delete manifest.files[path];
+      }
+      const clearedPathSet = new Set(clearedPaths);
+      for (const pointerKey of Object.keys(manifest.pointers) as ManifestPointerKey[]) {
+        if (clearedPathSet.has(manifest.pointers[pointerKey] ?? "")) {
+          manifest.pointers[pointerKey] = null;
+        }
+      }
+
+      const finalized = await finalizeManifestTwoPass(manifest, DEFAULT_WRITTEN_BY, nowIso);
+      await uploadStorageObject(
+        this.supabase,
+        this.bucket,
+        buildStorageKey(cradle.id, MANIFEST_PATH),
+        finalized.manifestBytes,
+        "application/json",
+      );
+      await this.upsertWorkpieceFile([
+        {
+          workpiece_id: cradle.id,
+          path: MANIFEST_PATH,
+          file_type: "manifest",
+          content_type: "application/json",
+          bytes: finalized.finalBytes,
+          hash_algo: SHA256_ALGO,
+          hash_value: finalized.finalHash,
+          storage_bucket: this.bucket,
+          storage_key: buildStorageKey(cradle.id, MANIFEST_PATH),
+          written_by_tool: DEFAULT_WRITTEN_BY.tool,
+          written_by_tool_version: DEFAULT_WRITTEN_BY.tool_version,
+          written_by_lane: DEFAULT_WRITTEN_BY.lane,
+        },
+      ]);
+
+      const { error: deleteReadyFilesError } = await this.supabase
+        .schema("tongs")
+        .from("workpiece_files")
+        .delete()
+        .eq("workpiece_id", cradle.id)
+        .in("path", clearedPaths);
+
+      if (deleteReadyFilesError) {
+        throw new HttpError(502, "db_write_failed", "Failed to clear ready script files during restore", {
+          reason: deleteReadyFilesError.message,
+        });
+      }
+
+      const storageKeysByBucket = new Map<string, string[]>();
+      for (const row of readyFiles) {
+        const storageBucket = row.storage_bucket?.trim() || this.bucket;
+        const storageKey = row.storage_key?.trim() || buildStorageKey(cradle.id, row.path);
+        const existingKeys = storageKeysByBucket.get(storageBucket);
+        if (existingKeys) {
+          if (!existingKeys.includes(storageKey)) existingKeys.push(storageKey);
+        } else {
+          storageKeysByBucket.set(storageBucket, [storageKey]);
+        }
+      }
+
+      for (const [storageBucket, storageKeys] of storageKeysByBucket.entries()) {
+        const { error: storageDeleteError } = await this.supabase.storage
+          .from(storageBucket)
+          .remove(storageKeys);
+        if (storageDeleteError) {
+          logStorageError("delete", storageBucket, storageKeys.join(","), storageDeleteError);
+          warnings.push("storage_delete_failed");
+        }
+      }
+    }
+
+    const { data: deletedReadyMetaRows, error: deleteReadyMetaError } = await this.supabase
+      .schema("tongs")
+      .from("workpiece_ready_script_meta")
+      .delete()
+      .eq("workspace_id", cradle.workspace_id)
+      .eq("workpiece_id", cradle.id)
+      .select("workpiece_id,script_path");
+
+    if (deleteReadyMetaError) {
+      throw new HttpError(502, "db_write_failed", "Failed to clear ready script metadata during restore", {
+        reason: deleteReadyMetaError.message,
+      });
+    }
+
+    return {
+      clearedPaths,
+      clearedReadyMetaCount: (deletedReadyMetaRows ?? []).length,
+      warnings,
+    };
+  }
+
   private async assertWorkpiecesInWorkspace(workspaceId: string, workpieceIds: readonly string[]): Promise<void> {
     const uniqueIds = Array.from(new Set(workpieceIds.filter(Boolean)));
     if (uniqueIds.length === 0) return;
@@ -4594,6 +4714,8 @@ export class TongsCommitService {
     await this.getWorkspaceOrThrow(input.workspace_id);
     await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
     await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const cradle = await this.getCradleOrThrow(workpieceId);
+    const readinessReset = await this.clearReadyEligibilityOnRestore(cradle);
     const restoredAt = new Date().toISOString();
 
     const { data, error } = await this.supabase
@@ -4624,6 +4746,11 @@ export class TongsCommitService {
       payload: {
         workspace_id: input.workspace_id,
         restored_at: restoredAt,
+        cleared_ready_paths: readinessReset.clearedPaths,
+        cleared_ready_path_count: readinessReset.clearedPaths.length,
+        cleared_ready_meta_count: readinessReset.clearedReadyMetaCount,
+        ready_revalidation_required: readinessReset.clearedPaths.length > 0 || readinessReset.clearedReadyMetaCount > 0,
+        ...(readinessReset.warnings.length > 0 ? { warnings: readinessReset.warnings } : {}),
       },
       writtenBy: {
         tool: "hearth",
