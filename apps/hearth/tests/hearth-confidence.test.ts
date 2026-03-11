@@ -26,6 +26,7 @@ import {
   getWorkpieceImageMap,
   loadImageMapCandidatePreviewDataUrl,
   saveWorkpieceImageMap,
+  selectWorkpieceImageMapCandidate,
 } from "../src/lib/hearth-image-map-repo";
 import { readHearthPrimaryScript } from "../src/lib/hearth-script-repo";
 import { generateImageMapEntriesFromScript } from "../src/lib/hearth-image-map-beats";
@@ -1384,6 +1385,135 @@ async function testImageMapCandidateGenerationRoundTripsCanonicalRefs() {
   }
 }
 
+async function testImageMapCandidateSelectionPersistsCanonicalSelectedAsset() {
+  resetLocalStorage();
+  const harness = installImageMapFetchHarness();
+  harness.setSavePayload({
+    image_map: {
+      workpiece_id: WORKPIECE_A,
+      workspace_id: WORKSPACE_ID,
+      entries: [
+        buildImageMapEntryFixture("image-map-01", {
+          source_type: "ai",
+          status: "selected",
+          candidate_assets: [
+            {
+              asset_id: "candidate-a",
+              path: "assets/image-map/candidates/a.png",
+              variant_label: "explainer",
+              visual_mode: "comparison",
+              mime_type: "image/png",
+            },
+            {
+              asset_id: "candidate-b",
+              path: "assets/image-map/candidates/b.png",
+              variant_label: "illustrative",
+              visual_mode: "comparison",
+              mime_type: "image/png",
+            },
+          ],
+          selected_asset_id: "candidate-b",
+        }),
+      ],
+      metadata_updated_at: "2026-03-10T19:00:00.000Z",
+    },
+    asset: null,
+  });
+
+  try {
+    const result = await selectWorkpieceImageMapCandidate({
+      workpieceId: WORKPIECE_A,
+      workspaceId: WORKSPACE_ID,
+      imageMapEntryId: "image-map-01",
+      candidateAssetId: "candidate-b",
+      expectedMetadataUpdatedAt: "2026-03-10T18:00:00.000Z",
+      currentImageMap: {
+        workpieceId: WORKPIECE_A,
+        workspaceId: WORKSPACE_ID,
+        entries: [
+          buildImageMapEntryFixture("image-map-01", {
+            source_type: "ai",
+            status: "candidates_generated",
+            candidate_assets: [
+              {
+                asset_id: "candidate-a",
+                path: "assets/image-map/candidates/a.png",
+                variant_label: "explainer",
+                visual_mode: "comparison",
+                mime_type: "image/png",
+              },
+              {
+                asset_id: "candidate-b",
+                path: "assets/image-map/candidates/b.png",
+                variant_label: "illustrative",
+                visual_mode: "comparison",
+                mime_type: "image/png",
+              },
+            ],
+            selected_asset_id: null,
+          }),
+        ],
+        metadataUpdatedAt: "2026-03-10T18:00:00.000Z",
+        asset: null,
+      },
+    });
+
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.imageMap.entries[0]?.selected_asset_id, "candidate-b");
+      assert.equal(result.imageMap.entries[0]?.status, "selected");
+    }
+    assert.equal(harness.saveRequests.length, 1);
+    assert.equal(harness.saveRequests[0]?.body.expected_metadata_updated_at, "2026-03-10T18:00:00.000Z");
+    assert.equal((harness.saveRequests[0]?.body.entries?.[0] as { selected_asset_id?: string } | undefined)?.selected_asset_id, "candidate-b");
+  } finally {
+    harness.restore();
+  }
+}
+
+async function testImageMapCandidateSelectionRejectsDetachedCandidate() {
+  resetLocalStorage();
+  const harness = installImageMapFetchHarness();
+
+  try {
+    const result = await selectWorkpieceImageMapCandidate({
+      workpieceId: WORKPIECE_A,
+      workspaceId: WORKSPACE_ID,
+      imageMapEntryId: "image-map-01",
+      candidateAssetId: "candidate-z",
+      currentImageMap: {
+        workpieceId: WORKPIECE_A,
+        workspaceId: WORKSPACE_ID,
+        entries: [
+          buildImageMapEntryFixture("image-map-01", {
+            source_type: "ai",
+            status: "candidates_generated",
+            candidate_assets: [
+              {
+                asset_id: "candidate-a",
+                path: "assets/image-map/candidates/a.png",
+                variant_label: "explainer",
+                visual_mode: "comparison",
+                mime_type: "image/png",
+              },
+            ],
+          }),
+        ],
+        metadataUpdatedAt: "2026-03-10T18:00:00.000Z",
+        asset: null,
+      },
+    });
+
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.reason, "candidate_not_attached");
+    }
+    assert.equal(harness.saveRequests.length, 0);
+  } finally {
+    harness.restore();
+  }
+}
+
 async function testImageMapCandidatePreviewLoaderReadsCanonicalFilePath() {
   resetLocalStorage();
   const harness = installImageMapFetchHarness();
@@ -2061,6 +2191,8 @@ async function run() {
   await testImageMapRepoSaveForwardsExpectedTimestampAndReturnsLatestOnConflict();
   await testImageMapRepoRejectsMismatchedCanonicalAttachment();
   await testImageMapCandidateGenerationRoundTripsCanonicalRefs();
+  await testImageMapCandidateSelectionPersistsCanonicalSelectedAsset();
+  await testImageMapCandidateSelectionRejectsDetachedCandidate();
   await testImageMapCandidatePreviewLoaderReadsCanonicalFilePath();
   testGenerateImageMapEntriesFromScriptEmitsMultipleBeatsWithinParagraph();
   testEnsureImageMapV2RoundTripsStructuredEntries();

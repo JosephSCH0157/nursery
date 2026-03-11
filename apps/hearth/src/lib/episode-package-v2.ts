@@ -336,6 +336,8 @@ function normalizeImageMapEntries(value: unknown): EpisodeImageMapEntry[] {
     const description = typeof entry.description === "string" ? entry.description : "";
     const sourceType = readString(entry.source_type) ?? "stock";
     if (!anchor) continue;
+    const candidateAssets = normalizeImageMapAssetRefs(entry.candidate_assets);
+    const selectedAssetId = normalizeSelectedImageMapAssetId(readString(entry.selected_asset_id), candidateAssets);
     out.push({
       id: readString(entry.id) ?? `image-map-${String(i + 1).padStart(2, "0")}`,
       anchor,
@@ -347,9 +349,14 @@ function normalizeImageMapEntries(value: unknown): EpisodeImageMapEntry[] {
       source_type: normalizeImageMapSourceType(sourceType),
       beat_order: readInteger(entry.beat_order) ?? (i + 1),
       paragraph_beat_order: readInteger(entry.paragraph_beat_order) ?? 1,
-      candidate_assets: normalizeImageMapAssetRefs(entry.candidate_assets),
-      selected_asset_id: readString(entry.selected_asset_id),
-      status: normalizeImageMapStatus(readString(entry.status) ?? (scriptAnchor ? "mapped" : "draft")),
+      candidate_assets: candidateAssets,
+      selected_asset_id: selectedAssetId,
+      status: normalizeDerivedImageMapStatus(
+        normalizeImageMapStatus(readString(entry.status) ?? (scriptAnchor ? "mapped" : "draft")),
+        scriptAnchor,
+        candidateAssets,
+        selectedAssetId,
+      ),
       placement_hint: readString(entry.placement_hint) ?? readString(entry.match),
     });
   }
@@ -431,6 +438,29 @@ function normalizeImageMapVisualMode(value: string | null | undefined): EpisodeI
   return null;
 }
 
+function normalizeSelectedImageMapAssetId(
+  value: string | null | undefined,
+  candidateAssets: readonly EpisodeImageMapAssetRef[],
+): string | null {
+  const selectedAssetId = readString(value);
+  if (!selectedAssetId) return null;
+  return candidateAssets.some((asset) => asset.asset_id === selectedAssetId) ? selectedAssetId : null;
+}
+
+function normalizeDerivedImageMapStatus(
+  value: EpisodeImageMapStatus,
+  scriptAnchor: EpisodeImageMapScriptAnchor | null,
+  candidateAssets: readonly EpisodeImageMapAssetRef[],
+  selectedAssetId: string | null,
+): EpisodeImageMapStatus {
+  if (selectedAssetId) return "selected";
+  if (candidateAssets.length > 0) return "candidates_generated";
+  if (value === "selected") {
+    return scriptAnchor ? "mapped" : "draft";
+  }
+  return value;
+}
+
 function normalizeImageMapScriptAnchor(value: unknown): EpisodeImageMapScriptAnchor | null {
   if (!isRecord(value)) return null;
   const sectionId = readString(value.section_id);
@@ -488,6 +518,8 @@ function normalizeImageMapEntryPatch(args: {
   const description = typeof args.entry.description === "string" ? args.entry.description : "";
   const id = readString(args.entry.id) ?? args.fallbackId ?? createImageMapEntryId();
   if (!anchor || !id) return null;
+  const candidateAssets = normalizeImageMapAssetRefs(args.entry.candidate_assets);
+  const selectedAssetId = normalizeSelectedImageMapAssetId(readString(args.entry.selected_asset_id), candidateAssets);
   return {
     id,
     anchor,
@@ -499,9 +531,14 @@ function normalizeImageMapEntryPatch(args: {
     source_type: normalizeImageMapSourceType(readString(args.entry.source_type)),
     beat_order: readInteger(args.entry.beat_order) ?? args.fallbackBeatOrder ?? 1,
     paragraph_beat_order: readInteger(args.entry.paragraph_beat_order) ?? args.fallbackParagraphBeatOrder ?? 1,
-    candidate_assets: normalizeImageMapAssetRefs(args.entry.candidate_assets),
-    selected_asset_id: readString(args.entry.selected_asset_id),
-    status: normalizeImageMapStatus(readString(args.entry.status) ?? (scriptAnchor ? "mapped" : "draft")),
+    candidate_assets: candidateAssets,
+    selected_asset_id: selectedAssetId,
+    status: normalizeDerivedImageMapStatus(
+      normalizeImageMapStatus(readString(args.entry.status) ?? (scriptAnchor ? "mapped" : "draft")),
+      scriptAnchor,
+      candidateAssets,
+      selectedAssetId,
+    ),
     placement_hint: readString(args.entry.placement_hint) ?? null,
   };
 }

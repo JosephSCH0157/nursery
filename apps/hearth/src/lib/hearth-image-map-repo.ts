@@ -66,6 +66,19 @@ export type GenerateWorkpieceImageMapCandidatesResult =
     latest?: WorkpieceImageMapView;
   };
 
+export type SelectWorkpieceImageMapCandidateResult =
+  | {
+    ok: true;
+    imageMap: WorkpieceImageMapView;
+  }
+  | {
+    ok: false;
+    status: number;
+    reason: "entry_not_found" | "candidate_not_attached" | "conflict" | "request_failed" | "invalid_response";
+    error?: string;
+    latest?: WorkpieceImageMapView;
+  };
+
 function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -400,5 +413,97 @@ export async function loadImageMapCandidatePreviewDataUrl(args: {
     ok: true,
     dataUrl: `data:${contentType};base64,${bytesBase64}`,
     path,
+  };
+}
+
+export async function selectWorkpieceImageMapCandidate(args: {
+  workpieceId: string;
+  workspaceId: string;
+  imageMapEntryId: string;
+  candidateAssetId: string;
+  expectedMetadataUpdatedAt?: string | null;
+  currentImageMap?: WorkpieceImageMapView | null;
+}): Promise<SelectWorkpieceImageMapCandidateResult> {
+  const currentImageMap = args.currentImageMap ?? null;
+  const canonical = currentImageMap ?? await (async () => {
+    const fetched = await getWorkpieceImageMap(args.workpieceId);
+    return fetched.ok ? fetched.imageMap : null;
+  })();
+
+  if (!canonical || canonical.workpieceId !== args.workpieceId || canonical.workspaceId !== args.workspaceId) {
+    return {
+      ok: false,
+      status: 400,
+      reason: "invalid_response",
+      error: "Image map could not be loaded for selection.",
+    };
+  }
+
+  const entry = canonical.entries.find((candidate) => candidate.id === args.imageMapEntryId) ?? null;
+  if (!entry) {
+    return {
+      ok: false,
+      status: 404,
+      reason: "entry_not_found",
+      error: "Image map entry was not found.",
+    };
+  }
+  if (!entry.candidate_assets.some((asset) => asset.asset_id === args.candidateAssetId)) {
+    return {
+      ok: false,
+      status: 400,
+      reason: "candidate_not_attached",
+      error: "Selected image is no longer attached to this visual beat.",
+    };
+  }
+  if (entry.selected_asset_id === args.candidateAssetId) {
+    return {
+      ok: true,
+      imageMap: canonical,
+    };
+  }
+
+  const nextEntries = canonical.entries.map((candidate) => {
+    if (candidate.id !== args.imageMapEntryId) return candidate;
+    return {
+      ...candidate,
+      selected_asset_id: args.candidateAssetId,
+      status: "selected" as const,
+    };
+  });
+
+  const saved = await saveWorkpieceImageMap({
+    workpieceId: args.workpieceId,
+    workspaceId: args.workspaceId,
+    entries: nextEntries,
+    expectedMetadataUpdatedAt: typeof args.expectedMetadataUpdatedAt !== "undefined"
+      ? args.expectedMetadataUpdatedAt
+      : canonical.metadataUpdatedAt,
+  });
+
+  if (!saved.ok) {
+    if (saved.reason === "conflict") {
+      return {
+        ok: false,
+        status: 409,
+        reason: "conflict",
+        error: "Image map changed since last load.",
+        ...(saved.latest ? { latest: saved.latest } : {}),
+      };
+    }
+    return {
+      ok: false,
+      status: saved.status,
+      reason: saved.reason,
+      error: saved.reason === "invalid_response"
+        ? "Image map selection returned an invalid response."
+        : "Unable to save image selection.",
+      ...(saved.latest ? { latest: saved.latest } : {}),
+    };
+  }
+
+  return {
+    ok: true,
+    imageMap: saved.imageMap,
   };
 }

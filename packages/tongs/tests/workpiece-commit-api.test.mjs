@@ -1631,6 +1631,70 @@ test("PUT /tongs/workpieces/:id/image-map dispatches saveWorkpieceImageMap", asy
   assert.equal(body.data?.asset?.metadata_json?.entry_count, 1);
 });
 
+test("PUT /tongs/workpieces/:id/image-map rejects selected_asset_id outside candidate_assets", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/image-map",
+    {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+      body: JSON.stringify({
+        workspace_id: "11111111-1111-4111-8111-111111111111",
+        entries: [
+          {
+            id: "image-map-01",
+            anchor: "s1:p1#sent1",
+            script_anchor: {
+              section_id: "s1",
+              paragraph_id: "s1:p1",
+              paragraph_order: 1,
+              sentence_start: 1,
+              sentence_end: 1,
+              char_start: 0,
+              char_end: 12,
+              span_text: "city skyline",
+              speaker_block_id: null,
+            },
+            description: "city skyline",
+            visual_intent: "city skyline",
+            prompt_basis: "city skyline",
+            intent: "broll",
+            source_type: "ai",
+            beat_order: 1,
+            paragraph_beat_order: 1,
+            candidate_assets: [
+              {
+                asset_id: "candidate-a",
+                path: "assets/image-map/candidates/a.png",
+                variant_label: "explainer",
+                visual_mode: "comparison",
+                mime_type: "image/png",
+              },
+            ],
+            selected_asset_id: "candidate-b",
+            status: "selected",
+            placement_hint: null,
+          },
+        ],
+        expected_metadata_updated_at: "2026-03-10T15:00:00.000Z",
+      }),
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.equal(body.ok, false);
+  assert.equal(body.error?.code, "invalid_selected_asset");
+  assert.equal(calls.saveWorkpieceImageMap.length, 0);
+});
+
 test("GET /tongs/workpieces/:id/image-map requires x-forge-user-authorization header", async () => {
   const { service, calls } = mockService();
   const handler = createTongsCommitApiHandlerWithService(service);

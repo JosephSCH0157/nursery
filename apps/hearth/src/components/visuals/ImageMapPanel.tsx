@@ -10,6 +10,7 @@ type ImageMapCandidateCard = {
   id: string;
   variantLabel: string;
   visualMode: string | null;
+  isSelected: boolean;
   previewState: "loading" | "ready" | "error";
   previewDataUrl: string | null;
   previewError: string | null;
@@ -29,6 +30,8 @@ type ImageMapPanelProps = {
   candidateCards: ImageMapCandidateCard[];
   candidateGenerateBusy: boolean;
   candidateGenerateError: string | null;
+  candidateSelectBusy: boolean;
+  candidateSelectionError: string | null;
   disabled?: boolean;
   onSelectEntry: (entryId: string) => void;
   onDraftAnchorChange: (value: string) => void;
@@ -41,6 +44,7 @@ type ImageMapPanelProps = {
   onDeleteEntry: () => void;
   onSeedFromScript: () => void;
   onGenerateCandidates: () => void;
+  onSelectCandidate: (candidateId: string) => void;
   onCopyExport: () => void;
   onDownloadExport: () => void;
 };
@@ -74,6 +78,8 @@ export default function ImageMapPanel({
   candidateCards,
   candidateGenerateBusy,
   candidateGenerateError,
+  candidateSelectBusy,
+  candidateSelectionError,
   disabled = false,
   onSelectEntry,
   onDraftAnchorChange,
@@ -86,6 +92,7 @@ export default function ImageMapPanel({
   onDeleteEntry,
   onSeedFromScript,
   onGenerateCandidates,
+  onSelectCandidate,
   onCopyExport,
   onDownloadExport,
 }: ImageMapPanelProps) {
@@ -246,7 +253,13 @@ export default function ImageMapPanel({
                   <div className="hs-imap-empty">No still candidates generated yet.</div>
                 ) : (
                   candidateCards.map((candidate) => (
-                    <article key={candidate.id} className="hs-imap-candidate-card">
+                    <button
+                      key={candidate.id}
+                      type="button"
+                      className={`hs-imap-candidate-card${candidate.isSelected ? " is-selected" : ""}`}
+                      onClick={() => onSelectCandidate(candidate.id)}
+                      disabled={disabled || candidateGenerateBusy || candidateSelectBusy}
+                    >
                       <div className="hs-imap-candidate-media">
                         {candidate.previewState === "ready" && candidate.previewDataUrl ? (
                           <img
@@ -261,7 +274,10 @@ export default function ImageMapPanel({
                         )}
                       </div>
                       <div className="hs-imap-candidate-meta">
-                        <div className="hs-imap-candidate-title">{candidate.variantLabel}</div>
+                        <div className="hs-imap-candidate-title">
+                          {candidate.variantLabel}
+                          {candidate.isSelected ? <span className="hs-imap-candidate-badge">Selected</span> : null}
+                        </div>
                         <div className="hs-imap-candidate-subtitle">
                           {candidate.visualMode ?? "editorial"}
                         </div>
@@ -269,7 +285,7 @@ export default function ImageMapPanel({
                           <div className="hs-error-text-small">{candidate.previewError}</div>
                         ) : null}
                       </div>
-                    </article>
+                    </button>
                   ))
                 )}
               </section>
@@ -283,6 +299,9 @@ export default function ImageMapPanel({
       ) : null}
       {candidateGenerateError ? (
         <div className="hs-error-text-small">{candidateGenerateError}</div>
+      ) : null}
+      {candidateSelectionError ? (
+        <div className="hs-error-text-small">{candidateSelectionError}</div>
       ) : null}
       {exportMessage ? (
         <div className="hs-field-label-muted">{exportMessage}</div>

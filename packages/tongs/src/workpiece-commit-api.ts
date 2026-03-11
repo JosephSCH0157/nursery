@@ -2077,6 +2077,27 @@ function normalizeEpisodeImageMapEntry(
     : descriptionRaw == null
       ? ""
       : String(descriptionRaw);
+  const candidateAssets = normalizeImageMapAssetRefs(value.candidate_assets, `entries[${index}].candidate_assets`);
+  const selectedAssetId = readStringField(value, "selected_asset_id");
+  if (selectedAssetId && !candidateAssets.some((asset) => asset.asset_id === selectedAssetId)) {
+    throw new HttpError(
+      400,
+      "invalid_selected_asset",
+      `entries[${index}].selected_asset_id must refer to one of entries[${index}].candidate_assets`,
+      {
+        entry_id: id,
+        selected_asset_id: selectedAssetId,
+      },
+    );
+  }
+  const normalizedStatus = normalizeImageMapStatus(value.status ?? (scriptAnchor ? "mapped" : "draft"));
+  const status = selectedAssetId
+    ? "selected"
+    : candidateAssets.length > 0
+      ? "candidates_generated"
+      : normalizedStatus === "selected"
+        ? (scriptAnchor ? "mapped" : "draft")
+        : normalizedStatus;
 
   return {
     id,
@@ -2091,9 +2112,9 @@ function normalizeEpisodeImageMapEntry(
     paragraph_beat_order: typeof value.paragraph_beat_order === "number"
       ? Math.max(1, Math.trunc(value.paragraph_beat_order))
       : 1,
-    candidate_assets: normalizeImageMapAssetRefs(value.candidate_assets, `entries[${index}].candidate_assets`),
-    selected_asset_id: readStringField(value, "selected_asset_id"),
-    status: normalizeImageMapStatus(value.status ?? (scriptAnchor ? "mapped" : "draft")),
+    candidate_assets: candidateAssets,
+    selected_asset_id: selectedAssetId,
+    status,
     placement_hint: readStringField(value, "placement_hint"),
   };
 }

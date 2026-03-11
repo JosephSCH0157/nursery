@@ -111,6 +111,7 @@ import {
   generateWorkpieceImageMapCandidates,
   loadImageMapCandidatePreviewDataUrl,
   saveWorkpieceImageMap,
+  selectWorkpieceImageMapCandidate,
 } from "../lib/hearth-image-map-repo";
 import { generateImageMapEntriesFromScript, resolveImageMapAnchorContext } from "../lib/hearth-image-map-beats";
 import type {
@@ -1932,7 +1933,9 @@ export default function HearthShell() {
   const [imageMapSaveError, setImageMapSaveError] = useState<string | null>(null);
   const [imageMapExportMessage, setImageMapExportMessage] = useState<string | null>(null);
   const [isImageMapCandidateGenerating, setIsImageMapCandidateGenerating] = useState(false);
+  const [isImageMapCandidateSelecting, setIsImageMapCandidateSelecting] = useState(false);
   const [imageMapCandidateError, setImageMapCandidateError] = useState<string | null>(null);
+  const [imageMapCandidateSelectionError, setImageMapCandidateSelectionError] = useState<string | null>(null);
   const [imageMapCandidatePreviewStateById, setImageMapCandidatePreviewStateById] = useState<Record<string, "loading" | "ready" | "error">>({});
   const [imageMapCandidatePreviewUrlById, setImageMapCandidatePreviewUrlById] = useState<Record<string, string>>({});
   const [imageMapCandidatePreviewErrorById, setImageMapCandidatePreviewErrorById] = useState<Record<string, string>>({});
@@ -2176,6 +2179,7 @@ export default function HearthShell() {
     id: candidate.asset_id,
     variantLabel: candidate.variant_label ?? "candidate",
     visualMode: candidate.visual_mode ?? null,
+    isSelected: selectedImageMapEntry?.selected_asset_id === candidate.asset_id,
     previewState: imageMapCandidatePreviewStateById[candidate.asset_id] ?? "loading",
     previewDataUrl: imageMapCandidatePreviewUrlById[candidate.asset_id] ?? null,
     previewError: imageMapCandidatePreviewErrorById[candidate.asset_id] ?? null,
@@ -4261,6 +4265,7 @@ export default function HearthShell() {
     setImageMapPlacementHintDraft(selectedImageMapEntry.placement_hint ?? "");
     setImageMapSaveState("saved");
     setImageMapCandidateError(null);
+    setImageMapCandidateSelectionError(null);
   }, [selectedImageMapEntry]);
 
   useEffect(() => {
@@ -4335,6 +4340,7 @@ export default function HearthShell() {
       setImageMapSaveError(null);
       setImageMapExportMessage(null);
       setImageMapCandidateError(null);
+      setImageMapCandidateSelectionError(null);
       setImageMapCandidatePreviewStateById({});
       setImageMapCandidatePreviewUrlById({});
       setImageMapCandidatePreviewErrorById({});
@@ -4416,6 +4422,7 @@ export default function HearthShell() {
         setImageMapSaveState("saved");
         setImageMapSaveError(null);
         setImageMapCandidateError(null);
+        setImageMapCandidateSelectionError(null);
       })();
     }, 450);
 
@@ -6896,6 +6903,7 @@ export default function HearthShell() {
 
     setIsImageMapCandidateGenerating(true);
     setImageMapCandidateError(null);
+    setImageMapCandidateSelectionError(null);
     setAiRuntimeWarning(null);
     try {
       const generated = await generateWorkpieceImageMapCandidates({
@@ -6928,6 +6936,7 @@ export default function HearthShell() {
         setEpisodePackage(replaceEpisodePackageImageMap(episodePackage, generated.imageMap.entries));
       }
       setImageMapMetadataUpdatedAt(generated.imageMap.metadataUpdatedAt);
+      setImageMapCandidateSelectionError(null);
       setImageMapExportMessage(`Generated ${generated.generatedAssets.length} still candidates for the selected visual beat.`);
       if (typeof generated.tokenBalance === "number") {
         setAiTokenBalance(generated.tokenBalance);
@@ -6940,6 +6949,78 @@ export default function HearthShell() {
       setImageMapCandidateError(message);
     } finally {
       setIsImageMapCandidateGenerating(false);
+    }
+  }
+
+  async function onSelectImageMapCandidate(candidateAssetId: string) {
+    if (!episodePackage || !selectedImageMapEntry) return;
+    if (imageMapSaveState === "editing" || imageMapSaveState === "saving") {
+      setImageMapCandidateSelectionError("Save or finish editing this visual beat before selecting a still candidate.");
+      return;
+    }
+
+    const workspace = workspaceId?.trim() ?? "";
+    const episodeId = workpieceId?.trim() ?? "";
+    if (!workspace || !episodeId) {
+      setImageMapCandidateSelectionError("Workspace or workpiece is missing.");
+      return;
+    }
+
+    if (selectedImageMapEntry.selected_asset_id === candidateAssetId) {
+      setImageMapCandidateSelectionError(null);
+      return;
+    }
+
+    setIsImageMapCandidateSelecting(true);
+    setImageMapCandidateSelectionError(null);
+    try {
+      const selected = await selectWorkpieceImageMapCandidate({
+        workpieceId: episodeId,
+        workspaceId: workspace,
+        imageMapEntryId: selectedImageMapEntry.id,
+        candidateAssetId,
+        expectedMetadataUpdatedAt: imageMapMetadataUpdatedAt,
+        currentImageMap: {
+          workpieceId: episodeId,
+          workspaceId: workspace,
+          entries: episodePackage.image_map.entries,
+          metadataUpdatedAt: imageMapMetadataUpdatedAt,
+          asset: null,
+        },
+      });
+
+      if (!selected.ok) {
+        const latest = selected.reason === "conflict" ? selected.latest ?? null : null;
+        if (latest) {
+          setEpisodePackage((prev) => (
+            prev ? replaceEpisodePackageImageMap(prev, latest.entries) : prev
+          ));
+          setImageMapMetadataUpdatedAt(latest.metadataUpdatedAt);
+        }
+        setImageMapCandidateSelectionError(
+          selected.error
+            ?? (selected.reason === "candidate_not_attached"
+              ? "That still candidate is no longer attached to this visual beat."
+              : selected.reason === "entry_not_found"
+                ? "This visual beat no longer exists in the canonical image map."
+                : selected.reason === "conflict"
+                  ? "Image map changed since last load. Reloaded the latest canonical state."
+                  : "Unable to save the selected still candidate.")
+        );
+        return;
+      }
+
+      setEpisodePackage((prev) => (
+        prev ? replaceEpisodePackageImageMap(prev, selected.imageMap.entries) : prev
+      ));
+      setImageMapMetadataUpdatedAt(selected.imageMap.metadataUpdatedAt);
+      setImageMapCandidateSelectionError(null);
+      setImageMapExportMessage("Selected still candidate saved canonically for this visual beat.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to save the selected still candidate.";
+      setImageMapCandidateSelectionError(message);
+    } finally {
+      setIsImageMapCandidateSelecting(false);
     }
   }
 
@@ -8405,8 +8486,11 @@ export default function HearthShell() {
                 candidateCards={imageMapCandidateCards}
                 candidateGenerateBusy={isImageMapCandidateGenerating}
                 candidateGenerateError={imageMapCandidateError}
+                candidateSelectBusy={isImageMapCandidateSelecting}
+                candidateSelectionError={imageMapCandidateSelectionError}
                 disabled={isAiProcessing || isApprovingScript}
                 onSelectEntry={setSelectedImageMapEntryId}
+                onSelectCandidate={(candidateId) => void onSelectImageMapCandidate(candidateId)}
                 onDraftAnchorChange={(value) => {
                   setImageMapAnchorDraft(value);
                   setImageMapSaveState("editing");
