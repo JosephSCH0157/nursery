@@ -253,5 +253,10 @@ Current Hearth visual-planning execution is additionally constrained by:
 
 - `HEARTH_VISUAL_PLANNING_V1_SLICE_3_CANDIDATE_LOCK.md`
 - `HEARTH_VISUAL_PLANNING_V1_SLICE_3_IMPLEMENTATION_PLAN.md`
+- `HEARTH_VISUAL_PLANNING_V1_SLICE_4_SELECTION_LOCK.md`
+- `HEARTH_VISUAL_PLANNING_V1_SLICE_4_IMPLEMENTATION_PLAN.md`
 
-That lock governs the next narrow slice after shipped image-map domain + beat extraction work: still-image candidate generation and canonical candidate attachment to existing image-map entries.
+Those locks govern the active narrow visual-planning slices after shipped image-map domain + beat extraction work:
+
+- Slice 3: still-image candidate generation and canonical candidate attachment
+- Slice 4: canonical candidate selection truth on existing image-map entries
