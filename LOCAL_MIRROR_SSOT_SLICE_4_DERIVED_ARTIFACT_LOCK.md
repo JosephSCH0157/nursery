@@ -10,6 +10,13 @@ Slice 4 is locked to the following rule:
 
 - Canonical state alone determines derived artifact presence, attachment, and freshness.
 
+Canonical intake exception:
+
+- Local mirror folders are valid intake surfaces for new user-supplied artifacts.
+- Tongs/cloud state ratifies canonical identity, attachment, and history.
+- Once an artifact has canonical identity, truth derives from cloud state, not local presence.
+- Local presence alone MUST NOT overwrite, replace, reattach, or refresh an artifact that already has canonical identity.
+
 Everything else is non-authoritative:
 
 - cached thumbnails
@@ -102,6 +109,8 @@ Slice 4 should make the following seams obey canonical derived-artifact truth:
 - package-vs-asset reconciliation after save, refresh, and second-client open
 
 The implementation should prefer correcting client authority behavior at existing canonical seams before inventing new persistence or server-side projection unless the code proves those seams are insufficient.
+
+Local mirror intake for new user-supplied artifacts should follow the narrow ingest machine in `LOCAL_MIRROR_INGEST_STATE_MACHINE.md` and must not reintroduce local artifact authority after canonicalization.
 
 ## Non-Goals
 

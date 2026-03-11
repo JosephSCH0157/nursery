@@ -16,6 +16,13 @@ The local mirror SSOT burndown is locked to the following rule:
 - Local state may cache or stage, but canonical state must be recoverable from SSOT alone.
 - Mirrors may accelerate access; they may not determine reality.
 
+Canonical intake exception:
+
+- Local mirror folders are valid intake surfaces for new user-supplied artifacts.
+- Tongs/cloud state ratifies canonical identity, attachment, and history.
+- Once an artifact has canonical identity, truth derives from cloud state, not local presence.
+- Local presence alone MUST NOT overwrite, replace, reattach, or refresh an artifact that already has canonical identity.
+
 ## What Counts As A Mirror Dependency
 
 A mirror dependency exists when any product behavior requires one of the following to be present or current in order to behave correctly:
@@ -97,4 +104,3 @@ This lock does not require:
 - redesigning offline authoring
 - eliminating mirror-folder ingestion entirely
 - performance tuning unrelated to authority removal
-

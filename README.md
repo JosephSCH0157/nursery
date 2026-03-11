@@ -8,6 +8,7 @@ For system behavior of ideas, scripts, persistence, and recording:
 - `WORKPIECE_DELETION_POLICY_PLAN.md`
 - `LOCAL_MIRROR_SSOT_BURNDOWN_LOCK.md`
 - `LOCAL_MIRROR_SSOT_BURNDOWN_IMPLEMENTATION_PLAN.md`
+- `LOCAL_MIRROR_INGEST_STATE_MACHINE.md`
 
 ## Release status
 
