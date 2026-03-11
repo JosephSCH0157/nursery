@@ -17,6 +17,7 @@ import { applyHearthOps, buildEpisodeContext } from "../src/lib/hearth-ai-ops";
 import { requestHearthChatReply } from "../src/lib/hearth-chat-api";
 import {
   listHearthReadyScripts,
+  removeHearthReadyScripts,
   reorderHearthReadyScripts,
   setHearthReadyScriptHidden,
 } from "../src/lib/hearth-ready-scripts";
@@ -237,6 +238,7 @@ function installReadyQueueFetchHarness() {
     workspaceId: string;
     entries: Array<{ workpiece_id: string; queue_rank?: number | null; hidden?: boolean | null }>;
   }> = [];
+  const readyDeletes: Array<{ workpieceId: string; path: string | null }> = [];
   let readyScriptsPayload: unknown[] = [];
   let queueUpdateResponse = { updated_count: 0, deleted_count: 0 };
 
@@ -284,6 +286,18 @@ function installReadyQueueFetchHarness() {
       });
     }
 
+    const deleteMatch = url.pathname.match(/^\/tongs\/workpieces\/([^/]+)\/ready-script$/);
+    if (deleteMatch && (init?.method ?? "GET") === "DELETE") {
+      readyDeletes.push({
+        workpieceId: decodeURIComponent(deleteMatch[1] ?? ""),
+        path: url.searchParams.get("path"),
+      });
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
       headers: { "content-type": "application/json" },
@@ -302,6 +316,7 @@ function installReadyQueueFetchHarness() {
     },
     listRequests,
     queueUpdates,
+    readyDeletes,
   };
 }
 
@@ -710,6 +725,30 @@ async function testReadyQueueHiddenMutationPayload() {
       workspaceId: WORKSPACE_ID,
       entries: [{ workpiece_id: WORKPIECE_A, hidden: true }],
     });
+  } finally {
+    harness.restore();
+  }
+}
+
+async function testReadyScriptRemovalDeletesAllCanonicalPaths() {
+  resetLocalStorage();
+  const harness = installReadyQueueFetchHarness();
+
+  try {
+    const result = await removeHearthReadyScripts({
+      workpieceId: WORKPIECE_A,
+      paths: [
+        "script/script.md",
+        "script/script.published.md",
+        "script/script.md",
+        "not-a-ready-path",
+      ],
+    });
+    assert.equal(result.ok, true);
+    assert.deepEqual(harness.readyDeletes, [
+      { workpieceId: WORKPIECE_A, path: "script/script.md" },
+      { workpieceId: WORKPIECE_A, path: "script/script.published.md" },
+    ]);
   } finally {
     harness.restore();
   }
@@ -1250,6 +1289,7 @@ async function run() {
   await testReadyScriptsRoundtripIgnoresLegacyLocalOrder();
   await testReadyQueueReorderPayload();
   await testReadyQueueHiddenMutationPayload();
+  await testReadyScriptRemovalDeletesAllCanonicalPaths();
   await testImageMapRepoReadNormalizesSemanticEntriesAndAssetSummary();
   await testImageMapRepoSaveForwardsExpectedTimestampAndReturnsLatestOnConflict();
   await testWorkpieceListRoundtripAndPrimaryScriptRead();

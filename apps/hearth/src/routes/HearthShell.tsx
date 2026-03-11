@@ -60,6 +60,7 @@ import { mirrorApprovedScriptToLocal, type MirrorApprovedScriptResult } from "..
 import {
   HEARTH_CONTENT_CATEGORIES,
   listHearthReadyScripts,
+  removeHearthReadyScripts,
   reorderHearthReadyScripts,
   setHearthReadyScriptCategory,
   setHearthReadyScriptHidden,
@@ -1862,6 +1863,7 @@ export default function HearthShell() {
   const [updatingReadyCategoryId, setUpdatingReadyCategoryId] = useState<string | null>(null);
   const [readyCategoryError, setReadyCategoryError] = useState<string | null>(null);
   const [removingReadyIds, setRemovingReadyIds] = useState<string[]>([]);
+  const [sendingBackReadyIds, setSendingBackReadyIds] = useState<string[]>([]);
   const [isRestoringReady, setIsRestoringReady] = useState(false);
   const [draggingReadyId, setDraggingReadyId] = useState<string | null>(null);
   const [revisionModalOpen, setRevisionModalOpen] = useState(false);
@@ -1964,6 +1966,7 @@ export default function HearthShell() {
   const previousWorkspaceIdRef = useRef<string | null>(workspaceId);
   const restoredCursorDraftIdRef = useRef<string | null>(null);
   const restoredModeDraftKeyRef = useRef<string | null>(null);
+  const pendingFocusOpenCountRef = useRef(0);
   const pendingDraftEditorPanelRef = useRef<"script" | "manual" | null>(null);
   const aiRequestControllerRef = useRef<AbortController | null>(null);
   const speechRecognitionRef = useRef<any>(null);
@@ -3273,6 +3276,7 @@ export default function HearthShell() {
     if (!normalizedWorkpieceId) return null;
 
     const targetWorkspaceId = normalizeUuid(options?.workspaceId ?? workspaceId) ?? workspaceId;
+    pendingFocusOpenCountRef.current += 1;
     if (targetWorkspaceId && targetWorkspaceId !== workspaceId) {
       setWorkspaceId(targetWorkspaceId);
     }
@@ -3281,33 +3285,37 @@ export default function HearthShell() {
     setFocusTab("draft");
     setMode("focus");
 
-    let availableWorkpieces = options?.workpieces ?? workpieceSummaries;
-    if (
-      availableWorkpieces.length === 0
-      || !availableWorkpieces.some((entry) => entry.workpieceId === normalizedWorkpieceId)
-    ) {
-      availableWorkpieces = await refreshWorkpieces(targetWorkspaceId);
+    try {
+      let availableWorkpieces = options?.workpieces ?? workpieceSummaries;
+      if (
+        availableWorkpieces.length === 0
+        || !availableWorkpieces.some((entry) => entry.workpieceId === normalizedWorkpieceId)
+      ) {
+        availableWorkpieces = await refreshWorkpieces(targetWorkspaceId);
+      }
+
+      const draft = await hydrateOrCreateDraftBufferForWorkpiece(normalizedWorkpieceId, {
+        drafts: options?.drafts ?? drafts,
+        workpieces: availableWorkpieces,
+        preferredDraftId: options?.preferredDraftId ?? null,
+        seed: options?.seed,
+      });
+
+      if (draft) {
+        await selectDraft(draft, { revisionWorkpieceId: normalizedWorkpieceId });
+      } else {
+        setDraftSnapshot(null);
+        setActiveDraft(null);
+      }
+
+      if (isMobile) {
+        setMobileOverlayView("editor");
+      }
+
+      return draft;
+    } finally {
+      pendingFocusOpenCountRef.current = Math.max(0, pendingFocusOpenCountRef.current - 1);
     }
-
-    const draft = await hydrateOrCreateDraftBufferForWorkpiece(normalizedWorkpieceId, {
-      drafts: options?.drafts ?? drafts,
-      workpieces: availableWorkpieces,
-      preferredDraftId: options?.preferredDraftId ?? null,
-      seed: options?.seed,
-    });
-
-    if (draft) {
-      await selectDraft(draft, { revisionWorkpieceId: normalizedWorkpieceId });
-    } else {
-      setDraftSnapshot(null);
-      setActiveDraft(null);
-    }
-
-    if (isMobile) {
-      setMobileOverlayView("editor");
-    }
-
-    return draft;
   }, [
     drafts,
     hydrateOrCreateDraftBufferForWorkpiece,
@@ -4366,7 +4374,7 @@ export default function HearthShell() {
   useEffect(() => {
     if (!activeDraft) {
       restoredModeDraftKeyRef.current = null;
-      if (mode === "focus") {
+      if (mode === "focus" && pendingFocusOpenCountRef.current === 0) {
         setMode("episodes");
       }
       return;
@@ -7200,6 +7208,42 @@ export default function HearthShell() {
     }
   }, [activeDraft?.id, openWorkpieceInFocus]);
 
+  const onSendBackToEdit = useCallback(async (entry: HearthReadyScript) => {
+    if (!entry.id || sendingBackReadyIds.includes(entry.id)) return;
+
+    setError(null);
+    setReadyScriptsError(null);
+    setSendingBackReadyIds((prev) => (prev.includes(entry.id) ? prev : [...prev, entry.id]));
+
+    try {
+      await openWorkpieceInFocus(entry.workpieceId, {
+        workspaceId: entry.workspaceId,
+        preferredDraftId: entry.workpieceId,
+      });
+
+      const result = await removeHearthReadyScripts({
+        workpieceId: entry.workpieceId,
+        paths: entry.scriptPaths.length ? entry.scriptPaths : [entry.primaryScriptPath || entry.path],
+      });
+      if (!result.ok) {
+        setError("Failed to remove the workpiece from Ready. It is still marked ready.");
+        setReadyScriptsError("Failed to remove the workpiece from Ready.");
+        await refreshReadyScripts();
+        return;
+      }
+
+      setReadyScripts((prev) => prev.filter((row) => row.workpieceId !== entry.workpieceId));
+      await refreshReadyScripts();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to send the workpiece back to editing.";
+      setError(message);
+      setReadyScriptsError("Failed to send the workpiece back to editing.");
+      await refreshReadyScripts();
+    } finally {
+      setSendingBackReadyIds((prev) => prev.filter((id) => id !== entry.id));
+    }
+  }, [openWorkpieceInFocus, refreshReadyScripts, sendingBackReadyIds]);
+
   const openReadyInMobileOverlay = useCallback(() => {
     setMode("ready");
     if (isMobile) {
@@ -8467,6 +8511,13 @@ export default function HearthShell() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => void onSendBackToEdit(entry)}
+                  disabled={sendingBackReadyIds.includes(entry.id)}
+                >
+                  {sendingBackReadyIds.includes(entry.id) ? "Sending back..." : "Send Back to Edit"}
+                </button>
+                <button
+                  type="button"
                   onClick={() => {
                     if (!anvilHref) return;
                     window.location.assign(anvilHref);
@@ -8478,7 +8529,7 @@ export default function HearthShell() {
                 <button
                   type="button"
                   onClick={() => void onRemoveFromReady(entry)}
-                  disabled={removingReadyIds.includes(entry.id)}
+                  disabled={removingReadyIds.includes(entry.id) || sendingBackReadyIds.includes(entry.id)}
                 >
                   {removingReadyIds.includes(entry.id) ? "Hiding..." : "Hide from Ready"}
                 </button>
@@ -8817,6 +8868,13 @@ export default function HearthShell() {
                                   onClick={() => void onOpenReadyScriptInHearth(entry)}
                                 >
                                   Open in Hearth
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void onSendBackToEdit(entry)}
+                                  disabled={sendingBackReadyIds.includes(entry.id)}
+                                >
+                                  {sendingBackReadyIds.includes(entry.id) ? "Sending back..." : "Send Back to Edit"}
                                 </button>
                                 <button
                                   type="button"
