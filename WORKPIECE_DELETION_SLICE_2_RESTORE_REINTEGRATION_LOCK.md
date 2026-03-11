@@ -4,6 +4,10 @@ Implementation lock only. Constitutional lifecycle semantics are defined in `FOR
 
 Date locked: 2026-03-11
 
+Execution plan:
+
+- `WORKPIECE_DELETION_SLICE_2_IMPLEMENTATION_PLAN.md`
+
 ## Decision
 
 Slice 2 restore reintegration is locked to the following policy:
@@ -99,4 +103,3 @@ Slice 2 does not implement:
 - session detachment policy beyond stale-state treatment
 - destructive cleanup of assets or receipts
 - broader lifecycle redesign outside restore reintegration
-

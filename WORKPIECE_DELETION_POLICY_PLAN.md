@@ -14,6 +14,10 @@ Slice 2 restore reintegration lock:
 
 - `WORKPIECE_DELETION_SLICE_2_RESTORE_REINTEGRATION_LOCK.md`
 
+Slice 2 execution plan:
+
+- `WORKPIECE_DELETION_SLICE_2_IMPLEMENTATION_PLAN.md`
+
 This document does not claim that full workpiece archive or hard-delete semantics are already implemented in product code.
 
 ## Purpose

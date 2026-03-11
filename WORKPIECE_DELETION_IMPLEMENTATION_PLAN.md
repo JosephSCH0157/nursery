@@ -12,6 +12,10 @@ Next lock:
 
 - `WORKPIECE_DELETION_SLICE_2_RESTORE_REINTEGRATION_LOCK.md`
 
+Next execution plan:
+
+- `WORKPIECE_DELETION_SLICE_2_IMPLEMENTATION_PLAN.md`
+
 This requires a DB migration / RLS update.
 
 ## Purpose
