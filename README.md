@@ -4,6 +4,7 @@ Podcaster's Forge is the **front door** and **single login** for the ecosystem. 
 
 For system behavior of ideas, scripts, persistence, and recording:
 - `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`
+- `STATE_MACHINE_DIAGRAM.md`
 
 ## Release status
 

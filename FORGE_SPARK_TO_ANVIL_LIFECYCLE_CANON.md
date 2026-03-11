@@ -2,6 +2,8 @@
 
 This document supersedes all prior lifecycle descriptions of Sparks, Episodes, Workpieces, Script States, and Bar Stock cleanup behavior.
 
+Companion operational reference: `STATE_MACHINE_DIAGRAM.md`.
+
 ## Purpose
 
 This is the canonical lifecycle constitution for idea capture, editorial shaping, persistence ownership, recording handoff, and cleanup across:
