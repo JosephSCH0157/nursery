@@ -432,10 +432,12 @@ function installWorkpieceFetchHarness() {
   const originalFetch = globalThis.fetch;
   const listRequests: Array<{ workspaceId: string; includeArchived: string | null }> = [];
   const scriptReads: string[] = [];
+  const draftReads: string[] = [];
   const archiveRequests: Array<{ workpieceId: string; body: Record<string, unknown> | null }> = [];
   const restoreRequests: Array<{ workpieceId: string; body: Record<string, unknown> | null }> = [];
   let episodesPayload: unknown[] = [];
   const primaryScripts = new Map<string, { text: string | null; updatedAt: string | null }>();
+  const draftSnapshots = new Map<string, { json: unknown; updatedAt: string | null }>();
 
   globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     const rawUrl = typeof input === "string"
@@ -559,6 +561,28 @@ function installWorkpieceFetchHarness() {
       });
     }
 
+    if (scriptMatch && (init?.method ?? "GET") === "GET" && url.searchParams.get("path") === "hearth/drafts.v1.json") {
+      const workpieceId = decodeURIComponent(scriptMatch[1] ?? "");
+      draftReads.push(workpieceId);
+      const snapshot = draftSnapshots.get(workpieceId);
+      if (!snapshot) {
+        return new Response(JSON.stringify({ ok: true, exists: false }), {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({
+        ok: true,
+        data: snapshot.json,
+        file_row: {
+          updated_at: snapshot.updatedAt,
+        },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
       headers: { "content-type": "application/json" },
@@ -575,10 +599,14 @@ function installWorkpieceFetchHarness() {
     setPrimaryScript(workpieceId: string, text: string | null, updatedAt: string | null) {
       primaryScripts.set(workpieceId, { text, updatedAt });
     },
+    setDraftSnapshot(workpieceId: string, json: unknown, updatedAt: string | null) {
+      draftSnapshots.set(workpieceId, { json, updatedAt });
+    },
     listRequests,
     archiveRequests,
     restoreRequests,
     scriptReads,
+    draftReads,
   };
 }
 
@@ -1255,6 +1283,47 @@ async function testWorkpieceArchiveRoundtripUsesCanonicalEndpoints() {
   }
 }
 
+async function testWorkpieceDraftHydrationReadsCanonicalSnapshotWithoutCachedMapping() {
+  const storage = resetLocalStorage();
+  storage.setItem("forge_workspace_id_v1", WORKSPACE_ID);
+  const harness = installWorkpieceFetchHarness();
+  const canonicalDraft = createDraft("canonical-buffer-a", {
+    title: "Canonical Buffer",
+    body: "Hydrated from canonical draft snapshot",
+    updatedAt: Date.parse("2026-03-10T15:00:00.000Z"),
+  });
+  harness.setDraftSnapshot(WORKPIECE_A, {
+    drafts: [canonicalDraft],
+    updatedAt: "2026-03-10T15:00:00.000Z",
+  }, "2026-03-10T15:01:00.000Z");
+
+  try {
+    const store = new TongsHearthStore();
+    const beforeHydration = await store.listDrafts();
+    assert.deepEqual(
+      beforeHydration,
+      [],
+      "Workspace draft discovery should stay empty until explicit canonical workpiece hydration occurs",
+    );
+
+    const workpieceDrafts = await store.listWorkpieceDrafts(WORKPIECE_A);
+    assert.equal(workpieceDrafts.length, 1, "Explicit workpiece hydration should read the canonical draft snapshot");
+    assert.equal(workpieceDrafts[0]?.id, canonicalDraft.id);
+    assert.equal(workpieceDrafts[0]?.title, canonicalDraft.title);
+    assert.deepEqual(
+      harness.draftReads,
+      [WORKPIECE_A],
+      "Canonical workpiece hydration must read the workpiece-scoped draft snapshot directly",
+    );
+
+    const afterHydration = await store.listDrafts();
+    assert.equal(afterHydration.length, 1, "Explicit canonical hydration should seed the workspace draft cache");
+    assert.equal(afterHydration[0]?.id, canonicalDraft.id);
+  } finally {
+    harness.restore();
+  }
+}
+
 async function testWorkpieceNavModelStaysWorkpieceFirst() {
   const workpieces = [
     createWorkpieceSummary(WORKPIECE_A, { title: "Alpha Episode" }),
@@ -1372,6 +1441,7 @@ async function testSessionRoundtrip() {
     createdAt: 1,
     updatedAt: 2,
     activeDraftId: "draft-1",
+    activeWorkpieceId: WORKPIECE_A,
     lastOpenedAt: 3,
     uiState: {
       cursorPosition: 120,
@@ -1383,6 +1453,7 @@ async function testSessionRoundtrip() {
 
   const restored = await sessionStore.getSession();
   assert.ok(restored, "Session should restore");
+  assert.equal(restored?.activeWorkpieceId, WORKPIECE_A, "Session should preserve the active workpiece hint");
   assert.equal(restored?.uiState?.cursorPosition, 120, "Cursor position should roundtrip");
   assert.equal(restored?.uiState?.scrollTop, 456, "Scroll position should roundtrip");
 }
@@ -1601,6 +1672,7 @@ async function run() {
   await testSparkIntakeWaitsForCanonicalDiscoveryBeforeDeclaringMissing();
   await testWorkpieceListRoundtripAndPrimaryScriptRead();
   await testWorkpieceArchiveRoundtripUsesCanonicalEndpoints();
+  await testWorkpieceDraftHydrationReadsCanonicalSnapshotWithoutCachedMapping();
   await testWorkpieceNavModelStaysWorkpieceFirst();
   await testActiveWorkpieceContextResolvesAttachedArtifactsWithoutCreatingNavRows();
   await testForgedSparkRouteResolutionPrefersBoundWorkpiece();

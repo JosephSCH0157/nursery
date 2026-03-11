@@ -2947,6 +2947,7 @@ export default function HearthShell() {
     const next: HearthSession = {
       ...base,
       activeDraftId: draftId ?? undefined,
+      activeWorkpieceId: workpieceId ?? undefined,
       lastOpenedAt: now,
       updatedAt: now,
       uiState: {
@@ -2958,7 +2959,7 @@ export default function HearthShell() {
     };
     setSession(next);
     await sessionStore.saveSession(next);
-  }, [cursorPosition, focusTab, mode, scrollTop, session, sessionStore]);
+  }, [cursorPosition, focusTab, mode, scrollTop, session, sessionStore, workpieceId]);
 
   const selectDraft = useCallback(async (
     draft: Draft | null,
@@ -3233,6 +3234,26 @@ export default function HearthShell() {
       preferredDraftId: options?.preferredDraftId ?? null,
     });
     if (existingDraft) return existingDraft;
+
+    const canonicalDrafts = dedupeDraftListById(await store.listWorkpieceDrafts(normalizedWorkpieceId));
+    if (canonicalDrafts.length > 0) {
+      const mergedDrafts = dedupeDraftListById([...availableDrafts, ...canonicalDrafts]);
+      setDrafts(mergedDrafts);
+      const canonicalDraft = selectDraftForWorkpiece({
+        workpieceId: normalizedWorkpieceId,
+        drafts: mergedDrafts,
+        sparks,
+        preferredDraftId: options?.preferredDraftId ?? null,
+      }) ?? (
+        options?.preferredDraftId
+          ? mergedDrafts.find((draft) => draft.id === options.preferredDraftId) ?? null
+          : null
+      ) ?? canonicalDrafts
+        .slice()
+        .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+        ?? null;
+      if (canonicalDraft) return canonicalDraft;
+    }
 
     const availableWorkpieces = options?.workpieces ?? workpieceSummaries;
     const workpieceSummary = availableWorkpieces.find((entry) => entry.workpieceId === normalizedWorkpieceId) ?? null;
@@ -3651,6 +3672,7 @@ export default function HearthShell() {
 
       const explicitWorkpieceId = normalizeUuid(workpieceIdRef.current);
       const resolvedWorkpieceId = explicitWorkpieceId
+        ?? normalizeUuid(storedSession?.activeWorkpieceId ?? null)
         ?? candidateDraftIds
           .map((draftId) => resolveWorkpieceIdForDraftId(draftId, {
             drafts: dedupedDrafts,
@@ -3955,12 +3977,6 @@ export default function HearthShell() {
           workspace_id: normalizeUuid(cached.workspace_id),
         };
         setPlanningSession(normalizedCached);
-        if (!workpieceId && normalizedCached.workpiece_id) {
-          setWorkpieceId(normalizedCached.workpiece_id);
-        }
-        if (!workspaceId && normalizedCached.workspace_id) {
-          setWorkspaceId(normalizedCached.workspace_id);
-        }
       }
     };
     refreshSession();
@@ -5049,19 +5065,15 @@ export default function HearthShell() {
   }
 
   async function onResumeLastProject() {
-    const lastDraftId = session?.activeDraftId ?? null;
-    if (!lastDraftId) {
-      setForgeError("No last project to resume.");
-      return;
-    }
-    const lastWorkpieceId = resolveWorkpieceIdForDraftId(lastDraftId);
+    const lastWorkpieceId = normalizeUuid(session?.activeWorkpieceId ?? null)
+      ?? resolveWorkpieceIdForDraftId(session?.activeDraftId ?? null);
     if (!lastWorkpieceId) {
-      setForgeError("Last project not found.");
+      setForgeError("No last project to resume.");
       return;
     }
     setForgeError(null);
     await openWorkpieceInFocus(lastWorkpieceId, {
-      preferredDraftId: lastDraftId,
+      preferredDraftId: session?.activeDraftId ?? null,
     });
   }
 
@@ -7478,7 +7490,8 @@ export default function HearthShell() {
   }, [editingPeers.length, viewingPeers.length, workpieceId]);
 
   const renderSparksView = () => {
-    const resumeWorkpieceId = resolveWorkpieceIdForDraftId(session?.activeDraftId ?? null);
+    const resumeWorkpieceId = normalizeUuid(session?.activeWorkpieceId ?? null)
+      ?? resolveWorkpieceIdForDraftId(session?.activeDraftId ?? null);
     const resumeWorkpiece = resumeWorkpieceId
       ? workpieceSummaries.find((entry) => entry.workpieceId === resumeWorkpieceId) ?? null
       : null;

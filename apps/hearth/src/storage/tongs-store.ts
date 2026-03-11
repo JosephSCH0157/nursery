@@ -928,6 +928,38 @@ export class TongsHearthStore implements HearthStore {
     return readDrafts(cache, workspaceId);
   }
 
+  async listWorkpieceDrafts(workpieceId: string): Promise<Draft[]> {
+    const normalizedWorkpieceId = normalizeUuid(workpieceId);
+    if (!normalizedWorkpieceId) return [];
+
+    const cache = readCache();
+    const workspaceId = resolveWorkspaceId();
+    const remote = await readDraftSnapshot(normalizedWorkpieceId);
+    if (remote) {
+      if (workspaceId) {
+        persistWorkpieceId(workspaceId, normalizedWorkpieceId, cache);
+        writeDraftSnapshotUpdatedAt(cache, workspaceId, remote.fileUpdatedAt ?? remote.updatedAt);
+      }
+      for (const draft of remote.drafts) {
+        cache.drafts[draft.id] = draft;
+        if (workspaceId) {
+          cache.draftWorkspaceById[draft.id] = workspaceId;
+        }
+      }
+      writeCache(cache);
+      return remote.drafts
+        .map(cloneDraft)
+        .sort((a, b) => b.updatedAt - a.updatedAt);
+    }
+
+    const cachedDrafts = workspaceId
+      ? readDrafts(cache, workspaceId)
+      : Object.values(cache.drafts).map(cloneDraft);
+    return cachedDrafts
+      .filter((draft) => draft.id === normalizedWorkpieceId)
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
   async getDraft(id: DraftId): Promise<Draft | null> {
     const cache = readCache();
     const workspaceId = resolveWorkspaceId();

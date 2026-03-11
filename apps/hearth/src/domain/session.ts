@@ -5,6 +5,7 @@ export type SessionId = string;
 export interface HearthSession {
   id: SessionId;
   activeDraftId?: DraftId;
+  activeWorkpieceId?: string;
   lastOpenedAt?: number;
   uiState?: {
     splitPane?: boolean;

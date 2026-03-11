@@ -2,11 +2,12 @@
 
 Implementation plan only. Constitutional lifecycle semantics are defined in `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`. Operational lifecycle behavior is summarized in `STATE_MACHINE_DIAGRAM.md`. The mirror-authority rule is locked in `LOCAL_MIRROR_SSOT_BURNDOWN_LOCK.md`.
 
-Status: Slice 1 complete on 2026-03-11. Remaining slices still planned.
+Status: Slice 1 and Slice 2 complete on 2026-03-11. Remaining slices still planned.
 
 Completion notes:
 
 - `LOCAL_MIRROR_SSOT_SLICE_1_COMPLETION.md`
+- `LOCAL_MIRROR_SSOT_SLICE_2_COMPLETION.md`
 
 **Mirrors may accelerate access; they may not determine reality.**
 
@@ -181,6 +182,8 @@ Status: complete
 - refresh/reopen
 - selected workpiece recovery
 - attached draft buffer recovery
+
+Status: complete
 
 ### Slice 3 - Candidacy Surfaces
 

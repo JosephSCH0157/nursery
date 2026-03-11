@@ -70,6 +70,7 @@ function normalizeSession(value: unknown): HearthSession | null {
   const updatedAt = isFiniteNumber(row.updatedAt) ? row.updatedAt : createdAt;
   const lastOpenedAt = isFiniteNumber(row.lastOpenedAt) ? row.lastOpenedAt : undefined;
   const activeDraftId = normalizeDraftId(row.activeDraftId);
+  const activeWorkpieceId = normalizeUuid(row.activeWorkpieceId) ?? undefined;
   const uiState = row.uiState && typeof row.uiState === "object" && !Array.isArray(row.uiState)
     ? {
       splitPane: typeof (row.uiState as Record<string, unknown>).splitPane === "boolean"
@@ -90,6 +91,7 @@ function normalizeSession(value: unknown): HearthSession | null {
   return {
     id,
     activeDraftId,
+    activeWorkpieceId,
     lastOpenedAt,
     uiState,
     createdAt,

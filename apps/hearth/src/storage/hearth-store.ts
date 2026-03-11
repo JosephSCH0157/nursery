@@ -10,6 +10,7 @@ export type SaveDraftOptions = {
 
 export interface HearthStore {
   listDrafts(): Promise<Draft[]>;
+  listWorkpieceDrafts(workpieceId: string): Promise<Draft[]>;
   getDraft(id: DraftId): Promise<Draft | null>;
   saveDraft(draft: Draft, options?: SaveDraftOptions): Promise<void>;
   deleteDraft(id: DraftId): Promise<void>;
