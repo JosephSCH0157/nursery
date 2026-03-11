@@ -1943,6 +1943,9 @@ export default function HearthShell() {
   const [imageMapSaveError, setImageMapSaveError] = useState<string | null>(null);
   const [imageMapExportMessage, setImageMapExportMessage] = useState<string | null>(null);
   const [scriptPanelCopyMessage, setScriptPanelCopyMessage] = useState<string | null>(null);
+  const episodePackageRequestSeqRef = useRef(0);
+  const thumbnailPreviewRequestSeqRef = useRef(0);
+  const artifactStateWorkpieceIdRef = useRef<string | null>(null);
   const [metadataTitlesDraft, setMetadataTitlesDraft] = useState<EpisodeSeoTitle[]>([]);
   const [metadataTagsDraft, setMetadataTagsDraft] = useState<string[]>([]);
   const [metadataTagInputDraft, setMetadataTagInputDraft] = useState("");
@@ -2637,7 +2640,12 @@ export default function HearthShell() {
 
   const refreshEpisodePackage = useCallback(async () => {
     const episodeId = workpieceId?.trim() ?? "";
-    if (!episodeId) {
+    const requestSeq = episodePackageRequestSeqRef.current + 1;
+    episodePackageRequestSeqRef.current = requestSeq;
+
+    if (artifactStateWorkpieceIdRef.current !== episodeId) {
+      // Clear stale artifact state as soon as the active workpiece changes so prior package
+      // residue never renders as current truth for the new target.
       setEpisodePackage(null);
       setImageMapMetadataUpdatedAt(null);
       setSelectedThumbnailConceptId("");
@@ -2651,13 +2659,19 @@ export default function HearthShell() {
       setImageMapSaveState("saved");
       setImageMapSaveError(null);
       setImageMapExportMessage(null);
+      artifactStateWorkpieceIdRef.current = episodeId || null;
+    }
+
+    if (!episodeId) {
+      artifactStateWorkpieceIdRef.current = null;
       return;
     }
 
     const loaded = await readEpisodePackageForWorkpiece(episodeId);
+    if (episodePackageRequestSeqRef.current !== requestSeq || (workpieceId?.trim() ?? "") !== episodeId) {
+      return;
+    }
     if (!loaded.ok) {
-      setEpisodePackage(null);
-      setImageMapMetadataUpdatedAt(null);
       setThumbnailGenerateError("Unable to load thumbnail metadata.");
       setThumbnailPreviewState("error");
       setThumbnailPreviewDataUrl(null);
@@ -2667,6 +2681,9 @@ export default function HearthShell() {
 
     let nextEpisodePackage = loaded.episodePackage;
     const imageMapLoaded = await getWorkpieceImageMap(episodeId);
+    if (episodePackageRequestSeqRef.current !== requestSeq || (workpieceId?.trim() ?? "") !== episodeId) {
+      return;
+    }
     if (imageMapLoaded.ok) {
       nextEpisodePackage = replaceEpisodePackageImageMap(loaded.episodePackage, imageMapLoaded.imageMap.entries);
       setImageMapMetadataUpdatedAt(imageMapLoaded.imageMap.metadataUpdatedAt);
@@ -2675,6 +2692,7 @@ export default function HearthShell() {
     }
 
     setEpisodePackage(nextEpisodePackage);
+    artifactStateWorkpieceIdRef.current = episodeId;
     setThumbnailGenerateError(null);
     setImageMapSaveError(null);
     const versions = nextEpisodePackage.thumbnail.versions;
@@ -3899,6 +3917,9 @@ export default function HearthShell() {
     if (!isCanonicalSparkDiscoveryResolved(workspaceId, sparkDiscoveryWorkspaceId) || isSparksLoading) {
       return;
     }
+    if (!routeSpark) {
+      return;
+    }
 
     sparkIntakeHandledRef.current = intakeKey;
     setSelectedSparkId(routeSpark.id);
@@ -4144,6 +4165,8 @@ export default function HearthShell() {
 
   useEffect(() => {
     const episodeId = workpieceId?.trim() ?? "";
+    const previewSeq = thumbnailPreviewRequestSeqRef.current + 1;
+    thumbnailPreviewRequestSeqRef.current = previewSeq;
     if (!episodeId || !selectedThumbnailVersion) {
       setThumbnailPreviewState("idle");
       setThumbnailPreviewDataUrl(null);
@@ -4166,7 +4189,14 @@ export default function HearthShell() {
       workpieceId: episodeId,
       version: selectedThumbnailVersion,
     }).then((result) => {
-      if (cancelled) return;
+      if (
+        cancelled
+        || thumbnailPreviewRequestSeqRef.current !== previewSeq
+        || (workpieceId?.trim() ?? "") !== episodeId
+        || selectedThumbnailVersionId !== selectedThumbnailVersion.id
+      ) {
+        return;
+      }
       if (!result.ok) {
         setThumbnailPreviewState("error");
         setThumbnailPreviewDataUrl(null);
@@ -4181,7 +4211,7 @@ export default function HearthShell() {
     return () => {
       cancelled = true;
     };
-  }, [selectedThumbnailVersion, workpieceId]);
+  }, [selectedThumbnailVersion, selectedThumbnailVersionId, workpieceId]);
 
   useEffect(() => {
     if (imageMapEntries.length === 0) {

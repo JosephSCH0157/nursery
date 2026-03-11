@@ -62,7 +62,13 @@ function normalizeImageMapEntries(value: unknown): EpisodeImageMapEntry[] {
   return pkg.image_map.entries;
 }
 
-function normalizeWorkpieceImageMapView(body: unknown): WorkpieceImageMapView | null {
+function normalizeWorkpieceImageMapView(
+  body: unknown,
+  expected?: {
+    workpieceId?: string;
+    workspaceId?: string;
+  },
+): WorkpieceImageMapView | null {
   if (!isRecord(body) || body.ok !== true || !isRecord(body.data)) return null;
 
   const imageMapRoot = isRecord(body.data.image_map) ? body.data.image_map : null;
@@ -71,6 +77,8 @@ function normalizeWorkpieceImageMapView(body: unknown): WorkpieceImageMapView | 
   const workpieceId = readString(imageMapRoot.workpiece_id);
   const workspaceId = readString(imageMapRoot.workspace_id);
   if (!workpieceId || !workspaceId) return null;
+  if (expected?.workpieceId && expected.workpieceId !== workpieceId) return null;
+  if (expected?.workspaceId && expected.workspaceId !== workspaceId) return null;
 
   const assetRoot = isRecord(body.data.asset) ? body.data.asset : null;
   const entryCount = assetRoot && isRecord(assetRoot.metadata_json) && typeof assetRoot.metadata_json.entry_count === "number"
@@ -116,7 +124,7 @@ export async function getWorkpieceImageMap(workpieceId: string): Promise<GetWork
     };
   }
 
-  const imageMap = normalizeWorkpieceImageMapView(body);
+  const imageMap = normalizeWorkpieceImageMapView(body, { workpieceId });
   if (!imageMap) {
     return {
       ok: false,
@@ -164,7 +172,10 @@ export async function saveWorkpieceImageMap(args: {
     };
   }
 
-  const imageMap = normalizeWorkpieceImageMapView(body);
+  const imageMap = normalizeWorkpieceImageMapView(body, {
+    workpieceId: args.workpieceId,
+    workspaceId: args.workspaceId,
+  });
   if (!imageMap) {
     return {
       ok: false,

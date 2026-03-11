@@ -2,7 +2,11 @@
 
 Implementation plan only. Constitutional lifecycle semantics are defined in `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`. Operational lifecycle behavior is summarized in `STATE_MACHINE_DIAGRAM.md`. Mirror-authority policy is defined in `LOCAL_MIRROR_SSOT_BURNDOWN_LOCK.md`. Slice 4 derived-artifact rules are locked in `LOCAL_MIRROR_SSOT_SLICE_4_DERIVED_ARTIFACT_LOCK.md`. Mirror intake transition rules are defined in `LOCAL_MIRROR_INGEST_STATE_MACHINE.md`.
 
-Slice 4 status: planned on 2026-03-11.
+Slice 4 status: completed on 2026-03-11.
+
+Completion note:
+
+- `LOCAL_MIRROR_SSOT_SLICE_4_COMPLETION.md`
 
 **Canonical state alone determines derived artifact presence, attachment, and freshness.**
 
@@ -214,3 +218,5 @@ Slice 4 is complete when all of the following are true:
 - mirror-intake artifacts do not become current truth before canonical confirmation
 - second client converges on the same artifact state
 - a completion note records what shipped, how it was verified, and any wrapper caveats honestly
+
+Slice 4 meets these criteria.

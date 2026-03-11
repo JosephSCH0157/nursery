@@ -1146,6 +1146,30 @@ async function testImageMapRepoSaveForwardsExpectedTimestampAndReturnsLatestOnCo
   }
 }
 
+async function testImageMapRepoRejectsMismatchedCanonicalAttachment() {
+  resetLocalStorage();
+  const harness = installImageMapFetchHarness();
+  harness.setGetPayload({
+    image_map: {
+      workpiece_id: WORKPIECE_B,
+      workspace_id: WORKSPACE_ID,
+      entries: [],
+      metadata_updated_at: "2026-03-10T16:20:00.000Z",
+    },
+    asset: null,
+  });
+
+  try {
+    const result = await getWorkpieceImageMap(WORKPIECE_A);
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.reason, "invalid_response");
+    }
+  } finally {
+    harness.restore();
+  }
+}
+
 async function testBarStockSparkListDiscoveryStaysCanonicalAcrossClients() {
   resetLocalStorage();
   const localSpark = {
@@ -1750,6 +1774,7 @@ async function run() {
   await testReadyScriptRemovalDeletesAllCanonicalPaths();
   await testImageMapRepoReadNormalizesSemanticEntriesAndAssetSummary();
   await testImageMapRepoSaveForwardsExpectedTimestampAndReturnsLatestOnConflict();
+  await testImageMapRepoRejectsMismatchedCanonicalAttachment();
   await testBarStockSparkListDiscoveryStaysCanonicalAcrossClients();
   await testSparkIntakeWaitsForCanonicalDiscoveryBeforeDeclaringMissing();
   await testWorkpieceListRoundtripAndPrimaryScriptRead();

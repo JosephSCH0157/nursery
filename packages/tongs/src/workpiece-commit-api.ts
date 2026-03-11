@@ -4595,8 +4595,14 @@ export class TongsCommitService {
     await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
     await this.getWorkspaceOrThrow(workspaceId);
 
-    const { data, error } = await this.supabase
-      .schema("tongs")
+    // These Bar-Stock tables are real in the target schema but are not yet represented in the
+    // generated Database types. Keep access untyped here rather than letting the generated type
+    // hole block the Tongs build and all downstream smoke validation.
+    const tongsUntyped = this.supabase.schema("tongs") as unknown as {
+      from: (table: string) => any;
+    };
+
+    const { data, error } = await tongsUntyped
       .from("barstock_sparks")
       .select("id,workspace_id,assignment_id,title,body,tags,status,created_at,updated_at")
       .eq("workspace_id", workspaceId)
@@ -4610,7 +4616,8 @@ export class TongsCommitService {
       });
     }
 
-    const sparkRows = (data ?? []).map((row) => ({
+    const rawSparkRows = Array.isArray(data) ? data as Array<Record<string, unknown>> : [];
+    const sparkRows = rawSparkRows.map((row: Record<string, unknown>) => ({
       id: typeof row.id === "string" ? row.id : "",
       workspace_id: typeof row.workspace_id === "string" ? row.workspace_id : workspaceId,
       assignment_id: typeof row.assignment_id === "string" ? row.assignment_id : null,
@@ -4624,14 +4631,13 @@ export class TongsCommitService {
 
     const assignmentIds = [...new Set(
       sparkRows
-        .map((row) => row.assignment_id)
-        .filter((value): value is string => typeof value === "string" && value.length > 0),
+        .map((row: { assignment_id: string | null }) => row.assignment_id)
+        .filter((value: string | null): value is string => typeof value === "string" && value.length > 0),
     )];
 
     const linkedWorkpieceIdsByAssignment = new Map<string, string>();
     if (assignmentIds.length > 0) {
-      const { data: links, error: linksError } = await this.supabase
-        .schema("tongs")
+      const { data: links, error: linksError } = await tongsUntyped
         .from("barstock_project_episode_links")
         .select("project_id,workpiece_id")
         .eq("workspace_id", workspaceId)
@@ -4643,7 +4649,8 @@ export class TongsCommitService {
         });
       }
 
-      for (const row of links ?? []) {
+      const linkRows = Array.isArray(links) ? links as Array<Record<string, unknown>> : [];
+      for (const row of linkRows) {
         if (typeof row.project_id !== "string" || typeof row.workpiece_id !== "string") continue;
         linkedWorkpieceIdsByAssignment.set(row.project_id, row.workpiece_id);
       }
