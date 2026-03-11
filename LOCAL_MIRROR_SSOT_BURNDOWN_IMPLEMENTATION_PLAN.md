@@ -227,6 +227,8 @@ Status: complete
 
 Lock source: `LOCAL_MIRROR_SSOT_SLICE_5_CROSS_TOOL_HANDOFF_LOCK.md`
 
+Execution plan: `LOCAL_MIRROR_SSOT_SLICE_5_IMPLEMENTATION_PLAN.md`
+
 ## Verification Plan
 
 For each slice:
