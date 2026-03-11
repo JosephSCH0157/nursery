@@ -63,6 +63,8 @@ const IMAGE_MAP_INTENT_VALUES = ["broll", "graphic", "lower-third", "archival", 
 const IMAGE_MAP_INTENT_SET = new Set<string>(IMAGE_MAP_INTENT_VALUES);
 const IMAGE_MAP_SOURCE_TYPE_VALUES = ["ai", "stock", "archival", "custom"] as const;
 const IMAGE_MAP_SOURCE_TYPE_SET = new Set<string>(IMAGE_MAP_SOURCE_TYPE_VALUES);
+const IMAGE_MAP_STATUS_VALUES = ["draft", "mapped", "candidates_generated", "selected"] as const;
+const IMAGE_MAP_STATUS_SET = new Set<string>(IMAGE_MAP_STATUS_VALUES);
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -325,12 +327,37 @@ export type EpisodeThumbnailConceptRecord = {
   style_preset: string | null;
 };
 
+export type EpisodeImageMapScriptAnchorRecord = {
+  section_id: string;
+  paragraph_id: string;
+  paragraph_order: number;
+  sentence_start: number;
+  sentence_end: number;
+  char_start: number;
+  char_end: number;
+  span_text: string;
+  speaker_block_id?: string | null;
+};
+
+export type EpisodeImageMapAssetRefRecord = {
+  asset_id: string;
+  path?: string | null;
+};
+
 export type EpisodeImageMapEntryRecord = {
   id: string;
   anchor: string;
+  script_anchor: EpisodeImageMapScriptAnchorRecord | null;
   description: string;
+  visual_intent: string;
+  prompt_basis: string;
   intent: string;
   source_type: string;
+  beat_order: number;
+  paragraph_beat_order: number;
+  candidate_assets: EpisodeImageMapAssetRefRecord[];
+  selected_asset_id: string | null;
+  status: string;
   placement_hint?: string | null;
 };
 
@@ -1866,6 +1893,92 @@ function normalizeImageMapSourceType(value: unknown): string {
   return IMAGE_MAP_SOURCE_TYPE_SET.has(normalized) ? normalized : "stock";
 }
 
+function normalizeImageMapStatus(value: unknown): string {
+  const normalized = readStringField({ value }, "value")?.toLowerCase() ?? null;
+  if (!normalized) return "draft";
+  return IMAGE_MAP_STATUS_SET.has(normalized) ? normalized : "draft";
+}
+
+function normalizeImageMapAssetRef(
+  value: unknown,
+  field: string,
+): EpisodeImageMapAssetRefRecord {
+  if (!isRecord(value)) {
+    throw new HttpError(400, "invalid_entries", `${field} must be an object`);
+  }
+
+  const assetId = readStringField(value, "asset_id") ?? readStringField(value, "id");
+  if (!assetId) {
+    throw new HttpError(400, "invalid_entries", `${field}.asset_id must be a non-empty string`);
+  }
+
+  return {
+    asset_id: assetId,
+    path: readStringField(value, "path"),
+  };
+}
+
+function normalizeImageMapAssetRefs(value: unknown, field: string): EpisodeImageMapAssetRefRecord[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const out: EpisodeImageMapAssetRefRecord[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const entry = normalizeImageMapAssetRef(value[index], `${field}[${index}]`);
+    if (seen.has(entry.asset_id)) continue;
+    seen.add(entry.asset_id);
+    out.push(entry);
+  }
+  return out;
+}
+
+function normalizeImageMapScriptAnchor(
+  value: unknown,
+  field: string,
+): EpisodeImageMapScriptAnchorRecord | null {
+  if (value == null) return null;
+  if (!isRecord(value)) {
+    throw new HttpError(400, "invalid_entries", `${field} must be an object`);
+  }
+
+  const sectionId = readStringField(value, "section_id");
+  const paragraphId = readStringField(value, "paragraph_id");
+  const paragraphOrder = typeof value.paragraph_order === "number" ? Math.trunc(value.paragraph_order) : null;
+  const sentenceStart = typeof value.sentence_start === "number" ? Math.trunc(value.sentence_start) : null;
+  const sentenceEnd = typeof value.sentence_end === "number" ? Math.trunc(value.sentence_end) : null;
+  const charStart = typeof value.char_start === "number" ? Math.trunc(value.char_start) : null;
+  const charEnd = typeof value.char_end === "number" ? Math.trunc(value.char_end) : null;
+  const spanText = readStringField(value, "span_text");
+
+  if (
+    !sectionId
+    || !paragraphId
+    || paragraphOrder == null
+    || sentenceStart == null
+    || sentenceEnd == null
+    || charStart == null
+    || charEnd == null
+    || !spanText
+  ) {
+    throw new HttpError(400, "invalid_entries", `${field} must include complete structured anchor fields`);
+  }
+
+  if (paragraphOrder < 1 || sentenceStart < 1 || sentenceEnd < sentenceStart || charStart < 0 || charEnd <= charStart) {
+    throw new HttpError(400, "invalid_entries", `${field} contains invalid structured anchor ranges`);
+  }
+
+  return {
+    section_id: sectionId,
+    paragraph_id: paragraphId,
+    paragraph_order: paragraphOrder,
+    sentence_start: sentenceStart,
+    sentence_end: sentenceEnd,
+    char_start: charStart,
+    char_end: charEnd,
+    span_text: spanText,
+    speaker_block_id: readStringField(value, "speaker_block_id"),
+  };
+}
+
 function normalizeEpisodeImageMapEntry(
   value: unknown,
   index: number,
@@ -1876,7 +1989,13 @@ function normalizeEpisodeImageMapEntry(
 
   const fallbackId = `image-map-${String(index + 1).padStart(2, "0")}`;
   const id = readStringField(value, "id") ?? fallbackId;
-  const anchor = readStringField(value, "anchor");
+  const scriptAnchor = normalizeImageMapScriptAnchor(value.script_anchor, `entries[${index}].script_anchor`);
+  const anchor = readStringField(value, "anchor")
+    ?? (scriptAnchor
+      ? `${scriptAnchor.paragraph_id}#${scriptAnchor.sentence_start === scriptAnchor.sentence_end
+        ? `sent${scriptAnchor.sentence_start}`
+        : `sent${scriptAnchor.sentence_start}-${scriptAnchor.sentence_end}`}`
+      : null);
   if (!anchor) {
     throw new HttpError(400, "invalid_entries", `entries[${index}].anchor must be a non-empty string`);
   }
@@ -1891,9 +2010,19 @@ function normalizeEpisodeImageMapEntry(
   return {
     id,
     anchor,
+    script_anchor: scriptAnchor,
     description,
+    visual_intent: readStringField(value, "visual_intent") ?? description,
+    prompt_basis: readStringField(value, "prompt_basis") ?? description,
     intent: normalizeImageMapIntent(value.intent),
     source_type: normalizeImageMapSourceType(value.source_type),
+    beat_order: typeof value.beat_order === "number" ? Math.max(1, Math.trunc(value.beat_order)) : index + 1,
+    paragraph_beat_order: typeof value.paragraph_beat_order === "number"
+      ? Math.max(1, Math.trunc(value.paragraph_beat_order))
+      : 1,
+    candidate_assets: normalizeImageMapAssetRefs(value.candidate_assets, `entries[${index}].candidate_assets`),
+    selected_asset_id: readStringField(value, "selected_asset_id"),
+    status: normalizeImageMapStatus(value.status ?? (scriptAnchor ? "mapped" : "draft")),
     placement_hint: readStringField(value, "placement_hint"),
   };
 }

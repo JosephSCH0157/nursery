@@ -110,6 +110,7 @@ import {
   getWorkpieceImageMap,
   saveWorkpieceImageMap,
 } from "../lib/hearth-image-map-repo";
+import { generateImageMapEntriesFromScript } from "../lib/hearth-image-map-beats";
 import type {
   EpisodePackageV2,
   EpisodeThumbnailConcept,
@@ -1177,20 +1178,6 @@ function replaceEpisodePackageImageMap(
   };
 }
 
-function deriveScriptParagraphAnchors(scriptText: string): string[] {
-  const normalized = scriptText.replace(/\r\n?/g, "\n");
-  const paragraphs = normalized
-    .split(/\n\s*\n/g)
-    .map((chunk) => chunk.replace(/\s+/g, " ").trim())
-    .filter(Boolean);
-
-  const anchors: string[] = [];
-  for (let index = 0; index < paragraphs.length; index += 1) {
-    anchors.push(`s1:para${index + 1}`);
-  }
-  return anchors;
-}
-
 const METADATA_TAG_SUGGESTIONS_BY_CATEGORY: Record<string, string[]> = {
   evergreen: ["evergreen", "how-to", "timeless"],
   hot_topic: ["news", "breaking", "analysis"],
@@ -1935,7 +1922,7 @@ export default function HearthShell() {
   const [selectedImageMapEntryId, setSelectedImageMapEntryId] = useState<string | null>(null);
   const [imageMapAnchorDraft, setImageMapAnchorDraft] = useState("");
   const [imageMapDescriptionDraft, setImageMapDescriptionDraft] = useState("");
-  const [imageMapIntentDraft, setImageMapIntentDraft] = useState("broll");
+  const [imageMapIntentDraft, setImageMapIntentDraft] = useState("cutaway");
   const [imageMapSourceTypeDraft, setImageMapSourceTypeDraft] = useState("stock");
   const [imageMapPlacementHintDraft, setImageMapPlacementHintDraft] = useState("");
   const [imageMapMetadataUpdatedAt, setImageMapMetadataUpdatedAt] = useState<string | null>(null);
@@ -4228,7 +4215,7 @@ export default function HearthShell() {
     if (!selectedImageMapEntry) {
       setImageMapAnchorDraft("");
       setImageMapDescriptionDraft("");
-      setImageMapIntentDraft("broll");
+      setImageMapIntentDraft("cutaway");
       setImageMapSourceTypeDraft("stock");
       setImageMapPlacementHintDraft("");
       setImageMapSaveState("saved");
@@ -4236,7 +4223,7 @@ export default function HearthShell() {
     }
     setImageMapAnchorDraft(selectedImageMapEntry.anchor);
     setImageMapDescriptionDraft(selectedImageMapEntry.description);
-    setImageMapIntentDraft(selectedImageMapEntry.intent || "broll");
+    setImageMapIntentDraft(selectedImageMapEntry.intent || "cutaway");
     setImageMapSourceTypeDraft(selectedImageMapEntry.source_type || "stock");
     setImageMapPlacementHintDraft(selectedImageMapEntry.placement_hint ?? "");
     setImageMapSaveState("saved");
@@ -4267,6 +4254,8 @@ export default function HearthShell() {
     const hasChanges = (
       current.anchor !== nextAnchor
       || current.description !== nextDescription
+      || current.visual_intent !== nextDescription
+      || current.prompt_basis !== nextDescription
       || current.intent !== nextIntent
       || current.source_type !== nextSourceType
       || (current.placement_hint ?? null) !== nextPlacementHint
@@ -4295,6 +4284,8 @@ export default function HearthShell() {
           {
             anchor: nextAnchor,
             description: nextDescription,
+            visual_intent: nextDescription,
+            prompt_basis: nextDescription,
             intent: nextIntent,
             source_type: nextSourceType,
             placement_hint: nextPlacementHint,
@@ -6703,6 +6694,8 @@ export default function HearthShell() {
         ...entry,
         anchor: nextAnchor,
         description: imageMapDescriptionDraft,
+        visual_intent: imageMapDescriptionDraft,
+        prompt_basis: imageMapDescriptionDraft,
         intent: imageMapIntentDraft.trim().toLowerCase(),
         source_type: imageMapSourceTypeDraft.trim().toLowerCase(),
         placement_hint: imageMapPlacementHintDraft.trim() || null,
@@ -6710,14 +6703,69 @@ export default function HearthShell() {
     });
   }
 
+  async function readCanonicalScriptForImageMapGeneration(): Promise<{
+    ok: true;
+    text: string;
+    source: "primary_script" | "saved_draft";
+    includesUnsavedLocalEdits: boolean;
+  } | {
+    ok: false;
+    message: string;
+  }> {
+    const episodeId = workpieceId?.trim() ?? "";
+    if (!episodeId) {
+      return { ok: false, message: "Select an Episode before generating visuals." };
+    }
+
+    const primaryScript = await readHearthPrimaryScript(episodeId);
+    if (primaryScript.ok && primaryScript.data.text?.trim()) {
+      const canonicalText = primaryScript.data.text;
+      return {
+        ok: true,
+        text: canonicalText,
+        source: "primary_script",
+        includesUnsavedLocalEdits: Boolean(activeDraft?.body && activeDraft.body.trim() && activeDraft.body !== canonicalText),
+      };
+    }
+
+    const canonicalDrafts = dedupeDraftListById(await store.listWorkpieceDrafts(episodeId));
+    const preferredDraft = activeDraft?.id
+      ? canonicalDrafts.find((draft) => draft.id === activeDraft.id) ?? null
+      : null;
+    const latestDraft = preferredDraft ?? canonicalDrafts
+      .slice()
+      .sort((a, b) => (b.updatedAt ?? b.createdAt ?? 0) - (a.updatedAt ?? a.createdAt ?? 0))[0]
+      ?? null;
+
+    if (!latestDraft?.body.trim()) {
+      return { ok: false, message: "No canonical script found for this workpiece yet." };
+    }
+
+    return {
+      ok: true,
+      text: latestDraft.body,
+      source: "saved_draft",
+      includesUnsavedLocalEdits: Boolean(
+        activeDraft?.body && activeDraft.body.trim() && activeDraft.body !== latestDraft.body,
+      ),
+    };
+  }
+
   async function onCreateImageMapEntry() {
     if (!episodePackage) return;
-    const nextAnchor = `s1:para${episodePackage.image_map.entries.length + 1}`;
+    const nextAnchor = `manual:p${episodePackage.image_map.entries.length + 1}`;
     const nextEpisodePackage = addImageMapEntry(episodePackage, {
       anchor: nextAnchor,
       description: "",
-      intent: "broll",
+      visual_intent: "",
+      prompt_basis: "",
+      intent: "cutaway",
       source_type: "stock",
+      beat_order: episodePackage.image_map.entries.length + 1,
+      paragraph_beat_order: 1,
+      candidate_assets: [],
+      selected_asset_id: null,
+      status: "draft",
       placement_hint: null,
     });
     const newEntry = nextEpisodePackage.image_map.entries[nextEpisodePackage.image_map.entries.length - 1] ?? null;
@@ -6745,9 +6793,17 @@ export default function HearthShell() {
     if (!episodePackage || !selectedImageMapEntry) return;
     const nextEpisodePackage = addImageMapEntry(episodePackage, {
       anchor: selectedImageMapEntry.anchor,
+      script_anchor: selectedImageMapEntry.script_anchor,
       description: selectedImageMapEntry.description,
+      visual_intent: selectedImageMapEntry.visual_intent,
+      prompt_basis: selectedImageMapEntry.prompt_basis,
       intent: selectedImageMapEntry.intent,
       source_type: selectedImageMapEntry.source_type,
+      beat_order: selectedImageMapEntry.beat_order,
+      paragraph_beat_order: selectedImageMapEntry.paragraph_beat_order,
+      candidate_assets: selectedImageMapEntry.candidate_assets,
+      selected_asset_id: selectedImageMapEntry.selected_asset_id,
+      status: selectedImageMapEntry.status,
       placement_hint: selectedImageMapEntry.placement_hint ?? null,
     });
     const duplicated = nextEpisodePackage.image_map.entries[nextEpisodePackage.image_map.entries.length - 1] ?? null;
@@ -6793,39 +6849,28 @@ export default function HearthShell() {
 
   async function onSeedImageMapFromScript() {
     if (!episodePackage) return;
-    const scriptText = activeDraft?.body ?? "";
-    const anchors = deriveScriptParagraphAnchors(scriptText);
-    if (anchors.length === 0) {
-      setImageMapExportMessage("No script paragraphs found to seed.");
+    if (episodePackage.image_map.entries.length > 0) {
+      const confirmed = window.confirm(
+        "Generate a new image map from the canonical script? This replaces the current visual beats.",
+      );
+      if (!confirmed) return;
+    }
+    const canonicalScript = await readCanonicalScriptForImageMapGeneration();
+    if (!canonicalScript.ok) {
+      setImageMapExportMessage(canonicalScript.message);
       return;
     }
 
-    const existingAnchors = new Set(episodePackage.image_map.entries.map((entry) => entry.anchor.trim().toLowerCase()));
-    let nextEpisodePackage = episodePackage;
-    let seededCount = 0;
-    for (const anchor of anchors) {
-      const key = anchor.trim().toLowerCase();
-      if (!key || existingAnchors.has(key)) continue;
-      nextEpisodePackage = addImageMapEntry(nextEpisodePackage, {
-        anchor,
-        description: "",
-        intent: "broll",
-        source_type: "stock",
-        placement_hint: null,
-      });
-      existingAnchors.add(key);
-      seededCount += 1;
-    }
-
-    if (seededCount === 0) {
-      setImageMapExportMessage("All script anchors are already present.");
+    const generatedEntries = generateImageMapEntriesFromScript(canonicalScript.text);
+    if (generatedEntries.length === 0) {
+      setImageMapExportMessage("No visually meaningful beats found in the canonical script.");
       return;
     }
 
     setImageMapSaveState("saving");
     setImageMapSaveError(null);
     const saved = await persistImageMapEntries({
-      entries: nextEpisodePackage.image_map.entries,
+      entries: generatedEntries,
     });
     if (!saved.ok) {
       setImageMapSaveState("error");
@@ -6834,7 +6879,9 @@ export default function HearthShell() {
     }
     setSelectedImageMapEntryId(saved.episodePackage.image_map.entries[0]?.id ?? null);
     setImageMapSaveState("saved");
-    setImageMapExportMessage(`Seeded ${seededCount} anchor entries from script.`);
+    const sourceLabel = canonicalScript.source === "primary_script" ? "published script" : "saved draft";
+    const note = canonicalScript.includesUnsavedLocalEdits ? " Save the draft first to include unsaved local edits." : "";
+    setImageMapExportMessage(`Generated ${generatedEntries.length} visual beats from the canonical ${sourceLabel}.${note}`);
   }
 
   async function onCopyImageMapExportJson() {

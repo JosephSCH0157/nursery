@@ -108,7 +108,7 @@ export default function ImageMapPanel({
           onClick={onSeedFromScript}
           disabled={disabled}
         >
-          Seed from Script
+          Generate from Script
         </button>
         <button
           type="button"

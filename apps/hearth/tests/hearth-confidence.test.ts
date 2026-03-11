@@ -26,6 +26,7 @@ import {
   saveWorkpieceImageMap,
 } from "../src/lib/hearth-image-map-repo";
 import { readHearthPrimaryScript } from "../src/lib/hearth-script-repo";
+import { generateImageMapEntriesFromScript } from "../src/lib/hearth-image-map-beats";
 import { resolveBarStockSparkHearthWorkpieceId } from "../src/lib/barstock-sparks";
 import {
   isCanonicalSparkDiscoveryResolved,
@@ -43,6 +44,7 @@ import {
   selectWorkpieceNavItems,
 } from "../src/lib/hearth-nav-model";
 import { formatScriptToAnvilTagsNoAi, validateAnvilTagContract } from "../src/lib/anvil-tag-contract";
+import { ensureImageMapV2, type EpisodeImageMapEntry } from "../src/lib/episode-package-v2";
 
 class MemoryStorage {
   private store = new Map<string, string>();
@@ -128,6 +130,36 @@ const WORKPIECE_A = "2980fc39-8c8b-489a-a900-8d3bd3248432";
 const WORKPIECE_B = "54d58d65-7abf-4d50-b17f-5905f4b1ee61";
 const WORKSPACE_ID = "2b2ef7aa-44d4-4d0d-93d7-b0aa4ec2b99d";
 const ARCHIVE_ACTOR_ID = "6f4a0a73-19d2-4926-bf70-ebf2b9306db4";
+
+function buildImageMapEntryFixture(id: string, overrides?: Partial<EpisodeImageMapEntry>): EpisodeImageMapEntry {
+  return {
+    id,
+    anchor: "s1:p1#sent1",
+    script_anchor: {
+      section_id: "s1",
+      paragraph_id: "s1:p1",
+      paragraph_order: 1,
+      sentence_start: 1,
+      sentence_end: 1,
+      char_start: 0,
+      char_end: 12,
+      span_text: "wide skyline",
+      speaker_block_id: null,
+    },
+    description: "wide skyline",
+    visual_intent: "wide skyline",
+    prompt_basis: "wide skyline",
+    intent: "cutaway",
+    source_type: "stock",
+    beat_order: 1,
+    paragraph_beat_order: 1,
+    candidate_assets: [],
+    selected_asset_id: null,
+    status: "mapped",
+    placement_hint: "after-hook",
+    ...overrides,
+  };
+}
 
 function buildRevisionSnapshot(workpieceId: string, revisions: Revision[]): HearthRevisionSnapshot {
   return {
@@ -1008,14 +1040,10 @@ async function testImageMapRepoReadNormalizesSemanticEntriesAndAssetSummary() {
       workpiece_id: WORKPIECE_A,
       workspace_id: WORKSPACE_ID,
       entries: [
-        {
-          id: "image-map-01",
-          anchor: "s1:para1",
-          description: "wide skyline",
-          intent: "broll",
+        buildImageMapEntryFixture("image-map-01", {
+          anchor: "s1:p1#sent1",
           source_type: "script",
-          placement_hint: "after-hook",
-        },
+        }),
       ],
       metadata_updated_at: "2026-03-10T16:20:00.000Z",
     },
@@ -1043,6 +1071,8 @@ async function testImageMapRepoReadNormalizesSemanticEntriesAndAssetSummary() {
       assert.equal(result.imageMap.workpieceId, WORKPIECE_A);
       assert.equal(result.imageMap.workspaceId, WORKSPACE_ID);
       assert.equal(result.imageMap.entries[0]?.source_type, "stock");
+      assert.equal(result.imageMap.entries[0]?.script_anchor?.paragraph_id, "s1:p1");
+      assert.equal(result.imageMap.entries[0]?.beat_order, 1);
       assert.equal(result.imageMap.metadataUpdatedAt, "2026-03-10T16:20:00.000Z");
       assert.equal(result.imageMap.asset?.assetKind, "image_map_json");
       assert.equal(result.imageMap.asset?.entryCount, 1);
@@ -1061,14 +1091,7 @@ async function testImageMapRepoSaveForwardsExpectedTimestampAndReturnsLatestOnCo
       workpiece_id: WORKPIECE_A,
       workspace_id: WORKSPACE_ID,
       entries: [
-        {
-          id: "image-map-01",
-          anchor: "s1:para1",
-          description: "wide skyline",
-          intent: "broll",
-          source_type: "stock",
-          placement_hint: "after-hook",
-        },
+        buildImageMapEntryFixture("image-map-01"),
       ],
       metadata_updated_at: "2026-03-10T16:25:00.000Z",
     },
@@ -1094,14 +1117,7 @@ async function testImageMapRepoSaveForwardsExpectedTimestampAndReturnsLatestOnCo
       workpieceId: WORKPIECE_A,
       workspaceId: WORKSPACE_ID,
       entries: [
-        {
-          id: "image-map-01",
-          anchor: "s1:para1",
-          description: "wide skyline",
-          intent: "broll",
-          source_type: "stock",
-          placement_hint: "after-hook",
-        },
+        buildImageMapEntryFixture("image-map-01"),
       ],
       expectedMetadataUpdatedAt: "2026-03-10T16:20:00.000Z",
     });
@@ -1115,14 +1131,25 @@ async function testImageMapRepoSaveForwardsExpectedTimestampAndReturnsLatestOnCo
         workpiece_id: WORKPIECE_A,
         workspace_id: WORKSPACE_ID,
         entries: [
-          {
-            id: "image-map-latest",
-            anchor: "s1:para9",
+          buildImageMapEntryFixture("image-map-latest", {
+            anchor: "s1:p9#sent1",
+            script_anchor: {
+              section_id: "s1",
+              paragraph_id: "s1:p9",
+              paragraph_order: 9,
+              sentence_start: 1,
+              sentence_end: 1,
+              char_start: 0,
+              char_end: 12,
+              span_text: "latest state",
+              speaker_block_id: null,
+            },
             description: "latest state",
+            visual_intent: "latest state",
+            prompt_basis: "latest state",
             intent: "graphic",
-            source_type: "stock",
             placement_hint: null,
-          },
+          }),
         ],
         metadata_updated_at: "2026-03-10T16:30:00.000Z",
       },
@@ -1168,6 +1195,48 @@ async function testImageMapRepoRejectsMismatchedCanonicalAttachment() {
   } finally {
     harness.restore();
   }
+}
+
+function testGenerateImageMapEntriesFromScriptEmitsMultipleBeatsWithinParagraph() {
+  const scriptText = [
+    "## History",
+    "",
+    "The Union fielded 77,000 troops against roughly 50,000 Confederates. After Napoleon, veteran officers were redeployed across the Atlantic world. Control of the Mississippi and New Orleans became the strategic hinge of the campaign.",
+  ].join("\n");
+
+  const entries = generateImageMapEntriesFromScript(scriptText);
+  assert.equal(entries.length, 3);
+  assert.deepEqual(
+    entries.map((entry) => entry.script_anchor?.sentence_start),
+    [1, 2, 3],
+  );
+  assert.deepEqual(
+    entries.map((entry) => entry.paragraph_beat_order),
+    [1, 2, 3],
+  );
+  assert.equal(entries[0]?.script_anchor?.paragraph_id, "s1:p1");
+  assert.match(entries[2]?.prompt_basis ?? "", /mississippi/i);
+}
+
+function testEnsureImageMapV2RoundTripsStructuredEntries() {
+  const entry = buildImageMapEntryFixture("image-map-structured", {
+    candidate_assets: [{ asset_id: "asset-a", path: "assets/image-a.png" }],
+    selected_asset_id: "asset-a",
+    status: "selected",
+  });
+
+  const pkg = ensureImageMapV2({
+    schema: "forge.episode.package.v2",
+    seo: { titles: [], tags: [], description_short: null, description_long: null },
+    thumbnail: { concepts: [], versions: [], primary_version_id: null },
+    image_map: { entries: [entry] },
+  });
+
+  assert.equal(pkg.image_map.entries.length, 1);
+  assert.equal(pkg.image_map.entries[0]?.script_anchor?.paragraph_id, "s1:p1");
+  assert.equal(pkg.image_map.entries[0]?.candidate_assets[0]?.asset_id, "asset-a");
+  assert.equal(pkg.image_map.entries[0]?.selected_asset_id, "asset-a");
+  assert.equal(pkg.image_map.entries[0]?.status, "selected");
 }
 
 async function testBarStockSparkListDiscoveryStaysCanonicalAcrossClients() {
@@ -1775,6 +1844,8 @@ async function run() {
   await testImageMapRepoReadNormalizesSemanticEntriesAndAssetSummary();
   await testImageMapRepoSaveForwardsExpectedTimestampAndReturnsLatestOnConflict();
   await testImageMapRepoRejectsMismatchedCanonicalAttachment();
+  testGenerateImageMapEntriesFromScriptEmitsMultipleBeatsWithinParagraph();
+  testEnsureImageMapV2RoundTripsStructuredEntries();
   await testBarStockSparkListDiscoveryStaysCanonicalAcrossClients();
   await testSparkIntakeWaitsForCanonicalDiscoveryBeforeDeclaringMissing();
   await testWorkpieceListRoundtripAndPrimaryScriptRead();

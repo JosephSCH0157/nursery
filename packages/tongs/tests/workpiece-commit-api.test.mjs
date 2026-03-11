@@ -706,6 +706,12 @@ function createReadyQueueSupabase({
     return rows.slice().sort((left, right) => compareNullableValues(left[field], right[field], ascending));
   }
 
+  function matchesFilters(row, filters) {
+    return Object.entries(filters).every(([key, value]) => (
+      value === null ? row[key] == null : row[key] === value
+    ));
+  }
+
   return {
     state,
     schema(schemaName) {
@@ -727,7 +733,7 @@ function createReadyQueueSupabase({
                   },
                   async single() {
                     const row = episodes.find((candidate) => (
-                      Object.entries(filters).every(([key, value]) => candidate[key] === value)
+                      matchesFilters(candidate, filters)
                     )) ?? null;
                     if (!row) {
                       return { data: null, error: { code: "PGRST116", message: "No rows" } };
@@ -736,7 +742,7 @@ function createReadyQueueSupabase({
                   },
                   async maybeSingle() {
                     const row = episodes.find((candidate) => (
-                      Object.entries(filters).every(([key, value]) => candidate[key] === value)
+                      matchesFilters(candidate, filters)
                     )) ?? null;
                     return { data: row ? { ...row } : null, error: null };
                   },
@@ -745,7 +751,7 @@ function createReadyQueueSupabase({
                     const idSet = new Set(values);
                     return {
                       data: episodes
-                        .filter((row) => Object.entries(filters).every(([key, value]) => row[key] === value) && idSet.has(row.id))
+                        .filter((row) => matchesFilters(row, filters) && idSet.has(row.id))
                         .map((row) => ({ id: row.id })),
                       error: null,
                     };
@@ -754,7 +760,7 @@ function createReadyQueueSupabase({
                     return {
                       async limit(limit) {
                         const ordered = sortRows(
-                          episodes.filter((row) => Object.entries(filters).every(([key, value]) => row[key] === value)),
+                          episodes.filter((row) => matchesFilters(row, filters)),
                           orderField,
                           options?.ascending ?? true,
                         );
@@ -787,7 +793,7 @@ function createReadyQueueSupabase({
                     return {
                       async single() {
                         const index = episodes.findIndex((candidate) => (
-                          Object.entries(filters).every(([key, value]) => candidate[key] === value)
+                          matchesFilters(candidate, filters)
                         ));
                         if (index < 0) {
                           return { data: null, error: { message: "No rows" } };
@@ -2878,10 +2884,28 @@ test("TongsCommitService.getWorkpieceImageMap returns normalized semantic entrie
           entries: [
             {
               id: "image-map-01",
-              anchor: "s1:para1",
+              anchor: "s1:p1#sent1",
+              script_anchor: {
+                section_id: "s1",
+                paragraph_id: "s1:p1",
+                paragraph_order: 1,
+                sentence_start: 1,
+                sentence_end: 1,
+                char_start: 0,
+                char_end: 18,
+                span_text: "wide city skyline",
+                speaker_block_id: null,
+              },
               description: "wide city skyline",
+              visual_intent: "wide city skyline",
+              prompt_basis: "wide city skyline",
               intent: "broll",
               source_type: "script",
+              beat_order: 1,
+              paragraph_beat_order: 1,
+              candidate_assets: [],
+              selected_asset_id: null,
+              status: "mapped",
               placement_hint: "after-hook",
             },
           ],
@@ -2900,6 +2924,8 @@ test("TongsCommitService.getWorkpieceImageMap returns normalized semantic entrie
   assert.equal(result.image_map.metadata_updated_at, "2026-03-10T15:59:00.000Z");
   assert.equal(result.image_map.entries.length, 1);
   assert.equal(result.image_map.entries[0]?.source_type, "stock");
+  assert.equal(result.image_map.entries[0]?.script_anchor?.paragraph_id, "s1:p1");
+  assert.equal(result.image_map.entries[0]?.beat_order, 1);
   assert.equal(result.asset?.asset_kind, "image_map_json");
   assert.equal(result.asset?.metadata_json.entry_count, 1);
 });
@@ -3039,10 +3065,28 @@ test("TongsCommitService.saveWorkpieceImageMap writes metadata, asset file, and 
       entries: [
         {
           id: "image-map-01",
-          anchor: "s1:para1",
+          anchor: "s1:p1#sent1",
+          script_anchor: {
+            section_id: "s1",
+            paragraph_id: "s1:p1",
+            paragraph_order: 1,
+            sentence_start: 1,
+            sentence_end: 1,
+            char_start: 0,
+            char_end: 18,
+            span_text: "wide city skyline",
+            speaker_block_id: null,
+          },
           description: "wide city skyline",
+          visual_intent: "wide city skyline",
+          prompt_basis: "wide city skyline",
           intent: "broll",
           source_type: "stock",
+          beat_order: 1,
+          paragraph_beat_order: 1,
+          candidate_assets: [],
+          selected_asset_id: null,
+          status: "mapped",
           placement_hint: "after-hook",
         },
       ],
@@ -3055,6 +3099,7 @@ test("TongsCommitService.saveWorkpieceImageMap writes metadata, asset file, and 
   assert.equal(commitCalls[0]?.input.path, "metadata.json");
   assert.equal(commitCalls[1]?.input.path, "assets/image-map/image-map.v1.json");
   assert.equal(commitCalls[0]?.input.json?.episode?.image_map?.entries?.length, 1);
+  assert.equal(commitCalls[0]?.input.json?.episode?.image_map?.entries?.[0]?.script_anchor?.paragraph_id, "s1:p1");
   assert.equal(commitCalls[1]?.input.json?.schema, "forge.image-map.v1");
   assert.equal(commitCalls[1]?.input.json?.workpiece_id, workpieceId);
   assert.equal(state.updateCalls.length, 1);
