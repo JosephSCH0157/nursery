@@ -13,6 +13,7 @@ Completion notes:
 Execution locks:
 
 - `LOCAL_MIRROR_SSOT_SLICE_3_CANDIDACY_LOCK.md`
+- `LOCAL_MIRROR_SSOT_SLICE_4_DERIVED_ARTIFACT_LOCK.md`
 
 **Mirrors may accelerate access; they may not determine reality.**
 
@@ -207,6 +208,8 @@ Status: complete
 - derived asset presence
 - freshness checks
 - canonical package-vs-asset reconciliation
+
+Lock source: `LOCAL_MIRROR_SSOT_SLICE_4_DERIVED_ARTIFACT_LOCK.md`
 
 ### Slice 5 - Cross-Tool Handoff
 
