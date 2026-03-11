@@ -25,6 +25,7 @@ import {
   saveWorkpieceImageMap,
 } from "../src/lib/hearth-image-map-repo";
 import { readHearthPrimaryScript } from "../src/lib/hearth-script-repo";
+import { resolveBarStockSparkHearthWorkpieceId } from "../src/lib/barstock-sparks";
 import {
   listHearthWorkpieces,
   type HearthWorkpieceSummary,
@@ -998,6 +999,26 @@ async function testActiveWorkpieceContextResolvesAttachedArtifactsWithoutCreatin
   assert.deepEqual(context.revisions.map((revision) => revision.id), ["rev-a"], "Only attached draft revisions should hydrate into context");
 }
 
+async function testForgedSparkRouteResolutionPrefersBoundWorkpiece() {
+  const spark = {
+    id: "spark-route-a",
+    body: "Open the bound workpiece",
+    createdAt: 1,
+    updatedAt: 1,
+    status: "forged",
+    links: {
+      hearthDraftId: "legacy-draft-a",
+      hearthWorkpieceId: WORKPIECE_A,
+    },
+  };
+
+  assert.equal(
+    resolveBarStockSparkHearthWorkpieceId(spark),
+    WORKPIECE_A,
+    "Already-forged spark intake should resolve directly to the bound workpiece",
+  );
+}
+
 async function testSessionRoundtrip() {
   const storage = resetLocalStorage();
   storage.setItem("forge_workspace_id_v1", "2980fc39-8c8b-489a-a900-8d3bd3248432");
@@ -1234,6 +1255,7 @@ async function run() {
   await testWorkpieceListRoundtripAndPrimaryScriptRead();
   await testWorkpieceNavModelStaysWorkpieceFirst();
   await testActiveWorkpieceContextResolvesAttachedArtifactsWithoutCreatingNavRows();
+  await testForgedSparkRouteResolutionPrefersBoundWorkpiece();
   await testSessionRoundtrip();
   await testBuildEpisodeContextIncludesFields();
   await testApplyHearthOpsRequestsSave();

@@ -9,6 +9,7 @@ import {
   enqueueBarStockSpark,
   isBarStockKey,
   readBarStockSparks,
+  resolveBarStockSparkHearthWorkpieceId,
   resolveBarstockSparkIdFromQuery,
   upsertBarStockSpark,
   writeBarStockSparks,
@@ -3799,13 +3800,22 @@ export default function HearthShell() {
 
     sparkIntakeHandledRef.current = intakeKey;
     setSelectedSparkId(routeSpark.id);
+    const linkedWorkpieceId = resolveBarStockSparkHearthWorkpieceId(routeSpark);
+    if (linkedWorkpieceId) {
+      setForgeError(null);
+      void openWorkpieceInFocus(linkedWorkpieceId, {
+        workspaceId,
+        preferredDraftId: routeSpark.links?.hearthDraftId ?? null,
+      });
+      return;
+    }
     if (isSparkForged(routeSpark)) {
       setMode("episodes");
-      setForgeError("This spark is already attached to Hearth. Open its Episode from Episodes.");
+      setForgeError("This spark is already attached to Hearth, but its Episode link could not be resolved.");
       return;
     }
     void forgeSpark(routeSpark);
-  }, [forgeSpark, routeProjectId, routeSpark, routeSparkId, sparks.length, workspaceId]);
+  }, [forgeSpark, openWorkpieceInFocus, routeProjectId, routeSpark, routeSparkId, sparks.length, workspaceId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
