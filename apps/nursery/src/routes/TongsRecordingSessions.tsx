@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { MobilePage, useLayoutMode } from "@forge/ui-mobile";
 import type { AppShellContext } from "./AppShell";
@@ -175,6 +175,7 @@ export default function TongsRecordingSessions() {
   const [detailError, setDetailError] = useState<string | null>(null);
 
   const [readyCandidates, setReadyCandidates] = useState<ReadyScriptCandidate[]>([]);
+  const [readyCandidatesWorkspaceId, setReadyCandidatesWorkspaceId] = useState<string | null>(null);
   const [readyLoading, setReadyLoading] = useState(false);
   const [readyError, setReadyError] = useState<string | null>(null);
   const [readyDeleteBusyKey, setReadyDeleteBusyKey] = useState<string | null>(null);
@@ -195,6 +196,7 @@ export default function TongsRecordingSessions() {
 
   const [dragFromIndex, setDragFromIndex] = useState<number | null>(null);
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+  const readyCandidatesRequestSeqRef = useRef(0);
 
   const currentPlanSignature = useMemo(() => itemSignature(planItems), [planItems]);
   const isDirty = currentPlanSignature !== savedPlanSignature;
@@ -222,16 +224,21 @@ export default function TongsRecordingSessions() {
   }, [planItems]);
   const hasDuplicatePlanItems = duplicatePlanKeys.size > 0;
 
+  const readyCandidatesForDisplay = useMemo(() => {
+    if (!workspaceId || readyCandidatesWorkspaceId !== workspaceId) return [];
+    return readyCandidates;
+  }, [readyCandidates, readyCandidatesWorkspaceId, workspaceId]);
+
   const candidateByPlannerKey = useMemo(() => {
     const out = new Map<string, ReadyScriptCandidate>();
-    for (const candidate of readyCandidates) {
+    for (const candidate of readyCandidatesForDisplay) {
       for (const path of candidate.script_paths) {
         out.set(`${candidate.workpiece_id}::${path}`, candidate);
       }
       out.set(`${candidate.workpiece_id}::${candidate.primary_script_path}`, candidate);
     }
     return out;
-  }, [readyCandidates]);
+  }, [readyCandidatesForDisplay]);
 
   const loadSessions = useCallback(async (preferredId?: string | null) => {
     if (!workspaceId || !session || !canReadSessions) {
@@ -263,8 +270,11 @@ export default function TongsRecordingSessions() {
   const loadReadyCandidates = useCallback(async () => {
     if (!workspaceId || !session || !canReadSessions) {
       setReadyCandidates([]);
+      setReadyCandidatesWorkspaceId(null);
       return;
     }
+    const requestSeq = readyCandidatesRequestSeqRef.current + 1;
+    readyCandidatesRequestSeqRef.current = requestSeq;
     setReadyLoading(true);
     setReadyError(null);
     try {
@@ -272,11 +282,18 @@ export default function TongsRecordingSessions() {
         `/tongs/workspaces/${encodeURIComponent(workspaceId)}/ready-scripts?unrecorded=1`,
         { method: "GET" },
       );
+      if (readyCandidatesRequestSeqRef.current !== requestSeq) return;
       setReadyCandidates(Array.isArray(data.scripts) ? data.scripts : []);
+      setReadyCandidatesWorkspaceId(workspaceId);
     } catch (error: unknown) {
+      if (readyCandidatesRequestSeqRef.current !== requestSeq) return;
+      setReadyCandidates([]);
+      setReadyCandidatesWorkspaceId(null);
       setReadyError(readErrorMessage(error, "Failed loading ready candidates."));
     } finally {
-      setReadyLoading(false);
+      if (readyCandidatesRequestSeqRef.current === requestSeq) {
+        setReadyLoading(false);
+      }
     }
   }, [workspaceId, session, canReadSessions]);
 
@@ -312,6 +329,7 @@ export default function TongsRecordingSessions() {
       setPlanItems([]);
       setSavedPlanSignature("");
       setReadyCandidates([]);
+      setReadyCandidatesWorkspaceId(null);
       return;
     }
     void loadSessions();
@@ -332,6 +350,13 @@ export default function TongsRecordingSessions() {
     setCreateOpen(false);
     setCreateError(null);
     setMobileDetailOpen(false);
+  }, [workspaceId]);
+
+  useEffect(() => {
+    setReadyCandidates([]);
+    setReadyCandidatesWorkspaceId(null);
+    setReadyError(null);
+    setReadyDeleteError(null);
   }, [workspaceId]);
 
   useEffect(() => {
@@ -663,11 +688,11 @@ export default function TongsRecordingSessions() {
           {readyLoading ? <div className="trs-message trs-message--subtle">Loading ready candidates...</div> : null}
           {readyError ? <div className="trs-message trs-message--error">{readyError}</div> : null}
           {readyDeleteError ? <div className="trs-message trs-message--error">{readyDeleteError}</div> : null}
-          {readyCandidates.length === 0 ? (
+          {readyCandidatesForDisplay.length === 0 ? (
             <div className="trs-message trs-message--subtle">No ready scripts.</div>
           ) : (
             <ul className="trs-list-reset trs-ready-list">
-              {readyCandidates.map((candidate) => {
+              {readyCandidatesForDisplay.map((candidate) => {
                 const alreadyInPlan = planEpisodeIdSet.has(candidate.workpiece_id);
                 const candidateKey = `${candidate.workpiece_id}::${candidate.primary_script_path}`;
                 const deletingCandidate = readyDeleteBusyKey === candidateKey;

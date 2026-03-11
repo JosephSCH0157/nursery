@@ -851,6 +851,87 @@ async function testReadyScriptsRoundtripIgnoresLegacyLocalOrder() {
   }
 }
 
+async function testReadyScriptsCanonicalQueryOverridesPriorClientResidueAcrossRefresh() {
+  const firstClientStorage = resetLocalStorage();
+  firstClientStorage.setItem(`hearth:ready-order:v1:${WORKSPACE_ID}`, JSON.stringify([
+    `ready:${WORKPIECE_A}:script/script.md`,
+    `ready:${WORKPIECE_B}:script/script.md`,
+  ]));
+  const harness = installReadyQueueFetchHarness();
+  harness.setReadyScriptsPayload([
+    {
+      workspace_id: WORKSPACE_ID,
+      workpiece_id: WORKPIECE_B,
+      primary_script_path: "script/script.md",
+      script_paths: ["script/script.md"],
+      title: "Ready Beta",
+      updated_at: "2026-03-10T14:30:00.000Z",
+      queue_rank: 0,
+      hidden_at: null,
+      hidden_by: null,
+      marked_ready_at: "2026-03-10T14:30:00.000Z",
+      marked_ready_by: WORKPIECE_A,
+    },
+    {
+      workspace_id: WORKSPACE_ID,
+      workpiece_id: WORKPIECE_A,
+      primary_script_path: "script/script.md",
+      script_paths: ["script/script.md"],
+      title: "Ready Alpha",
+      updated_at: "2026-03-10T14:00:00.000Z",
+      queue_rank: 1,
+      hidden_at: null,
+      hidden_by: null,
+      marked_ready_at: "2026-03-10T14:00:00.000Z",
+      marked_ready_by: WORKPIECE_B,
+    },
+  ]);
+
+  try {
+    const firstClient = await listHearthReadyScripts(WORKSPACE_ID);
+    assert.deepEqual(
+      firstClient.map((entry) => entry.workpieceId),
+      [WORKPIECE_B, WORKPIECE_A],
+      "First client should derive candidate membership and order from canonical query results",
+    );
+
+    resetLocalStorage();
+    const secondClient = await listHearthReadyScripts(WORKSPACE_ID);
+    assert.deepEqual(
+      secondClient.map((entry) => entry.workpieceId),
+      [WORKPIECE_B, WORKPIECE_A],
+      "Second client should see the same canonical candidate truth without inherited local residue",
+    );
+
+    harness.setReadyScriptsPayload([
+      {
+        workspace_id: WORKSPACE_ID,
+        workpiece_id: WORKPIECE_A,
+        primary_script_path: "script/script.md",
+        script_paths: ["script/script.md"],
+        title: "Ready Alpha",
+        updated_at: "2026-03-10T15:00:00.000Z",
+        queue_rank: 0,
+        hidden_at: null,
+        hidden_by: null,
+        marked_ready_at: "2026-03-10T15:00:00.000Z",
+        marked_ready_by: WORKPIECE_B,
+      },
+    ]);
+
+    const refreshed = await listHearthReadyScripts(WORKSPACE_ID);
+    assert.deepEqual(
+      refreshed.map((entry) => entry.workpieceId),
+      [WORKPIECE_A],
+      "Canonical refresh should overwrite prior client residue and remove ineligible candidates cleanly",
+    );
+    assert.equal(refreshed[0]?.queueRank, 0);
+    assert.equal(harness.listRequests.length, 3);
+  } finally {
+    harness.restore();
+  }
+}
+
 async function testReadyQueueReorderPayload() {
   resetLocalStorage();
   const harness = installReadyQueueFetchHarness();
@@ -1663,6 +1744,7 @@ async function run() {
   await testTongsRevisionFallbackPrecedence();
   await testTongsRevisionCap();
   await testReadyScriptsRoundtripIgnoresLegacyLocalOrder();
+  await testReadyScriptsCanonicalQueryOverridesPriorClientResidueAcrossRefresh();
   await testReadyQueueReorderPayload();
   await testReadyQueueHiddenMutationPayload();
   await testReadyScriptRemovalDeletesAllCanonicalPaths();

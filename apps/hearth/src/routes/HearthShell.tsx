@@ -1864,6 +1864,7 @@ export default function HearthShell() {
   const [sortKey, setSortKey] = useState<SortKey>("updated");
   const [showArchived, setShowArchived] = useState(false);
   const [readyScripts, setReadyScripts] = useState<HearthReadyScript[]>([]);
+  const [readyScriptsWorkspaceId, setReadyScriptsWorkspaceId] = useState<string | null>(null);
   const [isReadyScriptsLoading, setIsReadyScriptsLoading] = useState(false);
   const [readyScriptsError, setReadyScriptsError] = useState<string | null>(null);
   const [readyCategoryFilter, setReadyCategoryFilter] = useState<ReadyCategoryFilter>("all");
@@ -1974,6 +1975,7 @@ export default function HearthShell() {
   const sparkIntakeHandledRef = useRef<string | null>(null);
   const intakeResetKeyRef = useRef<string | null>(null);
   const previousWorkspaceIdRef = useRef<string | null>(workspaceId);
+  const readyScriptsRequestSeqRef = useRef(0);
   const restoredCursorDraftIdRef = useRef<string | null>(null);
   const restoredModeDraftKeyRef = useRef<string | null>(null);
   const pendingFocusOpenCountRef = useRef(0);
@@ -2245,7 +2247,14 @@ export default function HearthShell() {
     return workpieceNavItems.filter((item) => !item.isArchived);
   }, [showArchived, workpieceNavItems]);
 
-  const readyScriptsForDisplay = deferDesktopRailCollections ? EMPTY_READY_SCRIPT_LIST : readyScripts;
+  const readyScriptsForDisplay = useMemo(() => {
+    if (deferDesktopRailCollections) return EMPTY_READY_SCRIPT_LIST;
+    const normalizedWorkspaceId = normalizeUuid(workspaceId);
+    if (!normalizedWorkspaceId || readyScriptsWorkspaceId !== normalizedWorkspaceId) {
+      return EMPTY_READY_SCRIPT_LIST;
+    }
+    return readyScripts;
+  }, [deferDesktopRailCollections, readyScripts, readyScriptsWorkspaceId, workspaceId]);
   const visibleReadyScriptsForDisplay = useMemo(
     () => readyScriptsForDisplay.filter((entry) => !entry.hiddenAt),
     [readyScriptsForDisplay],
@@ -2681,9 +2690,12 @@ export default function HearthShell() {
   }, [workpieceId]);
 
   const refreshReadyScripts = useCallback(async () => {
-    const workspace = workspaceId?.trim() ?? "";
+    const workspace = normalizeUuid(workspaceId);
+    const requestSeq = readyScriptsRequestSeqRef.current + 1;
+    readyScriptsRequestSeqRef.current = requestSeq;
     if (!workspace) {
       setReadyScripts([]);
+      setReadyScriptsWorkspaceId(null);
       setReadyScriptsError(null);
       setIsReadyScriptsLoading(false);
       return;
@@ -2693,13 +2705,25 @@ export default function HearthShell() {
     setReadyScriptsError(null);
     try {
       const entries = await listHearthReadyScripts(workspace);
+      if (readyScriptsRequestSeqRef.current !== requestSeq) return;
       setReadyScripts(entries);
+      setReadyScriptsWorkspaceId(workspace);
     } catch {
+      if (readyScriptsRequestSeqRef.current !== requestSeq) return;
       setReadyScripts([]);
+      setReadyScriptsWorkspaceId(null);
       setReadyScriptsError("Failed to load Ready to Record list.");
     } finally {
-      setIsReadyScriptsLoading(false);
+      if (readyScriptsRequestSeqRef.current === requestSeq) {
+        setIsReadyScriptsLoading(false);
+      }
     }
+  }, [workspaceId]);
+
+  useEffect(() => {
+    setReadyScripts([]);
+    setReadyScriptsWorkspaceId(null);
+    setReadyScriptsError(null);
   }, [workspaceId]);
 
   useEffect(() => {
@@ -2872,7 +2896,7 @@ export default function HearthShell() {
 
   const onRestoreRemovedReady = useCallback(async () => {
     const normalizedWorkspaceId = normalizeUuid(workspaceId);
-    const hiddenEntries = readyScripts.filter((entry) => entry.hiddenAt);
+    const hiddenEntries = readyScriptsForDisplay.filter((entry) => entry.hiddenAt);
     if (!normalizedWorkspaceId || hiddenEntries.length === 0 || isRestoringReady) return;
 
     setReadyScriptsError(null);
@@ -2903,14 +2927,14 @@ export default function HearthShell() {
     } finally {
       setIsRestoringReady(false);
     }
-  }, [isRestoringReady, readyScripts, refreshReadyScripts, workspaceId]);
+  }, [isRestoringReady, readyScriptsForDisplay, refreshReadyScripts, workspaceId]);
 
   const onReorderReady = useCallback(async (fromId: string, toId: string) => {
     const normalizedWorkspaceId = normalizeUuid(workspaceId);
     if (!normalizedWorkspaceId || !fromId || !toId || fromId === toId) return;
 
-    const reordered = reorderVisibleReadyEntries(readyScripts, fromId, toId);
-    const changed = reordered.some((entry, index) => entry !== readyScripts[index]);
+    const reordered = reorderVisibleReadyEntries(readyScriptsForDisplay, fromId, toId);
+    const changed = reordered.some((entry, index) => entry !== readyScriptsForDisplay[index]);
     if (!changed) return;
 
     const orderedVisibleIds = reordered
@@ -2935,7 +2959,7 @@ export default function HearthShell() {
       setReadyScriptsError("Failed to reorder Ready queue.");
       await refreshReadyScripts();
     }
-  }, [readyScripts, refreshReadyScripts, workspaceId]);
+  }, [readyScriptsForDisplay, refreshReadyScripts, workspaceId]);
 
   const persistSession = useCallback(async (draftId: string | null, uiSelectedTab?: string) => {
     const now = Date.now();

@@ -2,7 +2,11 @@
 
 Implementation plan only. Constitutional lifecycle semantics are defined in `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`. Operational lifecycle behavior is summarized in `STATE_MACHINE_DIAGRAM.md`. Mirror-authority policy is defined in `LOCAL_MIRROR_SSOT_BURNDOWN_LOCK.md`. Slice 3 candidate-truth rules are locked in `LOCAL_MIRROR_SSOT_SLICE_3_CANDIDACY_LOCK.md`.
 
-Slice 3 status: planned on 2026-03-11.
+Slice 3 status: completed on 2026-03-11.
+
+Completion note:
+
+- `LOCAL_MIRROR_SSOT_SLICE_3_COMPLETION.md`
 
 **Canonical query state alone determines Ready/session candidate existence, eligibility, and ordering.**
 
@@ -194,3 +198,5 @@ Slice 3 is complete when all of the following are true:
 - local optimism appears only transiently and is overwritten cleanly on canonical resolve
 - cross-client candidate views converge on the same truth
 - a completion note records what shipped, how it was verified, and any wrapper caveats honestly
+
+Slice 3 meets these criteria.
