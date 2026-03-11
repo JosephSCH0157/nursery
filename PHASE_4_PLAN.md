@@ -1,5 +1,7 @@
 # Hearth Phase 4 Plan
 
+> Historical phase-planning document. Lifecycle details here may be outdated and are superseded by `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`.
+
 Date: February 25, 2026  
 Branch: `work/hearth-phase4-begin`  
 Baseline: `hearth-phase3-complete` (`01eee7b`)

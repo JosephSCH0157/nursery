@@ -1,5 +1,7 @@
 # Hearth + Tongs Phase 5 Slice 1 Fixture Note
 
+> Scope note: this document covers browser-proof fixture qualification only. Lifecycle semantics are defined in `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`.
+
 Status: required for formal Slice 1 browser-proof closeout.
 
 ## Workspace

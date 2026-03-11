@@ -1,5 +1,7 @@
 # Hearth + Tongs Phase 5 Slice 1 Migration Lock
 
+> Scope note: this document constrains migration/schema behavior only. Lifecycle semantics are defined in `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`.
+
 Date: March 10, 2026  
 Slice: Phase 5 Slice 1 - canonical image-map asset
 

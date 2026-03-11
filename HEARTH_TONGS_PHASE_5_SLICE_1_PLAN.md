@@ -1,5 +1,7 @@
 # Hearth + Tongs Phase 5 Slice 1 Plan
 
+> Scope note: lifecycle assumptions in this plan are superseded by `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`.
+
 Date: March 10, 2026  
 Theme: `Phase 5 - Workpiece Intelligence`  
 Slice: Canonical image-map asset through Tongs assets + episode package V2

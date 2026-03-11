@@ -1,5 +1,7 @@
 # Hearth + Tongs Phase 5 Plan
 
+> Scope note: lifecycle assumptions in this plan are superseded by `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`.
+
 Date: March 10, 2026  
 Baseline: Hearth Phase 4 formally closed on `forge-v1.2.0`
 

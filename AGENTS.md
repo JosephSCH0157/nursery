@@ -4,6 +4,8 @@ This document defines the **canonical agent roles** inside the Podcaster's Forge
 
 Release baseline: **Forge v1.2.0 Fire Burning** (`forge-v1.2.0`).
 
+Canonical lifecycle constitution: `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`.
+
 ---
 
 ## SSOT / Persistence Policy (Canonical)
@@ -24,6 +26,8 @@ The agent MUST NEVER fake persistence by writing to local files or `localStorage
 Fail-safe rule: when in doubt about persistence, assume it belongs in Supabase and ask/flag it rather than inventing a local workaround.
 
 Hard gate: if a requested change touches persistence semantics, relationships, lifecycle, or query behavior, the agent MUST NOT implement only UI changes and hope. It MUST either include migration + RLS updates in the same change set, or stop and state: "DB changes required; here is the migration."
+
+Agent instructions must follow the canonical lifecycle defined in `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`.
 
 ---
 

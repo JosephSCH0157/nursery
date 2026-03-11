@@ -1,5 +1,7 @@
 # Hearth + Tongs Phase 5 Slice 1 Repo Lock
 
+> Scope note: this document constrains repo boundary behavior only. Lifecycle semantics are defined in `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`.
+
 Date: March 10, 2026  
 Slice: Phase 5 Slice 1 - canonical image-map asset
 

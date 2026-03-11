@@ -1,5 +1,7 @@
 # Hearth Phase 3 Completion
 
+> Historical completion artifact kept for audit trail. Lifecycle semantics are superseded by `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`.
+
 Date: February 25, 2026
 Baseline Branch: `main`
 Baseline Tag: `hearth-phase3-complete`
