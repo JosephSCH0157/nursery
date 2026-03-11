@@ -2,6 +2,12 @@
 
 Implementation plan only. Constitutional lifecycle semantics are defined in `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`. Policy intent is defined in `WORKPIECE_DELETION_POLICY_PLAN.md`.
 
+Slice 1 status: completed on 2026-03-11.
+
+Completion note:
+
+- `WORKPIECE_DELETION_SLICE_1_COMPLETION.md`
+
 This requires a DB migration / RLS update.
 
 ## Purpose
@@ -22,11 +28,12 @@ Current Hearth cleanup actions are still draft-local:
 - `apps/hearth/src/storage/tongs-store.ts`
 - `apps/hearth/src/routes/HearthShell.tsx`
 
-Important consequence:
+Current shipped posture:
 
-- Hearth currently has `deleteDraft()` and draft-local archive metadata.
-- Hearth does not yet have canonical workpiece archive or restore.
-- `tongs.episodes` does not yet represent archived workpieces.
+- Hearth still has `deleteDraft()` for draft-buffer cleanup, but it is explicitly no longer the workpiece deletion path.
+- Hearth now has canonical workpiece archive and restore.
+- `tongs.episodes` now represents archived workpieces canonically.
+- Archived workpieces are excluded from default episode, Ready, and session-candidate flows unless intentionally included or restored first.
 
 ## First Slice Goal
 
@@ -377,6 +384,19 @@ Slice 1 is complete when all of the following are true:
 - workpiece cleanup UI no longer depends on draft-local archive metadata
 - draft delete, if still exposed, is clearly labeled as draft-buffer deletion
 - archive and restore are covered by API and Hearth confidence tests
+
+Slice 1 meets these criteria. The remaining work belongs to later slices, not to archive-first foundation repair.
+
+## Recommended Next Slice
+
+Recommended next slice: restore reintegration policy.
+
+That slice should answer the post-restore product rules explicitly:
+
+- when a restored workpiece reappears in Ready/session candidate surfaces
+- whether restore should preserve prior ready metadata as immediately active or require re-ready
+- how archived session-plan references should behave if restored later
+- whether cross-tool handoff surfaces should offer restore-and-open affordances or remain restore-first in Hearth only
 
 ## Explicit Non-Goals
 

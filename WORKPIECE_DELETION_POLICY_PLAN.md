@@ -6,6 +6,10 @@ Concrete execution plan:
 
 - `WORKPIECE_DELETION_IMPLEMENTATION_PLAN.md`
 
+Slice 1 completion note:
+
+- `WORKPIECE_DELETION_SLICE_1_COMPLETION.md`
+
 This document does not claim that full workpiece archive or hard-delete semantics are already implemented in product code.
 
 ## Purpose
