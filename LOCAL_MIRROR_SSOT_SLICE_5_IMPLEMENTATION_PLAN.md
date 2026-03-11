@@ -2,7 +2,7 @@
 
 Implementation plan only. Constitutional lifecycle semantics are defined in `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`. Operational lifecycle behavior is summarized in `STATE_MACHINE_DIAGRAM.md`. Mirror-authority policy is defined in `LOCAL_MIRROR_SSOT_BURNDOWN_LOCK.md`. Slice 5 cross-tool handoff rules are locked in `LOCAL_MIRROR_SSOT_SLICE_5_CROSS_TOOL_HANDOFF_LOCK.md`.
 
-Slice 5 status: planned on 2026-03-11.
+Slice 5 status: completed on 2026-03-11. Completion note: `LOCAL_MIRROR_SSOT_SLICE_5_COMPLETION.md`.
 
 **Cross-tool handoff payloads may carry canonical references and advisory context, but receiving truth is established only after receiver-side canonical revalidation.**
 
@@ -193,3 +193,5 @@ Slice 5 is complete when all of the following are true:
 - late async handoff validation cannot overwrite newer receiver context
 - second client or second tool opens converge on the same canonical outcome
 - a completion note records what shipped, how it was verified, and any wrapper caveats honestly
+
+Slice 5 meets these exit criteria on the currently active handoff seam via `LOCAL_MIRROR_SSOT_SLICE_5_COMPLETION.md`.

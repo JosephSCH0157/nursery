@@ -59,8 +59,6 @@ const THUMBNAIL_DEFAULT_STYLE_HINT = "Clean, high-contrast YouTube thumbnail com
 const IMAGE_MAP_ASSET_PATH = "assets/image-map/image-map.v1.json";
 const IMAGE_MAP_ASSET_KIND = "image_map_json" as const;
 const IMAGE_MAP_ASSET_SCHEMA = "forge.image-map.v1" as const;
-const IMAGE_MAP_ASSET_STATUS_VALUES = ["ready", "superseded"] as const;
-const IMAGE_MAP_ASSET_STATUS_SET = new Set<string>(IMAGE_MAP_ASSET_STATUS_VALUES);
 const IMAGE_MAP_INTENT_VALUES = ["broll", "graphic", "lower-third", "archival", "cutaway", "other"] as const;
 const IMAGE_MAP_INTENT_SET = new Set<string>(IMAGE_MAP_INTENT_VALUES);
 const IMAGE_MAP_SOURCE_TYPE_VALUES = ["ai", "stock", "archival", "custom"] as const;
@@ -2002,7 +2000,7 @@ function normalizeImageMapAssetSummary(row: AssetRow | null | undefined): ImageM
 }
 
 function randomId(prefix: string): string {
-  const cryptoApi = globalThis.crypto as Crypto | undefined;
+  const cryptoApi = globalThis.crypto as typeof globalThis.crypto | undefined;
   if (cryptoApi && typeof cryptoApi.randomUUID === "function") {
     return `${prefix}-${cryptoApi.randomUUID()}`;
   }
@@ -2010,7 +2008,7 @@ function randomId(prefix: string): string {
 }
 
 function randomUuid(): string {
-  const cryptoApi = globalThis.crypto as Crypto | undefined;
+  const cryptoApi = globalThis.crypto as typeof globalThis.crypto | undefined;
   if (cryptoApi && typeof cryptoApi.randomUUID === "function") {
     return cryptoApi.randomUUID();
   }
