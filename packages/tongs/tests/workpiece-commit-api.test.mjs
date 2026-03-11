@@ -27,6 +27,7 @@ function mockService() {
     deleteReadyScript: [],
     appendEvent: [],
     readWorkpieceBinary: [],
+    readWorkpieceText: [],
   };
 
   const service = {
@@ -433,6 +434,16 @@ function mockService() {
         found: true,
         bytes_base64: "AQID",
         content_type: "image/png",
+      };
+    },
+    async readWorkpieceText(workpieceId, path) {
+      calls.readWorkpieceText.push({ workpieceId, path });
+      return {
+        found: true,
+        text: "# Script",
+        file_row: {
+          updated_at: "2026-02-21T00:00:00.000Z",
+        },
       };
     },
   };
@@ -1278,6 +1289,31 @@ test("GET /tongs/workpieces/:id/read-file?encoding=base64 dispatches readWorkpie
   assert.equal(body.ok, true);
   assert.equal(body.data?.content_type, "image/png");
   assert.equal(body.data?.bytes_base64, "AQID");
+});
+
+test("GET /tongs/workpieces/:id/read-file returns bootstrap-empty payload for missing primary script", async () => {
+  const { service, calls } = mockService();
+  service.readWorkpieceText = async (workpieceId, path) => {
+    calls.readWorkpieceText.push({ workpieceId, path });
+    return { found: false };
+  };
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/read-file?path=script%2Fscript.md",
+    { method: "GET" },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.readWorkpieceText.length, 1);
+  assert.equal(calls.readWorkpieceText[0].workpieceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.readWorkpieceText[0].path, "script/script.md");
+  assert.equal(body.ok, true);
+  assert.equal(body.exists, false);
+  assert.equal(body.data, null);
 });
 
 test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata version", async () => {

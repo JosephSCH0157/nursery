@@ -14,7 +14,13 @@ const SHA256_ALGO = "sha256";
 const DEFAULT_ORIGIN_TOOL = { name: "tongs", version: "0.1.0" } as const;
 const DEFAULT_WRITTEN_BY = { tool: "tongs", tool_version: "0.1.0", lane: "forge-managed" } as const;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const BOOTSTRAP_WORKPIECE_PATHS = new Set(["script/session.json", "script/script.sources.json"]);
+const BOOTSTRAP_WORKPIECE_PATHS = new Set([
+  "script/script.md",
+  "script/session.json",
+  "script/script.sources.json",
+  "hearth/drafts.v1.json",
+  "hearth/revisions.v1.json",
+]);
 const BOOTSTRAP_WORKSPACE_PATHS = new Set(["sources/index.json"]);
 const READY_SCRIPT_PATH_CANDIDATES = [
   "script/script.published.md",
@@ -5326,6 +5332,9 @@ export function createTongsCommitApiHandlerWithService(
 
         const result = await service.readWorkpieceText(workpieceId, path);
         if (!result.found) {
+          if (isBootstrapWorkpiecePath(path)) {
+            return jsonResponse(200, { ok: true, data: null, exists: false });
+          }
           return jsonResponse(404, {
             ok: true,
             exists: false,
