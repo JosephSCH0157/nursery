@@ -252,5 +252,6 @@ Suggested mission name:
 Current Hearth visual-planning execution is additionally constrained by:
 
 - `HEARTH_VISUAL_PLANNING_V1_SLICE_3_CANDIDATE_LOCK.md`
+- `HEARTH_VISUAL_PLANNING_V1_SLICE_3_IMPLEMENTATION_PLAN.md`
 
 That lock governs the next narrow slice after shipped image-map domain + beat extraction work: still-image candidate generation and canonical candidate attachment to existing image-map entries.
