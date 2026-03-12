@@ -43,13 +43,16 @@ export type HearthPhase4VerifiedArtifact = {
     script_snippet: string;
   };
   ready: {
+    visible_items: Array<{ workpiece_id: string; title: string }>;
     visible_titles: string[];
+    hidden_items: Array<{ workpiece_id: string; title: string }>;
     hidden_titles: string[];
   };
 };
 
 export type StorageSession = {
   accessToken: string;
+  accessTokenExpiresAtMs: number | null;
   refreshToken: string | null;
   userId: string | null;
   selectedWorkspaceId: string | null;
@@ -208,6 +211,31 @@ function extractAccessToken(value: unknown): string | null {
   return null;
 }
 
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  const parts = token.split(".");
+  if (parts.length < 2) return null;
+  const payload = readString(parts[1]);
+  if (!payload) return null;
+
+  try {
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+    const decoded = Buffer.from(padded, "base64").toString("utf8");
+    const parsed = JSON.parse(decoded) as unknown;
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractAccessTokenExpiryMs(token: string): number | null {
+  const payload = decodeJwtPayload(token);
+  if (!payload) return null;
+  const exp = payload.exp;
+  if (typeof exp !== "number" || !Number.isFinite(exp) || exp <= 0) return null;
+  return exp * 1000;
+}
+
 function extractRefreshToken(value: unknown): string | null {
   if (!value) return null;
   if (Array.isArray(value)) {
@@ -329,6 +357,7 @@ export function readStorageSession(storageStatePath: string = getPlaywrightStora
 
   return {
     accessToken,
+    accessTokenExpiresAtMs: extractAccessTokenExpiryMs(accessToken),
     refreshToken: extractRefreshToken(parsedAuth),
     userId: extractUserId(parsedAuth),
     selectedWorkspaceId,
@@ -416,8 +445,28 @@ export function readHearthPhase4Artifact(
   const visibleTitles = Array.isArray(ready?.visible_titles)
     ? ready.visible_titles.map((value) => readString(value)).filter((value): value is string => Boolean(value))
     : [];
+  const visibleItems = Array.isArray(ready?.visible_items)
+    ? ready.visible_items.map((value) => {
+      if (!isRecord(value)) return null;
+      const workpieceId = normalizeUuid(value.workpiece_id);
+      const title = readString(value.title);
+      return workpieceId && title
+        ? { workpiece_id: workpieceId, title }
+        : null;
+    }).filter((value): value is { workpiece_id: string; title: string } => Boolean(value))
+    : [];
   const hiddenTitles = Array.isArray(ready?.hidden_titles)
     ? ready.hidden_titles.map((value) => readString(value)).filter((value): value is string => Boolean(value))
+    : [];
+  const hiddenItems = Array.isArray(ready?.hidden_items)
+    ? ready.hidden_items.map((value) => {
+      if (!isRecord(value)) return null;
+      const workpieceId = normalizeUuid(value.workpiece_id);
+      const title = readString(value.title);
+      return workpieceId && title
+        ? { workpiece_id: workpieceId, title }
+        : null;
+    }).filter((value): value is { workpiece_id: string; title: string } => Boolean(value))
     : [];
   const verifiedAt = readString(parsed.verified_at);
   const storageStatePath = readString(parsed.storage_state_path);
@@ -449,7 +498,9 @@ export function readHearthPhase4Artifact(
       script_snippet: handoffScriptSnippet,
     },
     ready: {
+      visible_items: visibleItems,
       visible_titles: visibleTitles,
+      hidden_items: hiddenItems,
       hidden_titles: hiddenTitles,
     },
   };

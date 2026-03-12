@@ -97,7 +97,7 @@ function isTextLikeFile(file: File): boolean {
 
 function appendScriptTag(src: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const existing = document.querySelector(`script[data-hearth-mammoth=\"${src}\"]`) as HTMLScriptElement | null;
+    const existing = document.querySelector(`script[data-hearth-mammoth="${src}"]`) as HTMLScriptElement | null;
     if (existing) {
       if (existing.dataset.loaded === "1") {
         resolve();

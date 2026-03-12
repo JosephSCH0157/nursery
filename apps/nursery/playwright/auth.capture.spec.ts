@@ -35,6 +35,16 @@ test("capture_auth_state", async ({ page, baseURL }) => {
     timeout: 10 * 60 * 1000,
   });
 
+  console.log("[playwright-auth] Waiting for forge-auth session and selected workspace to persist...");
+  await page.waitForFunction(() => {
+    const auth = window.localStorage.getItem("forge-auth");
+    const workspace = window.localStorage.getItem("forge_workspace_id_v1")
+      ?? window.localStorage.getItem("barstock_workspace_id");
+    return Boolean(auth && workspace);
+  }, {
+    timeout: 30_000,
+  });
+
   await page.context().storageState({ path: storageStatePath });
   console.log(`[playwright-auth] Saved storage state to ${storageStatePath}`);
 });

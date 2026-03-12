@@ -173,6 +173,16 @@ export class LocalHearthStore implements HearthStore {
       .map(cloneDraft);
   }
 
+  async listWorkpieceDrafts(workpieceId: string): Promise<Draft[]> {
+    const normalizedWorkpieceId = typeof workpieceId === "string" ? workpieceId.trim() : "";
+    if (!normalizedWorkpieceId) return [];
+    const record = readDraftRecord();
+    return Object.values(record)
+      .filter((draft) => draft.id === normalizedWorkpieceId)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .map(cloneDraft);
+  }
+
   async getDraft(id: DraftId): Promise<Draft | null> {
     const record = readDraftRecord();
     const found = record[id];

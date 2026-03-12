@@ -3,7 +3,12 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createTongsCommitApiHandler, type TongsCommitApiOptions } from "@forge/tongs";
+// Use the workspace source in dev so new Tongs routes are available after a Vite restart
+// without depending on a separately rebuilt package dist snapshot.
+import {
+  createTongsCommitApiHandler,
+  type TongsCommitApiOptions,
+} from "../../../packages/tongs/src/workpiece-commit-api.ts";
 
 type Next = (err?: unknown) => void;
 

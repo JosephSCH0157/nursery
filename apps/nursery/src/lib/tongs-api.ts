@@ -131,23 +131,7 @@ function extractAccessToken(value: unknown): string | null {
 }
 
 export async function tongsApiRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = resolveTongsApiToken();
-  const userAccessToken = await resolveUserAccessToken();
-  const headers = new Headers(init?.headers ?? {});
-  if (!headers.has("content-type")) {
-    headers.set("content-type", "application/json");
-  }
-  if (token) {
-    headers.set("authorization", `Bearer ${token}`);
-  }
-  if (userAccessToken && !headers.has("x-forge-user-authorization")) {
-    headers.set("x-forge-user-authorization", `Bearer ${userAccessToken}`);
-  }
-
-  const response = await fetch(path, {
-    ...init,
-    headers,
-  });
+  const response = await tongsApiFetch(path, init);
 
   const text = await response.text();
   let body: JsonObject | null = null;
@@ -170,4 +154,25 @@ export async function tongsApiRequest<T>(path: string, init?: RequestInit): Prom
     throw new Error("Tongs API response missing data payload.");
   }
   return data;
+}
+
+export async function tongsApiFetch(path: string, init?: RequestInit): Promise<Response> {
+  const token = resolveTongsApiToken();
+  const userAccessToken = await resolveUserAccessToken();
+  const headers = new Headers(init?.headers ?? {});
+  if (!headers.has("content-type")) {
+    headers.set("content-type", "application/json");
+  }
+  if (token) {
+    headers.set("authorization", `Bearer ${token}`);
+  }
+  if (userAccessToken && !headers.has("x-forge-user-authorization")) {
+    headers.set("x-forge-user-authorization", `Bearer ${userAccessToken}`);
+  }
+
+  const response = await fetch(path, {
+    ...init,
+    headers,
+  });
+  return response;
 }

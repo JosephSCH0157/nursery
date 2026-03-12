@@ -247,6 +247,13 @@ export function resolveBarstockSparkIdFromQuery(): string | null {
   return null;
 }
 
+export function resolveBarStockSparkHearthWorkpieceId(
+  spark: BarStockSpark | null | undefined,
+): string | null {
+  if (!spark) return null;
+  return readString(spark.links?.hearthWorkpieceId);
+}
+
 function buildSparkOutboxSignature(spark: BarStockSpark): string {
   const tags = Array.isArray(spark.tags) ? spark.tags.map((tag) => readString(tag) ?? "").filter(Boolean) : [];
   return JSON.stringify({

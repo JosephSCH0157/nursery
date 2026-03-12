@@ -25,6 +25,29 @@ function fail(message: string): never {
   throw new Error(message);
 }
 
+function formatFixtureError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const details = typeof error === "object" && error !== null && "details" in error
+    ? (error as { details?: unknown }).details
+    : null;
+  const detailReason = details && typeof details === "object" && "reason" in details
+    ? readString((details as { reason?: unknown }).reason)
+    : null;
+
+  if (
+    message.includes("Failed to list workspace ready queue state")
+    || (detailReason?.includes("workspace_ready_queue_state") ?? false)
+  ) {
+    return (
+      "Failed to list workspace ready queue state. " +
+      "The target Supabase environment is missing the Step 2 ready queue migration " +
+      "(tongs.workspace_ready_queue_state). Apply supabase/migrations/20260310143000_tongs_workspace_ready_queue_state.sql and rerun."
+    );
+  }
+
+  return detailReason ? `${message}: ${detailReason}` : message;
+}
+
 function pickInvalidWorkspaceId(takenIds: readonly string[]): string {
   const candidates = [
     "00000000-0000-4000-8000-000000000000",
@@ -60,6 +83,20 @@ function writeArtifact(artifactPath: string, artifact: HearthPhase4VerifiedArtif
   fs.writeFileSync(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
 }
 
+async function tryListWorkspaceEpisodes(args: {
+  service: ReturnType<typeof createTongsCommitService>;
+  workspaceId: string;
+  userAccessToken: string;
+}): Promise<WorkspaceEpisodeSummary[] | null> {
+  try {
+    return await args.service.listWorkspaceEpisodes(args.workspaceId, {
+      userAccessToken: args.userAccessToken,
+    });
+  } catch {
+    return null;
+  }
+}
+
 async function resolveFreshAccessToken(args: {
   supabaseUrl: string;
   anonKey: string | null;
@@ -81,12 +118,18 @@ async function resolveFreshAccessToken(args: {
     refresh_token: args.refreshToken,
   });
   if (error) {
-    throw new Error(`Unable to refresh Playwright auth session: ${error.message}`);
+    throw new Error(
+      `Unable to refresh Playwright auth session: ${error.message}. ` +
+      "Run pnpm --filter nursery test:playwright:auth to capture a fresh session.",
+    );
   }
 
   const nextToken = readString(data.session?.access_token);
   if (!nextToken) {
-    throw new Error("Unable to refresh Playwright auth session: missing access token.");
+    throw new Error(
+      "Unable to refresh Playwright auth session: missing access token. " +
+      "Run pnpm --filter nursery test:playwright:auth to capture a fresh session.",
+    );
   }
   return nextToken;
 }
@@ -114,7 +157,6 @@ async function main(): Promise<void> {
     supabaseServiceRoleKey,
   });
 
-  const selectedWorkspaceId = storageSession.selectedWorkspaceId ?? fixtures.workspaceId;
   const accessToken = await resolveFreshAccessToken({
     supabaseUrl,
     anonKey: supabaseAnonKey,
@@ -122,8 +164,7 @@ async function main(): Promise<void> {
     refreshToken: storageSession.refreshToken,
   });
 
-  const [selectedWorkspaceEpisodes, workspaceEpisodes, readyScripts, primaryScript] = await Promise.all([
-    service.listWorkspaceEpisodes(selectedWorkspaceId, { userAccessToken: accessToken }),
+  const [workspaceEpisodes, readyScripts, primaryScript] = await Promise.all([
     service.listWorkspaceEpisodes(fixtures.workspaceId, { userAccessToken: accessToken }),
     service.listWorkspaceReadyScripts(fixtures.workspaceId, {
       userAccessToken: accessToken,
@@ -133,8 +174,21 @@ async function main(): Promise<void> {
     service.readWorkpieceText(fixtures.workpieceId, PRIMARY_SCRIPT_PATH),
   ]);
 
-  if (selectedWorkspaceId !== fixtures.workspaceId && selectedWorkspaceEpisodes == null) {
-    fail(`Selected workspace ${selectedWorkspaceId} is not reachable to the Playwright user.`);
+  const preferredSelectedWorkspaceId = storageSession.selectedWorkspaceId;
+  const selectedWorkspaceEpisodes = preferredSelectedWorkspaceId && preferredSelectedWorkspaceId !== fixtures.workspaceId
+    ? await tryListWorkspaceEpisodes({
+      service,
+      workspaceId: preferredSelectedWorkspaceId,
+      userAccessToken: accessToken,
+    })
+    : workspaceEpisodes;
+  const selectedWorkspaceId = selectedWorkspaceEpisodes ? (preferredSelectedWorkspaceId ?? fixtures.workspaceId) : fixtures.workspaceId;
+
+  if (preferredSelectedWorkspaceId && preferredSelectedWorkspaceId !== selectedWorkspaceId) {
+    console.log(
+      `[hearth-phase4] selected workspace ${preferredSelectedWorkspaceId} is not reachable; ` +
+      `falling back to fixture workspace ${selectedWorkspaceId}`,
+    );
   }
 
   if (!workspaceEpisodes.some((episode) => episode.id === fixtures.workpieceId)) {
@@ -153,10 +207,30 @@ async function main(): Promise<void> {
     .filter((entry) => !entry.hidden_at)
     .map((entry) => entry.title.trim())
     .filter((title, index, all) => title.length > 0 && all.indexOf(title) === index);
+  const visibleReadyItems = readyScripts
+    .filter((entry) => !entry.hidden_at)
+    .map((entry) => ({
+      workpiece_id: entry.workpiece_id,
+      title: entry.title.trim(),
+    }))
+    .filter((entry, index, all) => (
+      entry.title.length > 0
+      && all.findIndex((candidate) => candidate.workpiece_id === entry.workpiece_id) === index
+    ));
   const hiddenReadyTitles = readyScripts
     .filter((entry) => !!entry.hidden_at)
     .map((entry) => entry.title.trim())
     .filter((title, index, all) => title.length > 0 && all.indexOf(title) === index);
+  const hiddenReadyItems = readyScripts
+    .filter((entry) => !!entry.hidden_at)
+    .map((entry) => ({
+      workpiece_id: entry.workpiece_id,
+      title: entry.title.trim(),
+    }))
+    .filter((entry, index, all) => (
+      entry.title.length > 0
+      && all.findIndex((candidate) => candidate.workpiece_id === entry.workpiece_id) === index
+    ));
 
   if (visibleReadyTitles.length < 2) {
     fail(
@@ -184,7 +258,9 @@ async function main(): Promise<void> {
       script_snippet: buildScriptSnippet(primaryScript.text),
     },
     ready: {
+      visible_items: visibleReadyItems,
       visible_titles: visibleReadyTitles,
+      hidden_items: hiddenReadyItems,
       hidden_titles: hiddenReadyTitles,
     },
   };
@@ -200,7 +276,7 @@ async function main(): Promise<void> {
 }
 
 void main().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = formatFixtureError(error);
   console.error(`[hearth-phase4] fixture verification failed: ${message}`);
   process.exitCode = 1;
 });

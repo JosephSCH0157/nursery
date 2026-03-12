@@ -1,0 +1,141 @@
+{
+  "verified_at": "2026-03-10T21:10:37.668Z",
+  "storage_state_path": "D:\\nursery\\nursery\\apps\\nursery\\playwright\\.auth\\state.json",
+  "workspace_id": "2980fc39-8c8b-489a-a900-8d3bd3248432",
+  "workpiece_id": "cf464ad0-8745-43df-99ee-7bfca5dddcd8",
+  "selected_workspace_id": "2980fc39-8c8b-489a-a900-8d3bd3248432",
+  "invalid_workspace_id": "00000000-0000-4000-8000-000000000000",
+  "handoff": {
+    "title": "are drivers getting less polite?",
+    "script_path": "script/script.md",
+    "script_snippet": "are drivers getting less polite?"
+  },
+  "ready": {
+    "visible_items": [
+      {
+        "workpiece_id": "275dad6e-a960-4468-a65c-2832d3318773",
+        "title": "Phase 4 spark 1773168786399 47a46f17"
+      },
+      {
+        "workpiece_id": "cf464ad0-8745-43df-99ee-7bfca5dddcd8",
+        "title": "are drivers getting less polite?"
+      },
+      {
+        "workpiece_id": "e93d918a-d8e4-4bb9-86c4-3c2f76f905d3",
+        "title": "Phase 4 spark 1773168489890 f040e8b6"
+      },
+      {
+        "workpiece_id": "0c1176a4-3290-4681-b1c3-52895b64a295",
+        "title": "Phase 4 spark 1773168337713 5adc5e1a"
+      },
+      {
+        "workpiece_id": "c4582161-f8cd-4cbb-8d2d-2994ce075b17",
+        "title": "Phase 4 spark 1773168189563 aa07b878"
+      },
+      {
+        "workpiece_id": "93d2ddca-9271-4033-89f3-d76f43f7129c",
+        "title": "Phase 4 spark 1773167904136 a58d1309"
+      },
+      {
+        "workpiece_id": "34e10ed5-4c94-4ede-b4c4-00704e417ad4",
+        "title": "Phase 4 spark 1773167711850 c41dac44"
+      },
+      {
+        "workpiece_id": "4c8b5d55-b71e-4c86-a95c-0240cd75d67c",
+        "title": "Phase 4 spark 1773167513346 cf8b2515"
+      },
+      {
+        "workpiece_id": "c4522a1b-d4e7-4893-aea4-6ca28100e6e0",
+        "title": "Phase 4 spark 1773158954343 267d48f4"
+      },
+      {
+        "workpiece_id": "e2f07625-5ae7-449a-ab3d-e526a3beaf5d",
+        "title": "Phase 4 spark 1773158896450 cd415b50"
+      },
+      {
+        "workpiece_id": "dbbe9603-4952-45fe-93f3-c32fb2b332eb",
+        "title": "Phase 4 spark 1773158735716 c93a4a51"
+      },
+      {
+        "workpiece_id": "2902c362-48f6-467b-b638-a6f6414e47d8",
+        "title": "Phase 4 spark 1773158661304 47fb2b9f"
+      },
+      {
+        "workpiece_id": "2fa85954-b9f3-4e74-a228-ae8eace51909",
+        "title": "Phase 4 spark 1773158477111 88ca41b6"
+      },
+      {
+        "workpiece_id": "0d7f33e7-abd0-4893-8311-fe916f9dffea",
+        "title": "Phase 4 spark 1773158477111 88ca41b6"
+      },
+      {
+        "workpiece_id": "12f8e803-10fa-448c-836e-0cccb0688e18",
+        "title": "Phase 4 spark 1773157912432 39f2d8dd"
+      },
+      {
+        "workpiece_id": "fdd7e0f4-5b12-4d9a-a791-8f276e5656a1",
+        "title": "Phase 4 spark 1773157397273 f79c8fb8"
+      },
+      {
+        "workpiece_id": "0e6a349f-8110-4cdd-a044-406b7146a944",
+        "title": "Phase 4 spark 1773156100093 351fea84"
+      },
+      {
+        "workpiece_id": "63f968dd-1d4e-4c26-b52a-95e89e0439ec",
+        "title": "Phase 4 spark 1773156016787 24682062"
+      },
+      {
+        "workpiece_id": "e729faff-d408-4426-9297-f5fd822ee7b2",
+        "title": "Phase 4 spark 1773154752954 bcc6550c"
+      },
+      {
+        "workpiece_id": "eccabc27-8403-4cf6-8e29-f03fbe60c191",
+        "title": "Phase 4 spark 1773153436251 1c23ddae"
+      },
+      {
+        "workpiece_id": "b69e55e7-5eaf-43f9-b4e5-abdcf9e4fe89",
+        "title": "writing a podcasters tool suite from scratch with the help o"
+      },
+      {
+        "workpiece_id": "7e58287f-519a-4ac7-8987-b338d138ccc7",
+        "title": "writing a podcasters tool suite from scratch with the help o"
+      },
+      {
+        "workpiece_id": "9f693bef-0f59-47b8-9837-718b9e3c5bc7",
+        "title": "writing a podcasters tool suite from scratch with the help o"
+      },
+      {
+        "workpiece_id": "614b16db-0341-45eb-b28e-ef30eeb85db1",
+        "title": "writing a podcasters tool suite from scratch with the help o"
+      },
+      {
+        "workpiece_id": "476b8a32-f1e8-417f-be8a-34ad28937f30",
+        "title": "writing a podcasters tool suite from scratch with the help o"
+      }
+    ],
+    "visible_titles": [
+      "Phase 4 spark 1773168786399 47a46f17",
+      "are drivers getting less polite?",
+      "Phase 4 spark 1773168489890 f040e8b6",
+      "Phase 4 spark 1773168337713 5adc5e1a",
+      "Phase 4 spark 1773168189563 aa07b878",
+      "Phase 4 spark 1773167904136 a58d1309",
+      "Phase 4 spark 1773167711850 c41dac44",
+      "Phase 4 spark 1773167513346 cf8b2515",
+      "Phase 4 spark 1773158954343 267d48f4",
+      "Phase 4 spark 1773158896450 cd415b50",
+      "Phase 4 spark 1773158735716 c93a4a51",
+      "Phase 4 spark 1773158661304 47fb2b9f",
+      "Phase 4 spark 1773158477111 88ca41b6",
+      "Phase 4 spark 1773157912432 39f2d8dd",
+      "Phase 4 spark 1773157397273 f79c8fb8",
+      "Phase 4 spark 1773156100093 351fea84",
+      "Phase 4 spark 1773156016787 24682062",
+      "Phase 4 spark 1773154752954 bcc6550c",
+      "Phase 4 spark 1773153436251 1c23ddae",
+      "writing a podcasters tool suite from scratch with the help o"
+    ],
+    "hidden_items": [],
+    "hidden_titles": []
+  }
+}

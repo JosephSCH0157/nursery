@@ -6,6 +6,16 @@ import {
 
 type ImageMapSaveState = "saved" | "editing" | "saving" | "error" | "offline";
 
+type ImageMapCandidateCard = {
+  id: string;
+  variantLabel: string;
+  visualMode: string | null;
+  isSelected: boolean;
+  previewState: "loading" | "ready" | "error";
+  previewDataUrl: string | null;
+  previewError: string | null;
+};
+
 type ImageMapPanelProps = {
   entries: EpisodeImageMapEntry[];
   selectedEntryId: string | null;
@@ -17,6 +27,11 @@ type ImageMapPanelProps = {
   saveState: ImageMapSaveState;
   saveError: string | null;
   exportMessage: string | null;
+  candidateCards: ImageMapCandidateCard[];
+  candidateGenerateBusy: boolean;
+  candidateGenerateError: string | null;
+  candidateSelectBusy: boolean;
+  candidateSelectionError: string | null;
   disabled?: boolean;
   onSelectEntry: (entryId: string) => void;
   onDraftAnchorChange: (value: string) => void;
@@ -28,6 +43,8 @@ type ImageMapPanelProps = {
   onDuplicateEntry: () => void;
   onDeleteEntry: () => void;
   onSeedFromScript: () => void;
+  onGenerateCandidates: () => void;
+  onSelectCandidate: (candidateId: string) => void;
   onCopyExport: () => void;
   onDownloadExport: () => void;
 };
@@ -58,6 +75,11 @@ export default function ImageMapPanel({
   saveState,
   saveError,
   exportMessage,
+  candidateCards,
+  candidateGenerateBusy,
+  candidateGenerateError,
+  candidateSelectBusy,
+  candidateSelectionError,
   disabled = false,
   onSelectEntry,
   onDraftAnchorChange,
@@ -69,6 +91,8 @@ export default function ImageMapPanel({
   onDuplicateEntry,
   onDeleteEntry,
   onSeedFromScript,
+  onGenerateCandidates,
+  onSelectCandidate,
   onCopyExport,
   onDownloadExport,
 }: ImageMapPanelProps) {
@@ -108,7 +132,7 @@ export default function ImageMapPanel({
           onClick={onSeedFromScript}
           disabled={disabled}
         >
-          Seed from Script
+          Generate from Script
         </button>
         <button
           type="button"
@@ -141,7 +165,7 @@ export default function ImageMapPanel({
               >
                 <div className="hs-imap-row-anchor">{entry.anchor}</div>
                 <div className="hs-imap-row-meta">
-                  {entry.intent} · {entry.source_type}
+                  {entry.intent} · {entry.source_type} · {entry.candidate_assets.length} candidates
                 </div>
                 <div className="hs-imap-row-desc">{summarizeDescription(entry.description)}</div>
               </button>
@@ -212,6 +236,59 @@ export default function ImageMapPanel({
                   disabled={disabled}
                 />
               </label>
+              <div className="hs-imap-candidate-toolbar">
+                <button
+                  type="button"
+                  onClick={onGenerateCandidates}
+                  disabled={disabled || candidateGenerateBusy}
+                >
+                  {candidateGenerateBusy ? "Generating..." : "Generate Candidates"}
+                </button>
+                <span className="hs-field-label-muted">
+                  Generates two still-image variants for this exact visual beat.
+                </span>
+              </div>
+              <section className="hs-imap-candidates" aria-label="Still candidates">
+                {candidateCards.length === 0 ? (
+                  <div className="hs-imap-empty">No still candidates generated yet.</div>
+                ) : (
+                  candidateCards.map((candidate) => (
+                    <button
+                      key={candidate.id}
+                      type="button"
+                      className={`hs-imap-candidate-card${candidate.isSelected ? " is-selected" : ""}`}
+                      onClick={() => onSelectCandidate(candidate.id)}
+                      disabled={disabled || candidateGenerateBusy || candidateSelectBusy}
+                    >
+                      <div className="hs-imap-candidate-media">
+                        {candidate.previewState === "ready" && candidate.previewDataUrl ? (
+                          <img
+                            src={candidate.previewDataUrl}
+                            alt={`${candidate.variantLabel} still candidate`}
+                            className="hs-imap-candidate-image"
+                          />
+                        ) : (
+                          <div className={`hs-imap-candidate-placeholder is-${candidate.previewState}`}>
+                            {candidate.previewState === "loading" ? "Loading preview..." : "Preview unavailable"}
+                          </div>
+                        )}
+                      </div>
+                      <div className="hs-imap-candidate-meta">
+                        <div className="hs-imap-candidate-title">
+                          {candidate.variantLabel}
+                          {candidate.isSelected ? <span className="hs-imap-candidate-badge">Selected</span> : null}
+                        </div>
+                        <div className="hs-imap-candidate-subtitle">
+                          {candidate.visualMode ?? "editorial"}
+                        </div>
+                        {candidate.previewError ? (
+                          <div className="hs-error-text-small">{candidate.previewError}</div>
+                        ) : null}
+                      </div>
+                    </button>
+                  ))
+                )}
+              </section>
             </>
           )}
         </section>
@@ -219,6 +296,12 @@ export default function ImageMapPanel({
 
       {saveError ? (
         <div className="hs-error-text-small">{saveError}</div>
+      ) : null}
+      {candidateGenerateError ? (
+        <div className="hs-error-text-small">{candidateGenerateError}</div>
+      ) : null}
+      {candidateSelectionError ? (
+        <div className="hs-error-text-small">{candidateSelectionError}</div>
       ) : null}
       {exportMessage ? (
         <div className="hs-field-label-muted">{exportMessage}</div>

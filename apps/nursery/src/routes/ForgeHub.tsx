@@ -61,12 +61,6 @@ function linkFor(appId: ForgeAppId): HubLink {
 const LINKS: HubLink[] = [
   linkFor("barstock"),
   {
-    to: "/app/iron-mine",
-    name: "Iron Mine",
-    hint: "Community forum (Discord)",
-    desc: "Join the Podcaster's Forge community in Discord.",
-  },
-  {
     to: "/app/hearth",
     ...TOOL_META.hearth,
   },
@@ -83,6 +77,12 @@ const LINKS: HubLink[] = [
   linkFor("hammer"),
   linkFor("quench"),
   linkFor("ledger"),
+  {
+    to: "/app/iron-mine",
+    name: "Iron Mine",
+    hint: "Community forum (Discord)",
+    desc: "Join the Podcaster's Forge community in Discord.",
+  },
 ];
 
 export default function ForgeHub() {

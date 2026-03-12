@@ -1,5 +1,7 @@
 # Hearth Phase 4 Plan
 
+> Historical phase-planning document. Lifecycle details here may be outdated and are superseded by `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`.
+
 Date: February 25, 2026  
 Branch: `work/hearth-phase4-begin`  
 Baseline: `hearth-phase3-complete` (`01eee7b`)
@@ -147,38 +149,38 @@ Rules:
 - Spark provenance must be persisted on workpiece origin metadata.
 - Workpiece creation failure must not leave partial local selection state.
 
-## Manual Integration Checklist (4.1)
+## Integration Checklist (4.1)
 
-- [ ] Create spark -> Forge in Hearth -> open workpiece -> refresh -> same workpiece still opens.
-- [ ] From Hearth active workpiece, open Anvil -> correct workspace/workpiece context is preserved.
-- [ ] Launch tool route with no workspace (`/app/hearth` or `/app/anvil`) -> workspace-required gate blocks mount.
-- [ ] Launch with invalid `workspace_id` query -> URL self-heals via replace and does not add back-button spam.
+- [x] Create spark -> Forge in Hearth -> open workpiece -> refresh -> same workpiece still opens.
+- [x] From Hearth active workpiece, open Anvil -> correct workspace/workpiece context is preserved.
+- [x] Launch tool route with no workspace (`/app/hearth` or `/app/anvil`) -> workspace-required gate blocks mount.
+- [x] Launch with invalid `workspace_id` query -> URL self-heals via replace and does not add back-button spam.
 
 ## Acceptance Criteria
 
 ### 4.1 Done Means
 
-- [ ] Shared contract types exist and are used by integration call sites.
-- [ ] Handoff helpers produce deterministic URLs with `workspace_id` and `workpiece_id`.
-- [ ] Workspace guard behavior is consistent for Hearth, Anvil, Bar-Stock entry points.
-- [ ] Invalid URL workspace handling converges (no infinite resolving, no history spam).
-- [ ] Lint, typecheck, and gate pass.
+- [x] Shared contract types exist and are used by integration call sites.
+- [x] Handoff helpers produce deterministic URLs with `workspace_id` and `workpiece_id`.
+- [x] Workspace guard behavior is consistent for Hearth, Anvil, Bar-Stock entry points.
+- [x] Invalid URL workspace handling converges (no infinite resolving, no history spam).
+- [x] Lint, typecheck, and gate pass.
 
 ### 4.2 Done Means
 
-- [ ] `Open in Anvil` is available from Hearth with valid context.
-- [ ] Anvil opens the intended workpiece in the intended workspace.
-- [ ] Missing/invalid context shows explicit UX error state (not blank/partial mount).
-- [ ] Reload/deep-link preserves context.
-- [ ] Lint, typecheck, and gate pass.
+- [x] `Open in Anvil` is available from Hearth with valid context.
+- [x] Anvil opens the intended workpiece in the intended workspace.
+- [x] Missing/invalid context shows explicit UX error state (not blank/partial mount).
+- [x] Reload/deep-link preserves context.
+- [x] Lint, typecheck, and gate pass.
 
 ### 4.3 Done Means
 
-- [ ] Spark forge action creates a workpiece with provenance metadata.
-- [ ] Hearth opens directly on the new workpiece.
-- [ ] Minimal script/metadata seed exists after forge.
-- [ ] Failure paths roll back/avoid stale local selected workpiece state.
-- [ ] Lint, typecheck, and gate pass.
+- [x] Spark forge action creates a workpiece with provenance metadata.
+- [x] Hearth opens directly on the new workpiece.
+- [x] Minimal script/metadata seed exists after forge.
+- [x] Failure paths roll back/avoid stale local selected workpiece state.
+- [x] Lint, typecheck, and gate pass.
 
 ## Phase v1 Closeout Checklist (2026-02-28)
 
@@ -194,10 +196,10 @@ Execution order for final Phase v1 closure:
   - [x] `pnpm --filter @nursery/hearth build`
   - [x] `pnpm --filter teleprompter build:ts`
   - [x] `pnpm run gate`
-- [ ] Manual browser verification:
-  - [ ] Spark -> Forge in Hearth -> refresh -> same workpiece reopens
-  - [ ] Hearth `Open in Anvil` loads expected script without paste fallback
-  - [ ] Anvil Ready Scripts dropdown shows approved-unrecorded scripts in active workspace
+- [x] Browser verification (automated via `pnpm smoke:hearth-phase4:gate` / `pnpm --filter nursery test:playwright:hearth-phase4` with provisioned Playwright auth + fixture env):
+  - [x] Spark -> Forge in Hearth -> refresh -> same workpiece reopens
+  - [x] Hearth `Open in Anvil` loads expected script without paste fallback
+  - [x] Anvil Ready Scripts dropdown shows approved-unrecorded scripts in active workspace
 
 ## Notes
 

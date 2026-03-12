@@ -9,6 +9,7 @@ function mockService() {
     createCradle: [],
     commitFile: [],
     generateEpisodeThumbnail: [],
+    generateImageMapCandidates: [],
     createRecordingSessionRecord: [],
     listRecordingSessionsForPlanner: [],
     getRecordingSessionRecord: [],
@@ -19,12 +20,19 @@ function mockService() {
     attachEpisodeToSession: [],
     detachEpisodeFromSession: [],
     listSessionEpisodes: [],
+    listWorkspaceSparks: [],
     listWorkspaceEpisodes: [],
+    archiveWorkpiece: [],
+    restoreWorkpiece: [],
     listWorkspaceReadyScripts: [],
+    getWorkpieceVisualPackage: [],
+    getWorkpieceImageMap: [],
+    saveWorkpieceImageMap: [],
     updateWorkspaceReadyQueueState: [],
     deleteReadyScript: [],
     appendEvent: [],
     readWorkpieceBinary: [],
+    readWorkpieceText: [],
   };
 
   const service = {
@@ -158,6 +166,114 @@ function mockService() {
           },
         },
         primary_version_id: "44444444-4444-4444-8444-444444444444",
+      };
+    },
+    async generateImageMapCandidates(workpieceId, input, options) {
+      calls.generateImageMapCandidates.push({ workpieceId, input, options: options ?? null });
+      return {
+        image_map: {
+          workpiece_id: workpieceId,
+          workspace_id: input.workspace_id,
+          entries: [
+            {
+              id: input.image_map_entry_id,
+              anchor: "s1:p1#sent1",
+              script_anchor: {
+                section_id: "s1",
+                paragraph_id: "s1:p1",
+                paragraph_order: 1,
+                sentence_start: 1,
+                sentence_end: 1,
+                char_start: 0,
+                char_end: 27,
+                span_text: "Jackson faced overwhelming odds.",
+                speaker_block_id: null,
+              },
+              description: "Jackson faced overwhelming odds.",
+              visual_intent: "Strategic troop comparison",
+              prompt_basis: "Strategic troop comparison near New Orleans",
+              intent: "broll",
+              source_type: "ai",
+              beat_order: 1,
+              paragraph_beat_order: 1,
+              candidate_assets: [
+                {
+                  asset_id: "candidate-01",
+                  path: `assets/image-map/candidates/${workpieceId}/${input.image_map_entry_id}/explainer.png`,
+                  variant_label: "explainer",
+                  visual_mode: "comparison",
+                  mime_type: "image/png",
+                },
+                {
+                  asset_id: "candidate-02",
+                  path: `assets/image-map/candidates/${workpieceId}/${input.image_map_entry_id}/illustrative.png`,
+                  variant_label: "illustrative",
+                  visual_mode: "comparison",
+                  mime_type: "image/png",
+                },
+              ],
+              selected_asset_id: null,
+              status: "candidates_generated",
+              placement_hint: null,
+            },
+          ],
+          metadata_updated_at: "2026-03-11T19:05:00.000Z",
+        },
+        asset: {
+          id: "77777777-7777-4777-8777-777777777777",
+          asset_kind: "image_map_json",
+          status: "ready",
+          path: "assets/image-map/image-map.v1.json",
+          storage_bucket: "forge-workpieces",
+          storage_key: `workpieces/${workpieceId}/assets/image-map/image-map.v1.json`,
+          metadata_json: {
+            schema: "forge.image-map.v1",
+            entry_count: 1,
+          },
+          created_at: "2026-03-11T19:05:00.000Z",
+          updated_at: "2026-03-11T19:05:00.000Z",
+          supersedes_asset_id: null,
+        },
+        generated_assets: [
+          {
+            id: "candidate-01",
+            workspace_id: input.workspace_id,
+            episode_id: workpieceId,
+            image_map_entry_id: input.image_map_entry_id,
+            path: `assets/image-map/candidates/${workpieceId}/${input.image_map_entry_id}/explainer.png`,
+            storage_bucket: "forge-workpieces",
+            storage_key: `workpieces/${workpieceId}/assets/image-map/candidates/${workpieceId}/${input.image_map_entry_id}/explainer.png`,
+            mime_type: "image/png",
+            bytes: 1234,
+            provider: "openai",
+            provider_request_id: "req_provider_01",
+            request_id: "req_local_01",
+            variant_label: "explainer",
+            visual_mode: "comparison",
+            prompt: "Prompt explainer",
+            status: "ready",
+          },
+          {
+            id: "candidate-02",
+            workspace_id: input.workspace_id,
+            episode_id: workpieceId,
+            image_map_entry_id: input.image_map_entry_id,
+            path: `assets/image-map/candidates/${workpieceId}/${input.image_map_entry_id}/illustrative.png`,
+            storage_bucket: "forge-workpieces",
+            storage_key: `workpieces/${workpieceId}/assets/image-map/candidates/${workpieceId}/${input.image_map_entry_id}/illustrative.png`,
+            mime_type: "image/png",
+            bytes: 1266,
+            provider: "openai",
+            provider_request_id: "req_provider_02",
+            request_id: "req_local_02",
+            variant_label: "illustrative",
+            visual_mode: "comparison",
+            prompt: "Prompt illustrative",
+            status: "ready",
+          },
+        ],
+        credits_warning: null,
+        token_balance: 777,
       };
     },
     async createRecordingSessionRecord(input) {
@@ -299,6 +415,23 @@ function mockService() {
         },
       ];
     },
+    async listWorkspaceSparks(workspaceId, options) {
+      calls.listWorkspaceSparks.push({ workspaceId, options: options ?? null });
+      return [
+        {
+          id: "77777777-7777-4777-8777-777777777777",
+          workspace_id: workspaceId,
+          assignment_id: "88888888-8888-4888-8888-888888888888",
+          title: "Spark 1",
+          body: "Spark body",
+          tags: ["community"],
+          status: "forged",
+          created_at: "2026-03-10T10:00:00.000Z",
+          updated_at: "2026-03-10T11:00:00.000Z",
+          linked_workpiece_id: "99999999-9999-4999-8999-999999999999",
+        },
+      ];
+    },
     async listWorkspaceEpisodes(workspaceId, options) {
       calls.listWorkspaceEpisodes.push({ workspaceId, options: options ?? null });
       return [
@@ -308,8 +441,37 @@ function mockService() {
           label: "Episode 1",
           created_at: "2026-02-20T00:00:00.000Z",
           updated_at: "2026-02-21T00:00:00.000Z",
+          archived_at: null,
+          archived_by: null,
+          archive_reason: null,
         },
       ];
+    },
+    async archiveWorkpiece(workpieceId, input, options) {
+      calls.archiveWorkpiece.push({ workpieceId, input, options: options ?? null });
+      return {
+        id: workpieceId,
+        workspace_id: input.workspace_id,
+        label: "Episode 1",
+        created_at: "2026-02-20T00:00:00.000Z",
+        updated_at: "2026-02-21T00:00:00.000Z",
+        archived_at: "2026-03-11T14:00:00.000Z",
+        archived_by: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        archive_reason: input.reason ?? null,
+      };
+    },
+    async restoreWorkpiece(workpieceId, input, options) {
+      calls.restoreWorkpiece.push({ workpieceId, input, options: options ?? null });
+      return {
+        id: workpieceId,
+        workspace_id: input.workspace_id,
+        label: "Episode 1",
+        created_at: "2026-02-20T00:00:00.000Z",
+        updated_at: "2026-02-21T00:00:00.000Z",
+        archived_at: null,
+        archived_by: null,
+        archive_reason: null,
+      };
     },
     async listWorkspaceReadyScripts(workspaceId, options) {
       calls.listWorkspaceReadyScripts.push({ workspaceId, options: options ?? null });
@@ -330,6 +492,111 @@ function mockService() {
           hidden_by: null,
         },
       ];
+    },
+    async getWorkpieceVisualPackage(workpieceId, options) {
+      calls.getWorkpieceVisualPackage.push({ workpieceId, options: options ?? null });
+      return {
+        workspace_id: "11111111-1111-4111-8111-111111111111",
+        workpiece_id: workpieceId,
+        script_path: "script/script.md",
+        script_updated_at: "2026-03-10T14:59:00.000Z",
+        image_map_updated_at: "2026-03-10T15:00:00.000Z",
+        image_map_asset_updated_at: "2026-03-10T15:05:00.000Z",
+        visuals: [
+          {
+            entry_id: "image-map-01",
+            beat_order: 1,
+            paragraph_beat_order: 1,
+            status: "selected",
+            script_anchor: {
+              section_id: "s1",
+              paragraph_id: "s1:p1",
+              paragraph_order: 1,
+              sentence_start: 1,
+              sentence_end: 1,
+              char_start: 0,
+              char_end: 27,
+              span_text: "Jackson faced overwhelming odds.",
+              speaker_block_id: null,
+            },
+            visual_mode: "comparison",
+            selected_asset_id: "candidate-01",
+            selected_asset: {
+              asset_id: "candidate-01",
+              path: `assets/image-map/candidates/${workpieceId}/image-map-01/explainer.png`,
+              storage_bucket: "forge-workpieces",
+              storage_key: `workpieces/${workpieceId}/assets/image-map/candidates/${workpieceId}/image-map-01/explainer.png`,
+              mime_type: "image/png",
+              bytes: 1234,
+              created_at: "2026-03-10T15:01:00.000Z",
+              updated_at: "2026-03-10T15:01:00.000Z",
+              variant_label: "explainer",
+              visual_mode: "comparison",
+            },
+          },
+        ],
+      };
+    },
+    async getWorkpieceImageMap(workpieceId, options) {
+      calls.getWorkpieceImageMap.push({ workpieceId, options: options ?? null });
+      return {
+        image_map: {
+          workpiece_id: workpieceId,
+          workspace_id: "11111111-1111-4111-8111-111111111111",
+          entries: [
+            {
+              id: "image-map-01",
+              anchor: "s1:para1",
+              description: "city skyline",
+              intent: "broll",
+              source_type: "stock",
+              placement_hint: null,
+            },
+          ],
+          metadata_updated_at: "2026-03-10T15:00:00.000Z",
+        },
+        asset: {
+          id: "66666666-6666-4666-8666-666666666666",
+          asset_kind: "image_map_json",
+          status: "ready",
+          path: "assets/image-map/image-map.v1.json",
+          storage_bucket: "forge-workpieces",
+          storage_key: `workpieces/${workpieceId}/assets/image-map/image-map.v1.json`,
+          metadata_json: {
+            schema: "forge.image-map.v1",
+            entry_count: 1,
+          },
+          created_at: "2026-03-10T15:00:00.000Z",
+          updated_at: "2026-03-10T15:00:00.000Z",
+          supersedes_asset_id: null,
+        },
+      };
+    },
+    async saveWorkpieceImageMap(workpieceId, input, options) {
+      calls.saveWorkpieceImageMap.push({ workpieceId, input, options: options ?? null });
+      return {
+        image_map: {
+          workpiece_id: workpieceId,
+          workspace_id: input.workspace_id,
+          entries: input.entries,
+          metadata_updated_at: "2026-03-10T15:05:00.000Z",
+        },
+        asset: {
+          id: "77777777-7777-4777-8777-777777777777",
+          asset_kind: "image_map_json",
+          status: "ready",
+          path: "assets/image-map/image-map.v1.json",
+          storage_bucket: "forge-workpieces",
+          storage_key: `workpieces/${workpieceId}/assets/image-map/image-map.v1.json`,
+          metadata_json: {
+            schema: "forge.image-map.v1",
+            entry_count: input.entries.length,
+          },
+          created_at: "2026-03-10T15:05:00.000Z",
+          updated_at: "2026-03-10T15:05:00.000Z",
+          supersedes_asset_id: "66666666-6666-4666-8666-666666666666",
+        },
+      };
     },
     async updateWorkspaceReadyQueueState(workspaceId, input, options) {
       calls.updateWorkspaceReadyQueueState.push({ workspaceId, input, options: options ?? null });
@@ -370,6 +637,16 @@ function mockService() {
         found: true,
         bytes_base64: "AQID",
         content_type: "image/png",
+      };
+    },
+    async readWorkpieceText(workpieceId, path) {
+      calls.readWorkpieceText.push({ workpieceId, path });
+      return {
+        found: true,
+        text: "# Script",
+        file_row: {
+          updated_at: "2026-02-21T00:00:00.000Z",
+        },
       };
     },
   };
@@ -556,7 +833,6 @@ function createRoleGateSupabase({ userId, workspaceId, workspaceOwnerId, memberR
 }
 
 function createReadyQueueSupabase({
-  workspaceId,
   episodes = [],
   files = [],
   readyMeta = [],
@@ -564,6 +840,8 @@ function createReadyQueueSupabase({
   events = [],
 } = {}) {
   const state = {
+    fileRows: files.map((row) => ({ ...row })),
+    readyMetaRows: readyMeta.map((row) => ({ ...row })),
     queueStateRows: queueState.map((row) => ({ ...row })),
     upsertCalls: [],
     deleteCalls: [],
@@ -582,6 +860,12 @@ function createReadyQueueSupabase({
     return rows.slice().sort((left, right) => compareNullableValues(left[field], right[field], ascending));
   }
 
+  function matchesFilters(row, filters) {
+    return Object.entries(filters).every(([key, value]) => (
+      value === null ? row[key] == null : row[key] === value
+    ));
+  }
+
   return {
     state,
     schema(schemaName) {
@@ -591,41 +875,91 @@ function createReadyQueueSupabase({
           if (tableName === "episodes") {
             return {
               select() {
-                let workspaceFilter = null;
+                const filters = {};
                 return {
                   eq(field, value) {
-                    assert.equal(field, "workspace_id");
-                    workspaceFilter = value;
+                    filters[field] = value;
+                    return this;
+                  },
+                  is(field, value) {
+                    filters[field] = value;
+                    return this;
+                  },
+                  async single() {
+                    const row = episodes.find((candidate) => (
+                      matchesFilters(candidate, filters)
+                    )) ?? null;
+                    if (!row) {
+                      return { data: null, error: { code: "PGRST116", message: "No rows" } };
+                    }
+                    return { data: { ...row }, error: null };
+                  },
+                  async maybeSingle() {
+                    const row = episodes.find((candidate) => (
+                      matchesFilters(candidate, filters)
+                    )) ?? null;
+                    return { data: row ? { ...row } : null, error: null };
+                  },
+                  async in(innerField, values) {
+                    assert.equal(innerField, "id");
+                    const idSet = new Set(values);
                     return {
-                      async in(innerField, values) {
-                        assert.equal(innerField, "id");
-                        const idSet = new Set(values);
+                      data: episodes
+                        .filter((row) => matchesFilters(row, filters) && idSet.has(row.id))
+                        .map((row) => ({ id: row.id })),
+                      error: null,
+                    };
+                  },
+                  order(orderField, options) {
+                    return {
+                      async limit(limit) {
+                        const ordered = sortRows(
+                          episodes.filter((row) => matchesFilters(row, filters)),
+                          orderField,
+                          options?.ascending ?? true,
+                        );
                         return {
-                          data: episodes
-                            .filter((row) => row.workspace_id === workspaceFilter && idSet.has(row.id))
-                            .map((row) => ({ id: row.id })),
+                          data: ordered.slice(0, limit).map((row) => ({
+                            id: row.id,
+                            workspace_id: row.workspace_id,
+                            label: row.label ?? null,
+                            updated_at: row.updated_at ?? null,
+                            created_at: row.created_at ?? null,
+                            archived_at: row.archived_at ?? null,
+                            archived_by: row.archived_by ?? null,
+                            archive_reason: row.archive_reason ?? null,
+                          })),
                           error: null,
                         };
                       },
-                      order(orderField, options) {
+                    };
+                  },
+                };
+              },
+              update(patch) {
+                const filters = {};
+                return {
+                  eq(field, value) {
+                    filters[field] = value;
+                    return this;
+                  },
+                  select() {
+                    return {
+                      async single() {
+                        const index = episodes.findIndex((candidate) => (
+                          matchesFilters(candidate, filters)
+                        ));
+                        if (index < 0) {
+                          return { data: null, error: { message: "No rows" } };
+                        }
+                        episodes[index] = {
+                          ...episodes[index],
+                          ...patch,
+                          updated_at: "2026-03-11T14:00:00.000Z",
+                        };
                         return {
-                          async limit(limit) {
-                            const ordered = sortRows(
-                              episodes.filter((row) => row.workspace_id === workspaceFilter),
-                              orderField,
-                              options?.ascending ?? true,
-                            );
-                            return {
-                              data: ordered.slice(0, limit).map((row) => ({
-                                id: row.id,
-                                workspace_id: row.workspace_id,
-                                label: row.label ?? null,
-                                updated_at: row.updated_at ?? null,
-                                created_at: row.created_at ?? null,
-                              })),
-                              error: null,
-                            };
-                          },
+                          data: { ...episodes[index] },
+                          error: null,
                         };
                       },
                     };
@@ -639,35 +973,65 @@ function createReadyQueueSupabase({
             return {
               select() {
                 let workpieceFilter = null;
-                return {
-                  in(field, values) {
-                    assert.equal(field, "workpiece_id");
-                    workpieceFilter = new Set(values);
+                const withWorkpieceFilter = {
+                  async in(innerField, innerValues) {
+                    assert.equal(innerField, "path");
+                    const pathFilter = new Set(innerValues);
                     return {
-                      async in(innerField, innerValues) {
-                        assert.equal(innerField, "path");
-                        const pathFilter = new Set(innerValues);
+                      data: state.fileRows.filter(
+                        (row) => workpieceFilter.has(row.workpiece_id) && pathFilter.has(row.path),
+                      ),
+                      error: null,
+                    };
+                  },
+                  like(innerField, pattern) {
+                    assert.equal(innerField, "path");
+                    const prefix = String(pattern).replace(/%$/, "");
+                    return {
+                      async limit(limit) {
                         return {
-                          data: files.filter(
-                            (row) => workpieceFilter.has(row.workpiece_id) && pathFilter.has(row.path),
-                          ),
+                          data: state.fileRows
+                            .filter(
+                              (row) => workpieceFilter.has(row.workpiece_id) && row.path.startsWith(prefix),
+                            )
+                            .slice(0, limit),
                           error: null,
                         };
                       },
-                      like(innerField, pattern) {
+                    };
+                  },
+                };
+                return {
+                  eq(field, value) {
+                    assert.equal(field, "workpiece_id");
+                    workpieceFilter = new Set([value]);
+                    return withWorkpieceFilter;
+                  },
+                  in(field, values) {
+                    assert.equal(field, "workpiece_id");
+                    workpieceFilter = new Set(values);
+                    return withWorkpieceFilter;
+                  },
+                };
+              },
+              delete() {
+                return {
+                  eq(field, value) {
+                    assert.equal(field, "workpiece_id");
+                    const workpieceId = value;
+                    return {
+                      async in(innerField, values) {
                         assert.equal(innerField, "path");
-                        const prefix = String(pattern).replace(/%$/, "");
+                        const pathSet = new Set(values);
+                        const deletedRows = [];
+                        state.fileRows = state.fileRows.filter((row) => {
+                          const shouldDelete = row.workpiece_id === workpieceId && pathSet.has(row.path);
+                          if (shouldDelete) deletedRows.push({ ...row });
+                          return !shouldDelete;
+                        });
                         return {
-                          async limit(limit) {
-                            return {
-                              data: files
-                                .filter(
-                                  (row) => workpieceFilter.has(row.workpiece_id) && row.path.startsWith(prefix),
-                                )
-                                .slice(0, limit),
-                              error: null,
-                            };
-                          },
+                          data: deletedRows,
+                          error: null,
                         };
                       },
                     };
@@ -690,10 +1054,44 @@ function createReadyQueueSupabase({
                         assert.equal(innerField, "workpiece_id");
                         const idSet = new Set(values);
                         return {
-                          data: readyMeta.filter(
+                          data: state.readyMetaRows.filter(
                             (row) => row.workspace_id === workspaceFilter && idSet.has(row.workpiece_id),
                           ),
                           error: null,
+                        };
+                      },
+                    };
+                  },
+                };
+              },
+              delete() {
+                let workspaceFilter = null;
+                return {
+                  eq(field, value) {
+                    assert.equal(field, "workspace_id");
+                    workspaceFilter = value;
+                    return {
+                      eq(innerField, innerValue) {
+                        assert.equal(innerField, "workpiece_id");
+                        const workpieceId = innerValue;
+                        return {
+                          async select() {
+                            const deletedRows = [];
+                            state.readyMetaRows = state.readyMetaRows.filter((row) => {
+                              const shouldDelete = row.workspace_id === workspaceFilter && row.workpiece_id === workpieceId;
+                              if (shouldDelete) {
+                                deletedRows.push({
+                                  workpiece_id: row.workpiece_id,
+                                  script_path: row.script_path,
+                                });
+                              }
+                              return !shouldDelete;
+                            });
+                            return {
+                              data: deletedRows,
+                              error: null,
+                            };
+                          },
                         };
                       },
                     };
@@ -781,6 +1179,26 @@ function createReadyQueueSupabase({
 
           if (tableName === "workpiece_events") {
             return {
+              insert(row) {
+                const inserted = {
+                  id: events.length + 1,
+                  created_at: "2026-03-11T14:05:00.000Z",
+                  ...row,
+                };
+                return {
+                  select() {
+                    return {
+                      async single() {
+                        events.push({ ...inserted });
+                        return {
+                          data: { ...inserted },
+                          error: null,
+                        };
+                      },
+                    };
+                  },
+                };
+              },
               select() {
                 let workpieceFilter = null;
                 let eventNameFilter = null;
@@ -826,6 +1244,142 @@ function createReadyQueueSupabase({
           }
 
           throw new Error(`Unexpected table: ${tableName}`);
+        },
+      };
+    },
+    storage: {
+      from() {
+        return {
+          async upload() {
+            return { data: {}, error: null };
+          },
+          async remove() {
+            return { data: null, error: null };
+          },
+        };
+      },
+    },
+  };
+}
+
+function createImageMapAssetSupabase({ assets = [] } = {}) {
+  const state = {
+    assetRows: assets.map((row) => ({ ...row })),
+    insertCalls: [],
+    updateCalls: [],
+  };
+
+  function matchesFilters(row, filters, containsFilters) {
+    const basicMatch = Object.entries(filters).every(([key, value]) => row[key] === value);
+    if (!basicMatch) return false;
+    return containsFilters.every(({ field, value }) => {
+      const rowValue = row[field];
+      if (!rowValue || typeof rowValue !== "object") return false;
+      return Object.entries(value).every(([innerKey, innerValue]) => rowValue[innerKey] === innerValue);
+    });
+  }
+
+  return {
+    state,
+    schema(schemaName) {
+      assert.equal(schemaName, "tongs");
+      return {
+        from(tableName) {
+          if (tableName !== "assets") {
+            throw new Error(`Unexpected table: ${tableName}`);
+          }
+
+          return {
+            select() {
+              const filters = {};
+              const containsFilters = [];
+              return {
+                eq(field, value) {
+                  filters[field] = value;
+                  return this;
+                },
+                contains(field, value) {
+                  containsFilters.push({ field, value });
+                  return this;
+                },
+                order(field, options) {
+                  const rows = state.assetRows
+                    .filter((row) => matchesFilters(row, filters, containsFilters))
+                    .sort((left, right) => {
+                      const leftValue = left[field] ?? null;
+                      const rightValue = right[field] ?? null;
+                      if (leftValue === rightValue) return 0;
+                      if (leftValue == null) return 1;
+                      if (rightValue == null) return -1;
+                      return options?.ascending === false
+                        ? String(rightValue).localeCompare(String(leftValue))
+                        : String(leftValue).localeCompare(String(rightValue));
+                    });
+                  return {
+                    data: rows.map((row) => ({ ...row })),
+                    error: null,
+                    async limit(limit) {
+                      return {
+                        data: rows.slice(0, limit).map((row) => ({ ...row })),
+                        error: null,
+                      };
+                    },
+                  };
+                },
+              };
+            },
+            insert(row) {
+              const inserted = {
+                created_at: row.created_at ?? "2026-03-10T16:05:00.000Z",
+                updated_at: row.updated_at ?? "2026-03-10T16:05:00.000Z",
+                ...row,
+              };
+              return {
+                select() {
+                  return {
+                    async single() {
+                      state.insertCalls.push({ ...inserted });
+                      state.assetRows.push({ ...inserted });
+                      return {
+                        data: { ...inserted },
+                        error: null,
+                      };
+                    },
+                  };
+                },
+              };
+            },
+            update(patch) {
+              return {
+                async eq(field, value) {
+                  state.updateCalls.push({ patch: { ...patch }, [field]: value });
+                  state.assetRows = state.assetRows.map((row) => (
+                    row[field] === value
+                      ? {
+                        ...row,
+                        ...patch,
+                        updated_at: "2026-03-10T16:05:00.000Z",
+                      }
+                      : row
+                  ));
+                  return { data: null, error: null };
+                },
+                async in(field, values) {
+                  state.updateCalls.push({ patch: { ...patch }, [field]: [...values] });
+                  state.assetRows = state.assetRows.map((row) => (
+                    values.includes(row[field])
+                      ? {
+                        ...row,
+                        ...patch,
+                        updated_at: "2026-03-10T16:05:00.000Z",
+                      }
+                      : row
+                  ));
+                  return { data: null, error: null };
+                },
+              };
+            },
+          };
         },
       };
     },
@@ -1017,6 +1571,220 @@ test("POST /tongs/workpieces/:id/generate-thumbnail dispatches generateEpisodeTh
   assert.equal(body.data?.primary_version_id, "44444444-4444-4444-8444-444444444444");
 });
 
+test("POST /tongs/workpieces/:id/image-map/generate-candidates dispatches generateImageMapCandidates", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/image-map/generate-candidates",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+      body: JSON.stringify({
+        workspace_id: "11111111-1111-4111-8111-111111111111",
+        image_map_entry_id: "image-map-01",
+        expected_metadata_updated_at: "2026-03-11T19:00:00.000Z",
+        context_before: "Jackson's men watched the British column advance.",
+        context_after: "The Mississippi delta made retreat impossible.",
+        confirm_spend: true,
+      }),
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.generateImageMapCandidates.length, 1);
+  assert.equal(calls.generateImageMapCandidates[0]?.workpieceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.generateImageMapCandidates[0]?.input.image_map_entry_id, "image-map-01");
+  assert.equal(calls.generateImageMapCandidates[0]?.input.context_before, "Jackson's men watched the British column advance.");
+  assert.equal(calls.generateImageMapCandidates[0]?.input.user_access_token, "user_token_abc");
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.generated_assets?.length, 2);
+  assert.equal(body.data?.image_map?.entries?.[0]?.candidate_assets?.length, 2);
+});
+
+test("GET /tongs/workpieces/:id/image-map dispatches getWorkpieceImageMap", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/image-map",
+    {
+      method: "GET",
+      headers: {
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.getWorkpieceImageMap.length, 1);
+  assert.equal(calls.getWorkpieceImageMap[0]?.workpieceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.getWorkpieceImageMap[0]?.options?.userAccessToken, "user_token_abc");
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.image_map?.workpiece_id, "11111111-1111-4111-8111-111111111111");
+  assert.equal(body.data?.asset?.asset_kind, "image_map_json");
+});
+
+test("GET /tongs/workpieces/:id/visual-package dispatches getWorkpieceVisualPackage", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/visual-package",
+    {
+      method: "GET",
+      headers: {
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.getWorkpieceVisualPackage.length, 1);
+  assert.equal(calls.getWorkpieceVisualPackage[0]?.workpieceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.getWorkpieceVisualPackage[0]?.options?.userAccessToken, "user_token_abc");
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.script_path, "script/script.md");
+  assert.equal(body.data?.visuals?.length, 1);
+  assert.equal(body.data?.visuals?.[0]?.selected_asset?.storage_key.includes("/image-map-01/"), true);
+});
+
+test("PUT /tongs/workpieces/:id/image-map dispatches saveWorkpieceImageMap", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/image-map",
+    {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+      body: JSON.stringify({
+        workspace_id: "11111111-1111-4111-8111-111111111111",
+        entries: [
+          {
+            id: "image-map-01",
+            anchor: "s1:para1",
+            description: "city skyline",
+            intent: "broll",
+            source_type: "stock",
+            placement_hint: null,
+          },
+        ],
+        expected_metadata_updated_at: "2026-03-10T15:00:00.000Z",
+      }),
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.saveWorkpieceImageMap.length, 1);
+  assert.equal(calls.saveWorkpieceImageMap[0]?.workpieceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.saveWorkpieceImageMap[0]?.options?.userAccessToken, "user_token_abc");
+  assert.equal(calls.saveWorkpieceImageMap[0]?.input?.workspace_id, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.saveWorkpieceImageMap[0]?.input?.expected_metadata_updated_at, "2026-03-10T15:00:00.000Z");
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.asset?.metadata_json?.entry_count, 1);
+});
+
+test("PUT /tongs/workpieces/:id/image-map rejects selected_asset_id outside candidate_assets", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/image-map",
+    {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+      body: JSON.stringify({
+        workspace_id: "11111111-1111-4111-8111-111111111111",
+        entries: [
+          {
+            id: "image-map-01",
+            anchor: "s1:p1#sent1",
+            script_anchor: {
+              section_id: "s1",
+              paragraph_id: "s1:p1",
+              paragraph_order: 1,
+              sentence_start: 1,
+              sentence_end: 1,
+              char_start: 0,
+              char_end: 12,
+              span_text: "city skyline",
+              speaker_block_id: null,
+            },
+            description: "city skyline",
+            visual_intent: "city skyline",
+            prompt_basis: "city skyline",
+            intent: "broll",
+            source_type: "ai",
+            beat_order: 1,
+            paragraph_beat_order: 1,
+            candidate_assets: [
+              {
+                asset_id: "candidate-a",
+                path: "assets/image-map/candidates/a.png",
+                variant_label: "explainer",
+                visual_mode: "comparison",
+                mime_type: "image/png",
+              },
+            ],
+            selected_asset_id: "candidate-b",
+            status: "selected",
+            placement_hint: null,
+          },
+        ],
+        expected_metadata_updated_at: "2026-03-10T15:00:00.000Z",
+      }),
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.equal(body.ok, false);
+  assert.equal(body.error?.code, "invalid_selected_asset");
+  assert.equal(calls.saveWorkpieceImageMap.length, 0);
+});
+
+test("GET /tongs/workpieces/:id/image-map requires x-forge-user-authorization header", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/image-map",
+    { method: "GET" },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.equal(body.ok, false);
+  assert.equal(body.error?.code, "missing_user_token_header");
+  assert.equal(calls.getWorkpieceImageMap.length, 0);
+});
+
 test("GET /tongs/workpieces/:id/read-file?encoding=base64 dispatches readWorkpieceBinary", async () => {
   const { service, calls } = mockService();
   const handler = createTongsCommitApiHandlerWithService(service);
@@ -1036,6 +1804,31 @@ test("GET /tongs/workpieces/:id/read-file?encoding=base64 dispatches readWorkpie
   assert.equal(body.ok, true);
   assert.equal(body.data?.content_type, "image/png");
   assert.equal(body.data?.bytes_base64, "AQID");
+});
+
+test("GET /tongs/workpieces/:id/read-file returns bootstrap-empty payload for missing primary script", async () => {
+  const { service, calls } = mockService();
+  service.readWorkpieceText = async (workpieceId, path) => {
+    calls.readWorkpieceText.push({ workpieceId, path });
+    return { found: false };
+  };
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/read-file?path=script%2Fscript.md",
+    { method: "GET" },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.readWorkpieceText.length, 1);
+  assert.equal(calls.readWorkpieceText[0].workpieceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.readWorkpieceText[0].path, "script/script.md");
+  assert.equal(body.ok, true);
+  assert.equal(body.exists, false);
+  assert.equal(body.data, null);
 });
 
 test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata version", async () => {
@@ -1231,6 +2024,283 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
   assert.equal(result.version.status, "ready");
   assert.equal(result.primary_version_id, result.version.id);
   assert.equal(result.asset.storage_bucket, "forge-workpieces");
+});
+
+test("TongsCommitService.generateImageMapCandidates writes candidate assets and canonical image-map refs", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const workpieceId = "22222222-2222-4222-8222-222222222222";
+  const userId = "33333333-3333-4333-8333-333333333333";
+  const providerCalls = [];
+  const commitCalls = [];
+  const { state, ...supabase } = createImageMapAssetSupabase({
+    assets: [
+      {
+        id: "asset-old-image-map",
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        path: "assets/image-map/image-map.v1.json",
+        mime_type: "application/json",
+        bytes: 111,
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${workpieceId}/assets/image-map/image-map.v1.json`,
+        provider: "hearth",
+        provider_request_id: null,
+        request_id: "req-old-image-map",
+        prompt: null,
+        created_by: userId,
+        created_at: "2026-03-11T18:00:00.000Z",
+        updated_at: "2026-03-11T18:00:00.000Z",
+        asset_kind: "image_map_json",
+        status: "ready",
+        metadata_json: {
+          schema: "forge.image-map.v1",
+          entry_count: 1,
+        },
+        supersedes_asset_id: null,
+      },
+      {
+        id: "asset-old-candidate-a",
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        path: `assets/image-map/candidates/${workpieceId}/image-map-01/explainer-old.png`,
+        mime_type: "image/png",
+        bytes: 222,
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${workpieceId}/assets/image-map/candidates/${workpieceId}/image-map-01/explainer-old.png`,
+        provider: "openai",
+        provider_request_id: "req-old-a",
+        request_id: "req-local-old-a",
+        prompt: "old prompt",
+        created_by: userId,
+        created_at: "2026-03-11T18:01:00.000Z",
+        updated_at: "2026-03-11T18:01:00.000Z",
+        asset_kind: "image_map_candidate_image",
+        status: "ready",
+        metadata_json: {
+          schema: "forge.image-map-candidate.v1",
+          image_map_entry_id: "image-map-01",
+          variant_label: "explainer",
+          visual_mode: "comparison",
+        },
+        supersedes_asset_id: null,
+      },
+      {
+        id: "asset-old-candidate-b",
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        path: `assets/image-map/candidates/${workpieceId}/image-map-01/illustrative-old.png`,
+        mime_type: "image/png",
+        bytes: 223,
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${workpieceId}/assets/image-map/candidates/${workpieceId}/image-map-01/illustrative-old.png`,
+        provider: "openai",
+        provider_request_id: "req-old-b",
+        request_id: "req-local-old-b",
+        prompt: "old prompt",
+        created_by: userId,
+        created_at: "2026-03-11T18:02:00.000Z",
+        updated_at: "2026-03-11T18:02:00.000Z",
+        asset_kind: "image_map_candidate_image",
+        status: "ready",
+        metadata_json: {
+          schema: "forge.image-map-candidate.v1",
+          image_map_entry_id: "image-map-01",
+          variant_label: "illustrative",
+          visual_mode: "comparison",
+        },
+        supersedes_asset_id: null,
+      },
+    ],
+  });
+
+  const imageProvider = {
+    async generateImage(input) {
+      providerCalls.push(input);
+      const index = providerCalls.length;
+      return {
+        bytesBase64: index === 1 ? "AQID" : "BAUG",
+        mimeType: "image/png",
+        provider: "openai",
+        providerRequestId: `req_provider_${index}`,
+        revisedPrompt: null,
+        tokensUsed: 120 + index,
+      };
+    },
+  };
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", imageProvider);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: userId,
+    created_at: "2026-03-11T17:00:00.000Z",
+    updated_at: "2026-03-11T17:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkpieceInWorkspace = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-11T17:00:00.000Z",
+    updated_at: "2026-03-11T17:00:00.000Z",
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId, role: "editor" });
+  service.readWorkpieceJson = async () => ({
+    found: true,
+    data: {
+      schema: "forge.metadata.v1",
+      workpiece_id: workpieceId,
+      workspace_id: workspaceId,
+      episode: {
+        schema: "forge.episode.package.v2",
+        image_map: {
+          entries: [
+            {
+              id: "image-map-01",
+              anchor: "s1:p1#sent1-2",
+              script_anchor: {
+                section_id: "s1",
+                paragraph_id: "s1:p1",
+                paragraph_order: 1,
+                sentence_start: 1,
+                sentence_end: 2,
+                char_start: 0,
+                char_end: 72,
+                span_text: "Jackson faced 8,000 British troops against 3,500 defenders near New Orleans.",
+                speaker_block_id: null,
+              },
+              description: "Strategic troop comparison near New Orleans",
+              visual_intent: "Strategic troop comparison",
+              prompt_basis: "Troop-count comparison near New Orleans",
+              intent: "broll",
+              source_type: "script",
+              beat_order: 1,
+              paragraph_beat_order: 1,
+              candidate_assets: [],
+              selected_asset_id: null,
+              status: "mapped",
+              placement_hint: null,
+            },
+          ],
+        },
+      },
+    },
+    file_row: { updated_at: "2026-03-11T18:30:00.000Z" },
+  });
+  service.commitFile = async (inputWorkpieceId, input) => {
+    commitCalls.push({ inputWorkpieceId, input });
+    return {
+      workpiece_id: inputWorkpieceId,
+      path: input.path,
+      storage_key: `workpieces/${inputWorkpieceId}/${input.path}`,
+      hash: "hash_abc",
+      bytes: input.path.endsWith(".png") ? 3 : 200,
+      content_type: input.content_type ?? "application/octet-stream",
+      manifest_hash: "manifest_hash",
+      manifest_bytes: 123,
+      file_row: {
+        workpiece_id: inputWorkpieceId,
+        path: input.path,
+        file_type: input.file_type ?? "json",
+        content_type: input.content_type ?? "application/octet-stream",
+        bytes: input.path.endsWith(".png") ? 3 : 200,
+        hash_algo: "sha256",
+        hash_value: "hash_abc",
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${inputWorkpieceId}/${input.path}`,
+        written_by_tool: input.written_by.tool,
+        written_by_tool_version: input.written_by.tool_version,
+        written_by_lane: input.written_by.lane,
+        created_at: "2026-03-11T19:00:00.000Z",
+        updated_at: input.path === "metadata.json"
+          ? "2026-03-11T19:00:00.000Z"
+          : "2026-03-11T19:00:01.000Z",
+      },
+      manifest_row: {
+        workpiece_id: inputWorkpieceId,
+        path: "manifest.json",
+        file_type: "manifest",
+        content_type: "application/json",
+        bytes: 120,
+        hash_algo: "sha256",
+        hash_value: "manifest_hash",
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${inputWorkpieceId}/manifest.json`,
+        written_by_tool: input.written_by.tool,
+        written_by_tool_version: input.written_by.tool_version,
+        written_by_lane: input.written_by.lane,
+        created_at: "2026-03-11T19:00:00.000Z",
+        updated_at: "2026-03-11T19:00:00.000Z",
+      },
+      event: {
+        id: 99,
+        workpiece_id: inputWorkpieceId,
+        event_name: input.event_name ?? "workpiece.file.committed",
+        payload: {},
+        correlation_id: null,
+        written_by_tool: input.written_by.tool,
+        written_by_tool_version: input.written_by.tool_version,
+        written_by_lane: input.written_by.lane,
+        created_at: "2026-03-11T19:00:00.000Z",
+      },
+    };
+  };
+  service.applyAiTokenDelta = async () => ({
+    tokenBalance: 777,
+  });
+
+  const result = await service.generateImageMapCandidates(workpieceId, {
+    workspace_id: workspaceId,
+    image_map_entry_id: "image-map-01",
+    context_before: "British forces regrouped after Napoleon's defeat.",
+    context_after: "The Mississippi delta made New Orleans strategically decisive.",
+    confirm_spend: true,
+    lane: "forge",
+    user_access_token: "token_abc",
+  });
+
+  assert.equal(providerCalls.length, 2);
+  assert.equal(providerCalls[0]?.aspect, "16:9");
+  assert.match(providerCalls[0]?.prompt ?? "", /Exact beat span:/);
+  assert.match(providerCalls[0]?.prompt ?? "", /Jackson faced 8,000 British troops/);
+  assert.match(providerCalls[0]?.prompt ?? "", /Variant goal: make the beat clearer and more diagrammatic or explanatory/);
+  assert.match(providerCalls[1]?.prompt ?? "", /Variant goal: make the beat more cinematic and illustrative/);
+  assert.notEqual(providerCalls[0]?.prompt, providerCalls[1]?.prompt);
+  assert.match(providerCalls[0]?.prompt ?? "", /Do not render text, labels, captions, numbers, or map lettering into the image/);
+
+  assert.equal(commitCalls.length, 4);
+  assert.equal(commitCalls[0]?.input.path.includes("assets/image-map/candidates/"), true);
+  assert.equal(commitCalls[1]?.input.path.includes("assets/image-map/candidates/"), true);
+  assert.equal(commitCalls[2]?.input.path, "metadata.json");
+  assert.equal(commitCalls[3]?.input.path, "assets/image-map/image-map.v1.json");
+
+  const candidateInserts = state.insertCalls.filter((row) => row.asset_kind === "image_map_candidate_image");
+  assert.equal(candidateInserts.length, 2);
+  assert.equal(candidateInserts[0]?.status, "ready");
+  assert.equal(candidateInserts[0]?.metadata_json?.schema, "forge.image-map-candidate.v1");
+  assert.equal(candidateInserts[0]?.metadata_json?.image_map_entry_id, "image-map-01");
+  assert.equal(candidateInserts[0]?.metadata_json?.variant_label, "explainer");
+  assert.equal(candidateInserts[1]?.metadata_json?.variant_label, "illustrative");
+  assert.equal(candidateInserts[0]?.prompt?.includes("Exact beat span:"), true);
+
+  assert.equal(result.generated_assets.length, 2);
+  assert.equal(result.generated_assets[0]?.variant_label, "explainer");
+  assert.equal(result.generated_assets[1]?.variant_label, "illustrative");
+  assert.equal(result.image_map.entries[0]?.candidate_assets.length, 2);
+  assert.equal(result.image_map.entries[0]?.candidate_assets[0]?.variant_label, "explainer");
+  assert.equal(result.image_map.entries[0]?.candidate_assets[1]?.variant_label, "illustrative");
+  assert.equal(result.image_map.entries[0]?.status, "candidates_generated");
+  assert.equal(result.image_map.entries[0]?.selected_asset_id, null);
+  assert.equal(result.token_balance, 777);
+
+  const candidateSupersedeCall = state.updateCalls.find((row) => Array.isArray(row.id));
+  assert.deepEqual([...candidateSupersedeCall.id].sort(), ["asset-old-candidate-a", "asset-old-candidate-b"]);
+  assert.equal(candidateSupersedeCall?.patch?.status, "superseded");
+  const imageMapSupersedeCall = state.updateCalls.find((row) => row.id === "asset-old-image-map");
+  assert.equal(imageMapSupersedeCall?.patch?.status, "superseded");
 });
 
 test("POST /tongs/workspaces/:id/recording-sessions dispatches createRecordingSession", async () => {
@@ -1503,6 +2573,48 @@ test("DELETE /tongs/recording-sessions/:id/episodes/:episodeId dispatches detach
   assert.equal(body.ok, true);
 });
 
+test("GET /tongs/workspaces/:id/sparks dispatches listWorkspaceSparks", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/sparks",
+    {
+      method: "GET",
+      headers: {
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.listWorkspaceSparks.length, 1);
+  assert.equal(calls.listWorkspaceSparks[0]?.workspaceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.listWorkspaceSparks[0]?.options?.userAccessToken, "user_token_abc");
+  assert.equal(body.ok, true);
+  assert.equal(Array.isArray(body.data?.sparks), true);
+  assert.equal(body.data.sparks.length, 1);
+  assert.equal(body.data.sparks[0]?.linked_workpiece_id, "99999999-9999-4999-8999-999999999999");
+});
+
+test("GET /tongs/workspaces/:id/sparks requires x-forge-user-authorization header", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/sparks",
+    { method: "GET" },
+  );
+
+  const response = await handler(request);
+
+  assert.equal(response.status, 401);
+  assert.equal(calls.listWorkspaceSparks.length, 0);
+});
+
 test("GET /tongs/workspaces/:id/ready-scripts dispatches listWorkspaceReadyScripts", async () => {
   const { service, calls } = mockService();
   const handler = createTongsCommitApiHandlerWithService(service);
@@ -1556,11 +2668,13 @@ test("GET /tongs/workspaces/:id/episodes dispatches listWorkspaceEpisodes", asyn
   assert.equal(calls.listWorkspaceEpisodes.length, 1);
   assert.equal(calls.listWorkspaceEpisodes[0]?.workspaceId, "11111111-1111-4111-8111-111111111111");
   assert.equal(calls.listWorkspaceEpisodes[0]?.options?.userAccessToken, "user_token_abc");
+  assert.equal(calls.listWorkspaceEpisodes[0]?.options?.includeArchived, false);
   assert.equal(body.ok, true);
   assert.equal(Array.isArray(body.data?.episodes), true);
   assert.equal(body.data.episodes.length, 1);
   assert.equal(body.data.episodes[0]?.workspace_id, "11111111-1111-4111-8111-111111111111");
   assert.equal(body.data.episodes[0]?.label, "Episode 1");
+  assert.equal(body.data.episodes[0]?.archived_at, null);
 });
 
 test("GET /tongs/workspaces/:id/episodes requires x-forge-user-authorization header", async () => {
@@ -1581,6 +2695,91 @@ test("GET /tongs/workspaces/:id/episodes requires x-forge-user-authorization hea
   assert.equal(calls.listWorkspaceEpisodes.length, 0);
   assert.equal(body.ok, false);
   assert.equal(body.error?.code, "missing_user_token_header");
+});
+
+test("GET /tongs/workspaces/:id/episodes?include_archived=1 enables archived rows", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/episodes?include_archived=1",
+    {
+      method: "GET",
+      headers: {
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.listWorkspaceEpisodes.length, 1);
+  assert.equal(calls.listWorkspaceEpisodes[0]?.options?.includeArchived, true);
+  assert.equal(body.ok, true);
+});
+
+test("POST /tongs/workpieces/:id/archive dispatches archiveWorkpiece", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/archive",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+      body: JSON.stringify({
+        workspace_id: "22222222-2222-4222-8222-222222222222",
+        reason: "duplicate cleanup",
+      }),
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.archiveWorkpiece.length, 1);
+  assert.equal(calls.archiveWorkpiece[0]?.workpieceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.archiveWorkpiece[0]?.input?.workspace_id, "22222222-2222-4222-8222-222222222222");
+  assert.equal(calls.archiveWorkpiece[0]?.input?.reason, "duplicate cleanup");
+  assert.equal(calls.archiveWorkpiece[0]?.options?.userAccessToken, "user_token_abc");
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.workpiece?.archived_at, "2026-03-11T14:00:00.000Z");
+});
+
+test("POST /tongs/workpieces/:id/restore dispatches restoreWorkpiece", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/restore",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+      body: JSON.stringify({
+        workspace_id: "22222222-2222-4222-8222-222222222222",
+      }),
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.restoreWorkpiece.length, 1);
+  assert.equal(calls.restoreWorkpiece[0]?.workpieceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.restoreWorkpiece[0]?.input?.workspace_id, "22222222-2222-4222-8222-222222222222");
+  assert.equal(calls.restoreWorkpiece[0]?.options?.userAccessToken, "user_token_abc");
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.workpiece?.archived_at, null);
 });
 
 test("GET /tongs/workspaces/:id/ready-scripts?unrecorded=1 enables unrecorded filter", async () => {
@@ -1782,13 +2981,14 @@ test("POST /tongs/workspaces/:id/ready-queue-state requires x-forge-user-authori
   assert.equal(calls.updateWorkspaceReadyQueueState.length, 0);
 });
 
-test("TongsCommitService.listWorkspaceReadyScripts hides hidden queue rows by default and ignores orphan queue state", async () => {
+test("TongsCommitService.listWorkspaceReadyScripts hides hidden and archived queue rows by default and ignores orphan queue state", async () => {
   const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const otherWorkspaceId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
   const viewerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
   const workpieceA = "11111111-1111-4111-8111-111111111111";
   const workpieceB = "22222222-2222-4222-8222-222222222222";
   const workpieceC = "33333333-3333-4333-8333-333333333333";
+  const workpieceD = "44444444-4444-4444-8444-444444444444";
 
   const { state, ...supabase } = createReadyQueueSupabase({
     workspaceId,
@@ -1799,6 +2999,9 @@ test("TongsCommitService.listWorkspaceReadyScripts hides hidden queue rows by de
         label: "Ready Alpha",
         updated_at: "2026-03-09T10:00:00.000Z",
         created_at: "2026-03-01T10:00:00.000Z",
+        archived_at: null,
+        archived_by: null,
+        archive_reason: null,
       },
       {
         id: workpieceB,
@@ -1806,6 +3009,9 @@ test("TongsCommitService.listWorkspaceReadyScripts hides hidden queue rows by de
         label: "Ready Beta",
         updated_at: "2026-03-08T10:00:00.000Z",
         created_at: "2026-03-01T09:00:00.000Z",
+        archived_at: null,
+        archived_by: null,
+        archive_reason: null,
       },
       {
         id: workpieceC,
@@ -1813,6 +3019,19 @@ test("TongsCommitService.listWorkspaceReadyScripts hides hidden queue rows by de
         label: "Ready Gamma",
         updated_at: "2026-03-07T10:00:00.000Z",
         created_at: "2026-03-01T08:00:00.000Z",
+        archived_at: null,
+        archived_by: null,
+        archive_reason: null,
+      },
+      {
+        id: workpieceD,
+        workspace_id: workspaceId,
+        label: "Ready Delta",
+        updated_at: "2026-03-06T10:00:00.000Z",
+        created_at: "2026-03-01T07:00:00.000Z",
+        archived_at: "2026-03-10T15:00:00.000Z",
+        archived_by: viewerId,
+        archive_reason: "sent back to archive",
       },
     ],
     files: [
@@ -1827,6 +3046,12 @@ test("TongsCommitService.listWorkspaceReadyScripts hides hidden queue rows by de
         path: "scripts/script.anvil.txt",
         updated_at: "2026-03-08T10:30:00.000Z",
         created_at: "2026-03-08T10:00:00.000Z",
+      },
+      {
+        workpiece_id: workpieceD,
+        path: "script/script.md",
+        updated_at: "2026-03-06T10:30:00.000Z",
+        created_at: "2026-03-06T10:00:00.000Z",
       },
     ],
     readyMeta: [
@@ -1843,6 +3068,13 @@ test("TongsCommitService.listWorkspaceReadyScripts hides hidden queue rows by de
         script_path: "scripts/script.anvil.txt",
         marked_ready_by: viewerId,
         marked_ready_at: "2026-03-08T10:30:00.000Z",
+      },
+      {
+        workspace_id: workspaceId,
+        workpiece_id: workpieceD,
+        script_path: "script/script.md",
+        marked_ready_by: viewerId,
+        marked_ready_at: "2026-03-06T10:30:00.000Z",
       },
     ],
     queueState: [
@@ -1908,6 +3140,7 @@ test("TongsCommitService.listWorkspaceReadyScripts hides hidden queue rows by de
   assert.deepEqual(result[0]?.script_paths, ["script/script.md"]);
   assert.equal(result.some((row) => row.workpiece_id === workpieceB), false);
   assert.equal(result.some((row) => row.workpiece_id === workpieceC), false);
+  assert.equal(result.some((row) => row.workpiece_id === workpieceD), false);
   assert.equal(state.queueStateRows.length, 4);
 });
 
@@ -1925,6 +3158,9 @@ test("TongsCommitService.listWorkspaceEpisodes returns workspace-scoped summarie
         label: "Newest Episode",
         updated_at: "2026-03-10T10:00:00.000Z",
         created_at: "2026-03-01T10:00:00.000Z",
+        archived_at: null,
+        archived_by: null,
+        archive_reason: null,
       },
       {
         id: "22222222-2222-4222-8222-222222222222",
@@ -1932,6 +3168,9 @@ test("TongsCommitService.listWorkspaceEpisodes returns workspace-scoped summarie
         label: "Older Episode",
         updated_at: "2026-03-08T10:00:00.000Z",
         created_at: "2026-03-01T09:00:00.000Z",
+        archived_at: "2026-03-11T09:00:00.000Z",
+        archived_by: viewerId,
+        archive_reason: "duplicate cleanup",
       },
       {
         id: "33333333-3333-4333-8333-333333333333",
@@ -1939,6 +3178,9 @@ test("TongsCommitService.listWorkspaceEpisodes returns workspace-scoped summarie
         label: "Other Workspace Episode",
         updated_at: "2026-03-11T10:00:00.000Z",
         created_at: "2026-03-01T08:00:00.000Z",
+        archived_at: null,
+        archived_by: null,
+        archive_reason: null,
       },
     ],
   });
@@ -1961,13 +3203,760 @@ test("TongsCommitService.listWorkspaceEpisodes returns workspace-scoped summarie
     result.map((row) => row.id),
     [
       "11111111-1111-4111-8111-111111111111",
-      "22222222-2222-4222-8222-222222222222",
     ],
   );
   assert.equal(result[0]?.workspace_id, workspaceId);
   assert.equal(result[0]?.label, "Newest Episode");
-  assert.equal(result[1]?.label, "Older Episode");
   assert.equal(result.some((row) => row.workspace_id === otherWorkspaceId), false);
+  assert.equal(result.some((row) => row.archived_at != null), false);
+});
+
+test("TongsCommitService.listWorkspaceEpisodes includes archived rows when requested", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const viewerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+  const { ...supabase } = createReadyQueueSupabase({
+    workspaceId,
+    episodes: [
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        workspace_id: workspaceId,
+        label: "Active Episode",
+        updated_at: "2026-03-10T10:00:00.000Z",
+        created_at: "2026-03-01T10:00:00.000Z",
+        archived_at: null,
+        archived_by: null,
+        archive_reason: null,
+      },
+      {
+        id: "22222222-2222-4222-8222-222222222222",
+        workspace_id: workspaceId,
+        label: "Archived Episode",
+        updated_at: "2026-03-11T10:00:00.000Z",
+        created_at: "2026-03-01T09:00:00.000Z",
+        archived_at: "2026-03-11T09:00:00.000Z",
+        archived_by: viewerId,
+        archive_reason: "cleanup",
+      },
+    ],
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: viewerId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: viewerId, role: "viewer" });
+
+  const result = await service.listWorkspaceEpisodes(workspaceId, {
+    userAccessToken: "viewer_token",
+    includeArchived: true,
+  });
+
+  assert.deepEqual(
+    result.map((row) => row.id),
+    [
+      "22222222-2222-4222-8222-222222222222",
+      "11111111-1111-4111-8111-111111111111",
+    ],
+  );
+  assert.equal(result[0]?.archived_at, "2026-03-11T09:00:00.000Z");
+});
+
+test("TongsCommitService.archiveWorkpiece and restoreWorkpiece update episodes and append events", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const editorId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const events = [];
+
+  const { ...supabase } = createReadyQueueSupabase({
+    workspaceId,
+    episodes: [
+      {
+        id: workpieceId,
+        workspace_id: workspaceId,
+        label: "Archivable Episode",
+        updated_at: "2026-03-10T10:00:00.000Z",
+        created_at: "2026-03-01T10:00:00.000Z",
+        archived_at: null,
+        archived_by: null,
+        archive_reason: null,
+      },
+    ],
+    events,
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: editorId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: editorId, role: "editor" });
+
+  const archived = await service.archiveWorkpiece(workpieceId, {
+    workspace_id: workspaceId,
+    reason: "duplicate cleanup",
+  }, {
+    userAccessToken: "editor_token",
+  });
+  assert.equal(archived.archived_by, editorId);
+  assert.equal(archived.archive_reason, "duplicate cleanup");
+  assert.ok(typeof archived.archived_at === "string");
+
+  const restored = await service.restoreWorkpiece(workpieceId, {
+    workspace_id: workspaceId,
+  }, {
+    userAccessToken: "editor_token",
+  });
+  assert.equal(restored.archived_at, null);
+  assert.equal(restored.archived_by, null);
+  assert.equal(restored.archive_reason, null);
+
+  assert.equal(events.length, 2);
+  assert.equal(events[0]?.event_name, "hearth.workpiece.archived.v1");
+  assert.equal(events[1]?.event_name, "hearth.workpiece.restored.v1");
+});
+
+test("TongsCommitService.restoreWorkpiece clears active ready eligibility without deleting planner history", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const editorId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const events = [];
+
+  const { state, ...supabase } = createReadyQueueSupabase({
+    workspaceId,
+    episodes: [
+      {
+        id: workpieceId,
+        workspace_id: workspaceId,
+        label: "Restorable Ready Episode",
+        updated_at: "2026-03-10T10:00:00.000Z",
+        created_at: "2026-03-01T10:00:00.000Z",
+        archived_at: "2026-03-11T09:00:00.000Z",
+        archived_by: editorId,
+        archive_reason: "pause work",
+      },
+    ],
+    files: [
+      {
+        workpiece_id: workpieceId,
+        path: "script/script.md",
+        updated_at: "2026-03-10T10:30:00.000Z",
+        created_at: "2026-03-10T10:00:00.000Z",
+        file_type: "script_markdown",
+        content_type: "text/markdown; charset=utf-8",
+        bytes: 123,
+        hash_algo: "sha256",
+        hash_value: "abc",
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${workpieceId}/script/script.md`,
+      },
+    ],
+    readyMeta: [
+      {
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        script_path: "script/script.md",
+        marked_ready_by: editorId,
+        marked_ready_at: "2026-03-10T10:30:00.000Z",
+      },
+    ],
+    events,
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: editorId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: editorId, role: "editor" });
+  service.getCradleOrThrow = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Restorable Ready Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-01T10:00:00.000Z",
+    updated_at: "2026-03-10T10:00:00.000Z",
+  });
+  service.loadManifestOrDefault = async () => createManifestFixture(workpieceId, workspaceId);
+  service.upsertWorkpieceFile = async () => {};
+
+  const beforeRestore = await service.listWorkspaceReadyScripts(workspaceId, {
+    userAccessToken: "editor_token",
+  });
+  assert.equal(beforeRestore.length, 0, "Archived workpieces are excluded before restore");
+
+  const restored = await service.restoreWorkpiece(workpieceId, {
+    workspace_id: workspaceId,
+  }, {
+    userAccessToken: "editor_token",
+  });
+
+  assert.equal(restored.archived_at, null);
+  assert.equal(state.fileRows.some((row) => row.workpiece_id === workpieceId && row.path === "script/script.md"), false);
+  assert.equal(state.readyMetaRows.some((row) => row.workpiece_id === workpieceId), false);
+
+  const afterRestore = await service.listWorkspaceReadyScripts(workspaceId, {
+    userAccessToken: "editor_token",
+  });
+  assert.deepEqual(afterRestore, [], "Restore should not silently reinstate Ready candidacy");
+
+  assert.equal(events.at(-1)?.event_name, "hearth.workpiece.restored.v1");
+  assert.deepEqual(events.at(-1)?.payload?.cleared_ready_paths, ["script/script.md"]);
+  assert.equal(events.at(-1)?.payload?.ready_revalidation_required, true);
+});
+
+test("TongsCommitService.getWorkpieceImageMap returns normalized semantic entries plus current asset summary", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const viewerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const { ...supabase } = createImageMapAssetSupabase({
+    assets: [
+      {
+        id: "asset-current",
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        path: "assets/image-map/image-map.v1.json",
+        mime_type: "application/json",
+        bytes: 123,
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${workpieceId}/assets/image-map/image-map.v1.json`,
+        provider: "hearth",
+        provider_request_id: null,
+        request_id: "req-current",
+        prompt: null,
+        created_by: viewerId,
+        created_at: "2026-03-10T16:00:00.000Z",
+        updated_at: "2026-03-10T16:00:00.000Z",
+        asset_kind: "image_map_json",
+        status: "ready",
+        metadata_json: {
+          schema: "forge.image-map.v1",
+          entry_count: 1,
+        },
+        supersedes_asset_id: null,
+      },
+    ],
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getCradleOrThrow = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-02T00:00:00.000Z",
+    updated_at: "2026-03-02T00:00:00.000Z",
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: viewerId, role: "viewer" });
+  service.readWorkpieceJson = async () => ({
+    found: true,
+    data: {
+      episode: {
+        schema: "forge.episode.package.v2",
+        image_map: {
+          entries: [
+            {
+              id: "image-map-01",
+              anchor: "s1:p1#sent1",
+              script_anchor: {
+                section_id: "s1",
+                paragraph_id: "s1:p1",
+                paragraph_order: 1,
+                sentence_start: 1,
+                sentence_end: 1,
+                char_start: 0,
+                char_end: 18,
+                span_text: "wide city skyline",
+                speaker_block_id: null,
+              },
+              description: "wide city skyline",
+              visual_intent: "wide city skyline",
+              prompt_basis: "wide city skyline",
+              intent: "broll",
+              source_type: "script",
+              beat_order: 1,
+              paragraph_beat_order: 1,
+              candidate_assets: [],
+              selected_asset_id: null,
+              status: "mapped",
+              placement_hint: "after-hook",
+            },
+          ],
+        },
+      },
+    },
+    file_row: { updated_at: "2026-03-10T15:59:00.000Z" },
+  });
+
+  const result = await service.getWorkpieceImageMap(workpieceId, {
+    userAccessToken: "viewer_token",
+  });
+
+  assert.equal(result.image_map.workpiece_id, workpieceId);
+  assert.equal(result.image_map.workspace_id, workspaceId);
+  assert.equal(result.image_map.metadata_updated_at, "2026-03-10T15:59:00.000Z");
+  assert.equal(result.image_map.entries.length, 1);
+  assert.equal(result.image_map.entries[0]?.source_type, "stock");
+  assert.equal(result.image_map.entries[0]?.script_anchor?.paragraph_id, "s1:p1");
+  assert.equal(result.image_map.entries[0]?.beat_order, 1);
+  assert.equal(result.asset?.asset_kind, "image_map_json");
+  assert.equal(result.asset?.metadata_json.entry_count, 1);
+});
+
+test("TongsCommitService.getWorkpieceVisualPackage returns Hammer-ready ordering plus selected asset retrieval info", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const viewerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const { ...supabase } = createImageMapAssetSupabase({
+    assets: [
+      {
+        id: "asset-current",
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        path: "assets/image-map/image-map.v1.json",
+        mime_type: "application/json",
+        bytes: 123,
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${workpieceId}/assets/image-map/image-map.v1.json`,
+        provider: "hearth",
+        provider_request_id: null,
+        request_id: "req-current",
+        prompt: null,
+        created_by: viewerId,
+        created_at: "2026-03-10T16:00:00.000Z",
+        updated_at: "2026-03-10T16:00:00.000Z",
+        asset_kind: "image_map_json",
+        status: "ready",
+        metadata_json: {
+          schema: "forge.image-map.v1",
+          entry_count: 2,
+        },
+        supersedes_asset_id: null,
+      },
+      {
+        id: "candidate-01",
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        path: `assets/image-map/candidates/${workpieceId}/image-map-01/explainer.png`,
+        mime_type: "image/png",
+        bytes: 4567,
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${workpieceId}/assets/image-map/candidates/${workpieceId}/image-map-01/explainer.png`,
+        provider: "openai",
+        provider_request_id: "req-provider-01",
+        request_id: "req-local-01",
+        prompt: "Prompt explainer",
+        created_by: viewerId,
+        created_at: "2026-03-10T16:01:00.000Z",
+        updated_at: "2026-03-10T16:01:00.000Z",
+        asset_kind: "image_map_candidate_image",
+        status: "ready",
+        metadata_json: {
+          schema: "forge.image-map-candidate.v1",
+          image_map_entry_id: "image-map-01",
+          visual_mode: "comparison",
+          variant_label: "explainer",
+          beat_order: 1,
+          paragraph_beat_order: 1,
+        },
+        supersedes_asset_id: null,
+      },
+    ],
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getCradleOrThrow = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-02T00:00:00.000Z",
+    updated_at: "2026-03-02T00:00:00.000Z",
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: viewerId, role: "viewer" });
+  service.loadManifestOrDefault = async () => {
+    const manifest = createManifestFixture(workpieceId, workspaceId);
+    manifest.pointers.script_primary = "script/script.md";
+    manifest.files["script/script.md"] = {
+      type: "script",
+      content_type: "text/markdown; charset=utf-8",
+      bytes: 321,
+      hash: {
+        algo: "sha256",
+        value: "hash-script",
+      },
+      written_by: {
+        tool: "hearth",
+        tool_version: "0.0.0",
+        lane: "forge-managed",
+      },
+      updated_at: "2026-03-10T15:58:00.000Z",
+    };
+    return manifest;
+  };
+  service.readWorkpieceJson = async () => ({
+    found: true,
+    data: {
+      episode: {
+        schema: "forge.episode.package.v2",
+        image_map: {
+          entries: [
+            {
+              id: "image-map-02",
+              anchor: "s1:p1#sent2",
+              script_anchor: {
+                section_id: "s1",
+                paragraph_id: "s1:p1",
+                paragraph_order: 1,
+                sentence_start: 2,
+                sentence_end: 2,
+                char_start: 28,
+                char_end: 55,
+                span_text: "The skyline held at dawn.",
+                speaker_block_id: null,
+              },
+              description: "The skyline held at dawn.",
+              visual_intent: "wide skyline hold",
+              prompt_basis: "wide skyline hold",
+              intent: "broll",
+              source_type: "stock",
+              beat_order: 2,
+              paragraph_beat_order: 2,
+              candidate_assets: [],
+              selected_asset_id: null,
+              status: "mapped",
+              placement_hint: "after-scene",
+            },
+            {
+              id: "image-map-01",
+              anchor: "s1:p1#sent1",
+              script_anchor: {
+                section_id: "s1",
+                paragraph_id: "s1:p1",
+                paragraph_order: 1,
+                sentence_start: 1,
+                sentence_end: 1,
+                char_start: 0,
+                char_end: 27,
+                span_text: "Jackson faced overwhelming odds.",
+                speaker_block_id: null,
+              },
+              description: "Jackson faced overwhelming odds.",
+              visual_intent: "Strategic troop comparison",
+              prompt_basis: "Strategic troop comparison near New Orleans",
+              intent: "broll",
+              source_type: "ai",
+              beat_order: 1,
+              paragraph_beat_order: 1,
+              candidate_assets: [
+                {
+                  asset_id: "candidate-01",
+                  path: `assets/image-map/candidates/${workpieceId}/image-map-01/explainer.png`,
+                  variant_label: "explainer",
+                  visual_mode: "comparison",
+                  mime_type: "image/png",
+                },
+              ],
+              selected_asset_id: "candidate-01",
+              status: "selected",
+              placement_hint: null,
+            },
+          ],
+        },
+      },
+    },
+    file_row: { updated_at: "2026-03-10T15:59:00.000Z" },
+  });
+
+  const result = await service.getWorkpieceVisualPackage(workpieceId, {
+    userAccessToken: "viewer_token",
+  });
+
+  assert.equal(result.workspace_id, workspaceId);
+  assert.equal(result.workpiece_id, workpieceId);
+  assert.equal(result.script_path, "script/script.md");
+  assert.equal(result.script_updated_at, "2026-03-10T15:58:00.000Z");
+  assert.equal(result.image_map_updated_at, "2026-03-10T15:59:00.000Z");
+  assert.equal(result.image_map_asset_updated_at, "2026-03-10T16:00:00.000Z");
+  assert.equal(result.visuals.length, 2);
+  assert.equal(result.visuals[0]?.entry_id, "image-map-01");
+  assert.equal(result.visuals[0]?.visual_mode, "comparison");
+  assert.equal(result.visuals[0]?.selected_asset?.asset_id, "candidate-01");
+  assert.equal(result.visuals[0]?.selected_asset?.storage_key.endsWith("/image-map-01/explainer.png"), true);
+  assert.equal(result.visuals[1]?.entry_id, "image-map-02");
+  assert.equal(result.visuals[1]?.selected_asset, null);
+});
+
+test("TongsCommitService.saveWorkpieceImageMap writes metadata, asset file, and superseded asset lineage", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const editorId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const commitCalls = [];
+  const { state, ...supabase } = createImageMapAssetSupabase({
+    assets: [
+      {
+        id: "asset-old",
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        path: "assets/image-map/image-map.v1.json",
+        mime_type: "application/json",
+        bytes: 111,
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${workpieceId}/assets/image-map/image-map.v1.json`,
+        provider: "hearth",
+        provider_request_id: null,
+        request_id: "req-old",
+        prompt: null,
+        created_by: editorId,
+        created_at: "2026-03-10T15:00:00.000Z",
+        updated_at: "2026-03-10T15:00:00.000Z",
+        asset_kind: "image_map_json",
+        status: "ready",
+        metadata_json: {
+          schema: "forge.image-map.v1",
+          entry_count: 1,
+        },
+        supersedes_asset_id: null,
+      },
+    ],
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: editorId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkpieceInWorkspace = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-02T00:00:00.000Z",
+    updated_at: "2026-03-02T00:00:00.000Z",
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: editorId, role: "editor" });
+  service.readWorkpieceJson = async () => ({
+    found: true,
+    data: {
+      schema: "forge.metadata.v1",
+      workpiece_id: workpieceId,
+      workspace_id: workspaceId,
+      episode: {
+        schema: "forge.episode.package.v2",
+        image_map: {
+          entries: [],
+        },
+      },
+    },
+    file_row: { updated_at: "2026-03-10T15:30:00.000Z" },
+  });
+  service.commitFile = async (targetWorkpieceId, input) => {
+    commitCalls.push({ targetWorkpieceId, input });
+    return {
+      workpiece_id: targetWorkpieceId,
+      path: input.path,
+      storage_key: `workpieces/${targetWorkpieceId}/${input.path}`,
+      hash: "hash-file",
+      bytes: input.path === "metadata.json" ? 222 : 333,
+      content_type: input.content_type || "application/json",
+      manifest_hash: "hash-manifest",
+      manifest_bytes: 456,
+      file_row: {
+        workpiece_id: targetWorkpieceId,
+        path: input.path,
+        file_type: "json",
+        content_type: input.content_type || "application/json",
+        bytes: input.path === "metadata.json" ? 222 : 333,
+        hash_algo: "sha256",
+        hash_value: "hash-file",
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${targetWorkpieceId}/${input.path}`,
+        written_by_tool: input.written_by.tool,
+        written_by_tool_version: input.written_by.tool_version,
+        written_by_lane: input.written_by.lane,
+        created_at: "2026-03-10T16:05:00.000Z",
+        updated_at: input.path === "metadata.json"
+          ? "2026-03-10T16:05:00.000Z"
+          : "2026-03-10T16:05:01.000Z",
+      },
+      manifest_row: {
+        workpiece_id: targetWorkpieceId,
+        path: "manifest.json",
+        file_type: "manifest",
+        content_type: "application/json",
+        bytes: 456,
+        hash_algo: "sha256",
+        hash_value: "hash-manifest",
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${targetWorkpieceId}/manifest.json`,
+        written_by_tool: input.written_by.tool,
+        written_by_tool_version: input.written_by.tool_version,
+        written_by_lane: input.written_by.lane,
+        created_at: "2026-03-10T16:05:00.000Z",
+        updated_at: "2026-03-10T16:05:00.000Z",
+      },
+      event: {
+        id: 900,
+        workpiece_id: targetWorkpieceId,
+        event_name: input.event_name || "workpiece.file.committed",
+        payload: {},
+        correlation_id: "corr-123",
+        written_by_tool: input.written_by.tool,
+        written_by_tool_version: input.written_by.tool_version,
+        written_by_lane: input.written_by.lane,
+        created_at: "2026-03-10T16:05:00.000Z",
+      },
+    };
+  };
+
+  const result = await service.saveWorkpieceImageMap(
+    workpieceId,
+    {
+      workspace_id: workspaceId,
+      entries: [
+        {
+          id: "image-map-01",
+          anchor: "s1:p1#sent1",
+          script_anchor: {
+            section_id: "s1",
+            paragraph_id: "s1:p1",
+            paragraph_order: 1,
+            sentence_start: 1,
+            sentence_end: 1,
+            char_start: 0,
+            char_end: 18,
+            span_text: "wide city skyline",
+            speaker_block_id: null,
+          },
+          description: "wide city skyline",
+          visual_intent: "wide city skyline",
+          prompt_basis: "wide city skyline",
+          intent: "broll",
+          source_type: "stock",
+          beat_order: 1,
+          paragraph_beat_order: 1,
+          candidate_assets: [],
+          selected_asset_id: null,
+          status: "mapped",
+          placement_hint: "after-hook",
+        },
+      ],
+      expected_metadata_updated_at: "2026-03-10T15:30:00.000Z",
+    },
+    { userAccessToken: "editor_token" },
+  );
+
+  assert.equal(commitCalls.length, 2);
+  assert.equal(commitCalls[0]?.input.path, "metadata.json");
+  assert.equal(commitCalls[1]?.input.path, "assets/image-map/image-map.v1.json");
+  assert.equal(commitCalls[0]?.input.json?.episode?.image_map?.entries?.length, 1);
+  assert.equal(commitCalls[0]?.input.json?.episode?.image_map?.entries?.[0]?.script_anchor?.paragraph_id, "s1:p1");
+  assert.equal(commitCalls[1]?.input.json?.schema, "forge.image-map.v1");
+  assert.equal(commitCalls[1]?.input.json?.workpiece_id, workpieceId);
+  assert.equal(state.updateCalls.length, 1);
+  assert.equal(state.updateCalls[0]?.id, "asset-old");
+  assert.equal(state.updateCalls[0]?.patch?.status, "superseded");
+  assert.equal(state.insertCalls.length, 1);
+  assert.equal(state.insertCalls[0]?.asset_kind, "image_map_json");
+  assert.equal(state.insertCalls[0]?.status, "ready");
+  assert.equal(state.insertCalls[0]?.prompt, null);
+  assert.equal(state.insertCalls[0]?.supersedes_asset_id, "asset-old");
+  assert.equal(result.image_map.metadata_updated_at, "2026-03-10T16:05:00.000Z");
+  assert.equal(result.asset?.supersedes_asset_id, "asset-old");
+});
+
+test("TongsCommitService.saveWorkpieceImageMap rejects stale metadata timestamps with image_map_conflict", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const editorId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const commitCalls = [];
+  const { state, ...supabase } = createImageMapAssetSupabase();
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: editorId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkpieceInWorkspace = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-02T00:00:00.000Z",
+    updated_at: "2026-03-02T00:00:00.000Z",
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: editorId, role: "editor" });
+  service.readWorkpieceJson = async () => ({
+    found: true,
+    data: {
+      schema: "forge.metadata.v1",
+      workpiece_id: workpieceId,
+      workspace_id: workspaceId,
+      episode: {
+        schema: "forge.episode.package.v2",
+        image_map: { entries: [] },
+      },
+    },
+    file_row: { updated_at: "2026-03-10T16:10:00.000Z" },
+  });
+  service.commitFile = async (...args) => {
+    commitCalls.push(args);
+    throw new Error("commitFile should not be called on stale conflict");
+  };
+
+  await assert.rejects(
+    () => service.saveWorkpieceImageMap(
+      workpieceId,
+      {
+        workspace_id: workspaceId,
+        entries: [],
+        expected_metadata_updated_at: "2026-03-10T16:00:00.000Z",
+      },
+      { userAccessToken: "editor_token" },
+    ),
+    (error) => {
+      assert.equal(error.status, 409);
+      assert.equal(error.code, "image_map_conflict");
+      assert.equal(error.details?.expected_metadata_updated_at, "2026-03-10T16:00:00.000Z");
+      assert.equal(error.details?.current_metadata_updated_at, "2026-03-10T16:10:00.000Z");
+      return true;
+    },
+  );
+
+  assert.equal(commitCalls.length, 0);
+  assert.equal(state.insertCalls.length, 0);
+  assert.equal(state.updateCalls.length, 0);
 });
 
 test("TongsCommitService.listWorkspaceReadyScripts includes hidden ranked entries and preserves queue state across ready-path changes", async () => {

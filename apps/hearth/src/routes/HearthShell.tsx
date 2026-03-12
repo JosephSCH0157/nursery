@@ -8,11 +8,16 @@ import {
   type BarStockSpark,
   enqueueBarStockSpark,
   isBarStockKey,
-  readBarStockSparks,
+  resolveBarStockSparkHearthWorkpieceId,
   resolveBarstockSparkIdFromQuery,
   upsertBarStockSpark,
   writeBarStockSparks,
 } from "../lib/barstock-sparks";
+import {
+  isCanonicalSparkDiscoveryResolved,
+  listHearthBarStockSparks,
+  resolveCanonicalSparkIntakeError,
+} from "../lib/hearth-barstock-sparks";
 import {
   readBarstockProjectContext,
   resolveBarstockProjectIdFromQuery,
@@ -47,7 +52,9 @@ import {
   readHearthPrimaryScript,
 } from "../lib/hearth-script-repo";
 import {
+  archiveHearthWorkpiece,
   listHearthWorkpieces,
+  restoreHearthWorkpiece,
   type HearthWorkpieceSummary,
 } from "../lib/hearth-workpieces";
 import {
@@ -59,6 +66,7 @@ import { mirrorApprovedScriptToLocal, type MirrorApprovedScriptResult } from "..
 import {
   HEARTH_CONTENT_CATEGORIES,
   listHearthReadyScripts,
+  removeHearthReadyScripts,
   reorderHearthReadyScripts,
   setHearthReadyScriptCategory,
   setHearthReadyScriptHidden,
@@ -98,6 +106,14 @@ import {
   saveEpisodePackageForWorkpiece,
   uploadThumbnailImageVersion,
 } from "../lib/hearth-thumbnail-api";
+import {
+  getWorkpieceImageMap,
+  generateWorkpieceImageMapCandidates,
+  loadImageMapCandidatePreviewDataUrl,
+  saveWorkpieceImageMap,
+  selectWorkpieceImageMapCandidate,
+} from "../lib/hearth-image-map-repo";
+import { generateImageMapEntriesFromScript, resolveImageMapAnchorContext } from "../lib/hearth-image-map-beats";
 import type {
   EpisodePackageV2,
   EpisodeThumbnailConcept,
@@ -934,6 +950,42 @@ function hasIncomingBarStockIntakeQuery(): boolean {
   }
 }
 
+function replaceHearthRouteContext(workspaceId: string | null, workpieceId: string | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const workspaceKeys = ["workspace_id", "workspaceId", "workspace"];
+    const workpieceKeys = ["workpiece_id", "workpieceId", "workpiece", "cradle_id", "cradleId"];
+    const intakeKeys = [
+      "spark_id",
+      "sparkId",
+      "barstock_spark_id",
+      "project_id",
+      "projectId",
+      "barstock_project_id",
+    ];
+
+    for (const key of [...workspaceKeys, ...workpieceKeys, ...intakeKeys]) {
+      params.delete(key);
+    }
+
+    const normalizedWorkspaceId = normalizeUuid(workspaceId);
+    const normalizedWorkpieceId = normalizeUuid(workpieceId);
+    if (normalizedWorkspaceId) {
+      params.set("workspace_id", normalizedWorkspaceId);
+    }
+    if (normalizedWorkpieceId) {
+      params.set("workpiece_id", normalizedWorkpieceId);
+    }
+
+    const nextSearch = params.toString();
+    const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`;
+    window.history.replaceState(window.history.state, "", nextUrl);
+  } catch {
+    // ignore route cleanup failures
+  }
+}
+
 async function writeTextToClipboard(text: string): Promise<boolean> {
   if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
     try {
@@ -1106,27 +1158,27 @@ function createThumbnailClientId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function buildImageMapExportDocument(entries: EpisodeImageMapEntry[]): Record<string, unknown> {
+function buildImageMapExportDocument(
+  workpieceId: string | null,
+  entries: EpisodeImageMapEntry[],
+): Record<string, unknown> {
   return {
-    schema_version: 2,
+    schema: "forge.image-map.v1",
+    ...(workpieceId ? { workpiece_id: workpieceId } : {}),
+    entries,
+  };
+}
+
+function replaceEpisodePackageImageMap(
+  pkg: EpisodePackageV2,
+  entries: EpisodeImageMapEntry[],
+): EpisodePackageV2 {
+  return {
+    ...pkg,
     image_map: {
       entries,
     },
   };
-}
-
-function deriveScriptParagraphAnchors(scriptText: string): string[] {
-  const normalized = scriptText.replace(/\r\n?/g, "\n");
-  const paragraphs = normalized
-    .split(/\n\s*\n/g)
-    .map((chunk) => chunk.replace(/\s+/g, " ").trim())
-    .filter(Boolean);
-
-  const anchors: string[] = [];
-  for (let index = 0; index < paragraphs.length; index += 1) {
-    anchors.push(`s1:para${index + 1}`);
-  }
-  return anchors;
 }
 
 const METADATA_TAG_SUGGESTIONS_BY_CATEGORY: Record<string, string[]> = {
@@ -1762,7 +1814,9 @@ export default function HearthShell() {
   const [workpieceId, setWorkpieceId] = useState<string | null>(() => (
     incomingBarStockIntakeRoute ? null : resolveWorkpieceId()
   ));
-  const [sparks, setSparks] = useState<BarStockSpark[]>(() => readBarStockSparks(resolveWorkspaceId()));
+  const [sparks, setSparks] = useState<BarStockSpark[]>([]);
+  const [isSparksLoading, setIsSparksLoading] = useState<boolean>(() => Boolean(normalizeUuid(resolveWorkspaceId())));
+  const [sparkDiscoveryWorkspaceId, setSparkDiscoveryWorkspaceId] = useState<string | null>(null);
   const [selectedSparkId, setSelectedSparkId] = useState<string | null>(null);
   const [forgeError, setForgeError] = useState<string | null>(null);
   const [isForging, setIsForging] = useState(false);
@@ -1800,6 +1854,7 @@ export default function HearthShell() {
   const [sortKey, setSortKey] = useState<SortKey>("updated");
   const [showArchived, setShowArchived] = useState(false);
   const [readyScripts, setReadyScripts] = useState<HearthReadyScript[]>([]);
+  const [readyScriptsWorkspaceId, setReadyScriptsWorkspaceId] = useState<string | null>(null);
   const [isReadyScriptsLoading, setIsReadyScriptsLoading] = useState(false);
   const [readyScriptsError, setReadyScriptsError] = useState<string | null>(null);
   const [readyCategoryFilter, setReadyCategoryFilter] = useState<ReadyCategoryFilter>("all");
@@ -1807,6 +1862,9 @@ export default function HearthShell() {
   const [updatingReadyCategoryId, setUpdatingReadyCategoryId] = useState<string | null>(null);
   const [readyCategoryError, setReadyCategoryError] = useState<string | null>(null);
   const [removingReadyIds, setRemovingReadyIds] = useState<string[]>([]);
+  const [sendingBackReadyIds, setSendingBackReadyIds] = useState<string[]>([]);
+  const [archivingWorkpieceIds, setArchivingWorkpieceIds] = useState<string[]>([]);
+  const [restoringWorkpieceIds, setRestoringWorkpieceIds] = useState<string[]>([]);
   const [isRestoringReady, setIsRestoringReady] = useState(false);
   const [draggingReadyId, setDraggingReadyId] = useState<string | null>(null);
   const [revisionModalOpen, setRevisionModalOpen] = useState(false);
@@ -1867,13 +1925,25 @@ export default function HearthShell() {
   const [selectedImageMapEntryId, setSelectedImageMapEntryId] = useState<string | null>(null);
   const [imageMapAnchorDraft, setImageMapAnchorDraft] = useState("");
   const [imageMapDescriptionDraft, setImageMapDescriptionDraft] = useState("");
-  const [imageMapIntentDraft, setImageMapIntentDraft] = useState("broll");
+  const [imageMapIntentDraft, setImageMapIntentDraft] = useState("cutaway");
   const [imageMapSourceTypeDraft, setImageMapSourceTypeDraft] = useState("stock");
   const [imageMapPlacementHintDraft, setImageMapPlacementHintDraft] = useState("");
+  const [imageMapMetadataUpdatedAt, setImageMapMetadataUpdatedAt] = useState<string | null>(null);
   const [imageMapSaveState, setImageMapSaveState] = useState<"saved" | "editing" | "saving" | "error" | "offline">("saved");
   const [imageMapSaveError, setImageMapSaveError] = useState<string | null>(null);
   const [imageMapExportMessage, setImageMapExportMessage] = useState<string | null>(null);
+  const [isImageMapCandidateGenerating, setIsImageMapCandidateGenerating] = useState(false);
+  const [isImageMapCandidateSelecting, setIsImageMapCandidateSelecting] = useState(false);
+  const [imageMapCandidateError, setImageMapCandidateError] = useState<string | null>(null);
+  const [imageMapCandidateSelectionError, setImageMapCandidateSelectionError] = useState<string | null>(null);
+  const [imageMapCandidatePreviewStateById, setImageMapCandidatePreviewStateById] = useState<Record<string, "loading" | "ready" | "error">>({});
+  const [imageMapCandidatePreviewUrlById, setImageMapCandidatePreviewUrlById] = useState<Record<string, string>>({});
+  const [imageMapCandidatePreviewErrorById, setImageMapCandidatePreviewErrorById] = useState<Record<string, string>>({});
   const [scriptPanelCopyMessage, setScriptPanelCopyMessage] = useState<string | null>(null);
+  const episodePackageRequestSeqRef = useRef(0);
+  const thumbnailPreviewRequestSeqRef = useRef(0);
+  const imageMapCandidatePreviewRequestSeqRef = useRef(0);
+  const artifactStateWorkpieceIdRef = useRef<string | null>(null);
   const [metadataTitlesDraft, setMetadataTitlesDraft] = useState<EpisodeSeoTitle[]>([]);
   const [metadataTagsDraft, setMetadataTagsDraft] = useState<string[]>([]);
   const [metadataTagInputDraft, setMetadataTagInputDraft] = useState("");
@@ -1892,8 +1962,11 @@ export default function HearthShell() {
   const pendingAiAutosaveRef = useRef<PendingAiAutosave | null>(null);
   const lastAutosaveCommitAtRef = useRef(0);
   const draftEditVersionRef = useRef(0);
+  const workpieceIdRef = useRef<string | null>(workpieceId);
   const activeDraftRef = useRef<Draft | null>(null);
   const draftSnapshotRef = useRef<DraftSnapshot | null>(null);
+  const draftsRef = useRef<Draft[]>(drafts);
+  const workpieceSummariesRef = useRef<HearthWorkpieceSummary[]>(workpieceSummaries);
   const sessionSaveTimer = useRef<number | null>(null);
   const bodyRef = useRef<HTMLTextAreaElement | null>(null);
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1903,9 +1976,12 @@ export default function HearthShell() {
   const sessionCommitQueued = useRef(false);
   const projectIntakeHandledRef = useRef<string | null>(null);
   const sparkIntakeHandledRef = useRef<string | null>(null);
+  const intakeResetKeyRef = useRef<string | null>(null);
   const previousWorkspaceIdRef = useRef<string | null>(workspaceId);
+  const readyScriptsRequestSeqRef = useRef(0);
   const restoredCursorDraftIdRef = useRef<string | null>(null);
   const restoredModeDraftKeyRef = useRef<string | null>(null);
+  const pendingFocusOpenCountRef = useRef(0);
   const pendingDraftEditorPanelRef = useRef<"script" | "manual" | null>(null);
   const aiRequestControllerRef = useRef<AbortController | null>(null);
   const speechRecognitionRef = useRef<any>(null);
@@ -2044,6 +2120,8 @@ export default function HearthShell() {
     revisions,
     preferredDraftId: activeDraft?.id ?? session?.activeDraftId ?? null,
   }), [activeDraft?.id, drafts, readyScripts, revisions, session?.activeDraftId, sparks, workpieceId, workpieceSummaries]);
+  const activeWorkpiece = activeWorkpieceContext.workpiece;
+  const activeWorkpieceIsArchived = Boolean(activeWorkpiece?.isArchived);
   const draftsById = useMemo(() => new Map(drafts.map((draft) => [draft.id, draft] as const)), [drafts]);
   const hasActiveEpisode = Boolean(workpieceId);
   const presencePeers = useMemo(
@@ -2084,8 +2162,8 @@ export default function HearthShell() {
   }, [resolveReadyMarkerName]);
   const localPresenceMode = activeDraft ? "editing" : "viewing";
   const openInAnvilHref = useMemo(
-    () => buildOpenInAnvilHref(workspaceId, workpieceId),
-    [workspaceId, workpieceId],
+    () => (activeWorkpieceIsArchived ? null : buildOpenInAnvilHref(workspaceId, workpieceId)),
+    [activeWorkpieceIsArchived, workspaceId, workpieceId],
   );
   const aiCreditsDepleted = aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0;
   const aiEpisodeReady = Boolean(workpieceId?.trim());
@@ -2096,6 +2174,16 @@ export default function HearthShell() {
   const selectedThumbnailVersion = thumbnailVersions.find((version) => version.id === selectedThumbnailVersionId) ?? null;
   const imageMapEntries = episodePackage?.image_map.entries ?? [];
   const selectedImageMapEntry = imageMapEntries.find((entry) => entry.id === selectedImageMapEntryId) ?? null;
+  const selectedImageMapCandidates = selectedImageMapEntry?.candidate_assets ?? [];
+  const imageMapCandidateCards = selectedImageMapCandidates.map((candidate) => ({
+    id: candidate.asset_id,
+    variantLabel: candidate.variant_label ?? "candidate",
+    visualMode: candidate.visual_mode ?? null,
+    isSelected: selectedImageMapEntry?.selected_asset_id === candidate.asset_id,
+    previewState: imageMapCandidatePreviewStateById[candidate.asset_id] ?? "loading",
+    previewDataUrl: imageMapCandidatePreviewUrlById[candidate.asset_id] ?? null,
+    previewError: imageMapCandidatePreviewErrorById[candidate.asset_id] ?? null,
+  }));
   const hasBrowserSpeech = (
     typeof window !== "undefined"
     && (Boolean((window as any).SpeechRecognition) || Boolean((window as any).webkitSpeechRecognition))
@@ -2139,15 +2227,15 @@ export default function HearthShell() {
       : sparks.find((spark) => spark.id === routeSparkId) ?? null,
     [routeProjectId, routeSparkId, sparks],
   );
-  const forgeableSparks = useMemo(
-    () => sortedSparks.filter((spark) => !isSparkForged(spark)),
+  const visibleSparks = useMemo(
+    () => sortedSparks.filter((spark) => spark.status !== "archived"),
     [sortedSparks],
   );
   const selectedSpark = useMemo(() => {
-    if (forgeableSparks.length === 0) return null;
-    if (!selectedSparkId) return forgeableSparks[0] ?? null;
-    return forgeableSparks.find((spark) => spark.id === selectedSparkId) ?? forgeableSparks[0] ?? null;
-  }, [forgeableSparks, selectedSparkId]);
+    if (visibleSparks.length === 0) return null;
+    if (!selectedSparkId) return visibleSparks[0] ?? null;
+    return visibleSparks.find((spark) => spark.id === selectedSparkId) ?? visibleSparks[0] ?? null;
+  }, [selectedSparkId, visibleSparks]);
   const deferDesktopRailCollections = !isMobile && mode === "sparks" && !hasActiveEpisode;
   const workpieceNavItems = useMemo(() => selectWorkpieceNavItems({
     workpieces: deferDesktopRailCollections ? EMPTY_WORKPIECE_SUMMARY_LIST : workpieceSummaries,
@@ -2169,13 +2257,17 @@ export default function HearthShell() {
   ]);
   const filteredWorkpieceNavItems = useMemo(() => {
     if (showArchived) return workpieceNavItems;
-    return workpieceNavItems.filter((item) => {
-      const draft = item.draftId ? draftsById.get(item.draftId) ?? null : null;
-      return !draft?.archived;
-    });
-  }, [draftsById, showArchived, workpieceNavItems]);
+    return workpieceNavItems.filter((item) => !item.isArchived);
+  }, [showArchived, workpieceNavItems]);
 
-  const readyScriptsForDisplay = deferDesktopRailCollections ? EMPTY_READY_SCRIPT_LIST : readyScripts;
+  const readyScriptsForDisplay = useMemo(() => {
+    if (deferDesktopRailCollections) return EMPTY_READY_SCRIPT_LIST;
+    const normalizedWorkspaceId = normalizeUuid(workspaceId);
+    if (!normalizedWorkspaceId || readyScriptsWorkspaceId !== normalizedWorkspaceId) {
+      return EMPTY_READY_SCRIPT_LIST;
+    }
+    return readyScripts;
+  }, [deferDesktopRailCollections, readyScripts, readyScriptsWorkspaceId, workspaceId]);
   const visibleReadyScriptsForDisplay = useMemo(
     () => readyScriptsForDisplay.filter((entry) => !entry.hiddenAt),
     [readyScriptsForDisplay],
@@ -2295,6 +2387,10 @@ export default function HearthShell() {
   }, [activeDraft]);
 
   useEffect(() => {
+    workpieceIdRef.current = workpieceId;
+  }, [workpieceId]);
+
+  useEffect(() => {
     pendingAiAutosaveRef.current = null;
     setAiAutosaveWarning(null);
     setAiAutosaveStatusAt(null);
@@ -2303,6 +2399,14 @@ export default function HearthShell() {
   useEffect(() => {
     draftSnapshotRef.current = draftSnapshot;
   }, [draftSnapshot]);
+
+  useEffect(() => {
+    draftsRef.current = drafts;
+  }, [drafts]);
+
+  useEffect(() => {
+    workpieceSummariesRef.current = workpieceSummaries;
+  }, [workpieceSummaries]);
 
   useEffect(() => {
     chatMessagesRef.current = chatMessages;
@@ -2458,9 +2562,20 @@ export default function HearthShell() {
     setAiRuntimeWarning(message);
   }, []);
 
-  const refreshWorkpieces = useCallback(async (overrideWorkspaceId?: string | null): Promise<HearthWorkpieceSummary[]> => {
+  const refreshWorkpieces = useCallback(async (
+    overrideWorkspaceId?: string | null,
+    options?: { includeArchived?: boolean },
+  ): Promise<HearthWorkpieceSummary[]> => {
     const workspace = normalizeUuid(overrideWorkspaceId ?? workspaceId);
+    const activeWorkpieceId = normalizeUuid(workpieceId);
+    const currentWorkpieceSummaries = workpieceSummariesRef.current;
+    const includeArchived = options?.includeArchived ?? (
+      showArchived || Boolean(
+        activeWorkpieceId && currentWorkpieceSummaries.some((entry) => entry.workpieceId === activeWorkpieceId && entry.isArchived)
+      )
+    );
     if (!workspace) {
+      workpieceSummariesRef.current = [];
       setWorkpieceSummaries([]);
       setWorkpiecesError(null);
       setIsWorkpiecesLoading(false);
@@ -2470,20 +2585,23 @@ export default function HearthShell() {
     setIsWorkpiecesLoading(true);
     setWorkpiecesError(null);
     try {
-      const list = await listHearthWorkpieces(workspace);
+      const list = await listHearthWorkpieces(workspace, { includeArchived });
+      workpieceSummariesRef.current = list;
       setWorkpieceSummaries(list);
       return list;
     } catch {
+      workpieceSummariesRef.current = [];
       setWorkpieceSummaries([]);
       setWorkpiecesError("Failed to load Episodes.");
       return [];
     } finally {
       setIsWorkpiecesLoading(false);
     }
-  }, [workspaceId]);
+  }, [showArchived, workspaceId, workpieceId]);
 
   const refreshDrafts = useCallback(async (): Promise<Draft[]> => {
     const list = dedupeDraftListById(await store.listDrafts());
+    draftsRef.current = list;
     setDrafts(list);
     return list;
   }, [store]);
@@ -2501,8 +2619,8 @@ export default function HearthShell() {
       return workpieceId;
     }
 
-    const availableWorkpieces = options?.workpieces ?? workpieceSummaries;
-    const availableDrafts = options?.drafts ?? drafts;
+    const availableWorkpieces = options?.workpieces ?? workpieceSummariesRef.current;
+    const availableDrafts = options?.drafts ?? draftsRef.current;
 
     const directWorkpieceId = normalizeUuid(candidateDraftId);
     if (directWorkpieceId && availableWorkpieces.some((entry) => entry.workpieceId === directWorkpieceId)) {
@@ -2522,7 +2640,7 @@ export default function HearthShell() {
     }
 
     return null;
-  }, [activeDraft?.id, drafts, sparks, workpieceId, workpieceSummaries]);
+  }, [activeDraft?.id, sparks, workpieceId]);
 
   const refreshRevisions = useCallback(async (
     currentWorkpieceId: string | null,
@@ -2545,8 +2663,14 @@ export default function HearthShell() {
 
   const refreshEpisodePackage = useCallback(async () => {
     const episodeId = workpieceId?.trim() ?? "";
-    if (!episodeId) {
+    const requestSeq = episodePackageRequestSeqRef.current + 1;
+    episodePackageRequestSeqRef.current = requestSeq;
+
+    if (artifactStateWorkpieceIdRef.current !== episodeId) {
+      // Clear stale artifact state as soon as the active workpiece changes so prior package
+      // residue never renders as current truth for the new target.
       setEpisodePackage(null);
+      setImageMapMetadataUpdatedAt(null);
       setSelectedThumbnailConceptId("");
       setSelectedThumbnailVersionId(null);
       setSelectedImageMapEntryId(null);
@@ -2558,12 +2682,19 @@ export default function HearthShell() {
       setImageMapSaveState("saved");
       setImageMapSaveError(null);
       setImageMapExportMessage(null);
+      artifactStateWorkpieceIdRef.current = episodeId || null;
+    }
+
+    if (!episodeId) {
+      artifactStateWorkpieceIdRef.current = null;
       return;
     }
 
     const loaded = await readEpisodePackageForWorkpiece(episodeId);
+    if (episodePackageRequestSeqRef.current !== requestSeq || (workpieceId?.trim() ?? "") !== episodeId) {
+      return;
+    }
     if (!loaded.ok) {
-      setEpisodePackage(null);
       setThumbnailGenerateError("Unable to load thumbnail metadata.");
       setThumbnailPreviewState("error");
       setThumbnailPreviewDataUrl(null);
@@ -2571,15 +2702,28 @@ export default function HearthShell() {
       return;
     }
 
-    setEpisodePackage(loaded.episodePackage);
+    let nextEpisodePackage = loaded.episodePackage;
+    const imageMapLoaded = await getWorkpieceImageMap(episodeId);
+    if (episodePackageRequestSeqRef.current !== requestSeq || (workpieceId?.trim() ?? "") !== episodeId) {
+      return;
+    }
+    if (imageMapLoaded.ok) {
+      nextEpisodePackage = replaceEpisodePackageImageMap(loaded.episodePackage, imageMapLoaded.imageMap.entries);
+      setImageMapMetadataUpdatedAt(imageMapLoaded.imageMap.metadataUpdatedAt);
+    } else {
+      setImageMapMetadataUpdatedAt(null);
+    }
+
+    setEpisodePackage(nextEpisodePackage);
+    artifactStateWorkpieceIdRef.current = episodeId;
     setThumbnailGenerateError(null);
     setImageMapSaveError(null);
-    const versions = loaded.episodePackage.thumbnail.versions;
-    const preferredVersionId = loaded.episodePackage.thumbnail.primary_version_id
+    const versions = nextEpisodePackage.thumbnail.versions;
+    const preferredVersionId = nextEpisodePackage.thumbnail.primary_version_id
       ?? versions[versions.length - 1]?.id
       ?? null;
     setSelectedThumbnailVersionId(preferredVersionId);
-    const imageEntries = loaded.episodePackage.image_map.entries;
+    const imageEntries = nextEpisodePackage.image_map.entries;
     setSelectedImageMapEntryId((prev) => {
       if (prev && imageEntries.some((entry) => entry.id === prev)) return prev;
       return imageEntries[0]?.id ?? null;
@@ -2587,9 +2731,12 @@ export default function HearthShell() {
   }, [workpieceId]);
 
   const refreshReadyScripts = useCallback(async () => {
-    const workspace = workspaceId?.trim() ?? "";
+    const workspace = normalizeUuid(workspaceId);
+    const requestSeq = readyScriptsRequestSeqRef.current + 1;
+    readyScriptsRequestSeqRef.current = requestSeq;
     if (!workspace) {
       setReadyScripts([]);
+      setReadyScriptsWorkspaceId(null);
       setReadyScriptsError(null);
       setIsReadyScriptsLoading(false);
       return;
@@ -2599,13 +2746,25 @@ export default function HearthShell() {
     setReadyScriptsError(null);
     try {
       const entries = await listHearthReadyScripts(workspace);
+      if (readyScriptsRequestSeqRef.current !== requestSeq) return;
       setReadyScripts(entries);
+      setReadyScriptsWorkspaceId(workspace);
     } catch {
+      if (readyScriptsRequestSeqRef.current !== requestSeq) return;
       setReadyScripts([]);
+      setReadyScriptsWorkspaceId(null);
       setReadyScriptsError("Failed to load Ready to Record list.");
     } finally {
-      setIsReadyScriptsLoading(false);
+      if (readyScriptsRequestSeqRef.current === requestSeq) {
+        setIsReadyScriptsLoading(false);
+      }
     }
+  }, [workspaceId]);
+
+  useEffect(() => {
+    setReadyScripts([]);
+    setReadyScriptsWorkspaceId(null);
+    setReadyScriptsError(null);
   }, [workspaceId]);
 
   useEffect(() => {
@@ -2778,7 +2937,7 @@ export default function HearthShell() {
 
   const onRestoreRemovedReady = useCallback(async () => {
     const normalizedWorkspaceId = normalizeUuid(workspaceId);
-    const hiddenEntries = readyScripts.filter((entry) => entry.hiddenAt);
+    const hiddenEntries = readyScriptsForDisplay.filter((entry) => entry.hiddenAt);
     if (!normalizedWorkspaceId || hiddenEntries.length === 0 || isRestoringReady) return;
 
     setReadyScriptsError(null);
@@ -2809,14 +2968,14 @@ export default function HearthShell() {
     } finally {
       setIsRestoringReady(false);
     }
-  }, [isRestoringReady, readyScripts, refreshReadyScripts, workspaceId]);
+  }, [isRestoringReady, readyScriptsForDisplay, refreshReadyScripts, workspaceId]);
 
   const onReorderReady = useCallback(async (fromId: string, toId: string) => {
     const normalizedWorkspaceId = normalizeUuid(workspaceId);
     if (!normalizedWorkspaceId || !fromId || !toId || fromId === toId) return;
 
-    const reordered = reorderVisibleReadyEntries(readyScripts, fromId, toId);
-    const changed = reordered.some((entry, index) => entry !== readyScripts[index]);
+    const reordered = reorderVisibleReadyEntries(readyScriptsForDisplay, fromId, toId);
+    const changed = reordered.some((entry, index) => entry !== readyScriptsForDisplay[index]);
     if (!changed) return;
 
     const orderedVisibleIds = reordered
@@ -2841,7 +3000,7 @@ export default function HearthShell() {
       setReadyScriptsError("Failed to reorder Ready queue.");
       await refreshReadyScripts();
     }
-  }, [readyScripts, refreshReadyScripts, workspaceId]);
+  }, [readyScriptsForDisplay, refreshReadyScripts, workspaceId]);
 
   const persistSession = useCallback(async (draftId: string | null, uiSelectedTab?: string) => {
     const now = Date.now();
@@ -2853,6 +3012,7 @@ export default function HearthShell() {
     const next: HearthSession = {
       ...base,
       activeDraftId: draftId ?? undefined,
+      activeWorkpieceId: workpieceId ?? undefined,
       lastOpenedAt: now,
       updatedAt: now,
       uiState: {
@@ -2864,7 +3024,7 @@ export default function HearthShell() {
     };
     setSession(next);
     await sessionStore.saveSession(next);
-  }, [cursorPosition, focusTab, mode, scrollTop, session, sessionStore]);
+  }, [cursorPosition, focusTab, mode, scrollTop, session, sessionStore, workpieceId]);
 
   const selectDraft = useCallback(async (
     draft: Draft | null,
@@ -3055,6 +3215,10 @@ export default function HearthShell() {
       setError("Open in Anvil requires a valid workspace and workpiece.");
       return;
     }
+    if (activeWorkpieceIsArchived) {
+      setError("This workpiece is archived. Restore it in Hearth before opening in Anvil.");
+      return;
+    }
     const href = buildOpenInAnvilHref(workspace, episodeId);
     if (!href) {
       setError("Open in Anvil is unavailable until context is resolved.");
@@ -3101,7 +3265,7 @@ export default function HearthShell() {
 
     flushChatHistoryNow({ draftId: activeDraft.id });
     window.location.assign(href);
-  }, [activeDraft, flushChatHistoryNow, workpieceId, workspaceId]);
+  }, [activeDraft, activeWorkpieceIsArchived, flushChatHistoryNow, persistDraft, workpieceId, workspaceId]);
 
   const applySessionOrigin = useCallback((origin: HearthSessionOrigin) => {
     updatePlanningSession((prev) => ({
@@ -3127,7 +3291,7 @@ export default function HearthShell() {
     const normalizedWorkpieceId = normalizeUuid(targetWorkpieceId);
     if (!normalizedWorkpieceId) return null;
 
-    const availableDrafts = options?.drafts ?? drafts;
+    const availableDrafts = options?.drafts ?? draftsRef.current;
     const existingDraft = selectDraftForWorkpiece({
       workpieceId: normalizedWorkpieceId,
       drafts: availableDrafts,
@@ -3136,7 +3300,28 @@ export default function HearthShell() {
     });
     if (existingDraft) return existingDraft;
 
-    const availableWorkpieces = options?.workpieces ?? workpieceSummaries;
+    const canonicalDrafts = dedupeDraftListById(await store.listWorkpieceDrafts(normalizedWorkpieceId));
+    if (canonicalDrafts.length > 0) {
+      const mergedDrafts = dedupeDraftListById([...availableDrafts, ...canonicalDrafts]);
+      draftsRef.current = mergedDrafts;
+      setDrafts(mergedDrafts);
+      const canonicalDraft = selectDraftForWorkpiece({
+        workpieceId: normalizedWorkpieceId,
+        drafts: mergedDrafts,
+        sparks,
+        preferredDraftId: options?.preferredDraftId ?? null,
+      }) ?? (
+        options?.preferredDraftId
+          ? mergedDrafts.find((draft) => draft.id === options.preferredDraftId) ?? null
+          : null
+      ) ?? canonicalDrafts
+        .slice()
+        .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+        ?? null;
+      if (canonicalDraft) return canonicalDraft;
+    }
+
+    const availableWorkpieces = options?.workpieces ?? workpieceSummariesRef.current;
     const workpieceSummary = availableWorkpieces.find((entry) => entry.workpieceId === normalizedWorkpieceId) ?? null;
     const scriptRead = await readHearthPrimaryScript(normalizedWorkpieceId);
     if (!scriptRead.ok) {
@@ -3184,7 +3369,7 @@ export default function HearthShell() {
       sparks,
       preferredDraftId: options?.preferredDraftId ?? normalizedWorkpieceId,
     });
-  }, [drafts, hearthUser, refreshDrafts, sparks, store, workpieceSummaries]);
+  }, [hearthUser, refreshDrafts, sparks, store]);
 
   const openWorkpieceInFocus = useCallback(async (
     targetWorkpieceId: string,
@@ -3200,47 +3385,62 @@ export default function HearthShell() {
     if (!normalizedWorkpieceId) return null;
 
     const targetWorkspaceId = normalizeUuid(options?.workspaceId ?? workspaceId) ?? workspaceId;
+    pendingFocusOpenCountRef.current += 1;
     if (targetWorkspaceId && targetWorkspaceId !== workspaceId) {
       setWorkspaceId(targetWorkspaceId);
     }
     setWorkpieceId(normalizedWorkpieceId);
+    replaceHearthRouteContext(targetWorkspaceId ?? null, normalizedWorkpieceId);
     setFocusTab("draft");
     setMode("focus");
 
-    let availableWorkpieces = options?.workpieces ?? workpieceSummaries;
-    if (
-      availableWorkpieces.length === 0
-      || !availableWorkpieces.some((entry) => entry.workpieceId === normalizedWorkpieceId)
-    ) {
-      availableWorkpieces = await refreshWorkpieces(targetWorkspaceId);
+    try {
+      let availableWorkpieces = options?.workpieces ?? workpieceSummariesRef.current;
+      if (
+        availableWorkpieces.length === 0
+        || !availableWorkpieces.some((entry) => entry.workpieceId === normalizedWorkpieceId)
+      ) {
+        availableWorkpieces = await refreshWorkpieces(targetWorkspaceId, { includeArchived: true });
+      }
+
+      const targetWorkpiece = availableWorkpieces.find((entry) => entry.workpieceId === normalizedWorkpieceId) ?? null;
+      if (targetWorkpiece?.isArchived) {
+        await selectDraft(null);
+        await persistSession(null, "draft");
+        if (isMobile) {
+          setMobileOverlayView("editor");
+        }
+        return null;
+      }
+
+      const draft = await hydrateOrCreateDraftBufferForWorkpiece(normalizedWorkpieceId, {
+        drafts: options?.drafts ?? draftsRef.current,
+        workpieces: availableWorkpieces,
+        preferredDraftId: options?.preferredDraftId ?? null,
+        seed: options?.seed,
+      });
+
+      if (draft) {
+        await selectDraft(draft, { revisionWorkpieceId: normalizedWorkpieceId });
+      } else {
+        setDraftSnapshot(null);
+        setActiveDraft(null);
+      }
+
+      if (isMobile) {
+        setMobileOverlayView("editor");
+      }
+
+      return draft;
+    } finally {
+      pendingFocusOpenCountRef.current = Math.max(0, pendingFocusOpenCountRef.current - 1);
     }
-
-    const draft = await hydrateOrCreateDraftBufferForWorkpiece(normalizedWorkpieceId, {
-      drafts: options?.drafts ?? drafts,
-      workpieces: availableWorkpieces,
-      preferredDraftId: options?.preferredDraftId ?? null,
-      seed: options?.seed,
-    });
-
-    if (draft) {
-      await selectDraft(draft, { revisionWorkpieceId: normalizedWorkpieceId });
-    } else {
-      setDraftSnapshot(null);
-      setActiveDraft(null);
-    }
-
-    if (isMobile) {
-      setMobileOverlayView("editor");
-    }
-
-    return draft;
   }, [
-    drafts,
     hydrateOrCreateDraftBufferForWorkpiece,
     isMobile,
+    persistSession,
     refreshWorkpieces,
     selectDraft,
-    workpieceSummaries,
     workspaceId,
   ]);
 
@@ -3483,15 +3683,19 @@ export default function HearthShell() {
     setError(null);
     try {
       if (incomingBarStockIntakeRoute) {
-        setSession(null);
-        restoredCursorDraftIdRef.current = null;
-        setWorkpieceSummaries([]);
-        setDrafts([]);
-        setWorkpieceId(null);
-        setActiveDraft(null);
-        setDraftSnapshot(null);
-        setRevisions([]);
-        setSelectedRevision(null);
+        const intakeResetKey = `${normalizeUuid(workspaceId) ?? resolveWorkspaceId() ?? "none"}:${routeProjectId ?? routeSparkId ?? "none"}`;
+        if (intakeResetKeyRef.current !== intakeResetKey) {
+          intakeResetKeyRef.current = intakeResetKey;
+          setSession(null);
+          restoredCursorDraftIdRef.current = null;
+          setWorkpieceSummaries([]);
+          setDrafts([]);
+          setWorkpieceId(null);
+          setActiveDraft(null);
+          setDraftSnapshot(null);
+          setRevisions([]);
+          setSelectedRevision(null);
+        }
         return;
       }
 
@@ -3500,13 +3704,17 @@ export default function HearthShell() {
         sessionStore.getSession(),
         store.listDrafts(),
         workspace
-          ? listHearthWorkpieces(workspace).catch(() => [] as HearthWorkpieceSummary[])
+          ? listHearthWorkpieces(workspace, {
+              includeArchived: Boolean(normalizeUuid(workpieceIdRef.current)),
+            }).catch(() => [] as HearthWorkpieceSummary[])
           : Promise.resolve([] as HearthWorkpieceSummary[]),
       ]);
 
       setSession(storedSession);
       const dedupedDrafts = dedupeDraftListById(list);
+      draftsRef.current = dedupedDrafts;
       setDrafts(dedupedDrafts);
+      workpieceSummariesRef.current = loadedWorkpieces;
       setWorkpieceSummaries(loadedWorkpieces);
       setWorkpiecesError(null);
 
@@ -3528,8 +3736,9 @@ export default function HearthShell() {
       pushCandidateDraftId(storedSession?.activeDraftId ?? null);
       pushCandidateDraftId(activeDraftRef.current?.id ?? null);
 
-      const explicitWorkpieceId = normalizeUuid(workpieceId);
+      const explicitWorkpieceId = normalizeUuid(workpieceIdRef.current);
       const resolvedWorkpieceId = explicitWorkpieceId
+        ?? normalizeUuid(storedSession?.activeWorkpieceId ?? null)
         ?? candidateDraftIds
           .map((draftId) => resolveWorkpieceIdForDraftId(draftId, {
             drafts: dedupedDrafts,
@@ -3563,10 +3772,11 @@ export default function HearthShell() {
   }, [
     incomingBarStockIntakeRoute,
     openWorkpieceInFocus,
+    routeProjectId,
+    routeSparkId,
     resolveWorkpieceIdForDraftId,
     sessionStore,
     store,
-    workpieceId,
     workspaceId,
   ]);
 
@@ -3606,6 +3816,9 @@ export default function HearthShell() {
 
     projectIntakeHandledRef.current = null;
     sparkIntakeHandledRef.current = null;
+    setSparks([]);
+    setSparkDiscoveryWorkspaceId(null);
+    setIsSparksLoading(Boolean(normalizeUuid(workspaceId)));
     setWorkpieceId(null);
     setPlanningSession(null);
     setSessionTouched(false);
@@ -3711,50 +3924,110 @@ export default function HearthShell() {
 
     const intakeKey = `${workspaceId ?? "none"}:${routeSparkId}`;
     if (sparkIntakeHandledRef.current === intakeKey) return;
+
+    const intakeError = resolveCanonicalSparkIntakeError({
+      routeProjectId,
+      routeSparkId,
+      workspaceId,
+      discoveryWorkspaceId: sparkDiscoveryWorkspaceId,
+      spark: routeSpark,
+    });
+    if (intakeError) {
+      sparkIntakeHandledRef.current = intakeKey;
+      setForgeError(intakeError);
+      return;
+    }
+
+    if (!isCanonicalSparkDiscoveryResolved(workspaceId, sparkDiscoveryWorkspaceId) || isSparksLoading) {
+      return;
+    }
     if (!routeSpark) {
-      if (sparks.length > 0) {
-        sparkIntakeHandledRef.current = intakeKey;
-        setForgeError("Spark not found in Bar Stock. Sync and retry.");
-      }
       return;
     }
 
     sparkIntakeHandledRef.current = intakeKey;
     setSelectedSparkId(routeSpark.id);
+    const linkedWorkpieceId = resolveBarStockSparkHearthWorkpieceId(routeSpark);
+    if (linkedWorkpieceId) {
+      setForgeError(null);
+      void openWorkpieceInFocus(linkedWorkpieceId, {
+        workspaceId,
+        preferredDraftId: routeSpark.links?.hearthDraftId ?? null,
+      });
+      return;
+    }
     if (isSparkForged(routeSpark)) {
       setMode("episodes");
-      setForgeError("This spark is already attached to Hearth. Open its Episode from Episodes.");
+      setForgeError("This spark is already attached to Hearth, but its Episode link could not be resolved.");
       return;
     }
     void forgeSpark(routeSpark);
-  }, [forgeSpark, routeProjectId, routeSpark, routeSparkId, sparks.length, workspaceId]);
+  }, [
+    forgeSpark,
+    isSparksLoading,
+    openWorkpieceInFocus,
+    routeProjectId,
+    routeSpark,
+    routeSparkId,
+    sparkDiscoveryWorkspaceId,
+    workspaceId,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const refresh = () => setSparks(readBarStockSparks(workspaceId));
-    refresh();
+    let cancelled = false;
+    const refresh = async () => {
+      const normalizedWorkspaceId = normalizeUuid(workspaceId);
+      if (!normalizedWorkspaceId) {
+        if (!cancelled) {
+          setSparks([]);
+          setSparkDiscoveryWorkspaceId(null);
+          setIsSparksLoading(false);
+        }
+        return;
+      }
+
+      if (!cancelled) setIsSparksLoading(true);
+      try {
+        const remote = await listHearthBarStockSparks(normalizedWorkspaceId);
+        if (cancelled) return;
+        setSparks(remote);
+      } catch {
+        if (cancelled) return;
+      } finally {
+        if (!cancelled) {
+          setSparkDiscoveryWorkspaceId(normalizedWorkspaceId);
+          setIsSparksLoading(false);
+        }
+      }
+    };
+
+    void refresh();
     const onStorage = (event: StorageEvent) => {
       if (!isBarStockKey(event.key, workspaceId)) return;
-      refresh();
+      void refresh();
     };
     window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("storage", onStorage);
+    };
   }, [workspaceId]);
 
   useEffect(() => {
-    if (forgeableSparks.length === 0) {
+    if (visibleSparks.length === 0) {
       if (selectedSparkId) setSelectedSparkId(null);
       return;
     }
     if (!selectedSparkId) {
-      setSelectedSparkId(forgeableSparks[0]?.id ?? null);
+      setSelectedSparkId(visibleSparks[0]?.id ?? null);
       return;
     }
-    const exists = forgeableSparks.some((spark) => spark.id === selectedSparkId);
+    const exists = visibleSparks.some((spark) => spark.id === selectedSparkId);
     if (!exists) {
-      setSelectedSparkId(forgeableSparks[0]?.id ?? null);
+      setSelectedSparkId(visibleSparks[0]?.id ?? null);
     }
-  }, [forgeableSparks, selectedSparkId]);
+  }, [selectedSparkId, visibleSparks]);
 
   useEffect(() => {
     if (incomingBarStockIntakeRoute && !workpieceId) {
@@ -3773,12 +4046,6 @@ export default function HearthShell() {
           workspace_id: normalizeUuid(cached.workspace_id),
         };
         setPlanningSession(normalizedCached);
-        if (!workpieceId && normalizedCached.workpiece_id) {
-          setWorkpieceId(normalizedCached.workpiece_id);
-        }
-        if (!workspaceId && normalizedCached.workspace_id) {
-          setWorkspaceId(normalizedCached.workspace_id);
-        }
       }
     };
     refreshSession();
@@ -3922,6 +4189,8 @@ export default function HearthShell() {
 
   useEffect(() => {
     const episodeId = workpieceId?.trim() ?? "";
+    const previewSeq = thumbnailPreviewRequestSeqRef.current + 1;
+    thumbnailPreviewRequestSeqRef.current = previewSeq;
     if (!episodeId || !selectedThumbnailVersion) {
       setThumbnailPreviewState("idle");
       setThumbnailPreviewDataUrl(null);
@@ -3944,7 +4213,14 @@ export default function HearthShell() {
       workpieceId: episodeId,
       version: selectedThumbnailVersion,
     }).then((result) => {
-      if (cancelled) return;
+      if (
+        cancelled
+        || thumbnailPreviewRequestSeqRef.current !== previewSeq
+        || (workpieceId?.trim() ?? "") !== episodeId
+        || selectedThumbnailVersionId !== selectedThumbnailVersion.id
+      ) {
+        return;
+      }
       if (!result.ok) {
         setThumbnailPreviewState("error");
         setThumbnailPreviewDataUrl(null);
@@ -3959,7 +4235,7 @@ export default function HearthShell() {
     return () => {
       cancelled = true;
     };
-  }, [selectedThumbnailVersion, workpieceId]);
+  }, [selectedThumbnailVersion, selectedThumbnailVersionId, workpieceId]);
 
   useEffect(() => {
     if (imageMapEntries.length === 0) {
@@ -3976,7 +4252,7 @@ export default function HearthShell() {
     if (!selectedImageMapEntry) {
       setImageMapAnchorDraft("");
       setImageMapDescriptionDraft("");
-      setImageMapIntentDraft("broll");
+      setImageMapIntentDraft("cutaway");
       setImageMapSourceTypeDraft("stock");
       setImageMapPlacementHintDraft("");
       setImageMapSaveState("saved");
@@ -3984,17 +4260,90 @@ export default function HearthShell() {
     }
     setImageMapAnchorDraft(selectedImageMapEntry.anchor);
     setImageMapDescriptionDraft(selectedImageMapEntry.description);
-    setImageMapIntentDraft(selectedImageMapEntry.intent || "broll");
+    setImageMapIntentDraft(selectedImageMapEntry.intent || "cutaway");
     setImageMapSourceTypeDraft(selectedImageMapEntry.source_type || "stock");
     setImageMapPlacementHintDraft(selectedImageMapEntry.placement_hint ?? "");
     setImageMapSaveState("saved");
+    setImageMapCandidateError(null);
+    setImageMapCandidateSelectionError(null);
   }, [selectedImageMapEntry]);
 
   useEffect(() => {
+    const episodeId = workpieceId?.trim() ?? "";
+    const previewSeq = imageMapCandidatePreviewRequestSeqRef.current + 1;
+    imageMapCandidatePreviewRequestSeqRef.current = previewSeq;
+
+    if (!episodeId || !selectedImageMapEntry) {
+      setImageMapCandidatePreviewStateById({});
+      setImageMapCandidatePreviewUrlById({});
+      setImageMapCandidatePreviewErrorById({});
+      return;
+    }
+
+    const candidates = selectedImageMapEntry.candidate_assets.filter((asset) => asset.asset_id && asset.path);
+    if (candidates.length === 0) {
+      setImageMapCandidatePreviewStateById({});
+      setImageMapCandidatePreviewUrlById({});
+      setImageMapCandidatePreviewErrorById({});
+      return;
+    }
+
+    const loadingState = Object.fromEntries(candidates.map((asset) => [asset.asset_id, "loading"] as const));
+    setImageMapCandidatePreviewStateById(loadingState);
+    setImageMapCandidatePreviewUrlById({});
+    setImageMapCandidatePreviewErrorById({});
+
+    let cancelled = false;
+    void Promise.all(candidates.map(async (asset) => {
+      const result = await loadImageMapCandidatePreviewDataUrl({
+        workpieceId: episodeId,
+        path: asset.path,
+        mimeType: asset.mime_type ?? null,
+      });
+      return { assetId: asset.asset_id, result };
+    })).then((results) => {
+      if (
+        cancelled
+        || imageMapCandidatePreviewRequestSeqRef.current !== previewSeq
+        || (workpieceId?.trim() ?? "") !== episodeId
+        || selectedImageMapEntryId !== selectedImageMapEntry.id
+      ) {
+        return;
+      }
+
+      const nextState: Record<string, "loading" | "ready" | "error"> = {};
+      const nextUrls: Record<string, string> = {};
+      const nextErrors: Record<string, string> = {};
+      for (const { assetId, result } of results) {
+        if (result.ok) {
+          nextState[assetId] = "ready";
+          nextUrls[assetId] = result.dataUrl;
+        } else {
+          nextState[assetId] = "error";
+          nextErrors[assetId] = result.error;
+        }
+      }
+      setImageMapCandidatePreviewStateById(nextState);
+      setImageMapCandidatePreviewUrlById(nextUrls);
+      setImageMapCandidatePreviewErrorById(nextErrors);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedImageMapEntry, selectedImageMapEntryId, workpieceId]);
+
+  useEffect(() => {
     if (!workpieceId) {
+      setImageMapMetadataUpdatedAt(null);
       setImageMapSaveState("saved");
       setImageMapSaveError(null);
       setImageMapExportMessage(null);
+      setImageMapCandidateError(null);
+      setImageMapCandidateSelectionError(null);
+      setImageMapCandidatePreviewStateById({});
+      setImageMapCandidatePreviewUrlById({});
+      setImageMapCandidatePreviewErrorById({});
     }
   }, [workpieceId]);
 
@@ -4014,6 +4363,8 @@ export default function HearthShell() {
     const hasChanges = (
       current.anchor !== nextAnchor
       || current.description !== nextDescription
+      || current.visual_intent !== nextDescription
+      || current.prompt_basis !== nextDescription
       || current.intent !== nextIntent
       || current.source_type !== nextSourceType
       || (current.placement_hint ?? null) !== nextPlacementHint
@@ -4042,29 +4393,19 @@ export default function HearthShell() {
           {
             anchor: nextAnchor,
             description: nextDescription,
+            visual_intent: nextDescription,
+            prompt_basis: nextDescription,
             intent: nextIntent,
             source_type: nextSourceType,
+            candidate_assets: [],
+            selected_asset_id: null,
+            status: current.script_anchor ? "mapped" : "draft",
             placement_hint: nextPlacementHint,
           },
         );
 
-        const workspace = workspaceId?.trim() ?? "";
-        const workpiece = workpieceId?.trim() ?? "";
-        if (!workspace || !workpiece) {
-          if (cancelled) return;
-          setImageMapSaveState("error");
-          setImageMapSaveError("Workspace or workpiece is missing.");
-          return;
-        }
-
-        const saved = await saveEpisodePackageForWorkpiece({
-          workpieceId: workpiece,
-          workspaceId: workspace,
-          episodePackage: nextEpisodePackage,
-          eventName: "hearth.image_map.entry.autosave.v1",
-          eventPayload: {
-            entry_id: selectedImageMapEntryId,
-          },
+        const saved = await persistImageMapEntries({
+          entries: nextEpisodePackage.image_map.entries,
         });
         if (cancelled) return;
         if (!saved.ok) {
@@ -4078,9 +4419,10 @@ export default function HearthShell() {
           }
           return;
         }
-        setEpisodePackage(saved.episodePackage);
         setImageMapSaveState("saved");
         setImageMapSaveError(null);
+        setImageMapCandidateError(null);
+        setImageMapCandidateSelectionError(null);
       })();
     }, 450);
 
@@ -4216,6 +4558,7 @@ export default function HearthShell() {
           return;
         }
         setEpisodePackage(saved.episodePackage);
+        setImageMapMetadataUpdatedAt(saved.metadataUpdatedAt);
         setMetadataSaveState("saved");
         setMetadataSaveError(null);
       })();
@@ -4292,7 +4635,7 @@ export default function HearthShell() {
   useEffect(() => {
     if (!activeDraft) {
       restoredModeDraftKeyRef.current = null;
-      if (mode === "focus") {
+      if (mode === "focus" && pendingFocusOpenCountRef.current === 0) {
         setMode("episodes");
       }
       return;
@@ -4881,20 +5224,40 @@ export default function HearthShell() {
   }
 
   async function onResumeLastProject() {
-    const lastDraftId = session?.activeDraftId ?? null;
-    if (!lastDraftId) {
-      setForgeError("No last project to resume.");
-      return;
-    }
-    const lastWorkpieceId = resolveWorkpieceIdForDraftId(lastDraftId);
+    const lastWorkpieceId = normalizeUuid(session?.activeWorkpieceId ?? null)
+      ?? resolveWorkpieceIdForDraftId(session?.activeDraftId ?? null);
     if (!lastWorkpieceId) {
-      setForgeError("Last project not found.");
+      setForgeError("No last project to resume.");
       return;
     }
     setForgeError(null);
     await openWorkpieceInFocus(lastWorkpieceId, {
-      preferredDraftId: lastDraftId,
+      preferredDraftId: session?.activeDraftId ?? null,
     });
+  }
+
+  async function onActivateSpark(spark: BarStockSpark) {
+    setSelectedSparkId(spark.id);
+    const linkedWorkpieceId = resolveBarStockSparkHearthWorkpieceId(spark);
+    if (linkedWorkpieceId) {
+      setForgeError(null);
+      await openWorkpieceInFocus(linkedWorkpieceId, {
+        workspaceId,
+        preferredDraftId: spark.links?.hearthDraftId ?? null,
+      });
+      return;
+    }
+    if (isSparkForged(spark)) {
+      setForgeError("This spark is already attached to Hearth, but its Episode link could not be resolved.");
+      return;
+    }
+    await forgeSpark(spark);
+  }
+
+  function resolveSparkActionLabel(spark: BarStockSpark): string {
+    if (resolveBarStockSparkHearthWorkpieceId(spark)) return "Open in Hearth";
+    if (isSparkForged(spark)) return "Episode link missing";
+    return "Start forging";
   }
 
   async function onStartForgingSelectedSpark() {
@@ -4902,7 +5265,7 @@ export default function HearthShell() {
       await startFromScratch();
       return;
     }
-    await forgeSpark(selectedSpark);
+    await onActivateSpark(selectedSpark);
   }
 
   function onAddDecision() {
@@ -4937,7 +5300,7 @@ export default function HearthShell() {
 
   async function onDeleteDraft(draft: Draft) {
     const draftTitle = draft.title.trim() || "Untitled Draft";
-    const confirmDelete = window.confirm(`Delete "${draftTitle}"? This cannot be undone.`);
+    const confirmDelete = window.confirm(`Delete draft buffer "${draftTitle}"? This cannot be undone.`);
     if (!confirmDelete) return;
     setError(null);
     try {
@@ -4989,10 +5352,105 @@ export default function HearthShell() {
 
       await persistSession(activeDraft?.id ?? null, "draft");
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to delete draft.";
+      const message = err instanceof Error ? err.message : "Failed to delete draft buffer.";
       setError(message);
     }
   }
+
+  const onArchiveWorkpiece = useCallback(async (targetWorkpieceId: string) => {
+    const normalizedWorkspaceId = normalizeUuid(workspaceId);
+    const normalizedWorkpieceId = normalizeUuid(targetWorkpieceId);
+    if (!normalizedWorkspaceId || !normalizedWorkpieceId || archivingWorkpieceIds.includes(normalizedWorkpieceId)) {
+      return;
+    }
+
+    setError(null);
+    setArchivingWorkpieceIds((prev) => (
+      prev.includes(normalizedWorkpieceId) ? prev : [...prev, normalizedWorkpieceId]
+    ));
+
+    try {
+      await archiveHearthWorkpiece({
+        workspaceId: normalizedWorkspaceId,
+        workpieceId: normalizedWorkpieceId,
+      });
+
+      const archivingActiveWorkpiece = workpieceId === normalizedWorkpieceId;
+      if (archivingActiveWorkpiece) {
+        await selectDraft(null);
+        await persistSession(null, "draft");
+        if (!showArchived) {
+          setWorkpieceId(null);
+          setMode("episodes");
+          setFocusTab("draft");
+          if (isMobile && mobileOverlayView === "editor") {
+            setMobileOverlayView(null);
+          }
+        }
+      }
+
+      await refreshWorkpieces(normalizedWorkspaceId, { includeArchived: showArchived });
+    } catch {
+      setError("Failed to archive workpiece.");
+    } finally {
+      setArchivingWorkpieceIds((prev) => prev.filter((id) => id !== normalizedWorkpieceId));
+    }
+  }, [
+    archivingWorkpieceIds,
+    isMobile,
+    mobileOverlayView,
+    persistSession,
+    refreshWorkpieces,
+    selectDraft,
+    showArchived,
+    workpieceId,
+    workspaceId,
+  ]);
+
+  const onRestoreWorkpiece = useCallback(async (
+    targetWorkpieceId: string,
+    options?: { openAfterRestore?: boolean },
+  ) => {
+    const normalizedWorkspaceId = normalizeUuid(workspaceId);
+    const normalizedWorkpieceId = normalizeUuid(targetWorkpieceId);
+    if (!normalizedWorkspaceId || !normalizedWorkpieceId || restoringWorkpieceIds.includes(normalizedWorkpieceId)) {
+      return;
+    }
+
+    setError(null);
+    setRestoringWorkpieceIds((prev) => (
+      prev.includes(normalizedWorkpieceId) ? prev : [...prev, normalizedWorkpieceId]
+    ));
+
+    try {
+      await restoreHearthWorkpiece({
+        workspaceId: normalizedWorkspaceId,
+        workpieceId: normalizedWorkpieceId,
+      });
+      setAiRuntimeWarning("Restored. Review and re-ready before recording.");
+      await refreshWorkpieces(normalizedWorkspaceId, {
+        includeArchived: showArchived || Boolean(options?.openAfterRestore),
+      });
+
+      if (options?.openAfterRestore) {
+        await openWorkpieceInFocus(normalizedWorkpieceId, {
+          workspaceId: normalizedWorkspaceId,
+          preferredDraftId: activeDraft?.id ?? normalizedWorkpieceId,
+        });
+      }
+    } catch {
+      setError("Failed to restore workpiece.");
+    } finally {
+      setRestoringWorkpieceIds((prev) => prev.filter((id) => id !== normalizedWorkpieceId));
+    }
+  }, [
+    activeDraft?.id,
+    openWorkpieceInFocus,
+    refreshWorkpieces,
+    restoringWorkpieceIds,
+    showArchived,
+    workspaceId,
+  ]);
 
   async function onConfirmRevision() {
     if (!activeDraft) return;
@@ -5935,7 +6393,64 @@ export default function HearthShell() {
       return null;
     }
     setEpisodePackage(saved.episodePackage);
+    setImageMapMetadataUpdatedAt(saved.metadataUpdatedAt);
     return saved.episodePackage;
+  }
+
+  async function persistImageMapEntries(args: {
+    entries: EpisodeImageMapEntry[];
+  }): Promise<{ ok: true; episodePackage: EpisodePackageV2 } | { ok: false; error: string }> {
+    if (!episodePackage) {
+      return {
+        ok: false,
+        error: "Unable to save image map for this episode.",
+      };
+    }
+
+    const workspace = workspaceId?.trim() ?? "";
+    const workpiece = workpieceId?.trim() ?? "";
+    if (!workspace || !workpiece) {
+      return {
+        ok: false,
+        error: "Workspace or workpiece is missing.",
+      };
+    }
+
+    const saved = await saveWorkpieceImageMap({
+      workpieceId: workpiece,
+      workspaceId: workspace,
+      entries: args.entries,
+      expectedMetadataUpdatedAt: imageMapMetadataUpdatedAt,
+    });
+
+    if (!saved.ok) {
+      if (saved.reason === "conflict" && saved.latest) {
+        const latest = saved.latest;
+        setEpisodePackage((prev) => (
+          prev ? replaceEpisodePackageImageMap(prev, latest.entries) : prev
+        ));
+        setImageMapMetadataUpdatedAt(latest.metadataUpdatedAt);
+        return {
+          ok: false,
+          error: "Image map changed on another client. Latest entries have been reloaded.",
+        };
+      }
+
+      return {
+        ok: false,
+        error: saved.reason === "invalid_response"
+          ? "Image map save returned an invalid response."
+          : "Unable to save image map.",
+      };
+    }
+
+    const nextEpisodePackage = replaceEpisodePackageImageMap(episodePackage, saved.imageMap.entries);
+    setEpisodePackage(nextEpisodePackage);
+    setImageMapMetadataUpdatedAt(saved.imageMap.metadataUpdatedAt);
+    return {
+      ok: true,
+      episodePackage: nextEpisodePackage,
+    };
   }
 
   async function onCreateThumbnailConcept() {
@@ -6173,7 +6688,16 @@ export default function HearthShell() {
         return;
       }
 
-      setEpisodePackage(generated.updatedEpisodePackage);
+      let nextEpisodePackage = generated.updatedEpisodePackage;
+      const refreshedImageMap = await getWorkpieceImageMap(episodeId);
+      if (refreshedImageMap.ok) {
+        nextEpisodePackage = replaceEpisodePackageImageMap(
+          generated.updatedEpisodePackage,
+          refreshedImageMap.imageMap.entries,
+        );
+        setImageMapMetadataUpdatedAt(refreshedImageMap.imageMap.metadataUpdatedAt);
+      }
+      setEpisodePackage(nextEpisodePackage);
       setSelectedThumbnailConceptId(generated.version.concept_id);
       setSelectedThumbnailVersionId(generated.version.id);
       setThumbnailPromptOverride("");
@@ -6284,6 +6808,8 @@ export default function HearthShell() {
         ...entry,
         anchor: nextAnchor,
         description: imageMapDescriptionDraft,
+        visual_intent: imageMapDescriptionDraft,
+        prompt_basis: imageMapDescriptionDraft,
         intent: imageMapIntentDraft.trim().toLowerCase(),
         source_type: imageMapSourceTypeDraft.trim().toLowerCase(),
         placement_hint: imageMapPlacementHintDraft.trim() || null,
@@ -6291,20 +6817,232 @@ export default function HearthShell() {
     });
   }
 
+  async function readCanonicalScriptForImageMapGeneration(): Promise<{
+    ok: true;
+    text: string;
+    source: "primary_script" | "saved_draft";
+    includesUnsavedLocalEdits: boolean;
+  } | {
+    ok: false;
+    message: string;
+  }> {
+    const episodeId = workpieceId?.trim() ?? "";
+    if (!episodeId) {
+      return { ok: false, message: "Select an Episode before generating visuals." };
+    }
+
+    const primaryScript = await readHearthPrimaryScript(episodeId);
+    if (primaryScript.ok && primaryScript.data.text?.trim()) {
+      const canonicalText = primaryScript.data.text;
+      return {
+        ok: true,
+        text: canonicalText,
+        source: "primary_script",
+        includesUnsavedLocalEdits: Boolean(activeDraft?.body && activeDraft.body.trim() && activeDraft.body !== canonicalText),
+      };
+    }
+
+    const canonicalDrafts = dedupeDraftListById(await store.listWorkpieceDrafts(episodeId));
+    const preferredDraft = activeDraft?.id
+      ? canonicalDrafts.find((draft) => draft.id === activeDraft.id) ?? null
+      : null;
+    const latestDraft = preferredDraft ?? canonicalDrafts
+      .slice()
+      .sort((a, b) => (b.updatedAt ?? b.createdAt ?? 0) - (a.updatedAt ?? a.createdAt ?? 0))[0]
+      ?? null;
+
+    if (!latestDraft?.body.trim()) {
+      return { ok: false, message: "No canonical script found for this workpiece yet." };
+    }
+
+    return {
+      ok: true,
+      text: latestDraft.body,
+      source: "saved_draft",
+      includesUnsavedLocalEdits: Boolean(
+        activeDraft?.body && activeDraft.body.trim() && activeDraft.body !== latestDraft.body,
+      ),
+    };
+  }
+
+  async function onGenerateImageMapCandidates() {
+    if (isAiProcessing || isApprovingScript || isImageMapCandidateGenerating) return;
+    if (!episodePackage || !selectedImageMapEntry) return;
+
+    const episodeId = workpieceId?.trim() ?? "";
+    const workspace = workspaceId?.trim() ?? "";
+    if (!episodeId || !workspace) {
+      setImageMapCandidateError("Select an Episode before generating still candidates.");
+      return;
+    }
+    if (imageMapSaveState === "editing" || imageMapSaveState === "saving") {
+      setImageMapCandidateError("Save the image-map entry before generating candidates.");
+      return;
+    }
+    if (!selectedImageMapEntry.script_anchor) {
+      setImageMapCandidateError("This visual beat needs an exact script anchor before candidate generation.");
+      return;
+    }
+    if (aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0) {
+      setImageMapCandidateError("No AI credits remaining.");
+      return;
+    }
+
+    const canonicalScript = await readCanonicalScriptForImageMapGeneration();
+    if (!canonicalScript.ok) {
+      setImageMapCandidateError(canonicalScript.message);
+      return;
+    }
+    const context = resolveImageMapAnchorContext(canonicalScript.text, selectedImageMapEntry.script_anchor);
+
+    const alwaysApproveSpend = resolveAiThumbnailAutoApproveFromStorage();
+    const confirmed = alwaysApproveSpend
+      ? true
+      : window.confirm("Generate two still candidates for this visual beat? This will spend AI credits.");
+    if (!confirmed) return;
+
+    setIsImageMapCandidateGenerating(true);
+    setImageMapCandidateError(null);
+    setImageMapCandidateSelectionError(null);
+    setAiRuntimeWarning(null);
+    try {
+      const generated = await generateWorkpieceImageMapCandidates({
+        workpieceId: episodeId,
+        workspaceId: workspace,
+        imageMapEntryId: selectedImageMapEntry.id,
+        expectedMetadataUpdatedAt: imageMapMetadataUpdatedAt,
+        contextBefore: context.before,
+        contextAfter: context.after,
+        aspect: thumbnailAspect,
+        confirmSpend: confirmed,
+        alwaysApproveAiSpend: alwaysApproveSpend,
+      });
+
+      if (!generated.ok) {
+        if (generated.reason === "conflict" && generated.latest && episodePackage) {
+          setEpisodePackage(replaceEpisodePackageImageMap(episodePackage, generated.latest.entries));
+          setImageMapMetadataUpdatedAt(generated.latest.metadataUpdatedAt);
+        }
+        setImageMapCandidateError(
+          generated.error
+            ?? (generated.reason === "conflict"
+              ? "Image map changed since last load. Reloaded the latest canonical state."
+              : "Still-candidate generation failed.")
+        );
+        return;
+      }
+
+      if (episodePackage) {
+        setEpisodePackage(replaceEpisodePackageImageMap(episodePackage, generated.imageMap.entries));
+      }
+      setImageMapMetadataUpdatedAt(generated.imageMap.metadataUpdatedAt);
+      setImageMapCandidateSelectionError(null);
+      setImageMapExportMessage(`Generated ${generated.generatedAssets.length} still candidates for the selected visual beat.`);
+      if (typeof generated.tokenBalance === "number") {
+        setAiTokenBalance(generated.tokenBalance);
+      }
+      if (generated.creditsWarning) {
+        setAiRuntimeWarning(generated.creditsWarning);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Still-candidate generation failed.";
+      setImageMapCandidateError(message);
+    } finally {
+      setIsImageMapCandidateGenerating(false);
+    }
+  }
+
+  async function onSelectImageMapCandidate(candidateAssetId: string) {
+    if (!episodePackage || !selectedImageMapEntry) return;
+    if (imageMapSaveState === "editing" || imageMapSaveState === "saving") {
+      setImageMapCandidateSelectionError("Save or finish editing this visual beat before selecting a still candidate.");
+      return;
+    }
+
+    const workspace = workspaceId?.trim() ?? "";
+    const episodeId = workpieceId?.trim() ?? "";
+    if (!workspace || !episodeId) {
+      setImageMapCandidateSelectionError("Workspace or workpiece is missing.");
+      return;
+    }
+
+    if (selectedImageMapEntry.selected_asset_id === candidateAssetId) {
+      setImageMapCandidateSelectionError(null);
+      return;
+    }
+
+    setIsImageMapCandidateSelecting(true);
+    setImageMapCandidateSelectionError(null);
+    try {
+      const selected = await selectWorkpieceImageMapCandidate({
+        workpieceId: episodeId,
+        workspaceId: workspace,
+        imageMapEntryId: selectedImageMapEntry.id,
+        candidateAssetId,
+        expectedMetadataUpdatedAt: imageMapMetadataUpdatedAt,
+        currentImageMap: {
+          workpieceId: episodeId,
+          workspaceId: workspace,
+          entries: episodePackage.image_map.entries,
+          metadataUpdatedAt: imageMapMetadataUpdatedAt,
+          asset: null,
+        },
+      });
+
+      if (!selected.ok) {
+        const latest = selected.reason === "conflict" ? selected.latest ?? null : null;
+        if (latest) {
+          setEpisodePackage((prev) => (
+            prev ? replaceEpisodePackageImageMap(prev, latest.entries) : prev
+          ));
+          setImageMapMetadataUpdatedAt(latest.metadataUpdatedAt);
+        }
+        setImageMapCandidateSelectionError(
+          selected.error
+            ?? (selected.reason === "candidate_not_attached"
+              ? "That still candidate is no longer attached to this visual beat."
+              : selected.reason === "entry_not_found"
+                ? "This visual beat no longer exists in the canonical image map."
+                : selected.reason === "conflict"
+                  ? "Image map changed since last load. Reloaded the latest canonical state."
+                  : "Unable to save the selected still candidate.")
+        );
+        return;
+      }
+
+      setEpisodePackage((prev) => (
+        prev ? replaceEpisodePackageImageMap(prev, selected.imageMap.entries) : prev
+      ));
+      setImageMapMetadataUpdatedAt(selected.imageMap.metadataUpdatedAt);
+      setImageMapCandidateSelectionError(null);
+      setImageMapExportMessage("Selected still candidate saved canonically for this visual beat.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to save the selected still candidate.";
+      setImageMapCandidateSelectionError(message);
+    } finally {
+      setIsImageMapCandidateSelecting(false);
+    }
+  }
+
   async function onCreateImageMapEntry() {
     if (!episodePackage) return;
-    const nextAnchor = `s1:para${episodePackage.image_map.entries.length + 1}`;
+    const nextAnchor = `manual:p${episodePackage.image_map.entries.length + 1}`;
     const nextEpisodePackage = addImageMapEntry(episodePackage, {
       anchor: nextAnchor,
       description: "",
-      intent: "broll",
+      visual_intent: "",
+      prompt_basis: "",
+      intent: "cutaway",
       source_type: "stock",
+      beat_order: episodePackage.image_map.entries.length + 1,
+      paragraph_beat_order: 1,
+      candidate_assets: [],
+      selected_asset_id: null,
+      status: "draft",
       placement_hint: null,
     });
     const newEntry = nextEpisodePackage.image_map.entries[nextEpisodePackage.image_map.entries.length - 1] ?? null;
-    const workspace = workspaceId?.trim() ?? "";
-    const workpiece = workpieceId?.trim() ?? "";
-    if (!workspace || !workpiece || !newEntry) {
+    if (!newEntry) {
       setImageMapSaveState("error");
       setImageMapSaveError("Unable to create entry in current episode.");
       return;
@@ -6312,21 +7050,14 @@ export default function HearthShell() {
 
     setImageMapSaveState("saving");
     setImageMapSaveError(null);
-    const saved = await saveEpisodePackageForWorkpiece({
-      workpieceId: workpiece,
-      workspaceId: workspace,
-      episodePackage: nextEpisodePackage,
-      eventName: "hearth.image_map.entry.created.v1",
-      eventPayload: {
-        entry_id: newEntry.id,
-      },
+    const saved = await persistImageMapEntries({
+      entries: nextEpisodePackage.image_map.entries,
     });
     if (!saved.ok) {
       setImageMapSaveState("error");
       setImageMapSaveError(saved.error);
       return;
     }
-    setEpisodePackage(saved.episodePackage);
     setSelectedImageMapEntryId(newEntry.id);
     setImageMapSaveState("saved");
   }
@@ -6335,15 +7066,21 @@ export default function HearthShell() {
     if (!episodePackage || !selectedImageMapEntry) return;
     const nextEpisodePackage = addImageMapEntry(episodePackage, {
       anchor: selectedImageMapEntry.anchor,
+      script_anchor: selectedImageMapEntry.script_anchor,
       description: selectedImageMapEntry.description,
+      visual_intent: selectedImageMapEntry.visual_intent,
+      prompt_basis: selectedImageMapEntry.prompt_basis,
       intent: selectedImageMapEntry.intent,
       source_type: selectedImageMapEntry.source_type,
+      beat_order: selectedImageMapEntry.beat_order,
+      paragraph_beat_order: selectedImageMapEntry.paragraph_beat_order,
+      candidate_assets: [],
+      selected_asset_id: null,
+      status: selectedImageMapEntry.script_anchor ? "mapped" : "draft",
       placement_hint: selectedImageMapEntry.placement_hint ?? null,
     });
     const duplicated = nextEpisodePackage.image_map.entries[nextEpisodePackage.image_map.entries.length - 1] ?? null;
-    const workspace = workspaceId?.trim() ?? "";
-    const workpiece = workpieceId?.trim() ?? "";
-    if (!workspace || !workpiece || !duplicated) {
+    if (!duplicated) {
       setImageMapSaveState("error");
       setImageMapSaveError("Unable to duplicate entry.");
       return;
@@ -6351,22 +7088,14 @@ export default function HearthShell() {
 
     setImageMapSaveState("saving");
     setImageMapSaveError(null);
-    const saved = await saveEpisodePackageForWorkpiece({
-      workpieceId: workpiece,
-      workspaceId: workspace,
-      episodePackage: nextEpisodePackage,
-      eventName: "hearth.image_map.entry.duplicated.v1",
-      eventPayload: {
-        source_entry_id: selectedImageMapEntry.id,
-        entry_id: duplicated.id,
-      },
+    const saved = await persistImageMapEntries({
+      entries: nextEpisodePackage.image_map.entries,
     });
     if (!saved.ok) {
       setImageMapSaveState("error");
       setImageMapSaveError(saved.error);
       return;
     }
-    setEpisodePackage(saved.episodePackage);
     setSelectedImageMapEntryId(duplicated.id);
     setImageMapSaveState("saved");
   }
@@ -6377,99 +7106,60 @@ export default function HearthShell() {
     if (!confirmed) return;
 
     const nextEpisodePackage = removeImageMapEntry(episodePackage, selectedImageMapEntryId);
-    const workspace = workspaceId?.trim() ?? "";
-    const workpiece = workpieceId?.trim() ?? "";
-    if (!workspace || !workpiece) {
-      setImageMapSaveState("error");
-      setImageMapSaveError("Unable to delete entry in current episode.");
-      return;
-    }
-
     setImageMapSaveState("saving");
     setImageMapSaveError(null);
-    const saved = await saveEpisodePackageForWorkpiece({
-      workpieceId: workpiece,
-      workspaceId: workspace,
-      episodePackage: nextEpisodePackage,
-      eventName: "hearth.image_map.entry.deleted.v1",
-      eventPayload: {
-        entry_id: selectedImageMapEntryId,
-      },
+    const saved = await persistImageMapEntries({
+      entries: nextEpisodePackage.image_map.entries,
     });
     if (!saved.ok) {
       setImageMapSaveState("error");
       setImageMapSaveError(saved.error);
       return;
     }
-    setEpisodePackage(saved.episodePackage);
     setSelectedImageMapEntryId(saved.episodePackage.image_map.entries[0]?.id ?? null);
     setImageMapSaveState("saved");
   }
 
   async function onSeedImageMapFromScript() {
     if (!episodePackage) return;
-    const scriptText = activeDraft?.body ?? "";
-    const anchors = deriveScriptParagraphAnchors(scriptText);
-    if (anchors.length === 0) {
-      setImageMapExportMessage("No script paragraphs found to seed.");
+    if (episodePackage.image_map.entries.length > 0) {
+      const confirmed = window.confirm(
+        "Generate a new image map from the canonical script? This replaces the current visual beats.",
+      );
+      if (!confirmed) return;
+    }
+    const canonicalScript = await readCanonicalScriptForImageMapGeneration();
+    if (!canonicalScript.ok) {
+      setImageMapExportMessage(canonicalScript.message);
       return;
     }
 
-    const existingAnchors = new Set(episodePackage.image_map.entries.map((entry) => entry.anchor.trim().toLowerCase()));
-    let nextEpisodePackage = episodePackage;
-    let seededCount = 0;
-    for (const anchor of anchors) {
-      const key = anchor.trim().toLowerCase();
-      if (!key || existingAnchors.has(key)) continue;
-      nextEpisodePackage = addImageMapEntry(nextEpisodePackage, {
-        anchor,
-        description: "",
-        intent: "broll",
-        source_type: "stock",
-        placement_hint: null,
-      });
-      existingAnchors.add(key);
-      seededCount += 1;
-    }
-
-    if (seededCount === 0) {
-      setImageMapExportMessage("All script anchors are already present.");
-      return;
-    }
-
-    const workspace = workspaceId?.trim() ?? "";
-    const workpiece = workpieceId?.trim() ?? "";
-    if (!workspace || !workpiece) {
-      setImageMapSaveState("error");
-      setImageMapSaveError("Unable to seed entries in current episode.");
+    const generatedEntries = generateImageMapEntriesFromScript(canonicalScript.text);
+    if (generatedEntries.length === 0) {
+      setImageMapExportMessage("No visually meaningful beats found in the canonical script.");
       return;
     }
 
     setImageMapSaveState("saving");
     setImageMapSaveError(null);
-    const saved = await saveEpisodePackageForWorkpiece({
-      workpieceId: workpiece,
-      workspaceId: workspace,
-      episodePackage: nextEpisodePackage,
-      eventName: "hearth.image_map.seeded_from_script.v1",
-      eventPayload: {
-        seeded_count: seededCount,
-      },
+    const saved = await persistImageMapEntries({
+      entries: generatedEntries,
     });
     if (!saved.ok) {
       setImageMapSaveState("error");
       setImageMapSaveError(saved.error);
       return;
     }
-    setEpisodePackage(saved.episodePackage);
     setSelectedImageMapEntryId(saved.episodePackage.image_map.entries[0]?.id ?? null);
     setImageMapSaveState("saved");
-    setImageMapExportMessage(`Seeded ${seededCount} anchor entries from script.`);
+    const sourceLabel = canonicalScript.source === "primary_script" ? "published script" : "saved draft";
+    const note = canonicalScript.includesUnsavedLocalEdits ? " Save the draft first to include unsaved local edits." : "";
+    setImageMapExportMessage(`Generated ${generatedEntries.length} visual beats from the canonical ${sourceLabel}.${note}`);
   }
 
   async function onCopyImageMapExportJson() {
     const entries = resolveImageMapEntriesForExport();
-    const payload = buildImageMapExportDocument(entries);
+    const payload = buildImageMapExportDocument(workpieceId?.trim() ?? null, entries);
     const text = JSON.stringify(payload, null, 2);
     const copied = await writeTextToClipboard(text);
     setImageMapExportMessage(copied ? "Image map JSON copied." : "Clipboard write failed.");
@@ -6477,7 +7167,7 @@ export default function HearthShell() {
 
   function onDownloadImageMapExportJson() {
     const entries = resolveImageMapEntriesForExport();
-    const payload = buildImageMapExportDocument(entries);
+    const payload = buildImageMapExportDocument(workpieceId?.trim() ?? null, entries);
     const text = JSON.stringify(payload, null, 2);
     const blob = new Blob([text], { type: "application/json;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -7109,6 +7799,42 @@ export default function HearthShell() {
     }
   }, [activeDraft?.id, openWorkpieceInFocus]);
 
+  const onSendBackToEdit = useCallback(async (entry: HearthReadyScript) => {
+    if (!entry.id || sendingBackReadyIds.includes(entry.id)) return;
+
+    setError(null);
+    setReadyScriptsError(null);
+    setSendingBackReadyIds((prev) => (prev.includes(entry.id) ? prev : [...prev, entry.id]));
+
+    try {
+      await openWorkpieceInFocus(entry.workpieceId, {
+        workspaceId: entry.workspaceId,
+        preferredDraftId: entry.workpieceId,
+      });
+
+      const result = await removeHearthReadyScripts({
+        workpieceId: entry.workpieceId,
+        paths: entry.scriptPaths.length ? entry.scriptPaths : [entry.primaryScriptPath || entry.path],
+      });
+      if (!result.ok) {
+        setError("Failed to remove the workpiece from Ready. It is still marked ready.");
+        setReadyScriptsError("Failed to remove the workpiece from Ready.");
+        await refreshReadyScripts();
+        return;
+      }
+
+      setReadyScripts((prev) => prev.filter((row) => row.workpieceId !== entry.workpieceId));
+      await refreshReadyScripts();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to send the workpiece back to editing.";
+      setError(message);
+      setReadyScriptsError("Failed to send the workpiece back to editing.");
+      await refreshReadyScripts();
+    } finally {
+      setSendingBackReadyIds((prev) => prev.filter((id) => id !== entry.id));
+    }
+  }, [openWorkpieceInFocus, refreshReadyScripts, sendingBackReadyIds]);
+
   const openReadyInMobileOverlay = useCallback(() => {
     setMode("ready");
     if (isMobile) {
@@ -7138,7 +7864,8 @@ export default function HearthShell() {
   }, [editingPeers.length, viewingPeers.length, workpieceId]);
 
   const renderSparksView = () => {
-    const resumeWorkpieceId = resolveWorkpieceIdForDraftId(session?.activeDraftId ?? null);
+    const resumeWorkpieceId = normalizeUuid(session?.activeWorkpieceId ?? null)
+      ?? resolveWorkpieceIdForDraftId(session?.activeDraftId ?? null);
     const resumeWorkpiece = resumeWorkpieceId
       ? workpieceSummaries.find((entry) => entry.workpieceId === resumeWorkpieceId) ?? null
       : null;
@@ -7243,15 +7970,18 @@ export default function HearthShell() {
                 </div>
               </div>
 
-              {forgeableSparks.length === 0 ? (
+              {visibleSparks.length === 0 ? (
                 <p className="hs-home-empty">
-                  No sparks yet. Capture ideas in Bar Stock first.
+                  {isSparksLoading
+                    ? "Loading sparks from Bar Stock..."
+                    : "No sparks yet. Capture ideas in Bar Stock first."}
                 </p>
               ) : (
-                forgeableSparks.map((spark) => {
+                visibleSparks.map((spark) => {
                   const status = formatSparkStatus(spark);
                   const preview = buildSparkPreview(spark.body);
                   const isSelected = selectedSpark?.id === spark.id;
+                  const actionLabel = resolveSparkActionLabel(spark);
                   return (
                     <div
                       key={spark.id}
@@ -7263,7 +7993,7 @@ export default function HearthShell() {
                         className="hs-spark-select"
                         disabled={isForging}
                         onFocus={() => setSelectedSparkId(spark.id)}
-                        onClick={() => void forgeSpark(spark)}
+                        onClick={() => void onActivateSpark(spark)}
                       >
                         <div className="hs-spark-header">
                           <div className="hs-spark-title">{deriveSparkTitle(spark)}</div>
@@ -7281,10 +8011,10 @@ export default function HearthShell() {
                         </div>
                         <button
                           type="button"
-                          onClick={() => void forgeSpark(spark)}
+                          onClick={() => void onActivateSpark(spark)}
                           disabled={isForging}
                         >
-                          Start forging
+                          {actionLabel}
                         </button>
                       </div>
                     </div>
@@ -7313,7 +8043,7 @@ export default function HearthShell() {
                     onClick={() => void onStartForgingSelectedSpark()}
                     disabled={isForging}
                   >
-                    Start forging
+                    {selectedSpark ? resolveSparkActionLabel(selectedSpark) : "Start forging"}
                   </button>
                 </div>
               </>
@@ -7414,7 +8144,7 @@ export default function HearthShell() {
             {isSaving ? "Saving..." : "Save draft"}
           </button>
           <button onClick={() => activeDraft && void onDeleteDraft(activeDraft)} disabled={!activeDraft || isSaving}>
-            Delete Draft
+            Delete Draft Buffer
           </button>
           <button onClick={() => setRevisionModalOpen(true)} disabled={!activeDraft || isSaving}>
             Create Revision
@@ -7753,8 +8483,14 @@ export default function HearthShell() {
                 saveState={imageMapSaveState}
                 saveError={imageMapSaveError}
                 exportMessage={imageMapExportMessage}
+                candidateCards={imageMapCandidateCards}
+                candidateGenerateBusy={isImageMapCandidateGenerating}
+                candidateGenerateError={imageMapCandidateError}
+                candidateSelectBusy={isImageMapCandidateSelecting}
+                candidateSelectionError={imageMapCandidateSelectionError}
                 disabled={isAiProcessing || isApprovingScript}
                 onSelectEntry={setSelectedImageMapEntryId}
+                onSelectCandidate={(candidateId) => void onSelectImageMapCandidate(candidateId)}
                 onDraftAnchorChange={(value) => {
                   setImageMapAnchorDraft(value);
                   setImageMapSaveState("editing");
@@ -7784,6 +8520,7 @@ export default function HearthShell() {
                 onDuplicateEntry={() => void onDuplicateImageMapEntry()}
                 onDeleteEntry={() => void onDeleteImageMapEntry()}
                 onSeedFromScript={() => void onSeedImageMapFromScript()}
+                onGenerateCandidates={() => void onGenerateImageMapCandidates()}
                 onCopyExport={() => void onCopyImageMapExportJson()}
                 onDownloadExport={onDownloadImageMapExportJson}
               />
@@ -8273,6 +9010,8 @@ export default function HearthShell() {
           const draft = item.draftId ? draftsById.get(item.draftId) ?? null : null;
           const isActive = workpieceId === item.workpieceId;
           const updatedAt = item.updatedAtMs || draft?.updatedAt || Date.now();
+          const isArchiving = archivingWorkpieceIds.includes(item.workpieceId);
+          const isRestoring = restoringWorkpieceIds.includes(item.workpieceId);
           return (
           <li key={item.workpieceId}>
             <div className={`hs-workpiece-card${isActive ? " is-active" : ""}`}>
@@ -8294,19 +9033,31 @@ export default function HearthShell() {
                   {draft ? `Last edited by ${resolveDraftEditorName(draft)}` : "No attached draft buffer yet"}
                 </div>
               </button>
-              {draft ? (
-                <div className="hs-workpiece-actions">
+              <div className="hs-workpiece-actions">
+                {draft && !item.isArchived ? (
                   <button type="button" onClick={() => void saveDraftMeta(draft, { pinned: !draft.pinned })}>
                     {draft.pinned ? "Unpin" : "Pin"}
                   </button>
-                  <button type="button" onClick={() => void saveDraftMeta(draft, { archived: !draft.archived })}>
-                    {draft.archived ? "Unarchive" : "Archive"}
-                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => void (
+                    item.isArchived
+                      ? onRestoreWorkpiece(item.workpieceId)
+                      : onArchiveWorkpiece(item.workpieceId)
+                  )}
+                  disabled={isArchiving || isRestoring}
+                >
+                  {item.isArchived
+                    ? isRestoring ? "Restoring..." : "Restore Workpiece"
+                    : isArchiving ? "Archiving..." : "Archive Workpiece"}
+                </button>
+                {draft ? (
                   <button type="button" onClick={() => void onDeleteDraft(draft)}>
-                    Delete
+                    Delete Draft Buffer
                   </button>
-                </div>
-              ) : null}
+                ) : null}
+              </div>
             </div>
           </li>
         );
@@ -8376,6 +9127,13 @@ export default function HearthShell() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => void onSendBackToEdit(entry)}
+                  disabled={sendingBackReadyIds.includes(entry.id)}
+                >
+                  {sendingBackReadyIds.includes(entry.id) ? "Sending back..." : "Send Back to Edit"}
+                </button>
+                <button
+                  type="button"
                   onClick={() => {
                     if (!anvilHref) return;
                     window.location.assign(anvilHref);
@@ -8387,7 +9145,7 @@ export default function HearthShell() {
                 <button
                   type="button"
                   onClick={() => void onRemoveFromReady(entry)}
-                  disabled={removingReadyIds.includes(entry.id)}
+                  disabled={removingReadyIds.includes(entry.id) || sendingBackReadyIds.includes(entry.id)}
                 >
                   {removingReadyIds.includes(entry.id) ? "Hiding..." : "Hide from Ready"}
                 </button>
@@ -8443,6 +9201,34 @@ export default function HearthShell() {
           <div className="hs-home-actions">
             <button type="button" onClick={() => setMode("episodes")}>
               Go to Episodes
+            </button>
+          </div>
+        </section>
+      );
+    }
+
+    if (activeWorkpieceContext.workpiece?.isArchived) {
+      const archivedWorkpiece = activeWorkpieceContext.workpiece;
+      const isRestoringArchivedWorkpiece = restoringWorkpieceIds.includes(archivedWorkpiece.workpieceId);
+      return (
+        <section className="hs-home">
+          <header className="hs-home-header">
+            <h2 className="hs-home-title">{archivedWorkpiece.title}</h2>
+            <p className="hs-home-subtext">This workpiece is archived. Restore it to review, then re-ready it before recording.</p>
+          </header>
+          {archivedWorkpiece.archiveReason ? (
+            <div className="hs-rail-meta">Archive reason: {archivedWorkpiece.archiveReason}</div>
+          ) : null}
+          <div className="hs-home-actions">
+            <button
+              type="button"
+              onClick={() => void onRestoreWorkpiece(archivedWorkpiece.workpieceId, { openAfterRestore: true })}
+              disabled={isRestoringArchivedWorkpiece}
+            >
+              {isRestoringArchivedWorkpiece ? "Restoring..." : "Restore Workpiece"}
+            </button>
+            <button type="button" onClick={() => setMode("episodes")}>
+              Back to Episodes
             </button>
           </div>
         </section>
@@ -8729,6 +9515,13 @@ export default function HearthShell() {
                                 </button>
                                 <button
                                   type="button"
+                                  onClick={() => void onSendBackToEdit(entry)}
+                                  disabled={sendingBackReadyIds.includes(entry.id)}
+                                >
+                                  {sendingBackReadyIds.includes(entry.id) ? "Sending back..." : "Send Back to Edit"}
+                                </button>
+                                <button
+                                  type="button"
                                   onClick={() => {
                                     if (!anvilHref) return;
                                     window.location.assign(anvilHref);
@@ -8788,6 +9581,8 @@ export default function HearthShell() {
                     const isActive = workpieceId === item.workpieceId;
                     const isEditing = Boolean(draftId) && editingDraftId === draftId;
                     const updatedAt = item.updatedAtMs || draft?.updatedAt || Date.now();
+                    const isArchiving = archivingWorkpieceIds.includes(item.workpieceId);
+                    const isRestoring = restoringWorkpieceIds.includes(item.workpieceId);
                     return (
                       <li key={item.workpieceId}>
                         <div
@@ -8842,7 +9637,7 @@ export default function HearthShell() {
                           <div className="hs-workpiece-revisions">
                             Revisions {draft?.revisionCount ?? "-"}
                           </div>
-                          {draft ? (
+                          {draft && !item.isArchived ? (
                             <div className="hs-workpiece-actions">
                               <button
                                 type="button"
@@ -8859,17 +9654,28 @@ export default function HearthShell() {
                               >
                                 Rename
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => void saveDraftMeta(draft, { archived: !draft.archived })}
-                              >
-                                {draft.archived ? "Unarchive" : "Archive"}
-                              </button>
-                              <button type="button" onClick={() => void onDeleteDraft(draft)}>
-                                Delete
-                              </button>
                             </div>
                           ) : null}
+                          <div className="hs-workpiece-actions">
+                            <button
+                              type="button"
+                              onClick={() => void (
+                                item.isArchived
+                                  ? onRestoreWorkpiece(item.workpieceId)
+                                  : onArchiveWorkpiece(item.workpieceId)
+                              )}
+                              disabled={isArchiving || isRestoring}
+                            >
+                              {item.isArchived
+                                ? isRestoring ? "Restoring..." : "Restore Workpiece"
+                                : isArchiving ? "Archiving..." : "Archive Workpiece"}
+                            </button>
+                            {draft ? (
+                              <button type="button" onClick={() => void onDeleteDraft(draft)}>
+                                Delete Draft Buffer
+                              </button>
+                            ) : null}
+                          </div>
                         </div>
                       </li>
                     );
@@ -8882,60 +9688,79 @@ export default function HearthShell() {
           {hasActiveEpisode ? (
             <div className="hs-active-workpiece">
               <div className="hs-rail-heading">Active workpiece</div>
-              <button
-                type="button"
-                onClick={() => void onOpenInAnvil()}
-                disabled={!openInAnvilHref}
-                className="hs-mode-button"
-              >
-                Open in Anvil
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setFocusTab("draft");
-                  setMode("focus");
-                }}
-                className={`hs-mode-button${mode === "focus" && focusTab === "draft" ? " is-active" : ""}`}
-              >
-                Draft
-                <span className="hs-mode-meta">{wordCount} words</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setFocusTab("planning");
-                  setMode("focus");
-                }}
-                className={`hs-mode-button${mode === "focus" && focusTab === "planning" ? " is-active" : ""}`}
-              >
-                Planning Board
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setFocusTab("sources");
-                  setMode("focus");
-                }}
-                className={`hs-mode-button${mode === "focus" && focusTab === "sources" ? " is-active" : ""}`}
-                title={sourcesBadgeTitle}
-              >
-                Sources
-                {sourcesBadge ? (
-                  <span className={`hs-sources-badge${devMode ? " is-dev" : ""}`}>{sourcesBadge}</span>
-                ) : null}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setFocusTab("revisions");
-                  setMode("focus");
-                }}
-                className={`hs-mode-button${mode === "focus" && focusTab === "revisions" ? " is-active" : ""}`}
-              >
-                Revisions
-                <span className="hs-mode-meta">{revisions.length}</span>
-              </button>
+              {activeWorkpieceIsArchived && activeWorkpiece ? (
+                <>
+                  <div className="hs-rail-meta">Archived workpieces are hidden records. Restore to review, then re-ready before recording.</div>
+                  {activeWorkpiece.archiveReason ? (
+                    <div className="hs-rail-meta">Archive reason: {activeWorkpiece.archiveReason}</div>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => void onRestoreWorkpiece(activeWorkpiece.workpieceId, { openAfterRestore: true })}
+                    disabled={restoringWorkpieceIds.includes(activeWorkpiece.workpieceId)}
+                    className="hs-mode-button"
+                  >
+                    {restoringWorkpieceIds.includes(activeWorkpiece.workpieceId) ? "Restoring..." : "Restore Workpiece"}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void onOpenInAnvil()}
+                    disabled={!openInAnvilHref}
+                    className="hs-mode-button"
+                  >
+                    Open in Anvil
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFocusTab("draft");
+                      setMode("focus");
+                    }}
+                    className={`hs-mode-button${mode === "focus" && focusTab === "draft" ? " is-active" : ""}`}
+                  >
+                    Draft
+                    <span className="hs-mode-meta">{wordCount} words</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFocusTab("planning");
+                      setMode("focus");
+                    }}
+                    className={`hs-mode-button${mode === "focus" && focusTab === "planning" ? " is-active" : ""}`}
+                  >
+                    Planning Board
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFocusTab("sources");
+                      setMode("focus");
+                    }}
+                    className={`hs-mode-button${mode === "focus" && focusTab === "sources" ? " is-active" : ""}`}
+                    title={sourcesBadgeTitle}
+                  >
+                    Sources
+                    {sourcesBadge ? (
+                      <span className={`hs-sources-badge${devMode ? " is-dev" : ""}`}>{sourcesBadge}</span>
+                    ) : null}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFocusTab("revisions");
+                      setMode("focus");
+                    }}
+                    className={`hs-mode-button${mode === "focus" && focusTab === "revisions" ? " is-active" : ""}`}
+                  >
+                    Revisions
+                    <span className="hs-mode-meta">{revisions.length}</span>
+                  </button>
+                </>
+              )}
             </div>
           ) : null}
 
@@ -8979,14 +9804,28 @@ export default function HearthShell() {
               </button>
             }
             bottomBar={
-              <div className="hs-mobile-overlay-actions">
-                <button type="button" onClick={() => activeDraft && void onDeleteDraft(activeDraft)} disabled={!activeDraft || isSaving}>
-                  Delete
-                </button>
-                <button type="button" onClick={() => void onSaveDraft()} disabled={!activeDraft || isSaving}>
-                  {isSaving ? "Saving..." : "Save"}
-                </button>
-              </div>
+              activeWorkpieceContext.workpiece?.isArchived ? (
+                <div className="hs-mobile-overlay-actions">
+                  <button
+                    type="button"
+                    onClick={() => activeWorkpieceContext.workpiece && void onRestoreWorkpiece(activeWorkpieceContext.workpiece.workpieceId, { openAfterRestore: true })}
+                    disabled={!activeWorkpieceContext.workpiece || restoringWorkpieceIds.includes(activeWorkpieceContext.workpiece.workpieceId)}
+                  >
+                    {activeWorkpieceContext.workpiece && restoringWorkpieceIds.includes(activeWorkpieceContext.workpiece.workpieceId)
+                      ? "Restoring..."
+                      : "Restore Workpiece"}
+                  </button>
+                </div>
+              ) : (
+                <div className="hs-mobile-overlay-actions">
+                  <button type="button" onClick={() => activeDraft && void onDeleteDraft(activeDraft)} disabled={!activeDraft || isSaving}>
+                    Delete Draft Buffer
+                  </button>
+                  <button type="button" onClick={() => void onSaveDraft()} disabled={!activeDraft || isSaving}>
+                    {isSaving ? "Saving..." : "Save"}
+                  </button>
+                </div>
+              )
             }
           >
             <div className="hs-mobile-overlay-body">

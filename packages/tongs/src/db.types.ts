@@ -53,55 +53,67 @@ export type Database = {
     Tables: {
       assets: {
         Row: {
+          asset_kind: string
           id: string
-          workspace_id: string
-          workpiece_id: string
-          path: string
-          mime_type: string
           bytes: number
-          storage_bucket: string
-          storage_key: string
+          created_by: string
+          created_at: string
+          metadata_json: Json
+          mime_type: string
+          path: string
+          prompt: string | null
           provider: string
           provider_request_id: string | null
           request_id: string | null
-          prompt: string
-          created_by: string
-          created_at: string
+          status: string
+          storage_bucket: string
+          storage_key: string
+          supersedes_asset_id: string | null
           updated_at: string
+          workpiece_id: string
+          workspace_id: string
         }
         Insert: {
+          asset_kind?: string
           id?: string
-          workspace_id: string
-          workpiece_id: string
-          path: string
-          mime_type: string
           bytes: number
-          storage_bucket?: string
-          storage_key: string
+          created_by: string
+          created_at?: string
+          metadata_json?: Json
+          mime_type: string
+          path: string
+          prompt?: string | null
           provider: string
           provider_request_id?: string | null
           request_id?: string | null
-          prompt: string
-          created_by: string
-          created_at?: string
+          status?: string
+          storage_bucket?: string
+          storage_key: string
+          supersedes_asset_id?: string | null
           updated_at?: string
+          workpiece_id: string
+          workspace_id: string
         }
         Update: {
+          asset_kind?: string
           id?: string
-          workspace_id?: string
-          workpiece_id?: string
-          path?: string
-          mime_type?: string
           bytes?: number
-          storage_bucket?: string
-          storage_key?: string
+          created_by?: string
+          created_at?: string
+          metadata_json?: Json
+          mime_type?: string
+          path?: string
+          prompt?: string | null
           provider?: string
           provider_request_id?: string | null
           request_id?: string | null
-          prompt?: string
-          created_by?: string
-          created_at?: string
+          status?: string
+          storage_bucket?: string
+          storage_key?: string
+          supersedes_asset_id?: string | null
           updated_at?: string
+          workpiece_id?: string
+          workspace_id?: string
         }
         Relationships: [
           {
@@ -224,6 +236,9 @@ export type Database = {
       }
       episodes: {
         Row: {
+          archive_reason: string | null
+          archived_at: string | null
+          archived_by: string | null
           id: string
           workspace_id: string
           label: string
@@ -231,6 +246,9 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          archive_reason?: string | null
+          archived_at?: string | null
+          archived_by?: string | null
           id?: string
           workspace_id: string
           label: string
@@ -238,6 +256,9 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          archive_reason?: string | null
+          archived_at?: string | null
+          archived_by?: string | null
           id?: string
           workspace_id?: string
           label?: string

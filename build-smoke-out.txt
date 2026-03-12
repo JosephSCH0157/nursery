@@ -1,0 +1,102 @@
+
+> podcasters-forge@ build D:\nursery\nursery
+> pnpm --filter @forge/ui-mobile build && pnpm -r --filter=!@forge/ui-mobile build "--reporter" "append-only"
+
+
+> @forge/ui-mobile@0.0.0 build D:\nursery\nursery\packages\ui-mobile
+> tsc -p tsconfig.json --noEmit
+
+Scope: 9 of 10 workspace projects
+apps/bar-stock build$ tsc -b && vite build "--reporter" "append-only"
+apps/hearth build$ tsc -p tsconfig.json --noEmit "--reporter" "append-only"
+apps/anvil build$ npm run build:ts && npm run build:compat && npm run build:speech && npm run build:hud && npm run build:asr && npm run build:display-relay && node tools/copy-static-to-dist.mjs && node tools/assert_dist_assets.mjs "--reporter" "append-only"
+apps/hammer build$ node -e "console.log('Hammer builds through Nursery.')" "--reporter" "append-only"
+apps/hammer build: node: bad option: --reporter
+apps/hammer build: Failed
+D:\nursery\nursery\apps\hammer:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @forge/hammer@0.0.0 build: `node -e "console.log('Hammer builds through Nursery.')" "--reporter" "append-only"`
+Exit status 9
+apps/quench build$ tsc -p tsconfig.json --noEmit "--reporter" "append-only"
+apps/hearth build: error TS5023: Unknown compiler option '--reporter'.
+apps/hearth build: Failed
+packages/tongs build$ tsc -p tsconfig.json "--reporter" "append-only"
+apps/quench build: error TS5023: Unknown compiler option '--reporter'.
+apps/quench build: Failed
+apps/anvil build: > teleprompter@1.8.5 build:ts
+apps/anvil build: > esbuild src/index.ts src/forge/login.ts src/forge/account.ts src/forge/reset.ts src/display-renderer.ts src/net/display-ws-display-client.ts --bundle --format=esm --sourcemap --outdir=dist --outbase=src && node scripts/gen-esbuild-manifest.mjs
+packages/tongs build: error TS5023: Unknown compiler option '--reporter'.
+packages/tongs build: Failed
+apps/bar-stock build: file:///D:/nursery/nursery/node_modules/.pnpm/vite@5.4.21_@types+node@25.3.2/node_modules/vite/dist/node/cli.js:445
+apps/bar-stock build:           throw new CACError(`Unknown option \`${name.length > 1 ? `--${name}` : `-${name}`}\``);
+apps/bar-stock build:                 ^
+apps/bar-stock build: CACError: Unknown option `--reporter`
+apps/bar-stock build:     at Command.checkUnknownOptions (file:///D:/nursery/nursery/node_modules/.pnpm/vite@5.4.21_@types+node@25.3.2/node_modules/vite/dist/node/cli.js:445:17)
+apps/bar-stock build:     at CAC.runMatchedCommand (file:///D:/nursery/nursery/node_modules/.pnpm/vite@5.4.21_@types+node@25.3.2/node_modules/vite/dist/node/cli.js:643:13)
+apps/bar-stock build:     at CAC.parse (file:///D:/nursery/nursery/node_modules/.pnpm/vite@5.4.21_@types+node@25.3.2/node_modules/vite/dist/node/cli.js:582:12)
+apps/bar-stock build:     at file:///D:/nursery/nursery/node_modules/.pnpm/vite@5.4.21_@types+node@25.3.2/node_modules/vite/dist/node/cli.js:915:5
+apps/bar-stock build:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+apps/bar-stock build:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24)
+apps/bar-stock build: Node.js v20.20.0
+apps/bar-stock build: Failed
+apps/anvil build:   dist\index.js               2.4mb
+apps/anvil build:   dist\display-renderer.js  761.5kb
+apps/anvil build:   dist\forge\account.js     438.0kb
+apps/anvil build:   dist\forge\reset.js       426.1kb
+apps/anvil build:   dist\forge\login.js       425.0kb
+apps/anvil build:   ...and 7 more output files...
+apps/anvil build: Done in 10658ms
+apps/anvil build: [manifest] wrote dist/manifest.json -> ./index.js
+apps/anvil build: > teleprompter@1.8.5 build:compat
+apps/anvil build: > esbuild adapters/bridge.ts adapters/obs.ts --bundle --format=esm --sourcemap --outdir=dist/adapters --platform=browser --banner:js="/* GENERATED FROM TypeScript - DO NOT EDIT. Edit adapters/*.ts instead. */" && esbuild src/adapters/hotkey.ts --bundle --format=esm --sourcemap --outfile=dist/adapters/hotkey.js --platform=browser --banner:js="/* GENERATED FROM TypeScript - DO NOT EDIT. Edit src/adapters/*.ts instead. */" && esbuild recorders.ts --bundle --format=esm --sourcemap --outdir=dist --platform=browser --banner:js="/* GENERATED FROM TypeScript - DO NOT EDIT. Edit recorders.ts instead. */"
+apps/anvil build:   dist\adapters\obs.js         12.8kb
+apps/anvil build:   dist\adapters\bridge.js       876b 
+apps/anvil build:   dist\adapters\obs.js.map     25.2kb
+apps/anvil build:   dist\adapters\bridge.js.map   1.8kb
+apps/anvil build: Done in 45ms
+apps/anvil build:   dist\adapters\hotkey.js      719b 
+apps/anvil build:   dist\adapters\hotkey.js.map  1.1kb
+apps/anvil build: Done in 3ms
+apps/anvil build:   dist\recorders.js      41.4kb
+apps/anvil build:   dist\recorders.js.map  82.9kb
+apps/anvil build: Done in 32ms
+apps/anvil build: > teleprompter@1.8.5 build:speech
+apps/anvil build: > node tools/esbuild-speech.mjs
+apps/anvil build: [esbuild] speech build → /speech/*.js
+apps/anvil build: > teleprompter@1.8.5 build:hud
+apps/anvil build: > node tools/esbuild-hud.mjs
+apps/anvil build: [esbuild] hud build → dist/hud/*.js
+apps/anvil build: > teleprompter@1.8.5 build:asr
+apps/anvil build: > npx esbuild src/index-hooks/asr.ts --bundle --format=esm --sourcemap --outfile=dist/index-hooks/asr.js
+apps/anvil build:   dist\index-hooks\asr.js       71.2kb
+apps/anvil build:   dist\index-hooks\asr.js.map  147.4kb
+apps/anvil build: Done in 89ms
+apps/anvil build: > teleprompter@1.8.5 build:display-relay
+apps/anvil build: > esbuild src/net/display-ws-server.ts --bundle --format=cjs --platform=node --target=es2022 --outfile=dist/net/display-ws-server.cjs --sourcemap
+apps/anvil build:   dist\net\display-ws-server.cjs      130.7kb
+apps/anvil build:   dist\net\display-ws-server.cjs.map  209.9kb
+apps/anvil build: Done in 262ms
+apps/anvil build: [copy-static] copied D:\nursery\nursery\apps\anvil\teleprompter_pro.html -> D:\nursery\nursery\apps\anvil\dist\teleprompter_pro.html
+apps/anvil build: [copy-static] copied D:\nursery\nursery\apps\anvil\teleprompter_pro.css -> D:\nursery\nursery\apps\anvil\dist\teleprompter_pro.css
+apps/anvil build: [copy-static] copied D:\nursery\nursery\apps\anvil\display.html -> D:\nursery\nursery\apps\anvil\dist\display.html
+apps/anvil build: [copy-static] copied D:\nursery\nursery\apps\anvil\hud_popout.html -> D:\nursery\nursery\apps\anvil\dist\hud_popout.html
+apps/anvil build: [copy-static] copied D:\nursery\nursery\apps\anvil\login.html -> D:\nursery\nursery\apps\anvil\dist\login.html
+apps/anvil build: [copy-static] copied D:\nursery\nursery\apps\anvil\account.html -> D:\nursery\nursery\apps\anvil\dist\account.html
+apps/anvil build: [copy-static] copied D:\nursery\nursery\apps\anvil\reset.html -> D:\nursery\nursery\apps\anvil\dist\reset.html
+apps/anvil build: [copy-static] copied D:\nursery\nursery\apps\anvil\robots.txt -> D:\nursery\nursery\apps\anvil\dist\robots.txt
+apps/anvil build: [copy-static] copied D:\nursery\nursery\apps\anvil\ads.txt -> D:\nursery\nursery\apps\anvil\dist\ads.txt
+apps/anvil build: [copy-static] copied D:\nursery\nursery\apps\anvil\humans.txt -> D:\nursery\nursery\apps\anvil\dist\humans.txt
+apps/anvil build: [copy-static] copied D:\nursery\nursery\apps\anvil\security.txt -> D:\nursery\nursery\apps\anvil\dist\security.txt
+apps/anvil build: [copy-static] copied D:\nursery\nursery\apps\anvil\.well-known -> D:\nursery\nursery\apps\anvil\dist\.well-known
+apps/anvil build: [copy-static] copied D:\nursery\nursery\apps\anvil\sitemap.xml -> D:\nursery\nursery\apps\anvil\dist\sitemap.xml
+apps/anvil build: [copy-static] copied D:\nursery\nursery\apps\anvil\sitemaps.xml -> D:\nursery\nursery\apps\anvil\dist\sitemaps.xml
+apps/anvil build: [copy-static] copied D:\nursery\nursery\apps\anvil\atom.xml -> D:\nursery\nursery\apps\anvil\dist\atom.xml
+apps/anvil build: [copy-static] copied D:\nursery\nursery\apps\anvil\site.webmanifest -> D:\nursery\nursery\apps\anvil\dist\site.webmanifest
+apps/anvil build: [copy-static] copied D:\nursery\nursery\apps\anvil\assets -> D:\nursery\nursery\apps\anvil\dist\assets
+apps/anvil build: [copy-static] copied D:\nursery\nursery\apps\anvil\adapters\obsBridge.js -> D:\nursery\nursery\apps\anvil\dist\adapters\obsBridge.js
+apps/anvil build: [copy-static] copied D:\nursery\nursery\apps\nursery\public\forge-config.js -> D:\nursery\nursery\apps\anvil\dist\forge-config.js
+apps/anvil build: [copy-static] copied D:\nursery\nursery\apps\anvil\speech-stubs\recognizer.js -> D:\nursery\nursery\apps\anvil\dist\speech\recognizer.js
+apps/anvil build: [copy-static] copied D:\nursery\nursery\apps\anvil\speech-stubs\matcher.js -> D:\nursery\nursery\apps\anvil\dist\speech\matcher.js
+apps/anvil build: [copy-static] copied D:\nursery\nursery\apps\anvil\speech-stubs\orchestrator.js -> D:\nursery\nursery\apps\anvil\dist\speech\orchestrator.js
+apps/anvil build: ✅ Dist asset check passed: 27 files present.
+apps/anvil build: Done
+ ELIFECYCLE  Command failed with exit code 9.

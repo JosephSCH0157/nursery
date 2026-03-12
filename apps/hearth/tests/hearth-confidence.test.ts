@@ -17,12 +17,29 @@ import { applyHearthOps, buildEpisodeContext } from "../src/lib/hearth-ai-ops";
 import { requestHearthChatReply } from "../src/lib/hearth-chat-api";
 import {
   listHearthReadyScripts,
+  removeHearthReadyScripts,
   reorderHearthReadyScripts,
   setHearthReadyScriptHidden,
 } from "../src/lib/hearth-ready-scripts";
-import { readHearthPrimaryScript } from "../src/lib/hearth-script-repo";
 import {
+  generateWorkpieceImageMapCandidates,
+  getWorkpieceImageMap,
+  loadImageMapCandidatePreviewDataUrl,
+  saveWorkpieceImageMap,
+  selectWorkpieceImageMapCandidate,
+} from "../src/lib/hearth-image-map-repo";
+import { readHearthPrimaryScript } from "../src/lib/hearth-script-repo";
+import { generateImageMapEntriesFromScript } from "../src/lib/hearth-image-map-beats";
+import { resolveBarStockSparkHearthWorkpieceId } from "../src/lib/barstock-sparks";
+import {
+  isCanonicalSparkDiscoveryResolved,
+  listHearthBarStockSparks,
+  resolveCanonicalSparkIntakeError,
+} from "../src/lib/hearth-barstock-sparks";
+import {
+  archiveHearthWorkpiece,
   listHearthWorkpieces,
+  restoreHearthWorkpiece,
   type HearthWorkpieceSummary,
 } from "../src/lib/hearth-workpieces";
 import {
@@ -30,6 +47,7 @@ import {
   selectWorkpieceNavItems,
 } from "../src/lib/hearth-nav-model";
 import { formatScriptToAnvilTagsNoAi, validateAnvilTagContract } from "../src/lib/anvil-tag-contract";
+import { ensureImageMapV2, type EpisodeImageMapEntry } from "../src/lib/episode-package-v2";
 
 class MemoryStorage {
   private store = new Map<string, string>();
@@ -114,6 +132,37 @@ function createRevision(id: string, draftId: string, createdAt: number): Revisio
 const WORKPIECE_A = "2980fc39-8c8b-489a-a900-8d3bd3248432";
 const WORKPIECE_B = "54d58d65-7abf-4d50-b17f-5905f4b1ee61";
 const WORKSPACE_ID = "2b2ef7aa-44d4-4d0d-93d7-b0aa4ec2b99d";
+const ARCHIVE_ACTOR_ID = "6f4a0a73-19d2-4926-bf70-ebf2b9306db4";
+
+function buildImageMapEntryFixture(id: string, overrides?: Partial<EpisodeImageMapEntry>): EpisodeImageMapEntry {
+  return {
+    id,
+    anchor: "s1:p1#sent1",
+    script_anchor: {
+      section_id: "s1",
+      paragraph_id: "s1:p1",
+      paragraph_order: 1,
+      sentence_start: 1,
+      sentence_end: 1,
+      char_start: 0,
+      char_end: 12,
+      span_text: "wide skyline",
+      speaker_block_id: null,
+    },
+    description: "wide skyline",
+    visual_intent: "wide skyline",
+    prompt_basis: "wide skyline",
+    intent: "cutaway",
+    source_type: "stock",
+    beat_order: 1,
+    paragraph_beat_order: 1,
+    candidate_assets: [],
+    selected_asset_id: null,
+    status: "mapped",
+    placement_hint: "after-hook",
+    ...overrides,
+  };
+}
 
 function buildRevisionSnapshot(workpieceId: string, revisions: Revision[]): HearthRevisionSnapshot {
   return {
@@ -232,6 +281,7 @@ function installReadyQueueFetchHarness() {
     workspaceId: string;
     entries: Array<{ workpiece_id: string; queue_rank?: number | null; hidden?: boolean | null }>;
   }> = [];
+  const readyDeletes: Array<{ workpieceId: string; path: string | null }> = [];
   let readyScriptsPayload: unknown[] = [];
   let queueUpdateResponse = { updated_count: 0, deleted_count: 0 };
 
@@ -279,6 +329,18 @@ function installReadyQueueFetchHarness() {
       });
     }
 
+    const deleteMatch = url.pathname.match(/^\/tongs\/workpieces\/([^/]+)\/ready-script$/);
+    if (deleteMatch && (init?.method ?? "GET") === "DELETE") {
+      readyDeletes.push({
+        workpieceId: decodeURIComponent(deleteMatch[1] ?? ""),
+        path: url.searchParams.get("path"),
+      });
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
       headers: { "content-type": "application/json" },
@@ -297,15 +359,206 @@ function installReadyQueueFetchHarness() {
     },
     listRequests,
     queueUpdates,
+    readyDeletes,
+  };
+}
+
+function installImageMapFetchHarness() {
+  const originalFetch = globalThis.fetch;
+  const getRequests: string[] = [];
+  const saveRequests: Array<{
+    workpieceId: string;
+    body: {
+      workspace_id?: string;
+      entries?: unknown[];
+      expected_metadata_updated_at?: string | null;
+    };
+  }> = [];
+  const generateRequests: Array<{
+    workpieceId: string;
+    body: {
+      workspace_id?: string;
+      image_map_entry_id?: string;
+      expected_metadata_updated_at?: string | null;
+      context_before?: string | null;
+      context_after?: string | null;
+    };
+  }> = [];
+  let getPayload: unknown = {
+    image_map: {
+      workpiece_id: WORKPIECE_A,
+      workspace_id: WORKSPACE_ID,
+      entries: [],
+      metadata_updated_at: null,
+    },
+    asset: null,
+  };
+  let savePayload: unknown = getPayload;
+  let generatePayload: unknown = {
+    image_map: {
+      workpiece_id: WORKPIECE_A,
+      workspace_id: WORKSPACE_ID,
+      entries: [],
+      metadata_updated_at: "2026-03-10T16:20:00.000Z",
+    },
+    asset: null,
+    generated_assets: [],
+  };
+  let conflictMode = false;
+  let generateConflictMode = false;
+  const previewFiles = new Map<string, { bytesBase64: string; contentType: string }>();
+
+  globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+    const rawUrl = typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : String(input);
+    const url = new URL(rawUrl, "https://example.test");
+    const match = url.pathname.match(/^\/tongs\/workpieces\/([^/]+)\/image-map$/);
+    const generateMatch = url.pathname.match(/^\/tongs\/workpieces\/([^/]+)\/image-map\/generate-candidates$/);
+    const readMatch = url.pathname.match(/^\/tongs\/workpieces\/([^/]+)\/read-file$/);
+    if (readMatch) {
+      const path = url.searchParams.get("path") ?? "";
+      const preview = previewFiles.get(path);
+      if (!preview) {
+        return new Response(JSON.stringify({ ok: false }), {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({
+        ok: true,
+        data: {
+          bytes_base64: preview.bytesBase64,
+          content_type: preview.contentType,
+        },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (generateMatch) {
+      const workpieceId = decodeURIComponent(generateMatch[1] ?? "");
+      const body = init?.body
+        ? JSON.parse(String(init.body)) as {
+          workspace_id?: string;
+          image_map_entry_id?: string;
+          expected_metadata_updated_at?: string | null;
+          context_before?: string | null;
+          context_after?: string | null;
+        }
+        : {};
+      generateRequests.push({ workpieceId, body });
+      if (generateConflictMode) {
+        return new Response(JSON.stringify({
+          ok: false,
+          error: {
+            code: "image_map_conflict",
+            message: "Image map changed since last load.",
+          },
+        }), {
+          status: 409,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({
+        ok: true,
+        data: generatePayload,
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (!match) {
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    const workpieceId = decodeURIComponent(match[1] ?? "");
+    const method = init?.method ?? "GET";
+    if (method === "GET") {
+      getRequests.push(workpieceId);
+      return new Response(JSON.stringify({
+        ok: true,
+        data: getPayload,
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    const body = init?.body
+      ? JSON.parse(String(init.body)) as {
+        workspace_id?: string;
+        entries?: unknown[];
+        expected_metadata_updated_at?: string | null;
+      }
+      : {};
+    saveRequests.push({ workpieceId, body });
+
+    if (conflictMode) {
+      return new Response(JSON.stringify({
+        ok: false,
+        error: {
+          code: "image_map_conflict",
+          message: "Image map changed since last load.",
+        },
+      }), {
+        status: 409,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({
+      ok: true,
+      data: savePayload,
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  return {
+    restore() {
+      globalThis.fetch = originalFetch;
+    },
+    setGetPayload(value: unknown) {
+      getPayload = value;
+    },
+    setSavePayload(value: unknown) {
+      savePayload = value;
+    },
+    setGeneratePayload(value: unknown) {
+      generatePayload = value;
+    },
+    setConflictMode(value: boolean) {
+      conflictMode = value;
+    },
+    setGenerateConflictMode(value: boolean) {
+      generateConflictMode = value;
+    },
+    setPreviewFile(path: string, bytesBase64: string, contentType = "image/png") {
+      previewFiles.set(path, { bytesBase64, contentType });
+    },
+    getRequests,
+    saveRequests,
+    generateRequests,
   };
 }
 
 function installWorkpieceFetchHarness() {
   const originalFetch = globalThis.fetch;
-  const listRequests: string[] = [];
+  const listRequests: Array<{ workspaceId: string; includeArchived: string | null }> = [];
   const scriptReads: string[] = [];
+  const draftReads: string[] = [];
+  const archiveRequests: Array<{ workpieceId: string; body: Record<string, unknown> | null }> = [];
+  const restoreRequests: Array<{ workpieceId: string; body: Record<string, unknown> | null }> = [];
   let episodesPayload: unknown[] = [];
   const primaryScripts = new Map<string, { text: string | null; updatedAt: string | null }>();
+  const draftSnapshots = new Map<string, { json: unknown; updatedAt: string | null }>();
 
   globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     const rawUrl = typeof input === "string"
@@ -317,11 +570,88 @@ function installWorkpieceFetchHarness() {
 
     const episodesMatch = url.pathname.match(/^\/tongs\/workspaces\/([^/]+)\/episodes$/);
     if (episodesMatch && (init?.method ?? "GET") === "GET") {
-      listRequests.push(decodeURIComponent(episodesMatch[1] ?? ""));
+      listRequests.push({
+        workspaceId: decodeURIComponent(episodesMatch[1] ?? ""),
+        includeArchived: url.searchParams.get("include_archived"),
+      });
       return new Response(JSON.stringify({
         ok: true,
         data: {
           episodes: episodesPayload,
+        },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    const archiveMatch = url.pathname.match(/^\/tongs\/workpieces\/([^/]+)\/archive$/);
+    if (archiveMatch && (init?.method ?? "GET") === "POST") {
+      const workpieceId = decodeURIComponent(archiveMatch[1] ?? "");
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null;
+      archiveRequests.push({ workpieceId, body });
+
+      const currentRow = (episodesPayload.find((entry) => (
+        entry && typeof entry === "object" && !Array.isArray(entry) && (entry as { id?: unknown }).id === workpieceId
+      )) as Record<string, unknown> | undefined) ?? {};
+      const archivedRow = {
+        ...currentRow,
+        id: workpieceId,
+        workspace_id: typeof body?.workspace_id === "string" ? body.workspace_id : WORKSPACE_ID,
+        label: currentRow.label ?? null,
+        created_at: currentRow.created_at ?? "2026-03-10T12:00:00.000Z",
+        updated_at: "2026-03-11T15:30:00.000Z",
+        archived_at: "2026-03-11T15:30:00.000Z",
+        archived_by: ARCHIVE_ACTOR_ID,
+        archive_reason: typeof body?.reason === "string" ? body.reason : null,
+      };
+      episodesPayload = episodesPayload.map((entry) => (
+        entry && typeof entry === "object" && !Array.isArray(entry) && (entry as { id?: unknown }).id === workpieceId
+          ? archivedRow
+          : entry
+      ));
+
+      return new Response(JSON.stringify({
+        ok: true,
+        data: {
+          workpiece: archivedRow,
+        },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    const restoreMatch = url.pathname.match(/^\/tongs\/workpieces\/([^/]+)\/restore$/);
+    if (restoreMatch && (init?.method ?? "GET") === "POST") {
+      const workpieceId = decodeURIComponent(restoreMatch[1] ?? "");
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null;
+      restoreRequests.push({ workpieceId, body });
+
+      const currentRow = (episodesPayload.find((entry) => (
+        entry && typeof entry === "object" && !Array.isArray(entry) && (entry as { id?: unknown }).id === workpieceId
+      )) as Record<string, unknown> | undefined) ?? {};
+      const restoredRow = {
+        ...currentRow,
+        id: workpieceId,
+        workspace_id: typeof body?.workspace_id === "string" ? body.workspace_id : WORKSPACE_ID,
+        label: currentRow.label ?? null,
+        created_at: currentRow.created_at ?? "2026-03-10T12:00:00.000Z",
+        updated_at: "2026-03-11T15:35:00.000Z",
+        archived_at: null,
+        archived_by: null,
+        archive_reason: null,
+      };
+      episodesPayload = episodesPayload.map((entry) => (
+        entry && typeof entry === "object" && !Array.isArray(entry) && (entry as { id?: unknown }).id === workpieceId
+          ? restoredRow
+          : entry
+      ));
+
+      return new Response(JSON.stringify({
+        ok: true,
+        data: {
+          workpiece: restoredRow,
         },
       }), {
         status: 200,
@@ -352,6 +682,28 @@ function installWorkpieceFetchHarness() {
       });
     }
 
+    if (scriptMatch && (init?.method ?? "GET") === "GET" && url.searchParams.get("path") === "hearth/drafts.v1.json") {
+      const workpieceId = decodeURIComponent(scriptMatch[1] ?? "");
+      draftReads.push(workpieceId);
+      const snapshot = draftSnapshots.get(workpieceId);
+      if (!snapshot) {
+        return new Response(JSON.stringify({ ok: true, exists: false }), {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({
+        ok: true,
+        data: snapshot.json,
+        file_row: {
+          updated_at: snapshot.updatedAt,
+        },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
       headers: { "content-type": "application/json" },
@@ -368,8 +720,58 @@ function installWorkpieceFetchHarness() {
     setPrimaryScript(workpieceId: string, text: string | null, updatedAt: string | null) {
       primaryScripts.set(workpieceId, { text, updatedAt });
     },
+    setDraftSnapshot(workpieceId: string, json: unknown, updatedAt: string | null) {
+      draftSnapshots.set(workpieceId, { json, updatedAt });
+    },
     listRequests,
+    archiveRequests,
+    restoreRequests,
     scriptReads,
+    draftReads,
+  };
+}
+
+function installSparkFetchHarness() {
+  const originalFetch = globalThis.fetch;
+  const listRequests: string[] = [];
+  let sparksPayload: unknown[] = [];
+
+  globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+    const rawUrl = typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : String(input);
+    const url = new URL(rawUrl, "https://example.test");
+
+    const sparksMatch = url.pathname.match(/^\/tongs\/workspaces\/([^/]+)\/sparks$/);
+    if (sparksMatch && (init?.method ?? "GET") === "GET") {
+      listRequests.push(decodeURIComponent(sparksMatch[1] ?? ""));
+      return new Response(JSON.stringify({
+        ok: true,
+        data: {
+          sparks: sparksPayload,
+        },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  return {
+    restore() {
+      globalThis.fetch = originalFetch;
+    },
+    setSparksPayload(value: unknown[]) {
+      sparksPayload = value;
+    },
+    listRequests,
   };
 }
 
@@ -386,6 +788,10 @@ function createWorkpieceSummary(
     updatedAt: "2026-03-10T12:00:00.000Z",
     createdAtMs: Date.parse("2026-03-10T12:00:00.000Z"),
     updatedAtMs: Date.parse("2026-03-10T12:00:00.000Z"),
+    archivedAt: null,
+    archivedBy: null,
+    archiveReason: null,
+    isArchived: false,
     ...overrides,
   };
 }
@@ -566,6 +972,87 @@ async function testReadyScriptsRoundtripIgnoresLegacyLocalOrder() {
   }
 }
 
+async function testReadyScriptsCanonicalQueryOverridesPriorClientResidueAcrossRefresh() {
+  const firstClientStorage = resetLocalStorage();
+  firstClientStorage.setItem(`hearth:ready-order:v1:${WORKSPACE_ID}`, JSON.stringify([
+    `ready:${WORKPIECE_A}:script/script.md`,
+    `ready:${WORKPIECE_B}:script/script.md`,
+  ]));
+  const harness = installReadyQueueFetchHarness();
+  harness.setReadyScriptsPayload([
+    {
+      workspace_id: WORKSPACE_ID,
+      workpiece_id: WORKPIECE_B,
+      primary_script_path: "script/script.md",
+      script_paths: ["script/script.md"],
+      title: "Ready Beta",
+      updated_at: "2026-03-10T14:30:00.000Z",
+      queue_rank: 0,
+      hidden_at: null,
+      hidden_by: null,
+      marked_ready_at: "2026-03-10T14:30:00.000Z",
+      marked_ready_by: WORKPIECE_A,
+    },
+    {
+      workspace_id: WORKSPACE_ID,
+      workpiece_id: WORKPIECE_A,
+      primary_script_path: "script/script.md",
+      script_paths: ["script/script.md"],
+      title: "Ready Alpha",
+      updated_at: "2026-03-10T14:00:00.000Z",
+      queue_rank: 1,
+      hidden_at: null,
+      hidden_by: null,
+      marked_ready_at: "2026-03-10T14:00:00.000Z",
+      marked_ready_by: WORKPIECE_B,
+    },
+  ]);
+
+  try {
+    const firstClient = await listHearthReadyScripts(WORKSPACE_ID);
+    assert.deepEqual(
+      firstClient.map((entry) => entry.workpieceId),
+      [WORKPIECE_B, WORKPIECE_A],
+      "First client should derive candidate membership and order from canonical query results",
+    );
+
+    resetLocalStorage();
+    const secondClient = await listHearthReadyScripts(WORKSPACE_ID);
+    assert.deepEqual(
+      secondClient.map((entry) => entry.workpieceId),
+      [WORKPIECE_B, WORKPIECE_A],
+      "Second client should see the same canonical candidate truth without inherited local residue",
+    );
+
+    harness.setReadyScriptsPayload([
+      {
+        workspace_id: WORKSPACE_ID,
+        workpiece_id: WORKPIECE_A,
+        primary_script_path: "script/script.md",
+        script_paths: ["script/script.md"],
+        title: "Ready Alpha",
+        updated_at: "2026-03-10T15:00:00.000Z",
+        queue_rank: 0,
+        hidden_at: null,
+        hidden_by: null,
+        marked_ready_at: "2026-03-10T15:00:00.000Z",
+        marked_ready_by: WORKPIECE_B,
+      },
+    ]);
+
+    const refreshed = await listHearthReadyScripts(WORKSPACE_ID);
+    assert.deepEqual(
+      refreshed.map((entry) => entry.workpieceId),
+      [WORKPIECE_A],
+      "Canonical refresh should overwrite prior client residue and remove ineligible candidates cleanly",
+    );
+    assert.equal(refreshed[0]?.queueRank, 0);
+    assert.equal(harness.listRequests.length, 3);
+  } finally {
+    harness.restore();
+  }
+}
+
 async function testReadyQueueReorderPayload() {
   resetLocalStorage();
   const harness = installReadyQueueFetchHarness();
@@ -610,6 +1097,599 @@ async function testReadyQueueHiddenMutationPayload() {
   }
 }
 
+async function testReadyScriptRemovalDeletesAllCanonicalPaths() {
+  resetLocalStorage();
+  const harness = installReadyQueueFetchHarness();
+
+  try {
+    const result = await removeHearthReadyScripts({
+      workpieceId: WORKPIECE_A,
+      paths: [
+        "script/script.md",
+        "script/script.published.md",
+        "script/script.md",
+        "not-a-ready-path",
+      ],
+    });
+    assert.equal(result.ok, true);
+    assert.deepEqual(harness.readyDeletes, [
+      { workpieceId: WORKPIECE_A, path: "script/script.md" },
+      { workpieceId: WORKPIECE_A, path: "script/script.published.md" },
+    ]);
+  } finally {
+    harness.restore();
+  }
+}
+
+async function testImageMapRepoReadNormalizesSemanticEntriesAndAssetSummary() {
+  resetLocalStorage();
+  const harness = installImageMapFetchHarness();
+  harness.setGetPayload({
+    image_map: {
+      workpiece_id: WORKPIECE_A,
+      workspace_id: WORKSPACE_ID,
+      entries: [
+        buildImageMapEntryFixture("image-map-01", {
+          anchor: "s1:p1#sent1",
+          source_type: "script",
+        }),
+      ],
+      metadata_updated_at: "2026-03-10T16:20:00.000Z",
+    },
+    asset: {
+      id: "asset-image-map",
+      asset_kind: "image_map_json",
+      status: "ready",
+      path: "assets/image-map/image-map.v1.json",
+      storage_bucket: "forge-workpieces",
+      storage_key: `workpieces/${WORKPIECE_A}/assets/image-map/image-map.v1.json`,
+      metadata_json: {
+        schema: "forge.image-map.v1",
+        entry_count: 1,
+      },
+      created_at: "2026-03-10T16:20:00.000Z",
+      updated_at: "2026-03-10T16:20:00.000Z",
+      supersedes_asset_id: null,
+    },
+  });
+
+  try {
+    const result = await getWorkpieceImageMap(WORKPIECE_A);
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.imageMap.workpieceId, WORKPIECE_A);
+      assert.equal(result.imageMap.workspaceId, WORKSPACE_ID);
+      assert.equal(result.imageMap.entries[0]?.source_type, "stock");
+      assert.equal(result.imageMap.entries[0]?.script_anchor?.paragraph_id, "s1:p1");
+      assert.equal(result.imageMap.entries[0]?.beat_order, 1);
+      assert.equal(result.imageMap.metadataUpdatedAt, "2026-03-10T16:20:00.000Z");
+      assert.equal(result.imageMap.asset?.assetKind, "image_map_json");
+      assert.equal(result.imageMap.asset?.entryCount, 1);
+    }
+    assert.deepEqual(harness.getRequests, [WORKPIECE_A]);
+  } finally {
+    harness.restore();
+  }
+}
+
+async function testImageMapRepoSaveForwardsExpectedTimestampAndReturnsLatestOnConflict() {
+  resetLocalStorage();
+  const harness = installImageMapFetchHarness();
+  harness.setSavePayload({
+    image_map: {
+      workpiece_id: WORKPIECE_A,
+      workspace_id: WORKSPACE_ID,
+      entries: [
+        buildImageMapEntryFixture("image-map-01"),
+      ],
+      metadata_updated_at: "2026-03-10T16:25:00.000Z",
+    },
+    asset: {
+      id: "asset-image-map-next",
+      asset_kind: "image_map_json",
+      status: "ready",
+      path: "assets/image-map/image-map.v1.json",
+      storage_bucket: "forge-workpieces",
+      storage_key: `workpieces/${WORKPIECE_A}/assets/image-map/image-map.v1.json`,
+      metadata_json: {
+        schema: "forge.image-map.v1",
+        entry_count: 1,
+      },
+      created_at: "2026-03-10T16:25:00.000Z",
+      updated_at: "2026-03-10T16:25:00.000Z",
+      supersedes_asset_id: "asset-image-map",
+    },
+  });
+
+  try {
+    const saveResult = await saveWorkpieceImageMap({
+      workpieceId: WORKPIECE_A,
+      workspaceId: WORKSPACE_ID,
+      entries: [
+        buildImageMapEntryFixture("image-map-01"),
+      ],
+      expectedMetadataUpdatedAt: "2026-03-10T16:20:00.000Z",
+    });
+    assert.equal(saveResult.ok, true);
+    assert.equal(harness.saveRequests.length, 1);
+    assert.equal(harness.saveRequests[0]?.body.expected_metadata_updated_at, "2026-03-10T16:20:00.000Z");
+
+    harness.setConflictMode(true);
+    harness.setGetPayload({
+      image_map: {
+        workpiece_id: WORKPIECE_A,
+        workspace_id: WORKSPACE_ID,
+        entries: [
+          buildImageMapEntryFixture("image-map-latest", {
+            anchor: "s1:p9#sent1",
+            script_anchor: {
+              section_id: "s1",
+              paragraph_id: "s1:p9",
+              paragraph_order: 9,
+              sentence_start: 1,
+              sentence_end: 1,
+              char_start: 0,
+              char_end: 12,
+              span_text: "latest state",
+              speaker_block_id: null,
+            },
+            description: "latest state",
+            visual_intent: "latest state",
+            prompt_basis: "latest state",
+            intent: "graphic",
+            placement_hint: null,
+          }),
+        ],
+        metadata_updated_at: "2026-03-10T16:30:00.000Z",
+      },
+      asset: null,
+    });
+
+    const conflictResult = await saveWorkpieceImageMap({
+      workpieceId: WORKPIECE_A,
+      workspaceId: WORKSPACE_ID,
+      entries: [],
+      expectedMetadataUpdatedAt: "2026-03-10T16:25:00.000Z",
+    });
+    assert.equal(conflictResult.ok, false);
+    if (!conflictResult.ok) {
+      assert.equal(conflictResult.reason, "conflict");
+      assert.equal(conflictResult.latest?.entries[0]?.id, "image-map-latest");
+      assert.equal(conflictResult.latest?.metadataUpdatedAt, "2026-03-10T16:30:00.000Z");
+    }
+  } finally {
+    harness.restore();
+  }
+}
+
+async function testImageMapRepoRejectsMismatchedCanonicalAttachment() {
+  resetLocalStorage();
+  const harness = installImageMapFetchHarness();
+  harness.setGetPayload({
+    image_map: {
+      workpiece_id: WORKPIECE_B,
+      workspace_id: WORKSPACE_ID,
+      entries: [],
+      metadata_updated_at: "2026-03-10T16:20:00.000Z",
+    },
+    asset: null,
+  });
+
+  try {
+    const result = await getWorkpieceImageMap(WORKPIECE_A);
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.reason, "invalid_response");
+    }
+  } finally {
+    harness.restore();
+  }
+}
+
+async function testImageMapCandidateGenerationRoundTripsCanonicalRefs() {
+  resetLocalStorage();
+  const harness = installImageMapFetchHarness();
+  harness.setGeneratePayload({
+    image_map: {
+      workpiece_id: WORKPIECE_A,
+      workspace_id: WORKSPACE_ID,
+      entries: [
+        buildImageMapEntryFixture("image-map-01", {
+          source_type: "ai",
+          status: "candidates_generated",
+          candidate_assets: [
+            {
+              asset_id: "candidate-a",
+              path: "assets/image-map/candidates/a.png",
+              variant_label: "explainer",
+              visual_mode: "comparison",
+              mime_type: "image/png",
+            },
+            {
+              asset_id: "candidate-b",
+              path: "assets/image-map/candidates/b.png",
+              variant_label: "illustrative",
+              visual_mode: "comparison",
+              mime_type: "image/png",
+            },
+          ],
+        }),
+      ],
+      metadata_updated_at: "2026-03-10T18:00:00.000Z",
+    },
+    asset: null,
+    generated_assets: [
+      {
+        id: "candidate-a",
+        workspace_id: WORKSPACE_ID,
+        episode_id: WORKPIECE_A,
+        image_map_entry_id: "image-map-01",
+        path: "assets/image-map/candidates/a.png",
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${WORKPIECE_A}/assets/image-map/candidates/a.png`,
+        mime_type: "image/png",
+        bytes: 256,
+        provider: "openai",
+        provider_request_id: "req-a",
+        request_id: "request-a",
+        variant_label: "explainer",
+        visual_mode: "comparison",
+        prompt: "Prompt A",
+      },
+      {
+        id: "candidate-b",
+        workspace_id: WORKSPACE_ID,
+        episode_id: WORKPIECE_A,
+        image_map_entry_id: "image-map-01",
+        path: "assets/image-map/candidates/b.png",
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${WORKPIECE_A}/assets/image-map/candidates/b.png`,
+        mime_type: "image/png",
+        bytes: 257,
+        provider: "openai",
+        provider_request_id: "req-b",
+        request_id: "request-b",
+        variant_label: "illustrative",
+        visual_mode: "comparison",
+        prompt: "Prompt B",
+      },
+    ],
+    token_balance: 17,
+  });
+
+  try {
+    const result = await generateWorkpieceImageMapCandidates({
+      workpieceId: WORKPIECE_A,
+      workspaceId: WORKSPACE_ID,
+      imageMapEntryId: "image-map-01",
+      expectedMetadataUpdatedAt: "2026-03-10T16:20:00.000Z",
+      contextBefore: "Prior sentence.",
+      contextAfter: "Following sentence.",
+      aspect: "16:9",
+      confirmSpend: true,
+      alwaysApproveAiSpend: true,
+    });
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.generatedAssets.length, 2);
+      assert.equal(result.generatedAssets[0]?.variantLabel, "explainer");
+      assert.equal(result.generatedAssets[1]?.visualMode, "comparison");
+      assert.equal(result.imageMap.entries[0]?.candidate_assets[1]?.variant_label, "illustrative");
+      assert.equal(result.tokenBalance, 17);
+    }
+    assert.equal(harness.generateRequests.length, 1);
+    assert.equal(harness.generateRequests[0]?.body.image_map_entry_id, "image-map-01");
+    assert.equal(harness.generateRequests[0]?.body.context_before, "Prior sentence.");
+  } finally {
+    harness.restore();
+  }
+}
+
+async function testImageMapCandidateSelectionPersistsCanonicalSelectedAsset() {
+  resetLocalStorage();
+  const harness = installImageMapFetchHarness();
+  harness.setSavePayload({
+    image_map: {
+      workpiece_id: WORKPIECE_A,
+      workspace_id: WORKSPACE_ID,
+      entries: [
+        buildImageMapEntryFixture("image-map-01", {
+          source_type: "ai",
+          status: "selected",
+          candidate_assets: [
+            {
+              asset_id: "candidate-a",
+              path: "assets/image-map/candidates/a.png",
+              variant_label: "explainer",
+              visual_mode: "comparison",
+              mime_type: "image/png",
+            },
+            {
+              asset_id: "candidate-b",
+              path: "assets/image-map/candidates/b.png",
+              variant_label: "illustrative",
+              visual_mode: "comparison",
+              mime_type: "image/png",
+            },
+          ],
+          selected_asset_id: "candidate-b",
+        }),
+      ],
+      metadata_updated_at: "2026-03-10T19:00:00.000Z",
+    },
+    asset: null,
+  });
+
+  try {
+    const result = await selectWorkpieceImageMapCandidate({
+      workpieceId: WORKPIECE_A,
+      workspaceId: WORKSPACE_ID,
+      imageMapEntryId: "image-map-01",
+      candidateAssetId: "candidate-b",
+      expectedMetadataUpdatedAt: "2026-03-10T18:00:00.000Z",
+      currentImageMap: {
+        workpieceId: WORKPIECE_A,
+        workspaceId: WORKSPACE_ID,
+        entries: [
+          buildImageMapEntryFixture("image-map-01", {
+            source_type: "ai",
+            status: "candidates_generated",
+            candidate_assets: [
+              {
+                asset_id: "candidate-a",
+                path: "assets/image-map/candidates/a.png",
+                variant_label: "explainer",
+                visual_mode: "comparison",
+                mime_type: "image/png",
+              },
+              {
+                asset_id: "candidate-b",
+                path: "assets/image-map/candidates/b.png",
+                variant_label: "illustrative",
+                visual_mode: "comparison",
+                mime_type: "image/png",
+              },
+            ],
+            selected_asset_id: null,
+          }),
+        ],
+        metadataUpdatedAt: "2026-03-10T18:00:00.000Z",
+        asset: null,
+      },
+    });
+
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.imageMap.entries[0]?.selected_asset_id, "candidate-b");
+      assert.equal(result.imageMap.entries[0]?.status, "selected");
+    }
+    assert.equal(harness.saveRequests.length, 1);
+    assert.equal(harness.saveRequests[0]?.body.expected_metadata_updated_at, "2026-03-10T18:00:00.000Z");
+    assert.equal((harness.saveRequests[0]?.body.entries?.[0] as { selected_asset_id?: string } | undefined)?.selected_asset_id, "candidate-b");
+  } finally {
+    harness.restore();
+  }
+}
+
+async function testImageMapCandidateSelectionRejectsDetachedCandidate() {
+  resetLocalStorage();
+  const harness = installImageMapFetchHarness();
+
+  try {
+    const result = await selectWorkpieceImageMapCandidate({
+      workpieceId: WORKPIECE_A,
+      workspaceId: WORKSPACE_ID,
+      imageMapEntryId: "image-map-01",
+      candidateAssetId: "candidate-z",
+      currentImageMap: {
+        workpieceId: WORKPIECE_A,
+        workspaceId: WORKSPACE_ID,
+        entries: [
+          buildImageMapEntryFixture("image-map-01", {
+            source_type: "ai",
+            status: "candidates_generated",
+            candidate_assets: [
+              {
+                asset_id: "candidate-a",
+                path: "assets/image-map/candidates/a.png",
+                variant_label: "explainer",
+                visual_mode: "comparison",
+                mime_type: "image/png",
+              },
+            ],
+          }),
+        ],
+        metadataUpdatedAt: "2026-03-10T18:00:00.000Z",
+        asset: null,
+      },
+    });
+
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.reason, "candidate_not_attached");
+    }
+    assert.equal(harness.saveRequests.length, 0);
+  } finally {
+    harness.restore();
+  }
+}
+
+async function testImageMapCandidatePreviewLoaderReadsCanonicalFilePath() {
+  resetLocalStorage();
+  const harness = installImageMapFetchHarness();
+  harness.setPreviewFile("assets/image-map/candidates/a.png", "cHJldmlldy1pbWFnZQ==", "image/png");
+
+  try {
+    const result = await loadImageMapCandidatePreviewDataUrl({
+      workpieceId: WORKPIECE_A,
+      path: "assets/image-map/candidates/a.png",
+      mimeType: "image/png",
+    });
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.match(result.dataUrl, /^data:image\/png;base64,/);
+      assert.equal(result.path, "assets/image-map/candidates/a.png");
+    }
+  } finally {
+    harness.restore();
+  }
+}
+
+function testGenerateImageMapEntriesFromScriptEmitsMultipleBeatsWithinParagraph() {
+  const scriptText = [
+    "## History",
+    "",
+    "The Union fielded 77,000 troops against roughly 50,000 Confederates. After Napoleon, veteran officers were redeployed across the Atlantic world. Control of the Mississippi and New Orleans became the strategic hinge of the campaign.",
+  ].join("\n");
+
+  const entries = generateImageMapEntriesFromScript(scriptText);
+  assert.equal(entries.length, 3);
+  assert.deepEqual(
+    entries.map((entry) => entry.script_anchor?.sentence_start),
+    [1, 2, 3],
+  );
+  assert.deepEqual(
+    entries.map((entry) => entry.paragraph_beat_order),
+    [1, 2, 3],
+  );
+  assert.equal(entries[0]?.script_anchor?.paragraph_id, "s1:p1");
+  assert.match(entries[2]?.prompt_basis ?? "", /mississippi/i);
+}
+
+function testEnsureImageMapV2RoundTripsStructuredEntries() {
+  const entry = buildImageMapEntryFixture("image-map-structured", {
+    candidate_assets: [{
+      asset_id: "asset-a",
+      path: "assets/image-a.png",
+      variant_label: "explainer",
+      visual_mode: "map",
+      mime_type: "image/png",
+    }],
+    selected_asset_id: "asset-a",
+    status: "selected",
+  });
+
+  const pkg = ensureImageMapV2({
+    schema: "forge.episode.package.v2",
+    seo: { titles: [], tags: [], description_short: null, description_long: null },
+    thumbnail: { concepts: [], versions: [], primary_version_id: null },
+    image_map: { entries: [entry] },
+  });
+
+  assert.equal(pkg.image_map.entries.length, 1);
+  assert.equal(pkg.image_map.entries[0]?.script_anchor?.paragraph_id, "s1:p1");
+  assert.equal(pkg.image_map.entries[0]?.candidate_assets[0]?.asset_id, "asset-a");
+  assert.equal(pkg.image_map.entries[0]?.candidate_assets[0]?.variant_label, "explainer");
+  assert.equal(pkg.image_map.entries[0]?.candidate_assets[0]?.visual_mode, "map");
+  assert.equal(pkg.image_map.entries[0]?.selected_asset_id, "asset-a");
+  assert.equal(pkg.image_map.entries[0]?.status, "selected");
+}
+
+async function testBarStockSparkListDiscoveryStaysCanonicalAcrossClients() {
+  resetLocalStorage();
+  const localSpark = {
+    id: "7fce5928-fcab-4f41-9894-09a7254f78e1",
+    body: "Local overlay spark",
+    createdAt: Date.parse("2026-03-10T09:00:00.000Z"),
+    updatedAt: Date.parse("2026-03-10T11:30:00.000Z"),
+    status: "forged",
+    links: {
+      hearthWorkpieceId: WORKPIECE_A,
+      hearthDraftId: "draft-local",
+    },
+  };
+  globalThis.localStorage.setItem("barstock_sparks_v2:2b2ef7aa-44d4-4d0d-93d7-b0aa4ec2b99d", JSON.stringify([localSpark]));
+
+  const harness = installSparkFetchHarness();
+  harness.setSparksPayload([
+    {
+      id: "47d34493-ce9f-4cce-9406-5ba4720d4745",
+      workspace_id: WORKSPACE_ID,
+      assignment_id: null,
+      title: "Remote Canonical Spark",
+      body: "Remote canonical body",
+      tags: ["news"],
+      status: "raw",
+      created_at: "2026-03-10T09:00:00.000Z",
+      updated_at: "2026-03-10T11:00:00.000Z",
+      linked_workpiece_id: null,
+    },
+    {
+      id: "919a34cf-8481-429c-b9bf-2b319ed72b19",
+      workspace_id: WORKSPACE_ID,
+      assignment_id: "3d829722-f4e1-4f35-9d16-5e10cfcf1bd8",
+      title: "Project-linked Spark",
+      body: "Remote project body",
+      tags: [],
+      status: "forged",
+      created_at: "2026-03-10T08:30:00.000Z",
+      updated_at: "2026-03-10T10:30:00.000Z",
+      linked_workpiece_id: WORKPIECE_B,
+    },
+  ]);
+
+  try {
+    const firstClient = await listHearthBarStockSparks(WORKSPACE_ID);
+    resetLocalStorage();
+    const secondClient = await listHearthBarStockSparks(WORKSPACE_ID);
+
+    assert.deepEqual(harness.listRequests, [WORKSPACE_ID, WORKSPACE_ID]);
+    assert.equal(firstClient.length, 2);
+    assert.equal(firstClient[0]?.title, "Remote Canonical Spark");
+    assert.equal(resolveBarStockSparkHearthWorkpieceId(firstClient[1]), WORKPIECE_B);
+    assert.equal(
+      firstClient.some((spark) => spark.id === localSpark.id),
+      false,
+      "Local mirror residue must not determine canonical spark discovery",
+    );
+    assert.deepEqual(
+      secondClient,
+      firstClient,
+      "A second client should observe the same canonical entry truth without mirror state",
+    );
+  } finally {
+    harness.restore();
+  }
+}
+
+async function testSparkIntakeWaitsForCanonicalDiscoveryBeforeDeclaringMissing() {
+  const sparkId = "7fce5928-fcab-4f41-9894-09a7254f78e1";
+
+  assert.equal(
+    resolveCanonicalSparkIntakeError({
+      routeSparkId: sparkId,
+      workspaceId: WORKSPACE_ID,
+      discoveryWorkspaceId: null,
+      spark: null,
+    }),
+    null,
+    "Deep-link intake should wait for canonical spark discovery before declaring a spark missing",
+  );
+  assert.equal(
+    isCanonicalSparkDiscoveryResolved(WORKSPACE_ID, null),
+    false,
+    "Discovery should be unresolved until the current workspace has completed canonical spark loading",
+  );
+  assert.equal(
+    resolveCanonicalSparkIntakeError({
+      routeSparkId: sparkId,
+      workspaceId: null,
+      discoveryWorkspaceId: null,
+      spark: null,
+    }),
+    "Spark intake requires workspace_id.",
+  );
+  assert.equal(
+    resolveCanonicalSparkIntakeError({
+      routeSparkId: sparkId,
+      workspaceId: WORKSPACE_ID,
+      discoveryWorkspaceId: WORKSPACE_ID,
+      spark: null,
+    }),
+    "Spark not found in Bar Stock. Sync and retry.",
+  );
+}
+
 async function testWorkpieceListRoundtripAndPrimaryScriptRead() {
   resetLocalStorage();
   const harness = installWorkpieceFetchHarness();
@@ -633,7 +1713,7 @@ async function testWorkpieceListRoundtripAndPrimaryScriptRead() {
 
   try {
     const workpieces = await listHearthWorkpieces(WORKSPACE_ID);
-    assert.equal(harness.listRequests[0], WORKSPACE_ID);
+    assert.deepEqual(harness.listRequests[0], { workspaceId: WORKSPACE_ID, includeArchived: null });
     assert.deepEqual(
       workpieces.map((entry) => entry.workpieceId),
       [WORKPIECE_B, WORKPIECE_A],
@@ -655,6 +1735,110 @@ async function testWorkpieceListRoundtripAndPrimaryScriptRead() {
       assert.equal(missing.data.text, null, "Missing primary script should stay a non-fatal empty read");
     }
     assert.deepEqual(harness.scriptReads, [WORKPIECE_A, WORKPIECE_B]);
+  } finally {
+    harness.restore();
+  }
+}
+
+async function testWorkpieceArchiveRoundtripUsesCanonicalEndpoints() {
+  resetLocalStorage();
+  const harness = installWorkpieceFetchHarness();
+  harness.setEpisodesPayload([
+    {
+      id: WORKPIECE_A,
+      workspace_id: WORKSPACE_ID,
+      label: "Archive Candidate",
+      created_at: "2026-03-08T12:00:00.000Z",
+      updated_at: "2026-03-10T12:00:00.000Z",
+      archived_at: null,
+      archived_by: null,
+      archive_reason: null,
+    },
+    {
+      id: WORKPIECE_B,
+      workspace_id: WORKSPACE_ID,
+      label: "Already Archived",
+      created_at: "2026-03-09T12:00:00.000Z",
+      updated_at: "2026-03-10T13:00:00.000Z",
+      archived_at: "2026-03-10T14:00:00.000Z",
+      archived_by: ARCHIVE_ACTOR_ID,
+      archive_reason: "duplicate",
+    },
+  ]);
+
+  try {
+    const listed = await listHearthWorkpieces(WORKSPACE_ID, { includeArchived: true });
+    assert.deepEqual(harness.listRequests[0], { workspaceId: WORKSPACE_ID, includeArchived: "1" });
+    assert.equal(listed.find((entry) => entry.workpieceId === WORKPIECE_B)?.isArchived, true);
+
+    const archived = await archiveHearthWorkpiece({
+      workspaceId: WORKSPACE_ID,
+      workpieceId: WORKPIECE_A,
+      reason: "duplicate",
+    });
+    assert.equal(archived.isArchived, true);
+    assert.equal(archived.archiveReason, "duplicate");
+    assert.deepEqual(harness.archiveRequests[0], {
+      workpieceId: WORKPIECE_A,
+      body: {
+        workspace_id: WORKSPACE_ID,
+        reason: "duplicate",
+      },
+    });
+
+    const restored = await restoreHearthWorkpiece({
+      workspaceId: WORKSPACE_ID,
+      workpieceId: WORKPIECE_A,
+    });
+    assert.equal(restored.isArchived, false);
+    assert.equal(restored.archiveReason, null);
+    assert.deepEqual(harness.restoreRequests[0], {
+      workpieceId: WORKPIECE_A,
+      body: {
+        workspace_id: WORKSPACE_ID,
+      },
+    });
+  } finally {
+    harness.restore();
+  }
+}
+
+async function testWorkpieceDraftHydrationReadsCanonicalSnapshotWithoutCachedMapping() {
+  const storage = resetLocalStorage();
+  storage.setItem("forge_workspace_id_v1", WORKSPACE_ID);
+  const harness = installWorkpieceFetchHarness();
+  const canonicalDraft = createDraft("canonical-buffer-a", {
+    title: "Canonical Buffer",
+    body: "Hydrated from canonical draft snapshot",
+    updatedAt: Date.parse("2026-03-10T15:00:00.000Z"),
+  });
+  harness.setDraftSnapshot(WORKPIECE_A, {
+    drafts: [canonicalDraft],
+    updatedAt: "2026-03-10T15:00:00.000Z",
+  }, "2026-03-10T15:01:00.000Z");
+
+  try {
+    const store = new TongsHearthStore();
+    const beforeHydration = await store.listDrafts();
+    assert.deepEqual(
+      beforeHydration,
+      [],
+      "Workspace draft discovery should stay empty until explicit canonical workpiece hydration occurs",
+    );
+
+    const workpieceDrafts = await store.listWorkpieceDrafts(WORKPIECE_A);
+    assert.equal(workpieceDrafts.length, 1, "Explicit workpiece hydration should read the canonical draft snapshot");
+    assert.equal(workpieceDrafts[0]?.id, canonicalDraft.id);
+    assert.equal(workpieceDrafts[0]?.title, canonicalDraft.title);
+    assert.deepEqual(
+      harness.draftReads,
+      [WORKPIECE_A],
+      "Canonical workpiece hydration must read the workpiece-scoped draft snapshot directly",
+    );
+
+    const afterHydration = await store.listDrafts();
+    assert.equal(afterHydration.length, 1, "Explicit canonical hydration should seed the workspace draft cache");
+    assert.equal(afterHydration[0]?.id, canonicalDraft.id);
   } finally {
     harness.restore();
   }
@@ -748,6 +1932,26 @@ async function testActiveWorkpieceContextResolvesAttachedArtifactsWithoutCreatin
   assert.deepEqual(context.revisions.map((revision) => revision.id), ["rev-a"], "Only attached draft revisions should hydrate into context");
 }
 
+async function testForgedSparkRouteResolutionPrefersBoundWorkpiece() {
+  const spark = {
+    id: "spark-route-a",
+    body: "Open the bound workpiece",
+    createdAt: 1,
+    updatedAt: 1,
+    status: "forged",
+    links: {
+      hearthDraftId: "legacy-draft-a",
+      hearthWorkpieceId: WORKPIECE_A,
+    },
+  };
+
+  assert.equal(
+    resolveBarStockSparkHearthWorkpieceId(spark),
+    WORKPIECE_A,
+    "Already-forged spark intake should resolve directly to the bound workpiece",
+  );
+}
+
 async function testSessionRoundtrip() {
   const storage = resetLocalStorage();
   storage.setItem("forge_workspace_id_v1", "2980fc39-8c8b-489a-a900-8d3bd3248432");
@@ -757,6 +1961,7 @@ async function testSessionRoundtrip() {
     createdAt: 1,
     updatedAt: 2,
     activeDraftId: "draft-1",
+    activeWorkpieceId: WORKPIECE_A,
     lastOpenedAt: 3,
     uiState: {
       cursorPosition: 120,
@@ -768,6 +1973,7 @@ async function testSessionRoundtrip() {
 
   const restored = await sessionStore.getSession();
   assert.ok(restored, "Session should restore");
+  assert.equal(restored?.activeWorkpieceId, WORKPIECE_A, "Session should preserve the active workpiece hint");
   assert.equal(restored?.uiState?.cursorPosition, 120, "Cursor position should roundtrip");
   assert.equal(restored?.uiState?.scrollTop, 456, "Scroll position should roundtrip");
 }
@@ -977,11 +2183,27 @@ async function run() {
   await testTongsRevisionFallbackPrecedence();
   await testTongsRevisionCap();
   await testReadyScriptsRoundtripIgnoresLegacyLocalOrder();
+  await testReadyScriptsCanonicalQueryOverridesPriorClientResidueAcrossRefresh();
   await testReadyQueueReorderPayload();
   await testReadyQueueHiddenMutationPayload();
+  await testReadyScriptRemovalDeletesAllCanonicalPaths();
+  await testImageMapRepoReadNormalizesSemanticEntriesAndAssetSummary();
+  await testImageMapRepoSaveForwardsExpectedTimestampAndReturnsLatestOnConflict();
+  await testImageMapRepoRejectsMismatchedCanonicalAttachment();
+  await testImageMapCandidateGenerationRoundTripsCanonicalRefs();
+  await testImageMapCandidateSelectionPersistsCanonicalSelectedAsset();
+  await testImageMapCandidateSelectionRejectsDetachedCandidate();
+  await testImageMapCandidatePreviewLoaderReadsCanonicalFilePath();
+  testGenerateImageMapEntriesFromScriptEmitsMultipleBeatsWithinParagraph();
+  testEnsureImageMapV2RoundTripsStructuredEntries();
+  await testBarStockSparkListDiscoveryStaysCanonicalAcrossClients();
+  await testSparkIntakeWaitsForCanonicalDiscoveryBeforeDeclaringMissing();
   await testWorkpieceListRoundtripAndPrimaryScriptRead();
+  await testWorkpieceArchiveRoundtripUsesCanonicalEndpoints();
+  await testWorkpieceDraftHydrationReadsCanonicalSnapshotWithoutCachedMapping();
   await testWorkpieceNavModelStaysWorkpieceFirst();
   await testActiveWorkpieceContextResolvesAttachedArtifactsWithoutCreatingNavRows();
+  await testForgedSparkRouteResolutionPrefersBoundWorkpiece();
   await testSessionRoundtrip();
   await testBuildEpisodeContextIncludesFields();
   await testApplyHearthOpsRequestsSave();

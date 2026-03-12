@@ -14,7 +14,8 @@
     "smoke:adaptive-style": "node scripts/phase-adaptive-style-alignment-smoke.mjs",
     "smoke:adaptive-style:ui-matrix": "node apps/nursery/scripts/phase-adaptive-style-ui-matrix-smoke.mjs",
     "smoke:hearth-phase4": "pnpm --filter nursery test:playwright:hearth-phase4",
-    "smoke": "pnpm smoke:core && pnpm smoke:team && pnpm smoke:adaptive-style"
+    "smoke:hearth-phase4:gate": "node scripts/run-hearth-phase4-smoke.mjs",
+    "smoke": "pnpm smoke:core && pnpm smoke:team && pnpm smoke:adaptive-style && pnpm smoke:hearth-phase4:gate"
   },
   "devDependencies": {
     "dotenv": "^16.6.1",

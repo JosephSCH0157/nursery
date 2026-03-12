@@ -594,3 +594,38 @@ export async function removeHearthReadyScript(args: {
 
   return { ok: true };
 }
+
+export async function removeHearthReadyScripts(args: {
+  workpieceId: string;
+  paths: readonly string[];
+}): Promise<{ ok: true; removedPaths: string[] } | { ok: false; status?: number; reason: string; removedPaths: string[] }> {
+  const workpieceId = normalizeUuid(args.workpieceId);
+  if (!workpieceId) {
+    return { ok: false, reason: "invalid_ids", removedPaths: [] };
+  }
+
+  const paths = Array.from(new Set(
+    (args.paths ?? [])
+      .map((path) => normalizeReadyScriptPath(path))
+      .filter((path): path is string => Boolean(path)),
+  ));
+  if (paths.length === 0) {
+    return { ok: false, reason: "invalid_paths", removedPaths: [] };
+  }
+
+  const removedPaths: string[] = [];
+  for (const path of paths) {
+    const result = await removeHearthReadyScript({ workpieceId, path });
+    if (!result.ok) {
+      return {
+        ok: false,
+        status: result.status,
+        reason: result.reason,
+        removedPaths,
+      };
+    }
+    removedPaths.push(path);
+  }
+
+  return { ok: true, removedPaths };
+}

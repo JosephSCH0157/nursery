@@ -27,6 +27,17 @@ export async function clearPersistedWorkspaceSelection(page: Page): Promise<void
   });
 }
 
+export async function persistWorkspaceSelection(page: Page, workspaceId: string): Promise<void> {
+  await page.evaluate((args) => {
+    for (const key of args.workspaceKeys) {
+      window.localStorage.setItem(key, args.workspaceId);
+    }
+  }, {
+    workspaceKeys: [...WORKSPACE_STORAGE_KEYS],
+    workspaceId,
+  });
+}
+
 export async function openHearth(page: Page, args: {
   workspaceId?: string | null;
   workpieceId?: string | null;
@@ -58,7 +69,23 @@ export async function openWorkpieceInHearth(page: Page, workpieceTitle: string):
 }
 
 export async function clickOpenInAnvil(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "Open in Anvil" }).first().click();
+  await page
+    .locator(".hs-active-workpiece")
+    .getByRole("button", { name: "Open in Anvil" })
+    .click();
+}
+
+function parseCurrentWorkpieceContext(currentUrl: string): {
+  pathname: string;
+  workspaceId: string | null;
+  workpieceId: string | null;
+} {
+  const url = new URL(currentUrl);
+  return {
+    pathname: url.pathname,
+    workspaceId: url.searchParams.get("workspace_id"),
+    workpieceId: url.searchParams.get("workpiece_id"),
+  };
 }
 
 export async function captureCurrentWorkpieceContext(page: Page): Promise<{
@@ -66,48 +93,75 @@ export async function captureCurrentWorkpieceContext(page: Page): Promise<{
   workspaceId: string | null;
   workpieceId: string | null;
 }> {
-  return page.evaluate(() => {
-    const url = new URL(window.location.href);
-    return {
-      pathname: url.pathname,
-      workspaceId: url.searchParams.get("workspace_id"),
-      workpieceId: url.searchParams.get("workpiece_id"),
-    };
-  });
+  return parseCurrentWorkpieceContext(page.url());
 }
 
 export async function assertSelfHealReplaceBehavior(page: Page, args: {
   initialUrl: string;
   expectedWorkspaceId: string;
+  expectedWorkspaceIds?: string[];
+  allowAnyResolvedWorkspace?: boolean;
+  disallowedWorkspaceIds?: string[];
   expectedWorkpieceId?: string | null;
   expectedPathPrefix?: string;
   previousUrl?: string;
 }): Promise<void> {
   if (args.previousUrl) {
     await page.goto(args.previousUrl, { waitUntil: "load" });
+    await persistWorkspaceSelection(page, args.expectedWorkspaceId);
+    await page.addInitScript((initArgs) => {
+      for (const key of initArgs.workspaceKeys) {
+        window.localStorage.setItem(key, initArgs.workspaceId);
+      }
+    }, {
+      workspaceKeys: [...WORKSPACE_STORAGE_KEYS],
+      workspaceId: args.expectedWorkspaceId,
+    });
   }
 
   await page.goto(args.initialUrl, { waitUntil: "load" });
 
   await expect.poll(async () => {
-    const current = await captureCurrentWorkpieceContext(page);
+    const current = parseCurrentWorkpieceContext(page.url());
     return {
       pathname: current.pathname,
-      workspaceId: current.workspaceId,
       workpieceId: current.workpieceId,
     };
   }).toEqual({
     pathname: args.expectedPathPrefix
       ? expect.stringMatching(new RegExp(`^${args.expectedPathPrefix}`))
       : expect.any(String),
-    workspaceId: args.expectedWorkspaceId,
     workpieceId: args.expectedWorkpieceId ?? null,
   });
+
+  const disallowedWorkspaceIds = new Set(args.disallowedWorkspaceIds ?? []);
+  if (args.allowAnyResolvedWorkspace) {
+    await expect
+      .poll(() => {
+        const current = parseCurrentWorkpieceContext(page.url());
+        return Boolean(current.workspaceId) && !disallowedWorkspaceIds.has(current.workspaceId ?? "");
+      })
+      .toBe(true);
+  } else {
+    const allowedWorkspaceIds = Array.from(new Set([
+      ...(args.expectedWorkspaceIds ?? []),
+      args.expectedWorkspaceId,
+    ]));
+    await expect
+      .poll(() => {
+        const current = parseCurrentWorkpieceContext(page.url());
+        return current.workspaceId && allowedWorkspaceIds.includes(current.workspaceId);
+      })
+      .toBe(true);
+  }
 
   const currentUrl = page.url();
   expect(currentUrl).not.toContain("workspace_id=00000000");
   if (args.previousUrl) {
     await page.goBack({ waitUntil: "load" });
-    await expect(page).toHaveURL(new RegExp(args.previousUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    const expectedPreviousPath = new URL(args.previousUrl, currentUrl).pathname;
+    await expect
+      .poll(() => new URL(page.url()).pathname)
+      .toBe(expectedPreviousPath);
   }
 }

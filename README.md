@@ -2,6 +2,15 @@
 
 Podcaster's Forge is the **front door** and **single login** for the ecosystem. Users authenticate here (email + password) and then unlock the `/app` workspace where every Forge tool lives (Anvil, Hearth, Hammer, Barstock, etc.).
 
+For system behavior of ideas, scripts, persistence, and recording:
+- `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`
+- `STATE_MACHINE_DIAGRAM.md`
+- `WORKPIECE_DELETION_POLICY_PLAN.md`
+- `LOCAL_MIRROR_SSOT_BURNDOWN_LOCK.md`
+- `LOCAL_MIRROR_SSOT_BURNDOWN_IMPLEMENTATION_PLAN.md`
+- `LOCAL_MIRROR_SSOT_POST_CAMPAIGN_STABILIZATION_NOTE.md`
+- `LOCAL_MIRROR_INGEST_STATE_MACHINE.md`
+
 ## Release status
 
 - Forge `v1.2.0` (**Fire Burning**) is released and tagged as `forge-v1.2.0`.
