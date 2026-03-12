@@ -6,7 +6,9 @@ import type {
   HammerTranscriptSource,
 } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { MediaRef, WorkspaceMediaMapping } from "../../../../packages/contracts/hammer/media-resolver.contract";
+import type { HammerVisualPackage } from "../../../../packages/contracts/hammer/visual-package.contract";
 import { DEFAULT_TRANSCRIPT_FIXTURE_ID, getDevTranscriptSegments } from "./transcriptFixtures";
+import { getDevVisualPackage } from "./visualPackageFixtures";
 
 export const HAMMER_DEV_LAUNCH_PRESET_IDS = [
   "dev-tone-basic",
@@ -78,11 +80,42 @@ function cloneMediaSource(source: HammerMediaSource): HammerMediaSource {
   return { ...source };
 }
 
+function syncVisualPackageIdentity(
+  visualPackage: HammerVisualPackage,
+  workspaceId: string,
+  workpieceId: string,
+): HammerVisualPackage {
+  const previousWorkpieceId = visualPackage.workpiece_id;
+  return {
+    ...visualPackage,
+    workspace_id: workspaceId,
+    workpiece_id: workpieceId,
+    visuals: visualPackage.visuals.map((visual) => ({
+      ...visual,
+      script_anchor: visual.script_anchor ? { ...visual.script_anchor } : null,
+      selected_asset: visual.selected_asset
+        ? {
+          ...visual.selected_asset,
+          path: visual.selected_asset.path.replace(previousWorkpieceId, workpieceId),
+          storage_key: visual.selected_asset.storage_key.replace(previousWorkpieceId, workpieceId),
+        }
+        : null,
+    })),
+  };
+}
+
 function cloneLaunchContext(context: HammerLaunchContext): HammerLaunchContext {
   return {
     ...context,
     transcript: cloneTranscriptSource(context.transcript),
     media: cloneMediaSource(context.media),
+    visual_package: context.visual_package
+      ? syncVisualPackageIdentity(
+        context.visual_package,
+        context.visual_package.workspace_id,
+        context.visual_package.workpiece_id,
+      )
+      : undefined,
     edit_plan: context.edit_plan ? cloneEditPlan(context.edit_plan) : undefined,
   };
 }
@@ -143,6 +176,11 @@ const PRESET_INDEX: Record<HammerDevLaunchPresetId, HammerLaunchContext> = {
       media_id: "media_dev_tone_basic",
       duration_sec: DEFAULT_DURATION_SEC,
     },
+    visual_package: getDevVisualPackage({
+      fixtureId: DEFAULT_TRANSCRIPT_FIXTURE_ID,
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      workpieceId: DEFAULT_WORKPIECE_ID,
+    }),
     preview_mode: DEFAULT_PREVIEW_MODE,
   },
   "mapped-media-missing": {
@@ -159,6 +197,11 @@ const PRESET_INDEX: Record<HammerDevLaunchPresetId, HammerLaunchContext> = {
       ref: createMappedMediaRef("media_missing_local_01", "recordings/missing-episode014.mp4"),
       label: "mapped:missing-local",
     },
+    visual_package: getDevVisualPackage({
+      fixtureId: DEFAULT_TRANSCRIPT_FIXTURE_ID,
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      workpieceId: DEFAULT_WORKPIECE_ID,
+    }),
     preview_mode: DEFAULT_PREVIEW_MODE,
   },
   "tongs-stub-with-edit-plan": {
@@ -181,6 +224,11 @@ const PRESET_INDEX: Record<HammerDevLaunchPresetId, HammerLaunchContext> = {
       },
       label: TONGS_STUB_MEDIA_LABEL,
     },
+    visual_package: getDevVisualPackage({
+      fixtureId: DEFAULT_TRANSCRIPT_FIXTURE_ID,
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      workpieceId: DEFAULT_WORKPIECE_ID,
+    }),
     edit_plan: createTongsStubEditPlan(),
     preview_mode: "raw",
   },
@@ -204,6 +252,11 @@ const PRESET_INDEX: Record<HammerDevLaunchPresetId, HammerLaunchContext> = {
       },
       label: TONGS_STUB_MEDIA_LABEL,
     },
+    visual_package: getDevVisualPackage({
+      fixtureId: DEFAULT_TRANSCRIPT_FIXTURE_ID,
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      workpieceId: DEFAULT_WORKPIECE_ID,
+    }),
     preview_mode: DEFAULT_PREVIEW_MODE,
   },
 };
@@ -305,6 +358,11 @@ function applyTranscriptOverrides(
       kind: "fixture",
       fixture_id: transcriptFixtureId,
     },
+    visual_package: getDevVisualPackage({
+      fixtureId: transcriptFixtureId,
+      workspaceId: context.workspace_id,
+      workpieceId: context.workpiece_id,
+    }),
   };
 }
 
@@ -397,6 +455,9 @@ export function resolveHammerDevLaunchContext(search: string): HammerLaunchConte
     workspace_id: workspaceId,
     workpiece_id: workpieceId,
     session_id: sessionId ?? undefined,
+    visual_package: baseContext.visual_package
+      ? syncVisualPackageIdentity(baseContext.visual_package, workspaceId, workpieceId)
+      : undefined,
     media: syncWorkspaceOnMediaSource(baseContext.media, workspaceId),
   };
 

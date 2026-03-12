@@ -44,11 +44,13 @@ import type {
   TranscriptPlaybackRange,
   TranscriptSeekTarget,
 } from "../lib/transcriptPreview";
+import type { HammerVisualPlacementMatchType } from "../../../../packages/contracts/hammer/visual-placement.contract";
 import {
   parseHammerEditPlanJson,
   resolveHammerLaunchContext,
 } from "../lib/launchContext";
 import type { ResolvedHammerLaunchContext } from "../lib/launchContext";
+import { buildVisualTimelineClips, resolveVisualPlacements } from "../lib/visualPlacement";
 import { toMediaBadgeViewModel } from "../media/mediaBadgeViewModel";
 import { V1HammerMediaResolver } from "../media/resolveMedia";
 import { loadWorkspaceMapping } from "../media/workspaceMapping";
@@ -349,6 +351,23 @@ function formatPercent(value: number | null): string {
   return `${Math.round(value * 100)}%`;
 }
 
+function formatVisualMatchTypeLabel(matchType: HammerVisualPlacementMatchType): string {
+  switch (matchType) {
+    case "exact":
+      return "Exact";
+    case "overlap":
+      return "Overlap";
+    case "ordered_fallback":
+      return "Ordered fallback";
+    case "progress_fallback":
+      return "Progress fallback";
+    case "unmatched":
+      return "Unmatched";
+    default:
+      return matchType;
+  }
+}
+
 function formatByteSize(totalBytes: number | null | undefined): string {
   if (totalBytes == null || !Number.isFinite(totalBytes) || totalBytes < 0) return "size unavailable";
   if (totalBytes === 0) return "0 B";
@@ -539,6 +558,8 @@ function getTimelineTrackRoleLabel(trackId: string): string {
   switch (trackId) {
     case "video-main":
       return "primary picture";
+    case "video-stills":
+      return "preplaced stills";
     case "video-pip":
       return "secondary picture";
     case "audio-dialogue":
@@ -556,6 +577,8 @@ function getTimelineTrackRoleLabel(trackId: string): string {
 
 function getTimelineTrackEmptyMessage(trackId: string, hasSelectedRow: boolean): string {
   switch (trackId) {
+    case "video-stills":
+      return "No placed still-image clips are available yet. Unmatched visuals stay visible in the Video and Details surfaces.";
     case "video-pip":
       return "No picture-in-picture clip is staged on this edit yet.";
     case "audio-bed":
@@ -874,6 +897,11 @@ export default function TranscriptSeekMock(
   );
   const transcriptLoad = resolvedLaunch.transcript;
   const transcriptSegments = transcriptLoad.segments;
+  const visualPackage = resolvedLaunch.launch_context.visual_package ?? null;
+  const visualPlacementResult = useMemo(
+    () => (visualPackage ? resolveVisualPlacements(visualPackage, transcriptSegments) : null),
+    [transcriptSegments, visualPackage],
+  );
   const firstSegment = transcriptSegments[0] ?? null;
   const transcriptDurationSec = useMemo(
     () => transcriptSegments.reduce(
@@ -2247,6 +2275,70 @@ export default function TranscriptSeekMock(
   const resolvedDurationMs = resolveResult?.status === "ok" ? resolveResult.duration_ms ?? null : null;
   const primaryAssetDurationLabel = formatDurationMs(activeMediaRef?.duration_ms ?? resolvedDurationMs)
     ?? formatClock(transcriptDurationSec);
+  const visualByEntryId = useMemo(
+    () => new Map((visualPackage?.visuals ?? []).map((visual) => [visual.entry_id, visual])),
+    [visualPackage],
+  );
+  const visualPlacements = visualPlacementResult?.placements ?? [];
+  const visualPlacementSummary = useMemo(() => {
+    const summary = {
+      total: visualPackage?.visuals.length ?? 0,
+      placed: 0,
+      exact: 0,
+      overlap: 0,
+      orderedFallback: 0,
+      progressFallback: 0,
+      unmatched: 0,
+    };
+
+    for (const placement of visualPlacements) {
+      if (placement.start_sec != null && placement.end_sec != null) {
+        summary.placed += 1;
+      }
+
+      switch (placement.match_type) {
+        case "exact":
+          summary.exact += 1;
+          break;
+        case "overlap":
+          summary.overlap += 1;
+          break;
+        case "ordered_fallback":
+          summary.orderedFallback += 1;
+          break;
+        case "progress_fallback":
+          summary.progressFallback += 1;
+          break;
+        case "unmatched":
+          summary.unmatched += 1;
+          break;
+        default:
+          break;
+      }
+    }
+
+    return summary;
+  }, [visualPackage, visualPlacements]);
+  const visualTimelineClips = useMemo(
+    () => buildVisualTimelineClips({
+      visualPackage,
+      placementResult: visualPlacementResult,
+      rowIdBySegmentId: new Map(
+        Array.from(overlayRowBySegmentId.entries()).map(([segmentId, row]) => [segmentId, row.row_id] as const),
+      ),
+    }).map((clip) => ({
+      id: clip.clip_id,
+      start_sec: clip.start_sec,
+      end_sec: clip.end_sec,
+      label: clip.label,
+      tone: clip.tone,
+      linked_row_id: clip.linked_row_id,
+      linked_segment_id: clip.linked_segment_id,
+      editable: false,
+      ripple_hint: false,
+    })),
+    [overlayRowBySegmentId, visualPackage, visualPlacementResult],
+  );
 
   const projectAssets = useMemo(
     () => {
@@ -2294,6 +2386,36 @@ export default function TranscriptSeekMock(
         assets.video.push(primaryAsset);
       }
 
+      for (const placement of visualPlacements) {
+        const visual = visualByEntryId.get(placement.entry_id);
+        const selectedAsset = visual?.selected_asset;
+        if (!selectedAsset) continue;
+
+        const placementWindowLabel = placement.start_sec != null && placement.end_sec != null
+          ? `${formatClock(placement.start_sec)}-${formatClock(placement.end_sec)}`
+          : "awaiting placement";
+        const placementDurationLabel = placement.start_sec != null && placement.end_sec != null
+          ? formatClock(Math.max(placement.end_sec - placement.start_sec, 0))
+          : null;
+        const matchedSegmentsLabel = placement.matched_segment_ids.length > 0
+          ? placement.matched_segment_ids.join(", ")
+          : "none";
+
+        assets.images.push({
+          id: selectedAsset.asset_id,
+          title: `Beat ${placement.beat_order} · ${visual?.visual_mode ?? "still"}`,
+          kindLabel: "Selected Image",
+          sourceLabel: formatVisualMatchTypeLabel(placement.match_type),
+          detail: `${selectedAsset.storage_bucket}/${selectedAsset.storage_key}`,
+          status: placement.match_type,
+          usageHint: placement.start_sec != null && placement.end_sec != null
+            ? `${placementWindowLabel} · matched ${matchedSegmentsLabel}`
+            : "No stable transcript window yet.",
+          workpieceId: resolvedLaunch.launch_context.workpiece_id,
+          durationLabel: placementDurationLabel,
+        });
+      }
+
       return assets;
     },
     [
@@ -2305,6 +2427,8 @@ export default function TranscriptSeekMock(
       resolveResult?.status,
       resolvedLaunch.launch_context.workpiece_id,
       sourceModeLabel,
+      visualByEntryId,
+      visualPlacements,
     ],
   );
 
@@ -2895,6 +3019,9 @@ export default function TranscriptSeekMock(
               <span className="hammer-pill">main video</span>
               <span className="hammer-pill">picture-in-picture</span>
               <span className="hammer-pill">visual cleanup</span>
+              <span className="hammer-pill">
+                visuals {visualPlacementSummary.placed}/{visualPlacementSummary.total}
+              </span>
             </div>
             <div className="hammer-copy-md">
               Video stays focused on framing and visual cleanup tied to the current project media.
@@ -2902,6 +3029,29 @@ export default function TranscriptSeekMock(
             <div className="hammer-copy-sm hammer-copy-muted">
               source: {activeMediaSourceLabel} · media kind {activeMediaKind ? formatMediaKindLabel(activeMediaKind) : resolvedLaunch.launch_context.media.kind}
             </div>
+            <HammerWorkflowCard
+              title="Visual Placement"
+              tone={!visualPackage ? "blocked" : visualPlacementSummary.placed > 0 ? "active" : "ready"}
+              statusLabel={!visualPackage
+                ? "No package"
+                : `${visualPlacementSummary.placed}/${visualPlacementSummary.total} placed`}
+              description="Hammer reads the canonical visual package, matches script anchors against transcript segments, and keeps the result non-authoritative."
+              meta={(
+                <div className="hammer-stack-6">
+                  <div className="hammer-meta-strip">
+                    <span className="hammer-pill">exact {visualPlacementSummary.exact}</span>
+                    <span className="hammer-pill">overlap {visualPlacementSummary.overlap}</span>
+                    <span className="hammer-pill">fallback {visualPlacementSummary.orderedFallback + visualPlacementSummary.progressFallback}</span>
+                    <span className="hammer-pill">unmatched {visualPlacementSummary.unmatched}</span>
+                  </div>
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    {visualPackage
+                      ? "Selected image assets now enter Hammer with deterministic placement ranges derived from transcript timing."
+                      : "No canonical visual package is attached to this launch context yet."}
+                  </div>
+                </div>
+              )}
+            />
             <div className="hammer-workflow-grid">
               <HammerWorkflowCard
                 title="Blur Background"
@@ -2963,10 +3113,25 @@ export default function TranscriptSeekMock(
                 <div className="hammer-label">preview mode</div>
                 <div>{sessionState.previewMode}</div>
               </div>
+              <div>
+                <div className="hammer-label">visual beats</div>
+                <div>{visualPlacementSummary.total}</div>
+              </div>
+              <div>
+                <div className="hammer-label">placed visuals</div>
+                <div>{visualPlacementSummary.placed}</div>
+              </div>
             </div>
             <div className="hammer-copy-md hammer-copy-dim">
               Details carries project-level editing context and source metadata. Debug surfaces stay hidden unless you explicitly open them.
             </div>
+            {visualPackage ? (
+              <div className="hammer-copy-sm hammer-copy-muted">
+                script {visualPackage.script_updated_at ?? "unknown"}
+                {" · "}
+                image map {visualPackage.image_map_updated_at ?? "unknown"}
+              </div>
+            ) : null}
           </div>
         );
       case "export":
@@ -3046,6 +3211,8 @@ export default function TranscriptSeekMock(
     studioSoundPrepared,
     trimInstructionCount,
     transcriptSegments.length,
+    visualPackage,
+    visualPlacementSummary,
   ]);
 
   const detailsDebugContent = activeTool === "details" && showDebugPanels ? (
@@ -3172,6 +3339,96 @@ export default function TranscriptSeekMock(
           </div>
         ) : (
           <div className="hammer-copy-sm hammer-copy-muted">No row selected.</div>
+        )}
+      </div>
+
+      <div className="hammer-workflow-card">
+        <div className="hammer-workflow-card__header">
+          <div className="hammer-stack-4">
+            <strong className="hammer-copy-strong">Visual Placements</strong>
+            <div className="hammer-copy-sm hammer-copy-muted">
+              Canonical selected visuals matched against the current transcript. This layer stays non-authoritative.
+            </div>
+          </div>
+          <span className="hammer-pill">
+            {visualPackage ? `${visualPlacementSummary.placed}/${visualPlacementSummary.total} placed` : "no package"}
+          </span>
+        </div>
+        {visualPackage ? (
+          <div className="hammer-stack-10">
+            <div className="hammer-inspector-grid">
+              <div>
+                <div className="hammer-label">script updated</div>
+                <div>{visualPackage.script_updated_at ?? "unknown"}</div>
+              </div>
+              <div>
+                <div className="hammer-label">image map updated</div>
+                <div>{visualPackage.image_map_updated_at ?? "unknown"}</div>
+              </div>
+              <div>
+                <div className="hammer-label">exact / overlap</div>
+                <div>{visualPlacementSummary.exact} / {visualPlacementSummary.overlap}</div>
+              </div>
+              <div>
+                <div className="hammer-label">fallback / unmatched</div>
+                <div>
+                  {visualPlacementSummary.orderedFallback + visualPlacementSummary.progressFallback}
+                  {" / "}
+                  {visualPlacementSummary.unmatched}
+                </div>
+              </div>
+            </div>
+            <div className="hammer-stack-6">
+              {visualPlacements.map((placement) => (
+                <div
+                  key={placement.entry_id}
+                  style={{
+                    display: "grid",
+                    gap: 6,
+                    border: "1px solid rgba(148, 163, 184, 0.18)",
+                    borderRadius: 10,
+                    padding: "10px 12px",
+                    background: "rgba(2, 6, 23, 0.36)",
+                  }}
+                >
+                  <div className="hammer-meta-strip">
+                    <span className="hammer-pill">beat {placement.beat_order}</span>
+                    <span className="hammer-pill">{formatVisualMatchTypeLabel(placement.match_type)}</span>
+                    <span className="hammer-pill">{formatPercent(placement.confidence)}</span>
+                  </div>
+                  <div className="hammer-inspector-grid">
+                    <div>
+                      <div className="hammer-label">timing</div>
+                      <div>
+                        {formatTimeDetail(placement.start_sec)}
+                        {" -> "}
+                        {formatTimeDetail(placement.end_sec)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">segments</div>
+                      <div className="hammer-mono">{formatSegmentAncestry(placement.matched_segment_ids)}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">asset</div>
+                      <div className="hammer-mono">{placement.selected_asset_id ?? "none"}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">mode</div>
+                      <div>{placement.visual_mode ?? "none"}</div>
+                    </div>
+                  </div>
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    {placement.anchor_text_used ?? "No anchor text available."}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="hammer-copy-sm hammer-copy-muted">
+            No visual package is attached to this launch context.
+          </div>
         )}
       </div>
 
@@ -3311,6 +3568,7 @@ export default function TranscriptSeekMock(
 
       return [
         { id: "video-main", label: "Main Video", clips: primaryClips },
+        { id: "video-stills", label: "Visual Stills", clips: visualTimelineClips },
         { id: "video-pip", label: "Picture-in-Picture", clips: [] },
         {
           id: "audio-dialogue",
@@ -3358,7 +3616,7 @@ export default function TranscriptSeekMock(
         },
       ];
     },
-    [effectiveDurationSec, overlayRows, selectedOverlayRow, selectedSegmentMuteInstruction],
+    [effectiveDurationSec, overlayRows, selectedOverlayRow, selectedSegmentMuteInstruction, visualTimelineClips],
   );
 
   const playheadPercent = clamp((currentTimeSec / effectiveDurationSec) * 100, 0, 100);
@@ -4291,6 +4549,7 @@ export default function TranscriptSeekMock(
           <div className="hammer-meta-strip">
             <span className="hammer-pill">mode {activeTimelineToolDefinition.label}</span>
             <span className="hammer-pill">tracks {timelineTracks.length}</span>
+            <span className="hammer-pill">visual clips {visualTimelineClips.length}</span>
             <span className="hammer-pill">playhead {formatClock(currentTimeSec)}</span>
             <span className="hammer-pill">focus {timelineFocusLabel}</span>
           </div>

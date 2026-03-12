@@ -11,6 +11,7 @@ import type {
   WorkspaceMediaMapping,
 } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
+import type { HammerVisualPackage } from "../../../../packages/contracts/hammer/visual-package.contract";
 import { MIN_SEGMENT_DURATION_SEC } from "./transcriptPreview";
 import { loadWorkspaceMapping } from "../media/workspaceMapping";
 import type { WorkspaceMappingSource } from "../media/workspaceMapping";
@@ -91,6 +92,17 @@ function cloneWorkspaceMapping(mapping: WorkspaceMediaMapping): WorkspaceMediaMa
 
 function cloneTranscriptSegments(segments: HammerTranscriptSegment[]): HammerTranscriptSegment[] {
   return segments.map((segment) => ({ ...segment }));
+}
+
+function cloneVisualPackage(visualPackage: HammerVisualPackage): HammerVisualPackage {
+  return {
+    ...visualPackage,
+    visuals: visualPackage.visuals.map((visual) => ({
+      ...visual,
+      script_anchor: visual.script_anchor ? { ...visual.script_anchor } : null,
+      selected_asset: visual.selected_asset ? { ...visual.selected_asset } : null,
+    })),
+  };
 }
 
 function readInstruction(input: unknown): HammerEditInstruction | null {
@@ -430,6 +442,7 @@ export function resolveHammerLaunchContext(
       ...context,
       transcript: { ...context.transcript },
       media: { ...context.media },
+      visual_package: context.visual_package ? cloneVisualPackage(context.visual_package) : undefined,
       edit_plan: initialEditPlan ?? undefined,
     },
     transcript,

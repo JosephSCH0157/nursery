@@ -1,6 +1,7 @@
 import type { HammerEditPlan } from "../../../../packages/contracts/hammer/edit-plan.contract";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { WorkspaceMediaMapping } from "../../../../packages/contracts/hammer/media-resolver.contract";
+import type { HammerVisualPackage } from "../../../../packages/contracts/hammer/visual-package.contract";
 import { getHammerDevLaunchPreset } from "./hammerLaunchPresets";
 
 export const HAMMER_STUB_LAUNCH_QUERY_KEY = "hammer_stub";
@@ -62,6 +63,30 @@ function cloneWorkspaceMapping(mapping: WorkspaceMediaMapping): WorkspaceMediaMa
   return { ...mapping };
 }
 
+function syncVisualPackageIdentity(
+  visualPackage: HammerVisualPackage,
+  workspaceId: string,
+  workpieceId: string,
+): HammerVisualPackage {
+  const previousWorkpieceId = visualPackage.workpiece_id;
+  return {
+    ...visualPackage,
+    workspace_id: workspaceId,
+    workpiece_id: workpieceId,
+    visuals: visualPackage.visuals.map((visual) => ({
+      ...visual,
+      script_anchor: visual.script_anchor ? { ...visual.script_anchor } : null,
+      selected_asset: visual.selected_asset
+        ? {
+          ...visual.selected_asset,
+          path: visual.selected_asset.path.replace(previousWorkpieceId, workpieceId),
+          storage_key: visual.selected_asset.storage_key.replace(previousWorkpieceId, workpieceId),
+        }
+        : null,
+    })),
+  };
+}
+
 function cloneLaunchContext(context: HammerLaunchContext): HammerLaunchContext {
   return {
     ...context,
@@ -85,6 +110,13 @@ function cloneLaunchContext(context: HammerLaunchContext): HammerLaunchContext {
           : undefined,
       }
       : { ...context.media },
+    visual_package: context.visual_package
+      ? syncVisualPackageIdentity(
+        context.visual_package,
+        context.visual_package.workspace_id,
+        context.visual_package.workpiece_id,
+      )
+      : undefined,
     edit_plan: context.edit_plan ? cloneEditPlan(context.edit_plan) : undefined,
   };
 }
@@ -100,6 +132,9 @@ function withRouteIdentity(
   nextContext.workspace_id = STUB_WORKSPACE_ID;
   nextContext.workpiece_id = workpieceId;
   nextContext.session_id = sessionId;
+  nextContext.visual_package = nextContext.visual_package
+    ? syncVisualPackageIdentity(nextContext.visual_package, STUB_WORKSPACE_ID, workpieceId)
+    : undefined;
 
   if (nextContext.media.kind === "tongs-stub" && nextContext.media.workspace_mapping) {
     nextContext.media.workspace_mapping.workspace_id = STUB_WORKSPACE_ID;

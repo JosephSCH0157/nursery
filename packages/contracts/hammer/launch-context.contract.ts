@@ -1,6 +1,7 @@
 import type { HammerEditPlan, HammerPreviewMode } from "./edit-plan.contract";
 import type { MediaRef, WorkspaceMediaMapping } from "./media-resolver.contract";
 import type { HammerTranscriptSegment } from "./transcript.contract";
+import type { HammerVisualPackage } from "./visual-package.contract";
 
 export type HammerLaunchSourceMode = "dev" | "mapped" | "tongs";
 
@@ -60,6 +61,7 @@ export interface HammerLaunchContext {
   source_mode: HammerLaunchSourceMode;
   transcript: HammerTranscriptSource;
   media: HammerMediaSource;
+  visual_package?: HammerVisualPackage;
   edit_plan?: HammerEditPlan;
   preview_mode?: HammerPreviewMode;
 }

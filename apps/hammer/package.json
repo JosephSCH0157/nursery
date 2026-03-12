@@ -9,7 +9,8 @@
     "preview": "node -e \"console.log('Hammer previews through Nursery.')\"",
     "types": "tsc -p tsconfig.json --noEmit",
     "test:preview": "tsx tests/transcriptPreview.test.ts",
-    "test:launch-context": "tsx tests/launchContext.test.ts"
+    "test:launch-context": "tsx tests/launchContext.test.ts",
+    "test:visual-placement": "tsx tests/visualPlacement.test.ts"
   },
   "dependencies": {
     "react": "^19.2.0",
