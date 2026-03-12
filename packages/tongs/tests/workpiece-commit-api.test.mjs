@@ -2292,8 +2292,8 @@ test("TongsCommitService.generateImageMapCandidates writes candidate assets and 
   assert.equal(result.image_map.entries[0]?.candidate_assets.length, 2);
   assert.equal(result.image_map.entries[0]?.candidate_assets[0]?.variant_label, "explainer");
   assert.equal(result.image_map.entries[0]?.candidate_assets[1]?.variant_label, "illustrative");
-  assert.equal(result.image_map.entries[0]?.status, "candidates_generated");
-  assert.equal(result.image_map.entries[0]?.selected_asset_id, null);
+  assert.equal(result.image_map.entries[0]?.status, "selected");
+  assert.equal(result.image_map.entries[0]?.selected_asset_id, result.generated_assets[0]?.id);
   assert.equal(result.token_balance, 777);
 
   const candidateSupersedeCall = state.updateCalls.find((row) => Array.isArray(row.id));
@@ -2301,6 +2301,247 @@ test("TongsCommitService.generateImageMapCandidates writes candidate assets and 
   assert.equal(candidateSupersedeCall?.patch?.status, "superseded");
   const imageMapSupersedeCall = state.updateCalls.find((row) => row.id === "asset-old-image-map");
   assert.equal(imageMapSupersedeCall?.patch?.status, "superseded");
+});
+
+test("TongsCommitService.generateImageMapCandidates makes visual package return the deterministic selected still", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const workpieceId = "22222222-2222-4222-8222-222222222222";
+  const userId = "33333333-3333-4333-8333-333333333333";
+  const { ...supabase } = createImageMapAssetSupabase({
+    assets: [
+      {
+        id: "asset-old-image-map",
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        path: "assets/image-map/image-map.v1.json",
+        mime_type: "application/json",
+        bytes: 111,
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${workpieceId}/assets/image-map/image-map.v1.json`,
+        provider: "hearth",
+        provider_request_id: null,
+        request_id: "req-old-image-map",
+        prompt: null,
+        created_by: userId,
+        created_at: "2026-03-11T18:00:00.000Z",
+        updated_at: "2026-03-11T18:00:00.000Z",
+        asset_kind: "image_map_json",
+        status: "ready",
+        metadata_json: {
+          schema: "forge.image-map.v1",
+          entry_count: 1,
+        },
+        supersedes_asset_id: null,
+      },
+    ],
+  });
+
+  const imageProvider = {
+    async generateImage(input) {
+      return {
+        bytesBase64: input.prompt.includes("diagrammatic") ? "AQID" : "BAUG",
+        mimeType: "image/png",
+        provider: "openai",
+        providerRequestId: input.prompt.includes("diagrammatic") ? "req_provider_01" : "req_provider_02",
+        revisedPrompt: null,
+        tokensUsed: 120,
+      };
+    },
+  };
+
+  let currentMetadata = {
+    schema: "forge.metadata.v1",
+    workpiece_id: workpieceId,
+    workspace_id: workspaceId,
+    episode: {
+      schema: "forge.episode.package.v2",
+      image_map: {
+        entries: [
+          {
+            id: "image-map-01",
+            anchor: "s1:p1#sent1-2",
+            script_anchor: {
+              section_id: "s1",
+              paragraph_id: "s1:p1",
+              paragraph_order: 1,
+              sentence_start: 1,
+              sentence_end: 2,
+              char_start: 0,
+              char_end: 72,
+              span_text: "Jackson faced 8,000 British troops against 3,500 defenders near New Orleans.",
+              speaker_block_id: null,
+            },
+            description: "Strategic troop comparison near New Orleans",
+            visual_intent: "Strategic troop comparison",
+            prompt_basis: "Troop-count comparison near New Orleans",
+            intent: "broll",
+            source_type: "script",
+            beat_order: 1,
+            paragraph_beat_order: 1,
+            candidate_assets: [],
+            selected_asset_id: null,
+            status: "mapped",
+            placement_hint: null,
+          },
+        ],
+      },
+    },
+  };
+  let currentMetadataUpdatedAt = "2026-03-11T18:30:00.000Z";
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", imageProvider);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: userId,
+    created_at: "2026-03-11T17:00:00.000Z",
+    updated_at: "2026-03-11T17:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkpieceInWorkspace = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-11T17:00:00.000Z",
+    updated_at: "2026-03-11T17:00:00.000Z",
+  });
+  service.getCradleOrThrow = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-11T17:00:00.000Z",
+    updated_at: "2026-03-11T17:00:00.000Z",
+  });
+  service.assertWorkspaceRoleFromAccessToken = async (_workspaceId, requestedRole) => ({
+    userId,
+    role: requestedRole ?? "viewer",
+  });
+  service.loadManifestOrDefault = async () => {
+    const manifest = createManifestFixture(workpieceId, workspaceId);
+    manifest.pointers.script_primary = "script/script.md";
+    manifest.files["script/script.md"] = {
+      type: "script",
+      content_type: "text/markdown; charset=utf-8",
+      bytes: 321,
+      hash: {
+        algo: "sha256",
+        value: "hash-script",
+      },
+      written_by: {
+        tool: "hearth",
+        tool_version: "0.0.0",
+        lane: "forge-managed",
+      },
+      updated_at: "2026-03-11T18:29:00.000Z",
+    };
+    return manifest;
+  };
+  service.readWorkpieceJson = async () => ({
+    found: true,
+    data: JSON.parse(JSON.stringify(currentMetadata)),
+    file_row: { updated_at: currentMetadataUpdatedAt },
+  });
+  service.commitFile = async (inputWorkpieceId, input) => {
+    if (input.path === "metadata.json" && input.json) {
+      currentMetadata = JSON.parse(JSON.stringify(input.json));
+      currentMetadataUpdatedAt = "2026-03-11T19:00:00.000Z";
+    }
+
+    const updatedAt = input.path === "metadata.json"
+      ? currentMetadataUpdatedAt
+      : input.path === "assets/image-map/image-map.v1.json"
+      ? "2026-03-11T19:00:01.000Z"
+      : "2026-03-11T19:00:02.000Z";
+
+    return {
+      workpiece_id: inputWorkpieceId,
+      path: input.path,
+      storage_key: `workpieces/${inputWorkpieceId}/${input.path}`,
+      hash: "hash_abc",
+      bytes: input.path.endsWith(".png") ? 3 : 200,
+      content_type: input.content_type ?? "application/octet-stream",
+      manifest_hash: "manifest_hash",
+      manifest_bytes: 123,
+      file_row: {
+        workpiece_id: inputWorkpieceId,
+        path: input.path,
+        file_type: input.file_type ?? "json",
+        content_type: input.content_type ?? "application/octet-stream",
+        bytes: input.path.endsWith(".png") ? 3 : 200,
+        hash_algo: "sha256",
+        hash_value: "hash_abc",
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${inputWorkpieceId}/${input.path}`,
+        written_by_tool: input.written_by.tool,
+        written_by_tool_version: input.written_by.tool_version,
+        written_by_lane: input.written_by.lane,
+        created_at: "2026-03-11T19:00:00.000Z",
+        updated_at: updatedAt,
+      },
+      manifest_row: {
+        workpiece_id: inputWorkpieceId,
+        path: "manifest.json",
+        file_type: "manifest",
+        content_type: "application/json",
+        bytes: 120,
+        hash_algo: "sha256",
+        hash_value: "manifest_hash",
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${inputWorkpieceId}/manifest.json`,
+        written_by_tool: input.written_by.tool,
+        written_by_tool_version: input.written_by.tool_version,
+        written_by_lane: input.written_by.lane,
+        created_at: "2026-03-11T19:00:00.000Z",
+        updated_at: "2026-03-11T19:00:00.000Z",
+      },
+      event: {
+        id: 99,
+        workpiece_id: inputWorkpieceId,
+        event_name: input.event_name ?? "workpiece.file.committed",
+        payload: {},
+        correlation_id: null,
+        written_by_tool: input.written_by.tool,
+        written_by_tool_version: input.written_by.tool_version,
+        written_by_lane: input.written_by.lane,
+        created_at: "2026-03-11T19:00:00.000Z",
+      },
+    };
+  };
+  service.applyAiTokenDelta = async () => ({
+    tokenBalance: 777,
+  });
+
+  const generated = await service.generateImageMapCandidates(workpieceId, {
+    workspace_id: workspaceId,
+    image_map_entry_id: "image-map-01",
+    context_before: "British forces regrouped after Napoleon's defeat.",
+    context_after: "The Mississippi delta made New Orleans strategically decisive.",
+    confirm_spend: true,
+    lane: "forge",
+    user_access_token: "token_abc",
+  });
+  const visualPackage = await service.getWorkpieceVisualPackage(workpieceId, {
+    userAccessToken: "viewer_token",
+  });
+
+  assert.equal(generated.image_map.entries[0]?.selected_asset_id, generated.generated_assets[0]?.id);
+  assert.equal(visualPackage.visuals.length, 1);
+  assert.equal(visualPackage.visuals[0]?.status, "selected");
+  assert.equal(visualPackage.visuals[0]?.selected_asset_id, generated.generated_assets[0]?.id);
+  assert.equal(visualPackage.visuals[0]?.selected_asset?.asset_id, generated.generated_assets[0]?.id);
+  assert.equal(visualPackage.visuals[0]?.selected_asset?.variant_label, "explainer");
+  assert.equal(visualPackage.visuals[0]?.selected_asset?.path.includes("/explainer."), true);
+  assert.equal(visualPackage.script_path, "script/script.md");
+  assert.equal(visualPackage.script_updated_at, "2026-03-11T18:29:00.000Z");
+  assert.equal(visualPackage.image_map_updated_at, "2026-03-11T19:00:00.000Z");
+  assert.equal(visualPackage.image_map_asset_updated_at, "2026-03-10T16:05:00.000Z");
 });
 
 test("POST /tongs/workspaces/:id/recording-sessions dispatches createRecordingSession", async () => {

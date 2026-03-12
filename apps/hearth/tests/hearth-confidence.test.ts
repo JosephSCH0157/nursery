@@ -1296,7 +1296,7 @@ async function testImageMapCandidateGenerationRoundTripsCanonicalRefs() {
       entries: [
         buildImageMapEntryFixture("image-map-01", {
           source_type: "ai",
-          status: "candidates_generated",
+          status: "selected",
           candidate_assets: [
             {
               asset_id: "candidate-a",
@@ -1313,6 +1313,7 @@ async function testImageMapCandidateGenerationRoundTripsCanonicalRefs() {
               mime_type: "image/png",
             },
           ],
+          selected_asset_id: "candidate-a",
         }),
       ],
       metadata_updated_at: "2026-03-10T18:00:00.000Z",
@@ -1375,6 +1376,8 @@ async function testImageMapCandidateGenerationRoundTripsCanonicalRefs() {
       assert.equal(result.generatedAssets[0]?.variantLabel, "explainer");
       assert.equal(result.generatedAssets[1]?.visualMode, "comparison");
       assert.equal(result.imageMap.entries[0]?.candidate_assets[1]?.variant_label, "illustrative");
+      assert.equal(result.imageMap.entries[0]?.selected_asset_id, "candidate-a");
+      assert.equal(result.imageMap.entries[0]?.status, "selected");
       assert.equal(result.tokenBalance, 17);
     }
     assert.equal(harness.generateRequests.length, 1);

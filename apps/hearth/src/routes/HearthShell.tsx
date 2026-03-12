@@ -6937,7 +6937,12 @@ export default function HearthShell() {
       }
       setImageMapMetadataUpdatedAt(generated.imageMap.metadataUpdatedAt);
       setImageMapCandidateSelectionError(null);
-      setImageMapExportMessage(`Generated ${generated.generatedAssets.length} still candidates for the selected visual beat.`);
+      const selectedAssetId = generated.imageMap.entries.find((entry) => entry.id === selectedImageMapEntry.id)?.selected_asset_id ?? null;
+      setImageMapExportMessage(
+        selectedAssetId
+          ? `Generated ${generated.generatedAssets.length} still candidates and saved the default still selection canonically for this visual beat.`
+          : `Generated ${generated.generatedAssets.length} still candidates for the selected visual beat.`
+      );
       if (typeof generated.tokenBalance === "number") {
         setAiTokenBalance(generated.tokenBalance);
       }

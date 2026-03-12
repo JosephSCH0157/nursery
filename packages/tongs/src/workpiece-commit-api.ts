@@ -2372,6 +2372,25 @@ function buildImageMapCandidateAssetMetadata(args: {
   } as Json;
 }
 
+function pickDeterministicImageMapSelectedAssetId(
+  assets: ImageMapCandidateAssetSummary[],
+): string | null {
+  if (assets.length === 0) return null;
+  const variantPriority = new Map<string, number>([
+    ["explainer", 0],
+    ["illustrative", 1],
+  ]);
+  const ordered = [...assets].sort((left, right) => {
+    const leftPriority = variantPriority.get(left.variant_label) ?? Number.MAX_SAFE_INTEGER;
+    const rightPriority = variantPriority.get(right.variant_label) ?? Number.MAX_SAFE_INTEGER;
+    if (leftPriority !== rightPriority) {
+      return leftPriority - rightPriority;
+    }
+    return left.id.localeCompare(right.id);
+  });
+  return ordered[0]?.id ?? null;
+}
+
 function normalizeImageMapCandidateAssetSummary(row: AssetRow): ImageMapCandidateAssetSummary | null {
   if (row.asset_kind !== IMAGE_MAP_CANDIDATE_ASSET_KIND || row.status !== "ready") return null;
   const metadata = isRecord(row.metadata_json) ? row.metadata_json as Record<string, unknown> : null;
@@ -5637,6 +5656,7 @@ export class TongsCommitService {
 
       const nextEntries = current.episodePackage.image_map.entries.map((candidate) => {
         if (candidate.id !== entry.id) return candidate;
+        const selectedAssetId = pickDeterministicImageMapSelectedAssetId(generatedAssets);
         return {
           ...candidate,
           source_type: "ai",
@@ -5647,8 +5667,8 @@ export class TongsCommitService {
             visual_mode: asset.visual_mode,
             mime_type: asset.mime_type,
           })),
-          selected_asset_id: null,
-          status: "candidates_generated",
+          selected_asset_id: selectedAssetId,
+          status: selectedAssetId ? "selected" : "candidates_generated",
         };
       });
 
