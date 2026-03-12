@@ -25,6 +25,7 @@ function mockService() {
     archiveWorkpiece: [],
     restoreWorkpiece: [],
     listWorkspaceReadyScripts: [],
+    getWorkpieceVisualPackage: [],
     getWorkpieceImageMap: [],
     saveWorkpieceImageMap: [],
     updateWorkspaceReadyQueueState: [],
@@ -491,6 +492,50 @@ function mockService() {
           hidden_by: null,
         },
       ];
+    },
+    async getWorkpieceVisualPackage(workpieceId, options) {
+      calls.getWorkpieceVisualPackage.push({ workpieceId, options: options ?? null });
+      return {
+        workspace_id: "11111111-1111-4111-8111-111111111111",
+        workpiece_id: workpieceId,
+        script_path: "script/script.md",
+        script_updated_at: "2026-03-10T14:59:00.000Z",
+        image_map_updated_at: "2026-03-10T15:00:00.000Z",
+        image_map_asset_updated_at: "2026-03-10T15:05:00.000Z",
+        visuals: [
+          {
+            entry_id: "image-map-01",
+            beat_order: 1,
+            paragraph_beat_order: 1,
+            status: "selected",
+            script_anchor: {
+              section_id: "s1",
+              paragraph_id: "s1:p1",
+              paragraph_order: 1,
+              sentence_start: 1,
+              sentence_end: 1,
+              char_start: 0,
+              char_end: 27,
+              span_text: "Jackson faced overwhelming odds.",
+              speaker_block_id: null,
+            },
+            visual_mode: "comparison",
+            selected_asset_id: "candidate-01",
+            selected_asset: {
+              asset_id: "candidate-01",
+              path: `assets/image-map/candidates/${workpieceId}/image-map-01/explainer.png`,
+              storage_bucket: "forge-workpieces",
+              storage_key: `workpieces/${workpieceId}/assets/image-map/candidates/${workpieceId}/image-map-01/explainer.png`,
+              mime_type: "image/png",
+              bytes: 1234,
+              created_at: "2026-03-10T15:01:00.000Z",
+              updated_at: "2026-03-10T15:01:00.000Z",
+              variant_label: "explainer",
+              visual_mode: "comparison",
+            },
+          },
+        ],
+      };
     },
     async getWorkpieceImageMap(workpieceId, options) {
       calls.getWorkpieceImageMap.push({ workpieceId, options: options ?? null });
@@ -1587,6 +1632,33 @@ test("GET /tongs/workpieces/:id/image-map dispatches getWorkpieceImageMap", asyn
   assert.equal(body.ok, true);
   assert.equal(body.data?.image_map?.workpiece_id, "11111111-1111-4111-8111-111111111111");
   assert.equal(body.data?.asset?.asset_kind, "image_map_json");
+});
+
+test("GET /tongs/workpieces/:id/visual-package dispatches getWorkpieceVisualPackage", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/visual-package",
+    {
+      method: "GET",
+      headers: {
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.getWorkpieceVisualPackage.length, 1);
+  assert.equal(calls.getWorkpieceVisualPackage[0]?.workpieceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.getWorkpieceVisualPackage[0]?.options?.userAccessToken, "user_token_abc");
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.script_path, "script/script.md");
+  assert.equal(body.data?.visuals?.length, 1);
+  assert.equal(body.data?.visuals?.[0]?.selected_asset?.storage_key.includes("/image-map-01/"), true);
 });
 
 test("PUT /tongs/workpieces/:id/image-map dispatches saveWorkpieceImageMap", async () => {
@@ -3445,6 +3517,193 @@ test("TongsCommitService.getWorkpieceImageMap returns normalized semantic entrie
   assert.equal(result.image_map.entries[0]?.beat_order, 1);
   assert.equal(result.asset?.asset_kind, "image_map_json");
   assert.equal(result.asset?.metadata_json.entry_count, 1);
+});
+
+test("TongsCommitService.getWorkpieceVisualPackage returns Hammer-ready ordering plus selected asset retrieval info", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const viewerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const { ...supabase } = createImageMapAssetSupabase({
+    assets: [
+      {
+        id: "asset-current",
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        path: "assets/image-map/image-map.v1.json",
+        mime_type: "application/json",
+        bytes: 123,
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${workpieceId}/assets/image-map/image-map.v1.json`,
+        provider: "hearth",
+        provider_request_id: null,
+        request_id: "req-current",
+        prompt: null,
+        created_by: viewerId,
+        created_at: "2026-03-10T16:00:00.000Z",
+        updated_at: "2026-03-10T16:00:00.000Z",
+        asset_kind: "image_map_json",
+        status: "ready",
+        metadata_json: {
+          schema: "forge.image-map.v1",
+          entry_count: 2,
+        },
+        supersedes_asset_id: null,
+      },
+      {
+        id: "candidate-01",
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        path: `assets/image-map/candidates/${workpieceId}/image-map-01/explainer.png`,
+        mime_type: "image/png",
+        bytes: 4567,
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${workpieceId}/assets/image-map/candidates/${workpieceId}/image-map-01/explainer.png`,
+        provider: "openai",
+        provider_request_id: "req-provider-01",
+        request_id: "req-local-01",
+        prompt: "Prompt explainer",
+        created_by: viewerId,
+        created_at: "2026-03-10T16:01:00.000Z",
+        updated_at: "2026-03-10T16:01:00.000Z",
+        asset_kind: "image_map_candidate_image",
+        status: "ready",
+        metadata_json: {
+          schema: "forge.image-map-candidate.v1",
+          image_map_entry_id: "image-map-01",
+          visual_mode: "comparison",
+          variant_label: "explainer",
+          beat_order: 1,
+          paragraph_beat_order: 1,
+        },
+        supersedes_asset_id: null,
+      },
+    ],
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getCradleOrThrow = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-02T00:00:00.000Z",
+    updated_at: "2026-03-02T00:00:00.000Z",
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: viewerId, role: "viewer" });
+  service.loadManifestOrDefault = async () => {
+    const manifest = createManifestFixture(workpieceId, workspaceId);
+    manifest.pointers.script_primary = "script/script.md";
+    manifest.files["script/script.md"] = {
+      type: "script",
+      content_type: "text/markdown; charset=utf-8",
+      bytes: 321,
+      hash: {
+        algo: "sha256",
+        value: "hash-script",
+      },
+      written_by: {
+        tool: "hearth",
+        tool_version: "0.0.0",
+        lane: "forge-managed",
+      },
+      updated_at: "2026-03-10T15:58:00.000Z",
+    };
+    return manifest;
+  };
+  service.readWorkpieceJson = async () => ({
+    found: true,
+    data: {
+      episode: {
+        schema: "forge.episode.package.v2",
+        image_map: {
+          entries: [
+            {
+              id: "image-map-02",
+              anchor: "s1:p1#sent2",
+              script_anchor: {
+                section_id: "s1",
+                paragraph_id: "s1:p1",
+                paragraph_order: 1,
+                sentence_start: 2,
+                sentence_end: 2,
+                char_start: 28,
+                char_end: 55,
+                span_text: "The skyline held at dawn.",
+                speaker_block_id: null,
+              },
+              description: "The skyline held at dawn.",
+              visual_intent: "wide skyline hold",
+              prompt_basis: "wide skyline hold",
+              intent: "broll",
+              source_type: "stock",
+              beat_order: 2,
+              paragraph_beat_order: 2,
+              candidate_assets: [],
+              selected_asset_id: null,
+              status: "mapped",
+              placement_hint: "after-scene",
+            },
+            {
+              id: "image-map-01",
+              anchor: "s1:p1#sent1",
+              script_anchor: {
+                section_id: "s1",
+                paragraph_id: "s1:p1",
+                paragraph_order: 1,
+                sentence_start: 1,
+                sentence_end: 1,
+                char_start: 0,
+                char_end: 27,
+                span_text: "Jackson faced overwhelming odds.",
+                speaker_block_id: null,
+              },
+              description: "Jackson faced overwhelming odds.",
+              visual_intent: "Strategic troop comparison",
+              prompt_basis: "Strategic troop comparison near New Orleans",
+              intent: "broll",
+              source_type: "ai",
+              beat_order: 1,
+              paragraph_beat_order: 1,
+              candidate_assets: [
+                {
+                  asset_id: "candidate-01",
+                  path: `assets/image-map/candidates/${workpieceId}/image-map-01/explainer.png`,
+                  variant_label: "explainer",
+                  visual_mode: "comparison",
+                  mime_type: "image/png",
+                },
+              ],
+              selected_asset_id: "candidate-01",
+              status: "selected",
+              placement_hint: null,
+            },
+          ],
+        },
+      },
+    },
+    file_row: { updated_at: "2026-03-10T15:59:00.000Z" },
+  });
+
+  const result = await service.getWorkpieceVisualPackage(workpieceId, {
+    userAccessToken: "viewer_token",
+  });
+
+  assert.equal(result.workspace_id, workspaceId);
+  assert.equal(result.workpiece_id, workpieceId);
+  assert.equal(result.script_path, "script/script.md");
+  assert.equal(result.script_updated_at, "2026-03-10T15:58:00.000Z");
+  assert.equal(result.image_map_updated_at, "2026-03-10T15:59:00.000Z");
+  assert.equal(result.image_map_asset_updated_at, "2026-03-10T16:00:00.000Z");
+  assert.equal(result.visuals.length, 2);
+  assert.equal(result.visuals[0]?.entry_id, "image-map-01");
+  assert.equal(result.visuals[0]?.visual_mode, "comparison");
+  assert.equal(result.visuals[0]?.selected_asset?.asset_id, "candidate-01");
+  assert.equal(result.visuals[0]?.selected_asset?.storage_key.endsWith("/image-map-01/explainer.png"), true);
+  assert.equal(result.visuals[1]?.entry_id, "image-map-02");
+  assert.equal(result.visuals[1]?.selected_asset, null);
 });
 
 test("TongsCommitService.saveWorkpieceImageMap writes metadata, asset file, and superseded asset lineage", async () => {

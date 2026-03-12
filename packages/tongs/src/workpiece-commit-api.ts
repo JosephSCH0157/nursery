@@ -421,6 +421,40 @@ export type WorkpieceImageMapResponseData = {
   asset: ImageMapAssetSummary | null;
 };
 
+export type WorkpieceVisualPackageSelectedAsset = {
+  asset_id: string;
+  path: string;
+  storage_bucket: string;
+  storage_key: string;
+  mime_type: string;
+  bytes: number;
+  created_at: string;
+  updated_at: string;
+  variant_label: string | null;
+  visual_mode: string | null;
+};
+
+export type WorkpieceVisualPackageVisual = {
+  entry_id: string;
+  beat_order: number;
+  paragraph_beat_order: number;
+  status: string;
+  script_anchor: EpisodeImageMapScriptAnchorRecord | null;
+  visual_mode: string | null;
+  selected_asset_id: string | null;
+  selected_asset: WorkpieceVisualPackageSelectedAsset | null;
+};
+
+export type WorkpieceVisualPackageResponseData = {
+  workspace_id: string;
+  workpiece_id: string;
+  script_path: string | null;
+  script_updated_at: string | null;
+  image_map_updated_at: string | null;
+  image_map_asset_updated_at: string | null;
+  visuals: WorkpieceVisualPackageVisual[];
+};
+
 export type SaveWorkpieceImageMapRequest = {
   workspace_id: string;
   entries: EpisodeImageMapEntryRecord[];
@@ -675,6 +709,10 @@ export type TongsCommitApiService = {
     workpieceId: string,
     options?: { userAccessToken?: string | null },
   ): Promise<WorkpieceImageMapResponseData>;
+  getWorkpieceVisualPackage(
+    workpieceId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<WorkpieceVisualPackageResponseData>;
   generateImageMapCandidates(
     workpieceId: string,
     input: GenerateImageMapCandidatesRequest,
@@ -2398,6 +2436,32 @@ function normalizeImageMapAssetSummary(row: AssetRow | null | undefined): ImageM
   };
 }
 
+function normalizeWorkpieceVisualPackageSelectedAsset(
+  row: AssetRow | null | undefined,
+): WorkpieceVisualPackageSelectedAsset | null {
+  if (!row) return null;
+  if (row.asset_kind !== IMAGE_MAP_CANDIDATE_ASSET_KIND || row.status !== "ready") {
+    return null;
+  }
+
+  const metadata = isRecord(row.metadata_json) ? row.metadata_json as Record<string, unknown> : null;
+  const variantLabel = metadata ? readStringField(metadata, "variant_label") : null;
+  const visualMode = metadata ? normalizeImageMapVisualMode(metadata.visual_mode) : null;
+
+  return {
+    asset_id: row.id,
+    path: row.path,
+    storage_bucket: row.storage_bucket,
+    storage_key: row.storage_key,
+    mime_type: row.mime_type,
+    bytes: row.bytes,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    variant_label: variantLabel,
+    visual_mode: visualMode,
+  };
+}
+
 function randomId(prefix: string): string {
   const cryptoApi = globalThis.crypto as typeof globalThis.crypto | undefined;
   if (cryptoApi && typeof cryptoApi.randomUUID === "function") {
@@ -3410,6 +3474,29 @@ export class TongsCommitService {
     return data ?? [];
   }
 
+  private async listReadyImageMapCandidateAssetsForWorkpiece(
+    workspaceId: string,
+    workpieceId: string,
+  ): Promise<AssetRow[]> {
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("assets")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .eq("workpiece_id", workpieceId)
+      .eq("asset_kind", IMAGE_MAP_CANDIDATE_ASSET_KIND)
+      .eq("status", "ready")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to read current image map candidate assets", {
+        reason: error.message,
+      });
+    }
+
+    return data ?? [];
+  }
+
   private async supersedeImageMapAsset(assetId: string): Promise<void> {
     const { error } = await this.supabase
       .schema("tongs")
@@ -3493,6 +3580,99 @@ export class TongsCommitService {
         metadata_updated_at: args.metadataUpdatedAt,
       },
       asset: normalizeImageMapAssetSummary(args.assetRow),
+    };
+  }
+
+  private async resolvePreferredWorkpieceScript(args: {
+    cradle: EpisodeRow;
+  }): Promise<{
+    path: string | null;
+    updatedAt: string | null;
+  }> {
+    const manifest = await this.loadManifestOrDefault(args.cradle);
+    const candidatePaths = Array.from(new Set([
+      manifest.pointers.script_primary,
+      ...READY_SCRIPT_PATH_CANDIDATES,
+    ].filter((value): value is string => typeof value === "string" && value.trim().length > 0)));
+
+    for (const path of candidatePaths) {
+      const manifestEntry = manifest.files[path];
+      if (manifestEntry) {
+        return {
+          path,
+          updatedAt: manifestEntry.updated_at ?? null,
+        };
+      }
+    }
+
+    for (const path of candidatePaths) {
+      const fileRow = await this.readWorkpieceFileUpdatedAt(args.cradle.id, path);
+      if (fileRow) {
+        return {
+          path,
+          updatedAt: fileRow.updated_at ?? null,
+        };
+      }
+    }
+
+    return {
+      path: null,
+      updatedAt: null,
+    };
+  }
+
+  private buildWorkpieceVisualPackageResponse(args: {
+    workpieceId: string;
+    workspaceId: string;
+    scriptPath: string | null;
+    scriptUpdatedAt: string | null;
+    imageMapUpdatedAt: string | null;
+    imageMapAssetRow: AssetRow | null;
+    entries: EpisodeImageMapEntryRecord[];
+    selectedAssetRows: AssetRow[];
+  }): WorkpieceVisualPackageResponseData {
+    const selectedAssetById = new Map(args.selectedAssetRows.map((row) => [row.id, row] as const));
+    const visuals = [...args.entries]
+      .sort((left, right) => {
+        if (left.beat_order !== right.beat_order) {
+          return left.beat_order - right.beat_order;
+        }
+        if (left.paragraph_beat_order !== right.paragraph_beat_order) {
+          return left.paragraph_beat_order - right.paragraph_beat_order;
+        }
+        return left.id.localeCompare(right.id);
+      })
+      .map((entry) => {
+        const selectedAssetRef = entry.selected_asset_id
+          ? (entry.candidate_assets.find((asset) => asset.asset_id === entry.selected_asset_id) ?? null)
+          : null;
+        const selectedAsset = normalizeWorkpieceVisualPackageSelectedAsset(
+          entry.selected_asset_id ? (selectedAssetById.get(entry.selected_asset_id) ?? null) : null,
+        );
+        const visualMode = selectedAsset?.visual_mode
+          ?? selectedAssetRef?.visual_mode
+          ?? (entry.candidate_assets.find((asset) => asset.visual_mode)?.visual_mode ?? null);
+
+        return {
+          entry_id: entry.id,
+          beat_order: entry.beat_order,
+          paragraph_beat_order: entry.paragraph_beat_order,
+          status: entry.status,
+          script_anchor: entry.script_anchor,
+          visual_mode: visualMode,
+          selected_asset_id: entry.selected_asset_id,
+          selected_asset: selectedAsset,
+        };
+      });
+
+    return {
+      workspace_id: args.workspaceId,
+      workpiece_id: args.workpieceId,
+      script_path: args.scriptPath,
+      script_updated_at: args.scriptUpdatedAt,
+      image_map_updated_at: args.imageMapUpdatedAt,
+      image_map_asset_updated_at: args.imageMapAssetRow?.updated_at ?? null,
+      visuals,
     };
   }
 
@@ -4946,9 +5126,11 @@ export class TongsCommitService {
       });
     }
 
-    return {
-      updated_at: fileRow?.updated_at ?? null,
-    };
+    return fileRow
+      ? {
+        updated_at: fileRow.updated_at ?? null,
+      }
+      : null;
   }
 
   async readWorkpieceJson(workpieceId: string, path: string): Promise<ReadJsonFileResult> {
@@ -5242,6 +5424,30 @@ export class TongsCommitService {
       entries: state.episodePackage.image_map.entries,
       metadataUpdatedAt: state.metadataUpdatedAt,
       assetRow,
+    });
+  }
+
+  async getWorkpieceVisualPackage(
+    workpieceId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<WorkpieceVisualPackageResponseData> {
+    const cradle = await this.getCradleOrThrow(workpieceId);
+    await this.assertWorkspaceRoleFromAccessToken(cradle.workspace_id, "viewer", options?.userAccessToken);
+
+    const state = await this.readWorkpieceImageMapState(workpieceId, cradle.workspace_id);
+    const imageMapAssetRow = await this.getCurrentReadyImageMapAsset(cradle.workspace_id, workpieceId);
+    const selectedAssetRows = await this.listReadyImageMapCandidateAssetsForWorkpiece(cradle.workspace_id, workpieceId);
+    const script = await this.resolvePreferredWorkpieceScript({ cradle });
+
+    return this.buildWorkpieceVisualPackageResponse({
+      workpieceId,
+      workspaceId: cradle.workspace_id,
+      scriptPath: script.path,
+      scriptUpdatedAt: script.updatedAt,
+      imageMapUpdatedAt: state.metadataUpdatedAt,
+      imageMapAssetRow,
+      entries: state.episodePackage.image_map.entries,
+      selectedAssetRows,
     });
   }
 
@@ -6132,6 +6338,19 @@ export function createTongsCommitApiHandlerWithService(
         const userAccessToken = requireUserAccessTokenHeader(request);
         const payload = normalizeGenerateEpisodeThumbnailRequest(body, workpieceId, userAccessToken);
         const result = await service.generateEpisodeThumbnail(workpieceId, payload);
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (
+        parts.length === 4
+        && parts[0] === "tongs"
+        && parts[1] === "workpieces"
+        && parts[3] === "visual-package"
+      ) {
+        requireMethod(request, "GET");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.getWorkpieceVisualPackage(workpieceId, { userAccessToken });
         return jsonResponse(200, { ok: true, data: result });
       }
 
