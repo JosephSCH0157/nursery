@@ -23,6 +23,7 @@ import HearthRoute from "./routes/Hearth";
 import HearthStandalone from "./routes/HearthStandalone";
 import IronMineRoute from "./routes/IronMine";
 import MobilePrimitivesDemo from "./routes/MobilePrimitivesDemo";
+import QuenchRoute from "./routes/Quench";
 import SubscriptionsRoute from "./routes/Subscriptions";
 import HammerRoute from "./routes/Hammer";
 import HammerDevCardsRoute from "./routes/HammerDevCards";
@@ -53,7 +54,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="anvil/settings" element={<Placeholder name="Anvil Settings" />} />
           <Route path="hearth" element={<HearthRoute />} />
           <Route path="tongs" element={<TongsRoute />} />
-          <Route path="quench" element={<Placeholder name="Quench" />} />
+          <Route path="quench" element={<QuenchRoute />} />
           <Route path="ledger" element={<Placeholder name="Ledger" />} />
           <Route path="iron-mine" element={<IronMineRoute />} />
           <Route path="barstock/*" element={<BarstockRoute />} />

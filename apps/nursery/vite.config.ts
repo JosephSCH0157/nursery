@@ -98,6 +98,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
+      "@forge/quench": resolve(__dirname, "../quench/src/index.ts"),
       "@barstock": resolve(__dirname, "../bar-stock/src"),
       "@hearth": resolve(__dirname, "../hearth/src"),
       "@hammer": resolve(__dirname, "../hammer/src"),
