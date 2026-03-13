@@ -3,8 +3,9 @@
 Bellows is the Forge remote production studio package.
 
 Bellows now contains the package boundary, pure domain layer, pure session engine,
-runtime seam contracts, and a first concrete studio-shell adapter slice. Media,
-signaling, storage, and broadcast implementations still arrive in later phases.
+runtime seam contracts, a concrete studio-shell adapter slice, and a concrete
+persistence adapter slice. Media, signaling, canonical storage, and broadcast
+implementations still arrive in later phases.
 
 Canonical references:
 
@@ -15,3 +16,4 @@ Canonical references:
 - `/d:/nursery/nursery/BELLOWS_V1_PURE_SESSION_ENGINE_STATE_SPEC.md`
 - `/d:/nursery/nursery/BELLOWS_V1_RUNTIME_ADAPTER_CONTRACT_LAYER.md`
 - `/d:/nursery/nursery/BELLOWS_V1_STUDIO_SHELL_ADAPTER_SLICE.md`
+- `/d:/nursery/nursery/BELLOWS_V1_PERSISTENCE_ADAPTER_SLICE.md`

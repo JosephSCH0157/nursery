@@ -11,6 +11,7 @@ Generated folders are kept brief for readability (for example `node_modules/`, `
 - `BELLOWS_V1_PURE_SESSION_ENGINE_STATE_SPEC.md`
 - `BELLOWS_V1_RUNTIME_ADAPTER_CONTRACT_LAYER.md`
 - `BELLOWS_V1_STUDIO_SHELL_ADAPTER_SLICE.md`
+- `BELLOWS_V1_PERSISTENCE_ADAPTER_SLICE.md`
 - `BELLOWS_V1_RECOMMENDED_BUILD_SEQUENCE.md`
 - `BELLOWS_V1_AI_ASSIST_OPPORTUNITIES.md`
 - `BELLOWS_V1_COMPETITIVE_KILL_MATRIX.md`
@@ -227,6 +228,7 @@ Generated folders are kept brief for readability (for example `node_modules/`, `
       - `engine/`
         - `reducer.test.ts`
       - `runtime/`
+        - `persistence-harness.test.ts`
         - `session-runtime.test.ts`
         - `studio-shell-harness.test.ts`
     - `tsconfig.json`
@@ -263,6 +265,9 @@ Generated folders are kept brief for readability (for example `node_modules/`, `
         - `index.ts`
         - `noop-adapters.ts`
         - `persistence.ts`
+        - `persistence-adapter.ts`
+        - `persistence-harness.ts`
+        - `persistence-store.ts`
         - `session-runtime.ts`
         - `signaling.ts`
         - `studio-shell.ts`
