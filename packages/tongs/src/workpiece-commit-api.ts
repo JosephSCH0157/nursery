@@ -1766,6 +1766,17 @@ function normalizeIsoTimestamp(input: unknown, field: string): string {
   return date.toISOString();
 }
 
+function normalizeComparableIsoTimestampOrNull(input: unknown): string | null {
+  if (typeof input !== "string" || !input.trim()) {
+    return null;
+  }
+  const date = new Date(input);
+  if (Number.isNaN(date.valueOf())) {
+    return input.trim();
+  }
+  return date.toISOString();
+}
+
 function normalizeOptionalIsoTimestampOrNull(input: unknown, field: string): string | null | undefined {
   if (typeof input === "undefined") return undefined;
   if (input === null) return null;
@@ -3655,7 +3666,9 @@ export class TongsCommitService {
     return {
       metadata,
       episodePackage,
-      metadataUpdatedAt: metadataRead.found ? metadataRead.file_row?.updated_at ?? null : null,
+      metadataUpdatedAt: metadataRead.found
+        ? normalizeComparableIsoTimestampOrNull(metadataRead.file_row?.updated_at)
+        : null,
     };
   }
 
@@ -5951,8 +5964,8 @@ export class TongsCommitService {
 
     const current = await this.readWorkpieceImageMapState(workpieceId, input.workspace_id);
     if (typeof input.expected_metadata_updated_at !== "undefined") {
-      const expected = input.expected_metadata_updated_at ?? null;
-      const currentMetadataUpdatedAt = current.metadataUpdatedAt ?? null;
+      const expected = normalizeComparableIsoTimestampOrNull(input.expected_metadata_updated_at);
+      const currentMetadataUpdatedAt = normalizeComparableIsoTimestampOrNull(current.metadataUpdatedAt);
       if (currentMetadataUpdatedAt !== expected) {
         throw new HttpError(409, "image_map_conflict", "Image map changed since last load.", {
           expected_metadata_updated_at: expected,
@@ -6189,8 +6202,8 @@ export class TongsCommitService {
     const current = await this.readWorkpieceImageMapState(workpieceId, input.workspace_id);
     const currentReadyAsset = await this.getCurrentReadyImageMapAsset(input.workspace_id, workpieceId);
     if (typeof input.expected_metadata_updated_at !== "undefined") {
-      const expected = input.expected_metadata_updated_at ?? null;
-      const currentMetadataUpdatedAt = current.metadataUpdatedAt ?? null;
+      const expected = normalizeComparableIsoTimestampOrNull(input.expected_metadata_updated_at);
+      const currentMetadataUpdatedAt = normalizeComparableIsoTimestampOrNull(current.metadataUpdatedAt);
       if (currentMetadataUpdatedAt !== expected) {
         throw new HttpError(409, "image_map_conflict", "Image map changed since last load.", {
           expected_metadata_updated_at: expected,
@@ -6290,7 +6303,9 @@ export class TongsCommitService {
       workpieceId,
       workspaceId: input.workspace_id,
       entries: nextEpisodePackage.image_map.entries,
-      metadataUpdatedAt: metadataCommit.file_row.updated_at ?? current.metadata.updated_at ?? null,
+      metadataUpdatedAt: normalizeComparableIsoTimestampOrNull(
+        metadataCommit.file_row.updated_at ?? current.metadata.updated_at ?? null,
+      ),
       assetRow,
     });
   }

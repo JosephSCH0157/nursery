@@ -4205,6 +4205,185 @@ test("TongsCommitService.saveWorkpieceImageMap rejects stale metadata timestamps
   assert.equal(state.updateCalls.length, 0);
 });
 
+test("TongsCommitService.saveWorkpieceImageMap accepts matching metadata timestamps with different precision", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const editorId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const commitCalls = [];
+  const { state, ...supabase } = createImageMapAssetSupabase();
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: editorId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkpieceInWorkspace = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-02T00:00:00.000Z",
+    updated_at: "2026-03-02T00:00:00.000Z",
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: editorId, role: "editor" });
+  service.readWorkpieceJson = async () => ({
+    found: true,
+    data: {
+      schema: "forge.metadata.v1",
+      workpiece_id: workpieceId,
+      workspace_id: workspaceId,
+      episode: {
+        schema: "forge.episode.package.v2",
+        image_map: { entries: [] },
+      },
+    },
+    file_row: { updated_at: "2026-03-10T16:00:00.123456+00:00" },
+  });
+  service.commitFile = async (...args) => {
+    commitCalls.push(args);
+    const [episodeId, input] = args;
+    return {
+      file_row: {
+        id: "file-row-precision",
+        workpiece_id: episodeId,
+        path: input.path,
+        size_bytes: 512,
+        content_type: input.content_type,
+        sha256: "sha-precision",
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${episodeId}/${input.path}`,
+        file_type: "json",
+        created_at: "2026-03-10T16:05:00.000Z",
+        updated_at: "2026-03-10T16:05:00.789654+00:00",
+        created_by: editorId,
+        written_by_tool: input.written_by.tool,
+        written_by_tool_version: input.written_by.tool_version,
+        written_by_lane: input.written_by.lane,
+      },
+      storage_key: `workpieces/${episodeId}/${input.path}`,
+      event: {
+        id: 901,
+        workpiece_id: episodeId,
+        event_name: input.event_name || "workpiece.file.committed",
+        payload: {},
+        correlation_id: "corr-precision",
+        written_by_tool: input.written_by.tool,
+        written_by_tool_version: input.written_by.tool_version,
+        written_by_lane: input.written_by.lane,
+        created_at: "2026-03-10T16:05:00.000Z",
+      },
+    };
+  };
+
+  const result = await service.saveWorkpieceImageMap(
+    workpieceId,
+    {
+      workspace_id: workspaceId,
+      entries: [],
+      expected_metadata_updated_at: "2026-03-10T16:00:00.123Z",
+    },
+    { userAccessToken: "editor_token" },
+  );
+
+  assert.equal(commitCalls.length, 2);
+  assert.equal(commitCalls[0]?.[1]?.expected_previous_updated_at, "2026-03-10T16:00:00.123Z");
+  assert.equal(result.image_map.metadata_updated_at, "2026-03-10T16:05:00.789Z");
+  assert.equal(state.insertCalls.length, 1);
+});
+
+test("TongsCommitService.generateImageMapCandidates tolerates matching metadata timestamps with different precision", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const editorId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const { ...supabase } = createImageMapAssetSupabase();
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", {
+    generateImage: async () => ({
+      bytesBase64: "ZmFrZQ==",
+      mimeType: "image/png",
+      provider: "test-provider",
+      providerRequestId: "provider-req-1",
+      revisedPrompt: null,
+      tokensUsed: 1,
+    }),
+  });
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: editorId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkpieceInWorkspace = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-02T00:00:00.000Z",
+    updated_at: "2026-03-02T00:00:00.000Z",
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: editorId, role: "editor" });
+  service.readWorkpieceJson = async () => ({
+    found: true,
+    data: {
+      schema: "forge.metadata.v1",
+      workpiece_id: workpieceId,
+      workspace_id: workspaceId,
+      episode: {
+        schema: "forge.episode.package.v2",
+        image_map: {
+          entries: [
+            {
+              id: "image-map-01",
+              anchor: "s1:p1#sent1",
+              script_anchor: null,
+              description: "wide city skyline",
+              visual_intent: "wide city skyline",
+              prompt_basis: "wide city skyline",
+              intent: "broll",
+              source_type: "stock",
+              beat_order: 1,
+              paragraph_beat_order: 1,
+              candidate_assets: [],
+              selected_asset_id: null,
+              status: "draft",
+              placement_hint: null,
+            },
+          ],
+        },
+      },
+    },
+    file_row: { updated_at: "2026-03-10T16:10:00.123456+00:00" },
+  });
+
+  await assert.rejects(
+    () => service.generateImageMapCandidates(
+      workpieceId,
+      {
+        workspace_id: workspaceId,
+        image_map_entry_id: "image-map-01",
+        expected_metadata_updated_at: "2026-03-10T16:10:00.123Z",
+        confirm_spend: true,
+      },
+      { userAccessToken: "editor_token" },
+    ),
+    (error) => {
+      assert.equal(error.status, 400);
+      assert.equal(error.code, "image_map_anchor_required");
+      return true;
+    },
+  );
+});
+
 test("TongsCommitService.listWorkspaceReadyScripts includes hidden ranked entries and preserves queue state across ready-path changes", async () => {
   const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const viewerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
