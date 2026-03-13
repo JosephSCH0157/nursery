@@ -15,6 +15,38 @@ Companion interaction architecture:
 
 ---
 
+# 0. Hammer Law
+
+Hammer opens an episode into a prepared editing workspace, not a blank editor.
+
+On load, Hammer automatically prepares the project by:
+
+- loading episode and workpiece context
+- loading related media assets plus script and transcript inputs
+- running transcription with speaker diarization
+- aligning transcript timing to the timeline
+- comparing transcript against script where applicable
+- placing visuals by script and transcript alignment
+- applying baseline audio polish
+- assembling the initial rough cut
+
+Hammer MUST visibly explain this prep while it runs.
+
+Hammer prep MUST remain non-destructive.
+
+Hammer MAY assist heavily during prep, but it MUST stop for user direction before stronger creative or stylistic transformations are applied.
+
+Hammer MUST NOT assume creative consent.
+
+Canonical prep constraints:
+
+- speaker labels default to `S1`, `S2`, `S3`, `G1`, `G2`
+- Hammer MUST NOT guess human names by default
+- aggressive cleanup steps are macro-driven and opt-in
+- prep progress MUST remain visible through a dedicated progress surface, not a hidden background action
+
+---
+
 # 1. Entry Flow
 
 Hammer MUST NOT open directly into the editor.
@@ -44,6 +76,10 @@ The following MUST NOT appear on the Project Library screen:
 - unrelated side navigation
 
 Selecting a project opens the Hammer editor.
+
+Opening a project begins Hammer prep.
+
+Hammer SHOULD enter the editing workspace only after prep has reached a reviewable state.
 
 ---
 
@@ -146,6 +182,8 @@ Script view supports transcript-based editing actions such as:
 
 Script editing is a primary Hammer editing surface.
 
+During prep, transcript output MUST open grouped by speaker turn rather than raw machine fragments.
+
 ---
 
 ## 5.2 Assets View
@@ -240,6 +278,8 @@ Examples include:
 
 Polish represents the first editing pass.
 
+Aggressive cleanup remains opt-in and belongs to reusable macros or explicit user-directed actions.
+
 ---
 
 ## 9.2 Audio
@@ -329,6 +369,8 @@ Hammer MUST NOT include:
 - unrelated side navigation
 - AI-generated media gimmicks
 - creator-app clutter
+
+Hammer MUST NOT silently apply stronger stylistic or creative transformations without user direction after prep completes.
 
 Hammer is a focused Forge editing tool.
 

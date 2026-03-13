@@ -1,0 +1,174 @@
+import type {
+  HammerEditPlan,
+  HammerPreviewMode,
+} from "../../../../packages/contracts/hammer/edit-plan.contract";
+import type {
+  HammerLaunchContext,
+  HammerLaunchSourceMode,
+} from "../../../../packages/contracts/hammer/launch-context.contract";
+import type {
+  MediaRef,
+  WorkspaceMediaMapping,
+} from "../../../../packages/contracts/hammer/media-resolver.contract";
+import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
+
+export type HammerPrepStatus = "not_started" | "preparing" | "prepared" | "needs_review";
+export type HammerAlignmentStatus = "not_started" | "pending" | "aligned" | "needs_review";
+export type HammerPresenceMode = "viewing" | "editing";
+
+export interface HammerPersistenceTarget {
+  workspaceId: string;
+  workpieceId: string;
+}
+
+export interface HammerPersistedArtifact<T> {
+  path: string | null;
+  updated_at: string | null;
+  data: T | null;
+}
+
+export interface HammerPersistedEditorSession {
+  schema_version: 1;
+  session_id: string;
+  source_mode: HammerLaunchSourceMode;
+  preview_mode: HammerPreviewMode;
+  transcript_source_id: string;
+  selected_segment_id: string | null;
+  selected_overlay_row_id: string | null;
+  media_ref: MediaRef | null;
+  workspace_mapping: WorkspaceMediaMapping | null;
+  media_source_label: string | null;
+  last_opened_at: string;
+}
+
+export interface HammerPersistedStructuredTranscript {
+  schema_version: 1;
+  transcript_id: string;
+  media_id: string | null;
+  diarization: {
+    label_scheme: "forge-neutral-speakers.v1";
+    labels: string[];
+    version: string | null;
+  };
+  segments: HammerTranscriptSegment[];
+}
+
+export interface HammerPersistedSpeakerMap {
+  schema_version: 1;
+  default_labels: string[];
+  mappings: Array<{
+    speaker_label: string;
+    display_name: string | null;
+    source: "default" | "user";
+  }>;
+}
+
+export interface HammerVisualPlacementRecord {
+  placement_id: string;
+  anchor_segment_id: string;
+  asset_ref: string;
+  confidence: number | null;
+  status: "placed" | "uncertain";
+}
+
+export interface HammerPersistedVisualPlacements {
+  schema_version: 1;
+  status: "not_started" | "prepared";
+  source_refs: string[];
+  uncertainty_flags: string[];
+  placements: HammerVisualPlacementRecord[];
+}
+
+export interface HammerPersistedAudioPolish {
+  schema_version: 1;
+  status: "not_started" | "prepared";
+  prepared_passes: string[];
+  source_artifact_paths: string[];
+  settings_summary: Record<string, string | number | boolean | null>;
+}
+
+export interface HammerPersistedMacroHooks {
+  recipe_ref: string | null;
+  last_run_ref: string | null;
+}
+
+export interface HammerPersistedStateRecord {
+  workspace_id: string;
+  workpiece_id: string;
+  active_session_id: string | null;
+  editor_session_path: string | null;
+  transcript_artifact_path: string | null;
+  speaker_map_artifact_path: string | null;
+  visual_placement_artifact_path: string | null;
+  audio_polish_artifact_path: string | null;
+  edit_plan_artifact_path: string | null;
+  edit_plan_signature: string | null;
+  prep_status: HammerPrepStatus;
+  alignment_status: HammerAlignmentStatus;
+  macro_recipe_ref: string | null;
+  last_macro_run_ref: string | null;
+  last_opened_at: string;
+  updated_at: string;
+  updated_by: string;
+}
+
+export interface HammerPersistenceSnapshot {
+  schema_version: 1;
+  state: HammerPersistedStateRecord | null;
+  editor_session: HammerPersistedArtifact<HammerPersistedEditorSession>;
+  structured_transcript: HammerPersistedArtifact<HammerPersistedStructuredTranscript>;
+  speaker_map: HammerPersistedArtifact<HammerPersistedSpeakerMap>;
+  visual_placements: HammerPersistedArtifact<HammerPersistedVisualPlacements>;
+  audio_polish: HammerPersistedArtifact<HammerPersistedAudioPolish>;
+  edit_plan: HammerPersistedArtifact<HammerEditPlan>;
+  macro_hooks: HammerPersistedMacroHooks;
+}
+
+export interface HammerArtifactWriteRequest<T> {
+  path?: string;
+  expected_previous_updated_at?: string | null;
+  data: T;
+}
+
+export interface HammerPersistenceSaveRequest {
+  written_by: {
+    tool: string;
+    tool_version: string;
+    lane: string;
+  };
+  active_session_id?: string | null;
+  prep_status?: HammerPrepStatus;
+  alignment_status?: HammerAlignmentStatus;
+  last_opened_at?: string;
+  edit_plan_signature?: string | null;
+  macro_recipe_ref?: string | null;
+  last_macro_run_ref?: string | null;
+  editor_session?: HammerArtifactWriteRequest<HammerPersistedEditorSession>;
+  structured_transcript?: HammerArtifactWriteRequest<HammerPersistedStructuredTranscript>;
+  speaker_map?: HammerArtifactWriteRequest<HammerPersistedSpeakerMap>;
+  visual_placements?: HammerArtifactWriteRequest<HammerPersistedVisualPlacements>;
+  audio_polish?: HammerArtifactWriteRequest<HammerPersistedAudioPolish>;
+  edit_plan?: HammerArtifactWriteRequest<HammerEditPlan>;
+}
+
+export interface HammerPresenceRow {
+  workspace_id: string;
+  workpiece_id: string;
+  user_id: string;
+  session_id: string | null;
+  display_name: string | null;
+  mode: HammerPresenceMode;
+  last_seen_at: string;
+  created_at: string;
+}
+
+export interface HammerPresenceRequest {
+  mode: HammerPresenceMode;
+  display_name?: string | null;
+  session_id?: string | null;
+}
+
+export interface HammerHydratedLaunchContext {
+  launchContext: HammerLaunchContext;
+  source: "launch" | "persistence";
+}

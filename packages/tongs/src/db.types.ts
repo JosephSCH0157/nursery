@@ -320,6 +320,129 @@ export type Database = {
           },
         ]
       }
+      hammer_workpiece_presence: {
+        Row: {
+          workspace_id: string
+          workpiece_id: string
+          user_id: string
+          session_id: string | null
+          display_name: string | null
+          mode: string
+          last_seen_at: string
+          created_at: string
+        }
+        Insert: {
+          workspace_id: string
+          workpiece_id: string
+          user_id: string
+          session_id?: string | null
+          display_name?: string | null
+          mode?: string
+          last_seen_at?: string
+          created_at?: string
+        }
+        Update: {
+          workspace_id?: string
+          workpiece_id?: string
+          user_id?: string
+          session_id?: string | null
+          display_name?: string | null
+          mode?: string
+          last_seen_at?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hammer_workpiece_presence_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_workpiece_presence_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hammer_workpiece_state: {
+        Row: {
+          workspace_id: string
+          workpiece_id: string
+          active_session_id: string | null
+          editor_session_path: string | null
+          transcript_artifact_path: string | null
+          speaker_map_artifact_path: string | null
+          visual_placement_artifact_path: string | null
+          audio_polish_artifact_path: string | null
+          edit_plan_artifact_path: string | null
+          edit_plan_signature: string | null
+          prep_status: string
+          alignment_status: string
+          macro_recipe_ref: string | null
+          last_macro_run_ref: string | null
+          last_opened_at: string
+          updated_at: string
+          updated_by: string
+        }
+        Insert: {
+          workspace_id: string
+          workpiece_id: string
+          active_session_id?: string | null
+          editor_session_path?: string | null
+          transcript_artifact_path?: string | null
+          speaker_map_artifact_path?: string | null
+          visual_placement_artifact_path?: string | null
+          audio_polish_artifact_path?: string | null
+          edit_plan_artifact_path?: string | null
+          edit_plan_signature?: string | null
+          prep_status?: string
+          alignment_status?: string
+          macro_recipe_ref?: string | null
+          last_macro_run_ref?: string | null
+          last_opened_at?: string
+          updated_at?: string
+          updated_by: string
+        }
+        Update: {
+          workspace_id?: string
+          workpiece_id?: string
+          active_session_id?: string | null
+          editor_session_path?: string | null
+          transcript_artifact_path?: string | null
+          speaker_map_artifact_path?: string | null
+          visual_placement_artifact_path?: string | null
+          audio_polish_artifact_path?: string | null
+          edit_plan_artifact_path?: string | null
+          edit_plan_signature?: string | null
+          prep_status?: string
+          alignment_status?: string
+          macro_recipe_ref?: string | null
+          last_macro_run_ref?: string | null
+          last_opened_at?: string
+          updated_at?: string
+          updated_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hammer_workpiece_state_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_workpiece_state_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_cradles: {
         Row: {
           id: string

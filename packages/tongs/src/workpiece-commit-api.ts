@@ -78,6 +78,26 @@ const IMAGE_MAP_VISUAL_MODE_VALUES = [
   "object_detail",
 ] as const;
 const IMAGE_MAP_VISUAL_MODE_SET = new Set<string>(IMAGE_MAP_VISUAL_MODE_VALUES);
+const HAMMER_PREP_STATUS_VALUES = ["not_started", "preparing", "prepared", "needs_review"] as const;
+const HAMMER_PREP_STATUS_SET = new Set<string>(HAMMER_PREP_STATUS_VALUES);
+const HAMMER_ALIGNMENT_STATUS_VALUES = ["not_started", "pending", "aligned", "needs_review"] as const;
+const HAMMER_ALIGNMENT_STATUS_SET = new Set<string>(HAMMER_ALIGNMENT_STATUS_VALUES);
+const HAMMER_ARTIFACT_PATHS = {
+  editor_session: "hammer/session/editor-state.v1.json",
+  structured_transcript: "hammer/transcript/structured.v1.json",
+  speaker_map: "hammer/transcript/speaker-map.v1.json",
+  visual_placements: "hammer/prep/visual-placements.v1.json",
+  audio_polish: "hammer/prep/audio-polish.v1.json",
+  edit_plan: "hammer/edit-plan/current.v1.json",
+} as const;
+const HAMMER_ARTIFACT_EVENT_NAMES = {
+  editor_session: "hammer.editor-session.saved.v1",
+  structured_transcript: "hammer.transcript.saved.v1",
+  speaker_map: "hammer.speaker-map.saved.v1",
+  visual_placements: "hammer.visual-placements.saved.v1",
+  audio_polish: "hammer.audio-polish.saved.v1",
+  edit_plan: "hammer.edit-plan.saved.v1",
+} as const;
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -89,6 +109,8 @@ type RecordingSessionEpisodeRow = Database["tongs"]["Tables"]["recording_session
 type RecordingSessionItemRow = Database["tongs"]["Tables"]["recording_session_items"]["Row"];
 type CalendarEventAssignmentRow = Database["tongs"]["Tables"]["calendar_event_assignments"]["Row"];
 type HearthWorkpiecePresenceRow = Database["tongs"]["Tables"]["hearth_workpiece_presence"]["Row"];
+type HammerWorkpiecePresenceRow = Database["tongs"]["Tables"]["hammer_workpiece_presence"]["Row"];
+type HammerWorkpieceStateRow = Database["tongs"]["Tables"]["hammer_workpiece_state"]["Row"];
 type WorkpieceFileRow = Database["tongs"]["Tables"]["workpiece_files"]["Row"];
 type WorkpieceEventRow = Database["tongs"]["Tables"]["workpiece_events"]["Row"];
 type WorkspaceRow = Database["tongs"]["Tables"]["workspaces"]["Row"];
@@ -304,10 +326,65 @@ export type AttachCalendarEventAssignmentRequest = {
 };
 
 export type HearthPresenceMode = "viewing" | "editing";
+export type HammerPresenceMode = "viewing" | "editing";
+export type HammerPrepStatus = (typeof HAMMER_PREP_STATUS_VALUES)[number];
+export type HammerAlignmentStatus = (typeof HAMMER_ALIGNMENT_STATUS_VALUES)[number];
 
 export type UpsertHearthWorkpiecePresenceRequest = {
   mode: HearthPresenceMode;
   display_name?: string | null;
+};
+
+export type UpsertHammerWorkpiecePresenceRequest = {
+  mode: HammerPresenceMode;
+  display_name?: string | null;
+  session_id?: string | null;
+};
+
+export type HammerArtifactKey = keyof typeof HAMMER_ARTIFACT_PATHS;
+
+export type HammerArtifactWriteRequest = {
+  path?: string;
+  expected_previous_updated_at?: string | null;
+  data: unknown;
+};
+
+export type SaveHammerWorkpieceStateRequest = {
+  written_by: WrittenBy;
+  active_session_id?: string | null;
+  prep_status?: HammerPrepStatus;
+  alignment_status?: HammerAlignmentStatus;
+  last_opened_at?: string;
+  edit_plan_signature?: string | null;
+  macro_recipe_ref?: string | null;
+  last_macro_run_ref?: string | null;
+  editor_session?: HammerArtifactWriteRequest;
+  structured_transcript?: HammerArtifactWriteRequest;
+  speaker_map?: HammerArtifactWriteRequest;
+  visual_placements?: HammerArtifactWriteRequest;
+  audio_polish?: HammerArtifactWriteRequest;
+  edit_plan?: HammerArtifactWriteRequest;
+};
+
+export type HammerPersistedArtifactRecord = {
+  path: string | null;
+  file_updated_at: string | null;
+  data: unknown | null;
+};
+
+export type HammerPersistenceSnapshot = {
+  schema_version: 1;
+  state: HammerWorkpieceStateRow | null;
+  editor_session: HammerPersistedArtifactRecord;
+  structured_transcript: HammerPersistedArtifactRecord;
+  speaker_map: HammerPersistedArtifactRecord;
+  visual_placements: HammerPersistedArtifactRecord;
+  audio_polish: HammerPersistedArtifactRecord;
+  edit_plan: HammerPersistedArtifactRecord;
+  macro_hooks: {
+    recipe_ref: string | null;
+    last_run_ref: string | null;
+  };
 };
 
 export type ReplaceRecordingSessionItemsRequest = {
@@ -663,6 +740,28 @@ export type TongsCommitApiService = {
     input: UpsertHearthWorkpiecePresenceRequest,
     options?: { userAccessToken?: string | null },
   ): Promise<HearthWorkpiecePresenceRow>;
+  readHammerWorkpieceState(
+    workspaceId: string,
+    workpieceId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HammerPersistenceSnapshot>;
+  saveHammerWorkpieceState(
+    workspaceId: string,
+    workpieceId: string,
+    input: SaveHammerWorkpieceStateRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HammerPersistenceSnapshot>;
+  listHammerWorkpiecePresence(
+    workspaceId: string,
+    workpieceId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HammerWorkpiecePresenceRow[]>;
+  upsertHammerWorkpiecePresence(
+    workspaceId: string,
+    workpieceId: string,
+    input: UpsertHammerWorkpiecePresenceRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HammerWorkpiecePresenceRow>;
   attachCalendarEventAssignment(
     workspaceId: string,
     calendarEventId: string,
@@ -1874,6 +1973,140 @@ function normalizeUpsertHearthWorkpiecePresenceRequest(
   return {
     mode: normalizeHearthPresenceMode(body.mode),
     ...(typeof displayName === "undefined" ? {} : { display_name: displayName }),
+  };
+}
+
+function normalizeHammerPresenceMode(value: unknown): HammerPresenceMode {
+  const mode = normalizeNonEmptyString(value, "mode").toLowerCase();
+  if (mode === "viewing" || mode === "editing") {
+    return mode;
+  }
+  throw new HttpError(400, "invalid_mode", "mode must be viewing or editing");
+}
+
+function normalizeOptionalSessionId(value: unknown): string | null | undefined {
+  if (typeof value === "undefined") return undefined;
+  if (value === null) return null;
+  return normalizeNonEmptyString(value, "session_id").slice(0, 160);
+}
+
+function normalizeUpsertHammerWorkpiecePresenceRequest(
+  body: Record<string, unknown>,
+): UpsertHammerWorkpiecePresenceRequest {
+  const displayName = normalizeOptionalDisplayName(body.display_name);
+  const sessionId = normalizeOptionalSessionId(body.session_id);
+  return {
+    mode: normalizeHammerPresenceMode(body.mode),
+    ...(typeof displayName === "undefined" ? {} : { display_name: displayName }),
+    ...(typeof sessionId === "undefined" ? {} : { session_id: sessionId }),
+  };
+}
+
+function normalizeHammerPrepStatus(value: unknown, field = "prep_status"): HammerPrepStatus {
+  const status = normalizeNonEmptyString(value, field).toLowerCase();
+  if (HAMMER_PREP_STATUS_SET.has(status)) {
+    return status as HammerPrepStatus;
+  }
+  throw new HttpError(400, "invalid_status", `${field} must be one of ${HAMMER_PREP_STATUS_VALUES.join(", ")}`);
+}
+
+function normalizeHammerAlignmentStatus(value: unknown, field = "alignment_status"): HammerAlignmentStatus {
+  const status = normalizeNonEmptyString(value, field).toLowerCase();
+  if (HAMMER_ALIGNMENT_STATUS_SET.has(status)) {
+    return status as HammerAlignmentStatus;
+  }
+  throw new HttpError(400, "invalid_status", `${field} must be one of ${HAMMER_ALIGNMENT_STATUS_VALUES.join(", ")}`);
+}
+
+function normalizeHammerArtifactWriteRequest(
+  value: unknown,
+  field: string,
+): HammerArtifactWriteRequest | undefined {
+  if (typeof value === "undefined") return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new HttpError(400, "invalid_payload", `${field} must be an object`);
+  }
+
+  const row = value as Record<string, unknown>;
+  if (!Object.prototype.hasOwnProperty.call(row, "data")) {
+    throw new HttpError(400, "invalid_payload", `${field}.data is required`);
+  }
+
+  const path = typeof row.path === "undefined"
+    ? undefined
+    : normalizeRelativePath(row.path);
+  const expectedPreviousUpdatedAt = typeof row.expected_previous_updated_at === "undefined"
+    ? undefined
+    : row.expected_previous_updated_at === null
+      ? null
+      : normalizeIsoTimestamp(row.expected_previous_updated_at, `${field}.expected_previous_updated_at`);
+
+  return {
+    ...(path ? { path } : {}),
+    ...(typeof expectedPreviousUpdatedAt === "undefined"
+      ? {}
+      : { expected_previous_updated_at: expectedPreviousUpdatedAt }),
+    data: row.data,
+  };
+}
+
+function normalizeSaveHammerWorkpieceStateRequest(
+  body: Record<string, unknown>,
+): SaveHammerWorkpieceStateRequest {
+  const writtenBy = normalizeWrittenBy(body.written_by);
+  const activeSessionId = normalizeOptionalSessionId(body.active_session_id);
+  const lastOpenedAt = typeof body.last_opened_at === "undefined"
+    ? undefined
+    : normalizeIsoTimestamp(body.last_opened_at, "last_opened_at");
+  const prepStatus = typeof body.prep_status === "undefined"
+    ? undefined
+    : normalizeHammerPrepStatus(body.prep_status);
+  const alignmentStatus = typeof body.alignment_status === "undefined"
+    ? undefined
+    : normalizeHammerAlignmentStatus(body.alignment_status);
+  const macroRecipeRef = typeof body.macro_recipe_ref === "undefined"
+    ? undefined
+    : body.macro_recipe_ref === null
+      ? null
+      : normalizeNonEmptyString(body.macro_recipe_ref, "macro_recipe_ref");
+  const lastMacroRunRef = typeof body.last_macro_run_ref === "undefined"
+    ? undefined
+    : body.last_macro_run_ref === null
+      ? null
+      : normalizeNonEmptyString(body.last_macro_run_ref, "last_macro_run_ref");
+  const editPlanSignature = typeof body.edit_plan_signature === "undefined"
+    ? undefined
+    : body.edit_plan_signature === null
+      ? null
+      : normalizeNonEmptyString(body.edit_plan_signature, "edit_plan_signature");
+
+  return {
+    written_by: writtenBy,
+    ...(typeof activeSessionId === "undefined" ? {} : { active_session_id: activeSessionId }),
+    ...(typeof lastOpenedAt === "undefined" ? {} : { last_opened_at: lastOpenedAt }),
+    ...(typeof prepStatus === "undefined" ? {} : { prep_status: prepStatus }),
+    ...(typeof alignmentStatus === "undefined" ? {} : { alignment_status: alignmentStatus }),
+    ...(typeof macroRecipeRef === "undefined" ? {} : { macro_recipe_ref: macroRecipeRef }),
+    ...(typeof lastMacroRunRef === "undefined" ? {} : { last_macro_run_ref: lastMacroRunRef }),
+    ...(typeof editPlanSignature === "undefined" ? {} : { edit_plan_signature: editPlanSignature }),
+    ...(typeof body.editor_session === "undefined"
+      ? {}
+      : { editor_session: normalizeHammerArtifactWriteRequest(body.editor_session, "editor_session") }),
+    ...(typeof body.structured_transcript === "undefined"
+      ? {}
+      : { structured_transcript: normalizeHammerArtifactWriteRequest(body.structured_transcript, "structured_transcript") }),
+    ...(typeof body.speaker_map === "undefined"
+      ? {}
+      : { speaker_map: normalizeHammerArtifactWriteRequest(body.speaker_map, "speaker_map") }),
+    ...(typeof body.visual_placements === "undefined"
+      ? {}
+      : { visual_placements: normalizeHammerArtifactWriteRequest(body.visual_placements, "visual_placements") }),
+    ...(typeof body.audio_polish === "undefined"
+      ? {}
+      : { audio_polish: normalizeHammerArtifactWriteRequest(body.audio_polish, "audio_polish") }),
+    ...(typeof body.edit_plan === "undefined"
+      ? {}
+      : { edit_plan: normalizeHammerArtifactWriteRequest(body.edit_plan, "edit_plan") }),
   };
 }
 
@@ -3736,6 +3969,249 @@ export class TongsCommitService {
     }
     if (!data) {
       throw new HttpError(502, "db_write_failed", "hearth_workpiece_presence upsert returned no row");
+    }
+
+    return data;
+  }
+
+  async readHammerWorkpieceState(
+    workspaceId: string,
+    workpieceId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HammerPersistenceSnapshot> {
+    await this.getWorkspaceOrThrow(workspaceId);
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
+
+    const { data: state, error } = await this.supabase
+      .schema("tongs")
+      .from("hammer_workpiece_state")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .eq("workpiece_id", workpieceId)
+      .maybeSingle();
+
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to read Hammer workpiece state", {
+        reason: error.message,
+      });
+    }
+
+    const readArtifact = async (path: string | null): Promise<HammerPersistedArtifactRecord> => {
+      if (!path) {
+        return {
+          path: null,
+          file_updated_at: null,
+          data: null,
+        };
+      }
+
+      const result = await this.readWorkpieceJson(workpieceId, path);
+      if (!result.found) {
+        return {
+          path,
+          file_updated_at: null,
+          data: null,
+        };
+      }
+
+      return {
+        path,
+        file_updated_at: result.file_row?.updated_at ?? null,
+        data: result.data ?? null,
+      };
+    };
+
+    return {
+      schema_version: 1,
+      state: state ?? null,
+      editor_session: await readArtifact(state?.editor_session_path ?? null),
+      structured_transcript: await readArtifact(state?.transcript_artifact_path ?? null),
+      speaker_map: await readArtifact(state?.speaker_map_artifact_path ?? null),
+      visual_placements: await readArtifact(state?.visual_placement_artifact_path ?? null),
+      audio_polish: await readArtifact(state?.audio_polish_artifact_path ?? null),
+      edit_plan: await readArtifact(state?.edit_plan_artifact_path ?? null),
+      macro_hooks: {
+        recipe_ref: state?.macro_recipe_ref ?? null,
+        last_run_ref: state?.last_macro_run_ref ?? null,
+      },
+    };
+  }
+
+  async saveHammerWorkpieceState(
+    workspaceId: string,
+    workpieceId: string,
+    input: SaveHammerWorkpieceStateRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HammerPersistenceSnapshot> {
+    await this.getWorkspaceOrThrow(workspaceId);
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
+
+    const { data: existingState, error: existingStateError } = await this.supabase
+      .schema("tongs")
+      .from("hammer_workpiece_state")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .eq("workpiece_id", workpieceId)
+      .maybeSingle();
+
+    if (existingStateError) {
+      throw new HttpError(502, "db_read_failed", "Failed to read existing Hammer workpiece state", {
+        reason: existingStateError.message,
+      });
+    }
+
+    const commitArtifact = async (
+      key: HammerArtifactKey,
+      request: HammerArtifactWriteRequest | undefined,
+      pointer?: ManifestPointerKey,
+    ): Promise<string | undefined> => {
+      if (!request) return undefined;
+
+      const path = request.path ?? HAMMER_ARTIFACT_PATHS[key];
+      await this.commitFile(workpieceId, {
+        path,
+        content_type: "application/json",
+        written_by: input.written_by,
+        ...(pointer ? { pointer } : {}),
+        ...(request.expected_previous_updated_at
+          ? { expected_previous_updated_at: request.expected_previous_updated_at }
+          : {}),
+        event_name: HAMMER_ARTIFACT_EVENT_NAMES[key],
+        event_payload: {
+          schema_version: 1,
+          artifact: key,
+          workspace_id: workspaceId,
+          workpiece_id: workpieceId,
+        } as Json,
+        json: request.data,
+        user_access_token: options?.userAccessToken ?? null,
+      });
+      return path;
+    };
+
+    const editorSessionPath = await commitArtifact("editor_session", input.editor_session, "session_current");
+    const transcriptArtifactPath = await commitArtifact("structured_transcript", input.structured_transcript);
+    const speakerMapArtifactPath = await commitArtifact("speaker_map", input.speaker_map);
+    const visualPlacementArtifactPath = await commitArtifact("visual_placements", input.visual_placements);
+    const audioPolishArtifactPath = await commitArtifact("audio_polish", input.audio_polish);
+    const editPlanArtifactPath = await commitArtifact("edit_plan", input.edit_plan, "edit_current");
+
+    const nextState: Database["tongs"]["Tables"]["hammer_workpiece_state"]["Insert"] = {
+      workspace_id: workspaceId,
+      workpiece_id: workpieceId,
+      active_session_id: typeof input.active_session_id === "undefined"
+        ? existingState?.active_session_id ?? null
+        : input.active_session_id,
+      editor_session_path: typeof editorSessionPath === "undefined"
+        ? existingState?.editor_session_path ?? null
+        : editorSessionPath,
+      transcript_artifact_path: typeof transcriptArtifactPath === "undefined"
+        ? existingState?.transcript_artifact_path ?? null
+        : transcriptArtifactPath,
+      speaker_map_artifact_path: typeof speakerMapArtifactPath === "undefined"
+        ? existingState?.speaker_map_artifact_path ?? null
+        : speakerMapArtifactPath,
+      visual_placement_artifact_path: typeof visualPlacementArtifactPath === "undefined"
+        ? existingState?.visual_placement_artifact_path ?? null
+        : visualPlacementArtifactPath,
+      audio_polish_artifact_path: typeof audioPolishArtifactPath === "undefined"
+        ? existingState?.audio_polish_artifact_path ?? null
+        : audioPolishArtifactPath,
+      edit_plan_artifact_path: typeof editPlanArtifactPath === "undefined"
+        ? existingState?.edit_plan_artifact_path ?? null
+        : editPlanArtifactPath,
+      edit_plan_signature: typeof input.edit_plan_signature === "undefined"
+        ? existingState?.edit_plan_signature ?? null
+        : input.edit_plan_signature,
+      prep_status: input.prep_status ?? existingState?.prep_status ?? "not_started",
+      alignment_status: input.alignment_status ?? existingState?.alignment_status ?? "not_started",
+      macro_recipe_ref: typeof input.macro_recipe_ref === "undefined"
+        ? existingState?.macro_recipe_ref ?? null
+        : input.macro_recipe_ref,
+      last_macro_run_ref: typeof input.last_macro_run_ref === "undefined"
+        ? existingState?.last_macro_run_ref ?? null
+        : input.last_macro_run_ref,
+      last_opened_at: input.last_opened_at ?? existingState?.last_opened_at ?? new Date().toISOString(),
+      updated_by: auth.userId,
+    };
+
+    const { error: upsertError } = await this.supabase
+      .schema("tongs")
+      .from("hammer_workpiece_state")
+      .upsert(nextState, { onConflict: "workspace_id,workpiece_id" });
+
+    if (upsertError) {
+      throw new HttpError(502, "db_write_failed", "Failed to upsert Hammer workpiece state", {
+        reason: upsertError.message,
+      });
+    }
+
+    return this.readHammerWorkpieceState(workspaceId, workpieceId, options);
+  }
+
+  async listHammerWorkpiecePresence(
+    workspaceId: string,
+    workpieceId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HammerWorkpiecePresenceRow[]> {
+    await this.getWorkspaceOrThrow(workspaceId);
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
+
+    const activeCutoffIso = new Date(Date.now() - 60_000).toISOString();
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("hammer_workpiece_presence")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .eq("workpiece_id", workpieceId)
+      .gt("last_seen_at", activeCutoffIso)
+      .order("last_seen_at", { ascending: false });
+
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to list Hammer workpiece presence", {
+        reason: error.message,
+      });
+    }
+
+    return data ?? [];
+  }
+
+  async upsertHammerWorkpiecePresence(
+    workspaceId: string,
+    workpieceId: string,
+    input: UpsertHammerWorkpiecePresenceRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HammerWorkpiecePresenceRow> {
+    await this.getWorkspaceOrThrow(workspaceId);
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
+
+    const nowIso = new Date().toISOString();
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("hammer_workpiece_presence")
+      .upsert({
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        user_id: auth.userId,
+        session_id: typeof input.session_id === "string" ? input.session_id : null,
+        display_name: typeof input.display_name === "string" ? input.display_name : null,
+        mode: input.mode,
+        last_seen_at: nowIso,
+      }, { onConflict: "workspace_id,workpiece_id,user_id" })
+      .select("*")
+      .single();
+
+    if (error) {
+      throw new HttpError(502, "db_write_failed", "Failed to upsert Hammer workpiece presence", {
+        reason: error.message,
+      });
+    }
+    if (!data) {
+      throw new HttpError(502, "db_write_failed", "hammer_workpiece_presence upsert returned no row");
     }
 
     return data;
@@ -6468,6 +6944,78 @@ export function createTongsCommitApiHandlerWithService(
             warnings: result.warnings,
           },
         });
+      }
+
+      if (
+        parts.length === 7
+        && parts[0] === "tongs"
+        && parts[1] === "workspaces"
+        && parts[3] === "workpieces"
+        && parts[5] === "hammer"
+        && parts[6] === "state"
+      ) {
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[4]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+
+        if (request.method === "GET") {
+          const snapshot = await service.readHammerWorkpieceState(
+            workspaceId,
+            workpieceId,
+            { userAccessToken },
+          );
+          return jsonResponse(200, { ok: true, data: { snapshot } });
+        }
+
+        if (request.method === "PUT") {
+          const body = await parseJsonBody(request);
+          const payload = normalizeSaveHammerWorkpieceStateRequest(body);
+          const snapshot = await service.saveHammerWorkpieceState(
+            workspaceId,
+            workpieceId,
+            payload,
+            { userAccessToken },
+          );
+          return jsonResponse(200, { ok: true, data: { snapshot } });
+        }
+
+        throw new HttpError(405, "method_not_allowed", "Expected GET or PUT for this endpoint");
+      }
+
+      if (
+        parts.length === 7
+        && parts[0] === "tongs"
+        && parts[1] === "workspaces"
+        && parts[3] === "workpieces"
+        && parts[5] === "hammer"
+        && parts[6] === "presence"
+      ) {
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[4]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+
+        if (request.method === "GET") {
+          const presence = await service.listHammerWorkpiecePresence(
+            workspaceId,
+            workpieceId,
+            { userAccessToken },
+          );
+          return jsonResponse(200, { ok: true, data: { presence } });
+        }
+
+        if (request.method === "PUT") {
+          const body = await parseJsonBody(request);
+          const payload = normalizeUpsertHammerWorkpiecePresenceRequest(body);
+          const presence = await service.upsertHammerWorkpiecePresence(
+            workspaceId,
+            workpieceId,
+            payload,
+            { userAccessToken },
+          );
+          return jsonResponse(200, { ok: true, data: { presence } });
+        }
+
+        throw new HttpError(405, "method_not_allowed", "Expected GET or PUT for this endpoint");
       }
 
       if (

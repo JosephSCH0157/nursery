@@ -54,6 +54,15 @@ export default function HammerStandalone() {
     [location.search, routeContext.workspaceId, routeContext.workpieceId],
   );
 
+  const harnessHref = useMemo(
+    () => buildForgeRouteHref("/app/hammer/dev/editor", {
+      search: location.search,
+      workspaceId: routeContext.workspaceId,
+      workpieceId: routeContext.workpieceId,
+    }),
+    [location.search, routeContext.workspaceId, routeContext.workpieceId],
+  );
+
   const editorHref = useMemo(() => {
     if (hammerSelection.scenario) {
       return buildHammerEditorHref(location.search, hammerSelection.scenario, currentOutputId);
@@ -154,6 +163,7 @@ export default function HammerStandalone() {
             <nav className="hammer-standalone__drawer-body">
               <NavLink to={hammerHomeHref} onClick={() => setMenuOpen(false)}>Projects</NavLink>
               <NavLink to={editorHref} onClick={() => setMenuOpen(false)}>Editor</NavLink>
+              <NavLink to={harnessHref} onClick={() => setMenuOpen(false)}>Dev Harness</NavLink>
               <NavLink to={launchHref} onClick={() => setMenuOpen(false)}>Dev Launch</NavLink>
               <NavLink to={cardsHref} onClick={() => setMenuOpen(false)}>Dev Cards</NavLink>
               <NavLink to={relinkHref} onClick={() => setMenuOpen(false)}>Dev Relink</NavLink>

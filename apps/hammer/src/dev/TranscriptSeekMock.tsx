@@ -49,9 +49,12 @@ import {
   resolveHammerLaunchContext,
 } from "../lib/launchContext";
 import type { ResolvedHammerLaunchContext } from "../lib/launchContext";
+import { createSemanticEditPlanSignature } from "../lib/editPlanSignature";
+import { resolvePreviewMediaSrc } from "../lib/previewSource";
 import { toMediaBadgeViewModel } from "../media/mediaBadgeViewModel";
 import { V1HammerMediaResolver } from "../media/resolveMedia";
 import { loadWorkspaceMapping } from "../media/workspaceMapping";
+import type { HammerWorkspaceSnapshot } from "../editor/hammerWorkspaceSnapshot";
 import { resolveHammerDevLaunchContext } from "./hammerLaunchPresets";
 import { StagedEditsPanel } from "./StagedEditsPanel";
 import { getDevTranscriptSegments } from "./transcriptFixtures";
@@ -172,6 +175,7 @@ const DEV_RECORDINGS_FALLBACK_ROOT_ABS = "C:\\Users\\Iam11\\OneDrive\\Documents\
 
 type TranscriptSeekMockProps = {
   launchContext?: HammerLaunchContext;
+  onWorkspaceSnapshotChange?: (snapshot: HammerWorkspaceSnapshot) => void;
 };
 
 type WorkPanelView = "script" | "assets";
@@ -393,14 +397,6 @@ function formatSnippet(text: string, maxLength = 56): string {
   const normalized = text.trim().replace(/\s+/g, " ");
   if (normalized.length <= maxLength) return normalized;
   return `${normalized.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
-}
-
-function buildHammerDevMediaUrl(localRootAbs: string, localRelpath: string): string {
-  const params = new URLSearchParams({
-    local_root_abs: localRootAbs,
-    local_relpath: localRelpath,
-  });
-  return `/api/hammer/dev-media?${params.toString()}`;
 }
 
 function isVideoMediaKind(kind: MediaKind | null | undefined): boolean {
@@ -707,18 +703,6 @@ function createDevAudioWavBlob(durationSec: number): Blob {
   return new Blob([buffer], { type: "audio/wav" });
 }
 
-function toBrowserVideoSrc(playableUri: string): string {
-  const value = playableUri.trim();
-  if (!value) return "";
-  if (/^(https?:|blob:|data:)/i.test(value)) return value;
-  if (value.startsWith("/@fs/")) return value;
-  if (/^[a-zA-Z]:[\\/]/.test(value) || value.startsWith("/")) {
-    const normalized = value.replace(/\\/g, "/");
-    return `/@fs/${encodeURI(normalized)}`;
-  }
-  return value;
-}
-
 function toErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim()) return error.message;
   if (typeof error === "string" && error.trim()) return error;
@@ -740,16 +724,16 @@ function cloneEditInstructions(instructions: HammerEditInstruction[]): HammerEdi
   return instructions.map((instruction) => ({ ...instruction }));
 }
 
+function cloneTranscriptSegments(segments: HammerTranscriptSegment[]): HammerTranscriptSegment[] {
+  return segments.map((segment) => ({ ...segment }));
+}
+
 function createEditPlanSignature(
   sourceTranscriptId: string,
   previewMode: HammerPreviewMode,
   instructions: HammerEditInstruction[],
 ): string {
-  return JSON.stringify({
-    source_transcript_id: sourceTranscriptId,
-    preview_mode: previewMode,
-    instructions,
-  });
+  return createSemanticEditPlanSignature(sourceTranscriptId, previewMode, instructions);
 }
 
 function createEditPlanMeta(
@@ -837,6 +821,8 @@ function resolveTranscriptRevealScrollTop(
   );
 }
 
+// Legacy transcript-seek prototype surface.
+// Live Hammer mounts through HammerEditorRuntime -> HammerWorkspaceEditor.
 export default function TranscriptSeekMock(
   props: TranscriptSeekMockProps,
 ): JSX.Element {
@@ -1213,22 +1199,14 @@ export default function TranscriptSeekMock(
     [resolveResult],
   );
 
-  const resolvedPlayableUri = resolveResult?.status === "ok" ? resolveResult.playable_uri : null;
   const resolvedMediaSrc = useMemo(
-    () => {
-      if (activeDevRecording?.playback_url) {
-        return activeDevRecording.playback_url;
-      }
-
-      const localRootAbs = activeMediaWorkspaceMapping?.local_root_abs;
-      const localRelpath = activeMediaRef?.local_relpath;
-      if (localRootAbs && localRelpath) {
-        return buildHammerDevMediaUrl(localRootAbs, localRelpath);
-      }
-
-      return resolvedPlayableUri ? toBrowserVideoSrc(resolvedPlayableUri) : null;
-    },
-    [activeDevRecording?.playback_url, activeMediaRef?.local_relpath, activeMediaWorkspaceMapping?.local_root_abs, resolvedPlayableUri],
+    () => resolvePreviewMediaSrc({
+      resolveResult,
+      mediaRef: activeMediaRef,
+      workspaceMapping: activeMediaWorkspaceMapping,
+      devPlaybackUrl: activeDevRecording?.playback_url ?? null,
+    }),
+    [activeDevRecording?.playback_url, activeMediaRef, activeMediaWorkspaceMapping, resolveResult],
   );
   const playbackSrc = useMemo(
     () => ((preferDevAudioFallback || !resolvedMediaSrc) ? devAudioSrc : resolvedMediaSrc),
@@ -1471,6 +1449,55 @@ export default function TranscriptSeekMock(
       transcriptSourceId,
     ],
   );
+  const workspaceSnapshot = useMemo<HammerWorkspaceSnapshot>(
+    () => ({
+      workspaceId: resolvedLaunch.launch_context.workspace_id,
+      workpieceId: resolvedLaunch.launch_context.workpiece_id,
+      sessionId,
+      sourceMode,
+      previewMode,
+      editPlanStatus,
+      editPlanSignature: currentEditPlanSignature,
+      transcriptSourceId,
+      transcriptSegments: cloneTranscriptSegments(transcriptSegments),
+      selectedSegmentId,
+      selectedOverlayRowId,
+      mediaRef: activeMediaRef ? { ...activeMediaRef } : null,
+      workspaceMapping: activeMediaWorkspaceMapping ? { ...activeMediaWorkspaceMapping } : null,
+      mediaSourceLabel: activeMediaSourceLabel,
+      editPlan: {
+        ...currentEditPlan,
+        instructions: cloneEditInstructions(currentEditPlan.instructions),
+      },
+      studioSoundPrepared,
+      noiseCleanupPrepared,
+      levelConsistencyPrepared,
+    }),
+    [
+      activeMediaRef,
+      activeMediaSourceLabel,
+      activeMediaWorkspaceMapping,
+      currentEditPlan,
+      currentEditPlanSignature,
+      editPlanStatus,
+      levelConsistencyPrepared,
+      noiseCleanupPrepared,
+      previewMode,
+      resolvedLaunch.launch_context.workpiece_id,
+      resolvedLaunch.launch_context.workspace_id,
+      selectedOverlayRowId,
+      selectedSegmentId,
+      sessionId,
+      sourceMode,
+      studioSoundPrepared,
+      transcriptSegments,
+      transcriptSourceId,
+    ],
+  );
+
+  useEffect(() => {
+    props.onWorkspaceSnapshotChange?.(workspaceSnapshot);
+  }, [props.onWorkspaceSnapshotChange, workspaceSnapshot]);
 
   useEffect(() => {
     setEditPlanMeta((currentMeta) => {

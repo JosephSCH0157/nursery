@@ -88,18 +88,47 @@ export class V1HammerMediaResolver implements HammerMediaResolver {
       ...(opts || {}),
     };
 
-    if (!workspaceMapping) {
-      return unresolved(
-        ref,
-        "NO_WORKSPACE_MAPPING",
-        "No workspace media mapping is configured on this machine.",
-        "OPEN_WORKSPACE_SETTINGS",
-      );
-    }
-
     const notes: string[] = [];
     const localRelpath = normalizeString(ref.local_relpath);
     if (localRelpath) {
+      if (!workspaceMapping) {
+        const cloudUri = normalizeString(ref.cloud_uri);
+        if (cloudUri) {
+          if (!options.cloud_enabled) {
+            return unresolved(
+              ref,
+              "CLOUD_DISABLED",
+              "This media is referenced in the cloud, but cloud media is currently disabled in V1.",
+              "ENABLE_CLOUD_MEDIA",
+              {
+                attempted_cloud_uri: cloudUri,
+                checked_exists: false,
+                notes: ["local_mapping_missing"],
+              },
+            );
+          }
+
+          return unresolved(
+            ref,
+            "CLOUD_UNREACHABLE",
+            "Cloud media resolution is not enabled for this build.",
+            "RETRY",
+            {
+              attempted_cloud_uri: cloudUri,
+              checked_exists: false,
+              notes: ["cloud_resolution_not_implemented_v1", "local_mapping_missing"],
+            },
+          );
+        }
+
+        return unresolved(
+          ref,
+          "NO_WORKSPACE_MAPPING",
+          "No workspace media mapping is configured on this machine.",
+          "OPEN_WORKSPACE_SETTINGS",
+        );
+      }
+
       const attemptedLocalAbs = buildLocalAbsolutePath(workspaceMapping.local_root_abs, localRelpath);
       if (!attemptedLocalAbs) {
         return unresolved(

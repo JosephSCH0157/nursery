@@ -95,9 +95,24 @@ Edits are stored as instruction layers in Tongs. Users can undo, reset edits, an
 
 ## Local Development
 
-Hammer app scaffolding is in progress.
+Hammer app scaffolding is in progress, but the runtime boundary is now explicit.
 
-Until a standalone Hammer runtime is added, Forge route wiring exists in `apps/nursery` at `/app/hammer` as a placeholder mount.
+Canonical runtime ownership:
+
+- Production editor route: `/app/hammer/editor`
+- Production runtime entry: `apps/hammer/src/app/HammerEditorRuntime.tsx`
+- Production editor composition: `apps/hammer/src/editor/HammerWorkspaceEditor.tsx`
+- Dev editor harness: `/app/hammer/dev/editor`
+- Legacy prototype surface: `apps/hammer/src/dev/TranscriptSeekMock.tsx`
+
+Until a standalone Hammer runtime is added, Forge route wiring still lives in `apps/nursery`, but the live editor now mounts through the production runtime entry instead of importing the legacy prototype surface directly.
+
+Canonical persistence ownership:
+
+- Hammer summary state lives in `tongs.hammer_workpiece_state`.
+- Hammer presence/lock heartbeat lives in `tongs.hammer_workpiece_presence`.
+- Hammer artifact bodies live in canonical `tongs.workpiece_files` paths such as `hammer/session/editor-state.v1.json` and `hammer/edit-plan/current.v1.json`.
+- Production Hammer reads and writes through the Hammer persistence seam in `apps/hammer/src/persistence/hammerPersistence.ts`; dev JSON import/export in the prototype surface remains secondary only.
 
 ## Future Work (V2+)
 

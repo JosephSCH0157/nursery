@@ -28,6 +28,7 @@ import SubscriptionsRoute from "./routes/Subscriptions";
 import HammerRoute from "./routes/Hammer";
 import HammerDevCardsRoute from "./routes/HammerDevCards";
 import HammerEditorRoute from "./routes/HammerEditor";
+import HammerEditorHarnessRoute from "./routes/HammerEditorHarness";
 import HammerLaunchStubRoute from "./routes/HammerLaunchStub";
 import HammerRelinkRoute from "./routes/HammerRelink";
 import HammerStandalone from "./routes/HammerStandalone";
@@ -76,6 +77,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <Route path="/app/hammer" element={<HammerStandalone />}>
           <Route index element={<HammerRoute />} />
           <Route path="editor" element={<HammerEditorRoute />} />
+          <Route path="dev/editor" element={<HammerEditorHarnessRoute />} />
           <Route path="dev/launch" element={<HammerLaunchStubRoute />} />
           <Route path="dev/cards" element={<HammerDevCardsRoute />} />
           <Route path="dev/relink" element={<HammerRelinkRoute />} />
