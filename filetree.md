@@ -5,6 +5,9 @@ Generated folders are kept brief for readability (for example `node_modules/`, `
 - `.gitattributes`
 - `.gitignore`
 - `AGENTS.md`
+- `BELLOWS_V1_PACKAGE_AND_FILE_STRUCTURE_PROPOSAL.md`
+- `BELLOWS_V1_DOMAIN_TYPE_INVENTORY.md`
+- `BELLOWS_V1_PURE_SESSION_ENGINE_STATE_SPEC.md`
 - `BELLOWS_V1_RECOMMENDED_BUILD_SEQUENCE.md`
 - `BELLOWS_V1_AI_ASSIST_OPPORTUNITIES.md`
 - `BELLOWS_V1_COMPETITIVE_KILL_MATRIX.md`
