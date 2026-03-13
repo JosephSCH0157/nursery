@@ -2237,6 +2237,19 @@ export default function HearthShell() {
     return visibleSparks.find((spark) => spark.id === selectedSparkId) ?? visibleSparks[0] ?? null;
   }, [selectedSparkId, visibleSparks]);
   const deferDesktopRailCollections = !isMobile && mode === "sparks" && !hasActiveEpisode;
+  const initialLoadKey = useMemo(() => [
+    storeKind,
+    incomingBarStockIntakeRoute ? "intake" : "standard",
+    normalizeUuid(workspaceId) ?? "none",
+    routeProjectId ?? "none",
+    routeSparkId ?? "none",
+  ].join(":"), [
+    incomingBarStockIntakeRoute,
+    routeProjectId,
+    routeSparkId,
+    storeKind,
+    workspaceId,
+  ]);
   const workpieceNavItems = useMemo(() => selectWorkpieceNavItems({
     workpieces: deferDesktopRailCollections ? EMPTY_WORKPIECE_SUMMARY_LIST : workpieceSummaries,
     drafts,
@@ -3780,9 +3793,18 @@ export default function HearthShell() {
     workspaceId,
   ]);
 
+  const loadInitialRef = useRef<(() => Promise<void>) | null>(null);
+  const lastInitialLoadKeyRef = useRef<string | null>(null);
+
   useEffect(() => {
-    void loadInitial();
+    loadInitialRef.current = loadInitial;
   }, [loadInitial]);
+
+  useEffect(() => {
+    if (lastInitialLoadKeyRef.current === initialLoadKey) return;
+    lastInitialLoadKeyRef.current = initialLoadKey;
+    void loadInitialRef.current?.();
+  }, [initialLoadKey]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
