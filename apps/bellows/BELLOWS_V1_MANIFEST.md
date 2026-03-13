@@ -73,6 +73,14 @@ This protects against network instability and platform failures.
 
 Bellows broadcasts to external platforms but does not host or distribute streams itself.
 
+7) Top-Level Studio Surface
+
+Bellows must run as its own top-level application surface.
+
+It must not be hosted inside an iframe, embedded panel, or nested tool container.
+
+Bellows requires direct browser control over permissions, storage, session lifecycle, and studio UX.
+
 🛠️ Session Lifecycle
 Phase 1 — Setup Mode (Host Only)
 

@@ -28,12 +28,34 @@ Bellows is not:
 - a video chat tool
 - a social platform
 - a creative suite
+- an embedded widget
 
 Bellows is:
 
 - a remote production studio
 
 The interface should evoke equipment, not generic software.
+
+## Top-Level Surface Doctrine
+
+Bellows must run as its own top-level application surface.
+
+Bellows must not run inside:
+
+- an iframe
+- an embedded panel
+- an inline dashboard tile
+- a nested tool shell pretending to be the studio
+
+Bellows may be launched from Forge, but entering Bellows means entering Bellows proper.
+
+This protects:
+
+- camera and microphone permission reliability
+- local recording and storage behavior
+- leave-page and safe-to-close warnings
+- full-screen studio presence
+- trust and security expectations
 
 ## Design Laws
 

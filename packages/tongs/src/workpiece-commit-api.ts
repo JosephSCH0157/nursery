@@ -19,6 +19,7 @@ const BOOTSTRAP_WORKPIECE_PATHS = new Set([
   "script/session.json",
   "script/script.sources.json",
   "hearth/drafts.v1.json",
+  "hearth/chat.v1.json",
   "hearth/revisions.v1.json",
 ]);
 const BOOTSTRAP_WORKSPACE_PATHS = new Set(["sources/index.json"]);

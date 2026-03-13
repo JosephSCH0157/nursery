@@ -25,6 +25,21 @@ Bellows is the live studio and capture orchestrator.
 
 It is not the writer, not the editor, not the asset vault, and not the teleprompter authority.
 
+### Runtime Surface Rule
+
+Bellows is a top-level application surface and must not be hosted in an iframe.
+
+Bellows may be launched from Forge and share auth or session context with Forge, but the Bellows runtime itself must execute as its own primary document context.
+
+This is required because Bellows depends on direct browser control over:
+
+- camera and microphone permissions
+- local recording and storage behavior
+- session lifecycle warnings and safe-to-close behavior
+- full-screen studio UX
+- capture and broadcast stability
+- operator trust and security expectations
+
 ### What Bellows Owns
 
 #### 1. Session Creation And Authority
@@ -248,6 +263,8 @@ If it answers one of these questions, it likely does not belong to Bellows:
 - How is the final episode cut?
 - Where is the asset canonically stored long-term?
 - How is a finished release packaged and distributed later?
+
+If the implementation approach is "Can Bellows just run inside a Forge iframe?", it does not belong. Bellows must run as a first-class application surface, not an embedded widget runtime.
 
 ## Screen / State Map
 

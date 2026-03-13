@@ -221,6 +221,9 @@ Generated folders are kept brief for readability (for example `node_modules/`, `
     - `README.md`
     - `eslint.config.js`
     - `package.json`
+    - `tests/`
+      - `engine/`
+        - `reducer.test.ts`
     - `tsconfig.json`
     - `src/`
       - `domain/`
@@ -237,6 +240,15 @@ Generated folders are kept brief for readability (for example `node_modules/`, `
         - `session.ts`
         - `states.ts`
         - `track.ts`
+      - `engine/`
+        - `actions.ts`
+        - `effects.ts`
+        - `errors.ts`
+        - `guards.ts`
+        - `index.ts`
+        - `recovery.ts`
+        - `reducer.ts`
+        - `transitions.ts`
       - `index.ts`
 - `packages/`
   - `.gitkeep`

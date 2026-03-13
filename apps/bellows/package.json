@@ -16,12 +16,14 @@
     "dev": "echo \"Bellows dev entry not wired yet\"",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint \"src/**/*.{ts,tsx}\""
+    "lint": "eslint \"src/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\"",
+    "test:engine": "tsx --test tests/engine/reducer.test.ts"
   },
   "dependencies": {},
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "eslint": "^9.39.1",
+    "tsx": "^4.21.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.56.1"
   }

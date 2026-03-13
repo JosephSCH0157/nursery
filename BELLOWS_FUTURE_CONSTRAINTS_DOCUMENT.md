@@ -45,6 +45,12 @@ Bellows must not become dependent on any single external service for core functi
 
 Extensibility must not compromise reliability or operational clarity.
 
+### An Embedded Tool Runtime
+
+Bellows must not degrade into an iframe-hosted widget or nested dashboard surface.
+
+Bellows is a first-class studio application. It may launch from Forge, but it must run as its own primary document context.
+
 ## Growth Philosophy
 
 Bellows should grow by:
@@ -59,6 +65,7 @@ Bellows should not grow by:
 - chasing consumer features
 - copying competitors mechanically
 - adding superficial capability for its own sake
+- embedding the studio into contexts that weaken permissions, storage control, or operator trust
 
 ## Feature Admission Test
 

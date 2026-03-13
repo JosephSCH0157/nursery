@@ -53,6 +53,11 @@ export type BellowsFailureEventType =
   | "artifact_missing"
   | "integrity_warning";
 
+export type BellowsEngineEventType =
+  | "transition_rejected"
+  | "authority_promoted"
+  | "recovery_entered";
+
 export type BellowsUserActionEventType =
   | "host_command_issued"
   | "participant_exit_attempted"
@@ -66,6 +71,7 @@ export type BellowsSessionEventType =
   | BellowsBroadcastEventType
   | BellowsUploadEventType
   | BellowsFailureEventType
+  | BellowsEngineEventType
   | BellowsUserActionEventType;
 
 export type BellowsEventActorType =
