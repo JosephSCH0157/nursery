@@ -4,16 +4,15 @@
 
 Turn the recommended Bellows build sequence into a concrete repo layout that can be implemented without inventing structure on the fly.
 
-## Current Repo Constraint
+## Phase 0 Baseline Note
 
-`apps/bellows` currently exists as a file containing the Bellows manifest.
+The original Bellows manifest started as a single file at `apps/bellows`.
 
-Phase 0 package skeleton work therefore has one required precondition:
+Phase 0 package skeleton work resolves that path collision by relocating the manifest to:
 
-- convert `apps/bellows` from a file into a directory
-- move the existing manifest into `apps/bellows/BELLOWS_V1_MANIFEST.md`
+- `apps/bellows/BELLOWS_V1_MANIFEST.md`
 
-Without that conversion, Bellows cannot become a real workspace package under the existing `pnpm-workspace.yaml` pattern.
+This allows Bellows to exist as a real workspace package under the existing `pnpm-workspace.yaml` pattern.
 
 ## Recommended Package Identity
 

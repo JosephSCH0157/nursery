@@ -280,13 +280,13 @@ confirms when it is safe to exit
 
 If the host disconnects unexpectedly:
 
-the session terminates for all participants
+the session preserves recording continuity
 
-recording stops
+a valid co-host may be promoted to acting host authority
 
-Safeguard Mode activates globally
+if no co-host is available, Bellows enters degraded engine stewardship while protecting capture and upload integrity
 
-Host return requires a new session.
+Host return follows the current session authority rules.
 
 📦 Session Outputs
 

@@ -214,7 +214,14 @@ Generated folders are kept brief for readability (for example `node_modules/`, `
     - `project_tree.txt`
     - `node_modules/` (installed dependencies)
     - `dist/` (build output)
-  - [`apps/bellows`](apps/bellows) (Bellows V1 manifest)
+  - `apps/bellows/`
+    - `BELLOWS_V1_MANIFEST.md`
+    - `README.md`
+    - `eslint.config.js`
+    - `package.json`
+    - `tsconfig.json`
+    - `src/`
+      - `index.ts`
 - `packages/`
   - `.gitkeep`
   - `hearth/`
