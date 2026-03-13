@@ -383,6 +383,7 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
       return;
     }
     setInsightsLoading(true);
+    setInsightsOpen(true);
     setInsightsError(null);
     setResetNotice(null);
     try {
@@ -798,20 +799,27 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
           ) : null}
           {insightsOpen ? (
             <div className="forge-ai-panel__style-insights" ref={insightsContainerRef}>
-              <div className="forge-ai-panel__style-meta">
-                Scripts analyzed: {insightsMeta?.scriptsAnalyzedCount ?? 0}
-              </div>
-              {insightsLines.length ? (
+              {insightsLoading ? (
+                <div className="forge-ai-panel__hint">Loading style insights...</div>
+              ) : insightsError ? (
+                <div className="forge-ai-panel__hint">{insightsError}</div>
+              ) : (
+                <div className="forge-ai-panel__style-meta">
+                  Scripts analyzed: {insightsMeta?.scriptsAnalyzedCount ?? 0}
+                </div>
+              )}
+              {!insightsLoading && !insightsError && insightsLines.length ? (
                 <ul className="forge-ai-panel__style-list">
                   {insightsLines.map((line) => (
                     <li key={line}>{line}</li>
                   ))}
                 </ul>
-              ) : (
+              ) : null}
+              {!insightsLoading && !insightsError && !insightsLines.length ? (
                 <div className="forge-ai-panel__hint">
                   No profile yet. Approve scripts to start learning your structure.
                 </div>
-              )}
+              ) : null}
             </div>
           ) : null}
         </div>

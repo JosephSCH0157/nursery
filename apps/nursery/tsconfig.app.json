@@ -7,6 +7,7 @@
     "module": "ESNext",
     "baseUrl": ".",
     "paths": {
+      "@forge/quench": ["../quench/src/index.ts"],
       "@barstock/*": ["../bar-stock/src/*"],
       "@hearth/*": ["../hearth/src/*"],
       "@hammer/*": ["../hammer/src/*"],

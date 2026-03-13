@@ -15,6 +15,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "smoke:tongs-commit-api": "node scripts/smoke-tongs-commit-api.mjs",
+    "test:hammer-boundary": "tsx tests/hammer-runtime-boundary.test.mts",
     "test:handoff": "tsx tests/forge-handoff-validation.test.mts",
     "test:hearth-runtime": "tsx tests/hearth-ai-runtime.test.mts",
     "verify:playwright:auth": "tsx scripts/verify-playwright-auth-state.mts",

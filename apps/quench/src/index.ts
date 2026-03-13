@@ -4,3 +4,4 @@ export * from "./core/readiness";
 export * from "./adapters/adapter.contract";
 export * from "./adapters/rss/rss.adapter";
 export * from "./adapters/youtube/youtube.adapter";
+export * from "./dev/mockReleasePackets";

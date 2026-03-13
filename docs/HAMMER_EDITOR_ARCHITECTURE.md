@@ -18,6 +18,33 @@ This document defines how the editor surface should organize that work without c
 
 ---
 
+## Prep-First Law
+
+Hammer opens into a prepared workspace, not a blank editing canvas.
+
+Canonical opening sequence:
+
+1. Load episode and workpiece context
+2. Load related media assets plus script and transcript inputs
+3. Run transcription with speaker diarization
+4. Produce a speaker-structured transcript using Forge-neutral labels such as `S1`, `S2`, `S3`, `G1`, `G2`
+5. Align transcript timing to the timeline
+6. Compare transcript and script where applicable
+7. Place visuals by script and transcript alignment
+8. Apply baseline audio polish
+9. Assemble an initial rough cut
+10. Stop and ask for user direction
+
+Hammer MUST visibly explain prep progress while it runs.
+
+Hammer MUST NOT guess human names by default.
+
+Hammer MUST treat aggressive cleanup and stronger transformations as opt-in macro or user-directed work, not automatic prep behavior.
+
+Hammer MAY automate heavily, but it MUST stop before assumed creative consent.
+
+---
+
 ## Core Synthesis
 
 Hammer must preserve these two truths at the same time:
@@ -309,6 +336,12 @@ Safety answers:
 how risky this action is to perform
 
 Scope and safety must be visible together whenever risk is non-trivial.
+
+Prep inherits the same safety posture:
+
+- baseline prep actions may stage reversible work automatically
+- stronger cleanup, style shifts, and finishing transforms require explicit user intent
+- Hammer must stop at the review boundary before those stronger transforms execute
 
 ---
 

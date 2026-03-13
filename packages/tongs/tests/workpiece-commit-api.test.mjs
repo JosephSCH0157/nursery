@@ -30,6 +30,10 @@ function mockService() {
     saveWorkpieceImageMap: [],
     updateWorkspaceReadyQueueState: [],
     deleteReadyScript: [],
+    readHammerWorkpieceState: [],
+    saveHammerWorkpieceState: [],
+    listHammerWorkpiecePresence: [],
+    upsertHammerWorkpiecePresence: [],
     appendEvent: [],
     readWorkpieceBinary: [],
     readWorkpieceText: [],
@@ -617,6 +621,97 @@ function mockService() {
         warnings: [],
       };
     },
+    async readHammerWorkpieceState(workspaceId, workpieceId, options) {
+      calls.readHammerWorkpieceState.push({ workspaceId, workpieceId, options: options ?? null });
+      return {
+        schema_version: 1,
+        state: {
+          workspace_id: workspaceId,
+          workpiece_id: workpieceId,
+          active_session_id: "session_hammer_01",
+          editor_session_path: "hammer/session/editor-state.v1.json",
+          transcript_artifact_path: "hammer/transcript/structured.v1.json",
+          speaker_map_artifact_path: "hammer/transcript/speaker-map.v1.json",
+          visual_placement_artifact_path: "hammer/prep/visual-placements.v1.json",
+          audio_polish_artifact_path: "hammer/prep/audio-polish.v1.json",
+          edit_plan_artifact_path: "hammer/edit-plan/current.v1.json",
+          edit_plan_signature: "sig_123",
+          prep_status: "prepared",
+          alignment_status: "aligned",
+          macro_recipe_ref: "macro_podcast_cleanup",
+          last_macro_run_ref: "macro_run_01",
+          last_opened_at: "2026-03-13T12:00:00.000Z",
+          updated_at: "2026-03-13T12:00:05.000Z",
+          updated_by: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        },
+        editor_session: {
+          path: "hammer/session/editor-state.v1.json",
+          file_updated_at: "2026-03-13T12:00:01.000Z",
+          data: { session_id: "session_hammer_01" },
+        },
+        structured_transcript: {
+          path: "hammer/transcript/structured.v1.json",
+          file_updated_at: "2026-03-13T12:00:02.000Z",
+          data: { transcript_id: "transcript_01", segments: [] },
+        },
+        speaker_map: {
+          path: "hammer/transcript/speaker-map.v1.json",
+          file_updated_at: "2026-03-13T12:00:03.000Z",
+          data: { mappings: [] },
+        },
+        visual_placements: {
+          path: "hammer/prep/visual-placements.v1.json",
+          file_updated_at: "2026-03-13T12:00:04.000Z",
+          data: { placements: [] },
+        },
+        audio_polish: {
+          path: "hammer/prep/audio-polish.v1.json",
+          file_updated_at: "2026-03-13T12:00:04.000Z",
+          data: { prepared_passes: [] },
+        },
+        edit_plan: {
+          path: "hammer/edit-plan/current.v1.json",
+          file_updated_at: "2026-03-13T12:00:05.000Z",
+          data: { edit_plan_id: "plan_01", instructions: [] },
+        },
+        macro_hooks: {
+          recipe_ref: "macro_podcast_cleanup",
+          last_run_ref: "macro_run_01",
+        },
+      };
+    },
+    async saveHammerWorkpieceState(workspaceId, workpieceId, input, options) {
+      calls.saveHammerWorkpieceState.push({ workspaceId, workpieceId, input, options: options ?? null });
+      return service.readHammerWorkpieceState(workspaceId, workpieceId, options);
+    },
+    async listHammerWorkpiecePresence(workspaceId, workpieceId, options) {
+      calls.listHammerWorkpiecePresence.push({ workspaceId, workpieceId, options: options ?? null });
+      return [
+        {
+          workspace_id: workspaceId,
+          workpiece_id: workpieceId,
+          user_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          session_id: "session_hammer_01",
+          display_name: "Forge Editor",
+          mode: "editing",
+          last_seen_at: "2026-03-13T12:00:00.000Z",
+          created_at: "2026-03-13T11:59:00.000Z",
+        },
+      ];
+    },
+    async upsertHammerWorkpiecePresence(workspaceId, workpieceId, input, options) {
+      calls.upsertHammerWorkpiecePresence.push({ workspaceId, workpieceId, input, options: options ?? null });
+      return {
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        user_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        session_id: input.session_id ?? null,
+        display_name: input.display_name ?? null,
+        mode: input.mode,
+        last_seen_at: "2026-03-13T12:00:30.000Z",
+        created_at: "2026-03-13T11:59:00.000Z",
+      };
+    },
     async appendEvent(workpieceId, input) {
       calls.appendEvent.push({ workpieceId, input });
       return {
@@ -653,6 +748,132 @@ function mockService() {
 
   return { service, calls };
 }
+
+test("GET /tongs/workspaces/:workspaceId/workpieces/:workpieceId/hammer/state returns persisted Hammer snapshot", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/workpieces/22222222-2222-4222-8222-222222222222/hammer/state",
+    {
+      method: "GET",
+      headers: {
+        "x-forge-user-authorization": "Bearer hammer_user_token",
+      },
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.snapshot?.state?.active_session_id, "session_hammer_01");
+  assert.equal(body.data?.snapshot?.structured_transcript?.path, "hammer/transcript/structured.v1.json");
+  assert.equal(calls.readHammerWorkpieceState.length, 1);
+  assert.equal(calls.readHammerWorkpieceState[0]?.options?.userAccessToken, "hammer_user_token");
+});
+
+test("PUT /tongs/workspaces/:workspaceId/workpieces/:workpieceId/hammer/state forwards save payload and token", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/workpieces/22222222-2222-4222-8222-222222222222/hammer/state",
+    {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer hammer_user_token",
+      },
+      body: JSON.stringify({
+        written_by: {
+          tool: "hammer",
+          tool_version: "forge-v1.2.0",
+          lane: "forge-managed",
+        },
+        active_session_id: "session_hammer_02",
+        prep_status: "prepared",
+        alignment_status: "aligned",
+        edit_plan_signature: "sig_next",
+        editor_session: {
+          data: {
+            session_id: "session_hammer_02",
+          },
+        },
+        edit_plan: {
+          path: "hammer/edit-plan/current.v1.json",
+          data: {
+            edit_plan_id: "plan_next",
+            instructions: [],
+          },
+        },
+      }),
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(calls.saveHammerWorkpieceState.length, 1);
+  assert.equal(calls.saveHammerWorkpieceState[0]?.options?.userAccessToken, "hammer_user_token");
+  assert.equal(calls.saveHammerWorkpieceState[0]?.input?.active_session_id, "session_hammer_02");
+  assert.equal(calls.saveHammerWorkpieceState[0]?.input?.editor_session?.data?.session_id, "session_hammer_02");
+  assert.equal(calls.saveHammerWorkpieceState[0]?.input?.edit_plan?.path, "hammer/edit-plan/current.v1.json");
+});
+
+test("GET /tongs/workspaces/:workspaceId/workpieces/:workpieceId/hammer/presence returns Hammer presence rows", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/workpieces/22222222-2222-4222-8222-222222222222/hammer/presence",
+    {
+      method: "GET",
+      headers: {
+        "x-forge-user-authorization": "Bearer hammer_user_token",
+      },
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.presence?.[0]?.session_id, "session_hammer_01");
+  assert.equal(calls.listHammerWorkpiecePresence.length, 1);
+  assert.equal(calls.listHammerWorkpiecePresence[0]?.options?.userAccessToken, "hammer_user_token");
+});
+
+test("PUT /tongs/workspaces/:workspaceId/workpieces/:workpieceId/hammer/presence forwards session-aware presence payload", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/workpieces/22222222-2222-4222-8222-222222222222/hammer/presence",
+    {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-forge-user-authorization": "Bearer hammer_user_token",
+      },
+      body: JSON.stringify({
+        mode: "editing",
+        display_name: "Forge Editor",
+        session_id: "session_hammer_02",
+      }),
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(calls.upsertHammerWorkpiecePresence.length, 1);
+  assert.equal(calls.upsertHammerWorkpiecePresence[0]?.options?.userAccessToken, "hammer_user_token");
+  assert.equal(calls.upsertHammerWorkpiecePresence[0]?.input?.session_id, "session_hammer_02");
+  assert.equal(body.data?.presence?.mode, "editing");
+});
 
 function createRoleGateSupabase({ userId, workspaceId, workspaceOwnerId, memberRole }) {
   return {
