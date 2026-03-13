@@ -17,7 +17,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint \"src/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\"",
-    "test:engine": "tsx --test tests/engine/reducer.test.ts"
+    "test:engine": "tsx --test tests/engine/reducer.test.ts",
+    "test:runtime": "tsx --test tests/runtime/session-runtime.test.ts"
   },
   "dependencies": {},
   "devDependencies": {

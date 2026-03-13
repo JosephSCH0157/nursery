@@ -2,7 +2,9 @@
 
 Bellows is the Forge remote production studio package.
 
-Phase 0 establishes the package boundary and build wiring only. Runtime logic lives in later phases.
+Bellows now contains the package boundary, pure domain layer, pure session engine,
+and the first runtime seam contracts. Media, signaling, storage, and broadcast
+implementations still arrive in later phases.
 
 Canonical references:
 
@@ -11,3 +13,4 @@ Canonical references:
 - `/d:/nursery/nursery/BELLOWS_V1_PACKAGE_AND_FILE_STRUCTURE_PROPOSAL.md`
 - `/d:/nursery/nursery/BELLOWS_V1_DOMAIN_TYPE_INVENTORY.md`
 - `/d:/nursery/nursery/BELLOWS_V1_PURE_SESSION_ENGINE_STATE_SPEC.md`
+- `/d:/nursery/nursery/BELLOWS_V1_RUNTIME_ADAPTER_CONTRACT_LAYER.md`
