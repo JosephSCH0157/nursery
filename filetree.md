@@ -5,6 +5,7 @@ Generated folders are kept brief for readability (for example `node_modules/`, `
 - `.gitattributes`
 - `.gitignore`
 - `AGENTS.md`
+- `BELLOWS_V1_PHASE_ONE_DOMAIN_FILE_PLAN.md`
 - `BELLOWS_V1_PACKAGE_AND_FILE_STRUCTURE_PROPOSAL.md`
 - `BELLOWS_V1_DOMAIN_TYPE_INVENTORY.md`
 - `BELLOWS_V1_PURE_SESSION_ENGINE_STATE_SPEC.md`
@@ -215,12 +216,27 @@ Generated folders are kept brief for readability (for example `node_modules/`, `
     - `node_modules/` (installed dependencies)
     - `dist/` (build output)
   - `apps/bellows/`
+    - `.gitignore`
     - `BELLOWS_V1_MANIFEST.md`
     - `README.md`
     - `eslint.config.js`
     - `package.json`
     - `tsconfig.json`
     - `src/`
+      - `domain/`
+        - `authority.ts`
+        - `broadcast.ts`
+        - `events.ts`
+        - `ids.ts`
+        - `index.ts`
+        - `participant.ts`
+        - `primitives.ts`
+        - `prompts.ts`
+        - `roles.ts`
+        - `segment.ts`
+        - `session.ts`
+        - `states.ts`
+        - `track.ts`
       - `index.ts`
 - `packages/`
   - `.gitkeep`
