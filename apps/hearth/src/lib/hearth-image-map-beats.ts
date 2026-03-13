@@ -163,6 +163,27 @@ function buildAnchor(args: {
   };
 }
 
+function buildParagraphAnchor(paragraph: ScriptParagraphSpan): EpisodeImageMapScriptAnchor | null {
+  const firstSentence = paragraph.sentences[0] ?? null;
+  const lastSentence = paragraph.sentences.at(-1) ?? null;
+  if (!firstSentence || !lastSentence) return null;
+  return buildAnchor({
+    paragraph,
+    sentenceStart: firstSentence.sentenceIndex,
+    sentenceEnd: lastSentence.sentenceIndex,
+    charStart: 0,
+    charEnd: paragraph.text.length,
+    spanText: paragraph.text,
+  });
+}
+
+function normalizeAnchorLookupText(rawText: string | null | undefined): string {
+  return (rawText ?? "")
+    .replace(/^[“”"'`]+|[“”"'`]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function buildEntry(args: {
   id: string;
   paragraphBeatOrder: number;
@@ -232,6 +253,53 @@ export function generateImageMapEntriesFromScript(scriptText: string): EpisodeIm
   }
 
   return entries;
+}
+
+export function resolveImageMapScriptAnchorFromText(
+  scriptText: string,
+  anchorText: string | null | undefined,
+): EpisodeImageMapScriptAnchor | null {
+  const target = normalizeAnchorLookupText(anchorText);
+  if (!target) return null;
+
+  const paragraphs = extractParagraphs(scriptText);
+  const sentenceMatches: EpisodeImageMapScriptAnchor[] = [];
+  const paragraphMatches: EpisodeImageMapScriptAnchor[] = [];
+  const labelMatches: EpisodeImageMapScriptAnchor[] = [];
+
+  for (const paragraph of paragraphs) {
+    const paragraphAnchor = buildParagraphAnchor(paragraph);
+    if (paragraphAnchor) {
+      if (normalizeAnchorLookupText(paragraph.text) === target) {
+        paragraphMatches.push(paragraphAnchor);
+      }
+      if (buildImageMapAnchorLabel(paragraphAnchor) === target) {
+        labelMatches.push(paragraphAnchor);
+      }
+    }
+
+    for (const sentence of paragraph.sentences) {
+      const sentenceAnchor = buildAnchor({
+        paragraph,
+        sentenceStart: sentence.sentenceIndex,
+        sentenceEnd: sentence.sentenceIndex,
+        charStart: sentence.charStart,
+        charEnd: sentence.charEnd,
+        spanText: sentence.text,
+      });
+      if (normalizeAnchorLookupText(sentence.text) === target) {
+        sentenceMatches.push(sentenceAnchor);
+      }
+      if (buildImageMapAnchorLabel(sentenceAnchor) === target) {
+        labelMatches.push(sentenceAnchor);
+      }
+    }
+  }
+
+  if (sentenceMatches.length === 1) return sentenceMatches[0];
+  if (paragraphMatches.length === 1) return paragraphMatches[0];
+  if (labelMatches.length === 1) return labelMatches[0];
+  return null;
 }
 
 export function resolveImageMapAnchorContext(

@@ -113,7 +113,11 @@ import {
   saveWorkpieceImageMap,
   selectWorkpieceImageMapCandidate,
 } from "../lib/hearth-image-map-repo";
-import { generateImageMapEntriesFromScript, resolveImageMapAnchorContext } from "../lib/hearth-image-map-beats";
+import {
+  generateImageMapEntriesFromScript,
+  resolveImageMapAnchorContext,
+  resolveImageMapScriptAnchorFromText,
+} from "../lib/hearth-image-map-beats";
 import type {
   EpisodePackageV2,
   EpisodeThumbnailConcept,
@@ -2165,6 +2169,7 @@ export default function HearthShell() {
     () => (activeWorkpieceIsArchived ? null : buildOpenInAnvilHref(workspaceId, workpieceId)),
     [activeWorkpieceIsArchived, workspaceId, workpieceId],
   );
+  const aiRuntimeBusy = isAiProcessing || isThumbnailGenerating || isImageMapCandidateGenerating;
   const aiCreditsDepleted = aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0;
   const aiEpisodeReady = Boolean(workpieceId?.trim());
   const thumbnailConcepts = episodePackage?.thumbnail.concepts ?? [];
@@ -2538,11 +2543,11 @@ export default function HearthShell() {
 
   useEffect(() => {
     writeHearthAiRuntimeStatus({
-      isAiProcessing,
+      isAiProcessing: aiRuntimeBusy,
       tokenBalance: aiTokenBalance,
       billingMode: aiBillingMode,
     });
-  }, [aiBillingMode, aiTokenBalance, isAiProcessing]);
+  }, [aiBillingMode, aiRuntimeBusy, aiTokenBalance]);
 
   useEffect(() => {
     return () => {
@@ -6421,7 +6426,10 @@ export default function HearthShell() {
 
   async function persistImageMapEntries(args: {
     entries: EpisodeImageMapEntry[];
-  }): Promise<{ ok: true; episodePackage: EpisodePackageV2 } | { ok: false; error: string }> {
+  }): Promise<
+    | { ok: true; episodePackage: EpisodePackageV2; metadataUpdatedAt: string | null }
+    | { ok: false; error: string }
+  > {
     if (!episodePackage) {
       return {
         ok: false,
@@ -6472,6 +6480,7 @@ export default function HearthShell() {
     return {
       ok: true,
       episodePackage: nextEpisodePackage,
+      metadataUpdatedAt: saved.imageMap.metadataUpdatedAt,
     };
   }
 
@@ -6901,10 +6910,6 @@ export default function HearthShell() {
       setImageMapCandidateError("Save the image-map entry before generating candidates.");
       return;
     }
-    if (!selectedImageMapEntry.script_anchor) {
-      setImageMapCandidateError("This visual beat needs an exact script anchor before candidate generation.");
-      return;
-    }
     if (aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0) {
       setImageMapCandidateError("No AI credits remaining.");
       return;
@@ -6915,7 +6920,39 @@ export default function HearthShell() {
       setImageMapCandidateError(canonicalScript.message);
       return;
     }
-    const context = resolveImageMapAnchorContext(canonicalScript.text, selectedImageMapEntry.script_anchor);
+
+    let effectiveScriptAnchor = selectedImageMapEntry.script_anchor
+      ?? resolveImageMapScriptAnchorFromText(canonicalScript.text, selectedImageMapEntry.anchor)
+      ?? resolveImageMapScriptAnchorFromText(canonicalScript.text, selectedImageMapEntry.description);
+    let expectedMetadataUpdatedAt = imageMapMetadataUpdatedAt;
+
+    if (!effectiveScriptAnchor) {
+      setImageMapCandidateError("This visual beat needs an exact script anchor before candidate generation.");
+      return;
+    }
+
+    if (!selectedImageMapEntry.script_anchor) {
+      const saved = await persistImageMapEntries({
+        entries: episodePackage.image_map.entries.map((entry) => (
+          entry.id === selectedImageMapEntry.id
+            ? {
+                ...entry,
+                script_anchor: effectiveScriptAnchor,
+                status: "mapped",
+              }
+            : entry
+        )),
+      });
+      if (!saved.ok) {
+        setImageMapCandidateError(saved.error);
+        return;
+      }
+      expectedMetadataUpdatedAt = saved.metadataUpdatedAt;
+      effectiveScriptAnchor = saved.episodePackage.image_map.entries.find((entry) => entry.id === selectedImageMapEntry.id)?.script_anchor
+        ?? effectiveScriptAnchor;
+    }
+
+    const context = resolveImageMapAnchorContext(canonicalScript.text, effectiveScriptAnchor);
 
     const alwaysApproveSpend = resolveAiThumbnailAutoApproveFromStorage();
     const confirmed = alwaysApproveSpend
@@ -6932,7 +6969,7 @@ export default function HearthShell() {
         workpieceId: episodeId,
         workspaceId: workspace,
         imageMapEntryId: selectedImageMapEntry.id,
-        expectedMetadataUpdatedAt: imageMapMetadataUpdatedAt,
+        expectedMetadataUpdatedAt,
         contextBefore: context.before,
         contextAfter: context.after,
         aspect: thumbnailAspect,

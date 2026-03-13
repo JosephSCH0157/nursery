@@ -29,7 +29,10 @@ import {
   selectWorkpieceImageMapCandidate,
 } from "../src/lib/hearth-image-map-repo";
 import { readHearthPrimaryScript } from "../src/lib/hearth-script-repo";
-import { generateImageMapEntriesFromScript } from "../src/lib/hearth-image-map-beats";
+import {
+  generateImageMapEntriesFromScript,
+  resolveImageMapScriptAnchorFromText,
+} from "../src/lib/hearth-image-map-beats";
 import { resolveBarStockSparkHearthWorkpieceId } from "../src/lib/barstock-sparks";
 import {
   isCanonicalSparkDiscoveryResolved,
@@ -1585,6 +1588,25 @@ function testEnsureImageMapV2RoundTripsStructuredEntries() {
   assert.equal(pkg.image_map.entries[0]?.status, "selected");
 }
 
+function testResolveImageMapScriptAnchorFromTextRecoversExactSentenceAnchor() {
+  const scriptText = [
+    "## Memory",
+    "",
+    "It landed right on the tip of your tongue, like your brain was half-convinced you were tasting something. Golden-hour drive on Orange Blossom Trail with a car window cracked and warm light streaming in.",
+  ].join("\n");
+
+  const anchor = resolveImageMapScriptAnchorFromText(
+    scriptText,
+    "It landed right on the tip of your tongue, like your brain was half-convinced you were tasting something.",
+  );
+
+  assert.ok(anchor, "Exact sentence text should resolve to a structured script anchor");
+  assert.equal(anchor?.paragraph_id, "s1:p1");
+  assert.equal(anchor?.sentence_start, 1);
+  assert.equal(anchor?.sentence_end, 1);
+  assert.match(anchor?.span_text ?? "", /tip of your tongue/i);
+}
+
 async function testBarStockSparkListDiscoveryStaysCanonicalAcrossClients() {
   resetLocalStorage();
   const localSpark = {
@@ -2196,6 +2218,7 @@ async function run() {
   await testImageMapCandidatePreviewLoaderReadsCanonicalFilePath();
   testGenerateImageMapEntriesFromScriptEmitsMultipleBeatsWithinParagraph();
   testEnsureImageMapV2RoundTripsStructuredEntries();
+  testResolveImageMapScriptAnchorFromTextRecoversExactSentenceAnchor();
   await testBarStockSparkListDiscoveryStaysCanonicalAcrossClients();
   await testSparkIntakeWaitsForCanonicalDiscoveryBeforeDeclaringMissing();
   await testWorkpieceListRoundtripAndPrimaryScriptRead();

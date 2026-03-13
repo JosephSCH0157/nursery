@@ -56,6 +56,8 @@ const WORKSPACE_ROLE_RANK: Record<WorkspaceRole, number> = {
   owner: 40,
 };
 const THUMBNAIL_ASSET_PREFIX = "assets/thumbnails";
+const THUMBNAIL_ASSET_KIND = "thumbnail_image" as const;
+const THUMBNAIL_ASSET_SCHEMA = "forge.thumbnail-image.v1" as const;
 const THUMBNAIL_DEFAULT_STYLE_HINT = "Clean, high-contrast YouTube thumbnail composition.";
 const IMAGE_MAP_ASSET_PATH = "assets/image-map/image-map.v1.json";
 const IMAGE_MAP_ASSET_KIND = "image_map_json" as const;
@@ -2617,6 +2619,29 @@ function buildImageMapCandidateAssetMetadata(args: {
   } as Json;
 }
 
+function buildThumbnailAssetMetadata(args: {
+  conceptId: string;
+  conceptLabel: string;
+  conceptPrompt: string;
+  stylePreset: string | null;
+  aspect: string | null;
+  size: string | null;
+  finalPrompt: string;
+  revisedPrompt: string | null;
+}): Json {
+  return {
+    schema: THUMBNAIL_ASSET_SCHEMA,
+    concept_id: args.conceptId,
+    concept_label: args.conceptLabel,
+    concept_prompt: args.conceptPrompt,
+    style_preset: args.stylePreset,
+    aspect: args.aspect,
+    size: args.size,
+    prompt: args.finalPrompt,
+    revised_prompt: args.revisedPrompt,
+  } as Json;
+}
+
 function normalizeImageMapCandidateAssetSummary(row: AssetRow): ImageMapCandidateAssetSummary | null {
   if (row.asset_kind !== IMAGE_MAP_CANDIDATE_ASSET_KIND || row.status !== "ready") return null;
   const metadata = isRecord(row.metadata_json) ? row.metadata_json as Record<string, unknown> : null;
@@ -5098,7 +5123,7 @@ export class TongsCommitService {
       correlation_id: requestId,
     });
 
-    const assetInsert: Database["tongs"]["Tables"]["assets"]["Insert"] = {
+    const assetRow = await this.insertAssetRow({
       id: assetId,
       workspace_id: workspace.id,
       workpiece_id: workpieceId,
@@ -5112,20 +5137,20 @@ export class TongsCommitService {
       request_id: requestId,
       prompt: finalPrompt,
       created_by: userId,
-    };
-
-    const { data: assetRow, error: assetError } = await this.supabase
-      .schema("tongs")
-      .from("assets")
-      .insert(assetInsert)
-      .select("*")
-      .single();
-
-    if (assetError || !assetRow) {
-      throw new HttpError(502, "db_write_failed", "Failed to register generated thumbnail asset", {
-        reason: assetError?.message,
-      });
-    }
+      asset_kind: THUMBNAIL_ASSET_KIND,
+      status: "ready",
+      metadata_json: buildThumbnailAssetMetadata({
+        conceptId,
+        conceptLabel,
+        conceptPrompt,
+        stylePreset,
+        aspect: input.aspect ?? "16:9",
+        size: input.size ?? null,
+        finalPrompt,
+        revisedPrompt: imageResult.revisedPrompt ?? null,
+      }),
+      supersedes_asset_id: null,
+    }, "Failed to register generated thumbnail asset");
 
     const version: ThumbnailVersionRecord = {
       id: versionId,

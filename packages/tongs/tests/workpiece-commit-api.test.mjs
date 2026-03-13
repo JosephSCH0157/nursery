@@ -2262,6 +2262,10 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
   assert.equal(assetInsertCalls[0].workspace_id, workspaceId);
   assert.equal(assetInsertCalls[0].workpiece_id, workpieceId);
   assert.equal(assetInsertCalls[0].bytes, 3);
+  assert.equal(assetInsertCalls[0].asset_kind, "thumbnail_image");
+  assert.equal(assetInsertCalls[0].status, "ready");
+  assert.equal(assetInsertCalls[0].metadata_json.schema, "forge.thumbnail-image.v1");
+  assert.equal(assetInsertCalls[0].metadata_json.concept_id, "concept-01");
   assert.equal(commitCalls.length, 2);
   assert.equal(commitCalls[0].input.path.startsWith("assets/thumbnails/"), true);
   assert.equal(commitCalls[1].input.path, "metadata.json");
