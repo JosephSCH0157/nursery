@@ -10,6 +10,7 @@ Generated folders are kept brief for readability (for example `node_modules/`, `
 - `BELLOWS_V1_DOMAIN_TYPE_INVENTORY.md`
 - `BELLOWS_V1_PURE_SESSION_ENGINE_STATE_SPEC.md`
 - `BELLOWS_V1_RUNTIME_ADAPTER_CONTRACT_LAYER.md`
+- `BELLOWS_V1_STUDIO_SHELL_ADAPTER_SLICE.md`
 - `BELLOWS_V1_RECOMMENDED_BUILD_SEQUENCE.md`
 - `BELLOWS_V1_AI_ASSIST_OPPORTUNITIES.md`
 - `BELLOWS_V1_COMPETITIVE_KILL_MATRIX.md`
@@ -227,6 +228,7 @@ Generated folders are kept brief for readability (for example `node_modules/`, `
         - `reducer.test.ts`
       - `runtime/`
         - `session-runtime.test.ts`
+        - `studio-shell-harness.test.ts`
     - `tsconfig.json`
     - `src/`
       - `domain/`
@@ -259,10 +261,13 @@ Generated folders are kept brief for readability (for example `node_modules/`, `
         - `contracts.ts`
         - `dispatcher.ts`
         - `index.ts`
+        - `noop-adapters.ts`
         - `persistence.ts`
         - `session-runtime.ts`
         - `signaling.ts`
         - `studio-shell.ts`
+        - `studio-shell-adapter.ts`
+        - `studio-shell-harness.ts`
       - `index.ts`
 - `packages/`
   - `.gitkeep`
