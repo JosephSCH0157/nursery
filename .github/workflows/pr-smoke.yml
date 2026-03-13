@@ -40,10 +40,105 @@ jobs:
       - name: Run smoke:core
         run: pnpm smoke:core
 
+  smoke-preflight:
+    name: smoke:preflight
+    runs-on: ubuntu-latest
+    outputs:
+      smoke_team_ready: ${{ steps.check.outputs.smoke_team_ready }}
+      smoke_hearth_phase4_ready: ${{ steps.check.outputs.smoke_hearth_phase4_ready }}
+    env:
+      NURSERY_SUPABASE_URL: ${{ secrets.NURSERY_SUPABASE_URL }}
+      NURSERY_SUPABASE_ANON_KEY: ${{ secrets.NURSERY_SUPABASE_ANON_KEY }}
+      NURSERY_SUPABASE_ACCESS_TOKEN: ${{ secrets.NURSERY_SUPABASE_ACCESS_TOKEN }}
+      NURSERY_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.NURSERY_SUPABASE_SERVICE_ROLE_KEY }}
+      NURSERY_PLAYWRIGHT_EMAIL: ${{ secrets.NURSERY_PLAYWRIGHT_EMAIL }}
+      NURSERY_PLAYWRIGHT_PASSWORD: ${{ secrets.NURSERY_PLAYWRIGHT_PASSWORD }}
+      NURSERY_HEARTH_PHASE4_WORKSPACE_ID: ${{ secrets.NURSERY_HEARTH_PHASE4_WORKSPACE_ID }}
+      NURSERY_HEARTH_PHASE4_WORKPIECE_ID: ${{ secrets.NURSERY_HEARTH_PHASE4_WORKPIECE_ID }}
+    steps:
+      - name: Detect provisioned live smoke secrets
+        id: check
+        shell: bash
+        run: |
+          smoke_team_ready=true
+          smoke_hearth_phase4_ready=true
+          missing_team=()
+          missing_hearth=()
+
+          if [ -z "${NURSERY_SUPABASE_URL}" ]; then
+            missing_team+=("NURSERY_SUPABASE_URL")
+            missing_hearth+=("NURSERY_SUPABASE_URL")
+          fi
+
+          if [ -z "${NURSERY_SUPABASE_ANON_KEY}" ]; then
+            missing_team+=("NURSERY_SUPABASE_ANON_KEY")
+            missing_hearth+=("NURSERY_SUPABASE_ANON_KEY")
+          fi
+
+          if [ -z "${NURSERY_SUPABASE_SERVICE_ROLE_KEY}" ] && [ -z "${NURSERY_SUPABASE_ACCESS_TOKEN}" ]; then
+            missing_team+=("NURSERY_SUPABASE_SERVICE_ROLE_KEY or NURSERY_SUPABASE_ACCESS_TOKEN")
+          fi
+
+          if [ -z "${NURSERY_SUPABASE_SERVICE_ROLE_KEY}" ]; then
+            missing_hearth+=("NURSERY_SUPABASE_SERVICE_ROLE_KEY")
+          fi
+
+          if [ -z "${NURSERY_PLAYWRIGHT_EMAIL}" ]; then
+            missing_hearth+=("NURSERY_PLAYWRIGHT_EMAIL")
+          fi
+
+          if [ -z "${NURSERY_PLAYWRIGHT_PASSWORD}" ]; then
+            missing_hearth+=("NURSERY_PLAYWRIGHT_PASSWORD")
+          fi
+
+          if [ -z "${NURSERY_HEARTH_PHASE4_WORKSPACE_ID}" ]; then
+            missing_hearth+=("NURSERY_HEARTH_PHASE4_WORKSPACE_ID")
+          fi
+
+          if [ -z "${NURSERY_HEARTH_PHASE4_WORKPIECE_ID}" ]; then
+            missing_hearth+=("NURSERY_HEARTH_PHASE4_WORKPIECE_ID")
+          fi
+
+          if [ "${#missing_team[@]}" -gt 0 ]; then
+            smoke_team_ready=false
+          fi
+
+          if [ "${#missing_hearth[@]}" -gt 0 ]; then
+            smoke_hearth_phase4_ready=false
+          fi
+
+          {
+            echo "smoke_team_ready=${smoke_team_ready}"
+            echo "smoke_hearth_phase4_ready=${smoke_hearth_phase4_ready}"
+          } >> "${GITHUB_OUTPUT}"
+
+          join_by_comma() {
+            local IFS=", "
+            echo "$*"
+          }
+
+          {
+            echo "## PR smoke preflight"
+            if [ "${smoke_team_ready}" = "true" ]; then
+              echo "- \`smoke:team\` enabled."
+            else
+              echo "- \`smoke:team\` skipped; missing: $(join_by_comma "${missing_team[@]}")."
+            fi
+
+            if [ "${smoke_hearth_phase4_ready}" = "true" ]; then
+              echo "- \`smoke:hearth-phase4\` enabled."
+            else
+              echo "- \`smoke:hearth-phase4\` skipped; missing: $(join_by_comma "${missing_hearth[@]}")."
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+
   smoke-team:
     name: smoke:team
     runs-on: ubuntu-latest
-    needs: smoke-core
+    if: needs.smoke-preflight.outputs.smoke_team_ready == 'true'
+    needs:
+      - smoke-core
+      - smoke-preflight
     timeout-minutes: 30
     env:
       VITE_SUPABASE_URL: ${{ secrets.NURSERY_SUPABASE_URL }}
@@ -95,7 +190,10 @@ jobs:
   smoke-hearth-phase4:
     name: smoke:hearth-phase4
     runs-on: ubuntu-latest
-    needs: smoke-core
+    if: needs.smoke-preflight.outputs.smoke_hearth_phase4_ready == 'true'
+    needs:
+      - smoke-core
+      - smoke-preflight
     timeout-minutes: 45
     env:
       CI: "true"
@@ -157,4 +255,4 @@ jobs:
         run: pnpm --filter nursery generate:playwright:auth
 
       - name: Run smoke:hearth-phase4
-        run: pnpm smoke:hearth-phase4
+        run: pnpm smoke:hearth-phase4:gate

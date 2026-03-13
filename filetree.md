@@ -181,6 +181,7 @@ Generated folders are kept brief for readability (for example `node_modules/`, `
     - `project_tree.txt`
     - `node_modules/` (installed dependencies)
     - `dist/` (build output)
+  - [`apps/bellows`](apps/bellows) (Bellows V1 manifest)
 - `packages/`
   - `.gitkeep`
   - `hearth/`
