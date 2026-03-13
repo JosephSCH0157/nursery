@@ -1370,6 +1370,7 @@
 .hs-thumb-preview-wrap {
   display: grid;
   gap: 10px;
+  align-content: start;
 }
 
 .hs-thumb-controls {
@@ -1384,13 +1385,20 @@
 
 .hs-thumb-preview {
   position: relative;
-  min-height: 190px;
+  min-height: 0;
   border: 1px dashed var(--forge-border, #bbb);
   border-radius: 8px;
   display: grid;
   place-items: center;
   overflow: hidden;
   background: rgba(15, 23, 42, 0.04);
+  width: 100%;
+  justify-self: start;
+}
+
+.hs-thumb-preview-note {
+  font-size: 12px;
+  opacity: 0.72;
 }
 
 .hs-thumb-preview-empty {
@@ -1620,10 +1628,65 @@
   padding-top: 4px;
 }
 
+.hs-imap-section-heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.hs-imap-preview {
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  background: rgba(15, 23, 42, 0.03);
+}
+
+.hs-imap-preview-frame {
+  width: min(100%, 560px);
+  aspect-ratio: 16 / 9;
+  border: 1px dashed var(--forge-border, #bbb);
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.hs-imap-preview-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.hs-imap-preview-empty {
+  font-size: 12px;
+  opacity: 0.75;
+  padding: 12px;
+  text-align: center;
+}
+
+.hs-imap-preview-empty.is-error {
+  color: var(--forge-danger, #991b1b);
+}
+
+.hs-imap-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
 .hs-imap-candidates {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 240px));
   gap: 10px;
+  justify-content: start;
 }
 
 .hs-imap-candidate-card {
@@ -1634,11 +1697,10 @@
   display: grid;
   padding: 0;
   text-align: left;
-  cursor: pointer;
   transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
 }
 
-.hs-imap-candidate-card:hover:not(:disabled) {
+.hs-imap-candidate-card:hover {
   border-color: rgba(59, 130, 246, 0.45);
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
 }
@@ -1648,7 +1710,23 @@
   box-shadow: 0 0 0 1px rgba(29, 78, 216, 0.18), 0 14px 30px rgba(29, 78, 216, 0.12);
 }
 
-.hs-imap-candidate-card:disabled {
+.hs-imap-candidate-card.is-previewing {
+  border-color: rgba(8, 145, 178, 0.75);
+  box-shadow: 0 0 0 1px rgba(8, 145, 178, 0.16), 0 10px 24px rgba(8, 145, 178, 0.08);
+}
+
+.hs-imap-candidate-preview-trigger {
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  display: grid;
+  width: 100%;
+  cursor: pointer;
+}
+
+.hs-imap-candidate-preview-trigger:disabled {
   cursor: default;
 }
 
@@ -1683,6 +1761,15 @@
   padding: 8px 10px 10px;
 }
 
+.hs-imap-candidate-actions {
+  padding: 0 10px 10px;
+  display: grid;
+}
+
+.hs-imap-candidate-apply {
+  width: 100%;
+}
+
 .hs-imap-candidate-title {
   font-size: 12px;
   font-weight: 700;
@@ -1711,6 +1798,11 @@
   font-weight: 700;
   letter-spacing: 0.02em;
   text-transform: uppercase;
+}
+
+.hs-imap-candidate-badge.is-preview {
+  background: rgba(8, 145, 178, 0.12);
+  color: rgb(14, 116, 144);
 }
 
 .hs-meta-panel {

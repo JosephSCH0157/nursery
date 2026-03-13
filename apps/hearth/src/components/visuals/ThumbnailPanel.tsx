@@ -78,6 +78,19 @@ export default function ThumbnailPanel({
   onRetryVersion,
 }: ThumbnailPanelProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const previewAspectRatio = aspect === "1:1"
+    ? "1 / 1"
+    : aspect === "9:16"
+      ? "9 / 16"
+      : "16 / 9";
+  const previewMaxWidth = aspect === "1:1"
+    ? 360
+    : aspect === "9:16"
+      ? 280
+      : 520;
+  const previewStatusMessage = selectedVersionId
+    ? `Showing version ${selectedVersionId.slice(0, 8)}. Use the versions below to change the preview.`
+    : "Generate or choose a version below to preview it here.";
 
   return (
     <section className="hs-thumb-panel" aria-label="Visuals panel">
@@ -230,7 +243,12 @@ export default function ThumbnailPanel({
             />
           </label>
 
-          <div className={`hs-thumb-preview${safeZoneEnabled ? " show-safe-zone" : ""}`}>
+          <div className="hs-thumb-preview-note">{previewStatusMessage}</div>
+
+          <div
+            className={`hs-thumb-preview${safeZoneEnabled ? " show-safe-zone" : ""}`}
+            style={{ aspectRatio: previewAspectRatio, maxWidth: `${previewMaxWidth}px` }}
+          >
             {previewState === "loading" ? (
               <div className="hs-thumb-preview-empty">Loading preview...</div>
             ) : null}

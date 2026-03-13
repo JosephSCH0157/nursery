@@ -4193,17 +4193,27 @@ export default function HearthShell() {
       setSelectedThumbnailVersionId(null);
       return;
     }
+    const eligibleVersions = selectedThumbnailConceptId
+      ? thumbnailVersions.filter((version) => version.concept_id === selectedThumbnailConceptId)
+      : thumbnailVersions;
+    if (selectedThumbnailConceptId && eligibleVersions.length === 0) {
+      setSelectedThumbnailVersionId(null);
+      return;
+    }
     if (
       selectedThumbnailVersionId
-      && thumbnailVersions.some((version) => version.id === selectedThumbnailVersionId)
+      && eligibleVersions.some((version) => version.id === selectedThumbnailVersionId)
     ) {
       return;
     }
-    const nextVersionId = primaryThumbnailVersionId
-      ?? thumbnailVersions[thumbnailVersions.length - 1]?.id
+    const nextVersionId = (primaryThumbnailVersionId && eligibleVersions.some((version) => version.id === primaryThumbnailVersionId))
+      ? primaryThumbnailVersionId
+      : eligibleVersions
+        .slice()
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))[0]?.id
       ?? null;
     setSelectedThumbnailVersionId(nextVersionId);
-  }, [primaryThumbnailVersionId, selectedThumbnailVersionId, thumbnailVersions]);
+  }, [primaryThumbnailVersionId, selectedThumbnailConceptId, selectedThumbnailVersionId, thumbnailVersions]);
 
   useEffect(() => {
     setThumbnailPromptOverride("");
@@ -6629,6 +6639,15 @@ export default function HearthShell() {
       { version_id: versionId },
     );
     if (!saved) return;
+    setSelectedThumbnailConceptId(version.concept_id);
+    setSelectedThumbnailVersionId(versionId);
+  }
+
+  function onSelectThumbnailVersion(versionId: string): void {
+    const version = thumbnailVersions.find((entry) => entry.id === versionId) ?? null;
+    if (version) {
+      setSelectedThumbnailConceptId(version.concept_id);
+    }
     setSelectedThumbnailVersionId(versionId);
   }
 
@@ -8524,7 +8543,7 @@ export default function HearthShell() {
                 onRegenerate={() => void onGenerateThumbnailVersion({ forceConceptId: selectedThumbnailConceptId || null })}
                 onToggleSafeZone={() => setThumbnailSafeZoneEnabled((prev) => !prev)}
                 onUploadImage={(file) => void onUploadThumbnailImage(file)}
-                onSelectVersion={setSelectedThumbnailVersionId}
+                onSelectVersion={onSelectThumbnailVersion}
                 onSetPrimary={(versionId) => void onSetPrimaryThumbnailVersion(versionId)}
                 onRetryVersion={(version) => void onRetryFailedThumbnailVersion(version)}
               />
