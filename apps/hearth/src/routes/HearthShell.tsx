@@ -130,6 +130,7 @@ import {
   ensureSeoV2,
   normalizeSeoTags,
   removeImageMapEntry,
+  resolvePrimarySeoTitle,
   updateImageMapEntry,
 } from "../lib/episode-package-v2";
 import ThumbnailPanel from "../components/visuals/ThumbnailPanel";
@@ -2175,6 +2176,14 @@ export default function HearthShell() {
   const thumbnailConcepts = episodePackage?.thumbnail.concepts ?? [];
   const thumbnailVersions = episodePackage?.thumbnail.versions ?? [];
   const primaryThumbnailVersionId = episodePackage?.thumbnail.primary_version_id ?? null;
+  const thumbnailTitleOptions = useMemo(
+    () => metadataTitlesDraft.filter((title) => title.text.trim().length > 0),
+    [metadataTitlesDraft],
+  );
+  const selectedThumbnailTitle = useMemo(
+    () => resolvePrimarySeoTitle(metadataTitlesDraft),
+    [metadataTitlesDraft],
+  );
   const selectedThumbnailConcept = thumbnailConcepts.find((concept) => concept.id === selectedThumbnailConceptId) ?? null;
   const selectedThumbnailVersion = thumbnailVersions.find((version) => version.id === selectedThumbnailVersionId) ?? null;
   const imageMapEntries = episodePackage?.image_map.entries ?? [];
@@ -8513,6 +8522,9 @@ export default function HearthShell() {
               <ThumbnailPanel
                 concepts={thumbnailConcepts}
                 versions={thumbnailVersions}
+                titleOptions={thumbnailTitleOptions}
+                selectedTitleId={selectedThumbnailTitle?.id ?? null}
+                selectedTitleText={selectedThumbnailTitle?.text ?? ""}
                 selectedConceptId={selectedThumbnailConceptId}
                 selectedVersionId={selectedThumbnailVersionId}
                 primaryVersionId={primaryThumbnailVersionId}
@@ -8530,6 +8542,7 @@ export default function HearthShell() {
                 isGenerating={isThumbnailGenerating}
                 isSavingConcept={isThumbnailConceptSaving}
                 isUploading={isThumbnailUploading}
+                onSelectTitle={onMetadataSetPrimaryTitle}
                 onSelectConcept={setSelectedThumbnailConceptId}
                 onSelectedConceptLabelChange={setThumbnailConceptLabelDraft}
                 onSelectedConceptPromptChange={setThumbnailConceptPromptDraft}

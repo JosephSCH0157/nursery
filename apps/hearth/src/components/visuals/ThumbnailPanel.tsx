@@ -1,10 +1,13 @@
 import { useRef } from "react";
-import type { EpisodeThumbnailConcept, EpisodeThumbnailVersion } from "../../lib/episode-package-v2";
+import type { EpisodeSeoTitle, EpisodeThumbnailConcept, EpisodeThumbnailVersion } from "../../lib/episode-package-v2";
 import ThumbnailVersions from "./ThumbnailVersions";
 
 type ThumbnailPanelProps = {
   concepts: EpisodeThumbnailConcept[];
   versions: EpisodeThumbnailVersion[];
+  titleOptions: EpisodeSeoTitle[];
+  selectedTitleId: string | null;
+  selectedTitleText: string;
   selectedConceptId: string;
   selectedVersionId: string | null;
   primaryVersionId: string | null;
@@ -22,6 +25,7 @@ type ThumbnailPanelProps = {
   isGenerating: boolean;
   isSavingConcept: boolean;
   isUploading: boolean;
+  onSelectTitle: (titleId: string) => void;
   onSelectConcept: (conceptId: string) => void;
   onSelectedConceptLabelChange: (value: string) => void;
   onSelectedConceptPromptChange: (value: string) => void;
@@ -43,6 +47,9 @@ type ThumbnailPanelProps = {
 export default function ThumbnailPanel({
   concepts,
   versions,
+  titleOptions,
+  selectedTitleId,
+  selectedTitleText,
   selectedConceptId,
   selectedVersionId,
   primaryVersionId,
@@ -60,6 +67,7 @@ export default function ThumbnailPanel({
   isGenerating,
   isSavingConcept,
   isUploading,
+  onSelectTitle,
   onSelectConcept,
   onSelectedConceptLabelChange,
   onSelectedConceptPromptChange,
@@ -91,6 +99,7 @@ export default function ThumbnailPanel({
   const previewStatusMessage = selectedVersionId
     ? `Showing version ${selectedVersionId.slice(0, 8)}. Use the versions below to change the preview.`
     : "Generate or choose a version below to preview it here.";
+  const hasOverlayTitle = selectedTitleText.trim().length > 0;
 
   return (
     <section className="hs-thumb-panel" aria-label="Visuals panel">
@@ -243,6 +252,32 @@ export default function ThumbnailPanel({
             />
           </label>
 
+          <section className="hs-thumb-title-source" aria-label="Thumbnail title overlay">
+            <div className="hs-thumb-section-title">Title Overlay</div>
+            {titleOptions.length === 0 ? (
+              <div className="hs-thumb-empty">Generate SEO titles to place clean text on the thumbnail.</div>
+            ) : (
+              <div className="hs-thumb-title-list">
+                {titleOptions.map((title) => (
+                  <button
+                    key={title.id}
+                    type="button"
+                    className={`hs-thumb-title-chip${title.id === selectedTitleId ? " is-selected" : ""}`}
+                    onClick={() => onSelectTitle(title.id)}
+                    disabled={isGenerating || isUploading}
+                    title={title.text}
+                  >
+                    <span className="hs-thumb-title-chip-label">{title.label}</span>
+                    <span className="hs-thumb-title-chip-text">{title.text}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="hs-thumb-title-help">
+              AI generates the background only. Title text renders cleanly as an overlay.
+            </div>
+          </section>
+
           <div className="hs-thumb-preview-note">{previewStatusMessage}</div>
 
           <div
@@ -261,6 +296,11 @@ export default function ThumbnailPanel({
             {previewDataUrl && previewState === "ready" ? (
               <>
                 <img src={previewDataUrl} alt="Selected thumbnail preview" className="hs-thumb-preview-image" />
+                {hasOverlayTitle ? (
+                  <div className="hs-thumb-preview-copy" aria-label="Thumbnail title preview">
+                    <div className="hs-thumb-preview-copy-text">{selectedTitleText}</div>
+                  </div>
+                ) : null}
                 <div className="hs-thumb-safe-zone" aria-hidden="true" />
               </>
             ) : null}

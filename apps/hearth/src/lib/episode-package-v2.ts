@@ -986,6 +986,11 @@ export function ensureSeoV2(pkg: EpisodePackageV2): EpisodePackageV2 {
   };
 }
 
+export function resolvePrimarySeoTitle(titles: readonly EpisodeSeoTitle[]): EpisodeSeoTitle | null {
+  const populated = titles.filter((title) => typeof title.text === "string" && title.text.trim().length > 0);
+  return populated.find((title) => title.is_primary) ?? populated[0] ?? null;
+}
+
 export function ensureImageMapV2(pkg: EpisodePackageV2): EpisodePackageV2 {
   const entries = Array.isArray(pkg.image_map?.entries) ? pkg.image_map.entries : [];
   const paragraphBeatCounts = new Map<string, number>();

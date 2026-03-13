@@ -50,7 +50,7 @@ import {
   selectWorkpieceNavItems,
 } from "../src/lib/hearth-nav-model";
 import { formatScriptToAnvilTagsNoAi, validateAnvilTagContract } from "../src/lib/anvil-tag-contract";
-import { ensureImageMapV2, type EpisodeImageMapEntry } from "../src/lib/episode-package-v2";
+import { ensureImageMapV2, resolvePrimarySeoTitle, type EpisodeImageMapEntry } from "../src/lib/episode-package-v2";
 
 class MemoryStorage {
   private store = new Map<string, string>();
@@ -173,6 +173,26 @@ function buildRevisionSnapshot(workpieceId: string, revisions: Revision[]): Hear
     updated_at: new Date().toISOString(),
     revisions: revisions.map((revision) => revisionToEntry(revision)),
   };
+}
+
+function testResolvePrimarySeoTitlePrefersPrimaryThenPopulatedFallback() {
+  const primary = resolvePrimarySeoTitle([
+    { id: "title-a", label: "A", text: "Primary title", is_primary: true },
+    { id: "title-b", label: "B", text: "Secondary title", is_primary: false },
+  ]);
+  assert.equal(primary?.id, "title-a", "Resolver should return the marked primary title when it has text");
+
+  const fallback = resolvePrimarySeoTitle([
+    { id: "title-a", label: "A", text: "   ", is_primary: true },
+    { id: "title-b", label: "B", text: "Secondary title", is_primary: false },
+    { id: "title-c", label: "C", text: "Third title", is_primary: false },
+  ]);
+  assert.equal(fallback?.id, "title-b", "Resolver should fall back to the first populated title when primary is empty");
+
+  const empty = resolvePrimarySeoTitle([
+    { id: "title-a", label: "A", text: "", is_primary: true },
+  ]);
+  assert.equal(empty, null, "Resolver should return null when no populated titles exist");
 }
 
 function installTongsRevisionFetchHarness(options?: { failReads?: boolean }) {
@@ -2218,6 +2238,7 @@ async function run() {
   await testImageMapCandidatePreviewLoaderReadsCanonicalFilePath();
   testGenerateImageMapEntriesFromScriptEmitsMultipleBeatsWithinParagraph();
   testEnsureImageMapV2RoundTripsStructuredEntries();
+  testResolvePrimarySeoTitlePrefersPrimaryThenPopulatedFallback();
   testResolveImageMapScriptAnchorFromTextRecoversExactSentenceAnchor();
   await testBarStockSparkListDiscoveryStaysCanonicalAcrossClients();
   await testSparkIntakeWaitsForCanonicalDiscoveryBeforeDeclaringMissing();
