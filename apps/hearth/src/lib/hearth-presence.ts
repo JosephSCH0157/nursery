@@ -1,4 +1,4 @@
-import { tongsFetch } from "./tongs-fetch";
+import { hasTongsUserAccessToken, tongsFetch } from "./tongs-fetch";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -87,6 +87,7 @@ export async function listHearthWorkpiecePresence(
   const safeWorkspaceId = normalizeUuid(workspaceId);
   const safeWorkpieceId = normalizeUuid(workpieceId);
   if (!safeWorkspaceId || !safeWorkpieceId) return [];
+  if (!(await hasTongsUserAccessToken())) return [];
   const response = await tongsFetch(
     `/tongs/workspaces/${encodeURIComponent(safeWorkspaceId)}/workpieces/${encodeURIComponent(safeWorkpieceId)}/presence`,
     { method: "GET" },
@@ -110,6 +111,7 @@ export async function upsertHearthWorkpiecePresence(args: {
   const safeWorkspaceId = normalizeUuid(args.workspaceId);
   const safeWorkpieceId = normalizeUuid(args.workpieceId);
   if (!safeWorkspaceId || !safeWorkpieceId) return null;
+  if (!(await hasTongsUserAccessToken())) return null;
   const response = await tongsFetch(
     `/tongs/workspaces/${encodeURIComponent(safeWorkspaceId)}/workpieces/${encodeURIComponent(safeWorkpieceId)}/presence`,
     {
