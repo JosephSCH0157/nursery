@@ -19,6 +19,7 @@ import TongsRoute from "./routes/Tongs";
 import BarstockRoute from "./routes/Barstock";
 import Placeholder from "./routes/Placeholder";
 import AnvilRoute from "./routes/Anvil";
+import BellowsStandalone from "./routes/BellowsStandalone";
 import HearthRoute from "./routes/Hearth";
 import HearthStandalone from "./routes/HearthStandalone";
 import IronMineRoute from "./routes/IronMine";
@@ -51,6 +52,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         >
           <Route index element={<ForgeHub />} />
           <Route path="anvil" element={<AnvilRoute />} />
+          <Route path="bellows" element={<Navigate to="/apps/bellows" replace />} />
           <Route path="anvil/help" element={<Placeholder name="Anvil Help" />} />
           <Route path="anvil/settings" element={<Placeholder name="Anvil Settings" />} />
           <Route path="hearth" element={<HearthRoute />} />
@@ -84,6 +86,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         </Route>
 
         <Route path="/apps/hearth" element={<HearthStandalone />} />
+        <Route path="/apps/bellows" element={<BellowsStandalone />} />
+        <Route path="/bellows" element={<Navigate to="/apps/bellows" replace />} />
         <Route path="/hearth" element={<Navigate to="/apps/hearth" replace />} />
 
         <Route path="/" element={<Navigate to="/app" replace />} />

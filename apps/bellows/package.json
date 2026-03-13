@@ -6,11 +6,12 @@
   "description": "Bellows - Forge remote production studio",
   "license": "UNLICENSED",
   "sideEffects": false,
+  "types": "./dist/index.d.ts",
   "files": [
-    "src"
+    "dist"
   ],
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./dist/index.js"
   },
   "scripts": {
     "dev": "echo \"Bellows dev entry not wired yet\"",
@@ -18,7 +19,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint \"src/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\"",
     "test:engine": "tsx --test tests/engine/reducer.test.ts",
-    "test:runtime": "tsx --test tests/runtime/session-runtime.test.ts tests/runtime/studio-shell-harness.test.ts tests/runtime/persistence-harness.test.ts"
+    "test:runtime": "tsx --test tests/runtime/session-runtime.test.ts tests/runtime/studio-shell-harness.test.ts tests/runtime/persistence-harness.test.ts tests/runtime/operator-console-harness.test.ts"
   },
   "dependencies": {},
   "devDependencies": {

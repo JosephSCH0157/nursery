@@ -4,6 +4,7 @@ export * from "./capture.js";
 export * from "./contracts.js";
 export * from "./dispatcher.js";
 export * from "./noop-adapters.js";
+export * from "./operator-console-harness.js";
 export * from "./persistence.js";
 export * from "./persistence-adapter.js";
 export * from "./persistence-harness.js";

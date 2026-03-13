@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generated_at": "2026-03-13T20:16:13.863Z",
+  "generated_at": "2026-03-13T22:32:03.802Z",
   "tree": [
     {
       "id": "forge",
@@ -30,6 +30,11 @@
           "id": "anvil",
           "label": "Anvil",
           "to": "/app/anvil"
+        },
+        {
+          "id": "bellows",
+          "label": "Bellows",
+          "to": "/apps/bellows"
         },
         {
           "id": "hammer",

@@ -228,6 +228,7 @@ Generated folders are kept brief for readability (for example `node_modules/`, `
       - `engine/`
         - `reducer.test.ts`
       - `runtime/`
+        - `operator-console-harness.test.ts`
         - `persistence-harness.test.ts`
         - `session-runtime.test.ts`
         - `studio-shell-harness.test.ts`
@@ -264,6 +265,7 @@ Generated folders are kept brief for readability (for example `node_modules/`, `
         - `dispatcher.ts`
         - `index.ts`
         - `noop-adapters.ts`
+        - `operator-console-harness.ts`
         - `persistence.ts`
         - `persistence-adapter.ts`
         - `persistence-harness.ts`

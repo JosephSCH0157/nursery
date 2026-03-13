@@ -27,6 +27,7 @@
     "test:playwright:hearth-phase5-slice1": "pnpm preflight:hearth-phase4 && playwright test -c playwright.config.ts playwright/hearth.phase5.image-map.spec.ts"
   },
   "dependencies": {
+    "@forge/bellows": "workspace:*",
     "@forge/hearth": "workspace:*",
     "@forge/ui-mobile": "workspace:*",
     "@forge/tongs": "workspace:*",
