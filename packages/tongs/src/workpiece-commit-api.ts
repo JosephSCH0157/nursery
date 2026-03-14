@@ -2513,12 +2513,13 @@ function buildImageMapAssetDocument(
 function buildImageMapCandidateAssetPath(args: {
   workpieceId: string;
   entryId: string;
+  assetId: string;
   variantLabel: string;
   mimeType: string;
 }): string {
   const extension = args.mimeType.toLowerCase().includes("jpeg") ? "jpg" : "png";
   const variantSlug = args.variantLabel.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "candidate";
-  return `${IMAGE_MAP_CANDIDATE_ASSET_PREFIX}/${args.workpieceId}/${args.entryId}/${variantSlug}.${extension}`;
+  return `${IMAGE_MAP_CANDIDATE_ASSET_PREFIX}/${args.workpieceId}/${args.entryId}/${args.assetId}-${variantSlug}.${extension}`;
 }
 
 function inferImageMapVisualMode(entry: EpisodeImageMapEntryRecord, contextText: string): string {
@@ -6090,6 +6091,7 @@ export class TongsCommitService {
         const assetPath = buildImageMapCandidateAssetPath({
           workpieceId,
           entryId: entry.id,
+          assetId,
           variantLabel: output.variantLabel,
           mimeType: output.image.mimeType,
         });

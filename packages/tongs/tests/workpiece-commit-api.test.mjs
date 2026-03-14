@@ -2535,6 +2535,24 @@ test("TongsCommitService.generateImageMapCandidates writes candidate assets and 
   assert.equal(candidateInserts[0]?.metadata_json?.variant_label, "explainer");
   assert.equal(candidateInserts[1]?.metadata_json?.variant_label, "illustrative");
   assert.equal(candidateInserts[0]?.prompt?.includes("Exact beat span:"), true);
+  assert.match(
+    candidateInserts[0]?.path ?? "",
+    new RegExp(`/image-map-01/${candidateInserts[0]?.id}-explainer\\.png$`),
+  );
+  assert.match(
+    candidateInserts[1]?.path ?? "",
+    new RegExp(`/image-map-01/${candidateInserts[1]?.id}-illustrative\\.png$`),
+  );
+  assert.notEqual(
+    candidateInserts[0]?.path,
+    `assets/image-map/candidates/${workpieceId}/image-map-01/explainer-old.png`,
+    "Regenerated explainer candidates should use a fresh storage path",
+  );
+  assert.notEqual(
+    candidateInserts[1]?.path,
+    `assets/image-map/candidates/${workpieceId}/image-map-01/illustrative-old.png`,
+    "Regenerated illustrative candidates should use a fresh storage path",
+  );
 
   assert.equal(result.generated_assets.length, 2);
   assert.equal(result.generated_assets[0]?.variant_label, "explainer");
