@@ -1,4 +1,7 @@
 import {
+  DEFAULT_HEARTH_VISUAL_STYLE,
+} from "./hearth-visual-styles";
+import {
   buildImageMapAnchorLabel,
   type EpisodeImageMapEntry,
   type EpisodeImageMapScriptAnchor,
@@ -245,6 +248,7 @@ function buildEntry(args: {
     description: args.anchor.span_text,
     visual_intent: args.anchor.span_text,
     prompt_basis: args.anchor.span_text,
+    style_preset: DEFAULT_HEARTH_VISUAL_STYLE,
     intent: "cutaway",
     source_type: "stock",
     beat_order: args.beatOrder,

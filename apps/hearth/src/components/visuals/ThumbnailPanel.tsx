@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import type { EpisodeSeoTitle, EpisodeThumbnailConcept, EpisodeThumbnailVersion } from "../../lib/episode-package-v2";
+import { HEARTH_VISUAL_STYLE_DEFINITIONS } from "../../lib/hearth-visual-styles";
 import ThumbnailVersions from "./ThumbnailVersions";
 
 type ThumbnailPanelProps = {
@@ -153,14 +154,18 @@ export default function ThumbnailPanel({
               />
             </label>
             <label className="hs-field">
-              <span className="hs-field-label">Style Preset</span>
-              <input
-                type="text"
+              <span className="hs-field-label">Visual Style</span>
+              <select
                 value={selectedConceptStylePreset}
                 onChange={(event) => onSelectedConceptStylePresetChange(event.target.value)}
-                placeholder="Optional style preset"
                 disabled={isGenerating || isSavingConcept || isUploading}
-              />
+              >
+                {HEARTH_VISUAL_STYLE_DEFINITIONS.map((style) => (
+                  <option key={style.value} value={style.value}>
+                    {style.label}
+                  </option>
+                ))}
+              </select>
             </label>
             <div className="hs-thumb-concept-actions">
               <button

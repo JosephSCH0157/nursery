@@ -5,6 +5,7 @@ import {
   buildImageMapAnchorLabel,
   type EpisodeImageMapEntry,
 } from "../../lib/episode-package-v2";
+import { HEARTH_VISUAL_STYLE_DEFINITIONS } from "../../lib/hearth-visual-styles";
 import type {
   ImageMapAnchorPickerParagraph,
   ImageMapScriptSelection,
@@ -27,6 +28,7 @@ type ImageMapPanelProps = {
   selectedEntryId: string | null;
   draftAnchor: string;
   draftDescription: string;
+  draftStylePreset: string;
   draftIntent: string;
   draftSourceType: string;
   draftPlacementHint: string;
@@ -54,6 +56,7 @@ type ImageMapPanelProps = {
   onSelectEntry: (entryId: string) => void;
   onDraftAnchorChange: (value: string) => void;
   onDraftDescriptionChange: (value: string) => void;
+  onDraftStylePresetChange: (value: string) => void;
   onDraftIntentChange: (value: string) => void;
   onDraftSourceTypeChange: (value: string) => void;
   onDraftPlacementHintChange: (value: string) => void;
@@ -96,6 +99,7 @@ export default function ImageMapPanel({
   selectedEntryId,
   draftAnchor,
   draftDescription,
+  draftStylePreset,
   draftIntent,
   draftSourceType,
   draftPlacementHint,
@@ -123,6 +127,7 @@ export default function ImageMapPanel({
   onSelectEntry,
   onDraftAnchorChange,
   onDraftDescriptionChange,
+  onDraftStylePresetChange,
   onDraftIntentChange,
   onDraftSourceTypeChange,
   onDraftPlacementHintChange,
@@ -351,6 +356,20 @@ export default function ImageMapPanel({
                   placeholder="What should be shown?"
                   disabled={disabled}
                 />
+              </label>
+              <label className="hs-field">
+                <span className="hs-field-label">Visual Style</span>
+                <select
+                  value={draftStylePreset}
+                  onChange={(event) => onDraftStylePresetChange(event.target.value)}
+                  disabled={disabled}
+                >
+                  {HEARTH_VISUAL_STYLE_DEFINITIONS.map((style) => (
+                    <option key={style.value} value={style.value}>
+                      {style.label}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="hs-field">
                 <span className="hs-field-label">Intent</span>

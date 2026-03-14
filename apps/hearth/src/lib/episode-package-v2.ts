@@ -1,3 +1,9 @@
+import {
+  DEFAULT_HEARTH_VISUAL_STYLE,
+  normalizeHearthVisualStyle,
+} from "./hearth-visual-styles";
+import type { HearthVisualStyleValue } from "./hearth-visual-styles";
+
 export const EPISODE_PACKAGE_V2_SCHEMA = "forge.episode.package.v2";
 
 const SEO_LABELS = ["A", "B", "C", "D", "E", "F"] as const;
@@ -20,7 +26,7 @@ export type EpisodeThumbnailConcept = {
   id: string;
   label: string;
   prompt_text: string;
-  style_preset?: string | null;
+  style_preset?: HearthVisualStyleValue | null;
 };
 
 export type EpisodeThumbnailVersion = {
@@ -82,6 +88,7 @@ export type EpisodeImageMapEntry = {
   description: string;
   visual_intent: string;
   prompt_basis: string;
+  style_preset?: HearthVisualStyleValue | null;
   intent: string;
   source_type: string;
   beat_order: number;
@@ -278,7 +285,7 @@ function normalizeThumbnailConcepts(value: unknown): EpisodeThumbnailConcept[] {
         id: readString(entry.id) ?? `concept-${String(i + 1).padStart(2, "0")}`,
         label,
         prompt_text: promptText,
-        style_preset: readString(entry.style_preset) ?? readString(entry.mood_style),
+        style_preset: normalizeHearthVisualStyle(readString(entry.style_preset) ?? readString(entry.mood_style) ?? null),
       });
       continue;
     }
@@ -288,7 +295,7 @@ function normalizeThumbnailConcepts(value: unknown): EpisodeThumbnailConcept[] {
       id: `concept-${String(i + 1).padStart(2, "0")}`,
       label: `Concept ${i + 1}`,
       prompt_text: promptText,
-      style_preset: null,
+      style_preset: DEFAULT_HEARTH_VISUAL_STYLE,
     });
   }
   return out;
@@ -345,6 +352,7 @@ function normalizeImageMapEntries(value: unknown): EpisodeImageMapEntry[] {
       description,
       visual_intent: readString(entry.visual_intent) ?? description,
       prompt_basis: readString(entry.prompt_basis) ?? readString(entry.prompt) ?? description,
+      style_preset: normalizeHearthVisualStyle(readString(entry.style_preset) ?? readString(entry.visual_style) ?? null),
       intent: normalizeImageMapIntent(readString(entry.intent)),
       source_type: normalizeImageMapSourceType(sourceType),
       beat_order: readInteger(entry.beat_order) ?? (i + 1),
@@ -527,6 +535,7 @@ function normalizeImageMapEntryPatch(args: {
     description,
     visual_intent: readString(args.entry.visual_intent) ?? description,
     prompt_basis: readString(args.entry.prompt_basis) ?? description,
+    style_preset: normalizeHearthVisualStyle(args.entry.style_preset ?? null),
     intent: normalizeImageMapIntent(readString(args.entry.intent)),
     source_type: normalizeImageMapSourceType(readString(args.entry.source_type)),
     beat_order: readInteger(args.entry.beat_order) ?? args.fallbackBeatOrder ?? 1,
@@ -631,7 +640,7 @@ export function parseThumbnailConceptsFromText(rawText: string): EpisodeThumbnai
       id: `concept-${currentId.toLowerCase()}`,
       label: headline || `THUMBNAIL_${currentId}`,
       prompt_text: promptText,
-      style_preset: moodStyle,
+      style_preset: normalizeHearthVisualStyle(moodStyle),
     });
     currentId = null;
     headline = null;
@@ -694,6 +703,7 @@ export function parseImageMapEntriesFromText(rawText: string): EpisodeImageMapEn
       description,
       visual_intent: description,
       prompt_basis: prompt,
+      style_preset: DEFAULT_HEARTH_VISUAL_STYLE,
       intent: "graphic",
       source_type: "stock",
       beat_order: entries.length + 1,

@@ -137,6 +137,10 @@ import {
   resolvePrimarySeoTitle,
   updateImageMapEntry,
 } from "../lib/episode-package-v2";
+import {
+  DEFAULT_HEARTH_VISUAL_STYLE,
+  normalizeHearthVisualStyle,
+} from "../lib/hearth-visual-styles";
 import ThumbnailPanel from "../components/visuals/ThumbnailPanel";
 import ImageMapPanel from "../components/visuals/ImageMapPanel";
 import MetadataPanel from "../components/metadata/MetadataPanel";
@@ -1980,7 +1984,7 @@ export default function HearthShell() {
   const [selectedThumbnailVersionId, setSelectedThumbnailVersionId] = useState<string | null>(null);
   const [thumbnailConceptLabelDraft, setThumbnailConceptLabelDraft] = useState("");
   const [thumbnailConceptPromptDraft, setThumbnailConceptPromptDraft] = useState("");
-  const [thumbnailConceptStyleDraft, setThumbnailConceptStyleDraft] = useState("");
+  const [thumbnailConceptStyleDraft, setThumbnailConceptStyleDraft] = useState(DEFAULT_HEARTH_VISUAL_STYLE);
   const [thumbnailPromptOverride, setThumbnailPromptOverride] = useState("");
   const [thumbnailAspect, setThumbnailAspect] = useState<"16:9" | "1:1" | "9:16">("16:9");
   const [isThumbnailGenerating, setIsThumbnailGenerating] = useState(false);
@@ -1995,6 +1999,7 @@ export default function HearthShell() {
   const [selectedImageMapEntryId, setSelectedImageMapEntryId] = useState<string | null>(null);
   const [imageMapAnchorDraft, setImageMapAnchorDraft] = useState("");
   const [imageMapDescriptionDraft, setImageMapDescriptionDraft] = useState("");
+  const [imageMapStyleDraft, setImageMapStyleDraft] = useState(DEFAULT_HEARTH_VISUAL_STYLE);
   const [imageMapIntentDraft, setImageMapIntentDraft] = useState("cutaway");
   const [imageMapSourceTypeDraft, setImageMapSourceTypeDraft] = useState("stock");
   const [imageMapPlacementHintDraft, setImageMapPlacementHintDraft] = useState("");
@@ -4303,12 +4308,12 @@ export default function HearthShell() {
     if (!selectedThumbnailConcept) {
       setThumbnailConceptLabelDraft("");
       setThumbnailConceptPromptDraft("");
-      setThumbnailConceptStyleDraft("");
+      setThumbnailConceptStyleDraft(DEFAULT_HEARTH_VISUAL_STYLE);
       return;
     }
     setThumbnailConceptLabelDraft(selectedThumbnailConcept.label);
     setThumbnailConceptPromptDraft(selectedThumbnailConcept.prompt_text);
-    setThumbnailConceptStyleDraft(selectedThumbnailConcept.style_preset ?? "");
+    setThumbnailConceptStyleDraft(normalizeHearthVisualStyle(selectedThumbnailConcept.style_preset));
   }, [selectedThumbnailConcept]);
 
   useEffect(() => {
@@ -4412,6 +4417,7 @@ export default function HearthShell() {
     if (!selectedImageMapEntry) {
       setImageMapAnchorDraft("");
       setImageMapDescriptionDraft("");
+      setImageMapStyleDraft(DEFAULT_HEARTH_VISUAL_STYLE);
       setImageMapIntentDraft("cutaway");
       setImageMapSourceTypeDraft("stock");
       setImageMapPlacementHintDraft("");
@@ -4420,6 +4426,7 @@ export default function HearthShell() {
     }
     setImageMapAnchorDraft(selectedImageMapEntry.anchor);
     setImageMapDescriptionDraft(selectedImageMapEntry.description);
+    setImageMapStyleDraft(normalizeHearthVisualStyle(selectedImageMapEntry.style_preset));
     setImageMapIntentDraft(selectedImageMapEntry.intent || "cutaway");
     setImageMapSourceTypeDraft(selectedImageMapEntry.source_type || "stock");
     setImageMapPlacementHintDraft(selectedImageMapEntry.placement_hint ?? "");
