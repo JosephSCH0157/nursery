@@ -1466,6 +1466,21 @@
   justify-self: start;
 }
 
+.hs-thumb-preview.is-widescreen {
+  aspect-ratio: 16 / 9;
+  max-width: 520px;
+}
+
+.hs-thumb-preview.is-square {
+  aspect-ratio: 1 / 1;
+  max-width: 360px;
+}
+
+.hs-thumb-preview.is-vertical {
+  aspect-ratio: 9 / 16;
+  max-width: 280px;
+}
+
 .hs-thumb-preview-note {
   font-size: 12px;
   opacity: 0.72;
@@ -1544,7 +1559,7 @@
   font-weight: 900;
   letter-spacing: -0.03em;
   color: #fff;
-  text-wrap: balance;
+  overflow-wrap: anywhere;
   text-shadow:
     0 2px 8px rgba(0, 0, 0, 0.55),
     0 8px 18px rgba(0, 0, 0, 0.38);

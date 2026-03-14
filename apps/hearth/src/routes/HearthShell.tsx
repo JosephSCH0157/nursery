@@ -190,6 +190,27 @@ type SttLane = "browser" | "ai";
 type SttState = "idle" | "listening" | "transcribing";
 type AiAutosaveReasonCode = "ai_outline" | "ai_script" | "ai_repair" | "ai_rewrite";
 type AiAutosaveReason = `autosave:${AiAutosaveReasonCode}`;
+type ForgeNoticeSeverity = "info" | "success" | "warning" | "error";
+type ForgeNoticeJob =
+  | "image-generated"
+  | "script-completed"
+  | "sources-found"
+  | "save-failed"
+  | "render-finished"
+  | "export-finished"
+  | "job-failed";
+
+type ForgeNoticeDetail = {
+  tool: "hearth";
+  job: ForgeNoticeJob;
+  title: string;
+  message?: string;
+  route?: string;
+  workspaceId?: string;
+  workpieceId?: string;
+  severity: ForgeNoticeSeverity;
+  timestamp: number;
+};
 
 type ScriptApprovalState = {
   hasApprovedScript: boolean;
@@ -264,11 +285,36 @@ const DEFAULT_FOCUS_PANEL_LAYOUT: Record<FocusPanelId, boolean> = {
   imageMap: false,
   metadata: false,
 };
+const FORGE_NOTICE_EVENT = "forge:notice";
 
 function readTrimmedString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
+}
+
+function buildCurrentForgeNoticeRoute(workspaceId: string | null, workpieceId: string | null): string | null {
+  if (typeof window === "undefined") return null;
+  const nextUrl = new URL(window.location.href);
+  const normalizedWorkspaceId = readTrimmedString(workspaceId);
+  const normalizedWorkpieceId = readTrimmedString(workpieceId);
+  if (normalizedWorkspaceId) {
+    nextUrl.searchParams.set("workspace_id", normalizedWorkspaceId);
+  }
+  if (normalizedWorkpieceId) {
+    nextUrl.searchParams.set("workpiece_id", normalizedWorkpieceId);
+  }
+  return `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`;
+}
+
+function dispatchWindowForgeNotice(detail: Omit<ForgeNoticeDetail, "timestamp">): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent<ForgeNoticeDetail>(FORGE_NOTICE_EVENT, {
+    detail: {
+      ...detail,
+      timestamp: Date.now(),
+    },
+  }));
 }
 
 function normalizeUuid(value: unknown): string | null {
@@ -2170,6 +2216,25 @@ export default function HearthShell() {
       episodeId,
     });
   }, [workpieceId]);
+
+  const publishForgeNotice = useCallback((notice: {
+    job: ForgeNoticeJob;
+    title: string;
+    message?: string;
+    severity: ForgeNoticeSeverity;
+    route?: string | null;
+  }) => {
+    dispatchWindowForgeNotice({
+      tool: "hearth",
+      job: notice.job,
+      title: notice.title,
+      message: readTrimmedString(notice.message) ?? undefined,
+      route: readTrimmedString(notice.route) ?? buildCurrentForgeNoticeRoute(workspaceId, workpieceId) ?? undefined,
+      workspaceId: readTrimmedString(workspaceId) ?? undefined,
+      workpieceId: readTrimmedString(workpieceId) ?? undefined,
+      severity: notice.severity,
+    });
+  }, [workspaceId, workpieceId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -6572,6 +6637,12 @@ export default function HearthShell() {
       if (!result.ok) {
         if (!result.cancelled) {
           setChatError(result.error);
+          publishForgeNotice({
+            job: "job-failed",
+            title: "Hearth job failed",
+            message: result.error,
+            severity: "error",
+          });
         }
         return;
       }
@@ -6626,6 +6697,29 @@ export default function HearthShell() {
         });
       }
 
+      if (!args.productionAction) {
+        const scriptUpdated = proposalOps.some((op) => op.op === "set_body");
+        const sourceAdditions = proposalOps.filter((op) => op.op === "add_source").length;
+        if (scriptUpdated) {
+          const sourceSuffix = sourceAdditions > 0
+            ? ` and added ${sourceAdditions} source${sourceAdditions === 1 ? "" : "s"}`
+            : "";
+          publishForgeNotice({
+            job: "script-completed",
+            title: "Script draft ready",
+            message: `Hearth finished a script draft${sourceSuffix}.`,
+            severity: "success",
+          });
+        } else if (sourceAdditions > 0) {
+          publishForgeNotice({
+            job: "sources-found",
+            title: "Sources ready",
+            message: `Hearth added ${sourceAdditions} source${sourceAdditions === 1 ? "" : "s"} to this episode.`,
+            severity: "success",
+          });
+        }
+      }
+
       if (result.creditsWarning) {
         setAiRuntimeWarning(result.creditsWarning);
       }
@@ -6647,6 +6741,12 @@ export default function HearthShell() {
       }
       const message = err instanceof Error ? err.message : "AI request failed.";
       setChatError(message);
+      publishForgeNotice({
+        job: "job-failed",
+        title: "Hearth job failed",
+        message,
+        severity: "error",
+      });
     } finally {
       if (aiRequestControllerRef.current === controller) {
         aiRequestControllerRef.current = null;
@@ -7109,6 +7209,12 @@ export default function HearthShell() {
         if (savedFailed) {
           setSelectedThumbnailVersionId(failedVersion.id);
         }
+        publishForgeNotice({
+          job: "job-failed",
+          title: "Thumbnail generation failed",
+          message: generated.error,
+          severity: "error",
+        });
         return;
       }
 
@@ -7131,9 +7237,21 @@ export default function HearthShell() {
       if (generated.creditsWarning) {
         setAiRuntimeWarning(generated.creditsWarning);
       }
+      publishForgeNotice({
+        job: "image-generated",
+        title: "Thumbnail ready",
+        message: "Hearth finished generating a thumbnail for this episode.",
+        severity: "success",
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Thumbnail generation failed.";
       setThumbnailGenerateError(message);
+      publishForgeNotice({
+        job: "job-failed",
+        title: "Thumbnail generation failed",
+        message,
+        severity: "error",
+      });
     } finally {
       setIsThumbnailGenerating(false);
     }
@@ -7432,16 +7550,21 @@ export default function HearthShell() {
       });
 
       if (!generated.ok) {
+        const failureMessage = generated.error
+          ?? (generated.reason === "conflict"
+            ? "Image map changed since last load. Reloaded the latest canonical state."
+            : "Still-candidate generation failed.");
         if (generated.reason === "conflict" && generated.latest && episodePackage) {
           setEpisodePackage(replaceEpisodePackageImageMap(episodePackage, generated.latest.entries));
           setImageMapMetadataUpdatedAt(generated.latest.metadataUpdatedAt);
         }
-        setImageMapCandidateError(
-          generated.error
-            ?? (generated.reason === "conflict"
-              ? "Image map changed since last load. Reloaded the latest canonical state."
-              : "Still-candidate generation failed.")
-        );
+        setImageMapCandidateError(failureMessage);
+        publishForgeNotice({
+          job: "job-failed",
+          title: "Timeline image generation failed",
+          message: failureMessage,
+          severity: generated.reason === "conflict" ? "warning" : "error",
+        });
         return;
       }
 
@@ -7457,9 +7580,21 @@ export default function HearthShell() {
       if (generated.creditsWarning) {
         setAiRuntimeWarning(generated.creditsWarning);
       }
+      publishForgeNotice({
+        job: "image-generated",
+        title: "Timeline images ready",
+        message: `Generated ${generated.generatedAssets.length} still candidate${generated.generatedAssets.length === 1 ? "" : "s"} for the selected visual beat.`,
+        severity: "success",
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Still-candidate generation failed.";
       setImageMapCandidateError(message);
+      publishForgeNotice({
+        job: "job-failed",
+        title: "Timeline image generation failed",
+        message,
+        severity: "error",
+      });
     } finally {
       setIsImageMapCandidateGenerating(false);
     }

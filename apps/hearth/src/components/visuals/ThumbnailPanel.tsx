@@ -109,16 +109,11 @@ export default function ThumbnailPanel({
   onSaveLaunchVariant,
 }: ThumbnailPanelProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const previewAspectRatio = aspect === "1:1"
-    ? "1 / 1"
+  const previewAspectClass = aspect === "1:1"
+    ? " is-square"
     : aspect === "9:16"
-      ? "9 / 16"
-      : "16 / 9";
-  const previewMaxWidth = aspect === "1:1"
-    ? 360
-    : aspect === "9:16"
-      ? 280
-      : 520;
+      ? " is-vertical"
+      : " is-widescreen";
   const previewStatusMessage = selectedVersionId
     ? `Showing version ${selectedVersionId.slice(0, 8)}. Use the versions below to change the preview.`
     : "Generate or choose a version below to preview it here.";
@@ -222,6 +217,8 @@ export default function ThumbnailPanel({
           <div className="hs-thumb-section-title">Preview</div>
           <div className="hs-thumb-controls">
             <select
+              aria-label="Thumbnail aspect ratio"
+              title="Thumbnail aspect ratio"
               value={aspect}
               onChange={(event) => onAspectChange(event.target.value as "16:9" | "1:1" | "9:16")}
               disabled={isGenerating || isUploading}
@@ -262,6 +259,8 @@ export default function ThumbnailPanel({
               ref={fileInputRef}
               type="file"
               accept="image/png,image/jpeg,image/webp"
+              aria-label="Upload thumbnail image"
+              title="Upload thumbnail image"
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 if (!file) return;
@@ -311,8 +310,7 @@ export default function ThumbnailPanel({
           <div className="hs-thumb-preview-note">{previewStatusMessage}</div>
 
           <div
-            className={`hs-thumb-preview${safeZoneEnabled ? " show-safe-zone" : ""}`}
-            style={{ aspectRatio: previewAspectRatio, maxWidth: `${previewMaxWidth}px` }}
+            className={`hs-thumb-preview${previewAspectClass}${safeZoneEnabled ? " show-safe-zone" : ""}`}
           >
             {previewState === "loading" ? (
               <div className="hs-thumb-preview-empty">Loading preview...</div>

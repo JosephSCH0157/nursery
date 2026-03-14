@@ -27,19 +27,31 @@ export default function CollapsibleFocusPanel({
           <div id={labelId} className="hs-focus-panel-title">{title}</div>
           {meta ? <div className="hs-focus-panel-meta">{meta}</div> : null}
         </div>
-        <button
-          type="button"
-          className="hs-focus-panel-toggle"
-          onClick={onToggle}
-          aria-controls={bodyId}
-          aria-expanded={!collapsed}
-        >
-          {collapsed ? "Open" : "Collapse"}
-        </button>
+        {collapsed ? (
+          <button
+            type="button"
+            className="hs-focus-panel-toggle"
+            onClick={onToggle}
+            aria-controls={bodyId}
+            aria-expanded="false"
+          >
+            Open
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="hs-focus-panel-toggle"
+            onClick={onToggle}
+            aria-controls={bodyId}
+            aria-expanded="true"
+          >
+            Collapse
+          </button>
+        )}
       </header>
 
-      <div className="hs-focus-panel-body" aria-hidden={collapsed}>
-        <div id={bodyId} className="hs-focus-panel-body-inner">
+      <div id={bodyId} className="hs-focus-panel-body" inert={collapsed}>
+        <div className="hs-focus-panel-body-inner">
           {children}
         </div>
       </div>
