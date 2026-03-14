@@ -12,7 +12,7 @@ import type {
 } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 
-export type HammerPrepStatus = "not_started" | "preparing" | "prepared" | "needs_review";
+export type HammerPrepStatus = "idle" | "preparing" | "prepared" | "prep_failed";
 export type HammerAlignmentStatus = "not_started" | "pending" | "aligned" | "needs_review";
 export type HammerPresenceMode = "viewing" | "editing";
 
@@ -45,11 +45,24 @@ export interface HammerPersistedStructuredTranscript {
   schema_version: 1;
   transcript_id: string;
   media_id: string | null;
+  media_signature: string | null;
+  prepared_at: string;
+  structure: "speaker_turns";
+  source_media_ref: MediaRef | null;
   diarization: {
     label_scheme: "forge-neutral-speakers.v1";
     labels: string[];
+    raw_labels: string[];
     version: string | null;
+    provider: "openai";
+    provider_request_id: string | null;
+    model: string | null;
   };
+  confidence_flags: Array<{
+    turn_id: string;
+    code: "speaker_boundary_low_confidence";
+    detail: string;
+  }>;
   segments: HammerTranscriptSegment[];
 }
 

@@ -81,7 +81,7 @@ const IMAGE_MAP_VISUAL_MODE_VALUES = [
   "object_detail",
 ] as const;
 const IMAGE_MAP_VISUAL_MODE_SET = new Set<string>(IMAGE_MAP_VISUAL_MODE_VALUES);
-const HAMMER_PREP_STATUS_VALUES = ["not_started", "preparing", "prepared", "needs_review"] as const;
+const HAMMER_PREP_STATUS_VALUES = ["idle", "preparing", "prepared", "prep_failed"] as const;
 const HAMMER_PREP_STATUS_SET = new Set<string>(HAMMER_PREP_STATUS_VALUES);
 const HAMMER_ALIGNMENT_STATUS_VALUES = ["not_started", "pending", "aligned", "needs_review"] as const;
 const HAMMER_ALIGNMENT_STATUS_SET = new Set<string>(HAMMER_ALIGNMENT_STATUS_VALUES);
@@ -4253,7 +4253,7 @@ export class TongsCommitService {
       edit_plan_signature: typeof input.edit_plan_signature === "undefined"
         ? existingState?.edit_plan_signature ?? null
         : input.edit_plan_signature,
-      prep_status: input.prep_status ?? existingState?.prep_status ?? "not_started",
+      prep_status: input.prep_status ?? existingState?.prep_status ?? "idle",
       alignment_status: input.alignment_status ?? existingState?.alignment_status ?? "not_started",
       macro_recipe_ref: typeof input.macro_recipe_ref === "undefined"
         ? existingState?.macro_recipe_ref ?? null

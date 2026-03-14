@@ -3,6 +3,11 @@ import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import { tongsFetch } from "../lib/tongsFetch";
 import type { HammerWorkspaceSnapshot } from "../editor/hammerWorkspaceSnapshot";
+import {
+  DEFAULT_FORGE_NEUTRAL_SPEAKER_LABELS,
+  HAMMER_RUNTIME_WRITTEN_BY,
+  preserveTranscriptMetadata,
+} from "../prep/hammerPrep";
 import type {
   HammerHydratedLaunchContext,
   HammerPersistenceSaveRequest,
@@ -16,14 +21,6 @@ import type {
   HammerPresenceRequest,
   HammerPresenceRow,
 } from "./hammerPersistenceContract";
-
-const HAMMER_RUNTIME_WRITTEN_BY = {
-  tool: "hammer",
-  tool_version: "forge-v1.2.0/hammer-runtime",
-  lane: "forge-managed",
-} as const;
-
-const DEFAULT_SPEAKER_LABELS = ["S1", "S2", "S3", "G1", "G2"] as const;
 
 type PersistenceResult<T> =
   | { ok: true; status: number; data: T }
@@ -90,25 +87,23 @@ function uniqueSpeakerLabels(segments: HammerTranscriptSegment[]): string[] {
   return labels;
 }
 
-function toStructuredTranscript(snapshot: HammerWorkspaceSnapshot): HammerPersistedStructuredTranscript {
-  return {
-    schema_version: 1,
-    transcript_id: snapshot.transcriptSourceId,
-    media_id: snapshot.mediaRef?.media_id ?? null,
-    diarization: {
-      label_scheme: "forge-neutral-speakers.v1",
-      labels: uniqueSpeakerLabels(snapshot.transcriptSegments),
-      version: null,
-    },
-    segments: cloneTranscriptSegments(snapshot.transcriptSegments),
-  };
+function toStructuredTranscript(
+  snapshot: HammerWorkspaceSnapshot,
+  existingStructuredTranscript?: HammerPersistedStructuredTranscript | null,
+): HammerPersistedStructuredTranscript {
+  return preserveTranscriptMetadata(
+    snapshot.transcriptSegments,
+    existingStructuredTranscript,
+    snapshot.mediaRef,
+    snapshot.transcriptSourceId,
+  );
 }
 
 function toSpeakerMap(snapshot: HammerWorkspaceSnapshot): HammerPersistedSpeakerMap {
   const labels = uniqueSpeakerLabels(snapshot.transcriptSegments);
   return {
     schema_version: 1,
-    default_labels: [...DEFAULT_SPEAKER_LABELS],
+    default_labels: [...DEFAULT_FORGE_NEUTRAL_SPEAKER_LABELS],
     mappings: labels.map((speakerLabel) => ({
       speaker_label: speakerLabel,
       display_name: null,
@@ -147,7 +142,10 @@ function toAudioPolish(snapshot: HammerWorkspaceSnapshot): HammerPersistedAudioP
   };
 }
 
-function toEditorSession(snapshot: HammerWorkspaceSnapshot): HammerPersistedEditorSession {
+function toEditorSession(
+  snapshot: HammerWorkspaceSnapshot,
+  lastOpenedAt: string,
+): HammerPersistedEditorSession {
   return {
     schema_version: 1,
     session_id: snapshot.sessionId,
@@ -159,7 +157,7 @@ function toEditorSession(snapshot: HammerWorkspaceSnapshot): HammerPersistedEdit
     media_ref: snapshot.mediaRef ? { ...snapshot.mediaRef } : null,
     workspace_mapping: snapshot.workspaceMapping ? { ...snapshot.workspaceMapping } : null,
     media_source_label: snapshot.mediaSourceLabel,
-    last_opened_at: new Date().toISOString(),
+    last_opened_at: lastOpenedAt,
   };
 }
 
@@ -190,22 +188,23 @@ export function readHammerPersistenceTarget(
 
 export function buildHammerPersistenceSaveRequest(
   snapshot: HammerWorkspaceSnapshot,
+  existingStructuredTranscript?: HammerPersistedStructuredTranscript | null,
+  lastOpenedAt = new Date().toISOString(),
 ): HammerPersistenceSaveRequest {
-  const lastOpenedAt = new Date().toISOString();
   return {
     written_by: { ...HAMMER_RUNTIME_WRITTEN_BY },
     active_session_id: snapshot.sessionId,
-    prep_status: snapshot.transcriptSegments.length > 0 ? "prepared" : "not_started",
+    prep_status: snapshot.transcriptSegments.length > 0 ? "prepared" : "idle",
     alignment_status: snapshot.transcriptSegments.length > 0 ? "aligned" : "not_started",
     last_opened_at: lastOpenedAt,
     edit_plan_signature: snapshot.editPlanSignature,
     macro_recipe_ref: null,
     last_macro_run_ref: null,
     editor_session: {
-      data: toEditorSession(snapshot),
+      data: toEditorSession(snapshot, lastOpenedAt),
     },
     structured_transcript: {
-      data: toStructuredTranscript(snapshot),
+      data: toStructuredTranscript(snapshot, existingStructuredTranscript),
     },
     speaker_map: {
       data: toSpeakerMap(snapshot),

@@ -8,6 +8,7 @@
     "build": "node -e \"console.log('Hammer builds through Nursery.')\"",
     "preview": "node -e \"console.log('Hammer previews through Nursery.')\"",
     "types": "tsc -p tsconfig.json --noEmit",
+    "test:prep": "tsx tests/hammerPrep.test.ts",
     "test:persistence": "tsx tests/hammerPersistence.test.ts",
     "test:edit-plan-signature": "tsx tests/editPlanSignature.test.ts",
     "test:media-truth": "tsx tests/mediaTruth.test.ts",
