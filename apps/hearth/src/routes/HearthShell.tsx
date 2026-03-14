@@ -4577,6 +4577,7 @@ export default function HearthShell() {
 
     const nextAnchor = imageMapAnchorDraft.trim();
     const nextDescription = imageMapDescriptionDraft;
+    const nextStylePreset = normalizeHearthVisualStyle(imageMapStyleDraft);
     const nextIntent = imageMapIntentDraft.trim().toLowerCase();
     const nextSourceType = imageMapSourceTypeDraft.trim().toLowerCase();
     const nextPlacementHint = imageMapPlacementHintDraft.trim() || null;
@@ -4586,6 +4587,7 @@ export default function HearthShell() {
       || current.description !== nextDescription
       || current.visual_intent !== nextDescription
       || current.prompt_basis !== nextDescription
+      || normalizeHearthVisualStyle(current.style_preset) !== nextStylePreset
       || current.intent !== nextIntent
       || current.source_type !== nextSourceType
       || (current.placement_hint ?? null) !== nextPlacementHint
@@ -4616,6 +4618,7 @@ export default function HearthShell() {
             description: nextDescription,
             visual_intent: nextDescription,
             prompt_basis: nextDescription,
+            style_preset: nextStylePreset,
             intent: nextIntent,
             source_type: nextSourceType,
             candidate_assets: [],
@@ -4655,6 +4658,7 @@ export default function HearthShell() {
     episodePackage,
     imageMapAnchorDraft,
     imageMapDescriptionDraft,
+    imageMapStyleDraft,
     imageMapIntentDraft,
     imageMapPlacementHintDraft,
     imageMapSaveState,
@@ -6693,7 +6697,7 @@ export default function HearthShell() {
       id: createThumbnailClientId("thumb-concept"),
       label,
       prompt_text: promptText,
-      style_preset: thumbnailConceptStyleDraft.trim() || null,
+      style_preset: normalizeHearthVisualStyle(thumbnailConceptStyleDraft),
     };
 
     const nextEpisodePackage: EpisodePackageV2 = {
@@ -6737,7 +6741,7 @@ export default function HearthShell() {
             ...concept,
             label,
             prompt_text: promptText,
-            style_preset: thumbnailConceptStyleDraft.trim() || null,
+            style_preset: normalizeHearthVisualStyle(thumbnailConceptStyleDraft),
           }
         : concept
     ));
@@ -6857,6 +6861,9 @@ export default function HearthShell() {
       ? episodePackage.thumbnail.concepts.find((concept) => concept.id === conceptId) ?? null
       : null;
     const promptOverride = options?.forcePrompt ?? (thumbnailPromptOverride.trim() || null);
+    const effectiveStylePreset = conceptId && conceptId === selectedThumbnailConceptId
+      ? normalizeHearthVisualStyle(thumbnailConceptStyleDraft)
+      : normalizeHearthVisualStyle(resolvedConcept?.style_preset ?? null);
     const usedPrompt = (promptOverride || resolvedConcept?.prompt_text || "").trim();
     if (!conceptId && !promptOverride) {
       setThumbnailGenerateError("Select a concept or provide a prompt override.");
@@ -6883,7 +6890,7 @@ export default function HearthShell() {
         workpieceId: episodeId,
         conceptId,
         prompt: promptOverride,
-        preset: resolvedConcept?.style_preset ?? null,
+        preset: effectiveStylePreset,
         aspect: thumbnailAspect,
         confirmSpend: confirmed,
         alwaysApproveAiSpend: alwaysApproveSpend,
@@ -6978,7 +6985,7 @@ export default function HearthShell() {
         id: createThumbnailClientId("thumb-concept-upload"),
         label: "Uploaded",
         prompt_text: "Uploaded image",
-        style_preset: null,
+        style_preset: DEFAULT_HEARTH_VISUAL_STYLE,
       };
       workingEpisodePackage = {
         ...episodePackage,
@@ -7044,6 +7051,7 @@ export default function HearthShell() {
         description: imageMapDescriptionDraft,
         visual_intent: imageMapDescriptionDraft,
         prompt_basis: imageMapDescriptionDraft,
+        style_preset: normalizeHearthVisualStyle(imageMapStyleDraft),
         intent: imageMapIntentDraft.trim().toLowerCase(),
         source_type: imageMapSourceTypeDraft.trim().toLowerCase(),
         placement_hint: imageMapPlacementHintDraft.trim() || null,
@@ -7354,6 +7362,7 @@ export default function HearthShell() {
       description: "",
       visual_intent: "",
       prompt_basis: "",
+      style_preset: DEFAULT_HEARTH_VISUAL_STYLE,
       intent: "cutaway",
       source_type: "stock",
       beat_order: episodePackage.image_map.entries.length + 1,
@@ -7392,6 +7401,7 @@ export default function HearthShell() {
       description: selectedImageMapEntry.description,
       visual_intent: selectedImageMapEntry.visual_intent,
       prompt_basis: selectedImageMapEntry.prompt_basis,
+      style_preset: normalizeHearthVisualStyle(selectedImageMapEntry.style_preset),
       intent: selectedImageMapEntry.intent,
       source_type: selectedImageMapEntry.source_type,
       beat_order: selectedImageMapEntry.beat_order,
@@ -8781,7 +8791,7 @@ export default function HearthShell() {
                 onSelectConcept={setSelectedThumbnailConceptId}
                 onSelectedConceptLabelChange={setThumbnailConceptLabelDraft}
                 onSelectedConceptPromptChange={setThumbnailConceptPromptDraft}
-                onSelectedConceptStylePresetChange={setThumbnailConceptStyleDraft}
+                onSelectedConceptStylePresetChange={(value) => setThumbnailConceptStyleDraft(normalizeHearthVisualStyle(value))}
                 onCreateConcept={() => void onCreateThumbnailConcept()}
                 onSaveConcept={() => void onSaveSelectedThumbnailConcept()}
                 onDeleteConcept={() => void onDeleteSelectedThumbnailConcept()}
@@ -8803,6 +8813,7 @@ export default function HearthShell() {
                 selectedEntryId={selectedImageMapEntryId}
                 draftAnchor={imageMapAnchorDraft}
                 draftDescription={imageMapDescriptionDraft}
+                draftStylePreset={imageMapStyleDraft}
                 draftIntent={imageMapIntentDraft}
                 draftSourceType={imageMapSourceTypeDraft}
                 draftPlacementHint={imageMapPlacementHintDraft}
@@ -8836,6 +8847,11 @@ export default function HearthShell() {
                 }}
                 onDraftDescriptionChange={(value) => {
                   setImageMapDescriptionDraft(value);
+                  setImageMapSaveState("editing");
+                  setImageMapSaveError(null);
+                }}
+                onDraftStylePresetChange={(value) => {
+                  setImageMapStyleDraft(normalizeHearthVisualStyle(value));
                   setImageMapSaveState("editing");
                   setImageMapSaveError(null);
                 }}

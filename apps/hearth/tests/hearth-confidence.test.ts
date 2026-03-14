@@ -53,7 +53,19 @@ import {
   selectWorkpieceNavItems,
 } from "../src/lib/hearth-nav-model";
 import { formatScriptToAnvilTagsNoAi, validateAnvilTagContract } from "../src/lib/anvil-tag-contract";
-import { ensureImageMapV2, resolvePrimarySeoTitle, type EpisodeImageMapEntry } from "../src/lib/episode-package-v2";
+import {
+  createEmptyEpisodePackageV2,
+  ensureImageMapV2,
+  hydrateEpisodePackageV2,
+  resolvePrimarySeoTitle,
+  type EpisodeImageMapEntry,
+} from "../src/lib/episode-package-v2";
+import {
+  DEFAULT_HEARTH_VISUAL_STYLE,
+  buildHearthVisualStylePromptLines,
+  normalizeHearthVisualStyle,
+  resolveHearthVisualStyleDefinition,
+} from "../src/lib/hearth-visual-styles";
 
 class MemoryStorage {
   private store = new Map<string, string>();
@@ -1579,6 +1591,7 @@ function testGenerateImageMapEntriesFromScriptEmitsMultipleBeatsWithinParagraph(
     [1, 2, 3],
   );
   assert.equal(entries[0]?.script_anchor?.paragraph_id, "s1:p1");
+  assert.equal(entries[0]?.style_preset, DEFAULT_HEARTH_VISUAL_STYLE);
   assert.match(entries[2]?.prompt_basis ?? "", /mississippi/i);
 }
 
@@ -1609,6 +1622,7 @@ function testEnsureImageMapV2RoundTripsStructuredEntries() {
   assert.equal(pkg.image_map.entries[0]?.candidate_assets[0]?.visual_mode, "map");
   assert.equal(pkg.image_map.entries[0]?.selected_asset_id, "asset-a");
   assert.equal(pkg.image_map.entries[0]?.status, "selected");
+  assert.equal(pkg.image_map.entries[0]?.style_preset, DEFAULT_HEARTH_VISUAL_STYLE);
 }
 
 function testResolveImageMapScriptAnchorFromTextRecoversExactSentenceAnchor() {
@@ -1777,6 +1791,72 @@ async function testImageMapRepoSavePersistsReanchoredAnchor() {
   } finally {
     harness.restore();
   }
+}
+
+function testVisualStyleCatalogNormalizesAliasesAndPromptHints() {
+  assert.equal(normalizeHearthVisualStyle(null), DEFAULT_HEARTH_VISUAL_STYLE);
+  assert.equal(normalizeHearthVisualStyle("oil on canvas"), "oil_painting");
+  assert.equal(normalizeHearthVisualStyle("3D animation"), "three_d_animation");
+  assert.equal(resolveHearthVisualStyleDefinition("marker").label, "Marker Render");
+  assert.deepEqual(buildHearthVisualStylePromptLines("studio lighting"), [
+    "Visual style: Studio Photography.",
+    "Style direction: studio photography, controlled lighting, crisp subject separation, polished commercial finish.",
+  ]);
+}
+
+function testHydrateEpisodePackageV2NormalizesLegacyVisualStyles() {
+  const episodePackage = hydrateEpisodePackageV2({
+    episode: {
+      schema: "forge.episode.package.v2",
+      seo: {
+        titles: [],
+        tags: [],
+        description_short: null,
+        description_long: null,
+      },
+      thumbnail: {
+        concepts: [{
+          id: "concept-legacy",
+          label: "Legacy concept",
+          prompt_text: "Heroic portrait",
+          mood_style: "oil on canvas",
+        }],
+        versions: [],
+        primary_version_id: null,
+      },
+      image_map: {
+        entries: [{
+          id: "image-map-legacy",
+          anchor: "s1:p1#sent1",
+          script_anchor: {
+            section_id: "s1",
+            paragraph_id: "s1:p1",
+            paragraph_order: 1,
+            sentence_start: 1,
+            sentence_end: 1,
+            char_start: 0,
+            char_end: 12,
+            span_text: "wide skyline",
+            speaker_block_id: null,
+          },
+          description: "wide skyline",
+          visual_intent: "wide skyline",
+          prompt_basis: "wide skyline",
+          intent: "cutaway",
+          source_type: "stock",
+          beat_order: 1,
+          paragraph_beat_order: 1,
+          candidate_assets: [],
+          selected_asset_id: null,
+          status: "mapped",
+          placement_hint: null,
+        }],
+      },
+    },
+  });
+
+  assert.equal(episodePackage.thumbnail.concepts[0]?.style_preset, "oil_painting");
+  assert.equal(episodePackage.image_map.entries[0]?.style_preset, DEFAULT_HEARTH_VISUAL_STYLE);
 }
 
 async function testBarStockSparkListDiscoveryStaysCanonicalAcrossClients() {
@@ -2396,6 +2476,8 @@ async function run() {
   testBuildExactScriptAnchorFromSelectionSpansSentenceRange();
   testReanchorImageMapEntryPreservesBeatMetadata();
   await testImageMapRepoSavePersistsReanchoredAnchor();
+  testVisualStyleCatalogNormalizesAliasesAndPromptHints();
+  testHydrateEpisodePackageV2NormalizesLegacyVisualStyles();
   await testBarStockSparkListDiscoveryStaysCanonicalAcrossClients();
   await testSparkIntakeWaitsForCanonicalDiscoveryBeforeDeclaringMissing();
   await testWorkpieceListRoundtripAndPrimaryScriptRead();

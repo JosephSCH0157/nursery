@@ -5,6 +5,11 @@ import {
   type GenerateImageInput,
   type ImageProvider,
 } from "./providers/image-provider.js";
+import {
+  buildHearthVisualStylePromptLines,
+  normalizeHearthVisualStyle,
+} from "./hearth-visual-styles.js";
+import type { HearthVisualStyleValue } from "./hearth-visual-styles.js";
 import type { RecordingSessionDTO, RecordingSessionItemDTO } from "./types.js";
 
 export const TONGS_WORKPIECE_BUCKET = "forge-workpieces";
@@ -58,7 +63,7 @@ const WORKSPACE_ROLE_RANK: Record<WorkspaceRole, number> = {
 const THUMBNAIL_ASSET_PREFIX = "assets/thumbnails";
 const THUMBNAIL_ASSET_KIND = "thumbnail_image" as const;
 const THUMBNAIL_ASSET_SCHEMA = "forge.thumbnail-image.v1" as const;
-const THUMBNAIL_DEFAULT_STYLE_HINT = "Clean, high-contrast YouTube thumbnail composition.";
+const THUMBNAIL_EDITORIAL_BASE_HINT = "Clean, high-contrast YouTube thumbnail composition.";
 const IMAGE_MAP_ASSET_PATH = "assets/image-map/image-map.v1.json";
 const IMAGE_MAP_ASSET_KIND = "image_map_json" as const;
 const IMAGE_MAP_ASSET_SCHEMA = "forge.image-map.v1" as const;
@@ -417,7 +422,7 @@ export type EpisodeThumbnailConceptRecord = {
   id: string;
   label: string;
   prompt_text: string;
-  style_preset: string | null;
+  style_preset: HearthVisualStyleValue | null;
 };
 
 export type EpisodeImageMapScriptAnchorRecord = {
@@ -447,6 +452,7 @@ export type EpisodeImageMapEntryRecord = {
   description: string;
   visual_intent: string;
   prompt_basis: string;
+  style_preset: HearthVisualStyleValue | null;
   intent: string;
   source_type: string;
   beat_order: number;
@@ -2391,6 +2397,7 @@ function normalizeEpisodeImageMapEntry(
     description,
     visual_intent: readStringField(value, "visual_intent") ?? description,
     prompt_basis: readStringField(value, "prompt_basis") ?? description,
+    style_preset: normalizeHearthVisualStyle(value.style_preset ?? null),
     intent: normalizeImageMapIntent(value.intent),
     source_type: normalizeImageMapSourceType(value.source_type),
     beat_order: typeof value.beat_order === "number" ? Math.max(1, Math.trunc(value.beat_order)) : index + 1,
@@ -2584,6 +2591,7 @@ function buildImageMapCandidatePrompt(args: {
     `You are generating a still image candidate for a scripted visual beat.`,
     `Visual intent: ${args.entry.visual_intent || args.entry.description}`,
     `Prompt basis: ${args.entry.prompt_basis || args.entry.description}`,
+    ...buildHearthVisualStylePromptLines(args.entry.style_preset),
     `Visual mode: ${args.visualMode}.`,
     contextLines.join("\n"),
     modeInstruction,
@@ -2610,6 +2618,7 @@ function buildImageMapCandidateAssetMetadata(args: {
     variant_label: args.variantLabel,
     beat_order: args.entry.beat_order,
     paragraph_beat_order: args.entry.paragraph_beat_order,
+    style_preset: args.entry.style_preset,
     prompt: args.prompt,
     revised_prompt: args.revisedPrompt,
     visual_intent: args.entry.visual_intent,
@@ -2774,7 +2783,7 @@ function normalizeThumbnailConcept(value: unknown): EpisodeThumbnailConceptRecor
     id,
     label,
     prompt_text: promptText,
-    style_preset: readStringField(row, "style_preset"),
+    style_preset: normalizeHearthVisualStyle(readStringField(row, "style_preset")),
   };
 }
 
@@ -5159,7 +5168,11 @@ export class TongsCommitService {
     if (!conceptPrompt) {
       throw new HttpError(400, "missing_prompt", "Unable to resolve prompt for thumbnail generation");
     }
-    const stylePreset = (input.preset ?? requestedConcept?.style_preset ?? null)?.trim() || null;
+    const stylePreset = normalizeHearthVisualStyle(input.preset ?? requestedConcept?.style_preset ?? null);
+
+    if (requestedConcept) {
+      requestedConcept.style_preset = stylePreset;
+    }
 
     if (!conceptById.has(conceptId)) {
       episodePackage.thumbnail.concepts.push({
@@ -5172,8 +5185,8 @@ export class TongsCommitService {
 
     const finalPrompt = [
       conceptPrompt,
-      stylePreset ? `Style preset: ${stylePreset}` : null,
-      THUMBNAIL_DEFAULT_STYLE_HINT,
+      ...buildHearthVisualStylePromptLines(stylePreset),
+      THUMBNAIL_EDITORIAL_BASE_HINT,
     ].filter(Boolean).join("\n\n");
 
     const imageResult = await this.imageProvider.generateImage({

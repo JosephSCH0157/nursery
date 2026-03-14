@@ -2174,7 +2174,7 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
               id: "concept-01",
               label: "Concept 01",
               prompt_text: "Host in studio with neon glow",
-              style_preset: null,
+              style_preset: "studio lighting",
             },
           ],
           versions: [],
@@ -2258,6 +2258,7 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
   assert.equal(providerCalls.length, 1);
   assert.equal(providerCalls[0].aspect, "16:9");
   assert.match(providerCalls[0].prompt, /Host in studio with neon glow/);
+  assert.match(providerCalls[0].prompt, /Visual style: Studio Photography\./);
   assert.equal(assetInsertCalls.length, 1);
   assert.equal(assetInsertCalls[0].workspace_id, workspaceId);
   assert.equal(assetInsertCalls[0].workpiece_id, workpieceId);
@@ -2266,9 +2267,11 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
   assert.equal(assetInsertCalls[0].status, "ready");
   assert.equal(assetInsertCalls[0].metadata_json.schema, "forge.thumbnail-image.v1");
   assert.equal(assetInsertCalls[0].metadata_json.concept_id, "concept-01");
+  assert.equal(assetInsertCalls[0].metadata_json.style_preset, "studio_photography");
   assert.equal(commitCalls.length, 2);
   assert.equal(commitCalls[0].input.path.startsWith("assets/thumbnails/"), true);
   assert.equal(commitCalls[1].input.path, "metadata.json");
+  assert.equal(commitCalls[1].input.json.episode.thumbnail.concepts[0].style_preset, "studio_photography");
   assert.equal(commitCalls[1].input.json.episode.thumbnail.versions.length, 1);
   assert.equal(commitCalls[1].input.json.episode.thumbnail.primary_version_id, result.version.id);
   assert.equal(result.version.status, "ready");
@@ -2425,6 +2428,7 @@ test("TongsCommitService.generateImageMapCandidates writes candidate assets and 
               description: "Strategic troop comparison near New Orleans",
               visual_intent: "Strategic troop comparison",
               prompt_basis: "Troop-count comparison near New Orleans",
+              style_preset: "oil on canvas",
               intent: "broll",
               source_type: "script",
               beat_order: 1,
@@ -2516,6 +2520,7 @@ test("TongsCommitService.generateImageMapCandidates writes candidate assets and 
   assert.equal(providerCalls[0]?.aspect, "16:9");
   assert.match(providerCalls[0]?.prompt ?? "", /Exact beat span:/);
   assert.match(providerCalls[0]?.prompt ?? "", /Jackson faced 8,000 British troops/);
+  assert.match(providerCalls[0]?.prompt ?? "", /Visual style: Oil Painting\./);
   assert.match(providerCalls[0]?.prompt ?? "", /Variant goal: make the beat clearer and more diagrammatic or explanatory/);
   assert.match(providerCalls[1]?.prompt ?? "", /Variant goal: make the beat more cinematic and illustrative/);
   assert.notEqual(providerCalls[0]?.prompt, providerCalls[1]?.prompt);
@@ -2533,6 +2538,7 @@ test("TongsCommitService.generateImageMapCandidates writes candidate assets and 
   assert.equal(candidateInserts[0]?.metadata_json?.schema, "forge.image-map-candidate.v1");
   assert.equal(candidateInserts[0]?.metadata_json?.image_map_entry_id, "image-map-01");
   assert.equal(candidateInserts[0]?.metadata_json?.variant_label, "explainer");
+  assert.equal(candidateInserts[0]?.metadata_json?.style_preset, "oil_painting");
   assert.equal(candidateInserts[1]?.metadata_json?.variant_label, "illustrative");
   assert.equal(candidateInserts[0]?.prompt?.includes("Exact beat span:"), true);
   assert.match(
@@ -2562,6 +2568,7 @@ test("TongsCommitService.generateImageMapCandidates writes candidate assets and 
   assert.equal(result.image_map.entries[0]?.candidate_assets[1]?.variant_label, "illustrative");
   assert.equal(result.image_map.entries[0]?.status, "candidates_generated");
   assert.equal(result.image_map.entries[0]?.selected_asset_id, null);
+  assert.equal(result.image_map.entries[0]?.style_preset, "oil_painting");
   assert.equal(result.token_balance, 777);
 
   const candidateSupersedeCall = state.updateCalls.find((row) => Array.isArray(row.id));
