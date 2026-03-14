@@ -114,9 +114,12 @@ import {
   selectWorkpieceImageMapCandidate,
 } from "../lib/hearth-image-map-repo";
 import {
+  assessImageMapScriptAnchor,
+  buildExactScriptAnchorFromSelection,
+  buildImageMapAnchorPickerParagraphs,
   generateImageMapEntriesFromScript,
+  reanchorImageMapEntry,
   resolveImageMapAnchorContext,
-  resolveImageMapScriptAnchorFromText,
 } from "../lib/hearth-image-map-beats";
 import type {
   EpisodePackageV2,
@@ -127,6 +130,7 @@ import type {
 } from "../lib/episode-package-v2";
 import {
   addImageMapEntry,
+  buildImageMapAnchorLabel,
   ensureSeoV2,
   normalizeSeoTags,
   removeImageMapEntry,
@@ -215,6 +219,14 @@ type ImageBeatSheetEntry = {
   match?: string;
 };
 
+type CanonicalImageMapScriptState = {
+  status: "idle" | "loading" | "ready" | "error";
+  text: string | null;
+  source: "primary_script" | "saved_draft" | null;
+  includesUnsavedLocalEdits: boolean;
+  error: string | null;
+};
+
 const PRODUCTION_ACTION_LABEL: Record<ProductionAction, string> = {
   seo: "Generate SEO",
   tags: "Generate Tags",
@@ -257,6 +269,59 @@ function normalizeTonePreset(value: unknown): string | null {
   return TONE_PRESET_OPTIONS.some((option) => option.value === normalized)
     ? normalized
     : null;
+}
+
+function resolveImageMapAnchorStatusView(args: {
+  status: "anchored" | "needs_reanchor" | "missing_anchor";
+  scriptState: CanonicalImageMapScriptState;
+}): { label: string; tone: "neutral" | "ok" | "warning" | "danger"; detail: string } {
+  if (args.status === "missing_anchor") {
+    return {
+      label: "Missing anchor",
+      tone: "danger",
+      detail: "This visual beat only has a display label. Re-anchor it to bind an exact structured span from the current canonical script.",
+    };
+  }
+  if (args.scriptState.status === "loading") {
+    return {
+      label: args.status === "needs_reanchor" ? "Needs re-anchor" : "Anchored",
+      tone: "neutral",
+      detail: "Validating this structured anchor against the current canonical script.",
+    };
+  }
+  if (args.scriptState.status === "error") {
+    return {
+      label: "Needs re-anchor",
+      tone: "warning",
+      detail: args.scriptState.error ?? "Hearth could not load the current canonical script to verify this anchor.",
+    };
+  }
+  if (args.status === "anchored") {
+    return {
+      label: "Anchored",
+      tone: "ok",
+      detail: "This visual beat is anchored to an exact span in the current canonical script.",
+    };
+  }
+  return {
+    label: "Needs re-anchor",
+    tone: "warning",
+    detail: "This structured anchor no longer matches the current canonical script. Re-anchor it before generating candidates.",
+  };
+}
+
+function resolveCanonicalImageMapScriptSourceLabel(state: CanonicalImageMapScriptState): string | null {
+  if (state.status !== "ready" || !state.source) return null;
+  return state.source === "primary_script" ? "Source: published script" : "Source: saved draft";
+}
+
+function resolveCanonicalImageMapScriptHint(state: CanonicalImageMapScriptState): string | null {
+  if (state.status === "error") return state.error;
+  if (state.status !== "ready") return null;
+  if (state.includesUnsavedLocalEdits) {
+    return "Unsaved local script edits are not included here. Re-anchoring uses the current canonical saved script.";
+  }
+  return "Pick the exact sentence or paragraph that should drive still generation for this beat.";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1944,6 +2009,16 @@ export default function HearthShell() {
   const [imageMapCandidatePreviewStateById, setImageMapCandidatePreviewStateById] = useState<Record<string, "loading" | "ready" | "error">>({});
   const [imageMapCandidatePreviewUrlById, setImageMapCandidatePreviewUrlById] = useState<Record<string, string>>({});
   const [imageMapCandidatePreviewErrorById, setImageMapCandidatePreviewErrorById] = useState<Record<string, string>>({});
+  const [canonicalImageMapScriptState, setCanonicalImageMapScriptState] = useState<CanonicalImageMapScriptState>({
+    status: "idle",
+    text: null,
+    source: null,
+    includesUnsavedLocalEdits: false,
+    error: null,
+  });
+  const [isImageMapReanchorMode, setIsImageMapReanchorMode] = useState(false);
+  const [isImageMapReanchorSaving, setIsImageMapReanchorSaving] = useState(false);
+  const [imageMapReanchorError, setImageMapReanchorError] = useState<string | null>(null);
   const [scriptPanelCopyMessage, setScriptPanelCopyMessage] = useState<string | null>(null);
   const episodePackageRequestSeqRef = useRef(0);
   const thumbnailPreviewRequestSeqRef = useRef(0);
@@ -2188,6 +2263,45 @@ export default function HearthShell() {
   const selectedThumbnailVersion = thumbnailVersions.find((version) => version.id === selectedThumbnailVersionId) ?? null;
   const imageMapEntries = episodePackage?.image_map.entries ?? [];
   const selectedImageMapEntry = imageMapEntries.find((entry) => entry.id === selectedImageMapEntryId) ?? null;
+  const selectedImageMapExactAnchor = useMemo(() => {
+    if (!selectedImageMapEntry || canonicalImageMapScriptState.status !== "ready" || !canonicalImageMapScriptState.text) {
+      return null;
+    }
+    return assessImageMapScriptAnchor(canonicalImageMapScriptState.text, selectedImageMapEntry.script_anchor);
+  }, [canonicalImageMapScriptState.status, canonicalImageMapScriptState.text, selectedImageMapEntry]);
+  const imageMapAnchorStatusView = useMemo(() => {
+    if (!selectedImageMapEntry) return null;
+    const status = selectedImageMapExactAnchor?.status
+      ?? (selectedImageMapEntry.script_anchor ? "anchored" : "missing_anchor");
+    return resolveImageMapAnchorStatusView({
+      status,
+      scriptState: canonicalImageMapScriptState,
+    });
+  }, [canonicalImageMapScriptState, selectedImageMapEntry, selectedImageMapExactAnchor]);
+  const imageMapAnchorPickerParagraphs = useMemo(() => (
+    canonicalImageMapScriptState.status === "ready" && canonicalImageMapScriptState.text
+      ? buildImageMapAnchorPickerParagraphs(canonicalImageMapScriptState.text)
+      : []
+  ), [canonicalImageMapScriptState.status, canonicalImageMapScriptState.text]);
+  const imageMapActiveAnchorLabel = useMemo(() => {
+    const anchor = selectedImageMapExactAnchor?.exactAnchor ?? selectedImageMapEntry?.script_anchor ?? null;
+    return buildImageMapAnchorLabel(anchor);
+  }, [selectedImageMapEntry?.script_anchor, selectedImageMapExactAnchor]);
+  const imageMapReanchorDisabledReason = useMemo(() => {
+    if (!selectedImageMapEntry) return "Select a visual beat first.";
+    if (imageMapSaveState === "editing" || imageMapSaveState === "saving") {
+      return "Save this visual beat before re-anchoring it.";
+    }
+    if (isImageMapCandidateGenerating || isImageMapCandidateSelecting) {
+      return "Wait for the current image-map action to finish.";
+    }
+    return null;
+  }, [
+    imageMapSaveState,
+    isImageMapCandidateGenerating,
+    isImageMapCandidateSelecting,
+    selectedImageMapEntry,
+  ]);
   const selectedImageMapCandidates = selectedImageMapEntry?.candidate_assets ?? [];
   const imageMapCandidateCards = selectedImageMapCandidates.map((candidate) => ({
     id: candidate.asset_id,
@@ -4313,6 +4427,60 @@ export default function HearthShell() {
     setImageMapCandidateError(null);
     setImageMapCandidateSelectionError(null);
   }, [selectedImageMapEntry]);
+
+  useEffect(() => {
+    setIsImageMapReanchorMode(false);
+    setIsImageMapReanchorSaving(false);
+    setImageMapReanchorError(null);
+  }, [selectedImageMapEntryId, workpieceId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!selectedImageMapEntry || !workpieceId) {
+      setCanonicalImageMapScriptState({
+        status: "idle",
+        text: null,
+        source: null,
+        includesUnsavedLocalEdits: false,
+        error: null,
+      });
+      return;
+    }
+
+    setCanonicalImageMapScriptState((current) => ({
+      status: "loading",
+      text: current.text,
+      source: current.source,
+      includesUnsavedLocalEdits: current.includesUnsavedLocalEdits,
+      error: null,
+    }));
+
+    void readCanonicalScriptForImageMapGeneration().then((result) => {
+      if (cancelled) return;
+      if (!result.ok) {
+        setCanonicalImageMapScriptState({
+          status: "error",
+          text: null,
+          source: null,
+          includesUnsavedLocalEdits: false,
+          error: result.message,
+        });
+        return;
+      }
+      setCanonicalImageMapScriptState({
+        status: "ready",
+        text: result.text,
+        source: result.source,
+        includesUnsavedLocalEdits: result.includesUnsavedLocalEdits,
+        error: null,
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedImageMapEntry, workpieceId]);
 
   useEffect(() => {
     const episodeId = workpieceId?.trim() ?? "";
@@ -6924,6 +7092,87 @@ export default function HearthShell() {
     };
   }
 
+  function onStartImageMapReanchor() {
+    if (imageMapReanchorDisabledReason) {
+      setImageMapReanchorError(imageMapReanchorDisabledReason);
+      return;
+    }
+    setImageMapReanchorError(null);
+    setImageMapCandidateError(null);
+    setIsImageMapReanchorMode(true);
+  }
+
+  function onCancelImageMapReanchor() {
+    if (isImageMapReanchorSaving) return;
+    setIsImageMapReanchorMode(false);
+    setImageMapReanchorError(null);
+  }
+
+  async function onPickImageMapReanchor(selection: {
+    paragraphId: string;
+    sentenceStart: number;
+    sentenceEnd: number;
+  }) {
+    if (!episodePackage || !selectedImageMapEntry) return;
+    if (imageMapReanchorDisabledReason) {
+      setImageMapReanchorError(imageMapReanchorDisabledReason);
+      return;
+    }
+    if (canonicalImageMapScriptState.status !== "ready" || !canonicalImageMapScriptState.text) {
+      setImageMapReanchorError("Current canonical script is not ready to re-anchor yet.");
+      return;
+    }
+
+    const nextAnchor = buildExactScriptAnchorFromSelection(canonicalImageMapScriptState.text, selection);
+    if (!nextAnchor) {
+      setImageMapReanchorError("Unable to build an exact anchor from that script selection.");
+      return;
+    }
+
+    const nextEntry = reanchorImageMapEntry(selectedImageMapEntry, canonicalImageMapScriptState.text, selection);
+    if (!nextEntry) {
+      setImageMapReanchorError("Unable to re-anchor this visual beat.");
+      return;
+    }
+
+    setIsImageMapReanchorSaving(true);
+    setImageMapSaveState("saving");
+    setImageMapSaveError(null);
+    setImageMapReanchorError(null);
+    try {
+      const saved = await persistImageMapEntries({
+        entries: episodePackage.image_map.entries.map((entry) => (
+          entry.id === selectedImageMapEntry.id
+            ? {
+                ...nextEntry,
+                script_anchor: nextAnchor,
+              }
+            : entry
+        )),
+      });
+
+      if (!saved.ok) {
+        setImageMapSaveState("error");
+        setImageMapSaveError(saved.error);
+        setImageMapReanchorError(saved.error);
+        return;
+      }
+
+      setImageMapSaveState("saved");
+      setImageMapCandidateError(null);
+      setImageMapCandidateSelectionError(null);
+      setImageMapExportMessage("Visual beat re-anchored to the current canonical script.");
+      setIsImageMapReanchorMode(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to re-anchor this visual beat.";
+      setImageMapSaveState("error");
+      setImageMapSaveError(message);
+      setImageMapReanchorError(message);
+    } finally {
+      setIsImageMapReanchorSaving(false);
+    }
+  }
+
   async function onGenerateImageMapCandidates() {
     if (isAiProcessing || isApprovingScript || isImageMapCandidateGenerating) return;
     if (!episodePackage || !selectedImageMapEntry) return;
@@ -6949,35 +7198,14 @@ export default function HearthShell() {
       return;
     }
 
-    let effectiveScriptAnchor = selectedImageMapEntry.script_anchor
-      ?? resolveImageMapScriptAnchorFromText(canonicalScript.text, selectedImageMapEntry.anchor)
-      ?? resolveImageMapScriptAnchorFromText(canonicalScript.text, selectedImageMapEntry.description);
+    const exactAnchorAssessment = assessImageMapScriptAnchor(canonicalScript.text, selectedImageMapEntry.script_anchor);
+    const effectiveScriptAnchor = exactAnchorAssessment.exactAnchor;
     let expectedMetadataUpdatedAt = imageMapMetadataUpdatedAt;
 
     if (!effectiveScriptAnchor) {
-      setImageMapCandidateError("This visual beat needs an exact script anchor before candidate generation.");
+      setIsImageMapReanchorMode(true);
+      setImageMapCandidateError("This visual beat needs an exact script anchor before candidate generation. Use Re-anchor to bind it to the current canonical script.");
       return;
-    }
-
-    if (!selectedImageMapEntry.script_anchor) {
-      const saved = await persistImageMapEntries({
-        entries: episodePackage.image_map.entries.map((entry) => (
-          entry.id === selectedImageMapEntry.id
-            ? {
-                ...entry,
-                script_anchor: effectiveScriptAnchor,
-                status: "mapped",
-              }
-            : entry
-        )),
-      });
-      if (!saved.ok) {
-        setImageMapCandidateError(saved.error);
-        return;
-      }
-      expectedMetadataUpdatedAt = saved.metadataUpdatedAt;
-      effectiveScriptAnchor = saved.episodePackage.image_map.entries.find((entry) => entry.id === selectedImageMapEntry.id)?.script_anchor
-        ?? effectiveScriptAnchor;
     }
 
     const context = resolveImageMapAnchorContext(canonicalScript.text, effectiveScriptAnchor);
@@ -8579,7 +8807,19 @@ export default function HearthShell() {
                 candidateGenerateError={imageMapCandidateError}
                 candidateSelectBusy={isImageMapCandidateSelecting}
                 candidateSelectionError={imageMapCandidateSelectionError}
-                disabled={isAiProcessing || isApprovingScript}
+                anchorStatusLabel={imageMapAnchorStatusView?.label ?? null}
+                anchorStatusTone={imageMapAnchorStatusView?.tone ?? "neutral"}
+                anchorStatusDetail={imageMapAnchorStatusView?.detail ?? null}
+                reanchorMode={isImageMapReanchorMode}
+                reanchorBusy={isImageMapReanchorSaving}
+                reanchorDisabledReason={imageMapReanchorDisabledReason}
+                reanchorError={imageMapReanchorError}
+                reanchorScriptSourceLabel={resolveCanonicalImageMapScriptSourceLabel(canonicalImageMapScriptState)}
+                reanchorScriptHint={resolveCanonicalImageMapScriptHint(canonicalImageMapScriptState)}
+                reanchorScriptLoading={canonicalImageMapScriptState.status === "loading"}
+                reanchorParagraphs={imageMapAnchorPickerParagraphs}
+                activeAnchorLabel={imageMapActiveAnchorLabel}
+                disabled={isAiProcessing || isApprovingScript || isImageMapReanchorSaving}
                 onSelectEntry={setSelectedImageMapEntryId}
                 onSelectCandidate={(candidateId) => void onSelectImageMapCandidate(candidateId)}
                 onDraftAnchorChange={(value) => {
@@ -8614,6 +8854,9 @@ export default function HearthShell() {
                 onGenerateCandidates={() => void onGenerateImageMapCandidates()}
                 onCopyExport={() => void onCopyImageMapExportJson()}
                 onDownloadExport={onDownloadImageMapExportJson}
+                onStartReanchor={onStartImageMapReanchor}
+                onCancelReanchor={onCancelImageMapReanchor}
+                onPickReanchor={(selection) => void onPickImageMapReanchor(selection)}
               />
             ) : null}
 

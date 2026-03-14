@@ -1688,6 +1688,141 @@
   opacity: 0.75;
 }
 
+.hs-imap-anchor-card {
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  background: rgba(15, 23, 42, 0.03);
+}
+
+.hs-imap-anchor-status {
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+}
+
+.hs-imap-anchor-status.is-neutral {
+  border-color: rgba(100, 116, 139, 0.35);
+  background: rgba(100, 116, 139, 0.08);
+  color: rgb(51, 65, 85);
+}
+
+.hs-imap-anchor-status.is-ok {
+  border-color: rgba(22, 163, 74, 0.45);
+  background: rgba(22, 163, 74, 0.12);
+  color: rgb(21, 128, 61);
+}
+
+.hs-imap-anchor-status.is-warning {
+  border-color: rgba(217, 119, 6, 0.45);
+  background: rgba(217, 119, 6, 0.12);
+  color: rgb(180, 83, 9);
+}
+
+.hs-imap-anchor-status.is-danger {
+  border-color: rgba(185, 28, 28, 0.4);
+  background: rgba(185, 28, 28, 0.1);
+  color: rgb(153, 27, 27);
+}
+
+.hs-imap-anchor-detail {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.hs-imap-anchor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.hs-imap-anchor-picker {
+  display: grid;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.hs-imap-anchor-picker-list {
+  display: grid;
+  gap: 10px;
+  max-height: 340px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.hs-imap-anchor-picker-paragraph {
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.hs-imap-anchor-picker-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hs-imap-anchor-picker-label {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.hs-imap-anchor-picker-text {
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.hs-imap-anchor-picker-options {
+  display: grid;
+  gap: 6px;
+}
+
+.hs-imap-anchor-picker-option {
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 8px;
+  background: rgba(248, 250, 252, 0.95);
+  color: inherit;
+  padding: 8px 10px;
+  text-align: left;
+  display: grid;
+  gap: 4px;
+}
+
+.hs-imap-anchor-picker-option.is-active {
+  border-color: rgba(29, 78, 216, 0.75);
+  background: rgba(29, 78, 216, 0.1);
+  box-shadow: 0 0 0 1px rgba(29, 78, 216, 0.1);
+}
+
+.hs-imap-anchor-picker-option-paragraph {
+  width: auto;
+}
+
+.hs-imap-anchor-picker-option-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  opacity: 0.72;
+}
+
+.hs-imap-anchor-picker-option-text {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .hs-imap-candidate-toolbar {
   display: grid;
   gap: 6px;

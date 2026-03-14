@@ -2,8 +2,13 @@ import { useEffect, useState } from "react";
 import {
   EPISODE_IMAGE_MAP_INTENT_VALUES,
   EPISODE_IMAGE_MAP_SOURCE_TYPE_VALUES,
+  buildImageMapAnchorLabel,
   type EpisodeImageMapEntry,
 } from "../../lib/episode-package-v2";
+import type {
+  ImageMapAnchorPickerParagraph,
+  ImageMapScriptSelection,
+} from "../../lib/hearth-image-map-beats";
 
 type ImageMapSaveState = "saved" | "editing" | "saving" | "error" | "offline";
 
@@ -33,6 +38,18 @@ type ImageMapPanelProps = {
   candidateGenerateError: string | null;
   candidateSelectBusy: boolean;
   candidateSelectionError: string | null;
+  anchorStatusLabel: string | null;
+  anchorStatusTone: "neutral" | "ok" | "warning" | "danger";
+  anchorStatusDetail: string | null;
+  reanchorMode: boolean;
+  reanchorBusy: boolean;
+  reanchorDisabledReason: string | null;
+  reanchorError: string | null;
+  reanchorScriptSourceLabel: string | null;
+  reanchorScriptHint: string | null;
+  reanchorScriptLoading: boolean;
+  reanchorParagraphs: ImageMapAnchorPickerParagraph[];
+  activeAnchorLabel: string | null;
   disabled?: boolean;
   onSelectEntry: (entryId: string) => void;
   onDraftAnchorChange: (value: string) => void;
@@ -48,6 +65,9 @@ type ImageMapPanelProps = {
   onSelectCandidate: (candidateId: string) => void;
   onCopyExport: () => void;
   onDownloadExport: () => void;
+  onStartReanchor: () => void;
+  onCancelReanchor: () => void;
+  onPickReanchor: (selection: ImageMapScriptSelection) => void;
 };
 
 function summarizeDescription(value: string): string {
@@ -87,6 +107,18 @@ export default function ImageMapPanel({
   candidateGenerateError,
   candidateSelectBusy,
   candidateSelectionError,
+  anchorStatusLabel,
+  anchorStatusTone,
+  anchorStatusDetail,
+  reanchorMode,
+  reanchorBusy,
+  reanchorDisabledReason,
+  reanchorError,
+  reanchorScriptSourceLabel,
+  reanchorScriptHint,
+  reanchorScriptLoading,
+  reanchorParagraphs,
+  activeAnchorLabel,
   disabled = false,
   onSelectEntry,
   onDraftAnchorChange,
@@ -102,6 +134,9 @@ export default function ImageMapPanel({
   onSelectCandidate,
   onCopyExport,
   onDownloadExport,
+  onStartReanchor,
+  onCancelReanchor,
+  onPickReanchor,
 }: ImageMapPanelProps) {
   const hasSelection = Boolean(selectedEntryId);
   const selectedCandidateId = candidateCards.find((candidate) => candidate.isSelected)?.id ?? null;
@@ -218,6 +253,95 @@ export default function ImageMapPanel({
                   disabled={disabled}
                 />
               </label>
+              <section className="hs-imap-anchor-card" aria-label="Exact script anchor">
+                <div className="hs-imap-section-heading">
+                  <div className="hs-thumb-section-title">Exact Script Anchor</div>
+                  {anchorStatusLabel ? (
+                    <div className={`hs-imap-anchor-status is-${anchorStatusTone}`}>{anchorStatusLabel}</div>
+                  ) : null}
+                </div>
+                <div className="hs-field-label-muted">
+                  Candidate generation only trusts a structured anchor bound to the current canonical script.
+                </div>
+                {anchorStatusDetail ? (
+                  <div className="hs-imap-anchor-detail">{anchorStatusDetail}</div>
+                ) : null}
+                {reanchorDisabledReason ? (
+                  <div className="hs-field-label-muted">{reanchorDisabledReason}</div>
+                ) : null}
+                <div className="hs-imap-anchor-actions">
+                  <button
+                    type="button"
+                    onClick={reanchorMode ? onCancelReanchor : onStartReanchor}
+                    disabled={disabled || Boolean(reanchorDisabledReason) || reanchorBusy}
+                  >
+                    {reanchorBusy ? "Saving..." : reanchorMode ? "Cancel Re-anchor" : "Re-anchor"}
+                  </button>
+                  <span className="hs-field-label-muted">
+                    Editing the anchor label alone does not rebuild the canonical script anchor.
+                  </span>
+                </div>
+                {reanchorMode ? (
+                  <div className="hs-imap-anchor-picker">
+                    <div className="hs-imap-section-heading">
+                      <div className="hs-thumb-section-title">Pick from Current Script</div>
+                      {reanchorScriptSourceLabel ? (
+                        <div className="hs-field-label-muted">{reanchorScriptSourceLabel}</div>
+                      ) : null}
+                    </div>
+                    {reanchorScriptHint ? (
+                      <div className="hs-field-label-muted">{reanchorScriptHint}</div>
+                    ) : null}
+                    {reanchorError ? (
+                      <div className="hs-imap-preview-empty is-error">{reanchorError}</div>
+                    ) : null}
+                    {reanchorScriptLoading ? (
+                      <div className="hs-imap-empty">Loading current script...</div>
+                    ) : reanchorParagraphs.length === 0 ? (
+                      <div className="hs-imap-empty">No canonical script spans are available yet.</div>
+                    ) : (
+                      <div className="hs-imap-anchor-picker-list">
+                        {reanchorParagraphs.map((paragraph) => {
+                          const paragraphAnchorLabel = buildImageMapAnchorLabel(paragraph.paragraphOption.anchor);
+                          return (
+                            <article key={paragraph.key} className="hs-imap-anchor-picker-paragraph">
+                              <div className="hs-imap-anchor-picker-heading">
+                                <div className="hs-imap-anchor-picker-label">{paragraph.label}</div>
+                                <button
+                                  type="button"
+                                  className={`hs-imap-anchor-picker-option hs-imap-anchor-picker-option-paragraph${activeAnchorLabel === paragraphAnchorLabel ? " is-active" : ""}`}
+                                  onClick={() => onPickReanchor(paragraph.paragraphOption.selection)}
+                                  disabled={disabled || reanchorBusy}
+                                >
+                                  Use full paragraph
+                                </button>
+                              </div>
+                              <div className="hs-imap-anchor-picker-text">{paragraph.text}</div>
+                              <div className="hs-imap-anchor-picker-options">
+                                {paragraph.sentenceOptions.map((option) => {
+                                  const optionAnchorLabel = buildImageMapAnchorLabel(option.anchor);
+                                  return (
+                                    <button
+                                      key={option.key}
+                                      type="button"
+                                      className={`hs-imap-anchor-picker-option${activeAnchorLabel === optionAnchorLabel ? " is-active" : ""}`}
+                                      onClick={() => onPickReanchor(option.selection)}
+                                      disabled={disabled || reanchorBusy}
+                                    >
+                                      <span className="hs-imap-anchor-picker-option-label">{option.label}</span>
+                                      <span className="hs-imap-anchor-picker-option-text">{option.text}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </section>
               <label className="hs-field">
                 <span className="hs-field-label">Description</span>
                 <textarea

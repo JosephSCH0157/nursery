@@ -30,7 +30,10 @@ import {
 } from "../src/lib/hearth-image-map-repo";
 import { readHearthPrimaryScript } from "../src/lib/hearth-script-repo";
 import {
+  assessImageMapScriptAnchor,
+  buildExactScriptAnchorFromSelection,
   generateImageMapEntriesFromScript,
+  reanchorImageMapEntry,
   resolveImageMapScriptAnchorFromText,
 } from "../src/lib/hearth-image-map-beats";
 import { resolveBarStockSparkHearthWorkpieceId } from "../src/lib/barstock-sparks";
@@ -1627,6 +1630,155 @@ function testResolveImageMapScriptAnchorFromTextRecoversExactSentenceAnchor() {
   assert.match(anchor?.span_text ?? "", /tip of your tongue/i);
 }
 
+function testAssessImageMapScriptAnchorDetectsMissingAndStaleAnchors() {
+  const scriptText = [
+    "## Harbor",
+    "",
+    "A convoy crossed the river at dawn. The bridge burned behind them.",
+  ].join("\n");
+  const exactAnchor = buildExactScriptAnchorFromSelection(scriptText, {
+    paragraphId: "s1:p1",
+    sentenceStart: 1,
+    sentenceEnd: 1,
+  });
+
+  assert.ok(exactAnchor, "Selection should resolve to an exact structured anchor");
+
+  const missing = assessImageMapScriptAnchor(scriptText, null);
+  assert.equal(missing.status, "missing_anchor");
+
+  const anchored = assessImageMapScriptAnchor(scriptText, exactAnchor);
+  assert.equal(anchored.status, "anchored");
+  assert.equal(anchored.exactAnchor?.paragraph_id, "s1:p1");
+
+  const stale = assessImageMapScriptAnchor([
+    "## Harbor",
+    "",
+    "A convoy slipped through the harbor at dusk. The bridge burned behind them.",
+  ].join("\n"), exactAnchor);
+  assert.equal(stale.status, "needs_reanchor");
+  assert.equal(stale.exactAnchor, null);
+}
+
+function testBuildExactScriptAnchorFromSelectionSpansSentenceRange() {
+  const scriptText = [
+    "## Campaign",
+    "",
+    "The fleet arrived before sunrise. Smoke drifted over the harbor. Citizens watched from the walls.",
+  ].join("\n");
+
+  const anchor = buildExactScriptAnchorFromSelection(scriptText, {
+    paragraphId: "s1:p1",
+    sentenceStart: 1,
+    sentenceEnd: 2,
+  });
+
+  assert.ok(anchor, "Sentence-range selection should produce a structured anchor");
+  assert.equal(anchor?.paragraph_id, "s1:p1");
+  assert.equal(anchor?.sentence_start, 1);
+  assert.equal(anchor?.sentence_end, 2);
+  assert.match(anchor?.span_text ?? "", /smoke drifted/i);
+}
+
+function testReanchorImageMapEntryPreservesBeatMetadata() {
+  const scriptText = [
+    "## Campaign",
+    "",
+    "The fleet arrived before sunrise. Smoke drifted over the harbor. Citizens watched from the walls.",
+  ].join("\n");
+  const entry = buildImageMapEntryFixture("image-map-reanchor", {
+    anchor: "manual:p1",
+    script_anchor: {
+      section_id: "s1",
+      paragraph_id: "s1:p1",
+      paragraph_order: 1,
+      sentence_start: 1,
+      sentence_end: 1,
+      char_start: 0,
+      char_end: 12,
+      span_text: "wide skyline",
+      speaker_block_id: null,
+    },
+    description: "Keep the harbor wide and tense.",
+    visual_intent: "Keep the harbor wide and tense.",
+    prompt_basis: "Keep the harbor wide and tense.",
+    candidate_assets: [{
+      asset_id: "asset-a",
+      path: "assets/image-map/candidates/a.png",
+      variant_label: "explainer",
+      visual_mode: "map",
+      mime_type: "image/png",
+    }],
+    selected_asset_id: "asset-a",
+    status: "selected",
+    placement_hint: "after-hook",
+  });
+
+  const repaired = reanchorImageMapEntry(entry, scriptText, {
+    paragraphId: "s1:p1",
+    sentenceStart: 2,
+    sentenceEnd: 2,
+  });
+
+  assert.ok(repaired, "Re-anchor should rebuild the structured anchor");
+  assert.equal(repaired?.description, entry.description);
+  assert.equal(repaired?.prompt_basis, entry.prompt_basis);
+  assert.equal(repaired?.selected_asset_id, "asset-a");
+  assert.equal(repaired?.candidate_assets[0]?.asset_id, "asset-a");
+  assert.equal(repaired?.status, "selected");
+  assert.equal(repaired?.anchor, "s1:p1#sent2");
+  assert.match(repaired?.script_anchor?.span_text ?? "", /smoke drifted/i);
+}
+
+async function testImageMapRepoSavePersistsReanchoredAnchor() {
+  resetLocalStorage();
+  const harness = installImageMapFetchHarness();
+  const scriptText = [
+    "## Campaign",
+    "",
+    "The fleet arrived before sunrise. Smoke drifted over the harbor. Citizens watched from the walls.",
+  ].join("\n");
+  const entry = reanchorImageMapEntry(buildImageMapEntryFixture("image-map-01"), scriptText, {
+    paragraphId: "s1:p1",
+    sentenceStart: 2,
+    sentenceEnd: 2,
+  });
+
+  assert.ok(entry, "Re-anchor should create a saveable entry");
+
+  try {
+    harness.setSavePayload({
+      image_map: {
+        workpiece_id: WORKPIECE_A,
+        workspace_id: WORKSPACE_ID,
+        entries: [entry],
+        metadata_updated_at: "2026-03-11T09:15:00.000Z",
+      },
+      asset: null,
+    });
+
+    const result = await saveWorkpieceImageMap({
+      workpieceId: WORKPIECE_A,
+      workspaceId: WORKSPACE_ID,
+      entries: [entry!],
+      expectedMetadataUpdatedAt: "2026-03-11T09:10:00.000Z",
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(harness.saveRequests.length, 1);
+    assert.equal(
+      (harness.saveRequests[0]?.body.entries?.[0] as { anchor?: string } | undefined)?.anchor,
+      "s1:p1#sent2",
+    );
+    assert.equal(
+      ((harness.saveRequests[0]?.body.entries?.[0] as { script_anchor?: { sentence_start?: number } } | undefined)?.script_anchor?.sentence_start),
+      2,
+    );
+  } finally {
+    harness.restore();
+  }
+}
+
 async function testBarStockSparkListDiscoveryStaysCanonicalAcrossClients() {
   resetLocalStorage();
   const localSpark = {
@@ -2240,6 +2392,10 @@ async function run() {
   testEnsureImageMapV2RoundTripsStructuredEntries();
   testResolvePrimarySeoTitlePrefersPrimaryThenPopulatedFallback();
   testResolveImageMapScriptAnchorFromTextRecoversExactSentenceAnchor();
+  testAssessImageMapScriptAnchorDetectsMissingAndStaleAnchors();
+  testBuildExactScriptAnchorFromSelectionSpansSentenceRange();
+  testReanchorImageMapEntryPreservesBeatMetadata();
+  await testImageMapRepoSavePersistsReanchoredAnchor();
   await testBarStockSparkListDiscoveryStaysCanonicalAcrossClients();
   await testSparkIntakeWaitsForCanonicalDiscoveryBeforeDeclaringMissing();
   await testWorkpieceListRoundtripAndPrimaryScriptRead();
