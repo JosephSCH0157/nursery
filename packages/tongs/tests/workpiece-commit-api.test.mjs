@@ -4157,6 +4157,323 @@ test("TongsCommitService.saveWorkpieceImageMap writes metadata, asset file, and 
   assert.equal(result.asset?.supersedes_asset_id, null);
 });
 
+test("TongsCommitService.saveWorkpieceImageMap recovers a superseded image-map asset when no ready row exists", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const editorId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const commitCalls = [];
+  const { state, ...supabase } = createImageMapAssetSupabase({
+    assets: [
+      {
+        id: "asset-superseded",
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        path: "assets/image-map/image-map.v1.json",
+        mime_type: "application/json",
+        bytes: 111,
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${workpieceId}/assets/image-map/image-map.v1.json`,
+        provider: "hearth",
+        provider_request_id: null,
+        request_id: "req-old",
+        prompt: null,
+        created_by: editorId,
+        created_at: "2026-03-10T15:00:00.000Z",
+        updated_at: "2026-03-10T15:00:00.000Z",
+        asset_kind: "image_map_json",
+        status: "superseded",
+        metadata_json: {
+          schema: "forge.image-map.v1",
+          entry_count: 1,
+        },
+        supersedes_asset_id: null,
+      },
+    ],
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: editorId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkpieceInWorkspace = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-02T00:00:00.000Z",
+    updated_at: "2026-03-02T00:00:00.000Z",
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: editorId, role: "editor" });
+  service.readWorkpieceJson = async () => ({
+    found: true,
+    data: {
+      schema: "forge.metadata.v1",
+      workpiece_id: workpieceId,
+      workspace_id: workspaceId,
+      episode: {
+        schema: "forge.episode.package.v2",
+        image_map: {
+          entries: [],
+        },
+      },
+    },
+    file_row: { updated_at: "2026-03-10T15:30:00.000Z" },
+  });
+  service.commitFile = async (targetWorkpieceId, input) => {
+    commitCalls.push({ targetWorkpieceId, input });
+    return {
+      workpiece_id: targetWorkpieceId,
+      path: input.path,
+      storage_key: `workpieces/${targetWorkpieceId}/${input.path}`,
+      hash: "hash-file",
+      bytes: input.path === "metadata.json" ? 222 : 333,
+      content_type: input.content_type || "application/json",
+      manifest_hash: "hash-manifest",
+      manifest_bytes: 456,
+      file_row: {
+        workpiece_id: targetWorkpieceId,
+        path: input.path,
+        file_type: "json",
+        content_type: input.content_type || "application/json",
+        bytes: input.path === "metadata.json" ? 222 : 333,
+        hash_algo: "sha256",
+        hash_value: "hash-file",
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${targetWorkpieceId}/${input.path}`,
+        written_by_tool: input.written_by.tool,
+        written_by_tool_version: input.written_by.tool_version,
+        written_by_lane: input.written_by.lane,
+        created_at: "2026-03-10T16:05:00.000Z",
+        updated_at: input.path === "metadata.json"
+          ? "2026-03-10T16:05:00.000Z"
+          : "2026-03-10T16:05:01.000Z",
+      },
+      manifest_row: {
+        workpiece_id: targetWorkpieceId,
+        path: "manifest.json",
+        file_type: "manifest",
+        content_type: "application/json",
+        bytes: 456,
+        hash_algo: "sha256",
+        hash_value: "hash-manifest",
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${targetWorkpieceId}/manifest.json`,
+        written_by_tool: input.written_by.tool,
+        written_by_tool_version: input.written_by.tool_version,
+        written_by_lane: input.written_by.lane,
+        created_at: "2026-03-10T16:05:00.000Z",
+        updated_at: "2026-03-10T16:05:00.000Z",
+      },
+      event: {
+        id: 901,
+        workpiece_id: targetWorkpieceId,
+        event_name: input.event_name || "workpiece.file.committed",
+        payload: {},
+        correlation_id: "corr-456",
+        written_by_tool: input.written_by.tool,
+        written_by_tool_version: input.written_by.tool_version,
+        written_by_lane: input.written_by.lane,
+        created_at: "2026-03-10T16:05:00.000Z",
+      },
+    };
+  };
+
+  const result = await service.saveWorkpieceImageMap(
+    workpieceId,
+    {
+      workspace_id: workspaceId,
+      entries: [],
+      expected_metadata_updated_at: "2026-03-10T15:30:00.000Z",
+    },
+    { userAccessToken: "editor_token" },
+  );
+
+  assert.equal(commitCalls.length, 2);
+  assert.equal(state.insertCalls.length, 0);
+  assert.equal(state.updateCalls.length, 1);
+  assert.equal(state.updateCalls[0]?.id, "asset-superseded");
+  assert.equal(state.updateCalls[0]?.patch?.status, "ready");
+  assert.equal(state.updateCalls[0]?.patch?.request_id, "corr-456");
+  assert.equal(result.asset?.id, "asset-superseded");
+  assert.equal(result.asset?.status, "ready");
+});
+
+test("TongsCommitService.saveWorkpieceImageMap reuses the asset row that already owns the committed storage location", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const editorId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const { state, ...supabase } = createImageMapAssetSupabase({
+    assets: [
+      {
+        id: "asset-fixed-path",
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        path: "assets/image-map/image-map.v1.json",
+        mime_type: "application/json",
+        bytes: 111,
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${workpieceId}/assets/image-map/image-map.v1.json`,
+        provider: "hearth",
+        provider_request_id: null,
+        request_id: "req-old-fixed",
+        prompt: null,
+        created_by: editorId,
+        created_at: "2026-03-10T15:00:00.000Z",
+        updated_at: "2026-03-10T15:00:00.000Z",
+        asset_kind: "image_map_json",
+        status: "superseded",
+        metadata_json: {
+          schema: "forge.image-map.v1",
+          entry_count: 1,
+        },
+        supersedes_asset_id: null,
+      },
+      {
+        id: "asset-ready-other-key",
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        path: "assets/image-map/image-map.v1.json",
+        mime_type: "application/json",
+        bytes: 222,
+        storage_bucket: "forge-workpieces",
+        storage_key: `workpieces/${workpieceId}/assets/image-map/image-map.v2.json`,
+        provider: "hearth",
+        provider_request_id: null,
+        request_id: "req-old-ready",
+        prompt: null,
+        created_by: editorId,
+        created_at: "2026-03-10T15:30:00.000Z",
+        updated_at: "2026-03-10T15:30:00.000Z",
+        asset_kind: "image_map_json",
+        status: "ready",
+        metadata_json: {
+          schema: "forge.image-map.v1",
+          entry_count: 1,
+        },
+        supersedes_asset_id: null,
+      },
+    ],
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: editorId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkpieceInWorkspace = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-02T00:00:00.000Z",
+    updated_at: "2026-03-02T00:00:00.000Z",
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: editorId, role: "editor" });
+  service.readWorkpieceJson = async () => ({
+    found: true,
+    data: {
+      schema: "forge.metadata.v1",
+      workpiece_id: workpieceId,
+      workspace_id: workspaceId,
+      episode: {
+        schema: "forge.episode.package.v2",
+        image_map: {
+          entries: [],
+        },
+      },
+    },
+    file_row: { updated_at: "2026-03-10T15:30:00.000Z" },
+  });
+  service.commitFile = async (targetWorkpieceId, input) => ({
+    workpiece_id: targetWorkpieceId,
+    path: input.path,
+    storage_key: `workpieces/${targetWorkpieceId}/${input.path}`,
+    hash: "hash-file",
+    bytes: input.path === "metadata.json" ? 222 : 333,
+    content_type: input.content_type || "application/json",
+    manifest_hash: "hash-manifest",
+    manifest_bytes: 456,
+    file_row: {
+      workpiece_id: targetWorkpieceId,
+      path: input.path,
+      file_type: "json",
+      content_type: input.content_type || "application/json",
+      bytes: input.path === "metadata.json" ? 222 : 333,
+      hash_algo: "sha256",
+      hash_value: "hash-file",
+      storage_bucket: "forge-workpieces",
+      storage_key: `workpieces/${targetWorkpieceId}/${input.path}`,
+      written_by_tool: input.written_by.tool,
+      written_by_tool_version: input.written_by.tool_version,
+      written_by_lane: input.written_by.lane,
+      created_at: "2026-03-10T16:05:00.000Z",
+      updated_at: input.path === "metadata.json"
+        ? "2026-03-10T16:05:00.000Z"
+        : "2026-03-10T16:05:01.000Z",
+    },
+    manifest_row: {
+      workpiece_id: targetWorkpieceId,
+      path: "manifest.json",
+      file_type: "manifest",
+      content_type: "application/json",
+      bytes: 456,
+      hash_algo: "sha256",
+      hash_value: "hash-manifest",
+      storage_bucket: "forge-workpieces",
+      storage_key: `workpieces/${targetWorkpieceId}/manifest.json`,
+      written_by_tool: input.written_by.tool,
+      written_by_tool_version: input.written_by.tool_version,
+      written_by_lane: input.written_by.lane,
+      created_at: "2026-03-10T16:05:00.000Z",
+      updated_at: "2026-03-10T16:05:00.000Z",
+    },
+    event: {
+      id: 902,
+      workpiece_id: targetWorkpieceId,
+      event_name: input.event_name || "workpiece.file.committed",
+      payload: {},
+      correlation_id: "corr-789",
+      written_by_tool: input.written_by.tool,
+      written_by_tool_version: input.written_by.tool_version,
+      written_by_lane: input.written_by.lane,
+      created_at: "2026-03-10T16:05:00.000Z",
+    },
+  });
+
+  const result = await service.saveWorkpieceImageMap(
+    workpieceId,
+    {
+      workspace_id: workspaceId,
+      entries: [],
+      expected_metadata_updated_at: "2026-03-10T15:30:00.000Z",
+    },
+    { userAccessToken: "editor_token" },
+  );
+
+  assert.equal(state.insertCalls.length, 0);
+  assert.equal(state.updateCalls.length, 2);
+  assert.equal(state.updateCalls[0]?.id, "asset-ready-other-key");
+  assert.equal(state.updateCalls[0]?.patch?.status, "superseded");
+  assert.equal(state.updateCalls[1]?.id, "asset-fixed-path");
+  assert.equal(state.updateCalls[1]?.patch?.status, "ready");
+  assert.equal(state.updateCalls[1]?.patch?.request_id, "corr-789");
+  assert.equal(result.asset?.id, "asset-fixed-path");
+  assert.equal(result.asset?.status, "ready");
+});
+
 test("TongsCommitService.saveWorkpieceImageMap rejects stale metadata timestamps with image_map_conflict", async () => {
   const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const workpieceId = "11111111-1111-4111-8111-111111111111";

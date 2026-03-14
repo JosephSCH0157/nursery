@@ -6489,7 +6489,7 @@ export default function HearthShell() {
         ok: false,
         error: saved.reason === "invalid_response"
           ? "Image map save returned an invalid response."
-          : "Unable to save image map.",
+          : saved.error ?? "Unable to save image map.",
       };
     }
 
