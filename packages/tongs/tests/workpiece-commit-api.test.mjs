@@ -2567,8 +2567,9 @@ test("TongsCommitService.generateImageMapCandidates writes candidate assets and 
   const candidateSupersedeCall = state.updateCalls.find((row) => Array.isArray(row.id));
   assert.deepEqual([...candidateSupersedeCall.id].sort(), ["asset-old-candidate-a", "asset-old-candidate-b"]);
   assert.equal(candidateSupersedeCall?.patch?.status, "superseded");
-  const imageMapSupersedeCall = state.updateCalls.find((row) => row.id === "asset-old-image-map");
-  assert.equal(imageMapSupersedeCall?.patch?.status, "superseded");
+  const imageMapRefreshCall = state.updateCalls.find((row) => row.id === "asset-old-image-map");
+  assert.equal(imageMapRefreshCall?.patch?.status, "ready");
+  assert.equal(imageMapRefreshCall?.patch?.storage_key, `workpieces/${workpieceId}/assets/image-map/image-map.v1.json`);
 });
 
 test("POST /tongs/workspaces/:id/recording-sessions dispatches createRecordingSession", async () => {
@@ -3974,7 +3975,7 @@ test("TongsCommitService.getWorkpieceVisualPackage returns Hammer-ready ordering
   assert.equal(result.visuals[1]?.selected_asset, null);
 });
 
-test("TongsCommitService.saveWorkpieceImageMap writes metadata, asset file, and superseded asset lineage", async () => {
+test("TongsCommitService.saveWorkpieceImageMap writes metadata, asset file, and refreshes the current image-map asset row", async () => {
   const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const workpieceId = "11111111-1111-4111-8111-111111111111";
   const editorId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
@@ -4148,14 +4149,12 @@ test("TongsCommitService.saveWorkpieceImageMap writes metadata, asset file, and 
   assert.equal(commitCalls[1]?.input.json?.workpiece_id, workpieceId);
   assert.equal(state.updateCalls.length, 1);
   assert.equal(state.updateCalls[0]?.id, "asset-old");
-  assert.equal(state.updateCalls[0]?.patch?.status, "superseded");
-  assert.equal(state.insertCalls.length, 1);
-  assert.equal(state.insertCalls[0]?.asset_kind, "image_map_json");
-  assert.equal(state.insertCalls[0]?.status, "ready");
-  assert.equal(state.insertCalls[0]?.prompt, null);
-  assert.equal(state.insertCalls[0]?.supersedes_asset_id, "asset-old");
+  assert.equal(state.updateCalls[0]?.patch?.status, "ready");
+  assert.equal(state.updateCalls[0]?.patch?.request_id, "corr-123");
+  assert.equal(state.updateCalls[0]?.patch?.storage_key, `workpieces/${workpieceId}/assets/image-map/image-map.v1.json`);
+  assert.equal(state.insertCalls.length, 0);
   assert.equal(result.image_map.metadata_updated_at, "2026-03-10T16:05:00.000Z");
-  assert.equal(result.asset?.supersedes_asset_id, "asset-old");
+  assert.equal(result.asset?.supersedes_asset_id, null);
 });
 
 test("TongsCommitService.saveWorkpieceImageMap rejects stale metadata timestamps with image_map_conflict", async () => {

@@ -3838,6 +3838,44 @@ export class TongsCommitService {
     return data;
   }
 
+  private async updateImageMapAssetRow(
+    assetId: string,
+    patch: Database["tongs"]["Tables"]["assets"]["Update"],
+    errorMessage: string,
+  ): Promise<AssetRow> {
+    const { error } = await this.supabase
+      .schema("tongs")
+      .from("assets")
+      .update({
+        ...patch,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", assetId);
+
+    if (error) {
+      throw new HttpError(502, "db_write_failed", errorMessage, {
+        reason: error.message,
+      });
+    }
+
+    const { data, error: readError } = await this.supabase
+      .schema("tongs")
+      .from("assets")
+      .select("*")
+      .eq("id", assetId)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    const row = data?.[0] ?? null;
+    if (readError || !row) {
+      throw new HttpError(502, "db_read_failed", "Failed to reload updated image map asset", {
+        reason: readError?.message ?? "missing_asset_row",
+      });
+    }
+
+    return row;
+  }
+
   private buildWorkpieceImageMapResponse(args: {
     workpieceId: string;
     workspaceId: string;
@@ -6300,31 +6338,48 @@ export class TongsCommitService {
       correlation_id: randomUuid(),
     });
 
-    if (currentReadyAsset) {
-      await this.supersedeImageMapAsset(currentReadyAsset.id);
-    }
+    const assetMetadata = {
+      schema: IMAGE_MAP_ASSET_SCHEMA,
+      entry_count: input.entries.length,
+    } as Json;
 
-    const assetRow = await this.insertImageMapAssetRow({
-      workspace_id: input.workspace_id,
-      workpiece_id: workpieceId,
-      path: IMAGE_MAP_ASSET_PATH,
-      mime_type: "application/json",
-      bytes: assetCommit.bytes,
-      storage_bucket: assetCommit.file_row.storage_bucket,
-      storage_key: assetCommit.storage_key,
-      provider: "hearth",
-      provider_request_id: null,
-      request_id: assetCommit.event.correlation_id ?? assetCommit.event.id.toString(),
-      prompt: null,
-      created_by: auth.userId,
-      asset_kind: IMAGE_MAP_ASSET_KIND,
-      status: "ready",
-      metadata_json: {
-        schema: IMAGE_MAP_ASSET_SCHEMA,
-        entry_count: input.entries.length,
-      } as Json,
-      supersedes_asset_id: currentReadyAsset?.id ?? null,
-    });
+    const assetRow = currentReadyAsset
+      ? await this.updateImageMapAssetRow(
+        currentReadyAsset.id,
+        {
+          path: IMAGE_MAP_ASSET_PATH,
+          mime_type: "application/json",
+          bytes: assetCommit.bytes,
+          storage_bucket: assetCommit.file_row.storage_bucket,
+          storage_key: assetCommit.storage_key,
+          provider: "hearth",
+          provider_request_id: null,
+          request_id: assetCommit.event.correlation_id ?? assetCommit.event.id.toString(),
+          prompt: null,
+          asset_kind: IMAGE_MAP_ASSET_KIND,
+          status: "ready",
+          metadata_json: assetMetadata,
+        },
+        "Failed to refresh current image map asset",
+      )
+      : await this.insertImageMapAssetRow({
+        workspace_id: input.workspace_id,
+        workpiece_id: workpieceId,
+        path: IMAGE_MAP_ASSET_PATH,
+        mime_type: "application/json",
+        bytes: assetCommit.bytes,
+        storage_bucket: assetCommit.file_row.storage_bucket,
+        storage_key: assetCommit.storage_key,
+        provider: "hearth",
+        provider_request_id: null,
+        request_id: assetCommit.event.correlation_id ?? assetCommit.event.id.toString(),
+        prompt: null,
+        created_by: auth.userId,
+        asset_kind: IMAGE_MAP_ASSET_KIND,
+        status: "ready",
+        metadata_json: assetMetadata,
+        supersedes_asset_id: null,
+      });
 
     return this.buildWorkpieceImageMapResponse({
       workpieceId,
