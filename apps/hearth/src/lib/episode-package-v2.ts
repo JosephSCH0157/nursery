@@ -381,9 +381,10 @@ function normalizeImageMapEntries(value: unknown): EpisodeImageMapEntry[] {
     const entry = value[i];
     if (!isRecord(entry)) continue;
     const scriptAnchor = normalizeImageMapScriptAnchor(entry.script_anchor);
-    const anchor = readString(entry.anchor)
-      ?? readString(entry.attach_after)
-      ?? buildImageMapAnchorLabel(scriptAnchor);
+    const anchor = resolveImageMapDisplayAnchor(
+      readString(entry.anchor) ?? readString(entry.attach_after),
+      scriptAnchor,
+    );
     const description = typeof entry.description === "string" ? entry.description : "";
     const sourceType = readString(entry.source_type) ?? "stock";
     if (!anchor) continue;
@@ -559,6 +560,19 @@ export function buildImageMapAnchorLabel(anchor: EpisodeImageMapScriptAnchor | n
   return `${anchor.paragraph_id}#${sentenceRange}`;
 }
 
+export function resolveImageMapDisplayAnchor(
+  anchor: string | null | undefined,
+  scriptAnchor: EpisodeImageMapScriptAnchor | null | undefined,
+): string {
+  const displayAnchor = readString(anchor);
+  const spanText = readString(scriptAnchor?.span_text);
+  const structuralAnchorLabel = buildImageMapAnchorLabel(scriptAnchor ?? null);
+  if (spanText && (!displayAnchor || displayAnchor === structuralAnchorLabel)) {
+    return spanText;
+  }
+  return displayAnchor ?? spanText ?? structuralAnchorLabel;
+}
+
 function normalizeImageMapEntryPatch(args: {
   entry: Partial<EpisodeImageMapEntry>;
   fallbackId?: string;
@@ -566,7 +580,7 @@ function normalizeImageMapEntryPatch(args: {
   fallbackParagraphBeatOrder?: number;
 }): EpisodeImageMapEntry | null {
   const scriptAnchor = normalizeImageMapScriptAnchor(args.entry.script_anchor);
-  const anchor = readString(args.entry.anchor) ?? buildImageMapAnchorLabel(scriptAnchor);
+  const anchor = resolveImageMapDisplayAnchor(readString(args.entry.anchor), scriptAnchor);
   const description = typeof args.entry.description === "string" ? args.entry.description : "";
   const id = readString(args.entry.id) ?? args.fallbackId ?? createImageMapEntryId();
   if (!anchor || !id) return null;
@@ -841,7 +855,7 @@ function rehydrateImportedImageBeatSheetEntries(args: {
 
     return {
       ...entry,
-      anchor: buildImageMapAnchorLabel(resolvedAnchor),
+      anchor: resolveImageMapDisplayAnchor(entry.anchor, resolvedAnchor),
       script_anchor: resolvedAnchor,
       status: normalizeDerivedImageMapStatus(
         "mapped",

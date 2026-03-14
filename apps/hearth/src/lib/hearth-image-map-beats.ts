@@ -3,6 +3,7 @@ import {
 } from "./hearth-visual-styles";
 import {
   buildImageMapAnchorLabel,
+  resolveImageMapDisplayAnchor,
   type EpisodeImageMapEntry,
   type EpisodeImageMapScriptAnchor,
 } from "./episode-package-v2";
@@ -273,10 +274,9 @@ function buildEntry(args: {
   beatOrder: number;
   anchor: EpisodeImageMapScriptAnchor;
 }): EpisodeImageMapEntry {
-  const anchorLabel = buildImageMapAnchorLabel(args.anchor);
   return {
     id: args.id,
-    anchor: anchorLabel,
+    anchor: resolveImageMapDisplayAnchor(null, args.anchor),
     script_anchor: args.anchor,
     description: args.anchor.span_text,
     visual_intent: args.anchor.span_text,
@@ -510,7 +510,7 @@ export function reanchorImageMapEntry(
 
   return {
     ...entry,
-    anchor: buildImageMapAnchorLabel(anchor),
+    anchor: resolveImageMapDisplayAnchor(null, anchor),
     script_anchor: anchor,
     status: entry.status === "draft" ? "mapped" : entry.status,
   };

@@ -157,7 +157,7 @@ const ARCHIVE_ACTOR_ID = "6f4a0a73-19d2-4926-bf70-ebf2b9306db4";
 function buildImageMapEntryFixture(id: string, overrides?: Partial<EpisodeImageMapEntry>): EpisodeImageMapEntry {
   return {
     id,
-    anchor: "s1:p1#sent1",
+    anchor: "wide skyline",
     script_anchor: {
       section_id: "s1",
       paragraph_id: "s1:p1",
@@ -1199,6 +1199,7 @@ async function testImageMapRepoReadNormalizesSemanticEntriesAndAssetSummary() {
     if (result.ok) {
       assert.equal(result.imageMap.workpieceId, WORKPIECE_A);
       assert.equal(result.imageMap.workspaceId, WORKSPACE_ID);
+      assert.equal(result.imageMap.entries[0]?.anchor, "wide skyline");
       assert.equal(result.imageMap.entries[0]?.source_type, "stock");
       assert.equal(result.imageMap.entries[0]?.script_anchor?.paragraph_id, "s1:p1");
       assert.equal(result.imageMap.entries[0]?.beat_order, 1);
@@ -1592,6 +1593,7 @@ function testGenerateImageMapEntriesFromScriptEmitsMultipleBeatsWithinParagraph(
     entries.map((entry) => entry.paragraph_beat_order),
     [1, 2, 3],
   );
+  assert.equal(entries[0]?.anchor, entries[0]?.script_anchor?.span_text);
   assert.equal(entries[0]?.script_anchor?.paragraph_id, "s1:p1");
   assert.equal(entries[0]?.style_preset, DEFAULT_HEARTH_VISUAL_STYLE);
   assert.match(entries[2]?.prompt_basis ?? "", /mississippi/i);
@@ -1842,7 +1844,7 @@ function testReanchorImageMapEntryPreservesBeatMetadata() {
   assert.equal(repaired?.selected_asset_id, "asset-a");
   assert.equal(repaired?.candidate_assets[0]?.asset_id, "asset-a");
   assert.equal(repaired?.status, "selected");
-  assert.equal(repaired?.anchor, "s1:p1#sent2");
+  assert.equal(repaired?.anchor, repaired?.script_anchor?.span_text);
   assert.match(repaired?.script_anchor?.span_text ?? "", /smoke drifted/i);
 }
 
@@ -1884,7 +1886,7 @@ async function testImageMapRepoSavePersistsReanchoredAnchor() {
     assert.equal(harness.saveRequests.length, 1);
     assert.equal(
       (harness.saveRequests[0]?.body.entries?.[0] as { anchor?: string } | undefined)?.anchor,
-      "s1:p1#sent2",
+      entry?.script_anchor?.span_text,
     );
     assert.equal(
       ((harness.saveRequests[0]?.body.entries?.[0] as { script_anchor?: { sentence_start?: number } } | undefined)?.script_anchor?.sentence_start),
@@ -1932,7 +1934,10 @@ function testApplyProductionArtifactImageBeatSheetResolvesStructuredAnchorsFromC
 
   const episodePackage = hydrateEpisodePackageV2(nextMetadata);
   assert.equal(episodePackage.image_map.entries.length, 1);
-  assert.equal(episodePackage.image_map.entries[0]?.anchor, "s1:p1#sent1");
+  assert.equal(
+    episodePackage.image_map.entries[0]?.anchor,
+    "As Florida's population exploded, groves turned into subdivisions.",
+  );
   assert.equal(episodePackage.image_map.entries[0]?.script_anchor?.paragraph_id, "s1:p1");
   assert.equal(episodePackage.image_map.entries[0]?.script_anchor?.sentence_start, 1);
   assert.equal(episodePackage.image_map.entries[0]?.status, "mapped");
@@ -2001,6 +2006,7 @@ function testHydrateEpisodePackageV2NormalizesLegacyVisualStyles() {
   });
 
   assert.equal(episodePackage.thumbnail.concepts[0]?.style_preset, "oil_painting");
+  assert.equal(episodePackage.image_map.entries[0]?.anchor, "wide skyline");
   assert.equal(episodePackage.image_map.entries[0]?.style_preset, DEFAULT_HEARTH_VISUAL_STYLE);
 }
 
