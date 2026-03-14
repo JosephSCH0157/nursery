@@ -49,6 +49,14 @@ export type EpisodeThumbnail = {
   primary_version_id: string | null;
 };
 
+export type EpisodeLaunchVariant = {
+  id: string;
+  title_id: string;
+  thumbnail_version_id: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type EpisodeImageMapScriptAnchor = {
   section_id: string;
   paragraph_id: string;
@@ -133,6 +141,7 @@ export type EpisodePackageV2 = {
   schema: typeof EPISODE_PACKAGE_V2_SCHEMA;
   seo: EpisodeSeo;
   thumbnail: EpisodeThumbnail;
+  launch_variants: EpisodeLaunchVariant[];
   image_map: EpisodeImageMap;
 };
 
@@ -327,6 +336,41 @@ function normalizeThumbnailVersions(value: unknown): EpisodeThumbnailVersion[] {
       error: readString(entry.error),
     });
   }
+  return out;
+}
+
+function normalizeLaunchVariants(
+  value: unknown,
+  args: {
+    titles: readonly EpisodeSeoTitle[];
+    versions: readonly EpisodeThumbnailVersion[];
+  },
+): EpisodeLaunchVariant[] {
+  if (!Array.isArray(value)) return [];
+  const titleIds = new Set(args.titles.map((title) => title.id));
+  const versionIds = new Set(args.versions.map((version) => version.id));
+  const seen = new Set<string>();
+  const out: EpisodeLaunchVariant[] = [];
+
+  for (let i = 0; i < value.length; i += 1) {
+    const entry = value[i];
+    if (!isRecord(entry)) continue;
+    const id = readString(entry.id) ?? `launch-variant-${String(i + 1).padStart(2, "0")}`;
+    const titleId = readString(entry.title_id) ?? readString(entry.seo_title_id);
+    const thumbnailVersionId = readString(entry.thumbnail_version_id) ?? readString(entry.version_id);
+    if (!titleId || !thumbnailVersionId) continue;
+    if (!titleIds.has(titleId) || !versionIds.has(thumbnailVersionId) || seen.has(id)) continue;
+    seen.add(id);
+    const createdAt = normalizeIso(entry.created_at);
+    out.push({
+      id,
+      title_id: titleId,
+      thumbnail_version_id: thumbnailVersionId,
+      created_at: createdAt,
+      updated_at: normalizeIso(entry.updated_at, createdAt),
+    });
+  }
+
   return out;
 }
 
@@ -769,6 +813,7 @@ export function createEmptyEpisodePackageV2(): EpisodePackageV2 {
       versions: [],
       primary_version_id: null,
     },
+    launch_variants: [],
     image_map: {
       entries: [],
     },
@@ -830,6 +875,15 @@ export function hydrateEpisodePackageV2(metadata: Record<string, unknown>): Epis
   const primaryVersionId = readString(thumbnailRoot?.primary_version_id)
     ?? readString(metadata.primary_thumbnail_version_id)
     ?? null;
+  const launchVariants = normalizeLaunchVariants(
+    Array.isArray(episodeRoot?.launch_variants)
+      ? episodeRoot.launch_variants
+      : metadata.launch_variants,
+    {
+      titles,
+      versions,
+    },
+  );
 
   const imageMapEntriesFromRoot = normalizeImageMapEntries(imageMapRoot?.entries);
   const imageMapEntriesFromLegacy = normalizeImageMapEntries(metadata.image_map_entries);
@@ -850,6 +904,7 @@ export function hydrateEpisodePackageV2(metadata: Record<string, unknown>): Epis
       versions,
       primary_version_id: primaryVersionId,
     },
+    launch_variants: launchVariants,
     image_map: {
       entries: imageMapEntriesFromRoot.length
         ? imageMapEntriesFromRoot
@@ -880,6 +935,7 @@ export function mirrorEpisodePackageV2ToLegacy(metadata: Record<string, unknown>
     thumbnail_concepts: episode.thumbnail.concepts,
     thumbnail_versions: episode.thumbnail.versions,
     primary_thumbnail_version_id: episode.thumbnail.primary_version_id,
+    launch_variants: episode.launch_variants,
     image_map_entries: episode.image_map.entries,
     image_beat_sheet: {
       entries: legacyBeatSheetEntries,
@@ -1029,6 +1085,20 @@ export function ensureImageMapV2(pkg: EpisodePackageV2): EpisodePackageV2 {
     image_map: {
       entries: hydratedEntries,
     },
+  };
+}
+
+export function ensureLaunchVariantsV2(pkg: EpisodePackageV2): EpisodePackageV2 {
+  const normalized = ensureSeoV2(pkg);
+  const versions = Array.isArray(normalized.thumbnail?.versions) ? normalized.thumbnail.versions : [];
+  const launchVariants = normalizeLaunchVariants(normalized.launch_variants, {
+    titles: normalized.seo.titles,
+    versions,
+  });
+
+  return {
+    ...normalized,
+    launch_variants: launchVariants,
   };
 }
 

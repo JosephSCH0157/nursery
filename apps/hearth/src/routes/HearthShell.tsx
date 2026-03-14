@@ -123,6 +123,7 @@ import {
 } from "../lib/hearth-image-map-beats";
 import type {
   EpisodePackageV2,
+  EpisodeLaunchVariant,
   EpisodeThumbnailConcept,
   EpisodeThumbnailVersion,
   EpisodeImageMapEntry,
@@ -131,6 +132,7 @@ import type {
 import {
   addImageMapEntry,
   buildImageMapAnchorLabel,
+  ensureLaunchVariantsV2,
   ensureSeoV2,
   normalizeSeoTags,
   removeImageMapEntry,
@@ -144,6 +146,7 @@ import {
 import ThumbnailPanel from "../components/visuals/ThumbnailPanel";
 import ImageMapPanel from "../components/visuals/ImageMapPanel";
 import MetadataPanel from "../components/metadata/MetadataPanel";
+import CollapsibleFocusPanel from "../components/focus/CollapsibleFocusPanel";
 import { MobilePage, useLayoutMode } from "@forge/ui-mobile";
 import {
   getMyWritingProfile,
@@ -159,6 +162,7 @@ const SESSION_SAVE_DELAY_MS = 500;
 const STORE_KIND_KEY = "hearth_store_kind";
 const DEV_MODE_KEY = "tp_dev_mode";
 const MODE_STORAGE_PREFIX = "hearth:ui:mode:v1:";
+const FOCUS_PANEL_LAYOUT_STORAGE_PREFIX = "hearth:focus-layout:v1:";
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
 const CHAT_HISTORY_MAX_MESSAGES = 200;
@@ -180,6 +184,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 
 type HearthMode = "sparks" | "episodes" | "ready" | "series" | "focus";
 type FocusTab = "draft" | "planning" | "sources" | "revisions";
+type FocusPanelId = "chat" | "thumbnail" | "imageMap" | "metadata";
 type ProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet";
 type SttLane = "browser" | "ai";
 type SttState = "idle" | "listening" | "transcribing";
@@ -253,6 +258,12 @@ const TONE_PRESET_OPTIONS = [
 const DEFAULT_TONE_PRESET = "neutral_conversational";
 const EMPTY_WORKPIECE_SUMMARY_LIST: HearthWorkpieceSummary[] = [];
 const EMPTY_READY_SCRIPT_LIST: HearthReadyScript[] = [];
+const DEFAULT_FOCUS_PANEL_LAYOUT: Record<FocusPanelId, boolean> = {
+  chat: false,
+  thumbnail: false,
+  imageMap: false,
+  metadata: false,
+};
 
 function readTrimmedString(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -628,6 +639,38 @@ function writeMode(workpieceId: string | null, mode: HearthMode): void {
   if (mode === "sparks") return;
   try {
     window.localStorage.setItem(`${MODE_STORAGE_PREFIX}${workpieceId}`, mode);
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function readFocusPanelLayout(workpieceId: string | null): Record<FocusPanelId, boolean> {
+  if (!workpieceId || typeof window === "undefined") {
+    return { ...DEFAULT_FOCUS_PANEL_LAYOUT };
+  }
+  try {
+    const raw = window.localStorage.getItem(`${FOCUS_PANEL_LAYOUT_STORAGE_PREFIX}${workpieceId}`);
+    if (!raw) return { ...DEFAULT_FOCUS_PANEL_LAYOUT };
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ...DEFAULT_FOCUS_PANEL_LAYOUT };
+    }
+    const row = parsed as Record<string, unknown>;
+    return {
+      chat: row.chat === true,
+      thumbnail: row.thumbnail === true,
+      imageMap: row.imageMap === true,
+      metadata: row.metadata === true,
+    };
+  } catch {
+    return { ...DEFAULT_FOCUS_PANEL_LAYOUT };
+  }
+}
+
+function writeFocusPanelLayout(workpieceId: string | null, layout: Record<FocusPanelId, boolean>): void {
+  if (!workpieceId || typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(`${FOCUS_PANEL_LAYOUT_STORAGE_PREFIX}${workpieceId}`, JSON.stringify(layout));
   } catch {
     // ignore storage failures
   }
@@ -1980,8 +2023,10 @@ export default function HearthShell() {
   const [aiTokenBalance, setAiTokenBalance] = useState<number | null>(null);
   const [aiBillingMode, setAiBillingMode] = useState<HearthAiLane>(() => resolveAiLaneFromStorage());
   const [episodePackage, setEpisodePackage] = useState<EpisodePackageV2 | null>(null);
+  const [selectedThumbnailTitleId, setSelectedThumbnailTitleId] = useState<string | null>(null);
   const [selectedThumbnailConceptId, setSelectedThumbnailConceptId] = useState<string>("");
   const [selectedThumbnailVersionId, setSelectedThumbnailVersionId] = useState<string | null>(null);
+  const [selectedLaunchVariantId, setSelectedLaunchVariantId] = useState<string | null>(null);
   const [thumbnailConceptLabelDraft, setThumbnailConceptLabelDraft] = useState("");
   const [thumbnailConceptPromptDraft, setThumbnailConceptPromptDraft] = useState("");
   const [thumbnailConceptStyleDraft, setThumbnailConceptStyleDraft] = useState(DEFAULT_HEARTH_VISUAL_STYLE);
@@ -1992,6 +2037,7 @@ export default function HearthShell() {
   const [isThumbnailUploading, setIsThumbnailUploading] = useState(false);
   const [thumbnailGenerateError, setThumbnailGenerateError] = useState<string | null>(null);
   const [thumbnailUploadError, setThumbnailUploadError] = useState<string | null>(null);
+  const [thumbnailPairingError, setThumbnailPairingError] = useState<string | null>(null);
   const [thumbnailPreviewState, setThumbnailPreviewState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [thumbnailPreviewDataUrl, setThumbnailPreviewDataUrl] = useState<string | null>(null);
   const [thumbnailPreviewError, setThumbnailPreviewError] = useState<string | null>(null);
@@ -2037,6 +2083,9 @@ export default function HearthShell() {
   const [metadataPreviewMode, setMetadataPreviewMode] = useState<"youtube" | "rss" | "plain">("youtube");
   const [metadataSaveState, setMetadataSaveState] = useState<"saved" | "editing" | "saving" | "offline" | "error">("saved");
   const [metadataSaveError, setMetadataSaveError] = useState<string | null>(null);
+  const [focusPanelLayout, setFocusPanelLayout] = useState<Record<FocusPanelId, boolean>>(() =>
+    readFocusPanelLayout(incomingBarStockIntakeRoute ? null : resolveWorkpieceId()),
+  );
   const [presenceRows, setPresenceRows] = useState<HearthWorkpiecePresence[]>([]);
   const [draftConflictState, setDraftConflictState] = useState<DraftConflictState | null>(null);
   const [mobileOverlayView, setMobileOverlayView] = useState<"editor" | "ready" | null>(null);
@@ -2255,14 +2304,16 @@ export default function HearthShell() {
   const aiEpisodeReady = Boolean(workpieceId?.trim());
   const thumbnailConcepts = episodePackage?.thumbnail.concepts ?? [];
   const thumbnailVersions = episodePackage?.thumbnail.versions ?? [];
+  const launchVariants = episodePackage?.launch_variants ?? [];
   const primaryThumbnailVersionId = episodePackage?.thumbnail.primary_version_id ?? null;
   const thumbnailTitleOptions = useMemo(
     () => metadataTitlesDraft.filter((title) => title.text.trim().length > 0),
     [metadataTitlesDraft],
   );
   const selectedThumbnailTitle = useMemo(
-    () => resolvePrimarySeoTitle(metadataTitlesDraft),
-    [metadataTitlesDraft],
+    () => thumbnailTitleOptions.find((title) => title.id === selectedThumbnailTitleId)
+      ?? resolvePrimarySeoTitle(metadataTitlesDraft),
+    [metadataTitlesDraft, selectedThumbnailTitleId, thumbnailTitleOptions],
   );
   const selectedThumbnailConcept = thumbnailConcepts.find((concept) => concept.id === selectedThumbnailConceptId) ?? null;
   const selectedThumbnailVersion = thumbnailVersions.find((version) => version.id === selectedThumbnailVersionId) ?? null;
@@ -2317,6 +2368,13 @@ export default function HearthShell() {
     previewDataUrl: imageMapCandidatePreviewUrlById[candidate.asset_id] ?? null,
     previewError: imageMapCandidatePreviewErrorById[candidate.asset_id] ?? null,
   }));
+  const hasCollapsedFocusPanels = Object.values(focusPanelLayout).some(Boolean);
+  const chatPanelMeta = chatMessages.length > 0
+    ? `${chatMessages.length} message${chatMessages.length === 1 ? "" : "s"}`
+    : "Ready";
+  const thumbnailPanelMeta = `${thumbnailConcepts.length} concepts · ${thumbnailVersions.length} versions`;
+  const imageMapPanelMeta = `${imageMapEntries.length} beat${imageMapEntries.length === 1 ? "" : "s"}`;
+  const metadataPanelMeta = `${thumbnailTitleOptions.length} title${thumbnailTitleOptions.length === 1 ? "" : "s"} · ${metadataTagsDraft.length} tag${metadataTagsDraft.length === 1 ? "" : "s"}`;
   const hasBrowserSpeech = (
     typeof window !== "undefined"
     && (Boolean((window as any).SpeechRecognition) || Boolean((window as any).webkitSpeechRecognition))
@@ -2817,11 +2875,14 @@ export default function HearthShell() {
       // residue never renders as current truth for the new target.
       setEpisodePackage(null);
       setImageMapMetadataUpdatedAt(null);
+      setSelectedThumbnailTitleId(null);
       setSelectedThumbnailConceptId("");
       setSelectedThumbnailVersionId(null);
+      setSelectedLaunchVariantId(null);
       setSelectedImageMapEntryId(null);
       setThumbnailGenerateError(null);
       setThumbnailUploadError(null);
+      setThumbnailPairingError(null);
       setThumbnailPreviewState("idle");
       setThumbnailPreviewDataUrl(null);
       setThumbnailPreviewError(null);
@@ -4317,6 +4378,28 @@ export default function HearthShell() {
   }, [selectedThumbnailConcept]);
 
   useEffect(() => {
+    if (launchVariants.length === 0) {
+      setSelectedLaunchVariantId(null);
+      return;
+    }
+    if (selectedLaunchVariantId && launchVariants.some((variant) => variant.id === selectedLaunchVariantId)) {
+      return;
+    }
+    setSelectedLaunchVariantId(null);
+  }, [launchVariants, selectedLaunchVariantId]);
+
+  useEffect(() => {
+    if (thumbnailTitleOptions.length === 0) {
+      setSelectedThumbnailTitleId(null);
+      return;
+    }
+    if (selectedThumbnailTitleId && thumbnailTitleOptions.some((title) => title.id === selectedThumbnailTitleId)) {
+      return;
+    }
+    setSelectedThumbnailTitleId(resolvePrimarySeoTitle(thumbnailTitleOptions)?.id ?? thumbnailTitleOptions[0]?.id ?? null);
+  }, [selectedThumbnailTitleId, thumbnailTitleOptions]);
+
+  useEffect(() => {
     if (thumbnailVersions.length === 0) {
       setSelectedThumbnailVersionId(null);
       return;
@@ -4347,6 +4430,7 @@ export default function HearthShell() {
     setThumbnailPromptOverride("");
     setThumbnailAspect("16:9");
     setThumbnailSafeZoneEnabled(false);
+    setThumbnailPairingError(null);
     setThumbnailPreviewState("idle");
     setThumbnailPreviewDataUrl(null);
     setThumbnailPreviewError(null);
@@ -4679,6 +4763,14 @@ export default function HearthShell() {
     const timer = window.setTimeout(() => setScriptPanelCopyMessage(null), 2600);
     return () => window.clearTimeout(timer);
   }, [scriptPanelCopyMessage]);
+
+  useEffect(() => {
+    setFocusPanelLayout(readFocusPanelLayout(workpieceId));
+  }, [workpieceId]);
+
+  useEffect(() => {
+    writeFocusPanelLayout(workpieceId, focusPanelLayout);
+  }, [focusPanelLayout, workpieceId]);
 
   useEffect(() => {
     setMetadataSaveState("saved");
@@ -6606,10 +6698,11 @@ export default function HearthShell() {
       setThumbnailGenerateError("Select an Episode before editing visuals.");
       return null;
     }
+    const normalizedEpisodePackage = ensureLaunchVariantsV2(nextEpisodePackage);
     const saved = await saveEpisodePackageForWorkpiece({
       workpieceId: episodeId,
       workspaceId: workspace,
-      episodePackage: nextEpisodePackage,
+      episodePackage: normalizedEpisodePackage,
       eventName,
       eventPayload,
     });
@@ -6831,12 +6924,102 @@ export default function HearthShell() {
     setSelectedThumbnailVersionId(versionId);
   }
 
+  function onSelectThumbnailTitle(titleId: string): void {
+    setSelectedThumbnailTitleId(titleId);
+    setThumbnailPairingError(null);
+  }
+
   function onSelectThumbnailVersion(versionId: string): void {
     const version = thumbnailVersions.find((entry) => entry.id === versionId) ?? null;
     if (version) {
       setSelectedThumbnailConceptId(version.concept_id);
     }
     setSelectedThumbnailVersionId(versionId);
+    setThumbnailPairingError(null);
+  }
+
+  function onCreateLaunchVariant(): void {
+    setSelectedLaunchVariantId(null);
+    setThumbnailPairingError(null);
+  }
+
+  function onSelectLaunchVariant(variantId: string): void {
+    const variant = launchVariants.find((entry) => entry.id === variantId) ?? null;
+    if (!variant) return;
+    const version = thumbnailVersions.find((entry) => entry.id === variant.thumbnail_version_id) ?? null;
+    if (version) {
+      setSelectedThumbnailConceptId(version.concept_id);
+      setSelectedThumbnailVersionId(version.id);
+    }
+    setSelectedThumbnailTitleId(variant.title_id);
+    setSelectedLaunchVariantId(variant.id);
+    setThumbnailPairingError(null);
+  }
+
+  async function onSaveLaunchVariant() {
+    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
+    if (!episodePackage) return;
+
+    const titleId = selectedThumbnailTitleId?.trim() ?? "";
+    const versionId = selectedThumbnailVersionId?.trim() ?? "";
+    if (!titleId || !versionId) {
+      setThumbnailPairingError("Choose both a title and a thumbnail version before saving a launch variant.");
+      return;
+    }
+
+    const title = metadataTitlesDraft.find((entry) => entry.id === titleId) ?? null;
+    if (!title || !title.text.trim()) {
+      setThumbnailPairingError("Choose a populated title before saving a launch variant.");
+      return;
+    }
+
+    const version = thumbnailVersions.find((entry) => entry.id === versionId) ?? null;
+    if (!version) {
+      setThumbnailPairingError("Select a valid thumbnail version before saving a launch variant.");
+      return;
+    }
+
+    const existingVariant = selectedLaunchVariantId
+      ? episodePackage.launch_variants.find((entry) => entry.id === selectedLaunchVariantId) ?? null
+      : null;
+    const nowIso = new Date().toISOString();
+    const nextVariant: EpisodeLaunchVariant = existingVariant
+      ? {
+          ...existingVariant,
+          title_id: titleId,
+          thumbnail_version_id: versionId,
+          updated_at: nowIso,
+        }
+      : {
+          id: createThumbnailClientId("launch-variant"),
+          title_id: titleId,
+          thumbnail_version_id: versionId,
+          created_at: nowIso,
+          updated_at: nowIso,
+        };
+
+    const nextEpisodePackage: EpisodePackageV2 = {
+      ...episodePackage,
+      launch_variants: existingVariant
+        ? episodePackage.launch_variants.map((entry) => (entry.id === nextVariant.id ? nextVariant : entry))
+        : [...episodePackage.launch_variants, nextVariant],
+    };
+
+    setThumbnailPairingError(null);
+    const saved = await persistThumbnailEpisodePackage(
+      nextEpisodePackage,
+      existingVariant ? "hearth.launch.variant.updated.v1" : "hearth.launch.variant.created.v1",
+      {
+        launch_variant_id: nextVariant.id,
+        title_id: titleId,
+        thumbnail_version_id: versionId,
+      },
+    );
+    if (!saved) {
+      setThumbnailPairingError("Unable to save launch variant.");
+      return;
+    }
+    setSelectedLaunchVariantId(nextVariant.id);
   }
 
   async function onGenerateThumbnailVersion(options?: {
@@ -7568,6 +7751,17 @@ export default function HearthShell() {
 
   function onMetadataPreviewModeChange(mode: "youtube" | "rss" | "plain"): void {
     setMetadataPreviewMode(mode);
+  }
+
+  function onToggleFocusPanel(panelId: FocusPanelId): void {
+    setFocusPanelLayout((prev) => ({
+      ...prev,
+      [panelId]: !prev[panelId],
+    }));
+  }
+
+  function onRestoreDefaultFocusLayout(): void {
+    setFocusPanelLayout({ ...DEFAULT_FOCUS_PANEL_LAYOUT });
   }
 
   async function onSendChat() {
@@ -8612,7 +8806,23 @@ export default function HearthShell() {
         </div>
 
         <div className={`hs-draft-stage${showScriptEditor ? " has-script-panel" : ""}`}>
-          <section className="hs-ai-chat" aria-label="Hearth AI chat">
+          <div className="hs-focus-stack">
+            {hasCollapsedFocusPanels ? (
+              <div className="hs-focus-stack-toolbar">
+                <button type="button" onClick={onRestoreDefaultFocusLayout}>
+                  Restore Default Layout
+                </button>
+              </div>
+            ) : null}
+
+            <CollapsibleFocusPanel
+              panelId="hearth-chat-panel"
+              title="Chat"
+              meta={chatPanelMeta}
+              collapsed={focusPanelLayout.chat}
+              onToggle={() => onToggleFocusPanel("chat")}
+            >
+              <section className="hs-ai-chat" aria-label="Hearth AI chat">
             <div className="hs-ai-chat-header">
               <div className="hs-ai-chat-title">Conversation</div>
               <button
@@ -8763,150 +8973,6 @@ export default function HearthShell() {
               </div>
             ) : null}
 
-            {hasApprovedScript && approvedScriptVersion ? (
-              <ThumbnailPanel
-                concepts={thumbnailConcepts}
-                versions={thumbnailVersions}
-                titleOptions={thumbnailTitleOptions}
-                selectedTitleId={selectedThumbnailTitle?.id ?? null}
-                selectedTitleText={selectedThumbnailTitle?.text ?? ""}
-                selectedConceptId={selectedThumbnailConceptId}
-                selectedVersionId={selectedThumbnailVersionId}
-                primaryVersionId={primaryThumbnailVersionId}
-                selectedConceptLabel={thumbnailConceptLabelDraft}
-                selectedConceptPrompt={thumbnailConceptPromptDraft}
-                selectedConceptStylePreset={thumbnailConceptStyleDraft}
-                promptOverride={thumbnailPromptOverride}
-                aspect={thumbnailAspect}
-                safeZoneEnabled={thumbnailSafeZoneEnabled}
-                previewDataUrl={thumbnailPreviewDataUrl}
-                previewState={thumbnailPreviewState}
-                previewError={thumbnailPreviewError}
-                generateError={thumbnailGenerateError}
-                uploadError={thumbnailUploadError}
-                isGenerating={isThumbnailGenerating}
-                isSavingConcept={isThumbnailConceptSaving}
-                isUploading={isThumbnailUploading}
-                onSelectTitle={onMetadataSetPrimaryTitle}
-                onSelectConcept={setSelectedThumbnailConceptId}
-                onSelectedConceptLabelChange={setThumbnailConceptLabelDraft}
-                onSelectedConceptPromptChange={setThumbnailConceptPromptDraft}
-                onSelectedConceptStylePresetChange={(value) => setThumbnailConceptStyleDraft(normalizeHearthVisualStyle(value))}
-                onCreateConcept={() => void onCreateThumbnailConcept()}
-                onSaveConcept={() => void onSaveSelectedThumbnailConcept()}
-                onDeleteConcept={() => void onDeleteSelectedThumbnailConcept()}
-                onPromptOverrideChange={setThumbnailPromptOverride}
-                onAspectChange={setThumbnailAspect}
-                onGenerate={() => void onGenerateThumbnailVersion()}
-                onRegenerate={() => void onGenerateThumbnailVersion({ forceConceptId: selectedThumbnailConceptId || null })}
-                onToggleSafeZone={() => setThumbnailSafeZoneEnabled((prev) => !prev)}
-                onUploadImage={(file) => void onUploadThumbnailImage(file)}
-                onSelectVersion={onSelectThumbnailVersion}
-                onSetPrimary={(versionId) => void onSetPrimaryThumbnailVersion(versionId)}
-                onRetryVersion={(version) => void onRetryFailedThumbnailVersion(version)}
-              />
-            ) : null}
-
-            {hasApprovedScript && approvedScriptVersion ? (
-              <ImageMapPanel
-                entries={imageMapEntries}
-                selectedEntryId={selectedImageMapEntryId}
-                draftAnchor={imageMapAnchorDraft}
-                draftDescription={imageMapDescriptionDraft}
-                draftStylePreset={imageMapStyleDraft}
-                draftIntent={imageMapIntentDraft}
-                draftSourceType={imageMapSourceTypeDraft}
-                draftPlacementHint={imageMapPlacementHintDraft}
-                saveState={imageMapSaveState}
-                saveError={imageMapSaveError}
-                exportMessage={imageMapExportMessage}
-                candidateCards={imageMapCandidateCards}
-                candidateGenerateBusy={isImageMapCandidateGenerating}
-                candidateGenerateError={imageMapCandidateError}
-                candidateSelectBusy={isImageMapCandidateSelecting}
-                candidateSelectionError={imageMapCandidateSelectionError}
-                anchorStatusLabel={imageMapAnchorStatusView?.label ?? null}
-                anchorStatusTone={imageMapAnchorStatusView?.tone ?? "neutral"}
-                anchorStatusDetail={imageMapAnchorStatusView?.detail ?? null}
-                reanchorMode={isImageMapReanchorMode}
-                reanchorBusy={isImageMapReanchorSaving}
-                reanchorDisabledReason={imageMapReanchorDisabledReason}
-                reanchorError={imageMapReanchorError}
-                reanchorScriptSourceLabel={resolveCanonicalImageMapScriptSourceLabel(canonicalImageMapScriptState)}
-                reanchorScriptHint={resolveCanonicalImageMapScriptHint(canonicalImageMapScriptState)}
-                reanchorScriptLoading={canonicalImageMapScriptState.status === "loading"}
-                reanchorParagraphs={imageMapAnchorPickerParagraphs}
-                activeAnchorLabel={imageMapActiveAnchorLabel}
-                disabled={isAiProcessing || isApprovingScript || isImageMapReanchorSaving}
-                onSelectEntry={setSelectedImageMapEntryId}
-                onSelectCandidate={(candidateId) => void onSelectImageMapCandidate(candidateId)}
-                onDraftAnchorChange={(value) => {
-                  setImageMapAnchorDraft(value);
-                  setImageMapSaveState("editing");
-                  setImageMapSaveError(null);
-                }}
-                onDraftDescriptionChange={(value) => {
-                  setImageMapDescriptionDraft(value);
-                  setImageMapSaveState("editing");
-                  setImageMapSaveError(null);
-                }}
-                onDraftStylePresetChange={(value) => {
-                  setImageMapStyleDraft(normalizeHearthVisualStyle(value));
-                  setImageMapSaveState("editing");
-                  setImageMapSaveError(null);
-                }}
-                onDraftIntentChange={(value) => {
-                  setImageMapIntentDraft(value);
-                  setImageMapSaveState("editing");
-                  setImageMapSaveError(null);
-                }}
-                onDraftSourceTypeChange={(value) => {
-                  setImageMapSourceTypeDraft(value);
-                  setImageMapSaveState("editing");
-                  setImageMapSaveError(null);
-                }}
-                onDraftPlacementHintChange={(value) => {
-                  setImageMapPlacementHintDraft(value);
-                  setImageMapSaveState("editing");
-                  setImageMapSaveError(null);
-                }}
-                onCreateEntry={() => void onCreateImageMapEntry()}
-                onDuplicateEntry={() => void onDuplicateImageMapEntry()}
-                onDeleteEntry={() => void onDeleteImageMapEntry()}
-                onSeedFromScript={() => void onSeedImageMapFromScript()}
-                onGenerateCandidates={() => void onGenerateImageMapCandidates()}
-                onCopyExport={() => void onCopyImageMapExportJson()}
-                onDownloadExport={onDownloadImageMapExportJson}
-                onStartReanchor={onStartImageMapReanchor}
-                onCancelReanchor={onCancelImageMapReanchor}
-                onPickReanchor={(selection) => void onPickImageMapReanchor(selection)}
-              />
-            ) : null}
-
-            {hasApprovedScript && approvedScriptVersion ? (
-              <MetadataPanel
-                titles={metadataTitlesDraft}
-                tags={metadataTagsDraft}
-                tagInput={metadataTagInputDraft}
-                tagSuggestions={metadataTagSuggestions}
-                descriptionShort={metadataDescriptionShortDraft}
-                descriptionLong={metadataDescriptionLongDraft}
-                previewMode={metadataPreviewMode}
-                saveState={metadataSaveState}
-                saveError={metadataSaveError}
-                disabled={isApprovingScript || !episodePackage}
-                onTitleChange={onMetadataTitleChange}
-                onSetPrimaryTitle={onMetadataSetPrimaryTitle}
-                onTagInputChange={setMetadataTagInputDraft}
-                onAddTagFromInput={onMetadataAddTagFromInput}
-                onRemoveTag={onMetadataRemoveTag}
-                onAddTagSuggestion={onMetadataAddTagSuggestion}
-                onDescriptionShortChange={onMetadataDescriptionShortChange}
-                onDescriptionLongChange={onMetadataDescriptionLongChange}
-                onPreviewModeChange={onMetadataPreviewModeChange}
-              />
-            ) : null}
-
             <div className="hs-ai-shortcut-row" role="group" aria-label="Chat shortcuts">
               <button type="button" onClick={() => onUseChatShortcut("Create a clear outline for this Episode.")}>
                 Outline
@@ -9002,7 +9068,183 @@ export default function HearthShell() {
             {sttError ? (
               <div className="hs-error-text-small">{sttError}</div>
             ) : null}
-          </section>
+              </section>
+            </CollapsibleFocusPanel>
+
+            {hasApprovedScript && approvedScriptVersion ? (
+              <CollapsibleFocusPanel
+                panelId="hearth-thumbnail-panel"
+                title="Thumbnails"
+                meta={thumbnailPanelMeta}
+                collapsed={focusPanelLayout.thumbnail}
+                onToggle={() => onToggleFocusPanel("thumbnail")}
+              >
+                <ThumbnailPanel
+                  concepts={thumbnailConcepts}
+                  versions={thumbnailVersions}
+                  titleOptions={thumbnailTitleOptions}
+                  launchVariants={launchVariants}
+                  selectedTitleId={selectedThumbnailTitleId}
+                  selectedTitleText={selectedThumbnailTitle?.text ?? ""}
+                  selectedConceptId={selectedThumbnailConceptId}
+                  selectedVersionId={selectedThumbnailVersionId}
+                  selectedLaunchVariantId={selectedLaunchVariantId}
+                  primaryVersionId={primaryThumbnailVersionId}
+                  selectedConceptLabel={thumbnailConceptLabelDraft}
+                  selectedConceptPrompt={thumbnailConceptPromptDraft}
+                  selectedConceptStylePreset={thumbnailConceptStyleDraft}
+                  promptOverride={thumbnailPromptOverride}
+                  aspect={thumbnailAspect}
+                  safeZoneEnabled={thumbnailSafeZoneEnabled}
+                  previewDataUrl={thumbnailPreviewDataUrl}
+                  previewState={thumbnailPreviewState}
+                  previewError={thumbnailPreviewError}
+                  generateError={thumbnailGenerateError}
+                  uploadError={thumbnailUploadError}
+                  pairingError={thumbnailPairingError}
+                  isGenerating={isThumbnailGenerating}
+                  isSavingConcept={isThumbnailConceptSaving}
+                  isUploading={isThumbnailUploading}
+                  onSelectTitle={onSelectThumbnailTitle}
+                  onSelectConcept={setSelectedThumbnailConceptId}
+                  onSelectedConceptLabelChange={setThumbnailConceptLabelDraft}
+                  onSelectedConceptPromptChange={setThumbnailConceptPromptDraft}
+                  onSelectedConceptStylePresetChange={(value) => setThumbnailConceptStyleDraft(normalizeHearthVisualStyle(value))}
+                  onCreateConcept={() => void onCreateThumbnailConcept()}
+                  onSaveConcept={() => void onSaveSelectedThumbnailConcept()}
+                  onDeleteConcept={() => void onDeleteSelectedThumbnailConcept()}
+                  onPromptOverrideChange={setThumbnailPromptOverride}
+                  onAspectChange={setThumbnailAspect}
+                  onGenerate={() => void onGenerateThumbnailVersion()}
+                  onRegenerate={() => void onGenerateThumbnailVersion({ forceConceptId: selectedThumbnailConceptId || null })}
+                  onToggleSafeZone={() => setThumbnailSafeZoneEnabled((prev) => !prev)}
+                  onUploadImage={(file) => void onUploadThumbnailImage(file)}
+                  onSelectVersion={onSelectThumbnailVersion}
+                  onSetPrimary={(versionId) => void onSetPrimaryThumbnailVersion(versionId)}
+                  onRetryVersion={(version) => void onRetryFailedThumbnailVersion(version)}
+                  onSelectLaunchVariant={onSelectLaunchVariant}
+                  onCreateLaunchVariant={onCreateLaunchVariant}
+                  onSaveLaunchVariant={() => void onSaveLaunchVariant()}
+                />
+              </CollapsibleFocusPanel>
+            ) : null}
+
+            {hasApprovedScript && approvedScriptVersion ? (
+              <CollapsibleFocusPanel
+                panelId="hearth-image-map-panel"
+                title="Timeline Images"
+                meta={imageMapPanelMeta}
+                collapsed={focusPanelLayout.imageMap}
+                onToggle={() => onToggleFocusPanel("imageMap")}
+              >
+                <ImageMapPanel
+                  entries={imageMapEntries}
+                  selectedEntryId={selectedImageMapEntryId}
+                  draftAnchor={imageMapAnchorDraft}
+                  draftDescription={imageMapDescriptionDraft}
+                  draftStylePreset={imageMapStyleDraft}
+                  draftIntent={imageMapIntentDraft}
+                  draftSourceType={imageMapSourceTypeDraft}
+                  draftPlacementHint={imageMapPlacementHintDraft}
+                  saveState={imageMapSaveState}
+                  saveError={imageMapSaveError}
+                  exportMessage={imageMapExportMessage}
+                  candidateCards={imageMapCandidateCards}
+                  candidateGenerateBusy={isImageMapCandidateGenerating}
+                  candidateGenerateError={imageMapCandidateError}
+                  candidateSelectBusy={isImageMapCandidateSelecting}
+                  candidateSelectionError={imageMapCandidateSelectionError}
+                  anchorStatusLabel={imageMapAnchorStatusView?.label ?? null}
+                  anchorStatusTone={imageMapAnchorStatusView?.tone ?? "neutral"}
+                  anchorStatusDetail={imageMapAnchorStatusView?.detail ?? null}
+                  reanchorMode={isImageMapReanchorMode}
+                  reanchorBusy={isImageMapReanchorSaving}
+                  reanchorDisabledReason={imageMapReanchorDisabledReason}
+                  reanchorError={imageMapReanchorError}
+                  reanchorScriptSourceLabel={resolveCanonicalImageMapScriptSourceLabel(canonicalImageMapScriptState)}
+                  reanchorScriptHint={resolveCanonicalImageMapScriptHint(canonicalImageMapScriptState)}
+                  reanchorScriptLoading={canonicalImageMapScriptState.status === "loading"}
+                  reanchorParagraphs={imageMapAnchorPickerParagraphs}
+                  activeAnchorLabel={imageMapActiveAnchorLabel}
+                  disabled={isAiProcessing || isApprovingScript || isImageMapReanchorSaving}
+                  onSelectEntry={setSelectedImageMapEntryId}
+                  onSelectCandidate={(candidateId) => void onSelectImageMapCandidate(candidateId)}
+                  onDraftAnchorChange={(value) => {
+                    setImageMapAnchorDraft(value);
+                    setImageMapSaveState("editing");
+                    setImageMapSaveError(null);
+                  }}
+                  onDraftDescriptionChange={(value) => {
+                    setImageMapDescriptionDraft(value);
+                    setImageMapSaveState("editing");
+                    setImageMapSaveError(null);
+                  }}
+                  onDraftStylePresetChange={(value) => {
+                    setImageMapStyleDraft(normalizeHearthVisualStyle(value));
+                    setImageMapSaveState("editing");
+                    setImageMapSaveError(null);
+                  }}
+                  onDraftIntentChange={(value) => {
+                    setImageMapIntentDraft(value);
+                    setImageMapSaveState("editing");
+                    setImageMapSaveError(null);
+                  }}
+                  onDraftSourceTypeChange={(value) => {
+                    setImageMapSourceTypeDraft(value);
+                    setImageMapSaveState("editing");
+                    setImageMapSaveError(null);
+                  }}
+                  onDraftPlacementHintChange={(value) => {
+                    setImageMapPlacementHintDraft(value);
+                    setImageMapSaveState("editing");
+                    setImageMapSaveError(null);
+                  }}
+                  onCreateEntry={() => void onCreateImageMapEntry()}
+                  onDuplicateEntry={() => void onDuplicateImageMapEntry()}
+                  onDeleteEntry={() => void onDeleteImageMapEntry()}
+                  onSeedFromScript={() => void onSeedImageMapFromScript()}
+                  onGenerateCandidates={() => void onGenerateImageMapCandidates()}
+                  onCopyExport={() => void onCopyImageMapExportJson()}
+                  onDownloadExport={onDownloadImageMapExportJson}
+                  onStartReanchor={onStartImageMapReanchor}
+                  onCancelReanchor={onCancelImageMapReanchor}
+                  onPickReanchor={(selection) => void onPickImageMapReanchor(selection)}
+                />
+              </CollapsibleFocusPanel>
+            ) : null}
+
+            {hasApprovedScript && approvedScriptVersion ? (
+              <CollapsibleFocusPanel
+                panelId="hearth-metadata-panel"
+                title="Metadata"
+                meta={metadataPanelMeta}
+                collapsed={focusPanelLayout.metadata}
+                onToggle={() => onToggleFocusPanel("metadata")}
+              >
+                <MetadataPanel
+                  titles={metadataTitlesDraft}
+                  tags={metadataTagsDraft}
+                  tagInput={metadataTagInputDraft}
+                  tagSuggestions={metadataTagSuggestions}
+                  descriptionShort={metadataDescriptionShortDraft}
+                  descriptionLong={metadataDescriptionLongDraft}
+                  previewMode={metadataPreviewMode}
+                  saveState={metadataSaveState}
+                  saveError={metadataSaveError}
+                  disabled={isApprovingScript || !episodePackage}
+                  onTitleChange={onMetadataTitleChange}
+                  onSetPrimaryTitle={onMetadataSetPrimaryTitle}
+                  onTagInputChange={setMetadataTagInputDraft}
+                  onAddTagFromInput={onMetadataAddTagFromInput}
+                  onRemoveTag={onMetadataRemoveTag}
+                  onAddTagSuggestion={onMetadataAddTagSuggestion}
+                  onDescriptionShortChange={onMetadataDescriptionShortChange}
+                  onDescriptionLongChange={onMetadataDescriptionLongChange}
+                  onPreviewModeChange={onMetadataPreviewModeChange}
+                />
+              </CollapsibleFocusPanel>
+            ) : null}
+          </div>
 
           {showScriptEditor ? (
             <section className="hs-script-panel" aria-label="Manual draft editor">

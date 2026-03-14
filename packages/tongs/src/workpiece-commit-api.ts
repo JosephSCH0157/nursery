@@ -476,6 +476,7 @@ export type EpisodePackageRecord = {
     versions: ThumbnailVersionRecord[];
     primary_version_id: string | null;
   };
+  launch_variants: JsonValue[];
   image_map: {
     entries: EpisodeImageMapEntryRecord[];
   };
@@ -2863,6 +2864,11 @@ function normalizeEpisodePackageRecord(metadata: Record<string, unknown>): Episo
   )
     ? (episodeRoot.image_map as Record<string, unknown>)
     : {};
+  const launchVariants = Array.isArray(episodeRoot.launch_variants)
+    ? episodeRoot.launch_variants as JsonValue[]
+    : Array.isArray(metadata.launch_variants)
+      ? metadata.launch_variants as JsonValue[]
+      : [];
 
   const concepts = Array.isArray(thumbnailRoot.concepts)
     ? thumbnailRoot.concepts.map((entry) => normalizeThumbnailConcept(entry)).filter(Boolean) as EpisodeThumbnailConceptRecord[]
@@ -2892,6 +2898,7 @@ function normalizeEpisodePackageRecord(metadata: Record<string, unknown>): Episo
       versions,
       primary_version_id: readStringField(thumbnailRoot, "primary_version_id"),
     },
+    launch_variants: launchVariants,
     image_map: {
       entries: normalizeEpisodeImageMapEntries(imageMapRoot.entries),
     },
@@ -2912,6 +2919,7 @@ function mirrorEpisodePackageToMetadata(
     thumbnail_concepts: episodePackage.thumbnail.concepts,
     thumbnail_versions: episodePackage.thumbnail.versions,
     primary_thumbnail_version_id: episodePackage.thumbnail.primary_version_id,
+    launch_variants: episodePackage.launch_variants,
     image_map_entries: episodePackage.image_map.entries,
   };
 }
@@ -4613,6 +4621,7 @@ export class TongsCommitService {
           versions: [] as JsonValue[],
           primary_version_id: null,
         },
+        launch_variants: [] as JsonValue[],
         image_map: {
           entries: [] as JsonValue[],
         },
@@ -4624,6 +4633,7 @@ export class TongsCommitService {
       thumbnail_concepts: [] as JsonValue[],
       thumbnail_versions: [] as JsonValue[],
       primary_thumbnail_version_id: null,
+      launch_variants: [] as JsonValue[],
       image_map_entries: [] as JsonValue[],
       image_beat_sheet: {
         entries: [] as JsonValue[],

@@ -1,5 +1,10 @@
 import { useRef } from "react";
-import type { EpisodeSeoTitle, EpisodeThumbnailConcept, EpisodeThumbnailVersion } from "../../lib/episode-package-v2";
+import type {
+  EpisodeLaunchVariant,
+  EpisodeSeoTitle,
+  EpisodeThumbnailConcept,
+  EpisodeThumbnailVersion,
+} from "../../lib/episode-package-v2";
 import { HEARTH_VISUAL_STYLE_DEFINITIONS } from "../../lib/hearth-visual-styles";
 import ThumbnailVersions from "./ThumbnailVersions";
 
@@ -7,10 +12,12 @@ type ThumbnailPanelProps = {
   concepts: EpisodeThumbnailConcept[];
   versions: EpisodeThumbnailVersion[];
   titleOptions: EpisodeSeoTitle[];
+  launchVariants: EpisodeLaunchVariant[];
   selectedTitleId: string | null;
   selectedTitleText: string;
   selectedConceptId: string;
   selectedVersionId: string | null;
+  selectedLaunchVariantId: string | null;
   primaryVersionId: string | null;
   selectedConceptLabel: string;
   selectedConceptPrompt: string;
@@ -23,6 +30,7 @@ type ThumbnailPanelProps = {
   previewError: string | null;
   generateError: string | null;
   uploadError: string | null;
+  pairingError: string | null;
   isGenerating: boolean;
   isSavingConcept: boolean;
   isUploading: boolean;
@@ -43,16 +51,26 @@ type ThumbnailPanelProps = {
   onSelectVersion: (versionId: string) => void;
   onSetPrimary: (versionId: string) => void;
   onRetryVersion: (version: EpisodeThumbnailVersion) => void;
+  onSelectLaunchVariant: (variantId: string) => void;
+  onCreateLaunchVariant: () => void;
+  onSaveLaunchVariant: () => void;
 };
+
+function resolveVariantLabel(index: number): string {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  return `Variant ${alphabet[index] ?? index + 1}`;
+}
 
 export default function ThumbnailPanel({
   concepts,
   versions,
   titleOptions,
+  launchVariants,
   selectedTitleId,
   selectedTitleText,
   selectedConceptId,
   selectedVersionId,
+  selectedLaunchVariantId,
   primaryVersionId,
   selectedConceptLabel,
   selectedConceptPrompt,
@@ -65,6 +83,7 @@ export default function ThumbnailPanel({
   previewError,
   generateError,
   uploadError,
+  pairingError,
   isGenerating,
   isSavingConcept,
   isUploading,
@@ -85,6 +104,9 @@ export default function ThumbnailPanel({
   onSelectVersion,
   onSetPrimary,
   onRetryVersion,
+  onSelectLaunchVariant,
+  onCreateLaunchVariant,
+  onSaveLaunchVariant,
 }: ThumbnailPanelProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const previewAspectRatio = aspect === "1:1"
@@ -101,6 +123,9 @@ export default function ThumbnailPanel({
     ? `Showing version ${selectedVersionId.slice(0, 8)}. Use the versions below to change the preview.`
     : "Generate or choose a version below to preview it here.";
   const hasOverlayTitle = selectedTitleText.trim().length > 0;
+  const launchVariantActionLabel = selectedLaunchVariantId ? "Update Pairing" : "Save Pairing";
+  const interactionDisabled = isGenerating || isSavingConcept || isUploading;
+  const canSaveLaunchVariant = Boolean(selectedTitleId && selectedVersionId);
 
   return (
     <section className="hs-thumb-panel" aria-label="Visuals panel">
@@ -124,7 +149,7 @@ export default function ThumbnailPanel({
                   type="button"
                   className={`hs-thumb-concept-item${concept.id === selectedConceptId ? " is-selected" : ""}`}
                   onClick={() => onSelectConcept(concept.id)}
-                  disabled={isGenerating || isSavingConcept || isUploading}
+                  disabled={interactionDisabled}
                 >
                   <span>{concept.label}</span>
                 </button>
@@ -140,7 +165,7 @@ export default function ThumbnailPanel({
                 value={selectedConceptLabel}
                 onChange={(event) => onSelectedConceptLabelChange(event.target.value)}
                 placeholder="Concept label"
-                disabled={isGenerating || isSavingConcept || isUploading}
+                disabled={interactionDisabled}
               />
             </label>
             <label className="hs-field">
@@ -150,7 +175,7 @@ export default function ThumbnailPanel({
                 onChange={(event) => onSelectedConceptPromptChange(event.target.value)}
                 placeholder="Prompt text"
                 rows={3}
-                disabled={isGenerating || isSavingConcept || isUploading}
+                disabled={interactionDisabled}
               />
             </label>
             <label className="hs-field">
@@ -158,7 +183,7 @@ export default function ThumbnailPanel({
               <select
                 value={selectedConceptStylePreset}
                 onChange={(event) => onSelectedConceptStylePresetChange(event.target.value)}
-                disabled={isGenerating || isSavingConcept || isUploading}
+                disabled={interactionDisabled}
               >
                 {HEARTH_VISUAL_STYLE_DEFINITIONS.map((style) => (
                   <option key={style.value} value={style.value}>
@@ -171,21 +196,21 @@ export default function ThumbnailPanel({
               <button
                 type="button"
                 onClick={onCreateConcept}
-                disabled={isGenerating || isSavingConcept || isUploading}
+                disabled={interactionDisabled}
               >
                 New Concept
               </button>
               <button
                 type="button"
                 onClick={onSaveConcept}
-                disabled={isGenerating || isSavingConcept || isUploading || !selectedConceptId}
+                disabled={interactionDisabled || !selectedConceptId}
               >
                 {isSavingConcept ? "Saving..." : "Save Concept"}
               </button>
               <button
                 type="button"
                 onClick={onDeleteConcept}
-                disabled={isGenerating || isSavingConcept || isUploading || !selectedConceptId}
+                disabled={interactionDisabled || !selectedConceptId}
               >
                 Delete
               </button>
@@ -279,7 +304,7 @@ export default function ThumbnailPanel({
               </div>
             )}
             <div className="hs-thumb-title-help">
-              AI generates the background only. Title text renders cleanly as an overlay.
+              Select the clean text overlay for preview, then save an explicit launch variant below.
             </div>
           </section>
 
@@ -326,11 +351,76 @@ export default function ThumbnailPanel({
           versions={versions}
           selectedVersionId={selectedVersionId}
           primaryVersionId={primaryVersionId}
-          disabled={isGenerating || isSavingConcept || isUploading}
+          disabled={interactionDisabled}
           onSelectVersion={onSelectVersion}
           onSetPrimary={onSetPrimary}
           onRetryVersion={onRetryVersion}
         />
+      </section>
+
+      <section className="hs-thumb-launch-variants" aria-label="Launch variants">
+        <div className="hs-thumb-section-title">Launch Variants</div>
+        <div className="hs-thumb-launch-toolbar">
+          <div className="hs-field-label-muted">
+            Save the currently selected title and thumbnail as a launch-ready variant.
+          </div>
+          <div className="hs-thumb-launch-actions">
+            <button
+              type="button"
+              onClick={onSaveLaunchVariant}
+              disabled={interactionDisabled || !canSaveLaunchVariant}
+            >
+              {launchVariantActionLabel}
+            </button>
+            <button
+              type="button"
+              onClick={onCreateLaunchVariant}
+              disabled={interactionDisabled}
+            >
+              New Pairing
+            </button>
+          </div>
+        </div>
+
+        {!canSaveLaunchVariant ? (
+          <div className="hs-thumb-empty">Choose both a title and a thumbnail version to save a variant.</div>
+        ) : null}
+
+        {launchVariants.length === 0 ? (
+          <div className="hs-thumb-empty">No launch variants saved yet.</div>
+        ) : (
+          <div className="hs-thumb-launch-list">
+            {launchVariants.map((variant, index) => {
+              const linkedTitle = titleOptions.find((title) => title.id === variant.title_id) ?? null;
+              const linkedVersion = versions.find((version) => version.id === variant.thumbnail_version_id) ?? null;
+              const linkedConcept = linkedVersion
+                ? concepts.find((concept) => concept.id === linkedVersion.concept_id) ?? null
+                : null;
+
+              return (
+                <button
+                  key={variant.id}
+                  type="button"
+                  className={`hs-thumb-launch-card${variant.id === selectedLaunchVariantId ? " is-selected" : ""}`}
+                  onClick={() => onSelectLaunchVariant(variant.id)}
+                  disabled={interactionDisabled}
+                >
+                  <div className="hs-thumb-launch-card-title">{resolveVariantLabel(index)}</div>
+                  <div className="hs-thumb-launch-card-copy">
+                    {linkedTitle?.text.trim() || "Linked title unavailable"}
+                  </div>
+                  <div className="hs-thumb-launch-card-meta">
+                    {linkedConcept?.label ?? "Missing concept"} · {linkedVersion ? `Version ${linkedVersion.id.slice(0, 8)}` : "Missing version"}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {pairingError ? (
+          <div className="hs-error-text-small">{pairingError}</div>
+        ) : null}
       </section>
     </section>
   );

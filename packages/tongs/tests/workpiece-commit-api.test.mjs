@@ -2163,7 +2163,9 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
       episode: {
         schema: "forge.episode.package.v2",
         seo: {
-          titles: [],
+          titles: [
+            { id: "seo-title-a", label: "A", text: "Launch title", is_primary: true },
+          ],
           tags: [],
           description_short: null,
           description_long: null,
@@ -2177,9 +2179,32 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
               style_preset: "studio lighting",
             },
           ],
-          versions: [],
+          versions: [
+            {
+              id: "thumb-existing",
+              concept_id: "concept-01",
+              created_at: "2026-02-28T00:05:00.000Z",
+              provider: "upload",
+              prompt: "Existing upload",
+              provider_request_id: null,
+              asset_id: "asset-existing",
+              asset_path: "assets/thumbnails/existing.png",
+              mime_type: "image/png",
+              status: "ready",
+              error: null,
+            },
+          ],
           primary_version_id: null,
         },
+        launch_variants: [
+          {
+            id: "launch-variant-01",
+            title_id: "seo-title-a",
+            thumbnail_version_id: "thumb-existing",
+            created_at: "2026-02-28T00:10:00.000Z",
+            updated_at: "2026-02-28T00:10:00.000Z",
+          },
+        ],
         image_map: {
           entries: [],
         },
@@ -2272,10 +2297,13 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
   assert.equal(commitCalls[0].input.path.startsWith("assets/thumbnails/"), true);
   assert.equal(commitCalls[1].input.path, "metadata.json");
   assert.equal(commitCalls[1].input.json.episode.thumbnail.concepts[0].style_preset, "studio_photography");
-  assert.equal(commitCalls[1].input.json.episode.thumbnail.versions.length, 1);
+  assert.equal(commitCalls[1].input.json.episode.thumbnail.versions.length, 2);
   assert.equal(commitCalls[1].input.json.episode.thumbnail.primary_version_id, result.version.id);
+  assert.equal(commitCalls[1].input.json.episode.launch_variants.length, 1);
+  assert.equal(commitCalls[1].input.json.launch_variants.length, 1);
   assert.equal(result.version.status, "ready");
   assert.equal(result.primary_version_id, result.version.id);
+  assert.equal(result.updated_episode_package.launch_variants.length, 1);
   assert.equal(result.asset.storage_bucket, "forge-workpieces");
 });
 

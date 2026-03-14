@@ -57,6 +57,7 @@ import {
   createEmptyEpisodePackageV2,
   ensureImageMapV2,
   hydrateEpisodePackageV2,
+  mirrorEpisodePackageV2ToLegacy,
   resolvePrimarySeoTitle,
   type EpisodeImageMapEntry,
 } from "../src/lib/episode-package-v2";
@@ -1625,6 +1626,73 @@ function testEnsureImageMapV2RoundTripsStructuredEntries() {
   assert.equal(pkg.image_map.entries[0]?.style_preset, DEFAULT_HEARTH_VISUAL_STYLE);
 }
 
+function testHydrateEpisodePackageV2KeepsLaunchVariantsBoundToCanonicalAssets() {
+  const episodePackage = hydrateEpisodePackageV2({
+    episode: {
+      schema: "forge.episode.package.v2",
+      seo: {
+        titles: [
+          { id: "seo-title-a", label: "A", text: "Primary launch title", is_primary: true },
+          { id: "seo-title-b", label: "B", text: "Backup launch title", is_primary: false },
+        ],
+        tags: [],
+        description_short: null,
+        description_long: null,
+      },
+      thumbnail: {
+        concepts: [{
+          id: "concept-01",
+          label: "Hero frame",
+          prompt_text: "Storm over harbor",
+          style_preset: "studio_photography",
+        }],
+        versions: [{
+          id: "thumb-version-01",
+          concept_id: "concept-01",
+          created_at: "2026-03-14T01:00:00.000Z",
+          provider: "upload",
+          prompt: "Storm over harbor",
+          asset_id: "asset-thumb-01",
+          status: "ready",
+          provider_request_id: null,
+          asset_path: "assets/thumbnails/thumb-version-01.png",
+          mime_type: "image/png",
+          error: null,
+        }],
+        primary_version_id: "thumb-version-01",
+      },
+      launch_variants: [
+        {
+          id: "launch-variant-a",
+          title_id: "seo-title-a",
+          thumbnail_version_id: "thumb-version-01",
+          created_at: "2026-03-14T01:05:00.000Z",
+          updated_at: "2026-03-14T01:05:00.000Z",
+        },
+        {
+          id: "launch-variant-bad",
+          title_id: "seo-title-missing",
+          thumbnail_version_id: "thumb-version-01",
+          created_at: "2026-03-14T01:06:00.000Z",
+          updated_at: "2026-03-14T01:06:00.000Z",
+        },
+      ],
+      image_map: {
+        entries: [],
+      },
+    },
+  });
+
+  assert.equal(episodePackage.launch_variants.length, 1);
+  assert.equal(episodePackage.launch_variants[0]?.id, "launch-variant-a");
+  assert.equal(episodePackage.launch_variants[0]?.title_id, "seo-title-a");
+  assert.equal(episodePackage.launch_variants[0]?.thumbnail_version_id, "thumb-version-01");
+
+  const mirrored = mirrorEpisodePackageV2ToLegacy({ episode: episodePackage });
+  assert.equal(Array.isArray(mirrored.launch_variants), true);
+  assert.equal((mirrored.launch_variants as unknown[]).length, 1);
+}
+
 function testResolveImageMapScriptAnchorFromTextRecoversExactSentenceAnchor() {
   const scriptText = [
     "## Memory",
@@ -2470,6 +2538,7 @@ async function run() {
   await testImageMapCandidatePreviewLoaderReadsCanonicalFilePath();
   testGenerateImageMapEntriesFromScriptEmitsMultipleBeatsWithinParagraph();
   testEnsureImageMapV2RoundTripsStructuredEntries();
+  testHydrateEpisodePackageV2KeepsLaunchVariantsBoundToCanonicalAssets();
   testResolvePrimarySeoTitlePrefersPrimaryThenPopulatedFallback();
   testResolveImageMapScriptAnchorFromTextRecoversExactSentenceAnchor();
   testAssessImageMapScriptAnchorDetectsMissingAndStaleAnchors();

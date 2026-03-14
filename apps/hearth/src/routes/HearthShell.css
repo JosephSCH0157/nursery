@@ -685,7 +685,77 @@
 }
 
 .hs-draft-stage.has-script-panel {
-  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 1fr);
+  grid-template-columns: minmax(320px, 0.95fr) minmax(0, 1.25fr);
+}
+
+.hs-focus-stack {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  min-width: 0;
+}
+
+.hs-focus-stack-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.hs-focus-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.hs-focus-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.03);
+}
+
+.hs-focus-panel.is-collapsed .hs-focus-panel-header {
+  border-style: dashed;
+  background: rgba(15, 23, 42, 0.02);
+}
+
+.hs-focus-panel-heading {
+  display: grid;
+  gap: 2px;
+}
+
+.hs-focus-panel-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.hs-focus-panel-meta {
+  font-size: 12px;
+  opacity: 0.72;
+}
+
+.hs-focus-panel-toggle {
+  white-space: nowrap;
+}
+
+.hs-focus-panel-body {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 160ms ease, opacity 160ms ease;
+}
+
+.hs-focus-panel-body-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.hs-focus-panel.is-collapsed .hs-focus-panel-body {
+  grid-template-rows: 0fr;
+  opacity: 0;
 }
 
 .hs-ai-chat {
@@ -1573,6 +1643,62 @@
 .hs-thumb-empty {
   font-size: 12px;
   opacity: 0.75;
+}
+
+.hs-thumb-launch-variants {
+  display: grid;
+  gap: 8px;
+}
+
+.hs-thumb-launch-toolbar {
+  display: grid;
+  gap: 8px;
+}
+
+.hs-thumb-launch-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.hs-thumb-launch-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.hs-thumb-launch-card {
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(15, 23, 42, 0.03);
+  text-align: left;
+  display: grid;
+  gap: 4px;
+}
+
+.hs-thumb-launch-card.is-selected {
+  border-color: rgba(29, 78, 216, 0.75);
+  background: rgba(29, 78, 216, 0.08);
+}
+
+.hs-thumb-launch-card-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  opacity: 0.72;
+}
+
+.hs-thumb-launch-card-copy {
+  font-size: 13px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+
+.hs-thumb-launch-card-meta {
+  font-size: 12px;
+  opacity: 0.72;
 }
 
 .hs-imap-panel {
