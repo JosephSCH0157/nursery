@@ -799,6 +799,60 @@ export function parseImageMapEntriesFromText(rawText: string): EpisodeImageMapEn
   return entries;
 }
 
+function normalizeImageMapImportLookupText(rawText: string | null | undefined): string {
+  return (rawText ?? "")
+    .replace(/^[“”"'`]+|[“”"'`]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function rehydrateImportedImageBeatSheetEntries(args: {
+  importedEntries: EpisodeImageMapEntry[];
+  existingEntries: readonly EpisodeImageMapEntry[];
+  resolveImageMapScriptAnchor?: ((anchorText: string, matchHint?: string | null) => EpisodeImageMapScriptAnchor | null) | null;
+}): EpisodeImageMapEntry[] {
+  return args.importedEntries.map((entry) => {
+    const resolvedAnchor = args.resolveImageMapScriptAnchor?.(entry.anchor, entry.placement_hint ?? null)
+      ?? (() => {
+        const target = normalizeImageMapImportLookupText(entry.anchor);
+        if (!target) return null;
+        const existing = args.existingEntries.find((candidate) => {
+          if (!candidate.script_anchor) return false;
+          return (
+            normalizeImageMapImportLookupText(candidate.script_anchor.span_text) === target
+            || normalizeImageMapImportLookupText(candidate.anchor) === target
+          );
+        }) ?? null;
+        return existing?.script_anchor ?? null;
+      })();
+
+    if (!resolvedAnchor) {
+      return {
+        ...entry,
+        status: normalizeDerivedImageMapStatus(
+          "draft",
+          null,
+          entry.candidate_assets,
+          entry.selected_asset_id,
+        ),
+      };
+    }
+
+    return {
+      ...entry,
+      anchor: buildImageMapAnchorLabel(resolvedAnchor),
+      script_anchor: resolvedAnchor,
+      status: normalizeDerivedImageMapStatus(
+        "mapped",
+        resolvedAnchor,
+        entry.candidate_assets,
+        entry.selected_asset_id,
+      ),
+    };
+  });
+}
+
 export function createEmptyEpisodePackageV2(): EpisodePackageV2 {
   return {
     schema: EPISODE_PACKAGE_V2_SCHEMA,
@@ -948,6 +1002,7 @@ export function applyProductionArtifactToEpisodePackage(args: {
   action: ProductionArtifactAction;
   rawText: string;
   generatedAt?: string;
+  resolveImageMapScriptAnchor?: ((anchorText: string, matchHint?: string | null) => EpisodeImageMapScriptAnchor | null) | null;
 }): Record<string, unknown> {
   const hydrated = mirrorEpisodePackageV2ToLegacy(args.metadata);
   const episode = hydrateEpisodePackageV2(hydrated);
@@ -993,7 +1048,11 @@ export function applyProductionArtifactToEpisodePackage(args: {
   }
 
   if (args.action === "image_beat_sheet") {
-    const entries = parseImageMapEntriesFromText(args.rawText);
+    const entries = rehydrateImportedImageBeatSheetEntries({
+      importedEntries: parseImageMapEntriesFromText(args.rawText),
+      existingEntries: episode.image_map.entries,
+      resolveImageMapScriptAnchor: args.resolveImageMapScriptAnchor ?? null,
+    });
     if (entries.length) {
       nextEpisode.image_map.entries = entries;
     }

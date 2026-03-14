@@ -54,6 +54,7 @@ import {
 } from "../src/lib/hearth-nav-model";
 import { formatScriptToAnvilTagsNoAi, validateAnvilTagContract } from "../src/lib/anvil-tag-contract";
 import {
+  applyProductionArtifactToEpisodePackage,
   createEmptyEpisodePackageV2,
   ensureImageMapV2,
   hydrateEpisodePackageV2,
@@ -1712,6 +1713,39 @@ function testResolveImageMapScriptAnchorFromTextRecoversExactSentenceAnchor() {
   assert.match(anchor?.span_text ?? "", /tip of your tongue/i);
 }
 
+function testResolveImageMapScriptAnchorFromTextSupportsOccurrenceHintsAndSentenceRanges() {
+  const scriptText = [
+    "## Citrus",
+    "",
+    "Florida was booming. Groves gave way to subdivisions.",
+    "",
+    "Florida was booming.",
+  ].join("\n");
+
+  const combinedAnchor = resolveImageMapScriptAnchorFromText(
+    scriptText,
+    "Florida was booming. Groves gave way to subdivisions.",
+  );
+  assert.ok(combinedAnchor, "Multi-sentence exact quotes should resolve to a structured anchor");
+  assert.equal(combinedAnchor?.paragraph_id, "s1:p1");
+  assert.equal(combinedAnchor?.sentence_start, 1);
+  assert.equal(combinedAnchor?.sentence_end, 2);
+
+  const firstOccurrence = resolveImageMapScriptAnchorFromText(
+    scriptText,
+    "Florida was booming.",
+    "first occurrence",
+  );
+  const secondOccurrence = resolveImageMapScriptAnchorFromText(
+    scriptText,
+    "Florida was booming.",
+    "second occurrence",
+  );
+
+  assert.equal(firstOccurrence?.paragraph_id, "s1:p1");
+  assert.equal(secondOccurrence?.paragraph_id, "s1:p2");
+}
+
 function testAssessImageMapScriptAnchorDetectsMissingAndStaleAnchors() {
   const scriptText = [
     "## Harbor",
@@ -1859,6 +1893,49 @@ async function testImageMapRepoSavePersistsReanchoredAnchor() {
   } finally {
     harness.restore();
   }
+}
+
+function testApplyProductionArtifactImageBeatSheetResolvesStructuredAnchorsFromCanonicalScript() {
+  const scriptText = [
+    "## Citrus",
+    "",
+    "As Florida's population exploded, groves turned into subdivisions.",
+  ].join("\n");
+
+  const metadata = {
+    schema: "forge.metadata.v1",
+    workpiece_id: WORKPIECE_A,
+    workspace_id: WORKSPACE_ID,
+    created_at: "2026-03-14T01:00:00.000Z",
+    updated_at: "2026-03-14T01:00:00.000Z",
+    status: "draft",
+    notes: null,
+    origin: null,
+    content_category: null,
+    episode: createEmptyEpisodePackageV2(),
+  };
+
+  const nextMetadata = applyProductionArtifactToEpisodePackage({
+    metadata,
+    action: "image_beat_sheet",
+    rawText: [
+      "IMAGE_01",
+      "Attach after: \"As Florida's population exploded, groves turned into subdivisions.\"",
+      "Description: Time-lapse style composite of citrus rows fading into cul-de-sacs.",
+      "Prompt: Time-lapse style composite of citrus rows fading into cul-de-sacs.",
+      "Match: first occurrence",
+    ].join("\n"),
+    resolveImageMapScriptAnchor: (anchorText, matchHint) => (
+      resolveImageMapScriptAnchorFromText(scriptText, anchorText, matchHint)
+    ),
+  });
+
+  const episodePackage = hydrateEpisodePackageV2(nextMetadata);
+  assert.equal(episodePackage.image_map.entries.length, 1);
+  assert.equal(episodePackage.image_map.entries[0]?.anchor, "s1:p1#sent1");
+  assert.equal(episodePackage.image_map.entries[0]?.script_anchor?.paragraph_id, "s1:p1");
+  assert.equal(episodePackage.image_map.entries[0]?.script_anchor?.sentence_start, 1);
+  assert.equal(episodePackage.image_map.entries[0]?.status, "mapped");
 }
 
 function testVisualStyleCatalogNormalizesAliasesAndPromptHints() {
@@ -2541,10 +2618,12 @@ async function run() {
   testHydrateEpisodePackageV2KeepsLaunchVariantsBoundToCanonicalAssets();
   testResolvePrimarySeoTitlePrefersPrimaryThenPopulatedFallback();
   testResolveImageMapScriptAnchorFromTextRecoversExactSentenceAnchor();
+  testResolveImageMapScriptAnchorFromTextSupportsOccurrenceHintsAndSentenceRanges();
   testAssessImageMapScriptAnchorDetectsMissingAndStaleAnchors();
   testBuildExactScriptAnchorFromSelectionSpansSentenceRange();
   testReanchorImageMapEntryPreservesBeatMetadata();
   await testImageMapRepoSavePersistsReanchoredAnchor();
+  testApplyProductionArtifactImageBeatSheetResolvesStructuredAnchorsFromCanonicalScript();
   testVisualStyleCatalogNormalizesAliasesAndPromptHints();
   testHydrateEpisodePackageV2NormalizesLegacyVisualStyles();
   await testBarStockSparkListDiscoveryStaysCanonicalAcrossClients();

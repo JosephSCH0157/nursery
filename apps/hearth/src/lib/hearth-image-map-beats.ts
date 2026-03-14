@@ -234,6 +234,39 @@ function normalizeAnchorLookupText(rawText: string | null | undefined): string {
     .trim();
 }
 
+function resolveAnchorMatchOrdinal(matchHint: string | null | undefined): number | null {
+  const normalized = normalizeAnchorLookupText(matchHint).toLowerCase();
+  if (!normalized) return null;
+  if (/\b(last|final)\b/.test(normalized)) {
+    return -1;
+  }
+  if (/\bfirst\b/.test(normalized)) return 1;
+  if (/\bsecond\b/.test(normalized)) return 2;
+  if (/\bthird\b/.test(normalized)) return 3;
+  if (/\bfourth\b/.test(normalized)) return 4;
+  if (/\bfifth\b/.test(normalized)) return 5;
+
+  const numericMatch = normalized.match(/\b(\d+)(?:st|nd|rd|th)?\b/);
+  if (!numericMatch?.[1]) return null;
+  const parsed = Number.parseInt(numericMatch[1], 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function pickAnchorMatch(
+  matches: EpisodeImageMapScriptAnchor[],
+  matchHint?: string | null,
+): EpisodeImageMapScriptAnchor | null {
+  if (matches.length === 0) return null;
+  if (matches.length === 1) return matches[0] ?? null;
+
+  const ordinal = resolveAnchorMatchOrdinal(matchHint);
+  if (ordinal == null) return null;
+  if (ordinal === -1) {
+    return matches.at(-1) ?? null;
+  }
+  return matches[ordinal - 1] ?? null;
+}
+
 function buildEntry(args: {
   id: string;
   paragraphBeatOrder: number;
@@ -309,48 +342,42 @@ export function generateImageMapEntriesFromScript(scriptText: string): EpisodeIm
 export function resolveImageMapScriptAnchorFromText(
   scriptText: string,
   anchorText: string | null | undefined,
+  matchHint?: string | null,
 ): EpisodeImageMapScriptAnchor | null {
   const target = normalizeAnchorLookupText(anchorText);
   if (!target) return null;
 
   const paragraphs = extractParagraphs(scriptText);
-  const sentenceMatches: EpisodeImageMapScriptAnchor[] = [];
-  const paragraphMatches: EpisodeImageMapScriptAnchor[] = [];
+  const textMatches: EpisodeImageMapScriptAnchor[] = [];
   const labelMatches: EpisodeImageMapScriptAnchor[] = [];
 
   for (const paragraph of paragraphs) {
-    const paragraphAnchor = buildParagraphAnchor(paragraph);
-    if (paragraphAnchor) {
-      if (normalizeAnchorLookupText(paragraph.text) === target) {
-        paragraphMatches.push(paragraphAnchor);
-      }
-      if (buildImageMapAnchorLabel(paragraphAnchor) === target) {
-        labelMatches.push(paragraphAnchor);
-      }
-    }
+    for (let startIndex = 0; startIndex < paragraph.sentences.length; startIndex += 1) {
+      const startSentence = paragraph.sentences[startIndex];
+      if (!startSentence) continue;
 
-    for (const sentence of paragraph.sentences) {
-      const sentenceAnchor = buildAnchor({
-        paragraph,
-        sentenceStart: sentence.sentenceIndex,
-        sentenceEnd: sentence.sentenceIndex,
-        charStart: sentence.charStart,
-        charEnd: sentence.charEnd,
-        spanText: sentence.text,
-      });
-      if (normalizeAnchorLookupText(sentence.text) === target) {
-        sentenceMatches.push(sentenceAnchor);
-      }
-      if (buildImageMapAnchorLabel(sentenceAnchor) === target) {
-        labelMatches.push(sentenceAnchor);
+      for (let endIndex = startIndex; endIndex < paragraph.sentences.length; endIndex += 1) {
+        const endSentence = paragraph.sentences[endIndex];
+        if (!endSentence) continue;
+
+        const rangeAnchor = buildSentenceRangeAnchor(
+          paragraph,
+          startSentence.sentenceIndex,
+          endSentence.sentenceIndex,
+        );
+        if (!rangeAnchor) continue;
+
+        if (normalizeAnchorLookupText(rangeAnchor.span_text) === target) {
+          textMatches.push(rangeAnchor);
+        }
+        if (buildImageMapAnchorLabel(rangeAnchor) === target) {
+          labelMatches.push(rangeAnchor);
+        }
       }
     }
   }
 
-  if (sentenceMatches.length === 1) return sentenceMatches[0];
-  if (paragraphMatches.length === 1) return paragraphMatches[0];
-  if (labelMatches.length === 1) return labelMatches[0];
-  return null;
+  return pickAnchorMatch(textMatches, matchHint) ?? pickAnchorMatch(labelMatches, matchHint);
 }
 
 function normalizeSpanTextForComparison(text: string): string {
