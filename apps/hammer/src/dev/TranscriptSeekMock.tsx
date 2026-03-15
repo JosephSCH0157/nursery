@@ -50,12 +50,19 @@ import {
 } from "../lib/launchContext";
 import type { ResolvedHammerLaunchContext } from "../lib/launchContext";
 import { createSemanticEditPlanSignature } from "../lib/editPlanSignature";
-import { resolvePreviewMediaSrc } from "../lib/previewSource";
+import {
+  resolveAudioPolishPreviewSrc,
+  resolvePreviewMediaSrc,
+} from "../lib/previewSource";
 import { toMediaBadgeViewModel } from "../media/mediaBadgeViewModel";
 import { V1HammerMediaResolver } from "../media/resolveMedia";
 import { loadWorkspaceMapping } from "../media/workspaceMapping";
 import type { HammerWorkspaceSnapshot } from "../editor/hammerWorkspaceSnapshot";
-import type { HammerPersistedVisualPlacements } from "../persistence/hammerPersistenceContract";
+import type {
+  HammerPersistedAudioPolish,
+  HammerPersistedVisualPlacements,
+} from "../persistence/hammerPersistenceContract";
+import { cloneHammerAudioPolish } from "../prep/hammerAudioPolish";
 import { resolveHammerDevLaunchContext } from "./hammerLaunchPresets";
 import { StagedEditsPanel } from "./StagedEditsPanel";
 import { getDevTranscriptSegments } from "./transcriptFixtures";
@@ -181,6 +188,7 @@ const DEV_RECORDINGS_FALLBACK_ROOT_ABS = "C:\\Users\\Iam11\\OneDrive\\Documents\
 type TranscriptSeekMockProps = {
   launchContext?: HammerLaunchContext;
   visualPlacements?: HammerPersistedVisualPlacements | null;
+  audioPolish?: HammerPersistedAudioPolish | null;
   onWorkspaceSnapshotChange?: (snapshot: HammerWorkspaceSnapshot) => void;
 };
 
@@ -243,8 +251,6 @@ type HammerPaneSectionProps = {
   subtitle?: string;
   action?: ReactNode;
   children: ReactNode;
-  sectionStyle?: CSSProperties;
-  bodyStyle?: CSSProperties;
   sectionClassName?: string;
   bodyClassName?: string;
 };
@@ -260,6 +266,50 @@ type HammerWorkflowCardProps = {
 
 function cx(...tokens: Array<string | false | null | undefined>): string {
   return tokens.filter(Boolean).join(" ");
+}
+
+const CSS_UNITLESS_PROPERTIES = new Set([
+  "aspectRatio",
+  "fontWeight",
+  "lineHeight",
+  "opacity",
+  "order",
+  "zIndex",
+]);
+
+function toKebabCase(value: string): string {
+  return value.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`);
+}
+
+function serializeCssValue(property: string, value: string | number): string {
+  if (typeof value === "number" && !CSS_UNITLESS_PROPERTIES.has(property)) {
+    return `${value}px`;
+  }
+  return String(value);
+}
+
+function serializeCssRule(style: CSSProperties): string {
+  return Object.entries(style)
+    .flatMap(([property, value]) => {
+      if (value == null) return [];
+      return `${toKebabCase(property)}: ${serializeCssValue(property, value)};`;
+    })
+    .join(" ");
+}
+
+function useDynamicCssText(scopeId: string, cssText: string): void {
+  useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+
+    const styleElement = document.createElement("style");
+    styleElement.setAttribute("data-hammer-transcript-seek-mock-dynamic", scopeId);
+    styleElement.textContent = cssText;
+    document.head.appendChild(styleElement);
+
+    return () => {
+      styleElement.remove();
+    };
+  }, [cssText, scopeId]);
 }
 
 function HammerWorkflowCard(props: HammerWorkflowCardProps): JSX.Element {
@@ -282,7 +332,7 @@ function HammerWorkflowCard(props: HammerWorkflowCardProps): JSX.Element {
 
 function HammerPaneSection(props: HammerPaneSectionProps): JSX.Element {
   return (
-    <section className={cx("hammer-pane-section", props.sectionClassName)} style={props.sectionStyle}>
+    <section className={cx("hammer-pane-section", props.sectionClassName)}>
       <header className="hammer-pane-section__header">
         <div className="hammer-pane-section__title-wrap">
           <h3 className="hammer-pane-section__title">{props.title}</h3>
@@ -292,7 +342,7 @@ function HammerPaneSection(props: HammerPaneSectionProps): JSX.Element {
         </div>
         {props.action ? <div>{props.action}</div> : null}
       </header>
-      <div className={cx("hammer-pane-section__body", props.bodyClassName)} style={props.bodyStyle}>
+      <div className={cx("hammer-pane-section__body", props.bodyClassName)}>
         {props.children}
       </div>
     </section>
@@ -432,6 +482,14 @@ function getEditPlanStatusBadgeClassName(status: EditPlanStatus): string {
   );
 }
 
+function getEditPlanFeedbackClassName(tone: "neutral" | "warning" | "success"): string {
+  return cx(
+    "hammer-edit-plan__feedback",
+    tone === "warning" && "is-warning",
+    tone === "success" && "is-success",
+  );
+}
+
 function getToggleButtonClassName(active: boolean): string {
   return cx("hammer-toggle-button", active && "is-active");
 }
@@ -442,6 +500,10 @@ function getToolStripButtonClassName(active: boolean): string {
 
 function getPaneDividerClassName(active: boolean): string {
   return cx("hammer-editor-shell__divider", active && "is-active");
+}
+
+function getTimelineClipLayoutKey(trackId: string, clipId: string): string {
+  return `${trackId}::${clipId}`;
 }
 
 function getWorkflowStatusClassName(tone: HammerWorkflowTone): string {
@@ -853,6 +915,7 @@ export default function TranscriptSeekMock(
   props: TranscriptSeekMockProps,
 ): JSX.Element {
   const location = useLocation();
+  const dynamicStyleScopeIdRef = useRef(`hammer-transcript-seek-mock-${Math.random().toString(36).slice(2, 10)}`);
   const mediaElementRef = useRef<HTMLMediaElement | null>(null);
   const transcriptScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const transcriptRowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -946,9 +1009,6 @@ export default function TranscriptSeekMock(
   const [activeTool, setActiveTool] = useState<HammerToolId>("polish");
   const [activeTimelineTool, setActiveTimelineTool] = useState<TimelineToolId>("select");
   const [showDebugPanels, setShowDebugPanels] = useState(false);
-  const [studioSoundPrepared, setStudioSoundPrepared] = useState(false);
-  const [noiseCleanupPrepared, setNoiseCleanupPrepared] = useState(false);
-  const [levelConsistencyPrepared, setLevelConsistencyPrepared] = useState(false);
   const [paneLayout, setPaneLayout] = useState<HammerPaneLayout>(DEFAULT_PANE_LAYOUT);
   const [activeResizeHandle, setActiveResizeHandle] = useState<HammerPaneResizeHandle | null>(null);
   const launchWorkspaceMapping = useMemo(
@@ -1000,6 +1060,23 @@ export default function TranscriptSeekMock(
   const activeMediaSourceLabel = activeDevRecording?.name ?? resolvedLaunch.media.source_label;
   const activeMediaKind = activeMediaRef?.kind ?? null;
   const activeMediaUsesDevTone = !activeDevMediaRef && resolvedLaunch.media.kind === "dev-tone";
+  const audioPolish = useMemo(
+    () => {
+      const next = cloneHammerAudioPolish(props.audioPolish);
+      if (!next) return null;
+      if (activeMediaRef?.media_id && next.source_media_id && next.source_media_id !== activeMediaRef.media_id) {
+        return null;
+      }
+      return next;
+    },
+    [activeMediaRef?.media_id, props.audioPolish],
+  );
+  const studioSoundPrepared = audioPolish?.status === "prepared"
+    && audioPolish.prepared_passes.includes("studio_sound");
+  const noiseCleanupPrepared = audioPolish?.status === "prepared"
+    && audioPolish.prepared_passes.includes("noise_cleanup");
+  const levelConsistencyPrepared = audioPolish?.status === "prepared"
+    && audioPolish.prepared_passes.includes("level_consistency");
   const activeMediaDisplayTitle = activeDevRecording?.name
     ?? activeMediaRef?.local_relpath?.split(/[\\/]/).pop()
     ?? resolvedLaunch.media.source_label;
@@ -1225,7 +1302,7 @@ export default function TranscriptSeekMock(
     [resolveResult],
   );
 
-  const resolvedMediaSrc = useMemo(
+  const linkedMediaSrc = useMemo(
     () => resolvePreviewMediaSrc({
       resolveResult,
       mediaRef: activeMediaRef,
@@ -1234,6 +1311,11 @@ export default function TranscriptSeekMock(
     }),
     [activeDevRecording?.playback_url, activeMediaRef, activeMediaWorkspaceMapping, resolveResult],
   );
+  const polishedMediaSrc = useMemo(
+    () => resolveAudioPolishPreviewSrc(activeMediaWorkspaceMapping, audioPolish),
+    [activeMediaWorkspaceMapping, audioPolish],
+  );
+  const resolvedMediaSrc = polishedMediaSrc ?? linkedMediaSrc;
   const playbackSrc = useMemo(
     () => ((preferDevAudioFallback || !resolvedMediaSrc) ? devAudioSrc : resolvedMediaSrc),
     [devAudioSrc, preferDevAudioFallback, resolvedMediaSrc],
@@ -1242,8 +1324,16 @@ export default function TranscriptSeekMock(
     if (!playbackSrc) return "none";
     if (activeMediaUsesDevTone) return "dev-tone";
     if (preferDevAudioFallback || !resolvedMediaSrc) return "dev-tone";
+    if (polishedMediaSrc && resolvedMediaSrc === polishedMediaSrc) return "polished prep";
     return activeMediaSourceLabel;
-  }, [activeMediaSourceLabel, activeMediaUsesDevTone, playbackSrc, preferDevAudioFallback, resolvedMediaSrc]);
+  }, [
+    activeMediaSourceLabel,
+    activeMediaUsesDevTone,
+    playbackSrc,
+    polishedMediaSrc,
+    preferDevAudioFallback,
+    resolvedMediaSrc,
+  ]);
   const previewUsesResolvedMedia = Boolean(
     playbackSrc
     && resolvedMediaSrc
@@ -1286,9 +1376,6 @@ export default function TranscriptSeekMock(
     setEditPlanJsonDraft(buildInitialEditPlanJsonDraft(resolvedLaunch));
     setEditPlanFeedback(null);
     setEditPlanFeedbackTone("neutral");
-    setStudioSoundPrepared(false);
-    setNoiseCleanupPrepared(false);
-    setLevelConsistencyPrepared(false);
     setSelectedDevRecordingId(null);
   }, [launchContextSignature, resolvedLaunch]);
 
@@ -1496,19 +1583,16 @@ export default function TranscriptSeekMock(
         instructions: cloneEditInstructions(currentEditPlan.instructions),
       },
       visualPlacements: cloneVisualPlacements(props.visualPlacements),
-      studioSoundPrepared,
-      noiseCleanupPrepared,
-      levelConsistencyPrepared,
+      audioPolish,
     }),
     [
       activeMediaRef,
       activeMediaSourceLabel,
       activeMediaWorkspaceMapping,
+      audioPolish,
       currentEditPlan,
       currentEditPlanSignature,
       editPlanStatus,
-      levelConsistencyPrepared,
-      noiseCleanupPrepared,
       previewMode,
       props.visualPlacements,
       resolvedLaunch.launch_context.workpiece_id,
@@ -1517,7 +1601,6 @@ export default function TranscriptSeekMock(
       selectedSegmentId,
       sessionId,
       sourceMode,
-      studioSoundPrepared,
       transcriptSegments,
       transcriptSourceId,
     ],
@@ -1759,6 +1842,8 @@ export default function TranscriptSeekMock(
     : null;
   const audioMonitoringStateLabel = !playbackSrc
     ? "Unavailable"
+    : polishedMediaSrc && !preferDevAudioFallback
+    ? "Polished prep"
     : preferDevAudioFallback || activeMediaUsesDevTone
     ? "Fallback monitor"
     : "Linked source";
@@ -1770,8 +1855,12 @@ export default function TranscriptSeekMock(
     ? "Muted in plan"
     : selectedSegmentTrimInstruction
     ? "Timing staged"
-    : studioSoundPrepared
-    ? "Ready for polish"
+    : audioPolish?.status === "prepared"
+    ? "Polished playback ready"
+    : audioPolish?.status === "failed"
+    ? "Raw playback fallback"
+    : audioPolish?.status === "preparing"
+    ? "Polishing"
     : "Monitoring";
   const audioPassCount = Number(studioSoundPrepared)
     + Number(noiseCleanupPrepared)
@@ -1806,16 +1895,24 @@ export default function TranscriptSeekMock(
   const audioSummaryItems = useMemo(() => {
     const items: string[] = [];
 
+    if (audioPolish?.status === "prepared") {
+      items.push("Hammer is monitoring the non-destructive baseline audio polish artifact.");
+    } else if (audioPolish?.status === "failed" && audioPolish.failure_reason) {
+      items.push(`Hammer fell back to the raw source for playback: ${audioPolish.failure_reason}`);
+    } else if (audioPolish?.status === "preparing") {
+      items.push("Hammer is preparing a baseline audio polish artifact.");
+    }
+
     if (studioSoundPrepared) {
-      items.push("Studio Sound is staged for the spoken-audio pass.");
+      items.push("Studio Sound cleanup is included in the prepared playback path.");
     }
 
     if (noiseCleanupPrepared) {
-      items.push("Noise cleanup review is staged, but Hammer is still carrying pass state rather than a real reduction engine.");
+      items.push("Noise cleanup is included in the prepared playback path.");
     }
 
     if (levelConsistencyPrepared) {
-      items.push("Level consistency review is staged for project-wide dialogue balancing.");
+      items.push("Level consistency is included in the prepared playback path.");
     }
 
     if (muteInstructionCount > 0) {
@@ -1832,6 +1929,7 @@ export default function TranscriptSeekMock(
 
     return items;
   }, [
+    audioPolish,
     levelConsistencyPrepared,
     muteInstructionCount,
     mutedDialogueDurationSec,
@@ -2829,38 +2927,32 @@ export default function TranscriptSeekMock(
               <HammerWorkflowCard
                 title="Studio Sound"
                 tone={studioSoundPrepared ? "active" : playbackSrc ? "ready" : "blocked"}
-                statusLabel={studioSoundPrepared ? "Prepared" : playbackSrc ? "Ready" : "Unavailable"}
-                description="Prepare dialogue enhancement for the final spoken-audio pass without changing the transcript edit plan."
+                statusLabel={studioSoundPrepared ? "Prepared" : audioPolish?.status === "failed" ? "Raw fallback" : playbackSrc ? "Pending" : "Unavailable"}
+                description="Baseline speech polish runs automatically when Hammer can produce a supported non-destructive cleanup artifact."
                 meta={(
                   <div className="hammer-stack-6">
                     <div className="hammer-meta-strip">
                       <span className="hammer-pill">{playbackSourceLabel}</span>
-                      <span className="hammer-pill">{studioSoundPrepared ? "queued for export" : "not queued"}</span>
+                      <span className="hammer-pill">{studioSoundPrepared ? "prepared artifact" : audioPolish?.status === "failed" ? "raw source retained" : "prep-managed"}</span>
                     </div>
                     <div className="hammer-copy-sm hammer-copy-muted">
-                      {playbackSrc
-                        ? "Keep Studio Sound visible here so spoken-audio finishing has a clear handoff out of editorial cleanup."
-                        : "Resolve a playback source before queuing the spoken-audio finishing pass."}
+                      {studioSoundPrepared
+                        ? "Hammer is already preferring the polished playback artifact here. The raw source remains intact underneath."
+                        : audioPolish?.status === "failed"
+                        ? audioPolish.failure_reason ?? "Hammer kept the raw source because audio polish was not supported for this media."
+                        : playbackSrc
+                        ? "Hammer will use a baseline studio-sound pass here once the prep artifact is available."
+                        : "Resolve a playback source before Hammer can monitor spoken-audio finishing."}
                     </div>
                   </div>
-                )}
-                actions={(
-                  <button
-                    type="button"
-                    className="hammer-button-xs"
-                    onClick={() => setStudioSoundPrepared((current) => !current)}
-                    disabled={!playbackSrc}
-                  >
-                    {studioSoundPrepared ? "Remove from pass" : "Prepare audio pass"}
-                  </button>
                 )}
               />
 
               <HammerWorkflowCard
                 title="Noise Cleanup"
                 tone={noiseCleanupPrepared ? "active" : playbackSrc ? "ready" : "blocked"}
-                statusLabel={noiseCleanupPrepared ? "Review staged" : playbackSrc ? "Stage only" : "Unavailable"}
-                description="Stage a spoken-audio cleanup review for hiss, room tone, and handling noise before final finishing."
+                statusLabel={noiseCleanupPrepared ? "Prepared" : audioPolish?.status === "failed" ? "Skipped" : playbackSrc ? "Pending" : "Unavailable"}
+                description="Noise cleanup stays part of the restrained prep chain instead of becoming a manual staging toggle."
                 meta={(
                   <div className="hammer-stack-6">
                     <div className="hammer-meta-strip">
@@ -2868,29 +2960,23 @@ export default function TranscriptSeekMock(
                       <span className="hammer-pill">{playbackSourceLabel}</span>
                     </div>
                     <div className="hammer-copy-sm hammer-copy-muted">
-                      {playbackSrc
-                        ? "The pass state is real, but the cleanup engine is not wired yet. Keep the workflow visible without pretending the DSP exists."
+                      {noiseCleanupPrepared
+                        ? "The prepared playback path already includes a light cleanup pass for hiss and room tone."
+                        : audioPolish?.status === "failed"
+                        ? "Hammer did not run cleanup for this source and is monitoring the raw path instead."
+                        : playbackSrc
+                        ? "Hammer will include cleanup automatically for directly supported audio sources."
                         : "Audio cleanup stays unavailable until Hammer has a monitorable source."}
                     </div>
                   </div>
-                )}
-                actions={(
-                  <button
-                    type="button"
-                    className="hammer-button-xs"
-                    onClick={() => setNoiseCleanupPrepared((current) => !current)}
-                    disabled={!playbackSrc}
-                  >
-                    {noiseCleanupPrepared ? "Remove cleanup review" : "Stage cleanup review"}
-                  </button>
                 )}
               />
 
               <HammerWorkflowCard
                 title="Level Consistency"
                 tone={levelConsistencyPrepared ? "active" : playbackSrc ? "ready" : "blocked"}
-                statusLabel={levelConsistencyPrepared ? "Pass staged" : playbackSrc ? "Ready" : "Unavailable"}
-                description="Prepare a dialogue-level consistency pass so spoken-word energy stays stable across the episode."
+                statusLabel={levelConsistencyPrepared ? "Prepared" : audioPolish?.status === "failed" ? "Skipped" : playbackSrc ? "Pending" : "Unavailable"}
+                description="Dialogue leveling is part of the baseline prep artifact when Hammer can produce a supported polished source."
                 meta={(
                   <div className="hammer-stack-6">
                     <div className="hammer-meta-strip">
@@ -2899,21 +2985,15 @@ export default function TranscriptSeekMock(
                       <span className="hammer-pill">project {formatClock(projectDialogueDurationSec)}</span>
                     </div>
                     <div className="hammer-copy-sm hammer-copy-muted">
-                      {playbackSrc
-                        ? "Use this to stage the project-wide leveling pass before export. It remains non-destructive for now."
+                      {levelConsistencyPrepared
+                        ? "The prepared playback path is already balancing dialogue levels without touching the raw media."
+                        : audioPolish?.status === "failed"
+                        ? "Hammer skipped level consistency here and left playback on the raw source."
+                        : playbackSrc
+                        ? "Hammer will balance dialogue levels automatically for supported audio sources."
                         : "Resolve project audio first so consistency review has something real to monitor."}
                     </div>
                   </div>
-                )}
-                actions={(
-                  <button
-                    type="button"
-                    className="hammer-button-xs"
-                    onClick={() => setLevelConsistencyPrepared((current) => !current)}
-                    disabled={!playbackSrc}
-                  >
-                    {levelConsistencyPrepared ? "Remove consistency pass" : "Stage consistency pass"}
-                  </button>
                 )}
               />
 
@@ -3082,6 +3162,7 @@ export default function TranscriptSeekMock(
     }
   }, [
     activeTool,
+    audioPolish,
     audioMonitoringStateLabel,
     audioPassCount,
     audioSummaryItems,
@@ -3327,15 +3408,7 @@ export default function TranscriptSeekMock(
           Round-trip this JSON to restore overlay rows and preview semantics.
         </div>
         {editPlanFeedback ? (
-          <div
-            style={{
-              color: editPlanFeedbackTone === "warning"
-                ? "#fde68a"
-                : editPlanFeedbackTone === "success"
-                ? "#a7f3d0"
-                : "#c8d6ea",
-            }}
-          >
+          <div className={getEditPlanFeedbackClassName(editPlanFeedbackTone)}>
             {editPlanFeedback}
           </div>
         ) : null}
@@ -3349,8 +3422,8 @@ export default function TranscriptSeekMock(
           onNavigateToInstruction={inspectStagedInstruction}
         />
 
-        <div style={{ display: "grid", gap: 8 }}>
-          <strong style={{ color: "#dbe8ff" }}>Edit Plan JSON</strong>
+        <div className="hammer-edit-plan__json">
+          <strong className="hammer-edit-plan__json-title">Edit Plan JSON</strong>
           <textarea
             data-testid="edit-plan-json"
             value={editPlanJsonDraft}
@@ -3361,18 +3434,7 @@ export default function TranscriptSeekMock(
             }}
             spellCheck={false}
             placeholder="Export the current edit plan, clear edits, then paste or reload the JSON here."
-            style={{
-              width: "100%",
-              minHeight: 180,
-              resize: "vertical",
-              borderRadius: 10,
-              border: "1px solid rgba(148, 163, 184, 0.26)",
-              background: "rgba(2, 6, 23, 0.65)",
-              color: "#dbe8ff",
-              padding: 10,
-              fontSize: 12,
-            }}
-            className="hammer-mono"
+            className="hammer-edit-plan__textarea hammer-mono"
           />
         </div>
       </div>
@@ -3465,27 +3527,88 @@ export default function TranscriptSeekMock(
     + paneLayout.right_px
     + TOOL_STRIP_WIDTH_PX
     + (PANE_DIVIDER_WIDTH_PX * 2);
+  const dynamicStyles = useMemo(() => {
+    const rules: string[] = [];
+    const addRule = (suffix: string, style: CSSProperties): string => {
+      const className = `${dynamicStyleScopeIdRef.current}__${suffix}`;
+      rules.push(`.${className} { ${serializeCssRule(style)} }`);
+      return className;
+    };
+
+    const upperLayoutClassName = addRule("upper-layout", {
+      gridTemplateColumns: [
+        `${paneLayout.left_px}px`,
+        `${PANE_DIVIDER_WIDTH_PX}px`,
+        `minmax(${paneLayout.center_px}px, 1fr)`,
+        `${PANE_DIVIDER_WIDTH_PX}px`,
+        `${paneLayout.right_px}px`,
+        `${TOOL_STRIP_WIDTH_PX}px`,
+      ].join(" "),
+      minWidth: upperPaneMinWidth,
+    });
+    const monitorSurfaceClassName = addRule("monitor-surface", {
+      aspectRatio: previewMonitorAspectRatio,
+    });
+    const progressFillClassName = addRule("progress-fill", {
+      width: `${progressPercent}%`,
+    });
+    const playheadClassName = addRule("playhead", {
+      left: `${playheadPercent}%`,
+    });
+    const rulerTickClassNames = timelineRulerTicks.map((tick, index) => addRule(
+      `ruler-tick-${index}`,
+      { left: `${tick.positionPercent}%` },
+    ));
+    const clipLayoutClassNames = new Map<string, string>();
+
+    timelineTracks.forEach((track, trackIndex) => {
+      track.clips.forEach((clip, clipIndex) => {
+        const left = clamp((clip.start_sec / effectiveDurationSec) * 100, 0, 100);
+        const width = clamp(((clip.end_sec - clip.start_sec) / effectiveDurationSec) * 100, 1.2, 100);
+        const className = addRule(
+          `clip-${trackIndex}-${clipIndex}`,
+          {
+            left: `${left}%`,
+            width: `${width}%`,
+          },
+        );
+        clipLayoutClassNames.set(getTimelineClipLayoutKey(track.id, clip.id), className);
+      });
+    });
+
+    return {
+      clipLayoutClassNames,
+      cssText: rules.join("\n"),
+      monitorSurfaceClassName,
+      playheadClassName,
+      progressFillClassName,
+      rulerTickClassNames,
+      upperLayoutClassName,
+    };
+  }, [
+    effectiveDurationSec,
+    paneLayout.center_px,
+    paneLayout.left_px,
+    paneLayout.right_px,
+    playheadPercent,
+    previewMonitorAspectRatio,
+    progressPercent,
+    timelineRulerTicks,
+    timelineTracks,
+    upperPaneMinWidth,
+  ]);
+
+  useDynamicCssText(dynamicStyleScopeIdRef.current, dynamicStyles.cssText);
 
   return (
     <section className="hammer-editor-shell">
       <div className="hammer-editor-shell__upper-wrap">
-        <div
-          className="hammer-editor-shell__upper"
-          style={{
-            gridTemplateColumns: [
-              `${paneLayout.left_px}px`,
-              `${PANE_DIVIDER_WIDTH_PX}px`,
-              `minmax(${paneLayout.center_px}px, 1fr)`,
-              `${PANE_DIVIDER_WIDTH_PX}px`,
-              `${paneLayout.right_px}px`,
-              `${TOOL_STRIP_WIDTH_PX}px`,
-            ].join(" "),
-            minWidth: upperPaneMinWidth,
-          }}
-        >
+        <div className={cx("hammer-editor-shell__upper", dynamicStyles.upperLayoutClassName)}>
           <div
-            className="hammer-pane hammer-pane--left"
-            style={{ gridTemplateRows: activeWorkPanel === "script" ? "auto minmax(0, 1fr)" : "minmax(0, 1fr)" }}
+            className={cx(
+              "hammer-pane hammer-pane--left",
+              activeWorkPanel === "script" ? "is-script-view" : "is-assets-view",
+            )}
           >
         {activeWorkPanel === "script" ? (
         <>
@@ -3500,7 +3623,6 @@ export default function TranscriptSeekMock(
                   type="button"
                   onClick={() => setActiveWorkPanel(panel.id)}
                   className={getToggleButtonClassName(activeWorkPanel === panel.id)}
-                  aria-pressed={activeWorkPanel === panel.id}
                 >
                   {panel.label}
                 </button>
@@ -3611,8 +3733,8 @@ export default function TranscriptSeekMock(
               at playhead {playheadOverlayRow ? formatOverlayRowLabel(playheadOverlayRow) : "none"}
             </span>
           )}
-          sectionStyle={{ minHeight: 0, overflow: "hidden", gridTemplateRows: "auto minmax(0, 1fr)" }}
-          bodyStyle={{ minHeight: 0, overflow: "hidden", gridTemplateRows: "minmax(0, 1fr)" }}
+          sectionClassName="hammer-pane-section--rows hammer-pane-section--overflow-hidden"
+          bodyClassName="hammer-pane-section__body--rows hammer-pane-section__body--overflow-hidden"
         >
           <div
             ref={transcriptScrollContainerRef}
@@ -3628,34 +3750,6 @@ export default function TranscriptSeekMock(
               const rowStageMarkers = getTranscriptRowStageMarkers(row);
               const isSelected = row.row_id === selectedOverlayRowId;
               const isAtPlayhead = row.row_id === playheadOverlayRow?.row_id;
-              const borderColor = row.is_deleted
-                ? "rgba(239, 68, 68, 0.62)"
-                : row.is_muted
-                ? "rgba(245, 158, 11, 0.56)"
-                : row.structure === "merge"
-                ? "rgba(56, 189, 248, 0.52)"
-                : row.structure === "split"
-                ? "rgba(129, 140, 248, 0.54)"
-                : isSelected
-                ? "rgba(96, 165, 250, 0.72)"
-                : "rgba(148, 163, 184, 0.22)";
-              const background = row.is_deleted
-                ? "rgba(239, 68, 68, 0.12)"
-                : row.is_muted
-                ? "rgba(180, 83, 9, 0.15)"
-                : row.structure === "merge"
-                ? "rgba(8, 145, 178, 0.14)"
-                : row.structure === "split"
-                ? "rgba(99, 102, 241, 0.14)"
-                : isSelected
-                ? "rgba(59, 130, 246, 0.2)"
-                : "rgba(2, 6, 23, 0.42)";
-              const boxShadow = isAtPlayhead
-                ? isSelected
-                  ? "inset 3px 0 0 rgba(45, 212, 191, 0.88), 0 0 0 1px rgba(96, 165, 250, 0.12)"
-                  : "inset 3px 0 0 rgba(45, 212, 191, 0.88), 0 0 0 1px rgba(45, 212, 191, 0.14)"
-                : "none";
-
               return (
                 <div
                   key={row.row_id}
@@ -3670,23 +3764,14 @@ export default function TranscriptSeekMock(
                     "hammer-script-row",
                     revealedTranscriptRowId === row.row_id && "is-revealed",
                   )}
+                  data-selected={isSelected ? "true" : "false"}
                   data-overlay-row-id={row.row_id}
                   data-playhead={isAtPlayhead ? "true" : "false"}
                   data-deleted={row.is_deleted ? "true" : "false"}
                   data-muted={row.is_muted ? "true" : "false"}
+                  data-structure={row.structure}
                   data-playable-start={rowPlaybackRange?.playable_start_sec ?? ""}
                   data-playable-end={rowPlaybackRange?.playable_end_sec ?? ""}
-                  style={{
-                    border: `1px solid ${borderColor}`,
-                    borderRadius: 10,
-                    background,
-                    padding: "8px 10px",
-                    display: "grid",
-                    gap: 8,
-                    opacity: row.is_deleted ? 0.86 : 1,
-                    boxShadow,
-                    transition: "border-color 140ms ease, background 140ms ease, box-shadow 140ms ease",
-                  }}
                 >
                     <button
                       type="button"
@@ -3723,8 +3808,11 @@ export default function TranscriptSeekMock(
                               {formatClock(block.start_sec)}-{formatClock(block.end_sec)}
                             </div>
                             <div
-                              className="hammer-copy-md"
-                              style={{ textDecoration: row.is_deleted ? "line-through" : "none" }}
+                              className={cx(
+                                "hammer-copy-md",
+                                "hammer-script-block__text",
+                                row.is_deleted && "is-deleted",
+                              )}
                             >
                               {block.text}
                             </div>
@@ -3755,15 +3843,14 @@ export default function TranscriptSeekMock(
                     type="button"
                     onClick={() => setActiveWorkPanel(panel.id)}
                     className={getToggleButtonClassName(activeWorkPanel === panel.id)}
-                    aria-pressed={activeWorkPanel === panel.id}
                   >
                     {panel.label}
                   </button>
                 ))}
               </div>
             )}
-            sectionStyle={{ minHeight: 0, overflow: "hidden" }}
-            bodyStyle={{ minHeight: 0, overflow: "auto" }}
+            sectionClassName="hammer-pane-section--overflow-hidden"
+            bodyClassName="hammer-pane-section__body--scroll"
           >
             <div className="hammer-tab-row">
               {ASSET_PANEL_VIEWS.map((panel) => (
@@ -3772,7 +3859,6 @@ export default function TranscriptSeekMock(
                   type="button"
                   onClick={() => setActiveAssetPanel(panel.id)}
                   className={getToggleButtonClassName(activeAssetPanel === panel.id)}
-                  aria-pressed={activeAssetPanel === panel.id}
                 >
                   {panel.label}
                 </button>
@@ -3864,10 +3950,7 @@ export default function TranscriptSeekMock(
         className={getPaneDividerClassName(activeResizeHandle === "left-center")}
       />
 
-      <div
-        className="hammer-pane hammer-pane--center"
-        style={{ gridTemplateRows: "minmax(0, 1fr)" }}
-      >
+      <div className="hammer-pane hammer-pane--center">
         <HammerPaneSection
           title="Preview Monitor"
           subtitle="Verify playback, timing, and pacing."
@@ -4052,8 +4135,11 @@ export default function TranscriptSeekMock(
               </div>
 
               <div
-                className={cx("hammer-monitor__surface", (showPreviewVideo || showPreviewAudioPlayer) && "has-media")}
-                style={{ aspectRatio: previewMonitorAspectRatio }}
+                className={cx(
+                  "hammer-monitor__surface",
+                  dynamicStyles.monitorSurfaceClassName,
+                  (showPreviewVideo || showPreviewAudioPlayer) && "has-media",
+                )}
               >
                 {showPreviewVideo ? (
                   <video
@@ -4261,10 +4347,8 @@ export default function TranscriptSeekMock(
               <div className="hammer-stack-6">
                 <div className="hammer-progress-track">
                   <div
-                    className="hammer-progress-fill"
-                    style={{
-                      width: `${progressPercent}%`,
-                    }}
+                    aria-hidden="true"
+                    className={cx("hammer-progress-fill", dynamicStyles.progressFillClassName)}
                   />
                 </div>
                 <input
@@ -4294,10 +4378,7 @@ export default function TranscriptSeekMock(
         className={getPaneDividerClassName(activeResizeHandle === "center-right")}
       />
 
-      <div
-        className="hammer-pane hammer-pane--right"
-        style={{ gridTemplateRows: "minmax(0, 1fr)", overflow: "hidden" }}
-      >
+      <div className="hammer-pane hammer-pane--right">
         <HammerPaneSection
           title={activeToolDefinition.label}
           subtitle={activeToolHint}
@@ -4316,15 +4397,14 @@ export default function TranscriptSeekMock(
                   type="button"
                   onClick={() => setShowDebugPanels((current) => !current)}
                   className={getToggleButtonClassName(showDebugPanels)}
-                  aria-pressed={showDebugPanels}
                 >
                   {showDebugPanels ? "Hide Debug" : "Show Debug"}
                 </button>
               ) : null}
             </div>
           )}
-          sectionStyle={{ minHeight: 0, overflow: "hidden", gridTemplateRows: "auto minmax(0, 1fr)" }}
-          bodyStyle={{ minHeight: 0, overflow: "auto" }}
+          sectionClassName="hammer-pane-section--rows hammer-pane-section--overflow-hidden"
+          bodyClassName="hammer-pane-section__body--scroll"
         >
           {toolPanelContent}
           {detailsDebugContent}
@@ -4346,11 +4426,10 @@ export default function TranscriptSeekMock(
             type="button"
             onClick={() => setActiveTool(tool.id)}
             className={getToolStripButtonClassName(activeTool === tool.id)}
-            aria-pressed={activeTool === tool.id}
             title={`${tool.label} workspace`}
           >
-            <strong style={{ fontSize: 18, lineHeight: 1 }}>{tool.shortLabel}</strong>
-            <span style={{ fontSize: 11 }}>{tool.label}</span>
+            <strong className="hammer-tool-button__short-label">{tool.shortLabel}</strong>
+            <span className="hammer-tool-button__label">{tool.label}</span>
           </button>
         ))}
       </div>
@@ -4369,15 +4448,14 @@ export default function TranscriptSeekMock(
                   type="button"
                   onClick={() => setActiveTimelineTool(tool.id)}
                   className={getToggleButtonClassName(activeTimelineTool === tool.id)}
-                  aria-pressed={activeTimelineTool === tool.id}
                 >
                   {tool.label}
                 </button>
               ))}
             </div>
           )}
-          sectionStyle={{ minHeight: 0, overflow: "hidden" }}
-          bodyStyle={{ minHeight: 0, overflow: "auto" }}
+          sectionClassName="hammer-pane-section--overflow-hidden"
+          bodyClassName="hammer-pane-section__body--scroll"
         >
           <div className="hammer-meta-strip">
             <span className="hammer-pill">mode {activeTimelineToolDefinition.label}</span>
@@ -4420,19 +4498,21 @@ export default function TranscriptSeekMock(
           <div className="hammer-timeline-ruler">
             <div className="hammer-timeline-ruler__label">Time</div>
             <div className="hammer-timeline-ruler__track">
-              {timelineRulerTicks.map((tick) => (
+              {timelineRulerTicks.map((tick, index) => (
                 <div
                   key={tick.id}
-                  className="hammer-timeline-ruler__tick"
-                  style={{ left: `${tick.positionPercent}%` }}
+                  className={cx("hammer-timeline-ruler__tick", dynamicStyles.rulerTickClassNames[index])}
                 >
                   <span className="hammer-timeline-ruler__tick-label">{tick.label}</span>
                 </div>
               ))}
               <div
                 aria-hidden="true"
-                className="hammer-track-viewport__playhead hammer-track-viewport__playhead--ruler"
-                style={{ left: `${playheadPercent}%` }}
+                className={cx(
+                  "hammer-track-viewport__playhead",
+                  "hammer-track-viewport__playhead--ruler",
+                  dynamicStyles.playheadClassName,
+                )}
               />
             </div>
           </div>
@@ -4480,8 +4560,6 @@ export default function TranscriptSeekMock(
                       {getTimelineTrackEmptyMessage(track.id, Boolean(selectedOverlayRow))}
                     </div>
                   ) : track.clips.map((clip) => {
-                    const left = clamp((clip.start_sec / effectiveDurationSec) * 100, 0, 100);
-                    const width = clamp(((clip.end_sec - clip.start_sec) / effectiveDurationSec) * 100, 1.2, 100);
                     const isSelected = doesClipMatchSelectedState(clip);
                     const isActive = doesClipMatchActiveState(clip)
                       || (currentTimeSec >= clip.start_sec && currentTimeSec <= clip.end_sec && !clip.linked_row_id);
@@ -4499,20 +4577,24 @@ export default function TranscriptSeekMock(
                           clip.title_detail,
                         ].filter(Boolean).join(" · ")}
                         onClick={() => selectTimelineClip(clip)}
-                        aria-pressed={isSelected}
                         className={cx(
                           "hammer-timeline-clip",
+                          dynamicStyles.clipLayoutClassNames.get(getTimelineClipLayoutKey(track.id, clip.id)),
                           clip.editable && "is-editable",
                           isSelected && "is-selected",
                           isActive && "is-active",
                           showTrimHandles && "has-trim-handles",
                           clip.status === "uncertain" && "is-uncertain",
+                          clip.tone === "#dc2626" && "hammer-timeline-clip--red",
+                          clip.tone === "#0ea5e9" && "hammer-timeline-clip--cyan",
+                          clip.tone === "#818cf8" && "hammer-timeline-clip--indigo",
+                          clip.tone === "#60a5fa" && "hammer-timeline-clip--blue",
+                          clip.tone === "#34d399" && "hammer-timeline-clip--green",
+                          clip.tone === "#f59e0b" && "hammer-timeline-clip--amber",
+                          clip.tone === "#f472b6" && "hammer-timeline-clip--pink",
+                          clip.tone === "#c084fc" && "hammer-timeline-clip--violet",
+                          clip.tone === "#f97316" && "hammer-timeline-clip--orange",
                         )}
-                        style={{
-                          left: `${left}%`,
-                          width: `${width}%`,
-                          background: clip.tone,
-                        }}
                       >
                         {showTrimHandles ? (
                           <>
@@ -4532,8 +4614,7 @@ export default function TranscriptSeekMock(
                   })}
                   <div
                     aria-hidden="true"
-                    className="hammer-track-viewport__playhead"
-                    style={{ left: `${playheadPercent}%` }}
+                    className={cx("hammer-track-viewport__playhead", dynamicStyles.playheadClassName)}
                   />
                 </div>
                     </>

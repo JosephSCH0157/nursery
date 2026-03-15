@@ -24,6 +24,13 @@ import {
   resolveHammerPrepSource,
   type HammerPrepState,
 } from "../prep/hammerPrep";
+import {
+  buildFailedHammerAudioPolish,
+  buildPreparedHammerAudioPolish,
+  buildPreparingHammerAudioPolish,
+  isReusableHammerAudioPolish,
+} from "../prep/hammerAudioPolish";
+import { requestHammerAudioPolish } from "../prep/hammerAudioPolishApi";
 import { requestHammerTranscriptPrep } from "../prep/hammerPrepApi";
 import {
   buildUnavailableHammerVisualPlacements,
@@ -147,6 +154,107 @@ export default function HammerWorkspaceEditor(
     return saveResult.data;
   };
 
+  const ensureAudioPolish = async (args: {
+    launchContext: HammerLaunchContext;
+    currentSnapshot: HammerPersistenceSnapshot | null;
+  }): Promise<HammerPersistenceSnapshot | null> => {
+    if (!persistenceTarget) {
+      throw new Error("Hammer audio polish persistence requires a canonical target.");
+    }
+
+    const prepSource = resolveHammerPrepSource(args.launchContext);
+    if (!prepSource) {
+      return args.currentSnapshot;
+    }
+
+    const existingAudioPolish = args.currentSnapshot?.audio_polish.data ?? null;
+    if (isReusableHammerAudioPolish(existingAudioPolish, prepSource)) {
+      return args.currentSnapshot;
+    }
+
+    const preparingSave = await saveHammerPersistenceSnapshot(persistenceTarget, {
+      written_by: {
+        tool: "hammer",
+        tool_version: "forge-v1.2.0/hammer-runtime",
+        lane: "forge-managed",
+      },
+      active_session_id: args.launchContext.session_id ?? null,
+      last_opened_at: openedAtRef.current,
+      audio_polish: {
+        data: buildPreparingHammerAudioPolish(prepSource),
+      },
+    });
+    if (!preparingSave.ok) {
+      throw new Error(preparingSave.error);
+    }
+
+    try {
+      const response = await requestHammerAudioPolish({
+        workspace_id: args.launchContext.workspace_id,
+        workpiece_id: args.launchContext.workpiece_id,
+        media_kind: prepSource.mediaRef.kind,
+        local_root_abs: prepSource.local_root_abs,
+        local_relpath: prepSource.local_relpath,
+        mime_type: prepSource.mediaRef.kind === "recording_audio" ? "audio/wav" : null,
+      });
+
+      const audioPolish = response.status === "prepared"
+        ? buildPreparedHammerAudioPolish({
+          prepSource,
+          preparedAt: response.prepared_at ?? new Date().toISOString(),
+          outputLocalRelpath: response.output_local_relpath ?? prepSource.local_relpath,
+          outputMimeType: response.output_mime_type ?? "audio/wav",
+          outputDurationMs: response.output_duration_ms,
+          settingsSummary: response.settings_summary,
+          preparedPasses: response.prepared_passes,
+        })
+        : buildFailedHammerAudioPolish({
+          prepSource,
+          failureCode: response.failure_code ?? "processing_failed",
+          failureReason: response.failure_reason ?? "Hammer could not produce a baseline audio polish artifact.",
+          settingsSummary: response.settings_summary,
+        });
+
+      const finalSave = await saveHammerPersistenceSnapshot(persistenceTarget, {
+        written_by: {
+          tool: "hammer",
+          tool_version: "forge-v1.2.0/hammer-runtime",
+          lane: "forge-managed",
+        },
+        active_session_id: args.launchContext.session_id ?? null,
+        last_opened_at: openedAtRef.current,
+        audio_polish: {
+          data: audioPolish,
+        },
+      });
+      if (!finalSave.ok) {
+        throw new Error(finalSave.error);
+      }
+      return finalSave.data;
+    } catch (error) {
+      const failedSave = await saveHammerPersistenceSnapshot(persistenceTarget, {
+        written_by: {
+          tool: "hammer",
+          tool_version: "forge-v1.2.0/hammer-runtime",
+          lane: "forge-managed",
+        },
+        active_session_id: args.launchContext.session_id ?? null,
+        last_opened_at: openedAtRef.current,
+        audio_polish: {
+          data: buildFailedHammerAudioPolish({
+            prepSource,
+            failureCode: "processing_failed",
+            failureReason: toErrorMessage(error, "Hammer could not produce a baseline audio polish artifact."),
+          }),
+        },
+      });
+      if (!failedSave.ok) {
+        throw new Error(failedSave.error);
+      }
+      return failedSave.data;
+    }
+  };
+
   useEffect(() => {
     lastSavedPayloadRef.current = null;
     prepRunKeyRef.current = null;
@@ -248,13 +356,25 @@ export default function HammerWorkspaceEditor(
         setPrepState(createHammerPrepState("preparing", "placing_initial_visuals"));
 
         try {
-          const nextSnapshot = await ensureVisualPlacements({
+          let nextSnapshot = await ensureVisualPlacements({
             launchContext: effectiveLaunchContext,
             transcriptSourceId: reusableTranscript.transcript_id,
             transcriptSegments: loadedPersistenceSnapshot?.structured_transcript.data?.segments
               ?? reusableTranscript.segments,
             currentSnapshot: loadedPersistenceSnapshot,
           });
+          if (!active) return;
+
+          setLoadedPersistenceSnapshot(nextSnapshot);
+          setPrepState(createHammerPrepState("preparing", "polishing_audio"));
+          try {
+            nextSnapshot = await ensureAudioPolish({
+              launchContext: effectiveLaunchContext,
+              currentSnapshot: nextSnapshot,
+            }) ?? nextSnapshot;
+          } catch {
+            // Audio polish falls back to raw playback without blocking workspace open.
+          }
           if (!active) return;
 
           setLoadedPersistenceSnapshot(nextSnapshot);
@@ -355,9 +475,27 @@ export default function HammerWorkspaceEditor(
           preparedTranscript,
           visualPlacements,
         });
-        const preparedSave = await saveHammerPersistenceSnapshot(persistenceTarget, preparedRequest);
+        let preparedSave = await saveHammerPersistenceSnapshot(persistenceTarget, preparedRequest);
         if (!preparedSave.ok) {
           throw new Error(preparedSave.error);
+        }
+        if (!active) return;
+
+        setPrepState(createHammerPrepState("preparing", "polishing_audio"));
+        try {
+          const audioSnapshot = await ensureAudioPolish({
+            launchContext: nextLaunchContext,
+            currentSnapshot: preparedSave.data,
+          });
+          if (audioSnapshot) {
+            preparedSave = {
+              ok: true,
+              status: 200,
+              data: audioSnapshot,
+            };
+          }
+        } catch {
+          // Audio polish falls back to raw playback without blocking workspace open.
         }
         if (!active) return;
 
@@ -424,6 +562,7 @@ export default function HammerWorkspaceEditor(
     const request = buildHammerPersistenceSaveRequest(
       workspaceSnapshot,
       loadedPersistenceSnapshot?.structured_transcript.data ?? null,
+      loadedPersistenceSnapshot?.audio_polish.data ?? null,
       openedAtRef.current,
     );
     const payloadKey = JSON.stringify({
@@ -487,6 +626,7 @@ export default function HammerWorkspaceEditor(
   const overlayViewModel = buildHammerPrepOverlayViewModel(prepState);
   const shouldRenderEditor = persistenceMode !== "canonical" || prepState.status === "prepared";
   const visualPlacementData = loadedPersistenceSnapshot?.visual_placements.data ?? null;
+  const audioPolishData = loadedPersistenceSnapshot?.audio_polish.data ?? null;
   const visualPlacementCount = visualPlacementData?.placements.length ?? 0;
   const uncertainPlacementCount = visualPlacementData?.placements.filter((placement) => placement.status === "uncertain").length ?? 0;
   const hasVisualPlacementWarnings = (visualPlacementData?.uncertainty_flags.length ?? 0) > 0 || uncertainPlacementCount > 0;
@@ -495,9 +635,14 @@ export default function HammerWorkspaceEditor(
     : hasVisualPlacementWarnings
     ? ", with some placement warnings flagged for review"
     : "";
+  const audioPolishNote = audioPolishData?.status === "prepared"
+    ? " Polished playback is ready for supported audio monitoring while the raw source remains intact underneath."
+    : audioPolishData?.status === "failed" && audioPolishData.failure_reason
+    ? ` Audio polish fell back to the raw source: ${audioPolishData.failure_reason}`
+    : "";
   const handoffBody = visualPlacementCount > 0
-    ? `Hammer finished the speaker-structured transcript and placed ${visualPlacementCount} initial visual suggestion${visualPlacementCount === 1 ? "" : "s"} on the timeline${visualReviewNote}. Review the turns and visual suggestions, then direct the next edit you want in Polish, Audio, Video, or Captions.`
-    : "Hammer finished the speaker-structured transcript. No reviewable visual anchors were ready to place automatically, so Video opens without seeded image suggestions.";
+    ? `Hammer finished the speaker-structured transcript and placed ${visualPlacementCount} initial visual suggestion${visualPlacementCount === 1 ? "" : "s"} on the timeline${visualReviewNote}.${audioPolishNote} Review the turns and visual suggestions, then direct the next edit you want in Polish, Audio, Video, or Captions.`
+    : `Hammer finished the speaker-structured transcript. No reviewable visual anchors were ready to place automatically, so Video opens without seeded image suggestions.${audioPolishNote}`;
 
   if (persistenceMode === "canonical" && prepState.status === "prep_failed") {
     return (
@@ -535,6 +680,7 @@ export default function HammerWorkspaceEditor(
           <TranscriptSeekMock
             launchContext={effectiveLaunchContext}
             visualPlacements={visualPlacementData}
+            audioPolish={audioPolishData}
             onWorkspaceSnapshotChange={canPersistCanonicalState ? setWorkspaceSnapshot : undefined}
           />
         </div>
@@ -559,10 +705,10 @@ export default function HammerWorkspaceEditor(
                 <span style={{ width: `${Math.max(8, overlayViewModel.progress_ratio * 100)}%` }} />
               </div>
               <div className="hammer-prep-shell__step-list" aria-hidden="true">
-                {Array.from({ length: 6 }).map((_, index) => (
+                {Array.from({ length: overlayViewModel.step_count }).map((_, index) => (
                   <span
                     key={`prep-step-${index + 1}`}
-                    className={`hammer-prep-shell__step${overlayViewModel.progress_ratio * 6 >= index + 1 ? " is-active" : ""}`}
+                    className={`hammer-prep-shell__step${overlayViewModel.progress_ratio * overlayViewModel.step_count >= index + 1 ? " is-active" : ""}`}
                   />
                 ))}
               </div>

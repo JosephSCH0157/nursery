@@ -2,6 +2,8 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import fs from "node:fs";
 import fsPromises from "node:fs/promises";
 import path from "node:path";
+import { handleHammerAudioPolishRequest } from "./hammer-audio-polish";
+import { HAMMER_AUDIO_POLISH_ROUTE } from "../../hammer/src/prep/hammerAudioPolishApi";
 import { HAMMER_TRANSCRIPT_PREP_ROUTE, type HammerTranscriptPrepRequest } from "../../hammer/src/prep/hammerPrepApi";
 import { resolveHearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
 
@@ -178,7 +180,7 @@ export function createHammerPrepMiddleware() {
       const rawUrl = req.url || "";
       const origin = `http://${req.headers.host || "localhost"}`;
       const url = new URL(rawUrl, origin);
-      if (url.pathname !== HAMMER_TRANSCRIPT_PREP_ROUTE) {
+      if (url.pathname !== HAMMER_TRANSCRIPT_PREP_ROUTE && url.pathname !== HAMMER_AUDIO_POLISH_ROUTE) {
         next();
         return;
       }
@@ -188,12 +190,18 @@ export function createHammerPrepMiddleware() {
         return;
       }
 
+      const body = await readJsonBody(req);
+      if (url.pathname === HAMMER_AUDIO_POLISH_ROUTE) {
+        const result = await handleHammerAudioPolishRequest(body);
+        sendJson(res, result.status, result.payload);
+        return;
+      }
+
       if (!apiKey) {
         sendJson(res, 500, { ok: false, error: { message: "Missing OPENAI_API_KEY in server env." } });
         return;
       }
 
-      const body = await readJsonBody(req);
       const request = normalizeRequest(body);
       if (!request) {
         sendJson(res, 400, { ok: false, error: { message: "Invalid Hammer transcript prep payload." } });

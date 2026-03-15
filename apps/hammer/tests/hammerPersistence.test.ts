@@ -90,9 +90,25 @@ const snapshot: HammerWorkspaceSnapshot = {
       },
     ],
   },
-  studioSoundPrepared: true,
-  noiseCleanupPrepared: false,
-  levelConsistencyPrepared: true,
+  audioPolish: {
+    schema_version: 1,
+    status: "prepared",
+    prepared_passes: ["studio_sound", "level_consistency"],
+    source_artifact_paths: ["recordings/episode-1.wav"],
+    settings_summary: {
+      supported_source: true,
+      source_extension: ".wav",
+    },
+    source_media_id: "media_01",
+    source_media_signature: "media_sig_01",
+    processor_version: "forge-v1.2.0/audio-polish.v1",
+    prepared_at: "2026-03-13T10:10:05.000Z",
+    output_local_relpath: "hammer/prep/audio-polish/episode-1--abcd1234.wav",
+    output_mime_type: "audio/wav",
+    output_duration_ms: 8_000,
+    failure_code: null,
+    failure_reason: null,
+  },
 };
 
 const saveRequest = buildHammerPersistenceSaveRequest(snapshot);
@@ -109,6 +125,10 @@ assert.deepEqual(
 assert.deepEqual(
   saveRequest.audio_polish?.data.prepared_passes,
   ["studio_sound", "level_consistency"],
+);
+assert.equal(
+  saveRequest.audio_polish?.data.output_local_relpath,
+  "hammer/prep/audio-polish/episode-1--abcd1234.wav",
 );
 assert.equal(saveRequest.visual_placements?.data.placements[0]?.asset_ref, "asset_01");
 assert.deepEqual(

@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { resolvePreviewMediaSrc } from "../src/lib/previewSource";
+import {
+  resolveAudioPolishPreviewSrc,
+  resolvePreviewMediaSrc,
+} from "../src/lib/previewSource";
 import { V1HammerMediaResolver } from "../src/media/resolveMedia";
 
 {
@@ -49,6 +52,38 @@ import { V1HammerMediaResolver } from "../src/media/resolveMedia";
   assert.equal(
     previewSrc,
     "/api/hammer/dev-media?local_root_abs=D%3A%5CForgeMedia%5Cws_demo&local_relpath=recordings%2Fepisode014.mp4",
+  );
+}
+
+{
+  const previewSrc = resolveAudioPolishPreviewSrc(
+    {
+      workspace_id: "ws_demo",
+      local_root_abs: "D:\\ForgeMedia\\ws_demo",
+    },
+    {
+      schema_version: 1,
+      status: "prepared",
+      prepared_passes: ["studio_sound", "noise_cleanup", "level_consistency"],
+      source_artifact_paths: ["recordings/episode014.wav"],
+      settings_summary: {
+        supported_source: true,
+      },
+      source_media_id: "media_local",
+      source_media_signature: "sig_014",
+      processor_version: "forge-v1.2.0/audio-polish.v1",
+      prepared_at: "2026-03-14T10:00:00.000Z",
+      output_local_relpath: "hammer/prep/audio-polish/ws_demo/episode014--abcd.wav",
+      output_mime_type: "audio/wav",
+      output_duration_ms: 8_000,
+      failure_code: null,
+      failure_reason: null,
+    },
+  );
+
+  assert.equal(
+    previewSrc,
+    "/api/hammer/dev-media?local_root_abs=D%3A%5CForgeMedia%5Cws_demo&local_relpath=hammer%2Fprep%2Faudio-polish%2Fws_demo%2Fepisode014--abcd.wav",
   );
 }
 

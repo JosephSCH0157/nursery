@@ -104,12 +104,28 @@ export interface HammerPersistedVisualPlacements {
   placements: HammerVisualPlacementRecord[];
 }
 
+export type HammerAudioPolishPass = "studio_sound" | "noise_cleanup" | "level_consistency";
+export type HammerAudioPolishStatus = "not_started" | "preparing" | "prepared" | "failed";
+export type HammerAudioPolishFailureCode =
+  | "unsupported_source"
+  | "source_unavailable"
+  | "processing_failed";
+
 export interface HammerPersistedAudioPolish {
   schema_version: 1;
-  status: "not_started" | "prepared";
-  prepared_passes: string[];
+  status: HammerAudioPolishStatus;
+  prepared_passes: HammerAudioPolishPass[];
   source_artifact_paths: string[];
   settings_summary: Record<string, string | number | boolean | null>;
+  source_media_id: string | null;
+  source_media_signature: string | null;
+  processor_version: string | null;
+  prepared_at: string | null;
+  output_local_relpath: string | null;
+  output_mime_type: string | null;
+  output_duration_ms: number | null;
+  failure_code: HammerAudioPolishFailureCode | null;
+  failure_reason: string | null;
 }
 
 export interface HammerPersistedMacroHooks {

@@ -37,11 +37,21 @@
   display: grid;
 }
 
+.hammer-pane--left.is-script-view {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.hammer-pane--left.is-assets-view,
+.hammer-pane--center,
+.hammer-pane--right {
+  grid-template-rows: minmax(0, 1fr);
+}
+
 .hammer-pane--right {
   display: grid;
   gap: 10px;
   align-content: start;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .hammer-pane--tool-strip {
@@ -95,6 +105,26 @@
   display: grid;
   gap: 8px;
   min-height: 0;
+}
+
+.hammer-pane-section--rows {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.hammer-pane-section--overflow-hidden {
+  overflow: hidden;
+}
+
+.hammer-pane-section__body--rows {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.hammer-pane-section__body--overflow-hidden {
+  overflow: hidden;
+}
+
+.hammer-pane-section__body--scroll {
+  overflow: auto;
 }
 
 .hammer-pill {
@@ -215,6 +245,15 @@
 .hammer-tool-button:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.32);
+}
+
+.hammer-tool-button__short-label {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.hammer-tool-button__label {
+  font-size: 11px;
 }
 
 .hammer-tool-strip__head {
@@ -467,6 +506,39 @@
   justify-content: flex-end;
 }
 
+.hammer-edit-plan__feedback {
+  color: #c8d6ea;
+}
+
+.hammer-edit-plan__feedback.is-warning {
+  color: #fde68a;
+}
+
+.hammer-edit-plan__feedback.is-success {
+  color: #a7f3d0;
+}
+
+.hammer-edit-plan__json {
+  display: grid;
+  gap: 8px;
+}
+
+.hammer-edit-plan__json-title {
+  color: #dbe8ff;
+}
+
+.hammer-edit-plan__textarea {
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  background: rgba(2, 6, 23, 0.65);
+  color: #dbe8ff;
+  padding: 10px;
+  font-size: 12px;
+}
+
 .hammer-asset-card {
   border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 10px;
@@ -699,6 +771,49 @@
 
 .hammer-script-row {
   position: relative;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 10px;
+  background: rgba(2, 6, 23, 0.42);
+  padding: 8px 10px;
+  display: grid;
+  gap: 8px;
+  opacity: 1;
+  box-shadow: none;
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+}
+
+.hammer-script-row[data-selected="true"] {
+  border-color: rgba(96, 165, 250, 0.72);
+  background: rgba(59, 130, 246, 0.2);
+}
+
+.hammer-script-row[data-structure="split"] {
+  border-color: rgba(129, 140, 248, 0.54);
+  background: rgba(99, 102, 241, 0.14);
+}
+
+.hammer-script-row[data-structure="merge"] {
+  border-color: rgba(56, 189, 248, 0.52);
+  background: rgba(8, 145, 178, 0.14);
+}
+
+.hammer-script-row[data-muted="true"] {
+  border-color: rgba(245, 158, 11, 0.56);
+  background: rgba(180, 83, 9, 0.15);
+}
+
+.hammer-script-row[data-deleted="true"] {
+  border-color: rgba(239, 68, 68, 0.62);
+  background: rgba(239, 68, 68, 0.12);
+  opacity: 0.86;
+}
+
+.hammer-script-row[data-playhead="true"] {
+  box-shadow: inset 3px 0 0 rgba(45, 212, 191, 0.88), 0 0 0 1px rgba(45, 212, 191, 0.14);
+}
+
+.hammer-script-row[data-playhead="true"][data-selected="true"] {
+  box-shadow: inset 3px 0 0 rgba(45, 212, 191, 0.88), 0 0 0 1px rgba(96, 165, 250, 0.12);
 }
 
 .hammer-script-row.is-revealed {
@@ -766,6 +881,10 @@
   background: rgba(2, 6, 23, 0.32);
   display: grid;
   gap: 3px;
+}
+
+.hammer-script-block__text.is-deleted {
+  text-decoration: line-through;
 }
 
 @keyframes hammer-script-row-reveal {
@@ -1241,6 +1360,42 @@
   text-align: left;
   box-shadow: none;
   transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease, opacity 140ms ease;
+}
+
+.hammer-timeline-clip--red {
+  background: #dc2626;
+}
+
+.hammer-timeline-clip--cyan {
+  background: #0ea5e9;
+}
+
+.hammer-timeline-clip--indigo {
+  background: #818cf8;
+}
+
+.hammer-timeline-clip--blue {
+  background: #60a5fa;
+}
+
+.hammer-timeline-clip--green {
+  background: #34d399;
+}
+
+.hammer-timeline-clip--amber {
+  background: #f59e0b;
+}
+
+.hammer-timeline-clip--pink {
+  background: #f472b6;
+}
+
+.hammer-timeline-clip--violet {
+  background: #c084fc;
+}
+
+.hammer-timeline-clip--orange {
+  background: #f97316;
 }
 
 .hammer-timeline-clip.is-editable {

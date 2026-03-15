@@ -9,6 +9,10 @@ import {
   HAMMER_RUNTIME_WRITTEN_BY,
   preserveTranscriptMetadata,
 } from "../prep/hammerPrep";
+import {
+  buildNotStartedHammerAudioPolish,
+  cloneHammerAudioPolish,
+} from "../prep/hammerAudioPolish";
 import type {
   HammerHydratedLaunchContext,
   HammerPersistenceSaveRequest,
@@ -128,24 +132,13 @@ function toVisualPlacements(snapshot: HammerWorkspaceSnapshot): HammerPersistedV
   };
 }
 
-function toAudioPolish(snapshot: HammerWorkspaceSnapshot): HammerPersistedAudioPolish {
-  const preparedPasses = [
-    snapshot.studioSoundPrepared ? "studio_sound" : null,
-    snapshot.noiseCleanupPrepared ? "noise_cleanup" : null,
-    snapshot.levelConsistencyPrepared ? "level_consistency" : null,
-  ].filter((value): value is string => Boolean(value));
-
-  return {
-    schema_version: 1,
-    status: preparedPasses.length > 0 ? "prepared" : "not_started",
-    prepared_passes: preparedPasses,
-    source_artifact_paths: [],
-    settings_summary: {
-      studio_sound_prepared: snapshot.studioSoundPrepared,
-      noise_cleanup_prepared: snapshot.noiseCleanupPrepared,
-      level_consistency_prepared: snapshot.levelConsistencyPrepared,
-    },
-  };
+function toAudioPolish(
+  snapshot: HammerWorkspaceSnapshot,
+  existingAudioPolish?: HammerPersistedAudioPolish | null,
+): HammerPersistedAudioPolish {
+  return cloneHammerAudioPolish(snapshot.audioPolish)
+    ?? cloneHammerAudioPolish(existingAudioPolish)
+    ?? buildNotStartedHammerAudioPolish();
 }
 
 function toEditorSession(
@@ -195,6 +188,7 @@ export function readHammerPersistenceTarget(
 export function buildHammerPersistenceSaveRequest(
   snapshot: HammerWorkspaceSnapshot,
   existingStructuredTranscript?: HammerPersistedStructuredTranscript | null,
+  existingAudioPolish?: HammerPersistedAudioPolish | null,
   lastOpenedAt = new Date().toISOString(),
 ): HammerPersistenceSaveRequest {
   return {
@@ -219,7 +213,7 @@ export function buildHammerPersistenceSaveRequest(
       data: toVisualPlacements(snapshot),
     },
     audio_polish: {
-      data: toAudioPolish(snapshot),
+      data: toAudioPolish(snapshot, existingAudioPolish),
     },
     edit_plan: {
       data: cloneEditPlan(snapshot.editPlan),

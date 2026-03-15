@@ -3,6 +3,7 @@ import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/
 import type { MediaRef, WorkspaceMediaMapping } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import type {
+  HammerPersistedAudioPolish,
   HammerPersistedEditorSession,
   HammerPersistedSpeakerMap,
   HammerPersistedStructuredTranscript,
@@ -26,6 +27,7 @@ export type HammerPrepStep =
   | "identifying_speaker_turns"
   | "finalizing_transcript"
   | "placing_initial_visuals"
+  | "polishing_audio"
   | "ready_for_next_step";
 
 export interface HammerPrepState {
@@ -42,6 +44,7 @@ export interface HammerPrepOverlayViewModel {
   message: string;
   note: string;
   progress_ratio: number;
+  step_count: number;
 }
 
 export interface HammerPrepOpenDecision {
@@ -72,6 +75,7 @@ const PREP_STEP_ORDER: HammerPrepStep[] = [
   "identifying_speaker_turns",
   "finalizing_transcript",
   "placing_initial_visuals",
+  "polishing_audio",
   "ready_for_next_step",
 ];
 
@@ -333,6 +337,7 @@ export function createHammerPrepState(
     identifying_speaker_turns: "Identifying speaker turns…",
     finalizing_transcript: "Finalizing transcript…",
     placing_initial_visuals: "Placing initial visuals…",
+    polishing_audio: "Cleaning audio for studio clarity…",
     ready_for_next_step: "Almost ready…",
   };
 
@@ -359,6 +364,7 @@ export function buildHammerPrepOverlayViewModel(state: HammerPrepState): HammerP
     message: state.message,
     note: "Long recordings can take longer. Hammer will stop when the transcript is ready for your direction.",
     progress_ratio: progressRatio,
+    step_count: PREP_STEP_ORDER.length,
   };
 }
 
@@ -557,8 +563,9 @@ export function buildHammerPrepPersistenceSaveRequest(args: {
   status: HammerPrepLifecycleState;
   preparedTranscript?: HammerPreparedTranscript;
   visualPlacements?: HammerPersistedVisualPlacements | null;
+  audioPolish?: HammerPersistedAudioPolish | null;
 }): HammerPersistenceSaveRequest {
-  const { launchContext, status, preparedTranscript, visualPlacements } = args;
+  const { launchContext, status, preparedTranscript, visualPlacements, audioPolish } = args;
   const saveRequest: HammerPersistenceSaveRequest = {
     written_by: { ...HAMMER_RUNTIME_WRITTEN_BY },
     active_session_id: ensureHammerLaunchSessionId(launchContext).session_id ?? null,
@@ -582,6 +589,12 @@ export function buildHammerPrepPersistenceSaveRequest(args: {
   if (visualPlacements) {
     saveRequest.visual_placements = {
       data: visualPlacements,
+    };
+  }
+
+  if (audioPolish) {
+    saveRequest.audio_polish = {
+      data: audioPolish,
     };
   }
 

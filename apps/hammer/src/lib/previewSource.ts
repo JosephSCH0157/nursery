@@ -1,4 +1,5 @@
 import type { MediaRef, ResolveMediaResult, WorkspaceMediaMapping } from "../../../../packages/contracts/hammer/media-resolver.contract";
+import type { HammerPersistedAudioPolish } from "../persistence/hammerPersistenceContract";
 
 export function buildHammerDevMediaUrl(localRootAbs: string, localRelpath: string): string {
   const params = new URLSearchParams({
@@ -47,4 +48,14 @@ export function resolvePreviewMediaSrc(
   return options.resolveResult.playable_uri
     ? toBrowserMediaSrc(options.resolveResult.playable_uri)
     : null;
+}
+
+export function resolveAudioPolishPreviewSrc(
+  workspaceMapping: WorkspaceMediaMapping | null,
+  audioPolish: HammerPersistedAudioPolish | null | undefined,
+): string | null {
+  if (!workspaceMapping?.local_root_abs) return null;
+  if (!audioPolish || audioPolish.status !== "prepared") return null;
+  if (!audioPolish.output_local_relpath) return null;
+  return buildHammerDevMediaUrl(workspaceMapping.local_root_abs, audioPolish.output_local_relpath);
 }

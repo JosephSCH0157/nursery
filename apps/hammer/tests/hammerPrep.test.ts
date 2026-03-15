@@ -93,9 +93,7 @@ function buildWorkspaceSnapshot(): HammerWorkspaceSnapshot {
       instructions: [],
     },
     visualPlacements: null,
-    studioSoundPrepared: false,
-    noiseCleanupPrepared: false,
-    levelConsistencyPrepared: false,
+    audioPolish: null,
   };
 }
 
@@ -277,10 +275,13 @@ function testOverlayViewModelTracksPrepStages() {
   const transcribing = buildHammerPrepOverlayViewModel(createHammerPrepState("preparing", "transcribing_audio"));
   const finalizing = buildHammerPrepOverlayViewModel(createHammerPrepState("preparing", "finalizing_transcript"));
   const prepared = buildHammerPrepOverlayViewModel(createHammerPrepState("prepared", "ready_for_next_step"));
+  const polishing = buildHammerPrepOverlayViewModel(createHammerPrepState("preparing", "polishing_audio"));
 
   assert.equal(transcribing.visible, true);
   assert.equal(transcribing.message, "Listening to the recording…");
   assert.equal(finalizing.message, "Finalizing transcript…");
+  assert.equal(polishing.message, "Cleaning audio for studio clarity…");
+  assert.equal(polishing.step_count, 7);
   assert.equal(prepared.visible, false);
 }
 
@@ -338,6 +339,35 @@ function testPrepPersistenceSeedWritesPreparedTranscript() {
   assert.equal(saveRequest.visual_placements?.data.placements.length, 1);
 }
 
+function testPrepPersistenceSeedWritesAudioPolishArtifact() {
+  const saveRequest = buildHammerPrepPersistenceSaveRequest({
+    launchContext: buildLaunchContext(),
+    status: "prepared",
+    audioPolish: {
+      schema_version: 1,
+      status: "prepared",
+      prepared_passes: ["studio_sound", "noise_cleanup", "level_consistency"],
+      source_artifact_paths: ["recordings/episode-1.wav"],
+      settings_summary: {
+        supported_source: true,
+        source_extension: ".wav",
+      },
+      source_media_id: "media_01",
+      source_media_signature: "media_sig_01",
+      processor_version: "forge-v1.2.0/audio-polish.v1",
+      prepared_at: "2026-03-14T09:45:00.000Z",
+      output_local_relpath: "hammer/prep/audio-polish/workpiece/episode-1.wav",
+      output_mime_type: "audio/wav",
+      output_duration_ms: 67_000,
+      failure_code: null,
+      failure_reason: null,
+    },
+  });
+
+  assert.equal(saveRequest.audio_polish?.data.status, "prepared");
+  assert.equal(saveRequest.audio_polish?.data.output_local_relpath, "hammer/prep/audio-polish/workpiece/episode-1.wav");
+}
+
 function testWorkspaceSavePreservesTranscriptMetadata() {
   const saveRequest = buildHammerPersistenceSaveRequest(
     buildWorkspaceSnapshot(),
@@ -363,8 +393,9 @@ try {
   testOpenDecisionReusesPreparedTranscript();
   testPreparedTranscriptUsesNeutralForgeTagsAndSpeakerTurns();
   testOverlayViewModelTracksPrepStages();
-  testPrepPersistenceSeedWritesPreparedTranscript();
-  testWorkspaceSavePreservesTranscriptMetadata();
+testPrepPersistenceSeedWritesPreparedTranscript();
+testPrepPersistenceSeedWritesAudioPolishArtifact();
+testWorkspaceSavePreservesTranscriptMetadata();
   console.log("Hammer prep tests passed.");
 } catch (error) {
   console.error("Hammer prep tests failed:", error);
