@@ -58,9 +58,14 @@ import {
   applyHammerDerivedTextLayerToSegments,
   cloneHammerStructuredTranscript,
   discardHammerDerivedTextLayer,
+  getHammerActiveDerivedTextLayer,
   getHammerDerivedTextLayer,
-  runHammerFillerCleanupMacro,
+  listHammerDerivedTextLayers,
+  resolveHammerDerivedTextInspectionLayerId,
   setHammerDerivedTextLayerActive,
+} from "../macros/hammerDerivedTranscriptLayers";
+import {
+  runHammerFillerCleanupMacro,
   EXECUTABLE_FILLER_CLEANUP_RECIPE_REF,
 } from "../macros/hammerFillerCleanupMacro";
 import {
@@ -69,6 +74,7 @@ import {
 } from "../macros/hammerRetakeTighteningMacro";
 import {
   evaluateHammerMacroCatalogReadiness,
+  findHammerFinishingMacroRecipe,
   summarizeHammerMacroReadiness,
   type HammerFinishingMacroRecipe,
   type HammerMacroReadinessStatus,
@@ -207,6 +213,7 @@ const HAMMER_DEV_TOOL_VERSION = "forge-v1.2.0/hammer-dev";
 const FALLBACK_DURATION_SEC = 32;
 const DEV_AUDIO_SAMPLE_RATE = 8_000;
 const DEV_RECORDINGS_FALLBACK_ROOT_ABS = "C:\\Users\\Iam11\\OneDrive\\Documents\\Podcasters Forge\\Recordings";
+const RAW_TRANSCRIPT_LAYER_SENTINEL = "__raw__";
 
 type TranscriptSeekMockProps = {
   launchContext?: HammerLaunchContext;
@@ -638,6 +645,40 @@ function formatDerivedLayerEmptyState(layer: HammerDerivedTextLayer): string {
     default:
       return "Hammer ran the filler cleanup pass, but it did not find any conservative removals to apply.";
   }
+}
+
+function formatDerivedLayerProvenance(layer: HammerDerivedTextLayer): string {
+  const recipeName = findHammerFinishingMacroRecipe(layer.recipe_ref)?.name ?? layer.recipe_ref;
+  return `${recipeName} · ${layer.layer_id}`;
+}
+
+function formatDerivedLayerLifecycleStatus(layer: HammerDerivedTextLayer): string {
+  switch (layer.status) {
+    case "active":
+      return "Active";
+    case "review":
+      return "Review";
+    case "discarded":
+    default:
+      return "Discarded";
+  }
+}
+
+function formatDerivedLayerStateSummary(
+  activeLayer: HammerDerivedTextLayer | null,
+  reviewLayerCount: number,
+  totalLayerCount: number,
+): string {
+  if (activeLayer) {
+    return formatDerivedLayerStateLabel(activeLayer);
+  }
+  if (reviewLayerCount > 0) {
+    return `${reviewLayerCount} review layer${reviewLayerCount === 1 ? "" : "s"} ready`;
+  }
+  if (totalLayerCount > 0) {
+    return `${totalLayerCount} stored layer${totalLayerCount === 1 ? "" : "s"}`;
+  }
+  return "raw transcript active";
 }
 
 function getTranscriptRowStageMarkerClassName(tone: TranscriptRowStageMarkerTone): string {
@@ -1147,6 +1188,9 @@ export default function TranscriptSeekMock(
   const [inspectedMacroRecipeRef, setInspectedMacroRecipeRef] = useState<string | null>(
     () => props.selectedMacroRecipeRef ?? null,
   );
+  const [inspectedDerivedLayerId, setInspectedDerivedLayerId] = useState<string | null>(
+    () => props.lastMacroRunRef ?? null,
+  );
   const [lastMacroRunRef, setLastMacroRunRef] = useState<string | null>(
     () => props.lastMacroRunRef ?? null,
   );
@@ -1515,13 +1559,34 @@ export default function TranscriptSeekMock(
       ?? macroReadiness[0]
       ?? null
     : null;
-  const lastMacroLayer = useMemo(
-    () => getHammerDerivedTextLayer(structuredTranscriptState, lastMacroRunRef),
-    [lastMacroRunRef, structuredTranscriptState],
+  const allDerivedLayers = useMemo(
+    () => listHammerDerivedTextLayers(structuredTranscriptState),
+    [structuredTranscriptState],
   );
   const activeDerivedLayer = useMemo(
-    () => getHammerDerivedTextLayer(structuredTranscriptState, structuredTranscriptState?.derived_text_layers?.active_layer_id ?? null),
+    () => getHammerActiveDerivedTextLayer(structuredTranscriptState),
     [structuredTranscriptState],
+  );
+  const effectiveInspectedDerivedLayerId = useMemo(
+    () => inspectedDerivedLayerId === RAW_TRANSCRIPT_LAYER_SENTINEL
+      ? null
+      : resolveHammerDerivedTextInspectionLayerId(
+        structuredTranscriptState,
+        inspectedDerivedLayerId,
+        lastMacroRunRef,
+      ),
+    [inspectedDerivedLayerId, lastMacroRunRef, structuredTranscriptState],
+  );
+  const inspectedDerivedLayer = useMemo(
+    () => inspectedDerivedLayerId === RAW_TRANSCRIPT_LAYER_SENTINEL
+      ? null
+      : getHammerDerivedTextLayer(structuredTranscriptState, effectiveInspectedDerivedLayerId),
+    [effectiveInspectedDerivedLayerId, inspectedDerivedLayerId, structuredTranscriptState],
+  );
+  const rawTranscriptLayerInspected = inspectedDerivedLayerId === RAW_TRANSCRIPT_LAYER_SENTINEL;
+  const reviewLayerCount = useMemo(
+    () => allDerivedLayers.filter((layer) => layer.status === "review").length,
+    [allDerivedLayers],
   );
   const macroExecutionAvailable = Boolean(structuredTranscriptState?.transcript_id);
   const selectedMacroCanExecute = macroExecutionAvailable
@@ -1563,6 +1628,7 @@ export default function TranscriptSeekMock(
     setStructuredTranscriptState(cloneHammerStructuredTranscript(props.structuredTranscript) ?? null);
     setSelectedMacroRecipeRef(props.selectedMacroRecipeRef ?? null);
     setInspectedMacroRecipeRef(props.selectedMacroRecipeRef ?? null);
+    setInspectedDerivedLayerId(props.lastMacroRunRef ?? null);
     setLastMacroRunRef(props.lastMacroRunRef ?? null);
   }, [launchContextSignature, resolvedLaunch]);
 
@@ -3435,8 +3501,9 @@ export default function TranscriptSeekMock(
               <span className="hammer-pill">{macroReadinessSummary.warning} needs review</span>
               <span className="hammer-pill">{macroReadinessSummary.blocked} blocked</span>
               <span className="hammer-pill">{selectedMacroRecipeRef ? "selection saved" : "selection not saved"}</span>
+              <span className="hammer-pill">{allDerivedLayers.length} derived layer{allDerivedLayers.length === 1 ? "" : "s"}</span>
               <span className="hammer-pill">
-                {formatDerivedLayerStateLabel(activeDerivedLayer ?? lastMacroLayer)}
+                {formatDerivedLayerStateSummary(activeDerivedLayer, reviewLayerCount, allDerivedLayers.length)}
               </span>
             </div>
             <div className="hammer-copy-md">
@@ -3534,6 +3601,14 @@ export default function TranscriptSeekMock(
                     <div className="hammer-label">active derived layer</div>
                     <div className="hammer-mono">{structuredTranscriptState?.derived_text_layers?.active_layer_id ?? "none"}</div>
                   </div>
+                  <div>
+                    <div className="hammer-label">layer inventory</div>
+                    <div>
+                      {allDerivedLayers.length} total
+                      {" · "}
+                      {reviewLayerCount} review
+                    </div>
+                  </div>
                 </div>
 
                 <div className="hammer-copy-sm hammer-copy-muted">
@@ -3582,6 +3657,88 @@ export default function TranscriptSeekMock(
                   </div>
                 </div>
 
+                <div className="hammer-stack-6">
+                  <strong className="hammer-copy-strong">Derived Transcript Layers</strong>
+                  <div className="hammer-derived-layer-list">
+                    <button
+                      type="button"
+                      className={cx(
+                        "hammer-finishing-recipe",
+                        rawTranscriptLayerInspected && "is-selected",
+                        !activeDerivedLayer && "is-active-layer",
+                      )}
+                      onClick={() => {
+                        setInspectedDerivedLayerId(RAW_TRANSCRIPT_LAYER_SENTINEL);
+                      }}
+                    >
+                      <div className="hammer-finishing-recipe__head">
+                        <div className="hammer-stack-4">
+                          <strong className="hammer-copy-strong">Raw Transcript</strong>
+                          <div className="hammer-copy-sm hammer-copy-muted">
+                            Canonical transcript truth
+                          </div>
+                        </div>
+                        <span className={getWorkflowStatusClassName(!activeDerivedLayer ? "active" : "ready")}>
+                          {!activeDerivedLayer ? "Active" : "Raw"}
+                        </span>
+                      </div>
+                      <div className="hammer-copy-sm hammer-copy-muted">
+                        Raw transcript segments remain unchanged beneath every derived review layer.
+                      </div>
+                    </button>
+
+                    {allDerivedLayers.map((layer) => {
+                      const isInspected = inspectedDerivedLayer?.layer_id === layer.layer_id && !rawTranscriptLayerInspected;
+                      const recipe = findHammerFinishingMacroRecipe(layer.recipe_ref);
+                      return (
+                        <button
+                          key={layer.layer_id}
+                          type="button"
+                          className={cx(
+                            "hammer-finishing-recipe",
+                            isInspected && "is-selected",
+                            layer.status === "active" && "is-active-layer",
+                          )}
+                          onClick={() => {
+                            setInspectedDerivedLayerId(layer.layer_id);
+                            setInspectedMacroRecipeRef(layer.recipe_ref);
+                          }}
+                          title={formatDerivedLayerProvenance(layer)}
+                        >
+                          <div className="hammer-finishing-recipe__head">
+                            <div className="hammer-stack-4">
+                              <strong className="hammer-copy-strong">
+                                {recipe?.name ?? layer.recipe_ref}
+                              </strong>
+                              <div className="hammer-copy-sm hammer-copy-muted">
+                                {formatDerivedLayerProvenance(layer)}
+                              </div>
+                            </div>
+                            <span className={getWorkflowStatusClassName(
+                              layer.status === "active"
+                                ? "active"
+                                : layer.status === "review"
+                                ? "ready"
+                                : "blocked",
+                            )}>
+                              {formatDerivedLayerLifecycleStatus(layer)}
+                            </span>
+                          </div>
+                          <div className="hammer-copy-sm hammer-copy-muted">
+                            based on {layer.based_on_transcript_id}
+                            {formatDateTimeLabel(layer.created_at) ? ` · ${formatDateTimeLabel(layer.created_at)}` : ""}
+                          </div>
+                          <div className="hammer-meta-strip">
+                            <span className="hammer-pill">{layer.summary.changed_segment_count} changed</span>
+                            <span className="hammer-pill">{formatDerivedLayerRemovalLabel(layer)}</span>
+                            <span className="hammer-pill">{layer.layer_id}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 <div className="hammer-action-row">
                   <button
                     type="button"
@@ -3598,6 +3755,7 @@ export default function TranscriptSeekMock(
                       setSelectedMacroRecipeRef(selectedMacroReadiness.recipe.ref);
                       setInspectedMacroRecipeRef(selectedMacroReadiness.recipe.ref);
                       setStructuredTranscriptState(run.transcript);
+                      setInspectedDerivedLayerId(run.layer_id);
                       setLastMacroRunRef(run.layer_id);
                     }}
                   >
@@ -3606,15 +3764,15 @@ export default function TranscriptSeekMock(
                   <button
                     type="button"
                     className="hammer-button-xs"
-                    disabled={!lastMacroLayer || lastMacroLayer.status === "discarded"}
+                    disabled={!inspectedDerivedLayer || inspectedDerivedLayer.status === "discarded"}
                     onClick={() => {
-                      if (!structuredTranscriptState || !lastMacroLayer) return;
+                      if (!structuredTranscriptState || !inspectedDerivedLayer) return;
                       setStructuredTranscriptState(
-                        setHammerDerivedTextLayerActive(structuredTranscriptState, lastMacroLayer.layer_id),
+                        setHammerDerivedTextLayerActive(structuredTranscriptState, inspectedDerivedLayer.layer_id),
                       );
                     }}
                   >
-                    Accept Review Layer
+                    Accept Selected Layer
                   </button>
                   <button
                     type="button"
@@ -3630,18 +3788,15 @@ export default function TranscriptSeekMock(
                   <button
                     type="button"
                     className="hammer-button-xs"
-                    disabled={!lastMacroLayer}
+                    disabled={!inspectedDerivedLayer}
                     onClick={() => {
-                      if (!structuredTranscriptState || !lastMacroLayer) return;
+                      if (!structuredTranscriptState || !inspectedDerivedLayer) return;
                       setStructuredTranscriptState(
-                        discardHammerDerivedTextLayer(structuredTranscriptState, lastMacroLayer.layer_id),
+                        discardHammerDerivedTextLayer(structuredTranscriptState, inspectedDerivedLayer.layer_id),
                       );
-                      if (lastMacroRunRef === lastMacroLayer.layer_id) {
-                        setLastMacroRunRef(null);
-                      }
                     }}
                   >
-                    Discard Review Layer
+                    Discard Selected Layer
                   </button>
                   <span className="hammer-copy-sm hammer-copy-muted">
                     {selectedMacroCanExecute
@@ -3652,18 +3807,23 @@ export default function TranscriptSeekMock(
                   </span>
                 </div>
 
-                {lastMacroLayer ? (
+                {rawTranscriptLayerInspected ? (
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    Raw transcript is selected. Choose any derived layer above to inspect its proposed changes, or keep raw active.
+                  </div>
+                ) : inspectedDerivedLayer ? (
                   <div className="hammer-stack-6">
-                    <strong className="hammer-copy-strong">Before / After Review</strong>
+                    <strong className="hammer-copy-strong">Layer Review</strong>
                     <div className="hammer-meta-strip">
-                      <span className="hammer-pill">{lastMacroLayer.summary.changed_segment_count} changed</span>
-                      <span className="hammer-pill">{formatDerivedLayerRemovalLabel(lastMacroLayer)}</span>
-                      <span className="hammer-pill">{lastMacroLayer.status}</span>
+                      <span className="hammer-pill">{formatDerivedLayerProvenance(inspectedDerivedLayer)}</span>
+                      <span className="hammer-pill">{inspectedDerivedLayer.summary.changed_segment_count} changed</span>
+                      <span className="hammer-pill">{formatDerivedLayerRemovalLabel(inspectedDerivedLayer)}</span>
+                      <span className="hammer-pill">{formatDerivedLayerLifecycleStatus(inspectedDerivedLayer)}</span>
                     </div>
-                    {lastMacroLayer.changes.length > 0 ? (
+                    {inspectedDerivedLayer.changes.length > 0 ? (
                       <div className="hammer-finishing-diff-list">
-                        {lastMacroLayer.changes.map((change) => (
-                          <article key={`${lastMacroLayer.layer_id}:${change.segment_id}`} className="hammer-finishing-diff">
+                        {inspectedDerivedLayer.changes.map((change) => (
+                          <article key={`${inspectedDerivedLayer.layer_id}:${change.segment_id}`} className="hammer-finishing-diff">
                             <div className="hammer-finishing-diff__head">
                               <strong className="hammer-copy-strong">{change.segment_id}</strong>
                               <div className="hammer-meta-strip">
@@ -3687,7 +3847,7 @@ export default function TranscriptSeekMock(
                       </div>
                     ) : (
                       <div className="hammer-copy-sm hammer-copy-muted">
-                        {formatDerivedLayerEmptyState(lastMacroLayer)}
+                        {formatDerivedLayerEmptyState(inspectedDerivedLayer)}
                       </div>
                     )}
                   </div>
@@ -3752,16 +3912,19 @@ export default function TranscriptSeekMock(
     activeMediaSourceLabel,
     activeSourceMode,
     activeDerivedLayer,
+    allDerivedLayers,
     effectiveMacroRecipeRef,
-    lastMacroLayer,
     lastMacroRunRef,
     macroReadiness,
     macroReadinessSummary,
     macroExecutionAvailable,
     props.visualPlacements,
+    rawTranscriptLayerInspected,
     resolvedLaunch.launch_context.workpiece_id,
     resolvedLaunch.launch_context.workspace_id,
+    reviewLayerCount,
     sameSpeakerContinuationCount,
+    selectedMacroExecutionLabel,
     selectedMacroCanExecute,
     selectedMacroReadiness,
     selectedMacroRecipeRef,
@@ -3786,6 +3949,7 @@ export default function TranscriptSeekMock(
     structuredTranscriptState,
     trimInstructionCount,
     transcriptSegments.length,
+    inspectedDerivedLayer,
   ]);
 
   const detailsDebugContent = activeTool === "details" && showDebugPanels ? (

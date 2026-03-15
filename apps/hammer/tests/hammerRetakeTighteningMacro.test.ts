@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {
   applyHammerDerivedTextLayerToSegments,
   setHammerDerivedTextLayerActive,
-} from "../src/macros/hammerFillerCleanupMacro";
+} from "../src/macros/hammerDerivedTranscriptLayers";
 import { runHammerRetakeTighteningMacro } from "../src/macros/hammerRetakeTighteningMacro";
 import type { HammerPersistedStructuredTranscript } from "../src/persistence/hammerPersistenceContract";
 

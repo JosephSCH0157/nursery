@@ -4,11 +4,11 @@ import type {
   HammerPersistedStructuredTranscript,
 } from "../persistence/hammerPersistenceContract";
 import {
-  buildHammerDerivedTextLayerId,
+  appendHammerDerivedTextLayer,
   cleanHammerDerivedTextWhitespace,
   cloneHammerStructuredTranscript,
-  ensureHammerDerivedTextLayers,
-} from "./hammerFillerCleanupMacro";
+  createHammerDerivedTextLayer,
+} from "./hammerDerivedTranscriptLayers";
 
 export const EXECUTABLE_RETAKE_TIGHTENING_RECIPE_REF = "macro:interview_tight_cut.v1" as const;
 
@@ -115,33 +115,19 @@ export function runHammerRetakeTighteningMacro(
     }];
   });
 
-  const layerId = buildHammerDerivedTextLayerId(nowIso);
-  const derived = ensureHammerDerivedTextLayers(next);
-  const layer = {
-    layer_id: layerId,
-    recipe_ref: EXECUTABLE_RETAKE_TIGHTENING_RECIPE_REF,
-    macro_kind: "retake_tightening" as const,
-    status: "review" as const,
-    created_at: nowIso,
-    based_on_transcript_id: next.transcript_id,
-    summary: {
-      changed_segment_count: changes.length,
-      removal_count: changes.reduce((sum, change) => sum + change.operations.length, 0),
-      untouched_segment_count: Math.max(next.segments.length - changes.length, 0),
-    },
+  const layer = createHammerDerivedTextLayer({
+    transcriptId: next.transcript_id,
+    recipeRef: EXECUTABLE_RETAKE_TIGHTENING_RECIPE_REF,
+    macroKind: "retake_tightening",
     changes,
-  };
-
-  derived.layers = [
-    ...derived.layers.filter((existing) => existing.status !== "review"),
-    layer,
-  ];
-  derived.active_layer_id = null;
-  next.derived_text_layers = derived;
+    nowIso,
+  });
+  layer.summary.untouched_segment_count = Math.max(next.segments.length - changes.length, 0);
+  const withLayer = appendHammerDerivedTextLayer(next, layer);
 
   return {
-    transcript: next,
-    layer_id: layerId,
+    transcript: withLayer,
+    layer_id: layer.layer_id,
     changed_segment_count: layer.summary.changed_segment_count,
     removal_count: layer.summary.removal_count,
   };

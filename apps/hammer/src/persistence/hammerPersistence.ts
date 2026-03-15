@@ -2,7 +2,7 @@ import type { HammerEditPlan } from "../../../../packages/contracts/hammer/edit-
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import { tongsFetch } from "../lib/tongsFetch";
-import { cloneHammerStructuredTranscript } from "../macros/hammerFillerCleanupMacro";
+import { cloneHammerStructuredTranscript } from "../macros/hammerDerivedTranscriptLayers";
 import { cloneVisualPlacements } from "../lib/hammerVisualPlacements";
 import type { HammerWorkspaceSnapshot } from "../editor/hammerWorkspaceSnapshot";
 import {

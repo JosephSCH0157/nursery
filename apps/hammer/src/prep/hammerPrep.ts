@@ -11,6 +11,7 @@ import type {
   HammerPersistenceSnapshot,
   HammerPersistedVisualPlacements,
 } from "../persistence/hammerPersistenceContract";
+import { cloneHammerDerivedTextLayers } from "../macros/hammerDerivedTranscriptLayers";
 import type { HammerTranscriptPrepResponse, HammerTranscriptPrepSegment } from "./hammerPrepApi";
 
 export const DEFAULT_FORGE_NEUTRAL_SPEAKER_LABELS = ["S1", "S2", "S3", "G1", "G2"] as const;
@@ -643,32 +644,7 @@ export function preserveTranscriptMetadata(
     segments: cloneTranscriptSegments(segments),
     derived_text_layers: isSameTranscript
       ? existingTranscript?.derived_text_layers
-        ? {
-          schema_version: 1,
-          active_layer_id: existingTranscript.derived_text_layers.active_layer_id ?? null,
-          layers: existingTranscript.derived_text_layers.layers.map((layer) => ({
-            ...layer,
-            summary: { ...layer.summary },
-            changes: layer.changes.map((change) => {
-              const legacyChange = change as unknown as {
-                removed_fillers?: Array<{ value: string; start: number; end: number }>;
-              };
-              return {
-                ...change,
-                operations: Array.isArray(change.operations)
-                  ? change.operations.map((operation) => ({ ...operation }))
-                  : Array.isArray(legacyChange.removed_fillers)
-                  ? legacyChange.removed_fillers.map((removal) => ({
-                    kind: "filler_removed" as const,
-                    value: removal.value,
-                    start: removal.start,
-                    end: removal.end,
-                  }))
-                  : [],
-              };
-            }),
-          })),
-        }
+        ? cloneHammerDerivedTextLayers(existingTranscript.derived_text_layers)
         : {
           schema_version: 1,
           active_layer_id: null,

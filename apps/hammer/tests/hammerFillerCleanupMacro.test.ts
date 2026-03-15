@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import {
   applyHammerDerivedTextLayerToSegments,
   discardHammerDerivedTextLayer,
-  runHammerFillerCleanupMacro,
   setHammerDerivedTextLayerActive,
-} from "../src/macros/hammerFillerCleanupMacro";
+} from "../src/macros/hammerDerivedTranscriptLayers";
+import { runHammerFillerCleanupMacro } from "../src/macros/hammerFillerCleanupMacro";
 import type { HammerPersistedStructuredTranscript } from "../src/persistence/hammerPersistenceContract";
 
 const transcript: HammerPersistedStructuredTranscript = {
