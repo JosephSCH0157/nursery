@@ -64,6 +64,33 @@ export interface HammerPersistedStructuredTranscript {
     detail: string;
   }>;
   segments: HammerTranscriptSegment[];
+  derived_text_layers?: {
+    schema_version: 1;
+    active_layer_id: string | null;
+    layers: Array<{
+      layer_id: string;
+      recipe_ref: string;
+      macro_kind: "filler_cleanup";
+      status: "review" | "active" | "discarded";
+      created_at: string;
+      based_on_transcript_id: string;
+      summary: {
+        changed_segment_count: number;
+        removal_count: number;
+        untouched_segment_count: number;
+      };
+      changes: Array<{
+        segment_id: string;
+        original_text: string;
+        cleaned_text: string;
+        removed_fillers: Array<{
+          value: string;
+          start: number;
+          end: number;
+        }>;
+      }>;
+    }>;
+  };
 }
 
 export interface HammerPersistedSpeakerMap {

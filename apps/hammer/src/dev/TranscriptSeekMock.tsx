@@ -55,6 +55,15 @@ import {
   resolvePreviewMediaSrc,
 } from "../lib/previewSource";
 import {
+  applyHammerDerivedTextLayerToSegments,
+  cloneHammerStructuredTranscript,
+  discardHammerDerivedTextLayer,
+  getHammerDerivedTextLayer,
+  runHammerFillerCleanupMacro,
+  setHammerDerivedTextLayerActive,
+  EXECUTABLE_FILLER_CLEANUP_RECIPE_REF,
+} from "../macros/hammerFillerCleanupMacro";
+import {
   evaluateHammerMacroCatalogReadiness,
   summarizeHammerMacroReadiness,
   type HammerFinishingMacroRecipe,
@@ -67,6 +76,7 @@ import type { HammerWorkspaceSnapshot } from "../editor/hammerWorkspaceSnapshot"
 import type { HammerPreparedNextStepActionId } from "../editor/hammerPreparedHandoff";
 import type {
   HammerPersistedAudioPolish,
+  HammerPersistedStructuredTranscript,
   HammerPersistedVisualPlacements,
 } from "../persistence/hammerPersistenceContract";
 import { cloneHammerAudioPolish } from "../prep/hammerAudioPolish";
@@ -194,6 +204,7 @@ const DEV_RECORDINGS_FALLBACK_ROOT_ABS = "C:\\Users\\Iam11\\OneDrive\\Documents\
 
 type TranscriptSeekMockProps = {
   launchContext?: HammerLaunchContext;
+  structuredTranscript?: HammerPersistedStructuredTranscript | null;
   visualPlacements?: HammerPersistedVisualPlacements | null;
   audioPolish?: HammerPersistedAudioPolish | null;
   selectedMacroRecipeRef?: string | null;
@@ -993,7 +1004,14 @@ export default function TranscriptSeekMock(
     ],
   );
   const transcriptLoad = resolvedLaunch.transcript;
-  const transcriptSegments = transcriptLoad.segments;
+  const rawTranscriptSegments = transcriptLoad.segments;
+  const [structuredTranscriptState, setStructuredTranscriptState] = useState<HammerPersistedStructuredTranscript | null>(
+    () => cloneHammerStructuredTranscript(props.structuredTranscript) ?? null,
+  );
+  const transcriptSegments = useMemo(
+    () => applyHammerDerivedTextLayerToSegments(rawTranscriptSegments, structuredTranscriptState),
+    [rawTranscriptSegments, structuredTranscriptState],
+  );
   const firstSegment = transcriptSegments[0] ?? null;
   const transcriptDurationSec = useMemo(
     () => transcriptSegments.reduce(
@@ -1057,6 +1075,9 @@ export default function TranscriptSeekMock(
   );
   const [inspectedMacroRecipeRef, setInspectedMacroRecipeRef] = useState<string | null>(
     () => props.selectedMacroRecipeRef ?? null,
+  );
+  const [lastMacroRunRef, setLastMacroRunRef] = useState<string | null>(
+    () => props.lastMacroRunRef ?? null,
   );
   const [activeTimelineTool, setActiveTimelineTool] = useState<TimelineToolId>("select");
   const [showDebugPanels, setShowDebugPanels] = useState(false);
@@ -1423,6 +1444,18 @@ export default function TranscriptSeekMock(
       ?? macroReadiness[0]
       ?? null
     : null;
+  const lastMacroLayer = useMemo(
+    () => getHammerDerivedTextLayer(structuredTranscriptState, lastMacroRunRef),
+    [lastMacroRunRef, structuredTranscriptState],
+  );
+  const activeDerivedLayer = useMemo(
+    () => getHammerDerivedTextLayer(structuredTranscriptState, structuredTranscriptState?.derived_text_layers?.active_layer_id ?? null),
+    [structuredTranscriptState],
+  );
+  const macroExecutionAvailable = Boolean(structuredTranscriptState?.transcript_id);
+  const selectedMacroCanExecute = macroExecutionAvailable
+    && selectedMacroReadiness?.recipe.ref === EXECUTABLE_FILLER_CLEANUP_RECIPE_REF
+    && selectedMacroReadiness.status !== "blocked";
 
   useEffect(() => {
     const blob = createDevAudioWavBlob(transcriptDurationSec);
@@ -1455,14 +1488,24 @@ export default function TranscriptSeekMock(
     setEditPlanFeedback(null);
     setEditPlanFeedbackTone("neutral");
     setSelectedDevRecordingId(null);
+    setStructuredTranscriptState(cloneHammerStructuredTranscript(props.structuredTranscript) ?? null);
     setSelectedMacroRecipeRef(props.selectedMacroRecipeRef ?? null);
     setInspectedMacroRecipeRef(props.selectedMacroRecipeRef ?? null);
+    setLastMacroRunRef(props.lastMacroRunRef ?? null);
   }, [launchContextSignature, resolvedLaunch]);
+
+  useEffect(() => {
+    setStructuredTranscriptState(cloneHammerStructuredTranscript(props.structuredTranscript) ?? null);
+  }, [props.structuredTranscript]);
 
   useEffect(() => {
     setSelectedMacroRecipeRef(props.selectedMacroRecipeRef ?? null);
     setInspectedMacroRecipeRef((current) => current ?? props.selectedMacroRecipeRef ?? null);
   }, [props.selectedMacroRecipeRef]);
+
+  useEffect(() => {
+    setLastMacroRunRef(props.lastMacroRunRef ?? null);
+  }, [props.lastMacroRunRef]);
 
   useEffect(() => {
     if (previewMode === "raw" || editInstructions.length === 0) {
@@ -1657,14 +1700,15 @@ export default function TranscriptSeekMock(
       editPlanStatus,
       editPlanSignature: currentEditPlanSignature,
       transcriptSourceId,
-      transcriptSegments: cloneTranscriptSegments(transcriptSegments),
+      transcriptSegments: cloneTranscriptSegments(rawTranscriptSegments),
       selectedSegmentId,
       selectedOverlayRowId,
       mediaRef: activeMediaRef ? { ...activeMediaRef } : null,
       workspaceMapping: activeMediaWorkspaceMapping ? { ...activeMediaWorkspaceMapping } : null,
       mediaSourceLabel: activeMediaSourceLabel,
       selectedMacroRecipeRef,
-      lastMacroRunRef: props.lastMacroRunRef ?? null,
+      lastMacroRunRef,
+      structuredTranscript: cloneHammerStructuredTranscript(structuredTranscriptState),
       editPlan: {
         ...currentEditPlan,
         instructions: cloneEditInstructions(currentEditPlan.instructions),
@@ -1680,18 +1724,19 @@ export default function TranscriptSeekMock(
       currentEditPlan,
       currentEditPlanSignature,
       editPlanStatus,
-      props.lastMacroRunRef,
       previewMode,
       props.visualPlacements,
+      rawTranscriptSegments,
       resolvedLaunch.launch_context.workpiece_id,
       resolvedLaunch.launch_context.workspace_id,
+      lastMacroRunRef,
       selectedMacroRecipeRef,
       selectedOverlayRowId,
       selectedSegmentId,
       sessionId,
       sourceMode,
-      transcriptSegments,
       transcriptSourceId,
+      structuredTranscriptState,
     ],
   );
 
@@ -3318,9 +3363,12 @@ export default function TranscriptSeekMock(
               <span className="hammer-pill">{macroReadinessSummary.warning} needs review</span>
               <span className="hammer-pill">{macroReadinessSummary.blocked} blocked</span>
               <span className="hammer-pill">{selectedMacroRecipeRef ? "selection saved" : "selection not saved"}</span>
+              <span className="hammer-pill">
+                {activeDerivedLayer ? "cleaned layer active" : lastMacroLayer ? "review layer ready" : "raw transcript active"}
+              </span>
             </div>
             <div className="hammer-copy-md">
-              Finishing macros stay opt-in and post-prep. Hammer shows what each recipe would do, what it needs, and what is still blocked before any real execution exists.
+              Finishing macros stay opt-in and post-prep. Hammer shows what each recipe would do, what it needs, and, for filler cleanup, can now generate a derived review layer without touching the raw transcript.
             </div>
 
             <div className="hammer-finishing-recipes">
@@ -3408,7 +3456,11 @@ export default function TranscriptSeekMock(
                   </div>
                   <div>
                     <div className="hammer-label">last run ref</div>
-                    <div className="hammer-mono">{props.lastMacroRunRef ?? "none"}</div>
+                    <div className="hammer-mono">{lastMacroRunRef ?? "none"}</div>
+                  </div>
+                  <div>
+                    <div className="hammer-label">active cleaned layer</div>
+                    <div className="hammer-mono">{structuredTranscriptState?.derived_text_layers?.active_layer_id ?? "none"}</div>
                   </div>
                 </div>
 
@@ -3459,13 +3511,112 @@ export default function TranscriptSeekMock(
                 </div>
 
                 <div className="hammer-action-row">
-                  <button type="button" className="hammer-button-xs" disabled>
-                    Run Macro (Later)
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    disabled={!selectedMacroCanExecute}
+                    onClick={() => {
+                      if (!structuredTranscriptState || !selectedMacroCanExecute) return;
+                      const run = runHammerFillerCleanupMacro(structuredTranscriptState);
+                      setSelectedMacroRecipeRef(selectedMacroReadiness.recipe.ref);
+                      setInspectedMacroRecipeRef(selectedMacroReadiness.recipe.ref);
+                      setStructuredTranscriptState(run.transcript);
+                      setLastMacroRunRef(run.layer_id);
+                    }}
+                  >
+                    {selectedMacroReadiness.recipe.ref === EXECUTABLE_FILLER_CLEANUP_RECIPE_REF
+                      ? "Run Filler Cleanup"
+                      : "Run Macro (Later)"}
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    disabled={!lastMacroLayer || lastMacroLayer.status === "discarded"}
+                    onClick={() => {
+                      if (!structuredTranscriptState || !lastMacroLayer) return;
+                      setStructuredTranscriptState(
+                        setHammerDerivedTextLayerActive(structuredTranscriptState, lastMacroLayer.layer_id),
+                      );
+                    }}
+                  >
+                    Use Cleaned Layer
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    disabled={!activeDerivedLayer}
+                    onClick={() => {
+                      if (!structuredTranscriptState) return;
+                      setStructuredTranscriptState(setHammerDerivedTextLayerActive(structuredTranscriptState, null));
+                    }}
+                  >
+                    Return to Raw Transcript
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    disabled={!lastMacroLayer}
+                    onClick={() => {
+                      if (!structuredTranscriptState || !lastMacroLayer) return;
+                      setStructuredTranscriptState(
+                        discardHammerDerivedTextLayer(structuredTranscriptState, lastMacroLayer.layer_id),
+                      );
+                      if (lastMacroRunRef === lastMacroLayer.layer_id) {
+                        setLastMacroRunRef(null);
+                      }
+                    }}
+                  >
+                    Discard Review Layer
                   </button>
                   <span className="hammer-copy-sm hammer-copy-muted">
-                    Choosing a recipe saves the finishing lane preference now; execution stays intentionally inert in this slice.
+                    {selectedMacroCanExecute
+                      ? "Filler cleanup creates a derived review layer only. Raw transcript truth and media timing remain unchanged."
+                      : !macroExecutionAvailable
+                      ? "Macro execution requires the canonical structured transcript artifact."
+                      : "This recipe remains framework-only for now."}
                   </span>
                 </div>
+
+                {lastMacroLayer ? (
+                  <div className="hammer-stack-6">
+                    <strong className="hammer-copy-strong">Before / After Review</strong>
+                    <div className="hammer-meta-strip">
+                      <span className="hammer-pill">{lastMacroLayer.summary.changed_segment_count} changed</span>
+                      <span className="hammer-pill">{lastMacroLayer.summary.removal_count} filler removals</span>
+                      <span className="hammer-pill">{lastMacroLayer.status}</span>
+                    </div>
+                    {lastMacroLayer.changes.length > 0 ? (
+                      <div className="hammer-finishing-diff-list">
+                        {lastMacroLayer.changes.map((change) => (
+                          <article key={`${lastMacroLayer.layer_id}:${change.segment_id}`} className="hammer-finishing-diff">
+                            <div className="hammer-finishing-diff__head">
+                              <strong className="hammer-copy-strong">{change.segment_id}</strong>
+                              <div className="hammer-meta-strip">
+                                {change.removed_fillers.map((removal, index) => (
+                                  <span key={`${change.segment_id}:${removal.start}:${index}`} className="hammer-pill">
+                                    removed {removal.value}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="hammer-finishing-diff__row">
+                              <span className="hammer-label">Before</span>
+                              <div className="hammer-copy-sm">{change.original_text}</div>
+                            </div>
+                            <div className="hammer-finishing-diff__row">
+                              <span className="hammer-label">After</span>
+                              <div className="hammer-copy-sm hammer-copy-success">{change.cleaned_text}</div>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="hammer-copy-sm hammer-copy-muted">
+                        Hammer ran the filler cleanup pass, but it did not find any conservative removals to apply.
+                      </div>
+                    )}
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -3525,14 +3676,18 @@ export default function TranscriptSeekMock(
     activeMediaKind,
     activeMediaSourceLabel,
     activeSourceMode,
+    activeDerivedLayer,
     effectiveMacroRecipeRef,
+    lastMacroLayer,
+    lastMacroRunRef,
     macroReadiness,
     macroReadinessSummary,
-    props.lastMacroRunRef,
+    macroExecutionAvailable,
     props.visualPlacements,
     resolvedLaunch.launch_context.workpiece_id,
     resolvedLaunch.launch_context.workspace_id,
     sameSpeakerContinuationCount,
+    selectedMacroCanExecute,
     selectedMacroReadiness,
     selectedMacroRecipeRef,
     selectedDurationSec,
@@ -3553,6 +3708,7 @@ export default function TranscriptSeekMock(
     sessionState.editPlanStatus,
     sessionState.previewMode,
     studioSoundPrepared,
+    structuredTranscriptState,
     trimInstructionCount,
     transcriptSegments.length,
   ]);

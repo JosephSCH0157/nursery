@@ -727,6 +727,7 @@ export default function HammerWorkspaceEditor(
         <div className="hammer-prep-shell__editor">
           <TranscriptSeekMock
             launchContext={effectiveLaunchContext}
+            structuredTranscript={loadedPersistenceSnapshot?.structured_transcript.data ?? null}
             visualPlacements={visualPlacementData}
             audioPolish={audioPolishData}
             selectedMacroRecipeRef={loadedPersistenceSnapshot?.macro_hooks.recipe_ref ?? null}

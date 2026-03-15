@@ -503,6 +503,11 @@ export function buildPreparedTranscript(
       detail: "Hammer preserved this turn boundary but marked it as low confidence.",
     })),
     segments: cloneTranscriptSegments(turns),
+    derived_text_layers: {
+      schema_version: 1,
+      active_layer_id: null,
+      layers: [],
+    },
   };
 
   return {
@@ -636,5 +641,29 @@ export function preserveTranscriptMetadata(
     },
     confidence_flags: isSameTranscript ? existingTranscript?.confidence_flags ?? [] : [],
     segments: cloneTranscriptSegments(segments),
+    derived_text_layers: isSameTranscript
+      ? existingTranscript?.derived_text_layers
+        ? {
+          schema_version: 1,
+          active_layer_id: existingTranscript.derived_text_layers.active_layer_id ?? null,
+          layers: existingTranscript.derived_text_layers.layers.map((layer) => ({
+            ...layer,
+            summary: { ...layer.summary },
+            changes: layer.changes.map((change) => ({
+              ...change,
+              removed_fillers: change.removed_fillers.map((removal) => ({ ...removal })),
+            })),
+          })),
+        }
+        : {
+          schema_version: 1,
+          active_layer_id: null,
+          layers: [],
+        }
+      : {
+        schema_version: 1,
+        active_layer_id: null,
+        layers: [],
+      },
   };
 }

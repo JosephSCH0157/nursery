@@ -2,6 +2,7 @@ import type { HammerEditPlan } from "../../../../packages/contracts/hammer/edit-
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import { tongsFetch } from "../lib/tongsFetch";
+import { cloneHammerStructuredTranscript } from "../macros/hammerFillerCleanupMacro";
 import { cloneVisualPlacements } from "../lib/hammerVisualPlacements";
 import type { HammerWorkspaceSnapshot } from "../editor/hammerWorkspaceSnapshot";
 import {
@@ -96,6 +97,11 @@ function toStructuredTranscript(
   snapshot: HammerWorkspaceSnapshot,
   existingStructuredTranscript?: HammerPersistedStructuredTranscript | null,
 ): HammerPersistedStructuredTranscript {
+  const persistedStructuredTranscript = cloneHammerStructuredTranscript(snapshot.structuredTranscript);
+  if (persistedStructuredTranscript) {
+    return persistedStructuredTranscript;
+  }
+
   return preserveTranscriptMetadata(
     snapshot.transcriptSegments,
     existingStructuredTranscript,

@@ -10,6 +10,7 @@ import type {
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import type {
   HammerPersistedAudioPolish,
+  HammerPersistedStructuredTranscript,
   HammerPersistedVisualPlacements,
 } from "../persistence/hammerPersistenceContract";
 
@@ -32,6 +33,7 @@ export interface HammerWorkspaceSnapshot {
   mediaSourceLabel: string | null;
   selectedMacroRecipeRef: string | null;
   lastMacroRunRef: string | null;
+  structuredTranscript: HammerPersistedStructuredTranscript | null;
   editPlan: HammerEditPlan;
   visualPlacements: HammerPersistedVisualPlacements | null;
   audioPolish: HammerPersistedAudioPolish | null;

@@ -806,6 +806,33 @@
   border-color: rgba(245, 158, 11, 0.28);
 }
 
+.hammer-finishing-diff-list {
+  display: grid;
+  gap: 8px;
+}
+
+.hammer-finishing-diff {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.48);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.hammer-finishing-diff__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.hammer-finishing-diff__row {
+  display: grid;
+  gap: 4px;
+}
+
 .hammer-script-panel {
   display: grid;
   gap: 8px;

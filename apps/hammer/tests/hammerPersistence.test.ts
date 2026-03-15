@@ -52,6 +52,79 @@ const snapshot: HammerWorkspaceSnapshot = {
   mediaSourceLabel: "tongs:media_01",
   selectedMacroRecipeRef: "macro:podcast_cleanup.v1",
   lastMacroRunRef: null,
+  structuredTranscript: {
+    schema_version: 1,
+    transcript_id: "transcript_01",
+    media_id: "media_01",
+    media_signature: "media_sig_01",
+    prepared_at: "2026-03-13T10:00:00.000Z",
+    structure: "speaker_turns",
+    source_media_ref: {
+      media_id: "media_01",
+      kind: "recording_video",
+      source_hint: "local",
+      local_relpath: "recordings/episode-1.mp4",
+    },
+    diarization: {
+      label_scheme: "forge-neutral-speakers.v1",
+      labels: ["S1", "G1"],
+      raw_labels: ["host", "guest"],
+      version: "gpt-4o-transcribe",
+      provider: "openai",
+      provider_request_id: "req_01",
+      model: "gpt-4o-transcribe",
+    },
+    confidence_flags: [],
+    segments: [
+      {
+        segment_id: "seg_001",
+        start_sec: 0,
+        end_sec: 4,
+        speaker: "S1",
+        text: "Um line one.",
+      },
+      {
+        segment_id: "seg_002",
+        start_sec: 4,
+        end_sec: 8,
+        speaker: "G1",
+        text: "Line two.",
+      },
+    ],
+    derived_text_layers: {
+      schema_version: 1,
+      active_layer_id: null,
+      layers: [
+        {
+          layer_id: "macro_run_01",
+          recipe_ref: "macro:podcast_cleanup.v1",
+          macro_kind: "filler_cleanup",
+          status: "review",
+          created_at: "2026-03-13T10:12:00.000Z",
+          based_on_transcript_id: "transcript_01",
+          summary: {
+            changed_segment_count: 1,
+            removal_count: 1,
+            untouched_segment_count: 1,
+          },
+          changes: [
+            {
+              segment_id: "seg_001",
+              original_text: "Um line one.",
+              cleaned_text: "line one.",
+              removed_fillers: [
+                {
+                  value: "Um",
+                  start: 0,
+                  end: 3,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  },
   editPlan: {
     edit_plan_id: "plan_01",
     version: "1",
@@ -118,6 +191,7 @@ assert.equal(saveRequest.active_session_id, "session_hammer_01");
 assert.equal(saveRequest.edit_plan_signature, "sig_abc");
 assert.equal(saveRequest.macro_recipe_ref, "macro:podcast_cleanup.v1");
 assert.equal(saveRequest.last_macro_run_ref, null);
+assert.equal(saveRequest.structured_transcript?.data.derived_text_layers?.layers[0]?.layer_id, "macro_run_01");
 assert.deepEqual(
   saveRequest.speaker_map?.data.default_labels,
   ["S1", "S2", "S3", "G1", "G2"],
