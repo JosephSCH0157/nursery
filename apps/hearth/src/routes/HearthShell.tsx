@@ -144,6 +144,16 @@ import {
   DEFAULT_HEARTH_VISUAL_STYLE,
   normalizeHearthVisualStyle,
 } from "../lib/hearth-visual-styles";
+import {
+  DEFAULT_TITLE_STYLE,
+  areEpisodeThumbnailTitleStylesEqual,
+  normalizeEpisodeThumbnailTitleStyle,
+} from "../lib/hearth-title-fonts";
+import type {
+  EpisodeThumbnailTitleStyle,
+  TitleFontPreset,
+  TitleShadowStrength,
+} from "../lib/hearth-title-fonts";
 import ThumbnailPanel from "../components/visuals/ThumbnailPanel";
 import ImageMapPanel from "../components/visuals/ImageMapPanel";
 import MetadataPanel from "../components/metadata/MetadataPanel";
@@ -2079,6 +2089,7 @@ export default function HearthShell() {
   const [thumbnailConceptLabelDraft, setThumbnailConceptLabelDraft] = useState("");
   const [thumbnailConceptPromptDraft, setThumbnailConceptPromptDraft] = useState("");
   const [thumbnailConceptStyleDraft, setThumbnailConceptStyleDraft] = useState(DEFAULT_HEARTH_VISUAL_STYLE);
+  const [thumbnailTitleStyleDraft, setThumbnailTitleStyleDraft] = useState<EpisodeThumbnailTitleStyle>(DEFAULT_TITLE_STYLE);
   const [thumbnailPromptOverride, setThumbnailPromptOverride] = useState("");
   const [thumbnailAspect, setThumbnailAspect] = useState<"16:9" | "1:1" | "9:16">("16:9");
   const [isThumbnailGenerating, setIsThumbnailGenerating] = useState(false);
@@ -4442,12 +4453,63 @@ export default function HearthShell() {
       setThumbnailConceptLabelDraft("");
       setThumbnailConceptPromptDraft("");
       setThumbnailConceptStyleDraft(DEFAULT_HEARTH_VISUAL_STYLE);
+      setThumbnailTitleStyleDraft(DEFAULT_TITLE_STYLE);
       return;
     }
     setThumbnailConceptLabelDraft(selectedThumbnailConcept.label);
     setThumbnailConceptPromptDraft(selectedThumbnailConcept.prompt_text);
     setThumbnailConceptStyleDraft(normalizeHearthVisualStyle(selectedThumbnailConcept.style_preset));
+    setThumbnailTitleStyleDraft(normalizeEpisodeThumbnailTitleStyle(selectedThumbnailConcept.title_style));
   }, [selectedThumbnailConcept]);
+
+  useEffect(() => {
+    if (!episodePackage || !selectedThumbnailConceptId) return;
+    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
+    const savedConcept = episodePackage.thumbnail.concepts.find((concept) => concept.id === selectedThumbnailConceptId);
+    if (!savedConcept) return;
+    if (areEpisodeThumbnailTitleStylesEqual(savedConcept.title_style, thumbnailTitleStyleDraft)) return;
+
+    const timer = window.setTimeout(() => {
+      const normalizedTitleStyle = normalizeEpisodeThumbnailTitleStyle(thumbnailTitleStyleDraft);
+      const nextEpisodePackage: EpisodePackageV2 = {
+        ...episodePackage,
+        thumbnail: {
+          ...episodePackage.thumbnail,
+          concepts: episodePackage.thumbnail.concepts.map((concept) => (
+            concept.id === selectedThumbnailConceptId
+              ? {
+                  ...concept,
+                  title_style: normalizedTitleStyle,
+                }
+              : concept
+          )),
+        },
+      };
+
+      void persistThumbnailEpisodePackage(
+        nextEpisodePackage,
+        "hearth.thumbnail.concept.title_style.updated.v1",
+        {
+          concept_id: selectedThumbnailConceptId,
+          font_preset: normalizedTitleStyle.font_preset,
+          text_color: normalizedTitleStyle.text_color,
+          shadow_enabled: normalizedTitleStyle.shadow.enabled,
+          shadow_strength: normalizedTitleStyle.shadow.strength,
+        },
+      );
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    episodePackage,
+    isThumbnailConceptSaving,
+    isThumbnailGenerating,
+    isThumbnailUploading,
+    selectedThumbnailConceptId,
+    thumbnailTitleStyleDraft,
+  ]);
 
   useEffect(() => {
     if (launchVariants.length === 0) {
@@ -6908,6 +6970,7 @@ export default function HearthShell() {
       label,
       prompt_text: promptText,
       style_preset: normalizeHearthVisualStyle(thumbnailConceptStyleDraft),
+      title_style: normalizeEpisodeThumbnailTitleStyle(thumbnailTitleStyleDraft),
     };
 
     const nextEpisodePackage: EpisodePackageV2 = {
@@ -6952,6 +7015,7 @@ export default function HearthShell() {
             label,
             prompt_text: promptText,
             style_preset: normalizeHearthVisualStyle(thumbnailConceptStyleDraft),
+            title_style: normalizeEpisodeThumbnailTitleStyle(thumbnailTitleStyleDraft),
           }
         : concept
     ));
@@ -7321,6 +7385,7 @@ export default function HearthShell() {
         label: "Uploaded",
         prompt_text: "Uploaded image",
         style_preset: DEFAULT_HEARTH_VISUAL_STYLE,
+        title_style: DEFAULT_TITLE_STYLE,
       };
       workingEpisodePackage = {
         ...episodePackage,
@@ -9266,6 +9331,7 @@ export default function HearthShell() {
                   selectedConceptLabel={thumbnailConceptLabelDraft}
                   selectedConceptPrompt={thumbnailConceptPromptDraft}
                   selectedConceptStylePreset={thumbnailConceptStyleDraft}
+                  selectedConceptTitleStyle={thumbnailTitleStyleDraft}
                   promptOverride={thumbnailPromptOverride}
                   aspect={thumbnailAspect}
                   safeZoneEnabled={thumbnailSafeZoneEnabled}
@@ -9283,6 +9349,28 @@ export default function HearthShell() {
                   onSelectedConceptLabelChange={setThumbnailConceptLabelDraft}
                   onSelectedConceptPromptChange={setThumbnailConceptPromptDraft}
                   onSelectedConceptStylePresetChange={(value) => setThumbnailConceptStyleDraft(normalizeHearthVisualStyle(value))}
+                  onSelectedConceptTitleFontPresetChange={(value) => setThumbnailTitleStyleDraft((prev) => ({
+                    ...normalizeEpisodeThumbnailTitleStyle(prev),
+                    font_preset: value as TitleFontPreset,
+                  }))}
+                  onSelectedConceptTitleColorChange={(value) => setThumbnailTitleStyleDraft((prev) => ({
+                    ...normalizeEpisodeThumbnailTitleStyle(prev),
+                    text_color: value.toUpperCase(),
+                  }))}
+                  onSelectedConceptTitleShadowEnabledChange={(value) => setThumbnailTitleStyleDraft((prev) => ({
+                    ...normalizeEpisodeThumbnailTitleStyle(prev),
+                    shadow: {
+                      ...normalizeEpisodeThumbnailTitleStyle(prev).shadow,
+                      enabled: value,
+                    },
+                  }))}
+                  onSelectedConceptTitleShadowStrengthChange={(value) => setThumbnailTitleStyleDraft((prev) => ({
+                    ...normalizeEpisodeThumbnailTitleStyle(prev),
+                    shadow: {
+                      ...normalizeEpisodeThumbnailTitleStyle(prev).shadow,
+                      strength: value as TitleShadowStrength,
+                    },
+                  }))}
                   onCreateConcept={() => void onCreateThumbnailConcept()}
                   onSaveConcept={() => void onSaveSelectedThumbnailConcept()}
                   onDeleteConcept={() => void onDeleteSelectedThumbnailConcept()}

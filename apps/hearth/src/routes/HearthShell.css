@@ -1529,6 +1529,38 @@
   opacity: 0.75;
 }
 
+.hs-thumb-title-style {
+  display: grid;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.hs-thumb-title-style-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.hs-thumb-color-field {
+  align-content: start;
+}
+
+.hs-thumb-color-input {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 8px;
+  background: transparent;
+  padding: 4px;
+}
+
+.hs-thumb-shadow-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
 .hs-thumb-preview-empty {
   font-size: 12px;
   opacity: 0.75;

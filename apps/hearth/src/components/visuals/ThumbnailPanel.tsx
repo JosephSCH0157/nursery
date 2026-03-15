@@ -10,6 +10,13 @@ import {
   EPISODE_LAUNCH_VARIANT_STATUS_VALUES,
 } from "../../lib/episode-package-v2";
 import { HEARTH_VISUAL_STYLE_DEFINITIONS } from "../../lib/hearth-visual-styles";
+import {
+  TITLE_FONT_PRESETS,
+  TITLE_SHADOW_STRENGTH_VALUES,
+  getShadowCss,
+  normalizeEpisodeThumbnailTitleStyle,
+} from "../../lib/hearth-title-fonts";
+import type { EpisodeThumbnailTitleStyle, TitleShadowStrength } from "../../lib/hearth-title-fonts";
 import ThumbnailVersions from "./ThumbnailVersions";
 
 type ThumbnailPanelProps = {
@@ -30,6 +37,7 @@ type ThumbnailPanelProps = {
   selectedConceptLabel: string;
   selectedConceptPrompt: string;
   selectedConceptStylePreset: string;
+  selectedConceptTitleStyle: EpisodeThumbnailTitleStyle;
   promptOverride: string;
   aspect: "16:9" | "1:1" | "9:16";
   safeZoneEnabled: boolean;
@@ -47,6 +55,10 @@ type ThumbnailPanelProps = {
   onSelectedConceptLabelChange: (value: string) => void;
   onSelectedConceptPromptChange: (value: string) => void;
   onSelectedConceptStylePresetChange: (value: string) => void;
+  onSelectedConceptTitleFontPresetChange: (value: string) => void;
+  onSelectedConceptTitleColorChange: (value: string) => void;
+  onSelectedConceptTitleShadowEnabledChange: (value: boolean) => void;
+  onSelectedConceptTitleShadowStrengthChange: (value: TitleShadowStrength) => void;
   onCreateConcept: () => void;
   onSaveConcept: () => void;
   onDeleteConcept: () => void;
@@ -91,6 +103,10 @@ function formatVariantTimestamp(timestamp: string | null): string | null {
   return new Date(parsed).toLocaleString();
 }
 
+function resolveColorInputValue(color: string): string {
+  return /^#[0-9a-f]{6}$/i.test(color) ? color.toUpperCase() : "#FFFFFF";
+}
+
 export default function ThumbnailPanel({
   concepts,
   versions,
@@ -109,6 +125,7 @@ export default function ThumbnailPanel({
   selectedConceptLabel,
   selectedConceptPrompt,
   selectedConceptStylePreset,
+  selectedConceptTitleStyle,
   promptOverride,
   aspect,
   safeZoneEnabled,
@@ -126,6 +143,10 @@ export default function ThumbnailPanel({
   onSelectedConceptLabelChange,
   onSelectedConceptPromptChange,
   onSelectedConceptStylePresetChange,
+  onSelectedConceptTitleFontPresetChange,
+  onSelectedConceptTitleColorChange,
+  onSelectedConceptTitleShadowEnabledChange,
+  onSelectedConceptTitleShadowStrengthChange,
   onCreateConcept,
   onSaveConcept,
   onDeleteConcept,
@@ -159,6 +180,10 @@ export default function ThumbnailPanel({
   const canSaveLaunchVariant = Boolean(selectedTitleId && selectedVersionId);
   const lastTestedLabel = formatVariantTimestamp(selectedLaunchVariantLastTestedAt);
   const winnerSelectedLabel = formatVariantTimestamp(selectedLaunchVariantWinnerSelectedAt);
+  const normalizedTitleStyle = normalizeEpisodeThumbnailTitleStyle(selectedConceptTitleStyle);
+  const selectedFontPreset = TITLE_FONT_PRESETS[normalizedTitleStyle.font_preset];
+  const shadowCss = getShadowCss(normalizedTitleStyle.shadow);
+  const colorInputValue = resolveColorInputValue(normalizedTitleStyle.text_color);
 
   return (
     <section className="hs-thumb-panel" aria-label="Visuals panel">
@@ -343,6 +368,60 @@ export default function ThumbnailPanel({
             <div className="hs-thumb-title-help">
               Select the clean text overlay for preview, then save an explicit launch variant below.
             </div>
+            <section className="hs-thumb-title-style" aria-label="Thumbnail title styling">
+              <div className="hs-thumb-section-title">Title Styling</div>
+              <div className="hs-thumb-title-style-grid">
+                <label className="hs-field">
+                  <span className="hs-field-label">Font Preset</span>
+                  <select
+                    value={normalizedTitleStyle.font_preset}
+                    onChange={(event) => onSelectedConceptTitleFontPresetChange(event.target.value)}
+                    disabled={interactionDisabled}
+                  >
+                    {Object.entries(TITLE_FONT_PRESETS).map(([value, preset]) => (
+                      <option key={value} value={value}>
+                        {preset.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="hs-field hs-thumb-color-field">
+                  <span className="hs-field-label">Text Color</span>
+                  <input
+                    type="color"
+                    value={colorInputValue}
+                    onChange={(event) => onSelectedConceptTitleColorChange(event.target.value)}
+                    disabled={interactionDisabled}
+                    className="hs-thumb-color-input"
+                  />
+                </label>
+              </div>
+              <label className="hs-thumb-shadow-toggle">
+                <input
+                  type="checkbox"
+                  checked={normalizedTitleStyle.shadow.enabled}
+                  onChange={(event) => onSelectedConceptTitleShadowEnabledChange(event.target.checked)}
+                  disabled={interactionDisabled}
+                />
+                <span>Drop Shadow</span>
+              </label>
+              {normalizedTitleStyle.shadow.enabled ? (
+                <label className="hs-field">
+                  <span className="hs-field-label">Shadow Strength</span>
+                  <select
+                    value={normalizedTitleStyle.shadow.strength}
+                    onChange={(event) => onSelectedConceptTitleShadowStrengthChange(event.target.value as TitleShadowStrength)}
+                    disabled={interactionDisabled}
+                  >
+                    {TITLE_SHADOW_STRENGTH_VALUES.map((strength) => (
+                      <option key={strength} value={strength}>
+                        {strength[0]?.toUpperCase()}{strength.slice(1)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+            </section>
           </section>
 
           <div className="hs-thumb-preview-note">{previewStatusMessage}</div>
@@ -364,7 +443,16 @@ export default function ThumbnailPanel({
                 <img src={previewDataUrl} alt="Selected thumbnail preview" className="hs-thumb-preview-image" />
                 {hasOverlayTitle ? (
                   <div className="hs-thumb-preview-copy" aria-label="Thumbnail title preview">
-                    <div className="hs-thumb-preview-copy-text">{selectedTitleText}</div>
+                    <div
+                      className="hs-thumb-preview-copy-text"
+                      style={{
+                        fontFamily: selectedFontPreset.css,
+                        color: normalizedTitleStyle.text_color,
+                        textShadow: shadowCss,
+                      }}
+                    >
+                      {selectedTitleText}
+                    </div>
                   </div>
                 ) : null}
                 <div className="hs-thumb-safe-zone" aria-hidden="true" />

@@ -57,6 +57,7 @@ import {
   applyProductionArtifactToEpisodePackage,
   createEmptyEpisodePackageV2,
   ensureImageMapV2,
+  ensureLaunchVariantsV2,
   hydrateEpisodePackageV2,
   mirrorEpisodePackageV2ToLegacy,
   resolvePrimarySeoTitle,
@@ -68,6 +69,11 @@ import {
   normalizeHearthVisualStyle,
   resolveHearthVisualStyleDefinition,
 } from "../src/lib/hearth-visual-styles";
+import {
+  DEFAULT_TITLE_STYLE,
+  getShadowCss,
+  normalizeEpisodeThumbnailTitleStyle,
+} from "../src/lib/hearth-title-fonts";
 
 class MemoryStorage {
   private store = new Map<string, string>();
@@ -2102,6 +2108,158 @@ function testHydrateEpisodePackageV2NormalizesLegacyVisualStyles() {
   assert.equal(episodePackage.image_map.entries[0]?.style_preset, DEFAULT_HEARTH_VISUAL_STYLE);
 }
 
+function testThumbnailTitleStyleDefaultsNormalizeDeterministically() {
+  assert.deepEqual(
+    normalizeEpisodeThumbnailTitleStyle(null),
+    DEFAULT_TITLE_STYLE,
+    "Missing title style metadata should hydrate to deterministic defaults",
+  );
+
+  const episodePackage = hydrateEpisodePackageV2({
+    episode: {
+      schema: "forge.episode.package.v2",
+      seo: {
+        titles: [],
+        tags: [],
+        description_short: null,
+        description_long: null,
+      },
+      thumbnail: {
+        concepts: [{
+          id: "concept-default-style",
+          label: "Default style",
+          prompt_text: "High-contrast portrait",
+          style_preset: "studio_photography",
+        }],
+        versions: [],
+        primary_version_id: null,
+      },
+      image_map: {
+        entries: [],
+      },
+    },
+  });
+
+  assert.deepEqual(
+    episodePackage.thumbnail.concepts[0]?.title_style,
+    DEFAULT_TITLE_STYLE,
+    "Hydration should apply title styling defaults to legacy thumbnail concepts",
+  );
+}
+
+function testThumbnailTitleStylePartialMetadataDefaultsMissingFields() {
+  const episodePackage = hydrateEpisodePackageV2({
+    episode: {
+      schema: "forge.episode.package.v2",
+      seo: {
+        titles: [],
+        tags: [],
+        description_short: null,
+        description_long: null,
+      },
+      thumbnail: {
+        concepts: [{
+          id: "concept-partial-style",
+          label: "Partial style",
+          prompt_text: "Golden-hour highway",
+          title_style: {
+            text_color: "#ff00aa",
+            shadow: {
+              enabled: false,
+            },
+          },
+        }],
+        versions: [],
+        primary_version_id: null,
+      },
+      image_map: {
+        entries: [],
+      },
+    },
+  });
+
+  assert.deepEqual(episodePackage.thumbnail.concepts[0]?.title_style, {
+    font_preset: "bold_sans",
+    text_color: "#FF00AA",
+    shadow: {
+      enabled: false,
+      strength: "medium",
+    },
+  });
+}
+
+function testThumbnailTitleStylePersistenceRoundTripsThroughEpisodePackage() {
+  const episodePackage = ensureLaunchVariantsV2({
+    schema: "forge.episode.package.v2",
+    seo: {
+      titles: [],
+      tags: [],
+      description_short: null,
+      description_long: null,
+    },
+    thumbnail: {
+      concepts: [{
+        id: "concept-persist-style",
+        label: "Persistent style",
+        prompt_text: "Storm over harbor",
+        style_preset: "studio_photography",
+        title_style: {
+          font_preset: "modern_clean",
+          text_color: "#12ab34",
+          shadow: {
+            enabled: true,
+            strength: "strong",
+          },
+        },
+      }],
+      versions: [],
+      primary_version_id: null,
+    },
+    launch_variants: [],
+    image_map: {
+      entries: [],
+    },
+  });
+
+  const mirrored = mirrorEpisodePackageV2ToLegacy({ episode: episodePackage });
+  assert.deepEqual(
+    ((mirrored.thumbnail_concepts as Array<{ title_style?: unknown }> | undefined)?.[0]?.title_style),
+    {
+      font_preset: "modern_clean",
+      text_color: "#12AB34",
+      shadow: {
+        enabled: true,
+        strength: "strong",
+      },
+    },
+    "Mirroring should keep persisted thumbnail title styling metadata on the episode package",
+  );
+
+  const rehydrated = hydrateEpisodePackageV2(mirrored);
+  assert.deepEqual(
+    rehydrated.thumbnail.concepts[0]?.title_style,
+    {
+      font_preset: "modern_clean",
+      text_color: "#12AB34",
+      shadow: {
+        enabled: true,
+        strength: "strong",
+      },
+    },
+    "Reloading the episode package should restore persisted thumbnail title styling",
+  );
+}
+
+function testThumbnailTitleShadowCssVariants() {
+  assert.equal(getShadowCss({ enabled: false, strength: "strong" }), "none");
+  assert.equal(getShadowCss({ enabled: true, strength: "soft" }), "0 1px 2px rgba(0,0,0,0.6)");
+  assert.equal(
+    getShadowCss({ enabled: true, strength: "medium" }),
+    "0 2px 8px rgba(0,0,0,0.55), 0 8px 18px rgba(0,0,0,0.38)",
+  );
+  assert.equal(getShadowCss({ enabled: true, strength: "strong" }), "0 4px 10px rgba(0,0,0,0.9)");
+}
+
 async function testBarStockSparkListDiscoveryStaysCanonicalAcrossClients() {
   resetLocalStorage();
   const localSpark = {
@@ -2758,6 +2916,10 @@ async function run() {
   testApplyProductionArtifactImageBeatSheetResolvesStructuredAnchorsFromCanonicalScript();
   testVisualStyleCatalogNormalizesAliasesAndPromptHints();
   testHydrateEpisodePackageV2NormalizesLegacyVisualStyles();
+  testThumbnailTitleStyleDefaultsNormalizeDeterministically();
+  testThumbnailTitleStylePartialMetadataDefaultsMissingFields();
+  testThumbnailTitleStylePersistenceRoundTripsThroughEpisodePackage();
+  testThumbnailTitleShadowCssVariants();
   await testBarStockSparkListDiscoveryStaysCanonicalAcrossClients();
   await testSparkIntakeWaitsForCanonicalDiscoveryBeforeDeclaringMissing();
   await testWorkpieceListRoundtripAndPrimaryScriptRead();

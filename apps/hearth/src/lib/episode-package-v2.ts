@@ -3,6 +3,11 @@ import {
   normalizeHearthVisualStyle,
 } from "./hearth-visual-styles";
 import type { HearthVisualStyleValue } from "./hearth-visual-styles";
+import {
+  DEFAULT_TITLE_STYLE,
+  normalizeEpisodeThumbnailTitleStyle,
+} from "./hearth-title-fonts";
+import type { EpisodeThumbnailTitleStyle } from "./hearth-title-fonts";
 
 export const EPISODE_PACKAGE_V2_SCHEMA = "forge.episode.package.v2";
 
@@ -27,6 +32,7 @@ export type EpisodeThumbnailConcept = {
   label: string;
   prompt_text: string;
   style_preset?: HearthVisualStyleValue | null;
+  title_style?: EpisodeThumbnailTitleStyle | null;
 };
 
 export type EpisodeThumbnailVersion = {
@@ -316,6 +322,7 @@ function normalizeThumbnailConcepts(value: unknown): EpisodeThumbnailConcept[] {
         label,
         prompt_text: promptText,
         style_preset: normalizeHearthVisualStyle(readString(entry.style_preset) ?? readString(entry.mood_style) ?? null),
+        title_style: normalizeEpisodeThumbnailTitleStyle(entry.title_style),
       });
       continue;
     }
@@ -326,6 +333,7 @@ function normalizeThumbnailConcepts(value: unknown): EpisodeThumbnailConcept[] {
       label: `Concept ${i + 1}`,
       prompt_text: promptText,
       style_preset: DEFAULT_HEARTH_VISUAL_STYLE,
+      title_style: DEFAULT_TITLE_STYLE,
     });
   }
   return out;
@@ -730,6 +738,7 @@ export function parseThumbnailConceptsFromText(rawText: string): EpisodeThumbnai
       label: headline || `THUMBNAIL_${currentId}`,
       prompt_text: promptText,
       style_preset: normalizeHearthVisualStyle(moodStyle),
+      title_style: DEFAULT_TITLE_STYLE,
     });
     currentId = null;
     headline = null;
@@ -1194,6 +1203,16 @@ export function ensureImageMapV2(pkg: EpisodePackageV2): EpisodePackageV2 {
 
 export function ensureLaunchVariantsV2(pkg: EpisodePackageV2): EpisodePackageV2 {
   const normalized = ensureSeoV2(pkg);
+  const concepts = Array.isArray(normalized.thumbnail?.concepts)
+    ? normalized.thumbnail.concepts.map((concept, index) => ({
+        ...concept,
+        id: readString(concept.id) ?? `concept-${String(index + 1).padStart(2, "0")}`,
+        label: readString(concept.label) ?? `Concept ${index + 1}`,
+        prompt_text: readString(concept.prompt_text) ?? "",
+        style_preset: normalizeHearthVisualStyle(concept.style_preset ?? null),
+        title_style: normalizeEpisodeThumbnailTitleStyle(concept.title_style),
+      }))
+    : [];
   const versions = Array.isArray(normalized.thumbnail?.versions) ? normalized.thumbnail.versions : [];
   const launchVariants = normalizeLaunchVariants(normalized.launch_variants, {
     titles: normalized.seo.titles,
@@ -1202,6 +1221,10 @@ export function ensureLaunchVariantsV2(pkg: EpisodePackageV2): EpisodePackageV2 
 
   return {
     ...normalized,
+    thumbnail: {
+      ...normalized.thumbnail,
+      concepts,
+    },
     launch_variants: launchVariants,
   };
 }
