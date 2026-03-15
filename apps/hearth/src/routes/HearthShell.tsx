@@ -145,6 +145,12 @@ import {
   normalizeHearthVisualStyle,
 } from "../lib/hearth-visual-styles";
 import {
+  listWorkspaceThumbnailBrandTemplates,
+  resolveDefaultThumbnailBrandTemplate,
+  seedWorkspaceThumbnailBrandTemplates,
+} from "../lib/hearth-thumbnail-brand-templates";
+import type { ThumbnailBrandTemplate } from "../lib/hearth-thumbnail-brand-templates";
+import {
   DEFAULT_TITLE_STYLE,
   areEpisodeThumbnailTitleStylesEqual,
   normalizeEpisodeThumbnailTitleStyle,
@@ -2090,6 +2096,10 @@ export default function HearthShell() {
   const [thumbnailConceptPromptDraft, setThumbnailConceptPromptDraft] = useState("");
   const [thumbnailConceptStyleDraft, setThumbnailConceptStyleDraft] = useState(DEFAULT_HEARTH_VISUAL_STYLE);
   const [thumbnailTitleStyleDraft, setThumbnailTitleStyleDraft] = useState<EpisodeThumbnailTitleStyle>(DEFAULT_TITLE_STYLE);
+  const [thumbnailConceptBrandTemplateIdDraft, setThumbnailConceptBrandTemplateIdDraft] = useState<string | null>(null);
+  const [thumbnailBrandTemplates, setThumbnailBrandTemplates] = useState<ThumbnailBrandTemplate[]>([]);
+  const [isThumbnailBrandTemplatesLoading, setIsThumbnailBrandTemplatesLoading] = useState(false);
+  const [thumbnailBrandTemplatesError, setThumbnailBrandTemplatesError] = useState<string | null>(null);
   const [thumbnailPromptOverride, setThumbnailPromptOverride] = useState("");
   const [thumbnailAspect, setThumbnailAspect] = useState<"16:9" | "1:1" | "9:16">("16:9");
   const [isThumbnailGenerating, setIsThumbnailGenerating] = useState(false);
@@ -2399,6 +2409,11 @@ export default function HearthShell() {
     [metadataTitlesDraft, selectedThumbnailTitleId, thumbnailTitleOptions],
   );
   const selectedThumbnailConcept = thumbnailConcepts.find((concept) => concept.id === selectedThumbnailConceptId) ?? null;
+  const defaultThumbnailBrandTemplate = useMemo(
+    () => resolveDefaultThumbnailBrandTemplate(thumbnailBrandTemplates),
+    [thumbnailBrandTemplates],
+  );
+  const defaultThumbnailBrandTemplateId = defaultThumbnailBrandTemplate?.id ?? null;
   const selectedThumbnailVersion = thumbnailVersions.find((version) => version.id === selectedThumbnailVersionId) ?? null;
   const imageMapEntries = episodePackage?.image_map.entries ?? [];
   const selectedImageMapEntry = imageMapEntries.find((entry) => entry.id === selectedImageMapEntryId) ?? null;
@@ -4438,6 +4453,41 @@ export default function HearthShell() {
   }, [planningSession, updatePlanningSession, workspaceId, workpieceId]);
 
   useEffect(() => {
+    const workspace = workspaceId?.trim() ?? "";
+    if (!workspace) {
+      setThumbnailBrandTemplates([]);
+      setThumbnailBrandTemplatesError(null);
+      setIsThumbnailBrandTemplatesLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsThumbnailBrandTemplatesLoading(true);
+    setThumbnailBrandTemplatesError(null);
+
+    void (async () => {
+      const seeded = await seedWorkspaceThumbnailBrandTemplates(workspace);
+      if (cancelled) return;
+
+      const listed = await listWorkspaceThumbnailBrandTemplates(workspace);
+      if (cancelled) return;
+      if (!listed.ok) {
+        setThumbnailBrandTemplates([]);
+        setThumbnailBrandTemplatesError(listed.error);
+        setIsThumbnailBrandTemplatesLoading(false);
+        return;
+      }
+      setThumbnailBrandTemplates(listed.data);
+      setThumbnailBrandTemplatesError(!seeded.ok && listed.data.length === 0 ? seeded.error : null);
+      setIsThumbnailBrandTemplatesLoading(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
+
+  useEffect(() => {
     if (thumbnailConcepts.length === 0) {
       setSelectedThumbnailConceptId("");
       return;
@@ -4454,13 +4504,15 @@ export default function HearthShell() {
       setThumbnailConceptPromptDraft("");
       setThumbnailConceptStyleDraft(DEFAULT_HEARTH_VISUAL_STYLE);
       setThumbnailTitleStyleDraft(DEFAULT_TITLE_STYLE);
+      setThumbnailConceptBrandTemplateIdDraft(defaultThumbnailBrandTemplateId);
       return;
     }
     setThumbnailConceptLabelDraft(selectedThumbnailConcept.label);
     setThumbnailConceptPromptDraft(selectedThumbnailConcept.prompt_text);
     setThumbnailConceptStyleDraft(normalizeHearthVisualStyle(selectedThumbnailConcept.style_preset));
     setThumbnailTitleStyleDraft(normalizeEpisodeThumbnailTitleStyle(selectedThumbnailConcept.title_style));
-  }, [selectedThumbnailConcept]);
+    setThumbnailConceptBrandTemplateIdDraft(selectedThumbnailConcept.brand_template_id ?? null);
+  }, [defaultThumbnailBrandTemplateId, selectedThumbnailConcept]);
 
   useEffect(() => {
     if (!episodePackage || !selectedThumbnailConceptId) return;
@@ -4509,6 +4561,52 @@ export default function HearthShell() {
     isThumbnailUploading,
     selectedThumbnailConceptId,
     thumbnailTitleStyleDraft,
+  ]);
+
+  useEffect(() => {
+    if (!episodePackage || !selectedThumbnailConceptId) return;
+    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
+    const savedConcept = episodePackage.thumbnail.concepts.find((concept) => concept.id === selectedThumbnailConceptId);
+    if (!savedConcept) return;
+    const savedTemplateId = savedConcept.brand_template_id ?? null;
+    if (savedTemplateId === (thumbnailConceptBrandTemplateIdDraft ?? null)) return;
+
+    const timer = window.setTimeout(() => {
+      const nextEpisodePackage: EpisodePackageV2 = {
+        ...episodePackage,
+        thumbnail: {
+          ...episodePackage.thumbnail,
+          concepts: episodePackage.thumbnail.concepts.map((concept) => (
+            concept.id === selectedThumbnailConceptId
+              ? {
+                  ...concept,
+                  brand_template_id: thumbnailConceptBrandTemplateIdDraft ?? null,
+                }
+              : concept
+          )),
+        },
+      };
+
+      void persistThumbnailEpisodePackage(
+        nextEpisodePackage,
+        "hearth.thumbnail.concept.brand_template.updated.v1",
+        {
+          concept_id: selectedThumbnailConceptId,
+          brand_template_id: thumbnailConceptBrandTemplateIdDraft ?? null,
+        },
+      );
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    episodePackage,
+    isThumbnailConceptSaving,
+    isThumbnailGenerating,
+    isThumbnailUploading,
+    selectedThumbnailConceptId,
+    thumbnailConceptBrandTemplateIdDraft,
   ]);
 
   useEffect(() => {
@@ -6971,6 +7069,7 @@ export default function HearthShell() {
       prompt_text: promptText,
       style_preset: normalizeHearthVisualStyle(thumbnailConceptStyleDraft),
       title_style: normalizeEpisodeThumbnailTitleStyle(thumbnailTitleStyleDraft),
+      brand_template_id: thumbnailConceptBrandTemplateIdDraft ?? defaultThumbnailBrandTemplateId,
     };
 
     const nextEpisodePackage: EpisodePackageV2 = {
@@ -7016,6 +7115,7 @@ export default function HearthShell() {
             prompt_text: promptText,
             style_preset: normalizeHearthVisualStyle(thumbnailConceptStyleDraft),
             title_style: normalizeEpisodeThumbnailTitleStyle(thumbnailTitleStyleDraft),
+            brand_template_id: thumbnailConceptBrandTemplateIdDraft ?? null,
           }
         : concept
     ));
@@ -7386,6 +7486,7 @@ export default function HearthShell() {
         prompt_text: "Uploaded image",
         style_preset: DEFAULT_HEARTH_VISUAL_STYLE,
         title_style: DEFAULT_TITLE_STYLE,
+        brand_template_id: defaultThumbnailBrandTemplateId,
       };
       workingEpisodePackage = {
         ...episodePackage,
@@ -9332,6 +9433,10 @@ export default function HearthShell() {
                   selectedConceptPrompt={thumbnailConceptPromptDraft}
                   selectedConceptStylePreset={thumbnailConceptStyleDraft}
                   selectedConceptTitleStyle={thumbnailTitleStyleDraft}
+                  brandTemplates={thumbnailBrandTemplates}
+                  brandTemplatesLoading={isThumbnailBrandTemplatesLoading}
+                  brandTemplatesError={thumbnailBrandTemplatesError}
+                  selectedConceptBrandTemplateId={thumbnailConceptBrandTemplateIdDraft}
                   promptOverride={thumbnailPromptOverride}
                   aspect={thumbnailAspect}
                   safeZoneEnabled={thumbnailSafeZoneEnabled}
@@ -9371,6 +9476,7 @@ export default function HearthShell() {
                       strength: value as TitleShadowStrength,
                     },
                   }))}
+                  onSelectedConceptBrandTemplateChange={setThumbnailConceptBrandTemplateIdDraft}
                   onCreateConcept={() => void onCreateThumbnailConcept()}
                   onSaveConcept={() => void onSaveSelectedThumbnailConcept()}
                   onDeleteConcept={() => void onDeleteSelectedThumbnailConcept()}

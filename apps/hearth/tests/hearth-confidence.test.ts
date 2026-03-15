@@ -74,6 +74,10 @@ import {
   getShadowCss,
   normalizeEpisodeThumbnailTitleStyle,
 } from "../src/lib/hearth-title-fonts";
+import {
+  resolveThumbnailBrandRender,
+  type ThumbnailBrandTemplate,
+} from "../src/lib/hearth-thumbnail-brand-templates";
 
 class MemoryStorage {
   private store = new Map<string, string>();
@@ -2260,6 +2264,141 @@ function testThumbnailTitleShadowCssVariants() {
   assert.equal(getShadowCss({ enabled: true, strength: "strong" }), "0 4px 10px rgba(0,0,0,0.9)");
 }
 
+function createThumbnailBrandTemplateFixture(
+  overrides?: Partial<ThumbnailBrandTemplate>,
+): ThumbnailBrandTemplate {
+  return {
+    id: "8f7ac12b-4386-4ef5-978d-d6152341f5a3",
+    workspaceId: WORKSPACE_ID,
+    slug: "bold-commentary",
+    name: "Bold Commentary",
+    templateJson: {
+      title_style: {
+        font_preset: "modern_clean",
+        text_color: "#FF6600",
+        shadow: {
+          enabled: true,
+          strength: "strong",
+        },
+      },
+      layout: {
+        title_position: "top",
+        alignment: "center",
+        max_lines: 2,
+      },
+      background_treatment: {
+        darken: 0.35,
+        blur: 3,
+      },
+      accent: {
+        border_color: "#FF2200",
+        border_width: 4,
+        corner_radius: 16,
+      },
+    },
+    isDefault: true,
+    archivedAt: null,
+    createdAt: "2026-03-14T12:00:00.000Z",
+    updatedAt: "2026-03-14T12:00:00.000Z",
+    updatedBy: "8ddf173f-4651-47cc-aa05-ef4ea0f5c44b",
+    ...overrides,
+  };
+}
+
+function testThumbnailBrandTemplateIdRoundTripsThroughEpisodePackage() {
+  const templateId = "c1a5c4eb-2480-46bb-b5a4-2b555707f381";
+  const episodePackage = hydrateEpisodePackageV2({
+    episode: {
+      schema: "forge.episode.package.v2",
+      seo: {
+        titles: [],
+        tags: [],
+        description_short: null,
+        description_long: null,
+      },
+      thumbnail: {
+        concepts: [{
+          id: "concept-brand-template",
+          label: "Brand template",
+          prompt_text: "Serious commentary portrait",
+          style_preset: "studio_photography",
+          brand_template_id: templateId,
+        }],
+        versions: [],
+        primary_version_id: null,
+      },
+      image_map: {
+        entries: [],
+      },
+    },
+  });
+
+  assert.equal(
+    episodePackage.thumbnail.concepts[0]?.brand_template_id,
+    templateId,
+    "Hydration should keep thumbnail concept brand template bindings",
+  );
+
+  const mirrored = mirrorEpisodePackageV2ToLegacy({ episode: episodePackage });
+  assert.equal(
+    ((mirrored.thumbnail_concepts as Array<{ brand_template_id?: unknown }> | undefined)?.[0]?.brand_template_id),
+    templateId,
+    "Mirroring should preserve thumbnail concept brand template ids",
+  );
+}
+
+function testResolveThumbnailBrandRenderUsesTemplateForDefaultConceptStyle() {
+  const template = createThumbnailBrandTemplateFixture();
+  const resolved = resolveThumbnailBrandRender({
+    template,
+    conceptTitleStyle: DEFAULT_TITLE_STYLE,
+  });
+
+  assert.deepEqual(
+    resolved.title_style,
+    template.templateJson.title_style,
+    "Template title styling should drive rendering when the concept has no explicit override",
+  );
+  assert.deepEqual(resolved.layout, template.templateJson.layout);
+  assert.deepEqual(resolved.background_treatment, template.templateJson.background_treatment);
+  assert.deepEqual(resolved.accent, template.templateJson.accent);
+  assert.equal(resolved.text_shadow_css, "0 4px 10px rgba(0,0,0,0.9)");
+}
+
+function testResolveThumbnailBrandRenderKeepsExplicitConceptTitleStyleOverride() {
+  const template = createThumbnailBrandTemplateFixture();
+  const resolved = resolveThumbnailBrandRender({
+    template,
+    conceptTitleStyle: {
+      font_preset: "condensed_sans",
+      text_color: "#00AAFF",
+      shadow: {
+        enabled: false,
+        strength: "soft",
+      },
+    },
+  });
+
+  assert.deepEqual(
+    resolved.title_style,
+    {
+      font_preset: "condensed_sans",
+      text_color: "#00AAFF",
+      shadow: {
+        enabled: false,
+        strength: "soft",
+      },
+    },
+    "Explicit concept title styling should override the workspace template styling",
+  );
+  assert.deepEqual(
+    resolved.layout,
+    template.templateJson.layout,
+    "Template layout should still apply when only title styling is overridden",
+  );
+  assert.equal(resolved.text_shadow_css, "none");
+}
+
 async function testBarStockSparkListDiscoveryStaysCanonicalAcrossClients() {
   resetLocalStorage();
   const localSpark = {
@@ -2920,6 +3059,9 @@ async function run() {
   testThumbnailTitleStylePartialMetadataDefaultsMissingFields();
   testThumbnailTitleStylePersistenceRoundTripsThroughEpisodePackage();
   testThumbnailTitleShadowCssVariants();
+  testThumbnailBrandTemplateIdRoundTripsThroughEpisodePackage();
+  testResolveThumbnailBrandRenderUsesTemplateForDefaultConceptStyle();
+  testResolveThumbnailBrandRenderKeepsExplicitConceptTitleStyleOverride();
   await testBarStockSparkListDiscoveryStaysCanonicalAcrossClients();
   await testSparkIntakeWaitsForCanonicalDiscoveryBeforeDeclaringMissing();
   await testWorkpieceListRoundtripAndPrimaryScriptRead();

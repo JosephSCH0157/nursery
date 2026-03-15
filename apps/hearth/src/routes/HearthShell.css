@@ -1529,6 +1529,11 @@
   opacity: 0.75;
 }
 
+.hs-thumb-template-meta {
+  font-size: 12px;
+  opacity: 0.72;
+}
+
 .hs-thumb-title-style {
   display: grid;
   gap: 8px;
@@ -1574,6 +1579,19 @@
   object-fit: contain;
 }
 
+.hs-thumb-preview-treatment {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.hs-thumb-preview-accent {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
 .hs-thumb-preview-copy {
   position: absolute;
   left: 9%;
@@ -1591,7 +1609,9 @@
   font-weight: 900;
   letter-spacing: -0.03em;
   color: #fff;
+  display: -webkit-box;
   overflow-wrap: anywhere;
+  overflow: hidden;
   text-shadow:
     0 2px 8px rgba(0, 0, 0, 0.55),
     0 8px 18px rgba(0, 0, 0, 0.38);

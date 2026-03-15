@@ -13,10 +13,13 @@ import { HEARTH_VISUAL_STYLE_DEFINITIONS } from "../../lib/hearth-visual-styles"
 import {
   TITLE_FONT_PRESETS,
   TITLE_SHADOW_STRENGTH_VALUES,
-  getShadowCss,
   normalizeEpisodeThumbnailTitleStyle,
 } from "../../lib/hearth-title-fonts";
 import type { EpisodeThumbnailTitleStyle, TitleShadowStrength } from "../../lib/hearth-title-fonts";
+import {
+  resolveThumbnailBrandRender,
+} from "../../lib/hearth-thumbnail-brand-templates";
+import type { ThumbnailBrandTemplate } from "../../lib/hearth-thumbnail-brand-templates";
 import ThumbnailVersions from "./ThumbnailVersions";
 
 type ThumbnailPanelProps = {
@@ -38,6 +41,10 @@ type ThumbnailPanelProps = {
   selectedConceptPrompt: string;
   selectedConceptStylePreset: string;
   selectedConceptTitleStyle: EpisodeThumbnailTitleStyle;
+  brandTemplates: ThumbnailBrandTemplate[];
+  brandTemplatesLoading: boolean;
+  brandTemplatesError: string | null;
+  selectedConceptBrandTemplateId: string | null;
   promptOverride: string;
   aspect: "16:9" | "1:1" | "9:16";
   safeZoneEnabled: boolean;
@@ -59,6 +66,7 @@ type ThumbnailPanelProps = {
   onSelectedConceptTitleColorChange: (value: string) => void;
   onSelectedConceptTitleShadowEnabledChange: (value: boolean) => void;
   onSelectedConceptTitleShadowStrengthChange: (value: TitleShadowStrength) => void;
+  onSelectedConceptBrandTemplateChange: (value: string | null) => void;
   onCreateConcept: () => void;
   onSaveConcept: () => void;
   onDeleteConcept: () => void;
@@ -126,6 +134,10 @@ export default function ThumbnailPanel({
   selectedConceptPrompt,
   selectedConceptStylePreset,
   selectedConceptTitleStyle,
+  brandTemplates,
+  brandTemplatesLoading,
+  brandTemplatesError,
+  selectedConceptBrandTemplateId,
   promptOverride,
   aspect,
   safeZoneEnabled,
@@ -147,6 +159,7 @@ export default function ThumbnailPanel({
   onSelectedConceptTitleColorChange,
   onSelectedConceptTitleShadowEnabledChange,
   onSelectedConceptTitleShadowStrengthChange,
+  onSelectedConceptBrandTemplateChange,
   onCreateConcept,
   onSaveConcept,
   onDeleteConcept,
@@ -181,9 +194,35 @@ export default function ThumbnailPanel({
   const lastTestedLabel = formatVariantTimestamp(selectedLaunchVariantLastTestedAt);
   const winnerSelectedLabel = formatVariantTimestamp(selectedLaunchVariantWinnerSelectedAt);
   const normalizedTitleStyle = normalizeEpisodeThumbnailTitleStyle(selectedConceptTitleStyle);
-  const selectedFontPreset = TITLE_FONT_PRESETS[normalizedTitleStyle.font_preset];
-  const shadowCss = getShadowCss(normalizedTitleStyle.shadow);
   const colorInputValue = resolveColorInputValue(normalizedTitleStyle.text_color);
+  const selectedBrandTemplate = brandTemplates.find((template) => template.id === selectedConceptBrandTemplateId) ?? null;
+  const resolvedBrandRender = resolveThumbnailBrandRender({
+    template: selectedBrandTemplate,
+    conceptTitleStyle: selectedConceptTitleStyle,
+  });
+  const resolvedFontPreset = TITLE_FONT_PRESETS[resolvedBrandRender.title_style.font_preset];
+  const previewCopyStyle = resolvedBrandRender.layout.title_position === "top"
+    ? { top: "10%", bottom: "auto", transform: undefined }
+    : resolvedBrandRender.layout.title_position === "center"
+      ? { top: "50%", bottom: "auto", transform: "translateY(-50%)" }
+      : { top: "auto", bottom: "10%", transform: undefined };
+  const previewJustifyItems = resolvedBrandRender.layout.alignment === "center"
+    ? "center"
+    : resolvedBrandRender.layout.alignment === "right"
+      ? "end"
+      : "start";
+  const accentBorder = resolvedBrandRender.accent.border_color && resolvedBrandRender.accent.border_width > 0
+    ? `${resolvedBrandRender.accent.border_width}px solid ${resolvedBrandRender.accent.border_color}`
+    : "none";
+  const previewTreatmentStyle = {
+    backgroundColor: `rgba(0, 0, 0, ${resolvedBrandRender.background_treatment.darken})`,
+    backdropFilter: resolvedBrandRender.background_treatment.blur > 0
+      ? `blur(${resolvedBrandRender.background_treatment.blur}px)`
+      : undefined,
+    WebkitBackdropFilter: resolvedBrandRender.background_treatment.blur > 0
+      ? `blur(${resolvedBrandRender.background_treatment.blur}px)`
+      : undefined,
+  };
 
   return (
     <section className="hs-thumb-panel" aria-label="Visuals panel">
@@ -368,6 +407,27 @@ export default function ThumbnailPanel({
             <div className="hs-thumb-title-help">
               Select the clean text overlay for preview, then save an explicit launch variant below.
             </div>
+            <label className="hs-field">
+              <span className="hs-field-label">Brand Template</span>
+              <select
+                value={selectedConceptBrandTemplateId ?? ""}
+                onChange={(event) => onSelectedConceptBrandTemplateChange(event.target.value || null)}
+                disabled={interactionDisabled || brandTemplatesLoading}
+              >
+                <option value="">None</option>
+                {brandTemplates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.isDefault ? `${template.name} (Default)` : template.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {brandTemplatesLoading ? (
+              <div className="hs-thumb-template-meta">Loading workspace brand templates...</div>
+            ) : null}
+            {brandTemplatesError ? (
+              <div className="hs-error-text-small">{brandTemplatesError}</div>
+            ) : null}
             <section className="hs-thumb-title-style" aria-label="Thumbnail title styling">
               <div className="hs-thumb-section-title">Title Styling</div>
               <div className="hs-thumb-title-style-grid">
@@ -441,14 +501,33 @@ export default function ThumbnailPanel({
             {previewDataUrl && previewState === "ready" ? (
               <>
                 <img src={previewDataUrl} alt="Selected thumbnail preview" className="hs-thumb-preview-image" />
+                <div className="hs-thumb-preview-treatment" style={previewTreatmentStyle} aria-hidden="true" />
+                <div
+                  className="hs-thumb-preview-accent"
+                  style={{
+                    border: accentBorder,
+                    borderRadius: `${resolvedBrandRender.accent.corner_radius}px`,
+                  }}
+                  aria-hidden="true"
+                />
                 {hasOverlayTitle ? (
-                  <div className="hs-thumb-preview-copy" aria-label="Thumbnail title preview">
+                  <div
+                    className="hs-thumb-preview-copy"
+                    aria-label="Thumbnail title preview"
+                    style={{
+                      ...previewCopyStyle,
+                      justifyItems: previewJustifyItems,
+                    }}
+                  >
                     <div
                       className="hs-thumb-preview-copy-text"
                       style={{
-                        fontFamily: selectedFontPreset.css,
-                        color: normalizedTitleStyle.text_color,
-                        textShadow: shadowCss,
+                        fontFamily: resolvedFontPreset.css,
+                        color: resolvedBrandRender.title_style.text_color,
+                        textShadow: resolvedBrandRender.text_shadow_css,
+                        textAlign: resolvedBrandRender.layout.alignment,
+                        WebkitLineClamp: resolvedBrandRender.layout.max_lines,
+                        WebkitBoxOrient: "vertical",
                       }}
                     >
                       {selectedTitleText}

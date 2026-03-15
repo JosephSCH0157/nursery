@@ -33,6 +33,7 @@ export type EpisodeThumbnailConcept = {
   prompt_text: string;
   style_preset?: HearthVisualStyleValue | null;
   title_style?: EpisodeThumbnailTitleStyle | null;
+  brand_template_id?: string | null;
 };
 
 export type EpisodeThumbnailVersion = {
@@ -323,6 +324,7 @@ function normalizeThumbnailConcepts(value: unknown): EpisodeThumbnailConcept[] {
         prompt_text: promptText,
         style_preset: normalizeHearthVisualStyle(readString(entry.style_preset) ?? readString(entry.mood_style) ?? null),
         title_style: normalizeEpisodeThumbnailTitleStyle(entry.title_style),
+        brand_template_id: readString(entry.brand_template_id),
       });
       continue;
     }
@@ -334,6 +336,7 @@ function normalizeThumbnailConcepts(value: unknown): EpisodeThumbnailConcept[] {
       prompt_text: promptText,
       style_preset: DEFAULT_HEARTH_VISUAL_STYLE,
       title_style: DEFAULT_TITLE_STYLE,
+      brand_template_id: null,
     });
   }
   return out;
@@ -739,6 +742,7 @@ export function parseThumbnailConceptsFromText(rawText: string): EpisodeThumbnai
       prompt_text: promptText,
       style_preset: normalizeHearthVisualStyle(moodStyle),
       title_style: DEFAULT_TITLE_STYLE,
+      brand_template_id: null,
     });
     currentId = null;
     headline = null;
@@ -1211,6 +1215,7 @@ export function ensureLaunchVariantsV2(pkg: EpisodePackageV2): EpisodePackageV2 
         prompt_text: readString(concept.prompt_text) ?? "",
         style_preset: normalizeHearthVisualStyle(concept.style_preset ?? null),
         title_style: normalizeEpisodeThumbnailTitleStyle(concept.title_style),
+        brand_template_id: readString(concept.brand_template_id),
       }))
     : [];
   const versions = Array.isArray(normalized.thumbnail?.versions) ? normalized.thumbnail.versions : [];
