@@ -7,7 +7,9 @@
     "build": "tsc -p tsconfig.json --noEmit",
     "types": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:confidence": "tsx tests/hearth-confidence.test.ts"
+    "test": "tsx tests/hearth-confidence.test.ts && tsx tests/thumbnail-lint.test.ts",
+    "test:confidence": "tsx tests/hearth-confidence.test.ts",
+    "test:thumbnail-lint": "tsx tests/thumbnail-lint.test.ts"
   },
   "dependencies": {
     "@forge/ui-mobile": "workspace:*",
