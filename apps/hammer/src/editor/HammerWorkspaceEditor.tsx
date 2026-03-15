@@ -5,6 +5,10 @@ import TranscriptSeekMock from "../dev/TranscriptSeekMock";
 import type { HammerWorkspaceSnapshot } from "./hammerWorkspaceSnapshot";
 import "./HammerWorkspaceEditor.css";
 import {
+  buildHammerPreparedHandoffModel,
+  type HammerPreparedNextStepActionId,
+} from "./hammerPreparedHandoff";
+import {
   buildHammerLaunchContextFromPersistence,
   buildHammerPersistenceSaveRequest,
   loadHammerPersistenceSnapshot,
@@ -49,6 +53,14 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 const READY_HANDOFF_DELAY_MS = 320;
 const SAVE_DEBOUNCE_MS = 400;
 
+type HammerPreparedActionIntent = {
+  id: Exclude<
+    HammerPreparedNextStepActionId,
+    "macro_later" | "export_later"
+  >;
+  token: number;
+};
+
 function buildTargetKey(workspaceId: string, workpieceId: string): string {
   return `${workspaceId}:${workpieceId}`;
 }
@@ -89,6 +101,7 @@ export default function HammerWorkspaceEditor(
       : createHammerPrepState("idle", null)
   ));
   const [showPreparedHandoff, setShowPreparedHandoff] = useState(false);
+  const [preparedActionIntent, setPreparedActionIntent] = useState<HammerPreparedActionIntent | null>(null);
   const [prepAttemptNonce, setPrepAttemptNonce] = useState(0);
   const openedAtRef = useRef(new Date().toISOString());
   const saveTimerRef = useRef<number | null>(null);
@@ -261,6 +274,7 @@ export default function HammerWorkspaceEditor(
     setWorkspaceSnapshot(null);
     setLoadedPersistenceSnapshot(null);
     setShowPreparedHandoff(false);
+    setPreparedActionIntent(null);
     openedAtRef.current = new Date().toISOString();
     setEffectiveLaunchContext(withSessionId(props.launchContext));
 
@@ -627,22 +641,31 @@ export default function HammerWorkspaceEditor(
   const shouldRenderEditor = persistenceMode !== "canonical" || prepState.status === "prepared";
   const visualPlacementData = loadedPersistenceSnapshot?.visual_placements.data ?? null;
   const audioPolishData = loadedPersistenceSnapshot?.audio_polish.data ?? null;
-  const visualPlacementCount = visualPlacementData?.placements.length ?? 0;
-  const uncertainPlacementCount = visualPlacementData?.placements.filter((placement) => placement.status === "uncertain").length ?? 0;
-  const hasVisualPlacementWarnings = (visualPlacementData?.uncertainty_flags.length ?? 0) > 0 || uncertainPlacementCount > 0;
-  const visualReviewNote = uncertainPlacementCount > 0
-    ? `, including ${uncertainPlacementCount} flagged for review`
-    : hasVisualPlacementWarnings
-    ? ", with some placement warnings flagged for review"
-    : "";
-  const audioPolishNote = audioPolishData?.status === "prepared"
-    ? " Polished playback is ready for supported audio monitoring while the raw source remains intact underneath."
-    : audioPolishData?.status === "failed" && audioPolishData.failure_reason
-    ? ` Audio polish fell back to the raw source: ${audioPolishData.failure_reason}`
-    : "";
-  const handoffBody = visualPlacementCount > 0
-    ? `Hammer finished the speaker-structured transcript and placed ${visualPlacementCount} initial visual suggestion${visualPlacementCount === 1 ? "" : "s"} on the timeline${visualReviewNote}.${audioPolishNote} Review the turns and visual suggestions, then direct the next edit you want in Polish, Audio, Video, or Captions.`
-    : `Hammer finished the speaker-structured transcript. No reviewable visual anchors were ready to place automatically, so Video opens without seeded image suggestions.${audioPolishNote}`;
+  const transcriptSegmentCount = loadedPersistenceSnapshot?.structured_transcript.data?.segments.length
+    ?? (effectiveLaunchContext?.transcript.kind === "tongs-stub"
+      ? effectiveLaunchContext.transcript.segments.length
+      : 0);
+  const handoffModel = buildHammerPreparedHandoffModel({
+    transcriptSegmentCount,
+    transcriptSourceId: loadedPersistenceSnapshot?.structured_transcript.data?.transcript_id
+      ?? (effectiveLaunchContext?.transcript.kind === "tongs-stub"
+        ? effectiveLaunchContext.transcript.transcript_id
+        : null),
+    visualPlacements: visualPlacementData,
+    audioPolish: audioPolishData,
+  });
+
+  function handlePreparedHandoffAction(actionId: HammerPreparedNextStepActionId): void {
+    if (actionId === "macro_later" || actionId === "export_later") {
+      return;
+    }
+
+    setPreparedActionIntent({
+      id: actionId,
+      token: Date.now(),
+    });
+    setShowPreparedHandoff(false);
+  }
 
   if (persistenceMode === "canonical" && prepState.status === "prep_failed") {
     return (
@@ -681,6 +704,7 @@ export default function HammerWorkspaceEditor(
             launchContext={effectiveLaunchContext}
             visualPlacements={visualPlacementData}
             audioPolish={audioPolishData}
+            prepHandoffAction={preparedActionIntent}
             onWorkspaceSnapshotChange={canPersistCanonicalState ? setWorkspaceSnapshot : undefined}
           />
         </div>
@@ -719,18 +743,39 @@ export default function HammerWorkspaceEditor(
 
       {showPreparedHandoff ? (
         <section className="hammer-prep-shell__handoff" aria-label="Hammer prep handoff">
-          <div className="hammer-prep-shell__handoff-title">
-            {visualPlacementCount > 0 ? "Transcript + Visual Suggestions Ready" : "Transcript Ready"}
+          <div className="hammer-prep-shell__handoff-title">{handoffModel.title}</div>
+          <div className="hammer-prep-shell__handoff-body">{handoffModel.body}</div>
+          <div className="hammer-prep-shell__handoff-summary-grid">
+            {handoffModel.summaries.map((summary) => (
+              <article
+                key={summary.id}
+                className={`hammer-prep-shell__handoff-summary hammer-prep-shell__handoff-summary--${summary.tone}`}
+              >
+                <div className="hammer-prep-shell__handoff-summary-head">
+                  <span className="hammer-prep-shell__handoff-summary-label">{summary.label}</span>
+                  <span className="hammer-prep-shell__handoff-summary-status">{summary.status_label}</span>
+                </div>
+                <div className="hammer-prep-shell__handoff-summary-detail">{summary.detail}</div>
+              </article>
+            ))}
           </div>
-          <div className="hammer-prep-shell__handoff-body">{handoffBody}</div>
           <div className="hammer-prep-shell__handoff-actions">
-            <button
-              type="button"
-              className="hammer-prep-shell__button"
-              onClick={() => setShowPreparedHandoff(false)}
-            >
-              Start editing
-            </button>
+            {handoffModel.actions.map((action) => (
+              <button
+                key={action.id}
+                type="button"
+                className={`hammer-prep-shell__action-button hammer-prep-shell__action-button--${action.kind}`}
+                onClick={() => handlePreparedHandoffAction(action.id)}
+                disabled={!action.enabled}
+                aria-disabled={!action.enabled}
+              >
+                <span className="hammer-prep-shell__action-label">
+                  {action.label}
+                  {action.recommended ? " Recommended" : ""}
+                </span>
+                <span className="hammer-prep-shell__action-detail">{action.detail}</span>
+              </button>
+            ))}
           </div>
         </section>
       ) : null}

@@ -58,6 +58,7 @@ import { toMediaBadgeViewModel } from "../media/mediaBadgeViewModel";
 import { V1HammerMediaResolver } from "../media/resolveMedia";
 import { loadWorkspaceMapping } from "../media/workspaceMapping";
 import type { HammerWorkspaceSnapshot } from "../editor/hammerWorkspaceSnapshot";
+import type { HammerPreparedNextStepActionId } from "../editor/hammerPreparedHandoff";
 import type {
   HammerPersistedAudioPolish,
   HammerPersistedVisualPlacements,
@@ -189,6 +190,10 @@ type TranscriptSeekMockProps = {
   launchContext?: HammerLaunchContext;
   visualPlacements?: HammerPersistedVisualPlacements | null;
   audioPolish?: HammerPersistedAudioPolish | null;
+  prepHandoffAction?: {
+    id: Exclude<HammerPreparedNextStepActionId, "macro_later" | "export_later">;
+    token: number;
+  } | null;
   onWorkspaceSnapshotChange?: (snapshot: HammerWorkspaceSnapshot) => void;
 };
 
@@ -920,6 +925,7 @@ export default function TranscriptSeekMock(
   const transcriptScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const transcriptRowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const transcriptRevealTimeoutRef = useRef<number | null>(null);
+  const lastHandledPrepHandoffTokenRef = useRef<number | null>(null);
   const suppressNextPreviewBoundaryActionRef = useRef(false);
   const paneResizeStateRef = useRef<HammerPaneResizeState | null>(null);
   const resolver = useMemo(() => new V1HammerMediaResolver(), []);
@@ -2435,6 +2441,75 @@ export default function TranscriptSeekMock(
     })),
     [props.visualPlacements],
   );
+
+  useEffect(() => {
+    if (!props.prepHandoffAction) return;
+    if (lastHandledPrepHandoffTokenRef.current === props.prepHandoffAction.token) {
+      return;
+    }
+    lastHandledPrepHandoffTokenRef.current = props.prepHandoffAction.token;
+
+    switch (props.prepHandoffAction.id) {
+      case "review_transcript": {
+        setActiveTool("polish");
+        setActiveWorkPanel("script");
+        setActiveTimelineTool("select");
+        if (selectedOverlayRow) {
+          if (!revealTranscriptRow(selectedOverlayRow.row_id)) {
+            setPendingTranscriptRevealRowId(selectedOverlayRow.row_id);
+          }
+        } else {
+          const firstRow = overlayRows[0] ?? null;
+          if (firstRow) {
+            selectTranscriptRow(firstRow);
+          }
+        }
+        break;
+      }
+      case "review_visuals": {
+        setActiveTool("video");
+        setActiveWorkPanel("assets");
+        setActiveAssetPanel("images");
+        setActiveTimelineTool("select");
+        const suggestedClip = visualSuggestionClips.find((clip) => clip.status === "uncertain")
+          ?? visualSuggestionClips[0]
+          ?? null;
+        if (suggestedClip) {
+          selectTimelineClip(suggestedClip);
+        }
+        break;
+      }
+      case "review_audio": {
+        setActiveTool("audio");
+        setActiveWorkPanel("script");
+        setActiveTimelineTool("select");
+        if (selectedOverlayRow) {
+          if (!revealTranscriptRow(selectedOverlayRow.row_id)) {
+            setPendingTranscriptRevealRowId(selectedOverlayRow.row_id);
+          }
+        } else {
+          const firstRow = overlayRows[0] ?? null;
+          if (firstRow) {
+            selectTranscriptRow(firstRow);
+          }
+        }
+        break;
+      }
+      case "begin_manual_editing": {
+        setActiveTool("polish");
+        setActiveWorkPanel("script");
+        setActiveTimelineTool("select");
+        break;
+      }
+      default:
+        break;
+    }
+  }, [
+    overlayRows,
+    props.prepHandoffAction,
+    selectedOverlayRow,
+    visualSuggestionClips,
+  ]);
 
   const projectAssets = useMemo(
     () => {
