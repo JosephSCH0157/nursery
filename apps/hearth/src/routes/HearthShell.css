@@ -1597,8 +1597,8 @@
   inset: 0;
   pointer-events: none;
   background-color: var(--hs-thumb-treatment-color);
-  backdrop-filter: var(--hs-thumb-treatment-blur);
   -webkit-backdrop-filter: var(--hs-thumb-treatment-blur);
+  backdrop-filter: var(--hs-thumb-treatment-blur);
 }
 
 .hs-thumb-preview-accent {

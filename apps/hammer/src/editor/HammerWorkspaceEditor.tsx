@@ -75,6 +75,21 @@ function withSessionId(launchContext?: HammerLaunchContext): HammerLaunchContext
   return launchContext ? ensureHammerLaunchSessionId(launchContext) : undefined;
 }
 
+function useDynamicCssText(scopeId: string, cssText: string): void {
+  useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+
+    const styleElement = document.createElement("style");
+    styleElement.setAttribute("data-hammer-workspace-editor-dynamic", scopeId);
+    styleElement.textContent = cssText;
+    document.head.appendChild(styleElement);
+
+    return () => {
+      styleElement.remove();
+    };
+  }, [cssText, scopeId]);
+}
+
 export default function HammerWorkspaceEditor(
   props: HammerWorkspaceEditorProps,
 ): JSX.Element {
@@ -108,6 +123,7 @@ export default function HammerWorkspaceEditor(
   const readyTransitionTimerRef = useRef<number | null>(null);
   const lastSavedPayloadRef = useRef<string | null>(null);
   const prepRunKeyRef = useRef<string | null>(null);
+  const dynamicStyleScopeIdRef = useRef(`hammer-workspace-editor-${Math.random().toString(36).slice(2, 10)}`);
 
   const ensureVisualPlacements = async (args: {
     launchContext: HammerLaunchContext;
@@ -654,6 +670,15 @@ export default function HammerWorkspaceEditor(
     visualPlacements: visualPlacementData,
     audioPolish: audioPolishData,
   });
+  const progressFillClassName = useMemo(
+    () => `${dynamicStyleScopeIdRef.current}__progress-fill`,
+    [],
+  );
+  const prepProgressWidth = Math.max(8, overlayViewModel.progress_ratio * 100);
+  useDynamicCssText(
+    dynamicStyleScopeIdRef.current,
+    `.${progressFillClassName} { width: ${prepProgressWidth}%; }`,
+  );
 
   function handlePreparedHandoffAction(actionId: HammerPreparedNextStepActionId): void {
     if (actionId === "macro_later" || actionId === "export_later") {
@@ -712,21 +737,27 @@ export default function HammerWorkspaceEditor(
 
       {overlayViewModel.visible ? (
         <div className="hammer-prep-shell__overlay" role="presentation">
-          <section className="hammer-prep-shell__modal" aria-label="Hammer prep overlay" aria-modal="true">
+          <section
+            className="hammer-prep-shell__modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="hammer-prep-shell-title"
+            aria-describedby="hammer-prep-shell-note"
+          >
             <div className="hammer-prep-shell__wheel-row">
               <div className="hammer-prep-shell__wheel" aria-hidden="true">
                 <div className="hammer-prep-shell__wheel-outer" />
                 <div className="hammer-prep-shell__wheel-inner" />
                 <div className="hammer-prep-shell__wheel-hub" />
               </div>
-              <div className="hammer-prep-shell__title">{overlayViewModel.title}</div>
+              <div id="hammer-prep-shell-title" className="hammer-prep-shell__title">{overlayViewModel.title}</div>
               <div className="hammer-prep-shell__message">{overlayViewModel.message}</div>
-              <div className="hammer-prep-shell__note">{overlayViewModel.note}</div>
+              <div id="hammer-prep-shell-note" className="hammer-prep-shell__note">{overlayViewModel.note}</div>
             </div>
 
             <div className="hammer-prep-shell__progress">
               <div className="hammer-prep-shell__progress-bar">
-                <span style={{ width: `${Math.max(8, overlayViewModel.progress_ratio * 100)}%` }} />
+                <span className={progressFillClassName} />
               </div>
               <div className="hammer-prep-shell__step-list" aria-hidden="true">
                 {Array.from({ length: overlayViewModel.step_count }).map((_, index) => (
@@ -767,7 +798,6 @@ export default function HammerWorkspaceEditor(
                 className={`hammer-prep-shell__action-button hammer-prep-shell__action-button--${action.kind}`}
                 onClick={() => handlePreparedHandoffAction(action.id)}
                 disabled={!action.enabled}
-                aria-disabled={!action.enabled}
               >
                 <span className="hammer-prep-shell__action-label">
                   {action.label}
