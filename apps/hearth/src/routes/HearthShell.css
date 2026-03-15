@@ -1659,7 +1659,8 @@
   border: 1px solid var(--forge-border, #ddd);
   border-radius: 10px;
   padding: 10px;
-  background: rgba(15, 23, 42, 0.03);
+  background: rgba(12, 18, 32, 0.72);
+  color: rgba(241, 245, 249, 0.96);
 }
 
 .hs-thumb-audit-header {
@@ -1671,7 +1672,7 @@
 
 .hs-thumb-audit-subtitle {
   font-size: 12px;
-  opacity: 0.72;
+  color: rgba(226, 232, 240, 0.76);
 }
 
 .hs-thumb-audit-status {
@@ -1708,7 +1709,7 @@
 
 .hs-thumb-audit-empty {
   font-size: 12px;
-  opacity: 0.75;
+  color: rgba(226, 232, 240, 0.76);
 }
 
 .hs-thumb-audit-list {
@@ -1724,7 +1725,20 @@
   border: 1px solid var(--forge-border, #ddd);
   border-radius: 8px;
   padding: 8px 10px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(241, 245, 249, 0.96);
+}
+
+.hs-thumb-audit-item.is-pass {
+  border-color: rgba(34, 197, 94, 0.24);
+}
+
+.hs-thumb-audit-item.is-warning {
+  border-color: rgba(245, 158, 11, 0.28);
+}
+
+.hs-thumb-audit-item.is-fail {
+  border-color: rgba(239, 68, 68, 0.28);
 }
 
 .hs-thumb-audit-check-status {
@@ -1763,12 +1777,13 @@
 .hs-thumb-audit-check-label {
   font-size: 12px;
   font-weight: 700;
+  color: rgba(241, 245, 249, 0.96);
 }
 
 .hs-thumb-audit-check-message {
   font-size: 12px;
   line-height: 1.4;
-  opacity: 0.86;
+  color: rgba(226, 232, 240, 0.86);
 }
 
 .hs-thumb-versions {
