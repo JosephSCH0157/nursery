@@ -82,7 +82,7 @@ function normalizeResponse(payload: unknown): HammerAudioPolishResponse | null {
         || typeof value === "number"
         || typeof value === "boolean"
       ) {
-        settingsSummary[key] = value;
+        settingsSummary[key] = value ?? null;
       }
     }
   }
