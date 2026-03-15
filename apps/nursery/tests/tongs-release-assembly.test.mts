@@ -7,6 +7,7 @@ import type { HammerPersistenceSnapshot } from "../../hammer/src/persistence/ham
 
 function buildSnapshot(overrides?: {
   outputLayerId?: string | null;
+  includeVtt?: boolean;
   audioFailureCode?: "unsupported_source" | "source_unavailable" | "processing_failed" | null;
   audioFailureReason?: string | null;
   audioStatus?: "not_started" | "preparing" | "prepared" | "failed";
@@ -134,7 +135,7 @@ function buildSnapshot(overrides?: {
         },
         subtitle_outputs: {
           schema_version: 1,
-          last_generated_format: "srt",
+          last_generated_format: overrides?.includeVtt ? "vtt" : "srt",
           srt: {
             format: "srt",
             generated_at: "2026-03-15T12:57:00.000Z",
@@ -146,7 +147,17 @@ function buildSnapshot(overrides?: {
             entry_count: 1,
             content: "1\n00:00:00,000 --> 00:00:04,000\nWelcome back to the show.",
           },
-          vtt: null,
+          vtt: overrides?.includeVtt ? {
+            format: "vtt",
+            generated_at: "2026-03-15T12:57:30.000Z",
+            source_transcript_id: "transcript_release_assembly_01",
+            source_layer_id: outputLayerId,
+            source_kind: outputLayerId ? "derived" : "raw",
+            source_recipe_ref: outputLayerId ? "macro:podcast_cleanup.v1" : null,
+            approximate_timing: false,
+            entry_count: 1,
+            content: "WEBVTT\n\n00:00.000 --> 00:04.000\nWelcome back to the show.",
+          } : null,
         },
       },
     },
@@ -236,6 +247,13 @@ test("buildTongsHammerReleaseAssembly summarizes a current downstream-ready hand
   assert.equal(assembly.release_prep.readiness.subtitles.vtt, "missing");
   assert.equal(assembly.release_prep.readiness.audio_polish, "ready");
   assert.equal(assembly.summary.checks.find((check) => check.id === "audio_polish")?.status, "ready");
+  assert.equal(assembly.quench_packet_stub.packet_kind, "quench_release_packet_stub");
+  assert.equal(assembly.quench_packet_stub.readiness.summary_status, "attention");
+  assert.equal(assembly.quench_packet_stub.readiness.safe_to_publish, false);
+  assert.equal(assembly.quench_packet_stub.transcript_output.source_kind, "derived");
+  assert.equal(assembly.quench_packet_stub.subtitles.srt.status, "ready");
+  assert.equal(assembly.quench_packet_stub.subtitles.vtt.status, "missing");
+  assert.equal(assembly.quench_packet_stub.readiness.blocking_reasons[0]?.check_id, "subtitle_vtt");
 });
 
 test("buildTongsHammerReleaseAssembly marks future-ffmpeg audio as blocked without hiding the handoff", () => {
@@ -258,4 +276,26 @@ test("buildTongsHammerReleaseAssembly marks future-ffmpeg audio as blocked witho
     assembly.summary.checks.find((check) => check.id === "audio_polish")?.status,
     "requires_future_ffmpeg",
   );
+  assert.equal(assembly.quench_packet_stub.readiness.safe_to_publish, false);
+  assert.equal(assembly.quench_packet_stub.audio.plan_readiness, "requires_future_ffmpeg");
+  assert.equal(assembly.quench_packet_stub.audio.status, "requires_future_ffmpeg");
+  assert.equal(assembly.quench_packet_stub.readiness.blocking_reasons.some((reason) => (
+    reason.check_id === "audio_polish" && reason.status === "requires_future_ffmpeg"
+  )), true);
+});
+
+test("buildTongsHammerReleaseAssembly emits a publish-safe Quench stub when all prep surfaces are current", () => {
+  const snapshot = buildSnapshot({ includeVtt: true });
+  const assembly = buildTongsHammerReleaseAssembly({
+    workspaceId: "workspace_release_assembly_01",
+    workpieceId: "workpiece_release_assembly_01",
+  }, snapshot);
+
+  assert.equal(assembly.summary.status, "ready");
+  assert.equal(assembly.release_prep.readiness.fully_prepared, true);
+  assert.equal(assembly.quench_packet_stub.readiness.summary_status, "ready");
+  assert.equal(assembly.quench_packet_stub.readiness.safe_to_publish, true);
+  assert.deepEqual(assembly.quench_packet_stub.readiness.blocking_statuses, []);
+  assert.equal(assembly.quench_packet_stub.subtitles.vtt.status, "ready");
+  assert.equal(assembly.quench_packet_stub.readiness.blocking_reasons.length, 0);
 });

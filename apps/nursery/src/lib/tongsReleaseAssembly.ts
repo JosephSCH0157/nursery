@@ -3,6 +3,7 @@ import {
   type HammerReleasePrepPackage,
   type HammerReleasePrepStatus,
 } from "../../../hammer/src/lib/hammerReleasePrepPackage";
+import type { ReleasePacketStub } from "../../../quench/src/core/release-packet.stub.types";
 import type { HammerMediaBackboneRuntimeSummary } from "../../../hammer/src/media/hammerMediaBackbone";
 import {
   loadHammerPersistenceSnapshot,
@@ -11,6 +12,7 @@ import type {
   HammerPersistenceSnapshot,
   HammerPersistenceTarget,
 } from "../../../hammer/src/persistence/hammerPersistenceContract";
+import { buildTongsQuenchReleasePacketStub } from "./tongsQuenchReleasePacketStub";
 
 export type TongsReleaseAssemblySummaryStatus = "ready" | "attention" | "blocked";
 
@@ -28,6 +30,7 @@ export interface TongsHammerReleaseAssembly {
     workpiece_id: string;
   };
   release_prep: HammerReleasePrepPackage;
+  quench_packet_stub: ReleasePacketStub;
   summary: {
     status: TongsReleaseAssemblySummaryStatus;
     ready_count: number;
@@ -141,8 +144,8 @@ export function buildTongsHammerReleaseAssembly(
   const checks = buildChecks(releasePrep);
   const summary = summarizeStatus(checks, releasePrep.readiness.blocking_statuses);
 
-  return {
-    schema_version: 1,
+  const assemblyBase = {
+    schema_version: 1 as const,
     target: {
       workspace_id: target.workspaceId,
       workpiece_id: target.workpieceId,
@@ -156,6 +159,11 @@ export function buildTongsHammerReleaseAssembly(
       message: summary.message,
       checks,
     },
+  };
+
+  return {
+    ...assemblyBase,
+    quench_packet_stub: buildTongsQuenchReleasePacketStub(assemblyBase),
   };
 }
 

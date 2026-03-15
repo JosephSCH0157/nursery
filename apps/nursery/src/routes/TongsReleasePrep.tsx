@@ -96,6 +96,8 @@ export default function TongsReleasePrep() {
   }
 
   const releasePrep = assembly?.release_prep ?? null;
+  const quenchPacketStub = assembly?.quench_packet_stub ?? null;
+  const quenchPacketStubJson = quenchPacketStub ? JSON.stringify(quenchPacketStub, null, 2) : "";
 
   return (
     <section className="tongs-release-prep">
@@ -241,6 +243,47 @@ export default function TongsReleasePrep() {
           </article>
 
           <div className="tongs-release-prep__grid">
+            <article className="tongs-release-prep__card">
+              <h3 className="tongs-release-prep__card-title">Quench Packet Stub</h3>
+              <div className="tongs-release-prep__fact-grid">
+                <div>
+                  <div className="tongs-release-prep__fact-label">packet kind</div>
+                  <div className="tongs-release-prep__mono">{quenchPacketStub?.packet_kind ?? "none"}</div>
+                </div>
+                <div>
+                  <div className="tongs-release-prep__fact-label">summary status</div>
+                  <div>{quenchPacketStub?.readiness.summary_status ?? "none"}</div>
+                </div>
+                <div>
+                  <div className="tongs-release-prep__fact-label">safe to publish</div>
+                  <div>{quenchPacketStub?.readiness.safe_to_publish ? "true" : "false"}</div>
+                </div>
+                <div>
+                  <div className="tongs-release-prep__fact-label">transcript source</div>
+                  <div>{quenchPacketStub?.transcript_output.source_kind ?? "missing"}</div>
+                </div>
+                <div>
+                  <div className="tongs-release-prep__fact-label">subtitle statuses</div>
+                  <div>
+                    SRT {quenchPacketStub?.subtitles.srt.status ?? "missing"}
+                    {" · "}
+                    VTT {quenchPacketStub?.subtitles.vtt.status ?? "missing"}
+                  </div>
+                </div>
+                <div>
+                  <div className="tongs-release-prep__fact-label">media prep</div>
+                  <div>
+                    visuals {quenchPacketStub?.visuals.status ?? "missing"}
+                    {" · "}
+                    audio {quenchPacketStub?.audio.status ?? "missing"}
+                  </div>
+                </div>
+              </div>
+              {quenchPacketStub ? (
+                <pre className="tongs-release-prep__json">{quenchPacketStubJson}</pre>
+              ) : null}
+            </article>
+
             <article className="tongs-release-prep__card">
               <h3 className="tongs-release-prep__card-title">Artifact Refs</h3>
               <div className="tongs-release-prep__fact-grid">
