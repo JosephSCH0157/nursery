@@ -44,6 +44,7 @@ import type {
   TranscriptPlaybackRange,
   TranscriptSeekTarget,
 } from "../lib/transcriptPreview";
+import { buildHammerCaptionPreviewModel } from "../lib/hammerCaptionPreview";
 import {
   parseHammerEditPlanJson,
   resolveHammerLaunchContext,
@@ -689,6 +690,21 @@ function formatDerivedLayerOutputSummary(layer: HammerDerivedTextLayer | null): 
     return "output uses raw transcript";
   }
   return `output uses ${layer.macro_kind === "retake_tightening" ? "tightened" : "cleaned"} layer`;
+}
+
+function formatDerivedLayerRecipeName(layer: HammerDerivedTextLayer | null): string {
+  if (!layer) {
+    return "Raw Transcript";
+  }
+  return findHammerFinishingMacroRecipe(layer.recipe_ref)?.name ?? layer.recipe_ref;
+}
+
+function formatTranscriptEditorViewLabel(layer: HammerDerivedTextLayer | null): string {
+  return layer ? `${formatDerivedLayerRecipeName(layer)} editor view` : "Raw Transcript editor view";
+}
+
+function formatTranscriptOutputLabel(layer: HammerDerivedTextLayer | null): string {
+  return layer ? `${formatDerivedLayerRecipeName(layer)} Output` : "Raw Transcript Output";
 }
 
 function getTranscriptRowStageMarkerClassName(tone: TranscriptRowStageMarkerTone): string {
@@ -1583,6 +1599,10 @@ export default function TranscriptSeekMock(
   );
   const outputTranscriptSegments = useMemo(
     () => applyHammerOutputDerivedTextLayerToSegments(rawTranscriptSegments, structuredTranscriptState),
+    [rawTranscriptSegments, structuredTranscriptState],
+  );
+  const captionOutputPreview = useMemo(
+    () => buildHammerCaptionPreviewModel(rawTranscriptSegments, structuredTranscriptState),
     [rawTranscriptSegments, structuredTranscriptState],
   );
   const effectiveInspectedDerivedLayerId = useMemo(
@@ -3477,12 +3497,88 @@ export default function TranscriptSeekMock(
         return (
           <div className="hammer-stack-10">
             <div className="hammer-meta-strip">
-              <span className="hammer-pill">{transcriptSegments.length} transcript segments</span>
-              <span className="hammer-pill">{overlayRows.length} caption rows</span>
+              <span className="hammer-pill">{captionOutputPreview.segment_count} output segments</span>
+              <span className="hammer-pill">{captionOutputPreview.chunk_count} preview rows</span>
+              <span className="hammer-pill">{formatTranscriptOutputLabel(outputDerivedLayer)}</span>
+              <span className="hammer-pill">
+                {captionOutputPreview.approximate_timing ? "approximate chunk timing" : "turn-aligned timing"}
+              </span>
             </div>
             <div className="hammer-copy-md">
-              Captions follow the transcript and timeline together. This panel owns subtitle timing and caption track preparation.
+              Caption preview follows the transcript layer selected for outputs. It stays distinct from the active editor view so you can inspect downstream text choices before subtitle/export generation exists.
             </div>
+            <div className="hammer-inspector-grid">
+              <div>
+                <div className="hammer-label">canonical truth</div>
+                <div>Raw transcript</div>
+              </div>
+              <div>
+                <div className="hammer-label">active editor view</div>
+                <div>{formatTranscriptEditorViewLabel(activeDerivedLayer)}</div>
+              </div>
+              <div>
+                <div className="hammer-label">output source</div>
+                <div>{formatTranscriptOutputLabel(outputDerivedLayer)}</div>
+              </div>
+              <div>
+                <div className="hammer-label">output layer ref</div>
+                <div className="hammer-mono">{structuredTranscriptState?.derived_text_layers?.output_layer_id ?? "raw"}</div>
+              </div>
+              <div>
+                <div className="hammer-label">preview rows</div>
+                <div>
+                  {captionOutputPreview.chunk_count}
+                  {" · "}
+                  {captionOutputPreview.segment_count} segments
+                </div>
+              </div>
+              <div>
+                <div className="hammer-label">timing basis</div>
+                <div>
+                  {captionOutputPreview.approximate_timing
+                    ? "Approximate turn splitting for preview"
+                    : "Exact transcript-turn timing"}
+                </div>
+              </div>
+            </div>
+            <div className="hammer-copy-sm hammer-copy-muted">
+              {captionOutputPreview.approximate_timing
+                ? "Hammer is splitting longer transcript turns into smaller caption rows for readability. Timing remains approximate until subtitle/export generation is wired."
+                : "This preview is currently aligned to transcript turns. Subtitle/export generation is not wired yet."}
+            </div>
+            {(activeDerivedLayer?.layer_id ?? null) !== (outputDerivedLayer?.layer_id ?? null) ? (
+              <div className="hammer-copy-sm hammer-copy-muted">
+                Editor view is {formatTranscriptEditorViewLabel(activeDerivedLayer)} while outputs will use {formatTranscriptOutputLabel(outputDerivedLayer)}.
+              </div>
+            ) : null}
+            {captionOutputPreview.chunks.length > 0 ? (
+              <div className="hammer-caption-preview">
+                {captionOutputPreview.chunks.map((chunk) => (
+                  <article key={chunk.chunk_id} className="hammer-caption-preview__chunk">
+                    <div className="hammer-caption-preview__head">
+                      <div className="hammer-stack-4">
+                        <strong className="hammer-copy-strong">{chunk.speaker}</strong>
+                        <div className="hammer-copy-sm hammer-copy-muted">
+                          {formatClock(chunk.start_sec)}
+                          {" - "}
+                          {formatClock(chunk.end_sec)}
+                        </div>
+                      </div>
+                      <div className="hammer-meta-strip">
+                        <span className="hammer-pill">{chunk.word_count} words</span>
+                        <span className="hammer-pill">{chunk.segment_ids.length} source seg</span>
+                        {chunk.approximate_timing ? <span className="hammer-pill">approximate</span> : null}
+                      </div>
+                    </div>
+                    <div className="hammer-caption-preview__text">{chunk.text}</div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="hammer-copy-sm hammer-copy-muted">
+                No transcript text is available yet for caption preview.
+              </div>
+            )}
           </div>
         );
       case "details":
@@ -3949,6 +4045,7 @@ export default function TranscriptSeekMock(
     audioMonitoringStateLabel,
     audioPassCount,
     audioSummaryItems,
+    captionOutputPreview,
     dialogueCoveragePercent,
     currentEditPlan.edit_plan_id,
     blurBackgroundBlocked,

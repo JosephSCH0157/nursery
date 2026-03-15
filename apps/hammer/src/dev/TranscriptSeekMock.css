@@ -846,6 +846,34 @@
   gap: 4px;
 }
 
+.hammer-caption-preview {
+  display: grid;
+  gap: 8px;
+}
+
+.hammer-caption-preview__chunk {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.48);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.hammer-caption-preview__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.hammer-caption-preview__text {
+  color: #e2e8f0;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
 .hammer-script-panel {
   display: grid;
   gap: 8px;
