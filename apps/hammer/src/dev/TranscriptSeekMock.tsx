@@ -48,9 +48,9 @@ import { buildHammerCaptionPreviewModel } from "../lib/hammerCaptionPreview";
 import {
   generateHammerSubtitleArtifact,
   getHammerSubtitleArtifact,
-  isHammerSubtitleArtifactCurrent,
   setHammerSubtitleArtifact,
 } from "../lib/hammerSubtitleExports";
+import { buildHammerTextOutputsPackage } from "../lib/hammerTextOutputsPackage";
 import {
   parseHammerEditPlanJson,
   resolveHammerLaunchContext,
@@ -1629,6 +1629,10 @@ export default function TranscriptSeekMock(
     () => buildHammerCaptionPreviewModel(rawTranscriptSegments, structuredTranscriptState),
     [rawTranscriptSegments, structuredTranscriptState],
   );
+  const textOutputsPackage = useMemo(
+    () => buildHammerTextOutputsPackage(structuredTranscriptState),
+    [structuredTranscriptState],
+  );
   const srtSubtitleArtifact = useMemo(
     () => getHammerSubtitleArtifact(structuredTranscriptState, "srt"),
     [structuredTranscriptState],
@@ -1641,12 +1645,7 @@ export default function TranscriptSeekMock(
     () => getHammerSubtitleArtifact(structuredTranscriptState, selectedSubtitleFormat),
     [selectedSubtitleFormat, structuredTranscriptState],
   );
-  const selectedSubtitleArtifactCurrent = useMemo(
-    () => structuredTranscriptState
-      ? isHammerSubtitleArtifactCurrent(structuredTranscriptState, selectedSubtitleFormat)
-      : false,
-    [selectedSubtitleFormat, structuredTranscriptState],
-  );
+  const selectedSubtitleFreshness = textOutputsPackage?.subtitles[selectedSubtitleFormat].freshness ?? "missing";
   const effectiveInspectedDerivedLayerId = useMemo(
     () => inspectedDerivedLayerId === RAW_TRANSCRIPT_LAYER_SENTINEL
       ? null
@@ -3602,9 +3601,7 @@ export default function TranscriptSeekMock(
                 <div className="hammer-label">generated artifact</div>
                 <div>
                   {selectedSubtitleArtifact
-                    ? selectedSubtitleArtifactCurrent
-                      ? "current"
-                      : "stale"
+                    ? selectedSubtitleFreshness
                     : "not generated"}
                 </div>
               </div>
@@ -3620,6 +3617,45 @@ export default function TranscriptSeekMock(
               </div>
             ) : null}
             <div className="hammer-caption-output">
+              {textOutputsPackage ? (
+                <div className="hammer-caption-output__artifact">
+                  <div className="hammer-caption-output__head">
+                    <div className="hammer-stack-4">
+                      <strong className="hammer-copy-strong">Text Outputs Package</strong>
+                      <div className="hammer-copy-sm hammer-copy-muted">
+                        Deterministic downstream text handoff assembled from persisted Hammer state.
+                      </div>
+                    </div>
+                    <div className="hammer-meta-strip">
+                      <span className="hammer-pill">{textOutputsPackage.output_selection.source_kind}</span>
+                      <span className="hammer-pill">SRT {textOutputsPackage.subtitles.srt.freshness}</span>
+                      <span className="hammer-pill">VTT {textOutputsPackage.subtitles.vtt.freshness}</span>
+                    </div>
+                  </div>
+                  <div className="hammer-inspector-grid">
+                    <div>
+                      <div className="hammer-label">transcript source</div>
+                      <div className="hammer-mono">{textOutputsPackage.transcript_source.transcript_id}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">output layer</div>
+                      <div className="hammer-mono">{textOutputsPackage.output_selection.layer_id ?? "raw"}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">output recipe</div>
+                      <div>{formatSubtitleArtifactSourceLabel(textOutputsPackage.output_selection.recipe_ref)}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">resolved output</div>
+                      <div>
+                        {textOutputsPackage.resolved_output.segment_count} segments
+                        {" · "}
+                        {textOutputsPackage.resolved_output.caption_preview_row_count} caption rows
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
               <div className="hammer-caption-output__toolbar">
                 <div className="hammer-inline-list-wide">
                   {(["srt", "vtt"] as HammerSubtitleFormat[]).map((format) => (
@@ -3731,7 +3767,7 @@ export default function TranscriptSeekMock(
                     </strong>
                     <div className="hammer-copy-sm hammer-copy-muted">
                       {selectedSubtitleArtifact
-                        ? `${selectedSubtitleArtifactCurrent ? "Current" : "Stale"} artifact generated from ${formatSubtitleArtifactSourceLabel(selectedSubtitleArtifact.source_recipe_ref)}`
+                        ? `${selectedSubtitleFreshness === "current" ? "Current" : "Stale"} artifact generated from ${formatSubtitleArtifactSourceLabel(selectedSubtitleArtifact.source_recipe_ref)}`
                         : `No ${formatSubtitleFormatLabel(selectedSubtitleFormat)} artifact generated yet.`}
                     </div>
                   </div>
@@ -3742,7 +3778,7 @@ export default function TranscriptSeekMock(
                         {selectedSubtitleArtifact.approximate_timing ? "approximate timing" : "turn timing"}
                       </span>
                       <span className="hammer-pill">
-                        {selectedSubtitleArtifactCurrent ? "current" : "stale"}
+                        {selectedSubtitleFreshness}
                       </span>
                     </div>
                   ) : null}
@@ -4329,7 +4365,6 @@ export default function TranscriptSeekMock(
     selectedGapAfterSec,
     selectedGapBeforeSec,
     selectedSubtitleArtifact,
-    selectedSubtitleArtifactCurrent,
     selectedSubtitleFormat,
     selectedNextSegment,
     selectedOverlayRow,
@@ -4347,6 +4382,7 @@ export default function TranscriptSeekMock(
     srtSubtitleArtifact,
     studioSoundPrepared,
     structuredTranscriptState,
+    textOutputsPackage,
     subtitleActionFeedback,
     trimInstructionCount,
     transcriptSegments.length,
