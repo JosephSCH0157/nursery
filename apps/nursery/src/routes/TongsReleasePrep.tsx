@@ -1,13 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useOutletContext } from "react-router-dom";
 import type { HammerReleasePrepStatus } from "../../../hammer/src/lib/hammerReleasePrepPackage";
+import type {
+  HammerPersistenceSnapshot,
+  HammerPersistenceTarget,
+} from "../../../hammer/src/persistence/hammerPersistenceContract";
 import type { AppShellContext } from "./AppShell";
 import { parseForgeRouteContext } from "../lib/forge-route-context";
 import {
+  buildTongsHammerReleaseAssembly,
   loadTongsHammerReleaseAssembly,
   type TongsHammerReleaseAssembly,
   type TongsReleaseAssemblySummaryStatus,
 } from "../lib/tongsReleaseAssembly";
+import { executeTongsReleaseOperatorAction } from "../lib/tongsReleaseOperatorActions";
+import type {
+  TongsReleaseOperatorActionStep,
+  TongsReleaseOperatorExecutionAttempt,
+  TongsReleaseOperatorAttemptResult,
+} from "../lib/tongsReleaseOperatorExecution";
 import WorkspaceRequiredNotice from "./WorkspaceRequiredNotice";
 import "./TongsReleasePrep.css";
 
@@ -34,16 +45,44 @@ function getCheckClassName(status: HammerReleasePrepStatus): string {
   return `tongs-release-prep__check tongs-release-prep__check--${status}`;
 }
 
+function sameTarget(
+  left: HammerPersistenceTarget | null,
+  right: HammerPersistenceTarget,
+): boolean {
+  if (!left) return false;
+  return left.workspaceId === right.workspaceId
+    && left.workpieceId === right.workpieceId;
+}
+
+function buildAttemptId(actionId: string, attemptedAt: string): string {
+  return `rxt1_${attemptedAt.replace(/[^0-9]/g, "").slice(0, 17)}_${actionId.slice(-8)}`;
+}
+
 export default function TongsReleasePrep() {
   const shell = useOutletContext<AppShellContext>();
   const location = useLocation();
   const routeContext = useMemo(() => parseForgeRouteContext(location.search), [location.search]);
   const workspaceId = shell.workspaceId;
   const [workpieceIdInput, setWorkpieceIdInput] = useState<string>(routeContext.workpieceId ?? "");
-  const [assembly, setAssembly] = useState<TongsHammerReleaseAssembly | null>(null);
+  const [loadedTarget, setLoadedTarget] = useState<HammerPersistenceTarget | null>(null);
+  const [loadedSnapshot, setLoadedSnapshot] = useState<HammerPersistenceSnapshot | null>(null);
+  const [executionAttempts, setExecutionAttempts] = useState<TongsReleaseOperatorExecutionAttempt[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [actionInFlightId, setActionInFlightId] = useState<string | null>(null);
+  const [executionNotice, setExecutionNotice] = useState<{
+    tone: "error" | "success" | "subtle";
+    text: string;
+  } | null>(null);
   const autoLoadKeyRef = useRef<string | null>(null);
+  const assembly = useMemo<TongsHammerReleaseAssembly | null>(() => {
+    if (!loadedTarget || !loadedSnapshot) return null;
+    return buildTongsHammerReleaseAssembly(loadedTarget, loadedSnapshot, {
+      operatorExecution: {
+        attempts: executionAttempts,
+      },
+    });
+  }, [loadedTarget, loadedSnapshot, executionAttempts]);
 
   useEffect(() => {
     if (routeContext.workpieceId) {
@@ -52,8 +91,12 @@ export default function TongsReleasePrep() {
   }, [routeContext.workpieceId]);
 
   useEffect(() => {
-    setAssembly(null);
+    setLoadedTarget(null);
+    setLoadedSnapshot(null);
+    setExecutionAttempts([]);
     setError(null);
+    setExecutionNotice(null);
+    setActionInFlightId(null);
     autoLoadKeyRef.current = null;
   }, [workspaceId]);
 
@@ -62,26 +105,119 @@ export default function TongsReleasePrep() {
     const normalizedWorkpieceId = normalizeWorkpieceId(requestedWorkpieceId ?? workpieceIdInput);
     if (!normalizedWorkpieceId) {
       setError("Provide a workpiece id to inspect Hammer release prep.");
-      setAssembly(null);
+      setLoadedTarget(null);
+      setLoadedSnapshot(null);
       return;
     }
 
     setLoading(true);
     setError(null);
+    setExecutionNotice(null);
     const result = await loadTongsHammerReleaseAssembly({
       workspaceId,
       workpieceId: normalizedWorkpieceId,
     });
     if (!result.ok) {
-      setAssembly(null);
+      setLoadedTarget(null);
+      setLoadedSnapshot(null);
       setError(result.error);
       setLoading(false);
       return;
     }
 
-    setAssembly(result.assembly);
+    const nextTarget = {
+      workspaceId,
+      workpieceId: normalizedWorkpieceId,
+    };
+    if (!sameTarget(loadedTarget, nextTarget)) {
+      setExecutionAttempts([]);
+    }
+    setLoadedTarget(nextTarget);
+    setLoadedSnapshot(result.snapshot);
     setLoading(false);
-  }, [workspaceId, workpieceIdInput]);
+  }, [workspaceId, workpieceIdInput, loadedTarget]);
+
+  const appendExecutionAttempt = useCallback((args: {
+    step: TongsReleaseOperatorActionStep;
+    attemptedAt: string;
+    result: TongsReleaseOperatorAttemptResult;
+    detail: string;
+  }) => {
+    setExecutionAttempts((current) => [...current, {
+      attempt_id: buildAttemptId(args.step.action_id, args.attemptedAt),
+      action_id: args.step.action_id,
+      step_code: args.step.step_code,
+      attempted_at: args.attemptedAt,
+      actor_id: shell.session?.user?.id ?? null,
+      actor_label: shell.session?.user?.email ?? null,
+      result: args.result,
+      detail: args.detail,
+    }]);
+  }, [shell.session?.user?.email, shell.session?.user?.id]);
+
+  const runRecoveryStep = useCallback(async (step: TongsReleaseOperatorActionStep) => {
+    if (!loadedTarget || !loadedSnapshot) return;
+
+    const attemptedAt = new Date().toISOString();
+    if (step.execution_kind !== "operator_triggerable" || step.eligibility !== "eligible") {
+      const detail = step.blocked_by[0]?.detail
+        ?? "This recovery step is currently blocked and cannot execute.";
+      appendExecutionAttempt({
+        step,
+        attemptedAt,
+        result: "blocked",
+        detail,
+      });
+      setExecutionNotice({
+        tone: "error",
+        text: detail,
+      });
+      return;
+    }
+
+    setActionInFlightId(step.action_id);
+    setExecutionNotice({
+      tone: "subtle",
+      text: `Running ${step.human_label.toLowerCase()}...`,
+    });
+
+    try {
+      const result = await executeTongsReleaseOperatorAction({
+        target: loadedTarget,
+        snapshot: loadedSnapshot,
+        step,
+      });
+      appendExecutionAttempt({
+        step,
+        attemptedAt,
+        result: result.result,
+        detail: result.message,
+      });
+      if (result.snapshot) {
+        setLoadedSnapshot(result.snapshot);
+      }
+      setExecutionNotice({
+        tone: result.result === "succeeded" ? "success" : "error",
+        text: result.message,
+      });
+    } catch (error) {
+      const detail = error instanceof Error && error.message.trim()
+        ? error.message
+        : "Operator execution failed.";
+      appendExecutionAttempt({
+        step,
+        attemptedAt,
+        result: "failed",
+        detail,
+      });
+      setExecutionNotice({
+        tone: "error",
+        text: detail,
+      });
+    } finally {
+      setActionInFlightId(null);
+    }
+  }, [appendExecutionAttempt, loadedSnapshot, loadedTarget]);
 
   useEffect(() => {
     if (!workspaceId || !routeContext.workpieceId) return;
@@ -98,6 +234,7 @@ export default function TongsReleasePrep() {
   const releasePrep = assembly?.release_prep ?? null;
   const authority = assembly?.authority ?? null;
   const recovery = assembly?.recovery ?? null;
+  const execution = assembly?.execution ?? null;
   const quenchPacketStub = assembly?.quench_packet_stub ?? null;
   const quenchPacketStubJson = quenchPacketStub ? JSON.stringify(quenchPacketStub, null, 2) : "";
 
@@ -139,6 +276,11 @@ export default function TongsReleasePrep() {
 
       {error ? (
         <div className="tongs-release-prep__message tongs-release-prep__message--error">{error}</div>
+      ) : null}
+      {executionNotice ? (
+        <div className={`tongs-release-prep__message tongs-release-prep__message--${executionNotice.tone}`}>
+          {executionNotice.text}
+        </div>
       ) : null}
 
       {!assembly && !error ? (
@@ -230,6 +372,10 @@ export default function TongsReleasePrep() {
                   <div>{recovery?.recovery_status ?? "none"}</div>
                 </div>
                 <div>
+                  <div className="tongs-release-prep__fact-label">execution status</div>
+                  <div>{execution?.execution_status ?? "none"}</div>
+                </div>
+                <div>
                   <div className="tongs-release-prep__fact-label">blocking states</div>
                   <div>{assembly.summary.blocking_states.length > 0 ? assembly.summary.blocking_states.map(formatStatusLabel).join(", ") : "none"}</div>
                 </div>
@@ -284,6 +430,170 @@ export default function TongsReleasePrep() {
             </article>
 
             <article className="tongs-release-prep__card">
+              <h3 className="tongs-release-prep__card-title">Execution Controls</h3>
+              <div className="tongs-release-prep__fact-grid">
+                <div>
+                  <div className="tongs-release-prep__fact-label">status</div>
+                  <div>{execution?.execution_status ?? "none"}</div>
+                </div>
+                <div>
+                  <div className="tongs-release-prep__fact-label">can execute recovery</div>
+                  <div>{execution?.can_execute_recovery ? "true" : "false"}</div>
+                </div>
+                <div>
+                  <div className="tongs-release-prep__fact-label">actionable steps</div>
+                  <div>{execution?.actionable_steps.length ?? 0}</div>
+                </div>
+                <div>
+                  <div className="tongs-release-prep__fact-label">attempted steps</div>
+                  <div>{execution?.attempted_steps.length ?? 0}</div>
+                </div>
+                <div>
+                  <div className="tongs-release-prep__fact-label">last attempt at</div>
+                  <div>{execution?.last_attempt_at ?? "none"}</div>
+                </div>
+                <div>
+                  <div className="tongs-release-prep__fact-label">last attempt result</div>
+                  <div>{execution?.last_attempt_result ?? "none"}</div>
+                </div>
+              </div>
+              {execution?.actionable_steps.length ? (
+                <div className="tongs-release-prep__execution-list">
+                  {execution.actionable_steps.map((step) => (
+                    <div key={step.action_id} className="tongs-release-prep__execution-step">
+                      <div className="tongs-release-prep__execution-head">
+                        <div>
+                          <strong>{step.human_label}</strong>
+                          <div className="tongs-release-prep__check-detail">{step.reason}</div>
+                        </div>
+                        <div className="tongs-release-prep__execution-badges">
+                          <span className={`tongs-release-prep__execution-badge tongs-release-prep__execution-badge--${step.execution_kind}`}>
+                            {formatStatusLabel(step.execution_kind)}
+                          </span>
+                          <span className={`tongs-release-prep__execution-badge tongs-release-prep__execution-badge--${step.eligibility}`}>
+                            {formatStatusLabel(step.eligibility)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="tongs-release-prep__fact-grid">
+                        <div>
+                          <div className="tongs-release-prep__fact-label">step code</div>
+                          <div className="tongs-release-prep__mono">{step.step_code}</div>
+                        </div>
+                        <div>
+                          <div className="tongs-release-prep__fact-label">action type</div>
+                          <div>{formatStatusLabel(step.machine_action_type)}</div>
+                        </div>
+                        <div>
+                          <div className="tongs-release-prep__fact-label">preview safe</div>
+                          <div>{step.preview_safe ? "true" : "false"}</div>
+                        </div>
+                        <div>
+                          <div className="tongs-release-prep__fact-label">requires upstream prep</div>
+                          <div>{step.requires_upstream_prep ? "true" : "false"}</div>
+                        </div>
+                        <div>
+                          <div className="tongs-release-prep__fact-label">depends on</div>
+                          <div>{step.depends_on.length > 0 ? step.depends_on.join(", ") : "none"}</div>
+                        </div>
+                        <div>
+                          <div className="tongs-release-prep__fact-label">issue codes</div>
+                          <div>{step.issue_codes.length > 0 ? step.issue_codes.join(", ") : "none"}</div>
+                        </div>
+                      </div>
+                      {step.prerequisites.length > 0 ? (
+                        <div className="tongs-release-prep__execution-detail">
+                          <div className="tongs-release-prep__fact-label">prerequisites</div>
+                          <div className="tongs-release-prep__execution-meta">
+                            {step.prerequisites.map((prerequisite) => (
+                              <div key={`${step.action_id}:${prerequisite.kind}:${prerequisite.code}`}>
+                                <strong>{prerequisite.satisfied ? "ready" : "blocked"}</strong>
+                                {" · "}
+                                {prerequisite.code}
+                                {" · "}
+                                {prerequisite.detail}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                      {step.blocked_by.length > 0 ? (
+                        <div className="tongs-release-prep__execution-detail">
+                          <div className="tongs-release-prep__fact-label">blocked by</div>
+                          <div className="tongs-release-prep__execution-meta">
+                            {step.blocked_by.map((blocker) => (
+                              <div key={`${step.action_id}:${blocker.code}:${blocker.dependency_code ?? "none"}`}>
+                                <strong>{blocker.code}</strong>
+                                {" · "}
+                                {blocker.detail}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                      <div className="tongs-release-prep__execution-actions">
+                        <button
+                          type="button"
+                          className="tongs-release-prep__button"
+                          onClick={() => {
+                            void runRecoveryStep(step);
+                          }}
+                          disabled={
+                            actionInFlightId != null
+                            || step.execution_kind !== "operator_triggerable"
+                            || step.eligibility !== "eligible"
+                          }
+                        >
+                          {actionInFlightId === step.action_id ? "Running..." : "Run recovery step"}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="tongs-release-prep__message tongs-release-prep__message--subtle">
+                  No explicit operator actions are exposed for the current recovery plan.
+                </div>
+              )}
+              {execution?.operator_actions_blocked_by.length ? (
+                <div className="tongs-release-prep__execution-detail">
+                  <div className="tongs-release-prep__fact-label">operator actions blocked by</div>
+                  <div className="tongs-release-prep__execution-meta">
+                    {execution.operator_actions_blocked_by.map((reason) => (
+                      <div key={`${reason.code}:${reason.detail}`}>
+                        <strong>{reason.code}</strong>
+                        {" · "}
+                        {reason.detail}
+                        {" · "}
+                        {reason.step_codes.join(", ")}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {execution?.attempted_steps.length ? (
+                <div className="tongs-release-prep__execution-detail">
+                  <div className="tongs-release-prep__fact-label">attempt history</div>
+                  <div className="tongs-release-prep__execution-meta">
+                    {execution.attempted_steps.map((attempt) => (
+                      <div key={attempt.attempt_id}>
+                        <strong>{attempt.result}</strong>
+                        {" · "}
+                        {attempt.step_code}
+                        {" · "}
+                        {attempt.attempted_at}
+                        {" · "}
+                        {attempt.actor_label ?? attempt.actor_id ?? "operator"}
+                        {" · "}
+                        {attempt.detail}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </article>
+
+            <article className="tongs-release-prep__card">
               <h3 className="tongs-release-prep__card-title">Quench Packet Stub</h3>
               <div className="tongs-release-prep__fact-grid">
                 <div>
@@ -293,6 +603,10 @@ export default function TongsReleasePrep() {
                 <div>
                   <div className="tongs-release-prep__fact-label">overall status</div>
                   <div>{quenchPacketStub?.readiness.overall_status ?? "none"}</div>
+                </div>
+                <div>
+                  <div className="tongs-release-prep__fact-label">execution status</div>
+                  <div>{quenchPacketStub?.execution.execution_status ?? "none"}</div>
                 </div>
                 <div>
                   <div className="tongs-release-prep__fact-label">preview safe</div>

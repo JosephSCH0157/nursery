@@ -263,6 +263,13 @@ test("buildTongsHammerReleaseAssembly summarizes a current downstream-ready hand
   assert.equal(assembly.recovery.recovery_plan[0]?.code, "REGENERATE_SUBTITLE_VTT");
   assert.equal(assembly.recovery.recovery_plan[0]?.automatic, true);
   assert.equal(assembly.recovery.artifact_dependencies.some((dependency) => dependency.code === "subtitle_vtt"), true);
+  assert.equal(assembly.execution.execution_status, "operator_triggerable");
+  assert.equal(assembly.execution.can_execute_recovery, true);
+  assert.equal(assembly.execution.actionable_steps[0]?.step_code, "REGENERATE_SUBTITLE_VTT");
+  assert.equal(assembly.execution.actionable_steps[0]?.machine_action_type, "regenerate_subtitle_vtt");
+  assert.equal(assembly.execution.actionable_steps[0]?.execution_kind, "operator_triggerable");
+  assert.equal(assembly.execution.actionable_steps[0]?.eligibility, "eligible");
+  assert.equal(assembly.execution.actionable_steps[0]?.action_id.startsWith("rxe1_"), true);
   assert.equal(assembly.release_prep.readiness.transcript_output, "ready");
   assert.equal(assembly.release_prep.readiness.subtitles.srt, "ready");
   assert.equal(assembly.release_prep.readiness.subtitles.vtt, "missing");
@@ -275,6 +282,9 @@ test("buildTongsHammerReleaseAssembly summarizes a current downstream-ready hand
   assert.equal(assembly.quench_packet_stub.authority.do_not_publish, true);
   assert.equal(assembly.quench_packet_stub.recovery.recovery_status, "recoverable_with_regeneration");
   assert.equal(assembly.quench_packet_stub.recovery.preview_allowed_during_recovery, true);
+  assert.equal(assembly.quench_packet_stub.execution.execution_status, "operator_triggerable");
+  assert.equal(assembly.quench_packet_stub.execution.can_execute_recovery, true);
+  assert.equal(assembly.quench_packet_stub.execution.actionable_steps[0]?.machine_action_type, "regenerate_subtitle_vtt");
   assert.equal(assembly.quench_packet_stub.readiness.overall_status, "attention");
   assert.equal(assembly.quench_packet_stub.summary_flags.safe_for_quench_preview, true);
   assert.equal(assembly.quench_packet_stub.summary_flags.has_attention_items, true);
@@ -311,6 +321,10 @@ test("buildTongsHammerReleaseAssembly marks future-ffmpeg audio as blocked witho
   assert.equal(assembly.recovery.can_auto_recover, false);
   assert.equal(assembly.recovery.recovery_plan[0]?.code, "ENABLE_FFMPEG_WORKING_AUDIO");
   assert.equal(assembly.recovery.recovery_blockers[0]?.classification, "requires_upstream_action");
+  assert.equal(assembly.execution.execution_status, "requires_upstream_action");
+  assert.equal(assembly.execution.can_execute_recovery, false);
+  assert.equal(assembly.execution.actionable_steps[0]?.execution_kind, "requires_upstream_action");
+  assert.equal(assembly.execution.actionable_steps[0]?.eligibility, "not_executable");
   assert.equal(assembly.release_prep.readiness.audio_polish, "requires_future_ffmpeg");
   assert.ok(assembly.summary.blocking_states.includes("requires_future_ffmpeg"));
   assert.equal(
@@ -322,6 +336,8 @@ test("buildTongsHammerReleaseAssembly marks future-ffmpeg audio as blocked witho
   assert.equal(assembly.quench_packet_stub.authority.allow_preview, false);
   assert.equal(assembly.quench_packet_stub.recovery.recovery_status, "requires_upstream_action");
   assert.equal(assembly.quench_packet_stub.recovery.preview_allowed_during_recovery, false);
+  assert.equal(assembly.quench_packet_stub.execution.execution_status, "requires_upstream_action");
+  assert.equal(assembly.quench_packet_stub.execution.can_execute_recovery, false);
   assert.equal(assembly.quench_packet_stub.audio.status, "requires_future_ffmpeg");
   assert.equal(assembly.quench_packet_stub.media_backbone.audio_plan.readiness, "requires_future_ffmpeg");
   assert.equal(assembly.quench_packet_stub.media_backbone.audio_plan.requires_ffmpeg, true);
@@ -403,7 +419,12 @@ test("buildTongsHammerReleaseAssembly marks unsupported source media as blocked 
   assert.equal(assembly.recovery.can_auto_recover, false);
   assert.equal(assembly.recovery.recovery_plan[0]?.code, "SWITCH_TO_SUPPORTED_SOURCE_MEDIA");
   assert.equal(assembly.recovery.recovery_blockers[0]?.classification, "incompatible");
+  assert.equal(assembly.execution.execution_status, "incompatible");
+  assert.equal(assembly.execution.can_execute_recovery, false);
+  assert.equal(assembly.execution.actionable_steps[0]?.execution_kind, "incompatible");
+  assert.equal(assembly.execution.actionable_steps[0]?.eligibility, "not_executable");
   assert.equal(assembly.quench_packet_stub.readiness.overall_status, "blocked");
+  assert.equal(assembly.quench_packet_stub.execution.execution_status, "incompatible");
   assert.equal(assembly.quench_packet_stub.audio.status, "unsupported");
   assert.equal(assembly.quench_packet_stub.media_backbone.audio_plan.readiness, "unsupported");
   assert.equal(assembly.quench_packet_stub.readiness.blocker_statuses.includes("unsupported"), true);
@@ -428,6 +449,10 @@ test("buildTongsHammerReleaseAssembly produces deterministic authority ids and h
   assert.deepEqual(first.authority.blockers, second.authority.blockers);
   assert.deepEqual(first.authority.warnings, second.authority.warnings);
   assert.deepEqual(first.authority.remediations, second.authority.remediations);
+  assert.deepEqual(
+    first.execution.actionable_steps.map((step) => step.action_id),
+    second.execution.actionable_steps.map((step) => step.action_id),
+  );
 });
 
 test("buildTongsHammerReleaseAssembly marks target identity drift as unsafe", () => {
@@ -468,8 +493,39 @@ test("buildTongsHammerReleaseAssembly marks incompatible snapshot schema before 
   assert.equal(assembly.recovery.recovery_status, "incompatible");
   assert.equal(assembly.recovery.recovery_plan[0]?.code, "UPGRADE_RELEASE_HANDOFF_SCHEMA");
   assert.equal(assembly.recovery.recovery_blockers[0]?.classification, "incompatible");
+  assert.equal(assembly.execution.execution_status, "incompatible");
+  assert.equal(assembly.execution.can_execute_recovery, false);
+  assert.equal(assembly.execution.actionable_steps[0]?.machine_action_type, "upgrade_release_handoff_schema");
   assert.equal(assembly.summary.status, "blocked");
   assert.equal(assembly.summary.blocking_states.includes("incompatible"), true);
   assert.equal(assembly.quench_packet_stub.authority.status, "incompatible");
   assert.equal(assembly.quench_packet_stub.readiness.blocker_statuses.includes("incompatible"), true);
+});
+
+test("buildTongsHammerReleaseAssembly carries attributable operator attempts through execution projection", () => {
+  const snapshot = buildSnapshot();
+  const assembly = buildTongsHammerReleaseAssembly({
+    workspaceId: "workspace_release_assembly_01",
+    workpieceId: "workpiece_release_assembly_01",
+  }, snapshot, {
+    operatorExecution: {
+      attempts: [{
+        attempt_id: "attempt_release_01",
+        action_id: "rxe1_attempt_release_01",
+        step_code: "REGENERATE_SUBTITLE_VTT",
+        attempted_at: "2026-03-15T13:05:00.000Z",
+        actor_id: "user_release_assembly_01",
+        actor_label: "operator@example.com",
+        result: "failed",
+        detail: "Visual package was unavailable during retry.",
+      }],
+    },
+  });
+
+  assert.equal(assembly.execution.attempted_steps.length, 1);
+  assert.equal(assembly.execution.last_attempt_at, "2026-03-15T13:05:00.000Z");
+  assert.equal(assembly.execution.last_attempt_result, "failed");
+  assert.equal(assembly.execution.last_attempt_detail, "Visual package was unavailable during retry.");
+  assert.equal(assembly.quench_packet_stub.execution.attempted_steps[0]?.actor_label, "operator@example.com");
+  assert.equal(assembly.quench_packet_stub.execution.last_attempt_result, "failed");
 });

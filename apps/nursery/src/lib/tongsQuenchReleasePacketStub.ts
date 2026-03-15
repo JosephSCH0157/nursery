@@ -11,7 +11,7 @@ import type { TongsHammerReleaseAssembly } from "./tongsReleaseAssembly";
 
 type TongsQuenchStubSource = Pick<
   TongsHammerReleaseAssembly,
-  "target" | "source_artifacts" | "release_prep" | "authority" | "recovery" | "summary"
+  "target" | "source_artifacts" | "release_prep" | "authority" | "recovery" | "execution" | "summary"
 >;
 
 function uniqueStatuses(values: ReleasePacketStubReasonStatus[]): ReleasePacketStubReasonStatus[] {
@@ -270,6 +270,57 @@ export function buildTongsQuenchReleasePacketStub(
         domain: dependency.domain,
         reason: dependency.reason,
         required_by: [...dependency.required_by],
+      })),
+    },
+    execution: {
+      execution_status: assembly.execution.execution_status,
+      can_execute_recovery: assembly.execution.can_execute_recovery,
+      last_attempt_at: assembly.execution.last_attempt_at,
+      last_attempt_result: assembly.execution.last_attempt_result,
+      last_attempt_detail: assembly.execution.last_attempt_detail,
+      actionable_steps: assembly.execution.actionable_steps.map((step) => ({
+        action_id: step.action_id,
+        step_code: step.step_code,
+        domain: step.domain,
+        human_label: step.human_label,
+        machine_action_type: step.machine_action_type,
+        execution_kind: step.execution_kind,
+        eligibility: step.eligibility,
+        action: step.action,
+        reason: step.reason,
+        priority: step.priority,
+        automatic: step.automatic,
+        preview_safe: step.preview_safe,
+        requires_upstream_prep: step.requires_upstream_prep,
+        issue_codes: [...step.issue_codes],
+        depends_on: [...step.depends_on],
+        artifact_dependencies: [...step.artifact_dependencies],
+        prerequisites: step.prerequisites.map((prerequisite) => ({
+          kind: prerequisite.kind,
+          code: prerequisite.code,
+          satisfied: prerequisite.satisfied,
+          detail: prerequisite.detail,
+        })),
+        blocked_by: step.blocked_by.map((blocker) => ({
+          code: blocker.code,
+          detail: blocker.detail,
+          dependency_code: blocker.dependency_code,
+        })),
+      })),
+      attempted_steps: assembly.execution.attempted_steps.map((attempt) => ({
+        attempt_id: attempt.attempt_id,
+        action_id: attempt.action_id,
+        step_code: attempt.step_code,
+        attempted_at: attempt.attempted_at,
+        actor_id: attempt.actor_id,
+        actor_label: attempt.actor_label,
+        result: attempt.result,
+        detail: attempt.detail,
+      })),
+      operator_actions_blocked_by: assembly.execution.operator_actions_blocked_by.map((reason) => ({
+        code: reason.code,
+        detail: reason.detail,
+        step_codes: [...reason.step_codes],
       })),
     },
     readiness: {

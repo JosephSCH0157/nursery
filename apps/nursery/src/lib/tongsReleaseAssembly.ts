@@ -23,6 +23,11 @@ import {
   buildTongsReleaseRecoveryOrchestration,
   type TongsReleaseRecoveryOrchestration,
 } from "./tongsReleaseRecoveryOrchestration";
+import {
+  buildTongsReleaseOperatorExecution,
+  type TongsReleaseOperatorExecution,
+  type TongsReleaseOperatorExecutionAttempt,
+} from "./tongsReleaseOperatorExecution";
 import { buildTongsQuenchReleasePacketStub } from "./tongsQuenchReleasePacketStub";
 
 export type TongsReleaseAssemblySummaryStatus = "ready" | "attention" | "blocked";
@@ -55,6 +60,7 @@ export interface TongsHammerReleaseAssembly {
   release_prep: HammerReleasePrepPackage;
   authority: TongsReleaseHandoffAuthority;
   recovery: TongsReleaseRecoveryOrchestration;
+  execution: TongsReleaseOperatorExecution;
   quench_packet_stub: ReleasePacketStub;
   summary: {
     status: TongsReleaseAssemblySummaryStatus;
@@ -84,6 +90,9 @@ export function buildTongsHammerReleaseAssembly(
   snapshot: HammerPersistenceSnapshot,
   options?: {
     mediaBackboneRuntime?: HammerMediaBackboneRuntimeSummary | null;
+    operatorExecution?: {
+      attempts?: TongsReleaseOperatorExecutionAttempt[] | null;
+    };
   },
 ): TongsHammerReleaseAssembly {
   const releasePrep = buildHammerReleasePrepPackageFromSnapshot(snapshot, {
@@ -100,6 +109,14 @@ export function buildTongsHammerReleaseAssembly(
     authority,
     releasePrep,
   });
+  const execution = buildTongsReleaseOperatorExecution({
+    target,
+    snapshot,
+    authority,
+    releasePrep,
+    recovery,
+    attempts: options?.operatorExecution?.attempts ?? [],
+  });
   const blockingStates = [
     ...authority.blockers.map((issue) => issue.observed_status),
     ...authority.warnings.map((issue) => issue.observed_status),
@@ -115,6 +132,7 @@ export function buildTongsHammerReleaseAssembly(
     release_prep: releasePrep,
     authority,
     recovery,
+    execution,
     summary: {
       status: mapAuthorityToReleaseAssemblySummaryStatus(authority),
       ready_count: authority.checks.filter((check) => check.status === "ready").length,

@@ -104,11 +104,48 @@ export type ReleasePacketStubRecoveryStatus =
   | "requires_upstream_action"
   | "incompatible";
 
+export type ReleasePacketStubExecutionStatus =
+  | "not_needed"
+  | "auto_recoverable"
+  | "operator_triggerable"
+  | "requires_upstream_action"
+  | "incompatible";
+
 export type ReleasePacketStubRecoveryClassification =
   | "recoverable"
   | "recoverable_with_regeneration"
   | "requires_upstream_action"
   | "incompatible";
+
+export type ReleasePacketStubExecutionKind =
+  | "auto_recoverable"
+  | "operator_triggerable"
+  | "requires_upstream_action"
+  | "incompatible";
+
+export type ReleasePacketStubActionEligibility =
+  | "eligible"
+  | "blocked"
+  | "not_executable";
+
+export type ReleasePacketStubMachineActionType =
+  | "refresh_transcript_output"
+  | "regenerate_subtitle_srt"
+  | "regenerate_subtitle_vtt"
+  | "regenerate_visual_placements"
+  | "regenerate_audio_polish"
+  | "inspect_audio_failure"
+  | "enable_ffmpeg_working_audio"
+  | "align_release_target"
+  | "restore_canonical_release_identity"
+  | "switch_to_supported_source_media"
+  | "upgrade_release_handoff_schema"
+  | "manual_recovery";
+
+export type ReleasePacketStubAttemptResult =
+  | "succeeded"
+  | "failed"
+  | "blocked";
 
 export type ReleasePacketStubRecoveryDomain =
   | "transcript"
@@ -156,6 +193,57 @@ export interface ReleasePacketStubRecoveryArtifactDependency {
   domain: ReleasePacketStubRecoveryDomain;
   reason: string;
   required_by: string[];
+}
+
+export interface ReleasePacketStubExecutionPrerequisite {
+  kind: "step" | "artifact" | "runtime";
+  code: string;
+  satisfied: boolean;
+  detail: string;
+}
+
+export interface ReleasePacketStubExecutionBlocker {
+  code: string;
+  detail: string;
+  dependency_code: string | null;
+}
+
+export interface ReleasePacketStubExecutionStep {
+  action_id: string;
+  step_code: string;
+  domain: ReleasePacketStubRecoveryDomain;
+  human_label: string;
+  machine_action_type: ReleasePacketStubMachineActionType;
+  execution_kind: ReleasePacketStubExecutionKind;
+  eligibility: ReleasePacketStubActionEligibility;
+  action: string;
+  reason: string;
+  priority: number;
+  automatic: boolean;
+  preview_safe: boolean;
+  requires_upstream_prep: boolean;
+  issue_codes: string[];
+  depends_on: string[];
+  artifact_dependencies: ReleasePacketStubRecoveryArtifactCode[];
+  prerequisites: ReleasePacketStubExecutionPrerequisite[];
+  blocked_by: ReleasePacketStubExecutionBlocker[];
+}
+
+export interface ReleasePacketStubExecutionAttempt {
+  attempt_id: string;
+  action_id: string;
+  step_code: string;
+  attempted_at: string;
+  actor_id: string | null;
+  actor_label: string | null;
+  result: ReleasePacketStubAttemptResult;
+  detail: string;
+}
+
+export interface ReleasePacketStubExecutionBlockedReason {
+  code: string;
+  detail: string;
+  step_codes: string[];
 }
 
 export interface ReleasePacketStubTranscriptOutput {
@@ -337,6 +425,16 @@ export interface ReleasePacketStub {
     recovery_plan: ReleasePacketStubRecoveryStep[];
     recovery_blockers: ReleasePacketStubRecoveryBlocker[];
     artifact_dependencies: ReleasePacketStubRecoveryArtifactDependency[];
+  };
+  execution: {
+    execution_status: ReleasePacketStubExecutionStatus;
+    can_execute_recovery: boolean;
+    last_attempt_at: string | null;
+    last_attempt_result: ReleasePacketStubAttemptResult | null;
+    last_attempt_detail: string | null;
+    actionable_steps: ReleasePacketStubExecutionStep[];
+    attempted_steps: ReleasePacketStubExecutionAttempt[];
+    operator_actions_blocked_by: ReleasePacketStubExecutionBlockedReason[];
   };
   readiness: {
     overall_status: ReleasePacketStubSummaryStatus;
