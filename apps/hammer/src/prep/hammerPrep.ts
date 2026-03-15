@@ -649,10 +649,24 @@ export function preserveTranscriptMetadata(
           layers: existingTranscript.derived_text_layers.layers.map((layer) => ({
             ...layer,
             summary: { ...layer.summary },
-            changes: layer.changes.map((change) => ({
-              ...change,
-              removed_fillers: change.removed_fillers.map((removal) => ({ ...removal })),
-            })),
+            changes: layer.changes.map((change) => {
+              const legacyChange = change as unknown as {
+                removed_fillers?: Array<{ value: string; start: number; end: number }>;
+              };
+              return {
+                ...change,
+                operations: Array.isArray(change.operations)
+                  ? change.operations.map((operation) => ({ ...operation }))
+                  : Array.isArray(legacyChange.removed_fillers)
+                  ? legacyChange.removed_fillers.map((removal) => ({
+                    kind: "filler_removed" as const,
+                    value: removal.value,
+                    start: removal.start,
+                    end: removal.end,
+                  }))
+                  : [],
+              };
+            }),
           })),
         }
         : {

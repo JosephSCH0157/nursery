@@ -1,5 +1,10 @@
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
-import type { HammerPersistedStructuredTranscript } from "../persistence/hammerPersistenceContract";
+import type {
+  HammerDerivedTextChange,
+  HammerDerivedTextOperation,
+  HammerPersistedDerivedTextLayers,
+  HammerPersistedStructuredTranscript,
+} from "../persistence/hammerPersistenceContract";
 
 const FILLER_RULES = [
   {
@@ -22,18 +27,36 @@ const FILLER_RULES = [
 
 export const EXECUTABLE_FILLER_CLEANUP_RECIPE_REF = "macro:podcast_cleanup.v1" as const;
 
-type FillerRemoval = {
-  value: string;
-  start: number;
-  end: number;
-};
-
 export type HammerFillerCleanupRunResult = {
   transcript: HammerPersistedStructuredTranscript;
   layer_id: string;
   changed_segment_count: number;
   removal_count: number;
 };
+
+function normalizeHammerDerivedTextOperations(change: {
+  operations?: HammerDerivedTextOperation[];
+  removed_fillers?: Array<{
+    value: string;
+    start: number;
+    end: number;
+  }>;
+}): HammerDerivedTextOperation[] {
+  if (Array.isArray(change.operations)) {
+    return change.operations.map((operation) => ({ ...operation }));
+  }
+
+  if (Array.isArray(change.removed_fillers)) {
+    return change.removed_fillers.map((removal) => ({
+      kind: "filler_removed",
+      value: removal.value,
+      start: removal.start,
+      end: removal.end,
+    }));
+  }
+
+  return [];
+}
 
 function cloneTranscriptSegments(segments: HammerTranscriptSegment[]): HammerTranscriptSegment[] {
   return segments.map((segment) => ({ ...segment }));
@@ -58,7 +81,7 @@ function cloneDerivedTextLayers(
       summary: { ...layer.summary },
       changes: layer.changes.map((change) => ({
         ...change,
-        removed_fillers: change.removed_fillers.map((removal) => ({ ...removal })),
+        operations: normalizeHammerDerivedTextOperations(change),
       })),
     })),
   };
@@ -82,9 +105,9 @@ export function cloneHammerStructuredTranscript(
   };
 }
 
-function ensureDerivedTextLayers(
+export function ensureHammerDerivedTextLayers(
   transcript: HammerPersistedStructuredTranscript,
-): NonNullable<HammerPersistedStructuredTranscript["derived_text_layers"]> {
+): HammerPersistedDerivedTextLayers {
   return cloneDerivedTextLayers(transcript.derived_text_layers) ?? {
     schema_version: 1,
     active_layer_id: null,
@@ -92,7 +115,7 @@ function ensureDerivedTextLayers(
   };
 }
 
-function cleanWhitespace(text: string): string {
+export function cleanHammerDerivedTextWhitespace(text: string): string {
   return text
     .replace(/\s+/g, " ")
     .replace(/\s+([,.;!?])/g, "$1")
@@ -101,10 +124,10 @@ function cleanWhitespace(text: string): string {
 
 function removeConservativeFillers(text: string): {
   cleaned: string;
-  removed: FillerRemoval[];
+  removed: HammerDerivedTextOperation[];
 } {
   let working = text;
-  const removed: FillerRemoval[] = [];
+  const removed: HammerDerivedTextOperation[] = [];
 
   let mutated = true;
   while (mutated) {
@@ -117,6 +140,7 @@ function removeConservativeFillers(text: string): {
       const start = match.index;
       const end = start + full.length;
       removed.push({
+        kind: "filler_removed",
         value: matchedValue,
         start,
         end,
@@ -127,14 +151,14 @@ function removeConservativeFillers(text: string): {
     }
   }
 
-  const cleaned = cleanWhitespace(working);
+  const cleaned = cleanHammerDerivedTextWhitespace(working);
   return {
     cleaned,
     removed,
   };
 }
 
-function buildLayerId(nowIso: string): string {
+export function buildHammerDerivedTextLayerId(nowIso: string): string {
   return `macro_run_${nowIso.replace(/[^0-9]/g, "").slice(0, 14)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
@@ -175,7 +199,7 @@ export function setHammerDerivedTextLayerActive(
     throw new Error("Hammer structured transcript is required.");
   }
 
-  const derived = ensureDerivedTextLayers(next);
+  const derived = ensureHammerDerivedTextLayers(next);
   derived.active_layer_id = layerId;
   derived.layers = derived.layers.map((layer) => ({
     ...layer,
@@ -198,7 +222,7 @@ export function discardHammerDerivedTextLayer(
     throw new Error("Hammer structured transcript is required.");
   }
 
-  const derived = ensureDerivedTextLayers(next);
+  const derived = ensureHammerDerivedTextLayers(next);
   derived.layers = derived.layers.map((layer) => (
     layer.layer_id === layerId
       ? { ...layer, status: "discarded" as const }
@@ -220,21 +244,25 @@ export function runHammerFillerCleanupMacro(
     throw new Error("Hammer structured transcript is required.");
   }
 
-  const changes = next.segments.flatMap((segment) => {
+  const changes: HammerDerivedTextChange[] = next.segments.flatMap((segment) => {
     const result = removeConservativeFillers(segment.text);
-    if (!result.cleaned || result.cleaned === cleanWhitespace(segment.text) || result.removed.length === 0) {
+    if (
+      !result.cleaned
+      || result.cleaned === cleanHammerDerivedTextWhitespace(segment.text)
+      || result.removed.length === 0
+    ) {
       return [];
     }
     return [{
       segment_id: segment.segment_id,
       original_text: segment.text,
       cleaned_text: result.cleaned,
-      removed_fillers: result.removed,
+      operations: result.removed,
     }];
   });
 
-  const layerId = buildLayerId(nowIso);
-  const derived = ensureDerivedTextLayers(next);
+  const layerId = buildHammerDerivedTextLayerId(nowIso);
+  const derived = ensureHammerDerivedTextLayers(next);
   const layer = {
     layer_id: layerId,
     recipe_ref: EXECUTABLE_FILLER_CLEANUP_RECIPE_REF,
@@ -244,7 +272,7 @@ export function runHammerFillerCleanupMacro(
     based_on_transcript_id: next.transcript_id,
     summary: {
       changed_segment_count: changes.length,
-      removal_count: changes.reduce((sum, change) => sum + change.removed_fillers.length, 0),
+      removal_count: changes.reduce((sum, change) => sum + change.operations.length, 0),
       untouched_segment_count: Math.max(next.segments.length - changes.length, 0),
     },
     changes,

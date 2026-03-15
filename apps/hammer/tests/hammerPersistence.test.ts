@@ -112,8 +112,9 @@ const snapshot: HammerWorkspaceSnapshot = {
               segment_id: "seg_001",
               original_text: "Um line one.",
               cleaned_text: "line one.",
-              removed_fillers: [
+              operations: [
                 {
+                  kind: "filler_removed",
                   value: "Um",
                   start: 0,
                   end: 3,

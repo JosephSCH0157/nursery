@@ -41,6 +41,49 @@ export interface HammerPersistedEditorSession {
   last_opened_at: string;
 }
 
+export type HammerDerivedTextMacroKind =
+  | "filler_cleanup"
+  | "retake_tightening";
+
+export type HammerDerivedTextOperationKind =
+  | "filler_removed"
+  | "retake_fragment_removed";
+
+export interface HammerDerivedTextOperation {
+  kind: HammerDerivedTextOperationKind;
+  value: string;
+  start: number;
+  end: number;
+}
+
+export interface HammerDerivedTextChange {
+  segment_id: string;
+  original_text: string;
+  cleaned_text: string;
+  operations: HammerDerivedTextOperation[];
+}
+
+export interface HammerDerivedTextLayer {
+  layer_id: string;
+  recipe_ref: string;
+  macro_kind: HammerDerivedTextMacroKind;
+  status: "review" | "active" | "discarded";
+  created_at: string;
+  based_on_transcript_id: string;
+  summary: {
+    changed_segment_count: number;
+    removal_count: number;
+    untouched_segment_count: number;
+  };
+  changes: HammerDerivedTextChange[];
+}
+
+export interface HammerPersistedDerivedTextLayers {
+  schema_version: 1;
+  active_layer_id: string | null;
+  layers: HammerDerivedTextLayer[];
+}
+
 export interface HammerPersistedStructuredTranscript {
   schema_version: 1;
   transcript_id: string;
@@ -64,33 +107,7 @@ export interface HammerPersistedStructuredTranscript {
     detail: string;
   }>;
   segments: HammerTranscriptSegment[];
-  derived_text_layers?: {
-    schema_version: 1;
-    active_layer_id: string | null;
-    layers: Array<{
-      layer_id: string;
-      recipe_ref: string;
-      macro_kind: "filler_cleanup";
-      status: "review" | "active" | "discarded";
-      created_at: string;
-      based_on_transcript_id: string;
-      summary: {
-        changed_segment_count: number;
-        removal_count: number;
-        untouched_segment_count: number;
-      };
-      changes: Array<{
-        segment_id: string;
-        original_text: string;
-        cleaned_text: string;
-        removed_fillers: Array<{
-          value: string;
-          start: number;
-          end: number;
-        }>;
-      }>;
-    }>;
-  };
+  derived_text_layers?: HammerPersistedDerivedTextLayers;
 }
 
 export interface HammerPersistedSpeakerMap {

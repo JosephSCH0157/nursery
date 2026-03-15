@@ -64,6 +64,10 @@ import {
   EXECUTABLE_FILLER_CLEANUP_RECIPE_REF,
 } from "../macros/hammerFillerCleanupMacro";
 import {
+  EXECUTABLE_RETAKE_TIGHTENING_RECIPE_REF,
+  runHammerRetakeTighteningMacro,
+} from "../macros/hammerRetakeTighteningMacro";
+import {
   evaluateHammerMacroCatalogReadiness,
   summarizeHammerMacroReadiness,
   type HammerFinishingMacroRecipe,
@@ -75,6 +79,8 @@ import { loadWorkspaceMapping } from "../media/workspaceMapping";
 import type { HammerWorkspaceSnapshot } from "../editor/hammerWorkspaceSnapshot";
 import type { HammerPreparedNextStepActionId } from "../editor/hammerPreparedHandoff";
 import type {
+  HammerDerivedTextLayer,
+  HammerDerivedTextOperation,
   HammerPersistedAudioPolish,
   HammerPersistedStructuredTranscript,
   HammerPersistedVisualPlacements,
@@ -566,6 +572,71 @@ function formatMacroCategoryLabel(category: HammerFinishingMacroRecipe["category
       return "Structural cleanup";
     default:
       return category;
+  }
+}
+
+function isExecutableTranscriptMacroRef(
+  recipeRef: string | null | undefined,
+): recipeRef is typeof EXECUTABLE_FILLER_CLEANUP_RECIPE_REF | typeof EXECUTABLE_RETAKE_TIGHTENING_RECIPE_REF {
+  return recipeRef === EXECUTABLE_FILLER_CLEANUP_RECIPE_REF
+    || recipeRef === EXECUTABLE_RETAKE_TIGHTENING_RECIPE_REF;
+}
+
+function formatMacroExecutionLabel(recipeRef: string | null | undefined): string {
+  switch (recipeRef) {
+    case EXECUTABLE_FILLER_CLEANUP_RECIPE_REF:
+      return "Run Filler Cleanup";
+    case EXECUTABLE_RETAKE_TIGHTENING_RECIPE_REF:
+      return "Run Retake Tightening";
+    default:
+      return "Run Macro (Later)";
+  }
+}
+
+function formatDerivedLayerStateLabel(layer: HammerDerivedTextLayer | null): string {
+  if (!layer) {
+    return "raw transcript active";
+  }
+
+  switch (layer.status) {
+    case "active":
+      return layer.macro_kind === "retake_tightening"
+        ? "tightened layer active"
+        : "cleaned layer active";
+    case "review":
+      return "review layer ready";
+    default:
+      return "review layer discarded";
+  }
+}
+
+function formatDerivedLayerRemovalLabel(layer: HammerDerivedTextLayer): string {
+  switch (layer.macro_kind) {
+    case "retake_tightening":
+      return `${layer.summary.removal_count} retake trims`;
+    case "filler_cleanup":
+    default:
+      return `${layer.summary.removal_count} filler removals`;
+  }
+}
+
+function formatDerivedLayerOperationLabel(operation: HammerDerivedTextOperation): string {
+  switch (operation.kind) {
+    case "retake_fragment_removed":
+      return `removed restart ${operation.value}`;
+    case "filler_removed":
+    default:
+      return `removed filler ${operation.value}`;
+  }
+}
+
+function formatDerivedLayerEmptyState(layer: HammerDerivedTextLayer): string {
+  switch (layer.macro_kind) {
+    case "retake_tightening":
+      return "Hammer ran the retake-tightening pass, but it did not find any conservative transcript-side restarts to tighten.";
+    case "filler_cleanup":
+    default:
+      return "Hammer ran the filler cleanup pass, but it did not find any conservative removals to apply.";
   }
 }
 
@@ -1454,8 +1525,9 @@ export default function TranscriptSeekMock(
   );
   const macroExecutionAvailable = Boolean(structuredTranscriptState?.transcript_id);
   const selectedMacroCanExecute = macroExecutionAvailable
-    && selectedMacroReadiness?.recipe.ref === EXECUTABLE_FILLER_CLEANUP_RECIPE_REF
+    && isExecutableTranscriptMacroRef(selectedMacroReadiness?.recipe.ref)
     && selectedMacroReadiness.status !== "blocked";
+  const selectedMacroExecutionLabel = formatMacroExecutionLabel(selectedMacroReadiness?.recipe.ref ?? null);
 
   useEffect(() => {
     const blob = createDevAudioWavBlob(transcriptDurationSec);
@@ -3364,11 +3436,11 @@ export default function TranscriptSeekMock(
               <span className="hammer-pill">{macroReadinessSummary.blocked} blocked</span>
               <span className="hammer-pill">{selectedMacroRecipeRef ? "selection saved" : "selection not saved"}</span>
               <span className="hammer-pill">
-                {activeDerivedLayer ? "cleaned layer active" : lastMacroLayer ? "review layer ready" : "raw transcript active"}
+                {formatDerivedLayerStateLabel(activeDerivedLayer ?? lastMacroLayer)}
               </span>
             </div>
             <div className="hammer-copy-md">
-              Finishing macros stay opt-in and post-prep. Hammer shows what each recipe would do, what it needs, and, for filler cleanup, can now generate a derived review layer without touching the raw transcript.
+              Finishing macros stay opt-in and post-prep. Hammer shows what each recipe would do, what it needs, and can generate transcript-side review layers without touching the raw transcript or media timing.
             </div>
 
             <div className="hammer-finishing-recipes">
@@ -3459,7 +3531,7 @@ export default function TranscriptSeekMock(
                     <div className="hammer-mono">{lastMacroRunRef ?? "none"}</div>
                   </div>
                   <div>
-                    <div className="hammer-label">active cleaned layer</div>
+                    <div className="hammer-label">active derived layer</div>
                     <div className="hammer-mono">{structuredTranscriptState?.derived_text_layers?.active_layer_id ?? "none"}</div>
                   </div>
                 </div>
@@ -3517,16 +3589,19 @@ export default function TranscriptSeekMock(
                     disabled={!selectedMacroCanExecute}
                     onClick={() => {
                       if (!structuredTranscriptState || !selectedMacroCanExecute) return;
-                      const run = runHammerFillerCleanupMacro(structuredTranscriptState);
+                      const run = selectedMacroReadiness.recipe.ref === EXECUTABLE_FILLER_CLEANUP_RECIPE_REF
+                        ? runHammerFillerCleanupMacro(structuredTranscriptState)
+                        : selectedMacroReadiness.recipe.ref === EXECUTABLE_RETAKE_TIGHTENING_RECIPE_REF
+                        ? runHammerRetakeTighteningMacro(structuredTranscriptState)
+                        : null;
+                      if (!run) return;
                       setSelectedMacroRecipeRef(selectedMacroReadiness.recipe.ref);
                       setInspectedMacroRecipeRef(selectedMacroReadiness.recipe.ref);
                       setStructuredTranscriptState(run.transcript);
                       setLastMacroRunRef(run.layer_id);
                     }}
                   >
-                    {selectedMacroReadiness.recipe.ref === EXECUTABLE_FILLER_CLEANUP_RECIPE_REF
-                      ? "Run Filler Cleanup"
-                      : "Run Macro (Later)"}
+                    {selectedMacroExecutionLabel}
                   </button>
                   <button
                     type="button"
@@ -3539,7 +3614,7 @@ export default function TranscriptSeekMock(
                       );
                     }}
                   >
-                    Use Cleaned Layer
+                    Accept Review Layer
                   </button>
                   <button
                     type="button"
@@ -3570,7 +3645,7 @@ export default function TranscriptSeekMock(
                   </button>
                   <span className="hammer-copy-sm hammer-copy-muted">
                     {selectedMacroCanExecute
-                      ? "Filler cleanup creates a derived review layer only. Raw transcript truth and media timing remain unchanged."
+                      ? `${selectedMacroExecutionLabel} creates a derived review layer only. Raw transcript truth and media timing remain unchanged.`
                       : !macroExecutionAvailable
                       ? "Macro execution requires the canonical structured transcript artifact."
                       : "This recipe remains framework-only for now."}
@@ -3582,7 +3657,7 @@ export default function TranscriptSeekMock(
                     <strong className="hammer-copy-strong">Before / After Review</strong>
                     <div className="hammer-meta-strip">
                       <span className="hammer-pill">{lastMacroLayer.summary.changed_segment_count} changed</span>
-                      <span className="hammer-pill">{lastMacroLayer.summary.removal_count} filler removals</span>
+                      <span className="hammer-pill">{formatDerivedLayerRemovalLabel(lastMacroLayer)}</span>
                       <span className="hammer-pill">{lastMacroLayer.status}</span>
                     </div>
                     {lastMacroLayer.changes.length > 0 ? (
@@ -3592,9 +3667,9 @@ export default function TranscriptSeekMock(
                             <div className="hammer-finishing-diff__head">
                               <strong className="hammer-copy-strong">{change.segment_id}</strong>
                               <div className="hammer-meta-strip">
-                                {change.removed_fillers.map((removal, index) => (
-                                  <span key={`${change.segment_id}:${removal.start}:${index}`} className="hammer-pill">
-                                    removed {removal.value}
+                                {change.operations.map((operation, index) => (
+                                  <span key={`${change.segment_id}:${operation.start}:${index}`} className="hammer-pill">
+                                    {formatDerivedLayerOperationLabel(operation)}
                                   </span>
                                 ))}
                               </div>
@@ -3612,7 +3687,7 @@ export default function TranscriptSeekMock(
                       </div>
                     ) : (
                       <div className="hammer-copy-sm hammer-copy-muted">
-                        Hammer ran the filler cleanup pass, but it did not find any conservative removals to apply.
+                        {formatDerivedLayerEmptyState(lastMacroLayer)}
                       </div>
                     )}
                   </div>

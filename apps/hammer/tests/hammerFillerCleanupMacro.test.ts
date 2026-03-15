@@ -68,6 +68,7 @@ const transcript: HammerPersistedStructuredTranscript = {
   assert.equal(run.transcript.derived_text_layers?.layers.length, 1);
   assert.equal(run.transcript.derived_text_layers?.layers[0]?.status, "review");
   assert.equal(run.transcript.derived_text_layers?.layers[0]?.changes[0]?.cleaned_text, "this is the opening line.");
+  assert.equal(run.transcript.derived_text_layers?.layers[0]?.changes[0]?.operations[0]?.kind, "filler_removed");
 }
 
 {

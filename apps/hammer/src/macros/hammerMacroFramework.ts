@@ -72,11 +72,11 @@ export const HAMMER_FINISHING_MACRO_RECIPES: HammerFinishingMacroRecipe[] = [
     name: "Podcast Cleanup",
     version: "1",
     category: "speech_cleanup",
-    description: "Review spoken-content cleanup moves such as filler words, pause tightening, and retake cleanup without auto-running them.",
+    description: "Generate a derived transcript cleanup layer that removes conservative filler words while preserving raw transcript truth and media timing.",
     intended_actions: [
       "Review filler-word removals",
-      "Tighten pauses between transcript turns",
-      "Trim obvious retake restarts",
+      "Inspect before/after transcript changes",
+      "Accept or discard the derived review layer",
     ],
     requirements: [
       {
@@ -136,11 +136,11 @@ export const HAMMER_FINISHING_MACRO_RECIPES: HammerFinishingMacroRecipe[] = [
     name: "Interview Tight Cut",
     version: "1",
     category: "structural_cleanup",
-    description: "Prepare a restrained interview cleanup pass that reduces dead air and false starts while preserving guest cadence.",
+    description: "Generate a derived transcript tightening layer that removes conservative false starts and repeated restarts without changing raw transcript truth or media timing.",
     intended_actions: [
-      "Review dead-air reduction points",
       "Review false-start trims",
-      "Preserve guest cadence and turn boundaries",
+      "Inspect repeated-start and restart cleanup candidates",
+      "Accept or discard the derived review layer",
     ],
     requirements: [
       {
@@ -252,7 +252,7 @@ function buildMacroReadinessDetail(
       status: "warning",
       status_label: "Needs Review",
       detail: `${recipe.name} can be reviewed now, but ${missingRecommended.map((result) => result.label.toLowerCase()).join(" and ")} ${missingRecommended.length === 1 ? "is" : "are"} still missing.`,
-      dry_run_summary: "Hammer can describe the recipe and its future actions now, with some prep quality signals still pending.",
+      dry_run_summary: "Hammer can describe the recipe and execute a conservative derived transcript pass now, with some prep quality signals still pending.",
     };
   }
 
@@ -260,7 +260,7 @@ function buildMacroReadinessDetail(
     status: "ready",
     status_label: "Ready",
     detail: `${recipe.name} has the current prerequisites it needs for a truthful future run review.`,
-    dry_run_summary: "Hammer can describe the recipe, its prerequisites, and the intended finishing moves without executing them.",
+    dry_run_summary: "Hammer can describe the recipe, execute a derived review layer, and keep raw transcript truth untouched.",
   };
 }
 
