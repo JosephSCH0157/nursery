@@ -8,6 +8,7 @@ import type {
   HammerPersistedStructuredTranscript,
   HammerPersistenceSaveRequest,
   HammerPersistenceSnapshot,
+  HammerPersistedVisualPlacements,
 } from "../persistence/hammerPersistenceContract";
 import type { HammerTranscriptPrepResponse, HammerTranscriptPrepSegment } from "./hammerPrepApi";
 
@@ -24,6 +25,7 @@ export type HammerPrepStep =
   | "transcribing_audio"
   | "identifying_speaker_turns"
   | "finalizing_transcript"
+  | "placing_initial_visuals"
   | "ready_for_next_step";
 
 export interface HammerPrepState {
@@ -69,6 +71,7 @@ const PREP_STEP_ORDER: HammerPrepStep[] = [
   "transcribing_audio",
   "identifying_speaker_turns",
   "finalizing_transcript",
+  "placing_initial_visuals",
   "ready_for_next_step",
 ];
 
@@ -329,6 +332,7 @@ export function createHammerPrepState(
     transcribing_audio: "Listening to the recording…",
     identifying_speaker_turns: "Identifying speaker turns…",
     finalizing_transcript: "Finalizing transcript…",
+    placing_initial_visuals: "Placing initial visuals…",
     ready_for_next_step: "Almost ready…",
   };
 
@@ -552,8 +556,9 @@ export function buildHammerPrepPersistenceSaveRequest(args: {
   launchContext: HammerLaunchContext;
   status: HammerPrepLifecycleState;
   preparedTranscript?: HammerPreparedTranscript;
+  visualPlacements?: HammerPersistedVisualPlacements | null;
 }): HammerPersistenceSaveRequest {
-  const { launchContext, status, preparedTranscript } = args;
+  const { launchContext, status, preparedTranscript, visualPlacements } = args;
   const saveRequest: HammerPersistenceSaveRequest = {
     written_by: { ...HAMMER_RUNTIME_WRITTEN_BY },
     active_session_id: ensureHammerLaunchSessionId(launchContext).session_id ?? null,
@@ -571,6 +576,12 @@ export function buildHammerPrepPersistenceSaveRequest(args: {
     };
     saveRequest.speaker_map = {
       data: preparedTranscript.speakerMap,
+    };
+  }
+
+  if (visualPlacements) {
+    saveRequest.visual_placements = {
+      data: visualPlacements,
     };
   }
 

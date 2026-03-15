@@ -2,6 +2,7 @@ import type { HammerEditPlan } from "../../../../packages/contracts/hammer/edit-
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import { tongsFetch } from "../lib/tongsFetch";
+import { cloneVisualPlacements } from "../lib/hammerVisualPlacements";
 import type { HammerWorkspaceSnapshot } from "../editor/hammerWorkspaceSnapshot";
 import {
   DEFAULT_FORGE_NEUTRAL_SPEAKER_LABELS,
@@ -113,6 +114,11 @@ function toSpeakerMap(snapshot: HammerWorkspaceSnapshot): HammerPersistedSpeaker
 }
 
 function toVisualPlacements(snapshot: HammerWorkspaceSnapshot): HammerPersistedVisualPlacements {
+  const existingPlacements = cloneVisualPlacements(snapshot.visualPlacements);
+  if (existingPlacements) {
+    return existingPlacements;
+  }
+
   return {
     schema_version: 1,
     status: snapshot.transcriptSegments.length > 0 ? "prepared" : "not_started",

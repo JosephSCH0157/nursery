@@ -59,6 +59,37 @@ const snapshot: HammerWorkspaceSnapshot = {
     preview_mode: "edit-aware",
     instructions: [],
   },
+  visualPlacements: {
+    schema_version: 1,
+    status: "prepared",
+    source_refs: [
+      "transcript:transcript_01",
+      "script:2026-03-13T10:00:00.000Z",
+      "image-map:2026-03-13T10:05:00.000Z",
+    ],
+    uncertainty_flags: ["match_missing:image-map-02"],
+    placements: [
+      {
+        placement_id: "placement_image-map-01",
+        entry_id: "image-map-01",
+        anchor_segment_id: "seg_001",
+        matched_segment_ids: ["seg_001"],
+        anchor_text: "Line one.",
+        asset_ref: "asset_01",
+        asset_id: "asset_01",
+        asset_path: "assets/image-map/candidates/example.png",
+        storage_key: "workpieces/example/assets/image-map/candidates/example.png",
+        label: "explainer",
+        visual_mode: "comparison",
+        start_sec: 0,
+        end_sec: 4,
+        confidence: 0.91,
+        timing_source: "transcript_match",
+        status: "placed",
+        uncertainty_flags: [],
+      },
+    ],
+  },
   studioSoundPrepared: true,
   noiseCleanupPrepared: false,
   levelConsistencyPrepared: true,
@@ -78,6 +109,11 @@ assert.deepEqual(
 assert.deepEqual(
   saveRequest.audio_polish?.data.prepared_passes,
   ["studio_sound", "level_consistency"],
+);
+assert.equal(saveRequest.visual_placements?.data.placements[0]?.asset_ref, "asset_01");
+assert.deepEqual(
+  saveRequest.visual_placements?.data.uncertainty_flags,
+  ["match_missing:image-map-02"],
 );
 
 const persistedSnapshot: HammerPersistenceSnapshot = {

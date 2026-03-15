@@ -92,6 +92,7 @@ function buildWorkspaceSnapshot(): HammerWorkspaceSnapshot {
       preview_mode: "edit-aware",
       instructions: [],
     },
+    visualPlacements: null,
     studioSoundPrepared: false,
     noiseCleanupPrepared: false,
     levelConsistencyPrepared: false,
@@ -299,6 +300,33 @@ function testPrepPersistenceSeedWritesPreparedTranscript() {
     launchContext: buildLaunchContext(),
     status: "prepared",
     preparedTranscript,
+    visualPlacements: {
+      schema_version: 1,
+      status: "prepared",
+      source_refs: ["transcript:hammer_transcript_prepared"],
+      uncertainty_flags: [],
+      placements: [
+        {
+          placement_id: "placement_image-map-01",
+          entry_id: "image-map-01",
+          anchor_segment_id: "turn_001",
+          matched_segment_ids: ["turn_001"],
+          anchor_text: "Hello world",
+          asset_ref: "asset_01",
+          asset_id: "asset_01",
+          asset_path: "assets/image-map/candidates/example.png",
+          storage_key: "workpieces/example/assets/image-map/candidates/example.png",
+          label: "explainer",
+          visual_mode: "comparison",
+          start_sec: 0,
+          end_sec: 2,
+          confidence: 0.98,
+          timing_source: "transcript_match",
+          status: "placed",
+          uncertainty_flags: [],
+        },
+      ],
+    },
   });
 
   assert.equal(saveRequest.prep_status, "prepared");
@@ -307,6 +335,7 @@ function testPrepPersistenceSeedWritesPreparedTranscript() {
     saveRequest.structured_transcript?.data.diarization.provider_request_id,
     "req_789",
   );
+  assert.equal(saveRequest.visual_placements?.data.placements.length, 1);
 }
 
 function testWorkspaceSavePreservesTranscriptMetadata() {

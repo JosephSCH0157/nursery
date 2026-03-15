@@ -55,6 +55,7 @@ import { toMediaBadgeViewModel } from "../media/mediaBadgeViewModel";
 import { V1HammerMediaResolver } from "../media/resolveMedia";
 import { loadWorkspaceMapping } from "../media/workspaceMapping";
 import type { HammerWorkspaceSnapshot } from "../editor/hammerWorkspaceSnapshot";
+import type { HammerPersistedVisualPlacements } from "../persistence/hammerPersistenceContract";
 import { resolveHammerDevLaunchContext } from "./hammerLaunchPresets";
 import { StagedEditsPanel } from "./StagedEditsPanel";
 import { getDevTranscriptSegments } from "./transcriptFixtures";
@@ -102,6 +103,10 @@ type TimelineClip = {
   linked_segment_id?: string | null;
   editable?: boolean;
   ripple_hint?: boolean;
+  status?: "placed" | "uncertain";
+  badge_label?: string | null;
+  badge_tone?: "ripple" | "uncertain";
+  title_detail?: string | null;
 };
 
 type TimelineTrack = {
@@ -175,6 +180,7 @@ const DEV_RECORDINGS_FALLBACK_ROOT_ABS = "C:\\Users\\Iam11\\OneDrive\\Documents\
 
 type TranscriptSeekMockProps = {
   launchContext?: HammerLaunchContext;
+  visualPlacements?: HammerPersistedVisualPlacements | null;
   onWorkspaceSnapshotChange?: (snapshot: HammerWorkspaceSnapshot) => void;
 };
 
@@ -535,6 +541,8 @@ function getTimelineTrackRoleLabel(trackId: string): string {
   switch (trackId) {
     case "video-main":
       return "primary picture";
+    case "visual-suggestions":
+      return "suggested image placements";
     case "video-pip":
       return "secondary picture";
     case "audio-dialogue":
@@ -552,6 +560,8 @@ function getTimelineTrackRoleLabel(trackId: string): string {
 
 function getTimelineTrackEmptyMessage(trackId: string, hasSelectedRow: boolean): string {
   switch (trackId) {
+    case "visual-suggestions":
+      return "No reviewable image suggestions are staged yet. Hammer will seed this lane when visual anchors can be aligned.";
     case "video-pip":
       return "No picture-in-picture clip is staged on this edit yet.";
     case "audio-bed":
@@ -726,6 +736,22 @@ function cloneEditInstructions(instructions: HammerEditInstruction[]): HammerEdi
 
 function cloneTranscriptSegments(segments: HammerTranscriptSegment[]): HammerTranscriptSegment[] {
   return segments.map((segment) => ({ ...segment }));
+}
+
+function cloneVisualPlacements(
+  placements: HammerPersistedVisualPlacements | null | undefined,
+): HammerPersistedVisualPlacements | null {
+  if (!placements) return null;
+  return {
+    ...placements,
+    source_refs: [...placements.source_refs],
+    uncertainty_flags: [...placements.uncertainty_flags],
+    placements: placements.placements.map((placement) => ({
+      ...placement,
+      matched_segment_ids: [...placement.matched_segment_ids],
+      uncertainty_flags: [...placement.uncertainty_flags],
+    })),
+  };
 }
 
 function createEditPlanSignature(
@@ -1469,6 +1495,7 @@ export default function TranscriptSeekMock(
         ...currentEditPlan,
         instructions: cloneEditInstructions(currentEditPlan.instructions),
       },
+      visualPlacements: cloneVisualPlacements(props.visualPlacements),
       studioSoundPrepared,
       noiseCleanupPrepared,
       levelConsistencyPrepared,
@@ -1483,6 +1510,7 @@ export default function TranscriptSeekMock(
       levelConsistencyPrepared,
       noiseCleanupPrepared,
       previewMode,
+      props.visualPlacements,
       resolvedLaunch.launch_context.workpiece_id,
       resolvedLaunch.launch_context.workspace_id,
       selectedOverlayRowId,
@@ -2034,6 +2062,14 @@ export default function TranscriptSeekMock(
       }
     }
 
+    if (clip.linked_segment_id) {
+      const linkedRow = overlayRowBySegmentId.get(clip.linked_segment_id) ?? null;
+      if (linkedRow) {
+        seekToRow(linkedRow);
+        return;
+      }
+    }
+
     seekTo(clip.start_sec, undefined, clip.linked_segment_id ?? undefined);
   }
 
@@ -2270,10 +2306,37 @@ export default function TranscriptSeekMock(
     : selectedSegmentMergeInstruction
     ? "This row is merged into the next same-speaker line, reducing the visible boundary."
     : "No ripple or trim action is staged on the selected row yet.";
+  const doesClipMatchSelectedState = (clip: TimelineClip): boolean => (
+    (clip.linked_row_id != null && clip.linked_row_id === selectedOverlayRow?.row_id)
+    || (clip.linked_segment_id != null && clip.linked_segment_id === selectedSegment?.segment_id)
+  );
+  const doesClipMatchActiveState = (clip: TimelineClip): boolean => (
+    (clip.linked_row_id != null && clip.linked_row_id === activeOverlayRow?.row_id)
+    || (clip.linked_segment_id != null && clip.linked_segment_id === activeOverlayRow?.anchor_segment_id)
+  );
   const sourceModeLabel = formatSourceModeLabel(activeSourceMode);
   const resolvedDurationMs = resolveResult?.status === "ok" ? resolveResult.duration_ms ?? null : null;
   const primaryAssetDurationLabel = formatDurationMs(activeMediaRef?.duration_ms ?? resolvedDurationMs)
     ?? formatClock(transcriptDurationSec);
+  const visualSuggestionClips = useMemo<TimelineClip[]>(
+    () => (props.visualPlacements?.placements ?? []).map((placement) => ({
+      id: placement.placement_id,
+      start_sec: placement.start_sec,
+      end_sec: placement.end_sec,
+      label: placement.label ?? placement.visual_mode ?? placement.entry_id,
+      tone: placement.status === "uncertain" ? "#f59e0b" : "#f97316",
+      linked_segment_id: placement.anchor_segment_id,
+      editable: false,
+      ripple_hint: false,
+      status: placement.status,
+      badge_label: placement.status === "uncertain" ? "Review" : null,
+      badge_tone: placement.status === "uncertain" ? "uncertain" : undefined,
+      title_detail: placement.uncertainty_flags.length > 0
+        ? placement.uncertainty_flags.join(", ")
+        : placement.visual_mode ?? null,
+    })),
+    [props.visualPlacements],
+  );
 
   const projectAssets = useMemo(
     () => {
@@ -3338,6 +3401,7 @@ export default function TranscriptSeekMock(
 
       return [
         { id: "video-main", label: "Main Video", clips: primaryClips },
+        { id: "visual-suggestions", label: "Image Suggestions", clips: visualSuggestionClips },
         { id: "video-pip", label: "Picture-in-Picture", clips: [] },
         {
           id: "audio-dialogue",
@@ -3385,7 +3449,7 @@ export default function TranscriptSeekMock(
         },
       ];
     },
-    [effectiveDurationSec, overlayRows, selectedOverlayRow, selectedSegmentMuteInstruction],
+    [effectiveDurationSec, overlayRows, selectedOverlayRow, selectedSegmentMuteInstruction, visualSuggestionClips],
   );
 
   const playheadPercent = clamp((currentTimeSec / effectiveDurationSec) * 100, 0, 100);
@@ -4376,16 +4440,19 @@ export default function TranscriptSeekMock(
             {timelineTracks.map((track) => (
               <div key={track.id} className="hammer-timeline-track">
                 {(() => {
-                  const trackHasSelectedClip = track.clips.some((clip) => clip.linked_row_id === selectedOverlayRow?.row_id);
-                  const trackHasActiveClip = track.clips.some((clip) => clip.linked_row_id === activeOverlayRow?.row_id);
+                  const trackHasSelectedClip = track.clips.some((clip) => doesClipMatchSelectedState(clip));
+                  const trackHasActiveClip = track.clips.some((clip) => doesClipMatchActiveState(clip));
                   const clipCount = track.clips.length;
                   const editableClipCount = track.clips.filter((clip) => clip.editable).length;
+                  const uncertainClipCount = track.clips.filter((clip) => clip.status === "uncertain").length;
                   const trackStateLabel = trackHasSelectedClip
                     ? "selected row"
                     : trackHasActiveClip
                     ? "active playback"
                     : clipCount === 0
                     ? "empty"
+                    : uncertainClipCount > 0
+                    ? `${clipCount} clips · ${uncertainClipCount} needs review`
                     : `${clipCount} linked clips`;
 
                   return (
@@ -4415,8 +4482,8 @@ export default function TranscriptSeekMock(
                   ) : track.clips.map((clip) => {
                     const left = clamp((clip.start_sec / effectiveDurationSec) * 100, 0, 100);
                     const width = clamp(((clip.end_sec - clip.start_sec) / effectiveDurationSec) * 100, 1.2, 100);
-                    const isSelected = clip.linked_row_id === selectedOverlayRow?.row_id;
-                    const isActive = clip.linked_row_id === activeOverlayRow?.row_id
+                    const isSelected = doesClipMatchSelectedState(clip);
+                    const isActive = doesClipMatchActiveState(clip)
                       || (currentTimeSec >= clip.start_sec && currentTimeSec <= clip.end_sec && !clip.linked_row_id);
                     const showTrimHandles = activeTimelineTool === "cut" && clip.editable && (isSelected || isActive);
                     const showRippleCue = (activeTimelineTool === "cut" || activeTimelineTool === "select")
@@ -4426,7 +4493,11 @@ export default function TranscriptSeekMock(
                       <button
                         key={clip.id}
                         type="button"
-                        title={`${clip.label} · ${formatClock(clip.start_sec)}-${formatClock(clip.end_sec)}`}
+                        title={[
+                          clip.label,
+                          `${formatClock(clip.start_sec)}-${formatClock(clip.end_sec)}`,
+                          clip.title_detail,
+                        ].filter(Boolean).join(" · ")}
                         onClick={() => selectTimelineClip(clip)}
                         aria-pressed={isSelected}
                         className={cx(
@@ -4435,6 +4506,7 @@ export default function TranscriptSeekMock(
                           isSelected && "is-selected",
                           isActive && "is-active",
                           showTrimHandles && "has-trim-handles",
+                          clip.status === "uncertain" && "is-uncertain",
                         )}
                         style={{
                           left: `${left}%`,
@@ -4451,6 +4523,9 @@ export default function TranscriptSeekMock(
                         {clip.label}
                         {showRippleCue ? (
                           <span className="hammer-timeline-clip__ripple-cue">Ripple</span>
+                        ) : null}
+                        {clip.badge_label && clip.badge_tone === "uncertain" ? (
+                          <span className="hammer-timeline-clip__uncertainty-cue">{clip.badge_label}</span>
                         ) : null}
                       </button>
                     );

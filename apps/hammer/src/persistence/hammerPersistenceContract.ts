@@ -78,10 +78,22 @@ export interface HammerPersistedSpeakerMap {
 
 export interface HammerVisualPlacementRecord {
   placement_id: string;
+  entry_id: string;
   anchor_segment_id: string;
+  matched_segment_ids: string[];
+  anchor_text: string | null;
   asset_ref: string;
+  asset_id: string | null;
+  asset_path: string | null;
+  storage_key: string | null;
+  label: string | null;
+  visual_mode: string | null;
+  start_sec: number;
+  end_sec: number;
   confidence: number | null;
+  timing_source: "transcript_match" | "ordered_fallback";
   status: "placed" | "uncertain";
+  uncertainty_flags: string[];
 }
 
 export interface HammerPersistedVisualPlacements {

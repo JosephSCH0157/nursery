@@ -25,6 +25,12 @@ import {
   type HammerPrepState,
 } from "../prep/hammerPrep";
 import { requestHammerTranscriptPrep } from "../prep/hammerPrepApi";
+import {
+  buildUnavailableHammerVisualPlacements,
+  deriveHammerVisualPlacements,
+  isReusableHammerVisualPlacements,
+  loadHammerWorkpieceVisualPackage,
+} from "../lib/hammerVisualPlacements";
 
 export interface HammerWorkspaceEditorProps {
   launchContext?: HammerLaunchContext;
@@ -82,6 +88,64 @@ export default function HammerWorkspaceEditor(
   const readyTransitionTimerRef = useRef<number | null>(null);
   const lastSavedPayloadRef = useRef<string | null>(null);
   const prepRunKeyRef = useRef<string | null>(null);
+
+  const ensureVisualPlacements = async (args: {
+    launchContext: HammerLaunchContext;
+    transcriptSourceId: string;
+    transcriptSegments: HammerWorkspaceSnapshot["transcriptSegments"];
+    currentSnapshot: HammerPersistenceSnapshot | null;
+  }): Promise<HammerPersistenceSnapshot> => {
+    if (!persistenceTarget) {
+      throw new Error("Hammer visual placement persistence requires a canonical target.");
+    }
+
+    const visualPackageResult = await loadHammerWorkpieceVisualPackage(args.launchContext.workpiece_id);
+    const visualPlacements = visualPackageResult.ok
+      ? deriveHammerVisualPlacements({
+        transcriptSourceId: args.transcriptSourceId,
+        transcriptSegments: args.transcriptSegments,
+        visualPackage: visualPackageResult.data,
+      })
+      : buildUnavailableHammerVisualPlacements(
+        args.transcriptSourceId,
+        `visual_package_unavailable:${visualPackageResult.status}`,
+      );
+
+    if (
+      visualPackageResult.ok
+      && isReusableHammerVisualPlacements(
+        args.currentSnapshot?.visual_placements.data ?? null,
+        args.transcriptSourceId,
+        visualPackageResult.data,
+      )
+      && args.currentSnapshot
+    ) {
+      return args.currentSnapshot;
+    }
+
+    const nextPlacementKey = JSON.stringify(visualPlacements);
+    const currentPlacementKey = JSON.stringify(args.currentSnapshot?.visual_placements.data ?? null);
+    if (nextPlacementKey === currentPlacementKey && args.currentSnapshot) {
+      return args.currentSnapshot;
+    }
+
+    const saveResult = await saveHammerPersistenceSnapshot(persistenceTarget, {
+      written_by: {
+        tool: "hammer",
+        tool_version: "forge-v1.2.0/hammer-runtime",
+        lane: "forge-managed",
+      },
+      active_session_id: args.launchContext.session_id ?? null,
+      last_opened_at: openedAtRef.current,
+      visual_placements: {
+        data: visualPlacements,
+      },
+    });
+    if (!saveResult.ok) {
+      throw new Error(saveResult.error);
+    }
+    return saveResult.data;
+  };
 
   useEffect(() => {
     lastSavedPayloadRef.current = null;
@@ -155,15 +219,69 @@ export default function HammerWorkspaceEditor(
     if (persistenceMode !== "canonical" || !persistenceTarget || !hydrationReady) {
       return;
     }
+    if (prepState.status === "preparing" && prepState.step !== "loading_context") {
+      return;
+    }
 
     const openDecision = resolveHammerPrepOpenDecision(
       effectiveLaunchContext,
       loadedPersistenceSnapshot,
     );
     if (openDecision.action === "reuse") {
-      setPrepState(openDecision.state);
-      setShowPreparedHandoff(true);
-      return;
+      if (!effectiveLaunchContext || effectiveLaunchContext.transcript.kind !== "tongs-stub") {
+        setPrepState(openDecision.state);
+        setShowPreparedHandoff(true);
+        return;
+      }
+      const reusableTranscript = effectiveLaunchContext.transcript;
+
+      const reuseRunKey = `${targetKey ?? "hammer"}:reuse:${reusableTranscript.transcript_id}:${prepAttemptNonce}`;
+      if (prepRunKeyRef.current === reuseRunKey) {
+        return;
+      }
+
+      prepRunKeyRef.current = reuseRunKey;
+      let active = true;
+
+      const runReuse = async () => {
+        setShowPreparedHandoff(false);
+        setPrepState(createHammerPrepState("preparing", "placing_initial_visuals"));
+
+        try {
+          const nextSnapshot = await ensureVisualPlacements({
+            launchContext: effectiveLaunchContext,
+            transcriptSourceId: reusableTranscript.transcript_id,
+            transcriptSegments: loadedPersistenceSnapshot?.structured_transcript.data?.segments
+              ?? reusableTranscript.segments,
+            currentSnapshot: loadedPersistenceSnapshot,
+          });
+          if (!active) return;
+
+          setLoadedPersistenceSnapshot(nextSnapshot);
+          setPrepState(createHammerPrepState("preparing", "ready_for_next_step"));
+          readyTransitionTimerRef.current = window.setTimeout(() => {
+            if (!active) return;
+            setPrepState(createHammerPrepState("prepared", "ready_for_next_step"));
+            setShowPreparedHandoff(true);
+            readyTransitionTimerRef.current = null;
+          }, READY_HANDOFF_DELAY_MS);
+        } catch (error) {
+          if (!active) return;
+          const message = toErrorMessage(error, "Hammer could not prepare initial visual placements.");
+          setPrepState(createHammerPrepState("prep_failed", null, message));
+          setShowPreparedHandoff(false);
+        }
+      };
+
+      void runReuse();
+
+      return () => {
+        active = false;
+        if (readyTransitionTimerRef.current != null) {
+          window.clearTimeout(readyTransitionTimerRef.current);
+          readyTransitionTimerRef.current = null;
+        }
+      };
     }
     if (openDecision.action === "blocked" || !effectiveLaunchContext) {
       setPrepState(openDecision.state);
@@ -216,11 +334,26 @@ export default function HammerWorkspaceEditor(
         );
         if (!active) return;
 
-        setPrepState(createHammerPrepState("preparing", "finalizing_transcript"));
+        setPrepState(createHammerPrepState("preparing", "placing_initial_visuals"));
+        const visualPackageResult = await loadHammerWorkpieceVisualPackage(nextLaunchContext.workpiece_id);
+        if (!active) return;
+
+        const visualPlacements = visualPackageResult.ok
+          ? deriveHammerVisualPlacements({
+            transcriptSourceId: preparedTranscript.transcriptId,
+            transcriptSegments: preparedTranscript.turns,
+            visualPackage: visualPackageResult.data,
+          })
+          : buildUnavailableHammerVisualPlacements(
+            preparedTranscript.transcriptId,
+            `visual_package_unavailable:${visualPackageResult.status}`,
+          );
+
         const preparedRequest = buildHammerPrepPersistenceSaveRequest({
           launchContext: nextLaunchContext,
           status: "prepared",
           preparedTranscript,
+          visualPlacements,
         });
         const preparedSave = await saveHammerPersistenceSnapshot(persistenceTarget, preparedRequest);
         if (!preparedSave.ok) {
@@ -228,6 +361,7 @@ export default function HammerWorkspaceEditor(
         }
         if (!active) return;
 
+        prepRunKeyRef.current = `${targetKey ?? "hammer"}:reuse:${preparedTranscript.transcriptId}:${prepAttemptNonce}`;
         setLoadedPersistenceSnapshot(preparedSave.data);
         setHasCanonicalBasis(true);
         startTransition(() => {
@@ -276,6 +410,8 @@ export default function HammerWorkspaceEditor(
     loadedPersistenceSnapshot,
     persistenceMode,
     persistenceTarget,
+    prepState.status,
+    prepState.step,
     prepAttemptNonce,
     targetKey,
   ]);
@@ -350,6 +486,18 @@ export default function HammerWorkspaceEditor(
 
   const overlayViewModel = buildHammerPrepOverlayViewModel(prepState);
   const shouldRenderEditor = persistenceMode !== "canonical" || prepState.status === "prepared";
+  const visualPlacementData = loadedPersistenceSnapshot?.visual_placements.data ?? null;
+  const visualPlacementCount = visualPlacementData?.placements.length ?? 0;
+  const uncertainPlacementCount = visualPlacementData?.placements.filter((placement) => placement.status === "uncertain").length ?? 0;
+  const hasVisualPlacementWarnings = (visualPlacementData?.uncertainty_flags.length ?? 0) > 0 || uncertainPlacementCount > 0;
+  const visualReviewNote = uncertainPlacementCount > 0
+    ? `, including ${uncertainPlacementCount} flagged for review`
+    : hasVisualPlacementWarnings
+    ? ", with some placement warnings flagged for review"
+    : "";
+  const handoffBody = visualPlacementCount > 0
+    ? `Hammer finished the speaker-structured transcript and placed ${visualPlacementCount} initial visual suggestion${visualPlacementCount === 1 ? "" : "s"} on the timeline${visualReviewNote}. Review the turns and visual suggestions, then direct the next edit you want in Polish, Audio, Video, or Captions.`
+    : "Hammer finished the speaker-structured transcript. No reviewable visual anchors were ready to place automatically, so Video opens without seeded image suggestions.";
 
   if (persistenceMode === "canonical" && prepState.status === "prep_failed") {
     return (
@@ -386,6 +534,7 @@ export default function HammerWorkspaceEditor(
         <div className="hammer-prep-shell__editor">
           <TranscriptSeekMock
             launchContext={effectiveLaunchContext}
+            visualPlacements={visualPlacementData}
             onWorkspaceSnapshotChange={canPersistCanonicalState ? setWorkspaceSnapshot : undefined}
           />
         </div>
@@ -410,10 +559,10 @@ export default function HammerWorkspaceEditor(
                 <span style={{ width: `${Math.max(8, overlayViewModel.progress_ratio * 100)}%` }} />
               </div>
               <div className="hammer-prep-shell__step-list" aria-hidden="true">
-                {Array.from({ length: 5 }).map((_, index) => (
+                {Array.from({ length: 6 }).map((_, index) => (
                   <span
                     key={`prep-step-${index + 1}`}
-                    className={`hammer-prep-shell__step${overlayViewModel.progress_ratio * 5 >= index + 1 ? " is-active" : ""}`}
+                    className={`hammer-prep-shell__step${overlayViewModel.progress_ratio * 6 >= index + 1 ? " is-active" : ""}`}
                   />
                 ))}
               </div>
@@ -424,11 +573,10 @@ export default function HammerWorkspaceEditor(
 
       {showPreparedHandoff ? (
         <section className="hammer-prep-shell__handoff" aria-label="Hammer prep handoff">
-          <div className="hammer-prep-shell__handoff-title">Transcript Ready</div>
-          <div className="hammer-prep-shell__handoff-body">
-            Hammer finished the speaker-structured transcript. Review the turns, then choose the next
-            edit you want to direct in Polish, Audio, Video, or Captions.
+          <div className="hammer-prep-shell__handoff-title">
+            {visualPlacementCount > 0 ? "Transcript + Visual Suggestions Ready" : "Transcript Ready"}
           </div>
+          <div className="hammer-prep-shell__handoff-body">{handoffBody}</div>
           <div className="hammer-prep-shell__handoff-actions">
             <button
               type="button"

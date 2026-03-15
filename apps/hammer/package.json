@@ -10,6 +10,7 @@
     "types": "tsc -p tsconfig.json --noEmit",
     "test:prep": "tsx tests/hammerPrep.test.ts",
     "test:persistence": "tsx tests/hammerPersistence.test.ts",
+    "test:visual-placements": "tsx tests/hammerVisualPlacements.test.ts",
     "test:edit-plan-signature": "tsx tests/editPlanSignature.test.ts",
     "test:media-truth": "tsx tests/mediaTruth.test.ts",
     "test:preview": "tsx tests/transcriptPreview.test.ts",
