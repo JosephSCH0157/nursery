@@ -1,10 +1,11 @@
 import { useState } from "react";
 import TongsCalendar from "./TongsCalendar";
+import TongsReleasePrep from "./TongsReleasePrep";
 import TongsRecordingSessions from "./TongsRecordingSessions";
 import TongsTeam from "./TongsTeam";
 import "./Tongs.css";
 
-type TongsMode = "calendar" | "sessions" | "team";
+type TongsMode = "calendar" | "sessions" | "team" | "release";
 
 const MODE_STORAGE_KEY = "forge_tongs_mode_v1";
 
@@ -12,7 +13,7 @@ function readStoredMode(): TongsMode {
   if (typeof window === "undefined") return "sessions";
   try {
     const raw = window.localStorage.getItem(MODE_STORAGE_KEY);
-    if (raw === "calendar" || raw === "sessions" || raw === "team") return raw;
+    if (raw === "calendar" || raw === "sessions" || raw === "team" || raw === "release") return raw;
   } catch {
     // ignore storage failures
   }
@@ -75,8 +76,19 @@ export default function TongsRoute() {
           label="Team"
           onClick={() => setModeAndPersist("team")}
         />
+        <ModeButton
+          active={mode === "release"}
+          label="Release Prep"
+          onClick={() => setModeAndPersist("release")}
+        />
       </div>
-      {mode === "calendar" ? <TongsCalendar /> : mode === "team" ? <TongsTeam /> : <TongsRecordingSessions />}
+      {mode === "calendar"
+        ? <TongsCalendar />
+        : mode === "team"
+        ? <TongsTeam />
+        : mode === "release"
+        ? <TongsReleasePrep />
+        : <TongsRecordingSessions />}
     </div>
   );
 }

@@ -1,0 +1,190 @@
+.tongs-release-prep {
+  display: grid;
+  gap: 14px;
+  padding: 8px;
+}
+
+.tongs-release-prep__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.tongs-release-prep__title {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.tongs-release-prep__subtitle {
+  margin: 4px 0 0;
+  color: rgba(255, 255, 255, 0.72);
+  max-width: 72ch;
+}
+
+.tongs-release-prep__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+}
+
+.tongs-release-prep__field {
+  display: grid;
+  gap: 6px;
+  min-width: min(100%, 420px);
+}
+
+.tongs-release-prep__field-label,
+.tongs-release-prep__fact-label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.tongs-release-prep__input,
+.tongs-release-prep__button {
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(15, 23, 42, 0.64);
+  color: inherit;
+  min-height: 40px;
+}
+
+.tongs-release-prep__input {
+  padding: 0 12px;
+}
+
+.tongs-release-prep__button {
+  padding: 0 14px;
+  cursor: pointer;
+}
+
+.tongs-release-prep__button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.tongs-release-prep__message {
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.tongs-release-prep__message--error {
+  background: rgba(127, 29, 29, 0.52);
+  border: 1px solid rgba(248, 113, 113, 0.32);
+}
+
+.tongs-release-prep__message--subtle {
+  background: rgba(15, 23, 42, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.tongs-release-prep__stack {
+  display: grid;
+  gap: 14px;
+}
+
+.tongs-release-prep__banner {
+  border-radius: 14px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tongs-release-prep__banner--ready {
+  background: rgba(20, 83, 45, 0.5);
+}
+
+.tongs-release-prep__banner--attention {
+  background: rgba(120, 53, 15, 0.5);
+}
+
+.tongs-release-prep__banner--blocked {
+  background: rgba(127, 29, 29, 0.5);
+}
+
+.tongs-release-prep__banner-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.tongs-release-prep__banner-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: rgba(255, 255, 255, 0.76);
+}
+
+.tongs-release-prep__grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.tongs-release-prep__card {
+  display: grid;
+  gap: 12px;
+  background: rgba(15, 23, 42, 0.52);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.tongs-release-prep__card-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.tongs-release-prep__fact-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.tongs-release-prep__mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  word-break: break-all;
+}
+
+.tongs-release-prep__check-list {
+  display: grid;
+  gap: 10px;
+}
+
+.tongs-release-prep__check {
+  border-radius: 12px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tongs-release-prep__check--ready {
+  background: rgba(20, 83, 45, 0.32);
+}
+
+.tongs-release-prep__check--missing,
+.tongs-release-prep__check--stale {
+  background: rgba(120, 53, 15, 0.34);
+}
+
+.tongs-release-prep__check--failed,
+.tongs-release-prep__check--unsupported,
+.tongs-release-prep__check--requires_future_ffmpeg {
+  background: rgba(127, 29, 29, 0.34);
+}
+
+.tongs-release-prep__check-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.tongs-release-prep__check-detail {
+  color: rgba(255, 255, 255, 0.76);
+}
