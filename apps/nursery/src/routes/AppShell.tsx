@@ -983,6 +983,7 @@ export default function AppShell() {
             <div className="appshell-workspace-stack">
               <div className="appshell-workspace-controls">
                 <select
+                  aria-label="Workspace"
                   value={workspaceValue}
                   disabled={workspaceSelectDisabled}
                   onChange={(e) => {
@@ -1149,6 +1150,7 @@ export default function AppShell() {
                   )}
                   <div className="appshell-row appshell-row--wrap">
                     <select
+                      aria-label="Select workspace"
                       value={workspaceGateChoice}
                       onChange={(e) => setWorkspaceGateChoice(e.target.value)}
                       className="appshell-gate-select"
