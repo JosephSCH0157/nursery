@@ -30,6 +30,8 @@ export interface HammerWorkspaceSnapshot {
   mediaRef: MediaRef | null;
   workspaceMapping: WorkspaceMediaMapping | null;
   mediaSourceLabel: string | null;
+  selectedMacroRecipeRef: string | null;
+  lastMacroRunRef: string | null;
   editPlan: HammerEditPlan;
   visualPlacements: HammerPersistedVisualPlacements | null;
   audioPolish: HammerPersistedAudioPolish | null;

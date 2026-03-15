@@ -56,7 +56,7 @@ const SAVE_DEBOUNCE_MS = 400;
 type HammerPreparedActionIntent = {
   id: Exclude<
     HammerPreparedNextStepActionId,
-    "macro_later" | "export_later"
+    "export_later"
   >;
   token: number;
 };
@@ -681,7 +681,7 @@ export default function HammerWorkspaceEditor(
   );
 
   function handlePreparedHandoffAction(actionId: HammerPreparedNextStepActionId): void {
-    if (actionId === "macro_later" || actionId === "export_later") {
+    if (actionId === "export_later") {
       return;
     }
 
@@ -729,6 +729,8 @@ export default function HammerWorkspaceEditor(
             launchContext={effectiveLaunchContext}
             visualPlacements={visualPlacementData}
             audioPolish={audioPolishData}
+            selectedMacroRecipeRef={loadedPersistenceSnapshot?.macro_hooks.recipe_ref ?? null}
+            lastMacroRunRef={loadedPersistenceSnapshot?.macro_hooks.last_run_ref ?? null}
             prepHandoffAction={preparedActionIntent}
             onWorkspaceSnapshotChange={canPersistCanonicalState ? setWorkspaceSnapshot : undefined}
           />

@@ -54,6 +54,12 @@ import {
   resolveAudioPolishPreviewSrc,
   resolvePreviewMediaSrc,
 } from "../lib/previewSource";
+import {
+  evaluateHammerMacroCatalogReadiness,
+  summarizeHammerMacroReadiness,
+  type HammerFinishingMacroRecipe,
+  type HammerMacroReadinessStatus,
+} from "../macros/hammerMacroFramework";
 import { toMediaBadgeViewModel } from "../media/mediaBadgeViewModel";
 import { V1HammerMediaResolver } from "../media/resolveMedia";
 import { loadWorkspaceMapping } from "../media/workspaceMapping";
@@ -190,8 +196,10 @@ type TranscriptSeekMockProps = {
   launchContext?: HammerLaunchContext;
   visualPlacements?: HammerPersistedVisualPlacements | null;
   audioPolish?: HammerPersistedAudioPolish | null;
+  selectedMacroRecipeRef?: string | null;
+  lastMacroRunRef?: string | null;
   prepHandoffAction?: {
-    id: Exclude<HammerPreparedNextStepActionId, "macro_later" | "export_later">;
+    id: Exclude<HammerPreparedNextStepActionId, "export_later">;
     token: number;
   } | null;
   onWorkspaceSnapshotChange?: (snapshot: HammerWorkspaceSnapshot) => void;
@@ -199,7 +207,7 @@ type TranscriptSeekMockProps = {
 
 type WorkPanelView = "script" | "assets";
 type AssetPanelView = "video" | "images" | "music";
-type HammerToolId = "polish" | "audio" | "video" | "captions" | "details" | "export";
+type HammerToolId = "polish" | "audio" | "video" | "captions" | "details" | "finishing" | "export";
 type TimelineToolId = "select" | "hand" | "cut" | "marker" | "comment" | "text";
 
 const LEFT_PANEL_MIN_PX = 320;
@@ -235,6 +243,7 @@ const HAMMER_TOOL_ORDER: Array<{ id: HammerToolId; label: string; shortLabel: st
   { id: "video", label: "Video", shortLabel: "V" },
   { id: "captions", label: "Captions", shortLabel: "C" },
   { id: "details", label: "Details", shortLabel: "D" },
+  { id: "finishing", label: "Finishing", shortLabel: "F" },
   { id: "export", label: "Export", shortLabel: "E" },
 ];
 
@@ -521,6 +530,34 @@ function getWorkflowStatusClassName(tone: HammerWorkflowTone): string {
   );
 }
 
+function getMacroReadinessTone(status: HammerMacroReadinessStatus): HammerWorkflowTone {
+  switch (status) {
+    case "ready":
+      return "active";
+    case "warning":
+      return "ready";
+    case "blocked":
+      return "blocked";
+    default:
+      return "future";
+  }
+}
+
+function formatMacroCategoryLabel(category: HammerFinishingMacroRecipe["category"]): string {
+  switch (category) {
+    case "audio_cleanup":
+      return "Audio cleanup";
+    case "speech_cleanup":
+      return "Speech cleanup";
+    case "visual_cleanup":
+      return "Visual cleanup";
+    case "structural_cleanup":
+      return "Structural cleanup";
+    default:
+      return category;
+  }
+}
+
 function getTranscriptRowStageMarkerClassName(tone: TranscriptRowStageMarkerTone): string {
   return cx(
     "hammer-script-row__status-pill",
@@ -597,6 +634,8 @@ function getHammerToolHint(tool: HammerToolId): string {
       return "Captions stays transcript-linked so subtitle timing follows the edit instead of becoming a separate timing system.";
     case "details":
       return "Details carries project context, launch facts, and session-level metadata without turning Hammer into a settings maze.";
+    case "finishing":
+      return "Finishing is the opt-in macro lane for recipe selection, prerequisite truth, and future cleanup runs after prep.";
     case "export":
       return "Export is the delivery lane for the main cut and derivative outputs after the edit is locked.";
     default:
@@ -1013,6 +1052,12 @@ export default function TranscriptSeekMock(
   const [activeWorkPanel, setActiveWorkPanel] = useState<WorkPanelView>("script");
   const [activeAssetPanel, setActiveAssetPanel] = useState<AssetPanelView>("video");
   const [activeTool, setActiveTool] = useState<HammerToolId>("polish");
+  const [selectedMacroRecipeRef, setSelectedMacroRecipeRef] = useState<string | null>(
+    () => props.selectedMacroRecipeRef ?? null,
+  );
+  const [inspectedMacroRecipeRef, setInspectedMacroRecipeRef] = useState<string | null>(
+    () => props.selectedMacroRecipeRef ?? null,
+  );
   const [activeTimelineTool, setActiveTimelineTool] = useState<TimelineToolId>("select");
   const [showDebugPanels, setShowDebugPanels] = useState(false);
   const [paneLayout, setPaneLayout] = useState<HammerPaneLayout>(DEFAULT_PANE_LAYOUT);
@@ -1351,6 +1396,33 @@ export default function TranscriptSeekMock(
   const previewMonitorAspectRatio = showPreviewVideo && previewVideoAspectRatio && previewVideoAspectRatio > 0
     ? `${previewVideoAspectRatio}`
     : "16 / 9";
+  const macroReadiness = useMemo(
+    () => evaluateHammerMacroCatalogReadiness({
+      transcriptSegmentCount: transcriptSegments.length,
+      activeMediaKind,
+      playbackSourceAvailable: Boolean(playbackSrc),
+      audioPolish,
+      visualPlacements: props.visualPlacements ?? null,
+    }),
+    [activeMediaKind, audioPolish, playbackSrc, props.visualPlacements, transcriptSegments.length],
+  );
+  const macroReadinessSummary = useMemo(
+    () => summarizeHammerMacroReadiness(macroReadiness),
+    [macroReadiness],
+  );
+  const macroReadinessByRef = useMemo(
+    () => new Map(macroReadiness.map((entry) => [entry.recipe.ref, entry])),
+    [macroReadiness],
+  );
+  const effectiveMacroRecipeRef = inspectedMacroRecipeRef
+    ?? selectedMacroRecipeRef
+    ?? macroReadiness[0]?.recipe.ref
+    ?? null;
+  const selectedMacroReadiness = effectiveMacroRecipeRef
+    ? macroReadinessByRef.get(effectiveMacroRecipeRef)
+      ?? macroReadiness[0]
+      ?? null
+    : null;
 
   useEffect(() => {
     const blob = createDevAudioWavBlob(transcriptDurationSec);
@@ -1383,7 +1455,14 @@ export default function TranscriptSeekMock(
     setEditPlanFeedback(null);
     setEditPlanFeedbackTone("neutral");
     setSelectedDevRecordingId(null);
+    setSelectedMacroRecipeRef(props.selectedMacroRecipeRef ?? null);
+    setInspectedMacroRecipeRef(props.selectedMacroRecipeRef ?? null);
   }, [launchContextSignature, resolvedLaunch]);
+
+  useEffect(() => {
+    setSelectedMacroRecipeRef(props.selectedMacroRecipeRef ?? null);
+    setInspectedMacroRecipeRef((current) => current ?? props.selectedMacroRecipeRef ?? null);
+  }, [props.selectedMacroRecipeRef]);
 
   useEffect(() => {
     if (previewMode === "raw" || editInstructions.length === 0) {
@@ -1584,6 +1663,8 @@ export default function TranscriptSeekMock(
       mediaRef: activeMediaRef ? { ...activeMediaRef } : null,
       workspaceMapping: activeMediaWorkspaceMapping ? { ...activeMediaWorkspaceMapping } : null,
       mediaSourceLabel: activeMediaSourceLabel,
+      selectedMacroRecipeRef,
+      lastMacroRunRef: props.lastMacroRunRef ?? null,
       editPlan: {
         ...currentEditPlan,
         instructions: cloneEditInstructions(currentEditPlan.instructions),
@@ -1599,10 +1680,12 @@ export default function TranscriptSeekMock(
       currentEditPlan,
       currentEditPlanSignature,
       editPlanStatus,
+      props.lastMacroRunRef,
       previewMode,
       props.visualPlacements,
       resolvedLaunch.launch_context.workpiece_id,
       resolvedLaunch.launch_context.workspace_id,
+      selectedMacroRecipeRef,
       selectedOverlayRowId,
       selectedSegmentId,
       sessionId,
@@ -2495,6 +2578,18 @@ export default function TranscriptSeekMock(
         }
         break;
       }
+      case "review_macros": {
+        setActiveTool("finishing");
+        setActiveWorkPanel("script");
+        setActiveTimelineTool("select");
+        const nextMacro = macroReadiness.find((entry) => entry.status !== "blocked")
+          ?? macroReadiness[0]
+          ?? null;
+        if (nextMacro) {
+          setInspectedMacroRecipeRef(nextMacro.recipe.ref);
+        }
+        break;
+      }
       case "begin_manual_editing": {
         setActiveTool("polish");
         setActiveWorkPanel("script");
@@ -2506,6 +2601,7 @@ export default function TranscriptSeekMock(
     }
   }, [
     overlayRows,
+    macroReadiness,
     props.prepHandoffAction,
     selectedOverlayRow,
     visualSuggestionClips,
@@ -3214,6 +3310,166 @@ export default function TranscriptSeekMock(
             </div>
           </div>
         );
+      case "finishing":
+        return (
+          <div className="hammer-stack-10">
+            <div className="hammer-meta-strip">
+              <span className="hammer-pill">{macroReadinessSummary.ready} ready</span>
+              <span className="hammer-pill">{macroReadinessSummary.warning} needs review</span>
+              <span className="hammer-pill">{macroReadinessSummary.blocked} blocked</span>
+              <span className="hammer-pill">{selectedMacroRecipeRef ? "selection saved" : "selection not saved"}</span>
+            </div>
+            <div className="hammer-copy-md">
+              Finishing macros stay opt-in and post-prep. Hammer shows what each recipe would do, what it needs, and what is still blocked before any real execution exists.
+            </div>
+
+            <div className="hammer-finishing-recipes">
+              {macroReadiness.map((entry) => {
+                const isSelected = entry.recipe.ref === effectiveMacroRecipeRef;
+                const isSaved = entry.recipe.ref === selectedMacroRecipeRef;
+                return (
+                  <button
+                    key={entry.recipe.ref}
+                    type="button"
+                    className={cx(
+                      "hammer-finishing-recipe",
+                      isSelected && "is-selected",
+                      isSaved && "is-saved",
+                    )}
+                    onClick={() => {
+                      setInspectedMacroRecipeRef(entry.recipe.ref);
+                      setSelectedMacroRecipeRef(entry.recipe.ref);
+                    }}
+                    title={`${entry.recipe.name} · ${entry.status_label}`}
+                  >
+                    <div className="hammer-finishing-recipe__head">
+                      <div className="hammer-stack-4">
+                        <strong className="hammer-copy-strong">{entry.recipe.name}</strong>
+                        <div className="hammer-copy-sm hammer-copy-muted">
+                          {formatMacroCategoryLabel(entry.recipe.category)}
+                        </div>
+                      </div>
+                      <span className={getWorkflowStatusClassName(getMacroReadinessTone(entry.status))}>
+                        {entry.status_label}
+                      </span>
+                    </div>
+                    <div className="hammer-copy-sm hammer-copy-muted">{entry.recipe.description}</div>
+                    <div className="hammer-meta-strip">
+                      <span className="hammer-pill">{entry.recipe.intended_actions.length} planned moves</span>
+                      <span className="hammer-pill">
+                        {entry.requirement_results.filter((result) => result.satisfied).length}
+                        {" / "}
+                        {entry.requirement_results.length}
+                        {" ready"}
+                      </span>
+                      {isSaved ? <span className="hammer-pill">saved</span> : null}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {selectedMacroReadiness ? (
+              <div className="hammer-finishing-detail">
+                <div className="hammer-finishing-detail__head">
+                  <div className="hammer-stack-4">
+                    <strong className="hammer-copy-strong">{selectedMacroReadiness.recipe.name}</strong>
+                    <div className="hammer-copy-sm hammer-copy-muted">
+                      {formatMacroCategoryLabel(selectedMacroReadiness.recipe.category)}
+                      {" · "}
+                      recipe {selectedMacroReadiness.recipe.version}
+                    </div>
+                  </div>
+                  <span className={getWorkflowStatusClassName(getMacroReadinessTone(selectedMacroReadiness.status))}>
+                    {selectedMacroReadiness.status_label}
+                  </span>
+                </div>
+
+                <div className="hammer-copy-md">{selectedMacroReadiness.recipe.description}</div>
+
+                <div className="hammer-inspector-grid">
+                  <div>
+                    <div className="hammer-label">saved selection</div>
+                    <div>{selectedMacroRecipeRef === selectedMacroReadiness.recipe.ref ? "yes" : "not yet"}</div>
+                  </div>
+                  <div>
+                    <div className="hammer-label">artifact summary</div>
+                    <div>
+                      transcript {transcriptSegments.length > 0 ? "ready" : "missing"}
+                      {" · "}
+                      audio {audioPolish?.status ?? "not_started"}
+                      {" · "}
+                      media {activeMediaKind ? formatMediaKindLabel(activeMediaKind) : "none"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="hammer-label">visual context</div>
+                    <div>{props.visualPlacements?.placements.length ?? 0} suggestions</div>
+                  </div>
+                  <div>
+                    <div className="hammer-label">last run ref</div>
+                    <div className="hammer-mono">{props.lastMacroRunRef ?? "none"}</div>
+                  </div>
+                </div>
+
+                <div className="hammer-copy-sm hammer-copy-muted">
+                  {selectedMacroReadiness.detail}
+                  {" "}
+                  {selectedMacroReadiness.dry_run_summary}
+                </div>
+
+                <div className="hammer-stack-6">
+                  <strong className="hammer-copy-strong">Planned actions</strong>
+                  <ul className="hammer-finishing-action-list">
+                    {selectedMacroReadiness.recipe.intended_actions.map((action) => (
+                      <li key={action}>{action}</li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="hammer-stack-6">
+                  <strong className="hammer-copy-strong">Prerequisites</strong>
+                  <div className="hammer-finishing-checklist">
+                    {selectedMacroReadiness.requirement_results.map((result) => (
+                      <div
+                        key={`${selectedMacroReadiness.recipe.ref}:${result.kind}`}
+                        className={cx(
+                          "hammer-finishing-check",
+                          result.satisfied ? "is-ready" : "is-missing",
+                        )}
+                      >
+                        <div className="hammer-finishing-check__head">
+                          <div className="hammer-stack-4">
+                            <strong className="hammer-copy-strong">{result.label}</strong>
+                            <div className="hammer-copy-sm hammer-copy-muted">
+                              {result.importance === "required" ? "Required" : "Recommended"}
+                            </div>
+                          </div>
+                          <span className={getWorkflowStatusClassName(
+                            result.satisfied ? "active" : result.importance === "required" ? "blocked" : "ready",
+                          )}>
+                            {result.satisfied ? "Ready" : "Missing"}
+                          </span>
+                        </div>
+                        <div className="hammer-copy-sm hammer-copy-muted">{result.detail}</div>
+                        <div className="hammer-copy-sm hammer-copy-muted">{result.resolution}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="hammer-action-row">
+                  <button type="button" className="hammer-button-xs" disabled>
+                    Run Macro (Later)
+                  </button>
+                  <span className="hammer-copy-sm hammer-copy-muted">
+                    Choosing a recipe saves the finishing lane preference now; execution stays intentionally inert in this slice.
+                  </span>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        );
       case "export":
         return (
           <div className="hammer-stack-10">
@@ -3269,9 +3525,16 @@ export default function TranscriptSeekMock(
     activeMediaKind,
     activeMediaSourceLabel,
     activeSourceMode,
+    effectiveMacroRecipeRef,
+    macroReadiness,
+    macroReadinessSummary,
+    props.lastMacroRunRef,
+    props.visualPlacements,
     resolvedLaunch.launch_context.workpiece_id,
     resolvedLaunch.launch_context.workspace_id,
     sameSpeakerContinuationCount,
+    selectedMacroReadiness,
+    selectedMacroRecipeRef,
     selectedDurationSec,
     selectedAudioStateLabel,
     selectedGapAfterSec,

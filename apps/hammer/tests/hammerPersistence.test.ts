@@ -50,6 +50,8 @@ const snapshot: HammerWorkspaceSnapshot = {
     local_root_abs: "D:\\ForgeMedia\\workspace",
   },
   mediaSourceLabel: "tongs:media_01",
+  selectedMacroRecipeRef: "macro:podcast_cleanup.v1",
+  lastMacroRunRef: null,
   editPlan: {
     edit_plan_id: "plan_01",
     version: "1",
@@ -114,6 +116,8 @@ const snapshot: HammerWorkspaceSnapshot = {
 const saveRequest = buildHammerPersistenceSaveRequest(snapshot);
 assert.equal(saveRequest.active_session_id, "session_hammer_01");
 assert.equal(saveRequest.edit_plan_signature, "sig_abc");
+assert.equal(saveRequest.macro_recipe_ref, "macro:podcast_cleanup.v1");
+assert.equal(saveRequest.last_macro_run_ref, null);
 assert.deepEqual(
   saveRequest.speaker_map?.data.default_labels,
   ["S1", "S2", "S3", "G1", "G2"],
@@ -151,7 +155,7 @@ const persistedSnapshot: HammerPersistenceSnapshot = {
     edit_plan_signature: "sig_abc",
     prep_status: "prepared",
     alignment_status: "aligned",
-    macro_recipe_ref: null,
+    macro_recipe_ref: "macro:podcast_cleanup.v1",
     last_macro_run_ref: null,
     last_opened_at: "2026-03-13T10:10:00.000Z",
     updated_at: "2026-03-13T10:10:05.000Z",
@@ -188,7 +192,7 @@ const persistedSnapshot: HammerPersistenceSnapshot = {
     data: saveRequest.edit_plan?.data ?? null,
   },
   macro_hooks: {
-    recipe_ref: null,
+    recipe_ref: "macro:podcast_cleanup.v1",
     last_run_ref: null,
   },
 };

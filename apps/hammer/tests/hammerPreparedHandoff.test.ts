@@ -57,6 +57,7 @@ import { buildHammerPreparedHandoffModel } from "../src/editor/hammerPreparedHan
   assert.equal(model.summaries[2]?.status_label, "Polished");
   assert.equal(model.actions.find((action) => action.id === "review_visuals")?.enabled, true);
   assert.equal(model.actions.find((action) => action.id === "review_audio")?.label, "Listen to Polished Audio");
+  assert.equal(model.actions.find((action) => action.id === "review_macros")?.enabled, true);
 }
 
 {
@@ -114,6 +115,7 @@ import { buildHammerPreparedHandoffModel } from "../src/editor/hammerPreparedHan
   assert.equal(model.summaries[2]?.status_label, "Raw Fallback");
   assert.equal(model.actions.find((action) => action.id === "review_audio")?.label, "Review Raw Audio Fallback");
   assert.equal(model.actions.find((action) => action.id === "review_visuals")?.recommended, true);
+  assert.equal(model.actions.some((action) => action.id === "macro_later"), false);
 }
 
 console.log("Hammer prepared handoff tests passed.");

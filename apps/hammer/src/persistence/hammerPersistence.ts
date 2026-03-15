@@ -198,8 +198,8 @@ export function buildHammerPersistenceSaveRequest(
     alignment_status: snapshot.transcriptSegments.length > 0 ? "aligned" : "not_started",
     last_opened_at: lastOpenedAt,
     edit_plan_signature: snapshot.editPlanSignature,
-    macro_recipe_ref: null,
-    last_macro_run_ref: null,
+    macro_recipe_ref: snapshot.selectedMacroRecipeRef,
+    last_macro_run_ref: snapshot.lastMacroRunRef,
     editor_session: {
       data: toEditorSession(snapshot, lastOpenedAt),
     },

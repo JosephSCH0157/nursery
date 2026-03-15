@@ -2,13 +2,14 @@ import type {
   HammerPersistedAudioPolish,
   HammerPersistedVisualPlacements,
 } from "../persistence/hammerPersistenceContract";
+import type { HammerMacroReadinessSummary } from "../macros/hammerMacroFramework";
 
 export type HammerPreparedNextStepActionId =
   | "review_transcript"
   | "review_visuals"
   | "review_audio"
+  | "review_macros"
   | "begin_manual_editing"
-  | "macro_later"
   | "export_later";
 
 export interface HammerPreparedArtifactSummary {
@@ -40,6 +41,7 @@ export interface BuildHammerPreparedHandoffModelArgs {
   transcriptSourceId: string | null;
   visualPlacements: HammerPersistedVisualPlacements | null;
   audioPolish: HammerPersistedAudioPolish | null;
+  macroSummary?: HammerMacroReadinessSummary | null;
 }
 
 export function buildHammerPreparedHandoffModel(
@@ -52,6 +54,14 @@ export function buildHammerPreparedHandoffModel(
   const visualsAvailable = visualPlacementCount > 0;
   const audioPrepared = args.audioPolish?.status === "prepared";
   const audioFailed = args.audioPolish?.status === "failed";
+  const macroSummary = args.macroSummary ?? null;
+  const macroActionDetail = macroSummary == null || macroSummary.total === 0
+    ? "Open the finishing lane and inspect recipe readiness against current prep artifacts."
+    : macroSummary.ready > 0
+    ? `${macroSummary.ready} macro recipe${macroSummary.ready === 1 ? "" : "s"} are ready for review, with ${macroSummary.warning} needing review and ${macroSummary.blocked} blocked by missing prerequisites.`
+    : macroSummary.warning > 0
+    ? `${macroSummary.warning} macro recipe${macroSummary.warning === 1 ? "" : "s"} can be reviewed now, but none are fully ready yet.`
+    : "Open the finishing lane to see which prerequisites are still missing before finishing macros can run.";
 
   const transcriptSummary: HammerPreparedArtifactSummary = {
     id: "transcript",
@@ -141,18 +151,18 @@ export function buildHammerPreparedHandoffModel(
       kind: "secondary",
     },
     {
+      id: "review_macros",
+      label: "Review Finishing Macros",
+      detail: macroActionDetail,
+      enabled: true,
+      kind: "secondary",
+    },
+    {
       id: "begin_manual_editing",
       label: "Begin Manual Editing",
       detail: "Enter Hammer without running any destructive cleanup or macros automatically.",
       enabled: true,
       kind: "secondary",
-    },
-    {
-      id: "macro_later",
-      label: "Finishing Macro (Later)",
-      detail: "Macro execution is intentionally out of scope for this prep handoff.",
-      enabled: false,
-      kind: "placeholder",
     },
     {
       id: "export_later",
