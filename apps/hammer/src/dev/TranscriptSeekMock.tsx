@@ -45,6 +45,7 @@ import type {
   TranscriptSeekTarget,
 } from "../lib/transcriptPreview";
 import { buildHammerCaptionPreviewModel } from "../lib/hammerCaptionPreview";
+import { buildHammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutputsPackage";
 import {
   generateHammerSubtitleArtifact,
   getHammerSubtitleArtifact,
@@ -1628,6 +1629,16 @@ export default function TranscriptSeekMock(
   const captionOutputPreview = useMemo(
     () => buildHammerCaptionPreviewModel(rawTranscriptSegments, structuredTranscriptState),
     [rawTranscriptSegments, structuredTranscriptState],
+  );
+  const mediaPrepOutputsPackage = useMemo(
+    () => buildHammerMediaPrepOutputsPackage({
+      structuredTranscript: structuredTranscriptState,
+      visualPlacements: props.visualPlacements,
+      audioPolish,
+      mediaRef: activeMediaRef,
+      mediaSourceLabel: activeMediaSourceLabel,
+    }),
+    [activeMediaRef, activeMediaSourceLabel, audioPolish, props.visualPlacements, structuredTranscriptState],
   );
   const textOutputsPackage = useMemo(
     () => buildHammerTextOutputsPackage(structuredTranscriptState),
@@ -3869,6 +3880,69 @@ export default function TranscriptSeekMock(
                 <div>{sessionState.previewMode}</div>
               </div>
             </div>
+            <div className="hammer-workflow-card">
+              <div className="hammer-workflow-card__header">
+                <div className="hammer-stack-4">
+                  <strong className="hammer-copy-strong">Media Prep Package</strong>
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    Deterministic downstream summary of visual placements and audio-prep truth.
+                  </div>
+                </div>
+                <div className="hammer-meta-strip">
+                  <span className="hammer-pill">visuals {mediaPrepOutputsPackage.visuals.freshness}</span>
+                  <span className="hammer-pill">audio {mediaPrepOutputsPackage.audio.polish.freshness}</span>
+                  <span className="hammer-pill">{mediaPrepOutputsPackage.audio.preferred_playback.kind}</span>
+                </div>
+              </div>
+              <div className="hammer-inspector-grid">
+                <div>
+                  <div className="hammer-label">visual placements</div>
+                  <div>
+                    {mediaPrepOutputsPackage.visuals.status}
+                    {" · "}
+                    {mediaPrepOutputsPackage.visuals.placement_count} placements
+                  </div>
+                </div>
+                <div>
+                  <div className="hammer-label">visual uncertainty</div>
+                  <div>
+                    {mediaPrepOutputsPackage.visuals.uncertain_placement_count} uncertain
+                    {" · "}
+                    {mediaPrepOutputsPackage.visuals.uncertainty_flags.length} flags
+                  </div>
+                </div>
+                <div>
+                  <div className="hammer-label">audio polish</div>
+                  <div>
+                    {mediaPrepOutputsPackage.audio.polish.status}
+                    {" · "}
+                    {mediaPrepOutputsPackage.audio.polish.freshness}
+                  </div>
+                </div>
+                <div>
+                  <div className="hammer-label">preferred playback</div>
+                  <div>
+                    {mediaPrepOutputsPackage.audio.preferred_playback.kind}
+                    {" · "}
+                    {mediaPrepOutputsPackage.audio.preferred_playback.reason}
+                  </div>
+                </div>
+                <div>
+                  <div className="hammer-label">raw source</div>
+                  <div className="hammer-mono">
+                    {mediaPrepOutputsPackage.audio.raw_source.local_relpath
+                      ?? mediaPrepOutputsPackage.audio.raw_source.cloud_uri
+                      ?? "none"}
+                  </div>
+                </div>
+                <div>
+                  <div className="hammer-label">polish artifact</div>
+                  <div className="hammer-mono">
+                    {mediaPrepOutputsPackage.audio.polish.output_local_relpath ?? "none"}
+                  </div>
+                </div>
+              </div>
+            </div>
             <div className="hammer-copy-md hammer-copy-dim">
               Details carries project-level editing context and source metadata. Debug surfaces stay hidden unless you explicitly open them.
             </div>
@@ -4350,6 +4424,7 @@ export default function TranscriptSeekMock(
     macroReadiness,
     macroReadinessSummary,
     macroExecutionAvailable,
+    mediaPrepOutputsPackage,
     props.visualPlacements,
     rawTranscriptLayerInspected,
     resolvedLaunch.launch_context.workpiece_id,
