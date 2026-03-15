@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 import fsPromises from "node:fs/promises";
 import path from "node:path";
+import { detectHammerMediaRuntime } from "./hammer-media-runtime";
+import { resolveHammerAudioPolishExecutionPlan } from "../../hammer/src/media/hammerMediaBackbone";
 import {
   HAMMER_AUDIO_POLISH_PROCESSOR_VERSION,
   HAMMER_AUDIO_POLISH_PREPARED_PASSES,
@@ -27,9 +29,6 @@ type ParsedWave = {
   formatLabel: string;
   channelData: Float32Array[];
 };
-
-const SUPPORTED_AUDIO_MEDIA_KINDS = new Set(["recording_audio", "export_audio"]);
-const SUPPORTED_AUDIO_EXTENSIONS = new Set([".wav"]);
 const OUTPUT_MIME_TYPE = "audio/wav";
 
 function readTrimmed(value: unknown): string | null {
@@ -385,22 +384,7 @@ export async function handleHammerAudioPolishRequest(body: unknown): Promise<Ham
       },
     };
   }
-
-  if (!SUPPORTED_AUDIO_MEDIA_KINDS.has(request.media_kind)) {
-    return {
-      status: 200,
-      payload: {
-        ok: true,
-        data: createFailedResponse({
-          code: "unsupported_source",
-          reason: "Audio polish is applied automatically only for directly supported audio sources. This source will open on raw playback.",
-          settingsSummary: {
-            source_media_kind: request.media_kind,
-          },
-        }),
-      },
-    };
-  }
+  const mediaRuntime = detectHammerMediaRuntime();
 
   if (!path.isAbsolute(request.local_root_abs)) {
     return {
@@ -436,17 +420,32 @@ export async function handleHammerAudioPolishRequest(body: unknown): Promise<Ham
   }
 
   const extension = path.extname(absolutePath).toLowerCase();
-  if (!SUPPORTED_AUDIO_EXTENSIONS.has(extension)) {
+  const executionPlan = resolveHammerAudioPolishExecutionPlan({
+    runtime: mediaRuntime,
+    mediaKind: request.media_kind,
+    sourceExtension: extension,
+  });
+  if (!executionPlan.executable) {
     return {
       status: 200,
       payload: {
         ok: true,
         data: createFailedResponse({
-          code: "unsupported_source",
-          reason: "Audio polish is applied automatically when the source format supports baseline speech cleanup. Unsupported source formats will open normally without polish.",
+          code: executionPlan.readiness === "unsupported" ? "unsupported_source" : "unsupported_source",
+          reason: executionPlan.detail,
           settingsSummary: {
             source_media_kind: request.media_kind,
             source_extension: extension,
+            media_runtime_preferred_backend: mediaRuntime.preferred_backend,
+            media_runtime_ffmpeg_install_state: mediaRuntime.ffmpeg.install_state,
+            media_runtime_ffmpeg_configured: mediaRuntime.ffmpeg.ffmpeg_configured,
+            media_runtime_ffprobe_configured: mediaRuntime.ffmpeg.ffprobe_configured,
+            media_runtime_ffmpeg_available: mediaRuntime.ffmpeg.ffmpeg_available,
+            media_runtime_ffprobe_available: mediaRuntime.ffmpeg.ffprobe_available,
+            audio_polish_plan_readiness: executionPlan.readiness,
+            audio_polish_current_strategy: executionPlan.current_strategy,
+            audio_polish_future_strategy: executionPlan.future_strategy,
+            audio_polish_requires_ffmpeg: executionPlan.requires_ffmpeg,
           },
         }),
       },
@@ -465,6 +464,16 @@ export async function handleHammerAudioPolishRequest(body: unknown): Promise<Ham
           settingsSummary: {
             source_media_kind: request.media_kind,
             source_extension: extension,
+            media_runtime_preferred_backend: mediaRuntime.preferred_backend,
+            media_runtime_ffmpeg_install_state: mediaRuntime.ffmpeg.install_state,
+            media_runtime_ffmpeg_configured: mediaRuntime.ffmpeg.ffmpeg_configured,
+            media_runtime_ffprobe_configured: mediaRuntime.ffmpeg.ffprobe_configured,
+            media_runtime_ffmpeg_available: mediaRuntime.ffmpeg.ffmpeg_available,
+            media_runtime_ffprobe_available: mediaRuntime.ffmpeg.ffprobe_available,
+            audio_polish_plan_readiness: executionPlan.readiness,
+            audio_polish_current_strategy: executionPlan.current_strategy,
+            audio_polish_future_strategy: executionPlan.future_strategy,
+            audio_polish_requires_ffmpeg: executionPlan.requires_ffmpeg,
           },
         }),
       },
@@ -503,6 +512,16 @@ export async function handleHammerAudioPolishRequest(body: unknown): Promise<Ham
             source_format: parsedWave.formatLabel,
             sample_rate: parsedWave.sampleRate,
             channel_count: parsedWave.channelCount,
+            media_runtime_preferred_backend: mediaRuntime.preferred_backend,
+            media_runtime_ffmpeg_install_state: mediaRuntime.ffmpeg.install_state,
+            media_runtime_ffmpeg_configured: mediaRuntime.ffmpeg.ffmpeg_configured,
+            media_runtime_ffprobe_configured: mediaRuntime.ffmpeg.ffprobe_configured,
+            media_runtime_ffmpeg_available: mediaRuntime.ffmpeg.ffmpeg_available,
+            media_runtime_ffprobe_available: mediaRuntime.ffmpeg.ffprobe_available,
+            audio_polish_plan_readiness: executionPlan.readiness,
+            audio_polish_current_strategy: executionPlan.current_strategy,
+            audio_polish_future_strategy: executionPlan.future_strategy,
+            audio_polish_requires_ffmpeg: executionPlan.requires_ffmpeg,
             chain: "dc_remove,high_pass,presence_lift,gentle_noise_reduction,light_compression,peak_normalize",
           },
         },
@@ -525,6 +544,16 @@ export async function handleHammerAudioPolishRequest(body: unknown): Promise<Ham
           settingsSummary: {
             source_media_kind: request.media_kind,
             source_extension: extension,
+            media_runtime_preferred_backend: mediaRuntime.preferred_backend,
+            media_runtime_ffmpeg_install_state: mediaRuntime.ffmpeg.install_state,
+            media_runtime_ffmpeg_configured: mediaRuntime.ffmpeg.ffmpeg_configured,
+            media_runtime_ffprobe_configured: mediaRuntime.ffmpeg.ffprobe_configured,
+            media_runtime_ffmpeg_available: mediaRuntime.ffmpeg.ffmpeg_available,
+            media_runtime_ffprobe_available: mediaRuntime.ffmpeg.ffprobe_available,
+            audio_polish_plan_readiness: executionPlan.readiness,
+            audio_polish_current_strategy: executionPlan.current_strategy,
+            audio_polish_future_strategy: executionPlan.future_strategy,
+            audio_polish_requires_ffmpeg: executionPlan.requires_ffmpeg,
           },
         }),
       },
