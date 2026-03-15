@@ -49,12 +49,25 @@ export type EpisodeThumbnail = {
   primary_version_id: string | null;
 };
 
+export const EPISODE_LAUNCH_VARIANT_STATUS_VALUES = [
+  "draft",
+  "ready",
+  "tested",
+  "winner",
+] as const;
+
+export type EpisodeLaunchVariantStatus = (typeof EPISODE_LAUNCH_VARIANT_STATUS_VALUES)[number];
+
 export type EpisodeLaunchVariant = {
   id: string;
   title_id: string;
   thumbnail_version_id: string;
   created_at: string;
   updated_at: string;
+  status: EpisodeLaunchVariantStatus;
+  notes: string | null;
+  last_tested_at: string | null;
+  winner_selected_at: string | null;
 };
 
 export type EpisodeImageMapScriptAnchor = {
@@ -187,6 +200,14 @@ function normalizeIso(value: unknown, fallbackIso?: string): string {
   if (!raw) return fallbackIso ?? new Date().toISOString();
   const timestamp = Date.parse(raw);
   if (!Number.isFinite(timestamp)) return fallbackIso ?? new Date().toISOString();
+  return new Date(timestamp).toISOString();
+}
+
+function normalizeOptionalIso(value: unknown): string | null {
+  const raw = readString(value);
+  if (!raw) return null;
+  const timestamp = Date.parse(raw);
+  if (!Number.isFinite(timestamp)) return null;
   return new Date(timestamp).toISOString();
 }
 
@@ -362,12 +383,22 @@ function normalizeLaunchVariants(
     if (!titleIds.has(titleId) || !versionIds.has(thumbnailVersionId) || seen.has(id)) continue;
     seen.add(id);
     const createdAt = normalizeIso(entry.created_at);
+    const status = EPISODE_LAUNCH_VARIANT_STATUS_VALUES.includes(entry.status as EpisodeLaunchVariantStatus)
+      ? entry.status as EpisodeLaunchVariantStatus
+      : "draft";
+    const notes = readString(entry.notes) ?? null;
+    const lastTestedAt = normalizeOptionalIso(entry.last_tested_at);
+    const winnerSelectedAt = status === "winner" ? normalizeOptionalIso(entry.winner_selected_at) : null;
     out.push({
       id,
       title_id: titleId,
       thumbnail_version_id: thumbnailVersionId,
       created_at: createdAt,
       updated_at: normalizeIso(entry.updated_at, createdAt),
+      status,
+      notes,
+      last_tested_at: lastTestedAt,
+      winner_selected_at: winnerSelectedAt,
     });
   }
 

@@ -1676,6 +1676,18 @@
   flex-wrap: wrap;
 }
 
+.hs-thumb-launch-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.hs-thumb-launch-editor-meta {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  opacity: 0.72;
+}
+
 .hs-thumb-launch-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -1692,6 +1704,13 @@
   gap: 4px;
 }
 
+.hs-thumb-launch-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .hs-thumb-launch-card.is-selected {
   border-color: rgba(29, 78, 216, 0.75);
   background: rgba(29, 78, 216, 0.08);
@@ -1705,6 +1724,31 @@
   opacity: 0.72;
 }
 
+.hs-thumb-launch-status {
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: rgba(148, 163, 184, 0.18);
+  color: inherit;
+}
+
+.hs-thumb-launch-status.is-ready {
+  background: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
+}
+
+.hs-thumb-launch-status.is-tested {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fcd34d;
+}
+
+.hs-thumb-launch-status.is-winner {
+  background: rgba(34, 197, 94, 0.18);
+  color: #86efac;
+}
+
 .hs-thumb-launch-card-copy {
   font-size: 13px;
   line-height: 1.4;
@@ -1714,6 +1758,12 @@
 .hs-thumb-launch-card-meta {
   font-size: 12px;
   opacity: 0.72;
+}
+
+.hs-thumb-launch-card-notes {
+  font-size: 12px;
+  line-height: 1.45;
+  opacity: 0.82;
 }
 
 .hs-imap-panel {

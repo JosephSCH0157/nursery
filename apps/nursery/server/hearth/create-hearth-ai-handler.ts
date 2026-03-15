@@ -825,16 +825,19 @@ function normalizeStructuredReply(raw: string): StructuredReply | null {
   const assistantText = readOptionalString(parsed.assistantText) ?? readOptionalString(parsed.assistant_text) ?? "";
   const ops = normalizeOps(parsed.ops);
   const scriptText = readOptionalString(parsed.script_text) ?? null;
-  if (!assistantText && ops.length === 0) return null;
   const inferredScriptText = scriptText
     ?? (ops.find((op) => op.op === "set_body") as { op: "set_body"; value: string } | undefined)?.value
     ?? null;
+  const normalizedOps = inferredScriptText && !ops.some((op) => op.op === "set_body")
+    ? [...ops, { op: "set_body", value: inferredScriptText } satisfies HearthOp]
+    : ops;
+  if (!assistantText && normalizedOps.length === 0) return null;
   const tagAudit = isRecord(parsed.tag_audit)
     ? parsed.tag_audit
     : buildTagAuditFromScript(inferredScriptText);
   return {
     assistantText,
-    ops,
+    ops: normalizedOps,
     scriptText: inferredScriptText,
     tagAudit,
   };

@@ -1690,10 +1690,102 @@ function testHydrateEpisodePackageV2KeepsLaunchVariantsBoundToCanonicalAssets() 
   assert.equal(episodePackage.launch_variants[0]?.id, "launch-variant-a");
   assert.equal(episodePackage.launch_variants[0]?.title_id, "seo-title-a");
   assert.equal(episodePackage.launch_variants[0]?.thumbnail_version_id, "thumb-version-01");
+  assert.equal(episodePackage.launch_variants[0]?.status, "draft");
+  assert.equal(episodePackage.launch_variants[0]?.notes, null);
+  assert.equal(episodePackage.launch_variants[0]?.last_tested_at, null);
+  assert.equal(episodePackage.launch_variants[0]?.winner_selected_at, null);
 
   const mirrored = mirrorEpisodePackageV2ToLegacy({ episode: episodePackage });
   assert.equal(Array.isArray(mirrored.launch_variants), true);
   assert.equal((mirrored.launch_variants as unknown[]).length, 1);
+}
+
+function testHydrateEpisodePackageV2NormalizesLaunchVariantStatusMetadata() {
+  const episodePackage = hydrateEpisodePackageV2({
+    episode: {
+      schema: "forge.episode.package.v2",
+      seo: {
+        titles: [
+          { id: "seo-title-a", label: "A", text: "First launch title", is_primary: true },
+          { id: "seo-title-b", label: "B", text: "Second launch title", is_primary: false },
+        ],
+        tags: [],
+        description_short: null,
+        description_long: null,
+      },
+      thumbnail: {
+        concepts: [{
+          id: "concept-01",
+          label: "Storm over harbor",
+          prompt_text: "Storm over harbor",
+          style_preset: "studio_photography",
+        }],
+        versions: [
+          {
+            id: "thumb-version-01",
+            concept_id: "concept-01",
+            created_at: "2026-03-14T01:00:00.000Z",
+            provider: "upload",
+            prompt: "Storm over harbor",
+            asset_id: "asset-thumb-01",
+            status: "ready",
+            provider_request_id: null,
+            asset_path: "assets/thumbnails/thumb-version-01.png",
+            mime_type: "image/png",
+            error: null,
+          },
+          {
+            id: "thumb-version-02",
+            concept_id: "concept-01",
+            created_at: "2026-03-14T01:10:00.000Z",
+            provider: "upload",
+            prompt: "Storm over harbor alternate",
+            asset_id: "asset-thumb-02",
+            status: "ready",
+            provider_request_id: null,
+            asset_path: "assets/thumbnails/thumb-version-02.png",
+            mime_type: "image/png",
+            error: null,
+          },
+        ],
+        primary_version_id: "thumb-version-01",
+      },
+      launch_variants: [
+        {
+          id: "launch-variant-ready",
+          title_id: "seo-title-a",
+          thumbnail_version_id: "thumb-version-01",
+          created_at: "2026-03-14T01:05:00.000Z",
+          updated_at: "2026-03-14T01:05:00.000Z",
+          status: "ready",
+          notes: "Queue for release review",
+          winner_selected_at: "2026-03-15T02:00:00.000Z",
+        },
+        {
+          id: "launch-variant-winner",
+          title_id: "seo-title-b",
+          thumbnail_version_id: "thumb-version-02",
+          created_at: "2026-03-14T01:15:00.000Z",
+          updated_at: "2026-03-14T01:20:00.000Z",
+          status: "winner",
+          notes: "Strongest click package",
+          last_tested_at: "2026-03-16T04:30:00.000Z",
+          winner_selected_at: "2026-03-17T05:45:00.000Z",
+        },
+      ],
+      image_map: {
+        entries: [],
+      },
+    },
+  });
+
+  assert.equal(episodePackage.launch_variants.length, 2);
+  assert.equal(episodePackage.launch_variants[0]?.status, "ready");
+  assert.equal(episodePackage.launch_variants[0]?.notes, "Queue for release review");
+  assert.equal(episodePackage.launch_variants[0]?.winner_selected_at, null);
+  assert.equal(episodePackage.launch_variants[1]?.status, "winner");
+  assert.equal(episodePackage.launch_variants[1]?.last_tested_at, "2026-03-16T04:30:00.000Z");
+  assert.equal(episodePackage.launch_variants[1]?.winner_selected_at, "2026-03-17T05:45:00.000Z");
 }
 
 function testResolveImageMapScriptAnchorFromTextRecoversExactSentenceAnchor() {
@@ -2515,9 +2607,42 @@ async function testAiRequestPayloadIncludesEpisodeId() {
     assert.ok(result.ok, "AI request should succeed in mocked fetch");
     if (result.ok) {
       assert.equal(result.scriptText, "[s1]\nHello\n[/s1]");
+      assert.deepEqual(result.ops, [{ op: "set_body", value: "[s1]\nHello\n[/s1]" }]);
       assert.equal((result.tagAudit as { speaker_blocks_closed?: boolean } | undefined)?.speaker_blocks_closed, true);
     }
     assert.equal(capturedBody?.episode_context && (capturedBody.episode_context as { episodeId?: string }).episodeId, "episode-123");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+async function testAiRequestTreatsScriptTextOnlyAsDeliverable() {
+  resetLocalStorage();
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    assistant_text: "",
+    ops: [],
+    script_text: "[s1]\nCold open\n[/s1]",
+    billing_mode: "forge",
+    token_balance: 77,
+    total_tokens: 9,
+  }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  })) as typeof fetch;
+
+  try {
+    const result = await requestHearthChatReply(
+      [{ role: "user", content: "Write the script." }],
+      createEpisodeContextFixture(),
+    );
+    assert.ok(result.ok, "script_text alone should still count as a deliverable");
+    if (result.ok) {
+      assert.equal(result.assistantText, "");
+      assert.equal(result.scriptText, "[s1]\nCold open\n[/s1]");
+      assert.deepEqual(result.ops, [{ op: "set_body", value: "[s1]\nCold open\n[/s1]" }]);
+    }
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -2622,6 +2747,7 @@ async function run() {
   testGenerateImageMapEntriesFromScriptEmitsMultipleBeatsWithinParagraph();
   testEnsureImageMapV2RoundTripsStructuredEntries();
   testHydrateEpisodePackageV2KeepsLaunchVariantsBoundToCanonicalAssets();
+  testHydrateEpisodePackageV2NormalizesLaunchVariantStatusMetadata();
   testResolvePrimarySeoTitlePrefersPrimaryThenPopulatedFallback();
   testResolveImageMapScriptAnchorFromTextRecoversExactSentenceAnchor();
   testResolveImageMapScriptAnchorFromTextSupportsOccurrenceHintsAndSentenceRanges();
@@ -2644,6 +2770,7 @@ async function run() {
   await testBuildEpisodeContextIncludesFields();
   await testApplyHearthOpsRequestsSave();
   await testAiRequestPayloadIncludesEpisodeId();
+  await testAiRequestTreatsScriptTextOnlyAsDeliverable();
   await testAnvilTagValidatorAndFormatter();
   // eslint-disable-next-line no-console
   console.log("Hearth confidence tests passed.");

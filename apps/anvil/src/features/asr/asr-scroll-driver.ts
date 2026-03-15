@@ -166,6 +166,17 @@ type AsrMoveResult = {
 
 type CueBridgeSkipReason = 'blank' | 'cue' | 'note' | 'speaker';
 
+type CueBridgeScanResult = {
+  nextOffset: number | null;
+  skippedReasons: CueBridgeSkipReason[];
+};
+
+type StallCueRescuePolicy = {
+  allow: boolean;
+  directContentForwardRescue: boolean;
+  blockedReason: string;
+};
+
 export type AsrScrollDriverStats = {
   lastIngestAt: number;
   lastCommitAt: number;
@@ -924,6 +935,61 @@ function classifySkippableLineForCueBridge(value: string): CueBridgeSkipReason |
   if (CUE_LINE_BRACKET_RE.test(raw)) return 'cue';
   const tokenCount = normalized.split(' ').filter(Boolean).length;
   return tokenCount <= 4 && CUE_LINE_WORD_RE.test(normalized) ? 'cue' : null;
+}
+
+function classifyStrictSkippableLineForCueBridge(value: string): CueBridgeSkipReason | null {
+  const raw = String(value || '').trim();
+  if (!raw) return 'blank';
+  if (SPEAKER_TAG_ONLY_RE.test(raw)) return 'speaker';
+  if (NOTE_TAG_ONLY_RE.test(raw) || NOTE_INLINE_BLOCK_RE.test(raw) || /\[\s*\/?\s*note\b/i.test(raw)) return 'note';
+  if (CUE_LINE_BRACKET_RE.test(raw)) return 'cue';
+  return null;
+}
+
+export function scanCueBridgeWindow(
+  windowLines: string[],
+  opts?: { strict?: boolean },
+): CueBridgeScanResult {
+  const classify = opts?.strict
+    ? classifyStrictSkippableLineForCueBridge
+    : classifySkippableLineForCueBridge;
+  const skippedReasons: CueBridgeSkipReason[] = [];
+  for (let offset = 0; offset < windowLines.length; offset += 1) {
+    const reason = classify(windowLines[offset]);
+    if (reason) {
+      skippedReasons.push(reason);
+      continue;
+    }
+    return { nextOffset: offset, skippedReasons };
+  }
+  return { nextOffset: null, skippedReasons };
+}
+
+export function evaluateStallCueRescuePolicy(opts: {
+  reasonTag: string;
+  skippedReasons: CueBridgeSkipReason[];
+}): StallCueRescuePolicy {
+  const reasonTag = String(opts.reasonTag || '').trim().toLowerCase();
+  const skippedReasons = Array.isArray(opts.skippedReasons) ? opts.skippedReasons : [];
+  if (reasonTag === 'auto-stall') {
+    return {
+      allow: false,
+      directContentForwardRescue: false,
+      blockedReason: 'auto-stall-disabled',
+    };
+  }
+  if (!skippedReasons.length) {
+    return {
+      allow: false,
+      directContentForwardRescue: false,
+      blockedReason: 'content-line',
+    };
+  }
+  return {
+    allow: true,
+    directContentForwardRescue: false,
+    blockedReason: '',
+  };
 }
 
 function isSkippableLineForCueBridge(value: string): boolean {
@@ -3951,6 +4017,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   const findNextSpeakableWithinBridge = (
     cursorLine: number,
     maxLookahead = DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES,
+    opts?: { strict?: boolean },
   ): { nextLine: number | null; skippedReasons: CueBridgeSkipReason[] } => {
     const total = getTotalLines();
     if (!Number.isFinite(cursorLine) || total <= 0) {
@@ -3962,16 +4029,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       return { nextLine: null, skippedReasons: [] };
     }
     const end = Math.min(total - 1, begin + Math.max(1, Math.floor(maxLookahead)) - 1);
-    const skippedReasons: CueBridgeSkipReason[] = [];
+    const windowLines: string[] = [];
     for (let idx = begin; idx <= end; idx += 1) {
-      const reason = classifySkippableLineForCueBridge(getLineTextAt(idx));
-      if (reason) {
-        skippedReasons.push(reason);
-        continue;
-      }
-      return { nextLine: idx, skippedReasons };
+      windowLines.push(getLineTextAt(idx));
     }
-    return { nextLine: null, skippedReasons };
+    const scan = scanCueBridgeWindow(windowLines, opts);
+    return {
+      nextLine: scan.nextOffset == null ? null : begin + scan.nextOffset,
+      skippedReasons: scan.skippedReasons,
+    };
   };
 
   const logCueBridgeUse = (
@@ -4498,13 +4564,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (!Number.isFinite(cursorRaw) || cursorRaw < 0) return false;
     const cursorLine = Math.max(0, Math.floor(cursorRaw));
     const reasonTag = String(reason || '').trim().toLowerCase();
-    const isAutoStallRescue = reasonTag === 'auto-stall';
     const cursorLineText = getLineTextAt(cursorLine);
-    const cursorIsCueLine = isIgnorableCueLineText(cursorLineText);
-    const allowContentForwardRescue = isAutoStallRescue && !cursorIsCueLine;
     const cueBridge = findNextSpeakableWithinBridge(
       cursorLine,
       DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES,
+      { strict: true },
     );
     const targetLine = cueBridge.nextLine;
     if (targetLine == null || targetLine <= cursorLine) return false;
@@ -4512,16 +4576,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (deltaLines <= 0 || deltaLines > DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES) return false;
     const targetText = getLineTextAt(targetLine);
     if (!targetText || isIgnorableCueLineText(targetText)) return false;
-    const directContentForwardRescue =
-      allowContentForwardRescue &&
-      deltaLines === 1 &&
-      cueBridge.skippedReasons.length === 0;
-    if (isAutoStallRescue && !directContentForwardRescue) {
+    const rescuePolicy = evaluateStallCueRescuePolicy({
+      reasonTag,
+      skippedReasons: cueBridge.skippedReasons,
+    });
+    if (!rescuePolicy.allow) {
       stallRescueRequested = false;
       if (isDevMode()) {
         warnGuard('cue_stall_rescue_blocked', [
           `at=${cursorLine}`,
-          'reason=auto-stall-bounded-content-only',
+          `reason=${rescuePolicy.blockedReason || 'policy'}`,
           reason ? `source=${reason}` : '',
           `delta=${deltaLines}`,
           `skipped=[${cueBridge.skippedReasons.join(',')}]`,
@@ -4530,18 +4594,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       return false;
     }
-    if (!cueBridge.skippedReasons.length && !directContentForwardRescue) {
-      stallRescueRequested = false;
-      if (isDevMode() && isAutoStallRescue) {
-        warnGuard('cue_stall_rescue_blocked', [
-          `at=${cursorLine}`,
-          'reason=content-line',
-          reason ? `source=${reason}` : '',
-          cursorLineText ? `line="${formatLogSnippet(cursorLineText, 56)}"` : '',
-        ]);
-      }
-      return false;
-    }
+    const directContentForwardRescue = rescuePolicy.directContentForwardRescue;
     const rescueSim = Math.max(DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_MULTI_JUMP_MIN_SIM);
     const matchId = `stall-rescue-${Date.now().toString(36)}-${targetLine}`;
     adoptPendingMatch({
@@ -5986,6 +6039,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         const cueBridgeFallback = findNextSpeakableWithinBridge(
           lastLineIndex,
           DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES,
+          { strict: true },
         );
         cueFallbackBridgeReasons = cueBridgeFallback.skippedReasons;
         if (cueBridgeFallback.nextLine != null && cueBridgeFallback.nextLine > lastLineIndex) {
@@ -6220,6 +6274,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             const cueBridge = findNextSpeakableWithinBridge(
               lastLineIndex,
               DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES,
+              { strict: true },
             );
             const bridgeUsed = cueBridge.skippedReasons.length > 0;
             const nextLine = cueBridge.nextLine;
@@ -9474,7 +9529,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       permissiveFinalNudgeEligible
     ) {
       const nudgeDeltaCap = DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES;
-      const cueBridge = findNextSpeakableWithinBridge(cursorLine, nudgeDeltaCap);
+      const cueBridge = findNextSpeakableWithinBridge(cursorLine, nudgeDeltaCap, { strict: true });
       const bridgeUsed = cueBridge.skippedReasons.length > 0;
       const nudgeTarget =
         cueBridge.nextLine != null && cueBridge.nextLine > cursorLine
@@ -9554,6 +9609,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const fallbackBridge = findNextSpeakableWithinBridge(
         cursorLine,
         DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES,
+        { strict: true },
       );
       const totalLines = getTotalLines();
       let fallbackTarget =

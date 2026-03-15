@@ -124,6 +124,7 @@ import {
 import type {
   EpisodePackageV2,
   EpisodeLaunchVariant,
+  EpisodeLaunchVariantStatus,
   EpisodeThumbnailConcept,
   EpisodeThumbnailVersion,
   EpisodeImageMapEntry,
@@ -2073,6 +2074,8 @@ export default function HearthShell() {
   const [selectedThumbnailConceptId, setSelectedThumbnailConceptId] = useState<string>("");
   const [selectedThumbnailVersionId, setSelectedThumbnailVersionId] = useState<string | null>(null);
   const [selectedLaunchVariantId, setSelectedLaunchVariantId] = useState<string | null>(null);
+  const [launchVariantStatusDraft, setLaunchVariantStatusDraft] = useState<EpisodeLaunchVariantStatus>("draft");
+  const [launchVariantNotesDraft, setLaunchVariantNotesDraft] = useState("");
   const [thumbnailConceptLabelDraft, setThumbnailConceptLabelDraft] = useState("");
   const [thumbnailConceptPromptDraft, setThumbnailConceptPromptDraft] = useState("");
   const [thumbnailConceptStyleDraft, setThumbnailConceptStyleDraft] = useState(DEFAULT_HEARTH_VISUAL_STYLE);
@@ -2370,6 +2373,10 @@ export default function HearthShell() {
   const thumbnailConcepts = episodePackage?.thumbnail.concepts ?? [];
   const thumbnailVersions = episodePackage?.thumbnail.versions ?? [];
   const launchVariants = episodePackage?.launch_variants ?? [];
+  const selectedLaunchVariant = useMemo(
+    () => launchVariants.find((variant) => variant.id === selectedLaunchVariantId) ?? null,
+    [launchVariants, selectedLaunchVariantId],
+  );
   const primaryThumbnailVersionId = episodePackage?.thumbnail.primary_version_id ?? null;
   const thumbnailTitleOptions = useMemo(
     () => metadataTitlesDraft.filter((title) => title.text.trim().length > 0),
@@ -4452,6 +4459,16 @@ export default function HearthShell() {
     }
     setSelectedLaunchVariantId(null);
   }, [launchVariants, selectedLaunchVariantId]);
+
+  useEffect(() => {
+    if (!selectedLaunchVariant) {
+      setLaunchVariantStatusDraft("draft");
+      setLaunchVariantNotesDraft("");
+      return;
+    }
+    setLaunchVariantStatusDraft(selectedLaunchVariant.status);
+    setLaunchVariantNotesDraft(selectedLaunchVariant.notes ?? "");
+  }, [selectedLaunchVariant]);
 
   useEffect(() => {
     if (thumbnailTitleOptions.length === 0) {
@@ -7083,12 +7100,24 @@ export default function HearthShell() {
       ? episodePackage.launch_variants.find((entry) => entry.id === selectedLaunchVariantId) ?? null
       : null;
     const nowIso = new Date().toISOString();
+    const status = launchVariantStatusDraft;
+    const notes = launchVariantNotesDraft.trim() || null;
+    const lastTestedAt = status === "tested" || status === "winner"
+      ? existingVariant?.last_tested_at ?? nowIso
+      : existingVariant?.last_tested_at ?? null;
+    const winnerSelectedAt = status === "winner"
+      ? existingVariant?.winner_selected_at ?? nowIso
+      : null;
     const nextVariant: EpisodeLaunchVariant = existingVariant
       ? {
           ...existingVariant,
           title_id: titleId,
           thumbnail_version_id: versionId,
           updated_at: nowIso,
+          status,
+          notes,
+          last_tested_at: lastTestedAt,
+          winner_selected_at: winnerSelectedAt,
         }
       : {
           id: createThumbnailClientId("launch-variant"),
@@ -7096,6 +7125,10 @@ export default function HearthShell() {
           thumbnail_version_id: versionId,
           created_at: nowIso,
           updated_at: nowIso,
+          status,
+          notes,
+          last_tested_at: lastTestedAt,
+          winner_selected_at: winnerSelectedAt,
         };
 
     const nextEpisodePackage: EpisodePackageV2 = {
@@ -7113,6 +7146,7 @@ export default function HearthShell() {
         launch_variant_id: nextVariant.id,
         title_id: titleId,
         thumbnail_version_id: versionId,
+        status,
       },
     );
     if (!saved) {
@@ -9224,6 +9258,10 @@ export default function HearthShell() {
                   selectedConceptId={selectedThumbnailConceptId}
                   selectedVersionId={selectedThumbnailVersionId}
                   selectedLaunchVariantId={selectedLaunchVariantId}
+                  selectedLaunchVariantStatus={launchVariantStatusDraft}
+                  selectedLaunchVariantNotes={launchVariantNotesDraft}
+                  selectedLaunchVariantLastTestedAt={selectedLaunchVariant?.last_tested_at ?? null}
+                  selectedLaunchVariantWinnerSelectedAt={selectedLaunchVariant?.winner_selected_at ?? null}
                   primaryVersionId={primaryThumbnailVersionId}
                   selectedConceptLabel={thumbnailConceptLabelDraft}
                   selectedConceptPrompt={thumbnailConceptPromptDraft}
@@ -9259,6 +9297,8 @@ export default function HearthShell() {
                   onRetryVersion={(version) => void onRetryFailedThumbnailVersion(version)}
                   onSelectLaunchVariant={onSelectLaunchVariant}
                   onCreateLaunchVariant={onCreateLaunchVariant}
+                  onSelectedLaunchVariantStatusChange={setLaunchVariantStatusDraft}
+                  onSelectedLaunchVariantNotesChange={setLaunchVariantNotesDraft}
                   onSaveLaunchVariant={() => void onSaveLaunchVariant()}
                 />
               </CollapsibleFocusPanel>

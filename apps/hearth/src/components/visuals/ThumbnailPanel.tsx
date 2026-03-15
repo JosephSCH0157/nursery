@@ -1,9 +1,13 @@
 import { useRef } from "react";
 import type {
   EpisodeLaunchVariant,
+  EpisodeLaunchVariantStatus,
   EpisodeSeoTitle,
   EpisodeThumbnailConcept,
   EpisodeThumbnailVersion,
+} from "../../lib/episode-package-v2";
+import {
+  EPISODE_LAUNCH_VARIANT_STATUS_VALUES,
 } from "../../lib/episode-package-v2";
 import { HEARTH_VISUAL_STYLE_DEFINITIONS } from "../../lib/hearth-visual-styles";
 import ThumbnailVersions from "./ThumbnailVersions";
@@ -18,6 +22,10 @@ type ThumbnailPanelProps = {
   selectedConceptId: string;
   selectedVersionId: string | null;
   selectedLaunchVariantId: string | null;
+  selectedLaunchVariantStatus: EpisodeLaunchVariantStatus;
+  selectedLaunchVariantNotes: string;
+  selectedLaunchVariantLastTestedAt: string | null;
+  selectedLaunchVariantWinnerSelectedAt: string | null;
   primaryVersionId: string | null;
   selectedConceptLabel: string;
   selectedConceptPrompt: string;
@@ -53,12 +61,34 @@ type ThumbnailPanelProps = {
   onRetryVersion: (version: EpisodeThumbnailVersion) => void;
   onSelectLaunchVariant: (variantId: string) => void;
   onCreateLaunchVariant: () => void;
+  onSelectedLaunchVariantStatusChange: (value: EpisodeLaunchVariantStatus) => void;
+  onSelectedLaunchVariantNotesChange: (value: string) => void;
   onSaveLaunchVariant: () => void;
 };
 
 function resolveVariantLabel(index: number): string {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
   return `Variant ${alphabet[index] ?? index + 1}`;
+}
+
+function resolveLaunchVariantStatusLabel(status: EpisodeLaunchVariantStatus): string {
+  switch (status) {
+    case "ready":
+      return "Ready";
+    case "tested":
+      return "Tested";
+    case "winner":
+      return "Winner";
+    default:
+      return "Draft";
+  }
+}
+
+function formatVariantTimestamp(timestamp: string | null): string | null {
+  if (!timestamp) return null;
+  const parsed = Date.parse(timestamp);
+  if (!Number.isFinite(parsed)) return null;
+  return new Date(parsed).toLocaleString();
 }
 
 export default function ThumbnailPanel({
@@ -71,6 +101,10 @@ export default function ThumbnailPanel({
   selectedConceptId,
   selectedVersionId,
   selectedLaunchVariantId,
+  selectedLaunchVariantStatus,
+  selectedLaunchVariantNotes,
+  selectedLaunchVariantLastTestedAt,
+  selectedLaunchVariantWinnerSelectedAt,
   primaryVersionId,
   selectedConceptLabel,
   selectedConceptPrompt,
@@ -106,6 +140,8 @@ export default function ThumbnailPanel({
   onRetryVersion,
   onSelectLaunchVariant,
   onCreateLaunchVariant,
+  onSelectedLaunchVariantStatusChange,
+  onSelectedLaunchVariantNotesChange,
   onSaveLaunchVariant,
 }: ThumbnailPanelProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -121,6 +157,8 @@ export default function ThumbnailPanel({
   const launchVariantActionLabel = selectedLaunchVariantId ? "Update Pairing" : "Save Pairing";
   const interactionDisabled = isGenerating || isSavingConcept || isUploading;
   const canSaveLaunchVariant = Boolean(selectedTitleId && selectedVersionId);
+  const lastTestedLabel = formatVariantTimestamp(selectedLaunchVariantLastTestedAt);
+  const winnerSelectedLabel = formatVariantTimestamp(selectedLaunchVariantWinnerSelectedAt);
 
   return (
     <section className="hs-thumb-panel" aria-label="Visuals panel">
@@ -379,6 +417,38 @@ export default function ThumbnailPanel({
             </button>
           </div>
         </div>
+        <div className="hs-thumb-launch-editor">
+          <label className="hs-field">
+            <span className="hs-field-label">Status</span>
+            <select
+              value={selectedLaunchVariantStatus}
+              onChange={(event) => onSelectedLaunchVariantStatusChange(event.target.value as EpisodeLaunchVariantStatus)}
+              disabled={interactionDisabled}
+            >
+              {EPISODE_LAUNCH_VARIANT_STATUS_VALUES.map((status) => (
+                <option key={status} value={status}>
+                  {resolveLaunchVariantStatusLabel(status)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="hs-field">
+            <span className="hs-field-label">Notes</span>
+            <textarea
+              value={selectedLaunchVariantNotes}
+              onChange={(event) => onSelectedLaunchVariantNotesChange(event.target.value)}
+              rows={3}
+              placeholder="Optional operator notes for this launch variant"
+              disabled={interactionDisabled}
+            />
+          </label>
+          {lastTestedLabel || winnerSelectedLabel ? (
+            <div className="hs-thumb-launch-editor-meta">
+              {lastTestedLabel ? <div>Last tested: {lastTestedLabel}</div> : null}
+              {winnerSelectedLabel ? <div>Winner selected: {winnerSelectedLabel}</div> : null}
+            </div>
+          ) : null}
+        </div>
 
         {!canSaveLaunchVariant ? (
           <div className="hs-thumb-empty">Choose both a title and a thumbnail version to save a variant.</div>
@@ -403,13 +473,21 @@ export default function ThumbnailPanel({
                   onClick={() => onSelectLaunchVariant(variant.id)}
                   disabled={interactionDisabled}
                 >
-                  <div className="hs-thumb-launch-card-title">{resolveVariantLabel(index)}</div>
+                  <div className="hs-thumb-launch-card-heading">
+                    <div className="hs-thumb-launch-card-title">{resolveVariantLabel(index)}</div>
+                    <div className={`hs-thumb-launch-status is-${variant.status}`}>
+                      {resolveLaunchVariantStatusLabel(variant.status)}
+                    </div>
+                  </div>
                   <div className="hs-thumb-launch-card-copy">
                     {linkedTitle?.text.trim() || "Linked title unavailable"}
                   </div>
                   <div className="hs-thumb-launch-card-meta">
                     {linkedConcept?.label ?? "Missing concept"} · {linkedVersion ? `Version ${linkedVersion.id.slice(0, 8)}` : "Missing version"}
                   </div>
+                  {variant.notes ? (
+                    <div className="hs-thumb-launch-card-notes">{variant.notes}</div>
+                  ) : null}
                 </button>
               );
             })}
