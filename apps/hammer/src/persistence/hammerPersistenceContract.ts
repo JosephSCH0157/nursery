@@ -85,6 +85,27 @@ export interface HammerPersistedDerivedTextLayers {
   layers: HammerDerivedTextLayer[];
 }
 
+export type HammerSubtitleFormat = "srt" | "vtt";
+
+export interface HammerPersistedSubtitleArtifact {
+  format: HammerSubtitleFormat;
+  generated_at: string;
+  source_transcript_id: string;
+  source_layer_id: string | null;
+  source_kind: "raw" | "derived";
+  source_recipe_ref: string | null;
+  approximate_timing: boolean;
+  entry_count: number;
+  content: string;
+}
+
+export interface HammerPersistedSubtitleOutputs {
+  schema_version: 1;
+  last_generated_format: HammerSubtitleFormat | null;
+  srt: HammerPersistedSubtitleArtifact | null;
+  vtt: HammerPersistedSubtitleArtifact | null;
+}
+
 export interface HammerPersistedStructuredTranscript {
   schema_version: 1;
   transcript_id: string;
@@ -109,6 +130,7 @@ export interface HammerPersistedStructuredTranscript {
   }>;
   segments: HammerTranscriptSegment[];
   derived_text_layers?: HammerPersistedDerivedTextLayers;
+  subtitle_outputs?: HammerPersistedSubtitleOutputs;
 }
 
 export interface HammerPersistedSpeakerMap {

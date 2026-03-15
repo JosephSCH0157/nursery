@@ -5,6 +5,7 @@ import type {
   HammerDerivedTextMacroKind,
   HammerDerivedTextOperation,
   HammerPersistedDerivedTextLayers,
+  HammerPersistedSubtitleOutputs,
   HammerPersistedStructuredTranscript,
 } from "../persistence/hammerPersistenceContract";
 
@@ -56,6 +57,18 @@ function sortHammerDerivedTextLayers(layers: HammerDerivedTextLayer[]): HammerDe
   });
 }
 
+function cloneHammerSubtitleOutputs(
+  value: HammerPersistedSubtitleOutputs | null | undefined,
+): HammerPersistedSubtitleOutputs | undefined {
+  if (!value) return undefined;
+  return {
+    schema_version: 1,
+    last_generated_format: value.last_generated_format ?? null,
+    srt: value.srt ? { ...value.srt } : null,
+    vtt: value.vtt ? { ...value.vtt } : null,
+  };
+}
+
 export function cloneHammerDerivedTextLayers(
   value: HammerPersistedStructuredTranscript["derived_text_layers"],
 ): HammerPersistedStructuredTranscript["derived_text_layers"] {
@@ -105,6 +118,7 @@ export function cloneHammerStructuredTranscript(
     confidence_flags: transcript.confidence_flags.map((flag) => ({ ...flag })),
     segments: cloneTranscriptSegments(transcript.segments),
     derived_text_layers: cloneHammerDerivedTextLayers(transcript.derived_text_layers),
+    subtitle_outputs: cloneHammerSubtitleOutputs(transcript.subtitle_outputs),
   };
 }
 

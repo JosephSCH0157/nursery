@@ -510,6 +510,12 @@ export function buildPreparedTranscript(
       output_layer_id: null,
       layers: [],
     },
+    subtitle_outputs: {
+      schema_version: 1,
+      last_generated_format: null,
+      srt: null,
+      vtt: null,
+    },
   };
 
   return {
@@ -657,6 +663,26 @@ export function preserveTranscriptMetadata(
         active_layer_id: null,
         output_layer_id: null,
         layers: [],
+      },
+    subtitle_outputs: isSameTranscript
+      ? existingTranscript?.subtitle_outputs
+        ? {
+          schema_version: 1,
+          last_generated_format: existingTranscript.subtitle_outputs.last_generated_format ?? null,
+          srt: existingTranscript.subtitle_outputs.srt ? { ...existingTranscript.subtitle_outputs.srt } : null,
+          vtt: existingTranscript.subtitle_outputs.vtt ? { ...existingTranscript.subtitle_outputs.vtt } : null,
+        }
+        : {
+          schema_version: 1,
+          last_generated_format: null,
+          srt: null,
+          vtt: null,
+        }
+      : {
+        schema_version: 1,
+        last_generated_format: null,
+        srt: null,
+        vtt: null,
       },
   };
 }

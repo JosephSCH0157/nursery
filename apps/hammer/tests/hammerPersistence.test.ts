@@ -126,6 +126,22 @@ const snapshot: HammerWorkspaceSnapshot = {
         },
       ],
     },
+    subtitle_outputs: {
+      schema_version: 1,
+      last_generated_format: "srt",
+      srt: {
+        format: "srt",
+        generated_at: "2026-03-13T10:14:00.000Z",
+        source_transcript_id: "transcript_01",
+        source_layer_id: "macro_run_01",
+        source_kind: "derived",
+        source_recipe_ref: "macro:podcast_cleanup.v1",
+        approximate_timing: false,
+        entry_count: 2,
+        content: "1\n00:00:00,000 --> 00:00:04,000\nline one.\n\n2\n00:00:04,000 --> 00:00:08,000\nLine two.",
+      },
+      vtt: null,
+    },
   },
   editPlan: {
     edit_plan_id: "plan_01",
@@ -195,6 +211,8 @@ assert.equal(saveRequest.macro_recipe_ref, "macro:podcast_cleanup.v1");
 assert.equal(saveRequest.last_macro_run_ref, null);
 assert.equal(saveRequest.structured_transcript?.data.derived_text_layers?.layers[0]?.layer_id, "macro_run_01");
 assert.equal(saveRequest.structured_transcript?.data.derived_text_layers?.output_layer_id, "macro_run_01");
+assert.equal(saveRequest.structured_transcript?.data.subtitle_outputs?.last_generated_format, "srt");
+assert.equal(saveRequest.structured_transcript?.data.subtitle_outputs?.srt?.source_layer_id, "macro_run_01");
 assert.deepEqual(
   saveRequest.speaker_map?.data.default_labels,
   ["S1", "S2", "S3", "G1", "G2"],

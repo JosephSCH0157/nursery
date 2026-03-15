@@ -46,6 +46,12 @@ import type {
 } from "../lib/transcriptPreview";
 import { buildHammerCaptionPreviewModel } from "../lib/hammerCaptionPreview";
 import {
+  generateHammerSubtitleArtifact,
+  getHammerSubtitleArtifact,
+  isHammerSubtitleArtifactCurrent,
+  setHammerSubtitleArtifact,
+} from "../lib/hammerSubtitleExports";
+import {
   parseHammerEditPlanJson,
   resolveHammerLaunchContext,
 } from "../lib/launchContext";
@@ -94,6 +100,7 @@ import type {
   HammerPersistedAudioPolish,
   HammerPersistedStructuredTranscript,
   HammerPersistedVisualPlacements,
+  HammerSubtitleFormat,
 } from "../persistence/hammerPersistenceContract";
 import { cloneHammerAudioPolish } from "../prep/hammerAudioPolish";
 import { resolveHammerDevLaunchContext } from "./hammerLaunchPresets";
@@ -707,6 +714,19 @@ function formatTranscriptOutputLabel(layer: HammerDerivedTextLayer | null): stri
   return layer ? `${formatDerivedLayerRecipeName(layer)} Output` : "Raw Transcript Output";
 }
 
+function formatSubtitleFormatLabel(format: HammerSubtitleFormat): string {
+  return format.toUpperCase();
+}
+
+function formatSubtitleArtifactSourceLabel(
+  recipeRef: string | null | undefined,
+): string {
+  if (!recipeRef) {
+    return "Raw Transcript Output";
+  }
+  return `${findHammerFinishingMacroRecipe(recipeRef)?.name ?? recipeRef} Output`;
+}
+
 function getTranscriptRowStageMarkerClassName(tone: TranscriptRowStageMarkerTone): string {
   return cx(
     "hammer-script-row__status-pill",
@@ -1220,6 +1240,10 @@ export default function TranscriptSeekMock(
   const [lastMacroRunRef, setLastMacroRunRef] = useState<string | null>(
     () => props.lastMacroRunRef ?? null,
   );
+  const [selectedSubtitleFormat, setSelectedSubtitleFormat] = useState<HammerSubtitleFormat>(
+    () => props.structuredTranscript?.subtitle_outputs?.last_generated_format ?? "srt",
+  );
+  const [subtitleActionFeedback, setSubtitleActionFeedback] = useState<string | null>(null);
   const [activeTimelineTool, setActiveTimelineTool] = useState<TimelineToolId>("select");
   const [showDebugPanels, setShowDebugPanels] = useState(false);
   const [paneLayout, setPaneLayout] = useState<HammerPaneLayout>(DEFAULT_PANE_LAYOUT);
@@ -1605,6 +1629,24 @@ export default function TranscriptSeekMock(
     () => buildHammerCaptionPreviewModel(rawTranscriptSegments, structuredTranscriptState),
     [rawTranscriptSegments, structuredTranscriptState],
   );
+  const srtSubtitleArtifact = useMemo(
+    () => getHammerSubtitleArtifact(structuredTranscriptState, "srt"),
+    [structuredTranscriptState],
+  );
+  const vttSubtitleArtifact = useMemo(
+    () => getHammerSubtitleArtifact(structuredTranscriptState, "vtt"),
+    [structuredTranscriptState],
+  );
+  const selectedSubtitleArtifact = useMemo(
+    () => getHammerSubtitleArtifact(structuredTranscriptState, selectedSubtitleFormat),
+    [selectedSubtitleFormat, structuredTranscriptState],
+  );
+  const selectedSubtitleArtifactCurrent = useMemo(
+    () => structuredTranscriptState
+      ? isHammerSubtitleArtifactCurrent(structuredTranscriptState, selectedSubtitleFormat)
+      : false,
+    [selectedSubtitleFormat, structuredTranscriptState],
+  );
   const effectiveInspectedDerivedLayerId = useMemo(
     () => inspectedDerivedLayerId === RAW_TRANSCRIPT_LAYER_SENTINEL
       ? null
@@ -1668,6 +1710,8 @@ export default function TranscriptSeekMock(
     setInspectedMacroRecipeRef(props.selectedMacroRecipeRef ?? null);
     setInspectedDerivedLayerId(props.lastMacroRunRef ?? null);
     setLastMacroRunRef(props.lastMacroRunRef ?? null);
+    setSelectedSubtitleFormat(props.structuredTranscript?.subtitle_outputs?.last_generated_format ?? "srt");
+    setSubtitleActionFeedback(null);
   }, [launchContextSignature, resolvedLaunch]);
 
   useEffect(() => {
@@ -1678,6 +1722,10 @@ export default function TranscriptSeekMock(
     setSelectedMacroRecipeRef(props.selectedMacroRecipeRef ?? null);
     setInspectedMacroRecipeRef((current) => current ?? props.selectedMacroRecipeRef ?? null);
   }, [props.selectedMacroRecipeRef]);
+
+  useEffect(() => {
+    setSelectedSubtitleFormat(structuredTranscriptState?.subtitle_outputs?.last_generated_format ?? "srt");
+  }, [structuredTranscriptState?.subtitle_outputs?.last_generated_format]);
 
   useEffect(() => {
     setLastMacroRunRef(props.lastMacroRunRef ?? null);
@@ -3503,6 +3551,12 @@ export default function TranscriptSeekMock(
               <span className="hammer-pill">
                 {captionOutputPreview.approximate_timing ? "approximate chunk timing" : "turn-aligned timing"}
               </span>
+              <span className="hammer-pill">
+                SRT {srtSubtitleArtifact ? "generated" : "not generated"}
+              </span>
+              <span className="hammer-pill">
+                VTT {vttSubtitleArtifact ? "generated" : "not generated"}
+              </span>
             </div>
             <div className="hammer-copy-md">
               Caption preview follows the transcript layer selected for outputs. It stays distinct from the active editor view so you can inspect downstream text choices before subtitle/export generation exists.
@@ -3540,6 +3594,20 @@ export default function TranscriptSeekMock(
                     : "Exact transcript-turn timing"}
                 </div>
               </div>
+              <div>
+                <div className="hammer-label">selected export format</div>
+                <div>{formatSubtitleFormatLabel(selectedSubtitleFormat)}</div>
+              </div>
+              <div>
+                <div className="hammer-label">generated artifact</div>
+                <div>
+                  {selectedSubtitleArtifact
+                    ? selectedSubtitleArtifactCurrent
+                      ? "current"
+                      : "stale"
+                    : "not generated"}
+                </div>
+              </div>
             </div>
             <div className="hammer-copy-sm hammer-copy-muted">
               {captionOutputPreview.approximate_timing
@@ -3551,6 +3619,169 @@ export default function TranscriptSeekMock(
                 Editor view is {formatTranscriptEditorViewLabel(activeDerivedLayer)} while outputs will use {formatTranscriptOutputLabel(outputDerivedLayer)}.
               </div>
             ) : null}
+            <div className="hammer-caption-output">
+              <div className="hammer-caption-output__toolbar">
+                <div className="hammer-inline-list-wide">
+                  {(["srt", "vtt"] as HammerSubtitleFormat[]).map((format) => (
+                    <button
+                      key={format}
+                      type="button"
+                      className={cx(
+                        "hammer-button-xs",
+                        selectedSubtitleFormat === format && "is-selected",
+                      )}
+                      onClick={() => {
+                        setSelectedSubtitleFormat(format);
+                        setSubtitleActionFeedback(null);
+                      }}
+                    >
+                      {formatSubtitleFormatLabel(format)}
+                    </button>
+                  ))}
+                </div>
+                <div className="hammer-action-row">
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    disabled={!structuredTranscriptState}
+                    onClick={() => {
+                      if (!structuredTranscriptState) return;
+                      const artifact = generateHammerSubtitleArtifact({
+                        rawSegments: rawTranscriptSegments,
+                        transcript: structuredTranscriptState,
+                        format: "srt",
+                      });
+                      setStructuredTranscriptState(setHammerSubtitleArtifact(structuredTranscriptState, artifact));
+                      setSelectedSubtitleFormat("srt");
+                      setSubtitleActionFeedback(`Generated SRT from ${formatTranscriptOutputLabel(outputDerivedLayer)}.`);
+                    }}
+                  >
+                    Generate SRT
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    disabled={!structuredTranscriptState}
+                    onClick={() => {
+                      if (!structuredTranscriptState) return;
+                      const artifact = generateHammerSubtitleArtifact({
+                        rawSegments: rawTranscriptSegments,
+                        transcript: structuredTranscriptState,
+                        format: "vtt",
+                      });
+                      setStructuredTranscriptState(setHammerSubtitleArtifact(structuredTranscriptState, artifact));
+                      setSelectedSubtitleFormat("vtt");
+                      setSubtitleActionFeedback(`Generated VTT from ${formatTranscriptOutputLabel(outputDerivedLayer)}.`);
+                    }}
+                  >
+                    Generate VTT
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    disabled={!selectedSubtitleArtifact?.content}
+                    onClick={() => {
+                      if (!selectedSubtitleArtifact?.content) return;
+                      if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+                        setSubtitleActionFeedback("Clipboard access is unavailable in this environment.");
+                        return;
+                      }
+                      void navigator.clipboard.writeText(selectedSubtitleArtifact.content)
+                        .then(() => {
+                          setSubtitleActionFeedback(`Copied ${formatSubtitleFormatLabel(selectedSubtitleFormat)} subtitle text.`);
+                        })
+                        .catch(() => {
+                          setSubtitleActionFeedback("Hammer could not copy subtitle text.");
+                        });
+                    }}
+                  >
+                    Copy {formatSubtitleFormatLabel(selectedSubtitleFormat)}
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    disabled={!selectedSubtitleArtifact?.content}
+                    onClick={() => {
+                      if (!selectedSubtitleArtifact?.content || typeof document === "undefined") return;
+                      const mimeType = selectedSubtitleFormat === "srt"
+                        ? "application/x-subrip;charset=utf-8"
+                        : "text/vtt;charset=utf-8";
+                      const blob = new Blob([selectedSubtitleArtifact.content], { type: mimeType });
+                      const url = URL.createObjectURL(blob);
+                      const anchor = document.createElement("a");
+                      anchor.href = url;
+                      anchor.download = `${resolvedLaunch.launch_context.workpiece_id}.${selectedSubtitleFormat}`;
+                      document.body.appendChild(anchor);
+                      anchor.click();
+                      anchor.remove();
+                      URL.revokeObjectURL(url);
+                      setSubtitleActionFeedback(`Downloaded ${formatSubtitleFormatLabel(selectedSubtitleFormat)} subtitle text.`);
+                    }}
+                  >
+                    Download {formatSubtitleFormatLabel(selectedSubtitleFormat)}
+                  </button>
+                </div>
+              </div>
+
+              <div className="hammer-caption-output__artifact">
+                <div className="hammer-caption-output__head">
+                  <div className="hammer-stack-4">
+                    <strong className="hammer-copy-strong">
+                      {formatSubtitleFormatLabel(selectedSubtitleFormat)} subtitle output
+                    </strong>
+                    <div className="hammer-copy-sm hammer-copy-muted">
+                      {selectedSubtitleArtifact
+                        ? `${selectedSubtitleArtifactCurrent ? "Current" : "Stale"} artifact generated from ${formatSubtitleArtifactSourceLabel(selectedSubtitleArtifact.source_recipe_ref)}`
+                        : `No ${formatSubtitleFormatLabel(selectedSubtitleFormat)} artifact generated yet.`}
+                    </div>
+                  </div>
+                  {selectedSubtitleArtifact ? (
+                    <div className="hammer-meta-strip">
+                      <span className="hammer-pill">{selectedSubtitleArtifact.entry_count} cues</span>
+                      <span className="hammer-pill">
+                        {selectedSubtitleArtifact.approximate_timing ? "approximate timing" : "turn timing"}
+                      </span>
+                      <span className="hammer-pill">
+                        {selectedSubtitleArtifactCurrent ? "current" : "stale"}
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+
+                {selectedSubtitleArtifact ? (
+                  <div className="hammer-inspector-grid">
+                    <div>
+                      <div className="hammer-label">generated at</div>
+                      <div>{formatDateTimeLabel(selectedSubtitleArtifact.generated_at) ?? selectedSubtitleArtifact.generated_at}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">source layer</div>
+                      <div className="hammer-mono">{selectedSubtitleArtifact.source_layer_id ?? "raw"}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">source transcript</div>
+                      <div className="hammer-mono">{selectedSubtitleArtifact.source_transcript_id}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">source label</div>
+                      <div>{formatSubtitleArtifactSourceLabel(selectedSubtitleArtifact.source_recipe_ref)}</div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {subtitleActionFeedback ? (
+                  <div className="hammer-copy-sm hammer-copy-muted">{subtitleActionFeedback}</div>
+                ) : null}
+
+                {selectedSubtitleArtifact ? (
+                  <pre className="hammer-caption-output__content">{selectedSubtitleArtifact.content}</pre>
+                ) : (
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    Generate {formatSubtitleFormatLabel(selectedSubtitleFormat)} to produce a deterministic subtitle artifact from {formatTranscriptOutputLabel(outputDerivedLayer)}.
+                  </div>
+                )}
+              </div>
+            </div>
             {captionOutputPreview.chunks.length > 0 ? (
               <div className="hammer-caption-preview">
                 {captionOutputPreview.chunks.map((chunk) => (
@@ -4097,6 +4328,9 @@ export default function TranscriptSeekMock(
     selectedAudioStateLabel,
     selectedGapAfterSec,
     selectedGapBeforeSec,
+    selectedSubtitleArtifact,
+    selectedSubtitleArtifactCurrent,
+    selectedSubtitleFormat,
     selectedNextSegment,
     selectedOverlayRow,
     selectedRowHasTimelineEditCue,
@@ -4110,11 +4344,14 @@ export default function TranscriptSeekMock(
     selectedSegmentTrimInstruction,
     sessionState.editPlanStatus,
     sessionState.previewMode,
+    srtSubtitleArtifact,
     studioSoundPrepared,
     structuredTranscriptState,
+    subtitleActionFeedback,
     trimInstructionCount,
     transcriptSegments.length,
     inspectedDerivedLayer,
+    vttSubtitleArtifact,
   ]);
 
   const detailsDebugContent = activeTool === "details" && showDebugPanels ? (
