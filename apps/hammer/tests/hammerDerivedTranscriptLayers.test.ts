@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import {
   discardHammerDerivedTextLayer,
   getHammerActiveDerivedTextLayer,
+  getHammerOutputDerivedTextLayer,
   listHammerDerivedTextLayers,
   resolveHammerDerivedTextInspectionLayerId,
   setHammerDerivedTextLayerActive,
+  setHammerDerivedTextLayerOutput,
 } from "../src/macros/hammerDerivedTranscriptLayers";
 import { runHammerFillerCleanupMacro } from "../src/macros/hammerFillerCleanupMacro";
 import { runHammerRetakeTighteningMacro } from "../src/macros/hammerRetakeTighteningMacro";
@@ -52,6 +54,7 @@ const transcript: HammerPersistedStructuredTranscript = {
   derived_text_layers: {
     schema_version: 1,
     active_layer_id: null,
+    output_layer_id: null,
     layers: [],
   },
 };
@@ -89,6 +92,39 @@ const transcript: HammerPersistedStructuredTranscript = {
   assert.equal(getHammerActiveDerivedTextLayer(discarded), null);
   assert.equal(discarded.derived_text_layers?.active_layer_id, null);
   assert.equal(discarded.derived_text_layers?.layers[0]?.status, "discarded");
+}
+
+{
+  const fillerRun = runHammerFillerCleanupMacro(transcript, "2026-03-15T04:05:00.000Z");
+  const retakeRun = runHammerRetakeTighteningMacro(fillerRun.transcript, "2026-03-15T04:06:00.000Z");
+  const activeFiller = setHammerDerivedTextLayerActive(retakeRun.transcript, fillerRun.layer_id);
+  const outputRetake = setHammerDerivedTextLayerOutput(activeFiller, retakeRun.layer_id);
+
+  assert.equal(outputRetake.derived_text_layers?.active_layer_id, fillerRun.layer_id);
+  assert.equal(outputRetake.derived_text_layers?.output_layer_id, retakeRun.layer_id);
+  assert.equal(getHammerActiveDerivedTextLayer(outputRetake)?.layer_id, fillerRun.layer_id);
+  assert.equal(getHammerOutputDerivedTextLayer(outputRetake)?.layer_id, retakeRun.layer_id);
+}
+
+{
+  const fillerRun = runHammerFillerCleanupMacro(transcript, "2026-03-15T04:05:00.000Z");
+  const withOutput = setHammerDerivedTextLayerOutput(fillerRun.transcript, fillerRun.layer_id);
+  const discarded = discardHammerDerivedTextLayer(withOutput, fillerRun.layer_id);
+
+  assert.equal(discarded.derived_text_layers?.output_layer_id, null);
+  assert.equal(getHammerOutputDerivedTextLayer(discarded), null);
+}
+
+{
+  const legacyTranscript = {
+    ...transcript,
+    derived_text_layers: {
+      schema_version: 1 as const,
+      active_layer_id: null,
+      layers: [],
+    },
+  } as unknown as HammerPersistedStructuredTranscript;
+  assert.equal(getHammerOutputDerivedTextLayer(legacyTranscript), null);
 }
 
 console.log("Hammer derived transcript layer tests passed.");

@@ -755,6 +755,10 @@
   box-shadow: inset 0 0 0 1px rgba(45, 212, 191, 0.28);
 }
 
+.hammer-finishing-recipe.is-output-layer {
+  border-color: rgba(250, 204, 21, 0.34);
+}
+
 .hammer-finishing-recipe:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.28);

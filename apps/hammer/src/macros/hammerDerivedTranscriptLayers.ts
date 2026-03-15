@@ -63,21 +63,30 @@ export function cloneHammerDerivedTextLayers(
     return {
       schema_version: 1,
       active_layer_id: null,
+      output_layer_id: null,
       layers: [],
     };
   }
 
+  const layers = sortHammerDerivedTextLayers(value.layers.map((layer) => ({
+    ...layer,
+    summary: { ...layer.summary },
+    changes: layer.changes.map((change) => ({
+      ...change,
+      operations: normalizeHammerDerivedTextOperations(change),
+    })),
+  })));
+  const hasSelectableLayer = (layerId: string | null | undefined): boolean => (
+    Boolean(layerId) && layers.some((layer) => layer.layer_id === layerId && layer.status !== "discarded")
+  );
+
   return {
     schema_version: 1,
-    active_layer_id: value.active_layer_id ?? null,
-    layers: sortHammerDerivedTextLayers(value.layers.map((layer) => ({
-      ...layer,
-      summary: { ...layer.summary },
-      changes: layer.changes.map((change) => ({
-        ...change,
-        operations: normalizeHammerDerivedTextOperations(change),
-      })),
-    }))),
+    active_layer_id: hasSelectableLayer(value.active_layer_id) ? value.active_layer_id ?? null : null,
+    output_layer_id: hasSelectableLayer((value as { output_layer_id?: string | null }).output_layer_id)
+      ? (value as { output_layer_id?: string | null }).output_layer_id ?? null
+      : null,
+    layers,
   };
 }
 
@@ -105,6 +114,7 @@ export function ensureHammerDerivedTextLayers(
   return cloneHammerDerivedTextLayers(transcript.derived_text_layers) ?? {
     schema_version: 1,
     active_layer_id: null,
+    output_layer_id: null,
     layers: [],
   };
 }
@@ -170,6 +180,12 @@ export function getHammerActiveDerivedTextLayer(
   return getHammerDerivedTextLayer(transcript, transcript?.derived_text_layers?.active_layer_id ?? null);
 }
 
+export function getHammerOutputDerivedTextLayer(
+  transcript: HammerPersistedStructuredTranscript | null | undefined,
+): HammerDerivedTextLayer | null {
+  return getHammerDerivedTextLayer(transcript, transcript?.derived_text_layers?.output_layer_id ?? null);
+}
+
 export function resolveHammerDerivedTextInspectionLayerId(
   transcript: HammerPersistedStructuredTranscript | null | undefined,
   preferredLayerId: string | null | undefined,
@@ -217,6 +233,25 @@ export function applyHammerDerivedTextLayerToSegments(
   }));
 }
 
+export function applyHammerOutputDerivedTextLayerToSegments(
+  segments: HammerTranscriptSegment[],
+  transcript: HammerPersistedStructuredTranscript | null | undefined,
+): HammerTranscriptSegment[] {
+  const outputLayer = getHammerOutputDerivedTextLayer(transcript);
+  if (!outputLayer || outputLayer.status === "discarded") {
+    return cloneTranscriptSegments(segments);
+  }
+
+  const changeBySegmentId = new Map(
+    outputLayer.changes.map((change) => [change.segment_id, change.cleaned_text]),
+  );
+
+  return segments.map((segment) => ({
+    ...segment,
+    text: changeBySegmentId.get(segment.segment_id) ?? segment.text,
+  }));
+}
+
 export function setHammerDerivedTextLayerActive(
   transcript: HammerPersistedStructuredTranscript,
   layerId: string | null,
@@ -240,6 +275,24 @@ export function setHammerDerivedTextLayerActive(
   return next;
 }
 
+export function setHammerDerivedTextLayerOutput(
+  transcript: HammerPersistedStructuredTranscript,
+  layerId: string | null,
+): HammerPersistedStructuredTranscript {
+  const next = cloneHammerStructuredTranscript(transcript);
+  if (!next) {
+    throw new Error("Hammer structured transcript is required.");
+  }
+
+  const derived = ensureHammerDerivedTextLayers(next);
+  const canSelectLayer = layerId
+    ? derived.layers.some((layer) => layer.layer_id === layerId && layer.status !== "discarded")
+    : false;
+  derived.output_layer_id = canSelectLayer ? layerId : null;
+  next.derived_text_layers = derived;
+  return next;
+}
+
 export function discardHammerDerivedTextLayer(
   transcript: HammerPersistedStructuredTranscript,
   layerId: string,
@@ -257,6 +310,9 @@ export function discardHammerDerivedTextLayer(
   )));
   if (derived.active_layer_id === layerId) {
     derived.active_layer_id = null;
+  }
+  if (derived.output_layer_id === layerId) {
+    derived.output_layer_id = null;
   }
   next.derived_text_layers = derived;
   return next;

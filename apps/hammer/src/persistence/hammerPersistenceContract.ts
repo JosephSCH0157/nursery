@@ -81,6 +81,7 @@ export interface HammerDerivedTextLayer {
 export interface HammerPersistedDerivedTextLayers {
   schema_version: 1;
   active_layer_id: string | null;
+  output_layer_id: string | null;
   layers: HammerDerivedTextLayer[];
 }
 

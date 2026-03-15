@@ -56,13 +56,16 @@ import {
 } from "../lib/previewSource";
 import {
   applyHammerDerivedTextLayerToSegments,
+  applyHammerOutputDerivedTextLayerToSegments,
   cloneHammerStructuredTranscript,
   discardHammerDerivedTextLayer,
   getHammerActiveDerivedTextLayer,
   getHammerDerivedTextLayer,
+  getHammerOutputDerivedTextLayer,
   listHammerDerivedTextLayers,
   resolveHammerDerivedTextInspectionLayerId,
   setHammerDerivedTextLayerActive,
+  setHammerDerivedTextLayerOutput,
 } from "../macros/hammerDerivedTranscriptLayers";
 import {
   runHammerFillerCleanupMacro,
@@ -679,6 +682,13 @@ function formatDerivedLayerStateSummary(
     return `${totalLayerCount} stored layer${totalLayerCount === 1 ? "" : "s"}`;
   }
   return "raw transcript active";
+}
+
+function formatDerivedLayerOutputSummary(layer: HammerDerivedTextLayer | null): string {
+  if (!layer) {
+    return "output uses raw transcript";
+  }
+  return `output uses ${layer.macro_kind === "retake_tightening" ? "tightened" : "cleaned"} layer`;
 }
 
 function getTranscriptRowStageMarkerClassName(tone: TranscriptRowStageMarkerTone): string {
@@ -1566,6 +1576,14 @@ export default function TranscriptSeekMock(
   const activeDerivedLayer = useMemo(
     () => getHammerActiveDerivedTextLayer(structuredTranscriptState),
     [structuredTranscriptState],
+  );
+  const outputDerivedLayer = useMemo(
+    () => getHammerOutputDerivedTextLayer(structuredTranscriptState),
+    [structuredTranscriptState],
+  );
+  const outputTranscriptSegments = useMemo(
+    () => applyHammerOutputDerivedTextLayerToSegments(rawTranscriptSegments, structuredTranscriptState),
+    [rawTranscriptSegments, structuredTranscriptState],
   );
   const effectiveInspectedDerivedLayerId = useMemo(
     () => inspectedDerivedLayerId === RAW_TRANSCRIPT_LAYER_SENTINEL
@@ -3505,6 +3523,7 @@ export default function TranscriptSeekMock(
               <span className="hammer-pill">
                 {formatDerivedLayerStateSummary(activeDerivedLayer, reviewLayerCount, allDerivedLayers.length)}
               </span>
+              <span className="hammer-pill">{formatDerivedLayerOutputSummary(outputDerivedLayer)}</span>
             </div>
             <div className="hammer-copy-md">
               Finishing macros stay opt-in and post-prep. Hammer shows what each recipe would do, what it needs, and can generate transcript-side review layers without touching the raw transcript or media timing.
@@ -3602,11 +3621,23 @@ export default function TranscriptSeekMock(
                     <div className="hammer-mono">{structuredTranscriptState?.derived_text_layers?.active_layer_id ?? "none"}</div>
                   </div>
                   <div>
+                    <div className="hammer-label">output transcript layer</div>
+                    <div className="hammer-mono">{structuredTranscriptState?.derived_text_layers?.output_layer_id ?? "raw"}</div>
+                  </div>
+                  <div>
                     <div className="hammer-label">layer inventory</div>
                     <div>
                       {allDerivedLayers.length} total
                       {" · "}
                       {reviewLayerCount} review
+                    </div>
+                  </div>
+                  <div>
+                    <div className="hammer-label">output transcript view</div>
+                    <div>
+                      {outputTranscriptSegments.length} segments
+                      {" · "}
+                      {formatDerivedLayerOutputSummary(outputDerivedLayer)}
                     </div>
                   </div>
                 </div>
@@ -3666,6 +3697,7 @@ export default function TranscriptSeekMock(
                         "hammer-finishing-recipe",
                         rawTranscriptLayerInspected && "is-selected",
                         !activeDerivedLayer && "is-active-layer",
+                        !outputDerivedLayer && "is-output-layer",
                       )}
                       onClick={() => {
                         setInspectedDerivedLayerId(RAW_TRANSCRIPT_LAYER_SENTINEL);
@@ -3685,6 +3717,9 @@ export default function TranscriptSeekMock(
                       <div className="hammer-copy-sm hammer-copy-muted">
                         Raw transcript segments remain unchanged beneath every derived review layer.
                       </div>
+                      <div className="hammer-meta-strip">
+                        {!outputDerivedLayer ? <span className="hammer-pill">output selected</span> : null}
+                      </div>
                     </button>
 
                     {allDerivedLayers.map((layer) => {
@@ -3698,6 +3733,7 @@ export default function TranscriptSeekMock(
                             "hammer-finishing-recipe",
                             isInspected && "is-selected",
                             layer.status === "active" && "is-active-layer",
+                            outputDerivedLayer?.layer_id === layer.layer_id && "is-output-layer",
                           )}
                           onClick={() => {
                             setInspectedDerivedLayerId(layer.layer_id);
@@ -3731,6 +3767,9 @@ export default function TranscriptSeekMock(
                           <div className="hammer-meta-strip">
                             <span className="hammer-pill">{layer.summary.changed_segment_count} changed</span>
                             <span className="hammer-pill">{formatDerivedLayerRemovalLabel(layer)}</span>
+                            {outputDerivedLayer?.layer_id === layer.layer_id ? (
+                              <span className="hammer-pill">output selected</span>
+                            ) : null}
                             <span className="hammer-pill">{layer.layer_id}</span>
                           </div>
                         </button>
@@ -3788,6 +3827,30 @@ export default function TranscriptSeekMock(
                   <button
                     type="button"
                     className="hammer-button-xs"
+                    disabled={!inspectedDerivedLayer || inspectedDerivedLayer.status === "discarded"}
+                    onClick={() => {
+                      if (!structuredTranscriptState || !inspectedDerivedLayer) return;
+                      setStructuredTranscriptState(
+                        setHammerDerivedTextLayerOutput(structuredTranscriptState, inspectedDerivedLayer.layer_id),
+                      );
+                    }}
+                  >
+                    Use Selected Layer for Outputs
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    disabled={!outputDerivedLayer}
+                    onClick={() => {
+                      if (!structuredTranscriptState) return;
+                      setStructuredTranscriptState(setHammerDerivedTextLayerOutput(structuredTranscriptState, null));
+                    }}
+                  >
+                    Use Raw for Outputs
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
                     disabled={!inspectedDerivedLayer}
                     onClick={() => {
                       if (!structuredTranscriptState || !inspectedDerivedLayer) return;
@@ -3819,6 +3882,9 @@ export default function TranscriptSeekMock(
                       <span className="hammer-pill">{inspectedDerivedLayer.summary.changed_segment_count} changed</span>
                       <span className="hammer-pill">{formatDerivedLayerRemovalLabel(inspectedDerivedLayer)}</span>
                       <span className="hammer-pill">{formatDerivedLayerLifecycleStatus(inspectedDerivedLayer)}</span>
+                      {outputDerivedLayer?.layer_id === inspectedDerivedLayer.layer_id ? (
+                        <span className="hammer-pill">used for outputs</span>
+                      ) : null}
                     </div>
                     {inspectedDerivedLayer.changes.length > 0 ? (
                       <div className="hammer-finishing-diff-list">
@@ -3902,6 +3968,8 @@ export default function TranscriptSeekMock(
     mutedDialogueDurationSec,
     noiseCleanupPrepared,
     overlayRows.length,
+    outputDerivedLayer,
+    outputTranscriptSegments.length,
     playbackSourceLabel,
     playbackSrc,
     polishSummaryItems,

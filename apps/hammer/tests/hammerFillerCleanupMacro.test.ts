@@ -56,6 +56,7 @@ const transcript: HammerPersistedStructuredTranscript = {
   derived_text_layers: {
     schema_version: 1,
     active_layer_id: null,
+    output_layer_id: null,
     layers: [],
   },
 };

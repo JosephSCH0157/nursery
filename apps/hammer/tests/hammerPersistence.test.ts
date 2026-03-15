@@ -94,6 +94,7 @@ const snapshot: HammerWorkspaceSnapshot = {
     derived_text_layers: {
       schema_version: 1,
       active_layer_id: null,
+      output_layer_id: "macro_run_01",
       layers: [
         {
           layer_id: "macro_run_01",
@@ -193,6 +194,7 @@ assert.equal(saveRequest.edit_plan_signature, "sig_abc");
 assert.equal(saveRequest.macro_recipe_ref, "macro:podcast_cleanup.v1");
 assert.equal(saveRequest.last_macro_run_ref, null);
 assert.equal(saveRequest.structured_transcript?.data.derived_text_layers?.layers[0]?.layer_id, "macro_run_01");
+assert.equal(saveRequest.structured_transcript?.data.derived_text_layers?.output_layer_id, "macro_run_01");
 assert.deepEqual(
   saveRequest.speaker_map?.data.default_labels,
   ["S1", "S2", "S3", "G1", "G2"],

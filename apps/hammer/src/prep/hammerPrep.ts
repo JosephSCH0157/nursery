@@ -507,6 +507,7 @@ export function buildPreparedTranscript(
     derived_text_layers: {
       schema_version: 1,
       active_layer_id: null,
+      output_layer_id: null,
       layers: [],
     },
   };
@@ -648,11 +649,13 @@ export function preserveTranscriptMetadata(
         : {
           schema_version: 1,
           active_layer_id: null,
+          output_layer_id: null,
           layers: [],
         }
       : {
         schema_version: 1,
         active_layer_id: null,
+        output_layer_id: null,
         layers: [],
       },
   };
