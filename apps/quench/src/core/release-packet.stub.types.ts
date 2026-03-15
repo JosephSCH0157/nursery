@@ -1,4 +1,6 @@
 export type ReleasePacketStubSummaryStatus = "ready" | "attention" | "blocked";
+export type ReleasePacketStubAuthorityStatus = "ready" | "blocked" | "unsafe" | "incompatible";
+export type ReleasePacketStubAuthoritySeverity = "critical" | "high" | "medium" | "low";
 
 export type ReleasePacketStubPrepStatus =
   | "ready"
@@ -49,6 +51,10 @@ export type ReleasePacketStubCheckId =
   | "subtitle_vtt"
   | "visuals"
   | "audio_polish";
+export type ReleasePacketStubReasonStatus =
+  | Exclude<ReleasePacketStubPrepStatus, "ready">
+  | "unsafe"
+  | "incompatible";
 
 export interface ReleasePacketStubArtifactTimestamp {
   artifact_path: string | null;
@@ -56,9 +62,9 @@ export interface ReleasePacketStubArtifactTimestamp {
 }
 
 export interface ReleasePacketStubBlockingReason {
-  check_id: ReleasePacketStubCheckId;
-  label: string;
-  status: ReleasePacketStubPrepStatus;
+  check_id: ReleasePacketStubCheckId | null;
+  label: string | null;
+  status: ReleasePacketStubReasonStatus;
   detail: string;
 }
 
@@ -69,6 +75,26 @@ export interface ReleasePacketStubReadinessFlags {
   failed: boolean;
   unsupported: boolean;
   requires_future_ffmpeg: boolean;
+  unsafe: boolean;
+  incompatible: boolean;
+}
+
+export interface ReleasePacketStubAuthorityIssue {
+  code: string;
+  severity: ReleasePacketStubAuthoritySeverity;
+  priority: number;
+  affected_domain: "transcript" | "subtitles" | "visuals" | "audio" | "metadata" | "compatibility" | "policy";
+  message: string;
+  remediation_code: string | null;
+  check_id: ReleasePacketStubCheckId | null;
+  label: string | null;
+  observed_status: ReleasePacketStubReasonStatus;
+}
+
+export interface ReleasePacketStubAuthorityRemediation {
+  code: string;
+  priority: number;
+  action: string;
 }
 
 export interface ReleasePacketStubTranscriptOutput {
@@ -173,7 +199,7 @@ export interface ReleasePacketStub {
   packet_kind: "quench_release_packet_stub";
   source: {
     producer: "tongs";
-    derived_from: "hammer_release_prep";
+    derived_from: "tongs_release_handoff_authority";
     target: {
       workspace_id: string;
       workpiece_id: string;
@@ -182,6 +208,10 @@ export interface ReleasePacketStub {
     };
   };
   assembly: {
+    authority_schema_version: 1;
+    authority_snapshot_id: string;
+    authority_snapshot_created_at: string | null;
+    authority_integrity_hash: string;
     release_prep_schema_version: 1;
     deterministic_source_updated_at: string | null;
     source_timestamps: {
@@ -227,13 +257,23 @@ export interface ReleasePacketStub {
     transcript_prepared_at: string | null;
     transcript_segment_count: number;
   };
+  authority: {
+    status: ReleasePacketStubAuthorityStatus;
+    safe_for_downstream_handoff: boolean;
+    allow_preview: boolean;
+    do_not_publish: boolean;
+    compatible_consumers: string[];
+    blockers: ReleasePacketStubAuthorityIssue[];
+    warnings: ReleasePacketStubAuthorityIssue[];
+    remediations: ReleasePacketStubAuthorityRemediation[];
+  };
   readiness: {
     overall_status: ReleasePacketStubSummaryStatus;
     fully_prepared: boolean;
     ready_check_count: number;
     attention_check_count: number;
-    reason_statuses: Exclude<ReleasePacketStubPrepStatus, "ready">[];
-    blocker_statuses: Array<"failed" | "unsupported" | "requires_future_ffmpeg">;
+    reason_statuses: ReleasePacketStubReasonStatus[];
+    blocker_statuses: Array<"failed" | "unsupported" | "requires_future_ffmpeg" | "unsafe" | "incompatible">;
     attention_statuses: Array<"missing" | "stale">;
     status_flags: ReleasePacketStubReadinessFlags;
     message: string;

@@ -15,6 +15,8 @@ function buildSnapshot(overrides?: {
   audioStatus?: "not_started" | "preparing" | "prepared" | "failed";
   mediaKind?: "recording_audio" | "recording_video" | "asset_image";
   mediaPath?: string;
+  stateWorkspaceId?: string;
+  stateWorkpieceId?: string;
 }): HammerPersistenceSnapshot {
   const mediaKind = overrides?.mediaKind ?? "recording_audio";
   const mediaPath = overrides?.mediaPath ?? "recordings/release-assembly.wav";
@@ -24,8 +26,8 @@ function buildSnapshot(overrides?: {
   return {
     schema_version: 1,
     state: {
-      workspace_id: "workspace_release_assembly_01",
-      workpiece_id: "workpiece_release_assembly_01",
+      workspace_id: overrides?.stateWorkspaceId ?? "workspace_release_assembly_01",
+      workpiece_id: overrides?.stateWorkpieceId ?? "workpiece_release_assembly_01",
       active_session_id: "session_release_assembly_01",
       editor_session_path: "hammer/session/editor-state.v1.json",
       transcript_artifact_path: "hammer/transcript/structured.v1.json",
@@ -246,12 +248,24 @@ test("buildTongsHammerReleaseAssembly summarizes a current downstream-ready hand
 
   assert.equal(assembly.summary.status, "attention");
   assert.equal(assembly.summary.ready_count, 4);
+  assert.equal(assembly.authority.status, "blocked");
+  assert.equal(assembly.authority.safe_for_downstream_handoff, true);
+  assert.equal(assembly.authority.allow_preview, true);
+  assert.equal(assembly.authority.do_not_publish, true);
+  assert.equal(assembly.authority.snapshot_id.startsWith("rha1_"), true);
+  assert.equal(assembly.authority.integrity_hash.startsWith("cyrb128:"), true);
+  assert.equal(assembly.authority.compatible_consumers.includes("quench_release_packet_stub.v1"), true);
+  assert.equal(assembly.authority.warnings[0]?.code, "SUBTITLE_VTT_MISSING");
   assert.equal(assembly.release_prep.readiness.transcript_output, "ready");
   assert.equal(assembly.release_prep.readiness.subtitles.srt, "ready");
   assert.equal(assembly.release_prep.readiness.subtitles.vtt, "missing");
   assert.equal(assembly.release_prep.readiness.audio_polish, "ready");
   assert.equal(assembly.summary.checks.find((check) => check.id === "audio_polish")?.status, "ready");
   assert.equal(assembly.quench_packet_stub.packet_kind, "quench_release_packet_stub");
+  assert.equal(assembly.quench_packet_stub.source.derived_from, "tongs_release_handoff_authority");
+  assert.equal(assembly.quench_packet_stub.authority.status, "blocked");
+  assert.equal(assembly.quench_packet_stub.authority.allow_preview, true);
+  assert.equal(assembly.quench_packet_stub.authority.do_not_publish, true);
   assert.equal(assembly.quench_packet_stub.readiness.overall_status, "attention");
   assert.equal(assembly.quench_packet_stub.summary_flags.safe_for_quench_preview, true);
   assert.equal(assembly.quench_packet_stub.summary_flags.has_attention_items, true);
@@ -261,6 +275,8 @@ test("buildTongsHammerReleaseAssembly summarizes a current downstream-ready hand
   assert.equal(assembly.quench_packet_stub.subtitles.srt.status, "ready");
   assert.equal(assembly.quench_packet_stub.subtitles.vtt.status, "missing");
   assert.equal(assembly.quench_packet_stub.readiness.reason_details[0]?.check_id, "subtitle_vtt");
+  assert.equal(assembly.quench_packet_stub.assembly.authority_snapshot_id, assembly.authority.snapshot_id);
+  assert.equal(assembly.quench_packet_stub.assembly.authority_integrity_hash, assembly.authority.integrity_hash);
 });
 
 test("buildTongsHammerReleaseAssembly marks future-ffmpeg audio as blocked without hiding the handoff", () => {
@@ -277,13 +293,18 @@ test("buildTongsHammerReleaseAssembly marks future-ffmpeg audio as blocked witho
   }, snapshot);
 
   assert.equal(assembly.summary.status, "blocked");
+  assert.equal(assembly.authority.status, "blocked");
+  assert.equal(assembly.authority.safe_for_downstream_handoff, true);
+  assert.equal(assembly.authority.allow_preview, false);
   assert.equal(assembly.release_prep.readiness.audio_polish, "requires_future_ffmpeg");
   assert.ok(assembly.summary.blocking_states.includes("requires_future_ffmpeg"));
   assert.equal(
     assembly.summary.checks.find((check) => check.id === "audio_polish")?.status,
     "requires_future_ffmpeg",
   );
+  assert.equal(assembly.authority.blockers.some((issue) => issue.observed_status === "requires_future_ffmpeg"), true);
   assert.equal(assembly.quench_packet_stub.summary_flags.safe_for_quench_preview, false);
+  assert.equal(assembly.quench_packet_stub.authority.allow_preview, false);
   assert.equal(assembly.quench_packet_stub.audio.status, "requires_future_ffmpeg");
   assert.equal(assembly.quench_packet_stub.media_backbone.audio_plan.readiness, "requires_future_ffmpeg");
   assert.equal(assembly.quench_packet_stub.media_backbone.audio_plan.requires_ffmpeg, true);
@@ -300,7 +321,13 @@ test("buildTongsHammerReleaseAssembly emits a publish-safe Quench stub when all 
   }, snapshot);
 
   assert.equal(assembly.summary.status, "ready");
+  assert.equal(assembly.authority.status, "ready");
+  assert.equal(assembly.authority.safe_for_downstream_handoff, true);
+  assert.equal(assembly.authority.allow_preview, true);
+  assert.equal(assembly.authority.do_not_publish, false);
   assert.equal(assembly.release_prep.readiness.fully_prepared, true);
+  assert.deepEqual(assembly.authority.blockers, []);
+  assert.deepEqual(assembly.authority.warnings, []);
   assert.equal(assembly.quench_packet_stub.readiness.overall_status, "ready");
   assert.equal(assembly.quench_packet_stub.summary_flags.safe_for_quench_preview, true);
   assert.deepEqual(assembly.quench_packet_stub.readiness.reason_statuses, []);
@@ -320,6 +347,9 @@ test("buildTongsHammerReleaseAssembly preserves stale subtitle drift in the Quen
   }, snapshot);
 
   assert.equal(assembly.summary.status, "attention");
+  assert.equal(assembly.authority.status, "blocked");
+  assert.equal(assembly.authority.allow_preview, true);
+  assert.equal(assembly.authority.warnings.some((issue) => issue.code === "SUBTITLE_VTT_STALE"), true);
   assert.equal(assembly.quench_packet_stub.subtitles.vtt.status, "stale");
   assert.equal(assembly.quench_packet_stub.subtitles.vtt.stale, true);
   assert.equal(assembly.quench_packet_stub.subtitles.vtt.current, false);
@@ -342,10 +372,68 @@ test("buildTongsHammerReleaseAssembly marks unsupported source media as blocked 
   }, snapshot);
 
   assert.equal(assembly.summary.status, "blocked");
+  assert.equal(assembly.authority.status, "blocked");
+  assert.equal(assembly.authority.safe_for_downstream_handoff, true);
+  assert.equal(assembly.authority.allow_preview, false);
   assert.equal(assembly.quench_packet_stub.readiness.overall_status, "blocked");
   assert.equal(assembly.quench_packet_stub.audio.status, "unsupported");
   assert.equal(assembly.quench_packet_stub.media_backbone.audio_plan.readiness, "unsupported");
   assert.equal(assembly.quench_packet_stub.readiness.blocker_statuses.includes("unsupported"), true);
   assert.equal(assembly.quench_packet_stub.source_media.kind, "asset_image");
   assert.equal(assembly.quench_packet_stub.summary_flags.safe_for_quench_preview, false);
+});
+
+test("buildTongsHammerReleaseAssembly produces deterministic authority ids and hashes for the same source state", () => {
+  const snapshot = buildSnapshot({ includeVtt: true });
+  const first = buildTongsHammerReleaseAssembly({
+    workspaceId: "workspace_release_assembly_01",
+    workpieceId: "workpiece_release_assembly_01",
+  }, snapshot);
+  const second = buildTongsHammerReleaseAssembly({
+    workspaceId: "workspace_release_assembly_01",
+    workpieceId: "workpiece_release_assembly_01",
+  }, snapshot);
+
+  assert.equal(first.authority.status, second.authority.status);
+  assert.equal(first.authority.snapshot_id, second.authority.snapshot_id);
+  assert.equal(first.authority.integrity_hash, second.authority.integrity_hash);
+  assert.deepEqual(first.authority.blockers, second.authority.blockers);
+  assert.deepEqual(first.authority.warnings, second.authority.warnings);
+  assert.deepEqual(first.authority.remediations, second.authority.remediations);
+});
+
+test("buildTongsHammerReleaseAssembly marks target identity drift as unsafe", () => {
+  const snapshot = buildSnapshot();
+  const assembly = buildTongsHammerReleaseAssembly({
+    workspaceId: "workspace_release_assembly_01",
+    workpieceId: "workpiece_release_assembly_mismatch",
+  }, snapshot);
+
+  assert.equal(assembly.authority.status, "unsafe");
+  assert.equal(assembly.authority.safe_for_downstream_handoff, false);
+  assert.equal(assembly.authority.allow_preview, false);
+  assert.equal(assembly.summary.status, "blocked");
+  assert.equal(assembly.summary.blocking_states.includes("unsafe"), true);
+  assert.equal(assembly.quench_packet_stub.authority.status, "unsafe");
+  assert.equal(assembly.quench_packet_stub.readiness.blocker_statuses.includes("unsafe"), true);
+  assert.equal(assembly.quench_packet_stub.readiness.reason_details.some((reason) => (
+    reason.status === "unsafe"
+  )), true);
+});
+
+test("buildTongsHammerReleaseAssembly marks incompatible snapshot schema before downstream projection", () => {
+  const snapshot = buildSnapshot() as HammerPersistenceSnapshot;
+  (snapshot as HammerPersistenceSnapshot & { schema_version: number }).schema_version = 99;
+  const assembly = buildTongsHammerReleaseAssembly({
+    workspaceId: "workspace_release_assembly_01",
+    workpieceId: "workpiece_release_assembly_01",
+  }, snapshot);
+
+  assert.equal(assembly.authority.status, "incompatible");
+  assert.equal(assembly.authority.safe_for_downstream_handoff, false);
+  assert.deepEqual(assembly.authority.compatible_consumers, []);
+  assert.equal(assembly.summary.status, "blocked");
+  assert.equal(assembly.summary.blocking_states.includes("incompatible"), true);
+  assert.equal(assembly.quench_packet_stub.authority.status, "incompatible");
+  assert.equal(assembly.quench_packet_stub.readiness.blocker_statuses.includes("incompatible"), true);
 });

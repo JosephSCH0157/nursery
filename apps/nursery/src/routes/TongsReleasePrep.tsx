@@ -96,6 +96,7 @@ export default function TongsReleasePrep() {
   }
 
   const releasePrep = assembly?.release_prep ?? null;
+  const authority = assembly?.authority ?? null;
   const quenchPacketStub = assembly?.quench_packet_stub ?? null;
   const quenchPacketStubJson = quenchPacketStub ? JSON.stringify(quenchPacketStub, null, 2) : "";
 
@@ -105,7 +106,7 @@ export default function TongsReleasePrep() {
         <div>
           <h2 className="tongs-release-prep__title">Tongs Release Prep</h2>
           <p className="tongs-release-prep__subtitle">
-            Downstream reader for the canonical Hammer release-prep package. This consumes persisted Hammer state only.
+            Downstream reader for Hammer release prep plus the canonical Tongs handoff authority verdict. This consumes persisted Hammer state only.
           </p>
         </div>
       </div>
@@ -158,7 +159,7 @@ export default function TongsReleasePrep() {
                 <span>{releasePrep?.readiness.fully_prepared ? "fully prepared" : "not fully prepared"}</span>
               </div>
             </div>
-            <div>{assembly.summary.message}</div>
+            <div>{authority?.message ?? assembly.summary.message}</div>
           </div>
 
           <div className="tongs-release-prep__grid">
@@ -196,32 +197,36 @@ export default function TongsReleasePrep() {
               <h3 className="tongs-release-prep__card-title">Authority</h3>
               <div className="tongs-release-prep__fact-grid">
                 <div>
-                  <div className="tongs-release-prep__fact-label">output source</div>
-                  <div>{releasePrep?.text_outputs?.output_selection.source_kind ?? "missing"}</div>
+                  <div className="tongs-release-prep__fact-label">authority status</div>
+                  <div>{authority?.status ?? "none"}</div>
                 </div>
                 <div>
-                  <div className="tongs-release-prep__fact-label">output layer</div>
-                  <div className="tongs-release-prep__mono">{releasePrep?.text_outputs?.output_selection.layer_id ?? "raw"}</div>
+                  <div className="tongs-release-prep__fact-label">handoff safe</div>
+                  <div>{authority?.safe_for_downstream_handoff ? "true" : "false"}</div>
                 </div>
                 <div>
-                  <div className="tongs-release-prep__fact-label">output recipe</div>
-                  <div>{releasePrep?.text_outputs?.output_selection.recipe_ref ?? "raw transcript"}</div>
+                  <div className="tongs-release-prep__fact-label">preview allowed</div>
+                  <div>{authority?.allow_preview ? "true" : "false"}</div>
                 </div>
                 <div>
-                  <div className="tongs-release-prep__fact-label">preferred playback</div>
-                  <div>{releasePrep?.media_prep_outputs.audio.preferred_playback.reason ?? "none"}</div>
+                  <div className="tongs-release-prep__fact-label">do not publish</div>
+                  <div>{authority?.do_not_publish ? "true" : "false"}</div>
                 </div>
                 <div>
-                  <div className="tongs-release-prep__fact-label">audio plan</div>
-                  <div>{releasePrep?.media_backbone.audio_polish_plan?.readiness ?? "none"}</div>
+                  <div className="tongs-release-prep__fact-label">snapshot id</div>
+                  <div className="tongs-release-prep__mono">{authority?.snapshot_id ?? "none"}</div>
+                </div>
+                <div>
+                  <div className="tongs-release-prep__fact-label">integrity hash</div>
+                  <div className="tongs-release-prep__mono">{authority?.integrity_hash ?? "none"}</div>
+                </div>
+                <div>
+                  <div className="tongs-release-prep__fact-label">compatible consumers</div>
+                  <div>{authority?.compatible_consumers.join(", ") || "none"}</div>
                 </div>
                 <div>
                   <div className="tongs-release-prep__fact-label">blocking states</div>
-                  <div>
-                    {assembly.summary.blocking_states.length > 0
-                      ? assembly.summary.blocking_states.map(formatStatusLabel).join(", ")
-                      : "none"}
-                  </div>
+                  <div>{assembly.summary.blocking_states.length > 0 ? assembly.summary.blocking_states.map(formatStatusLabel).join(", ") : "none"}</div>
                 </div>
               </div>
             </article>

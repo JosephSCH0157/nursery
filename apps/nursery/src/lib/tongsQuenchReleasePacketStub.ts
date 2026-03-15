@@ -1,8 +1,9 @@
 import type {
   ReleasePacketStub,
+  ReleasePacketStubAuthorityIssue,
   ReleasePacketStubBlockingReason,
   ReleasePacketStubMediaSourceHint,
-  ReleasePacketStubPrepStatus,
+  ReleasePacketStubReasonStatus,
   ReleasePacketStubSubtitleEntry,
   ReleasePacketStubSubtitleFormat,
 } from "../../../quench/src/core/release-packet.stub.types";
@@ -10,22 +11,46 @@ import type { TongsHammerReleaseAssembly } from "./tongsReleaseAssembly";
 
 type TongsQuenchStubSource = Pick<
   TongsHammerReleaseAssembly,
-  "target" | "source_artifacts" | "release_prep" | "summary"
+  "target" | "source_artifacts" | "release_prep" | "authority" | "summary"
 >;
 
-function buildBlockingReasons(assembly: TongsQuenchStubSource): ReleasePacketStubBlockingReason[] {
-  return assembly.summary.checks
-    .filter((check) => check.status !== "ready")
-    .map((check) => ({
-      check_id: check.id,
-      label: check.label,
-      status: check.status,
-      detail: check.detail,
-    }));
+function uniqueStatuses(values: ReleasePacketStubReasonStatus[]): ReleasePacketStubReasonStatus[] {
+  return values.filter((value, index) => values.indexOf(value) === index);
 }
 
-function buildReasonStatuses(assembly: TongsQuenchStubSource): Array<Exclude<ReleasePacketStubPrepStatus, "ready">> {
-  return [...assembly.summary.blocking_states];
+function buildAuthorityIssues(
+  issues: TongsQuenchStubSource["authority"]["blockers"] | TongsQuenchStubSource["authority"]["warnings"],
+): ReleasePacketStubAuthorityIssue[] {
+  return issues.map((issue) => ({
+    code: issue.code,
+    severity: issue.severity,
+    priority: issue.priority,
+    affected_domain: issue.affected_domain,
+    message: issue.message,
+    remediation_code: issue.remediation_code,
+    check_id: issue.check_id,
+    label: issue.label,
+    observed_status: issue.observed_status,
+  }));
+}
+
+function buildReasonDetails(assembly: TongsQuenchStubSource): ReleasePacketStubBlockingReason[] {
+  const issues = [...assembly.authority.blockers, ...assembly.authority.warnings]
+    .sort((left, right) => left.priority - right.priority);
+
+  return issues.map((issue) => ({
+    check_id: issue.check_id,
+    label: issue.label,
+    status: issue.observed_status,
+    detail: issue.message,
+  }));
+}
+
+function buildReasonStatuses(assembly: TongsQuenchStubSource): ReleasePacketStubReasonStatus[] {
+  return uniqueStatuses([
+    ...assembly.authority.blockers.map((issue) => issue.observed_status),
+    ...assembly.authority.warnings.map((issue) => issue.observed_status),
+  ]);
 }
 
 function buildSubtitleEntry(
@@ -79,6 +104,13 @@ function maxIsoTimestamp(values: Array<string | null | undefined>): string | nul
   return latest;
 }
 
+function mapAuthorityToStubOverallStatus(
+  assembly: TongsQuenchStubSource,
+): ReleasePacketStub["readiness"]["overall_status"] {
+  if (assembly.authority.status === "ready") return "ready";
+  return assembly.authority.allow_preview ? "attention" : "blocked";
+}
+
 export function buildTongsQuenchReleasePacketStub(
   assembly: TongsQuenchStubSource,
 ): ReleasePacketStub {
@@ -87,12 +119,20 @@ export function buildTongsQuenchReleasePacketStub(
   const subtitleSrt = buildSubtitleEntry(assembly, "srt");
   const subtitleVtt = buildSubtitleEntry(assembly, "vtt");
   const reasonStatuses = buildReasonStatuses(assembly);
-  const blockerStatuses = reasonStatuses.filter((status) => (
+  const blockerStatuses = uniqueStatuses(
+    assembly.authority.blockers.map((issue) => issue.observed_status),
+  ).filter((status): status is ReleasePacketStub["readiness"]["blocker_statuses"][number] => (
     status === "failed"
     || status === "unsupported"
     || status === "requires_future_ffmpeg"
+    || status === "unsafe"
+    || status === "incompatible"
   ));
-  const attentionStatuses = reasonStatuses.filter((status) => status === "missing" || status === "stale");
+  const attentionStatuses = uniqueStatuses(
+    assembly.authority.warnings.map((issue) => issue.observed_status),
+  ).filter((status): status is ReleasePacketStub["readiness"]["attention_statuses"][number] => (
+    status === "missing" || status === "stale"
+  ));
   const preferredPlaybackCloudUri = releasePrep.media_prep_outputs.audio.preferred_playback.kind === "raw"
     ? releasePrep.media_prep_outputs.audio.raw_source.cloud_uri
     : null;
@@ -103,7 +143,7 @@ export function buildTongsQuenchReleasePacketStub(
     releasePrep.media_prep_outputs.audio.preferred_playback.local_relpath
     || preferredPlaybackCloudUri,
   );
-  const safeForQuenchPreview = blockerStatuses.length === 0 && hasOutputText && hasPreferredAudioPath;
+  const safeForQuenchPreview = assembly.authority.allow_preview;
   const deterministicSourceUpdatedAt = maxIsoTimestamp([
     assembly.source_artifacts.state_updated_at,
     assembly.source_artifacts.editor_session.updated_at,
@@ -117,7 +157,7 @@ export function buildTongsQuenchReleasePacketStub(
     packet_kind: "quench_release_packet_stub",
     source: {
       producer: "tongs",
-      derived_from: "hammer_release_prep",
+      derived_from: "tongs_release_handoff_authority",
       target: {
         workspace_id: assembly.target.workspace_id,
         workpiece_id: assembly.target.workpiece_id,
@@ -126,6 +166,10 @@ export function buildTongsQuenchReleasePacketStub(
       },
     },
     assembly: {
+      authority_schema_version: assembly.authority.schema_version,
+      authority_snapshot_id: assembly.authority.snapshot_id,
+      authority_snapshot_created_at: assembly.authority.snapshot_created_at,
+      authority_integrity_hash: assembly.authority.integrity_hash,
       release_prep_schema_version: releasePrep.schema_version,
       deterministic_source_updated_at: deterministicSourceUpdatedAt,
       source_timestamps: {
@@ -183,8 +227,22 @@ export function buildTongsQuenchReleasePacketStub(
       transcript_prepared_at: textOutputs?.transcript_source.prepared_at ?? null,
       transcript_segment_count: textOutputs?.transcript_source.segment_count ?? 0,
     },
+    authority: {
+      status: assembly.authority.status,
+      safe_for_downstream_handoff: assembly.authority.safe_for_downstream_handoff,
+      allow_preview: assembly.authority.allow_preview,
+      do_not_publish: assembly.authority.do_not_publish,
+      compatible_consumers: [...assembly.authority.compatible_consumers],
+      blockers: buildAuthorityIssues(assembly.authority.blockers),
+      warnings: buildAuthorityIssues(assembly.authority.warnings),
+      remediations: assembly.authority.remediations.map((remediation) => ({
+        code: remediation.code,
+        priority: remediation.priority,
+        action: remediation.action,
+      })),
+    },
     readiness: {
-      overall_status: assembly.summary.status,
+      overall_status: mapAuthorityToStubOverallStatus(assembly),
       fully_prepared: releasePrep.readiness.fully_prepared,
       ready_check_count: assembly.summary.ready_count,
       attention_check_count: assembly.summary.attention_count,
@@ -192,20 +250,22 @@ export function buildTongsQuenchReleasePacketStub(
       blocker_statuses: blockerStatuses,
       attention_statuses: attentionStatuses,
       status_flags: {
-        ready: releasePrep.readiness.status_flags.ready,
-        missing: releasePrep.readiness.status_flags.missing,
-        stale: releasePrep.readiness.status_flags.stale,
-        failed: releasePrep.readiness.status_flags.failed,
-        unsupported: releasePrep.readiness.status_flags.unsupported,
-        requires_future_ffmpeg: releasePrep.readiness.status_flags.requires_future_ffmpeg,
+        ready: assembly.authority.status === "ready",
+        missing: reasonStatuses.includes("missing"),
+        stale: reasonStatuses.includes("stale"),
+        failed: reasonStatuses.includes("failed"),
+        unsupported: reasonStatuses.includes("unsupported"),
+        requires_future_ffmpeg: reasonStatuses.includes("requires_future_ffmpeg"),
+        unsafe: assembly.authority.status === "unsafe",
+        incompatible: assembly.authority.status === "incompatible",
       },
-      message: assembly.summary.message,
-      reason_details: buildBlockingReasons(assembly),
+      message: assembly.authority.message,
+      reason_details: buildReasonDetails(assembly),
     },
     summary_flags: {
       safe_for_quench_preview: safeForQuenchPreview,
-      has_blockers: blockerStatuses.length > 0,
-      has_attention_items: assembly.summary.attention_count > 0,
+      has_blockers: assembly.authority.blockers.length > 0,
+      has_attention_items: assembly.authority.warnings.length > 0,
       has_output_text: hasOutputText,
       has_current_subtitles: hasCurrentSubtitles,
       has_visual_guidance: hasVisualGuidance,
