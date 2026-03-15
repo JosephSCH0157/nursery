@@ -170,6 +170,13 @@ export default function AppShell() {
   const lastSessionUserId = useRef<string | null>(null);
   const lastUrlWorkspaceRefresh = useRef<string | null>(null);
   const lastCanonicalNavTarget = useRef<string | null>(null);
+  const pendingWorkspaceSelection = useRef<{
+    active: boolean;
+    target: string | null;
+  }>({
+    active: false,
+    target: null,
+  });
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -196,6 +203,11 @@ export default function AppShell() {
   const urlWorkspaceId = urlContext.workspaceId;
   const inviteToken = useMemo(() => readInviteToken(location.search), [location.search]);
   const cloud = useForgeCloudStatus({ session, sessionLoading });
+
+  const clearPendingWorkspaceSelection = useCallback(() => {
+    pendingWorkspaceSelection.current.active = false;
+    pendingWorkspaceSelection.current.target = null;
+  }, []);
 
   useEffect(() => {
     const res = loadMountRegistry("default");
@@ -228,10 +240,15 @@ export default function AppShell() {
   }, []);
 
   const selectWorkspace = useCallback((id: string | null) => {
+    pendingWorkspaceSelection.current.active = true;
+    pendingWorkspaceSelection.current.target = id;
     if (id) setWorkspaceAccessDeniedId(null);
     setWorkspaceId(id);
     saveActiveWorkspaceId(id);
-    if (!location.pathname.startsWith("/app")) return;
+    if (!location.pathname.startsWith("/app")) {
+      clearPendingWorkspaceSelection();
+      return;
+    }
 
     const nextHref = buildForgeRouteHref(location.pathname, {
       search: location.search,
@@ -239,7 +256,10 @@ export default function AppShell() {
       workpieceId: urlContext.workpieceId,
     });
     const nextSearch = searchFromHref(nextHref);
-    if (nextSearch === location.search) return;
+    if (nextSearch === location.search) {
+      clearPendingWorkspaceSelection();
+      return;
+    }
     nav(
       {
         pathname: location.pathname,
@@ -248,7 +268,14 @@ export default function AppShell() {
       },
       { replace: true },
     );
-  }, [location.pathname, location.search, location.hash, nav, urlContext.workpieceId]);
+  }, [
+    clearPendingWorkspaceSelection,
+    location.pathname,
+    location.search,
+    location.hash,
+    nav,
+    urlContext.workpieceId,
+  ]);
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -309,6 +336,7 @@ export default function AppShell() {
     if (!userId) {
       lastSessionUserId.current = null;
       lastUrlWorkspaceRefresh.current = null;
+      clearPendingWorkspaceSelection();
       setWorkspaces((prev) => (prev.length ? [] : prev));
       setWorkspaceId(null);
       setWorkspaceLoadError(null);
@@ -331,18 +359,40 @@ export default function AppShell() {
         : (saved && workspaces.some((w) => w.id === saved)) ? saved
           : (workspaces[0]?.id ?? null);
     if (pick !== workspaceId) selectWorkspace(pick);
-  }, [session, workspaces, workspaceId, refreshWorkspaces, selectWorkspace, urlWorkspaceId]);
+  }, [
+    clearPendingWorkspaceSelection,
+    session,
+    workspaces,
+    workspaceId,
+    refreshWorkspaces,
+    selectWorkspace,
+    urlWorkspaceId,
+  ]);
 
   useEffect(() => {
     if (!session || !urlWorkspaceId) {
       lastUrlWorkspaceRefresh.current = null;
+      if (!urlWorkspaceId) {
+        clearPendingWorkspaceSelection();
+      }
+      return;
+    }
+
+    const pendingSelection = pendingWorkspaceSelection.current;
+    if (
+      pendingSelection.active
+      && pendingSelection.target !== urlWorkspaceId
+      && workspaceId === pendingSelection.target
+    ) {
       return;
     }
 
     if (workspaces.some((w) => w.id === urlWorkspaceId)) {
       if (workspaceId !== urlWorkspaceId) {
         selectWorkspace(urlWorkspaceId);
+        return;
       }
+      clearPendingWorkspaceSelection();
       return;
     }
 
@@ -351,7 +401,15 @@ export default function AppShell() {
     }
     lastUrlWorkspaceRefresh.current = urlWorkspaceId;
     void refreshWorkspaces({ force: true, preferId: urlWorkspaceId });
-  }, [session, urlWorkspaceId, workspaces, workspaceId, refreshWorkspaces, selectWorkspace]);
+  }, [
+    clearPendingWorkspaceSelection,
+    session,
+    urlWorkspaceId,
+    workspaces,
+    workspaceId,
+    refreshWorkspaces,
+    selectWorkspace,
+  ]);
 
   useEffect(() => {
     if (!session || !urlWorkspaceId) return;
@@ -429,9 +487,15 @@ export default function AppShell() {
     const selectedWorkspaceId = workspaceId && workspaces.some((workspace) => workspace.id === workspaceId)
       ? workspaceId
       : null;
+    const pendingWorkspaceId =
+      pendingWorkspaceSelection.current.active
+      && pendingWorkspaceSelection.current.target
+      && workspaces.some((workspace) => workspace.id === pendingWorkspaceSelection.current.target)
+        ? pendingWorkspaceSelection.current.target
+        : null;
     const enforceWorkspaceInUrl = routeRequiresWorkspace(location.pathname);
     const targetWorkspaceId = enforceWorkspaceInUrl
-      ? selectedWorkspaceId
+      ? (pendingWorkspaceId ?? selectedWorkspaceId)
       : urlWorkspaceId;
     const nextHref = buildForgeRouteHref(location.pathname, {
       search: location.search,
