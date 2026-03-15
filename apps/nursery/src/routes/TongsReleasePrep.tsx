@@ -97,6 +97,7 @@ export default function TongsReleasePrep() {
 
   const releasePrep = assembly?.release_prep ?? null;
   const authority = assembly?.authority ?? null;
+  const recovery = assembly?.recovery ?? null;
   const quenchPacketStub = assembly?.quench_packet_stub ?? null;
   const quenchPacketStubJson = quenchPacketStub ? JSON.stringify(quenchPacketStub, null, 2) : "";
 
@@ -225,6 +226,10 @@ export default function TongsReleasePrep() {
                   <div>{authority?.compatible_consumers.join(", ") || "none"}</div>
                 </div>
                 <div>
+                  <div className="tongs-release-prep__fact-label">recovery status</div>
+                  <div>{recovery?.recovery_status ?? "none"}</div>
+                </div>
+                <div>
                   <div className="tongs-release-prep__fact-label">blocking states</div>
                   <div>{assembly.summary.blocking_states.length > 0 ? assembly.summary.blocking_states.map(formatStatusLabel).join(", ") : "none"}</div>
                 </div>
@@ -248,6 +253,36 @@ export default function TongsReleasePrep() {
           </article>
 
           <div className="tongs-release-prep__grid">
+            <article className="tongs-release-prep__card">
+              <h3 className="tongs-release-prep__card-title">Recovery</h3>
+              <div className="tongs-release-prep__fact-grid">
+                <div>
+                  <div className="tongs-release-prep__fact-label">status</div>
+                  <div>{recovery?.recovery_status ?? "none"}</div>
+                </div>
+                <div>
+                  <div className="tongs-release-prep__fact-label">preview during recovery</div>
+                  <div>{recovery?.preview_allowed_during_recovery ? "true" : "false"}</div>
+                </div>
+                <div>
+                  <div className="tongs-release-prep__fact-label">requires upstream prep</div>
+                  <div>{recovery?.requires_upstream_prep ? "true" : "false"}</div>
+                </div>
+                <div>
+                  <div className="tongs-release-prep__fact-label">can auto recover</div>
+                  <div>{recovery?.can_auto_recover ? "true" : "false"}</div>
+                </div>
+                <div>
+                  <div className="tongs-release-prep__fact-label">plan steps</div>
+                  <div>{recovery?.recovery_plan.length ?? 0}</div>
+                </div>
+                <div>
+                  <div className="tongs-release-prep__fact-label">recovery blockers</div>
+                  <div>{recovery?.recovery_blockers.length ?? 0}</div>
+                </div>
+              </div>
+            </article>
+
             <article className="tongs-release-prep__card">
               <h3 className="tongs-release-prep__card-title">Quench Packet Stub</h3>
               <div className="tongs-release-prep__fact-grid">

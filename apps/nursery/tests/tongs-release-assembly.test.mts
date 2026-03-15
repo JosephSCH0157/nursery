@@ -256,6 +256,13 @@ test("buildTongsHammerReleaseAssembly summarizes a current downstream-ready hand
   assert.equal(assembly.authority.integrity_hash.startsWith("cyrb128:"), true);
   assert.equal(assembly.authority.compatible_consumers.includes("quench_release_packet_stub.v1"), true);
   assert.equal(assembly.authority.warnings[0]?.code, "SUBTITLE_VTT_MISSING");
+  assert.equal(assembly.recovery.recovery_status, "recoverable_with_regeneration");
+  assert.equal(assembly.recovery.preview_allowed_during_recovery, true);
+  assert.equal(assembly.recovery.requires_upstream_prep, true);
+  assert.equal(assembly.recovery.can_auto_recover, true);
+  assert.equal(assembly.recovery.recovery_plan[0]?.code, "REGENERATE_SUBTITLE_VTT");
+  assert.equal(assembly.recovery.recovery_plan[0]?.automatic, true);
+  assert.equal(assembly.recovery.artifact_dependencies.some((dependency) => dependency.code === "subtitle_vtt"), true);
   assert.equal(assembly.release_prep.readiness.transcript_output, "ready");
   assert.equal(assembly.release_prep.readiness.subtitles.srt, "ready");
   assert.equal(assembly.release_prep.readiness.subtitles.vtt, "missing");
@@ -266,6 +273,8 @@ test("buildTongsHammerReleaseAssembly summarizes a current downstream-ready hand
   assert.equal(assembly.quench_packet_stub.authority.status, "blocked");
   assert.equal(assembly.quench_packet_stub.authority.allow_preview, true);
   assert.equal(assembly.quench_packet_stub.authority.do_not_publish, true);
+  assert.equal(assembly.quench_packet_stub.recovery.recovery_status, "recoverable_with_regeneration");
+  assert.equal(assembly.quench_packet_stub.recovery.preview_allowed_during_recovery, true);
   assert.equal(assembly.quench_packet_stub.readiness.overall_status, "attention");
   assert.equal(assembly.quench_packet_stub.summary_flags.safe_for_quench_preview, true);
   assert.equal(assembly.quench_packet_stub.summary_flags.has_attention_items, true);
@@ -296,6 +305,12 @@ test("buildTongsHammerReleaseAssembly marks future-ffmpeg audio as blocked witho
   assert.equal(assembly.authority.status, "blocked");
   assert.equal(assembly.authority.safe_for_downstream_handoff, true);
   assert.equal(assembly.authority.allow_preview, false);
+  assert.equal(assembly.recovery.recovery_status, "requires_upstream_action");
+  assert.equal(assembly.recovery.preview_allowed_during_recovery, false);
+  assert.equal(assembly.recovery.requires_upstream_prep, true);
+  assert.equal(assembly.recovery.can_auto_recover, false);
+  assert.equal(assembly.recovery.recovery_plan[0]?.code, "ENABLE_FFMPEG_WORKING_AUDIO");
+  assert.equal(assembly.recovery.recovery_blockers[0]?.classification, "requires_upstream_action");
   assert.equal(assembly.release_prep.readiness.audio_polish, "requires_future_ffmpeg");
   assert.ok(assembly.summary.blocking_states.includes("requires_future_ffmpeg"));
   assert.equal(
@@ -305,6 +320,8 @@ test("buildTongsHammerReleaseAssembly marks future-ffmpeg audio as blocked witho
   assert.equal(assembly.authority.blockers.some((issue) => issue.observed_status === "requires_future_ffmpeg"), true);
   assert.equal(assembly.quench_packet_stub.summary_flags.safe_for_quench_preview, false);
   assert.equal(assembly.quench_packet_stub.authority.allow_preview, false);
+  assert.equal(assembly.quench_packet_stub.recovery.recovery_status, "requires_upstream_action");
+  assert.equal(assembly.quench_packet_stub.recovery.preview_allowed_during_recovery, false);
   assert.equal(assembly.quench_packet_stub.audio.status, "requires_future_ffmpeg");
   assert.equal(assembly.quench_packet_stub.media_backbone.audio_plan.readiness, "requires_future_ffmpeg");
   assert.equal(assembly.quench_packet_stub.media_backbone.audio_plan.requires_ffmpeg, true);
@@ -325,6 +342,8 @@ test("buildTongsHammerReleaseAssembly emits a publish-safe Quench stub when all 
   assert.equal(assembly.authority.safe_for_downstream_handoff, true);
   assert.equal(assembly.authority.allow_preview, true);
   assert.equal(assembly.authority.do_not_publish, false);
+  assert.equal(assembly.recovery.recovery_status, "not_needed");
+  assert.deepEqual(assembly.recovery.recovery_plan, []);
   assert.equal(assembly.release_prep.readiness.fully_prepared, true);
   assert.deepEqual(assembly.authority.blockers, []);
   assert.deepEqual(assembly.authority.warnings, []);
@@ -350,6 +369,10 @@ test("buildTongsHammerReleaseAssembly preserves stale subtitle drift in the Quen
   assert.equal(assembly.authority.status, "blocked");
   assert.equal(assembly.authority.allow_preview, true);
   assert.equal(assembly.authority.warnings.some((issue) => issue.code === "SUBTITLE_VTT_STALE"), true);
+  assert.equal(assembly.recovery.recovery_status, "recoverable_with_regeneration");
+  assert.equal(assembly.recovery.recovery_plan[0]?.code, "REGENERATE_SUBTITLE_VTT");
+  assert.equal(assembly.recovery.recovery_plan[0]?.automatic, true);
+  assert.equal(assembly.recovery.preview_allowed_during_recovery, true);
   assert.equal(assembly.quench_packet_stub.subtitles.vtt.status, "stale");
   assert.equal(assembly.quench_packet_stub.subtitles.vtt.stale, true);
   assert.equal(assembly.quench_packet_stub.subtitles.vtt.current, false);
@@ -375,6 +398,11 @@ test("buildTongsHammerReleaseAssembly marks unsupported source media as blocked 
   assert.equal(assembly.authority.status, "blocked");
   assert.equal(assembly.authority.safe_for_downstream_handoff, true);
   assert.equal(assembly.authority.allow_preview, false);
+  assert.equal(assembly.recovery.recovery_status, "incompatible");
+  assert.equal(assembly.recovery.preview_allowed_during_recovery, false);
+  assert.equal(assembly.recovery.can_auto_recover, false);
+  assert.equal(assembly.recovery.recovery_plan[0]?.code, "SWITCH_TO_SUPPORTED_SOURCE_MEDIA");
+  assert.equal(assembly.recovery.recovery_blockers[0]?.classification, "incompatible");
   assert.equal(assembly.quench_packet_stub.readiness.overall_status, "blocked");
   assert.equal(assembly.quench_packet_stub.audio.status, "unsupported");
   assert.equal(assembly.quench_packet_stub.media_backbone.audio_plan.readiness, "unsupported");
@@ -412,6 +440,11 @@ test("buildTongsHammerReleaseAssembly marks target identity drift as unsafe", ()
   assert.equal(assembly.authority.status, "unsafe");
   assert.equal(assembly.authority.safe_for_downstream_handoff, false);
   assert.equal(assembly.authority.allow_preview, false);
+  assert.equal(assembly.recovery.recovery_status, "recoverable");
+  assert.equal(assembly.recovery.preview_allowed_during_recovery, false);
+  assert.equal(assembly.recovery.can_auto_recover, false);
+  assert.equal(assembly.recovery.recovery_plan[0]?.code, "ALIGN_RELEASE_TARGET");
+  assert.equal(assembly.recovery.recovery_plan[0]?.classification, "recoverable");
   assert.equal(assembly.summary.status, "blocked");
   assert.equal(assembly.summary.blocking_states.includes("unsafe"), true);
   assert.equal(assembly.quench_packet_stub.authority.status, "unsafe");
@@ -432,6 +465,9 @@ test("buildTongsHammerReleaseAssembly marks incompatible snapshot schema before 
   assert.equal(assembly.authority.status, "incompatible");
   assert.equal(assembly.authority.safe_for_downstream_handoff, false);
   assert.deepEqual(assembly.authority.compatible_consumers, []);
+  assert.equal(assembly.recovery.recovery_status, "incompatible");
+  assert.equal(assembly.recovery.recovery_plan[0]?.code, "UPGRADE_RELEASE_HANDOFF_SCHEMA");
+  assert.equal(assembly.recovery.recovery_blockers[0]?.classification, "incompatible");
   assert.equal(assembly.summary.status, "blocked");
   assert.equal(assembly.summary.blocking_states.includes("incompatible"), true);
   assert.equal(assembly.quench_packet_stub.authority.status, "incompatible");

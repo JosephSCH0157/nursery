@@ -97,6 +97,67 @@ export interface ReleasePacketStubAuthorityRemediation {
   action: string;
 }
 
+export type ReleasePacketStubRecoveryStatus =
+  | "not_needed"
+  | "recoverable"
+  | "recoverable_with_regeneration"
+  | "requires_upstream_action"
+  | "incompatible";
+
+export type ReleasePacketStubRecoveryClassification =
+  | "recoverable"
+  | "recoverable_with_regeneration"
+  | "requires_upstream_action"
+  | "incompatible";
+
+export type ReleasePacketStubRecoveryDomain =
+  | "transcript"
+  | "subtitles"
+  | "visuals"
+  | "audio"
+  | "metadata"
+  | "compatibility"
+  | "policy";
+
+export type ReleasePacketStubRecoveryArtifactCode =
+  | "target_identity"
+  | "release_identity"
+  | "authority_schema"
+  | "structured_transcript"
+  | "transcript_output"
+  | "subtitle_srt"
+  | "subtitle_vtt"
+  | "visual_placements"
+  | "audio_source"
+  | "audio_polish";
+
+export interface ReleasePacketStubRecoveryStep {
+  code: string;
+  domain: ReleasePacketStubRecoveryDomain;
+  classification: ReleasePacketStubRecoveryClassification;
+  action: string;
+  reason: string;
+  priority: number;
+  automatic: boolean;
+  issue_codes: string[];
+  depends_on: string[];
+  artifact_dependencies: ReleasePacketStubRecoveryArtifactCode[];
+}
+
+export interface ReleasePacketStubRecoveryBlocker {
+  code: string;
+  classification: ReleasePacketStubRecoveryClassification;
+  reason: string;
+  issue_codes: string[];
+}
+
+export interface ReleasePacketStubRecoveryArtifactDependency {
+  code: ReleasePacketStubRecoveryArtifactCode;
+  domain: ReleasePacketStubRecoveryDomain;
+  reason: string;
+  required_by: string[];
+}
+
 export interface ReleasePacketStubTranscriptOutput {
   status: ReleasePacketStubPrepStatus;
   ref_kind: "structured_transcript_selection";
@@ -266,6 +327,16 @@ export interface ReleasePacketStub {
     blockers: ReleasePacketStubAuthorityIssue[];
     warnings: ReleasePacketStubAuthorityIssue[];
     remediations: ReleasePacketStubAuthorityRemediation[];
+  };
+  recovery: {
+    recovery_status: ReleasePacketStubRecoveryStatus;
+    preview_allowed_during_recovery: boolean;
+    publish_blocked_during_recovery: boolean;
+    requires_upstream_prep: boolean;
+    can_auto_recover: boolean;
+    recovery_plan: ReleasePacketStubRecoveryStep[];
+    recovery_blockers: ReleasePacketStubRecoveryBlocker[];
+    artifact_dependencies: ReleasePacketStubRecoveryArtifactDependency[];
   };
   readiness: {
     overall_status: ReleasePacketStubSummaryStatus;

@@ -11,7 +11,7 @@ import type { TongsHammerReleaseAssembly } from "./tongsReleaseAssembly";
 
 type TongsQuenchStubSource = Pick<
   TongsHammerReleaseAssembly,
-  "target" | "source_artifacts" | "release_prep" | "authority" | "summary"
+  "target" | "source_artifacts" | "release_prep" | "authority" | "recovery" | "summary"
 >;
 
 function uniqueStatuses(values: ReleasePacketStubReasonStatus[]): ReleasePacketStubReasonStatus[] {
@@ -239,6 +239,37 @@ export function buildTongsQuenchReleasePacketStub(
         code: remediation.code,
         priority: remediation.priority,
         action: remediation.action,
+      })),
+    },
+    recovery: {
+      recovery_status: assembly.recovery.recovery_status,
+      preview_allowed_during_recovery: assembly.recovery.preview_allowed_during_recovery,
+      publish_blocked_during_recovery: assembly.recovery.publish_blocked_during_recovery,
+      requires_upstream_prep: assembly.recovery.requires_upstream_prep,
+      can_auto_recover: assembly.recovery.can_auto_recover,
+      recovery_plan: assembly.recovery.recovery_plan.map((step) => ({
+        code: step.code,
+        domain: step.domain,
+        classification: step.classification,
+        action: step.action,
+        reason: step.reason,
+        priority: step.priority,
+        automatic: step.automatic,
+        issue_codes: [...step.issue_codes],
+        depends_on: [...step.depends_on],
+        artifact_dependencies: [...step.artifact_dependencies],
+      })),
+      recovery_blockers: assembly.recovery.recovery_blockers.map((blocker) => ({
+        code: blocker.code,
+        classification: blocker.classification,
+        reason: blocker.reason,
+        issue_codes: [...blocker.issue_codes],
+      })),
+      artifact_dependencies: assembly.recovery.artifact_dependencies.map((dependency) => ({
+        code: dependency.code,
+        domain: dependency.domain,
+        reason: dependency.reason,
+        required_by: [...dependency.required_by],
       })),
     },
     readiness: {

@@ -19,6 +19,10 @@ import {
   type TongsReleaseHandoffAuthorityCheck,
   type TongsReleaseHandoffAuthorityObservedStatus,
 } from "./tongsReleaseHandoffAuthority";
+import {
+  buildTongsReleaseRecoveryOrchestration,
+  type TongsReleaseRecoveryOrchestration,
+} from "./tongsReleaseRecoveryOrchestration";
 import { buildTongsQuenchReleasePacketStub } from "./tongsQuenchReleasePacketStub";
 
 export type TongsReleaseAssemblySummaryStatus = "ready" | "attention" | "blocked";
@@ -50,6 +54,7 @@ export interface TongsHammerReleaseAssembly {
   };
   release_prep: HammerReleasePrepPackage;
   authority: TongsReleaseHandoffAuthority;
+  recovery: TongsReleaseRecoveryOrchestration;
   quench_packet_stub: ReleasePacketStub;
   summary: {
     status: TongsReleaseAssemblySummaryStatus;
@@ -91,6 +96,10 @@ export function buildTongsHammerReleaseAssembly(
     sourceArtifacts,
     releasePrep,
   });
+  const recovery = buildTongsReleaseRecoveryOrchestration({
+    authority,
+    releasePrep,
+  });
   const blockingStates = [
     ...authority.blockers.map((issue) => issue.observed_status),
     ...authority.warnings.map((issue) => issue.observed_status),
@@ -105,6 +114,7 @@ export function buildTongsHammerReleaseAssembly(
     source_artifacts: sourceArtifacts,
     release_prep: releasePrep,
     authority,
+    recovery,
     summary: {
       status: mapAuthorityToReleaseAssemblySummaryStatus(authority),
       ready_count: authority.checks.filter((check) => check.status === "ready").length,
