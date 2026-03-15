@@ -8,15 +8,19 @@ import type { HammerPersistenceSnapshot } from "../../hammer/src/persistence/ham
 function buildSnapshot(overrides?: {
   outputLayerId?: string | null;
   includeVtt?: boolean;
+  includeAudioPolish?: boolean;
+  subtitleDrift?: "srt" | "vtt" | "both" | null;
   audioFailureCode?: "unsupported_source" | "source_unavailable" | "processing_failed" | null;
   audioFailureReason?: string | null;
   audioStatus?: "not_started" | "preparing" | "prepared" | "failed";
-  mediaKind?: "recording_audio" | "recording_video";
+  mediaKind?: "recording_audio" | "recording_video" | "asset_image";
   mediaPath?: string;
 }): HammerPersistenceSnapshot {
   const mediaKind = overrides?.mediaKind ?? "recording_audio";
   const mediaPath = overrides?.mediaPath ?? "recordings/release-assembly.wav";
   const outputLayerId = overrides?.outputLayerId ?? "macro_run_release_01";
+  const driftSrt = overrides?.subtitleDrift === "srt" || overrides?.subtitleDrift === "both";
+  const driftVtt = overrides?.subtitleDrift === "vtt" || overrides?.subtitleDrift === "both";
   return {
     schema_version: 1,
     state: {
@@ -140,9 +144,9 @@ function buildSnapshot(overrides?: {
             format: "srt",
             generated_at: "2026-03-15T12:57:00.000Z",
             source_transcript_id: "transcript_release_assembly_01",
-            source_layer_id: outputLayerId,
-            source_kind: outputLayerId ? "derived" : "raw",
-            source_recipe_ref: outputLayerId ? "macro:podcast_cleanup.v1" : null,
+            source_layer_id: driftSrt ? null : outputLayerId,
+            source_kind: driftSrt ? "raw" : outputLayerId ? "derived" : "raw",
+            source_recipe_ref: driftSrt ? null : outputLayerId ? "macro:podcast_cleanup.v1" : null,
             approximate_timing: false,
             entry_count: 1,
             content: "1\n00:00:00,000 --> 00:00:04,000\nWelcome back to the show.",
@@ -151,9 +155,9 @@ function buildSnapshot(overrides?: {
             format: "vtt",
             generated_at: "2026-03-15T12:57:30.000Z",
             source_transcript_id: "transcript_release_assembly_01",
-            source_layer_id: outputLayerId,
-            source_kind: outputLayerId ? "derived" : "raw",
-            source_recipe_ref: outputLayerId ? "macro:podcast_cleanup.v1" : null,
+            source_layer_id: driftVtt ? null : outputLayerId,
+            source_kind: driftVtt ? "raw" : outputLayerId ? "derived" : "raw",
+            source_recipe_ref: driftVtt ? null : outputLayerId ? "macro:podcast_cleanup.v1" : null,
             approximate_timing: false,
             entry_count: 1,
             content: "WEBVTT\n\n00:00.000 --> 00:04.000\nWelcome back to the show.",
@@ -200,7 +204,7 @@ function buildSnapshot(overrides?: {
     audio_polish: {
       path: "hammer/prep/audio-polish.v1.json",
       updated_at: "2026-03-15T13:00:00.000Z",
-      data: {
+      data: overrides?.includeAudioPolish === false ? null : {
         schema_version: 1,
         status: overrides?.audioStatus ?? "prepared",
         prepared_passes: overrides?.audioStatus === "failed" ? [] : ["studio_sound", "noise_cleanup", "level_consistency"],
@@ -248,12 +252,15 @@ test("buildTongsHammerReleaseAssembly summarizes a current downstream-ready hand
   assert.equal(assembly.release_prep.readiness.audio_polish, "ready");
   assert.equal(assembly.summary.checks.find((check) => check.id === "audio_polish")?.status, "ready");
   assert.equal(assembly.quench_packet_stub.packet_kind, "quench_release_packet_stub");
-  assert.equal(assembly.quench_packet_stub.readiness.summary_status, "attention");
-  assert.equal(assembly.quench_packet_stub.readiness.safe_to_publish, false);
+  assert.equal(assembly.quench_packet_stub.readiness.overall_status, "attention");
+  assert.equal(assembly.quench_packet_stub.summary_flags.safe_for_quench_preview, true);
+  assert.equal(assembly.quench_packet_stub.summary_flags.has_attention_items, true);
   assert.equal(assembly.quench_packet_stub.transcript_output.source_kind, "derived");
+  assert.equal(assembly.quench_packet_stub.transcript_output.full_text.includes("Welcome back to the show."), true);
+  assert.equal(assembly.quench_packet_stub.transcript_output.segments.length, 1);
   assert.equal(assembly.quench_packet_stub.subtitles.srt.status, "ready");
   assert.equal(assembly.quench_packet_stub.subtitles.vtt.status, "missing");
-  assert.equal(assembly.quench_packet_stub.readiness.blocking_reasons[0]?.check_id, "subtitle_vtt");
+  assert.equal(assembly.quench_packet_stub.readiness.reason_details[0]?.check_id, "subtitle_vtt");
 });
 
 test("buildTongsHammerReleaseAssembly marks future-ffmpeg audio as blocked without hiding the handoff", () => {
@@ -276,10 +283,11 @@ test("buildTongsHammerReleaseAssembly marks future-ffmpeg audio as blocked witho
     assembly.summary.checks.find((check) => check.id === "audio_polish")?.status,
     "requires_future_ffmpeg",
   );
-  assert.equal(assembly.quench_packet_stub.readiness.safe_to_publish, false);
-  assert.equal(assembly.quench_packet_stub.audio.plan_readiness, "requires_future_ffmpeg");
+  assert.equal(assembly.quench_packet_stub.summary_flags.safe_for_quench_preview, false);
   assert.equal(assembly.quench_packet_stub.audio.status, "requires_future_ffmpeg");
-  assert.equal(assembly.quench_packet_stub.readiness.blocking_reasons.some((reason) => (
+  assert.equal(assembly.quench_packet_stub.media_backbone.audio_plan.readiness, "requires_future_ffmpeg");
+  assert.equal(assembly.quench_packet_stub.media_backbone.audio_plan.requires_ffmpeg, true);
+  assert.equal(assembly.quench_packet_stub.readiness.reason_details.some((reason) => (
     reason.check_id === "audio_polish" && reason.status === "requires_future_ffmpeg"
   )), true);
 });
@@ -293,9 +301,51 @@ test("buildTongsHammerReleaseAssembly emits a publish-safe Quench stub when all 
 
   assert.equal(assembly.summary.status, "ready");
   assert.equal(assembly.release_prep.readiness.fully_prepared, true);
-  assert.equal(assembly.quench_packet_stub.readiness.summary_status, "ready");
-  assert.equal(assembly.quench_packet_stub.readiness.safe_to_publish, true);
-  assert.deepEqual(assembly.quench_packet_stub.readiness.blocking_statuses, []);
+  assert.equal(assembly.quench_packet_stub.readiness.overall_status, "ready");
+  assert.equal(assembly.quench_packet_stub.summary_flags.safe_for_quench_preview, true);
+  assert.deepEqual(assembly.quench_packet_stub.readiness.reason_statuses, []);
   assert.equal(assembly.quench_packet_stub.subtitles.vtt.status, "ready");
-  assert.equal(assembly.quench_packet_stub.readiness.blocking_reasons.length, 0);
+  assert.equal(assembly.quench_packet_stub.summary_flags.has_current_subtitles, true);
+  assert.equal(assembly.quench_packet_stub.readiness.reason_details.length, 0);
+});
+
+test("buildTongsHammerReleaseAssembly preserves stale subtitle drift in the Quench packet stub", () => {
+  const snapshot = buildSnapshot({
+    includeVtt: true,
+    subtitleDrift: "vtt",
+  });
+  const assembly = buildTongsHammerReleaseAssembly({
+    workspaceId: "workspace_release_assembly_01",
+    workpieceId: "workpiece_release_assembly_01",
+  }, snapshot);
+
+  assert.equal(assembly.summary.status, "attention");
+  assert.equal(assembly.quench_packet_stub.subtitles.vtt.status, "stale");
+  assert.equal(assembly.quench_packet_stub.subtitles.vtt.stale, true);
+  assert.equal(assembly.quench_packet_stub.subtitles.vtt.current, false);
+  assert.equal(assembly.quench_packet_stub.assembly.freshness.subtitle_vtt, "stale");
+  assert.equal(assembly.quench_packet_stub.readiness.reason_details.some((reason) => (
+    reason.check_id === "subtitle_vtt" && reason.status === "stale"
+  )), true);
+});
+
+test("buildTongsHammerReleaseAssembly marks unsupported source media as blocked in the Quench packet stub", () => {
+  const snapshot = buildSnapshot({
+    includeVtt: true,
+    includeAudioPolish: false,
+    mediaKind: "asset_image",
+    mediaPath: "assets/release-assembly.png",
+  });
+  const assembly = buildTongsHammerReleaseAssembly({
+    workspaceId: "workspace_release_assembly_01",
+    workpieceId: "workpiece_release_assembly_01",
+  }, snapshot);
+
+  assert.equal(assembly.summary.status, "blocked");
+  assert.equal(assembly.quench_packet_stub.readiness.overall_status, "blocked");
+  assert.equal(assembly.quench_packet_stub.audio.status, "unsupported");
+  assert.equal(assembly.quench_packet_stub.media_backbone.audio_plan.readiness, "unsupported");
+  assert.equal(assembly.quench_packet_stub.readiness.blocker_statuses.includes("unsupported"), true);
+  assert.equal(assembly.quench_packet_stub.source_media.kind, "asset_image");
+  assert.equal(assembly.quench_packet_stub.summary_flags.safe_for_quench_preview, false);
 });

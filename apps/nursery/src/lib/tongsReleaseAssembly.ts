@@ -29,6 +29,25 @@ export interface TongsHammerReleaseAssembly {
     workspace_id: string;
     workpiece_id: string;
   };
+  source_artifacts: {
+    state_updated_at: string | null;
+    editor_session: {
+      path: string | null;
+      updated_at: string | null;
+    };
+    structured_transcript: {
+      path: string | null;
+      updated_at: string | null;
+    };
+    visual_placements: {
+      path: string | null;
+      updated_at: string | null;
+    };
+    audio_polish: {
+      path: string | null;
+      updated_at: string | null;
+    };
+  };
   release_prep: HammerReleasePrepPackage;
   quench_packet_stub: ReleasePacketStub;
   summary: {
@@ -149,6 +168,25 @@ export function buildTongsHammerReleaseAssembly(
     target: {
       workspace_id: target.workspaceId,
       workpiece_id: target.workpieceId,
+    },
+    source_artifacts: {
+      state_updated_at: snapshot.state?.updated_at ?? null,
+      editor_session: {
+        path: snapshot.editor_session.path ?? null,
+        updated_at: snapshot.editor_session.updated_at ?? null,
+      },
+      structured_transcript: {
+        path: snapshot.structured_transcript.path ?? null,
+        updated_at: snapshot.structured_transcript.updated_at ?? null,
+      },
+      visual_placements: {
+        path: snapshot.visual_placements.path ?? null,
+        updated_at: snapshot.visual_placements.updated_at ?? null,
+      },
+      audio_polish: {
+        path: snapshot.audio_polish.path ?? null,
+        updated_at: snapshot.audio_polish.updated_at ?? null,
+      },
     },
     release_prep: releasePrep,
     summary: {

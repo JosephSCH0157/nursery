@@ -2,12 +2,16 @@ import type {
   ReleasePacketStub,
   ReleasePacketStubBlockingReason,
   ReleasePacketStubMediaSourceHint,
+  ReleasePacketStubPrepStatus,
   ReleasePacketStubSubtitleEntry,
   ReleasePacketStubSubtitleFormat,
 } from "../../../quench/src/core/release-packet.stub.types";
 import type { TongsHammerReleaseAssembly } from "./tongsReleaseAssembly";
 
-type TongsQuenchStubSource = Pick<TongsHammerReleaseAssembly, "target" | "release_prep" | "summary">;
+type TongsQuenchStubSource = Pick<
+  TongsHammerReleaseAssembly,
+  "target" | "source_artifacts" | "release_prep" | "summary"
+>;
 
 function buildBlockingReasons(assembly: TongsQuenchStubSource): ReleasePacketStubBlockingReason[] {
   return assembly.summary.checks
@@ -18,6 +22,10 @@ function buildBlockingReasons(assembly: TongsQuenchStubSource): ReleasePacketStu
       status: check.status,
       detail: check.detail,
     }));
+}
+
+function buildReasonStatuses(assembly: TongsQuenchStubSource): Array<Exclude<ReleasePacketStubPrepStatus, "ready">> {
+  return [...assembly.summary.blocking_states];
 }
 
 function buildSubtitleEntry(
@@ -35,13 +43,19 @@ function buildSubtitleEntry(
     freshness: subtitle?.freshness ?? "missing",
     ref_kind: "embedded_structured_transcript",
     structured_transcript_path: releasePrep.artifact_refs.structured_transcript_path,
+    artifact_updated_at: assembly.source_artifacts.structured_transcript.updated_at,
     transcript_id: textOutputs?.transcript_source.transcript_id ?? releasePrep.identity.transcript_source_id ?? null,
+    generated_at: artifact?.generated_at ?? null,
     source_transcript_id: artifact?.source_transcript_id ?? null,
     source_layer_id: artifact?.source_layer_id ?? null,
     source_kind: artifact?.source_kind ?? null,
     source_recipe_ref: artifact?.source_recipe_ref ?? null,
+    approximate_timing: artifact?.approximate_timing ?? null,
     entry_count: artifact?.entry_count ?? 0,
     content_present: Boolean(artifact?.content?.trim()),
+    present: artifact != null,
+    current: subtitle?.freshness === "current",
+    stale: subtitle?.freshness === "stale",
   };
 }
 
@@ -56,16 +70,47 @@ function normalizeMediaSourceHint(value: string | null): ReleasePacketStubMediaS
   }
 }
 
+function maxIsoTimestamp(values: Array<string | null | undefined>): string | null {
+  let latest: string | null = null;
+  for (const value of values) {
+    if (!value) continue;
+    if (!latest || value > latest) latest = value;
+  }
+  return latest;
+}
+
 export function buildTongsQuenchReleasePacketStub(
   assembly: TongsQuenchStubSource,
 ): ReleasePacketStub {
   const releasePrep = assembly.release_prep;
   const textOutputs = releasePrep.text_outputs;
-  const safeToPublish = (
-    assembly.summary.status === "ready"
-    && releasePrep.readiness.fully_prepared
-    && assembly.summary.blocking_states.length === 0
+  const subtitleSrt = buildSubtitleEntry(assembly, "srt");
+  const subtitleVtt = buildSubtitleEntry(assembly, "vtt");
+  const reasonStatuses = buildReasonStatuses(assembly);
+  const blockerStatuses = reasonStatuses.filter((status) => (
+    status === "failed"
+    || status === "unsupported"
+    || status === "requires_future_ffmpeg"
+  ));
+  const attentionStatuses = reasonStatuses.filter((status) => status === "missing" || status === "stale");
+  const preferredPlaybackCloudUri = releasePrep.media_prep_outputs.audio.preferred_playback.kind === "raw"
+    ? releasePrep.media_prep_outputs.audio.raw_source.cloud_uri
+    : null;
+  const hasOutputText = Boolean(textOutputs?.resolved_output.full_text.trim()) && (textOutputs?.resolved_output.segment_count ?? 0) > 0;
+  const hasCurrentSubtitles = subtitleSrt.current || subtitleVtt.current;
+  const hasVisualGuidance = releasePrep.media_prep_outputs.visuals.placement_count > 0;
+  const hasPreferredAudioPath = Boolean(
+    releasePrep.media_prep_outputs.audio.preferred_playback.local_relpath
+    || preferredPlaybackCloudUri,
   );
+  const safeForQuenchPreview = blockerStatuses.length === 0 && hasOutputText && hasPreferredAudioPath;
+  const deterministicSourceUpdatedAt = maxIsoTimestamp([
+    assembly.source_artifacts.state_updated_at,
+    assembly.source_artifacts.editor_session.updated_at,
+    assembly.source_artifacts.structured_transcript.updated_at,
+    assembly.source_artifacts.visual_placements.updated_at,
+    assembly.source_artifacts.audio_polish.updated_at,
+  ]);
 
   return {
     schema_version: 1,
@@ -76,11 +121,45 @@ export function buildTongsQuenchReleasePacketStub(
       target: {
         workspace_id: assembly.target.workspace_id,
         workpiece_id: assembly.target.workpiece_id,
+        workspace_name: null,
+        workpiece_name: null,
+      },
+    },
+    assembly: {
+      release_prep_schema_version: releasePrep.schema_version,
+      deterministic_source_updated_at: deterministicSourceUpdatedAt,
+      source_timestamps: {
+        state_updated_at: assembly.source_artifacts.state_updated_at,
+        editor_session: {
+          artifact_path: assembly.source_artifacts.editor_session.path,
+          updated_at: assembly.source_artifacts.editor_session.updated_at,
+        },
+        structured_transcript: {
+          artifact_path: assembly.source_artifacts.structured_transcript.path,
+          updated_at: assembly.source_artifacts.structured_transcript.updated_at,
+        },
+        visual_placements: {
+          artifact_path: assembly.source_artifacts.visual_placements.path,
+          updated_at: assembly.source_artifacts.visual_placements.updated_at,
+        },
+        audio_polish: {
+          artifact_path: assembly.source_artifacts.audio_polish.path,
+          updated_at: assembly.source_artifacts.audio_polish.updated_at,
+        },
+      },
+      freshness: {
+        transcript_output: releasePrep.readiness.transcript_output,
+        subtitle_srt: subtitleSrt.freshness,
+        subtitle_vtt: subtitleVtt.freshness,
+        visuals: releasePrep.media_prep_outputs.visuals.freshness,
+        audio_polish: releasePrep.media_prep_outputs.audio.polish.freshness,
       },
     },
     identity: {
       workspace_id: assembly.target.workspace_id,
       workpiece_id: assembly.target.workpiece_id,
+      workspace_name: null,
+      workpiece_name: null,
       editor_session_id: releasePrep.identity.editor_session_id,
       transcript_source_id: releasePrep.identity.transcript_source_id,
       media_id: releasePrep.identity.media_id,
@@ -91,13 +170,27 @@ export function buildTongsQuenchReleasePacketStub(
       source_mode: releasePrep.identity.source_mode,
       preview_mode: releasePrep.identity.preview_mode,
     },
+    source_media: {
+      media_id: releasePrep.media_prep_outputs.audio.raw_source.media_id,
+      kind: releasePrep.media_prep_outputs.audio.raw_source.kind,
+      media_signature: releasePrep.media_prep_outputs.audio.raw_source.media_signature,
+      source_hint: normalizeMediaSourceHint(releasePrep.media_prep_outputs.audio.raw_source.source_hint),
+      local_relpath: releasePrep.media_prep_outputs.audio.raw_source.local_relpath,
+      cloud_uri: releasePrep.media_prep_outputs.audio.raw_source.cloud_uri,
+      duration_ms: releasePrep.media_prep_outputs.audio.raw_source.duration_ms,
+      media_source_label: releasePrep.media_prep_outputs.audio.raw_source.media_source_label,
+      transcript_id: textOutputs?.transcript_source.transcript_id ?? null,
+      transcript_prepared_at: textOutputs?.transcript_source.prepared_at ?? null,
+      transcript_segment_count: textOutputs?.transcript_source.segment_count ?? 0,
+    },
     readiness: {
-      summary_status: assembly.summary.status,
-      safe_to_publish: safeToPublish,
+      overall_status: assembly.summary.status,
       fully_prepared: releasePrep.readiness.fully_prepared,
-      ready_count: assembly.summary.ready_count,
-      attention_count: assembly.summary.attention_count,
-      blocking_statuses: [...assembly.summary.blocking_states],
+      ready_check_count: assembly.summary.ready_count,
+      attention_check_count: assembly.summary.attention_count,
+      reason_statuses: reasonStatuses,
+      blocker_statuses: blockerStatuses,
+      attention_statuses: attentionStatuses,
       status_flags: {
         ready: releasePrep.readiness.status_flags.ready,
         missing: releasePrep.readiness.status_flags.missing,
@@ -107,32 +200,51 @@ export function buildTongsQuenchReleasePacketStub(
         requires_future_ffmpeg: releasePrep.readiness.status_flags.requires_future_ffmpeg,
       },
       message: assembly.summary.message,
-      blocking_reasons: buildBlockingReasons(assembly),
+      reason_details: buildBlockingReasons(assembly),
+    },
+    summary_flags: {
+      safe_for_quench_preview: safeForQuenchPreview,
+      has_blockers: blockerStatuses.length > 0,
+      has_attention_items: assembly.summary.attention_count > 0,
+      has_output_text: hasOutputText,
+      has_current_subtitles: hasCurrentSubtitles,
+      has_visual_guidance: hasVisualGuidance,
+      has_preferred_audio_path: hasPreferredAudioPath,
     },
     transcript_output: {
       status: releasePrep.readiness.transcript_output,
       ref_kind: "structured_transcript_selection",
       structured_transcript_path: releasePrep.artifact_refs.structured_transcript_path,
+      artifact_updated_at: assembly.source_artifacts.structured_transcript.updated_at,
       transcript_id: textOutputs?.transcript_source.transcript_id ?? releasePrep.identity.transcript_source_id ?? null,
       source_kind: textOutputs?.output_selection.source_kind ?? null,
       layer_id: textOutputs?.output_selection.layer_id ?? null,
       recipe_ref: textOutputs?.output_selection.recipe_ref ?? null,
       macro_kind: textOutputs?.output_selection.macro_kind ?? null,
       based_on_transcript_id: textOutputs?.output_selection.based_on_transcript_id ?? null,
+      full_text: textOutputs?.resolved_output.full_text ?? "",
       segment_count: textOutputs?.resolved_output.segment_count ?? 0,
       caption_preview_row_count: textOutputs?.resolved_output.caption_preview_row_count ?? 0,
       approximate_caption_timing: textOutputs?.resolved_output.approximate_caption_timing ?? false,
       full_text_present: Boolean(textOutputs?.resolved_output.full_text.trim()),
+      segments: textOutputs?.resolved_output.segments.map((segment) => ({
+        segment_id: segment.segment_id,
+        speaker: segment.speaker,
+        start_sec: segment.start_sec,
+        end_sec: segment.end_sec,
+        text: segment.text,
+      })) ?? [],
     },
     subtitles: {
       last_generated_format: textOutputs?.subtitles.last_generated_format ?? null,
-      srt: buildSubtitleEntry(assembly, "srt"),
-      vtt: buildSubtitleEntry(assembly, "vtt"),
+      srt: subtitleSrt,
+      vtt: subtitleVtt,
     },
     visuals: {
       status: releasePrep.readiness.visuals,
       ref_kind: "visual_placements_artifact",
       artifact_path: releasePrep.artifact_refs.visual_placements_path,
+      artifact_updated_at: assembly.source_artifacts.visual_placements.updated_at,
       prep_status: releasePrep.media_prep_outputs.visuals.status,
       freshness: releasePrep.media_prep_outputs.visuals.freshness,
       transcript_source_ref: releasePrep.media_prep_outputs.visuals.transcript_source_ref,
@@ -140,15 +252,15 @@ export function buildTongsQuenchReleasePacketStub(
       placement_count: releasePrep.media_prep_outputs.visuals.placement_count,
       uncertain_placement_count: releasePrep.media_prep_outputs.visuals.uncertain_placement_count,
       uncertainty_flags: [...releasePrep.media_prep_outputs.visuals.uncertainty_flags],
+      has_placements: releasePrep.media_prep_outputs.visuals.placement_count > 0,
     },
     audio: {
       status: releasePrep.readiness.audio_polish,
       ref_kind: "audio_polish_artifact",
       artifact_path: releasePrep.artifact_refs.audio_polish_path,
+      artifact_updated_at: assembly.source_artifacts.audio_polish.updated_at,
       prep_status: releasePrep.media_prep_outputs.audio.polish.status,
       freshness: releasePrep.media_prep_outputs.audio.polish.freshness,
-      plan_readiness: releasePrep.media_backbone.audio_polish_plan?.readiness ?? null,
-      plan_detail: releasePrep.media_backbone.audio_polish_plan?.detail ?? null,
       failure_code: releasePrep.media_prep_outputs.audio.polish.failure_code,
       failure_reason: releasePrep.media_prep_outputs.audio.polish.failure_reason,
       prepared_passes: [...releasePrep.media_prep_outputs.audio.polish.prepared_passes],
@@ -162,6 +274,7 @@ export function buildTongsQuenchReleasePacketStub(
         reason: releasePrep.media_prep_outputs.audio.preferred_playback.reason,
         media_id: releasePrep.media_prep_outputs.audio.preferred_playback.media_id,
         local_relpath: releasePrep.media_prep_outputs.audio.preferred_playback.local_relpath,
+        cloud_uri: preferredPlaybackCloudUri,
         mime_type: releasePrep.media_prep_outputs.audio.preferred_playback.mime_type,
         source_label: releasePrep.media_prep_outputs.audio.preferred_playback.source_label,
       },
@@ -174,6 +287,29 @@ export function buildTongsQuenchReleasePacketStub(
         source_hint: normalizeMediaSourceHint(releasePrep.media_prep_outputs.audio.raw_source.source_hint),
         media_source_label: releasePrep.media_prep_outputs.audio.raw_source.media_source_label,
         duration_ms: releasePrep.media_prep_outputs.audio.raw_source.duration_ms,
+      },
+    },
+    media_backbone: {
+      runtime: {
+        preferred_backend: releasePrep.media_backbone.runtime.preferred_backend,
+        ffmpeg_install_state: releasePrep.media_backbone.runtime.ffmpeg.install_state,
+        ffmpeg_available: releasePrep.media_backbone.runtime.ffmpeg.ffmpeg_available,
+        ffprobe_available: releasePrep.media_backbone.runtime.ffmpeg.ffprobe_available,
+        future_operations: releasePrep.media_backbone.runtime.future_operations.map((operation) => ({
+          operation: operation.operation,
+          backend: operation.backend,
+          install_state: operation.install_state,
+          detail: operation.detail,
+        })),
+      },
+      audio_plan: {
+        readiness: releasePrep.media_backbone.audio_polish_plan?.readiness ?? null,
+        executable: releasePrep.media_backbone.audio_polish_plan?.executable ?? false,
+        backend: releasePrep.media_backbone.audio_polish_plan?.backend ?? "none",
+        current_strategy: releasePrep.media_backbone.audio_polish_plan?.current_strategy ?? null,
+        future_strategy: releasePrep.media_backbone.audio_polish_plan?.future_strategy ?? null,
+        requires_ffmpeg: releasePrep.media_backbone.audio_polish_plan?.requires_ffmpeg ?? false,
+        detail: releasePrep.media_backbone.audio_polish_plan?.detail ?? null,
       },
     },
   };

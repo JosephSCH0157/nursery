@@ -251,12 +251,16 @@ export default function TongsReleasePrep() {
                   <div className="tongs-release-prep__mono">{quenchPacketStub?.packet_kind ?? "none"}</div>
                 </div>
                 <div>
-                  <div className="tongs-release-prep__fact-label">summary status</div>
-                  <div>{quenchPacketStub?.readiness.summary_status ?? "none"}</div>
+                  <div className="tongs-release-prep__fact-label">overall status</div>
+                  <div>{quenchPacketStub?.readiness.overall_status ?? "none"}</div>
                 </div>
                 <div>
-                  <div className="tongs-release-prep__fact-label">safe to publish</div>
-                  <div>{quenchPacketStub?.readiness.safe_to_publish ? "true" : "false"}</div>
+                  <div className="tongs-release-prep__fact-label">preview safe</div>
+                  <div>{quenchPacketStub?.summary_flags.safe_for_quench_preview ? "true" : "false"}</div>
+                </div>
+                <div>
+                  <div className="tongs-release-prep__fact-label">assembled from</div>
+                  <div className="tongs-release-prep__mono">{quenchPacketStub?.assembly.deterministic_source_updated_at ?? "none"}</div>
                 </div>
                 <div>
                   <div className="tongs-release-prep__fact-label">transcript source</div>
@@ -276,6 +280,14 @@ export default function TongsReleasePrep() {
                     visuals {quenchPacketStub?.visuals.status ?? "missing"}
                     {" · "}
                     audio {quenchPacketStub?.audio.status ?? "missing"}
+                  </div>
+                </div>
+                <div>
+                  <div className="tongs-release-prep__fact-label">summary flags</div>
+                  <div>
+                    blockers {quenchPacketStub?.summary_flags.has_blockers ? "yes" : "no"}
+                    {" · "}
+                    current subtitles {quenchPacketStub?.summary_flags.has_current_subtitles ? "yes" : "no"}
                   </div>
                 </div>
               </div>

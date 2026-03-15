@@ -50,6 +50,11 @@ export type ReleasePacketStubCheckId =
   | "visuals"
   | "audio_polish";
 
+export interface ReleasePacketStubArtifactTimestamp {
+  artifact_path: string | null;
+  updated_at: string | null;
+}
+
 export interface ReleasePacketStubBlockingReason {
   check_id: ReleasePacketStubCheckId;
   label: string;
@@ -70,16 +75,25 @@ export interface ReleasePacketStubTranscriptOutput {
   status: ReleasePacketStubPrepStatus;
   ref_kind: "structured_transcript_selection";
   structured_transcript_path: string | null;
+  artifact_updated_at: string | null;
   transcript_id: string | null;
   source_kind: ReleasePacketStubOutputSourceKind | null;
   layer_id: string | null;
   recipe_ref: string | null;
   macro_kind: ReleasePacketStubMacroKind | null;
   based_on_transcript_id: string | null;
+  full_text: string;
   segment_count: number;
   caption_preview_row_count: number;
   approximate_caption_timing: boolean;
   full_text_present: boolean;
+  segments: Array<{
+    segment_id: string;
+    speaker: string;
+    start_sec: number;
+    end_sec: number;
+    text: string;
+  }>;
 }
 
 export interface ReleasePacketStubSubtitleEntry {
@@ -88,19 +102,26 @@ export interface ReleasePacketStubSubtitleEntry {
   freshness: ReleasePacketStubArtifactFreshness;
   ref_kind: "embedded_structured_transcript";
   structured_transcript_path: string | null;
+  artifact_updated_at: string | null;
   transcript_id: string | null;
+  generated_at: string | null;
   source_transcript_id: string | null;
   source_layer_id: string | null;
   source_kind: ReleasePacketStubOutputSourceKind | null;
   source_recipe_ref: string | null;
+  approximate_timing: boolean | null;
   entry_count: number;
   content_present: boolean;
+  present: boolean;
+  current: boolean;
+  stale: boolean;
 }
 
 export interface ReleasePacketStubVisualPrep {
   status: ReleasePacketStubPrepStatus;
   ref_kind: "visual_placements_artifact";
   artifact_path: string | null;
+  artifact_updated_at: string | null;
   prep_status: ReleasePacketStubVisualPrepStatus;
   freshness: ReleasePacketStubArtifactFreshness;
   transcript_source_ref: string | null;
@@ -108,16 +129,16 @@ export interface ReleasePacketStubVisualPrep {
   placement_count: number;
   uncertain_placement_count: number;
   uncertainty_flags: string[];
+  has_placements: boolean;
 }
 
 export interface ReleasePacketStubAudioPrep {
   status: ReleasePacketStubPrepStatus;
   ref_kind: "audio_polish_artifact";
   artifact_path: string | null;
+  artifact_updated_at: string | null;
   prep_status: ReleasePacketStubAudioPrepStatus;
   freshness: ReleasePacketStubArtifactFreshness;
-  plan_readiness: ReleasePacketStubAudioPlanReadiness | null;
-  plan_detail: string | null;
   failure_code: ReleasePacketStubAudioFailureCode | null;
   failure_reason: string | null;
   prepared_passes: ReleasePacketStubAudioPass[];
@@ -131,6 +152,7 @@ export interface ReleasePacketStubAudioPrep {
     reason: ReleasePacketStubPreferredPlaybackReason;
     media_id: string | null;
     local_relpath: string | null;
+    cloud_uri: string | null;
     mime_type: string | null;
     source_label: string | null;
   };
@@ -155,11 +177,33 @@ export interface ReleasePacketStub {
     target: {
       workspace_id: string;
       workpiece_id: string;
+      workspace_name: string | null;
+      workpiece_name: string | null;
+    };
+  };
+  assembly: {
+    release_prep_schema_version: 1;
+    deterministic_source_updated_at: string | null;
+    source_timestamps: {
+      state_updated_at: string | null;
+      editor_session: ReleasePacketStubArtifactTimestamp;
+      structured_transcript: ReleasePacketStubArtifactTimestamp;
+      visual_placements: ReleasePacketStubArtifactTimestamp;
+      audio_polish: ReleasePacketStubArtifactTimestamp;
+    };
+    freshness: {
+      transcript_output: ReleasePacketStubPrepStatus;
+      subtitle_srt: ReleasePacketStubArtifactFreshness;
+      subtitle_vtt: ReleasePacketStubArtifactFreshness;
+      visuals: ReleasePacketStubArtifactFreshness;
+      audio_polish: ReleasePacketStubArtifactFreshness;
     };
   };
   identity: {
     workspace_id: string;
     workpiece_id: string;
+    workspace_name: string | null;
+    workpiece_name: string | null;
     editor_session_id: string | null;
     transcript_source_id: string | null;
     media_id: string | null;
@@ -170,16 +214,39 @@ export interface ReleasePacketStub {
     source_mode: ReleasePacketStubLaunchSourceMode | null;
     preview_mode: ReleasePacketStubPreviewMode | null;
   };
+  source_media: {
+    media_id: string | null;
+    kind: ReleasePacketStubMediaKind | null;
+    media_signature: string | null;
+    source_hint: ReleasePacketStubMediaSourceHint | null;
+    local_relpath: string | null;
+    cloud_uri: string | null;
+    duration_ms: number | null;
+    media_source_label: string | null;
+    transcript_id: string | null;
+    transcript_prepared_at: string | null;
+    transcript_segment_count: number;
+  };
   readiness: {
-    summary_status: ReleasePacketStubSummaryStatus;
-    safe_to_publish: boolean;
+    overall_status: ReleasePacketStubSummaryStatus;
     fully_prepared: boolean;
-    ready_count: number;
-    attention_count: number;
-    blocking_statuses: Exclude<ReleasePacketStubPrepStatus, "ready">[];
+    ready_check_count: number;
+    attention_check_count: number;
+    reason_statuses: Exclude<ReleasePacketStubPrepStatus, "ready">[];
+    blocker_statuses: Array<"failed" | "unsupported" | "requires_future_ffmpeg">;
+    attention_statuses: Array<"missing" | "stale">;
     status_flags: ReleasePacketStubReadinessFlags;
     message: string;
-    blocking_reasons: ReleasePacketStubBlockingReason[];
+    reason_details: ReleasePacketStubBlockingReason[];
+  };
+  summary_flags: {
+    safe_for_quench_preview: boolean;
+    has_blockers: boolean;
+    has_attention_items: boolean;
+    has_output_text: boolean;
+    has_current_subtitles: boolean;
+    has_visual_guidance: boolean;
+    has_preferred_audio_path: boolean;
   };
   transcript_output: ReleasePacketStubTranscriptOutput;
   subtitles: {
@@ -189,4 +256,27 @@ export interface ReleasePacketStub {
   };
   visuals: ReleasePacketStubVisualPrep;
   audio: ReleasePacketStubAudioPrep;
+  media_backbone: {
+    runtime: {
+      preferred_backend: "auto" | "builtin" | "ffmpeg";
+      ffmpeg_install_state: "not_configured" | "partial" | "ready";
+      ffmpeg_available: boolean;
+      ffprobe_available: boolean;
+      future_operations: Array<{
+        operation: "ensure_working_audio" | "generate_waveform_proxy" | "render_clip_export";
+        backend: "ffmpeg";
+        install_state: "not_configured" | "partial" | "ready";
+        detail: string;
+      }>;
+    };
+    audio_plan: {
+      readiness: ReleasePacketStubAudioPlanReadiness | null;
+      executable: boolean;
+      backend: "builtin" | "ffmpeg" | "none";
+      current_strategy: "builtin_wav_v1" | null;
+      future_strategy: "ffmpeg_working_audio_v1" | null;
+      requires_ffmpeg: boolean;
+      detail: string | null;
+    };
+  };
 }
