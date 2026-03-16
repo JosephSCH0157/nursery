@@ -2,7 +2,12 @@ import { tongsFetch } from "../lib/tongsFetch";
 import { loadHammerPersistenceSnapshot } from "../persistence/hammerPersistence";
 
 const WORKSPACE_CACHE_KEY = "forge_workspaces_cache_v1";
-const ACTIVE_WORKSPACE_STORAGE_KEYS = ["forge_workspace_id_v1", "barstock_workspace_id"] as const;
+const HAMMER_ACTIVE_WORKSPACE_KEY = "hammer_workspace_id_v1";
+const ACTIVE_WORKSPACE_STORAGE_KEYS = [
+  HAMMER_ACTIVE_WORKSPACE_KEY,
+  "forge_workspace_id_v1",
+  "barstock_workspace_id",
+] as const;
 const MANIFEST_PATH = "manifest.json";
 const RECORDING_PATH_PREFIXES = ["recordings/", "assets/recordings/"] as const;
 
@@ -48,6 +53,11 @@ export type HammerRuntimeProjectSignals = {
   hasVisualPlacements: boolean;
   hasAudioPolish: boolean;
   hasEditPlan: boolean;
+};
+
+export type HammerWorkpieceManifestContext = {
+  workspaceId: string | null;
+  hasRecordingMedia: boolean;
 };
 
 export function classifyHammerRuntimeProject(
@@ -107,6 +117,10 @@ function readWorkspaceIdFromSearch(search: string): string | null {
   );
 }
 
+export function readHammerRouteWorkspaceId(search: string): string | null {
+  return readWorkspaceIdFromSearch(search);
+}
+
 export function resolveHammerRouteWorkpieceId(search: string): string | null {
   const params = new URLSearchParams(search);
   return readString(
@@ -122,8 +136,21 @@ export function readHammerStoredActiveWorkspaceId(): string | null {
   return null;
 }
 
+export function persistHammerStoredActiveWorkspaceId(workspaceId: string | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (workspaceId) {
+      window.localStorage.setItem(HAMMER_ACTIVE_WORKSPACE_KEY, workspaceId);
+      return;
+    }
+    window.localStorage.removeItem(HAMMER_ACTIVE_WORKSPACE_KEY);
+  } catch {
+    // ignore storage errors
+  }
+}
+
 export function resolveHammerRouteWorkspaceId(search: string): string | null {
-  return readWorkspaceIdFromSearch(search) ?? readHammerStoredActiveWorkspaceId();
+  return readHammerRouteWorkspaceId(search) ?? readHammerStoredActiveWorkspaceId();
 }
 
 export function readHammerWorkspaceCache(): HammerWorkspaceCacheRow[] {
@@ -265,9 +292,24 @@ function buildRuntimeReadiness(args: {
   }
 }
 
-async function loadHammerWorkpieceManifestSignals(
+export function extractHammerWorkpieceManifestContext(
+  manifestValue: unknown,
+): HammerWorkpieceManifestContext {
+  const manifest = readJsonRecord(manifestValue);
+  const files = readJsonRecord(manifest?.files);
+  const hasRecordingMedia = Object.keys(files ?? {}).some((path) => (
+    RECORDING_PATH_PREFIXES.some((prefix) => path.startsWith(prefix))
+  ));
+
+  return {
+    workspaceId: readString(manifest?.workspace_id),
+    hasRecordingMedia,
+  };
+}
+
+export async function loadHammerWorkpieceManifestContext(
   workpieceId: string,
-): Promise<{ hasRecordingMedia: boolean }> {
+): Promise<HammerWorkpieceManifestContext> {
   const response = await tongsFetch(
     `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(MANIFEST_PATH)}`,
     {
@@ -279,7 +321,10 @@ async function loadHammerWorkpieceManifestSignals(
   );
 
   if (response.status === 404) {
-    return { hasRecordingMedia: false };
+    return {
+      workspaceId: null,
+      hasRecordingMedia: false,
+    };
   }
 
   const payload = await readJsonBody(response);
@@ -291,12 +336,7 @@ async function loadHammerWorkpieceManifestSignals(
   }
 
   const manifest = readJsonRecord(readJsonRecord(payload)?.data);
-  const files = readJsonRecord(manifest?.files);
-  const hasRecordingMedia = Object.keys(files ?? {}).some((path) => (
-    RECORDING_PATH_PREFIXES.some((prefix) => path.startsWith(prefix))
-  ));
-
-  return { hasRecordingMedia };
+  return extractHammerWorkpieceManifestContext(manifest);
 }
 
 export async function loadHammerWorkspaceProjects(
@@ -310,7 +350,7 @@ export async function loadHammerWorkspaceProjects(
           workspaceId,
           workpieceId: episode.id,
         }),
-        loadHammerWorkpieceManifestSignals(episode.id),
+        loadHammerWorkpieceManifestContext(episode.id),
       ]);
 
       return {
@@ -356,7 +396,7 @@ export async function loadHammerWorkspaceProjects(
       || snapshot?.edit_plan.path
       || snapshot?.edit_plan.data,
     );
-    const editReadiness = classifyHammerRuntimeProject({
+      const editReadiness = classifyHammerRuntimeProject({
       hasRecordingMedia: manifestSignals.hasRecordingMedia,
       hasEditorSession,
       hasStructuredTranscript,

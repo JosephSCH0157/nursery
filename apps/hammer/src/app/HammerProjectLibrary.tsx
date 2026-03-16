@@ -1,14 +1,25 @@
-import { useEffect, useMemo, useState } from "react";
 import type { JSX } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   buildHammerCanonicalEditorHref,
   loadHammerWorkspaceProjects,
   resolveHammerRouteWorkpieceId,
-  resolveHammerRouteWorkspaceId,
   type HammerRuntimeProjectCard,
 } from "./hammerRuntimeData";
+import HammerWorkspaceSelection from "./HammerWorkspaceSelection";
+import type { HammerShellWorkspaceOption, HammerWorkspaceResolutionState } from "./hammerShellContext";
 import "./HammerProjectLibrary.css";
+
+type HammerProjectLibraryProps = {
+  workspaceId: string | null;
+  workspaces: HammerShellWorkspaceOption[];
+  loadingWorkspaces: boolean;
+  workspaceError: string | null;
+  workspaceResolutionState: HammerWorkspaceResolutionState;
+  onSelectWorkspace: (workspaceId: string | null) => void;
+  onRefreshWorkspaces: () => Promise<void>;
+};
 
 function formatDateTimeLabel(value: string | null): string {
   if (!value) return "Unavailable";
@@ -40,23 +51,18 @@ function pickDefaultProject(
     ?? null;
 }
 
-export default function HammerProjectLibrary(): JSX.Element {
+export default function HammerProjectLibrary(props: HammerProjectLibraryProps): JSX.Element {
   const location = useLocation();
   const navigate = useNavigate();
   const routeWorkpieceId = useMemo(
     () => resolveHammerRouteWorkpieceId(location.search),
     [location.search],
   );
-  const [workspaceId, setWorkspaceId] = useState<string | null>(() => resolveHammerRouteWorkspaceId(location.search));
   const [projects, setProjects] = useState<HammerRuntimeProjectCard[]>([]);
   const [selectedWorkpieceId, setSelectedWorkpieceId] = useState<string | null>(routeWorkpieceId);
-  const [loading, setLoading] = useState(Boolean(workspaceId));
+  const [loading, setLoading] = useState(Boolean(props.workspaceId));
   const [error, setError] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
-
-  useEffect(() => {
-    setWorkspaceId(resolveHammerRouteWorkspaceId(location.search));
-  }, [location.search]);
 
   useEffect(() => {
     if (!routeWorkpieceId) return;
@@ -64,20 +70,7 @@ export default function HammerProjectLibrary(): JSX.Element {
   }, [routeWorkpieceId]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return undefined;
-    const syncWorkspace = () => {
-      setWorkspaceId(resolveHammerRouteWorkspaceId(window.location.search));
-    };
-    window.addEventListener("storage", syncWorkspace);
-    window.addEventListener("focus", syncWorkspace);
-    return () => {
-      window.removeEventListener("storage", syncWorkspace);
-      window.removeEventListener("focus", syncWorkspace);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!workspaceId) {
+    if (!props.workspaceId) {
       setProjects([]);
       setSelectedWorkpieceId(routeWorkpieceId);
       setLoading(false);
@@ -89,7 +82,7 @@ export default function HammerProjectLibrary(): JSX.Element {
     setLoading(true);
     setError(null);
 
-    void loadHammerWorkspaceProjects(workspaceId)
+    void loadHammerWorkspaceProjects(props.workspaceId)
       .then((nextProjects) => {
         if (!active) return;
         setProjects(nextProjects);
@@ -109,7 +102,7 @@ export default function HammerProjectLibrary(): JSX.Element {
     return () => {
       active = false;
     };
-  }, [routeWorkpieceId, refreshToken, workspaceId]);
+  }, [props.workspaceId, routeWorkpieceId, refreshToken]);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.workpieceId === selectedWorkpieceId) ?? null,
@@ -126,12 +119,12 @@ export default function HammerProjectLibrary(): JSX.Element {
 
   const devLaunchHref = useMemo(() => {
     const params = new URLSearchParams(location.search);
-    if (workspaceId) {
-      params.set("workspace_id", workspaceId);
+    if (props.workspaceId) {
+      params.set("workspace_id", props.workspaceId);
     }
     const nextSearch = params.toString();
     return nextSearch ? `/app/hammer/dev/launch?${nextSearch}` : "/app/hammer/dev/launch";
-  }, [location.search, workspaceId]);
+  }, [location.search, props.workspaceId]);
 
   function openProject(project: HammerRuntimeProjectCard | null) {
     if (!project) return;
@@ -211,10 +204,20 @@ export default function HammerProjectLibrary(): JSX.Element {
           <button
             type="button"
             className="hammer-project-library__button hammer-project-library__button--secondary"
-            onClick={() => setRefreshToken((current) => current + 1)}
-            disabled={!workspaceId || loading}
+            onClick={() => {
+              if (!props.workspaceId) {
+                void props.onRefreshWorkspaces();
+                return;
+              }
+              setRefreshToken((current) => current + 1);
+            }}
+            disabled={loading || props.loadingWorkspaces}
           >
-            {loading ? "Refreshing..." : "Refresh"}
+            {loading || props.loadingWorkspaces
+              ? "Refreshing..."
+              : props.workspaceId
+              ? "Refresh"
+              : "Refresh workspaces"}
           </button>
           <button
             type="button"
@@ -232,11 +235,24 @@ export default function HammerProjectLibrary(): JSX.Element {
         </div>
       </header>
 
-      {!workspaceId ? (
-        <section className="hammer-project-library__empty-state">
-          <h3>No workspace selected.</h3>
-          <p>Choose a Forge workspace, then reopen Hammer to load real workpieces.</p>
-        </section>
+      {props.workspaceResolutionState !== "ready" ? (
+        <HammerWorkspaceSelection
+          title={props.workspaceResolutionState === "resolving"
+            ? "Resolving workspace context"
+            : "Choose a workspace to open Hammer"}
+          summary={props.workspaceResolutionState === "resolving"
+            ? "Hammer is resolving workspace truth from the current route and workpiece."
+            : "Hammer establishes its own workspace context when no upstream handoff is present."}
+          workspaces={props.workspaces}
+          selectedWorkspaceId={props.workspaceId}
+          loading={props.loadingWorkspaces}
+          error={props.workspaceError}
+          onSelectWorkspace={(workspaceId) => props.onSelectWorkspace(workspaceId)}
+          onRefresh={() => {
+            void props.onRefreshWorkspaces();
+          }}
+          emptyMessage="No workspaces are available yet. Sign in or refresh to load a real Hammer library."
+        />
       ) : error ? (
         <section className="hammer-project-library__empty-state hammer-project-library__empty-state--error">
           <h3>Project library unavailable.</h3>

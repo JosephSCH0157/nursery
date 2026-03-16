@@ -32,3 +32,12 @@ test("Hammer standalone header no longer advertises fake production chrome", () 
   assert.doesNotMatch(shellSource, /AI ready/);
   assert.doesNotMatch(shellSource, /Forge User/);
 });
+
+test("Hammer standalone owns workspace resolution instead of requiring an upstream reopen flow", () => {
+  const shellSource = readWorkspaceFile("../src/routes/HammerStandalone.tsx");
+  const librarySource = readWorkspaceFile("../src/routes/Hammer.tsx");
+
+  assert.match(shellSource, /listMyWorkspaces/);
+  assert.match(shellSource, /loadHammerWorkpieceManifestContext/);
+  assert.doesNotMatch(librarySource, /reopen Hammer/i);
+});

@@ -206,6 +206,29 @@
   flex-wrap: wrap;
 }
 
+.hammer-standalone__workspace-field {
+  display: grid;
+  gap: 4px;
+}
+
+.hammer-standalone__workspace-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(219, 232, 255, 0.62);
+}
+
+.hammer-standalone__workspace-select {
+  min-width: 220px;
+  max-width: 320px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.72);
+  color: #dbe8ff;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
 .hammer-standalone__pill {
   padding: 4px 10px;
   border-radius: 999px;
@@ -251,7 +274,8 @@
 .hammer-standalone__meta-button:focus-visible,
 .hammer-standalone__project-menu-item:focus-visible,
 .hammer-standalone__project-menu-trigger:focus-visible,
-.hammer-standalone__back-link:focus-visible {
+.hammer-standalone__back-link:focus-visible,
+.hammer-standalone__workspace-select:focus-visible {
   outline: 2px solid rgba(147, 197, 253, 0.7);
   outline-offset: 2px;
 }
@@ -264,5 +288,9 @@
   .hammer-standalone__header-meta {
     margin-left: 0;
     width: 100%;
+  }
+
+  .hammer-standalone__workspace-select {
+    min-width: min(100%, 260px);
   }
 }
