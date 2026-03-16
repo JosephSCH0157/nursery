@@ -17,10 +17,18 @@ test("live Hammer editor route mounts the production runtime entry", () => {
   assert.doesNotMatch(routeSource, /TranscriptSeekMock/);
 });
 
-test("Hammer exposes a separate dev editor harness path", () => {
+test("Hammer keeps dev surfaces behind a dev-only route gate", () => {
   const routeTableSource = readWorkspaceFile("../src/main.tsx");
   const shellSource = readWorkspaceFile("../src/routes/HammerStandalone.tsx");
 
+  assert.match(routeTableSource, /import\.meta\.env\.DEV/);
   assert.match(routeTableSource, /path="dev\/editor"/);
-  assert.match(shellSource, /Dev Harness/);
+  assert.match(shellSource, /import\.meta\.env\.DEV/);
+});
+
+test("Hammer standalone header no longer advertises fake production chrome", () => {
+  const shellSource = readWorkspaceFile("../src/routes/HammerStandalone.tsx");
+
+  assert.doesNotMatch(shellSource, /AI ready/);
+  assert.doesNotMatch(shellSource, /Forge User/);
 });

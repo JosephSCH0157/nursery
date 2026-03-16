@@ -6,6 +6,11 @@ import {
   type ThumbnailMetadata,
   type ThumbnailPixelData,
 } from "../src/lib/thumbnail-lint";
+import {
+  HEARTH_THUMBNAIL_TITLE_CONTRACT,
+  deriveHearthThumbnailOverlayText,
+} from "../src/lib/hearth-thumbnail-title-contract";
+import { parseSeoTitlesFromText } from "../src/lib/episode-package-v2";
 
 function createSolidPixelData(
   width: number,
@@ -129,11 +134,20 @@ function testRedundancyDetection() {
   const warning = lintThumbnail(
     createRenderedThumbnail(),
     createMetadata({
-      overlayText: "Gas prices rising again",
+      overlayText: "Why gas prices rising again",
       seoTitle: "Why gas prices are rising again",
     }),
   );
   assert.equal(warning.checks.find((check) => check.id === "title-redundancy")?.status, "warning");
+
+  const pass = lintThumbnail(
+    createRenderedThumbnail(),
+    createMetadata({
+      overlayText: "Gas prices rising again",
+      seoTitle: "Why gas prices are rising again",
+    }),
+  );
+  assert.equal(pass.checks.find((check) => check.id === "title-redundancy")?.status, "pass");
 }
 
 function testSafeZoneDetection() {
@@ -207,6 +221,24 @@ function testLineCountAndTemplateChecks() {
   assert.equal(fail.checks.find((check) => check.id === "template-consistency")?.status, "warning");
 }
 
+function testThumbnailOverlayContractDerivation() {
+  const overlay = deriveHearthThumbnailOverlayText("Why Gas Prices Are Rising Again Right Now");
+  assert.equal(overlay, "Gas Prices Rising Again");
+  assert.equal(
+    overlay.split(/\s+/).filter(Boolean).length <= HEARTH_THUMBNAIL_TITLE_CONTRACT.preferred_max_words,
+    true,
+  );
+
+  const parsed = parseSeoTitlesFromText([
+    "SEO_TITLES:",
+    "- SAFE: Why Gas Prices Are Rising Again Right Now",
+    "- SPICY: The Hidden Reason Rent Keeps Crushing Workers",
+  ].join("\n"));
+  assert.equal(parsed.length, 2);
+  assert.equal(parsed[0]?.thumbnail_text, "Gas Prices Rising Again");
+  assert.equal(parsed[1]?.thumbnail_text, "Hidden Reason Rent Keeps");
+}
+
 function run() {
   testShortAndLongTextThresholds();
   testContrastThresholds();
@@ -215,6 +247,7 @@ function run() {
   testFrameCoverageThresholds();
   testBackgroundClutterEstimation();
   testLineCountAndTemplateChecks();
+  testThumbnailOverlayContractDerivation();
   // eslint-disable-next-line no-console
   console.log("Thumbnail lint tests passed.");
 }

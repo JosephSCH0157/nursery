@@ -2,6 +2,7 @@ import {
   normalizeEpisodeThumbnailTitleStyle,
   type EpisodeThumbnailTitleStyle,
 } from "./hearth-title-fonts";
+import { HEARTH_THUMBNAIL_TITLE_CONTRACT } from "./hearth-thumbnail-title-contract";
 
 export type Rect = {
   x: number;
@@ -53,8 +54,8 @@ type Rgb = {
 
 const SAFE_ZONE_X_PCT = 0.05;
 const SAFE_ZONE_Y_PCT = 0.1;
-const TEXT_LENGTH_WARNING_WORDS = 4;
-const TEXT_LENGTH_FAIL_WORDS = 6;
+const TEXT_LENGTH_WARNING_WORDS = HEARTH_THUMBNAIL_TITLE_CONTRACT.preferred_max_words;
+const TEXT_LENGTH_FAIL_WORDS = HEARTH_THUMBNAIL_TITLE_CONTRACT.hard_max_words;
 const LINE_COUNT_WARNING = 2;
 const LINE_COUNT_FAIL = 3;
 const FRAME_COVERAGE_WARNING = 0.25;
@@ -271,7 +272,7 @@ function buildTextLengthCheck(wordCount: number): ThumbnailLintCheck {
       id: "text-length",
       label: "Text length",
       status: "fail",
-      message: `${wordCount} words is too long for mobile readability. Keep overlay text to 6 words or fewer.`,
+      message: `${wordCount} words is too long for mobile readability. Keep overlay text to ${TEXT_LENGTH_FAIL_WORDS} words or fewer.`,
     };
   }
   if (wordCount > TEXT_LENGTH_WARNING_WORDS) {
@@ -279,7 +280,7 @@ function buildTextLengthCheck(wordCount: number): ThumbnailLintCheck {
       id: "text-length",
       label: "Text length",
       status: "warning",
-      message: `${wordCount} words is getting long. Aim for 4 words or fewer when possible.`,
+      message: `${wordCount} words is getting long. Aim for ${TEXT_LENGTH_WARNING_WORDS} words or fewer when possible.`,
     };
   }
   return {
@@ -461,8 +462,7 @@ function buildRedundancyCheck(overlayText: string, seoTitle: string | null | und
   const intersectionCount = Array.from(overlayTokens).filter((token) => seoTokens.has(token)).length;
   const unionCount = new Set([...overlayTokens, ...seoTokens]).size;
   const jaccard = unionCount > 0 ? intersectionCount / unionCount : 0;
-  const overlap = overlayTokens.size > 0 ? intersectionCount / overlayTokens.size : 0;
-  if (jaccard >= REDUNDANCY_WARNING || overlap >= REDUNDANCY_WARNING) {
+  if (jaccard >= REDUNDANCY_WARNING) {
     return {
       id: "title-redundancy",
       label: "Title redundancy",

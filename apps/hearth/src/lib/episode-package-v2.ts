@@ -8,6 +8,10 @@ import {
   normalizeEpisodeThumbnailTitleStyle,
 } from "./hearth-title-fonts";
 import type { EpisodeThumbnailTitleStyle } from "./hearth-title-fonts";
+import {
+  deriveHearthThumbnailOverlayText,
+  resolveHearthThumbnailOverlayText,
+} from "./hearth-thumbnail-title-contract";
 
 export const EPISODE_PACKAGE_V2_SCHEMA = "forge.episode.package.v2";
 
@@ -18,6 +22,7 @@ export type EpisodeSeoTitle = {
   label: string;
   text: string;
   is_primary: boolean;
+  thumbnail_text?: string | null;
 };
 
 export type EpisodeSeo = {
@@ -271,6 +276,7 @@ function normalizeSeoTitles(value: unknown): EpisodeSeoTitle[] {
         label,
         text,
         is_primary: Boolean(entry.is_primary),
+        thumbnail_text: readString(entry.thumbnail_text) ?? deriveHearthThumbnailOverlayText(text),
       });
       continue;
     }
@@ -281,6 +287,7 @@ function normalizeSeoTitles(value: unknown): EpisodeSeoTitle[] {
       label: SEO_LABELS[i] ?? `V${i + 1}`,
       text,
       is_primary: false,
+      thumbnail_text: deriveHearthThumbnailOverlayText(text),
     });
   }
   if (out.length && !out.some((title) => title.is_primary)) {
@@ -300,6 +307,7 @@ function normalizeLegacyTitleVariants(value: unknown): EpisodeSeoTitle[] {
       label,
       text,
       is_primary: label === "A",
+      thumbnail_text: deriveHearthThumbnailOverlayText(text),
     });
   }
   return variants;
@@ -688,6 +696,7 @@ export function parseSeoTitlesFromText(rawText: string): EpisodeSeoTitle[] {
       label,
       text,
       is_primary: i === 0,
+      thumbnail_text: deriveHearthThumbnailOverlayText(text),
     });
   }
   return titles;
@@ -1137,6 +1146,10 @@ export function ensureSeoV2(pkg: EpisodePackageV2): EpisodePackageV2 {
       label,
       text: typeof title.text === "string" ? title.text : "",
       is_primary: Boolean(title.is_primary),
+      thumbnail_text: resolveHearthThumbnailOverlayText({
+        text: typeof title.text === "string" ? title.text : "",
+        thumbnail_text: typeof title.thumbnail_text === "string" ? title.thumbnail_text : null,
+      }),
     };
   });
 

@@ -9,5 +9,11 @@ export interface TranscriptSeekHarnessProps {
 export default function TranscriptSeekHarness(
   props: TranscriptSeekHarnessProps,
 ): JSX.Element {
-  return <HammerWorkspaceEditor launchContext={props.launchContext} persistenceMode="disabled" />;
+  return (
+    <HammerWorkspaceEditor
+      launchContext={props.launchContext}
+      persistenceMode="disabled"
+      allowDevLaunchFallback
+    />
+  );
 }

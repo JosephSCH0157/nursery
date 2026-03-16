@@ -26,6 +26,7 @@ import {
   type ThumbnailLintResult,
   type ThumbnailLintStatus,
 } from "../../lib/thumbnail-lint";
+import { resolveHearthThumbnailOverlayText } from "../../lib/hearth-thumbnail-title-contract";
 import ThumbnailVersions from "./ThumbnailVersions";
 
 type ThumbnailPanelProps = {
@@ -606,16 +607,18 @@ export default function ThumbnailPanel({
                     className={`hs-thumb-title-chip${title.id === selectedTitleId ? " is-selected" : ""}`}
                     onClick={() => onSelectTitle(title.id)}
                     disabled={isGenerating || isUploading}
-                    title={title.text}
+                    title={resolveHearthThumbnailOverlayText(title) === title.text
+                      ? title.text
+                      : `Overlay: ${resolveHearthThumbnailOverlayText(title)}\nSEO title: ${title.text}`}
                   >
                     <span className="hs-thumb-title-chip-label">{title.label}</span>
-                    <span className="hs-thumb-title-chip-text">{title.text}</span>
+                    <span className="hs-thumb-title-chip-text">{resolveHearthThumbnailOverlayText(title)}</span>
                   </button>
                 ))}
               </div>
             )}
             <div className="hs-thumb-title-help">
-              Select the clean text overlay for preview, then save an explicit launch variant below.
+              Hearth derives a thumbnail-safe overlay hook from the selected title using the shared thumbnail title contract.
             </div>
             <label className="hs-field">
               <span className="hs-field-label">Brand Template</span>

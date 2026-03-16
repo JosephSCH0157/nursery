@@ -6,9 +6,10 @@ import { resolveHammerRouteSelection } from "./hammerNavigation";
 
 export default function HammerEditorRuntime(): JSX.Element {
   const location = useLocation();
+  const allowStubScenario = import.meta.env.DEV;
   const routeSelection = useMemo(
-    () => resolveHammerRouteSelection(location.search, location.state),
-    [location.search, location.state],
+    () => resolveHammerRouteSelection(location.search, location.state, { allowStubScenario }),
+    [allowStubScenario, location.search, location.state],
   );
   const persistenceMode = routeSelection.scenario ? "disabled" : "canonical";
 

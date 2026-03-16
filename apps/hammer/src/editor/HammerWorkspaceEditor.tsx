@@ -47,6 +47,7 @@ export interface HammerWorkspaceEditorProps {
   launchContext?: HammerLaunchContext;
   routeSearch?: string;
   persistenceMode?: "canonical" | "disabled";
+  allowDevLaunchFallback?: boolean;
 }
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -725,16 +726,17 @@ export default function HammerWorkspaceEditor(
     <div className="hammer-prep-shell">
       {shouldRenderEditor ? (
         <div className="hammer-prep-shell__editor">
-          <TranscriptSeekMock
-            launchContext={effectiveLaunchContext}
-            structuredTranscript={loadedPersistenceSnapshot?.structured_transcript.data ?? null}
-            visualPlacements={visualPlacementData}
-            audioPolish={audioPolishData}
-            selectedMacroRecipeRef={loadedPersistenceSnapshot?.macro_hooks.recipe_ref ?? null}
-            lastMacroRunRef={loadedPersistenceSnapshot?.macro_hooks.last_run_ref ?? null}
-            prepHandoffAction={preparedActionIntent}
-            onWorkspaceSnapshotChange={canPersistCanonicalState ? setWorkspaceSnapshot : undefined}
-          />
+            <TranscriptSeekMock
+              launchContext={effectiveLaunchContext}
+              structuredTranscript={loadedPersistenceSnapshot?.structured_transcript.data ?? null}
+              visualPlacements={visualPlacementData}
+              audioPolish={audioPolishData}
+              selectedMacroRecipeRef={loadedPersistenceSnapshot?.macro_hooks.recipe_ref ?? null}
+              lastMacroRunRef={loadedPersistenceSnapshot?.macro_hooks.last_run_ref ?? null}
+              prepHandoffAction={preparedActionIntent}
+              allowDevLaunchFallback={props.allowDevLaunchFallback}
+              onWorkspaceSnapshotChange={canPersistCanonicalState ? setWorkspaceSnapshot : undefined}
+            />
         </div>
       ) : null}
 

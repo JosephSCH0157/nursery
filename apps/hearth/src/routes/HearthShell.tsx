@@ -160,6 +160,11 @@ import type {
   TitleFontPreset,
   TitleShadowStrength,
 } from "../lib/hearth-title-fonts";
+import {
+  HEARTH_THUMBNAIL_TITLE_CONTRACT,
+  deriveHearthThumbnailOverlayText,
+  resolveHearthThumbnailOverlayText,
+} from "../lib/hearth-thumbnail-title-contract";
 import ThumbnailPanel from "../components/visuals/ThumbnailPanel";
 import ImageMapPanel from "../components/visuals/ImageMapPanel";
 import MetadataPanel from "../components/metadata/MetadataPanel";
@@ -991,6 +996,7 @@ function buildProductionPrompt(args: {
       "SEO_TITLES:",
       "- 5 options total",
       "- include labels: SAFE, SPICY, BALANCED_1, BALANCED_2, BALANCED_3",
+      `- every title must preserve a thumbnail-safe hook of ${HEARTH_THUMBNAIL_TITLE_CONTRACT.preferred_max_words} words or fewer`,
       "",
       "DESCRIPTION:",
       "- one YouTube-ready description paragraph block",
@@ -2400,7 +2406,7 @@ export default function HearthShell() {
   );
   const primaryThumbnailVersionId = episodePackage?.thumbnail.primary_version_id ?? null;
   const thumbnailTitleOptions = useMemo(
-    () => metadataTitlesDraft.filter((title) => title.text.trim().length > 0),
+    () => metadataTitlesDraft.filter((title) => resolveHearthThumbnailOverlayText(title).trim().length > 0),
     [metadataTitlesDraft],
   );
   const selectedThumbnailTitle = useMemo(
@@ -5053,6 +5059,7 @@ export default function HearthShell() {
       id: title.id,
       label: (title.label || ["A", "B", "C"][index] || `V${index + 1}`).toUpperCase(),
       text: title.text ?? "",
+      thumbnail_text: resolveHearthThumbnailOverlayText(title),
       is_primary: Boolean(title.is_primary),
     }));
     const primaryId = normalizedTitles.find((title) => title.is_primary)?.id ?? normalizedTitles[0]?.id ?? null;
@@ -8040,7 +8047,11 @@ export default function HearthShell() {
   function onMetadataTitleChange(titleId: string, nextText: string): void {
     setMetadataTitlesDraft((prev) => prev.map((title) => (
       title.id === titleId
-        ? { ...title, text: nextText }
+        ? {
+          ...title,
+          text: nextText,
+          thumbnail_text: deriveHearthThumbnailOverlayText(nextText),
+        }
         : title
     )));
     markMetadataEditing();
@@ -9420,7 +9431,7 @@ export default function HearthShell() {
                   titleOptions={thumbnailTitleOptions}
                   launchVariants={launchVariants}
                   selectedTitleId={selectedThumbnailTitleId}
-                  selectedTitleText={selectedThumbnailTitle?.text ?? ""}
+                  selectedTitleText={selectedThumbnailTitle ? resolveHearthThumbnailOverlayText(selectedThumbnailTitle) : ""}
                   selectedConceptId={selectedThumbnailConceptId}
                   selectedVersionId={selectedThumbnailVersionId}
                   selectedLaunchVariantId={selectedLaunchVariantId}

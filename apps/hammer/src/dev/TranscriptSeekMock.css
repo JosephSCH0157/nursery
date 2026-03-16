@@ -1691,3 +1691,18 @@
   bottom: -1px;
   height: 18px;
 }
+
+.hammer-transcript-seek__missing-context {
+  display: grid;
+  gap: 8px;
+  padding: 24px;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.76);
+  color: #dbe8ff;
+}
+
+.hammer-transcript-seek__missing-context h2,
+.hammer-transcript-seek__missing-context p {
+  margin: 0;
+}

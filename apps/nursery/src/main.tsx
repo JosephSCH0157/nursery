@@ -78,14 +78,18 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             </Route>
           </Route>
 
-          <Route path="/app/hammer" element={<HammerStandalone />}>
-            <Route index element={<HammerRoute />} />
-            <Route path="editor" element={<HammerEditorRoute />} />
-            <Route path="dev/editor" element={<HammerEditorHarnessRoute />} />
-            <Route path="dev/launch" element={<HammerLaunchStubRoute />} />
-            <Route path="dev/cards" element={<HammerDevCardsRoute />} />
-            <Route path="dev/relink" element={<HammerRelinkRoute />} />
-          </Route>
+            <Route path="/app/hammer" element={<HammerStandalone />}>
+              <Route index element={<HammerRoute />} />
+              <Route path="editor" element={<HammerEditorRoute />} />
+              {import.meta.env.DEV ? (
+                <>
+                  <Route path="dev/editor" element={<HammerEditorHarnessRoute />} />
+                  <Route path="dev/launch" element={<HammerLaunchStubRoute />} />
+                  <Route path="dev/cards" element={<HammerDevCardsRoute />} />
+                  <Route path="dev/relink" element={<HammerRelinkRoute />} />
+                </>
+              ) : null}
+            </Route>
 
           <Route path="/apps/hearth" element={<HearthStandalone />} />
           <Route path="/apps/bellows" element={<BellowsStandalone />} />

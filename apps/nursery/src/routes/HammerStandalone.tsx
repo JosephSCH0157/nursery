@@ -1,66 +1,213 @@
+import type { User } from "@supabase/supabase-js";
+import {
+  readHammerWorkspaceCache,
+  resolveHammerRouteWorkspaceId,
+  resolveHammerRouteWorkpieceId,
+  loadHammerWorkspaceWorkpieceLabel,
+} from "@hammer/app/hammerRuntimeData";
+import { buildHammerEditorHref, buildHammerRouteState, resolveHammerRouteSelection } from "@hammer/app/hammerNavigation";
 import { useEffect, useMemo, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { buildHammerEditorHref, buildHammerRouteState, resolveHammerRouteSelection } from "@hammer/app/hammerNavigation";
 import { AiControlsPanel } from "../components/hearth/AiControlsPanel";
-import { buildForgeRouteHref, parseForgeRouteContext } from "../lib/forge-route-context";
+import { buildForgeRouteHref } from "../lib/forge-route-context";
+import { supabase } from "../lib/supabase";
 import "./HammerStandalone.css";
+
+const ACTIVE_WORKSPACE_KEY = "forge_workspace_id_v1";
+const LEGACY_WORKSPACE_KEY = "barstock_workspace_id";
+
+function describeUser(user: User | null): string {
+  if (!user) return "Guest";
+  const metadata = user.user_metadata ?? {};
+  const displayName = typeof metadata.display_name === "string" && metadata.display_name.trim()
+    ? metadata.display_name.trim()
+    : typeof metadata.full_name === "string" && metadata.full_name.trim()
+    ? metadata.full_name.trim()
+    : null;
+  return displayName
+    ?? user.email?.trim()
+    ?? user.phone?.trim()
+    ?? `User ${user.id.slice(0, 8)}`;
+}
+
+function persistActiveWorkspaceId(workspaceId: string | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (workspaceId) {
+      window.localStorage.setItem(ACTIVE_WORKSPACE_KEY, workspaceId);
+      window.localStorage.setItem(LEGACY_WORKSPACE_KEY, workspaceId);
+      return;
+    }
+    window.localStorage.removeItem(ACTIVE_WORKSPACE_KEY);
+    window.localStorage.removeItem(LEGACY_WORKSPACE_KEY);
+  } catch {
+    // ignore storage errors
+  }
+}
 
 export default function HammerStandalone() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [aiControlsOpen, setAiControlsOpen] = useState(false);
+  const [workspaceId, setWorkspaceId] = useState<string | null>(
+    () => (typeof window !== "undefined" ? resolveHammerRouteWorkspaceId(window.location.search) : null),
+  );
+  const [workspaceCache, setWorkspaceCache] = useState(() => readHammerWorkspaceCache());
+  const [viewerLabel, setViewerLabel] = useState("Guest");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const [workpieceLabel, setWorkpieceLabel] = useState<string | null>(null);
+  const [workpieceLabelLoading, setWorkpieceLabelLoading] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
-  const routeContext = useMemo(() => parseForgeRouteContext(location.search), [location.search]);
+  const allowStubScenario = import.meta.env.DEV;
   const hammerSelection = useMemo(
-    () => resolveHammerRouteSelection(location.search, location.state),
-    [location.search, location.state],
+    () => resolveHammerRouteSelection(location.search, location.state, { allowStubScenario }),
+    [allowStubScenario, location.search, location.state],
   );
-  const workspaceId = hammerSelection.launchContext?.workspace_id ?? routeContext.workspaceId;
+  const workpieceId = useMemo(
+    () => resolveHammerRouteWorkpieceId(location.search),
+    [location.search],
+  );
   const isEditorRoute = location.pathname.startsWith("/app/hammer/editor");
   const currentOutputId = useMemo(() => {
     const params = new URLSearchParams(location.search);
     return params.get("output")?.trim() || "main-edit";
   }, [location.search]);
-  const projectOutputs = hammerSelection.scenario?.outputs ?? [{ id: "main-edit", label: "Main Edit" }];
-  const currentOutput = projectOutputs.find((output) => output.id === currentOutputId) ?? projectOutputs[0];
+  const projectOutputs = hammerSelection.scenario?.outputs ?? [];
+  const currentOutput = projectOutputs.find((output) => output.id === currentOutputId) ?? projectOutputs[0] ?? null;
+
+  useEffect(() => {
+    setWorkspaceId(resolveHammerRouteWorkspaceId(location.search));
+    setWorkspaceCache(readHammerWorkspaceCache());
+  }, [location.search]);
+
+  useEffect(() => {
+    if (!workspaceId) {
+      persistActiveWorkspaceId(null);
+      return;
+    }
+    persistActiveWorkspaceId(workspaceId);
+  }, [workspaceId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const handleStorage = () => {
+      setWorkspaceId(resolveHammerRouteWorkspaceId(window.location.search));
+      setWorkspaceCache(readHammerWorkspaceCache());
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const applyUser = (user: User | null) => {
+      if (!active) return;
+      setViewerLabel(describeUser(user));
+      setIsAuthenticated(Boolean(user));
+    };
+
+    void supabase.auth.getUser().then(({ data }) => {
+      applyUser(data.user ?? null);
+    });
+
+    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
+      applyUser(session?.user ?? null);
+    });
+
+    return () => {
+      active = false;
+      subscription.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!workspaceId || !workpieceId) {
+      setWorkpieceLabel(null);
+      setWorkpieceLabelLoading(false);
+      return;
+    }
+
+    let active = true;
+    setWorkpieceLabel(null);
+    setWorkpieceLabelLoading(true);
+
+    void loadHammerWorkspaceWorkpieceLabel(workspaceId, workpieceId)
+      .then((label) => {
+        if (!active) return;
+        setWorkpieceLabel(label);
+        setWorkpieceLabelLoading(false);
+      })
+      .catch(() => {
+        if (!active) return;
+        setWorkpieceLabel(null);
+        setWorkpieceLabelLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [workspaceId, workpieceId]);
+
+  const workspaceName = useMemo(
+    () => workspaceCache.find((workspace) => workspace.id === workspaceId)?.name ?? null,
+    [workspaceCache, workspaceId],
+  );
+
   const projectTitle = isEditorRoute
-    ? hammerSelection.scenario?.title ?? "Hammer Project"
+    ? workpieceLabelLoading
+      ? "Loading workpiece..."
+      : workpieceLabel ?? (workpieceId ? "Workpiece unavailable" : "Hammer Editor")
     : "Project Library";
+  const routeStatusLabel = isEditorRoute ? "Editor" : "Project Library";
+  const workspaceSummaryLabel = workspaceName ?? (workspaceId ? "Workspace unavailable" : "No workspace selected");
 
   const hammerHomeHref = useMemo(
     () => buildForgeRouteHref("/app/hammer", {
       search: location.search,
-      workspaceId: routeContext.workspaceId,
-      workpieceId: routeContext.workpieceId,
+      workspaceId,
+      workpieceId: null,
     }),
-    [location.search, routeContext.workspaceId, routeContext.workpieceId],
-  );
-
-  const cardsHref = useMemo(
-    () => buildForgeRouteHref("/app/hammer/dev/cards", {
-      search: location.search,
-      workspaceId: routeContext.workspaceId,
-      workpieceId: routeContext.workpieceId,
-    }),
-    [location.search, routeContext.workspaceId, routeContext.workpieceId],
-  );
-
-  const launchHref = useMemo(
-    () => buildForgeRouteHref("/app/hammer/dev/launch", {
-      search: location.search,
-      workspaceId: routeContext.workspaceId,
-      workpieceId: routeContext.workpieceId,
-    }),
-    [location.search, routeContext.workspaceId, routeContext.workpieceId],
+    [location.search, workspaceId],
   );
 
   const harnessHref = useMemo(
     () => buildForgeRouteHref("/app/hammer/dev/editor", {
       search: location.search,
-      workspaceId: routeContext.workspaceId,
-      workpieceId: routeContext.workpieceId,
+      workspaceId,
+      workpieceId,
     }),
-    [location.search, routeContext.workspaceId, routeContext.workpieceId],
+    [location.search, workspaceId, workpieceId],
+  );
+
+  const cardsHref = useMemo(
+    () => buildForgeRouteHref("/app/hammer/dev/cards", {
+      search: location.search,
+      workspaceId,
+      workpieceId,
+    }),
+    [location.search, workspaceId, workpieceId],
+  );
+
+  const launchHref = useMemo(
+    () => buildForgeRouteHref("/app/hammer/dev/launch", {
+      search: location.search,
+      workspaceId,
+      workpieceId,
+    }),
+    [location.search, workspaceId, workpieceId],
+  );
+
+  const relinkHref = useMemo(
+    () => buildForgeRouteHref("/app/hammer/dev/relink", {
+      search: location.search,
+      workspaceId,
+      workpieceId,
+    }),
+    [location.search, workspaceId, workpieceId],
   );
 
   const editorHref = useMemo(() => {
@@ -69,45 +216,36 @@ export default function HammerStandalone() {
     }
     return buildForgeRouteHref("/app/hammer/editor", {
       search: location.search,
-      workspaceId: routeContext.workspaceId,
-      workpieceId: routeContext.workpieceId,
+      workspaceId,
+      workpieceId,
     });
-  }, [currentOutputId, hammerSelection.scenario, location.search, routeContext.workspaceId, routeContext.workpieceId]);
-
-  const relinkHref = useMemo(
-    () => buildForgeRouteHref("/app/hammer/dev/relink", {
-      search: location.search,
-      workspaceId: routeContext.workspaceId,
-      workpieceId: routeContext.workpieceId,
-    }),
-    [location.search, routeContext.workspaceId, routeContext.workpieceId],
-  );
+  }, [currentOutputId, hammerSelection.scenario, location.search, workspaceId, workpieceId]);
 
   const storageHref = useMemo(
     () => buildForgeRouteHref("/app/settings/storage", {
       search: location.search,
-      workspaceId: routeContext.workspaceId,
-      workpieceId: routeContext.workpieceId,
+      workspaceId,
+      workpieceId,
     }),
-    [location.search, routeContext.workspaceId, routeContext.workpieceId],
+    [location.search, workspaceId, workpieceId],
   );
 
   const subscriptionsHref = useMemo(
     () => buildForgeRouteHref("/app/subscriptions", {
       search: location.search,
-      workspaceId: routeContext.workspaceId,
-      workpieceId: routeContext.workpieceId,
+      workspaceId,
+      workpieceId,
     }),
-    [location.search, routeContext.workspaceId, routeContext.workpieceId],
+    [location.search, workspaceId, workpieceId],
   );
 
   const forgeBackHref = useMemo(
     () => buildForgeRouteHref("/app", {
       search: location.search,
-      workspaceId: routeContext.workspaceId,
-      workpieceId: routeContext.workpieceId,
+      workspaceId,
+      workpieceId,
     }),
-    [location.search, routeContext.workspaceId, routeContext.workpieceId],
+    [location.search, workspaceId, workpieceId],
   );
 
   useEffect(() => {
@@ -131,6 +269,21 @@ export default function HammerStandalone() {
     navigate(buildHammerEditorHref(location.search, hammerSelection.scenario, outputId), {
       state: buildHammerRouteState(hammerSelection.scenario),
     });
+  }
+
+  async function handleAuthAction() {
+    if (!isAuthenticated) {
+      navigate("/login");
+      return;
+    }
+
+    try {
+      setSigningOut(true);
+      await supabase.auth.signOut();
+      navigate("/login", { replace: true });
+    } finally {
+      setSigningOut(false);
+    }
   }
 
   return (
@@ -163,10 +316,14 @@ export default function HammerStandalone() {
             <nav className="hammer-standalone__drawer-body">
               <NavLink to={hammerHomeHref} onClick={() => setMenuOpen(false)}>Projects</NavLink>
               <NavLink to={editorHref} onClick={() => setMenuOpen(false)}>Editor</NavLink>
-              <NavLink to={harnessHref} onClick={() => setMenuOpen(false)}>Dev Harness</NavLink>
-              <NavLink to={launchHref} onClick={() => setMenuOpen(false)}>Dev Launch</NavLink>
-              <NavLink to={cardsHref} onClick={() => setMenuOpen(false)}>Dev Cards</NavLink>
-              <NavLink to={relinkHref} onClick={() => setMenuOpen(false)}>Dev Relink</NavLink>
+              {import.meta.env.DEV ? (
+                <>
+                  <NavLink to={harnessHref} onClick={() => setMenuOpen(false)}>Dev Harness</NavLink>
+                  <NavLink to={launchHref} onClick={() => setMenuOpen(false)}>Dev Launch</NavLink>
+                  <NavLink to={cardsHref} onClick={() => setMenuOpen(false)}>Dev Cards</NavLink>
+                  <NavLink to={relinkHref} onClick={() => setMenuOpen(false)}>Dev Relink</NavLink>
+                </>
+              ) : null}
               <NavLink to={storageHref} onClick={() => setMenuOpen(false)}>Storage Mounts</NavLink>
               <button
                 type="button"
@@ -216,10 +373,10 @@ export default function HammerStandalone() {
         </div>
         <div className="hammer-standalone__project-block">
           <div className="hammer-standalone__project-title">{projectTitle}</div>
-          {isEditorRoute ? (
+          {isEditorRoute && currentOutput ? (
             <details className="hammer-standalone__project-menu">
               <summary className="hammer-standalone__project-menu-trigger">
-                {currentOutput?.label ?? "Main Edit"}
+                {currentOutput.label}
               </summary>
               <div className="hammer-standalone__project-menu-body">
                 {projectOutputs.map((output) => (
@@ -237,20 +394,29 @@ export default function HammerStandalone() {
           ) : null}
         </div>
         <div className="hammer-standalone__header-meta">
-          <span className="hammer-standalone__pill">
-            workspace: {workspaceId ?? "none"}
-          </span>
+          <span className="hammer-standalone__pill">{routeStatusLabel}</span>
+          <span className="hammer-standalone__pill">{workspaceSummaryLabel}</span>
+          {workspaceId ? (
+            <span className="hammer-standalone__pill hammer-standalone__pill--mono">{workspaceId}</span>
+          ) : null}
           <button
             type="button"
             className="hammer-standalone__meta-button"
             onClick={() => setAiControlsOpen(true)}
           >
-            AI ready
+            AI Controls
           </button>
-          <span className="hammer-standalone__pill">user: Forge User</span>
-          <Link to="/login" className="hammer-standalone__back-link">
-            Logout
-          </Link>
+          <span className="hammer-standalone__pill">{viewerLabel}</span>
+          <button
+            type="button"
+            className="hammer-standalone__meta-button"
+            onClick={() => {
+              void handleAuthAction();
+            }}
+            disabled={signingOut}
+          >
+            {isAuthenticated ? (signingOut ? "Signing out..." : "Sign out") : "Login"}
+          </button>
         </div>
       </header>
 

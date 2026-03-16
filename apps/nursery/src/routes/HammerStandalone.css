@@ -213,6 +213,10 @@
   background: rgba(148, 163, 184, 0.18);
 }
 
+.hammer-standalone__pill--mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
 .hammer-standalone__meta-button,
 .hammer-standalone__back-link {
   padding: 4px 8px;
@@ -226,6 +230,11 @@
 
 .hammer-standalone__meta-button {
   cursor: pointer;
+}
+
+.hammer-standalone__meta-button:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
 }
 
 .hammer-standalone__main {

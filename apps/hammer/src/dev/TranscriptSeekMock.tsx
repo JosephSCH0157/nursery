@@ -238,6 +238,7 @@ type TranscriptSeekMockProps = {
     id: Exclude<HammerPreparedNextStepActionId, "export_later">;
     token: number;
   } | null;
+  allowDevLaunchFallback?: boolean;
   onWorkspaceSnapshotChange?: (snapshot: HammerWorkspaceSnapshot) => void;
 };
 
@@ -608,7 +609,7 @@ function formatMacroExecutionLabel(recipeRef: string | null | undefined): string
     case EXECUTABLE_RETAKE_TIGHTENING_RECIPE_REF:
       return "Run Retake Tightening";
     default:
-      return "Run Macro (Later)";
+      return "Macro unavailable";
   }
 }
 
@@ -1139,9 +1140,19 @@ export default function TranscriptSeekMock(
   const paneResizeStateRef = useRef<HammerPaneResizeState | null>(null);
   const resolver = useMemo(() => new V1HammerMediaResolver(), []);
   const launchContext = useMemo(
-    () => props.launchContext ?? resolveHammerDevLaunchContext(location.search),
-    [location.search, props.launchContext],
+    () => props.launchContext ?? (
+      props.allowDevLaunchFallback ? resolveHammerDevLaunchContext(location.search) : null
+    ),
+    [location.search, props.allowDevLaunchFallback, props.launchContext],
   );
+  if (!launchContext) {
+    return (
+      <section className="hammer-transcript-seek__missing-context">
+        <h2>Hammer needs a workpiece context.</h2>
+        <p>Open a real workpiece or use the dev harness to load a preset.</p>
+      </section>
+    );
+  }
   const launchContextSignature = useMemo(
     () => JSON.stringify(launchContext),
     [launchContext],
@@ -1324,14 +1335,14 @@ export default function TranscriptSeekMock(
   const transcriptStatusLabel = activeDevRecording
     ? activeDevRecording.transcript_sidecar_relpath
       ? "Transcript: sidecar detected"
-      : "Transcript: mock fallback"
+      : "Transcript: current transcript retained"
     : transcriptLoad.kind === "fixture"
-    ? "Transcript: mock fallback"
+    ? "Transcript: fixture transcript"
     : `Transcript: ${transcriptLoad.source_label}`;
   const transcriptStatusDetail = activeDevRecording
     ? activeDevRecording.transcript_sidecar_relpath
       ? "Sidecar found. Hammer is still using the current transcript until import is wired."
-      : "No transcript found. Hammer is keeping the current transcript as a mock fallback."
+      : "No transcript sidecar was found, so Hammer is keeping the current transcript loaded."
     : "Attach a recording below while Hammer keeps the current transcript stable.";
 
   useEffect(() => {
@@ -1560,8 +1571,8 @@ export default function TranscriptSeekMock(
   );
   const playbackSourceLabel = useMemo(() => {
     if (!playbackSrc) return "none";
-    if (activeMediaUsesDevTone) return "dev-tone";
-    if (preferDevAudioFallback || !resolvedMediaSrc) return "dev-tone";
+    if (activeMediaUsesDevTone) return "fallback tone";
+    if (preferDevAudioFallback || !resolvedMediaSrc) return "fallback tone";
     if (polishedMediaSrc && resolvedMediaSrc === polishedMediaSrc) return "polished prep";
     return activeMediaSourceLabel;
   }, [
@@ -2365,7 +2376,7 @@ export default function TranscriptSeekMock(
     setIsPlaying(false);
     if (resolvedMediaSrc && !preferDevAudioFallback && devAudioSrc) {
       setPreferDevAudioFallback(true);
-      setPlaybackError("Mapped media failed to load. Switched to dev-tone preview audio.");
+      setPlaybackError("Mapped media failed to load. Switched to fallback preview audio.");
       return;
     }
     setPlaybackError("Preview media failed to load.");
@@ -2894,32 +2905,32 @@ export default function TranscriptSeekMock(
         music: [],
       };
 
-      const primaryAsset: HammerProjectAsset = {
-        id: activeMediaRef?.media_id ?? "media_dev_tone_preview",
-        title: activeDevRecording ? "Attached Dev Recording" : activeMediaRef?.media_id ? "Primary Source Media" : "Generated Preview Proxy",
-        kindLabel: activeMediaRef ? formatMediaKindLabel(activeMediaRef.kind) : "Preview Proxy",
-        sourceLabel: sourceModeLabel,
-        detail: activeMediaDetailLabel,
-        status: activeMediaUsesDevTone
-          ? "preview proxy"
-          : activeDevRecording
-          ? resolveResult?.status === "ok"
-            ? "attached"
+        const primaryAsset: HammerProjectAsset = {
+          id: activeMediaRef?.media_id ?? "media_dev_tone_preview",
+          title: activeDevRecording ? "Attached recording" : activeMediaRef?.media_id ? "Primary source media" : "Fallback preview source",
+          kindLabel: activeMediaRef ? formatMediaKindLabel(activeMediaRef.kind) : "Fallback source",
+          sourceLabel: sourceModeLabel,
+          detail: activeMediaDetailLabel,
+          status: activeMediaUsesDevTone
+            ? "fallback source"
+            : activeDevRecording
+            ? resolveResult?.status === "ok"
+              ? "attached"
             : resolveResult?.status === "unresolved"
             ? "needs relink"
             : "attaching"
           : resolveResult?.status === "ok"
           ? "linked"
-          : resolveResult?.status === "unresolved"
-          ? "needs relink"
-          : "launch-linked",
-        usageHint: activeMediaUsesDevTone
-          ? "This proxy keeps Hammer previewable in dev mode until a real workpiece media source is attached."
-          : activeDevRecording
-          ? "This local dev recording is attached as the current preview source while Hammer keeps the current transcript loaded."
-          : "This is the launch-linked source media backing the current edit and preview path.",
-        workpieceId: resolvedLaunch.launch_context.workpiece_id,
-        durationLabel: primaryAssetDurationLabel,
+            : resolveResult?.status === "unresolved"
+            ? "needs relink"
+            : "launch-linked",
+          usageHint: activeMediaUsesDevTone
+            ? "This fallback source keeps preview transport available until a real workpiece media source is resolved."
+            : activeDevRecording
+            ? "This local recording is attached as the current preview source while Hammer keeps the current transcript loaded."
+            : "This is the launch-linked source media backing the current edit and preview path.",
+          workpieceId: resolvedLaunch.launch_context.workpiece_id,
+          durationLabel: primaryAssetDurationLabel,
       };
 
       if (!activeMediaRef || activeMediaRef.kind === "recording_video" || activeMediaRef.kind === "export_video" || activeMediaRef.kind === "recording_audio" || activeMediaRef.kind === "export_audio" || activeMediaUsesDevTone) {
@@ -2963,9 +2974,9 @@ export default function TranscriptSeekMock(
   }, [activeAssetPanel]);
   const previewSourceStatusLabel = useMemo(() => {
     if (!playbackSrc) return "Preview source unavailable";
-    if (!activeMediaRequiresResolution) return "Generated preview tone ready";
-    if (preferDevAudioFallback || !resolvedMediaSrc) return "Running on dev-tone fallback";
-    return activeDevRecording ? "Dev recording connected" : "Mapped media connected";
+    if (!activeMediaRequiresResolution) return "Fallback preview tone ready";
+    if (preferDevAudioFallback || !resolvedMediaSrc) return "Fallback preview source active";
+    return activeDevRecording ? "Attached recording connected" : "Mapped media connected";
   }, [
     activeDevRecording,
     activeMediaRequiresResolution,
@@ -2986,15 +2997,15 @@ export default function TranscriptSeekMock(
     if (activeDevRecording) {
       return activeDevRecording.transcript_sidecar_relpath
         ? "Selected recording attached. Hammer is still using the current transcript."
-        : "Selected recording attached. Hammer is using the current transcript as a mock fallback.";
+        : "Selected recording attached. Hammer is keeping the current transcript loaded.";
     }
     if (badgeVm?.tooltip) return badgeVm.tooltip;
     return "Select a script row to verify timing and cuts.";
   }, [activeDevRecording, badgeVm?.tooltip, resolveError, resolveResult, resolving]);
   const previewPlaybackTruthLabel = useMemo(() => {
     if (!playbackSrc) return "Unavailable";
-    if (activeMediaUsesDevTone) return "Dev fallback";
-    if (preferDevAudioFallback || !resolvedMediaSrc) return "Dev fallback";
+    if (activeMediaUsesDevTone) return "Fallback source";
+    if (preferDevAudioFallback || !resolvedMediaSrc) return "Fallback source";
     return activeDevRecording ? "Attached media" : "Launch media";
   }, [
     activeDevRecording,
@@ -3008,12 +3019,12 @@ export default function TranscriptSeekMock(
       return "Preview transport does not have a playable source yet.";
     }
     if (activeMediaUsesDevTone) {
-      return "Preview is running on the generated dev fallback.";
+      return "Preview is running on the fallback tone.";
     }
     if (preferDevAudioFallback || !resolvedMediaSrc) {
       return activeDevRecording
-        ? "The selected recording is attached, but transport is still on the dev fallback."
-        : "Launch media is not driving transport, so preview is still on the dev fallback.";
+        ? "The selected recording is attached, but transport is still on the fallback source."
+        : "Workspace media is not driving transport, so preview is still on the fallback source.";
     }
     return activeDevRecording
       ? "Transport is playing from the selected recording."
@@ -3029,10 +3040,10 @@ export default function TranscriptSeekMock(
     if (activeDevRecording) {
       return activeDevRecording.transcript_sidecar_relpath
         ? "Sidecar detected"
-        : "Mock fallback";
+        : "Current transcript retained";
     }
     return transcriptLoad.kind === "fixture"
-      ? "Mock fallback"
+      ? "Fixture transcript"
       : "Current transcript";
   }, [activeDevRecording, transcriptLoad.kind]);
   const previewModeTruthLabel = sessionState.previewMode === "raw" ? "Raw preview" : "Edit-aware preview";
@@ -3044,19 +3055,19 @@ export default function TranscriptSeekMock(
       return "Preview is offline right now.";
     }
     if (activeMediaUsesDevTone) {
-      return "No media is attached, so preview is running on the dev fallback.";
+      return "No media is attached, so preview is running on the fallback tone.";
     }
     if (preferDevAudioFallback || !resolvedMediaSrc) {
       return activeDevRecording
         ? activeDevRecording.transcript_sidecar_relpath
-          ? "Media is attached, playback is still on the dev fallback, and Hammer is holding the current transcript."
-          : "Media is attached, playback is still on the dev fallback, and Hammer is still using the mock transcript."
-        : "Launch media is attached, but preview is still on the dev fallback.";
+          ? "Media is attached, playback is still on the fallback source, and Hammer is holding the current transcript."
+          : "Media is attached, playback is still on the fallback source, and Hammer is still using the current transcript."
+        : "Workspace media is attached, but preview is still on the fallback source.";
     }
     return activeDevRecording
       ? activeDevRecording.transcript_sidecar_relpath
         ? "Attached media is driving preview while Hammer keeps the current transcript active."
-        : "Attached media is driving preview while Hammer keeps the mock transcript active."
+        : "Attached media is driving preview while Hammer keeps the current transcript active."
       : "Launch media is driving preview.";
   }, [
     activeDevRecording,
@@ -3447,17 +3458,17 @@ export default function TranscriptSeekMock(
                 )}
               />
 
-              <HammerWorkflowCard
-                title="Music Bed"
-                tone="future"
-                statusLabel="Future"
-                description="Music bed shaping belongs in Audio once Hammer starts placing scoped bed clips instead of only showing the bed lane on the timeline."
-                meta={(
-                  <div className="hammer-copy-sm hammer-copy-muted">
-                    Keep the slot visible so Audio reads as the home for spoken audio first, bed work second.
-                  </div>
-                )}
-              />
+                <HammerWorkflowCard
+                  title="Music Bed"
+                  tone="future"
+                  statusLabel="Unavailable"
+                  description="Music bed shaping is not available in this Hammer build."
+                  meta={(
+                    <div className="hammer-copy-sm hammer-copy-muted">
+                      Audio remains transcript-first until Hammer owns scoped bed placement.
+                    </div>
+                  )}
+                />
             </div>
 
             <div className="hammer-audio-output">
@@ -3523,31 +3534,31 @@ export default function TranscriptSeekMock(
               source: {activeMediaSourceLabel} · media kind {activeMediaKind ? formatMediaKindLabel(activeMediaKind) : resolvedLaunch.launch_context.media.kind}
             </div>
             <div className="hammer-workflow-grid">
-              <HammerWorkflowCard
-                title="Blur Background"
-                tone={blurBackgroundBlocked ? "blocked" : "future"}
-                statusLabel={blurBackgroundBlocked ? "Unavailable" : "Future"}
-                description="Background cleanup belongs in Video once Hammer owns the visual polish path for the current media."
-                meta={(
-                  <div className="hammer-copy-sm hammer-copy-muted">
-                    {blurBackgroundBlocked
-                      ? "This launch is using preview-tone or non-video media, so background blur is intentionally unavailable."
-                      : "Mapped video is present, but the blur engine is not wired into Hammer yet."}
-                  </div>
-                )}
-              />
+                <HammerWorkflowCard
+                  title="Blur Background"
+                  tone={blurBackgroundBlocked ? "blocked" : "future"}
+                  statusLabel="Unavailable"
+                  description="Background cleanup belongs in Video once Hammer owns the visual polish path for the current media."
+                  meta={(
+                    <div className="hammer-copy-sm hammer-copy-muted">
+                      {blurBackgroundBlocked
+                        ? "This workspace is using fallback or non-video media, so background blur is unavailable."
+                        : "Mapped video is present, but background blur is not available in this Hammer build."}
+                    </div>
+                  )}
+                />
 
-              <HammerWorkflowCard
-                title="Eye Contact"
-                tone="future"
-                statusLabel="Future"
-                description="Eye contact correction belongs in Video once Hammer owns the visual adjustment pipeline."
-                meta={(
-                  <div className="hammer-copy-sm hammer-copy-muted">
-                    Keep the slot visible, but do not fake the feature before the video engine exists.
-                  </div>
-                )}
-              />
+                <HammerWorkflowCard
+                  title="Eye Contact"
+                  tone="future"
+                  statusLabel="Unavailable"
+                  description="Eye contact correction is not available in this Hammer build."
+                  meta={(
+                    <div className="hammer-copy-sm hammer-copy-muted">
+                      Hammer does not expose eye-contact adjustment until the video pipeline exists.
+                    </div>
+                  )}
+                />
             </div>
           </div>
         );
@@ -5222,32 +5233,32 @@ export default function TranscriptSeekMock(
                     <div className="hammer-copy-sm hammer-copy-muted">{activeMediaDetailLabel}</div>
                   </div>
                   <div className="hammer-action-row">
-                    <span className="hammer-pill">
-                      {activeDevRecording
-                        ? "Dev recording attached"
-                        : activeMediaUsesDevTone
-                        ? "Preview proxy active"
-                        : "Launch media active"}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setDevRecordingsRefreshToken((current) => current + 1)}
-                      disabled={devRecordingsLoading}
-                      className="hammer-button-xs"
-                    >
-                      {devRecordingsLoading ? "Scanning..." : "Refresh recordings"}
-                    </button>
-                    {activeDevRecording ? (
+                      <span className="hammer-pill">
+                        {activeDevRecording
+                          ? "Attached recording"
+                          : activeMediaUsesDevTone
+                          ? "Fallback source active"
+                          : "Workspace media active"}
+                      </span>
                       <button
                         type="button"
-                        onClick={() => setSelectedDevRecordingId(null)}
+                        onClick={() => setDevRecordingsRefreshToken((current) => current + 1)}
+                        disabled={devRecordingsLoading}
                         className="hammer-button-xs"
                       >
-                        Use launch media
+                        {devRecordingsLoading ? "Scanning..." : "Refresh media"}
                       </button>
-                    ) : null}
+                      {activeDevRecording ? (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedDevRecordingId(null)}
+                          className="hammer-button-xs"
+                        >
+                          Use workspace media
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
 
                 <div className="hammer-dev-media-loader__context">
                   <div className="hammer-stack-4">
@@ -5255,11 +5266,11 @@ export default function TranscriptSeekMock(
                     <div className="hammer-copy-sm hammer-copy-muted">{transcriptStatusDetail}</div>
                   </div>
                   <div className="hammer-stack-4">
-                    <div className="hammer-label">
-                      {devRecordingsRootMapping?.local_root_abs === launchWorkspaceMapping?.local_root_abs
-                        ? "Mapped folder"
-                        : "Dev folder"}
-                    </div>
+                      <div className="hammer-label">
+                        {devRecordingsRootMapping?.local_root_abs === launchWorkspaceMapping?.local_root_abs
+                          ? "Workspace folder"
+                          : "Local folder"}
+                      </div>
                     <div className="hammer-copy-sm hammer-copy-muted hammer-mono">
                       {devRecordingsDirectoryAbs ?? devRecordingsRootMapping?.local_root_abs ?? "Unavailable"}
                     </div>
@@ -5300,12 +5311,12 @@ export default function TranscriptSeekMock(
                               <span>{formatByteSize(recording.byte_size)}</span>
                               {modifiedLabel ? <span>{modifiedLabel}</span> : null}
                             </div>
-                            <div className="hammer-dev-media-loader__item-status">
-                              {recording.transcript_sidecar_relpath
-                                ? "Transcript sidecar detected"
-                                : "Transcript: mock fallback"}
+                              <div className="hammer-dev-media-loader__item-status">
+                                {recording.transcript_sidecar_relpath
+                                  ? "Transcript sidecar detected"
+                                  : "Current transcript retained"}
+                              </div>
                             </div>
-                          </div>
                           <span className="hammer-pill">
                             {isActive ? "Attached" : "Load recording"}
                           </span>
@@ -5662,9 +5673,9 @@ export default function TranscriptSeekMock(
           <strong className="hammer-tool-strip__title">
             Tools
           </strong>
-          <span className="hammer-tool-strip__caption">
-            Fixed workflow strip
-          </span>
+            <span className="hammer-tool-strip__caption">
+              Available controls
+            </span>
         </div>
         {HAMMER_TOOL_ORDER.map((tool) => (
           <button
