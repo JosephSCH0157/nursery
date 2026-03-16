@@ -31,6 +31,7 @@ import {
 import { readHearthPrimaryScript } from "../src/lib/hearth-script-repo";
 import {
   assessImageMapScriptAnchor,
+  buildImageMapAnchorPickerParagraphs,
   buildExactScriptAnchorFromSelection,
   generateImageMapEntriesFromScript,
   reanchorImageMapEntry,
@@ -1609,6 +1610,53 @@ function testGenerateImageMapEntriesFromScriptEmitsMultipleBeatsWithinParagraph(
   assert.match(entries[2]?.prompt_basis ?? "", /mississippi/i);
 }
 
+function testGenerateImageMapEntriesFromTaggedScriptSkipsSpeakerAndNoteTags() {
+  const scriptText = [
+    "## Opening",
+    "",
+    "[s1]",
+    "The army moved 40,000 troops to the river crossing.",
+    "[/s1]",
+    "",
+    "[note]",
+    "Show the archival map only in Anvil.",
+    "[/note]",
+    "",
+    "[s2]",
+    "New Orleans never received the reserve column before dawn.",
+    "[/s2]",
+  ].join("\n");
+
+  const entries = generateImageMapEntriesFromScript(scriptText);
+  assert.equal(entries.length, 2);
+  assert.equal(entries[0]?.script_anchor?.span_text, "The army moved 40,000 troops to the river crossing.");
+  assert.equal(entries[0]?.script_anchor?.speaker_block_id, "s1");
+  assert.equal(entries[1]?.script_anchor?.span_text, "New Orleans never received the reserve column before dawn.");
+  assert.equal(entries[1]?.script_anchor?.speaker_block_id, "s2");
+  assert.ok(entries.every((entry) => !/\[\/?(?:s1|s2|note)\]/i.test(entry.script_anchor?.span_text ?? "")));
+}
+
+function testBuildImageMapAnchorPickerParagraphsSkipsStandaloneBlockTags() {
+  const scriptText = [
+    "[s1]",
+    "The fleet arrived before sunrise.",
+    "[/s1]",
+    "[s2]",
+    "Smoke drifted over the harbor.",
+    "[/s2]",
+  ].join("\n");
+
+  const paragraphs = buildImageMapAnchorPickerParagraphs(scriptText);
+  assert.equal(paragraphs.length, 2);
+  assert.equal(paragraphs[0]?.text, "The fleet arrived before sunrise.");
+  assert.equal(paragraphs[1]?.text, "Smoke drifted over the harbor.");
+  assert.ok(paragraphs.every((paragraph) => !/\[\/?s[12]\]/i.test(paragraph.text)));
+  assert.ok(
+    paragraphs.every((paragraph) => paragraph.sentenceOptions.every((option) => !/^\[/.test(option.text))),
+    "Picker options should only contain real sentence content",
+  );
+}
+
 function testEnsureImageMapV2RoundTripsStructuredEntries() {
   const entry = buildImageMapEntryFixture("image-map-structured", {
     candidate_assets: [{
@@ -3042,6 +3090,8 @@ async function run() {
   await testImageMapCandidateSelectionRejectsDetachedCandidate();
   await testImageMapCandidatePreviewLoaderReadsCanonicalFilePath();
   testGenerateImageMapEntriesFromScriptEmitsMultipleBeatsWithinParagraph();
+  testGenerateImageMapEntriesFromTaggedScriptSkipsSpeakerAndNoteTags();
+  testBuildImageMapAnchorPickerParagraphsSkipsStandaloneBlockTags();
   testEnsureImageMapV2RoundTripsStructuredEntries();
   testHydrateEpisodePackageV2KeepsLaunchVariantsBoundToCanonicalAssets();
   testHydrateEpisodePackageV2NormalizesLaunchVariantStatusMetadata();

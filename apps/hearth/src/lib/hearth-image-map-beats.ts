@@ -19,6 +19,7 @@ type ScriptParagraphSpan = {
   sectionId: string;
   paragraphId: string;
   paragraphOrder: number;
+  speakerBlockId: string | null;
   text: string;
   sentences: ScriptSentenceSpan[];
 };
@@ -54,6 +55,7 @@ export type ImageMapAnchorPickerParagraph = {
 };
 
 const SENTENCE_BOUNDARY_SET = new Set([".", "?", "!", ";"]);
+const SCRIPT_BLOCK_TAG_LINE_RE = /^\[(\/)?(s1|s2|g1|g2|note)\]$/i;
 const VISUAL_SIGNAL_RE =
   /\b(\d[\d,]*|vs\.?|versus|compare(?:d|s|ison)?|more|less|before|after|during|strategic|route|river|port|city|country|state|battle|army|troops?|deployed?|redeploy(?:ed|ment)?|captured?|launched?|built|map|market|election)\b/i;
 
@@ -64,6 +66,15 @@ function countWords(text: string): number {
 
 function normalizeParagraphText(rawText: string): string {
   return rawText.replace(/\s+/g, " ").trim();
+}
+
+function parseScriptBlockTag(line: string): { blockId: string; isClosing: boolean } | null {
+  const match = line.match(SCRIPT_BLOCK_TAG_LINE_RE);
+  if (!match?.[2]) return null;
+  return {
+    blockId: match[2].toLowerCase(),
+    isClosing: Boolean(match[1]),
+  };
 }
 
 function hasInternalProperNoun(text: string): boolean {
@@ -129,6 +140,8 @@ function extractParagraphs(scriptText: string): ScriptParagraphSpan[] {
   let sectionId = "s1";
   let paragraphOrder = 0;
   let sectionParagraphOrder = 0;
+  let activeSpeakerBlockId: string | null = null;
+  let insideNoteBlock = false;
 
   const flushParagraph = () => {
     const text = normalizeParagraphText(buffer.join(" "));
@@ -144,6 +157,7 @@ function extractParagraphs(scriptText: string): ScriptParagraphSpan[] {
       sectionId,
       paragraphId: `${sectionId}:p${sectionParagraphOrder}`,
       paragraphOrder,
+      speakerBlockId: activeSpeakerBlockId,
       text,
       sentences: splitSentenceSpans(text),
     });
@@ -159,10 +173,27 @@ function extractParagraphs(scriptText: string): ScriptParagraphSpan[] {
       sectionParagraphOrder = 0;
       continue;
     }
+    const blockTag = parseScriptBlockTag(line);
+    if (blockTag) {
+      flushParagraph();
+      if (blockTag.blockId === "note") {
+        insideNoteBlock = !blockTag.isClosing;
+        continue;
+      }
+      if (blockTag.isClosing) {
+        activeSpeakerBlockId = activeSpeakerBlockId === blockTag.blockId
+          ? null
+          : activeSpeakerBlockId;
+        continue;
+      }
+      activeSpeakerBlockId = blockTag.blockId;
+      continue;
+    }
     if (!line) {
       flushParagraph();
       continue;
     }
+    if (insideNoteBlock) continue;
     buffer.push(line);
   }
 
@@ -193,7 +224,7 @@ function buildAnchor(args: {
     char_start: args.charStart,
     char_end: args.charEnd,
     span_text: args.spanText,
-    speaker_block_id: null,
+    speaker_block_id: args.paragraph.speakerBlockId,
   };
 }
 

@@ -2448,6 +2448,19 @@ export default function HearthShell() {
     const anchor = selectedImageMapExactAnchor?.exactAnchor ?? selectedImageMapEntry?.script_anchor ?? null;
     return buildImageMapAnchorLabel(anchor);
   }, [selectedImageMapEntry?.script_anchor, selectedImageMapExactAnchor]);
+  const isCanonicalImageMapScriptPanel = isImageMapReanchorMode && showScriptPanel;
+  const scriptPanelBodyText = useMemo(
+    () => (isCanonicalImageMapScriptPanel ? (canonicalImageMapScriptState.text ?? "") : (activeDraft?.body ?? "")),
+    [activeDraft?.body, canonicalImageMapScriptState.text, isCanonicalImageMapScriptPanel],
+  );
+  const scriptPanelSourceLabel = useMemo(
+    () => (isCanonicalImageMapScriptPanel ? resolveCanonicalImageMapScriptSourceLabel(canonicalImageMapScriptState) : null),
+    [canonicalImageMapScriptState, isCanonicalImageMapScriptPanel],
+  );
+  const scriptPanelHint = useMemo(
+    () => (isCanonicalImageMapScriptPanel ? resolveCanonicalImageMapScriptHint(canonicalImageMapScriptState) : null),
+    [canonicalImageMapScriptState, isCanonicalImageMapScriptPanel],
+  );
   const imageMapReanchorDisabledReason = useMemo(() => {
     if (!selectedImageMapEntry) return "Select a visual beat first.";
     if (imageMapSaveState === "editing" || imageMapSaveState === "saving") {
@@ -3514,11 +3527,11 @@ export default function HearthShell() {
   }, [draftConflictState?.localBody]);
 
   const onCopyScriptPanelText = useCallback(async () => {
-    const text = activeDraft?.body ?? "";
+    const text = scriptPanelBodyText;
     if (!text.trim()) return;
     const copied = await writeTextToClipboard(text);
     setScriptPanelCopyMessage(copied ? "Copied to clipboard." : "Clipboard write failed.");
-  }, [activeDraft?.body]);
+  }, [scriptPanelBodyText]);
 
   const onOpenInAnvil = useCallback(async () => {
     const workspace = workspaceId?.trim() ?? "";
@@ -5425,9 +5438,10 @@ export default function HearthShell() {
     if (!textarea) return;
     textarea.style.height = "auto";
     textarea.style.height = `${textarea.scrollHeight}px`;
-  }, [activeDraft?.body]);
+  }, [scriptPanelBodyText]);
 
   useEffect(() => {
+    if (isCanonicalImageMapScriptPanel) return;
     const activeDraftId = activeDraft?.id ?? null;
     const textarea = bodyRef.current;
     if (!textarea || !session?.uiState || !activeDraftId || activeDraftId !== session.activeDraftId) return;
@@ -5443,7 +5457,7 @@ export default function HearthShell() {
       textarea.scrollTop = session.uiState.scrollTop;
       setScrollTop(session.uiState.scrollTop);
     }
-  }, [activeDraft?.id, session?.activeDraftId]);
+  }, [activeDraft?.id, isCanonicalImageMapScriptPanel, session?.activeDraftId]);
 
   useEffect(() => {
     if (sessionSaveTimer.current) {
@@ -7621,6 +7635,8 @@ export default function HearthShell() {
       setImageMapReanchorError(imageMapReanchorDisabledReason);
       return;
     }
+    setMode("focus");
+    setShowScriptPanel(true);
     setImageMapReanchorError(null);
     setImageMapCandidateError(null);
     setIsImageMapReanchorMode(true);
@@ -7727,6 +7743,8 @@ export default function HearthShell() {
     let expectedMetadataUpdatedAt = imageMapMetadataUpdatedAt;
 
     if (!effectiveScriptAnchor) {
+      setMode("focus");
+      setShowScriptPanel(true);
       setIsImageMapReanchorMode(true);
       setImageMapCandidateError("This visual beat needs an exact script anchor before candidate generation. Use Re-anchor to bind it to the current canonical script.");
       return;
@@ -8990,6 +9008,17 @@ export default function HearthShell() {
       : "";
     const hasScript = Boolean((activeDraft?.body ?? "").trim());
     const showScriptEditor = showManualDraft || showScriptPanel;
+    const scriptPanelTitle = isCanonicalImageMapScriptPanel
+      ? "Canonical Script"
+      : (showScriptPanel && hasScript ? "Script" : "Manual Draft");
+    const scriptPanelMetaText = isCanonicalImageMapScriptPanel
+      ? (scriptPanelSourceLabel ?? "Source: canonical script")
+      : `Sources: ${sourcesSummary}${unusedSummary}`;
+    const scriptPanelPlaceholder = isCanonicalImageMapScriptPanel
+      ? (canonicalImageMapScriptState.status === "loading"
+        ? "Loading current canonical script..."
+        : canonicalImageMapScriptState.error ?? "Current canonical script is unavailable.")
+      : "Start writing...";
     const approvedAtText = scriptApprovalState.approvedAt
       ? formatUpdatedAt(scriptApprovalState.approvedAt)
       : "Unknown";
@@ -9674,18 +9703,21 @@ export default function HearthShell() {
             <section className="hs-script-panel" aria-label="Manual draft editor">
               <header className="hs-script-panel-header">
                 <div className="hs-script-panel-title">
-                  {showScriptPanel && hasScript ? "Script" : "Manual Draft"}
+                  {scriptPanelTitle}
                 </div>
                 <div className="hs-script-panel-header-actions">
                   {scriptPanelCopyMessage ? (
                     <div className="hs-field-label-muted">{scriptPanelCopyMessage}</div>
                   ) : null}
-                  <div className="hs-script-panel-meta">Sources: {sourcesSummary}{unusedSummary}</div>
+                  {scriptPanelHint ? (
+                    <div className="hs-field-label-muted">{scriptPanelHint}</div>
+                  ) : null}
+                  <div className="hs-script-panel-meta">{scriptPanelMetaText}</div>
                   <button
                     type="button"
                     className="hs-script-panel-copy"
                     onClick={() => void onCopyScriptPanelText()}
-                    disabled={!activeDraft || !activeDraft.body.trim()}
+                    disabled={!scriptPanelBodyText.trim()}
                     title="Copy panel text to clipboard"
                     aria-label="Copy panel text to clipboard"
                   >
@@ -9699,9 +9731,10 @@ export default function HearthShell() {
                 <span className="hs-field-label">Body</span>
                 <textarea
                   ref={bodyRef}
-                  value={activeDraft?.body ?? ""}
-                  placeholder="Start writing..."
+                  value={scriptPanelBodyText}
+                  placeholder={scriptPanelPlaceholder}
                   onChange={(event) => {
+                    if (isCanonicalImageMapScriptPanel) return;
                     setScriptValidation(null);
                     setActiveDraft((prev) => {
                       if (!prev) return prev;
@@ -9709,21 +9742,31 @@ export default function HearthShell() {
                       return { ...prev, body: event.target.value };
                     });
                   }}
-                  onCompositionStart={() => setIsBodyComposing(true)}
-                  onCompositionEnd={() => setIsBodyComposing(false)}
+                  onCompositionStart={() => {
+                    if (isCanonicalImageMapScriptPanel) return;
+                    setIsBodyComposing(true);
+                  }}
+                  onCompositionEnd={() => {
+                    if (isCanonicalImageMapScriptPanel) return;
+                    setIsBodyComposing(false);
+                  }}
                   onSelect={(event) => {
+                    if (isCanonicalImageMapScriptPanel) return;
                     const target = event.target as HTMLTextAreaElement;
                     setCursorPosition(target.selectionStart);
                   }}
                   onKeyUp={(event) => {
+                    if (isCanonicalImageMapScriptPanel) return;
                     const target = event.target as HTMLTextAreaElement;
                     setCursorPosition(target.selectionStart);
                   }}
                   onScroll={(event) => {
+                    if (isCanonicalImageMapScriptPanel) return;
                     const target = event.target as HTMLTextAreaElement;
                     setScrollTop(target.scrollTop);
                   }}
-                  disabled={!activeDraft}
+                  readOnly={isCanonicalImageMapScriptPanel}
+                  disabled={!isCanonicalImageMapScriptPanel && !activeDraft}
                   className="hs-textarea-body hs-textarea-script-panel"
                 />
               </label>
