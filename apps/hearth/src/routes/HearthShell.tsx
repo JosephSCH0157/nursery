@@ -93,6 +93,7 @@ import {
   type HearthOp,
   type HearthOpsStore,
 } from "../lib/hearth-ai-ops";
+import { updateHearthProposalBodyOp } from "../lib/hearth-ai-proposal";
 import {
   formatScriptToAnvilTagsNoAi,
   validateAnvilTagContract,
@@ -8135,6 +8136,19 @@ export default function HearthShell() {
     });
   }
 
+  function onEditAiProposalBody(index: number, value: string) {
+    setScriptValidation(null);
+    setError(null);
+    setChatError(null);
+    setPendingAiProposal((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        ops: updateHearthProposalBodyOp(prev.ops, index, value),
+      };
+    });
+  }
+
   function onUseChatShortcut(prompt: string) {
     const signals = detectChatIntentSignals(prompt);
     if (signals.requestedOutline) {
@@ -9211,24 +9225,54 @@ export default function HearthShell() {
                 <div className="hs-ai-proposal-list">
                   {pendingAiProposal.ops.map((op, index) => {
                     const diff = buildProposalDiff(op);
+                    const proposalBodyValidation = op.op === "set_body"
+                      ? validateAnvilTagContract(op.value)
+                      : null;
+                    const inputId = `ai-op-${index}`;
                     return (
-                      <label key={`ai-op-${index}`} className="hs-ai-op-row">
+                      <div key={inputId} className="hs-ai-op-row">
                         <input
+                          id={inputId}
                           type="checkbox"
                           checked={Boolean(pendingAiProposal.selected[index])}
                           onChange={() => onToggleAiProposalOp(index)}
                           disabled={isApplyingAiOps}
                         />
                         <div className="hs-ai-op-body">
-                          <div className="hs-ai-op-title">{describeHearthOp(op)}</div>
-                          {diff ? (
+                          <label htmlFor={inputId} className="hs-ai-op-title">
+                            {describeHearthOp(op)}
+                          </label>
+                          {op.op === "set_body" ? (
+                            <div className="hs-ai-op-editor">
+                              {diff ? (
+                                <div className="hs-ai-op-diff">
+                                  <pre>{`- ${diff.before || "(empty)"}`}</pre>
+                                </div>
+                              ) : null}
+                              <label className="hs-field">
+                                <span className="hs-field-label">Editable proposed draft</span>
+                                <textarea
+                                  value={op.value}
+                                  onChange={(event) => onEditAiProposalBody(index, event.target.value)}
+                                  className="hs-ai-op-textarea"
+                                  rows={12}
+                                  disabled={isApplyingAiOps}
+                                />
+                              </label>
+                              <div className={`hs-ai-op-validation${proposalBodyValidation?.ok ? " is-valid" : " is-invalid"}`}>
+                                {proposalBodyValidation?.ok
+                                  ? "Tag contract OK."
+                                  : proposalBodyValidation?.report ?? "Tag contract check unavailable."}
+                              </div>
+                            </div>
+                          ) : diff ? (
                             <div className="hs-ai-op-diff">
                               <pre>{`- ${diff.before || "(empty)"}`}</pre>
                               <pre>{`+ ${diff.after || "(empty)"}`}</pre>
                             </div>
                           ) : null}
                         </div>
-                      </label>
+                      </div>
                     );
                   })}
                 </div>
