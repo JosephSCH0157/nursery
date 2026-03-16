@@ -3,6 +3,8 @@ import { loadHammerPersistenceSnapshot } from "../persistence/hammerPersistence"
 
 const WORKSPACE_CACHE_KEY = "forge_workspaces_cache_v1";
 const ACTIVE_WORKSPACE_STORAGE_KEYS = ["forge_workspace_id_v1", "barstock_workspace_id"] as const;
+const MANIFEST_PATH = "manifest.json";
+const RECORDING_PATH_PREFIXES = ["recordings/", "assets/recordings/"] as const;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -35,8 +37,48 @@ export type HammerRuntimeProjectCard = {
   createdAt: string | null;
   updatedAt: string | null;
   archivedAt: string | null;
+  isEditReady: boolean;
   readiness: HammerRuntimeReadiness;
 };
+
+export type HammerRuntimeProjectSignals = {
+  hasRecordingMedia: boolean;
+  hasEditorSession: boolean;
+  hasStructuredTranscript: boolean;
+  hasVisualPlacements: boolean;
+  hasAudioPolish: boolean;
+  hasEditPlan: boolean;
+};
+
+export function classifyHammerRuntimeProject(
+  signals: HammerRuntimeProjectSignals,
+): { isEditReady: boolean; editReadyReasons: string[] } {
+  const editReadyReasons: string[] = [];
+
+  if (signals.hasRecordingMedia) {
+    editReadyReasons.push("Recording available");
+  }
+  if (signals.hasEditorSession) {
+    editReadyReasons.push("Hammer session saved");
+  }
+  if (signals.hasStructuredTranscript) {
+    editReadyReasons.push("Transcript artifact saved");
+  }
+  if (signals.hasVisualPlacements) {
+    editReadyReasons.push("Visual prep saved");
+  }
+  if (signals.hasAudioPolish) {
+    editReadyReasons.push("Audio prep saved");
+  }
+  if (signals.hasEditPlan) {
+    editReadyReasons.push("Edit plan saved");
+  }
+
+  return {
+    isEditReady: editReadyReasons.length > 0,
+    editReadyReasons,
+  };
+}
 
 function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -175,23 +217,12 @@ async function listHammerWorkspaceEpisodes(workspaceId: string): Promise<HammerW
 }
 
 function buildRuntimeReadiness(args: {
+  editReadyReasons: string[];
   prepStatus: string | null;
-  transcriptReady: boolean;
-  visualReady: boolean;
-  audioReady: boolean;
   editInstructionCount: number;
   stateUnavailable: boolean;
 }): HammerRuntimeReadiness {
-  const indicators: string[] = [];
-  if (args.transcriptReady) {
-    indicators.push("Transcript ready");
-  }
-  if (args.visualReady) {
-    indicators.push("Visuals prepared");
-  }
-  if (args.audioReady) {
-    indicators.push("Audio polish ready");
-  }
+  const indicators = [...args.editReadyReasons];
   if (args.editInstructionCount > 0) {
     indicators.push(`${args.editInstructionCount} staged edit${args.editInstructionCount === 1 ? "" : "s"}`);
   }
@@ -229,34 +260,113 @@ function buildRuntimeReadiness(args: {
       return {
         statusLabel: "Not started",
         tone: "blocked",
-        indicators: ["No Hammer state saved yet"],
+        indicators: ["No recording or Hammer-editable state yet"],
       };
   }
+}
+
+async function loadHammerWorkpieceManifestSignals(
+  workpieceId: string,
+): Promise<{ hasRecordingMedia: boolean }> {
+  const response = await tongsFetch(
+    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(MANIFEST_PATH)}`,
+    {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+      },
+    },
+  );
+
+  if (response.status === 404) {
+    return { hasRecordingMedia: false };
+  }
+
+  const payload = await readJsonBody(response);
+  if (!response.ok) {
+    throw new Error(
+      readString(readJsonRecord(readJsonRecord(payload)?.error)?.message)
+        ?? "Hammer could not read workpiece manifest state.",
+    );
+  }
+
+  const manifest = readJsonRecord(readJsonRecord(payload)?.data);
+  const files = readJsonRecord(manifest?.files);
+  const hasRecordingMedia = Object.keys(files ?? {}).some((path) => (
+    RECORDING_PATH_PREFIXES.some((prefix) => path.startsWith(prefix))
+  ));
+
+  return { hasRecordingMedia };
 }
 
 export async function loadHammerWorkspaceProjects(
   workspaceId: string,
 ): Promise<HammerRuntimeProjectCard[]> {
   const episodes = await listHammerWorkspaceEpisodes(workspaceId);
-  const stateResults = await Promise.allSettled(
-    episodes.map((episode) => loadHammerPersistenceSnapshot({
-      workspaceId,
-      workpieceId: episode.id,
-    })),
+  const detailResults = await Promise.allSettled(
+    episodes.map(async (episode) => {
+      const [snapshotResult, manifestResult] = await Promise.allSettled([
+        loadHammerPersistenceSnapshot({
+          workspaceId,
+          workpieceId: episode.id,
+        }),
+        loadHammerWorkpieceManifestSignals(episode.id),
+      ]);
+
+      return {
+        snapshotResult: snapshotResult.status === "fulfilled" ? snapshotResult.value : null,
+        manifestSignals: manifestResult.status === "fulfilled"
+          ? manifestResult.value
+          : { hasRecordingMedia: false },
+        manifestUnavailable: manifestResult.status === "rejected",
+      };
+    }),
   );
 
   return episodes.map((episode, index) => {
-    const stateResult = stateResults[index];
-    const snapshot = stateResult?.status === "fulfilled" && stateResult.value.ok
-      ? stateResult.value.data
+    const detailResult = detailResults[index];
+    const snapshotResult = detailResult?.status === "fulfilled"
+      ? detailResult.value.snapshotResult
+      : null;
+    const manifestSignals = detailResult?.status === "fulfilled"
+      ? detailResult.value.manifestSignals
+      : { hasRecordingMedia: false };
+    const snapshot = snapshotResult?.ok
+      ? snapshotResult.data
       : null;
     const prepStatus = readString(snapshot?.state?.prep_status);
-    const transcriptReady = Boolean(snapshot?.structured_transcript.data?.segments?.length);
-    const visualReady = snapshot?.visual_placements.data?.status === "prepared";
-    const audioReady = snapshot?.audio_polish.data?.status === "prepared";
+    const hasEditorSession = Boolean(snapshot?.state?.editor_session_path || snapshot?.editor_session.path || snapshot?.editor_session.data);
+    const hasStructuredTranscript = Boolean(
+      snapshot?.state?.transcript_artifact_path
+      || snapshot?.structured_transcript.path
+      || snapshot?.structured_transcript.data?.segments?.length,
+    );
+    const hasVisualPlacements = Boolean(
+      snapshot?.state?.visual_placement_artifact_path
+      || snapshot?.visual_placements.path
+      || snapshot?.visual_placements.data,
+    );
+    const hasAudioPolish = Boolean(
+      snapshot?.state?.audio_polish_artifact_path
+      || snapshot?.audio_polish.path
+      || snapshot?.audio_polish.data,
+    );
+    const hasEditPlan = Boolean(
+      snapshot?.state?.edit_plan_artifact_path
+      || snapshot?.edit_plan.path
+      || snapshot?.edit_plan.data,
+    );
+    const editReadiness = classifyHammerRuntimeProject({
+      hasRecordingMedia: manifestSignals.hasRecordingMedia,
+      hasEditorSession,
+      hasStructuredTranscript,
+      hasVisualPlacements,
+      hasAudioPolish,
+      hasEditPlan,
+    });
     const editInstructionCount = snapshot?.edit_plan.data?.instructions.length ?? 0;
-    const stateUnavailable = stateResult?.status === "rejected"
-      || (stateResult?.status === "fulfilled" && !stateResult.value.ok);
+    const stateUnavailable = detailResult?.status === "rejected"
+      || (detailResult?.status === "fulfilled" && (!snapshotResult?.ok || detailResult.value.manifestUnavailable));
 
     return {
       workpieceId: episode.id,
@@ -265,11 +375,10 @@ export async function loadHammerWorkspaceProjects(
       createdAt: episode.created_at,
       updatedAt: episode.updated_at,
       archivedAt: episode.archived_at,
+      isEditReady: editReadiness.isEditReady,
       readiness: buildRuntimeReadiness({
+        editReadyReasons: editReadiness.editReadyReasons,
         prepStatus,
-        transcriptReady,
-        visualReady,
-        audioReady,
         editInstructionCount,
         stateUnavailable,
       }),

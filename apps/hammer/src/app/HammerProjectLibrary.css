@@ -82,9 +82,24 @@
   gap: 12px;
 }
 
+.hammer-project-library__sections {
+  display: grid;
+  gap: 18px;
+}
+
+.hammer-project-library__section-head {
+  display: grid;
+  gap: 4px;
+}
+
 .hammer-project-library__section-title {
   font-size: 14px;
   font-weight: 600;
+}
+
+.hammer-project-library__section-summary {
+  font-size: 13px;
+  opacity: 0.72;
 }
 
 .hammer-project-library__grid {
@@ -218,6 +233,46 @@
 .hammer-project-library__empty-state h3,
 .hammer-project-library__empty-state p {
   margin: 0;
+}
+
+.hammer-project-library__subempty-state {
+  padding: 18px 16px;
+  border-radius: 14px;
+  border: 1px dashed rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.44);
+  font-size: 13px;
+  opacity: 0.78;
+}
+
+.hammer-project-library__ready-line {
+  position: relative;
+  height: 18px;
+}
+
+.hammer-project-library__ready-line::before {
+  content: "";
+  position: absolute;
+  inset: 50% 0 auto;
+  border-top: 1px solid rgba(96, 165, 250, 0.26);
+}
+
+.hammer-project-library__ready-line-label {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(96, 165, 250, 0.3);
+  background: rgba(2, 6, 23, 0.94);
+  color: #bfdbfe;
+  padding: 4px 10px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
 }
 
 .hammer-project-library__button:focus-visible,

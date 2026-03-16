@@ -91,13 +91,15 @@ export default function HammerStandalone() {
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
-    const handleStorage = () => {
+    const syncWorkspaceContext = () => {
       setWorkspaceId(resolveHammerRouteWorkspaceId(window.location.search));
       setWorkspaceCache(readHammerWorkspaceCache());
     };
-    window.addEventListener("storage", handleStorage);
+    window.addEventListener("storage", syncWorkspaceContext);
+    window.addEventListener("focus", syncWorkspaceContext);
     return () => {
-      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("storage", syncWorkspaceContext);
+      window.removeEventListener("focus", syncWorkspaceContext);
     };
   }, []);
 

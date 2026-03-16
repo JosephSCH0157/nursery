@@ -24,6 +24,22 @@ function getReadinessClassName(project: HammerRuntimeProjectCard): string {
   return `hammer-project-library__status hammer-project-library__status--${project.readiness.tone}`;
 }
 
+function pickDefaultProject(
+  projects: HammerRuntimeProjectCard[],
+  preferredWorkpieceId: string | null,
+  currentWorkpieceId: string | null,
+): string | null {
+  if (preferredWorkpieceId && projects.some((project) => project.workpieceId === preferredWorkpieceId)) {
+    return preferredWorkpieceId;
+  }
+  if (currentWorkpieceId && projects.some((project) => project.workpieceId === currentWorkpieceId)) {
+    return currentWorkpieceId;
+  }
+  return projects.find((project) => project.isEditReady)?.workpieceId
+    ?? projects[0]?.workpieceId
+    ?? null;
+}
+
 export default function HammerProjectLibrary(): JSX.Element {
   const location = useLocation();
   const navigate = useNavigate();
@@ -49,12 +65,14 @@ export default function HammerProjectLibrary(): JSX.Element {
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
-    const handleStorage = () => {
+    const syncWorkspace = () => {
       setWorkspaceId(resolveHammerRouteWorkspaceId(window.location.search));
     };
-    window.addEventListener("storage", handleStorage);
+    window.addEventListener("storage", syncWorkspace);
+    window.addEventListener("focus", syncWorkspace);
     return () => {
-      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("storage", syncWorkspace);
+      window.removeEventListener("focus", syncWorkspace);
     };
   }, []);
 
@@ -75,15 +93,7 @@ export default function HammerProjectLibrary(): JSX.Element {
       .then((nextProjects) => {
         if (!active) return;
         setProjects(nextProjects);
-        setSelectedWorkpieceId((current) => {
-          if (routeWorkpieceId && nextProjects.some((project) => project.workpieceId === routeWorkpieceId)) {
-            return routeWorkpieceId;
-          }
-          if (current && nextProjects.some((project) => project.workpieceId === current)) {
-            return current;
-          }
-          return nextProjects[0]?.workpieceId ?? null;
-        });
+        setSelectedWorkpieceId((current) => pickDefaultProject(nextProjects, routeWorkpieceId, current));
         setLoading(false);
       })
       .catch((loadError) => {
@@ -105,6 +115,14 @@ export default function HammerProjectLibrary(): JSX.Element {
     () => projects.find((project) => project.workpieceId === selectedWorkpieceId) ?? null,
     [projects, selectedWorkpieceId],
   );
+  const readyProjects = useMemo(
+    () => projects.filter((project) => project.isEditReady),
+    [projects],
+  );
+  const pendingProjects = useMemo(
+    () => projects.filter((project) => !project.isEditReady),
+    [projects],
+  );
 
   const devLaunchHref = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -121,6 +139,60 @@ export default function HammerProjectLibrary(): JSX.Element {
       workspaceId: project.workspaceId,
       workpieceId: project.workpieceId,
     }));
+  }
+
+  function renderProjectGrid(items: HammerRuntimeProjectCard[]): JSX.Element {
+    return (
+      <div className="hammer-project-library__grid">
+        {items.map((project) => {
+          const isSelected = project.workpieceId === (routeWorkpieceId ?? selectedWorkpieceId);
+          return (
+            <button
+              key={project.workpieceId}
+              type="button"
+              className={`hammer-project-library__card${isSelected ? " is-selected" : ""}`}
+              onClick={() => {
+                setSelectedWorkpieceId(project.workpieceId);
+                openProject(project);
+              }}
+              onFocus={() => setSelectedWorkpieceId(project.workpieceId)}
+            >
+              <div className="hammer-project-library__card-body">
+                <div className="hammer-project-library__card-topline">
+                  <span className={getReadinessClassName(project)}>
+                    {project.readiness.statusLabel}
+                  </span>
+                  <span className="hammer-project-library__card-updated">
+                    Updated {formatDateTimeLabel(project.updatedAt)}
+                  </span>
+                </div>
+                <div className="hammer-project-library__card-title">{project.label}</div>
+                <div className="hammer-project-library__card-id">
+                  {project.workpieceId}
+                </div>
+                <div className="hammer-project-library__card-meta">
+                  <div>
+                    <div className="hammer-project-library__label">Created</div>
+                    <div>{formatDateTimeLabel(project.createdAt)}</div>
+                  </div>
+                  <div>
+                    <div className="hammer-project-library__label">Workspace</div>
+                    <div>{project.workspaceId}</div>
+                  </div>
+                </div>
+                <div className="hammer-project-library__indicator-row">
+                  {project.readiness.indicators.map((indicator) => (
+                    <span key={indicator} className="hammer-project-library__indicator">
+                      {indicator}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    );
   }
 
   return (
@@ -181,58 +253,43 @@ export default function HammerProjectLibrary(): JSX.Element {
           <p>Hammer will list real workpieces here as soon as this workspace has any.</p>
         </section>
       ) : (
-        <section className="hammer-project-library__section">
-          <div className="hammer-project-library__section-title">Workspace Workpieces</div>
-          <div className="hammer-project-library__grid">
-            {projects.map((project) => {
-              const isSelected = project.workpieceId === (routeWorkpieceId ?? selectedWorkpieceId);
-              return (
-                <button
-                  key={project.workpieceId}
-                  type="button"
-                  className={`hammer-project-library__card${isSelected ? " is-selected" : ""}`}
-                  onClick={() => {
-                    setSelectedWorkpieceId(project.workpieceId);
-                    openProject(project);
-                  }}
-                  onFocus={() => setSelectedWorkpieceId(project.workpieceId)}
-                >
-                  <div className="hammer-project-library__card-body">
-                    <div className="hammer-project-library__card-topline">
-                      <span className={getReadinessClassName(project)}>
-                        {project.readiness.statusLabel}
-                      </span>
-                      <span className="hammer-project-library__card-updated">
-                        Updated {formatDateTimeLabel(project.updatedAt)}
-                      </span>
-                    </div>
-                    <div className="hammer-project-library__card-title">{project.label}</div>
-                    <div className="hammer-project-library__card-id">
-                      {project.workpieceId}
-                    </div>
-                    <div className="hammer-project-library__card-meta">
-                      <div>
-                        <div className="hammer-project-library__label">Created</div>
-                        <div>{formatDateTimeLabel(project.createdAt)}</div>
-                      </div>
-                      <div>
-                        <div className="hammer-project-library__label">Workspace</div>
-                        <div>{project.workspaceId}</div>
-                      </div>
-                    </div>
-                    <div className="hammer-project-library__indicator-row">
-                      {project.readiness.indicators.map((indicator) => (
-                        <span key={indicator} className="hammer-project-library__indicator">
-                          {indicator}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
+        <div className="hammer-project-library__sections">
+          <section className="hammer-project-library__section">
+            <div className="hammer-project-library__section-head">
+              <div className="hammer-project-library__section-title">Edit-Ready</div>
+              <div className="hammer-project-library__section-summary">
+                {readyProjects.length} workpiece{readyProjects.length === 1 ? "" : "s"} with recordings or Hammer-editable state.
+              </div>
+            </div>
+            {readyProjects.length > 0 ? (
+              renderProjectGrid(readyProjects)
+            ) : (
+              <div className="hammer-project-library__subempty-state">
+                Nothing is above the ready line yet.
+              </div>
+            )}
+          </section>
+
+          <div className="hammer-project-library__ready-line" aria-hidden="true">
+            <span className="hammer-project-library__ready-line-label">Ready Line</span>
           </div>
-        </section>
+
+          <section className="hammer-project-library__section">
+            <div className="hammer-project-library__section-head">
+              <div className="hammer-project-library__section-title">Not Yet Edit-Ready</div>
+              <div className="hammer-project-library__section-summary">
+                {pendingProjects.length} workspace item{pendingProjects.length === 1 ? "" : "s"} without recordings or Hammer-editable state.
+              </div>
+            </div>
+            {pendingProjects.length > 0 ? (
+              renderProjectGrid(pendingProjects)
+            ) : (
+              <div className="hammer-project-library__subempty-state">
+                Everything in this workspace is already above the ready line.
+              </div>
+            )}
+          </section>
+        </div>
       )}
     </section>
   );
