@@ -55,3 +55,57 @@ export function hydrateDraftBodyFromCanonicalScript(args: {
     updatedBy: args.updatedBy ?? args.draft.updatedBy ?? null,
   };
 }
+
+export type CanonicalImageMapScriptSource = {
+  source: "primary_script" | "saved_draft";
+  text: string;
+};
+
+function scoreCanonicalScriptText(text: string): number {
+  const normalized = normalizeBody(text);
+  if (!normalized) return 0;
+
+  let score = normalized.length;
+  if (/\[(s1|s2|g1|g2|note)\]/i.test(normalized)) score += 400;
+  if (normalized.includes("\n")) score += 120;
+  if (/\n\s*\n/.test(normalized)) score += 80;
+  return score;
+}
+
+export function chooseCanonicalImageMapScriptSource(args: {
+  primaryText: string | null | undefined;
+  primaryUpdatedAtMs?: number | null;
+  drafts?: ReadonlyArray<Draft | null | undefined>;
+  preferredDraftId?: string | null;
+}): CanonicalImageMapScriptSource | null {
+  const primaryText = normalizeBody(args.primaryText);
+  const preferredDraftId = typeof args.preferredDraftId === "string" ? args.preferredDraftId.trim() : "";
+  const preferredDraft = preferredDraftId
+    ? args.drafts?.find((draft) => draft?.id === preferredDraftId) ?? null
+    : null;
+  const savedDraft = draftHasUsableScriptBody(preferredDraft)
+    ? preferredDraft
+    : choosePreferredHydratedDraft(args.drafts ?? []);
+  const savedDraftText = normalizeBody(savedDraft?.body);
+
+  if (!primaryText && !savedDraftText) return null;
+  if (!primaryText) {
+    return savedDraftText ? { source: "saved_draft", text: savedDraftText } : null;
+  }
+  if (!savedDraftText) {
+    return { source: "primary_script", text: primaryText };
+  }
+
+  const primaryUpdatedAtMs = args.primaryUpdatedAtMs ?? 0;
+  const savedDraftUpdatedAtMs = savedDraft?.updatedAt ?? savedDraft?.createdAt ?? 0;
+  const savedDraftScore = scoreCanonicalScriptText(savedDraftText);
+  const primaryScore = scoreCanonicalScriptText(primaryText);
+  const savedDraftIsRicher = savedDraftScore > Math.max(primaryScore * 1.5, primaryScore + 160);
+  const savedDraftIsNewer = savedDraftUpdatedAtMs > primaryUpdatedAtMs;
+
+  if (savedDraftText !== primaryText && (savedDraftIsNewer || savedDraftIsRicher)) {
+    return { source: "saved_draft", text: savedDraftText };
+  }
+
+  return { source: "primary_script", text: primaryText };
+}

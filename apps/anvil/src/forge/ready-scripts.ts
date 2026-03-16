@@ -369,20 +369,26 @@ function toScriptReferenceFromSessionItem(args: {
   workspaceId: string;
   fallbackTitle: string;
   titleByKey: Map<string, string>;
+  readyByKey: Map<string, ReadyScriptReference>;
 }): ReadyScriptReference | null {
   const workpieceId = normalizeUuid(args.item.episode_id);
   const path = normalizeScriptPath(args.item.script_path);
   if (!workpieceId || !path) return null;
   const key = `${workpieceId}::${path}`;
+  const matchedReady = args.readyByKey.get(key) ?? null;
   const title = args.titleByKey.get(key) ?? args.fallbackTitle;
+  const scriptPaths = matchedReady
+    ? Array.from(new Set([path, matchedReady.primaryPath, ...matchedReady.scriptPaths].filter(Boolean)))
+    : [path];
   return {
     id: toReadyScriptId(workpieceId, path),
     workspaceId: args.workspaceId,
     workpieceId,
     path,
-    primaryPath: path,
-    scriptPaths: [path],
+    primaryPath: matchedReady?.primaryPath ?? path,
+    scriptPaths,
     title,
+    updatedAt: matchedReady?.updatedAt,
   };
 }
 
@@ -454,15 +460,18 @@ export async function readRecordingSessionScripts(sessionId: string): Promise<Re
 
   const workspaceReady = await listWorkspaceReadyScripts().catch(() => []);
   const titleByKey = new Map<string, string>();
+  const readyByKey = new Map<string, ReadyScriptReference>();
   const readyMetaByKey = new Map<string, { markedReadyBy?: string; markedReadyAt?: string }>();
   for (const script of workspaceReady) {
     titleByKey.set(`${script.workpieceId}::${script.path}`, script.title);
+    readyByKey.set(`${script.workpieceId}::${script.path}`, script);
     readyMetaByKey.set(`${script.workpieceId}::${script.path}`, {
       markedReadyBy: script.markedReadyBy,
       markedReadyAt: script.markedReadyAt,
     });
     for (const scriptPath of script.scriptPaths) {
       titleByKey.set(`${script.workpieceId}::${scriptPath}`, script.title);
+      readyByKey.set(`${script.workpieceId}::${scriptPath}`, script);
       readyMetaByKey.set(`${script.workpieceId}::${scriptPath}`, {
         markedReadyBy: script.markedReadyBy,
         markedReadyAt: script.markedReadyAt,
@@ -487,6 +496,7 @@ export async function readRecordingSessionScripts(sessionId: string): Promise<Re
       workspaceId,
       fallbackTitle,
       titleByKey,
+      readyByKey,
     });
     if (ref) {
       const key = `${ref.workpieceId}::${ref.path}`;

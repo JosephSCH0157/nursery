@@ -58,6 +58,7 @@ import {
   type HearthWorkpieceSummary,
 } from "../lib/hearth-workpieces";
 import {
+  chooseCanonicalImageMapScriptSource,
   choosePreferredHydratedDraft,
   draftHasUsableScriptBody,
   hydrateDraftBodyFromCanonicalScript,
@@ -324,6 +325,10 @@ function readTrimmedString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
+}
+
+function normalizeRailTitleKey(title: string): string {
+  return title.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 function buildCurrentForgeNoticeRoute(workspaceId: string | null, workpieceId: string | null): string | null {
@@ -1723,9 +1728,6 @@ function OscilloscopeFill({
 }
 
 type SortKey = "updated" | "title";
-type ReadyCategoryFilter = "all" | "uncategorized" | HearthContentCategory;
-type ReadyCategoryGroupKey = HearthContentCategory | "uncategorized";
-type ReadyUrgencyFilter = "all" | "fresh" | "cooling" | "cold";
 type ReadyUrgencyLevel = "fresh" | "warming" | "cooling" | "cold";
 type ReadyLabel = "hot" | "evergreen" | "series";
 
@@ -2055,8 +2057,6 @@ export default function HearthShell() {
   const [readyScriptsWorkspaceId, setReadyScriptsWorkspaceId] = useState<string | null>(null);
   const [isReadyScriptsLoading, setIsReadyScriptsLoading] = useState(false);
   const [readyScriptsError, setReadyScriptsError] = useState<string | null>(null);
-  const [readyCategoryFilter, setReadyCategoryFilter] = useState<ReadyCategoryFilter>("all");
-  const [readyUrgencyFilter, setReadyUrgencyFilter] = useState<ReadyUrgencyFilter>("all");
   const [updatingReadyCategoryId, setUpdatingReadyCategoryId] = useState<string | null>(null);
   const [readyCategoryError, setReadyCategoryError] = useState<string | null>(null);
   const [removingReadyIds, setRemovingReadyIds] = useState<string[]>([]);
@@ -2600,6 +2600,18 @@ export default function HearthShell() {
     if (showArchived) return workpieceNavItems;
     return workpieceNavItems.filter((item) => !item.isArchived);
   }, [showArchived, workpieceNavItems]);
+  const duplicateRailTitleKeys = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of filteredWorkpieceNavItems) {
+      const key = normalizeRailTitleKey(item.title);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return new Set(
+      [...counts.entries()]
+        .filter(([, count]) => count > 1)
+        .map(([key]) => key),
+    );
+  }, [filteredWorkpieceNavItems]);
 
   const readyScriptsForDisplay = useMemo(() => {
     if (deferDesktopRailCollections) return EMPTY_READY_SCRIPT_LIST;
@@ -2614,57 +2626,19 @@ export default function HearthShell() {
     [readyScriptsForDisplay],
   );
 
-  const categoryFilteredReadyScripts = useMemo(() => {
-    if (readyCategoryFilter === "all") return visibleReadyScriptsForDisplay;
-    if (readyCategoryFilter === "uncategorized") {
-      return visibleReadyScriptsForDisplay.filter((entry) => !entry.contentCategory);
-    }
-    return visibleReadyScriptsForDisplay.filter((entry) => entry.contentCategory === readyCategoryFilter);
-  }, [readyCategoryFilter, visibleReadyScriptsForDisplay]);
-
   const readyUrgencyCounts = useMemo(() => {
     const counts = { fresh: 0, cooling: 0, cold: 0 };
     const nowMs = Date.now();
-    for (const entry of categoryFilteredReadyScripts) {
+    for (const entry of visibleReadyScriptsForDisplay) {
       const urgency = deriveReadyUrgency(entry, nowMs);
       if (!urgency || urgency === "warming") continue;
       counts[urgency] += 1;
     }
     return counts;
-  }, [categoryFilteredReadyScripts]);
-
-  const filteredReadyScripts = useMemo(() => {
-    if (readyUrgencyFilter === "all") return categoryFilteredReadyScripts;
-    const nowMs = Date.now();
-    return categoryFilteredReadyScripts.filter((entry) => deriveReadyUrgency(entry, nowMs) === readyUrgencyFilter);
-  }, [categoryFilteredReadyScripts, readyUrgencyFilter]);
-
-  const visibleReadyScripts = useMemo(() => {
-    return filteredReadyScripts;
-  }, [filteredReadyScripts]);
+  }, [visibleReadyScriptsForDisplay]);
 
   const orderedReadyScripts = useMemo(() => {
-    return visibleReadyScripts;
-  }, [visibleReadyScripts]);
-
-  const readyCategoryCounts = useMemo(() => {
-    const counts: Record<ReadyCategoryGroupKey, number> = {
-      uncategorized: 0,
-      evergreen: 0,
-      hot_topic: 0,
-      viral_reaction: 0,
-      strategic_anchor: 0,
-      community: 0,
-      reflective: 0,
-      explainer: 0,
-      experimental: 0,
-      backup: 0,
-    };
-    for (const entry of visibleReadyScriptsForDisplay) {
-      const key: ReadyCategoryGroupKey = entry.contentCategory ?? "uncategorized";
-      counts[key] += 1;
-    }
-    return counts;
+    return visibleReadyScriptsForDisplay;
   }, [visibleReadyScriptsForDisplay]);
 
   const readyTotalCount = visibleReadyScriptsForDisplay.length;
@@ -2675,6 +2649,46 @@ export default function HearthShell() {
     () => readyScriptsForDisplay.find((entry) => entry.workpieceId === (workpieceId ?? "")) ?? null,
     [readyScriptsForDisplay, workpieceId],
   );
+  const activeEpisodeReadyStatus = useMemo(() => {
+    if (activeWorkpieceIsArchived) {
+      return {
+        tone: "archived" as const,
+        label: "Archived",
+        detail: activeWorkpiece?.archiveReason
+          ? `Archive reason: ${activeWorkpiece.archiveReason}`
+          : "Restore this episode before it can return to Ready.",
+      };
+    }
+    if (activeReadyScript) {
+      return {
+        tone: "ready" as const,
+        label: "Ready",
+        detail: resolveReadyAttribution(activeReadyScript),
+      };
+    }
+    if (hasApprovedScript && approvedScriptVersion) {
+      return {
+        tone: "ready" as const,
+        label: "Ready",
+        detail: scriptApprovalState.approvedAt
+          ? `Script v${approvedScriptVersion} approved ${formatRelativeUpdatedAt(scriptApprovalState.approvedAt)}`
+          : `Script v${approvedScriptVersion} approved`,
+      };
+    }
+    return {
+      tone: "pending" as const,
+      label: "Not Ready",
+      detail: "Approve Script to move this episode into Ready.",
+    };
+  }, [
+    activeReadyScript,
+    activeWorkpiece?.archiveReason,
+    activeWorkpieceIsArchived,
+    approvedScriptVersion,
+    hasApprovedScript,
+    resolveReadyAttribution,
+    scriptApprovalState.approvedAt,
+  ]);
   const metadataTagSuggestions = useMemo(
     () => buildMetadataTagSuggestions({
       currentTags: metadataTagsDraft,
@@ -2682,42 +2696,6 @@ export default function HearthShell() {
     }),
     [activeReadyScript?.contentCategory, metadataTagsDraft],
   );
-
-  const groupedReadyScripts = useMemo(() => {
-    if (filteredReadyScripts.length === 0) return [] as Array<{
-      key: string;
-      label: string;
-      entries: HearthReadyScript[];
-    }>;
-
-    if (readyCategoryFilter !== "all") {
-      const label = readyCategoryFilter === "uncategorized"
-        ? "Uncategorized"
-        : READY_CATEGORY_LABEL[readyCategoryFilter];
-      return [{ key: readyCategoryFilter, label, entries: filteredReadyScripts }];
-    }
-
-    const grouped = new Map<ReadyCategoryGroupKey, HearthReadyScript[]>();
-    for (const entry of filteredReadyScripts) {
-      const key: ReadyCategoryGroupKey = entry.contentCategory ?? "uncategorized";
-      const existing = grouped.get(key);
-      if (existing) {
-        existing.push(entry);
-      } else {
-        grouped.set(key, [entry]);
-      }
-    }
-
-    const orderedKeys: ReadyCategoryGroupKey[] = [...HEARTH_CONTENT_CATEGORIES, "uncategorized"];
-    const sections: Array<{ key: string; label: string; entries: HearthReadyScript[] }> = [];
-    for (const key of orderedKeys) {
-      const entries = grouped.get(key);
-      if (!entries || entries.length === 0) continue;
-      const label = key === "uncategorized" ? "Uncategorized" : READY_CATEGORY_LABEL[key];
-      sections.push({ key, label, entries });
-    }
-    return sections;
-  }, [filteredReadyScripts, readyCategoryFilter]);
   const diffLines = useMemo(() => {
     if (!selectedRevision || !activeDraft) return [];
     return buildDiffLines(activeDraft.body, selectedRevision.bodySnapshot);
@@ -4807,6 +4785,9 @@ export default function HearthShell() {
   useEffect(() => {
     if (imageMapEntries.length === 0) {
       setSelectedImageMapEntryId(null);
+      setIsImageMapReanchorMode(false);
+      setIsImageMapReanchorSaving(false);
+      setImageMapReanchorError(null);
       return;
     }
     if (selectedImageMapEntryId && imageMapEntries.some((entry) => entry.id === selectedImageMapEntryId)) {
@@ -4841,7 +4822,7 @@ export default function HearthShell() {
     setIsImageMapReanchorMode(false);
     setIsImageMapReanchorSaving(false);
     setImageMapReanchorError(null);
-  }, [selectedImageMapEntryId, workpieceId]);
+  }, [workpieceId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -5450,9 +5431,10 @@ export default function HearthShell() {
   }, []);
 
   useEffect(() => {
+    if (isCanonicalImageMapScriptPanel) return;
     if ((activeDraft?.body ?? "").trim()) return;
     setShowScriptPanel(false);
-  }, [activeDraft?.body]);
+  }, [activeDraft?.body, isCanonicalImageMapScriptPanel]);
 
   useEffect(() => {
     if (!workpieceId) return;
@@ -7654,16 +7636,6 @@ export default function HearthShell() {
     }
 
     const primaryScript = await readHearthPrimaryScript(episodeId);
-    if (primaryScript.ok && primaryScript.data.text?.trim()) {
-      const canonicalText = primaryScript.data.text;
-      return {
-        ok: true,
-        text: canonicalText,
-        source: "primary_script",
-        includesUnsavedLocalEdits: Boolean(activeDraft?.body && activeDraft.body.trim() && activeDraft.body !== canonicalText),
-      };
-    }
-
     const canonicalDrafts = dedupeDraftListById(await store.listWorkpieceDrafts(episodeId));
     const preferredDraft = activeDraft?.id
       ? canonicalDrafts.find((draft) => draft.id === activeDraft.id) ?? null
@@ -7672,6 +7644,25 @@ export default function HearthShell() {
       .slice()
       .sort((a, b) => (b.updatedAt ?? b.createdAt ?? 0) - (a.updatedAt ?? a.createdAt ?? 0))[0]
       ?? null;
+    const canonicalChoice = chooseCanonicalImageMapScriptSource({
+      primaryText: primaryScript.ok ? primaryScript.data.text : null,
+      primaryUpdatedAtMs: primaryScript.ok ? (parseIsoTimestamp(primaryScript.data.updatedAt) ?? 0) : null,
+      drafts: canonicalDrafts,
+      preferredDraftId: activeDraft?.id ?? null,
+    });
+
+    if (canonicalChoice) {
+      return {
+        ok: true,
+        text: canonicalChoice.text,
+        source: canonicalChoice.source,
+        includesUnsavedLocalEdits: Boolean(
+          activeDraft?.body
+          && activeDraft.body.trim()
+          && activeDraft.body !== canonicalChoice.text
+        ),
+      };
+    }
 
     if (!latestDraft?.body.trim()) {
       return { ok: false, message: "No canonical script found for this workpiece yet." };
@@ -7693,6 +7684,7 @@ export default function HearthShell() {
       return;
     }
     setMode("focus");
+    setShowManualDraft(false);
     setShowScriptPanel(true);
     setImageMapReanchorError(null);
     setImageMapCandidateError(null);
@@ -7801,6 +7793,7 @@ export default function HearthShell() {
 
     if (!effectiveScriptAnchor) {
       setMode("focus");
+      setShowManualDraft(false);
       setShowScriptPanel(true);
       setIsImageMapReanchorMode(true);
       setImageMapCandidateError("This visual beat needs an exact script anchor before candidate generation. Use Re-anchor to bind it to the current canonical script.");
@@ -8209,6 +8202,15 @@ export default function HearthShell() {
       selected[index] = !selected[index];
       return { ...prev, selected };
     });
+  }
+
+  function onSelectImageMapEntry(entryId: string) {
+    if (entryId !== selectedImageMapEntryId) {
+      setIsImageMapReanchorMode(false);
+      setIsImageMapReanchorSaving(false);
+      setImageMapReanchorError(null);
+    }
+    setSelectedImageMapEntryId(entryId);
   }
 
   function onEditAiProposalBody(index: number, value: string) {
@@ -9713,7 +9715,7 @@ export default function HearthShell() {
                   reanchorParagraphs={imageMapAnchorPickerParagraphs}
                   activeAnchorLabel={imageMapActiveAnchorLabel}
                   disabled={isAiProcessing || isApprovingScript || isImageMapReanchorSaving}
-                  onSelectEntry={setSelectedImageMapEntryId}
+                  onSelectEntry={onSelectImageMapEntry}
                   onSelectCandidate={(candidateId) => void onSelectImageMapCandidate(candidateId)}
                   onDraftAnchorChange={(value) => {
                     setImageMapAnchorDraft(value);
@@ -10550,152 +10552,52 @@ export default function HearthShell() {
                     {isReadyScriptsLoading ? "Refreshing..." : "Refresh"}
                   </button>
                 </div>
-                <div className="hs-ready-record-chips" role="group" aria-label="Ready queue category filters">
-                  <button
-                    type="button"
-                    className={`hs-ready-chip${readyCategoryFilter === "all" ? " is-active" : ""}`}
-                    onClick={() => setReadyCategoryFilter("all")}
-                  >
-                    All ({readyTotalCount})
-                  </button>
-                  {HEARTH_CONTENT_CATEGORIES.map((category) => (
-                    <button
-                      key={category}
-                      type="button"
-                      className={`hs-ready-chip${readyCategoryFilter === category ? " is-active" : ""}`}
-                      onClick={() => setReadyCategoryFilter(category)}
-                    >
-                      {READY_CATEGORY_LABEL[category]} ({readyCategoryCounts[category]})
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    className={`hs-ready-chip${readyCategoryFilter === "uncategorized" ? " is-active" : ""}`}
-                    onClick={() => setReadyCategoryFilter("uncategorized")}
-                  >
-                    Uncategorized ({readyCategoryCounts.uncategorized})
-                  </button>
-                </div>
-                <div className="hs-ready-record-chips" role="group" aria-label="Ready queue urgency filters">
-                  <button
-                    type="button"
-                    className={`hs-ready-chip${readyUrgencyFilter === "all" ? " is-active" : ""}`}
-                    onClick={() => setReadyUrgencyFilter("all")}
-                  >
-                    Urgency: All ({categoryFilteredReadyScripts.length})
-                  </button>
-                  <button
-                    type="button"
-                    className={`hs-ready-chip${readyUrgencyFilter === "fresh" ? " is-active" : ""}`}
-                    onClick={() => setReadyUrgencyFilter("fresh")}
-                  >
-                    Fresh ({readyUrgencyCounts.fresh})
-                  </button>
-                  <button
-                    type="button"
-                    className={`hs-ready-chip${readyUrgencyFilter === "cooling" ? " is-active" : ""}`}
-                    onClick={() => setReadyUrgencyFilter("cooling")}
-                  >
-                    Cooling ({readyUrgencyCounts.cooling})
-                  </button>
-                  <button
-                    type="button"
-                    className={`hs-ready-chip${readyUrgencyFilter === "cold" ? " is-active" : ""}`}
-                    onClick={() => setReadyUrgencyFilter("cold")}
-                  >
-                    Cold ({readyUrgencyCounts.cold})
-                  </button>
-                </div>
                 {readyScriptsError ? <div className="hs-error-text-small">{readyScriptsError}</div> : null}
                 {readyCategoryError ? <div className="hs-error-text-small">{readyCategoryError}</div> : null}
-                <div className="hs-rail-meta">Approved scripts stay here until a recording asset is committed.</div>
+                <div className="hs-rail-meta">
+                  Each episode appears once in Projects. Ready state lives on the project row; queue management lives in the Ready view.
+                </div>
                 {isReadyScriptsLoading ? <p>Loading queue...</p> : null}
-                {!isReadyScriptsLoading && filteredReadyScripts.length === 0 ? (
-                  <p className="hs-rail-meta">
-                    {readyTotalCount === 0
-                      ? removedReadyCount > 0
-                        ? "All ready items are hidden. Restore hidden items to show them here."
-                        : "No items yet. Approve a script to populate this queue."
-                      : readyUrgencyFilter !== "all"
-                        ? "No scripts match this urgency filter."
-                        : "No scripts match this category filter."}
-                  </p>
-                ) : null}
-                {groupedReadyScripts.length > 0 ? (
-                  <div className="hs-ready-record-groups">
-                    {groupedReadyScripts.map((section) => (
-                      <div key={section.key} className="hs-ready-record-group">
-                        <div className="hs-ready-record-group-title">{section.label}</div>
-                        <ul className="hs-ready-record-list">
-                          {section.entries.map((entry) => {
-                            const anvilHref = resolveReadyOpenHref(entry);
-                            const urgency = deriveReadyUrgency(entry);
-                            return (
-                              <li key={entry.id} className="hs-ready-record-item">
-                                <button
-                                  type="button"
-                                  className="hs-ready-record-link"
-                                  onClick={() => void onOpenReadyScriptInHearth(entry)}
-                                >
-                                  <div className="hs-ready-record-title">{entry.title}</div>
-                                </button>
-                                <div className="hs-ready-record-meta-row">
-                                  <div className="hs-ready-record-meta">
-                                    {resolveReadyAttribution(entry)}
-                                  </div>
-                                  {urgency ? (
-                                    <span className={`hs-ready-urgency-badge is-${urgency}`}>
-                                      {READY_URGENCY_LABEL[urgency]}
-                                    </span>
-                                  ) : null}
-                                </div>
-                                <label className="hs-ready-record-label">
-                                  <span>Category</span>
-                                  <select
-                                    value={entry.contentCategory ?? ""}
-                                    disabled={updatingReadyCategoryId === entry.id}
-                                    onChange={(event) => {
-                                      const value = event.target.value;
-                                      const nextCategory = value ? value as HearthContentCategory : null;
-                                      void onSetReadyScriptCategory(entry, nextCategory);
-                                    }}
-                                  >
-                                    <option value="">Uncategorized</option>
-                                    {HEARTH_CONTENT_CATEGORIES.map((category) => (
-                                      <option key={category} value={category}>{READY_CATEGORY_LABEL[category]}</option>
-                                    ))}
-                                  </select>
-                                </label>
-                                <button
-                                  type="button"
-                                  onClick={() => void onOpenReadyScriptInHearth(entry)}
-                                >
-                                  Open in Hearth
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => void onSendBackToEdit(entry)}
-                                  disabled={sendingBackReadyIds.includes(entry.id)}
-                                >
-                                  {sendingBackReadyIds.includes(entry.id) ? "Sending back..." : "Send Back to Edit"}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (!anvilHref) return;
-                                    window.location.assign(anvilHref);
-                                  }}
-                                  disabled={!anvilHref}
-                                >
-                                  Open in Anvil
-                                </button>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      </div>
-                    ))}
+                {!isReadyScriptsLoading ? (
+                  <div className="hs-ready-record-summary">
+                    <div className="hs-ready-record-summary-row">
+                      <span>Ready episodes</span>
+                      <strong>{readyTotalCount}</strong>
+                    </div>
+                    <div className="hs-ready-record-summary-row">
+                      <span>{READY_URGENCY_LABEL.fresh}</span>
+                      <strong>{readyUrgencyCounts.fresh}</strong>
+                    </div>
+                    <div className="hs-ready-record-summary-row">
+                      <span>{READY_URGENCY_LABEL.cooling}</span>
+                      <strong>{readyUrgencyCounts.cooling}</strong>
+                    </div>
+                    <div className="hs-ready-record-summary-row">
+                      <span>{READY_URGENCY_LABEL.cold}</span>
+                      <strong>{readyUrgencyCounts.cold}</strong>
+                    </div>
+                    <div className="hs-ready-record-summary-row">
+                      <span>Hidden</span>
+                      <strong>{removedReadyCount}</strong>
+                    </div>
                   </div>
+                ) : null}
+                <div className="hs-workpiece-actions">
+                  <button
+                    type="button"
+                    className="hs-mode-button"
+                    onClick={() => setMode("ready")}
+                  >
+                    Open Ready View
+                  </button>
+                  {removedReadyCount > 0 ? (
+                    <button type="button" onClick={() => void onRestoreRemovedReady()} disabled={isRestoringReady}>
+                      {isRestoringReady ? "Restoring..." : `Restore hidden (${removedReadyCount})`}
+                    </button>
+                  ) : null}
+                </div>
+                {!isReadyScriptsLoading && readyTotalCount === 0 && removedReadyCount === 0 ? (
+                  <p className="hs-rail-meta">No items yet. Approve a script to populate Ready.</p>
                 ) : null}
               </div>
 
@@ -10740,6 +10642,19 @@ export default function HearthShell() {
                     const isActive = workpieceId === item.workpieceId;
                     const isEditing = Boolean(draftId) && editingDraftId === draftId;
                     const updatedAt = item.updatedAtMs || draft?.updatedAt || Date.now();
+                    const draftLabel = readTrimmedString(draft?.title ?? null);
+                    const showDraftLabel = Boolean(draftLabel && draftLabel !== item.title);
+                    const showWorkpieceId = duplicateRailTitleKeys.has(normalizeRailTitleKey(item.title));
+                    const workpieceBadges = [
+                      item.readyEntry ? { label: "Ready", tone: "ready" } : null,
+                      draft ? { label: "Draft", tone: "draft" } : null,
+                      draft?.revisionCount ? { label: `Revisions ${draft.revisionCount}`, tone: "count" } : null,
+                      item.sparkCount > 0
+                        ? { label: `${item.sparkCount} Spark${item.sparkCount === 1 ? "" : "s"}`, tone: "count" }
+                        : null,
+                      draft?.pinned ? { label: "Pinned", tone: "neutral" } : null,
+                      item.isArchived ? { label: "Archived", tone: "archived" } : null,
+                    ].filter((badge): badge is { label: string; tone: "ready" | "draft" | "count" | "neutral" | "archived" } => Boolean(badge));
                     const isArchiving = archivingWorkpieceIds.includes(item.workpieceId);
                     const isRestoring = restoringWorkpieceIds.includes(item.workpieceId);
                     return (
@@ -10747,55 +10662,73 @@ export default function HearthShell() {
                         <div
                           className={`hs-workpiece-card${isActive ? " is-active" : ""}`}
                         >
-                          {isEditing ? (
-                            <input
-                              aria-label="Edit project title"
-                              value={editingTitle}
-                              onChange={(event) => setEditingTitle(event.target.value)}
-                              onKeyDown={(event) => {
-                                if (!draft) return;
-                                if (event.key === "Enter") {
-                                  event.preventDefault();
-                                  void saveDraftMeta(draft, { title: editingTitle });
-                                  setEditingDraftId(null);
-                                }
-                                if (event.key === "Escape") {
-                                  setEditingDraftId(null);
-                                }
-                              }}
-                              onBlur={() => {
-                                if (draft && editingDraftId === draft.id) {
-                                  void saveDraftMeta(draft, { title: editingTitle });
-                                  setEditingDraftId(null);
-                                }
-                              }}
-                            />
-                          ) : (
-                            <button
-                              onClick={() => void openWorkpieceInFocus(item.workpieceId, {
-                                preferredDraftId: item.draftId,
-                              })}
-                              className="hs-workpiece-button"
-                            >
-                              <div className="hs-workpiece-title-row">
+                          <button
+                            type="button"
+                            onClick={() => void openWorkpieceInFocus(item.workpieceId, {
+                              preferredDraftId: item.draftId,
+                            })}
+                            className="hs-workpiece-button"
+                          >
+                            <div className="hs-workpiece-title-row">
+                              <div className="hs-workpiece-title-stack">
                                 <div className="hs-workpiece-title">{item.title}</div>
-                                {draft?.pinned ? (
-                                  <span className="hs-workpiece-pin" aria-label="Pinned" title="Pinned">
-                                    PIN
-                                  </span>
+                                {showWorkpieceId ? (
+                                  <div className="hs-workpiece-secondary">ID {item.workpieceId.slice(0, 8)}</div>
                                 ) : null}
                               </div>
-                              <div className="hs-workpiece-updated">
-                                Updated {formatUpdatedAt(updatedAt)}
+                            </div>
+                            {workpieceBadges.length > 0 ? (
+                              <div className="hs-workpiece-badges" aria-label="Project status">
+                                {workpieceBadges.map((badge) => (
+                                  <span
+                                    key={`${item.workpieceId}:${badge.label}`}
+                                    className={`hs-workpiece-badge is-${badge.tone}`}
+                                  >
+                                    {badge.label}
+                                  </span>
+                                ))}
                               </div>
-                              <div className="hs-workpiece-updated">
-                                {draft ? `Last edited by ${resolveDraftEditorName(draft)}` : "No attached draft buffer yet"}
-                              </div>
-                            </button>
-                          )}
-                          <div className="hs-workpiece-revisions">
-                            Revisions {draft?.revisionCount ?? "-"}
-                          </div>
+                            ) : null}
+                            <div className="hs-workpiece-updated">
+                              Updated {formatUpdatedAt(updatedAt)}
+                            </div>
+                            <div className="hs-workpiece-updated">
+                              {draft ? `Last edited by ${resolveDraftEditorName(draft)}` : "No attached draft buffer yet"}
+                            </div>
+                            {showDraftLabel ? (
+                              <div className="hs-workpiece-updated">Draft label: {draftLabel}</div>
+                            ) : null}
+                          </button>
+                          {draft && isEditing ? (
+                            <label className="hs-workpiece-draft-label-editor">
+                              <span className="hs-rail-label">Draft label</span>
+                              <input
+                                aria-label="Edit draft label"
+                                value={editingTitle}
+                                onChange={(event) => setEditingTitle(event.target.value)}
+                                onKeyDown={(event) => {
+                                  if (!draft) return;
+                                  if (event.key === "Enter") {
+                                    event.preventDefault();
+                                    void saveDraftMeta(draft, { title: editingTitle });
+                                    setEditingDraftId(null);
+                                  }
+                                  if (event.key === "Escape") {
+                                    setEditingDraftId(null);
+                                  }
+                                }}
+                                onBlur={() => {
+                                  if (draft && editingDraftId === draft.id) {
+                                    void saveDraftMeta(draft, { title: editingTitle });
+                                    setEditingDraftId(null);
+                                  }
+                                }}
+                              />
+                              <span className="hs-rail-meta">
+                                Draft label only. Project title stays synced to Tongs.
+                              </span>
+                            </label>
+                          ) : null}
                           {draft && !item.isArchived ? (
                             <div className="hs-workpiece-actions">
                               <button
@@ -10807,11 +10740,15 @@ export default function HearthShell() {
                               <button
                                 type="button"
                                 onClick={() => {
+                                  if (editingDraftId === draft.id) {
+                                    setEditingDraftId(null);
+                                    return;
+                                  }
                                   setEditingDraftId(draft.id);
                                   setEditingTitle(draft.title);
                                 }}
                               >
-                                Rename
+                                {editingDraftId === draft.id ? "Close Draft Label" : "Edit Draft Label"}
                               </button>
                             </div>
                           ) : null}
@@ -10847,6 +10784,12 @@ export default function HearthShell() {
           {hasActiveEpisode ? (
             <div className="hs-active-workpiece">
               <div className="hs-rail-heading">Active workpiece</div>
+              <div className="hs-active-workpiece-status">
+                <span className={`hs-episode-ready-pill is-${activeEpisodeReadyStatus.tone}`}>
+                  {activeEpisodeReadyStatus.label}
+                </span>
+                <div className="hs-rail-meta">{activeEpisodeReadyStatus.detail}</div>
+              </div>
               {activeWorkpieceIsArchived && activeWorkpiece ? (
                 <>
                   <div className="hs-rail-meta">Archived workpieces are hidden records. Restore to review, then re-ready before recording.</div>

@@ -50,6 +50,7 @@ import {
   type HearthWorkpieceSummary,
 } from "../src/lib/hearth-workpieces";
 import {
+  chooseCanonicalImageMapScriptSource,
   choosePreferredHydratedDraft,
   draftHasUsableScriptBody,
   hydrateDraftBodyFromCanonicalScript,
@@ -2670,6 +2671,55 @@ async function testWorkpieceArchiveRoundtripUsesCanonicalEndpoints() {
   }
 }
 
+async function testWorkpieceListDedupesCanonicalIdsBeforeRailConsumption() {
+  resetLocalStorage();
+  const harness = installWorkpieceFetchHarness();
+  harness.setEpisodesPayload([
+    {
+      id: WORKPIECE_A,
+      workspace_id: WORKSPACE_ID,
+      label: "Alpha Episode (stale)",
+      created_at: "2026-03-08T12:00:00.000Z",
+      updated_at: "2026-03-09T12:00:00.000Z",
+    },
+    {
+      id: WORKPIECE_A,
+      workspace_id: WORKSPACE_ID,
+      label: "Alpha Episode",
+      created_at: "2026-03-08T12:00:00.000Z",
+      updated_at: "2026-03-10T12:00:00.000Z",
+    },
+    {
+      id: WORKPIECE_B,
+      workspace_id: WORKSPACE_ID,
+      label: "Beta Episode",
+      created_at: "2026-03-09T12:00:00.000Z",
+      updated_at: "2026-03-10T11:00:00.000Z",
+    },
+  ]);
+
+  try {
+    const workpieces = await listHearthWorkpieces(WORKSPACE_ID);
+    assert.deepEqual(
+      workpieces.map((entry) => entry.workpieceId),
+      [WORKPIECE_A, WORKPIECE_B],
+      "Duplicate canonical ids should collapse before Hearth builds rail rows",
+    );
+    assert.equal(
+      workpieces.filter((entry) => entry.workpieceId === WORKPIECE_A).length,
+      1,
+      "A canonical workpiece id should appear at most once after ingest normalization",
+    );
+    assert.equal(
+      workpieces.find((entry) => entry.workpieceId === WORKPIECE_A)?.title,
+      "Alpha Episode",
+      "The freshest canonical summary should win when duplicate workpiece rows arrive from Tongs",
+    );
+  } finally {
+    harness.restore();
+  }
+}
+
 async function testWorkpieceDraftHydrationReadsCanonicalSnapshotWithoutCachedMapping() {
   const storage = resetLocalStorage();
   storage.setItem("forge_workspace_id_v1", WORKSPACE_ID);
@@ -2747,6 +2797,41 @@ function testHydrateDraftBodyFromCanonicalScriptRepairsBlankWorkpieceBuffer() {
   assert.equal(repaired.body, "[s1]\nRecovered approved script\n[/s1]");
   assert.equal(repaired.updatedAt, Date.parse("2026-03-10T15:00:00.000Z"));
   assert.equal(repaired.updatedBy?.displayName, "Forge User");
+}
+
+function testChooseCanonicalImageMapScriptSourcePrefersNewerSavedDraftOverStalePrimaryShell() {
+  const savedDraft = createDraft(WORKPIECE_A, {
+    body: "[s1]\nRecovered approved script body with actual anchorable text.\n[/s1]",
+    updatedAt: Date.parse("2026-03-12T15:00:00.000Z"),
+  });
+
+  const selected = chooseCanonicalImageMapScriptSource({
+    primaryText: "# Episode Title",
+    primaryUpdatedAtMs: Date.parse("2026-03-11T09:00:00.000Z"),
+    drafts: [savedDraft],
+    preferredDraftId: WORKPIECE_A,
+  });
+
+  assert.equal(selected?.source, "saved_draft");
+  assert.equal(selected?.text, savedDraft.body);
+}
+
+function testChooseCanonicalImageMapScriptSourceKeepsPublishedScriptWhenItMatchesCurrentTruth() {
+  const primaryText = "[s1]\nCurrent approved script body.\n[/s1]";
+  const savedDraft = createDraft(WORKPIECE_A, {
+    body: primaryText,
+    updatedAt: Date.parse("2026-03-10T15:00:00.000Z"),
+  });
+
+  const selected = chooseCanonicalImageMapScriptSource({
+    primaryText,
+    primaryUpdatedAtMs: Date.parse("2026-03-12T15:00:00.000Z"),
+    drafts: [savedDraft],
+    preferredDraftId: WORKPIECE_A,
+  });
+
+  assert.equal(selected?.source, "primary_script");
+  assert.equal(selected?.text, primaryText);
 }
 
 async function testWorkpieceNavModelStaysWorkpieceFirst() {
@@ -3159,9 +3244,12 @@ async function run() {
   await testSparkIntakeWaitsForCanonicalDiscoveryBeforeDeclaringMissing();
   await testWorkpieceListRoundtripAndPrimaryScriptRead();
   await testWorkpieceArchiveRoundtripUsesCanonicalEndpoints();
+  await testWorkpieceListDedupesCanonicalIdsBeforeRailConsumption();
   await testWorkpieceDraftHydrationReadsCanonicalSnapshotWithoutCachedMapping();
   testDraftHydrationPrefersUsableCanonicalBodyOverNewerEmptyBuffer();
   testHydrateDraftBodyFromCanonicalScriptRepairsBlankWorkpieceBuffer();
+  testChooseCanonicalImageMapScriptSourcePrefersNewerSavedDraftOverStalePrimaryShell();
+  testChooseCanonicalImageMapScriptSourceKeepsPublishedScriptWhenItMatchesCurrentTruth();
   await testWorkpieceNavModelStaysWorkpieceFirst();
   await testActiveWorkpieceContextResolvesAttachedArtifactsWithoutCreatingNavRows();
   await testForgedSparkRouteResolutionPrefersBoundWorkpiece();

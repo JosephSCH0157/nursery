@@ -100,6 +100,27 @@ function parseWorkpieceSummaryRow(
   };
 }
 
+function choosePreferredWorkpieceSummary(
+  current: HearthWorkpieceSummary,
+  next: HearthWorkpieceSummary,
+): HearthWorkpieceSummary {
+  if (next.updatedAtMs !== current.updatedAtMs) {
+    return next.updatedAtMs > current.updatedAtMs ? next : current;
+  }
+  if (next.createdAtMs !== current.createdAtMs) {
+    return next.createdAtMs > current.createdAtMs ? next : current;
+  }
+  const currentHasLabel = Boolean(current.label);
+  const nextHasLabel = Boolean(next.label);
+  if (currentHasLabel !== nextHasLabel) {
+    return nextHasLabel ? next : current;
+  }
+  if (current.isArchived !== next.isArchived) {
+    return next.isArchived ? next : current;
+  }
+  return current;
+}
+
 export function parseHearthWorkpiecesPayload(
   workspaceId: string,
   payload: unknown,
@@ -115,14 +136,20 @@ export function parseHearthWorkpiecesPayload(
   } | null;
 
   const items = Array.isArray(body?.data?.episodes) ? body.data.episodes : [];
-  const out: HearthWorkpieceSummary[] = [];
+  const byWorkpieceId = new Map<string, HearthWorkpieceSummary>();
   for (const item of items) {
     if (!item || typeof item !== "object" || Array.isArray(item)) continue;
     const summary = parseWorkpieceSummaryRow(item as HearthWorkpieceSummaryApiRow, normalizedWorkspaceId);
-    if (summary) out.push(summary);
+    if (!summary) continue;
+    const existing = byWorkpieceId.get(summary.workpieceId);
+    if (!existing) {
+      byWorkpieceId.set(summary.workpieceId, summary);
+      continue;
+    }
+    byWorkpieceId.set(summary.workpieceId, choosePreferredWorkpieceSummary(existing, summary));
   }
 
-  return out.sort((left, right) => {
+  return [...byWorkpieceId.values()].sort((left, right) => {
     if (left.updatedAtMs !== right.updatedAtMs) return right.updatedAtMs - left.updatedAtMs;
     if (left.createdAtMs !== right.createdAtMs) return right.createdAtMs - left.createdAtMs;
     return left.title.localeCompare(right.title);

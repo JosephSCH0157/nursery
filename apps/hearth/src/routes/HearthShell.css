@@ -156,6 +156,20 @@
   gap: 8px;
 }
 
+.hs-ready-record-summary {
+  display: grid;
+  gap: 6px;
+}
+
+.hs-ready-record-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  opacity: 0.82;
+}
+
 .hs-ready-urgency-badge {
   border: 1px solid var(--forge-border, #ddd);
   border-radius: 999px;
@@ -238,8 +252,18 @@
   align-items: center;
 }
 
+.hs-workpiece-title-stack {
+  display: grid;
+  gap: 2px;
+}
+
 .hs-workpiece-title {
   font-weight: 600;
+}
+
+.hs-workpiece-secondary {
+  font-size: 11px;
+  opacity: 0.65;
 }
 
 .hs-workpiece-pin {
@@ -247,9 +271,50 @@
   opacity: 0.7;
 }
 
+.hs-workpiece-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hs-workpiece-badge {
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.hs-workpiece-badge.is-ready {
+  border-color: rgba(22, 163, 74, 0.55);
+  background: rgba(22, 163, 74, 0.14);
+}
+
+.hs-workpiece-badge.is-draft {
+  border-color: rgba(37, 99, 235, 0.55);
+  background: rgba(37, 99, 235, 0.1);
+}
+
+.hs-workpiece-badge.is-count,
+.hs-workpiece-badge.is-neutral {
+  border-color: rgba(148, 163, 184, 0.5);
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.hs-workpiece-badge.is-archived {
+  border-color: rgba(100, 116, 139, 0.55);
+  background: rgba(100, 116, 139, 0.12);
+}
+
 .hs-workpiece-updated {
   font-size: 12px;
   opacity: 0.75;
+}
+
+.hs-workpiece-draft-label-editor {
+  display: grid;
+  gap: 6px;
 }
 
 .hs-workpiece-presence {
@@ -290,6 +355,40 @@
 .hs-active-workpiece {
   display: grid;
   gap: 8px;
+}
+
+.hs-active-workpiece-status {
+  display: grid;
+  gap: 6px;
+}
+
+.hs-episode-ready-pill {
+  justify-self: start;
+  border: 1px solid var(--forge-border, #ddd);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.hs-episode-ready-pill.is-ready {
+  border-color: rgba(22, 163, 74, 0.55);
+  background: rgba(22, 163, 74, 0.14);
+  color: #166534;
+}
+
+.hs-episode-ready-pill.is-pending {
+  border-color: rgba(217, 119, 6, 0.55);
+  background: rgba(217, 119, 6, 0.12);
+  color: #92400e;
+}
+
+.hs-episode-ready-pill.is-archived {
+  border-color: rgba(100, 116, 139, 0.55);
+  background: rgba(100, 116, 139, 0.12);
+  color: #334155;
 }
 
 .hs-mode-button {
