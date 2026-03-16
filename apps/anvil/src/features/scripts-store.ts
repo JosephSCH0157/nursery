@@ -24,6 +24,10 @@ export type MappedHandle = {
 
 import { debugLog, hudLog } from '../env/logging';
 import { readReadyScriptText, type ReadyScriptReference } from '../forge/ready-scripts';
+import {
+  hasUsableReadyScriptContent,
+  readReadyScriptRecordContent,
+} from './ready-script-loading';
 
 const scriptsById = new Map<string, ScriptRecord>();
 const mappedHandles = new Map<string, MappedHandle>();
@@ -105,21 +109,6 @@ function emitScriptsUpdated(): void {
   }
 }
 
-function hasUsableScriptContent(value: string | null | undefined): value is string {
-  return typeof value === 'string' && value.trim().length > 0;
-}
-
-function buildReadyPathCandidates(entry: ReadyScriptReference): string[] {
-  const candidates = [entry.path, entry.primaryPath, ...entry.scriptPaths];
-  const out: string[] = [];
-  for (const candidate of candidates) {
-    const path = String(candidate || '').trim();
-    if (!path || out.includes(path)) continue;
-    out.push(path);
-  }
-  return out;
-}
-
 export const ScriptStore = {
   list(): ScriptMeta[] {
     const all = Array.from(scriptsById.values());
@@ -133,23 +122,17 @@ export const ScriptStore = {
 
   async get(id: string): Promise<ScriptRecord | null> {
     const existing = scriptsById.get(id);
-    if (existing && hasUsableScriptContent(existing.content)) return existing;
+    if (existing && hasUsableReadyScriptContent(existing.content)) return existing;
 
     const mapped = mappedHandles.get(id);
     if (!mapped) {
       const ready = readyRefsById.get(id);
-      if (!ready) return hasUsableScriptContent(existing?.content) ? existing : null;
+      if (!ready) return hasUsableReadyScriptContent(existing?.content) ? existing : null;
 
       try {
-        let text: string | null = null;
-        for (const path of buildReadyPathCandidates(ready)) {
-          const candidateText = await readReadyScriptText(ready.workpieceId, path);
-          if (!hasUsableScriptContent(candidateText)) continue;
-          text = candidateText;
-          break;
-        }
-        if (!hasUsableScriptContent(text)) {
-          return hasUsableScriptContent(existing?.content) ? existing : null;
+        const text = await readReadyScriptRecordContent(ready, readReadyScriptText);
+        if (!hasUsableReadyScriptContent(text)) {
+          return hasUsableReadyScriptContent(existing?.content) ? existing : null;
         }
         const rec: ScriptRecord = {
           id: ready.id,
@@ -163,7 +146,7 @@ export const ScriptStore = {
         return rec;
       } catch (err) {
         try { console.warn('[scripts-store] failed to load ready script', err); } catch {}
-        return hasUsableScriptContent(existing?.content) ? existing : null;
+        return hasUsableReadyScriptContent(existing?.content) ? existing : null;
       }
     }
 
@@ -172,7 +155,7 @@ export const ScriptStore = {
       if (!ok) {
         hudLog('script:permission:denied', { id });
         try { (window as any).toast?.('Allow folder access to load scripts, then try Refresh.', { type: 'warning' }); } catch {}
-        return hasUsableScriptContent(existing?.content) ? existing : null;
+        return hasUsableReadyScriptContent(existing?.content) ? existing : null;
       }
       const file = await (mapped.handle as any).getFile();
       const text = await readMappedFile(file);
@@ -188,7 +171,7 @@ export const ScriptStore = {
       return rec;
     } catch (err) {
       try { console.warn('[scripts-store] failed to load mapped script', err); } catch {}
-      return hasUsableScriptContent(existing?.content) ? existing : null;
+      return hasUsableReadyScriptContent(existing?.content) ? existing : null;
     }
   },
 
