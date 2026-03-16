@@ -58,6 +58,11 @@ import {
   type HearthWorkpieceSummary,
 } from "../lib/hearth-workpieces";
 import {
+  choosePreferredHydratedDraft,
+  draftHasUsableScriptBody,
+  hydrateDraftBodyFromCanonicalScript,
+} from "../lib/hearth-draft-hydration";
+import {
   selectActiveWorkpieceContext,
   selectDraftForWorkpiece,
   selectWorkpieceNavItems,
@@ -3637,27 +3642,33 @@ export default function HearthShell() {
       sparks,
       preferredDraftId: options?.preferredDraftId ?? null,
     });
-    if (existingDraft) return existingDraft;
+    let selectedDraft = existingDraft;
 
-    const canonicalDrafts = dedupeDraftListById(await store.listWorkpieceDrafts(normalizedWorkpieceId));
-    if (canonicalDrafts.length > 0) {
-      const mergedDrafts = dedupeDraftListById([...availableDrafts, ...canonicalDrafts]);
-      draftsRef.current = mergedDrafts;
-      setDrafts(mergedDrafts);
-      const canonicalDraft = selectDraftForWorkpiece({
-        workpieceId: normalizedWorkpieceId,
-        drafts: mergedDrafts,
-        sparks,
-        preferredDraftId: options?.preferredDraftId ?? null,
-      }) ?? (
-        options?.preferredDraftId
-          ? mergedDrafts.find((draft) => draft.id === options.preferredDraftId) ?? null
-          : null
-      ) ?? canonicalDrafts
-        .slice()
-        .sort((a, b) => b.updatedAt - a.updatedAt)[0]
-        ?? null;
-      if (canonicalDraft) return canonicalDraft;
+    if (!draftHasUsableScriptBody(selectedDraft)) {
+      const canonicalDrafts = dedupeDraftListById(await store.listWorkpieceDrafts(normalizedWorkpieceId));
+      if (canonicalDrafts.length > 0) {
+        const mergedDrafts = dedupeDraftListById([...availableDrafts, ...canonicalDrafts]);
+        draftsRef.current = mergedDrafts;
+        setDrafts(mergedDrafts);
+        const canonicalDraft = selectDraftForWorkpiece({
+          workpieceId: normalizedWorkpieceId,
+          drafts: mergedDrafts,
+          sparks,
+          preferredDraftId: options?.preferredDraftId ?? null,
+        }) ?? (
+          options?.preferredDraftId
+            ? mergedDrafts.find((draft) => draft.id === options.preferredDraftId) ?? null
+            : null
+        ) ?? canonicalDrafts
+          .slice()
+          .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+          ?? null;
+        selectedDraft = choosePreferredHydratedDraft([selectedDraft, canonicalDraft]);
+      }
+    }
+
+    if (draftHasUsableScriptBody(selectedDraft)) {
+      return selectedDraft;
     }
 
     const availableWorkpieces = options?.workpieces ?? workpieceSummariesRef.current;
@@ -3666,12 +3677,43 @@ export default function HearthShell() {
     if (!scriptRead.ok) {
       setAiRuntimeWarning("Opened Episode, but Hearth could not load the canonical script snapshot.");
     }
+    const canonicalScriptData = scriptRead.ok ? scriptRead.data : null;
+    const canonicalScriptText = readTrimmedString(canonicalScriptData?.text);
+
+    if (selectedDraft && canonicalScriptText) {
+      const repairedDraft = hydrateDraftBodyFromCanonicalScript({
+        draft: selectedDraft,
+        scriptText: canonicalScriptData?.text ?? canonicalScriptText,
+        updatedAt: parseIsoTimestamp(canonicalScriptData?.updatedAt) ?? Date.now(),
+        updatedBy: buildDraftAttribution(hearthUser),
+      });
+
+      try {
+        await store.saveDraft(repairedDraft, { reason: "hydrate_workpiece" });
+        const nextDrafts = dedupeDraftListById([repairedDraft, ...draftsRef.current]);
+        draftsRef.current = nextDrafts;
+        setDrafts(nextDrafts);
+        return repairedDraft;
+      } catch (err) {
+        if (!parseDraftConflictError(err)) {
+          throw err;
+        }
+        const latestDrafts = await refreshDrafts();
+        const latestDraft = selectDraftForWorkpiece({
+          workpieceId: normalizedWorkpieceId,
+          drafts: latestDrafts,
+          sparks,
+          preferredDraftId: options?.preferredDraftId ?? null,
+        });
+        return choosePreferredHydratedDraft([latestDraft, repairedDraft]);
+      }
+    }
 
     const seedBody = options?.seed?.body ?? "";
     const body = seedBody.trim()
       ? seedBody
-      : scriptRead.ok && scriptRead.data.text != null
-        ? scriptRead.data.text
+      : canonicalScriptText
+        ? (canonicalScriptData?.text ?? canonicalScriptText)
         : "## Draft Script\n\n";
     const title = workpieceSummary?.title
       ?? readTrimmedString(options?.seed?.title)

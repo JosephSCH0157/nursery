@@ -50,6 +50,11 @@ import {
   type HearthWorkpieceSummary,
 } from "../src/lib/hearth-workpieces";
 import {
+  choosePreferredHydratedDraft,
+  draftHasUsableScriptBody,
+  hydrateDraftBodyFromCanonicalScript,
+} from "../src/lib/hearth-draft-hydration";
+import {
   selectActiveWorkpieceContext,
   selectWorkpieceNavItems,
 } from "../src/lib/hearth-nav-model";
@@ -2706,6 +2711,44 @@ async function testWorkpieceDraftHydrationReadsCanonicalSnapshotWithoutCachedMap
   }
 }
 
+function testDraftHydrationPrefersUsableCanonicalBodyOverNewerEmptyBuffer() {
+  const localEmptyDraft = createDraft(WORKPIECE_A, {
+    title: "Episode Title",
+    body: "",
+    updatedAt: Date.parse("2026-03-12T12:00:00.000Z"),
+  });
+  const canonicalDraft = createDraft(WORKPIECE_A, {
+    title: "Episode Title",
+    body: "[s1]\nApproved script body\n[/s1]",
+    updatedAt: Date.parse("2026-03-11T12:00:00.000Z"),
+  });
+
+  const preferred = choosePreferredHydratedDraft([localEmptyDraft, canonicalDraft]);
+
+  assert.equal(draftHasUsableScriptBody(localEmptyDraft), false);
+  assert.equal(draftHasUsableScriptBody(canonicalDraft), true);
+  assert.equal(preferred?.body, canonicalDraft.body);
+}
+
+function testHydrateDraftBodyFromCanonicalScriptRepairsBlankWorkpieceBuffer() {
+  const blankDraft = createDraft(WORKPIECE_A, {
+    title: "Episode Title",
+    body: "",
+    updatedAt: Date.parse("2026-03-10T12:00:00.000Z"),
+  });
+
+  const repaired = hydrateDraftBodyFromCanonicalScript({
+    draft: blankDraft,
+    scriptText: "[s1]\nRecovered approved script\n[/s1]",
+    updatedAt: Date.parse("2026-03-10T15:00:00.000Z"),
+    updatedBy: { userId: "user-1", displayName: "Forge User" },
+  });
+
+  assert.equal(repaired.body, "[s1]\nRecovered approved script\n[/s1]");
+  assert.equal(repaired.updatedAt, Date.parse("2026-03-10T15:00:00.000Z"));
+  assert.equal(repaired.updatedBy?.displayName, "Forge User");
+}
+
 async function testWorkpieceNavModelStaysWorkpieceFirst() {
   const workpieces = [
     createWorkpieceSummary(WORKPIECE_A, { title: "Alpha Episode" }),
@@ -3117,6 +3160,8 @@ async function run() {
   await testWorkpieceListRoundtripAndPrimaryScriptRead();
   await testWorkpieceArchiveRoundtripUsesCanonicalEndpoints();
   await testWorkpieceDraftHydrationReadsCanonicalSnapshotWithoutCachedMapping();
+  testDraftHydrationPrefersUsableCanonicalBodyOverNewerEmptyBuffer();
+  testHydrateDraftBodyFromCanonicalScriptRepairsBlankWorkpieceBuffer();
   await testWorkpieceNavModelStaysWorkpieceFirst();
   await testActiveWorkpieceContextResolvesAttachedArtifactsWithoutCreatingNavRows();
   await testForgedSparkRouteResolutionPrefersBoundWorkpiece();
