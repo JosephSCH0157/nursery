@@ -93,7 +93,12 @@ import {
   type HearthOp,
   type HearthOpsStore,
 } from "../lib/hearth-ai-ops";
-import { updateHearthProposalBodyOp } from "../lib/hearth-ai-proposal";
+import {
+  cloneHearthProposalOps,
+  isHearthProposalBodyOpDirty,
+  resetHearthProposalBodyOp,
+  updateHearthProposalBodyOp,
+} from "../lib/hearth-ai-proposal";
 import {
   formatScriptToAnvilTagsNoAi,
   validateAnvilTagContract,
@@ -1734,6 +1739,7 @@ type DiffLine = {
 type PendingAiProposal = {
   assistantText: string;
   ops: HearthOp[];
+  originalOps: HearthOp[];
   selected: boolean[];
   context: EpisodeContext;
   fromGate: boolean;
@@ -2476,6 +2482,14 @@ export default function HearthShell() {
     isImageMapCandidateSelecting,
     selectedImageMapEntry,
   ]);
+  const dirtyProposalBodyCount = useMemo(
+    () => pendingAiProposal?.ops.reduce((count, op, index) => (
+      op.op === "set_body" && isHearthProposalBodyOpDirty(pendingAiProposal.ops, pendingAiProposal.originalOps, index)
+        ? count + 1
+        : count
+    ), 0) ?? 0,
+    [pendingAiProposal],
+  );
   const selectedImageMapCandidates = selectedImageMapEntry?.candidate_assets ?? [];
   const imageMapCandidateCards = selectedImageMapCandidates.map((candidate) => ({
     id: candidate.asset_id,
@@ -6889,6 +6903,7 @@ export default function HearthShell() {
         setPendingAiProposal({
           assistantText: assistantContent,
           ops: proposalOps,
+          originalOps: cloneHearthProposalOps(proposalOps),
           selected: proposalOps.map(() => true),
           context: episodeContext,
           fromGate: gateAnswering,
@@ -8167,6 +8182,19 @@ export default function HearthShell() {
     });
   }
 
+  function onResetAiProposalBody(index: number) {
+    setScriptValidation(null);
+    setError(null);
+    setChatError(null);
+    setPendingAiProposal((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        ops: resetHearthProposalBodyOp(prev.ops, prev.originalOps, index),
+      };
+    });
+  }
+
   function onUseChatShortcut(prompt: string) {
     const signals = detectChatIntentSignals(prompt);
     if (signals.requestedOutline) {
@@ -9248,6 +9276,7 @@ export default function HearthShell() {
                   <div className="hs-ai-proposal-title">Proposed changes</div>
                   <div className="hs-ai-proposal-meta">
                     {pendingAiProposal.selected.filter(Boolean).length} selected · {pendingAiProposal.ops.length} total
+                    {dirtyProposalBodyCount > 0 ? ` · ${dirtyProposalBodyCount} edited from AI` : ""}
                   </div>
                 </div>
 
@@ -9257,6 +9286,9 @@ export default function HearthShell() {
                     const proposalBodyValidation = op.op === "set_body"
                       ? validateAnvilTagContract(op.value)
                       : null;
+                    const proposalBodyDirty = op.op === "set_body"
+                      ? isHearthProposalBodyOpDirty(pendingAiProposal.ops, pendingAiProposal.originalOps, index)
+                      : false;
                     const inputId = `ai-op-${index}`;
                     return (
                       <div key={inputId} className="hs-ai-op-row">
@@ -9279,7 +9311,12 @@ export default function HearthShell() {
                                 </div>
                               ) : null}
                               <label className="hs-field">
-                                <span className="hs-field-label">Editable proposed draft</span>
+                                <span className="hs-field-label">
+                                  Editable proposed draft
+                                  {proposalBodyDirty ? (
+                                    <span className="hs-ai-op-dirty-badge">Edited from AI</span>
+                                  ) : null}
+                                </span>
                                 <textarea
                                   value={op.value}
                                   onChange={(event) => onEditAiProposalBody(index, event.target.value)}
@@ -9288,6 +9325,20 @@ export default function HearthShell() {
                                   disabled={isApplyingAiOps}
                                 />
                               </label>
+                              {proposalBodyDirty ? (
+                                <div className="hs-ai-op-dirty-actions">
+                                  <div className="hs-field-label-muted">
+                                    This proposal now differs from the original AI suggestion.
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => onResetAiProposalBody(index)}
+                                    disabled={isApplyingAiOps}
+                                  >
+                                    Reset to AI version
+                                  </button>
+                                </div>
+                              ) : null}
                               <div className={`hs-ai-op-validation${proposalBodyValidation?.ok ? " is-valid" : " is-invalid"}`}>
                                 {proposalBodyValidation?.ok
                                   ? "Tag contract OK."
