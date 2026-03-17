@@ -44,6 +44,7 @@ declare global {
     __tpHud?: { log?: AnyFn };
     __tpHudRecorderBtn?: HTMLElement | null;
     __tpTextStats?: any;
+    __tpAiActivity?: any;
     __tpFeatureInit?: Record<string, any>;
     __tp?: any;
     __tpInit?: Record<string, any>;
@@ -742,6 +743,79 @@ function installObsChip() {
   });
 }
 
+function installAiActivityChip() {
+  once('ai-activity-chip', () => {
+    try {
+      const topbar = document.querySelector('.topbar') || document.body;
+      let chip = document.getElementById('aiChip');
+      if (!chip) {
+        chip = document.createElement('span');
+        chip.id = 'aiChip';
+        chip.className = 'chip topbar-secondary-status';
+        chip.setAttribute('role', 'status');
+        chip.setAttribute('aria-live', 'polite');
+        chip.setAttribute('aria-atomic', 'true');
+        topbar && topbar.appendChild(chip);
+      }
+
+      const capitalize = (value) => {
+        const normalized = String(value || '').trim();
+        return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : '';
+      };
+
+      const render = (detail = {}) => {
+        try {
+          const phase = String(detail?.phase || 'off').toLowerCase();
+          const provider = capitalize(detail?.provider || 'openai') || 'OpenAI';
+          const engine = capitalize(detail?.engine || 'whisper') || 'Whisper';
+          const model = String(detail?.model || '').trim();
+          const message = String(detail?.message || '').trim();
+          const requestsInFlight = Number(detail?.requestsInFlight || 0);
+          const queueDepth = Number(detail?.queueDepth || 0);
+
+          let text = 'AI: off';
+          let sessionText = 'AI: off';
+          let state = 'off';
+          let title = 'AI is not active.';
+
+          if (phase === 'transcribing') {
+            text = 'AI: transcribing';
+            sessionText = `AI: ${provider} ${engine} transcribing`;
+            state = 'busy';
+            title = `${provider} ${engine} is actively transcribing mic audio${model ? ` (${model})` : ''}.`;
+            if (requestsInFlight > 0 || queueDepth > 0) {
+              title += ` In flight: ${requestsInFlight}. Queued: ${queueDepth}.`;
+            }
+          } else if (phase === 'ready') {
+            text = 'AI: active';
+            sessionText = `AI: ${provider} ${engine} active`;
+            state = 'on';
+            title = `${provider} ${engine} is active for this speech session${model ? ` (${model})` : ''}.`;
+          } else if (phase === 'error') {
+            text = 'AI: error';
+            sessionText = `AI: ${provider} ${engine} error`;
+            state = 'error';
+            title = message
+              ? `${provider} ${engine} reported an error: ${message}`
+              : `${provider} ${engine} reported an error.`;
+          }
+
+          chip.textContent = text;
+          chip.dataset.state = state;
+          chip.dataset.sessionText = sessionText;
+          chip.title = title;
+          chip.setAttribute('aria-label', sessionText);
+        } catch {}
+      };
+
+      render((window as any).__tpAiActivity || { phase: 'off' });
+      window.addEventListener('tp:ai:activity', (event) => {
+        try { render((event && event.detail) || {}); } catch {}
+      });
+    } catch {}
+  });
+}
+
 export function wireOverlays() {
   once('overlays', () => {
     try {
@@ -1096,6 +1170,7 @@ export function bindStaticDom() {
   wireLoadSample();
     installSpeakerIndex();
     installDbMeter();
+    installAiActivityChip();
     installObsChip();
   initSelfChecksChip();
     initStepControls(document);

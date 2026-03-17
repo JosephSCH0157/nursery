@@ -33,6 +33,21 @@ type WhisperBridgeRecognizerOptions = {
   route?: string;
 };
 
+type AiActivityPhase = "off" | "ready" | "transcribing" | "error";
+
+type AiActivityPayload = {
+  active: boolean;
+  provider: string;
+  engine: string;
+  phase: AiActivityPhase;
+  source: string;
+  timestamp: number;
+  model?: string | null;
+  message?: string;
+  requestsInFlight: number;
+  queueDepth: number;
+};
+
 const DEFAULT_ROUTE = "/api/anvil/asr/whisper";
 const DEFAULT_SEGMENT_MS = 1800;
 const MAX_WINDOW_WORDS = 56;
@@ -42,6 +57,19 @@ const MAX_PROMPT_LOOKBEHIND = 1;
 const MAX_OVERLAP_WORDS = 12;
 const RESET_WINDOW_IDLE_MS = 4000;
 const SOURCE = "openai-whisper-bridge";
+
+function dispatchAiActivity(detail: AiActivityPayload): void {
+  try {
+    (window as any).__tpAiActivity = detail;
+  } catch {
+    // ignore global snapshot failures
+  }
+  try {
+    window.dispatchEvent(new CustomEvent("tp:ai:activity", { detail }));
+  } catch {
+    // ignore event dispatch failures
+  }
+}
 
 function nowTs(): number {
   if (typeof performance !== "undefined" && typeof performance.now === "function") {
@@ -196,6 +224,10 @@ class WhisperBridgeRecognizer {
   private lastTranscriptAt = 0;
   private lastPartialText = "";
   private lastFinalText = "";
+  private lastModel: string | null = null;
+  private lastAiError: string | null = null;
+  private requestsInFlight = 0;
+  private lastAiSnapshotKey = "";
   private seq = 0;
 
   constructor(options: WhisperBridgeRecognizerOptions = {}) {
@@ -227,6 +259,41 @@ class WhisperBridgeRecognizer {
     }
   }
 
+  private syncAiActivity(): void {
+    const queueDepth = this.queue.length;
+    const requestsInFlight = this.requestsInFlight;
+    let phase: AiActivityPhase = "off";
+    if (requestsInFlight > 0 || queueDepth > 0) {
+      phase = "transcribing";
+    } else if (this.running) {
+      phase = this.lastAiError ? "error" : "ready";
+    }
+
+    const detail: AiActivityPayload = {
+      active: phase !== "off",
+      provider: "openai",
+      engine: "whisper",
+      phase,
+      source: SOURCE,
+      timestamp: nowTs(),
+      model: this.lastModel,
+      message: phase === "error" ? this.lastAiError || undefined : undefined,
+      requestsInFlight,
+      queueDepth,
+    };
+    const key = JSON.stringify([
+      detail.phase,
+      detail.active,
+      detail.model || "",
+      detail.message || "",
+      detail.requestsInFlight,
+      detail.queueDepth,
+    ]);
+    if (key === this.lastAiSnapshotKey) return;
+    this.lastAiSnapshotKey = key;
+    dispatchAiActivity(detail);
+  }
+
   async start(): Promise<void> {
     if (this.running) return;
     if (typeof MediaRecorder === "undefined") {
@@ -252,15 +319,19 @@ class WhisperBridgeRecognizer {
       const blob = event.data;
       if (!blob || blob.size <= 0) return;
       this.queue.push({ blob, seq: ++this.seq });
+      this.syncAiActivity();
       void this.flushQueue();
     };
     this.recorder.onerror = (event: Event) => {
       const error = (event as Event & { error?: { message?: string } }).error;
       const message = error?.message || "Whisper recorder error";
+      this.lastAiError = message;
+      this.syncAiActivity();
       this.emit("error", { source: SOURCE, message, timestamp: nowTs() });
     };
     this.recorder.onstop = () => {
       this.cleanupRecorder();
+      this.syncAiActivity();
       this.emit("end", { source: SOURCE, timestamp: nowTs() });
     };
 
@@ -268,24 +339,32 @@ class WhisperBridgeRecognizer {
     this.lastTranscriptAt = 0;
     this.lastPartialText = "";
     this.lastFinalText = "";
+    this.lastModel = null;
+    this.lastAiError = null;
+    this.requestsInFlight = 0;
+    this.lastAiSnapshotKey = "";
     this.running = true;
     this.recorder.start(this.segmentMs);
+    this.syncAiActivity();
     this.emit("start", { source: SOURCE, timestamp: nowTs() });
   }
 
   stop(): void {
     if (!this.recorder && !this.running) return;
     this.running = false;
+    this.syncAiActivity();
     try { this.recorder?.requestData(); } catch {}
     try {
       if (this.recorder && this.recorder.state !== "inactive") {
         this.recorder.stop();
       } else {
         this.cleanupRecorder();
+        this.syncAiActivity();
         this.emit("end", { source: SOURCE, timestamp: nowTs() });
       }
     } catch {
       this.cleanupRecorder();
+      this.syncAiActivity();
       this.emit("end", { source: SOURCE, timestamp: nowTs() });
     }
   }
@@ -312,20 +391,29 @@ class WhisperBridgeRecognizer {
       while (this.queue.length > 0) {
         const next = this.queue.shift();
         if (!next) continue;
+        this.requestsInFlight += 1;
+        this.syncAiActivity();
         try {
           const payload = await this.transcribe(next.blob, next.seq);
+          this.lastModel = payload.model ?? this.lastModel;
+          this.lastAiError = null;
           this.handleTranscript(payload);
         } catch (error) {
           const message = error instanceof Error ? error.message : "Whisper bridge error";
+          this.lastAiError = message;
           this.emit("error", {
             source: SOURCE,
             message,
             timestamp: nowTs(),
           });
+        } finally {
+          this.requestsInFlight = Math.max(0, this.requestsInFlight - 1);
+          this.syncAiActivity();
         }
       }
     } finally {
       this.queueRunning = false;
+      this.syncAiActivity();
     }
   }
 

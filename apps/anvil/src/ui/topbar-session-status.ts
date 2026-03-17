@@ -11,6 +11,7 @@ const SOURCE_IDS = [
   'asrCalChip',
   'displayChip',
   'recChip',
+  'aiChip',
   'scrollChip',
   'camRtcChip',
   'obsChip',
@@ -101,6 +102,20 @@ function parseSpeech(text: string): StatusState {
   return buildDefault('recChip', text);
 }
 
+function parseAi(text: string): StatusState {
+  const lower = text.toLowerCase();
+  if (lower.includes('error') || lower.includes('failed')) {
+    return { full: text, short: 'AI error', tone: 'issue' };
+  }
+  if (lower.includes('transcribing')) {
+    return { full: text, short: 'AI transcribing', tone: 'neutral' };
+  }
+  if (lower.includes('active') || lower.includes('openai') || lower.includes('whisper')) {
+    return { full: text, short: 'AI active', tone: 'neutral' };
+  }
+  return { full: text, short: 'AI off', tone: 'neutral' };
+}
+
 function parseScroll(text: string): StatusState {
   const lower = text.toLowerCase();
   if (lower.includes('error') || lower.includes('blocked')) {
@@ -153,6 +168,8 @@ function parseState(id: string, text: string): StatusState {
       return parseDisplay(text);
     case 'recChip':
       return parseSpeech(text);
+    case 'aiChip':
+      return parseAi(text);
     case 'scrollChip':
       return parseScroll(text);
     case 'camRtcChip':
