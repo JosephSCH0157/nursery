@@ -10,6 +10,7 @@ import {
   type AsrScrollDriver,
   type AsrScrollDriverStats,
 } from '../features/asr/asr-scroll-driver';
+import { isSessionRecording } from '../recording/recorderRegistry';
 import { getAsrBlockElements, getAsrBlockIndex } from '../scroll/asr-block-store';
 import {
   describeElement,
@@ -531,6 +532,56 @@ function clearPendingAsrScriptEnd(reason: string): void {
   pendingAsrScriptEndStop = null;
 }
 
+function shouldSuppressAsrScriptEndAutoStop(session = getSession()): boolean {
+  if (session.recordOnLive) return true;
+  try {
+    if (isSessionRecording()) return true;
+  } catch {}
+  return false;
+}
+
+function suppressPendingAsrScriptEndStop(
+  pending: PendingAsrScriptEndStop,
+  reason: string,
+  evidence: {
+    source: 'route-line' | 'token-overlap';
+    matchedLine: number | null;
+    sharedAny: number;
+    sharedMeaningful: number;
+    overlapRatio: number;
+  },
+): void {
+  const session = getSession();
+  lastAsrScriptEndStopKey = pending.dedupeKey;
+  pendingAsrScriptEndStop = null;
+  emitHudSnapshot('script-end-stop-suppressed', { force: true });
+  if (isDevMode() && shouldLogTag('ASR:script-end-stop-suppressed', 2, 1000)) {
+    try {
+      console.info('[ASR] script-end auto-stop suppressed', {
+        reason,
+        mode: pending.mode,
+        lineIndex: pending.lineIndex,
+        lastSpeakableLineIndex: pending.lastSpeakableLineIndex,
+        runKey: pending.runKey,
+        confirmSource: evidence.source,
+        confirmMatchedLine: evidence.matchedLine,
+        sharedTokens: evidence.sharedAny,
+        sharedMeaningfulTokens: evidence.sharedMeaningful,
+        overlapRatio: Number(evidence.overlapRatio.toFixed(3)),
+        sessionPhase: session.phase,
+        recordOnLive: session.recordOnLive,
+        recording: (() => {
+          try {
+            return isSessionRecording();
+          } catch {
+            return false;
+          }
+        })(),
+      });
+    } catch {}
+  }
+}
+
 function finalizePendingAsrScriptEndStop(
   pending: PendingAsrScriptEndStop,
   evidence: {
@@ -545,6 +596,10 @@ function finalizePendingAsrScriptEndStop(
   const mode = String(pending.mode || getScrollMode() || '').toLowerCase();
   if (session.phase !== 'live' || !isAsrLikeMode(mode)) {
     clearPendingAsrScriptEnd('session-not-live');
+    return;
+  }
+  if (shouldSuppressAsrScriptEndAutoStop(session)) {
+    suppressPendingAsrScriptEndStop(pending, 'recording-active', evidence);
     return;
   }
   lastAsrScriptEndStopKey = pending.dedupeKey;

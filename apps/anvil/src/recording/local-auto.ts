@@ -114,11 +114,23 @@ import { commitRecordingBytesToTongs } from '../forge/workpiece-commit';
     return buffer;
   };
 
+  const cloneTracksIntoStream = (tracks: MediaStreamTrack[]): MediaStream => {
+    const cloned = tracks.map((track) => {
+      try {
+        if (track && typeof track.clone === 'function') return track.clone();
+      } catch {}
+      return track;
+    });
+    return new MediaStream(cloned);
+  };
+
   const getVideoStream = async (): Promise<MediaStream> => {
     try {
       const v = document.getElementById('camVideo') as HTMLVideoElement | null;
       const s = (v?.srcObject as MediaStream) || null;
-      if (s && typeof s.getVideoTracks === 'function' && s.getVideoTracks().length) return new MediaStream([...s.getVideoTracks()]);
+      if (s && typeof s.getVideoTracks === 'function' && s.getVideoTracks().length) {
+        return cloneTracksIntoStream([...s.getVideoTracks()]);
+      }
     } catch {}
     try {
       return await navigator.mediaDevices.getUserMedia({
@@ -134,14 +146,16 @@ import { commitRecordingBytesToTongs } from '../forge/workpiece-commit';
     try {
       const mic = (window as any).__tpMic;
       const s = mic?.__lastStream as MediaStream | undefined;
-      if (s && typeof s.getAudioTracks === 'function' && s.getAudioTracks().length) return new MediaStream([...s.getAudioTracks()]);
+      if (s && typeof s.getAudioTracks === 'function' && s.getAudioTracks().length) {
+        return cloneTracksIntoStream([...s.getAudioTracks()]);
+      }
     } catch {}
     try {
       const mic = (window as any).__tpMic;
       if (mic && typeof mic.requestMic === 'function') {
         const s = await mic.requestMic();
         const tracks = (s as any)?.getAudioTracks?.();
-        if (tracks && tracks.length) return new MediaStream([...tracks]);
+        if (tracks && tracks.length) return cloneTracksIntoStream([...tracks]);
       }
     } catch {}
     const s = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });

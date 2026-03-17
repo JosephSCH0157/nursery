@@ -26366,6 +26366,19 @@ function computeLineTargetTop(scroller, lineEl) {
   const max = Math.max(0, (scroller.scrollHeight || 0) - scroller.clientHeight);
   return clamp4(biased, 0, max);
 }
+function resolveLiveAsrCommitCapPx(scroller, lineIdx, lineEl) {
+  if (!scroller) return LIVE_ASR_MAX_COMMIT_PX;
+  const resolvedLineEl = lineEl || (typeof lineIdx === "number" && Number.isFinite(lineIdx) ? getLineElementByIndex(scroller, Math.max(0, Math.floor(lineIdx))) : null);
+  const lineHeightPx = resolveLineHeightPx(resolvedLineEl);
+  const viewportCap = scroller.clientHeight > 0 ? Math.max(LIVE_ASR_MAX_COMMIT_PX, scroller.clientHeight * LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO) : LIVE_ASR_MAX_COMMIT_PX;
+  if (!Number.isFinite(lineHeightPx) || lineHeightPx <= LIVE_ASR_MAX_COMMIT_PX) {
+    return LIVE_ASR_MAX_COMMIT_PX;
+  }
+  return Math.max(
+    LIVE_ASR_MAX_COMMIT_PX,
+    Math.min(lineHeightPx, viewportCap)
+  );
+}
 function resolveTargetTop(scroller, lineIndex) {
   return computeLineTargetTop(scroller, getLineElementByIndex(scroller, lineIndex));
 }
@@ -26912,7 +26925,7 @@ function createAsrScrollDriver(options = {}) {
       if (cancelled) return;
       const now3 = Number.isFinite(ts) ? ts : typeof performance !== "undefined" ? performance.now() : Date.now();
       const t = clamp4((now3 - startedAt) / duration, 0, 1);
-      const eased = 1 - Math.pow(1 - t, 3);
+      const eased = opts.easing === "linear" ? t : 1 - Math.pow(1 - t, 3);
       const nextTop = fromTop + (toTop - fromTop) * eased;
       const applied = applyScrollWithHybridGuard(nextTop, {
         scroller,
@@ -29425,6 +29438,7 @@ function createAsrScrollDriver(options = {}) {
     }) ?? beforeTop;
     const targetTop = clamp4(targetTopRaw, 0, max);
     const reason = commit.forced ? "asr-forced-commit" : "asr-commit";
+    const liveAsrGlideActive = getScrollMode3() === "asr" && isSessionLivePhase() && isSessionAsrArmed();
     if (isDevMode4() && shouldLogLevel(2)) {
       try {
         console.debug("[ASR_COMMIT_MOVE]", {
@@ -29492,6 +29506,40 @@ function createAsrScrollDriver(options = {}) {
       }
     }
     stopCommitPursuit("pixel-commit");
+    if (liveAsrGlideActive && Math.abs(targetTop - beforeTop) > 0.5) {
+      const distancePx = Math.abs(targetTop - beforeTop);
+      const durationMs = clamp4(
+        distancePx / LIVE_ASR_GLIDE_PX_PER_SEC * 1e3,
+        Math.max(motionTuning.glideDefaultMs, LIVE_ASR_GLIDE_MIN_MS),
+        Math.max(motionTuning.glideMaxMs, LIVE_ASR_GLIDE_MAX_MS)
+      );
+      const glided = startGlideTo(targetTop, {
+        scroller: deps.scroller,
+        reason,
+        source: "asr-commit",
+        durationMs,
+        easing: "linear"
+      });
+      if (glided) {
+        bootTrace("SCROLL:apply", {
+          y: Math.round(targetTop),
+          from: Math.round(beforeTop),
+          via: "glide",
+          reason,
+          lineIdx: commit.lineIdx,
+          blockId: commit.blockId
+        });
+        pursuitTargetTop = targetTop;
+        lastMoveAt = Date.now();
+        return {
+          method: "pixel",
+          writerCommitted: false,
+          beforeTop,
+          afterTop: targetTop,
+          movedPx: Math.round(targetTop - beforeTop)
+        };
+      }
+    }
     const appliedTop = applyCanonicalScrollTop(targetTop, {
       scroller: deps.scroller,
       reason,
@@ -29525,8 +29573,9 @@ function createAsrScrollDriver(options = {}) {
   const enforceLiveAsrCommitCap = (scroller, beforeTop, afterTop, lineIdx, phase) => {
     const liveAsrCommitCapActive = getScrollMode3() === "asr" && isSessionLivePhase() && isSessionAsrArmed();
     if (!liveAsrCommitCapActive) return afterTop;
+    const liveAsrCommitCapPx = resolveLiveAsrCommitCapPx(scroller, lineIdx);
     const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-    const cappedTop = clamp4(Math.min(afterTop, beforeTop + LIVE_ASR_MAX_COMMIT_PX), 0, maxTop);
+    const cappedTop = clamp4(Math.min(afterTop, beforeTop + liveAsrCommitCapPx), 0, maxTop);
     if (cappedTop >= afterTop - 0.5) return afterTop;
     const applied = applyCanonicalScrollTop(cappedTop, {
       scroller,
@@ -29552,7 +29601,7 @@ function createAsrScrollDriver(options = {}) {
     if (isDevMode4()) {
       try {
         console.info(
-          `ASR_LIVE_COMMIT_CAP phase=${phase} line=${lineIdx} before=${Math.round(beforeTop)} after=${Math.round(afterTop)} capped=${Math.round(finalTop)} limit=${LIVE_ASR_MAX_COMMIT_PX}`
+          `ASR_LIVE_COMMIT_CAP phase=${phase} line=${lineIdx} before=${Math.round(beforeTop)} after=${Math.round(afterTop)} capped=${Math.round(finalTop)} limit=${Math.round(liveAsrCommitCapPx)}`
         );
       } catch {
       }
@@ -30283,15 +30332,25 @@ function createAsrScrollDriver(options = {}) {
               const bridgeUsed = cueBridge.skippedReasons.length > 0;
               const nextLine = cueBridge.nextLine;
               if (nextLine == null) {
-                warnGuard("cue_commit_blocked", [
+                const lastSpeakableLineIndex = findLastSpeakableLineIndex();
+                const terminalSameLineRecenterAllowed = lastSpeakableLineIndex >= 0 && lastLineIndex >= lastSpeakableLineIndex;
+                if (!terminalSameLineRecenterAllowed) {
+                  warnGuard("cue_commit_blocked", [
+                    `current=${lastLineIndex}`,
+                    `best=${targetLine + 1}`,
+                    `windowEnd=${lastLineIndex + DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES}`,
+                    cueBridge.skippedReasons.length ? `skipped=[${cueBridge.skippedReasons.join(",")}]` : "",
+                    snippet ? `clue="${snippet}"` : ""
+                  ]);
+                  emitHudStatus("cue_commit_blocked", "Blocked: cue-only commit target");
+                  return;
+                }
+                warnGuard("cue_commit_terminal_recenter", [
                   `current=${lastLineIndex}`,
-                  `best=${targetLine + 1}`,
-                  `windowEnd=${lastLineIndex + DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES}`,
+                  `lastSpeakable=${lastSpeakableLineIndex}`,
                   cueBridge.skippedReasons.length ? `skipped=[${cueBridge.skippedReasons.join(",")}]` : "",
                   snippet ? `clue="${snippet}"` : ""
                 ]);
-                emitHudStatus("cue_commit_blocked", "Blocked: cue-only commit target");
-                return;
               }
               const plainStrongFinalAdvance = !bridgeUsed && nextLine === lastLineIndex + 1 && conf >= DEFAULT_STRONG_FORWARD_COMMIT_SIM;
               const bridgedFinalAdvance = bridgeUsed && conf >= DEFAULT_MULTI_JUMP_MIN_SIM;
@@ -30517,7 +30576,8 @@ function createAsrScrollDriver(options = {}) {
         const base = liveAsrCommitCapActive || pursuitTargetTop == null ? currentTop : pursuitTargetTop;
         const baseClamped = Math.min(base, maxAllowedTarget);
         const candidate = maxAllowedTarget;
-        const effectiveJumpCap = liveAsrCommitCapActive ? Math.min(jumpCap, LIVE_ASR_MAX_COMMIT_PX) : jumpCap;
+        const liveAsrCommitCapPx = liveAsrCommitCapActive ? resolveLiveAsrCommitCapPx(scroller, targetLine, lineEl) : jumpCap;
+        const effectiveJumpCap = liveAsrCommitCapActive ? liveAsrCommitCapPx : jumpCap;
         const limitedTarget = forced && !liveAsrCommitCapActive ? candidate : Math.min(candidate, baseClamped + effectiveJumpCap);
         const nextTargetTop = Math.max(baseClamped, limitedTarget);
         pursuitTargetTop = nextTargetTop;
@@ -32725,6 +32785,7 @@ function createAsrScrollDriver(options = {}) {
         const markerCatchupStrongGateOk = markerCatchupGateOk && lostForwardPick.score >= DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_MIN_SIM && (sharedContentHits >= DEFAULT_LOST_FORWARD_RESEEK_MIN_CONTENT_HITS || firstMeaningfulOverlap);
         const markerCatchupCommitCap = markerCatchupStrongGateOk ? DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_COMMIT_CAP_LINES : DEFAULT_LOST_FORWARD_MARKER_CATCHUP_COMMIT_CAP_LINES;
         const markerCatchupTarget = markerCatchupGateOk ? Math.min(lostForwardPick.idx, cursorLine + markerCatchupCommitCap) : lostForwardPick.idx;
+        const adjacentStepGateOk = lostForwardPick.idx === cursorLine + 1 && lostForwardPick.score >= DEFAULT_LOST_FORWARD_MIN_SIM && noProgressStreak >= 2;
         const teleportGateOk = anchorTeleportGateOk || reseekTeleportGateOk || contentFallbackGateOk;
         const teleportNeed = anchorTeleportGateOk ? DEFAULT_LOST_FORWARD_MIN_SIM : DEFAULT_LOST_FORWARD_RESEEK_MIN_SIM;
         const teleportMode = anchorTeleportGateOk ? "anchor" : contentFallbackGateOk ? "content" : "reseek";
@@ -32740,6 +32801,25 @@ function createAsrScrollDriver(options = {}) {
               const activeMs = lostForwardEnteredAt > 0 ? Math.max(0, now3 - lostForwardEnteredAt) : 0;
               console.info(
                 `ASR_LOST_FORWARD_JUMP mode=${teleportMode} stage=${lostForwardStage} window=+${lostForwardWindow2} cap=+${lostForwardCap} current=${cursorLine} best=${before} jump=${rawIdx} delta=${rawIdx - cursorLine} sim=${formatLogScore(conf)} need=${formatLogScore(teleportNeed)} streak=${noProgressStreak} activeMs=${activeMs} anchors=${sharedAnchorHits}/${neededAnchorHits} content=${sharedContentHits} firstOverlap=${firstMeaningfulOverlap ? 1 : 0} tokens=${transcriptTokens.length}`
+              );
+            } catch {
+            }
+          }
+        } else if (adjacentStepGateOk) {
+          const before = rawIdx;
+          rawIdx = lostForwardPick.idx;
+          conf = lostForwardPick.score;
+          effectiveThreshold = Math.min(effectiveThreshold, DEFAULT_LOST_FORWARD_MIN_SIM);
+          outrunCommit = true;
+          forceReason = "lost-forward";
+          emitHudStatus(
+            "lost_forward_step",
+            `Advance: +1 line (sim=${formatLogScore(conf)})`
+          );
+          if (isDevMode4()) {
+            try {
+              console.info(
+                `ASR_LOST_FORWARD_STEP current=${cursorLine} best=${before} jump=${rawIdx} delta=${rawIdx - cursorLine} sim=${formatLogScore(conf)} need=${formatLogScore(DEFAULT_LOST_FORWARD_MIN_SIM)} streak=${noProgressStreak}`
               );
             } catch {
             }
@@ -33899,7 +33979,7 @@ function createAsrScrollDriver(options = {}) {
   }
   return driver;
 }
-var DEFAULT_MIN_LINE_ADVANCE, DEFAULT_SEEK_THROTTLE_MS, DEFAULT_INTERIM_SCALE, DEFAULT_MATCH_BACKTRACK_LINES, DEFAULT_MATCH_LOOKAHEAD_LINES, DEFAULT_MATCH_LOOKAHEAD_STEPS, DEFAULT_LOOKAHEAD_BUMP_COOLDOWN_MS, DEFAULT_LOOKAHEAD_BEHIND_HITS, DEFAULT_LOOKAHEAD_BEHIND_WINDOW_MS, DEFAULT_LOOKAHEAD_STALL_MS, DEFAULT_BAND_BACK_TOLERANCE_LINES, DEFAULT_SAME_LINE_THROTTLE_MS, DEFAULT_CREEP_PX, DEFAULT_CREEP_NEAR_PX, DEFAULT_CREEP_BUDGET_PX, DEFAULT_SCROLL_TRUTH_SETTLE_FRAMES, DEFAULT_SCROLL_TRUTH_MISMATCH_PX, DEFAULT_SCROLL_TRUTH_GLIDE_SAFETY_MS, DEFAULT_SCROLL_TRUTH_GLIDE_MAX_WAIT_MS, DEFAULT_SCROLL_TRUTH_AHEAD_TOLERANCE_LINES, DEFAULT_DEADBAND_PX, DEFAULT_MAX_VEL_PX_PER_SEC, DEFAULT_MAX_VEL_MED_PX_PER_SEC, DEFAULT_MAX_VEL_CATCHUP_PX_PER_SEC, DEFAULT_MAX_ACCEL_PX_PER_SEC2, DEFAULT_MIN_STEP_PX, DEFAULT_MAX_STEP_PX, DEFAULT_CATCHUP_MED_MIN_PX, DEFAULT_CATCHUP_FAST_MIN_PX, DEFAULT_MAX_TARGET_JUMP_PX, DEFAULT_MAX_TARGET_JUMP_HYBRID_PX, LIVE_ASR_MAX_COMMIT_PX, DEFAULT_PURSUE_KP, DEFAULT_PURSUE_MANUAL_CANCEL_PX, DEFAULT_NO_TARGET_RETRY_SIM, DEFAULT_NO_TARGET_RETRY_MAX_DELTA, DEFAULT_NO_TARGET_RETRY_FRAMES, DEFAULT_LINE_MISSING_LOOKUP_FRAMES, DEFAULT_NO_TARGET_RETRY_WINDOW_MS, DEFAULT_STRONG_WINDOW_MS, DEFAULT_FINAL_EVIDENCE_LEAD_LINES, MARKER_BIAS_PX, DEFAULT_REALIGN_LEAD_LINES, DEFAULT_REALIGN_LOOKBACK_LINES, DEFAULT_REALIGN_SIM, DEFAULT_LAG_RELOCK_BEHIND_HITS, DEFAULT_LAG_RELOCK_WINDOW_MS, DEFAULT_LAG_RELOCK_MIN_DELTA, DEFAULT_LAG_RELOCK_MIN_TOKENS, DEFAULT_LAG_RELOCK_MIN_CHARS, DEFAULT_LAG_RELOCK_LOOKAHEAD_BONUS, DEFAULT_LAG_RELOCK_DURATION_MS, DEFAULT_LAG_RELOCK_LOW_SIM_FLOOR, DEFAULT_RELOCK_SIM_FLOOR, DEFAULT_RELOCK_OVERLAP_RATIO, DEFAULT_RELOCK_SPAN_MIN_LINES, DEFAULT_RELOCK_REPEAT_WINDOW_MS, DEFAULT_RELOCK_REPEAT_MIN, DEFAULT_RESYNC_WINDOW_MS, DEFAULT_RESYNC_LOOKAHEAD_BONUS, DEFAULT_RESYNC_COOLDOWN_MS, DEFAULT_STRONG_BACK_SIM, DEFAULT_BACK_CONFIRM_HITS, DEFAULT_BACK_CONFIRM_WINDOW_MS, DEFAULT_BEHIND_RECOVERY_MS, DEFAULT_BEHIND_RECOVERY_MAX_LINES, DEFAULT_BEHIND_RECOVERY_MIN_SIM, DEFAULT_BEHIND_RECOVERY_COOLDOWN_MS, DEFAULT_AMBIGUITY_SIM_DELTA, DEFAULT_AMBIGUITY_NEAR_LINES, DEFAULT_AMBIGUITY_FAR_LINES, DEFAULT_MIN_TOKEN_COUNT, DEFAULT_MIN_EVIDENCE_CHARS, DEFAULT_INTERIM_HYSTERESIS_BONUS, DEFAULT_INTERIM_STABLE_REPEATS, DEFAULT_SAME_LINE_LOW_SIM_RELAX, DEFAULT_FORWARD_TIE_EPS, DEFAULT_FORWARD_PROGRESS_WINDOW_MS, DEFAULT_FORWARD_BIAS_RECENT_LINES, DEFAULT_FORWARD_BIAS_WINDOW_MS, DEFAULT_FORWARD_BIAS_LOOKAHEAD_LINES, DEFAULT_FORWARD_BIAS_SIM_SLACK, DEFAULT_SHORT_FINAL_MIN_TOKENS, DEFAULT_SHORT_FINAL_MAX_TOKENS, DEFAULT_SHORT_FINAL_WINDOW_MS, DEFAULT_SHORT_FINAL_LOOKAHEAD_LINES, DEFAULT_SHORT_FINAL_SIM_SLACK, DEFAULT_FORWARD_WINDOW_MAX_LINES, DEFAULT_FORWARD_WINDOW_MIN_TOKENS, DEFAULT_OUTRUN_RELAXED_SIM, DEFAULT_OUTRUN_WINDOW_MS, DEFAULT_OUTRUN_LOOKAHEAD_LINES, DEFAULT_OUTRUN_BEHIND_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_MAX_DELTA, DEFAULT_OUTRUN_BEHIND_WIN_MARGIN, DEFAULT_OUTRUN_BEHIND_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_TOKENS, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_OVERLAP_TOKENS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_EXTRA_CHARS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_SIM, DEFAULT_FORCED_RATE_WINDOW_MS, DEFAULT_FORCED_RATE_MAX, DEFAULT_FORCED_COOLDOWN_MS, DEFAULT_FORCED_MIN_TOKENS, DEFAULT_FORCED_MIN_CHARS, DEFAULT_SLAM_DUNK_SIM, DEFAULT_SLAM_DUNK_MAX_DELTA, DEFAULT_CONFIRMATION_RELAXED_SIM, DEFAULT_CONFIRMATION_RELAXED_MAX_DELTA, DEFAULT_NO_MATCH_WINDOW_MS, DEFAULT_NO_MATCH_BUMP_HITS, DEFAULT_NO_MATCH_RELOCK_HITS, GUARD_THROTTLE_MS, DEFAULT_SHORT_TOKEN_MAX, DEFAULT_SHORT_TOKEN_BOOST, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, DEFAULT_STABLE_INTERIM_NUDGE_MS, DEFAULT_STABLE_INTERIM_NUDGE_COOLDOWN_MS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_TOKENS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_RATIO, DEFAULT_STABLE_INTERIM_PREFIX_MAX_TAIL_DRIFT_TOKENS, DEFAULT_NOISE_INTERIM_MIN_TOKENS, DEFAULT_NOISE_INTERIM_MIN_CHARS, DEFAULT_STARVATION_COMMIT_GAP_MS, DEFAULT_STARVATION_WARN_COOLDOWN_MS, DEFAULT_STARVATION_RELOCK_LOOKAHEAD_LINES, DEFAULT_STARVATION_RELOCK_SIM_SLACK, DEFAULT_STARVATION_RELOCK_COOLDOWN_MS, DEFAULT_LOST_FORWARD_WALL_RELOCK_STREAK, DEFAULT_FINAL_CONTINUATION_SIM_EPS, BAD_CURSOR_ON_CUE_LOG_THROTTLE_MS, DEFAULT_STALL_COMMIT_MS, DEFAULT_STALL_LOG_COOLDOWN_MS, DEFAULT_LOW_SIM_FLOOR, DEFAULT_STUCK_RESYNC_WINDOW_MS, DEFAULT_STUCK_RESYNC_LOOKAHEAD_BONUS, DEFAULT_STUCK_RESYNC_BACKTRACK_LINES, DEFAULT_STUCK_RELOCK_SIM, DEFAULT_GENERIC_SIM_DELTA, DEFAULT_GENERIC_MIN_CANDIDATES, DEFAULT_GENERIC_MAX_TOKENS, DEFAULT_META_OVERLAP_RATIO, DEFAULT_LAG_DELTA_LINES, DEFAULT_LAG_WINDOW_MATCHES, DEFAULT_LAG_MIN_FORWARD_HITS, DEFAULT_LAG_FORCE_DELTA_LINES, DEFAULT_LAG_FORCE_HITS, DEFAULT_CATCHUP_MODE_MAX_JUMP, DEFAULT_CATCHUP_MODE_MIN_SIM, DEFAULT_CATCHUP_MODE_DURATION_MS, DEFAULT_CATCHUP_LOOKAHEAD_BONUS, POST_CATCHUP_MS, POST_CATCHUP_DROP, POST_CATCHUP_MAX_DELTA, POST_CATCHUP_REQUIRE_IN_BAND, DELTA_SMALL_MAX_LINES, DELTA_MED_MAX_LINES, DELTA_LARGE_MIN_LINES, DELTA_MIN_SIM_SMALL, DELTA_MIN_SIM_MED, DELTA_MIN_SIM_LARGE, LARGE_DELTA_CONFIRM_HITS, LARGE_DELTA_CONFIRM_WINDOW_MS, LARGE_DELTA_CONFIRM_SPREAD, OVERSHOOT_RISK_DELTA_LINES, OVERSHOOT_RISK_WINDOW_MS, OVERSHOOT_RISK_MIN_SIM, BEHIND_RECOVERY_WINDOW_MS, BEHIND_RECOVERY_HITS, BEHIND_RECOVERY_CLUSTER_SPREAD, BEHIND_RECOVERY_MIN_DELTA, BEHIND_RECOVERY_MAX_REWIND, BEHIND_RECOVERY_MIN_SIM, BEHIND_RECOVERY_COOLDOWN_MS, POST_CATCHUP_SAMPLES, DEFAULT_BACKJUMP_BLOCK_LINES, DEFAULT_FREEZE_LOW_SIM_HITS, DEFAULT_FREEZE_LOW_SIM_WINDOW_MS, EVENT_RING_MAX, EVENT_DUMP_COUNT, BEHIND_DEBT_WINDOW_LINES, BEHIND_DEBT_DECAY, BEHIND_DEBT_CAP, RECOVERY_BIG_JUMP_LINES, RECOVERY_SIM_MIN, RECOVERY_STREAK_REQUIRED, RECOVERY_SIM_SLACK, MANUAL_ANCHOR_MIN_SCROLL_PX, MANUAL_ANCHOR_MAX_SCROLL_WINDOW_MS, MANUAL_ANCHOR_PENDING_TIMEOUT_MS, MANUAL_ANCHOR_WINDOW_LINES, MANUAL_ANCHOR_SIM_SLACK, MAX_LINES_PER_COMMIT, DELTA_SMOOTHING_FACTOR, TAPER_EXPONENT, TAPER_MIN, GLIDE_MIN_MS, GLIDE_MAX_MS, GLIDE_DEFAULT_MS, MICRO_DELTA_LINE_RATIO, MICRO_PURSUE_MS, MICRO_PURSUE_MAX_PXPS, MIN_PX_PER_SEC, WITHIN_BLOCK_CONTINUITY_SIM_SLACK, POST_COMMIT_ACTIVE_MAX_RATIO, POST_COMMIT_ACTIVE_TARGET_RATIO, POST_COMMIT_ACTIVE_MIN_RATIO, POST_COMMIT_ACTIVE_BAND_RADIUS, POST_COMMIT_MIN_READABLE_LINES_BELOW, POST_COMMIT_READABILITY_LOOKAHEAD_LINES, POST_COMMIT_READABLE_BOTTOM_PAD_PX, POST_COMMIT_NEXT_LINE_VIS_GUARD_PX, POST_COMMIT_MIN_NUDGE_PX, POST_COMMIT_MAX_FORWARD_NUDGE_LINES, COMMIT_BAND_RESEED_BACK_LINES, COMMIT_BAND_RESEED_AHEAD_LINES, COMMIT_BAND_RESEED_TTL_MS, DEFAULT_STUCK_WATCHDOG_FINAL_EVENTS, DEFAULT_STUCK_WATCHDOG_NO_COMMIT_MS, DEFAULT_STUCK_WATCHDOG_COOLDOWN_MS, DEFAULT_STUCK_WATCHDOG_MAX_DELTA_LINES, DEFAULT_STUCK_WATCHDOG_FORWARD_FLOOR, DEFAULT_STUCK_WATCHDOG_COMMIT_CAP_LINES, DEFAULT_ALLOW_BEHIND_REANCHOR, DEFAULT_STUCK_WATCHDOG_INTERIM_EVENTS, DEFAULT_STUCK_WATCHDOG_INTERIM_RECENT_MS, DEFAULT_COMMIT_CLAMP_MAX_DELTA_LINES, DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES, DEFAULT_CUE_BRIDGE_BYPASS_MAX_SKIPPED_LINES, DEFAULT_CUE_BRIDGE_STRONG_SIM, DEFAULT_CUE_BRIDGE_LARGE_GAP, DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS, DEFAULT_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS, DEFAULT_MULTI_JUMP_MIN_SIM, DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS, DEFAULT_MULTI_JUMP_HARD_DENY_SIM, DEFAULT_AMBIGUITY_HOLD_MIN_SIM, DEFAULT_AMBIGUITY_HOLD_NEAR_WINDOW_LINES, DEFAULT_AMBIG_SHORT_LINE_MAX_CONTENT_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_OVERLAP_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_SIM, DEFAULT_AMBIG_SHORT_LINE_RUNNERUP_MARGIN, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_RATIO, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_TOKENS, DEFAULT_HOLD_ANCHOR_LOOKAHEAD_LINES, DEFAULT_HOLD_ANCHOR_MIN_SIM, DEFAULT_HOLD_ANCHOR_MARGIN, DEFAULT_HOLD_ANCHOR_MIN_CONTENT_TOKENS, DEFAULT_HOLD_ANCHOR_MIN_SHARED_CONTENT_HITS, DEFAULT_HOLD_ANCHOR_NEAR_DELTA_LINES, DEFAULT_HOLD_ANCHOR_NEAR_MIN_SIM, DEFAULT_HOLD_ANCHOR_COMMIT_CAP_LINES, HOLD_TICK_LOG_THROTTLE_MS, DEFAULT_NO_PROGRESS_STREAK_TRIGGER, DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES, DEFAULT_LOST_FORWARD_MIN_SIM, DEFAULT_LOST_HEALTHY_LOCK_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_CONTENT_HITS, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MIN_HITS, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_MIN_SIM, LOST_FORWARD_WINDOW_STEPS, LOST_FORWARD_STAGE_STREAKS, DEFAULT_TELEPORT_MIN_TOKENS, DEFAULT_TELEPORT_COMPETITIVE_MARGIN, DEFAULT_TELEPORT_STANDARD_CAP_LINES, DEFAULT_TELEPORT_DEEP_CAP_LINES, ANCHOR_RARE_TOKEN_MIN_LEN, DEFAULT_MICRO_RELOCK_MARGIN, DEFAULT_MICRO_RELOCK_COOLDOWN_MS, DEFAULT_MICRO_RELOCK_PREFERRED_TTL_MS, DEFAULT_GRACE_ROLLBACK_WINDOW_MS, DEFAULT_GRACE_ROLLBACK_MIN_PREV_SIM, DEFAULT_GRACE_ROLLBACK_MAX_CURRENT_SIM, DEFAULT_GRACE_ROLLBACK_MIN_MARGIN, DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_LINES, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_SIM, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM, DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO, DEFAULT_PERMISSIVE_FINAL_MARKER_BACK_TOLERANCE_LINES, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_MIN_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_SIM_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_SPARSE_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_CONF_CAP, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_RATIO, DEFAULT_WEAK_CURRENT_FORWARD_MAX_DELTA, DEFAULT_WEAK_CURRENT_FORWARD_MAX_SPAN, DEFAULT_WEAK_CURRENT_FORWARD_INTERIM_MIN_SIM, DEFAULT_WEAK_CURRENT_FORWARD_FINAL_MIN_SIM, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_TOKENS, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_RATIO, DEFAULT_FIRST_COMMIT_NEAR_START_MAX_DELTA, DEFAULT_WRITER_ADDRESSABLE_MIN_INDEXED_LINES, DEFAULT_WRITER_ADDRESSABLE_MIN_RATIO, DEFAULT_WRITER_ADDRESSABLE_MIN_FLOOR, DEFAULT_BEHIND_CANDIDATE_MIN_SIM, DEFAULT_BEHIND_CANDIDATE_MIN_TOKENS, DEFAULT_BEHIND_CANDIDATE_MIN_CHARS, DEFAULT_CURRENT_OVERRIDE_MIN_SIM, CUE_LINE_BRACKET_RE, CUE_LINE_WORD_RE, SPEAKER_TAG_ONLY_RE, NOTE_TAG_ONLY_RE, NOTE_INLINE_BLOCK_RE, MAX_CUE_SKIP_LOOKAHEAD_LINES, ANCHOR_STOPWORDS, INDEXED_LINE_SELECTOR, MOTION_PRESET_NORMAL, MOTION_PRESET_CALM, MOTION_OVERRIDE_EPS, MOTION_KEYS, guardLastAt, logLastAt, guardStatusLastAt, activeGuardCounts, guardEvents, GUARD_DEBUG_REASONS, LOG_THROTTLE_MS, HUD_STATUS_THROTTLE_MS, HUD_PURSUE_THROTTLE_MS, lastPursueHudAt, SUMMARY_TOAST_DEDUPE_MS, SUMMARY_MIN_DURATION_MS, DRIVER_ACTIVE_DISPOSE_MIN_MS, NAN_GUARD_THROTTLE_MS, MAX_REPORTED_RUN_KEYS, reportedSummaryRunKeys, lastSummaryToastKey, lastSummaryToastAt, nanGuardLastAt, HYBRID_BRAKE_TTL_MS, HYBRID_ASSIST_TTL_MS, HYBRID_TARGET_HINT_TTL_MS, HYBRID_ASSIST_MAX_BOOST_PXPS, HYBRID_TARGET_HINT_MIN_DELTA_PX, HYBRID_TARGET_HINT_MIN_INTERVAL_MS, lastHybridTargetHintTop, lastHybridTargetHintTs, getNowMs, warnedMissingTargetTop;
+var DEFAULT_MIN_LINE_ADVANCE, DEFAULT_SEEK_THROTTLE_MS, DEFAULT_INTERIM_SCALE, DEFAULT_MATCH_BACKTRACK_LINES, DEFAULT_MATCH_LOOKAHEAD_LINES, DEFAULT_MATCH_LOOKAHEAD_STEPS, DEFAULT_LOOKAHEAD_BUMP_COOLDOWN_MS, DEFAULT_LOOKAHEAD_BEHIND_HITS, DEFAULT_LOOKAHEAD_BEHIND_WINDOW_MS, DEFAULT_LOOKAHEAD_STALL_MS, DEFAULT_BAND_BACK_TOLERANCE_LINES, DEFAULT_SAME_LINE_THROTTLE_MS, DEFAULT_CREEP_PX, DEFAULT_CREEP_NEAR_PX, DEFAULT_CREEP_BUDGET_PX, DEFAULT_SCROLL_TRUTH_SETTLE_FRAMES, DEFAULT_SCROLL_TRUTH_MISMATCH_PX, DEFAULT_SCROLL_TRUTH_GLIDE_SAFETY_MS, DEFAULT_SCROLL_TRUTH_GLIDE_MAX_WAIT_MS, DEFAULT_SCROLL_TRUTH_AHEAD_TOLERANCE_LINES, DEFAULT_DEADBAND_PX, DEFAULT_MAX_VEL_PX_PER_SEC, DEFAULT_MAX_VEL_MED_PX_PER_SEC, DEFAULT_MAX_VEL_CATCHUP_PX_PER_SEC, DEFAULT_MAX_ACCEL_PX_PER_SEC2, DEFAULT_MIN_STEP_PX, DEFAULT_MAX_STEP_PX, DEFAULT_CATCHUP_MED_MIN_PX, DEFAULT_CATCHUP_FAST_MIN_PX, DEFAULT_MAX_TARGET_JUMP_PX, DEFAULT_MAX_TARGET_JUMP_HYBRID_PX, LIVE_ASR_MAX_COMMIT_PX, LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO, LIVE_ASR_GLIDE_MIN_MS, LIVE_ASR_GLIDE_MAX_MS, LIVE_ASR_GLIDE_PX_PER_SEC, DEFAULT_PURSUE_KP, DEFAULT_PURSUE_MANUAL_CANCEL_PX, DEFAULT_NO_TARGET_RETRY_SIM, DEFAULT_NO_TARGET_RETRY_MAX_DELTA, DEFAULT_NO_TARGET_RETRY_FRAMES, DEFAULT_LINE_MISSING_LOOKUP_FRAMES, DEFAULT_NO_TARGET_RETRY_WINDOW_MS, DEFAULT_STRONG_WINDOW_MS, DEFAULT_FINAL_EVIDENCE_LEAD_LINES, MARKER_BIAS_PX, DEFAULT_REALIGN_LEAD_LINES, DEFAULT_REALIGN_LOOKBACK_LINES, DEFAULT_REALIGN_SIM, DEFAULT_LAG_RELOCK_BEHIND_HITS, DEFAULT_LAG_RELOCK_WINDOW_MS, DEFAULT_LAG_RELOCK_MIN_DELTA, DEFAULT_LAG_RELOCK_MIN_TOKENS, DEFAULT_LAG_RELOCK_MIN_CHARS, DEFAULT_LAG_RELOCK_LOOKAHEAD_BONUS, DEFAULT_LAG_RELOCK_DURATION_MS, DEFAULT_LAG_RELOCK_LOW_SIM_FLOOR, DEFAULT_RELOCK_SIM_FLOOR, DEFAULT_RELOCK_OVERLAP_RATIO, DEFAULT_RELOCK_SPAN_MIN_LINES, DEFAULT_RELOCK_REPEAT_WINDOW_MS, DEFAULT_RELOCK_REPEAT_MIN, DEFAULT_RESYNC_WINDOW_MS, DEFAULT_RESYNC_LOOKAHEAD_BONUS, DEFAULT_RESYNC_COOLDOWN_MS, DEFAULT_STRONG_BACK_SIM, DEFAULT_BACK_CONFIRM_HITS, DEFAULT_BACK_CONFIRM_WINDOW_MS, DEFAULT_BEHIND_RECOVERY_MS, DEFAULT_BEHIND_RECOVERY_MAX_LINES, DEFAULT_BEHIND_RECOVERY_MIN_SIM, DEFAULT_BEHIND_RECOVERY_COOLDOWN_MS, DEFAULT_AMBIGUITY_SIM_DELTA, DEFAULT_AMBIGUITY_NEAR_LINES, DEFAULT_AMBIGUITY_FAR_LINES, DEFAULT_MIN_TOKEN_COUNT, DEFAULT_MIN_EVIDENCE_CHARS, DEFAULT_INTERIM_HYSTERESIS_BONUS, DEFAULT_INTERIM_STABLE_REPEATS, DEFAULT_SAME_LINE_LOW_SIM_RELAX, DEFAULT_FORWARD_TIE_EPS, DEFAULT_FORWARD_PROGRESS_WINDOW_MS, DEFAULT_FORWARD_BIAS_RECENT_LINES, DEFAULT_FORWARD_BIAS_WINDOW_MS, DEFAULT_FORWARD_BIAS_LOOKAHEAD_LINES, DEFAULT_FORWARD_BIAS_SIM_SLACK, DEFAULT_SHORT_FINAL_MIN_TOKENS, DEFAULT_SHORT_FINAL_MAX_TOKENS, DEFAULT_SHORT_FINAL_WINDOW_MS, DEFAULT_SHORT_FINAL_LOOKAHEAD_LINES, DEFAULT_SHORT_FINAL_SIM_SLACK, DEFAULT_FORWARD_WINDOW_MAX_LINES, DEFAULT_FORWARD_WINDOW_MIN_TOKENS, DEFAULT_OUTRUN_RELAXED_SIM, DEFAULT_OUTRUN_WINDOW_MS, DEFAULT_OUTRUN_LOOKAHEAD_LINES, DEFAULT_OUTRUN_BEHIND_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_MAX_DELTA, DEFAULT_OUTRUN_BEHIND_WIN_MARGIN, DEFAULT_OUTRUN_BEHIND_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_TOKENS, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_OVERLAP_TOKENS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_EXTRA_CHARS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_SIM, DEFAULT_FORCED_RATE_WINDOW_MS, DEFAULT_FORCED_RATE_MAX, DEFAULT_FORCED_COOLDOWN_MS, DEFAULT_FORCED_MIN_TOKENS, DEFAULT_FORCED_MIN_CHARS, DEFAULT_SLAM_DUNK_SIM, DEFAULT_SLAM_DUNK_MAX_DELTA, DEFAULT_CONFIRMATION_RELAXED_SIM, DEFAULT_CONFIRMATION_RELAXED_MAX_DELTA, DEFAULT_NO_MATCH_WINDOW_MS, DEFAULT_NO_MATCH_BUMP_HITS, DEFAULT_NO_MATCH_RELOCK_HITS, GUARD_THROTTLE_MS, DEFAULT_SHORT_TOKEN_MAX, DEFAULT_SHORT_TOKEN_BOOST, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, DEFAULT_STABLE_INTERIM_NUDGE_MS, DEFAULT_STABLE_INTERIM_NUDGE_COOLDOWN_MS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_TOKENS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_RATIO, DEFAULT_STABLE_INTERIM_PREFIX_MAX_TAIL_DRIFT_TOKENS, DEFAULT_NOISE_INTERIM_MIN_TOKENS, DEFAULT_NOISE_INTERIM_MIN_CHARS, DEFAULT_STARVATION_COMMIT_GAP_MS, DEFAULT_STARVATION_WARN_COOLDOWN_MS, DEFAULT_STARVATION_RELOCK_LOOKAHEAD_LINES, DEFAULT_STARVATION_RELOCK_SIM_SLACK, DEFAULT_STARVATION_RELOCK_COOLDOWN_MS, DEFAULT_LOST_FORWARD_WALL_RELOCK_STREAK, DEFAULT_FINAL_CONTINUATION_SIM_EPS, BAD_CURSOR_ON_CUE_LOG_THROTTLE_MS, DEFAULT_STALL_COMMIT_MS, DEFAULT_STALL_LOG_COOLDOWN_MS, DEFAULT_LOW_SIM_FLOOR, DEFAULT_STUCK_RESYNC_WINDOW_MS, DEFAULT_STUCK_RESYNC_LOOKAHEAD_BONUS, DEFAULT_STUCK_RESYNC_BACKTRACK_LINES, DEFAULT_STUCK_RELOCK_SIM, DEFAULT_GENERIC_SIM_DELTA, DEFAULT_GENERIC_MIN_CANDIDATES, DEFAULT_GENERIC_MAX_TOKENS, DEFAULT_META_OVERLAP_RATIO, DEFAULT_LAG_DELTA_LINES, DEFAULT_LAG_WINDOW_MATCHES, DEFAULT_LAG_MIN_FORWARD_HITS, DEFAULT_LAG_FORCE_DELTA_LINES, DEFAULT_LAG_FORCE_HITS, DEFAULT_CATCHUP_MODE_MAX_JUMP, DEFAULT_CATCHUP_MODE_MIN_SIM, DEFAULT_CATCHUP_MODE_DURATION_MS, DEFAULT_CATCHUP_LOOKAHEAD_BONUS, POST_CATCHUP_MS, POST_CATCHUP_DROP, POST_CATCHUP_MAX_DELTA, POST_CATCHUP_REQUIRE_IN_BAND, DELTA_SMALL_MAX_LINES, DELTA_MED_MAX_LINES, DELTA_LARGE_MIN_LINES, DELTA_MIN_SIM_SMALL, DELTA_MIN_SIM_MED, DELTA_MIN_SIM_LARGE, LARGE_DELTA_CONFIRM_HITS, LARGE_DELTA_CONFIRM_WINDOW_MS, LARGE_DELTA_CONFIRM_SPREAD, OVERSHOOT_RISK_DELTA_LINES, OVERSHOOT_RISK_WINDOW_MS, OVERSHOOT_RISK_MIN_SIM, BEHIND_RECOVERY_WINDOW_MS, BEHIND_RECOVERY_HITS, BEHIND_RECOVERY_CLUSTER_SPREAD, BEHIND_RECOVERY_MIN_DELTA, BEHIND_RECOVERY_MAX_REWIND, BEHIND_RECOVERY_MIN_SIM, BEHIND_RECOVERY_COOLDOWN_MS, POST_CATCHUP_SAMPLES, DEFAULT_BACKJUMP_BLOCK_LINES, DEFAULT_FREEZE_LOW_SIM_HITS, DEFAULT_FREEZE_LOW_SIM_WINDOW_MS, EVENT_RING_MAX, EVENT_DUMP_COUNT, BEHIND_DEBT_WINDOW_LINES, BEHIND_DEBT_DECAY, BEHIND_DEBT_CAP, RECOVERY_BIG_JUMP_LINES, RECOVERY_SIM_MIN, RECOVERY_STREAK_REQUIRED, RECOVERY_SIM_SLACK, MANUAL_ANCHOR_MIN_SCROLL_PX, MANUAL_ANCHOR_MAX_SCROLL_WINDOW_MS, MANUAL_ANCHOR_PENDING_TIMEOUT_MS, MANUAL_ANCHOR_WINDOW_LINES, MANUAL_ANCHOR_SIM_SLACK, MAX_LINES_PER_COMMIT, DELTA_SMOOTHING_FACTOR, TAPER_EXPONENT, TAPER_MIN, GLIDE_MIN_MS, GLIDE_MAX_MS, GLIDE_DEFAULT_MS, MICRO_DELTA_LINE_RATIO, MICRO_PURSUE_MS, MICRO_PURSUE_MAX_PXPS, MIN_PX_PER_SEC, WITHIN_BLOCK_CONTINUITY_SIM_SLACK, POST_COMMIT_ACTIVE_MAX_RATIO, POST_COMMIT_ACTIVE_TARGET_RATIO, POST_COMMIT_ACTIVE_MIN_RATIO, POST_COMMIT_ACTIVE_BAND_RADIUS, POST_COMMIT_MIN_READABLE_LINES_BELOW, POST_COMMIT_READABILITY_LOOKAHEAD_LINES, POST_COMMIT_READABLE_BOTTOM_PAD_PX, POST_COMMIT_NEXT_LINE_VIS_GUARD_PX, POST_COMMIT_MIN_NUDGE_PX, POST_COMMIT_MAX_FORWARD_NUDGE_LINES, COMMIT_BAND_RESEED_BACK_LINES, COMMIT_BAND_RESEED_AHEAD_LINES, COMMIT_BAND_RESEED_TTL_MS, DEFAULT_STUCK_WATCHDOG_FINAL_EVENTS, DEFAULT_STUCK_WATCHDOG_NO_COMMIT_MS, DEFAULT_STUCK_WATCHDOG_COOLDOWN_MS, DEFAULT_STUCK_WATCHDOG_MAX_DELTA_LINES, DEFAULT_STUCK_WATCHDOG_FORWARD_FLOOR, DEFAULT_STUCK_WATCHDOG_COMMIT_CAP_LINES, DEFAULT_ALLOW_BEHIND_REANCHOR, DEFAULT_STUCK_WATCHDOG_INTERIM_EVENTS, DEFAULT_STUCK_WATCHDOG_INTERIM_RECENT_MS, DEFAULT_COMMIT_CLAMP_MAX_DELTA_LINES, DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES, DEFAULT_CUE_BRIDGE_BYPASS_MAX_SKIPPED_LINES, DEFAULT_CUE_BRIDGE_STRONG_SIM, DEFAULT_CUE_BRIDGE_LARGE_GAP, DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS, DEFAULT_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS, DEFAULT_MULTI_JUMP_MIN_SIM, DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS, DEFAULT_MULTI_JUMP_HARD_DENY_SIM, DEFAULT_AMBIGUITY_HOLD_MIN_SIM, DEFAULT_AMBIGUITY_HOLD_NEAR_WINDOW_LINES, DEFAULT_AMBIG_SHORT_LINE_MAX_CONTENT_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_OVERLAP_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_SIM, DEFAULT_AMBIG_SHORT_LINE_RUNNERUP_MARGIN, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_RATIO, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_TOKENS, DEFAULT_HOLD_ANCHOR_LOOKAHEAD_LINES, DEFAULT_HOLD_ANCHOR_MIN_SIM, DEFAULT_HOLD_ANCHOR_MARGIN, DEFAULT_HOLD_ANCHOR_MIN_CONTENT_TOKENS, DEFAULT_HOLD_ANCHOR_MIN_SHARED_CONTENT_HITS, DEFAULT_HOLD_ANCHOR_NEAR_DELTA_LINES, DEFAULT_HOLD_ANCHOR_NEAR_MIN_SIM, DEFAULT_HOLD_ANCHOR_COMMIT_CAP_LINES, HOLD_TICK_LOG_THROTTLE_MS, DEFAULT_NO_PROGRESS_STREAK_TRIGGER, DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES, DEFAULT_LOST_FORWARD_MIN_SIM, DEFAULT_LOST_HEALTHY_LOCK_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_CONTENT_HITS, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MIN_HITS, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_MIN_SIM, LOST_FORWARD_WINDOW_STEPS, LOST_FORWARD_STAGE_STREAKS, DEFAULT_TELEPORT_MIN_TOKENS, DEFAULT_TELEPORT_COMPETITIVE_MARGIN, DEFAULT_TELEPORT_STANDARD_CAP_LINES, DEFAULT_TELEPORT_DEEP_CAP_LINES, ANCHOR_RARE_TOKEN_MIN_LEN, DEFAULT_MICRO_RELOCK_MARGIN, DEFAULT_MICRO_RELOCK_COOLDOWN_MS, DEFAULT_MICRO_RELOCK_PREFERRED_TTL_MS, DEFAULT_GRACE_ROLLBACK_WINDOW_MS, DEFAULT_GRACE_ROLLBACK_MIN_PREV_SIM, DEFAULT_GRACE_ROLLBACK_MAX_CURRENT_SIM, DEFAULT_GRACE_ROLLBACK_MIN_MARGIN, DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_LINES, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_SIM, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM, DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO, DEFAULT_PERMISSIVE_FINAL_MARKER_BACK_TOLERANCE_LINES, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_MIN_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_SIM_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_SPARSE_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_CONF_CAP, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_RATIO, DEFAULT_WEAK_CURRENT_FORWARD_MAX_DELTA, DEFAULT_WEAK_CURRENT_FORWARD_MAX_SPAN, DEFAULT_WEAK_CURRENT_FORWARD_INTERIM_MIN_SIM, DEFAULT_WEAK_CURRENT_FORWARD_FINAL_MIN_SIM, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_TOKENS, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_RATIO, DEFAULT_FIRST_COMMIT_NEAR_START_MAX_DELTA, DEFAULT_WRITER_ADDRESSABLE_MIN_INDEXED_LINES, DEFAULT_WRITER_ADDRESSABLE_MIN_RATIO, DEFAULT_WRITER_ADDRESSABLE_MIN_FLOOR, DEFAULT_BEHIND_CANDIDATE_MIN_SIM, DEFAULT_BEHIND_CANDIDATE_MIN_TOKENS, DEFAULT_BEHIND_CANDIDATE_MIN_CHARS, DEFAULT_CURRENT_OVERRIDE_MIN_SIM, CUE_LINE_BRACKET_RE, CUE_LINE_WORD_RE, SPEAKER_TAG_ONLY_RE, NOTE_TAG_ONLY_RE, NOTE_INLINE_BLOCK_RE, MAX_CUE_SKIP_LOOKAHEAD_LINES, ANCHOR_STOPWORDS, INDEXED_LINE_SELECTOR, MOTION_PRESET_NORMAL, MOTION_PRESET_CALM, MOTION_OVERRIDE_EPS, MOTION_KEYS, guardLastAt, logLastAt, guardStatusLastAt, activeGuardCounts, guardEvents, GUARD_DEBUG_REASONS, LOG_THROTTLE_MS, HUD_STATUS_THROTTLE_MS, HUD_PURSUE_THROTTLE_MS, lastPursueHudAt, SUMMARY_TOAST_DEDUPE_MS, SUMMARY_MIN_DURATION_MS, DRIVER_ACTIVE_DISPOSE_MIN_MS, NAN_GUARD_THROTTLE_MS, MAX_REPORTED_RUN_KEYS, reportedSummaryRunKeys, lastSummaryToastKey, lastSummaryToastAt, nanGuardLastAt, HYBRID_BRAKE_TTL_MS, HYBRID_ASSIST_TTL_MS, HYBRID_TARGET_HINT_TTL_MS, HYBRID_ASSIST_MAX_BOOST_PXPS, HYBRID_TARGET_HINT_MIN_DELTA_PX, HYBRID_TARGET_HINT_MIN_INTERVAL_MS, lastHybridTargetHintTop, lastHybridTargetHintTs, getNowMs, warnedMissingTargetTop;
 var init_asr_scroll_driver = __esm({
   "src/features/asr/asr-scroll-driver.ts"() {
     "use strict";
@@ -33946,6 +34026,10 @@ var init_asr_scroll_driver = __esm({
     DEFAULT_MAX_TARGET_JUMP_PX = 180;
     DEFAULT_MAX_TARGET_JUMP_HYBRID_PX = 80;
     LIVE_ASR_MAX_COMMIT_PX = 160;
+    LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO = 0.75;
+    LIVE_ASR_GLIDE_MIN_MS = 180;
+    LIVE_ASR_GLIDE_MAX_MS = 520;
+    LIVE_ASR_GLIDE_PX_PER_SEC = 900;
     DEFAULT_PURSUE_KP = 3.2;
     DEFAULT_PURSUE_MANUAL_CANCEL_PX = 48;
     DEFAULT_NO_TARGET_RETRY_SIM = 0.9;
@@ -34381,6 +34465,241 @@ var init_asr_scroll_driver = __esm({
   }
 });
 
+// src/recording/recording-settings.ts
+function readRawSettings() {
+  try {
+    if (typeof window === "undefined") return null;
+    const raw = window.localStorage?.getItem(SETTINGS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+function normalizeSelected(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((v) => String(v)).filter(Boolean);
+}
+function getRecordingMode() {
+  const raw = readRawSettings();
+  const mode = String(raw?.recordingMode || "").toLowerCase();
+  const resolved = mode === "audio" ? "audio" : "av";
+  if (resolved === "audio" && getRecordingEngine() === "obs") return "av";
+  return resolved;
+}
+function getRecordingEngine() {
+  const raw = readRawSettings();
+  const selected = normalizeSelected(raw?.selected);
+  const mode = String(raw?.mode || "").toLowerCase();
+  if (mode === "single") {
+    if (selected.includes("obs")) return "obs";
+    if (selected.includes("core")) return "core";
+  }
+  if (selected.includes("obs") && !selected.includes("core")) return "obs";
+  return "core";
+}
+var SETTINGS_KEY;
+var init_recording_settings = __esm({
+  "src/recording/recording-settings.ts"() {
+    "use strict";
+    SETTINGS_KEY = "tp_rec_settings_v1";
+  }
+});
+
+// src/recording/recorderRegistry.ts
+function withTimeout(taskOrFactory, timeoutMs, context) {
+  const timeout = Math.max(0, Math.floor(timeoutMs));
+  const task = typeof taskOrFactory === "function" ? Promise.resolve().then(taskOrFactory) : Promise.resolve(taskOrFactory);
+  if (timeout <= 0) return task;
+  return Promise.race([
+    task,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`[recording-timeout] ${context} exceeded ${timeout}ms`)), timeout);
+    })
+  ]);
+}
+function emitRecordingState(recording) {
+  try {
+    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+      window.dispatchEvent(
+        new CustomEvent("tp:recording:state", { detail: { recording: !!recording } })
+      );
+    }
+  } catch {
+  }
+}
+function emitStopPhase(phase, detail = {}) {
+  try {
+    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+      window.dispatchEvent(
+        new CustomEvent("tp:recording:stop-phase", {
+          detail: { phase, ...detail }
+        })
+      );
+    }
+  } catch {
+  }
+  try {
+    console.info("[recording] stop_phase", { phase, ...detail });
+  } catch {
+  }
+}
+function registerRecorder(backend) {
+  if (!backend) return;
+  registry.set(backend.id, backend);
+}
+function listRecorders() {
+  return [...registry.values()];
+}
+function registerRecorders(options) {
+  if (options?.core) registerRecorder(options.core);
+  if (options?.obs) registerRecorder(options.obs);
+}
+async function startSessionRecording(opts) {
+  if (sessionRecording) return;
+  if (startInFlight) return startInFlight;
+  startInFlight = (async () => {
+    const engine = opts?.engine ?? getRecordingEngine();
+    const obsEnabled = !!opts?.obsEnabled;
+    const tasks = [];
+    activeSessionRecorderIds.clear();
+    const queueStart = (backend) => {
+      tasks.push(
+        (async () => {
+          const id = backend.id;
+          const available = await withTimeout(
+            () => backend.isAvailable(),
+            RECORDER_TIMEOUT_MS.availability,
+            `${id}:isAvailable:start`
+          ).catch((err) => {
+            console.warn("[recording] availability probe failed (start)", id, err);
+            return false;
+          });
+          if (!available) return { id, started: false };
+          await withTimeout(
+            () => backend.start(),
+            RECORDER_TIMEOUT_MS.start,
+            `${id}:start`
+          ).catch((err) => {
+            console.warn("[recording] start failed", id, err);
+            throw err;
+          });
+          return { id, started: true };
+        })().catch(() => ({ id: backend.id, started: false }))
+      );
+    };
+    const core = registry.get("core");
+    if (core && engine === "core") {
+      try {
+        console.debug("[recording-session] startRecorders: core available", { engine, obsEnabled });
+      } catch {
+      }
+      queueStart(core);
+    } else {
+      console.warn('[recording] no "core" recorder registered');
+    }
+    if (engine === "obs" && obsEnabled) {
+      const obs = registry.get("obs");
+      if (obs) {
+        try {
+          console.debug("[recording-session] startRecorders: obs available", { engine });
+        } catch {
+        }
+        queueStart(obs);
+      }
+    }
+    if (tasks.length === 0) return;
+    try {
+      console.debug("[recording-session] startRecorders", { count: tasks.length, enabled: true });
+    } catch {
+    }
+    const results = await Promise.all(tasks);
+    results.forEach((result) => {
+      if (result?.started) activeSessionRecorderIds.add(result.id);
+    });
+    if (activeSessionRecorderIds.size === 0) return;
+    sessionRecording = true;
+    emitRecordingState(true);
+  })();
+  try {
+    await startInFlight;
+  } finally {
+    startInFlight = null;
+  }
+}
+async function stopSessionRecording() {
+  if (!sessionRecording) return;
+  if (stopInFlight) return stopInFlight;
+  stopInFlight = (async () => {
+    const startedAt = Date.now();
+    const targetRecorders = activeSessionRecorderIds.size > 0 ? Array.from(activeSessionRecorderIds.values()).map((id) => registry.get(id)).filter((rec2) => !!rec2) : listRecorders();
+    emitStopPhase("begin", {
+      recorderCount: targetRecorders.length,
+      scopedToSession: activeSessionRecorderIds.size > 0
+    });
+    const tasks = targetRecorders.map(async (rec2) => {
+      emitStopPhase("probe", { recorderId: rec2.id });
+      const available = await withTimeout(
+        () => rec2.isAvailable(),
+        RECORDER_TIMEOUT_MS.availability,
+        `${rec2.id}:isAvailable:stop`
+      ).catch((err) => {
+        console.warn("[recording] availability probe failed (stop)", rec2.id, err);
+        return false;
+      });
+      if (!available) return;
+      emitStopPhase("stop-call", { recorderId: rec2.id });
+      await withTimeout(
+        () => rec2.stop(),
+        RECORDER_TIMEOUT_MS.stop,
+        `${rec2.id}:stop`
+      ).catch((err) => {
+        console.warn("[recording] stop failed", rec2.id, err);
+      });
+    });
+    await Promise.allSettled(tasks);
+    activeSessionRecorderIds.clear();
+    sessionRecording = false;
+    emitRecordingState(false);
+    const elapsedMs = Math.max(0, Date.now() - startedAt);
+    emitStopPhase("end", { elapsedMs });
+    if (elapsedMs > STOP_SLOW_WARN_MS) {
+      try {
+        console.warn("[recording] stop exceeded latency budget", { elapsedMs, budgetMs: STOP_SLOW_WARN_MS });
+      } catch {
+      }
+    }
+  })();
+  try {
+    await stopInFlight;
+  } finally {
+    stopInFlight = null;
+  }
+}
+function isSessionRecording() {
+  return sessionRecording;
+}
+var registry, sessionRecording, activeSessionRecorderIds, startInFlight, stopInFlight, RECORDER_TIMEOUT_MS, STOP_SLOW_WARN_MS;
+var init_recorderRegistry = __esm({
+  "src/recording/recorderRegistry.ts"() {
+    "use strict";
+    init_recording_settings();
+    registry = /* @__PURE__ */ new Map();
+    sessionRecording = false;
+    activeSessionRecorderIds = /* @__PURE__ */ new Set();
+    startInFlight = null;
+    stopInFlight = null;
+    RECORDER_TIMEOUT_MS = {
+      availability: 1500,
+      start: 5e3,
+      stop: 2e3
+    };
+    STOP_SLOW_WARN_MS = 2e3;
+  }
+});
+
 // src/ui/save-speaker-profiles-prompt.ts
 function escapeHtml(value) {
   return String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -34622,241 +34941,6 @@ var init_readiness = __esm({
     "use strict";
     init_app_store();
     init_store();
-  }
-});
-
-// src/recording/recording-settings.ts
-function readRawSettings() {
-  try {
-    if (typeof window === "undefined") return null;
-    const raw = window.localStorage?.getItem(SETTINGS_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-function normalizeSelected(raw) {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((v) => String(v)).filter(Boolean);
-}
-function getRecordingMode() {
-  const raw = readRawSettings();
-  const mode = String(raw?.recordingMode || "").toLowerCase();
-  const resolved = mode === "audio" ? "audio" : "av";
-  if (resolved === "audio" && getRecordingEngine() === "obs") return "av";
-  return resolved;
-}
-function getRecordingEngine() {
-  const raw = readRawSettings();
-  const selected = normalizeSelected(raw?.selected);
-  const mode = String(raw?.mode || "").toLowerCase();
-  if (mode === "single") {
-    if (selected.includes("obs")) return "obs";
-    if (selected.includes("core")) return "core";
-  }
-  if (selected.includes("obs") && !selected.includes("core")) return "obs";
-  return "core";
-}
-var SETTINGS_KEY;
-var init_recording_settings = __esm({
-  "src/recording/recording-settings.ts"() {
-    "use strict";
-    SETTINGS_KEY = "tp_rec_settings_v1";
-  }
-});
-
-// src/recording/recorderRegistry.ts
-function withTimeout(taskOrFactory, timeoutMs, context) {
-  const timeout = Math.max(0, Math.floor(timeoutMs));
-  const task = typeof taskOrFactory === "function" ? Promise.resolve().then(taskOrFactory) : Promise.resolve(taskOrFactory);
-  if (timeout <= 0) return task;
-  return Promise.race([
-    task,
-    new Promise((_, reject) => {
-      setTimeout(() => reject(new Error(`[recording-timeout] ${context} exceeded ${timeout}ms`)), timeout);
-    })
-  ]);
-}
-function emitRecordingState(recording) {
-  try {
-    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
-      window.dispatchEvent(
-        new CustomEvent("tp:recording:state", { detail: { recording: !!recording } })
-      );
-    }
-  } catch {
-  }
-}
-function emitStopPhase(phase, detail = {}) {
-  try {
-    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
-      window.dispatchEvent(
-        new CustomEvent("tp:recording:stop-phase", {
-          detail: { phase, ...detail }
-        })
-      );
-    }
-  } catch {
-  }
-  try {
-    console.info("[recording] stop_phase", { phase, ...detail });
-  } catch {
-  }
-}
-function registerRecorder(backend) {
-  if (!backend) return;
-  registry.set(backend.id, backend);
-}
-function listRecorders() {
-  return [...registry.values()];
-}
-function registerRecorders(options) {
-  if (options?.core) registerRecorder(options.core);
-  if (options?.obs) registerRecorder(options.obs);
-}
-async function startSessionRecording(opts) {
-  if (sessionRecording) return;
-  if (startInFlight) return startInFlight;
-  startInFlight = (async () => {
-    const engine = opts?.engine ?? getRecordingEngine();
-    const obsEnabled = !!opts?.obsEnabled;
-    const tasks = [];
-    activeSessionRecorderIds.clear();
-    const queueStart = (backend) => {
-      tasks.push(
-        (async () => {
-          const id = backend.id;
-          const available = await withTimeout(
-            () => backend.isAvailable(),
-            RECORDER_TIMEOUT_MS.availability,
-            `${id}:isAvailable:start`
-          ).catch((err) => {
-            console.warn("[recording] availability probe failed (start)", id, err);
-            return false;
-          });
-          if (!available) return { id, started: false };
-          await withTimeout(
-            () => backend.start(),
-            RECORDER_TIMEOUT_MS.start,
-            `${id}:start`
-          ).catch((err) => {
-            console.warn("[recording] start failed", id, err);
-            throw err;
-          });
-          return { id, started: true };
-        })().catch(() => ({ id: backend.id, started: false }))
-      );
-    };
-    const core = registry.get("core");
-    if (core && engine === "core") {
-      try {
-        console.debug("[recording-session] startRecorders: core available", { engine, obsEnabled });
-      } catch {
-      }
-      queueStart(core);
-    } else {
-      console.warn('[recording] no "core" recorder registered');
-    }
-    if (engine === "obs" && obsEnabled) {
-      const obs = registry.get("obs");
-      if (obs) {
-        try {
-          console.debug("[recording-session] startRecorders: obs available", { engine });
-        } catch {
-        }
-        queueStart(obs);
-      }
-    }
-    if (tasks.length === 0) return;
-    try {
-      console.debug("[recording-session] startRecorders", { count: tasks.length, enabled: true });
-    } catch {
-    }
-    const results = await Promise.all(tasks);
-    results.forEach((result) => {
-      if (result?.started) activeSessionRecorderIds.add(result.id);
-    });
-    if (activeSessionRecorderIds.size === 0) return;
-    sessionRecording = true;
-    emitRecordingState(true);
-  })();
-  try {
-    await startInFlight;
-  } finally {
-    startInFlight = null;
-  }
-}
-async function stopSessionRecording() {
-  if (!sessionRecording) return;
-  if (stopInFlight) return stopInFlight;
-  stopInFlight = (async () => {
-    const startedAt = Date.now();
-    const targetRecorders = activeSessionRecorderIds.size > 0 ? Array.from(activeSessionRecorderIds.values()).map((id) => registry.get(id)).filter((rec2) => !!rec2) : listRecorders();
-    emitStopPhase("begin", {
-      recorderCount: targetRecorders.length,
-      scopedToSession: activeSessionRecorderIds.size > 0
-    });
-    const tasks = targetRecorders.map(async (rec2) => {
-      emitStopPhase("probe", { recorderId: rec2.id });
-      const available = await withTimeout(
-        () => rec2.isAvailable(),
-        RECORDER_TIMEOUT_MS.availability,
-        `${rec2.id}:isAvailable:stop`
-      ).catch((err) => {
-        console.warn("[recording] availability probe failed (stop)", rec2.id, err);
-        return false;
-      });
-      if (!available) return;
-      emitStopPhase("stop-call", { recorderId: rec2.id });
-      await withTimeout(
-        () => rec2.stop(),
-        RECORDER_TIMEOUT_MS.stop,
-        `${rec2.id}:stop`
-      ).catch((err) => {
-        console.warn("[recording] stop failed", rec2.id, err);
-      });
-    });
-    await Promise.allSettled(tasks);
-    activeSessionRecorderIds.clear();
-    sessionRecording = false;
-    emitRecordingState(false);
-    const elapsedMs = Math.max(0, Date.now() - startedAt);
-    emitStopPhase("end", { elapsedMs });
-    if (elapsedMs > STOP_SLOW_WARN_MS) {
-      try {
-        console.warn("[recording] stop exceeded latency budget", { elapsedMs, budgetMs: STOP_SLOW_WARN_MS });
-      } catch {
-      }
-    }
-  })();
-  try {
-    await stopInFlight;
-  } finally {
-    stopInFlight = null;
-  }
-}
-function isSessionRecording() {
-  return sessionRecording;
-}
-var registry, sessionRecording, activeSessionRecorderIds, startInFlight, stopInFlight, RECORDER_TIMEOUT_MS, STOP_SLOW_WARN_MS;
-var init_recorderRegistry = __esm({
-  "src/recording/recorderRegistry.ts"() {
-    "use strict";
-    init_recording_settings();
-    registry = /* @__PURE__ */ new Map();
-    sessionRecording = false;
-    activeSessionRecorderIds = /* @__PURE__ */ new Set();
-    startInFlight = null;
-    stopInFlight = null;
-    RECORDER_TIMEOUT_MS = {
-      availability: 1500,
-      start: 5e3,
-      stop: 2e3
-    };
-    STOP_SLOW_WARN_MS = 2e3;
   }
 });
 
@@ -35298,11 +35382,55 @@ function clearPendingAsrScriptEnd(reason) {
   }
   pendingAsrScriptEndStop = null;
 }
+function shouldSuppressAsrScriptEndAutoStop(session = getSession()) {
+  if (session.recordOnLive) return true;
+  try {
+    if (isSessionRecording()) return true;
+  } catch {
+  }
+  return false;
+}
+function suppressPendingAsrScriptEndStop(pending, reason, evidence) {
+  const session = getSession();
+  lastAsrScriptEndStopKey = pending.dedupeKey;
+  pendingAsrScriptEndStop = null;
+  emitHudSnapshot("script-end-stop-suppressed", { force: true });
+  if (isDevMode5() && shouldLogTag("ASR:script-end-stop-suppressed", 2, 1e3)) {
+    try {
+      console.info("[ASR] script-end auto-stop suppressed", {
+        reason,
+        mode: pending.mode,
+        lineIndex: pending.lineIndex,
+        lastSpeakableLineIndex: pending.lastSpeakableLineIndex,
+        runKey: pending.runKey,
+        confirmSource: evidence.source,
+        confirmMatchedLine: evidence.matchedLine,
+        sharedTokens: evidence.sharedAny,
+        sharedMeaningfulTokens: evidence.sharedMeaningful,
+        overlapRatio: Number(evidence.overlapRatio.toFixed(3)),
+        sessionPhase: session.phase,
+        recordOnLive: session.recordOnLive,
+        recording: (() => {
+          try {
+            return isSessionRecording();
+          } catch {
+            return false;
+          }
+        })()
+      });
+    } catch {
+    }
+  }
+}
 function finalizePendingAsrScriptEndStop(pending, evidence) {
   const session = getSession();
   const mode = String(pending.mode || getScrollMode4() || "").toLowerCase();
   if (session.phase !== "live" || !isAsrLikeMode(mode)) {
     clearPendingAsrScriptEnd("session-not-live");
+    return;
+  }
+  if (shouldSuppressAsrScriptEndAutoStop(session)) {
+    suppressPendingAsrScriptEndStop(pending, "recording-active", evidence);
     return;
   }
   lastAsrScriptEndStopKey = pending.dedupeKey;
@@ -38641,6 +38769,7 @@ var init_speech_loader = __esm({
     init_boot_trace();
     init_dev_log();
     init_asr_scroll_driver();
+    init_recorderRegistry();
     init_asr_block_store();
     init_scroller();
     init_backend_guard();
@@ -46380,11 +46509,23 @@ var init_local_auto = __esm({
         }
         return buffer;
       };
+      const cloneTracksIntoStream = (tracks) => {
+        const cloned = tracks.map((track) => {
+          try {
+            if (track && typeof track.clone === "function") return track.clone();
+          } catch {
+          }
+          return track;
+        });
+        return new MediaStream(cloned);
+      };
       const getVideoStream = async () => {
         try {
           const v = document.getElementById("camVideo");
           const s = v?.srcObject || null;
-          if (s && typeof s.getVideoTracks === "function" && s.getVideoTracks().length) return new MediaStream([...s.getVideoTracks()]);
+          if (s && typeof s.getVideoTracks === "function" && s.getVideoTracks().length) {
+            return cloneTracksIntoStream([...s.getVideoTracks()]);
+          }
         } catch {
         }
         try {
@@ -46400,7 +46541,9 @@ var init_local_auto = __esm({
         try {
           const mic2 = window.__tpMic;
           const s2 = mic2?.__lastStream;
-          if (s2 && typeof s2.getAudioTracks === "function" && s2.getAudioTracks().length) return new MediaStream([...s2.getAudioTracks()]);
+          if (s2 && typeof s2.getAudioTracks === "function" && s2.getAudioTracks().length) {
+            return cloneTracksIntoStream([...s2.getAudioTracks()]);
+          }
         } catch {
         }
         try {
@@ -46408,7 +46551,7 @@ var init_local_auto = __esm({
           if (mic2 && typeof mic2.requestMic === "function") {
             const s2 = await mic2.requestMic();
             const tracks = s2?.getAudioTracks?.();
-            if (tracks && tracks.length) return new MediaStream([...tracks]);
+            if (tracks && tracks.length) return cloneTracksIntoStream([...tracks]);
           }
         } catch {
         }

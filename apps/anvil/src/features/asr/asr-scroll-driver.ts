@@ -225,6 +225,10 @@ const DEFAULT_CATCHUP_FAST_MIN_PX = 250;
 const DEFAULT_MAX_TARGET_JUMP_PX = 180;
 const DEFAULT_MAX_TARGET_JUMP_HYBRID_PX = 80;
 const LIVE_ASR_MAX_COMMIT_PX = 160;
+const LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO = 0.75;
+const LIVE_ASR_GLIDE_MIN_MS = 180;
+const LIVE_ASR_GLIDE_MAX_MS = 520;
+const LIVE_ASR_GLIDE_PX_PER_SEC = 900;
 const DEFAULT_PURSUE_KP = 3.2;
 const DEFAULT_PURSUE_MANUAL_CANCEL_PX = 48;
 const DEFAULT_NO_TARGET_RETRY_SIM = 0.9;
@@ -1789,6 +1793,31 @@ function computeLineTargetTop(scroller: HTMLElement | null, lineEl: HTMLElement 
   return clamp(biased, 0, max);
 }
 
+function resolveLiveAsrCommitCapPx(
+  scroller: HTMLElement | null,
+  lineIdx?: number,
+  lineEl?: HTMLElement | null,
+): number {
+  if (!scroller) return LIVE_ASR_MAX_COMMIT_PX;
+  const resolvedLineEl =
+    lineEl ||
+    (typeof lineIdx === 'number' && Number.isFinite(lineIdx)
+      ? getLineElementByIndex(scroller, Math.max(0, Math.floor(lineIdx)))
+      : null);
+  const lineHeightPx = resolveLineHeightPx(resolvedLineEl);
+  const viewportCap =
+    scroller.clientHeight > 0
+      ? Math.max(LIVE_ASR_MAX_COMMIT_PX, scroller.clientHeight * LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO)
+      : LIVE_ASR_MAX_COMMIT_PX;
+  if (!Number.isFinite(lineHeightPx) || lineHeightPx <= LIVE_ASR_MAX_COMMIT_PX) {
+    return LIVE_ASR_MAX_COMMIT_PX;
+  }
+  return Math.max(
+    LIVE_ASR_MAX_COMMIT_PX,
+    Math.min(lineHeightPx, viewportCap),
+  );
+}
+
 function resolveTargetTop(scroller: HTMLElement, lineIndex: number): number | null {
   return computeLineTargetTop(scroller, getLineElementByIndex(scroller, lineIndex));
 }
@@ -2421,7 +2450,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   };
   const startGlideTo = (
     targetTop: number,
-    opts: { scroller?: HTMLElement | null; reason?: string; source?: string; durationMs?: number },
+    opts: {
+      scroller?: HTMLElement | null;
+      reason?: string;
+      source?: string;
+      durationMs?: number;
+      easing?: 'easeOutCubic' | 'linear';
+    },
   ): boolean => {
     if (isHybridMode()) return false;
     const scroller = opts.scroller ?? getScroller();
@@ -2447,7 +2482,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       if (cancelled) return;
       const now = Number.isFinite(ts) ? ts : (typeof performance !== 'undefined' ? performance.now() : Date.now());
       const t = clamp((now - startedAt) / duration, 0, 1);
-      const eased = 1 - Math.pow(1 - t, 3); // easeOutCubic
+      const eased = opts.easing === 'linear' ? t : 1 - Math.pow(1 - t, 3);
       const nextTop = fromTop + (toTop - fromTop) * eased;
       const applied = applyScrollWithHybridGuard(nextTop, {
         scroller,
@@ -5353,6 +5388,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }) ?? beforeTop;
     const targetTop = clamp(targetTopRaw, 0, max);
     const reason = commit.forced ? 'asr-forced-commit' : 'asr-commit';
+    const liveAsrGlideActive =
+      getScrollMode() === 'asr' &&
+      isSessionLivePhase() &&
+      isSessionAsrArmed();
     if (isDevMode() && shouldLogLevel(2)) {
       try {
         console.debug('[ASR_COMMIT_MOVE]', {
@@ -5420,6 +5459,40 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
     }
     stopCommitPursuit('pixel-commit');
+    if (liveAsrGlideActive && Math.abs(targetTop - beforeTop) > 0.5) {
+      const distancePx = Math.abs(targetTop - beforeTop);
+      const durationMs = clamp(
+        (distancePx / LIVE_ASR_GLIDE_PX_PER_SEC) * 1000,
+        Math.max(motionTuning.glideDefaultMs, LIVE_ASR_GLIDE_MIN_MS),
+        Math.max(motionTuning.glideMaxMs, LIVE_ASR_GLIDE_MAX_MS),
+      );
+      const glided = startGlideTo(targetTop, {
+        scroller: deps.scroller,
+        reason,
+        source: 'asr-commit',
+        durationMs,
+        easing: 'linear',
+      });
+      if (glided) {
+        bootTrace('SCROLL:apply', {
+          y: Math.round(targetTop),
+          from: Math.round(beforeTop),
+          via: 'glide',
+          reason,
+          lineIdx: commit.lineIdx,
+          blockId: commit.blockId,
+        });
+        pursuitTargetTop = targetTop;
+        lastMoveAt = Date.now();
+        return {
+          method: 'pixel',
+          writerCommitted: false,
+          beforeTop,
+          afterTop: targetTop,
+          movedPx: Math.round(targetTop - beforeTop),
+        };
+      }
+    }
     const appliedTop = applyCanonicalScrollTop(targetTop, {
       scroller: deps.scroller,
       reason,
@@ -5464,8 +5537,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       isSessionLivePhase() &&
       isSessionAsrArmed();
     if (!liveAsrCommitCapActive) return afterTop;
+    const liveAsrCommitCapPx = resolveLiveAsrCommitCapPx(scroller, lineIdx);
     const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-    const cappedTop = clamp(Math.min(afterTop, beforeTop + LIVE_ASR_MAX_COMMIT_PX), 0, maxTop);
+    const cappedTop = clamp(Math.min(afterTop, beforeTop + liveAsrCommitCapPx), 0, maxTop);
     if (cappedTop >= afterTop - 0.5) return afterTop;
     const applied = applyCanonicalScrollTop(cappedTop, {
       scroller,
@@ -5492,7 +5566,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (isDevMode()) {
       try {
         console.info(
-          `ASR_LIVE_COMMIT_CAP phase=${phase} line=${lineIdx} before=${Math.round(beforeTop)} after=${Math.round(afterTop)} capped=${Math.round(finalTop)} limit=${LIVE_ASR_MAX_COMMIT_PX}`,
+          `ASR_LIVE_COMMIT_CAP phase=${phase} line=${lineIdx} before=${Math.round(beforeTop)} after=${Math.round(afterTop)} capped=${Math.round(finalTop)} limit=${Math.round(liveAsrCommitCapPx)}`,
         );
       } catch {}
     }
@@ -6425,17 +6499,31 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             const bridgeUsed = cueBridge.skippedReasons.length > 0;
             const nextLine = cueBridge.nextLine;
             if (nextLine == null) {
-              warnGuard('cue_commit_blocked', [
+              const lastSpeakableLineIndex = findLastSpeakableLineIndex();
+              const terminalSameLineRecenterAllowed =
+                lastSpeakableLineIndex >= 0 &&
+                lastLineIndex >= lastSpeakableLineIndex;
+              if (!terminalSameLineRecenterAllowed) {
+                warnGuard('cue_commit_blocked', [
+                  `current=${lastLineIndex}`,
+                  `best=${targetLine + 1}`,
+                  `windowEnd=${lastLineIndex + DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES}`,
+                  cueBridge.skippedReasons.length
+                    ? `skipped=[${cueBridge.skippedReasons.join(',')}]`
+                    : '',
+                  snippet ? `clue="${snippet}"` : '',
+                ]);
+                emitHudStatus('cue_commit_blocked', 'Blocked: cue-only commit target');
+                return;
+              }
+              warnGuard('cue_commit_terminal_recenter', [
                 `current=${lastLineIndex}`,
-                `best=${targetLine + 1}`,
-                `windowEnd=${lastLineIndex + DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES}`,
+                `lastSpeakable=${lastSpeakableLineIndex}`,
                 cueBridge.skippedReasons.length
                   ? `skipped=[${cueBridge.skippedReasons.join(',')}]`
                   : '',
                 snippet ? `clue="${snippet}"` : '',
               ]);
-              emitHudStatus('cue_commit_blocked', 'Blocked: cue-only commit target');
-              return;
             }
             const plainStrongFinalAdvance =
               !bridgeUsed &&
@@ -6685,8 +6773,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         : pursuitTargetTop;
       const baseClamped = Math.min(base, maxAllowedTarget);
       const candidate = maxAllowedTarget;
+      const liveAsrCommitCapPx = liveAsrCommitCapActive
+        ? resolveLiveAsrCommitCapPx(scroller, targetLine, lineEl)
+        : jumpCap;
       const effectiveJumpCap = liveAsrCommitCapActive
-        ? Math.min(jumpCap, LIVE_ASR_MAX_COMMIT_PX)
+        ? liveAsrCommitCapPx
         : jumpCap;
       const limitedTarget =
         forced && !liveAsrCommitCapActive
@@ -9311,6 +9402,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         const markerCatchupTarget = markerCatchupGateOk
           ? Math.min(lostForwardPick.idx, cursorLine + markerCatchupCommitCap)
           : lostForwardPick.idx;
+        const adjacentStepGateOk =
+          lostForwardPick.idx === cursorLine + 1 &&
+          lostForwardPick.score >= DEFAULT_LOST_FORWARD_MIN_SIM &&
+          noProgressStreak >= 2;
         const teleportGateOk = anchorTeleportGateOk || reseekTeleportGateOk || contentFallbackGateOk;
         const teleportNeed = anchorTeleportGateOk
           ? DEFAULT_LOST_FORWARD_MIN_SIM
@@ -9330,6 +9425,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               const activeMs = lostForwardEnteredAt > 0 ? Math.max(0, now - lostForwardEnteredAt) : 0;
               console.info(
                 `ASR_LOST_FORWARD_JUMP mode=${teleportMode} stage=${lostForwardStage} window=+${lostForwardWindow} cap=+${lostForwardCap} current=${cursorLine} best=${before} jump=${rawIdx} delta=${rawIdx - cursorLine} sim=${formatLogScore(conf)} need=${formatLogScore(teleportNeed)} streak=${noProgressStreak} activeMs=${activeMs} anchors=${sharedAnchorHits}/${neededAnchorHits} content=${sharedContentHits} firstOverlap=${firstMeaningfulOverlap ? 1 : 0} tokens=${transcriptTokens.length}`,
+              );
+            } catch {}
+          }
+        } else if (adjacentStepGateOk) {
+          const before = rawIdx;
+          rawIdx = lostForwardPick.idx;
+          conf = lostForwardPick.score;
+          effectiveThreshold = Math.min(effectiveThreshold, DEFAULT_LOST_FORWARD_MIN_SIM);
+          outrunCommit = true;
+          forceReason = 'lost-forward';
+          emitHudStatus(
+            'lost_forward_step',
+            `Advance: +1 line (sim=${formatLogScore(conf)})`,
+          );
+          if (isDevMode()) {
+            try {
+              console.info(
+                `ASR_LOST_FORWARD_STEP current=${cursorLine} best=${before} jump=${rawIdx} delta=${rawIdx - cursorLine} sim=${formatLogScore(conf)} need=${formatLogScore(DEFAULT_LOST_FORWARD_MIN_SIM)} streak=${noProgressStreak}`,
               );
             } catch {}
           }
