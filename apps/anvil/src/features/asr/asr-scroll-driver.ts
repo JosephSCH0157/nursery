@@ -1005,6 +1005,64 @@ export function evaluateStallCueRescuePolicy(opts: {
   };
 }
 
+export function evaluateCueBoundaryMultiJumpRelaxation(opts: {
+  cursorLine: number;
+  requestedLine: number;
+  promotedLine: number | null;
+  skippedText?: string;
+  isFinal: boolean;
+  forceTag?: string;
+  cueBridgePathValid?: boolean;
+  cueBridgeSkipCountOk?: boolean;
+  cueBridgeDelta?: number;
+}): { allowBridgeEps: boolean; reason: string } {
+  const cursorLine = Number.isFinite(opts.cursorLine) ? Math.max(0, Math.floor(opts.cursorLine)) : -1;
+  const requestedLine = Number.isFinite(opts.requestedLine) ? Math.max(0, Math.floor(opts.requestedLine)) : -1;
+  const promotedLine = Number.isFinite(opts.promotedLine as number)
+    ? Math.max(0, Math.floor(Number(opts.promotedLine)))
+    : -1;
+  const forceTag = String(opts.forceTag || '').toLowerCase();
+  const cueBridgeDelta = Number.isFinite(opts.cueBridgeDelta as number)
+    ? Math.max(0, Math.floor(Number(opts.cueBridgeDelta)))
+    : 0;
+  const finalForcedBridge =
+    !!opts.isFinal &&
+    (
+      forceTag === 'final-forward-nudge' ||
+      forceTag === 'final-forward-fallback' ||
+      forceTag === 'permissive-final-advance'
+    ) &&
+    !!opts.cueBridgePathValid &&
+    !!opts.cueBridgeSkipCountOk &&
+    cueBridgeDelta >= Math.max(0, promotedLine - cursorLine) &&
+    promotedLine > cursorLine &&
+    promotedLine - cursorLine <= DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES;
+  if (finalForcedBridge) {
+    return {
+      allowBridgeEps: true,
+      reason: 'forced-final-bridge',
+    };
+  }
+  const skippedReason = classifyStrictSkippableLineForCueBridge(String(opts.skippedText || ''));
+  const cueSafeImmediatePromotion =
+    cursorLine >= 0 &&
+    requestedLine === cursorLine + 1 &&
+    promotedLine > requestedLine &&
+    promotedLine > cursorLine &&
+    promotedLine - cursorLine <= DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES &&
+    skippedReason != null;
+  if (cueSafeImmediatePromotion) {
+    return {
+      allowBridgeEps: true,
+      reason: `cue-safe:${skippedReason}`,
+    };
+  }
+  return {
+    allowBridgeEps: false,
+    reason: '',
+  };
+}
+
 export function isAutomaticStallRescueReason(reasonTag: string): boolean {
   const normalized = String(reasonTag || '').trim().toLowerCase();
   return normalized === 'auto-stall' || normalized.startsWith('stall:');
@@ -6360,23 +6418,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           snippet ? `clue="${snippet}"` : '',
         ]);
       }
+      const multiJumpRelaxation = evaluateCueBoundaryMultiJumpRelaxation({
+        cursorLine: lastLineIndex,
+        requestedLine: targetLine,
+        promotedLine: cueSafeTargetLine,
+        skippedText: cueSafeInitialTarget.skippedText,
+        isFinal,
+        forceTag,
+        cueBridgePathValid,
+        cueBridgeSkipCountOk,
+        cueBridgeDelta,
+      });
       targetLine = cueSafeTargetLine;
       const multiJumpDelta = targetLine - lastLineIndex;
       if (multiJumpDelta > 1) {
-        const multiJumpBridgeEpsEligible =
-          isFinal &&
-          (
-            forceTag === 'final-forward-nudge' ||
-            forceTag === 'final-forward-fallback' ||
-            forceTag === 'permissive-final-advance'
-          ) &&
-          cueBridgePathValid &&
-          cueBridgeSkipCountOk &&
-          cueBridgeDelta >= multiJumpDelta &&
-          multiJumpDelta <= DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES;
         const multiJumpNeed = Math.max(
           DEFAULT_MULTI_JUMP_HARD_DENY_SIM,
-          DEFAULT_MULTI_JUMP_MIN_SIM - (multiJumpBridgeEpsEligible ? DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS : 0),
+          DEFAULT_MULTI_JUMP_MIN_SIM - (multiJumpRelaxation.allowBridgeEps ? DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS : 0),
         );
         const hardDeny = conf < DEFAULT_MULTI_JUMP_HARD_DENY_SIM;
         if (hardDeny || conf < multiJumpNeed) {
@@ -6386,7 +6444,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             `delta=${multiJumpDelta}`,
             `sim=${formatLogScore(conf)}`,
             `need=${formatLogScore(multiJumpNeed)}`,
-            multiJumpBridgeEpsEligible ? `eps=${formatLogScore(DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS)}` : '',
+            multiJumpRelaxation.allowBridgeEps ? `eps=${formatLogScore(DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS)}` : '',
+            multiJumpRelaxation.reason ? `bridge=${multiJumpRelaxation.reason}` : '',
             hardDeny ? `hardFloor=${formatLogScore(DEFAULT_MULTI_JUMP_HARD_DENY_SIM)}` : '',
             forceReason ? `force=${forceReason}` : '',
             snippet ? `clue="${snippet}"` : '',

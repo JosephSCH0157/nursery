@@ -8,7 +8,6 @@ const requiredFiles = [
   'dist/hud_popout.html',
   'dist/login.html',
   'dist/reset.html',
-  'dist/account.html',
   'dist/robots.txt',
   'dist/ads.txt',
   'dist/humans.txt',

@@ -22840,7 +22840,7 @@ var init_loader = __esm({
     ensureSpeechGlobals();
     (async function() {
       if (!isSpeechBackendAllowed()) return;
-      const isDevMode13 = (() => {
+      const isDevMode14 = (() => {
         try {
           const qs = new URLSearchParams(location.search || "");
           if (qs.get("dev") === "1") return true;
@@ -22858,7 +22858,7 @@ var init_loader = __esm({
           try {
             return await import(spec);
           } catch (err) {
-            if (isDevMode13) {
+            if (isDevMode14) {
               try {
                 console.error("[TP] speech loader import failed", spec, err);
               } catch {
@@ -25059,6 +25059,38 @@ var init_matcher = __esm({
   }
 });
 
+// src/features/asr/manual-anchor.ts
+function normalizeManualAnchorTargetIndex(raw) {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.max(0, Math.floor(parsed));
+}
+function dispatchAsrManualAnchor(detail) {
+  if (typeof window === "undefined") return null;
+  const targetIndex = normalizeManualAnchorTargetIndex(detail?.targetIndex);
+  if (targetIndex == null) return null;
+  const payload = {
+    ...detail,
+    targetIndex
+  };
+  try {
+    window.dispatchEvent(new CustomEvent(ASR_MANUAL_ANCHOR_EVENT, { detail: payload }));
+  } catch {
+  }
+  try {
+    document.dispatchEvent(new CustomEvent(ASR_MANUAL_ANCHOR_EVENT, { detail: payload }));
+  } catch {
+  }
+  return targetIndex;
+}
+var ASR_MANUAL_ANCHOR_EVENT;
+var init_manual_anchor = __esm({
+  "src/features/asr/manual-anchor.ts"() {
+    "use strict";
+    ASR_MANUAL_ANCHOR_EVENT = "tp:asr:manual-anchor";
+  }
+});
+
 // src/asr/tuning-store.ts
 function normalizeProfile(profile, fallback) {
   const base = fallback || DEFAULT_READING_PROFILE;
@@ -25747,6 +25779,36 @@ function evaluateStallCueRescuePolicy(opts) {
     directContentForwardRescue: false,
     blockedReason: ""
   };
+}
+function evaluateCueBoundaryMultiJumpRelaxation(opts) {
+  const cursorLine = Number.isFinite(opts.cursorLine) ? Math.max(0, Math.floor(opts.cursorLine)) : -1;
+  const requestedLine = Number.isFinite(opts.requestedLine) ? Math.max(0, Math.floor(opts.requestedLine)) : -1;
+  const promotedLine = Number.isFinite(opts.promotedLine) ? Math.max(0, Math.floor(Number(opts.promotedLine))) : -1;
+  const forceTag = String(opts.forceTag || "").toLowerCase();
+  const cueBridgeDelta = Number.isFinite(opts.cueBridgeDelta) ? Math.max(0, Math.floor(Number(opts.cueBridgeDelta))) : 0;
+  const finalForcedBridge = !!opts.isFinal && (forceTag === "final-forward-nudge" || forceTag === "final-forward-fallback" || forceTag === "permissive-final-advance") && !!opts.cueBridgePathValid && !!opts.cueBridgeSkipCountOk && cueBridgeDelta >= Math.max(0, promotedLine - cursorLine) && promotedLine > cursorLine && promotedLine - cursorLine <= DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES;
+  if (finalForcedBridge) {
+    return {
+      allowBridgeEps: true,
+      reason: "forced-final-bridge"
+    };
+  }
+  const skippedReason = classifyStrictSkippableLineForCueBridge(String(opts.skippedText || ""));
+  const cueSafeImmediatePromotion = cursorLine >= 0 && requestedLine === cursorLine + 1 && promotedLine > requestedLine && promotedLine > cursorLine && promotedLine - cursorLine <= DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES && skippedReason != null;
+  if (cueSafeImmediatePromotion) {
+    return {
+      allowBridgeEps: true,
+      reason: `cue-safe:${skippedReason}`
+    };
+  }
+  return {
+    allowBridgeEps: false,
+    reason: ""
+  };
+}
+function isAutomaticStallRescueReason(reasonTag) {
+  const normalized = String(reasonTag || "").trim().toLowerCase();
+  return normalized === "auto-stall" || normalized.startsWith("stall:");
 }
 function isSkippableLineForCueBridge(value) {
   return classifySkippableLineForCueBridge(value) != null;
@@ -27956,6 +28018,30 @@ function createAsrScrollDriver(options = {}) {
     }
     setManualAnchorPendingState(targetIndex, now3);
   };
+  const handleManualAnchorSignal = (event) => {
+    if (disposed) return;
+    if (!isManualAnchorAdoptEnabled()) return;
+    const mode = getScrollMode3();
+    if (mode !== "hybrid" && mode !== "asr") return;
+    const detail = event?.detail || {};
+    const targetIndex = normalizeManualAnchorTargetIndex(detail.targetIndex);
+    if (targetIndex == null) return;
+    const now3 = Date.now();
+    manualScrollLastTop = getScroller()?.scrollTop ?? manualScrollLastTop;
+    manualScrollLastAt = now3;
+    if (manualAnchorPending && Math.abs(manualAnchorPending.targetIndex - targetIndex) <= MANUAL_ANCHOR_WINDOW_LINES) {
+      manualAnchorPending.ts = now3;
+      updateManualAnchorGlobalState();
+      logDev("[ASR_ADOPT] signal refresh targetIndex=" + manualAnchorPending.targetIndex);
+      return;
+    }
+    logDev("[ASR_ADOPT] signal targetIndex=" + targetIndex, {
+      source: detail.source || "signal",
+      reason: detail.reason || "",
+      targetBlockIdx: detail.targetBlockIdx ?? null
+    });
+    setManualAnchorPendingState(targetIndex, now3);
+  };
   const attachManualScrollWatcher = () => {
     if (manualScrollListenerAttached) return;
     manualScrollListenerAttached = true;
@@ -28235,6 +28321,10 @@ function createAsrScrollDriver(options = {}) {
   }
   try {
     window.addEventListener("tp:asr:rescue", rescueHandler);
+  } catch {
+  }
+  try {
+    window.addEventListener(ASR_MANUAL_ANCHOR_EVENT, handleManualAnchorSignal);
   } catch {
   }
   try {
@@ -28772,6 +28862,18 @@ function createAsrScrollDriver(options = {}) {
     if (!Number.isFinite(cursorRaw) || cursorRaw < 0) return false;
     const cursorLine = Math.max(0, Math.floor(cursorRaw));
     const reasonTag = String(reason || "").trim().toLowerCase();
+    if (manualAnchorPending && isAutomaticStallRescueReason(reasonTag)) {
+      stallRescueRequested = false;
+      if (isDevMode4()) {
+        warnGuard("cue_stall_rescue_blocked", [
+          `at=${cursorLine}`,
+          "reason=manual-anchor-pending",
+          reason ? `source=${reason}` : "",
+          `target=${manualAnchorPending.targetIndex}`
+        ]);
+      }
+      return false;
+    }
     const cursorLineText = getLineTextAt(cursorLine);
     const cueBridge = findNextSpeakableWithinBridge(
       cursorLine,
@@ -30172,13 +30274,23 @@ function createAsrScrollDriver(options = {}) {
             snippet ? `clue="${snippet}"` : ""
           ]);
         }
+        const multiJumpRelaxation = evaluateCueBoundaryMultiJumpRelaxation({
+          cursorLine: lastLineIndex,
+          requestedLine: targetLine,
+          promotedLine: cueSafeTargetLine,
+          skippedText: cueSafeInitialTarget.skippedText,
+          isFinal,
+          forceTag,
+          cueBridgePathValid,
+          cueBridgeSkipCountOk,
+          cueBridgeDelta
+        });
         targetLine = cueSafeTargetLine;
         const multiJumpDelta = targetLine - lastLineIndex;
         if (multiJumpDelta > 1) {
-          const multiJumpBridgeEpsEligible = isFinal && (forceTag === "final-forward-nudge" || forceTag === "final-forward-fallback" || forceTag === "permissive-final-advance") && cueBridgePathValid && cueBridgeSkipCountOk && cueBridgeDelta >= multiJumpDelta && multiJumpDelta <= DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES;
           const multiJumpNeed = Math.max(
             DEFAULT_MULTI_JUMP_HARD_DENY_SIM,
-            DEFAULT_MULTI_JUMP_MIN_SIM - (multiJumpBridgeEpsEligible ? DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS : 0)
+            DEFAULT_MULTI_JUMP_MIN_SIM - (multiJumpRelaxation.allowBridgeEps ? DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS : 0)
           );
           const hardDeny = conf < DEFAULT_MULTI_JUMP_HARD_DENY_SIM;
           if (hardDeny || conf < multiJumpNeed) {
@@ -30188,7 +30300,8 @@ function createAsrScrollDriver(options = {}) {
               `delta=${multiJumpDelta}`,
               `sim=${formatLogScore(conf)}`,
               `need=${formatLogScore(multiJumpNeed)}`,
-              multiJumpBridgeEpsEligible ? `eps=${formatLogScore(DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS)}` : "",
+              multiJumpRelaxation.allowBridgeEps ? `eps=${formatLogScore(DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS)}` : "",
+              multiJumpRelaxation.reason ? `bridge=${multiJumpRelaxation.reason}` : "",
               hardDeny ? `hardFloor=${formatLogScore(DEFAULT_MULTI_JUMP_HARD_DENY_SIM)}` : "",
               forceReason ? `force=${forceReason}` : "",
               snippet ? `clue="${snippet}"` : ""
@@ -30354,7 +30467,7 @@ function createAsrScrollDriver(options = {}) {
               }
               const plainStrongFinalAdvance = !bridgeUsed && nextLine === lastLineIndex + 1 && conf >= DEFAULT_STRONG_FORWARD_COMMIT_SIM;
               const bridgedFinalAdvance = bridgeUsed && conf >= DEFAULT_MULTI_JUMP_MIN_SIM;
-              if (bridgedFinalAdvance || plainStrongFinalAdvance) {
+              if (nextLine != null && (bridgedFinalAdvance || plainStrongFinalAdvance)) {
                 if (bridgeUsed) {
                   logCueBridgeUse(lastLineIndex, nextLine, cueBridge.skippedReasons, "same-line-confirm");
                 }
@@ -30471,8 +30584,8 @@ function createAsrScrollDriver(options = {}) {
             targetLine,
             now3,
             conf,
-            Number.isFinite(currentLineScoreForBackstep) ? Number(currentLineScoreForBackstep) : requiredThreshold,
-            requiredThreshold,
+            Number.isFinite(currentLineScoreForBackstep) ? Number(currentLineScoreForBackstep) : requiredThresholdValue,
+            requiredThresholdValue,
             "corrective-backstep",
             matchId,
             snippet
@@ -31438,13 +31551,13 @@ function createAsrScrollDriver(options = {}) {
     }
     const baseCommitThreshold = isFinal ? thresholds.commitFinalMinSim : clamp4(thresholds.commitInterimMinSim * interimScale, 0, 1);
     const shortBoost = tokenCount <= shortTokenMax ? shortTokenBoost : 0;
-    const requiredThreshold2 = clamp4(baseCommitThreshold + shortBoost, 0, 1);
-    const interimHighThreshold = clamp4(requiredThreshold2 + interimHysteresisBonus, 0, 1);
-    const consistencyMinSim = clamp4(requiredThreshold2 - consistencySimSlack, 0, 1);
-    const catchupMinSim = clamp4(requiredThreshold2 - catchupSimSlack, 0, 1);
+    const requiredThreshold = clamp4(baseCommitThreshold + shortBoost, 0, 1);
+    const interimHighThreshold = clamp4(requiredThreshold + interimHysteresisBonus, 0, 1);
+    const consistencyMinSim = clamp4(requiredThreshold - consistencySimSlack, 0, 1);
+    const catchupMinSim = clamp4(requiredThreshold - catchupSimSlack, 0, 1);
     const prevIndex = cursorLine >= 0 ? cursorLine : 0;
     const bestMatchLineForProgress = Number.isFinite(rawIdx) ? Math.max(0, Math.floor(rawIdx)) : prevIndex;
-    noteNoProgressIngest(now3, prevIndex, bestMatchLineForProgress, conf, requiredThreshold2);
+    noteNoProgressIngest(now3, prevIndex, bestMatchLineForProgress, conf, requiredThreshold);
     const candidateAnchorLine = Number.isFinite(rawIdx) ? Math.max(0, Math.floor(rawIdx)) : null;
     if (candidateAnchorLine !== null && conf >= thresholds.anchorMinSim) {
       if (anchorStreakLine === candidateAnchorLine) {
@@ -31715,7 +31828,7 @@ function createAsrScrollDriver(options = {}) {
     const candidateIdx = Number.isFinite(rawIdx) ? Math.max(0, Math.floor(rawIdx)) : -1;
     const confirmingCurrentLine = candidateIdx >= 0 && candidateIdx === cursorLine;
     const stickAdjust = confirmingCurrentLine ? thresholds.stickinessDelta : 0;
-    const effectiveThresholdForPending = clamp4(requiredThreshold2 - stickAdjust, 0, 1);
+    const effectiveThresholdForPending = clamp4(requiredThreshold - stickAdjust, 0, 1);
     const bestSpan = Number(match?.bestSpan);
     const bestOverlap = Number(match?.bestOverlap);
     const bestOverlapRatio = Number(match?.bestOverlapRatio);
@@ -31779,11 +31892,11 @@ function createAsrScrollDriver(options = {}) {
       });
     }
     const effectiveRawSim = rawScoreByIdx.get(rawIdx) ?? rawBestSim;
-    let effectiveThreshold = requiredThreshold2;
+    let effectiveThreshold = requiredThreshold;
     const trustFloor = Math.max(thresholds.candidateMinSim, thresholds.commitInterimMinSim - RECOVERY_SIM_SLACK);
     const recoveryCandidate = !noMatchFlag && delta >= RECOVERY_BIG_JUMP_LINES && conf >= RECOVERY_SIM_MIN && behindDebtStreak >= RECOVERY_STREAK_REQUIRED;
     if (recoveryCandidate) {
-      const recoveryNeed = Math.max(trustFloor, requiredThreshold2 - RECOVERY_SIM_SLACK);
+      const recoveryNeed = Math.max(trustFloor, requiredThreshold - RECOVERY_SIM_SLACK);
       effectiveThreshold = Math.min(effectiveThreshold, recoveryNeed);
       logDev("recovery relax", {
         delta,
@@ -31906,7 +32019,7 @@ function createAsrScrollDriver(options = {}) {
     }
     const shortFinal = isFinal && fragmentTokenCount >= shortFinalMinTokens && fragmentTokenCount <= shortFinalMaxTokens;
     const shortFinalRecent = shortFinal && lastLineIndex >= 0 && now3 - lastForwardCommitAt <= shortFinalWindowMs;
-    const shortFinalNeed = shortFinalRecent ? clamp4(requiredThreshold2 - shortFinalSimSlack, 0, 1) : requiredThreshold2;
+    const shortFinalNeed = shortFinalRecent ? clamp4(requiredThreshold - shortFinalSimSlack, 0, 1) : requiredThreshold;
     const outrunRecent = isFinal && lastLineIndex >= 0 && now3 - lastForwardCommitAt <= outrunWindowMs;
     const forwardMatcherInputs = buildForwardMatcherInputs(bufferedText, compacted, isFinal);
     const forwardRangeStart = Math.max(0, cursorLine + 1);
@@ -32072,7 +32185,7 @@ function createAsrScrollDriver(options = {}) {
       const forwardMinIdx = cursorLine + Math.max(1, minLineAdvance);
       const forwardCandidates = tieCandidates.filter((entry) => entry.idx >= forwardMinIdx).sort((a, b) => a.idx - b.idx || b.score - a.score);
       const forwardPick = forwardCandidates[0];
-      const tieNeed = shortFinalRecent ? shortFinalNeed : requiredThreshold2;
+      const tieNeed = shortFinalRecent ? shortFinalNeed : requiredThreshold;
       if (hasTie && forwardPick && forwardPick.score < tieNeed && !forwardBiasEligible && !outrunEligible) {
         warnGuard("tie_forward", [
           `current=${cursorLine}`,
@@ -32095,7 +32208,7 @@ function createAsrScrollDriver(options = {}) {
           `best=${rawIdx}`,
           `minForward=${forwardMinIdx}`,
           `sim=${formatLogScore(bestScore)}`,
-          `need=${formatLogScore(requiredThreshold2)}`,
+          `need=${formatLogScore(requiredThreshold)}`,
           `eps=${forwardTieEps}`,
           snippet ? `clue="${snippet}"` : ""
         ]);
@@ -32153,7 +32266,7 @@ function createAsrScrollDriver(options = {}) {
       }
     }
     const continuationForwardCandidate = rawIdx <= cursorLine ? forwardBandScores.filter((entry) => entry.idx > cursorLine && entry.span >= 2).sort((a, b) => b.score - a.score || a.idx - b.idx || a.span - b.span)[0] || null : null;
-    const arbitrationCurrentScore = Number.isFinite(currentLineScore) ? currentLineScore : rawIdx === cursorLine ? conf : requiredThreshold2;
+    const arbitrationCurrentScore = Number.isFinite(currentLineScore) ? currentLineScore : rawIdx === cursorLine ? conf : requiredThreshold;
     if (lostForwardActive && continuationForwardCandidate && transcriptLongerThanCurrent && continuationForwardCandidate.score >= outrunFloor && continuationForwardCandidate.score >= arbitrationCurrentScore - 0.05) {
       const before = rawIdx;
       rawIdx = continuationForwardCandidate.idx;
@@ -32287,7 +32400,7 @@ function createAsrScrollDriver(options = {}) {
         }
       }
     }
-    const shortFinalTightEvidenceBypass = isFinal && rawIdx >= cursorLine && rawIdx <= cursorLine + 1 && conf >= requiredThreshold2;
+    const shortFinalTightEvidenceBypass = isFinal && rawIdx >= cursorLine && rawIdx <= cursorLine + 1 && conf >= requiredThreshold;
     const forcedEvidenceOkTight = forcedEvidenceOk || shortFinalTightEvidenceBypass;
     const allowForced = !isHybridMode() && lostForwardActive && !interimShortLineAmbiguityHold;
     if (interimShortLineAmbiguityHold && lostForwardActive && isSessionLivePhase() && isSessionAsrArmed()) {
@@ -32438,7 +32551,7 @@ function createAsrScrollDriver(options = {}) {
         }
       }
     }
-    const shortFinalForcedCandidate = shortFinalRecent && rawIdx > cursorLine && shortFinalNeed < requiredThreshold2 && conf >= shortFinalNeed && conf < requiredThreshold2 && !sameLineFinalConfirmHold;
+    const shortFinalForcedCandidate = shortFinalRecent && rawIdx > cursorLine && shortFinalNeed < requiredThreshold && conf >= shortFinalNeed && conf < requiredThreshold && !sameLineFinalConfirmHold;
     let shortFinalForced = false;
     if (allowForced && shortFinalForcedCandidate && !outrunCommit) {
       const forwardCandidate = outrunCandidate;
@@ -32507,7 +32620,7 @@ function createAsrScrollDriver(options = {}) {
     }
     if (forwardBiasEligible && rawIdx < cursorLine && topScoresSpeakable.length) {
       const behindBy2 = cursorLine - rawIdx;
-      const biasThreshold = clamp4(requiredThreshold2 - forwardBiasSimSlack, 0, 1);
+      const biasThreshold = clamp4(requiredThreshold - forwardBiasSimSlack, 0, 1);
       const forwardNeed = shortFinalRecent ? Math.min(biasThreshold, shortFinalNeed) : biasThreshold;
       const forwardMax = cursorLine + Math.max(1, forwardBiasLookaheadLines);
       const forwardPick = topScoresSpeakable.filter((entry) => entry.idx >= cursorLine && entry.idx <= forwardMax).sort((a, b) => b.score - a.score || a.idx - b.idx)[0];
@@ -32528,7 +32641,7 @@ function createAsrScrollDriver(options = {}) {
         logDev("forward bias", { cursorLine, best: before, forward: rawIdx, sim: conf, need: effectiveThreshold });
       }
     }
-    const strongBehindFloor = Math.max(strongBackSim, requiredThreshold2);
+    const strongBehindFloor = Math.max(strongBackSim, requiredThreshold);
     const strongBehindCompetitor = topScoresSpeakable.filter((entry) => {
       const idx = Number(entry.idx);
       const score = Number(entry.score);
@@ -33008,7 +33121,7 @@ function createAsrScrollDriver(options = {}) {
                 delta: rawIdx - cursorLine,
                 sim: conf,
                 inBand,
-                requiredSim: requiredThreshold2,
+                requiredSim: requiredThreshold,
                 need: lowSimNeed,
                 repeatCount: relockRepeatCount,
                 bestSpan: Number.isFinite(bestSpan) ? bestSpan : void 0,
@@ -33052,7 +33165,7 @@ function createAsrScrollDriver(options = {}) {
               delta: rawIdx - cursorLine,
               sim: conf,
               inBand,
-              requiredSim: requiredThreshold2,
+              requiredSim: requiredThreshold,
               need: lowSimNeed,
               repeatCount: relockRepeatCount,
               bestSpan: Number.isFinite(bestSpan) ? bestSpan : void 0,
@@ -33304,7 +33417,7 @@ function createAsrScrollDriver(options = {}) {
       }
     }
     let interimEligible = true;
-    const forwardThreshold = Math.max(requiredThreshold2, effectiveThresholdForPending);
+    const forwardThreshold = Math.max(requiredThreshold, effectiveThresholdForPending);
     const strongForwardInterimProgress = !isFinal && rawIdx > cursorLine && (committedFloor == null || rawIdx > committedFloor) && conf >= forwardThreshold && bufferGrowing;
     const progressiveForwardInterimProgress = !isFinal && forceReason === "progressive-floor" && rawIdx >= cursorLine && conf >= DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM && bufferGrowing;
     if (!isFinal) {
@@ -33502,7 +33615,7 @@ function createAsrScrollDriver(options = {}) {
           } catch {
           }
         }
-      } else if (shouldHoldCandidate || conf < Math.max(requiredThreshold2, DEFAULT_HOLD_ANCHOR_MIN_SIM)) {
+      } else if (shouldHoldCandidate || conf < Math.max(requiredThreshold, DEFAULT_HOLD_ANCHOR_MIN_SIM)) {
         beginOrRefreshAmbiguityHold(
           now3,
           holdReasonCode || ambiguityHoldReason || "await_anchor",
@@ -33577,14 +33690,14 @@ function createAsrScrollDriver(options = {}) {
       if (tryBehindRecovery(cursorLine, now3, conf, rawIdx, isFinal)) {
         return;
       }
-      const currentLineScoreForBackstep = Number.isFinite(arbitrationCurrentScore) ? arbitrationCurrentScore : requiredThreshold2;
+      const currentLineScoreForBackstep = Number.isFinite(arbitrationCurrentScore) ? arbitrationCurrentScore : requiredThreshold;
       if (tryLiveAsrCorrectiveBackstep(
         cursorLine,
         rawIdx,
         now3,
         conf,
         currentLineScoreForBackstep,
-        requiredThreshold2,
+        requiredThreshold,
         "live-behind-correct",
         matchId,
         snippet
@@ -33607,7 +33720,7 @@ function createAsrScrollDriver(options = {}) {
         logDev("behind match ignored", { line: rawIdx, conf, cursorLine, isFinal, reason: "interim" });
         return;
       }
-      const strongBehind = conf >= Math.max(strongBackSim, requiredThreshold2);
+      const strongBehind = conf >= Math.max(strongBackSim, requiredThreshold);
       if (strongBehind) {
         if (Math.abs(rawIdx - lastBehindStrongIdx) <= 1 && now3 - lastBehindStrongAt <= backConfirmWindowMs) {
           behindStrongCount += 1;
@@ -33621,7 +33734,7 @@ function createAsrScrollDriver(options = {}) {
         behindStrongCount = 0;
         behindStrongSince = 0;
       }
-      if (DEFAULT_ALLOW_BEHIND_REANCHOR && strongBehind && behindStrongCount >= backConfirmHits && behindStrongSince > 0 && now3 - behindStrongSince >= behindRecoveryMs && behindBy <= behindRecoveryMaxLines && conf >= Math.max(behindRecoveryMinSim, requiredThreshold2) && now3 - lastBehindRecoveryAt >= behindRecoveryCooldownMs) {
+      if (DEFAULT_ALLOW_BEHIND_REANCHOR && strongBehind && behindStrongCount >= backConfirmHits && behindStrongSince > 0 && now3 - behindStrongSince >= behindRecoveryMs && behindBy <= behindRecoveryMaxLines && conf >= Math.max(behindRecoveryMinSim, requiredThreshold) && now3 - lastBehindRecoveryAt >= behindRecoveryCooldownMs) {
         const scroller = getScroller();
         const scrollTopBefore = scroller?.scrollTop ?? 0;
         const targetTop = scroller ? resolveTargetTop(scroller, rawIdx) : null;
@@ -33707,7 +33820,7 @@ function createAsrScrollDriver(options = {}) {
       behindStrongCount = 0;
     }
     const aheadBy = rawIdx - cursorLine;
-    if (aheadBy >= realignLeadLines && conf >= Math.max(realignSim, requiredThreshold2)) {
+    if (aheadBy >= realignLeadLines && conf >= Math.max(realignSim, requiredThreshold)) {
       if (now3 - lastResyncAt >= resyncCooldownMs) {
         resyncUntil = now3 + resyncWindowMs;
         resyncAnchorIdx = Math.max(0, Math.floor(rawIdx - realignLookbackLines));
@@ -33764,7 +33877,7 @@ function createAsrScrollDriver(options = {}) {
       if (Math.abs(idx - rawIdx) > Math.max(1, minLineAdvance + 1)) return false;
       return score >= conf - forwardTieEps;
     });
-    const strongSmallForwardEvidence = inBand && deltaFromCursor >= 0 && deltaFromCursor <= smallForwardEvidenceMaxDelta && conf >= requiredThreshold2 && !hasAmbiguousForwardCollision;
+    const strongSmallForwardEvidence = inBand && deltaFromCursor >= 0 && deltaFromCursor <= smallForwardEvidenceMaxDelta && conf >= requiredThreshold && !hasAmbiguousForwardCollision;
     const lostMode = resyncActive || lagRelockActive || stuckResyncActive || catchUpModeActive || lookaheadBase > matchLookaheadLines || forceReason === "watchdog" || lostForwardActive;
     const permissiveForcedAdvance = forceReason === "permissive-final-advance" && rawIdx > cursorLine;
     const finalForwardForcedAdvance = (forceReason === "final-forward-nudge" || forceReason === "final-forward-fallback") && rawIdx > cursorLine;
@@ -33775,7 +33888,7 @@ function createAsrScrollDriver(options = {}) {
     const extraDeltaLines = Math.max(0, deltaFromCursor - minLineAdvance);
     if (hasEvidence && extraDeltaLines > 0) {
       const multiLineNeed = clamp4(
-        requiredThreshold2 + Math.min(0.2, extraDeltaLines * 0.04),
+        requiredThreshold + Math.min(0.2, extraDeltaLines * 0.04),
         0,
         1
       );
@@ -33804,8 +33917,8 @@ function createAsrScrollDriver(options = {}) {
       isFinal,
       hasEvidence,
       snippet,
-      minThreshold: effectiveThresholdForPending < requiredThreshold2 ? effectiveThresholdForPending : void 0,
-      requiredThreshold: requiredThreshold2,
+      minThreshold: effectiveThresholdForPending < requiredThreshold ? effectiveThresholdForPending : void 0,
+      requiredThreshold,
       topScores: topScoresSpeakable,
       stickinessApplied: stickAdjust > 0,
       forced: outrunCommit || shortFinalForced || catchupCommit,
@@ -33867,6 +33980,10 @@ function createAsrScrollDriver(options = {}) {
     }
     try {
       window.removeEventListener("tp:asr:rescue", rescueHandler);
+    } catch {
+    }
+    try {
+      window.removeEventListener(ASR_MANUAL_ANCHOR_EVENT, handleManualAnchorSignal);
     } catch {
     }
     detachManualScrollWatcher();
@@ -33986,6 +34103,7 @@ var init_asr_scroll_driver = __esm({
     init_matcher();
     init_speech_store();
     init_speech_store2();
+    init_manual_anchor();
     init_tuning_store();
     init_scroller();
     init_asr_block_store();
@@ -41176,6 +41294,18 @@ var init_dev_state = __esm({
 });
 
 // src/features/kick/kick.ts
+function isDevMode6() {
+  if (typeof window === "undefined") return false;
+  try {
+    const w3 = window;
+    if (w3.__TP_DEV || w3.__TP_DEV1 || w3.__tpDevMode) return true;
+    if (w3.localStorage?.getItem("tp_dev_mode") === "1") return true;
+    const qs = new URLSearchParams(String(window.location?.search || ""));
+    return qs.has("dev") || qs.get("dev") === "1";
+  } catch {
+    return false;
+  }
+}
 function normalizeDeltaPx(rawDelta) {
   const next = Number(rawDelta);
   if (!Number.isFinite(next) || next === 0) return DEFAULT_KICK_DELTA_PX;
@@ -41263,6 +41393,41 @@ function getCurrentLineIndex() {
   }
   return null;
 }
+function resolveManualAnchorTargetIndex(scroller, fallbackIndex = null) {
+  const markerIndex = computeAnchorLineIndex(scroller);
+  if (Number.isFinite(markerIndex)) {
+    return Math.max(0, Math.floor(markerIndex));
+  }
+  if (Number.isFinite(fallbackIndex)) {
+    return Math.max(0, Math.floor(fallbackIndex));
+  }
+  return null;
+}
+function syncAsrDriverIndex(targetIndex, reason) {
+  if (targetIndex == null || typeof window === "undefined") return;
+  const nextIndex = Math.max(0, Math.floor(targetIndex));
+  try {
+    const driver = window.__tpAsrScrollDriver;
+    if (typeof driver?.setLastLineIndex === "function") {
+      driver.setLastLineIndex(nextIndex);
+      return;
+    }
+  } catch {
+  }
+  try {
+    window.currentIndex = nextIndex;
+  } catch {
+  }
+  if (isDevMode6()) {
+    try {
+      console.info("[kick:driver-sync:fallback]", {
+        reason,
+        targetIndex: nextIndex
+      });
+    } catch {
+    }
+  }
+}
 function elementTopRelativeToScroller2(el, scroller) {
   try {
     const rect = el.getBoundingClientRect();
@@ -41302,6 +41467,9 @@ function kickAsrForward(scroller, deltaPx, reason) {
     const currentBlockIdx = resolveCurrentAsrBlockIdx(scroller, blocks);
     const nextBlockIdx = currentBlockIdx == null ? 0 : Math.min(blocks.length - 1, Math.max(0, currentBlockIdx + 1));
     if (currentBlockIdx == null || nextBlockIdx !== currentBlockIdx) {
+      const nextRange = getBlockLineRange(blocks[nextBlockIdx]);
+      const currentLine2 = getCurrentLineIndex();
+      const fallbackTargetIndex2 = nextRange?.start ?? (Number.isFinite(currentLine2) ? Math.max(0, Math.floor(currentLine2) + 1) : null);
       try {
         seekToBlockAnimated(nextBlockIdx, `${reason}:asr`);
       } catch {
@@ -41322,11 +41490,22 @@ function kickAsrForward(scroller, deltaPx, reason) {
           writeScrollTop2(scroller, from + deltaPx);
         }
       }
-      return true;
+      return {
+        moved: true,
+        targetIndex: fallbackTargetIndex2,
+        targetBlockIdx: nextBlockIdx
+      };
     }
   }
   writeScrollTop2(scroller, from + deltaPx);
-  return Math.abs(readScrollTop2(scroller) - from) >= 0.5;
+  const moved = Math.abs(readScrollTop2(scroller) - from) >= 0.5;
+  const currentLine = getCurrentLineIndex();
+  const fallbackTargetIndex = Number.isFinite(currentLine) ? Math.max(0, Math.floor(currentLine) + 1) : null;
+  return {
+    moved,
+    targetIndex: moved ? resolveManualAnchorTargetIndex(scroller, fallbackTargetIndex) : null,
+    targetBlockIdx: null
+  };
 }
 function kick(options = {}) {
   try {
@@ -41337,8 +41516,13 @@ function kick(options = {}) {
     const mode = getScrollMode5();
     const from = readScrollTop2(scroller);
     let moved;
+    let manualAnchorTargetIndex = null;
+    let manualAnchorTargetBlockIdx = null;
     if (mode === "asr") {
-      moved = kickAsrForward(scroller, deltaPx, reason);
+      const result = kickAsrForward(scroller, deltaPx, reason);
+      moved = result.moved;
+      manualAnchorTargetIndex = result.targetIndex;
+      manualAnchorTargetBlockIdx = result.targetBlockIdx;
     } else {
       try {
         getScrollWriter().scrollBy(deltaPx, { behavior: "auto" });
@@ -41356,7 +41540,26 @@ function kick(options = {}) {
       scroller.dataset.tpLastWriter = reason;
     } catch {
     }
-    if (import.meta.env.DEV) {
+    if (mode === "asr" && moved && manualAnchorTargetIndex != null) {
+      syncAsrDriverIndex(manualAnchorTargetIndex, reason);
+      const targetIndex = dispatchAsrManualAnchor({
+        targetIndex: manualAnchorTargetIndex,
+        targetBlockIdx: manualAnchorTargetBlockIdx,
+        source: "kick",
+        reason
+      });
+      if (isDevMode6() && targetIndex != null) {
+        try {
+          console.info("[kick:manual-anchor]", {
+            reason,
+            targetIndex,
+            targetBlockIdx: manualAnchorTargetBlockIdx
+          });
+        } catch {
+        }
+      }
+    }
+    if (isDevMode6()) {
       try {
         console.info("[kick]", {
           reason,
@@ -41372,7 +41575,7 @@ function kick(options = {}) {
     }
     return moved;
   } catch (error) {
-    if (import.meta.env.DEV) {
+    if (isDevMode6()) {
       try {
         console.warn("[kick] error", {
           reason: options.reason || "kick",
@@ -41389,6 +41592,7 @@ var init_kick = __esm({
   "src/features/kick/kick.ts"() {
     "use strict";
     init_scroller();
+    init_manual_anchor();
     init_asr_block_store();
     init_scroll_writer();
     DEFAULT_KICK_DELTA_PX = 120;
@@ -41782,7 +41986,7 @@ function resolveSpeakerTag(tag) {
   if (t === "g2" || t === "guest2") return "guest2";
   return null;
 }
-function isDevMode6() {
+function isDevMode7() {
   try {
     const qs = new URLSearchParams(String(location.search || ""));
     if (qs.has("dev") || qs.get("dev") === "1") return true;
@@ -42106,7 +42310,7 @@ function renderScript(text, container) {
     const meta3 = {
       schemaVersion: 1,
       blockCount: blockEls2.length,
-      createdAt: isDevMode6() ? Date.now() : 0,
+      createdAt: isDevMode7() ? Date.now() : 0,
       source: "render",
       units: blocks.map((b) => ({
         blockIdx: b.blockIdx,
@@ -42120,7 +42324,7 @@ function renderScript(text, container) {
     setAsrBlocks(blockEls2, meta3);
   } catch {
   }
-  if (isDevMode6()) {
+  if (isDevMode7()) {
     try {
       let ok = true;
       if (!blockEls2.length) ok = false;
@@ -46072,6 +46276,16 @@ function isCommitAck(body) {
   if (row?.error) return false;
   return row?.ok === true || row?.success === true || row?.data?.ok === true || row?.data?.success === true;
 }
+function extractApiError(body) {
+  if (!body || typeof body !== "object") return {};
+  const root = body;
+  const code = readString7(root.error?.code);
+  const message = readString7(root.error?.message);
+  return {
+    ...code ? { code } : {},
+    ...message ? { message } : {}
+  };
+}
 function encodeBase64(bytes) {
   if (!bytes.length) return "";
   const globalWithBuffer = globalThis;
@@ -46186,10 +46400,13 @@ async function commitRecordingBytesToTongs(input) {
     }
   }
   if (!commit.ok) {
+    const apiError = extractApiError(commit.body);
     return {
       ok: false,
       reason: didRetry404 ? "commit_failed_after_retry" : "commit_failed",
       status: commit.status,
+      ...apiError.code ? { errorCode: apiError.code } : {},
+      ...apiError.message ? { errorMessage: apiError.message } : {},
       details: commit.body,
       workspaceId,
       workpieceId
@@ -46397,6 +46614,9 @@ var init_local_auto = __esm({
     init_recording_settings();
     init_workpiece_commit();
     (() => {
+      const RECORDING_STORAGE_LIMIT_HINT_KEY = "forge_anvil_recording_storage_limit_hint_bytes_v1";
+      const DEFAULT_VIDEO_BITS_PER_SECOND = 12e5;
+      const DEFAULT_AUDIO_BITS_PER_SECOND = 96e3;
       let mediaRecorder = null;
       let chunks = [];
       let active = false;
@@ -46409,6 +46629,42 @@ var init_local_auto = __esm({
       let audioChunks = [];
       let audioSampleRate = 48e3;
       const pad = (n) => String(n).padStart(2, "0");
+      function readStorageLimitHintBytes() {
+        try {
+          const raw = sessionStorage.getItem(RECORDING_STORAGE_LIMIT_HINT_KEY);
+          if (!raw) return null;
+          const parsed = Number(raw);
+          if (!Number.isFinite(parsed) || parsed <= 0) return null;
+          return Math.floor(parsed);
+        } catch {
+          return null;
+        }
+      }
+      function writeStorageLimitHintBytes(bytes) {
+        if (!Number.isFinite(bytes) || bytes <= 0) return;
+        try {
+          sessionStorage.setItem(RECORDING_STORAGE_LIMIT_HINT_KEY, String(Math.floor(bytes)));
+        } catch {
+        }
+      }
+      function showRecorderToast(message, type = "warning") {
+        try {
+          const toast5 = window.toast;
+          if (typeof toast5 === "function") {
+            toast5(message, { type });
+          }
+        } catch {
+        }
+      }
+      function isStorageTooLargeCommitResult(result) {
+        if (!result || typeof result !== "object") return false;
+        const row = result;
+        if (row.status === 413) return true;
+        if (row.errorCode === "storage_object_too_large") return true;
+        if (row.details?.error?.code === "storage_object_too_large") return true;
+        const message = typeof row.errorMessage === "string" ? row.errorMessage : typeof row.details?.error?.message === "string" ? row.details.error.message : "";
+        return message.toLowerCase().includes("object size limit");
+      }
       function formatTimestamp(date) {
         const year = date.getFullYear();
         const month = pad(date.getMonth() + 1);
@@ -46676,7 +46932,11 @@ var init_local_auto = __esm({
           }
           currentStream = mix;
           const mime = pickMime();
-          mediaRecorder = new MediaRecorder(mix, { mimeType: mime, videoBitsPerSecond: 5e6, audioBitsPerSecond: 128e3 });
+          mediaRecorder = new MediaRecorder(mix, {
+            mimeType: mime,
+            videoBitsPerSecond: DEFAULT_VIDEO_BITS_PER_SECOND,
+            audioBitsPerSecond: DEFAULT_AUDIO_BITS_PER_SECOND
+          });
           chunks = [];
           mediaRecorder.ondataavailable = (e) => {
             try {
@@ -46754,32 +47014,56 @@ var init_local_auto = __esm({
         const contentType = blob.type || "application/octet-stream";
         const localWritePayload = bytes;
         let committed = false;
-        try {
-          const commitResult = await commitRecordingBytesToTongs({
-            bytes,
-            originalName: name,
-            contentType
-          });
-          if (commitResult.ok) {
-            committed = true;
-            try {
-              console.log("[core-recorder] canonical commit ok", {
-                workpieceId: commitResult.workpieceId,
-                path: commitResult.path,
-                createdCradle: commitResult.createdCradle
-              });
-            } catch {
-            }
-          } else {
-            try {
-              console.warn("[core-recorder] canonical commit unavailable; using local fallback", commitResult);
-            } catch {
-            }
-          }
-        } catch (commitErr) {
+        const storageLimitHintBytes = readStorageLimitHintBytes();
+        const skipCanonicalCommit = storageLimitHintBytes != null && bytes.length >= storageLimitHintBytes;
+        if (skipCanonicalCommit) {
           try {
-            console.warn("[core-recorder] canonical commit failed; using local fallback", commitErr);
+            console.warn("[core-recorder] skipping canonical commit after prior storage size-limit failure", {
+              size: bytes.length,
+              hintBytes: storageLimitHintBytes,
+              name
+            });
           } catch {
+          }
+          showRecorderToast(
+            "Cloud save skipped for this take after a prior Storage size-limit failure. Recording will be mirrored locally.",
+            "warning"
+          );
+        } else {
+          try {
+            const commitResult = await commitRecordingBytesToTongs({
+              bytes,
+              originalName: name,
+              contentType
+            });
+            if (commitResult.ok) {
+              committed = true;
+              try {
+                console.log("[core-recorder] canonical commit ok", {
+                  workpieceId: commitResult.workpieceId,
+                  path: commitResult.path,
+                  createdCradle: commitResult.createdCradle
+                });
+              } catch {
+              }
+            } else {
+              if (isStorageTooLargeCommitResult(commitResult)) {
+                writeStorageLimitHintBytes(bytes.length);
+                showRecorderToast(
+                  "Cloud save hit the current Supabase Storage object-size limit. Recording will be mirrored locally for this session.",
+                  "warning"
+                );
+              }
+              try {
+                console.warn("[core-recorder] canonical commit unavailable; using local fallback", commitResult);
+              } catch {
+              }
+            }
+          } catch (commitErr) {
+            try {
+              console.warn("[core-recorder] canonical commit failed; using local fallback", commitErr);
+            } catch {
+            }
           }
         }
         try {
@@ -47388,7 +47672,7 @@ This is a smoke-test sample body.`;
 });
 
 // src/dev/asr-thresholds-panel.ts
-function isDevMode7() {
+function isDevMode8() {
   if (typeof window === "undefined") return false;
   try {
     const w3 = window;
@@ -47439,7 +47723,7 @@ var init_asr_thresholds_panel = __esm({
       { key: "interimStreakNeeded", label: "Interim streak", min: 1, max: 5, step: 1, isInt: true },
       { key: "maxJumpsPerSecond", label: "Max jumps/sec", min: 1, max: 10, step: 1, isInt: true }
     ];
-    if (!isDevMode7() || typeof document === "undefined") {
+    if (!isDevMode8() || typeof document === "undefined") {
     } else {
       initDevDrawer();
       const panel = document.createElement("div");
@@ -50726,15 +51010,6 @@ function normalizeEntitlements(row) {
     current_period_end: toNullableString(row?.current_period_end)
   };
 }
-function getEntitlementsState() {
-  return state7;
-}
-function subscribeEntitlements(fn) {
-  subscribers2.add(fn);
-  return () => {
-    subscribers2.delete(fn);
-  };
-}
 function setFreeEntitlements() {
   const next = { status: "ready", ent: FREE_ENTITLEMENTS };
   notify2(next);
@@ -50765,12 +51040,6 @@ async function refreshEntitlements(supabase2) {
     notify2(next);
     return next;
   }
-}
-function isPaid(ent) {
-  if (!ent) return false;
-  if (ent.anvil_paid) return true;
-  if (ent.tier && ent.tier !== "free") return true;
-  return ent.subscription_status === "active";
 }
 var FREE_ENTITLEMENTS, state7, subscribers2;
 var init_entitlements = __esm({
@@ -52205,7 +52474,6 @@ function buildSettingsContent(rootEl2) {
       <button type="button" class="settings-tab" data-settings-tab="media" aria-pressed="false">Media</button>
       <button type="button" class="settings-tab" data-settings-tab="recording" aria-pressed="false">Recording</button>
       <button type="button" class="settings-tab" data-settings-tab="advanced" aria-pressed="false">Advanced</button>
-      <button type="button" class="settings-tab" data-settings-tab="pricing" aria-pressed="false">Pricing</button>
       <button type="button" class="settings-tab" data-settings-tab="about" aria-pressed="false">About</button>
     </div>
 
@@ -52438,70 +52706,6 @@ function buildSettingsContent(rootEl2) {
           <button id="btnExportSettings" class="chip btn-chip" type="button">Export settings</button>
           <button id="btnImportSettings" class="chip btn-chip" type="button">Import settings</button>
         </div>
-      </section>
-
-      <section class="settings-panel" data-settings-panel="pricing" data-tab-content="pricing" hidden>
-      <div class="settings-card anim-in">
-        <h4>Anvil Teleprompter</h4>
-        <p>Professional teleprompting for podcasters and creators who read out loud.</p>
-        <p>
-          Anvil is built for real-world recording \u2014 not influencer scripts, not AI voices, not gimmicks.
-          It stays with you as you speak, adapts when you pause or speed up, and keeps your delivery natural.
-        </p>
-        <h5>Pricing</h5>
-        <div class="row gap">
-          <div class="settings-value">
-            <strong>$15</strong>
-            <span>/ month</span>
-          </div>
-          <div class="settings-meta">Cancel anytime</div>
-        </div>
-        <div class="row gap">
-          <div class="settings-value">
-            <strong>$40</strong>
-            <span>/ quarter</span>
-          </div>
-          <div class="settings-meta">3 months \xB7 Save $5</div>
-        </div>
-        <div
-          id="billingStatusPanel"
-          class="settings-small"
-          style="margin-top:10px;padding:10px;border:1px solid rgba(255,255,255,0.08);border-radius:10px;display:grid;gap:4px;"
-        >
-          <div><strong>Billing status</strong></div>
-          <div id="billingStatusSummary">Billing: loading...</div>
-          <div>Paid: <span id="billingStatusPaid">--</span></div>
-          <div>Tier: <span id="billingStatusTier">--</span></div>
-          <div>Status: <span id="billingStatusSubscription">--</span></div>
-          <div>Period end: <span id="billingStatusPeriodEnd">--</span></div>
-          <div>Customer: <span id="billingStatusCustomer">--</span></div>
-          <div>Subscription: <span id="billingStatusSubId">--</span></div>
-        </div>
-        <p><strong>What\u2019s included</strong></p>
-        <ul>
-          <li>Speech-synced & Hybrid scrolling keeps you in rhythm without rigid pacing.</li>
-          <li>Manual, WPM, and Hybrid modes so you can pick the workflow that fits now.</li>
-          <li>Mirrored display support for tablets, monitors, or teleprompter glass.</li>
-          <li>Recording controls & OBS integration \u2014 stay in flow while managing takes.</li>
-          <li>Script formatting & validation with pacing cues/safety checks.</li>
-          <li>Ongoing updates included \u2014 improvements ship with your subscription.</li>
-        </ul>
-        <p><strong>What this subscription covers</strong></p>
-        <p>
-          This plan includes Anvil only. Other tools in the Podcaster's Forge ecosystem (script writing,
-          editing, publishing) are not included at this time and may become separate offers in the future.
-        </p>
-        <p><strong>Built for real voices</strong></p>
-        <p>
-          Anvil doesn\u2019t try to sound like you. It doesn\u2019t replace you. It helps you deliver \u2014 smoothly,
-          confidently, and naturally. If you record podcasts, videos, or long-form spoken content,
-          Anvil is built for the way you actually work.
-        </p>
-        <p><strong>Ready to get started?</strong></p>
-        <p>
-          Start with Anvil.
-        </p>
-      </div>
       </section>
 
       <section class="settings-panel" data-settings-panel="about" data-tab-content="about" hidden>
@@ -54005,72 +54209,6 @@ function logSettingsHydrationSnapshot(store3) {
   } catch {
   }
 }
-function setBillingField(rootEl2, id, value) {
-  const el = rootEl2.querySelector(`#${id}`);
-  if (!el) return;
-  el.textContent = value;
-}
-function formatPeriodEnd(raw) {
-  if (!raw) return "none";
-  const dt = new Date(raw);
-  if (Number.isNaN(dt.getTime())) return raw;
-  return dt.toLocaleString();
-}
-function renderBillingStatus(rootEl2, state9) {
-  const summary = rootEl2.querySelector("#billingStatusSummary");
-  if (!summary) return;
-  if (state9.status === "idle" || state9.status === "loading") {
-    summary.textContent = "Billing: loading...";
-    setBillingField(rootEl2, "billingStatusPaid", "--");
-    setBillingField(rootEl2, "billingStatusTier", "--");
-    setBillingField(rootEl2, "billingStatusSubscription", "--");
-    setBillingField(rootEl2, "billingStatusPeriodEnd", "--");
-    setBillingField(rootEl2, "billingStatusCustomer", "--");
-    setBillingField(rootEl2, "billingStatusSubId", "--");
-    return;
-  }
-  if (state9.status === "error") {
-    summary.textContent = `Billing: error (${state9.error})`;
-    setBillingField(rootEl2, "billingStatusPaid", "false");
-    setBillingField(rootEl2, "billingStatusTier", "unknown");
-    setBillingField(rootEl2, "billingStatusSubscription", "unknown");
-    setBillingField(rootEl2, "billingStatusPeriodEnd", "unknown");
-    setBillingField(rootEl2, "billingStatusCustomer", "unknown");
-    setBillingField(rootEl2, "billingStatusSubId", "unknown");
-    return;
-  }
-  const ent = state9.ent;
-  const paid = isPaid(ent);
-  summary.textContent = paid ? "Founders: active" : "Founders: inactive";
-  setBillingField(rootEl2, "billingStatusPaid", String(paid));
-  setBillingField(rootEl2, "billingStatusTier", ent.tier || "free");
-  setBillingField(rootEl2, "billingStatusSubscription", ent.subscription_status || "none");
-  setBillingField(rootEl2, "billingStatusPeriodEnd", formatPeriodEnd(ent.current_period_end));
-  setBillingField(rootEl2, "billingStatusCustomer", ent.stripe_customer_id || "none");
-  setBillingField(rootEl2, "billingStatusSubId", ent.stripe_subscription_id || "none");
-}
-function wireBillingStatus(rootEl2) {
-  const summary = rootEl2.querySelector("#billingStatusSummary");
-  if (!summary) return;
-  try {
-    entitlementsUnsub?.();
-  } catch {
-  }
-  entitlementsUnsub = null;
-  const render = (state9) => {
-    renderBillingStatus(rootEl2, state9);
-  };
-  render(getEntitlementsState());
-  entitlementsUnsub = subscribeEntitlements(render);
-  const current2 = getEntitlementsState();
-  if (current2.status === "idle") {
-    if (hasSupabaseConfig) {
-      void refreshEntitlements(supabase);
-    } else {
-      setFreeEntitlements();
-    }
-  }
-}
 function mountSettings(rootEl2, store3) {
   setSettingsHydrating(true);
   try {
@@ -54139,10 +54277,6 @@ function mountSettings(rootEl2, store3) {
     }
     try {
       syncSettingsValues(resolvedStore);
-    } catch {
-    }
-    try {
-      wireBillingStatus(rootEl2);
     } catch {
     }
     try {
@@ -54332,7 +54466,7 @@ function syncSettingsValues(store3) {
 function flushPendingSettingsEdits(store3) {
   flushAsrSettingsToStore(store3);
 }
-var entitlementsUnsub, settings_default;
+var settings_default;
 var init_settings = __esm({
   "src/ui/settings/index.ts"() {
     "use strict";
@@ -54347,9 +54481,6 @@ var init_settings = __esm({
     init_speech_store();
     init_typography_presets();
     init_ui_scale();
-    init_entitlements();
-    init_supabaseClient();
-    entitlementsUnsub = null;
     try {
       window.__tp = window.__tp || {};
       window.__tp.settings = window.__tp.settings || {};
@@ -54364,7 +54495,7 @@ var init_settings = __esm({
 });
 
 // src/features/hotkeys.ts
-function isDevMode8() {
+function isDevMode9() {
   try {
     const w3 = window;
     if (w3.__TP_DEV || w3.__TP_DEV1) return true;
@@ -54390,7 +54521,7 @@ function isKickHotkey(event) {
   return String(event.key || "").toLowerCase() === "k";
 }
 function onKeydown(event) {
-  if (isDevMode8()) {
+  if (isDevMode9()) {
     const key = String(event.key || "").toLowerCase();
     if (event.code === "KeyK" || key === "k") {
       const target = event.target;
@@ -54410,7 +54541,7 @@ function onKeydown(event) {
   }
   if (!isKickHotkey(event)) return;
   if (isTypingTarget(event.target)) {
-    if (isDevMode8()) {
+    if (isDevMode9()) {
       try {
         console.debug("[kick-hotkey] blocked", {
           reason: "typing-target",
@@ -54428,7 +54559,7 @@ function onKeydown(event) {
   try {
     kick({ reason: "hotkey:k" });
   } catch (error) {
-    if (isDevMode8()) {
+    if (isDevMode9()) {
       try {
         console.warn("[kick-hotkey] error", {
           key: event.key,
@@ -55914,7 +56045,7 @@ function updateRouterDiag(extra = {}) {
   } catch {
   }
 }
-function isDevMode9() {
+function isDevMode10() {
   try {
     const w3 = window;
     if (w3.__TP_DEV || w3.__TP_DEV1) return true;
@@ -55926,7 +56057,7 @@ function isDevMode9() {
   return false;
 }
 function shouldDisableAutoMotors() {
-  return isDevMode9();
+  return isDevMode10();
 }
 function shouldAutoRun(mode, sess) {
   if (shouldDisableAutoMotors()) return false;
@@ -59327,7 +59458,7 @@ Need a deeper dive? Open Help > How it Works for the full guide.
 });
 
 // src/features/welcome-intro.ts
-function isDevMode10() {
+function isDevMode11() {
   try {
     const w3 = window;
     if (w3?.__TP_DEV_MODE === true) return true;
@@ -59549,7 +59680,7 @@ async function loadWelcomeGuide(opts) {
 }
 async function devResetWelcomeSeen() {
   if (typeof window === "undefined") return;
-  if (!isDevMode10()) {
+  if (!isDevMode11()) {
     console.warn("[welcome-intro] devResetWelcomeSeen blocked (not in dev mode)");
     return;
   }
@@ -59592,7 +59723,7 @@ var init_welcome_intro = __esm({
     welcomeCheckInFlight = false;
     welcomeCheckDone = false;
     try {
-      if (typeof window !== "undefined" && isDevMode10()) {
+      if (typeof window !== "undefined" && isDevMode11()) {
         window.__tpDevResetWelcome = devResetWelcomeSeen;
       }
     } catch {
@@ -66660,7 +66791,7 @@ var init_importSettings = __esm({
 });
 
 // src/dev/scroll-write-guard.ts
-function isDevMode11() {
+function isDevMode12() {
   if (shouldLogLevel(1)) return true;
   try {
     const qs = new URLSearchParams(String(location.search || ""));
@@ -66748,7 +66879,7 @@ function findScrollTopDescriptor(el) {
 }
 function installScrollWriteGuard(scroller) {
   if (!scroller) return;
-  if (!isDevMode11()) return;
+  if (!isDevMode12()) return;
   try {
     window.__tpScrollGuardDevOverride = true;
     window.__tpScrollWriteActive = true;
@@ -67821,7 +67952,7 @@ function isSettingsHydrating2() {
     return false;
   }
 }
-function isDevMode12() {
+function isDevMode13() {
   try {
     const params = new URLSearchParams(location.search || "");
     if (params.has("dev")) return true;
@@ -67833,7 +67964,7 @@ function isDevMode12() {
   }
 }
 function attachKickDevGlobalOnce() {
-  if (!isDevMode12()) return;
+  if (!isDevMode13()) return;
   try {
     const w3 = window;
     if (typeof w3.__tpKick === "function") return;
@@ -67848,7 +67979,7 @@ function attachKickDevGlobalOnce() {
   }
 }
 function devLog(...args) {
-  if (!isDevMode12()) return;
+  if (!isDevMode13()) return;
   try {
     console.debug("[settings]", ...args);
   } catch {

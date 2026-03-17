@@ -42,16 +42,6 @@
   status = 200
 
 [[redirects]]
-  from = "/account"
-  to = "/account.html"
-  status = 200
-
-[[redirects]]
-  from = "/account/*"
-  to = "/account.html"
-  status = 200
-
-[[redirects]]
   from = "/sitemaps.xml"
   to = "/sitemap.xml"
   status = 200

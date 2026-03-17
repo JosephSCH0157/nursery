@@ -1,4 +1,8 @@
-import { evaluateStallCueRescuePolicy, scanCueBridgeWindow } from '../../src/features/asr/asr-scroll-driver';
+import {
+  evaluateCueBoundaryMultiJumpRelaxation,
+  evaluateStallCueRescuePolicy,
+  scanCueBridgeWindow,
+} from '../../src/features/asr/asr-scroll-driver';
 
 describe('ASR cue-bridge promotion', () => {
   test('strict bridge scan does not skip spoken content during same-line promotion', () => {
@@ -31,6 +35,44 @@ describe('ASR cue-bridge promotion', () => {
 
     expect(scan.nextOffset).toBe(0);
     expect(scan.skippedReasons).toEqual([]);
+  });
+
+  test('cue-safe immediate promotion relaxes multi-jump only for strict cue or blank skips', () => {
+    const policy = evaluateCueBoundaryMultiJumpRelaxation({
+      cursorLine: 3,
+      requestedLine: 4,
+      promotedLine: 5,
+      skippedText: '',
+      isFinal: false,
+      forceTag: '',
+      cueBridgePathValid: false,
+      cueBridgeSkipCountOk: false,
+      cueBridgeDelta: 0,
+    });
+
+    expect(policy).toEqual({
+      allowBridgeEps: true,
+      reason: 'cue-safe:blank',
+    });
+  });
+
+  test('cue-safe immediate promotion still rejects bare cue words as proof', () => {
+    const policy = evaluateCueBoundaryMultiJumpRelaxation({
+      cursorLine: 3,
+      requestedLine: 4,
+      promotedLine: 5,
+      skippedText: 'pause',
+      isFinal: false,
+      forceTag: '',
+      cueBridgePathValid: false,
+      cueBridgeSkipCountOk: false,
+      cueBridgeDelta: 0,
+    });
+
+    expect(policy).toEqual({
+      allowBridgeEps: false,
+      reason: '',
+    });
   });
 
   test('auto-stall rescue does not authorize forward motion on its own', () => {

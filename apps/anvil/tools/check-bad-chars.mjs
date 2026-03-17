@@ -12,7 +12,6 @@ const TARGETS = [
   path.join(ROOT, 'teleprompter_pro.css'),
   path.join(ROOT, 'display.html'),
   path.join(ROOT, 'login.html'),
-  path.join(ROOT, 'account.html'),
 ];
 
 const hits = [];

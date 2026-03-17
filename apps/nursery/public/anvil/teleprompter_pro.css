@@ -651,13 +651,11 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .settings-tab{background:#0e141b;border:1px solid var(--edge);padding:calc(6px * var(--tp-ui-scale)) calc(10px * var(--tp-ui-scale));border-radius:calc(20px * var(--tp-ui-scale));font-size:var(--tp-ui-font-sm);cursor:pointer}
 .settings-tab.active{background:#12202a;color:var(--accent);border-color:var(--accent)}
 .settings-footer{margin-top:calc(8px * var(--tp-ui-scale));opacity:.7;text-align:right}
-/* Pricing/About readability bump */
-.settings-panel[data-settings-panel="pricing"] .settings-card,
+/* About panel readability bump */
 .settings-panel[data-settings-panel="about"] .settings-card{
     font-size:calc(15px * var(--tp-ui-scale));
     line-height:1.6;
 }
-.settings-panel[data-settings-panel="pricing"] .settings-card ul,
 .settings-panel[data-settings-panel="about"] .settings-card ul{
     margin-top:calc(8px * var(--tp-ui-scale));
     padding-left:calc(20px * var(--tp-ui-scale));
