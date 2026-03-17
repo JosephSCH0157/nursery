@@ -5,8 +5,7 @@ import {
   resolveViewerRole,
 } from '../../scroll/scroller';
 import { dispatchAsrManualAnchor } from '../asr/manual-anchor';
-import { getAsrBlockElements } from '../../scroll/asr-block-store';
-import { getScrollWriter, seekToBlockAnimated } from '../../scroll/scroll-writer';
+import { getScrollWriter } from '../../scroll/scroll-writer';
 
 const DEFAULT_KICK_DELTA_PX = 120;
 
@@ -81,44 +80,68 @@ export function resolveKickScroller(): HTMLElement | null {
   return getResolvedScroller();
 }
 
-function parseLineIndexFromElement(lineEl: HTMLElement): number | null {
-  const raw =
-    lineEl.dataset.line ||
-    lineEl.dataset.lineIdx ||
-    lineEl.dataset.i ||
-    lineEl.dataset.index ||
-    lineEl.getAttribute('data-line-idx');
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : null;
+function getLineElementByIndex(scroller: HTMLElement | null, lineIndex: number): HTMLElement | null {
+  const idx = Math.max(0, Math.floor(lineIndex));
+  const selectors = [
+    `.line[data-line="${idx}"]`,
+    `.line[data-line-idx="${idx}"]`,
+    `.line[data-i="${idx}"]`,
+    `.line[data-index="${idx}"]`,
+    `.tp-line[data-line="${idx}"]`,
+    `.tp-line[data-line-idx="${idx}"]`,
+    `.tp-line[data-i="${idx}"]`,
+    `.tp-line[data-index="${idx}"]`,
+  ];
+  const roots: Array<ParentNode | null> = [
+    scroller,
+    document.getElementById('script'),
+    document,
+  ];
+  for (const root of roots) {
+    if (!root) continue;
+    for (const selector of selectors) {
+      try {
+        const found = root.querySelector<HTMLElement>(selector);
+        if (found) return found;
+      } catch {
+        // ignore selector errors
+      }
+    }
+  }
+  return null;
 }
 
-function getBlockLineRange(blockEl: HTMLElement): { start: number; end: number } | null {
-  const lineEls = Array.from(blockEl.querySelectorAll<HTMLElement>('.line'));
-  if (!lineEls.length) return null;
-  const indices = lineEls
-    .map((lineEl) => parseLineIndexFromElement(lineEl))
-    .filter((idx): idx is number => Number.isFinite(idx))
-    .sort((a, b) => a - b);
-  if (indices.length) {
-    return {
-      start: indices[0],
-      end: indices[indices.length - 1],
-    };
-  }
+function resolveLineTopWithinScroller(scroller: HTMLElement, lineEl: HTMLElement): number {
   try {
-    const allLines = Array.from(document.querySelectorAll<HTMLElement>('.line'));
-    const start = allLines.indexOf(lineEls[0]);
-    const end = allLines.indexOf(lineEls[lineEls.length - 1]);
-    if (start >= 0 && end >= 0) {
-      return {
-        start: Math.min(start, end),
-        end: Math.max(start, end),
-      };
-    }
+    const lineRect = lineEl.getBoundingClientRect();
+    const scrollerRect = scroller.getBoundingClientRect();
+    const rectTop = lineRect.top - scrollerRect.top + scroller.scrollTop;
+    if (Number.isFinite(rectTop)) return rectTop;
   } catch {
     // ignore
   }
-  return null;
+  return lineEl.offsetTop || 0;
+}
+
+function resolveLineTargetTop(scroller: HTMLElement, lineIndex: number): number | null {
+  const lineEl = getLineElementByIndex(scroller, lineIndex);
+  if (!lineEl) return null;
+  const lineHeight =
+    lineEl.getBoundingClientRect?.().height ||
+    lineEl.offsetHeight ||
+    lineEl.clientHeight ||
+    24;
+  const markerRatioRaw =
+    typeof (window as any).__TP_MARKER_PCT === 'number'
+      ? Number((window as any).__TP_MARKER_PCT)
+      : 0.4;
+  const markerRatio = Math.max(0.2, Math.min(0.8, markerRatioRaw));
+  const markerOffsetPx = scroller.clientHeight * markerRatio - lineHeight * 0.5;
+  const lineTop = resolveLineTopWithinScroller(scroller, lineEl);
+  const maxTop = Math.max(0, (scroller.scrollHeight || 0) - (scroller.clientHeight || 0));
+  const rawTop = lineTop - markerOffsetPx;
+  if (!Number.isFinite(rawTop)) return null;
+  return Math.max(0, Math.min(rawTop, maxTop));
 }
 
 function getCurrentLineIndex(): number | null {
@@ -172,40 +195,6 @@ function syncAsrDriverIndex(targetIndex: number | null, reason: string): void {
   }
 }
 
-function elementTopRelativeToScroller(el: HTMLElement, scroller: HTMLElement): number {
-  try {
-    const rect = el.getBoundingClientRect();
-    const scrollerRect = scroller.getBoundingClientRect();
-    return rect.top - scrollerRect.top + (scroller.scrollTop || 0);
-  } catch {
-    return el.offsetTop || 0;
-  }
-}
-
-function resolveCurrentAsrBlockIdx(scroller: HTMLElement, blocks: HTMLElement[]): number | null {
-  const currentLine = getCurrentLineIndex();
-  if (Number.isFinite(currentLine as number)) {
-    for (let i = 0; i < blocks.length; i += 1) {
-      const range = getBlockLineRange(blocks[i]);
-      if (!range) continue;
-      if ((currentLine as number) >= range.start && (currentLine as number) <= range.end) {
-        return i;
-      }
-    }
-  }
-  const scrollTop = readScrollTop(scroller);
-  let bestIdx = 0;
-  let bestTop = Number.NEGATIVE_INFINITY;
-  for (let i = 0; i < blocks.length; i += 1) {
-    const top = elementTopRelativeToScroller(blocks[i], scroller);
-    if (top <= scrollTop + 8 && top >= bestTop) {
-      bestTop = top;
-      bestIdx = i;
-    }
-  }
-  return bestIdx;
-}
-
 type AsrKickResult = {
   moved: boolean;
   targetIndex: number | null;
@@ -213,48 +202,33 @@ type AsrKickResult = {
 };
 
 function kickAsrForward(scroller: HTMLElement, deltaPx: number, reason: string): AsrKickResult {
-  const blocks = getAsrBlockElements();
   const from = readScrollTop(scroller);
-  if (blocks.length) {
-    const currentBlockIdx = resolveCurrentAsrBlockIdx(scroller, blocks);
-    const nextBlockIdx =
-      currentBlockIdx == null
-        ? 0
-        : Math.min(blocks.length - 1, Math.max(0, currentBlockIdx + 1));
-    if (currentBlockIdx == null || nextBlockIdx !== currentBlockIdx) {
-      const nextRange = getBlockLineRange(blocks[nextBlockIdx]);
-      const currentLine = getCurrentLineIndex();
-      const fallbackTargetIndex =
-        nextRange?.start ??
-        (Number.isFinite(currentLine as number) ? Math.max(0, Math.floor(currentLine as number) + 1) : null);
-      try { seekToBlockAnimated(nextBlockIdx, `${reason}:asr`); } catch {}
-      if (typeof requestAnimationFrame === 'function') {
-        requestAnimationFrame(() => {
-          try {
-            const afterFrame = readScrollTop(scroller);
-            if (Math.abs(afterFrame - from) < 0.5) {
-              writeScrollTop(scroller, from + deltaPx);
-            }
-          } catch {
-            // ignore
-          }
-        });
-      } else {
-        const immediate = readScrollTop(scroller);
-        if (Math.abs(immediate - from) < 0.5) {
-          writeScrollTop(scroller, from + deltaPx);
-        }
+  const currentLine = getCurrentLineIndex();
+  const nextLineIndex =
+    Number.isFinite(currentLine as number) ? Math.max(0, Math.floor(currentLine as number) + 1) : null;
+  if (nextLineIndex != null) {
+    const targetTop = resolveLineTargetTop(scroller, nextLineIndex);
+    if (targetTop != null) {
+      try {
+        getScrollWriter().scrollTo(targetTop, { behavior: 'auto' });
+      } catch {
+        // ignore writer errors; direct write fallback below
       }
-      return {
-        moved: true,
-        targetIndex: fallbackTargetIndex,
-        targetBlockIdx: nextBlockIdx,
-      };
+      if (Math.abs(readScrollTop(scroller) - from) < 0.5) {
+        writeScrollTop(scroller, targetTop);
+      }
+      const moved = Math.abs(readScrollTop(scroller) - from) >= 0.5;
+      if (moved) {
+        return {
+          moved: true,
+          targetIndex: nextLineIndex,
+          targetBlockIdx: null,
+        };
+      }
     }
   }
   writeScrollTop(scroller, from + deltaPx);
   const moved = Math.abs(readScrollTop(scroller) - from) >= 0.5;
-  const currentLine = getCurrentLineIndex();
   const fallbackTargetIndex =
     Number.isFinite(currentLine as number) ? Math.max(0, Math.floor(currentLine as number) + 1) : null;
   return {

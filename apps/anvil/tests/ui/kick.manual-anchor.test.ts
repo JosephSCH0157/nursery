@@ -31,6 +31,24 @@ describe('ASR kick manual anchor signal', () => {
         scroller.scrollTop = Number(top) || 0;
       },
     });
+    Array.from(document.querySelectorAll<HTMLElement>('.line')).forEach((lineEl, idx) => {
+      const top = idx * 120;
+      const height = 80;
+      Object.defineProperty(lineEl, 'offsetTop', { configurable: true, value: top });
+      Object.defineProperty(lineEl, 'offsetHeight', { configurable: true, value: height });
+      Object.defineProperty(lineEl, 'clientHeight', { configurable: true, value: height });
+      Object.defineProperty(lineEl, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          top,
+          left: 0,
+          right: 400,
+          bottom: top + height,
+          width: 400,
+          height,
+        }),
+      });
+    });
     (window as any).__tpStore = {
       get(key: string) {
         if (key === 'scrollMode') return 'asr';
@@ -71,7 +89,7 @@ describe('ASR kick manual anchor signal', () => {
     }));
   });
 
-  test('hard-syncs the driver to the next ASR block start on block kick', () => {
+  test('hard-syncs the driver to the next line instead of the next block start on ASR kick', () => {
     const script = document.getElementById('script') as HTMLElement;
     const lines = Array.from(script.querySelectorAll<HTMLElement>('.line'));
     const makeBlock = (blockLines: HTMLElement[]) => {
@@ -94,6 +112,6 @@ describe('ASR kick manual anchor signal', () => {
     const moved = kick({ reason: 'test:kick:block' });
 
     expect(moved).toBe(true);
-    expect(setLastLineIndex).toHaveBeenCalledWith(3);
+    expect(setLastLineIndex).toHaveBeenCalledWith(2);
   });
 });

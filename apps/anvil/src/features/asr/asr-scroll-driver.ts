@@ -321,6 +321,7 @@ const GUARD_THROTTLE_MS = 750;
 const DEFAULT_SHORT_TOKEN_MAX = 4;
 const DEFAULT_SHORT_TOKEN_BOOST = 0.12;
 const DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM = 0.2;
+const DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES = 1;
 const DEFAULT_STABLE_INTERIM_NUDGE_MS = 450;
 const DEFAULT_STABLE_INTERIM_NUDGE_COOLDOWN_MS = 900;
 const DEFAULT_STABLE_INTERIM_PREFIX_MIN_TOKENS = 3;
@@ -2809,6 +2810,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let relockRepeatIdx = -1;
   let relockRepeatCount = 0;
   let relockRepeatWindowStart = 0;
+  let adjacentTieForwardIdx = -1;
+  let adjacentTieForwardCount = 0;
+  let adjacentTieForwardWindowStart = 0;
   let lastResyncAt = 0;
   let lastBehindStrongIdx = -1;
   let lastBehindStrongAt = 0;
@@ -3993,6 +3997,37 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       spread,
       nearOk,
     };
+  };
+
+  const resetAdjacentTieForward = () => {
+    adjacentTieForwardIdx = -1;
+    adjacentTieForwardCount = 0;
+    adjacentTieForwardWindowStart = 0;
+  };
+
+  const noteAdjacentTieForward = (
+    now: number,
+    idx: number,
+    sim: number,
+  ): boolean => {
+    if (!Number.isFinite(idx) || !Number.isFinite(sim) || sim < DELTA_MIN_SIM_SMALL) {
+      resetAdjacentTieForward();
+      return false;
+    }
+    const targetIdx = Math.max(0, Math.floor(idx));
+    const windowMs = Math.max(600, consistencyWindowMs || DEFAULT_FORWARD_PROGRESS_WINDOW_MS);
+    if (
+      adjacentTieForwardIdx !== targetIdx ||
+      !adjacentTieForwardWindowStart ||
+      now - adjacentTieForwardWindowStart > windowMs
+    ) {
+      adjacentTieForwardIdx = targetIdx;
+      adjacentTieForwardCount = 1;
+      adjacentTieForwardWindowStart = now;
+    } else {
+      adjacentTieForwardCount += 1;
+    }
+    return adjacentTieForwardCount >= Math.max(2, consistencyCount);
   };
 
   const recordEvent = (entry: AsrEventSnapshot) => {
@@ -6136,6 +6171,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         conf >= DEFAULT_MULTI_JUMP_MIN_SIM &&
         isSessionAsrArmed() &&
         isSessionLivePhase();
+      const consistentCatchupBypass =
+        forceReason === 'catchup-consistent' &&
+        line > lastLineIndex &&
+        line - lastLineIndex <= DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES &&
+        conf >= DELTA_MIN_SIM_SMALL &&
+        isSessionAsrArmed() &&
+        isSessionLivePhase();
       const strongMatch =
         watchdogBypass ||
         progressiveFloorBypass ||
@@ -6143,6 +6185,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         lostForwardBypass ||
         permissiveForwardBypass ||
         finalForwardBypass ||
+        consistentCatchupBypass ||
         stallRescueBypass ||
         (conf >= effectiveMatchThreshold && tieOk);
       if (!strongMatch) {
@@ -8606,6 +8649,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       behindByForBias <= forwardBiasRecentLines &&
       lastLineIndex >= 0 &&
       now - lastForwardCommitAt <= forwardBiasWindowMs;
+    let consistentAdjacentForwardBypass = false;
     if (topScoresSpeakable.length) {
       const bestScore = conf;
       const tieCandidates = topScoresSpeakable
@@ -8617,7 +8661,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         .sort((a, b) => a.idx - b.idx || b.score - a.score);
       const forwardPick = forwardCandidates[0];
       const tieNeed = shortFinalRecent ? shortFinalNeed : requiredThreshold;
-      if (hasTie && forwardPick && forwardPick.score < tieNeed && !forwardBiasEligible && !outrunEligible) {
+      const adjacentTieCandidate =
+        !!forwardPick &&
+        !isHybridMode() &&
+        forwardPick.idx === cursorLine + DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES;
+      const consistentAdjacentTieBypass = adjacentTieCandidate
+        ? noteAdjacentTieForward(now, forwardPick.idx, forwardPick.score)
+        : false;
+      if (!adjacentTieCandidate) {
+        resetAdjacentTieForward();
+      }
+      consistentAdjacentForwardBypass = consistentAdjacentTieBypass;
+      if (hasTie && forwardPick && forwardPick.score < tieNeed && !forwardBiasEligible && !outrunEligible && !consistentAdjacentTieBypass) {
         warnGuard('tie_forward', [
           `current=${cursorLine}`,
           `best=${rawIdx}`,
@@ -8628,6 +8683,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           snippet ? `clue="${snippet}"` : '',
         ]);
         if (!permissiveMatcher) return;
+      }
+      if (consistentAdjacentTieBypass && isDevMode()) {
+        try {
+          console.info(
+            `ASR_TIE_FORWARD_CONSISTENT current=${cursorLine} best=${rawIdx} forward=${forwardPick?.idx ?? -1} sim=${formatLogScore(forwardPick?.score ?? 0)} need=${formatLogScore(tieNeed)}`,
+          );
+        } catch {}
       }
       if (hasTie && !forwardPick && !forwardBiasEligible && !shortFinalRecent && !outrunEligible) {
         const guardReason = rawIdx <= cursorLine ? 'same_line_noop' : 'no_match_wait';
@@ -8896,6 +8958,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     let relockOverride = false;
     let relockReason: string | undefined;
     let interimShortLineAmbiguityHold = interimShortLineAmbiguityBase;
+    if (
+      consistentAdjacentForwardBypass &&
+      rawIdx > cursorLine &&
+      conf >= DELTA_MIN_SIM_SMALL
+    ) {
+      effectiveThreshold = Math.min(effectiveThreshold, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM);
+      forceReason = forceReason || 'progressive-floor';
+    }
     if (interimShortLineAmbiguityBase && strongLongAnchorCandidate) {
       const before = rawIdx;
       rawIdx = strongLongAnchorCandidate.idx;
@@ -10203,13 +10273,36 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (allowCatchup && catchupState.ok && rawIdx > cursorLine) {
       const delta = rawIdx - cursorLine;
       if (delta <= catchupMaxDeltaLinesEffective && conf >= catchupMinSimEffective) {
+        const consistentStepCatchupEligible =
+          !allowForced &&
+          !isHybridMode() &&
+          delta <= DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES &&
+          (consistencyState.ok || catchupState.ok) &&
+          conf >= Math.max(DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, catchupMinSimEffective);
         const cooldownRemaining = getForcedCooldownRemaining(now);
         if (!allowForced) {
-          warnGuard('catchup_blocked', [
-            `current=${cursorLine}`,
-            `best=${rawIdx}`,
-            `delta=${delta}`,
-          ]);
+          if (consistentStepCatchupEligible) {
+            catchupCommit = true;
+            forceReason = forceReason || 'catchup-consistent';
+            effectiveThreshold = Math.min(
+              effectiveThreshold,
+              Math.max(DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, catchupMinSimEffective),
+            );
+            armPostCatchupGrace('catchup-consistent');
+            if (isDevMode()) {
+              try {
+                console.info(
+                  `ASR_CATCHUP_CONSISTENT current=${cursorLine} best=${rawIdx} delta=${delta} sim=${formatLogScore(conf)} need=${formatLogScore(Math.max(DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, catchupMinSimEffective))}`,
+                );
+              } catch {}
+            }
+          } else {
+            warnGuard('catchup_blocked', [
+              `current=${cursorLine}`,
+              `best=${rawIdx}`,
+              `delta=${delta}`,
+            ]);
+          }
         } else if (cooldownRemaining > 0) {
           logForcedDeny('cooldown', [
             `cooldownMs=${cooldownRemaining}`,
@@ -10247,6 +10340,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       rawIdx >= cursorLine &&
       conf >= DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM &&
       bufferGrowing;
+    const adjacentForwardInterimProgress =
+      !isFinal &&
+      consistentAdjacentForwardBypass &&
+      rawIdx > cursorLine &&
+      rawIdx - cursorLine <= DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES &&
+      conf >= DELTA_MIN_SIM_SMALL;
     if (!isFinal) {
       if (!allowInterimCommit) {
         interimEligible = false;
@@ -10255,7 +10354,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         !(consistencyState.ok || catchupState.ok) &&
         !strongForwardInterimProgress &&
         !watchdogForwardInterimProgress &&
-        !progressiveForwardInterimProgress
+        !progressiveForwardInterimProgress &&
+        !adjacentForwardInterimProgress
       ) {
         lastInterimBestIdx = -1;
         interimRepeatCount = 0;
@@ -10284,7 +10384,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         interimEligible =
           interimRepeatCount >= effectiveInterimRepeats || consistencyState.ok || catchupState.ok;
         if (!interimEligible) {
-          if (strongForwardInterimProgress || watchdogForwardInterimProgress || progressiveForwardInterimProgress) {
+          if (
+            strongForwardInterimProgress ||
+            watchdogForwardInterimProgress ||
+            progressiveForwardInterimProgress ||
+            adjacentForwardInterimProgress
+          ) {
             interimEligible = true;
           } else {
             warnGuard('interim_unstable', [
@@ -10315,8 +10420,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     });
     if (!isFinal) {
       const runtimeMode = getScrollMode();
+      const allowAsrInterimCommit =
+        runtimeMode === 'asr' &&
+        interimEligible &&
+        rawIdx > cursorLine &&
+        rawIdx - cursorLine <= DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES &&
+        conf >= DELTA_MIN_SIM_SMALL &&
+        isSessionAsrArmed() &&
+        isSessionLivePhase() &&
+        (
+          adjacentForwardInterimProgress ||
+          progressiveForwardInterimProgress ||
+          strongForwardInterimProgress ||
+          catchupCommit ||
+          consistencyState.ok
+        );
       if (runtimeMode === 'asr') {
-        if (isDevMode()) {
+        if (!allowAsrInterimCommit && isDevMode()) {
           warnGuard('interim_commit_blocked', [
             `current=${cursorLine}`,
             `best=${rawIdx}`,
@@ -10325,7 +10445,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             snippet ? `clue="${snippet}"` : '',
           ]);
         }
-        return;
+        if (!allowAsrInterimCommit) return;
       }
       if (!interimEligible) {
         return;
@@ -10789,7 +10909,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const finalForwardForcedAdvance =
       (forceReason === 'final-forward-nudge' || forceReason === 'final-forward-fallback') &&
       rawIdx > cursorLine;
-    let hasEvidence = outrunCommit || catchupCommit || lowSimForwardEvidence || slamDunkFinal || strongSmallForwardEvidence
+    let hasEvidence = outrunCommit || catchupCommit || lowSimForwardEvidence || slamDunkFinal || strongSmallForwardEvidence || consistentAdjacentForwardBypass
       ? true
       : isFinal
         ? finalEvidence
@@ -10931,6 +11051,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     relockRepeatIdx = -1;
     relockRepeatCount = 0;
     relockRepeatWindowStart = 0;
+    resetAdjacentTieForward();
     lastResyncAt = 0;
     resyncUntil = 0;
     resyncAnchorIdx = null;
