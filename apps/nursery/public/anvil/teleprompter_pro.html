@@ -390,34 +390,38 @@
   <strong>Anvil - Teleprompter</strong>
     <span id="appVersion" class="version-badge" aria-label="App version">v1.8.5</span>
   <span class="chip" id="saveChip">Draft: -</span>
-  <span class="chip" id="permChip" data-tp-mic-pill>Mic: unknown</span>
-  <span class="chip" id="asrCalChip" data-tp-asr-cal-chip aria-live="polite" aria-atomic="true">ASR: No calibration</span>
-  <span class="chip" id="displayChip">Display: closed</span>
-  <span class="chip" id="recChip" role="status" aria-live="polite" aria-atomic="true">Speech: idle</span>
-  <span class="chip" id="scrollChip">Scroll: idle</span>
+  <span class="topbar-recording-slot">
+    <span id="recPillHost" class="rec-pill-host" aria-live="polite" aria-atomic="true">
+      <span id="recPill" class="rec-pill rec-pill--main" aria-hidden="true">REC</span>
+      <span id="recPillLive" class="sr-only rec-pill-live"></span>
+    </span>
+  </span>
+  <span id="sessionStatusChip" class="chip topbar-session-chip" role="status" aria-live="polite" aria-atomic="true" title="Session status">Session: checking…</span>
+  <span class="chip topbar-secondary-status" id="permChip" data-tp-mic-pill>Mic: unknown</span>
+  <span class="chip topbar-secondary-status" id="asrCalChip" data-tp-asr-cal-chip aria-live="polite" aria-atomic="true">ASR: No calibration</span>
+  <span class="chip topbar-secondary-status" id="displayChip">Display: closed</span>
+  <span class="chip topbar-secondary-status" id="recChip" role="status" aria-live="polite" aria-atomic="true">Speech: idle</span>
+  <span class="chip topbar-secondary-status" id="scrollChip">Scroll: idle</span>
   <span class="chip dev-only" id="debugPosChip" title="Anchor % within viewport and current scrollTop">Anchor - * scrollTop -</span>
-  <span class="chip" id="camRtcChip">CamRTC: idle</span>
+  <span class="chip topbar-secondary-status" id="camRtcChip">CamRTC: idle</span>
   <!-- Mic level + calibration -->
-  <div class="mic-block">
+  <div class="mic-block topbar-secondary-status">
     <span class="topbar-label">Mic level</span>
     <div id="dbMeterTop" title="Input level"></div>
     <button id="micCalBtn" class="mic-cal-btn" type="button">Calibrate Mic</button>
   </div>
   <!-- Auto status chip (Hybrid/Auto state) -->
   <span id="autoChip" class="chip" aria-live="polite" aria-atomic="true" title="Auto scroll status">Auto: Manual</span>
+  <div class="topbar-priority-actions" aria-label="Top bar actions">
+    <button id="settingsBtn" class="chip" aria-haspopup="dialog" aria-expanded="false" data-action="settings-open">Settings</button>
+    <button id="shortcutsBtn" class="chip" aria-haspopup="dialog" aria-expanded="false" data-action="help-open">Help</button>
+  </div>
   <!-- Right-side controls wrapper (ASR chip mounts here) -->
   <div id="topbarRight" class="inl-1">
-    <span id="recPillHost" class="rec-pill-host" aria-live="polite" aria-atomic="true">
-      <span id="recPill" class="rec-pill rec-pill--main" aria-hidden="true">REC</span>
-      <span id="recPillLive" class="sr-only rec-pill-live"></span>
-    </span>
     <!-- ASR chip + button will mount here -->
     <button class="chip" id="singleMonitorBtn" data-action="single-monitor-toggle" aria-pressed="false" title="Single Monitor Read (maximize script view)">Single Monitor</button>
     <button class="chip" id="sidebarDrawerBtn" data-action="sidebar-drawer-toggle" aria-expanded="false" title="Open scripts/settings drawer">Scripts</button>
     <button class="chip" id="presentBtn" data-action="present-toggle">Present Mode</button>
-    <button class="chip" id="displayToggleBtn" data-action="display" data-ci="display-toggle" aria-haspopup="dialog" aria-expanded="false" title="Open or close the display window">Display</button>
-    <button id="settingsBtn" class="chip" aria-haspopup="dialog" aria-expanded="false" data-action="settings-open">Settings</button>
-    <button id="shortcutsBtn" class="chip" aria-haspopup="dialog" aria-expanded="false" data-action="help-open">Help</button>
     <span id="authCluster" class="auth-cluster">
       <span class="chip" id="whoamiChip" hidden></span>
       <button id="logoutBtn" class="chip" type="button" hidden>Log out</button>
@@ -428,126 +432,130 @@
     </span>
   </div>
 
-  <nav class="page-tabs" id="pageTabs">
-    <button
-      id="ironMineTab"
-      class="page-tab is-active"
-      type="button"
-      aria-label="Open Iron Mine community"
-      title="Open Iron Mine (Discord)"
-      aria-disabled="true"
-      aria-hidden="true"
-      hidden
-    >
-      Iron Mine
-    </button>
-  </nav>
-  <script>
-    // LEGACY COMPAT
-    (function () {
-      try {
-        var btn = document.getElementById('ironMineTab');
-        if (!btn || btn.dataset.wired) return;
-        btn.dataset.wired = '1';
-
-        var url = 'https://discord.com/channels/1457026850407841834/1457026850407841837';
-        var target = encodeURIComponent(location.pathname + location.search + location.hash);
-        var loginHref = '/login?next=' + target;
-
-        // Capture so we beat any page-tab delegation that might exist elsewhere
-        btn.addEventListener(
-          'click',
-          function (e) {
-            try {
-              e.preventDefault();
-              e.stopPropagation();
-              if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-            } catch (_) {}
-
-            if (window.__tpCanOpenIronMine !== true) {
-              try {
-                window.location.assign(loginHref);
-              } catch (_) {
-                window.location.href = loginHref;
-              }
-              return;
-            }
-
-            try {
-              window.open(url, '_blank', 'noopener,noreferrer');
-            } catch (_) {
-              // Fallback: same tab
-              window.location.href = url;
-            }
-          },
-          true,
-        );
-      } catch (_) {}
-    })();
-  </script>
-
-  <div class="legend" id="legend"></div>
-  <div id="scrollModeChip" data-role="scroll-mode-chip"></div>
-  <span id="obsChip" class="chip"></span>
+  <div class="legend topbar-secondary-status" id="legend"></div>
+  <div id="scrollModeChip" class="topbar-secondary-status" data-role="scroll-mode-chip"></div>
+  <span id="obsChip" class="chip topbar-secondary-status"></span>
   <div data-step-ui="1" style="display:none;"></div>
 </div>
 <div class="app page-panel" data-tp-panel="scripts">
 <aside class="panel" id="sidebar">
-<h2>Controls</h2>
-<section class="mode-card" id="scrollModeCard">
-  <div class="mode-card-head">
-    <span class="mode-chip" aria-hidden="true">Scroll Mode</span>
-    <span class="mode-pill" id="scrollModeStatus">Priority Control</span>
+<section class="sidebar-section sidebar-section--session" aria-labelledby="sidebarSessionHeading">
+  <div class="sidebar-section__header">
+    <div>
+      <h2 id="sidebarSessionHeading" class="sidebar-section__heading">Session</h2>
+      <p class="sidebar-section__text">Immediate live controls for the current read.</p>
+    </div>
   </div>
-  <label class="sr-only" for="scrollMode">Scroll Mode</label>
-  <select id="scrollMode" aria-label="Scroll Mode" aria-describedby="scrollModeHelpText" aria-live="polite">
-    <option value="timed">Timed</option>
-    <option value="wpm">WPM</option>
-    <option value="hybrid">Hybrid</option>
-    <option value="asr">ASR</option>
-    <option value="step">Step</option>
-    <option value="rehearsal">Rehearsal</option>
-  </select>
-  <script>
-    // DEV SAFETY (REMOVE AFTER REPAIR)
-    (function(){
-      try {
-        var el = document.getElementById('scrollMode');
-        if (!el) return;
-        var raw = '';
-        try { raw = localStorage.getItem('scrollMode') || ''; } catch (e) {}
-        var val = String(raw || '').trim().toLowerCase();
-        if (!val) return;
-        if (val === 'manual') val = 'step';
-        if (val === 'asr') {
-          val = 'hybrid';
-          try { localStorage.setItem('scrollMode', val); } catch (e) {}
-          try { localStorage.setItem('tp_asr_boot_fallback', '1'); } catch (e) {}
-        }
-        var ok = Array.prototype.some.call(el.options, function(o){ return o.value === val; });
-        if (ok) el.value = val;
-      } catch (e) {}
-    })();
-  </script>
-    <p class="mode-hint" id="scrollModeHelpText">Hybrid follows speech automatically. Switch anytime to lock in manual, ASR, or rehearsal modes.</p>
-    <p class="mode-hint" id="scrollModeInlineHint" aria-live="polite" hidden>ASR is disabled until Mic is ready.</p>
+  <section class="mode-card" id="scrollModeCard">
+    <div class="mode-card-head">
+      <span class="mode-chip" aria-hidden="true">Scroll Mode</span>
+      <span class="mode-pill" id="scrollModeStatus">Priority Control</span>
+    </div>
+    <label class="sr-only" for="scrollMode">Scroll Mode</label>
+    <select id="scrollMode" aria-label="Scroll Mode" aria-describedby="scrollModeHelpText" aria-live="polite">
+      <option value="timed">Timed</option>
+      <option value="wpm">WPM</option>
+      <option value="hybrid">Hybrid</option>
+      <option value="asr">ASR</option>
+      <option value="step">Step</option>
+      <option value="rehearsal">Rehearsal</option>
+    </select>
+    <script>
+      // DEV SAFETY (REMOVE AFTER REPAIR)
+      (function(){
+        try {
+          var el = document.getElementById('scrollMode');
+          if (!el) return;
+          var raw = '';
+          try { raw = localStorage.getItem('scrollMode') || ''; } catch (e) {}
+          var val = String(raw || '').trim().toLowerCase();
+          if (!val) return;
+          if (val === 'manual') val = 'step';
+          if (val === 'asr') {
+            val = 'hybrid';
+            try { localStorage.setItem('scrollMode', val); } catch (e) {}
+            try { localStorage.setItem('tp_asr_boot_fallback', '1'); } catch (e) {}
+          }
+          var ok = Array.prototype.some.call(el.options, function(o){ return o.value === val; });
+          if (ok) el.value = val;
+        } catch (e) {}
+      })();
+    </script>
+      <p class="mode-hint" id="scrollModeHelpText">Hybrid follows speech automatically. Switch anytime to lock in manual, ASR, or rehearsal modes.</p>
+      <p class="mode-hint" id="scrollModeInlineHint" aria-live="polite" hidden>ASR is disabled until Mic is ready.</p>
+  </section>
+  <div class="row">
+    <button id="displayToggleBtnSidebar" class="chip" type="button" aria-pressed="false" data-action="display-toggle">Display: Closed</button>
+  </div>
+  <div class="row">
+    <button id="micToggleBtn" class="chip mic-idle" type="button" data-tp-request-mic="sidebar">Request Mic</button>
+    <button disabled="" id="recBtn" class="btn-primary btn-start" data-action="start-speech">Start speech sync</button>
+  </div>
+  <div class="row sidebar-calibration">
+    <label class="grow">Calibration (required)
+      <select id="sidebarCalSelect" class="select-md"></select>
+    </label>
+    <button id="sidebarCalManage" class="chip btn-chip" type="button">Manage calibrations...</button>
+  </div>
+  <div class="row sidebar-calibration-status">
+    <span id="sidebarCalStatus" class="microcopy">⚠️ No calibration selected</span>
+  </div>
+  <div class="row">
+    <button id="catchUpBtn" title="Jump the script to the current line">Catch Up</button>
+    <span class="chip">(Instantly centers the active line)</span>
+  </div>
 </section>
-<div class="row">
-<button id="displayToggleBtnSidebar" class="chip" type="button" aria-pressed="false" data-action="display-toggle">Display: Closed</button>
-</div>
-<div class="row">
-<button id="micToggleBtn" class="chip mic-idle" type="button" data-tp-request-mic="sidebar">Request Mic</button>
-<button disabled="" id="recBtn" class="btn-primary btn-start" data-action="start-speech">Start speech sync</button>
-</div>
-<div class="row sidebar-calibration">
-  <label class="grow">Calibration (required)
-    <select id="sidebarCalSelect" class="select-md"></select>
-  </label>
-  <button id="sidebarCalManage" class="chip btn-chip" type="button">Manage calibrations...</button>
-</div>
-<div class="row sidebar-calibration-status">
-  <span id="sidebarCalStatus" class="microcopy">⚠️ No calibration selected</span>
-</div>
+
+<section class="sidebar-section" aria-labelledby="sidebarRecordingHeading">
+  <div class="sidebar-section__header">
+    <div>
+      <h2 id="sidebarRecordingHeading" class="sidebar-section__heading">Recording</h2>
+      <p class="sidebar-section__text">Capture and display-adjacent controls.</p>
+    </div>
+  </div>
+  <div class="recording-camera-callout" data-role="sidebar-camera-callout">
+    <div class="recording-camera-callout__header">
+      <span class="sidebar-section__eyebrow">Primary capture control</span>
+      <h3 class="sidebar-callout__title">Camera</h3>
+      <p class="sidebar-callout__text">
+        Start or stop video here before you arm recording. Device selection stays under
+        <strong>Settings &gt; Recording / Media</strong>.
+      </p>
+    </div>
+    <div class="row recording-camera-callout__row">
+      <button id="cameraToggleBtn" class="chip sidebar-camera-toggle" type="button" aria-pressed="false" data-action="camera-toggle"><span class="cam-label">Camera: Off</span><span class="spinner" aria-hidden="true"></span></button>
+      <button id="startCam" data-action="start-camera" class="hidden" type="button" tabindex="-1" aria-hidden="true">Start Camera</button>
+      <button id="stopCam" data-action="stop-camera" class="hidden" type="button" tabindex="-1" aria-hidden="true">Stop Camera</button>
+    </div>
+    <div class="row sidebar-camera-tools">
+      <label>Size (%) <input id="camSize" max="60" min="15" step="1" type="number" value="28"/></label>
+      <label>Opacity <input id="camOpacity" max="100" min="20" step="5" type="number" value="100"/></label>
+      <label class="sidebar-camera-mirror"><input checked="" id="camMirror" type="checkbox"/> Mirror preview</label>
+      <button id="camPiP" data-action="pip">Picture-in-Picture</button>
+    </div>
+  </div>
+  <div class="row obs-row">
+    <label>
+      <input type="checkbox" id="enableObs" data-tp-obs-toggle />
+      <span>Enable OBS</span>
+    </label>
+    <span class="chip obs-status" id="obsStatus" aria-live="polite">OBS: idle</span>
+  </div>
+  <div class="row" id="sidebarMediaHint" data-role="sidebar-media-hint">
+    <span class="chip sidebar-hint">
+      Full camera device and OBS configuration lives under
+      <strong>Settings &gt; Recording / Media</strong>.
+    </span>
+  </div>
+</section>
+
+<section class="sidebar-section" aria-labelledby="sidebarReadingHeading">
+  <div class="sidebar-section__header">
+    <div>
+      <h2 id="sidebarReadingHeading" class="sidebar-section__heading">Reading</h2>
+      <p class="sidebar-section__text">Only show the controls that matter for the current mode.</p>
+    </div>
+  </div>
   <div class="row" id="autoRow" data-role="auto-row" aria-hidden="false">
     <div id="autoSpeedWrap">
       <label>Auto-scroll (px/s)
@@ -558,96 +566,117 @@
     <button id="autoInc" class="chip" title="+1 (Shift: +5)">+</button>
     <button id="autoToggle">Auto-scroll: Off</button>
   </div>
-<div class="row visually-hidden" id="wpmRow" aria-hidden="true">
-  <label>Target WPM
-    <input id="wpmTarget" type="number" min="60" max="260" step="5" value="150"/>
-  </label>
-  <span class="chip" id="wpmPx">... px/s</span>
-</div>
-<div class="row visually-hidden" id="stepControlsRow" aria-hidden="true">
-  <button id="stepPrevBtn" class="chip" type="button" title="Previous step">Step ↑</button>
-  <button id="stepNextBtn" class="chip" type="button" title="Next step">Step ↓</button>
-</div>
-<!-- Hidden mic device selector used by mic-bridge.ts as a bridge between sidebar and Settings -->
-<select id="micDeviceSel" class="select-md" hidden aria-hidden="true"></select>
+  <div class="row visually-hidden" id="wpmRow" aria-hidden="true">
+    <label>Target WPM
+      <input id="wpmTarget" type="number" min="60" max="260" step="5" value="150"/>
+    </label>
+    <span class="chip" id="wpmPx">... px/s</span>
+  </div>
+  <div class="row visually-hidden" id="stepControlsRow" aria-hidden="true">
+    <button id="stepPrevBtn" class="chip" type="button" title="Previous step">Step ↑</button>
+    <button id="stepNextBtn" class="chip" type="button" title="Next step">Step ↓</button>
+  </div>
+  <!-- Hidden mic device selector used by mic-bridge.ts as a bridge between sidebar and Settings -->
+  <select id="micDeviceSel" class="select-md" hidden aria-hidden="true"></select>
+  <div class="row visually-hidden" id="typographyRow" aria-hidden="true">
+    <label>Font size <input id="fontSize" max="96" min="16" step="2" type="number" value="48"/></label>
+    <label>Line height <input id="lineHeight" max="2" min="1.1" step="0.05" type="number" value="1.35"/></label>
+  </div>
+  <div class="row" id="prerollRow">
+    <label>Pre-roll (sec)
+      <input id="preroll" max="10" min="0" step="1" type="number" value="3"/>
+    </label>
+  </div>
+  <div class="row" id="matchAggroRow">
+    <label>Match aggressiveness
+      <select id="matchAggro" class="select-md">
+        <option value="1">Conservative</option>
+        <option value="2" selected>Normal</option>
+        <option value="3">Aggressive</option>
+        <option value="4">Aggressive live-read</option>
+      </select>
+    </label>
+  </div>
+  <div class="row" id="motionSmoothRow">
+    <label>Motion smoothness
+      <select id="motionSmooth" class="select-md">
+        <option value="stable">Stable</option>
+        <option value="balanced" selected>Balanced</option>
+        <option value="responsive">Responsive</option>
+      </select>
+    </label>
+  </div>
+  <div class="row" id="resetTimerRow">
+    <button id="resetBtn">Reset timer</button>
+    <div class="timer" id="timer">00:00.0</div>
+  </div>
+</section>
 
-<div class="row" id="sidebarMediaHint" data-role="sidebar-media-hint">
-  <span class="chip sidebar-hint">
-    Mic &amp; camera quick controls are in this sidebar;
-    full device &amp; OBS settings live under
-    <strong>Settings ? Recording / Media</strong>.
-  </span>
-</div>
-<div class="row">
-  <button id="catchUpBtn" title="Jump the script to the current line">Catch Up</button>
-  <span class="chip">(Instantly centers the active line)</span>
-</div>
-<!-- Add a visible, labeled OBS toggle in the sidebar for quick access -->
-<div class="row obs-row">
-  <label>
-    <input type="checkbox" id="enableObs" data-tp-obs-toggle />
-    <span>Enable OBS</span>
-  </label>
-  <span class="chip obs-status" id="obsStatus" aria-live="polite">OBS: idle</span>
-</div>
-<!-- OBS controls & Mic device selector moved into Settings overlay -->
-<h2 class="select-md" >Camera</h2>
-<div class="row">
-<button id="cameraToggleBtn" class="chip" type="button" aria-pressed="false" data-action="camera-toggle"><span class="cam-label">Camera: Off</span><span class="spinner" aria-hidden="true"></span></button>
-<button id="startCam" data-action="start-camera" class="hidden" type="button" tabindex="-1" aria-hidden="true">Start Camera</button>
-<button id="stopCam" data-action="stop-camera" class="hidden" type="button" tabindex="-1" aria-hidden="true">Stop Camera</button>
-</div>
-<div class="row">
-<label>Size (%) <input id="camSize" max="60" min="15" step="1" type="number" value="28"/></label>
-<label>Opacity <input id="camOpacity" max="100" min="20" step="5" type="number" value="100"/></label>
-<label><input checked="" id="camMirror" type="checkbox"/> Mirror</label>
-<button id="camPiP" data-action="pip">Picture-in-Picture</button>
-</div>
-<div class="row visually-hidden" id="typographyRow" aria-hidden="true">
-<label>Font size <input id="fontSize" max="96" min="16" step="2" type="number" value="48"/></label>
-<label>Line height <input id="lineHeight" max="2" min="1.1" step="0.05" type="number" value="1.35"/></label>
-</div>
-<div class="row">
-<label>Pre-roll (sec)
-          <input id="preroll" max="10" min="0" step="1" type="number" value="3"/>
-</label>
-</div>
-<div class="row">
-  <label>Match aggressiveness
-    <select id="matchAggro" class="select-md">
-      <option value="1">Conservative</option>
-      <option value="2" selected>Normal</option>
-      <option value="3">Aggressive</option>
-      <option value="4">Aggressive live-read</option>
-    </select>
-  </label>
-</div>
-<div class="row">
-  <label>Motion smoothness
-    <select id="motionSmooth" class="select-md">
-      <option value="stable">Stable</option>
-      <option value="balanced" selected>Balanced</option>
-      <option value="responsive">Responsive</option>
-    </select>
-  </label>
-</div>
-<div class="row">
-<button id="resetBtn">Reset timer</button>
-<div class="timer" id="timer">00:00.0</div>
-</div>
-<div class="row">
-<button id="loadSample" data-action="load-sample">Load sample text</button>
-<button id="normalizeTopBtn">Normalize</button>
-<button id="clearText">Clear</button>
-</div>
-<!-- Sidebar quick Scripts select moved into Title row below -->
-<div data-tp-speakers-panel>
-<h2 class="section-title">
-  Speakers
-  <button id="toggleSpeakers" class="chip btn-chip" aria-expanded="true" aria-controls="speakersBody" data-tp-toggle-speakers data-action="speakers-toggle" title="Show or hide speaker controls">Hide</button>
-</h2>
+<section class="sidebar-section" aria-labelledby="sidebarFilesHeading">
+  <div class="sidebar-section__header">
+    <div>
+      <h2 id="sidebarFilesHeading" class="sidebar-section__heading">Script Files</h2>
+      <p class="sidebar-section__text">Import, load, save, and manage scripts for this episode.</p>
+    </div>
+  </div>
+  <div class="row">
+    <label>Format
+      <select id="downloadFormat" class="select-sm">
+        <option value="txt" selected>.txt</option>
+        <option value="md">.md</option>
+        <option value="rtf">.rtf</option>
+        <option value="text">.text</option>
+        <option value="docx" disabled>.docx (soon)</option>
+      </select>
+    </label>
+    <button id="downloadFile">Download</button>
+    <button id="uploadFileBtn" type="button" data-action="upload" data-tp-script-upload-btn>Import Script</button>
+    <button id="uploadBtn" class="test-alias" hidden type="button" aria-label="Upload script" aria-hidden="true" tabindex="-1">Upload</button>
+    <input id="uploadFile" type="file" accept=".txt,.md,.rtf,.text,.docx" hidden data-tp-script-upload-input>
+    <script>
+      // LEGACY COMPAT
+      (function () {
+        const btn = document.getElementById('uploadBtn');
+        const input = document.getElementById('uploadFile');
+        if (!btn || !input) return;
+        btn.addEventListener('click', () => input.click());
+      })();
+    </script>
+  </div>
+  <div class="row" id="sidebarScriptsRow">
+    <label>Saved Scripts
+      <select id="scriptSelectSidebar" class="select-md" aria-label="Saved scripts" aria-busy="true"></select>
+    </label>
+    <button id="scriptRefreshBtn" title="Refresh Scripts list">Refresh</button>
+    <span id="scriptSourceIndicator" class="chip sidebar-hint">Source: Session - not selected</span>
+  </div>
+  <div class="row sidebar-script-primary-actions">
+    <label>Title <input id="scriptTitle" type="text" placeholder="Untitled" /></label>
+    <button id="scriptSaveBtn">Save</button>
+    <button id="scriptSaveAsBtn">Save As</button>
+    <button id="scriptLoadBtn">Load</button>
+  </div>
+  <div class="row sidebar-script-secondary-actions">
+    <button id="scriptRenameBtn" class="sidebar-action-secondary">Rename</button>
+    <button id="scriptDeleteBtn" class="sidebar-action-secondary sidebar-action-danger">Delete</button>
+    <button id="resetScriptBtn" class="sidebar-action-secondary sidebar-action-danger">Reset Script</button>
+  </div>
+  <p class="status" id="status"></p>
+  <h3 class="sidebar-subsection-title">Script</h3>
+  <textarea id="editor" data-editor placeholder="Use tags: [s1]?[/s1], [s2]?[/s2], [g1]?[/g1], [g2]?[/g2]. Inline: [b], [i], [u], [note], [color=red], [bg=#112233]"></textarea>
+  <p class="tp-paste-hint" data-tp-paste-hint hidden><em>Paste text in the editor to begin...</em></p>
+</section>
 
-<div id="speakersBody" data-panel="speakers">
+<section class="sidebar-section" data-tp-speakers-panel aria-labelledby="sidebarSpeakersHeading">
+  <div class="sidebar-section__header sidebar-section__header--toggle">
+    <div>
+      <h2 id="sidebarSpeakersHeading" class="sidebar-section__heading">Speakers</h2>
+      <p class="sidebar-section__text">Collapsed by default so the session controls stay readable.</p>
+    </div>
+    <button id="toggleSpeakers" class="chip btn-chip" aria-expanded="false" aria-controls="speakersBody" data-tp-toggle-speakers data-action="speakers-toggle" title="Show or hide speaker controls">Show</button>
+  </div>
+
+<div id="speakersBody" data-panel="speakers" style="display:none">
   <div class="row">
     <label>Name <input id="name-s1" type="text" placeholder="Speaker 1"></label>
     <label>Color <input id="color-s1" type="color" value="#60a5fa"></label>
@@ -710,54 +739,21 @@
 </div>
   <p class="chip tp-speakers-hotkeys">Speaker hotkeys: S1 / S2 / G1 / G2</p>
 </div>
-</div>
-<div class="row">
-<label>Format
-  <select id="downloadFormat" class="select-sm">
-    <option value="txt" selected>.txt</option>
-    <option value="md">.md</option>
-    <option value="rtf">.rtf</option>
-    <option value="text">.text</option>
-    <option value="docx" disabled>.docx (soon)</option>
-  </select>
-  </label>
-<button id="downloadFile">Download</button>
-<button id="uploadFileBtn" type="button" data-action="upload" data-tp-script-upload-btn>Upload file</button>
-<button id="uploadBtn" type="button" aria-label="Upload script">Upload</button>
-<input id="uploadFile" type="file" accept=".txt,.md,.rtf,.text,.docx" hidden data-tp-script-upload-input>
-<script>
-  // LEGACY COMPAT
-  (function () {
-    const btn = document.getElementById('uploadBtn');
-    const input = document.getElementById('uploadFile');
-    if (!btn || !input) return;
-    btn.addEventListener('click', () => input.click());
-  })();
-</script>
-</div>
-<!-- Scripts row: saved scripts dropdown + file ops; folder mapping lives in Settings -> Media -->
-  <div class="row" id="sidebarScriptsRow">
-    <label>Saved Scripts
-      <select id="scriptSelectSidebar" class="select-md" aria-label="Saved scripts" aria-busy="true"></select>
-    </label>
-    <button id="scriptRefreshBtn" title="Refresh Scripts list">Refresh</button>
-    <span id="scriptSourceIndicator" class="chip sidebar-hint">Source: Session - not selected</span>
+</section>
+
+<section class="sidebar-section sidebar-section--utilities" aria-labelledby="sidebarUtilitiesHeading">
+  <div class="sidebar-section__header">
+    <div>
+      <h2 id="sidebarUtilitiesHeading" class="sidebar-section__heading">Utilities</h2>
+      <p class="sidebar-section__text">Lower-priority helpers that should not compete with session controls.</p>
+    </div>
   </div>
-  <div class="row">
-    <label>Title <input id="scriptTitle" type="text" placeholder="Untitled" /></label>
-    <button id="scriptSaveBtn">Save</button>
-    <button id="scriptSaveAsBtn">Save As</button>
-    <button id="scriptLoadBtn">Load</button>
-    <button id="scriptDeleteBtn">Delete</button>
-    <button id="scriptRenameBtn">Rename</button>
+  <div class="row sidebar-utilities-row">
+    <button id="loadSample" data-action="load-sample">Load sample text</button>
+    <button id="normalizeTopBtn">Normalize</button>
+    <button id="clearText" class="sidebar-action-secondary">Clear</button>
   </div>
-<div class="row">
-<button id="resetScriptBtn">Reset Script</button>
-</div>
-<p class="status" id="status"></p>
-<h2>Script</h2>
-<textarea id="editor" data-editor placeholder="Use tags: [s1]?[/s1], [s2]?[/s2], [g1]?[/g1], [g2]?[/g2]. Inline: [b], [i], [u], [note], [color=red], [bg=#112233]"></textarea>
-<p class="tp-paste-hint" data-tp-paste-hint hidden><em>Paste text in the editor to begin...</em></p>
+</section>
 <!-- Camera preview fallback (binder expects #cameraPreview) already present later; duplicate guarded by ID uniqueness -->
 <!-- cameraPreview already defined later with proper classes; avoid duplicate -->
 <!-- (Removed legacy External Scripts + settings export/import UI: now injected into Settings overlay) -->

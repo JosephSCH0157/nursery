@@ -128,6 +128,7 @@ import { listWorkspaceReadyScripts, readRecordingSessionScripts } from './forge/
 import { getScriptSourceMode, getSelectedRecordingSessionId } from './forge/script-source';
 import { initAuthUnlock } from './features/auth-unlock';
 import { refreshEntitlements, setFreeEntitlements } from './forge/entitlements';
+import { initTopbarSessionStatus } from './ui/topbar-session-status';
 
 bootTrace('index-app.ts:module-eval:imports-ready');
 
@@ -2193,6 +2194,7 @@ export async function boot() {
           try { initRecordingModeUi(); } catch {}
           try { bindCameraUI(); } catch {}
           try { initRecPillsMain(appStore); } catch {}
+          try { initTopbarSessionStatus(); } catch {}
           if (!isDisplayContext()) {
             try { installEasterEggs(); } catch {}
             try { installCKEgg(); } catch {}

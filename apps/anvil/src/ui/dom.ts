@@ -691,11 +691,11 @@ function installObsChip() {
       if (!chip) {
         chip = document.createElement('span');
         chip.id = 'obsChip';
-        chip.className = 'chip';
+        chip.className = 'chip obs-pill-compact';
         // Create structured content: label + optional test icon
         const label = document.createElement('span');
         label.className = 'obs-chip-label';
-        label.textContent = 'OBS: disconnected';
+        label.textContent = 'OBS';
         const icon = document.createElement('i');
         icon.className = 'obs-test-icon';
         icon.setAttribute('aria-hidden','true');
@@ -709,13 +709,15 @@ function installObsChip() {
       const render = ({ status = 'disconnected', recording = false, scene } = {}) => {
         try {
           const s = String(status||'disconnected');
-          labelEl.textContent = `OBS: ${s}${recording ? ' | REC' : ''}${scene ? ` | ${scene}` : ''}`;
+          const detail = `OBS: ${s}${recording ? ' | REC' : ''}${scene ? ` | ${scene}` : ''}`;
+          labelEl.textContent = 'OBS';
+          chip.dataset.sessionText = detail;
+          chip.title = detail;
+          chip.setAttribute('aria-label', detail);
           // reset state classes and apply new one(s)
-          const base = ['chip'];
+          const base = ['chip', 'obs-pill-compact'];
           if (s === 'identified' || s === 'open') base.push('obs-connected');
-          else if (s === 'connecting') base.push('obs-reconnecting');
-          else if (s === 'error') base.push('obs-error');
-          if (recording) base.push('chip-live');
+          else base.push('obs-error');
           chip.className = base.join(' ');
         } catch {}
       };
@@ -1265,7 +1267,7 @@ export function bindStaticDom() {
       const body = document.getElementById('speakersBody');
       if (btn && body && !btn.dataset.wired) {
         btn.dataset.wired = '1';
-        const KEY = 'tp_speakers_visible';
+        const KEY = 'tp_speakers_visible_v2';
         let vis = true;
         const apply = (next: boolean) => {
           try {
@@ -1277,7 +1279,10 @@ export function bindStaticDom() {
           } catch {}
         };
         // initial
-        try { vis = (localStorage.getItem(KEY) !== '0'); } catch {}
+        try {
+          const stored = localStorage.getItem(KEY);
+          vis = stored === '1';
+        } catch {}
         apply(vis);
         btn.addEventListener('click', () => apply(!vis));
       }

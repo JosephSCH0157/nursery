@@ -224,6 +224,7 @@ const DEFAULT_CATCHUP_MED_MIN_PX = 80;
 const DEFAULT_CATCHUP_FAST_MIN_PX = 250;
 const DEFAULT_MAX_TARGET_JUMP_PX = 180;
 const DEFAULT_MAX_TARGET_JUMP_HYBRID_PX = 80;
+const LIVE_ASR_MAX_COMMIT_PX = 160;
 const DEFAULT_PURSUE_KP = 3.2;
 const DEFAULT_PURSUE_MANUAL_CANCEL_PX = 48;
 const DEFAULT_NO_TARGET_RETRY_SIM = 0.9;
@@ -1307,21 +1308,27 @@ function shouldForcePixelAsrCommitPath(): boolean {
   if (typeof window === 'undefined') return false;
   try {
     const w = window as any;
-    if (w.__tpAsrForceWriterCommit === true) return false;
-    if (w.__tpAsrForcePixelCommit === true) return true;
     const params = new URLSearchParams(window.location.search || '');
     const writerParam = String(params.get('asr_writer') || '').toLowerCase();
     if (writerParam === '1' || writerParam === 'true') return false;
     const pixelParam = String(params.get('asr_pixel') || '').toLowerCase();
     if (pixelParam === '1' || pixelParam === 'true') return true;
+    const liveAsrSession =
+      getScrollMode() === 'asr' &&
+      isSessionLivePhase() &&
+      isSessionAsrArmed();
+    if (liveAsrSession) return true;
+    if (w.__tpAsrForceWriterCommit === true) return false;
+    if (w.__tpAsrForcePixelCommit === true) return true;
     const ls = w.localStorage;
     if (ls?.getItem('tp_asr_force_writer_commit') === '1') return false;
     if (ls?.getItem('tp_asr_force_pixel_commit') === '1') return true;
   } catch {
     // ignore
   }
-  // Writer-first is the canonical path in all environments.
-  // Pixel commits are an explicit debug override only.
+  // Writer-first remains the non-live default.
+  // Live ASR recording sessions use pixel commits so jump caps and smoothing stay in force.
+  // Only URL params are allowed to override that behavior during live capture.
   return false;
 }
 
@@ -6483,6 +6490,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
 
       const prevLineIndex = lastLineIndex;
+      const modeNow = getScrollMode();
+      const liveAsrCommitCapActive =
+        modeNow === 'asr' &&
+        isSessionLivePhase() &&
+        isSessionAsrArmed();
       const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
       const lineHeightPx = (() => {
         try {
@@ -6512,13 +6524,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const taperedDeltaPx = Math.min(clampedDeltaPx, smoothedDeltaPx * taper);
       lastCommitDeltaPx = taperedDeltaPx;
       const maxAllowedTarget = clamp(currentTop + taperedDeltaPx, 0, max);
-      const base = pursuitTargetTop == null ? currentTop : pursuitTargetTop;
+      const base = liveAsrCommitCapActive || pursuitTargetTop == null
+        ? currentTop
+        : pursuitTargetTop;
       const baseClamped = Math.min(base, maxAllowedTarget);
       const candidate = maxAllowedTarget;
-      const limitedTarget = forced ? candidate : Math.min(candidate, baseClamped + jumpCap);
+      const effectiveJumpCap = liveAsrCommitCapActive
+        ? Math.min(jumpCap, LIVE_ASR_MAX_COMMIT_PX)
+        : jumpCap;
+      const limitedTarget =
+        forced && !liveAsrCommitCapActive
+          ? candidate
+          : Math.min(candidate, baseClamped + effectiveJumpCap);
       const nextTargetTop = Math.max(baseClamped, limitedTarget);
       pursuitTargetTop = nextTargetTop;
-      const modeNow = getScrollMode();
       if (modeNow === 'asr' && !isSessionAsrArmed()) {
         if (isDevMode() && shouldLogTag('ASR:movement-blocked:not-armed', 1, 1000)) {
           try {

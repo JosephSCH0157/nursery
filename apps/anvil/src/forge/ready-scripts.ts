@@ -1,3 +1,5 @@
+import { appendForgeUserAuthorization } from './tongs-user-auth';
+
 type ForgeWindow = Window & typeof globalThis & {
   __forgeTongsApiToken?: unknown;
   __tpTongsApiToken?: unknown;
@@ -9,8 +11,6 @@ type ForgeWindow = Window & typeof globalThis & {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const WORKSPACE_STORAGE_KEYS = ["forge_workspace_id_v1", "barstock_workspace_id"] as const;
-const SUPABASE_AUTH_STORAGE_KEY = "forge-auth";
-const SUPABASE_AUTH_KEY_RE = /^sb-[a-z0-9-]+-auth-token$/i;
 
 type ReadyScriptApiRow = {
   workspace_id?: unknown;
@@ -94,82 +94,6 @@ function readLocalStorage(key: string): string | null {
   }
 }
 
-function extractAccessTokenFromAuthPayload(value: unknown): string | null {
-  if (!value || typeof value !== "object") return null;
-  if (Array.isArray(value)) {
-    for (const entry of value) {
-      const token = extractAccessTokenFromAuthPayload(entry);
-      if (token) return token;
-    }
-    return null;
-  }
-
-  const row = value as Record<string, unknown>;
-  const direct = readString(row.access_token);
-  if (direct) return direct;
-
-  const currentSession = row.currentSession;
-  if (currentSession && typeof currentSession === "object") {
-    const token = readString((currentSession as Record<string, unknown>).access_token);
-    if (token) return token;
-  }
-
-  const session = row.session;
-  if (session && typeof session === "object") {
-    const token = readString((session as Record<string, unknown>).access_token);
-    if (token) return token;
-  }
-
-  const nested = row.data;
-  if (nested && typeof nested === "object") {
-    const token = extractAccessTokenFromAuthPayload(nested);
-    if (token) return token;
-  }
-
-  return null;
-}
-
-function readAccessTokenFromStorageKey(key: string): string | null {
-  let raw: string | null = null;
-  try {
-    raw = window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-  if (!raw) return null;
-
-  const direct = readString(raw);
-  if (direct && direct !== "null" && direct !== "undefined" && !direct.startsWith("{") && !direct.startsWith("[")) {
-    return direct;
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return extractAccessTokenFromAuthPayload(parsed);
-  } catch {
-    return null;
-  }
-}
-
-function resolveUserAccessToken(): string | null {
-  const primary = readAccessTokenFromStorageKey(SUPABASE_AUTH_STORAGE_KEY);
-  if (primary) return primary;
-
-  try {
-    for (let index = 0; index < window.localStorage.length; index += 1) {
-      const key = window.localStorage.key(index);
-      if (!key || key === SUPABASE_AUTH_STORAGE_KEY) continue;
-      if (!SUPABASE_AUTH_KEY_RE.test(key)) continue;
-      const token = readAccessTokenFromStorageKey(key);
-      if (token) return token;
-    }
-  } catch {
-    // ignore storage errors
-  }
-
-  return null;
-}
-
 function getQueryParam(...keys: string[]): string | null {
   try {
     const q = new URLSearchParams(window.location.search || "");
@@ -220,17 +144,13 @@ function resolveTongsApiToken(): string | undefined {
   return readLocalStorage("forge_tongs_api_token_v1") ?? undefined;
 }
 
-function withAuthHeaders(): Headers {
+async function withAuthHeaders(): Promise<Headers> {
   const headers = new Headers();
   const token = resolveTongsApiToken();
-  const userAccessToken = resolveUserAccessToken();
   if (token) {
     headers.set("authorization", `Bearer ${token}`);
   }
-  if (userAccessToken) {
-    headers.set("x-forge-user-authorization", `Bearer ${userAccessToken}`);
-  }
-  return headers;
+  return appendForgeUserAuthorization(headers);
 }
 
 function normalizeScriptPath(value: unknown): string | null {
@@ -398,7 +318,7 @@ export async function listWorkspaceReadyScripts(): Promise<ReadyScriptReference[
 
   const response = await fetch(`/tongs/workspaces/${encodeURIComponent(workspaceId)}/ready-scripts?unrecorded=1`, {
     method: "GET",
-    headers: withAuthHeaders(),
+    headers: await withAuthHeaders(),
   });
   if (!response.ok) return [];
 
@@ -419,7 +339,7 @@ export async function listRecordingSessionsForWorkspace(): Promise<RecordingSess
     `/tongs/recording-sessions?workspace_id=${encodeURIComponent(workspaceId)}&limit=100`,
     {
       method: "GET",
-      headers: withAuthHeaders(),
+      headers: await withAuthHeaders(),
     },
   );
   if (!response.ok) return [];
@@ -439,7 +359,7 @@ export async function readRecordingSessionScripts(sessionId: string): Promise<Re
 
   const response = await fetch(`/tongs/recording-sessions/${encodeURIComponent(safeSessionId)}`, {
     method: "GET",
-    headers: withAuthHeaders(),
+    headers: await withAuthHeaders(),
   });
   if (!response.ok) return null;
 
@@ -529,7 +449,7 @@ export async function readReadyScriptText(workpieceId: string, path: string): Pr
     `/tongs/workpieces/${encodeURIComponent(safeWorkpieceId)}/read-file?path=${encodeURIComponent(safePath)}`,
     {
       method: "GET",
-      headers: withAuthHeaders(),
+      headers: await withAuthHeaders(),
     },
   );
 

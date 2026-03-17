@@ -1,3 +1,5 @@
+import { appendForgeUserAuthorization } from './tongs-user-auth';
+
 type WrittenBy = {
   tool: string;
   tool_version: string;
@@ -34,9 +36,6 @@ type CreateCradleResult =
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DEFAULT_TOOL_VERSION = "1.8.5";
 const DEFAULT_LANE = "forge-managed";
-const SUPABASE_AUTH_STORAGE_KEY = "forge-auth";
-const SUPABASE_AUTH_KEY_RE = /^sb-[a-z0-9-]+-auth-token$/i;
-
 const WORKSPACE_STORAGE_KEYS = ["forge_workspace_id_v1", "barstock_workspace_id"] as const;
 const WORKPIECE_STORAGE_KEYS = [
   "forge_active_workpiece_id_v1",
@@ -68,82 +67,6 @@ function readLocalStorage(key: string): string | null {
   } catch {
     return null;
   }
-}
-
-function extractAccessTokenFromAuthPayload(value: unknown): string | null {
-  if (!value || typeof value !== "object") return null;
-  if (Array.isArray(value)) {
-    for (const entry of value) {
-      const token = extractAccessTokenFromAuthPayload(entry);
-      if (token) return token;
-    }
-    return null;
-  }
-
-  const row = value as Record<string, unknown>;
-  const direct = readString(row.access_token);
-  if (direct) return direct;
-
-  const currentSession = row.currentSession;
-  if (currentSession && typeof currentSession === "object") {
-    const token = readString((currentSession as Record<string, unknown>).access_token);
-    if (token) return token;
-  }
-
-  const session = row.session;
-  if (session && typeof session === "object") {
-    const token = readString((session as Record<string, unknown>).access_token);
-    if (token) return token;
-  }
-
-  const nested = row.data;
-  if (nested && typeof nested === "object") {
-    const token = extractAccessTokenFromAuthPayload(nested);
-    if (token) return token;
-  }
-
-  return null;
-}
-
-function readAccessTokenFromStorageKey(key: string): string | null {
-  let raw: string | null = null;
-  try {
-    raw = localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-  if (!raw) return null;
-
-  const direct = readString(raw);
-  if (direct && direct !== "null" && direct !== "undefined" && !direct.startsWith("{") && !direct.startsWith("[")) {
-    return direct;
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return extractAccessTokenFromAuthPayload(parsed);
-  } catch {
-    return null;
-  }
-}
-
-function resolveUserAccessToken(): string | null {
-  const primary = readAccessTokenFromStorageKey(SUPABASE_AUTH_STORAGE_KEY);
-  if (primary) return primary;
-
-  try {
-    for (let index = 0; index < localStorage.length; index += 1) {
-      const key = localStorage.key(index);
-      if (!key || key === SUPABASE_AUTH_STORAGE_KEY) continue;
-      if (!SUPABASE_AUTH_KEY_RE.test(key)) continue;
-      const token = readAccessTokenFromStorageKey(key);
-      if (token) return token;
-    }
-  } catch {
-    // ignore storage errors
-  }
-
-  return null;
 }
 
 function writeLocalStorage(key: string, value: string): void {
@@ -318,18 +241,14 @@ function sanitizeFilename(name: string): string {
   return `Recording_${new Date().toISOString().replace(/[:.]/g, "-")}.webm`;
 }
 
-function buildHeaders(apiToken?: string): Record<string, string> {
-  const headers: Record<string, string> = {
+async function buildHeaders(apiToken?: string): Promise<Headers> {
+  const headers = new Headers({
     "content-type": "application/json",
-  };
+  });
   if (apiToken) {
-    headers.authorization = `Bearer ${apiToken}`;
+    headers.set("authorization", `Bearer ${apiToken}`);
   }
-  const userAccessToken = resolveUserAccessToken();
-  if (userAccessToken) {
-    headers["x-forge-user-authorization"] = `Bearer ${userAccessToken}`;
-  }
-  return headers;
+  return appendForgeUserAuthorization(headers);
 }
 
 async function readBodyAsJson(response: Response): Promise<unknown> {
@@ -419,7 +338,7 @@ async function createCradle(
 ): Promise<CreateCradleResult> {
   const response = await fetch("/tongs/cradles", {
     method: "POST",
-    headers: buildHeaders(apiToken),
+    headers: await buildHeaders(apiToken),
     body: JSON.stringify({
       workspace_id: workspaceId,
       written_by: writtenBy,
@@ -449,7 +368,7 @@ async function commitFileToWorkpiece(
 ): Promise<{ status: number; body: unknown; ok: boolean }> {
   const response = await fetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/commit-file`, {
     method: "POST",
-    headers: buildHeaders(apiToken),
+    headers: await buildHeaders(apiToken),
     body: JSON.stringify(payload),
   });
   const body = await readBodyAsJson(response);
