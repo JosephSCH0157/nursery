@@ -440,6 +440,7 @@ const DEFAULT_CUE_BRIDGE_LARGE_GAP = 0.12;
 const DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS = 2;
 const DEFAULT_CUE_STALL_RESCUE_DELAY_MS = 900;
 const DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS = 1800;
+const DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS = 3;
 const DEFAULT_MULTI_JUMP_MIN_SIM = 0.45;
 const DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS = 0.08;
 const DEFAULT_MULTI_JUMP_HARD_DENY_SIM = 0.3;
@@ -4817,6 +4818,25 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       return false;
     }
     const directContentForwardRescue = rescuePolicy.directContentForwardRescue;
+    if (
+      reasonTag === 'auto-stall' &&
+      directContentForwardRescue &&
+      commitCount < DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS
+    ) {
+      stallRescueRequested = false;
+      if (isDevMode()) {
+        warnGuard('cue_stall_rescue_blocked', [
+          `at=${cursorLine}`,
+          'reason=startup-guard',
+          `commits=${commitCount}`,
+          `need=${DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS}`,
+          `delta=${deltaLines}`,
+          reason ? `source=${reason}` : '',
+          cursorLineText ? `line="${formatLogSnippet(cursorLineText, 56)}"` : '',
+        ]);
+      }
+      return false;
+    }
     const rescueSim = Math.max(DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_MULTI_JUMP_MIN_SIM);
     const matchId = `stall-rescue-${Date.now().toString(36)}-${targetLine}`;
     adoptPendingMatch({
