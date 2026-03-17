@@ -172,7 +172,7 @@ function normalizeSegments(payload: unknown): Array<{
 
 export function createHammerPrepMiddleware() {
   const runtimeConfig = resolveHearthRuntimeConfig();
-  const apiKey = runtimeConfig.apiKey;
+  const textApiKey = runtimeConfig.textApiKey ?? runtimeConfig.apiKey ?? null;
   const model = readTrimmed(process.env.HAMMER_TRANSCRIBE_MODEL) ?? DEFAULT_TRANSCRIBE_MODEL;
 
   return async function hammerPrepMiddleware(req: IncomingMessage, res: ServerResponse, next: Next) {
@@ -197,8 +197,11 @@ export function createHammerPrepMiddleware() {
         return;
       }
 
-      if (!apiKey) {
-        sendJson(res, 500, { ok: false, error: { message: "Missing OPENAI_API_KEY in server env." } });
+      if (!textApiKey) {
+        sendJson(res, 500, {
+          ok: false,
+          error: { message: "Missing OPENAI_TEXT_API_KEY (or OPENAI_API_KEY) in server env." },
+        });
         return;
       }
 
@@ -245,7 +248,7 @@ export function createHammerPrepMiddleware() {
       const upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
         method: "POST",
         headers: {
-          authorization: `Bearer ${apiKey}`,
+          authorization: `Bearer ${textApiKey}`,
         },
         body: form,
       });

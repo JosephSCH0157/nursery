@@ -51,7 +51,9 @@ function readIntegerEnv(name: string): number | null {
 }
 
 export type HearthRuntimeConfig = {
-  apiKey: string | null;
+  textApiKey?: string | null;
+  imageApiKey?: string | null;
+  apiKey?: string | null;
   model: string;
   sttModel: string;
   configuredBillingMode: HearthAiLane;
@@ -75,6 +77,8 @@ export function resolveHearthRuntimeConfig(): HearthRuntimeConfig {
 
   const supabaseUrl = readEnv("TONGS_SUPABASE_URL") || readEnv("SUPABASE_URL") || null;
   const supabaseServiceRoleKey = readEnv("TONGS_SERVICE_ROLE_KEY") || readEnv("SUPABASE_SERVICE_ROLE_KEY") || null;
+  const textApiKey = readEnv("OPENAI_TEXT_API_KEY") || readEnv("OPENAI_API_KEY") || null;
+  const imageApiKey = readEnv("OPENAI_IMAGE_API_KEY") || readEnv("OPENAI_API_KEY") || null;
   const supabaseRpcKey = (
     readEnv("TONGS_SUPABASE_ANON_KEY")
     || readEnv("SUPABASE_ANON_KEY")
@@ -84,7 +88,9 @@ export function resolveHearthRuntimeConfig(): HearthRuntimeConfig {
   );
 
   return {
-    apiKey: readEnv("OPENAI_API_KEY") || null,
+    textApiKey,
+    imageApiKey,
+    apiKey: textApiKey,
     model: readEnv("HEARTH_AI_MODEL") || DEFAULT_CHAT_MODEL,
     sttModel: readEnv("HEARTH_STT_MODEL") || DEFAULT_STT_MODEL,
     configuredBillingMode: readEnv("HEARTH_AI_BILLING_MODE") === "byo" ? "byo" : "forge",

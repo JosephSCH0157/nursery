@@ -120,6 +120,8 @@ const DEFAULT_WRITING_PROFILE: WritingProfile = {
   updatedAt: null,
 };
 
+const MISSING_OPENAI_TEXT_API_KEY_ERROR = "Missing OPENAI_TEXT_API_KEY (or OPENAI_API_KEY) in server env";
+
 function jsonResponse(status: number, obj: unknown): Response {
   return new Response(JSON.stringify(obj), {
     status,
@@ -844,8 +846,8 @@ function normalizeStructuredReply(raw: string): StructuredReply | null {
 }
 
 export function createHearthAiHandler(config: HearthRuntimeConfig) {
+  const textApiKey = config.textApiKey ?? config.apiKey ?? null;
   const {
-    apiKey,
     model,
     sttModel,
     configuredBillingMode,
@@ -1185,10 +1187,10 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         const lane: BillingMode = isBillingMode(bodyRaw.lane) ? bodyRaw.lane : configuredBillingMode;
         const bearerToken = readBearerToken(request.headers.get("authorization"));
 
-        if (!apiKey) {
+        if (!textApiKey) {
           return jsonResponse(500, {
             ok: false,
-            error: "Missing OPENAI_API_KEY in server env",
+            error: MISSING_OPENAI_TEXT_API_KEY_ERROR,
             ...buildBillingSnapshot(lane),
           });
         }
@@ -1286,7 +1288,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
               method: "POST",
               headers: {
-                authorization: `Bearer ${apiKey}`,
+                authorization: `Bearer ${textApiKey}`,
               },
               body: form,
               signal: upstreamAbort.signal,
@@ -1368,10 +1370,10 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       const lane: BillingMode = isBillingMode(bodyRaw.lane) ? bodyRaw.lane : configuredBillingMode;
       const bearerToken = readBearerToken(request.headers.get("authorization"));
 
-      if (!apiKey) {
+      if (!textApiKey) {
         return jsonResponse(500, {
           ok: false,
-          error: "Missing OPENAI_API_KEY in server env",
+          error: MISSING_OPENAI_TEXT_API_KEY_ERROR,
           ...buildBillingSnapshot(lane),
         });
       }
@@ -1520,7 +1522,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           return fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",
             headers: {
-              authorization: `Bearer ${apiKey}`,
+              authorization: `Bearer ${textApiKey}`,
               "content-type": "application/json",
             },
             body: JSON.stringify(payload),

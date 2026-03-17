@@ -716,6 +716,7 @@ export type TongsCommitApiOptions = {
   supabaseServiceRoleKey: string;
   bucket?: string;
   apiToken?: string;
+  openAiImageApiKey?: string;
   openAiApiKey?: string;
   openAiImageModel?: string;
 };
@@ -6955,9 +6956,9 @@ export function createTongsCommitService(options: TongsCommitApiOptions): TongsC
     },
   });
 
-  const openAiApiKey = options.openAiApiKey?.trim();
-  const imageProvider = openAiApiKey
-    ? new OpenAiImageProvider(openAiApiKey, options.openAiImageModel?.trim() || "gpt-image-1")
+  const openAiImageApiKey = options.openAiImageApiKey?.trim() || options.openAiApiKey?.trim();
+  const imageProvider = openAiImageApiKey
+    ? new OpenAiImageProvider(openAiImageApiKey, options.openAiImageModel?.trim() || "gpt-image-1")
     : null;
 
   return new TongsCommitService(supabase, bucket, imageProvider);
