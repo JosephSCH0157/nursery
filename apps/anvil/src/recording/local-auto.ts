@@ -1,7 +1,16 @@
 // Lightweight auto-record stub (browser MediaRecorder-based).
 // Mirrors the legacy JS behavior but typed for the TS runtime.
 import { getRecordingMode } from './recording-settings';
-import { commitRecordingBytesToTongs } from '../forge/workpiece-commit';
+import {
+  appendRecordingDecisionToTongs,
+  commitRecordingBytesToTongs,
+  type RecordingCommitResult,
+} from '../forge/workpiece-commit';
+import {
+  hideRecordingFinalizeIndicator,
+  showRecordingDecisionDialog,
+  showRecordingFinalizeIndicator,
+} from './recording-decision-dialog';
 
 (() => {
   const RECORDING_STORAGE_LIMIT_HINT_KEY = 'forge_anvil_recording_storage_limit_hint_bytes_v1';
@@ -20,6 +29,7 @@ import { commitRecordingBytesToTongs } from '../forge/workpiece-commit';
   let audioGain: GainNode | null = null;
   let audioChunks: Float32Array[] = [];
   let audioSampleRate = 48000;
+  let recordingStartedAtMs: number | null = null;
 
   const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -69,6 +79,56 @@ import { commitRecordingBytesToTongs } from '../forge/workpiece-commit';
         ? row.details.error.message
         : '';
     return message.toLowerCase().includes('object size limit');
+  }
+
+  function readCommitResultSuccess(
+    result: RecordingCommitResult,
+  ): Extract<RecordingCommitResult, { ok: true }> | null {
+    return result.ok ? result : null;
+  }
+
+  async function promptForTakeDecision(args: {
+    commitResult: Extract<RecordingCommitResult, { ok: true }>;
+    name: string;
+    contentType: string;
+    bytes: number;
+    durationMs: number | null;
+  }): Promise<void> {
+    const persistDecision = async (eventName: 'take_kept' | 'take_discarded'): Promise<void> => {
+      const result = await appendRecordingDecisionToTongs({
+        workpieceId: args.commitResult.workpieceId,
+        eventName,
+        filePath: args.commitResult.path,
+        originalName: args.name,
+        contentType: args.contentType,
+        bytes: args.bytes,
+        durationMs: args.durationMs,
+        createdCradle: args.commitResult.createdCradle,
+        plannerRecordingSessionId: args.commitResult.plannerRecordingSessionId,
+        captureSessionId: args.commitResult.captureSessionId,
+      });
+      if (!result.ok) {
+        const summary = eventName === 'take_kept'
+          ? 'Could not mark this take as kept in Tongs.'
+          : 'Could not mark this take as discarded in Tongs.';
+        const detail = typeof result.errorMessage === 'string' && result.errorMessage.trim()
+          ? ` ${result.errorMessage.trim()}`
+          : '';
+        throw new Error(`${summary}${detail}`);
+      }
+      showRecorderToast(
+        eventName === 'take_kept'
+          ? 'Take kept. Hammer can use it now.'
+          : 'Take discarded. It will stay out of Hammer.',
+        'info',
+      );
+    };
+
+    await showRecordingDecisionDialog({
+      takeName: args.name,
+      onKeep: async () => persistDecision('take_kept'),
+      onDiscard: async () => persistDecision('take_discarded'),
+    });
   }
 
   function formatTimestamp(date: Date): string {
@@ -271,7 +331,7 @@ import { commitRecordingBytesToTongs } from '../forge/workpiece-commit';
     audioGain.connect((ctx as AudioContext).destination);
   };
 
-  const stopAudioOnly = async (): Promise<void> => {
+  const stopAudioOnly = async (durationMs: number | null): Promise<void> => {
     try {
       if (audioProcessor) audioProcessor.disconnect();
     } catch {}
@@ -292,7 +352,11 @@ import { commitRecordingBytesToTongs } from '../forge/workpiece-commit';
     const wavBuffer = encodeWav(audioChunks, audioSampleRate);
     audioChunks = [];
     const blob = new Blob([wavBuffer], { type: 'audio/wav' });
-    await saveBlob(blob, nowName('audio'));
+    try {
+      await saveBlob(blob, nowName('audio'), { durationMs });
+    } finally {
+      recordingStartedAtMs = null;
+    }
   };
 
   async function start(): Promise<void> {
@@ -315,6 +379,7 @@ import { commitRecordingBytesToTongs } from '../forge/workpiece-commit';
         await startAudioOnly();
         active = true;
         activeMode = 'audio';
+        recordingStartedAtMs = Date.now();
         try {
           window.dispatchEvent(new CustomEvent('rec:state', { detail: { state: 'recording', adapter: 'local-auto' } }));
         } catch {}
@@ -344,25 +409,10 @@ import { commitRecordingBytesToTongs } from '../forge/workpiece-commit';
           else console.log('[core-recorder] dataavailable empty chunk');
         } catch {}
       };
-      mediaRecorder.onstop = async () => {
-        try {
-          console.log('[core-recorder] mediaRecorder.onstop fired', { chunks: chunks.length });
-          console.log('[core-recorder] mediaRecorder.onstop fired');
-          const blob = new Blob(chunks, { type: (mediaRecorder && mediaRecorder.mimeType) || 'video/webm' });
-          chunks = [];
-          try {
-            console.log('[core-recorder] about to save blob', { size: blob.size, type: blob.type });
-          } catch {}
-          await saveBlob(blob, nowName('av'));
-        } catch (e) {
-          try {
-            console.warn('[auto-rec] save failed', e);
-          } catch {}
-        }
-      };
       mediaRecorder.start();
       active = true;
       activeMode = 'av';
+      recordingStartedAtMs = Date.now();
       try {
         window.dispatchEvent(new CustomEvent('rec:state', { detail: { state: 'recording', adapter: 'local-auto' } }));
       } catch {}
@@ -378,9 +428,32 @@ import { commitRecordingBytesToTongs } from '../forge/workpiece-commit';
     if (!active) return;
     try {
       if (activeMode === 'audio') {
-        await stopAudioOnly();
+        const durationMs = recordingStartedAtMs != null ? Math.max(0, Date.now() - recordingStartedAtMs) : null;
+        await stopAudioOnly(durationMs);
       } else if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-        mediaRecorder.stop();
+        const durationMs = recordingStartedAtMs != null ? Math.max(0, Date.now() - recordingStartedAtMs) : null;
+        const recorder = mediaRecorder;
+        recorder.onstop = async () => {
+          try {
+            console.log('[core-recorder] mediaRecorder.onstop fired', { chunks: chunks.length });
+            console.log('[core-recorder] mediaRecorder.onstop fired');
+            const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
+            chunks = [];
+            try {
+              console.log('[core-recorder] about to save blob', { size: blob.size, type: blob.type });
+            } catch {}
+            await saveBlob(blob, nowName('av'), { durationMs });
+          } catch (e) {
+            try {
+              console.warn('[auto-rec] save failed', e);
+            } catch {}
+          } finally {
+            recordingStartedAtMs = null;
+          }
+        };
+        recorder.stop();
+      } else {
+        recordingStartedAtMs = null;
       }
     } catch {}
     try {
@@ -399,130 +472,175 @@ import { commitRecordingBytesToTongs } from '../forge/workpiece-commit';
     } catch {}
   }
 
-  async function saveBlob(blob: Blob, name: string): Promise<boolean> {
+  async function saveBlob(
+    blob: Blob,
+    name: string,
+    opts: { durationMs?: number | null } = {},
+  ): Promise<boolean> {
     const bytes = new Uint8Array(await blob.arrayBuffer());
     const contentType = blob.type || 'application/octet-stream';
     const localWritePayload = bytes;
+    showRecordingFinalizeIndicator({ takeName: name });
     let committed = false;
-    const storageLimitHintBytes = readStorageLimitHintBytes();
-    const skipCanonicalCommit =
-      storageLimitHintBytes != null && bytes.length >= storageLimitHintBytes;
-    if (skipCanonicalCommit) {
-      try {
-        console.warn('[core-recorder] skipping canonical commit after prior storage size-limit failure', {
-          size: bytes.length,
-          hintBytes: storageLimitHintBytes,
-          name,
-        });
-      } catch {}
-      showRecorderToast(
-        'Cloud save skipped for this take after a prior Storage size-limit failure. Recording will be mirrored locally.',
-        'warning',
-      );
-    } else {
-      try {
-        const commitResult = await commitRecordingBytesToTongs({
-          bytes,
-          originalName: name,
-          contentType,
-        });
-        if (commitResult.ok) {
-          committed = true;
-          try {
-            console.log('[core-recorder] canonical commit ok', {
-              workpieceId: commitResult.workpieceId,
-              path: commitResult.path,
-              createdCradle: commitResult.createdCradle,
-            });
-          } catch {}
-        } else {
-          if (isStorageTooLargeCommitResult(commitResult)) {
-            writeStorageLimitHintBytes(bytes.length);
-            showRecorderToast(
-              'Cloud save hit the current Supabase Storage object-size limit. Recording will be mirrored locally for this session.',
-              'warning',
-            );
-          }
-          try {
-            console.warn('[core-recorder] canonical commit unavailable; using local fallback', commitResult);
-          } catch {}
-        }
-      } catch (commitErr) {
-        try {
-          console.warn('[core-recorder] canonical commit failed; using local fallback', commitErr);
-        } catch {}
-      }
-    }
-
+    let commitResultOk: Extract<RecordingCommitResult, { ok: true }> | null = null;
     try {
-      console.log('[recording-dir] saveRecordingBlob start', { size: blob.size, name, committed });
-      await import('../fs/recording-dir');
-      try {
-        await (window as any).__tpRecDir?.init?.();
-      } catch {}
-      const dir = (window as any).__tpRecDir?.get?.() || null;
-      if (dir && typeof dir.getFileHandle === 'function') {
+      const storageLimitHintBytes = readStorageLimitHintBytes();
+      const skipCanonicalCommit =
+        storageLimitHintBytes != null && bytes.length >= storageLimitHintBytes;
+      if (skipCanonicalCommit) {
         try {
-          try {
-            console.log('[core-recorder] writing to directory', { name: (dir as any).name || '(handle)' });
-          } catch {}
-          try {
-            const q = await (dir as any).queryPermission?.({ mode: 'readwrite' });
-            if (q !== 'granted') {
-              const r = await (dir as any).requestPermission?.({ mode: 'readwrite' });
-              if (r !== 'granted') {
-                throw new Error('recording-dir-permission-not-granted');
-              }
-            }
-          } catch (permErr) {
-            try { console.warn('[core-recorder] directory permission not granted; using download fallback', permErr); } catch {}
-            throw permErr;
-          }
-          const fh = await dir.getFileHandle(name, { create: true });
-          const w = await fh.createWritable();
-          await w.write(localWritePayload);
-          await w.close();
-          try {
-            console.log('[core-recorder] saved file mirror', name);
-          } catch {}
-          return true;
-        } catch (err) {
-          try { console.warn('[core-recorder] failed to write via FileSystemAccess', err); } catch {}
-        }
+          console.warn('[core-recorder] skipping canonical commit after prior storage size-limit failure', {
+            size: bytes.length,
+            hintBytes: storageLimitHintBytes,
+            name,
+          });
+        } catch {}
+        showRecorderToast(
+          'Cloud save skipped for this take after a prior Storage size-limit failure. Recording will be mirrored locally.',
+          'warning',
+        );
       } else {
         try {
-          const managed = !!(window as any).__tpRecDir?.isManaged?.();
-          const hint = (window as any).__tpRecDir?.managedHint?.();
-          console.warn(
-            '[core-recorder] no recording directory handle available; falling back to download',
-            { managed, hint: hint || null },
-          );
-        } catch {}
+          const commitResult = await commitRecordingBytesToTongs({
+            bytes,
+            originalName: name,
+            contentType,
+          });
+          const commitResultSuccess = readCommitResultSuccess(commitResult);
+          if (commitResultSuccess) {
+            committed = true;
+            commitResultOk = commitResultSuccess;
+            try {
+              console.log('[core-recorder] canonical commit ok', {
+                workpieceId: commitResultSuccess.workpieceId,
+                path: commitResultSuccess.path,
+                createdCradle: commitResultSuccess.createdCradle,
+              });
+            } catch {}
+          } else {
+            if (isStorageTooLargeCommitResult(commitResult)) {
+              writeStorageLimitHintBytes(bytes.length);
+              showRecorderToast(
+                'Cloud save hit the current Supabase Storage object-size limit. Recording will be mirrored locally for this session.',
+                'warning',
+              );
+            }
+            try {
+              console.warn('[core-recorder] canonical commit unavailable; using local fallback', commitResult);
+            } catch {}
+          }
+        } catch (commitErr) {
+          try {
+            console.warn('[core-recorder] canonical commit failed; using local fallback', commitErr);
+          } catch {}
+        }
       }
-    } catch {}
-    if (committed) {
+
       try {
-        console.log('[core-recorder] canonical commit succeeded; skipping download fallback', { name });
-      } catch {}
-      return true;
-    }
-    try {
-      const downloadBlob = new Blob([bytes], { type: contentType });
-      const url = URL.createObjectURL(downloadBlob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = name || 'Recording.webm';
-      a.rel = 'noopener noreferrer';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => {
         try {
-          URL.revokeObjectURL(url);
+          console.log('[recording-dir] saveRecordingBlob start', { size: blob.size, name, committed });
+          await import('../fs/recording-dir');
+          try {
+            await (window as any).__tpRecDir?.init?.();
+          } catch {}
+          const dir = (window as any).__tpRecDir?.get?.() || null;
+          if (dir && typeof dir.getFileHandle === 'function') {
+            try {
+              try {
+                console.log('[core-recorder] writing to directory', { name: (dir as any).name || '(handle)' });
+              } catch {}
+              try {
+                const q = await (dir as any).queryPermission?.({ mode: 'readwrite' });
+                if (q !== 'granted') {
+                  const r = await (dir as any).requestPermission?.({ mode: 'readwrite' });
+                  if (r !== 'granted') {
+                    throw new Error('recording-dir-permission-not-granted');
+                  }
+                }
+              } catch (permErr) {
+                try { console.warn('[core-recorder] directory permission not granted; using download fallback', permErr); } catch {}
+                throw permErr;
+              }
+              const fh = await dir.getFileHandle(name, { create: true });
+              const w = await fh.createWritable();
+              await w.write(localWritePayload);
+              await w.close();
+              try {
+                console.log('[core-recorder] saved file mirror', name);
+              } catch {}
+              if (commitResultOk) {
+                hideRecordingFinalizeIndicator();
+                await promptForTakeDecision({
+                  commitResult: commitResultOk,
+                  name,
+                  contentType,
+                  bytes: bytes.length,
+                  durationMs: typeof opts.durationMs === 'number' && Number.isFinite(opts.durationMs)
+                    ? opts.durationMs
+                    : null,
+                });
+              }
+              return true;
+            } catch (err) {
+              try { console.warn('[core-recorder] failed to write via FileSystemAccess', err); } catch {}
+            }
+          } else {
+            try {
+              const managed = !!(window as any).__tpRecDir?.isManaged?.();
+              const hint = (window as any).__tpRecDir?.managedHint?.();
+              console.warn(
+                '[core-recorder] no recording directory handle available; falling back to download',
+                { managed, hint: hint || null },
+              );
+            } catch {}
+          }
         } catch {}
-      }, 2000);
-    } catch {}
-    return false;
+        if (committed) {
+          try {
+            console.log('[core-recorder] canonical commit succeeded; skipping download fallback', { name });
+          } catch {}
+          if (commitResultOk) {
+            hideRecordingFinalizeIndicator();
+            await promptForTakeDecision({
+              commitResult: commitResultOk,
+              name,
+              contentType,
+              bytes: bytes.length,
+              durationMs: typeof opts.durationMs === 'number' && Number.isFinite(opts.durationMs)
+                ? opts.durationMs
+                : null,
+            });
+          }
+          return true;
+        }
+        showRecorderToast(
+          'Recording saved locally only. Forge cannot mark it kept or discarded until the canonical cloud save succeeds.',
+          'warning',
+        );
+        try {
+          const downloadBlob = new Blob([bytes], { type: contentType });
+          const url = URL.createObjectURL(downloadBlob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = name || 'Recording.webm';
+          a.rel = 'noopener noreferrer';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => {
+            try {
+              URL.revokeObjectURL(url);
+            } catch {}
+          }, 2000);
+        } catch {}
+        return false;
+      } finally {
+        hideRecordingFinalizeIndicator();
+      }
+    } catch (error) {
+      hideRecordingFinalizeIndicator();
+      throw error;
+    }
   }
 
   try {

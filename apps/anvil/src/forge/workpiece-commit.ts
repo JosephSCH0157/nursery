@@ -12,12 +12,16 @@ type RecordingCommitInput = {
   contentType?: string;
 };
 
+export type RecordingDecisionEventName = "take_kept" | "take_discarded";
+
 export type RecordingCommitResult =
   | {
       ok: true;
       workpieceId: string;
       path: string;
       createdCradle: boolean;
+      plannerRecordingSessionId: string | null;
+      captureSessionId: string;
       status: number;
     }
   | {
@@ -29,6 +33,33 @@ export type RecordingCommitResult =
       details?: unknown;
       workspaceId?: string | null;
       workpieceId?: string | null;
+    };
+
+export type AppendRecordingDecisionInput = {
+  workpieceId: string;
+  eventName: RecordingDecisionEventName;
+  filePath: string;
+  originalName: string;
+  contentType: string;
+  bytes: number;
+  durationMs?: number | null;
+  createdCradle?: boolean;
+  plannerRecordingSessionId?: string | null;
+  captureSessionId?: string | null;
+};
+
+export type AppendRecordingDecisionResult =
+  | {
+      ok: true;
+      status: number;
+    }
+  | {
+      ok: false;
+      reason: string;
+      status?: number;
+      errorCode?: string;
+      errorMessage?: string;
+      details?: unknown;
     };
 
 type CreateCradleResult =
@@ -47,7 +78,8 @@ const WORKPIECE_STORAGE_KEYS = [
 
 const ACTIVE_WORKPIECE_KEY = "forge_active_workpiece_id_v1";
 const WORKSPACE_WORKPIECE_PREFIX = "forge_anvil_recording_workpiece_v1:";
-const RECORDING_SESSION_KEY = "forge_anvil_recording_session_v1";
+const CAPTURE_SESSION_KEY = "forge_anvil_capture_session_v1";
+const PLANNER_RECORDING_SESSION_KEY = "forge_anvil_recording_session_v1";
 
 let correlationSeq = 0;
 
@@ -146,8 +178,8 @@ function getApiToken(): string | undefined {
   return readLocalStorage("forge_tongs_api_token_v1") ?? undefined;
 }
 
-function getOrCreateRecordingSessionId(): string {
-  const existing = readSessionStorage(RECORDING_SESSION_KEY);
+function getOrCreateCaptureSessionId(): string {
+  const existing = readSessionStorage(CAPTURE_SESSION_KEY);
   if (existing) return existing;
 
   let next = "";
@@ -164,13 +196,17 @@ function getOrCreateRecordingSessionId(): string {
     next = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   }
 
-  writeSessionStorage(RECORDING_SESSION_KEY, next);
+  writeSessionStorage(CAPTURE_SESSION_KEY, next);
   return next;
 }
 
 function nextCorrelationId(prefix: string): string {
   correlationSeq += 1;
-  return `${prefix}:${getOrCreateRecordingSessionId()}:${correlationSeq}`;
+  return `${prefix}:${getOrCreateCaptureSessionId()}:${correlationSeq}`;
+}
+
+function resolvePlannerRecordingSessionId(): string | null {
+  return normalizeUuid(readLocalStorage(PLANNER_RECORDING_SESSION_KEY));
 }
 
 function resolveWorkspaceId(): string | null {
@@ -394,6 +430,7 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
   const writtenBy = getWrittenBy();
   const apiToken = getApiToken();
   const workspaceId = resolveWorkspaceId();
+  const plannerRecordingSessionId = resolvePlannerRecordingSessionId();
   let workpieceId = resolveDirectWorkpieceId() || loadCachedWorkpiece(workspaceId);
   let createdCradle = false;
 
@@ -427,21 +464,23 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
   const path = `recordings/${name}`;
   const contentType = inferContentType(input.contentType, name);
   const bytesBase64 = encodeBase64(input.bytes);
-  const recordingSessionId = getOrCreateRecordingSessionId();
+  const captureSessionId = getOrCreateCaptureSessionId();
 
   const commitPayload = {
     path,
     content_type: contentType,
     written_by: writtenBy,
     bytes_base64: bytesBase64,
-    event_name: "anvil.recording.committed",
+    event_name: "take_completed",
     event_payload: {
       source: "anvil.local-auto",
+      file_path: path,
       original_name: input.originalName,
       bytes: input.bytes.byteLength,
       content_type: contentType,
       created_cradle: createdCradle,
-      recording_session_id: recordingSessionId,
+      recording_session_id: plannerRecordingSessionId,
+      anvil_capture_session_id: captureSessionId,
     },
     correlation_id: nextCorrelationId("anvil-recording"),
   };
@@ -480,7 +519,55 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
     workpieceId,
     path,
     createdCradle,
+    plannerRecordingSessionId,
+    captureSessionId,
     status: commit.status,
+  };
+}
+
+export async function appendRecordingDecisionToTongs(
+  input: AppendRecordingDecisionInput,
+): Promise<AppendRecordingDecisionResult> {
+  const apiToken = getApiToken();
+  const writtenBy = getWrittenBy();
+  const captureSessionId = readString(input.captureSessionId) || getOrCreateCaptureSessionId();
+  const response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.workpieceId)}/append-event`, {
+    method: "POST",
+    headers: await buildHeaders(apiToken),
+    body: JSON.stringify({
+      event_name: input.eventName,
+      written_by: writtenBy,
+      payload: {
+        source: "anvil.local-auto",
+        file_path: input.filePath,
+        original_name: input.originalName,
+        bytes: input.bytes,
+        content_type: input.contentType,
+        duration_ms: typeof input.durationMs === "number" && Number.isFinite(input.durationMs)
+          ? Math.max(0, Math.round(input.durationMs))
+          : null,
+        created_cradle: input.createdCradle === true,
+        recording_session_id: input.plannerRecordingSessionId ?? null,
+        anvil_capture_session_id: captureSessionId,
+      },
+      correlation_id: nextCorrelationId(`anvil-${input.eventName}`),
+    }),
+  });
+  const body = await readBodyAsJson(response);
+  if (!response.ok) {
+    const apiError = extractApiError(body);
+    return {
+      ok: false,
+      reason: "append_event_failed",
+      status: response.status,
+      ...(apiError.code ? { errorCode: apiError.code } : {}),
+      ...(apiError.message ? { errorMessage: apiError.message } : {}),
+      details: body,
+    };
+  }
+  return {
+    ok: true,
+    status: response.status,
   };
 }
 

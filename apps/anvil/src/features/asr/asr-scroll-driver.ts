@@ -229,7 +229,8 @@ const DEFAULT_CATCHUP_MED_MIN_PX = 80;
 const DEFAULT_CATCHUP_FAST_MIN_PX = 250;
 const DEFAULT_MAX_TARGET_JUMP_PX = 180;
 const DEFAULT_MAX_TARGET_JUMP_HYBRID_PX = 80;
-const LIVE_ASR_MAX_COMMIT_PX = 160;
+const LIVE_ASR_COMMIT_MIN_PX = 72;
+const LIVE_ASR_COMMIT_MAX_LINES = 3;
 const LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO = 0.75;
 const LIVE_ASR_GLIDE_MIN_MS = 180;
 const LIVE_ASR_GLIDE_MAX_MS = 520;
@@ -1830,6 +1831,19 @@ function resolveLineHeightPx(lineEl: HTMLElement | null): number {
   return 24;
 }
 
+function resolveMotionLineHeightPx(lineEl: HTMLElement | null): number {
+  if (!lineEl) return 24;
+  try {
+    const computed = Number.parseFloat(getComputedStyle(lineEl).lineHeight);
+    if (Number.isFinite(computed) && computed > 1) return computed;
+  } catch {
+    // ignore
+  }
+  const fallback = resolveLineHeightPx(lineEl);
+  if (Number.isFinite(fallback) && fallback > 1) return fallback;
+  return 24;
+}
+
 function resolveLineTopWithinScroller(scroller: HTMLElement | null, lineEl: HTMLElement | null): number {
   if (!scroller || !lineEl) return 0;
   try {
@@ -1866,24 +1880,22 @@ function resolveLiveAsrCommitCapPx(
   lineIdx?: number,
   lineEl?: HTMLElement | null,
 ): number {
-  if (!scroller) return LIVE_ASR_MAX_COMMIT_PX;
+  if (!scroller) return LIVE_ASR_COMMIT_MIN_PX;
   const resolvedLineEl =
     lineEl ||
     (typeof lineIdx === 'number' && Number.isFinite(lineIdx)
       ? getLineElementByIndex(scroller, Math.max(0, Math.floor(lineIdx)))
       : null);
-  const lineHeightPx = resolveLineHeightPx(resolvedLineEl);
+  const lineHeightPx = resolveMotionLineHeightPx(resolvedLineEl);
   const viewportCap =
     scroller.clientHeight > 0
-      ? Math.max(LIVE_ASR_MAX_COMMIT_PX, scroller.clientHeight * LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO)
-      : LIVE_ASR_MAX_COMMIT_PX;
-  if (!Number.isFinite(lineHeightPx) || lineHeightPx <= LIVE_ASR_MAX_COMMIT_PX) {
-    return LIVE_ASR_MAX_COMMIT_PX;
-  }
-  return Math.max(
-    LIVE_ASR_MAX_COMMIT_PX,
-    Math.min(lineHeightPx, viewportCap),
-  );
+      ? Math.max(LIVE_ASR_COMMIT_MIN_PX, scroller.clientHeight * LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO)
+      : LIVE_ASR_COMMIT_MIN_PX;
+  const lineDrivenCap =
+    Number.isFinite(lineHeightPx) && lineHeightPx > 1
+      ? lineHeightPx * LIVE_ASR_COMMIT_MAX_LINES
+      : LIVE_ASR_COMMIT_MIN_PX;
+  return clamp(Math.max(LIVE_ASR_COMMIT_MIN_PX, lineDrivenCap), LIVE_ASR_COMMIT_MIN_PX, viewportCap);
 }
 
 function resolveTargetTop(scroller: HTMLElement, lineIndex: number): number | null {
@@ -4153,6 +4165,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
   };
 
+  // Once ASR is already on the last speakable line, continued speech should
+  // be treated as script-end confirmation instead of stall/starvation.
+  const maybeSuppressTerminalScriptEndWatchdog = (
+    lineIndex: number,
+    reason: string,
+  ): boolean => {
+    if (!Number.isFinite(lineIndex)) return false;
+    const normalizedLine = Math.max(0, Math.floor(lineIndex));
+    const lastSpeakableLineIndex = findLastSpeakableLineIndex();
+    if (lastSpeakableLineIndex < 0 || normalizedLine < lastSpeakableLineIndex) return false;
+    maybeEmitScriptEndEvent(normalizedLine, reason);
+    return true;
+  };
+
   const findNextSpeakableWithinBridge = (
     cursorLine: number,
     maxLookahead = DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES,
@@ -4978,6 +5004,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
   const maybeLogStall = (now: number) => {
     if (now - lastCommitAt < DEFAULT_STALL_COMMIT_MS) return;
+    if (maybeSuppressTerminalScriptEndWatchdog(lastLineIndex, 'stall-terminal')) return;
     if (now - lastStallLogAt < DEFAULT_STALL_LOG_COOLDOWN_MS) return;
     lastStallLogAt = now;
     const reasonSummary = summarizeGuardText();
@@ -6623,6 +6650,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 emitHudStatus('cue_commit_blocked', 'Blocked: cue-only commit target');
                 return;
               }
+              maybeEmitScriptEndEvent(lastLineIndex, 'terminal-recenter');
               warnGuard('cue_commit_terminal_recenter', [
                 `current=${lastLineIndex}`,
                 `lastSpeakable=${lastSpeakableLineIndex}`,
@@ -6688,8 +6716,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           const limitedTarget = clamp(desired, base - jumpCap, base + jumpCap);
           const recenterDelta = limitedTarget - base;
           if (Math.abs(recenterDelta) > 0.5) {
+            const sameLineJumpCap =
+              getScrollMode() === 'asr' && isSessionLivePhase() && isSessionAsrArmed()
+                ? resolveLiveAsrCommitCapPx(scroller, targetLine, lineEl)
+                : jumpCap;
             stopGlide('same-line-recenter');
-            pursuitTargetTop = limitedTarget;
+            pursuitTargetTop = clamp(limitedTarget, base - sameLineJumpCap, base + sameLineJumpCap);
             lastSameLineNudgeTs = now;
             lastEvidenceAt = now;
             const lineHeightPx = lineEl?.offsetHeight || lineEl?.clientHeight || 0;
@@ -6726,7 +6758,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           const creepDirection = desired >= base ? 1 : -1;
           const creepStep = Math.min(creepPx, creepBudgetPx - creepBudgetUsed) * creepDirection;
           const creepTarget = clamp(base + creepStep, 0, max);
-          const limitedCreepTarget = clamp(creepTarget, base - jumpCap, base + jumpCap);
+          const sameLineJumpCap =
+            getScrollMode() === 'asr' && isSessionLivePhase() && isSessionAsrArmed()
+              ? resolveLiveAsrCommitCapPx(scroller, targetLine, lineEl)
+              : jumpCap;
+          const limitedCreepTarget = clamp(creepTarget, base - sameLineJumpCap, base + sameLineJumpCap);
           const appliedCreepDelta = limitedCreepTarget - base;
           if (Math.abs(appliedCreepDelta) > 0.5) {
             stopGlide('same-line-creep');
@@ -6847,17 +6883,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         isSessionLivePhase() &&
         isSessionAsrArmed();
       const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-      const lineHeightPx = (() => {
-        try {
-          if (!lineEl) return 0;
-          const h = lineEl.offsetHeight || lineEl.clientHeight;
-          if (h && Number.isFinite(h)) return h;
-          const computed = Number.parseFloat(getComputedStyle(lineEl).lineHeight);
-          return Number.isFinite(computed) ? computed : 0;
-        } catch {
-          return 0;
-        }
-      })();
+      const lineHeightPx = resolveMotionLineHeightPx(lineEl);
       const rawDeltaPx = Math.max(0, targetTop - currentTop);
       const maxJumpPx = lineHeightPx > 0 ? lineHeightPx * motionTuning.maxLinesPerCommit : rawDeltaPx;
       const clampedDeltaPx = Math.min(rawDeltaPx, maxJumpPx);
@@ -7357,7 +7383,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       starvationDetected && lostForwardAtDetection
         ? attemptForwardRelock(now, currentCursorIndex, compacted, isFinal)
         : null;
-    if (starvationDetected && now - lastStarvationWarnAt >= DEFAULT_STARVATION_WARN_COOLDOWN_MS) {
+    if (starvationDetected && maybeSuppressTerminalScriptEndWatchdog(currentCursorIndex, 'starvation-terminal')) {
+      // Script-end takes precedence over the starvation watchdog.
+    } else if (starvationDetected && now - lastStarvationWarnAt >= DEFAULT_STARVATION_WARN_COOLDOWN_MS) {
       lastStarvationWarnAt = now;
       const pendingForward =
         pendingMatch != null &&

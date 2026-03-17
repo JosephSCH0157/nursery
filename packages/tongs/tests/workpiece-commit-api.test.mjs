@@ -34,6 +34,7 @@ function mockService() {
     saveHammerWorkpieceState: [],
     listHammerWorkpiecePresence: [],
     upsertHammerWorkpiecePresence: [],
+    getWorkpieceRecordingTruth: [],
     appendEvent: [],
     readWorkpieceBinary: [],
     readWorkpieceText: [],
@@ -710,6 +711,24 @@ function mockService() {
         mode: input.mode,
         last_seen_at: "2026-03-13T12:00:30.000Z",
         created_at: "2026-03-13T11:59:00.000Z",
+      };
+    },
+    async getWorkpieceRecordingTruth(workpieceId) {
+      calls.getWorkpieceRecordingTruth.push({ workpieceId });
+      return {
+        workpiece_id: workpieceId,
+        recorded: true,
+        latest_kept_take: {
+          event_id: 101,
+          created_at: "2026-03-17T12:00:00.000Z",
+          file_path: "recordings/episode-kept.webm",
+          recording_session_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          anvil_capture_session_id: "capture-session-1",
+          content_type: "video/webm",
+          bytes: 2048,
+          duration_ms: 42000,
+          original_name: "episode-kept.webm",
+        },
       };
     },
     async appendEvent(workpieceId, input) {
@@ -1758,6 +1777,25 @@ test("POST /tongs/workpieces/:id/append-event dispatches appendEvent", async () 
   assert.equal(calls.appendEvent.length, 1);
   assert.equal(calls.appendEvent[0].input.event_name, "workpiece.note");
   assert.equal(body.ok, true);
+});
+
+test("GET /tongs/workpieces/:id/recording-truth dispatches getWorkpieceRecordingTruth", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request("http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/recording-truth", {
+    method: "GET",
+  });
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.getWorkpieceRecordingTruth.length, 1);
+  assert.equal(calls.getWorkpieceRecordingTruth[0].workpieceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.truth?.recorded, true);
+  assert.equal(body.data?.truth?.latest_kept_take?.file_path, "recordings/episode-kept.webm");
 });
 
 test("POST /tongs/workpieces/:id/generate-thumbnail dispatches generateEpisodeThumbnail", async () => {
@@ -4874,6 +4912,129 @@ test("TongsCommitService.listWorkspaceReadyScripts includes hidden ranked entrie
   assert.equal(result[0]?.queue_rank, 0);
   assert.equal(result[0]?.hidden_at, "2026-03-10T12:30:00.000Z");
   assert.equal(result[0]?.hidden_by, viewerId);
+  assert.equal(result.some((row) => row.workpiece_id === workpieceC), false);
+});
+
+test("TongsCommitService.listWorkspaceReadyScripts treats take_kept as recorded truth for unrecorded filters", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const viewerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const workpieceA = "11111111-1111-4111-8111-111111111111";
+  const workpieceB = "22222222-2222-4222-8222-222222222222";
+  const workpieceC = "33333333-3333-4333-8333-333333333333";
+
+  const { ...supabase } = createReadyQueueSupabase({
+    workspaceId,
+    episodes: [
+      {
+        id: workpieceA,
+        workspace_id: workspaceId,
+        label: "Ready Alpha",
+        updated_at: "2026-03-09T10:00:00.000Z",
+        created_at: "2026-03-01T10:00:00.000Z",
+      },
+      {
+        id: workpieceB,
+        workspace_id: workspaceId,
+        label: "Ready Beta",
+        updated_at: "2026-03-08T10:00:00.000Z",
+        created_at: "2026-03-01T09:00:00.000Z",
+      },
+      {
+        id: workpieceC,
+        workspace_id: workspaceId,
+        label: "Ready Gamma",
+        updated_at: "2026-03-07T10:00:00.000Z",
+        created_at: "2026-03-01T08:00:00.000Z",
+      },
+    ],
+    files: [
+      {
+        workpiece_id: workpieceA,
+        path: "script/script.md",
+        updated_at: "2026-03-09T10:30:00.000Z",
+        created_at: "2026-03-09T10:00:00.000Z",
+      },
+      {
+        workpiece_id: workpieceB,
+        path: "script/script.md",
+        updated_at: "2026-03-08T10:30:00.000Z",
+        created_at: "2026-03-08T10:00:00.000Z",
+      },
+      {
+        workpiece_id: workpieceC,
+        path: "script/script.md",
+        updated_at: "2026-03-07T10:30:00.000Z",
+        created_at: "2026-03-07T10:00:00.000Z",
+      },
+    ],
+    readyMeta: [
+      {
+        workspace_id: workspaceId,
+        workpiece_id: workpieceA,
+        script_path: "script/script.md",
+        marked_ready_by: viewerId,
+        marked_ready_at: "2026-03-09T10:30:00.000Z",
+      },
+      {
+        workspace_id: workspaceId,
+        workpiece_id: workpieceB,
+        script_path: "script/script.md",
+        marked_ready_by: viewerId,
+        marked_ready_at: "2026-03-08T10:30:00.000Z",
+      },
+      {
+        workspace_id: workspaceId,
+        workpiece_id: workpieceC,
+        script_path: "script/script.md",
+        marked_ready_by: viewerId,
+        marked_ready_at: "2026-03-07T10:30:00.000Z",
+      },
+    ],
+    events: [
+      {
+        id: 11,
+        workpiece_id: workpieceB,
+        event_name: "take_completed",
+        payload: { file_path: "recordings/beta.webm" },
+        correlation_id: null,
+        written_by_tool: "anvil",
+        written_by_tool_version: "1.8.5",
+        written_by_lane: "forge-managed",
+        created_at: "2026-03-10T12:00:00.000Z",
+      },
+      {
+        id: 12,
+        workpiece_id: workpieceC,
+        event_name: "take_kept",
+        payload: { file_path: "recordings/gamma.webm" },
+        correlation_id: null,
+        written_by_tool: "anvil",
+        written_by_tool_version: "1.8.5",
+        written_by_lane: "forge-managed",
+        created_at: "2026-03-10T13:00:00.000Z",
+      },
+    ],
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: viewerId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: viewerId, role: "viewer" });
+
+  const result = await service.listWorkspaceReadyScripts(workspaceId, {
+    userAccessToken: "viewer_token",
+    unrecordedOnly: true,
+  });
+
+  assert.deepEqual(
+    result.map((row) => row.workpiece_id),
+    [workpieceA, workpieceB],
+  );
   assert.equal(result.some((row) => row.workpiece_id === workpieceC), false);
 });
 

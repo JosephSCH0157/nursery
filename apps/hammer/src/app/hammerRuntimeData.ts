@@ -9,7 +9,6 @@ const ACTIVE_WORKSPACE_STORAGE_KEYS = [
   "barstock_workspace_id",
 ] as const;
 const MANIFEST_PATH = "manifest.json";
-const RECORDING_PATH_PREFIXES = ["recordings/", "assets/recordings/"] as const;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -47,7 +46,7 @@ export type HammerRuntimeProjectCard = {
 };
 
 export type HammerRuntimeProjectSignals = {
-  hasRecordingMedia: boolean;
+  hasKeptTake: boolean;
   hasEditorSession: boolean;
   hasStructuredTranscript: boolean;
   hasVisualPlacements: boolean;
@@ -55,9 +54,13 @@ export type HammerRuntimeProjectSignals = {
   hasEditPlan: boolean;
 };
 
+export type HammerWorkpieceRecordingTruth = {
+  hasKeptTake: boolean;
+  latestKeptTakePath: string | null;
+};
+
 export type HammerWorkpieceManifestContext = {
   workspaceId: string | null;
-  hasRecordingMedia: boolean;
 };
 
 export function classifyHammerRuntimeProject(
@@ -65,8 +68,8 @@ export function classifyHammerRuntimeProject(
 ): { isEditReady: boolean; editReadyReasons: string[] } {
   const editReadyReasons: string[] = [];
 
-  if (signals.hasRecordingMedia) {
-    editReadyReasons.push("Recording available");
+  if (signals.hasKeptTake) {
+    editReadyReasons.push("Kept take available");
   }
   if (signals.hasEditorSession) {
     editReadyReasons.push("Hammer session saved");
@@ -287,23 +290,28 @@ function buildRuntimeReadiness(args: {
       return {
         statusLabel: "Not started",
         tone: "blocked",
-        indicators: ["No recording or Hammer-editable state yet"],
+        indicators: ["No kept take or Hammer-editable state yet"],
       };
   }
+}
+
+export function extractHammerWorkpieceRecordingTruth(
+  value: unknown,
+): HammerWorkpieceRecordingTruth {
+  const truth = readJsonRecord(value);
+  const latestKeptTake = readJsonRecord(truth?.latest_kept_take);
+  return {
+    hasKeptTake: truth?.recorded === true,
+    latestKeptTakePath: readString(latestKeptTake?.file_path),
+  };
 }
 
 export function extractHammerWorkpieceManifestContext(
   manifestValue: unknown,
 ): HammerWorkpieceManifestContext {
   const manifest = readJsonRecord(manifestValue);
-  const files = readJsonRecord(manifest?.files);
-  const hasRecordingMedia = Object.keys(files ?? {}).some((path) => (
-    RECORDING_PATH_PREFIXES.some((prefix) => path.startsWith(prefix))
-  ));
-
   return {
     workspaceId: readString(manifest?.workspace_id),
-    hasRecordingMedia,
   };
 }
 
@@ -323,7 +331,6 @@ export async function loadHammerWorkpieceManifestContext(
   if (response.status === 404) {
     return {
       workspaceId: null,
-      hasRecordingMedia: false,
     };
   }
 
@@ -339,26 +346,58 @@ export async function loadHammerWorkpieceManifestContext(
   return extractHammerWorkpieceManifestContext(manifest);
 }
 
+export async function loadHammerWorkpieceRecordingTruth(
+  workpieceId: string,
+): Promise<HammerWorkpieceRecordingTruth> {
+  const response = await tongsFetch(
+    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/recording-truth`,
+    {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+      },
+    },
+  );
+
+  if (response.status === 404) {
+    return {
+      hasKeptTake: false,
+      latestKeptTakePath: null,
+    };
+  }
+
+  const payload = await readJsonBody(response);
+  if (!response.ok) {
+    throw new Error(
+      readString(readJsonRecord(readJsonRecord(payload)?.error)?.message)
+        ?? "Hammer could not read recording truth.",
+    );
+  }
+
+  const truth = readJsonRecord(readJsonRecord(payload)?.data)?.truth;
+  return extractHammerWorkpieceRecordingTruth(truth);
+}
+
 export async function loadHammerWorkspaceProjects(
   workspaceId: string,
 ): Promise<HammerRuntimeProjectCard[]> {
   const episodes = await listHammerWorkspaceEpisodes(workspaceId);
   const detailResults = await Promise.allSettled(
     episodes.map(async (episode) => {
-      const [snapshotResult, manifestResult] = await Promise.allSettled([
+      const [snapshotResult, truthResult] = await Promise.allSettled([
         loadHammerPersistenceSnapshot({
           workspaceId,
           workpieceId: episode.id,
         }),
-        loadHammerWorkpieceManifestContext(episode.id),
+        loadHammerWorkpieceRecordingTruth(episode.id),
       ]);
 
       return {
         snapshotResult: snapshotResult.status === "fulfilled" ? snapshotResult.value : null,
-        manifestSignals: manifestResult.status === "fulfilled"
-          ? manifestResult.value
-          : { hasRecordingMedia: false },
-        manifestUnavailable: manifestResult.status === "rejected",
+        recordingTruth: truthResult.status === "fulfilled"
+          ? truthResult.value
+          : { hasKeptTake: false, latestKeptTakePath: null },
+        recordingTruthUnavailable: truthResult.status === "rejected",
       };
     }),
   );
@@ -368,9 +407,9 @@ export async function loadHammerWorkspaceProjects(
     const snapshotResult = detailResult?.status === "fulfilled"
       ? detailResult.value.snapshotResult
       : null;
-    const manifestSignals = detailResult?.status === "fulfilled"
-      ? detailResult.value.manifestSignals
-      : { hasRecordingMedia: false };
+    const recordingTruth = detailResult?.status === "fulfilled"
+      ? detailResult.value.recordingTruth
+      : { hasKeptTake: false, latestKeptTakePath: null };
     const snapshot = snapshotResult?.ok
       ? snapshotResult.data
       : null;
@@ -396,8 +435,8 @@ export async function loadHammerWorkspaceProjects(
       || snapshot?.edit_plan.path
       || snapshot?.edit_plan.data,
     );
-      const editReadiness = classifyHammerRuntimeProject({
-      hasRecordingMedia: manifestSignals.hasRecordingMedia,
+    const editReadiness = classifyHammerRuntimeProject({
+      hasKeptTake: recordingTruth.hasKeptTake,
       hasEditorSession,
       hasStructuredTranscript,
       hasVisualPlacements,
@@ -406,7 +445,7 @@ export async function loadHammerWorkspaceProjects(
     });
     const editInstructionCount = snapshot?.edit_plan.data?.instructions.length ?? 0;
     const stateUnavailable = detailResult?.status === "rejected"
-      || (detailResult?.status === "fulfilled" && (!snapshotResult?.ok || detailResult.value.manifestUnavailable));
+      || (detailResult?.status === "fulfilled" && (!snapshotResult?.ok || detailResult.value.recordingTruthUnavailable));
 
     return {
       workpieceId: episode.id,

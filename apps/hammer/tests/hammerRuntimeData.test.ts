@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   classifyHammerRuntimeProject,
-  extractHammerWorkpieceManifestContext,
+  extractHammerWorkpieceRecordingTruth,
   readHammerStoredActiveWorkspaceId,
 } from "../src/app/hammerRuntimeData";
 
 test("classifyHammerRuntimeProject keeps workspace-only items below the ready line", () => {
   const result = classifyHammerRuntimeProject({
-    hasRecordingMedia: false,
+    hasKeptTake: false,
     hasEditorSession: false,
     hasStructuredTranscript: false,
     hasVisualPlacements: false,
@@ -20,9 +20,9 @@ test("classifyHammerRuntimeProject keeps workspace-only items below the ready li
   assert.deepEqual(result.editReadyReasons, []);
 });
 
-test("classifyHammerRuntimeProject moves recording-backed workpieces above the ready line", () => {
+test("classifyHammerRuntimeProject moves kept-take workpieces above the ready line", () => {
   const result = classifyHammerRuntimeProject({
-    hasRecordingMedia: true,
+    hasKeptTake: true,
     hasEditorSession: false,
     hasStructuredTranscript: false,
     hasVisualPlacements: false,
@@ -31,12 +31,12 @@ test("classifyHammerRuntimeProject moves recording-backed workpieces above the r
   });
 
   assert.equal(result.isEditReady, true);
-  assert.deepEqual(result.editReadyReasons, ["Recording available"]);
+  assert.deepEqual(result.editReadyReasons, ["Kept take available"]);
 });
 
 test("classifyHammerRuntimeProject treats persisted Hammer artifacts as edit-ready even without recordings", () => {
   const result = classifyHammerRuntimeProject({
-    hasRecordingMedia: false,
+    hasKeptTake: false,
     hasEditorSession: true,
     hasStructuredTranscript: true,
     hasVisualPlacements: false,
@@ -52,18 +52,18 @@ test("classifyHammerRuntimeProject treats persisted Hammer artifacts as edit-rea
   ]);
 });
 
-test("extractHammerWorkpieceManifestContext reads workspace truth and recording coverage from manifest data", () => {
-  const result = extractHammerWorkpieceManifestContext({
-    workspace_id: "11111111-1111-4111-8111-111111111111",
-    files: {
-      "recordings/session-a.wav": {},
-      "assets/images/cover.png": {},
+test("extractHammerWorkpieceRecordingTruth reads kept-take truth from API payloads", () => {
+  const result = extractHammerWorkpieceRecordingTruth({
+    workpiece_id: "11111111-1111-4111-8111-111111111111",
+    recorded: true,
+    latest_kept_take: {
+      file_path: "recordings/session-a.wav",
     },
   });
 
   assert.deepEqual(result, {
-    workspaceId: "11111111-1111-4111-8111-111111111111",
-    hasRecordingMedia: true,
+    hasKeptTake: true,
+    latestKeptTakePath: "recordings/session-a.wav",
   });
 });
 

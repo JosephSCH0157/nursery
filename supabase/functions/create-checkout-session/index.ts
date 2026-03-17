@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@14.25.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { findStripeCatalogPriceById } from "../_shared/stripe-catalog.ts";
+import { buildForgeCheckoutMetadata } from "../_shared/forge-billing-metadata.ts";
 
 type CreateCheckoutSessionBody = {
   priceId?: string;
@@ -214,27 +215,15 @@ serve(async (req) => {
       ? "subscription"
       : "payment";
 
-    const sessionMetadata: StripeMetadata = {
-      supabase_user_id: user.id,
-      forge_user_id: user.id,
-      forge_product: "podcasters_forge",
-    };
-    if (catalogPrice.kind === "plan") {
-      sessionMetadata.forge_plan_id = catalogPrice.planId;
-      sessionMetadata.forge_interval = catalogPrice.interval;
+    const sessionMetadata: StripeMetadata = buildForgeCheckoutMetadata({
+      userId: user.id,
+      catalogPrice,
+    });
+    if (packType && !sessionMetadata.forge_pack_type) {
+      sessionMetadata.forge_pack_type = packType;
     }
-    if (catalogPrice.kind === "addon") {
-      sessionMetadata.forge_addon = catalogPrice.addonId;
-      sessionMetadata.forge_interval = catalogPrice.interval;
-    }
-    if (catalogPrice.kind === "storage") {
-      sessionMetadata.forge_storage_level = catalogPrice.storageLevel;
-      sessionMetadata.forge_interval = catalogPrice.interval;
-    }
-    if (packType) sessionMetadata.forge_pack_type = packType;
-    if (packId) sessionMetadata.forge_pack_id = packId;
-    if (catalogPrice.kind === "pack") {
-      sessionMetadata.forge_interval = catalogPrice.interval;
+    if (packId && !sessionMetadata.forge_pack_id) {
+      sessionMetadata.forge_pack_id = packId;
     }
 
     const sessionParams: Stripe.Checkout.SessionCreateParams = {

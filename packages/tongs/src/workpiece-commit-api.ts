@@ -35,10 +35,7 @@ const READY_SCRIPT_PATH_CANDIDATES = [
   "scripts/script.source.md",
 ] as const;
 const READY_SCRIPT_PATH_SET = new Set<string>(READY_SCRIPT_PATH_CANDIDATES as readonly string[]);
-const RECORDING_PATH_PREFIXES = [
-  "recordings/",
-  "assets/recordings/",
-] as const;
+const TAKE_KEPT_EVENT = "take_kept";
 const CONTENT_CATEGORY_EVENT = "hearth.content_category.set.v1";
 const CONTENT_CATEGORY_VALUES = [
   "evergreen",
@@ -284,6 +281,24 @@ export type AppendEventRequest = {
   payload?: Json;
   correlation_id?: string;
   written_by: WrittenBy;
+};
+
+export type WorkpieceTakeReceipt = {
+  event_id: number;
+  created_at: string;
+  file_path: string | null;
+  recording_session_id: string | null;
+  anvil_capture_session_id: string | null;
+  content_type: string | null;
+  bytes: number | null;
+  duration_ms: number | null;
+  original_name: string | null;
+};
+
+export type WorkpieceRecordingTruth = {
+  workpiece_id: string;
+  recorded: boolean;
+  latest_kept_take: WorkpieceTakeReceipt | null;
 };
 
 export type RecordingSessionStatus = (typeof RECORDING_SESSION_STATUS_VALUES)[number];
@@ -833,6 +848,7 @@ export type TongsCommitApiService = {
     input: SaveWorkpieceImageMapRequest,
     options?: { userAccessToken?: string | null },
   ): Promise<WorkpieceImageMapResponseData>;
+  getWorkpieceRecordingTruth(workpieceId: string): Promise<WorkpieceRecordingTruth>;
   appendEvent(workpieceId: string, input: AppendEventRequest): Promise<WorkpieceEventRow>;
   readWorkpieceJson(workpieceId: string, path: string): Promise<ReadJsonFileResult>;
   readWorkspaceJson(workspaceId: string, path: string): Promise<ReadJsonFileResult>;
@@ -3090,10 +3106,6 @@ function readyScriptMetaKey(workpieceId: string, scriptPath: string): string {
   return `${workpieceId}:${scriptPath}`;
 }
 
-function isRecordingPath(path: string): boolean {
-  return RECORDING_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
-}
-
 function normalizeContentCategory(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim().toLowerCase();
@@ -3104,6 +3116,31 @@ function readContentCategoryFromEventPayload(payload: Json): string | null {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
   const row = payload as Record<string, unknown>;
   return normalizeContentCategory(row.content_category);
+}
+
+function readNullableString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readNullableNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readTakeReceiptFromEvent(row: Pick<WorkpieceEventRow, "id" | "created_at" | "payload">): WorkpieceTakeReceipt {
+  const payload = row.payload && typeof row.payload === "object" && !Array.isArray(row.payload)
+    ? row.payload as Record<string, unknown>
+    : {};
+  return {
+    event_id: row.id,
+    created_at: row.created_at,
+    file_path: readNullableString(payload.file_path ?? payload.path),
+    recording_session_id: readNullableString(payload.recording_session_id),
+    anvil_capture_session_id: readNullableString(payload.anvil_capture_session_id),
+    content_type: readNullableString(payload.content_type),
+    bytes: readNullableNumber(payload.bytes),
+    duration_ms: readNullableNumber(payload.duration_ms),
+    original_name: readNullableString(payload.original_name),
+  };
 }
 
 function toRecordingSessionItemDTO(row: RecordingSessionItemRow): RecordingSessionItemDTO {
@@ -6508,6 +6545,46 @@ export class TongsCommitService {
     });
   }
 
+  private async listLatestKeptTakeByWorkpieceIds(
+    workpieceIds: readonly string[],
+  ): Promise<Map<string, WorkpieceTakeReceipt>> {
+    const next = new Map<string, WorkpieceTakeReceipt>();
+    if (!workpieceIds.length) return next;
+
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("workpiece_events")
+      .select("workpiece_id,event_name,payload,created_at,id")
+      .in("workpiece_id", [...workpieceIds])
+      .eq("event_name", TAKE_KEPT_EVENT)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(5000);
+
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to list kept-take events", {
+        reason: error.message,
+      });
+    }
+
+    for (const row of data ?? []) {
+      if (next.has(row.workpiece_id)) continue;
+      next.set(row.workpiece_id, readTakeReceiptFromEvent(row));
+    }
+
+    return next;
+  }
+
+  async getWorkpieceRecordingTruth(workpieceId: string): Promise<WorkpieceRecordingTruth> {
+    await this.getCradleOrThrow(workpieceId);
+    const keptTakeByWorkpiece = await this.listLatestKeptTakeByWorkpieceIds([workpieceId]);
+    return {
+      workpiece_id: workpieceId,
+      recorded: keptTakeByWorkpiece.has(workpieceId),
+      latest_kept_take: keptTakeByWorkpiece.get(workpieceId) ?? null,
+    };
+  }
+
   async listWorkspaceReadyScripts(
     workspaceId: string,
     options?: ListWorkspaceReadyScriptsOptions,
@@ -6778,30 +6855,11 @@ export class TongsCommitService {
 
     const recordedWorkpieceIds = new Set<string>();
     if (options?.unrecordedOnly) {
-      const candidateIds = Array.from(readyPathsByWorkpiece.keys());
-      if (candidateIds.length) {
-        for (const prefix of RECORDING_PATH_PREFIXES) {
-          const { data: recordings, error: recordingsError } = await this.supabase
-            .schema("tongs")
-            .from("workpiece_files")
-            .select("workpiece_id,path")
-            .in("workpiece_id", candidateIds)
-            .like("path", `${prefix}%`)
-            .limit(5000);
-
-          if (recordingsError) {
-            throw new HttpError(502, "db_read_failed", "Failed to list workspace recording files", {
-              reason: recordingsError.message,
-            });
-          }
-
-          for (const row of recordings ?? []) {
-            const path = row.path;
-            if (isRecordingPath(path)) {
-              recordedWorkpieceIds.add(row.workpiece_id);
-            }
-          }
-        }
+      const keptTakeByWorkpiece = await this.listLatestKeptTakeByWorkpieceIds(
+        Array.from(readyPathsByWorkpiece.keys()),
+      );
+      for (const workpieceId of keptTakeByWorkpiece.keys()) {
+        recordedWorkpieceIds.add(workpieceId);
       }
     }
 
@@ -7525,6 +7583,13 @@ export function createTongsCommitApiHandlerWithService(
         const payload = normalizeAppendEventRequest(body);
         const result = await service.appendEvent(workpieceId, payload);
         return jsonResponse(201, { ok: true, data: result });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "recording-truth") {
+        requireMethod(request, "GET");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const result = await service.getWorkpieceRecordingTruth(workpieceId);
+        return jsonResponse(200, { ok: true, data: { truth: result } });
       }
 
       throw new HttpError(404, "not_found", "Endpoint not found");
