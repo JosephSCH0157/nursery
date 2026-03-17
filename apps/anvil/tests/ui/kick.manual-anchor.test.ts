@@ -40,10 +40,10 @@ describe('ASR kick manual anchor signal', () => {
       Object.defineProperty(lineEl, 'getBoundingClientRect', {
         configurable: true,
         value: () => ({
-          top,
+          top: top - scroller.scrollTop,
           left: 0,
           right: 400,
-          bottom: top + height,
+          bottom: top - scroller.scrollTop + height,
           width: 400,
           height,
         }),
@@ -108,10 +108,33 @@ describe('ASR kick manual anchor signal', () => {
       getLastLineIndex: () => 1,
       setLastLineIndex,
     };
+    (document as any).elementFromPoint = jest.fn(() => (
+      document.querySelector<HTMLElement>('.line[data-line="1"]')
+    ));
 
     const moved = kick({ reason: 'test:kick:block' });
 
     expect(moved).toBe(true);
     expect(setLastLineIndex).toHaveBeenCalledWith(2);
+  });
+
+  test('prefers the visible marker line over a drifted ASR index when resolving the next kick target', () => {
+    const scroller = document.getElementById('viewer') as HTMLElement;
+    const setLastLineIndex = jest.fn();
+    (window as any).__tpAsrScrollDriver = {
+      getLastLineIndex: () => 5,
+      setLastLineIndex,
+    };
+    (window as any).currentIndex = 5;
+    scroller.scrollTop = 260;
+    (document as any).elementFromPoint = jest.fn(() => (
+      document.querySelector<HTMLElement>('.line[data-line="3"]')
+    ));
+
+    const moved = kick({ reason: 'test:kick:drifted-index' });
+
+    expect(moved).toBe(true);
+    expect(scroller.scrollTop).toBe(320);
+    expect(setLastLineIndex).toHaveBeenCalledWith(4);
   });
 });

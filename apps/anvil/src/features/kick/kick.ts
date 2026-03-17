@@ -158,14 +158,34 @@ function getCurrentLineIndex(): number | null {
   return null;
 }
 
+function getVisibleAnchorLineIndex(scroller: HTMLElement | null): number | null {
+  const markerIndex = computeAnchorLineIndex(scroller);
+  if (!Number.isFinite(markerIndex as number)) return null;
+  return Math.max(0, Math.floor(markerIndex as number));
+}
+
+function resolveAsrKickBaseLineIndex(scroller: HTMLElement): number | null {
+  const anchorIndex = getVisibleAnchorLineIndex(scroller);
+  const currentIndex = getCurrentLineIndex();
+  if (anchorIndex == null) return currentIndex;
+  if (currentIndex != null && currentIndex !== anchorIndex && isDevMode()) {
+    try {
+      console.info('[kick:anchor-preferred]', {
+        anchorIndex,
+        currentIndex,
+        drift: currentIndex - anchorIndex,
+      });
+    } catch {}
+  }
+  return anchorIndex;
+}
+
 function resolveManualAnchorTargetIndex(
   scroller: HTMLElement,
   fallbackIndex: number | null = null,
 ): number | null {
-  const markerIndex = computeAnchorLineIndex(scroller);
-  if (Number.isFinite(markerIndex as number)) {
-    return Math.max(0, Math.floor(markerIndex as number));
-  }
+  const markerIndex = getVisibleAnchorLineIndex(scroller);
+  if (markerIndex != null) return markerIndex;
   if (Number.isFinite(fallbackIndex as number)) {
     return Math.max(0, Math.floor(fallbackIndex as number));
   }
@@ -203,7 +223,7 @@ type AsrKickResult = {
 
 function kickAsrForward(scroller: HTMLElement, deltaPx: number, reason: string): AsrKickResult {
   const from = readScrollTop(scroller);
-  const currentLine = getCurrentLineIndex();
+  const currentLine = resolveAsrKickBaseLineIndex(scroller);
   const nextLineIndex =
     Number.isFinite(currentLine as number) ? Math.max(0, Math.floor(currentLine as number) + 1) : null;
   if (nextLineIndex != null) {
