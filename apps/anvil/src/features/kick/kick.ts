@@ -149,6 +149,29 @@ function resolveManualAnchorTargetIndex(
   return null;
 }
 
+function syncAsrDriverIndex(targetIndex: number | null, reason: string): void {
+  if (targetIndex == null || typeof window === 'undefined') return;
+  const nextIndex = Math.max(0, Math.floor(targetIndex));
+  try {
+    const driver = (window as any).__tpAsrScrollDriver;
+    if (typeof driver?.setLastLineIndex === 'function') {
+      driver.setLastLineIndex(nextIndex);
+      return;
+    }
+  } catch {
+    // ignore
+  }
+  try { (window as any).currentIndex = nextIndex; } catch {}
+  if (isDevMode()) {
+    try {
+      console.info('[kick:driver-sync:fallback]', {
+        reason,
+        targetIndex: nextIndex,
+      });
+    } catch {}
+  }
+}
+
 function elementTopRelativeToScroller(el: HTMLElement, scroller: HTMLElement): number {
   try {
     const rect = el.getBoundingClientRect();
@@ -276,6 +299,7 @@ export function kick(options: KickOptions = {}): boolean {
 
     try { scroller.dataset.tpLastWriter = reason; } catch {}
     if (mode === 'asr' && moved && manualAnchorTargetIndex != null) {
+      syncAsrDriverIndex(manualAnchorTargetIndex, reason);
       const targetIndex = dispatchAsrManualAnchor({
         targetIndex: manualAnchorTargetIndex,
         targetBlockIdx: manualAnchorTargetBlockIdx,

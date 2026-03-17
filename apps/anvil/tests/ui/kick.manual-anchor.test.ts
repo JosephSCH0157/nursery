@@ -1,4 +1,5 @@
 import { ASR_MANUAL_ANCHOR_EVENT } from '../../src/features/asr/manual-anchor';
+import { setAsrBlocks } from '../../src/scroll/asr-block-store';
 import { kick } from '../../src/features/kick/kick';
 
 describe('ASR kick manual anchor signal', () => {
@@ -43,11 +44,16 @@ describe('ASR kick manual anchor signal', () => {
 
   afterEach(() => {
     delete (window as any).__tpStore;
+    delete (window as any).__tpAsrScrollDriver;
+    delete (window as any).currentIndex;
     delete (document as any).elementFromPoint;
+    setAsrBlocks([], { schemaVersion: 1, source: 'test' } as any);
   });
 
-  test('emits a manual-anchor signal after ASR pixel fallback kick', () => {
+  test('emits a manual-anchor signal and hard-syncs the driver after ASR pixel fallback kick', () => {
     const events: CustomEvent[] = [];
+    const setLastLineIndex = jest.fn();
+    (window as any).__tpAsrScrollDriver = { setLastLineIndex };
     const onSignal = (event: Event) => events.push(event as CustomEvent);
     window.addEventListener(ASR_MANUAL_ANCHOR_EVENT, onSignal as EventListener);
 
@@ -56,11 +62,38 @@ describe('ASR kick manual anchor signal', () => {
     window.removeEventListener(ASR_MANUAL_ANCHOR_EVENT, onSignal as EventListener);
 
     expect(moved).toBe(true);
+    expect(setLastLineIndex).toHaveBeenCalledWith(6);
     expect(events).toHaveLength(1);
     expect(events[0].detail).toEqual(expect.objectContaining({
       targetIndex: 6,
       source: 'kick',
       reason: 'test:kick',
     }));
+  });
+
+  test('hard-syncs the driver to the next ASR block start on block kick', () => {
+    const script = document.getElementById('script') as HTMLElement;
+    const lines = Array.from(script.querySelectorAll<HTMLElement>('.line'));
+    const makeBlock = (blockLines: HTMLElement[]) => {
+      const block = document.createElement('div');
+      for (const line of blockLines) block.appendChild(line);
+      return block;
+    };
+    const block0 = makeBlock(lines.slice(0, 3));
+    const block1 = makeBlock(lines.slice(3, 6));
+    const block2 = makeBlock(lines.slice(6, 7));
+    script.replaceChildren(block0, block1, block2);
+    setAsrBlocks([block0, block1, block2], { schemaVersion: 1, source: 'test' } as any);
+
+    const setLastLineIndex = jest.fn();
+    (window as any).__tpAsrScrollDriver = {
+      getLastLineIndex: () => 1,
+      setLastLineIndex,
+    };
+
+    const moved = kick({ reason: 'test:kick:block' });
+
+    expect(moved).toBe(true);
+    expect(setLastLineIndex).toHaveBeenCalledWith(3);
   });
 });
