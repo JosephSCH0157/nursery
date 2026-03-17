@@ -70,7 +70,6 @@ import {
 } from "../lib/hearth-nav-model";
 import { mirrorApprovedScriptToLocal, type MirrorApprovedScriptResult } from "../lib/hearth-script-mirror";
 import {
-  HEARTH_CONTENT_CATEGORIES,
   listHearthReadyScripts,
   removeHearthReadyScripts,
   reorderHearthReadyScripts,
@@ -1756,18 +1755,6 @@ type PendingAiProposal = {
 type ScriptValidationState = {
   source: "save_notice" | "save_gate" | "ai_apply" | "ai_repair";
   result: AnvilTagValidation;
-};
-
-const READY_CATEGORY_LABEL: Record<HearthContentCategory, string> = {
-  evergreen: "Evergreen",
-  hot_topic: "Hot Topic",
-  viral_reaction: "Viral / Reaction",
-  strategic_anchor: "Strategic Anchor",
-  community: "Community",
-  reflective: "Personal / Reflective",
-  explainer: "Educational / Explainer",
-  experimental: "Experimental",
-  backup: "Backup / Filler",
 };
 
 const READY_URGENCY_APPLICABLE_CATEGORY_SET = new Set<HearthContentCategory>([

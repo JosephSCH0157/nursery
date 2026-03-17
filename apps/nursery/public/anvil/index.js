@@ -25761,10 +25761,17 @@ function evaluateStallCueRescuePolicy(opts) {
   const reasonTag = String(opts.reasonTag || "").trim().toLowerCase();
   const skippedReasons = Array.isArray(opts.skippedReasons) ? opts.skippedReasons : [];
   if (reasonTag === "auto-stall") {
+    if (!skippedReasons.length) {
+      return {
+        allow: true,
+        directContentForwardRescue: true,
+        blockedReason: ""
+      };
+    }
     return {
-      allow: false,
+      allow: true,
       directContentForwardRescue: false,
-      blockedReason: "auto-stall-disabled"
+      blockedReason: ""
     };
   }
   if (!skippedReasons.length) {
@@ -28943,6 +28950,21 @@ function createAsrScrollDriver(options = {}) {
       return false;
     }
     const directContentForwardRescue = rescuePolicy.directContentForwardRescue;
+    if (reasonTag === "auto-stall" && directContentForwardRescue && commitCount < DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS) {
+      stallRescueRequested = false;
+      if (isDevMode4()) {
+        warnGuard("cue_stall_rescue_blocked", [
+          `at=${cursorLine}`,
+          "reason=startup-guard",
+          `commits=${commitCount}`,
+          `need=${DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS}`,
+          `delta=${deltaLines}`,
+          reason ? `source=${reason}` : "",
+          cursorLineText ? `line="${formatLogSnippet(cursorLineText, 56)}"` : ""
+        ]);
+      }
+      return false;
+    }
     const rescueSim = Math.max(DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_MULTI_JUMP_MIN_SIM);
     const matchId = `stall-rescue-${Date.now().toString(36)}-${targetLine}`;
     adoptPendingMatch({
@@ -34178,7 +34200,7 @@ function createAsrScrollDriver(options = {}) {
   }
   return driver;
 }
-var DEFAULT_MIN_LINE_ADVANCE, DEFAULT_SEEK_THROTTLE_MS, DEFAULT_INTERIM_SCALE, DEFAULT_MATCH_BACKTRACK_LINES, DEFAULT_MATCH_LOOKAHEAD_LINES, DEFAULT_MATCH_LOOKAHEAD_STEPS, DEFAULT_LOOKAHEAD_BUMP_COOLDOWN_MS, DEFAULT_LOOKAHEAD_BEHIND_HITS, DEFAULT_LOOKAHEAD_BEHIND_WINDOW_MS, DEFAULT_LOOKAHEAD_STALL_MS, DEFAULT_BAND_BACK_TOLERANCE_LINES, DEFAULT_SAME_LINE_THROTTLE_MS, DEFAULT_CREEP_PX, DEFAULT_CREEP_NEAR_PX, DEFAULT_CREEP_BUDGET_PX, DEFAULT_SCROLL_TRUTH_SETTLE_FRAMES, DEFAULT_SCROLL_TRUTH_MISMATCH_PX, DEFAULT_SCROLL_TRUTH_GLIDE_SAFETY_MS, DEFAULT_SCROLL_TRUTH_GLIDE_MAX_WAIT_MS, DEFAULT_SCROLL_TRUTH_AHEAD_TOLERANCE_LINES, DEFAULT_DEADBAND_PX, DEFAULT_MAX_VEL_PX_PER_SEC, DEFAULT_MAX_VEL_MED_PX_PER_SEC, DEFAULT_MAX_VEL_CATCHUP_PX_PER_SEC, DEFAULT_MAX_ACCEL_PX_PER_SEC2, DEFAULT_MIN_STEP_PX, DEFAULT_MAX_STEP_PX, DEFAULT_CATCHUP_MED_MIN_PX, DEFAULT_CATCHUP_FAST_MIN_PX, DEFAULT_MAX_TARGET_JUMP_PX, DEFAULT_MAX_TARGET_JUMP_HYBRID_PX, LIVE_ASR_COMMIT_MIN_PX, LIVE_ASR_COMMIT_MAX_LINES, LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO, LIVE_ASR_GLIDE_MIN_MS, LIVE_ASR_GLIDE_MAX_MS, LIVE_ASR_GLIDE_PX_PER_SEC, DEFAULT_PURSUE_KP, DEFAULT_PURSUE_MANUAL_CANCEL_PX, DEFAULT_NO_TARGET_RETRY_SIM, DEFAULT_NO_TARGET_RETRY_MAX_DELTA, DEFAULT_NO_TARGET_RETRY_FRAMES, DEFAULT_LINE_MISSING_LOOKUP_FRAMES, DEFAULT_NO_TARGET_RETRY_WINDOW_MS, DEFAULT_STRONG_WINDOW_MS, DEFAULT_FINAL_EVIDENCE_LEAD_LINES, MARKER_BIAS_PX, DEFAULT_REALIGN_LEAD_LINES, DEFAULT_REALIGN_LOOKBACK_LINES, DEFAULT_REALIGN_SIM, DEFAULT_LAG_RELOCK_BEHIND_HITS, DEFAULT_LAG_RELOCK_WINDOW_MS, DEFAULT_LAG_RELOCK_MIN_DELTA, DEFAULT_LAG_RELOCK_MIN_TOKENS, DEFAULT_LAG_RELOCK_MIN_CHARS, DEFAULT_LAG_RELOCK_LOOKAHEAD_BONUS, DEFAULT_LAG_RELOCK_DURATION_MS, DEFAULT_LAG_RELOCK_LOW_SIM_FLOOR, DEFAULT_RELOCK_SIM_FLOOR, DEFAULT_RELOCK_OVERLAP_RATIO, DEFAULT_RELOCK_SPAN_MIN_LINES, DEFAULT_RELOCK_REPEAT_WINDOW_MS, DEFAULT_RELOCK_REPEAT_MIN, DEFAULT_RESYNC_WINDOW_MS, DEFAULT_RESYNC_LOOKAHEAD_BONUS, DEFAULT_RESYNC_COOLDOWN_MS, DEFAULT_STRONG_BACK_SIM, DEFAULT_BACK_CONFIRM_HITS, DEFAULT_BACK_CONFIRM_WINDOW_MS, DEFAULT_BEHIND_RECOVERY_MS, DEFAULT_BEHIND_RECOVERY_MAX_LINES, DEFAULT_BEHIND_RECOVERY_MIN_SIM, DEFAULT_BEHIND_RECOVERY_COOLDOWN_MS, DEFAULT_AMBIGUITY_SIM_DELTA, DEFAULT_AMBIGUITY_NEAR_LINES, DEFAULT_AMBIGUITY_FAR_LINES, DEFAULT_MIN_TOKEN_COUNT, DEFAULT_MIN_EVIDENCE_CHARS, DEFAULT_INTERIM_HYSTERESIS_BONUS, DEFAULT_INTERIM_STABLE_REPEATS, DEFAULT_SAME_LINE_LOW_SIM_RELAX, DEFAULT_FORWARD_TIE_EPS, DEFAULT_FORWARD_PROGRESS_WINDOW_MS, DEFAULT_FORWARD_BIAS_RECENT_LINES, DEFAULT_FORWARD_BIAS_WINDOW_MS, DEFAULT_FORWARD_BIAS_LOOKAHEAD_LINES, DEFAULT_FORWARD_BIAS_SIM_SLACK, DEFAULT_SHORT_FINAL_MIN_TOKENS, DEFAULT_SHORT_FINAL_MAX_TOKENS, DEFAULT_SHORT_FINAL_WINDOW_MS, DEFAULT_SHORT_FINAL_LOOKAHEAD_LINES, DEFAULT_SHORT_FINAL_SIM_SLACK, DEFAULT_FORWARD_WINDOW_MAX_LINES, DEFAULT_FORWARD_WINDOW_MIN_TOKENS, DEFAULT_OUTRUN_RELAXED_SIM, DEFAULT_OUTRUN_WINDOW_MS, DEFAULT_OUTRUN_LOOKAHEAD_LINES, DEFAULT_OUTRUN_BEHIND_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_MAX_DELTA, DEFAULT_OUTRUN_BEHIND_WIN_MARGIN, DEFAULT_OUTRUN_BEHIND_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_TOKENS, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_OVERLAP_TOKENS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_EXTRA_CHARS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_SIM, DEFAULT_FORCED_RATE_WINDOW_MS, DEFAULT_FORCED_RATE_MAX, DEFAULT_FORCED_COOLDOWN_MS, DEFAULT_FORCED_MIN_TOKENS, DEFAULT_FORCED_MIN_CHARS, DEFAULT_SLAM_DUNK_SIM, DEFAULT_SLAM_DUNK_MAX_DELTA, DEFAULT_CONFIRMATION_RELAXED_SIM, DEFAULT_CONFIRMATION_RELAXED_MAX_DELTA, DEFAULT_NO_MATCH_WINDOW_MS, DEFAULT_NO_MATCH_BUMP_HITS, DEFAULT_NO_MATCH_RELOCK_HITS, GUARD_THROTTLE_MS, DEFAULT_SHORT_TOKEN_MAX, DEFAULT_SHORT_TOKEN_BOOST, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES, DEFAULT_STABLE_INTERIM_NUDGE_MS, DEFAULT_STABLE_INTERIM_NUDGE_COOLDOWN_MS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_TOKENS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_RATIO, DEFAULT_STABLE_INTERIM_PREFIX_MAX_TAIL_DRIFT_TOKENS, DEFAULT_NOISE_INTERIM_MIN_TOKENS, DEFAULT_NOISE_INTERIM_MIN_CHARS, DEFAULT_STARVATION_COMMIT_GAP_MS, DEFAULT_STARVATION_WARN_COOLDOWN_MS, DEFAULT_STARVATION_RELOCK_LOOKAHEAD_LINES, DEFAULT_STARVATION_RELOCK_SIM_SLACK, DEFAULT_STARVATION_RELOCK_COOLDOWN_MS, DEFAULT_LOST_FORWARD_WALL_RELOCK_STREAK, DEFAULT_FINAL_CONTINUATION_SIM_EPS, BAD_CURSOR_ON_CUE_LOG_THROTTLE_MS, DEFAULT_STALL_COMMIT_MS, DEFAULT_STALL_LOG_COOLDOWN_MS, DEFAULT_LOW_SIM_FLOOR, DEFAULT_STUCK_RESYNC_WINDOW_MS, DEFAULT_STUCK_RESYNC_LOOKAHEAD_BONUS, DEFAULT_STUCK_RESYNC_BACKTRACK_LINES, DEFAULT_STUCK_RELOCK_SIM, DEFAULT_GENERIC_SIM_DELTA, DEFAULT_GENERIC_MIN_CANDIDATES, DEFAULT_GENERIC_MAX_TOKENS, DEFAULT_META_OVERLAP_RATIO, DEFAULT_LAG_DELTA_LINES, DEFAULT_LAG_WINDOW_MATCHES, DEFAULT_LAG_MIN_FORWARD_HITS, DEFAULT_LAG_FORCE_DELTA_LINES, DEFAULT_LAG_FORCE_HITS, DEFAULT_CATCHUP_MODE_MAX_JUMP, DEFAULT_CATCHUP_MODE_MIN_SIM, DEFAULT_CATCHUP_MODE_DURATION_MS, DEFAULT_CATCHUP_LOOKAHEAD_BONUS, POST_CATCHUP_MS, POST_CATCHUP_DROP, POST_CATCHUP_MAX_DELTA, POST_CATCHUP_REQUIRE_IN_BAND, DELTA_SMALL_MAX_LINES, DELTA_MED_MAX_LINES, DELTA_LARGE_MIN_LINES, DELTA_MIN_SIM_SMALL, DELTA_MIN_SIM_MED, DELTA_MIN_SIM_LARGE, LARGE_DELTA_CONFIRM_HITS, LARGE_DELTA_CONFIRM_WINDOW_MS, LARGE_DELTA_CONFIRM_SPREAD, OVERSHOOT_RISK_DELTA_LINES, OVERSHOOT_RISK_WINDOW_MS, OVERSHOOT_RISK_MIN_SIM, BEHIND_RECOVERY_WINDOW_MS, BEHIND_RECOVERY_HITS, BEHIND_RECOVERY_CLUSTER_SPREAD, BEHIND_RECOVERY_MIN_DELTA, BEHIND_RECOVERY_MAX_REWIND, BEHIND_RECOVERY_MIN_SIM, BEHIND_RECOVERY_COOLDOWN_MS, POST_CATCHUP_SAMPLES, DEFAULT_BACKJUMP_BLOCK_LINES, DEFAULT_FREEZE_LOW_SIM_HITS, DEFAULT_FREEZE_LOW_SIM_WINDOW_MS, EVENT_RING_MAX, EVENT_DUMP_COUNT, BEHIND_DEBT_WINDOW_LINES, BEHIND_DEBT_DECAY, BEHIND_DEBT_CAP, RECOVERY_BIG_JUMP_LINES, RECOVERY_SIM_MIN, RECOVERY_STREAK_REQUIRED, RECOVERY_SIM_SLACK, MANUAL_ANCHOR_MIN_SCROLL_PX, MANUAL_ANCHOR_MAX_SCROLL_WINDOW_MS, MANUAL_ANCHOR_PENDING_TIMEOUT_MS, MANUAL_ANCHOR_WINDOW_LINES, MANUAL_ANCHOR_SIM_SLACK, MAX_LINES_PER_COMMIT, DELTA_SMOOTHING_FACTOR, TAPER_EXPONENT, TAPER_MIN, GLIDE_MIN_MS, GLIDE_MAX_MS, GLIDE_DEFAULT_MS, MICRO_DELTA_LINE_RATIO, MICRO_PURSUE_MS, MICRO_PURSUE_MAX_PXPS, MIN_PX_PER_SEC, WITHIN_BLOCK_CONTINUITY_SIM_SLACK, POST_COMMIT_ACTIVE_MAX_RATIO, POST_COMMIT_ACTIVE_TARGET_RATIO, POST_COMMIT_ACTIVE_MIN_RATIO, POST_COMMIT_ACTIVE_BAND_RADIUS, POST_COMMIT_MIN_READABLE_LINES_BELOW, POST_COMMIT_READABILITY_LOOKAHEAD_LINES, POST_COMMIT_READABLE_BOTTOM_PAD_PX, POST_COMMIT_NEXT_LINE_VIS_GUARD_PX, POST_COMMIT_MIN_NUDGE_PX, POST_COMMIT_MAX_FORWARD_NUDGE_LINES, COMMIT_BAND_RESEED_BACK_LINES, COMMIT_BAND_RESEED_AHEAD_LINES, COMMIT_BAND_RESEED_TTL_MS, DEFAULT_STUCK_WATCHDOG_FINAL_EVENTS, DEFAULT_STUCK_WATCHDOG_NO_COMMIT_MS, DEFAULT_STUCK_WATCHDOG_COOLDOWN_MS, DEFAULT_STUCK_WATCHDOG_MAX_DELTA_LINES, DEFAULT_STUCK_WATCHDOG_FORWARD_FLOOR, DEFAULT_STUCK_WATCHDOG_COMMIT_CAP_LINES, DEFAULT_ALLOW_BEHIND_REANCHOR, DEFAULT_STUCK_WATCHDOG_INTERIM_EVENTS, DEFAULT_STUCK_WATCHDOG_INTERIM_RECENT_MS, DEFAULT_COMMIT_CLAMP_MAX_DELTA_LINES, DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES, DEFAULT_CUE_BRIDGE_BYPASS_MAX_SKIPPED_LINES, DEFAULT_CUE_BRIDGE_STRONG_SIM, DEFAULT_CUE_BRIDGE_LARGE_GAP, DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS, DEFAULT_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS, DEFAULT_MULTI_JUMP_MIN_SIM, DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS, DEFAULT_MULTI_JUMP_HARD_DENY_SIM, DEFAULT_AMBIGUITY_HOLD_MIN_SIM, DEFAULT_AMBIGUITY_HOLD_NEAR_WINDOW_LINES, DEFAULT_AMBIG_SHORT_LINE_MAX_CONTENT_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_OVERLAP_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_SIM, DEFAULT_AMBIG_SHORT_LINE_RUNNERUP_MARGIN, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_RATIO, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_TOKENS, DEFAULT_HOLD_ANCHOR_LOOKAHEAD_LINES, DEFAULT_HOLD_ANCHOR_MIN_SIM, DEFAULT_HOLD_ANCHOR_MARGIN, DEFAULT_HOLD_ANCHOR_MIN_CONTENT_TOKENS, DEFAULT_HOLD_ANCHOR_MIN_SHARED_CONTENT_HITS, DEFAULT_HOLD_ANCHOR_NEAR_DELTA_LINES, DEFAULT_HOLD_ANCHOR_NEAR_MIN_SIM, DEFAULT_HOLD_ANCHOR_COMMIT_CAP_LINES, HOLD_TICK_LOG_THROTTLE_MS, DEFAULT_NO_PROGRESS_STREAK_TRIGGER, DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES, DEFAULT_LOST_FORWARD_MIN_SIM, DEFAULT_LOST_HEALTHY_LOCK_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_CONTENT_HITS, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MIN_HITS, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_TOKENS, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_STREAK, LOST_FORWARD_WINDOW_STEPS, LOST_FORWARD_STAGE_STREAKS, DEFAULT_TELEPORT_MIN_TOKENS, DEFAULT_TELEPORT_COMPETITIVE_MARGIN, DEFAULT_TELEPORT_STANDARD_CAP_LINES, DEFAULT_TELEPORT_DEEP_CAP_LINES, ANCHOR_RARE_TOKEN_MIN_LEN, DEFAULT_MICRO_RELOCK_MARGIN, DEFAULT_MICRO_RELOCK_COOLDOWN_MS, DEFAULT_MICRO_RELOCK_PREFERRED_TTL_MS, DEFAULT_GRACE_ROLLBACK_WINDOW_MS, DEFAULT_GRACE_ROLLBACK_MIN_PREV_SIM, DEFAULT_GRACE_ROLLBACK_MAX_CURRENT_SIM, DEFAULT_GRACE_ROLLBACK_MIN_MARGIN, DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_LINES, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_SIM, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM, DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO, DEFAULT_PERMISSIVE_FINAL_MARKER_BACK_TOLERANCE_LINES, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_MIN_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_SIM_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_SPARSE_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_CONF_CAP, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_RATIO, DEFAULT_WEAK_CURRENT_FORWARD_MAX_DELTA, DEFAULT_WEAK_CURRENT_FORWARD_MAX_SPAN, DEFAULT_WEAK_CURRENT_FORWARD_INTERIM_MIN_SIM, DEFAULT_WEAK_CURRENT_FORWARD_FINAL_MIN_SIM, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_TOKENS, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_RATIO, DEFAULT_FIRST_COMMIT_NEAR_START_MAX_DELTA, DEFAULT_WRITER_ADDRESSABLE_MIN_INDEXED_LINES, DEFAULT_WRITER_ADDRESSABLE_MIN_RATIO, DEFAULT_WRITER_ADDRESSABLE_MIN_FLOOR, DEFAULT_BEHIND_CANDIDATE_MIN_SIM, DEFAULT_BEHIND_CANDIDATE_MIN_TOKENS, DEFAULT_BEHIND_CANDIDATE_MIN_CHARS, DEFAULT_CURRENT_OVERRIDE_MIN_SIM, CUE_LINE_BRACKET_RE, CUE_LINE_WORD_RE, SPEAKER_TAG_ONLY_RE, NOTE_TAG_ONLY_RE, NOTE_INLINE_BLOCK_RE, MAX_CUE_SKIP_LOOKAHEAD_LINES, ANCHOR_STOPWORDS, INDEXED_LINE_SELECTOR, MOTION_PRESET_NORMAL, MOTION_PRESET_CALM, MOTION_OVERRIDE_EPS, MOTION_KEYS, guardLastAt, logLastAt, guardStatusLastAt, activeGuardCounts, guardEvents, GUARD_DEBUG_REASONS, LOG_THROTTLE_MS, HUD_STATUS_THROTTLE_MS, HUD_PURSUE_THROTTLE_MS, lastPursueHudAt, SUMMARY_TOAST_DEDUPE_MS, SUMMARY_MIN_DURATION_MS, DRIVER_ACTIVE_DISPOSE_MIN_MS, NAN_GUARD_THROTTLE_MS, MAX_REPORTED_RUN_KEYS, reportedSummaryRunKeys, lastSummaryToastKey, lastSummaryToastAt, nanGuardLastAt, HYBRID_BRAKE_TTL_MS, HYBRID_ASSIST_TTL_MS, HYBRID_TARGET_HINT_TTL_MS, HYBRID_ASSIST_MAX_BOOST_PXPS, HYBRID_TARGET_HINT_MIN_DELTA_PX, HYBRID_TARGET_HINT_MIN_INTERVAL_MS, lastHybridTargetHintTop, lastHybridTargetHintTs, getNowMs, warnedMissingTargetTop;
+var DEFAULT_MIN_LINE_ADVANCE, DEFAULT_SEEK_THROTTLE_MS, DEFAULT_INTERIM_SCALE, DEFAULT_MATCH_BACKTRACK_LINES, DEFAULT_MATCH_LOOKAHEAD_LINES, DEFAULT_MATCH_LOOKAHEAD_STEPS, DEFAULT_LOOKAHEAD_BUMP_COOLDOWN_MS, DEFAULT_LOOKAHEAD_BEHIND_HITS, DEFAULT_LOOKAHEAD_BEHIND_WINDOW_MS, DEFAULT_LOOKAHEAD_STALL_MS, DEFAULT_BAND_BACK_TOLERANCE_LINES, DEFAULT_SAME_LINE_THROTTLE_MS, DEFAULT_CREEP_PX, DEFAULT_CREEP_NEAR_PX, DEFAULT_CREEP_BUDGET_PX, DEFAULT_SCROLL_TRUTH_SETTLE_FRAMES, DEFAULT_SCROLL_TRUTH_MISMATCH_PX, DEFAULT_SCROLL_TRUTH_GLIDE_SAFETY_MS, DEFAULT_SCROLL_TRUTH_GLIDE_MAX_WAIT_MS, DEFAULT_SCROLL_TRUTH_AHEAD_TOLERANCE_LINES, DEFAULT_DEADBAND_PX, DEFAULT_MAX_VEL_PX_PER_SEC, DEFAULT_MAX_VEL_MED_PX_PER_SEC, DEFAULT_MAX_VEL_CATCHUP_PX_PER_SEC, DEFAULT_MAX_ACCEL_PX_PER_SEC2, DEFAULT_MIN_STEP_PX, DEFAULT_MAX_STEP_PX, DEFAULT_CATCHUP_MED_MIN_PX, DEFAULT_CATCHUP_FAST_MIN_PX, DEFAULT_MAX_TARGET_JUMP_PX, DEFAULT_MAX_TARGET_JUMP_HYBRID_PX, LIVE_ASR_COMMIT_MIN_PX, LIVE_ASR_COMMIT_MAX_LINES, LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO, LIVE_ASR_GLIDE_MIN_MS, LIVE_ASR_GLIDE_MAX_MS, LIVE_ASR_GLIDE_PX_PER_SEC, DEFAULT_PURSUE_KP, DEFAULT_PURSUE_MANUAL_CANCEL_PX, DEFAULT_NO_TARGET_RETRY_SIM, DEFAULT_NO_TARGET_RETRY_MAX_DELTA, DEFAULT_NO_TARGET_RETRY_FRAMES, DEFAULT_LINE_MISSING_LOOKUP_FRAMES, DEFAULT_NO_TARGET_RETRY_WINDOW_MS, DEFAULT_STRONG_WINDOW_MS, DEFAULT_FINAL_EVIDENCE_LEAD_LINES, MARKER_BIAS_PX, DEFAULT_REALIGN_LEAD_LINES, DEFAULT_REALIGN_LOOKBACK_LINES, DEFAULT_REALIGN_SIM, DEFAULT_LAG_RELOCK_BEHIND_HITS, DEFAULT_LAG_RELOCK_WINDOW_MS, DEFAULT_LAG_RELOCK_MIN_DELTA, DEFAULT_LAG_RELOCK_MIN_TOKENS, DEFAULT_LAG_RELOCK_MIN_CHARS, DEFAULT_LAG_RELOCK_LOOKAHEAD_BONUS, DEFAULT_LAG_RELOCK_DURATION_MS, DEFAULT_LAG_RELOCK_LOW_SIM_FLOOR, DEFAULT_RELOCK_SIM_FLOOR, DEFAULT_RELOCK_OVERLAP_RATIO, DEFAULT_RELOCK_SPAN_MIN_LINES, DEFAULT_RELOCK_REPEAT_WINDOW_MS, DEFAULT_RELOCK_REPEAT_MIN, DEFAULT_RESYNC_WINDOW_MS, DEFAULT_RESYNC_LOOKAHEAD_BONUS, DEFAULT_RESYNC_COOLDOWN_MS, DEFAULT_STRONG_BACK_SIM, DEFAULT_BACK_CONFIRM_HITS, DEFAULT_BACK_CONFIRM_WINDOW_MS, DEFAULT_BEHIND_RECOVERY_MS, DEFAULT_BEHIND_RECOVERY_MAX_LINES, DEFAULT_BEHIND_RECOVERY_MIN_SIM, DEFAULT_BEHIND_RECOVERY_COOLDOWN_MS, DEFAULT_AMBIGUITY_SIM_DELTA, DEFAULT_AMBIGUITY_NEAR_LINES, DEFAULT_AMBIGUITY_FAR_LINES, DEFAULT_MIN_TOKEN_COUNT, DEFAULT_MIN_EVIDENCE_CHARS, DEFAULT_INTERIM_HYSTERESIS_BONUS, DEFAULT_INTERIM_STABLE_REPEATS, DEFAULT_SAME_LINE_LOW_SIM_RELAX, DEFAULT_FORWARD_TIE_EPS, DEFAULT_FORWARD_PROGRESS_WINDOW_MS, DEFAULT_FORWARD_BIAS_RECENT_LINES, DEFAULT_FORWARD_BIAS_WINDOW_MS, DEFAULT_FORWARD_BIAS_LOOKAHEAD_LINES, DEFAULT_FORWARD_BIAS_SIM_SLACK, DEFAULT_SHORT_FINAL_MIN_TOKENS, DEFAULT_SHORT_FINAL_MAX_TOKENS, DEFAULT_SHORT_FINAL_WINDOW_MS, DEFAULT_SHORT_FINAL_LOOKAHEAD_LINES, DEFAULT_SHORT_FINAL_SIM_SLACK, DEFAULT_FORWARD_WINDOW_MAX_LINES, DEFAULT_FORWARD_WINDOW_MIN_TOKENS, DEFAULT_OUTRUN_RELAXED_SIM, DEFAULT_OUTRUN_WINDOW_MS, DEFAULT_OUTRUN_LOOKAHEAD_LINES, DEFAULT_OUTRUN_BEHIND_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_MAX_DELTA, DEFAULT_OUTRUN_BEHIND_WIN_MARGIN, DEFAULT_OUTRUN_BEHIND_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_TOKENS, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_OVERLAP_TOKENS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_EXTRA_CHARS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_SIM, DEFAULT_FORCED_RATE_WINDOW_MS, DEFAULT_FORCED_RATE_MAX, DEFAULT_FORCED_COOLDOWN_MS, DEFAULT_FORCED_MIN_TOKENS, DEFAULT_FORCED_MIN_CHARS, DEFAULT_SLAM_DUNK_SIM, DEFAULT_SLAM_DUNK_MAX_DELTA, DEFAULT_CONFIRMATION_RELAXED_SIM, DEFAULT_CONFIRMATION_RELAXED_MAX_DELTA, DEFAULT_NO_MATCH_WINDOW_MS, DEFAULT_NO_MATCH_BUMP_HITS, DEFAULT_NO_MATCH_RELOCK_HITS, GUARD_THROTTLE_MS, DEFAULT_SHORT_TOKEN_MAX, DEFAULT_SHORT_TOKEN_BOOST, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES, DEFAULT_STABLE_INTERIM_NUDGE_MS, DEFAULT_STABLE_INTERIM_NUDGE_COOLDOWN_MS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_TOKENS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_RATIO, DEFAULT_STABLE_INTERIM_PREFIX_MAX_TAIL_DRIFT_TOKENS, DEFAULT_NOISE_INTERIM_MIN_TOKENS, DEFAULT_NOISE_INTERIM_MIN_CHARS, DEFAULT_STARVATION_COMMIT_GAP_MS, DEFAULT_STARVATION_WARN_COOLDOWN_MS, DEFAULT_STARVATION_RELOCK_LOOKAHEAD_LINES, DEFAULT_STARVATION_RELOCK_SIM_SLACK, DEFAULT_STARVATION_RELOCK_COOLDOWN_MS, DEFAULT_LOST_FORWARD_WALL_RELOCK_STREAK, DEFAULT_FINAL_CONTINUATION_SIM_EPS, BAD_CURSOR_ON_CUE_LOG_THROTTLE_MS, DEFAULT_STALL_COMMIT_MS, DEFAULT_STALL_LOG_COOLDOWN_MS, DEFAULT_LOW_SIM_FLOOR, DEFAULT_STUCK_RESYNC_WINDOW_MS, DEFAULT_STUCK_RESYNC_LOOKAHEAD_BONUS, DEFAULT_STUCK_RESYNC_BACKTRACK_LINES, DEFAULT_STUCK_RELOCK_SIM, DEFAULT_GENERIC_SIM_DELTA, DEFAULT_GENERIC_MIN_CANDIDATES, DEFAULT_GENERIC_MAX_TOKENS, DEFAULT_META_OVERLAP_RATIO, DEFAULT_LAG_DELTA_LINES, DEFAULT_LAG_WINDOW_MATCHES, DEFAULT_LAG_MIN_FORWARD_HITS, DEFAULT_LAG_FORCE_DELTA_LINES, DEFAULT_LAG_FORCE_HITS, DEFAULT_CATCHUP_MODE_MAX_JUMP, DEFAULT_CATCHUP_MODE_MIN_SIM, DEFAULT_CATCHUP_MODE_DURATION_MS, DEFAULT_CATCHUP_LOOKAHEAD_BONUS, POST_CATCHUP_MS, POST_CATCHUP_DROP, POST_CATCHUP_MAX_DELTA, POST_CATCHUP_REQUIRE_IN_BAND, DELTA_SMALL_MAX_LINES, DELTA_MED_MAX_LINES, DELTA_LARGE_MIN_LINES, DELTA_MIN_SIM_SMALL, DELTA_MIN_SIM_MED, DELTA_MIN_SIM_LARGE, LARGE_DELTA_CONFIRM_HITS, LARGE_DELTA_CONFIRM_WINDOW_MS, LARGE_DELTA_CONFIRM_SPREAD, OVERSHOOT_RISK_DELTA_LINES, OVERSHOOT_RISK_WINDOW_MS, OVERSHOOT_RISK_MIN_SIM, BEHIND_RECOVERY_WINDOW_MS, BEHIND_RECOVERY_HITS, BEHIND_RECOVERY_CLUSTER_SPREAD, BEHIND_RECOVERY_MIN_DELTA, BEHIND_RECOVERY_MAX_REWIND, BEHIND_RECOVERY_MIN_SIM, BEHIND_RECOVERY_COOLDOWN_MS, POST_CATCHUP_SAMPLES, DEFAULT_BACKJUMP_BLOCK_LINES, DEFAULT_FREEZE_LOW_SIM_HITS, DEFAULT_FREEZE_LOW_SIM_WINDOW_MS, EVENT_RING_MAX, EVENT_DUMP_COUNT, BEHIND_DEBT_WINDOW_LINES, BEHIND_DEBT_DECAY, BEHIND_DEBT_CAP, RECOVERY_BIG_JUMP_LINES, RECOVERY_SIM_MIN, RECOVERY_STREAK_REQUIRED, RECOVERY_SIM_SLACK, MANUAL_ANCHOR_MIN_SCROLL_PX, MANUAL_ANCHOR_MAX_SCROLL_WINDOW_MS, MANUAL_ANCHOR_PENDING_TIMEOUT_MS, MANUAL_ANCHOR_WINDOW_LINES, MANUAL_ANCHOR_SIM_SLACK, MAX_LINES_PER_COMMIT, DELTA_SMOOTHING_FACTOR, TAPER_EXPONENT, TAPER_MIN, GLIDE_MIN_MS, GLIDE_MAX_MS, GLIDE_DEFAULT_MS, MICRO_DELTA_LINE_RATIO, MICRO_PURSUE_MS, MICRO_PURSUE_MAX_PXPS, MIN_PX_PER_SEC, WITHIN_BLOCK_CONTINUITY_SIM_SLACK, POST_COMMIT_ACTIVE_MAX_RATIO, POST_COMMIT_ACTIVE_TARGET_RATIO, POST_COMMIT_ACTIVE_MIN_RATIO, POST_COMMIT_ACTIVE_BAND_RADIUS, POST_COMMIT_MIN_READABLE_LINES_BELOW, POST_COMMIT_READABILITY_LOOKAHEAD_LINES, POST_COMMIT_READABLE_BOTTOM_PAD_PX, POST_COMMIT_NEXT_LINE_VIS_GUARD_PX, POST_COMMIT_MIN_NUDGE_PX, POST_COMMIT_MAX_FORWARD_NUDGE_LINES, COMMIT_BAND_RESEED_BACK_LINES, COMMIT_BAND_RESEED_AHEAD_LINES, COMMIT_BAND_RESEED_TTL_MS, DEFAULT_STUCK_WATCHDOG_FINAL_EVENTS, DEFAULT_STUCK_WATCHDOG_NO_COMMIT_MS, DEFAULT_STUCK_WATCHDOG_COOLDOWN_MS, DEFAULT_STUCK_WATCHDOG_MAX_DELTA_LINES, DEFAULT_STUCK_WATCHDOG_FORWARD_FLOOR, DEFAULT_STUCK_WATCHDOG_COMMIT_CAP_LINES, DEFAULT_ALLOW_BEHIND_REANCHOR, DEFAULT_STUCK_WATCHDOG_INTERIM_EVENTS, DEFAULT_STUCK_WATCHDOG_INTERIM_RECENT_MS, DEFAULT_COMMIT_CLAMP_MAX_DELTA_LINES, DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES, DEFAULT_CUE_BRIDGE_BYPASS_MAX_SKIPPED_LINES, DEFAULT_CUE_BRIDGE_STRONG_SIM, DEFAULT_CUE_BRIDGE_LARGE_GAP, DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS, DEFAULT_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS, DEFAULT_MULTI_JUMP_MIN_SIM, DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS, DEFAULT_MULTI_JUMP_HARD_DENY_SIM, DEFAULT_AMBIGUITY_HOLD_MIN_SIM, DEFAULT_AMBIGUITY_HOLD_NEAR_WINDOW_LINES, DEFAULT_AMBIG_SHORT_LINE_MAX_CONTENT_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_OVERLAP_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_SIM, DEFAULT_AMBIG_SHORT_LINE_RUNNERUP_MARGIN, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_RATIO, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_TOKENS, DEFAULT_HOLD_ANCHOR_LOOKAHEAD_LINES, DEFAULT_HOLD_ANCHOR_MIN_SIM, DEFAULT_HOLD_ANCHOR_MARGIN, DEFAULT_HOLD_ANCHOR_MIN_CONTENT_TOKENS, DEFAULT_HOLD_ANCHOR_MIN_SHARED_CONTENT_HITS, DEFAULT_HOLD_ANCHOR_NEAR_DELTA_LINES, DEFAULT_HOLD_ANCHOR_NEAR_MIN_SIM, DEFAULT_HOLD_ANCHOR_COMMIT_CAP_LINES, HOLD_TICK_LOG_THROTTLE_MS, DEFAULT_NO_PROGRESS_STREAK_TRIGGER, DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES, DEFAULT_LOST_FORWARD_MIN_SIM, DEFAULT_LOST_HEALTHY_LOCK_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_CONTENT_HITS, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MIN_HITS, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_TOKENS, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_STREAK, LOST_FORWARD_WINDOW_STEPS, LOST_FORWARD_STAGE_STREAKS, DEFAULT_TELEPORT_MIN_TOKENS, DEFAULT_TELEPORT_COMPETITIVE_MARGIN, DEFAULT_TELEPORT_STANDARD_CAP_LINES, DEFAULT_TELEPORT_DEEP_CAP_LINES, ANCHOR_RARE_TOKEN_MIN_LEN, DEFAULT_MICRO_RELOCK_MARGIN, DEFAULT_MICRO_RELOCK_COOLDOWN_MS, DEFAULT_MICRO_RELOCK_PREFERRED_TTL_MS, DEFAULT_GRACE_ROLLBACK_WINDOW_MS, DEFAULT_GRACE_ROLLBACK_MIN_PREV_SIM, DEFAULT_GRACE_ROLLBACK_MAX_CURRENT_SIM, DEFAULT_GRACE_ROLLBACK_MIN_MARGIN, DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_LINES, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_SIM, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM, DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO, DEFAULT_PERMISSIVE_FINAL_MARKER_BACK_TOLERANCE_LINES, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_MIN_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_SIM_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_SPARSE_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_CONF_CAP, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_RATIO, DEFAULT_WEAK_CURRENT_FORWARD_MAX_DELTA, DEFAULT_WEAK_CURRENT_FORWARD_MAX_SPAN, DEFAULT_WEAK_CURRENT_FORWARD_INTERIM_MIN_SIM, DEFAULT_WEAK_CURRENT_FORWARD_FINAL_MIN_SIM, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_TOKENS, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_RATIO, DEFAULT_FIRST_COMMIT_NEAR_START_MAX_DELTA, DEFAULT_WRITER_ADDRESSABLE_MIN_INDEXED_LINES, DEFAULT_WRITER_ADDRESSABLE_MIN_RATIO, DEFAULT_WRITER_ADDRESSABLE_MIN_FLOOR, DEFAULT_BEHIND_CANDIDATE_MIN_SIM, DEFAULT_BEHIND_CANDIDATE_MIN_TOKENS, DEFAULT_BEHIND_CANDIDATE_MIN_CHARS, DEFAULT_CURRENT_OVERRIDE_MIN_SIM, CUE_LINE_BRACKET_RE, CUE_LINE_WORD_RE, SPEAKER_TAG_ONLY_RE, NOTE_TAG_ONLY_RE, NOTE_INLINE_BLOCK_RE, MAX_CUE_SKIP_LOOKAHEAD_LINES, ANCHOR_STOPWORDS, INDEXED_LINE_SELECTOR, MOTION_PRESET_NORMAL, MOTION_PRESET_CALM, MOTION_OVERRIDE_EPS, MOTION_KEYS, guardLastAt, logLastAt, guardStatusLastAt, activeGuardCounts, guardEvents, GUARD_DEBUG_REASONS, LOG_THROTTLE_MS, HUD_STATUS_THROTTLE_MS, HUD_PURSUE_THROTTLE_MS, lastPursueHudAt, SUMMARY_TOAST_DEDUPE_MS, SUMMARY_MIN_DURATION_MS, DRIVER_ACTIVE_DISPOSE_MIN_MS, NAN_GUARD_THROTTLE_MS, MAX_REPORTED_RUN_KEYS, reportedSummaryRunKeys, lastSummaryToastKey, lastSummaryToastAt, nanGuardLastAt, HYBRID_BRAKE_TTL_MS, HYBRID_ASSIST_TTL_MS, HYBRID_TARGET_HINT_TTL_MS, HYBRID_ASSIST_MAX_BOOST_PXPS, HYBRID_TARGET_HINT_MIN_DELTA_PX, HYBRID_TARGET_HINT_MIN_INTERVAL_MS, lastHybridTargetHintTop, lastHybridTargetHintTs, getNowMs, warnedMissingTargetTop;
 var init_asr_scroll_driver = __esm({
   "src/features/asr/asr-scroll-driver.ts"() {
     "use strict";
@@ -34436,6 +34458,7 @@ var init_asr_scroll_driver = __esm({
     DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS = 2;
     DEFAULT_CUE_STALL_RESCUE_DELAY_MS = 900;
     DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS = 1800;
+    DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS = 3;
     DEFAULT_MULTI_JUMP_MIN_SIM = 0.45;
     DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS = 0.08;
     DEFAULT_MULTI_JUMP_HARD_DENY_SIM = 0.3;
@@ -34902,6 +34925,397 @@ var init_recorderRegistry = __esm({
       stop: 2e3
     };
     STOP_SLOW_WARN_MS = 2e3;
+  }
+});
+
+// src/speech/engines/whisper-bridge.ts
+function dispatchAiActivity(detail) {
+  try {
+    window.__tpAiActivity = detail;
+  } catch {
+  }
+  try {
+    window.dispatchEvent(new CustomEvent("tp:ai:activity", { detail }));
+  } catch {
+  }
+}
+function nowTs() {
+  if (typeof performance !== "undefined" && typeof performance.now === "function") {
+    return performance.now();
+  }
+  return Date.now();
+}
+function chooseMimeType() {
+  if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") {
+    return void 0;
+  }
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/ogg;codecs=opus",
+    "audio/mp4"
+  ];
+  for (const candidate of candidates) {
+    try {
+      if (MediaRecorder.isTypeSupported(candidate)) return candidate;
+    } catch {
+    }
+  }
+  return void 0;
+}
+function extensionFromMimeType(mimeType) {
+  const normalized = String(mimeType || "").toLowerCase();
+  if (normalized.includes("ogg")) return "ogg";
+  if (normalized.includes("mp4") || normalized.includes("m4a")) return "m4a";
+  return "webm";
+}
+function splitWords(text) {
+  return String(text || "").trim().split(/\s+/).filter(Boolean);
+}
+function normalizeWord(word) {
+  return word.toLowerCase().replace(/[^\p{L}\p{N}'’]+/gu, "");
+}
+function toWordTokens(text) {
+  const words = splitWords(text);
+  const out = [];
+  for (const raw of words) {
+    const normalized = normalizeWord(raw);
+    if (!normalized) continue;
+    out.push({ raw, normalized });
+  }
+  return out;
+}
+function mergeTokenWindow(current2, incoming) {
+  if (!incoming.length) return current2;
+  if (!current2.length) return incoming.slice(-MAX_WINDOW_WORDS);
+  const maxOverlap = Math.min(MAX_OVERLAP_WORDS, current2.length, incoming.length);
+  let overlap = 0;
+  for (let size = maxOverlap; size >= 1; size -= 1) {
+    let matches = true;
+    for (let idx = 0; idx < size; idx += 1) {
+      const currentToken = current2[current2.length - size + idx];
+      const incomingToken = incoming[idx];
+      if (!currentToken || !incomingToken || currentToken.normalized !== incomingToken.normalized) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) {
+      overlap = size;
+      break;
+    }
+  }
+  const merged = overlap >= incoming.length ? current2.slice() : current2.concat(incoming.slice(overlap));
+  return merged.slice(-MAX_WINDOW_WORDS);
+}
+function tokensToText(tokens) {
+  return tokens.map((token) => token.raw).join(" ").trim();
+}
+function readCurrentLineIndex() {
+  const raw = Number(window.currentIndex ?? 0);
+  return Number.isFinite(raw) ? Math.max(0, Math.floor(raw)) : 0;
+}
+function readLineText(host, lineIndex) {
+  const idx = Math.max(0, Math.floor(lineIndex));
+  try {
+    const line = host.querySelector(`.line[data-line="${idx}"]`) || host.querySelector(`.line[data-line-idx="${idx}"]`) || host.querySelector(`.line[data-i="${idx}"]`) || host.querySelector(`.line[data-index="${idx}"]`);
+    return String(line?.textContent || "").replace(/\s+/g, " ").trim();
+  } catch {
+    return "";
+  }
+}
+function isPromptLineUsable(text) {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) return false;
+  if (/^\s*\[[^\]]+\]\s*$/u.test(trimmed)) return false;
+  return splitWords(trimmed).length >= 2;
+}
+function buildScriptPrompt() {
+  try {
+    const host = getScriptRoot() || getPrimaryScroller() || document;
+    const currentIdx = readCurrentLineIndex();
+    const lines = [];
+    for (let idx = Math.max(0, currentIdx - MAX_PROMPT_LOOKBEHIND); idx <= currentIdx + MAX_PROMPT_LOOKAHEAD; idx += 1) {
+      const text = readLineText(host, idx);
+      if (!isPromptLineUsable(text)) continue;
+      lines.push(text);
+    }
+    const prompt2 = lines.join("\n").trim();
+    if (!prompt2) return "";
+    return prompt2.length > MAX_PROMPT_CHARS ? prompt2.slice(0, MAX_PROMPT_CHARS) : prompt2;
+  } catch {
+    return "";
+  }
+}
+function readResponseError(payload, status2) {
+  const fromPayload = typeof payload.error === "string" ? payload.error.trim() : "";
+  return fromPayload || `Whisper bridge failed (${status2})`;
+}
+function createWhisperBridgeRecognizer(options = {}) {
+  return new WhisperBridgeRecognizer(options);
+}
+var DEFAULT_ROUTE, DEFAULT_SEGMENT_MS, MAX_WINDOW_WORDS, MAX_PROMPT_CHARS, MAX_PROMPT_LOOKAHEAD, MAX_PROMPT_LOOKBEHIND, MAX_OVERLAP_WORDS, RESET_WINDOW_IDLE_MS, SOURCE, WhisperBridgeRecognizer;
+var init_whisper_bridge = __esm({
+  "src/speech/engines/whisper-bridge.ts"() {
+    "use strict";
+    init_scroller();
+    DEFAULT_ROUTE = "/api/anvil/asr/whisper";
+    DEFAULT_SEGMENT_MS = 1800;
+    MAX_WINDOW_WORDS = 56;
+    MAX_PROMPT_CHARS = 1200;
+    MAX_PROMPT_LOOKAHEAD = 6;
+    MAX_PROMPT_LOOKBEHIND = 1;
+    MAX_OVERLAP_WORDS = 12;
+    RESET_WINDOW_IDLE_MS = 4e3;
+    SOURCE = "openai-whisper-bridge";
+    WhisperBridgeRecognizer = class {
+      listeners = /* @__PURE__ */ new Map();
+      route;
+      lang;
+      interim;
+      segmentMs;
+      queue = [];
+      queueRunning = false;
+      running = false;
+      recorder = null;
+      recorderStream = null;
+      transcriptWindow = [];
+      lastTranscriptAt = 0;
+      lastPartialText = "";
+      lastFinalText = "";
+      lastModel = null;
+      lastAiError = null;
+      requestsInFlight = 0;
+      lastAiSnapshotKey = "";
+      seq = 0;
+      constructor(options = {}) {
+        this.route = options.route || DEFAULT_ROUTE;
+        this.lang = options.lang || "en-US";
+        this.interim = options.interim !== false;
+        const endpointingMs = Number(options.endpointingMs);
+        this.segmentMs = Number.isFinite(endpointingMs) ? Math.max(1200, Math.min(2600, Math.round(endpointingMs + 1100))) : DEFAULT_SEGMENT_MS;
+      }
+      on(event, listener) {
+        const listeners3 = this.listeners.get(event) || /* @__PURE__ */ new Set();
+        listeners3.add(listener);
+        this.listeners.set(event, listeners3);
+        return () => listeners3.delete(listener);
+      }
+      emit(event, payload) {
+        const listeners3 = this.listeners.get(event);
+        if (!listeners3 || listeners3.size === 0) return;
+        for (const listener of listeners3) {
+          try {
+            listener(payload);
+          } catch {
+          }
+        }
+      }
+      syncAiActivity() {
+        const queueDepth = this.queue.length;
+        const requestsInFlight = this.requestsInFlight;
+        let phase = "off";
+        if (requestsInFlight > 0 || queueDepth > 0) {
+          phase = "transcribing";
+        } else if (this.running) {
+          phase = this.lastAiError ? "error" : "ready";
+        }
+        const detail = {
+          active: phase !== "off",
+          provider: "openai",
+          engine: "whisper",
+          phase,
+          source: SOURCE,
+          timestamp: nowTs(),
+          model: this.lastModel,
+          message: phase === "error" ? this.lastAiError || void 0 : void 0,
+          requestsInFlight,
+          queueDepth
+        };
+        const key = JSON.stringify([
+          detail.phase,
+          detail.active,
+          detail.model || "",
+          detail.message || "",
+          detail.requestsInFlight,
+          detail.queueDepth
+        ]);
+        if (key === this.lastAiSnapshotKey) return;
+        this.lastAiSnapshotKey = key;
+        dispatchAiActivity(detail);
+      }
+      async start() {
+        if (this.running) return;
+        if (typeof MediaRecorder === "undefined") {
+          throw new Error("MediaRecorder not available");
+        }
+        if (typeof window.__tpMic?.requestMic !== "function") {
+          throw new Error("Microphone API not available");
+        }
+        const stream = await window.__tpMic.requestMic();
+        const audioTracks = stream.getAudioTracks();
+        if (!audioTracks.length) {
+          throw new Error("No audio track available");
+        }
+        this.recorderStream = new MediaStream(audioTracks.map((track) => track.clone()));
+        const mimeType = chooseMimeType();
+        this.recorder = mimeType ? new MediaRecorder(this.recorderStream, { mimeType }) : new MediaRecorder(this.recorderStream);
+        this.recorder.ondataavailable = (event) => {
+          const blob = event.data;
+          if (!blob || blob.size <= 0) return;
+          this.queue.push({ blob, seq: ++this.seq });
+          this.syncAiActivity();
+          void this.flushQueue();
+        };
+        this.recorder.onerror = (event) => {
+          const error = event.error;
+          const message = error?.message || "Whisper recorder error";
+          this.lastAiError = message;
+          this.syncAiActivity();
+          this.emit("error", { source: SOURCE, message, timestamp: nowTs() });
+        };
+        this.recorder.onstop = () => {
+          this.cleanupRecorder();
+          this.syncAiActivity();
+          this.emit("end", { source: SOURCE, timestamp: nowTs() });
+        };
+        this.transcriptWindow = [];
+        this.lastTranscriptAt = 0;
+        this.lastPartialText = "";
+        this.lastFinalText = "";
+        this.lastModel = null;
+        this.lastAiError = null;
+        this.requestsInFlight = 0;
+        this.lastAiSnapshotKey = "";
+        this.running = true;
+        this.recorder.start(this.segmentMs);
+        this.syncAiActivity();
+        this.emit("start", { source: SOURCE, timestamp: nowTs() });
+      }
+      stop() {
+        if (!this.recorder && !this.running) return;
+        this.running = false;
+        this.syncAiActivity();
+        try {
+          this.recorder?.requestData();
+        } catch {
+        }
+        try {
+          if (this.recorder && this.recorder.state !== "inactive") {
+            this.recorder.stop();
+          } else {
+            this.cleanupRecorder();
+            this.syncAiActivity();
+            this.emit("end", { source: SOURCE, timestamp: nowTs() });
+          }
+        } catch {
+          this.cleanupRecorder();
+          this.syncAiActivity();
+          this.emit("end", { source: SOURCE, timestamp: nowTs() });
+        }
+      }
+      abort() {
+        this.stop();
+      }
+      cleanupRecorder() {
+        const stream = this.recorderStream;
+        this.recorder = null;
+        this.recorderStream = null;
+        try {
+          stream?.getTracks().forEach((track) => track.stop());
+        } catch {
+        }
+      }
+      async flushQueue() {
+        if (this.queueRunning) return;
+        this.queueRunning = true;
+        try {
+          while (this.queue.length > 0) {
+            const next = this.queue.shift();
+            if (!next) continue;
+            this.requestsInFlight += 1;
+            this.syncAiActivity();
+            try {
+              const payload = await this.transcribe(next.blob, next.seq);
+              this.lastModel = payload.model ?? this.lastModel;
+              this.lastAiError = null;
+              this.handleTranscript(payload);
+            } catch (error) {
+              const message = error instanceof Error ? error.message : "Whisper bridge error";
+              this.lastAiError = message;
+              this.emit("error", {
+                source: SOURCE,
+                message,
+                timestamp: nowTs()
+              });
+            } finally {
+              this.requestsInFlight = Math.max(0, this.requestsInFlight - 1);
+              this.syncAiActivity();
+            }
+          }
+        } finally {
+          this.queueRunning = false;
+          this.syncAiActivity();
+        }
+      }
+      async transcribe(blob, seq) {
+        const form = new FormData();
+        const mimeType = blob.type || chooseMimeType();
+        const extension = extensionFromMimeType(mimeType);
+        form.set("file", blob, `chunk-${seq}.${extension}`);
+        form.set("language", this.lang);
+        const prompt2 = buildScriptPrompt();
+        if (prompt2) {
+          form.set("prompt", prompt2);
+        }
+        const response = await fetch(this.route, {
+          method: "POST",
+          body: form,
+          cache: "no-store",
+          credentials: "same-origin"
+        });
+        const payload = await response.json();
+        if (!response.ok || payload.ok === false) {
+          throw new Error(readResponseError(payload, response.status));
+        }
+        return payload;
+      }
+      handleTranscript(payload) {
+        const text = typeof payload.text === "string" ? payload.text.trim() : "";
+        if (!text) return;
+        const now3 = nowTs();
+        const incomingTokens = toWordTokens(text);
+        if (!incomingTokens.length) return;
+        if (this.lastTranscriptAt > 0 && now3 - this.lastTranscriptAt > RESET_WINDOW_IDLE_MS) {
+          this.transcriptWindow = [];
+        }
+        this.lastTranscriptAt = now3;
+        this.transcriptWindow = mergeTokenWindow(this.transcriptWindow, incomingTokens);
+        const assembledText = tokensToText(this.transcriptWindow);
+        if (!assembledText) return;
+        const basePayload = {
+          text: assembledText,
+          final: false,
+          isFinal: false,
+          timestamp: now3,
+          source: SOURCE,
+          model: payload.model ?? null,
+          providerRequestId: payload.provider_request_id ?? null
+        };
+        if (this.interim && assembledText !== this.lastPartialText) {
+          this.lastPartialText = assembledText;
+          this.emit("partial", basePayload);
+        }
+        if (assembledText !== this.lastFinalText) {
+          this.lastFinalText = assembledText;
+          this.emit("final", {
+            ...basePayload,
+            final: true,
+            isFinal: true
+          });
+        }
+      }
+    };
   }
 });
 
@@ -38467,6 +38881,7 @@ async function startBackendForSession(mode, reason) {
   const speechNs = getTpSpeechNamespace();
   const allowLegacyNs = isLegacySpeechNamespaceAllowed();
   const speechStoreState = getTpSpeechStoreSnapshot();
+  const selectedEngine = String(speechStoreState?.engine || "").toLowerCase();
   if (isSettingsHydrating()) {
     try {
       console.debug("[ASR] startBackend blocked during settings hydration", { mode, reason });
@@ -38492,6 +38907,53 @@ async function startBackendForSession(mode, reason) {
         console.log("[ASR] lifecycle startBackend: invoking backend", info);
       } catch {
       }
+    }
+  }
+  if (selectedEngine === "whisper") {
+    try {
+      const whisperRecognizer = createWhisperBridgeRecognizer({
+        lang: typeof speechStoreState?.lang === "string" ? speechStoreState.lang : "en-US",
+        interim: speechStoreState?.interim !== false,
+        endpointingMs: Number(speechStoreState?.endpointingMs || 0)
+      });
+      await whisperRecognizer.start();
+      rec = whisperRecognizer;
+      try {
+        whisperRecognizer.on("final", (t) => routeRecognizerTranscript(t, true));
+      } catch {
+      }
+      try {
+        whisperRecognizer.on("partial", (t) => routeRecognizerTranscript(t, false));
+      } catch {
+      }
+      try {
+        whisperRecognizer.on("error", (detail) => console.warn("[speech] whisper bridge error", detail));
+      } catch {
+      }
+      try {
+        window.__tpEmitSpeech = (t, final) => routeRecognizerTranscript(t, !!final);
+      } catch {
+      }
+      setActiveRecognizer(rec);
+      if (!activeRecognizer) {
+        emitAsrState("idle", "recognizer-not-attached:whisper");
+        setSpeechRunningActual(false, "whisper-no-attach");
+        maybeLogLiveArmedDetachedInvariant("whisper-no-attach");
+        emitHudSnapshot("recognizer-attach-failed:whisper", { force: true });
+        return false;
+      }
+      setSpeechRunningActual(true, "whisper-start");
+      emitAsrHeartbeat("recognizer-attached:whisper", { force: true });
+      return true;
+    } catch (error) {
+      try {
+        console.warn("[ASR] whisper bridge failed to start", error);
+      } catch {
+      }
+      emitAsrState("idle", "recognizer-start-failed:whisper");
+      setActiveRecognizer(null);
+      setSpeechRunningActual(false, "whisper-start-failed");
+      return false;
     }
   }
   try {
@@ -38796,9 +39258,12 @@ async function startSpeechBackendForSession(info) {
         });
         return false;
       }
-      try {
-        await window.__tpMic?.requestMic?.();
-      } catch {
+      const startedEngine = String(getTpSpeechStoreSnapshot()?.engine || "").toLowerCase();
+      if (startedEngine !== "whisper") {
+        try {
+          await window.__tpMic?.requestMic?.();
+        } catch {
+        }
       }
       bootTrace("speech-loader:live-path:done", { mode, ok, runKey });
       return ok;
@@ -38838,10 +39303,6 @@ function stopSpeechBackendForSession(reason) {
   } catch {
   }
   try {
-    window.__tpMic?.releaseMic?.();
-  } catch {
-  }
-  try {
     rec?.abort?.();
   } catch {
   }
@@ -38859,6 +39320,10 @@ function stopSpeechBackendForSession(reason) {
   }
   try {
     getTpSpeechNamespace()?.stopRecognizer?.();
+  } catch {
+  }
+  try {
+    window.__tpMic?.releaseMic?.();
   } catch {
   }
   setActiveRecognizer(null);
@@ -38978,6 +39443,7 @@ var init_speech_loader = __esm({
     init_asr_block_store();
     init_scroller();
     init_backend_guard();
+    init_whisper_bridge();
     init_matcher();
     init_runtime_control();
     init_session();
@@ -41503,11 +41969,30 @@ function getCurrentLineIndex() {
   }
   return null;
 }
-function resolveManualAnchorTargetIndex(scroller, fallbackIndex = null) {
+function getVisibleAnchorLineIndex(scroller) {
   const markerIndex = computeAnchorLineIndex(scroller);
-  if (Number.isFinite(markerIndex)) {
-    return Math.max(0, Math.floor(markerIndex));
+  if (!Number.isFinite(markerIndex)) return null;
+  return Math.max(0, Math.floor(markerIndex));
+}
+function resolveAsrKickBaseLineIndex(scroller) {
+  const anchorIndex = getVisibleAnchorLineIndex(scroller);
+  const currentIndex = getCurrentLineIndex();
+  if (anchorIndex == null) return currentIndex;
+  if (currentIndex != null && currentIndex !== anchorIndex && isDevMode6()) {
+    try {
+      console.info("[kick:anchor-preferred]", {
+        anchorIndex,
+        currentIndex,
+        drift: currentIndex - anchorIndex
+      });
+    } catch {
+    }
   }
+  return anchorIndex;
+}
+function resolveManualAnchorTargetIndex(scroller, fallbackIndex = null) {
+  const markerIndex = getVisibleAnchorLineIndex(scroller);
+  if (markerIndex != null) return markerIndex;
   if (Number.isFinite(fallbackIndex)) {
     return Math.max(0, Math.floor(fallbackIndex));
   }
@@ -41540,7 +42025,7 @@ function syncAsrDriverIndex(targetIndex, reason) {
 }
 function kickAsrForward(scroller, deltaPx, reason) {
   const from = readScrollTop2(scroller);
-  const currentLine = getCurrentLineIndex();
+  const currentLine = resolveAsrKickBaseLineIndex(scroller);
   const nextLineIndex = Number.isFinite(currentLine) ? Math.max(0, Math.floor(currentLine) + 1) : null;
   if (nextLineIndex != null) {
     const targetTop = resolveLineTargetTop(scroller, nextLineIndex);
@@ -51985,6 +52470,19 @@ function parseSpeech(text) {
   }
   return buildDefault("recChip", text);
 }
+function parseAi(text) {
+  const lower = text.toLowerCase();
+  if (lower.includes("error") || lower.includes("failed")) {
+    return { full: text, short: "AI error", tone: "issue" };
+  }
+  if (lower.includes("transcribing")) {
+    return { full: text, short: "AI transcribing", tone: "neutral" };
+  }
+  if (lower.includes("active") || lower.includes("openai") || lower.includes("whisper")) {
+    return { full: text, short: "AI active", tone: "neutral" };
+  }
+  return { full: text, short: "AI off", tone: "neutral" };
+}
 function parseScroll(text) {
   const lower = text.toLowerCase();
   if (lower.includes("error") || lower.includes("blocked")) {
@@ -52034,6 +52532,8 @@ function parseState(id, text) {
       return parseDisplay(text);
     case "recChip":
       return parseSpeech(text);
+    case "aiChip":
+      return parseAi(text);
     case "scrollChip":
       return parseScroll(text);
     case "camRtcChip":
@@ -52118,6 +52618,7 @@ var init_topbar_session_status = __esm({
       "asrCalChip",
       "displayChip",
       "recChip",
+      "aiChip",
       "scrollChip",
       "camRtcChip",
       "obsChip"
@@ -61751,6 +62252,75 @@ function installObsChip() {
     }
   });
 }
+function installAiActivityChip() {
+  once("ai-activity-chip", () => {
+    try {
+      const topbar = document.querySelector(".topbar") || document.body;
+      let chip = document.getElementById("aiChip");
+      if (!chip) {
+        chip = document.createElement("span");
+        chip.id = "aiChip";
+        chip.className = "chip topbar-secondary-status";
+        chip.setAttribute("role", "status");
+        chip.setAttribute("aria-live", "polite");
+        chip.setAttribute("aria-atomic", "true");
+        topbar && topbar.appendChild(chip);
+      }
+      const capitalize = (value) => {
+        const normalized = String(value || "").trim();
+        return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : "";
+      };
+      const render = (detail = {}) => {
+        try {
+          const phase = String(detail?.phase || "off").toLowerCase();
+          const provider = capitalize(detail?.provider || "openai") || "OpenAI";
+          const engine = capitalize(detail?.engine || "whisper") || "Whisper";
+          const model = String(detail?.model || "").trim();
+          const message = String(detail?.message || "").trim();
+          const requestsInFlight = Number(detail?.requestsInFlight || 0);
+          const queueDepth = Number(detail?.queueDepth || 0);
+          let text = "AI: off";
+          let sessionText = "AI: off";
+          let state9 = "off";
+          let title = "AI is not active.";
+          if (phase === "transcribing") {
+            text = "AI: transcribing";
+            sessionText = `AI: ${provider} ${engine} transcribing`;
+            state9 = "busy";
+            title = `${provider} ${engine} is actively transcribing mic audio${model ? ` (${model})` : ""}.`;
+            if (requestsInFlight > 0 || queueDepth > 0) {
+              title += ` In flight: ${requestsInFlight}. Queued: ${queueDepth}.`;
+            }
+          } else if (phase === "ready") {
+            text = "AI: active";
+            sessionText = `AI: ${provider} ${engine} active`;
+            state9 = "on";
+            title = `${provider} ${engine} is active for this speech session${model ? ` (${model})` : ""}.`;
+          } else if (phase === "error") {
+            text = "AI: error";
+            sessionText = `AI: ${provider} ${engine} error`;
+            state9 = "error";
+            title = message ? `${provider} ${engine} reported an error: ${message}` : `${provider} ${engine} reported an error.`;
+          }
+          chip.textContent = text;
+          chip.dataset.state = state9;
+          chip.dataset.sessionText = sessionText;
+          chip.title = title;
+          chip.setAttribute("aria-label", sessionText);
+        } catch {
+        }
+      };
+      render(window.__tpAiActivity || { phase: "off" });
+      window.addEventListener("tp:ai:activity", (event) => {
+        try {
+          render(event && event.detail || {});
+        } catch {
+        }
+      });
+    } catch {
+    }
+  });
+}
 function wireOverlays() {
   once("overlays", () => {
     try {
@@ -62205,6 +62775,7 @@ function bindStaticDom() {
     wireLoadSample();
     installSpeakerIndex();
     installDbMeter();
+    installAiActivityChip();
     installObsChip();
     initSelfChecksChip();
     initStepControls(document);

@@ -357,7 +357,7 @@ function buildPrerequisites(
 }
 
 function buildBlockedBy(
-  step: TongsReleaseRecoveryPlanStep,
+  _step: TongsReleaseRecoveryPlanStep,
   executionKind: TongsReleaseOperatorExecutionKind,
   prerequisites: TongsReleaseOperatorExecutionPrerequisite[],
 ): TongsReleaseOperatorActionBlocker[] {

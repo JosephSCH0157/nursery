@@ -4,7 +4,11 @@ import fsPromises from "node:fs/promises";
 import path from "node:path";
 import { handleHammerAudioPolishRequest } from "./hammer-audio-polish";
 import { HAMMER_AUDIO_POLISH_ROUTE } from "../../hammer/src/prep/hammerAudioPolishApi";
-import { HAMMER_TRANSCRIPT_PREP_ROUTE, type HammerTranscriptPrepRequest } from "../../hammer/src/prep/hammerPrepApi";
+import {
+  HAMMER_TRANSCRIPT_PREP_ROUTE,
+  type HammerTranscriptPrepRequest,
+  type HammerTranscriptPrepSegment,
+} from "../../hammer/src/prep/hammerPrepApi";
 import { resolveHearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
 
 type Next = (err?: unknown) => void;
@@ -123,14 +127,7 @@ function readUpstreamErrorMessage(text: string): string | null {
   }
 }
 
-function normalizeSegments(payload: unknown): Array<{
-  id: string | null;
-  start: number;
-  end: number;
-  text: string;
-  speaker: string | null;
-  confidence: number | null;
-}> {
+function normalizeSegments(payload: unknown): HammerTranscriptPrepSegment[] {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return [];
   const row = payload as Record<string, unknown>;
   const segmentsRaw = Array.isArray(row.segments)
@@ -139,35 +136,28 @@ function normalizeSegments(payload: unknown): Array<{
       ? row.utterances
       : [];
 
-  return segmentsRaw
-    .map((value, index) => {
-      if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-      const segment = value as Record<string, unknown>;
-      const start = readNumber(segment.start);
-      const end = readNumber(segment.end);
-      const text = readTrimmed(segment.text);
-      if (start == null || end == null || end <= start || !text) {
-        return null;
-      }
-      return {
-        id: readTrimmed(segment.id) ?? `seg_${index + 1}`,
-        start,
-        end,
-        text,
-        speaker: readTrimmed(segment.speaker)
-          ?? readTrimmed(segment.speaker_label)
-          ?? readTrimmed(segment.speaker_id),
-        confidence: readNumber(segment.confidence),
-      };
-    })
-    .filter((segment): segment is {
-      id: string | null;
-      start: number;
-      end: number;
-      text: string;
-      speaker: string | null;
-      confidence: number | null;
-    } => Boolean(segment));
+  const segments: HammerTranscriptPrepSegment[] = [];
+  segmentsRaw.forEach((value, index) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return;
+    const segment = value as Record<string, unknown>;
+    const start = readNumber(segment.start);
+    const end = readNumber(segment.end);
+    const text = readTrimmed(segment.text);
+    if (start == null || end == null || end <= start || !text) {
+      return;
+    }
+    segments.push({
+      id: readTrimmed(segment.id) ?? `seg_${index + 1}`,
+      start,
+      end,
+      text,
+      speaker: readTrimmed(segment.speaker)
+        ?? readTrimmed(segment.speaker_label)
+        ?? readTrimmed(segment.speaker_id),
+      confidence: readNumber(segment.confidence),
+    });
+  });
+  return segments;
 }
 
 export function createHammerPrepMiddleware() {

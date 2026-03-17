@@ -10,6 +10,7 @@ import {
   type QuenchPlatform,
   type ReleaseMode,
   type ReleaseReadinessCheckKey,
+  type ResolvedAsset,
   type ResolvedReleaseAssets,
   RssAdapter,
   StaticAssetResolver,
@@ -105,6 +106,11 @@ function getAssetStatusLabel(accessible: boolean | undefined): string {
   return "unknown";
 }
 
+type ResolvedAssetCard = {
+  kind: "video" | "audio" | "thumbnail";
+  asset: ResolvedAsset | null | undefined;
+};
+
 export default function QuenchRoute() {
   const shell = useOutletContext<AppShellContext>();
   const [releaseCases, setReleaseCases] = useState<QuenchMockReleaseCase[]>(() =>
@@ -140,6 +146,11 @@ export default function QuenchRoute() {
   const readiness = selectedCase
     ? validateReleasePacketReadiness(selectedCase.packet, resolvedAssets, selectedPlatforms)
     : null;
+  const resolvedAssetCards: ResolvedAssetCard[] = [
+    { kind: "video", asset: resolvedAssets.video },
+    { kind: "audio", asset: resolvedAssets.audio },
+    { kind: "thumbnail", asset: resolvedAssets.thumbnail },
+  ];
 
   useEffect(() => {
     let cancelled = false;
@@ -452,11 +463,7 @@ export default function QuenchRoute() {
                   <span>{selectedCase.packet.shorts.length} shorts declared</span>
                 </div>
                 <div className="quench-console__asset-grid">
-                  {[
-                    ["video", resolvedAssets.video],
-                    ["audio", resolvedAssets.audio],
-                    ["thumbnail", resolvedAssets.thumbnail],
-                  ].map(([kind, asset]) => (
+                  {resolvedAssetCards.map(({ kind, asset }) => (
                     <div key={kind} className="quench-console__asset-card">
                       <div className="quench-console__asset-top">
                         <strong>{kind}</strong>

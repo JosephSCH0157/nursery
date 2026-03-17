@@ -25,7 +25,7 @@ export type ForgeNoticeEvent = {
   timestamp: number;
 };
 
-export type ForgeNoticeToast = ForgeNoticeEvent & {
+export type ForgeNoticeToast = Omit<ForgeNoticeEvent, "message" | "route"> & {
   id: string;
   message: string | null;
   route: string | null;
