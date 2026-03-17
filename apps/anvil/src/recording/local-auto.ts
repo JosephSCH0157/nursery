@@ -4,6 +4,11 @@ import { getRecordingMode } from './recording-settings';
 import { commitRecordingBytesToTongs } from '../forge/workpiece-commit';
 
 (() => {
+  const RECORDING_STORAGE_LIMIT_HINT_KEY = 'forge_anvil_recording_storage_limit_hint_bytes_v1';
+  // Keep default AV output conservative so common multi-minute takes fit within
+  // Supabase projects that still use the default 50 MiB object limit.
+  const DEFAULT_VIDEO_BITS_PER_SECOND = 1_200_000;
+  const DEFAULT_AUDIO_BITS_PER_SECOND = 96_000;
   let mediaRecorder: MediaRecorder | null = null;
   let chunks: Blob[] = [];
   let active = false;
@@ -17,6 +22,55 @@ import { commitRecordingBytesToTongs } from '../forge/workpiece-commit';
   let audioSampleRate = 48000;
 
   const pad = (n: number) => String(n).padStart(2, '0');
+
+  function readStorageLimitHintBytes(): number | null {
+    try {
+      const raw = sessionStorage.getItem(RECORDING_STORAGE_LIMIT_HINT_KEY);
+      if (!raw) return null;
+      const parsed = Number(raw);
+      if (!Number.isFinite(parsed) || parsed <= 0) return null;
+      return Math.floor(parsed);
+    } catch {
+      return null;
+    }
+  }
+
+  function writeStorageLimitHintBytes(bytes: number): void {
+    if (!Number.isFinite(bytes) || bytes <= 0) return;
+    try {
+      sessionStorage.setItem(RECORDING_STORAGE_LIMIT_HINT_KEY, String(Math.floor(bytes)));
+    } catch {}
+  }
+
+  function showRecorderToast(message: string, type: 'warning' | 'info' | 'error' = 'warning'): void {
+    try {
+      const toast = (window as any).toast;
+      if (typeof toast === 'function') {
+        toast(message, { type });
+      }
+    } catch {}
+  }
+
+  function isStorageTooLargeCommitResult(result: unknown): boolean {
+    if (!result || typeof result !== 'object') return false;
+    const row = result as {
+      status?: unknown;
+      errorCode?: unknown;
+      errorMessage?: unknown;
+      details?: { error?: { code?: unknown; message?: unknown } };
+    };
+    if (row.status === 413) return true;
+    if (row.errorCode === 'storage_object_too_large') return true;
+    if (row.details?.error?.code === 'storage_object_too_large') return true;
+    const message =
+      typeof row.errorMessage === 'string'
+        ? row.errorMessage
+        : typeof row.details?.error?.message === 'string'
+        ? row.details.error.message
+        : '';
+    return message.toLowerCase().includes('object size limit');
+  }
+
   function formatTimestamp(date: Date): string {
     const year = date.getFullYear();
     const month = pad(date.getMonth() + 1);
@@ -278,7 +332,11 @@ import { commitRecordingBytesToTongs } from '../forge/workpiece-commit';
       } catch {}
       currentStream = mix;
       const mime = pickMime();
-      mediaRecorder = new MediaRecorder(mix, { mimeType: mime, videoBitsPerSecond: 5_000_000, audioBitsPerSecond: 128_000 });
+      mediaRecorder = new MediaRecorder(mix, {
+        mimeType: mime,
+        videoBitsPerSecond: DEFAULT_VIDEO_BITS_PER_SECOND,
+        audioBitsPerSecond: DEFAULT_AUDIO_BITS_PER_SECOND,
+      });
       chunks = [];
       mediaRecorder.ondataavailable = (e: BlobEvent) => {
         try {
@@ -346,30 +404,54 @@ import { commitRecordingBytesToTongs } from '../forge/workpiece-commit';
     const contentType = blob.type || 'application/octet-stream';
     const localWritePayload = bytes;
     let committed = false;
-    try {
-      const commitResult = await commitRecordingBytesToTongs({
-        bytes,
-        originalName: name,
-        contentType,
-      });
-      if (commitResult.ok) {
-        committed = true;
+    const storageLimitHintBytes = readStorageLimitHintBytes();
+    const skipCanonicalCommit =
+      storageLimitHintBytes != null && bytes.length >= storageLimitHintBytes;
+    if (skipCanonicalCommit) {
+      try {
+        console.warn('[core-recorder] skipping canonical commit after prior storage size-limit failure', {
+          size: bytes.length,
+          hintBytes: storageLimitHintBytes,
+          name,
+        });
+      } catch {}
+      showRecorderToast(
+        'Cloud save skipped for this take after a prior Storage size-limit failure. Recording will be mirrored locally.',
+        'warning',
+      );
+    } else {
+      try {
+        const commitResult = await commitRecordingBytesToTongs({
+          bytes,
+          originalName: name,
+          contentType,
+        });
+        if (commitResult.ok) {
+          committed = true;
+          try {
+            console.log('[core-recorder] canonical commit ok', {
+              workpieceId: commitResult.workpieceId,
+              path: commitResult.path,
+              createdCradle: commitResult.createdCradle,
+            });
+          } catch {}
+        } else {
+          if (isStorageTooLargeCommitResult(commitResult)) {
+            writeStorageLimitHintBytes(bytes.length);
+            showRecorderToast(
+              'Cloud save hit the current Supabase Storage object-size limit. Recording will be mirrored locally for this session.',
+              'warning',
+            );
+          }
+          try {
+            console.warn('[core-recorder] canonical commit unavailable; using local fallback', commitResult);
+          } catch {}
+        }
+      } catch (commitErr) {
         try {
-          console.log('[core-recorder] canonical commit ok', {
-            workpieceId: commitResult.workpieceId,
-            path: commitResult.path,
-            createdCradle: commitResult.createdCradle,
-          });
-        } catch {}
-      } else {
-        try {
-          console.warn('[core-recorder] canonical commit unavailable; using local fallback', commitResult);
+          console.warn('[core-recorder] canonical commit failed; using local fallback', commitErr);
         } catch {}
       }
-    } catch (commitErr) {
-      try {
-        console.warn('[core-recorder] canonical commit failed; using local fallback', commitErr);
-      } catch {}
     }
 
     try {

@@ -24,6 +24,8 @@ export type RecordingCommitResult =
       ok: false;
       reason: string;
       status?: number;
+      errorCode?: string;
+      errorMessage?: string;
       details?: unknown;
       workspaceId?: string | null;
       workpieceId?: string | null;
@@ -307,6 +309,19 @@ function isCommitAck(body: unknown): boolean {
     || row?.data?.success === true;
 }
 
+function extractApiError(body: unknown): { code?: string; message?: string } {
+  if (!body || typeof body !== "object") return {};
+  const root = body as {
+    error?: { code?: unknown; message?: unknown };
+  };
+  const code = readString(root.error?.code);
+  const message = readString(root.error?.message);
+  return {
+    ...(code ? { code } : {}),
+    ...(message ? { message } : {}),
+  };
+}
+
 function encodeBase64(bytes: Uint8Array): string {
   if (!bytes.length) return "";
 
@@ -447,10 +462,13 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
   }
 
   if (!commit.ok) {
+    const apiError = extractApiError(commit.body);
     return {
       ok: false,
       reason: didRetry404 ? "commit_failed_after_retry" : "commit_failed",
       status: commit.status,
+      ...(apiError.code ? { errorCode: apiError.code } : {}),
+      ...(apiError.message ? { errorMessage: apiError.message } : {}),
       details: commit.body,
       workspaceId,
       workpieceId,

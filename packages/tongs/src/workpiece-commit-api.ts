@@ -1478,11 +1478,33 @@ async function uploadStorageObject(
 
   if (error) {
     logStorageError("upload", bucket, key, error);
+    if (isStorageObjectTooLargeError(error)) {
+      throw new HttpError(413, "storage_object_too_large", "File exceeds the configured Storage object size limit", {
+        bucket,
+        key,
+        reason: error.message,
+      });
+    }
     throw new HttpError(502, "storage_write_failed", "Unable to write file to Storage", {
       key,
       reason: error.message,
     });
   }
+}
+
+function isStorageObjectTooLargeError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const record = error as Record<string, unknown>;
+  const status = typeof record.status === "number" ? record.status : null;
+  const statusCode =
+    typeof record.statusCode === "string"
+      ? record.statusCode.trim()
+      : typeof record.statusCode === "number"
+      ? String(record.statusCode)
+      : null;
+  const message = typeof record.message === "string" ? record.message.toLowerCase() : "";
+  if (status === 413 || statusCode === "413") return true;
+  return message.includes("maximum allowed size");
 }
 
 function shouldDebugStorage(): boolean {

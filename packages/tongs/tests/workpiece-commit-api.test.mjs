@@ -5325,6 +5325,56 @@ test("TongsCommitService.commitFile denies viewer role for ready-script paths", 
   );
 });
 
+test("TongsCommitService.commitWorkspaceFile maps oversized storage uploads to 413", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const service = new TongsCommitService({
+    storage: {
+      from(bucket) {
+        assert.equal(bucket, "forge-workpieces");
+        return {
+          async upload() {
+            return {
+              data: null,
+              error: {
+                message: "The object exceeded the maximum allowed size",
+                status: 400,
+                statusCode: "413",
+              },
+            };
+          },
+        };
+      },
+    },
+  }, "forge-workpieces", null);
+
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    created_at: "2026-03-02T00:00:00.000Z",
+    updated_at: "2026-03-02T00:00:00.000Z",
+    storage_profile: null,
+  });
+
+  await assert.rejects(
+    () => service.commitWorkspaceFile(workspaceId, {
+      path: "metadata.json",
+      json: { title: "Episode" },
+      written_by: {
+        tool: "anvil",
+        tool_version: "0.0.0",
+        lane: "forge-managed",
+      },
+    }),
+    (error) => {
+      assert.equal(error.status, 413);
+      assert.equal(error.code, "storage_object_too_large");
+      assert.equal(error.details?.bucket, "forge-workpieces");
+      assert.equal(error.details?.key, `workspaces/${workspaceId}/metadata.json`);
+      return true;
+    },
+  );
+});
+
 test("TongsCommitService.deleteReadyScript returns warning when storage delete fails", async () => {
   const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const workpieceId = "11111111-1111-4111-8111-111111111111";
