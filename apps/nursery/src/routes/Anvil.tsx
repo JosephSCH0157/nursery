@@ -10,8 +10,11 @@ import {
   validateAnvilHandoffTarget,
   type HandoffEpisodeSummary,
 } from "../lib/forge-handoff-validation";
+import anvilDevSourceUrl from "../../../anvil/teleprompter_pro.html?url";
 
-const ANVIL_FULL_PAGE_URL = "/anvil/teleprompter_pro.html";
+const ANVIL_FULL_PAGE_URL = import.meta.env.DEV
+  ? anvilDevSourceUrl
+  : "/anvil/teleprompter_pro.html";
 const TONGS_TOKEN_STORAGE_KEY = "forge_tongs_api_token_v1";
 
 export default function AnvilRoute() {
