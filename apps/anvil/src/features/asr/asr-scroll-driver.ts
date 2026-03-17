@@ -480,6 +480,9 @@ const DEFAULT_GRACE_ROLLBACK_MIN_PREV_SIM = 0.7;
 const DEFAULT_GRACE_ROLLBACK_MAX_CURRENT_SIM = 0.25;
 const DEFAULT_GRACE_ROLLBACK_MIN_MARGIN = 0.35;
 const DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS = 5000;
+const DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_LINES = 1;
+const DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_SIM = 0.84;
+const DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM = 0.32;
 const DEFAULT_STRONG_FORWARD_COMMIT_SIM = 0.82;
 const DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS = 2;
 const DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS = 2;
@@ -5449,6 +5452,142 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     };
   };
 
+  const enforceLiveAsrCommitCap = (
+    scroller: HTMLElement,
+    beforeTop: number,
+    afterTop: number,
+    lineIdx: number,
+    phase: string,
+  ) => {
+    const liveAsrCommitCapActive =
+      getScrollMode() === 'asr' &&
+      isSessionLivePhase() &&
+      isSessionAsrArmed();
+    if (!liveAsrCommitCapActive) return afterTop;
+    const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    const cappedTop = clamp(Math.min(afterTop, beforeTop + LIVE_ASR_MAX_COMMIT_PX), 0, maxTop);
+    if (cappedTop >= afterTop - 0.5) return afterTop;
+    const applied = applyCanonicalScrollTop(cappedTop, {
+      scroller,
+      reason: 'asr-live-commit-cap',
+      source: 'asr-commit',
+    });
+    const finalTop =
+      finiteNumberOrNull(
+        'commit.afterTop.liveCap',
+        Number.isFinite(applied) ? applied : Number(scroller.scrollTop || cappedTop),
+        { lineIdx, phase },
+      ) ?? cappedTop;
+    pursuitTargetTop = finalTop;
+    lastKnownScrollTop = finalTop;
+    lastMoveAt = Date.now();
+    markProgrammaticScroll();
+    bootTrace('SCROLL:apply', {
+      y: Math.round(finalTop),
+      from: Math.round(beforeTop),
+      via: 'live-cap',
+      reason: 'asr-live-commit-cap',
+      lineIdx,
+    });
+    if (isDevMode()) {
+      try {
+        console.info(
+          `ASR_LIVE_COMMIT_CAP phase=${phase} line=${lineIdx} before=${Math.round(beforeTop)} after=${Math.round(afterTop)} capped=${Math.round(finalTop)} limit=${LIVE_ASR_MAX_COMMIT_PX}`,
+        );
+      } catch {}
+    }
+    return finalTop;
+  };
+
+  const tryLiveAsrCorrectiveBackstep = (
+    cursorLine: number,
+    targetLine: number,
+    now: number,
+    targetSim: number,
+    currentSim: number,
+    needSim: number,
+    reason: string,
+    matchId?: string,
+    clue?: string,
+  ) => {
+    if (isWriterCommitWindowActive()) return false;
+    if (getScrollMode() !== 'asr') return false;
+    if (!isSessionLivePhase() || !isSessionAsrArmed()) return false;
+    const safeCursor = Math.max(0, Math.floor(cursorLine));
+    const safeTarget = Math.max(0, Math.floor(targetLine));
+    if (safeTarget >= safeCursor) return false;
+    if (safeCursor - safeTarget > DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_LINES) return false;
+    if (now < graceRollbackCooldownUntil) return false;
+    if (!Number.isFinite(targetSim) || targetSim < DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_SIM) return false;
+    if (!Number.isFinite(currentSim)) return false;
+    if (currentSim > Math.max(needSim, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM)) return false;
+    const margin = targetSim - currentSim;
+    if (!Number.isFinite(margin) || margin < DEFAULT_GRACE_ROLLBACK_MIN_MARGIN) return false;
+    const scroller = getScroller();
+    const targetTop = scroller ? resolveTargetTop(scroller, safeTarget) : null;
+    if (!scroller || targetTop == null) return false;
+    const beforeTop = Number(scroller.scrollTop || 0);
+    stopGlide(reason);
+    const applied = applyCanonicalScrollTop(targetTop, {
+      scroller,
+      reason: 'asr-corrective-backstep',
+      source: 'asr-commit',
+    });
+    const afterTop =
+      finiteNumberOrNull(
+        'commit.afterTop.correctiveBackstep',
+        Number.isFinite(applied) ? applied : Number(scroller.scrollTop || targetTop),
+        { reason, lineIdx: safeTarget },
+      ) ?? targetTop;
+    pursuitTargetTop = afterTop;
+    lastKnownScrollTop = afterTop;
+    lastMoveAt = Date.now();
+    markProgrammaticScroll();
+    logCommitScrollStamp('pixel', scroller, beforeTop, afterTop, safeTarget, findBlockByLine(safeTarget)?.blockId ?? -1, false);
+    lastLineIndex = safeTarget;
+    matchAnchorIdx = lastLineIndex;
+    lastSeekTs = now;
+    lastEvidenceAt = now;
+    noteCommit(safeCursor, lastLineIndex, now);
+    closeAmbiguityHold(now, reason, safeCursor, lastLineIndex, targetSim);
+    resetLowSimStreak();
+    behindStrongCount = 0;
+    lastBehindStrongIdx = -1;
+    lastBehindStrongAt = 0;
+    behindStrongSince = 0;
+    lastCommitDeltaPx = 0;
+    microPursuitUntil = 0;
+    setCurrentIndex(lastLineIndex, reason);
+    resetLookahead(reason);
+    behindRecoveryHits.length = 0;
+    largeDeltaConfirm = null;
+    overshootRiskUntil = Math.max(overshootRiskUntil, now + OVERSHOOT_RISK_WINDOW_MS);
+    lastBehindRecoveryAt = now;
+    graceRollbackCooldownUntil = now + DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS;
+    clearMicroRelockPreference();
+    warnGuard('corrective_backstep', [
+      matchId ? `matchId=${matchId}` : '',
+      `current=${safeCursor}`,
+      `rollback=${safeTarget}`,
+      `simPrev=${formatLogScore(targetSim)}`,
+      `simCur=${formatLogScore(currentSim)}`,
+      `need=${formatLogScore(needSim)}`,
+      `margin=${formatLogScore(margin)}`,
+      clue ? `clue="${clue}"` : '',
+    ]);
+    emitHudStatus('corrective_backstep', `Corrective backstep to ${safeTarget + 1}`);
+    logThrottled('ASR_COMMIT', 'log', 'ASR_COMMIT', {
+      prevIndex: safeCursor,
+      nextIndex: lastLineIndex,
+      delta: lastLineIndex - safeCursor,
+      sim: Number.isFinite(targetSim) ? Number(targetSim.toFixed(3)) : targetSim,
+      forced: false,
+      mode: getScrollMode() || 'unknown',
+      reason,
+    });
+    return true;
+  };
+
   let scrollContainerIdentityLogged = false;
   const maybeLogScrollContainerIdentity = (
     commitScroller: HTMLElement | null,
@@ -6421,7 +6560,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           return;
         }
 
-        // Never move backward in ASR mode; preserve monotonic forward motion.
+        const currentLineScoreForBackstep = pending.topScores
+          ?.map((entry) => ({ idx: Number(entry.idx), score: Number(entry.score) }))
+          .find((entry) => Number.isFinite(entry.idx) && Math.floor(entry.idx) === lastLineIndex)?.score;
+        if (tryLiveAsrCorrectiveBackstep(
+          lastLineIndex,
+          targetLine,
+          now,
+          conf,
+          Number.isFinite(currentLineScoreForBackstep) ? Number(currentLineScoreForBackstep) : requiredThreshold,
+          requiredThreshold,
+          'corrective-backstep',
+          matchId,
+          snippet,
+        )) {
+          updateDebugState('corrective-backstep');
+          return;
+        }
+
         warnGuard('behind_blocked', [
           `current=${lastLineIndex}`,
           `best=${targetLine}`,
@@ -6538,20 +6694,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           : Math.min(candidate, baseClamped + effectiveJumpCap);
       const nextTargetTop = Math.max(baseClamped, limitedTarget);
       pursuitTargetTop = nextTargetTop;
-      if (modeNow === 'asr' && !isSessionAsrArmed()) {
+      if (modeNow === 'asr' && (!isSessionLivePhase() || !isSessionAsrArmed())) {
         if (isDevMode() && shouldLogTag('ASR:movement-blocked:not-armed', 1, 1000)) {
           try {
-            console.info('[ASR] movement blocked: not armed', {
+            console.info('[ASR] movement blocked: inactive', {
               current: lastLineIndex,
               best: targetLine,
               delta: targetLine - lastLineIndex,
               sim: Number.isFinite(conf) ? Number(conf.toFixed(3)) : conf,
               mode: modeNow,
+              live: isSessionLivePhase() ? 1 : 0,
+              armed: isSessionAsrArmed() ? 1 : 0,
             });
           } catch {}
         }
         bootTrace('ASR:movement:blocked', {
-          reason: 'not-armed',
+          reason: 'inactive',
           current: lastLineIndex,
           best: targetLine,
           delta: targetLine - lastLineIndex,
@@ -6626,8 +6784,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }
         didGlide = false;
         _postCommitReadabilitySeq += 1;
+        const liveAsrReadabilitySuppressed =
+          getScrollMode() === 'asr' &&
+          isSessionLivePhase() &&
+          isSessionAsrArmed();
         const immediateReadability = applyPostCommitReadabilityGuarantee(scroller, targetLine, {
-          allowNudge: !writerCommitted,
+          // Live ASR should marker-lock to the committed sentence, not shove forward for readability.
+          allowNudge: !writerCommitted && !liveAsrReadabilitySuppressed,
+          maxForwardLines: liveAsrReadabilitySuppressed ? 0 : undefined,
         });
         logPostCommitReadabilityProbe(
           writerCommitted ? 'commit:writer-pending' : 'commit:immediate',
@@ -6638,11 +6802,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         if (!writerCommitted && immediateReadability.nudgeApplied) {
           commitAfterTop = immediateReadability.afterTop;
         }
+        commitAfterTop = enforceLiveAsrCommitCap(
+          scroller,
+          commitBeforeTop,
+          commitAfterTop,
+          targetLine,
+          'commit:immediate',
+        );
         if (writerCommitted) {
           await waitForWriterCommitWindowRelease(writerCommitStartedAt);
           const settledReadability = applyPostCommitReadabilityGuarantee(scroller, targetLine, {
-            allowNudge: true,
+            allowNudge: !liveAsrReadabilitySuppressed,
             forwardOnly: true,
+            maxForwardLines: liveAsrReadabilitySuppressed ? 0 : undefined,
           });
           logPostCommitReadabilityProbe(
             'commit:writer-settle',
@@ -6653,6 +6825,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           if (settledReadability.nudgeApplied) {
             commitAfterTop = settledReadability.afterTop;
           }
+          commitAfterTop = enforceLiveAsrCommitCap(
+            scroller,
+            commitBeforeTop,
+            commitAfterTop,
+            targetLine,
+            'commit:writer-settle',
+          );
           const truth = await verifyWriterCommitTruth(
             (scrollerForStamp || scroller),
             targetLine,
@@ -6918,6 +7097,25 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (!normalized) return;
     const compacted = normalized.replace(/\s+/g, ' ').trim();
     const now = Date.now();
+    const liveAsrSessionActive =
+      getScrollMode() === 'asr' &&
+      isSessionLivePhase() &&
+      isSessionAsrArmed();
+    if (getScrollMode() === 'asr' && !liveAsrSessionActive) {
+      if (isDevMode() && shouldLogTag('ASR_INGEST_IGNORED_INACTIVE', 2, 500)) {
+        try {
+          console.debug('[ASR_INGEST_IGNORED_INACTIVE]', {
+            final: !!isFinal,
+            phaseLive: isSessionLivePhase() ? 1 : 0,
+            armed: isSessionAsrArmed() ? 1 : 0,
+            text: formatLogSnippet(compacted, 48),
+          });
+        } catch {
+          // ignore
+        }
+      }
+      return;
+    }
     const permissiveMatcher = isPermissiveAsrMatcherEnabled();
     const compactedComparable = normalizeComparableText(compacted);
     const compactedTokenCount = normTokens(compactedComparable).length;
@@ -8805,6 +9003,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       (rawIdx <= cursorLine || conf < effectiveThreshold);
     if (watchdogStalled) {
       if (strongBehindCompetitor) {
+        const currentLineScoreForBackstep = Number.isFinite(arbitrationCurrentScore)
+          ? arbitrationCurrentScore
+          : conf;
+        if (tryLiveAsrCorrectiveBackstep(
+          cursorLine,
+          strongBehindCompetitor.idx,
+          now,
+          strongBehindCompetitor.score,
+          currentLineScoreForBackstep,
+          watchdogFloor,
+          'watchdog-behind-correct',
+          matchId,
+          snippet,
+        )) {
+          lastStuckWatchdogAt = now;
+          return;
+        }
         lastStuckWatchdogAt = now;
         warnGuard('watchdog_suppressed_behind', [
           `current=${cursorLine}`,
@@ -10103,6 +10318,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (behindBy > 0) {
       recordBehindRecoveryHit(rawIdx, conf, isFinal, now);
       if (tryBehindRecovery(cursorLine, now, conf, rawIdx, isFinal)) {
+        return;
+      }
+      const currentLineScoreForBackstep = Number.isFinite(arbitrationCurrentScore)
+        ? arbitrationCurrentScore
+        : requiredThreshold;
+      if (tryLiveAsrCorrectiveBackstep(
+        cursorLine,
+        rawIdx,
+        now,
+        conf,
+        currentLineScoreForBackstep,
+        requiredThreshold,
+        'live-behind-correct',
+        matchId,
+        snippet,
+      )) {
         return;
       }
       if (!isFinal) {
