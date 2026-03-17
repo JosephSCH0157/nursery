@@ -472,6 +472,9 @@ const DEFAULT_LOST_FORWARD_MARKER_CATCHUP_MAX_DELTA_LINES = 6;
 const DEFAULT_LOST_FORWARD_MARKER_CATCHUP_COMMIT_CAP_LINES = 1;
 const DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_COMMIT_CAP_LINES = 2;
 const DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_MIN_SIM = 0.45;
+const DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_SIM = 0.4;
+const DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_TOKENS = 4;
+const DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_STREAK = 2;
 const LOST_FORWARD_WINDOW_STEPS = [10, DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES, 60] as const;
 const LOST_FORWARD_STAGE_STREAKS = [
   DEFAULT_NO_PROGRESS_STREAK_TRIGGER,
@@ -9607,10 +9610,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         const markerCatchupTarget = markerCatchupGateOk
           ? Math.min(lostForwardPick.idx, cursorLine + markerCatchupCommitCap)
           : lostForwardPick.idx;
-        const adjacentStepGateOk =
+        const strictAdjacentStepGateOk =
           lostForwardPick.idx === cursorLine + 1 &&
           lostForwardPick.score >= DEFAULT_LOST_FORWARD_MIN_SIM &&
-          noProgressStreak >= 2;
+          noProgressStreak >= DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_STREAK;
+        const sustainedAdjacentStepGateOk =
+          lostForwardPick.idx === cursorLine + 1 &&
+          noProgressStreak >= DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_STREAK &&
+          transcriptTokens.length >= DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_TOKENS &&
+          (bufferGrowing || isFinal) &&
+          lostForwardPick.score >= DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_SIM &&
+          commitCount > 0;
+        const adjacentStepGateOk =
+          strictAdjacentStepGateOk ||
+          sustainedAdjacentStepGateOk;
+        const adjacentStepNeed =
+          strictAdjacentStepGateOk
+            ? DEFAULT_LOST_FORWARD_MIN_SIM
+            : DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_SIM;
         const teleportGateOk = anchorTeleportGateOk || reseekTeleportGateOk || contentFallbackGateOk;
         const teleportNeed = anchorTeleportGateOk
           ? DEFAULT_LOST_FORWARD_MIN_SIM
@@ -9637,7 +9654,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           const before = rawIdx;
           rawIdx = lostForwardPick.idx;
           conf = lostForwardPick.score;
-          effectiveThreshold = Math.min(effectiveThreshold, DEFAULT_LOST_FORWARD_MIN_SIM);
+          effectiveThreshold = Math.min(effectiveThreshold, adjacentStepNeed);
           outrunCommit = true;
           forceReason = 'lost-forward';
           emitHudStatus(
@@ -9647,7 +9664,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           if (isDevMode()) {
             try {
               console.info(
-                `ASR_LOST_FORWARD_STEP current=${cursorLine} best=${before} jump=${rawIdx} delta=${rawIdx - cursorLine} sim=${formatLogScore(conf)} need=${formatLogScore(DEFAULT_LOST_FORWARD_MIN_SIM)} streak=${noProgressStreak}`,
+                `ASR_LOST_FORWARD_STEP current=${cursorLine} best=${before} jump=${rawIdx} delta=${rawIdx - cursorLine} sim=${formatLogScore(conf)} need=${formatLogScore(adjacentStepNeed)} streak=${noProgressStreak} mode=${strictAdjacentStepGateOk ? 'strict' : 'sustained'} tokens=${transcriptTokens.length} growing=${bufferGrowing ? 1 : 0}`,
               );
             } catch {}
           }
@@ -9690,6 +9707,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             `behindMarker=${behindMarker ? 1 : 0}`,
             `markerCatchup=${markerCatchupGateOk ? 1 : 0}`,
             `markerStrong=${markerCatchupStrongGateOk ? 1 : 0}`,
+            `adjacentSustain=${sustainedAdjacentStepGateOk ? 1 : 0}`,
             `marker=${cueSafeMarkerIdx}`,
             `window=${lostForwardWindow}`,
             `cap=${lostForwardCap}`,
@@ -10273,26 +10291,41 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (allowCatchup && catchupState.ok && rawIdx > cursorLine) {
       const delta = rawIdx - cursorLine;
       if (delta <= catchupMaxDeltaLinesEffective && conf >= catchupMinSimEffective) {
+        const sustainedAdjacentCatchupEligible =
+          !allowForced &&
+          !isHybridMode() &&
+          delta === DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES &&
+          bufferGrowing &&
+          noProgressStreak >= DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_STREAK &&
+          tokenCount >= DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_TOKENS &&
+          conf >= DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_SIM &&
+          (consistencyState.ok || catchupState.ok || lostForwardActive || relockModeActive);
+        const consistentStepCatchupNeed = sustainedAdjacentCatchupEligible
+          ? DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_SIM
+          : Math.max(DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, catchupMinSimEffective);
         const consistentStepCatchupEligible =
           !allowForced &&
           !isHybridMode() &&
           delta <= DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES &&
           (consistencyState.ok || catchupState.ok) &&
-          conf >= Math.max(DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, catchupMinSimEffective);
+          conf >= consistentStepCatchupNeed;
+        const relaxedAdjacentCatchupEligible =
+          sustainedAdjacentCatchupEligible &&
+          delta <= DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES;
         const cooldownRemaining = getForcedCooldownRemaining(now);
         if (!allowForced) {
-          if (consistentStepCatchupEligible) {
+          if (consistentStepCatchupEligible || relaxedAdjacentCatchupEligible) {
             catchupCommit = true;
             forceReason = forceReason || 'catchup-consistent';
             effectiveThreshold = Math.min(
               effectiveThreshold,
-              Math.max(DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, catchupMinSimEffective),
+              consistentStepCatchupNeed,
             );
             armPostCatchupGrace('catchup-consistent');
             if (isDevMode()) {
               try {
                 console.info(
-                  `ASR_CATCHUP_CONSISTENT current=${cursorLine} best=${rawIdx} delta=${delta} sim=${formatLogScore(conf)} need=${formatLogScore(Math.max(DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, catchupMinSimEffective))}`,
+                  `ASR_CATCHUP_CONSISTENT current=${cursorLine} best=${rawIdx} delta=${delta} sim=${formatLogScore(conf)} need=${formatLogScore(consistentStepCatchupNeed)} mode=${relaxedAdjacentCatchupEligible && !consistentStepCatchupEligible ? 'sustained' : 'strict'} tokens=${tokenCount} growing=${bufferGrowing ? 1 : 0} streak=${noProgressStreak}`,
                 );
               } catch {}
             }

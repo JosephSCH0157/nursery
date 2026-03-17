@@ -37,11 +37,16 @@ import {
 import { requestHammerAudioPolish } from "../prep/hammerAudioPolishApi";
 import { requestHammerTranscriptPrep } from "../prep/hammerPrepApi";
 import {
+  buildHammerLaunchContextFromRecordingTruth,
+  loadHammerWorkpieceRecordingTruth,
+} from "../app/hammerRuntimeData";
+import {
   buildUnavailableHammerVisualPlacements,
   deriveHammerVisualPlacements,
   isReusableHammerVisualPlacements,
   loadHammerWorkpieceVisualPackage,
 } from "../lib/hammerVisualPlacements";
+import { loadWorkspaceMapping } from "../media/workspaceMapping";
 
 export interface HammerWorkspaceEditorProps {
   launchContext?: HammerLaunchContext;
@@ -74,6 +79,23 @@ function toErrorMessage(error: unknown, fallback: string): string {
 
 function withSessionId(launchContext?: HammerLaunchContext): HammerLaunchContext | undefined {
   return launchContext ? ensureHammerLaunchSessionId(launchContext) : undefined;
+}
+
+async function loadCanonicalBootstrapLaunchContext(
+  workspaceId: string,
+  workpieceId: string,
+): Promise<HammerLaunchContext | null> {
+  const [recordingTruth, workspaceMapping] = await Promise.all([
+    loadHammerWorkpieceRecordingTruth(workpieceId),
+    loadWorkspaceMapping(workspaceId),
+  ]);
+
+  return buildHammerLaunchContextFromRecordingTruth({
+    workspaceId,
+    workpieceId,
+    recordingTruth,
+    workspaceMapping,
+  });
 }
 
 function useDynamicCssText(scopeId: string, cssText: string): void {
@@ -313,34 +335,73 @@ export default function HammerWorkspaceEditor(
     setPrepState(createHammerPrepState("preparing", "loading_context"));
 
     void loadHammerPersistenceSnapshot(persistenceTarget)
-      .then((result) => {
+      .then(async (result) => {
         if (!active) return;
+
+        let nextLaunchContext = withSessionId(props.launchContext);
+        let nextHasCanonicalBasis = Boolean(nextLaunchContext);
+
         if (result.ok) {
           setLoadedPersistenceSnapshot(result.data);
           const hydrated = buildHammerLaunchContextFromPersistence(
             persistenceTarget,
             result.data,
-            withSessionId(props.launchContext),
+            nextLaunchContext,
           );
           if (hydrated) {
-            startTransition(() => {
-              setEffectiveLaunchContext(withSessionId(hydrated.launchContext));
-            });
-            setHasCanonicalBasis(true);
-          } else {
-            setEffectiveLaunchContext(withSessionId(props.launchContext));
-            setHasCanonicalBasis(Boolean(props.launchContext));
+            nextLaunchContext = withSessionId(hydrated.launchContext);
+            nextHasCanonicalBasis = true;
           }
-        } else {
-          setEffectiveLaunchContext(withSessionId(props.launchContext));
-          setHasCanonicalBasis(Boolean(props.launchContext));
         }
+
+        if (!nextLaunchContext) {
+          try {
+            nextLaunchContext = withSessionId(
+              (await loadCanonicalBootstrapLaunchContext(
+                persistenceTarget.workspaceId,
+                persistenceTarget.workpieceId,
+              )) ?? undefined,
+            );
+            nextHasCanonicalBasis = Boolean(nextLaunchContext);
+          } catch {
+            nextLaunchContext = undefined;
+            nextHasCanonicalBasis = false;
+          }
+        }
+
+        if (!active) return;
+        startTransition(() => {
+          setEffectiveLaunchContext(nextLaunchContext);
+        });
+        setHasCanonicalBasis(nextHasCanonicalBasis);
         setHydrationReady(true);
       })
-      .catch(() => {
+      .catch(async () => {
         if (!active) return;
-        setEffectiveLaunchContext(withSessionId(props.launchContext));
-        setHasCanonicalBasis(Boolean(props.launchContext));
+
+        let nextLaunchContext = withSessionId(props.launchContext);
+        let nextHasCanonicalBasis = Boolean(nextLaunchContext);
+
+        if (!nextLaunchContext) {
+          try {
+            nextLaunchContext = withSessionId(
+              (await loadCanonicalBootstrapLaunchContext(
+                persistenceTarget.workspaceId,
+                persistenceTarget.workpieceId,
+              )) ?? undefined,
+            );
+            nextHasCanonicalBasis = Boolean(nextLaunchContext);
+          } catch {
+            nextLaunchContext = undefined;
+            nextHasCanonicalBasis = false;
+          }
+        }
+
+        if (!active) return;
+        startTransition(() => {
+          setEffectiveLaunchContext(nextLaunchContext);
+        });
+        setHasCanonicalBasis(nextHasCanonicalBasis);
         setHydrationReady(true);
       });
 

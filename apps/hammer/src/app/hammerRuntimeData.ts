@@ -1,4 +1,6 @@
 import { tongsFetch } from "../lib/tongsFetch";
+import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
+import type { MediaKind, WorkspaceMediaMapping } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import { loadHammerPersistenceSnapshot } from "../persistence/hammerPersistence";
 
 const WORKSPACE_CACHE_KEY = "forge_workspaces_cache_v1";
@@ -57,6 +59,17 @@ export type HammerRuntimeProjectSignals = {
 export type HammerWorkpieceRecordingTruth = {
   hasKeptTake: boolean;
   latestKeptTakePath: string | null;
+  latestKeptTake: {
+    eventId: number | null;
+    createdAt: string | null;
+    filePath: string | null;
+    recordingSessionId: string | null;
+    anvilCaptureSessionId: string | null;
+    contentType: string | null;
+    bytes: number | null;
+    durationMs: number | null;
+    originalName: string | null;
+  } | null;
 };
 
 export type HammerWorkpieceManifestContext = {
@@ -102,6 +115,10 @@ function readString(value: unknown): string | null {
 function readJsonRecord(value: unknown): JsonRecord | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as JsonRecord;
+}
+
+function readFiniteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function readBrowserStorage(key: string): string | null {
@@ -300,9 +317,98 @@ export function extractHammerWorkpieceRecordingTruth(
 ): HammerWorkpieceRecordingTruth {
   const truth = readJsonRecord(value);
   const latestKeptTake = readJsonRecord(truth?.latest_kept_take);
+  const keptTake = latestKeptTake
+    ? {
+      eventId: readFiniteNumber(latestKeptTake.event_id),
+      createdAt: readString(latestKeptTake.created_at),
+      filePath: readString(latestKeptTake.file_path),
+      recordingSessionId: readString(latestKeptTake.recording_session_id),
+      anvilCaptureSessionId: readString(latestKeptTake.anvil_capture_session_id),
+      contentType: readString(latestKeptTake.content_type),
+      bytes: readFiniteNumber(latestKeptTake.bytes),
+      durationMs: readFiniteNumber(latestKeptTake.duration_ms),
+      originalName: readString(latestKeptTake.original_name),
+    }
+    : null;
   return {
     hasKeptTake: truth?.recorded === true,
-    latestKeptTakePath: readString(latestKeptTake?.file_path),
+    latestKeptTakePath: keptTake?.filePath ?? null,
+    latestKeptTake: keptTake,
+  };
+}
+
+function inferKeptTakeMediaKind(
+  receipt: NonNullable<HammerWorkpieceRecordingTruth["latestKeptTake"]>,
+): MediaKind {
+  const contentType = receipt.contentType?.trim().toLowerCase() ?? "";
+  if (contentType.startsWith("audio/")) return "recording_audio";
+  if (contentType.startsWith("video/")) return "recording_video";
+
+  const filePath = receipt.filePath?.trim().toLowerCase() ?? "";
+  if (/\.(wav|mp3|m4a|aac|flac|ogg|opus)$/i.test(filePath)) {
+    return "recording_audio";
+  }
+
+  return "recording_video";
+}
+
+function buildKeptTakeMediaId(
+  workpieceId: string,
+  receipt: NonNullable<HammerWorkpieceRecordingTruth["latestKeptTake"]>,
+): string {
+  if (receipt.recordingSessionId) {
+    return `recording-session:${receipt.recordingSessionId}`;
+  }
+  if (receipt.anvilCaptureSessionId) {
+    return `capture-session:${receipt.anvilCaptureSessionId}`;
+  }
+  if (receipt.eventId != null) {
+    return `kept-take:${workpieceId}:${receipt.eventId}`;
+  }
+  return `kept-take:${workpieceId}`;
+}
+
+export function buildHammerLaunchContextFromRecordingTruth(args: {
+  workspaceId: string;
+  workpieceId: string;
+  recordingTruth: HammerWorkpieceRecordingTruth;
+  workspaceMapping: WorkspaceMediaMapping | null;
+}): HammerLaunchContext | null {
+  const keptTake = args.recordingTruth.latestKeptTake;
+  if (!args.recordingTruth.hasKeptTake || !keptTake) {
+    return null;
+  }
+
+  const filePath = keptTake.filePath?.trim() ?? "";
+  if (!filePath || !args.workspaceMapping?.local_root_abs) {
+    return null;
+  }
+
+  const mediaId = buildKeptTakeMediaId(args.workpieceId, keptTake);
+  return {
+    workspace_id: args.workspaceId,
+    workpiece_id: args.workpieceId,
+    source_mode: "tongs",
+    transcript: {
+      kind: "tongs-stub",
+      transcript_id: `transcript_seed:${args.workpieceId}`,
+      segments: [],
+      label: "pending transcript",
+    },
+    media: {
+      kind: "tongs-stub",
+      ref: {
+        media_id: mediaId,
+        kind: inferKeptTakeMediaKind(keptTake),
+        source_hint: "local",
+        local_relpath: filePath,
+        ...(keptTake.bytes != null ? { byte_size: keptTake.bytes } : {}),
+        ...(keptTake.durationMs != null ? { duration_ms: keptTake.durationMs } : {}),
+      },
+      workspace_mapping: { ...args.workspaceMapping },
+      label: keptTake.originalName?.trim() || `tongs:${mediaId}`,
+    },
+    preview_mode: "edit-aware",
   };
 }
 
@@ -363,6 +469,7 @@ export async function loadHammerWorkpieceRecordingTruth(
     return {
       hasKeptTake: false,
       latestKeptTakePath: null,
+      latestKeptTake: null,
     };
   }
 
@@ -396,7 +503,7 @@ export async function loadHammerWorkspaceProjects(
         snapshotResult: snapshotResult.status === "fulfilled" ? snapshotResult.value : null,
         recordingTruth: truthResult.status === "fulfilled"
           ? truthResult.value
-          : { hasKeptTake: false, latestKeptTakePath: null },
+          : { hasKeptTake: false, latestKeptTakePath: null, latestKeptTake: null },
         recordingTruthUnavailable: truthResult.status === "rejected",
       };
     }),
@@ -409,7 +516,7 @@ export async function loadHammerWorkspaceProjects(
       : null;
     const recordingTruth = detailResult?.status === "fulfilled"
       ? detailResult.value.recordingTruth
-      : { hasKeptTake: false, latestKeptTakePath: null };
+      : { hasKeptTake: false, latestKeptTakePath: null, latestKeptTake: null };
     const snapshot = snapshotResult?.ok
       ? snapshotResult.data
       : null;
