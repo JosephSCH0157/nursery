@@ -441,6 +441,7 @@ const DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS = 2;
 const DEFAULT_CUE_STALL_RESCUE_DELAY_MS = 900;
 const DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS = 1800;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS = 3;
+const DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES = 2;
 const DEFAULT_MULTI_JUMP_MIN_SIM = 0.45;
 const DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS = 0.08;
 const DEFAULT_MULTI_JUMP_HARD_DENY_SIM = 0.3;
@@ -1016,6 +1017,31 @@ export function evaluateStallCueRescuePolicy(opts: {
     directContentForwardRescue: false,
     blockedReason: '',
   };
+}
+
+export function shouldAllowAutoStallContentRescue(opts: {
+  commitCount: number;
+  deltaLines: number;
+  sinceLastForwardMs: number;
+  lostForwardGateCountSinceCommit: number;
+}): boolean {
+  const commitCount = Number.isFinite(opts.commitCount)
+    ? Math.max(0, Math.floor(opts.commitCount))
+    : 0;
+  const deltaLines = Number.isFinite(opts.deltaLines)
+    ? Math.max(0, Math.floor(opts.deltaLines))
+    : 0;
+  if (deltaLines !== 1) return false;
+  if (commitCount >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS) return true;
+  if (commitCount <= 0) return false;
+  const sinceLastForwardMs = Number.isFinite(opts.sinceLastForwardMs)
+    ? Math.max(0, Number(opts.sinceLastForwardMs))
+    : 0;
+  if (sinceLastForwardMs < DEFAULT_STARVATION_COMMIT_GAP_MS) return false;
+  const lostForwardGateCountSinceCommit = Number.isFinite(opts.lostForwardGateCountSinceCommit)
+    ? Math.max(0, Math.floor(opts.lostForwardGateCountSinceCommit))
+    : 0;
+  return lostForwardGateCountSinceCommit >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES;
 }
 
 export function evaluateCueBoundaryMultiJumpRelaxation(opts: {
@@ -2843,6 +2869,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lostForwardWallStreak = 0;
   let lastProgressCursorLine = -1;
   let lastCueStallRescueAt = 0;
+  let lostForwardGateCountAtLastCommit = 0;
   let lostForwardActive = false;
   let lostForwardStage = 0;
   let lostForwardEnteredAt = 0;
@@ -3564,6 +3591,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let catchUpModeUntil = 0;
   const eventRing: AsrEventSnapshot[] = [];
   const guardCounts = new Map<string, number>();
+  const getGuardCount = (reason: string) => guardCounts.get(reason) || 0;
   let manualAnchorPending: { targetIndex: number; ts: number } | null = null;
   let manualScrollLastTop = 0;
   let manualScrollLastAt = 0;
@@ -4818,10 +4846,20 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       return false;
     }
     const directContentForwardRescue = rescuePolicy.directContentForwardRescue;
+    const lostForwardGateCountSinceCommit = Math.max(
+      0,
+      getGuardCount('lost_forward_gate') - lostForwardGateCountAtLastCommit,
+    );
+    const autoStallContentRescueAllowed = shouldAllowAutoStallContentRescue({
+      commitCount,
+      deltaLines,
+      sinceLastForwardMs: now - lastForwardCommitAt,
+      lostForwardGateCountSinceCommit,
+    });
     if (
       reasonTag === 'auto-stall' &&
       directContentForwardRescue &&
-      commitCount < DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS
+      !autoStallContentRescueAllowed
     ) {
       stallRescueRequested = false;
       if (isDevMode()) {
@@ -4831,6 +4869,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `commits=${commitCount}`,
           `need=${DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS}`,
           `delta=${deltaLines}`,
+          `lostForwardGates=${lostForwardGateCountSinceCommit}`,
+          `sinceForwardMs=${Math.max(0, now - lastForwardCommitAt)}`,
           reason ? `source=${reason}` : '',
           cursorLineText ? `line="${formatLogSnippet(cursorLineText, 56)}"` : '',
         ]);
@@ -4883,6 +4923,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     commitCount += 1;
     finalsSinceCommit = 0;
     eventsSinceCommit = 0;
+    lostForwardGateCountAtLastCommit = getGuardCount('lost_forward_gate');
     logDriverActive('commit');
     stallHudEmitted = false;
     if (firstCommitIndex == null && Number.isFinite(prevIndex)) {
@@ -11131,6 +11172,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastForwardCommitAt = Date.now();
     finalsSinceCommit = 0;
     eventsSinceCommit = 0;
+    lostForwardGateCountAtLastCommit = getGuardCount('lost_forward_gate');
     noProgressStreak = 0;
     lostForwardWallStreak = 0;
     lastProgressCursorLine = lastLineIndex;

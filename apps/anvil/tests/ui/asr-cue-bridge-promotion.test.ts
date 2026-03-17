@@ -2,6 +2,7 @@ import {
   evaluateCueBoundaryMultiJumpRelaxation,
   evaluateStallCueRescuePolicy,
   scanCueBridgeWindow,
+  shouldAllowAutoStallContentRescue,
 } from '../../src/features/asr/asr-scroll-driver';
 
 describe('ASR cue-bridge promotion', () => {
@@ -99,6 +100,40 @@ describe('ASR cue-bridge promotion', () => {
       directContentForwardRescue: false,
       blockedReason: '',
     });
+  });
+
+  test('opening auto-stall content rescue stays blocked without repeated lost-forward evidence', () => {
+    expect(shouldAllowAutoStallContentRescue({
+      commitCount: 1,
+      deltaLines: 1,
+      sinceLastForwardMs: 2500,
+      lostForwardGateCountSinceCommit: 3,
+    })).toBe(false);
+
+    expect(shouldAllowAutoStallContentRescue({
+      commitCount: 1,
+      deltaLines: 1,
+      sinceLastForwardMs: 3500,
+      lostForwardGateCountSinceCommit: 1,
+    })).toBe(false);
+  });
+
+  test('opening auto-stall content rescue unlocks after starvation and repeated lost-forward gates', () => {
+    expect(shouldAllowAutoStallContentRescue({
+      commitCount: 1,
+      deltaLines: 1,
+      sinceLastForwardMs: 3500,
+      lostForwardGateCountSinceCommit: 2,
+    })).toBe(true);
+  });
+
+  test('opening auto-stall content rescue still rejects multi-line skips', () => {
+    expect(shouldAllowAutoStallContentRescue({
+      commitCount: 1,
+      deltaLines: 2,
+      sinceLastForwardMs: 5000,
+      lostForwardGateCountSinceCommit: 4,
+    })).toBe(false);
   });
 
   test('explicit rescue still allows strict cue bridges', () => {
