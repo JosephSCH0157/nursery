@@ -1,6 +1,11 @@
 import { computeLineSimilarityFromTokens, normTokens, type MatchResult } from '../../speech/matcher';
 import { speechStore } from '../../state/speech-store';
 import { getAsrSettings } from '../speech/speech-store';
+import {
+  ASR_MANUAL_ANCHOR_EVENT,
+  normalizeManualAnchorTargetIndex,
+  type AsrManualAnchorDetail,
+} from './manual-anchor';
 import { ensureAsrTuningProfile, getActiveAsrTuningProfile, onAsrTuning, type AsrTuningProfile } from '../../asr/tuning-store';
 import {
   applyCanonicalScrollTop,
@@ -998,6 +1003,11 @@ export function evaluateStallCueRescuePolicy(opts: {
     directContentForwardRescue: false,
     blockedReason: '',
   };
+}
+
+export function isAutomaticStallRescueReason(reasonTag: string): boolean {
+  const normalized = String(reasonTag || '').trim().toLowerCase();
+  return normalized === 'auto-stall' || normalized.startsWith('stall:');
 }
 
 function isSkippableLineForCueBridge(value: string): boolean {
@@ -3654,6 +3664,31 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     setManualAnchorPendingState(targetIndex, now);
   };
 
+  const handleManualAnchorSignal = (event?: Event) => {
+    if (disposed) return;
+    if (!isManualAnchorAdoptEnabled()) return;
+    const mode = getScrollMode();
+    if (mode !== 'hybrid' && mode !== 'asr') return;
+    const detail = ((event as CustomEvent<AsrManualAnchorDetail> | undefined)?.detail || {}) as AsrManualAnchorDetail;
+    const targetIndex = normalizeManualAnchorTargetIndex(detail.targetIndex);
+    if (targetIndex == null) return;
+    const now = Date.now();
+    manualScrollLastTop = getScroller()?.scrollTop ?? manualScrollLastTop;
+    manualScrollLastAt = now;
+    if (manualAnchorPending && Math.abs(manualAnchorPending.targetIndex - targetIndex) <= MANUAL_ANCHOR_WINDOW_LINES) {
+      manualAnchorPending.ts = now;
+      updateManualAnchorGlobalState();
+      logDev('[ASR_ADOPT] signal refresh targetIndex=' + manualAnchorPending.targetIndex);
+      return;
+    }
+    logDev('[ASR_ADOPT] signal targetIndex=' + targetIndex, {
+      source: detail.source || 'signal',
+      reason: detail.reason || '',
+      targetBlockIdx: detail.targetBlockIdx ?? null,
+    });
+    setManualAnchorPendingState(targetIndex, now);
+  };
+
   const attachManualScrollWatcher = () => {
     if (manualScrollListenerAttached) return;
     manualScrollListenerAttached = true;
@@ -3965,6 +4000,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   try { window.addEventListener('tp:asr:silence', silenceHandler as EventListener); } catch {}
   try { window.addEventListener('tp:script:reset', resetHandler as EventListener); } catch {}
   try { window.addEventListener('tp:asr:rescue', rescueHandler as EventListener); } catch {}
+  try { window.addEventListener(ASR_MANUAL_ANCHOR_EVENT, handleManualAnchorSignal as EventListener); } catch {}
   try { (window as any).__tpAsrRequestRescue = rescueHandler; } catch {}
 
   const summarizeGuardCounts = (limit = Number.POSITIVE_INFINITY) => {
@@ -4609,6 +4645,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (!Number.isFinite(cursorRaw) || cursorRaw < 0) return false;
     const cursorLine = Math.max(0, Math.floor(cursorRaw));
     const reasonTag = String(reason || '').trim().toLowerCase();
+    if (manualAnchorPending && isAutomaticStallRescueReason(reasonTag)) {
+      stallRescueRequested = false;
+      if (isDevMode()) {
+        warnGuard('cue_stall_rescue_blocked', [
+          `at=${cursorLine}`,
+          'reason=manual-anchor-pending',
+          reason ? `source=${reason}` : '',
+          `target=${manualAnchorPending.targetIndex}`,
+        ]);
+      }
+      return false;
+    }
     const cursorLineText = getLineTextAt(cursorLine);
     const cueBridge = findNextSpeakableWithinBridge(
       cursorLine,
@@ -6532,7 +6580,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             const bridgedFinalAdvance =
               bridgeUsed &&
               conf >= DEFAULT_MULTI_JUMP_MIN_SIM;
-            if (bridgedFinalAdvance || plainStrongFinalAdvance) {
+            if (nextLine != null && (bridgedFinalAdvance || plainStrongFinalAdvance)) {
               if (bridgeUsed) {
                 logCueBridgeUse(lastLineIndex, nextLine, cueBridge.skippedReasons, 'same-line-confirm');
               }
@@ -6656,8 +6704,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           targetLine,
           now,
           conf,
-          Number.isFinite(currentLineScoreForBackstep) ? Number(currentLineScoreForBackstep) : requiredThreshold,
-          requiredThreshold,
+          Number.isFinite(currentLineScoreForBackstep) ? Number(currentLineScoreForBackstep) : requiredThresholdValue,
+          requiredThresholdValue,
           'corrective-backstep',
           matchId,
           snippet,
@@ -10755,6 +10803,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     try { window.removeEventListener('tp:asr:silence', silenceHandler as EventListener); } catch {}
     try { window.removeEventListener('tp:script:reset', resetHandler as EventListener); } catch {}
     try { window.removeEventListener('tp:asr:rescue', rescueHandler as EventListener); } catch {}
+    try { window.removeEventListener(ASR_MANUAL_ANCHOR_EVENT, handleManualAnchorSignal as EventListener); } catch {}
     detachManualScrollWatcher();
     manualAnchorPending = null;
     resetAmbiguityHoldState();

@@ -1,8 +1,10 @@
 import {
+  computeAnchorLineIndex,
   describeElement,
   getRuntimeScroller,
   resolveViewerRole,
 } from '../../scroll/scroller';
+import { dispatchAsrManualAnchor } from '../asr/manual-anchor';
 import { getAsrBlockElements } from '../../scroll/asr-block-store';
 import { getScrollWriter, seekToBlockAnimated } from '../../scroll/scroll-writer';
 
@@ -11,6 +13,19 @@ const DEFAULT_KICK_DELTA_PX = 120;
 export interface KickOptions {
   deltaPx?: number;
   reason?: string;
+}
+
+function isDevMode(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const w = window as any;
+    if (w.__TP_DEV || w.__TP_DEV1 || w.__tpDevMode) return true;
+    if (w.localStorage?.getItem('tp_dev_mode') === '1') return true;
+    const qs = new URLSearchParams(String(window.location?.search || ''));
+    return qs.has('dev') || qs.get('dev') === '1';
+  } catch {
+    return false;
+  }
 }
 
 function normalizeDeltaPx(rawDelta: number | undefined): number {
@@ -120,6 +135,20 @@ function getCurrentLineIndex(): number | null {
   return null;
 }
 
+function resolveManualAnchorTargetIndex(
+  scroller: HTMLElement,
+  fallbackIndex: number | null = null,
+): number | null {
+  const markerIndex = computeAnchorLineIndex(scroller);
+  if (Number.isFinite(markerIndex as number)) {
+    return Math.max(0, Math.floor(markerIndex as number));
+  }
+  if (Number.isFinite(fallbackIndex as number)) {
+    return Math.max(0, Math.floor(fallbackIndex as number));
+  }
+  return null;
+}
+
 function elementTopRelativeToScroller(el: HTMLElement, scroller: HTMLElement): number {
   try {
     const rect = el.getBoundingClientRect();
@@ -154,7 +183,13 @@ function resolveCurrentAsrBlockIdx(scroller: HTMLElement, blocks: HTMLElement[])
   return bestIdx;
 }
 
-function kickAsrForward(scroller: HTMLElement, deltaPx: number, reason: string): boolean {
+type AsrKickResult = {
+  moved: boolean;
+  targetIndex: number | null;
+  targetBlockIdx: number | null;
+};
+
+function kickAsrForward(scroller: HTMLElement, deltaPx: number, reason: string): AsrKickResult {
   const blocks = getAsrBlockElements();
   const from = readScrollTop(scroller);
   if (blocks.length) {
@@ -164,6 +199,11 @@ function kickAsrForward(scroller: HTMLElement, deltaPx: number, reason: string):
         ? 0
         : Math.min(blocks.length - 1, Math.max(0, currentBlockIdx + 1));
     if (currentBlockIdx == null || nextBlockIdx !== currentBlockIdx) {
+      const nextRange = getBlockLineRange(blocks[nextBlockIdx]);
+      const currentLine = getCurrentLineIndex();
+      const fallbackTargetIndex =
+        nextRange?.start ??
+        (Number.isFinite(currentLine as number) ? Math.max(0, Math.floor(currentLine as number) + 1) : null);
       try { seekToBlockAnimated(nextBlockIdx, `${reason}:asr`); } catch {}
       if (typeof requestAnimationFrame === 'function') {
         requestAnimationFrame(() => {
@@ -182,11 +222,23 @@ function kickAsrForward(scroller: HTMLElement, deltaPx: number, reason: string):
           writeScrollTop(scroller, from + deltaPx);
         }
       }
-      return true;
+      return {
+        moved: true,
+        targetIndex: fallbackTargetIndex,
+        targetBlockIdx: nextBlockIdx,
+      };
     }
   }
   writeScrollTop(scroller, from + deltaPx);
-  return Math.abs(readScrollTop(scroller) - from) >= 0.5;
+  const moved = Math.abs(readScrollTop(scroller) - from) >= 0.5;
+  const currentLine = getCurrentLineIndex();
+  const fallbackTargetIndex =
+    Number.isFinite(currentLine as number) ? Math.max(0, Math.floor(currentLine as number) + 1) : null;
+  return {
+    moved,
+    targetIndex: moved ? resolveManualAnchorTargetIndex(scroller, fallbackTargetIndex) : null,
+    targetBlockIdx: null,
+  };
 }
 
 export function kick(options: KickOptions = {}): boolean {
@@ -200,8 +252,13 @@ export function kick(options: KickOptions = {}): boolean {
     const from = readScrollTop(scroller);
 
     let moved: boolean;
+    let manualAnchorTargetIndex: number | null = null;
+    let manualAnchorTargetBlockIdx: number | null = null;
     if (mode === 'asr') {
-      moved = kickAsrForward(scroller, deltaPx, reason);
+      const result = kickAsrForward(scroller, deltaPx, reason);
+      moved = result.moved;
+      manualAnchorTargetIndex = result.targetIndex;
+      manualAnchorTargetBlockIdx = result.targetBlockIdx;
     } else {
       try {
         getScrollWriter().scrollBy(deltaPx, { behavior: 'auto' });
@@ -218,8 +275,25 @@ export function kick(options: KickOptions = {}): boolean {
     const to = readScrollTop(scroller);
 
     try { scroller.dataset.tpLastWriter = reason; } catch {}
+    if (mode === 'asr' && moved && manualAnchorTargetIndex != null) {
+      const targetIndex = dispatchAsrManualAnchor({
+        targetIndex: manualAnchorTargetIndex,
+        targetBlockIdx: manualAnchorTargetBlockIdx,
+        source: 'kick',
+        reason,
+      });
+      if (isDevMode() && targetIndex != null) {
+        try {
+          console.info('[kick:manual-anchor]', {
+            reason,
+            targetIndex,
+            targetBlockIdx: manualAnchorTargetBlockIdx,
+          });
+        } catch {}
+      }
+    }
 
-    if (import.meta.env.DEV) {
+    if (isDevMode()) {
       try {
         console.info('[kick]', {
           reason,
@@ -235,7 +309,7 @@ export function kick(options: KickOptions = {}): boolean {
 
     return moved;
   } catch (error) {
-    if (import.meta.env.DEV) {
+    if (isDevMode()) {
       try {
         console.warn('[kick] error', {
           reason: options.reason || 'kick',

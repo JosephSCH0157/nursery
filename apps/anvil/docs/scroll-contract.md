@@ -77,6 +77,7 @@ When `scrollMode='asr'`:
 - For bounded same-line final cue-bridge promotions, a small multi-jump floor epsilon (`<=0.08`) is allowed to avoid float-boundary stalls, only on `final-forward-nudge` / `final-forward-fallback` / `permissive-final-advance` with valid cue-bridge pathing. Hard deny floor (`sim<0.30`) remains unchanged.
 - During live armed `speech_stall`, runtime may emit `tp:asr:rescue`; driver may synthesize a bounded cue-bridge forward commit (`forceReason='stall-rescue'`) only when skipped lines are cue/meta/blank and a speakable target exists within bridge cap (`+3`).
 - Auto cue-stall rescue is bounded to conservative continuity: automatic stall rescue may schedule only a direct content step (`+1`) when both cursor and target are content lines; multi-line cue-bridge rescue is reserved for explicit/manual rescue signals.
+- Automatic stall rescue must defer while manual-anchor adoption is pending (for example after Kick/manual reposition) so recovery does not override the user-selected re-anchor location before local speech confirms it.
 - Rescue latch hygiene: `stallRescueRequested` should arm only when rescue scheduling succeeds; blocked content-line auto-stall checks must leave the latch false.
 - LOST_FORWARD may use bounded behind-marker catch-up when marker is ahead of cursor and forward content evidence exists: candidate window remains bounded (`<=+6`), per-commit cap defaults to `+1`, and `+2` is allowed only under strong evidence at progressive floor (`sim>=0.20`).
 - Same-line/behind low-sim handling includes a small relaxed threshold lane (floor-clamped) so stable same-line evidence can proceed without waiting for strict full-threshold confidence.
@@ -129,6 +130,7 @@ When `scrollMode='asr'`:
 - Kick is manual movement and never depends on motor/auto-intent.
 - Kick resolves scroller by viewer role (`main` vs `display`) before movement.
 - In `scrollMode='asr'`, Kick acts as manual forward assist (advance one ASR block when available).
+- In `scrollMode='asr'`, Kick must arm manual-anchor adoption near the assisted location so matcher truth can re-lock on local speech instead of remaining on the pre-kick cursor.
 - Kick prefers writer path; pixel nudge is fallback.
 - Hotkeys and buttons call typed kick entrypoints only.
 - Hotkey typing-target suppression may block only `input`, `textarea`, and contenteditable targets; it must not suppress Kick on actionable controls like `button`/`#recBtn`.
