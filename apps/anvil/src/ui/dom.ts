@@ -1272,7 +1272,7 @@ export function bindStaticDom() {
         const apply = (next: boolean) => {
           try {
             vis = !!next;
-            body.style.display = vis ? '' : 'none';
+            body.hidden = !vis;
             btn.textContent = vis ? 'Hide' : 'Show';
             btn.setAttribute('aria-expanded', vis ? 'true' : 'false');
             try { localStorage.setItem(KEY, vis ? '1' : '0'); } catch {}

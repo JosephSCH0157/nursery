@@ -723,7 +723,7 @@ export function bindStaticDom() {
         const KEY = 'tp_speakers_visible_v2';
         const apply = (vis) => {
           try {
-            body.style.display = vis ? '' : 'none';
+            body.hidden = !vis;
             btn.textContent = vis ? 'Hide' : 'Show';
             btn.setAttribute('aria-expanded', vis ? 'true' : 'false');
             try { localStorage.setItem(KEY, vis ? '1' : '0'); } catch {}
