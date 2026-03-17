@@ -22,6 +22,7 @@ import {
   resolveActiveScroller,
 } from '../scroll/scroller';
 import { ensureSpeechGlobals, isSpeechBackendAllowed } from '../speech/backend-guard';
+import { createWhisperBridgeRecognizer } from '../speech/engines/whisper-bridge';
 import { matchBatch as runMatcherBatch, normTokens, type MatchConfig } from '../speech/matcher';
 import { stopAsrRuntime } from '../speech/runtime-control';
 import type { AppStore } from '../state/app-store';
@@ -3602,6 +3603,7 @@ async function startBackendForSession(mode: string, reason?: string): Promise<bo
   const speechNs = getTpSpeechNamespace();
   const allowLegacyNs = isLegacySpeechNamespaceAllowed();
   const speechStoreState = getTpSpeechStoreSnapshot();
+  const selectedEngine = String((speechStoreState as any)?.engine || '').toLowerCase();
   if (isSettingsHydrating()) {
     try { console.debug('[ASR] startBackend blocked during settings hydration', { mode, reason }); } catch {}
     return false;
@@ -3621,6 +3623,39 @@ async function startBackendForSession(mode: string, reason?: string): Promise<bo
         speechRunning: (speechStoreState as any)?.speechRunning,
       };
       try { console.log('[ASR] lifecycle startBackend: invoking backend', info); } catch {}
+    }
+  }
+
+  if (selectedEngine === 'whisper') {
+    try {
+      const whisperRecognizer = createWhisperBridgeRecognizer({
+        lang: typeof (speechStoreState as any)?.lang === 'string' ? (speechStoreState as any).lang : 'en-US',
+        interim: (speechStoreState as any)?.interim !== false,
+        endpointingMs: Number((speechStoreState as any)?.endpointingMs || 0),
+      });
+      await whisperRecognizer.start();
+      rec = whisperRecognizer as unknown as RecognizerLike;
+      try { whisperRecognizer.on('final', (t: unknown) => routeRecognizerTranscript(t, true)); } catch {}
+      try { whisperRecognizer.on('partial', (t: unknown) => routeRecognizerTranscript(t, false)); } catch {}
+      try { whisperRecognizer.on('error', (detail: unknown) => console.warn('[speech] whisper bridge error', detail)); } catch {}
+      try { window.__tpEmitSpeech = (t: unknown, final?: boolean) => routeRecognizerTranscript(t, !!final); } catch {}
+      setActiveRecognizer(rec);
+      if (!activeRecognizer) {
+        emitAsrState('idle', 'recognizer-not-attached:whisper');
+        setSpeechRunningActual(false, 'whisper-no-attach');
+        maybeLogLiveArmedDetachedInvariant('whisper-no-attach');
+        emitHudSnapshot('recognizer-attach-failed:whisper', { force: true });
+        return false;
+      }
+      setSpeechRunningActual(true, 'whisper-start');
+      emitAsrHeartbeat('recognizer-attached:whisper', { force: true });
+      return true;
+    } catch (error) {
+      try { console.warn('[ASR] whisper bridge failed to start', error); } catch {}
+      emitAsrState('idle', 'recognizer-start-failed:whisper');
+      setActiveRecognizer(null);
+      setSpeechRunningActual(false, 'whisper-start-failed');
+      return false;
     }
   }
 
@@ -3876,7 +3911,10 @@ export async function startSpeechBackendForSession(info?: { reason?: string; mod
         });
         return false;
       }
-      try { await window.__tpMic?.requestMic?.(); } catch {}
+      const startedEngine = String((getTpSpeechStoreSnapshot() as any)?.engine || '').toLowerCase();
+      if (startedEngine !== 'whisper') {
+        try { await window.__tpMic?.requestMic?.(); } catch {}
+      }
       bootTrace('speech-loader:live-path:done', { mode, ok, runKey });
       return ok;
     } catch {
@@ -3913,12 +3951,12 @@ export function stopSpeechBackendForSession(reason?: string): void {
   detachAsrScrollDriver();
   asrBrainLogged = false;
   try { stopAsrRuntime(); } catch {}
-  try { window.__tpMic?.releaseMic?.(); } catch {}
   try { rec?.abort?.(); } catch {}
   try { rec?.stop?.(); } catch {}
   try { stopAndAbortRecognizer((window as any).__tpRecognizer); } catch {}
   try { stopAndAbortRecognizer((window as any).recog); } catch {}
   try { getTpSpeechNamespace()?.stopRecognizer?.(); } catch {}
+  try { window.__tpMic?.releaseMic?.(); } catch {}
   setActiveRecognizer(null);
   rec = null;
   setSpeechRunningActual(false, 'stop');

@@ -5,6 +5,7 @@ import fs from "node:fs";
 import fsPromises from "node:fs/promises";
 import { createHammerDevMediaMiddleware } from "./scripts/mw-hammer-dev-media";
 import { createHammerPrepMiddleware } from "./scripts/mw-hammer-prep";
+import { mwAnvilWhisperApi } from "./scripts/mw-anvil-whisper-api";
 import { mwHearthChatApi } from "./scripts/mw-hearth-chat-api";
 import { createNurseryTongsMiddleware } from "./scripts/mw-tongs-commit-api";
 
@@ -202,6 +203,7 @@ export default defineConfig({
         server.middlewares.use(createAnvilSourceMiddleware());
         server.middlewares.use(createNurseryTongsMiddleware({ routePrefix: "/tongs" }));
         server.middlewares.use(mwHearthChatApi());
+        server.middlewares.use(mwAnvilWhisperApi());
         server.middlewares.use(createHammerDevMediaMiddleware());
         server.middlewares.use(createHammerPrepMiddleware());
       },
