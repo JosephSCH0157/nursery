@@ -990,10 +990,17 @@ export function evaluateStallCueRescuePolicy(opts: {
   const reasonTag = String(opts.reasonTag || '').trim().toLowerCase();
   const skippedReasons = Array.isArray(opts.skippedReasons) ? opts.skippedReasons : [];
   if (reasonTag === 'auto-stall') {
+    if (!skippedReasons.length) {
+      return {
+        allow: true,
+        directContentForwardRescue: true,
+        blockedReason: '',
+      };
+    }
     return {
-      allow: false,
+      allow: true,
       directContentForwardRescue: false,
-      blockedReason: 'auto-stall-disabled',
+      blockedReason: '',
     };
   }
   if (!skippedReasons.length) {

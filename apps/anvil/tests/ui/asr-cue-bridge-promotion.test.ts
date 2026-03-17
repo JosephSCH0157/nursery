@@ -75,16 +75,29 @@ describe('ASR cue-bridge promotion', () => {
     });
   });
 
-  test('auto-stall rescue does not authorize forward motion on its own', () => {
+  test('auto-stall rescue allows a direct adjacent content step', () => {
+    const policy = evaluateStallCueRescuePolicy({
+      reasonTag: 'auto-stall',
+      skippedReasons: [],
+    });
+
+    expect(policy).toEqual({
+      allow: true,
+      directContentForwardRescue: true,
+      blockedReason: '',
+    });
+  });
+
+  test('auto-stall rescue still allows strict cue bridges', () => {
     const policy = evaluateStallCueRescuePolicy({
       reasonTag: 'auto-stall',
       skippedReasons: ['cue'],
     });
 
     expect(policy).toEqual({
-      allow: false,
+      allow: true,
       directContentForwardRescue: false,
-      blockedReason: 'auto-stall-disabled',
+      blockedReason: '',
     });
   });
 
