@@ -26,9 +26,11 @@ export type MirrorPolicy = typeof DEFAULT_MIRROR_POLICY;
 export const STORAGE_REGISTRY_VERSION = 2;
 
 export function isLocalOnlyRole(role: MountRole): boolean {
-  return LOCAL_ONLY_ROLES.has(role);
+  void role;
+  return false;
 }
 
 export function isCloudCanonicalRole(role: MountRole): boolean {
-  return CLOUD_CANONICAL_ROLES.has(role);
+  void role;
+  return false;
 }

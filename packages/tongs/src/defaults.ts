@@ -1,6 +1,6 @@
 import type { MountRegistryEntry, WorkspaceMountRegistry } from "./types.js";
 import { MOUNT_ROLE_POLICY } from "./roles.js";
-import { DEFAULT_MIRROR_POLICY, isCloudCanonicalRole, STORAGE_REGISTRY_VERSION } from "./storage/storage-contract.js";
+import { DEFAULT_MIRROR_POLICY, STORAGE_REGISTRY_VERSION } from "./storage/storage-contract.js";
 
 export function buildDefaultRegistry(workspaceId: string): WorkspaceMountRegistry {
   const nowIso = new Date().toISOString();
@@ -12,11 +12,11 @@ export function buildDefaultRegistry(workspaceId: string): WorkspaceMountRegistr
     mounts: MOUNT_ROLE_POLICY.map((policy) => {
       const entry: MountRegistryEntry = {
         role: policy.role,
-        target: policy.eligibleTargets[0] ?? "local",
+        target: policy.defaultTarget,
         updatedAtIso: nowIso,
       };
 
-      if (isCloudCanonicalRole(policy.role)) {
+      if (policy.defaultTarget === "tongs_cloud") {
         entry.mirror = { enabled: false, policy: DEFAULT_MIRROR_POLICY };
       }
 

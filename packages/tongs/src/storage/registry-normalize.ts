@@ -6,12 +6,11 @@ import type {
   MountTargetType,
   WorkspaceMountRegistry,
 } from "../types.js";
+import { getDefaultMountTarget, getMountRolePolicy, isTargetEligibleForRole } from "../roles.js";
 import {
   ALL_MOUNT_ROLES,
   DEFAULT_MIRROR_POLICY,
   STORAGE_REGISTRY_VERSION,
-  isCloudCanonicalRole,
-  isLocalOnlyRole,
 } from "./storage-contract.js";
 
 const TARGET_SET: ReadonlySet<MountTargetType> = new Set(["local", "tongs_cloud"]);
@@ -44,9 +43,7 @@ function sanitizeLocal(input: unknown): MountLocalConfig | undefined {
 }
 
 function defaultTargetForRole(role: MountRole): MountTargetType {
-  if (isLocalOnlyRole(role)) return "local";
-  if (isCloudCanonicalRole(role)) return "tongs_cloud";
-  return "local";
+  return getDefaultMountTarget(role);
 }
 
 export function normalizeRegistry(
@@ -64,7 +61,9 @@ export function normalizeRegistry(
       mounts: ALL_MOUNT_ROLES.map((role) => ({
         role,
         target: defaultTargetForRole(role),
-        mirror: isCloudCanonicalRole(role) ? { enabled: false, policy: DEFAULT_MIRROR_POLICY } : undefined,
+          mirror: defaultTargetForRole(role) === "tongs_cloud"
+            ? { enabled: false, policy: DEFAULT_MIRROR_POLICY }
+            : undefined,
         updatedAtIso: nowIso,
       })),
     };
@@ -117,6 +116,7 @@ export function normalizeRegistry(
   const mounts: MountRegistryEntry[] = [];
 
   for (const role of ALL_MOUNT_ROLES) {
+    const policy = getMountRolePolicy(role);
     let entry = byRole.get(role) ?? { role, target: defaultTargetForRole(role) };
     let entryMutated = !byRole.has(role);
 
@@ -125,26 +125,13 @@ export function normalizeRegistry(
       entryMutated = true;
     }
 
-    if (isLocalOnlyRole(role)) {
-      if (entry.target !== "local") {
-        console.warn(`[tongs] mount registry override: "${role}" forced to local-only.`);
-        entry.target = "local";
-        entryMutated = true;
-      }
-      if (entry.mirror) {
-        console.warn(`[tongs] mount registry override: "${role}" mirror disabled for local-only role.`);
-        entry.mirror = undefined;
-        entryMutated = true;
-      }
+    if (!isTargetEligibleForRole(role, entry.target)) {
+      console.warn(`[tongs] mount registry override: "${role}" target reset to ${policy.defaultTarget}.`);
+      entry.target = policy.defaultTarget;
+      entryMutated = true;
     }
 
-    if (isCloudCanonicalRole(role)) {
-      if (entry.target !== "tongs_cloud") {
-        console.warn(`[tongs] mount registry override: "${role}" forced to cloud canonical.`);
-        entry.target = "tongs_cloud";
-        entryMutated = true;
-      }
-
+    if (entry.target === "tongs_cloud") {
       if (!entry.mirror) {
         entry.mirror = { enabled: false, policy: DEFAULT_MIRROR_POLICY };
         entryMutated = true;

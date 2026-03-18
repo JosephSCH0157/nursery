@@ -10,8 +10,8 @@ import type {
 import {
   DEFAULT_MIRROR_POLICY,
   MOUNT_ROLE_POLICY,
-  isCloudCanonicalRole,
-  isLocalOnlyRole,
+  getDefaultMountTarget,
+  getMountRolePolicy,
   resolveMount,
 } from "@forge/tongs";
 import { clearMountRegistry, loadMountRegistry, saveMountRegistry } from "../lib/mount-registry";
@@ -19,11 +19,6 @@ import { removeHandle, setHandle } from "../lib/handle-vault";
 import { isAutoMirrorEnabled, loadLastMirrorStatus, mirrorRoleSnapshot, setAutoMirrorEnabled } from "../lib/mirror";
 import type { AppShellContext } from "./AppShell";
 import "./SettingsStorage.css";
-
-const STORAGE_OPTIONS: { label: string; value: MountTargetType }[] = [
-  { label: "Local", value: "local" },
-  { label: "Forge Cloud (beta)", value: "tongs_cloud" },
-];
 
 type PickerWindow = Window & {
   showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
@@ -47,9 +42,7 @@ function formatMirrorTime(iso?: string): string {
 }
 
 function defaultTargetForRole(role: MountRole): MountTargetType {
-  if (isLocalOnlyRole(role)) return "local";
-  if (isCloudCanonicalRole(role)) return "tongs_cloud";
-  return "local";
+  return getDefaultMountTarget(role);
 }
 
 function buildVaultKey(workspaceId: string, role: MountRole, kind: "local" | "mirror"): string {
@@ -272,6 +265,22 @@ export default function SettingsStorage() {
     setStatus(enabled ? `Auto mirror enabled for ${role}.` : `Auto mirror disabled for ${role}.`);
   };
 
+  const setTarget = (role: MountRole, target: MountTargetType) => {
+    updateRegistryEntry(role, (entry) => ({
+      ...entry,
+      target,
+      mirror: target === "tongs_cloud"
+        ? buildMirrorConfig(
+            entry.mirror?.enabled ?? false,
+            entry.mirror?.policy ?? DEFAULT_MIRROR_POLICY,
+            entry.mirror?.vaultKey,
+            entry.mirror?.hint,
+          )
+        : entry.mirror,
+    }));
+    setStatus(`Canonical target updated for ${role}: ${target}.`);
+  };
+
   if (!registry) {
     return <p>Loading storage registry...</p>;
   }
@@ -305,8 +314,8 @@ export default function SettingsStorage() {
           {MOUNT_ROLE_POLICY.map((policy) => {
             const entry = registry.mounts.find((item) => item.role === policy.role);
             const resolved = resolveMount(registry, policy.role);
-            const isLocalOnly = isLocalOnlyRole(policy.role);
-            const isCloudCanonical = isCloudCanonicalRole(policy.role);
+            const rolePolicy = getMountRolePolicy(policy.role);
+            const supportsCloud = rolePolicy.eligibleTargets.includes("tongs_cloud");
             const mirrorEnabled = entry?.mirror?.enabled ?? false;
             const mirrorHint = entry?.mirror?.hint;
             const mirrorVaultKey = entry?.mirror?.vaultKey;
@@ -323,19 +332,31 @@ export default function SettingsStorage() {
               <tr key={policy.role} className="settings-storage__row">
                 <td className="settings-storage__cell">
                   {policy.label}
-                  {isLocalOnly && (
-                    <span className="settings-storage__role-tag">Local-only</span>
-                  )}
-                  {isCloudCanonical && (
-                    <span className="settings-storage__role-tag">Cloud canonical</span>
-                  )}
+                  <span className="settings-storage__role-tag">
+                    {rolePolicy.eligibleTargets.join(" + ")}
+                  </span>
                 </td>
                 <td className="settings-storage__cell">
                   <div className="settings-storage__target-title">
-                    {resolved.canonicalTarget.target === "tongs_cloud" ? "Cloud (canonical)" : "Local only"}
+                    {resolved.canonicalTarget.target === "tongs_cloud" ? "Forge Cloud" : "Local"}
                   </div>
 
-                  {isLocalOnly && (
+                  <div className="settings-storage__inline-row">
+                    <div className="settings-storage__muted">Resolved target</div>
+                    <select
+                      aria-label={`${policy.label} resolved target`}
+                      value={resolved.canonicalTarget.target}
+                      onChange={(event) => setTarget(policy.role, event.target.value as MountTargetType)}
+                    >
+                      {rolePolicy.eligibleTargets.map((target) => (
+                        <option key={target} value={target}>
+                          {target === "tongs_cloud" ? "Forge Cloud" : "Local"}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {resolved.canonicalTarget.target === "local" ? (
                     <div className="settings-storage__inline-row">
                       <div className="settings-storage__muted">
                         Folder: {localHint ?? "not set"}
@@ -345,9 +366,9 @@ export default function SettingsStorage() {
                         <button onClick={() => clearLocalFolder(policy.role, localVaultKey)}>Clear</button>
                       )}
                     </div>
-                  )}
+                  ) : null}
 
-                  {isCloudCanonical && (
+                  {resolved.canonicalTarget.target === "tongs_cloud" && supportsCloud ? (
                     <div className="settings-storage__section">
                       <label className="settings-storage__label-inline">
                         <input
@@ -397,19 +418,7 @@ export default function SettingsStorage() {
                         </div>
                       )}
                     </div>
-                  )}
-
-                  {!isLocalOnly && !isCloudCanonical && (
-                    <div className="settings-storage__inline-row">
-                      <select value={resolved.canonicalTarget.target}>
-                        {STORAGE_OPTIONS.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
+                  ) : null}
                 </td>
               </tr>
             );

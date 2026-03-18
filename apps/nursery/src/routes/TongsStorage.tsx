@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { useLayoutMode } from "@forge/ui-mobile";
-import { ALL_MOUNT_ROLES, MOUNT_ROLE_POLICY, isCloudCanonicalRole, type MountRole } from "@forge/tongs";
+import { ALL_MOUNT_ROLES, MOUNT_ROLE_POLICY, getMountRolePolicy, type MountRole } from "@forge/tongs";
 import { useMountRegistry } from "../hooks/useMountRegistry";
 import { getHandle } from "../lib/handle-vault";
 import { loadLastMirrorStatus, type MirrorLastStatus } from "../lib/mirror";
@@ -36,8 +36,8 @@ type TreeState = {
 type RootViewModel = {
   role: MountRole;
   label: string;
-  policyClass: "cloud-canonical" | "local-only";
   resolvedTargetType: "local" | "tongs_cloud";
+  eligibleTargets: readonly ("local" | "tongs_cloud")[];
   canonicalKind: "local" | "cloud";
   canonicalVaultKey?: string;
   canonicalHint?: string;
@@ -82,7 +82,6 @@ function formatDateTime(value: string | null | undefined): string {
 }
 
 function summarizeMirrorStatus(root: RootViewModel): string {
-  if (root.policyClass === "local-only") return "Not applicable";
   if (!root.mirrorEnabled) return "Disabled";
   const base = `Enabled${root.mirrorPolicy ? ` (${root.mirrorPolicy})` : ""}`;
   if (!root.mirrorStatus) return base;
@@ -245,13 +244,14 @@ export default function TongsStorage() {
   const roots = useMemo<RootViewModel[]>(() => {
     return ALL_MOUNT_ROLES.map((role) => {
       const policy = ROLE_POLICY_MAP.get(role);
+      const rolePolicy = getMountRolePolicy(role);
       const resolved = resolveMount(role);
       const mirrorVaultKey = resolved.mirrorTarget?.vaultKey;
       return {
         role,
         label: policy?.label ?? role,
-        policyClass: isCloudCanonicalRole(role) ? "cloud-canonical" : "local-only",
         resolvedTargetType: resolved.canonicalTarget.target,
+        eligibleTargets: rolePolicy.eligibleTargets,
         canonicalKind: resolved.canonicalTarget.type,
         canonicalVaultKey: resolved.canonicalTarget.vaultKey,
         canonicalHint: resolved.canonicalTarget.hint,
@@ -368,7 +368,7 @@ export default function TongsStorage() {
         <div className="tongs-storage__title-wrap">
           <h2 className="tongs-storage__title">Workspace Storage</h2>
           <p className="tongs-storage__subtitle">
-            Read-only view of canonical storage roots for this workspace. This slice resolves policy, target class, and local listing availability without mutation.
+            Read-only view of canonical storage roots for this workspace. This slice resolves current target state, mirror diagnostics, and local listing availability without mutation.
           </p>
         </div>
         <div className="tongs-storage__header-actions">
@@ -403,8 +403,8 @@ export default function TongsStorage() {
                     <span className="tongs-storage__root-target">{root.resolvedTargetType}</span>
                   </div>
                   <div className="tongs-storage__root-badges">
-                    <span className={`tongs-storage__badge tongs-storage__badge--${root.policyClass}`}>
-                      {root.policyClass}
+                    <span className="tongs-storage__badge tongs-storage__badge--capability">
+                      {root.eligibleTargets.join(" + ")}
                     </span>
                     {root.mirrorEnabled ? (
                       <span className="tongs-storage__badge tongs-storage__badge--mirror">mirror enabled</span>
@@ -434,7 +434,11 @@ export default function TongsStorage() {
             </div>
             <div className="tongs-storage__meta-card">
               <div className="tongs-storage__meta-label">Policy class</div>
-              <div className="tongs-storage__meta-value">{selectedRoot.policyClass}</div>
+              <div className="tongs-storage__meta-value">Resolved by mount configuration and entitlement</div>
+            </div>
+            <div className="tongs-storage__meta-card">
+              <div className="tongs-storage__meta-label">Eligible targets</div>
+              <div className="tongs-storage__meta-value">{selectedRoot.eligibleTargets.join(", ")}</div>
             </div>
             <div className="tongs-storage__meta-card">
               <div className="tongs-storage__meta-label">Resolved target type</div>
@@ -486,7 +490,7 @@ export default function TongsStorage() {
                   ? "This root is currently empty."
                   : treeState.status === "error"
                   ? "Read-only listing could not be resolved from existing local mount state."
-                  : "Listing not wired yet for this root in the current workspace context."}
+                  : "Listing not wired yet for the current resolved target in this workspace context."}
               </div>
             ) : null}
 

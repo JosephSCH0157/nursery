@@ -150,14 +150,9 @@
   border: 1px solid rgba(255, 255, 255, 0.18);
 }
 
-.tongs-storage__badge--cloud-canonical {
-  border-color: rgba(120, 190, 255, 0.5);
-  color: #cae6ff;
-}
-
-.tongs-storage__badge--local-only {
-  border-color: rgba(255, 219, 137, 0.45);
-  color: #ffe5ab;
+.tongs-storage__badge--capability {
+  border-color: rgba(120, 190, 255, 0.35);
+  color: #d6ebff;
 }
 
 .tongs-storage__badge--mirror {
