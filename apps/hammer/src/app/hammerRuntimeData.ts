@@ -380,11 +380,12 @@ export function buildHammerLaunchContextFromRecordingTruth(args: {
   }
 
   const filePath = keptTake.filePath?.trim() ?? "";
-  if (!filePath || !args.workspaceMapping?.local_root_abs) {
+  if (!filePath) {
     return null;
   }
 
   const mediaId = buildKeptTakeMediaId(args.workpieceId, keptTake);
+  const hasLocalWorkspaceMapping = Boolean(args.workspaceMapping?.local_root_abs);
   return {
     workspace_id: args.workspaceId,
     workpiece_id: args.workpieceId,
@@ -400,12 +401,15 @@ export function buildHammerLaunchContextFromRecordingTruth(args: {
       ref: {
         media_id: mediaId,
         kind: inferKeptTakeMediaKind(keptTake),
-        source_hint: "local",
+        source_hint: hasLocalWorkspaceMapping ? "local" : "cloud",
         local_relpath: filePath,
+        ...(!hasLocalWorkspaceMapping
+          ? { cloud_uri: `tongs://workpieces/${args.workpieceId}/${filePath}` }
+          : {}),
         ...(keptTake.bytes != null ? { byte_size: keptTake.bytes } : {}),
         ...(keptTake.durationMs != null ? { duration_ms: keptTake.durationMs } : {}),
       },
-      workspace_mapping: { ...args.workspaceMapping },
+      ...(args.workspaceMapping ? { workspace_mapping: { ...args.workspaceMapping } } : {}),
       label: keptTake.originalName?.trim() || `tongs:${mediaId}`,
     },
     preview_mode: "edit-aware",

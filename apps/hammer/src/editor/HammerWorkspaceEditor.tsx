@@ -218,6 +218,9 @@ export default function HammerWorkspaceEditor(
     if (!prepSource) {
       return args.currentSnapshot;
     }
+    if (!prepSource.local_root_abs) {
+      return args.currentSnapshot;
+    }
 
     const existingAudioPolish = args.currentSnapshot?.audio_polish.data ?? null;
     if (isReusableHammerAudioPolish(existingAudioPolish, prepSource)) {
@@ -532,8 +535,14 @@ export default function HammerWorkspaceEditor(
           workspace_id: effectiveLaunchContext.workspace_id,
           workpiece_id: effectiveLaunchContext.workpiece_id,
           media_kind: prepSource.mediaRef.kind,
-          local_root_abs: prepSource.local_root_abs,
-          local_relpath: prepSource.local_relpath,
+          ...(prepSource.local_root_abs
+            ? {
+              local_root_abs: prepSource.local_root_abs,
+              local_relpath: prepSource.local_relpath,
+            }
+            : {
+              canonical_workpiece_path: prepSource.canonical_workpiece_path,
+            }),
           mime_type: prepSource.mediaRef.kind === "recording_audio" ? "audio/wav" : null,
         });
         if (!active) return;
@@ -762,7 +771,7 @@ export default function HammerWorkspaceEditor(
           <p>{prepState.error ?? "Hammer could not prepare this episode transcript."}</p>
           <p>
             Hammer keeps transcript prep transcript-first in production runtime. Fix the media context
-            or retry once the local recording is available.
+            or retry once the recording is available.
           </p>
           <div className="hammer-prep-shell__handoff-actions">
             <button

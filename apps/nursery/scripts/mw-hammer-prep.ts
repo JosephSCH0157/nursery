@@ -24,6 +24,18 @@ const MEDIA_CONTENT_TYPES: Partial<Record<string, string>> = {
   ".m4a": "audio/mp4",
 };
 
+type NormalizedLocalRequest = HammerTranscriptPrepRequest & {
+  local_root_abs: string;
+  local_relpath: string;
+};
+
+type NormalizedCanonicalWorkpieceRequest = Omit<
+  HammerTranscriptPrepRequest,
+  "local_root_abs" | "local_relpath" | "canonical_workpiece_path"
+> & {
+  canonical_workpiece_path: string;
+};
+
 function readTrimmed(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -75,15 +87,31 @@ function sendJson(res: ServerResponse, status: number, payload: unknown): void {
   res.end(body);
 }
 
-function normalizeRequest(body: unknown): HammerTranscriptPrepRequest | null {
+function normalizeRequest(body: unknown): NormalizedLocalRequest | NormalizedCanonicalWorkpieceRequest | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
   const row = body as Record<string, unknown>;
   const workspaceId = readTrimmed(row.workspace_id);
   const workpieceId = readTrimmed(row.workpiece_id);
   const localRootAbs = readTrimmed(row.local_root_abs);
   const localRelpath = readTrimmed(row.local_relpath);
+  const canonicalWorkpiecePath = readTrimmed(row.canonical_workpiece_path);
   const mediaKind = readTrimmed(row.media_kind);
-  if (!workspaceId || !workpieceId || !localRootAbs || !localRelpath || !mediaKind) {
+  if (!workspaceId || !workpieceId || !mediaKind) {
+    return null;
+  }
+
+  if (localRootAbs && localRelpath) {
+    return {
+      workspace_id: workspaceId,
+      workpiece_id: workpieceId,
+      media_kind: mediaKind as HammerTranscriptPrepRequest["media_kind"],
+      local_root_abs: localRootAbs,
+      local_relpath: localRelpath,
+      mime_type: readTrimmed(row.mime_type),
+    };
+  }
+
+  if (!canonicalWorkpiecePath) {
     return null;
   }
 
@@ -91,8 +119,7 @@ function normalizeRequest(body: unknown): HammerTranscriptPrepRequest | null {
     workspace_id: workspaceId,
     workpiece_id: workpieceId,
     media_kind: mediaKind as HammerTranscriptPrepRequest["media_kind"],
-    local_root_abs: localRootAbs,
-    local_relpath: localRelpath,
+    canonical_workpiece_path: canonicalWorkpiecePath,
     mime_type: readTrimmed(row.mime_type),
   };
 }
@@ -125,6 +152,84 @@ function readUpstreamErrorMessage(text: string): string | null {
   } catch {
     return trimmed;
   }
+}
+
+function buildRequestOrigin(req: IncomingMessage): string {
+  const forwardedProtoHeader = req.headers["x-forwarded-proto"];
+  const forwardedProto = Array.isArray(forwardedProtoHeader)
+    ? readTrimmed(forwardedProtoHeader[0])
+    : readTrimmed(forwardedProtoHeader);
+  const hostHeader = req.headers.host;
+  const host = Array.isArray(hostHeader)
+    ? readTrimmed(hostHeader[0])
+    : readTrimmed(hostHeader);
+  return `${forwardedProto ?? "http"}://${host ?? "localhost"}`;
+}
+
+function readJsonObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function readErrorMessage(payload: unknown, fallback: string): string {
+  const row = readJsonObject(payload);
+  const error = readJsonObject(row?.error);
+  return readTrimmed(error?.message)
+    ?? readTrimmed(row?.message)
+    ?? readTrimmed(row?.detail)
+    ?? fallback;
+}
+
+async function loadCanonicalWorkpieceMediaFile(
+  req: IncomingMessage,
+  request: NormalizedCanonicalWorkpieceRequest,
+): Promise<{
+  ok: true;
+  contentType: string;
+  fileBytes: Buffer;
+  sourceLabel: string;
+} | {
+  ok: false;
+  status: number;
+  message: string;
+}> {
+  const origin = buildRequestOrigin(req);
+  const url = new URL(`/tongs/workpieces/${encodeURIComponent(request.workpiece_id)}/read-file`, origin);
+  url.searchParams.set("path", request.canonical_workpiece_path);
+  url.searchParams.set("encoding", "base64");
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      accept: "application/json",
+    },
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      message: readErrorMessage(payload, "Hammer could not read canonical workpiece media."),
+    };
+  }
+
+  const data = readJsonObject(readJsonObject(payload)?.data);
+  const bytesBase64 = readTrimmed(data?.bytes_base64);
+  if (!bytesBase64) {
+    return {
+      ok: false,
+      status: 404,
+      message: "Canonical workpiece media was not found.",
+    };
+  }
+
+  return {
+    ok: true,
+    contentType: readTrimmed(data?.content_type) ?? inferContentType(request.canonical_workpiece_path, request.mime_type),
+    fileBytes: Buffer.from(bytesBase64, "base64"),
+    sourceLabel: request.canonical_workpiece_path,
+  };
 }
 
 function normalizeSegments(payload: unknown): HammerTranscriptPrepSegment[] {
@@ -201,38 +306,55 @@ export function createHammerPrepMiddleware() {
         return;
       }
 
-      if (!path.isAbsolute(request.local_root_abs) || !fs.existsSync(request.local_root_abs)) {
-        sendJson(res, 404, { ok: false, error: { message: "Mapped media root was not found on this machine." } });
-        return;
+      let fileBytes: Buffer;
+      let sourceLabel: string;
+      let contentType: string;
+
+      if ("local_root_abs" in request && "local_relpath" in request) {
+        if (!path.isAbsolute(request.local_root_abs) || !fs.existsSync(request.local_root_abs)) {
+          sendJson(res, 404, { ok: false, error: { message: "Mapped media root was not found on this machine." } });
+          return;
+        }
+
+        const absolutePath = resolveMediaFileAbs(request.local_root_abs, request.local_relpath);
+        if (!absolutePath) {
+          sendJson(res, 400, { ok: false, error: { message: "local_relpath is invalid for this media root." } });
+          return;
+        }
+
+        const stat = await fsPromises.stat(absolutePath).catch(() => null);
+        if (!stat || !stat.isFile()) {
+          sendJson(res, 404, { ok: false, error: { message: "Requested media file was not found." } });
+          return;
+        }
+
+        fileBytes = await fsPromises.readFile(absolutePath);
+        sourceLabel = absolutePath;
+        contentType = inferContentType(absolutePath, request.mime_type);
+      } else {
+        const canonicalMedia = await loadCanonicalWorkpieceMediaFile(req, request);
+        if (!canonicalMedia.ok) {
+          sendJson(res, canonicalMedia.status, { ok: false, error: { message: canonicalMedia.message } });
+          return;
+        }
+        fileBytes = canonicalMedia.fileBytes;
+        sourceLabel = canonicalMedia.sourceLabel;
+        contentType = canonicalMedia.contentType;
       }
 
-      const absolutePath = resolveMediaFileAbs(request.local_root_abs, request.local_relpath);
-      if (!absolutePath) {
-        sendJson(res, 400, { ok: false, error: { message: "local_relpath is invalid for this media root." } });
-        return;
-      }
-
-      const extension = path.extname(absolutePath).toLowerCase();
+      const extension = path.extname(sourceLabel).toLowerCase();
       if (!ALLOWED_MEDIA_EXTENSIONS.has(extension)) {
         sendJson(res, 400, { ok: false, error: { message: "Hammer prep only supports audio/video media files." } });
         return;
       }
-
-      const stat = await fsPromises.stat(absolutePath).catch(() => null);
-      if (!stat || !stat.isFile()) {
-        sendJson(res, 404, { ok: false, error: { message: "Requested media file was not found." } });
-        return;
-      }
-
-      const fileBytes = await fsPromises.readFile(absolutePath);
       const form = new FormData();
       form.set("model", model);
       form.set("response_format", "diarized_json");
       form.set("chunking_strategy", "auto");
       form.set(
         "file",
-        new Blob([fileBytes], { type: inferContentType(absolutePath, request.mime_type) }),
-        path.basename(absolutePath),
+        new Blob([fileBytes], { type: contentType }),
+        path.basename(sourceLabel),
       );
 
       const upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {

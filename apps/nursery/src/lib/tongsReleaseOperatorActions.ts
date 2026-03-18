@@ -172,7 +172,7 @@ async function regenerateAudioPolish(args: {
   const hydrated = buildHammerLaunchContextFromPersistence(args.target, args.snapshot);
   const launchContext = hydrated?.launchContext ?? null;
   const prepSource = launchContext ? resolveHammerPrepSource(launchContext) : null;
-  if (!prepSource) {
+  if (!prepSource?.local_root_abs) {
     return {
       result: "blocked",
       message: "Hammer media mapping and local source path are required before audio polish can run.",

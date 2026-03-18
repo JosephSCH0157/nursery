@@ -6,8 +6,9 @@ export interface HammerTranscriptPrepRequest {
   workspace_id: string;
   workpiece_id: string;
   media_kind: MediaKind;
-  local_root_abs: string;
-  local_relpath: string;
+  local_root_abs?: string | null;
+  local_relpath?: string | null;
+  canonical_workpiece_path?: string | null;
   mime_type?: string | null;
 }
 

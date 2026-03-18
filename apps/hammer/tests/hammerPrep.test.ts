@@ -8,9 +8,10 @@ import {
   buildPreparedTranscript,
   createHammerPrepState,
   resolveHammerPrepOpenDecision,
+  resolveHammerPrepSource,
 } from "../src/prep/hammerPrep";
 
-function buildLaunchContext(): HammerLaunchContext {
+function buildLaunchContext(withWorkspaceMapping = true): HammerLaunchContext {
   return {
     workspace_id: "11111111-1111-4111-8111-111111111111",
     workpiece_id: "22222222-2222-4222-8222-222222222222",
@@ -32,10 +33,14 @@ function buildLaunchContext(): HammerLaunchContext {
         byte_size: 4_500_000,
         sha256: "sha_episode_1",
       },
-      workspace_mapping: {
-        workspace_id: "11111111-1111-4111-8111-111111111111",
-        local_root_abs: "D:\\ForgeMedia\\workspace",
-      },
+      ...(withWorkspaceMapping
+        ? {
+          workspace_mapping: {
+            workspace_id: "11111111-1111-4111-8111-111111111111",
+            local_root_abs: "D:\\ForgeMedia\\workspace",
+          },
+        }
+        : {}),
       label: "tongs:media_01",
     },
     preview_mode: "edit-aware",
@@ -229,6 +234,19 @@ function testOpenDecisionPreparesWhenTranscriptMissing() {
   assert.equal(decision.state.step, "transcribing_audio");
 }
 
+function testOpenDecisionPreparesFromCanonicalWorkpieceMediaWithoutLocalMapping() {
+  const launchContext = buildLaunchContext(false);
+  const decision = resolveHammerPrepOpenDecision(launchContext, null);
+  const prepSource = resolveHammerPrepSource(launchContext);
+
+  assert.equal(decision.action, "prepare");
+  assert.equal(decision.state.status, "preparing");
+  assert.equal(decision.state.step, "transcribing_audio");
+  assert.equal(prepSource?.source_kind, "canonical_workpiece_media");
+  assert.equal(prepSource?.canonical_workpiece_path, "recordings/episode-1.mp4");
+  assert.equal(prepSource?.local_root_abs, null);
+}
+
 function testOpenDecisionReusesPreparedTranscript() {
   const decision = resolveHammerPrepOpenDecision(buildLaunchContext(), persistedPreparedSnapshot);
 
@@ -390,12 +408,13 @@ function testWorkspaceSavePreservesTranscriptMetadata() {
 
 try {
   testOpenDecisionPreparesWhenTranscriptMissing();
+  testOpenDecisionPreparesFromCanonicalWorkpieceMediaWithoutLocalMapping();
   testOpenDecisionReusesPreparedTranscript();
   testPreparedTranscriptUsesNeutralForgeTagsAndSpeakerTurns();
   testOverlayViewModelTracksPrepStages();
-testPrepPersistenceSeedWritesPreparedTranscript();
-testPrepPersistenceSeedWritesAudioPolishArtifact();
-testWorkspaceSavePreservesTranscriptMetadata();
+  testPrepPersistenceSeedWritesPreparedTranscript();
+  testPrepPersistenceSeedWritesAudioPolishArtifact();
+  testWorkspaceSavePreservesTranscriptMetadata();
   console.log("Hammer prep tests passed.");
 } catch (error) {
   console.error("Hammer prep tests failed:", error);

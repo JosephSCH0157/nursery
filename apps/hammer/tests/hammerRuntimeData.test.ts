@@ -144,6 +144,57 @@ test("buildHammerLaunchContextFromRecordingTruth synthesizes a canonical first-o
   });
 });
 
+test("buildHammerLaunchContextFromRecordingTruth preserves canonical kept takes without a local workspace mapping", () => {
+  const recordingTruth = extractHammerWorkpieceRecordingTruth({
+    workpiece_id: "11111111-1111-4111-8111-111111111111",
+    recorded: true,
+    latest_kept_take: {
+      event_id: 7,
+      created_at: "2026-03-17T16:00:00.000Z",
+      file_path: "recordings/session-a.wav",
+      recording_session_id: "session-a",
+      anvil_capture_session_id: "capture-a",
+      content_type: "audio/wav",
+      bytes: 2048,
+      duration_ms: 120000,
+      original_name: "session-a.wav",
+    },
+  });
+
+  const launchContext = buildHammerLaunchContextFromRecordingTruth({
+    workspaceId: "11111111-1111-4111-8111-111111111111",
+    workpieceId: "22222222-2222-4222-8222-222222222222",
+    recordingTruth,
+    workspaceMapping: null,
+  });
+
+  assert.deepEqual(launchContext, {
+    workspace_id: "11111111-1111-4111-8111-111111111111",
+    workpiece_id: "22222222-2222-4222-8222-222222222222",
+    source_mode: "tongs",
+    transcript: {
+      kind: "tongs-stub",
+      transcript_id: "transcript_seed:22222222-2222-4222-8222-222222222222",
+      segments: [],
+      label: "pending transcript",
+    },
+    media: {
+      kind: "tongs-stub",
+      ref: {
+        media_id: "recording-session:session-a",
+        kind: "recording_audio",
+        source_hint: "cloud",
+        local_relpath: "recordings/session-a.wav",
+        cloud_uri: "tongs://workpieces/22222222-2222-4222-8222-222222222222/recordings/session-a.wav",
+        byte_size: 2048,
+        duration_ms: 120000,
+      },
+      label: "session-a.wav",
+    },
+    preview_mode: "edit-aware",
+  });
+});
+
 test("readHammerStoredActiveWorkspaceId prefers Hammer-owned workspace cache before shared Forge keys", () => {
   const previousWindow = globalThis.window;
   const storage = new Map<string, string>([

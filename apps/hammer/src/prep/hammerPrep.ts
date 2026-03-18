@@ -56,9 +56,11 @@ export interface HammerPrepOpenDecision {
 
 export interface HammerPrepSource {
   mediaRef: MediaRef;
-  workspaceMapping: WorkspaceMediaMapping;
-  local_root_abs: string;
+  workspaceMapping: WorkspaceMediaMapping | null;
+  source_kind: "local_workspace_media" | "canonical_workpiece_media";
+  local_root_abs: string | null;
   local_relpath: string;
+  canonical_workpiece_path: string;
   media_signature: string;
 }
 
@@ -376,15 +378,35 @@ export function resolveHammerPrepSource(context: HammerLaunchContext): HammerPre
 
   const localRelpath = readString(mediaContext.mediaRef.local_relpath);
   const localRootAbs = readString(mediaContext.workspaceMapping?.local_root_abs);
-  if (!localRelpath || !localRootAbs || !mediaContext.workspaceMapping) {
+  if (!localRelpath) {
+    return null;
+  }
+
+  if (localRootAbs && mediaContext.workspaceMapping) {
+    return {
+      mediaRef: cloneMediaRef(mediaContext.mediaRef),
+      workspaceMapping: cloneWorkspaceMapping(mediaContext.workspaceMapping),
+      source_kind: "local_workspace_media",
+      local_root_abs: localRootAbs,
+      local_relpath: localRelpath,
+      canonical_workpiece_path: localRelpath,
+      media_signature: buildHammerMediaSignature(mediaContext.mediaRef),
+    };
+  }
+
+  if (context.media.kind !== "tongs-stub") {
     return null;
   }
 
   return {
     mediaRef: cloneMediaRef(mediaContext.mediaRef),
-    workspaceMapping: cloneWorkspaceMapping(mediaContext.workspaceMapping),
-    local_root_abs: localRootAbs,
+    workspaceMapping: mediaContext.workspaceMapping
+      ? cloneWorkspaceMapping(mediaContext.workspaceMapping)
+      : null,
+    source_kind: "canonical_workpiece_media",
+    local_root_abs: null,
     local_relpath: localRelpath,
+    canonical_workpiece_path: localRelpath,
     media_signature: buildHammerMediaSignature(mediaContext.mediaRef),
   };
 }
@@ -419,9 +441,9 @@ export function resolveHammerPrepOpenDecision(
       state: createHammerPrepState(
         "prep_failed",
         null,
-        "Hammer could not find a local recording pointer for transcript prep.",
+        "Hammer could not find a recording pointer for transcript prep.",
       ),
-      reason: "missing_local_media",
+      reason: "missing_prep_media",
     };
   }
 
