@@ -5151,7 +5151,7 @@ export class TongsCommitService {
 
     const storageKey = resolveWorkspaceCloudWriteTarget({
       workspaceId,
-      ownerUserId: workspace.created_by,
+      legacyOwnerUserId: workspace.created_by,
     }, path).key;
     const bytes = canonicalizeReplaceBytes(path, contentType, input);
     const hash = await sha256Hex(bytes);
@@ -5955,7 +5955,7 @@ export class TongsCommitService {
       this.bucket,
       resolveWorkspaceCloudReadCandidates({
         workspaceId,
-        ownerUserId: workspace.created_by,
+        legacyOwnerUserId: workspace.created_by,
       }, path),
     );
     if (!bytes) return { found: false };
@@ -6008,7 +6008,7 @@ export class TongsCommitService {
       this.bucket,
       resolveWorkspaceCloudReadCandidates({
         workspaceId,
-        ownerUserId: workspace.created_by,
+        legacyOwnerUserId: workspace.created_by,
       }, path),
     );
     if (!bytes) return { found: false };
@@ -6089,8 +6089,7 @@ export class TongsCommitService {
     const depth = typeof options?.depth === "number" ? options.depth : STORAGE_LIST_MAX_DEPTH;
     const candidatePrefixes = resolveWorkspaceCloudListingPrefixes({
       workspaceId,
-      ownerUserId: workspace.created_by,
-      fallbackUserId: auth.userId,
+      legacyOwnerUserId: workspace.created_by,
     }, role, prefix);
 
     let rootPath = candidatePrefixes[0] ?? null;

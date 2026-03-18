@@ -6,21 +6,20 @@ This document defines the canonical file layout for Forge workpieces and workspa
 Authorization is enforced by Supabase RLS and membership, never by storage key prefix.
 
 **Canonical Identities**
-- `user_id` = canonical workspace owner / `tongs.workspaces.created_by`
 - `workspace_id` = `tongs.workspaces.id`
 - `workpiece_id` = `tongs.episodes.id`
 - `path` = relative path stored in `tongs.workpiece_files.path`
 
 **Storage Key Layout**
 - Workpiece files: `workpieces/{workpiece_id}/{path}`
-- Canonical cloud role roots: `{user_id}/{workspace_id}/{role}/{path}`
+- Canonical cloud role roots: `workspaces/{workspace_id}/{role}/{path}`
 - `role` is one of: `scripts`, `barstock`, `assets`, `projects`, `recordings`, `exports`
 - Non-role workspace support files may still exist under `workspaces/{workspace_id}/{path}` during compatibility window.
 
 **Compatibility Rule (Temporary)**
-- Tongs writes canonical role-root objects to `{user_id}/{workspace_id}/{role}/...`.
+- Tongs writes canonical role-root objects to `workspaces/{workspace_id}/{role}/...`.
 - Tongs listing and reads check canonical role-root prefixes first.
-- Legacy role-root prefixes under `workspaces/{workspace_id}/{role}/...` are fallback-only for existing objects that have not been migrated yet.
+- Owner-prefixed role-root prefixes under `{legacy_user_id}/{workspace_id}/{role}/...` are fallback-only for existing objects written during the previous experimental pass.
 - Legacy prefixes are not authoritative and must not be used for new canonical role-root writes.
 
 **Access Rule (Authoritative)**
@@ -65,12 +64,12 @@ These are indexes or shared catalogs, never the only copy of workpiece-specific 
 - `settings/workspace.json` (if needed)
 
 **Canonical Cloud Role Tree**
-- `{user_id}/{workspace_id}/scripts/...`
-- `{user_id}/{workspace_id}/barstock/...`
-- `{user_id}/{workspace_id}/assets/...`
-- `{user_id}/{workspace_id}/projects/...`
-- `{user_id}/{workspace_id}/recordings/...`
-- `{user_id}/{workspace_id}/exports/...`
+- `workspaces/{workspace_id}/scripts/...`
+- `workspaces/{workspace_id}/barstock/...`
+- `workspaces/{workspace_id}/assets/...`
+- `workspaces/{workspace_id}/projects/...`
+- `workspaces/{workspace_id}/recordings/...`
+- `workspaces/{workspace_id}/exports/...`
 
 **Ownership by Tool**
 Hearth writes:

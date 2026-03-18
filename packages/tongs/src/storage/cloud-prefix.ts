@@ -2,13 +2,12 @@ import { ALL_MOUNT_ROLES, type MountRole } from "./storage-contract.js";
 
 export type TongsCloudWorkspaceIdentity = {
   workspaceId: string;
-  ownerUserId?: string | null;
-  fallbackUserId?: string | null;
+  legacyOwnerUserId?: string | null;
 };
 
 export type WorkspaceCloudWriteTarget = {
   key: string;
-  mode: "canonical_role" | "legacy_workspace";
+  mode: "canonical_role" | "workspace_support";
   role?: MountRole;
   legacyFallbackKey?: string;
 };
@@ -25,10 +24,6 @@ function joinPath(prefix: string, relativePath: string | null): string {
   return relativePath ? `${prefix}/${relativePath}` : prefix;
 }
 
-function resolveCloudOwnerUserId(identity: TongsCloudWorkspaceIdentity): string | null {
-  return normalizeNonEmpty(identity.ownerUserId) ?? normalizeNonEmpty(identity.fallbackUserId);
-}
-
 export function isMountRoleSegment(value: string): value is MountRole {
   return MOUNT_ROLE_SET.has(value as MountRole);
 }
@@ -42,22 +37,22 @@ export function splitMountRolePath(path: string): { role: MountRole; relativePat
   };
 }
 
-export function resolveLegacyWorkspaceObjectKey(workspaceId: string, path: string): string {
+export function resolveWorkspaceSupportObjectKey(workspaceId: string, path: string): string {
   return `workspaces/${workspaceId}/${path}`;
 }
 
-export function resolveLegacyWorkspaceRolePrefix(workspaceId: string, role: MountRole, relativePath?: string | null): string {
+export function resolveCanonicalWorkspaceRolePrefix(workspaceId: string, role: MountRole, relativePath?: string | null): string {
   return joinPath(`workspaces/${workspaceId}/${role}`, normalizeNonEmpty(relativePath));
 }
 
-export function resolveCanonicalWorkspaceRolePrefix(
+export function resolveLegacyOwnerWorkspaceRolePrefix(
   identity: TongsCloudWorkspaceIdentity,
   role: MountRole,
   relativePath?: string | null,
 ): string | null {
-  const ownerUserId = resolveCloudOwnerUserId(identity);
-  if (!ownerUserId) return null;
-  return joinPath(`${ownerUserId}/${identity.workspaceId}/${role}`, normalizeNonEmpty(relativePath));
+  const legacyOwnerUserId = normalizeNonEmpty(identity.legacyOwnerUserId);
+  if (!legacyOwnerUserId) return null;
+  return joinPath(`${legacyOwnerUserId}/${identity.workspaceId}/${role}`, normalizeNonEmpty(relativePath));
 }
 
 export function resolveWorkspaceCloudWriteTarget(
@@ -67,26 +62,16 @@ export function resolveWorkspaceCloudWriteTarget(
   const rolePath = splitMountRolePath(path);
   if (!rolePath) {
     return {
-      key: resolveLegacyWorkspaceObjectKey(identity.workspaceId, path),
-      mode: "legacy_workspace",
-    };
-  }
-
-  const canonicalKey = resolveCanonicalWorkspaceRolePrefix(identity, rolePath.role, rolePath.relativePath);
-  if (!canonicalKey) {
-    return {
-      key: resolveLegacyWorkspaceObjectKey(identity.workspaceId, path),
-      mode: "legacy_workspace",
-      role: rolePath.role,
-      legacyFallbackKey: resolveLegacyWorkspaceObjectKey(identity.workspaceId, path),
+      key: resolveWorkspaceSupportObjectKey(identity.workspaceId, path),
+      mode: "workspace_support",
     };
   }
 
   return {
-    key: canonicalKey,
+    key: resolveCanonicalWorkspaceRolePrefix(identity.workspaceId, rolePath.role, rolePath.relativePath),
     mode: "canonical_role",
     role: rolePath.role,
-    legacyFallbackKey: resolveLegacyWorkspaceObjectKey(identity.workspaceId, path),
+    legacyFallbackKey: resolveLegacyOwnerWorkspaceRolePrefix(identity, rolePath.role, rolePath.relativePath) ?? undefined,
   };
 }
 
@@ -96,12 +81,12 @@ export function resolveWorkspaceCloudReadCandidates(
 ): string[] {
   const rolePath = splitMountRolePath(path);
   if (!rolePath) {
-    return [resolveLegacyWorkspaceObjectKey(identity.workspaceId, path)];
+    return [resolveWorkspaceSupportObjectKey(identity.workspaceId, path)];
   }
 
   const candidates = [
-    resolveCanonicalWorkspaceRolePrefix(identity, rolePath.role, rolePath.relativePath),
-    resolveLegacyWorkspaceObjectKey(identity.workspaceId, path),
+    resolveCanonicalWorkspaceRolePrefix(identity.workspaceId, rolePath.role, rolePath.relativePath),
+    resolveLegacyOwnerWorkspaceRolePrefix(identity, rolePath.role, rolePath.relativePath),
   ].filter((value): value is string => typeof value === "string" && value.length > 0);
 
   return Array.from(new Set(candidates));
@@ -113,8 +98,8 @@ export function resolveWorkspaceCloudListingPrefixes(
   relativePath?: string | null,
 ): string[] {
   const candidates = [
-    resolveCanonicalWorkspaceRolePrefix(identity, role, relativePath),
-    resolveLegacyWorkspaceRolePrefix(identity.workspaceId, role, relativePath),
+    resolveCanonicalWorkspaceRolePrefix(identity.workspaceId, role, relativePath),
+    resolveLegacyOwnerWorkspaceRolePrefix(identity, role, relativePath),
   ].filter((value): value is string => typeof value === "string" && value.length > 0);
 
   return Array.from(new Set(candidates));

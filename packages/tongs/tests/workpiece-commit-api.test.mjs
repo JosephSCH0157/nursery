@@ -5616,7 +5616,6 @@ test("TongsCommitService.commitWorkspaceFile maps oversized storage uploads to 4
 
 test("TongsCommitService.commitWorkspaceFile writes canonical role-root keys when path starts with a storage role", async () => {
   const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-  const ownerUserId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
   const uploadCalls = [];
   const service = new TongsCommitService({
     storage: {
@@ -5634,7 +5633,7 @@ test("TongsCommitService.commitWorkspaceFile writes canonical role-root keys whe
 
   service.getWorkspaceOrThrow = async () => ({
     id: workspaceId,
-    created_by: ownerUserId,
+    created_by: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
     created_at: "2026-03-02T00:00:00.000Z",
     updated_at: "2026-03-02T00:00:00.000Z",
     storage_profile: null,
@@ -5651,11 +5650,11 @@ test("TongsCommitService.commitWorkspaceFile writes canonical role-root keys whe
   });
 
   assert.equal(uploadCalls.length, 1);
-  assert.equal(uploadCalls[0], `${ownerUserId}/${workspaceId}/recordings/session-index.json`);
-  assert.equal(result.storage_key, `${ownerUserId}/${workspaceId}/recordings/session-index.json`);
+  assert.equal(uploadCalls[0], `workspaces/${workspaceId}/recordings/session-index.json`);
+  assert.equal(result.storage_key, `workspaces/${workspaceId}/recordings/session-index.json`);
 });
 
-test("TongsCommitService.readWorkspaceJson falls back to legacy role-root key when canonical object is absent", async () => {
+test("TongsCommitService.readWorkspaceJson falls back to owner-prefixed legacy role-root key when canonical object is absent", async () => {
   const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const ownerUserId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
   const downloadCalls = [];
@@ -5666,14 +5665,14 @@ test("TongsCommitService.readWorkspaceJson falls back to legacy role-root key wh
         return {
           async download(key) {
             downloadCalls.push(key);
-            if (key === `${ownerUserId}/${workspaceId}/recordings/index.json`) {
+            if (key === `workspaces/${workspaceId}/recordings/index.json`) {
               return {
                 data: null,
                 error: { message: "Object not found", statusCode: "404" },
               };
             }
 
-            if (key === `workspaces/${workspaceId}/recordings/index.json`) {
+            if (key === `${ownerUserId}/${workspaceId}/recordings/index.json`) {
               return {
                 data: {
                   async arrayBuffer() {
@@ -5705,8 +5704,8 @@ test("TongsCommitService.readWorkspaceJson falls back to legacy role-root key wh
   const result = await service.readWorkspaceJson(workspaceId, "recordings/index.json");
 
   assert.equal(downloadCalls.length, 2);
-  assert.equal(downloadCalls[0], `${ownerUserId}/${workspaceId}/recordings/index.json`);
-  assert.equal(downloadCalls[1], `workspaces/${workspaceId}/recordings/index.json`);
+  assert.equal(downloadCalls[0], `workspaces/${workspaceId}/recordings/index.json`);
+  assert.equal(downloadCalls[1], `${ownerUserId}/${workspaceId}/recordings/index.json`);
   assert.equal(result.found, true);
   assert.deepEqual(result.data, { legacy: true });
 });
@@ -5821,7 +5820,6 @@ test("TongsCommitService.deleteReadyScript does not touch ready queue state", as
 
 test("TongsCommitService.listWorkspaceStorage returns nested canonical cloud nodes", async () => {
   const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-  const ownerUserId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
   const storageCalls = [];
   const service = new TongsCommitService({
     storage: {
@@ -5831,7 +5829,7 @@ test("TongsCommitService.listWorkspaceStorage returns nested canonical cloud nod
           async list(path, options) {
             storageCalls.push({ path, options });
 
-            if (path === `${ownerUserId}/${workspaceId}/recordings`) {
+            if (path === `workspaces/${workspaceId}/recordings`) {
               return {
                 data: [
                   { name: "session-a" },
@@ -5846,7 +5844,7 @@ test("TongsCommitService.listWorkspaceStorage returns nested canonical cloud nod
               };
             }
 
-            if (path === `${ownerUserId}/${workspaceId}/recordings/session-a`) {
+            if (path === `workspaces/${workspaceId}/recordings/session-a`) {
               return {
                 data: [
                   {
@@ -5873,7 +5871,7 @@ test("TongsCommitService.listWorkspaceStorage returns nested canonical cloud nod
   });
   service.getWorkspaceOrThrow = async () => ({
     id: workspaceId,
-    created_by: ownerUserId,
+    created_by: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
     created_at: "2026-03-18T00:00:00.000Z",
     updated_at: "2026-03-18T00:00:00.000Z",
     storage_profile: null,
@@ -5884,19 +5882,19 @@ test("TongsCommitService.listWorkspaceStorage returns nested canonical cloud nod
   });
 
   assert.equal(result.source.kind, "cloud_canonical");
-  assert.equal(result.source.root_path, `${ownerUserId}/${workspaceId}/recordings`);
+  assert.equal(result.source.root_path, `workspaces/${workspaceId}/recordings`);
   assert.equal(storageCalls.length, 2);
-  assert.equal(storageCalls[0]?.path, `${ownerUserId}/${workspaceId}/recordings`);
-  assert.equal(storageCalls[1]?.path, `${ownerUserId}/${workspaceId}/recordings/session-a`);
+  assert.equal(storageCalls[0]?.path, `workspaces/${workspaceId}/recordings`);
+  assert.equal(storageCalls[1]?.path, `workspaces/${workspaceId}/recordings/session-a`);
   assert.equal(result.nodes.length, 2);
   assert.equal(result.nodes[0]?.kind, "directory");
-  assert.equal(result.nodes[0]?.path, `${ownerUserId}/${workspaceId}/recordings/session-a`);
-  assert.equal(result.nodes[0]?.children?.[0]?.path, `${ownerUserId}/${workspaceId}/recordings/session-a/take-01.wav`);
+  assert.equal(result.nodes[0]?.path, `workspaces/${workspaceId}/recordings/session-a`);
+  assert.equal(result.nodes[0]?.children?.[0]?.path, `workspaces/${workspaceId}/recordings/session-a/take-01.wav`);
   assert.equal(result.nodes[1]?.kind, "file");
   assert.equal(result.nodes[1]?.bytes, 8192);
 });
 
-test("TongsCommitService.listWorkspaceStorage falls back to legacy role-root prefix when canonical root is empty", async () => {
+test("TongsCommitService.listWorkspaceStorage falls back to owner-prefixed legacy role-root prefix when canonical root is empty", async () => {
   const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const ownerUserId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
   const storageCalls = [];
@@ -5908,11 +5906,11 @@ test("TongsCommitService.listWorkspaceStorage falls back to legacy role-root pre
           async list(path) {
             storageCalls.push(path);
 
-            if (path === `${ownerUserId}/${workspaceId}/exports`) {
+            if (path === `workspaces/${workspaceId}/exports`) {
               return { data: [], error: null };
             }
 
-            if (path === `workspaces/${workspaceId}/exports`) {
+            if (path === `${ownerUserId}/${workspaceId}/exports`) {
               return {
                 data: [
                   {
@@ -5950,10 +5948,10 @@ test("TongsCommitService.listWorkspaceStorage falls back to legacy role-root pre
   });
 
   assert.deepEqual(storageCalls, [
-    `${ownerUserId}/${workspaceId}/exports`,
     `workspaces/${workspaceId}/exports`,
+    `${ownerUserId}/${workspaceId}/exports`,
   ]);
-  assert.equal(result.source.root_path, `workspaces/${workspaceId}/exports`);
+  assert.equal(result.source.root_path, `${ownerUserId}/${workspaceId}/exports`);
   assert.equal(result.nodes.length, 1);
-  assert.equal(result.nodes[0]?.path, `workspaces/${workspaceId}/exports/final.mp4`);
+  assert.equal(result.nodes[0]?.path, `${ownerUserId}/${workspaceId}/exports/final.mp4`);
 });
