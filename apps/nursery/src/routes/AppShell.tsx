@@ -1,9 +1,8 @@
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Session as SupabaseSession } from "@supabase/supabase-js";
-import { loadMountRegistry } from "../lib/mount-registry";
+import type { Workspace } from "@barstock/lib/tongs-api";
 import { supabase } from "../lib/supabase";
-import { listMyWorkspaces, type Workspace } from "@barstock/lib/tongs-api";
 import { ForgeNav } from "../nav/ForgeNav";
 import { FORGE_NAV_ACTION_AI_CONTROLS, forgeNavTree, type ForgeNavSection } from "../nav/forgeNavTree";
 import {
@@ -214,12 +213,21 @@ export default function AppShell() {
   }, []);
 
   useEffect(() => {
-    const res = loadMountRegistry("default");
-    if (!res.ok) {
-      console.warn("[tongs] mount registry recovered/seeded due to issues:", res.issues);
-    } else if (res.seeded) {
-      console.log("[tongs] mount registry seeded");
-    }
+    let cancelled = false;
+
+    void import("../lib/mount-registry").then(({ loadMountRegistry }) => {
+      if (cancelled) return;
+      const res = loadMountRegistry("default");
+      if (!res.ok) {
+        console.warn("[tongs] mount registry recovered/seeded due to issues:", res.issues);
+      } else if (res.seeded) {
+        console.log("[tongs] mount registry seeded");
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -292,6 +300,7 @@ export default function AppShell() {
     setLoadingWorkspaces(true);
     setWorkspaceLoadError(null);
     try {
+      const { listMyWorkspaces } = await import("@barstock/lib/tongs-api");
       const ws = await listMyWorkspaces();
       setWorkspaces(ws);
       saveWorkspaceCache(ws);

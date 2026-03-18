@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import type { Session } from "@supabase/supabase-js";
 import HearthShell from "@hearth/routes/HearthShell";
@@ -9,7 +9,6 @@ import {
 import { ForgeNav } from "../nav/ForgeNav";
 import { FORGE_NAV_ACTION_AI_CONTROLS, forgeNavTree } from "../nav/forgeNavTree";
 import { supabase } from "../lib/supabase";
-import { AiControlsPanel } from "../components/hearth/AiControlsPanel";
 import {
   buildForgeRouteHref,
   parseForgeRouteContext,
@@ -17,6 +16,11 @@ import {
 } from "../lib/forge-route-context";
 import { useForgeCloudStatus } from "../lib/forge-cloud-status";
 import "./HearthStandalone.css";
+
+const AiControlsPanel = lazy(async () => {
+  const module = await import("../components/hearth/AiControlsPanel");
+  return { default: module.AiControlsPanel };
+});
 
 type StoreKind = "local" | "tongs";
 
@@ -280,10 +284,12 @@ export default function HearthStandalone() {
           onClick={() => setAiControlsOpen(false)}
         >
           <div onClick={(event) => event.stopPropagation()}>
-            <AiControlsPanel
-              onClose={() => setAiControlsOpen(false)}
-              workspaceId={workspaceId}
-            />
+            <Suspense fallback={<div style={{ padding: 24 }}>Loading AI controls...</div>}>
+              <AiControlsPanel
+                onClose={() => setAiControlsOpen(false)}
+                workspaceId={workspaceId}
+              />
+            </Suspense>
           </div>
         </div>
       ) : null}

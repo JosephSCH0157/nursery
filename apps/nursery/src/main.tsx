@@ -10,11 +10,6 @@ import AppShell from "./routes/AppShell";
 import AuthCallback from "./routes/AuthCallback";
 import ResetPassword from "./routes/ResetPassword";
 import ForgeHub from "./routes/ForgeHub";
-import SettingsHome from "./routes/SettingsHome";
-import SettingsLayout from "./routes/SettingsLayout";
-import SettingsOrg from "./routes/SettingsOrg";
-import SettingsOrgTeams from "./routes/SettingsOrgTeams";
-import SettingsStorage from "./routes/SettingsStorage";
 import Placeholder from "./routes/Placeholder";
 import AnvilRoute from "./routes/Anvil";
 import IronMineRoute from "./routes/IronMine";
@@ -30,6 +25,11 @@ const BellowsStandalone = lazy(() => import("./routes/BellowsStandalone"));
 const HearthRoute = lazy(() => import("./routes/Hearth"));
 const HearthStandalone = lazy(() => import("./routes/HearthStandalone"));
 const QuenchRoute = lazy(() => import("./routes/Quench"));
+const SettingsHome = lazy(() => import("./routes/SettingsHome"));
+const SettingsLayout = lazy(() => import("./routes/SettingsLayout"));
+const SettingsOrg = lazy(() => import("./routes/SettingsOrg"));
+const SettingsOrgTeams = lazy(() => import("./routes/SettingsOrgTeams"));
+const SettingsStorage = lazy(() => import("./routes/SettingsStorage"));
 const HammerRoute = lazy(() => import("./routes/Hammer"));
 const HammerDevCardsRoute = lazy(() => import("./routes/HammerDevCards"));
 const HammerEditorRoute = lazy(() => import("./routes/HammerEditor"));
@@ -77,12 +77,12 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="calendar" element={<Placeholder name="Calendar" />} />
             <Route path="subscriptions" element={<SubscriptionsRoute />} />
             <Route path="mobile-demo" element={<MobilePrimitivesDemo />} />
-            <Route path="settings" element={<SettingsLayout />}>
-              <Route index element={<SettingsHome />} />
-              <Route path="org" element={<SettingsOrg />} />
-              <Route path="org/teams" element={<SettingsOrgTeams />} />
-              <Route path="org/teams/:teamId" element={<SettingsOrgTeams />} />
-              <Route path="storage" element={<SettingsStorage />} />
+            <Route path="settings" element={withRouteFallback(<SettingsLayout />, "Loading Settings...")}>
+              <Route index element={withRouteFallback(<SettingsHome />, "Loading Settings...")} />
+              <Route path="org" element={withRouteFallback(<SettingsOrg />, "Loading Organization Settings...")} />
+              <Route path="org/teams" element={withRouteFallback(<SettingsOrgTeams />, "Loading Team Settings...")} />
+              <Route path="org/teams/:teamId" element={withRouteFallback(<SettingsOrgTeams />, "Loading Team Settings...")} />
+              <Route path="storage" element={withRouteFallback(<SettingsStorage />, "Loading Storage Settings...")} />
             </Route>
           </Route>
 

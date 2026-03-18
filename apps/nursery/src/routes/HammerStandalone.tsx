@@ -11,12 +11,16 @@ import {
   resolveHammerRouteWorkpieceId,
 } from "@hammer/app/hammerRuntimeData";
 import { buildHammerEditorHref, buildHammerRouteState, resolveHammerRouteSelection } from "@hammer/app/hammerNavigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { AiControlsPanel } from "../components/hearth/AiControlsPanel";
 import { buildForgeRouteHref } from "../lib/forge-route-context";
 import { supabase } from "../lib/supabase";
 import "./HammerStandalone.css";
+
+const AiControlsPanel = lazy(async () => {
+  const module = await import("../components/hearth/AiControlsPanel");
+  return { default: module.AiControlsPanel };
+});
 
 const WORKSPACE_CACHE_KEY = "forge_workspaces_cache_v1";
 
@@ -530,7 +534,9 @@ export default function HammerStandalone() {
           onClick={() => setAiControlsOpen(false)}
         >
           <div onClick={(event) => event.stopPropagation()}>
-            <AiControlsPanel onClose={() => setAiControlsOpen(false)} workspaceId={workspaceId} />
+            <Suspense fallback={<div style={{ padding: 24 }}>Loading AI controls...</div>}>
+              <AiControlsPanel onClose={() => setAiControlsOpen(false)} workspaceId={workspaceId} />
+            </Suspense>
           </div>
         </div>
       ) : null}
