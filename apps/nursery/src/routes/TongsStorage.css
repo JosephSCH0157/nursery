@@ -59,6 +59,29 @@
   opacity: 0.78;
 }
 
+.tongs-storage__selection-pill {
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.tongs-storage__selection-label {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+  text-transform: uppercase;
+}
+
+.tongs-storage__mono {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
 .tongs-storage__diagnostic {
   font-size: 12px;
   opacity: 0.74;

@@ -1,9 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
-import { useOutletContext } from "react-router-dom";
+import { useLocation, useOutletContext } from "react-router-dom";
 import { useLayoutMode } from "@forge/ui-mobile";
-import { ALL_MOUNT_ROLES, MOUNT_ROLE_POLICY, getMountRolePolicy, type MountRole } from "@forge/tongs";
-import type { WorkspaceStorageListing } from "@forge/tongs";
+import {
+  ALL_MOUNT_ROLES,
+  MOUNT_ROLE_POLICY,
+  getMountRolePolicy,
+  type MountRole,
+  type WorkspaceStorageListing,
+  type WorkspaceStorageTreeNode,
+  type WorkpieceStorageListing,
+} from "@forge/tongs";
 import { useMountRegistry } from "../hooks/useMountRegistry";
+import { parseForgeRouteContext } from "../lib/forge-route-context";
 import { getHandle } from "../lib/handle-vault";
 import { loadLastMirrorStatus, type MirrorLastStatus } from "../lib/mirror";
 import { tongsApiRequest } from "../lib/tongs-api";
@@ -22,7 +30,7 @@ type StorageTreeNode = {
 };
 
 type ListingSource = {
-  kind: "local" | "mirror" | "cloud";
+  kind: "local" | "mirror" | "cloud_role_root" | "cloud_workpiece";
   label: string;
   badgeLabel: string;
   vaultKey?: string;
@@ -53,9 +61,21 @@ type RootViewModel = {
   mirrorStatus: MirrorLastStatus | null;
 };
 
+type StorageListingPanelProps = {
+  title: string;
+  treeState: TreeState;
+  emptyMessage: string;
+  loadingPlaceholder: string;
+  errorPlaceholder: string;
+  unavailablePlaceholder: string;
+  footnote?: string;
+};
+
 const ROLE_POLICY_MAP = new Map(MOUNT_ROLE_POLICY.map((policy) => [policy.role, policy] as const));
 const MAX_TREE_DEPTH = 3;
 const MAX_TREE_ITEMS_PER_DIRECTORY = 80;
+const READ_ONLY_FOOTNOTE =
+  "Read-only only. Upload, rename, delete, drag/drop, and mount editing are intentionally excluded from this slice.";
 
 function normalizeWorkspaceRole(value: unknown): WorkspaceRole | null {
   if (value === "viewer" || value === "editor" || value === "admin" || value === "owner") {
@@ -101,17 +121,21 @@ function summarizeMirrorStatus(root: RootViewModel): string {
   return `${base} • last ${root.mirrorStatus.ok ? "ok" : "failed"} ${formatDateTime(root.mirrorStatus.at)}`;
 }
 
-function describeEmptyListing(root: RootViewModel, source: ListingSource | null): string {
+function describeEmptyRoleRootListing(root: RootViewModel, source: ListingSource | null): string {
   if (root.resolvedTargetType === "tongs_cloud") {
-    if (source?.kind === "cloud") {
-      return "This cloud-backed canonical root is currently empty.";
+    if (source?.kind === "cloud_role_root") {
+      return "This workspace role root is currently empty.";
     }
     if (source?.kind === "mirror") {
-      return "Local mirror connected, but no mirrored files are visible here yet. Cloud-backed canonical storage may still contain data outside this local inspection view.";
+      return "Local mirror connected, but no mirrored files are visible here yet. Canonical cloud files may still exist outside this local inspection view.";
     }
-    return "Cloud-backed root. Canonical cloud inspection is not currently available.";
+    return "Cloud-backed role root. Local inspection is not currently available.";
   }
   return "This root is currently empty.";
+}
+
+function describeEmptyWorkpieceListing(): string {
+  return "This canonical workpiece root is currently empty.";
 }
 
 function buildListingSource(root: RootViewModel): { source: ListingSource | null; message: string } {
@@ -149,7 +173,7 @@ function buildListingSource(root: RootViewModel): { source: ListingSource | null
 
   return {
     source: null,
-    message: "Cloud-backed root. Local mirror is not currently connected, so local tree inspection is unavailable here.",
+    message: "Cloud-backed role root. Local mirror is not currently connected, so local tree inspection is unavailable here.",
   };
 }
 
@@ -165,12 +189,28 @@ async function listDirectoryTree(
 ): Promise<StorageTreeNode[]> {
   const nodes: StorageTreeNode[] = [];
   let count = 0;
+  const entrySource = handle as FileSystemDirectoryHandle & {
+    entries?: () => AsyncIterable<[string, FileSystemHandle]>;
+    values?: () => AsyncIterable<FileSystemHandle>;
+  };
+  const iterator =
+    typeof entrySource.entries === "function"
+      ? entrySource.entries()
+      : typeof entrySource.values === "function"
+      ? (async function* () {
+          for await (const child of entrySource.values!()) {
+            yield [child.name, child] as const;
+          }
+        })()
+      : null;
 
-  for await (const [name, child] of handle.entries()) {
+  if (!iterator) return nodes;
+
+  for await (const [name, child] of iterator) {
     count += 1;
     if (count > MAX_TREE_ITEMS_PER_DIRECTORY) {
       nodes.push({
-        name: `+ more items`,
+        name: "+ more items",
         kind: "file",
         path: `${basePath}/__truncated__`,
         note: `Directory listing truncated after ${MAX_TREE_ITEMS_PER_DIRECTORY} entries.`,
@@ -186,7 +226,7 @@ async function listDirectoryTree(
         path,
       };
       if (depth < MAX_TREE_DEPTH) {
-        node.children = await listDirectoryTree(child, path, depth + 1);
+        node.children = await listDirectoryTree(child as FileSystemDirectoryHandle, path, depth + 1);
       } else {
         node.note = `Nested listing stops after depth ${MAX_TREE_DEPTH}.`;
       }
@@ -210,7 +250,7 @@ function readErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-function buildCloudNodeNote(node: WorkspaceStorageListing["nodes"][number]): string | undefined {
+function buildCloudNodeNote(node: WorkspaceStorageTreeNode): string | undefined {
   if (node.note) return node.note;
 
   const parts: string[] = [];
@@ -220,7 +260,7 @@ function buildCloudNodeNote(node: WorkspaceStorageListing["nodes"][number]): str
   return parts.length > 0 ? parts.join(" • ") : undefined;
 }
 
-function mapCloudNodes(nodes: WorkspaceStorageListing["nodes"]): StorageTreeNode[] {
+function mapCloudNodes(nodes: WorkspaceStorageTreeNode[]): StorageTreeNode[] {
   return nodes.map((node) => ({
     name: node.name,
     kind: node.kind,
@@ -267,9 +307,71 @@ function StorageTree({ nodes, depth = 0 }: { nodes: StorageTreeNode[]; depth?: n
   );
 }
 
+function StorageListingPanel({
+  title,
+  treeState,
+  emptyMessage,
+  loadingPlaceholder,
+  errorPlaceholder,
+  unavailablePlaceholder,
+  footnote,
+}: StorageListingPanelProps) {
+  const messageClass =
+    treeState.status === "error"
+      ? "tongs-storage__message tongs-storage__message--error"
+      : "tongs-storage__message tongs-storage__message--subtle";
+
+  const placeholder =
+    treeState.status === "loading"
+      ? loadingPlaceholder
+      : treeState.status === "ready"
+      ? emptyMessage
+      : treeState.status === "error"
+      ? errorPlaceholder
+      : unavailablePlaceholder;
+
+  return (
+    <div className="tongs-storage__tree-panel">
+      <div className="tongs-storage__tree-header">
+        <h4 className="tongs-storage__tree-title">{title}</h4>
+        <div className="tongs-storage__tree-source">
+          {treeState.source ? (
+            <>
+              <span className="tongs-storage__badge tongs-storage__badge--source">
+                {treeState.source.badgeLabel}
+              </span>
+              <span>
+                {treeState.source.label}
+                {treeState.source.hint ? ` • ${treeState.source.hint}` : ""}
+                {treeState.source.bucket ? ` • ${treeState.source.bucket}` : ""}
+                {treeState.source.rootPath ? ` • ${treeState.source.rootPath}` : ""}
+              </span>
+            </>
+          ) : (
+            "No readable source"
+          )}
+        </div>
+      </div>
+
+      {treeState.message ? <div className={messageClass}>{treeState.message}</div> : null}
+
+      {treeState.status === "ready" && treeState.nodes.length > 0 ? <StorageTree nodes={treeState.nodes} /> : null}
+
+      {treeState.status !== "ready" || treeState.nodes.length === 0 ? (
+        <div className="tongs-storage__tree-placeholder">{placeholder}</div>
+      ) : null}
+
+      {footnote ? <div className="tongs-storage__tree-footnote">{footnote}</div> : null}
+    </div>
+  );
+}
+
 export default function TongsStorage() {
   const shell = useOutletContext<AppShellContext>();
+  const location = useLocation();
+  const routeContext = useMemo(() => parseForgeRouteContext(location.search), [location.search]);
   const workspaceId = shell?.workspaceId ?? null;
+  const workpieceId = routeContext.workpieceId;
   const activeWorkspace = useMemo(
     () => shell?.workspaces?.find((workspace) => workspace.id === workspaceId) ?? null,
     [shell?.workspaces, workspaceId],
@@ -282,7 +384,13 @@ export default function TongsStorage() {
   const layoutMode = useLayoutMode();
   const isMobile = layoutMode === "mobile";
   const [selectedRole, setSelectedRole] = useState<MountRole>(ALL_MOUNT_ROLES[0]);
-  const [treeState, setTreeState] = useState<TreeState>({
+  const [roleRootTreeState, setRoleRootTreeState] = useState<TreeState>({
+    status: "idle",
+    source: null,
+    nodes: [],
+    message: null,
+  });
+  const [workpieceTreeState, setWorkpieceTreeState] = useState<TreeState>({
     status: "idle",
     source: null,
     nodes: [],
@@ -318,64 +426,133 @@ export default function TongsStorage() {
   );
 
   useEffect(() => {
+    if (!workpieceId) {
+      setWorkpieceTreeState({
+        status: "unavailable",
+        source: null,
+        nodes: [],
+        message: routeContext.hasInvalidWorkpieceId
+          ? "Route contains an invalid workpiece_id. Provide a valid workpiece UUID to inspect canonical workpiece storage."
+          : "No workpiece is selected in the current route. Add workpiece_id to inspect canonical workpiece storage.",
+      });
+      return;
+    }
+
+    const workpieceSource: ListingSource = {
+      kind: "cloud_workpiece",
+      label: "Canonical workpiece cloud target",
+      badgeLabel: "canonical workpiece",
+    };
+
+    let cancelled = false;
+    setWorkpieceTreeState({
+      status: "loading",
+      source: workpieceSource,
+      nodes: [],
+      message: "Loading canonical workpiece listing...",
+    });
+
+    void (async () => {
+      try {
+        const data = await tongsApiRequest<{ listing: WorkpieceStorageListing }>(
+          `/tongs/workpieces/${encodeURIComponent(workpieceId)}/storage`,
+        );
+        if (cancelled) return;
+
+        const source: ListingSource = {
+          kind: "cloud_workpiece",
+          label: "Canonical workpiece cloud target",
+          badgeLabel: "canonical workpiece",
+          bucket: data.listing.source.bucket,
+          rootPath: data.listing.source.root_path,
+        };
+        const nodes = mapCloudNodes(data.listing.nodes);
+        setWorkpieceTreeState({
+          status: "ready",
+          source,
+          nodes,
+          message: nodes.length === 0 ? describeEmptyWorkpieceListing() : null,
+        });
+      } catch (error: unknown) {
+        if (cancelled) return;
+        setWorkpieceTreeState({
+          status: "error",
+          source: workpieceSource,
+          nodes: [],
+          message: readErrorMessage(error, "Canonical workpiece listing could not be loaded for this workpiece."),
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [routeContext.hasInvalidWorkpieceId, workpieceId]);
+
+  useEffect(() => {
     if (!selectedRoot) {
-      setTreeState({ status: "unavailable", source: null, nodes: [], message: "Storage root unavailable." });
+      setRoleRootTreeState({
+        status: "unavailable",
+        source: null,
+        nodes: [],
+        message: "Workspace role root unavailable.",
+      });
       return;
     }
 
     if (selectedRoot.resolvedTargetType === "tongs_cloud") {
       if (!workspaceId) {
-        setTreeState({
+        setRoleRootTreeState({
           status: "unavailable",
           source: null,
           nodes: [],
-          message: "Workspace context is required to inspect cloud storage.",
+          message: "Workspace context is required to inspect workspace role roots.",
         });
         return;
       }
 
       const cloudSource: ListingSource = {
-        kind: "cloud",
-        label: "Cloud canonical target",
-        badgeLabel: "cloud canonical",
+        kind: "cloud_role_root",
+        label: "Workspace role-root cloud target",
+        badgeLabel: "workspace role root",
       };
 
       let cancelled = false;
-      setTreeState({
+      setRoleRootTreeState({
         status: "loading",
         source: cloudSource,
         nodes: [],
-        message: "Loading canonical cloud listing...",
+        message: "Loading workspace role-root listing...",
       });
 
       void (async () => {
         try {
           const data = await tongsApiRequest<{ listing: WorkspaceStorageListing }>(
-            `/tongs/workspaces/${workspaceId}/storage/${selectedRoot.role}`,
+            `/tongs/workspaces/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(selectedRoot.role)}`,
           );
           if (cancelled) return;
 
           const source: ListingSource = {
-            kind: "cloud",
-            label: "Cloud canonical target",
-            badgeLabel: "cloud canonical",
+            kind: "cloud_role_root",
+            label: "Workspace role-root cloud target",
+            badgeLabel: "workspace role root",
             bucket: data.listing.source.bucket,
             rootPath: data.listing.source.root_path,
           };
           const nodes = mapCloudNodes(data.listing.nodes);
-          setTreeState({
+          setRoleRootTreeState({
             status: "ready",
             source,
             nodes,
-            message: nodes.length === 0 ? describeEmptyListing(selectedRoot, source) : null,
+            message: nodes.length === 0 ? describeEmptyRoleRootListing(selectedRoot, source) : null,
           });
         } catch (error: unknown) {
           if (cancelled) return;
-          setTreeState({
+          setRoleRootTreeState({
             status: "error",
             source: cloudSource,
             nodes: [],
-            message: readErrorMessage(error, "Canonical cloud listing could not be loaded for this root."),
+            message: readErrorMessage(error, "Workspace role-root listing could not be loaded for this root."),
           });
         }
       })();
@@ -387,7 +564,7 @@ export default function TongsStorage() {
 
     const listing = buildListingSource(selectedRoot);
     if (!listing.source) {
-      setTreeState({
+      setRoleRootTreeState({
         status: "unavailable",
         source: null,
         nodes: [],
@@ -396,24 +573,37 @@ export default function TongsStorage() {
       return;
     }
 
+    const source = listing.source;
+    if (!source.vaultKey) {
+      setRoleRootTreeState({
+        status: "unavailable",
+        source,
+        nodes: [],
+        message: "Local listing is unavailable because no vault key is configured for this root.",
+      });
+      return;
+    }
+    const sourceVaultKey = source.vaultKey;
+
     let cancelled = false;
-    setTreeState({
+    setRoleRootTreeState({
       status: "loading",
-      source: listing.source,
+      source,
       nodes: [],
       message: "Loading read-only listing...",
     });
 
     void (async () => {
       try {
-        const handle = await getHandle(listing.source.vaultKey);
+        const handle = await getHandle(sourceVaultKey);
         if (!handle) {
           if (!cancelled) {
-            setTreeState({
+            setRoleRootTreeState({
               status: "unavailable",
-              source: listing.source,
+              source,
               nodes: [],
-              message: "Folder handle is not available in this browser vault. Reconnect the local folder in Settings Storage to list contents.",
+              message:
+                "Folder handle is not available in this browser vault. Reconnect the local folder in Settings Storage to list contents.",
             });
           }
           return;
@@ -421,17 +611,17 @@ export default function TongsStorage() {
 
         const nodes = await listDirectoryTree(handle, selectedRoot.role, 0);
         if (cancelled) return;
-        setTreeState({
+        setRoleRootTreeState({
           status: "ready",
-          source: listing.source,
+          source,
           nodes,
-          message: nodes.length === 0 ? describeEmptyListing(selectedRoot, listing.source) : null,
+          message: nodes.length === 0 ? describeEmptyRoleRootListing(selectedRoot, source) : null,
         });
       } catch (error: unknown) {
         if (cancelled) return;
-        setTreeState({
+        setRoleRootTreeState({
           status: "error",
-          source: listing.source,
+          source,
           nodes: [],
           message: readErrorMessage(
             error,
@@ -444,7 +634,7 @@ export default function TongsStorage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedRoot]);
+  }, [selectedRoot, workspaceId]);
 
   if (!workspaceId) {
     return <WorkspaceRequiredNotice toolName="Tongs Storage" />;
@@ -468,17 +658,17 @@ export default function TongsStorage() {
     ? "Mount registry was seeded with canonical defaults for this workspace."
     : null;
 
-  const treePanelMessageClass = treeState.status === "error"
-    ? "tongs-storage__message tongs-storage__message--error"
-    : "tongs-storage__message tongs-storage__message--subtle";
+  const workpieceRootPath = workpieceId
+    ? (workpieceTreeState.source?.rootPath ?? `workpieces/${workpieceId}`)
+    : "Not selected";
 
   return (
     <section className={`tongs-storage${isMobile ? " tongs-storage--mobile" : ""}`}>
       <header className="tongs-storage__header">
         <div className="tongs-storage__title-wrap">
-          <h2 className="tongs-storage__title">Workspace Storage</h2>
+          <h2 className="tongs-storage__title">Tongs Storage</h2>
           <p className="tongs-storage__subtitle">
-            Read-only view of canonical storage roots for this workspace. Recordings and exports are cloud-backed by default, and local mirrors provide local access and listing when connected.
+            Canonical workpiece storage is shown first when a workpiece is selected. Workspace role roots remain available as a separate read-only topology view.
           </p>
         </div>
         <div className="tongs-storage__header-actions">
@@ -492,138 +682,166 @@ export default function TongsStorage() {
 
       {diagnostics ? <div className="tongs-storage__diagnostic">{diagnostics}</div> : null}
 
-      <div className="tongs-storage__layout">
-        <section className="tongs-storage__panel tongs-storage__panel--roots">
-          <div className="tongs-storage__panel-header">
-            <h3 className="tongs-storage__panel-title">Canonical Roots</h3>
-            <span className="tongs-storage__panel-subtitle">Six canonical roles from Tongs policy</span>
+      <section className="tongs-storage__panel">
+        <div className="tongs-storage__panel-header">
+          <div>
+            <h3 className="tongs-storage__panel-title">Canonical Workpiece Storage</h3>
+            <p className="tongs-storage__panel-subtitle">
+              Real canonical cloud contents from the selected workpiece root.
+            </p>
           </div>
-          <div className="tongs-storage__roots-list" aria-label="Tongs storage roots">
-            {roots.map((root) => {
-              const isActive = root.role === selectedRoot.role;
-              return (
-                <button
-                  key={root.role}
-                  type="button"
-                  className={`tongs-storage__root-button${isActive ? " tongs-storage__root-button--active" : ""}`}
-                  onClick={() => setSelectedRole(root.role)}
-                >
-                  <div className="tongs-storage__root-title-row">
-                    <span className="tongs-storage__root-title">{root.label}</span>
-                    <span className="tongs-storage__root-target">{root.resolvedTargetType}</span>
-                  </div>
-                  <div className="tongs-storage__root-badges">
-                    <span className="tongs-storage__badge tongs-storage__badge--capability">
-                      {root.eligibleTargets.join(" + ")}
-                    </span>
-                    {root.mirrorEnabled ? (
-                      <span className="tongs-storage__badge tongs-storage__badge--mirror">mirror enabled</span>
-                    ) : null}
-                  </div>
-                  <div className="tongs-storage__root-meta">Mirror: {summarizeMirrorStatus(root)}</div>
-                </button>
-              );
-            })}
-          </div>
-        </section>
+          {workpieceId ? (
+            <div className="tongs-storage__selection-pill">
+              <span className="tongs-storage__selection-label">Selected workpiece</span>
+              <span className="tongs-storage__mono">{workpieceId}</span>
+            </div>
+          ) : null}
+        </div>
 
-        <section className="tongs-storage__panel tongs-storage__panel--detail">
-          <div className="tongs-storage__panel-header">
-            <div>
-              <h3 className="tongs-storage__panel-title">{selectedRoot.label}</h3>
-              <p className="tongs-storage__panel-subtitle">
-                Canonical target: {selectedRoot.resolvedTargetType}
-              </p>
-            </div>
+        <div className="tongs-storage__meta-grid">
+          <div className="tongs-storage__meta-card">
+            <div className="tongs-storage__meta-label">Selected workpiece</div>
+            <div className="tongs-storage__meta-value tongs-storage__mono">{workpieceId ?? "Not selected"}</div>
           </div>
-
-          <div className="tongs-storage__meta-grid">
-            <div className="tongs-storage__meta-card">
-              <div className="tongs-storage__meta-label">Role</div>
-              <div className="tongs-storage__meta-value">{selectedRoot.role}</div>
-            </div>
-            <div className="tongs-storage__meta-card">
-              <div className="tongs-storage__meta-label">Policy class</div>
-              <div className="tongs-storage__meta-value">Resolved by mount configuration and entitlement</div>
-            </div>
-            <div className="tongs-storage__meta-card">
-              <div className="tongs-storage__meta-label">Eligible targets</div>
-              <div className="tongs-storage__meta-value">{selectedRoot.eligibleTargets.join(", ")}</div>
-            </div>
-            <div className="tongs-storage__meta-card">
-              <div className="tongs-storage__meta-label">Resolved target type</div>
-              <div className="tongs-storage__meta-value">{selectedRoot.resolvedTargetType}</div>
-            </div>
-            <div className="tongs-storage__meta-card">
-              <div className="tongs-storage__meta-label">Mirror status</div>
-              <div className="tongs-storage__meta-value">{summarizeMirrorStatus(selectedRoot)}</div>
-            </div>
-            <div className="tongs-storage__meta-card">
-              <div className="tongs-storage__meta-label">Canonical hint</div>
-              <div className="tongs-storage__meta-value">{selectedRoot.canonicalHint ?? "Not available"}</div>
-            </div>
-            <div className="tongs-storage__meta-card">
-              <div className="tongs-storage__meta-label">Canonical vault key</div>
-              <div className="tongs-storage__meta-value">{selectedRoot.canonicalVaultKey ?? "Not available"}</div>
-            </div>
-            <div className="tongs-storage__meta-card">
-              <div className="tongs-storage__meta-label">Mirror hint</div>
-              <div className="tongs-storage__meta-value">{selectedRoot.mirrorHint ?? "Not available"}</div>
-            </div>
-            <div className="tongs-storage__meta-card">
-              <div className="tongs-storage__meta-label">Mirror vault key</div>
-              <div className="tongs-storage__meta-value">{selectedRoot.mirrorVaultKey ?? "Not available"}</div>
-            </div>
+          <div className="tongs-storage__meta-card">
+            <div className="tongs-storage__meta-label">Canonical root</div>
+            <div className="tongs-storage__meta-value tongs-storage__mono">{workpieceRootPath}</div>
           </div>
+          <div className="tongs-storage__meta-card">
+            <div className="tongs-storage__meta-label">Bucket</div>
+            <div className="tongs-storage__meta-value">{workpieceTreeState.source?.bucket ?? "Loading..."}</div>
+          </div>
+          <div className="tongs-storage__meta-card">
+            <div className="tongs-storage__meta-label">Selection source</div>
+            <div className="tongs-storage__meta-value">Forge route context (`workpiece_id`)</div>
+          </div>
+        </div>
 
-          <div className="tongs-storage__tree-panel">
-            <div className="tongs-storage__tree-header">
-              <h4 className="tongs-storage__tree-title">Contents</h4>
-              <div className="tongs-storage__tree-source">
-                {treeState.source ? (
-                  <>
-                    <span className="tongs-storage__badge tongs-storage__badge--source">{treeState.source.badgeLabel}</span>
-                    <span>
-                      {treeState.source.label}
-                      {treeState.source.hint ? ` • ${treeState.source.hint}` : ""}
-                      {treeState.source.bucket ? ` • ${treeState.source.bucket}` : ""}
-                      {treeState.source.rootPath ? ` • ${treeState.source.rootPath}` : ""}
-                    </span>
-                  </>
-                ) : "No readable source"}
+        <StorageListingPanel
+          title="Contents"
+          treeState={workpieceTreeState}
+          emptyMessage={describeEmptyWorkpieceListing()}
+          loadingPlaceholder="Loading canonical workpiece tree..."
+          errorPlaceholder="Canonical workpiece listing could not be loaded for this workpiece."
+          unavailablePlaceholder="No workpiece is selected in the current route."
+          footnote={READ_ONLY_FOOTNOTE}
+        />
+      </section>
+
+      <section className="tongs-storage__panel">
+        <div className="tongs-storage__panel-header">
+          <div>
+            <h3 className="tongs-storage__panel-title">Workspace Role Roots</h3>
+            <p className="tongs-storage__panel-subtitle">
+              Separate read-only view of workspace-level storage topology and mount policy.
+            </p>
+          </div>
+        </div>
+
+        <div className="tongs-storage__layout">
+          <section className="tongs-storage__panel tongs-storage__panel--roots">
+            <div className="tongs-storage__panel-header">
+              <h4 className="tongs-storage__panel-title">Role Roots</h4>
+              <span className="tongs-storage__panel-subtitle">Six canonical roles from Tongs policy</span>
+            </div>
+            <div className="tongs-storage__roots-list" aria-label="Tongs workspace role roots">
+              {roots.map((root) => {
+                const isActive = root.role === selectedRoot.role;
+                return (
+                  <button
+                    key={root.role}
+                    type="button"
+                    className={`tongs-storage__root-button${isActive ? " tongs-storage__root-button--active" : ""}`}
+                    onClick={() => setSelectedRole(root.role)}
+                  >
+                    <div className="tongs-storage__root-title-row">
+                      <span className="tongs-storage__root-title">{root.label}</span>
+                      <span className="tongs-storage__root-target">{root.resolvedTargetType}</span>
+                    </div>
+                    <div className="tongs-storage__root-badges">
+                      <span className="tongs-storage__badge tongs-storage__badge--capability">
+                        {root.eligibleTargets.join(" + ")}
+                      </span>
+                      {root.mirrorEnabled ? (
+                        <span className="tongs-storage__badge tongs-storage__badge--mirror">mirror enabled</span>
+                      ) : null}
+                    </div>
+                    <div className="tongs-storage__root-meta">Mirror: {summarizeMirrorStatus(root)}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="tongs-storage__panel tongs-storage__panel--detail">
+            <div className="tongs-storage__panel-header">
+              <div>
+                <h4 className="tongs-storage__panel-title">{selectedRoot.label}</h4>
+                <p className="tongs-storage__panel-subtitle">
+                  Workspace role root view. Canonical target: {selectedRoot.resolvedTargetType}
+                </p>
               </div>
             </div>
 
-            {treeState.message ? (
-              <div className={treePanelMessageClass}>{treeState.message}</div>
-            ) : null}
-
-            {treeState.status === "ready" && treeState.nodes.length > 0 ? (
-              <StorageTree nodes={treeState.nodes} />
-            ) : null}
-
-            {treeState.status !== "ready" || treeState.nodes.length === 0 ? (
-              <div className="tongs-storage__tree-placeholder">
-                {treeState.status === "loading"
-                  ? "Loading read-only tree..."
-                  : treeState.status === "ready"
-                  ? describeEmptyListing(selectedRoot, treeState.source)
-                  : treeState.status === "error"
-                  ? (selectedRoot.resolvedTargetType === "tongs_cloud"
-                    ? "Canonical cloud listing could not be loaded for this root."
-                    : "Read-only local inspection could not be resolved from the current folder handle state.")
-                  : (selectedRoot.resolvedTargetType === "tongs_cloud"
-                    ? "Cloud-backed root. Canonical cloud inspection is not currently available."
-                    : "Listing is unavailable for the current local target in this workspace context.")}
+            <div className="tongs-storage__meta-grid">
+              <div className="tongs-storage__meta-card">
+                <div className="tongs-storage__meta-label">Role</div>
+                <div className="tongs-storage__meta-value">{selectedRoot.role}</div>
               </div>
-            ) : null}
-
-            <div className="tongs-storage__tree-footnote">
-              Read-only only. Upload, rename, delete, drag/drop, and mount editing are intentionally excluded from this slice.
+              <div className="tongs-storage__meta-card">
+                <div className="tongs-storage__meta-label">Policy class</div>
+                <div className="tongs-storage__meta-value">Resolved by mount configuration and entitlement</div>
+              </div>
+              <div className="tongs-storage__meta-card">
+                <div className="tongs-storage__meta-label">Eligible targets</div>
+                <div className="tongs-storage__meta-value">{selectedRoot.eligibleTargets.join(", ")}</div>
+              </div>
+              <div className="tongs-storage__meta-card">
+                <div className="tongs-storage__meta-label">Resolved target type</div>
+                <div className="tongs-storage__meta-value">{selectedRoot.resolvedTargetType}</div>
+              </div>
+              <div className="tongs-storage__meta-card">
+                <div className="tongs-storage__meta-label">Mirror status</div>
+                <div className="tongs-storage__meta-value">{summarizeMirrorStatus(selectedRoot)}</div>
+              </div>
+              <div className="tongs-storage__meta-card">
+                <div className="tongs-storage__meta-label">Canonical hint</div>
+                <div className="tongs-storage__meta-value">{selectedRoot.canonicalHint ?? "Not available"}</div>
+              </div>
+              <div className="tongs-storage__meta-card">
+                <div className="tongs-storage__meta-label">Canonical vault key</div>
+                <div className="tongs-storage__meta-value">{selectedRoot.canonicalVaultKey ?? "Not available"}</div>
+              </div>
+              <div className="tongs-storage__meta-card">
+                <div className="tongs-storage__meta-label">Mirror hint</div>
+                <div className="tongs-storage__meta-value">{selectedRoot.mirrorHint ?? "Not available"}</div>
+              </div>
+              <div className="tongs-storage__meta-card">
+                <div className="tongs-storage__meta-label">Mirror vault key</div>
+                <div className="tongs-storage__meta-value">{selectedRoot.mirrorVaultKey ?? "Not available"}</div>
+              </div>
             </div>
-          </div>
-        </section>
-      </div>
+
+            <StorageListingPanel
+              title="Contents"
+              treeState={roleRootTreeState}
+              emptyMessage={describeEmptyRoleRootListing(selectedRoot, roleRootTreeState.source)}
+              loadingPlaceholder="Loading workspace role-root tree..."
+              errorPlaceholder={
+                selectedRoot.resolvedTargetType === "tongs_cloud"
+                  ? "Workspace role-root listing could not be loaded for this root."
+                  : "Read-only local inspection could not be resolved from the current folder handle state."
+              }
+              unavailablePlaceholder={
+                selectedRoot.resolvedTargetType === "tongs_cloud"
+                  ? "Cloud-backed role root. Local inspection is not currently available."
+                  : "Listing is unavailable for the current local target in this workspace context."
+              }
+              footnote={READ_ONLY_FOOTNOTE}
+            />
+          </section>
+        </div>
+      </section>
     </section>
   );
 }

@@ -23,6 +23,7 @@ function mockService() {
     listWorkspaceSparks: [],
     listWorkspaceEpisodes: [],
     listWorkspaceStorage: [],
+    listWorkpieceStorage: [],
     archiveWorkpiece: [],
     restoreWorkpiece: [],
     listWorkspaceReadyScripts: [],
@@ -478,6 +479,44 @@ function mockService() {
                 updated_at: "2026-03-18T10:00:00.000Z",
               },
             ],
+          },
+        ],
+      };
+    },
+    async listWorkpieceStorage(workpieceId, options) {
+      calls.listWorkpieceStorage.push({ workpieceId, options: options ?? null });
+      return {
+        source: {
+          kind: "cloud_workpiece",
+          bucket: "forge-workpieces",
+          workspace_id: "11111111-1111-4111-8111-111111111111",
+          workpiece_id: workpieceId,
+          prefix: options?.prefix ?? null,
+          root_path: options?.prefix
+            ? `workpieces/${workpieceId}/${options.prefix}`
+            : `workpieces/${workpieceId}`,
+        },
+        nodes: [
+          {
+            name: "script",
+            kind: "directory",
+            path: `workpieces/${workpieceId}/script`,
+            children: [
+              {
+                name: "script.md",
+                kind: "file",
+                path: `workpieces/${workpieceId}/script/script.md`,
+                bytes: 2048,
+                updated_at: "2026-03-18T10:00:00.000Z",
+              },
+            ],
+          },
+          {
+            name: "manifest.json",
+            kind: "file",
+            path: `workpieces/${workpieceId}/manifest.json`,
+            bytes: 512,
+            updated_at: "2026-03-18T09:00:00.000Z",
           },
         ],
       };
@@ -3138,6 +3177,53 @@ test("GET /tongs/workspaces/:id/storage/:role requires x-forge-user-authorizatio
   assert.equal(body.ok, false);
   assert.equal(body.error?.code, "missing_user_token_header");
   assert.equal(calls.listWorkspaceStorage.length, 0);
+});
+
+test("GET /tongs/workpieces/:id/storage dispatches listWorkpieceStorage", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/storage?prefix=script&depth=2",
+    {
+      method: "GET",
+      headers: {
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.listWorkpieceStorage.length, 1);
+  assert.equal(calls.listWorkpieceStorage[0]?.workpieceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.listWorkpieceStorage[0]?.options?.prefix, "script");
+  assert.equal(calls.listWorkpieceStorage[0]?.options?.depth, 2);
+  assert.equal(calls.listWorkpieceStorage[0]?.options?.userAccessToken, "user_token_abc");
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.listing?.source?.kind, "cloud_workpiece");
+  assert.equal(body.data?.listing?.source?.root_path, "workpieces/11111111-1111-4111-8111-111111111111/script");
+  assert.equal(body.data?.listing?.nodes?.[0]?.path, "workpieces/11111111-1111-4111-8111-111111111111/script");
+});
+
+test("GET /tongs/workpieces/:id/storage requires x-forge-user-authorization header", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/storage",
+    { method: "GET" },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.equal(body.ok, false);
+  assert.equal(body.error?.code, "missing_user_token_header");
+  assert.equal(calls.listWorkpieceStorage.length, 0);
 });
 
 test("POST /tongs/workpieces/:id/archive dispatches archiveWorkpiece", async () => {
@@ -5954,4 +6040,90 @@ test("TongsCommitService.listWorkspaceStorage falls back to owner-prefixed legac
   assert.equal(result.source.root_path, `${ownerUserId}/${workspaceId}/exports`);
   assert.equal(result.nodes.length, 1);
   assert.equal(result.nodes[0]?.path, `${ownerUserId}/${workspaceId}/exports/final.mp4`);
+});
+
+test("TongsCommitService.listWorkpieceStorage returns nested canonical workpiece nodes", async () => {
+  const workpieceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const workspaceId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const storageCalls = [];
+  const service = new TongsCommitService({
+    storage: {
+      from(bucket) {
+        assert.equal(bucket, "forge-workpieces");
+        return {
+          async list(path, options) {
+            storageCalls.push({ path, options });
+
+            if (path === `workpieces/${workpieceId}`) {
+              return {
+                data: [
+                  { name: "script" },
+                  {
+                    name: "manifest.json",
+                    id: "file-manifest",
+                    metadata: { size: 512 },
+                    updated_at: "2026-03-18T12:00:00.000Z",
+                  },
+                ],
+                error: null,
+              };
+            }
+
+            if (path === `workpieces/${workpieceId}/script`) {
+              return {
+                data: [
+                  {
+                    name: "script.md",
+                    id: "file-script",
+                    metadata: { size: 2048 },
+                    updated_at: "2026-03-18T12:05:00.000Z",
+                  },
+                ],
+                error: null,
+              };
+            }
+
+            return { data: [], error: null };
+          },
+        };
+      },
+    },
+  }, "forge-workpieces", null);
+
+  service.assertWorkspaceRoleFromAccessToken = async () => ({
+    userId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    role: "viewer",
+  });
+  service.getCradleOrThrow = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Episode A",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-18T00:00:00.000Z",
+    updated_at: "2026-03-18T00:00:00.000Z",
+    archived_at: null,
+    archived_by: null,
+    archive_reason: null,
+  });
+
+  const result = await service.listWorkpieceStorage(workpieceId, {
+    userAccessToken: "viewer_token",
+  });
+
+  assert.equal(result.source.kind, "cloud_workpiece");
+  assert.equal(result.source.workspace_id, workspaceId);
+  assert.equal(result.source.root_path, `workpieces/${workpieceId}`);
+  assert.equal(storageCalls.length, 2);
+  assert.equal(storageCalls[0]?.path, `workpieces/${workpieceId}`);
+  assert.equal(storageCalls[1]?.path, `workpieces/${workpieceId}/script`);
+  assert.equal(result.nodes.length, 2);
+  assert.equal(result.nodes[0]?.kind, "directory");
+  assert.equal(result.nodes[0]?.path, `workpieces/${workpieceId}/script`);
+  assert.equal(result.nodes[0]?.children?.[0]?.path, `workpieces/${workpieceId}/script/script.md`);
+  assert.equal(result.nodes[1]?.kind, "file");
+  assert.equal(result.nodes[1]?.path, `workpieces/${workpieceId}/manifest.json`);
+  assert.equal(result.nodes[1]?.bytes, 512);
 });

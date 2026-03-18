@@ -194,6 +194,22 @@ type PendingAsrScriptEndStop = {
   targetLineTokens: string[];
 };
 
+type AsrScriptEndConfirmationEvidence = {
+  source: 'route-line' | 'token-overlap';
+  matchedLine: number | null;
+  sharedAny: number;
+  sharedMeaningful: number;
+  overlapRatio: number;
+};
+
+type DeferredAsrScriptEndStop = {
+  pending: PendingAsrScriptEndStop;
+  evidence: AsrScriptEndConfirmationEvidence;
+  targetLine: number | null;
+  startedAt: number;
+  markerReachedAt: number | null;
+};
+
 declare global {
   interface Window {
     __tpBus?: { emit?: AnyFn };
@@ -310,6 +326,8 @@ let lastMatcherStallCommitCount = -1;
 let lastMatcherStallCommitStableSince = 0;
 let lastAsrScriptEndStopKey = '';
 let pendingAsrScriptEndStop: PendingAsrScriptEndStop | null = null;
+let deferredAsrScriptEndStop: DeferredAsrScriptEndStop | null = null;
+let deferredAsrScriptEndStopTimer: number | null = null;
 
 const WATCHDOG_INTERVAL_MS = 5000;
 const WATCHDOG_THRESHOLD_MS = 15000;
@@ -328,6 +346,12 @@ const HUD_SNAPSHOT_THROTTLE_MS = 120;
 const ASR_SCRIPT_END_CONFIRM_MAX_WAIT_MS = 15000;
 const ASR_SCRIPT_END_CONFIRM_MIN_SHARED_MEANINGFUL_TOKENS = 1;
 const ASR_SCRIPT_END_CONFIRM_MIN_SHARED_TOKENS = 2;
+const ASR_SCRIPT_END_MARKER_WAIT_MAX_MS = 4000;
+const ASR_SCRIPT_END_MARKER_POLL_MS = 16;
+const ASR_SCRIPT_END_POSTROLL_MS = 500;
+const ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX = 12;
+const ASR_SCRIPT_END_MARKER_TOLERANCE_MAX_PX = 48;
+const ASR_SCRIPT_END_MARKER_TOLERANCE_LINE_RATIO = 0.35;
 const ASR_SCRIPT_END_STOPWORDS = new Set([
   'the',
   'and',
@@ -603,6 +627,28 @@ function clearPendingAsrScriptEnd(reason: string): void {
   pendingAsrScriptEndStop = null;
 }
 
+function clearDeferredAsrScriptEndStopTimer(): void {
+  if (deferredAsrScriptEndStopTimer == null) return;
+  try {
+    window.clearTimeout(deferredAsrScriptEndStopTimer);
+  } catch {}
+  deferredAsrScriptEndStopTimer = null;
+}
+
+function cancelDeferredAsrScriptEndStop(reason: string): void {
+  if (!deferredAsrScriptEndStop) return;
+  clearDeferredAsrScriptEndStopTimer();
+  if (isDevMode() && shouldLogTag('ASR:script-end-deferred-clear', 2, 250)) {
+    try {
+      console.info('[ASR] script-end deferred stop cleared', {
+        reason,
+        dedupeKey: deferredAsrScriptEndStop.pending.dedupeKey,
+      });
+    } catch {}
+  }
+  deferredAsrScriptEndStop = null;
+}
+
 function shouldSuppressAsrScriptEndAutoStop(session = getSession()): boolean {
   if (session.recordOnLive) return true;
   try {
@@ -614,13 +660,7 @@ function shouldSuppressAsrScriptEndAutoStop(session = getSession()): boolean {
 function suppressPendingAsrScriptEndStop(
   pending: PendingAsrScriptEndStop,
   reason: string,
-  evidence: {
-    source: 'route-line' | 'token-overlap';
-    matchedLine: number | null;
-    sharedAny: number;
-    sharedMeaningful: number;
-    overlapRatio: number;
-  },
+  evidence: AsrScriptEndConfirmationEvidence,
 ): void {
   const session = getSession();
   lastAsrScriptEndStopKey = pending.dedupeKey;
@@ -653,15 +693,185 @@ function suppressPendingAsrScriptEndStop(
   }
 }
 
+function getLineElementAtIndex(index: number, container?: ParentNode | null): HTMLElement | null {
+  const idx = Math.max(0, Math.floor(Number(index) || 0));
+  try {
+    const host = container || getScriptRoot() || getPrimaryScroller() || document;
+    return (
+      host.querySelector<HTMLElement>(`.line[data-line="${idx}"]`) ||
+      host.querySelector<HTMLElement>(`.line[data-line-idx="${idx}"]`) ||
+      host.querySelector<HTMLElement>(`.line[data-i="${idx}"]`) ||
+      host.querySelector<HTMLElement>(`.line[data-index="${idx}"]`) ||
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+
+function probeDeferredAsrScriptEndMarker(targetLine: number): {
+  ready: boolean;
+  reached: boolean;
+  distancePx: number | null;
+  tolerancePx: number;
+  markerIdx: number;
+} {
+  try {
+    const viewer = getPrimaryScroller();
+    const root = getScriptRoot() || viewer;
+    const host = viewer || root;
+    const lineEl = getLineElementAtIndex(targetLine, root || viewer || document);
+    if (!host || !lineEl) {
+      return {
+        ready: false,
+        reached: false,
+        distancePx: null,
+        tolerancePx: ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX,
+        markerIdx: -1,
+      };
+    }
+    const { markerOffset } = getMarkerOffset(viewer, root);
+    const hostRect = host.getBoundingClientRect();
+    const lineRect = lineEl.getBoundingClientRect();
+    const lineHeight = lineRect.height || lineEl.offsetHeight || lineEl.clientHeight || 0;
+    const lineCenterY = lineRect.top + lineRect.height * 0.5;
+    const markerY = hostRect.top + markerOffset;
+    const tolerancePx = Math.max(
+      ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX,
+      Math.min(
+        ASR_SCRIPT_END_MARKER_TOLERANCE_MAX_PX,
+        lineHeight > 0
+          ? lineHeight * ASR_SCRIPT_END_MARKER_TOLERANCE_LINE_RATIO
+          : ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX,
+      ),
+    );
+    const distancePx = Math.abs(lineCenterY - markerY);
+    return {
+      ready: true,
+      reached: distancePx <= tolerancePx,
+      distancePx,
+      tolerancePx,
+      markerIdx: computeMarkerLineIndex(),
+    };
+  } catch {
+    return {
+      ready: false,
+      reached: false,
+      distancePx: null,
+      tolerancePx: ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX,
+      markerIdx: -1,
+    };
+  }
+}
+
+function scheduleDeferredAsrScriptEndStop(delayMs: number): void {
+  clearDeferredAsrScriptEndStopTimer();
+  deferredAsrScriptEndStopTimer = window.setTimeout(() => {
+    deferredAsrScriptEndStopTimer = null;
+    const deferred = deferredAsrScriptEndStop;
+    if (!deferred) return;
+    const session = getSession();
+    const mode = String(deferred.pending.mode || getScrollMode() || '').toLowerCase();
+    if (session.phase !== 'live' || !isAsrLikeMode(mode)) {
+      cancelDeferredAsrScriptEndStop('mode-or-phase-change');
+      return;
+    }
+    if (deferred.markerReachedAt != null) {
+      deferredAsrScriptEndStop = null;
+      const stopIntent = {
+        source: 'asr-script-end',
+        reason: 'script-end',
+        mode,
+        phase: session.phase,
+      };
+      dispatchSessionIntent(false, stopIntent);
+      try { setSessionPhase('wrap'); } catch {}
+      try {
+        window.dispatchEvent(
+          new CustomEvent('tp:session:stop', {
+            detail: {
+              ...stopIntent,
+              intentSource: 'asr-script-end',
+              lineIndex: deferred.pending.lineIndex,
+              lastSpeakableLineIndex: deferred.pending.lastSpeakableLineIndex,
+              confirmSource: deferred.evidence.source,
+              confirmMatchedLine: deferred.evidence.matchedLine,
+              confirmSharedTokens: deferred.evidence.sharedAny,
+              confirmSharedMeaningfulTokens: deferred.evidence.sharedMeaningful,
+              confirmOverlapRatio: deferred.evidence.overlapRatio,
+              markerWaitMs: deferred.markerReachedAt - deferred.startedAt,
+              postrollMs: ASR_SCRIPT_END_POSTROLL_MS,
+            },
+          }),
+        );
+      } catch {}
+      emitHudSnapshot('script-end-stop', { force: true });
+      if (isDevMode() && shouldLogTag('ASR:script-end-stop', 2, 1000)) {
+        try {
+          console.info('[ASR] session stop at script end', {
+            mode,
+            lineIndex: deferred.pending.lineIndex,
+            lastSpeakableLineIndex: deferred.pending.lastSpeakableLineIndex,
+            runKey: deferred.pending.runKey,
+            confirmSource: deferred.evidence.source,
+            confirmMatchedLine: deferred.evidence.matchedLine,
+            sharedTokens: deferred.evidence.sharedAny,
+            sharedMeaningfulTokens: deferred.evidence.sharedMeaningful,
+            overlapRatio: Number(deferred.evidence.overlapRatio.toFixed(3)),
+            markerWaitMs: deferred.markerReachedAt - deferred.startedAt,
+            postrollMs: ASR_SCRIPT_END_POSTROLL_MS,
+          });
+        } catch {}
+      }
+      return;
+    }
+    if (deferred.targetLine == null) {
+      deferred.markerReachedAt = Date.now();
+      scheduleDeferredAsrScriptEndStop(ASR_SCRIPT_END_POSTROLL_MS);
+      return;
+    }
+    const probe = probeDeferredAsrScriptEndMarker(deferred.targetLine);
+    if (probe.reached) {
+      deferred.markerReachedAt = Date.now();
+      emitHudSnapshot('script-end-postroll', { force: true });
+      if (isDevMode() && shouldLogTag('ASR:script-end-marker-reached', 2, 250)) {
+        try {
+          console.info('[ASR] script-end marker reached', {
+            targetLine: deferred.targetLine,
+            markerIdx: probe.markerIdx,
+            distancePx: probe.distancePx == null ? null : Number(probe.distancePx.toFixed(1)),
+            tolerancePx: Number(probe.tolerancePx.toFixed(1)),
+            postrollMs: ASR_SCRIPT_END_POSTROLL_MS,
+          });
+        } catch {}
+      }
+      scheduleDeferredAsrScriptEndStop(ASR_SCRIPT_END_POSTROLL_MS);
+      return;
+    }
+    const waitMs = Date.now() - deferred.startedAt;
+    if (waitMs >= ASR_SCRIPT_END_MARKER_WAIT_MAX_MS) {
+      deferred.markerReachedAt = Date.now();
+      if (isDevMode() && shouldLogTag('ASR:script-end-marker-timeout', 2, 500)) {
+        try {
+          console.info('[ASR] script-end marker wait timed out', {
+            targetLine: deferred.targetLine,
+            markerIdx: probe.markerIdx,
+            distancePx: probe.distancePx == null ? null : Number(probe.distancePx.toFixed(1)),
+            tolerancePx: Number(probe.tolerancePx.toFixed(1)),
+            waitedMs: waitMs,
+          });
+        } catch {}
+      }
+      scheduleDeferredAsrScriptEndStop(0);
+      return;
+    }
+    scheduleDeferredAsrScriptEndStop(ASR_SCRIPT_END_MARKER_POLL_MS);
+  }, Math.max(0, delayMs));
+}
+
 function finalizePendingAsrScriptEndStop(
   pending: PendingAsrScriptEndStop,
-  evidence: {
-    source: 'route-line' | 'token-overlap';
-    matchedLine: number | null;
-    sharedAny: number;
-    sharedMeaningful: number;
-    overlapRatio: number;
-  },
+  evidence: AsrScriptEndConfirmationEvidence,
 ): void {
   const session = getSession();
   const mode = String(pending.mode || getScrollMode() || '').toLowerCase();
@@ -675,47 +885,28 @@ function finalizePendingAsrScriptEndStop(
   }
   lastAsrScriptEndStopKey = pending.dedupeKey;
   pendingAsrScriptEndStop = null;
-  const stopIntent = {
-    source: 'asr-script-end',
-    reason: 'script-end',
-    mode,
-    phase: session.phase,
+  cancelDeferredAsrScriptEndStop('replaced');
+  deferredAsrScriptEndStop = {
+    pending,
+    evidence,
+    targetLine: pending.lastSpeakableLineIndex ?? pending.lineIndex,
+    startedAt: Date.now(),
+    markerReachedAt: null,
   };
-  dispatchSessionIntent(false, stopIntent);
-  try { setSessionPhase('wrap'); } catch {}
-  try {
-    window.dispatchEvent(
-      new CustomEvent('tp:session:stop', {
-        detail: {
-          ...stopIntent,
-          intentSource: 'asr-script-end',
-          lineIndex: pending.lineIndex,
-          lastSpeakableLineIndex: pending.lastSpeakableLineIndex,
-          confirmSource: evidence.source,
-          confirmMatchedLine: evidence.matchedLine,
-          confirmSharedTokens: evidence.sharedAny,
-          confirmSharedMeaningfulTokens: evidence.sharedMeaningful,
-          confirmOverlapRatio: evidence.overlapRatio,
-        },
-      }),
-    );
-  } catch {}
-  emitHudSnapshot('script-end-stop', { force: true });
-  if (isDevMode() && shouldLogTag('ASR:script-end-stop', 2, 1000)) {
+  emitHudSnapshot('script-end-marker-wait', { force: true });
+  if (isDevMode() && shouldLogTag('ASR:script-end-marker-wait', 2, 250)) {
     try {
-      console.info('[ASR] session stop at script end', {
+      console.info('[ASR] script-end waiting for terminal marker', {
         mode,
         lineIndex: pending.lineIndex,
         lastSpeakableLineIndex: pending.lastSpeakableLineIndex,
         runKey: pending.runKey,
-        confirmSource: evidence.source,
-        confirmMatchedLine: evidence.matchedLine,
-        sharedTokens: evidence.sharedAny,
-        sharedMeaningfulTokens: evidence.sharedMeaningful,
-        overlapRatio: Number(evidence.overlapRatio.toFixed(3)),
+        targetLine: deferredAsrScriptEndStop.targetLine,
+        postrollMs: ASR_SCRIPT_END_POSTROLL_MS,
       });
     } catch {}
   }
+  scheduleDeferredAsrScriptEndStop(0);
 }
 
 function maybeConfirmPendingAsrScriptEnd(
@@ -2598,18 +2789,8 @@ function getLineSnapshot(index: number) {
 }
 
 function getLineTextAtIndex(index: number, container?: ParentNode | null): string {
-  const idx = Math.max(0, Math.floor(Number(index) || 0));
-  try {
-    const host = container || getScriptRoot() || getPrimaryScroller() || document;
-    const line =
-      host.querySelector<HTMLElement>(`.line[data-line="${idx}"]`) ||
-      host.querySelector<HTMLElement>(`.line[data-line-idx="${idx}"]`) ||
-      host.querySelector<HTMLElement>(`.line[data-i="${idx}"]`) ||
-      host.querySelector<HTMLElement>(`.line[data-index="${idx}"]`);
-    return String(line?.textContent || '').replace(/\s+/g, ' ').trim();
-  } catch {
-    return '';
-  }
+  const line = getLineElementAtIndex(index, container);
+  return String(line?.textContent || '').replace(/\s+/g, ' ').trim();
 }
 
 function nextSpeakableLineFrom(
@@ -3390,6 +3571,7 @@ function ensureAsrDriverLifecycleHooks(): void {
       return;
     }
     clearPendingAsrScriptEnd('scroll-mode-exit-asr');
+    cancelDeferredAsrScriptEndStop('scroll-mode-exit-asr');
     if (!running) {
       detachAsrScrollDriver();
     }
@@ -3400,6 +3582,7 @@ function ensureAsrDriverLifecycleHooks(): void {
     const mode = getScrollMode();
     lastAsrScriptEndStopKey = '';
     clearPendingAsrScriptEnd('session-start');
+    cancelDeferredAsrScriptEndStop('session-start');
     asrSessionIntentActive = true;
     if (session.asrDesired || isAsrLikeMode(mode)) {
       attachAsrScrollDriver({ reason: 'session-start', mode, allowCreate: true });
@@ -3432,6 +3615,7 @@ function ensureAsrDriverLifecycleHooks(): void {
   const onSessionStop = () => {
     lastAsrScriptEndStopKey = '';
     clearPendingAsrScriptEnd('session-stop');
+    cancelDeferredAsrScriptEndStop('session-stop');
     asrSessionIntentActive = false;
     resetAsrInterimStabilizer();
     clearAsrRunKey('lifecycle-session-stop');
@@ -3442,6 +3626,7 @@ function ensureAsrDriverLifecycleHooks(): void {
     if (phase === 'idle' || phase === 'wrap') {
       lastAsrScriptEndStopKey = '';
       clearPendingAsrScriptEnd(`phase-${phase}`);
+      cancelDeferredAsrScriptEndStop(`phase-${phase}`);
       asrSessionIntentActive = false;
       resetAsrInterimStabilizer();
       clearAsrRunKey(`phase-${phase}`);

@@ -10,7 +10,6 @@ import type {
 import {
   DEFAULT_MIRROR_POLICY,
   MOUNT_ROLE_POLICY,
-  getDefaultMirrorEnabled,
   getDefaultMountTarget,
   getMountRolePolicy,
   resolveMount,

@@ -712,7 +712,25 @@ export type WorkspaceStorageListing = {
   nodes: WorkspaceStorageTreeNode[];
 };
 
+export type WorkpieceStorageListing = {
+  source: {
+    kind: "cloud_workpiece";
+    bucket: string;
+    workspace_id: string;
+    workpiece_id: string;
+    prefix: string | null;
+    root_path: string;
+  };
+  nodes: WorkspaceStorageTreeNode[];
+};
+
 export type ListWorkspaceStorageOptions = {
+  prefix?: string | null;
+  depth?: number;
+  userAccessToken?: string | null;
+};
+
+export type ListWorkpieceStorageOptions = {
   prefix?: string | null;
   depth?: number;
   userAccessToken?: string | null;
@@ -852,6 +870,10 @@ export type TongsCommitApiService = {
     role: MountRole,
     options?: ListWorkspaceStorageOptions,
   ): Promise<WorkspaceStorageListing>;
+  listWorkpieceStorage(
+    workpieceId: string,
+    options?: ListWorkpieceStorageOptions,
+  ): Promise<WorkpieceStorageListing>;
   archiveWorkpiece(
     workpieceId: string,
     input: ArchiveWorkpieceRequest,
@@ -6016,9 +6038,10 @@ export class TongsCommitService {
     return { found: true, text, file_row: null };
   }
 
-  private async listWorkspaceStoragePrefix(
+  private async listStoragePrefix(
     storagePrefix: string,
     depth: number,
+    scopeLabel: "workspace" | "workpiece",
   ): Promise<WorkspaceStorageTreeNode[]> {
     const { data, error } = await this.supabase.storage.from(this.bucket).list(storagePrefix, {
       limit: STORAGE_LIST_MAX_ITEMS_PER_DIRECTORY + 1,
@@ -6026,7 +6049,7 @@ export class TongsCommitService {
     });
 
     if (error) {
-      throw new HttpError(502, "storage_list_failed", "Failed to list workspace storage root", {
+      throw new HttpError(502, "storage_list_failed", `Failed to list ${scopeLabel} storage root`, {
         reason: error.message,
         bucket: this.bucket,
         key: storagePrefix,
@@ -6053,7 +6076,7 @@ export class TongsCommitService {
 
       if (kind === "directory") {
         if (depth > 0) {
-          node.children = await this.listWorkspaceStoragePrefix(path, depth - 1);
+          node.children = await this.listStoragePrefix(path, depth - 1, scopeLabel);
         } else {
           node.note = `Nested listing stops after depth ${STORAGE_LIST_MAX_DEPTH}.`;
         }
@@ -6082,7 +6105,7 @@ export class TongsCommitService {
     role: MountRole,
     options?: ListWorkspaceStorageOptions,
   ): Promise<WorkspaceStorageListing> {
-    const auth = await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
     const workspace = await this.getWorkspaceOrThrow(workspaceId);
 
     const prefix = normalizeOptionalRelativePath(options?.prefix ?? null);
@@ -6096,7 +6119,7 @@ export class TongsCommitService {
     let nodes: WorkspaceStorageTreeNode[] = [];
 
     for (const candidatePrefix of candidatePrefixes) {
-      const candidateNodes = await this.listWorkspaceStoragePrefix(candidatePrefix, depth);
+      const candidateNodes = await this.listStoragePrefix(candidatePrefix, depth, "workspace");
       rootPath = candidatePrefix;
       nodes = candidateNodes;
       if (candidateNodes.length > 0) {
@@ -6117,6 +6140,31 @@ export class TongsCommitService {
         bucket: this.bucket,
         workspace_id: workspaceId,
         role,
+        prefix,
+        root_path: rootPath,
+      },
+      nodes,
+    };
+  }
+
+  async listWorkpieceStorage(
+    workpieceId: string,
+    options?: ListWorkpieceStorageOptions,
+  ): Promise<WorkpieceStorageListing> {
+    const cradle = await this.getCradleOrThrow(workpieceId);
+    await this.assertWorkspaceRoleFromAccessToken(cradle.workspace_id, "viewer", options?.userAccessToken);
+
+    const prefix = normalizeOptionalRelativePath(options?.prefix ?? null);
+    const depth = typeof options?.depth === "number" ? options.depth : STORAGE_LIST_MAX_DEPTH;
+    const rootPath = prefix ? buildStorageKey(workpieceId, prefix) : `workpieces/${workpieceId}`;
+    const nodes = await this.listStoragePrefix(rootPath, depth, "workpiece");
+
+    return {
+      source: {
+        kind: "cloud_workpiece",
+        bucket: this.bucket,
+        workspace_id: cradle.workspace_id,
+        workpiece_id: workpieceId,
         prefix,
         root_path: rootPath,
       },
@@ -7416,6 +7464,20 @@ export function createTongsCommitApiHandlerWithService(
         const depth = normalizeStorageListDepth(url.searchParams.get("depth"));
         const userAccessToken = requireUserAccessTokenHeader(request);
         const listing = await service.listWorkspaceStorage(workspaceId, role, {
+          prefix,
+          depth,
+          userAccessToken,
+        });
+        return jsonResponse(200, { ok: true, data: { listing } });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "storage") {
+        requireMethod(request, "GET");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const prefix = normalizeOptionalRelativePath(url.searchParams.get("prefix"));
+        const depth = normalizeStorageListDepth(url.searchParams.get("depth"));
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const listing = await service.listWorkpieceStorage(workpieceId, {
           prefix,
           depth,
           userAccessToken,
