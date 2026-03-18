@@ -3,6 +3,7 @@
 
 import { computeAnchorLineIndex } from '../scroll/scroll-helpers';
 import { getScrollWriter } from '../scroll/scroll-writer';
+import { dispatchAsrManualAnchor } from '../features/asr/manual-anchor';
 import {
   applyCanonicalScrollTop,
   getFallbackScroller,
@@ -45,6 +46,7 @@ declare global {
     __tpHudRecorderBtn?: HTMLElement | null;
     __tpTextStats?: any;
     __tpAiActivity?: any;
+    __tpAsrRuntimeStatus?: any;
     __tpFeatureInit?: Record<string, any>;
     __tp?: any;
     __tpInit?: Record<string, any>;
@@ -801,18 +803,22 @@ function installAiActivityChip() {
 
       let lastDetail = (window as any).__tpAiActivity || { phase: 'off' };
 
-      const render = (detail = {}) => {
+      const render = (detail = {}, runtime = (window as any).__tpAsrRuntimeStatus || {}) => {
         try {
           const phase = String(detail?.phase || 'off').toLowerCase();
           const selectedEngine = readSelectedEngine();
-          const effectiveEngineRaw = String(detail?.engine || selectedEngine || 'whisper').trim();
+          const requestedEngineRaw = String(runtime?.requestedEngine || selectedEngine || 'whisper').trim();
+          const actualEngineRaw = String(runtime?.actualEngine || detail?.engine || requestedEngineRaw).trim();
+          const effectiveEngineRaw = actualEngineRaw || requestedEngineRaw || 'whisper';
           const effectiveEngine = effectiveEngineRaw.toLowerCase();
           const providerDefault = effectiveEngine === 'whisper' ? 'openai' : 'browser';
           const provider = capitalize(detail?.provider || providerDefault) || (providerDefault === 'browser' ? 'Browser' : 'OpenAI');
           const engine = capitalize(effectiveEngineRaw || (providerDefault === 'browser' ? 'webspeech' : 'whisper'))
             || (providerDefault === 'browser' ? 'Webspeech' : 'Whisper');
           const model = String(detail?.model || '').trim();
-          const message = String(detail?.message || '').trim();
+          const requestedEngine = capitalize(requestedEngineRaw);
+          const fallbackReason = String(runtime?.fallbackReason || '').trim();
+          const message = String(detail?.message || fallbackReason).trim();
           const requestsInFlight = Number(detail?.requestsInFlight || 0);
           const queueDepth = Number(detail?.queueDepth || 0);
 
@@ -841,6 +847,13 @@ function installAiActivityChip() {
             title = message
               ? `${provider} ${engine} reported an error: ${message}`
               : `${provider} ${engine} reported an error.`;
+          } else if (runtime?.fallbackActive) {
+            text = 'AI: browser';
+            sessionText = `AI: ${provider} ${engine} fallback`;
+            state = 'browser';
+            title = message
+              ? `${requestedEngine || 'Whisper'} fell back to ${engine}: ${message}`
+              : `${requestedEngine || 'Whisper'} fell back to ${engine}.`;
           } else if (effectiveEngine === 'whisper') {
             text = 'AI: standby';
             sessionText = `AI: ${provider} ${engine} standby`;
@@ -878,6 +891,11 @@ function installAiActivityChip() {
         try {
           lastDetail = (event && event.detail) || { phase: 'off' };
           render(lastDetail);
+        } catch {}
+      });
+      window.addEventListener('tp:asr:runtime-status', (event) => {
+        try {
+          render(lastDetail, (event && event.detail) || {});
         } catch {}
       });
       try { window.addEventListener('beforeunload', () => { try { unsubscribeSpeechState?.(); } catch {} }, { once: true }); } catch {}
@@ -1351,15 +1369,16 @@ export function bindStaticDom() {
           setActiveLine(line);
           if (mode === 'asr' || mode === 'hybrid') {
             const prevIndex = Number.isFinite(index as number) ? Math.max(0, Math.floor(index as number)) : null;
-            if (mode === 'asr' && prevIndex != null) {
-              try {
-                const driver = (window as any).__tpAsrScrollDriver;
-                if (typeof driver?.setLastLineIndex === 'function') {
-                  driver.setLastLineIndex(prevIndex);
-                }
-              } catch {}
-            } else if (mode === 'hybrid' && prevIndex != null) {
-              try { (window as any).currentIndex = prevIndex; } catch {}
+          if (mode === 'asr' && prevIndex != null) {
+            try {
+              dispatchAsrManualAnchor({
+                targetIndex: prevIndex,
+                source: 'catchup',
+                reason: 'catchup',
+              });
+            } catch {}
+          } else if (mode === 'hybrid' && prevIndex != null) {
+            try { (window as any).currentIndex = prevIndex; } catch {}
             }
             const verify = () => {
               const nextIndex = getAsrAnchorIndex();

@@ -62,8 +62,6 @@ import { appStore } from './state/app-store';
 import { initSession } from './state/session';
 // Auto-record SSOT helpers (bridge UI + TS core + legacy flags)
 import './state/auto-record-ssot';
-import './speech/loader';
-import { stopAsrRuntime } from './speech/runtime-control';
 // Early dev console noise filter (benign extension async-response errors)
 // Console noise filter gated later (only with ?muteExt=1). Do not auto-install.
 // import './boot/console-noise-filter';
@@ -71,7 +69,7 @@ import { initSpeechBridge } from './asr/v2/bridge-speech';
 import { installScheduler } from './boot/scheduler';
 import { injectSettingsFolderForSmoke } from './features/inject-settings-folder';
 import './features/scripts-local';
-import { installSpeech } from './features/speech-loader';
+import { installSpeech, stopSpeechBackendForSession } from './features/speech-loader';
 import { initObsConnection } from './obs/obs-connection';
 import { initObsWiring } from './obs/obs-wiring';
 import { initRecorderBackends } from './recording/registerRecorders';
@@ -111,7 +109,6 @@ import { recordWindowSetterCall, withScrollModeWriter } from './scroll/audit';
 import './dev/ci-mocks';
 import './dev/asr-thresholds-panel';
 import './hud/loader';
-import { initAsrPersistence } from './features/asr/persistence';
 import { initScrollPrefsPersistence, loadScrollPrefs } from './features/scroll/scroll-prefs';
 import { showToast } from './ui/toasts';
 import { computeAsrReadiness, type AsrWarnReason, type AsrNotReadyReason } from './asr/readiness';
@@ -769,9 +766,7 @@ function applyUiScrollMode(
     dispatchAsrToggle(true);
   };
   const requestAsrStop = () => {
-    try {
-      stopAsrRuntime();
-    } catch {}
+    try { stopSpeechBackendForSession('ui-mode-exit'); } catch {}
     try {
       asrBridge?.stop?.();
     } catch (err) {
@@ -1932,7 +1927,6 @@ export async function boot() {
 					// Initialize features via idempotent wrappers
 					try { startPersistence(); } catch {}
 try { initScrollPrefsPersistence(appStore as any); } catch {}
-          try { initAsrPersistence(); } catch {}
 					try { startTelemetry(); } catch {}
 					try { startScroll(); } catch {}
 					try { startHotkeys(); } catch {}

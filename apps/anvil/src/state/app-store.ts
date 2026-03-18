@@ -1,6 +1,7 @@
 // Minimal app store for centralizing Settings and small app state.
 // Exposes window.__tpStore with get/set/subscribe and automatic persistence for a few keys.
 import {
+  ASR_ENGINE_EXPLICIT_KEY,
   normalizeAsrEngine,
   readLocalAsrEngineExplicit,
 } from '../features/asr/engine-selection';
@@ -89,6 +90,7 @@ const persistMap: Partial<Record<keyof AppStoreState, string>> = {
   rehearsalPunct: REH_PUNCT_KEY,
   rehearsalResumeMs: REH_RESUME_KEY,
   'asr.engine': ASR_ENGINE_KEY,
+  'asr.engineExplicit': ASR_ENGINE_EXPLICIT_KEY,
   'asr.language': ASR_LANG_KEY,
   'asr.useInterimResults': ASR_INTERIM_KEY,
   'asr.threshold': ASR_THRESHOLD_KEY,
@@ -227,6 +229,7 @@ export type AppStoreState = {
   overlay: 'none' | 'settings' | 'help' | 'shortcuts';
   asrLive: boolean;
   'asr.engine': string;
+  'asr.engineExplicit': boolean;
   'asr.language': string;
   'asr.useInterimResults': boolean;
   'asr.filterFillers': boolean;
@@ -453,6 +456,7 @@ function buildInitialState(): AppStoreState {
     })(),
     asrLive: false,
     'asr.engine': readInitialAsrEngine(legacyAsrSettings),
+    'asr.engineExplicit': readLocalAsrEngineExplicit(),
     'asr.language': (() => {
       try {
         const raw = localStorage.getItem(ASR_LANG_KEY);
@@ -738,6 +742,9 @@ function sanitizeState(state: AppStoreState): AppStoreState {
   if (!ALLOWED_OVERLAYS.has(state.overlay)) {
     state.overlay = 'none';
     try { localStorage.removeItem(OVERLAY_KEY); } catch {}
+  }
+  if (typeof state['asr.engineExplicit'] !== 'boolean') {
+    state['asr.engineExplicit'] = !!state['asr.engineExplicit'];
   }
   if (state.scrollMode === 'manual') {
     state.scrollMode = 'step';

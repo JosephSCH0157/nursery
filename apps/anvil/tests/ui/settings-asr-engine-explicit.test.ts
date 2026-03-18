@@ -19,6 +19,9 @@ describe('ASR settings engine choice', () => {
   test('marks engine selection as explicit when user changes it', async () => {
     const { wireAsrSettingsCard } = await import('../../src/ui/settings-asr');
     const { getAsrSettings } = await import('../../src/features/speech/speech-store');
+    const { appStore } = await import('../../src/state/app-store');
+
+    (window as any).__tpStore = appStore;
 
     wireAsrSettingsCard(document);
 
@@ -27,7 +30,8 @@ describe('ASR settings engine choice', () => {
     engine!.value = 'webspeech';
     engine!.dispatchEvent(new Event('change', { bubbles: true }));
 
-    expect(localStorage.getItem('tp_asr_engine_explicit_v1')).toBe('1');
     expect(getAsrSettings().engine).toBe('webspeech');
+    expect(getAsrSettings().engineExplicit).toBe(true);
+    expect(appStore.get('asr.engineExplicit')).toBe(true);
   });
 });

@@ -1,13 +1,9 @@
-import { applySpeechStateFromOwner } from '../features/asr/persistence';
 import {
   isAsrEngineExplicit,
   normalizePersistedAsrSelection,
-  readLocalAsrEngineExplicit,
-  writeLocalAsrEngineExplicit,
 } from '../features/asr/engine-selection';
 import { withScrollModeWriter } from '../scroll/audit';
 import type { AppStore } from '../state/app-store';
-import type { SpeechState } from '../state/speech-store';
 import type { SpeakerBindingsSettings } from '../types/speaker-profiles';
 import {
   getSpeakerProfilesSnapshot,
@@ -201,6 +197,7 @@ export function createProfileSettingsSync(options: ProfileSettingsSyncOptions) {
         if (asrSettings && typeof asrSettings === 'object') {
           const mapping: Record<string, string> = {
             engine: 'asr.engine',
+            engineExplicit: 'asr.engineExplicit',
             language: 'asr.language',
             useInterimResults: 'asr.useInterimResults',
             filterFillers: 'asr.filterFillers',
@@ -209,22 +206,17 @@ export function createProfileSettingsSync(options: ProfileSettingsSyncOptions) {
             manualAnchorAdoptEnabled: 'asr.manualAnchorAdoptEnabled',
             calmModeEnabled: 'asrCalmModeEnabled',
           };
-          const patch: Partial<SpeechState> = {};
           Object.keys(mapping).forEach((src) => {
             const value = (asrSettings as any)[src];
             if (typeof value !== 'undefined') {
               try { store.set?.(mapping[src as keyof typeof mapping] as any, value as any); } catch {}
-              if (src in asrSettings) {
-                (patch as any)[src] = value;
-              }
             }
           });
-          if (Object.keys(patch).length) {
-            try { applySpeechStateFromOwner(patch); } catch {}
-          }
-          writeLocalAsrEngineExplicit(isAsrEngineExplicit((asrSettings as any).engineExplicit));
+          try {
+            store.set?.('asr.engineExplicit' as any, isAsrEngineExplicit((asrSettings as any).engineExplicit) as any);
+          } catch {}
         } else {
-          writeLocalAsrEngineExplicit(false);
+          try { store.set?.('asr.engineExplicit' as any, false as any); } catch {}
         }
 
         const asrProfiles = (normalizedSettings as any).asrProfiles;
@@ -274,7 +266,7 @@ export function createProfileSettingsSync(options: ProfileSettingsSyncOptions) {
       endpointingMs: store.get?.('asr.endpointMs'),
       manualAnchorAdoptEnabled: store.get?.('asr.manualAnchorAdoptEnabled'),
       calmModeEnabled: store.get?.('asrCalmModeEnabled'),
-      engineExplicit: readLocalAsrEngineExplicit(),
+      engineExplicit: !!store.get?.('asr.engineExplicit'),
     };
     const rawProfiles = store.get?.('asrProfiles') as Record<string, unknown> | undefined;
     const asrProfiles = rawProfiles ? Object.values(rawProfiles) : [];

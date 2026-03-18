@@ -2,7 +2,6 @@
 // File: src/ui/topbar-asr.ts
 // =============================================================
 import type { AsrMode } from '../features/asr-mode';
-import { speechStore } from '../state/speech-store';
 
 export class AsrTopbar {
   private chip!: HTMLSpanElement;
@@ -22,19 +21,33 @@ export class AsrTopbar {
     wrap.appendChild(this.chip);
     host.appendChild(wrap);
 
-    window.addEventListener('asr:state', (e: any) => {
-      const st = e.detail?.state as string;
-      const map: Record<string,string> = { idle: 'off', ready: 'ready', listening: 'listening', running: 'listening', error: 'error' };
+    const renderState = (rawState: string) => {
+      const st = String(rawState || '').toLowerCase();
+      const map: Record<string, string> = {
+        idle: 'off',
+        ready: 'ready',
+        listening: 'listening',
+        running: 'listening',
+        error: 'error',
+      };
       this.chip.textContent = `ASR: ${map[st] ?? st}`;
-      if (st === 'idle' || st === 'error') { this.running = false; }
-      if (st === 'running' || st === 'listening' || st === 'ready') { this.running = true; }
-    });
+      if (st === 'idle' || st === 'error') this.running = false;
+      if (st === 'running' || st === 'listening' || st === 'ready') this.running = true;
+    };
 
-    // hint: show engine/lang on hover
-    this.chip.title = (() => {
-      const s = speechStore.get();
-      return `Engine: ${s.engine}  •  Lang: ${s.lang}`;
-    })() as unknown as string;
+    const renderRuntime = (detail: any) => {
+      const requested = String(detail?.requestedEngine || '').trim() || 'whisper';
+      const actual = String(detail?.actualEngine || requested).trim() || requested;
+      const fallbackReason = String(detail?.fallbackReason || '').trim();
+      this.chip.title = fallbackReason
+        ? `Requested: ${requested}  •  Active: ${actual}  •  Fallback: ${fallbackReason}`
+        : `Engine: ${actual}`;
+    };
+
+    window.addEventListener('tp:asr:state', (e: any) => renderState(e?.detail?.state as string));
+    window.addEventListener('asr:state', (e: any) => renderState(e?.detail?.state as string));
+    window.addEventListener('tp:asr:runtime-status', (e: any) => renderRuntime(e?.detail));
+    renderRuntime((window as any).__tpAsrRuntimeStatus || null);
   }
 
   // No toggle UI anymore; ASR start/stop is wired to Speech Sync + mode changes.

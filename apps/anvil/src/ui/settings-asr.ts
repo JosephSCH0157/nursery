@@ -1,7 +1,6 @@
 // =============================================================
 // File: src/ui/settings-asr.ts
 // =============================================================
-import { writeLocalAsrEngineExplicit } from '../features/asr/engine-selection';
 import type { SpeechState } from '../state/speech-store';
 import { appStore, type AppStore } from '../state/app-store';
 import { getAsrSettings, setAsrSettings } from '../features/speech/speech-store';
@@ -153,7 +152,7 @@ function readAsrPatchFromCard(card: HTMLElement): Partial<SpeechState> {
 
 function persistAsrPatch(patch: Partial<SpeechState>): void {
   if (Object.prototype.hasOwnProperty.call(patch, 'engine')) {
-    writeLocalAsrEngineExplicit(true);
+    patch.engineExplicit = true;
   }
   setAsrSettings(patch);
 }

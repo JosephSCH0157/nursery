@@ -1,4 +1,5 @@
 import {
+  evaluateWeakForwardClampSupport,
   evaluateCueBoundaryMultiJumpRelaxation,
   evaluateStallCueRescuePolicy,
   resolveWeakFarForwardHoldCandidate,
@@ -137,6 +138,15 @@ describe('ASR cue-bridge promotion', () => {
     })).toBe(true);
   });
 
+  test('second committed line unlocks adjacent auto-stall rescue after a severe stall even without lost-forward gates', () => {
+    expect(shouldAllowAutoStallContentRescue({
+      commitCount: 2,
+      deltaLines: 1,
+      sinceLastForwardMs: 6500,
+      lostForwardGateCountSinceCommit: 0,
+    })).toBe(true);
+  });
+
   test('opening auto-stall content rescue still rejects multi-line skips', () => {
     expect(shouldAllowAutoStallContentRescue({
       commitCount: 1,
@@ -201,5 +211,43 @@ describe('ASR cue-bridge promotion', () => {
         { idx: 26, score: 0.84 },
       ],
     })).toBeNull();
+  });
+
+  test('weak forward clamp blocks far promotion without local support near the clamped line', () => {
+    expect(evaluateWeakForwardClampSupport({
+      cursorLine: 2,
+      requestedIdx: 26,
+      clampedIdx: 3,
+      selectedScore: 0.42,
+      candidates: [
+        { idx: 2, score: 0.41 },
+        { idx: 9, score: 0.32 },
+        { idx: 26, score: 0.42 },
+      ],
+    })).toEqual({
+      allow: false,
+      localBestIdx: null,
+      localBestScore: null,
+      minSupport: 0.3,
+    });
+  });
+
+  test('weak forward clamp allows far promotion when the clamped line has local support', () => {
+    expect(evaluateWeakForwardClampSupport({
+      cursorLine: 2,
+      requestedIdx: 26,
+      clampedIdx: 3,
+      selectedScore: 0.42,
+      candidates: [
+        { idx: 3, score: 0.35 },
+        { idx: 9, score: 0.32 },
+        { idx: 26, score: 0.42 },
+      ],
+    })).toEqual({
+      allow: true,
+      localBestIdx: 3,
+      localBestScore: 0.35,
+      minSupport: 0.3,
+    });
   });
 });

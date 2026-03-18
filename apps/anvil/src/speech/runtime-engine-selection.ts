@@ -11,12 +11,7 @@ export function resolveRuntimeSpeechEngine(options: {
   appStore?: { get?: (key: string) => unknown } | null;
   fallback?: string;
 } = {}): string {
-  const { speechState, appStore, fallback = 'whisper' } = options;
-  const speechEngine = normalizeRuntimeSpeechEngine(
-    (speechState as any)?.engine ?? (speechState as any)?.['asr.engine'],
-  );
-  if (speechEngine) return speechEngine;
-
+  const { appStore, fallback = 'whisper' } = options;
   const storeEngine = normalizeRuntimeSpeechEngine(appStore?.get?.('asr.engine'));
   if (storeEngine) return storeEngine;
 

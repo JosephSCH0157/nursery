@@ -442,6 +442,7 @@ const DEFAULT_CUE_STALL_RESCUE_DELAY_MS = 900;
 const DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS = 1800;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS = 3;
 const DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES = 2;
+const DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS = DEFAULT_STARVATION_COMMIT_GAP_MS * 2;
 const DEFAULT_MULTI_JUMP_MIN_SIM = 0.45;
 const DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS = 0.08;
 const DEFAULT_MULTI_JUMP_HARD_DENY_SIM = 0.3;
@@ -1038,6 +1039,9 @@ export function shouldAllowAutoStallContentRescue(opts: {
     ? Math.max(0, Number(opts.sinceLastForwardMs))
     : 0;
   if (sinceLastForwardMs < DEFAULT_STARVATION_COMMIT_GAP_MS) return false;
+  if (commitCount >= 2 && sinceLastForwardMs >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS) {
+    return true;
+  }
   const lostForwardGateCountSinceCommit = Number.isFinite(opts.lostForwardGateCountSinceCommit)
     ? Math.max(0, Math.floor(opts.lostForwardGateCountSinceCommit))
     : 0;
@@ -1046,6 +1050,68 @@ export function shouldAllowAutoStallContentRescue(opts: {
       ? 1
       : DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES;
   return lostForwardGateCountSinceCommit >= neededLostForwardGates;
+}
+
+export function evaluateWeakForwardClampSupport(opts: {
+  cursorLine: number;
+  requestedIdx: number;
+  clampedIdx: number;
+  selectedScore: number;
+  candidates: Array<{ idx: number; score: number }>;
+}): {
+  allow: boolean;
+  localBestIdx: number | null;
+  localBestScore: number | null;
+  minSupport: number;
+} {
+  const cursorLine = Number.isFinite(opts.cursorLine) ? Math.max(0, Math.floor(opts.cursorLine)) : -1;
+  const requestedIdx = Number.isFinite(opts.requestedIdx) ? Math.max(0, Math.floor(opts.requestedIdx)) : -1;
+  const clampedIdx = Number.isFinite(opts.clampedIdx) ? Math.max(0, Math.floor(opts.clampedIdx)) : -1;
+  const selectedScore = Number.isFinite(opts.selectedScore) ? Number(opts.selectedScore) : Number.NaN;
+  const minSupport = clamp(
+    Math.max(
+      DEFAULT_CURRENT_OVERRIDE_MIN_SIM + DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS,
+      DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM + DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS,
+      (Number.isFinite(selectedScore) ? selectedScore : 0) - DEFAULT_WEAK_CURRENT_FORWARD_SPARSE_SLACK,
+    ),
+    0,
+    1,
+  );
+  if (
+    cursorLine < 0 ||
+    requestedIdx <= clampedIdx ||
+    clampedIdx <= cursorLine ||
+    !Number.isFinite(selectedScore) ||
+    selectedScore >= DEFAULT_STRONG_FORWARD_COMMIT_SIM
+  ) {
+    return {
+      allow: true,
+      localBestIdx: null,
+      localBestScore: null,
+      minSupport,
+    };
+  }
+
+  const localBest = (Array.isArray(opts.candidates) ? opts.candidates : [])
+    .map((entry) => ({
+      idx: Number((entry as any)?.idx),
+      score: Number((entry as any)?.score),
+    }))
+    .filter((entry) =>
+      Number.isFinite(entry.idx) &&
+      Number.isFinite(entry.score) &&
+      entry.idx > cursorLine &&
+      entry.idx <= clampedIdx,
+    )
+    .map((entry) => ({ idx: Math.floor(entry.idx), score: entry.score }))
+    .sort((a, b) => b.score - a.score || a.idx - b.idx)[0] || null;
+
+  return {
+    allow: !!localBest && localBest.score >= minSupport,
+    localBestIdx: localBest ? localBest.idx : null,
+    localBestScore: localBest ? localBest.score : null,
+    minSupport,
+  };
 }
 
 export function resolveWeakFarForwardHoldCandidate(opts: {
@@ -4900,6 +4966,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       sinceLastForwardMs: now - lastForwardCommitAt,
       lostForwardGateCountSinceCommit,
     });
+    const neededLostForwardGates =
+      commitCount >= 2
+        ? 1
+        : DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES;
     if (
       reasonTag === 'auto-stall' &&
       directContentForwardRescue &&
@@ -4911,9 +4981,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           `at=${cursorLine}`,
           'reason=startup-guard',
           `commits=${commitCount}`,
-          `need=${DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS}`,
+          `hardCommitGate=${DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS}`,
           `delta=${deltaLines}`,
           `lostForwardGates=${lostForwardGateCountSinceCommit}`,
+          `lostForwardNeed=${neededLostForwardGates}`,
+          `severeStallMs=${DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS}`,
           `sinceForwardMs=${Math.max(0, now - lastForwardCommitAt)}`,
           reason ? `source=${reason}` : '',
           cursorLineText ? `line="${formatLogSnippet(cursorLineText, 56)}"` : '',
@@ -6529,6 +6601,33 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       ) {
         const requestedLine = targetLine;
         targetLine = lastLineIndex + effectiveClampDeltaLimit;
+        if (!forced && forceTag !== 'watchdog') {
+          const weakForwardClampSupport = evaluateWeakForwardClampSupport({
+            cursorLine: lastLineIndex,
+            requestedIdx: requestedLine,
+            clampedIdx: targetLine,
+            selectedScore: conf,
+            candidates: topScores,
+          });
+          if (!weakForwardClampSupport.allow) {
+            warnGuard('weak_forward_clamp_blocked', [
+              `current=${lastLineIndex}`,
+              `req=${requestedLine}`,
+              `clamped=${targetLine}`,
+              `sim=${formatLogScore(conf)}`,
+              `need=${formatLogScore(weakForwardClampSupport.minSupport)}`,
+              weakForwardClampSupport.localBestIdx != null
+                ? `local=${weakForwardClampSupport.localBestIdx}`
+                : 'local=na',
+              weakForwardClampSupport.localBestScore != null
+                ? `localSim=${formatLogScore(weakForwardClampSupport.localBestScore)}`
+                : '',
+              snippet ? `clue="${snippet}"` : '',
+            ]);
+            emitHudStatus('weak_forward_clamp_blocked', 'Low-confidence far jump held');
+            return;
+          }
+        }
         if (isDevMode()) {
           try {
             const clampClass = forceTag === 'watchdog' ? 'watchdog' : forced ? 'forced' : 'normal';
@@ -9848,6 +9947,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             `cap=${lostForwardCap}`,
             snippet ? `clue="${snippet}"` : '',
           ]);
+          if (
+            commitCount > 0 &&
+            now - lastForwardCommitAt >= DEFAULT_CUE_STALL_RESCUE_DELAY_MS &&
+            maybeScheduleStallCueRescue('auto-stall')
+          ) {
+            return;
+          }
         }
       }
     }

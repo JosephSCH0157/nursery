@@ -5,7 +5,7 @@ describe('runtime speech engine selection', () => {
     jest.resetModules();
   });
 
-  test('prefers the live speech state engine when present', () => {
+  test('uses the app store engine as the only requested-engine authority', () => {
     const { resolveRuntimeSpeechEngine } = require('../../src/speech/runtime-engine-selection') as typeof import('../../src/speech/runtime-engine-selection');
 
     const engine = resolveRuntimeSpeechEngine({
@@ -13,7 +13,7 @@ describe('runtime speech engine selection', () => {
       appStore: { get: () => 'webspeech' },
     });
 
-    expect(engine).toBe('whisper');
+    expect(engine).toBe('webspeech');
   });
 
   test('falls back to the app store engine when speech state is unavailable', () => {

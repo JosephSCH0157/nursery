@@ -24,9 +24,9 @@ import {
 import { ensureSpeechGlobals, isSpeechBackendAllowed } from '../speech/backend-guard';
 import { createWhisperBridgeRecognizer } from '../speech/engines/whisper-bridge';
 import { prepareMatcherInput } from '../speech/matcher-input';
-import { matchBatch as runMatcherBatch, normTokens, type MatchConfig } from '../speech/matcher';
+import { getMatcherRuntimeState } from '../speech/matcher-runtime-state';
+import { matchBatch as runMatcherBatch, normTokens } from '../speech/matcher';
 import { resolveRuntimeSpeechEngine } from '../speech/runtime-engine-selection';
-import { stopAsrRuntime } from '../speech/runtime-control';
 import type { AppStore } from '../state/app-store';
 import { getSession, setSessionPhase } from '../state/session';
 import type { SpeakerSlot } from '../types/speaker-profiles';
@@ -167,6 +167,23 @@ type AsrStallAutoRestartPayload = {
   restarted: boolean;
 };
 
+type AsrRuntimeStatusPayload = {
+  reason: string;
+  requestedEngine: string;
+  persistedEngine: string;
+  speechStoreEngine: string;
+  appStoreEngine: string;
+  actualEngine: string | null;
+  fallbackActive: boolean;
+  fallbackReason: string | null;
+  recognizerAttached: boolean;
+  phase: string;
+  runKey: string | null;
+  state: string;
+  speechRunning: boolean;
+  speechRunningActual: boolean;
+};
+
 type PendingAsrScriptEndStop = {
   dedupeKey: string;
   runKey: string;
@@ -219,6 +236,7 @@ declare global {
     __tpSendToDisplay?: (payload: unknown) => void;
     __tpGetActiveRecognizer?: () => RecognizerLike | null;
     __tpHardResetSpeech?: (reason?: string) => void;
+    __tpStopSpeechBackend?: (reason?: string) => void;
     SpeechRecognition?: { new (): SpeechRecognition };
     webkitSpeechRecognition?: { new (): SpeechRecognition };
     getAutoRecordEnabled?: () => boolean;
@@ -229,6 +247,7 @@ declare global {
     __tpAsrLifecycleLast?: Record<string, unknown>;
     __tpAsrStallLast?: AsrStallPayload;
     __tpAsrStallAutoRestartLast?: AsrStallAutoRestartPayload;
+    __tpAsrRuntimeStatus?: AsrRuntimeStatusPayload;
   }
 }
 
@@ -270,6 +289,10 @@ let speechWatchdogTimer: number | null = null;
 let asrHeartbeatTimer: number | null = null;
 let activeRecognizer: RecognizerLike | null = null;
 let lastStartedSpeechEngine = 'webspeech';
+let lastRequestedSpeechEngine = 'whisper';
+let currentActualSpeechEngine = '';
+let currentFallbackReason = '';
+let currentAsrState = 'idle';
 let pendingManualRestartCount = 0;
 let lifecycleRestartTimer: number | null = null;
 let lastLifecycleRestartAt = 0;
@@ -437,6 +460,17 @@ function isLegacySpeechNamespaceAllowed(): boolean {
   return false;
 }
 
+function isLegacySpeechOrchestratorAllowed(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    if ((window as any).__tpAllowLegacySpeechOrchestrator === true) return true;
+    const params = new URLSearchParams(window.location.search || '');
+    if (params.get('legacySpeechOrchestrator') === '1') return true;
+    if (params.get('legacySpeechNs') === '1') return true;
+  } catch {}
+  return false;
+}
+
 function getTpSpeechStoreSnapshot(): any {
   try {
     const ns = getTpSpeechNamespace();
@@ -449,6 +483,34 @@ function getTpSpeechStoreSnapshot(): any {
 function emitAiActivity(detail: Record<string, unknown>): void {
   try { (window as any).__tpAiActivity = detail; } catch {}
   try { window.dispatchEvent(new CustomEvent('tp:ai:activity', { detail })); } catch {}
+}
+
+function emitAsrRuntimeStatus(reason: string): void {
+  if (typeof window === 'undefined') return;
+  const speechStoreState = getTpSpeechStoreSnapshot();
+  const appStoreEngine = String((window as any).__tpStore?.get?.('asr.engine') || '').trim().toLowerCase();
+  const requestedEngine = String(lastRequestedSpeechEngine || appStoreEngine || 'whisper').trim().toLowerCase() || 'whisper';
+  const actualEngine = currentActualSpeechEngine ? String(currentActualSpeechEngine).trim().toLowerCase() : null;
+  const payload: AsrRuntimeStatusPayload = {
+    reason,
+    requestedEngine,
+    persistedEngine: appStoreEngine || requestedEngine,
+    speechStoreEngine: String((speechStoreState as any)?.engine || '').trim().toLowerCase(),
+    appStoreEngine,
+    actualEngine,
+    fallbackActive: !!currentFallbackReason && actualEngine !== requestedEngine,
+    fallbackReason: currentFallbackReason || null,
+    recognizerAttached: !!activeRecognizer,
+    phase: String(getSession().phase || 'idle').toLowerCase(),
+    runKey: activeAsrRunKey || null,
+    state: currentAsrState,
+    speechRunning: !!running,
+    speechRunningActual: !!speechRunningActual,
+  };
+  try { window.__tpAsrRuntimeStatus = payload; } catch {}
+  try { window.__tpBus?.emit?.('tp:asr:runtime-status', payload); } catch {}
+  try { window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', { detail: payload })); } catch {}
+  try { document.dispatchEvent(new CustomEvent('tp:asr:runtime-status', { detail: payload })); } catch {}
 }
 
 function resolveAsrDriverRef(): any {
@@ -1289,6 +1351,7 @@ function setSpeechRunningActual(next: boolean, reason: string): void {
   if (speechRunningActual === normalized) return;
   speechRunningActual = normalized;
   emitHudSnapshot(`speech-running-actual:${reason}`, { force: true });
+  emitAsrRuntimeStatus(`speech-running:${reason}`);
 }
 
 function clearLifecycleRestartTimer(): void {
@@ -1440,6 +1503,7 @@ function setActiveRecognizer(instance: RecognizerLike | null): void {
     }
     maybeLogLiveArmedDetachedInvariant('setActiveRecognizer:null');
   }
+  emitAsrRuntimeStatus(`recognizer:${activeRecognizer ? 'attach' : 'detach'}`);
 }
 
 function clearRecognizerHandlers(instance: any): void {
@@ -1498,7 +1562,6 @@ function hardResetSpeechEngine(reason?: string): void {
   try { remember((window as any).recog); } catch {}
   try { remember((window as any).__tpRecognizer); } catch {}
 
-  try { stopAsrRuntime(); } catch {}
   try { getTpSpeechNamespace()?.stopRecognizer?.(); } catch {}
 
   for (const recognizer of candidates) {
@@ -1508,6 +1571,8 @@ function hardResetSpeechEngine(reason?: string): void {
   rec = null;
   setActiveRecognizer(null);
   running = false;
+  currentActualSpeechEngine = '';
+  currentFallbackReason = '';
   setSpeechRunningActual(false, 'hard-reset');
   asrBrainLogged = false;
   lastAsrBlockSyncAt = 0;
@@ -1567,6 +1632,7 @@ function requestRecognizerRestart(
 try {
   window.__tpGetActiveRecognizer = () => activeRecognizer;
   window.__tpHardResetSpeech = (reason?: string) => hardResetSpeechEngine(reason);
+  window.__tpStopSpeechBackend = (reason?: string) => stopSpeechBackendForSession(reason);
 } catch {}
 
 let fallbackTranscriptMatchSeq = 0;
@@ -1745,27 +1811,21 @@ function deriveDirectMatcherResult(
     return null;
   }
   const w = window as any;
-  const scriptWords: string[] = Array.isArray(w.scriptWords) ? w.scriptWords : [];
-  const paraIndex: Array<any> = Array.isArray(w.paraIndex) ? w.paraIndex : [];
-  const vParaIndex: string[] | null = Array.isArray(w.__vParaIndex) ? w.__vParaIndex : null;
+  const runtime = getMatcherRuntimeState({
+    currentIndex:
+      w.currentIndex ??
+      speechStoreState?.currentIdx ??
+      speechStoreState?.currentIndex ??
+      0,
+  });
+  if (!runtime) return null;
+  const { scriptWords, paraIndex, vParaIndex, cfg, currentIndex, viterbiState } = runtime;
   if (!scriptWords.length) {
     return null;
   }
   if (!paraIndex.length && !(Array.isArray(vParaIndex) && vParaIndex.length)) {
     return null;
   }
-  const currentIdxRaw =
-    w.currentIndex ??
-    speechStoreState?.currentIdx ??
-    speechStoreState?.currentIndex ??
-    0;
-  const currentIdx = Number.isFinite(Number(currentIdxRaw)) ? Math.max(0, Math.floor(Number(currentIdxRaw))) : 0;
-  const cfg: MatchConfig = {
-    MATCH_WINDOW_AHEAD: Number.isFinite(Number(w.MATCH_WINDOW_AHEAD)) ? Number(w.MATCH_WINDOW_AHEAD) : 240,
-    MATCH_WINDOW_BACK: Number.isFinite(Number(w.MATCH_WINDOW_BACK)) ? Number(w.MATCH_WINDOW_BACK) : 40,
-    SIM_THRESHOLD: Number.isFinite(Number(w.SIM_THRESHOLD)) ? Number(w.SIM_THRESHOLD) : 0.46,
-    MAX_JUMP_AHEAD_WORDS: Number.isFinite(Number(w.MAX_JUMP_AHEAD_WORDS)) ? Number(w.MAX_JUMP_AHEAD_WORDS) : 18,
-  };
   try {
     const raw = runMatcherBatch(
       matchTokens,
@@ -1773,13 +1833,13 @@ function deriveDirectMatcherResult(
       paraIndex,
       vParaIndex,
       cfg,
-      currentIdx,
-      w.__viterbiIPred ?? undefined,
+      currentIndex,
+      viterbiState ?? undefined,
     );
     const normalized = normalizeMatcherResult(raw);
     if (!normalized) return null;
     if (normalized.currentIdx == null) {
-      normalized.currentIdx = currentIdx;
+      normalized.currentIdx = currentIndex;
     }
     if (typeof normalized.reason !== 'string' || !normalized.reason) {
       normalized.reason = 'direct_matcher';
@@ -2131,12 +2191,14 @@ function _beginCountdownThen(sec: number, cb: () => Promise<void> | void, source
 }
 
 function emitAsrState(state: string, reason?: string): void {
+  currentAsrState = state || 'idle';
   const payload = { state, reason };
   try { window.__tpBus?.emit?.('tp:asr:state', payload); } catch {}
   try { window.dispatchEvent(new CustomEvent('tp:asr:state', { detail: payload })); } catch {}
   try { document.dispatchEvent(new CustomEvent('tp:asr:state', { detail: payload })); } catch {}
   emitHudSnapshot(`asr-state:${String(state || '').toLowerCase() || 'unknown'}`);
   emitAsrHeartbeat(`state:${String(state || '').toLowerCase() || 'unknown'}`, { force: true });
+  emitAsrRuntimeStatus(`state:${String(state || '').toLowerCase() || 'unknown'}`);
 }
 
 function shouldAutoRestartSpeech(): boolean {
@@ -2910,7 +2972,7 @@ function canAttachAsrBackend(): boolean {
     if (isSpeechBackendAllowed()) return true;
   } catch {}
   try {
-    if (window.__tpSpeechOrchestrator?.start) return true;
+    if (isLegacySpeechOrchestratorAllowed() && window.__tpSpeechOrchestrator?.start) return true;
   } catch {}
   if (isLegacySpeechNamespaceAllowed()) {
     try {
@@ -3018,6 +3080,7 @@ function beginAsrRunKey(mode: string, reason?: string): string {
   if (isDevMode() && shouldLogLevel(1)) {
     try { console.info('[ASR] run begin', { runKey: activeAsrRunKey, mode, reason }); } catch {}
   }
+  emitAsrRuntimeStatus(`run-begin:${String(reason || 'unspecified')}`);
   return activeAsrRunKey;
 }
 
@@ -3033,6 +3096,7 @@ function clearAsrRunKey(reason: string): void {
     try { window.__tpAsrLastEndedRunAt = Date.now(); } catch {}
     try { window.__tpAsrRunKey = null; } catch {}
   }
+  emitAsrRuntimeStatus(`run-clear:${reason}`);
 }
 
 function buildAsrSyncLogFingerprint(payload: Record<string, unknown>): string {
@@ -3610,11 +3674,15 @@ function enforceRecognizerInterimCapture(mode: string, recognizer: unknown): voi
 async function startBackendForSession(mode: string, reason?: string): Promise<boolean> {
   const speechNs = getTpSpeechNamespace();
   const allowLegacyNs = isLegacySpeechNamespaceAllowed();
+  const allowLegacyOrchestrator = isLegacySpeechOrchestratorAllowed();
   const speechStoreState = getTpSpeechStoreSnapshot();
   const selectedEngine = resolveRuntimeSpeechEngine({
-    speechState: speechStoreState,
     appStore: (window as any).__tpStore,
   });
+  lastRequestedSpeechEngine = selectedEngine || 'whisper';
+  currentActualSpeechEngine = '';
+  currentFallbackReason = '';
+  emitAsrRuntimeStatus(`backend-select:${String(reason || 'unspecified')}`);
   if (isSettingsHydrating()) {
     try { console.debug('[ASR] startBackend blocked during settings hydration', { mode, reason }); } catch {}
     return false;
@@ -3622,11 +3690,11 @@ async function startBackendForSession(mode: string, reason?: string): Promise<bo
   if (isDevMode()) {
     if (shouldLogLevel(2)) {
       const w = typeof window !== 'undefined' ? (window as any) : null;
-      const info = {
-        mode,
-        reason,
-        hasOrchestrator: !!w?.__tpSpeechOrchestrator?.start,
-        allowLegacyNamespace: allowLegacyNs,
+        const info = {
+          mode,
+          reason,
+          hasOrchestrator: allowLegacyOrchestrator && !!w?.__tpSpeechOrchestrator?.start,
+          allowLegacyNamespace: allowLegacyNs,
         hasRecognizerStart: allowLegacyNs && typeof speechNs?.startRecognizer === 'function',
         hasWebSpeech: !!(w?.SpeechRecognition || w?.webkitSpeechRecognition),
         selectedEngine,
@@ -3662,7 +3730,10 @@ async function startBackendForSession(mode: string, reason?: string): Promise<bo
         return false;
       }
       lastStartedSpeechEngine = 'whisper';
+      currentActualSpeechEngine = 'whisper';
+      currentFallbackReason = '';
       setSpeechRunningActual(true, 'whisper-start');
+      emitAsrRuntimeStatus('backend-attached:whisper');
       emitAsrHeartbeat('recognizer-attached:whisper', { force: true });
       return true;
     } catch (error) {
@@ -3678,6 +3749,9 @@ async function startBackendForSession(mode: string, reason?: string): Promise<bo
         requestsInFlight: 0,
         queueDepth: 0,
       });
+      currentActualSpeechEngine = 'webspeech';
+      currentFallbackReason = 'whisper-start-failed';
+      emitAsrRuntimeStatus('backend-fallback:whisper');
       emitAsrState('idle', 'recognizer-start-failed:whisper');
       setActiveRecognizer(null);
       setSpeechRunningActual(false, 'whisper-start-failed');
@@ -3686,7 +3760,7 @@ async function startBackendForSession(mode: string, reason?: string): Promise<bo
   }
 
   try {
-    if (window.__tpSpeechOrchestrator?.start) {
+    if (allowLegacyOrchestrator && window.__tpSpeechOrchestrator?.start) {
       const started = await window.__tpSpeechOrchestrator.start();
       rec = (started || null) as RecognizerLike | null;
       enforceRecognizerInterimCapture(mode, rec);
@@ -3708,7 +3782,9 @@ async function startBackendForSession(mode: string, reason?: string): Promise<bo
         return false;
       }
       lastStartedSpeechEngine = selectedEngine || 'webspeech';
+      currentActualSpeechEngine = selectedEngine === 'whisper' ? 'webspeech' : (selectedEngine || 'webspeech');
       setSpeechRunningActual(true, 'orchestrator-start');
+      emitAsrRuntimeStatus('backend-attached:orchestrator');
       emitAsrHeartbeat('recognizer-attached:orchestrator', { force: true });
       return true;
     }
@@ -3737,7 +3813,9 @@ async function startBackendForSession(mode: string, reason?: string): Promise<bo
           return false;
         }
         lastStartedSpeechEngine = selectedEngine || 'webspeech';
+        currentActualSpeechEngine = selectedEngine === 'whisper' ? 'webspeech' : (selectedEngine || 'webspeech');
         setSpeechRunningActual(true, 'namespace-start');
+        emitAsrRuntimeStatus('backend-attached:namespace');
         emitAsrHeartbeat('recognizer-attached:namespace', { force: true });
         return true;
       }
@@ -3786,7 +3864,9 @@ async function startBackendForSession(mode: string, reason?: string): Promise<bo
   }
   rec = { stop: () => { try { sr.stop(); } catch {} } };
   lastStartedSpeechEngine = selectedEngine || 'webspeech';
+  currentActualSpeechEngine = selectedEngine === 'whisper' ? 'webspeech' : (selectedEngine || 'webspeech');
   setSpeechRunningActual(true, 'webspeech-start');
+  emitAsrRuntimeStatus('backend-attached:webspeech');
   emitAsrHeartbeat('recognizer-attached:webspeech', { force: true });
   try { window.__tpEmitSpeech = (t: unknown, final?: boolean) => routeRecognizerTranscript(t, !!final); } catch {}
   return true;
@@ -3971,15 +4051,17 @@ export function stopSpeechBackendForSession(reason?: string): void {
   resetAsrInterimStabilizer();
   clearAsrRunKey(`stop:${String(reason || 'unspecified')}`);
   if (!running && !rec) {
+    currentActualSpeechEngine = '';
+    currentFallbackReason = '';
     setSpeechRunningActual(false, 'stop-idle');
     detachAsrScrollDriver();
     emitAsrHeartbeat(`stop:${String(reason || 'unspecified')}`, { force: true });
+    emitAsrRuntimeStatus(`stop:${String(reason || 'unspecified')}:idle`);
     return;
   }
   running = false;
   detachAsrScrollDriver();
   asrBrainLogged = false;
-  try { stopAsrRuntime(); } catch {}
   try { rec?.abort?.(); } catch {}
   try { rec?.stop?.(); } catch {}
   try { stopAndAbortRecognizer((window as any).__tpRecognizer); } catch {}
@@ -3988,6 +4070,8 @@ export function stopSpeechBackendForSession(reason?: string): void {
   try { window.__tpMic?.releaseMic?.(); } catch {}
   setActiveRecognizer(null);
   rec = null;
+  currentActualSpeechEngine = '';
+  currentFallbackReason = '';
   setSpeechRunningActual(false, 'stop');
   try { document.body.classList.remove('listening'); } catch {}
   try { window.HUD?.bus?.emit?.('speech:toggle', false); } catch {}
@@ -3997,12 +4081,14 @@ export function stopSpeechBackendForSession(reason?: string): void {
   try { window.dispatchEvent(new CustomEvent('tp:speech-state', { detail: { running: false, reason } })); } catch {}
   emitHudSnapshot('speech-running:false', { force: true });
   emitAsrHeartbeat(`stop:${String(reason || 'unspecified')}`, { force: true });
+  emitAsrRuntimeStatus(`stop:${String(reason || 'unspecified')}`);
 }
 
 export function installSpeech(): void {
   ensureAsrDriverLifecycleHooks();
   startAsrHeartbeat();
   emitHudSnapshot('installSpeech:init', { force: true });
+  emitAsrRuntimeStatus('install');
   installAsrHudDev();
   
   // Session-first: recBtn only starts preroll/session

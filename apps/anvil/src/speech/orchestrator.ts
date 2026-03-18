@@ -1,6 +1,7 @@
 import { emitAsrSyncFromLineDelta } from './asrSync';
 import * as matcher from './matcher';
 import { prepareMatcherInput, stripMatcherMetaPhrases } from './matcher-input';
+import { getMatcherRuntimeState } from './matcher-runtime-state';
 import type { Recognizer } from './recognizer';
 import { createRecognizer } from './recognizer';
 import { getAsrDriverThresholds } from '../asr/asr-threshold-store';
@@ -51,6 +52,18 @@ function emitSpeechState(running: boolean): void {
     window.dispatchEvent(new CustomEvent('tp:speech-state', { detail: { running } }));
   } catch {
     // non-fatal in case window is weird
+  }
+}
+
+function allowLegacySpeechOrchestratorShim(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    if (!(window as any).__TP_TS_PRIMARY__) return true;
+    if ((window as any).__tpAllowLegacySpeechOrchestrator === true) return true;
+    const params = new URLSearchParams(window.location.search || '');
+    return params.get('legacySpeechOrchestrator') === '1' || params.get('legacySpeechNs') === '1';
+  } catch {
+    return false;
   }
 }
 
@@ -260,26 +273,25 @@ function dispatchTranscript(env: AsrEnvelope) {
 }
 
 function _getRuntimeScriptState(opts?: MatchBatchOptions) {
-  // runtime stores these globals (legacy). Use safe access and sensible defaults.
-  const w: any = window as any;
-  const scriptWords: string[] = Array.isArray(w.scriptWords) ? w.scriptWords : [];
-  const paraIndex: any[] = Array.isArray(w.paraIndex) ? w.paraIndex : [];
-  const vParaIndex = Array.isArray(w.__vParaIndex) ? w.__vParaIndex : null;
-  const cfg = {
-    MATCH_WINDOW_AHEAD: typeof opts?.windowAhead === 'number'
-      ? opts.windowAhead
-      : (typeof w.MATCH_WINDOW_AHEAD === 'number' ? w.MATCH_WINDOW_AHEAD : 240),
-    MATCH_WINDOW_BACK: typeof opts?.windowBack === 'number'
-      ? opts.windowBack
-      : (typeof w.MATCH_WINDOW_BACK === 'number' ? w.MATCH_WINDOW_BACK : 40),
-    SIM_THRESHOLD: typeof w.SIM_THRESHOLD === 'number' ? w.SIM_THRESHOLD : 0.46,
-    MAX_JUMP_AHEAD_WORDS: typeof w.MAX_JUMP_AHEAD_WORDS === 'number' ? w.MAX_JUMP_AHEAD_WORDS : 18,
-  } as matcher.MatchConfig;
-  const currentIndex = typeof opts?.currentIndex === 'number'
-    ? opts.currentIndex
-    : (typeof (w.currentIndex) === 'number' ? w.currentIndex : 0);
-  const viterbiState = w.__viterbiIPred || null;
-  return { scriptWords, paraIndex, vParaIndex, cfg, currentIndex, viterbiState };
+  return (
+    getMatcherRuntimeState({
+      currentIndex: typeof opts?.currentIndex === 'number' ? opts.currentIndex : undefined,
+      windowBack: opts?.windowBack,
+      windowAhead: opts?.windowAhead,
+    }) || {
+      scriptWords: [],
+      paraIndex: [],
+      vParaIndex: null,
+      cfg: {
+        MATCH_WINDOW_AHEAD: 240,
+        MATCH_WINDOW_BACK: 40,
+        SIM_THRESHOLD: 0.46,
+        MAX_JUMP_AHEAD_WORDS: 18,
+      } as matcher.MatchConfig,
+      currentIndex: 0,
+      viterbiState: null,
+    }
+  );
 }
 
 function formatMatchScore(value: number | null | undefined): string {
@@ -503,6 +515,7 @@ export function stopRecognizer() {
 // and wire the functions onto window.__tpSpeech.
 (function attachShim() {
   try {
+    if (!allowLegacySpeechOrchestratorShim()) return;
     const w: any = window as any;
     try { console.log('[ASR] orchestrator global shim installing'); } catch {}
     w.__tpSpeech = w.__tpSpeech || {};
@@ -513,5 +526,4 @@ export function stopRecognizer() {
     // noop
   }
 })();
-
 

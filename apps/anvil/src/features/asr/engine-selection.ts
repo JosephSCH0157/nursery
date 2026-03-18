@@ -63,6 +63,14 @@ export function normalizePersistedAsrSelection<T extends {
 
 export function readLocalAsrEngineExplicit(): boolean {
   try {
+    const store = (window as any)?.__tpStore;
+    if (store && typeof store.get === 'function') {
+      return isAsrEngineExplicit(store.get('asr.engineExplicit'));
+    }
+  } catch {
+    // fall back to legacy localStorage read
+  }
+  try {
     return localStorage.getItem(ASR_ENGINE_EXPLICIT_KEY) === '1';
   } catch {
     return false;
@@ -70,6 +78,15 @@ export function readLocalAsrEngineExplicit(): boolean {
 }
 
 export function writeLocalAsrEngineExplicit(explicit: boolean): void {
+  try {
+    const store = (window as any)?.__tpStore;
+    if (store && typeof store.set === 'function') {
+      store.set('asr.engineExplicit', !!explicit);
+      return;
+    }
+  } catch {
+    // fall back to legacy localStorage write
+  }
   try {
     if (explicit) {
       localStorage.setItem(ASR_ENGINE_EXPLICIT_KEY, '1');

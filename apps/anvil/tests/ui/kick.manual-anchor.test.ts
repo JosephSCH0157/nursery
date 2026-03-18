@@ -68,10 +68,8 @@ describe('ASR kick manual anchor signal', () => {
     setAsrBlocks([], { schemaVersion: 1, source: 'test' } as any);
   });
 
-  test('emits a manual-anchor signal and hard-syncs the driver after ASR pixel fallback kick', () => {
+  test('emits a manual-anchor signal after ASR pixel fallback kick', () => {
     const events: CustomEvent[] = [];
-    const setLastLineIndex = jest.fn();
-    (window as any).__tpAsrScrollDriver = { setLastLineIndex };
     const onSignal = (event: Event) => events.push(event as CustomEvent);
     window.addEventListener(ASR_MANUAL_ANCHOR_EVENT, onSignal as EventListener);
 
@@ -80,7 +78,6 @@ describe('ASR kick manual anchor signal', () => {
     window.removeEventListener(ASR_MANUAL_ANCHOR_EVENT, onSignal as EventListener);
 
     expect(moved).toBe(true);
-    expect(setLastLineIndex).toHaveBeenCalledWith(6);
     expect(events).toHaveLength(1);
     expect(events[0].detail).toEqual(expect.objectContaining({
       targetIndex: 6,
@@ -89,7 +86,7 @@ describe('ASR kick manual anchor signal', () => {
     }));
   });
 
-  test('hard-syncs the driver to the next line instead of the next block start on ASR kick', () => {
+  test('targets the next line instead of the next block start on ASR kick', () => {
     const script = document.getElementById('script') as HTMLElement;
     const lines = Array.from(script.querySelectorAll<HTMLElement>('.line'));
     const makeBlock = (blockLines: HTMLElement[]) => {
@@ -103,10 +100,11 @@ describe('ASR kick manual anchor signal', () => {
     script.replaceChildren(block0, block1, block2);
     setAsrBlocks([block0, block1, block2], { schemaVersion: 1, source: 'test' } as any);
 
-    const setLastLineIndex = jest.fn();
+    const events: CustomEvent[] = [];
+    const onSignal = (event: Event) => events.push(event as CustomEvent);
+    window.addEventListener(ASR_MANUAL_ANCHOR_EVENT, onSignal as EventListener);
     (window as any).__tpAsrScrollDriver = {
       getLastLineIndex: () => 1,
-      setLastLineIndex,
     };
     (document as any).elementFromPoint = jest.fn(() => (
       document.querySelector<HTMLElement>('.line[data-line="1"]')
@@ -114,16 +112,24 @@ describe('ASR kick manual anchor signal', () => {
 
     const moved = kick({ reason: 'test:kick:block' });
 
+    window.removeEventListener(ASR_MANUAL_ANCHOR_EVENT, onSignal as EventListener);
+
     expect(moved).toBe(true);
-    expect(setLastLineIndex).toHaveBeenCalledWith(2);
+    expect(events).toHaveLength(1);
+    expect(events[0].detail).toEqual(expect.objectContaining({
+      targetIndex: 2,
+      source: 'kick',
+      reason: 'test:kick:block',
+    }));
   });
 
   test('prefers the visible marker line over a drifted ASR index when resolving the next kick target', () => {
     const scroller = document.getElementById('viewer') as HTMLElement;
-    const setLastLineIndex = jest.fn();
+    const events: CustomEvent[] = [];
+    const onSignal = (event: Event) => events.push(event as CustomEvent);
+    window.addEventListener(ASR_MANUAL_ANCHOR_EVENT, onSignal as EventListener);
     (window as any).__tpAsrScrollDriver = {
       getLastLineIndex: () => 5,
-      setLastLineIndex,
     };
     (window as any).currentIndex = 5;
     scroller.scrollTop = 260;
@@ -133,8 +139,15 @@ describe('ASR kick manual anchor signal', () => {
 
     const moved = kick({ reason: 'test:kick:drifted-index' });
 
+    window.removeEventListener(ASR_MANUAL_ANCHOR_EVENT, onSignal as EventListener);
+
     expect(moved).toBe(true);
     expect(scroller.scrollTop).toBe(320);
-    expect(setLastLineIndex).toHaveBeenCalledWith(4);
+    expect(events).toHaveLength(1);
+    expect(events[0].detail).toEqual(expect.objectContaining({
+      targetIndex: 4,
+      source: 'kick',
+      reason: 'test:kick:drifted-index',
+    }));
   });
 });
