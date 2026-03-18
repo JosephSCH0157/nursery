@@ -1,6 +1,7 @@
 import {
   evaluateCueBoundaryMultiJumpRelaxation,
   evaluateStallCueRescuePolicy,
+  resolveWeakFarForwardHoldCandidate,
   scanCueBridgeWindow,
   shouldAllowAutoStallContentRescue,
 } from '../../src/features/asr/asr-scroll-driver';
@@ -127,6 +128,15 @@ describe('ASR cue-bridge promotion', () => {
     })).toBe(true);
   });
 
+  test('second committed line unlocks adjacent auto-stall rescue after the first lost-forward gate', () => {
+    expect(shouldAllowAutoStallContentRescue({
+      commitCount: 2,
+      deltaLines: 1,
+      sinceLastForwardMs: 3500,
+      lostForwardGateCountSinceCommit: 1,
+    })).toBe(true);
+  });
+
   test('opening auto-stall content rescue still rejects multi-line skips', () => {
     expect(shouldAllowAutoStallContentRescue({
       commitCount: 1,
@@ -160,5 +170,36 @@ describe('ASR cue-bridge promotion', () => {
       directContentForwardRescue: false,
       blockedReason: 'content-line',
     });
+  });
+
+  test('weak far-forward hold keeps a near candidate when the distant pick is only marginally better', () => {
+    expect(resolveWeakFarForwardHoldCandidate({
+      cursorLine: 9,
+      selectedIdx: 26,
+      selectedScore: 0.39,
+      currentLineScore: 0.31,
+      candidates: [
+        { idx: 9, score: 0.31 },
+        { idx: 10, score: 0.3 },
+        { idx: 26, score: 0.39 },
+      ],
+    })).toEqual({
+      idx: 9,
+      score: 0.31,
+    });
+  });
+
+  test('weak far-forward hold does not suppress strong distant picks', () => {
+    expect(resolveWeakFarForwardHoldCandidate({
+      cursorLine: 9,
+      selectedIdx: 26,
+      selectedScore: 0.84,
+      currentLineScore: 0.31,
+      candidates: [
+        { idx: 9, score: 0.31 },
+        { idx: 10, score: 0.3 },
+        { idx: 26, score: 0.84 },
+      ],
+    })).toBeNull();
   });
 });

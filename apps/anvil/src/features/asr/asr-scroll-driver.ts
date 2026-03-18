@@ -1041,7 +1041,51 @@ export function shouldAllowAutoStallContentRescue(opts: {
   const lostForwardGateCountSinceCommit = Number.isFinite(opts.lostForwardGateCountSinceCommit)
     ? Math.max(0, Math.floor(opts.lostForwardGateCountSinceCommit))
     : 0;
-  return lostForwardGateCountSinceCommit >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES;
+  const neededLostForwardGates =
+    commitCount >= 2
+      ? 1
+      : DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES;
+  return lostForwardGateCountSinceCommit >= neededLostForwardGates;
+}
+
+export function resolveWeakFarForwardHoldCandidate(opts: {
+  cursorLine: number;
+  selectedIdx: number;
+  selectedScore: number;
+  currentLineScore?: number;
+  candidates: Array<{ idx: number; score: number }>;
+}): { idx: number; score: number } | null {
+  const cursorLine = Number.isFinite(opts.cursorLine) ? Math.max(0, Math.floor(opts.cursorLine)) : -1;
+  const selectedIdx = Number.isFinite(opts.selectedIdx) ? Math.max(0, Math.floor(opts.selectedIdx)) : -1;
+  const selectedScore = Number.isFinite(opts.selectedScore) ? Number(opts.selectedScore) : Number.NaN;
+  if (cursorLine < 0 || selectedIdx < 0 || !Number.isFinite(selectedScore)) return null;
+  if (selectedIdx <= cursorLine + DEFAULT_WEAK_CURRENT_FORWARD_MAX_DELTA) return null;
+  if (selectedScore >= DEFAULT_STRONG_FORWARD_COMMIT_SIM) return null;
+
+  const nearCandidateMap = new Map<number, number>();
+  const pushCandidate = (idxRaw: number, scoreRaw: number) => {
+    const idx = Number.isFinite(idxRaw) ? Math.max(0, Math.floor(idxRaw)) : -1;
+    const score = Number.isFinite(scoreRaw) ? Number(scoreRaw) : Number.NaN;
+    if (idx < cursorLine || idx > cursorLine + DEFAULT_WEAK_CURRENT_FORWARD_MAX_DELTA) return;
+    if (!Number.isFinite(score)) return;
+    const existing = nearCandidateMap.get(idx);
+    if (existing == null || score > existing) {
+      nearCandidateMap.set(idx, score);
+    }
+  };
+
+  for (const candidate of Array.isArray(opts.candidates) ? opts.candidates : []) {
+    pushCandidate(Number((candidate as any)?.idx), Number((candidate as any)?.score));
+  }
+  pushCandidate(cursorLine, Number(opts.currentLineScore));
+
+  const nearCandidate = Array.from(nearCandidateMap.entries())
+    .map(([idx, score]) => ({ idx, score }))
+    .sort((a, b) => b.score - a.score || a.idx - b.idx)[0];
+  if (!nearCandidate) return null;
+  if (nearCandidate.idx >= selectedIdx) return null;
+  if (nearCandidate.score < selectedScore - DEFAULT_WEAK_CURRENT_FORWARD_SIM_SLACK) return null;
+  return nearCandidate;
 }
 
 export function evaluateCueBoundaryMultiJumpRelaxation(opts: {
@@ -8254,6 +8298,29 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       rawIdx = selectedInBand.idx;
       conf = selectedInBand.score;
       usedLineFallback = true;
+    }
+    const weakFarForwardHold = resolveWeakFarForwardHoldCandidate({
+      cursorLine,
+      selectedIdx: rawIdx,
+      selectedScore: conf,
+      currentLineScore: currentLineSim,
+      candidates: inBandCandidates,
+    });
+    if (weakFarForwardHold && (weakFarForwardHold.idx !== rawIdx || weakFarForwardHold.score !== conf)) {
+      const before = rawIdx;
+      const beforeSim = conf;
+      rawIdx = weakFarForwardHold.idx;
+      conf = weakFarForwardHold.score;
+      usedLineFallback = true;
+      warnGuard('weak_far_forward_hold', [
+        `current=${cursorLine}`,
+        `best=${before}`,
+        `hold=${rawIdx}`,
+        `sim=${formatLogScore(beforeSim)}`,
+        `holdSim=${formatLogScore(conf)}`,
+        `delta=${before - cursorLine}`,
+        snippet ? `clue="${snippet}"` : '',
+      ]);
     }
     let inBand = rawIdx >= bandStart && rawIdx <= bandEnd;
     const manualAnchorEnabled = isManualAnchorAdoptEnabled();
