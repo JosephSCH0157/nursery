@@ -59,18 +59,11 @@ import { bootTrace, bootTraceDumpToConsole } from './boot/boot-trace';
 import { shouldLogLevel } from './env/dev-log';
 // Global app store (single initializer for __tpStore)
 import { appStore } from './state/app-store';
-import { speechStore, type SpeechState } from './state/speech-store';
 import { initSession } from './state/session';
 // Auto-record SSOT helpers (bridge UI + TS core + legacy flags)
 import './state/auto-record-ssot';
 import './speech/loader';
 import { stopAsrRuntime } from './speech/runtime-control';
-import {
-  getSpeakerProfilesSnapshot,
-  initSpeakerProfilesFromSettings,
-  subscribeSpeakerProfileState,
-} from './ui/speaker-profiles-store';
-import type { SpeakerBindingsSettings } from './types/speaker-profiles';
 // Early dev console noise filter (benign extension async-response errors)
 // Console noise filter gated later (only with ?muteExt=1). Do not auto-install.
 // import './boot/console-noise-filter';
@@ -89,8 +82,9 @@ import './index-hooks/preroll';
 import { initDevDrawer } from './dev/dev-drawer';
 import { renderScript } from './render-script';
 import { setRecorderEnabled } from './state/recorder-settings';
-import { ensureUserAndProfile, loadProfileSettings, saveProfileSettings, applySettingsPatch, type PersistedAppKey, type UserSettings } from './forge/authProfile';
+import { ensureUserAndProfile, type PersistedAppKey } from './forge/authProfile';
 import { initForgeNavMenu } from './forge/forge-nav';
+import { createProfileSettingsSync } from './forge/profile-settings-sync';
 import './forge/workpiece-script-handoff';
 import { hasSupabaseConfig, supabase } from './forge/supabaseClient';
 import { bindLoadSample } from './ui/load-sample';
@@ -393,6 +387,7 @@ const SETTINGS_KEYS: PersistedAppKey[] = [
   'asr.filterFillers',
   'asr.threshold',
   'asr.endpointMs',
+  'asr.manualAnchorAdoptEnabled',
   'asrCalmModeEnabled',
   'asrProfiles',
   'asrActiveProfileId',
@@ -445,26 +440,6 @@ function isAsrOverlayActive(): boolean {
 	return selectPrefersAsr || isAsrEngineEngaged();
 }
 
-let profileHydrated = false;
-let profileRev = 0;
-let suppressSave = false;
-let saveTimer: number | null = null;
-let saving = false;
-let currentSettings: UserSettings = { app: {} };
-let lastUserChange = 0;
-let saveIndicatorTimer: number | null = null;
-const SETTINGS_SAVE_DEBOUNCE_MS = 900;
-const RECENT_CHANGE_WINDOW_MS = 10_000;
-
-function isSettingsHydrating(): boolean {
-  if (typeof window === 'undefined') return false;
-  try {
-    return !!(window as any).__tpSettingsHydrating;
-  } catch {
-    return false;
-  }
-}
-
 function isDevMode(): boolean {
 	try {
 		const params = new URLSearchParams(location.search || '');
@@ -495,277 +470,23 @@ function devLog(...args: any[]) {
 	try { console.debug('[settings]', ...args); } catch {}
 }
 
-type SettingsSaveState = 'idle' | 'saving' | 'saved' | 'failed';
-
-type SettingsSaveStatus = {
-	state: SettingsSaveState;
-	at: number;
-	error?: string;
-};
-
-type AsrHandshakeSummary = {
-	engine?: string;
-	lang?: string;
-	profileName?: string;
-	reason?: string;
-};
-
-function setSettingsSaveStatus(status: SettingsSaveStatus) {
-	try {
-		appStore.set?.('settingsSaveStatus', status as any);
-	} catch {}
-}
-
-function resolveActiveAsrProfileSummary(): string {
-	try {
-		const profiles = appStore.get?.('asrProfiles') as Record<string, any> | undefined;
-		const active = (appStore.get?.('asrActiveProfileId') || '') as string;
-		const candidate = active && profiles ? profiles[active] : null;
-		if (candidate && typeof candidate === 'object') {
-			return (candidate.label || candidate.name || active || 'default') as string;
+const settingsSync = createProfileSettingsSync({
+	store: appStore,
+	settingsKeys: SETTINGS_KEYS,
+	isCiMode: IS_CI_MODE,
+	devLog,
+	isSettingsHydrating: () => {
+		if (typeof window === 'undefined') return false;
+		try {
+			return !!(window as any).__tpSettingsHydrating;
+		} catch {
+			return false;
 		}
-		return active || 'default';
-	} catch {
-		return 'default';
-	}
-}
+	},
+	normalizeUiScrollMode,
+	isAsrOverlayActive,
+});
 
-function recordAsrApplied(reason?: string) {
-	try {
-		const summary: AsrHandshakeSummary = {
-			engine: appStore.get?.('asr.engine'),
-			lang: appStore.get?.('asr.language'),
-			profileName: resolveActiveAsrProfileSummary(),
-			reason,
-		};
-		appStore.set?.('asrLastAppliedAt', Date.now() as any);
-		appStore.set?.('asrLastAppliedSummary', summary as any);
-		appStore.set?.('asrLastApplyOk', true as any);
-	} catch {}
-}
-
-try {
-	window.addEventListener('tp:asrChanged', () => {
-		recordAsrApplied('asr-changed');
-	});
-} catch {}
-
-function ensureSettingsSavedDot(): HTMLElement | null {
-	try {
-		const btn = document.getElementById('settingsBtn');
-		if (!btn) return null;
-		btn.classList.add('tp-save-host');
-		let dot = btn.querySelector<HTMLElement>('.tp-save-dot');
-		if (!dot) {
-			dot = document.createElement('span');
-			dot.className = 'tp-save-dot';
-			dot.setAttribute('aria-hidden', 'true');
-			btn.appendChild(dot);
-		}
-		return dot;
-	} catch {
-		return null;
-	}
-}
-
-function flashSettingsSaved() {
-	try {
-		const btn = document.getElementById('settingsBtn');
-		const dot = ensureSettingsSavedDot();
-		if (!btn || !dot) return;
-		btn.classList.add('tp-save-flash');
-		if (saveIndicatorTimer) {
-			try { clearTimeout(saveIndicatorTimer); } catch {}
-		}
-		saveIndicatorTimer = window.setTimeout(() => {
-			try { btn.classList.remove('tp-save-flash'); } catch {}
-		}, 1600);
-	} catch {}
-}
-
-function applySettingsToStore(settings: UserSettings, store: typeof appStore) {
-	if (!settings || typeof settings !== 'object') return;
-	const app = (settings as any).app || {};
-	devLog('hydrate:apply', { keys: Object.keys(app).length });
-	suppressSave = true;
-	try {
-		SETTINGS_KEYS.forEach((k) => {
-			if (!Object.prototype.hasOwnProperty.call(app, k)) return;
-			if (k === 'scrollMode') {
-				let raw = '';
-				let current = '';
-				try {
-					raw = normalizeUiScrollMode(String((app as any)[k] ?? '').trim().toLowerCase());
-					current = normalizeUiScrollMode(store.get?.('scrollMode') as string | undefined);
-					const engaged = isAsrOverlayActive();
-					if (raw === 'asr' && current !== 'asr' && !engaged) {
-						devLog('[ASR] hydrate skipped scrollMode override to asr', { raw, current, engaged });
-						return;
-					}
-					if (raw !== 'asr' && engaged) {
-						devLog('[ASR] hydrate skipped scrollMode override while engaged', { raw });
-						return;
-					}
-				} catch {}
-				try {
-					withScrollModeWriter('state/app-store', () => {
-						store.set?.('scrollMode' as any, raw as any);
-					}, { source: 'hydrate', via: 'profile' });
-				} catch {}
-				return;
-			}
-			try { store.set?.(k as any, (app as any)[k]); } catch {}
-		});
-		currentSettings = applySettingsPatch({ app: { ...(currentSettings.app || {}) } }, { app }) || { app: {} };
-			try {
-				const asrSettings = (settings as any).asrSettings;
-				if (asrSettings && typeof asrSettings === 'object') {
-					const mapping: Record<string, string> = {
-						engine: 'asr.engine',
-						language: 'asr.language',
-						useInterimResults: 'asr.useInterimResults',
-						filterFillers: 'asr.filterFillers',
-						threshold: 'asr.threshold',
-						endpointingMs: 'asr.endpointMs',
-						calmModeEnabled: 'asrCalmModeEnabled',
-					};
-					const patch: Partial<SpeechState> = {};
-					Object.keys(mapping).forEach((src) => {
-						const value = (asrSettings as any)[src];
-						if (typeof value !== 'undefined') {
-							try { store.set?.(mapping[src as keyof typeof mapping] as any, value as any); } catch {}
-							if (src in asrSettings) {
-								(patch as any)[src] = value;
-							}
-						}
-					});
-					if (Object.keys(patch).length) {
-						try { speechStore.set(patch); } catch {}
-					}
-				}
-				const asrProfiles = (settings as any).asrProfiles;
-				if (Array.isArray(asrProfiles)) {
-					const map: Record<string, unknown> = {};
-					asrProfiles.forEach((profile) => {
-						if (profile && typeof profile === 'object' && 'id' in profile) {
-							map[(profile as any).id] = profile;
-						}
-					});
-					try { store.set?.('asrProfiles', map); } catch {}
-				}
-				const speakerProfiles = (settings as any).speakerProfiles;
-				const speakerBindings = (settings as any).speakerBindings as SpeakerBindingsSettings | undefined;
-				if (Array.isArray(speakerProfiles) || speakerBindings) {
-					initSpeakerProfilesFromSettings({
-						profiles: Array.isArray(speakerProfiles)
-							? speakerProfiles.filter((profile) => profile && typeof profile === 'object')
-							: undefined,
-						bindings: speakerBindings,
-						activeSlot: speakerBindings?.activeSlot,
-					});
-				}
-				} catch {
-					// ignore ASR hydrate issues
-				}
-		recordAsrApplied('hydrate');
-	} catch {
-		// ignore apply failures
-	} finally {
-		suppressSave = false;
-	}
-}
-
-function snapshotAppSettings(store: typeof appStore): UserSettings {
-	const app: Record<string, any> = {};
-	SETTINGS_KEYS.forEach((k) => {
-		try { app[k] = store.get?.(k as any); } catch {}
-	});
-	const asrSettings = {
-		engine: store.get?.('asr.engine'),
-		language: store.get?.('asr.language'),
-		useInterimResults: store.get?.('asr.useInterimResults'),
-		filterFillers: store.get?.('asr.filterFillers'),
-		threshold: store.get?.('asr.threshold'),
-		endpointingMs: store.get?.('asr.endpointMs'),
-		calmModeEnabled: store.get?.('asrCalmModeEnabled'),
-	};
-	const rawProfiles = store.get?.('asrProfiles') as Record<string, unknown> | undefined;
-	const asrProfiles = rawProfiles ? Object.values(rawProfiles) : [];
-	const speakerState = getSpeakerProfilesSnapshot();
-	const speakerProfiles = speakerState.profiles;
-	const speakerBindings: SpeakerBindingsSettings = {
-		...speakerState.bindings,
-		activeSlot: speakerState.activeSlot,
-	};
-	return { app, asrSettings, asrProfiles, speakerProfiles, speakerBindings };
-}
-
-function queueProfileSave(userId: string, store: typeof appStore) {
-	if (IS_CI_MODE) return;
-	if (!profileHydrated || suppressSave) return;
-	if (isSettingsHydrating()) return;
-	if (saveTimer) {
-		try { clearTimeout(saveTimer); } catch {}
-	}
-	devLog('save:queue');
-		saveTimer = window.setTimeout(async () => {
-			saveTimer = null;
-			if (saving) return;
-			saving = true;
-			try {
-				const merged = snapshotAppSettings(store);
-				currentSettings = merged;
-				setSettingsSaveStatus({ state: 'saving', at: Date.now() });
-				const { rev } = await saveProfileSettings({
-					userId,
-					mergedSettings: merged,
-					expectedRev: profileRev,
-				});
-				profileRev = rev;
-				devLog('save:flushed', { rev });
-				if (lastUserChange && Date.now() - lastUserChange <= RECENT_CHANGE_WINDOW_MS) {
-					flashSettingsSaved();
-				}
-				setSettingsSaveStatus({ state: 'saved', at: Date.now() });
-			} catch (err) {
-				setSettingsSaveStatus({ state: 'failed', at: Date.now(), error: String(err) });
-				// On conflict or failure, try a single refresh
-				try {
-				const { settings, rev } = await loadProfileSettings(userId);
-				profileRev = rev;
-				applySettingsToStore(settings, store);
-				devLog('save:conflict-reloaded', { rev });
-			} catch (errReload) {
-				try {
-					console.warn('[forge] settings save failed; reload also failed', err, errReload);
-					devLog('save:conflict-reload-failed');
-				} catch {}
-			}
-		} finally {
-			saving = false;
-		}
-	}, SETTINGS_SAVE_DEBOUNCE_MS);
-}
-
-function installSettingsPersistence(userId: string, store: typeof appStore) {
-	try {
-		const seenInit = new Set<string>();
-		SETTINGS_KEYS.forEach((k) => {
-			store.subscribe?.(k as any, (_v: any) => {
-				if (!profileHydrated || suppressSave) return;
-				if (isSettingsHydrating()) return;
-				if (!seenInit.has(k)) {
-					seenInit.add(k);
-					return;
-				}
-				lastUserChange = Date.now();
-				currentSettings.app = currentSettings.app || {};
-				(currentSettings.app as any)[k] = _v;
-				queueProfileSave(userId, store);
-			});
-		});
-	} catch {}
-}
 let asrRejectionToastShown = false;
 let lastAsrReadyState: boolean | null = null;
 
@@ -2047,33 +1768,11 @@ export async function boot() {
 			}
 
 				if (profileUserId) {
-				if (!IS_CI_MODE) {
-					try {
-						const { settings, rev } = await loadProfileSettings(profileUserId);
-						profileRev = rev;
-						applySettingsToStore(settings, appStore);
-						currentSettings = snapshotAppSettings(appStore);
-						profileHydrated = true;
-						devLog('hydrate:done', { rev });
-					} catch (err) {
-						try { console.warn('[forge] settings load failed; using defaults', err); } catch {}
-						currentSettings = snapshotAppSettings(appStore);
-						profileHydrated = true; // allow saves later even if load failed
-						devLog('hydrate:failed');
-					}
-					installSettingsPersistence(profileUserId, appStore);
-					const persistedUserId = profileUserId;
-					subscribeSpeakerProfileState(() => {
-						if (!persistedUserId) return;
-						if (!profileHydrated || suppressSave) return;
-						lastUserChange = Date.now();
-						queueProfileSave(persistedUserId, appStore);
+					await settingsSync.hydrateForUser(profileUserId, {
+						loadRemote: !IS_CI_MODE,
+						enablePersistence: !IS_CI_MODE,
+						skipLogLabel: 'hydrate:ci-skip',
 					});
-				} else {
-					currentSettings = snapshotAppSettings(appStore);
-					profileHydrated = true;
-					devLog('hydrate:ci-skip');
-					}
 				}
 				bootTrace('boot():auth-hydrate:done', { profileUserId: profileUserId || null });
 				try {

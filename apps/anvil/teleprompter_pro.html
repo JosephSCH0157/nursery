@@ -106,7 +106,7 @@
         }
       }
 
-      const directEntryCandidates = ["./dist/index.js", "./index.js"];
+      const directEntryCandidates = ["./dist/index.js"];
       for (const entryPath of directEntryCandidates) {
         try {
           pushBootTrace('shell:direct-import:start', { entryPath });
@@ -203,7 +203,7 @@
 
   <!-- Third-party: mammoth will be loaded lazily by TS upload pipeline when needed -->
 
-  <!-- (helpers loaded from modules in dev via src/index.js) -->
+  <!-- Helpers load from the TS runtime bundle; no separate legacy entrypoint -->
 
   
   
@@ -335,6 +335,8 @@
     .chip[data-state="busy"]{background:rgba(255,193,7,0.18)}
     .chip[data-state="closed"], .chip[data-state="off"]{background:var(--chip-bg)}
     .chip[data-state="error"]{background:rgba(229,57,53,0.18)}
+    #aiChip[data-state="standby"]{background:rgba(72,132,255,0.18)}
+    #aiChip[data-state="browser"]{background:rgba(255,255,255,0.08)}
     /* Dev-only controls hidden by default; shown only with ?dev=1 */
     .dev-only{display:none !important}
     html.dev1 .dev-only{display:inline-flex !important}
@@ -1055,7 +1057,7 @@ Joe starts here.
     <div id="settingsBody" class="settings-body"></div>
 </div>
 </div>
-  <!-- Dev helper scripts are imported from src/index.js in dev mode; no duplicate tags here -->
+  <!-- Dev helper scripts are imported by the TS runtime from dist/index.js; no duplicate tags here -->
 
 <!-- Build label -->
 <div id="anvil-build-label">

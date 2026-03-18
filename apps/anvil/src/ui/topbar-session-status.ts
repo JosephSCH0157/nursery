@@ -110,8 +110,14 @@ function parseAi(text: string): StatusState {
   if (lower.includes('transcribing')) {
     return { full: text, short: 'AI transcribing', tone: 'neutral' };
   }
+  if (lower.includes('standby')) {
+    return { full: text, short: 'AI standby', tone: 'neutral' };
+  }
   if (lower.includes('active') || lower.includes('openai') || lower.includes('whisper')) {
     return { full: text, short: 'AI active', tone: 'neutral' };
+  }
+  if (lower.includes('browser')) {
+    return { full: text, short: 'AI browser', tone: 'neutral' };
   }
   return { full: text, short: 'AI off', tone: 'neutral' };
 }

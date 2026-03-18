@@ -17,7 +17,7 @@ export interface SpeechState {
 type Subscriber = (next: SpeechState) => void;
 
 const state: SpeechState = {
-  engine: 'webspeech',
+  engine: 'whisper',
   lang: 'en-US',
   interim: true,
   threshold: 0.6,

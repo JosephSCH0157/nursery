@@ -1,5 +1,9 @@
 // Minimal app store for centralizing Settings and small app state.
 // Exposes window.__tpStore with get/set/subscribe and automatic persistence for a few keys.
+import {
+  normalizeAsrEngine,
+  readLocalAsrEngineExplicit,
+} from '../features/asr/engine-selection';
 import { loadScrollPrefs, saveScrollPrefs } from '../features/scroll/scroll-prefs';
 import { getScrollModeAuditContext, recordScrollModeWrite } from '../scroll/audit';
 
@@ -23,6 +27,7 @@ const ASR_INTERIM_KEY = 'tp_asr_interim_v1';
 const ASR_FILTER_KEY = 'tp_asr_filter_v1';
 const ASR_THRESHOLD_KEY = 'tp_asr_threshold_v1';
 const ASR_ENDPOINT_KEY = 'tp_asr_endpoint_v1';
+const ASR_MANUAL_ANCHOR_KEY = 'tp_asr_manual_anchor_v1';
 const ASR_PROFILES_KEY = 'tp_asr_profiles_v1';
 const ASR_ACTIVE_PROFILE_KEY = 'tp_asr_active_profile_v1';
 const SINGLE_MONITOR_READ_KEY = 'tp_single_monitor_read_v1';
@@ -88,6 +93,7 @@ const persistMap: Partial<Record<keyof AppStoreState, string>> = {
   'asr.useInterimResults': ASR_INTERIM_KEY,
   'asr.threshold': ASR_THRESHOLD_KEY,
   'asr.endpointMs': ASR_ENDPOINT_KEY,
+  'asr.manualAnchorAdoptEnabled': ASR_MANUAL_ANCHOR_KEY,
   'asr.filterFillers': ASR_FILTER_KEY,
   asrCalmModeEnabled: ASR_CALM_MODE_KEY,
   asrProfiles: ASR_PROFILES_KEY,
@@ -113,6 +119,84 @@ function loadLegacyAsrSettings() {
   } catch {
     return null;
   }
+}
+
+function readLegacyAsrBoolean(
+  legacyAsrSettings: Partial<Record<string, any>> | null,
+  ...keys: string[]
+): boolean | null {
+  for (const key of keys) {
+    const value = legacyAsrSettings?.[key];
+    if (value !== undefined) return !!value;
+  }
+  return null;
+}
+
+function readLegacyAsrNumber(
+  legacyAsrSettings: Partial<Record<string, any>> | null,
+  ...keys: string[]
+): number | null {
+  for (const key of keys) {
+    const value = legacyAsrSettings?.[key];
+    if (value === undefined) continue;
+    const num = Number(value);
+    if (!Number.isNaN(num)) return num;
+  }
+  return null;
+}
+
+function migrateLegacyAsrSettings(legacyAsrSettings: Partial<Record<string, any>> | null): void {
+  if (!legacyAsrSettings || typeof window === 'undefined') return;
+  try {
+    const ls = window.localStorage;
+    const setIfMissing = (key: string, value: string | null | undefined) => {
+      if (!key || value == null || value === '') return;
+      if (ls.getItem(key) !== null) return;
+      ls.setItem(key, value);
+    };
+
+    setIfMissing(ASR_ENGINE_KEY, readInitialAsrEngine(legacyAsrSettings));
+    setIfMissing(ASR_LANG_KEY, typeof legacyAsrSettings.lang === 'string' ? legacyAsrSettings.lang : null);
+
+    const interim = readLegacyAsrBoolean(legacyAsrSettings, 'interim');
+    setIfMissing(ASR_INTERIM_KEY, interim == null ? null : (interim ? '1' : '0'));
+
+    const filter = readLegacyAsrBoolean(legacyAsrSettings, 'filterFillers', 'fillerFilter');
+    setIfMissing(ASR_FILTER_KEY, filter == null ? null : (filter ? '1' : '0'));
+
+    const threshold = readLegacyAsrNumber(legacyAsrSettings, 'threshold');
+    setIfMissing(ASR_THRESHOLD_KEY, threshold == null ? null : String(threshold));
+
+    const endpointMs = readLegacyAsrNumber(legacyAsrSettings, 'endpointMs', 'endpointingMs');
+    setIfMissing(ASR_ENDPOINT_KEY, endpointMs == null ? null : String(endpointMs));
+
+    const manualAnchor = readLegacyAsrBoolean(legacyAsrSettings, 'manualAnchorAdoptEnabled');
+    setIfMissing(ASR_MANUAL_ANCHOR_KEY, manualAnchor == null ? null : (manualAnchor ? '1' : '0'));
+
+    const calmMode = readLegacyAsrBoolean(legacyAsrSettings, 'calmModeEnabled');
+    setIfMissing(ASR_CALM_MODE_KEY, calmMode == null ? null : (calmMode ? '1' : '0'));
+
+    ls.removeItem(LEGACY_ASR_SETTINGS_KEY);
+  } catch {
+    // ignore migration failures
+  }
+}
+
+function readInitialAsrEngine(legacyAsrSettings: Partial<Record<string, any>> | null): string {
+  try {
+    const explicit = readLocalAsrEngineExplicit();
+    const stored = normalizeAsrEngine(localStorage.getItem(ASR_ENGINE_KEY));
+    const legacy = normalizeAsrEngine(
+      legacyAsrSettings?.engine && typeof legacyAsrSettings.engine === 'string'
+        ? legacyAsrSettings.engine
+        : '',
+    );
+    const selected = stored || legacy;
+    if (explicit) return selected || 'whisper';
+    if (!selected || selected === 'webspeech') return 'whisper';
+    return selected;
+  } catch {}
+  return 'whisper';
 }
 
 export type PageName = string;
@@ -148,6 +232,7 @@ export type AppStoreState = {
   'asr.filterFillers': boolean;
   'asr.threshold': number;
   'asr.endpointMs': number;
+  'asr.manualAnchorAdoptEnabled': boolean;
   asrCalmModeEnabled: boolean;
   asrProfiles: Record<string, unknown>;
   asrActiveProfileId: string | null;
@@ -367,16 +452,7 @@ function buildInitialState(): AppStoreState {
       }
     })(),
     asrLive: false,
-    'asr.engine': (() => {
-      try {
-        const raw = localStorage.getItem(ASR_ENGINE_KEY);
-        if (raw) return raw;
-        if (legacyAsrSettings?.engine && typeof legacyAsrSettings.engine === 'string') {
-          return legacyAsrSettings.engine;
-        }
-      } catch {}
-      return 'webspeech';
-    })(),
+    'asr.engine': readInitialAsrEngine(legacyAsrSettings),
     'asr.language': (() => {
       try {
         const raw = localStorage.getItem(ASR_LANG_KEY);
@@ -399,7 +475,8 @@ function buildInitialState(): AppStoreState {
       try {
         const raw = localStorage.getItem(ASR_FILTER_KEY);
         if (raw !== null) return raw === '1';
-        if (legacyAsrSettings?.filterFillers !== undefined) return !!legacyAsrSettings.filterFillers;
+        const legacy = readLegacyAsrBoolean(legacyAsrSettings, 'filterFillers', 'fillerFilter');
+        if (legacy !== null) return legacy;
       } catch {}
       return true;
     })(),
@@ -417,14 +494,27 @@ function buildInitialState(): AppStoreState {
         const raw = localStorage.getItem(ASR_ENDPOINT_KEY);
         const num = Number(raw);
         if (raw !== null && !Number.isNaN(num)) return num;
-        if (legacyAsrSettings?.endpointMs !== undefined) return Number(legacyAsrSettings.endpointMs) || 700;
+        const legacy = readLegacyAsrNumber(legacyAsrSettings, 'endpointMs', 'endpointingMs');
+        if (legacy !== null) return legacy;
       } catch {}
       return 700;
+    })(),
+    'asr.manualAnchorAdoptEnabled': (() => {
+      try {
+        const raw = localStorage.getItem(ASR_MANUAL_ANCHOR_KEY);
+        if (raw !== null) return raw === '1';
+        if (legacyAsrSettings?.manualAnchorAdoptEnabled !== undefined) {
+          return legacyAsrSettings.manualAnchorAdoptEnabled !== false;
+        }
+      } catch {}
+      return true;
     })(),
     asrCalmModeEnabled: (() => {
       try {
         const raw = localStorage.getItem(ASR_CALM_MODE_KEY);
         if (raw !== null) return raw === '1';
+        const legacy = readLegacyAsrBoolean(legacyAsrSettings, 'calmModeEnabled');
+        if (legacy !== null) return legacy;
       } catch {}
       return false;
     })(),
@@ -682,6 +772,7 @@ function sanitizeState(state: AppStoreState): AppStoreState {
 export function createAppStore(initial?: Partial<AppStoreState>): AppStore {
   const subs: SubscriptionMap = Object.create(null);
   const baseState = buildInitialState();
+  migrateLegacyAsrSettings(loadLegacyAsrSettings());
   const state: AppStoreState = sanitizeState(
     Object.assign(
       {},

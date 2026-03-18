@@ -763,11 +763,54 @@ function installAiActivityChip() {
         return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : '';
       };
 
+      const readSpeechState = () => {
+        try {
+          const store = (window as any).__tpSpeech?.store;
+          if (store && typeof store.getState === 'function') return store.getState();
+          if (store && typeof store.get === 'function') return store.get();
+        } catch {}
+        try {
+          const store = (window as any).__tpStore;
+          if (store && typeof store.get === 'function') {
+            return { engine: store.get('asr.engine') };
+          }
+        } catch {}
+        return null;
+      };
+
+      const readSelectedEngine = () => {
+        const state = readSpeechState();
+        return String((state as any)?.engine || (state as any)?.['asr.engine'] || '').trim().toLowerCase();
+      };
+
+      const subscribeSpeechState = (fn) => {
+        try {
+          const store = (window as any).__tpSpeech?.store;
+          if (store && typeof store.subscribe === 'function') {
+            if (typeof store.getState === 'function') {
+              return store.subscribe(() => fn());
+            }
+            if (typeof store.get === 'function') {
+              return store.subscribe(() => fn());
+            }
+            return store.subscribe(() => fn());
+          }
+        } catch {}
+        return () => {};
+      };
+
+      let lastDetail = (window as any).__tpAiActivity || { phase: 'off' };
+
       const render = (detail = {}) => {
         try {
           const phase = String(detail?.phase || 'off').toLowerCase();
-          const provider = capitalize(detail?.provider || 'openai') || 'OpenAI';
-          const engine = capitalize(detail?.engine || 'whisper') || 'Whisper';
+          const selectedEngine = readSelectedEngine();
+          const effectiveEngineRaw = String(detail?.engine || selectedEngine || 'whisper').trim();
+          const effectiveEngine = effectiveEngineRaw.toLowerCase();
+          const providerDefault = effectiveEngine === 'whisper' ? 'openai' : 'browser';
+          const provider = capitalize(detail?.provider || providerDefault) || (providerDefault === 'browser' ? 'Browser' : 'OpenAI');
+          const engine = capitalize(effectiveEngineRaw || (providerDefault === 'browser' ? 'webspeech' : 'whisper'))
+            || (providerDefault === 'browser' ? 'Webspeech' : 'Whisper');
           const model = String(detail?.model || '').trim();
           const message = String(detail?.message || '').trim();
           const requestsInFlight = Number(detail?.requestsInFlight || 0);
@@ -798,6 +841,18 @@ function installAiActivityChip() {
             title = message
               ? `${provider} ${engine} reported an error: ${message}`
               : `${provider} ${engine} reported an error.`;
+          } else if (effectiveEngine === 'whisper') {
+            text = 'AI: standby';
+            sessionText = `AI: ${provider} ${engine} standby`;
+            state = 'standby';
+            title = message
+              ? message
+              : `${provider} ${engine} is selected and will activate when speech starts${model ? ` (${model})` : ''}.`;
+          } else {
+            text = 'AI: browser';
+            sessionText = 'AI: browser speech';
+            state = 'browser';
+            title = message || 'Browser speech recognition is selected. AI transcription is not active.';
           }
 
           chip.textContent = text;
@@ -808,10 +863,24 @@ function installAiActivityChip() {
         } catch {}
       };
 
-      render((window as any).__tpAiActivity || { phase: 'off' });
-      window.addEventListener('tp:ai:activity', (event) => {
-        try { render((event && event.detail) || {}); } catch {}
+      render(lastDetail);
+      const unsubscribeSpeechState = subscribeSpeechState(() => {
+        try {
+          const phase = String(lastDetail?.phase || 'off').toLowerCase();
+          if (phase === 'transcribing' || phase === 'ready' || phase === 'error') {
+            render(lastDetail);
+            return;
+          }
+          render({ phase: 'off' });
+        } catch {}
       });
+      window.addEventListener('tp:ai:activity', (event) => {
+        try {
+          lastDetail = (event && event.detail) || { phase: 'off' };
+          render(lastDetail);
+        } catch {}
+      });
+      try { window.addEventListener('beforeunload', () => { try { unsubscribeSpeechState?.(); } catch {} }, { once: true }); } catch {}
     } catch {}
   });
 }

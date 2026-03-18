@@ -267,6 +267,7 @@ let lastAsrStallClass: AsrStallClass | '' = '';
 let speechWatchdogTimer: number | null = null;
 let asrHeartbeatTimer: number | null = null;
 let activeRecognizer: RecognizerLike | null = null;
+let lastStartedSpeechEngine = 'webspeech';
 let pendingManualRestartCount = 0;
 let lifecycleRestartTimer: number | null = null;
 let lastLifecycleRestartAt = 0;
@@ -441,6 +442,11 @@ function getTpSpeechStoreSnapshot(): any {
   } catch {
     return latestSpeechStoreState;
   }
+}
+
+function emitAiActivity(detail: Record<string, unknown>): void {
+  try { (window as any).__tpAiActivity = detail; } catch {}
+  try { window.dispatchEvent(new CustomEvent('tp:ai:activity', { detail })); } catch {}
 }
 
 function resolveAsrDriverRef(): any {
@@ -3647,15 +3653,27 @@ async function startBackendForSession(mode: string, reason?: string): Promise<bo
         emitHudSnapshot('recognizer-attach-failed:whisper', { force: true });
         return false;
       }
+      lastStartedSpeechEngine = 'whisper';
       setSpeechRunningActual(true, 'whisper-start');
       emitAsrHeartbeat('recognizer-attached:whisper', { force: true });
       return true;
     } catch (error) {
       try { console.warn('[ASR] whisper bridge failed to start', error); } catch {}
+      emitAiActivity({
+        active: false,
+        provider: 'browser',
+        engine: 'webspeech',
+        phase: 'off',
+        source: 'speech-loader-whisper-fallback',
+        timestamp: Date.now(),
+        message: 'Whisper bridge unavailable; using browser speech instead.',
+        requestsInFlight: 0,
+        queueDepth: 0,
+      });
       emitAsrState('idle', 'recognizer-start-failed:whisper');
       setActiveRecognizer(null);
       setSpeechRunningActual(false, 'whisper-start-failed');
-      return false;
+      rec = null;
     }
   }
 
@@ -3681,6 +3699,7 @@ async function startBackendForSession(mode: string, reason?: string): Promise<bo
         emitHudSnapshot('recognizer-attach-failed:orchestrator', { force: true });
         return false;
       }
+      lastStartedSpeechEngine = selectedEngine || 'webspeech';
       setSpeechRunningActual(true, 'orchestrator-start');
       emitAsrHeartbeat('recognizer-attached:orchestrator', { force: true });
       return true;
@@ -3709,6 +3728,7 @@ async function startBackendForSession(mode: string, reason?: string): Promise<bo
           emitHudSnapshot('recognizer-attach-failed:namespace', { force: true });
           return false;
         }
+        lastStartedSpeechEngine = selectedEngine || 'webspeech';
         setSpeechRunningActual(true, 'namespace-start');
         emitAsrHeartbeat('recognizer-attached:namespace', { force: true });
         return true;
@@ -3757,6 +3777,7 @@ async function startBackendForSession(mode: string, reason?: string): Promise<bo
     return false;
   }
   rec = { stop: () => { try { sr.stop(); } catch {} } };
+  lastStartedSpeechEngine = selectedEngine || 'webspeech';
   setSpeechRunningActual(true, 'webspeech-start');
   emitAsrHeartbeat('recognizer-attached:webspeech', { force: true });
   try { window.__tpEmitSpeech = (t: unknown, final?: boolean) => routeRecognizerTranscript(t, !!final); } catch {}
@@ -3911,7 +3932,7 @@ export async function startSpeechBackendForSession(info?: { reason?: string; mod
         });
         return false;
       }
-      const startedEngine = String((getTpSpeechStoreSnapshot() as any)?.engine || '').toLowerCase();
+      const startedEngine = String(lastStartedSpeechEngine || (getTpSpeechStoreSnapshot() as any)?.engine || '').toLowerCase();
       if (startedEngine !== 'whisper') {
         try { await window.__tpMic?.requestMic?.(); } catch {}
       }
