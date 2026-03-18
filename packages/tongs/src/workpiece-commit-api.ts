@@ -724,6 +724,16 @@ export type WorkpieceStorageListing = {
   nodes: WorkspaceStorageTreeNode[];
 };
 
+export type WorkspaceCanonicalRecordingListing = {
+  source: {
+    kind: "cloud_workpiece_recordings";
+    bucket: string;
+    workspace_id: string;
+    root_path: string;
+  };
+  nodes: WorkspaceStorageTreeNode[];
+};
+
 export type ListWorkspaceStorageOptions = {
   prefix?: string | null;
   depth?: number;
@@ -733,6 +743,11 @@ export type ListWorkspaceStorageOptions = {
 export type ListWorkpieceStorageOptions = {
   prefix?: string | null;
   depth?: number;
+  userAccessToken?: string | null;
+};
+
+export type ListWorkspaceCanonicalRecordingsOptions = {
+  includeArchived?: boolean;
   userAccessToken?: string | null;
 };
 
@@ -874,6 +889,10 @@ export type TongsCommitApiService = {
     workpieceId: string,
     options?: ListWorkpieceStorageOptions,
   ): Promise<WorkpieceStorageListing>;
+  listWorkspaceCanonicalRecordings(
+    workspaceId: string,
+    options?: ListWorkspaceCanonicalRecordingsOptions,
+  ): Promise<WorkspaceCanonicalRecordingListing>;
   archiveWorkpiece(
     workpieceId: string,
     input: ArchiveWorkpieceRequest,
@@ -1121,6 +1140,20 @@ function joinRelativePath(basePath: string, childName: string): string {
 function compareWorkspaceStorageNodes(left: WorkspaceStorageTreeNode, right: WorkspaceStorageTreeNode): number {
   if (left.kind !== right.kind) return left.kind === "directory" ? -1 : 1;
   return left.name.localeCompare(right.name, undefined, { sensitivity: "base" });
+}
+
+function compareIsoTimestampDescending(left: string | null | undefined, right: string | null | undefined): number {
+  const leftTs = left ? Date.parse(left) : Number.NaN;
+  const rightTs = right ? Date.parse(right) : Number.NaN;
+  const leftOk = Number.isFinite(leftTs);
+  const rightOk = Number.isFinite(rightTs);
+  if (leftOk && rightOk) {
+    if (leftTs === rightTs) return 0;
+    return leftTs > rightTs ? -1 : 1;
+  }
+  if (leftOk) return -1;
+  if (rightOk) return 1;
+  return 0;
 }
 
 function inferWorkspaceStorageNodeKind(entry: Record<string, unknown>): "directory" | "file" {
@@ -3277,6 +3310,80 @@ function readTakeReceiptFromEvent(row: Pick<WorkpieceEventRow, "id" | "created_a
     bytes: readNullableNumber(payload.bytes),
     duration_ms: readNullableNumber(payload.duration_ms),
     original_name: readNullableString(payload.original_name),
+  };
+}
+
+function pushCanonicalRecordingPathNode(
+  nodes: WorkspaceStorageTreeNode[],
+  parentPath: string,
+  relativePath: string,
+  receipt: WorkpieceTakeReceipt,
+): void {
+  const segments = relativePath.split("/").filter(Boolean);
+  if (!segments.length) return;
+
+  const [head, ...tail] = segments;
+  const path = joinRelativePath(parentPath, head);
+
+  if (tail.length === 0) {
+    nodes.push({
+      name: head,
+      kind: "file",
+      path,
+      bytes: receipt.bytes,
+      updated_at: receipt.created_at,
+      ...(receipt.original_name && receipt.original_name !== head
+        ? { note: `Original name: ${receipt.original_name}` }
+        : {}),
+    });
+    return;
+  }
+
+  let directoryNode = nodes.find((node) => node.kind === "directory" && node.path === path);
+  if (!directoryNode) {
+    directoryNode = {
+      name: head,
+      kind: "directory",
+      path,
+      children: [],
+    };
+    nodes.push(directoryNode);
+  }
+  if (!directoryNode.children) {
+    directoryNode.children = [];
+  }
+  pushCanonicalRecordingPathNode(directoryNode.children, path, tail.join("/"), receipt);
+  directoryNode.children.sort(compareWorkspaceStorageNodes);
+}
+
+function buildCanonicalRecordingWorkpieceNode(
+  episode: Pick<EpisodeRow, "id" | "label">,
+  receipt: WorkpieceTakeReceipt,
+): WorkspaceStorageTreeNode {
+  const workpieceRootPath = `workpieces/${episode.id}`;
+  const children: WorkspaceStorageTreeNode[] = [];
+  const normalizedRecordingPath = normalizeOptionalRelativePath(receipt.file_path);
+
+  if (normalizedRecordingPath) {
+    pushCanonicalRecordingPathNode(children, workpieceRootPath, normalizedRecordingPath, receipt);
+  } else {
+    children.push({
+      name: receipt.original_name ?? "Kept take path unavailable",
+      kind: "file",
+      path: joinRelativePath(workpieceRootPath, "__path_unavailable__"),
+      bytes: receipt.bytes,
+      updated_at: receipt.created_at,
+      note: "Kept take event is missing a canonical file path.",
+    });
+  }
+
+  children.sort(compareWorkspaceStorageNodes);
+  return {
+    name: episode.label?.trim() || episode.id,
+    kind: "directory",
+    path: workpieceRootPath,
+    note: episode.id,
+    children,
   };
 }
 
@@ -6172,6 +6279,70 @@ export class TongsCommitService {
     };
   }
 
+  async listWorkspaceCanonicalRecordings(
+    workspaceId: string,
+    options?: ListWorkspaceCanonicalRecordingsOptions,
+  ): Promise<WorkspaceCanonicalRecordingListing> {
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
+    await this.getWorkspaceOrThrow(workspaceId);
+
+    let query = this.supabase
+      .schema("tongs")
+      .from("episodes")
+      .select("id,workspace_id,label,updated_at,archived_at")
+      .eq("workspace_id", workspaceId);
+
+    if (!options?.includeArchived) {
+      query = query.is("archived_at", null);
+    }
+
+    const { data, error } = await query
+      .order("updated_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(5000);
+
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to list workspace episodes for canonical recordings", {
+        reason: error.message,
+      });
+    }
+
+    const episodes = Array.isArray(data) ? data : [];
+    const keptTakeByWorkpiece = await this.listLatestKeptTakeByWorkpieceIds(
+      episodes.map((episode) => episode.id),
+    );
+    const nodes: WorkspaceStorageTreeNode[] = [];
+
+    for (const episode of episodes.sort((left, right) => {
+      const leftReceipt = keptTakeByWorkpiece.get(left.id) ?? null;
+      const rightReceipt = keptTakeByWorkpiece.get(right.id) ?? null;
+      const byTakeTime = compareIsoTimestampDescending(
+        leftReceipt?.created_at ?? null,
+        rightReceipt?.created_at ?? null,
+      );
+      if (byTakeTime !== 0) return byTakeTime;
+      const byEpisodeTime = compareIsoTimestampDescending(left.updated_at, right.updated_at);
+      if (byEpisodeTime !== 0) return byEpisodeTime;
+      return (left.label || left.id).localeCompare((right.label || right.id), undefined, {
+        sensitivity: "base",
+      });
+    })) {
+      const receipt = keptTakeByWorkpiece.get(episode.id);
+      if (!receipt) continue;
+      nodes.push(buildCanonicalRecordingWorkpieceNode(episode, receipt));
+    }
+
+    return {
+      source: {
+        kind: "cloud_workpiece_recordings",
+        bucket: this.bucket,
+        workspace_id: workspaceId,
+        root_path: "workpieces/{workpiece_id}/recordings",
+      },
+      nodes,
+    };
+  }
+
   async listWorkspaceEpisodes(
     workspaceId: string,
     options?: ListWorkspaceEpisodesOptions,
@@ -7466,6 +7637,18 @@ export function createTongsCommitApiHandlerWithService(
         const listing = await service.listWorkspaceStorage(workspaceId, role, {
           prefix,
           depth,
+          userAccessToken,
+        });
+        return jsonResponse(200, { ok: true, data: { listing } });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "canonical-recordings") {
+        requireMethod(request, "GET");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const includeArchived = parseBooleanQueryFlag(url.searchParams.get("include_archived"));
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const listing = await service.listWorkspaceCanonicalRecordings(workspaceId, {
+          includeArchived,
           userAccessToken,
         });
         return jsonResponse(200, { ok: true, data: { listing } });

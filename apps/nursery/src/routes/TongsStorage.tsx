@@ -6,6 +6,7 @@ import {
   MOUNT_ROLE_POLICY,
   getMountRolePolicy,
   type MountRole,
+  type WorkspaceCanonicalRecordingListing,
   type WorkspaceStorageListing,
   type WorkspaceStorageTreeNode,
   type WorkpieceStorageListing,
@@ -30,7 +31,7 @@ type StorageTreeNode = {
 };
 
 type ListingSource = {
-  kind: "local" | "mirror" | "cloud_role_root" | "cloud_workpiece";
+  kind: "local" | "mirror" | "cloud_role_root" | "cloud_workpiece" | "cloud_workpiece_recordings";
   label: string;
   badgeLabel: string;
   vaultKey?: string;
@@ -136,6 +137,10 @@ function describeEmptyRoleRootListing(root: RootViewModel, source: ListingSource
 
 function describeEmptyWorkpieceListing(): string {
   return "This canonical workpiece root is currently empty.";
+}
+
+function describeEmptyCanonicalRecordingListing(): string {
+  return "No canonical kept takes are visible for active workpieces in this workspace yet.";
 }
 
 function buildListingSource(root: RootViewModel): { source: ListingSource | null; message: string } {
@@ -396,6 +401,12 @@ export default function TongsStorage() {
     nodes: [],
     message: null,
   });
+  const [canonicalRecordingsTreeState, setCanonicalRecordingsTreeState] = useState<TreeState>({
+    status: "idle",
+    source: null,
+    nodes: [],
+    message: null,
+  });
 
   const roots = useMemo<RootViewModel[]>(() => {
     return ALL_MOUNT_ROLES.map((role) => {
@@ -636,6 +647,71 @@ export default function TongsStorage() {
     };
   }, [selectedRoot, workspaceId]);
 
+  useEffect(() => {
+    if (!workspaceId || selectedRoot?.role !== "recordings") {
+      setCanonicalRecordingsTreeState({
+        status: "unavailable",
+        source: null,
+        nodes: [],
+        message: "Select the Recordings role root to inspect canonical kept takes across workpieces.",
+      });
+      return;
+    }
+
+    const canonicalRecordingSource: ListingSource = {
+      kind: "cloud_workpiece_recordings",
+      label: "Canonical kept takes from workpiece storage",
+      badgeLabel: "canonical kept takes",
+    };
+
+    let cancelled = false;
+    setCanonicalRecordingsTreeState({
+      status: "loading",
+      source: canonicalRecordingSource,
+      nodes: [],
+      message: "Loading canonical recording inventory...",
+    });
+
+    void (async () => {
+      try {
+        const data = await tongsApiRequest<{ listing: WorkspaceCanonicalRecordingListing }>(
+          `/tongs/workspaces/${encodeURIComponent(workspaceId)}/canonical-recordings`,
+        );
+        if (cancelled) return;
+
+        const source: ListingSource = {
+          kind: "cloud_workpiece_recordings",
+          label: "Canonical kept takes from workpiece storage",
+          badgeLabel: "canonical kept takes",
+          bucket: data.listing.source.bucket,
+          rootPath: data.listing.source.root_path,
+        };
+        const nodes = mapCloudNodes(data.listing.nodes);
+        setCanonicalRecordingsTreeState({
+          status: "ready",
+          source,
+          nodes,
+          message: nodes.length === 0 ? describeEmptyCanonicalRecordingListing() : null,
+        });
+      } catch (error: unknown) {
+        if (cancelled) return;
+        setCanonicalRecordingsTreeState({
+          status: "error",
+          source: canonicalRecordingSource,
+          nodes: [],
+          message: readErrorMessage(
+            error,
+            "Canonical recording inventory could not be loaded for this workspace.",
+          ),
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedRoot?.role, workspaceId]);
+
   if (!workspaceId) {
     return <WorkspaceRequiredNotice toolName="Tongs Storage" />;
   }
@@ -778,7 +854,9 @@ export default function TongsStorage() {
               <div>
                 <h4 className="tongs-storage__panel-title">{selectedRoot.label}</h4>
                 <p className="tongs-storage__panel-subtitle">
-                  Workspace role root view. Canonical target: {selectedRoot.resolvedTargetType}
+                  {selectedRoot.role === "recordings"
+                    ? "Canonical kept takes are shown first from workpiece storage. Workspace role-root contents remain below as a separate topology view."
+                    : `Workspace role root view. Canonical target: ${selectedRoot.resolvedTargetType}`}
                 </p>
               </div>
             </div>
@@ -822,8 +900,20 @@ export default function TongsStorage() {
               </div>
             </div>
 
+            {selectedRoot.role === "recordings" ? (
+              <StorageListingPanel
+                title="Canonical Workpiece Recordings"
+                treeState={canonicalRecordingsTreeState}
+                emptyMessage={describeEmptyCanonicalRecordingListing()}
+                loadingPlaceholder="Loading canonical kept-take inventory..."
+                errorPlaceholder="Canonical recording inventory could not be loaded for this workspace."
+                unavailablePlaceholder="Select the Recordings role root to inspect canonical kept takes."
+                footnote="These recordings come from canonical workpiece kept-take truth. Workspace role-root contents remain a separate read-only topology view below."
+              />
+            ) : null}
+
             <StorageListingPanel
-              title="Contents"
+              title={selectedRoot.role === "recordings" ? "Workspace Role-Root Contents" : "Contents"}
               treeState={roleRootTreeState}
               emptyMessage={describeEmptyRoleRootListing(selectedRoot, roleRootTreeState.source)}
               loadingPlaceholder="Loading workspace role-root tree..."

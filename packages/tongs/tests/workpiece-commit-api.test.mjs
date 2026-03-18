@@ -24,6 +24,7 @@ function mockService() {
     listWorkspaceEpisodes: [],
     listWorkspaceStorage: [],
     listWorkpieceStorage: [],
+    listWorkspaceCanonicalRecordings: [],
     archiveWorkpiece: [],
     restoreWorkpiece: [],
     listWorkspaceReadyScripts: [],
@@ -517,6 +518,41 @@ function mockService() {
             path: `workpieces/${workpieceId}/manifest.json`,
             bytes: 512,
             updated_at: "2026-03-18T09:00:00.000Z",
+          },
+        ],
+      };
+    },
+    async listWorkspaceCanonicalRecordings(workspaceId, options) {
+      calls.listWorkspaceCanonicalRecordings.push({ workspaceId, options: options ?? null });
+      return {
+        source: {
+          kind: "cloud_workpiece_recordings",
+          bucket: "forge-workpieces",
+          workspace_id: workspaceId,
+          root_path: "workpieces/{workpiece_id}/recordings",
+        },
+        nodes: [
+          {
+            name: "Episode 1",
+            kind: "directory",
+            path: "workpieces/11111111-1111-4111-8111-111111111111",
+            note: "11111111-1111-4111-8111-111111111111",
+            children: [
+              {
+                name: "recordings",
+                kind: "directory",
+                path: "workpieces/11111111-1111-4111-8111-111111111111/recordings",
+                children: [
+                  {
+                    name: "episode-kept.webm",
+                    kind: "file",
+                    path: "workpieces/11111111-1111-4111-8111-111111111111/recordings/episode-kept.webm",
+                    bytes: 2048,
+                    updated_at: "2026-03-17T12:00:00.000Z",
+                  },
+                ],
+              },
+            ],
           },
         ],
       };
@@ -1185,6 +1221,29 @@ function createReadyQueueSupabase({
             return {
               select() {
                 const filters = {};
+                const mapEpisodeRows = (rows) => rows.map((row) => ({
+                  id: row.id,
+                  workspace_id: row.workspace_id,
+                  label: row.label ?? null,
+                  updated_at: row.updated_at ?? null,
+                  created_at: row.created_at ?? null,
+                  archived_at: row.archived_at ?? null,
+                  archived_by: row.archived_by ?? null,
+                  archive_reason: row.archive_reason ?? null,
+                }));
+                const buildOrderChain = (rows) => ({
+                  order(nextOrderField, nextOptions) {
+                    return buildOrderChain(
+                      sortRows(rows, nextOrderField, nextOptions?.ascending ?? true),
+                    );
+                  },
+                  async limit(limit) {
+                    return {
+                      data: mapEpisodeRows(rows.slice(0, limit)),
+                      error: null,
+                    };
+                  },
+                });
                 return {
                   eq(field, value) {
                     filters[field] = value;
@@ -1220,28 +1279,13 @@ function createReadyQueueSupabase({
                     };
                   },
                   order(orderField, options) {
-                    return {
-                      async limit(limit) {
-                        const ordered = sortRows(
-                          episodes.filter((row) => matchesFilters(row, filters)),
-                          orderField,
-                          options?.ascending ?? true,
-                        );
-                        return {
-                          data: ordered.slice(0, limit).map((row) => ({
-                            id: row.id,
-                            workspace_id: row.workspace_id,
-                            label: row.label ?? null,
-                            updated_at: row.updated_at ?? null,
-                            created_at: row.created_at ?? null,
-                            archived_at: row.archived_at ?? null,
-                            archived_by: row.archived_by ?? null,
-                            archive_reason: row.archive_reason ?? null,
-                          })),
-                          error: null,
-                        };
-                      },
-                    };
+                    return buildOrderChain(
+                      sortRows(
+                        episodes.filter((row) => matchesFilters(row, filters)),
+                        orderField,
+                        options?.ascending ?? true,
+                      ),
+                    );
                   },
                 };
               },
@@ -3177,6 +3221,51 @@ test("GET /tongs/workspaces/:id/storage/:role requires x-forge-user-authorizatio
   assert.equal(body.ok, false);
   assert.equal(body.error?.code, "missing_user_token_header");
   assert.equal(calls.listWorkspaceStorage.length, 0);
+});
+
+test("GET /tongs/workspaces/:id/canonical-recordings dispatches listWorkspaceCanonicalRecordings", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/canonical-recordings?include_archived=1",
+    {
+      method: "GET",
+      headers: {
+        "x-forge-user-authorization": "Bearer user_token_abc",
+      },
+    },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.listWorkspaceCanonicalRecordings.length, 1);
+  assert.equal(calls.listWorkspaceCanonicalRecordings[0]?.workspaceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.listWorkspaceCanonicalRecordings[0]?.options?.includeArchived, true);
+  assert.equal(calls.listWorkspaceCanonicalRecordings[0]?.options?.userAccessToken, "user_token_abc");
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.listing?.source?.kind, "cloud_workpiece_recordings");
+  assert.equal(body.data?.listing?.nodes?.[0]?.children?.[0]?.path, "workpieces/11111111-1111-4111-8111-111111111111/recordings");
+});
+
+test("GET /tongs/workspaces/:id/canonical-recordings requires x-forge-user-authorization header", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/canonical-recordings",
+    { method: "GET" },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.equal(body.ok, false);
+  assert.equal(body.error?.code, "missing_user_token_header");
+  assert.equal(calls.listWorkspaceCanonicalRecordings.length, 0);
 });
 
 test("GET /tongs/workpieces/:id/storage dispatches listWorkpieceStorage", async () => {
@@ -5978,6 +6067,116 @@ test("TongsCommitService.listWorkspaceStorage returns nested canonical cloud nod
   assert.equal(result.nodes[0]?.children?.[0]?.path, `workspaces/${workspaceId}/recordings/session-a/take-01.wav`);
   assert.equal(result.nodes[1]?.kind, "file");
   assert.equal(result.nodes[1]?.bytes, 8192);
+});
+
+test("TongsCommitService.listWorkspaceCanonicalRecordings returns kept takes grouped by workpiece", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const viewerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const { ...supabase } = createReadyQueueSupabase({
+    workspaceId,
+    episodes: [
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        workspace_id: workspaceId,
+        label: "Episode Beta",
+        updated_at: "2026-03-18T09:00:00.000Z",
+        created_at: "2026-03-10T09:00:00.000Z",
+        archived_at: null,
+        archived_by: null,
+        archive_reason: null,
+      },
+      {
+        id: "22222222-2222-4222-8222-222222222222",
+        workspace_id: workspaceId,
+        label: "Episode Alpha",
+        updated_at: "2026-03-17T09:00:00.000Z",
+        created_at: "2026-03-09T09:00:00.000Z",
+        archived_at: null,
+        archived_by: null,
+        archive_reason: null,
+      },
+      {
+        id: "33333333-3333-4333-8333-333333333333",
+        workspace_id: workspaceId,
+        label: "No Take Yet",
+        updated_at: "2026-03-16T09:00:00.000Z",
+        created_at: "2026-03-08T09:00:00.000Z",
+        archived_at: null,
+        archived_by: null,
+        archive_reason: null,
+      },
+    ],
+    events: [
+      {
+        id: 201,
+        workpiece_id: "11111111-1111-4111-8111-111111111111",
+        event_name: "take_kept",
+        payload: {
+          file_path: "recordings/beta/episode-beta.mp4",
+          bytes: 4096,
+          content_type: "video/mp4",
+          original_name: "episode-beta.mp4",
+        },
+        correlation_id: null,
+        written_by_tool: "anvil",
+        written_by_tool_version: "1.0.0",
+        written_by_lane: "forge-managed",
+        created_at: "2026-03-18T12:00:00.000Z",
+      },
+      {
+        id: 202,
+        workpiece_id: "22222222-2222-4222-8222-222222222222",
+        event_name: "take_kept",
+        payload: {
+          file_path: "recordings/episode-alpha.wav",
+          bytes: 2048,
+          content_type: "audio/wav",
+          original_name: "episode-alpha.wav",
+        },
+        correlation_id: null,
+        written_by_tool: "anvil",
+        written_by_tool_version: "1.0.0",
+        written_by_lane: "forge-managed",
+        created_at: "2026-03-17T12:00:00.000Z",
+      },
+    ],
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: viewerId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: viewerId, role: "viewer" });
+
+  const result = await service.listWorkspaceCanonicalRecordings(workspaceId, {
+    userAccessToken: "viewer_token",
+  });
+
+  assert.equal(result.source.kind, "cloud_workpiece_recordings");
+  assert.equal(result.source.root_path, "workpieces/{workpiece_id}/recordings");
+  assert.equal(result.nodes.length, 2);
+  assert.equal(result.nodes[0]?.name, "Episode Beta");
+  assert.equal(result.nodes[0]?.note, "11111111-1111-4111-8111-111111111111");
+  assert.equal(
+    result.nodes[0]?.children?.[0]?.path,
+    "workpieces/11111111-1111-4111-8111-111111111111/recordings",
+  );
+  assert.equal(
+    result.nodes[0]?.children?.[0]?.children?.[0]?.path,
+    "workpieces/11111111-1111-4111-8111-111111111111/recordings/beta",
+  );
+  assert.equal(
+    result.nodes[0]?.children?.[0]?.children?.[0]?.children?.[0]?.path,
+    "workpieces/11111111-1111-4111-8111-111111111111/recordings/beta/episode-beta.mp4",
+  );
+  assert.equal(
+    result.nodes[1]?.children?.[0]?.children?.[0]?.path,
+    "workpieces/22222222-2222-4222-8222-222222222222/recordings/episode-alpha.wav",
+  );
 });
 
 test("TongsCommitService.listWorkspaceStorage falls back to owner-prefixed legacy role-root prefix when canonical root is empty", async () => {
