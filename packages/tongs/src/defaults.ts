@@ -17,7 +17,7 @@ export function buildDefaultRegistry(workspaceId: string): WorkspaceMountRegistr
       };
 
       if (policy.defaultTarget === "tongs_cloud") {
-        entry.mirror = { enabled: false, policy: DEFAULT_MIRROR_POLICY };
+        entry.mirror = { enabled: policy.defaultMirrorEnabled, policy: DEFAULT_MIRROR_POLICY };
       }
 
       return entry;

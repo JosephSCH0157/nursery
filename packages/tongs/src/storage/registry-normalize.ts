@@ -6,7 +6,7 @@ import type {
   MountTargetType,
   WorkspaceMountRegistry,
 } from "../types.js";
-import { getDefaultMountTarget, getMountRolePolicy, isTargetEligibleForRole } from "../roles.js";
+import { getDefaultMirrorEnabled, getDefaultMountTarget, getMountRolePolicy, isTargetEligibleForRole } from "../roles.js";
 import {
   ALL_MOUNT_ROLES,
   DEFAULT_MIRROR_POLICY,
@@ -46,6 +46,10 @@ function defaultTargetForRole(role: MountRole): MountTargetType {
   return getDefaultMountTarget(role);
 }
 
+function defaultMirrorEnabledForRole(role: MountRole): boolean {
+  return getDefaultMirrorEnabled(role);
+}
+
 export function normalizeRegistry(
   input: unknown,
   fallbackWorkspaceId = "default",
@@ -62,7 +66,7 @@ export function normalizeRegistry(
         role,
         target: defaultTargetForRole(role),
           mirror: defaultTargetForRole(role) === "tongs_cloud"
-            ? { enabled: false, policy: DEFAULT_MIRROR_POLICY }
+            ? { enabled: defaultMirrorEnabledForRole(role), policy: DEFAULT_MIRROR_POLICY }
             : undefined,
         updatedAtIso: nowIso,
       })),
@@ -75,6 +79,7 @@ export function normalizeRegistry(
       : fallbackWorkspaceId;
 
   const version = typeof input["version"] === "number" ? input["version"] : undefined;
+  const isPreCloudMirrorRecordingMigration = version == null || version < STORAGE_REGISTRY_VERSION;
   if (version !== STORAGE_REGISTRY_VERSION) {
     mutated = true;
   }
@@ -131,13 +136,33 @@ export function normalizeRegistry(
       entryMutated = true;
     }
 
+    if (isPreCloudMirrorRecordingMigration && (role === "recordings" || role === "exports")) {
+      if (entry.target !== "tongs_cloud") {
+        entry.target = "tongs_cloud";
+        entryMutated = true;
+      }
+
+      const migratedMirrorVaultKey = entry.mirror?.vaultKey ?? entry.local?.vaultKey;
+      const migratedMirrorHint = entry.mirror?.hint ?? entry.local?.hint;
+      entry.mirror = {
+        enabled: true,
+        policy: entry.mirror?.policy ?? DEFAULT_MIRROR_POLICY,
+        vaultKey: migratedMirrorVaultKey,
+        hint: migratedMirrorHint,
+      };
+      entryMutated = true;
+    }
+
     if (entry.target === "tongs_cloud") {
       if (!entry.mirror) {
-        entry.mirror = { enabled: false, policy: DEFAULT_MIRROR_POLICY };
+        entry.mirror = {
+          enabled: defaultMirrorEnabledForRole(role),
+          policy: DEFAULT_MIRROR_POLICY,
+        };
         entryMutated = true;
       } else {
         const nextMirror: MountMirrorConfig = {
-          enabled: entry.mirror.enabled ?? false,
+          enabled: entry.mirror.enabled ?? defaultMirrorEnabledForRole(role),
           policy: entry.mirror.policy ?? DEFAULT_MIRROR_POLICY,
           vaultKey: entry.mirror.vaultKey,
           hint: entry.mirror.hint,

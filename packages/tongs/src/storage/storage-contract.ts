@@ -23,7 +23,7 @@ export const DEFAULT_MIRROR_POLICY = "readThrough" as const;
 
 export type MirrorPolicy = typeof DEFAULT_MIRROR_POLICY;
 
-export const STORAGE_REGISTRY_VERSION = 2;
+export const STORAGE_REGISTRY_VERSION = 3;
 
 export function isLocalOnlyRole(role: MountRole): boolean {
   void role;

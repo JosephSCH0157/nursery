@@ -10,6 +10,7 @@ import type {
 import {
   DEFAULT_MIRROR_POLICY,
   MOUNT_ROLE_POLICY,
+  getDefaultMirrorEnabled,
   getDefaultMountTarget,
   getMountRolePolicy,
   resolveMount,
@@ -266,12 +267,13 @@ export default function SettingsStorage() {
   };
 
   const setTarget = (role: MountRole, target: MountTargetType) => {
+    const rolePolicy = getMountRolePolicy(role);
     updateRegistryEntry(role, (entry) => ({
       ...entry,
       target,
       mirror: target === "tongs_cloud"
         ? buildMirrorConfig(
-            entry.mirror?.enabled ?? false,
+            entry.mirror?.enabled ?? rolePolicy.defaultMirrorEnabled,
             entry.mirror?.policy ?? DEFAULT_MIRROR_POLICY,
             entry.mirror?.vaultKey,
             entry.mirror?.hint,
@@ -383,6 +385,11 @@ export default function SettingsStorage() {
                           <div className="settings-storage__muted">
                             Mirror folder: {mirrorHint ?? "not set"}
                           </div>
+                          {!mirrorVaultKey ? (
+                            <div className="settings-storage__muted">
+                              Local mirror is enabled but not connected yet.
+                            </div>
+                          ) : null}
                           <button onClick={() => setMirrorFolder(policy.role)}>Choose folder</button>
                           {mirrorVaultKey && (
                             <button onClick={() => clearMirrorFolder(policy.role, mirrorVaultKey)}>Clear</button>
