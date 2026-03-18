@@ -21,6 +21,7 @@ Authorization is enforced by Supabase RLS and membership, never by storage key p
 - Tongs listing and reads check canonical role-root prefixes first.
 - Owner-prefixed role-root prefixes under `{legacy_user_id}/{workspace_id}/{role}/...` are fallback-only for existing objects written during the previous experimental pass.
 - Legacy prefixes are not authoritative and must not be used for new canonical role-root writes.
+- Migration utility: `packages/tongs/dev/migrate-cloud-role-roots.mjs` scans owner-prefixed role roots and copies them into canonical workspace role roots; run dry first, then rerun with `--apply` when the report is clean.
 
 **Access Rule (Authoritative)**
 - Membership-only via `tongs.workspace_members` and RLS.
