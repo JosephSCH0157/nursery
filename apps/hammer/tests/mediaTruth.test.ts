@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  buildHammerPreviewPlaybackSourceModel,
   resolveAudioPolishPreviewSrc,
   resolvePreviewMediaSrc,
 } from "../src/lib/previewSource";
@@ -85,6 +86,38 @@ import { V1HammerMediaResolver } from "../src/media/resolveMedia";
     previewSrc,
     "/api/hammer/dev-media?local_root_abs=D%3A%5CForgeMedia%5Cws_demo&local_relpath=hammer%2Fprep%2Faudio-polish%2Fws_demo%2Fepisode014--abcd.wav",
   );
+}
+
+{
+  const model = buildHammerPreviewPlaybackSourceModel({
+    playbackSrc: "/api/hammer/dev-media?polished=1",
+    resolvedMediaSrc: "/api/hammer/dev-media?polished=1",
+    polishedMediaSrc: "/api/hammer/dev-media?polished=1",
+    activeMediaRequiresResolution: true,
+    activeMediaDisplayTitle: "One_Weird_Thing_Bus_Drivers_Notice_2026-03-18_15-02-23.webm",
+  });
+
+  assert.equal(model.sourceKind, "polished");
+  assert.equal(model.sourceLabel, "polished prep");
+  assert.equal(model.truthLabel, "Polished prep");
+  assert.equal(model.statusLabel, "Polished prep connected");
+  assert.equal(model.displayTitle, "Polished prep");
+}
+
+{
+  const model = buildHammerPreviewPlaybackSourceModel({
+    playbackSrc: "/api/hammer/dev-media?launch=1",
+    resolvedMediaSrc: "/api/hammer/dev-media?launch=1",
+    polishedMediaSrc: null,
+    activeMediaRequiresResolution: true,
+    activeMediaDisplayTitle: "One_Weird_Thing_Bus_Drivers_Notice_2026-03-18_15-02-23.webm",
+  });
+
+  assert.equal(model.sourceKind, "launch");
+  assert.equal(model.sourceLabel, "One_Weird_Thing_Bus_Drivers_Notice_2026-03-18_15-02-23.webm");
+  assert.equal(model.truthLabel, "Launch media");
+  assert.equal(model.statusLabel, "Mapped media connected");
+  assert.equal(model.displayTitle, "One_Weird_Thing_Bus_Drivers_Notice_2026-03-18_15-02-23.webm");
 }
 
 {

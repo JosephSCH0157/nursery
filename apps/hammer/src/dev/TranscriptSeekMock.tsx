@@ -59,6 +59,7 @@ import {
 import type { ResolvedHammerLaunchContext } from "../lib/launchContext";
 import { createSemanticEditPlanSignature } from "../lib/editPlanSignature";
 import {
+  buildHammerPreviewPlaybackSourceModel,
   loadCanonicalAudioPolishPreviewUrl,
   resolveAudioPolishPreviewSrc,
   resolvePreviewMediaSrc,
@@ -1572,20 +1573,48 @@ export default function TranscriptSeekMock(
     () => ((preferDevAudioFallback || !resolvedMediaSrc) ? devAudioSrc : resolvedMediaSrc),
     [devAudioSrc, preferDevAudioFallback, resolvedMediaSrc],
   );
-  const playbackSourceLabel = useMemo(() => {
-    if (!playbackSrc) return "none";
-    if (activeMediaUsesDevTone) return "fallback tone";
-    if (preferDevAudioFallback || !resolvedMediaSrc) return "fallback tone";
-    if (polishedMediaSrc && resolvedMediaSrc === polishedMediaSrc) return "polished prep";
-    return activeMediaSourceLabel;
-  }, [
-    activeMediaSourceLabel,
-    activeMediaUsesDevTone,
-    playbackSrc,
-    polishedMediaSrc,
-    preferDevAudioFallback,
-    resolvedMediaSrc,
-  ]);
+  const playbackSourceModel = useMemo(
+    () => buildHammerPreviewPlaybackSourceModel({
+      playbackSrc,
+      resolvedMediaSrc,
+      polishedMediaSrc,
+      preferDevAudioFallback,
+      activeMediaUsesDevTone,
+      activeMediaRequiresResolution,
+      activeDevRecordingName: activeDevRecording?.name ?? null,
+      activeMediaDisplayTitle,
+    }),
+    [
+      activeDevRecording?.name,
+      activeMediaDisplayTitle,
+      activeMediaRequiresResolution,
+      activeMediaUsesDevTone,
+      playbackSrc,
+      polishedMediaSrc,
+      preferDevAudioFallback,
+      resolvedMediaSrc,
+    ],
+  );
+  const playbackSourceKind = playbackSourceModel.sourceKind;
+  const playbackSourceLabel = playbackSourceModel.sourceLabel;
+  const previewSourceStatusLabel = playbackSourceModel.statusLabel;
+  const previewPlaybackTruthLabel = playbackSourceModel.truthLabel;
+  const previewSourceDisplayTitle = playbackSourceModel.displayTitle;
+  const previewSourceDisplayDetail = useMemo(
+    () => playbackSourceKind === "polished"
+      ? audioPolish?.output_local_relpath
+        ?? audioPolish?.output_workpiece_path
+        ?? activeMediaDetailLabel
+        ?? activeMediaSourceLabel
+      : activeMediaDetailLabel ?? activeMediaSourceLabel,
+    [
+      activeMediaDetailLabel,
+      activeMediaSourceLabel,
+      audioPolish?.output_local_relpath,
+      audioPolish?.output_workpiece_path,
+      playbackSourceKind,
+    ],
+  );
   const previewUsesResolvedMedia = Boolean(
     playbackSrc
     && resolvedMediaSrc
@@ -3025,23 +3054,14 @@ export default function TranscriptSeekMock(
         return "No assets are linked to this workpiece yet.";
     }
   }, [activeAssetPanel]);
-  const previewSourceStatusLabel = useMemo(() => {
-    if (!playbackSrc) return "Preview source unavailable";
-    if (!activeMediaRequiresResolution) return "Fallback preview tone ready";
-    if (preferDevAudioFallback || !resolvedMediaSrc) return "Fallback preview source active";
-    return activeDevRecording ? "Attached recording connected" : "Mapped media connected";
-  }, [
-    activeDevRecording,
-    activeMediaRequiresResolution,
-    playbackSrc,
-    preferDevAudioFallback,
-    resolvedMediaSrc,
-  ]);
   const previewSourceDetail = useMemo(() => {
     if (resolving) {
       return activeDevRecording
         ? "Connecting the selected recording."
         : "Resolving project media.";
+    }
+    if (playbackSourceKind === "polished") {
+      return "Prepared audio polish is connected. Hammer is monitoring the current polished artifact instead of the raw source media.";
     }
     if (resolveError) return resolveError;
     if (resolveResult?.status === "unresolved") {
@@ -3054,30 +3074,21 @@ export default function TranscriptSeekMock(
     }
     if (badgeVm?.tooltip) return badgeVm.tooltip;
     return "Select a script row to verify timing and cuts.";
-  }, [activeDevRecording, badgeVm?.tooltip, resolveError, resolveResult, resolving]);
-  const previewPlaybackTruthLabel = useMemo(() => {
-    if (!playbackSrc) return "Unavailable";
-    if (activeMediaUsesDevTone) return "Fallback source";
-    if (preferDevAudioFallback || !resolvedMediaSrc) return "Fallback source";
-    return activeDevRecording ? "Attached media" : "Launch media";
-  }, [
-    activeDevRecording,
-    activeMediaUsesDevTone,
-    playbackSrc,
-    preferDevAudioFallback,
-    resolvedMediaSrc,
-  ]);
+  }, [activeDevRecording, badgeVm?.tooltip, playbackSourceKind, resolveError, resolveResult, resolving]);
   const previewPlaybackTruthDetail = useMemo(() => {
     if (!playbackSrc) {
       return "Preview transport does not have a playable source yet.";
     }
-    if (activeMediaUsesDevTone) {
-      return "Preview is running on the fallback tone.";
-    }
-    if (preferDevAudioFallback || !resolvedMediaSrc) {
+    if (playbackSourceKind === "fallback") {
+      if (activeMediaUsesDevTone) {
+        return "Preview is running on the fallback tone.";
+      }
       return activeDevRecording
         ? "The selected recording is attached, but transport is still on the fallback source."
         : "Workspace media is not driving transport, so preview is still on the fallback source.";
+    }
+    if (playbackSourceKind === "polished") {
+      return "Transport is playing from the prepared audio polish artifact instead of the raw source media.";
     }
     return activeDevRecording
       ? "Transport is playing from the selected recording."
@@ -3085,9 +3096,8 @@ export default function TranscriptSeekMock(
   }, [
     activeDevRecording,
     activeMediaUsesDevTone,
+    playbackSourceKind,
     playbackSrc,
-    preferDevAudioFallback,
-    resolvedMediaSrc,
   ]);
   const previewTranscriptTruthLabel = useMemo(() => {
     if (activeDevRecording) {
@@ -3107,15 +3117,18 @@ export default function TranscriptSeekMock(
     if (!playbackSrc) {
       return "Preview is offline right now.";
     }
-    if (activeMediaUsesDevTone) {
-      return "No media is attached, so preview is running on the fallback tone.";
-    }
-    if (preferDevAudioFallback || !resolvedMediaSrc) {
+    if (playbackSourceKind === "fallback") {
+      if (activeMediaUsesDevTone) {
+        return "No media is attached, so preview is running on the fallback tone.";
+      }
       return activeDevRecording
         ? activeDevRecording.transcript_sidecar_relpath
           ? "Media is attached, playback is still on the fallback source, and Hammer is holding the current transcript."
           : "Media is attached, playback is still on the fallback source, and Hammer is still using the current transcript."
         : "Workspace media is attached, but preview is still on the fallback source.";
+    }
+    if (playbackSourceKind === "polished") {
+      return "Prepared audio polish is driving preview while Hammer keeps the current transcript active.";
     }
     return activeDevRecording
       ? activeDevRecording.transcript_sidecar_relpath
@@ -3125,9 +3138,8 @@ export default function TranscriptSeekMock(
   }, [
     activeDevRecording,
     activeMediaUsesDevTone,
+    playbackSourceKind,
     playbackSrc,
-    preferDevAudioFallback,
-    resolvedMediaSrc,
   ]);
   const selectionSummaryTitle = selectedSegment ? "Primary segment" : "No active selection";
   const selectionSummaryCountLabel = selectedSegment ? "1 segment selected" : "No segment selected";
@@ -5397,8 +5409,8 @@ export default function TranscriptSeekMock(
                   <div className="hammer-preview-truth-grid">
                     <div className="hammer-preview-truth-item">
                       <div className="hammer-label">Preview source</div>
-                      <div className="hammer-copy-md hammer-copy-strong">{activeMediaDisplayTitle}</div>
-                      <div className="hammer-copy-sm hammer-copy-muted">{activeMediaDetailLabel}</div>
+                      <div className="hammer-copy-md hammer-copy-strong">{previewSourceDisplayTitle}</div>
+                      <div className="hammer-copy-sm hammer-copy-muted">{previewSourceDisplayDetail}</div>
                     </div>
 
                     <div className="hammer-preview-truth-item">
@@ -5433,7 +5445,7 @@ export default function TranscriptSeekMock(
               <div className="hammer-monitor__chrome">
                 <div className="hammer-stack-4">
                   <div className="hammer-label">Preview Source</div>
-                  <div className="hammer-copy-sm hammer-copy-strong">{activeMediaDisplayTitle}</div>
+                  <div className="hammer-copy-sm hammer-copy-strong">{previewSourceDisplayTitle}</div>
                   <div className="hammer-copy-sm hammer-copy-muted">{previewSourceDetail}</div>
                 </div>
                 <div className="hammer-meta-strip">
@@ -5471,7 +5483,7 @@ export default function TranscriptSeekMock(
                 ) : showPreviewAudioPlayer ? (
                   <div className="hammer-monitor__center">
                     <div className="hammer-monitor__eyebrow">Audio Preview</div>
-                    <h4 className="hammer-monitor__title">{activeMediaDisplayTitle}</h4>
+                    <h4 className="hammer-monitor__title">{previewSourceDisplayTitle}</h4>
                     <div className="hammer-monitor__hint">{previewSourceDetail}</div>
                     <audio
                       ref={(node) => {
@@ -5515,7 +5527,7 @@ export default function TranscriptSeekMock(
                     ) : (
                       <>
                         <div className="hammer-monitor__eyebrow">Preview Source</div>
-                        <h4 className="hammer-monitor__title">{activeMediaDisplayTitle}</h4>
+                        <h4 className="hammer-monitor__title">{previewSourceDisplayTitle}</h4>
                         <div className="hammer-monitor__hint">{previewSourceDetail}</div>
                         <div className="hammer-meta-strip">
                           <span className="hammer-pill">

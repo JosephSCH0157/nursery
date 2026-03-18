@@ -69,6 +69,100 @@ export function resolveAudioPolishPreviewSrc(
   return buildHammerDevMediaUrl(workspaceMapping.local_root_abs, audioPolish.output_local_relpath);
 }
 
+export type HammerPreviewPlaybackSourceKind = "none" | "fallback" | "polished" | "attached" | "launch";
+
+export interface BuildHammerPreviewPlaybackSourceModelArgs {
+  playbackSrc?: string | null;
+  resolvedMediaSrc?: string | null;
+  polishedMediaSrc?: string | null;
+  preferDevAudioFallback?: boolean;
+  activeMediaUsesDevTone?: boolean;
+  activeMediaRequiresResolution?: boolean;
+  activeDevRecordingName?: string | null;
+  activeMediaDisplayTitle?: string | null;
+}
+
+export interface HammerPreviewPlaybackSourceModel {
+  sourceKind: HammerPreviewPlaybackSourceKind;
+  sourceLabel: string;
+  truthLabel: string;
+  statusLabel: string;
+  displayTitle: string;
+}
+
+function readTrimmed(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+export function buildHammerPreviewPlaybackSourceModel(
+  args: BuildHammerPreviewPlaybackSourceModelArgs,
+): HammerPreviewPlaybackSourceModel {
+  const playbackSrc = readTrimmed(args.playbackSrc);
+  const resolvedMediaSrc = readTrimmed(args.resolvedMediaSrc);
+  const polishedMediaSrc = readTrimmed(args.polishedMediaSrc);
+  const activeDevRecordingName = readTrimmed(args.activeDevRecordingName);
+  const activeMediaDisplayTitle = readTrimmed(args.activeMediaDisplayTitle);
+  const usesPolishedPlayback = Boolean(
+    playbackSrc
+    && resolvedMediaSrc
+    && polishedMediaSrc
+    && !args.preferDevAudioFallback
+    && resolvedMediaSrc === polishedMediaSrc
+  );
+
+  if (!playbackSrc) {
+    return {
+      sourceKind: "none",
+      sourceLabel: "none",
+      truthLabel: "Unavailable",
+      statusLabel: "Preview source unavailable",
+      displayTitle: activeMediaDisplayTitle ?? "Preview source unavailable",
+    };
+  }
+
+  if (args.activeMediaUsesDevTone || args.preferDevAudioFallback || !resolvedMediaSrc) {
+    return {
+      sourceKind: "fallback",
+      sourceLabel: "fallback tone",
+      truthLabel: "Fallback source",
+      statusLabel: args.activeMediaRequiresResolution === false
+        ? "Fallback preview tone ready"
+        : "Fallback preview source active",
+      displayTitle: "Fallback tone",
+    };
+  }
+
+  if (usesPolishedPlayback) {
+    return {
+      sourceKind: "polished",
+      sourceLabel: "polished prep",
+      truthLabel: "Polished prep",
+      statusLabel: "Polished prep connected",
+      displayTitle: "Polished prep",
+    };
+  }
+
+  if (activeDevRecordingName) {
+    return {
+      sourceKind: "attached",
+      sourceLabel: activeDevRecordingName,
+      truthLabel: "Attached media",
+      statusLabel: "Attached recording connected",
+      displayTitle: activeDevRecordingName,
+    };
+  }
+
+  return {
+    sourceKind: "launch",
+    sourceLabel: activeMediaDisplayTitle ?? "launch media",
+    truthLabel: "Launch media",
+    statusLabel: "Mapped media connected",
+    displayTitle: activeMediaDisplayTitle ?? "Launch media",
+  };
+}
+
 export async function loadCanonicalAudioPolishPreviewUrl(args: {
   workpieceId: string;
   workpiecePath: string;
