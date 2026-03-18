@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import "./AuthCallback.css";
 
 const AUTH_NEXT_STORAGE_KEY = "forge_auth_next_v1";
 
@@ -129,5 +130,5 @@ export default function AuthCallback() {
     })();
   }, [nav]);
 
-  return <div style={{ padding: 24 }}>{err ? `Error: ${err}` : "Finishing sign-in..."}</div>;
+  return <div className="auth-callback">{err ? `Error: ${err}` : "Finishing sign-in..."}</div>;
 }
