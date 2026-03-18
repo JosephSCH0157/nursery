@@ -32,6 +32,10 @@ type PersistenceResult<T> =
   | { ok: true; status: number; data: T }
   | { ok: false; status: number; error: string };
 
+const HAMMER_PERSISTENCE_LOAD_TIMEOUT_MS = 30_000;
+const HAMMER_PERSISTENCE_SAVE_TIMEOUT_MS = 45_000;
+const HAMMER_PRESENCE_TIMEOUT_MS = 15_000;
+
 function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -338,6 +342,16 @@ function readErrorMessage(payload: unknown, fallback: string): string {
   return message ?? fallback;
 }
 
+function toRequestErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  if (typeof error === "string" && error.trim()) {
+    return error;
+  }
+  return fallback;
+}
+
 function normalizeArtifact<T>(value: unknown): { path: string | null; file_updated_at: string | null; data: T | null } {
   const row = readJsonObject(value);
   return {
@@ -439,7 +453,19 @@ function buildPresenceUrl(target: HammerPersistenceTarget): string {
 export async function loadHammerPersistenceSnapshot(
   target: HammerPersistenceTarget,
 ): Promise<PersistenceResult<HammerPersistenceSnapshot>> {
-  const response = await tongsFetch(buildStateUrl(target), { method: "GET" });
+  let response: Response;
+  try {
+    response = await tongsFetch(buildStateUrl(target), {
+      method: "GET",
+      timeoutMs: HAMMER_PERSISTENCE_LOAD_TIMEOUT_MS,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      status: 504,
+      error: toRequestErrorMessage(error, "Hammer persistence load timed out."),
+    };
+  }
   const payload = await readJsonBody(response);
   if (!response.ok) {
     return {
@@ -469,10 +495,20 @@ export async function saveHammerPersistenceSnapshot(
   target: HammerPersistenceTarget,
   request: HammerPersistenceSaveRequest,
 ): Promise<PersistenceResult<HammerPersistenceSnapshot>> {
-  const response = await tongsFetch(buildStateUrl(target), {
-    method: "PUT",
-    json: request,
-  });
+  let response: Response;
+  try {
+    response = await tongsFetch(buildStateUrl(target), {
+      method: "PUT",
+      json: request,
+      timeoutMs: HAMMER_PERSISTENCE_SAVE_TIMEOUT_MS,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      status: 504,
+      error: toRequestErrorMessage(error, "Hammer persistence save timed out."),
+    };
+  }
   const payload = await readJsonBody(response);
   if (!response.ok) {
     return {
@@ -502,10 +538,20 @@ export async function upsertHammerPresence(
   target: HammerPersistenceTarget,
   request: HammerPresenceRequest,
 ): Promise<PersistenceResult<HammerPresenceRow[]>> {
-  const response = await tongsFetch(buildPresenceUrl(target), {
-    method: "PUT",
-    json: request,
-  });
+  let response: Response;
+  try {
+    response = await tongsFetch(buildPresenceUrl(target), {
+      method: "PUT",
+      json: request,
+      timeoutMs: HAMMER_PRESENCE_TIMEOUT_MS,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      status: 504,
+      error: toRequestErrorMessage(error, "Failed to update Hammer presence."),
+    };
+  }
   const payload = await readJsonBody(response);
   if (!response.ok) {
     return {

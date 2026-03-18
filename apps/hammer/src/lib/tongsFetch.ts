@@ -10,7 +10,7 @@ const SUPABASE_AUTH_STORAGE_KEY = "forge-auth";
 const SUPABASE_AUTH_KEY_RE = /^sb-[a-z0-9-]+-auth-token$/i;
 const PLACEHOLDER_TONGS_TOKENS = new Set(["DEV_TOKEN"]);
 
-export type TongsFetchOptions = RequestInit & { json?: unknown };
+export type TongsFetchOptions = RequestInit & { json?: unknown; timeoutMs?: number };
 
 function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -214,7 +214,7 @@ function resolveRawTongsApiToken(): string | null {
 }
 
 export async function tongsFetch(url: string, options: TongsFetchOptions = {}): Promise<Response> {
-  const { json, headers: initHeaders, body: initBody, ...rest } = options;
+  const { json, headers: initHeaders, body: initBody, timeoutMs, signal: initSignal, ...rest } = options;
   const headers = new Headers(initHeaders ?? {});
   const apiToken = resolveRawTongsApiToken();
   const userAccessToken = await resolveUserAccessToken();
@@ -250,7 +250,44 @@ export async function tongsFetch(url: string, options: TongsFetchOptions = {}): 
     body = JSON.stringify(json);
   }
 
-  return fetch(url, { ...rest, headers, body });
+  if (!timeoutMs && !initSignal) {
+    return fetch(url, { ...rest, headers, body });
+  }
+
+  const abortController = new AbortController();
+  let timedOut = false;
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const onAbort = () => abortController.abort();
+
+  if (initSignal) {
+    if (initSignal.aborted) {
+      abortController.abort();
+    } else {
+      initSignal.addEventListener("abort", onAbort, { once: true });
+    }
+  }
+  if (timeoutMs && timeoutMs > 0) {
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      abortController.abort();
+    }, timeoutMs);
+  }
+
+  try {
+    return await fetch(url, { ...rest, headers, body, signal: abortController.signal });
+  } catch (error) {
+    if (timedOut) {
+      throw new Error(`Tongs request timed out after ${Math.ceil(timeoutMs! / 1000)} seconds.`);
+    }
+    throw error;
+  } finally {
+    if (timeoutId != null) {
+      clearTimeout(timeoutId);
+    }
+    if (initSignal) {
+      initSignal.removeEventListener("abort", onAbort);
+    }
+  }
 }
 
 export function resolveTongsApiToken(): string | undefined {

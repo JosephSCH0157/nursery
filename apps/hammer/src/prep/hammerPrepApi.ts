@@ -29,6 +29,8 @@ export interface HammerTranscriptPrepResponse {
   segments: HammerTranscriptPrepSegment[];
 }
 
+const HAMMER_TRANSCRIPT_PREP_TIMEOUT_MS = 3 * 60 * 1000;
+
 const SUPABASE_AUTH_STORAGE_KEY = "forge-auth";
 const SUPABASE_AUTH_KEY_RE = /^sb-[a-z0-9-]+-auth-token$/i;
 
@@ -285,11 +287,25 @@ export async function requestHammerTranscriptPrep(
     headers.set("x-forge-user-authorization", `Bearer ${userAccessToken}`);
   }
 
-  const response = await fetch(HAMMER_TRANSCRIPT_PREP_ROUTE, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(request),
-  });
+  const abortController = new AbortController();
+  const timeoutId = window.setTimeout(() => abortController.abort(), HAMMER_TRANSCRIPT_PREP_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(HAMMER_TRANSCRIPT_PREP_ROUTE, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(request),
+      signal: abortController.signal,
+    });
+  } catch (error) {
+    if (abortController.signal.aborted) {
+      throw new Error("Hammer transcript prep timed out after 3 minutes. Restart the Nursery dev server and retry.");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
