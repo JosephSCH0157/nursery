@@ -5614,6 +5614,103 @@ test("TongsCommitService.commitWorkspaceFile maps oversized storage uploads to 4
   );
 });
 
+test("TongsCommitService.commitWorkspaceFile writes canonical role-root keys when path starts with a storage role", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const ownerUserId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const uploadCalls = [];
+  const service = new TongsCommitService({
+    storage: {
+      from(bucket) {
+        assert.equal(bucket, "forge-workpieces");
+        return {
+          async upload(key) {
+            uploadCalls.push(key);
+            return { data: { path: key }, error: null };
+          },
+        };
+      },
+    },
+  }, "forge-workpieces", null);
+
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: ownerUserId,
+    created_at: "2026-03-02T00:00:00.000Z",
+    updated_at: "2026-03-02T00:00:00.000Z",
+    storage_profile: null,
+  });
+
+  const result = await service.commitWorkspaceFile(workspaceId, {
+    path: "recordings/session-index.json",
+    json: { takes: 3 },
+    written_by: {
+      tool: "anvil",
+      tool_version: "0.0.0",
+      lane: "forge-managed",
+    },
+  });
+
+  assert.equal(uploadCalls.length, 1);
+  assert.equal(uploadCalls[0], `${ownerUserId}/${workspaceId}/recordings/session-index.json`);
+  assert.equal(result.storage_key, `${ownerUserId}/${workspaceId}/recordings/session-index.json`);
+});
+
+test("TongsCommitService.readWorkspaceJson falls back to legacy role-root key when canonical object is absent", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const ownerUserId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const downloadCalls = [];
+  const service = new TongsCommitService({
+    storage: {
+      from(bucket) {
+        assert.equal(bucket, "forge-workpieces");
+        return {
+          async download(key) {
+            downloadCalls.push(key);
+            if (key === `${ownerUserId}/${workspaceId}/recordings/index.json`) {
+              return {
+                data: null,
+                error: { message: "Object not found", statusCode: "404" },
+              };
+            }
+
+            if (key === `workspaces/${workspaceId}/recordings/index.json`) {
+              return {
+                data: {
+                  async arrayBuffer() {
+                    return new TextEncoder().encode(JSON.stringify({ legacy: true })).buffer;
+                  },
+                },
+                error: null,
+              };
+            }
+
+            return {
+              data: null,
+              error: { message: "Object not found", statusCode: "404" },
+            };
+          },
+        };
+      },
+    },
+  }, "forge-workpieces", null);
+
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: ownerUserId,
+    created_at: "2026-03-02T00:00:00.000Z",
+    updated_at: "2026-03-02T00:00:00.000Z",
+    storage_profile: null,
+  });
+
+  const result = await service.readWorkspaceJson(workspaceId, "recordings/index.json");
+
+  assert.equal(downloadCalls.length, 2);
+  assert.equal(downloadCalls[0], `${ownerUserId}/${workspaceId}/recordings/index.json`);
+  assert.equal(downloadCalls[1], `workspaces/${workspaceId}/recordings/index.json`);
+  assert.equal(result.found, true);
+  assert.deepEqual(result.data, { legacy: true });
+});
+
 test("TongsCommitService.deleteReadyScript returns warning when storage delete fails", async () => {
   const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const workpieceId = "11111111-1111-4111-8111-111111111111";
@@ -5724,6 +5821,7 @@ test("TongsCommitService.deleteReadyScript does not touch ready queue state", as
 
 test("TongsCommitService.listWorkspaceStorage returns nested canonical cloud nodes", async () => {
   const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const ownerUserId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
   const storageCalls = [];
   const service = new TongsCommitService({
     storage: {
@@ -5733,7 +5831,7 @@ test("TongsCommitService.listWorkspaceStorage returns nested canonical cloud nod
           async list(path, options) {
             storageCalls.push({ path, options });
 
-            if (path === `workspaces/${workspaceId}/recordings`) {
+            if (path === `${ownerUserId}/${workspaceId}/recordings`) {
               return {
                 data: [
                   { name: "session-a" },
@@ -5748,7 +5846,7 @@ test("TongsCommitService.listWorkspaceStorage returns nested canonical cloud nod
               };
             }
 
-            if (path === `workspaces/${workspaceId}/recordings/session-a`) {
+            if (path === `${ownerUserId}/${workspaceId}/recordings/session-a`) {
               return {
                 data: [
                   {
@@ -5775,7 +5873,7 @@ test("TongsCommitService.listWorkspaceStorage returns nested canonical cloud nod
   });
   service.getWorkspaceOrThrow = async () => ({
     id: workspaceId,
-    created_by: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    created_by: ownerUserId,
     created_at: "2026-03-18T00:00:00.000Z",
     updated_at: "2026-03-18T00:00:00.000Z",
     storage_profile: null,
@@ -5786,14 +5884,76 @@ test("TongsCommitService.listWorkspaceStorage returns nested canonical cloud nod
   });
 
   assert.equal(result.source.kind, "cloud_canonical");
-  assert.equal(result.source.root_path, "recordings");
+  assert.equal(result.source.root_path, `${ownerUserId}/${workspaceId}/recordings`);
   assert.equal(storageCalls.length, 2);
-  assert.equal(storageCalls[0]?.path, `workspaces/${workspaceId}/recordings`);
-  assert.equal(storageCalls[1]?.path, `workspaces/${workspaceId}/recordings/session-a`);
+  assert.equal(storageCalls[0]?.path, `${ownerUserId}/${workspaceId}/recordings`);
+  assert.equal(storageCalls[1]?.path, `${ownerUserId}/${workspaceId}/recordings/session-a`);
   assert.equal(result.nodes.length, 2);
   assert.equal(result.nodes[0]?.kind, "directory");
-  assert.equal(result.nodes[0]?.path, "recordings/session-a");
-  assert.equal(result.nodes[0]?.children?.[0]?.path, "recordings/session-a/take-01.wav");
+  assert.equal(result.nodes[0]?.path, `${ownerUserId}/${workspaceId}/recordings/session-a`);
+  assert.equal(result.nodes[0]?.children?.[0]?.path, `${ownerUserId}/${workspaceId}/recordings/session-a/take-01.wav`);
   assert.equal(result.nodes[1]?.kind, "file");
   assert.equal(result.nodes[1]?.bytes, 8192);
+});
+
+test("TongsCommitService.listWorkspaceStorage falls back to legacy role-root prefix when canonical root is empty", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const ownerUserId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const storageCalls = [];
+  const service = new TongsCommitService({
+    storage: {
+      from(bucket) {
+        assert.equal(bucket, "forge-workpieces");
+        return {
+          async list(path) {
+            storageCalls.push(path);
+
+            if (path === `${ownerUserId}/${workspaceId}/exports`) {
+              return { data: [], error: null };
+            }
+
+            if (path === `workspaces/${workspaceId}/exports`) {
+              return {
+                data: [
+                  {
+                    name: "final.mp4",
+                    id: "legacy-export",
+                    metadata: { size: 16384 },
+                    updated_at: "2026-03-18T16:00:00.000Z",
+                  },
+                ],
+                error: null,
+              };
+            }
+
+            return { data: [], error: null };
+          },
+        };
+      },
+    },
+  }, "forge-workpieces", null);
+
+  service.assertWorkspaceRoleFromAccessToken = async () => ({
+    userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    role: "viewer",
+  });
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: ownerUserId,
+    created_at: "2026-03-18T00:00:00.000Z",
+    updated_at: "2026-03-18T00:00:00.000Z",
+    storage_profile: null,
+  });
+
+  const result = await service.listWorkspaceStorage(workspaceId, "exports", {
+    userAccessToken: "viewer_token",
+  });
+
+  assert.deepEqual(storageCalls, [
+    `${ownerUserId}/${workspaceId}/exports`,
+    `workspaces/${workspaceId}/exports`,
+  ]);
+  assert.equal(result.source.root_path, `workspaces/${workspaceId}/exports`);
+  assert.equal(result.nodes.length, 1);
+  assert.equal(result.nodes[0]?.path, `workspaces/${workspaceId}/exports/final.mp4`);
 });

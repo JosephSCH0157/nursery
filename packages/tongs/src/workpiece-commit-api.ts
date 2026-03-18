@@ -12,6 +12,11 @@ import {
 import type { HearthVisualStyleValue } from "./hearth-visual-styles.js";
 import type { RecordingSessionDTO, RecordingSessionItemDTO } from "./types.js";
 import { ALL_MOUNT_ROLES, type MountRole } from "./storage/storage-contract.js";
+import {
+  resolveWorkspaceCloudListingPrefixes,
+  resolveWorkspaceCloudReadCandidates,
+  resolveWorkspaceCloudWriteTarget,
+} from "./storage/cloud-prefix.js";
 
 export const TONGS_WORKPIECE_BUCKET = "forge-workpieces";
 
@@ -1291,10 +1296,6 @@ function buildStorageKey(workpieceId: string, path: string): string {
   return `workpieces/${workpieceId}/${path}`;
 }
 
-function buildWorkspaceStorageKey(workspaceId: string, path: string): string {
-  return `workspaces/${workspaceId}/${path}`;
-}
-
 function buildManifestFileEntry(
   type: string,
   contentType: string,
@@ -1763,6 +1764,18 @@ async function downloadStorageObject(
   if (!data) return null;
   const ab = await data.arrayBuffer();
   return new Uint8Array(ab);
+}
+
+async function downloadStorageObjectFromCandidates(
+  supabase: SupabaseClient<Database>,
+  bucket: string,
+  keys: readonly string[],
+): Promise<Uint8Array | null> {
+  for (const key of keys) {
+    const bytes = await downloadStorageObject(supabase, bucket, key);
+    if (bytes) return bytes;
+  }
+  return null;
 }
 
 function canonicalizeJsonlLine(input: unknown): Uint8Array {
@@ -5124,7 +5137,7 @@ export class TongsCommitService {
   }
 
   async commitWorkspaceFile(workspaceId: string, input: CommitFileRequest): Promise<CommitWorkspaceFileResponse> {
-    await this.getWorkspaceOrThrow(workspaceId);
+    const workspace = await this.getWorkspaceOrThrow(workspaceId);
     const path = normalizeRelativePath(input.path);
     if (extensionOf(path) !== ".json") {
       throw new HttpError(400, "invalid_path", "Workspace commit-file currently supports JSON paths only");
@@ -5136,7 +5149,10 @@ export class TongsCommitService {
       throw new HttpError(400, "invalid_payload", "workspace commit-file does not support jsonl_append");
     }
 
-    const storageKey = buildWorkspaceStorageKey(workspaceId, path);
+    const storageKey = resolveWorkspaceCloudWriteTarget({
+      workspaceId,
+      ownerUserId: workspace.created_by,
+    }, path).key;
     const bytes = canonicalizeReplaceBytes(path, contentType, input);
     const hash = await sha256Hex(bytes);
 
@@ -5933,8 +5949,15 @@ export class TongsCommitService {
   }
 
   async readWorkspaceJson(workspaceId: string, path: string): Promise<ReadJsonFileResult> {
-    const storageKey = buildWorkspaceStorageKey(workspaceId, path);
-    const bytes = await downloadStorageObject(this.supabase, this.bucket, storageKey);
+    const workspace = await this.getWorkspaceOrThrow(workspaceId);
+    const bytes = await downloadStorageObjectFromCandidates(
+      this.supabase,
+      this.bucket,
+      resolveWorkspaceCloudReadCandidates({
+        workspaceId,
+        ownerUserId: workspace.created_by,
+      }, path),
+    );
     if (!bytes) return { found: false };
     const parsed = parseJsonText(textDecoder.decode(bytes), path);
     return { found: true, data: parsed, file_row: null };
@@ -5979,20 +6002,25 @@ export class TongsCommitService {
   }
 
   async readWorkspaceText(workspaceId: string, path: string): Promise<ReadTextFileResult> {
-    const storageKey = buildWorkspaceStorageKey(workspaceId, path);
-    const bytes = await downloadStorageObject(this.supabase, this.bucket, storageKey);
+    const workspace = await this.getWorkspaceOrThrow(workspaceId);
+    const bytes = await downloadStorageObjectFromCandidates(
+      this.supabase,
+      this.bucket,
+      resolveWorkspaceCloudReadCandidates({
+        workspaceId,
+        ownerUserId: workspace.created_by,
+      }, path),
+    );
     if (!bytes) return { found: false };
     const text = normalizeLf(stripBom(textDecoder.decode(bytes)));
     return { found: true, text, file_row: null };
   }
 
   private async listWorkspaceStoragePrefix(
-    workspaceId: string,
-    relativePath: string,
+    storagePrefix: string,
     depth: number,
   ): Promise<WorkspaceStorageTreeNode[]> {
-    const storageKey = buildWorkspaceStorageKey(workspaceId, relativePath);
-    const { data, error } = await this.supabase.storage.from(this.bucket).list(storageKey, {
+    const { data, error } = await this.supabase.storage.from(this.bucket).list(storagePrefix, {
       limit: STORAGE_LIST_MAX_ITEMS_PER_DIRECTORY + 1,
       sortBy: { column: "name", order: "asc" },
     });
@@ -6001,7 +6029,7 @@ export class TongsCommitService {
       throw new HttpError(502, "storage_list_failed", "Failed to list workspace storage root", {
         reason: error.message,
         bucket: this.bucket,
-        key: storageKey,
+        key: storagePrefix,
       });
     }
 
@@ -6014,7 +6042,7 @@ export class TongsCommitService {
       const name = typeof row.name === "string" ? row.name.trim() : "";
       if (!name) continue;
 
-      const path = joinRelativePath(relativePath, name);
+      const path = joinRelativePath(storagePrefix, name);
       const kind = inferWorkspaceStorageNodeKind(row);
       const node: WorkspaceStorageTreeNode = {
         name,
@@ -6025,7 +6053,7 @@ export class TongsCommitService {
 
       if (kind === "directory") {
         if (depth > 0) {
-          node.children = await this.listWorkspaceStoragePrefix(workspaceId, path, depth - 1);
+          node.children = await this.listWorkspaceStoragePrefix(path, depth - 1);
         } else {
           node.note = `Nested listing stops after depth ${STORAGE_LIST_MAX_DEPTH}.`;
         }
@@ -6040,7 +6068,7 @@ export class TongsCommitService {
       nodes.push({
         name: "+ more items",
         kind: "file",
-        path: joinRelativePath(relativePath, "__truncated__"),
+        path: joinRelativePath(storagePrefix, "__truncated__"),
         note: `Directory listing truncated after ${STORAGE_LIST_MAX_ITEMS_PER_DIRECTORY} entries.`,
       });
     }
@@ -6054,13 +6082,35 @@ export class TongsCommitService {
     role: MountRole,
     options?: ListWorkspaceStorageOptions,
   ): Promise<WorkspaceStorageListing> {
-    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
-    await this.getWorkspaceOrThrow(workspaceId);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
+    const workspace = await this.getWorkspaceOrThrow(workspaceId);
 
     const prefix = normalizeOptionalRelativePath(options?.prefix ?? null);
     const depth = typeof options?.depth === "number" ? options.depth : STORAGE_LIST_MAX_DEPTH;
-    const rootPath = prefix ? `${role}/${prefix}` : role;
-    const nodes = await this.listWorkspaceStoragePrefix(workspaceId, rootPath, depth);
+    const candidatePrefixes = resolveWorkspaceCloudListingPrefixes({
+      workspaceId,
+      ownerUserId: workspace.created_by,
+      fallbackUserId: auth.userId,
+    }, role, prefix);
+
+    let rootPath = candidatePrefixes[0] ?? null;
+    let nodes: WorkspaceStorageTreeNode[] = [];
+
+    for (const candidatePrefix of candidatePrefixes) {
+      const candidateNodes = await this.listWorkspaceStoragePrefix(candidatePrefix, depth);
+      rootPath = candidatePrefix;
+      nodes = candidateNodes;
+      if (candidateNodes.length > 0) {
+        break;
+      }
+    }
+
+    if (!rootPath) {
+      throw new HttpError(500, "storage_prefix_resolution_failed", "Unable to resolve workspace cloud storage prefix", {
+        workspace_id: workspaceId,
+        role,
+      });
+    }
 
     return {
       source: {
