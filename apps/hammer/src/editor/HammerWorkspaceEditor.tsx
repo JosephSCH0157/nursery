@@ -147,7 +147,38 @@ export default function HammerWorkspaceEditor(
   const readyTransitionTimerRef = useRef<number | null>(null);
   const lastSavedPayloadRef = useRef<string | null>(null);
   const prepRunKeyRef = useRef<string | null>(null);
+  const prepExecutionIdRef = useRef(0);
+  const isMountedRef = useRef(true);
   const dynamicStyleScopeIdRef = useRef(`hammer-workspace-editor-${Math.random().toString(36).slice(2, 10)}`);
+
+  const clearReadyTransitionTimer = (): void => {
+    if (readyTransitionTimerRef.current != null) {
+      window.clearTimeout(readyTransitionTimerRef.current);
+      readyTransitionTimerRef.current = null;
+    }
+  };
+
+  const beginPrepExecution = (): number => {
+    prepExecutionIdRef.current += 1;
+    return prepExecutionIdRef.current;
+  };
+
+  const isPrepExecutionActive = (executionId: number): boolean => (
+    isMountedRef.current && prepExecutionIdRef.current === executionId
+  );
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      prepExecutionIdRef.current += 1;
+      clearReadyTransitionTimer();
+      if (saveTimerRef.current != null) {
+        window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const ensureVisualPlacements = async (args: {
     launchContext: HammerLaunchContext;
@@ -312,6 +343,7 @@ export default function HammerWorkspaceEditor(
   };
 
   useEffect(() => {
+    beginPrepExecution();
     lastSavedPayloadRef.current = null;
     prepRunKeyRef.current = null;
     setWorkspaceSnapshot(null);
@@ -321,10 +353,7 @@ export default function HammerWorkspaceEditor(
     openedAtRef.current = new Date().toISOString();
     setEffectiveLaunchContext(withSessionId(props.launchContext));
 
-    if (readyTransitionTimerRef.current != null) {
-      window.clearTimeout(readyTransitionTimerRef.current);
-      readyTransitionTimerRef.current = null;
-    }
+    clearReadyTransitionTimer();
 
     if (persistenceMode !== "canonical" || !persistenceTarget) {
       setPrepState(createHammerPrepState("idle", null));
@@ -445,9 +474,10 @@ export default function HammerWorkspaceEditor(
       }
 
       prepRunKeyRef.current = reuseRunKey;
-      let active = true;
+      const executionId = beginPrepExecution();
 
       const runReuse = async () => {
+        clearReadyTransitionTimer();
         setShowPreparedHandoff(false);
         setPrepState(createHammerPrepState("preparing", "placing_initial_visuals"));
 
@@ -459,7 +489,7 @@ export default function HammerWorkspaceEditor(
               ?? reusableTranscript.segments,
             currentSnapshot: loadedPersistenceSnapshot,
           });
-          if (!active) return;
+          if (!isPrepExecutionActive(executionId)) return;
 
           setLoadedPersistenceSnapshot(nextSnapshot);
           setPrepState(createHammerPrepState("preparing", "polishing_audio"));
@@ -471,18 +501,18 @@ export default function HammerWorkspaceEditor(
           } catch {
             // Audio polish falls back to raw playback without blocking workspace open.
           }
-          if (!active) return;
+          if (!isPrepExecutionActive(executionId)) return;
 
           setLoadedPersistenceSnapshot(nextSnapshot);
           setPrepState(createHammerPrepState("preparing", "ready_for_next_step"));
           readyTransitionTimerRef.current = window.setTimeout(() => {
-            if (!active) return;
+            if (!isPrepExecutionActive(executionId)) return;
             setPrepState(createHammerPrepState("prepared", "ready_for_next_step"));
             setShowPreparedHandoff(true);
             readyTransitionTimerRef.current = null;
           }, READY_HANDOFF_DELAY_MS);
         } catch (error) {
-          if (!active) return;
+          if (!isPrepExecutionActive(executionId)) return;
           const message = toErrorMessage(error, "Hammer could not prepare initial visual placements.");
           setPrepState(createHammerPrepState("prep_failed", null, message));
           setShowPreparedHandoff(false);
@@ -490,14 +520,7 @@ export default function HammerWorkspaceEditor(
       };
 
       void runReuse();
-
-      return () => {
-        active = false;
-        if (readyTransitionTimerRef.current != null) {
-          window.clearTimeout(readyTransitionTimerRef.current);
-          readyTransitionTimerRef.current = null;
-        }
-      };
+      return;
     }
     if (openDecision.action === "blocked" || !effectiveLaunchContext) {
       setPrepState(openDecision.state);
@@ -516,9 +539,10 @@ export default function HammerWorkspaceEditor(
     }
 
     prepRunKeyRef.current = prepRunKey;
-    let active = true;
+    const executionId = beginPrepExecution();
 
     const runPrep = async () => {
+      clearReadyTransitionTimer();
       setShowPreparedHandoff(false);
       setPrepState(createHammerPrepState("preparing", "transcribing_audio"));
 
@@ -528,7 +552,7 @@ export default function HammerWorkspaceEditor(
           status: "preparing",
         });
         const preparingSave = await saveHammerPersistenceSnapshot(persistenceTarget, preparingRequest);
-        if (active && preparingSave.ok) {
+        if (isPrepExecutionActive(executionId) && preparingSave.ok) {
           setLoadedPersistenceSnapshot(preparingSave.data);
         }
 
@@ -546,7 +570,7 @@ export default function HammerWorkspaceEditor(
             }),
           mime_type: prepSource.mediaRef.kind === "recording_audio" ? "audio/wav" : null,
         });
-        if (!active) return;
+        if (!isPrepExecutionActive(executionId)) return;
 
         setPrepState(createHammerPrepState("preparing", "identifying_speaker_turns"));
         const preparedTranscript = buildPreparedTranscript(effectiveLaunchContext, preparedResponse);
@@ -554,11 +578,11 @@ export default function HammerWorkspaceEditor(
           effectiveLaunchContext,
           preparedTranscript,
         );
-        if (!active) return;
+        if (!isPrepExecutionActive(executionId)) return;
 
         setPrepState(createHammerPrepState("preparing", "placing_initial_visuals"));
         const visualPackageResult = await loadHammerWorkpieceVisualPackage(nextLaunchContext.workpiece_id);
-        if (!active) return;
+        if (!isPrepExecutionActive(executionId)) return;
 
         const visualPlacements = visualPackageResult.ok
           ? deriveHammerVisualPlacements({
@@ -581,7 +605,7 @@ export default function HammerWorkspaceEditor(
         if (!preparedSave.ok) {
           throw new Error(preparedSave.error);
         }
-        if (!active) return;
+        if (!isPrepExecutionActive(executionId)) return;
 
         setPrepState(createHammerPrepState("preparing", "polishing_audio"));
         try {
@@ -599,7 +623,7 @@ export default function HammerWorkspaceEditor(
         } catch {
           // Audio polish falls back to raw playback without blocking workspace open.
         }
-        if (!active) return;
+        if (!isPrepExecutionActive(executionId)) return;
 
         prepRunKeyRef.current = `${targetKey ?? "hammer"}:reuse:${preparedTranscript.transcriptId}:${prepAttemptNonce}`;
         setLoadedPersistenceSnapshot(preparedSave.data);
@@ -609,13 +633,13 @@ export default function HammerWorkspaceEditor(
         });
         setPrepState(createHammerPrepState("preparing", "ready_for_next_step"));
         readyTransitionTimerRef.current = window.setTimeout(() => {
-          if (!active) return;
+          if (!isPrepExecutionActive(executionId)) return;
           setPrepState(createHammerPrepState("prepared", "ready_for_next_step"));
           setShowPreparedHandoff(true);
           readyTransitionTimerRef.current = null;
         }, READY_HANDOFF_DELAY_MS);
       } catch (error) {
-        if (!active) return;
+        if (!isPrepExecutionActive(executionId)) return;
         const message = toErrorMessage(error, "Hammer could not prepare the transcript.");
         setPrepState(createHammerPrepState("prep_failed", null, message));
         setShowPreparedHandoff(false);
@@ -626,7 +650,7 @@ export default function HammerWorkspaceEditor(
             status: "prep_failed",
           });
           const failedSave = await saveHammerPersistenceSnapshot(persistenceTarget, failedRequest);
-          if (active && failedSave.ok) {
+          if (isPrepExecutionActive(executionId) && failedSave.ok) {
             setLoadedPersistenceSnapshot(failedSave.data);
           }
         } catch {
@@ -636,14 +660,6 @@ export default function HammerWorkspaceEditor(
     };
 
     void runPrep();
-
-    return () => {
-      active = false;
-      if (readyTransitionTimerRef.current != null) {
-        window.clearTimeout(readyTransitionTimerRef.current);
-        readyTransitionTimerRef.current = null;
-      }
-    };
   }, [
     effectiveLaunchContext,
     hydrationReady,
