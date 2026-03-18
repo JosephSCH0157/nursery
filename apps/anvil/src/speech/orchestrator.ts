@@ -1,5 +1,6 @@
 import { emitAsrSyncFromLineDelta } from './asrSync';
 import * as matcher from './matcher';
+import { prepareMatcherInput, stripMatcherMetaPhrases } from './matcher-input';
 import type { Recognizer } from './recognizer';
 import { createRecognizer } from './recognizer';
 import { getAsrDriverThresholds } from '../asr/asr-threshold-store';
@@ -108,27 +109,6 @@ let _cb: ((_evt: MatchEvent) => void) | null = null;
 
 const MATCH_LOG_THROTTLE_MS = 250;
 let lastMatchLogAt = 0;
-const MATCH_TOKEN_WINDOW = 18;
-
-const META_PHRASES: RegExp[] = [
-  /\bit(?:'s| is) not keeping up\b/gi,
-  /\bit(?:'s| is) not moving\b/gi,
-  /\bit(?:'s| is) not scrolling\b/gi,
-  /\bhas(?:n't| not) moved\b/gi,
-  /\bokay so\b/gi,
-  /\byou know\b/gi,
-  /\bi think\b/gi,
-  /\blet(?:'s| us) see\b/gi,
-  /\bi(?:'m| am) going to\b/gi,
-  /\bim going to\b/gi,
-  /\bgoing to have to\b/gi,
-  /\bsend (?:you|u)\b/gi,
-  /\bscreenshots?\b/gi,
-  /\bchatgpt\b/gi,
-  /\bdev\b/gi,
-  /\blogs?\b/gi,
-  /\bdebug\b/gi,
-];
 
 let matchIdSeq = 0;
 const nextMatchId = () => {
@@ -139,11 +119,7 @@ const nextMatchId = () => {
 function isMetaTranscript(text: string): boolean {
   const input = String(text || '');
   if (!input) return false;
-  for (const rx of META_PHRASES) {
-    rx.lastIndex = 0;
-    if (rx.test(input)) return true;
-  }
-  return false;
+  return stripMatcherMetaPhrases(input) !== input;
 }
 
 // Lightweight cosine similarity for HUD transcript enrichment (dev only usage)
@@ -329,15 +305,6 @@ function compactClue(tokens: string[], maxTokens: number): string {
     .trim();
 }
 
-function stripMetaPhrases(text: string): string {
-  let out = String(text || '');
-  for (const rx of META_PHRASES) {
-    rx.lastIndex = 0;
-    out = out.replace(rx, ' ');
-  }
-  return out;
-}
-
 function resolveBandRange(
   currentIndex: number,
   paraIndex: Array<{ line?: number }>,
@@ -358,9 +325,7 @@ function resolveBandRange(
 
 export function matchBatch(text: string, isFinal: boolean, opts?: MatchBatchOptions): matcher.MatchResult {
   try {
-    const scrubbed = stripMetaPhrases(text || '');
-    const spokenTokens = matcher.normTokens(scrubbed);
-    const matchTokens = spokenTokens.slice(-MATCH_TOKEN_WINDOW);
+    const { spokenTokens, matchTokens } = prepareMatcherInput(text || '', matcher.normTokens);
     if (spokenTokens.length) {
       noteAsrSpeechActivity(text);
     }
@@ -548,6 +513,5 @@ export function stopRecognizer() {
     // noop
   }
 })();
-
 
 

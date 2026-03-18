@@ -30,8 +30,65 @@ const __asrInstances = new Set();
 const RESCUE_JUMPS_ENABLED = false; // temp gate: keep HUD telemetry but disable forced reposition
 
 const scrollWriter = getScrollWriter();
+let legacyAsrCompatBlockedWarned = false;
+
+function isCanonicalTsRuntimeActive() {
+  if (typeof window === 'undefined') return false;
+  try {
+    return (
+      (window as any).__TP_TS_PRIMARY__ === true ||
+      (window as any).__TP_BOOT_OWNER === 'ts:index' ||
+      (window as any).__tpBootPath === 'ts:index' ||
+      (window as any).__tpTsBooted === 1
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isExplicitLegacyAsrRequested() {
+  if (typeof window === 'undefined') return false;
+  try {
+    if ((window as any).__tpAllowLegacyAsrMode === true) return true;
+    if ((window as any).__TP_ALLOW_LEGACY_BOOT === true) return true;
+    if ((window as any).__tpAllowLegacyBoot === true) return true;
+    const params = new URLSearchParams(window.location.search || '');
+    if (params.get('legacyAsrMode') === '1') return true;
+    if (params.get('legacy') === '1') return true;
+    if (String(window.location.hash || '').toLowerCase().includes('legacy=1')) return true;
+    try {
+      return window.localStorage?.getItem('tp_legacy') === '1';
+    } catch {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+}
+
+function allowLegacyAsrCompatibilityRuntime() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return true;
+  if (isExplicitLegacyAsrRequested()) return true;
+  return !isCanonicalTsRuntimeActive();
+}
+
+function guardLegacyAsrCompatibilityRuntime() {
+  if (allowLegacyAsrCompatibilityRuntime()) {
+    try { (window as any).__TP_LEGACY_ASR_COMPAT_ONLY__ = true; } catch {}
+    return true;
+  }
+  try { (window as any).__TP_LEGACY_ASR_BLOCKED__ = true; } catch {}
+  if (!legacyAsrCompatBlockedWarned) {
+    legacyAsrCompatBlockedWarned = true;
+    try {
+      console.warn('[ASR legacy] blocked while canonical TS runtime is active. Use ?legacyAsrMode=1 or ?legacy=1 to allow.');
+    } catch {}
+  }
+  return false;
+}
 
 export function initAsrFeature() {
+  if (!guardLegacyAsrCompatibilityRuntime()) return false;
   try { console.info('[ASR] dev initAsrFeature()'); } catch {}
   // Ensure the status chip node exists early, but hidden, to avoid layout shifts before it's placed into the top bar
   try {
@@ -741,4 +798,3 @@ export async function teardownASR() {
 
 // Also expose a window helper for headless smokes that don't import ESM named exports
 try { if (typeof window !== 'undefined') { window.__asrFinalizeForTests = teardownASR; } } catch {}
-

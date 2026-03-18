@@ -23,7 +23,9 @@ import {
 } from '../scroll/scroller';
 import { ensureSpeechGlobals, isSpeechBackendAllowed } from '../speech/backend-guard';
 import { createWhisperBridgeRecognizer } from '../speech/engines/whisper-bridge';
+import { prepareMatcherInput } from '../speech/matcher-input';
 import { matchBatch as runMatcherBatch, normTokens, type MatchConfig } from '../speech/matcher';
+import { resolveRuntimeSpeechEngine } from '../speech/runtime-engine-selection';
 import { stopAsrRuntime } from '../speech/runtime-control';
 import type { AppStore } from '../state/app-store';
 import { getSession, setSessionPhase } from '../state/session';
@@ -1736,8 +1738,8 @@ function deriveDirectMatcherResult(
   speechStoreState?: any,
 ): Record<string, unknown> | null {
   if (typeof window === 'undefined') return null;
-  const spokenTokens = normTokens(String(transcript || ''));
-  if (!spokenTokens.length) return null;
+  const { matchTokens } = prepareMatcherInput(String(transcript || ''), normTokens);
+  if (!matchTokens.length) return null;
   const blockSnapshot = getAsrBlockSnapshot();
   if (!(blockSnapshot.ready && blockSnapshot.count > 0)) {
     return null;
@@ -1766,7 +1768,7 @@ function deriveDirectMatcherResult(
   };
   try {
     const raw = runMatcherBatch(
-      spokenTokens,
+      matchTokens,
       scriptWords,
       paraIndex,
       vParaIndex,
@@ -3609,7 +3611,10 @@ async function startBackendForSession(mode: string, reason?: string): Promise<bo
   const speechNs = getTpSpeechNamespace();
   const allowLegacyNs = isLegacySpeechNamespaceAllowed();
   const speechStoreState = getTpSpeechStoreSnapshot();
-  const selectedEngine = String((speechStoreState as any)?.engine || '').toLowerCase();
+  const selectedEngine = resolveRuntimeSpeechEngine({
+    speechState: speechStoreState,
+    appStore: (window as any).__tpStore,
+  });
   if (isSettingsHydrating()) {
     try { console.debug('[ASR] startBackend blocked during settings hydration', { mode, reason }); } catch {}
     return false;
@@ -3624,6 +3629,9 @@ async function startBackendForSession(mode: string, reason?: string): Promise<bo
         allowLegacyNamespace: allowLegacyNs,
         hasRecognizerStart: allowLegacyNs && typeof speechNs?.startRecognizer === 'function',
         hasWebSpeech: !!(w?.SpeechRecognition || w?.webkitSpeechRecognition),
+        selectedEngine,
+        speechStoreEngine: (speechStoreState as any)?.engine,
+        appStoreEngine: w?.__tpStore?.get?.('asr.engine'),
         sessionPhase: (speechStoreState as any)?.sessionPhase,
         scrollMode: (speechStoreState as any)?.scrollMode,
         speechRunning: (speechStoreState as any)?.speechRunning,
