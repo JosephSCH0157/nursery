@@ -37,7 +37,7 @@ export interface HammerAudioPolishExecutionPlan {
   readiness: HammerAudioPolishPlanReadiness;
   executable: boolean;
   backend: "builtin" | "ffmpeg" | "none";
-  current_strategy: "builtin_wav_v1" | null;
+  current_strategy: "builtin_wav_v1" | "ffmpeg_working_audio_v1" | null;
   future_strategy: "ffmpeg_working_audio_v1" | null;
   requires_ffmpeg: boolean;
   detail: string;
@@ -119,6 +119,7 @@ export function resolveHammerAudioPolishExecutionPlan(args: {
   sourceExtension?: string | null;
 }): HammerAudioPolishExecutionPlan {
   const extension = normalizeExtension(args.sourceExtension);
+  const ffmpegReady = args.runtime.ffmpeg.ffmpeg_available;
 
   if (args.mediaKind === "recording_audio" || args.mediaKind === "export_audio") {
     if (extension === ".wav") {
@@ -134,11 +135,24 @@ export function resolveHammerAudioPolishExecutionPlan(args: {
       };
     }
 
+    if (ffmpegReady) {
+      return {
+        schema_version: 1,
+        readiness: "ready_now",
+        executable: true,
+        backend: "ffmpeg",
+        current_strategy: "ffmpeg_working_audio_v1",
+        future_strategy: null,
+        requires_ffmpeg: true,
+        detail: "FFmpeg working-audio normalization is available for this non-WAV audio source, so Hammer can prepare canonical WAV audio before baseline polish runs.",
+      };
+    }
+
     return {
       schema_version: 1,
       readiness: "requires_future_ffmpeg",
       executable: false,
-      backend: args.runtime.ffmpeg.install_state === "ready" ? "ffmpeg" : "none",
+      backend: "none",
       current_strategy: null,
       future_strategy: "ffmpeg_working_audio_v1",
       requires_ffmpeg: true,
@@ -147,15 +161,28 @@ export function resolveHammerAudioPolishExecutionPlan(args: {
   }
 
   if (args.mediaKind === "recording_video" || args.mediaKind === "export_video") {
+    if (ffmpegReady) {
+      return {
+        schema_version: 1,
+        readiness: "ready_now",
+        executable: true,
+        backend: "ffmpeg",
+        current_strategy: "ffmpeg_working_audio_v1",
+        future_strategy: null,
+        requires_ffmpeg: true,
+        detail: "FFmpeg working-audio extraction is available for this video source, so Hammer can prepare canonical WAV audio before baseline polish runs.",
+      };
+    }
+
     return {
       schema_version: 1,
       readiness: "requires_future_ffmpeg",
       executable: false,
-      backend: args.runtime.ffmpeg.install_state === "ready" ? "ffmpeg" : "none",
+      backend: "none",
       current_strategy: null,
       future_strategy: "ffmpeg_working_audio_v1",
       requires_ffmpeg: true,
-      detail: "Video sources will need FFmpeg-backed audio extraction into canonical working audio before Hammer can run baseline polish. This groundwork is present, but the FFmpeg path is not enabled in this slice.",
+      detail: "Video sources will need FFmpeg-backed audio extraction into canonical working audio before Hammer can run baseline polish. Hammer will stay on raw playback until FFmpeg working audio is configured and available.",
     };
   }
 

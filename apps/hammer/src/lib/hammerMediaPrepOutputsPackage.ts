@@ -43,6 +43,7 @@ export interface HammerMediaPrepOutputsPackageAudioPolish {
   processor_version: string | null;
   settings_summary: HammerPersistedAudioPolish["settings_summary"];
   output_local_relpath: string | null;
+  output_workpiece_path: string | null;
   output_mime_type: string | null;
   output_duration_ms: number | null;
 }
@@ -59,6 +60,7 @@ export interface HammerMediaPrepOutputsPackagePreferredPlayback {
     | "no_media_source";
   media_id: string | null;
   local_relpath: string | null;
+  workpiece_path: string | null;
   mime_type: string | null;
   source_label: string | null;
 }
@@ -136,13 +138,14 @@ function resolvePreferredPlayback(args: {
     polish
     && polish.status === "prepared"
     && polishFreshness === "current"
-    && polish.output_local_relpath
+    && (polish.output_local_relpath || polish.output_workpiece_path)
   ) {
     return {
       kind: "polished",
       reason: "prepared_audio_polish",
       media_id: polish.source_media_id,
       local_relpath: polish.output_local_relpath,
+      workpiece_path: polish.output_workpiece_path,
       mime_type: polish.output_mime_type,
       source_label: "audio polish artifact",
     };
@@ -155,6 +158,7 @@ function resolvePreferredPlayback(args: {
         reason: "audio_polish_stale",
         media_id: rawSource.media_id,
         local_relpath: rawSource.local_relpath,
+        workpiece_path: null,
         mime_type: null,
         source_label: rawSource.media_source_label,
       };
@@ -165,6 +169,7 @@ function resolvePreferredPlayback(args: {
         reason: "audio_polish_unsupported",
         media_id: rawSource.media_id,
         local_relpath: rawSource.local_relpath,
+        workpiece_path: null,
         mime_type: null,
         source_label: rawSource.media_source_label,
       };
@@ -175,6 +180,7 @@ function resolvePreferredPlayback(args: {
         reason: "audio_polish_failed",
         media_id: rawSource.media_id,
         local_relpath: rawSource.local_relpath,
+        workpiece_path: null,
         mime_type: null,
         source_label: rawSource.media_source_label,
       };
@@ -184,6 +190,7 @@ function resolvePreferredPlayback(args: {
       reason: polish ? "raw_source_available" : "audio_polish_missing",
       media_id: rawSource.media_id,
       local_relpath: rawSource.local_relpath,
+      workpiece_path: null,
       mime_type: null,
       source_label: rawSource.media_source_label,
     };
@@ -194,6 +201,7 @@ function resolvePreferredPlayback(args: {
     reason: "no_media_source",
     media_id: null,
     local_relpath: null,
+    workpiece_path: null,
     mime_type: null,
     source_label: null,
   };
@@ -241,6 +249,7 @@ export function buildHammerMediaPrepOutputsPackage(
         processor_version: audioPolish?.processor_version ?? null,
         settings_summary: audioPolish?.settings_summary ? { ...audioPolish.settings_summary } : {},
         output_local_relpath: audioPolish?.output_local_relpath ?? null,
+        output_workpiece_path: audioPolish?.output_workpiece_path ?? null,
         output_mime_type: audioPolish?.output_mime_type ?? null,
         output_duration_ms: audioPolish?.output_duration_ms ?? null,
       },

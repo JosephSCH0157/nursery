@@ -59,6 +59,7 @@ import {
 import type { ResolvedHammerLaunchContext } from "../lib/launchContext";
 import { createSemanticEditPlanSignature } from "../lib/editPlanSignature";
 import {
+  loadCanonicalAudioPolishPreviewUrl,
   resolveAudioPolishPreviewSrc,
   resolvePreviewMediaSrc,
 } from "../lib/previewSource";
@@ -1222,6 +1223,7 @@ export default function TranscriptSeekMock(
     () => cloneEditInstructions(resolvedLaunch.initial_edit_plan?.instructions ?? []),
   );
   const [devAudioSrc, setDevAudioSrc] = useState<string | null>(null);
+  const [canonicalPolishedAudioSrc, setCanonicalPolishedAudioSrc] = useState<string | null>(null);
   const [preferDevAudioFallback, setPreferDevAudioFallback] = useState(false);
   const [previewMode, setPreviewMode] = useState<HammerPreviewMode>(
     () => resolvedLaunch.initial_preview_mode,
@@ -1560,10 +1562,11 @@ export default function TranscriptSeekMock(
     }),
     [activeDevRecording?.playback_url, activeMediaRef, activeMediaWorkspaceMapping, resolveResult],
   );
-  const polishedMediaSrc = useMemo(
+  const localPolishedMediaSrc = useMemo(
     () => resolveAudioPolishPreviewSrc(activeMediaWorkspaceMapping, audioPolish),
     [activeMediaWorkspaceMapping, audioPolish],
   );
+  const polishedMediaSrc = localPolishedMediaSrc ?? canonicalPolishedAudioSrc;
   const resolvedMediaSrc = polishedMediaSrc ?? linkedMediaSrc;
   const playbackSrc = useMemo(
     () => ((preferDevAudioFallback || !resolvedMediaSrc) ? devAudioSrc : resolvedMediaSrc),
@@ -1589,8 +1592,11 @@ export default function TranscriptSeekMock(
     && !preferDevAudioFallback
     && playbackSrc === resolvedMediaSrc,
   );
-  const showPreviewVideo = previewUsesResolvedMedia && isVideoMediaKind(activeMediaKind);
-  const showPreviewAudioPlayer = previewUsesResolvedMedia && isAudioMediaKind(activeMediaKind);
+  const previewResolvedMediaKind = polishedMediaSrc
+    ? "recording_audio"
+    : activeMediaKind;
+  const showPreviewVideo = previewUsesResolvedMedia && isVideoMediaKind(previewResolvedMediaKind);
+  const showPreviewAudioPlayer = previewUsesResolvedMedia && isAudioMediaKind(previewResolvedMediaKind);
   const previewMonitorAspectRatio = showPreviewVideo && previewVideoAspectRatio && previewVideoAspectRatio > 0
     ? `${previewVideoAspectRatio}`
     : "16 / 9";
@@ -1703,6 +1709,53 @@ export default function TranscriptSeekMock(
       URL.revokeObjectURL(nextUrl);
     };
   }, [transcriptDurationSec]);
+
+  useEffect(() => {
+    if (localPolishedMediaSrc) {
+      setCanonicalPolishedAudioSrc(null);
+      return;
+    }
+    if (audioPolish?.status !== "prepared" || !audioPolish.output_workpiece_path) {
+      setCanonicalPolishedAudioSrc(null);
+      return;
+    }
+
+    let active = true;
+    let objectUrl: string | null = null;
+    setCanonicalPolishedAudioSrc(null);
+
+    void loadCanonicalAudioPolishPreviewUrl({
+      workpieceId: resolvedLaunch.launch_context.workpiece_id,
+      workpiecePath: audioPolish.output_workpiece_path,
+      mimeType: audioPolish.output_mime_type,
+    })
+      .then((nextUrl) => {
+        if (!active) {
+          URL.revokeObjectURL(nextUrl);
+          return;
+        }
+        objectUrl = nextUrl;
+        setCanonicalPolishedAudioSrc(nextUrl);
+      })
+      .catch(() => {
+        if (active) {
+          setCanonicalPolishedAudioSrc(null);
+        }
+      });
+
+    return () => {
+      active = false;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [
+    audioPolish?.output_mime_type,
+    audioPolish?.output_workpiece_path,
+    audioPolish?.status,
+    localPolishedMediaSrc,
+    resolvedLaunch.launch_context.workpiece_id,
+  ]);
 
   useEffect(() => {
     setCurrentTimeSec(0);

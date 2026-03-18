@@ -189,6 +189,7 @@ export interface HammerPersistedAudioPolish {
   processor_version: string | null;
   prepared_at: string | null;
   output_local_relpath: string | null;
+  output_workpiece_path: string | null;
   output_mime_type: string | null;
   output_duration_ms: number | null;
   failure_code: HammerAudioPolishFailureCode | null;

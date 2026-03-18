@@ -1,5 +1,6 @@
 import type { MediaRef, ResolveMediaResult, WorkspaceMediaMapping } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import type { HammerPersistedAudioPolish } from "../persistence/hammerPersistenceContract";
+import { tongsFetch } from "./tongsFetch";
 
 export function buildHammerDevMediaUrl(localRootAbs: string, localRelpath: string): string {
   const params = new URLSearchParams({
@@ -7,6 +8,14 @@ export function buildHammerDevMediaUrl(localRootAbs: string, localRelpath: strin
     local_relpath: localRelpath,
   });
   return `/api/hammer/dev-media?${params.toString()}`;
+}
+
+export function buildHammerCanonicalWorkpieceReadUrl(workpieceId: string, workpiecePath: string): string {
+  const params = new URLSearchParams({
+    path: workpiecePath,
+    encoding: "binary",
+  });
+  return `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?${params.toString()}`;
 }
 
 export function toBrowserMediaSrc(playableUri: string): string {
@@ -58,4 +67,45 @@ export function resolveAudioPolishPreviewSrc(
   if (!audioPolish || audioPolish.status !== "prepared") return null;
   if (!audioPolish.output_local_relpath) return null;
   return buildHammerDevMediaUrl(workspaceMapping.local_root_abs, audioPolish.output_local_relpath);
+}
+
+export async function loadCanonicalAudioPolishPreviewUrl(args: {
+  workpieceId: string;
+  workpiecePath: string;
+  mimeType?: string | null;
+}): Promise<string> {
+  const response = await tongsFetch(
+    buildHammerCanonicalWorkpieceReadUrl(args.workpieceId, args.workpiecePath),
+    {
+      method: "GET",
+      headers: {
+        accept: "application/octet-stream",
+      },
+      timeoutMs: 60_000,
+    },
+  );
+
+  if (!response.ok) {
+    let message = "Hammer could not load canonical audio preview.";
+    try {
+      const payload = await response.json();
+      if (payload && typeof payload === "object") {
+        const row = payload as { error?: { message?: unknown }; message?: unknown };
+        if (typeof row.error?.message === "string" && row.error.message.trim()) {
+          message = row.error.message.trim();
+        } else if (typeof row.message === "string" && row.message.trim()) {
+          message = row.message.trim();
+        }
+      }
+    } catch {
+      // Keep the fallback message stable when the response is not JSON.
+    }
+    throw new Error(message);
+  }
+
+  const bytes = await response.arrayBuffer();
+  const mimeType = response.headers.get("content-type")?.trim()
+    || args.mimeType?.trim()
+    || "application/octet-stream";
+  return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
 }

@@ -172,10 +172,10 @@ async function regenerateAudioPolish(args: {
   const hydrated = buildHammerLaunchContextFromPersistence(args.target, args.snapshot);
   const launchContext = hydrated?.launchContext ?? null;
   const prepSource = launchContext ? resolveHammerPrepSource(launchContext) : null;
-  if (!prepSource?.local_root_abs) {
+  if (!prepSource) {
     return {
       result: "blocked",
-      message: "Hammer media mapping and local source path are required before audio polish can run.",
+      message: "Hammer needs a canonical or mapped media source before audio polish can run.",
       snapshot: null,
     };
   }
@@ -201,6 +201,7 @@ async function regenerateAudioPolish(args: {
       media_kind: prepSource.mediaRef.kind,
       local_root_abs: prepSource.local_root_abs,
       local_relpath: prepSource.local_relpath,
+      canonical_workpiece_path: prepSource.canonical_workpiece_path,
       mime_type: prepSource.mediaRef.kind === "recording_audio" ? "audio/wav" : null,
     });
 
@@ -208,7 +209,8 @@ async function regenerateAudioPolish(args: {
       ? buildPreparedHammerAudioPolish({
         prepSource,
         preparedAt: response.prepared_at ?? args.now,
-        outputLocalRelpath: response.output_local_relpath ?? prepSource.local_relpath,
+        outputLocalRelpath: response.output_local_relpath,
+        outputWorkpiecePath: response.output_workpiece_path,
         outputMimeType: response.output_mime_type ?? "audio/wav",
         outputDurationMs: response.output_duration_ms,
         settingsSummary: response.settings_summary,

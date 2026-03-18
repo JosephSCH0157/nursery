@@ -2,7 +2,10 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import fs from "node:fs";
 import fsPromises from "node:fs/promises";
 import path from "node:path";
-import { handleHammerAudioPolishRequest } from "./hammer-audio-polish";
+import {
+  createHammerAudioPolishRequestContext,
+  handleHammerAudioPolishRequest,
+} from "./hammer-audio-polish";
 import { HAMMER_AUDIO_POLISH_ROUTE } from "../../hammer/src/prep/hammerAudioPolishApi";
 import {
   HAMMER_TRANSCRIPT_PREP_ROUTE,
@@ -347,7 +350,7 @@ export function createHammerPrepMiddleware() {
 
       const body = await readJsonBody(req);
       if (url.pathname === HAMMER_AUDIO_POLISH_ROUTE) {
-        const result = await handleHammerAudioPolishRequest(body);
+        const result = await handleHammerAudioPolishRequest(body, createHammerAudioPolishRequestContext(req));
         sendJson(res, result.status, result.payload);
         return;
       }

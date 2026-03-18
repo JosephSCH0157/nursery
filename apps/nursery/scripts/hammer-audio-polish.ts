@@ -1,5 +1,8 @@
 import crypto from "node:crypto";
+import { spawn } from "node:child_process";
+import type { IncomingMessage } from "node:http";
 import fsPromises from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { detectHammerMediaRuntime } from "./hammer-media-runtime";
 import { resolveHammerAudioPolishExecutionPlan } from "../../hammer/src/media/hammerMediaBackbone";
@@ -29,7 +32,45 @@ type ParsedWave = {
   formatLabel: string;
   channelData: Float32Array[];
 };
+
+type HammerAudioPolishRequestContext = {
+  origin: string;
+  authorization: string | null;
+  userAuthorization: string | null;
+};
+
+type NormalizedHammerAudioPolishRequest = Omit<
+  HammerAudioPolishRequest,
+  "local_root_abs" | "local_relpath" | "canonical_workpiece_path"
+> & {
+  local_root_abs: string | null;
+  local_relpath: string | null;
+  canonical_workpiece_path: string | null;
+};
+
+type LoadedSourceMedia = {
+  sourceKind: "local_workspace_media" | "canonical_workpiece_media";
+  sourceLabel: string;
+  sourceExtension: string;
+  contentType: string;
+  sourceBytes: Buffer;
+  canonicalWorkpiecePath: string;
+  localRootAbs: string | null;
+  localRelpath: string | null;
+};
+
 const OUTPUT_MIME_TYPE = "audio/wav";
+const MEDIA_CONTENT_TYPES: Partial<Record<string, string>> = {
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+  ".mov": "video/quicktime",
+  ".wav": "audio/wav",
+  ".mp3": "audio/mpeg",
+  ".m4a": "audio/mp4",
+};
+const MAX_AUDIO_POLISH_SOURCE_BYTES = 256 * 1024 * 1024;
+const CANONICAL_MEDIA_FETCH_TIMEOUT_MS = 60_000;
+const FFMPEG_PROCESS_TIMEOUT_MS = 2 * 60 * 1000;
 
 function readTrimmed(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -40,6 +81,24 @@ function readTrimmed(value: unknown): string | null {
 function readObject(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
+}
+
+function readNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function readErrorMessage(payload: unknown, fallback: string): string {
+  const row = readObject(payload);
+  const error = readObject(row?.error);
+  return readTrimmed(error?.message)
+    ?? readTrimmed(row?.message)
+    ?? readTrimmed(row?.detail)
+    ?? fallback;
 }
 
 function isSafeRelpath(value: string): boolean {
@@ -63,15 +122,51 @@ function resolveMediaFileAbs(localRootAbs: string, localRelpath: string): string
   return absolutePath;
 }
 
-function normalizeAudioPolishRequest(body: unknown): HammerAudioPolishRequest | null {
+function inferContentType(sourcePath: string, mimeType?: string | null): string {
+  const explicit = readTrimmed(mimeType);
+  if (explicit) return explicit;
+  return MEDIA_CONTENT_TYPES[path.extname(sourcePath).toLowerCase()] ?? "application/octet-stream";
+}
+
+function formatBytesAsMiB(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+function buildAudioPolishSourceTooLargeMessage(byteCount: number): string {
+  return `Hammer audio prep currently supports source media up to ${formatBytesAsMiB(MAX_AUDIO_POLISH_SOURCE_BYTES)} in this runtime. Received ${formatBytesAsMiB(byteCount)}.`;
+}
+
+function readHeaderNumber(headers: Headers, name: string): number | null {
+  const value = readTrimmed(headers.get(name));
+  if (!value) return null;
+  return readNumber(value);
+}
+
+function createTimeoutAbortController(timeoutMs: number): {
+  controller: AbortController;
+  dispose: () => void;
+} {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  return {
+    controller,
+    dispose: () => clearTimeout(timeoutId),
+  };
+}
+
+function normalizeAudioPolishRequest(body: unknown): NormalizedHammerAudioPolishRequest | null {
   const row = readObject(body);
   if (!row) return null;
   const workspaceId = readTrimmed(row.workspace_id);
   const workpieceId = readTrimmed(row.workpiece_id);
   const localRootAbs = readTrimmed(row.local_root_abs);
   const localRelpath = readTrimmed(row.local_relpath);
+  const canonicalWorkpiecePath = readTrimmed(row.canonical_workpiece_path) ?? localRelpath;
   const mediaKind = readTrimmed(row.media_kind);
-  if (!workspaceId || !workpieceId || !localRootAbs || !localRelpath || !mediaKind) {
+  if (!workspaceId || !workpieceId || !mediaKind) {
+    return null;
+  }
+  if (!(localRootAbs && localRelpath) && !canonicalWorkpiecePath) {
     return null;
   }
 
@@ -81,6 +176,7 @@ function normalizeAudioPolishRequest(body: unknown): HammerAudioPolishRequest | 
     media_kind: mediaKind as HammerAudioPolishRequest["media_kind"],
     local_root_abs: localRootAbs,
     local_relpath: localRelpath,
+    canonical_workpiece_path: canonicalWorkpiecePath,
     mime_type: readTrimmed(row.mime_type),
   };
 }
@@ -93,15 +189,25 @@ function sanitizeSlug(value: string): string {
     .toLowerCase();
 }
 
-function buildOutputLocalRelpath(request: HammerAudioPolishRequest): string {
-  const extensionless = path.basename(request.local_relpath, path.extname(request.local_relpath));
+function resolveSourceRelpath(request: NormalizedHammerAudioPolishRequest): string {
+  return request.canonical_workpiece_path
+    ?? request.local_relpath
+    ?? "source";
+}
+
+function buildArtifactRelpath(
+  category: "audio-polish" | "working-audio",
+  request: NormalizedHammerAudioPolishRequest,
+): string {
+  const sourceRelpath = resolveSourceRelpath(request);
+  const extensionless = path.basename(sourceRelpath, path.extname(sourceRelpath));
   const hash = crypto
     .createHash("sha1")
-    .update(`${request.workpiece_id}:${request.local_relpath}:${HAMMER_AUDIO_POLISH_PROCESSOR_VERSION}`)
+    .update(`${request.workpiece_id}:${category}:${sourceRelpath}:${HAMMER_AUDIO_POLISH_PROCESSOR_VERSION}`)
     .digest("hex")
     .slice(0, 10);
   const filename = `${sanitizeSlug(extensionless) || "source"}--${hash}.wav`;
-  return ["hammer", "prep", "audio-polish", sanitizeSlug(request.workpiece_id) || "workpiece", filename].join("/");
+  return ["hammer", "prep", category, sanitizeSlug(request.workpiece_id) || "workpiece", filename].join("/");
 }
 
 function createFailedResponse(args: {
@@ -115,6 +221,7 @@ function createFailedResponse(args: {
     prepared_passes: [],
     processor_version: HAMMER_AUDIO_POLISH_PROCESSOR_VERSION,
     output_local_relpath: null,
+    output_workpiece_path: null,
     output_mime_type: null,
     output_duration_ms: null,
     failure_code: args.code,
@@ -124,6 +231,274 @@ function createFailedResponse(args: {
       ...args.settingsSummary,
     },
   };
+}
+
+function canUseCanonicalTongsContext(
+  context: HammerAudioPolishRequestContext | undefined,
+): context is HammerAudioPolishRequestContext {
+  return Boolean(
+    context
+    && context.origin
+    && (context.authorization || context.userAuthorization),
+  );
+}
+
+async function loadCanonicalWorkpieceFile(args: {
+  context: HammerAudioPolishRequestContext;
+  request: NormalizedHammerAudioPolishRequest;
+  workpiecePath: string;
+}): Promise<{
+  contentType: string;
+  fileBytes: Buffer;
+}> {
+  const url = new URL(`/tongs/workpieces/${encodeURIComponent(args.request.workpiece_id)}/read-file`, args.context.origin);
+  url.searchParams.set("path", args.workpiecePath);
+  url.searchParams.set("encoding", "binary");
+
+  const fetchTimeout = createTimeoutAbortController(CANONICAL_MEDIA_FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        accept: "application/octet-stream, application/json",
+        ...(args.context.authorization ? { authorization: args.context.authorization } : {}),
+        ...(args.context.userAuthorization ? { "x-forge-user-authorization": args.context.userAuthorization } : {}),
+      },
+      signal: fetchTimeout.controller.signal,
+    });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      throw new Error(readErrorMessage(payload, "Hammer could not read canonical workpiece media."));
+    }
+
+    const contentLength = readHeaderNumber(response.headers, "content-length");
+    if (contentLength != null && contentLength > MAX_AUDIO_POLISH_SOURCE_BYTES) {
+      throw new Error(buildAudioPolishSourceTooLargeMessage(contentLength));
+    }
+
+    const fileBytes = Buffer.from(await response.arrayBuffer());
+    if (fileBytes.byteLength > MAX_AUDIO_POLISH_SOURCE_BYTES) {
+      throw new Error(buildAudioPolishSourceTooLargeMessage(fileBytes.byteLength));
+    }
+
+    return {
+      contentType: readTrimmed(response.headers.get("content-type"))
+        ?? inferContentType(args.workpiecePath, args.request.mime_type),
+      fileBytes,
+    };
+  } catch (error) {
+    if (fetchTimeout.controller.signal.aborted) {
+      throw new Error("Hammer timed out while reading canonical workpiece media for audio prep.");
+    }
+    throw error;
+  } finally {
+    fetchTimeout.dispose();
+  }
+}
+
+async function commitCanonicalWorkpieceFile(args: {
+  context: HammerAudioPolishRequestContext;
+  request: NormalizedHammerAudioPolishRequest;
+  workpiecePath: string;
+  bytes: Buffer;
+  contentType: string;
+  eventName: string;
+  eventPayload: Record<string, unknown>;
+}): Promise<void> {
+  const url = new URL(`/tongs/workpieces/${encodeURIComponent(args.request.workpiece_id)}/commit-file`, args.context.origin);
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+      ...(args.context.authorization ? { authorization: args.context.authorization } : {}),
+      ...(args.context.userAuthorization ? { "x-forge-user-authorization": args.context.userAuthorization } : {}),
+    },
+    body: JSON.stringify({
+      path: args.workpiecePath,
+      bytes_base64: args.bytes.toString("base64"),
+      content_type: args.contentType,
+      event_name: args.eventName,
+      event_payload: args.eventPayload,
+      written_by: {
+        tool: "hammer",
+        tool_version: HAMMER_AUDIO_POLISH_PROCESSOR_VERSION,
+        lane: "forge-managed",
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(readErrorMessage(payload, "Hammer could not commit canonical audio prep output."));
+  }
+}
+
+async function loadSourceMedia(
+  request: NormalizedHammerAudioPolishRequest,
+  context?: HammerAudioPolishRequestContext,
+): Promise<LoadedSourceMedia> {
+  if (request.local_root_abs && request.local_relpath && path.isAbsolute(request.local_root_abs)) {
+    const absolutePath = resolveMediaFileAbs(request.local_root_abs, request.local_relpath);
+    if (absolutePath) {
+      const stat = await fsPromises.stat(absolutePath).catch(() => null);
+      if (stat?.isFile()) {
+        if (stat.size > MAX_AUDIO_POLISH_SOURCE_BYTES) {
+          throw new Error(buildAudioPolishSourceTooLargeMessage(stat.size));
+        }
+        return {
+          sourceKind: "local_workspace_media",
+          sourceLabel: absolutePath,
+          sourceExtension: path.extname(absolutePath).toLowerCase(),
+          contentType: inferContentType(absolutePath, request.mime_type),
+          sourceBytes: await fsPromises.readFile(absolutePath),
+          canonicalWorkpiecePath: request.canonical_workpiece_path ?? request.local_relpath,
+          localRootAbs: request.local_root_abs,
+          localRelpath: request.local_relpath,
+        };
+      }
+    }
+  }
+
+  if (!request.canonical_workpiece_path) {
+    throw new Error("Hammer could not locate source media in the workspace mapping or canonical workpiece storage.");
+  }
+  if (!canUseCanonicalTongsContext(context)) {
+    throw new Error("Hammer audio prep needs authenticated Tongs access to read canonical workpiece media.");
+  }
+
+  const canonicalFile = await loadCanonicalWorkpieceFile({
+    context,
+    request,
+    workpiecePath: request.canonical_workpiece_path,
+  });
+  return {
+    sourceKind: "canonical_workpiece_media",
+    sourceLabel: request.canonical_workpiece_path,
+    sourceExtension: path.extname(request.canonical_workpiece_path).toLowerCase(),
+    contentType: canonicalFile.contentType,
+    sourceBytes: canonicalFile.fileBytes,
+    canonicalWorkpiecePath: request.canonical_workpiece_path,
+    localRootAbs: request.local_root_abs,
+    localRelpath: request.local_relpath,
+  };
+}
+
+async function writeBestEffortLocalArtifact(args: {
+  localRootAbs: string | null;
+  relpath: string;
+  bytes: Buffer;
+}): Promise<{ outputLocalRelpath: string | null; writeFailed: boolean; writeFailureReason: string | null }> {
+  if (!args.localRootAbs || !path.isAbsolute(args.localRootAbs)) {
+    return {
+      outputLocalRelpath: null,
+      writeFailed: false,
+      writeFailureReason: null,
+    };
+  }
+
+  const absolutePath = resolveMediaFileAbs(args.localRootAbs, args.relpath);
+  if (!absolutePath) {
+    return {
+      outputLocalRelpath: null,
+      writeFailed: true,
+      writeFailureReason: "Hammer could not resolve the local output path for the prepared audio artifact.",
+    };
+  }
+
+  try {
+    await fsPromises.mkdir(path.dirname(absolutePath), { recursive: true });
+    await fsPromises.writeFile(absolutePath, args.bytes);
+    return {
+      outputLocalRelpath: args.relpath,
+      writeFailed: false,
+      writeFailureReason: null,
+    };
+  } catch (error) {
+    return {
+      outputLocalRelpath: null,
+      writeFailed: true,
+      writeFailureReason: error instanceof Error && error.message.trim()
+        ? error.message
+        : "Hammer could not write the prepared audio artifact into the local workspace mapping.",
+    };
+  }
+}
+
+async function renderWorkingAudioWaveBufferWithFfmpeg(args: {
+  sourceBytes: Buffer;
+  sourceExtension: string;
+  sourceLabel: string;
+  ffmpegBin: string;
+}): Promise<Buffer> {
+  const tempRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), "hammer-working-audio-"));
+  const safeExtension = args.sourceExtension || ".bin";
+  const inputPath = path.join(tempRoot, `input${safeExtension}`);
+  const outputPath = path.join(tempRoot, "working-audio.wav");
+  try {
+    await fsPromises.writeFile(inputPath, args.sourceBytes);
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(
+        args.ffmpegBin,
+        [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-y",
+          "-i",
+          inputPath,
+          "-vn",
+          "-acodec",
+          "pcm_s16le",
+          "-ar",
+          "48000",
+          "-ac",
+          "2",
+          outputPath,
+        ],
+        {
+          windowsHide: true,
+          stdio: ["ignore", "ignore", "pipe"],
+        },
+      );
+
+      let stderr = "";
+      let timedOut = false;
+      const timeoutId = setTimeout(() => {
+        timedOut = true;
+        child.kill();
+      }, FFMPEG_PROCESS_TIMEOUT_MS);
+
+      child.stderr.on("data", (chunk) => {
+        const next = chunk.toString("utf8");
+        if (stderr.length < 16_384) {
+          stderr += next.slice(0, 16_384 - stderr.length);
+        }
+      });
+      child.on("error", (error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      });
+      child.on("close", (code) => {
+        clearTimeout(timeoutId);
+        if (timedOut) {
+          reject(new Error("Hammer FFmpeg working-audio extraction timed out."));
+          return;
+        }
+        if (code === 0) {
+          resolve();
+          return;
+        }
+        reject(new Error(
+          stderr.trim() || `Hammer FFmpeg working-audio extraction failed for ${args.sourceLabel}.`,
+        ));
+      });
+    });
+    return await fsPromises.readFile(outputPath);
+  } finally {
+    await fsPromises.rm(tempRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
 }
 
 function parseWaveFormatTag(formatTag: number, fmtChunk: Buffer): {
@@ -373,7 +748,27 @@ function renderPolishedWaveBuffer(parsedWave: ParsedWave): Buffer {
   return buffer;
 }
 
-export async function handleHammerAudioPolishRequest(body: unknown): Promise<HammerAudioPolishRouteResult> {
+function readHeaderString(value: string | string[] | undefined): string | null {
+  if (Array.isArray(value)) {
+    return readTrimmed(value[0]);
+  }
+  return readTrimmed(value);
+}
+
+export function createHammerAudioPolishRequestContext(req: IncomingMessage): HammerAudioPolishRequestContext {
+  const forwardedProto = readHeaderString(req.headers["x-forwarded-proto"]);
+  const host = readHeaderString(req.headers.host) ?? "localhost";
+  return {
+    origin: `${forwardedProto ?? "http"}://${host}`,
+    authorization: readHeaderString(req.headers.authorization),
+    userAuthorization: readHeaderString(req.headers["x-forge-user-authorization"]),
+  };
+}
+
+export async function handleHammerAudioPolishRequest(
+  body: unknown,
+  context?: HammerAudioPolishRequestContext,
+): Promise<HammerAudioPolishRouteResult> {
   const request = normalizeAudioPolishRequest(body);
   if (!request) {
     return {
@@ -386,44 +781,35 @@ export async function handleHammerAudioPolishRequest(body: unknown): Promise<Ham
   }
   const mediaRuntime = detectHammerMediaRuntime();
 
-  if (!path.isAbsolute(request.local_root_abs)) {
+  let sourceMedia: LoadedSourceMedia;
+  try {
+    sourceMedia = await loadSourceMedia(request, context);
+  } catch (error) {
     return {
       status: 200,
       payload: {
         ok: true,
         data: createFailedResponse({
           code: "source_unavailable",
-          reason: "Hammer could not find the mapped media root on this machine, so playback will stay on the raw source.",
+          reason: error instanceof Error && error.message.trim()
+            ? error.message
+            : "Hammer could not locate source media for baseline audio polish.",
           settingsSummary: {
             source_media_kind: request.media_kind,
+            source_kind: request.local_root_abs && request.local_relpath
+              ? "local_workspace_media"
+              : "canonical_workpiece_media",
+            source_canonical_workpiece_path: request.canonical_workpiece_path,
           },
         }),
       },
     };
   }
 
-  const absolutePath = resolveMediaFileAbs(request.local_root_abs, request.local_relpath);
-  if (!absolutePath) {
-    return {
-      status: 200,
-      payload: {
-        ok: true,
-        data: createFailedResponse({
-          code: "source_unavailable",
-          reason: "Hammer could not resolve the local media path for baseline audio polish.",
-          settingsSummary: {
-            source_media_kind: request.media_kind,
-          },
-        }),
-      },
-    };
-  }
-
-  const extension = path.extname(absolutePath).toLowerCase();
   const executionPlan = resolveHammerAudioPolishExecutionPlan({
     runtime: mediaRuntime,
     mediaKind: request.media_kind,
-    sourceExtension: extension,
+    sourceExtension: sourceMedia.sourceExtension,
   });
   if (!executionPlan.executable) {
     return {
@@ -431,39 +817,13 @@ export async function handleHammerAudioPolishRequest(body: unknown): Promise<Ham
       payload: {
         ok: true,
         data: createFailedResponse({
-          code: executionPlan.readiness === "unsupported" ? "unsupported_source" : "unsupported_source",
+          code: "unsupported_source",
           reason: executionPlan.detail,
           settingsSummary: {
             source_media_kind: request.media_kind,
-            source_extension: extension,
-            media_runtime_preferred_backend: mediaRuntime.preferred_backend,
-            media_runtime_ffmpeg_install_state: mediaRuntime.ffmpeg.install_state,
-            media_runtime_ffmpeg_configured: mediaRuntime.ffmpeg.ffmpeg_configured,
-            media_runtime_ffprobe_configured: mediaRuntime.ffmpeg.ffprobe_configured,
-            media_runtime_ffmpeg_available: mediaRuntime.ffmpeg.ffmpeg_available,
-            media_runtime_ffprobe_available: mediaRuntime.ffmpeg.ffprobe_available,
-            audio_polish_plan_readiness: executionPlan.readiness,
-            audio_polish_current_strategy: executionPlan.current_strategy,
-            audio_polish_future_strategy: executionPlan.future_strategy,
-            audio_polish_requires_ffmpeg: executionPlan.requires_ffmpeg,
-          },
-        }),
-      },
-    };
-  }
-
-  const stat = await fsPromises.stat(absolutePath).catch(() => null);
-  if (!stat || !stat.isFile()) {
-    return {
-      status: 200,
-      payload: {
-        ok: true,
-        data: createFailedResponse({
-          code: "source_unavailable",
-          reason: "Hammer could not find the source audio file on this machine, so playback will stay on the raw path.",
-          settingsSummary: {
-            source_media_kind: request.media_kind,
-            source_extension: extension,
+            source_kind: sourceMedia.sourceKind,
+            source_extension: sourceMedia.sourceExtension,
+            source_canonical_workpiece_path: sourceMedia.canonicalWorkpiecePath,
             media_runtime_preferred_backend: mediaRuntime.preferred_backend,
             media_runtime_ffmpeg_install_state: mediaRuntime.ffmpeg.install_state,
             media_runtime_ffmpeg_configured: mediaRuntime.ffmpeg.ffmpeg_configured,
@@ -481,15 +841,69 @@ export async function handleHammerAudioPolishRequest(body: unknown): Promise<Ham
   }
 
   try {
-    const sourceBytes = await fsPromises.readFile(absolutePath);
-    const parsedWave = parseWaveBuffer(sourceBytes);
-    const outputLocalRelpath = buildOutputLocalRelpath(request);
-    const outputAbsolutePath = resolveMediaFileAbs(request.local_root_abs, outputLocalRelpath);
-    if (!outputAbsolutePath) {
-      throw new Error("Hammer could not resolve the output path for the polished audio artifact.");
+    let workingWaveBytes = sourceMedia.sourceBytes;
+    const sourceArtifactPaths = [sourceMedia.canonicalWorkpiecePath];
+    let workingAudioWorkpiecePath: string | null = null;
+
+    if (executionPlan.current_strategy === "ffmpeg_working_audio_v1") {
+      const ffmpegBin = readTrimmed(mediaRuntime.ffmpeg.ffmpeg_bin);
+      if (!ffmpegBin) {
+        throw new Error("Hammer FFmpeg working audio is configured as the current strategy, but no ffmpeg binary is available.");
+      }
+      if (!canUseCanonicalTongsContext(context)) {
+        throw new Error("Hammer audio prep needs authenticated Tongs access to commit canonical working audio.");
+      }
+
+      workingWaveBytes = await renderWorkingAudioWaveBufferWithFfmpeg({
+        sourceBytes: sourceMedia.sourceBytes,
+        sourceExtension: sourceMedia.sourceExtension,
+        sourceLabel: sourceMedia.sourceLabel,
+        ffmpegBin,
+      });
+      workingAudioWorkpiecePath = buildArtifactRelpath("working-audio", request);
+      await commitCanonicalWorkpieceFile({
+        context,
+        request,
+        workpiecePath: workingAudioWorkpiecePath,
+        bytes: workingWaveBytes,
+        contentType: OUTPUT_MIME_TYPE,
+        eventName: "hammer.working-audio.committed",
+        eventPayload: {
+          source_path: sourceMedia.canonicalWorkpiecePath,
+          strategy: executionPlan.current_strategy,
+          media_kind: request.media_kind,
+        },
+      });
+      sourceArtifactPaths.push(workingAudioWorkpiecePath);
     }
-    await fsPromises.mkdir(path.dirname(outputAbsolutePath), { recursive: true });
-    await fsPromises.writeFile(outputAbsolutePath, renderPolishedWaveBuffer(parsedWave));
+
+    const parsedWave = parseWaveBuffer(workingWaveBytes);
+    const polishedWaveBytes = renderPolishedWaveBuffer(parsedWave);
+    const outputWorkpiecePath = buildArtifactRelpath("audio-polish", request);
+    if (!canUseCanonicalTongsContext(context)) {
+      throw new Error("Hammer audio prep needs authenticated Tongs access to commit canonical audio polish.");
+    }
+
+    await commitCanonicalWorkpieceFile({
+      context,
+      request,
+      workpiecePath: outputWorkpiecePath,
+      bytes: polishedWaveBytes,
+      contentType: OUTPUT_MIME_TYPE,
+      eventName: "hammer.audio-polish.committed",
+      eventPayload: {
+        source_path: sourceMedia.canonicalWorkpiecePath,
+        source_artifact_paths: sourceArtifactPaths,
+        strategy: executionPlan.current_strategy,
+        media_kind: request.media_kind,
+      },
+    });
+
+    const localArtifactWrite = await writeBestEffortLocalArtifact({
+      localRootAbs: sourceMedia.localRootAbs,
+      relpath: outputWorkpiecePath,
+      bytes: polishedWaveBytes,
+    });
 
     return {
       status: 200,
@@ -500,18 +914,24 @@ export async function handleHammerAudioPolishRequest(body: unknown): Promise<Ham
           prepared_at: new Date().toISOString(),
           prepared_passes: [...HAMMER_AUDIO_POLISH_PREPARED_PASSES],
           processor_version: HAMMER_AUDIO_POLISH_PROCESSOR_VERSION,
-          output_local_relpath: outputLocalRelpath,
+          output_local_relpath: localArtifactWrite.outputLocalRelpath,
+          output_workpiece_path: outputWorkpiecePath,
           output_mime_type: OUTPUT_MIME_TYPE,
           output_duration_ms: Math.round((parsedWave.sampleCount / parsedWave.sampleRate) * 1000),
           failure_code: null,
           failure_reason: null,
           settings_summary: {
             supported_source: true,
-            source_extension: extension,
             source_media_kind: request.media_kind,
+            source_kind: sourceMedia.sourceKind,
+            source_extension: sourceMedia.sourceExtension,
+            source_canonical_workpiece_path: sourceMedia.canonicalWorkpiecePath,
             source_format: parsedWave.formatLabel,
             sample_rate: parsedWave.sampleRate,
             channel_count: parsedWave.channelCount,
+            working_audio_workpiece_path: workingAudioWorkpiecePath,
+            local_output_write_failed: localArtifactWrite.writeFailed,
+            local_output_write_failure_reason: localArtifactWrite.writeFailureReason,
             media_runtime_preferred_backend: mediaRuntime.preferred_backend,
             media_runtime_ffmpeg_install_state: mediaRuntime.ffmpeg.install_state,
             media_runtime_ffmpeg_configured: mediaRuntime.ffmpeg.ffmpeg_configured,
@@ -543,7 +963,9 @@ export async function handleHammerAudioPolishRequest(body: unknown): Promise<Ham
             : message,
           settingsSummary: {
             source_media_kind: request.media_kind,
-            source_extension: extension,
+            source_kind: sourceMedia.sourceKind,
+            source_extension: sourceMedia.sourceExtension,
+            source_canonical_workpiece_path: sourceMedia.canonicalWorkpiecePath,
             media_runtime_preferred_backend: mediaRuntime.preferred_backend,
             media_runtime_ffmpeg_install_state: mediaRuntime.ffmpeg.install_state,
             media_runtime_ffmpeg_configured: mediaRuntime.ffmpeg.ffmpeg_configured,

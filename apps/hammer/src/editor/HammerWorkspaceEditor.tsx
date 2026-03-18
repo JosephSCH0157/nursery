@@ -250,9 +250,6 @@ export default function HammerWorkspaceEditor(
     if (!prepSource) {
       return args.currentSnapshot;
     }
-    if (!prepSource.local_root_abs) {
-      return args.currentSnapshot;
-    }
 
     const existingAudioPolish = args.currentSnapshot?.audio_polish.data ?? null;
     if (isReusableHammerAudioPolish(existingAudioPolish, prepSource)) {
@@ -282,6 +279,7 @@ export default function HammerWorkspaceEditor(
         media_kind: prepSource.mediaRef.kind,
         local_root_abs: prepSource.local_root_abs,
         local_relpath: prepSource.local_relpath,
+        canonical_workpiece_path: prepSource.canonical_workpiece_path,
         mime_type: prepSource.mediaRef.kind === "recording_audio" ? "audio/wav" : null,
       });
 
@@ -289,7 +287,8 @@ export default function HammerWorkspaceEditor(
         ? buildPreparedHammerAudioPolish({
           prepSource,
           preparedAt: response.prepared_at ?? new Date().toISOString(),
-          outputLocalRelpath: response.output_local_relpath ?? prepSource.local_relpath,
+          outputLocalRelpath: response.output_local_relpath,
+          outputWorkpiecePath: response.output_workpiece_path,
           outputMimeType: response.output_mime_type ?? "audio/wav",
           outputDurationMs: response.output_duration_ms,
           settingsSummary: response.settings_summary,
