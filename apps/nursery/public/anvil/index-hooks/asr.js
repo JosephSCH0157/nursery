@@ -1,6 +1,29 @@
+// src/state/appStore.ts
+function getAppStore() {
+  if (typeof window === "undefined") return null;
+  try {
+    const store = window.__tpStore;
+    return store || null;
+  } catch {
+    return null;
+  }
+}
+
 // src/state/speech-store.ts
-var state = {
-  engine: "webspeech",
+var STORE_KEYS = {
+  engine: "asr.engine",
+  engineExplicit: "asr.engineExplicit",
+  lang: "asr.language",
+  interim: "asr.useInterimResults",
+  threshold: "asr.threshold",
+  endpointingMs: "asr.endpointMs",
+  fillerFilter: "asr.filterFillers",
+  manualAnchorAdoptEnabled: "asr.manualAnchorAdoptEnabled",
+  calmModeEnabled: "asrCalmModeEnabled"
+};
+var DEFAULT_STATE = {
+  engine: "whisper",
+  engineExplicit: false,
   lang: "en-US",
   interim: true,
   threshold: 0.6,
@@ -9,22 +32,126 @@ var state = {
   manualAnchorAdoptEnabled: true,
   calmModeEnabled: false
 };
+var watchedKeys = Object.values(STORE_KEYS);
 var subs = /* @__PURE__ */ new Set();
+var fallbackState = { ...DEFAULT_STATE };
+var subscribedStore = null;
+var unsubscribeStoreFns = [];
+var suppressStoreNotifications = 0;
+function getStore() {
+  return getAppStore();
+}
+function notify(snapshot) {
+  for (const fn of subs) {
+    try {
+      fn(snapshot);
+    } catch {
+    }
+  }
+}
+function readStateFromStore() {
+  const store = getStore();
+  if (!store || typeof store.get !== "function") {
+    return { ...fallbackState };
+  }
+  return {
+    engine: store.get(STORE_KEYS.engine) ?? fallbackState.engine,
+    engineExplicit: !!store.get(STORE_KEYS.engineExplicit),
+    lang: store.get(STORE_KEYS.lang) ?? fallbackState.lang,
+    interim: store.get(STORE_KEYS.interim) ?? fallbackState.interim,
+    threshold: store.get(STORE_KEYS.threshold) ?? fallbackState.threshold,
+    endpointingMs: store.get(STORE_KEYS.endpointingMs) ?? fallbackState.endpointingMs,
+    fillerFilter: store.get(STORE_KEYS.fillerFilter) ?? fallbackState.fillerFilter,
+    manualAnchorAdoptEnabled: store.get(STORE_KEYS.manualAnchorAdoptEnabled) ?? fallbackState.manualAnchorAdoptEnabled,
+    calmModeEnabled: store.get(STORE_KEYS.calmModeEnabled) ?? fallbackState.calmModeEnabled
+  };
+}
+function ensureStoreSubscriptions() {
+  const store = getStore();
+  if (store === subscribedStore) return;
+  unsubscribeStoreFns.forEach((unsub) => {
+    try {
+      unsub();
+    } catch {
+    }
+  });
+  unsubscribeStoreFns = [];
+  subscribedStore = store;
+  if (!store || typeof store.subscribe !== "function") {
+    fallbackState = readStateFromStore();
+    return;
+  }
+  let pendingInitial = watchedKeys.length;
+  const handleChange = () => {
+    fallbackState = readStateFromStore();
+    if (pendingInitial > 0) {
+      pendingInitial -= 1;
+      return;
+    }
+    if (suppressStoreNotifications > 0) return;
+    notify({ ...fallbackState });
+  };
+  unsubscribeStoreFns = watchedKeys.map((key) => {
+    const unsub = store.subscribe?.(key, handleChange);
+    return typeof unsub === "function" ? unsub : () => {
+    };
+  });
+  fallbackState = readStateFromStore();
+}
 var speechStore = {
   get() {
-    return { ...state };
+    ensureStoreSubscriptions();
+    fallbackState = readStateFromStore();
+    return { ...fallbackState };
+  },
+  getState() {
+    return this.get();
   },
   set(patch) {
-    Object.assign(state, patch);
-    const snapshot = { ...state };
-    for (const fn of subs) {
-      try {
-        fn(snapshot);
-      } catch {
-      }
+    ensureStoreSubscriptions();
+    const store = getStore();
+    if (!store || typeof store.set !== "function") {
+      fallbackState = { ...fallbackState, ...patch };
+      notify({ ...fallbackState });
+      return;
     }
+    suppressStoreNotifications += 1;
+    try {
+      if (Object.prototype.hasOwnProperty.call(patch, "engine")) {
+        store.set(STORE_KEYS.engine, patch.engine);
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "engineExplicit")) {
+        store.set(STORE_KEYS.engineExplicit, !!patch.engineExplicit);
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "lang")) {
+        store.set(STORE_KEYS.lang, patch.lang);
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "interim")) {
+        store.set(STORE_KEYS.interim, !!patch.interim);
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "threshold")) {
+        store.set(STORE_KEYS.threshold, patch.threshold);
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "endpointingMs")) {
+        store.set(STORE_KEYS.endpointingMs, patch.endpointingMs);
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "fillerFilter")) {
+        store.set(STORE_KEYS.fillerFilter, !!patch.fillerFilter);
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "manualAnchorAdoptEnabled")) {
+        store.set(STORE_KEYS.manualAnchorAdoptEnabled, !!patch.manualAnchorAdoptEnabled);
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "calmModeEnabled")) {
+        store.set(STORE_KEYS.calmModeEnabled, !!patch.calmModeEnabled);
+      }
+    } finally {
+      suppressStoreNotifications = Math.max(0, suppressStoreNotifications - 1);
+    }
+    fallbackState = readStateFromStore();
+    notify({ ...fallbackState });
   },
   subscribe(fn) {
+    ensureStoreSubscriptions();
     subs.add(fn);
     return () => subs.delete(fn);
   }
@@ -56,6 +183,33 @@ function installAsrHotkeys() {
   speechStore.subscribe((_s) => {
   });
   return () => window.removeEventListener("keydown", onKey);
+}
+
+// src/features/asr/engine-selection.ts
+var ASR_ENGINE_EXPLICIT_KEY = "tp_asr_engine_explicit_v1";
+function normalizeAsrEngine(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return "";
+  if (normalized === "web-speech") return "webspeech";
+  if (normalized === "offline") return "vosk";
+  return normalized;
+}
+function isAsrEngineExplicit(value) {
+  return value === true || value === 1 || value === "1" || value === "true";
+}
+function readLocalAsrEngineExplicit() {
+  try {
+    const store = window?.__tpStore;
+    if (store && typeof store.get === "function") {
+      return isAsrEngineExplicit(store.get("asr.engineExplicit"));
+    }
+  } catch {
+  }
+  try {
+    return localStorage.getItem(ASR_ENGINE_EXPLICIT_KEY) === "1";
+  } catch {
+    return false;
+  }
 }
 
 // src/scroll/audit.ts
@@ -239,6 +393,7 @@ var ASR_INTERIM_KEY = "tp_asr_interim_v1";
 var ASR_FILTER_KEY = "tp_asr_filter_v1";
 var ASR_THRESHOLD_KEY = "tp_asr_threshold_v1";
 var ASR_ENDPOINT_KEY = "tp_asr_endpoint_v1";
+var ASR_MANUAL_ANCHOR_KEY = "tp_asr_manual_anchor_v1";
 var ASR_PROFILES_KEY = "tp_asr_profiles_v1";
 var ASR_ACTIVE_PROFILE_KEY = "tp_asr_active_profile_v1";
 var SINGLE_MONITOR_READ_KEY = "tp_single_monitor_read_v1";
@@ -295,10 +450,12 @@ var persistMap = {
   rehearsalPunct: REH_PUNCT_KEY,
   rehearsalResumeMs: REH_RESUME_KEY,
   "asr.engine": ASR_ENGINE_KEY,
+  "asr.engineExplicit": ASR_ENGINE_EXPLICIT_KEY,
   "asr.language": ASR_LANG_KEY,
   "asr.useInterimResults": ASR_INTERIM_KEY,
   "asr.threshold": ASR_THRESHOLD_KEY,
   "asr.endpointMs": ASR_ENDPOINT_KEY,
+  "asr.manualAnchorAdoptEnabled": ASR_MANUAL_ANCHOR_KEY,
   "asr.filterFillers": ASR_FILTER_KEY,
   asrCalmModeEnabled: ASR_CALM_MODE_KEY,
   asrProfiles: ASR_PROFILES_KEY,
@@ -322,6 +479,64 @@ function loadLegacyAsrSettings() {
   } catch {
     return null;
   }
+}
+function readLegacyAsrBoolean(legacyAsrSettings, ...keys) {
+  for (const key of keys) {
+    const value = legacyAsrSettings?.[key];
+    if (value !== void 0) return !!value;
+  }
+  return null;
+}
+function readLegacyAsrNumber(legacyAsrSettings, ...keys) {
+  for (const key of keys) {
+    const value = legacyAsrSettings?.[key];
+    if (value === void 0) continue;
+    const num = Number(value);
+    if (!Number.isNaN(num)) return num;
+  }
+  return null;
+}
+function migrateLegacyAsrSettings(legacyAsrSettings) {
+  if (!legacyAsrSettings || typeof window === "undefined") return;
+  try {
+    const ls = window.localStorage;
+    const setIfMissing = (key, value) => {
+      if (!key || value == null || value === "") return;
+      if (ls.getItem(key) !== null) return;
+      ls.setItem(key, value);
+    };
+    setIfMissing(ASR_ENGINE_KEY, readInitialAsrEngine(legacyAsrSettings));
+    setIfMissing(ASR_LANG_KEY, typeof legacyAsrSettings.lang === "string" ? legacyAsrSettings.lang : null);
+    const interim = readLegacyAsrBoolean(legacyAsrSettings, "interim");
+    setIfMissing(ASR_INTERIM_KEY, interim == null ? null : interim ? "1" : "0");
+    const filter = readLegacyAsrBoolean(legacyAsrSettings, "filterFillers", "fillerFilter");
+    setIfMissing(ASR_FILTER_KEY, filter == null ? null : filter ? "1" : "0");
+    const threshold = readLegacyAsrNumber(legacyAsrSettings, "threshold");
+    setIfMissing(ASR_THRESHOLD_KEY, threshold == null ? null : String(threshold));
+    const endpointMs = readLegacyAsrNumber(legacyAsrSettings, "endpointMs", "endpointingMs");
+    setIfMissing(ASR_ENDPOINT_KEY, endpointMs == null ? null : String(endpointMs));
+    const manualAnchor = readLegacyAsrBoolean(legacyAsrSettings, "manualAnchorAdoptEnabled");
+    setIfMissing(ASR_MANUAL_ANCHOR_KEY, manualAnchor == null ? null : manualAnchor ? "1" : "0");
+    const calmMode = readLegacyAsrBoolean(legacyAsrSettings, "calmModeEnabled");
+    setIfMissing(ASR_CALM_MODE_KEY, calmMode == null ? null : calmMode ? "1" : "0");
+    ls.removeItem(LEGACY_ASR_SETTINGS_KEY);
+  } catch {
+  }
+}
+function readInitialAsrEngine(legacyAsrSettings) {
+  try {
+    const explicit = readLocalAsrEngineExplicit();
+    const stored = normalizeAsrEngine(localStorage.getItem(ASR_ENGINE_KEY));
+    const legacy = normalizeAsrEngine(
+      legacyAsrSettings?.engine && typeof legacyAsrSettings.engine === "string" ? legacyAsrSettings.engine : ""
+    );
+    const selected = stored || legacy;
+    if (explicit) return selected || "whisper";
+    if (!selected || selected === "webspeech") return "whisper";
+    return selected;
+  } catch {
+  }
+  return "whisper";
 }
 function migrateAutoRecordFlag() {
   try {
@@ -505,17 +720,8 @@ function buildInitialState() {
       }
     })(),
     asrLive: false,
-    "asr.engine": (() => {
-      try {
-        const raw = localStorage.getItem(ASR_ENGINE_KEY);
-        if (raw) return raw;
-        if (legacyAsrSettings?.engine && typeof legacyAsrSettings.engine === "string") {
-          return legacyAsrSettings.engine;
-        }
-      } catch {
-      }
-      return "webspeech";
-    })(),
+    "asr.engine": readInitialAsrEngine(legacyAsrSettings),
+    "asr.engineExplicit": readLocalAsrEngineExplicit(),
     "asr.language": (() => {
       try {
         const raw = localStorage.getItem(ASR_LANG_KEY);
@@ -540,7 +746,8 @@ function buildInitialState() {
       try {
         const raw = localStorage.getItem(ASR_FILTER_KEY);
         if (raw !== null) return raw === "1";
-        if (legacyAsrSettings?.filterFillers !== void 0) return !!legacyAsrSettings.filterFillers;
+        const legacy = readLegacyAsrBoolean(legacyAsrSettings, "filterFillers", "fillerFilter");
+        if (legacy !== null) return legacy;
       } catch {
       }
       return true;
@@ -560,15 +767,29 @@ function buildInitialState() {
         const raw = localStorage.getItem(ASR_ENDPOINT_KEY);
         const num = Number(raw);
         if (raw !== null && !Number.isNaN(num)) return num;
-        if (legacyAsrSettings?.endpointMs !== void 0) return Number(legacyAsrSettings.endpointMs) || 700;
+        const legacy = readLegacyAsrNumber(legacyAsrSettings, "endpointMs", "endpointingMs");
+        if (legacy !== null) return legacy;
       } catch {
       }
       return 700;
+    })(),
+    "asr.manualAnchorAdoptEnabled": (() => {
+      try {
+        const raw = localStorage.getItem(ASR_MANUAL_ANCHOR_KEY);
+        if (raw !== null) return raw === "1";
+        if (legacyAsrSettings?.manualAnchorAdoptEnabled !== void 0) {
+          return legacyAsrSettings.manualAnchorAdoptEnabled !== false;
+        }
+      } catch {
+      }
+      return true;
     })(),
     asrCalmModeEnabled: (() => {
       try {
         const raw = localStorage.getItem(ASR_CALM_MODE_KEY);
         if (raw !== null) return raw === "1";
+        const legacy = readLegacyAsrBoolean(legacyAsrSettings, "calmModeEnabled");
+        if (legacy !== null) return legacy;
       } catch {
       }
       return false;
@@ -794,50 +1015,54 @@ function ensureExistingState() {
   }
   return {};
 }
-function sanitizeState(state2) {
-  if (!ALLOWED_PAGES.has(state2.page)) {
-    state2.page = "scripts";
+function sanitizeState(state) {
+  if (!ALLOWED_PAGES.has(state.page)) {
+    state.page = "scripts";
   }
-  if (!ALLOWED_OVERLAYS.has(state2.overlay)) {
-    state2.overlay = "none";
+  if (!ALLOWED_OVERLAYS.has(state.overlay)) {
+    state.overlay = "none";
     try {
       localStorage.removeItem(OVERLAY_KEY);
     } catch {
     }
   }
-  if (state2.scrollMode === "manual") {
-    state2.scrollMode = "step";
+  if (typeof state["asr.engineExplicit"] !== "boolean") {
+    state["asr.engineExplicit"] = !!state["asr.engineExplicit"];
   }
-  if (!state2.asrProfiles || typeof state2.asrProfiles !== "object") {
-    state2.asrProfiles = {};
+  if (state.scrollMode === "manual") {
+    state.scrollMode = "step";
   }
-  if (state2.asrActiveProfileId && typeof state2.asrActiveProfileId !== "string") {
-    state2.asrActiveProfileId = null;
+  if (!state.asrProfiles || typeof state.asrProfiles !== "object") {
+    state.asrProfiles = {};
   }
-  if (!state2.asrTuningProfiles || typeof state2.asrTuningProfiles !== "object") {
-    state2.asrTuningProfiles = {};
+  if (state.asrActiveProfileId && typeof state.asrActiveProfileId !== "string") {
+    state.asrActiveProfileId = null;
   }
-  if (state2.asrTuningActiveProfileId && typeof state2.asrTuningActiveProfileId !== "string") {
-    state2.asrTuningActiveProfileId = null;
+  if (!state.asrTuningProfiles || typeof state.asrTuningProfiles !== "object") {
+    state.asrTuningProfiles = {};
   }
-  if (typeof state2.asrLastAppliedAt !== "number") {
-    state2.asrLastAppliedAt = 0;
+  if (state.asrTuningActiveProfileId && typeof state.asrTuningActiveProfileId !== "string") {
+    state.asrTuningActiveProfileId = null;
   }
-  if (!state2.asrLastAppliedSummary || typeof state2.asrLastAppliedSummary !== "object") {
-    state2.asrLastAppliedSummary = {};
+  if (typeof state.asrLastAppliedAt !== "number") {
+    state.asrLastAppliedAt = 0;
   }
-  if (typeof state2.asrLastApplyOk !== "boolean") {
-    state2.asrLastApplyOk = false;
+  if (!state.asrLastAppliedSummary || typeof state.asrLastAppliedSummary !== "object") {
+    state.asrLastAppliedSummary = {};
   }
-  if (!state2.settingsSaveStatus || typeof state2.settingsSaveStatus !== "object") {
-    state2.settingsSaveStatus = { state: "idle", at: 0 };
+  if (typeof state.asrLastApplyOk !== "boolean") {
+    state.asrLastApplyOk = false;
   }
-  return state2;
+  if (!state.settingsSaveStatus || typeof state.settingsSaveStatus !== "object") {
+    state.settingsSaveStatus = { state: "idle", at: 0 };
+  }
+  return state;
 }
 function createAppStore(initial) {
   const subs2 = /* @__PURE__ */ Object.create(null);
   const baseState = buildInitialState();
-  const state2 = sanitizeState(
+  migrateLegacyAsrSettings(loadLegacyAsrSettings());
+  const state = sanitizeState(
     Object.assign(
       {},
       baseState,
@@ -845,7 +1070,7 @@ function createAppStore(initial) {
       initial || {}
     )
   );
-  function notify(key, value) {
+  function notify2(key, value) {
     try {
       const k = String(key);
       const fns = subs2[k] || [];
@@ -860,7 +1085,7 @@ function createAppStore(initial) {
   }
   function get(key) {
     try {
-      return state2[key];
+      return state[key];
     } catch {
       return void 0;
     }
@@ -873,9 +1098,9 @@ function createAppStore(initial) {
       if (key === "overlay") {
         value = ALLOWED_OVERLAYS.has(value) ? value : "none";
       }
-      const prev = state2[key];
+      const prev = state[key];
       if (prev === value) return value;
-      state2[key] = value;
+      state[key] = value;
       if (key === "scrollMode") {
         try {
           const ctx = getScrollModeAuditContext();
@@ -883,7 +1108,7 @@ function createAppStore(initial) {
             writer: ctx?.writer || "unknown",
             from: prev,
             to: value,
-            phase: state2["session.phase"],
+            phase: state["session.phase"],
             source: ctx?.meta?.source,
             via: ctx?.meta?.via,
             stack: !!ctx?.meta?.stack
@@ -918,7 +1143,7 @@ function createAppStore(initial) {
         }
       } catch {
       }
-      notify(key, value);
+      notify2(key, value);
       return value;
     } catch {
       return value;
@@ -931,7 +1156,7 @@ function createAppStore(initial) {
     subs2[k] = subs2[k] || [];
     subs2[k].push(fn);
     try {
-      fn(state2[key]);
+      fn(state[key]);
     } catch {
     }
     return function unsubscribe() {
@@ -963,8 +1188,8 @@ function createAppStore(initial) {
     set,
     subscribe,
     subscribeAll,
-    state: state2,
-    getSnapshot: () => ({ ...state2 })
+    state,
+    getSnapshot: () => ({ ...state })
   };
   try {
     if (!IS_TEST) {
@@ -1125,26 +1350,26 @@ function queryAsrInputs(card) {
     calm: q("#asrCalmMode")
   };
 }
-function applyAsrStateToInputs(inputs, state2) {
+function applyAsrStateToInputs(inputs, state) {
   const { eng, lang, interim, fillers, thresh, endms } = inputs;
-  if (eng && typeof state2.engine === "string") {
+  if (eng && typeof state.engine === "string") {
     try {
-      eng.value = state2.engine;
+      eng.value = state.engine;
     } catch {
     }
   }
-  if (lang && typeof state2.lang === "string") {
-    lang.value = state2.lang;
+  if (lang && typeof state.lang === "string") {
+    lang.value = state.lang;
   }
-  if (interim) interim.checked = !!state2.interim;
-  if (fillers) fillers.checked = !!state2.fillerFilter;
-  if (thresh && typeof state2.threshold === "number") {
-    thresh.value = String(state2.threshold);
+  if (interim) interim.checked = !!state.interim;
+  if (fillers) fillers.checked = !!state.fillerFilter;
+  if (thresh && typeof state.threshold === "number") {
+    thresh.value = String(state.threshold);
   }
-  if (endms && typeof state2.endpointingMs === "number") {
-    endms.value = String(state2.endpointingMs);
+  if (endms && typeof state.endpointingMs === "number") {
+    endms.value = String(state.endpointingMs);
   }
-  if (inputs.calm) inputs.calm.checked = !!state2.calmModeEnabled;
+  if (inputs.calm) inputs.calm.checked = !!state.calmModeEnabled;
 }
 function attachAsrInputListeners(inputs) {
   const { eng, lang, interim, fillers, thresh, endms, calm } = inputs;
@@ -1192,6 +1417,9 @@ function withAsrHydration(fn) {
   }
 }
 function persistAsrPatch(patch) {
+  if (Object.prototype.hasOwnProperty.call(patch, "engine")) {
+    patch.engineExplicit = true;
+  }
   setAsrSettings(patch);
 }
 function formatRelativeTime(timestamp) {
@@ -1226,8 +1454,8 @@ function hydrateAsrSettingsCard(root = document) {
   const card = findAsrCard(root);
   if (!card) return;
   const inputs = queryAsrInputs(card);
-  const state2 = getAsrSettings();
-  withAsrHydration(() => applyAsrStateToInputs(inputs, state2));
+  const state = getAsrSettings();
+  withAsrHydration(() => applyAsrStateToInputs(inputs, state));
 }
 function mountAsrSettings(root = document, store) {
   const card = wireAsrSettingsCard(root, store);
@@ -1410,21 +1638,29 @@ var AsrTopbar = class {
     this.chip.textContent = "ASR: off";
     wrap.appendChild(this.chip);
     host.appendChild(wrap);
-    window.addEventListener("asr:state", (e) => {
-      const st = e.detail?.state;
-      const map = { idle: "off", ready: "ready", listening: "listening", running: "listening", error: "error" };
+    const renderState = (rawState) => {
+      const st = String(rawState || "").toLowerCase();
+      const map = {
+        idle: "off",
+        ready: "ready",
+        listening: "listening",
+        running: "listening",
+        error: "error"
+      };
       this.chip.textContent = `ASR: ${map[st] ?? st}`;
-      if (st === "idle" || st === "error") {
-        this.running = false;
-      }
-      if (st === "running" || st === "listening" || st === "ready") {
-        this.running = true;
-      }
-    });
-    this.chip.title = (() => {
-      const s = speechStore.get();
-      return `Engine: ${s.engine}  \u2022  Lang: ${s.lang}`;
-    })();
+      if (st === "idle" || st === "error") this.running = false;
+      if (st === "running" || st === "listening" || st === "ready") this.running = true;
+    };
+    const renderRuntime = (detail) => {
+      const requested = String(detail?.requestedEngine || "").trim() || "whisper";
+      const actual = String(detail?.actualEngine || requested).trim() || requested;
+      const fallbackReason = String(detail?.fallbackReason || "").trim();
+      this.chip.title = fallbackReason ? `Requested: ${requested}  \u2022  Active: ${actual}  \u2022  Fallback: ${fallbackReason}` : `Engine: ${actual}`;
+    };
+    window.addEventListener("tp:asr:state", (e) => renderState(e?.detail?.state));
+    window.addEventListener("asr:state", (e) => renderState(e?.detail?.state));
+    window.addEventListener("tp:asr:runtime-status", (e) => renderRuntime(e?.detail));
+    renderRuntime(window.__tpAsrRuntimeStatus || null);
   }
   // No toggle UI anymore; ASR start/stop is wired to Speech Sync + mode changes.
 };
@@ -1883,14 +2119,14 @@ var ASR_DEBUG_NOISY_LABELS = /* @__PURE__ */ new Set([
   "[ASR threshold] (mode-side diagnostic; not driver scorer)"
 ]);
 var asrDebugLastAt = /* @__PURE__ */ new Map();
-function updateAsrDebugConfig(state2) {
+function updateAsrDebugConfig(state) {
   const snapshot = {
-    engine: state2.engine,
-    lang: state2.lang,
-    useInterimResults: state2.interim,
-    filterFillers: state2.fillerFilter,
-    threshold: state2.threshold,
-    endpointingMs: state2.endpointingMs,
+    engine: state.engine,
+    lang: state.lang,
+    useInterimResults: state.interim,
+    filterFillers: state.fillerFilter,
+    threshold: state.threshold,
+    endpointingMs: state.endpointingMs,
     timestamp: Date.now()
   };
   asrDebugState.config = snapshot;
@@ -2104,9 +2340,9 @@ var AsrMode = class {
   /**
    * Emit ASR state change event
    */
-  emitAsrState(state2, reason) {
+  emitAsrState(state, reason) {
     if (!this.shouldEmitTx()) return;
-    const payload = { state: state2, reason, timestamp: performance.now() };
+    const payload = { state, reason, timestamp: performance.now() };
     emit("tp:captions:state", payload);
     emit("tp:speech:state", payload);
   }

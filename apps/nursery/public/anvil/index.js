@@ -2326,17 +2326,17 @@ var init_RealtimePresence = __esm({
        * @internal
        */
       static syncState(currentState2, newState, onJoin, onLeave) {
-        const state9 = this.cloneDeep(currentState2);
+        const state8 = this.cloneDeep(currentState2);
         const transformedState = this.transformState(newState);
         const joins = {};
         const leaves = {};
-        this.map(state9, (key, presences) => {
+        this.map(state8, (key, presences) => {
           if (!transformedState[key]) {
             leaves[key] = presences;
           }
         });
         this.map(transformedState, (key, newPresences) => {
-          const currentPresences = state9[key];
+          const currentPresences = state8[key];
           if (currentPresences) {
             const newPresenceRefs = newPresences.map((m) => m.presence_ref);
             const curPresenceRefs = currentPresences.map((m) => m.presence_ref);
@@ -2352,7 +2352,7 @@ var init_RealtimePresence = __esm({
             joins[key] = newPresences;
           }
         });
-        return this.syncDiff(state9, { joins, leaves }, onJoin, onLeave);
+        return this.syncDiff(state8, { joins, leaves }, onJoin, onLeave);
       }
       /**
        * Used to sync a diff of presence join and leave events from the
@@ -2364,7 +2364,7 @@ var init_RealtimePresence = __esm({
        *
        * @internal
        */
-      static syncDiff(state9, diff, onJoin, onLeave) {
+      static syncDiff(state8, diff, onJoin, onLeave) {
         const { joins, leaves } = {
           joins: this.transformState(diff.joins),
           leaves: this.transformState(diff.leaves)
@@ -2379,27 +2379,27 @@ var init_RealtimePresence = __esm({
         }
         this.map(joins, (key, newPresences) => {
           var _a;
-          const currentPresences = (_a = state9[key]) !== null && _a !== void 0 ? _a : [];
-          state9[key] = this.cloneDeep(newPresences);
+          const currentPresences = (_a = state8[key]) !== null && _a !== void 0 ? _a : [];
+          state8[key] = this.cloneDeep(newPresences);
           if (currentPresences.length > 0) {
-            const joinedPresenceRefs = state9[key].map((m) => m.presence_ref);
+            const joinedPresenceRefs = state8[key].map((m) => m.presence_ref);
             const curPresences = currentPresences.filter((m) => joinedPresenceRefs.indexOf(m.presence_ref) < 0);
-            state9[key].unshift(...curPresences);
+            state8[key].unshift(...curPresences);
           }
           onJoin(key, currentPresences, newPresences);
         });
         this.map(leaves, (key, leftPresences) => {
-          let currentPresences = state9[key];
+          let currentPresences = state8[key];
           if (!currentPresences)
             return;
           const presenceRefsToRemove = leftPresences.map((m) => m.presence_ref);
           currentPresences = currentPresences.filter((m) => presenceRefsToRemove.indexOf(m.presence_ref) < 0);
-          state9[key] = currentPresences;
+          state8[key] = currentPresences;
           onLeave(key, currentPresences, leftPresences);
           if (currentPresences.length === 0)
-            delete state9[key];
+            delete state8[key];
         });
-        return state9;
+        return state8;
       }
       /** @internal */
       static map(obj, func) {
@@ -2428,10 +2428,10 @@ var init_RealtimePresence = __esm({
        *
        * @internal
        */
-      static transformState(state9) {
-        state9 = this.cloneDeep(state9);
-        return Object.getOwnPropertyNames(state9).reduce((newState, key) => {
-          const presences = state9[key];
+      static transformState(state8) {
+        state8 = this.cloneDeep(state8);
+        return Object.getOwnPropertyNames(state8).reduce((newState, key) => {
+          const presences = state8[key];
           if ("metas" in presences) {
             newState[key] = presences.metas.map((presence) => {
               presence["presence_ref"] = presence["phx_ref"];
@@ -3703,11 +3703,11 @@ Option 2: Install and provide the "ws" package:
        * Set connection state with proper state management
        * @internal
        */
-      _setConnectionState(state9, manual = false) {
-        this._connectionState = state9;
-        if (state9 === "connecting") {
+      _setConnectionState(state8, manual = false) {
+        this._connectionState = state8;
+        if (state8 === "connecting") {
           this._wasManualDisconnect = false;
-        } else if (state9 === "disconnecting") {
+        } else if (state8 === "disconnecting") {
           this._wasManualDisconnect = manual;
         }
       }
@@ -6911,33 +6911,33 @@ var init_errors = __esm({
 });
 
 // ../../node_modules/.pnpm/@supabase+auth-js@2.98.0/node_modules/@supabase/auth-js/dist/module/lib/base64url.js
-function byteToBase64URL(byte, state9, emit3) {
+function byteToBase64URL(byte, state8, emit3) {
   if (byte !== null) {
-    state9.queue = state9.queue << 8 | byte;
-    state9.queuedBits += 8;
-    while (state9.queuedBits >= 6) {
-      const pos = state9.queue >> state9.queuedBits - 6 & 63;
+    state8.queue = state8.queue << 8 | byte;
+    state8.queuedBits += 8;
+    while (state8.queuedBits >= 6) {
+      const pos = state8.queue >> state8.queuedBits - 6 & 63;
       emit3(TO_BASE64URL[pos]);
-      state9.queuedBits -= 6;
+      state8.queuedBits -= 6;
     }
-  } else if (state9.queuedBits > 0) {
-    state9.queue = state9.queue << 6 - state9.queuedBits;
-    state9.queuedBits = 6;
-    while (state9.queuedBits >= 6) {
-      const pos = state9.queue >> state9.queuedBits - 6 & 63;
+  } else if (state8.queuedBits > 0) {
+    state8.queue = state8.queue << 6 - state8.queuedBits;
+    state8.queuedBits = 6;
+    while (state8.queuedBits >= 6) {
+      const pos = state8.queue >> state8.queuedBits - 6 & 63;
       emit3(TO_BASE64URL[pos]);
-      state9.queuedBits -= 6;
+      state8.queuedBits -= 6;
     }
   }
 }
-function byteFromBase64URL(charCode, state9, emit3) {
+function byteFromBase64URL(charCode, state8, emit3) {
   const bits = FROM_BASE64URL[charCode];
   if (bits > -1) {
-    state9.queue = state9.queue << 6 | bits;
-    state9.queuedBits += 6;
-    while (state9.queuedBits >= 8) {
-      emit3(state9.queue >> state9.queuedBits - 8 & 255);
-      state9.queuedBits -= 8;
+    state8.queue = state8.queue << 6 | bits;
+    state8.queuedBits += 6;
+    while (state8.queuedBits >= 8) {
+      emit3(state8.queue >> state8.queuedBits - 8 & 255);
+      state8.queuedBits -= 8;
     }
   } else if (bits === -2) {
     return;
@@ -6997,47 +6997,47 @@ function stringToUTF8(str, emit3) {
     codepointToUTF8(codepoint, emit3);
   }
 }
-function stringFromUTF8(byte, state9, emit3) {
-  if (state9.utf8seq === 0) {
+function stringFromUTF8(byte, state8, emit3) {
+  if (state8.utf8seq === 0) {
     if (byte <= 127) {
       emit3(byte);
       return;
     }
     for (let leadingBit = 1; leadingBit < 6; leadingBit += 1) {
       if ((byte >> 7 - leadingBit & 1) === 0) {
-        state9.utf8seq = leadingBit;
+        state8.utf8seq = leadingBit;
         break;
       }
     }
-    if (state9.utf8seq === 2) {
-      state9.codepoint = byte & 31;
-    } else if (state9.utf8seq === 3) {
-      state9.codepoint = byte & 15;
-    } else if (state9.utf8seq === 4) {
-      state9.codepoint = byte & 7;
+    if (state8.utf8seq === 2) {
+      state8.codepoint = byte & 31;
+    } else if (state8.utf8seq === 3) {
+      state8.codepoint = byte & 15;
+    } else if (state8.utf8seq === 4) {
+      state8.codepoint = byte & 7;
     } else {
       throw new Error("Invalid UTF-8 sequence");
     }
-    state9.utf8seq -= 1;
-  } else if (state9.utf8seq > 0) {
+    state8.utf8seq -= 1;
+  } else if (state8.utf8seq > 0) {
     if (byte <= 127) {
       throw new Error("Invalid UTF-8 sequence");
     }
-    state9.codepoint = state9.codepoint << 6 | byte & 63;
-    state9.utf8seq -= 1;
-    if (state9.utf8seq === 0) {
-      emit3(state9.codepoint);
+    state8.codepoint = state8.codepoint << 6 | byte & 63;
+    state8.utf8seq -= 1;
+    if (state8.utf8seq === 0) {
+      emit3(state8.codepoint);
     }
   }
 }
 function base64UrlToUint8Array(str) {
   const result = [];
-  const state9 = { queue: 0, queuedBits: 0 };
+  const state8 = { queue: 0, queuedBits: 0 };
   const onByte = (byte) => {
     result.push(byte);
   };
   for (let i = 0; i < str.length; i += 1) {
-    byteFromBase64URL(str.charCodeAt(i), state9, onByte);
+    byteFromBase64URL(str.charCodeAt(i), state8, onByte);
   }
   return new Uint8Array(result);
 }
@@ -7048,12 +7048,12 @@ function stringToUint8Array(str) {
 }
 function bytesToBase64URL(bytes) {
   const result = [];
-  const state9 = { queue: 0, queuedBits: 0 };
+  const state8 = { queue: 0, queuedBits: 0 };
   const onChar = (char) => {
     result.push(char);
   };
-  bytes.forEach((byte) => byteToBase64URL(byte, state9, onChar));
-  byteToBase64URL(null, state9, onChar);
+  bytes.forEach((byte) => byteToBase64URL(byte, state8, onChar));
+  byteToBase64URL(null, state8, onChar);
   return result.join("");
 }
 var TO_BASE64URL, IGNORE_BASE64URL, FROM_BASE64URL;
@@ -13434,7 +13434,7 @@ var init_autoscroll = __esm({
 function createScrollBrain() {
   const PLL_GAIN = 0.4;
   const PLL_SMOOTH = 0.12;
-  const state9 = {
+  const state8 = {
     mode: "rehearsal",
     ticking: false,
     rafId: null,
@@ -13458,31 +13458,31 @@ function createScrollBrain() {
     lastCenteredLine: null
   };
   const resetForMode = (mode) => {
-    state9.pll = { errPx: 0, lastErrTs: now(), smoothedErr: 0, gain: PLL_GAIN, smoothFactor: PLL_SMOOTH };
-    state9.silence = { isSilent: false, lastChangeTs: now() };
-    state9.targetSpeedPxPerSec = 0;
-    state9.effectiveSpeedPxPerSec = 0;
-    state9.manualNudgePx = 0;
-    state9.lastCenteredLine = null;
-    state9.mode = mode;
+    state8.pll = { errPx: 0, lastErrTs: now(), smoothedErr: 0, gain: PLL_GAIN, smoothFactor: PLL_SMOOTH };
+    state8.silence = { isSilent: false, lastChangeTs: now() };
+    state8.targetSpeedPxPerSec = 0;
+    state8.effectiveSpeedPxPerSec = 0;
+    state8.manualNudgePx = 0;
+    state8.lastCenteredLine = null;
+    state8.mode = mode;
   };
   const tick = (ts) => {
-    if (!state9.ticking) {
-      state9.rafId = null;
+    if (!state8.ticking) {
+      state8.rafId = null;
       return;
     }
     if (!debugEnabled) debugEnabled = isScrollDebug();
-    const last = state9.lastTickTs ?? ts;
+    const last = state8.lastTickTs ?? ts;
     const dtMs = ts - last;
-    state9.lastTickTs = ts;
+    state8.lastTickTs = ts;
     const dtSec = dtMs > 0 ? dtMs / 1e3 : 0;
-    const mode = state9.mode;
-    const base = state9.targetSpeedPxPerSec || 0;
+    const mode = state8.mode;
+    const base = state8.targetSpeedPxPerSec || 0;
     let effectiveSpeed = base;
     const isClamped = clampActive();
-    const silenceHold = mode === "hybrid" && state9.silence.isSilent;
+    const silenceHold = mode === "hybrid" && state8.silence.isSilent;
     if (mode === "hybrid" && !silenceHold) {
-      effectiveSpeed += state9.pll.smoothedErr * state9.pll.gain;
+      effectiveSpeed += state8.pll.smoothedErr * state8.pll.gain;
     }
     if (mode === "hybrid" && silenceHold) {
       effectiveSpeed = 0;
@@ -13491,11 +13491,11 @@ function createScrollBrain() {
       effectiveSpeed = 0;
     }
     if (effectiveSpeed < 0 || !Number.isFinite(effectiveSpeed)) effectiveSpeed = 0;
-    state9.effectiveSpeedPxPerSec = effectiveSpeed;
+    state8.effectiveSpeedPxPerSec = effectiveSpeed;
     let dy = effectiveSpeed * dtSec;
-    if (state9.manualNudgePx) {
-      dy += state9.manualNudgePx;
-      state9.manualNudgePx = 0;
+    if (state8.manualNudgePx) {
+      dy += state8.manualNudgePx;
+      state8.manualNudgePx = 0;
     }
     if (Number.isFinite(dy) && dy !== 0 && !isClamped) {
       scrollByPx(dy);
@@ -13510,63 +13510,63 @@ function createScrollBrain() {
         try {
           console.log("[scroll-brain]", {
             mode,
-            target: state9.targetSpeedPxPerSec || 0,
+            target: state8.targetSpeedPxPerSec || 0,
             effective: effectiveSpeed,
             clamp: isClamped,
-            silent: state9.silence.isSilent,
-            pllErr: state9.pll?.smoothedErr ?? 0
+            silent: state8.silence.isSilent,
+            pllErr: state8.pll?.smoothedErr ?? 0
           });
         } catch {
         }
       }
     }
-    state9.rafId = typeof requestAnimationFrame === "function" ? requestAnimationFrame(tick) : null;
+    state8.rafId = typeof requestAnimationFrame === "function" ? requestAnimationFrame(tick) : null;
   };
   const startEngine = () => {
-    if (state9.ticking) return;
-    state9.ticking = true;
-    state9.lastTickTs = null;
-    state9.rafId = typeof requestAnimationFrame === "function" ? requestAnimationFrame(tick) : null;
+    if (state8.ticking) return;
+    state8.ticking = true;
+    state8.lastTickTs = null;
+    state8.rafId = typeof requestAnimationFrame === "function" ? requestAnimationFrame(tick) : null;
   };
   const stopEngine = () => {
-    state9.ticking = false;
-    if (state9.rafId && typeof cancelAnimationFrame === "function") {
-      cancelAnimationFrame(state9.rafId);
+    state8.ticking = false;
+    if (state8.rafId && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(state8.rafId);
     }
-    state9.rafId = null;
-    state9.lastTickTs = null;
+    state8.rafId = null;
+    state8.lastTickTs = null;
   };
   const setMode2 = (mode) => {
-    if (state9.mode === mode) return;
+    if (state8.mode === mode) return;
     stopEngine();
     resetForMode(mode);
   };
-  const getMode = () => state9.mode;
+  const getMode = () => state8.mode;
   const setTargetSpeed = (pxPerSec) => {
     const v = Number(pxPerSec);
-    state9.targetSpeedPxPerSec = Number.isFinite(v) && v > 0 ? v : 0;
+    state8.targetSpeedPxPerSec = Number.isFinite(v) && v > 0 ? v : 0;
   };
   const setMetrics = (pxPerLine, pxPerWord) => {
     const line = Number(pxPerLine);
     const word = Number(pxPerWord);
-    if (Number.isFinite(line) && line > 0) state9.pxPerLine = line;
-    if (Number.isFinite(word) && word > 0) state9.pxPerWord = word;
+    if (Number.isFinite(line) && line > 0) state8.pxPerLine = line;
+    if (Number.isFinite(word) && word > 0) state8.pxPerWord = word;
   };
   const reportAsrSample = (sample) => {
-    if (state9.mode !== "hybrid") return;
+    if (state8.mode !== "hybrid") return;
     if (!sample || typeof sample.errPx !== "number") return;
     const ts = typeof sample.ts === "number" ? sample.ts : now();
-    state9.pll.errPx = sample.errPx;
-    state9.pll.lastErrTs = ts;
-    const alpha = state9.pll.smoothFactor;
-    state9.pll.smoothedErr = state9.pll.smoothedErr * (1 - alpha) + sample.errPx * alpha;
+    state8.pll.errPx = sample.errPx;
+    state8.pll.lastErrTs = ts;
+    const alpha = state8.pll.smoothFactor;
+    state8.pll.smoothedErr = state8.pll.smoothedErr * (1 - alpha) + sample.errPx * alpha;
   };
   const reportAsrSilence = (isSilent, ts) => {
-    state9.silence.isSilent = !!isSilent;
-    state9.silence.lastChangeTs = typeof ts === "number" ? ts : now();
+    state8.silence.isSilent = !!isSilent;
+    state8.silence.lastChangeTs = typeof ts === "number" ? ts : now();
   };
   const centerOnLine = (lineIndex) => {
-    state9.lastCenteredLine = Number.isFinite(lineIndex) ? Math.max(0, Math.floor(lineIndex)) : null;
+    state8.lastCenteredLine = Number.isFinite(lineIndex) ? Math.max(0, Math.floor(lineIndex)) : null;
   };
   const onSpeechSample = (sample) => {
     try {
@@ -13577,7 +13577,7 @@ function createScrollBrain() {
   const nudge = (deltaPx) => {
     const delta = Number(deltaPx);
     if (!Number.isFinite(delta) || delta === 0) return;
-    state9.manualNudgePx += delta;
+    state8.manualNudgePx += delta;
   };
   return {
     setMode: setMode2,
@@ -13595,17 +13595,17 @@ function createScrollBrain() {
     setBaseSpeedPx: (px) => {
       const val = Number(px);
       if (Number.isFinite(val)) {
-        state9.targetSpeedPxPerSec = val;
-        state9.effectiveSpeedPxPerSec = val;
+        state8.targetSpeedPxPerSec = val;
+        state8.effectiveSpeedPxPerSec = val;
       }
     },
     onManualSpeedAdjust: (delta) => {
       const d = Number(delta);
       if (Number.isFinite(d)) {
-        state9.targetSpeedPxPerSec += d;
+        state8.targetSpeedPxPerSec += d;
       }
     },
-    getCurrentSpeedPx: () => state9.effectiveSpeedPxPerSec
+    getCurrentSpeedPx: () => state8.effectiveSpeedPxPerSec
   };
 }
 var now, debugEnabled, debugCounter, isScrollDebug;
@@ -13826,6 +13826,69 @@ var init_auto_state = __esm({
   "src/features/scroll/auto-state.ts"() {
     "use strict";
     STORAGE_KEY2 = "tp_auto_enabled_v1";
+  }
+});
+
+// src/features/asr/engine-selection.ts
+function normalizeAsrEngine(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return "";
+  if (normalized === "web-speech") return "webspeech";
+  if (normalized === "offline") return "vosk";
+  return normalized;
+}
+function isAsrEngineExplicit(value) {
+  return value === true || value === 1 || value === "1" || value === "true";
+}
+function resolveAsrEngineSelection(opts) {
+  const fallback = normalizeAsrEngine(opts.fallback || "whisper") || "whisper";
+  const engine = normalizeAsrEngine(opts.engine);
+  const explicit = isAsrEngineExplicit(opts.explicit);
+  if (explicit) return engine || fallback;
+  if (!engine || engine === "webspeech") return fallback;
+  return engine;
+}
+function normalizePersistedAsrSelection(settings2) {
+  const rawApp = settings2?.app && typeof settings2.app === "object" ? settings2.app : {};
+  const rawAsrSettings = settings2?.asrSettings && typeof settings2.asrSettings === "object" ? settings2.asrSettings : {};
+  const hasPersistedEngine = typeof rawAsrSettings.engine === "string" || typeof rawApp["asr.engine"] === "string";
+  const explicit = isAsrEngineExplicit(rawAsrSettings.engineExplicit);
+  if (!hasPersistedEngine && !explicit) return settings2;
+  const app = { ...rawApp };
+  const asrSettings = { ...rawAsrSettings };
+  const resolvedEngine = resolveAsrEngineSelection({
+    engine: typeof asrSettings.engine === "string" ? asrSettings.engine : app["asr.engine"],
+    explicit
+  });
+  app["asr.engine"] = resolvedEngine;
+  asrSettings.engine = resolvedEngine;
+  if (explicit) asrSettings.engineExplicit = true;
+  else delete asrSettings.engineExplicit;
+  return {
+    ...settings2,
+    app,
+    asrSettings
+  };
+}
+function readLocalAsrEngineExplicit() {
+  try {
+    const store3 = window?.__tpStore;
+    if (store3 && typeof store3.get === "function") {
+      return isAsrEngineExplicit(store3.get("asr.engineExplicit"));
+    }
+  } catch {
+  }
+  try {
+    return localStorage.getItem(ASR_ENGINE_EXPLICIT_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+var ASR_ENGINE_EXPLICIT_KEY;
+var init_engine_selection = __esm({
+  "src/features/asr/engine-selection.ts"() {
+    "use strict";
+    ASR_ENGINE_EXPLICIT_KEY = "tp_asr_engine_explicit_v1";
   }
 });
 
@@ -14068,6 +14131,64 @@ function loadLegacyAsrSettings() {
     return null;
   }
 }
+function readLegacyAsrBoolean(legacyAsrSettings, ...keys) {
+  for (const key of keys) {
+    const value = legacyAsrSettings?.[key];
+    if (value !== void 0) return !!value;
+  }
+  return null;
+}
+function readLegacyAsrNumber(legacyAsrSettings, ...keys) {
+  for (const key of keys) {
+    const value = legacyAsrSettings?.[key];
+    if (value === void 0) continue;
+    const num2 = Number(value);
+    if (!Number.isNaN(num2)) return num2;
+  }
+  return null;
+}
+function migrateLegacyAsrSettings(legacyAsrSettings) {
+  if (!legacyAsrSettings || typeof window === "undefined") return;
+  try {
+    const ls = window.localStorage;
+    const setIfMissing = (key, value) => {
+      if (!key || value == null || value === "") return;
+      if (ls.getItem(key) !== null) return;
+      ls.setItem(key, value);
+    };
+    setIfMissing(ASR_ENGINE_KEY, readInitialAsrEngine(legacyAsrSettings));
+    setIfMissing(ASR_LANG_KEY, typeof legacyAsrSettings.lang === "string" ? legacyAsrSettings.lang : null);
+    const interim = readLegacyAsrBoolean(legacyAsrSettings, "interim");
+    setIfMissing(ASR_INTERIM_KEY, interim == null ? null : interim ? "1" : "0");
+    const filter = readLegacyAsrBoolean(legacyAsrSettings, "filterFillers", "fillerFilter");
+    setIfMissing(ASR_FILTER_KEY, filter == null ? null : filter ? "1" : "0");
+    const threshold = readLegacyAsrNumber(legacyAsrSettings, "threshold");
+    setIfMissing(ASR_THRESHOLD_KEY, threshold == null ? null : String(threshold));
+    const endpointMs = readLegacyAsrNumber(legacyAsrSettings, "endpointMs", "endpointingMs");
+    setIfMissing(ASR_ENDPOINT_KEY, endpointMs == null ? null : String(endpointMs));
+    const manualAnchor = readLegacyAsrBoolean(legacyAsrSettings, "manualAnchorAdoptEnabled");
+    setIfMissing(ASR_MANUAL_ANCHOR_KEY, manualAnchor == null ? null : manualAnchor ? "1" : "0");
+    const calmMode = readLegacyAsrBoolean(legacyAsrSettings, "calmModeEnabled");
+    setIfMissing(ASR_CALM_MODE_KEY, calmMode == null ? null : calmMode ? "1" : "0");
+    ls.removeItem(LEGACY_ASR_SETTINGS_KEY);
+  } catch {
+  }
+}
+function readInitialAsrEngine(legacyAsrSettings) {
+  try {
+    const explicit = readLocalAsrEngineExplicit();
+    const stored = normalizeAsrEngine(localStorage.getItem(ASR_ENGINE_KEY));
+    const legacy = normalizeAsrEngine(
+      legacyAsrSettings?.engine && typeof legacyAsrSettings.engine === "string" ? legacyAsrSettings.engine : ""
+    );
+    const selected = stored || legacy;
+    if (explicit) return selected || "whisper";
+    if (!selected || selected === "webspeech") return "whisper";
+    return selected;
+  } catch {
+  }
+  return "whisper";
+}
 function migrateAutoRecordFlag() {
   try {
     const current2 = localStorage.getItem(AUTO_RECORD_KEY);
@@ -14249,17 +14370,8 @@ function buildInitialState() {
       }
     })(),
     asrLive: false,
-    "asr.engine": (() => {
-      try {
-        const raw = localStorage.getItem(ASR_ENGINE_KEY);
-        if (raw) return raw;
-        if (legacyAsrSettings?.engine && typeof legacyAsrSettings.engine === "string") {
-          return legacyAsrSettings.engine;
-        }
-      } catch {
-      }
-      return "webspeech";
-    })(),
+    "asr.engine": readInitialAsrEngine(legacyAsrSettings),
+    "asr.engineExplicit": readLocalAsrEngineExplicit(),
     "asr.language": (() => {
       try {
         const raw = localStorage.getItem(ASR_LANG_KEY);
@@ -14284,7 +14396,8 @@ function buildInitialState() {
       try {
         const raw = localStorage.getItem(ASR_FILTER_KEY);
         if (raw !== null) return raw === "1";
-        if (legacyAsrSettings?.filterFillers !== void 0) return !!legacyAsrSettings.filterFillers;
+        const legacy = readLegacyAsrBoolean(legacyAsrSettings, "filterFillers", "fillerFilter");
+        if (legacy !== null) return legacy;
       } catch {
       }
       return true;
@@ -14304,15 +14417,29 @@ function buildInitialState() {
         const raw = localStorage.getItem(ASR_ENDPOINT_KEY);
         const num2 = Number(raw);
         if (raw !== null && !Number.isNaN(num2)) return num2;
-        if (legacyAsrSettings?.endpointMs !== void 0) return Number(legacyAsrSettings.endpointMs) || 700;
+        const legacy = readLegacyAsrNumber(legacyAsrSettings, "endpointMs", "endpointingMs");
+        if (legacy !== null) return legacy;
       } catch {
       }
       return 700;
+    })(),
+    "asr.manualAnchorAdoptEnabled": (() => {
+      try {
+        const raw = localStorage.getItem(ASR_MANUAL_ANCHOR_KEY);
+        if (raw !== null) return raw === "1";
+        if (legacyAsrSettings?.manualAnchorAdoptEnabled !== void 0) {
+          return legacyAsrSettings.manualAnchorAdoptEnabled !== false;
+        }
+      } catch {
+      }
+      return true;
     })(),
     asrCalmModeEnabled: (() => {
       try {
         const raw = localStorage.getItem(ASR_CALM_MODE_KEY);
         if (raw !== null) return raw === "1";
+        const legacy = readLegacyAsrBoolean(legacyAsrSettings, "calmModeEnabled");
+        if (legacy !== null) return legacy;
       } catch {
       }
       return false;
@@ -14538,50 +14665,54 @@ function ensureExistingState() {
   }
   return {};
 }
-function sanitizeState(state9) {
-  if (!ALLOWED_PAGES.has(state9.page)) {
-    state9.page = "scripts";
+function sanitizeState(state8) {
+  if (!ALLOWED_PAGES.has(state8.page)) {
+    state8.page = "scripts";
   }
-  if (!ALLOWED_OVERLAYS.has(state9.overlay)) {
-    state9.overlay = "none";
+  if (!ALLOWED_OVERLAYS.has(state8.overlay)) {
+    state8.overlay = "none";
     try {
       localStorage.removeItem(OVERLAY_KEY);
     } catch {
     }
   }
-  if (state9.scrollMode === "manual") {
-    state9.scrollMode = "step";
+  if (typeof state8["asr.engineExplicit"] !== "boolean") {
+    state8["asr.engineExplicit"] = !!state8["asr.engineExplicit"];
   }
-  if (!state9.asrProfiles || typeof state9.asrProfiles !== "object") {
-    state9.asrProfiles = {};
+  if (state8.scrollMode === "manual") {
+    state8.scrollMode = "step";
   }
-  if (state9.asrActiveProfileId && typeof state9.asrActiveProfileId !== "string") {
-    state9.asrActiveProfileId = null;
+  if (!state8.asrProfiles || typeof state8.asrProfiles !== "object") {
+    state8.asrProfiles = {};
   }
-  if (!state9.asrTuningProfiles || typeof state9.asrTuningProfiles !== "object") {
-    state9.asrTuningProfiles = {};
+  if (state8.asrActiveProfileId && typeof state8.asrActiveProfileId !== "string") {
+    state8.asrActiveProfileId = null;
   }
-  if (state9.asrTuningActiveProfileId && typeof state9.asrTuningActiveProfileId !== "string") {
-    state9.asrTuningActiveProfileId = null;
+  if (!state8.asrTuningProfiles || typeof state8.asrTuningProfiles !== "object") {
+    state8.asrTuningProfiles = {};
   }
-  if (typeof state9.asrLastAppliedAt !== "number") {
-    state9.asrLastAppliedAt = 0;
+  if (state8.asrTuningActiveProfileId && typeof state8.asrTuningActiveProfileId !== "string") {
+    state8.asrTuningActiveProfileId = null;
   }
-  if (!state9.asrLastAppliedSummary || typeof state9.asrLastAppliedSummary !== "object") {
-    state9.asrLastAppliedSummary = {};
+  if (typeof state8.asrLastAppliedAt !== "number") {
+    state8.asrLastAppliedAt = 0;
   }
-  if (typeof state9.asrLastApplyOk !== "boolean") {
-    state9.asrLastApplyOk = false;
+  if (!state8.asrLastAppliedSummary || typeof state8.asrLastAppliedSummary !== "object") {
+    state8.asrLastAppliedSummary = {};
   }
-  if (!state9.settingsSaveStatus || typeof state9.settingsSaveStatus !== "object") {
-    state9.settingsSaveStatus = { state: "idle", at: 0 };
+  if (typeof state8.asrLastApplyOk !== "boolean") {
+    state8.asrLastApplyOk = false;
   }
-  return state9;
+  if (!state8.settingsSaveStatus || typeof state8.settingsSaveStatus !== "object") {
+    state8.settingsSaveStatus = { state: "idle", at: 0 };
+  }
+  return state8;
 }
 function createAppStore(initial2) {
   const subs7 = /* @__PURE__ */ Object.create(null);
   const baseState = buildInitialState();
-  const state9 = sanitizeState(
+  migrateLegacyAsrSettings(loadLegacyAsrSettings());
+  const state8 = sanitizeState(
     Object.assign(
       {},
       baseState,
@@ -14589,7 +14720,7 @@ function createAppStore(initial2) {
       initial2 || {}
     )
   );
-  function notify3(key, value) {
+  function notify4(key, value) {
     try {
       const k = String(key);
       const fns = subs7[k] || [];
@@ -14604,7 +14735,7 @@ function createAppStore(initial2) {
   }
   function get4(key) {
     try {
-      return state9[key];
+      return state8[key];
     } catch {
       return void 0;
     }
@@ -14617,9 +14748,9 @@ function createAppStore(initial2) {
       if (key === "overlay") {
         value = ALLOWED_OVERLAYS.has(value) ? value : "none";
       }
-      const prev2 = state9[key];
+      const prev2 = state8[key];
       if (prev2 === value) return value;
-      state9[key] = value;
+      state8[key] = value;
       if (key === "scrollMode") {
         try {
           const ctx = getScrollModeAuditContext();
@@ -14627,7 +14758,7 @@ function createAppStore(initial2) {
             writer: ctx?.writer || "unknown",
             from: prev2,
             to: value,
-            phase: state9["session.phase"],
+            phase: state8["session.phase"],
             source: ctx?.meta?.source,
             via: ctx?.meta?.via,
             stack: !!ctx?.meta?.stack
@@ -14662,7 +14793,7 @@ function createAppStore(initial2) {
         }
       } catch {
       }
-      notify3(key, value);
+      notify4(key, value);
       return value;
     } catch {
       return value;
@@ -14675,7 +14806,7 @@ function createAppStore(initial2) {
     subs7[k] = subs7[k] || [];
     subs7[k].push(fn);
     try {
-      fn(state9[key]);
+      fn(state8[key]);
     } catch {
     }
     return function unsubscribe() {
@@ -14707,8 +14838,8 @@ function createAppStore(initial2) {
     set,
     subscribe,
     subscribeAll,
-    state: state9,
-    getSnapshot: () => ({ ...state9 })
+    state: state8,
+    getSnapshot: () => ({ ...state8 })
   };
   try {
     if (!IS_TEST) {
@@ -14731,10 +14862,11 @@ function createAppStore(initial2) {
   }
   return appStore;
 }
-var IS_TEST, DEVICE_KEY, OBS_ENABLED_KEY, OBS_HOST_KEY, OBS_PASSWORD_KEY, OBS_SCENE_KEY, OBS_RECONNECT_KEY, AUTO_RECORD_KEY, LEGACY_AUTO_RECORD_KEY, PREROLL_SEC_KEY, DEV_HUD_KEY, SETTINGS_TAB_KEY, LEGACY_ASR_SETTINGS_KEY, ASR_ENGINE_KEY, ASR_LANG_KEY, ASR_INTERIM_KEY, ASR_FILTER_KEY, ASR_THRESHOLD_KEY, ASR_ENDPOINT_KEY, ASR_PROFILES_KEY, ASR_ACTIVE_PROFILE_KEY, SINGLE_MONITOR_READ_KEY, ASR_CALM_MODE_KEY, ASR_TUNING_PROFILES_KEY, ASR_TUNING_ACTIVE_PROFILE_KEY, SCROLL_MODE_KEY, TIMED_SPEED_KEY, WPM_TARGET_KEY, WPM_BASEPX_KEY, WPM_MINPX_KEY, WPM_MAXPX_KEY, WPM_EWMA_KEY, HYB_ATTACK_KEY, HYB_RELEASE_KEY, HYB_IDLE_KEY, STEP_PX_KEY, REH_PUNCT_KEY, REH_RESUME_KEY, ALLOWED_PAGES, ALLOWED_OVERLAYS, HUD_ENABLED_KEY, HUD_SPEECH_NOTES_KEY, OVERLAY_KEY, CAMERA_KEY, persistMap, appStoreSingleton;
+var IS_TEST, DEVICE_KEY, OBS_ENABLED_KEY, OBS_HOST_KEY, OBS_PASSWORD_KEY, OBS_SCENE_KEY, OBS_RECONNECT_KEY, AUTO_RECORD_KEY, LEGACY_AUTO_RECORD_KEY, PREROLL_SEC_KEY, DEV_HUD_KEY, SETTINGS_TAB_KEY, LEGACY_ASR_SETTINGS_KEY, ASR_ENGINE_KEY, ASR_LANG_KEY, ASR_INTERIM_KEY, ASR_FILTER_KEY, ASR_THRESHOLD_KEY, ASR_ENDPOINT_KEY, ASR_MANUAL_ANCHOR_KEY, ASR_PROFILES_KEY, ASR_ACTIVE_PROFILE_KEY, SINGLE_MONITOR_READ_KEY, ASR_CALM_MODE_KEY, ASR_TUNING_PROFILES_KEY, ASR_TUNING_ACTIVE_PROFILE_KEY, SCROLL_MODE_KEY, TIMED_SPEED_KEY, WPM_TARGET_KEY, WPM_BASEPX_KEY, WPM_MINPX_KEY, WPM_MAXPX_KEY, WPM_EWMA_KEY, HYB_ATTACK_KEY, HYB_RELEASE_KEY, HYB_IDLE_KEY, STEP_PX_KEY, REH_PUNCT_KEY, REH_RESUME_KEY, ALLOWED_PAGES, ALLOWED_OVERLAYS, HUD_ENABLED_KEY, HUD_SPEECH_NOTES_KEY, OVERLAY_KEY, CAMERA_KEY, persistMap, appStoreSingleton;
 var init_app_store = __esm({
   "src/state/app-store.ts"() {
     "use strict";
+    init_engine_selection();
     init_scroll_prefs();
     init_audit();
     IS_TEST = typeof process !== "undefined" && process.env && false;
@@ -14756,6 +14888,7 @@ var init_app_store = __esm({
     ASR_FILTER_KEY = "tp_asr_filter_v1";
     ASR_THRESHOLD_KEY = "tp_asr_threshold_v1";
     ASR_ENDPOINT_KEY = "tp_asr_endpoint_v1";
+    ASR_MANUAL_ANCHOR_KEY = "tp_asr_manual_anchor_v1";
     ASR_PROFILES_KEY = "tp_asr_profiles_v1";
     ASR_ACTIVE_PROFILE_KEY = "tp_asr_active_profile_v1";
     SINGLE_MONITOR_READ_KEY = "tp_single_monitor_read_v1";
@@ -14812,10 +14945,12 @@ var init_app_store = __esm({
       rehearsalPunct: REH_PUNCT_KEY,
       rehearsalResumeMs: REH_RESUME_KEY,
       "asr.engine": ASR_ENGINE_KEY,
+      "asr.engineExplicit": ASR_ENGINE_EXPLICIT_KEY,
       "asr.language": ASR_LANG_KEY,
       "asr.useInterimResults": ASR_INTERIM_KEY,
       "asr.threshold": ASR_THRESHOLD_KEY,
       "asr.endpointMs": ASR_ENDPOINT_KEY,
+      "asr.manualAnchorAdoptEnabled": ASR_MANUAL_ANCHOR_KEY,
       "asr.filterFillers": ASR_FILTER_KEY,
       asrCalmModeEnabled: ASR_CALM_MODE_KEY,
       asrProfiles: ASR_PROFILES_KEY,
@@ -15085,7 +15220,7 @@ function createProfilePersister(store3, options) {
   const delayMs = Number.isFinite(options?.delayMs ?? NaN) ? options.delayMs : 450;
   let pending = null;
   let timer = null;
-  let saving2 = null;
+  let saving = null;
   const isObject = (value) => !!value && typeof value === "object" && !Array.isArray(value);
   const merge = (base, patch) => {
     if (!base) return patch;
@@ -15107,7 +15242,7 @@ function createProfilePersister(store3, options) {
   };
   const flush2 = async () => {
     if (!pending) return;
-    if (saving2) {
+    if (saving) {
       if (timer) {
         clearTimeout(timer);
         timer = null;
@@ -15121,10 +15256,10 @@ function createProfilePersister(store3, options) {
       timer = null;
     }
     try {
-      saving2 = store3.saveProfilePatch(patch);
-      await saving2;
+      saving = store3.saveProfilePatch(patch);
+      await saving;
     } finally {
-      saving2 = null;
+      saving = null;
       if (pending) {
         await flush2();
       }
@@ -15176,15 +15311,6 @@ function syncAppStore() {
   storeSyncSuppressed = false;
 }
 function save(opts) {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(state.profiles || {}));
-  } catch {
-  }
-  try {
-    if (state.activeProfileId) localStorage.setItem(ACTIVE_KEY, state.activeProfileId);
-    else localStorage.removeItem(ACTIVE_KEY);
-  } catch {
-  }
   subs.forEach((fn) => {
     try {
       fn(state);
@@ -15213,16 +15339,14 @@ function onAsr(fn) {
   return () => subs.delete(fn);
 }
 function hasActiveAsrProfile() {
-  const state9 = getAsrState();
-  return !!(state9?.activeProfileId && state9.profiles?.[state9.activeProfileId]);
+  const state8 = getAsrState();
+  return !!(state8?.activeProfileId && state8.profiles?.[state8.activeProfileId]);
 }
-var KEY, ACTIVE_KEY, store, stateFromStore, state, subs, storeSyncSuppressed, getAsrState;
+var store, stateFromStore, state, subs, storeSyncSuppressed, getAsrState;
 var init_store = __esm({
   "src/asr/store.ts"() {
     "use strict";
     init_appStore();
-    KEY = "tp_asr_profiles_v1";
-    ACTIVE_KEY = "tp_asr_active_profile_v1";
     store = getAppStore();
     stateFromStore = (() => {
       if (!store) return null;
@@ -15235,22 +15359,13 @@ var init_store = __esm({
       }
     })();
     state = (() => {
-      try {
-        if (stateFromStore) {
-          return {
-            profiles: stateFromStore.profiles || {},
-            activeProfileId: stateFromStore.activeProfileId
-          };
-        }
-        const raw = localStorage.getItem(KEY);
-        const parsed = raw ? JSON.parse(raw) : {};
-        const legacyProfiles = parsed && typeof parsed === "object" && "profiles" in parsed ? parsed.profiles : null;
-        const profiles = legacyProfiles && typeof legacyProfiles === "object" ? legacyProfiles : parsed && typeof parsed === "object" ? parsed : {};
-        const activeProfileId = typeof parsed?.activeProfileId === "string" && parsed.activeProfileId || (localStorage.getItem(ACTIVE_KEY) || void 0);
-        return { profiles: profiles || {}, activeProfileId };
-      } catch {
-        return { profiles: {} };
+      if (stateFromStore) {
+        return {
+          profiles: stateFromStore.profiles || {},
+          activeProfileId: stateFromStore.activeProfileId
+        };
       }
+      return { profiles: {} };
     })();
     subs = /* @__PURE__ */ new Set();
     storeSyncSuppressed = false;
@@ -15271,28 +15386,6 @@ var init_store = __esm({
       } catch {
       }
       syncAppStore();
-    }
-    try {
-      window.addEventListener("storage", (e) => {
-        try {
-          if (e.key === KEY && e.newValue) {
-            const parsed = JSON.parse(e.newValue);
-            const legacyProfiles = parsed && typeof parsed === "object" && "profiles" in parsed ? parsed.profiles : null;
-            const profiles = legacyProfiles && typeof legacyProfiles === "object" ? legacyProfiles : parsed && typeof parsed === "object" ? parsed : {};
-            state = {
-              ...state,
-              profiles: profiles || {}
-            };
-            save({ fromStore: true });
-          }
-          if (e.key === ACTIVE_KEY) {
-            state.activeProfileId = e.newValue || void 0;
-            save({ fromStore: true });
-          }
-        } catch {
-        }
-      });
-    } catch {
     }
   }
 });
@@ -15323,8 +15416,8 @@ function formatChip(activeLabel) {
 function renderOptions() {
   const select = getSelect();
   if (!select) return;
-  const state9 = getAsrState();
-  const entries = Object.entries(state9.profiles || {});
+  const state8 = getAsrState();
+  const entries = Object.entries(state8.profiles || {});
   select.innerHTML = "";
   const placeholder = document.createElement("option");
   placeholder.value = "";
@@ -15336,7 +15429,7 @@ function renderOptions() {
     opt.textContent = profile.label || id;
     select.appendChild(opt);
   });
-  const activeId = state9.activeProfileId || "";
+  const activeId = state8.activeProfileId || "";
   const hasActive = activeId && entries.some(([id]) => id === activeId);
   if (!hasActive && activeId) {
     setActiveProfile("");
@@ -15347,7 +15440,7 @@ function renderOptions() {
   } else {
     select.value = "";
   }
-  updateStatusElements(hasActive ? state9.profiles[activeId] : null);
+  updateStatusElements(hasActive ? state8.profiles[activeId] : null);
 }
 function updateStatusElements(activeProfile) {
   const statusEl = getStatusEl();
@@ -16136,7 +16229,7 @@ function computeHybridModeHint(errorLines, weakMatch) {
   }
   return lines > 0 ? "CATCHING UP" : "LETTING YOU CATCH UP";
 }
-function renderHybridCtrlHud(state9) {
+function renderHybridCtrlHud(state8) {
   if (!HYBRID_CTRL_ENABLED) return;
   if (typeof document === "undefined") return;
   const container = document.body || document.documentElement;
@@ -16160,28 +16253,28 @@ function renderHybridCtrlHud(state9) {
     container.appendChild(hud);
   }
   const parts = [
-    `mode=${state9.modeHint}`,
-    `target=${formatHudNumber(state9.targetTop, 1)}`,
-    `curr=${formatHudNumber(state9.currentTop, 1)}`,
-    `err=${formatHudNumber(state9.errorPx, 1)}`,
-    `errLines=${formatHudNumber(state9.errorLines, 1)}`,
-    `markerIdx=${formatHudNumber(state9.markerIdx, 0)}`,
-    `bestIdx=${formatHudNumber(state9.bestIdx, 0)}`,
-    `lineTarget=${formatHudNumber(state9.lineTargetMult, 2)}`,
-    `lineMult=${formatHudNumber(state9.lineMult, 2)}`,
-    `lineSrc=${state9.lineSource}`,
-    `base=${formatHudNumber(state9.basePxps, 1)}`,
-    `baseCorr=${formatHudNumber(state9.baseWithCorrection, 1)}`,
-    `mult=${formatHudNumber(state9.mult, 2)}`,
-    `ctrl=${formatHudNumber(state9.ctrlMultApplied, 2)}`,
-    `scale=${formatHudNumber(state9.effectiveScaleApplied, 2)}`,
-    `final=${formatHudNumber(state9.finalPxps, 1)}`,
-    `silence=${formatHudNumber(state9.silenceMs, 0)}ms`,
-    `silenceCap=${formatHudNumber(state9.silenceCap, 2)}`,
-    `off=${formatHudNumber(state9.offScriptSeverity, 2)}`,
-    `offCap=${formatHudNumber(state9.offScriptCap, 2)}`,
-    `eligible=${state9.eligible ? "yes" : "no"}(${state9.eligibleReason})`,
-    `writer=${state9.writerSource ?? "n/a"}`
+    `mode=${state8.modeHint}`,
+    `target=${formatHudNumber(state8.targetTop, 1)}`,
+    `curr=${formatHudNumber(state8.currentTop, 1)}`,
+    `err=${formatHudNumber(state8.errorPx, 1)}`,
+    `errLines=${formatHudNumber(state8.errorLines, 1)}`,
+    `markerIdx=${formatHudNumber(state8.markerIdx, 0)}`,
+    `bestIdx=${formatHudNumber(state8.bestIdx, 0)}`,
+    `lineTarget=${formatHudNumber(state8.lineTargetMult, 2)}`,
+    `lineMult=${formatHudNumber(state8.lineMult, 2)}`,
+    `lineSrc=${state8.lineSource}`,
+    `base=${formatHudNumber(state8.basePxps, 1)}`,
+    `baseCorr=${formatHudNumber(state8.baseWithCorrection, 1)}`,
+    `mult=${formatHudNumber(state8.mult, 2)}`,
+    `ctrl=${formatHudNumber(state8.ctrlMultApplied, 2)}`,
+    `scale=${formatHudNumber(state8.effectiveScaleApplied, 2)}`,
+    `final=${formatHudNumber(state8.finalPxps, 1)}`,
+    `silence=${formatHudNumber(state8.silenceMs, 0)}ms`,
+    `silenceCap=${formatHudNumber(state8.silenceCap, 2)}`,
+    `off=${formatHudNumber(state8.offScriptSeverity, 2)}`,
+    `offCap=${formatHudNumber(state8.offScriptCap, 2)}`,
+    `eligible=${state8.eligible ? "yes" : "no"}(${state8.eligibleReason})`,
+    `writer=${state8.writerSource ?? "n/a"}`
   ];
   hud.textContent = parts.join(" | ");
 }
@@ -21799,7 +21892,7 @@ function installScrollRouter(opts) {
   } catch {
   }
 }
-var isDevMode2, ASR_COMPLETION_GATE_KEY, asrCompletionGateBypassLogged, viewerRole, ROUTER_STAMP, scrollRouterInstalled, scrollRouterInstallCount, AUTO_INTENT_WIRE_STAMP, __AUTO_INTENT_WIRE_SENTINEL, autoIntentListenerWired, autoIntentProcessor, pendingAutoIntentDetail, scrollerEl, auto, scrollIntentListenerWired, legacyAsrIntentLaneBlockedLogged, ASR_INTENT_DEBOUNCE_MS, ASR_INTENT_STABLE_MS, ASR_INTENT_FIRST_STABLE_MS, ASR_INTENT_WARMUP_MS, ASR_INTENT_MIN_CONF, ASR_TELEMETRY_MAX_REJECTS, ASR_TELEMETRY_WINDOW_MS, ASR_MATCH_WINDOW_MS, ASR_MATCH_MAX, asrIntentLiveSince, committedBlockIdx, lastCommitAt, lastCandidate, stableSince, asrMotorConflictLogged, scrollWriteWarned, guardHandlerErrorLogged, hybridScrollGraceListenerInstalled, hybridModeMismatchLogged, recentAsrMatches, asrBlockLineCacheRef, asrBlockLineCache, hybridSilence, offScriptSinceMs, offScriptDurationMs, hybridSilence2, HYBRID_CTRL_DEBUG_THROTTLE_MS, lastHybridCtrlDebugTs, HYBRID_TRUTH_THROTTLE_MS, lastHybridTruthAt, HYBRID_OFFSCRIPT_HUD_THROTTLE_MS, lastHybridOffScriptHudAt, profileStore, profilePersister, nowMs, KNOWN_SCROLL_MODES, hybridProgrammaticScrollUntilMs, tpLastWriter, HYBRID_LOG_THROTTLE_MS, HYBRID_VERBOSE_FLAG, HYBRID_TRACE_FLAG, lastHybridScaleLogAt, lastHybridPaceLogAt, lastHybridBrakeLogAt, lastHybridVelocityLogAt, HYBRID_MOTOR_LOG_THROTTLE_MS, lastHybridMotorVelocityLogAt, lastHybridMotorVelocitySignature, lastHybridBrakeSignature, lastHybridVelocitySignature, isHybridVerboseDevMode, hybridTraceLastAt, hybridTraceLastSig, KEY2, state2, subs2, getUiPrefs, onUiPrefs, LS_KEY, LEGACY_LS_KEYS, DEFAULTS, state22, viewer, scrollWriter, smokeAutoMovementScheduled, hybridMotor, HYBRID_SILENCE_SOFT_MS, HYBRID_PAUSE_SILENCE_SOFT_MS, HYBRID_SILENCE_HARD_STOP_MS, LIVE_GRACE_MS, HYBRID_SPEECH_PRESENT_HOLD_MS, HYBRID_HARD_NOMATCH_OFFSCRIPT_GRACE_MS, OFFSCRIPT_MILD, OFFSCRIPT_DEEP, RECOVERY_SCALE, HYBRID_ON_SCRIPT_SIM, HYBRID_OFFSCRIPT_MILD_SIM, HYBRID_GRACE_DURATION_MS, OFFSCRIPT_SCALE, SILENCE_SCALE, PAUSE_DRIFT_SCALE, PAUSE_LOOKAHEAD_LINES, HYBRID_PAUSE_TOKENS, GRACE_MIN_SCALE, HYBRID_BASELINE_FLOOR_PXPS, HYBRID_WPM_CAL_MULT_DEFAULT, HYBRID_WPM_CAL_MULT_MIN, HYBRID_WPM_CAL_MULT_MAX, HYBRID_ASSIST_CAP_FRAC, HYBRID_EVENT_TTL_MIN, HYBRID_EVENT_TTL_MAX, HYBRID_BRAKE_DEFAULT_TTL, HYBRID_ASSIST_DEFAULT_TTL, HYBRID_ASSIST_MAX_BOOST, OFFSCRIPT_EVIDENCE_THRESHOLD, OFFSCRIPT_EVIDENCE_RESET_MS, OFFSCRIPT_DECAY_T1_MS, OFFSCRIPT_DECAY_T2_MS, OFFSCRIPT_DECAY_T3_MS, OFFSCRIPT_DECAY_T4_MS, OFFSCRIPT_DECAY_CRAWL, HYBRID_OFFSCRIPT_SPEECH_FLOOR_MULT, ON_SCRIPT_LOCK_HOLD_MS, PAUSE_ASSIST_TAIL_MS, IGNORED_ASR_PURSUIT_LOG_THROTTLE_MS, MANUAL_SCROLL_LOG_THROTTLE_MS, PROGRAMMATIC_WRITER_GRACE_MS, PROGRAMMATIC_WRITER_LOG_THROTTLE_MS, HYBRID_CTRL_LOG_THROTTLE_MS, HYBRID_CTRL_CONF_MIN, HYBRID_CTRL_ANCHOR_RECENCY_MS, HYBRID_CTRL_ENABLED, HYBRID_CTRL_KP, HYBRID_CTRL_ASSIST_MAX, HYBRID_CTRL_BRAKE_MIN, HYBRID_CTRL_MIN_MULT, HYBRID_CTRL_SILENCE_SHORT_MS, HYBRID_CTRL_SILENCE_LONG_MS, HYBRID_CTRL_SILENCE_SHORT_CAP, HYBRID_CTRL_SILENCE_LONG_CAP, HYBRID_CTRL_LINE_PX_DEFAULT, HYBRID_CTRL_DRIFT_WEAK_PX, HYBRID_CTRL_MIN_PXPS, HYBRID_CTRL_OFFSCRIPT_SIM_THRESHOLD, HYBRID_CTRL_OFFSCRIPT_LINE_DELTA, HYBRID_CTRL_OFFSCRIPT_PENALTY, HYBRID_CTRL_LINE_ERROR_RANGE, HYBRID_CTRL_LINE_CURVE_EXP, HYBRID_CTRL_LINE_POS_MULT_DELTA, HYBRID_CTRL_LINE_NEG_MULT_DELTA, HYBRID_CTRL_LINE_MAX_MULT, HYBRID_CTRL_LINE_MIN_MULT, HYBRID_CTRL_LINE_SMOOTH_TAU_MS, HYBRID_CTRL_LINE_RATE_LIMIT_PER_SEC, HYBRID_CTRL_LINE_RATE_LIMIT_BEHIND_MULT, HYBRID_ON_TARGET_PX, HYBRID_CTRL_ON_TARGET_STABLE_PX, HYBRID_CTRL_ON_TARGET_MULT_MIN, HYBRID_CTRL_ON_TARGET_MULT_MAX, HYBRID_CTRL_ON_TARGET_VELOCITY_EPS, HYBRID_CTRL_MODE_DEADBAND_LINES, HYBRID_CTRL_BASE_MAX_MULT, HYBRID_CTRL_AGGRO_MAX_MULT, HYBRID_CTRL_DYNAMIC_MAX_MULT, HYBRID_CTRL_DYNAMIC_MAX_MULT_AGGRO, HYBRID_CTRL_DYNAMIC_MAX_ABS_MIN_PXPS, HYBRID_CTRL_DYNAMIC_MAX_ABS_MIN_PXPS_AGGRO, HYBRID_CTRL_CTRL_MULT_MAX, HYBRID_CTRL_REACTIVE_MULT_MAX, HYBRID_CTRL_POLICY_MULT_MIN, HYBRID_CTRL_POLICY_MULT_MAX, HYBRID_CTRL_PRECLAMP_SCALE_MAX, HYBRID_REACTIVE_BEHIND_BASE, HYBRID_REACTIVE_BEHIND_ACC_THRESHOLD, HYBRID_REACTIVE_BEHIND_ACC_BONUS, HYBRID_CTRL_ASSIST_BEHIND_BOOST_FRAC, HYBRID_ON_TARGET_LINES, HYBRID_MULT_DEBUG_THROTTLE_MS, HYBRID_POLICY_LOG_THROTTLE_MS, HYBRID_ONSCRIPT_SIM_MIN, HYBRID_CTRL_PARAM_ENABLED, HYBRID_CTRL_DEV_OVERRIDE_PHASES_MS, HYBRID_CTRL_DEV_OVERRIDE_MULTS, HYBRID_CTRL_DEV_OVERRIDE_DURATION_MS, hybridCtrlDevOverrideStart, hybridCtrlDevOverrideDone, lastHybridMultDebugAt, lastHybridGateFingerprint, lastAsrMatch, hybridLastMatch, hybridMatchSeen, hybridLastNoMatch, hybridMatcherSource, hybridMatcherSourceDetail, lastHybridMatcherProbeAt, HYBRID_HARD_NOMATCH_SIM_MIN, HYBRID_MATCHER_PROBE_THROTTLE_MS, HYBRID_BLOCKS_NOT_READY_HOLD_MS, hybridBasePxps, hybridScale, hybridBrakeState, hybridAssistState, pauseAssistTailBoost, pauseAssistTailUntil, lastIgnoredAsrPursuitLogAt, hybridVelocityRefreshRaf, hybridTargetHintState, speechActive, hybridCommitBoostUntilMs, hybridLastGoodTargetTop, hybridWantedRunning, liveGraceWindowEndsAt, lastManualScrollBrakeLogAt, lastProgrammaticWriterStamp, lastProgrammaticWriterLogAt, lastHybridCtrlLogAt, hybridCtrl, hybridSessionPhase, sliderTouchedThisSession, offScriptEvidence, lastOffScriptEvidenceTs, offScriptStreak, onScriptStreak, lastGoodMatchAtMs, hybridGraceUntil, WPM_USER_DEDUPE_MS, lastUserWpmPx, lastUserWpmAt, WPM_USER_SOURCES, liveSessionWpmLocked, wpmSliderUserTouched, suppressWpmUiEcho, lastWpmIntent, userWpmLocked, isHybridBypass, creepRaf, creepLast, enabledNow, activeMotorBrain, speaking, gateTimer;
+var isDevMode2, ASR_COMPLETION_GATE_KEY, asrCompletionGateBypassLogged, viewerRole, ROUTER_STAMP, scrollRouterInstalled, scrollRouterInstallCount, AUTO_INTENT_WIRE_STAMP, __AUTO_INTENT_WIRE_SENTINEL, autoIntentListenerWired, autoIntentProcessor, pendingAutoIntentDetail, scrollerEl, auto, scrollIntentListenerWired, legacyAsrIntentLaneBlockedLogged, ASR_INTENT_DEBOUNCE_MS, ASR_INTENT_STABLE_MS, ASR_INTENT_FIRST_STABLE_MS, ASR_INTENT_WARMUP_MS, ASR_INTENT_MIN_CONF, ASR_TELEMETRY_MAX_REJECTS, ASR_TELEMETRY_WINDOW_MS, ASR_MATCH_WINDOW_MS, ASR_MATCH_MAX, asrIntentLiveSince, committedBlockIdx, lastCommitAt, lastCandidate, stableSince, asrMotorConflictLogged, scrollWriteWarned, guardHandlerErrorLogged, hybridScrollGraceListenerInstalled, hybridModeMismatchLogged, recentAsrMatches, asrBlockLineCacheRef, asrBlockLineCache, hybridSilence, offScriptSinceMs, offScriptDurationMs, hybridSilence2, HYBRID_CTRL_DEBUG_THROTTLE_MS, lastHybridCtrlDebugTs, HYBRID_TRUTH_THROTTLE_MS, lastHybridTruthAt, HYBRID_OFFSCRIPT_HUD_THROTTLE_MS, lastHybridOffScriptHudAt, profileStore, profilePersister, nowMs, KNOWN_SCROLL_MODES, hybridProgrammaticScrollUntilMs, tpLastWriter, HYBRID_LOG_THROTTLE_MS, HYBRID_VERBOSE_FLAG, HYBRID_TRACE_FLAG, lastHybridScaleLogAt, lastHybridPaceLogAt, lastHybridBrakeLogAt, lastHybridVelocityLogAt, HYBRID_MOTOR_LOG_THROTTLE_MS, lastHybridMotorVelocityLogAt, lastHybridMotorVelocitySignature, lastHybridBrakeSignature, lastHybridVelocitySignature, isHybridVerboseDevMode, hybridTraceLastAt, hybridTraceLastSig, KEY, state2, subs2, getUiPrefs, onUiPrefs, LS_KEY, LEGACY_LS_KEYS, DEFAULTS, state22, viewer, scrollWriter, smokeAutoMovementScheduled, hybridMotor, HYBRID_SILENCE_SOFT_MS, HYBRID_PAUSE_SILENCE_SOFT_MS, HYBRID_SILENCE_HARD_STOP_MS, LIVE_GRACE_MS, HYBRID_SPEECH_PRESENT_HOLD_MS, HYBRID_HARD_NOMATCH_OFFSCRIPT_GRACE_MS, OFFSCRIPT_MILD, OFFSCRIPT_DEEP, RECOVERY_SCALE, HYBRID_ON_SCRIPT_SIM, HYBRID_OFFSCRIPT_MILD_SIM, HYBRID_GRACE_DURATION_MS, OFFSCRIPT_SCALE, SILENCE_SCALE, PAUSE_DRIFT_SCALE, PAUSE_LOOKAHEAD_LINES, HYBRID_PAUSE_TOKENS, GRACE_MIN_SCALE, HYBRID_BASELINE_FLOOR_PXPS, HYBRID_WPM_CAL_MULT_DEFAULT, HYBRID_WPM_CAL_MULT_MIN, HYBRID_WPM_CAL_MULT_MAX, HYBRID_ASSIST_CAP_FRAC, HYBRID_EVENT_TTL_MIN, HYBRID_EVENT_TTL_MAX, HYBRID_BRAKE_DEFAULT_TTL, HYBRID_ASSIST_DEFAULT_TTL, HYBRID_ASSIST_MAX_BOOST, OFFSCRIPT_EVIDENCE_THRESHOLD, OFFSCRIPT_EVIDENCE_RESET_MS, OFFSCRIPT_DECAY_T1_MS, OFFSCRIPT_DECAY_T2_MS, OFFSCRIPT_DECAY_T3_MS, OFFSCRIPT_DECAY_T4_MS, OFFSCRIPT_DECAY_CRAWL, HYBRID_OFFSCRIPT_SPEECH_FLOOR_MULT, ON_SCRIPT_LOCK_HOLD_MS, PAUSE_ASSIST_TAIL_MS, IGNORED_ASR_PURSUIT_LOG_THROTTLE_MS, MANUAL_SCROLL_LOG_THROTTLE_MS, PROGRAMMATIC_WRITER_GRACE_MS, PROGRAMMATIC_WRITER_LOG_THROTTLE_MS, HYBRID_CTRL_LOG_THROTTLE_MS, HYBRID_CTRL_CONF_MIN, HYBRID_CTRL_ANCHOR_RECENCY_MS, HYBRID_CTRL_ENABLED, HYBRID_CTRL_KP, HYBRID_CTRL_ASSIST_MAX, HYBRID_CTRL_BRAKE_MIN, HYBRID_CTRL_MIN_MULT, HYBRID_CTRL_SILENCE_SHORT_MS, HYBRID_CTRL_SILENCE_LONG_MS, HYBRID_CTRL_SILENCE_SHORT_CAP, HYBRID_CTRL_SILENCE_LONG_CAP, HYBRID_CTRL_LINE_PX_DEFAULT, HYBRID_CTRL_DRIFT_WEAK_PX, HYBRID_CTRL_MIN_PXPS, HYBRID_CTRL_OFFSCRIPT_SIM_THRESHOLD, HYBRID_CTRL_OFFSCRIPT_LINE_DELTA, HYBRID_CTRL_OFFSCRIPT_PENALTY, HYBRID_CTRL_LINE_ERROR_RANGE, HYBRID_CTRL_LINE_CURVE_EXP, HYBRID_CTRL_LINE_POS_MULT_DELTA, HYBRID_CTRL_LINE_NEG_MULT_DELTA, HYBRID_CTRL_LINE_MAX_MULT, HYBRID_CTRL_LINE_MIN_MULT, HYBRID_CTRL_LINE_SMOOTH_TAU_MS, HYBRID_CTRL_LINE_RATE_LIMIT_PER_SEC, HYBRID_CTRL_LINE_RATE_LIMIT_BEHIND_MULT, HYBRID_ON_TARGET_PX, HYBRID_CTRL_ON_TARGET_STABLE_PX, HYBRID_CTRL_ON_TARGET_MULT_MIN, HYBRID_CTRL_ON_TARGET_MULT_MAX, HYBRID_CTRL_ON_TARGET_VELOCITY_EPS, HYBRID_CTRL_MODE_DEADBAND_LINES, HYBRID_CTRL_BASE_MAX_MULT, HYBRID_CTRL_AGGRO_MAX_MULT, HYBRID_CTRL_DYNAMIC_MAX_MULT, HYBRID_CTRL_DYNAMIC_MAX_MULT_AGGRO, HYBRID_CTRL_DYNAMIC_MAX_ABS_MIN_PXPS, HYBRID_CTRL_DYNAMIC_MAX_ABS_MIN_PXPS_AGGRO, HYBRID_CTRL_CTRL_MULT_MAX, HYBRID_CTRL_REACTIVE_MULT_MAX, HYBRID_CTRL_POLICY_MULT_MIN, HYBRID_CTRL_POLICY_MULT_MAX, HYBRID_CTRL_PRECLAMP_SCALE_MAX, HYBRID_REACTIVE_BEHIND_BASE, HYBRID_REACTIVE_BEHIND_ACC_THRESHOLD, HYBRID_REACTIVE_BEHIND_ACC_BONUS, HYBRID_CTRL_ASSIST_BEHIND_BOOST_FRAC, HYBRID_ON_TARGET_LINES, HYBRID_MULT_DEBUG_THROTTLE_MS, HYBRID_POLICY_LOG_THROTTLE_MS, HYBRID_ONSCRIPT_SIM_MIN, HYBRID_CTRL_PARAM_ENABLED, HYBRID_CTRL_DEV_OVERRIDE_PHASES_MS, HYBRID_CTRL_DEV_OVERRIDE_MULTS, HYBRID_CTRL_DEV_OVERRIDE_DURATION_MS, hybridCtrlDevOverrideStart, hybridCtrlDevOverrideDone, lastHybridMultDebugAt, lastHybridGateFingerprint, lastAsrMatch, hybridLastMatch, hybridMatchSeen, hybridLastNoMatch, hybridMatcherSource, hybridMatcherSourceDetail, lastHybridMatcherProbeAt, HYBRID_HARD_NOMATCH_SIM_MIN, HYBRID_MATCHER_PROBE_THROTTLE_MS, HYBRID_BLOCKS_NOT_READY_HOLD_MS, hybridBasePxps, hybridScale, hybridBrakeState, hybridAssistState, pauseAssistTailBoost, pauseAssistTailUntil, lastIgnoredAsrPursuitLogAt, hybridVelocityRefreshRaf, hybridTargetHintState, speechActive, hybridCommitBoostUntilMs, hybridLastGoodTargetTop, hybridWantedRunning, liveGraceWindowEndsAt, lastManualScrollBrakeLogAt, lastProgrammaticWriterStamp, lastProgrammaticWriterLogAt, lastHybridCtrlLogAt, hybridCtrl, hybridSessionPhase, sliderTouchedThisSession, offScriptEvidence, lastOffScriptEvidenceTs, offScriptStreak, onScriptStreak, lastGoodMatchAtMs, hybridGraceUntil, WPM_USER_DEDUPE_MS, lastUserWpmPx, lastUserWpmAt, WPM_USER_SOURCES, liveSessionWpmLocked, wpmSliderUserTouched, suppressWpmUiEcho, lastWpmIntent, userWpmLocked, isHybridBypass, creepRaf, creepLast, enabledNow, activeMotorBrain, speaking, gateTimer;
 var init_router_impl = __esm({
   "src/features/scroll/scroll-router/router-impl.ts"() {
     "use strict";
@@ -21995,10 +22088,10 @@ var init_router_impl = __esm({
     })();
     hybridTraceLastAt = /* @__PURE__ */ new Map();
     hybridTraceLastSig = /* @__PURE__ */ new Map();
-    KEY2 = "tp_ui_prefs_v1";
+    KEY = "tp_ui_prefs_v1";
     state2 = (() => {
       try {
-        const parsed = JSON.parse(localStorage.getItem(KEY2) || "{}") || {};
+        const parsed = JSON.parse(localStorage.getItem(KEY) || "{}") || {};
         return { linkTypography: false, hybridGate: "db_or_vad", hybridUseProfileId: parsed.hybridUseProfileId || null, ...parsed };
       } catch {
         return { linkTypography: false, hybridGate: "db_or_vad", hybridUseProfileId: null };
@@ -22445,12 +22538,85 @@ var init_compat_ids = __esm({
 });
 
 // src/state/speech-store.ts
-var state3, subs3, speechStore;
+function getStore2() {
+  return getAppStore();
+}
+function notify(snapshot) {
+  for (const fn of subs3) {
+    try {
+      fn(snapshot);
+    } catch {
+    }
+  }
+}
+function readStateFromStore() {
+  const store3 = getStore2();
+  if (!store3 || typeof store3.get !== "function") {
+    return { ...fallbackState };
+  }
+  return {
+    engine: store3.get(STORE_KEYS.engine) ?? fallbackState.engine,
+    engineExplicit: !!store3.get(STORE_KEYS.engineExplicit),
+    lang: store3.get(STORE_KEYS.lang) ?? fallbackState.lang,
+    interim: store3.get(STORE_KEYS.interim) ?? fallbackState.interim,
+    threshold: store3.get(STORE_KEYS.threshold) ?? fallbackState.threshold,
+    endpointingMs: store3.get(STORE_KEYS.endpointingMs) ?? fallbackState.endpointingMs,
+    fillerFilter: store3.get(STORE_KEYS.fillerFilter) ?? fallbackState.fillerFilter,
+    manualAnchorAdoptEnabled: store3.get(STORE_KEYS.manualAnchorAdoptEnabled) ?? fallbackState.manualAnchorAdoptEnabled,
+    calmModeEnabled: store3.get(STORE_KEYS.calmModeEnabled) ?? fallbackState.calmModeEnabled
+  };
+}
+function ensureStoreSubscriptions() {
+  const store3 = getStore2();
+  if (store3 === subscribedStore) return;
+  unsubscribeStoreFns.forEach((unsub) => {
+    try {
+      unsub();
+    } catch {
+    }
+  });
+  unsubscribeStoreFns = [];
+  subscribedStore = store3;
+  if (!store3 || typeof store3.subscribe !== "function") {
+    fallbackState = readStateFromStore();
+    return;
+  }
+  let pendingInitial = watchedKeys.length;
+  const handleChange = () => {
+    fallbackState = readStateFromStore();
+    if (pendingInitial > 0) {
+      pendingInitial -= 1;
+      return;
+    }
+    if (suppressStoreNotifications > 0) return;
+    notify({ ...fallbackState });
+  };
+  unsubscribeStoreFns = watchedKeys.map((key) => {
+    const unsub = store3.subscribe?.(key, handleChange);
+    return typeof unsub === "function" ? unsub : () => {
+    };
+  });
+  fallbackState = readStateFromStore();
+}
+var STORE_KEYS, DEFAULT_STATE, watchedKeys, subs3, fallbackState, subscribedStore, unsubscribeStoreFns, suppressStoreNotifications, speechStore;
 var init_speech_store = __esm({
   "src/state/speech-store.ts"() {
     "use strict";
-    state3 = {
-      engine: "webspeech",
+    init_appStore();
+    STORE_KEYS = {
+      engine: "asr.engine",
+      engineExplicit: "asr.engineExplicit",
+      lang: "asr.language",
+      interim: "asr.useInterimResults",
+      threshold: "asr.threshold",
+      endpointingMs: "asr.endpointMs",
+      fillerFilter: "asr.filterFillers",
+      manualAnchorAdoptEnabled: "asr.manualAnchorAdoptEnabled",
+      calmModeEnabled: "asrCalmModeEnabled"
+    };
+    DEFAULT_STATE = {
+      engine: "whisper",
+      engineExplicit: false,
       lang: "en-US",
       interim: true,
       threshold: 0.6,
@@ -22459,22 +22625,66 @@ var init_speech_store = __esm({
       manualAnchorAdoptEnabled: true,
       calmModeEnabled: false
     };
+    watchedKeys = Object.values(STORE_KEYS);
     subs3 = /* @__PURE__ */ new Set();
+    fallbackState = { ...DEFAULT_STATE };
+    subscribedStore = null;
+    unsubscribeStoreFns = [];
+    suppressStoreNotifications = 0;
     speechStore = {
       get() {
-        return { ...state3 };
+        ensureStoreSubscriptions();
+        fallbackState = readStateFromStore();
+        return { ...fallbackState };
+      },
+      getState() {
+        return this.get();
       },
       set(patch) {
-        Object.assign(state3, patch);
-        const snapshot = { ...state3 };
-        for (const fn of subs3) {
-          try {
-            fn(snapshot);
-          } catch {
-          }
+        ensureStoreSubscriptions();
+        const store3 = getStore2();
+        if (!store3 || typeof store3.set !== "function") {
+          fallbackState = { ...fallbackState, ...patch };
+          notify({ ...fallbackState });
+          return;
         }
+        suppressStoreNotifications += 1;
+        try {
+          if (Object.prototype.hasOwnProperty.call(patch, "engine")) {
+            store3.set(STORE_KEYS.engine, patch.engine);
+          }
+          if (Object.prototype.hasOwnProperty.call(patch, "engineExplicit")) {
+            store3.set(STORE_KEYS.engineExplicit, !!patch.engineExplicit);
+          }
+          if (Object.prototype.hasOwnProperty.call(patch, "lang")) {
+            store3.set(STORE_KEYS.lang, patch.lang);
+          }
+          if (Object.prototype.hasOwnProperty.call(patch, "interim")) {
+            store3.set(STORE_KEYS.interim, !!patch.interim);
+          }
+          if (Object.prototype.hasOwnProperty.call(patch, "threshold")) {
+            store3.set(STORE_KEYS.threshold, patch.threshold);
+          }
+          if (Object.prototype.hasOwnProperty.call(patch, "endpointingMs")) {
+            store3.set(STORE_KEYS.endpointingMs, patch.endpointingMs);
+          }
+          if (Object.prototype.hasOwnProperty.call(patch, "fillerFilter")) {
+            store3.set(STORE_KEYS.fillerFilter, !!patch.fillerFilter);
+          }
+          if (Object.prototype.hasOwnProperty.call(patch, "manualAnchorAdoptEnabled")) {
+            store3.set(STORE_KEYS.manualAnchorAdoptEnabled, !!patch.manualAnchorAdoptEnabled);
+          }
+          if (Object.prototype.hasOwnProperty.call(patch, "calmModeEnabled")) {
+            store3.set(STORE_KEYS.calmModeEnabled, !!patch.calmModeEnabled);
+          }
+        } finally {
+          suppressStoreNotifications = Math.max(0, suppressStoreNotifications - 1);
+        }
+        fallbackState = readStateFromStore();
+        notify({ ...fallbackState });
       },
       subscribe(fn) {
+        ensureStoreSubscriptions();
         subs3.add(fn);
         return () => subs3.delete(fn);
       }
@@ -22488,9 +22698,6 @@ function clampEndpoint(value) {
   const candidate = Math.round(Number(value) || 0);
   if (!Number.isFinite(candidate)) return void 0;
   return Math.max(MIN_ENDPOINT_MS, Math.min(MAX_ENDPOINT_MS, candidate));
-}
-function getSpeechStore() {
-  return speechStore;
 }
 function getAsrSettings() {
   return speechStore.get();
@@ -22747,504 +22954,6 @@ var init_auto_record_ssot = __esm({
       if (typeof window !== "undefined") window.setAutoRecordEnabled = setAutoRecordEnabled;
     } catch {
     }
-  }
-});
-
-// src/speech/backend-guard.ts
-function hasSearchFlag(name, aliases = []) {
-  try {
-    const search = typeof window !== "undefined" && window.location ? window.location.search : "";
-    if (!search) return false;
-    const params = new URLSearchParams(search);
-    if (params.get(name) === "1") return true;
-    for (const alias of aliases) {
-      if (params.get(alias) === "1") return true;
-    }
-  } catch {
-    return false;
-  }
-  return false;
-}
-function hasStorageFlag(name) {
-  try {
-    const storage = typeof window !== "undefined" ? window.localStorage : void 0;
-    return storage?.getItem(name) === "1";
-  } catch {
-    return false;
-  }
-}
-function flagEnabled(name, aliases = []) {
-  return hasSearchFlag(name, aliases) || hasStorageFlag(name);
-}
-function isSpeechFeatureEnabled() {
-  return flagEnabled("tp_speech") || flagEnabled("tp_speech_force");
-}
-function isSpeechBackendAllowed() {
-  return isSpeechFeatureEnabled() && flagEnabled("tp_probe_speech", ["probe"]);
-}
-function ensureSpeechGlobals() {
-  if (typeof window === "undefined") return;
-  const win = window;
-  if (!win.__tpRecognizer) {
-    win.__tpRecognizer = () => ({
-      start: noop3,
-      stop: noop3,
-      abort: noop3,
-      on: noop3,
-      onend: null,
-      onerror: null
-    });
-  }
-  if (!win.__tpMatcher) {
-    win.__tpMatcher = {
-      matchBatch: matchBatchStub,
-      normTokens: () => [],
-      computeLineSimilarity: () => 0
-    };
-  } else {
-    if (!win.__tpMatcher.matchBatch) win.__tpMatcher.matchBatch = matchBatchStub;
-    if (!win.__tpMatcher.normTokens) win.__tpMatcher.normTokens = () => [];
-    if (!win.__tpMatcher.computeLineSimilarity) win.__tpMatcher.computeLineSimilarity = () => 0;
-  }
-  if (!win.__tpSpeech) {
-    win.__tpSpeech = {
-      startRecognizer: async () => void 0,
-      stopRecognizer: noop3,
-      matchBatch: matchBatchStub
-    };
-  } else {
-    if (!win.__tpSpeech.startRecognizer) win.__tpSpeech.startRecognizer = async () => void 0;
-    if (!win.__tpSpeech.stopRecognizer) win.__tpSpeech.stopRecognizer = noop3;
-    if (!win.__tpSpeech.matchBatch) win.__tpSpeech.matchBatch = matchBatchStub;
-  }
-}
-var matchBatchStub, noop3;
-var init_backend_guard = __esm({
-  "src/speech/backend-guard.ts"() {
-    "use strict";
-    matchBatchStub = () => ({
-      noMatch: true,
-      bestIdx: -1,
-      topScores: [],
-      reason: "matcher_unavailable"
-    });
-    noop3 = () => void 0;
-  }
-});
-
-// src/speech/loader.ts
-var init_loader = __esm({
-  "src/speech/loader.ts"() {
-    "use strict";
-    init_backend_guard();
-    ensureSpeechGlobals();
-    (async function() {
-      if (!isSpeechBackendAllowed()) return;
-      const isDevMode14 = (() => {
-        try {
-          const qs = new URLSearchParams(location.search || "");
-          if (qs.get("dev") === "1") return true;
-          const hash = (location.hash || "").toLowerCase().replace(/^#/, "");
-          if (hash === "dev") return true;
-          if (hash === "dev=1") return true;
-          if (hash.includes("dev=1")) return true;
-          if (localStorage?.getItem("tp_dev_mode") === "1") return true;
-        } catch {
-        }
-        return false;
-      })();
-      try {
-        const tryImport = async (spec) => {
-          try {
-            return await import(spec);
-          } catch (err) {
-            if (isDevMode14) {
-              try {
-                console.error("[TP] speech loader import failed", spec, err);
-              } catch {
-              }
-            }
-            return null;
-          }
-        };
-        const pick = async (list) => {
-          for (const s of list) {
-            const m = await tryImport(s);
-            if (m) return m;
-          }
-          return null;
-        };
-        const recMod = await pick([
-          "/dist/speech/recognizer.real.js"
-        ]);
-        const matchMod = await pick([
-          "/dist/speech/matcher.real.js"
-        ]);
-        if (recMod) {
-          try {
-            window.__tpRecognizer = (opts) => recMod.createRecognizer(opts);
-          } catch {
-          }
-        }
-        if (matchMod) {
-          try {
-            window.__tpMatcher = {
-              matchBatch: matchMod.matchBatch,
-              normTokens: matchMod.normTokens,
-              computeLineSimilarity: matchMod.computeLineSimilarity
-            };
-          } catch {
-          }
-        }
-        const orch = await pick([
-          "/dist/speech/orchestrator.real.js"
-        ]);
-        if (orch) {
-          window.__tpSpeech = window.__tpSpeech || {};
-          try {
-            window.__tpSpeech.startRecognizer = orch.startRecognizer;
-          } catch {
-          }
-          try {
-            window.__tpSpeech.stopRecognizer = orch.stopRecognizer;
-          } catch {
-          }
-          try {
-            window.__tpSpeech.matchBatch = orch.matchBatch;
-          } catch {
-          }
-        }
-      } catch (e) {
-        try {
-          console.warn("[TP] speech loader failed", e);
-        } catch {
-        }
-      }
-    })();
-  }
-});
-
-// src/speech/runtime-control.ts
-function stopAsrRuntime() {
-  if (typeof window === "undefined") return;
-  try {
-    const w3 = window;
-    const speech = w3.__tpSpeech;
-    if (speech && typeof speech.stopRecognizer === "function") {
-      speech.stopRecognizer();
-    }
-  } catch {
-  }
-}
-var init_runtime_control = __esm({
-  "src/speech/runtime-control.ts"() {
-    "use strict";
-  }
-});
-
-// src/ui/speaker-profiles-store.ts
-function normalizeSlot(slot) {
-  if (typeof slot !== "string") return DEFAULT_ACTIVE_SLOT;
-  if (VALID_SLOTS.includes(slot)) return slot;
-  return DEFAULT_ACTIVE_SLOT;
-}
-function normalizeBindings(raw) {
-  const out = { ...DEFAULT_BINDINGS };
-  if (!raw || typeof raw !== "object") return out;
-  for (const slot of VALID_SLOTS) {
-    if (Object.prototype.hasOwnProperty.call(raw, slot)) {
-      out[slot] = raw[slot] ?? null;
-    }
-  }
-  return out;
-}
-function readStorage() {
-  if (typeof window === "undefined") {
-    return {
-      profiles: [...DEFAULT_PROFILES],
-      bindings: { ...DEFAULT_BINDINGS },
-      activeSlot: DEFAULT_ACTIVE_SLOT
-    };
-  }
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY3);
-    if (!raw) throw new Error("missing");
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") throw new Error("bad");
-    const profiles = Array.isArray(parsed.profiles) ? parsed.profiles : [];
-    const bindings = normalizeBindings(parsed?.bindings);
-    const activeSlot = normalizeSlot(parsed?.activeSlot);
-    return {
-      profiles,
-      bindings: {
-        ...DEFAULT_BINDINGS,
-        ...bindings
-      },
-      activeSlot
-    };
-  } catch {
-    return {
-      profiles: [...DEFAULT_PROFILES],
-      bindings: { ...DEFAULT_BINDINGS },
-      activeSlot: DEFAULT_ACTIVE_SLOT
-    };
-  }
-}
-function writeStorage(state9) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(STORAGE_KEY3, JSON.stringify(state9));
-  } catch {
-  }
-}
-function getProfileSummaries() {
-  return state4.profiles.map((profile) => ({
-    id: profile.id,
-    name: profile.name
-  }));
-}
-function notifyBindings() {
-  const bindings = getSpeakerBindings();
-  try {
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(
-        new CustomEvent(BINDING_EVENT, { detail: { bindings, profiles: getProfileSummaries() } })
-      );
-    }
-  } catch {
-  }
-  try {
-    window?.sendToDisplay?.({
-      type: "speaker-bindings",
-      bindings,
-      profiles: getProfileSummaries(),
-      activeSlot: state4.activeSlot
-    });
-  } catch {
-  }
-  subscribers.forEach((cb) => {
-    try {
-      cb(bindings);
-    } catch {
-    }
-  });
-}
-function notifyActiveSpeaker() {
-  const slot = getActiveSpeakerSlot();
-  const bindings = getSpeakerBindings();
-  const profile = getProfileById(bindings[slot] || null);
-  try {
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent(ACTIVE_SPEAKER_EVENT, {
-        detail: {
-          slot,
-          profileId: profile?.id ?? null,
-          profileName: profile?.name ?? ""
-        }
-      }));
-    }
-  } catch {
-  }
-  try {
-    window?.sendToDisplay?.({
-      type: "speaker-active",
-      slot,
-      profileId: profile?.id ?? null,
-      profileName: profile?.name ?? ""
-    });
-  } catch {
-  }
-  activeSubscribers.forEach((cb) => {
-    try {
-      cb(slot);
-    } catch {
-    }
-  });
-}
-function persist() {
-  writeStorage(state4);
-  notifyBindings();
-  notifyActiveSpeaker();
-  notifyStateSubscribers();
-}
-function notifyStateSubscribers() {
-  const snapshot = getSpeakerProfilesSnapshot();
-  stateSubscribers.forEach((cb) => {
-    try {
-      cb(snapshot);
-    } catch {
-    }
-  });
-}
-function getSpeakerProfiles() {
-  return state4.profiles.slice();
-}
-function upsertSpeakerProfile(profile) {
-  const trimmed = profile.name?.trim() || "";
-  const next = {
-    ...profile,
-    name: trimmed || "Untitled",
-    id: profile.id || `profile-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-  };
-  state4 = {
-    ...state4,
-    profiles: [
-      ...state4.profiles.filter((item) => item.id !== next.id),
-      next
-    ]
-  };
-  persist();
-  return next;
-}
-function deleteSpeakerProfile(profileId) {
-  if (!profileId) return;
-  const target = state4.profiles.find((item) => item.id === profileId);
-  if (!target || target.system) return;
-  state4 = {
-    ...state4,
-    profiles: state4.profiles.filter((item) => item.id !== profileId),
-    bindings: Object.fromEntries(
-      Object.entries(state4.bindings).map(([slot, value]) => [
-        slot,
-        value === profileId ? null : value
-      ])
-    )
-  };
-  persist();
-}
-function getSpeakerBindings() {
-  return { ...state4.bindings };
-}
-function setSpeakerBinding(slot, profileId) {
-  if (!slot) return;
-  state4 = {
-    ...state4,
-    bindings: {
-      ...state4.bindings,
-      [slot]: profileId
-    }
-  };
-  persist();
-}
-function getActiveSpeakerSlot() {
-  return state4.activeSlot;
-}
-function setActiveSpeakerSlot(slot) {
-  if (!slot || !VALID_SLOTS.includes(slot)) return;
-  if (state4.activeSlot === slot) return;
-  state4 = {
-    ...state4,
-    activeSlot: slot
-  };
-  persist();
-}
-function subscribeActiveSpeaker(fn) {
-  activeSubscribers.add(fn);
-  fn(getActiveSpeakerSlot());
-  return () => activeSubscribers.delete(fn);
-}
-function getProfileById(id) {
-  if (!id) return void 0;
-  return state4.profiles.find((profile) => profile.id === id);
-}
-function hasPatchValues(patch) {
-  return !!patch && Object.keys(patch).length > 0;
-}
-function createProfile(name, patch) {
-  const trimmed = (name || "").trim() || `Profile ${Date.now()}`;
-  return upsertSpeakerProfile({
-    id: "",
-    name: trimmed,
-    asrTweaks: hasPatchValues(patch) ? { ...patch } : void 0
-  });
-}
-function applyProfileToSlot(slot, profileId) {
-  setSpeakerBinding(slot, profileId);
-}
-function getProfile(profileId) {
-  return getProfileById(profileId);
-}
-function subscribeSpeakerBindings(fn) {
-  subscribers.add(fn);
-  fn(getSpeakerBindings());
-  return () => subscribers.delete(fn);
-}
-function getSpeakerProfilesSnapshot() {
-  return {
-    profiles: state4.profiles.slice(),
-    bindings: { ...state4.bindings },
-    activeSlot: state4.activeSlot
-  };
-}
-function mergeBindings(override) {
-  if (!override) return state4.bindings;
-  const result = { ...DEFAULT_BINDINGS };
-  for (const slot of VALID_SLOTS) {
-    if (Object.prototype.hasOwnProperty.call(override, slot)) {
-      result[slot] = override[slot] ?? null;
-    }
-  }
-  return result;
-}
-function initSpeakerProfilesFromSettings(options) {
-  state4 = {
-    profiles: Array.isArray(options.profiles) ? options.profiles.slice() : state4.profiles,
-    bindings: options.bindings ? mergeBindings(options.bindings) : state4.bindings,
-    activeSlot: normalizeSlot(options.activeSlot ?? state4.activeSlot)
-  };
-  persist();
-}
-function subscribeSpeakerProfileState(fn) {
-  stateSubscribers.add(fn);
-  fn(getSpeakerProfilesSnapshot());
-  return () => stateSubscribers.delete(fn);
-}
-function applyProfileTweaks(profile, tweaks) {
-  const next = {
-    ...profile,
-    asrTweaks: tweaks && Object.keys(tweaks).length ? { ...tweaks } : void 0
-  };
-  return next;
-}
-function setProfileAsrTweaks(profileId, tweaks) {
-  if (!profileId) return;
-  const profile = getProfileById(profileId);
-  if (!profile) return;
-  state4 = {
-    ...state4,
-    profiles: [
-      ...state4.profiles.filter((item) => item.id !== profileId),
-      applyProfileTweaks(profile, tweaks)
-    ]
-  };
-  persist();
-}
-var STORAGE_KEY3, BINDING_EVENT, ACTIVE_SPEAKER_EVENT, DEFAULT_PROFILES, DEFAULT_BINDINGS, DEFAULT_ACTIVE_SLOT, VALID_SLOTS, subscribers, activeSubscribers, stateSubscribers, state4;
-var init_speaker_profiles_store = __esm({
-  "src/ui/speaker-profiles-store.ts"() {
-    "use strict";
-    STORAGE_KEY3 = "tp_speaker_profiles_v1";
-    BINDING_EVENT = "tp:speaker:bindings";
-    ACTIVE_SPEAKER_EVENT = "tp:speaker:active";
-    DEFAULT_PROFILES = [
-      { id: "default-s1", name: "Default S1", system: true },
-      { id: "default-s2", name: "Default S2", system: true }
-    ];
-    DEFAULT_BINDINGS = {
-      s1: "default-s1",
-      s2: "default-s2",
-      g1: null,
-      g2: null
-    };
-    DEFAULT_ACTIVE_SLOT = "s1";
-    VALID_SLOTS = ["s1", "s2", "g1", "g2"];
-    subscribers = /* @__PURE__ */ new Set();
-    activeSubscribers = /* @__PURE__ */ new Set();
-    stateSubscribers = /* @__PURE__ */ new Set();
-    state4 = readStorage();
-    writeStorage(state4);
-    notifyBindings();
-    notifyActiveSpeaker();
   }
 });
 
@@ -23858,8 +23567,8 @@ async function idbDel(key) {
 }
 async function verifyPermission(handle, mode = "read") {
   try {
-    const state9 = await handle.queryPermission?.({ mode });
-    if (state9 === "granted") return true;
+    const state8 = await handle.queryPermission?.({ mode });
+    if (state8 === "granted") return true;
     const req = await handle.requestPermission?.({ mode });
     return req === "granted";
   } catch {
@@ -23943,7 +23652,7 @@ async function initMappedFolder() {
         }
       } catch {
       }
-      const h = await idbGet(KEY3);
+      const h = await idbGet(KEY2);
       if (h && await verifyPermission(h, "read")) {
         _dir = h;
         ensureBroadcast();
@@ -23977,7 +23686,7 @@ async function pickMappedFolder() {
     const h = await window.showDirectoryPicker({ id: "tp-scripts" });
     if (await verifyPermission(h, "read")) {
       _dir = h;
-      await idbSet(KEY3, h);
+      await idbSet(KEY2, h);
       broadcast();
       emit("pick");
       return true;
@@ -23998,7 +23707,7 @@ async function clearMappedFolder() {
     return;
   }
   _dir = null;
-  await idbDel(KEY3);
+  await idbDel(KEY2);
   broadcast();
   emit("clear");
 }
@@ -24034,7 +23743,7 @@ function ensureBroadcast() {
           if (e.data.type === "tp-mapped-folder:refresh") {
             const managedSynced = await syncManagedFromNursery("sync");
             if (managedSynced) return;
-            const h = await idbGet(KEY3);
+            const h = await idbGet(KEY2);
             if (h && await verifyPermission(h, "read")) {
               _dir = h;
               emit("sync");
@@ -24045,10 +23754,10 @@ function ensureBroadcast() {
       };
       window.addEventListener("storage", async (ev) => {
         try {
-          if (ev.key === STORAGE_KEY4 && ev.newValue) {
+          if (ev.key === STORAGE_KEY3 && ev.newValue) {
             const managedSynced = await syncManagedFromNursery("sync");
             if (managedSynced) return;
-            const h = await idbGet(KEY3);
+            const h = await idbGet(KEY2);
             if (h && await verifyPermission(h, "read")) {
               _dir = h;
               emit("sync");
@@ -24067,26 +23776,26 @@ function broadcast() {
   } catch {
   }
   try {
-    localStorage.setItem(STORAGE_KEY4, String(Date.now()));
+    localStorage.setItem(STORAGE_KEY3, String(Date.now()));
     setTimeout(() => {
       try {
-        localStorage.removeItem(STORAGE_KEY4);
+        localStorage.removeItem(STORAGE_KEY3);
       } catch {
       }
     }, 500);
   } catch {
   }
 }
-var DB_NAME, STORE, KEY3, BCAST, STORAGE_KEY4, _dir, _bc, _listeners, _initPromise, _managedByNursery, _managedHint;
+var DB_NAME, STORE, KEY2, BCAST, STORAGE_KEY3, _dir, _bc, _listeners, _initPromise, _managedByNursery, _managedHint;
 var init_mapped_folder = __esm({
   "src/fs/mapped-folder.ts"() {
     "use strict";
     init_nursery_mounts();
     DB_NAME = "tp-db";
     STORE = "fs-handles";
-    KEY3 = "scriptsRoot";
+    KEY2 = "scriptsRoot";
     BCAST = "tp-mapped-folder";
-    STORAGE_KEY4 = "tp_mapped_folder_bcast";
+    STORAGE_KEY3 = "tp_mapped_folder_bcast";
     _dir = null;
     _bc = null;
     _listeners = /* @__PURE__ */ new Set();
@@ -24451,7 +24160,7 @@ var init_script_save = __esm({
 // src/features/scripts-local.ts
 function readList() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY5);
+    const raw = localStorage.getItem(STORAGE_KEY4);
     return raw ? JSON.parse(raw).filter(Boolean) : [];
   } catch {
     return [];
@@ -24459,7 +24168,7 @@ function readList() {
 }
 function writeList(list) {
   try {
-    localStorage.setItem(STORAGE_KEY5, JSON.stringify(list || []));
+    localStorage.setItem(STORAGE_KEY4, JSON.stringify(list || []));
   } catch {
   }
 }
@@ -24583,14 +24292,14 @@ function initScriptsLocal() {
   wireButton("scriptDeleteBtn", () => deleteCurrent());
   wireButton("scriptRenameBtn", () => renameCurrent());
 }
-var STORAGE_KEY5, TITLE_KEY;
+var STORAGE_KEY4, TITLE_KEY;
 var init_scripts_local = __esm({
   "src/features/scripts-local.ts"() {
     "use strict";
     init_script_doc();
     init_script_save();
     init_script_naming();
-    STORAGE_KEY5 = "tp_local_scripts_v1";
+    STORAGE_KEY4 = "tp_local_scripts_v1";
     TITLE_KEY = "tp_last_script_title";
     if (typeof document !== "undefined") {
       if (document.readyState === "loading") {
@@ -24685,7 +24394,7 @@ function loadDevAsrThresholds() {
   const storage = getStorage();
   if (!storage) return null;
   try {
-    const raw = storage.getItem(STORAGE_KEY6);
+    const raw = storage.getItem(STORAGE_KEY5);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (typeof parsed !== "object" || parsed === null) return null;
@@ -24698,16 +24407,16 @@ function saveDevAsrThresholds(thresholds) {
   const storage = getStorage();
   if (!storage) return;
   try {
-    storage.setItem(STORAGE_KEY6, JSON.stringify(thresholds));
+    storage.setItem(STORAGE_KEY5, JSON.stringify(thresholds));
   } catch {
   }
 }
-var STORAGE_KEY6;
+var STORAGE_KEY5;
 var init_dev_thresholds = __esm({
   "src/dev/dev-thresholds.ts"() {
     "use strict";
     init_asr_thresholds();
-    STORAGE_KEY6 = "tp_asr_thresholds_v1";
+    STORAGE_KEY5 = "tp_asr_thresholds_v1";
   }
 });
 
@@ -25124,36 +24833,36 @@ function syncAppStore2() {
   if (!store2) return;
   storeSyncSuppressed2 = true;
   try {
-    store2.set("asrTuningProfiles", state5.profiles);
+    store2.set("asrTuningProfiles", state3.profiles);
   } catch {
   }
   try {
-    store2.set("asrTuningActiveProfileId", state5.activeProfileId ?? null);
+    store2.set("asrTuningActiveProfileId", state3.activeProfileId ?? null);
   } catch {
   }
   storeSyncSuppressed2 = false;
 }
 function emitChange() {
   try {
-    window.dispatchEvent(new CustomEvent("tp:asr:tuning", { detail: { ...state5 } }));
+    window.dispatchEvent(new CustomEvent("tp:asr:tuning", { detail: { ...state3 } }));
   } catch {
   }
 }
 function save2(opts) {
   if (!DISABLE_ASR_TUNING_PERSIST) {
     try {
-      localStorage.setItem(KEY4, JSON.stringify(state5.profiles || {}));
+      localStorage.setItem(KEY3, JSON.stringify(state3.profiles || {}));
     } catch {
     }
     try {
-      if (state5.activeProfileId) localStorage.setItem(ACTIVE_KEY2, state5.activeProfileId);
-      else localStorage.removeItem(ACTIVE_KEY2);
+      if (state3.activeProfileId) localStorage.setItem(ACTIVE_KEY, state3.activeProfileId);
+      else localStorage.removeItem(ACTIVE_KEY);
     } catch {
     }
   }
   subs4.forEach((fn) => {
     try {
-      fn(state5);
+      fn(state3);
     } catch {
     }
   });
@@ -25163,28 +24872,28 @@ function save2(opts) {
   emitChange();
 }
 function getActiveAsrTuningProfile() {
-  const id = state5.activeProfileId || "reading";
-  const selected = state5.profiles[id];
+  const id = state3.activeProfileId || "reading";
+  const selected = state3.profiles[id];
   if (selected) return selected;
-  return state5.profiles.reading || DEFAULT_READING_PROFILE;
+  return state3.profiles.reading || DEFAULT_READING_PROFILE;
 }
 function ensureAsrTuningProfile(id) {
-  if (!state5.activeProfileId || !state5.profiles[state5.activeProfileId]) {
-    state5.activeProfileId = id;
+  if (!state3.activeProfileId || !state3.profiles[state3.activeProfileId]) {
+    state3.activeProfileId = id;
     save2();
   }
 }
 function upsertAsrTuningProfile(profile) {
   const fallback = BUILTIN_PROFILES[profile.id] || DEFAULT_READING_PROFILE;
-  state5.profiles[profile.id] = normalizeProfile(profile, fallback);
-  if (!state5.activeProfileId) state5.activeProfileId = profile.id;
+  state3.profiles[profile.id] = normalizeProfile(profile, fallback);
+  if (!state3.activeProfileId) state3.activeProfileId = profile.id;
   save2();
 }
 function setActiveAsrTuningProfile(id) {
-  state5.activeProfileId = id;
-  if (!state5.profiles[id]) {
+  state3.activeProfileId = id;
+  if (!state3.profiles[id]) {
     const fallback = BUILTIN_PROFILES[id] || DEFAULT_READING_PROFILE;
-    state5.profiles[id] = normalizeProfile({ id }, fallback);
+    state3.profiles[id] = normalizeProfile({ id }, fallback);
   }
   save2();
 }
@@ -25277,7 +24986,7 @@ function startCadenceCalibration(opts) {
     let consistencyCount = interimStability >= 0.6 ? 2 : interimStability >= 0.35 ? 3 : 4;
     if (wpm < 100) consistencyCount = Math.min(4, consistencyCount + 1);
     let interimStableRepeats = interimStability >= 0.6 ? 1 : 2;
-    const baseProfile = state5.profiles[profileId] || DEFAULT_READING_PROFILE;
+    const baseProfile = state3.profiles[profileId] || DEFAULT_READING_PROFILE;
     const nextProfile = {
       ...baseProfile,
       id: profileId,
@@ -25319,15 +25028,15 @@ function startCadenceCalibration(opts) {
   }
   return { stop: stop3, done };
 }
-var DISABLE_ASR_TUNING_PERSIST, KEY4, ACTIVE_KEY2, store2, DEFAULT_READING_PROFILE, DEFAULT_STRICT_PROFILE, BUILTIN_PROFILES, stateFromStore2, state5, subs4, storeSyncSuppressed2, calibrationRunning, getAsrTuningState;
+var DISABLE_ASR_TUNING_PERSIST, KEY3, ACTIVE_KEY, store2, DEFAULT_READING_PROFILE, DEFAULT_STRICT_PROFILE, BUILTIN_PROFILES, stateFromStore2, state3, subs4, storeSyncSuppressed2, calibrationRunning, getAsrTuningState;
 var init_tuning_store = __esm({
   "src/asr/tuning-store.ts"() {
     "use strict";
     init_matcher();
     init_appStore();
     DISABLE_ASR_TUNING_PERSIST = true;
-    KEY4 = "tp_asr_tuning_profiles_v1";
-    ACTIVE_KEY2 = "tp_asr_tuning_active_profile_v1";
+    KEY3 = "tp_asr_tuning_profiles_v1";
+    ACTIVE_KEY = "tp_asr_tuning_active_profile_v1";
     store2 = getAppStore();
     DEFAULT_READING_PROFILE = {
       id: "reading",
@@ -25388,7 +25097,7 @@ var init_tuning_store = __esm({
         return null;
       }
     })();
-    state5 = (() => {
+    state3 = (() => {
       try {
         if (DISABLE_ASR_TUNING_PERSIST) {
           return { profiles: hydrateProfiles(null), activeProfileId: "reading" };
@@ -25399,11 +25108,11 @@ var init_tuning_store = __esm({
             activeProfileId: stateFromStore2.activeProfileId
           };
         }
-        const raw = localStorage.getItem(KEY4);
+        const raw = localStorage.getItem(KEY3);
         const parsed = raw ? JSON.parse(raw) : {};
         const legacyProfiles = parsed && typeof parsed === "object" && "profiles" in parsed ? parsed.profiles : null;
         const profiles = legacyProfiles && typeof legacyProfiles === "object" ? legacyProfiles : parsed && typeof parsed === "object" ? parsed : {};
-        const activeProfileId = typeof parsed?.activeProfileId === "string" && parsed.activeProfileId || (localStorage.getItem(ACTIVE_KEY2) || void 0);
+        const activeProfileId = typeof parsed?.activeProfileId === "string" && parsed.activeProfileId || (localStorage.getItem(ACTIVE_KEY) || void 0);
         return { profiles: hydrateProfiles(profiles), activeProfileId };
       } catch {
         return { profiles: hydrateProfiles(null) };
@@ -25412,18 +25121,18 @@ var init_tuning_store = __esm({
     subs4 = /* @__PURE__ */ new Set();
     storeSyncSuppressed2 = false;
     calibrationRunning = false;
-    getAsrTuningState = () => state5;
+    getAsrTuningState = () => state3;
     if (store2 && !DISABLE_ASR_TUNING_PERSIST) {
       try {
         store2.subscribe("asrTuningProfiles", (next) => {
           if (storeSyncSuppressed2) return;
           const profilesObj = next && typeof next === "object" ? next : {};
-          state5.profiles = hydrateProfiles(profilesObj);
+          state3.profiles = hydrateProfiles(profilesObj);
           save2({ fromStore: true });
         });
         store2.subscribe("asrTuningActiveProfileId", (next) => {
           if (storeSyncSuppressed2) return;
-          state5.activeProfileId = typeof next === "string" && next ? next : void 0;
+          state3.activeProfileId = typeof next === "string" && next ? next : void 0;
           save2({ fromStore: true });
         });
       } catch {
@@ -25434,18 +25143,18 @@ var init_tuning_store = __esm({
       if (!DISABLE_ASR_TUNING_PERSIST) {
         window.addEventListener("storage", (e) => {
           try {
-            if (e.key === KEY4 && e.newValue) {
+            if (e.key === KEY3 && e.newValue) {
               const parsed = JSON.parse(e.newValue);
               const legacyProfiles = parsed && typeof parsed === "object" && "profiles" in parsed ? parsed.profiles : null;
               const profiles = legacyProfiles && typeof legacyProfiles === "object" ? legacyProfiles : parsed && typeof parsed === "object" ? parsed : {};
-              state5 = {
-                ...state5,
+              state3 = {
+                ...state3,
                 profiles: hydrateProfiles(profiles || {})
               };
               save2({ fromStore: true });
             }
-            if (e.key === ACTIVE_KEY2) {
-              state5.activeProfileId = e.newValue || void 0;
+            if (e.key === ACTIVE_KEY) {
+              state3.activeProfileId = e.newValue || void 0;
               save2({ fromStore: true });
             }
           } catch {
@@ -25786,6 +25495,84 @@ function evaluateStallCueRescuePolicy(opts) {
     directContentForwardRescue: false,
     blockedReason: ""
   };
+}
+function shouldAllowAutoStallContentRescue(opts) {
+  const commitCount = Number.isFinite(opts.commitCount) ? Math.max(0, Math.floor(opts.commitCount)) : 0;
+  const deltaLines = Number.isFinite(opts.deltaLines) ? Math.max(0, Math.floor(opts.deltaLines)) : 0;
+  if (deltaLines !== 1) return false;
+  if (commitCount >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS) return true;
+  if (commitCount <= 0) return false;
+  const sinceLastForwardMs = Number.isFinite(opts.sinceLastForwardMs) ? Math.max(0, Number(opts.sinceLastForwardMs)) : 0;
+  if (sinceLastForwardMs < DEFAULT_STARVATION_COMMIT_GAP_MS) return false;
+  if (commitCount >= 2 && sinceLastForwardMs >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS) {
+    return true;
+  }
+  const lostForwardGateCountSinceCommit = Number.isFinite(opts.lostForwardGateCountSinceCommit) ? Math.max(0, Math.floor(opts.lostForwardGateCountSinceCommit)) : 0;
+  const neededLostForwardGates = commitCount >= 2 ? 1 : DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES;
+  return lostForwardGateCountSinceCommit >= neededLostForwardGates;
+}
+function evaluateWeakForwardClampSupport(opts) {
+  const cursorLine = Number.isFinite(opts.cursorLine) ? Math.max(0, Math.floor(opts.cursorLine)) : -1;
+  const requestedIdx = Number.isFinite(opts.requestedIdx) ? Math.max(0, Math.floor(opts.requestedIdx)) : -1;
+  const clampedIdx = Number.isFinite(opts.clampedIdx) ? Math.max(0, Math.floor(opts.clampedIdx)) : -1;
+  const selectedScore = Number.isFinite(opts.selectedScore) ? Number(opts.selectedScore) : Number.NaN;
+  const minSupport = clamp4(
+    Math.max(
+      DEFAULT_CURRENT_OVERRIDE_MIN_SIM + DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS,
+      DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM + DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS,
+      (Number.isFinite(selectedScore) ? selectedScore : 0) - DEFAULT_WEAK_CURRENT_FORWARD_SPARSE_SLACK
+    ),
+    0,
+    1
+  );
+  if (cursorLine < 0 || requestedIdx <= clampedIdx || clampedIdx <= cursorLine || !Number.isFinite(selectedScore) || selectedScore >= DEFAULT_STRONG_FORWARD_COMMIT_SIM) {
+    return {
+      allow: true,
+      localBestIdx: null,
+      localBestScore: null,
+      minSupport
+    };
+  }
+  const localBest = (Array.isArray(opts.candidates) ? opts.candidates : []).map((entry) => ({
+    idx: Number(entry?.idx),
+    score: Number(entry?.score)
+  })).filter(
+    (entry) => Number.isFinite(entry.idx) && Number.isFinite(entry.score) && entry.idx > cursorLine && entry.idx <= clampedIdx
+  ).map((entry) => ({ idx: Math.floor(entry.idx), score: entry.score })).sort((a, b) => b.score - a.score || a.idx - b.idx)[0] || null;
+  return {
+    allow: !!localBest && localBest.score >= minSupport,
+    localBestIdx: localBest ? localBest.idx : null,
+    localBestScore: localBest ? localBest.score : null,
+    minSupport
+  };
+}
+function resolveWeakFarForwardHoldCandidate(opts) {
+  const cursorLine = Number.isFinite(opts.cursorLine) ? Math.max(0, Math.floor(opts.cursorLine)) : -1;
+  const selectedIdx = Number.isFinite(opts.selectedIdx) ? Math.max(0, Math.floor(opts.selectedIdx)) : -1;
+  const selectedScore = Number.isFinite(opts.selectedScore) ? Number(opts.selectedScore) : Number.NaN;
+  if (cursorLine < 0 || selectedIdx < 0 || !Number.isFinite(selectedScore)) return null;
+  if (selectedIdx <= cursorLine + DEFAULT_WEAK_CURRENT_FORWARD_MAX_DELTA) return null;
+  if (selectedScore >= DEFAULT_STRONG_FORWARD_COMMIT_SIM) return null;
+  const nearCandidateMap = /* @__PURE__ */ new Map();
+  const pushCandidate = (idxRaw, scoreRaw) => {
+    const idx = Number.isFinite(idxRaw) ? Math.max(0, Math.floor(idxRaw)) : -1;
+    const score = Number.isFinite(scoreRaw) ? Number(scoreRaw) : Number.NaN;
+    if (idx < cursorLine || idx > cursorLine + DEFAULT_WEAK_CURRENT_FORWARD_MAX_DELTA) return;
+    if (!Number.isFinite(score)) return;
+    const existing = nearCandidateMap.get(idx);
+    if (existing == null || score > existing) {
+      nearCandidateMap.set(idx, score);
+    }
+  };
+  for (const candidate of Array.isArray(opts.candidates) ? opts.candidates : []) {
+    pushCandidate(Number(candidate?.idx), Number(candidate?.score));
+  }
+  pushCandidate(cursorLine, Number(opts.currentLineScore));
+  const nearCandidate = Array.from(nearCandidateMap.entries()).map(([idx, score]) => ({ idx, score })).sort((a, b) => b.score - a.score || a.idx - b.idx)[0];
+  if (!nearCandidate) return null;
+  if (nearCandidate.idx >= selectedIdx) return null;
+  if (nearCandidate.score < selectedScore - DEFAULT_WEAK_CURRENT_FORWARD_SIM_SLACK) return null;
+  return nearCandidate;
 }
 function evaluateCueBoundaryMultiJumpRelaxation(opts) {
   const cursorLine = Number.isFinite(opts.cursorLine) ? Math.max(0, Math.floor(opts.cursorLine)) : -1;
@@ -27251,6 +27038,7 @@ function createAsrScrollDriver(options = {}) {
   let lostForwardWallStreak = 0;
   let lastProgressCursorLine = -1;
   let lastCueStallRescueAt = 0;
+  let lostForwardGateCountAtLastCommit = 0;
   let lostForwardActive = false;
   let lostForwardStage = 0;
   let lostForwardEnteredAt = 0;
@@ -27869,6 +27657,7 @@ function createAsrScrollDriver(options = {}) {
   let catchUpModeUntil = 0;
   const eventRing = [];
   const guardCounts = /* @__PURE__ */ new Map();
+  const getGuardCount = (reason) => guardCounts.get(reason) || 0;
   let manualAnchorPending = null;
   let manualScrollLastTop = 0;
   let manualScrollLastAt = 0;
@@ -28135,13 +27924,13 @@ function createAsrScrollDriver(options = {}) {
   }
   applyTuningProfile(getActiveAsrTuningProfile());
   attachManualScrollWatcher();
-  const unsubscribe = speechStore.subscribe((state9) => {
+  const unsubscribe = speechStore.subscribe((state8) => {
     if (disposed) return;
-    if (typeof state9.threshold === "number" && !isDevMode4() && !areAsrThresholdsDirty()) {
-      threshold = clamp4(state9.threshold, 0, 1);
+    if (typeof state8.threshold === "number" && !isDevMode4() && !areAsrThresholdsDirty()) {
+      threshold = clamp4(state8.threshold, 0, 1);
       setAsrDriverThresholds({ candidateMinSim: threshold });
     }
-    const nextCalm = !!state9.calmModeEnabled;
+    const nextCalm = !!state8.calmModeEnabled;
     if (nextCalm !== calmModeEnabled) {
       calmModeEnabled = nextCalm;
       syncMotionTuning(getAsrDriverThresholds(), Date.now());
@@ -28950,15 +28739,30 @@ function createAsrScrollDriver(options = {}) {
       return false;
     }
     const directContentForwardRescue = rescuePolicy.directContentForwardRescue;
-    if (reasonTag === "auto-stall" && directContentForwardRescue && commitCount < DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS) {
+    const lostForwardGateCountSinceCommit = Math.max(
+      0,
+      getGuardCount("lost_forward_gate") - lostForwardGateCountAtLastCommit
+    );
+    const autoStallContentRescueAllowed = shouldAllowAutoStallContentRescue({
+      commitCount,
+      deltaLines,
+      sinceLastForwardMs: now3 - lastForwardCommitAt,
+      lostForwardGateCountSinceCommit
+    });
+    const neededLostForwardGates = commitCount >= 2 ? 1 : DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES;
+    if (reasonTag === "auto-stall" && directContentForwardRescue && !autoStallContentRescueAllowed) {
       stallRescueRequested = false;
       if (isDevMode4()) {
         warnGuard("cue_stall_rescue_blocked", [
           `at=${cursorLine}`,
           "reason=startup-guard",
           `commits=${commitCount}`,
-          `need=${DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS}`,
+          `hardCommitGate=${DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS}`,
           `delta=${deltaLines}`,
+          `lostForwardGates=${lostForwardGateCountSinceCommit}`,
+          `lostForwardNeed=${neededLostForwardGates}`,
+          `severeStallMs=${DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS}`,
+          `sinceForwardMs=${Math.max(0, now3 - lastForwardCommitAt)}`,
           reason ? `source=${reason}` : "",
           cursorLineText ? `line="${formatLogSnippet(cursorLineText, 56)}"` : ""
         ]);
@@ -29010,6 +28814,7 @@ function createAsrScrollDriver(options = {}) {
     commitCount += 1;
     finalsSinceCommit = 0;
     eventsSinceCommit = 0;
+    lostForwardGateCountAtLastCommit = getGuardCount("lost_forward_gate");
     logDriverActive("commit");
     stallHudEmitted = false;
     if (firstCommitIndex == null && Number.isFinite(prevIndex)) {
@@ -30271,6 +30076,29 @@ function createAsrScrollDriver(options = {}) {
         if (targetLine > lastLineIndex + effectiveClampDeltaLimit && !strongForwardCommit) {
           const requestedLine = targetLine;
           targetLine = lastLineIndex + effectiveClampDeltaLimit;
+          if (!forced && forceTag !== "watchdog") {
+            const weakForwardClampSupport = evaluateWeakForwardClampSupport({
+              cursorLine: lastLineIndex,
+              requestedIdx: requestedLine,
+              clampedIdx: targetLine,
+              selectedScore: conf,
+              candidates: topScores
+            });
+            if (!weakForwardClampSupport.allow) {
+              warnGuard("weak_forward_clamp_blocked", [
+                `current=${lastLineIndex}`,
+                `req=${requestedLine}`,
+                `clamped=${targetLine}`,
+                `sim=${formatLogScore(conf)}`,
+                `need=${formatLogScore(weakForwardClampSupport.minSupport)}`,
+                weakForwardClampSupport.localBestIdx != null ? `local=${weakForwardClampSupport.localBestIdx}` : "local=na",
+                weakForwardClampSupport.localBestScore != null ? `localSim=${formatLogScore(weakForwardClampSupport.localBestScore)}` : "",
+                snippet ? `clue="${snippet}"` : ""
+              ]);
+              emitHudStatus("weak_forward_clamp_blocked", "Low-confidence far jump held");
+              return;
+            }
+          }
           if (isDevMode4()) {
             try {
               const clampClass = forceTag === "watchdog" ? "watchdog" : forced ? "forced" : "normal";
@@ -31834,6 +31662,29 @@ function createAsrScrollDriver(options = {}) {
       conf = selectedInBand.score;
       usedLineFallback = true;
     }
+    const weakFarForwardHold = resolveWeakFarForwardHoldCandidate({
+      cursorLine,
+      selectedIdx: rawIdx,
+      selectedScore: conf,
+      currentLineScore: currentLineSim,
+      candidates: inBandCandidates
+    });
+    if (weakFarForwardHold && (weakFarForwardHold.idx !== rawIdx || weakFarForwardHold.score !== conf)) {
+      const before = rawIdx;
+      const beforeSim = conf;
+      rawIdx = weakFarForwardHold.idx;
+      conf = weakFarForwardHold.score;
+      usedLineFallback = true;
+      warnGuard("weak_far_forward_hold", [
+        `current=${cursorLine}`,
+        `best=${before}`,
+        `hold=${rawIdx}`,
+        `sim=${formatLogScore(beforeSim)}`,
+        `holdSim=${formatLogScore(conf)}`,
+        `delta=${before - cursorLine}`,
+        snippet ? `clue="${snippet}"` : ""
+      ]);
+    }
     let inBand = rawIdx >= bandStart && rawIdx <= bandEnd;
     const manualAnchorEnabled = isManualAnchorAdoptEnabled();
     if (manualAnchorPending && manualAnchorEnabled && now3 - manualAnchorPending.ts >= MANUAL_ANCHOR_PENDING_TIMEOUT_MS) {
@@ -33061,6 +32912,9 @@ function createAsrScrollDriver(options = {}) {
             `cap=${lostForwardCap}`,
             snippet ? `clue="${snippet}"` : ""
           ]);
+          if (commitCount > 0 && now3 - lastForwardCommitAt >= DEFAULT_CUE_STALL_RESCUE_DELAY_MS && maybeScheduleStallCueRescue("auto-stall")) {
+            return;
+          }
         }
       }
     }
@@ -34148,6 +34002,7 @@ function createAsrScrollDriver(options = {}) {
     lastForwardCommitAt = Date.now();
     finalsSinceCommit = 0;
     eventsSinceCommit = 0;
+    lostForwardGateCountAtLastCommit = getGuardCount("lost_forward_gate");
     noProgressStreak = 0;
     lostForwardWallStreak = 0;
     lastProgressCursorLine = lastLineIndex;
@@ -34200,7 +34055,7 @@ function createAsrScrollDriver(options = {}) {
   }
   return driver;
 }
-var DEFAULT_MIN_LINE_ADVANCE, DEFAULT_SEEK_THROTTLE_MS, DEFAULT_INTERIM_SCALE, DEFAULT_MATCH_BACKTRACK_LINES, DEFAULT_MATCH_LOOKAHEAD_LINES, DEFAULT_MATCH_LOOKAHEAD_STEPS, DEFAULT_LOOKAHEAD_BUMP_COOLDOWN_MS, DEFAULT_LOOKAHEAD_BEHIND_HITS, DEFAULT_LOOKAHEAD_BEHIND_WINDOW_MS, DEFAULT_LOOKAHEAD_STALL_MS, DEFAULT_BAND_BACK_TOLERANCE_LINES, DEFAULT_SAME_LINE_THROTTLE_MS, DEFAULT_CREEP_PX, DEFAULT_CREEP_NEAR_PX, DEFAULT_CREEP_BUDGET_PX, DEFAULT_SCROLL_TRUTH_SETTLE_FRAMES, DEFAULT_SCROLL_TRUTH_MISMATCH_PX, DEFAULT_SCROLL_TRUTH_GLIDE_SAFETY_MS, DEFAULT_SCROLL_TRUTH_GLIDE_MAX_WAIT_MS, DEFAULT_SCROLL_TRUTH_AHEAD_TOLERANCE_LINES, DEFAULT_DEADBAND_PX, DEFAULT_MAX_VEL_PX_PER_SEC, DEFAULT_MAX_VEL_MED_PX_PER_SEC, DEFAULT_MAX_VEL_CATCHUP_PX_PER_SEC, DEFAULT_MAX_ACCEL_PX_PER_SEC2, DEFAULT_MIN_STEP_PX, DEFAULT_MAX_STEP_PX, DEFAULT_CATCHUP_MED_MIN_PX, DEFAULT_CATCHUP_FAST_MIN_PX, DEFAULT_MAX_TARGET_JUMP_PX, DEFAULT_MAX_TARGET_JUMP_HYBRID_PX, LIVE_ASR_COMMIT_MIN_PX, LIVE_ASR_COMMIT_MAX_LINES, LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO, LIVE_ASR_GLIDE_MIN_MS, LIVE_ASR_GLIDE_MAX_MS, LIVE_ASR_GLIDE_PX_PER_SEC, DEFAULT_PURSUE_KP, DEFAULT_PURSUE_MANUAL_CANCEL_PX, DEFAULT_NO_TARGET_RETRY_SIM, DEFAULT_NO_TARGET_RETRY_MAX_DELTA, DEFAULT_NO_TARGET_RETRY_FRAMES, DEFAULT_LINE_MISSING_LOOKUP_FRAMES, DEFAULT_NO_TARGET_RETRY_WINDOW_MS, DEFAULT_STRONG_WINDOW_MS, DEFAULT_FINAL_EVIDENCE_LEAD_LINES, MARKER_BIAS_PX, DEFAULT_REALIGN_LEAD_LINES, DEFAULT_REALIGN_LOOKBACK_LINES, DEFAULT_REALIGN_SIM, DEFAULT_LAG_RELOCK_BEHIND_HITS, DEFAULT_LAG_RELOCK_WINDOW_MS, DEFAULT_LAG_RELOCK_MIN_DELTA, DEFAULT_LAG_RELOCK_MIN_TOKENS, DEFAULT_LAG_RELOCK_MIN_CHARS, DEFAULT_LAG_RELOCK_LOOKAHEAD_BONUS, DEFAULT_LAG_RELOCK_DURATION_MS, DEFAULT_LAG_RELOCK_LOW_SIM_FLOOR, DEFAULT_RELOCK_SIM_FLOOR, DEFAULT_RELOCK_OVERLAP_RATIO, DEFAULT_RELOCK_SPAN_MIN_LINES, DEFAULT_RELOCK_REPEAT_WINDOW_MS, DEFAULT_RELOCK_REPEAT_MIN, DEFAULT_RESYNC_WINDOW_MS, DEFAULT_RESYNC_LOOKAHEAD_BONUS, DEFAULT_RESYNC_COOLDOWN_MS, DEFAULT_STRONG_BACK_SIM, DEFAULT_BACK_CONFIRM_HITS, DEFAULT_BACK_CONFIRM_WINDOW_MS, DEFAULT_BEHIND_RECOVERY_MS, DEFAULT_BEHIND_RECOVERY_MAX_LINES, DEFAULT_BEHIND_RECOVERY_MIN_SIM, DEFAULT_BEHIND_RECOVERY_COOLDOWN_MS, DEFAULT_AMBIGUITY_SIM_DELTA, DEFAULT_AMBIGUITY_NEAR_LINES, DEFAULT_AMBIGUITY_FAR_LINES, DEFAULT_MIN_TOKEN_COUNT, DEFAULT_MIN_EVIDENCE_CHARS, DEFAULT_INTERIM_HYSTERESIS_BONUS, DEFAULT_INTERIM_STABLE_REPEATS, DEFAULT_SAME_LINE_LOW_SIM_RELAX, DEFAULT_FORWARD_TIE_EPS, DEFAULT_FORWARD_PROGRESS_WINDOW_MS, DEFAULT_FORWARD_BIAS_RECENT_LINES, DEFAULT_FORWARD_BIAS_WINDOW_MS, DEFAULT_FORWARD_BIAS_LOOKAHEAD_LINES, DEFAULT_FORWARD_BIAS_SIM_SLACK, DEFAULT_SHORT_FINAL_MIN_TOKENS, DEFAULT_SHORT_FINAL_MAX_TOKENS, DEFAULT_SHORT_FINAL_WINDOW_MS, DEFAULT_SHORT_FINAL_LOOKAHEAD_LINES, DEFAULT_SHORT_FINAL_SIM_SLACK, DEFAULT_FORWARD_WINDOW_MAX_LINES, DEFAULT_FORWARD_WINDOW_MIN_TOKENS, DEFAULT_OUTRUN_RELAXED_SIM, DEFAULT_OUTRUN_WINDOW_MS, DEFAULT_OUTRUN_LOOKAHEAD_LINES, DEFAULT_OUTRUN_BEHIND_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_MAX_DELTA, DEFAULT_OUTRUN_BEHIND_WIN_MARGIN, DEFAULT_OUTRUN_BEHIND_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_TOKENS, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_OVERLAP_TOKENS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_EXTRA_CHARS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_SIM, DEFAULT_FORCED_RATE_WINDOW_MS, DEFAULT_FORCED_RATE_MAX, DEFAULT_FORCED_COOLDOWN_MS, DEFAULT_FORCED_MIN_TOKENS, DEFAULT_FORCED_MIN_CHARS, DEFAULT_SLAM_DUNK_SIM, DEFAULT_SLAM_DUNK_MAX_DELTA, DEFAULT_CONFIRMATION_RELAXED_SIM, DEFAULT_CONFIRMATION_RELAXED_MAX_DELTA, DEFAULT_NO_MATCH_WINDOW_MS, DEFAULT_NO_MATCH_BUMP_HITS, DEFAULT_NO_MATCH_RELOCK_HITS, GUARD_THROTTLE_MS, DEFAULT_SHORT_TOKEN_MAX, DEFAULT_SHORT_TOKEN_BOOST, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES, DEFAULT_STABLE_INTERIM_NUDGE_MS, DEFAULT_STABLE_INTERIM_NUDGE_COOLDOWN_MS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_TOKENS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_RATIO, DEFAULT_STABLE_INTERIM_PREFIX_MAX_TAIL_DRIFT_TOKENS, DEFAULT_NOISE_INTERIM_MIN_TOKENS, DEFAULT_NOISE_INTERIM_MIN_CHARS, DEFAULT_STARVATION_COMMIT_GAP_MS, DEFAULT_STARVATION_WARN_COOLDOWN_MS, DEFAULT_STARVATION_RELOCK_LOOKAHEAD_LINES, DEFAULT_STARVATION_RELOCK_SIM_SLACK, DEFAULT_STARVATION_RELOCK_COOLDOWN_MS, DEFAULT_LOST_FORWARD_WALL_RELOCK_STREAK, DEFAULT_FINAL_CONTINUATION_SIM_EPS, BAD_CURSOR_ON_CUE_LOG_THROTTLE_MS, DEFAULT_STALL_COMMIT_MS, DEFAULT_STALL_LOG_COOLDOWN_MS, DEFAULT_LOW_SIM_FLOOR, DEFAULT_STUCK_RESYNC_WINDOW_MS, DEFAULT_STUCK_RESYNC_LOOKAHEAD_BONUS, DEFAULT_STUCK_RESYNC_BACKTRACK_LINES, DEFAULT_STUCK_RELOCK_SIM, DEFAULT_GENERIC_SIM_DELTA, DEFAULT_GENERIC_MIN_CANDIDATES, DEFAULT_GENERIC_MAX_TOKENS, DEFAULT_META_OVERLAP_RATIO, DEFAULT_LAG_DELTA_LINES, DEFAULT_LAG_WINDOW_MATCHES, DEFAULT_LAG_MIN_FORWARD_HITS, DEFAULT_LAG_FORCE_DELTA_LINES, DEFAULT_LAG_FORCE_HITS, DEFAULT_CATCHUP_MODE_MAX_JUMP, DEFAULT_CATCHUP_MODE_MIN_SIM, DEFAULT_CATCHUP_MODE_DURATION_MS, DEFAULT_CATCHUP_LOOKAHEAD_BONUS, POST_CATCHUP_MS, POST_CATCHUP_DROP, POST_CATCHUP_MAX_DELTA, POST_CATCHUP_REQUIRE_IN_BAND, DELTA_SMALL_MAX_LINES, DELTA_MED_MAX_LINES, DELTA_LARGE_MIN_LINES, DELTA_MIN_SIM_SMALL, DELTA_MIN_SIM_MED, DELTA_MIN_SIM_LARGE, LARGE_DELTA_CONFIRM_HITS, LARGE_DELTA_CONFIRM_WINDOW_MS, LARGE_DELTA_CONFIRM_SPREAD, OVERSHOOT_RISK_DELTA_LINES, OVERSHOOT_RISK_WINDOW_MS, OVERSHOOT_RISK_MIN_SIM, BEHIND_RECOVERY_WINDOW_MS, BEHIND_RECOVERY_HITS, BEHIND_RECOVERY_CLUSTER_SPREAD, BEHIND_RECOVERY_MIN_DELTA, BEHIND_RECOVERY_MAX_REWIND, BEHIND_RECOVERY_MIN_SIM, BEHIND_RECOVERY_COOLDOWN_MS, POST_CATCHUP_SAMPLES, DEFAULT_BACKJUMP_BLOCK_LINES, DEFAULT_FREEZE_LOW_SIM_HITS, DEFAULT_FREEZE_LOW_SIM_WINDOW_MS, EVENT_RING_MAX, EVENT_DUMP_COUNT, BEHIND_DEBT_WINDOW_LINES, BEHIND_DEBT_DECAY, BEHIND_DEBT_CAP, RECOVERY_BIG_JUMP_LINES, RECOVERY_SIM_MIN, RECOVERY_STREAK_REQUIRED, RECOVERY_SIM_SLACK, MANUAL_ANCHOR_MIN_SCROLL_PX, MANUAL_ANCHOR_MAX_SCROLL_WINDOW_MS, MANUAL_ANCHOR_PENDING_TIMEOUT_MS, MANUAL_ANCHOR_WINDOW_LINES, MANUAL_ANCHOR_SIM_SLACK, MAX_LINES_PER_COMMIT, DELTA_SMOOTHING_FACTOR, TAPER_EXPONENT, TAPER_MIN, GLIDE_MIN_MS, GLIDE_MAX_MS, GLIDE_DEFAULT_MS, MICRO_DELTA_LINE_RATIO, MICRO_PURSUE_MS, MICRO_PURSUE_MAX_PXPS, MIN_PX_PER_SEC, WITHIN_BLOCK_CONTINUITY_SIM_SLACK, POST_COMMIT_ACTIVE_MAX_RATIO, POST_COMMIT_ACTIVE_TARGET_RATIO, POST_COMMIT_ACTIVE_MIN_RATIO, POST_COMMIT_ACTIVE_BAND_RADIUS, POST_COMMIT_MIN_READABLE_LINES_BELOW, POST_COMMIT_READABILITY_LOOKAHEAD_LINES, POST_COMMIT_READABLE_BOTTOM_PAD_PX, POST_COMMIT_NEXT_LINE_VIS_GUARD_PX, POST_COMMIT_MIN_NUDGE_PX, POST_COMMIT_MAX_FORWARD_NUDGE_LINES, COMMIT_BAND_RESEED_BACK_LINES, COMMIT_BAND_RESEED_AHEAD_LINES, COMMIT_BAND_RESEED_TTL_MS, DEFAULT_STUCK_WATCHDOG_FINAL_EVENTS, DEFAULT_STUCK_WATCHDOG_NO_COMMIT_MS, DEFAULT_STUCK_WATCHDOG_COOLDOWN_MS, DEFAULT_STUCK_WATCHDOG_MAX_DELTA_LINES, DEFAULT_STUCK_WATCHDOG_FORWARD_FLOOR, DEFAULT_STUCK_WATCHDOG_COMMIT_CAP_LINES, DEFAULT_ALLOW_BEHIND_REANCHOR, DEFAULT_STUCK_WATCHDOG_INTERIM_EVENTS, DEFAULT_STUCK_WATCHDOG_INTERIM_RECENT_MS, DEFAULT_COMMIT_CLAMP_MAX_DELTA_LINES, DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES, DEFAULT_CUE_BRIDGE_BYPASS_MAX_SKIPPED_LINES, DEFAULT_CUE_BRIDGE_STRONG_SIM, DEFAULT_CUE_BRIDGE_LARGE_GAP, DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS, DEFAULT_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS, DEFAULT_MULTI_JUMP_MIN_SIM, DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS, DEFAULT_MULTI_JUMP_HARD_DENY_SIM, DEFAULT_AMBIGUITY_HOLD_MIN_SIM, DEFAULT_AMBIGUITY_HOLD_NEAR_WINDOW_LINES, DEFAULT_AMBIG_SHORT_LINE_MAX_CONTENT_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_OVERLAP_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_SIM, DEFAULT_AMBIG_SHORT_LINE_RUNNERUP_MARGIN, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_RATIO, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_TOKENS, DEFAULT_HOLD_ANCHOR_LOOKAHEAD_LINES, DEFAULT_HOLD_ANCHOR_MIN_SIM, DEFAULT_HOLD_ANCHOR_MARGIN, DEFAULT_HOLD_ANCHOR_MIN_CONTENT_TOKENS, DEFAULT_HOLD_ANCHOR_MIN_SHARED_CONTENT_HITS, DEFAULT_HOLD_ANCHOR_NEAR_DELTA_LINES, DEFAULT_HOLD_ANCHOR_NEAR_MIN_SIM, DEFAULT_HOLD_ANCHOR_COMMIT_CAP_LINES, HOLD_TICK_LOG_THROTTLE_MS, DEFAULT_NO_PROGRESS_STREAK_TRIGGER, DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES, DEFAULT_LOST_FORWARD_MIN_SIM, DEFAULT_LOST_HEALTHY_LOCK_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_CONTENT_HITS, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MIN_HITS, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_TOKENS, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_STREAK, LOST_FORWARD_WINDOW_STEPS, LOST_FORWARD_STAGE_STREAKS, DEFAULT_TELEPORT_MIN_TOKENS, DEFAULT_TELEPORT_COMPETITIVE_MARGIN, DEFAULT_TELEPORT_STANDARD_CAP_LINES, DEFAULT_TELEPORT_DEEP_CAP_LINES, ANCHOR_RARE_TOKEN_MIN_LEN, DEFAULT_MICRO_RELOCK_MARGIN, DEFAULT_MICRO_RELOCK_COOLDOWN_MS, DEFAULT_MICRO_RELOCK_PREFERRED_TTL_MS, DEFAULT_GRACE_ROLLBACK_WINDOW_MS, DEFAULT_GRACE_ROLLBACK_MIN_PREV_SIM, DEFAULT_GRACE_ROLLBACK_MAX_CURRENT_SIM, DEFAULT_GRACE_ROLLBACK_MIN_MARGIN, DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_LINES, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_SIM, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM, DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO, DEFAULT_PERMISSIVE_FINAL_MARKER_BACK_TOLERANCE_LINES, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_MIN_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_SIM_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_SPARSE_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_CONF_CAP, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_RATIO, DEFAULT_WEAK_CURRENT_FORWARD_MAX_DELTA, DEFAULT_WEAK_CURRENT_FORWARD_MAX_SPAN, DEFAULT_WEAK_CURRENT_FORWARD_INTERIM_MIN_SIM, DEFAULT_WEAK_CURRENT_FORWARD_FINAL_MIN_SIM, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_TOKENS, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_RATIO, DEFAULT_FIRST_COMMIT_NEAR_START_MAX_DELTA, DEFAULT_WRITER_ADDRESSABLE_MIN_INDEXED_LINES, DEFAULT_WRITER_ADDRESSABLE_MIN_RATIO, DEFAULT_WRITER_ADDRESSABLE_MIN_FLOOR, DEFAULT_BEHIND_CANDIDATE_MIN_SIM, DEFAULT_BEHIND_CANDIDATE_MIN_TOKENS, DEFAULT_BEHIND_CANDIDATE_MIN_CHARS, DEFAULT_CURRENT_OVERRIDE_MIN_SIM, CUE_LINE_BRACKET_RE, CUE_LINE_WORD_RE, SPEAKER_TAG_ONLY_RE, NOTE_TAG_ONLY_RE, NOTE_INLINE_BLOCK_RE, MAX_CUE_SKIP_LOOKAHEAD_LINES, ANCHOR_STOPWORDS, INDEXED_LINE_SELECTOR, MOTION_PRESET_NORMAL, MOTION_PRESET_CALM, MOTION_OVERRIDE_EPS, MOTION_KEYS, guardLastAt, logLastAt, guardStatusLastAt, activeGuardCounts, guardEvents, GUARD_DEBUG_REASONS, LOG_THROTTLE_MS, HUD_STATUS_THROTTLE_MS, HUD_PURSUE_THROTTLE_MS, lastPursueHudAt, SUMMARY_TOAST_DEDUPE_MS, SUMMARY_MIN_DURATION_MS, DRIVER_ACTIVE_DISPOSE_MIN_MS, NAN_GUARD_THROTTLE_MS, MAX_REPORTED_RUN_KEYS, reportedSummaryRunKeys, lastSummaryToastKey, lastSummaryToastAt, nanGuardLastAt, HYBRID_BRAKE_TTL_MS, HYBRID_ASSIST_TTL_MS, HYBRID_TARGET_HINT_TTL_MS, HYBRID_ASSIST_MAX_BOOST_PXPS, HYBRID_TARGET_HINT_MIN_DELTA_PX, HYBRID_TARGET_HINT_MIN_INTERVAL_MS, lastHybridTargetHintTop, lastHybridTargetHintTs, getNowMs, warnedMissingTargetTop;
+var DEFAULT_MIN_LINE_ADVANCE, DEFAULT_SEEK_THROTTLE_MS, DEFAULT_INTERIM_SCALE, DEFAULT_MATCH_BACKTRACK_LINES, DEFAULT_MATCH_LOOKAHEAD_LINES, DEFAULT_MATCH_LOOKAHEAD_STEPS, DEFAULT_LOOKAHEAD_BUMP_COOLDOWN_MS, DEFAULT_LOOKAHEAD_BEHIND_HITS, DEFAULT_LOOKAHEAD_BEHIND_WINDOW_MS, DEFAULT_LOOKAHEAD_STALL_MS, DEFAULT_BAND_BACK_TOLERANCE_LINES, DEFAULT_SAME_LINE_THROTTLE_MS, DEFAULT_CREEP_PX, DEFAULT_CREEP_NEAR_PX, DEFAULT_CREEP_BUDGET_PX, DEFAULT_SCROLL_TRUTH_SETTLE_FRAMES, DEFAULT_SCROLL_TRUTH_MISMATCH_PX, DEFAULT_SCROLL_TRUTH_GLIDE_SAFETY_MS, DEFAULT_SCROLL_TRUTH_GLIDE_MAX_WAIT_MS, DEFAULT_SCROLL_TRUTH_AHEAD_TOLERANCE_LINES, DEFAULT_DEADBAND_PX, DEFAULT_MAX_VEL_PX_PER_SEC, DEFAULT_MAX_VEL_MED_PX_PER_SEC, DEFAULT_MAX_VEL_CATCHUP_PX_PER_SEC, DEFAULT_MAX_ACCEL_PX_PER_SEC2, DEFAULT_MIN_STEP_PX, DEFAULT_MAX_STEP_PX, DEFAULT_CATCHUP_MED_MIN_PX, DEFAULT_CATCHUP_FAST_MIN_PX, DEFAULT_MAX_TARGET_JUMP_PX, DEFAULT_MAX_TARGET_JUMP_HYBRID_PX, LIVE_ASR_COMMIT_MIN_PX, LIVE_ASR_COMMIT_MAX_LINES, LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO, LIVE_ASR_GLIDE_MIN_MS, LIVE_ASR_GLIDE_MAX_MS, LIVE_ASR_GLIDE_PX_PER_SEC, DEFAULT_PURSUE_KP, DEFAULT_PURSUE_MANUAL_CANCEL_PX, DEFAULT_NO_TARGET_RETRY_SIM, DEFAULT_NO_TARGET_RETRY_MAX_DELTA, DEFAULT_NO_TARGET_RETRY_FRAMES, DEFAULT_LINE_MISSING_LOOKUP_FRAMES, DEFAULT_NO_TARGET_RETRY_WINDOW_MS, DEFAULT_STRONG_WINDOW_MS, DEFAULT_FINAL_EVIDENCE_LEAD_LINES, MARKER_BIAS_PX, DEFAULT_REALIGN_LEAD_LINES, DEFAULT_REALIGN_LOOKBACK_LINES, DEFAULT_REALIGN_SIM, DEFAULT_LAG_RELOCK_BEHIND_HITS, DEFAULT_LAG_RELOCK_WINDOW_MS, DEFAULT_LAG_RELOCK_MIN_DELTA, DEFAULT_LAG_RELOCK_MIN_TOKENS, DEFAULT_LAG_RELOCK_MIN_CHARS, DEFAULT_LAG_RELOCK_LOOKAHEAD_BONUS, DEFAULT_LAG_RELOCK_DURATION_MS, DEFAULT_LAG_RELOCK_LOW_SIM_FLOOR, DEFAULT_RELOCK_SIM_FLOOR, DEFAULT_RELOCK_OVERLAP_RATIO, DEFAULT_RELOCK_SPAN_MIN_LINES, DEFAULT_RELOCK_REPEAT_WINDOW_MS, DEFAULT_RELOCK_REPEAT_MIN, DEFAULT_RESYNC_WINDOW_MS, DEFAULT_RESYNC_LOOKAHEAD_BONUS, DEFAULT_RESYNC_COOLDOWN_MS, DEFAULT_STRONG_BACK_SIM, DEFAULT_BACK_CONFIRM_HITS, DEFAULT_BACK_CONFIRM_WINDOW_MS, DEFAULT_BEHIND_RECOVERY_MS, DEFAULT_BEHIND_RECOVERY_MAX_LINES, DEFAULT_BEHIND_RECOVERY_MIN_SIM, DEFAULT_BEHIND_RECOVERY_COOLDOWN_MS, DEFAULT_AMBIGUITY_SIM_DELTA, DEFAULT_AMBIGUITY_NEAR_LINES, DEFAULT_AMBIGUITY_FAR_LINES, DEFAULT_MIN_TOKEN_COUNT, DEFAULT_MIN_EVIDENCE_CHARS, DEFAULT_INTERIM_HYSTERESIS_BONUS, DEFAULT_INTERIM_STABLE_REPEATS, DEFAULT_SAME_LINE_LOW_SIM_RELAX, DEFAULT_FORWARD_TIE_EPS, DEFAULT_FORWARD_PROGRESS_WINDOW_MS, DEFAULT_FORWARD_BIAS_RECENT_LINES, DEFAULT_FORWARD_BIAS_WINDOW_MS, DEFAULT_FORWARD_BIAS_LOOKAHEAD_LINES, DEFAULT_FORWARD_BIAS_SIM_SLACK, DEFAULT_SHORT_FINAL_MIN_TOKENS, DEFAULT_SHORT_FINAL_MAX_TOKENS, DEFAULT_SHORT_FINAL_WINDOW_MS, DEFAULT_SHORT_FINAL_LOOKAHEAD_LINES, DEFAULT_SHORT_FINAL_SIM_SLACK, DEFAULT_FORWARD_WINDOW_MAX_LINES, DEFAULT_FORWARD_WINDOW_MIN_TOKENS, DEFAULT_OUTRUN_RELAXED_SIM, DEFAULT_OUTRUN_WINDOW_MS, DEFAULT_OUTRUN_LOOKAHEAD_LINES, DEFAULT_OUTRUN_BEHIND_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_MAX_DELTA, DEFAULT_OUTRUN_BEHIND_WIN_MARGIN, DEFAULT_OUTRUN_BEHIND_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_SIM_SLACK, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_SIM, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_TOKENS, DEFAULT_OUTRUN_BEHIND_CONTINUATION_MIN_OVERLAP_TOKENS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_EXTRA_CHARS, DEFAULT_OUTRUN_BEHIND_APPEND_MIN_SIM, DEFAULT_FORCED_RATE_WINDOW_MS, DEFAULT_FORCED_RATE_MAX, DEFAULT_FORCED_COOLDOWN_MS, DEFAULT_FORCED_MIN_TOKENS, DEFAULT_FORCED_MIN_CHARS, DEFAULT_SLAM_DUNK_SIM, DEFAULT_SLAM_DUNK_MAX_DELTA, DEFAULT_CONFIRMATION_RELAXED_SIM, DEFAULT_CONFIRMATION_RELAXED_MAX_DELTA, DEFAULT_NO_MATCH_WINDOW_MS, DEFAULT_NO_MATCH_BUMP_HITS, DEFAULT_NO_MATCH_RELOCK_HITS, GUARD_THROTTLE_MS, DEFAULT_SHORT_TOKEN_MAX, DEFAULT_SHORT_TOKEN_BOOST, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES, DEFAULT_STABLE_INTERIM_NUDGE_MS, DEFAULT_STABLE_INTERIM_NUDGE_COOLDOWN_MS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_TOKENS, DEFAULT_STABLE_INTERIM_PREFIX_MIN_RATIO, DEFAULT_STABLE_INTERIM_PREFIX_MAX_TAIL_DRIFT_TOKENS, DEFAULT_NOISE_INTERIM_MIN_TOKENS, DEFAULT_NOISE_INTERIM_MIN_CHARS, DEFAULT_STARVATION_COMMIT_GAP_MS, DEFAULT_STARVATION_WARN_COOLDOWN_MS, DEFAULT_STARVATION_RELOCK_LOOKAHEAD_LINES, DEFAULT_STARVATION_RELOCK_SIM_SLACK, DEFAULT_STARVATION_RELOCK_COOLDOWN_MS, DEFAULT_LOST_FORWARD_WALL_RELOCK_STREAK, DEFAULT_FINAL_CONTINUATION_SIM_EPS, BAD_CURSOR_ON_CUE_LOG_THROTTLE_MS, DEFAULT_STALL_COMMIT_MS, DEFAULT_STALL_LOG_COOLDOWN_MS, DEFAULT_LOW_SIM_FLOOR, DEFAULT_STUCK_RESYNC_WINDOW_MS, DEFAULT_STUCK_RESYNC_LOOKAHEAD_BONUS, DEFAULT_STUCK_RESYNC_BACKTRACK_LINES, DEFAULT_STUCK_RELOCK_SIM, DEFAULT_GENERIC_SIM_DELTA, DEFAULT_GENERIC_MIN_CANDIDATES, DEFAULT_GENERIC_MAX_TOKENS, DEFAULT_META_OVERLAP_RATIO, DEFAULT_LAG_DELTA_LINES, DEFAULT_LAG_WINDOW_MATCHES, DEFAULT_LAG_MIN_FORWARD_HITS, DEFAULT_LAG_FORCE_DELTA_LINES, DEFAULT_LAG_FORCE_HITS, DEFAULT_CATCHUP_MODE_MAX_JUMP, DEFAULT_CATCHUP_MODE_MIN_SIM, DEFAULT_CATCHUP_MODE_DURATION_MS, DEFAULT_CATCHUP_LOOKAHEAD_BONUS, POST_CATCHUP_MS, POST_CATCHUP_DROP, POST_CATCHUP_MAX_DELTA, POST_CATCHUP_REQUIRE_IN_BAND, DELTA_SMALL_MAX_LINES, DELTA_MED_MAX_LINES, DELTA_LARGE_MIN_LINES, DELTA_MIN_SIM_SMALL, DELTA_MIN_SIM_MED, DELTA_MIN_SIM_LARGE, LARGE_DELTA_CONFIRM_HITS, LARGE_DELTA_CONFIRM_WINDOW_MS, LARGE_DELTA_CONFIRM_SPREAD, OVERSHOOT_RISK_DELTA_LINES, OVERSHOOT_RISK_WINDOW_MS, OVERSHOOT_RISK_MIN_SIM, BEHIND_RECOVERY_WINDOW_MS, BEHIND_RECOVERY_HITS, BEHIND_RECOVERY_CLUSTER_SPREAD, BEHIND_RECOVERY_MIN_DELTA, BEHIND_RECOVERY_MAX_REWIND, BEHIND_RECOVERY_MIN_SIM, BEHIND_RECOVERY_COOLDOWN_MS, POST_CATCHUP_SAMPLES, DEFAULT_BACKJUMP_BLOCK_LINES, DEFAULT_FREEZE_LOW_SIM_HITS, DEFAULT_FREEZE_LOW_SIM_WINDOW_MS, EVENT_RING_MAX, EVENT_DUMP_COUNT, BEHIND_DEBT_WINDOW_LINES, BEHIND_DEBT_DECAY, BEHIND_DEBT_CAP, RECOVERY_BIG_JUMP_LINES, RECOVERY_SIM_MIN, RECOVERY_STREAK_REQUIRED, RECOVERY_SIM_SLACK, MANUAL_ANCHOR_MIN_SCROLL_PX, MANUAL_ANCHOR_MAX_SCROLL_WINDOW_MS, MANUAL_ANCHOR_PENDING_TIMEOUT_MS, MANUAL_ANCHOR_WINDOW_LINES, MANUAL_ANCHOR_SIM_SLACK, MAX_LINES_PER_COMMIT, DELTA_SMOOTHING_FACTOR, TAPER_EXPONENT, TAPER_MIN, GLIDE_MIN_MS, GLIDE_MAX_MS, GLIDE_DEFAULT_MS, MICRO_DELTA_LINE_RATIO, MICRO_PURSUE_MS, MICRO_PURSUE_MAX_PXPS, MIN_PX_PER_SEC, WITHIN_BLOCK_CONTINUITY_SIM_SLACK, POST_COMMIT_ACTIVE_MAX_RATIO, POST_COMMIT_ACTIVE_TARGET_RATIO, POST_COMMIT_ACTIVE_MIN_RATIO, POST_COMMIT_ACTIVE_BAND_RADIUS, POST_COMMIT_MIN_READABLE_LINES_BELOW, POST_COMMIT_READABILITY_LOOKAHEAD_LINES, POST_COMMIT_READABLE_BOTTOM_PAD_PX, POST_COMMIT_NEXT_LINE_VIS_GUARD_PX, POST_COMMIT_MIN_NUDGE_PX, POST_COMMIT_MAX_FORWARD_NUDGE_LINES, COMMIT_BAND_RESEED_BACK_LINES, COMMIT_BAND_RESEED_AHEAD_LINES, COMMIT_BAND_RESEED_TTL_MS, DEFAULT_STUCK_WATCHDOG_FINAL_EVENTS, DEFAULT_STUCK_WATCHDOG_NO_COMMIT_MS, DEFAULT_STUCK_WATCHDOG_COOLDOWN_MS, DEFAULT_STUCK_WATCHDOG_MAX_DELTA_LINES, DEFAULT_STUCK_WATCHDOG_FORWARD_FLOOR, DEFAULT_STUCK_WATCHDOG_COMMIT_CAP_LINES, DEFAULT_ALLOW_BEHIND_REANCHOR, DEFAULT_STUCK_WATCHDOG_INTERIM_EVENTS, DEFAULT_STUCK_WATCHDOG_INTERIM_RECENT_MS, DEFAULT_COMMIT_CLAMP_MAX_DELTA_LINES, DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES, DEFAULT_CUE_BRIDGE_BYPASS_MAX_SKIPPED_LINES, DEFAULT_CUE_BRIDGE_STRONG_SIM, DEFAULT_CUE_BRIDGE_LARGE_GAP, DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS, DEFAULT_CUE_STALL_RESCUE_DELAY_MS, DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS, DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES, DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS, DEFAULT_MULTI_JUMP_MIN_SIM, DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS, DEFAULT_MULTI_JUMP_HARD_DENY_SIM, DEFAULT_AMBIGUITY_HOLD_MIN_SIM, DEFAULT_AMBIGUITY_HOLD_NEAR_WINDOW_LINES, DEFAULT_AMBIG_SHORT_LINE_MAX_CONTENT_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_OVERLAP_TOKENS, DEFAULT_AMBIG_SHORT_LINE_MAX_SIM, DEFAULT_AMBIG_SHORT_LINE_RUNNERUP_MARGIN, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_RATIO, DEFAULT_AMBIG_SHORT_LINE_SHAPE_PREFIX_TOKENS, DEFAULT_HOLD_ANCHOR_LOOKAHEAD_LINES, DEFAULT_HOLD_ANCHOR_MIN_SIM, DEFAULT_HOLD_ANCHOR_MARGIN, DEFAULT_HOLD_ANCHOR_MIN_CONTENT_TOKENS, DEFAULT_HOLD_ANCHOR_MIN_SHARED_CONTENT_HITS, DEFAULT_HOLD_ANCHOR_NEAR_DELTA_LINES, DEFAULT_HOLD_ANCHOR_NEAR_MIN_SIM, DEFAULT_HOLD_ANCHOR_COMMIT_CAP_LINES, HOLD_TICK_LOG_THROTTLE_MS, DEFAULT_NO_PROGRESS_STREAK_TRIGGER, DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES, DEFAULT_LOST_FORWARD_MIN_SIM, DEFAULT_LOST_HEALTHY_LOCK_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_SIM, DEFAULT_LOST_FORWARD_RESEEK_MIN_CONTENT_HITS, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_CONTENT_FALLBACK_MIN_HITS, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_MAX_DELTA_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_COMMIT_CAP_LINES, DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_SIM, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_TOKENS, DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_STREAK, LOST_FORWARD_WINDOW_STEPS, LOST_FORWARD_STAGE_STREAKS, DEFAULT_TELEPORT_MIN_TOKENS, DEFAULT_TELEPORT_COMPETITIVE_MARGIN, DEFAULT_TELEPORT_STANDARD_CAP_LINES, DEFAULT_TELEPORT_DEEP_CAP_LINES, ANCHOR_RARE_TOKEN_MIN_LEN, DEFAULT_MICRO_RELOCK_MARGIN, DEFAULT_MICRO_RELOCK_COOLDOWN_MS, DEFAULT_MICRO_RELOCK_PREFERRED_TTL_MS, DEFAULT_GRACE_ROLLBACK_WINDOW_MS, DEFAULT_GRACE_ROLLBACK_MIN_PREV_SIM, DEFAULT_GRACE_ROLLBACK_MAX_CURRENT_SIM, DEFAULT_GRACE_ROLLBACK_MIN_MARGIN, DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_LINES, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_SIM, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM, DEFAULT_STRONG_FORWARD_COMMIT_SIM, DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS, DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_RATIO, DEFAULT_PERMISSIVE_FINAL_MARKER_BACK_TOLERANCE_LINES, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_MIN_TOKENS, DEFAULT_WEAK_CURRENT_FORWARD_SIM_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_SPARSE_SLACK, DEFAULT_WEAK_CURRENT_FORWARD_CONF_CAP, DEFAULT_WEAK_CURRENT_OVERLAP_MAX_RATIO, DEFAULT_WEAK_CURRENT_FORWARD_MAX_DELTA, DEFAULT_WEAK_CURRENT_FORWARD_MAX_SPAN, DEFAULT_WEAK_CURRENT_FORWARD_INTERIM_MIN_SIM, DEFAULT_WEAK_CURRENT_FORWARD_FINAL_MIN_SIM, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_TOKENS, DEFAULT_STRONG_FINAL_NUDGE_MIN_OVERLAP_RATIO, DEFAULT_FIRST_COMMIT_NEAR_START_MAX_DELTA, DEFAULT_WRITER_ADDRESSABLE_MIN_INDEXED_LINES, DEFAULT_WRITER_ADDRESSABLE_MIN_RATIO, DEFAULT_WRITER_ADDRESSABLE_MIN_FLOOR, DEFAULT_BEHIND_CANDIDATE_MIN_SIM, DEFAULT_BEHIND_CANDIDATE_MIN_TOKENS, DEFAULT_BEHIND_CANDIDATE_MIN_CHARS, DEFAULT_CURRENT_OVERRIDE_MIN_SIM, CUE_LINE_BRACKET_RE, CUE_LINE_WORD_RE, SPEAKER_TAG_ONLY_RE, NOTE_TAG_ONLY_RE, NOTE_INLINE_BLOCK_RE, MAX_CUE_SKIP_LOOKAHEAD_LINES, ANCHOR_STOPWORDS, INDEXED_LINE_SELECTOR, MOTION_PRESET_NORMAL, MOTION_PRESET_CALM, MOTION_OVERRIDE_EPS, MOTION_KEYS, guardLastAt, logLastAt, guardStatusLastAt, activeGuardCounts, guardEvents, GUARD_DEBUG_REASONS, LOG_THROTTLE_MS, HUD_STATUS_THROTTLE_MS, HUD_PURSUE_THROTTLE_MS, lastPursueHudAt, SUMMARY_TOAST_DEDUPE_MS, SUMMARY_MIN_DURATION_MS, DRIVER_ACTIVE_DISPOSE_MIN_MS, NAN_GUARD_THROTTLE_MS, MAX_REPORTED_RUN_KEYS, reportedSummaryRunKeys, lastSummaryToastKey, lastSummaryToastAt, nanGuardLastAt, HYBRID_BRAKE_TTL_MS, HYBRID_ASSIST_TTL_MS, HYBRID_TARGET_HINT_TTL_MS, HYBRID_ASSIST_MAX_BOOST_PXPS, HYBRID_TARGET_HINT_MIN_DELTA_PX, HYBRID_TARGET_HINT_MIN_INTERVAL_MS, lastHybridTargetHintTop, lastHybridTargetHintTs, getNowMs, warnedMissingTargetTop;
 var init_asr_scroll_driver = __esm({
   "src/features/asr/asr-scroll-driver.ts"() {
     "use strict";
@@ -34459,6 +34314,8 @@ var init_asr_scroll_driver = __esm({
     DEFAULT_CUE_STALL_RESCUE_DELAY_MS = 900;
     DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS = 1800;
     DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS = 3;
+    DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES = 2;
+    DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS = DEFAULT_STARVATION_COMMIT_GAP_MS * 2;
     DEFAULT_MULTI_JUMP_MIN_SIM = 0.45;
     DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS = 0.08;
     DEFAULT_MULTI_JUMP_HARD_DENY_SIM = 0.3;
@@ -34928,6 +34785,88 @@ var init_recorderRegistry = __esm({
   }
 });
 
+// src/speech/backend-guard.ts
+function hasSearchFlag(name, aliases = []) {
+  try {
+    const search = typeof window !== "undefined" && window.location ? window.location.search : "";
+    if (!search) return false;
+    const params = new URLSearchParams(search);
+    if (params.get(name) === "1") return true;
+    for (const alias of aliases) {
+      if (params.get(alias) === "1") return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+function hasStorageFlag(name) {
+  try {
+    const storage = typeof window !== "undefined" ? window.localStorage : void 0;
+    return storage?.getItem(name) === "1";
+  } catch {
+    return false;
+  }
+}
+function flagEnabled(name, aliases = []) {
+  return hasSearchFlag(name, aliases) || hasStorageFlag(name);
+}
+function isSpeechFeatureEnabled() {
+  return flagEnabled("tp_speech") || flagEnabled("tp_speech_force");
+}
+function isSpeechBackendAllowed() {
+  return isSpeechFeatureEnabled() && flagEnabled("tp_probe_speech", ["probe"]);
+}
+function ensureSpeechGlobals() {
+  if (typeof window === "undefined") return;
+  const win = window;
+  if (!win.__tpRecognizer) {
+    win.__tpRecognizer = () => ({
+      start: noop3,
+      stop: noop3,
+      abort: noop3,
+      on: noop3,
+      onend: null,
+      onerror: null
+    });
+  }
+  if (!win.__tpMatcher) {
+    win.__tpMatcher = {
+      matchBatch: matchBatchStub,
+      normTokens: () => [],
+      computeLineSimilarity: () => 0
+    };
+  } else {
+    if (!win.__tpMatcher.matchBatch) win.__tpMatcher.matchBatch = matchBatchStub;
+    if (!win.__tpMatcher.normTokens) win.__tpMatcher.normTokens = () => [];
+    if (!win.__tpMatcher.computeLineSimilarity) win.__tpMatcher.computeLineSimilarity = () => 0;
+  }
+  if (!win.__tpSpeech) {
+    win.__tpSpeech = {
+      startRecognizer: async () => void 0,
+      stopRecognizer: noop3,
+      matchBatch: matchBatchStub
+    };
+  } else {
+    if (!win.__tpSpeech.startRecognizer) win.__tpSpeech.startRecognizer = async () => void 0;
+    if (!win.__tpSpeech.stopRecognizer) win.__tpSpeech.stopRecognizer = noop3;
+    if (!win.__tpSpeech.matchBatch) win.__tpSpeech.matchBatch = matchBatchStub;
+  }
+}
+var matchBatchStub, noop3;
+var init_backend_guard = __esm({
+  "src/speech/backend-guard.ts"() {
+    "use strict";
+    matchBatchStub = () => ({
+      noMatch: true,
+      bestIdx: -1,
+      topScores: [],
+      reason: "matcher_unavailable"
+    });
+    noop3 = () => void 0;
+  }
+});
+
 // src/speech/engines/whisper-bridge.ts
 function dispatchAiActivity(detail) {
   try {
@@ -35316,6 +35255,411 @@ var init_whisper_bridge = __esm({
         }
       }
     };
+  }
+});
+
+// src/speech/matcher-input.ts
+function stripMatcherMetaPhrases(text) {
+  let out = String(text || "");
+  for (const rx of META_PHRASES) {
+    rx.lastIndex = 0;
+    out = out.replace(rx, " ");
+  }
+  return out;
+}
+function prepareMatcherInput(text, tokenize) {
+  const scrubbed = stripMatcherMetaPhrases(text || "");
+  const spokenTokens = tokenize(scrubbed);
+  return {
+    scrubbed,
+    spokenTokens,
+    matchTokens: spokenTokens.slice(-MATCH_TOKEN_WINDOW)
+  };
+}
+var MATCH_TOKEN_WINDOW, META_PHRASES;
+var init_matcher_input = __esm({
+  "src/speech/matcher-input.ts"() {
+    "use strict";
+    MATCH_TOKEN_WINDOW = 18;
+    META_PHRASES = [
+      /\bit(?:'s| is) not keeping up\b/gi,
+      /\bit(?:'s| is) not moving\b/gi,
+      /\bit(?:'s| is) not scrolling\b/gi,
+      /\bhas(?:n't| not) moved\b/gi,
+      /\bokay so\b/gi,
+      /\byou know\b/gi,
+      /\bi think\b/gi,
+      /\blet(?:'s| us) see\b/gi,
+      /\bi(?:'m| am) going to\b/gi,
+      /\bim going to\b/gi,
+      /\bgoing to have to\b/gi,
+      /\bsend (?:you|u)\b/gi,
+      /\bscreenshots?\b/gi,
+      /\bchatgpt\b/gi,
+      /\bdev\b/gi,
+      /\blogs?\b/gi,
+      /\bdebug\b/gi
+    ];
+  }
+});
+
+// src/speech/matcher-runtime-state.ts
+function getMatcherRuntimeState(opts) {
+  if (typeof window === "undefined") return null;
+  const w3 = window;
+  const scriptWords = Array.isArray(w3.scriptWords) ? w3.scriptWords : [];
+  const paraIndex = Array.isArray(w3.paraIndex) ? w3.paraIndex : [];
+  const vParaIndex = Array.isArray(w3.__vParaIndex) ? w3.__vParaIndex : null;
+  const currentIndexRaw = typeof opts?.currentIndex === "number" ? opts.currentIndex : typeof w3.currentIndex === "number" ? w3.currentIndex : 0;
+  const currentIndex = Number.isFinite(Number(currentIndexRaw)) ? Math.max(0, Math.floor(Number(currentIndexRaw))) : 0;
+  const rawViterbiState = w3.__viterbiIPred;
+  const viterbiState = rawViterbiState && typeof rawViterbiState === "object" && Array.isArray(rawViterbiState.path) ? {
+    path: rawViterbiState.path.map((value) => Number(value)).filter((value) => Number.isFinite(value)),
+    pred: Number.isFinite(Number(rawViterbiState.pred)) ? Number(rawViterbiState.pred) : void 0
+  } : null;
+  return {
+    scriptWords,
+    paraIndex,
+    vParaIndex,
+    cfg: {
+      MATCH_WINDOW_AHEAD: typeof opts?.windowAhead === "number" ? opts.windowAhead : typeof w3.MATCH_WINDOW_AHEAD === "number" ? w3.MATCH_WINDOW_AHEAD : 240,
+      MATCH_WINDOW_BACK: typeof opts?.windowBack === "number" ? opts.windowBack : typeof w3.MATCH_WINDOW_BACK === "number" ? w3.MATCH_WINDOW_BACK : 40,
+      SIM_THRESHOLD: typeof w3.SIM_THRESHOLD === "number" ? w3.SIM_THRESHOLD : 0.46,
+      MAX_JUMP_AHEAD_WORDS: typeof w3.MAX_JUMP_AHEAD_WORDS === "number" ? w3.MAX_JUMP_AHEAD_WORDS : 18
+    },
+    currentIndex,
+    viterbiState
+  };
+}
+var init_matcher_runtime_state = __esm({
+  "src/speech/matcher-runtime-state.ts"() {
+    "use strict";
+  }
+});
+
+// src/speech/runtime-engine-selection.ts
+function normalizeRuntimeSpeechEngine(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return "";
+  if (normalized === "web-speech") return "webspeech";
+  if (normalized === "offline") return "vosk";
+  return normalized;
+}
+function resolveRuntimeSpeechEngine(options = {}) {
+  const { appStore, fallback = "whisper" } = options;
+  const storeEngine = normalizeRuntimeSpeechEngine(appStore?.get?.("asr.engine"));
+  if (storeEngine) return storeEngine;
+  return normalizeRuntimeSpeechEngine(fallback) || "whisper";
+}
+var init_runtime_engine_selection = __esm({
+  "src/speech/runtime-engine-selection.ts"() {
+    "use strict";
+  }
+});
+
+// src/ui/speaker-profiles-store.ts
+function normalizeSlot(slot) {
+  if (typeof slot !== "string") return DEFAULT_ACTIVE_SLOT;
+  if (VALID_SLOTS.includes(slot)) return slot;
+  return DEFAULT_ACTIVE_SLOT;
+}
+function normalizeBindings(raw) {
+  const out = { ...DEFAULT_BINDINGS };
+  if (!raw || typeof raw !== "object") return out;
+  for (const slot of VALID_SLOTS) {
+    if (Object.prototype.hasOwnProperty.call(raw, slot)) {
+      out[slot] = raw[slot] ?? null;
+    }
+  }
+  return out;
+}
+function readStorage() {
+  if (typeof window === "undefined") {
+    return {
+      profiles: [...DEFAULT_PROFILES],
+      bindings: { ...DEFAULT_BINDINGS },
+      activeSlot: DEFAULT_ACTIVE_SLOT
+    };
+  }
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY6);
+    if (!raw) throw new Error("missing");
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") throw new Error("bad");
+    const profiles = Array.isArray(parsed.profiles) ? parsed.profiles : [];
+    const bindings = normalizeBindings(parsed?.bindings);
+    const activeSlot = normalizeSlot(parsed?.activeSlot);
+    return {
+      profiles,
+      bindings: {
+        ...DEFAULT_BINDINGS,
+        ...bindings
+      },
+      activeSlot
+    };
+  } catch {
+    return {
+      profiles: [...DEFAULT_PROFILES],
+      bindings: { ...DEFAULT_BINDINGS },
+      activeSlot: DEFAULT_ACTIVE_SLOT
+    };
+  }
+}
+function writeStorage(state8) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(STORAGE_KEY6, JSON.stringify(state8));
+  } catch {
+  }
+}
+function getProfileSummaries() {
+  return state4.profiles.map((profile) => ({
+    id: profile.id,
+    name: profile.name
+  }));
+}
+function notifyBindings() {
+  const bindings = getSpeakerBindings();
+  try {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent(BINDING_EVENT, { detail: { bindings, profiles: getProfileSummaries() } })
+      );
+    }
+  } catch {
+  }
+  try {
+    window?.sendToDisplay?.({
+      type: "speaker-bindings",
+      bindings,
+      profiles: getProfileSummaries(),
+      activeSlot: state4.activeSlot
+    });
+  } catch {
+  }
+  subscribers.forEach((cb) => {
+    try {
+      cb(bindings);
+    } catch {
+    }
+  });
+}
+function notifyActiveSpeaker() {
+  const slot = getActiveSpeakerSlot();
+  const bindings = getSpeakerBindings();
+  const profile = getProfileById(bindings[slot] || null);
+  try {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent(ACTIVE_SPEAKER_EVENT, {
+        detail: {
+          slot,
+          profileId: profile?.id ?? null,
+          profileName: profile?.name ?? ""
+        }
+      }));
+    }
+  } catch {
+  }
+  try {
+    window?.sendToDisplay?.({
+      type: "speaker-active",
+      slot,
+      profileId: profile?.id ?? null,
+      profileName: profile?.name ?? ""
+    });
+  } catch {
+  }
+  activeSubscribers.forEach((cb) => {
+    try {
+      cb(slot);
+    } catch {
+    }
+  });
+}
+function persist() {
+  writeStorage(state4);
+  notifyBindings();
+  notifyActiveSpeaker();
+  notifyStateSubscribers();
+}
+function notifyStateSubscribers() {
+  const snapshot = getSpeakerProfilesSnapshot();
+  stateSubscribers.forEach((cb) => {
+    try {
+      cb(snapshot);
+    } catch {
+    }
+  });
+}
+function getSpeakerProfiles() {
+  return state4.profiles.slice();
+}
+function upsertSpeakerProfile(profile) {
+  const trimmed = profile.name?.trim() || "";
+  const next = {
+    ...profile,
+    name: trimmed || "Untitled",
+    id: profile.id || `profile-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  };
+  state4 = {
+    ...state4,
+    profiles: [
+      ...state4.profiles.filter((item) => item.id !== next.id),
+      next
+    ]
+  };
+  persist();
+  return next;
+}
+function deleteSpeakerProfile(profileId) {
+  if (!profileId) return;
+  const target = state4.profiles.find((item) => item.id === profileId);
+  if (!target || target.system) return;
+  state4 = {
+    ...state4,
+    profiles: state4.profiles.filter((item) => item.id !== profileId),
+    bindings: Object.fromEntries(
+      Object.entries(state4.bindings).map(([slot, value]) => [
+        slot,
+        value === profileId ? null : value
+      ])
+    )
+  };
+  persist();
+}
+function getSpeakerBindings() {
+  return { ...state4.bindings };
+}
+function setSpeakerBinding(slot, profileId) {
+  if (!slot) return;
+  state4 = {
+    ...state4,
+    bindings: {
+      ...state4.bindings,
+      [slot]: profileId
+    }
+  };
+  persist();
+}
+function getActiveSpeakerSlot() {
+  return state4.activeSlot;
+}
+function setActiveSpeakerSlot(slot) {
+  if (!slot || !VALID_SLOTS.includes(slot)) return;
+  if (state4.activeSlot === slot) return;
+  state4 = {
+    ...state4,
+    activeSlot: slot
+  };
+  persist();
+}
+function subscribeActiveSpeaker(fn) {
+  activeSubscribers.add(fn);
+  fn(getActiveSpeakerSlot());
+  return () => activeSubscribers.delete(fn);
+}
+function getProfileById(id) {
+  if (!id) return void 0;
+  return state4.profiles.find((profile) => profile.id === id);
+}
+function hasPatchValues(patch) {
+  return !!patch && Object.keys(patch).length > 0;
+}
+function createProfile(name, patch) {
+  const trimmed = (name || "").trim() || `Profile ${Date.now()}`;
+  return upsertSpeakerProfile({
+    id: "",
+    name: trimmed,
+    asrTweaks: hasPatchValues(patch) ? { ...patch } : void 0
+  });
+}
+function applyProfileToSlot(slot, profileId) {
+  setSpeakerBinding(slot, profileId);
+}
+function getProfile(profileId) {
+  return getProfileById(profileId);
+}
+function subscribeSpeakerBindings(fn) {
+  subscribers.add(fn);
+  fn(getSpeakerBindings());
+  return () => subscribers.delete(fn);
+}
+function getSpeakerProfilesSnapshot() {
+  return {
+    profiles: state4.profiles.slice(),
+    bindings: { ...state4.bindings },
+    activeSlot: state4.activeSlot
+  };
+}
+function mergeBindings(override) {
+  if (!override) return state4.bindings;
+  const result = { ...DEFAULT_BINDINGS };
+  for (const slot of VALID_SLOTS) {
+    if (Object.prototype.hasOwnProperty.call(override, slot)) {
+      result[slot] = override[slot] ?? null;
+    }
+  }
+  return result;
+}
+function initSpeakerProfilesFromSettings(options) {
+  state4 = {
+    profiles: Array.isArray(options.profiles) ? options.profiles.slice() : state4.profiles,
+    bindings: options.bindings ? mergeBindings(options.bindings) : state4.bindings,
+    activeSlot: normalizeSlot(options.activeSlot ?? state4.activeSlot)
+  };
+  persist();
+}
+function subscribeSpeakerProfileState(fn) {
+  stateSubscribers.add(fn);
+  fn(getSpeakerProfilesSnapshot());
+  return () => stateSubscribers.delete(fn);
+}
+function applyProfileTweaks(profile, tweaks) {
+  const next = {
+    ...profile,
+    asrTweaks: tweaks && Object.keys(tweaks).length ? { ...tweaks } : void 0
+  };
+  return next;
+}
+function setProfileAsrTweaks(profileId, tweaks) {
+  if (!profileId) return;
+  const profile = getProfileById(profileId);
+  if (!profile) return;
+  state4 = {
+    ...state4,
+    profiles: [
+      ...state4.profiles.filter((item) => item.id !== profileId),
+      applyProfileTweaks(profile, tweaks)
+    ]
+  };
+  persist();
+}
+var STORAGE_KEY6, BINDING_EVENT, ACTIVE_SPEAKER_EVENT, DEFAULT_PROFILES, DEFAULT_BINDINGS, DEFAULT_ACTIVE_SLOT, VALID_SLOTS, subscribers, activeSubscribers, stateSubscribers, state4;
+var init_speaker_profiles_store = __esm({
+  "src/ui/speaker-profiles-store.ts"() {
+    "use strict";
+    STORAGE_KEY6 = "tp_speaker_profiles_v1";
+    BINDING_EVENT = "tp:speaker:bindings";
+    ACTIVE_SPEAKER_EVENT = "tp:speaker:active";
+    DEFAULT_PROFILES = [
+      { id: "default-s1", name: "Default S1", system: true },
+      { id: "default-s2", name: "Default S2", system: true }
+    ];
+    DEFAULT_BINDINGS = {
+      s1: "default-s1",
+      s2: "default-s2",
+      g1: null,
+      g2: null
+    };
+    DEFAULT_ACTIVE_SLOT = "s1";
+    VALID_SLOTS = ["s1", "s2", "g1", "g2"];
+    subscribers = /* @__PURE__ */ new Set();
+    activeSubscribers = /* @__PURE__ */ new Set();
+    stateSubscribers = /* @__PURE__ */ new Set();
+    state4 = readStorage();
+    writeStorage(state4);
+    notifyBindings();
+    notifyActiveSpeaker();
   }
 });
 
@@ -35896,8 +36240,8 @@ function getTpSpeechNamespace() {
     } catch {
     }
     try {
-      subscribeSpeechStore(store3, (state9) => {
-        latestSpeechStoreState = state9;
+      subscribeSpeechStore(store3, (state8) => {
+        latestSpeechStoreState = state8;
       });
     } catch {
     }
@@ -35914,12 +36258,72 @@ function isLegacySpeechNamespaceAllowed() {
   }
   return false;
 }
+function isLegacySpeechOrchestratorAllowed() {
+  if (typeof window === "undefined") return false;
+  try {
+    if (window.__tpAllowLegacySpeechOrchestrator === true) return true;
+    const params = new URLSearchParams(window.location.search || "");
+    if (params.get("legacySpeechOrchestrator") === "1") return true;
+    if (params.get("legacySpeechNs") === "1") return true;
+  } catch {
+  }
+  return false;
+}
 function getTpSpeechStoreSnapshot() {
   try {
     const ns = getTpSpeechNamespace();
     return getSpeechStoreState(ns?.store) ?? latestSpeechStoreState;
   } catch {
     return latestSpeechStoreState;
+  }
+}
+function emitAiActivity(detail) {
+  try {
+    window.__tpAiActivity = detail;
+  } catch {
+  }
+  try {
+    window.dispatchEvent(new CustomEvent("tp:ai:activity", { detail }));
+  } catch {
+  }
+}
+function emitAsrRuntimeStatus(reason) {
+  if (typeof window === "undefined") return;
+  const speechStoreState = getTpSpeechStoreSnapshot();
+  const appStoreEngine = String(window.__tpStore?.get?.("asr.engine") || "").trim().toLowerCase();
+  const requestedEngine = String(lastRequestedSpeechEngine || appStoreEngine || "whisper").trim().toLowerCase() || "whisper";
+  const actualEngine = currentActualSpeechEngine ? String(currentActualSpeechEngine).trim().toLowerCase() : null;
+  const payload = {
+    reason,
+    requestedEngine,
+    persistedEngine: appStoreEngine || requestedEngine,
+    speechStoreEngine: String(speechStoreState?.engine || "").trim().toLowerCase(),
+    appStoreEngine,
+    actualEngine,
+    fallbackActive: !!currentFallbackReason && actualEngine !== requestedEngine,
+    fallbackReason: currentFallbackReason || null,
+    recognizerAttached: !!activeRecognizer,
+    phase: String(getSession().phase || "idle").toLowerCase(),
+    runKey: activeAsrRunKey || null,
+    state: currentAsrState,
+    speechRunning: !!running,
+    speechRunningActual: !!speechRunningActual
+  };
+  try {
+    window.__tpAsrRuntimeStatus = payload;
+  } catch {
+  }
+  try {
+    window.__tpBus?.emit?.("tp:asr:runtime-status", payload);
+  } catch {
+  }
+  try {
+    window.dispatchEvent(new CustomEvent("tp:asr:runtime-status", { detail: payload }));
+  } catch {
+  }
+  try {
+    document.dispatchEvent(new CustomEvent("tp:asr:runtime-status", { detail: payload }));
+  } catch {
   }
 }
 function resolveAsrDriverRef() {
@@ -36001,6 +36405,28 @@ function clearPendingAsrScriptEnd(reason) {
   }
   pendingAsrScriptEndStop = null;
 }
+function clearDeferredAsrScriptEndStopTimer() {
+  if (deferredAsrScriptEndStopTimer == null) return;
+  try {
+    window.clearTimeout(deferredAsrScriptEndStopTimer);
+  } catch {
+  }
+  deferredAsrScriptEndStopTimer = null;
+}
+function cancelDeferredAsrScriptEndStop(reason) {
+  if (!deferredAsrScriptEndStop) return;
+  clearDeferredAsrScriptEndStopTimer();
+  if (isDevMode5() && shouldLogTag("ASR:script-end-deferred-clear", 2, 250)) {
+    try {
+      console.info("[ASR] script-end deferred stop cleared", {
+        reason,
+        dedupeKey: deferredAsrScriptEndStop.pending.dedupeKey
+      });
+    } catch {
+    }
+  }
+  deferredAsrScriptEndStop = null;
+}
 function shouldSuppressAsrScriptEndAutoStop(session = getSession()) {
   if (session.recordOnLive) return true;
   try {
@@ -36041,6 +36467,180 @@ function suppressPendingAsrScriptEndStop(pending, reason, evidence) {
     }
   }
 }
+function getLineElementAtIndex(index, container) {
+  const idx = Math.max(0, Math.floor(Number(index) || 0));
+  try {
+    const host = container || getScriptRoot() || getPrimaryScroller() || document;
+    return host.querySelector(`.line[data-line="${idx}"]`) || host.querySelector(`.line[data-line-idx="${idx}"]`) || host.querySelector(`.line[data-i="${idx}"]`) || host.querySelector(`.line[data-index="${idx}"]`) || null;
+  } catch {
+    return null;
+  }
+}
+function probeDeferredAsrScriptEndMarker(targetLine) {
+  try {
+    const viewer2 = getPrimaryScroller();
+    const root = getScriptRoot() || viewer2;
+    const host = viewer2 || root;
+    const lineEl = getLineElementAtIndex(targetLine, root || viewer2 || document);
+    if (!host || !lineEl) {
+      return {
+        ready: false,
+        reached: false,
+        distancePx: null,
+        tolerancePx: ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX,
+        markerIdx: -1
+      };
+    }
+    const { markerOffset } = getMarkerOffset(viewer2, root);
+    const hostRect = host.getBoundingClientRect();
+    const lineRect = lineEl.getBoundingClientRect();
+    const lineHeight = lineRect.height || lineEl.offsetHeight || lineEl.clientHeight || 0;
+    const lineCenterY = lineRect.top + lineRect.height * 0.5;
+    const markerY = hostRect.top + markerOffset;
+    const tolerancePx = Math.max(
+      ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX,
+      Math.min(
+        ASR_SCRIPT_END_MARKER_TOLERANCE_MAX_PX,
+        lineHeight > 0 ? lineHeight * ASR_SCRIPT_END_MARKER_TOLERANCE_LINE_RATIO : ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX
+      )
+    );
+    const distancePx = Math.abs(lineCenterY - markerY);
+    return {
+      ready: true,
+      reached: distancePx <= tolerancePx,
+      distancePx,
+      tolerancePx,
+      markerIdx: computeMarkerLineIndex2()
+    };
+  } catch {
+    return {
+      ready: false,
+      reached: false,
+      distancePx: null,
+      tolerancePx: ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX,
+      markerIdx: -1
+    };
+  }
+}
+function scheduleDeferredAsrScriptEndStop(delayMs) {
+  clearDeferredAsrScriptEndStopTimer();
+  deferredAsrScriptEndStopTimer = window.setTimeout(() => {
+    deferredAsrScriptEndStopTimer = null;
+    const deferred = deferredAsrScriptEndStop;
+    if (!deferred) return;
+    const session = getSession();
+    const mode = String(deferred.pending.mode || getScrollMode4() || "").toLowerCase();
+    if (session.phase !== "live" || !isAsrLikeMode(mode)) {
+      cancelDeferredAsrScriptEndStop("mode-or-phase-change");
+      return;
+    }
+    if (deferred.markerReachedAt != null) {
+      deferredAsrScriptEndStop = null;
+      const stopIntent = {
+        source: "asr-script-end",
+        reason: "script-end",
+        mode,
+        phase: session.phase
+      };
+      dispatchSessionIntent(false, stopIntent);
+      try {
+        setSessionPhase("wrap");
+      } catch {
+      }
+      try {
+        window.dispatchEvent(
+          new CustomEvent("tp:session:stop", {
+            detail: {
+              ...stopIntent,
+              intentSource: "asr-script-end",
+              lineIndex: deferred.pending.lineIndex,
+              lastSpeakableLineIndex: deferred.pending.lastSpeakableLineIndex,
+              confirmSource: deferred.evidence.source,
+              confirmMatchedLine: deferred.evidence.matchedLine,
+              confirmSharedTokens: deferred.evidence.sharedAny,
+              confirmSharedMeaningfulTokens: deferred.evidence.sharedMeaningful,
+              confirmOverlapRatio: deferred.evidence.overlapRatio,
+              markerWaitMs: deferred.markerReachedAt - deferred.startedAt,
+              postrollMs: deferred.completionDelayMs,
+              terminalHoldReason: deferred.completionReason
+            }
+          })
+        );
+      } catch {
+      }
+      emitHudSnapshot("script-end-stop", { force: true });
+      if (isDevMode5() && shouldLogTag("ASR:script-end-stop", 2, 1e3)) {
+        try {
+          console.info("[ASR] session stop at script end", {
+            mode,
+            lineIndex: deferred.pending.lineIndex,
+            lastSpeakableLineIndex: deferred.pending.lastSpeakableLineIndex,
+            runKey: deferred.pending.runKey,
+            confirmSource: deferred.evidence.source,
+            confirmMatchedLine: deferred.evidence.matchedLine,
+            sharedTokens: deferred.evidence.sharedAny,
+            sharedMeaningfulTokens: deferred.evidence.sharedMeaningful,
+            overlapRatio: Number(deferred.evidence.overlapRatio.toFixed(3)),
+            markerWaitMs: deferred.markerReachedAt - deferred.startedAt,
+            postrollMs: deferred.completionDelayMs,
+            terminalHoldReason: deferred.completionReason
+          });
+        } catch {
+        }
+      }
+      return;
+    }
+    if (deferred.targetLine == null) {
+      deferred.markerReachedAt = Date.now();
+      deferred.completionDelayMs = ASR_SCRIPT_END_POSTROLL_MS;
+      deferred.completionReason = "no-target";
+      scheduleDeferredAsrScriptEndStop(deferred.completionDelayMs);
+      return;
+    }
+    const probe = probeDeferredAsrScriptEndMarker(deferred.targetLine);
+    if (probe.reached) {
+      deferred.markerReachedAt = Date.now();
+      deferred.completionDelayMs = ASR_SCRIPT_END_POSTROLL_MS;
+      deferred.completionReason = "marker-reached";
+      emitHudSnapshot("script-end-postroll", { force: true });
+      if (isDevMode5() && shouldLogTag("ASR:script-end-marker-reached", 2, 250)) {
+        try {
+          console.info("[ASR] script-end marker reached", {
+            targetLine: deferred.targetLine,
+            markerIdx: probe.markerIdx,
+            distancePx: probe.distancePx == null ? null : Number(probe.distancePx.toFixed(1)),
+            tolerancePx: Number(probe.tolerancePx.toFixed(1)),
+            postrollMs: deferred.completionDelayMs
+          });
+        } catch {
+        }
+      }
+      scheduleDeferredAsrScriptEndStop(deferred.completionDelayMs);
+      return;
+    }
+    const waitMs = Date.now() - deferred.startedAt;
+    if (waitMs >= ASR_SCRIPT_END_MARKER_WAIT_MAX_MS) {
+      deferred.markerReachedAt = Date.now();
+      deferred.completionDelayMs = 0;
+      deferred.completionReason = "marker-timeout";
+      if (isDevMode5() && shouldLogTag("ASR:script-end-marker-timeout", 2, 500)) {
+        try {
+          console.info("[ASR] script-end marker wait timed out", {
+            targetLine: deferred.targetLine,
+            markerIdx: probe.markerIdx,
+            distancePx: probe.distancePx == null ? null : Number(probe.distancePx.toFixed(1)),
+            tolerancePx: Number(probe.tolerancePx.toFixed(1)),
+            waitedMs: waitMs
+          });
+        } catch {
+        }
+      }
+      scheduleDeferredAsrScriptEndStop(0);
+      return;
+    }
+    scheduleDeferredAsrScriptEndStop(ASR_SCRIPT_END_MARKER_POLL_MS);
+  }, Math.max(0, delayMs));
+}
 function finalizePendingAsrScriptEndStop(pending, evidence) {
   const session = getSession();
   const mode = String(pending.mode || getScrollMode4() || "").toLowerCase();
@@ -36054,52 +36654,31 @@ function finalizePendingAsrScriptEndStop(pending, evidence) {
   }
   lastAsrScriptEndStopKey = pending.dedupeKey;
   pendingAsrScriptEndStop = null;
-  const stopIntent = {
-    source: "asr-script-end",
-    reason: "script-end",
-    mode,
-    phase: session.phase
+  cancelDeferredAsrScriptEndStop("replaced");
+  deferredAsrScriptEndStop = {
+    pending,
+    evidence,
+    targetLine: pending.lastSpeakableLineIndex ?? pending.lineIndex,
+    startedAt: Date.now(),
+    markerReachedAt: null,
+    completionDelayMs: ASR_SCRIPT_END_POSTROLL_MS,
+    completionReason: "marker-reached"
   };
-  dispatchSessionIntent(false, stopIntent);
-  try {
-    setSessionPhase("wrap");
-  } catch {
-  }
-  try {
-    window.dispatchEvent(
-      new CustomEvent("tp:session:stop", {
-        detail: {
-          ...stopIntent,
-          intentSource: "asr-script-end",
-          lineIndex: pending.lineIndex,
-          lastSpeakableLineIndex: pending.lastSpeakableLineIndex,
-          confirmSource: evidence.source,
-          confirmMatchedLine: evidence.matchedLine,
-          confirmSharedTokens: evidence.sharedAny,
-          confirmSharedMeaningfulTokens: evidence.sharedMeaningful,
-          confirmOverlapRatio: evidence.overlapRatio
-        }
-      })
-    );
-  } catch {
-  }
-  emitHudSnapshot("script-end-stop", { force: true });
-  if (isDevMode5() && shouldLogTag("ASR:script-end-stop", 2, 1e3)) {
+  emitHudSnapshot("script-end-marker-wait", { force: true });
+  if (isDevMode5() && shouldLogTag("ASR:script-end-marker-wait", 2, 250)) {
     try {
-      console.info("[ASR] session stop at script end", {
+      console.info("[ASR] script-end waiting for terminal marker", {
         mode,
         lineIndex: pending.lineIndex,
         lastSpeakableLineIndex: pending.lastSpeakableLineIndex,
         runKey: pending.runKey,
-        confirmSource: evidence.source,
-        confirmMatchedLine: evidence.matchedLine,
-        sharedTokens: evidence.sharedAny,
-        sharedMeaningfulTokens: evidence.sharedMeaningful,
-        overlapRatio: Number(evidence.overlapRatio.toFixed(3))
+        targetLine: deferredAsrScriptEndStop.targetLine,
+        postrollMs: ASR_SCRIPT_END_POSTROLL_MS
       });
     } catch {
     }
   }
+  scheduleDeferredAsrScriptEndStop(0);
 }
 function maybeConfirmPendingAsrScriptEnd(text, isFinal, detail) {
   const pending = pendingAsrScriptEndStop;
@@ -36753,6 +37332,7 @@ function setSpeechRunningActual(next, reason) {
   if (speechRunningActual === normalized) return;
   speechRunningActual = normalized;
   emitHudSnapshot(`speech-running-actual:${reason}`, { force: true });
+  emitAsrRuntimeStatus(`speech-running:${reason}`);
 }
 function clearLifecycleRestartTimer() {
   if (lifecycleRestartTimer != null) {
@@ -36910,6 +37490,7 @@ function setActiveRecognizer(instance) {
     }
     maybeLogLiveArmedDetachedInvariant("setActiveRecognizer:null");
   }
+  emitAsrRuntimeStatus(`recognizer:${activeRecognizer ? "attach" : "detach"}`);
 }
 function clearRecognizerHandlers(instance) {
   if (!instance || typeof instance !== "object") return;
@@ -37021,10 +37602,6 @@ function hardResetSpeechEngine(reason) {
   } catch {
   }
   try {
-    stopAsrRuntime();
-  } catch {
-  }
-  try {
     getTpSpeechNamespace()?.stopRecognizer?.();
   } catch {
   }
@@ -37034,6 +37611,8 @@ function hardResetSpeechEngine(reason) {
   rec = null;
   setActiveRecognizer(null);
   running = false;
+  currentActualSpeechEngine = "";
+  currentFallbackReason = "";
   setSpeechRunningActual(false, "hard-reset");
   asrBrainLogged = false;
   lastAsrBlockSyncAt = 0;
@@ -37258,44 +37837,38 @@ function tagMatchResult(result, via) {
 }
 function deriveDirectMatcherResult(transcript, speechStoreState) {
   if (typeof window === "undefined") return null;
-  const spokenTokens = normTokens(String(transcript || ""));
-  if (!spokenTokens.length) return null;
+  const { matchTokens } = prepareMatcherInput(String(transcript || ""), normTokens);
+  if (!matchTokens.length) return null;
   const blockSnapshot = getAsrBlockSnapshot();
   if (!(blockSnapshot.ready && blockSnapshot.count > 0)) {
     return null;
   }
   const w3 = window;
-  const scriptWords = Array.isArray(w3.scriptWords) ? w3.scriptWords : [];
-  const paraIndex = Array.isArray(w3.paraIndex) ? w3.paraIndex : [];
-  const vParaIndex = Array.isArray(w3.__vParaIndex) ? w3.__vParaIndex : null;
+  const runtime = getMatcherRuntimeState({
+    currentIndex: w3.currentIndex ?? speechStoreState?.currentIdx ?? speechStoreState?.currentIndex ?? 0
+  });
+  if (!runtime) return null;
+  const { scriptWords, paraIndex, vParaIndex, cfg, currentIndex, viterbiState } = runtime;
   if (!scriptWords.length) {
     return null;
   }
   if (!paraIndex.length && !(Array.isArray(vParaIndex) && vParaIndex.length)) {
     return null;
   }
-  const currentIdxRaw = w3.currentIndex ?? speechStoreState?.currentIdx ?? speechStoreState?.currentIndex ?? 0;
-  const currentIdx = Number.isFinite(Number(currentIdxRaw)) ? Math.max(0, Math.floor(Number(currentIdxRaw))) : 0;
-  const cfg = {
-    MATCH_WINDOW_AHEAD: Number.isFinite(Number(w3.MATCH_WINDOW_AHEAD)) ? Number(w3.MATCH_WINDOW_AHEAD) : 240,
-    MATCH_WINDOW_BACK: Number.isFinite(Number(w3.MATCH_WINDOW_BACK)) ? Number(w3.MATCH_WINDOW_BACK) : 40,
-    SIM_THRESHOLD: Number.isFinite(Number(w3.SIM_THRESHOLD)) ? Number(w3.SIM_THRESHOLD) : 0.46,
-    MAX_JUMP_AHEAD_WORDS: Number.isFinite(Number(w3.MAX_JUMP_AHEAD_WORDS)) ? Number(w3.MAX_JUMP_AHEAD_WORDS) : 18
-  };
   try {
     const raw = matchBatch(
-      spokenTokens,
+      matchTokens,
       scriptWords,
       paraIndex,
       vParaIndex,
       cfg,
-      currentIdx,
-      w3.__viterbiIPred ?? void 0
+      currentIndex,
+      viterbiState ?? void 0
     );
     const normalized = normalizeMatcherResult(raw);
     if (!normalized) return null;
     if (normalized.currentIdx == null) {
-      normalized.currentIdx = currentIdx;
+      normalized.currentIdx = currentIndex;
     }
     if (typeof normalized.reason !== "string" || !normalized.reason) {
       normalized.reason = "direct_matcher";
@@ -37546,8 +38119,9 @@ function setListeningUi(listening) {
   } catch {
   }
 }
-function emitAsrState(state9, reason) {
-  const payload = { state: state9, reason };
+function emitAsrState(state8, reason) {
+  currentAsrState = state8 || "idle";
+  const payload = { state: state8, reason };
   try {
     window.__tpBus?.emit?.("tp:asr:state", payload);
   } catch {
@@ -37560,8 +38134,9 @@ function emitAsrState(state9, reason) {
     document.dispatchEvent(new CustomEvent("tp:asr:state", { detail: payload }));
   } catch {
   }
-  emitHudSnapshot(`asr-state:${String(state9 || "").toLowerCase() || "unknown"}`);
-  emitAsrHeartbeat(`state:${String(state9 || "").toLowerCase() || "unknown"}`, { force: true });
+  emitHudSnapshot(`asr-state:${String(state8 || "").toLowerCase() || "unknown"}`);
+  emitAsrHeartbeat(`state:${String(state8 || "").toLowerCase() || "unknown"}`, { force: true });
+  emitAsrRuntimeStatus(`state:${String(state8 || "").toLowerCase() || "unknown"}`);
 }
 function shouldAutoRestartSpeech() {
   if (suppressRecognizerAutoRestart) return false;
@@ -37897,14 +38472,8 @@ function getLineSnapshot(index) {
   }
 }
 function getLineTextAtIndex(index, container) {
-  const idx = Math.max(0, Math.floor(Number(index) || 0));
-  try {
-    const host = container || getScriptRoot() || getPrimaryScroller() || document;
-    const line = host.querySelector(`.line[data-line="${idx}"]`) || host.querySelector(`.line[data-line-idx="${idx}"]`) || host.querySelector(`.line[data-i="${idx}"]`) || host.querySelector(`.line[data-index="${idx}"]`);
-    return String(line?.textContent || "").replace(/\s+/g, " ").trim();
-  } catch {
-    return "";
-  }
+  const line = getLineElementAtIndex(index, container);
+  return String(line?.textContent || "").replace(/\s+/g, " ").trim();
 }
 function nextSpeakableLineFrom(startIndex, opts) {
   if (!Number.isFinite(startIndex)) return null;
@@ -38185,7 +38754,7 @@ function canAttachAsrBackend() {
   } catch {
   }
   try {
-    if (window.__tpSpeechOrchestrator?.start) return true;
+    if (isLegacySpeechOrchestratorAllowed() && window.__tpSpeechOrchestrator?.start) return true;
   } catch {
   }
   if (isLegacySpeechNamespaceAllowed()) {
@@ -38296,6 +38865,7 @@ function beginAsrRunKey(mode, reason) {
     } catch {
     }
   }
+  emitAsrRuntimeStatus(`run-begin:${String(reason || "unspecified")}`);
   return activeAsrRunKey;
 }
 function clearAsrRunKey(reason) {
@@ -38322,6 +38892,7 @@ function clearAsrRunKey(reason) {
     } catch {
     }
   }
+  emitAsrRuntimeStatus(`run-clear:${reason}`);
 }
 function buildAsrSyncLogFingerprint(payload) {
   const bool = (value) => value ? "1" : "0";
@@ -38599,6 +39170,7 @@ function ensureAsrDriverLifecycleHooks() {
       return;
     }
     clearPendingAsrScriptEnd("scroll-mode-exit-asr");
+    cancelDeferredAsrScriptEndStop("scroll-mode-exit-asr");
     if (!running) {
       detachAsrScrollDriver();
     }
@@ -38609,6 +39181,7 @@ function ensureAsrDriverLifecycleHooks() {
     const mode = getScrollMode4();
     lastAsrScriptEndStopKey = "";
     clearPendingAsrScriptEnd("session-start");
+    cancelDeferredAsrScriptEndStop("session-start");
     asrSessionIntentActive = true;
     if (session2.asrDesired || isAsrLikeMode(mode)) {
       attachAsrScrollDriver({ reason: "session-start", mode, allowCreate: true });
@@ -38647,6 +39220,7 @@ function ensureAsrDriverLifecycleHooks() {
   const onSessionStop = () => {
     lastAsrScriptEndStopKey = "";
     clearPendingAsrScriptEnd("session-stop");
+    cancelDeferredAsrScriptEndStop("session-stop");
     asrSessionIntentActive = false;
     resetAsrInterimStabilizer();
     clearAsrRunKey("lifecycle-session-stop");
@@ -38657,6 +39231,7 @@ function ensureAsrDriverLifecycleHooks() {
     if (phase === "idle" || phase === "wrap") {
       lastAsrScriptEndStopKey = "";
       clearPendingAsrScriptEnd(`phase-${phase}`);
+      cancelDeferredAsrScriptEndStop(`phase-${phase}`);
       asrSessionIntentActive = false;
       resetAsrInterimStabilizer();
       clearAsrRunKey(`phase-${phase}`);
@@ -38880,8 +39455,15 @@ function enforceRecognizerInterimCapture(mode, recognizer) {
 async function startBackendForSession(mode, reason) {
   const speechNs = getTpSpeechNamespace();
   const allowLegacyNs = isLegacySpeechNamespaceAllowed();
+  const allowLegacyOrchestrator = isLegacySpeechOrchestratorAllowed();
   const speechStoreState = getTpSpeechStoreSnapshot();
-  const selectedEngine = String(speechStoreState?.engine || "").toLowerCase();
+  const selectedEngine = resolveRuntimeSpeechEngine({
+    appStore: window.__tpStore
+  });
+  lastRequestedSpeechEngine = selectedEngine || "whisper";
+  currentActualSpeechEngine = "";
+  currentFallbackReason = "";
+  emitAsrRuntimeStatus(`backend-select:${String(reason || "unspecified")}`);
   if (isSettingsHydrating()) {
     try {
       console.debug("[ASR] startBackend blocked during settings hydration", { mode, reason });
@@ -38895,10 +39477,13 @@ async function startBackendForSession(mode, reason) {
       const info = {
         mode,
         reason,
-        hasOrchestrator: !!w3?.__tpSpeechOrchestrator?.start,
+        hasOrchestrator: allowLegacyOrchestrator && !!w3?.__tpSpeechOrchestrator?.start,
         allowLegacyNamespace: allowLegacyNs,
         hasRecognizerStart: allowLegacyNs && typeof speechNs?.startRecognizer === "function",
         hasWebSpeech: !!(w3?.SpeechRecognition || w3?.webkitSpeechRecognition),
+        selectedEngine,
+        speechStoreEngine: speechStoreState?.engine,
+        appStoreEngine: w3?.__tpStore?.get?.("asr.engine"),
         sessionPhase: speechStoreState?.sessionPhase,
         scrollMode: speechStoreState?.scrollMode,
         speechRunning: speechStoreState?.speechRunning
@@ -38942,7 +39527,11 @@ async function startBackendForSession(mode, reason) {
         emitHudSnapshot("recognizer-attach-failed:whisper", { force: true });
         return false;
       }
+      lastStartedSpeechEngine = "whisper";
+      currentActualSpeechEngine = "whisper";
+      currentFallbackReason = "";
       setSpeechRunningActual(true, "whisper-start");
+      emitAsrRuntimeStatus("backend-attached:whisper");
       emitAsrHeartbeat("recognizer-attached:whisper", { force: true });
       return true;
     } catch (error) {
@@ -38950,14 +39539,28 @@ async function startBackendForSession(mode, reason) {
         console.warn("[ASR] whisper bridge failed to start", error);
       } catch {
       }
+      emitAiActivity({
+        active: false,
+        provider: "browser",
+        engine: "webspeech",
+        phase: "off",
+        source: "speech-loader-whisper-fallback",
+        timestamp: Date.now(),
+        message: "Whisper bridge unavailable; using browser speech instead.",
+        requestsInFlight: 0,
+        queueDepth: 0
+      });
+      currentActualSpeechEngine = "webspeech";
+      currentFallbackReason = "whisper-start-failed";
+      emitAsrRuntimeStatus("backend-fallback:whisper");
       emitAsrState("idle", "recognizer-start-failed:whisper");
       setActiveRecognizer(null);
       setSpeechRunningActual(false, "whisper-start-failed");
-      return false;
+      rec = null;
     }
   }
   try {
-    if (window.__tpSpeechOrchestrator?.start) {
+    if (allowLegacyOrchestrator && window.__tpSpeechOrchestrator?.start) {
       const started = await window.__tpSpeechOrchestrator.start();
       rec = started || null;
       enforceRecognizerInterimCapture(mode, rec);
@@ -38987,7 +39590,10 @@ async function startBackendForSession(mode, reason) {
         emitHudSnapshot("recognizer-attach-failed:orchestrator", { force: true });
         return false;
       }
+      lastStartedSpeechEngine = selectedEngine || "webspeech";
+      currentActualSpeechEngine = selectedEngine === "whisper" ? "webspeech" : selectedEngine || "webspeech";
       setSpeechRunningActual(true, "orchestrator-start");
+      emitAsrRuntimeStatus("backend-attached:orchestrator");
       emitAsrHeartbeat("recognizer-attached:orchestrator", { force: true });
       return true;
     }
@@ -39028,7 +39634,10 @@ async function startBackendForSession(mode, reason) {
           emitHudSnapshot("recognizer-attach-failed:namespace", { force: true });
           return false;
         }
+        lastStartedSpeechEngine = selectedEngine || "webspeech";
+        currentActualSpeechEngine = selectedEngine === "whisper" ? "webspeech" : selectedEngine || "webspeech";
         setSpeechRunningActual(true, "namespace-start");
+        emitAsrRuntimeStatus("backend-attached:namespace");
         emitAsrHeartbeat("recognizer-attached:namespace", { force: true });
         return true;
       }
@@ -39088,7 +39697,10 @@ async function startBackendForSession(mode, reason) {
     } catch {
     }
   } };
+  lastStartedSpeechEngine = selectedEngine || "webspeech";
+  currentActualSpeechEngine = selectedEngine === "whisper" ? "webspeech" : selectedEngine || "webspeech";
   setSpeechRunningActual(true, "webspeech-start");
+  emitAsrRuntimeStatus("backend-attached:webspeech");
   emitAsrHeartbeat("recognizer-attached:webspeech", { force: true });
   try {
     window.__tpEmitSpeech = (t, final) => routeRecognizerTranscript(t, !!final);
@@ -39258,7 +39870,7 @@ async function startSpeechBackendForSession(info) {
         });
         return false;
       }
-      const startedEngine = String(getTpSpeechStoreSnapshot()?.engine || "").toLowerCase();
+      const startedEngine = String(lastStartedSpeechEngine || getTpSpeechStoreSnapshot()?.engine || "").toLowerCase();
       if (startedEngine !== "whisper") {
         try {
           await window.__tpMic?.requestMic?.();
@@ -39290,18 +39902,17 @@ function stopSpeechBackendForSession(reason) {
   resetAsrInterimStabilizer();
   clearAsrRunKey(`stop:${String(reason || "unspecified")}`);
   if (!running && !rec) {
+    currentActualSpeechEngine = "";
+    currentFallbackReason = "";
     setSpeechRunningActual(false, "stop-idle");
     detachAsrScrollDriver();
     emitAsrHeartbeat(`stop:${String(reason || "unspecified")}`, { force: true });
+    emitAsrRuntimeStatus(`stop:${String(reason || "unspecified")}:idle`);
     return;
   }
   running = false;
   detachAsrScrollDriver();
   asrBrainLogged = false;
-  try {
-    stopAsrRuntime();
-  } catch {
-  }
   try {
     rec?.abort?.();
   } catch {
@@ -39328,6 +39939,8 @@ function stopSpeechBackendForSession(reason) {
   }
   setActiveRecognizer(null);
   rec = null;
+  currentActualSpeechEngine = "";
+  currentFallbackReason = "";
   setSpeechRunningActual(false, "stop");
   try {
     document.body.classList.remove("listening");
@@ -39349,11 +39962,13 @@ function stopSpeechBackendForSession(reason) {
   }
   emitHudSnapshot("speech-running:false", { force: true });
   emitAsrHeartbeat(`stop:${String(reason || "unspecified")}`, { force: true });
+  emitAsrRuntimeStatus(`stop:${String(reason || "unspecified")}`);
 }
 function installSpeech() {
   ensureAsrDriverLifecycleHooks();
   startAsrHeartbeat();
   emitHudSnapshot("installSpeech:init", { force: true });
+  emitAsrRuntimeStatus("install");
   installAsrHudDev();
   (async () => {
     try {
@@ -39430,7 +40045,7 @@ function installSpeech() {
     }
   })();
 }
-var running, rec, lastScrollMode, lastResultTs, speechRunningActual, lastRecognizerOnResultTs, lastRecognizerAttachedTs, lastAsrIngestTs, lastAsrCommitTs, lastAsrCommitCount, lastRecognizerLifecycleEvent, lastRecognizerLifecycleAt, lastAsrStallClass, speechWatchdogTimer, asrHeartbeatTimer, activeRecognizer, pendingManualRestartCount, lifecycleRestartTimer, lastLifecycleRestartAt, suppressRecognizerAutoRestart, lastHudSnapshotFingerprint, lastHudSnapshotAt, asrStallEpisodeId, asrStallEpisodeRestarted, asrStallAttemptCountThisEpisode, lastAsrStallEpisodeClass, lastAsrStallAutoRestartAt, suppressAsrStallAutoRestartUntil, lastAsrStallRescueAt, lastMatcherStallCommitCount, lastMatcherStallCommitStableSince, lastAsrScriptEndStopKey, pendingAsrScriptEndStop, WATCHDOG_INTERVAL_MS, WATCHDOG_THRESHOLD_MS, ASR_WATCHDOG_THRESHOLD_MS, ASR_HEARTBEAT_INTERVAL_MS, ASR_STALL_SPEECH_THRESHOLD_MS, ASR_DEAF_RECOGNIZER_MS, ASR_STALL_MATCHER_THRESHOLD_MS, ASR_STALL_MATCHER_STABLE_COMMIT_MS, ASR_STALL_AUTORESTART_COOLDOWN_MS, ASR_STALL_AUTORESTART_SUPPRESS_MS, ASR_STALL_RESCUE_COOLDOWN_MS, LIFECYCLE_RESTART_DELAY_MS, LIFECYCLE_RESTART_COOLDOWN_MS, HUD_SNAPSHOT_THROTTLE_MS, ASR_SCRIPT_END_CONFIRM_MAX_WAIT_MS, ASR_SCRIPT_END_CONFIRM_MIN_SHARED_MEANINGFUL_TOKENS, ASR_SCRIPT_END_CONFIRM_MIN_SHARED_TOKENS, ASR_SCRIPT_END_STOPWORDS, speechStoreShimmed, speechStoreSubscribed, latestSpeechStoreState, fallbackTranscriptMatchSeq, __asrLastInterimText, __asrLastInterimAt, __asrInterimRepeatCount, CUE_LINE_BRACKET_RE2, CUE_LINE_WORD_RE2, SPEAKER_TAG_ONLY_RE2, NOTE_TAG_ONLY_RE2, NOTE_INLINE_BLOCK_RE2, SPEAKER_SLOTS, SPEAKER_NAME_SELECTORS, DEFAULT_SPEAKER_LABELS, LOWER_GUARDS, RAISE_GUARDS, summaryListenerAttached, ASR_LAYOUT_READY_MAX_MS, pendingLayoutReady, TRANSCRIPT_EVENT_OPTIONS, asrScrollDriver, transcriptListener, sessionStopHooked, asrBrainLogged, asrDriverLifecycleHooked, asrSessionIntentActive, asrRunCounter, activeAsrRunKey, lastAsrBlockSyncAt, lastAsrBlockSyncLogAt, lastAsrSyncLogAtByType, lastAsrSyncFingerprintByType, ASR_LIVE_BLOCK_SYNC_THROTTLE_MS, ASR_BLOCK_SYNC_LOG_THROTTLE_MS, ASR_SYNC_LOG_THROTTLE_MS, ASR_BLOCK_SYNC_UNCHANGED_LOG_THROTTLE_MS, lastAsrBlockSyncCompleteFingerprint, lastAsrBlockSyncUnchangedAt;
+var running, rec, lastScrollMode, lastResultTs, speechRunningActual, lastRecognizerOnResultTs, lastRecognizerAttachedTs, lastAsrIngestTs, lastAsrCommitTs, lastAsrCommitCount, lastRecognizerLifecycleEvent, lastRecognizerLifecycleAt, lastAsrStallClass, speechWatchdogTimer, asrHeartbeatTimer, activeRecognizer, lastStartedSpeechEngine, lastRequestedSpeechEngine, currentActualSpeechEngine, currentFallbackReason, currentAsrState, pendingManualRestartCount, lifecycleRestartTimer, lastLifecycleRestartAt, suppressRecognizerAutoRestart, lastHudSnapshotFingerprint, lastHudSnapshotAt, asrStallEpisodeId, asrStallEpisodeRestarted, asrStallAttemptCountThisEpisode, lastAsrStallEpisodeClass, lastAsrStallAutoRestartAt, suppressAsrStallAutoRestartUntil, lastAsrStallRescueAt, lastMatcherStallCommitCount, lastMatcherStallCommitStableSince, lastAsrScriptEndStopKey, pendingAsrScriptEndStop, deferredAsrScriptEndStop, deferredAsrScriptEndStopTimer, WATCHDOG_INTERVAL_MS, WATCHDOG_THRESHOLD_MS, ASR_WATCHDOG_THRESHOLD_MS, ASR_HEARTBEAT_INTERVAL_MS, ASR_STALL_SPEECH_THRESHOLD_MS, ASR_DEAF_RECOGNIZER_MS, ASR_STALL_MATCHER_THRESHOLD_MS, ASR_STALL_MATCHER_STABLE_COMMIT_MS, ASR_STALL_AUTORESTART_COOLDOWN_MS, ASR_STALL_AUTORESTART_SUPPRESS_MS, ASR_STALL_RESCUE_COOLDOWN_MS, LIFECYCLE_RESTART_DELAY_MS, LIFECYCLE_RESTART_COOLDOWN_MS, HUD_SNAPSHOT_THROTTLE_MS, ASR_SCRIPT_END_CONFIRM_MAX_WAIT_MS, ASR_SCRIPT_END_CONFIRM_MIN_SHARED_MEANINGFUL_TOKENS, ASR_SCRIPT_END_CONFIRM_MIN_SHARED_TOKENS, ASR_SCRIPT_END_MARKER_WAIT_MAX_MS, ASR_SCRIPT_END_MARKER_POLL_MS, ASR_SCRIPT_END_POSTROLL_MS, ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX, ASR_SCRIPT_END_MARKER_TOLERANCE_MAX_PX, ASR_SCRIPT_END_MARKER_TOLERANCE_LINE_RATIO, ASR_SCRIPT_END_STOPWORDS, speechStoreShimmed, speechStoreSubscribed, latestSpeechStoreState, fallbackTranscriptMatchSeq, __asrLastInterimText, __asrLastInterimAt, __asrInterimRepeatCount, CUE_LINE_BRACKET_RE2, CUE_LINE_WORD_RE2, SPEAKER_TAG_ONLY_RE2, NOTE_TAG_ONLY_RE2, NOTE_INLINE_BLOCK_RE2, SPEAKER_SLOTS, SPEAKER_NAME_SELECTORS, DEFAULT_SPEAKER_LABELS, LOWER_GUARDS, RAISE_GUARDS, summaryListenerAttached, ASR_LAYOUT_READY_MAX_MS, pendingLayoutReady, TRANSCRIPT_EVENT_OPTIONS, asrScrollDriver, transcriptListener, sessionStopHooked, asrBrainLogged, asrDriverLifecycleHooked, asrSessionIntentActive, asrRunCounter, activeAsrRunKey, lastAsrBlockSyncAt, lastAsrBlockSyncLogAt, lastAsrSyncLogAtByType, lastAsrSyncFingerprintByType, ASR_LIVE_BLOCK_SYNC_THROTTLE_MS, ASR_BLOCK_SYNC_LOG_THROTTLE_MS, ASR_SYNC_LOG_THROTTLE_MS, ASR_BLOCK_SYNC_UNCHANGED_LOG_THROTTLE_MS, lastAsrBlockSyncCompleteFingerprint, lastAsrBlockSyncUnchangedAt;
 var init_speech_loader = __esm({
   "src/features/speech-loader.ts"() {
     "use strict";
@@ -39444,8 +40059,10 @@ var init_speech_loader = __esm({
     init_scroller();
     init_backend_guard();
     init_whisper_bridge();
+    init_matcher_input();
+    init_matcher_runtime_state();
     init_matcher();
-    init_runtime_control();
+    init_runtime_engine_selection();
     init_session();
     init_save_speaker_profiles_prompt();
     init_speaker_profiles_store();
@@ -39467,6 +40084,11 @@ var init_speech_loader = __esm({
     speechWatchdogTimer = null;
     asrHeartbeatTimer = null;
     activeRecognizer = null;
+    lastStartedSpeechEngine = "webspeech";
+    lastRequestedSpeechEngine = "whisper";
+    currentActualSpeechEngine = "";
+    currentFallbackReason = "";
+    currentAsrState = "idle";
     pendingManualRestartCount = 0;
     lifecycleRestartTimer = null;
     lastLifecycleRestartAt = 0;
@@ -39484,6 +40106,8 @@ var init_speech_loader = __esm({
     lastMatcherStallCommitStableSince = 0;
     lastAsrScriptEndStopKey = "";
     pendingAsrScriptEndStop = null;
+    deferredAsrScriptEndStop = null;
+    deferredAsrScriptEndStopTimer = null;
     WATCHDOG_INTERVAL_MS = 5e3;
     WATCHDOG_THRESHOLD_MS = 15e3;
     ASR_WATCHDOG_THRESHOLD_MS = 4e3;
@@ -39501,6 +40125,12 @@ var init_speech_loader = __esm({
     ASR_SCRIPT_END_CONFIRM_MAX_WAIT_MS = 15e3;
     ASR_SCRIPT_END_CONFIRM_MIN_SHARED_MEANINGFUL_TOKENS = 1;
     ASR_SCRIPT_END_CONFIRM_MIN_SHARED_TOKENS = 2;
+    ASR_SCRIPT_END_MARKER_WAIT_MAX_MS = 4e3;
+    ASR_SCRIPT_END_MARKER_POLL_MS = 16;
+    ASR_SCRIPT_END_POSTROLL_MS = 500;
+    ASR_SCRIPT_END_MARKER_TOLERANCE_MIN_PX = 12;
+    ASR_SCRIPT_END_MARKER_TOLERANCE_MAX_PX = 48;
+    ASR_SCRIPT_END_MARKER_TOLERANCE_LINE_RATIO = 0.35;
     ASR_SCRIPT_END_STOPWORDS = /* @__PURE__ */ new Set([
       "the",
       "and",
@@ -39537,6 +40167,7 @@ var init_speech_loader = __esm({
     try {
       window.__tpGetActiveRecognizer = () => activeRecognizer;
       window.__tpHardResetSpeech = (reason) => hardResetSpeechEngine(reason);
+      window.__tpStopSpeechBackend = (reason) => stopSpeechBackendForSession(reason);
     } catch {
     }
     fallbackTranscriptMatchSeq = 0;
@@ -39639,38 +40270,38 @@ function deepMergeDefaults(defaults, stored) {
 function loadState() {
   try {
     if (typeof window === "undefined") {
-      return cloneState(DEFAULT_STATE);
+      return cloneState(DEFAULT_STATE2);
     }
     const raw = window.localStorage.getItem(STORAGE_KEY7);
-    if (!raw) return cloneState(DEFAULT_STATE);
+    if (!raw) return cloneState(DEFAULT_STATE2);
     const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return cloneState(DEFAULT_STATE);
+    if (!parsed || typeof parsed !== "object") return cloneState(DEFAULT_STATE2);
     const persisted = {
       enabled: parsed.enabled,
       configs: parsed.configs
     };
-    const merged = deepMergeDefaults(DEFAULT_STATE, persisted);
+    const merged = deepMergeDefaults(DEFAULT_STATE2, persisted);
     merged.obsStatus = "disconnected";
     merged.obsLastError = null;
     merged.configs.obs.password = "";
     return merged;
   } catch {
-    return cloneState(DEFAULT_STATE);
+    return cloneState(DEFAULT_STATE2);
   }
 }
-function persistState(state9) {
+function persistState(state8) {
   try {
     if (typeof window === "undefined") return;
     const toStore = {
-      enabled: cloneState(state9.enabled),
-      configs: cloneState(state9.configs)
+      enabled: cloneState(state8.enabled),
+      configs: cloneState(state8.configs)
     };
     toStore.configs.obs.password = "";
     window.localStorage.setItem(STORAGE_KEY7, JSON.stringify(toStore));
   } catch {
   }
 }
-function notify() {
+function notify2() {
   const frozen = Object.freeze(cloneState(currentState));
   listeners.forEach((fn) => fn(frozen));
 }
@@ -39692,7 +40323,7 @@ function updateRecorderSettings(updater) {
     currentState = deepMergeDefaults(currentState, updater);
   }
   persistState(currentState);
-  notify();
+  notify2();
 }
 function setRecorderEnabled(id, enabled2) {
   updateRecorderSettings((prev2) => ({
@@ -39721,15 +40352,15 @@ function setObsStatus(status2, lastError = null) {
     store3?.set?.("obsLastError", lastError);
   } catch {
   }
-  notify();
+  notify2();
 }
-var STORAGE_KEY7, DEFAULT_OBS_URL, DEFAULT_STATE, currentState, listeners;
+var STORAGE_KEY7, DEFAULT_OBS_URL, DEFAULT_STATE2, currentState, listeners;
 var init_recorder_settings = __esm({
   "src/state/recorder-settings.ts"() {
     "use strict";
     STORAGE_KEY7 = "tp_rec_settings_v1";
     DEFAULT_OBS_URL = "ws://127.0.0.1:4455";
-    DEFAULT_STATE = {
+    DEFAULT_STATE2 = {
       enabled: {
         obs: false,
         companion: false,
@@ -39878,8 +40509,8 @@ function connectViaBridge() {
     return;
   }
   const run = async () => {
-    const state9 = getRecorderSettings();
-    if (!state9.enabled.obs) {
+    const state8 = getRecorderSettings();
+    if (!state8.enabled.obs) {
       closeBridge();
       return;
     }
@@ -39892,9 +40523,9 @@ function connectViaBridge() {
     }
     await safeInvoke(
       "configure",
-      () => bridge.configure?.({ url: state9.configs.obs.url, password: state9.configs.obs.password || "" })
+      () => bridge.configure?.({ url: state8.configs.obs.url, password: state8.configs.obs.password || "" })
     );
-    logObsCommand("configure", { url: state9.configs.obs.url });
+    logObsCommand("configure", { url: state8.configs.obs.url });
     await safeInvoke("setArmed", () => bridge.setArmed?.(true));
     bridgeArmed = true;
     logObsCommand("setArmed", { armed: true });
@@ -40112,16 +40743,16 @@ function setTrackedTimeout(fn, ms) {
   }
   return h;
 }
-function _emitRecState(state9, detail = null) {
+function _emitRecState(state8, detail = null) {
   try {
-    _recState = state9;
+    _recState = state8;
     _recDetail = detail || null;
     if (typeof window !== "undefined") {
       try {
-        window.__recState = { state: state9, adapter: _recAdapter, detail: _recDetail, ts: Date.now() };
+        window.__recState = { state: state8, adapter: _recAdapter, detail: _recDetail, ts: Date.now() };
       } catch {
       }
-      const payload = { adapter: _recAdapter, state: state9, detail: _recDetail };
+      const payload = { adapter: _recAdapter, state: state8, detail: _recDetail };
       try {
         const key = String(payload.adapter || "") + "|" + String(payload.state || "") + "|" + (payload.detail && payload.detail.fallback ? "F" : "");
         if (key === __lastRecKey) return;
@@ -40644,18 +41275,18 @@ function ensureObsDisconnectFallback() {
     window.__tpObsDisconnectWired = true;
     _onObsDisconnectCb = async () => {
       try {
-        const state9 = _recState;
+        const state8 = _recState;
         const bridgeAdapter = registry2.get("bridge");
         const isAuto = __tpReadAutoRecordPref();
         try {
           recStats.disconnects++;
         } catch {
         }
-        if (state9 === "starting") {
+        if (state8 === "starting") {
           await startObsWithConfirm({ timeoutMs: 900, retryDelayMs: 300 });
           return;
         }
-        if (state9 === "recording") {
+        if (state8 === "recording") {
           _emitRecState("stopping", { reason: "disconnect" });
           if (isAuto && bridgeAdapter) {
             try {
@@ -41510,24 +42141,24 @@ function mapObsTextToStatus(txt, ok) {
   return ok ? "connected" : "disconnected";
 }
 function readObsSettings(src) {
-  let state9 = src;
-  if (!state9) {
+  let state8 = src;
+  if (!state8) {
     try {
-      state9 = getRecorderSettings();
+      state8 = getRecorderSettings();
     } catch {
-      state9 = null;
+      state8 = null;
     }
   }
-  const hasCfg = !!state9?.configs?.obs;
+  const hasCfg = !!state8?.configs?.obs;
   if (!hasCfg) {
     try {
       console.warn("[obs-wiring] No OBS settings yet; using defaults");
     } catch {
     }
   }
-  const enabled2 = Boolean(state9?.enabled?.obs);
-  const url = hasCfg && state9?.configs?.obs?.url || DEFAULT_OBS_URL;
-  const pass = hasCfg && state9?.configs?.obs?.password || "";
+  const enabled2 = Boolean(state8?.enabled?.obs);
+  const url = hasCfg && state8?.configs?.obs?.url || DEFAULT_OBS_URL;
+  const pass = hasCfg && state8?.configs?.obs?.password || "";
   return { enabled: enabled2, url, pass };
 }
 async function applyObsStateFromSettings() {
@@ -41998,31 +42629,6 @@ function resolveManualAnchorTargetIndex(scroller, fallbackIndex = null) {
   }
   return null;
 }
-function syncAsrDriverIndex(targetIndex, reason) {
-  if (targetIndex == null || typeof window === "undefined") return;
-  const nextIndex = Math.max(0, Math.floor(targetIndex));
-  try {
-    const driver = window.__tpAsrScrollDriver;
-    if (typeof driver?.setLastLineIndex === "function") {
-      driver.setLastLineIndex(nextIndex);
-      return;
-    }
-  } catch {
-  }
-  try {
-    window.currentIndex = nextIndex;
-  } catch {
-  }
-  if (isDevMode6()) {
-    try {
-      console.info("[kick:driver-sync:fallback]", {
-        reason,
-        targetIndex: nextIndex
-      });
-    } catch {
-    }
-  }
-}
 function kickAsrForward(scroller, deltaPx, reason) {
   const from = readScrollTop2(scroller);
   const currentLine = resolveAsrKickBaseLineIndex(scroller);
@@ -42090,7 +42696,6 @@ function kick(options = {}) {
     } catch {
     }
     if (mode === "asr" && moved && manualAnchorTargetIndex != null) {
-      syncAsrDriverIndex(manualAnchorTargetIndex, reason);
       const targetIndex = dispatchAsrManualAnchor({
         targetIndex: manualAnchorTargetIndex,
         targetBlockIdx: manualAnchorTargetBlockIdx,
@@ -43323,23 +43928,23 @@ function renderNavPanel(panel, payload, opts = {}) {
 }
 function getOverlayState() {
   const win = window;
-  const state9 = win.__forgeNavOverlayState;
-  if (!state9 || !state9.root) return null;
-  return state9;
+  const state8 = win.__forgeNavOverlayState;
+  if (!state8 || !state8.root) return null;
+  return state8;
 }
-function setOverlayState(state9) {
+function setOverlayState(state8) {
   const win = window;
-  win.__forgeNavOverlayState = state9;
+  win.__forgeNavOverlayState = state8;
 }
 function closeForgeMenuOverlay() {
-  const state9 = getOverlayState();
-  if (state9) {
+  const state8 = getOverlayState();
+  if (state8) {
     try {
-      document.removeEventListener("keydown", state9.onKeydown, true);
+      document.removeEventListener("keydown", state8.onKeydown, true);
     } catch {
     }
     try {
-      state9.root.remove();
+      state8.root.remove();
     } catch {
     }
     setOverlayState(null);
@@ -43488,8 +44093,8 @@ function openNavOverlayShell() {
     panelShell.appendChild(hint);
     root.appendChild(panelShell);
     const closeOverlay = () => {
-      const state9 = getOverlayState();
-      if (state9 && state9.root !== root) return;
+      const state8 = getOverlayState();
+      if (state8 && state8.root !== root) return;
       try {
         document.removeEventListener("keydown", onKeydown2, true);
       } catch {
@@ -43674,6 +44279,387 @@ var init_forge_nav = __esm({
         }
       ]
     };
+  }
+});
+
+// src/forge/profile-settings-sync.ts
+function createProfileSettingsSync(options) {
+  const {
+    store: store3,
+    settingsKeys,
+    isCiMode = false,
+    devLog: devLog2,
+    isSettingsHydrating: isSettingsHydrating2 = () => false,
+    normalizeUiScrollMode: normalizeUiScrollMode2,
+    isAsrOverlayActive: isAsrOverlayActive2
+  } = options;
+  let profileHydrated = false;
+  let profileRev = 0;
+  let suppressSave = false;
+  let saveTimer = null;
+  let saving = false;
+  let currentSettings = { app: {} };
+  let lastUserChange = 0;
+  let saveIndicatorTimer = null;
+  let persistenceUserId = null;
+  let settingsPersistenceInstalled = false;
+  let speakerPersistenceInstalled = false;
+  function log(...args) {
+    try {
+      devLog2?.(...args);
+    } catch {
+    }
+  }
+  function setSettingsSaveStatus(status2) {
+    try {
+      store3.set?.("settingsSaveStatus", status2);
+    } catch {
+    }
+  }
+  function resolveActiveAsrProfileSummary() {
+    try {
+      const profiles = store3.get?.("asrProfiles");
+      const active = store3.get?.("asrActiveProfileId") || "";
+      const candidate = active && profiles ? profiles[active] : null;
+      if (candidate && typeof candidate === "object") {
+        return candidate.label || candidate.name || active || "default";
+      }
+      return active || "default";
+    } catch {
+      return "default";
+    }
+  }
+  function recordAsrApplied(reason) {
+    try {
+      const summary = {
+        engine: store3.get?.("asr.engine"),
+        lang: store3.get?.("asr.language"),
+        profileName: resolveActiveAsrProfileSummary(),
+        reason
+      };
+      store3.set?.("asrLastAppliedAt", Date.now());
+      store3.set?.("asrLastAppliedSummary", summary);
+      store3.set?.("asrLastApplyOk", true);
+    } catch {
+    }
+  }
+  function bindAsrAppliedListener() {
+    try {
+      const w3 = window;
+      if (w3.__tpProfileSettingsAsrAppliedBound) return;
+      w3.__tpProfileSettingsAsrAppliedBound = true;
+      window.addEventListener("tp:asrChanged", () => {
+        recordAsrApplied("asr-changed");
+      });
+    } catch {
+    }
+  }
+  function ensureSettingsSavedDot() {
+    try {
+      const btn = document.getElementById("settingsBtn");
+      if (!btn) return null;
+      btn.classList.add("tp-save-host");
+      let dot = btn.querySelector(".tp-save-dot");
+      if (!dot) {
+        dot = document.createElement("span");
+        dot.className = "tp-save-dot";
+        dot.setAttribute("aria-hidden", "true");
+        btn.appendChild(dot);
+      }
+      return dot;
+    } catch {
+      return null;
+    }
+  }
+  function flashSettingsSaved() {
+    try {
+      const btn = document.getElementById("settingsBtn");
+      const dot = ensureSettingsSavedDot();
+      if (!btn || !dot) return;
+      btn.classList.add("tp-save-flash");
+      if (saveIndicatorTimer) {
+        try {
+          clearTimeout(saveIndicatorTimer);
+        } catch {
+        }
+      }
+      saveIndicatorTimer = window.setTimeout(() => {
+        try {
+          btn.classList.remove("tp-save-flash");
+        } catch {
+        }
+      }, 1600);
+    } catch {
+    }
+  }
+  function applySettingsToStore(settings2) {
+    if (!settings2 || typeof settings2 !== "object") return;
+    const normalizedSettings = normalizePersistedAsrSelection(settings2);
+    const app = normalizedSettings.app || {};
+    log("hydrate:apply", { keys: Object.keys(app).length });
+    suppressSave = true;
+    try {
+      settingsKeys.forEach((k) => {
+        if (!Object.prototype.hasOwnProperty.call(app, k)) return;
+        if (k === "scrollMode") {
+          let raw = "";
+          let current2 = "";
+          try {
+            raw = normalizeUiScrollMode2(String(app[k] ?? "").trim().toLowerCase());
+            current2 = normalizeUiScrollMode2(store3.get?.("scrollMode"));
+            const engaged = isAsrOverlayActive2();
+            if (raw === "asr" && current2 !== "asr" && !engaged) {
+              log("[ASR] hydrate skipped scrollMode override to asr", { raw, current: current2, engaged });
+              return;
+            }
+            if (raw !== "asr" && engaged) {
+              log("[ASR] hydrate skipped scrollMode override while engaged", { raw });
+              return;
+            }
+          } catch {
+          }
+          try {
+            withScrollModeWriter("state/app-store", () => {
+              store3.set?.("scrollMode", raw);
+            }, { source: "hydrate", via: "profile" });
+          } catch {
+          }
+          return;
+        }
+        try {
+          store3.set?.(k, app[k]);
+        } catch {
+        }
+      });
+      currentSettings = applySettingsPatch(currentSettings || { app: {} }, normalizedSettings) || { app: {} };
+      try {
+        const asrSettings = normalizedSettings.asrSettings;
+        if (asrSettings && typeof asrSettings === "object") {
+          const mapping = {
+            engine: "asr.engine",
+            engineExplicit: "asr.engineExplicit",
+            language: "asr.language",
+            useInterimResults: "asr.useInterimResults",
+            filterFillers: "asr.filterFillers",
+            threshold: "asr.threshold",
+            endpointingMs: "asr.endpointMs",
+            manualAnchorAdoptEnabled: "asr.manualAnchorAdoptEnabled",
+            calmModeEnabled: "asrCalmModeEnabled"
+          };
+          Object.keys(mapping).forEach((src) => {
+            const value = asrSettings[src];
+            if (typeof value !== "undefined") {
+              try {
+                store3.set?.(mapping[src], value);
+              } catch {
+              }
+            }
+          });
+          try {
+            store3.set?.("asr.engineExplicit", isAsrEngineExplicit(asrSettings.engineExplicit));
+          } catch {
+          }
+        } else {
+          try {
+            store3.set?.("asr.engineExplicit", false);
+          } catch {
+          }
+        }
+        const asrProfiles = normalizedSettings.asrProfiles;
+        if (Array.isArray(asrProfiles)) {
+          const map = {};
+          asrProfiles.forEach((profile) => {
+            if (profile && typeof profile === "object" && "id" in profile) {
+              map[profile.id] = profile;
+            }
+          });
+          try {
+            store3.set?.("asrProfiles", map);
+          } catch {
+          }
+        }
+        const speakerProfiles = normalizedSettings.speakerProfiles;
+        const speakerBindings = normalizedSettings.speakerBindings;
+        if (Array.isArray(speakerProfiles) || speakerBindings) {
+          initSpeakerProfilesFromSettings({
+            profiles: Array.isArray(speakerProfiles) ? speakerProfiles.filter((profile) => profile && typeof profile === "object") : void 0,
+            bindings: speakerBindings,
+            activeSlot: speakerBindings?.activeSlot
+          });
+        }
+      } catch {
+      }
+      recordAsrApplied("hydrate");
+    } catch {
+    } finally {
+      suppressSave = false;
+    }
+  }
+  function snapshotAppSettings() {
+    const app = {};
+    settingsKeys.forEach((k) => {
+      try {
+        app[k] = store3.get?.(k);
+      } catch {
+      }
+    });
+    const asrSettings = {
+      engine: store3.get?.("asr.engine"),
+      language: store3.get?.("asr.language"),
+      useInterimResults: store3.get?.("asr.useInterimResults"),
+      filterFillers: store3.get?.("asr.filterFillers"),
+      threshold: store3.get?.("asr.threshold"),
+      endpointingMs: store3.get?.("asr.endpointMs"),
+      manualAnchorAdoptEnabled: store3.get?.("asr.manualAnchorAdoptEnabled"),
+      calmModeEnabled: store3.get?.("asrCalmModeEnabled"),
+      engineExplicit: !!store3.get?.("asr.engineExplicit")
+    };
+    const rawProfiles = store3.get?.("asrProfiles");
+    const asrProfiles = rawProfiles ? Object.values(rawProfiles) : [];
+    const speakerState = getSpeakerProfilesSnapshot();
+    const speakerProfiles = speakerState.profiles;
+    const speakerBindings = {
+      ...speakerState.bindings,
+      activeSlot: speakerState.activeSlot
+    };
+    return { app, asrSettings, asrProfiles, speakerProfiles, speakerBindings };
+  }
+  function queueProfileSave() {
+    if (isCiMode) return;
+    if (!persistenceUserId || !profileHydrated || suppressSave) return;
+    if (isSettingsHydrating2()) return;
+    if (saveTimer) {
+      try {
+        clearTimeout(saveTimer);
+      } catch {
+      }
+    }
+    log("save:queue");
+    saveTimer = window.setTimeout(async () => {
+      saveTimer = null;
+      if (!persistenceUserId || saving) return;
+      saving = true;
+      try {
+        const merged = snapshotAppSettings();
+        currentSettings = merged;
+        setSettingsSaveStatus({ state: "saving", at: Date.now() });
+        const { rev: rev2 } = await saveProfileSettings({
+          userId: persistenceUserId,
+          mergedSettings: merged,
+          expectedRev: profileRev
+        });
+        profileRev = rev2;
+        log("save:flushed", { rev: rev2 });
+        if (lastUserChange && Date.now() - lastUserChange <= RECENT_CHANGE_WINDOW_MS) {
+          flashSettingsSaved();
+        }
+        setSettingsSaveStatus({ state: "saved", at: Date.now() });
+      } catch (err) {
+        setSettingsSaveStatus({ state: "failed", at: Date.now(), error: String(err) });
+        try {
+          const { settings: settings2, rev: rev2 } = await loadProfileSettings(persistenceUserId);
+          profileRev = rev2;
+          applySettingsToStore(settings2);
+          log("save:conflict-reloaded", { rev: rev2 });
+        } catch (errReload) {
+          try {
+            console.warn("[forge] settings save failed; reload also failed", err, errReload);
+            log("save:conflict-reload-failed");
+          } catch {
+          }
+        }
+      } finally {
+        saving = false;
+      }
+    }, SETTINGS_SAVE_DEBOUNCE_MS);
+  }
+  function installSettingsPersistence(userId) {
+    persistenceUserId = userId;
+    if (settingsPersistenceInstalled) return;
+    settingsPersistenceInstalled = true;
+    try {
+      const seenInit = /* @__PURE__ */ new Set();
+      settingsKeys.forEach((k) => {
+        store3.subscribe?.(k, (_v) => {
+          if (!profileHydrated || suppressSave) return;
+          if (isSettingsHydrating2()) return;
+          if (!seenInit.has(k)) {
+            seenInit.add(k);
+            return;
+          }
+          lastUserChange = Date.now();
+          currentSettings.app = currentSettings.app || {};
+          currentSettings.app[k] = _v;
+          queueProfileSave();
+        });
+      });
+    } catch {
+    }
+  }
+  function installSpeakerPersistence(userId) {
+    persistenceUserId = userId;
+    if (speakerPersistenceInstalled) return;
+    speakerPersistenceInstalled = true;
+    subscribeSpeakerProfileState(() => {
+      if (!persistenceUserId) return;
+      if (!profileHydrated || suppressSave) return;
+      lastUserChange = Date.now();
+      queueProfileSave();
+    });
+  }
+  async function hydrateForUser(userId, opts = {}) {
+    persistenceUserId = userId;
+    const { loadRemote = true, enablePersistence = true, skipLogLabel = "hydrate:ci-skip" } = opts;
+    if (loadRemote) {
+      try {
+        const { settings: settings2, rev: rev2 } = await loadProfileSettings(userId);
+        profileRev = rev2;
+        applySettingsToStore(settings2);
+        currentSettings = snapshotAppSettings();
+        profileHydrated = true;
+        log("hydrate:done", { rev: rev2 });
+      } catch (err) {
+        try {
+          console.warn("[forge] settings load failed; using defaults", err);
+        } catch {
+        }
+        currentSettings = snapshotAppSettings();
+        profileHydrated = true;
+        log("hydrate:failed");
+      }
+    } else {
+      currentSettings = snapshotAppSettings();
+      profileHydrated = true;
+      log(skipLogLabel);
+    }
+    if (enablePersistence) {
+      installSettingsPersistence(userId);
+      installSpeakerPersistence(userId);
+    }
+  }
+  bindAsrAppliedListener();
+  return {
+    applySettingsToStore,
+    snapshotAppSettings,
+    hydrateForUser,
+    isProfileHydrated() {
+      return profileHydrated;
+    },
+    isSuppressingSave() {
+      return suppressSave;
+    }
+  };
+}
+var SETTINGS_SAVE_DEBOUNCE_MS, RECENT_CHANGE_WINDOW_MS;
+var init_profile_settings_sync = __esm({
+  "src/forge/profile-settings-sync.ts"() {
+    "use strict";
+    init_engine_selection();
+    init_audit();
+    init_speaker_profiles_store();
+    init_authProfile();
+    SETTINGS_SAVE_DEBOUNCE_MS = 900;
+    RECENT_CHANGE_WINDOW_MS = 1e4;
   }
 });
 
@@ -44053,8 +45039,8 @@ function publishDisplayScript(rawText, opts) {
 function getLatestRawScript() {
   return latestRaw;
 }
-function pushDisplayRecordState(state9) {
-  const payload = { kind: "tp:record", state: state9 };
+function pushDisplayRecordState(state8) {
+  const payload = { kind: "tp:record", state: state8 };
   const ch = getDisplayChannel();
   if (ch) {
     try {
@@ -44702,8 +45688,8 @@ function handleToggle(on3, sourceId) {
   const fromSidebar = sourceId === SIDEBAR_ENABLE_ID;
   if (enabling && fromSidebar) {
     try {
-      const state9 = getRecorderSettings();
-      const cfg = state9?.configs?.obs || {};
+      const state8 = getRecorderSettings();
+      const cfg = state8?.configs?.obs || {};
       const url = String(cfg.url ?? "");
       const host = String(cfg.host ?? "");
       const hasRemoteHost = !!host && host !== "localhost" && host !== "127.0.0.1";
@@ -44781,11 +45767,11 @@ function bindObsSettingsUI(doc = document) {
       console.info("[OBS-UI] wiring settings/sidebar controls");
     } catch {
     }
-    subscribeRecorderSettings((state9) => {
+    subscribeRecorderSettings((state8) => {
       syncing = true;
       try {
-        syncEnabledCheckboxes(doc, !!state9.enabled.obs);
-        const url = state9.configs.obs.url || "";
+        syncEnabledCheckboxes(doc, !!state8.enabled.obs);
+        const url = state8.configs.obs.url || "";
         try {
           const parsed = new URL(url);
           if (hostEl && hostEl !== doc.activeElement) {
@@ -44798,7 +45784,7 @@ function bindObsSettingsUI(doc = document) {
           if (portEl && portEl !== doc.activeElement) portEl.value = "4455";
         }
         if (passEl && passEl !== doc.activeElement) {
-          passEl.value = state9.configs.obs.password || "";
+          passEl.value = state8.configs.obs.password || "";
         }
       } finally {
         syncing = false;
@@ -45008,7 +45994,7 @@ function normalizeState(raw, previous) {
   return out;
 }
 function getTypography(d) {
-  return state6[d];
+  return state5[d];
 }
 function isMaxChManual(d) {
   return !!meta2?.[d]?.maxChManual;
@@ -45022,19 +46008,19 @@ function setTypography(d, t) {
     } catch {
     }
   }
-  state6 = { ...state6, [d]: normalizeTypography({ ...state6[d], ...t }, state6[d] || DEFAULTS2[d]) };
+  state5 = { ...state5, [d]: normalizeTypography({ ...state5[d], ...t }, state5[d] || DEFAULTS2[d]) };
   try {
-    localStorage.setItem(KEY5, JSON.stringify(state6));
+    localStorage.setItem(KEY4, JSON.stringify(state5));
   } catch {
   }
   subs5.forEach((fn) => {
     try {
-      fn(d, state6[d]);
+      fn(d, state5[d]);
     } catch {
     }
   });
   try {
-    window.dispatchEvent(new CustomEvent("tp:typographyChanged", { detail: { display: d, settings: state6[d] } }));
+    window.dispatchEvent(new CustomEvent("tp:typographyChanged", { detail: { display: d, settings: state5[d] } }));
   } catch {
   }
 }
@@ -45055,20 +46041,20 @@ function clampTypography(t) {
     dimOthers: clamp11(t.dimOthers, 0, 0.7)
   };
 }
-var KEY5, META_KEY, DISPLAYS, state6, meta2, subs5;
+var KEY4, META_KEY, DISPLAYS, state5, meta2, subs5;
 var init_typographyStore = __esm({
   "src/settings/typographyStore.ts"() {
     "use strict";
     init_schema();
-    KEY5 = "tp_typography_v1";
+    KEY4 = "tp_typography_v1";
     META_KEY = "tp_typography_meta_v1";
     DISPLAYS = ["main", "display"];
-    state6 = (() => {
+    state5 = (() => {
       try {
-        const parsed = JSON.parse(localStorage.getItem(KEY5) || "{}");
+        const parsed = JSON.parse(localStorage.getItem(KEY4) || "{}");
         const normalized = normalizeState(parsed);
         try {
-          localStorage.setItem(KEY5, JSON.stringify(normalized));
+          localStorage.setItem(KEY4, JSON.stringify(normalized));
         } catch {
         }
         return normalized;
@@ -45087,14 +46073,14 @@ var init_typographyStore = __esm({
     subs5 = /* @__PURE__ */ new Set();
     try {
       window.addEventListener("storage", (e) => {
-        if (e.key === KEY5) {
+        if (e.key === KEY4) {
           try {
             const next = JSON.parse(e.newValue || "{}");
-            state6 = normalizeState(next, state6);
+            state5 = normalizeState(next, state5);
             DISPLAYS.forEach((d) => {
               subs5.forEach((fn) => {
                 try {
-                  fn(d, state6[d]);
+                  fn(d, state5[d]);
                 } catch {
                 }
               });
@@ -46375,20 +47361,20 @@ function announceState(live, prev2, next) {
   }
   if (msg) live.textContent = msg;
 }
-function broadcastState(state9) {
+function broadcastState(state8) {
   if (isDisplayContext2()) return;
   try {
     bc = bc || new BroadcastChannel("tp_rec_state");
-    bc.postMessage({ type: "rec-state", state: state9 });
+    bc.postMessage({ type: "rec-state", state: state8 });
   } catch {
   }
   try {
     const send = window.sendToDisplay;
-    if (typeof send === "function") send({ type: "rec-state", state: state9 });
+    if (typeof send === "function") send({ type: "rec-state", state: state8 });
   } catch {
   }
   try {
-    pushDisplayRecordState(state9 === "off" ? "idle" : state9 === "armed" ? "armed" : "recording");
+    pushDisplayRecordState(state8 === "off" ? "idle" : state8 === "armed" ? "armed" : "recording");
   } catch {
   }
 }
@@ -47341,7 +48327,7 @@ var init_recording_dir = __esm({
     (function() {
       const DB_NAME2 = "tp-db";
       const STORE2 = "fs-handles";
-      const KEY7 = "recordingDir";
+      const KEY6 = "recordingDir";
       async function openDB2() {
         return await new Promise((resolve, reject) => {
           try {
@@ -47442,7 +48428,7 @@ var init_recording_dir = __esm({
       async function initRecordingDir() {
         if (await syncManagedRecordingDir()) return;
         try {
-          const h = await idbGet2(KEY7);
+          const h = await idbGet2(KEY6);
           if (h) {
             const ok = await h.queryPermission?.({ mode: "readwrite" }) || await h.requestPermission?.({ mode: "readwrite" });
             if (ok === "granted" || ok === "prompt") _dir2 = h;
@@ -47457,13 +48443,13 @@ var init_recording_dir = __esm({
       async function setRecordingDir(h) {
         if (_managedByNursery2) return;
         _dir2 = h || null;
-        if (h) await idbSet2(KEY7, h);
-        else await idbDel2(KEY7);
+        if (h) await idbSet2(KEY6, h);
+        else await idbDel2(KEY6);
       }
       async function clearRecordingDir() {
         if (_managedByNursery2) return;
         _dir2 = null;
-        await idbDel2(KEY7);
+        await idbDel2(KEY6);
       }
       async function pickRecordingDir() {
         if (_managedByNursery2) return _dir2 || null;
@@ -49848,8 +50834,8 @@ function initScrollStripHud(opts) {
       modeEl.textContent = `Mode: ${label}`;
     }
     if (stateEl) {
-      const state9 = detail.running ? "Running" : "Waiting";
-      stateEl.textContent = `Scroll: ${state9}`;
+      const state8 = detail.running ? "Running" : "Waiting";
+      stateEl.textContent = `Scroll: ${state8}`;
     }
     if (posEl && detail.activeIdx != null && detail.lineCount != null && detail.lineCount > 0) {
       const idx = detail.activeIdx + 1;
@@ -50347,9 +51333,9 @@ function loadState2() {
     return { open: false, frozen: false, popout: false, x: 12, y: 120 };
   }
 }
-function saveState(state9) {
+function saveState(state8) {
   try {
-    localStorage.setItem(LS_STATE, JSON.stringify(state9));
+    localStorage.setItem(LS_STATE, JSON.stringify(state8));
   } catch {
   }
 }
@@ -50384,7 +51370,7 @@ function initHudPopup(opts = {}) {
       }
     };
   }
-  const getStore4 = opts.getStore;
+  const getStore5 = opts.getStore;
   const maxLines = opts.maxLines ?? 600;
   const isPopout = opts.popout ?? !!window.__TP_HUD_POPOUT__;
   const bridge = createHudBridge();
@@ -50394,20 +51380,20 @@ function initHudPopup(opts = {}) {
   }
   const storeLines = [];
   let snapshotText = "";
-  const state9 = loadState2();
+  const state8 = loadState2();
   if (isPopout) {
-    state9.open = true;
-    state9.popout = true;
+    state8.open = true;
+    state8.popout = true;
   }
   const wrap = document.createElement("div");
   wrap.className = "tp-hud-popup";
   wrap.setAttribute("role", "dialog");
   wrap.setAttribute("aria-label", "Debug HUD");
   wrap.style.position = "fixed";
-  wrap.style.left = `${state9.x}px`;
-  wrap.style.top = `${state9.y}px`;
-  wrap.style.display = state9.open ? "block" : "none";
-  wrap.dataset.open = state9.open ? "1" : "0";
+  wrap.style.left = `${state8.x}px`;
+  wrap.style.top = `${state8.y}px`;
+  wrap.style.display = state8.open ? "block" : "none";
+  wrap.dataset.open = state8.open ? "1" : "0";
   const head2 = document.createElement("div");
   head2.className = "tp-hud-popup__head";
   const title = document.createElement("div");
@@ -50429,10 +51415,10 @@ function initHudPopup(opts = {}) {
   const btnPopout = makeBtn("Pop out");
   const btnDock = makeBtn("Dock");
   const btnClose = makeBtn("\xD7", "tp-hud-btn--close");
-  btnFreeze.dataset.on = state9.frozen ? "1" : "0";
-  btnFreeze.textContent = state9.frozen ? "Frozen" : "Freeze";
-  btnPopout.style.display = state9.popout ? "none" : "";
-  btnDock.style.display = state9.popout ? "" : "none";
+  btnFreeze.dataset.on = state8.frozen ? "1" : "0";
+  btnFreeze.textContent = state8.frozen ? "Frozen" : "Freeze";
+  btnPopout.style.display = state8.popout ? "none" : "";
+  btnDock.style.display = state8.popout ? "" : "none";
   btns.append(btnDump, btnCopy, btnClear, btnFreeze, btnPopout, btnDock, btnClose);
   head2.append(title, btns);
   const body = document.createElement("div");
@@ -50452,9 +51438,9 @@ function initHudPopup(opts = {}) {
     const y = clamp6(Number(wrap.style.top) || 0, 0, maxY);
     wrap.style.left = `${x}px`;
     wrap.style.top = `${y}px`;
-    state9.x = x;
-    state9.y = y;
-    saveState(state9);
+    state8.x = x;
+    state8.y = y;
+    saveState(state8);
   };
   let dragging = false;
   let startX = 0;
@@ -50506,7 +51492,7 @@ function initHudPopup(opts = {}) {
     }
   };
   const log = (line, data) => {
-    if (!state9.open || state9.frozen) return;
+    if (!state8.open || state8.frozen) return;
     const prefix = `[${nowStamp()}] `;
     appendLine(prefix + line);
     if (data !== void 0) {
@@ -50515,7 +51501,7 @@ function initHudPopup(opts = {}) {
     }
   };
   const dumpSnapshot = (label = "SNAPSHOT") => {
-    const store3 = getStore4?.();
+    const store3 = getStore5?.();
     const snap = {
       label,
       scrollMode: store3 ? storeGet(store3, "scrollMode") : void 0,
@@ -50562,30 +51548,30 @@ function initHudPopup(opts = {}) {
     if (!isPopout) broadcastSnapshot(snapshotText);
   };
   const setOpen = (next) => {
-    state9.open = next;
+    state8.open = next;
     wrap.dataset.open = next ? "1" : "0";
     wrap.style.display = next ? "block" : "none";
-    saveState(state9);
+    saveState(state8);
     if (!isPopout) {
       broadcastState2();
     }
   };
   const setFrozen = (next) => {
-    state9.frozen = next;
+    state8.frozen = next;
     btnFreeze.dataset.on = next ? "1" : "0";
     btnFreeze.textContent = next ? "Frozen" : "Freeze";
-    saveState(state9);
+    saveState(state8);
     if (!isPopout) broadcastState2();
   };
   const setPopout = (next) => {
-    state9.popout = next;
+    state8.popout = next;
     btnPopout.style.display = next ? "none" : "";
     btnDock.style.display = next ? "" : "none";
-    saveState(state9);
+    saveState(state8);
     if (!isPopout) broadcastState2();
   };
   const openPopout = () => {
-    if (state9.popout) return;
+    if (state8.popout) return;
     const features = [
       "popup=yes",
       "width=520",
@@ -50602,7 +51588,7 @@ function initHudPopup(opts = {}) {
     }
     window.__tpHudPopoutWin = win;
     setPopout(true);
-    bridge.send({ type: "hud:state", state: state9 });
+    bridge.send({ type: "hud:state", state: state8 });
   };
   const closePopout = () => {
     setPopout(false);
@@ -50616,7 +51602,7 @@ function initHudPopup(opts = {}) {
     }
   };
   const broadcastState2 = () => {
-    bridge.send({ type: "hud:state", state: state9 });
+    bridge.send({ type: "hud:state", state: state8 });
   };
   const broadcastAppend = (lines) => {
     if (!lines.length) return;
@@ -50670,7 +51656,7 @@ function initHudPopup(opts = {}) {
     }
   });
   btnClose.addEventListener("click", () => setOpen(false));
-  btnFreeze.addEventListener("click", () => setFrozen(!state9.frozen));
+  btnFreeze.addEventListener("click", () => setFrozen(!state8.frozen));
   btnClear.addEventListener("click", () => clear());
   btnCopy.addEventListener("click", () => copyText());
   btnDump.addEventListener("click", () => dumpSnapshot("DUMP"));
@@ -50684,7 +51670,7 @@ function initHudPopup(opts = {}) {
     if (e.repeat) return;
     if (e.ctrlKey || e.altKey || e.metaKey) return;
     if (e.code !== "Backquote") return;
-    setOpen(!state9.open);
+    setOpen(!state8.open);
     e.preventDefault();
   }, { capture: true });
   window.addEventListener("message", (e) => {
@@ -50694,14 +51680,14 @@ function initHudPopup(opts = {}) {
       setPopout(false);
     }
   });
-  if (!state9.popout && state9.open) {
+  if (!state8.popout && state8.open) {
     broadcastState2();
   }
   window.addEventListener("beforeunload", () => {
     bridge.close();
   });
   return {
-    isOpen: () => state9.open,
+    isOpen: () => state8.open,
     setOpen,
     log,
     dumpSnapshot,
@@ -50710,7 +51696,7 @@ function initHudPopup(opts = {}) {
     appendLines: (lines) => lines.forEach((line) => appendLine(line)),
     setSnapshotText,
     copyText,
-    getState: () => ({ ...state9 }),
+    getState: () => ({ ...state8 }),
     openPopout,
     closePopout,
     setPopout
@@ -50726,10 +51712,10 @@ var init_popup = __esm({
 });
 
 // src/hud/shouldShowHud.ts
-function shouldShowHud(state9) {
-  const hudSupported = !!state9?.hudSupported;
-  const hudEnabledByUser = !!state9?.hudEnabledByUser;
-  const page = state9?.page || "scripts";
+function shouldShowHud(state8) {
+  const hudSupported = !!state8?.hudSupported;
+  const hudEnabledByUser = !!state8?.hudEnabledByUser;
+  const page = state8?.page || "scripts";
   if (!hudSupported) return false;
   if (!hudEnabledByUser) return false;
   return page !== "display";
@@ -51005,7 +51991,7 @@ function initHud(opts = { store: window.__tpStore ?? null }) {
   return cachedHud;
 }
 var didInit, cachedHud, popupApi;
-var init_loader2 = __esm({
+var init_loader = __esm({
   "src/hud/loader.ts"() {
     "use strict";
     init_speech_notes_hud();
@@ -51022,122 +52008,6 @@ var init_loader2 = __esm({
       if (shouldAutoInitHud()) initHud();
     } catch {
     }
-  }
-});
-
-// src/features/asr/persistence.ts
-function safeParse2(raw) {
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-function loadPersistedAsrSettings() {
-  try {
-    if (typeof window === "undefined") return null;
-    return safeParse2(window.localStorage.getItem(STORAGE_KEY9));
-  } catch {
-    return null;
-  }
-}
-function savePersistedAsrSettings(next) {
-  try {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(STORAGE_KEY9, JSON.stringify(next));
-  } catch {
-  }
-}
-function initAsrPersistence() {
-  const persisted = loadPersistedAsrSettings();
-  const store3 = getAppStore();
-  const initialState = {
-    engine: store3?.get("asr.engine") ?? persisted?.engine ?? "webspeech",
-    lang: store3?.get("asr.language") ?? persisted?.lang ?? "en-US",
-    interim: store3?.get("asr.useInterimResults") ?? persisted?.interim ?? true,
-    threshold: store3?.get("asr.threshold") ?? persisted?.threshold ?? 0.6,
-    endpointingMs: store3?.get("asr.endpointMs") ?? persisted?.endpointingMs ?? 700,
-    fillerFilter: store3?.get("asr.filterFillers") ?? persisted?.fillerFilter ?? true,
-    manualAnchorAdoptEnabled: store3?.get("asr.manualAnchorAdoptEnabled") ?? persisted?.manualAnchorAdoptEnabled ?? true,
-    calmModeEnabled: store3?.get("asrCalmModeEnabled") ?? persisted?.calmModeEnabled ?? false
-  };
-  try {
-    speechStore2.set(initialState);
-  } catch (err) {
-    try {
-      console.warn("[ASR] failed to hydrate persisted settings", err);
-    } catch {
-    }
-  }
-  const syncToStore = (next) => {
-    if (!store3) return;
-    try {
-      store3.set("asr.engine", next.engine);
-    } catch {
-    }
-    try {
-      store3.set("asr.language", next.lang);
-    } catch {
-    }
-    try {
-      store3.set("asr.useInterimResults", next.interim);
-    } catch {
-    }
-    try {
-      store3.set("asr.filterFillers", next.fillerFilter);
-    } catch {
-    }
-    try {
-      store3.set("asr.threshold", next.threshold);
-    } catch {
-    }
-    try {
-      store3.set("asr.endpointMs", next.endpointingMs);
-    } catch {
-    }
-    try {
-      store3.set("asr.manualAnchorAdoptEnabled", next.manualAnchorAdoptEnabled ?? true);
-    } catch {
-    }
-    try {
-      store3.set("asrCalmModeEnabled", next.calmModeEnabled ?? false);
-    } catch {
-    }
-  };
-  syncToStore(initialState);
-  try {
-    speechStore2.subscribe((state9) => {
-      const toSave = {
-        engine: state9.engine,
-        lang: state9.lang,
-        interim: state9.interim,
-        threshold: state9.threshold,
-        endpointingMs: state9.endpointingMs,
-        fillerFilter: state9.fillerFilter,
-        manualAnchorAdoptEnabled: state9.manualAnchorAdoptEnabled,
-        calmModeEnabled: state9.calmModeEnabled
-      };
-      savePersistedAsrSettings(toSave);
-      syncToStore(state9);
-    });
-  } catch (err) {
-    try {
-      console.warn("[ASR] failed to subscribe for persistence", err);
-    } catch {
-    }
-  }
-}
-var speechStore2, STORAGE_KEY9;
-var init_persistence = __esm({
-  "src/features/asr/persistence.ts"() {
-    "use strict";
-    init_speech_store2();
-    init_appStore();
-    speechStore2 = getSpeechStore();
-    STORAGE_KEY9 = "tp_asr_settings_v1";
   }
 });
 
@@ -51196,8 +52066,8 @@ async function attemptGetUserMedia() {
   }
 }
 async function ensureMicAccess() {
-  const state9 = await queryMicPermission();
-  if (state9 === "denied") {
+  const state8 = await queryMicPermission();
+  if (state8 === "denied") {
     try {
       appStoreSingleton.set("micGranted", false);
     } catch {
@@ -51208,7 +52078,7 @@ async function ensureMicAccess() {
     }
     return { allowed: false, reason: "NO_PERMISSION" };
   }
-  if (state9 === "granted") {
+  if (state8 === "granted") {
     try {
       appStoreSingleton.set("micGranted", true);
     } catch {
@@ -51635,8 +52505,8 @@ async function ensureReadPermission(handle) {
     const hasQuery = typeof h?.queryPermission === "function";
     const hasRequest = typeof h?.requestPermission === "function";
     if (!hasQuery && !hasRequest) return true;
-    const state9 = hasQuery ? await h.queryPermission({ mode: "read" }) : null;
-    if (state9 === "granted") return true;
+    const state8 = hasQuery ? await h.queryPermission({ mode: "read" }) : null;
+    if (state8 === "granted") return true;
     if (!hasRequest) return true;
     const req = await h.requestPermission({ mode: "read" });
     return req === "granted";
@@ -51962,8 +52832,8 @@ var init_script_source = __esm({
 });
 
 // src/forge/entitlements.ts
-function notify2(next) {
-  state7 = next;
+function notify3(next) {
+  state6 = next;
   subscribers2.forEach((fn) => {
     try {
       fn(next);
@@ -51988,12 +52858,12 @@ function normalizeEntitlements(row) {
 }
 function setFreeEntitlements() {
   const next = { status: "ready", ent: FREE_ENTITLEMENTS };
-  notify2(next);
+  notify3(next);
   return next;
 }
 async function refreshEntitlements(supabase2) {
   try {
-    notify2({ status: "loading", ent: null });
+    notify3({ status: "loading", ent: null });
     const { data: authData, error: authError } = await supabase2.auth.getUser();
     if (authError) throw authError;
     const user = authData?.user;
@@ -52008,16 +52878,16 @@ async function refreshEntitlements(supabase2) {
       status: "ready",
       ent: normalizeEntitlements(data || {})
     };
-    notify2(next);
+    notify3(next);
     return next;
   } catch (error) {
     const message = error instanceof Error ? error.message : typeof error === "string" ? error : "Unknown entitlement error";
     const next = { status: "error", ent: null, error: message };
-    notify2(next);
+    notify3(next);
     return next;
   }
 }
-var FREE_ENTITLEMENTS, state7, subscribers2;
+var FREE_ENTITLEMENTS, state6, subscribers2;
 var init_entitlements = __esm({
   "src/forge/entitlements.ts"() {
     "use strict";
@@ -52029,7 +52899,7 @@ var init_entitlements = __esm({
       stripe_subscription_id: null,
       current_period_end: null
     };
-    state7 = { status: "idle", ent: null };
+    state6 = { status: "idle", ent: null };
     subscribers2 = /* @__PURE__ */ new Set();
   }
 });
@@ -52478,8 +53348,14 @@ function parseAi(text) {
   if (lower.includes("transcribing")) {
     return { full: text, short: "AI transcribing", tone: "neutral" };
   }
+  if (lower.includes("standby")) {
+    return { full: text, short: "AI standby", tone: "neutral" };
+  }
   if (lower.includes("active") || lower.includes("openai") || lower.includes("whisper")) {
     return { full: text, short: "AI active", tone: "neutral" };
+  }
+  if (lower.includes("browser")) {
+    return { full: text, short: "AI browser", tone: "neutral" };
   }
   return { full: text, short: "AI off", tone: "neutral" };
 }
@@ -52553,27 +53429,27 @@ function getStates() {
   }).filter((value) => Boolean(value));
 }
 function summarize(states) {
-  const issues = states.filter((state9) => state9.tone === "issue");
+  const issues = states.filter((state8) => state8.tone === "issue");
   if (issues.length > 0) {
     const first = issues[0];
     const suffix = issues.length > 1 ? ` +${issues.length - 1}` : "";
     return {
       label: `Session: ${first.short}${suffix}`,
-      title: states.map((state9) => state9.full).join("\n"),
+      title: states.map((state8) => state8.full).join("\n"),
       tone: "issue"
     };
   }
-  const good = states.filter((state9) => state9.tone === "good");
+  const good = states.filter((state8) => state8.tone === "good");
   if (good.length > 0) {
     return {
-      label: `Session: ${good.slice(0, 2).map((state9) => state9.short).join(" \xB7 ")}`,
-      title: states.map((state9) => state9.full).join("\n"),
+      label: `Session: ${good.slice(0, 2).map((state8) => state8.short).join(" \xB7 ")}`,
+      title: states.map((state8) => state8.full).join("\n"),
       tone: "good"
     };
   }
   return {
     label: "Session: Idle",
-    title: states.map((state9) => state9.full).join("\n") || "Session status",
+    title: states.map((state8) => state8.full).join("\n") || "Session status",
     tone: "neutral"
   };
 }
@@ -53194,8 +54070,8 @@ function renderProfileOptions() {
   try {
     const select = getProfileSelect();
     if (!select) return;
-    const state9 = getAsrState();
-    const entries = Object.entries(state9.profiles || {});
+    const state8 = getAsrState();
+    const entries = Object.entries(state8.profiles || {});
     select.innerHTML = "";
     const placeholder = document.createElement("option");
     placeholder.value = "";
@@ -53207,7 +54083,7 @@ function renderProfileOptions() {
       opt.textContent = profile.label || id;
       select.appendChild(opt);
     });
-    const active = state9.activeProfileId;
+    const active = state8.activeProfileId;
     select.value = active && entries.some(([id]) => id === active) ? active : "";
   } catch {
   }
@@ -53825,33 +54701,33 @@ var init_builder = __esm({
 
 // src/settings/uiPrefs.ts
 function setUiPrefs(p) {
-  state8 = { ...state8, ...p };
+  state7 = { ...state7, ...p };
   try {
-    localStorage.setItem(KEY6, JSON.stringify(state8));
+    localStorage.setItem(KEY5, JSON.stringify(state7));
   } catch {
   }
   subs6.forEach((fn) => {
     try {
-      fn(state8);
+      fn(state7);
     } catch {
     }
   });
 }
-var KEY6, state8, subs6, getUiPrefs2;
+var KEY5, state7, subs6, getUiPrefs2;
 var init_uiPrefs = __esm({
   "src/settings/uiPrefs.ts"() {
     "use strict";
-    KEY6 = "tp_ui_prefs_v1";
-    state8 = (() => {
+    KEY5 = "tp_ui_prefs_v1";
+    state7 = (() => {
       try {
-        const parsed = JSON.parse(localStorage.getItem(KEY6) || "{}") || {};
+        const parsed = JSON.parse(localStorage.getItem(KEY5) || "{}") || {};
         return { linkTypography: false, hybridGate: "db_or_vad", hybridUseProfileId: parsed.hybridUseProfileId || null, ...parsed };
       } catch {
         return { linkTypography: false, hybridGate: "db_or_vad", hybridUseProfileId: null };
       }
     })();
     subs6 = /* @__PURE__ */ new Set();
-    getUiPrefs2 = () => state8;
+    getUiPrefs2 = () => state7;
   }
 });
 
@@ -54765,26 +55641,26 @@ function queryAsrInputs(card) {
     calm: q3("#asrCalmMode")
   };
 }
-function applyAsrStateToInputs(inputs, state9) {
+function applyAsrStateToInputs(inputs, state8) {
   const { eng, lang, interim, fillers, thresh, endms } = inputs;
-  if (eng && typeof state9.engine === "string") {
+  if (eng && typeof state8.engine === "string") {
     try {
-      eng.value = state9.engine;
+      eng.value = state8.engine;
     } catch {
     }
   }
-  if (lang && typeof state9.lang === "string") {
-    lang.value = state9.lang;
+  if (lang && typeof state8.lang === "string") {
+    lang.value = state8.lang;
   }
-  if (interim) interim.checked = !!state9.interim;
-  if (fillers) fillers.checked = !!state9.fillerFilter;
-  if (thresh && typeof state9.threshold === "number") {
-    thresh.value = String(state9.threshold);
+  if (interim) interim.checked = !!state8.interim;
+  if (fillers) fillers.checked = !!state8.fillerFilter;
+  if (thresh && typeof state8.threshold === "number") {
+    thresh.value = String(state8.threshold);
   }
-  if (endms && typeof state9.endpointingMs === "number") {
-    endms.value = String(state9.endpointingMs);
+  if (endms && typeof state8.endpointingMs === "number") {
+    endms.value = String(state8.endpointingMs);
   }
-  if (inputs.calm) inputs.calm.checked = !!state9.calmModeEnabled;
+  if (inputs.calm) inputs.calm.checked = !!state8.calmModeEnabled;
 }
 function attachAsrInputListeners(inputs) {
   const { eng, lang, interim, fillers, thresh, endms, calm } = inputs;
@@ -54861,6 +55737,9 @@ function readAsrPatchFromCard(card) {
   return patch;
 }
 function persistAsrPatch(patch) {
+  if (Object.prototype.hasOwnProperty.call(patch, "engine")) {
+    patch.engineExplicit = true;
+  }
   setAsrSettings(patch);
 }
 function formatRelativeTime2(timestamp) {
@@ -54895,8 +55774,8 @@ function hydrateAsrSettingsCard(root = document) {
   const card = findAsrCard(root);
   if (!card) return;
   const inputs = queryAsrInputs(card);
-  const state9 = getAsrSettings();
-  withAsrHydration(() => applyAsrStateToInputs(inputs, state9));
+  const state8 = getAsrSettings();
+  withAsrHydration(() => applyAsrStateToInputs(inputs, state8));
 }
 function mountAsrSettings(root = document, store3) {
   const card = wireAsrSettingsCard(root, store3);
@@ -55158,7 +56037,7 @@ function scheduleSettingsHydrationComplete() {
     setTimeout(clear, 0);
   }
 }
-function getStore2(store3) {
+function getStore3(store3) {
   if (store3) return store3;
   try {
     return window.__tpStore || null;
@@ -55204,7 +56083,7 @@ function logSettingsHydrationSnapshot(store3) {
 function mountSettings(rootEl2, store3) {
   setSettingsHydrating(true);
   try {
-    const resolvedStore = getStore2(store3) || createAppStore();
+    const resolvedStore = getStore3(store3) || createAppStore();
     logSettingsHydrationSnapshot(resolvedStore);
     if (window.__TP_DEV) {
       try {
@@ -55408,7 +56287,7 @@ function mountSettings(rootEl2, store3) {
   }
 }
 function wireSettings(options) {
-  const store3 = getStore2(options?.store) || createAppStore();
+  const store3 = getStore3(options?.store) || createAppStore();
   const target = options?.root ?? document.getElementById("settingsBody") ?? null;
   if (window.__tpSettingsBootedByTs && !options?.force) {
     return { root: target, store: store3 };
@@ -55444,7 +56323,7 @@ function openSettings(store3) {
   }
 }
 function syncSettingsValues(store3) {
-  const s = getStore2(store3);
+  const s = getStore3(store3);
   try {
     try {
       const micVal = s && typeof s.get === "function" ? s.get("micDevice") : null;
@@ -55589,7 +56468,7 @@ function initPersistence() {
   } catch {
   }
 }
-var init_persistence2 = __esm({
+var init_persistence = __esm({
   "src/features/persistence.ts"() {
     "use strict";
   }
@@ -56893,7 +57772,7 @@ var init_config = __esm({
 });
 
 // src/features/asr-engine.ts
-function getStore3() {
+function getStore4() {
   try {
     const anyWin = window;
     return anyWin.__tpStore || null;
@@ -56950,7 +57829,7 @@ var init_asr_engine = __esm({
           }
           return;
         }
-        const cfg = getAsrConfig(getStore3());
+        const cfg = getAsrConfig(getStore4());
         if (anyWin.__tpDevMode) {
           try {
             console.info("[ASR-ENGINE] Enabling ASR with config", cfg);
@@ -57652,7 +58531,6 @@ var AsrTopbar;
 var init_topbar_asr = __esm({
   "src/ui/topbar-asr.ts"() {
     "use strict";
-    init_speech_store();
     AsrTopbar = class {
       constructor(_mode) {
         this._mode = _mode;
@@ -57668,21 +58546,29 @@ var init_topbar_asr = __esm({
         this.chip.textContent = "ASR: off";
         wrap.appendChild(this.chip);
         host.appendChild(wrap);
-        window.addEventListener("asr:state", (e) => {
-          const st = e.detail?.state;
-          const map = { idle: "off", ready: "ready", listening: "listening", running: "listening", error: "error" };
+        const renderState = (rawState) => {
+          const st = String(rawState || "").toLowerCase();
+          const map = {
+            idle: "off",
+            ready: "ready",
+            listening: "listening",
+            running: "listening",
+            error: "error"
+          };
           this.chip.textContent = `ASR: ${map[st] ?? st}`;
-          if (st === "idle" || st === "error") {
-            this.running = false;
-          }
-          if (st === "running" || st === "listening" || st === "ready") {
-            this.running = true;
-          }
-        });
-        this.chip.title = (() => {
-          const s = speechStore.get();
-          return `Engine: ${s.engine}  \u2022  Lang: ${s.lang}`;
-        })();
+          if (st === "idle" || st === "error") this.running = false;
+          if (st === "running" || st === "listening" || st === "ready") this.running = true;
+        };
+        const renderRuntime = (detail) => {
+          const requested = String(detail?.requestedEngine || "").trim() || "whisper";
+          const actual = String(detail?.actualEngine || requested).trim() || requested;
+          const fallbackReason = String(detail?.fallbackReason || "").trim();
+          this.chip.title = fallbackReason ? `Requested: ${requested}  \u2022  Active: ${actual}  \u2022  Fallback: ${fallbackReason}` : `Engine: ${actual}`;
+        };
+        window.addEventListener("tp:asr:state", (e) => renderState(e?.detail?.state));
+        window.addEventListener("asr:state", (e) => renderState(e?.detail?.state));
+        window.addEventListener("tp:asr:runtime-status", (e) => renderRuntime(e?.detail));
+        renderRuntime(window.__tpAsrRuntimeStatus || null);
       }
       // No toggle UI anymore; ASR start/stop is wired to Speech Sync + mode changes.
     };
@@ -58145,25 +59031,25 @@ function bindCameraUI() {
       camToggleSpinner.style.display = "none";
       camToggleSpinner.setAttribute("aria-hidden", "true");
     }
-    const setToggleState = (state9) => {
+    const setToggleState = (state8) => {
       if (camToggleLabel) {
-        if (state9 === "on") camToggleLabel.textContent = "Camera: On";
-        else if (state9 === "starting") camToggleLabel.textContent = "Camera: Starting\u2026";
-        else if (state9 === "error") camToggleLabel.textContent = "Camera: Error";
+        if (state8 === "on") camToggleLabel.textContent = "Camera: On";
+        else if (state8 === "starting") camToggleLabel.textContent = "Camera: Starting\u2026";
+        else if (state8 === "error") camToggleLabel.textContent = "Camera: Error";
         else camToggleLabel.textContent = "Camera: Off";
       }
       if (camToggleSpinner) {
-        const show2 = state9 === "starting";
+        const show2 = state8 === "starting";
         camToggleSpinner.style.display = show2 ? "" : "none";
         camToggleSpinner.setAttribute("aria-hidden", show2 ? "false" : "true");
       }
-      if (state9 === "on") {
+      if (state8 === "on") {
         camToggleBtn.setAttribute("aria-pressed", "true");
         camToggleBtn.disabled = false;
-      } else if (state9 === "starting") {
+      } else if (state8 === "starting") {
         camToggleBtn.setAttribute("aria-pressed", api.isActive() ? "true" : "false");
         camToggleBtn.disabled = true;
-      } else if (state9 === "error") {
+      } else if (state8 === "error") {
         camToggleBtn.setAttribute("aria-pressed", "false");
         camToggleBtn.disabled = false;
       } else {
@@ -58386,14 +59272,14 @@ function getMicUiState() {
   if (permission === "denied") return { state: "blocked", permission, capturing };
   return { state: "idle", permission, capturing };
 }
-function updateMicPill(state9) {
+function updateMicPill(state8) {
   try {
     const pill = document.getElementById("permChip");
     if (!pill) return;
-    const label = state9 === "capturing" ? "Mic: capturing" : state9 === "granted" ? "Mic: granted" : state9 === "blocked" ? "Mic: blocked" : "Mic: idle";
+    const label = state8 === "capturing" ? "Mic: capturing" : state8 === "granted" ? "Mic: granted" : state8 === "blocked" ? "Mic: blocked" : "Mic: idle";
     pill.textContent = label;
-    pill.dataset.micState = state9;
-    pill.classList.toggle("mic-active", state9 === "capturing");
+    pill.dataset.micState = state8;
+    pill.classList.toggle("mic-active", state8 === "capturing");
   } catch {
   }
 }
@@ -58927,7 +59813,7 @@ function clamp9(v, min, max) {
 }
 function loadPos2() {
   try {
-    const s = window.localStorage.getItem(STORAGE_KEY10);
+    const s = window.localStorage.getItem(STORAGE_KEY9);
     if (!s) return null;
     const o = JSON.parse(s);
     if (typeof o.x === "number" && typeof o.y === "number") {
@@ -58943,7 +59829,7 @@ function savePos2(x, y) {
       x: Math.round(x),
       y: Math.round(y)
     };
-    window.localStorage.setItem(STORAGE_KEY10, JSON.stringify(payload));
+    window.localStorage.setItem(STORAGE_KEY9, JSON.stringify(payload));
   } catch {
   }
 }
@@ -59016,7 +59902,7 @@ function initCamDraggable() {
     el.style.right = "16px";
     el.style.bottom = "16px";
     try {
-      window.localStorage.removeItem(STORAGE_KEY10);
+      window.localStorage.removeItem(STORAGE_KEY9);
     } catch {
     }
   };
@@ -59041,11 +59927,11 @@ function autoInit() {
   } catch {
   }
 }
-var STORAGE_KEY10;
+var STORAGE_KEY9;
 var init_camera_drag = __esm({
   "src/ui/camera-drag.ts"() {
     "use strict";
-    STORAGE_KEY10 = "tp_cam_pos_v1";
+    STORAGE_KEY9 = "tp_cam_pos_v1";
     autoInit();
     if (typeof window !== "undefined" && !window.initCamDraggable) {
       window.initCamDraggable = initCamDraggable;
@@ -59715,7 +60601,7 @@ function clamp10(v, lo, hi) {
 }
 function readStore2() {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY11);
+    const raw = window.localStorage.getItem(STORAGE_KEY10);
     return raw ? JSON.parse(raw) : {};
   } catch {
     return {};
@@ -59723,7 +60609,7 @@ function readStore2() {
 }
 function writeStore(st) {
   try {
-    window.localStorage.setItem(STORAGE_KEY11, JSON.stringify(st || {}));
+    window.localStorage.setItem(STORAGE_KEY10, JSON.stringify(st || {}));
   } catch {
   }
 }
@@ -59845,12 +60731,12 @@ function initTypography() {
   initGlobalWheelZoom();
   initLocalWheelZoom();
 }
-var STORAGE_KEY11, MIN_SIZE, MAX_SIZE, DEFAULT_SIZE, DEFAULT_LINE_HEIGHT, DISPLAY_ID;
+var STORAGE_KEY10, MIN_SIZE, MAX_SIZE, DEFAULT_SIZE, DEFAULT_LINE_HEIGHT, DISPLAY_ID;
 var init_typography2 = __esm({
   "src/ui/typography.ts"() {
     "use strict";
     init_typography_ssot();
-    STORAGE_KEY11 = "tp_typography_v1";
+    STORAGE_KEY10 = "tp_typography_v1";
     MIN_SIZE = 18;
     MAX_SIZE = 120;
     DEFAULT_SIZE = DEFAULT_SCRIPT_FONT_PX;
@@ -60639,8 +61525,8 @@ async function ensureWelcomeScript() {
       return;
     }
     await waitForScriptStabilization(1200);
-    const state9 = await resolveWelcomeState();
-    if (state9.seen) {
+    const state8 = await resolveWelcomeState();
+    if (state8.seen) {
       welcomeCheckDone = true;
       return;
     }
@@ -60649,9 +61535,9 @@ async function ensureWelcomeScript() {
       welcomeCheckDone = true;
       return;
     }
-    const script = buildWelcomeScript(state9.displayName);
+    const script = buildWelcomeScript(state8.displayName);
     applyScript(script, "load", { updateEditor: true });
-    await state9.markSeen();
+    await state8.markSeen();
     welcomeCheckDone = true;
   } catch {
   } finally {
@@ -60666,8 +61552,8 @@ async function loadWelcomeGuide(opts) {
     const ok = window.confirm("Replace current script with the Welcome Guide?");
     if (!ok) return;
   }
-  const state9 = await resolveWelcomeState();
-  const script = buildWelcomeScript(state9.displayName);
+  const state8 = await resolveWelcomeState();
+  const script = buildWelcomeScript(state8.displayName);
   applyScript(script, "load", { updateEditor: true });
 }
 async function devResetWelcomeSeen() {
@@ -60727,7 +61613,7 @@ var init_welcome_intro = __esm({
 function readStoredIndex() {
   if (typeof window === "undefined") return -1;
   try {
-    const raw = window.localStorage?.getItem?.(STORAGE_KEY12);
+    const raw = window.localStorage?.getItem?.(STORAGE_KEY11);
     if (!raw) return -1;
     const parsed = parseInt(raw, 10);
     return Number.isNaN(parsed) ? -1 : parsed;
@@ -60738,7 +61624,7 @@ function readStoredIndex() {
 function persistIndex(index) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage?.setItem?.(STORAGE_KEY12, String(index));
+    window.localStorage?.setItem?.(STORAGE_KEY11, String(index));
   } catch {
   }
 }
@@ -60749,11 +61635,11 @@ function getNextSampleScript() {
   persistIndex(nextIndex);
   return SAMPLE_SCRIPTS[nextIndex];
 }
-var STORAGE_KEY12, SAMPLE_SCRIPTS;
+var STORAGE_KEY11, SAMPLE_SCRIPTS;
 var init_sample_scripts = __esm({
   "src/content/sample-scripts.ts"() {
     "use strict";
-    STORAGE_KEY12 = "tp_sample_idx";
+    STORAGE_KEY11 = "tp_sample_idx";
     SAMPLE_SCRIPTS = [
       `[s1]
 Welcome to Teleprompter Pro.
@@ -61356,12 +62242,12 @@ var init_camera = __esm({
           } catch {
           }
         }, stop4 = function() {
-          if (!state9.stream) return;
+          if (!state8.stream) return;
           try {
-            for (const t of state9.stream.getTracks()) t.stop();
+            for (const t of state8.stream.getTracks()) t.stop();
           } catch {
           }
-          state9.stream = null;
+          state8.stream = null;
           const videoEl = document.getElementById("camVideo");
           if (videoEl) {
             try {
@@ -61380,14 +62266,14 @@ var init_camera = __esm({
         };
         var emit3 = emit4, stop3 = stop4;
         const cam = window.__tpCamera = window.__tpCamera || {};
-        const state9 = { stream: null, starting: false };
+        const state8 = { stream: null, starting: false };
         async function start2() {
-          if (state9.starting) return;
-          if (state9.stream) {
+          if (state8.starting) return;
+          if (state8.stream) {
             emit4("tp:camera:started", { resumed: true });
             return;
           }
-          state9.starting = true;
+          state8.starting = true;
           emit4("tp:camera:starting");
           try {
             console.debug("[CAM] hardened start \u2192 request");
@@ -61396,7 +62282,7 @@ var init_camera = __esm({
           try {
             const constraints = { video: true, audio: false };
             const stream = await navigator.mediaDevices.getUserMedia(constraints);
-            state9.stream = stream;
+            state8.stream = stream;
             const videoEl = document.getElementById("camVideo");
             if (videoEl) {
               try {
@@ -61430,7 +62316,7 @@ var init_camera = __esm({
             }
             throw err;
           } finally {
-            state9.starting = false;
+            state8.starting = false;
           }
         }
         cam.startCamera = start2;
@@ -62270,23 +63156,69 @@ function installAiActivityChip() {
         const normalized = String(value || "").trim();
         return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : "";
       };
-      const render = (detail = {}) => {
+      const readSpeechState = () => {
+        try {
+          const store3 = window.__tpSpeech?.store;
+          if (store3 && typeof store3.getState === "function") return store3.getState();
+          if (store3 && typeof store3.get === "function") return store3.get();
+        } catch {
+        }
+        try {
+          const store3 = window.__tpStore;
+          if (store3 && typeof store3.get === "function") {
+            return { engine: store3.get("asr.engine") };
+          }
+        } catch {
+        }
+        return null;
+      };
+      const readSelectedEngine = () => {
+        const state8 = readSpeechState();
+        return String(state8?.engine || state8?.["asr.engine"] || "").trim().toLowerCase();
+      };
+      const subscribeSpeechState = (fn) => {
+        try {
+          const store3 = window.__tpSpeech?.store;
+          if (store3 && typeof store3.subscribe === "function") {
+            if (typeof store3.getState === "function") {
+              return store3.subscribe(() => fn());
+            }
+            if (typeof store3.get === "function") {
+              return store3.subscribe(() => fn());
+            }
+            return store3.subscribe(() => fn());
+          }
+        } catch {
+        }
+        return () => {
+        };
+      };
+      let lastDetail = window.__tpAiActivity || { phase: "off" };
+      const render = (detail = {}, runtime = window.__tpAsrRuntimeStatus || {}) => {
         try {
           const phase = String(detail?.phase || "off").toLowerCase();
-          const provider = capitalize(detail?.provider || "openai") || "OpenAI";
-          const engine = capitalize(detail?.engine || "whisper") || "Whisper";
+          const selectedEngine = readSelectedEngine();
+          const requestedEngineRaw = String(runtime?.requestedEngine || selectedEngine || "whisper").trim();
+          const actualEngineRaw = String(runtime?.actualEngine || detail?.engine || requestedEngineRaw).trim();
+          const effectiveEngineRaw = actualEngineRaw || requestedEngineRaw || "whisper";
+          const effectiveEngine = effectiveEngineRaw.toLowerCase();
+          const providerDefault = effectiveEngine === "whisper" ? "openai" : "browser";
+          const provider = capitalize(detail?.provider || providerDefault) || (providerDefault === "browser" ? "Browser" : "OpenAI");
+          const engine = capitalize(effectiveEngineRaw || (providerDefault === "browser" ? "webspeech" : "whisper")) || (providerDefault === "browser" ? "Webspeech" : "Whisper");
           const model = String(detail?.model || "").trim();
-          const message = String(detail?.message || "").trim();
+          const requestedEngine = capitalize(requestedEngineRaw);
+          const fallbackReason = String(runtime?.fallbackReason || "").trim();
+          const message = String(detail?.message || fallbackReason).trim();
           const requestsInFlight = Number(detail?.requestsInFlight || 0);
           const queueDepth = Number(detail?.queueDepth || 0);
           let text = "AI: off";
           let sessionText = "AI: off";
-          let state9 = "off";
+          let state8 = "off";
           let title = "AI is not active.";
           if (phase === "transcribing") {
             text = "AI: transcribing";
             sessionText = `AI: ${provider} ${engine} transcribing`;
-            state9 = "busy";
+            state8 = "busy";
             title = `${provider} ${engine} is actively transcribing mic audio${model ? ` (${model})` : ""}.`;
             if (requestsInFlight > 0 || queueDepth > 0) {
               title += ` In flight: ${requestsInFlight}. Queued: ${queueDepth}.`;
@@ -62294,29 +63226,71 @@ function installAiActivityChip() {
           } else if (phase === "ready") {
             text = "AI: active";
             sessionText = `AI: ${provider} ${engine} active`;
-            state9 = "on";
+            state8 = "on";
             title = `${provider} ${engine} is active for this speech session${model ? ` (${model})` : ""}.`;
           } else if (phase === "error") {
             text = "AI: error";
             sessionText = `AI: ${provider} ${engine} error`;
-            state9 = "error";
+            state8 = "error";
             title = message ? `${provider} ${engine} reported an error: ${message}` : `${provider} ${engine} reported an error.`;
+          } else if (runtime?.fallbackActive) {
+            text = "AI: browser";
+            sessionText = `AI: ${provider} ${engine} fallback`;
+            state8 = "browser";
+            title = message ? `${requestedEngine || "Whisper"} fell back to ${engine}: ${message}` : `${requestedEngine || "Whisper"} fell back to ${engine}.`;
+          } else if (effectiveEngine === "whisper") {
+            text = "AI: standby";
+            sessionText = `AI: ${provider} ${engine} standby`;
+            state8 = "standby";
+            title = message ? message : `${provider} ${engine} is selected and will activate when speech starts${model ? ` (${model})` : ""}.`;
+          } else {
+            text = "AI: browser";
+            sessionText = "AI: browser speech";
+            state8 = "browser";
+            title = message || "Browser speech recognition is selected. AI transcription is not active.";
           }
           chip.textContent = text;
-          chip.dataset.state = state9;
+          chip.dataset.state = state8;
           chip.dataset.sessionText = sessionText;
           chip.title = title;
           chip.setAttribute("aria-label", sessionText);
         } catch {
         }
       };
-      render(window.__tpAiActivity || { phase: "off" });
-      window.addEventListener("tp:ai:activity", (event) => {
+      render(lastDetail);
+      const unsubscribeSpeechState = subscribeSpeechState(() => {
         try {
-          render(event && event.detail || {});
+          const phase = String(lastDetail?.phase || "off").toLowerCase();
+          if (phase === "transcribing" || phase === "ready" || phase === "error") {
+            render(lastDetail);
+            return;
+          }
+          render({ phase: "off" });
         } catch {
         }
       });
+      window.addEventListener("tp:ai:activity", (event) => {
+        try {
+          lastDetail = event && event.detail || { phase: "off" };
+          render(lastDetail);
+        } catch {
+        }
+      });
+      window.addEventListener("tp:asr:runtime-status", (event) => {
+        try {
+          render(lastDetail, event && event.detail || {});
+        } catch {
+        }
+      });
+      try {
+        window.addEventListener("beforeunload", () => {
+          try {
+            unsubscribeSpeechState?.();
+          } catch {
+          }
+        }, { once: true });
+      } catch {
+      }
     } catch {
     }
   });
@@ -62890,10 +63864,11 @@ function bindStaticDom() {
             const prevIndex = Number.isFinite(index) ? Math.max(0, Math.floor(index)) : null;
             if (mode === "asr" && prevIndex != null) {
               try {
-                const driver = window.__tpAsrScrollDriver;
-                if (typeof driver?.setLastLineIndex === "function") {
-                  driver.setLastLineIndex(prevIndex);
-                }
+                dispatchAsrManualAnchor({
+                  targetIndex: prevIndex,
+                  source: "catchup",
+                  reason: "catchup"
+                });
               } catch {
               }
             } else if (mode === "hybrid" && prevIndex != null) {
@@ -62953,7 +63928,7 @@ function bindStaticDom() {
       const body = document.getElementById("speakersBody");
       if (btn && body && !btn.dataset.wired) {
         btn.dataset.wired = "1";
-        const KEY7 = "tp_speakers_visible_v2";
+        const KEY6 = "tp_speakers_visible_v2";
         let vis = true;
         const apply = (next) => {
           try {
@@ -62962,14 +63937,14 @@ function bindStaticDom() {
             btn.textContent = vis ? "Hide" : "Show";
             btn.setAttribute("aria-expanded", vis ? "true" : "false");
             try {
-              localStorage.setItem(KEY7, vis ? "1" : "0");
+              localStorage.setItem(KEY6, vis ? "1" : "0");
             } catch {
             }
           } catch {
           }
         };
         try {
-          const stored = localStorage.getItem(KEY7);
+          const stored = localStorage.getItem(KEY6);
           vis = stored === "1";
         } catch {
         }
@@ -63121,6 +64096,7 @@ var init_dom = __esm({
     "use strict";
     init_scroll_helpers();
     init_scroll_writer();
+    init_manual_anchor();
     init_scroller();
     init_session();
     init_apply_script();
@@ -63791,8 +64767,8 @@ function initDisplayPairingPanel() {
   if (!elements) return;
   bindModalEvents();
   updatePairingDiagnostics(resolvePairBaseUrl(window.location.origin));
-  onNetworkDisplayStatus(({ connectedDisplays, state: state9, lastError }) => {
-    if (state9 === "error" && lastError) {
+  onNetworkDisplayStatus(({ connectedDisplays, state: state8, lastError }) => {
+    if (state8 === "error" && lastError) {
       elements.status.textContent = `Connected: ${connectedDisplays} (${lastError})`;
       return;
     }
@@ -67950,23 +68926,23 @@ function installScrollWriteGuard(scroller) {
   const el = scroller;
   if (el.__tpScrollGuardInstalled) return;
   el.__tpScrollGuardInstalled = true;
-  const state9 = { scroller: el };
-  el.__tpScrollGuardState = state9;
+  const state8 = { scroller: el };
+  el.__tpScrollGuardState = state8;
   const desc = findScrollTopDescriptor(el);
-  if (desc?.get) state9.originalScrollTopGet = desc.get.bind(el);
-  if (desc?.set) state9.originalScrollTopSet = desc.set.bind(el);
+  if (desc?.get) state8.originalScrollTopGet = desc.get.bind(el);
+  if (desc?.set) state8.originalScrollTopSet = desc.set.bind(el);
   try {
     Object.defineProperty(el, "scrollTop", {
       configurable: true,
       enumerable: desc?.enumerable ?? true,
       get() {
-        if (state9.originalScrollTopGet) return state9.originalScrollTopGet();
+        if (state8.originalScrollTopGet) return state8.originalScrollTopGet();
         return 0;
       },
       set(value) {
         if (!shouldAllow()) logWrite("scrollTop=", el, value);
-        if (state9.originalScrollTopSet) {
-          state9.originalScrollTopSet(Number(value) || 0);
+        if (state8.originalScrollTopSet) {
+          state8.originalScrollTopSet(Number(value) || 0);
         }
       }
     });
@@ -67974,10 +68950,10 @@ function installScrollWriteGuard(scroller) {
   }
   try {
     if (typeof el.scrollTo === "function") {
-      state9.originalScrollTo = el.scrollTo.bind(el);
+      state8.originalScrollTo = el.scrollTo.bind(el);
       el.scrollTo = function(...args) {
         if (!shouldAllow()) logWrite("scrollTo()", el, args?.[0]);
-        return state9.originalScrollTo?.(...args);
+        return state8.originalScrollTo?.(...args);
       };
     }
   } catch {
@@ -68992,27 +69968,19 @@ function getAsrModeState() {
   const asrMode = resolveCompatAsrMode();
   if (asrMode && typeof asrMode.getState === "function") {
     try {
-      const state9 = asrMode.getState();
-      return typeof state9 === "string" ? state9.toLowerCase() : null;
+      const state8 = asrMode.getState();
+      return typeof state8 === "string" ? state8.toLowerCase() : null;
     } catch {
     }
   }
   return null;
 }
 function isAsrEngineEngaged() {
-  const state9 = getAsrModeState();
-  return state9 === "running" || state9 === "listening" || state9 === "ready";
+  const state8 = getAsrModeState();
+  return state8 === "running" || state8 === "listening" || state8 === "ready";
 }
 function isAsrOverlayActive() {
   return selectPrefersAsr || isAsrEngineEngaged();
-}
-function isSettingsHydrating2() {
-  if (typeof window === "undefined") return false;
-  try {
-    return !!window.__tpSettingsHydrating;
-  } catch {
-    return false;
-  }
 }
 function isDevMode13() {
   try {
@@ -69044,274 +70012,6 @@ function devLog(...args) {
   if (!isDevMode13()) return;
   try {
     console.debug("[settings]", ...args);
-  } catch {
-  }
-}
-function setSettingsSaveStatus(status2) {
-  try {
-    appStoreSingleton.set?.("settingsSaveStatus", status2);
-  } catch {
-  }
-}
-function resolveActiveAsrProfileSummary() {
-  try {
-    const profiles = appStoreSingleton.get?.("asrProfiles");
-    const active = appStoreSingleton.get?.("asrActiveProfileId") || "";
-    const candidate = active && profiles ? profiles[active] : null;
-    if (candidate && typeof candidate === "object") {
-      return candidate.label || candidate.name || active || "default";
-    }
-    return active || "default";
-  } catch {
-    return "default";
-  }
-}
-function recordAsrApplied(reason) {
-  try {
-    const summary = {
-      engine: appStoreSingleton.get?.("asr.engine"),
-      lang: appStoreSingleton.get?.("asr.language"),
-      profileName: resolveActiveAsrProfileSummary(),
-      reason
-    };
-    appStoreSingleton.set?.("asrLastAppliedAt", Date.now());
-    appStoreSingleton.set?.("asrLastAppliedSummary", summary);
-    appStoreSingleton.set?.("asrLastApplyOk", true);
-  } catch {
-  }
-}
-function ensureSettingsSavedDot() {
-  try {
-    const btn = document.getElementById("settingsBtn");
-    if (!btn) return null;
-    btn.classList.add("tp-save-host");
-    let dot = btn.querySelector(".tp-save-dot");
-    if (!dot) {
-      dot = document.createElement("span");
-      dot.className = "tp-save-dot";
-      dot.setAttribute("aria-hidden", "true");
-      btn.appendChild(dot);
-    }
-    return dot;
-  } catch {
-    return null;
-  }
-}
-function flashSettingsSaved() {
-  try {
-    const btn = document.getElementById("settingsBtn");
-    const dot = ensureSettingsSavedDot();
-    if (!btn || !dot) return;
-    btn.classList.add("tp-save-flash");
-    if (saveIndicatorTimer) {
-      try {
-        clearTimeout(saveIndicatorTimer);
-      } catch {
-      }
-    }
-    saveIndicatorTimer = window.setTimeout(() => {
-      try {
-        btn.classList.remove("tp-save-flash");
-      } catch {
-      }
-    }, 1600);
-  } catch {
-  }
-}
-function applySettingsToStore(settings2, store3) {
-  if (!settings2 || typeof settings2 !== "object") return;
-  const app = settings2.app || {};
-  devLog("hydrate:apply", { keys: Object.keys(app).length });
-  suppressSave = true;
-  try {
-    SETTINGS_KEYS.forEach((k) => {
-      if (!Object.prototype.hasOwnProperty.call(app, k)) return;
-      if (k === "scrollMode") {
-        let raw = "";
-        let current2 = "";
-        try {
-          raw = normalizeUiScrollMode(String(app[k] ?? "").trim().toLowerCase());
-          current2 = normalizeUiScrollMode(store3.get?.("scrollMode"));
-          const engaged = isAsrOverlayActive();
-          if (raw === "asr" && current2 !== "asr" && !engaged) {
-            devLog("[ASR] hydrate skipped scrollMode override to asr", { raw, current: current2, engaged });
-            return;
-          }
-          if (raw !== "asr" && engaged) {
-            devLog("[ASR] hydrate skipped scrollMode override while engaged", { raw });
-            return;
-          }
-        } catch {
-        }
-        try {
-          withScrollModeWriter("state/app-store", () => {
-            store3.set?.("scrollMode", raw);
-          }, { source: "hydrate", via: "profile" });
-        } catch {
-        }
-        return;
-      }
-      try {
-        store3.set?.(k, app[k]);
-      } catch {
-      }
-    });
-    currentSettings = applySettingsPatch({ app: { ...currentSettings.app || {} } }, { app }) || { app: {} };
-    try {
-      const asrSettings = settings2.asrSettings;
-      if (asrSettings && typeof asrSettings === "object") {
-        const mapping = {
-          engine: "asr.engine",
-          language: "asr.language",
-          useInterimResults: "asr.useInterimResults",
-          filterFillers: "asr.filterFillers",
-          threshold: "asr.threshold",
-          endpointingMs: "asr.endpointMs",
-          calmModeEnabled: "asrCalmModeEnabled"
-        };
-        const patch = {};
-        Object.keys(mapping).forEach((src) => {
-          const value = asrSettings[src];
-          if (typeof value !== "undefined") {
-            try {
-              store3.set?.(mapping[src], value);
-            } catch {
-            }
-            if (src in asrSettings) {
-              patch[src] = value;
-            }
-          }
-        });
-        if (Object.keys(patch).length) {
-          try {
-            speechStore.set(patch);
-          } catch {
-          }
-        }
-      }
-      const asrProfiles = settings2.asrProfiles;
-      if (Array.isArray(asrProfiles)) {
-        const map = {};
-        asrProfiles.forEach((profile) => {
-          if (profile && typeof profile === "object" && "id" in profile) {
-            map[profile.id] = profile;
-          }
-        });
-        try {
-          store3.set?.("asrProfiles", map);
-        } catch {
-        }
-      }
-      const speakerProfiles = settings2.speakerProfiles;
-      const speakerBindings = settings2.speakerBindings;
-      if (Array.isArray(speakerProfiles) || speakerBindings) {
-        initSpeakerProfilesFromSettings({
-          profiles: Array.isArray(speakerProfiles) ? speakerProfiles.filter((profile) => profile && typeof profile === "object") : void 0,
-          bindings: speakerBindings,
-          activeSlot: speakerBindings?.activeSlot
-        });
-      }
-    } catch {
-    }
-    recordAsrApplied("hydrate");
-  } catch {
-  } finally {
-    suppressSave = false;
-  }
-}
-function snapshotAppSettings(store3) {
-  const app = {};
-  SETTINGS_KEYS.forEach((k) => {
-    try {
-      app[k] = store3.get?.(k);
-    } catch {
-    }
-  });
-  const asrSettings = {
-    engine: store3.get?.("asr.engine"),
-    language: store3.get?.("asr.language"),
-    useInterimResults: store3.get?.("asr.useInterimResults"),
-    filterFillers: store3.get?.("asr.filterFillers"),
-    threshold: store3.get?.("asr.threshold"),
-    endpointingMs: store3.get?.("asr.endpointMs"),
-    calmModeEnabled: store3.get?.("asrCalmModeEnabled")
-  };
-  const rawProfiles = store3.get?.("asrProfiles");
-  const asrProfiles = rawProfiles ? Object.values(rawProfiles) : [];
-  const speakerState = getSpeakerProfilesSnapshot();
-  const speakerProfiles = speakerState.profiles;
-  const speakerBindings = {
-    ...speakerState.bindings,
-    activeSlot: speakerState.activeSlot
-  };
-  return { app, asrSettings, asrProfiles, speakerProfiles, speakerBindings };
-}
-function queueProfileSave(userId, store3) {
-  if (IS_CI_MODE) return;
-  if (!profileHydrated || suppressSave) return;
-  if (isSettingsHydrating2()) return;
-  if (saveTimer) {
-    try {
-      clearTimeout(saveTimer);
-    } catch {
-    }
-  }
-  devLog("save:queue");
-  saveTimer = window.setTimeout(async () => {
-    saveTimer = null;
-    if (saving) return;
-    saving = true;
-    try {
-      const merged = snapshotAppSettings(store3);
-      currentSettings = merged;
-      setSettingsSaveStatus({ state: "saving", at: Date.now() });
-      const { rev: rev2 } = await saveProfileSettings({
-        userId,
-        mergedSettings: merged,
-        expectedRev: profileRev
-      });
-      profileRev = rev2;
-      devLog("save:flushed", { rev: rev2 });
-      if (lastUserChange && Date.now() - lastUserChange <= RECENT_CHANGE_WINDOW_MS) {
-        flashSettingsSaved();
-      }
-      setSettingsSaveStatus({ state: "saved", at: Date.now() });
-    } catch (err) {
-      setSettingsSaveStatus({ state: "failed", at: Date.now(), error: String(err) });
-      try {
-        const { settings: settings2, rev: rev2 } = await loadProfileSettings(userId);
-        profileRev = rev2;
-        applySettingsToStore(settings2, store3);
-        devLog("save:conflict-reloaded", { rev: rev2 });
-      } catch (errReload) {
-        try {
-          console.warn("[forge] settings save failed; reload also failed", err, errReload);
-          devLog("save:conflict-reload-failed");
-        } catch {
-        }
-      }
-    } finally {
-      saving = false;
-    }
-  }, SETTINGS_SAVE_DEBOUNCE_MS);
-}
-function installSettingsPersistence(userId, store3) {
-  try {
-    const seenInit = /* @__PURE__ */ new Set();
-    SETTINGS_KEYS.forEach((k) => {
-      store3.subscribe?.(k, (_v) => {
-        if (!profileHydrated || suppressSave) return;
-        if (isSettingsHydrating2()) return;
-        if (!seenInit.has(k)) {
-          seenInit.add(k);
-          return;
-        }
-        lastUserChange = Date.now();
-        currentSettings.app = currentSettings.app || {};
-        currentSettings.app[k] = _v;
-        queueProfileSave(userId, store3);
-      });
-    });
   } catch {
   }
 }
@@ -69449,9 +70149,9 @@ function waitForActiveAsrProfile(timeoutMs = 6e4) {
       }
       resolve(ok);
     };
-    const unsub = onAsr((state9) => {
+    const unsub = onAsr((state8) => {
       try {
-        if (state9?.activeProfileId && state9.profiles?.[state9.activeProfileId]) {
+        if (state8?.activeProfileId && state8.profiles?.[state8.activeProfileId]) {
           finish(true);
         }
       } catch {
@@ -69605,7 +70305,7 @@ function applyUiScrollMode(mode, opts = {}) {
   };
   const requestAsrStop = () => {
     try {
-      stopAsrRuntime();
+      stopSpeechBackendForSession("ui-mode-exit");
     } catch {
     }
     try {
@@ -69857,8 +70557,8 @@ function initScrollModeUiSync() {
     const handleAsrStateEvent = (ev) => {
       try {
         const detail = ev?.detail || {};
-        const state9 = String(detail.state || "").toLowerCase();
-        const engaged = state9 === "running" || state9 === "listening";
+        const state8 = String(detail.state || "").toLowerCase();
+        const engaged = state8 === "running" || state8 === "listening";
         updateOverlayFromEngineState(engaged, detail.reason);
       } catch {
       }
@@ -70235,36 +70935,11 @@ async function boot() {
       }
     }
     if (profileUserId) {
-      if (!IS_CI_MODE) {
-        try {
-          const { settings: settings2, rev: rev2 } = await loadProfileSettings(profileUserId);
-          profileRev = rev2;
-          applySettingsToStore(settings2, appStoreSingleton);
-          currentSettings = snapshotAppSettings(appStoreSingleton);
-          profileHydrated = true;
-          devLog("hydrate:done", { rev: rev2 });
-        } catch (err) {
-          try {
-            console.warn("[forge] settings load failed; using defaults", err);
-          } catch {
-          }
-          currentSettings = snapshotAppSettings(appStoreSingleton);
-          profileHydrated = true;
-          devLog("hydrate:failed");
-        }
-        installSettingsPersistence(profileUserId, appStoreSingleton);
-        const persistedUserId = profileUserId;
-        subscribeSpeakerProfileState(() => {
-          if (!persistedUserId) return;
-          if (!profileHydrated || suppressSave) return;
-          lastUserChange = Date.now();
-          queueProfileSave(persistedUserId, appStoreSingleton);
-        });
-      } else {
-        currentSettings = snapshotAppSettings(appStoreSingleton);
-        profileHydrated = true;
-        devLog("hydrate:ci-skip");
-      }
+      await settingsSync.hydrateForUser(profileUserId, {
+        loadRemote: !IS_CI_MODE,
+        enablePersistence: !IS_CI_MODE,
+        skipLogLabel: "hydrate:ci-skip"
+      });
     }
     bootTrace("boot():auth-hydrate:done", { profileUserId: profileUserId || null });
     try {
@@ -70522,10 +71197,6 @@ async function boot() {
         }
         try {
           initScrollPrefsPersistence(appStoreSingleton);
-        } catch {
-        }
-        try {
-          initAsrPersistence();
         } catch {
         }
         try {
@@ -70983,7 +71654,7 @@ async function boot() {
     }
   }
 }
-var TS_BOOT_OWNER, IS_CI_MODE, SCROLL_MODE_SELECT_ID, ALLOWED_SCROLL_MODES, lastStableUiMode, selectPrefersAsr, lastScrollModeSource, SETTINGS_KEYS, profileHydrated, profileRev, suppressSave, saveTimer, saving, currentSettings, lastUserChange, saveIndicatorTimer, SETTINGS_SAVE_DEBOUNCE_MS, RECENT_CHANGE_WINDOW_MS, asrRejectionToastShown, lastAsrReadyState, asrGatePending, ENABLE_HUD, startPersistence, startTelemetry, startScroll, startHotkeys, startToasts, __docCh2, __isDisplay;
+var TS_BOOT_OWNER, IS_CI_MODE, SCROLL_MODE_SELECT_ID, ALLOWED_SCROLL_MODES, lastStableUiMode, selectPrefersAsr, lastScrollModeSource, SETTINGS_KEYS, settingsSync, asrRejectionToastShown, lastAsrReadyState, asrGatePending, ENABLE_HUD, startPersistence, startTelemetry, startScroll, startHotkeys, startToasts, __docCh2, __isDisplay;
 var init_index_app = __esm({
   "src/index-app.ts"() {
     "use strict";
@@ -70992,12 +71663,8 @@ var init_index_app = __esm({
     init_boot_trace();
     init_dev_log();
     init_app_store();
-    init_speech_store();
     init_session();
     init_auto_record_ssot();
-    init_loader();
-    init_runtime_control();
-    init_speaker_profiles_store();
     init_bridge_speech();
     init_scheduler();
     init_inject_settings_folder();
@@ -71015,6 +71682,7 @@ var init_index_app = __esm({
     init_recorder_settings();
     init_authProfile();
     init_forge_nav();
+    init_profile_settings_sync();
     init_workpiece_script_handoff();
     init_supabaseClient();
     init_load_sample();
@@ -71040,8 +71708,7 @@ var init_index_app = __esm({
     init_audit();
     init_ci_mocks();
     init_asr_thresholds_panel();
-    init_loader2();
-    init_persistence();
+    init_loader();
     init_scroll_prefs();
     init_toasts();
     init_readiness();
@@ -71059,7 +71726,7 @@ var init_index_app = __esm({
     init_asr_wizard();
     init_hotkeys();
     init_kick();
-    init_persistence2();
+    init_persistence();
     init_telemetry();
     init_toasts2();
     init_script_editor();
@@ -71099,7 +71766,7 @@ var init_index_app = __esm({
     init_obs_bridge_claim();
     init_obs_wiring2();
     init_ui_binds();
-    init_loader2();
+    init_loader();
     init_toggle();
     init_dom();
     init_display_pairing();
@@ -71261,6 +71928,7 @@ var init_index_app = __esm({
       "asr.filterFillers",
       "asr.threshold",
       "asr.endpointMs",
+      "asr.manualAnchorAdoptEnabled",
       "asrCalmModeEnabled",
       "asrProfiles",
       "asrActiveProfileId",
@@ -71268,22 +71936,22 @@ var init_index_app = __esm({
       "asrTuningActiveProfileId",
       "settingsTab"
     ];
-    profileHydrated = false;
-    profileRev = 0;
-    suppressSave = false;
-    saveTimer = null;
-    saving = false;
-    currentSettings = { app: {} };
-    lastUserChange = 0;
-    saveIndicatorTimer = null;
-    SETTINGS_SAVE_DEBOUNCE_MS = 900;
-    RECENT_CHANGE_WINDOW_MS = 1e4;
-    try {
-      window.addEventListener("tp:asrChanged", () => {
-        recordAsrApplied("asr-changed");
-      });
-    } catch {
-    }
+    settingsSync = createProfileSettingsSync({
+      store: appStoreSingleton,
+      settingsKeys: SETTINGS_KEYS,
+      isCiMode: IS_CI_MODE,
+      devLog,
+      isSettingsHydrating: () => {
+        if (typeof window === "undefined") return false;
+        try {
+          return !!window.__tpSettingsHydrating;
+        } catch {
+          return false;
+        }
+      },
+      normalizeUiScrollMode,
+      isAsrOverlayActive
+    });
     asrRejectionToastShown = false;
     lastAsrReadyState = null;
     asrGatePending = false;

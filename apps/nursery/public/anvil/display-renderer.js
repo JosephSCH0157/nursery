@@ -1731,6 +1731,33 @@ function persistStoredAutoEnabled(enabled) {
   }
 }
 
+// src/features/asr/engine-selection.ts
+var ASR_ENGINE_EXPLICIT_KEY = "tp_asr_engine_explicit_v1";
+function normalizeAsrEngine(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return "";
+  if (normalized === "web-speech") return "webspeech";
+  if (normalized === "offline") return "vosk";
+  return normalized;
+}
+function isAsrEngineExplicit(value) {
+  return value === true || value === 1 || value === "1" || value === "true";
+}
+function readLocalAsrEngineExplicit() {
+  try {
+    const store2 = window?.__tpStore;
+    if (store2 && typeof store2.get === "function") {
+      return isAsrEngineExplicit(store2.get("asr.engineExplicit"));
+    }
+  } catch {
+  }
+  try {
+    return localStorage.getItem(ASR_ENGINE_EXPLICIT_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 // src/scroll/audit.ts
 var EXPECTED_WRITERS = /* @__PURE__ */ new Set([
   "ui/applyUiScrollMode",
@@ -1912,6 +1939,7 @@ var ASR_INTERIM_KEY = "tp_asr_interim_v1";
 var ASR_FILTER_KEY = "tp_asr_filter_v1";
 var ASR_THRESHOLD_KEY = "tp_asr_threshold_v1";
 var ASR_ENDPOINT_KEY = "tp_asr_endpoint_v1";
+var ASR_MANUAL_ANCHOR_KEY = "tp_asr_manual_anchor_v1";
 var ASR_PROFILES_KEY = "tp_asr_profiles_v1";
 var ASR_ACTIVE_PROFILE_KEY = "tp_asr_active_profile_v1";
 var SINGLE_MONITOR_READ_KEY = "tp_single_monitor_read_v1";
@@ -1968,10 +1996,12 @@ var persistMap = {
   rehearsalPunct: REH_PUNCT_KEY,
   rehearsalResumeMs: REH_RESUME_KEY,
   "asr.engine": ASR_ENGINE_KEY,
+  "asr.engineExplicit": ASR_ENGINE_EXPLICIT_KEY,
   "asr.language": ASR_LANG_KEY,
   "asr.useInterimResults": ASR_INTERIM_KEY,
   "asr.threshold": ASR_THRESHOLD_KEY,
   "asr.endpointMs": ASR_ENDPOINT_KEY,
+  "asr.manualAnchorAdoptEnabled": ASR_MANUAL_ANCHOR_KEY,
   "asr.filterFillers": ASR_FILTER_KEY,
   asrCalmModeEnabled: ASR_CALM_MODE_KEY,
   asrProfiles: ASR_PROFILES_KEY,
@@ -1995,6 +2025,64 @@ function loadLegacyAsrSettings() {
   } catch {
     return null;
   }
+}
+function readLegacyAsrBoolean(legacyAsrSettings, ...keys) {
+  for (const key of keys) {
+    const value = legacyAsrSettings?.[key];
+    if (value !== void 0) return !!value;
+  }
+  return null;
+}
+function readLegacyAsrNumber(legacyAsrSettings, ...keys) {
+  for (const key of keys) {
+    const value = legacyAsrSettings?.[key];
+    if (value === void 0) continue;
+    const num2 = Number(value);
+    if (!Number.isNaN(num2)) return num2;
+  }
+  return null;
+}
+function migrateLegacyAsrSettings(legacyAsrSettings) {
+  if (!legacyAsrSettings || typeof window === "undefined") return;
+  try {
+    const ls = window.localStorage;
+    const setIfMissing = (key, value) => {
+      if (!key || value == null || value === "") return;
+      if (ls.getItem(key) !== null) return;
+      ls.setItem(key, value);
+    };
+    setIfMissing(ASR_ENGINE_KEY, readInitialAsrEngine(legacyAsrSettings));
+    setIfMissing(ASR_LANG_KEY, typeof legacyAsrSettings.lang === "string" ? legacyAsrSettings.lang : null);
+    const interim = readLegacyAsrBoolean(legacyAsrSettings, "interim");
+    setIfMissing(ASR_INTERIM_KEY, interim == null ? null : interim ? "1" : "0");
+    const filter = readLegacyAsrBoolean(legacyAsrSettings, "filterFillers", "fillerFilter");
+    setIfMissing(ASR_FILTER_KEY, filter == null ? null : filter ? "1" : "0");
+    const threshold = readLegacyAsrNumber(legacyAsrSettings, "threshold");
+    setIfMissing(ASR_THRESHOLD_KEY, threshold == null ? null : String(threshold));
+    const endpointMs = readLegacyAsrNumber(legacyAsrSettings, "endpointMs", "endpointingMs");
+    setIfMissing(ASR_ENDPOINT_KEY, endpointMs == null ? null : String(endpointMs));
+    const manualAnchor = readLegacyAsrBoolean(legacyAsrSettings, "manualAnchorAdoptEnabled");
+    setIfMissing(ASR_MANUAL_ANCHOR_KEY, manualAnchor == null ? null : manualAnchor ? "1" : "0");
+    const calmMode = readLegacyAsrBoolean(legacyAsrSettings, "calmModeEnabled");
+    setIfMissing(ASR_CALM_MODE_KEY, calmMode == null ? null : calmMode ? "1" : "0");
+    ls.removeItem(LEGACY_ASR_SETTINGS_KEY);
+  } catch {
+  }
+}
+function readInitialAsrEngine(legacyAsrSettings) {
+  try {
+    const explicit = readLocalAsrEngineExplicit();
+    const stored = normalizeAsrEngine(localStorage.getItem(ASR_ENGINE_KEY));
+    const legacy = normalizeAsrEngine(
+      legacyAsrSettings?.engine && typeof legacyAsrSettings.engine === "string" ? legacyAsrSettings.engine : ""
+    );
+    const selected = stored || legacy;
+    if (explicit) return selected || "whisper";
+    if (!selected || selected === "webspeech") return "whisper";
+    return selected;
+  } catch {
+  }
+  return "whisper";
 }
 function migrateAutoRecordFlag() {
   try {
@@ -2178,17 +2266,8 @@ function buildInitialState() {
       }
     })(),
     asrLive: false,
-    "asr.engine": (() => {
-      try {
-        const raw = localStorage.getItem(ASR_ENGINE_KEY);
-        if (raw) return raw;
-        if (legacyAsrSettings?.engine && typeof legacyAsrSettings.engine === "string") {
-          return legacyAsrSettings.engine;
-        }
-      } catch {
-      }
-      return "webspeech";
-    })(),
+    "asr.engine": readInitialAsrEngine(legacyAsrSettings),
+    "asr.engineExplicit": readLocalAsrEngineExplicit(),
     "asr.language": (() => {
       try {
         const raw = localStorage.getItem(ASR_LANG_KEY);
@@ -2213,7 +2292,8 @@ function buildInitialState() {
       try {
         const raw = localStorage.getItem(ASR_FILTER_KEY);
         if (raw !== null) return raw === "1";
-        if (legacyAsrSettings?.filterFillers !== void 0) return !!legacyAsrSettings.filterFillers;
+        const legacy = readLegacyAsrBoolean(legacyAsrSettings, "filterFillers", "fillerFilter");
+        if (legacy !== null) return legacy;
       } catch {
       }
       return true;
@@ -2233,15 +2313,29 @@ function buildInitialState() {
         const raw = localStorage.getItem(ASR_ENDPOINT_KEY);
         const num2 = Number(raw);
         if (raw !== null && !Number.isNaN(num2)) return num2;
-        if (legacyAsrSettings?.endpointMs !== void 0) return Number(legacyAsrSettings.endpointMs) || 700;
+        const legacy = readLegacyAsrNumber(legacyAsrSettings, "endpointMs", "endpointingMs");
+        if (legacy !== null) return legacy;
       } catch {
       }
       return 700;
+    })(),
+    "asr.manualAnchorAdoptEnabled": (() => {
+      try {
+        const raw = localStorage.getItem(ASR_MANUAL_ANCHOR_KEY);
+        if (raw !== null) return raw === "1";
+        if (legacyAsrSettings?.manualAnchorAdoptEnabled !== void 0) {
+          return legacyAsrSettings.manualAnchorAdoptEnabled !== false;
+        }
+      } catch {
+      }
+      return true;
     })(),
     asrCalmModeEnabled: (() => {
       try {
         const raw = localStorage.getItem(ASR_CALM_MODE_KEY);
         if (raw !== null) return raw === "1";
+        const legacy = readLegacyAsrBoolean(legacyAsrSettings, "calmModeEnabled");
+        if (legacy !== null) return legacy;
       } catch {
       }
       return false;
@@ -2478,6 +2572,9 @@ function sanitizeState(state3) {
     } catch {
     }
   }
+  if (typeof state3["asr.engineExplicit"] !== "boolean") {
+    state3["asr.engineExplicit"] = !!state3["asr.engineExplicit"];
+  }
   if (state3.scrollMode === "manual") {
     state3.scrollMode = "step";
   }
@@ -2510,6 +2607,7 @@ function sanitizeState(state3) {
 function createAppStore(initial) {
   const subs3 = /* @__PURE__ */ Object.create(null);
   const baseState = buildInitialState();
+  migrateLegacyAsrSettings(loadLegacyAsrSettings());
   const state3 = sanitizeState(
     Object.assign(
       {},
@@ -14592,8 +14690,6 @@ function getAppStore() {
 }
 
 // src/asr/store.ts
-var KEY = "tp_asr_profiles_v1";
-var ACTIVE_KEY = "tp_asr_active_profile_v1";
 var store = getAppStore();
 var stateFromStore = (() => {
   if (!store) return null;
@@ -14606,22 +14702,13 @@ var stateFromStore = (() => {
   }
 })();
 var state = (() => {
-  try {
-    if (stateFromStore) {
-      return {
-        profiles: stateFromStore.profiles || {},
-        activeProfileId: stateFromStore.activeProfileId
-      };
-    }
-    const raw = localStorage.getItem(KEY);
-    const parsed = raw ? JSON.parse(raw) : {};
-    const legacyProfiles = parsed && typeof parsed === "object" && "profiles" in parsed ? parsed.profiles : null;
-    const profiles = legacyProfiles && typeof legacyProfiles === "object" ? legacyProfiles : parsed && typeof parsed === "object" ? parsed : {};
-    const activeProfileId = typeof parsed?.activeProfileId === "string" && parsed.activeProfileId || (localStorage.getItem(ACTIVE_KEY) || void 0);
-    return { profiles: profiles || {}, activeProfileId };
-  } catch {
-    return { profiles: {} };
+  if (stateFromStore) {
+    return {
+      profiles: stateFromStore.profiles || {},
+      activeProfileId: stateFromStore.activeProfileId
+    };
   }
+  return { profiles: {} };
 })();
 var subs = /* @__PURE__ */ new Set();
 var storeSyncSuppressed = false;
@@ -14639,15 +14726,6 @@ function syncAppStore() {
   storeSyncSuppressed = false;
 }
 function save(opts) {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(state.profiles || {}));
-  } catch {
-  }
-  try {
-    if (state.activeProfileId) localStorage.setItem(ACTIVE_KEY, state.activeProfileId);
-    else localStorage.removeItem(ACTIVE_KEY);
-  } catch {
-  }
   subs.forEach((fn) => {
     try {
       fn(state);
@@ -14683,28 +14761,6 @@ if (store) {
   } catch {
   }
   syncAppStore();
-}
-try {
-  window.addEventListener("storage", (e) => {
-    try {
-      if (e.key === KEY && e.newValue) {
-        const parsed = JSON.parse(e.newValue);
-        const legacyProfiles = parsed && typeof parsed === "object" && "profiles" in parsed ? parsed.profiles : null;
-        const profiles = legacyProfiles && typeof legacyProfiles === "object" ? legacyProfiles : parsed && typeof parsed === "object" ? parsed : {};
-        state = {
-          ...state,
-          profiles: profiles || {}
-        };
-        save({ fromStore: true });
-      }
-      if (e.key === ACTIVE_KEY) {
-        state.activeProfileId = e.newValue || void 0;
-        save({ fromStore: true });
-      }
-    } catch {
-    }
-  });
-} catch {
 }
 
 // src/media/calibration-sidebar.ts
@@ -16655,10 +16711,10 @@ function createOrchestrator() {
   }
   return { start, stop: stop2, setMode, setGovernor, setSensitivity, setAlignStrategy, getStatus };
 }
-var KEY2 = "tp_ui_prefs_v1";
+var KEY = "tp_ui_prefs_v1";
 var state2 = (() => {
   try {
-    const parsed = JSON.parse(localStorage.getItem(KEY2) || "{}") || {};
+    const parsed = JSON.parse(localStorage.getItem(KEY) || "{}") || {};
     return { linkTypography: false, hybridGate: "db_or_vad", hybridUseProfileId: parsed.hybridUseProfileId || null, ...parsed };
   } catch {
     return { linkTypography: false, hybridGate: "db_or_vad", hybridUseProfileId: null };
