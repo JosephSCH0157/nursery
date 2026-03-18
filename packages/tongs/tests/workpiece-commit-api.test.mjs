@@ -2178,6 +2178,26 @@ test("GET /tongs/workpieces/:id/read-file?encoding=base64 dispatches readWorkpie
   assert.equal(body.data?.bytes_base64, "AQID");
 });
 
+test("GET /tongs/workpieces/:id/read-file?encoding=binary returns raw bytes", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/read-file?path=assets%2Fthumbnails%2F111%2F222.png&encoding=binary",
+    { method: "GET" },
+  );
+
+  const response = await handler(request);
+  const body = new Uint8Array(await response.arrayBuffer());
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.readWorkpieceBinary.length, 1);
+  assert.equal(calls.readWorkpieceBinary[0].workpieceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.readWorkpieceBinary[0].path, "assets/thumbnails/111/222.png");
+  assert.equal(response.headers.get("content-type"), "image/png");
+  assert.deepEqual(Array.from(body), [1, 2, 3]);
+});
+
 test("GET /tongs/workpieces/:id/read-file returns bootstrap-empty payload for missing primary script", async () => {
   const { service, calls } = mockService();
   service.readWorkpieceText = async (workpieceId, path) => {

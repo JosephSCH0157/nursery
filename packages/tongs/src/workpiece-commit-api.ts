@@ -284,6 +284,10 @@ export type ReadBinaryFileResult =
   | { found: true; bytes_base64: string; content_type: string }
   | { found: false };
 
+type ReadBinaryFileBytesResult =
+  | { found: true; bytes: Uint8Array; content_type: string }
+  | { found: false };
+
 export type AppendEventRequest = {
   event_name: string;
   payload?: Json;
@@ -6102,7 +6106,7 @@ export class TongsCommitService {
     return { found: true, text, file_row: fileRow };
   }
 
-  async readWorkpieceBinary(workpieceId: string, path: string): Promise<ReadBinaryFileResult> {
+  private async readWorkpieceBinaryBytes(workpieceId: string, path: string): Promise<ReadBinaryFileBytesResult> {
     await this.getCradleOrThrow(workpieceId);
     const storageKey = buildStorageKey(workpieceId, path);
     const bytes = await downloadStorageObject(this.supabase, this.bucket, storageKey);
@@ -6125,8 +6129,19 @@ export class TongsCommitService {
     const contentType = fileRow?.content_type?.trim() || normalizeContentType(undefined, path);
     return {
       found: true,
-      bytes_base64: encodeBase64(bytes),
+      bytes,
       content_type: contentType,
+    };
+  }
+
+  async readWorkpieceBinary(workpieceId: string, path: string): Promise<ReadBinaryFileResult> {
+    const result = await this.readWorkpieceBinaryBytes(workpieceId, path);
+    if (!result.found) return result;
+
+    return {
+      found: true,
+      bytes_base64: encodeBase64(result.bytes),
+      content_type: result.content_type,
     };
   }
 
@@ -7994,6 +8009,38 @@ export function createTongsCommitApiHandlerWithService(
         const url = new URL(request.url);
         const path = normalizeRelativePath(url.searchParams.get("path"));
         const encoding = (url.searchParams.get("encoding") ?? "").trim().toLowerCase();
+
+        if (encoding === "binary") {
+          const binaryCapableService = service as TongsCommitApiService & {
+            readWorkpieceBinaryBytes?: (workpieceId: string, path: string) => Promise<ReadBinaryFileBytesResult>;
+          };
+          const result = typeof binaryCapableService.readWorkpieceBinaryBytes === "function"
+            ? await binaryCapableService.readWorkpieceBinaryBytes(workpieceId, path)
+            : await service.readWorkpieceBinary(workpieceId, path).then((binaryResult) => (
+              binaryResult.found
+                ? {
+                  found: true as const,
+                  bytes: decodeBase64(binaryResult.bytes_base64),
+                  content_type: binaryResult.content_type,
+                }
+                : { found: false as const }
+            ));
+          if (!result.found) {
+            return jsonResponse(404, {
+              ok: true,
+              exists: false,
+            });
+          }
+          const responseBytes = new Uint8Array(result.bytes);
+          return new Response(responseBytes.buffer, {
+            status: 200,
+            headers: {
+              "content-type": result.content_type,
+              "content-length": String(result.bytes.byteLength),
+              "cache-control": "no-store",
+            },
+          });
+        }
 
         if (encoding === "base64") {
           const result = await service.readWorkpieceBinary(workpieceId, path);

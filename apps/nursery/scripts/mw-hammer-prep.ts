@@ -15,6 +15,9 @@ type Next = (err?: unknown) => void;
 
 const DEFAULT_TRANSCRIBE_MODEL = "gpt-4o-transcribe-diarize";
 const ALLOWED_MEDIA_EXTENSIONS = new Set([".mp4", ".webm", ".mov", ".wav", ".mp3", ".m4a"]);
+const MAX_TRANSCRIBE_SOURCE_BYTES = 96 * 1024 * 1024;
+const CANONICAL_MEDIA_FETCH_TIMEOUT_MS = 60_000;
+const OPENAI_TRANSCRIBE_TIMEOUT_MS = 4 * 60 * 1000;
 const MEDIA_CONTENT_TYPES: Partial<Record<string, string>> = {
   ".mp4": "video/mp4",
   ".webm": "video/webm",
@@ -77,6 +80,33 @@ function inferContentType(absolutePath: string, mimeType?: string | null): strin
   if (explicit) return explicit;
   const extension = path.extname(absolutePath).toLowerCase();
   return MEDIA_CONTENT_TYPES[extension] ?? "application/octet-stream";
+}
+
+function formatBytesAsMiB(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+function buildSourceTooLargeMessage(byteCount: number): string {
+  return `Hammer transcript prep currently supports source media up to ${formatBytesAsMiB(MAX_TRANSCRIBE_SOURCE_BYTES)} in this runtime. Received ${formatBytesAsMiB(byteCount)}.`;
+}
+
+function readHeaderNumber(headers: Headers, name: string): number | null {
+  const value = readTrimmed(headers.get(name));
+  if (!value) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function createTimeoutAbortController(timeoutMs: number): {
+  controller: AbortController;
+  dispose: () => void;
+} {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  return {
+    controller,
+    dispose: () => clearTimeout(timeoutId),
+  };
 }
 
 function sendJson(res: ServerResponse, status: number, payload: unknown): void {
@@ -197,45 +227,69 @@ async function loadCanonicalWorkpieceMediaFile(
   const origin = buildRequestOrigin(req);
   const url = new URL(`/tongs/workpieces/${encodeURIComponent(request.workpiece_id)}/read-file`, origin);
   url.searchParams.set("path", request.canonical_workpiece_path);
-  url.searchParams.set("encoding", "base64");
+  url.searchParams.set("encoding", "binary");
 
-  const response = await fetch(url, {
-    method: "GET",
-    headers: {
-      accept: "application/json",
-      ...(typeof req.headers.authorization === "string"
-        ? { authorization: req.headers.authorization }
-        : {}),
-      ...(typeof req.headers["x-forge-user-authorization"] === "string"
-        ? { "x-forge-user-authorization": req.headers["x-forge-user-authorization"] }
-        : {}),
-    },
-  });
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
+  const fetchTimeout = createTimeoutAbortController(CANONICAL_MEDIA_FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        accept: "application/octet-stream, application/json",
+        ...(typeof req.headers.authorization === "string"
+          ? { authorization: req.headers.authorization }
+          : {}),
+        ...(typeof req.headers["x-forge-user-authorization"] === "string"
+          ? { "x-forge-user-authorization": req.headers["x-forge-user-authorization"] }
+          : {}),
+      },
+      signal: fetchTimeout.controller.signal,
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      return {
+        ok: false,
+        status: response.status,
+        message: readErrorMessage(payload, "Hammer could not read canonical workpiece media."),
+      };
+    }
+
+    const contentLength = readHeaderNumber(response.headers, "content-length");
+    if (contentLength != null && contentLength > MAX_TRANSCRIBE_SOURCE_BYTES) {
+      return {
+        ok: false,
+        status: 413,
+        message: buildSourceTooLargeMessage(contentLength),
+      };
+    }
+
+    const fileBytes = Buffer.from(await response.arrayBuffer());
+    if (fileBytes.byteLength > MAX_TRANSCRIBE_SOURCE_BYTES) {
+      return {
+        ok: false,
+        status: 413,
+        message: buildSourceTooLargeMessage(fileBytes.byteLength),
+      };
+    }
+
     return {
-      ok: false,
-      status: response.status,
-      message: readErrorMessage(payload, "Hammer could not read canonical workpiece media."),
+      ok: true,
+      contentType: readTrimmed(response.headers.get("content-type"))
+        ?? inferContentType(request.canonical_workpiece_path, request.mime_type),
+      fileBytes,
+      sourceLabel: request.canonical_workpiece_path,
     };
+  } catch (error) {
+    if (fetchTimeout.controller.signal.aborted) {
+      return {
+        ok: false,
+        status: 504,
+        message: "Hammer timed out while reading canonical workpiece media.",
+      };
+    }
+    throw error;
+  } finally {
+    fetchTimeout.dispose();
   }
-
-  const data = readJsonObject(readJsonObject(payload)?.data);
-  const bytesBase64 = readTrimmed(data?.bytes_base64);
-  if (!bytesBase64) {
-    return {
-      ok: false,
-      status: 404,
-      message: "Canonical workpiece media was not found.",
-    };
-  }
-
-  return {
-    ok: true,
-    contentType: readTrimmed(data?.content_type) ?? inferContentType(request.canonical_workpiece_path, request.mime_type),
-    fileBytes: Buffer.from(bytesBase64, "base64"),
-    sourceLabel: request.canonical_workpiece_path,
-  };
 }
 
 function normalizeSegments(payload: unknown): HammerTranscriptPrepSegment[] {
@@ -333,6 +387,10 @@ export function createHammerPrepMiddleware() {
           sendJson(res, 404, { ok: false, error: { message: "Requested media file was not found." } });
           return;
         }
+        if (stat.size > MAX_TRANSCRIBE_SOURCE_BYTES) {
+          sendJson(res, 413, { ok: false, error: { message: buildSourceTooLargeMessage(stat.size) } });
+          return;
+        }
 
         fileBytes = await fsPromises.readFile(absolutePath);
         sourceLabel = absolutePath;
@@ -363,13 +421,31 @@ export function createHammerPrepMiddleware() {
         path.basename(sourceLabel),
       );
 
-      const upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${textApiKey}`,
-        },
-        body: form,
-      });
+      const upstreamTimeout = createTimeoutAbortController(OPENAI_TRANSCRIBE_TIMEOUT_MS);
+      let upstream: Response;
+      try {
+        upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${textApiKey}`,
+          },
+          body: form,
+          signal: upstreamTimeout.controller.signal,
+        });
+      } catch (error) {
+        if (upstreamTimeout.controller.signal.aborted) {
+          sendJson(res, 504, {
+            ok: false,
+            error: {
+              message: "Hammer transcript prep timed out while waiting for OpenAI transcription.",
+            },
+          });
+          return;
+        }
+        throw error;
+      } finally {
+        upstreamTimeout.dispose();
+      }
 
       if (!upstream.ok) {
         const detail = await upstream.text();
