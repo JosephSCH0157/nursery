@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Session as SupabaseSession } from "@supabase/supabase-js";
 import { loadMountRegistry } from "../lib/mount-registry";
 import { supabase } from "../lib/supabase";
@@ -13,8 +13,12 @@ import {
   warnMissingWorkspaceParamInDev,
 } from "../lib/forge-route-context";
 import { useForgeCloudStatus, type ForgeCloudState } from "../lib/forge-cloud-status";
-import { AiControlsPanel } from "../components/hearth/AiControlsPanel";
 import "./AppShell.css";
+
+const AiControlsPanel = lazy(async () => {
+  const module = await import("../components/hearth/AiControlsPanel");
+  return { default: module.AiControlsPanel };
+});
 
 const WORKSPACE_CACHE_KEY = "forge_workspaces_cache_v1";
 const ACTIVE_WORKSPACE_KEY = "forge_workspace_id_v1";
@@ -1334,11 +1338,13 @@ export default function AppShell() {
           onClick={() => setAiControlsOpen(false)}
         >
           <div onClick={(event) => event.stopPropagation()}>
-            <AiControlsPanel
-              onClose={() => setAiControlsOpen(false)}
-              workspaceId={workspaceId}
-              workspaceRole={activeWorkspace?.role ?? null}
-            />
+            <Suspense fallback={<div className="appshell-card">Loading AI controls...</div>}>
+              <AiControlsPanel
+                onClose={() => setAiControlsOpen(false)}
+                workspaceId={workspaceId}
+                workspaceRole={activeWorkspace?.role ?? null}
+              />
+            </Suspense>
           </div>
         </div>
       ) : null}

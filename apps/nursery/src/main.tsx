@@ -1,4 +1,4 @@
-import React from "react";
+import React, { Suspense, lazy } from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import "./index.css";
@@ -15,28 +15,38 @@ import SettingsLayout from "./routes/SettingsLayout";
 import SettingsOrg from "./routes/SettingsOrg";
 import SettingsOrgTeams from "./routes/SettingsOrgTeams";
 import SettingsStorage from "./routes/SettingsStorage";
-import TongsRoute from "./routes/Tongs";
-import BarstockRoute from "./routes/Barstock";
 import Placeholder from "./routes/Placeholder";
 import AnvilRoute from "./routes/Anvil";
-import BellowsStandalone from "./routes/BellowsStandalone";
-import HearthRoute from "./routes/Hearth";
-import HearthStandalone from "./routes/HearthStandalone";
 import IronMineRoute from "./routes/IronMine";
 import MobilePrimitivesDemo from "./routes/MobilePrimitivesDemo";
-import QuenchRoute from "./routes/Quench";
 import SubscriptionsRoute from "./routes/Subscriptions";
-import HammerRoute from "./routes/Hammer";
-import HammerDevCardsRoute from "./routes/HammerDevCards";
-import HammerEditorRoute from "./routes/HammerEditor";
-import HammerEditorHarnessRoute from "./routes/HammerEditorHarness";
-import HammerLaunchStubRoute from "./routes/HammerLaunchStub";
-import HammerRelinkRoute from "./routes/HammerRelink";
-import HammerStandalone from "./routes/HammerStandalone";
 import { seedTongsRequestTokenBridge } from "./lib/tongs-request-token";
 import ForgeNoticeProvider from "./shell/notices/ForgeNoticeProvider";
+import RouteFallback from "./components/RouteFallback";
+
+const TongsRoute = lazy(() => import("./routes/Tongs"));
+const BarstockRoute = lazy(() => import("./routes/Barstock"));
+const BellowsStandalone = lazy(() => import("./routes/BellowsStandalone"));
+const HearthRoute = lazy(() => import("./routes/Hearth"));
+const HearthStandalone = lazy(() => import("./routes/HearthStandalone"));
+const QuenchRoute = lazy(() => import("./routes/Quench"));
+const HammerRoute = lazy(() => import("./routes/Hammer"));
+const HammerDevCardsRoute = lazy(() => import("./routes/HammerDevCards"));
+const HammerEditorRoute = lazy(() => import("./routes/HammerEditor"));
+const HammerEditorHarnessRoute = lazy(() => import("./routes/HammerEditorHarness"));
+const HammerLaunchStubRoute = lazy(() => import("./routes/HammerLaunchStub"));
+const HammerRelinkRoute = lazy(() => import("./routes/HammerRelink"));
+const HammerStandalone = lazy(() => import("./routes/HammerStandalone"));
 
 seedTongsRequestTokenBridge();
+
+function withRouteFallback(element: React.ReactNode, label: string) {
+  return (
+    <Suspense fallback={<RouteFallback label={label} />}>
+      {element}
+    </Suspense>
+  );
+}
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
@@ -57,13 +67,13 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="bellows" element={<Navigate to="/apps/bellows" replace />} />
             <Route path="anvil/help" element={<Placeholder name="Anvil Help" />} />
             <Route path="anvil/settings" element={<Placeholder name="Anvil Settings" />} />
-            <Route path="hearth" element={<HearthRoute />} />
-            <Route path="tongs" element={<TongsRoute />} />
-            <Route path="quench" element={<QuenchRoute />} />
+            <Route path="hearth" element={withRouteFallback(<HearthRoute />, "Loading Hearth...")} />
+            <Route path="tongs" element={withRouteFallback(<TongsRoute />, "Loading Tongs...")} />
+            <Route path="quench" element={withRouteFallback(<QuenchRoute />, "Loading Quench...")} />
             <Route path="ledger" element={<Placeholder name="Ledger" />} />
             <Route path="iron-mine" element={<IronMineRoute />} />
-            <Route path="barstock/*" element={<BarstockRoute />} />
-            <Route path="bar-stock/*" element={<BarstockRoute />} />
+            <Route path="barstock/*" element={withRouteFallback(<BarstockRoute />, "Loading Barstock...")} />
+            <Route path="bar-stock/*" element={withRouteFallback(<BarstockRoute />, "Loading Barstock...")} />
             <Route path="calendar" element={<Placeholder name="Calendar" />} />
             <Route path="subscriptions" element={<SubscriptionsRoute />} />
             <Route path="mobile-demo" element={<MobilePrimitivesDemo />} />
@@ -76,21 +86,21 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             </Route>
           </Route>
 
-            <Route path="/app/hammer" element={<HammerStandalone />}>
-              <Route index element={<HammerRoute />} />
-              <Route path="editor" element={<HammerEditorRoute />} />
+            <Route path="/app/hammer" element={withRouteFallback(<HammerStandalone />, "Loading Hammer...")}>
+              <Route index element={withRouteFallback(<HammerRoute />, "Loading Hammer...")} />
+              <Route path="editor" element={withRouteFallback(<HammerEditorRoute />, "Loading Hammer Editor...")} />
               {import.meta.env.DEV ? (
                 <>
-                  <Route path="dev/editor" element={<HammerEditorHarnessRoute />} />
-                  <Route path="dev/launch" element={<HammerLaunchStubRoute />} />
-                  <Route path="dev/cards" element={<HammerDevCardsRoute />} />
-                  <Route path="dev/relink" element={<HammerRelinkRoute />} />
+                  <Route path="dev/editor" element={withRouteFallback(<HammerEditorHarnessRoute />, "Loading Hammer Dev Harness...")} />
+                  <Route path="dev/launch" element={withRouteFallback(<HammerLaunchStubRoute />, "Loading Hammer Dev Launch...")} />
+                  <Route path="dev/cards" element={withRouteFallback(<HammerDevCardsRoute />, "Loading Hammer Dev Cards...")} />
+                  <Route path="dev/relink" element={withRouteFallback(<HammerRelinkRoute />, "Loading Hammer Dev Relink...")} />
                 </>
               ) : null}
             </Route>
 
-          <Route path="/apps/hearth" element={<HearthStandalone />} />
-          <Route path="/apps/bellows" element={<BellowsStandalone />} />
+          <Route path="/apps/hearth" element={withRouteFallback(<HearthStandalone />, "Loading Hearth...")} />
+          <Route path="/apps/bellows" element={withRouteFallback(<BellowsStandalone />, "Loading Bellows...")} />
           <Route path="/bellows" element={<Navigate to="/apps/bellows" replace />} />
           <Route path="/hearth" element={<Navigate to="/apps/hearth" replace />} />
 

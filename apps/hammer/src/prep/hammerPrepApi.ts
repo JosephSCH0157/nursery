@@ -47,6 +47,11 @@ type ForgeRuntimeWindow = {
   __tpTongsApiToken?: unknown;
 };
 
+type RuntimeTimers = {
+  setTimeout?: (handler: () => void, timeout?: number) => unknown;
+  clearTimeout?: (handle: unknown) => void;
+};
+
 function getRuntimeWindow(): ForgeRuntimeWindow | null {
   const runtime = globalThis as typeof globalThis & { window?: unknown };
   const candidate = runtime.window;
@@ -288,7 +293,11 @@ export async function requestHammerTranscriptPrep(
   }
 
   const abortController = new AbortController();
-  const timeoutId = window.setTimeout(() => abortController.abort(), HAMMER_TRANSCRIPT_PREP_TIMEOUT_MS);
+  const timers = globalThis as typeof globalThis & RuntimeTimers;
+  const timeoutId = timers.setTimeout?.(
+    () => abortController.abort(),
+    HAMMER_TRANSCRIPT_PREP_TIMEOUT_MS,
+  );
 
   let response: Response;
   try {
@@ -304,7 +313,9 @@ export async function requestHammerTranscriptPrep(
     }
     throw error;
   } finally {
-    window.clearTimeout(timeoutId);
+    if (timeoutId != null) {
+      timers.clearTimeout?.(timeoutId);
+    }
   }
 
   const payload = await response.json().catch(() => null);
