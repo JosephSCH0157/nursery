@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { useLayoutMode } from "@forge/ui-mobile";
 import { ALL_MOUNT_ROLES, MOUNT_ROLE_POLICY, getMountRolePolicy, type MountRole } from "@forge/tongs";
+import type { WorkspaceStorageListing } from "@forge/tongs";
 import { useMountRegistry } from "../hooks/useMountRegistry";
 import { getHandle } from "../lib/handle-vault";
 import { loadLastMirrorStatus, type MirrorLastStatus } from "../lib/mirror";
+import { tongsApiRequest } from "../lib/tongs-api";
 import type { AppShellContext } from "./AppShell";
 import WorkspaceRequiredNotice from "./WorkspaceRequiredNotice";
 import "./TongsStorage.css";
@@ -20,10 +22,13 @@ type StorageTreeNode = {
 };
 
 type ListingSource = {
-  kind: "canonical" | "mirror";
+  kind: "local" | "mirror" | "cloud";
   label: string;
-  vaultKey: string;
+  badgeLabel: string;
+  vaultKey?: string;
   hint?: string;
+  bucket?: string;
+  rootPath?: string;
 };
 
 type TreeState = {
@@ -81,6 +86,14 @@ function formatDateTime(value: string | null | undefined): string {
   return date.toLocaleString();
 }
 
+function formatBytes(bytes: number | null | undefined): string | null {
+  if (typeof bytes !== "number" || !Number.isFinite(bytes) || bytes < 0) return null;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
 function summarizeMirrorStatus(root: RootViewModel): string {
   if (!root.mirrorEnabled) return "Disabled";
   const base = `Enabled${root.mirrorPolicy ? ` (${root.mirrorPolicy})` : ""}`;
@@ -90,10 +103,13 @@ function summarizeMirrorStatus(root: RootViewModel): string {
 
 function describeEmptyListing(root: RootViewModel, source: ListingSource | null): string {
   if (root.resolvedTargetType === "tongs_cloud") {
+    if (source?.kind === "cloud") {
+      return "This cloud-backed canonical root is currently empty.";
+    }
     if (source?.kind === "mirror") {
       return "Local mirror connected, but no mirrored files are visible here yet. Cloud-backed canonical storage may still contain data outside this local inspection view.";
     }
-    return "Cloud-backed root. Local mirror is not currently connected, so local tree inspection is unavailable here.";
+    return "Cloud-backed root. Canonical cloud inspection is not currently available.";
   }
   return "This root is currently empty.";
 }
@@ -108,8 +124,9 @@ function buildListingSource(root: RootViewModel): { source: ListingSource | null
     }
     return {
       source: {
-        kind: "canonical",
+        kind: "local",
         label: "Canonical local target",
+        badgeLabel: "local",
         vaultKey: root.canonicalVaultKey,
         hint: root.canonicalHint,
       },
@@ -122,6 +139,7 @@ function buildListingSource(root: RootViewModel): { source: ListingSource | null
       source: {
         kind: "mirror",
         label: "Local mirror target",
+        badgeLabel: "local mirror",
         vaultKey: root.mirrorVaultKey,
         hint: root.mirrorHint,
       },
@@ -190,6 +208,26 @@ async function listDirectoryTree(
 function readErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim()) return error.message;
   return fallback;
+}
+
+function buildCloudNodeNote(node: WorkspaceStorageListing["nodes"][number]): string | undefined {
+  if (node.note) return node.note;
+
+  const parts: string[] = [];
+  const bytes = formatBytes(node.bytes);
+  if (bytes) parts.push(bytes);
+  if (node.updated_at) parts.push(`updated ${formatDateTime(node.updated_at)}`);
+  return parts.length > 0 ? parts.join(" • ") : undefined;
+}
+
+function mapCloudNodes(nodes: WorkspaceStorageListing["nodes"]): StorageTreeNode[] {
+  return nodes.map((node) => ({
+    name: node.name,
+    kind: node.kind,
+    path: node.path,
+    note: buildCloudNodeNote(node),
+    children: node.children ? mapCloudNodes(node.children) : undefined,
+  }));
 }
 
 function StorageTree({ nodes, depth = 0 }: { nodes: StorageTreeNode[]; depth?: number }) {
@@ -285,6 +323,68 @@ export default function TongsStorage() {
       return;
     }
 
+    if (selectedRoot.resolvedTargetType === "tongs_cloud") {
+      if (!workspaceId) {
+        setTreeState({
+          status: "unavailable",
+          source: null,
+          nodes: [],
+          message: "Workspace context is required to inspect cloud storage.",
+        });
+        return;
+      }
+
+      const cloudSource: ListingSource = {
+        kind: "cloud",
+        label: "Cloud canonical target",
+        badgeLabel: "cloud canonical",
+      };
+
+      let cancelled = false;
+      setTreeState({
+        status: "loading",
+        source: cloudSource,
+        nodes: [],
+        message: "Loading canonical cloud listing...",
+      });
+
+      void (async () => {
+        try {
+          const data = await tongsApiRequest<{ listing: WorkspaceStorageListing }>(
+            `/tongs/workspaces/${workspaceId}/storage/${selectedRoot.role}`,
+          );
+          if (cancelled) return;
+
+          const source: ListingSource = {
+            kind: "cloud",
+            label: "Cloud canonical target",
+            badgeLabel: "cloud canonical",
+            bucket: data.listing.source.bucket,
+            rootPath: data.listing.source.root_path,
+          };
+          const nodes = mapCloudNodes(data.listing.nodes);
+          setTreeState({
+            status: "ready",
+            source,
+            nodes,
+            message: nodes.length === 0 ? describeEmptyListing(selectedRoot, source) : null,
+          });
+        } catch (error: unknown) {
+          if (cancelled) return;
+          setTreeState({
+            status: "error",
+            source: cloudSource,
+            nodes: [],
+            message: readErrorMessage(error, "Canonical cloud listing could not be loaded for this root."),
+          });
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }
+
     const listing = buildListingSource(selectedRoot);
     if (!listing.source) {
       setTreeState({
@@ -335,9 +435,7 @@ export default function TongsStorage() {
           nodes: [],
           message: readErrorMessage(
             error,
-            selectedRoot.resolvedTargetType === "tongs_cloud"
-              ? "Cloud-backed root. Local mirror is not currently connected or readable, so local tree inspection is unavailable here."
-              : "The browser does not currently have permission to inspect this local folder handle.",
+            "The browser does not currently have permission to inspect this local folder handle.",
           ),
         });
       }
@@ -482,7 +580,17 @@ export default function TongsStorage() {
             <div className="tongs-storage__tree-header">
               <h4 className="tongs-storage__tree-title">Contents</h4>
               <div className="tongs-storage__tree-source">
-                {treeState.source ? `${treeState.source.label}${treeState.source.hint ? ` • ${treeState.source.hint}` : ""}` : "No readable local source"}
+                {treeState.source ? (
+                  <>
+                    <span className="tongs-storage__badge tongs-storage__badge--source">{treeState.source.badgeLabel}</span>
+                    <span>
+                      {treeState.source.label}
+                      {treeState.source.hint ? ` • ${treeState.source.hint}` : ""}
+                      {treeState.source.bucket ? ` • ${treeState.source.bucket}` : ""}
+                      {treeState.source.rootPath ? ` • ${treeState.source.rootPath}` : ""}
+                    </span>
+                  </>
+                ) : "No readable source"}
               </div>
             </div>
 
@@ -502,10 +610,10 @@ export default function TongsStorage() {
                   ? describeEmptyListing(selectedRoot, treeState.source)
                   : treeState.status === "error"
                   ? (selectedRoot.resolvedTargetType === "tongs_cloud"
-                    ? "Cloud-backed root. Local mirror is not currently connected or readable, so local tree inspection is unavailable here."
+                    ? "Canonical cloud listing could not be loaded for this root."
                     : "Read-only local inspection could not be resolved from the current folder handle state.")
                   : (selectedRoot.resolvedTargetType === "tongs_cloud"
-                    ? "Cloud-backed root. Local mirror is not currently connected, so local tree inspection is unavailable here."
+                    ? "Cloud-backed root. Canonical cloud inspection is not currently available."
                     : "Listing is unavailable for the current local target in this workspace context.")}
               </div>
             ) : null}

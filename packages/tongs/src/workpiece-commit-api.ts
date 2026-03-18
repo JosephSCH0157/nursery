@@ -11,6 +11,7 @@ import {
 } from "./hearth-visual-styles.js";
 import type { HearthVisualStyleValue } from "./hearth-visual-styles.js";
 import type { RecordingSessionDTO, RecordingSessionItemDTO } from "./types.js";
+import { ALL_MOUNT_ROLES, type MountRole } from "./storage/storage-contract.js";
 
 export const TONGS_WORKPIECE_BUCKET = "forge-workpieces";
 
@@ -87,6 +88,8 @@ const HAMMER_PREP_STATUS_VALUES = ["idle", "preparing", "prepared", "prep_failed
 const HAMMER_PREP_STATUS_SET = new Set<string>(HAMMER_PREP_STATUS_VALUES);
 const HAMMER_ALIGNMENT_STATUS_VALUES = ["not_started", "pending", "aligned", "needs_review"] as const;
 const HAMMER_ALIGNMENT_STATUS_SET = new Set<string>(HAMMER_ALIGNMENT_STATUS_VALUES);
+const STORAGE_LIST_MAX_DEPTH = 3;
+const STORAGE_LIST_MAX_ITEMS_PER_DIRECTORY = 80;
 const HAMMER_ARTIFACT_PATHS = {
   editor_session: "hammer/session/editor-state.v1.json",
   structured_transcript: "hammer/transcript/structured.v1.json",
@@ -682,6 +685,34 @@ export type ListWorkspaceEpisodesOptions = {
   userAccessToken?: string | null;
 };
 
+export type WorkspaceStorageTreeNode = {
+  name: string;
+  kind: "directory" | "file";
+  path: string;
+  bytes?: number | null;
+  updated_at?: string | null;
+  children?: WorkspaceStorageTreeNode[];
+  note?: string;
+};
+
+export type WorkspaceStorageListing = {
+  source: {
+    kind: "cloud_canonical";
+    bucket: string;
+    workspace_id: string;
+    role: MountRole;
+    prefix: string | null;
+    root_path: string;
+  };
+  nodes: WorkspaceStorageTreeNode[];
+};
+
+export type ListWorkspaceStorageOptions = {
+  prefix?: string | null;
+  depth?: number;
+  userAccessToken?: string | null;
+};
+
 export type ArchiveWorkpieceRequest = {
   workspace_id: string;
   reason?: string | null;
@@ -811,6 +842,11 @@ export type TongsCommitApiService = {
     workspaceId: string,
     options?: ListWorkspaceEpisodesOptions,
   ): Promise<WorkspaceEpisodeSummary[]>;
+  listWorkspaceStorage(
+    workspaceId: string,
+    role: MountRole,
+    options?: ListWorkspaceStorageOptions,
+  ): Promise<WorkspaceStorageListing>;
   archiveWorkpiece(
     workpieceId: string,
     input: ArchiveWorkpieceRequest,
@@ -1009,6 +1045,72 @@ function normalizeRelativePath(input: unknown): string {
   }
 
   return segments.join("/");
+}
+
+function normalizeOptionalRelativePath(input: unknown): string | null {
+  if (input == null) return null;
+  if (typeof input !== "string") {
+    throw new HttpError(400, "invalid_path", "path must be a string");
+  }
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  return normalizeRelativePath(trimmed);
+}
+
+const MOUNT_ROLE_SET = new Set<MountRole>(ALL_MOUNT_ROLES);
+
+function normalizeMountRole(input: unknown, field = "role"): MountRole {
+  if (typeof input !== "string") {
+    throw new HttpError(400, "invalid_mount_role", `${field} must be a string`);
+  }
+  const trimmed = input.trim();
+  if (!MOUNT_ROLE_SET.has(trimmed as MountRole)) {
+    throw new HttpError(400, "invalid_mount_role", `${field} must be one of ${ALL_MOUNT_ROLES.join(", ")}`);
+  }
+  return trimmed as MountRole;
+}
+
+function normalizeStorageListDepth(input: unknown): number {
+  if (input == null || input === "") return STORAGE_LIST_MAX_DEPTH;
+  if (typeof input !== "string") {
+    throw new HttpError(400, "invalid_depth", "depth must be a string query parameter");
+  }
+
+  const value = Number.parseInt(input, 10);
+  if (!Number.isFinite(value) || String(value) !== input.trim()) {
+    throw new HttpError(400, "invalid_depth", "depth must be an integer");
+  }
+  if (value < 0 || value > STORAGE_LIST_MAX_DEPTH) {
+    throw new HttpError(400, "invalid_depth", `depth must be between 0 and ${STORAGE_LIST_MAX_DEPTH}`);
+  }
+  return value;
+}
+
+function joinRelativePath(basePath: string, childName: string): string {
+  if (!basePath) return childName;
+  return `${basePath}/${childName}`;
+}
+
+function compareWorkspaceStorageNodes(left: WorkspaceStorageTreeNode, right: WorkspaceStorageTreeNode): number {
+  if (left.kind !== right.kind) return left.kind === "directory" ? -1 : 1;
+  return left.name.localeCompare(right.name, undefined, { sensitivity: "base" });
+}
+
+function inferWorkspaceStorageNodeKind(entry: Record<string, unknown>): "directory" | "file" {
+  if (typeof entry.id === "string" && entry.id.trim()) return "file";
+  const metadata = entry.metadata;
+  if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
+    const size = (metadata as Record<string, unknown>).size;
+    if (typeof size === "number" && Number.isFinite(size)) return "file";
+  }
+  return "directory";
+}
+
+function readWorkspaceStorageBytes(entry: Record<string, unknown>): number | null | undefined {
+  const metadata = entry.metadata;
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return undefined;
+  const size = (metadata as Record<string, unknown>).size;
+  return typeof size === "number" && Number.isFinite(size) ? size : undefined;
 }
 
 function extensionOf(path: string): string {
@@ -5884,6 +5986,95 @@ export class TongsCommitService {
     return { found: true, text, file_row: null };
   }
 
+  private async listWorkspaceStoragePrefix(
+    workspaceId: string,
+    relativePath: string,
+    depth: number,
+  ): Promise<WorkspaceStorageTreeNode[]> {
+    const storageKey = buildWorkspaceStorageKey(workspaceId, relativePath);
+    const { data, error } = await this.supabase.storage.from(this.bucket).list(storageKey, {
+      limit: STORAGE_LIST_MAX_ITEMS_PER_DIRECTORY + 1,
+      sortBy: { column: "name", order: "asc" },
+    });
+
+    if (error) {
+      throw new HttpError(502, "storage_list_failed", "Failed to list workspace storage root", {
+        reason: error.message,
+        bucket: this.bucket,
+        key: storageKey,
+      });
+    }
+
+    const rows = Array.isArray(data) ? data as unknown as Array<Record<string, unknown>> : [];
+    const truncated = rows.length > STORAGE_LIST_MAX_ITEMS_PER_DIRECTORY;
+    const visibleRows = truncated ? rows.slice(0, STORAGE_LIST_MAX_ITEMS_PER_DIRECTORY) : rows;
+    const nodes: WorkspaceStorageTreeNode[] = [];
+
+    for (const row of visibleRows) {
+      const name = typeof row.name === "string" ? row.name.trim() : "";
+      if (!name) continue;
+
+      const path = joinRelativePath(relativePath, name);
+      const kind = inferWorkspaceStorageNodeKind(row);
+      const node: WorkspaceStorageTreeNode = {
+        name,
+        kind,
+        path,
+        updated_at: typeof row.updated_at === "string" ? row.updated_at : null,
+      };
+
+      if (kind === "directory") {
+        if (depth > 0) {
+          node.children = await this.listWorkspaceStoragePrefix(workspaceId, path, depth - 1);
+        } else {
+          node.note = `Nested listing stops after depth ${STORAGE_LIST_MAX_DEPTH}.`;
+        }
+      } else {
+        node.bytes = readWorkspaceStorageBytes(row);
+      }
+
+      nodes.push(node);
+    }
+
+    if (truncated) {
+      nodes.push({
+        name: "+ more items",
+        kind: "file",
+        path: joinRelativePath(relativePath, "__truncated__"),
+        note: `Directory listing truncated after ${STORAGE_LIST_MAX_ITEMS_PER_DIRECTORY} entries.`,
+      });
+    }
+
+    nodes.sort(compareWorkspaceStorageNodes);
+    return nodes;
+  }
+
+  async listWorkspaceStorage(
+    workspaceId: string,
+    role: MountRole,
+    options?: ListWorkspaceStorageOptions,
+  ): Promise<WorkspaceStorageListing> {
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
+    await this.getWorkspaceOrThrow(workspaceId);
+
+    const prefix = normalizeOptionalRelativePath(options?.prefix ?? null);
+    const depth = typeof options?.depth === "number" ? options.depth : STORAGE_LIST_MAX_DEPTH;
+    const rootPath = prefix ? `${role}/${prefix}` : role;
+    const nodes = await this.listWorkspaceStoragePrefix(workspaceId, rootPath, depth);
+
+    return {
+      source: {
+        kind: "cloud_canonical",
+        bucket: this.bucket,
+        workspace_id: workspaceId,
+        role,
+        prefix,
+        root_path: rootPath,
+      },
+      nodes,
+    };
+  }
+
   async listWorkspaceEpisodes(
     workspaceId: string,
     options?: ListWorkspaceEpisodesOptions,
@@ -7166,6 +7357,21 @@ export function createTongsCommitApiHandlerWithService(
         const includeArchived = parseBooleanQueryFlag(url.searchParams.get("include_archived"));
         const result = await service.listWorkspaceEpisodes(workspaceId, { userAccessToken, includeArchived });
         return jsonResponse(200, { ok: true, data: { episodes: result } });
+      }
+
+      if (parts.length === 5 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "storage") {
+        requireMethod(request, "GET");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const role = normalizeMountRole(decodeURIComponent(parts[4]), "role");
+        const prefix = normalizeOptionalRelativePath(url.searchParams.get("prefix"));
+        const depth = normalizeStorageListDepth(url.searchParams.get("depth"));
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const listing = await service.listWorkspaceStorage(workspaceId, role, {
+          prefix,
+          depth,
+          userAccessToken,
+        });
+        return jsonResponse(200, { ok: true, data: { listing } });
       }
 
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "archive") {

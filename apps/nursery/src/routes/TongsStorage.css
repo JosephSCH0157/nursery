@@ -213,8 +213,16 @@
 }
 
 .tongs-storage__tree-source {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   font-size: 12px;
   opacity: 0.72;
+}
+
+.tongs-storage__badge--source {
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .tongs-storage__message {
