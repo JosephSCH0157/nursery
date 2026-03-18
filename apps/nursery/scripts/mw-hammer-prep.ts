@@ -203,6 +203,12 @@ async function loadCanonicalWorkpieceMediaFile(
     method: "GET",
     headers: {
       accept: "application/json",
+      ...(typeof req.headers.authorization === "string"
+        ? { authorization: req.headers.authorization }
+        : {}),
+      ...(typeof req.headers["x-forge-user-authorization"] === "string"
+        ? { "x-forge-user-authorization": req.headers["x-forge-user-authorization"] }
+        : {}),
     },
   });
   const payload = await response.json().catch(() => null);

@@ -363,7 +363,7 @@ export function buildHammerPrepOverlayViewModel(state: HammerPrepState): HammerP
   return {
     visible: state.status === "preparing",
     blocking: state.status === "preparing",
-    title: "Forge Wheel",
+    title: "Podcaster's Forge",
     message: state.message,
     note: "Long recordings can take longer. Hammer will stop when the transcript is ready for your direction.",
     progress_ratio: progressRatio,

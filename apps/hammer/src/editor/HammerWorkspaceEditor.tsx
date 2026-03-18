@@ -821,9 +821,27 @@ export default function HammerWorkspaceEditor(
           >
             <div className="hammer-prep-shell__wheel-row">
               <div className="hammer-prep-shell__wheel" aria-hidden="true">
-                <div className="hammer-prep-shell__wheel-outer" />
-                <div className="hammer-prep-shell__wheel-inner" />
-                <div className="hammer-prep-shell__wheel-hub" />
+                <div className="hammer-prep-shell__wheel-aura" />
+                <div className="hammer-prep-shell__wheel-embers" />
+                <div className="hammer-prep-shell__wheel-gear" />
+                <div className="hammer-prep-shell__wheel-rim hammer-prep-shell__wheel-rim--outer" />
+                <div className="hammer-prep-shell__wheel-rim hammer-prep-shell__wheel-rim--inner" />
+                <div className="hammer-prep-shell__wheel-core">
+                  <div className="hammer-prep-shell__wheel-arc hammer-prep-shell__wheel-arc--left" />
+                  <div className="hammer-prep-shell__wheel-arc hammer-prep-shell__wheel-arc--right" />
+                  <div className="hammer-prep-shell__wheel-spark-burst">
+                    <span />
+                    <span />
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                  <div className="hammer-prep-shell__wheel-anvil">
+                    <div className="hammer-prep-shell__wheel-anvil-top" />
+                    <div className="hammer-prep-shell__wheel-anvil-body" />
+                    <div className="hammer-prep-shell__wheel-anvil-base" />
+                  </div>
+                </div>
               </div>
               <div id="hammer-prep-shell-title" className="hammer-prep-shell__title">{overlayViewModel.title}</div>
               <div className="hammer-prep-shell__message">{overlayViewModel.message}</div>
