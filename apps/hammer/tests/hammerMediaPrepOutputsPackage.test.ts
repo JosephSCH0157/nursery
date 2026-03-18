@@ -181,6 +181,29 @@ const snapshot: HammerPersistenceSnapshot = {
 }
 
 {
+  const currentMediaChanged = buildHammerMediaPrepOutputsPackage({
+    structuredTranscript: snapshot.structured_transcript.data,
+    visualPlacements: snapshot.visual_placements.data,
+    audioPolish: snapshot.audio_polish.data,
+    mediaRef: {
+      ...(snapshot.editor_session.data?.media_ref ?? {
+        media_id: "media_media_pkg_01",
+        kind: "recording_audio" as const,
+      }),
+      local_relpath: "recordings/media-pkg-retake.wav",
+      duration_ms: 9000,
+    },
+    mediaSourceLabel: snapshot.editor_session.data?.media_source_label ?? null,
+  });
+
+  assert.equal(currentMediaChanged.audio.raw_source.local_relpath, "recordings/media-pkg-retake.wav");
+  assert.notEqual(currentMediaChanged.audio.raw_source.media_signature, "sig_media_pkg_01");
+  assert.equal(currentMediaChanged.audio.polish.freshness, "stale");
+  assert.equal(currentMediaChanged.audio.preferred_playback.kind, "raw");
+  assert.equal(currentMediaChanged.audio.preferred_playback.reason, "audio_polish_stale");
+}
+
+{
   const unsupported = buildHammerMediaPrepOutputsPackage({
     structuredTranscript: snapshot.structured_transcript.data,
     visualPlacements: null,

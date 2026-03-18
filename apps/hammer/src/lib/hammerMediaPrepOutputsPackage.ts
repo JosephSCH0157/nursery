@@ -1,6 +1,7 @@
 import type { MediaKind, MediaRef } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import { cloneVisualPlacements } from "./hammerVisualPlacements";
 import { cloneHammerAudioPolish } from "../prep/hammerAudioPolish";
+import { buildHammerMediaSignature } from "../prep/hammerPrep";
 import type {
   HammerPersistenceSnapshot,
   HammerPersistedAudioPolish,
@@ -87,6 +88,28 @@ function cloneMediaRef(ref: MediaRef | null | undefined): MediaRef | null {
   return ref ? { ...ref } : null;
 }
 
+function normalizePathLike(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.replace(/\\/g, "/").toLowerCase();
+}
+
+function fieldsConflict<T extends string | number>(left: T | null | undefined, right: T | null | undefined): boolean {
+  return left != null && right != null && left !== right;
+}
+
+function mediaRefsConflict(current: MediaRef | null, transcriptSource: MediaRef | null): boolean {
+  if (!current || !transcriptSource) return false;
+  return fieldsConflict(current.media_id, transcriptSource.media_id)
+    || fieldsConflict(current.kind, transcriptSource.kind)
+    || fieldsConflict(normalizePathLike(current.local_relpath), normalizePathLike(transcriptSource.local_relpath))
+    || fieldsConflict(normalizePathLike(current.cloud_uri), normalizePathLike(transcriptSource.cloud_uri))
+    || fieldsConflict(current.byte_size, transcriptSource.byte_size)
+    || fieldsConflict(current.duration_ms, transcriptSource.duration_ms)
+    || fieldsConflict(current.sha256, transcriptSource.sha256);
+}
+
 function resolveVisualFreshness(
   transcript: HammerPersistedStructuredTranscript | null | undefined,
   visualPlacements: HammerPersistedVisualPlacements | null,
@@ -104,11 +127,23 @@ function resolveRawAudioSource(
   mediaRef: MediaRef | null,
   mediaSourceLabel: string | null | undefined,
 ): HammerMediaPrepOutputsPackageRawAudioSource {
-  const sourceMediaRef = cloneMediaRef(transcript?.source_media_ref ?? mediaRef);
+  const transcriptSourceMediaRef = cloneMediaRef(transcript?.source_media_ref);
+  const useCurrentMediaRef = Boolean(
+    mediaRef
+    && (
+      !transcriptSourceMediaRef
+      || mediaRefsConflict(mediaRef, transcriptSourceMediaRef)
+    )
+  );
+  const sourceMediaRef = cloneMediaRef(useCurrentMediaRef ? mediaRef : (transcriptSourceMediaRef ?? mediaRef));
+  const mediaSignature = useCurrentMediaRef
+    ? buildHammerMediaSignature(sourceMediaRef)
+    : transcript?.media_signature
+      ?? (sourceMediaRef ? buildHammerMediaSignature(sourceMediaRef) : null);
   return {
-    media_id: sourceMediaRef?.media_id ?? transcript?.media_id ?? null,
+    media_id: sourceMediaRef?.media_id ?? (useCurrentMediaRef ? null : transcript?.media_id) ?? null,
     kind: sourceMediaRef?.kind ?? null,
-    media_signature: transcript?.media_signature ?? null,
+    media_signature: mediaSignature,
     local_relpath: sourceMediaRef?.local_relpath ?? null,
     cloud_uri: sourceMediaRef?.cloud_uri ?? null,
     source_hint: sourceMediaRef?.source_hint ?? null,

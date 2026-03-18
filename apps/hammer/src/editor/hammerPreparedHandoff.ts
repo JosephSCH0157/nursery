@@ -3,6 +3,7 @@ import type {
   HammerPersistedVisualPlacements,
 } from "../persistence/hammerPersistenceContract";
 import type { HammerMacroReadinessSummary } from "../macros/hammerMacroFramework";
+import type { HammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutputsPackage";
 
 export type HammerPreparedNextStepActionId =
   | "review_transcript"
@@ -41,6 +42,7 @@ export interface BuildHammerPreparedHandoffModelArgs {
   transcriptSourceId: string | null;
   visualPlacements: HammerPersistedVisualPlacements | null;
   audioPolish: HammerPersistedAudioPolish | null;
+  mediaPrepOutputs?: HammerMediaPrepOutputsPackage | null;
   macroSummary?: HammerMacroReadinessSummary | null;
 }
 
@@ -52,8 +54,13 @@ export function buildHammerPreparedHandoffModel(
   const uncertainVisualCount = args.visualPlacements?.placements.filter((placement) => placement.status === "uncertain").length ?? 0;
   const visualWarnings = args.visualPlacements?.uncertainty_flags.length ?? 0;
   const visualsAvailable = visualPlacementCount > 0;
-  const audioPrepared = args.audioPolish?.status === "prepared";
-  const audioFailed = args.audioPolish?.status === "failed";
+  const audioPrepared = args.mediaPrepOutputs?.audio.preferred_playback.kind === "polished"
+    || (args.mediaPrepOutputs == null && args.audioPolish?.status === "prepared");
+  const audioStale = args.mediaPrepOutputs?.audio.polish.freshness === "stale";
+  const audioFailed = !audioStale && (
+    args.mediaPrepOutputs?.audio.polish.status === "failed"
+    || (args.mediaPrepOutputs == null && args.audioPolish?.status === "failed")
+  );
   const macroSummary = args.macroSummary ?? null;
   const macroActionDetail = macroSummary == null || macroSummary.total === 0
     ? "Open the finishing lane and inspect recipe readiness against current prep artifacts."
@@ -101,6 +108,14 @@ export function buildHammerPreparedHandoffModel(
       detail: "Hammer prepared a non-destructive baseline speech polish artifact and prefers it for playback.",
       tone: "ready",
     }
+    : audioStale
+    ? {
+      id: "audio",
+      label: "Audio Prep",
+      status_label: "Stale polish",
+      detail: "Hammer found an older audio polish artifact that no longer matches the current source media, so playback stays on the raw source until prep reruns.",
+      tone: "fallback",
+    }
     : audioFailed
     ? {
       id: "audio",
@@ -141,9 +156,11 @@ export function buildHammerPreparedHandoffModel(
     },
     {
       id: "review_audio",
-      label: audioPrepared ? "Listen to Polished Audio" : audioFailed ? "Review Raw Audio Fallback" : "Open Audio Review",
+      label: audioPrepared ? "Listen to Polished Audio" : audioStale || audioFailed ? "Review Raw Audio Fallback" : "Open Audio Review",
       detail: audioPrepared
         ? "Open the Audio workspace and listen through the prepared playback path."
+        : audioStale
+        ? "Open the Audio workspace with the current raw source while Hammer ignores stale audio prep."
         : audioFailed
         ? "Open the Audio workspace with the raw fallback source that Hammer kept intact."
         : "Open the Audio workspace to review the current monitoring path.",

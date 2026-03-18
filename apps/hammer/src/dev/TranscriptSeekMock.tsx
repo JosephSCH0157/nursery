@@ -1313,28 +1313,37 @@ export default function TranscriptSeekMock(
   const activeMediaKind = activeMediaRef?.kind ?? null;
   const activeMediaUsesDevTone = !activeDevMediaRef && resolvedLaunch.media.kind === "dev-tone";
   const audioPolish = useMemo(
-    () => {
-      const next = cloneHammerAudioPolish(props.audioPolish);
-      if (!next) return null;
-      if (activeMediaRef?.media_id && next.source_media_id && next.source_media_id !== activeMediaRef.media_id) {
-        return null;
-      }
-      return next;
-    },
-    [activeMediaRef?.media_id, props.audioPolish],
+    () => cloneHammerAudioPolish(props.audioPolish) ?? null,
+    [props.audioPolish],
   );
-  const studioSoundPrepared = audioPolish?.status === "prepared"
-    && audioPolish.prepared_passes.includes("studio_sound");
-  const noiseCleanupPrepared = audioPolish?.status === "prepared"
-    && audioPolish.prepared_passes.includes("noise_cleanup");
-  const levelConsistencyPrepared = audioPolish?.status === "prepared"
-    && audioPolish.prepared_passes.includes("level_consistency");
   const activeMediaDisplayTitle = activeDevRecording?.name
     ?? activeMediaRef?.local_relpath?.split(/[\\/]/).pop()
     ?? resolvedLaunch.media.source_label;
   const activeMediaDetailLabel = activeDevRecording?.local_relpath
     ?? activeMediaRef?.local_relpath
     ?? resolvedLaunch.media.source_label;
+  const mediaPrepOutputsPackage = useMemo(
+    () => buildHammerMediaPrepOutputsPackage({
+      structuredTranscript: structuredTranscriptState,
+      visualPlacements: props.visualPlacements,
+      audioPolish,
+      mediaRef: activeMediaRef,
+      mediaSourceLabel: activeMediaSourceLabel,
+    }),
+    [activeMediaRef, activeMediaSourceLabel, audioPolish, props.visualPlacements, structuredTranscriptState],
+  );
+  const audioPolishFreshness = mediaPrepOutputsPackage.audio.polish.freshness;
+  const preferredPlayback = mediaPrepOutputsPackage.audio.preferred_playback;
+  const usePreparedAudioPlayback = preferredPlayback.kind === "polished";
+  const studioSoundPrepared = usePreparedAudioPlayback
+    && audioPolish?.status === "prepared"
+    && audioPolish.prepared_passes.includes("studio_sound");
+  const noiseCleanupPrepared = usePreparedAudioPlayback
+    && audioPolish?.status === "prepared"
+    && audioPolish.prepared_passes.includes("noise_cleanup");
+  const levelConsistencyPrepared = usePreparedAudioPlayback
+    && audioPolish?.status === "prepared"
+    && audioPolish.prepared_passes.includes("level_consistency");
   const transcriptStatusLabel = activeDevRecording
     ? activeDevRecording.transcript_sidecar_relpath
       ? "Transcript: sidecar detected"
@@ -1564,8 +1573,10 @@ export default function TranscriptSeekMock(
     [activeDevRecording?.playback_url, activeMediaRef, activeMediaWorkspaceMapping, resolveResult],
   );
   const localPolishedMediaSrc = useMemo(
-    () => resolveAudioPolishPreviewSrc(activeMediaWorkspaceMapping, audioPolish),
-    [activeMediaWorkspaceMapping, audioPolish],
+    () => usePreparedAudioPlayback
+      ? resolveAudioPolishPreviewSrc(activeMediaWorkspaceMapping, audioPolish)
+      : null,
+    [activeMediaWorkspaceMapping, audioPolish, usePreparedAudioPlayback],
   );
   const polishedMediaSrc = localPolishedMediaSrc ?? canonicalPolishedAudioSrc;
   const resolvedMediaSrc = polishedMediaSrc ?? linkedMediaSrc;
@@ -1615,6 +1626,14 @@ export default function TranscriptSeekMock(
       playbackSourceKind,
     ],
   );
+  const playbackUsesPreparedAudio = playbackSourceKind === "polished";
+  const audioArtifactSummaryLabel = playbackUsesPreparedAudio
+    ? "current polished"
+    : playbackSourceKind === "fallback"
+    ? "fallback"
+    : audioPolishFreshness === "stale"
+    ? "stale/raw"
+    : audioPolish?.status ?? "not_started";
   const previewUsesResolvedMedia = Boolean(
     playbackSrc
     && resolvedMediaSrc
@@ -1676,16 +1695,6 @@ export default function TranscriptSeekMock(
     () => buildHammerCaptionPreviewModel(rawTranscriptSegments, structuredTranscriptState),
     [rawTranscriptSegments, structuredTranscriptState],
   );
-  const mediaPrepOutputsPackage = useMemo(
-    () => buildHammerMediaPrepOutputsPackage({
-      structuredTranscript: structuredTranscriptState,
-      visualPlacements: props.visualPlacements,
-      audioPolish,
-      mediaRef: activeMediaRef,
-      mediaSourceLabel: activeMediaSourceLabel,
-    }),
-    [activeMediaRef, activeMediaSourceLabel, audioPolish, props.visualPlacements, structuredTranscriptState],
-  );
   const textOutputsPackage = useMemo(
     () => buildHammerTextOutputsPackage(structuredTranscriptState),
     [structuredTranscriptState],
@@ -1744,7 +1753,7 @@ export default function TranscriptSeekMock(
       setCanonicalPolishedAudioSrc(null);
       return;
     }
-    if (audioPolish?.status !== "prepared" || !audioPolish.output_workpiece_path) {
+    if (!usePreparedAudioPlayback || audioPolish?.status !== "prepared" || !audioPolish.output_workpiece_path) {
       setCanonicalPolishedAudioSrc(null);
       return;
     }
@@ -1784,6 +1793,7 @@ export default function TranscriptSeekMock(
     audioPolish?.status,
     localPolishedMediaSrc,
     resolvedLaunch.launch_context.workpiece_id,
+    usePreparedAudioPlayback,
   ]);
 
   useEffect(() => {
@@ -2303,10 +2313,12 @@ export default function TranscriptSeekMock(
     : null;
   const audioMonitoringStateLabel = !playbackSrc
     ? "Unavailable"
-    : polishedMediaSrc && !preferDevAudioFallback
+    : playbackSourceKind === "polished"
     ? "Polished prep"
-    : preferDevAudioFallback || activeMediaUsesDevTone
+    : playbackSourceKind === "fallback"
     ? "Fallback monitor"
+    : audioPolishFreshness === "stale"
+    ? "Raw source"
     : "Linked source";
   const selectedAudioStateLabel = !selectedSegment
     ? "No row selected"
@@ -2316,8 +2328,14 @@ export default function TranscriptSeekMock(
     ? "Muted in plan"
     : selectedSegmentTrimInstruction
     ? "Timing staged"
-    : audioPolish?.status === "prepared"
+    : !playbackSrc
+    ? "Unavailable"
+    : playbackSourceKind === "polished"
     ? "Polished playback ready"
+    : playbackSourceKind === "fallback"
+    ? "Fallback monitoring"
+    : audioPolishFreshness === "stale"
+    ? "Raw playback active"
     : audioPolish?.status === "failed"
     ? "Raw playback fallback"
     : audioPolish?.status === "preparing"
@@ -2356,10 +2374,18 @@ export default function TranscriptSeekMock(
   const audioSummaryItems = useMemo(() => {
     const items: string[] = [];
 
-    if (audioPolish?.status === "prepared") {
-      items.push("Hammer is monitoring the non-destructive baseline audio polish artifact.");
+    if (playbackSourceKind === "polished") {
+      items.push("Hammer is monitoring the current non-destructive baseline audio polish artifact.");
+    } else if (audioPolishFreshness === "stale") {
+      items.push(
+        playbackSourceKind === "fallback"
+          ? "Hammer found an older audio polish artifact that no longer matches the current source media, and preview is still on a fallback source until the current raw media resolves."
+          : "Hammer found an older audio polish artifact that no longer matches the current source media, so playback stays on the raw source.",
+      );
     } else if (audioPolish?.status === "failed" && audioPolish.failure_reason) {
       items.push(`Hammer fell back to the raw source for playback: ${audioPolish.failure_reason}`);
+    } else if (audioPolish?.status === "failed") {
+      items.push("Hammer fell back to the raw source for playback because audio polish was unavailable.");
     } else if (audioPolish?.status === "preparing") {
       items.push("Hammer is preparing a baseline audio polish artifact.");
     }
@@ -2391,10 +2417,12 @@ export default function TranscriptSeekMock(
     return items;
   }, [
     audioPolish,
+    audioPolishFreshness,
     levelConsistencyPrepared,
     muteInstructionCount,
     mutedDialogueDurationSec,
     noiseCleanupPrepared,
+    playbackSourceKind,
     preferDevAudioFallback,
     activeMediaUsesDevTone,
     selectedSegment,
@@ -3453,17 +3481,31 @@ export default function TranscriptSeekMock(
               <HammerWorkflowCard
                 title="Studio Sound"
                 tone={studioSoundPrepared ? "active" : playbackSrc ? "ready" : "blocked"}
-                statusLabel={studioSoundPrepared ? "Prepared" : audioPolish?.status === "failed" ? "Raw fallback" : playbackSrc ? "Pending" : "Unavailable"}
+                statusLabel={studioSoundPrepared
+                  ? "Prepared"
+                  : audioPolishFreshness === "stale"
+                  ? "Stale polish"
+                  : audioPolish?.status === "failed"
+                  ? "Raw fallback"
+                  : playbackSrc
+                  ? "Pending"
+                  : "Unavailable"}
                 description="Baseline speech polish runs automatically when Hammer can produce a supported non-destructive cleanup artifact."
                 meta={(
                   <div className="hammer-stack-6">
                     <div className="hammer-meta-strip">
                       <span className="hammer-pill">{playbackSourceLabel}</span>
-                      <span className="hammer-pill">{studioSoundPrepared ? "prepared artifact" : audioPolish?.status === "failed" ? "raw source retained" : "prep-managed"}</span>
+                      <span className="hammer-pill">{studioSoundPrepared
+                        ? "prepared artifact"
+                        : audioPolishFreshness === "stale" || audioPolish?.status === "failed"
+                        ? "raw source retained"
+                        : "prep-managed"}</span>
                     </div>
                     <div className="hammer-copy-sm hammer-copy-muted">
                       {studioSoundPrepared
                         ? "Hammer is already preferring the polished playback artifact here. The raw source remains intact underneath."
+                        : audioPolishFreshness === "stale"
+                        ? "Hammer found a previously prepared studio-sound artifact for different source media, so it is keeping playback on the current raw source until prep reruns."
                         : audioPolish?.status === "failed"
                         ? audioPolish.failure_reason ?? "Hammer kept the raw source because audio polish was not supported for this media."
                         : playbackSrc
@@ -3477,7 +3519,15 @@ export default function TranscriptSeekMock(
               <HammerWorkflowCard
                 title="Noise Cleanup"
                 tone={noiseCleanupPrepared ? "active" : playbackSrc ? "ready" : "blocked"}
-                statusLabel={noiseCleanupPrepared ? "Prepared" : audioPolish?.status === "failed" ? "Skipped" : playbackSrc ? "Pending" : "Unavailable"}
+                statusLabel={noiseCleanupPrepared
+                  ? "Prepared"
+                  : audioPolishFreshness === "stale"
+                  ? "Stale polish"
+                  : audioPolish?.status === "failed"
+                  ? "Skipped"
+                  : playbackSrc
+                  ? "Pending"
+                  : "Unavailable"}
                 description="Noise cleanup stays part of the restrained prep chain instead of becoming a manual staging toggle."
                 meta={(
                   <div className="hammer-stack-6">
@@ -3488,6 +3538,8 @@ export default function TranscriptSeekMock(
                     <div className="hammer-copy-sm hammer-copy-muted">
                       {noiseCleanupPrepared
                         ? "The prepared playback path already includes a light cleanup pass for hiss and room tone."
+                        : audioPolishFreshness === "stale"
+                        ? "Hammer found cleanup from an older source, so it is monitoring the current raw path instead."
                         : audioPolish?.status === "failed"
                         ? "Hammer did not run cleanup for this source and is monitoring the raw path instead."
                         : playbackSrc
@@ -3501,7 +3553,15 @@ export default function TranscriptSeekMock(
               <HammerWorkflowCard
                 title="Level Consistency"
                 tone={levelConsistencyPrepared ? "active" : playbackSrc ? "ready" : "blocked"}
-                statusLabel={levelConsistencyPrepared ? "Prepared" : audioPolish?.status === "failed" ? "Skipped" : playbackSrc ? "Pending" : "Unavailable"}
+                statusLabel={levelConsistencyPrepared
+                  ? "Prepared"
+                  : audioPolishFreshness === "stale"
+                  ? "Stale polish"
+                  : audioPolish?.status === "failed"
+                  ? "Skipped"
+                  : playbackSrc
+                  ? "Pending"
+                  : "Unavailable"}
                 description="Dialogue leveling is part of the baseline prep artifact when Hammer can produce a supported polished source."
                 meta={(
                   <div className="hammer-stack-6">
@@ -3513,6 +3573,8 @@ export default function TranscriptSeekMock(
                     <div className="hammer-copy-sm hammer-copy-muted">
                       {levelConsistencyPrepared
                         ? "The prepared playback path is already balancing dialogue levels without touching the raw media."
+                        : audioPolishFreshness === "stale"
+                        ? "Hammer found an older leveling artifact, so it left playback on the current raw source instead of trusting stale prep."
                         : audioPolish?.status === "failed"
                         ? "Hammer skipped level consistency here and left playback on the raw source."
                         : playbackSrc
@@ -4116,7 +4178,7 @@ export default function TranscriptSeekMock(
                     <div>
                       transcript {transcriptSegments.length > 0 ? "ready" : "missing"}
                       {" · "}
-                      audio {audioPolish?.status ?? "not_started"}
+                      audio {audioArtifactSummaryLabel}
                       {" · "}
                       media {activeMediaKind ? formatMediaKindLabel(activeMediaKind) : "none"}
                     </div>

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { buildHammerPreparedHandoffModel } from "../src/editor/hammerPreparedHandoff";
+import { buildHammerMediaPrepOutputsPackage } from "../src/lib/hammerMediaPrepOutputsPackage";
 
 {
   const model = buildHammerPreparedHandoffModel({
@@ -116,6 +117,99 @@ import { buildHammerPreparedHandoffModel } from "../src/editor/hammerPreparedHan
   assert.equal(model.actions.find((action) => action.id === "review_audio")?.label, "Review Raw Audio Fallback");
   assert.equal(model.actions.find((action) => action.id === "review_visuals")?.recommended, true);
   assert.equal(model.actions.some((action) => action.id === "macro_later"), false);
+}
+
+{
+  const mediaPrepOutputs = buildHammerMediaPrepOutputsPackage({
+    structuredTranscript: {
+      schema_version: 1,
+      transcript_id: "hammer_transcript_03",
+      media_id: "media_03",
+      media_signature: "sig_03",
+      prepared_at: "2026-03-18T10:00:00.000Z",
+      structure: "speaker_turns",
+      source_media_ref: {
+        media_id: "media_03",
+        kind: "recording_audio",
+        source_hint: "local",
+        local_relpath: "recordings/original.wav",
+        duration_ms: 8_000,
+      },
+      diarization: {
+        label_scheme: "forge-neutral-speakers.v1",
+        labels: ["S1"],
+        raw_labels: ["host"],
+        version: "gpt-4o-transcribe",
+        provider: "openai",
+        provider_request_id: "req_03",
+        model: "gpt-4o-transcribe",
+      },
+      confidence_flags: [],
+      segments: [
+        {
+          segment_id: "turn_003",
+          start_sec: 0,
+          end_sec: 4,
+          speaker: "S1",
+          text: "Current raw audio should win.",
+        },
+      ],
+    },
+    visualPlacements: null,
+    audioPolish: {
+      schema_version: 1,
+      status: "prepared",
+      prepared_passes: ["studio_sound", "noise_cleanup", "level_consistency"],
+      source_artifact_paths: ["recordings/original.wav"],
+      settings_summary: {
+        supported_source: true,
+      },
+      source_media_id: "media_03",
+      source_media_signature: "sig_03",
+      processor_version: "forge-v1.2.0/audio-polish.v1",
+      prepared_at: "2026-03-18T10:05:00.000Z",
+      output_local_relpath: "hammer/prep/audio-polish/original.wav",
+      output_mime_type: "audio/wav",
+      output_duration_ms: 8_000,
+      failure_code: null,
+      failure_reason: null,
+    },
+    mediaRef: {
+      media_id: "media_03",
+      kind: "recording_audio",
+      source_hint: "local",
+      local_relpath: "recordings/retake.wav",
+      duration_ms: 8_200,
+    },
+    mediaSourceLabel: "tongs:media_03",
+  });
+  const model = buildHammerPreparedHandoffModel({
+    transcriptSegmentCount: 7,
+    transcriptSourceId: "hammer_transcript_03",
+    visualPlacements: null,
+    audioPolish: {
+      schema_version: 1,
+      status: "prepared",
+      prepared_passes: ["studio_sound", "noise_cleanup", "level_consistency"],
+      source_artifact_paths: ["recordings/original.wav"],
+      settings_summary: {
+        supported_source: true,
+      },
+      source_media_id: "media_03",
+      source_media_signature: "sig_03",
+      processor_version: "forge-v1.2.0/audio-polish.v1",
+      prepared_at: "2026-03-18T10:05:00.000Z",
+      output_local_relpath: "hammer/prep/audio-polish/original.wav",
+      output_mime_type: "audio/wav",
+      output_duration_ms: 8_000,
+      failure_code: null,
+      failure_reason: null,
+    },
+    mediaPrepOutputs,
+  });
+
+  assert.equal(model.summaries[2]?.status_label, "Stale polish");
+  assert.equal(model.actions.find((action) => action.id === "review_audio")?.label, "Review Raw Audio Fallback");
 }
 
 console.log("Hammer prepared handoff tests passed.");

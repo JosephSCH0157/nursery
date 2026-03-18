@@ -8,6 +8,7 @@ import {
   buildHammerPreparedHandoffModel,
   type HammerPreparedNextStepActionId,
 } from "./hammerPreparedHandoff";
+import { buildHammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutputsPackage";
 import {
   buildHammerLaunchContextFromPersistence,
   buildHammerPersistenceSaveRequest,
@@ -752,6 +753,22 @@ export default function HammerWorkspaceEditor(
   const shouldRenderEditor = persistenceMode !== "canonical" || prepState.status === "prepared";
   const visualPlacementData = loadedPersistenceSnapshot?.visual_placements.data ?? null;
   const audioPolishData = loadedPersistenceSnapshot?.audio_polish.data ?? null;
+  const handoffMediaPrepOutputs = useMemo(
+    () => buildHammerMediaPrepOutputsPackage({
+      structuredTranscript: loadedPersistenceSnapshot?.structured_transcript.data ?? null,
+      visualPlacements: visualPlacementData,
+      audioPolish: audioPolishData,
+      mediaRef: loadedPersistenceSnapshot?.editor_session.data?.media_ref ?? null,
+      mediaSourceLabel: loadedPersistenceSnapshot?.editor_session.data?.media_source_label ?? null,
+    }),
+    [
+      audioPolishData,
+      loadedPersistenceSnapshot?.editor_session.data?.media_ref,
+      loadedPersistenceSnapshot?.editor_session.data?.media_source_label,
+      loadedPersistenceSnapshot?.structured_transcript.data,
+      visualPlacementData,
+    ],
+  );
   const transcriptSegmentCount = loadedPersistenceSnapshot?.structured_transcript.data?.segments.length
     ?? (effectiveLaunchContext?.transcript.kind === "tongs-stub"
       ? effectiveLaunchContext.transcript.segments.length
@@ -764,6 +781,7 @@ export default function HammerWorkspaceEditor(
         : null),
     visualPlacements: visualPlacementData,
     audioPolish: audioPolishData,
+    mediaPrepOutputs: handoffMediaPrepOutputs,
   });
   const progressFillClassName = useMemo(
     () => `${dynamicStyleScopeIdRef.current}__progress-fill`,
