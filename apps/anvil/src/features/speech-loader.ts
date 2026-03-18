@@ -208,6 +208,8 @@ type DeferredAsrScriptEndStop = {
   targetLine: number | null;
   startedAt: number;
   markerReachedAt: number | null;
+  completionDelayMs: number;
+  completionReason: 'marker-reached' | 'marker-timeout' | 'no-target';
 };
 
 declare global {
@@ -800,7 +802,8 @@ function scheduleDeferredAsrScriptEndStop(delayMs: number): void {
               confirmSharedMeaningfulTokens: deferred.evidence.sharedMeaningful,
               confirmOverlapRatio: deferred.evidence.overlapRatio,
               markerWaitMs: deferred.markerReachedAt - deferred.startedAt,
-              postrollMs: ASR_SCRIPT_END_POSTROLL_MS,
+              postrollMs: deferred.completionDelayMs,
+              terminalHoldReason: deferred.completionReason,
             },
           }),
         );
@@ -819,7 +822,8 @@ function scheduleDeferredAsrScriptEndStop(delayMs: number): void {
             sharedMeaningfulTokens: deferred.evidence.sharedMeaningful,
             overlapRatio: Number(deferred.evidence.overlapRatio.toFixed(3)),
             markerWaitMs: deferred.markerReachedAt - deferred.startedAt,
-            postrollMs: ASR_SCRIPT_END_POSTROLL_MS,
+            postrollMs: deferred.completionDelayMs,
+            terminalHoldReason: deferred.completionReason,
           });
         } catch {}
       }
@@ -827,12 +831,16 @@ function scheduleDeferredAsrScriptEndStop(delayMs: number): void {
     }
     if (deferred.targetLine == null) {
       deferred.markerReachedAt = Date.now();
-      scheduleDeferredAsrScriptEndStop(ASR_SCRIPT_END_POSTROLL_MS);
+      deferred.completionDelayMs = ASR_SCRIPT_END_POSTROLL_MS;
+      deferred.completionReason = 'no-target';
+      scheduleDeferredAsrScriptEndStop(deferred.completionDelayMs);
       return;
     }
     const probe = probeDeferredAsrScriptEndMarker(deferred.targetLine);
     if (probe.reached) {
       deferred.markerReachedAt = Date.now();
+      deferred.completionDelayMs = ASR_SCRIPT_END_POSTROLL_MS;
+      deferred.completionReason = 'marker-reached';
       emitHudSnapshot('script-end-postroll', { force: true });
       if (isDevMode() && shouldLogTag('ASR:script-end-marker-reached', 2, 250)) {
         try {
@@ -841,16 +849,18 @@ function scheduleDeferredAsrScriptEndStop(delayMs: number): void {
             markerIdx: probe.markerIdx,
             distancePx: probe.distancePx == null ? null : Number(probe.distancePx.toFixed(1)),
             tolerancePx: Number(probe.tolerancePx.toFixed(1)),
-            postrollMs: ASR_SCRIPT_END_POSTROLL_MS,
+            postrollMs: deferred.completionDelayMs,
           });
         } catch {}
       }
-      scheduleDeferredAsrScriptEndStop(ASR_SCRIPT_END_POSTROLL_MS);
+      scheduleDeferredAsrScriptEndStop(deferred.completionDelayMs);
       return;
     }
     const waitMs = Date.now() - deferred.startedAt;
     if (waitMs >= ASR_SCRIPT_END_MARKER_WAIT_MAX_MS) {
       deferred.markerReachedAt = Date.now();
+      deferred.completionDelayMs = 0;
+      deferred.completionReason = 'marker-timeout';
       if (isDevMode() && shouldLogTag('ASR:script-end-marker-timeout', 2, 500)) {
         try {
           console.info('[ASR] script-end marker wait timed out', {
@@ -886,12 +896,14 @@ function finalizePendingAsrScriptEndStop(
   lastAsrScriptEndStopKey = pending.dedupeKey;
   pendingAsrScriptEndStop = null;
   cancelDeferredAsrScriptEndStop('replaced');
-  deferredAsrScriptEndStop = {
+      deferredAsrScriptEndStop = {
     pending,
     evidence,
     targetLine: pending.lastSpeakableLineIndex ?? pending.lineIndex,
     startedAt: Date.now(),
     markerReachedAt: null,
+    completionDelayMs: ASR_SCRIPT_END_POSTROLL_MS,
+    completionReason: 'marker-reached',
   };
   emitHudSnapshot('script-end-marker-wait', { force: true });
   if (isDevMode() && shouldLogTag('ASR:script-end-marker-wait', 2, 250)) {
