@@ -135,10 +135,11 @@ Anvil never guesses. Hearth never schedules.
 
 ## Recording Completion and Takes
 
-### Local-Only Storage (V1)
+### Cloud-Backed Media Storage (Current)
 
-* All recordings remain local
-* Media is never uploaded in V1
+* Recordings and exports are cloud-backed through Tongs by default
+* Local mirrors may exist for local access, inspection, and recovery
+* Media state must be described in terms of resolved storage target, not assumed local-only behavior
 
 ### Receipt Model
 

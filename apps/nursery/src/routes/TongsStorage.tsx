@@ -88,6 +88,16 @@ function summarizeMirrorStatus(root: RootViewModel): string {
   return `${base} • last ${root.mirrorStatus.ok ? "ok" : "failed"} ${formatDateTime(root.mirrorStatus.at)}`;
 }
 
+function describeEmptyListing(root: RootViewModel, source: ListingSource | null): string {
+  if (root.resolvedTargetType === "tongs_cloud") {
+    if (source?.kind === "mirror") {
+      return "Local mirror connected, but no mirrored files are visible here yet. Cloud-backed canonical storage may still contain data outside this local inspection view.";
+    }
+    return "Cloud-backed root. Local mirror is not currently connected, so local tree inspection is unavailable here.";
+  }
+  return "This root is currently empty.";
+}
+
 function buildListingSource(root: RootViewModel): { source: ListingSource | null; message: string } {
   if (root.canonicalKind === "local") {
     if (!root.canonicalVaultKey) {
@@ -121,7 +131,7 @@ function buildListingSource(root: RootViewModel): { source: ListingSource | null
 
   return {
     source: null,
-    message: "Listing not wired yet for canonical tongs_cloud roots without a configured local mirror.",
+    message: "Cloud-backed root. Local mirror is not currently connected, so local tree inspection is unavailable here.",
   };
 }
 
@@ -315,7 +325,7 @@ export default function TongsStorage() {
           status: "ready",
           source: listing.source,
           nodes,
-          message: nodes.length === 0 ? "No files or folders found under this root." : null,
+          message: nodes.length === 0 ? describeEmptyListing(selectedRoot, listing.source) : null,
         });
       } catch (error: unknown) {
         if (cancelled) return;
@@ -325,7 +335,9 @@ export default function TongsStorage() {
           nodes: [],
           message: readErrorMessage(
             error,
-            "Listing not wired yet for this root, or the browser does not have permission to inspect the local folder handle.",
+            selectedRoot.resolvedTargetType === "tongs_cloud"
+              ? "Cloud-backed root. Local mirror is not currently connected or readable, so local tree inspection is unavailable here."
+              : "The browser does not currently have permission to inspect this local folder handle.",
           ),
         });
       }
@@ -368,7 +380,7 @@ export default function TongsStorage() {
         <div className="tongs-storage__title-wrap">
           <h2 className="tongs-storage__title">Workspace Storage</h2>
           <p className="tongs-storage__subtitle">
-            Read-only view of canonical storage roots for this workspace. This slice resolves current target state, mirror diagnostics, and local listing availability without mutation.
+            Read-only view of canonical storage roots for this workspace. Recordings and exports are cloud-backed by default, and local mirrors provide local access and listing when connected.
           </p>
         </div>
         <div className="tongs-storage__header-actions">
@@ -487,10 +499,14 @@ export default function TongsStorage() {
                 {treeState.status === "loading"
                   ? "Loading read-only tree..."
                   : treeState.status === "ready"
-                  ? "This root is currently empty."
+                  ? describeEmptyListing(selectedRoot, treeState.source)
                   : treeState.status === "error"
-                  ? "Read-only listing could not be resolved from existing local mount state."
-                  : "Listing not wired yet for the current resolved target in this workspace context."}
+                  ? (selectedRoot.resolvedTargetType === "tongs_cloud"
+                    ? "Cloud-backed root. Local mirror is not currently connected or readable, so local tree inspection is unavailable here."
+                    : "Read-only local inspection could not be resolved from the current folder handle state.")
+                  : (selectedRoot.resolvedTargetType === "tongs_cloud"
+                    ? "Cloud-backed root. Local mirror is not currently connected, so local tree inspection is unavailable here."
+                    : "Listing is unavailable for the current local target in this workspace context.")}
               </div>
             ) : null}
 
