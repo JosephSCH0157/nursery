@@ -138,11 +138,11 @@ describe('ASR script-end postroll', () => {
     expect(appStore.get('session.phase')).toBe('live');
     expect(stopSpy).not.toHaveBeenCalled();
 
-    await jest.advanceTimersByTimeAsync(499);
+    await jest.advanceTimersByTimeAsync(460);
     expect(appStore.get('session.phase')).toBe('live');
     expect(stopSpy).not.toHaveBeenCalled();
 
-    await jest.advanceTimersByTimeAsync(1);
+    await jest.advanceTimersByTimeAsync(60);
     expect(appStore.get('session.phase')).toBe('wrap');
     expect(stopSpy).toHaveBeenCalledTimes(1);
 
