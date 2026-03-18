@@ -46,6 +46,7 @@ import {
   isReusableHammerVisualPlacements,
   loadHammerWorkpieceVisualPackage,
 } from "../lib/hammerVisualPlacements";
+import { hasTongsUserAccessToken } from "../lib/tongsFetch";
 import { loadWorkspaceMapping } from "../media/workspaceMapping";
 
 export interface HammerWorkspaceEditorProps {
@@ -704,16 +705,24 @@ export default function HammerWorkspaceEditor(
     const sessionId = workspaceSnapshot?.sessionId ?? effectiveLaunchContext?.session_id ?? null;
     if (!sessionId) return;
 
-    const sendHeartbeat = () => {
+    let active = true;
+
+    const sendHeartbeat = async () => {
+      const hasUserToken = await hasTongsUserAccessToken();
+      if (!active || !hasUserToken) return;
+
       void upsertHammerPresence(persistenceTarget, {
         mode: "editing",
         session_id: sessionId,
       });
     };
 
-    sendHeartbeat();
-    const intervalId = window.setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
+    void sendHeartbeat();
+    const intervalId = window.setInterval(() => {
+      void sendHeartbeat();
+    }, HEARTBEAT_INTERVAL_MS);
     return () => {
+      active = false;
       window.clearInterval(intervalId);
     };
   }, [

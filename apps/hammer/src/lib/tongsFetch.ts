@@ -179,6 +179,10 @@ async function resolveUserAccessToken(): Promise<string | null> {
   }
 }
 
+export async function hasTongsUserAccessToken(): Promise<boolean> {
+  return Boolean(await resolveUserAccessToken());
+}
+
 function resolveFromQuery(): string | null {
   try {
     const params = new URLSearchParams(window.location.search);
