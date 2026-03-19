@@ -220,6 +220,12 @@ type HammerPaneResizeState = {
   startLayout: HammerPaneLayout;
 };
 
+type HammerPreviewVisualDraft = {
+  x: number;
+  y: number;
+  scale: number;
+};
+
 type HammerDevRecordingEntry = {
   media_id: string;
   name: string;
@@ -1316,6 +1322,8 @@ export default function TranscriptSeekMock(
   const [ignoredPreviewVisualAssetRefs, setIgnoredPreviewVisualAssetRefs] = useState<Set<string>>(() => new Set());
   const [previewVisualLoadingRef, setPreviewVisualLoadingRef] = useState<string | null>(null);
   const [previewVisualLoadError, setPreviewVisualLoadError] = useState<string | null>(null);
+  const [visualPlacementsState, setVisualPlacementsState] = useState(() => cloneVisualPlacements(props.visualPlacements));
+  const [previewVisualDrafts, setPreviewVisualDrafts] = useState<Record<string, HammerPreviewVisualDraft>>({});
   const [lastPreviewSkip, setLastPreviewSkip] = useState<PreviewSkipEvent | null>(null);
   const [editInstructions, setEditInstructions] = useState<HammerEditInstruction[]>(
     () => cloneEditInstructions(resolvedLaunch.initial_edit_plan?.instructions ?? []),
@@ -1373,6 +1381,7 @@ export default function TranscriptSeekMock(
   const transcriptControlsPanelId = useId();
   const previewMonitorPanelId = useId();
   const proposedChangeCatalogRef = useRef<Map<string, HammerProposedChange>>(new Map());
+  const currentVisualPlacements = visualPlacementsState ?? null;
   const launchWorkspaceMapping = useMemo(
     () => resolvedLaunch.media.workspace_mapping ?? workspaceMapping,
     [resolvedLaunch.media.workspace_mapping, workspaceMapping],
@@ -1435,12 +1444,12 @@ export default function TranscriptSeekMock(
   const mediaPrepOutputsPackage = useMemo(
     () => buildHammerMediaPrepOutputsPackage({
       structuredTranscript: structuredTranscriptState,
-      visualPlacements: props.visualPlacements,
+      visualPlacements: currentVisualPlacements,
       audioPolish,
       mediaRef: activeMediaRef,
       mediaSourceLabel: activeMediaSourceLabel,
     }),
-    [activeMediaRef, activeMediaSourceLabel, audioPolish, props.visualPlacements, structuredTranscriptState],
+    [activeMediaRef, activeMediaSourceLabel, audioPolish, currentVisualPlacements, structuredTranscriptState],
   );
   const audioPolishFreshness = mediaPrepOutputsPackage.audio.polish.freshness;
   const preferredPlayback = mediaPrepOutputsPackage.audio.preferred_playback;
@@ -1777,9 +1786,9 @@ export default function TranscriptSeekMock(
       activeMediaKind,
       playbackSourceAvailable: Boolean(playbackSrc),
       audioPolish,
-      visualPlacements: props.visualPlacements ?? null,
+      visualPlacements: currentVisualPlacements,
     }),
-    [activeMediaKind, audioPolish, playbackSrc, props.visualPlacements, transcriptSegments.length],
+    [activeMediaKind, audioPolish, playbackSrc, currentVisualPlacements, transcriptSegments.length],
   );
   const macroReadinessSummary = useMemo(
     () => summarizeHammerMacroReadiness(macroReadiness),
@@ -2107,6 +2116,11 @@ export default function TranscriptSeekMock(
   }, [resolvedLaunch.launch_context.workpiece_id]);
 
   useEffect(() => {
+    setVisualPlacementsState(cloneVisualPlacements(props.visualPlacements));
+    setPreviewVisualDrafts({});
+  }, [props.visualPlacements, resolvedLaunch.launch_context.workpiece_id]);
+
+  useEffect(() => {
     if (activePreviewVisual.kind !== "image") {
       setPreviewVisualLoadingRef(null);
       setPreviewVisualLoadError(null);
@@ -2264,7 +2278,7 @@ export default function TranscriptSeekMock(
       prepStatus: structuredTranscriptState ? "prepared" : "idle",
       alignmentStatus: structuredTranscriptState ? "aligned" : "not_started",
       structuredTranscript: structuredTranscriptState,
-      visualPlacements: props.visualPlacements ?? null,
+      visualPlacements: currentVisualPlacements,
       audioPolish,
       editorSession: {
         schema_version: 1,
@@ -2287,7 +2301,7 @@ export default function TranscriptSeekMock(
       audioPolish,
       currentEditPlan.updated_at,
       previewMode,
-      props.visualPlacements,
+      currentVisualPlacements,
       resolvedLaunch.launch_context.workpiece_id,
       resolvedLaunch.launch_context.workspace_id,
       selectedOverlayRowId,
@@ -5236,7 +5250,7 @@ export default function TranscriptSeekMock(
                       prepStatus: nextTranscript ? "prepared" : "idle",
                       alignmentStatus: nextTranscript ? "aligned" : "not_started",
                       structuredTranscript: nextTranscript,
-                      visualPlacements: props.visualPlacements ?? null,
+                      visualPlacements: currentVisualPlacements,
                       audioPolish,
                       editorSession: {
                         schema_version: 1,

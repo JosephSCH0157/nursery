@@ -591,6 +591,15 @@ export default function BellowsStandalone() {
       return;
     }
 
+    if (!hasLoadedWorkspaces && !workspaceError) {
+      setRuntimeShell(null);
+      setSnapshot(null);
+      setLoadingRuntime(false);
+      setBootstrapError(null);
+      setBootstrapMessage("Loading workspace context...");
+      return;
+    }
+
     if (!workspaceId) {
       setRuntimeShell(null);
       setSnapshot(null);
@@ -733,6 +742,7 @@ export default function BellowsStandalone() {
     };
   }, [
     authUser?.id,
+    hasLoadedWorkspaces,
     loadingWorkspaces,
     reloadToken,
     repository,
