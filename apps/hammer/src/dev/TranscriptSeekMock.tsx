@@ -5742,18 +5742,222 @@ export default function TranscriptSeekMock(
     </HammerPaneSection>
   );
 
+  const transcriptWorkspaceContent = (
+    <div className="hammer-transcript-workspace">
+      <HammerPaneSection
+        title="Transcript"
+        subtitle="Readable transcript for navigation and spoken-content editing."
+        action={(
+          <div className="hammer-action-row">
+            <span className="hammer-pill">{overlayRows.length} lines</span>
+            <span className="hammer-pill">
+              at playhead {playheadReadableTranscriptGroup ? playheadReadableTranscriptGroup.speaker : "none"}
+            </span>
+            <button
+              type="button"
+              className="hammer-button-xs"
+              onClick={() => setIsTranscriptControlsCollapsed((current) => !current)}
+              aria-controls={transcriptControlsPanelId}
+              aria-expanded={transcriptControlsExpanded}
+            >
+              {isTranscriptControlsCollapsed ? "Show tools" : "Hide tools"}
+            </button>
+          </div>
+        )}
+        sectionClassName="hammer-transcript-panel hammer-pane-section--rows hammer-pane-section--overflow-hidden"
+        bodyClassName="hammer-pane-section__body--rows hammer-pane-section__body--overflow-hidden"
+      >
+        <div className="hammer-transcript-workspace__body">
+          {!isTranscriptControlsCollapsed ? (
+            <div className="hammer-transcript-tools-strip" id={transcriptControlsPanelId}>
+              {selectedSegment ? (
+                <>
+                  <div className="hammer-copy-sm hammer-copy-strong">
+                    {selectedSegment?.segment_id} · {selectedSegment?.speaker}
+                  </div>
+                  <div className="hammer-action-row">
+                    <button
+                      type="button"
+                      disabled={!selectedSegment}
+                      className="hammer-button-xs"
+                      onClick={() => {
+                        if (!selectedSegment) return;
+                        toggleDeleteInstruction(selectedSegment.segment_id);
+                      }}
+                    >
+                      {selectedSegmentDeleteInstruction ? "Restore" : "Delete"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!selectedSegment}
+                      className="hammer-button-xs"
+                      onClick={() => {
+                        if (!selectedSegment) return;
+                        toggleMuteInstruction(selectedSegment.segment_id);
+                      }}
+                    >
+                      {selectedSegmentMuteInstruction ? "Unmute" : "Mute"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!selectedSegment}
+                      className="hammer-button-xs"
+                      onClick={() => {
+                        if (!selectedSegment) return;
+                        toggleTrimInstruction(selectedSegment);
+                      }}
+                    >
+                      {selectedSegmentTrimInstruction ? "Undo trim" : "Trim"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!selectedSegment}
+                      className="hammer-button-xs"
+                      onClick={() => {
+                        if (!selectedSegment) return;
+                        toggleSplitInstruction(selectedSegment);
+                      }}
+                    >
+                      {selectedSegmentSplitInstruction ? "Undo split" : "Split"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!selectedSegment || (!selectedSegmentMergeInstruction && !canMergeSelected)}
+                      className="hammer-button-xs"
+                      onClick={() => {
+                        if (!selectedSegment) return;
+                        toggleMergeInstruction(selectedSegment, selectedNextSegment);
+                      }}
+                    >
+                    {selectedSegmentMergeInstruction ? "Undo merge" : "Merge with next"}
+                  </button>
+                  </div>
+                  {!canMergeSelected && selectedNextSegment ? (
+                    <div className="hammer-copy-sm hammer-copy-muted">
+                      Merge is disabled because the next speaker does not match.
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <div className="hammer-copy-sm hammer-copy-muted">
+                  Select a transcript row to inspect it and apply segment-level edits.
+                </div>
+              )}
+              {transcriptLoad.error ? (
+                <div className="hammer-copy-sm hammer-copy-warning">{transcriptLoad.error}</div>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div
+            ref={transcriptScrollContainerRef}
+            data-testid="transcript-scroll-container"
+            className="hammer-script-panel__list"
+          >
+            {readableTranscriptGroups.length > 0 ? (
+              readableTranscriptGroups.map((group) => {
+                const primaryRow = overlayRowById.get(group.row_ids[0] ?? "") ?? null;
+                if (!primaryRow) return null;
+
+                const groupRows = group.row_ids
+                  .map((rowId) => overlayRowById.get(rowId) ?? null)
+                  .filter((row): row is TranscriptOverlayRow => Boolean(row));
+                const groupPlaybackRange = playbackRanges.find((range) => range.row_id === primaryRow.row_id) ?? null;
+                const groupStageMarkers = [...new Map(
+                  groupRows.flatMap((row) => getTranscriptRowStageMarkers(row)).map((marker) => [marker.id, marker] as const),
+                ).values()];
+                const isSelected = Boolean(selectedReadableTranscriptGroup && selectedReadableTranscriptGroup.group_id === group.group_id);
+                const isAtPlayhead = Boolean(playheadReadableTranscriptGroup && playheadReadableTranscriptGroup.group_id === group.group_id);
+                return (
+                  <div
+                    key={group.group_id}
+                    ref={(element) => {
+                      if (element) {
+                        transcriptRowRefs.current.set(group.group_id, element);
+                      } else {
+                        transcriptRowRefs.current.delete(group.group_id);
+                      }
+                    }}
+                    className={cx(
+                      "hammer-script-row",
+                      revealedTranscriptRowId && group.row_ids.includes(revealedTranscriptRowId) && "is-revealed",
+                    )}
+                    data-selected={isSelected ? "true" : "false"}
+                    data-overlay-row-id={primaryRow.row_id}
+                    data-playhead={isAtPlayhead ? "true" : "false"}
+                    data-deleted={groupRows.every((row) => row.is_deleted) ? "true" : "false"}
+                    data-muted={groupRows.some((row) => row.is_muted) ? "true" : "false"}
+                    data-structure={primaryRow.structure}
+                    data-playable-start={groupPlaybackRange?.playable_start_sec ?? ""}
+                    data-playable-end={groupPlaybackRange?.playable_end_sec ?? ""}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => selectTranscriptRow(primaryRow)}
+                      aria-current={isAtPlayhead ? "true" : undefined}
+                      className="hammer-script-row__button"
+                    >
+                      <div className="hammer-script-row__meta">
+                        <span className="hammer-copy-sm hammer-copy-muted">
+                          {formatClock(group.start_sec)}-{formatClock(group.end_sec)} {group.speaker}
+                        </span>
+                        {isAtPlayhead ? (
+                          <span className="hammer-script-row__playhead">At playhead</span>
+                        ) : null}
+                      </div>
+                      {groupStageMarkers.length > 0 ? (
+                        <div className="hammer-script-row__status-list">
+                          {groupStageMarkers.map((marker) => (
+                            <span
+                              key={marker.id}
+                              className={getTranscriptRowStageMarkerClassName(marker.tone)}
+                            >
+                              {marker.label}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      <div className="hammer-script-blocks">
+                        <div className="hammer-script-block">
+                          <div className="hammer-label">
+                            {group.row_count} readable block{group.row_count === 1 ? "" : "s"} · {group.source_segment_ids.length} source chunk{group.source_segment_ids.length === 1 ? "" : "s"}
+                          </div>
+                          <div
+                            className={cx(
+                              "hammer-copy-md",
+                              "hammer-script-block__text",
+                              groupRows.every((row) => row.is_deleted) && "is-deleted",
+                            )}
+                          >
+                            {group.text}
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="hammer-copy-md hammer-copy-dim">
+                No transcript segments loaded.
+              </div>
+            )}
+          </div>
+        </div>
+      </HammerPaneSection>
+    </div>
+  );
+
   return (
     <section className="hammer-editor-shell">
       <div className="hammer-editor-shell__upper-wrap">
         <div className={cx("hammer-editor-shell__upper", dynamicStyles.upperLayoutClassName)}>
           <div
-            className={cx(
-              "hammer-pane hammer-pane--left",
-              activeWorkPanel === "script" ? "is-script-view" : "is-assets-view",
-            )}
+            className="hammer-pane hammer-pane--left is-assets-view"
             style={measuredSidePaneStyle}
           >
-        {activeWorkPanel === "script" ? (
+        {false ? (
         <>
         <HammerPaneSection
           title="Transcript Controls"
@@ -5807,9 +6011,9 @@ export default function TranscriptSeekMock(
                 <div className="hammer-script-panel__selection">
                   <div className="hammer-stack-4">
                     <div className="hammer-copy-sm hammer-copy-strong">
-                    {selectedSegment.segment_id} · {selectedSegment.speaker}
+                    {selectedSegment?.segment_id} · {selectedSegment?.speaker}
                     </div>
-                    <div className="hammer-copy-sm hammer-copy-muted">{selectedSegment.text}</div>
+                    <div className="hammer-copy-sm hammer-copy-muted">{selectedSegment?.text}</div>
                   </div>
                   <div className="hammer-action-row">
                     <button
@@ -5900,7 +6104,7 @@ export default function TranscriptSeekMock(
           subtitle="Readable transcript groups are for review only. Machine transcript chunks remain the seek, cue, and subtitle truth."
           action={(
             <span className="hammer-pill">
-              at playhead {playheadReadableTranscriptGroup ? playheadReadableTranscriptGroup.speaker : "none"}
+              at playhead {playheadReadableTranscriptGroup?.speaker ?? "none"}
             </span>
           )}
           sectionClassName="hammer-pane-section--rows hammer-pane-section--overflow-hidden"
@@ -6008,18 +6212,7 @@ export default function TranscriptSeekMock(
             title="Assets"
             subtitle="Assets stays limited to project-linked video, images, and music already attached to this workpiece."
             action={(
-              <div className="hammer-tab-row">
-                {WORK_PANEL_VIEWS.map((panel) => (
-                  <button
-                    key={panel.id}
-                    type="button"
-                    onClick={() => setActiveWorkPanel(panel.id)}
-                    className={getToggleButtonClassName(activeWorkPanel === panel.id)}
-                  >
-                    {panel.label}
-                  </button>
-                ))}
-              </div>
+              <span className="hammer-pill">Source bin</span>
             )}
             sectionClassName="hammer-pane-section--overflow-hidden"
             bodyClassName="hammer-pane-section__body--scroll"
@@ -6334,7 +6527,7 @@ export default function TranscriptSeekMock(
           </div>
         </div>
 
-        {isPreviewMonitorCollapsed ? (
+        {showDebugPanels ? (isPreviewMonitorCollapsed ? (
           <div
             id={previewMonitorPanelId}
             className="hammer-preview-monitor-strip"
@@ -6553,8 +6746,9 @@ export default function TranscriptSeekMock(
 
           </div>
         </HammerPaneSection>
-        )}
+        )) : null}
         {timelineWorkspaceContent}
+        {transcriptWorkspaceContent}
         </div>
       </div>
 

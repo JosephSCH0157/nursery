@@ -1267,6 +1267,38 @@
   overflow: hidden;
 }
 
+.hammer-transcript-workspace {
+  display: grid;
+  flex: 0 0 clamp(180px, 22vh, 260px);
+  min-height: 160px;
+  max-height: 32vh;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.hammer-transcript-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.hammer-transcript-workspace__body {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 6px;
+  min-height: 0;
+}
+
+.hammer-transcript-tools-strip {
+  display: grid;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: var(--hammer-radius-sm);
+  background: rgba(15, 23, 42, 0.34);
+}
+
 .hammer-preview-panel__body {
   display: grid;
   gap: var(--hammer-gap-xs);
