@@ -2,6 +2,7 @@ import HammerEditorRuntime from "@hammer/app/HammerEditorRuntime";
 import type { HammerShellContext } from "@hammer/app/hammerShellContext";
 import HammerWorkspaceSelection from "@hammer/app/HammerWorkspaceSelection";
 import { resolveHammerRouteWorkpieceId } from "@hammer/app/hammerRuntimeData";
+import { useMemo } from "react";
 import { Link, useLocation, useOutletContext } from "react-router-dom";
 import { buildForgeRouteHref } from "../lib/forge-route-context";
 
@@ -9,6 +10,18 @@ export default function HammerEditorRoute() {
   const context = useOutletContext<HammerShellContext>();
   const location = useLocation();
   const routeWorkpieceId = resolveHammerRouteWorkpieceId(location.search);
+  const releasePrepHref = useMemo(() => {
+    if (!context.workspaceId || !routeWorkpieceId) return null;
+    const baseHref = buildForgeRouteHref("/app/tongs", {
+      search: location.search,
+      workspaceId: context.workspaceId,
+      workpieceId: routeWorkpieceId,
+    });
+    const parsed = new URL(baseHref, "https://forge.local");
+    parsed.searchParams.set("mode", "release");
+    const nextSearch = parsed.searchParams.toString();
+    return nextSearch ? `${parsed.pathname}?${nextSearch}` : parsed.pathname;
+  }, [context.workspaceId, location.search, routeWorkpieceId]);
   const libraryHref = buildForgeRouteHref("/app/hammer", {
     search: location.search,
     workspaceId: context.workspaceId,
@@ -54,5 +67,5 @@ export default function HammerEditorRoute() {
     );
   }
 
-  return <HammerEditorRuntime />;
+  return <HammerEditorRuntime releasePrepHref={releasePrepHref} />;
 }

@@ -54,6 +54,7 @@ export interface HammerWorkspaceEditorProps {
   launchContext?: HammerLaunchContext;
   routeSearch?: string;
   persistenceMode?: "canonical" | "disabled";
+  releasePrepHref?: string | null;
   allowDevLaunchFallback?: boolean;
 }
 
@@ -843,6 +844,7 @@ export default function HammerWorkspaceEditor(
               structuredTranscript={loadedPersistenceSnapshot?.structured_transcript.data ?? null}
               visualPlacements={visualPlacementData}
               audioPolish={audioPolishData}
+              releasePrepHref={props.releasePrepHref}
               selectedMacroRecipeRef={loadedPersistenceSnapshot?.macro_hooks.recipe_ref ?? null}
               lastMacroRunRef={loadedPersistenceSnapshot?.macro_hooks.last_run_ref ?? null}
               prepHandoffAction={preparedActionIntent}

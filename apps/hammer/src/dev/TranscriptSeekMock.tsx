@@ -46,6 +46,7 @@ import type {
 } from "../lib/transcriptPreview";
 import { buildHammerCaptionPreviewModel } from "../lib/hammerCaptionPreview";
 import { buildHammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutputsPackage";
+import { buildHammerReleasePrepPackage } from "../lib/hammerReleasePrepPackage";
 import {
   generateHammerSubtitleArtifact,
   getHammerSubtitleArtifact,
@@ -234,6 +235,7 @@ type TranscriptSeekMockProps = {
   structuredTranscript?: HammerPersistedStructuredTranscript | null;
   visualPlacements?: HammerPersistedVisualPlacements | null;
   audioPolish?: HammerPersistedAudioPolish | null;
+  releasePrepHref?: string | null;
   selectedMacroRecipeRef?: string | null;
   lastMacroRunRef?: string | null;
   prepHandoffAction?: {
@@ -813,6 +815,35 @@ function getHammerToolHint(tool: HammerToolId): string {
       return "Export is the delivery lane for the main cut and derivative outputs after the edit is locked.";
     default:
       return "Hammer tools stay grounded in project state, transcript timing, and the current edit plan.";
+  }
+}
+
+function getReleasePrepTone(
+  status: "ready" | "missing" | "stale" | "failed" | "unsupported" | "requires_future_ffmpeg",
+): HammerWorkflowTone {
+  switch (status) {
+    case "ready":
+      return "active";
+    case "missing":
+    case "stale":
+      return "ready";
+    case "failed":
+    case "unsupported":
+    case "requires_future_ffmpeg":
+      return "blocked";
+    default:
+      return "future";
+  }
+}
+
+function formatReleasePrepStatusLabel(
+  status: "ready" | "missing" | "stale" | "failed" | "unsupported" | "requires_future_ffmpeg",
+): string {
+  switch (status) {
+    case "requires_future_ffmpeg":
+      return "requires future ffmpeg";
+    default:
+      return status;
   }
 }
 
@@ -2027,6 +2058,51 @@ export default function TranscriptSeekMock(
       transcriptSourceId,
     ],
   );
+  const releasePrepPackage = useMemo(
+    () => buildHammerReleasePrepPackage({
+      workspaceId: resolvedLaunch.launch_context.workspace_id,
+      workpieceId: resolvedLaunch.launch_context.workpiece_id,
+      prepStatus: structuredTranscriptState ? "prepared" : "idle",
+      alignmentStatus: structuredTranscriptState ? "aligned" : "not_started",
+      structuredTranscript: structuredTranscriptState,
+      visualPlacements: props.visualPlacements ?? null,
+      audioPolish,
+      editorSession: {
+        schema_version: 1,
+        session_id: sessionId,
+        source_mode: sourceMode,
+        preview_mode: previewMode,
+        transcript_source_id: transcriptSourceId,
+        selected_segment_id: selectedSegmentId,
+        selected_overlay_row_id: selectedOverlayRowId,
+        media_ref: activeMediaRef ? { ...activeMediaRef } : null,
+        workspace_mapping: activeMediaWorkspaceMapping ? { ...activeMediaWorkspaceMapping } : null,
+        media_source_label: activeMediaSourceLabel,
+        last_opened_at: currentEditPlan.updated_at,
+      },
+    }),
+    [
+      activeMediaRef,
+      activeMediaSourceLabel,
+      activeMediaWorkspaceMapping,
+      audioPolish,
+      currentEditPlan.updated_at,
+      previewMode,
+      props.visualPlacements,
+      resolvedLaunch.launch_context.workpiece_id,
+      resolvedLaunch.launch_context.workspace_id,
+      selectedOverlayRowId,
+      selectedSegmentId,
+      sessionId,
+      sourceMode,
+      structuredTranscriptState,
+      transcriptSourceId,
+    ],
+  );
+  const releasePrepBlockingStatuses = releasePrepPackage.readiness.blocking_statuses;
+  const releasePrepSummaryLabel = releasePrepBlockingStatuses.length > 0
+    ? releasePrepBlockingStatuses.map((status) => formatReleasePrepStatusLabel(status)).join(" · ")
+    : "ready";
   const workspaceSnapshot = useMemo<HammerWorkspaceSnapshot>(
     () => ({
       workspaceId: resolvedLaunch.launch_context.workspace_id,
@@ -4505,14 +4581,142 @@ export default function TranscriptSeekMock(
                 {sessionState.editPlanStatus}
               </span>
               <span className="hammer-pill">main edit</span>
-              <span className="hammer-pill">shorts</span>
+              <span className="hammer-pill">release prep {releasePrepPackage.readiness.fully_prepared ? "ready" : "attention"}</span>
+              <span className="hammer-pill">{releasePrepSummaryLabel}</span>
             </div>
             <div className="hammer-copy-md">
-              Export is the final delivery stage inside Hammer. Render/output controls belong here, separate from the editing work panels.
+              Export is now the handoff lane. Hammer reads the current persisted editing truth, shows what is ready for downstream release prep, and lets you fix stale text outputs before opening Tongs.
             </div>
-            <div className="hammer-copy-sm hammer-copy-muted">
-              current plan {currentEditPlan.edit_plan_id} · instructions {editInstructions.length}
+            <div className="hammer-inspector-grid">
+              <div>
+                <div className="hammer-label">current plan</div>
+                <div className="hammer-mono">{currentEditPlan.edit_plan_id}</div>
+              </div>
+              <div>
+                <div className="hammer-label">instructions</div>
+                <div>{editInstructions.length}</div>
+              </div>
+              <div>
+                <div className="hammer-label">output source</div>
+                <div>{textOutputsPackage ? formatTranscriptOutputLabel(outputDerivedLayer) : "raw transcript"}</div>
+              </div>
+              <div>
+                <div className="hammer-label">blocking states</div>
+                <div>{releasePrepBlockingStatuses.length > 0 ? releasePrepSummaryLabel : "none"}</div>
+              </div>
             </div>
+            <div className="hammer-workflow-grid">
+              <HammerWorkflowCard
+                title="Transcript Output"
+                tone={getReleasePrepTone(releasePrepPackage.readiness.transcript_output)}
+                statusLabel={formatReleasePrepStatusLabel(releasePrepPackage.readiness.transcript_output)}
+                description="Resolved downstream transcript text assembled from the current raw or derived output layer."
+                meta={(
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    {releasePrepPackage.text_outputs
+                      ? `${releasePrepPackage.text_outputs.resolved_output.segment_count} segments · ${releasePrepPackage.text_outputs.output_selection.source_kind} output`
+                      : "No release transcript output is available yet."}
+                  </div>
+                )}
+              />
+              <HammerWorkflowCard
+                title="SRT"
+                tone={getReleasePrepTone(releasePrepPackage.readiness.subtitles.srt)}
+                statusLabel={formatReleasePrepStatusLabel(releasePrepPackage.readiness.subtitles.srt)}
+                description="Subtitle artifact for downstream packaging and review."
+                meta={(
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    {textOutputsPackage?.subtitles.srt.artifact
+                      ? `${textOutputsPackage.subtitles.srt.artifact.entry_count} entries`
+                      : "Generate or refresh SRT from the current output layer."}
+                  </div>
+                )}
+              />
+              <HammerWorkflowCard
+                title="VTT"
+                tone={getReleasePrepTone(releasePrepPackage.readiness.subtitles.vtt)}
+                statusLabel={formatReleasePrepStatusLabel(releasePrepPackage.readiness.subtitles.vtt)}
+                description="Web subtitle artifact for downstream release consumers."
+                meta={(
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    {textOutputsPackage?.subtitles.vtt.artifact
+                      ? `${textOutputsPackage.subtitles.vtt.artifact.entry_count} entries`
+                      : "Generate or refresh VTT from the current output layer."}
+                  </div>
+                )}
+              />
+              <HammerWorkflowCard
+                title="Media Prep"
+                tone={getReleasePrepTone(releasePrepPackage.readiness.audio_polish === "ready"
+                  ? releasePrepPackage.readiness.visuals
+                  : releasePrepPackage.readiness.audio_polish)}
+                statusLabel={`visuals ${formatReleasePrepStatusLabel(releasePrepPackage.readiness.visuals)} · audio ${formatReleasePrepStatusLabel(releasePrepPackage.readiness.audio_polish)}`}
+                description="Visual placements and audio prep stay visible here so release handoff reflects real prep truth."
+                meta={(
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    {releasePrepPackage.media_prep_outputs.visuals.placement_count} visual suggestions
+                    {" · "}
+                    playback {releasePrepPackage.media_prep_outputs.audio.preferred_playback.kind}
+                  </div>
+                )}
+              />
+            </div>
+            <div className="hammer-action-row">
+              <button
+                type="button"
+                className="hammer-button-xs"
+                disabled={!structuredTranscriptState}
+                onClick={() => {
+                  if (!structuredTranscriptState) return;
+                  const generatedAt = new Date().toISOString();
+                  let nextTranscript = structuredTranscriptState;
+                  for (const format of ["srt", "vtt"] as HammerSubtitleFormat[]) {
+                    const artifact = generateHammerSubtitleArtifact({
+                      rawSegments: rawTranscriptSegments,
+                      transcript: nextTranscript,
+                      format,
+                      generatedAt,
+                    });
+                    nextTranscript = setHammerSubtitleArtifact(nextTranscript, artifact);
+                  }
+                  setStructuredTranscriptState(nextTranscript);
+                  setSelectedSubtitleFormat("srt");
+                  setSubtitleActionFeedback(`Generated current SRT and VTT from ${formatTranscriptOutputLabel(outputDerivedLayer)}.`);
+                }}
+              >
+                Generate Current Subtitles
+              </button>
+              <button
+                type="button"
+                className="hammer-button-xs"
+                disabled={!textOutputsPackage?.resolved_output.full_text}
+                onClick={() => {
+                  const fullText = textOutputsPackage?.resolved_output.full_text ?? "";
+                  if (!fullText) return;
+                  if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+                    setSubtitleActionFeedback("Clipboard access is unavailable in this environment.");
+                    return;
+                  }
+                  void navigator.clipboard.writeText(fullText)
+                    .then(() => {
+                      setSubtitleActionFeedback(`Copied ${formatTranscriptOutputLabel(outputDerivedLayer)} text output.`);
+                    })
+                    .catch(() => {
+                      setSubtitleActionFeedback("Hammer could not copy output transcript text.");
+                    });
+                }}
+              >
+                Copy Output Text
+              </button>
+              {props.releasePrepHref ? (
+                <a href={props.releasePrepHref} className="hammer-button-xs">
+                  Open Tongs Release Prep
+                </a>
+              ) : null}
+            </div>
+            {subtitleActionFeedback ? (
+              <div className="hammer-copy-sm hammer-copy-muted">{subtitleActionFeedback}</div>
+            ) : null}
           </div>
         );
       default:

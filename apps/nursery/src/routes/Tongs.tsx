@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import TongsCalendar from "./TongsCalendar";
 import TongsReleasePrep from "./TongsReleasePrep";
 import TongsRecordingSessions from "./TongsRecordingSessions";
@@ -32,6 +33,15 @@ function writeStoredMode(mode: TongsMode): void {
   }
 }
 
+function readModeFromSearch(search: string): TongsMode | null {
+  const params = new URLSearchParams(search);
+  const raw = params.get("mode")?.trim().toLowerCase() ?? "";
+  if (raw === "calendar" || raw === "sessions" || raw === "team" || raw === "release" || raw === "storage") {
+    return raw;
+  }
+  return null;
+}
+
 function ModeButton({
   active,
   label,
@@ -54,12 +64,19 @@ function ModeButton({
 }
 
 export default function TongsRoute() {
-  const [mode, setMode] = useState<TongsMode>(() => readStoredMode());
+  const location = useLocation();
+  const [mode, setMode] = useState<TongsMode>(() => readModeFromSearch(location.search) ?? readStoredMode());
 
   const setModeAndPersist = (nextMode: TongsMode) => {
     setMode(nextMode);
     writeStoredMode(nextMode);
   };
+
+  useEffect(() => {
+    const routeMode = readModeFromSearch(location.search);
+    if (!routeMode || routeMode === mode) return;
+    setModeAndPersist(routeMode);
+  }, [location.search, mode]);
 
   return (
     <div className="tongs-page">
