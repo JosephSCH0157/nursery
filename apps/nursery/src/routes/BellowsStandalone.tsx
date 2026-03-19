@@ -1,0 +1,1297 @@
+import type { User } from "@supabase/supabase-js";
+import { listMyWorkspaces, type Workspace } from "@barstock/lib/tongs-api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import type {
+  BellowsEventActorType,
+  BellowsLifecycleState,
+  BellowsOffsetMs,
+  BellowsOperatorConsoleHarness,
+  BellowsOperatorConsoleSnapshot,
+  BellowsRuntimeDispatchResult,
+  BellowsSession,
+  BellowsSessionAction,
+  BellowsTongsCheckpointKind,
+  ParticipantId,
+  SessionEventId,
+  SessionId,
+  UserId,
+  WorkspaceId,
+} from "@forge/bellows";
+import {
+  BELLOWS_TONGS_RECOVERY_SNAPSHOT_SCHEMA_VERSION,
+  createBellowsOperatorConsoleHarness,
+} from "@forge/bellows";
+import {
+  buildForgeRouteHref,
+  parseForgeRouteContext,
+} from "../lib/forge-route-context";
+import {
+  createBellowsTongsSessionRepository,
+  isBellowsTerminalLifecycle,
+  supportsBellowsRehydration,
+  type NurseryBellowsTongsSessionRepository,
+} from "../lib/bellows/bellowsTongsRepository";
+import { supabase } from "../lib/supabase";
+import "./BellowsStandalone.css";
+
+const ACTIVE_WORKSPACE_KEY = "forge_workspace_id_v1";
+const LEGACY_BARSTOCK_WORKSPACE_KEY = "barstock_workspace_id";
+
+type BellowsRuntimeShell = {
+  readonly harness: BellowsOperatorConsoleHarness;
+  readonly hostParticipantId: ParticipantId;
+  readonly nextOffsetMs: () => BellowsOffsetMs;
+  readonly sessionOriginLabel: string;
+};
+
+function asParticipantId(value: string): ParticipantId {
+  return value as ParticipantId;
+}
+
+function asSessionId(value: string): SessionId {
+  return value as SessionId;
+}
+
+function asUserId(value: string): UserId {
+  return value as UserId;
+}
+
+function asWorkspaceId(value: string): WorkspaceId {
+  return value as WorkspaceId;
+}
+
+function searchFromHref(href: string): string {
+  const q = href.indexOf("?");
+  return q >= 0 ? href.slice(q) : "";
+}
+
+function createBellowsId(prefix: string): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `${prefix}-${crypto.randomUUID()}`;
+  }
+
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function createOffsetClock(startAt: number): () => BellowsOffsetMs {
+  let current = startAt;
+
+  return () => current++ as BellowsOffsetMs;
+}
+
+function readStoredWorkspaceId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(ACTIVE_WORKSPACE_KEY)
+      ?? window.localStorage.getItem(LEGACY_BARSTOCK_WORKSPACE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function persistStoredWorkspaceId(workspaceId: string | null): void {
+  if (typeof window === "undefined") return;
+
+  try {
+    if (workspaceId) {
+      window.localStorage.setItem(ACTIVE_WORKSPACE_KEY, workspaceId);
+      window.localStorage.setItem(LEGACY_BARSTOCK_WORKSPACE_KEY, workspaceId);
+      return;
+    }
+
+    window.localStorage.removeItem(ACTIVE_WORKSPACE_KEY);
+    window.localStorage.removeItem(LEGACY_BARSTOCK_WORKSPACE_KEY);
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function describeUser(user: User | null): string {
+  if (!user) return "Guest";
+
+  const metadata = user.user_metadata ?? {};
+  const displayName = typeof metadata.display_name === "string" && metadata.display_name.trim()
+    ? metadata.display_name.trim()
+    : typeof metadata.full_name === "string" && metadata.full_name.trim()
+    ? metadata.full_name.trim()
+    : null;
+
+  return displayName
+    ?? user.email?.trim()
+    ?? user.phone?.trim()
+    ?? `User ${user.id.slice(0, 8)}`;
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return fallback;
+}
+
+function isAccessibleWorkspaceId(
+  workspaceId: string | null,
+  workspaces: Workspace[],
+  hasLoadedWorkspaces: boolean,
+): string | null {
+  if (!workspaceId) return null;
+  if (!hasLoadedWorkspaces) return workspaceId;
+  return workspaces.some((workspace) => workspace.id === workspaceId) ? workspaceId : null;
+}
+
+function resolveHostParticipantId(session: BellowsSession): ParticipantId {
+  if (session.authorityState.actingHostParticipantId) {
+    return session.authorityState.actingHostParticipantId;
+  }
+
+  if (session.authorityState.hostParticipantId) {
+    return session.authorityState.hostParticipantId;
+  }
+
+  const participants = Object.values(session.participants);
+  const hostLikeParticipant = participants.find((participant) =>
+    participant.authorityTier === "host" || participant.authorityTier === "co_host");
+  if (hostLikeParticipant) {
+    return hostLikeParticipant.participantId;
+  }
+
+  const firstParticipant = participants[0];
+  if (firstParticipant) {
+    return firstParticipant.participantId;
+  }
+
+  throw new Error("Bellows session has no participant available to act as host authority.");
+}
+
+function nextOffsetSeed(session: BellowsSession): number {
+  return session.events.reduce((highest, event) => {
+    const offset = Number(event.offsetMs);
+    return Number.isFinite(offset) ? Math.max(highest, offset) : highest;
+  }, -1) + 1;
+}
+
+function createHarnessState(session: BellowsSession): {
+  readonly harness: BellowsOperatorConsoleHarness;
+  readonly hostParticipantId: ParticipantId;
+  readonly nextOffsetMs: () => BellowsOffsetMs;
+} {
+  const hostParticipantId = resolveHostParticipantId(session);
+  const nextOffsetMs = createOffsetClock(nextOffsetSeed(session));
+  const eventPrefix = createBellowsId("bellows-evt");
+  let eventCounter = session.events.length;
+
+  return {
+    harness: createBellowsOperatorConsoleHarness({
+      initialState: session,
+      engineContext: {
+        nextEventId: () => `${eventPrefix}-${++eventCounter}` as SessionEventId,
+      },
+      hostParticipantId,
+      nextOffsetMs,
+    }),
+    hostParticipantId,
+    nextOffsetMs,
+  };
+}
+
+function createSeedSession(args: {
+  workspaceId: WorkspaceId;
+  hostUserId: UserId;
+}): BellowsSession {
+  const sessionId = asSessionId(createBellowsId("bellows-session"));
+  const hostParticipantId = asParticipantId(createBellowsId("bellows-host"));
+  const coHostParticipantId = asParticipantId(createBellowsId("bellows-cohost"));
+
+  return {
+    sessionId,
+    workspaceId: args.workspaceId,
+    hostUserId: args.hostUserId,
+    authorityState: {
+      actingAuthorityState: "host_present",
+      hostParticipantId,
+      actingHostParticipantId: hostParticipantId,
+      coHostParticipantIds: [coHostParticipantId],
+    },
+    draft: {
+      sessionId,
+      workspaceId: args.workspaceId,
+      hostUserId: args.hostUserId,
+      mode: "live",
+      sessionType: "remote",
+      title: "Bellows operator session",
+      participantSlots: [
+        { roleCode: "S1", participantId: hostParticipantId },
+        { roleCode: "S2", participantId: coHostParticipantId },
+      ],
+      scriptReference: null,
+      broadcastIntent: "single_platform",
+      broadcastTargets: [
+        {
+          broadcastTargetId: createBellowsId("bellows-target") as never,
+          platform: "youtube",
+          enabled: true,
+          credentialRef: null,
+          displayLabel: "YouTube",
+        },
+      ],
+      scheduledTimeUtc: null,
+    },
+    participants: {
+      [hostParticipantId]: {
+        participantId: hostParticipantId,
+        userId: args.hostUserId,
+        displayName: "Host",
+        roleCode: "S1",
+        authorityTier: "host",
+        presenceState: "ready",
+        joinState: "approved",
+        joinedAtOffsetMs: 0 as BellowsOffsetMs,
+        leftAtOffsetMs: null,
+      },
+      [coHostParticipantId]: {
+        participantId: coHostParticipantId,
+        userId: null,
+        displayName: "Co-host Slot",
+        roleCode: "S2",
+        authorityTier: "co_host",
+        presenceState: "ready",
+        joinState: "approved",
+        joinedAtOffsetMs: 0 as BellowsOffsetMs,
+        leftAtOffsetMs: null,
+      },
+    } as BellowsSession["participants"],
+    tracks: {},
+    segments: {},
+    machineState: {
+      lifecycle: "idle",
+      broadcast: "not_broadcasting",
+      outcome: null,
+    },
+    recordingState: "idle",
+    broadcastState: "not_broadcasting",
+    uploadState: "not_started",
+    sealState: "not_started",
+    timeline: {
+      t0OffsetMs: null,
+      startTimeUtc: null,
+      endTimeUtc: null,
+      trackIds: [],
+      segmentIds: [],
+      syncMarkers: [],
+    },
+    integrityFlags: [],
+    events: [],
+  };
+}
+
+function createHostAction(
+  type: string,
+  payload: Record<string, unknown>,
+  hostParticipantId: ParticipantId,
+  nextOffsetMs: () => BellowsOffsetMs,
+): BellowsSessionAction {
+  return {
+    source: "host",
+    type,
+    payload,
+    meta: {
+      actorId: hostParticipantId,
+      offsetMs: nextOffsetMs(),
+    },
+  } as BellowsSessionAction;
+}
+
+function createEngineAction(
+  type: string,
+  payload: Record<string, unknown>,
+  actorId: "engine" | "system",
+  source: "engine" | "capture",
+  nextOffsetMs: () => BellowsOffsetMs,
+): BellowsSessionAction {
+  return {
+    source,
+    type,
+    payload,
+    meta: {
+      actorId,
+      offsetMs: nextOffsetMs(),
+    },
+  } as BellowsSessionAction;
+}
+
+function resolveActorType(
+  session: BellowsSession,
+  action: BellowsSessionAction,
+): BellowsEventActorType | null {
+  const actorId = action.meta.actorId;
+
+  if (actorId === "engine") return "engine";
+  if (actorId === "system") return "system";
+
+  const participant = session.participants[actorId as ParticipantId];
+  if (!participant) return null;
+
+  if (participant.authorityTier === "host") return "host";
+  if (participant.authorityTier === "co_host") return "co_host";
+  return "participant";
+}
+
+function classifyCheckpointKind(
+  action: BellowsSessionAction,
+  session: BellowsSession,
+): BellowsTongsCheckpointKind {
+  if (action.type === "HOST_UPDATE_DRAFT") return "draft_updated";
+  if (action.source === "recovery") return "recovery_checkpoint";
+  if (session.machineState.lifecycle === "archived" || action.type === "ARCHIVE_REQUESTED") {
+    return "archive_checkpoint";
+  }
+  if (
+    session.machineState.lifecycle === "verifying_integrity"
+    || session.machineState.lifecycle === "assembling_manifest"
+  ) {
+    return "integrity_checkpoint";
+  }
+  if (
+    session.machineState.lifecycle === "sealing_session"
+    || session.machineState.lifecycle === "sealed"
+    || session.machineState.lifecycle === "incomplete_capture"
+    || session.machineState.lifecycle === "failed_capture"
+  ) {
+    return "seal_checkpoint";
+  }
+  return "runtime_transition";
+}
+
+function buildCheckpointDelta(
+  action: BellowsSessionAction,
+  result: BellowsRuntimeDispatchResult,
+): Readonly<Record<string, unknown>> {
+  return {
+    transitionKind: result.transition.kind,
+    lifecycleBefore: result.previousState.machineState.lifecycle,
+    lifecycleAfter: result.currentState.machineState.lifecycle,
+    effectDispatches: result.effectDispatches.map((dispatch) => ({
+      adapter: dispatch.adapter,
+      effectType: dispatch.effectType,
+    })),
+    actionSource: action.source,
+    actionType: action.type,
+    rejection:
+      result.transition.kind === "rejected"
+        ? {
+          code: result.transition.rejection.code,
+          message: result.transition.rejection.message,
+        }
+        : null,
+  };
+}
+
+function buildBlockedRecoveryMessage(args: {
+  scopeLabel: string;
+  sessionId: SessionId;
+  lifecycle: BellowsLifecycleState;
+  checkpointId: string | null;
+  checkpointSchemaVersion: number | null;
+}): string {
+  if (!args.checkpointId) {
+    return `${args.scopeLabel} Bellows session ${args.sessionId} is in ${args.lifecycle} but has no latest recovery checkpoint. Tongs truth must be repaired before this console can continue.`;
+  }
+
+  if (
+    args.checkpointSchemaVersion !== null
+    && args.checkpointSchemaVersion !== BELLOWS_TONGS_RECOVERY_SNAPSHOT_SCHEMA_VERSION
+  ) {
+    return `${args.scopeLabel} Bellows session ${args.sessionId} points at checkpoint ${args.checkpointId} with snapshot schema ${args.checkpointSchemaVersion}. This console only supports schema ${BELLOWS_TONGS_RECOVERY_SNAPSHOT_SCHEMA_VERSION}.`;
+  }
+
+  return `${args.scopeLabel} Bellows session ${args.sessionId} has an unusable recovery checkpoint. Tongs truth must be repaired before this console can continue.`;
+}
+
+function canArchive(lifecycle: BellowsLifecycleState): boolean {
+  return lifecycle === "sealed"
+    || lifecycle === "incomplete_capture"
+    || lifecycle === "failed_capture";
+}
+
+function canEndSession(lifecycle: BellowsLifecycleState): boolean {
+  return lifecycle === "recording_active"
+    || lifecycle === "recording_degraded"
+    || lifecycle === "recording_offline_local"
+    || lifecycle === "recording_rejoining";
+}
+
+function formatDispatchSummary(snapshot: BellowsOperatorConsoleSnapshot): string {
+  const last = snapshot.dispatchLog.at(-1);
+
+  if (!last) {
+    return "No actions dispatched yet.";
+  }
+
+  if (last.transitionKind === "rejected") {
+    return `${last.actionType} rejected: ${last.rejection?.message ?? "Unknown rejection."}`;
+  }
+
+  return `${last.actionType} accepted. Bellows settled in ${last.lifecycleAfter}.`;
+}
+
+export default function BellowsStandalone() {
+  const repository = useMemo(
+    () => createBellowsTongsSessionRepository(supabase),
+    [],
+  );
+  const location = useLocation();
+  const navigate = useNavigate();
+  const routeContext = useMemo(
+    () => parseForgeRouteContext(location.search),
+    [location.search],
+  );
+
+  const [authUser, setAuthUser] = useState<User | null>(null);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [loadingWorkspaces, setLoadingWorkspaces] = useState(false);
+  const [hasLoadedWorkspaces, setHasLoadedWorkspaces] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [storedWorkspaceId, setStoredWorkspaceId] = useState<string | null>(() => readStoredWorkspaceId());
+
+  const [runtimeShell, setRuntimeShell] = useState<BellowsRuntimeShell | null>(null);
+  const [snapshot, setSnapshot] = useState<BellowsOperatorConsoleSnapshot | null>(null);
+  const [draftTitle, setDraftTitle] = useState("");
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState("Bellows is waiting for persisted runtime truth.");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [bootstrapMessage, setBootstrapMessage] = useState("Bellows is waiting for workspace context.");
+  const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+  const [loadingRuntime, setLoadingRuntime] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
+  const pendingLoadModeRef = useRef<"auto" | "forceFresh">("auto");
+
+  const viewerLabel = describeUser(authUser);
+  const isAuthenticated = Boolean(authUser);
+  const accessibleRouteWorkspaceId = useMemo(
+    () => isAccessibleWorkspaceId(routeContext.workspaceId, workspaces, hasLoadedWorkspaces),
+    [hasLoadedWorkspaces, routeContext.workspaceId, workspaces],
+  );
+  const accessibleStoredWorkspaceId = useMemo(
+    () => (isAuthenticated
+      ? isAccessibleWorkspaceId(storedWorkspaceId, workspaces, hasLoadedWorkspaces)
+      : null),
+    [hasLoadedWorkspaces, isAuthenticated, storedWorkspaceId, workspaces],
+  );
+  const workspaceId = accessibleRouteWorkspaceId
+    ?? accessibleStoredWorkspaceId
+    ?? (hasLoadedWorkspaces ? workspaces[0]?.id ?? null : null);
+  const workspaceName = workspaces.find((workspace) => workspace.id === workspaceId)?.name ?? null;
+  const loginHref = `/login?next=${encodeURIComponent(`${location.pathname}${location.search}${location.hash}`)}`;
+  const backHref = buildForgeRouteHref("/app", {
+    workspaceId,
+  });
+
+  useEffect(() => {
+    let active = true;
+
+    const applyUser = (user: User | null) => {
+      if (!active) return;
+      setAuthUser(user);
+    };
+
+    void supabase.auth.getUser().then(({ data }) => {
+      applyUser(data.user ?? null);
+    });
+
+    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
+      applyUser(session?.user ?? null);
+    });
+
+    return () => {
+      active = false;
+      subscription.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!authUser?.id) {
+      setWorkspaces([]);
+      setWorkspaceError(null);
+      setHasLoadedWorkspaces(true);
+      return;
+    }
+
+    let active = true;
+    setLoadingWorkspaces(true);
+    setHasLoadedWorkspaces(false);
+    setWorkspaceError(null);
+
+    void listMyWorkspaces()
+      .then((nextWorkspaces) => {
+        if (!active) return;
+        setWorkspaces(nextWorkspaces);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setWorkspaceError(getErrorMessage(error, "Bellows could not load workspace context."));
+      })
+      .finally(() => {
+        if (!active) return;
+        setLoadingWorkspaces(false);
+        setHasLoadedWorkspaces(true);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [authUser?.id]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const syncWorkspaceContext = () => {
+      setStoredWorkspaceId(readStoredWorkspaceId());
+    };
+
+    window.addEventListener("storage", syncWorkspaceContext);
+    window.addEventListener("focus", syncWorkspaceContext);
+    return () => {
+      window.removeEventListener("storage", syncWorkspaceContext);
+      window.removeEventListener("focus", syncWorkspaceContext);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    persistStoredWorkspaceId(workspaceId);
+    setStoredWorkspaceId((current) => current === workspaceId ? current : workspaceId);
+  }, [workspaceId]);
+
+  useEffect(() => {
+    if (!workspaceId) return;
+
+    const nextHref = buildForgeRouteHref(location.pathname, {
+      search: location.search,
+      workspaceId,
+    });
+    const nextSearch = searchFromHref(nextHref);
+    if (nextSearch === location.search) return;
+
+    navigate(
+      {
+        pathname: location.pathname,
+        search: nextSearch,
+      },
+      { replace: true },
+    );
+  }, [location.pathname, location.search, navigate, workspaceId]);
+
+  useEffect(() => {
+    if (!authUser?.id) {
+      setRuntimeShell(null);
+      setSnapshot(null);
+      setLoadingRuntime(false);
+      setBootstrapError(null);
+      setBootstrapMessage("Sign in to load Bellows from Tongs.");
+      return;
+    }
+
+    if (!workspaceId) {
+      setRuntimeShell(null);
+      setSnapshot(null);
+      setLoadingRuntime(false);
+      setBootstrapError(null);
+      setBootstrapMessage(
+        loadingWorkspaces
+          ? "Loading workspace context..."
+          : workspaceError
+          ? workspaceError
+          : "Bellows needs an active workspace before it can load runtime truth.",
+      );
+      return;
+    }
+
+    let active = true;
+    const workspace = asWorkspaceId(workspaceId);
+    const hostUserId = asUserId(authUser.id);
+    const loadMode = pendingLoadModeRef.current;
+    pendingLoadModeRef.current = "auto";
+
+    setLoadingRuntime(true);
+    setBusyAction(null);
+    setErrorMessage(null);
+    setBootstrapError(null);
+    setBootstrapMessage(
+      loadMode === "forceFresh"
+        ? "Creating a fresh Bellows session in Tongs..."
+        : "Loading Bellows from Tongs...",
+    );
+
+    void (async () => {
+      try {
+        let session: BellowsSession;
+        let sessionOriginLabel = "Tongs resume";
+        let nextStatusMessage = "Rehydrated Bellows from Tongs.";
+
+        if (loadMode === "forceFresh") {
+          session = createSeedSession({ workspaceId: workspace, hostUserId });
+          await repository.createSessionHeader({ session });
+          await repository.appendRecoveryCheckpoint({
+            session,
+            checkpointKind: "session_created",
+            triggerActionSource: "engine",
+            triggerActionType: "SESSION_CREATED",
+            actorType: "engine",
+            actorId: "engine",
+            occurredAt: new Date().toISOString(),
+            delta: {
+              bootstrapMode: "forceFresh",
+            },
+          });
+          sessionOriginLabel = "Fresh session";
+          nextStatusMessage = "Created a fresh Bellows session in Tongs.";
+        } else {
+          const openBundle = await repository.loadMostRecentOpenSession(workspace);
+
+          if (openBundle) {
+            if (!supportsBellowsRehydration(openBundle)) {
+              throw new Error(buildBlockedRecoveryMessage({
+                scopeLabel: "Active",
+                sessionId: openBundle.header.sessionId,
+                lifecycle: openBundle.header.lifecycleState,
+                checkpointId: openBundle.header.latestCheckpointId,
+                checkpointSchemaVersion: openBundle.latestCheckpoint?.snapshotSchemaVersion ?? null,
+              }));
+            }
+
+            session = openBundle.latestCheckpoint.sessionSnapshot;
+            sessionOriginLabel = "Active resume";
+            nextStatusMessage = `Rehydrated Bellows from checkpoint ${openBundle.latestCheckpoint.checkpointId}.`;
+          } else {
+            const latestBundle = await repository.loadMostRecentSession(workspace);
+
+            if (!latestBundle) {
+              session = createSeedSession({ workspaceId: workspace, hostUserId });
+              await repository.createSessionHeader({ session });
+              await repository.appendRecoveryCheckpoint({
+                session,
+                checkpointKind: "session_created",
+                triggerActionSource: "engine",
+                triggerActionType: "SESSION_CREATED",
+                actorType: "engine",
+                actorId: "engine",
+                occurredAt: new Date().toISOString(),
+                delta: {
+                  bootstrapMode: "auto_create",
+                },
+              });
+              sessionOriginLabel = "Fresh session";
+              nextStatusMessage = "Created a new Bellows session in Tongs.";
+            } else {
+              if (!supportsBellowsRehydration(latestBundle)) {
+                throw new Error(buildBlockedRecoveryMessage({
+                  scopeLabel: "Latest",
+                  sessionId: latestBundle.header.sessionId,
+                  lifecycle: latestBundle.header.lifecycleState,
+                  checkpointId: latestBundle.header.latestCheckpointId,
+                  checkpointSchemaVersion: latestBundle.latestCheckpoint?.snapshotSchemaVersion ?? null,
+                }));
+              }
+
+              session = latestBundle.latestCheckpoint.sessionSnapshot;
+              sessionOriginLabel = isBellowsTerminalLifecycle(latestBundle.header.lifecycleState)
+                ? "Terminal load"
+                : "Latest session";
+              nextStatusMessage = isBellowsTerminalLifecycle(latestBundle.header.lifecycleState)
+                ? "Loaded the latest terminal Bellows session from Tongs."
+                : "Loaded the latest Bellows session from Tongs.";
+            }
+          }
+        }
+
+        const harnessState = createHarnessState(session);
+        const nextSnapshot = harnessState.harness.getSnapshot();
+
+        if (!active) return;
+
+        setRuntimeShell({
+          ...harnessState,
+          sessionOriginLabel,
+        });
+        setSnapshot(nextSnapshot);
+        setDraftTitle(nextSnapshot.session.draft.title);
+        setStatusMessage(nextStatusMessage);
+        setBootstrapMessage(nextStatusMessage);
+      } catch (error) {
+        if (!active) return;
+        setRuntimeShell(null);
+        setSnapshot(null);
+        setBootstrapError(getErrorMessage(error, "Bellows could not load persisted runtime truth."));
+      } finally {
+        if (!active) return;
+        setLoadingRuntime(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [
+    authUser?.id,
+    loadingWorkspaces,
+    reloadToken,
+    repository,
+    workspaceError,
+    workspaceId,
+  ]);
+
+  async function persistRuntimeTransition(
+    repositoryImpl: NurseryBellowsTongsSessionRepository,
+    action: BellowsSessionAction,
+    result: BellowsRuntimeDispatchResult,
+  ) {
+    const session = result.currentState;
+
+    await repositoryImpl.appendRecoveryCheckpoint({
+      session,
+      checkpointKind: classifyCheckpointKind(action, session),
+      triggerActionSource: action.source,
+      triggerActionType: action.type,
+      actorType: resolveActorType(session, action),
+      actorId: String(action.meta.actorId),
+      offsetMs: action.meta.offsetMs,
+      occurredAt: new Date().toISOString(),
+      delta: buildCheckpointDelta(action, result),
+    });
+
+    await repositoryImpl.syncSessionHeader({
+      sessionId: session.sessionId,
+      title: session.draft.title,
+      mode: session.draft.mode,
+      sessionType: session.draft.sessionType,
+      authority: session.authorityState,
+    });
+  }
+
+  function triggerRuntimeReload(mode: "auto" | "forceFresh") {
+    pendingLoadModeRef.current = mode;
+    setReloadToken((value) => value + 1);
+  }
+
+  async function runAction(actionKey: string, buildAction: () => BellowsSessionAction) {
+    if (!runtimeShell || !snapshot) return;
+
+    setBusyAction(actionKey);
+    setErrorMessage(null);
+
+    let result: BellowsRuntimeDispatchResult | null = null;
+
+    try {
+      const action = buildAction();
+      result = await runtimeShell.harness.dispatch(action);
+      await persistRuntimeTransition(repository, action, result);
+
+      const nextSnapshot = runtimeShell.harness.getSnapshot();
+      setSnapshot(nextSnapshot);
+      setDraftTitle(nextSnapshot.session.draft.title);
+      setStatusMessage(formatDispatchSummary(nextSnapshot));
+    } catch (error) {
+      const message = getErrorMessage(error, "Bellows action failed.");
+      if (result) {
+        setErrorMessage(`${message} Reloading canonical Tongs state.`);
+        triggerRuntimeReload("auto");
+      } else {
+        setErrorMessage(message);
+      }
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  const session = snapshot?.session ?? null;
+  const activeRuntime = session && runtimeShell ? runtimeShell : null;
+  const lifecycle = session?.machineState.lifecycle ?? "idle";
+  const terminal = session ? canArchive(lifecycle) : false;
+  const controlsDisabled = busyAction !== null || loadingRuntime || !activeRuntime;
+  const canStartFreshSession = Boolean(
+    session && isBellowsTerminalLifecycle(session.machineState.lifecycle),
+  );
+  const manualSnapshot = useMemo(
+    () => session
+      ? JSON.stringify(
+        {
+          lifecycle: session.machineState.lifecycle,
+          recordingState: session.recordingState,
+          broadcastState: session.broadcastState,
+          uploadState: session.uploadState,
+          sealState: session.sealState,
+          outcome: session.machineState.outcome,
+          integrityFlags: session.integrityFlags,
+          eventCount: session.events.length,
+        },
+        null,
+        2,
+      )
+      : "",
+    [session],
+  );
+
+  return (
+    <div className="bellows-standalone">
+      <header className="bellows-standalone__header">
+        <div>
+          <div className="bellows-standalone__eyebrow">Forge Tool Surface</div>
+          <h1 className="bellows-standalone__title">Bellows</h1>
+          <p className="bellows-standalone__subtitle">
+            Thin operator console over the real Bellows runtime, rehydrated from canonical Tongs recovery truth.
+          </p>
+        </div>
+
+        <div className="bellows-standalone__header-actions">
+          <span className="bellows-standalone__pill">
+            Operator: <strong>{viewerLabel}</strong>
+          </span>
+          <span className="bellows-standalone__pill">
+            Workspace: <strong>{workspaceName ?? workspaceId ?? "unresolved"}</strong>
+          </span>
+          {session ? (
+            <>
+              <span className="bellows-standalone__pill">
+                Lifecycle: <strong>{session.machineState.lifecycle}</strong>
+              </span>
+              <span className="bellows-standalone__pill">
+                Events: <strong>{session.events.length}</strong>
+              </span>
+            </>
+          ) : null}
+          <Link to={backHref} className="bellows-standalone__back-link">
+            Back to Forge
+          </Link>
+        </div>
+      </header>
+
+      {!isAuthenticated ? (
+        <main className="bellows-standalone__main">
+          <section className="bellows-standalone__panel bellows-standalone__panel--wide">
+            <div className="bellows-standalone__panel-header">
+              <div>
+                <h2>Sign In Required</h2>
+                <p>Bellows now reads canonical recovery truth from Tongs, so this surface requires an authenticated workspace session.</p>
+              </div>
+              <Link to={loginHref} className="bellows-standalone__back-link">
+                Sign In
+              </Link>
+            </div>
+            <div className="bellows-standalone__status-banner" data-state="error">
+              Sign in to load Bellows from Tongs.
+            </div>
+          </section>
+        </main>
+      ) : !workspaceId ? (
+        <main className="bellows-standalone__main">
+          <section className="bellows-standalone__panel bellows-standalone__panel--wide">
+            <div className="bellows-standalone__panel-header">
+              <div>
+                <h2>Workspace Required</h2>
+                <p>Bellows needs a valid Forge workspace before it can rehydrate a session.</p>
+              </div>
+            </div>
+            <div className="bellows-standalone__status-banner" data-state={workspaceError ? "error" : "ok"}>
+              {workspaceError ?? bootstrapMessage}
+            </div>
+          </section>
+        </main>
+      ) : !session || !activeRuntime ? (
+        <main className="bellows-standalone__main">
+          <section className="bellows-standalone__panel bellows-standalone__panel--wide">
+            <div className="bellows-standalone__panel-header">
+              <div>
+                <h2>Runtime Bootstrap</h2>
+                <p>Bellows is resolving persisted session truth for the active workspace.</p>
+              </div>
+              <button
+                type="button"
+                disabled={loadingRuntime || loadingWorkspaces}
+                onClick={() => triggerRuntimeReload("auto")}
+              >
+                Reload from Tongs
+              </button>
+            </div>
+            <div className="bellows-standalone__status-banner" data-state={bootstrapError ? "error" : "ok"}>
+              {bootstrapError ?? bootstrapMessage}
+            </div>
+          </section>
+        </main>
+      ) : (
+        <main className="bellows-standalone__main">
+          <section className="bellows-standalone__panel bellows-standalone__panel--wide">
+            <div className="bellows-standalone__panel-header">
+              <div>
+                <h2>Runtime Status</h2>
+                <p>Bellows is running real engine transitions over a runtime restored from Tongs-backed recovery checkpoints.</p>
+              </div>
+              <div className="bellows-standalone__header-actions">
+                <span className="bellows-standalone__pill">
+                  Source: <strong>{activeRuntime.sessionOriginLabel}</strong>
+                </span>
+                <button
+                  type="button"
+                  disabled={loadingRuntime}
+                  onClick={() => triggerRuntimeReload("auto")}
+                >
+                  Reload from Tongs
+                </button>
+                <button
+                  type="button"
+                  disabled={loadingRuntime || busyAction !== null || !canStartFreshSession}
+                  onClick={() => triggerRuntimeReload("forceFresh")}
+                >
+                  Start New Session
+                </button>
+              </div>
+            </div>
+
+            <div className="bellows-standalone__status-banner" data-state={errorMessage ? "error" : "ok"}>
+              {errorMessage ?? statusMessage}
+            </div>
+
+            <div className="bellows-standalone__state-grid">
+              <article className="bellows-standalone__state-card">
+                <span>Recording</span>
+                <strong>{session.recordingState}</strong>
+              </article>
+              <article className="bellows-standalone__state-card">
+                <span>Broadcast</span>
+                <strong>{session.broadcastState}</strong>
+              </article>
+              <article className="bellows-standalone__state-card">
+                <span>Upload</span>
+                <strong>{session.uploadState}</strong>
+              </article>
+              <article className="bellows-standalone__state-card">
+                <span>Seal</span>
+                <strong>{session.sealState}</strong>
+              </article>
+              <article className="bellows-standalone__state-card">
+                <span>Outcome</span>
+                <strong>{session.machineState.outcome ?? "in_progress"}</strong>
+              </article>
+              <article className="bellows-standalone__state-card">
+                <span>Integrity</span>
+                <strong>{session.integrityFlags.length > 0 ? session.integrityFlags.join(", ") : "clean"}</strong>
+              </article>
+            </div>
+          </section>
+
+          <section className="bellows-standalone__panel">
+            <div className="bellows-standalone__panel-header">
+              <div>
+                <h2>Host Controls</h2>
+                <p>Operator actions dispatch through the Bellows runtime, then checkpoint back into Tongs.</p>
+              </div>
+            </div>
+
+            <label className="bellows-standalone__label" htmlFor="bellows-draft-title">
+              Draft title
+            </label>
+            <div className="bellows-standalone__draft-row">
+              <input
+                id="bellows-draft-title"
+                value={draftTitle}
+                onChange={(event) => setDraftTitle(event.target.value)}
+                placeholder="Bellows session title"
+              />
+              <button
+                type="button"
+                disabled={controlsDisabled || lifecycle !== "configuring"}
+                onClick={() => void runAction(
+                  "update-draft",
+                  () => createHostAction(
+                    "HOST_UPDATE_DRAFT",
+                    {
+                      draft: {
+                        ...session.draft,
+                        title: draftTitle.trim() || session.draft.title,
+                      },
+                    },
+                    activeRuntime.hostParticipantId,
+                    activeRuntime.nextOffsetMs,
+                  ),
+                )}
+              >
+                Apply Draft
+              </button>
+            </div>
+
+            <div className="bellows-standalone__control-grid">
+              <button
+                type="button"
+                disabled={controlsDisabled || lifecycle !== "idle"}
+                onClick={() => void runAction(
+                  "begin-setup",
+                  () => createHostAction(
+                    "HOST_BEGIN_SETUP",
+                    {},
+                    activeRuntime.hostParticipantId,
+                    activeRuntime.nextOffsetMs,
+                  ),
+                )}
+              >
+                Begin Setup
+              </button>
+              <button
+                type="button"
+                disabled={controlsDisabled || lifecycle !== "configuring"}
+                onClick={() => void runAction(
+                  "wait-for-participants",
+                  () => createHostAction(
+                    "HOST_WAIT_FOR_PARTICIPANTS",
+                    {},
+                    activeRuntime.hostParticipantId,
+                    activeRuntime.nextOffsetMs,
+                  ),
+                )}
+              >
+                Wait for Participants
+              </button>
+              <button
+                type="button"
+                disabled={controlsDisabled || (lifecycle !== "waiting_for_participants" && lifecycle !== "preflight_ready")}
+                onClick={() => void runAction(
+                  "run-preflight",
+                  () => createHostAction(
+                    "HOST_RUN_PREFLIGHT",
+                    {},
+                    activeRuntime.hostParticipantId,
+                    activeRuntime.nextOffsetMs,
+                  ),
+                )}
+              >
+                Run Preflight
+              </button>
+              <button
+                type="button"
+                disabled={controlsDisabled || lifecycle !== "ready_to_start"}
+                onClick={() => void runAction(
+                  "start-show",
+                  () => createHostAction(
+                    "HOST_START_SHOW",
+                    {},
+                    activeRuntime.hostParticipantId,
+                    activeRuntime.nextOffsetMs,
+                  ),
+                )}
+              >
+                Start Show
+              </button>
+              <button
+                type="button"
+                disabled={controlsDisabled || lifecycle !== "countdown"}
+                onClick={() => void runAction(
+                  "abort-start",
+                  () => createHostAction(
+                    "HOST_ABORT_START",
+                    {},
+                    activeRuntime.hostParticipantId,
+                    activeRuntime.nextOffsetMs,
+                  ),
+                )}
+              >
+                Abort Countdown
+              </button>
+              <button
+                type="button"
+                disabled={controlsDisabled || lifecycle !== "sync_initializing"}
+                onClick={() => void runAction(
+                  "confirm-capture",
+                  () => createEngineAction(
+                    "CAPTURE_STARTED_FOR_ALL_REQUIRED_PARTICIPANTS",
+                    {},
+                    "system",
+                    "capture",
+                    activeRuntime.nextOffsetMs,
+                  ),
+                )}
+              >
+                Confirm Capture Ready
+              </button>
+              <button
+                type="button"
+                disabled={controlsDisabled || lifecycle !== "sync_initializing"}
+                onClick={() => void runAction(
+                  "confirm-capture-degraded",
+                  () => createEngineAction(
+                    "CAPTURE_STARTED_WITH_MISSING_PARTICIPANT",
+                    {},
+                    "system",
+                    "capture",
+                    activeRuntime.nextOffsetMs,
+                  ),
+                )}
+              >
+                Confirm Capture Degraded
+              </button>
+              <button
+                type="button"
+                disabled={controlsDisabled || !canEndSession(lifecycle)}
+                onClick={() => void runAction(
+                  "end-session",
+                  () => createHostAction(
+                    "HOST_END_SESSION",
+                    {},
+                    activeRuntime.hostParticipantId,
+                    activeRuntime.nextOffsetMs,
+                  ),
+                )}
+              >
+                End Session
+              </button>
+              <button
+                type="button"
+                disabled={controlsDisabled || lifecycle !== "finalizing_local"}
+                onClick={() => void runAction(
+                  "finalize-local-segments",
+                  () => createEngineAction(
+                    "LOCAL_SEGMENTS_FINALIZED",
+                    {},
+                    "system",
+                    "capture",
+                    activeRuntime.nextOffsetMs,
+                  ),
+                )}
+              >
+                Finalize Local Segments
+              </button>
+              <button
+                type="button"
+                disabled={controlsDisabled || lifecycle !== "upload_complete_pending_verification"}
+                onClick={() => void runAction(
+                  "begin-integrity-verification",
+                  () => createEngineAction(
+                    "BEGIN_INTEGRITY_VERIFICATION",
+                    {},
+                    "engine",
+                    "engine",
+                    activeRuntime.nextOffsetMs,
+                  ),
+                )}
+              >
+                Begin Integrity Verification
+              </button>
+              <button
+                type="button"
+                disabled={controlsDisabled || !terminal}
+                onClick={() => void runAction(
+                  "archive-session",
+                  () => createEngineAction(
+                    "ARCHIVE_REQUESTED",
+                    {},
+                    "engine",
+                    "engine",
+                    activeRuntime.nextOffsetMs,
+                  ),
+                )}
+              >
+                Archive Session
+              </button>
+            </div>
+          </section>
+
+          <section className="bellows-standalone__panel">
+            <div className="bellows-standalone__panel-header">
+              <div>
+                <h2>Studio Shell Observations</h2>
+                <p>Concrete preflight and countdown adapter activity.</p>
+              </div>
+            </div>
+            <ul className="bellows-standalone__log">
+              {snapshot.studioShellObservations.length === 0 ? (
+                <li className="bellows-standalone__log-empty">No shell effects dispatched yet.</li>
+              ) : snapshot.studioShellObservations.map((observation, index) => (
+                <li key={`${observation.effectType}-${index}`} className="bellows-standalone__log-item">
+                  <strong>{observation.effectType}</strong>
+                  <span>{observation.triggerActionType}</span>
+                  <span>{observation.lifecycleAtDispatch}</span>
+                  <code>{observation.followUpActionType ?? "manual"}</code>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="bellows-standalone__panel">
+            <div className="bellows-standalone__panel-header">
+              <div>
+                <h2>Persistence Observations</h2>
+                <p>Memory adapter observations remain visible while Tongs now holds canonical recovery truth.</p>
+              </div>
+            </div>
+            <ul className="bellows-standalone__log">
+              {snapshot.persistenceObservations.length === 0 ? (
+                <li className="bellows-standalone__log-empty">No persistence effects dispatched yet.</li>
+              ) : snapshot.persistenceObservations.map((observation, index) => (
+                <li key={`${observation.effectType}-${index}`} className="bellows-standalone__log-item">
+                  <strong>{observation.effectType}</strong>
+                  <span>{observation.triggerActionType}</span>
+                  <span>{observation.lifecycleAtDispatch}</span>
+                  <code>{observation.followUpActionType ?? "manual"}</code>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="bellows-standalone__panel bellows-standalone__panel--wide">
+            <div className="bellows-standalone__panel-header">
+              <div>
+                <h2>Dispatch Log</h2>
+                <p>Every operator or system action resolved through the Bellows runtime.</p>
+              </div>
+            </div>
+            <ul className="bellows-standalone__log bellows-standalone__log--dispatch">
+              {snapshot.dispatchLog.length === 0 ? (
+                <li className="bellows-standalone__log-empty">No actions dispatched yet.</li>
+              ) : snapshot.dispatchLog.map((record, index) => (
+                <li key={`${record.actionType}-${index}`} className="bellows-standalone__log-item">
+                  <strong>{record.actionType}</strong>
+                  <span>{record.actionSource}</span>
+                  <span>{record.lifecycleBefore} → {record.lifecycleAfter}</span>
+                  <span>{record.transitionKind}</span>
+                  <code>
+                    {record.effectDispatches.length > 0
+                      ? record.effectDispatches.map((dispatch) => `${dispatch.adapter}:${dispatch.effectType}`).join(", ")
+                      : record.rejection?.code ?? "no_effects"}
+                  </code>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="bellows-standalone__panel bellows-standalone__panel--wide">
+            <div className="bellows-standalone__panel-header">
+              <div>
+                <h2>Snapshots</h2>
+                <p>Bellows’ current runtime state plus the persistence adapter’s observed snapshots.</p>
+              </div>
+            </div>
+
+            <div className="bellows-standalone__snapshot-grid">
+              <div>
+                <h3>Current session</h3>
+                <pre>{manualSnapshot}</pre>
+              </div>
+              <div>
+                <h3>Persistence snapshots</h3>
+                <ul className="bellows-standalone__snapshot-list">
+                  {snapshot.persistenceSnapshots.length === 0 ? (
+                    <li>No snapshots recorded yet.</li>
+                  ) : snapshot.persistenceSnapshots.map((entry, index) => (
+                    <li key={`${entry.lifecycle}-${index}`}>
+                      <strong>{entry.lifecycle}</strong>
+                      <span>{entry.uploadState}</span>
+                      <span>{entry.sealState}</span>
+                      <span>events: {entry.eventCount}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </section>
+        </main>
+      )}
+    </div>
+  );
+}

@@ -24,14 +24,14 @@ import {
   type WorkspaceId,
 } from "@forge/bellows";
 
-const TERMINAL_LIFECYCLES = new Set([
+const TERMINAL_LIFECYCLES = new Set<string>([
   "sealed",
   "incomplete_capture",
   "failed_capture",
   "archived",
 ] as const);
 
-const STARTED_LIFECYCLES = new Set([
+const STARTED_LIFECYCLES = new Set<string>([
   "recording_active",
   "recording_degraded",
   "recording_offline_local",
@@ -51,7 +51,7 @@ const STARTED_LIFECYCLES = new Set([
   "archived",
 ] as const);
 
-const ENDED_LIFECYCLES = new Set([
+const ENDED_LIFECYCLES = new Set<string>([
   "finalizing_local",
   "uploading",
   "upload_degraded",
@@ -191,17 +191,6 @@ function normalizeTitle(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : "Bellows Session";
-}
-
-function projectAuthority(
-  authority: BellowsSession["authorityState"],
-): BellowsTongsAuthorityProjection {
-  return {
-    actingAuthorityState: authority.actingAuthorityState,
-    hostParticipantId: authority.hostParticipantId,
-    actingHostParticipantId: authority.actingHostParticipantId,
-    coHostParticipantIds: [...authority.coHostParticipantIds],
-  };
 }
 
 function mapSessionRow(row: BellowsSessionRow): BellowsTongsSessionHeaderRecord {
@@ -630,7 +619,7 @@ export function createBellowsTongsSessionRepository(
 }
 
 export function isBellowsTerminalLifecycle(lifecycle: string): boolean {
-  return TERMINAL_LIFECYCLES.has(lifecycle as (typeof TERMINAL_LIFECYCLES extends Set<infer T> ? T : never));
+  return TERMINAL_LIFECYCLES.has(lifecycle);
 }
 
 export function supportsBellowsRehydration(

@@ -2163,8 +2163,9 @@ export default function TranscriptSeekMock(
       cancelled = true;
     };
   }, [
-    activePreviewVisual,
-    previewVisualLoadingRef,
+    activePreviewVisual.imagePath,
+    activePreviewVisual.imageUrl,
+    activePreviewVisual.kind,
     resolvedLaunch.launch_context.workpiece_id,
   ]);
 
