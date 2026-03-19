@@ -37,6 +37,13 @@
   display: grid;
 }
 
+.hammer-pane--left,
+.hammer-pane--right {
+  overflow-x: hidden;
+  overflow-y: auto;
+  align-content: start;
+}
+
 .hammer-pane--left.is-script-view {
   grid-template-rows: auto minmax(0, 1fr);
 }
@@ -51,7 +58,6 @@
   display: grid;
   gap: 10px;
   align-content: start;
-  overflow: hidden;
 }
 
 .hammer-pane--tool-strip {
@@ -1223,6 +1229,15 @@
   gap: 8px;
   align-content: start;
   overflow: auto;
+}
+
+.hammer-preview-panel__collapsed {
+  border: 1px dashed rgba(148, 163, 184, 0.24);
+  border-radius: 12px;
+  background: rgba(2, 6, 23, 0.34);
+  padding: 12px;
+  display: grid;
+  gap: 8px;
 }
 
 .hammer-dev-media-loader {

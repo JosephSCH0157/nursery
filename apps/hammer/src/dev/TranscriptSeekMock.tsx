@@ -1344,6 +1344,7 @@ export default function TranscriptSeekMock(
   const [preparedReleasePackageFeedback, setPreparedReleasePackageFeedback] = useState<string | null>(null);
   const [activeTimelineTool, setActiveTimelineTool] = useState<TimelineToolId>("select");
   const [showDebugPanels, setShowDebugPanels] = useState(false);
+  const [isPreviewMonitorCollapsed, setIsPreviewMonitorCollapsed] = useState(false);
   const [paneLayout, setPaneLayout] = useState<HammerPaneLayout>(DEFAULT_PANE_LAYOUT);
   const [activeResizeHandle, setActiveResizeHandle] = useState<HammerPaneResizeHandle | null>(null);
   const launchWorkspaceMapping = useMemo(
@@ -5838,6 +5839,14 @@ export default function TranscriptSeekMock(
           subtitle="Play here means polished audio plus cue-driven visual preview, not a final render."
           action={(
             <div className="hammer-action-row">
+              <button
+                type="button"
+                className="hammer-button-xs"
+                onClick={() => setIsPreviewMonitorCollapsed((current) => !current)}
+                aria-expanded={!isPreviewMonitorCollapsed}
+              >
+                {isPreviewMonitorCollapsed ? "Expand" : "Collapse"}
+              </button>
               <span className={cx("hammer-pill", isPlaying && "hammer-pill--playing")}>
                 {isPlaying ? "Playing" : "Paused"}
               </span>
@@ -5853,6 +5862,23 @@ export default function TranscriptSeekMock(
           sectionClassName="hammer-preview-panel"
           bodyClassName="hammer-preview-panel__body"
         >
+          {isPreviewMonitorCollapsed ? (
+            <div className="hammer-preview-panel__collapsed">
+              <div className="hammer-copy-sm hammer-copy-muted">
+                Preview Monitor is collapsed. Playback and cue state are preserved.
+              </div>
+              <div className="hammer-meta-strip">
+                <span className="hammer-pill">
+                  {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
+                </span>
+                <span className="hammer-pill">
+                  {activePreviewVisual.kind === "image"
+                    ? `${formatVisualApprovalStateLabel(activePreviewVisual.ingestState)} visual`
+                    : "No active visual"}
+                </span>
+              </div>
+            </div>
+          ) : (
           <div className="hammer-preview-stage">
             <div className="hammer-preview-stage__context">
               <div className="hammer-dev-media-loader">
@@ -6237,6 +6263,7 @@ export default function TranscriptSeekMock(
               </div>
             </div>
           </div>
+          )}
         </HammerPaneSection>
       </div>
 
