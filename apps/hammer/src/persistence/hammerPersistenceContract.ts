@@ -160,6 +160,7 @@ export interface HammerVisualPlacementRecord {
   confidence: number | null;
   timing_source: "transcript_match" | "ordered_fallback";
   status: "placed" | "uncertain";
+  ingest_state?: "suggested" | "approved";
   uncertainty_flags: string[];
 }
 

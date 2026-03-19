@@ -64,6 +64,11 @@ import {
 } from "../lib/hammerSubtitleExports";
 import { buildHammerTextOutputsPackage } from "../lib/hammerTextOutputsPackage";
 import {
+  buildHammerReadableTranscriptGroups,
+  findHammerReadableTranscriptGroupByRowId,
+} from "../lib/hammerTranscriptReadability";
+import { resolveActiveHammerVisualAtTime } from "../lib/hammerVisualPreviewRules";
+import {
   parseHammerEditPlanJson,
   resolveHammerLaunchContext,
 } from "../lib/launchContext";
@@ -994,6 +999,11 @@ function formatOverlayRowLabel(row: TranscriptOverlayRow | null): string {
 function formatPlaybackRangeLabel(range: TranscriptPlaybackRange | null): string {
   if (!range) return "none";
   return range.row_id;
+}
+
+function formatVisualApprovalStateLabel(state: "suggested" | "approved" | null | undefined): string {
+  if (state === "approved") return "Approved";
+  return "Suggested";
 }
 
 function getTranscriptRowStageMarkers(row: TranscriptOverlayRow): TranscriptRowStageMarker[] {
@@ -1971,10 +1981,20 @@ export default function TranscriptSeekMock(
     () => buildTranscriptOverlayRows(transcriptSegments, previewInstructionIndex),
     [previewInstructionIndex, transcriptSegments],
   );
+  const readableTranscriptGroups = useMemo(
+    () => buildHammerReadableTranscriptGroups(overlayRows),
+    [overlayRows],
+  );
 
   const overlayRowById = useMemo(
     () => new Map(overlayRows.map((row) => [row.row_id, row])),
     [overlayRows],
+  );
+  const readableGroupByRowId = useMemo(
+    () => new Map(
+      readableTranscriptGroups.flatMap((group) => group.row_ids.map((rowId) => [rowId, group.group_id] as const)),
+    ),
+    [readableTranscriptGroups],
   );
   const overlayRowBySegmentId = useMemo(
     () => {
@@ -2000,6 +2020,13 @@ export default function TranscriptSeekMock(
   const playbackRanges = useMemo(
     () => buildPlaybackRanges(overlayRows, segmentById, previewInstructionIndex),
     [overlayRows, previewInstructionIndex, segmentById],
+  );
+  const activePreviewVisual = useMemo(
+    () => resolveActiveHammerVisualAtTime({
+      visualPlacements: props.visualPlacements,
+      timeSec: currentTimeSec,
+    }),
+    [currentTimeSec, props.visualPlacements],
   );
 
   const rawActivePlaybackRange = useMemo(
@@ -2310,6 +2337,10 @@ export default function TranscriptSeekMock(
     ),
     [activeOverlayRowId, overlayRows],
   );
+  const selectedReadableTranscriptGroup = useMemo(
+    () => findHammerReadableTranscriptGroupByRowId(readableTranscriptGroups, selectedOverlayRowId),
+    [readableTranscriptGroups, selectedOverlayRowId],
+  );
   const playheadOverlayRow = useMemo(
     () => (
       activeOverlayRow
@@ -2318,6 +2349,10 @@ export default function TranscriptSeekMock(
         : null)
     ),
     [activeOverlayRow, overlayRowById, rawActivePlaybackRange?.row_id],
+  );
+  const playheadReadableTranscriptGroup = useMemo(
+    () => findHammerReadableTranscriptGroupByRowId(readableTranscriptGroups, playheadOverlayRow?.row_id),
+    [playheadOverlayRow?.row_id, readableTranscriptGroups],
   );
   const playheadSegment = useMemo(
     () => (playheadOverlayRow ? (segmentById.get(playheadOverlayRow.anchor_segment_id) ?? null) : null),
@@ -2602,7 +2637,8 @@ export default function TranscriptSeekMock(
     if (!pendingTranscriptRevealRowId) return;
 
     const container = transcriptScrollContainerRef.current;
-    const rowElement = transcriptRowRefs.current.get(pendingTranscriptRevealRowId) ?? null;
+    const targetGroupId = readableGroupByRowId.get(pendingTranscriptRevealRowId) ?? pendingTranscriptRevealRowId;
+    const rowElement = transcriptRowRefs.current.get(targetGroupId) ?? null;
     if (!container || !rowElement) return;
 
     const boundedTop = resolveTranscriptRevealScrollTop(container, rowElement);
@@ -2621,7 +2657,7 @@ export default function TranscriptSeekMock(
       ));
     }, 900);
     setPendingTranscriptRevealRowId(null);
-  }, [overlayRows, pendingTranscriptRevealRowId]);
+  }, [pendingTranscriptRevealRowId, readableGroupByRowId]);
 
   function handlePlaybackLoadedMetadata(duration: number) {
     if (Number.isFinite(duration) && duration > 0) {
@@ -2759,7 +2795,8 @@ export default function TranscriptSeekMock(
 
   function revealTranscriptRow(rowId: string): boolean {
     const container = transcriptScrollContainerRef.current;
-    const rowElement = transcriptRowRefs.current.get(rowId) ?? null;
+    const targetGroupId = readableGroupByRowId.get(rowId) ?? rowId;
+    const rowElement = transcriptRowRefs.current.get(targetGroupId) ?? null;
     if (!container || !rowElement) {
       return false;
     }
@@ -3226,7 +3263,7 @@ export default function TranscriptSeekMock(
           detail: placement.anchor_text
             ? `Anchored to: ${placement.anchor_text}`
             : `Anchored image for ${placement.entry_id}.`,
-          status: placement.status === "uncertain" ? "review anchor" : "placed",
+          status: formatVisualApprovalStateLabel(placement.ingest_state),
           usageHint: placement.uncertainty_flags.includes("image_map_candidate_promoted")
             ? "Hammer promoted this anchored image from the canonical image-map so it can be reviewed and placed immediately."
             : "This anchored image came from the canonical Tongs image-map and is already staged on the timeline.",
@@ -5542,10 +5579,10 @@ export default function TranscriptSeekMock(
 
         <HammerPaneSection
           title="Transcript"
-          subtitle="Click a line to seek preview. Transcript editing and preview navigation stay on the same project state."
+          subtitle="Readable transcript groups are for review only. Machine transcript chunks remain the seek, cue, and subtitle truth."
           action={(
             <span className="hammer-pill">
-              at playhead {playheadOverlayRow ? formatOverlayRowLabel(playheadOverlayRow) : "none"}
+              at playhead {playheadReadableTranscriptGroup ? playheadReadableTranscriptGroup.speaker : "none"}
             </span>
           )}
           sectionClassName="hammer-pane-section--rows hammer-pane-section--overflow-hidden"
@@ -5556,55 +5593,60 @@ export default function TranscriptSeekMock(
             data-testid="transcript-scroll-container"
             className="hammer-script-panel__list"
           >
-          {overlayRows.length > 0 ? (
-            overlayRows.map((row) => {
-              const anchorSegment = segmentById.get(row.anchor_segment_id) ?? null;
-              if (!anchorSegment) return null;
+          {readableTranscriptGroups.length > 0 ? (
+            readableTranscriptGroups.map((group) => {
+              const primaryRow = overlayRowById.get(group.row_ids[0] ?? "") ?? null;
+              if (!primaryRow) return null;
 
-              const rowPlaybackRange = playbackRanges.find((range) => range.row_id === row.row_id) ?? null;
-              const rowStageMarkers = getTranscriptRowStageMarkers(row);
-              const isSelected = row.row_id === selectedOverlayRowId;
-              const isAtPlayhead = row.row_id === playheadOverlayRow?.row_id;
+              const groupRows = group.row_ids
+                .map((rowId) => overlayRowById.get(rowId) ?? null)
+                .filter((row): row is TranscriptOverlayRow => Boolean(row));
+              const groupPlaybackRange = playbackRanges.find((range) => range.row_id === primaryRow.row_id) ?? null;
+              const groupStageMarkers = [...new Map(
+                groupRows.flatMap((row) => getTranscriptRowStageMarkers(row)).map((marker) => [marker.id, marker] as const),
+              ).values()];
+              const isSelected = Boolean(selectedReadableTranscriptGroup && selectedReadableTranscriptGroup.group_id === group.group_id);
+              const isAtPlayhead = Boolean(playheadReadableTranscriptGroup && playheadReadableTranscriptGroup.group_id === group.group_id);
               return (
                 <div
-                  key={row.row_id}
+                  key={group.group_id}
                   ref={(element) => {
                     if (element) {
-                      transcriptRowRefs.current.set(row.row_id, element);
+                      transcriptRowRefs.current.set(group.group_id, element);
                     } else {
-                      transcriptRowRefs.current.delete(row.row_id);
+                      transcriptRowRefs.current.delete(group.group_id);
                     }
                   }}
                   className={cx(
                     "hammer-script-row",
-                    revealedTranscriptRowId === row.row_id && "is-revealed",
+                    revealedTranscriptRowId && group.row_ids.includes(revealedTranscriptRowId) && "is-revealed",
                   )}
                   data-selected={isSelected ? "true" : "false"}
-                  data-overlay-row-id={row.row_id}
+                  data-overlay-row-id={primaryRow.row_id}
                   data-playhead={isAtPlayhead ? "true" : "false"}
-                  data-deleted={row.is_deleted ? "true" : "false"}
-                  data-muted={row.is_muted ? "true" : "false"}
-                  data-structure={row.structure}
-                  data-playable-start={rowPlaybackRange?.playable_start_sec ?? ""}
-                  data-playable-end={rowPlaybackRange?.playable_end_sec ?? ""}
+                  data-deleted={groupRows.every((row) => row.is_deleted) ? "true" : "false"}
+                  data-muted={groupRows.some((row) => row.is_muted) ? "true" : "false"}
+                  data-structure={primaryRow.structure}
+                  data-playable-start={groupPlaybackRange?.playable_start_sec ?? ""}
+                  data-playable-end={groupPlaybackRange?.playable_end_sec ?? ""}
                 >
                     <button
                       type="button"
-                      onClick={() => selectTranscriptRow(row)}
+                      onClick={() => selectTranscriptRow(primaryRow)}
                       aria-current={isAtPlayhead ? "true" : undefined}
                       className="hammer-script-row__button"
                     >
                       <div className="hammer-script-row__meta">
                         <span className="hammer-copy-sm hammer-copy-muted">
-                          {formatClock(row.start_sec)}-{formatClock(row.end_sec)} {row.speaker}
+                          {formatClock(group.start_sec)}-{formatClock(group.end_sec)} {group.speaker}
                         </span>
                         {isAtPlayhead ? (
                           <span className="hammer-script-row__playhead">At playhead</span>
                         ) : null}
                       </div>
-                      {rowStageMarkers.length > 0 ? (
+                      {groupStageMarkers.length > 0 ? (
                         <div className="hammer-script-row__status-list">
-                          {rowStageMarkers.map((marker) => (
+                          {groupStageMarkers.map((marker) => (
                             <span
                               key={marker.id}
                               className={getTranscriptRowStageMarkerClassName(marker.tone)}
@@ -5616,23 +5658,20 @@ export default function TranscriptSeekMock(
                       ) : null}
 
                       <div className="hammer-script-blocks">
-                        {row.blocks.map((block) => (
-                          <div key={block.block_id} className="hammer-script-block">
-                            <div className="hammer-label">
-                              {block.label ? `${block.label} · ` : ""}
-                              {formatClock(block.start_sec)}-{formatClock(block.end_sec)}
-                            </div>
-                            <div
-                              className={cx(
-                                "hammer-copy-md",
-                                "hammer-script-block__text",
-                                row.is_deleted && "is-deleted",
-                              )}
-                            >
-                              {block.text}
-                            </div>
+                        <div className="hammer-script-block">
+                          <div className="hammer-label">
+                            {group.row_count} readable block{group.row_count === 1 ? "" : "s"} · {group.source_segment_ids.length} source chunk{group.source_segment_ids.length === 1 ? "" : "s"}
                           </div>
-                        ))}
+                          <div
+                            className={cx(
+                              "hammer-copy-md",
+                              "hammer-script-block__text",
+                              groupRows.every((row) => row.is_deleted) && "is-deleted",
+                            )}
+                          >
+                            {group.text}
+                          </div>
+                        </div>
                       </div>
                     </button>
                   </div>
@@ -5768,7 +5807,7 @@ export default function TranscriptSeekMock(
       <div className="hammer-pane hammer-pane--center">
         <HammerPaneSection
           title="Preview Monitor"
-          subtitle="Verify playback, timing, and pacing."
+          subtitle="Play here means polished audio plus cue-driven visual preview, not a final render."
           action={(
             <div className="hammer-action-row">
               <span className={cx("hammer-pill", isPlaying && "hammer-pill--playing")}>
@@ -5776,6 +5815,11 @@ export default function TranscriptSeekMock(
               </span>
               <span className="hammer-pill">{sessionState.previewMode} preview</span>
               <span className="hammer-pill">{previewSourceStatusLabel}</span>
+              <span className="hammer-pill">
+                {activePreviewVisual.visual
+                  ? `${formatVisualApprovalStateLabel(activePreviewVisual.approval_state)} visual`
+                  : "No active visual"}
+              </span>
             </div>
           )}
           sectionClassName="hammer-preview-panel"

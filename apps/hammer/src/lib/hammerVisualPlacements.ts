@@ -671,6 +671,7 @@ export function deriveHammerVisualPlacements(args: {
       confidence,
       timing_source: timingSource,
       status: placementFlags.length > 0 || visual.status !== "selected" ? "uncertain" : "placed",
+      ingest_state: visual.status === "selected" ? "approved" : "suggested",
       uncertainty_flags: visual.status !== "selected"
         ? [...placementFlags, "image_map_candidate_promoted"]
         : placementFlags,
