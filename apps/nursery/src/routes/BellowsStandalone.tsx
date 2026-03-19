@@ -3,6 +3,7 @@ import { listMyWorkspaces, type Workspace } from "@barstock/lib/tongs-api";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import type {
+  BellowsDeviceReadinessState,
   BellowsEventActorType,
   BellowsLifecycleState,
   BellowsOffsetMs,
@@ -40,9 +41,13 @@ import {
   type NurseryBellowsTongsSessionRepository,
 } from "../lib/bellows/bellowsTongsRepository";
 import {
-  listBellowsGuestPresencePayloads,
+  buildBellowsHostPresencePayload,
+  listBellowsParticipantPresencePayloads,
+  type BellowsAudioActivityState,
   type BellowsGuestPresencePayload,
+  type BellowsParticipantPresencePayload,
 } from "../lib/bellows/bellowsSessionPresence";
+import { useBellowsLocalMediaReadiness } from "../lib/bellows/useBellowsLocalMediaReadiness";
 import { supabase } from "../lib/supabase";
 import "./BellowsStandalone.css";
 
@@ -85,6 +90,7 @@ type BellowsHostInviteSeat = {
   readonly roleLabel: string;
   readonly link: BellowsTongsJoinLinkRecord | null;
   readonly liveGuests: readonly BellowsGuestPresencePayload[];
+  readonly latestGuest: BellowsGuestPresencePayload | null;
   readonly guestStatusLabel: string;
   readonly guestStatusDetail: string;
   readonly copyReady: boolean;
@@ -209,6 +215,70 @@ function describeInviteRole(roleCode: BellowsInviteRoleCode): string {
     case "G2":
       return "Guest Seat Two";
   }
+}
+
+function describeReadinessState(state: BellowsDeviceReadinessState | null | undefined): string {
+  switch (state) {
+    case "ready":
+      return "Ready";
+    case "blocked":
+      return "Needs attention";
+    case "pending":
+      return "Checking";
+    default:
+      return "Unknown";
+  }
+}
+
+function describeAudioActivity(activity: BellowsAudioActivityState): string {
+  switch (activity) {
+    case "active":
+      return "Voice activity";
+    case "silent":
+      return "Listening";
+    default:
+      return "Mic idle";
+  }
+}
+
+function resolveParticipantRoleCode(
+  session: BellowsSession,
+  participantId: ParticipantId | null,
+): BellowsRoleCode {
+  if (participantId) {
+    const participant = session.participants[participantId];
+    if (participant?.roleCode) {
+      return participant.roleCode;
+    }
+
+    const slot = session.draft.participantSlots.find((entry) => entry.participantId === participantId);
+    if (slot) {
+      return slot.roleCode;
+    }
+  }
+
+  return "S1";
+}
+
+function selectLatestGuestPresence(
+  entries: readonly BellowsGuestPresencePayload[],
+): BellowsGuestPresencePayload | null {
+  let latest: BellowsGuestPresencePayload | null = null;
+
+  for (const entry of entries) {
+    if (!latest) {
+      latest = entry;
+      continue;
+    }
+
+    const currentTime = Date.parse(entry.updatedAt);
+    const latestTime = Date.parse(latest.updatedAt);
+    if (!Number.isFinite(latestTime) || currentTime > latestTime) {
+      latest = entry;
+    }
+  }
+
+  return latest;
 }
 
 function describeJoinLinkLifecycle(link: BellowsTongsJoinLinkRecord | null): string {
@@ -1099,9 +1169,14 @@ export default function BellowsStandalone() {
   const [inviteStatusMessage, setInviteStatusMessage] = useState(
     "Issue a join link to invite S2, G1, or G2 into the live Bellows session.",
   );
-  const [invitePresenceEntries, setInvitePresenceEntries] = useState<readonly BellowsGuestPresencePayload[]>([]);
+  const [participantPresenceEntries, setParticipantPresenceEntries] = useState<readonly BellowsParticipantPresencePayload[]>([]);
   const [invitePresenceError, setInvitePresenceError] = useState<string | null>(null);
   const [joinLinkUrls, setJoinLinkUrls] = useState<Record<string, string>>({});
+  const [hostPresenceConnected, setHostPresenceConnected] = useState(false);
+  const hostPreviewRef = useRef<HTMLVideoElement | null>(null);
+  const hostPresenceChannelRef = useRef<any>(null);
+  const hostPresenceJoinedAtRef = useRef<string | null>(null);
+  const publishedHostPresenceRef = useRef<string>("");
 
   const viewerLabel = describeUser(authUser);
   const isAuthenticated = Boolean(authUser);
@@ -1397,6 +1472,29 @@ export default function BellowsStandalone() {
   ]);
 
   const session = snapshot?.session ?? null;
+  const currentHostParticipantId = runtimeShell?.hostParticipantId ?? null;
+  const currentHostRoleCode = session
+    ? resolveParticipantRoleCode(session, currentHostParticipantId)
+    : "S1";
+  const hostLocalMedia = useBellowsLocalMediaReadiness(
+    Boolean(session && runtimeShell && hostPresenceConnected),
+  );
+  const hostPresenceAudioLevelPct = Math.max(
+    0,
+    Math.min(100, Math.round(hostLocalMedia.audioLevelPct / 10) * 10),
+  );
+
+  useEffect(() => {
+    const node = hostPreviewRef.current;
+    if (!node) return;
+
+    node.srcObject = hostLocalMedia.stream;
+    return () => {
+      if (node.srcObject === hostLocalMedia.stream) {
+        node.srcObject = null;
+      }
+    };
+  }, [hostLocalMedia.stream]);
 
   useEffect(() => {
     if (!session) {
@@ -1473,21 +1571,36 @@ export default function BellowsStandalone() {
   }, [repository, session?.sessionId]);
 
   useEffect(() => {
-    if (!session) {
-      setInvitePresenceEntries([]);
+    if (!session || !currentHostParticipantId) {
+      setParticipantPresenceEntries([]);
       setInvitePresenceError(null);
+      setHostPresenceConnected(false);
+      hostPresenceChannelRef.current = null;
+      hostPresenceJoinedAtRef.current = null;
+      publishedHostPresenceRef.current = "";
       return;
     }
 
     let active = true;
-    const channel = supabase.channel(`bellows:session:${session.sessionId}`) as any;
+    const joinedAt = new Date().toISOString();
+    hostPresenceJoinedAtRef.current = joinedAt;
+    publishedHostPresenceRef.current = "";
+    const channel = supabase.channel(`bellows:session:${session.sessionId}`, {
+      config: {
+        presence: {
+          key: currentHostParticipantId,
+        },
+      },
+    }) as any;
+    hostPresenceChannelRef.current = channel;
 
     const syncPresence = () => {
       if (!active) return;
-      setInvitePresenceEntries(listBellowsGuestPresencePayloads(channel.presenceState?.() ?? {}));
+      setParticipantPresenceEntries(listBellowsParticipantPresencePayloads(channel.presenceState?.() ?? {}));
     };
 
     setInvitePresenceError(null);
+    setHostPresenceConnected(false);
     channel.on("presence", { event: "sync" }, syncPresence);
     channel.on("presence", { event: "join" }, syncPresence);
     channel.on("presence", { event: "leave" }, syncPresence);
@@ -1496,21 +1609,107 @@ export default function BellowsStandalone() {
       if (!active) return;
 
       if (status === "SUBSCRIBED") {
-        syncPresence();
+        setHostPresenceConnected(true);
+        void channel.track(buildBellowsHostPresencePayload({
+          presenceKey: currentHostParticipantId,
+          displayName: viewerLabel,
+          sessionId: session.sessionId,
+          roleCode: currentHostRoleCode,
+          readiness: {
+            microphone: "pending",
+            camera: "pending",
+            overall: "pending",
+          },
+          audioLevelPct: 0,
+          audioActivity: "unknown",
+          hasPreview: false,
+          joinedAt,
+        }))
+          .then(syncPresence)
+          .catch((error: unknown) => {
+            if (!active) return;
+            setInvitePresenceError(getErrorMessage(error, "Bellows could not publish host media presence."));
+          });
         return;
       }
 
       if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
-        setInvitePresenceEntries([]);
-        setInvitePresenceError("Bellows could not observe guest presence on the live session channel.");
+        setHostPresenceConnected(false);
+        setParticipantPresenceEntries([]);
+        setInvitePresenceError("Bellows could not observe session presence on the live Bellows channel.");
       }
     });
 
     return () => {
       active = false;
+      setHostPresenceConnected(false);
+      hostPresenceChannelRef.current = null;
+      hostPresenceJoinedAtRef.current = null;
+      publishedHostPresenceRef.current = "";
       void channel.unsubscribe();
     };
-  }, [session?.sessionId]);
+  }, [currentHostParticipantId, currentHostRoleCode, session?.sessionId, viewerLabel]);
+
+  useEffect(() => {
+    if (
+      !session
+      || !currentHostParticipantId
+      || !hostPresenceConnected
+      || !hostPresenceChannelRef.current
+      || !hostPresenceJoinedAtRef.current
+    ) {
+      return;
+    }
+
+    const payload = buildBellowsHostPresencePayload({
+      presenceKey: currentHostParticipantId,
+      displayName: viewerLabel,
+      sessionId: session.sessionId,
+      roleCode: currentHostRoleCode,
+      readiness: hostLocalMedia.readiness,
+      audioLevelPct: hostPresenceAudioLevelPct,
+      audioActivity: hostLocalMedia.audioActivity,
+      hasPreview: hostLocalMedia.hasPreview,
+      joinedAt: hostPresenceJoinedAtRef.current,
+      updatedAt: new Date().toISOString(),
+    });
+
+    const signature = JSON.stringify({
+      readiness: payload.readiness,
+      audioLevelPct: payload.audioLevelPct,
+      audioActivity: payload.audioActivity,
+      hasPreview: payload.hasPreview,
+      presenceState: payload.presenceState,
+    });
+
+    if (signature === publishedHostPresenceRef.current) {
+      return;
+    }
+
+    publishedHostPresenceRef.current = signature;
+
+    void hostPresenceChannelRef.current.track(payload)
+      .then(() => {
+        setParticipantPresenceEntries(
+          listBellowsParticipantPresencePayloads(
+            hostPresenceChannelRef.current?.presenceState?.() ?? {},
+          ),
+        );
+      })
+      .catch((error: unknown) => {
+        setInvitePresenceError(getErrorMessage(error, "Bellows could not publish host media readiness."));
+      });
+  }, [
+    currentHostParticipantId,
+    currentHostRoleCode,
+    hostLocalMedia.audioActivity,
+    hostLocalMedia.hasPreview,
+    hostLocalMedia.readiness,
+    hostPresenceAudioLevelPct,
+    hostPresenceConnected,
+    session?.sessionId,
+    viewerLabel,
+  ]);
 
   async function persistRuntimeTransition(
     repositoryImpl: NurseryBellowsTongsSessionRepository,
@@ -1753,10 +1952,21 @@ export default function BellowsStandalone() {
   const canStepBackPhase = Boolean(previousPhaseTarget);
   const canManageInvites = workspaceRoleRank(workspaceRole) >= 2;
   const canIssueInvites = Boolean(activeRuntime) && !terminal && canManageInvites;
+  const invitePresenceEntries = useMemo(
+    () => participantPresenceEntries.filter(
+      (entry): entry is BellowsGuestPresencePayload => entry.participantKind === "guest",
+    ),
+    [participantPresenceEntries],
+  );
+  const hostPresenceEntry = useMemo(
+    () => participantPresenceEntries.find((entry) => entry.participantKind === "host") ?? null,
+    [participantPresenceEntries],
+  );
   const inviteSeats = useMemo<readonly BellowsHostInviteSeat[]>(() => {
     return BELLOWS_INVITE_ROLE_CODES.map((roleCode) => {
       const link = selectInviteLinkForRole(joinLinks, roleCode);
       const liveGuests = invitePresenceEntries.filter((entry) => entry.roleCode === roleCode);
+      const latestGuest = selectLatestGuestPresence(liveGuests);
       const guestStatus = describeGuestInviteStatus({
         roleCode,
         link,
@@ -1768,6 +1978,7 @@ export default function BellowsStandalone() {
         roleLabel: describeInviteRole(roleCode),
         link,
         liveGuests,
+        latestGuest,
         guestStatusLabel: guestStatus.label,
         guestStatusDetail: guestStatus.detail,
         copyReady: Boolean(
@@ -1946,6 +2157,139 @@ export default function BellowsStandalone() {
               <article className="bellows-standalone__state-card">
                 <span>Integrity</span>
                 <strong>{session.integrityFlags.length > 0 ? session.integrityFlags.join(", ") : "clean"}</strong>
+              </article>
+            </div>
+          </section>
+
+          <section className="bellows-standalone__panel bellows-standalone__panel--wide">
+            <div className="bellows-standalone__panel-header">
+              <div>
+                <h2>Media Readiness</h2>
+                <p>Pre-recording device readiness and preview over Bellows session presence. No local capture files exist yet.</p>
+              </div>
+              <button type="button" onClick={hostLocalMedia.retry}>
+                Retry Devices
+              </button>
+            </div>
+
+            <div className="bellows-standalone__status-banner" data-state={hostLocalMedia.deviceError ? "error" : "ok"}>
+              {hostLocalMedia.deviceError ?? (
+                hostPresenceConnected
+                  ? hostLocalMedia.deviceMessage
+                  : "Connecting Bellows host presence before local device checks begin."
+              )}
+            </div>
+
+            <div className="bellows-standalone__media-grid">
+              <article className="bellows-standalone__media-card">
+                <div className="bellows-standalone__panel-header">
+                  <div>
+                    <h3>Local Host Preview</h3>
+                    <p>Camera preview and microphone activity for the Bellows operator surface.</p>
+                  </div>
+                </div>
+
+                <div className="bellows-standalone__preview-shell" data-state={hostLocalMedia.hasPreview ? "ready" : "pending"}>
+                  <video
+                    ref={hostPreviewRef}
+                    className="bellows-standalone__preview-video"
+                    autoPlay
+                    muted
+                    playsInline
+                  />
+                  {!hostLocalMedia.hasPreview ? (
+                    <div className="bellows-standalone__preview-empty">
+                      {hostLocalMedia.readiness.camera === "blocked"
+                        ? "Bellows needs camera permission before host preview can go live."
+                        : "Bellows will show the local camera preview here once device checks finish."}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="bellows-standalone__meter-card">
+                  <div className="bellows-standalone__meter-header">
+                    <span>Mic Activity</span>
+                    <strong>{describeAudioActivity(hostLocalMedia.audioActivity)}</strong>
+                  </div>
+                  <div className="bellows-standalone__meter-track">
+                    <div
+                      className="bellows-standalone__meter-fill"
+                      style={{ width: `${hostLocalMedia.audioLevelPct}%` }}
+                    />
+                  </div>
+                </div>
+
+                <ul className="bellows-standalone__media-details">
+                  <li>
+                    <span>Role</span>
+                    <strong>{currentHostRoleCode}</strong>
+                  </li>
+                  <li>
+                    <span>Presence</span>
+                    <strong>{hostPresenceEntry?.presenceState ?? "joining"}</strong>
+                  </li>
+                  <li>
+                    <span>Microphone</span>
+                    <strong>{describeReadinessState(hostLocalMedia.readiness.microphone)}</strong>
+                  </li>
+                  <li>
+                    <span>Camera</span>
+                    <strong>{describeReadinessState(hostLocalMedia.readiness.camera)}</strong>
+                  </li>
+                  <li>
+                    <span>Preview</span>
+                    <strong>{hostLocalMedia.hasPreview ? "Live preview" : "Preview unavailable"}</strong>
+                  </li>
+                  <li>
+                    <span>Audio Level</span>
+                    <strong>{`${hostLocalMedia.audioLevelPct}%`}</strong>
+                  </li>
+                </ul>
+              </article>
+
+              <article className="bellows-standalone__media-card">
+                <div className="bellows-standalone__panel-header">
+                  <div>
+                    <h3>Remote Seat Readiness</h3>
+                    <p>Guest presence reports the current device state for each issued seat.</p>
+                  </div>
+                </div>
+
+                <ul className="bellows-standalone__readiness-seat-list">
+                  {inviteSeats.map((seat) => (
+                    <li key={`readiness-${seat.roleCode}`} className="bellows-standalone__readiness-seat">
+                      <strong>{seat.roleLabel}</strong>
+                      <span>{seat.guestStatusLabel}</span>
+                      <p>{seat.guestStatusDetail}</p>
+                      <dl className="bellows-standalone__invite-meta">
+                        <div>
+                          <dt>Participant</dt>
+                          <dd>{seat.latestGuest?.displayName ?? "Awaiting guest"}</dd>
+                        </div>
+                        <div>
+                          <dt>Microphone</dt>
+                          <dd>{describeReadinessState(seat.latestGuest?.readiness.microphone)}</dd>
+                        </div>
+                        <div>
+                          <dt>Camera</dt>
+                          <dd>{describeReadinessState(seat.latestGuest?.readiness.camera)}</dd>
+                        </div>
+                        <div>
+                          <dt>Preview</dt>
+                          <dd>{seat.latestGuest?.hasPreview ? "Preview confirmed" : "No preview signal yet"}</dd>
+                        </div>
+                        <div>
+                          <dt>Audio</dt>
+                          <dd>{seat.latestGuest ? describeAudioActivity(seat.latestGuest.audioActivity) : "No live guest"}</dd>
+                        </div>
+                        <div>
+                          <dt>Presence</dt>
+                          <dd>{seat.latestGuest?.presenceState ?? "Awaiting guest"}</dd>
+                        </div>
+                      </dl>
+                    </li>
+                  ))}
+                </ul>
               </article>
             </div>
           </section>

@@ -6,46 +6,128 @@ import type {
   BellowsRoleCode,
 } from "@forge/bellows";
 
-export type BellowsGuestReadiness = {
+export type BellowsParticipantReadiness = {
   readonly microphone: BellowsDeviceReadinessState;
   readonly camera: BellowsDeviceReadinessState;
   readonly overall: BellowsDeviceReadinessState;
 };
 
-export type BellowsGuestPresencePayload = {
-  readonly guestKey: string;
+export type BellowsAudioActivityState =
+  | "unknown"
+  | "silent"
+  | "active";
+
+export type BellowsParticipantPresencePayload = {
+  readonly presenceKey: string;
+  readonly participantKind: "host" | "guest";
   readonly displayName: string;
   readonly roleCode: BellowsRoleCode;
-  readonly joinLinkId: string;
   readonly sessionId: string;
   readonly joinState: BellowsJoinState;
   readonly presenceState: BellowsPresenceState;
-  readonly readiness: BellowsGuestReadiness;
+  readonly readiness: BellowsParticipantReadiness;
+  readonly audioLevelPct: number;
+  readonly audioActivity: BellowsAudioActivityState;
+  readonly hasPreview: boolean;
   readonly joinedAt: string;
-  readonly resolvedAt: string;
-  readonly source: "bellows_join_route";
+  readonly updatedAt: string;
+  readonly source: "bellows_join_route" | "bellows_operator_surface";
+  readonly joinLinkId: string | null;
 };
 
+export type BellowsGuestPresencePayload =
+  BellowsParticipantPresencePayload & {
+    readonly participantKind: "guest";
+    readonly joinLinkId: string;
+    readonly source: "bellows_join_route";
+  };
+
+export type BellowsHostPresencePayload =
+  BellowsParticipantPresencePayload & {
+    readonly participantKind: "host";
+    readonly joinLinkId: null;
+    readonly source: "bellows_operator_surface";
+  };
+
+export function deriveBellowsPresenceState(
+  readiness: BellowsParticipantReadiness,
+): BellowsPresenceState {
+  if (readiness.overall === "ready") {
+    return "ready";
+  }
+
+  if (readiness.overall === "blocked") {
+    return "connected";
+  }
+
+  return "joining";
+}
+
 export function buildBellowsGuestPresencePayload(args: {
-  guestKey: string;
+  presenceKey: string;
   displayName: string;
   resolved: BellowsResolvedTongsJoinLink;
-  readiness: BellowsGuestReadiness;
+  readiness: BellowsParticipantReadiness;
+  audioLevelPct?: number;
+  audioActivity?: BellowsAudioActivityState;
+  hasPreview?: boolean;
   joinedAt: string;
+  updatedAt?: string;
 }): BellowsGuestPresencePayload {
   return {
-    guestKey: args.guestKey,
+    presenceKey: args.presenceKey,
+    participantKind: "guest",
     displayName: args.displayName,
     roleCode: args.resolved.roleCode,
-    joinLinkId: args.resolved.joinLinkId,
     sessionId: args.resolved.sessionId,
     joinState: "pending",
-    presenceState: args.readiness.overall === "ready" ? "ready" : "joining",
+    presenceState: deriveBellowsPresenceState(args.readiness),
     readiness: args.readiness,
+    audioLevelPct: normalizeAudioLevelPct(args.audioLevelPct),
+    audioActivity: args.audioActivity ?? "unknown",
+    hasPreview: Boolean(args.hasPreview),
     joinedAt: args.joinedAt,
-    resolvedAt: args.resolved.resolvedAt,
+    updatedAt: args.updatedAt ?? new Date().toISOString(),
     source: "bellows_join_route",
+    joinLinkId: args.resolved.joinLinkId,
   };
+}
+
+export function buildBellowsHostPresencePayload(args: {
+  presenceKey: string;
+  displayName: string;
+  sessionId: string;
+  roleCode: BellowsRoleCode;
+  readiness: BellowsParticipantReadiness;
+  audioLevelPct?: number;
+  audioActivity?: BellowsAudioActivityState;
+  hasPreview?: boolean;
+  joinedAt: string;
+  updatedAt?: string;
+}): BellowsHostPresencePayload {
+  return {
+    presenceKey: args.presenceKey,
+    participantKind: "host",
+    displayName: args.displayName,
+    roleCode: args.roleCode,
+    sessionId: args.sessionId,
+    joinState: "approved",
+    presenceState: deriveBellowsPresenceState(args.readiness),
+    readiness: args.readiness,
+    audioLevelPct: normalizeAudioLevelPct(args.audioLevelPct),
+    audioActivity: args.audioActivity ?? "unknown",
+    hasPreview: Boolean(args.hasPreview),
+    joinedAt: args.joinedAt,
+    updatedAt: args.updatedAt ?? new Date().toISOString(),
+    source: "bellows_operator_surface",
+    joinLinkId: null,
+  };
+}
+
+function normalizeAudioLevelPct(value: unknown): number {
+  const level = typeof value === "number" ? value : Number(value ?? 0);
+  if (!Number.isFinite(level)) return 0;
+  return Math.max(0, Math.min(100, Math.round(level)));
 }
 
 function isDeviceReadinessState(value: unknown): value is BellowsDeviceReadinessState {
@@ -69,7 +151,11 @@ function isPresenceState(value: unknown): value is BellowsPresenceState {
     || value === "removed";
 }
 
-function isGuestReadiness(value: unknown): value is BellowsGuestReadiness {
+function isAudioActivityState(value: unknown): value is BellowsAudioActivityState {
+  return value === "unknown" || value === "silent" || value === "active";
+}
+
+function isParticipantReadiness(value: unknown): value is BellowsParticipantReadiness {
   if (!value || typeof value !== "object") return false;
 
   const row = value as Record<string, unknown>;
@@ -78,30 +164,47 @@ function isGuestReadiness(value: unknown): value is BellowsGuestReadiness {
     && isDeviceReadinessState(row.overall);
 }
 
-function isGuestPresencePayload(value: unknown): value is BellowsGuestPresencePayload {
+function isParticipantPresencePayload(
+  value: unknown,
+): value is BellowsParticipantPresencePayload {
   if (!value || typeof value !== "object") return false;
 
   const row = value as Record<string, unknown>;
-  return typeof row.guestKey === "string"
+  return typeof row.presenceKey === "string"
+    && (row.participantKind === "host" || row.participantKind === "guest")
     && typeof row.displayName === "string"
     && isRoleCode(row.roleCode)
-    && typeof row.joinLinkId === "string"
     && typeof row.sessionId === "string"
     && isJoinState(row.joinState)
     && isPresenceState(row.presenceState)
-    && isGuestReadiness(row.readiness)
+    && isParticipantReadiness(row.readiness)
     && typeof row.joinedAt === "string"
-    && typeof row.resolvedAt === "string"
-    && row.source === "bellows_join_route";
+    && typeof row.updatedAt === "string"
+    && typeof row.audioLevelPct === "number"
+    && isAudioActivityState(row.audioActivity)
+    && typeof row.hasPreview === "boolean"
+    && (row.source === "bellows_join_route" || row.source === "bellows_operator_surface")
+    && (row.joinLinkId === null || typeof row.joinLinkId === "string");
+}
+
+export function listBellowsParticipantPresencePayloads(
+  value: unknown,
+): readonly BellowsParticipantPresencePayload[] {
+  if (!value || typeof value !== "object") return [];
+
+  return Object.values(value as Record<string, unknown>).flatMap((entry) => {
+    if (!Array.isArray(entry)) return [];
+    return entry.filter(isParticipantPresencePayload);
+  });
 }
 
 export function listBellowsGuestPresencePayloads(
   value: unknown,
 ): readonly BellowsGuestPresencePayload[] {
-  if (!value || typeof value !== "object") return [];
-
-  return Object.values(value as Record<string, unknown>).flatMap((entry) => {
-    if (!Array.isArray(entry)) return [];
-    return entry.filter(isGuestPresencePayload);
-  });
+  return listBellowsParticipantPresencePayloads(value).filter(
+    (entry): entry is BellowsGuestPresencePayload =>
+      entry.participantKind === "guest"
+      && typeof entry.joinLinkId === "string"
+      && entry.source === "bellows_join_route",
+  );
 }

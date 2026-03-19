@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
 import type {
   BellowsDeviceReadinessState,
@@ -11,8 +11,10 @@ import {
 } from "../lib/bellows/bellowsTongsRepository";
 import {
   buildBellowsGuestPresencePayload,
-  type BellowsGuestReadiness,
+  type BellowsAudioActivityState,
+  type BellowsParticipantReadiness,
 } from "../lib/bellows/bellowsSessionPresence";
+import { useBellowsLocalMediaReadiness } from "../lib/bellows/useBellowsLocalMediaReadiness";
 import { supabase } from "../lib/supabase";
 import "./BellowsJoin.css";
 
@@ -82,24 +84,12 @@ function normalizeJoinToken(value: string | null): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function createPendingReadiness(): BellowsGuestReadiness {
+function createPendingReadiness(): BellowsParticipantReadiness {
   return {
     microphone: "pending",
     camera: "pending",
     overall: "pending",
   };
-}
-
-function deriveOverallReadiness(readiness: BellowsGuestReadiness): BellowsDeviceReadinessState {
-  if (readiness.microphone === "blocked" || readiness.camera === "blocked") {
-    return "blocked";
-  }
-
-  if (readiness.microphone === "ready" && readiness.camera === "ready") {
-    return "ready";
-  }
-
-  return "pending";
 }
 
 function describeRoleCode(roleCode: BellowsResolvedTongsJoinLink["roleCode"] | null): string {
@@ -127,6 +117,17 @@ function describeReadinessState(state: BellowsDeviceReadinessState): string {
       return "Checking";
     default:
       return "Unknown";
+  }
+}
+
+function describeAudioActivity(activity: BellowsAudioActivityState): string {
+  switch (activity) {
+    case "active":
+      return "Voice activity detected";
+    case "silent":
+      return "Listening";
+    default:
+      return "Mic idle";
   }
 }
 
@@ -245,24 +246,6 @@ async function resolveJoinContinuation(
   return nextPromise;
 }
 
-async function requestDevicePermission(
-  kind: "microphone" | "camera",
-): Promise<BellowsDeviceReadinessState> {
-  if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-    return "blocked";
-  }
-
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia(
-      kind === "microphone" ? { audio: true } : { video: true },
-    );
-    stream.getTracks().forEach((track) => track.stop());
-    return "ready";
-  } catch {
-    return "blocked";
-  }
-}
-
 function countPresenceEntries(value: unknown): number {
   if (!value || typeof value !== "object") return 0;
 
@@ -280,7 +263,7 @@ async function publishPresence(
 
 function buildStatusTone(
   phase: JoinPhase,
-  readiness: GuestReadiness,
+  readiness: BellowsParticipantReadiness,
 ): "ok" | "warn" | "error" {
   if (phase === "error") return "error";
   if (readiness.overall === "blocked") return "warn";
@@ -320,22 +303,41 @@ export default function BellowsJoin() {
   const [phase, setPhase] = useState<JoinPhase>("resolving");
   const [statusMessage, setStatusMessage] = useState("Validating Bellows join link...");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [readiness, setReadiness] = useState<BellowsGuestReadiness>(() => createPendingReadiness());
   const [presenceCount, setPresenceCount] = useState(0);
   const [usedCache, setUsedCache] = useState(false);
+  const [presenceConnected, setPresenceConnected] = useState(false);
+
+  const previewRef = useRef<HTMLVideoElement | null>(null);
+  const channelRef = useRef<any>(null);
+  const joinedAtRef = useRef<string | null>(null);
+  const publishedPresenceRef = useRef<string>("");
 
   const sessionId = routeSessionId?.trim() ?? "";
   const guestLabel = guestKey ? `Guest ${guestKey.slice(-6).toUpperCase()}` : "Guest";
-  const statusTone = buildStatusTone(phase, readiness);
   const channelName = resolvedLink ? `bellows:session:${resolvedLink.sessionId}` : null;
   const backHref = "/app";
+  const localMedia = useBellowsLocalMediaReadiness(Boolean(resolvedLink && guestKey && presenceConnected));
+  const presenceAudioLevelPct = Math.max(0, Math.min(100, Math.round(localMedia.audioLevelPct / 10) * 10));
+  const effectiveStatusTone = buildStatusTone(phase, localMedia.readiness);
+  const statusDetail = errorMessage ?? localMedia.deviceError ?? statusMessage;
+
+  useEffect(() => {
+    const node = previewRef.current;
+    if (!node) return;
+
+    node.srcObject = localMedia.stream;
+    return () => {
+      if (node.srcObject === localMedia.stream) {
+        node.srcObject = null;
+      }
+    };
+  }, [localMedia.stream]);
 
   useEffect(() => {
     if (!sessionId) {
       setResolvedLink(null);
       setGuestKey(null);
       setPhase("error");
-      setReadiness(createPendingReadiness());
       setErrorMessage("Bellows could not find a session id in this join route.");
       setStatusMessage("Join link is missing its session id.");
       return;
@@ -345,7 +347,6 @@ export default function BellowsJoin() {
       setResolvedLink(null);
       setGuestKey(null);
       setPhase("error");
-      setReadiness(createPendingReadiness());
       setErrorMessage("Bellows join links require a token query parameter.");
       setStatusMessage("Join link is missing its access token.");
       return;
@@ -355,7 +356,7 @@ export default function BellowsJoin() {
     setResolvedLink(null);
     setGuestKey(null);
     setPresenceCount(0);
-    setReadiness(createPendingReadiness());
+    setPresenceConnected(false);
     setPhase("resolving");
     setErrorMessage(null);
     setUsedCache(false);
@@ -397,10 +398,18 @@ export default function BellowsJoin() {
   }, [repository, sessionId, token]);
 
   useEffect(() => {
-    if (!resolvedLink || !guestKey) return;
+    if (!resolvedLink || !guestKey) {
+      channelRef.current = null;
+      joinedAtRef.current = null;
+      publishedPresenceRef.current = "";
+      setPresenceConnected(false);
+      return;
+    }
 
     let active = true;
     const joinedAt = new Date().toISOString();
+    joinedAtRef.current = joinedAt;
+    publishedPresenceRef.current = "";
     const channel = supabase.channel(`bellows:session:${resolvedLink.sessionId}`, {
       config: {
         presence: {
@@ -408,6 +417,8 @@ export default function BellowsJoin() {
         },
       },
     }) as any;
+
+    channelRef.current = channel;
 
     const syncPresenceCount = () => {
       if (!active) return;
@@ -429,87 +440,34 @@ export default function BellowsJoin() {
       if (!active) return;
 
       if (status === "SUBSCRIBED") {
-        void (async () => {
-          try {
-            const initialReadiness = createPendingReadiness();
-            await publishPresence(channel, buildBellowsGuestPresencePayload({
-              guestKey,
-              displayName: guestLabel,
-              resolved: resolvedLink,
-              readiness: initialReadiness,
-              joinedAt,
-            }));
-
+        setPresenceConnected(true);
+        void publishPresence(channel, buildBellowsGuestPresencePayload({
+          presenceKey: guestKey,
+          displayName: guestLabel,
+          resolved: resolvedLink,
+          readiness: createPendingReadiness(),
+          audioLevelPct: 0,
+          audioActivity: "unknown",
+          hasPreview: false,
+          joinedAt,
+        }))
+          .then(() => {
             if (!active) return;
-
             setPhase("permissions");
-            setStatusMessage("Presence connected. Checking microphone and camera access...");
+            setStatusMessage("Presence connected. Checking microphone, camera, and local preview...");
             syncPresenceCount();
-
-            const microphone = await requestDevicePermission("microphone");
-            if (!active) return;
-
-            const afterMicrophone: BellowsGuestReadiness = {
-              microphone,
-              camera: "pending",
-              overall: deriveOverallReadiness({
-                microphone,
-                camera: "pending",
-                overall: "pending",
-              }),
-            };
-
-            setReadiness(afterMicrophone);
-            await publishPresence(channel, buildBellowsGuestPresencePayload({
-              guestKey,
-              displayName: guestLabel,
-              resolved: resolvedLink,
-              readiness: afterMicrophone,
-              joinedAt,
-            }));
-
-            const camera = await requestDevicePermission("camera");
-            if (!active) return;
-
-            const finalReadiness: BellowsGuestReadiness = {
-              microphone,
-              camera,
-              overall: deriveOverallReadiness({
-                microphone,
-                camera,
-                overall: "pending",
-              }),
-            };
-
-            setReadiness(finalReadiness);
-            await publishPresence(channel, buildBellowsGuestPresencePayload({
-              guestKey,
-              displayName: guestLabel,
-              resolved: resolvedLink,
-              readiness: finalReadiness,
-              joinedAt,
-            }));
-
-            if (!active) return;
-
-            setPhase("waiting");
-            setStatusMessage(
-              finalReadiness.overall === "ready"
-                ? "Waiting for host. Bellows sees your devices and your join state is live."
-                : "Waiting for host. Bellows connected you, but device permissions still need attention.",
-            );
-            syncPresenceCount();
-          } catch (error) {
+          })
+          .catch((error) => {
             if (!active) return;
             setPhase("error");
             setErrorMessage(getErrorMessage(error, "Bellows guest presence could not be published."));
             setStatusMessage("Bellows could not finish guest entry.");
-          }
-        })();
+          });
         return;
       }
 
       if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+        setPresenceConnected(false);
         setPhase("error");
         setErrorMessage("Bellows could not connect to the live session presence channel.");
         setStatusMessage("Bellows guest entry stopped before the waiting room.");
@@ -518,9 +476,75 @@ export default function BellowsJoin() {
 
     return () => {
       active = false;
+      setPresenceConnected(false);
+      channelRef.current = null;
+      joinedAtRef.current = null;
+      publishedPresenceRef.current = "";
       void channel.unsubscribe();
     };
   }, [guestKey, guestLabel, resolvedLink, usedCache]);
+
+  useEffect(() => {
+    if (!resolvedLink || !guestKey || !presenceConnected || !channelRef.current || !joinedAtRef.current) {
+      return;
+    }
+
+    const payload = buildBellowsGuestPresencePayload({
+      presenceKey: guestKey,
+      displayName: guestLabel,
+      resolved: resolvedLink,
+      readiness: localMedia.readiness,
+      audioLevelPct: presenceAudioLevelPct,
+      audioActivity: localMedia.audioActivity,
+      hasPreview: localMedia.hasPreview,
+      joinedAt: joinedAtRef.current,
+      updatedAt: new Date().toISOString(),
+    });
+
+    const signature = JSON.stringify({
+      readiness: payload.readiness,
+      audioLevelPct: payload.audioLevelPct,
+      audioActivity: payload.audioActivity,
+      hasPreview: payload.hasPreview,
+      presenceState: payload.presenceState,
+    });
+
+    if (signature === publishedPresenceRef.current) {
+      return;
+    }
+
+    publishedPresenceRef.current = signature;
+
+    void publishPresence(channelRef.current, payload)
+      .then(() => {
+        if (localMedia.readiness.overall === "ready") {
+          setPhase("waiting");
+          setStatusMessage("Waiting for host. Bellows sees your camera, microphone, and preview.");
+          return;
+        }
+
+        setPhase("permissions");
+        setStatusMessage(
+          localMedia.readiness.overall === "blocked"
+            ? "Bellows connected you, but camera or microphone permissions still need attention."
+            : "Bellows is checking local media readiness.",
+        );
+      })
+      .catch((error) => {
+        setPhase("error");
+        setErrorMessage(getErrorMessage(error, "Bellows guest presence could not be published."));
+        setStatusMessage("Bellows could not finish guest entry.");
+      });
+  }, [
+    guestKey,
+    guestLabel,
+    localMedia.audioActivity,
+    localMedia.hasPreview,
+    localMedia.readiness,
+    presenceAudioLevelPct,
+    presenceConnected,
+    resolvedLink,
+  ]);
 
   return (
     <div className="bellows-join">
@@ -529,7 +553,7 @@ export default function BellowsJoin() {
           <div className="bellows-join__eyebrow">Bellows Guest Surface</div>
           <h1 className="bellows-join__title">Bellows Join</h1>
           <p className="bellows-join__subtitle">
-            Public guest entry validates access first, then goes live on Bellows session presence.
+            Public guest entry validates access first, then goes live on Bellows session presence and local media readiness.
           </p>
         </div>
 
@@ -552,7 +576,7 @@ export default function BellowsJoin() {
             <div>
               <h2>{resolvedLink?.title ?? "Bellows guest entry"}</h2>
               <p>
-                Bellows guest flow: validate token, attach presence, request devices, publish readiness, wait.
+                Bellows guest flow: validate token, attach presence, request devices, publish readiness, show preview, wait.
               </p>
             </div>
             <span className="bellows-join__pill">
@@ -560,9 +584,9 @@ export default function BellowsJoin() {
             </span>
           </div>
 
-          <div className="bellows-join__status-banner" data-state={statusTone}>
+          <div className="bellows-join__status-banner" data-state={effectiveStatusTone}>
             <strong>{buildStatusHeading(phase)}</strong>
-            <span>{errorMessage ?? statusMessage}</span>
+            <span>{statusDetail}</span>
           </div>
 
           <div className="bellows-join__state-grid">
@@ -575,22 +599,79 @@ export default function BellowsJoin() {
               <strong>{channelName ? `Connected to ${channelName}` : "Not connected yet"}</strong>
             </article>
             <article className="bellows-join__state-card">
-              <span>Guests Seen</span>
+              <span>Participants Seen</span>
               <strong>{presenceCount}</strong>
             </article>
             <article className="bellows-join__state-card">
               <span>Microphone</span>
-              <strong>{describeReadinessState(readiness.microphone)}</strong>
+              <strong>{describeReadinessState(localMedia.readiness.microphone)}</strong>
             </article>
             <article className="bellows-join__state-card">
               <span>Camera</span>
-              <strong>{describeReadinessState(readiness.camera)}</strong>
+              <strong>{describeReadinessState(localMedia.readiness.camera)}</strong>
             </article>
             <article className="bellows-join__state-card">
-              <span>Waiting Room</span>
-              <strong>{phase === "waiting" ? "Waiting for host" : "Booting"}</strong>
+              <span>Preview</span>
+              <strong>{localMedia.hasPreview ? "Live preview" : "Waiting on camera"}</strong>
             </article>
           </div>
+        </section>
+
+        <section className="bellows-join__panel">
+          <div className="bellows-join__panel-header">
+            <div>
+              <h3>Local Readiness</h3>
+              <p>Pre-recording camera preview and microphone activity for this guest only.</p>
+            </div>
+            <button type="button" onClick={localMedia.retry}>
+              Retry Devices
+            </button>
+          </div>
+
+          <div className="bellows-join__preview-shell" data-state={localMedia.hasPreview ? "ready" : "pending"}>
+            <video
+              ref={previewRef}
+              className="bellows-join__preview-video"
+              autoPlay
+              muted
+              playsInline
+            />
+            {!localMedia.hasPreview ? (
+              <div className="bellows-join__preview-empty">
+                {localMedia.readiness.camera === "blocked"
+                  ? "Bellows needs camera permission before preview can go live."
+                  : "Camera preview will appear here once Bellows finishes device checks."}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="bellows-join__meter-card">
+            <div className="bellows-join__meter-header">
+              <span>Mic Activity</span>
+              <strong>{describeAudioActivity(localMedia.audioActivity)}</strong>
+            </div>
+            <div className="bellows-join__meter-track">
+              <div
+                className="bellows-join__meter-fill"
+                style={{ width: `${localMedia.audioLevelPct}%` }}
+              />
+            </div>
+          </div>
+
+          <ul className="bellows-join__details">
+            <li>
+              <span>Device State</span>
+              <strong>{localMedia.deviceMessage}</strong>
+            </li>
+            <li>
+              <span>Audio Level</span>
+              <strong>{`${localMedia.audioLevelPct}%`}</strong>
+            </li>
+            <li>
+              <span>Preview Signal</span>
+              <strong>{localMedia.hasPreview ? "Camera preview live" : "Preview unavailable"}</strong>
+            </li>
+          </ul>
         </section>
 
         <section className="bellows-join__panel">
@@ -606,17 +687,21 @@ export default function BellowsJoin() {
               <strong>Validate token</strong>
               <span>Resolve the session id and access token against canonical Tongs truth.</span>
             </li>
-            <li className="bellows-join__step" data-state={channelName ? "done" : phase === "connecting" ? "active" : "pending"}>
+            <li className="bellows-join__step" data-state={presenceConnected ? "done" : phase === "connecting" ? "active" : "pending"}>
               <strong>Connect presence</strong>
               <span>Attach to the Bellows Realtime session before device prompts slow the flow down.</span>
             </li>
-            <li className="bellows-join__step" data-state={phase === "permissions" ? "active" : phase === "waiting" || readiness.overall === "blocked" ? "done" : "pending"}>
+            <li className="bellows-join__step" data-state={phase === "permissions" ? "active" : phase === "waiting" || localMedia.readiness.overall === "blocked" ? "done" : "pending"}>
               <strong>Request devices</strong>
-              <span>Probe microphone and camera access, then publish readiness updates.</span>
+              <span>Bring microphone and camera into a real ready or blocked state, then publish that truth.</span>
+            </li>
+            <li className="bellows-join__step" data-state={localMedia.hasPreview ? "done" : phase === "permissions" ? "active" : "pending"}>
+              <strong>Show preview</strong>
+              <span>Confirm the local camera feed and microphone activity before recording exists.</span>
             </li>
             <li className="bellows-join__step" data-state={phase === "waiting" ? "done" : "pending"}>
               <strong>Wait for host</strong>
-              <span>Hold in the guest waiting state until host-side admission behavior arrives.</span>
+              <span>Hold in the guest waiting state until host-side admission and recording behavior arrive.</span>
             </li>
           </ol>
         </section>
