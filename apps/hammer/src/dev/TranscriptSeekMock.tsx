@@ -2142,6 +2142,14 @@ export default function TranscriptSeekMock(
         return next;
       });
       setPreviewVisualLoadingRef(null);
+    }).catch(() => {
+      if (cancelled) return;
+      setIgnoredPreviewVisualAssetRefs((current) => {
+        const next = new Set(current);
+        next.add(assetRef);
+        return next;
+      });
+      setPreviewVisualLoadingRef(null);
     });
 
     return () => {
