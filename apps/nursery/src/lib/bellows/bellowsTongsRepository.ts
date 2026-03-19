@@ -663,6 +663,19 @@ class SupabaseBellowsTongsRepository
     };
   }
 
+  public async loadJoinLinks(
+    sessionId: SessionId,
+  ): Promise<readonly BellowsTongsJoinLinkRecord[]> {
+    const { data, error } = await this.tongs
+      .from(BELLOWS_TONGS_JOIN_LINK_TABLE)
+      .select("*")
+      .eq("session_id", sessionId)
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+    return (data ?? []).map((row: unknown) => mapJoinLinkRow(row as BellowsJoinLinkRow));
+  }
+
   public async resolveJoinLink(
     sessionId: SessionId,
     token: string,
@@ -797,6 +810,12 @@ export function createBellowsTongsSessionRepository(
 export function createBellowsTongsJoinLinkRepository(
   client: SupabaseClient<Database>,
 ): NurseryBellowsTongsJoinLinkRepository {
+  return new SupabaseBellowsTongsRepository(client);
+}
+
+export function createBellowsTongsRepository(
+  client: SupabaseClient<Database>,
+): NurseryBellowsTongsRepository {
   return new SupabaseBellowsTongsRepository(client);
 }
 

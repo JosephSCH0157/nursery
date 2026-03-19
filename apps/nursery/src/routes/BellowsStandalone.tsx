@@ -10,11 +10,13 @@ import type {
   BellowsOperatorConsoleHarness,
   BellowsOperatorConsoleSnapshot,
   BellowsPersistenceObservation,
+  BellowsRoleCode,
   BellowsRuntimeDispatchResult,
   BellowsSession,
   BellowsSessionAction,
   BellowsStudioShellObservation,
   BellowsTongsCheckpointKind,
+  BellowsTongsJoinLinkRecord,
   BellowsTongsRecoveryCheckpointRecord,
   ParticipantId,
   SessionEventId,
@@ -31,16 +33,23 @@ import {
   parseForgeRouteContext,
 } from "../lib/forge-route-context";
 import {
-  createBellowsTongsSessionRepository,
+  createBellowsTongsRepository,
   isBellowsTerminalLifecycle,
   supportsBellowsRehydration,
+  type NurseryBellowsTongsRepository,
   type NurseryBellowsTongsSessionRepository,
 } from "../lib/bellows/bellowsTongsRepository";
+import {
+  listBellowsGuestPresencePayloads,
+  type BellowsGuestPresencePayload,
+} from "../lib/bellows/bellowsSessionPresence";
 import { supabase } from "../lib/supabase";
 import "./BellowsStandalone.css";
 
 const ACTIVE_WORKSPACE_KEY = "forge_workspace_id_v1";
 const LEGACY_BARSTOCK_WORKSPACE_KEY = "barstock_workspace_id";
+const BELLOWS_HOST_INVITE_CACHE_KEY = "forge_bellows_host_join_links_v1";
+const BELLOWS_INVITE_ROLE_CODES = ["S2", "G1", "G2"] as const;
 
 type BellowsRuntimeShell = {
   readonly harness: BellowsOperatorConsoleHarness;
@@ -62,6 +71,26 @@ type BellowsRecoveryRestoreTargets = {
   readonly previousPhase: BellowsTongsRecoveryCheckpointRecord | null;
 };
 
+type BellowsInviteRoleCode = (typeof BELLOWS_INVITE_ROLE_CODES)[number];
+
+type BellowsHostInviteLinkCacheEntry = {
+  readonly sessionId: string;
+  readonly roleCode: BellowsRoleCode;
+  readonly joinUrl: string;
+  readonly cachedAt: string;
+};
+
+type BellowsHostInviteSeat = {
+  readonly roleCode: BellowsInviteRoleCode;
+  readonly roleLabel: string;
+  readonly link: BellowsTongsJoinLinkRecord | null;
+  readonly liveGuests: readonly BellowsGuestPresencePayload[];
+  readonly guestStatusLabel: string;
+  readonly guestStatusDetail: string;
+  readonly copyReady: boolean;
+  readonly joinUrl: string | null;
+};
+
 function asParticipantId(value: string): ParticipantId {
   return value as ParticipantId;
 }
@@ -78,6 +107,63 @@ function asWorkspaceId(value: string): WorkspaceId {
   return value as WorkspaceId;
 }
 
+function readBellowsHostInviteLinkCache(): Record<string, BellowsHostInviteLinkCacheEntry> {
+  if (typeof window === "undefined") return {};
+
+  try {
+    const raw = window.sessionStorage.getItem(BELLOWS_HOST_INVITE_CACHE_KEY);
+    if (!raw) return {};
+
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object"
+      ? parsed as Record<string, BellowsHostInviteLinkCacheEntry>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeBellowsHostInviteLinkCache(
+  cache: Record<string, BellowsHostInviteLinkCacheEntry>,
+): void {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.sessionStorage.setItem(BELLOWS_HOST_INVITE_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // ignore session storage failures
+  }
+}
+
+function readBellowsHostInviteUrls(sessionId: SessionId | null): Record<string, string> {
+  if (!sessionId) return {};
+
+  const cache = readBellowsHostInviteLinkCache();
+  return Object.entries(cache).reduce<Record<string, string>>((result, [joinLinkId, entry]) => {
+    if (entry.sessionId === sessionId) {
+      result[joinLinkId] = entry.joinUrl;
+    }
+    return result;
+  }, {});
+}
+
+function persistBellowsHostInviteUrl(args: {
+  joinLinkId: string;
+  sessionId: SessionId;
+  roleCode: BellowsRoleCode;
+  joinUrl: string;
+}): Record<string, string> {
+  const cache = readBellowsHostInviteLinkCache();
+  cache[args.joinLinkId] = {
+    sessionId: args.sessionId,
+    roleCode: args.roleCode,
+    joinUrl: args.joinUrl,
+    cachedAt: new Date().toISOString(),
+  };
+  writeBellowsHostInviteLinkCache(cache);
+  return readBellowsHostInviteUrls(args.sessionId);
+}
+
 function searchFromHref(href: string): string {
   const q = href.indexOf("?");
   return q >= 0 ? href.slice(q) : "";
@@ -89,6 +175,122 @@ function createBellowsId(prefix: string): string {
   }
 
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function buildBellowsJoinHref(sessionId: SessionId, token: string): string {
+  const path = `/apps/bellows/join/${sessionId}`;
+  if (typeof window === "undefined") {
+    return `${path}?token=${encodeURIComponent(token)}`;
+  }
+
+  const url = new URL(path, window.location.origin);
+  url.searchParams.set("token", token);
+  return url.toString();
+}
+
+function formatTimestamp(value: string | null): string {
+  if (!value) return "Not available";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function describeInviteRole(roleCode: BellowsInviteRoleCode): string {
+  switch (roleCode) {
+    case "S2":
+      return "Studio Seat Two";
+    case "G1":
+      return "Guest Seat One";
+    case "G2":
+      return "Guest Seat Two";
+  }
+}
+
+function describeJoinLinkLifecycle(link: BellowsTongsJoinLinkRecord | null): string {
+  if (!link) return "No link issued";
+  if (link.revokedAt) return "Revoked";
+  if (link.useCount >= link.maxUses) return "Use limit reached";
+  return "Active";
+}
+
+function selectInviteLinkForRole(
+  joinLinks: readonly BellowsTongsJoinLinkRecord[],
+  roleCode: BellowsInviteRoleCode,
+): BellowsTongsJoinLinkRecord | null {
+  return joinLinks.find((link) =>
+    link.roleCode === roleCode && !link.revokedAt && link.useCount < link.maxUses)
+    ?? joinLinks.find((link) => link.roleCode === roleCode)
+    ?? null;
+}
+
+function describeGuestInviteStatus(args: {
+  roleCode: BellowsInviteRoleCode;
+  link: BellowsTongsJoinLinkRecord | null;
+  liveGuests: readonly BellowsGuestPresencePayload[];
+}): {
+  readonly label: string;
+  readonly detail: string;
+} {
+  const readyCount = args.liveGuests.filter((guest) => guest.readiness.overall === "ready").length;
+  if (readyCount > 0) {
+    return {
+      label: "Ready for host",
+      detail: `${readyCount} live guest${readyCount === 1 ? "" : "s"} reached device-ready state on this seat.`,
+    };
+  }
+
+  const blockedCount = args.liveGuests.filter((guest) => guest.readiness.overall === "blocked").length;
+  if (blockedCount > 0) {
+    return {
+      label: "Permissions blocked",
+      detail: `${blockedCount} guest${blockedCount === 1 ? "" : "s"} arrived, but Bellows still needs microphone or camera access.`,
+    };
+  }
+
+  if (args.liveGuests.length > 0) {
+    return {
+      label: "Permissions pending",
+      detail: `${args.liveGuests.length} live guest${args.liveGuests.length === 1 ? "" : "s"} arrived and Bellows is still checking devices.`,
+    };
+  }
+
+  if (args.link?.lastUsedAt || (args.link?.useCount ?? 0) > 0) {
+    return {
+      label: "Guest arrived",
+      detail: "A guest resolved this link, but no active presence is live on the session channel right now.",
+    };
+  }
+
+  if (args.link && !args.link.revokedAt && args.link.useCount < args.link.maxUses) {
+    return {
+      label: "Link issued",
+      detail: `Waiting for ${describeInviteRole(args.roleCode)} to open the invite link.`,
+    };
+  }
+
+  if (args.link?.revokedAt) {
+    return {
+      label: "Link revoked",
+      detail: "This seat has no active invite link right now.",
+    };
+  }
+
+  if (args.link && args.link.useCount >= args.link.maxUses) {
+    return {
+      label: "Link used",
+      detail: "This seat's latest link reached its use limit and should be replaced.",
+    };
+  }
+
+  return {
+    label: "Awaiting invite",
+    detail: `Issue a join link when ${describeInviteRole(args.roleCode)} should enter Bellows.`,
+  };
 }
 
 function createOffsetClock(startAt: number): () => BellowsOffsetMs {
@@ -819,8 +1021,8 @@ function formatDispatchSummary(
 }
 
 export default function BellowsStandalone() {
-  const repository = useMemo(
-    () => createBellowsTongsSessionRepository(supabase),
+  const repository = useMemo<NurseryBellowsTongsRepository>(
+    () => createBellowsTongsRepository(supabase),
     [],
   );
   const location = useLocation();
@@ -856,6 +1058,15 @@ export default function BellowsStandalone() {
   });
   const [loadingRecoveryTargets, setLoadingRecoveryTargets] = useState(false);
   const [recoveryTargetsError, setRecoveryTargetsError] = useState<string | null>(null);
+  const [joinLinks, setJoinLinks] = useState<readonly BellowsTongsJoinLinkRecord[]>([]);
+  const [loadingJoinLinks, setLoadingJoinLinks] = useState(false);
+  const [joinLinksError, setJoinLinksError] = useState<string | null>(null);
+  const [inviteStatusMessage, setInviteStatusMessage] = useState(
+    "Issue a join link to invite S2, G1, or G2 into the live Bellows session.",
+  );
+  const [invitePresenceEntries, setInvitePresenceEntries] = useState<readonly BellowsGuestPresencePayload[]>([]);
+  const [invitePresenceError, setInvitePresenceError] = useState<string | null>(null);
+  const [joinLinkUrls, setJoinLinkUrls] = useState<Record<string, string>>({});
 
   const viewerLabel = describeUser(authUser);
   const isAuthenticated = Boolean(authUser);
@@ -1188,6 +1399,80 @@ export default function BellowsStandalone() {
     };
   }, [repository, session?.sessionId, session?.events.length]);
 
+  useEffect(() => {
+    if (!session) {
+      setJoinLinks([]);
+      setJoinLinksError(null);
+      setLoadingJoinLinks(false);
+      setJoinLinkUrls({});
+      return;
+    }
+
+    let active = true;
+    setLoadingJoinLinks(true);
+    setJoinLinksError(null);
+    setJoinLinkUrls(readBellowsHostInviteUrls(session.sessionId));
+
+    void repository.loadJoinLinks(session.sessionId)
+      .then((links) => {
+        if (!active) return;
+        setJoinLinks(links);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setJoinLinks([]);
+        setJoinLinksError(getErrorMessage(error, "Bellows could not load join links."));
+      })
+      .finally(() => {
+        if (!active) return;
+        setLoadingJoinLinks(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [repository, session?.sessionId]);
+
+  useEffect(() => {
+    if (!session) {
+      setInvitePresenceEntries([]);
+      setInvitePresenceError(null);
+      return;
+    }
+
+    let active = true;
+    const channel = supabase.channel(`bellows:session:${session.sessionId}`) as any;
+
+    const syncPresence = () => {
+      if (!active) return;
+      setInvitePresenceEntries(listBellowsGuestPresencePayloads(channel.presenceState?.() ?? {}));
+    };
+
+    setInvitePresenceError(null);
+    channel.on("presence", { event: "sync" }, syncPresence);
+    channel.on("presence", { event: "join" }, syncPresence);
+    channel.on("presence", { event: "leave" }, syncPresence);
+
+    channel.subscribe((status: string) => {
+      if (!active) return;
+
+      if (status === "SUBSCRIBED") {
+        syncPresence();
+        return;
+      }
+
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+        setInvitePresenceEntries([]);
+        setInvitePresenceError("Bellows could not observe guest presence on the live session channel.");
+      }
+    });
+
+    return () => {
+      active = false;
+      void channel.unsubscribe();
+    };
+  }, [session?.sessionId]);
+
   async function persistRuntimeTransition(
     repositoryImpl: NurseryBellowsTongsSessionRepository,
     action: BellowsSessionAction,
@@ -1276,6 +1561,104 @@ export default function BellowsStandalone() {
     }
   }
 
+  async function issueJoinLink(roleCode: BellowsInviteRoleCode) {
+    if (!session || !authUser?.id) return;
+
+    setBusyAction(`invite-issue:${roleCode}`);
+    setJoinLinksError(null);
+    setInviteStatusMessage(`Issuing ${describeInviteRole(roleCode)} link...`);
+
+    try {
+      const currentActiveLinks = joinLinks.filter((link) =>
+        link.roleCode === roleCode && !link.revokedAt && link.useCount < link.maxUses);
+
+      const created = await repository.createJoinLink({
+        sessionId: session.sessionId,
+        roleCode,
+        maxUses: 1,
+        expiresHours: 24,
+        createdByUserId: authUser.id,
+      });
+
+      const joinUrl = buildBellowsJoinHref(session.sessionId, created.token);
+      setJoinLinkUrls(persistBellowsHostInviteUrl({
+        joinLinkId: created.joinLink.joinLinkId,
+        sessionId: session.sessionId,
+        roleCode,
+        joinUrl,
+      }));
+
+      const priorLinkIds = currentActiveLinks
+        .map((link) => link.joinLinkId)
+        .filter((joinLinkId) => joinLinkId !== created.joinLink.joinLinkId);
+
+      const revocations = await Promise.allSettled(
+        priorLinkIds.map((joinLinkId) => repository.revokeJoinLink(joinLinkId)),
+      );
+
+      const revokedCount = revocations.reduce((count, result) => {
+        return count + (result.status === "fulfilled" && result.value ? 1 : 0);
+      }, 0);
+
+      const refreshedLinks = await repository.loadJoinLinks(session.sessionId);
+      setJoinLinks(refreshedLinks);
+
+      setInviteStatusMessage(
+        revokedCount > 0
+          ? `${describeInviteRole(roleCode)} link issued. ${revokedCount} earlier active invite${revokedCount === 1 ? "" : "s"} for this seat were revoked.`
+          : `${describeInviteRole(roleCode)} link issued. Copy it from this panel before you leave this tab.`,
+      );
+    } catch (error) {
+      setJoinLinksError(getErrorMessage(error, "Bellows could not issue a join link."));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function copyJoinLink(link: BellowsTongsJoinLinkRecord | null) {
+    if (!link) return;
+
+    const joinUrl = joinLinkUrls[link.joinLinkId];
+    if (!joinUrl) {
+      setJoinLinksError(
+        "Bellows can only re-copy links that were issued in this tab. Create a replacement link to issue a fresh secret.",
+      );
+      return;
+    }
+
+    if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+      setJoinLinksError("Bellows could not access the clipboard in this browser context.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(joinUrl);
+      setJoinLinksError(null);
+      setInviteStatusMessage(`${describeInviteRole(link.roleCode as BellowsInviteRoleCode)} link copied to the clipboard.`);
+    } catch (error) {
+      setJoinLinksError(getErrorMessage(error, "Bellows could not copy this join link."));
+    }
+  }
+
+  async function revokeJoinLink(link: BellowsTongsJoinLinkRecord | null) {
+    if (!session || !link || link.revokedAt) return;
+
+    setBusyAction(`invite-revoke:${link.joinLinkId}`);
+    setJoinLinksError(null);
+    setInviteStatusMessage(`Revoking ${describeInviteRole(link.roleCode as BellowsInviteRoleCode)} link...`);
+
+    try {
+      await repository.revokeJoinLink(link.joinLinkId);
+      const refreshedLinks = await repository.loadJoinLinks(session.sessionId);
+      setJoinLinks(refreshedLinks);
+      setInviteStatusMessage(`${describeInviteRole(link.roleCode as BellowsInviteRoleCode)} link revoked.`);
+    } catch (error) {
+      setJoinLinksError(getErrorMessage(error, "Bellows could not revoke this join link."));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   async function runAction(actionKey: string, buildAction: () => BellowsSessionAction) {
     if (!runtimeShell || !snapshot) return;
 
@@ -1322,6 +1705,34 @@ export default function BellowsStandalone() {
       && baselineTarget.checkpointId !== recoveryTargets.latest.checkpointId,
   );
   const canStepBackPhase = Boolean(previousPhaseTarget);
+  const canIssueInvites = Boolean(activeRuntime) && !terminal;
+  const inviteSeats = useMemo<readonly BellowsHostInviteSeat[]>(() => {
+    return BELLOWS_INVITE_ROLE_CODES.map((roleCode) => {
+      const link = selectInviteLinkForRole(joinLinks, roleCode);
+      const liveGuests = invitePresenceEntries.filter((entry) => entry.roleCode === roleCode);
+      const guestStatus = describeGuestInviteStatus({
+        roleCode,
+        link,
+        liveGuests,
+      });
+
+      return {
+        roleCode,
+        roleLabel: describeInviteRole(roleCode),
+        link,
+        liveGuests,
+        guestStatusLabel: guestStatus.label,
+        guestStatusDetail: guestStatus.detail,
+        copyReady: Boolean(
+          link
+            && !link.revokedAt
+            && link.useCount < link.maxUses
+            && joinLinkUrls[link.joinLinkId],
+        ),
+        joinUrl: link ? joinLinkUrls[link.joinLinkId] ?? null : null,
+      };
+    });
+  }, [invitePresenceEntries, joinLinks, joinLinkUrls]);
   const manualSnapshot = useMemo(
     () => session
       ? JSON.stringify(
@@ -1546,6 +1957,92 @@ export default function BellowsStandalone() {
                 <span>{baselineTarget?.checkpointId ?? "Unavailable"}</span>
                 <span>{baselineTarget ? humanizeCode(baselineTarget.lifecycleState) : "No baseline checkpoint"}</span>
               </li>
+            </ul>
+          </section>
+
+          <section className="bellows-standalone__panel bellows-standalone__panel--wide">
+            <div className="bellows-standalone__panel-header">
+              <div>
+                <h2>Invite / Join Links</h2>
+                <p>Host-side invite management over canonical Tongs join links and live Bellows guest presence.</p>
+              </div>
+            </div>
+
+            <div className="bellows-standalone__status-banner" data-state={joinLinksError || invitePresenceError ? "error" : "ok"}>
+              {joinLinksError
+                ?? invitePresenceError
+                ?? (loadingJoinLinks
+                  ? "Loading canonical join links..."
+                  : canIssueInvites
+                  ? inviteStatusMessage
+                  : "Invite issuance is unavailable once the Bellows session reaches a terminal state.")}
+            </div>
+
+            <ul className="bellows-standalone__invite-list">
+              {inviteSeats.map((seat) => (
+                <li key={seat.roleCode} className="bellows-standalone__invite-card">
+                  <div className="bellows-standalone__invite-header">
+                    <div>
+                      <strong>{seat.roleLabel}</strong>
+                      <span>{seat.guestStatusLabel}</span>
+                    </div>
+                    <div className="bellows-standalone__invite-actions">
+                      <button
+                        type="button"
+                        disabled={loadingJoinLinks || busyAction !== null || !canIssueInvites}
+                        onClick={() => void issueJoinLink(seat.roleCode)}
+                      >
+                        {seat.link && !seat.link.revokedAt && seat.link.useCount < seat.link.maxUses
+                          ? "Replace Link"
+                          : "Issue Link"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!seat.copyReady}
+                        onClick={() => void copyJoinLink(seat.link)}
+                      >
+                        Copy Link
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!seat.link || Boolean(seat.link.revokedAt) || busyAction !== null}
+                        onClick={() => void revokeJoinLink(seat.link)}
+                      >
+                        Revoke Link
+                      </button>
+                    </div>
+                  </div>
+
+                  <p className="bellows-standalone__invite-note">{seat.guestStatusDetail}</p>
+
+                  <dl className="bellows-standalone__invite-meta">
+                    <div>
+                      <dt>Link State</dt>
+                      <dd>{describeJoinLinkLifecycle(seat.link)}</dd>
+                    </div>
+                    <div>
+                      <dt>Join Link Id</dt>
+                      <dd>{seat.link?.joinLinkId ?? "Not issued"}</dd>
+                    </div>
+                    <div>
+                      <dt>Expires</dt>
+                      <dd>{formatTimestamp(seat.link?.expiresAt ?? null)}</dd>
+                    </div>
+                    <div>
+                      <dt>Uses</dt>
+                      <dd>{seat.link ? `${seat.link.useCount}/${seat.link.maxUses}` : "Not issued"}</dd>
+                    </div>
+                    <div>
+                      <dt>Live Guest</dt>
+                      <dd>{seat.liveGuests.length > 0 ? seat.liveGuests.map((guest) => guest.displayName).join(", ") : "No live guest"}</dd>
+                    </div>
+                    <div>
+                      <dt>Copy State</dt>
+                      <dd>{seat.joinUrl ? "Reusable in this tab" : seat.link ? "Create or replace to issue a fresh secret" : "No secret issued yet"}</dd>
+                    </div>
+                  </dl>
+                </li>
+              ))}
             </ul>
           </section>
 

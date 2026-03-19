@@ -2,27 +2,22 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
 import type {
   BellowsDeviceReadinessState,
-  BellowsJoinState,
-  BellowsPresenceState,
   BellowsResolvedTongsJoinLink,
-  BellowsRoleCode,
   SessionId,
 } from "@forge/bellows";
 import {
   createBellowsTongsJoinLinkRepository,
   type NurseryBellowsTongsJoinLinkRepository,
 } from "../lib/bellows/bellowsTongsRepository";
+import {
+  buildBellowsGuestPresencePayload,
+  type BellowsGuestReadiness,
+} from "../lib/bellows/bellowsSessionPresence";
 import { supabase } from "../lib/supabase";
 import "./BellowsJoin.css";
 
 const BELLOWS_JOIN_CONTINUATION_KEY = "forge_bellows_join_continuation_v1";
 const inflightJoinContinuations = new Map<string, Promise<JoinResolution | null>>();
-
-type GuestReadiness = {
-  readonly microphone: BellowsDeviceReadinessState;
-  readonly camera: BellowsDeviceReadinessState;
-  readonly overall: BellowsDeviceReadinessState;
-};
 
 type JoinPhase =
   | "resolving"
@@ -42,20 +37,6 @@ type JoinContinuation = {
 type JoinResolution = {
   readonly continuation: JoinContinuation;
   readonly source: JoinResolutionSource;
-};
-
-type BellowsGuestPresencePayload = {
-  readonly guestKey: string;
-  readonly displayName: string;
-  readonly roleCode: BellowsRoleCode;
-  readonly joinLinkId: string;
-  readonly sessionId: string;
-  readonly joinState: BellowsJoinState;
-  readonly presenceState: BellowsPresenceState;
-  readonly readiness: GuestReadiness;
-  readonly joinedAt: string;
-  readonly resolvedAt: string;
-  readonly source: "bellows_join_route";
 };
 
 function asSessionId(value: string): SessionId {
@@ -81,7 +62,7 @@ function normalizeJoinToken(value: string | null): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function createPendingReadiness(): GuestReadiness {
+function createPendingReadiness(): BellowsGuestReadiness {
   return {
     microphone: "pending",
     camera: "pending",
@@ -89,7 +70,7 @@ function createPendingReadiness(): GuestReadiness {
   };
 }
 
-function deriveOverallReadiness(readiness: GuestReadiness): BellowsDeviceReadinessState {
+function deriveOverallReadiness(readiness: BellowsGuestReadiness): BellowsDeviceReadinessState {
   if (readiness.microphone === "blocked" || readiness.camera === "blocked") {
     return "blocked";
   }
@@ -101,7 +82,7 @@ function deriveOverallReadiness(readiness: GuestReadiness): BellowsDeviceReadine
   return "pending";
 }
 
-function describeRoleCode(roleCode: BellowsRoleCode | null): string {
+function describeRoleCode(roleCode: BellowsResolvedTongsJoinLink["roleCode"] | null): string {
   switch (roleCode) {
     case "S1":
       return "Studio seat one";
@@ -270,29 +251,10 @@ function countPresenceEntries(value: unknown): number {
   }, 0);
 }
 
-function buildPresencePayload(args: {
-  guestKey: string;
-  displayName: string;
-  resolved: BellowsResolvedTongsJoinLink;
-  readiness: GuestReadiness;
-  joinedAt: string;
-}): BellowsGuestPresencePayload {
-  return {
-    guestKey: args.guestKey,
-    displayName: args.displayName,
-    roleCode: args.resolved.roleCode,
-    joinLinkId: args.resolved.joinLinkId,
-    sessionId: args.resolved.sessionId,
-    joinState: "pending",
-    presenceState: args.readiness.overall === "ready" ? "ready" : "joining",
-    readiness: args.readiness,
-    joinedAt: args.joinedAt,
-    resolvedAt: args.resolved.resolvedAt,
-    source: "bellows_join_route",
-  };
-}
-
-async function publishPresence(channel: any, payload: BellowsGuestPresencePayload): Promise<void> {
+async function publishPresence(
+  channel: any,
+  payload: ReturnType<typeof buildBellowsGuestPresencePayload>,
+): Promise<void> {
   await channel.track(payload);
 }
 
@@ -338,7 +300,7 @@ export default function BellowsJoin() {
   const [phase, setPhase] = useState<JoinPhase>("resolving");
   const [statusMessage, setStatusMessage] = useState("Validating Bellows join link...");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [readiness, setReadiness] = useState<GuestReadiness>(() => createPendingReadiness());
+  const [readiness, setReadiness] = useState<BellowsGuestReadiness>(() => createPendingReadiness());
   const [presenceCount, setPresenceCount] = useState(0);
   const [usedCache, setUsedCache] = useState(false);
 
@@ -450,7 +412,7 @@ export default function BellowsJoin() {
         void (async () => {
           try {
             const initialReadiness = createPendingReadiness();
-            await publishPresence(channel, buildPresencePayload({
+            await publishPresence(channel, buildBellowsGuestPresencePayload({
               guestKey,
               displayName: guestLabel,
               resolved: resolvedLink,
@@ -467,7 +429,7 @@ export default function BellowsJoin() {
             const microphone = await requestDevicePermission("microphone");
             if (!active) return;
 
-            const afterMicrophone: GuestReadiness = {
+            const afterMicrophone: BellowsGuestReadiness = {
               microphone,
               camera: "pending",
               overall: deriveOverallReadiness({
@@ -478,7 +440,7 @@ export default function BellowsJoin() {
             };
 
             setReadiness(afterMicrophone);
-            await publishPresence(channel, buildPresencePayload({
+            await publishPresence(channel, buildBellowsGuestPresencePayload({
               guestKey,
               displayName: guestLabel,
               resolved: resolvedLink,
@@ -489,7 +451,7 @@ export default function BellowsJoin() {
             const camera = await requestDevicePermission("camera");
             if (!active) return;
 
-            const finalReadiness: GuestReadiness = {
+            const finalReadiness: BellowsGuestReadiness = {
               microphone,
               camera,
               overall: deriveOverallReadiness({
@@ -500,7 +462,7 @@ export default function BellowsJoin() {
             };
 
             setReadiness(finalReadiness);
-            await publishPresence(channel, buildPresencePayload({
+            await publishPresence(channel, buildBellowsGuestPresencePayload({
               guestKey,
               displayName: guestLabel,
               resolved: resolvedLink,

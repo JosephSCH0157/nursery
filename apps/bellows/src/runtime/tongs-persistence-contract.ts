@@ -198,6 +198,9 @@ export type BellowsSealTongsSessionInput =
   BellowsAppendTongsRecoveryCheckpointInput;
 
 export interface BellowsTongsJoinLinkRepository {
+  loadJoinLinks(
+    sessionId: SessionId,
+  ): Promise<readonly BellowsTongsJoinLinkRecord[]>;
   createJoinLink(
     input: BellowsCreateTongsJoinLinkInput,
   ): Promise<BellowsCreatedTongsJoinLink>;

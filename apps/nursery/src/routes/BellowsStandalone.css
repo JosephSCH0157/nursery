@@ -158,6 +158,15 @@
   gap: 10px;
 }
 
+.bellows-standalone__invite-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .bellows-standalone__log-item,
 .bellows-standalone__snapshot-list li {
   display: grid;
@@ -166,6 +175,68 @@
   border-radius: 14px;
   border: 1px solid rgba(148, 163, 184, 0.18);
   background: rgba(8, 14, 26, 0.72);
+}
+
+.bellows-standalone__invite-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(8, 14, 26, 0.78);
+}
+
+.bellows-standalone__invite-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.bellows-standalone__invite-header strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.bellows-standalone__invite-header span,
+.bellows-standalone__invite-note,
+.bellows-standalone__invite-meta dt {
+  color: var(--forge-text-muted);
+}
+
+.bellows-standalone__invite-note {
+  margin: 0;
+}
+
+.bellows-standalone__invite-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.bellows-standalone__invite-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.bellows-standalone__invite-meta div {
+  display: grid;
+  gap: 4px;
+}
+
+.bellows-standalone__invite-meta dt {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.bellows-standalone__invite-meta dd {
+  margin: 0;
+  font-family: "Consolas", "SFMono-Regular", monospace;
+  word-break: break-word;
 }
 
 .bellows-standalone__log-item span,
@@ -222,6 +293,7 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .bellows-standalone__invite-list,
   .bellows-standalone__control-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -243,11 +315,22 @@
 
   .bellows-standalone__main,
   .bellows-standalone__state-grid,
+  .bellows-standalone__invite-list,
   .bellows-standalone__control-grid {
     grid-template-columns: 1fr;
   }
 
   .bellows-standalone__header-actions {
+    justify-content: flex-start;
+  }
+
+  .bellows-standalone__invite-header,
+  .bellows-standalone__invite-meta {
+    grid-template-columns: 1fr;
+    display: grid;
+  }
+
+  .bellows-standalone__invite-actions {
     justify-content: flex-start;
   }
 }
