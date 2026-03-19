@@ -6,11 +6,14 @@ import type {
   BellowsEventActorType,
   BellowsLifecycleState,
   BellowsOffsetMs,
+  BellowsOperatorDispatchRecord,
   BellowsOperatorConsoleHarness,
   BellowsOperatorConsoleSnapshot,
+  BellowsPersistenceObservation,
   BellowsRuntimeDispatchResult,
   BellowsSession,
   BellowsSessionAction,
+  BellowsStudioShellObservation,
   BellowsTongsCheckpointKind,
   ParticipantId,
   SessionEventId,
@@ -43,6 +46,13 @@ type BellowsRuntimeShell = {
   readonly hostParticipantId: ParticipantId;
   readonly nextOffsetMs: () => BellowsOffsetMs;
   readonly sessionOriginLabel: string;
+};
+
+type BellowsOperatorReport = {
+  readonly title: string;
+  readonly detail: string;
+  readonly stateLabel: string;
+  readonly technical: string;
 };
 
 function asParticipantId(value: string): ParticipantId {
@@ -407,6 +417,309 @@ function buildBlockedRecoveryMessage(args: {
   return `${args.scopeLabel} Bellows session ${args.sessionId} has an unusable recovery checkpoint. Tongs truth must be repaired before this console can continue.`;
 }
 
+function humanizeCode(value: string): string {
+  const label = value
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, " ");
+  if (!label) return value;
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function describeLifecycleForOperator(lifecycle: BellowsLifecycleState): string {
+  switch (lifecycle) {
+    case "idle":
+      return "Bellows is idle and ready for setup.";
+    case "configuring":
+      return "Session setup is open and draft changes are allowed.";
+    case "linking_accounts":
+      return "Account linking is in progress.";
+    case "inviting":
+      return "Invite generation is in progress.";
+    case "waiting_for_participants":
+      return "Waiting for participants before preflight can proceed.";
+    case "preflight_ready":
+      return "Participants are ready and Bellows can run preflight.";
+    case "preflight_checks":
+      return "Preflight is running and checking studio readiness.";
+    case "ready_to_start":
+      return "Preflight passed; microphones detected and Bellows is ready to start.";
+    case "countdown":
+      return "Countdown is live and Bellows is preparing the start.";
+    case "sync_initializing":
+      return "Countdown complete; initializing sync.";
+    case "recording_active":
+      return "Capture is live for all required participants.";
+    case "recording_degraded":
+      return "Capture is live with degraded participant coverage.";
+    case "recording_offline_local":
+      return "Remote capture degraded; Bellows is relying on local recovery.";
+    case "recording_rejoining":
+      return "A participant is rejoining while Bellows keeps the session alive.";
+    case "finalizing_local":
+      return "Capture has stopped and local segments are finalizing.";
+    case "uploading":
+      return "Uploads are in progress.";
+    case "upload_degraded":
+      return "Uploads are degraded and may need operator attention.";
+    case "upload_paused":
+      return "Uploads are paused.";
+    case "upload_resuming":
+      return "Bellows is resuming pending uploads.";
+    case "upload_complete_pending_verification":
+      return "Uploads complete; verification pending.";
+    case "verifying_integrity":
+      return "Upload verification is in progress.";
+    case "assembling_manifest":
+      return "Verification passed; assembling the session package.";
+    case "sealing_session":
+      return "Session sealing in progress.";
+    case "sealed":
+      return "Session sealed; recovery state finalized.";
+    case "incomplete_capture":
+      return "Capture completed with gaps and needs review.";
+    case "failed_capture":
+      return "Capture failed and recovery review is required.";
+    case "archived":
+      return "Session archived; operator actions are closed.";
+  }
+}
+
+function describeActionTitle(actionType: BellowsOperatorDispatchRecord["actionType"]): string {
+  switch (actionType) {
+    case "HOST_BEGIN_SETUP":
+      return "Setup opened";
+    case "HOST_UPDATE_DRAFT":
+      return "Draft updated";
+    case "HOST_BEGIN_ACCOUNT_LINK":
+      return "Account linking started";
+    case "HOST_BEGIN_INVITES":
+      return "Invite generation started";
+    case "HOST_WAIT_FOR_PARTICIPANTS":
+      return "Waiting for participants";
+    case "HOST_RUN_PREFLIGHT":
+      return "Preflight started";
+    case "HOST_START_SHOW":
+      return "Show start accepted";
+    case "HOST_ABORT_START":
+      return "Countdown canceled";
+    case "CAPTURE_STARTED_FOR_ALL_REQUIRED_PARTICIPANTS":
+      return "Capture confirmed";
+    case "CAPTURE_STARTED_WITH_MISSING_PARTICIPANT":
+      return "Capture started degraded";
+    case "HOST_END_SESSION":
+      return "Session ended";
+    case "LOCAL_SEGMENTS_FINALIZED":
+      return "Local segments finalized";
+    case "BEGIN_INTEGRITY_VERIFICATION":
+      return "Verification started";
+    case "ARCHIVE_REQUESTED":
+      return "Archive requested";
+    default:
+      return humanizeCode(actionType);
+  }
+}
+
+function formatStudioShellReport(
+  observation: BellowsStudioShellObservation,
+): BellowsOperatorReport {
+  if (observation.effectType === "run_preflight_checks") {
+    if (observation.followUpActionType === "PREFLIGHT_PASSED") {
+      return {
+        title: "Preflight passed",
+        detail: "Microphones detected and the studio is ready to start.",
+        stateLabel: "Studio ready",
+        technical: `${observation.triggerActionType} -> ${observation.followUpActionType}`,
+      };
+    }
+
+    if (observation.followUpActionType === "PREFLIGHT_FAILED") {
+      return {
+        title: "Preflight blocked",
+        detail: "A studio readiness check failed and Bellows returned to setup.",
+        stateLabel: "Operator attention needed",
+        technical: `${observation.triggerActionType} -> ${observation.followUpActionType}`,
+      };
+    }
+
+    return {
+      title: "Preflight running",
+      detail: "Bellows is checking studio readiness before the countdown.",
+      stateLabel: "Waiting for preflight result",
+      technical: `${observation.triggerActionType} -> manual`,
+    };
+  }
+
+  if (observation.followUpActionType === "COUNTDOWN_COMPLETED") {
+    return {
+      title: "Countdown complete",
+      detail: "Bellows is initializing sync and preparing capture.",
+      stateLabel: "Sync initialization",
+      technical: `${observation.triggerActionType} -> ${observation.followUpActionType}`,
+    };
+  }
+
+  return {
+    title: "Countdown started",
+    detail: "Bellows is holding at countdown until the operator confirms the next move.",
+    stateLabel: "Countdown live",
+    technical: `${observation.triggerActionType} -> manual`,
+  };
+}
+
+function formatPersistenceReport(
+  observation: BellowsPersistenceObservation,
+): BellowsOperatorReport {
+  switch (observation.effectType) {
+    case "resume_pending_uploads":
+      if (observation.followUpActionType === "UPLOADS_COMPLETE") {
+        return {
+          title: "Upload recovery complete",
+          detail: "Pending uploads were resolved and Bellows can continue recovery safely.",
+          stateLabel: "Recovery clear",
+          technical: `${observation.triggerActionType} -> ${observation.followUpActionType}`,
+        };
+      }
+
+      if (observation.followUpActionType === "UPLOAD_DEGRADED") {
+        return {
+          title: "Upload recovery degraded",
+          detail: "Bellows resumed uploads, but the session still needs operator attention.",
+          stateLabel: "Degraded recovery",
+          technical: `${observation.triggerActionType} -> ${observation.followUpActionType}`,
+        };
+      }
+
+      if (observation.followUpActionType === "UPLOAD_PAUSED") {
+        return {
+          title: "Upload recovery paused",
+          detail: "Bellows paused upload recovery and is waiting for the next operator decision.",
+          stateLabel: "Paused",
+          technical: `${observation.triggerActionType} -> ${observation.followUpActionType}`,
+        };
+      }
+
+      return {
+        title: "Upload recovery running",
+        detail: "Bellows is evaluating pending uploads before it can continue.",
+        stateLabel: "Recovery in progress",
+        technical: `${observation.triggerActionType} -> manual`,
+      };
+
+    case "verify_integrity":
+      if (observation.followUpActionType === "INTEGRITY_VERIFIED") {
+        return {
+          title: "Upload verification passed",
+          detail: "Bellows verified the uploaded material and can move toward sealing.",
+          stateLabel: "Verification clear",
+          technical: `${observation.triggerActionType} -> ${observation.followUpActionType}`,
+        };
+      }
+
+      if (observation.followUpActionType === "INTEGRITY_PARTIAL_BUT_USABLE") {
+        return {
+          title: "Upload verification usable with gaps",
+          detail: "Bellows found issues, but the session can still proceed toward sealing.",
+          stateLabel: "Usable with warnings",
+          technical: `${observation.triggerActionType} -> ${observation.followUpActionType}`,
+        };
+      }
+
+      if (observation.followUpActionType === "INTEGRITY_FATAL") {
+        return {
+          title: "Upload verification failed",
+          detail: "Bellows found a fatal integrity issue and the session is no longer safe to seal cleanly.",
+          stateLabel: "Fatal verification issue",
+          technical: `${observation.triggerActionType} -> ${observation.followUpActionType}`,
+        };
+      }
+
+      return {
+        title: "Upload verification pending",
+        detail: "Bellows is still validating the upload set.",
+        stateLabel: "Verification pending",
+        technical: `${observation.triggerActionType} -> manual`,
+      };
+
+    case "assemble_manifest":
+      if (observation.followUpActionType === "MANIFEST_ASSEMBLED") {
+        return {
+          title: "Session package assembled",
+          detail: "Bellows prepared the session manifest and is ready for sealing.",
+          stateLabel: "Manifest ready",
+          technical: `${observation.triggerActionType} -> ${observation.followUpActionType}`,
+        };
+      }
+
+      return {
+        title: "Manifest assembly pending",
+        detail: "Bellows is holding before the session package is finalized.",
+        stateLabel: "Waiting for manifest",
+        technical: `${observation.triggerActionType} -> manual`,
+      };
+
+    case "seal_session_record":
+      if (observation.followUpActionType === "SESSION_SEALED") {
+        return {
+          title: "Session sealed",
+          detail: "Bellows finalized the session record and recovery truth is locked.",
+          stateLabel: "Sealed",
+          technical: `${observation.triggerActionType} -> ${observation.followUpActionType}`,
+        };
+      }
+
+      if (observation.followUpActionType === "SESSION_SEALED_WITH_GAPS") {
+        return {
+          title: "Session sealed with gaps",
+          detail: "Bellows closed the session, but the final record carries known gaps.",
+          stateLabel: "Sealed with warnings",
+          technical: `${observation.triggerActionType} -> ${observation.followUpActionType}`,
+        };
+      }
+
+      if (observation.followUpActionType === "SESSION_SEAL_FAILED_FATAL") {
+        return {
+          title: "Session sealing failed",
+          detail: "Bellows could not complete sealing and the session requires recovery review.",
+          stateLabel: "Seal failure",
+          technical: `${observation.triggerActionType} -> ${observation.followUpActionType}`,
+        };
+      }
+
+      return {
+        title: "Session sealing in progress",
+        detail: "Bellows is finalizing the session record.",
+        stateLabel: "Sealing",
+        technical: `${observation.triggerActionType} -> manual`,
+      };
+  }
+}
+
+function formatDispatchReport(
+  record: BellowsOperatorDispatchRecord,
+): BellowsOperatorReport {
+  if (record.transitionKind === "rejected") {
+    return {
+      title: `${describeActionTitle(record.actionType)} blocked`,
+      detail: record.rejection?.message ?? "Bellows rejected the action.",
+      stateLabel: `Held in ${humanizeCode(record.lifecycleBefore)}`,
+      technical:
+        `${record.actionSource}:${record.actionType}`
+        + (record.rejection?.code ? ` -> ${record.rejection.code}` : ""),
+    };
+  }
+
+  return {
+    title: describeActionTitle(record.actionType),
+    detail: describeLifecycleForOperator(record.lifecycleAfter),
+    stateLabel: `${humanizeCode(record.lifecycleBefore)} -> ${humanizeCode(record.lifecycleAfter)}`,
+    technical:
+      record.effectDispatches.length > 0
+        ? `${record.actionSource}:${record.actionType} | ${record.effectDispatches.map((dispatch) => `${dispatch.adapter}:${dispatch.effectType}`).join(", ")}`
+        : `${record.actionSource}:${record.actionType}`,
+  };
+}
+
 function canArchive(lifecycle: BellowsLifecycleState): boolean {
   return lifecycle === "sealed"
     || lifecycle === "incomplete_capture"
@@ -420,18 +733,23 @@ function canEndSession(lifecycle: BellowsLifecycleState): boolean {
     || lifecycle === "recording_rejoining";
 }
 
-function formatDispatchSummary(snapshot: BellowsOperatorConsoleSnapshot): string {
+function formatDispatchSummary(
+  snapshot: BellowsOperatorConsoleSnapshot,
+  options: { checkpointStored?: boolean } = {},
+): string {
   const last = snapshot.dispatchLog.at(-1);
 
   if (!last) {
-    return "No actions dispatched yet.";
+    return "Bellows is waiting for the first operator action.";
   }
 
   if (last.transitionKind === "rejected") {
-    return `${last.actionType} rejected: ${last.rejection?.message ?? "Unknown rejection."}`;
+    const base = `${describeActionTitle(last.actionType)} blocked: ${last.rejection?.message ?? "Unknown rejection."}`;
+    return options.checkpointStored ? `${base} Checkpoint stored; recovery safe.` : base;
   }
 
-  return `${last.actionType} accepted. Bellows settled in ${last.lifecycleAfter}.`;
+  const base = describeLifecycleForOperator(last.lifecycleAfter);
+  return options.checkpointStored ? `${base} Checkpoint stored; recovery safe.` : base;
 }
 
 export default function BellowsStandalone() {
@@ -653,7 +971,7 @@ export default function BellowsStandalone() {
             },
           });
           sessionOriginLabel = "Fresh session";
-          nextStatusMessage = "Created a fresh Bellows session in Tongs.";
+          nextStatusMessage = "Created a fresh Bellows session in Tongs. Checkpoint stored; recovery safe.";
         } else {
           const openBundle = await repository.loadMostRecentOpenSession(workspace);
 
@@ -690,7 +1008,7 @@ export default function BellowsStandalone() {
                 },
               });
               sessionOriginLabel = "Fresh session";
-              nextStatusMessage = "Created a new Bellows session in Tongs.";
+              nextStatusMessage = "Created a new Bellows session in Tongs. Checkpoint stored; recovery safe.";
             } else {
               if (!supportsBellowsRehydration(latestBundle)) {
                 throw new Error(buildBlockedRecoveryMessage({
@@ -799,7 +1117,7 @@ export default function BellowsStandalone() {
       const nextSnapshot = runtimeShell.harness.getSnapshot();
       setSnapshot(nextSnapshot);
       setDraftTitle(nextSnapshot.session.draft.title);
-      setStatusMessage(formatDispatchSummary(nextSnapshot));
+      setStatusMessage(formatDispatchSummary(nextSnapshot, { checkpointStored: true }));
     } catch (error) {
       const message = getErrorMessage(error, "Bellows action failed.");
       if (result) {
@@ -1205,68 +1523,72 @@ export default function BellowsStandalone() {
           <section className="bellows-standalone__panel">
             <div className="bellows-standalone__panel-header">
               <div>
-                <h2>Studio Shell Observations</h2>
-                <p>Concrete preflight and countdown adapter activity.</p>
+                <h2>Studio Reports</h2>
+                <p>Stubbed shell activity translated into operator-facing studio language.</p>
               </div>
             </div>
             <ul className="bellows-standalone__log">
               {snapshot.studioShellObservations.length === 0 ? (
-                <li className="bellows-standalone__log-empty">No shell effects dispatched yet.</li>
-              ) : snapshot.studioShellObservations.map((observation, index) => (
-                <li key={`${observation.effectType}-${index}`} className="bellows-standalone__log-item">
-                  <strong>{observation.effectType}</strong>
-                  <span>{observation.triggerActionType}</span>
-                  <span>{observation.lifecycleAtDispatch}</span>
-                  <code>{observation.followUpActionType ?? "manual"}</code>
-                </li>
-              ))}
+                <li className="bellows-standalone__log-empty">No studio reports yet.</li>
+              ) : snapshot.studioShellObservations.map((observation, index) => {
+                const report = formatStudioShellReport(observation);
+                return (
+                  <li key={`${observation.effectType}-${index}`} className="bellows-standalone__log-item">
+                    <strong className="bellows-standalone__log-title">{report.title}</strong>
+                    <span className="bellows-standalone__log-detail">{report.detail}</span>
+                    <span className="bellows-standalone__log-meta">{report.stateLabel}</span>
+                    <code>{report.technical}</code>
+                  </li>
+                );
+              })}
             </ul>
           </section>
 
           <section className="bellows-standalone__panel">
             <div className="bellows-standalone__panel-header">
               <div>
-                <h2>Persistence Observations</h2>
-                <p>Memory adapter observations remain visible while Tongs now holds canonical recovery truth.</p>
+                <h2>Recovery Reports</h2>
+                <p>Stubbed persistence activity phrased as the status a human operator would actually care about.</p>
               </div>
             </div>
             <ul className="bellows-standalone__log">
               {snapshot.persistenceObservations.length === 0 ? (
-                <li className="bellows-standalone__log-empty">No persistence effects dispatched yet.</li>
-              ) : snapshot.persistenceObservations.map((observation, index) => (
-                <li key={`${observation.effectType}-${index}`} className="bellows-standalone__log-item">
-                  <strong>{observation.effectType}</strong>
-                  <span>{observation.triggerActionType}</span>
-                  <span>{observation.lifecycleAtDispatch}</span>
-                  <code>{observation.followUpActionType ?? "manual"}</code>
-                </li>
-              ))}
+                <li className="bellows-standalone__log-empty">No recovery reports yet.</li>
+              ) : snapshot.persistenceObservations.map((observation, index) => {
+                const report = formatPersistenceReport(observation);
+                return (
+                  <li key={`${observation.effectType}-${index}`} className="bellows-standalone__log-item">
+                    <strong className="bellows-standalone__log-title">{report.title}</strong>
+                    <span className="bellows-standalone__log-detail">{report.detail}</span>
+                    <span className="bellows-standalone__log-meta">{report.stateLabel}</span>
+                    <code>{report.technical}</code>
+                  </li>
+                );
+              })}
             </ul>
           </section>
 
           <section className="bellows-standalone__panel bellows-standalone__panel--wide">
             <div className="bellows-standalone__panel-header">
               <div>
-                <h2>Dispatch Log</h2>
-                <p>Every operator or system action resolved through the Bellows runtime.</p>
+                <h2>Action Timeline</h2>
+                <p>Every operator or system action, translated into the language of the session surface.</p>
               </div>
             </div>
             <ul className="bellows-standalone__log bellows-standalone__log--dispatch">
               {snapshot.dispatchLog.length === 0 ? (
-                <li className="bellows-standalone__log-empty">No actions dispatched yet.</li>
-              ) : snapshot.dispatchLog.map((record, index) => (
-                <li key={`${record.actionType}-${index}`} className="bellows-standalone__log-item">
-                  <strong>{record.actionType}</strong>
-                  <span>{record.actionSource}</span>
-                  <span>{record.lifecycleBefore} → {record.lifecycleAfter}</span>
-                  <span>{record.transitionKind}</span>
-                  <code>
-                    {record.effectDispatches.length > 0
-                      ? record.effectDispatches.map((dispatch) => `${dispatch.adapter}:${dispatch.effectType}`).join(", ")
-                      : record.rejection?.code ?? "no_effects"}
-                  </code>
-                </li>
-              ))}
+                <li className="bellows-standalone__log-empty">No timeline entries yet.</li>
+              ) : snapshot.dispatchLog.map((record, index) => {
+                const report = formatDispatchReport(record);
+                return (
+                  <li key={`${record.actionType}-${index}`} className="bellows-standalone__log-item">
+                    <strong className="bellows-standalone__log-title">{report.title}</strong>
+                    <span className="bellows-standalone__log-detail">{report.detail}</span>
+                    <span className="bellows-standalone__log-meta">{report.stateLabel}</span>
+                    <code>{report.technical}</code>
+                  </li>
+                );
+              })}
             </ul>
           </section>
 

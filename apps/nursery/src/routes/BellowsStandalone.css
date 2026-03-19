@@ -124,8 +124,7 @@
   color: var(--forge-text-muted);
 }
 
-.bellows-standalone__state-card strong,
-.bellows-standalone__log-item strong {
+.bellows-standalone__state-card strong {
   font-family: "Consolas", "SFMono-Regular", monospace;
 }
 
@@ -172,6 +171,20 @@
 .bellows-standalone__log-item span,
 .bellows-standalone__snapshot-list span {
   color: var(--forge-text-muted);
+}
+
+.bellows-standalone__log-title {
+  font-size: 15px;
+}
+
+.bellows-standalone__log-detail {
+  color: var(--forge-text);
+}
+
+.bellows-standalone__log-meta {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .bellows-standalone__log-item code {

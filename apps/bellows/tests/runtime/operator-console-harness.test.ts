@@ -192,3 +192,64 @@ test("operator console harness records rejected transitions in the dispatch log"
     "illegal_transition",
   );
 });
+
+test("operator console harness can abort a manual countdown and restart cleanly", async () => {
+  const { session, hostParticipantId } = createSession();
+  const harness = createBellowsOperatorConsoleHarness({
+    initialState: session,
+    engineContext: createContext(),
+    hostParticipantId,
+    studioShell: {
+      countdownResolution: "manual",
+    },
+  });
+
+  await harness.host.beginSetup();
+  await harness.host.waitForParticipants();
+  await harness.host.runPreflight();
+  await harness.host.startShow();
+
+  assert.equal(harness.getState().machineState.lifecycle, "countdown");
+
+  const abortResult = await harness.host.abortStart();
+
+  assert.equal(abortResult.transition.kind, "accepted");
+  assert.equal(harness.getState().machineState.lifecycle, "ready_to_start");
+
+  const restartResult = await harness.host.startShow();
+
+  assert.equal(restartResult.transition.kind, "accepted");
+  assert.equal(harness.getState().machineState.lifecycle, "countdown");
+  assert.equal(
+    harness.getStudioShellObservations().filter((observation) => observation.effectType === "start_countdown").length,
+    2,
+  );
+});
+
+test("operator console harness rejects later host commands once the session is sealed", async () => {
+  const { session, hostParticipantId } = createSession();
+  const harness = createBellowsOperatorConsoleHarness({
+    initialState: session,
+    engineContext: createContext(),
+    hostParticipantId,
+  });
+
+  await harness.host.beginSetup();
+  await harness.host.waitForParticipants();
+  await harness.host.runPreflight();
+  await harness.host.startShow();
+  await harness.system.confirmCaptureReady();
+  await harness.host.endSession();
+  await harness.system.finalizeLocalSegments();
+  await harness.system.beginIntegrityVerification();
+
+  assert.equal(harness.getState().machineState.lifecycle, "sealed");
+
+  const result = await harness.host.beginSetup();
+
+  assert.equal(result.transition.kind, "rejected");
+  assert.equal(harness.getState().machineState.lifecycle, "sealed");
+  assert.equal(harness.getDispatchLog().at(-1)?.actionType, "HOST_BEGIN_SETUP");
+  assert.equal(harness.getDispatchLog().at(-1)?.transitionKind, "rejected");
+  assert.equal(harness.getDispatchLog().at(-1)?.rejection?.code, "illegal_transition");
+});
