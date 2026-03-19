@@ -41,6 +41,8 @@
 .hammer-pane--right {
   overflow: hidden;
   align-content: start;
+  align-self: start;
+  max-height: min(78vh, 920px);
 }
 
 .hammer-pane--left.is-script-view {
