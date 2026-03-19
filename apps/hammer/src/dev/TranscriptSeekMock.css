@@ -79,6 +79,7 @@
 
 .hammer-pane--left > .hammer-pane-section:first-child {
   flex: 0 0 auto;
+  width: 100%;
 }
 
 .hammer-pane--left > .hammer-pane-section:last-child,
@@ -86,6 +87,13 @@
 .hammer-pane--right > .hammer-pane-section {
   flex: 1 1 auto;
   min-height: 0;
+  width: 100%;
+}
+
+.hammer-pane--left > .hammer-pane-section:last-child,
+.hammer-pane--right > .hammer-pane-section {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .hammer-center-stack {
@@ -164,9 +172,10 @@
 }
 
 .hammer-pane-section__body--scroll {
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   min-height: 0;
-  max-height: 100%;
+  height: 100%;
 }
 
 .hammer-pill {
@@ -1109,8 +1118,10 @@
 .hammer-script-panel__list {
   display: grid;
   gap: 8px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   min-height: 0;
+  height: 100%;
   align-content: start;
 }
 
