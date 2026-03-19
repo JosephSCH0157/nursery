@@ -68,6 +68,11 @@ import {
   findHammerReadableTranscriptGroupByRowId,
 } from "../lib/hammerTranscriptReadability";
 import {
+  buildHammerProposedChanges,
+  type HammerProposedChange,
+  type HammerProposedChangeStatus,
+} from "../lib/hammerProposedChanges";
+import {
   buildHammerPreviewVisualState,
   loadHammerPreviewAssetDataUrl,
 } from "../lib/hammerVisualPreviewState";
@@ -1357,6 +1362,8 @@ export default function TranscriptSeekMock(
   const [centerStackMeasuredHeight, setCenterStackMeasuredHeight] = useState<number | null>(null);
   const [activeTimelineTool, setActiveTimelineTool] = useState<TimelineToolId>("select");
   const [timelineZoomId, setTimelineZoomId] = useState<TimelineZoomId>("fit");
+  const [selectedProposedChangeId, setSelectedProposedChangeId] = useState<string | null>(null);
+  const [proposedChangeStatusOverrides, setProposedChangeStatusOverrides] = useState<Record<string, HammerProposedChangeStatus>>({});
   const [showDebugPanels, setShowDebugPanels] = useState(false);
   const [isTranscriptControlsCollapsed, setIsTranscriptControlsCollapsed] = useState(false);
   const [isPreviewMonitorCollapsed, setIsPreviewMonitorCollapsed] = useState(true);
@@ -1364,6 +1371,7 @@ export default function TranscriptSeekMock(
   const [activeResizeHandle, setActiveResizeHandle] = useState<HammerPaneResizeHandle | null>(null);
   const transcriptControlsPanelId = useId();
   const previewMonitorPanelId = useId();
+  const proposedChangeCatalogRef = useRef<Map<string, HammerProposedChange>>(new Map());
   const launchWorkspaceMapping = useMemo(
     () => resolvedLaunch.media.workspace_mapping ?? workspaceMapping,
     [resolvedLaunch.media.workspace_mapping, workspaceMapping],
@@ -2945,6 +2953,7 @@ export default function TranscriptSeekMock(
   }
 
   function selectTimelineClip(clip: TimelineClip) {
+    setSelectedProposedChangeId(null);
     if (clip.linked_row_id) {
       const linkedRow = overlayRowById.get(clip.linked_row_id) ?? null;
       if (linkedRow) {
@@ -2962,6 +2971,76 @@ export default function TranscriptSeekMock(
     }
 
     seekTo(clip.start_sec, undefined, clip.linked_segment_id ?? undefined);
+  }
+
+  function selectProposedChange(change: HammerProposedChange) {
+    setSelectedProposedChangeId(change.id);
+    const linkedRowId = change.linkedRowIds[0] ?? null;
+    if (linkedRowId) {
+      const linkedRow = overlayRowById.get(linkedRowId) ?? null;
+      if (linkedRow) {
+        seekToRow(linkedRow);
+        return;
+      }
+    }
+    const linkedSegmentId = change.linkedSegmentIds[0] ?? null;
+    if (linkedSegmentId) {
+      const linkedRow = overlayRowBySegmentId.get(linkedSegmentId) ?? null;
+      if (linkedRow) {
+        seekToRow(linkedRow);
+        return;
+      }
+    }
+    seekTo(Math.max(0, change.startSec - 1.5), undefined, linkedSegmentId ?? undefined);
+  }
+
+  function syncRowBackedProposedChange(change: HammerProposedChange, nextStatus: HammerProposedChangeStatus) {
+    const linkedRowId = change.linkedRowIds[0] ?? null;
+    if (!linkedRowId) return;
+    const linkedRow = overlayRowById.get(linkedRowId) ?? null;
+    if (!linkedRow) return;
+    const linkedSegment = segmentById.get(linkedRow.anchor_segment_id) ?? null;
+    const shouldApply = nextStatus !== "rejected";
+
+    switch (change.type) {
+      case "filler_removal":
+        if (linkedSegment && linkedRow.is_deleted !== shouldApply) {
+          toggleDeleteInstruction(linkedSegment.segment_id);
+        }
+        break;
+      case "silence_trim":
+        if (linkedSegment && linkedRow.is_trimmed !== shouldApply) {
+          toggleTrimInstruction(linkedSegment);
+        }
+        break;
+      case "retake_removal": {
+        if (!linkedSegment) break;
+        const linkedSegmentIndex = segmentIndexById.get(linkedSegment.segment_id) ?? -1;
+        const nextSegment = linkedSegmentIndex >= 0
+          ? transcriptSegments[linkedSegmentIndex + 1] ?? null
+          : null;
+        const isMerged = linkedRow.structure === "merge";
+        if (nextSegment && isMerged !== shouldApply) {
+          toggleMergeInstruction(linkedSegment, nextSegment);
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  function setProposedChangeStatus(change: HammerProposedChange, nextStatus: HammerProposedChangeStatus) {
+    syncRowBackedProposedChange(change, nextStatus);
+    setProposedChangeStatusOverrides((current) => ({
+      ...current,
+      [change.id]: nextStatus,
+    }));
+  }
+
+  function reviewSelectedProposedChange() {
+    if (!selectedProposedChange) return;
+    selectProposedChange(selectedProposedChange);
   }
 
   function resetPreview() {
@@ -3227,6 +3306,67 @@ export default function TranscriptSeekMock(
     })),
     [props.visualPlacements],
   );
+  const baseProposedChanges = useMemo(
+    () => buildHammerProposedChanges({
+      overlayRows,
+      visualSuggestionClips,
+    }),
+    [overlayRows, visualSuggestionClips],
+  );
+  useEffect(() => {
+    baseProposedChanges.forEach((change) => {
+      proposedChangeCatalogRef.current.set(change.id, change);
+    });
+  }, [baseProposedChanges]);
+  const proposedChanges = useMemo(() => {
+    const nextMap = new Map<string, HammerProposedChange>();
+    baseProposedChanges.forEach((change) => {
+      nextMap.set(change.id, {
+        ...change,
+        status: proposedChangeStatusOverrides[change.id] ?? change.status,
+      });
+    });
+    Object.entries(proposedChangeStatusOverrides).forEach(([changeId, status]) => {
+      if (nextMap.has(changeId)) return;
+      const previous = proposedChangeCatalogRef.current.get(changeId);
+      if (!previous) return;
+      nextMap.set(changeId, { ...previous, status });
+    });
+    return [...nextMap.values()].sort((left, right) => {
+      const leftSuggested = left.status === "suggested" ? 0 : 1;
+      const rightSuggested = right.status === "suggested" ? 0 : 1;
+      if (leftSuggested !== rightSuggested) return leftSuggested - rightSuggested;
+      return left.startSec - right.startSec;
+    });
+  }, [baseProposedChanges, proposedChangeStatusOverrides]);
+  const selectedProposedChange = useMemo(
+    () => proposedChanges.find((change) => change.id === selectedProposedChangeId) ?? null,
+    [proposedChanges, selectedProposedChangeId],
+  );
+  const suggestedProposedChanges = useMemo(
+    () => proposedChanges.filter((change) => change.status === "suggested"),
+    [proposedChanges],
+  );
+  const selectedProposedChangeIndex = selectedProposedChangeId == null
+    ? -1
+    : proposedChanges.findIndex((change) => change.id === selectedProposedChangeId);
+  const previousSuggestedChange = selectedProposedChangeIndex > 0
+    ? [...proposedChanges.slice(0, selectedProposedChangeIndex)].reverse().find((change) => change.status === "suggested") ?? null
+    : null;
+  const nextSuggestedChange = selectedProposedChangeIndex >= 0
+    ? proposedChanges.slice(selectedProposedChangeIndex + 1).find((change) => change.status === "suggested") ?? null
+    : suggestedProposedChanges[0] ?? null;
+  const proposedChangeStatusCounts = useMemo(() => ({
+    suggested: proposedChanges.filter((change) => change.status === "suggested").length,
+    approved: proposedChanges.filter((change) => change.status === "approved").length,
+    rejected: proposedChanges.filter((change) => change.status === "rejected").length,
+    modified: proposedChanges.filter((change) => change.status === "modified").length,
+  }), [proposedChanges]);
+  useEffect(() => {
+    proposedChangeCatalogRef.current.clear();
+    setSelectedProposedChangeId(null);
+    setProposedChangeStatusOverrides({});
+  }, [resolvedLaunch.launch_context.workpiece_id]);
 
   useEffect(() => {
     if (!props.prepHandoffAction) return;
@@ -5510,6 +5650,7 @@ export default function TranscriptSeekMock(
       { left: `${tick.positionPercent}%` },
     ));
     const clipLayoutClassNames = new Map<string, string>();
+    const proposedChangeLayoutClassNames = new Map<string, string>();
 
     timelineTracks.forEach((track, trackIndex) => {
       track.clips.forEach((clip, clipIndex) => {
@@ -5525,6 +5666,17 @@ export default function TranscriptSeekMock(
         clipLayoutClassNames.set(getTimelineClipLayoutKey(track.id, clip.id), className);
       });
     });
+    proposedChanges.forEach((change, index) => {
+      const left = clamp((change.startSec / effectiveDurationSec) * 100, 0, 100);
+      const width = clamp(((change.endSec - change.startSec) / effectiveDurationSec) * 100, 0.8, 100);
+      proposedChangeLayoutClassNames.set(change.id, addRule(
+        `change-${index}`,
+        {
+          left: `${left}%`,
+          width: `${width}%`,
+        },
+      ));
+    });
 
     return {
       clipLayoutClassNames,
@@ -5532,6 +5684,7 @@ export default function TranscriptSeekMock(
       monitorSurfaceClassName,
       playheadClassName,
       progressFillClassName,
+      proposedChangeLayoutClassNames,
       rulerTickClassNames,
       timelineCanvasClassName,
       upperLayoutClassName,
@@ -5544,6 +5697,7 @@ export default function TranscriptSeekMock(
     playheadPercent,
     previewMonitorAspectRatio,
     progressPercent,
+    proposedChanges,
     timelineCanvasWidthPx,
     timelineRulerTicks,
     timelineTracks,
@@ -5640,6 +5794,7 @@ export default function TranscriptSeekMock(
               const clipCount = track.clips.length;
               const editableClipCount = track.clips.filter((clip) => clip.editable).length;
               const uncertainClipCount = track.clips.filter((clip) => clip.status === "uncertain").length;
+              const trackProposedChanges = proposedChanges.filter((change) => change.linkedTrackId === track.id);
               const trackStateLabel = trackHasSelectedClip
                 ? "selected row"
                 : trackHasActiveClip
@@ -5671,6 +5826,25 @@ export default function TranscriptSeekMock(
                     trackHasActiveClip && "is-active",
                   )}>
                     <div className="hammer-track-viewport__backdrop" />
+                    {trackProposedChanges.map((change) => (
+                      <button
+                        key={change.id}
+                        type="button"
+                        onClick={() => selectProposedChange(change)}
+                        title={`${change.label} · ${formatClock(change.startSec)}-${formatClock(change.endSec)} · ${change.reason}`}
+                        className={cx(
+                          "hammer-timeline-change",
+                          dynamicStyles.proposedChangeLayoutClassNames.get(change.id),
+                          change.status === "suggested" && "is-suggested",
+                          change.status === "approved" && "is-approved",
+                          change.status === "rejected" && "is-rejected",
+                          change.status === "modified" && "is-modified",
+                          selectedProposedChange?.id === change.id && "is-selected",
+                        )}
+                      >
+                        <span className="hammer-timeline-change__label">{change.label}</span>
+                      </button>
+                    ))}
                     {track.clips.length === 0 ? (
                       <div className="hammer-track-viewport__empty">
                         {getTimelineTrackEmptyMessage(track.id, Boolean(selectedOverlayRow))}
