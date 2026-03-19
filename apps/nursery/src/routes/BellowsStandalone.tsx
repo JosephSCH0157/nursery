@@ -15,6 +15,7 @@ import type {
   BellowsSessionAction,
   BellowsStudioShellObservation,
   BellowsTongsCheckpointKind,
+  BellowsTongsRecoveryCheckpointRecord,
   ParticipantId,
   SessionEventId,
   SessionId,
@@ -53,6 +54,12 @@ type BellowsOperatorReport = {
   readonly detail: string;
   readonly stateLabel: string;
   readonly technical: string;
+};
+
+type BellowsRecoveryRestoreTargets = {
+  readonly latest: BellowsTongsRecoveryCheckpointRecord | null;
+  readonly baseline: BellowsTongsRecoveryCheckpointRecord | null;
+  readonly previousPhase: BellowsTongsRecoveryCheckpointRecord | null;
 };
 
 function asParticipantId(value: string): ParticipantId {
@@ -415,6 +422,65 @@ function buildBlockedRecoveryMessage(args: {
   }
 
   return `${args.scopeLabel} Bellows session ${args.sessionId} has an unusable recovery checkpoint. Tongs truth must be repaired before this console can continue.`;
+}
+
+function isSupportedRecoveryCheckpoint(
+  checkpoint: BellowsTongsRecoveryCheckpointRecord,
+): boolean {
+  return checkpoint.snapshotSchemaVersion === BELLOWS_TONGS_RECOVERY_SNAPSHOT_SCHEMA_VERSION;
+}
+
+function findLatestSupportedCheckpoint(
+  checkpoints: readonly BellowsTongsRecoveryCheckpointRecord[],
+): BellowsTongsRecoveryCheckpointRecord | null {
+  for (let index = checkpoints.length - 1; index >= 0; index -= 1) {
+    const checkpoint = checkpoints[index];
+    if (isSupportedRecoveryCheckpoint(checkpoint)) {
+      return checkpoint;
+    }
+  }
+
+  return null;
+}
+
+function findBaselineSupportedCheckpoint(
+  checkpoints: readonly BellowsTongsRecoveryCheckpointRecord[],
+): BellowsTongsRecoveryCheckpointRecord | null {
+  for (const checkpoint of checkpoints) {
+    if (isSupportedRecoveryCheckpoint(checkpoint)) {
+      return checkpoint;
+    }
+  }
+
+  return null;
+}
+
+function findPreviousPhaseCheckpoint(
+  checkpoints: readonly BellowsTongsRecoveryCheckpointRecord[],
+): BellowsTongsRecoveryCheckpointRecord | null {
+  const latest = findLatestSupportedCheckpoint(checkpoints);
+  if (!latest) return null;
+
+  for (let index = checkpoints.length - 1; index >= 0; index -= 1) {
+    const checkpoint = checkpoints[index];
+    if (!isSupportedRecoveryCheckpoint(checkpoint)) continue;
+    if (checkpoint.checkpointId === latest.checkpointId) continue;
+    if (checkpoint.lifecycleState !== latest.lifecycleState) {
+      return checkpoint;
+    }
+  }
+
+  return null;
+}
+
+function deriveRecoveryRestoreTargets(
+  checkpoints: readonly BellowsTongsRecoveryCheckpointRecord[],
+): BellowsRecoveryRestoreTargets {
+  return {
+    latest: findLatestSupportedCheckpoint(checkpoints),
+    baseline: findBaselineSupportedCheckpoint(checkpoints),
+    previousPhase: findPreviousPhaseCheckpoint(checkpoints),
+  };
 }
 
 function humanizeCode(value: string): string {
@@ -782,6 +848,14 @@ export default function BellowsStandalone() {
   const [loadingRuntime, setLoadingRuntime] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   const pendingLoadModeRef = useRef<"auto" | "forceFresh">("auto");
+  const pendingReloadSummaryRef = useRef<string | null>(null);
+  const [recoveryTargets, setRecoveryTargets] = useState<BellowsRecoveryRestoreTargets>({
+    latest: null,
+    baseline: null,
+    previousPhase: null,
+  });
+  const [loadingRecoveryTargets, setLoadingRecoveryTargets] = useState(false);
+  const [recoveryTargetsError, setRecoveryTargetsError] = useState<string | null>(null);
 
   const viewerLabel = describeUser(authUser);
   const isAuthenticated = Boolean(authUser);
@@ -1031,6 +1105,12 @@ export default function BellowsStandalone() {
           }
         }
 
+        if (pendingReloadSummaryRef.current) {
+          sessionOriginLabel = "Recovery restore";
+          nextStatusMessage = pendingReloadSummaryRef.current;
+          pendingReloadSummaryRef.current = null;
+        }
+
         const harnessState = createHarnessState(session);
         const nextSnapshot = harnessState.harness.getSnapshot();
 
@@ -1068,6 +1148,46 @@ export default function BellowsStandalone() {
     workspaceId,
   ]);
 
+  useEffect(() => {
+    if (!session) {
+      setRecoveryTargets({
+        latest: null,
+        baseline: null,
+        previousPhase: null,
+      });
+      setRecoveryTargetsError(null);
+      setLoadingRecoveryTargets(false);
+      return;
+    }
+
+    let active = true;
+    setLoadingRecoveryTargets(true);
+    setRecoveryTargetsError(null);
+
+    void repository.loadRecoveryStream(session.sessionId)
+      .then((checkpoints) => {
+        if (!active) return;
+        setRecoveryTargets(deriveRecoveryRestoreTargets(checkpoints));
+      })
+      .catch((error) => {
+        if (!active) return;
+        setRecoveryTargets({
+          latest: null,
+          baseline: null,
+          previousPhase: null,
+        });
+        setRecoveryTargetsError(getErrorMessage(error, "Bellows could not load recovery history."));
+      })
+      .finally(() => {
+        if (!active) return;
+        setLoadingRecoveryTargets(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [repository, session?.sessionId, session?.events.length]);
+
   async function persistRuntimeTransition(
     repositoryImpl: NurseryBellowsTongsSessionRepository,
     action: BellowsSessionAction,
@@ -1099,6 +1219,61 @@ export default function BellowsStandalone() {
   function triggerRuntimeReload(mode: "auto" | "forceFresh") {
     pendingLoadModeRef.current = mode;
     setReloadToken((value) => value + 1);
+  }
+
+  async function runRecoveryRestore(
+    actionKey: "reset-baseline" | "step-back-phase",
+    target: BellowsTongsRecoveryCheckpointRecord | null,
+  ) {
+    if (!session || !activeRuntime) return;
+
+    setBusyAction(actionKey);
+    setErrorMessage(null);
+
+    try {
+      if (!target) {
+        throw new Error(
+          actionKey === "reset-baseline"
+            ? "Bellows has no earlier baseline checkpoint to restore."
+            : "Bellows has no earlier lifecycle phase to restore.",
+        );
+      }
+
+      const restoredCheckpoint = await repository.appendRecoveryCheckpoint({
+        session: target.sessionSnapshot,
+        checkpointKind: "recovery_checkpoint",
+        triggerActionSource: "recovery",
+        triggerActionType:
+          actionKey === "reset-baseline"
+            ? "RESTORE_BASELINE_CHECKPOINT"
+            : "RESTORE_PREVIOUS_LIFECYCLE_PHASE",
+        actorType: "host",
+        actorId: activeRuntime.hostParticipantId,
+        occurredAt: new Date().toISOString(),
+        delta: {
+          recoveryMode:
+            actionKey === "reset-baseline"
+              ? "baseline_reset"
+              : "step_back_phase",
+          restoredFromCheckpointId: target.checkpointId,
+          restoredFromSequenceNo: target.sequenceNo,
+          restoredFromLifecycle: target.lifecycleState,
+          latestCheckpointBeforeRestore: recoveryTargets.latest?.checkpointId ?? null,
+          latestLifecycleBeforeRestore: recoveryTargets.latest?.lifecycleState ?? session.machineState.lifecycle,
+        },
+      });
+
+      pendingReloadSummaryRef.current =
+        actionKey === "reset-baseline"
+          ? `Restored Bellows to baseline from checkpoint ${target.checkpointId}. Checkpoint ${restoredCheckpoint.checkpointId} stored; recovery safe.`
+          : `Stepped Bellows back to ${humanizeCode(target.lifecycleState)} from checkpoint ${target.checkpointId}. Checkpoint ${restoredCheckpoint.checkpointId} stored; recovery safe.`;
+
+      triggerRuntimeReload("auto");
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "Bellows recovery restore failed."));
+    } finally {
+      setBusyAction(null);
+    }
   }
 
   async function runAction(actionKey: string, buildAction: () => BellowsSessionAction) {
@@ -1139,6 +1314,14 @@ export default function BellowsStandalone() {
   const canStartFreshSession = Boolean(
     session && isBellowsTerminalLifecycle(session.machineState.lifecycle),
   );
+  const baselineTarget = recoveryTargets.baseline;
+  const previousPhaseTarget = recoveryTargets.previousPhase;
+  const canResetToBaseline = Boolean(
+    baselineTarget
+      && recoveryTargets.latest
+      && baselineTarget.checkpointId !== recoveryTargets.latest.checkpointId,
+  );
+  const canStepBackPhase = Boolean(previousPhaseTarget);
   const manualSnapshot = useMemo(
     () => session
       ? JSON.stringify(
@@ -1304,6 +1487,66 @@ export default function BellowsStandalone() {
                 <strong>{session.integrityFlags.length > 0 ? session.integrityFlags.join(", ") : "clean"}</strong>
               </article>
             </div>
+          </section>
+
+          <section className="bellows-standalone__panel">
+            <div className="bellows-standalone__panel-header">
+              <div>
+                <h2>Recovery Controls</h2>
+                <p>Append-only recovery restore: Bellows restores an older snapshot by writing a new canonical recovery checkpoint.</p>
+              </div>
+            </div>
+
+            <div className="bellows-standalone__status-banner" data-state={recoveryTargetsError ? "error" : "ok"}>
+              {recoveryTargetsError
+                ?? (loadingRecoveryTargets
+                  ? "Loading recovery history..."
+                  : canResetToBaseline || canStepBackPhase
+                  ? "Bellows recovery controls are ready."
+                  : "Bellows is already at baseline, or no earlier lifecycle phase is available.")}
+            </div>
+
+            <div className="bellows-standalone__control-grid">
+              <button
+                type="button"
+                disabled={controlsDisabled || loadingRecoveryTargets || !canStepBackPhase}
+                onClick={() => void runRecoveryRestore("step-back-phase", previousPhaseTarget)}
+              >
+                Step Back One Phase
+              </button>
+              <button
+                type="button"
+                disabled={controlsDisabled || loadingRecoveryTargets || !canResetToBaseline}
+                onClick={() => void runRecoveryRestore("reset-baseline", baselineTarget)}
+              >
+                Reset To Baseline
+              </button>
+              <button
+                type="button"
+                disabled={loadingRuntime}
+                onClick={() => triggerRuntimeReload("auto")}
+              >
+                Reload Canonical State
+              </button>
+            </div>
+
+            <ul className="bellows-standalone__snapshot-list">
+              <li>
+                <strong>Latest checkpoint</strong>
+                <span>{recoveryTargets.latest?.checkpointId ?? "Unavailable"}</span>
+                <span>{recoveryTargets.latest ? humanizeCode(recoveryTargets.latest.lifecycleState) : "No supported checkpoint"}</span>
+              </li>
+              <li>
+                <strong>Previous phase target</strong>
+                <span>{previousPhaseTarget?.checkpointId ?? "Unavailable"}</span>
+                <span>{previousPhaseTarget ? humanizeCode(previousPhaseTarget.lifecycleState) : "No earlier lifecycle phase"}</span>
+              </li>
+              <li>
+                <strong>Baseline target</strong>
+                <span>{baselineTarget?.checkpointId ?? "Unavailable"}</span>
+                <span>{baselineTarget ? humanizeCode(baselineTarget.lifecycleState) : "No baseline checkpoint"}</span>
+              </li>
+            </ul>
           </section>
 
           <section className="bellows-standalone__panel">

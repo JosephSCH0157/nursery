@@ -4075,6 +4075,11 @@ export default function TranscriptSeekMock(
       </div>
     </HammerPaneSection>
   );
+  void selectionSummaryTitle;
+  void selectionSummaryCountLabel;
+  void selectionSummaryScopeLabel;
+  void reviewQueueContent;
+  void selectedProposedChangeInspector;
 
   const toolPanelContent = useMemo((): JSX.Element => {
     switch (activeTool) {
