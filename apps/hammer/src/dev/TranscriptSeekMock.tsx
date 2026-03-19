@@ -2071,12 +2071,12 @@ export default function TranscriptSeekMock(
   );
   const activePreviewVisual = useMemo(
     () => buildHammerPreviewVisualState({
-      visualPlacements: props.visualPlacements,
+      visualPlacements: currentVisualPlacements,
       timeSec: currentTimeSec,
       resolvedAssetUrlsByRef: previewVisualAssetUrls,
       ignoredAssetRefs: ignoredPreviewVisualAssetRefs,
     }),
-    [currentTimeSec, ignoredPreviewVisualAssetRefs, previewVisualAssetUrls, props.visualPlacements],
+    [currentTimeSec, currentVisualPlacements, ignoredPreviewVisualAssetRefs, previewVisualAssetUrls],
   );
 
   const rawActivePlaybackRange = useMemo(
@@ -2088,6 +2088,25 @@ export default function TranscriptSeekMock(
     () => findPlaybackRangeByTime(playbackRanges, currentTimeSec, "playable"),
     [currentTimeSec, playbackRanges],
   );
+  const activePreviewPlacementRecord = useMemo(
+    () => activePreviewVisual.kind === "image"
+      ? currentVisualPlacements?.placements.find((placement) => placement.entry_id === activePreviewVisual.entryId) ?? null
+      : null,
+    [activePreviewVisual, currentVisualPlacements],
+  );
+  const activePreviewPlacementDraft = activePreviewPlacementRecord
+    ? previewVisualDrafts[activePreviewPlacementRecord.placement_id] ?? {
+      x: activePreviewVisual.kind === "image" ? activePreviewVisual.placement.x : 0.5,
+      y: activePreviewVisual.kind === "image" ? activePreviewVisual.placement.y : 0.5,
+      scale: activePreviewVisual.kind === "image" ? activePreviewVisual.placement.scale : 1,
+    }
+    : null;
+  const activePreviewMediaStyle: CSSProperties | undefined = activePreviewPlacementDraft
+    ? {
+      objectPosition: `${Math.round(activePreviewPlacementDraft.x * 100)}% ${Math.round(activePreviewPlacementDraft.y * 100)}%`,
+      transform: `scale(${activePreviewPlacementDraft.scale})`,
+    }
+    : undefined;
 
   useEffect(() => {
     previewVisualAssetUrlsRef.current = previewVisualAssetUrls;
@@ -2387,7 +2406,7 @@ export default function TranscriptSeekMock(
         ...currentEditPlan,
         instructions: cloneEditInstructions(currentEditPlan.instructions),
       },
-      visualPlacements: cloneVisualPlacements(props.visualPlacements),
+      visualPlacements: cloneVisualPlacements(currentVisualPlacements),
       audioPolish,
     }),
     [
@@ -2399,7 +2418,7 @@ export default function TranscriptSeekMock(
       currentEditPlanSignature,
       editPlanStatus,
       previewMode,
-      props.visualPlacements,
+      currentVisualPlacements,
       rawTranscriptSegments,
       resolvedLaunch.launch_context.workpiece_id,
       resolvedLaunch.launch_context.workspace_id,
@@ -3061,11 +3080,68 @@ export default function TranscriptSeekMock(
   }
 
   function setProposedChangeStatus(change: HammerProposedChange, nextStatus: HammerProposedChangeStatus) {
+    if (change.type === "visual_placement" && change.linkedAssetId) {
+      setVisualPlacementsState((current) => {
+        const next = cloneVisualPlacements(current ?? props.visualPlacements);
+        if (!next) return current;
+        next.placements = next.placements.map((placement) => (
+          placement.placement_id === change.linkedAssetId
+            ? {
+              ...placement,
+              ingest_state: nextStatus === "approved" ? "approved" : "suggested",
+            }
+            : placement
+        ));
+        return next;
+      });
+    }
     syncRowBackedProposedChange(change, nextStatus);
     setProposedChangeStatusOverrides((current) => ({
       ...current,
       [change.id]: nextStatus,
     }));
+  }
+
+  function updateVisualPlacementTiming(
+    change: HammerProposedChange,
+    placementId: string,
+    nextDurationSec: number,
+  ) {
+    const clampedDuration = clamp(nextDurationSec, 0.5, Math.max(0.5, transcriptDurationSec));
+    setVisualPlacementsState((current) => {
+      const next = cloneVisualPlacements(current ?? props.visualPlacements);
+      if (!next) return current;
+      next.placements = next.placements.map((placement) => {
+        if (placement.placement_id !== placementId) return placement;
+        const safeStart = clamp(placement.start_sec, 0, Math.max(0, transcriptDurationSec - 0.5));
+        const safeEnd = clamp(safeStart + clampedDuration, safeStart + 0.5, transcriptDurationSec);
+        return {
+          ...placement,
+          start_sec: safeStart,
+          end_sec: safeEnd,
+        };
+      });
+      return next;
+    });
+    setProposedChangeStatusOverrides((current) => ({
+      ...current,
+      [change.id]: "modified",
+    }));
+  }
+
+  function updatePreviewVisualDraft(placementId: string, patch: Partial<HammerPreviewVisualDraft>) {
+    setPreviewVisualDrafts((current) => {
+      const previous = current[placementId] ?? { x: 0.5, y: 0.5, scale: 1 };
+      const nextDraft: HammerPreviewVisualDraft = {
+        x: clamp(patch.x ?? previous.x, 0, 1),
+        y: clamp(patch.y ?? previous.y, 0, 1),
+        scale: clamp(patch.scale ?? previous.scale, 0.5, 2.5),
+      };
+      return {
+        ...current,
+        [placementId]: nextDraft,
+      };
+    });
   }
 
   function reviewSelectedProposedChange() {
@@ -3318,7 +3394,7 @@ export default function TranscriptSeekMock(
   const primaryAssetDurationLabel = formatDurationMs(activeMediaRef?.duration_ms ?? resolvedDurationMs)
     ?? formatClock(transcriptDurationSec);
   const visualSuggestionClips = useMemo<TimelineClip[]>(
-    () => (props.visualPlacements?.placements ?? []).map((placement) => ({
+    () => (currentVisualPlacements?.placements ?? []).map((placement) => ({
       id: placement.placement_id,
       start_sec: placement.start_sec,
       end_sec: placement.end_sec,
@@ -3327,14 +3403,18 @@ export default function TranscriptSeekMock(
       linked_segment_id: placement.anchor_segment_id,
       editable: false,
       ripple_hint: false,
-      status: placement.status,
-      badge_label: placement.status === "uncertain" ? "Review" : null,
-      badge_tone: placement.status === "uncertain" ? "uncertain" : undefined,
+      status: placement.ingest_state === "approved" ? "approved" : placement.status,
+      badge_label: placement.ingest_state === "approved"
+        ? "Approved"
+        : placement.status === "uncertain"
+        ? "Review"
+        : "Suggested",
+      badge_tone: placement.ingest_state === "approved" ? "ripple" : placement.status === "uncertain" ? "uncertain" : undefined,
       title_detail: placement.uncertainty_flags.length > 0
         ? placement.uncertainty_flags.join(", ")
         : placement.visual_mode ?? null,
     })),
-    [props.visualPlacements],
+    [currentVisualPlacements],
   );
   const baseProposedChanges = useMemo(
     () => buildHammerProposedChanges({
@@ -3392,6 +3472,18 @@ export default function TranscriptSeekMock(
     rejected: proposedChanges.filter((change) => change.status === "rejected").length,
     modified: proposedChanges.filter((change) => change.status === "modified").length,
   }), [proposedChanges]);
+  const selectedVisualPlacement = useMemo(
+    () => selectedProposedChange?.type === "visual_placement" && selectedProposedChange.linkedAssetId
+      ? currentVisualPlacements?.placements.find((placement) => placement.placement_id === selectedProposedChange.linkedAssetId) ?? null
+      : null,
+    [currentVisualPlacements, selectedProposedChange],
+  );
+  const selectedVisualDurationSec = selectedVisualPlacement
+    ? Math.max(0.1, selectedVisualPlacement.end_sec - selectedVisualPlacement.start_sec)
+    : null;
+  const selectedVisualPreviewDraft = selectedVisualPlacement
+    ? previewVisualDrafts[selectedVisualPlacement.placement_id] ?? null
+    : null;
   useEffect(() => {
     proposedChangeCatalogRef.current.clear();
     setSelectedProposedChangeId(null);
@@ -3730,6 +3822,95 @@ export default function TranscriptSeekMock(
       {selectedProposedChange.linkedAssetId ? (
         <div className="hammer-copy-sm hammer-copy-muted hammer-mono">
           asset {selectedProposedChange.linkedAssetId}
+        </div>
+      ) : null}
+      {selectedVisualPlacement ? (
+        <div className="hammer-stack-10">
+          <div className="hammer-inspector-grid">
+            <label className="hammer-field">
+              <span className="hammer-label">Display length (sec)</span>
+              <input
+                type="number"
+                min={0.5}
+                max={Math.max(0.5, transcriptDurationSec)}
+                step={0.1}
+                value={selectedVisualDurationSec?.toFixed(1) ?? "0.5"}
+                onChange={(event) => {
+                  const nextValue = Number(event.target.value);
+                  if (!Number.isFinite(nextValue)) return;
+                  updateVisualPlacementTiming(selectedProposedChange, selectedVisualPlacement.placement_id, nextValue);
+                }}
+                className="hammer-field__input"
+              />
+            </label>
+            <div className="hammer-stack-4">
+              <span className="hammer-label">Approval</span>
+              <div className="hammer-meta-strip">
+                <span className="hammer-pill">{formatVisualApprovalStateLabel(selectedVisualPlacement.ingest_state)}</span>
+                <span className="hammer-pill">{formatClock(selectedVisualPlacement.start_sec)}-{formatClock(selectedVisualPlacement.end_sec)}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="hammer-inspector-grid">
+            <label className="hammer-field">
+              <span className="hammer-label">Preview X</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={selectedVisualPreviewDraft?.x ?? 0.5}
+                onChange={(event) => {
+                  updatePreviewVisualDraft(selectedVisualPlacement.placement_id, { x: Number(event.target.value) });
+                  setProposedChangeStatusOverrides((current) => ({
+                    ...current,
+                    [selectedProposedChange.id]: "modified",
+                  }));
+                }}
+                className="hammer-field__slider"
+              />
+            </label>
+            <label className="hammer-field">
+              <span className="hammer-label">Preview Y</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={selectedVisualPreviewDraft?.y ?? 0.5}
+                onChange={(event) => {
+                  updatePreviewVisualDraft(selectedVisualPlacement.placement_id, { y: Number(event.target.value) });
+                  setProposedChangeStatusOverrides((current) => ({
+                    ...current,
+                    [selectedProposedChange.id]: "modified",
+                  }));
+                }}
+                className="hammer-field__slider"
+              />
+            </label>
+            <label className="hammer-field">
+              <span className="hammer-label">Preview scale</span>
+              <input
+                type="range"
+                min={0.5}
+                max={2.5}
+                step={0.05}
+                value={selectedVisualPreviewDraft?.scale ?? 1}
+                onChange={(event) => {
+                  updatePreviewVisualDraft(selectedVisualPlacement.placement_id, { scale: Number(event.target.value) });
+                  setProposedChangeStatusOverrides((current) => ({
+                    ...current,
+                    [selectedProposedChange.id]: "modified",
+                  }));
+                }}
+                className="hammer-field__slider"
+              />
+            </label>
+          </div>
+          <div className="hammer-copy-sm hammer-copy-muted">
+            Preview position and scale are live runtime tweaks for now. Canonical composition persistence needs a dedicated Hammer visual composition artifact.
+          </div>
         </div>
       ) : null}
       <div className="hammer-action-row">
@@ -6668,6 +6849,7 @@ export default function TranscriptSeekMock(
                   src={activePreviewVisual.imageUrl}
                   alt=""
                   className="hammer-monitor__media"
+                  style={activePreviewMediaStyle}
                   data-testid="hammer-visual-preview-image"
                 />
               ) : activePreviewVisual.kind === "image" ? (

@@ -128,13 +128,19 @@ export function buildHammerProposedChanges(args: BuildArgs): HammerProposedChang
   });
 
   args.visualSuggestionClips.forEach((clip) => {
+    const reviewStatus: HammerProposedChangeStatus =
+      clip.status === "approved"
+        ? "approved"
+        : clip.status === "uncertain"
+        ? "suggested"
+        : "suggested";
     changes.push({
       id: `change-visual-${clip.id}`,
       type: "visual_placement",
-      status: clip.status === "uncertain" ? "suggested" : "approved",
+      status: reviewStatus,
       label: "Image placed",
       reason: "A mapped visual was staged for this topic region.",
-      confidence: clip.status === "uncertain" ? "medium" : "high",
+      confidence: reviewStatus === "approved" ? "high" : "medium",
       startSec: clip.start_sec,
       endSec: clip.end_sec,
       linkedRowIds: clip.linked_row_id ? [clip.linked_row_id] : [],
