@@ -345,7 +345,42 @@ function describeUser(user: User | null): string {
 function getErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim()) return error.message;
   if (typeof error === "string" && error.trim()) return error;
+  if (error && typeof error === "object") {
+    const row = error as {
+      message?: unknown;
+      details?: unknown;
+      hint?: unknown;
+      code?: unknown;
+    };
+
+    const parts = [
+      typeof row.message === "string" ? row.message.trim() : "",
+      typeof row.details === "string" ? row.details.trim() : "",
+      typeof row.hint === "string" ? row.hint.trim() : "",
+      typeof row.code === "string" ? `[${row.code.trim()}]` : "",
+    ].filter(Boolean);
+
+    if (parts.length > 0) {
+      return parts.join(" ");
+    }
+  }
+
   return fallback;
+}
+
+function workspaceRoleRank(value: string | null | undefined): number {
+  switch (value) {
+    case "owner":
+      return 4;
+    case "admin":
+      return 3;
+    case "editor":
+      return 2;
+    case "viewer":
+      return 1;
+    default:
+      return 0;
+  }
 }
 
 function isAccessibleWorkspaceId(
@@ -1083,7 +1118,9 @@ export default function BellowsStandalone() {
   const workspaceId = accessibleRouteWorkspaceId
     ?? accessibleStoredWorkspaceId
     ?? (hasLoadedWorkspaces ? workspaces[0]?.id ?? null : null);
-  const workspaceName = workspaces.find((workspace) => workspace.id === workspaceId)?.name ?? null;
+  const activeWorkspace = workspaces.find((workspace) => workspace.id === workspaceId) ?? null;
+  const workspaceName = activeWorkspace?.name ?? null;
+  const workspaceRole = activeWorkspace?.role ?? null;
   const loginHref = `/login?next=${encodeURIComponent(`${location.pathname}${location.search}${location.hash}`)}`;
   const backHref = buildForgeRouteHref("/app", {
     workspaceId,
@@ -1706,7 +1743,8 @@ export default function BellowsStandalone() {
       && baselineTarget.checkpointId !== recoveryTargets.latest.checkpointId,
   );
   const canStepBackPhase = Boolean(previousPhaseTarget);
-  const canIssueInvites = Boolean(activeRuntime) && !terminal;
+  const canManageInvites = workspaceRoleRank(workspaceRole) >= 2;
+  const canIssueInvites = Boolean(activeRuntime) && !terminal && canManageInvites;
   const inviteSeats = useMemo<readonly BellowsHostInviteSeat[]>(() => {
     return BELLOWS_INVITE_ROLE_CODES.map((roleCode) => {
       const link = selectInviteLinkForRole(joinLinks, roleCode);

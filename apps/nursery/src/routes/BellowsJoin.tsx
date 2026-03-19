@@ -54,6 +54,26 @@ function createBellowsId(prefix: string): string {
 function getErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim()) return error.message;
   if (typeof error === "string" && error.trim()) return error;
+  if (error && typeof error === "object") {
+    const row = error as {
+      message?: unknown;
+      details?: unknown;
+      hint?: unknown;
+      code?: unknown;
+    };
+
+    const parts = [
+      typeof row.message === "string" ? row.message.trim() : "",
+      typeof row.details === "string" ? row.details.trim() : "",
+      typeof row.hint === "string" ? row.hint.trim() : "",
+      typeof row.code === "string" ? `[${row.code.trim()}]` : "",
+    ].filter(Boolean);
+
+    if (parts.length > 0) {
+      return parts.join(" ");
+    }
+  }
+
   return fallback;
 }
 
