@@ -11,7 +11,7 @@
   --hammer-chip-height: 28px;
   --hammer-strip-height: 48px;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, min(46vh, 520px)) minmax(360px, 1fr);
   gap: var(--hammer-gap-sm);
   min-height: calc(100dvh - 108px);
   height: calc(100dvh - 108px);
@@ -21,6 +21,7 @@
 
 .hammer-editor-shell__upper-wrap {
   min-height: 0;
+  max-height: min(46vh, 520px);
   overflow: hidden;
   flex: 0 0 auto;
 }
@@ -35,6 +36,7 @@
 
 .hammer-editor-shell__edit-band {
   min-height: 0;
+  min-block-size: 360px;
   display: flex;
   flex-direction: column;
   gap: var(--hammer-gap-sm);
@@ -1579,9 +1581,9 @@
 
 .hammer-transcript-workspace {
   display: grid;
-  flex: 0 0 clamp(180px, 22vh, 260px);
-  min-height: 160px;
-  max-height: 32vh;
+  flex: 0 0 clamp(140px, 18vh, 220px);
+  min-height: 140px;
+  max-height: 26vh;
   min-width: 0;
   overflow: hidden;
 }
