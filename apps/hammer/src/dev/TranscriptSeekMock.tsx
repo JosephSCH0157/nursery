@@ -67,7 +67,10 @@ import {
   buildHammerReadableTranscriptGroups,
   findHammerReadableTranscriptGroupByRowId,
 } from "../lib/hammerTranscriptReadability";
-import { resolveActiveHammerVisualAtTime } from "../lib/hammerVisualPreviewRules";
+import {
+  buildHammerPreviewVisualState,
+  loadHammerPreviewAssetDataUrl,
+} from "../lib/hammerVisualPreviewState";
 import {
   parseHammerEditPlanJson,
   resolveHammerLaunchContext,
@@ -108,7 +111,6 @@ import {
   type HammerFinishingMacroRecipe,
   type HammerMacroReadinessStatus,
 } from "../macros/hammerMacroFramework";
-import { toMediaBadgeViewModel } from "../media/mediaBadgeViewModel";
 import { V1HammerMediaResolver } from "../media/resolveMedia";
 import { loadWorkspaceMapping } from "../media/workspaceMapping";
 import type { HammerWorkspaceSnapshot } from "../editor/hammerWorkspaceSnapshot";
@@ -527,10 +529,6 @@ function formatSnippet(text: string, maxLength = 56): string {
 
 function isVideoMediaKind(kind: MediaKind | null | undefined): boolean {
   return kind === "recording_video" || kind === "export_video";
-}
-
-function isAudioMediaKind(kind: MediaKind | null | undefined): boolean {
-  return kind === "recording_audio" || kind === "export_audio" || kind === "asset_audio";
 }
 
 function formatInstructionEffects(row: TranscriptOverlayRow | null): string {
@@ -1288,7 +1286,6 @@ export default function TranscriptSeekMock(
   const [selectedDevRecordingId, setSelectedDevRecordingId] = useState<string | null>(null);
   const [currentTimeSec, setCurrentTimeSec] = useState(0);
   const [durationSec, setDurationSec] = useState(FALLBACK_DURATION_SEC);
-  const [previewVideoAspectRatio, setPreviewVideoAspectRatio] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [activeOverlayRowId, setActiveOverlayRowId] = useState<string | null>(null);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(
@@ -1298,6 +1295,9 @@ export default function TranscriptSeekMock(
   const [revealedTranscriptRowId, setRevealedTranscriptRowId] = useState<string | null>(null);
   const [pendingTranscriptRevealRowId, setPendingTranscriptRevealRowId] = useState<string | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [previewVisualAssetUrls, setPreviewVisualAssetUrls] = useState<Map<string, string>>(() => new Map());
+  const [ignoredPreviewVisualAssetRefs, setIgnoredPreviewVisualAssetRefs] = useState<Set<string>>(() => new Set());
+  const [previewVisualLoadingRef, setPreviewVisualLoadingRef] = useState<string | null>(null);
   const [lastPreviewSkip, setLastPreviewSkip] = useState<PreviewSkipEvent | null>(null);
   const [editInstructions, setEditInstructions] = useState<HammerEditInstruction[]>(
     () => cloneEditInstructions(resolvedLaunch.initial_edit_plan?.instructions ?? []),
@@ -1641,11 +1641,6 @@ export default function TranscriptSeekMock(
     };
   }, [activeMediaRef, activeMediaRequiresResolution, activeMediaWorkspaceMapping, resolver]);
 
-  const badgeVm = useMemo(
-    () => (resolveResult ? toMediaBadgeViewModel(resolveResult, true) : null),
-    [resolveResult],
-  );
-
   const linkedMediaSrc = useMemo(
     () => resolvePreviewMediaSrc({
       resolveResult,
@@ -1727,10 +1722,7 @@ export default function TranscriptSeekMock(
     ? "recording_audio"
     : activeMediaKind;
   const showPreviewVideo = previewUsesResolvedMedia && isVideoMediaKind(previewResolvedMediaKind);
-  const showPreviewAudioPlayer = previewUsesResolvedMedia && isAudioMediaKind(previewResolvedMediaKind);
-  const previewMonitorAspectRatio = showPreviewVideo && previewVideoAspectRatio && previewVideoAspectRatio > 0
-    ? `${previewVideoAspectRatio}`
-    : "16 / 9";
+  const previewMonitorAspectRatio = "16 / 9";
   const macroReadiness = useMemo(
     () => evaluateHammerMacroCatalogReadiness({
       transcriptSegmentCount: transcriptSegments.length,
@@ -1885,7 +1877,6 @@ export default function TranscriptSeekMock(
     setSelectedSegmentId(firstSegment?.segment_id ?? null);
     setSelectedOverlayRowId(null);
     setDurationSec(FALLBACK_DURATION_SEC);
-    setPreviewVideoAspectRatio(null);
     setIsPlaying(false);
     setPlaybackError(null);
     setLastPreviewSkip(null);
@@ -2022,11 +2013,13 @@ export default function TranscriptSeekMock(
     [overlayRows, previewInstructionIndex, segmentById],
   );
   const activePreviewVisual = useMemo(
-    () => resolveActiveHammerVisualAtTime({
+    () => buildHammerPreviewVisualState({
       visualPlacements: props.visualPlacements,
       timeSec: currentTimeSec,
+      resolvedAssetUrlsByRef: previewVisualAssetUrls,
+      ignoredAssetRefs: ignoredPreviewVisualAssetRefs,
     }),
-    [currentTimeSec, props.visualPlacements],
+    [currentTimeSec, ignoredPreviewVisualAssetRefs, previewVisualAssetUrls, props.visualPlacements],
   );
 
   const rawActivePlaybackRange = useMemo(
@@ -2038,6 +2031,61 @@ export default function TranscriptSeekMock(
     () => findPlaybackRangeByTime(playbackRanges, currentTimeSec, "playable"),
     [currentTimeSec, playbackRanges],
   );
+
+  useEffect(() => {
+    setPreviewVisualAssetUrls(new Map());
+    setIgnoredPreviewVisualAssetRefs(new Set());
+    setPreviewVisualLoadingRef(null);
+  }, [resolvedLaunch.launch_context.workpiece_id]);
+
+  useEffect(() => {
+    if (activePreviewVisual.kind !== "image") {
+      setPreviewVisualLoadingRef(null);
+      return;
+    }
+    if (!activePreviewVisual.imagePath || activePreviewVisual.imageUrl) {
+      setPreviewVisualLoadingRef(null);
+      return;
+    }
+
+    const assetRef = activePreviewVisual.imagePath;
+    if (previewVisualLoadingRef === assetRef) {
+      return;
+    }
+
+    let cancelled = false;
+    setPreviewVisualLoadingRef(assetRef);
+
+    void loadHammerPreviewAssetDataUrl({
+      workpieceId: resolvedLaunch.launch_context.workpiece_id,
+      path: activePreviewVisual.imagePath,
+    }).then((result) => {
+      if (cancelled) return;
+      if (!result.ok) {
+        setIgnoredPreviewVisualAssetRefs((current) => {
+          const next = new Set(current);
+          next.add(assetRef);
+          return next;
+        });
+        setPreviewVisualLoadingRef(null);
+        return;
+      }
+      setPreviewVisualAssetUrls((current) => {
+        const next = new Map(current);
+        next.set(assetRef, result.dataUrl);
+        return next;
+      });
+      setPreviewVisualLoadingRef(null);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activePreviewVisual,
+    previewVisualLoadingRef,
+    resolvedLaunch.launch_context.workpiece_id,
+  ]);
 
   useEffect(() => {
     const nextActiveOverlayRowId = activePlayableRange?.row_id ?? null;
@@ -2667,11 +2715,6 @@ export default function TranscriptSeekMock(
 
   function handleVideoLoadedMetadata(video: HTMLVideoElement) {
     handlePlaybackLoadedMetadata(video.duration);
-    if (video.videoWidth > 0 && video.videoHeight > 0) {
-      setPreviewVideoAspectRatio(video.videoWidth / video.videoHeight);
-      return;
-    }
-    setPreviewVideoAspectRatio(null);
   }
 
   function handlePlaybackTimeUpdate(currentTime: number) {
@@ -3302,27 +3345,6 @@ export default function TranscriptSeekMock(
         return "No assets are linked to this workpiece yet.";
     }
   }, [activeAssetPanel]);
-  const previewSourceDetail = useMemo(() => {
-    if (resolving) {
-      return activeDevRecording
-        ? "Connecting the selected recording."
-        : "Resolving project media.";
-    }
-    if (playbackSourceKind === "polished") {
-      return "Prepared audio polish is connected. Hammer is monitoring the current polished artifact instead of the raw source media.";
-    }
-    if (resolveError) return resolveError;
-    if (resolveResult?.status === "unresolved") {
-      return `${resolveResult.user_message} Preview is using the fallback tone.`;
-    }
-    if (activeDevRecording) {
-      return activeDevRecording.transcript_sidecar_relpath
-        ? "Selected recording attached. Hammer is still using the current transcript."
-        : "Selected recording attached. Hammer is keeping the current transcript loaded.";
-    }
-    if (badgeVm?.tooltip) return badgeVm.tooltip;
-    return "Select a script row to verify timing and cuts.";
-  }, [activeDevRecording, badgeVm?.tooltip, playbackSourceKind, resolveError, resolveResult, resolving]);
   const previewPlaybackTruthDetail = useMemo(() => {
     if (!playbackSrc) {
       return "Preview transport does not have a playable source yet.";
@@ -5816,8 +5838,8 @@ export default function TranscriptSeekMock(
               <span className="hammer-pill">{sessionState.previewMode} preview</span>
               <span className="hammer-pill">{previewSourceStatusLabel}</span>
               <span className="hammer-pill">
-                {activePreviewVisual.visual
-                  ? `${formatVisualApprovalStateLabel(activePreviewVisual.approval_state)} visual`
+                {activePreviewVisual.kind === "image"
+                  ? `${formatVisualApprovalStateLabel(activePreviewVisual.ingestState)} visual`
                   : "No active visual"}
               </span>
             </div>
@@ -5973,6 +5995,20 @@ export default function TranscriptSeekMock(
                       <div className="hammer-copy-md hammer-copy-strong">{playheadSegmentTitle}</div>
                       <div className="hammer-copy-sm hammer-copy-muted">{playheadSegmentDetail}</div>
                     </div>
+
+                    <div className="hammer-preview-truth-item">
+                      <div className="hammer-label">Visual preview</div>
+                      <div className="hammer-copy-md hammer-copy-strong">
+                        {activePreviewVisual.kind === "image"
+                          ? `${formatVisualApprovalStateLabel(activePreviewVisual.ingestState)} image`
+                          : "No active visual"}
+                      </div>
+                      <div className="hammer-copy-sm hammer-copy-muted">
+                        {activePreviewVisual.kind === "image"
+                          ? `Cue-driven preview is drawing from ${activePreviewVisual.entryId}.`
+                          : "The preview frame stays clean until a usable mapped image becomes active."}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -5981,9 +6017,11 @@ export default function TranscriptSeekMock(
             <div className="hammer-monitor">
               <div className="hammer-monitor__chrome">
                 <div className="hammer-stack-4">
-                  <div className="hammer-label">Preview Source</div>
-                  <div className="hammer-copy-sm hammer-copy-strong">{previewSourceDisplayTitle}</div>
-                  <div className="hammer-copy-sm hammer-copy-muted">{previewSourceDetail}</div>
+                  <div className="hammer-label">Preview Surface</div>
+                  <div className="hammer-copy-sm hammer-copy-strong">Cue-driven visual preview</div>
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    Preview uses staged visuals plus runtime defaults only. It does not persist composition metadata.
+                  </div>
                 </div>
                 <div className="hammer-meta-strip">
                   <span className="hammer-pill">{playbackSourceLabel}</span>
@@ -5997,95 +6035,65 @@ export default function TranscriptSeekMock(
                 className={cx(
                   "hammer-monitor__surface",
                   dynamicStyles.monitorSurfaceClassName,
-                  (showPreviewVideo || showPreviewAudioPlayer) && "has-media",
+                  activePreviewVisual.kind === "image" && activePreviewVisual.imageUrl && "has-media",
                 )}
               >
-                {showPreviewVideo ? (
-                  <video
-                    ref={(node) => {
-                      mediaElementRef.current = node;
-                    }}
-                    src={playbackSrc ?? undefined}
-                    controls
-                    preload="metadata"
+                {activePreviewVisual.kind === "image" && activePreviewVisual.imageUrl ? (
+                  <img
+                    src={activePreviewVisual.imageUrl}
+                    alt=""
                     className="hammer-monitor__media"
-                    data-testid="hammer-video-player"
-                    onLoadedMetadata={(event) => handleVideoLoadedMetadata(event.currentTarget)}
-                    onTimeUpdate={(event) => handlePlaybackTimeUpdate(event.currentTarget.currentTime)}
-                    onPlay={() => setIsPlaying(true)}
-                    onPause={() => setIsPlaying(false)}
-                    onEnded={() => setIsPlaying(false)}
-                    onError={handlePlaybackFailure}
+                    data-testid="hammer-visual-preview-image"
                   />
-                ) : showPreviewAudioPlayer ? (
+                ) : activePreviewVisual.kind === "image" ? (
                   <div className="hammer-monitor__center">
-                    <div className="hammer-monitor__eyebrow">Audio Preview</div>
-                    <h4 className="hammer-monitor__title">{previewSourceDisplayTitle}</h4>
-                    <div className="hammer-monitor__hint">{previewSourceDetail}</div>
-                    <audio
-                      ref={(node) => {
-                        mediaElementRef.current = node;
-                      }}
-                      src={playbackSrc ?? undefined}
-                      controls
-                      preload="metadata"
-                      className="hammer-monitor__audio"
-                      data-testid="hammer-audio-player"
-                      onLoadedMetadata={(event) => handlePlaybackLoadedMetadata(event.currentTarget.duration)}
-                      onTimeUpdate={(event) => handlePlaybackTimeUpdate(event.currentTarget.currentTime)}
-                      onPlay={() => setIsPlaying(true)}
-                      onPause={() => setIsPlaying(false)}
-                      onEnded={() => setIsPlaying(false)}
-                      onError={handlePlaybackFailure}
-                    />
+                    <div className="hammer-monitor__eyebrow">Loading Visual</div>
+                    <h4 className="hammer-monitor__title">{activePreviewVisual.entryId}</h4>
+                    <div className="hammer-monitor__hint">
+                      Hammer is resolving the active mapped image from canonical Tongs assets.
+                    </div>
                   </div>
                 ) : (
                   <div className="hammer-monitor__center">
-                    {resolving ? (
-                      <>
-                        <div className="hammer-monitor__eyebrow">Connecting Preview</div>
-                        <h4 className="hammer-monitor__title">Resolving project media</h4>
-                        <div className="hammer-monitor__hint">{previewSourceDetail}</div>
-                      </>
-                    ) : resolveError ? (
-                      <>
-                        <div className="hammer-monitor__eyebrow">Preview Warning</div>
-                        <h4 className="hammer-monitor__title">Preview source needs attention</h4>
-                        <div className="hammer-monitor__hint">{previewSourceDetail}</div>
-                      </>
-                    ) : !playbackSrc ? (
-                      <>
-                        <div className="hammer-monitor__eyebrow">Preview Offline</div>
-                        <h4 className="hammer-monitor__title">No playback source available</h4>
-                        <div className="hammer-monitor__hint">
-                          Add or resolve project media to use the preview monitor.
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="hammer-monitor__eyebrow">Preview Source</div>
-                        <h4 className="hammer-monitor__title">{previewSourceDisplayTitle}</h4>
-                        <div className="hammer-monitor__hint">{previewSourceDetail}</div>
-                        <div className="hammer-meta-strip">
-                          <span className="hammer-pill">
-                            {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
-                          </span>
-                          <span className="hammer-pill">
-                            selected {selectedOverlayRow ? selectedOverlayRow.row_id : "none"}
-                          </span>
-                          {lastPreviewSkip ? (
-                            <span className="hammer-pill">skip {lastPreviewSkip.reason}</span>
-                          ) : null}
-                        </div>
-                      </>
-                    )}
+                    <div className="hammer-monitor__eyebrow">Preview</div>
+                    <h4 className="hammer-monitor__title">No active visual</h4>
+                    <div className="hammer-monitor__hint">
+                      No usable mapped image is active at this cue. Hammer will keep the frame empty until the next usable visual appears.
+                    </div>
+                    <div className="hammer-meta-strip">
+                      <span className="hammer-pill">
+                        {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
+                      </span>
+                      <span className="hammer-pill">
+                        selected {selectedOverlayRow ? selectedOverlayRow.row_id : "none"}
+                      </span>
+                      {lastPreviewSkip ? (
+                        <span className="hammer-pill">skip {lastPreviewSkip.reason}</span>
+                      ) : null}
+                    </div>
                   </div>
                 )}
               </div>
             </div>
 
-            {!resolving && !resolveError && playbackSrc && !showPreviewVideo && !showPreviewAudioPlayer ? (
-              <>
+            {!resolving && !resolveError && playbackSrc ? (
+              showPreviewVideo ? (
+                <video
+                  ref={(node) => {
+                    mediaElementRef.current = node;
+                  }}
+                  src={playbackSrc}
+                  className="hammer-audio-hidden"
+                  preload="metadata"
+                  data-testid="hammer-video-player"
+                  onLoadedMetadata={(event) => handleVideoLoadedMetadata(event.currentTarget)}
+                  onTimeUpdate={(event) => handlePlaybackTimeUpdate(event.currentTarget.currentTime)}
+                  onPlay={() => setIsPlaying(true)}
+                  onPause={() => setIsPlaying(false)}
+                  onEnded={() => setIsPlaying(false)}
+                  onError={handlePlaybackFailure}
+                />
+              ) : (
                 <audio
                   ref={(node) => {
                     mediaElementRef.current = node;
@@ -6101,7 +6109,7 @@ export default function TranscriptSeekMock(
                   onEnded={() => setIsPlaying(false)}
                   onError={handlePlaybackFailure}
                 />
-              </>
+              )
             ) : null}
 
             {playbackError ? (
