@@ -5559,7 +5559,6 @@ export default function TranscriptSeekMock(
   const timelineWorkspaceContent = (
     <HammerPaneSection
       title="Timeline"
-      subtitle="Primary editing surface"
       action={(
         <div className="hammer-action-row">
           <div className="hammer-tab-row">
@@ -6128,10 +6127,7 @@ export default function TranscriptSeekMock(
         <div className="hammer-preview-surface-shell">
           <div className="hammer-monitor">
             <div className="hammer-monitor__chrome">
-              <div className="hammer-stack-4">
-                <div className="hammer-label">Preview Surface</div>
-                <div className="hammer-copy-sm hammer-copy-strong">Cue-driven visual preview</div>
-              </div>
+              <div className="hammer-copy-sm hammer-copy-strong">Preview Surface</div>
               <div className="hammer-meta-strip">
                 <span className={cx("hammer-pill", isPlaying && "hammer-pill--playing")}>
                   {isPlaying ? "Playing" : "Paused"}
@@ -6171,9 +6167,6 @@ export default function TranscriptSeekMock(
                 <div className="hammer-monitor__center">
                   <div className="hammer-monitor__eyebrow">Preview</div>
                   <h4 className="hammer-monitor__title">No active visual</h4>
-                  <div className="hammer-monitor__hint">
-                    No usable mapped image is active at this cue. Hammer will keep the frame empty until the next usable visual appears.
-                  </div>
                   <div className="hammer-meta-strip">
                     <span className="hammer-pill">
                       {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
@@ -6232,12 +6225,7 @@ export default function TranscriptSeekMock(
 
           <div className="hammer-preview-transport">
             <div className="hammer-preview-transport__head">
-              <div className="hammer-stack-4">
-                <strong className="hammer-copy-strong">Transport</strong>
-                <div className="hammer-copy-sm hammer-copy-muted">
-                  Playback, seek, and preview-mode controls stay attached to the preview surface.
-                </div>
-              </div>
+              <strong className="hammer-copy-strong">Transport</strong>
               <div className="hammer-meta-strip">
                 <span className={cx("hammer-pill", isPlaying && "hammer-pill--playing")}>
                   {isPlaying ? "playing" : "paused"}
@@ -6315,7 +6303,7 @@ export default function TranscriptSeekMock(
               </button>
             </div>
 
-            <div className="hammer-copy-md">
+            <div className="hammer-copy-sm hammer-copy-muted">
               Time: {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
               {" · "}
               Playback: {previewPlaybackTruthLabel}
@@ -6346,6 +6334,31 @@ export default function TranscriptSeekMock(
           </div>
         </div>
 
+        {isPreviewMonitorCollapsed ? (
+          <div
+            id={previewMonitorPanelId}
+            className="hammer-preview-monitor-strip"
+            aria-expanded={previewMonitorExpanded}
+          >
+            <div className="hammer-action-row">
+              <button
+                type="button"
+                className="hammer-button-xs"
+                onClick={() => setIsPreviewMonitorCollapsed(false)}
+                aria-controls={previewMonitorPanelId}
+                aria-expanded={previewMonitorExpanded}
+              >
+                Expand monitor
+              </button>
+              <span className="hammer-pill">{playbackSourceLabel}</span>
+              <span className="hammer-pill">{previewSourceStatusLabel}</span>
+              <span className="hammer-pill">
+                {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
+              </span>
+              <span className="hammer-pill">{previewPlaybackTruthLabel}</span>
+            </div>
+          </div>
+        ) : (
         <HammerPaneSection
           title="Preview Monitor"
           subtitle="Status strip"
@@ -6355,11 +6368,11 @@ export default function TranscriptSeekMock(
               <button
                 type="button"
                 className="hammer-button-xs"
-                onClick={() => setIsPreviewMonitorCollapsed((current) => !current)}
+                onClick={() => setIsPreviewMonitorCollapsed(true)}
                 aria-controls={previewMonitorPanelId}
                 aria-expanded={previewMonitorExpanded}
               >
-                {isPreviewMonitorCollapsed ? "Expand" : "Collapse"}
+                Collapse
               </button>
               <span className="hammer-pill">{playbackSourceLabel}</span>
               <span className="hammer-pill">{previewSourceStatusLabel}</span>
@@ -6371,19 +6384,6 @@ export default function TranscriptSeekMock(
           sectionClassName="hammer-preview-panel"
           bodyClassName="hammer-preview-panel__body"
         >
-          {isPreviewMonitorCollapsed ? (
-            <div className="hammer-preview-panel__collapsed">
-              <div className="hammer-copy-sm hammer-copy-muted">
-                Preview Monitor is collapsed. The persistent preview surface remains visible above.
-              </div>
-              <div className="hammer-meta-strip">
-                <span className="hammer-pill">
-                  {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
-                </span>
-                <span className="hammer-pill">{previewPlaybackTruthLabel}</span>
-              </div>
-            </div>
-          ) : (
           <div className="hammer-preview-stage">
             <div className="hammer-preview-stage__context">
               <div className="hammer-dev-media-loader">
@@ -6552,8 +6552,8 @@ export default function TranscriptSeekMock(
             </div>
 
           </div>
-          )}
         </HammerPaneSection>
+        )}
         {timelineWorkspaceContent}
         </div>
       </div>
