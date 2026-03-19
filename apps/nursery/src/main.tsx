@@ -21,6 +21,7 @@ import RouteFallback from "./components/RouteFallback";
 
 const TongsRoute = lazy(() => import("./routes/Tongs"));
 const BarstockRoute = lazy(() => import("./routes/Barstock"));
+const BellowsJoin = lazy(() => import("./routes/BellowsJoin"));
 const BellowsStandalone = lazy(() => import("./routes/BellowsStandalone"));
 const HearthRoute = lazy(() => import("./routes/Hearth"));
 const HearthStandalone = lazy(() => import("./routes/HearthStandalone"));
@@ -100,7 +101,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             </Route>
 
           <Route path="/apps/hearth" element={withRouteFallback(<HearthStandalone />, "Loading Hearth...")} />
+          <Route path="/apps/bellows/join/:sessionId" element={withRouteFallback(<BellowsJoin />, "Loading Bellows guest entry...")} />
           <Route path="/apps/bellows" element={withRouteFallback(<BellowsStandalone />, "Loading Bellows...")} />
+          <Route path="/bellows/join/:sessionId" element={withRouteFallback(<BellowsJoin />, "Loading Bellows guest entry...")} />
           <Route path="/bellows" element={<Navigate to="/apps/bellows" replace />} />
           <Route path="/hearth" element={<Navigate to="/apps/hearth" replace />} />
 

@@ -2,15 +2,21 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@forge/tongs";
 import {
   BELLOWS_TONGS_CHECKPOINT_TABLE,
+  BELLOWS_TONGS_JOIN_LINK_TABLE,
   BELLOWS_TONGS_RECOVERY_SNAPSHOT_SCHEMA_VERSION,
   BELLOWS_TONGS_SESSION_TABLE,
   type BellowsAppendTongsRecoveryCheckpointInput,
+  type BellowsCreateTongsJoinLinkInput,
+  type BellowsCreatedTongsJoinLink,
   type BellowsCreateTongsSessionHeaderInput,
+  type BellowsResolvedTongsJoinLink,
   type BellowsSealTongsSessionInput,
   type BellowsSyncTongsSessionHeaderInput,
   type BellowsTongsAuthorityProjection,
   type BellowsTongsCheckpointLoadOptions,
   type BellowsTongsCheckpointKind,
+  type BellowsTongsJoinLinkRecord,
+  type BellowsTongsJoinLinkRepository,
   type BellowsTongsRecoveryCheckpointRecord,
   type BellowsTongsRehydrationBundle,
   type BellowsTongsSessionHeaderRecord,
@@ -129,12 +135,69 @@ type BellowsCheckpointRow = {
   recorded_at: string;
 };
 
+type BellowsJoinLinkRow = {
+  id: string;
+  session_id: string;
+  workspace_id: string;
+  token_hash: string;
+  created_by_user_id: string;
+  role_code: string;
+  expires_at: string;
+  revoked_at: string | null;
+  max_uses: number;
+  use_count: number;
+  last_used_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type BellowsJoinLinkCreateResultRow = {
+  join_link_id: string;
+  session_id: string;
+  workspace_id: string;
+  role_code: string;
+  token: string;
+  expires_at: string;
+  max_uses: number;
+  use_count: number;
+  revoked_at: string | null;
+  last_used_at: string | null;
+  created_at: string;
+};
+
+type BellowsJoinLinkResolveResultRow = {
+  join_link_id: string;
+  session_id: string;
+  workspace_id: string;
+  role_code: string;
+  title: string;
+  host_user_id: string;
+  lifecycle_state: string;
+  expires_at: string;
+  max_uses: number;
+  use_count: number;
+  last_used_at: string | null;
+  resolved_at: string;
+};
+
+type BellowsJoinLinkRevokeResultRow = {
+  revoked: boolean;
+  join_link_id: string;
+};
+
 export interface NurseryBellowsTongsSessionRepository
   extends BellowsTongsSessionRepository {
   loadMostRecentOpenSession(
     workspaceId: WorkspaceId,
   ): Promise<BellowsTongsRehydrationBundle | null>;
 }
+
+export interface NurseryBellowsTongsJoinLinkRepository
+  extends BellowsTongsJoinLinkRepository {}
+
+export interface NurseryBellowsTongsRepository
+  extends NurseryBellowsTongsSessionRepository,
+    NurseryBellowsTongsJoinLinkRepository {}
 
 function asParticipantId(value: string | null): ParticipantId | null {
   return value ? value as ParticipantId : null;
@@ -268,6 +331,43 @@ function mapCheckpointRow(row: BellowsCheckpointRow): BellowsTongsRecoveryCheckp
   };
 }
 
+function mapJoinLinkRow(row: BellowsJoinLinkRow): BellowsTongsJoinLinkRecord {
+  return {
+    joinLinkId: row.id,
+    sessionId: asSessionId(row.session_id),
+    workspaceId: asWorkspaceId(row.workspace_id),
+    tokenHash: row.token_hash,
+    createdByUserId: row.created_by_user_id,
+    roleCode: row.role_code as BellowsTongsJoinLinkRecord["roleCode"],
+    expiresAt: row.expires_at,
+    revokedAt: row.revoked_at,
+    maxUses: row.max_uses,
+    useCount: row.use_count,
+    lastUsedAt: row.last_used_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapResolvedJoinLinkRow(
+  row: BellowsJoinLinkResolveResultRow,
+): BellowsResolvedTongsJoinLink {
+  return {
+    joinLinkId: row.join_link_id,
+    sessionId: asSessionId(row.session_id),
+    workspaceId: asWorkspaceId(row.workspace_id),
+    roleCode: row.role_code as BellowsResolvedTongsJoinLink["roleCode"],
+    title: row.title,
+    hostUserId: asUserId(row.host_user_id),
+    lifecycleState: row.lifecycle_state as BellowsResolvedTongsJoinLink["lifecycleState"],
+    expiresAt: row.expires_at,
+    maxUses: row.max_uses,
+    useCount: row.use_count,
+    lastUsedAt: row.last_used_at ?? row.resolved_at,
+    resolvedAt: row.resolved_at,
+  };
+}
+
 function deriveSessionTimestampPatch(session: BellowsSession, observedAt: string) {
   const lifecycle = session.machineState.lifecycle;
   const startedAt = STARTED_LIFECYCLES.has(lifecycle) ? observedAt : null;
@@ -292,8 +392,8 @@ function isSupportedCheckpoint(
   );
 }
 
-class SupabaseBellowsTongsSessionRepository
-  implements NurseryBellowsTongsSessionRepository {
+class SupabaseBellowsTongsRepository
+  implements NurseryBellowsTongsRepository {
   public constructor(private readonly client: SupabaseClient<Database>) {}
 
   public async createSessionHeader(
@@ -529,6 +629,69 @@ class SupabaseBellowsTongsSessionRepository
     return this.loadRehydrationBundle(asSessionId((data as BellowsSessionRow).id));
   }
 
+  public async createJoinLink(
+    input: BellowsCreateTongsJoinLinkInput,
+  ): Promise<BellowsCreatedTongsJoinLink> {
+    const { data, error } = await this.tongs
+      .rpc("create_bellows_join_link", {
+        p_session_id: input.sessionId,
+        p_role_code: input.roleCode ?? "G1",
+        p_expires_hours: input.expiresHours ?? 24,
+        p_max_uses: input.maxUses ?? 5,
+        p_created_by_user_id: input.createdByUserId ?? null,
+      })
+      .single();
+
+    if (error) throw error;
+
+    const created = data as BellowsJoinLinkCreateResultRow | null;
+    const joinLinkId = created?.join_link_id?.trim();
+    const token = created?.token?.trim();
+
+    if (!joinLinkId || !token) {
+      throw new Error("Bellows join-link creation did not return a link id and token.");
+    }
+
+    const joinLink = await this.loadJoinLinkById(joinLinkId);
+    if (!joinLink) {
+      throw new Error(`Bellows join link ${joinLinkId} was created but could not be read back from Tongs.`);
+    }
+
+    return {
+      joinLink,
+      token,
+    };
+  }
+
+  public async resolveJoinLink(
+    sessionId: SessionId,
+    token: string,
+  ): Promise<BellowsResolvedTongsJoinLink | null> {
+    const normalizedToken = token.trim();
+    if (!normalizedToken) return null;
+
+    const { data, error } = await this.tongs
+      .rpc("resolve_bellows_join_link", {
+        p_session_id: sessionId,
+        p_token: normalizedToken,
+      })
+      .maybeSingle();
+
+    if (error && !isNoRowsError(error)) throw error;
+    return data ? mapResolvedJoinLinkRow(data as BellowsJoinLinkResolveResultRow) : null;
+  }
+
+  public async revokeJoinLink(joinLinkId: string): Promise<boolean> {
+    const { data, error } = await this.tongs
+      .rpc("revoke_bellows_join_link", {
+        p_join_link_id: joinLinkId,
+      })
+      .single();
+
+    if (error) throw error;
+    return Boolean((data as BellowsJoinLinkRevokeResultRow | null)?.revoked);
+  }
+
   public sealSession(
     input: BellowsSealTongsSessionInput,
   ): Promise<BellowsTongsRecoveryCheckpointRecord> {
@@ -610,12 +773,31 @@ class SupabaseBellowsTongsSessionRepository
     if (error && !isNoRowsError(error)) throw error;
     return data ? mapCheckpointRow(data as BellowsCheckpointRow) : null;
   }
+
+  private async loadJoinLinkById(
+    joinLinkId: string,
+  ): Promise<BellowsTongsJoinLinkRecord | null> {
+    const { data, error } = await this.tongs
+      .from(BELLOWS_TONGS_JOIN_LINK_TABLE)
+      .select("*")
+      .eq("id", joinLinkId)
+      .maybeSingle();
+
+    if (error && !isNoRowsError(error)) throw error;
+    return data ? mapJoinLinkRow(data as BellowsJoinLinkRow) : null;
+  }
 }
 
 export function createBellowsTongsSessionRepository(
   client: SupabaseClient<Database>,
 ): NurseryBellowsTongsSessionRepository {
-  return new SupabaseBellowsTongsSessionRepository(client);
+  return new SupabaseBellowsTongsRepository(client);
+}
+
+export function createBellowsTongsJoinLinkRepository(
+  client: SupabaseClient<Database>,
+): NurseryBellowsTongsJoinLinkRepository {
+  return new SupabaseBellowsTongsRepository(client);
 }
 
 export function isBellowsTerminalLifecycle(lifecycle: string): boolean {
