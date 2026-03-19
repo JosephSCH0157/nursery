@@ -240,11 +240,59 @@
 .hammer-field {
   display: grid;
   gap: 6px;
+  min-width: 0;
 }
 
 .hammer-field__input,
 .hammer-field__slider {
   width: 100%;
+}
+
+.hammer-field__slider {
+  appearance: none;
+  height: 18px;
+  background: transparent;
+}
+
+.hammer-field__slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.24);
+}
+
+.hammer-field__slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: #60a5fa;
+  border: none;
+  margin-top: -4px;
+}
+
+.hammer-field__slider::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.24);
+}
+
+.hammer-field__slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: #60a5fa;
+  border: none;
+}
+
+.hammer-visual-adjustments {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.hammer-visual-adjustments__sliders {
+  display: grid;
+  gap: 10px;
 }
 
 .hammer-field__input {

@@ -3828,7 +3828,7 @@ export default function TranscriptSeekMock(
         </div>
       ) : null}
       {selectedVisualPlacement ? (
-        <div className="hammer-stack-10">
+        <div className="hammer-visual-adjustments">
           <div className="hammer-inspector-grid">
             <label className="hammer-field">
               <span className="hammer-label">Display length (sec)</span>
@@ -3855,7 +3855,7 @@ export default function TranscriptSeekMock(
             </div>
           </div>
 
-          <div className="hammer-inspector-grid">
+          <div className="hammer-visual-adjustments__sliders">
             <label className="hammer-field">
               <span className="hammer-label">Preview X</span>
               <input
