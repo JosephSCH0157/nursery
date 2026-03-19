@@ -1124,6 +1124,12 @@
   background: rgba(59, 130, 246, 0.2);
 }
 
+.hammer-script-row[data-review-highlight="true"] {
+  border-color: rgba(250, 204, 21, 0.74);
+  background: rgba(113, 63, 18, 0.18);
+  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.18);
+}
+
 .hammer-script-row[data-structure="split"] {
   border-color: rgba(129, 140, 248, 0.54);
   background: rgba(99, 102, 241, 0.14);
@@ -1257,6 +1263,10 @@
 
 .hammer-script-block__text.is-deleted {
   text-decoration: line-through;
+}
+
+.hammer-script-row[data-review-highlight="true"] .hammer-script-block__text {
+  color: #fef3c7;
 }
 
 @keyframes hammer-script-row-reveal {

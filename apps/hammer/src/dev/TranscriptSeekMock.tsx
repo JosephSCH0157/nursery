@@ -4082,190 +4082,90 @@ export default function TranscriptSeekMock(
         return (
           <div className="hammer-stack-10">
             <div className="hammer-meta-strip">
-              <span className="hammer-pill">{selectedOverlayRow ? selectedOverlayRow.row_id : "select a row"}</span>
-              <span className={getEditPlanStatusBadgeClassName(sessionState.editPlanStatus)}>
-                {sessionState.editPlanStatus}
-              </span>
-              <span className="hammer-pill">{editInstructions.length} plan actions</span>
-              <span className="hammer-pill">{previewSourceStatusLabel}</span>
+              <span className="hammer-pill">{polishChangeStatusCounts.suggested} suggested</span>
+              <span className="hammer-pill">{polishChangeStatusCounts.approved} approved</span>
+              <span className="hammer-pill">{polishChangeStatusCounts.modified} modified</span>
+              <span className="hammer-pill">{polishChangeStatusCounts.rejected} rejected</span>
             </div>
-            <div className="hammer-copy-md">
-              Polish is the first pass. It stays focused on spoken-content cleanup and enhancement, not on marketplace features or random utilities.
+            <div className="hammer-copy-sm hammer-copy-muted">
+              Review spoken-content changes here. The transcript highlights the affected words as you move through the report.
             </div>
-
-            <div className="hammer-polish-focus">
-              <div className="hammer-polish-focus__head">
-                <strong className="hammer-copy-strong">Current Focus</strong>
-                <span className="hammer-pill">{selectedRowEffects}</span>
-              </div>
-              {selectedOverlayRow && selectedSegment ? (
+            <div className="hammer-proposed-change-list">
+              {polishProposedChanges.length > 0 ? polishProposedChanges.map((change) => (
+                <button
+                  key={change.id}
+                  type="button"
+                  onClick={() => selectProposedChange(change)}
+                  className={cx("hammer-proposed-change-row", selectedPolishChange?.id === change.id && "is-selected")}
+                >
+                  <div className="hammer-proposed-change-row__head">
+                    <strong className="hammer-copy-strong">{change.label}</strong>
+                    <span className="hammer-pill">{change.status}</span>
+                  </div>
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                    {formatClock(change.startSec)}-{formatClock(change.endSec)} · {change.reason}
+                  </div>
+                </button>
+              )) : (
+                <div className="hammer-copy-sm hammer-copy-muted">
+                  No spoken-content polish changes are queued yet.
+                </div>
+              )}
+            </div>
+            {selectedPolishChange ? (
+              <div className="hammer-visual-adjustments">
                 <div className="hammer-stack-6">
-                  <div className="hammer-copy-md">
-                    {formatOverlayRowLabel(selectedOverlayRow)}
-                  </div>
-                  <div className="hammer-copy-sm hammer-copy-muted">
-                    {selectedSegment.text}
-                  </div>
                   <div className="hammer-meta-strip">
-                    <span className="hammer-pill">duration {formatGapLabel(selectedDurationSec)}</span>
-                    <span className="hammer-pill">before gap {formatGapLabel(selectedGapBeforeSec)}</span>
-                    <span className="hammer-pill">after gap {formatGapLabel(selectedGapAfterSec)}</span>
+                    <span className="hammer-pill">{selectedPolishChange.status}</span>
+                    <span className="hammer-pill">
+                      {formatClock(selectedPolishChange.startSec)}-{formatClock(selectedPolishChange.endSec)}
+                    </span>
                   </div>
                   <div className="hammer-copy-sm hammer-copy-muted">
-                    {selectedRowPreviewStatus}
+                    {selectedPolishChange.reason}
                   </div>
-                </div>
-              ) : (
-                <div className="hammer-copy-sm hammer-copy-muted">
-                  Select a transcript line in the left Script panel to drive filler cleanup, pacing trims, and retake review.
-                </div>
-              )}
-            </div>
-
-            <div className="hammer-workflow-grid">
-              <HammerWorkflowCard
-                title="Filler Cleanup"
-                tone={selectedSegmentDeleteInstruction ? "active" : selectedSegment ? "ready" : "blocked"}
-                statusLabel={selectedSegmentDeleteInstruction ? "Cut staged" : selectedSegment ? "Ready" : "Select a row"}
-                description="Review the selected transcript line and stage a spoken-content cut when it reads like filler, drift, or unnecessary repetition."
-                meta={(
-                  <div className="hammer-stack-6">
-                    <div className="hammer-meta-strip">
-                      <span className="hammer-pill">auto hits {fillerCandidateCount}</span>
-                      <span className="hammer-pill">{selectedSegmentLooksLikeFiller ? "likely filler" : "manual review"}</span>
-                    </div>
+                  {selectedPolishChange.linkedRowIds.length > 0 ? (
                     <div className="hammer-copy-sm hammer-copy-muted">
-                      {selectedSegment
-                        ? selectedSegmentLooksLikeFiller
-                          ? "The selected line matches the current filler-phrase heuristic."
-                          : "No filler phrase was auto-detected here, but you can still stage a manual cleanup cut."
-                        : "Select a transcript row to stage or restore a filler cut."}
+                      transcript rows {selectedPolishChange.linkedRowIds.join(", ")}
                     </div>
-                  </div>
-                )}
-                actions={(
+                  ) : null}
+                </div>
+                <div className="hammer-action-row">
                   <button
                     type="button"
                     className="hammer-button-xs"
-                    onClick={() => {
-                      if (!selectedSegment) return;
-                      toggleDeleteInstruction(selectedSegment.segment_id);
-                    }}
-                    disabled={!selectedSegment}
+                    onClick={reviewSelectedProposedChange}
                   >
-                    {selectedSegmentDeleteInstruction ? "Restore selected line" : "Cut selected line"}
+                    Review
                   </button>
-                )}
-              />
-
-              <HammerWorkflowCard
-                title="Gap Tightening"
-                tone={selectedSegmentTrimInstruction ? "active" : selectedSegment ? "ready" : "blocked"}
-                statusLabel={selectedSegmentTrimInstruction ? "Trim staged" : selectedSegment ? "Ready" : "Select a row"}
-                description="Use transcript selection to tighten pacing around the current line and stage non-destructive trim instructions in the edit plan."
-                meta={(
-                  <div className="hammer-stack-6">
-                    <div className="hammer-meta-strip">
-                      <span className="hammer-pill">before {formatGapLabel(selectedGapBeforeSec)}</span>
-                      <span className="hammer-pill">after {formatGapLabel(selectedGapAfterSec)}</span>
-                      <span className="hammer-pill">{hasSelectedGapOpportunity ? "gap candidate" : "manual tighten"}</span>
-                    </div>
-                    <div className="hammer-copy-sm hammer-copy-muted">
-                      {selectedSegment
-                        ? hasSelectedGapOpportunity
-                          ? "The selected line has surrounding slack that can be tightened."
-                          : "No large transcript gap is detected here, but you can still stage a pacing trim."
-                        : "Select a transcript row to stage or restore timing trims."}
-                    </div>
-                  </div>
-                )}
-                actions={(
                   <button
                     type="button"
                     className="hammer-button-xs"
-                    onClick={() => {
-                      if (!selectedSegment) return;
-                      toggleTrimInstruction(selectedSegment);
-                    }}
-                    disabled={!selectedSegment}
+                    onClick={() => setProposedChangeStatus(selectedPolishChange, "approved")}
                   >
-                    {selectedSegmentTrimInstruction ? "Undo timing trim" : "Tighten selected line"}
+                    Approve
                   </button>
-                )}
-              />
-
-              <HammerWorkflowCard
-                title="Retake Cleanup"
-                tone={selectedSegmentMergeInstruction ? "active" : canMergeSelected ? "ready" : "blocked"}
-                statusLabel={selectedSegmentMergeInstruction ? "Merge staged" : canMergeSelected ? "Ready" : "Unavailable"}
-                description="Clean up back-to-back same-speaker takes by merging the selected line into its continuation when the transcript supports it."
-                meta={(
-                  <div className="hammer-stack-6">
-                    <div className="hammer-meta-strip">
-                      <span className="hammer-pill">continuations {sameSpeakerContinuationCount}</span>
-                      <span className="hammer-pill">
-                        {selectedNextSegment ? `next ${selectedNextSegment.speaker}` : "end of transcript"}
-                      </span>
-                    </div>
-                    <div className="hammer-copy-sm hammer-copy-muted">
-                      {selectedSegmentMergeInstruction
-                        ? "This merge is already staged in the current edit plan."
-                        : canMergeSelected
-                        ? `The next line (${selectedNextSegment?.segment_id}) continues the same speaker and can be merged.`
-                        : "Select a row with a same-speaker continuation to stage retake cleanup."}
-                    </div>
-                  </div>
-                )}
-                actions={(
                   <button
                     type="button"
                     className="hammer-button-xs"
-                    onClick={() => {
-                      if (!selectedSegment) return;
-                      toggleMergeInstruction(selectedSegment, selectedNextSegment);
-                    }}
-                    disabled={!selectedSegment || (!selectedSegmentMergeInstruction && !canMergeSelected)}
+                    onClick={() => setProposedChangeStatus(selectedPolishChange, "rejected")}
                   >
-                    {selectedSegmentMergeInstruction ? "Undo merge" : "Merge with next line"}
+                    Reject
                   </button>
-                )}
-              />
-            </div>
-
-            <div className="hammer-polish-output">
-              <div className="hammer-polish-output__head">
-                <strong className="hammer-copy-strong">Polish Output</strong>
-                <span className="hammer-pill">{currentEditPlan.edit_plan_id}</span>
-              </div>
-              <div className="hammer-inspector-grid">
-                <div>
-                  <div className="hammer-label">cuts</div>
-                  <div>{deleteInstructionCount}</div>
-                </div>
-                <div>
-                  <div className="hammer-label">trims</div>
-                  <div>{trimInstructionCount}</div>
-                </div>
-                <div>
-                  <div className="hammer-label">merges</div>
-                  <div>{mergeInstructionCount}</div>
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    onClick={() => setProposedChangeStatus(selectedPolishChange, "suggested")}
+                  >
+                    Restore
+                  </button>
                 </div>
               </div>
-              {polishSummaryItems.length > 0 ? (
-                <ul className="hammer-polish-output__list">
-                  {polishSummaryItems.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              ) : (
-                <div className="hammer-copy-sm hammer-copy-muted">
-                  No polish actions are staged yet. Select a row and start the first cleanup pass.
-                </div>
-              )}
+            ) : (
               <div className="hammer-copy-sm hammer-copy-muted">
-                Current preview: {selectedRowPreviewStatus}
+                Select a polish change to preview it in context and decide from one place.
               </div>
-            </div>
+            )}
           </div>
         );
       case "audio":
@@ -4548,44 +4448,26 @@ export default function TranscriptSeekMock(
       case "video":
         return (
           <div className="hammer-stack-10">
-            <div className="hammer-meta-strip">
-              <span className="hammer-pill">main video</span>
-              <span className="hammer-pill">picture-in-picture</span>
-              <span className="hammer-pill">visual cleanup</span>
-            </div>
-            <div className="hammer-copy-md">
-              Video stays focused on framing and visual cleanup tied to the current project media.
-            </div>
-            <div className="hammer-copy-sm hammer-copy-muted">
-              source: {activeMediaSourceLabel} · media kind {activeMediaKind ? formatMediaKindLabel(activeMediaKind) : resolvedLaunch.launch_context.media.kind}
-            </div>
-            <div className="hammer-workflow-grid">
-                <HammerWorkflowCard
-                  title="Blur Background"
-                  tone={blurBackgroundBlocked ? "blocked" : "future"}
-                  statusLabel="Unavailable"
-                  description="Background cleanup belongs in Video once Hammer owns the visual polish path for the current media."
-                  meta={(
-                    <div className="hammer-copy-sm hammer-copy-muted">
-                      {blurBackgroundBlocked
-                        ? "This workspace is using fallback or non-video media, so background blur is unavailable."
-                        : "Mapped video is present, but background blur is not available in this Hammer build."}
-                    </div>
-                  )}
-                />
-
-                <HammerWorkflowCard
-                  title="Eye Contact"
-                  tone="future"
-                  statusLabel="Unavailable"
-                  description="Eye contact correction is not available in this Hammer build."
-                  meta={(
-                    <div className="hammer-copy-sm hammer-copy-muted">
-                      Hammer does not expose eye-contact adjustment until the video pipeline exists.
-                    </div>
-                  )}
-                />
-            </div>
+            {selectedVisualPlacement && selectedProposedChange?.type === "visual_placement" ? (
+              <div className="hammer-visual-adjustments">
+                <div className="hammer-meta-strip">
+                  <span className="hammer-pill">{formatVisualApprovalStateLabel(selectedVisualPlacement.ingest_state)}</span>
+                  <span className="hammer-pill">
+                    {formatClock(selectedVisualPlacement.start_sec)}-{formatClock(selectedVisualPlacement.end_sec)}
+                  </span>
+                </div>
+                <div className="hammer-copy-sm hammer-copy-muted">
+                  Drag in the preview to move or resize this visual. Drag the clip edge in the timeline to change how long it stays on screen.
+                </div>
+                <div className="hammer-copy-sm hammer-copy-muted">
+                  source: {activeMediaSourceLabel} · media kind {activeMediaKind ? formatMediaKindLabel(activeMediaKind) : resolvedLaunch.launch_context.media.kind}
+                </div>
+              </div>
+            ) : (
+              <div className="hammer-copy-sm hammer-copy-muted">
+                Select a visual placement while Video is active to adjust it on the preview canvas or timeline.
+              </div>
+            )}
           </div>
         );
       case "captions":
@@ -6832,6 +6714,7 @@ export default function TranscriptSeekMock(
               ).values()];
               const isSelected = Boolean(selectedReadableTranscriptGroup && selectedReadableTranscriptGroup.group_id === group.group_id);
               const isAtPlayhead = Boolean(playheadReadableTranscriptGroup && playheadReadableTranscriptGroup.group_id === group.group_id);
+              const isReviewHighlighted = group.row_ids.some((rowId) => highlightedTranscriptRowIds.has(rowId));
               return (
                 <div
                   key={group.group_id}
@@ -6847,6 +6730,7 @@ export default function TranscriptSeekMock(
                     revealedTranscriptRowId && group.row_ids.includes(revealedTranscriptRowId) && "is-revealed",
                   )}
                   data-selected={isSelected ? "true" : "false"}
+                  data-review-highlight={isReviewHighlighted ? "true" : "false"}
                   data-overlay-row-id={primaryRow.row_id}
                   data-playhead={isAtPlayhead ? "true" : "false"}
                   data-deleted={groupRows.every((row) => row.is_deleted) ? "true" : "false"}
@@ -7551,21 +7435,12 @@ export default function TranscriptSeekMock(
       />
 
       <div className="hammer-pane hammer-pane--right" style={measuredSidePaneStyle}>
-        {reviewQueueContent}
-        {selectedProposedChangeInspector}
         <HammerPaneSection
           title={activeToolDefinition.label}
           subtitle={activeToolHint}
           action={(
             <div className="hammer-action-row">
-              <span className="hammer-pill">{selectionSummaryCountLabel}</span>
-              <span className="hammer-pill">{selectionSummaryTitle}</span>
-              {selectedSegment ? (
-                <span className="hammer-pill">scope {selectionSummaryScopeLabel}</span>
-              ) : null}
-              <span className={getEditPlanStatusBadgeClassName(sessionState.editPlanStatus)}>
-                {sessionState.editPlanStatus}
-              </span>
+              <span className="hammer-pill">{activeToolDefinition.label}</span>
               {activeTool === "details" ? (
                 <button
                   type="button"
