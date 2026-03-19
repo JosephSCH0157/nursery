@@ -1602,6 +1602,10 @@ export default function BellowsStandalone() {
 
   async function issueJoinLink(roleCode: BellowsInviteRoleCode) {
     if (!session || !authUser?.id) return;
+    if (!canManageInvites) {
+      setJoinLinksError("Bellows invite management requires editor workspace access.");
+      return;
+    }
 
     setBusyAction(`invite-issue:${roleCode}`);
     setJoinLinksError(null);
@@ -1681,6 +1685,10 @@ export default function BellowsStandalone() {
 
   async function revokeJoinLink(link: BellowsTongsJoinLinkRecord | null) {
     if (!session || !link || link.revokedAt) return;
+    if (!canManageInvites) {
+      setJoinLinksError("Bellows invite management requires editor workspace access.");
+      return;
+    }
 
     setBusyAction(`invite-revoke:${link.joinLinkId}`);
     setJoinLinksError(null);
@@ -1809,6 +1817,9 @@ export default function BellowsStandalone() {
           </span>
           <span className="bellows-standalone__pill">
             Workspace: <strong>{workspaceName ?? workspaceId ?? "unresolved"}</strong>
+          </span>
+          <span className="bellows-standalone__pill">
+            Role: <strong>{workspaceRole ?? "unknown"}</strong>
           </span>
           {session ? (
             <>
@@ -2012,6 +2023,8 @@ export default function BellowsStandalone() {
                 ?? invitePresenceError
                 ?? (loadingJoinLinks
                   ? "Loading canonical join links..."
+                  : !canManageInvites
+                  ? `Invite management requires editor workspace access. Current role: ${workspaceRole ?? "unknown"}.`
                   : canIssueInvites
                   ? inviteStatusMessage
                   : "Invite issuance is unavailable once the Bellows session reaches a terminal state.")}
