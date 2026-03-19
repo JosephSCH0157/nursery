@@ -3,6 +3,12 @@ import test from "node:test";
 import {
   buildTongsHammerReleaseAssembly,
 } from "../src/lib/tongsReleaseAssembly.ts";
+import {
+  buildHammerPreparedReleasePackage,
+} from "../../hammer/src/lib/hammerPreparedReleasePackage";
+import {
+  buildHammerReleasePrepPackageFromSnapshot,
+} from "../../hammer/src/lib/hammerReleasePrepPackage";
 import type { HammerPersistenceSnapshot } from "../../hammer/src/persistence/hammerPersistenceContract";
 
 function buildSnapshot(overrides?: {
@@ -528,4 +534,23 @@ test("buildTongsHammerReleaseAssembly carries attributable operator attempts thr
   assert.equal(assembly.execution.last_attempt_detail, "Visual package was unavailable during retry.");
   assert.equal(assembly.quench_packet_stub.execution.attempted_steps[0]?.actor_label, "operator@example.com");
   assert.equal(assembly.quench_packet_stub.execution.last_attempt_result, "failed");
+});
+
+test("buildTongsHammerReleaseAssembly prefers an existing prepared release package when present", () => {
+  const snapshot = buildSnapshot();
+  const preparedReleasePackage = buildHammerPreparedReleasePackage({
+    current: buildHammerReleasePrepPackageFromSnapshot(snapshot),
+    timelineRevision: "sig_release_pkg_01",
+  });
+
+  const assembly = buildTongsHammerReleaseAssembly({
+    workspaceId: "workspace_release_assembly_01",
+    workpieceId: "workpiece_release_assembly_01",
+  }, snapshot, {
+    preparedReleasePackage,
+  });
+
+  assert.equal(assembly.prepared_release_package?.provenance.timelineRevision, "sig_release_pkg_01");
+  assert.equal(assembly.prepared_release_comparison.preparedStatus, "partial");
+  assert.deepEqual(assembly.prepared_release_comparison.staleReasons, []);
 });

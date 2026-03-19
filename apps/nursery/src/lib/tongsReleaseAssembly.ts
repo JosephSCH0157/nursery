@@ -2,6 +2,14 @@ import {
   buildHammerReleasePrepPackageFromSnapshot,
   type HammerReleasePrepPackage,
 } from "../../../hammer/src/lib/hammerReleasePrepPackage";
+import {
+  compareHammerPreparedReleasePackageToCurrent,
+  type HammerPreparedReleasePackage,
+  type HammerPreparedReleasePackageComparison,
+} from "../../../hammer/src/lib/hammerPreparedReleasePackage";
+import {
+  loadHammerPreparedReleasePackage,
+} from "../../../hammer/src/lib/hammerPreparedReleasePackageApi";
 import type { ReleasePacketStub } from "../../../quench/src/core/release-packet.stub.types";
 import type { HammerMediaBackboneRuntimeSummary } from "../../../hammer/src/media/hammerMediaBackbone";
 import {
@@ -58,6 +66,8 @@ export interface TongsHammerReleaseAssembly {
     };
   };
   release_prep: HammerReleasePrepPackage;
+  prepared_release_package: HammerPreparedReleasePackage | null;
+  prepared_release_comparison: HammerPreparedReleasePackageComparison;
   authority: TongsReleaseHandoffAuthority;
   recovery: TongsReleaseRecoveryOrchestration;
   execution: TongsReleaseOperatorExecution;
@@ -90,6 +100,7 @@ export function buildTongsHammerReleaseAssembly(
   snapshot: HammerPersistenceSnapshot,
   options?: {
     mediaBackboneRuntime?: HammerMediaBackboneRuntimeSummary | null;
+    preparedReleasePackage?: HammerPreparedReleasePackage | null;
     operatorExecution?: {
       attempts?: TongsReleaseOperatorExecutionAttempt[] | null;
     };
@@ -98,6 +109,11 @@ export function buildTongsHammerReleaseAssembly(
   const releasePrep = buildHammerReleasePrepPackageFromSnapshot(snapshot, {
     mediaBackboneRuntime: options?.mediaBackboneRuntime ?? null,
   });
+  const preparedReleasePackage = options?.preparedReleasePackage ?? null;
+  const preparedReleaseComparison = compareHammerPreparedReleasePackageToCurrent(
+    preparedReleasePackage,
+    releasePrep,
+  );
   const sourceArtifacts = buildSourceArtifactsFromSnapshot(snapshot);
   const authority = buildTongsReleaseHandoffAuthority({
     target,
@@ -130,6 +146,8 @@ export function buildTongsHammerReleaseAssembly(
     },
     source_artifacts: sourceArtifacts,
     release_prep: releasePrep,
+    prepared_release_package: preparedReleasePackage,
+    prepared_release_comparison: preparedReleaseComparison,
     authority,
     recovery,
     execution,
@@ -160,10 +178,18 @@ export async function loadTongsHammerReleaseAssembly(
     return snapshotResult;
   }
 
+  const preparedReleaseResult = await loadHammerPreparedReleasePackage(target.workpieceId);
+  const preparedReleasePackage = preparedReleaseResult.ok
+    ? preparedReleaseResult.data ?? null
+    : null;
+
   return {
     ok: true,
     status: snapshotResult.status,
     snapshot: snapshotResult.data,
-    assembly: buildTongsHammerReleaseAssembly(target, snapshotResult.data, options),
+    assembly: buildTongsHammerReleaseAssembly(target, snapshotResult.data, {
+      ...options,
+      preparedReleasePackage,
+    }),
   };
 }

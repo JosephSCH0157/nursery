@@ -232,6 +232,8 @@ export default function TongsReleasePrep() {
   }
 
   const releasePrep = assembly?.release_prep ?? null;
+  const preparedReleasePackage = assembly?.prepared_release_package ?? null;
+  const preparedReleaseComparison = assembly?.prepared_release_comparison ?? null;
   const authority = assembly?.authority ?? null;
   const recovery = assembly?.recovery ?? null;
   const execution = assembly?.execution ?? null;
@@ -300,12 +302,47 @@ export default function TongsReleasePrep() {
                 <span>{assembly.summary.ready_count} ready</span>
                 <span>{assembly.summary.attention_count} attention</span>
                 <span>{releasePrep?.readiness.fully_prepared ? "fully prepared" : "not fully prepared"}</span>
+                <span>{preparedReleaseComparison ? `prepared package ${preparedReleaseComparison.preparedStatus}` : "prepared package missing"}</span>
               </div>
             </div>
             <div>{authority?.message ?? assembly.summary.message}</div>
           </div>
 
           <div className="tongs-release-prep__grid">
+            <article className="tongs-release-prep__card">
+              <h3 className="tongs-release-prep__card-title">Prepared Package</h3>
+              <div className="tongs-release-prep__fact-grid">
+                <div>
+                  <div className="tongs-release-prep__fact-label">prepared status</div>
+                  <div>{preparedReleaseComparison?.preparedStatus ?? "missing"}</div>
+                </div>
+                <div>
+                  <div className="tongs-release-prep__fact-label">prepared at</div>
+                  <div>{preparedReleasePackage?.preparedAt ?? "none"}</div>
+                </div>
+                <div>
+                  <div className="tongs-release-prep__fact-label">package overall</div>
+                  <div>{preparedReleasePackage?.overallStatus ?? "missing"}</div>
+                </div>
+                <div>
+                  <div className="tongs-release-prep__fact-label">timeline revision</div>
+                  <div className="tongs-release-prep__mono">{preparedReleasePackage?.provenance.timelineRevision ?? "none"}</div>
+                </div>
+                <div>
+                  <div className="tongs-release-prep__fact-label">stale reasons</div>
+                  <div>{preparedReleaseComparison?.staleReasons.length ? preparedReleaseComparison.staleReasons.join(", ") : "none"}</div>
+                </div>
+                <div>
+                  <div className="tongs-release-prep__fact-label">subtitle artifacts</div>
+                  <div>
+                    SRT {preparedReleasePackage?.subtitles.srt.status ?? "missing"}
+                    {" · "}
+                    VTT {preparedReleasePackage?.subtitles.vtt.status ?? "missing"}
+                  </div>
+                </div>
+              </div>
+            </article>
+
             <article className="tongs-release-prep__card">
               <h3 className="tongs-release-prep__card-title">Identity</h3>
               <div className="tongs-release-prep__fact-grid">

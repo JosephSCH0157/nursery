@@ -48,6 +48,16 @@ import { buildHammerCaptionPreviewModel } from "../lib/hammerCaptionPreview";
 import { buildHammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutputsPackage";
 import { buildHammerReleasePrepPackage } from "../lib/hammerReleasePrepPackage";
 import {
+  buildHammerPreparedReleasePackage,
+  compareHammerPreparedReleasePackageToCurrent,
+  type HammerPreparedReleasePackage,
+  type HammerPreparedReleasePackageComparison,
+} from "../lib/hammerPreparedReleasePackage";
+import {
+  loadHammerPreparedReleasePackage,
+  saveHammerPreparedReleasePackage,
+} from "../lib/hammerPreparedReleasePackageApi";
+import {
   generateHammerSubtitleArtifact,
   getHammerSubtitleArtifact,
   setHammerSubtitleArtifact,
@@ -847,6 +857,34 @@ function formatReleasePrepStatusLabel(
   }
 }
 
+function getPreparedPackageStatusTone(status: "current" | "stale" | "partial" | "missing"): HammerWorkflowTone {
+  switch (status) {
+    case "current":
+      return "active";
+    case "stale":
+      return "blocked";
+    case "partial":
+      return "ready";
+    case "missing":
+    default:
+      return "future";
+  }
+}
+
+function formatPreparedPackageStatusLabel(status: "current" | "stale" | "partial" | "missing"): string {
+  switch (status) {
+    case "current":
+      return "Current";
+    case "stale":
+      return "Stale";
+    case "partial":
+      return "Partial";
+    case "missing":
+    default:
+      return "Missing";
+  }
+}
+
 function getTimelineTrackRoleLabel(trackId: string): string {
   switch (trackId) {
     case "video-main":
@@ -1290,6 +1328,10 @@ export default function TranscriptSeekMock(
     () => props.structuredTranscript?.subtitle_outputs?.last_generated_format ?? "srt",
   );
   const [subtitleActionFeedback, setSubtitleActionFeedback] = useState<string | null>(null);
+  const [preparedReleasePackageState, setPreparedReleasePackageState] = useState<HammerPreparedReleasePackage | null>(null);
+  const [preparedReleasePackageLoading, setPreparedReleasePackageLoading] = useState(false);
+  const [preparedReleasePackageSaving, setPreparedReleasePackageSaving] = useState(false);
+  const [preparedReleasePackageFeedback, setPreparedReleasePackageFeedback] = useState<string | null>(null);
   const [activeTimelineTool, setActiveTimelineTool] = useState<TimelineToolId>("select");
   const [showDebugPanels, setShowDebugPanels] = useState(false);
   const [paneLayout, setPaneLayout] = useState<HammerPaneLayout>(DEFAULT_PANE_LAYOUT);
@@ -2058,7 +2100,7 @@ export default function TranscriptSeekMock(
       transcriptSourceId,
     ],
   );
-  const releasePrepPackage = useMemo(
+  const currentReleasePrepPackage = useMemo(
     () => buildHammerReleasePrepPackage({
       workspaceId: resolvedLaunch.launch_context.workspace_id,
       workpieceId: resolvedLaunch.launch_context.workpiece_id,
@@ -2099,10 +2141,52 @@ export default function TranscriptSeekMock(
       transcriptSourceId,
     ],
   );
-  const releasePrepBlockingStatuses = releasePrepPackage.readiness.blocking_statuses;
+  const releasePrepBlockingStatuses = currentReleasePrepPackage.readiness.blocking_statuses;
   const releasePrepSummaryLabel = releasePrepBlockingStatuses.length > 0
     ? releasePrepBlockingStatuses.map((status) => formatReleasePrepStatusLabel(status)).join(" · ")
     : "ready";
+  const preparedReleaseComparison = useMemo<HammerPreparedReleasePackageComparison>(
+    () => compareHammerPreparedReleasePackageToCurrent(
+      preparedReleasePackageState,
+      currentReleasePrepPackage,
+      {
+        timelineRevision: currentEditPlanSignature,
+      },
+    ),
+    [currentEditPlanSignature, currentReleasePrepPackage, preparedReleasePackageState],
+  );
+  const preparedReleaseActionLabel = preparedReleaseComparison.preparedStatus === "stale"
+    ? "Refresh Release Package"
+    : "Prepare Release Package";
+
+  useEffect(() => {
+    let active = true;
+    setPreparedReleasePackageLoading(true);
+    setPreparedReleasePackageFeedback(null);
+
+    void loadHammerPreparedReleasePackage(resolvedLaunch.launch_context.workpiece_id)
+      .then((result) => {
+        if (!active) return;
+        if (!result.ok) {
+          setPreparedReleasePackageState(null);
+          setPreparedReleasePackageFeedback(result.error);
+          setPreparedReleasePackageLoading(false);
+          return;
+        }
+        setPreparedReleasePackageState(result.data ?? null);
+        setPreparedReleasePackageLoading(false);
+      })
+      .catch(() => {
+        if (!active) return;
+        setPreparedReleasePackageState(null);
+        setPreparedReleasePackageFeedback("Hammer could not load the prepared release package.");
+        setPreparedReleasePackageLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [resolvedLaunch.launch_context.workpiece_id]);
   const workspaceSnapshot = useMemo<HammerWorkspaceSnapshot>(
     () => ({
       workspaceId: resolvedLaunch.launch_context.workspace_id,
@@ -4581,48 +4665,87 @@ export default function TranscriptSeekMock(
                 {sessionState.editPlanStatus}
               </span>
               <span className="hammer-pill">main edit</span>
-              <span className="hammer-pill">release prep {releasePrepPackage.readiness.fully_prepared ? "ready" : "attention"}</span>
+              <span className="hammer-pill">release prep {currentReleasePrepPackage.readiness.fully_prepared ? "ready" : "attention"}</span>
               <span className="hammer-pill">{releasePrepSummaryLabel}</span>
+              <span className={getWorkflowStatusClassName(getPreparedPackageStatusTone(preparedReleaseComparison.preparedStatus))}>
+                {formatPreparedPackageStatusLabel(preparedReleaseComparison.preparedStatus)}
+              </span>
             </div>
             <div className="hammer-copy-md">
-              Export is now the handoff lane. Hammer reads the current persisted editing truth, shows what is ready for downstream release prep, and lets you fix stale text outputs before opening Tongs.
+              Export now distinguishes live editor truth from the last prepared release receipt. Prepare seals the current transcript, subtitle, and media fingerprints into canonical release-prep state so Tongs can open against that package first.
             </div>
-            <div className="hammer-inspector-grid">
-              <div>
-                <div className="hammer-label">current plan</div>
-                <div className="hammer-mono">{currentEditPlan.edit_plan_id}</div>
-              </div>
-              <div>
-                <div className="hammer-label">instructions</div>
-                <div>{editInstructions.length}</div>
-              </div>
-              <div>
-                <div className="hammer-label">output source</div>
-                <div>{textOutputsPackage ? formatTranscriptOutputLabel(outputDerivedLayer) : "raw transcript"}</div>
-              </div>
-              <div>
-                <div className="hammer-label">blocking states</div>
-                <div>{releasePrepBlockingStatuses.length > 0 ? releasePrepSummaryLabel : "none"}</div>
-              </div>
+            <div className="hammer-workflow-grid">
+              <HammerWorkflowCard
+                title="Current Editor Truth"
+                tone={getReleasePrepTone(releasePrepBlockingStatuses.length > 0 ? releasePrepBlockingStatuses[0] ?? "missing" : "ready")}
+                statusLabel={releasePrepBlockingStatuses.length > 0 ? releasePrepSummaryLabel : "ready"}
+                description="What Hammer would hand off if you sealed the release package right now."
+                meta={(
+                  <div className="hammer-inspector-grid">
+                    <div>
+                      <div className="hammer-label">plan</div>
+                      <div className="hammer-mono">{currentEditPlan.edit_plan_id}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">instructions</div>
+                      <div>{editInstructions.length}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">output source</div>
+                      <div>{textOutputsPackage ? formatTranscriptOutputLabel(outputDerivedLayer) : "raw transcript"}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">blocking states</div>
+                      <div>{releasePrepBlockingStatuses.length > 0 ? releasePrepSummaryLabel : "none"}</div>
+                    </div>
+                  </div>
+                )}
+              />
+              <HammerWorkflowCard
+                title="Last Prepared Package"
+                tone={getPreparedPackageStatusTone(preparedReleaseComparison.preparedStatus)}
+                statusLabel={formatPreparedPackageStatusLabel(preparedReleaseComparison.preparedStatus)}
+                description="Canonical prepared release receipt persisted for this workpiece."
+                meta={(
+                  <div className="hammer-inspector-grid">
+                    <div>
+                      <div className="hammer-label">prepared at</div>
+                      <div>{preparedReleasePackageState ? formatDateTimeLabel(preparedReleasePackageState.preparedAt) ?? preparedReleasePackageState.preparedAt : "none"}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">timeline revision</div>
+                      <div className="hammer-mono">{preparedReleasePackageState?.provenance.timelineRevision ?? "none"}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">status</div>
+                      <div>{preparedReleasePackageState?.overallStatus ?? "missing"}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">stale reasons</div>
+                      <div>{preparedReleaseComparison.staleReasons.length > 0 ? preparedReleaseComparison.staleReasons.join(", ") : "none"}</div>
+                    </div>
+                  </div>
+                )}
+              />
             </div>
             <div className="hammer-workflow-grid">
               <HammerWorkflowCard
                 title="Transcript Output"
-                tone={getReleasePrepTone(releasePrepPackage.readiness.transcript_output)}
-                statusLabel={formatReleasePrepStatusLabel(releasePrepPackage.readiness.transcript_output)}
+                tone={getReleasePrepTone(currentReleasePrepPackage.readiness.transcript_output)}
+                statusLabel={formatReleasePrepStatusLabel(currentReleasePrepPackage.readiness.transcript_output)}
                 description="Resolved downstream transcript text assembled from the current raw or derived output layer."
                 meta={(
                   <div className="hammer-copy-sm hammer-copy-muted">
-                    {releasePrepPackage.text_outputs
-                      ? `${releasePrepPackage.text_outputs.resolved_output.segment_count} segments · ${releasePrepPackage.text_outputs.output_selection.source_kind} output`
+                    {currentReleasePrepPackage.text_outputs
+                      ? `${currentReleasePrepPackage.text_outputs.resolved_output.segment_count} segments · ${currentReleasePrepPackage.text_outputs.output_selection.source_kind} output`
                       : "No release transcript output is available yet."}
                   </div>
                 )}
               />
               <HammerWorkflowCard
                 title="SRT"
-                tone={getReleasePrepTone(releasePrepPackage.readiness.subtitles.srt)}
-                statusLabel={formatReleasePrepStatusLabel(releasePrepPackage.readiness.subtitles.srt)}
+                tone={getReleasePrepTone(currentReleasePrepPackage.readiness.subtitles.srt)}
+                statusLabel={formatReleasePrepStatusLabel(currentReleasePrepPackage.readiness.subtitles.srt)}
                 description="Subtitle artifact for downstream packaging and review."
                 meta={(
                   <div className="hammer-copy-sm hammer-copy-muted">
@@ -4634,8 +4757,8 @@ export default function TranscriptSeekMock(
               />
               <HammerWorkflowCard
                 title="VTT"
-                tone={getReleasePrepTone(releasePrepPackage.readiness.subtitles.vtt)}
-                statusLabel={formatReleasePrepStatusLabel(releasePrepPackage.readiness.subtitles.vtt)}
+                tone={getReleasePrepTone(currentReleasePrepPackage.readiness.subtitles.vtt)}
+                statusLabel={formatReleasePrepStatusLabel(currentReleasePrepPackage.readiness.subtitles.vtt)}
                 description="Web subtitle artifact for downstream release consumers."
                 meta={(
                   <div className="hammer-copy-sm hammer-copy-muted">
@@ -4647,21 +4770,96 @@ export default function TranscriptSeekMock(
               />
               <HammerWorkflowCard
                 title="Media Prep"
-                tone={getReleasePrepTone(releasePrepPackage.readiness.audio_polish === "ready"
-                  ? releasePrepPackage.readiness.visuals
-                  : releasePrepPackage.readiness.audio_polish)}
-                statusLabel={`visuals ${formatReleasePrepStatusLabel(releasePrepPackage.readiness.visuals)} · audio ${formatReleasePrepStatusLabel(releasePrepPackage.readiness.audio_polish)}`}
+                tone={getReleasePrepTone(currentReleasePrepPackage.readiness.audio_polish === "ready"
+                  ? currentReleasePrepPackage.readiness.visuals
+                  : currentReleasePrepPackage.readiness.audio_polish)}
+                statusLabel={`visuals ${formatReleasePrepStatusLabel(currentReleasePrepPackage.readiness.visuals)} · audio ${formatReleasePrepStatusLabel(currentReleasePrepPackage.readiness.audio_polish)}`}
                 description="Visual placements and audio prep stay visible here so release handoff reflects real prep truth."
                 meta={(
                   <div className="hammer-copy-sm hammer-copy-muted">
-                    {releasePrepPackage.media_prep_outputs.visuals.placement_count} visual suggestions
+                    {currentReleasePrepPackage.media_prep_outputs.visuals.placement_count} visual suggestions
                     {" · "}
-                    playback {releasePrepPackage.media_prep_outputs.audio.preferred_playback.kind}
+                    playback {currentReleasePrepPackage.media_prep_outputs.audio.preferred_playback.kind}
                   </div>
                 )}
               />
             </div>
             <div className="hammer-action-row">
+              <button
+                type="button"
+                className="hammer-button-xs"
+                disabled={preparedReleasePackageSaving}
+                onClick={() => {
+                  void (async () => {
+                    setPreparedReleasePackageSaving(true);
+                    setPreparedReleasePackageFeedback(null);
+
+                    let nextTranscript = structuredTranscriptState;
+                    if (nextTranscript) {
+                      const generatedAt = new Date().toISOString();
+                      for (const format of ["srt", "vtt"] as HammerSubtitleFormat[]) {
+                        const artifact = generateHammerSubtitleArtifact({
+                          rawSegments: rawTranscriptSegments,
+                          transcript: nextTranscript,
+                          format,
+                          generatedAt,
+                        });
+                        nextTranscript = setHammerSubtitleArtifact(nextTranscript, artifact);
+                      }
+                      setStructuredTranscriptState(nextTranscript);
+                      setSelectedSubtitleFormat("srt");
+                      setSubtitleActionFeedback(`Generated current SRT and VTT from ${formatTranscriptOutputLabel(outputDerivedLayer)}.`);
+                    }
+
+                    const nextReleasePrepPackage = buildHammerReleasePrepPackage({
+                      workspaceId: resolvedLaunch.launch_context.workspace_id,
+                      workpieceId: resolvedLaunch.launch_context.workpiece_id,
+                      prepStatus: nextTranscript ? "prepared" : "idle",
+                      alignmentStatus: nextTranscript ? "aligned" : "not_started",
+                      structuredTranscript: nextTranscript,
+                      visualPlacements: props.visualPlacements ?? null,
+                      audioPolish,
+                      editorSession: {
+                        schema_version: 1,
+                        session_id: sessionId,
+                        source_mode: sourceMode,
+                        preview_mode: previewMode,
+                        transcript_source_id: transcriptSourceId,
+                        selected_segment_id: selectedSegmentId,
+                        selected_overlay_row_id: selectedOverlayRowId,
+                        media_ref: activeMediaRef ? { ...activeMediaRef } : null,
+                        workspace_mapping: activeMediaWorkspaceMapping ? { ...activeMediaWorkspaceMapping } : null,
+                        media_source_label: activeMediaSourceLabel,
+                        last_opened_at: currentEditPlan.updated_at,
+                      },
+                    });
+                    const nextPreparedPackage = buildHammerPreparedReleasePackage({
+                      current: nextReleasePrepPackage,
+                      timelineRevision: currentEditPlanSignature,
+                    });
+                    const saveResult = await saveHammerPreparedReleasePackage({
+                      workpieceId: resolvedLaunch.launch_context.workpiece_id,
+                      pkg: nextPreparedPackage,
+                      subtitles: {
+                        srt: nextTranscript?.subtitle_outputs?.srt?.content ?? null,
+                        vtt: nextTranscript?.subtitle_outputs?.vtt?.content ?? null,
+                      },
+                    });
+
+                    if (!saveResult.ok) {
+                      setPreparedReleasePackageFeedback(saveResult.error);
+                      setPreparedReleasePackageSaving(false);
+                      return;
+                    }
+
+                    setPreparedReleasePackageState(saveResult.data ?? nextPreparedPackage);
+                    setPreparedReleasePackageFeedback(`${preparedReleaseActionLabel} saved.`);
+                    setPreparedReleasePackageSaving(false);
+                  })();
+                }}
+              >
+                {preparedReleasePackageSaving ? "Saving Release Package..." : preparedReleaseActionLabel}
+              </button>
               <button
                 type="button"
                 className="hammer-button-xs"
@@ -4714,6 +4912,12 @@ export default function TranscriptSeekMock(
                 </a>
               ) : null}
             </div>
+            {preparedReleasePackageLoading ? (
+              <div className="hammer-copy-sm hammer-copy-muted">Loading prepared release package...</div>
+            ) : null}
+            {preparedReleasePackageFeedback ? (
+              <div className="hammer-copy-sm hammer-copy-muted">{preparedReleasePackageFeedback}</div>
+            ) : null}
             {subtitleActionFeedback ? (
               <div className="hammer-copy-sm hammer-copy-muted">{subtitleActionFeedback}</div>
             ) : null}
