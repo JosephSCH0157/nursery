@@ -1,6 +1,6 @@
 .hammer-editor-shell {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) minmax(220px, 0.42fr);
+  grid-template-rows: auto minmax(220px, 0.42fr);
   gap: 10px;
   min-height: calc(100vh - 138px);
   align-items: stretch;
@@ -42,7 +42,6 @@
   overflow: hidden;
   align-content: start;
   align-self: stretch;
-  max-height: calc(100vh - 330px);
 }
 
 .hammer-pane--left.is-script-view {

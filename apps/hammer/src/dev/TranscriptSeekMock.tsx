@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { CSSProperties, JSX, ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import type {
@@ -324,6 +324,7 @@ type HammerPaneSectionProps = {
   action?: ReactNode;
   children: ReactNode;
   sectionClassName?: string;
+  bodyId?: string;
   bodyClassName?: string;
 };
 
@@ -414,7 +415,7 @@ function HammerPaneSection(props: HammerPaneSectionProps): JSX.Element {
         </div>
         {props.action ? <div>{props.action}</div> : null}
       </header>
-      <div className={cx("hammer-pane-section__body", props.bodyClassName)}>
+      <div id={props.bodyId} className={cx("hammer-pane-section__body", props.bodyClassName)}>
         {props.children}
       </div>
     </section>
@@ -1348,6 +1349,8 @@ export default function TranscriptSeekMock(
   const [isPreviewMonitorCollapsed, setIsPreviewMonitorCollapsed] = useState(false);
   const [paneLayout, setPaneLayout] = useState<HammerPaneLayout>(DEFAULT_PANE_LAYOUT);
   const [activeResizeHandle, setActiveResizeHandle] = useState<HammerPaneResizeHandle | null>(null);
+  const transcriptControlsPanelId = useId();
+  const previewMonitorPanelId = useId();
   const launchWorkspaceMapping = useMemo(
     () => resolvedLaunch.media.workspace_mapping ?? workspaceMapping,
     [resolvedLaunch.media.workspace_mapping, workspaceMapping],
@@ -5481,6 +5484,8 @@ export default function TranscriptSeekMock(
   ]);
 
   useDynamicCssText(dynamicStyleScopeIdRef.current, dynamicStyles.cssText);
+  const transcriptControlsExpanded = isTranscriptControlsCollapsed ? "false" : "true";
+  const previewMonitorExpanded = isPreviewMonitorCollapsed ? "false" : "true";
 
   return (
     <section className="hammer-editor-shell">
@@ -5497,6 +5502,7 @@ export default function TranscriptSeekMock(
         <HammerPaneSection
           title="Transcript Controls"
           subtitle="Select a transcript line to seek preview and stage spoken-content edits."
+          bodyId={transcriptControlsPanelId}
           action={(
             <div className="hammer-action-row">
               <div className="hammer-tab-row">
@@ -5515,7 +5521,8 @@ export default function TranscriptSeekMock(
                 type="button"
                 className="hammer-button-xs"
                 onClick={() => setIsTranscriptControlsCollapsed((current) => !current)}
-                aria-expanded={!isTranscriptControlsCollapsed}
+                aria-controls={transcriptControlsPanelId}
+                aria-expanded={transcriptControlsExpanded}
               >
                 {isTranscriptControlsCollapsed ? "Expand" : "Collapse"}
               </button>
@@ -6087,13 +6094,15 @@ export default function TranscriptSeekMock(
         <HammerPaneSection
           title="Preview Monitor"
           subtitle="Play here means polished audio plus cue-driven visual preview, not a final render."
+          bodyId={previewMonitorPanelId}
           action={(
             <div className="hammer-action-row">
               <button
                 type="button"
                 className="hammer-button-xs"
                 onClick={() => setIsPreviewMonitorCollapsed((current) => !current)}
-                aria-expanded={!isPreviewMonitorCollapsed}
+                aria-controls={previewMonitorPanelId}
+                aria-expanded={previewMonitorExpanded}
               >
                 {isPreviewMonitorCollapsed ? "Expand" : "Collapse"}
               </button>
