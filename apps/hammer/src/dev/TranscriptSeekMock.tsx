@@ -1224,6 +1224,7 @@ export default function TranscriptSeekMock(
   const centerStackRef = useRef<HTMLDivElement | null>(null);
   const transcriptScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const transcriptRowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const previewVisualAssetUrlsRef = useRef<Map<string, string>>(new Map());
   const transcriptRevealTimeoutRef = useRef<number | null>(null);
   const lastHandledPrepHandoffTokenRef = useRef<number | null>(null);
   const suppressNextPreviewBoundaryActionRef = useRef(false);
@@ -1358,7 +1359,7 @@ export default function TranscriptSeekMock(
   const [timelineZoomId, setTimelineZoomId] = useState<TimelineZoomId>("fit");
   const [showDebugPanels, setShowDebugPanels] = useState(false);
   const [isTranscriptControlsCollapsed, setIsTranscriptControlsCollapsed] = useState(false);
-  const [isPreviewMonitorCollapsed, setIsPreviewMonitorCollapsed] = useState(false);
+  const [isPreviewMonitorCollapsed, setIsPreviewMonitorCollapsed] = useState(true);
   const [paneLayout, setPaneLayout] = useState<HammerPaneLayout>(DEFAULT_PANE_LAYOUT);
   const [activeResizeHandle, setActiveResizeHandle] = useState<HammerPaneResizeHandle | null>(null);
   const transcriptControlsPanelId = useId();
@@ -2071,6 +2072,25 @@ export default function TranscriptSeekMock(
   );
 
   useEffect(() => {
+    previewVisualAssetUrlsRef.current = previewVisualAssetUrls;
+  }, [previewVisualAssetUrls]);
+
+  useEffect(() => {
+    return () => {
+      previewVisualAssetUrlsRef.current.forEach((url) => {
+        if (url.startsWith("blob:")) {
+          URL.revokeObjectURL(url);
+        }
+      });
+    };
+  }, []);
+
+  useEffect(() => {
+    previewVisualAssetUrls.forEach((url) => {
+      if (url.startsWith("blob:")) {
+        URL.revokeObjectURL(url);
+      }
+    });
     setPreviewVisualAssetUrls(new Map());
     setIgnoredPreviewVisualAssetRefs(new Set());
     setPreviewVisualLoadingRef(null);
@@ -3157,7 +3177,6 @@ export default function TranscriptSeekMock(
   ].join(" · ");
   const timelineFocusRow = activeOverlayRow ?? selectedOverlayRow;
   const timelineFocusLabel = timelineFocusRow ? formatOverlayRowLabel(timelineFocusRow) : "none";
-  const timelineToolHint = getTimelineToolHint(activeTimelineTool);
   const selectedRowHasTimelineEditCue = Boolean(
     selectedOverlayRow?.is_deleted
     || selectedOverlayRow?.is_trimmed
@@ -5537,6 +5556,192 @@ export default function TranscriptSeekMock(
   const measuredSidePaneStyle = centerStackMeasuredHeight
     ? { height: `${centerStackMeasuredHeight}px`, maxHeight: `${centerStackMeasuredHeight}px` }
     : undefined;
+  const timelineWorkspaceContent = (
+    <HammerPaneSection
+      title="Timeline"
+      subtitle="Primary editing surface"
+      action={(
+        <div className="hammer-action-row">
+          <div className="hammer-tab-row">
+            {TIMELINE_TOOL_ORDER.map((tool) => (
+              <button
+                key={tool.id}
+                type="button"
+                onClick={() => setActiveTimelineTool(tool.id)}
+                className={getToggleButtonClassName(activeTimelineTool === tool.id)}
+              >
+                {tool.label}
+              </button>
+            ))}
+          </div>
+          <div className="hammer-tab-row">
+            {TIMELINE_ZOOM_OPTIONS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setTimelineZoomId(option.id)}
+                className={getToggleButtonClassName(timelineZoomId === option.id)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      sectionClassName="hammer-center-timeline-panel hammer-pane-section--overflow-hidden"
+      bodyClassName="hammer-pane-section__body--scroll"
+    >
+      <div className="hammer-meta-strip">
+        <span className="hammer-pill">mode {activeTimelineToolDefinition.label}</span>
+        <span className="hammer-pill">tracks {timelineTracks.length}</span>
+        <span className="hammer-pill">playhead {formatClock(currentTimeSec)}</span>
+        <span className="hammer-pill">focus {timelineFocusLabel}</span>
+        <span className="hammer-pill">zoom {activeTimelineZoom.label}</span>
+      </div>
+      <div className="hammer-timeline-focus-strip">
+        <span className={cx("hammer-pill", activeOverlayRow && "hammer-pill--playing")}>
+          active {activeOverlayRow ? activeOverlayRow.row_id : "none"}
+        </span>
+        <span className="hammer-pill">selected {selectedOverlayRow ? selectedOverlayRow.row_id : "none"}</span>
+        <span className="hammer-pill" title={getTimelineToolHint(activeTimelineTool)}>
+          tool {activeTimelineToolDefinition.label}
+        </span>
+        <span className="hammer-pill">ripple {timelineRippleLabel}</span>
+        <span className="hammer-pill">
+          edit {selectedRowHasTimelineEditCue ? selectedRowEffects : "none"}
+        </span>
+      </div>
+      <div className="hammer-timeline-ruler">
+        <div className="hammer-timeline-ruler__label">Time</div>
+        <div className={cx("hammer-timeline-ruler__track", dynamicStyles.timelineCanvasClassName)}>
+          {timelineRulerTicks.map((tick, index) => (
+            <div
+              key={tick.id}
+              className={cx("hammer-timeline-ruler__tick", dynamicStyles.rulerTickClassNames[index])}
+            >
+              <span className="hammer-timeline-ruler__tick-label">{tick.label}</span>
+            </div>
+          ))}
+          <div
+            aria-hidden="true"
+            className={cx(
+              "hammer-track-viewport__playhead",
+              "hammer-track-viewport__playhead--ruler",
+              dynamicStyles.playheadClassName,
+            )}
+          />
+        </div>
+      </div>
+      <div className="hammer-timeline-track-list">
+        {timelineTracks.map((track) => (
+          <div key={track.id} className="hammer-timeline-track">
+            {(() => {
+              const trackHasSelectedClip = track.clips.some((clip) => doesClipMatchSelectedState(clip));
+              const trackHasActiveClip = track.clips.some((clip) => doesClipMatchActiveState(clip));
+              const clipCount = track.clips.length;
+              const editableClipCount = track.clips.filter((clip) => clip.editable).length;
+              const uncertainClipCount = track.clips.filter((clip) => clip.status === "uncertain").length;
+              const trackStateLabel = trackHasSelectedClip
+                ? "selected row"
+                : trackHasActiveClip
+                ? "active playback"
+                : clipCount === 0
+                ? "empty"
+                : uncertainClipCount > 0
+                ? `${clipCount} clips · ${uncertainClipCount} needs review`
+                : `${clipCount} linked clips`;
+
+              return (
+                <>
+                  <div className="hammer-timeline-track__label">
+                    <div className="hammer-inline-list-wide">
+                      <strong className="hammer-timeline-track__title">{track.label}</strong>
+                      <span className="hammer-pill">{clipCount} clips</span>
+                    </div>
+                    <span className="hammer-timeline-track__meta">
+                      {getTimelineTrackRoleLabel(track.id)}
+                      {" · "}
+                      {trackStateLabel}
+                      {editableClipCount > 0 ? ` · ${editableClipCount} editable` : ""}
+                    </span>
+                  </div>
+                  <div className={cx(
+                    "hammer-track-viewport",
+                    dynamicStyles.timelineCanvasClassName,
+                    trackHasSelectedClip && "is-selected",
+                    trackHasActiveClip && "is-active",
+                  )}>
+                    <div className="hammer-track-viewport__backdrop" />
+                    {track.clips.length === 0 ? (
+                      <div className="hammer-track-viewport__empty">
+                        {getTimelineTrackEmptyMessage(track.id, Boolean(selectedOverlayRow))}
+                      </div>
+                    ) : track.clips.map((clip) => {
+                      const isSelected = doesClipMatchSelectedState(clip);
+                      const isActive = doesClipMatchActiveState(clip)
+                        || (currentTimeSec >= clip.start_sec && currentTimeSec <= clip.end_sec && !clip.linked_row_id);
+                      const showTrimHandles = activeTimelineTool === "cut" && clip.editable && (isSelected || isActive);
+                      const showRippleCue = (activeTimelineTool === "cut" || activeTimelineTool === "select")
+                        && clip.ripple_hint
+                        && (isSelected || isActive);
+                      return (
+                        <button
+                          key={clip.id}
+                          type="button"
+                          title={[
+                            clip.label,
+                            `${formatClock(clip.start_sec)}-${formatClock(clip.end_sec)}`,
+                            clip.title_detail,
+                          ].filter(Boolean).join(" · ")}
+                          onClick={() => selectTimelineClip(clip)}
+                          className={cx(
+                            "hammer-timeline-clip",
+                            dynamicStyles.clipLayoutClassNames.get(getTimelineClipLayoutKey(track.id, clip.id)),
+                            clip.editable && "is-editable",
+                            isSelected && "is-selected",
+                            isActive && "is-active",
+                            showTrimHandles && "has-trim-handles",
+                            clip.status === "uncertain" && "is-uncertain",
+                            clip.tone === "#dc2626" && "hammer-timeline-clip--red",
+                            clip.tone === "#0ea5e9" && "hammer-timeline-clip--cyan",
+                            clip.tone === "#818cf8" && "hammer-timeline-clip--indigo",
+                            clip.tone === "#60a5fa" && "hammer-timeline-clip--blue",
+                            clip.tone === "#34d399" && "hammer-timeline-clip--green",
+                            clip.tone === "#f59e0b" && "hammer-timeline-clip--amber",
+                            clip.tone === "#f472b6" && "hammer-timeline-clip--pink",
+                            clip.tone === "#c084fc" && "hammer-timeline-clip--violet",
+                            clip.tone === "#f97316" && "hammer-timeline-clip--orange",
+                          )}
+                        >
+                          {showTrimHandles ? (
+                            <>
+                              <span className="hammer-timeline-clip__trim-handle hammer-timeline-clip__trim-handle--start" />
+                              <span className="hammer-timeline-clip__trim-handle hammer-timeline-clip__trim-handle--end" />
+                            </>
+                          ) : null}
+                          {clip.label}
+                          {showRippleCue ? (
+                            <span className="hammer-timeline-clip__ripple-cue">Ripple</span>
+                          ) : null}
+                          {clip.badge_label && clip.badge_tone === "uncertain" ? (
+                            <span className="hammer-timeline-clip__uncertainty-cue">{clip.badge_label}</span>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                    <div
+                      aria-hidden="true"
+                      className={cx("hammer-track-viewport__playhead", dynamicStyles.playheadClassName)}
+                    />
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        ))}
+      </div>
+    </HammerPaneSection>
+  );
 
   return (
     <section className="hammer-editor-shell">
@@ -5584,7 +5789,7 @@ export default function TranscriptSeekMock(
           {isTranscriptControlsCollapsed ? (
             <div className="hammer-preview-panel__collapsed">
               <div className="hammer-copy-sm hammer-copy-muted">
-                Transcript controls are collapsed. The readable transcript remains available below.
+                Transcript controls collapsed.
               </div>
               <div className="hammer-meta-strip">
                 <span className="hammer-pill">{overlayRows.length} lines</span>
@@ -5926,9 +6131,6 @@ export default function TranscriptSeekMock(
               <div className="hammer-stack-4">
                 <div className="hammer-label">Preview Surface</div>
                 <div className="hammer-copy-sm hammer-copy-strong">Cue-driven visual preview</div>
-                <div className="hammer-copy-sm hammer-copy-muted">
-                  This surface stays visible on the page. It uses staged visuals plus runtime defaults only.
-                </div>
               </div>
               <div className="hammer-meta-strip">
                 <span className={cx("hammer-pill", isPlaying && "hammer-pill--playing")}>
@@ -6146,7 +6348,7 @@ export default function TranscriptSeekMock(
 
         <HammerPaneSection
           title="Preview Monitor"
-          subtitle="Play here means polished audio plus cue-driven visual preview, not a final render."
+          subtitle="Status strip"
           bodyId={previewMonitorPanelId}
           action={(
             <div className="hammer-action-row">
@@ -6352,6 +6554,7 @@ export default function TranscriptSeekMock(
           </div>
           )}
         </HammerPaneSection>
+        {timelineWorkspaceContent}
         </div>
       </div>
 
@@ -6422,215 +6625,6 @@ export default function TranscriptSeekMock(
         ))}
       </div>
         </div>
-      </div>
-
-      <div className="hammer-pane hammer-pane--timeline">
-        <HammerPaneSection
-          title="Timeline"
-          subtitle="Hammer stays transcript-first, but the bottom timeline remains a real multi-track editing surface for placement, layering, and track-aware work."
-          action={(
-            <div className="hammer-tab-row">
-              {TIMELINE_TOOL_ORDER.map((tool) => (
-                <button
-                  key={tool.id}
-                  type="button"
-                  onClick={() => setActiveTimelineTool(tool.id)}
-                  className={getToggleButtonClassName(activeTimelineTool === tool.id)}
-                >
-                  {tool.label}
-                </button>
-              ))}
-            </div>
-          )}
-          sectionClassName="hammer-pane-section--overflow-hidden"
-          bodyClassName="hammer-pane-section__body--scroll"
-        >
-          <div className="hammer-meta-strip">
-            <span className="hammer-pill">mode {activeTimelineToolDefinition.label}</span>
-            <span className="hammer-pill">tracks {timelineTracks.length}</span>
-            <span className="hammer-pill">playhead {formatClock(currentTimeSec)}</span>
-            <span className="hammer-pill">focus {timelineFocusLabel}</span>
-            <span className="hammer-pill">zoom {activeTimelineZoom.label}</span>
-          </div>
-          <div className="hammer-action-row">
-            <div className="hammer-copy-sm hammer-copy-muted">
-              Zoom the timeline for more precise clip targeting without changing edit timing truth.
-            </div>
-            <div className="hammer-tab-row">
-              {TIMELINE_ZOOM_OPTIONS.map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  onClick={() => setTimelineZoomId(option.id)}
-                  className={getToggleButtonClassName(timelineZoomId === option.id)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="hammer-timeline-status">
-            <div className="hammer-timeline-status__head">
-              <div className="hammer-stack-4">
-                <strong className="hammer-copy-strong">Timeline Focus</strong>
-                <div className="hammer-copy-sm hammer-copy-muted">{timelineToolHint}</div>
-              </div>
-              <div className="hammer-meta-strip">
-                <span className={cx("hammer-pill", activeOverlayRow && "hammer-pill--playing")}>
-                  active {activeOverlayRow ? activeOverlayRow.row_id : "none"}
-                </span>
-                <span className="hammer-pill">selected {selectedOverlayRow ? selectedOverlayRow.row_id : "none"}</span>
-              </div>
-            </div>
-            <div className="hammer-inspector-grid">
-              <div>
-                <div className="hammer-label">current transcript row</div>
-                <div>{timelineFocusLabel}</div>
-              </div>
-              <div>
-                <div className="hammer-label">tool feedback</div>
-                <div>{activeTimelineToolDefinition.label}</div>
-              </div>
-              <div>
-                <div className="hammer-label">trim / ripple cue</div>
-                <div>{timelineRippleLabel}</div>
-              </div>
-              <div>
-                <div className="hammer-label">edit state</div>
-                <div>{selectedRowHasTimelineEditCue ? selectedRowEffects : "no staged clip edit"}</div>
-              </div>
-            </div>
-          </div>
-          <div className="hammer-timeline-ruler">
-            <div className="hammer-timeline-ruler__label">Time</div>
-            <div className={cx("hammer-timeline-ruler__track", dynamicStyles.timelineCanvasClassName)}>
-              {timelineRulerTicks.map((tick, index) => (
-                <div
-                  key={tick.id}
-                  className={cx("hammer-timeline-ruler__tick", dynamicStyles.rulerTickClassNames[index])}
-                >
-                  <span className="hammer-timeline-ruler__tick-label">{tick.label}</span>
-                </div>
-              ))}
-              <div
-                aria-hidden="true"
-                className={cx(
-                  "hammer-track-viewport__playhead",
-                  "hammer-track-viewport__playhead--ruler",
-                  dynamicStyles.playheadClassName,
-                )}
-              />
-            </div>
-          </div>
-          <div className="hammer-timeline-track-list">
-            {timelineTracks.map((track) => (
-              <div key={track.id} className="hammer-timeline-track">
-                {(() => {
-                  const trackHasSelectedClip = track.clips.some((clip) => doesClipMatchSelectedState(clip));
-                  const trackHasActiveClip = track.clips.some((clip) => doesClipMatchActiveState(clip));
-                  const clipCount = track.clips.length;
-                  const editableClipCount = track.clips.filter((clip) => clip.editable).length;
-                  const uncertainClipCount = track.clips.filter((clip) => clip.status === "uncertain").length;
-                  const trackStateLabel = trackHasSelectedClip
-                    ? "selected row"
-                    : trackHasActiveClip
-                    ? "active playback"
-                    : clipCount === 0
-                    ? "empty"
-                    : uncertainClipCount > 0
-                    ? `${clipCount} clips · ${uncertainClipCount} needs review`
-                    : `${clipCount} linked clips`;
-
-                  return (
-                    <>
-                <div className="hammer-timeline-track__label">
-                  <div className="hammer-inline-list-wide">
-                    <strong className="hammer-timeline-track__title">{track.label}</strong>
-                    <span className="hammer-pill">{clipCount} clips</span>
-                  </div>
-                  <span className="hammer-timeline-track__meta">
-                    {getTimelineTrackRoleLabel(track.id)}
-                    {" · "}
-                    {trackStateLabel}
-                    {editableClipCount > 0 ? ` · ${editableClipCount} editable` : ""}
-                  </span>
-                </div>
-                <div className={cx(
-                  "hammer-track-viewport",
-                  dynamicStyles.timelineCanvasClassName,
-                  trackHasSelectedClip && "is-selected",
-                  trackHasActiveClip && "is-active",
-                )}>
-                  <div className="hammer-track-viewport__backdrop" />
-                  {track.clips.length === 0 ? (
-                    <div className="hammer-track-viewport__empty">
-                      {getTimelineTrackEmptyMessage(track.id, Boolean(selectedOverlayRow))}
-                    </div>
-                  ) : track.clips.map((clip) => {
-                    const isSelected = doesClipMatchSelectedState(clip);
-                    const isActive = doesClipMatchActiveState(clip)
-                      || (currentTimeSec >= clip.start_sec && currentTimeSec <= clip.end_sec && !clip.linked_row_id);
-                    const showTrimHandles = activeTimelineTool === "cut" && clip.editable && (isSelected || isActive);
-                    const showRippleCue = (activeTimelineTool === "cut" || activeTimelineTool === "select")
-                      && clip.ripple_hint
-                      && (isSelected || isActive);
-                    return (
-                      <button
-                        key={clip.id}
-                        type="button"
-                        title={[
-                          clip.label,
-                          `${formatClock(clip.start_sec)}-${formatClock(clip.end_sec)}`,
-                          clip.title_detail,
-                        ].filter(Boolean).join(" · ")}
-                        onClick={() => selectTimelineClip(clip)}
-                        className={cx(
-                          "hammer-timeline-clip",
-                          dynamicStyles.clipLayoutClassNames.get(getTimelineClipLayoutKey(track.id, clip.id)),
-                          clip.editable && "is-editable",
-                          isSelected && "is-selected",
-                          isActive && "is-active",
-                          showTrimHandles && "has-trim-handles",
-                          clip.status === "uncertain" && "is-uncertain",
-                          clip.tone === "#dc2626" && "hammer-timeline-clip--red",
-                          clip.tone === "#0ea5e9" && "hammer-timeline-clip--cyan",
-                          clip.tone === "#818cf8" && "hammer-timeline-clip--indigo",
-                          clip.tone === "#60a5fa" && "hammer-timeline-clip--blue",
-                          clip.tone === "#34d399" && "hammer-timeline-clip--green",
-                          clip.tone === "#f59e0b" && "hammer-timeline-clip--amber",
-                          clip.tone === "#f472b6" && "hammer-timeline-clip--pink",
-                          clip.tone === "#c084fc" && "hammer-timeline-clip--violet",
-                          clip.tone === "#f97316" && "hammer-timeline-clip--orange",
-                        )}
-                      >
-                        {showTrimHandles ? (
-                          <>
-                            <span className="hammer-timeline-clip__trim-handle hammer-timeline-clip__trim-handle--start" />
-                            <span className="hammer-timeline-clip__trim-handle hammer-timeline-clip__trim-handle--end" />
-                          </>
-                        ) : null}
-                        {clip.label}
-                        {showRippleCue ? (
-                          <span className="hammer-timeline-clip__ripple-cue">Ripple</span>
-                        ) : null}
-                        {clip.badge_label && clip.badge_tone === "uncertain" ? (
-                          <span className="hammer-timeline-clip__uncertainty-cue">{clip.badge_label}</span>
-                        ) : null}
-                      </button>
-                    );
-                  })}
-                  <div
-                    aria-hidden="true"
-                    className={cx("hammer-track-viewport__playhead", dynamicStyles.playheadClassName)}
-                  />
-                </div>
-                    </>
-                  );
-                })()}
-              </div>
-            ))}
-          </div>
-        </HammerPaneSection>
       </div>
     </section>
   );

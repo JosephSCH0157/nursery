@@ -130,25 +130,39 @@ export async function loadHammerPreviewAssetDataUrl(args: {
   }
 
   const response = await tongsFetch(
-    `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/read-file?path=${encodeURIComponent(path)}&encoding=base64`,
-    { method: "GET" },
+    `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/read-file?path=${encodeURIComponent(path)}&encoding=binary`,
+    {
+      method: "GET",
+      headers: {
+        accept: "application/octet-stream",
+      },
+      timeoutMs: 30_000,
+    },
   );
   if (!response.ok) {
-    return { ok: false, error: "Preview image is not available yet." };
+    let error = "Preview image is not available yet.";
+    try {
+      const body = await readBodyAsJson(response);
+      if (isRecord(body) && isRecord(body.error)) {
+        const message = readString(body.error.message);
+        if (message) {
+          error = message;
+        }
+      }
+    } catch {
+      // Keep the fallback message stable if the response body is not JSON.
+    }
+    return { ok: false, error };
   }
 
-  const body = await readBodyAsJson(response);
-  if (!isRecord(body) || body.ok !== true || !isRecord(body.data)) {
-    return { ok: false, error: "Preview image response was invalid." };
-  }
-  const bytesBase64 = readString(body.data.bytes_base64);
-  if (!bytesBase64) {
+  const bytes = await response.arrayBuffer();
+  if (bytes.byteLength === 0) {
     return { ok: false, error: "Preview image is empty." };
   }
-  const contentType = readString(body.data.content_type) ?? inferImageMimeType(path);
+  const contentType = readString(response.headers.get("content-type")) ?? inferImageMimeType(path);
   return {
     ok: true,
-    dataUrl: `data:${contentType};base64,${bytesBase64}`,
+    dataUrl: URL.createObjectURL(new Blob([bytes], { type: contentType })),
     path,
   };
 }
