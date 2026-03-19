@@ -314,6 +314,15 @@ const TIMELINE_TOOL_ORDER: Array<{ id: TimelineToolId; label: string }> = [
   { id: "text", label: "Text" },
 ];
 
+const TIMELINE_ZOOM_OPTIONS = [
+  { id: "fit", label: "Fit", scale: 1 },
+  { id: "close", label: "Close", scale: 1.5 },
+  { id: "detail", label: "Detail", scale: 2.25 },
+  { id: "micro", label: "Micro", scale: 3.5 },
+] as const;
+
+type TimelineZoomId = (typeof TIMELINE_ZOOM_OPTIONS)[number]["id"];
+
 const FILLER_PATTERN = /\b(um|uh|you know|like|sort of|kind of|i mean)\b/i;
 const GAP_TIGHTENING_THRESHOLD_SEC = 0.35;
 const TIMELINE_RULER_DIVISIONS = 6;
@@ -1346,6 +1355,7 @@ export default function TranscriptSeekMock(
   const [preparedReleasePackageFeedback, setPreparedReleasePackageFeedback] = useState<string | null>(null);
   const [centerStackMeasuredHeight, setCenterStackMeasuredHeight] = useState<number | null>(null);
   const [activeTimelineTool, setActiveTimelineTool] = useState<TimelineToolId>("select");
+  const [timelineZoomId, setTimelineZoomId] = useState<TimelineZoomId>("fit");
   const [showDebugPanels, setShowDebugPanels] = useState(false);
   const [isTranscriptControlsCollapsed, setIsTranscriptControlsCollapsed] = useState(false);
   const [isPreviewMonitorCollapsed, setIsPreviewMonitorCollapsed] = useState(false);
@@ -5426,9 +5436,18 @@ export default function TranscriptSeekMock(
   const activeToolDefinition = HAMMER_TOOL_ORDER.find((tool) => tool.id === activeTool) ?? HAMMER_TOOL_ORDER[0];
   const activeToolHint = getHammerToolHint(activeTool);
   const activeTimelineToolDefinition = TIMELINE_TOOL_ORDER.find((tool) => tool.id === activeTimelineTool) ?? TIMELINE_TOOL_ORDER[0];
+  const activeTimelineZoom = TIMELINE_ZOOM_OPTIONS.find((option) => option.id === timelineZoomId) ?? TIMELINE_ZOOM_OPTIONS[0];
   const timelineRulerTicks = useMemo(
     () => buildTimelineRulerTicks(effectiveDurationSec),
     [effectiveDurationSec],
+  );
+  const timelineCanvasWidthPx = useMemo(
+    () => Math.max(
+      Math.round((paneLayout.center_px - 180) * activeTimelineZoom.scale),
+      Math.round(effectiveDurationSec * 28 * activeTimelineZoom.scale),
+      640,
+    ),
+    [activeTimelineZoom.scale, effectiveDurationSec, paneLayout.center_px],
   );
   const upperPaneMinWidth = paneLayout.left_px
     + paneLayout.center_px
@@ -5463,6 +5482,10 @@ export default function TranscriptSeekMock(
     const playheadClassName = addRule("playhead", {
       left: `${playheadPercent}%`,
     });
+    const timelineCanvasClassName = addRule("timeline-canvas", {
+      width: `${timelineCanvasWidthPx}px`,
+      minWidth: `${timelineCanvasWidthPx}px`,
+    });
     const rulerTickClassNames = timelineRulerTicks.map((tick, index) => addRule(
       `ruler-tick-${index}`,
       { left: `${tick.positionPercent}%` },
@@ -5491,6 +5514,7 @@ export default function TranscriptSeekMock(
       playheadClassName,
       progressFillClassName,
       rulerTickClassNames,
+      timelineCanvasClassName,
       upperLayoutClassName,
     };
   }, [
@@ -5501,6 +5525,7 @@ export default function TranscriptSeekMock(
     playheadPercent,
     previewMonitorAspectRatio,
     progressPercent,
+    timelineCanvasWidthPx,
     timelineRulerTicks,
     timelineTracks,
     upperPaneMinWidth,
@@ -6425,6 +6450,24 @@ export default function TranscriptSeekMock(
             <span className="hammer-pill">tracks {timelineTracks.length}</span>
             <span className="hammer-pill">playhead {formatClock(currentTimeSec)}</span>
             <span className="hammer-pill">focus {timelineFocusLabel}</span>
+            <span className="hammer-pill">zoom {activeTimelineZoom.label}</span>
+          </div>
+          <div className="hammer-action-row">
+            <div className="hammer-copy-sm hammer-copy-muted">
+              Zoom the timeline for more precise clip targeting without changing edit timing truth.
+            </div>
+            <div className="hammer-tab-row">
+              {TIMELINE_ZOOM_OPTIONS.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setTimelineZoomId(option.id)}
+                  className={getToggleButtonClassName(timelineZoomId === option.id)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="hammer-timeline-status">
             <div className="hammer-timeline-status__head">
@@ -6460,7 +6503,7 @@ export default function TranscriptSeekMock(
           </div>
           <div className="hammer-timeline-ruler">
             <div className="hammer-timeline-ruler__label">Time</div>
-            <div className="hammer-timeline-ruler__track">
+            <div className={cx("hammer-timeline-ruler__track", dynamicStyles.timelineCanvasClassName)}>
               {timelineRulerTicks.map((tick, index) => (
                 <div
                   key={tick.id}
@@ -6514,6 +6557,7 @@ export default function TranscriptSeekMock(
                 </div>
                 <div className={cx(
                   "hammer-track-viewport",
+                  dynamicStyles.timelineCanvasClassName,
                   trackHasSelectedClip && "is-selected",
                   trackHasActiveClip && "is-active",
                 )}>
