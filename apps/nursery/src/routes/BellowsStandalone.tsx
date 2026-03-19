@@ -1359,6 +1359,8 @@ export default function BellowsStandalone() {
     workspaceId,
   ]);
 
+  const session = snapshot?.session ?? null;
+
   useEffect(() => {
     if (!session) {
       setRecoveryTargets({
@@ -1689,7 +1691,6 @@ export default function BellowsStandalone() {
     }
   }
 
-  const session = snapshot?.session ?? null;
   const activeRuntime = session && runtimeShell ? runtimeShell : null;
   const lifecycle = session?.machineState.lifecycle ?? "idle";
   const terminal = session ? canArchive(lifecycle) : false;
