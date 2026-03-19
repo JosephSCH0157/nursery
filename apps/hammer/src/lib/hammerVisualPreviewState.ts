@@ -58,6 +58,22 @@ function inferImageMimeType(path: string | null | undefined): string {
   return "image/png";
 }
 
+function decodeBase64ToUint8Array(base64: string): Uint8Array {
+  const normalized = base64.trim();
+  const binary = atob(normalized);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+function createObjectUrlFromBytes(bytes: Uint8Array, contentType: string): string {
+  const arrayBuffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(arrayBuffer).set(bytes);
+  return URL.createObjectURL(new Blob([arrayBuffer], { type: contentType }));
+}
+
 function normalizeWorkpieceFilePath(workpieceId: string, input: string | null | undefined): string | null {
   const value = readString(input);
   if (!value) return null;
@@ -140,12 +156,37 @@ export async function loadHammerPreviewAssetDataUrl(args: {
     return { ok: false, error: "Preview image path is missing." };
   }
 
-  const response = await tongsFetch(
-    `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/read-file?path=${encodeURIComponent(path)}&encoding=binary`,
-    {
+  const binaryUrl = `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/read-file?path=${encodeURIComponent(path)}&encoding=binary`;
+  try {
+    const response = await tongsFetch(binaryUrl, {
       method: "GET",
       headers: {
         accept: "application/octet-stream",
+      },
+      timeoutMs: 10_000,
+    });
+    if (response.ok) {
+      const bytes = await response.arrayBuffer();
+      if (bytes.byteLength > 0) {
+        const contentType = readString(response.headers.get("content-type")) ?? inferImageMimeType(path);
+        return {
+          ok: true,
+          dataUrl: URL.createObjectURL(new Blob([bytes], { type: contentType })),
+          path,
+        };
+      }
+    }
+  } catch {
+    // Fall through to the base64 path. Some browser/proxy combinations are more
+    // reliable with JSON than raw binary reads for local dev assets.
+  }
+
+  const response = await tongsFetch(
+    `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/read-file?path=${encodeURIComponent(path)}&encoding=base64`,
+    {
+      method: "GET",
+      headers: {
+        accept: "application/json",
       },
       timeoutMs: 30_000,
     },
@@ -166,14 +207,21 @@ export async function loadHammerPreviewAssetDataUrl(args: {
     return { ok: false, error };
   }
 
-  const bytes = await response.arrayBuffer();
+  const body = await readBodyAsJson(response);
+  const data = isRecord(body) && isRecord(body.data) ? body.data : null;
+  const bytesBase64 = data ? readString(data.bytes_base64) : null;
+  if (!bytesBase64) {
+    return { ok: false, error: "Preview image payload is missing bytes." };
+  }
+  const contentType = data ? readString(data.content_type) : null;
+  const bytes = decodeBase64ToUint8Array(bytesBase64);
   if (bytes.byteLength === 0) {
     return { ok: false, error: "Preview image is empty." };
   }
-  const contentType = readString(response.headers.get("content-type")) ?? inferImageMimeType(path);
+
   return {
     ok: true,
-    dataUrl: URL.createObjectURL(new Blob([bytes], { type: contentType })),
+    dataUrl: createObjectUrlFromBytes(bytes, contentType ?? inferImageMimeType(path)),
     path,
   };
 }

@@ -178,6 +178,9 @@ export interface BellowsTongsSessionRepository {
   loadRehydrationBundle(
     sessionId: SessionId,
   ): Promise<BellowsTongsRehydrationBundle | null>;
+  loadMostRecentSession(
+    workspaceId: WorkspaceId,
+  ): Promise<BellowsTongsRehydrationBundle | null>;
   loadMostRecentRecoverableSession(
     workspaceId: WorkspaceId,
   ): Promise<BellowsTongsRehydrationBundle | null>;

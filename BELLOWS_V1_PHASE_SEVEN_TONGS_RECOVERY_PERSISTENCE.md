@@ -236,6 +236,8 @@ Canonical operations:
   Load checkpoint history for audit or repair.
 - `loadRehydrationBundle`
   Load header plus latest checkpoint in one application-level call.
+- `loadMostRecentSession`
+  Load the latest Bellows session for a workspace, including terminal sessions.
 - `loadMostRecentRecoverableSession`
   Find the workspace session Bellows should attempt to resume.
 - `sealSession`

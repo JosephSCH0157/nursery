@@ -1315,6 +1315,7 @@ export default function TranscriptSeekMock(
   const [previewVisualAssetUrls, setPreviewVisualAssetUrls] = useState<Map<string, string>>(() => new Map());
   const [ignoredPreviewVisualAssetRefs, setIgnoredPreviewVisualAssetRefs] = useState<Set<string>>(() => new Set());
   const [previewVisualLoadingRef, setPreviewVisualLoadingRef] = useState<string | null>(null);
+  const [previewVisualLoadError, setPreviewVisualLoadError] = useState<string | null>(null);
   const [lastPreviewSkip, setLastPreviewSkip] = useState<PreviewSkipEvent | null>(null);
   const [editInstructions, setEditInstructions] = useState<HammerEditInstruction[]>(
     () => cloneEditInstructions(resolvedLaunch.initial_edit_plan?.instructions ?? []),
@@ -2102,15 +2103,18 @@ export default function TranscriptSeekMock(
     setPreviewVisualAssetUrls(new Map());
     setIgnoredPreviewVisualAssetRefs(new Set());
     setPreviewVisualLoadingRef(null);
+    setPreviewVisualLoadError(null);
   }, [resolvedLaunch.launch_context.workpiece_id]);
 
   useEffect(() => {
     if (activePreviewVisual.kind !== "image") {
       setPreviewVisualLoadingRef(null);
+      setPreviewVisualLoadError(null);
       return;
     }
     if (!activePreviewVisual.imagePath || activePreviewVisual.imageUrl) {
       setPreviewVisualLoadingRef(null);
+      setPreviewVisualLoadError(null);
       return;
     }
 
@@ -2121,6 +2125,7 @@ export default function TranscriptSeekMock(
 
     let cancelled = false;
     setPreviewVisualLoadingRef(assetRef);
+    setPreviewVisualLoadError(null);
 
     void loadHammerPreviewAssetDataUrl({
       workpieceId: resolvedLaunch.launch_context.workpiece_id,
@@ -2128,6 +2133,7 @@ export default function TranscriptSeekMock(
     }).then((result) => {
       if (cancelled) return;
       if (!result.ok) {
+        setPreviewVisualLoadError(result.error);
         setIgnoredPreviewVisualAssetRefs((current) => {
           const next = new Set(current);
           next.add(assetRef);
@@ -2144,6 +2150,7 @@ export default function TranscriptSeekMock(
       setPreviewVisualLoadingRef(null);
     }).catch(() => {
       if (cancelled) return;
+      setPreviewVisualLoadError("Preview image request failed before Hammer could decode it.");
       setIgnoredPreviewVisualAssetRefs((current) => {
         const next = new Set(current);
         next.add(assetRef);
@@ -6658,6 +6665,11 @@ export default function TranscriptSeekMock(
                   <div className="hammer-copy-sm hammer-copy-muted hammer-mono">
                     {activePreviewVisual.imagePath ?? activePreviewVisual.imageAssetId}
                   </div>
+                  {previewVisualLoadError ? (
+                    <div className="hammer-copy-sm hammer-copy-muted">
+                      {previewVisualLoadError}
+                    </div>
+                  ) : null}
                 </div>
               ) : (
                 <div className="hammer-monitor__center">
