@@ -1411,6 +1411,7 @@ export default function TranscriptSeekMock(
   const [timelineZoomId, setTimelineZoomId] = useState<TimelineZoomId>("fit");
   const [selectedProposedChangeId, setSelectedProposedChangeId] = useState<string | null>(null);
   const [proposedChangeStatusOverrides, setProposedChangeStatusOverrides] = useState<Record<string, HammerProposedChangeStatus>>({});
+  const [autoAdvancePolishReview, setAutoAdvancePolishReview] = useState(true);
   const [showDebugPanels, setShowDebugPanels] = useState(false);
   const [isTranscriptControlsCollapsed, setIsTranscriptControlsCollapsed] = useState(false);
   const [isPreviewMonitorCollapsed, setIsPreviewMonitorCollapsed] = useState(true);
@@ -3316,6 +3317,47 @@ export default function TranscriptSeekMock(
     selectProposedChange(selectedProposedChange);
   }
 
+  function goToPreviousPolishChange() {
+    if (!previousPolishChange) return;
+    selectProposedChange(previousPolishChange);
+  }
+
+  function goToNextPolishChange() {
+    if (!nextPolishChange) return;
+    selectProposedChange(nextPolishChange);
+  }
+
+  function goToNextUnreviewedPolishChange() {
+    if (!nextUnreviewedPolishChange) return;
+    selectProposedChange(nextUnreviewedPolishChange);
+  }
+
+  function setPolishChangeStatusAndAdvance(
+    change: HammerProposedChange,
+    nextStatus: HammerProposedChangeStatus,
+  ) {
+    const shouldAutoAdvance = autoAdvancePolishReview
+      && (nextStatus === "approved" || nextStatus === "rejected");
+    setProposedChangeStatus(change, nextStatus);
+    if (!shouldAutoAdvance) return;
+
+    const currentIndex = polishProposedChanges.findIndex((candidate) => candidate.id === change.id);
+    const nextSuggested = (
+      currentIndex >= 0
+        ? polishProposedChanges.slice(currentIndex + 1).find((candidate) => (
+          candidate.id !== change.id && candidate.status === "suggested"
+        ))
+        : null
+    ) ?? polishProposedChanges.slice(0, Math.max(0, currentIndex)).find((candidate) => (
+      candidate.id !== change.id && candidate.status === "suggested"
+    )) ?? polishProposedChanges.find((candidate) => (
+      candidate.id !== change.id && candidate.status === "suggested"
+    )) ?? null;
+    if (nextSuggested) {
+      selectProposedChange(nextSuggested);
+    }
+  }
+
   function resetPreview() {
     const media = mediaElementRef.current;
     if (media) {
@@ -3679,6 +3721,51 @@ export default function TranscriptSeekMock(
   const selectedPolishChange = selectedProposedChange && polishProposedChanges.some((change) => change.id === selectedProposedChange.id)
     ? selectedProposedChange
     : null;
+  const polishReviewAnchorIndex = useMemo(() => {
+    if (selectedPolishChange) {
+      return polishProposedChanges.findIndex((change) => change.id === selectedPolishChange.id);
+    }
+
+    if (selectedOverlayRow) {
+      const linkedIndex = polishProposedChanges.findIndex((change) => change.linkedRowIds.includes(selectedOverlayRow.row_id));
+      if (linkedIndex >= 0) return linkedIndex;
+
+      const nearestForwardIndex = polishProposedChanges.findIndex((change) => change.startSec >= selectedOverlayRow.start_sec);
+      if (nearestForwardIndex >= 0) return nearestForwardIndex;
+
+      return polishProposedChanges.length > 0 ? polishProposedChanges.length - 1 : -1;
+    }
+
+    return -1;
+  }, [polishProposedChanges, selectedOverlayRow, selectedPolishChange]);
+  const previousPolishChange = polishReviewAnchorIndex > 0
+    ? polishProposedChanges[polishReviewAnchorIndex - 1] ?? null
+    : null;
+  const nextPolishChange = selectedPolishChange == null
+    ? (polishReviewAnchorIndex >= 0 ? polishProposedChanges[polishReviewAnchorIndex] ?? null : polishProposedChanges[0] ?? null)
+    : (polishReviewAnchorIndex >= 0 ? polishProposedChanges[polishReviewAnchorIndex + 1] ?? null : null);
+  const nextUnreviewedPolishChange = useMemo(() => {
+    const suggestedChanges = polishProposedChanges.filter((change) => change.status === "suggested");
+    if (suggestedChanges.length === 0) return null;
+    if (polishReviewAnchorIndex < 0) return suggestedChanges[0] ?? null;
+    const searchStartIndex = selectedPolishChange == null
+      ? polishReviewAnchorIndex
+      : polishReviewAnchorIndex + 1;
+    const nextAfterSelection = polishProposedChanges
+      .slice(searchStartIndex)
+      .find((change) => change.status === "suggested");
+    if (nextAfterSelection) return nextAfterSelection;
+    return polishProposedChanges.find((change) => change.status === "suggested") ?? null;
+  }, [polishProposedChanges, polishReviewAnchorIndex, selectedPolishChange]);
+  const polishRemainingCount = polishChangeStatusCounts.suggested;
+  const polishReviewProgressLabel = useMemo(() => [
+    `${polishProposedChanges.length} total`,
+    `${polishChangeStatusCounts.approved} approved`,
+    `${polishChangeStatusCounts.rejected} rejected`,
+    `${polishChangeStatusCounts.modified} modified`,
+    `${polishRemainingCount} remaining`,
+  ].join(" · "), [polishChangeStatusCounts, polishProposedChanges.length, polishRemainingCount]);
+  const isManualTranscriptRangeReview = selectedTranscriptGroupIds.length > 0 && selectedPolishChange == null;
   const highlightedTranscriptRowIds = useMemo(
     () => new Set(selectedPolishChange?.linkedRowIds ?? []),
     [selectedPolishChange],
@@ -4135,14 +4222,22 @@ export default function TranscriptSeekMock(
         <button
           type="button"
           className="hammer-button-xs"
-          onClick={() => setProposedChangeStatus(selectedProposedChange, "approved")}
+          onClick={() => (
+            selectedProposedChange && polishProposedChanges.some((change) => change.id === selectedProposedChange.id)
+              ? setPolishChangeStatusAndAdvance(selectedProposedChange, "approved")
+              : setProposedChangeStatus(selectedProposedChange, "approved")
+          )}
         >
           Approve
         </button>
         <button
           type="button"
           className="hammer-button-xs"
-          onClick={() => setProposedChangeStatus(selectedProposedChange, "rejected")}
+          onClick={() => (
+            selectedProposedChange && polishProposedChanges.some((change) => change.id === selectedProposedChange.id)
+              ? setPolishChangeStatusAndAdvance(selectedProposedChange, "rejected")
+              : setProposedChangeStatus(selectedProposedChange, "rejected")
+          )}
         >
           Reject
         </button>
@@ -4176,15 +4271,53 @@ export default function TranscriptSeekMock(
       case "polish":
         return (
           <div className="hammer-stack-10">
-            <div className="hammer-meta-strip">
-              <span className="hammer-pill">{polishChangeStatusCounts.suggested} suggested</span>
-              <span className="hammer-pill">{polishChangeStatusCounts.approved} approved</span>
-              <span className="hammer-pill">{polishChangeStatusCounts.modified} modified</span>
-              <span className="hammer-pill">{polishChangeStatusCounts.rejected} rejected</span>
+            <div className="hammer-review-momentum">
+              <div className="hammer-stack-4">
+                <strong className="hammer-copy-strong">Review Momentum</strong>
+                <div className="hammer-copy-sm hammer-copy-muted">{polishReviewProgressLabel}</div>
+              </div>
+              <div className="hammer-action-row">
+                <button
+                  type="button"
+                  className="hammer-button-xs"
+                  onClick={goToPreviousPolishChange}
+                  disabled={!previousPolishChange}
+                >
+                  Prev
+                </button>
+                <button
+                  type="button"
+                  className="hammer-button-xs"
+                  onClick={goToNextPolishChange}
+                  disabled={!nextPolishChange}
+                >
+                  Next
+                </button>
+                <button
+                  type="button"
+                  className="hammer-button-xs"
+                  onClick={goToNextUnreviewedPolishChange}
+                  disabled={!nextUnreviewedPolishChange}
+                >
+                  Next unreviewed
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAutoAdvancePolishReview((current) => !current)}
+                  className={getToggleButtonClassName(autoAdvancePolishReview)}
+                >
+                  Auto-advance {autoAdvancePolishReview ? "on" : "off"}
+                </button>
+              </div>
             </div>
             <div className="hammer-copy-sm hammer-copy-muted">
               Review spoken-content changes here. The transcript highlights the affected words as you move through the report.
             </div>
+            {isManualTranscriptRangeReview ? (
+              <div className="hammer-copy-sm hammer-copy-muted">
+                Manual transcript range is active. Review navigation will resume item-based review and clear the range.
+              </div>
+            ) : null}
             <div className="hammer-proposed-change-list">
               {polishProposedChanges.length > 0 ? polishProposedChanges.map((change) => (
                 <button
@@ -4240,14 +4373,14 @@ export default function TranscriptSeekMock(
                   <button
                     type="button"
                     className="hammer-button-xs"
-                    onClick={() => setProposedChangeStatus(selectedPolishChange, "approved")}
+                    onClick={() => setPolishChangeStatusAndAdvance(selectedPolishChange, "approved")}
                   >
                     Approve
                   </button>
                   <button
                     type="button"
                     className="hammer-button-xs"
-                    onClick={() => setProposedChangeStatus(selectedPolishChange, "rejected")}
+                    onClick={() => setPolishChangeStatusAndAdvance(selectedPolishChange, "rejected")}
                   >
                     Reject
                   </button>
@@ -4257,6 +4390,30 @@ export default function TranscriptSeekMock(
                     onClick={() => setProposedChangeStatus(selectedPolishChange, "suggested")}
                   >
                     Restore
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    onClick={goToPreviousPolishChange}
+                    disabled={!previousPolishChange}
+                  >
+                    Prev
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    onClick={goToNextPolishChange}
+                    disabled={!nextPolishChange}
+                  >
+                    Next
+                  </button>
+                  <button
+                    type="button"
+                    className="hammer-button-xs"
+                    onClick={goToNextUnreviewedPolishChange}
+                    disabled={!nextUnreviewedPolishChange}
+                  >
+                    Next unreviewed
                   </button>
                 </div>
               </div>
@@ -6910,14 +7067,21 @@ export default function TranscriptSeekMock(
                             <button
                               type="button"
                               className="hammer-button-xs"
-                              onClick={() => setProposedChangeStatus(selectedPolishChange, "approved")}
+                              onClick={reviewSelectedProposedChange}
+                            >
+                              Review
+                            </button>
+                            <button
+                              type="button"
+                              className="hammer-button-xs"
+                              onClick={() => setPolishChangeStatusAndAdvance(selectedPolishChange, "approved")}
                             >
                               Approve
                             </button>
                             <button
                               type="button"
                               className="hammer-button-xs"
-                              onClick={() => setProposedChangeStatus(selectedPolishChange, "rejected")}
+                              onClick={() => setPolishChangeStatusAndAdvance(selectedPolishChange, "rejected")}
                             >
                               Reject
                             </button>
@@ -6927,6 +7091,30 @@ export default function TranscriptSeekMock(
                               onClick={() => setProposedChangeStatus(selectedPolishChange, "suggested")}
                             >
                               Restore
+                            </button>
+                            <button
+                              type="button"
+                              className="hammer-button-xs"
+                              onClick={goToPreviousPolishChange}
+                              disabled={!previousPolishChange}
+                            >
+                              Prev
+                            </button>
+                            <button
+                              type="button"
+                              className="hammer-button-xs"
+                              onClick={goToNextPolishChange}
+                              disabled={!nextPolishChange}
+                            >
+                              Next
+                            </button>
+                            <button
+                              type="button"
+                              className="hammer-button-xs"
+                              onClick={goToNextUnreviewedPolishChange}
+                              disabled={!nextUnreviewedPolishChange}
+                            >
+                              Next unreviewed
                             </button>
                           </>
                         ) : null}
