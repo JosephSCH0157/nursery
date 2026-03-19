@@ -285,7 +285,7 @@ const DEFAULT_PANE_LAYOUT: HammerPaneLayout = {
 };
 
 const WORK_PANEL_VIEWS: Array<{ id: WorkPanelView; label: string }> = [
-  { id: "script", label: "Script" },
+  { id: "script", label: "Transcript" },
   { id: "assets", label: "Assets" },
 ];
 
@@ -1344,6 +1344,7 @@ export default function TranscriptSeekMock(
   const [preparedReleasePackageFeedback, setPreparedReleasePackageFeedback] = useState<string | null>(null);
   const [activeTimelineTool, setActiveTimelineTool] = useState<TimelineToolId>("select");
   const [showDebugPanels, setShowDebugPanels] = useState(false);
+  const [isTranscriptControlsCollapsed, setIsTranscriptControlsCollapsed] = useState(false);
   const [isPreviewMonitorCollapsed, setIsPreviewMonitorCollapsed] = useState(false);
   const [paneLayout, setPaneLayout] = useState<HammerPaneLayout>(DEFAULT_PANE_LAYOUT);
   const [activeResizeHandle, setActiveResizeHandle] = useState<HammerPaneResizeHandle | null>(null);
@@ -5494,115 +5495,140 @@ export default function TranscriptSeekMock(
         {activeWorkPanel === "script" ? (
         <>
         <HammerPaneSection
-          title="Script"
-          subtitle="Select a line to seek preview and stage spoken-content edits."
+          title="Transcript Controls"
+          subtitle="Select a transcript line to seek preview and stage spoken-content edits."
           action={(
-            <div className="hammer-tab-row">
-              {WORK_PANEL_VIEWS.map((panel) => (
-                <button
-                  key={panel.id}
-                  type="button"
-                  onClick={() => setActiveWorkPanel(panel.id)}
-                  className={getToggleButtonClassName(activeWorkPanel === panel.id)}
-                >
-                  {panel.label}
-                </button>
-              ))}
+            <div className="hammer-action-row">
+              <div className="hammer-tab-row">
+                {WORK_PANEL_VIEWS.map((panel) => (
+                  <button
+                    key={panel.id}
+                    type="button"
+                    onClick={() => setActiveWorkPanel(panel.id)}
+                    className={getToggleButtonClassName(activeWorkPanel === panel.id)}
+                  >
+                    {panel.label}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="hammer-button-xs"
+                onClick={() => setIsTranscriptControlsCollapsed((current) => !current)}
+                aria-expanded={!isTranscriptControlsCollapsed}
+              >
+                {isTranscriptControlsCollapsed ? "Expand" : "Collapse"}
+              </button>
             </div>
           )}
         >
-          <div className="hammer-meta-strip">
-            <span className="hammer-pill">{overlayRows.length} lines</span>
-            <span className="hammer-pill">{selectedOverlayRow ? "line selected" : "select a line"}</span>
-            <span className="hammer-pill">{activeOverlayRow ? "preview locked" : "ready to preview"}</span>
-          </div>
-          {selectedSegment ? (
-            <div className="hammer-script-panel__selection">
-              <div className="hammer-stack-4">
-                <div className="hammer-copy-sm hammer-copy-strong">
-                {selectedSegment.segment_id} · {selectedSegment.speaker}
-                </div>
-                <div className="hammer-copy-sm hammer-copy-muted">{selectedSegment.text}</div>
+          {isTranscriptControlsCollapsed ? (
+            <div className="hammer-preview-panel__collapsed">
+              <div className="hammer-copy-sm hammer-copy-muted">
+                Transcript controls are collapsed. The readable transcript remains available below.
               </div>
-              <div className="hammer-action-row">
-                <button
-                  type="button"
-                  disabled={!selectedSegment}
-                  className="hammer-button-xs"
-                  onClick={() => {
-                    if (!selectedSegment) return;
-                    toggleDeleteInstruction(selectedSegment.segment_id);
-                  }}
-                >
-                  {selectedSegmentDeleteInstruction ? "Restore" : "Delete"}
-                </button>
-                <button
-                  type="button"
-                  disabled={!selectedSegment}
-                  className="hammer-button-xs"
-                  onClick={() => {
-                    if (!selectedSegment) return;
-                    toggleMuteInstruction(selectedSegment.segment_id);
-                  }}
-                >
-                  {selectedSegmentMuteInstruction ? "Unmute" : "Mute"}
-                </button>
-                <button
-                  type="button"
-                  disabled={!selectedSegment}
-                  className="hammer-button-xs"
-                  onClick={() => {
-                    if (!selectedSegment) return;
-                    toggleTrimInstruction(selectedSegment);
-                  }}
-                >
-                  {selectedSegmentTrimInstruction ? "Undo trim" : "Trim"}
-                </button>
-                <button
-                  type="button"
-                  disabled={!selectedSegment}
-                  className="hammer-button-xs"
-                  onClick={() => {
-                    if (!selectedSegment) return;
-                    toggleSplitInstruction(selectedSegment);
-                  }}
-                >
-                  {selectedSegmentSplitInstruction ? "Undo split" : "Split"}
-                </button>
-                <button
-                  type="button"
-                  disabled={!selectedSegment || (!selectedSegmentMergeInstruction && !canMergeSelected)}
-                  className="hammer-button-xs"
-                  onClick={() => {
-                    if (!selectedSegment) return;
-                    toggleMergeInstruction(selectedSegment, selectedNextSegment);
-                  }}
-                >
-                  {selectedSegmentMergeInstruction ? "Undo merge" : "Merge with next"}
-                </button>
+              <div className="hammer-meta-strip">
+                <span className="hammer-pill">{overlayRows.length} lines</span>
+                <span className="hammer-pill">{selectedOverlayRow ? "line selected" : "select a line"}</span>
+                <span className="hammer-pill">{activeOverlayRow ? "preview locked" : "ready to preview"}</span>
               </div>
-              {!canMergeSelected && selectedNextSegment ? (
-                <div className="hammer-copy-sm hammer-copy-muted">
-                  Merge is disabled because the next speaker does not match.
-                </div>
-              ) : null}
-              {transcriptLoad.error ? (
-                <div className="hammer-copy-sm hammer-copy-warning">
-                  {transcriptLoad.error}
-                </div>
-              ) : null}
             </div>
           ) : (
-            <div className="hammer-script-panel__selection">
-              <div className="hammer-copy-sm hammer-copy-muted">
-              Select a transcript row to inspect it and apply segment-level edits.
+            <>
+              <div className="hammer-meta-strip">
+                <span className="hammer-pill">{overlayRows.length} lines</span>
+                <span className="hammer-pill">{selectedOverlayRow ? "line selected" : "select a line"}</span>
+                <span className="hammer-pill">{activeOverlayRow ? "preview locked" : "ready to preview"}</span>
               </div>
-              {transcriptLoad.error ? (
-                <div className="hammer-copy-sm hammer-copy-warning">
-                  {transcriptLoad.error}
+              {selectedSegment ? (
+                <div className="hammer-script-panel__selection">
+                  <div className="hammer-stack-4">
+                    <div className="hammer-copy-sm hammer-copy-strong">
+                    {selectedSegment.segment_id} · {selectedSegment.speaker}
+                    </div>
+                    <div className="hammer-copy-sm hammer-copy-muted">{selectedSegment.text}</div>
+                  </div>
+                  <div className="hammer-action-row">
+                    <button
+                      type="button"
+                      disabled={!selectedSegment}
+                      className="hammer-button-xs"
+                      onClick={() => {
+                        if (!selectedSegment) return;
+                        toggleDeleteInstruction(selectedSegment.segment_id);
+                      }}
+                    >
+                      {selectedSegmentDeleteInstruction ? "Restore" : "Delete"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!selectedSegment}
+                      className="hammer-button-xs"
+                      onClick={() => {
+                        if (!selectedSegment) return;
+                        toggleMuteInstruction(selectedSegment.segment_id);
+                      }}
+                    >
+                      {selectedSegmentMuteInstruction ? "Unmute" : "Mute"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!selectedSegment}
+                      className="hammer-button-xs"
+                      onClick={() => {
+                        if (!selectedSegment) return;
+                        toggleTrimInstruction(selectedSegment);
+                      }}
+                    >
+                      {selectedSegmentTrimInstruction ? "Undo trim" : "Trim"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!selectedSegment}
+                      className="hammer-button-xs"
+                      onClick={() => {
+                        if (!selectedSegment) return;
+                        toggleSplitInstruction(selectedSegment);
+                      }}
+                    >
+                      {selectedSegmentSplitInstruction ? "Undo split" : "Split"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!selectedSegment || (!selectedSegmentMergeInstruction && !canMergeSelected)}
+                      className="hammer-button-xs"
+                      onClick={() => {
+                        if (!selectedSegment) return;
+                        toggleMergeInstruction(selectedSegment, selectedNextSegment);
+                      }}
+                    >
+                      {selectedSegmentMergeInstruction ? "Undo merge" : "Merge with next"}
+                    </button>
+                  </div>
+                  {!canMergeSelected && selectedNextSegment ? (
+                    <div className="hammer-copy-sm hammer-copy-muted">
+                      Merge is disabled because the next speaker does not match.
+                    </div>
+                  ) : null}
+                  {transcriptLoad.error ? (
+                    <div className="hammer-copy-sm hammer-copy-warning">
+                      {transcriptLoad.error}
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
-            </div>
+              ) : (
+                <div className="hammer-script-panel__selection">
+                  <div className="hammer-copy-sm hammer-copy-muted">
+                  Select a transcript row to inspect it and apply segment-level edits.
+                  </div>
+                  {transcriptLoad.error ? (
+                    <div className="hammer-copy-sm hammer-copy-warning">
+                      {transcriptLoad.error}
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </>
           )}
         </HammerPaneSection>
 
@@ -5834,6 +5860,230 @@ export default function TranscriptSeekMock(
       />
 
       <div className="hammer-pane hammer-pane--center">
+        <div className="hammer-preview-surface-shell">
+          <div className="hammer-monitor">
+            <div className="hammer-monitor__chrome">
+              <div className="hammer-stack-4">
+                <div className="hammer-label">Preview Surface</div>
+                <div className="hammer-copy-sm hammer-copy-strong">Cue-driven visual preview</div>
+                <div className="hammer-copy-sm hammer-copy-muted">
+                  This surface stays visible on the page. It uses staged visuals plus runtime defaults only.
+                </div>
+              </div>
+              <div className="hammer-meta-strip">
+                <span className={cx("hammer-pill", isPlaying && "hammer-pill--playing")}>
+                  {isPlaying ? "Playing" : "Paused"}
+                </span>
+                <span className="hammer-pill">{sessionState.previewMode} preview</span>
+                <span className="hammer-pill">
+                  {activePreviewVisual.kind === "image"
+                    ? `${formatVisualApprovalStateLabel(activePreviewVisual.ingestState)} visual`
+                    : "No active visual"}
+                </span>
+              </div>
+            </div>
+
+            <div
+              className={cx(
+                "hammer-monitor__surface",
+                dynamicStyles.monitorSurfaceClassName,
+                activePreviewVisual.kind === "image" && activePreviewVisual.imageUrl && "has-media",
+              )}
+            >
+              {activePreviewVisual.kind === "image" && activePreviewVisual.imageUrl ? (
+                <img
+                  src={activePreviewVisual.imageUrl}
+                  alt=""
+                  className="hammer-monitor__media"
+                  data-testid="hammer-visual-preview-image"
+                />
+              ) : activePreviewVisual.kind === "image" ? (
+                <div className="hammer-monitor__center">
+                  <div className="hammer-monitor__eyebrow">Loading Visual</div>
+                  <h4 className="hammer-monitor__title">{activePreviewVisual.entryId}</h4>
+                  <div className="hammer-monitor__hint">
+                    Hammer is resolving the active mapped image from canonical Tongs assets.
+                  </div>
+                </div>
+              ) : (
+                <div className="hammer-monitor__center">
+                  <div className="hammer-monitor__eyebrow">Preview</div>
+                  <h4 className="hammer-monitor__title">No active visual</h4>
+                  <div className="hammer-monitor__hint">
+                    No usable mapped image is active at this cue. Hammer will keep the frame empty until the next usable visual appears.
+                  </div>
+                  <div className="hammer-meta-strip">
+                    <span className="hammer-pill">
+                      {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
+                    </span>
+                    <span className="hammer-pill">
+                      selected {selectedOverlayRow ? selectedOverlayRow.row_id : "none"}
+                    </span>
+                    {lastPreviewSkip ? (
+                      <span className="hammer-pill">skip {lastPreviewSkip.reason}</span>
+                    ) : null}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {!resolving && !resolveError && playbackSrc ? (
+            showPreviewVideo ? (
+              <video
+                ref={(node) => {
+                  mediaElementRef.current = node;
+                }}
+                src={playbackSrc}
+                className="hammer-audio-hidden"
+                preload="metadata"
+                data-testid="hammer-video-player"
+                onLoadedMetadata={(event) => handleVideoLoadedMetadata(event.currentTarget)}
+                onTimeUpdate={(event) => handlePlaybackTimeUpdate(event.currentTarget.currentTime)}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+                onEnded={() => setIsPlaying(false)}
+                onError={handlePlaybackFailure}
+              />
+            ) : (
+              <audio
+                ref={(node) => {
+                  mediaElementRef.current = node;
+                }}
+                src={playbackSrc}
+                className="hammer-audio-hidden"
+                preload="metadata"
+                data-testid="hammer-audio-player"
+                onLoadedMetadata={(event) => handlePlaybackLoadedMetadata(event.currentTarget.duration)}
+                onTimeUpdate={(event) => handlePlaybackTimeUpdate(event.currentTarget.currentTime)}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+                onEnded={() => setIsPlaying(false)}
+                onError={handlePlaybackFailure}
+              />
+            )
+          ) : null}
+
+          {playbackError ? (
+            <div className="hammer-preview-feedback hammer-copy-sm hammer-copy-error">{playbackError}</div>
+          ) : null}
+
+          <div className="hammer-preview-transport">
+            <div className="hammer-preview-transport__head">
+              <div className="hammer-stack-4">
+                <strong className="hammer-copy-strong">Transport</strong>
+                <div className="hammer-copy-sm hammer-copy-muted">
+                  Playback, seek, and preview-mode controls stay attached to the preview surface.
+                </div>
+              </div>
+              <div className="hammer-meta-strip">
+                <span className={cx("hammer-pill", isPlaying && "hammer-pill--playing")}>
+                  {isPlaying ? "playing" : "paused"}
+                </span>
+                <span className="hammer-pill">{sessionState.previewMode}</span>
+              </div>
+            </div>
+
+            <div className="hammer-action-row">
+              <button
+                type="button"
+                onClick={stepToPreviousSegment}
+                disabled={!previousSegmentRow}
+                className="hammer-button-xs"
+                title="Previous segment (Alt+Up)"
+              >
+                Prev segment
+              </button>
+              <button
+                type="button"
+                onClick={() => seekToResolvedTarget(previousPlayableTarget)}
+                disabled={previousPlayableTarget.timeSec == null}
+                className="hammer-button-xs"
+              >
+                Prev playable
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void onTogglePlayback();
+                }}
+                disabled={!canControlPlayback}
+                className="hammer-button-xs"
+              >
+                {isPlaying ? "Pause" : "Play"}
+              </button>
+              <button
+                type="button"
+                onClick={() => seekToResolvedTarget(nextPlayableTarget)}
+                disabled={nextPlayableTarget.timeSec == null}
+                className="hammer-button-xs"
+              >
+                Next playable
+              </button>
+              <button
+                type="button"
+                onClick={stepToNextSegment}
+                disabled={!nextSegmentRow}
+                className="hammer-button-xs"
+                title="Next segment (Alt+Down)"
+              >
+                Next segment
+              </button>
+              <button
+                type="button"
+                onClick={() => seekToResolvedTarget(jumpToActiveTarget)}
+                disabled={jumpToActiveTarget.timeSec == null}
+                className="hammer-button-xs"
+              >
+                Jump to active
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewMode((current) => (current === "raw" ? "edit-aware" : "raw"))}
+                className="hammer-button-xs"
+              >
+                {sessionState.previewMode === "raw" ? "Edit-aware" : "Raw"}
+              </button>
+              <button
+                type="button"
+                onClick={resetPreview}
+                className="hammer-button-xs"
+              >
+                Reset
+              </button>
+            </div>
+
+            <div className="hammer-copy-md">
+              Time: {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
+              {" · "}
+              Playback: {previewPlaybackTruthLabel}
+              {" · "}
+              Transcript: {previewTranscriptTruthLabel}
+              {" · "}
+              Skip: {lastPreviewSkip?.reason ?? "none"}
+            </div>
+
+            <div className="hammer-stack-6">
+              <div className="hammer-progress-track">
+                <div
+                  aria-hidden="true"
+                  className={cx("hammer-progress-fill", dynamicStyles.progressFillClassName)}
+                />
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={effectiveDurationSec}
+                step={0.1}
+                value={currentTimeSec}
+                onChange={(event) => seekTo(Number(event.target.value))}
+                aria-label="Playback playhead"
+                disabled={!canControlPlayback}
+              />
+            </div>
+          </div>
+        </div>
+
         <HammerPaneSection
           title="Preview Monitor"
           subtitle="Play here means polished audio plus cue-driven visual preview, not a final render."
@@ -5847,15 +6097,10 @@ export default function TranscriptSeekMock(
               >
                 {isPreviewMonitorCollapsed ? "Expand" : "Collapse"}
               </button>
-              <span className={cx("hammer-pill", isPlaying && "hammer-pill--playing")}>
-                {isPlaying ? "Playing" : "Paused"}
-              </span>
-              <span className="hammer-pill">{sessionState.previewMode} preview</span>
+              <span className="hammer-pill">{playbackSourceLabel}</span>
               <span className="hammer-pill">{previewSourceStatusLabel}</span>
               <span className="hammer-pill">
-                {activePreviewVisual.kind === "image"
-                  ? `${formatVisualApprovalStateLabel(activePreviewVisual.ingestState)} visual`
-                  : "No active visual"}
+                {selectedOverlayRow ? selectedOverlayRow.row_id : "no row selected"}
               </span>
             </div>
           )}
@@ -5865,17 +6110,13 @@ export default function TranscriptSeekMock(
           {isPreviewMonitorCollapsed ? (
             <div className="hammer-preview-panel__collapsed">
               <div className="hammer-copy-sm hammer-copy-muted">
-                Preview Monitor is collapsed. Playback and cue state are preserved.
+                Preview Monitor is collapsed. The persistent preview surface remains visible above.
               </div>
               <div className="hammer-meta-strip">
                 <span className="hammer-pill">
                   {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
                 </span>
-                <span className="hammer-pill">
-                  {activePreviewVisual.kind === "image"
-                    ? `${formatVisualApprovalStateLabel(activePreviewVisual.ingestState)} visual`
-                    : "No active visual"}
-                </span>
+                <span className="hammer-pill">{previewPlaybackTruthLabel}</span>
               </div>
             </div>
           ) : (
@@ -6046,222 +6287,6 @@ export default function TranscriptSeekMock(
               </div>
             </div>
 
-            <div className="hammer-monitor">
-              <div className="hammer-monitor__chrome">
-                <div className="hammer-stack-4">
-                  <div className="hammer-label">Preview Surface</div>
-                  <div className="hammer-copy-sm hammer-copy-strong">Cue-driven visual preview</div>
-                  <div className="hammer-copy-sm hammer-copy-muted">
-                    Preview uses staged visuals plus runtime defaults only. It does not persist composition metadata.
-                  </div>
-                </div>
-                <div className="hammer-meta-strip">
-                  <span className="hammer-pill">{playbackSourceLabel}</span>
-                  <span className="hammer-pill">
-                    {selectedOverlayRow ? selectedOverlayRow.row_id : "no row selected"}
-                  </span>
-                </div>
-              </div>
-
-              <div
-                className={cx(
-                  "hammer-monitor__surface",
-                  dynamicStyles.monitorSurfaceClassName,
-                  activePreviewVisual.kind === "image" && activePreviewVisual.imageUrl && "has-media",
-                )}
-              >
-                {activePreviewVisual.kind === "image" && activePreviewVisual.imageUrl ? (
-                  <img
-                    src={activePreviewVisual.imageUrl}
-                    alt=""
-                    className="hammer-monitor__media"
-                    data-testid="hammer-visual-preview-image"
-                  />
-                ) : activePreviewVisual.kind === "image" ? (
-                  <div className="hammer-monitor__center">
-                    <div className="hammer-monitor__eyebrow">Loading Visual</div>
-                    <h4 className="hammer-monitor__title">{activePreviewVisual.entryId}</h4>
-                    <div className="hammer-monitor__hint">
-                      Hammer is resolving the active mapped image from canonical Tongs assets.
-                    </div>
-                  </div>
-                ) : (
-                  <div className="hammer-monitor__center">
-                    <div className="hammer-monitor__eyebrow">Preview</div>
-                    <h4 className="hammer-monitor__title">No active visual</h4>
-                    <div className="hammer-monitor__hint">
-                      No usable mapped image is active at this cue. Hammer will keep the frame empty until the next usable visual appears.
-                    </div>
-                    <div className="hammer-meta-strip">
-                      <span className="hammer-pill">
-                        {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
-                      </span>
-                      <span className="hammer-pill">
-                        selected {selectedOverlayRow ? selectedOverlayRow.row_id : "none"}
-                      </span>
-                      {lastPreviewSkip ? (
-                        <span className="hammer-pill">skip {lastPreviewSkip.reason}</span>
-                      ) : null}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {!resolving && !resolveError && playbackSrc ? (
-              showPreviewVideo ? (
-                <video
-                  ref={(node) => {
-                    mediaElementRef.current = node;
-                  }}
-                  src={playbackSrc}
-                  className="hammer-audio-hidden"
-                  preload="metadata"
-                  data-testid="hammer-video-player"
-                  onLoadedMetadata={(event) => handleVideoLoadedMetadata(event.currentTarget)}
-                  onTimeUpdate={(event) => handlePlaybackTimeUpdate(event.currentTarget.currentTime)}
-                  onPlay={() => setIsPlaying(true)}
-                  onPause={() => setIsPlaying(false)}
-                  onEnded={() => setIsPlaying(false)}
-                  onError={handlePlaybackFailure}
-                />
-              ) : (
-                <audio
-                  ref={(node) => {
-                    mediaElementRef.current = node;
-                  }}
-                  src={playbackSrc}
-                  className="hammer-audio-hidden"
-                  preload="metadata"
-                  data-testid="hammer-audio-player"
-                  onLoadedMetadata={(event) => handlePlaybackLoadedMetadata(event.currentTarget.duration)}
-                  onTimeUpdate={(event) => handlePlaybackTimeUpdate(event.currentTarget.currentTime)}
-                  onPlay={() => setIsPlaying(true)}
-                  onPause={() => setIsPlaying(false)}
-                  onEnded={() => setIsPlaying(false)}
-                  onError={handlePlaybackFailure}
-                />
-              )
-            ) : null}
-
-            {playbackError ? (
-              <div className="hammer-preview-feedback hammer-copy-sm hammer-copy-error">{playbackError}</div>
-            ) : null}
-
-            <div className="hammer-preview-transport">
-              <div className="hammer-preview-transport__head">
-                <div className="hammer-stack-4">
-                  <strong className="hammer-copy-strong">Transport</strong>
-                  <div className="hammer-copy-sm hammer-copy-muted">
-                    Playback, seek, and preview-mode controls stay with the monitor instead of the transcript pane.
-                  </div>
-                </div>
-                <div className="hammer-meta-strip">
-                  <span className={cx("hammer-pill", isPlaying && "hammer-pill--playing")}>
-                    {isPlaying ? "playing" : "paused"}
-                  </span>
-                  <span className="hammer-pill">{sessionState.previewMode}</span>
-                </div>
-              </div>
-
-              <div className="hammer-action-row">
-                <button
-                  type="button"
-                  onClick={stepToPreviousSegment}
-                  disabled={!previousSegmentRow}
-                  className="hammer-button-xs"
-                  title="Previous segment (Alt+Up)"
-                >
-                  Prev segment
-                </button>
-                <button
-                  type="button"
-                  onClick={() => seekToResolvedTarget(previousPlayableTarget)}
-                  disabled={previousPlayableTarget.timeSec == null}
-                  className="hammer-button-xs"
-                >
-                  Prev playable
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void onTogglePlayback();
-                  }}
-                  disabled={!canControlPlayback}
-                  className="hammer-button-xs"
-                >
-                  {isPlaying ? "Pause" : "Play"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => seekToResolvedTarget(nextPlayableTarget)}
-                  disabled={nextPlayableTarget.timeSec == null}
-                  className="hammer-button-xs"
-                >
-                  Next playable
-                </button>
-                <button
-                  type="button"
-                  onClick={stepToNextSegment}
-                  disabled={!nextSegmentRow}
-                  className="hammer-button-xs"
-                  title="Next segment (Alt+Down)"
-                >
-                  Next segment
-                </button>
-                <button
-                  type="button"
-                  onClick={() => seekToResolvedTarget(jumpToActiveTarget)}
-                  disabled={jumpToActiveTarget.timeSec == null}
-                  className="hammer-button-xs"
-                >
-                  Jump to active
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPreviewMode((current) => (current === "raw" ? "edit-aware" : "raw"))}
-                  className="hammer-button-xs"
-                >
-                  {sessionState.previewMode === "raw" ? "Edit-aware" : "Raw"}
-                </button>
-                <button
-                  type="button"
-                  onClick={resetPreview}
-                  className="hammer-button-xs"
-                >
-                  Reset
-                </button>
-              </div>
-
-              <div className="hammer-copy-md">
-                Time: {formatClock(currentTimeSec)} / {formatClock(effectiveDurationSec)}
-                {" · "}
-                Playback: {previewPlaybackTruthLabel}
-                {" · "}
-                Transcript: {previewTranscriptTruthLabel}
-                {" · "}
-                Skip: {lastPreviewSkip?.reason ?? "none"}
-              </div>
-
-              <div className="hammer-stack-6">
-                <div className="hammer-progress-track">
-                  <div
-                    aria-hidden="true"
-                    className={cx("hammer-progress-fill", dynamicStyles.progressFillClassName)}
-                  />
-                </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={effectiveDurationSec}
-                  step={0.1}
-                  value={currentTimeSec}
-                  onChange={(event) => seekTo(Number(event.target.value))}
-                  aria-label="Playback playhead"
-                  disabled={!canControlPlayback}
-                />
-              </div>
-            </div>
           </div>
           )}
         </HammerPaneSection>
