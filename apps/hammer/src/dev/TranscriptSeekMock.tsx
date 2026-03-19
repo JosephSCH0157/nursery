@@ -176,7 +176,7 @@ type TimelineClip = {
   linked_segment_id?: string | null;
   editable?: boolean;
   ripple_hint?: boolean;
-  status?: "placed" | "uncertain";
+  status?: "placed" | "uncertain" | "approved";
   badge_label?: string | null;
   badge_tone?: "ripple" | "uncertain";
   title_detail?: string | null;
@@ -3619,7 +3619,7 @@ export default function TranscriptSeekMock(
       }
 
       const seenImageAssetIds = new Set<string>();
-      for (const placement of props.visualPlacements?.placements ?? []) {
+      for (const placement of currentVisualPlacements?.placements ?? []) {
         const imageAssetId = placement.asset_id ?? placement.asset_ref ?? placement.placement_id;
         if (seenImageAssetIds.has(imageAssetId)) continue;
         seenImageAssetIds.add(imageAssetId);
@@ -3648,7 +3648,7 @@ export default function TranscriptSeekMock(
       activeMediaRef,
       activeMediaUsesDevTone,
       primaryAssetDurationLabel,
-      props.visualPlacements,
+      currentVisualPlacements,
       resolveResult?.status,
       resolvedLaunch.launch_context.workpiece_id,
       sourceModeLabel,
@@ -4959,7 +4959,7 @@ export default function TranscriptSeekMock(
                   </div>
                   <div>
                     <div className="hammer-label">visual context</div>
-                    <div>{props.visualPlacements?.placements.length ?? 0} suggestions</div>
+                    <div>{currentVisualPlacements?.placements.length ?? 0} suggestions</div>
                   </div>
                   <div>
                     <div className="hammer-label">last run ref</div>
@@ -5585,7 +5585,7 @@ export default function TranscriptSeekMock(
     macroReadinessSummary,
     macroExecutionAvailable,
     mediaPrepOutputsPackage,
-    props.visualPlacements,
+    currentVisualPlacements,
     rawTranscriptLayerInspected,
     resolvedLaunch.launch_context.workpiece_id,
     resolvedLaunch.launch_context.workspace_id,

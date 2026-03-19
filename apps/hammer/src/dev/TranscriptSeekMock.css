@@ -237,6 +237,25 @@
   gap: 8px;
 }
 
+.hammer-field {
+  display: grid;
+  gap: 6px;
+}
+
+.hammer-field__input,
+.hammer-field__slider {
+  width: 100%;
+}
+
+.hammer-field__input {
+  min-height: 34px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.68);
+  color: #dbe8ff;
+  padding: 0 10px;
+}
+
 .hammer-mono {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
 }
@@ -1263,6 +1282,8 @@
   object-fit: contain;
   object-position: center;
   place-self: center;
+  transform-origin: center;
+  transition: transform 140ms ease, object-position 140ms ease;
 }
 
 .hammer-monitor__audio {
