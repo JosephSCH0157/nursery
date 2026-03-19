@@ -1,10 +1,13 @@
 import type {
   BellowsDeviceReadinessState,
   BellowsJoinState,
+  BellowsLifecycleState,
   BellowsPresenceState,
   BellowsResolvedTongsJoinLink,
   BellowsRoleCode,
 } from "@forge/bellows";
+
+export const BELLOWS_HOST_SESSION_SIGNAL_EVENT = "bellows-host-session-signal";
 
 export type BellowsParticipantReadiness = {
   readonly microphone: BellowsDeviceReadinessState;
@@ -16,6 +19,17 @@ export type BellowsAudioActivityState =
   | "unknown"
   | "silent"
   | "active";
+
+export type BellowsHostSessionSignalKind =
+  | "waiting_room"
+  | "admitted"
+  | "preflight"
+  | "ready_to_start"
+  | "countdown"
+  | "sync_initializing"
+  | "recording"
+  | "finalizing"
+  | "closed";
 
 export type BellowsParticipantPresencePayload = {
   readonly presenceKey: string;
@@ -48,6 +62,18 @@ export type BellowsHostPresencePayload =
     readonly joinLinkId: null;
     readonly source: "bellows_operator_surface";
   };
+
+export type BellowsHostSessionSignal = {
+  readonly kind: BellowsHostSessionSignalKind;
+  readonly sessionId: string;
+  readonly lifecycle: BellowsLifecycleState;
+  readonly headline: string;
+  readonly detail: string;
+  readonly sentAt: string;
+  readonly source: "bellows_operator_surface";
+  readonly hostParticipantId: string | null;
+  readonly hostDisplayName: string;
+};
 
 export function deriveBellowsPresenceState(
   readiness: BellowsParticipantReadiness,
@@ -124,6 +150,116 @@ export function buildBellowsHostPresencePayload(args: {
   };
 }
 
+export function buildBellowsHostSessionSignal(args: {
+  sessionId: string;
+  lifecycle: BellowsLifecycleState;
+  hostParticipantId: string | null;
+  hostDisplayName: string;
+  sentAt?: string;
+}): BellowsHostSessionSignal {
+  const description = describeBellowsHostSessionSignal(
+    args.lifecycle,
+    args.hostDisplayName,
+  );
+
+  return {
+    kind: description.kind,
+    sessionId: args.sessionId,
+    lifecycle: args.lifecycle,
+    headline: description.headline,
+    detail: description.detail,
+    sentAt: args.sentAt ?? new Date().toISOString(),
+    source: "bellows_operator_surface",
+    hostParticipantId: args.hostParticipantId,
+    hostDisplayName: args.hostDisplayName,
+  };
+}
+
+function describeBellowsHostSessionSignal(
+  lifecycle: BellowsLifecycleState,
+  hostDisplayName: string,
+): {
+  readonly kind: BellowsHostSessionSignalKind;
+  readonly headline: string;
+  readonly detail: string;
+} {
+  switch (lifecycle) {
+    case "waiting_for_participants":
+      return {
+        kind: "admitted",
+        headline: "Host opened the room",
+        detail: `${hostDisplayName} is gathering participants in Bellows now. Stay camera and microphone ready.`,
+      };
+    case "preflight_checks":
+      return {
+        kind: "preflight",
+        headline: "Preflight in progress",
+        detail: `${hostDisplayName} is checking the room before start.`,
+      };
+    case "preflight_ready":
+    case "ready_to_start":
+      return {
+        kind: "ready_to_start",
+        headline: "Studio ready to start",
+        detail: "Bellows sees the room as ready. Stay in position while the host decides when to start.",
+      };
+    case "countdown":
+      return {
+        kind: "countdown",
+        headline: "Countdown live",
+        detail: "Bellows countdown is running. Recording start is close.",
+      };
+    case "sync_initializing":
+      return {
+        kind: "sync_initializing",
+        headline: "Initializing sync",
+        detail: "Countdown complete. Bellows is aligning the room for capture start.",
+      };
+    case "recording_active":
+    case "recording_degraded":
+    case "recording_offline_local":
+    case "recording_rejoining":
+      return {
+        kind: "recording",
+        headline: "Recording underway",
+        detail: "Bellows is past admission and into live recording behavior.",
+      };
+    case "finalizing_local":
+    case "uploading":
+    case "upload_degraded":
+    case "upload_paused":
+    case "upload_resuming":
+    case "upload_complete_pending_verification":
+    case "verifying_integrity":
+    case "assembling_manifest":
+    case "sealing_session":
+      return {
+        kind: "finalizing",
+        headline: "Session closing out",
+        detail: "Bellows has moved beyond live start and is closing the session safely.",
+      };
+    case "sealed":
+    case "incomplete_capture":
+    case "failed_capture":
+    case "archived":
+      return {
+        kind: "closed",
+        headline: "Session closed",
+        detail: "Bellows reports that this session is no longer admitting live participation.",
+      };
+    case "idle":
+    case "configuring":
+    case "linking_accounts":
+    case "inviting":
+    default:
+      return {
+        kind: "waiting_room",
+        headline: "Host is still setting up",
+        detail: `${hostDisplayName} has not opened the live room yet. Bellows is still in setup.`,
+      };
+  }
+}
+
 function normalizeAudioLevelPct(value: unknown): number {
   const level = typeof value === "number" ? value : Number(value ?? 0);
   if (!Number.isFinite(level)) return 0;
@@ -153,6 +289,22 @@ function isPresenceState(value: unknown): value is BellowsPresenceState {
 
 function isAudioActivityState(value: unknown): value is BellowsAudioActivityState {
   return value === "unknown" || value === "silent" || value === "active";
+}
+
+function isLifecycleState(value: unknown): value is BellowsLifecycleState {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isHostSessionSignalKind(value: unknown): value is BellowsHostSessionSignalKind {
+  return value === "waiting_room"
+    || value === "admitted"
+    || value === "preflight"
+    || value === "ready_to_start"
+    || value === "countdown"
+    || value === "sync_initializing"
+    || value === "recording"
+    || value === "finalizing"
+    || value === "closed";
 }
 
 function isParticipantReadiness(value: unknown): value is BellowsParticipantReadiness {
@@ -207,4 +359,41 @@ export function listBellowsGuestPresencePayloads(
       && typeof entry.joinLinkId === "string"
       && entry.source === "bellows_join_route",
   );
+}
+
+export function parseBellowsHostSessionSignal(
+  value: unknown,
+): BellowsHostSessionSignal | null {
+  if (!value || typeof value !== "object") return null;
+
+  const row = value as Record<string, unknown>;
+  if ("payload" in row) {
+    return parseBellowsHostSessionSignal(row.payload);
+  }
+
+  if (
+    !isHostSessionSignalKind(row.kind)
+    || typeof row.sessionId !== "string"
+    || !isLifecycleState(row.lifecycle)
+    || typeof row.headline !== "string"
+    || typeof row.detail !== "string"
+    || typeof row.sentAt !== "string"
+    || row.source !== "bellows_operator_surface"
+    || (row.hostParticipantId !== null && typeof row.hostParticipantId !== "string")
+    || typeof row.hostDisplayName !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    kind: row.kind,
+    sessionId: row.sessionId,
+    lifecycle: row.lifecycle,
+    headline: row.headline,
+    detail: row.detail,
+    sentAt: row.sentAt,
+    source: row.source,
+    hostParticipantId: row.hostParticipantId as string | null,
+    hostDisplayName: row.hostDisplayName,
+  };
 }

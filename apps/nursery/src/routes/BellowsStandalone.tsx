@@ -41,10 +41,13 @@ import {
   type NurseryBellowsTongsSessionRepository,
 } from "../lib/bellows/bellowsTongsRepository";
 import {
+  BELLOWS_HOST_SESSION_SIGNAL_EVENT,
+  buildBellowsHostSessionSignal,
   buildBellowsHostPresencePayload,
   listBellowsParticipantPresencePayloads,
   type BellowsAudioActivityState,
   type BellowsGuestPresencePayload,
+  type BellowsHostSessionSignal,
   type BellowsParticipantPresencePayload,
 } from "../lib/bellows/bellowsSessionPresence";
 import { useBellowsLocalMediaReadiness } from "../lib/bellows/useBellowsLocalMediaReadiness";
@@ -1171,12 +1174,14 @@ export default function BellowsStandalone() {
   );
   const [participantPresenceEntries, setParticipantPresenceEntries] = useState<readonly BellowsParticipantPresencePayload[]>([]);
   const [invitePresenceError, setInvitePresenceError] = useState<string | null>(null);
+  const [hostSessionSignalError, setHostSessionSignalError] = useState<string | null>(null);
   const [joinLinkUrls, setJoinLinkUrls] = useState<Record<string, string>>({});
   const [hostPresenceConnected, setHostPresenceConnected] = useState(false);
   const hostPreviewRef = useRef<HTMLVideoElement | null>(null);
   const hostPresenceChannelRef = useRef<any>(null);
   const hostPresenceJoinedAtRef = useRef<string | null>(null);
   const publishedHostPresenceRef = useRef<string>("");
+  const publishedHostSessionSignalRef = useRef<string>("");
 
   const viewerLabel = describeUser(authUser);
   const isAuthenticated = Boolean(authUser);
@@ -1483,6 +1488,30 @@ export default function BellowsStandalone() {
     0,
     Math.min(100, Math.round(hostLocalMedia.audioLevelPct / 10) * 10),
   );
+  const guestPresenceSignalKey = useMemo(
+    () => participantPresenceEntries
+      .filter((entry) => entry.participantKind === "guest")
+      .map((entry) => entry.presenceKey)
+      .sort()
+      .join("|"),
+    [participantPresenceEntries],
+  );
+  const outboundHostSessionSignal = useMemo<BellowsHostSessionSignal | null>(
+    () => session
+      ? buildBellowsHostSessionSignal({
+        sessionId: session.sessionId,
+        lifecycle: session.machineState.lifecycle,
+        hostParticipantId: currentHostParticipantId,
+        hostDisplayName: viewerLabel,
+      })
+      : null,
+    [
+      currentHostParticipantId,
+      session?.machineState.lifecycle,
+      session?.sessionId,
+      viewerLabel,
+    ],
+  );
 
   useEffect(() => {
     const node = hostPreviewRef.current;
@@ -1574,10 +1603,12 @@ export default function BellowsStandalone() {
     if (!session || !currentHostParticipantId) {
       setParticipantPresenceEntries([]);
       setInvitePresenceError(null);
+      setHostSessionSignalError(null);
       setHostPresenceConnected(false);
       hostPresenceChannelRef.current = null;
       hostPresenceJoinedAtRef.current = null;
       publishedHostPresenceRef.current = "";
+      publishedHostSessionSignalRef.current = "";
       return;
     }
 
@@ -1585,6 +1616,7 @@ export default function BellowsStandalone() {
     const joinedAt = new Date().toISOString();
     hostPresenceJoinedAtRef.current = joinedAt;
     publishedHostPresenceRef.current = "";
+    publishedHostSessionSignalRef.current = "";
     const channel = supabase.channel(`bellows:session:${session.sessionId}`, {
       config: {
         presence: {
@@ -1600,6 +1632,7 @@ export default function BellowsStandalone() {
     };
 
     setInvitePresenceError(null);
+    setHostSessionSignalError(null);
     setHostPresenceConnected(false);
     channel.on("presence", { event: "sync" }, syncPresence);
     channel.on("presence", { event: "join" }, syncPresence);
@@ -1643,9 +1676,11 @@ export default function BellowsStandalone() {
     return () => {
       active = false;
       setHostPresenceConnected(false);
+      setHostSessionSignalError(null);
       hostPresenceChannelRef.current = null;
       hostPresenceJoinedAtRef.current = null;
       publishedHostPresenceRef.current = "";
+      publishedHostSessionSignalRef.current = "";
       void channel.unsubscribe();
     };
   }, [currentHostParticipantId, currentHostRoleCode, session?.sessionId, viewerLabel]);
@@ -1709,6 +1744,45 @@ export default function BellowsStandalone() {
     hostPresenceConnected,
     session?.sessionId,
     viewerLabel,
+  ]);
+
+  useEffect(() => {
+    if (
+      !outboundHostSessionSignal
+      || !hostPresenceConnected
+      || !hostPresenceChannelRef.current
+    ) {
+      return;
+    }
+
+    const signature = JSON.stringify({
+      kind: outboundHostSessionSignal.kind,
+      lifecycle: outboundHostSessionSignal.lifecycle,
+      guestPresenceSignalKey,
+    });
+
+    if (signature === publishedHostSessionSignalRef.current) {
+      return;
+    }
+
+    publishedHostSessionSignalRef.current = signature;
+
+    void hostPresenceChannelRef.current.send({
+      type: "broadcast",
+      event: BELLOWS_HOST_SESSION_SIGNAL_EVENT,
+      payload: outboundHostSessionSignal,
+    })
+      .then(() => {
+        setHostSessionSignalError(null);
+      })
+      .catch((error: unknown) => {
+        publishedHostSessionSignalRef.current = "";
+        setHostSessionSignalError(getErrorMessage(error, "Bellows could not publish host session signaling."));
+      });
+  }, [
+    guestPresenceSignalKey,
+    hostPresenceConnected,
+    outboundHostSessionSignal,
   ]);
 
   async function persistRuntimeTransition(
@@ -2158,6 +2232,10 @@ export default function BellowsStandalone() {
                 <span>Integrity</span>
                 <strong>{session.integrityFlags.length > 0 ? session.integrityFlags.join(", ") : "clean"}</strong>
               </article>
+              <article className="bellows-standalone__state-card">
+                <span>Guest Signal</span>
+                <strong>{outboundHostSessionSignal?.headline ?? "Unavailable"}</strong>
+              </article>
             </div>
           </section>
 
@@ -2358,13 +2436,19 @@ export default function BellowsStandalone() {
             <div className="bellows-standalone__panel-header">
               <div>
                 <h2>Invite / Join Links</h2>
-                <p>Host-side invite management over canonical Tongs join links and live Bellows guest presence.</p>
+                <p>Host-side invite management over canonical Tongs join links, live Bellows guest presence, and outbound guest session signaling.</p>
+              </div>
+              <div className="bellows-standalone__header-actions">
+                <span className="bellows-standalone__pill">
+                  Guest Signal: <strong>{outboundHostSessionSignal?.headline ?? "Unavailable"}</strong>
+                </span>
               </div>
             </div>
 
-            <div className="bellows-standalone__status-banner" data-state={joinLinksError || invitePresenceError ? "error" : "ok"}>
+            <div className="bellows-standalone__status-banner" data-state={joinLinksError || invitePresenceError || hostSessionSignalError ? "error" : "ok"}>
               {joinLinksError
                 ?? invitePresenceError
+                ?? hostSessionSignalError
                 ?? (loadingJoinLinks
                   ? "Loading canonical join links..."
                   : !canManageInvites

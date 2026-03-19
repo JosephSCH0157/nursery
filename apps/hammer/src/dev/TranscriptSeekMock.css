@@ -1144,9 +1144,27 @@
   box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.16);
 }
 
+.hammer-script-row.is-review-selected {
+  box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.18);
+}
+
 .hammer-script-row[data-selected="true"] {
   border-color: rgba(96, 165, 250, 0.72);
   background: rgba(59, 130, 246, 0.2);
+}
+
+.hammer-script-row[data-selection-mode="focused-row"] {
+  border-color: rgba(96, 165, 250, 0.6);
+  background: rgba(30, 41, 59, 0.72);
+}
+
+.hammer-script-row[data-selection-mode="manual-range"] {
+  border-color: rgba(125, 211, 252, 0.72);
+  background: rgba(8, 47, 73, 0.32);
+}
+
+.hammer-script-row[data-selection-mode="review-change"] {
+  border-left: 3px solid rgba(250, 204, 21, 0.84);
 }
 
 .hammer-script-row[data-review-highlight="true"] {
@@ -1171,6 +1189,22 @@
   border-color: rgba(96, 165, 250, 0.58);
   background: rgba(30, 64, 175, 0.18);
   box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.18);
+}
+
+.hammer-script-row[data-selection-mode="review-change"][data-review-highlight="true"] {
+  box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.22);
+}
+
+.hammer-script-row[data-selection-mode="review-change"][data-review-highlight="true"][data-review-status="approved"] {
+  box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.22);
+}
+
+.hammer-script-row[data-selection-mode="review-change"][data-review-highlight="true"][data-review-status="rejected"] {
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.22);
+}
+
+.hammer-script-row[data-selection-mode="review-change"][data-review-highlight="true"][data-review-status="modified"] {
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.22);
 }
 
 .hammer-script-row[data-structure="split"] {
@@ -1218,6 +1252,8 @@
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+  padding-top: 2px;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
 }
 
 .hammer-script-row__status-pill {
@@ -1280,8 +1316,8 @@
 }
 
 .hammer-proposed-change-row.is-selected {
-  border-color: rgba(96, 165, 250, 0.44);
-  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.2);
+  border-color: rgba(96, 165, 250, 0.62);
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.18);
 }
 
 .hammer-proposed-change-row.is-suggested {
@@ -1958,7 +1994,8 @@
 }
 
 .hammer-timeline-change.is-selected {
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.22);
+  z-index: 2;
 }
 
 .hammer-timeline-change__label {

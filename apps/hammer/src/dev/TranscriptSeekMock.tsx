@@ -2963,7 +2963,7 @@ export default function TranscriptSeekMock(
   function selectTranscriptGroup(
     groupId: string,
     primaryRow: TranscriptOverlayRow,
-    options?: { extendSelection?: boolean },
+    options?: { extendSelection?: boolean; linkedReviewChange?: HammerProposedChange | null },
   ) {
     if (options?.extendSelection && transcriptSelectionAnchorGroupId) {
       const anchorIndex = readableTranscriptGroups.findIndex((group) => group.group_id === transcriptSelectionAnchorGroupId);
@@ -2979,6 +2979,11 @@ export default function TranscriptSeekMock(
     } else {
       setTranscriptSelectionAnchorGroupId(groupId);
       setSelectedTranscriptGroupIds([groupId]);
+    }
+    if (options?.extendSelection) {
+      setSelectedProposedChangeId(null);
+    } else {
+      setSelectedProposedChangeId(options?.linkedReviewChange?.id ?? null);
     }
     selectTranscriptRow(primaryRow);
   }
@@ -6834,6 +6839,18 @@ export default function TranscriptSeekMock(
               const isReviewHighlighted = group.row_ids.some((rowId) => highlightedTranscriptRowIds.has(rowId));
               const reviewHighlightStatus = isReviewHighlighted ? selectedPolishChange?.status ?? "suggested" : undefined;
               const isTranscriptRangeSelected = selectedTranscriptGroupIdSet.has(group.group_id);
+              const linkedPolishChange = polishProposedChanges.find((change) => (
+                change.linkedRowIds.some((rowId) => group.row_ids.includes(rowId))
+              )) ?? null;
+              const isReviewSelected = isReviewHighlighted && selectedPolishChange != null;
+              const isManualRangeSelected = isTranscriptRangeSelected && !isReviewSelected;
+              const transcriptSelectionMode = isManualRangeSelected
+                ? "manual-range"
+                : isReviewSelected
+                ? "review-change"
+                : isSelected
+                ? "focused-row"
+                : "none";
               const selectedRangeSegments = isTranscriptRangeSelected
                 ? resolveTranscriptSelectionSegments(selectedTranscriptGroupIds)
                 : [];
@@ -6853,12 +6870,14 @@ export default function TranscriptSeekMock(
                   }}
                   className={cx(
                     "hammer-script-row",
-                    isTranscriptRangeSelected && "is-selection-range",
+                    isManualRangeSelected && "is-selection-range",
+                    isReviewSelected && "is-review-selected",
                     revealedTranscriptRowId && group.row_ids.includes(revealedTranscriptRowId) && "is-revealed",
                   )}
                   data-selected={isSelected ? "true" : "false"}
                   data-review-highlight={isReviewHighlighted ? "true" : "false"}
                   data-review-status={reviewHighlightStatus ?? ""}
+                  data-selection-mode={transcriptSelectionMode}
                   data-overlay-row-id={primaryRow.row_id}
                   data-playhead={isAtPlayhead ? "true" : "false"}
                   data-deleted={groupRows.every((row) => row.is_deleted) ? "true" : "false"}
@@ -6872,7 +6891,7 @@ export default function TranscriptSeekMock(
                       onClick={(event) => selectTranscriptGroup(
                         group.group_id,
                         primaryRow,
-                        { extendSelection: event.shiftKey },
+                        { extendSelection: event.shiftKey, linkedReviewChange: event.shiftKey ? null : linkedPolishChange },
                       )}
                       aria-current={isAtPlayhead ? "true" : undefined}
                       className="hammer-script-row__button"

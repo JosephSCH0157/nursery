@@ -10,9 +10,12 @@ import {
   type NurseryBellowsTongsJoinLinkRepository,
 } from "../lib/bellows/bellowsTongsRepository";
 import {
+  BELLOWS_HOST_SESSION_SIGNAL_EVENT,
   buildBellowsGuestPresencePayload,
   type BellowsAudioActivityState,
+  type BellowsHostSessionSignal,
   type BellowsParticipantReadiness,
+  parseBellowsHostSessionSignal,
 } from "../lib/bellows/bellowsSessionPresence";
 import { useBellowsLocalMediaReadiness } from "../lib/bellows/useBellowsLocalMediaReadiness";
 import { supabase } from "../lib/supabase";
@@ -26,6 +29,7 @@ type JoinPhase =
   | "connecting"
   | "permissions"
   | "waiting"
+  | "signaled"
   | "error";
 
 type JoinResolutionSource = "cache" | "rpc";
@@ -264,13 +268,18 @@ async function publishPresence(
 function buildStatusTone(
   phase: JoinPhase,
   readiness: BellowsParticipantReadiness,
+  hostSignal: BellowsHostSessionSignal | null,
 ): "ok" | "warn" | "error" {
   if (phase === "error") return "error";
+  if (hostSignal?.kind === "finalizing" || hostSignal?.kind === "closed") return "warn";
   if (readiness.overall === "blocked") return "warn";
   return "ok";
 }
 
-function buildStatusHeading(phase: JoinPhase): string {
+function buildStatusHeading(
+  phase: JoinPhase,
+  hostSignal: BellowsHostSessionSignal | null,
+): string {
   switch (phase) {
     case "resolving":
       return "Validating access";
@@ -280,9 +289,49 @@ function buildStatusHeading(phase: JoinPhase): string {
       return "Checking devices";
     case "waiting":
       return "Waiting for host";
+    case "signaled":
+      switch (hostSignal?.kind) {
+        case "admitted":
+          return "Host opened the room";
+        case "preflight":
+          return "Preflight in progress";
+        case "ready_to_start":
+          return "Studio ready";
+        case "countdown":
+          return "Countdown live";
+        case "sync_initializing":
+          return "Initializing sync";
+        case "recording":
+          return "Recording underway";
+        case "finalizing":
+          return "Session closing out";
+        case "closed":
+          return "Session closed";
+        default:
+          return "Host signaled";
+      }
     case "error":
       return "Join blocked";
   }
+}
+
+function hasGuestAdvancingHostSignal(signal: BellowsHostSessionSignal | null): boolean {
+  return Boolean(signal && signal.kind !== "waiting_room");
+}
+
+function buildPermissionStatusMessage(args: {
+  readiness: BellowsParticipantReadiness;
+  hostSignal: BellowsHostSessionSignal | null;
+}): string {
+  const base = args.readiness.overall === "blocked"
+    ? "Bellows connected you, but camera or microphone permissions still need attention."
+    : "Bellows is checking local media readiness.";
+
+  if (!hasGuestAdvancingHostSignal(args.hostSignal)) {
+    return base;
+  }
+
+  return `${args.hostSignal?.headline}. ${base}`;
 }
 
 export default function BellowsJoin() {
@@ -306,6 +355,7 @@ export default function BellowsJoin() {
   const [presenceCount, setPresenceCount] = useState(0);
   const [usedCache, setUsedCache] = useState(false);
   const [presenceConnected, setPresenceConnected] = useState(false);
+  const [hostSignal, setHostSignal] = useState<BellowsHostSessionSignal | null>(null);
 
   const previewRef = useRef<HTMLVideoElement | null>(null);
   const channelRef = useRef<any>(null);
@@ -318,7 +368,7 @@ export default function BellowsJoin() {
   const backHref = "/app";
   const localMedia = useBellowsLocalMediaReadiness(Boolean(resolvedLink && guestKey && presenceConnected));
   const presenceAudioLevelPct = Math.max(0, Math.min(100, Math.round(localMedia.audioLevelPct / 10) * 10));
-  const effectiveStatusTone = buildStatusTone(phase, localMedia.readiness);
+  const effectiveStatusTone = buildStatusTone(phase, localMedia.readiness, hostSignal);
   const statusDetail = errorMessage ?? localMedia.deviceError ?? statusMessage;
 
   useEffect(() => {
@@ -337,6 +387,7 @@ export default function BellowsJoin() {
     if (!sessionId) {
       setResolvedLink(null);
       setGuestKey(null);
+      setHostSignal(null);
       setPhase("error");
       setErrorMessage("Bellows could not find a session id in this join route.");
       setStatusMessage("Join link is missing its session id.");
@@ -346,6 +397,7 @@ export default function BellowsJoin() {
     if (!token) {
       setResolvedLink(null);
       setGuestKey(null);
+      setHostSignal(null);
       setPhase("error");
       setErrorMessage("Bellows join links require a token query parameter.");
       setStatusMessage("Join link is missing its access token.");
@@ -357,6 +409,7 @@ export default function BellowsJoin() {
     setGuestKey(null);
     setPresenceCount(0);
     setPresenceConnected(false);
+    setHostSignal(null);
     setPhase("resolving");
     setErrorMessage(null);
     setUsedCache(false);
@@ -403,6 +456,7 @@ export default function BellowsJoin() {
       joinedAtRef.current = null;
       publishedPresenceRef.current = "";
       setPresenceConnected(false);
+      setHostSignal(null);
       return;
     }
 
@@ -428,6 +482,16 @@ export default function BellowsJoin() {
     channel.on("presence", { event: "sync" }, syncPresenceCount);
     channel.on("presence", { event: "join" }, syncPresenceCount);
     channel.on("presence", { event: "leave" }, syncPresenceCount);
+    channel.on("broadcast", { event: BELLOWS_HOST_SESSION_SIGNAL_EVENT }, (event: unknown) => {
+      if (!active) return;
+
+      const nextSignal = parseBellowsHostSessionSignal(event);
+      if (!nextSignal || nextSignal.sessionId !== resolvedLink.sessionId) {
+        return;
+      }
+
+      setHostSignal(nextSignal);
+    });
 
     setPhase("connecting");
     setStatusMessage(
@@ -468,6 +532,7 @@ export default function BellowsJoin() {
 
       if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
         setPresenceConnected(false);
+        setHostSignal(null);
         setPhase("error");
         setErrorMessage("Bellows could not connect to the live session presence channel.");
         setStatusMessage("Bellows guest entry stopped before the waiting room.");
@@ -477,6 +542,7 @@ export default function BellowsJoin() {
     return () => {
       active = false;
       setPresenceConnected(false);
+      setHostSignal(null);
       channelRef.current = null;
       joinedAtRef.current = null;
       publishedPresenceRef.current = "";
@@ -516,20 +582,6 @@ export default function BellowsJoin() {
     publishedPresenceRef.current = signature;
 
     void publishPresence(channelRef.current, payload)
-      .then(() => {
-        if (localMedia.readiness.overall === "ready") {
-          setPhase("waiting");
-          setStatusMessage("Waiting for host. Bellows sees your camera, microphone, and preview.");
-          return;
-        }
-
-        setPhase("permissions");
-        setStatusMessage(
-          localMedia.readiness.overall === "blocked"
-            ? "Bellows connected you, but camera or microphone permissions still need attention."
-            : "Bellows is checking local media readiness.",
-        );
-      })
       .catch((error) => {
         setPhase("error");
         setErrorMessage(getErrorMessage(error, "Bellows guest presence could not be published."));
@@ -546,6 +598,36 @@ export default function BellowsJoin() {
     resolvedLink,
   ]);
 
+  useEffect(() => {
+    if (!resolvedLink || !guestKey || !presenceConnected) {
+      return;
+    }
+
+    if (localMedia.readiness.overall === "ready") {
+      if (hasGuestAdvancingHostSignal(hostSignal)) {
+        setPhase("signaled");
+        setStatusMessage(hostSignal?.detail ?? "Bellows received a live host session signal.");
+        return;
+      }
+
+      setPhase("waiting");
+      setStatusMessage("Waiting for host. Bellows sees your camera, microphone, and preview.");
+      return;
+    }
+
+    setPhase("permissions");
+    setStatusMessage(buildPermissionStatusMessage({
+      readiness: localMedia.readiness,
+      hostSignal,
+    }));
+  }, [
+    guestKey,
+    hostSignal,
+    localMedia.readiness,
+    presenceConnected,
+    resolvedLink,
+  ]);
+
   return (
     <div className="bellows-join">
       <header className="bellows-join__header">
@@ -553,7 +635,7 @@ export default function BellowsJoin() {
           <div className="bellows-join__eyebrow">Bellows Guest Surface</div>
           <h1 className="bellows-join__title">Bellows Join</h1>
           <p className="bellows-join__subtitle">
-            Public guest entry validates access first, then goes live on Bellows session presence and local media readiness.
+            Public guest entry validates access first, then goes live on Bellows session presence, local media readiness, and host session-state signaling.
           </p>
         </div>
 
@@ -576,7 +658,7 @@ export default function BellowsJoin() {
             <div>
               <h2>{resolvedLink?.title ?? "Bellows guest entry"}</h2>
               <p>
-                Bellows guest flow: validate token, attach presence, request devices, publish readiness, show preview, wait.
+                Bellows guest flow: validate token, attach presence, request devices, publish readiness, show preview, then wait for a real host signal.
               </p>
             </div>
             <span className="bellows-join__pill">
@@ -585,7 +667,7 @@ export default function BellowsJoin() {
           </div>
 
           <div className="bellows-join__status-banner" data-state={effectiveStatusTone}>
-            <strong>{buildStatusHeading(phase)}</strong>
+            <strong>{buildStatusHeading(phase, hostSignal)}</strong>
             <span>{statusDetail}</span>
           </div>
 
@@ -613,6 +695,10 @@ export default function BellowsJoin() {
             <article className="bellows-join__state-card">
               <span>Preview</span>
               <strong>{localMedia.hasPreview ? "Live preview" : "Waiting on camera"}</strong>
+            </article>
+            <article className="bellows-join__state-card">
+              <span>Host Signal</span>
+              <strong>{hostSignal?.headline ?? "No live host signal yet"}</strong>
             </article>
           </div>
         </section>
@@ -691,7 +777,7 @@ export default function BellowsJoin() {
               <strong>Connect presence</strong>
               <span>Attach to the Bellows Realtime session before device prompts slow the flow down.</span>
             </li>
-            <li className="bellows-join__step" data-state={phase === "permissions" ? "active" : phase === "waiting" || localMedia.readiness.overall === "blocked" ? "done" : "pending"}>
+            <li className="bellows-join__step" data-state={phase === "permissions" ? "active" : phase === "waiting" || phase === "signaled" || localMedia.readiness.overall === "blocked" ? "done" : "pending"}>
               <strong>Request devices</strong>
               <span>Bring microphone and camera into a real ready or blocked state, then publish that truth.</span>
             </li>
@@ -699,9 +785,13 @@ export default function BellowsJoin() {
               <strong>Show preview</strong>
               <span>Confirm the local camera feed and microphone activity before recording exists.</span>
             </li>
-            <li className="bellows-join__step" data-state={phase === "waiting" ? "done" : "pending"}>
+            <li className="bellows-join__step" data-state={phase === "signaled" ? "done" : phase === "waiting" ? "active" : "pending"}>
               <strong>Wait for host</strong>
-              <span>Hold in the guest waiting state until host-side admission and recording behavior arrive.</span>
+              <span>Hold in the guest waiting state until Bellows receives a real host-side room or start signal.</span>
+            </li>
+            <li className="bellows-join__step" data-state={hasGuestAdvancingHostSignal(hostSignal) ? "done" : phase === "waiting" ? "active" : "pending"}>
+              <strong>Receive host signal</strong>
+              <span>Leave the waiting state only when the host publishes live Bellows session-state signaling.</span>
             </li>
           </ol>
         </section>
@@ -728,8 +818,12 @@ export default function BellowsJoin() {
               <strong>{resolvedLink?.joinLinkId ?? "Pending"}</strong>
             </li>
             <li>
-              <span>Lifecycle</span>
+              <span>Persisted Lifecycle</span>
               <strong>{resolvedLink?.lifecycleState ?? "Pending"}</strong>
+            </li>
+            <li>
+              <span>Host Lifecycle</span>
+              <strong>{hostSignal?.lifecycle ?? "No live signal yet"}</strong>
             </li>
             <li>
               <span>Expires</span>
@@ -746,6 +840,10 @@ export default function BellowsJoin() {
             <li>
               <span>Last Used</span>
               <strong>{formatTimestamp(resolvedLink?.lastUsedAt ?? null)}</strong>
+            </li>
+            <li>
+              <span>Host Signal</span>
+              <strong>{hostSignal?.detail ?? "Waiting for the first host session message."}</strong>
             </li>
           </ul>
         </section>
