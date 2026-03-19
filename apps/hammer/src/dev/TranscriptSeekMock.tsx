@@ -2235,6 +2235,12 @@ export default function TranscriptSeekMock(
     : "Prepare Release Package";
 
   useEffect(() => {
+    if (activeTool !== "export") {
+      setPreparedReleasePackageLoading(false);
+      setPreparedReleasePackageFeedback(null);
+      return;
+    }
+
     let active = true;
     setPreparedReleasePackageLoading(true);
     setPreparedReleasePackageFeedback(null);
@@ -2261,7 +2267,7 @@ export default function TranscriptSeekMock(
     return () => {
       active = false;
     };
-  }, [resolvedLaunch.launch_context.workpiece_id]);
+  }, [activeTool, resolvedLaunch.launch_context.workpiece_id]);
   const workspaceSnapshot = useMemo<HammerWorkspaceSnapshot>(
     () => ({
       workspaceId: resolvedLaunch.launch_context.workspace_id,
