@@ -18,3 +18,4 @@ Canonical references:
 - `/d:/nursery/nursery/BELLOWS_V1_STUDIO_SHELL_ADAPTER_SLICE.md`
 - `/d:/nursery/nursery/BELLOWS_V1_PERSISTENCE_ADAPTER_SLICE.md`
 - `/d:/nursery/nursery/BELLOWS_V1_PHASE_SEVEN_TONGS_RECOVERY_PERSISTENCE.md`
+- `/d:/nursery/nursery/BELLOWS_V1_PHASE_EIGHT_A_JOIN_LINKS.md`

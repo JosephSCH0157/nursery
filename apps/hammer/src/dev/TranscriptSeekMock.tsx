@@ -1594,62 +1594,6 @@ export default function TranscriptSeekMock(
   }, [activeResizeHandle]);
 
   useEffect(() => {
-    const hasTimelineDrag = Boolean(visualTimelineDragStateRef.current);
-    const hasPreviewDrag = Boolean(visualPreviewDragStateRef.current);
-    if (!hasTimelineDrag && !hasPreviewDrag) return;
-
-    const onMouseMove = (event: MouseEvent) => {
-      const previewDrag = visualPreviewDragStateRef.current;
-      if (previewDrag) {
-        if (previewDrag.kind === "move") {
-          const deltaX = (event.clientX - previewDrag.startClientX) / previewDrag.containerWidth;
-          const deltaY = (event.clientY - previewDrag.startClientY) / previewDrag.containerHeight;
-          updatePreviewVisualDraft(previewDrag.placementId, {
-            x: previewDrag.startDraft.x + deltaX,
-            y: previewDrag.startDraft.y + deltaY,
-          });
-        } else {
-          const deltaX = (event.clientX - previewDrag.startClientX) / previewDrag.containerWidth;
-          const deltaY = (event.clientY - previewDrag.startClientY) / previewDrag.containerHeight;
-          updatePreviewVisualDraft(previewDrag.placementId, {
-            scale: previewDrag.startDraft.scale + deltaX - (deltaY * 0.35),
-          });
-        }
-      }
-
-      const timelineDrag = visualTimelineDragStateRef.current;
-      if (timelineDrag) {
-        const deltaX = event.clientX - timelineDrag.startClientX;
-        const deltaSec = (deltaX / Math.max(1, timelineCanvasWidthPx)) * effectiveDurationSec;
-        updateVisualPlacementEnd(
-          timelineDrag.changeId,
-          timelineDrag.placementId,
-          timelineDrag.endSec + deltaSec,
-        );
-      }
-    };
-
-    const onMouseUp = () => {
-      visualPreviewDragStateRef.current = null;
-      visualTimelineDragStateRef.current = null;
-    };
-
-    const previousCursor = document.body.style.cursor;
-    const previousUserSelect = document.body.style.userSelect;
-    document.body.style.cursor = previewVisualDragStateRef.current?.kind === "move" ? "grabbing" : "ew-resize";
-    document.body.style.userSelect = "none";
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-
-    return () => {
-      document.body.style.cursor = previousCursor;
-      document.body.style.userSelect = previousUserSelect;
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-    };
-  }, [effectiveDurationSec, timelineCanvasWidthPx, visualDragSessionToken]);
-
-  useEffect(() => {
     let active = true;
     const launchMapping = resolvedLaunch.media.workspace_mapping ?? null;
     setWorkspaceMapping(launchMapping);
@@ -2189,9 +2133,7 @@ export default function TranscriptSeekMock(
     : undefined;
   const showPreviewVisualFrame = Boolean(
     activePreviewVisual.kind === "image"
-    && activePreviewPlacementRecord
-    && selectedVisualPlacement
-    && activePreviewPlacementRecord.placement_id === selectedVisualPlacement.placement_id,
+    && activePreviewPlacementRecord,
   );
   const activePreviewFrameStyle: CSSProperties | undefined = activePreviewPlacementDraft
     ? {
@@ -2199,6 +2141,7 @@ export default function TranscriptSeekMock(
       top: `${clamp(activePreviewPlacementDraft.y * 100, 18, 82)}%`,
       width: `${clamp(26 * activePreviewPlacementDraft.scale, 18, 72)}%`,
       height: `${clamp(34 * activePreviewPlacementDraft.scale, 18, 78)}%`,
+      transform: "translate(-50%, -50%)",
     }
     : undefined;
 
@@ -6102,6 +6045,61 @@ export default function TranscriptSeekMock(
     ),
     [activeTimelineZoom.scale, effectiveDurationSec, upperPaneMinWidth],
   );
+  useEffect(() => {
+    const hasTimelineDrag = Boolean(visualTimelineDragStateRef.current);
+    const hasPreviewDrag = Boolean(visualPreviewDragStateRef.current);
+    if (!hasTimelineDrag && !hasPreviewDrag) return;
+
+    const onMouseMove = (event: MouseEvent) => {
+      const previewDrag = visualPreviewDragStateRef.current;
+      if (previewDrag) {
+        if (previewDrag.kind === "move") {
+          const deltaX = (event.clientX - previewDrag.startClientX) / previewDrag.containerWidth;
+          const deltaY = (event.clientY - previewDrag.startClientY) / previewDrag.containerHeight;
+          updatePreviewVisualDraft(previewDrag.placementId, {
+            x: previewDrag.startDraft.x + deltaX,
+            y: previewDrag.startDraft.y + deltaY,
+          });
+        } else {
+          const deltaX = (event.clientX - previewDrag.startClientX) / previewDrag.containerWidth;
+          const deltaY = (event.clientY - previewDrag.startClientY) / previewDrag.containerHeight;
+          updatePreviewVisualDraft(previewDrag.placementId, {
+            scale: previewDrag.startDraft.scale + deltaX - (deltaY * 0.35),
+          });
+        }
+      }
+
+      const timelineDrag = visualTimelineDragStateRef.current;
+      if (timelineDrag) {
+        const deltaX = event.clientX - timelineDrag.startClientX;
+        const deltaSec = (deltaX / Math.max(1, timelineCanvasWidthPx)) * effectiveDurationSec;
+        updateVisualPlacementEnd(
+          timelineDrag.changeId,
+          timelineDrag.placementId,
+          timelineDrag.endSec + deltaSec,
+        );
+      }
+    };
+
+    const onMouseUp = () => {
+      visualPreviewDragStateRef.current = null;
+      visualTimelineDragStateRef.current = null;
+    };
+
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = visualPreviewDragStateRef.current?.kind === "move" ? "grabbing" : "ew-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+
+    return () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, [effectiveDurationSec, timelineCanvasWidthPx, visualDragSessionToken]);
   const dynamicStyles = useMemo(() => {
     const rules: string[] = [];
     const addRule = (suffix: string, style: CSSProperties): string => {
@@ -6346,6 +6344,9 @@ export default function TranscriptSeekMock(
                       const showRippleCue = (activeTimelineTool === "cut" || activeTimelineTool === "select")
                         && clip.ripple_hint
                         && (isSelected || isActive);
+                      const linkedVisualChange = track.id === "visual-suggestions" && clip.placement_id
+                        ? proposedChanges.find((change) => change.linkedAssetId === clip.placement_id) ?? null
+                        : null;
                       return (
                         <button
                           key={clip.id}
@@ -6382,6 +6383,23 @@ export default function TranscriptSeekMock(
                             </>
                           ) : null}
                           {clip.label}
+                          {linkedVisualChange && clip.placement_id ? (
+                            <span
+                              className="hammer-timeline-clip__duration-handle"
+                              role="presentation"
+                              title="Drag to change display length"
+                              onMouseDown={(event) => beginTimelineVisualDurationDrag(
+                                linkedVisualChange.id,
+                                clip.placement_id!,
+                                clip,
+                                event,
+                              )}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                              }}
+                            />
+                          ) : null}
                           {showRippleCue ? (
                             <span className="hammer-timeline-clip__ripple-cue">Ripple</span>
                           ) : null}
@@ -7044,15 +7062,51 @@ export default function TranscriptSeekMock(
                 dynamicStyles.monitorSurfaceClassName,
                 activePreviewVisual.kind === "image" && activePreviewVisual.imageUrl && "has-media",
               )}
+              ref={monitorSurfaceRef}
             >
               {activePreviewVisual.kind === "image" && activePreviewVisual.imageUrl ? (
-                <img
-                  src={activePreviewVisual.imageUrl}
-                  alt=""
-                  className="hammer-monitor__media"
-                  style={activePreviewMediaStyle}
-                  data-testid="hammer-visual-preview-image"
-                />
+                <>
+                  <img
+                    src={activePreviewVisual.imageUrl}
+                    alt=""
+                    className="hammer-monitor__media"
+                    style={activePreviewMediaStyle}
+                    data-testid="hammer-visual-preview-image"
+                  />
+                  {showPreviewVisualFrame && activePreviewPlacementRecord ? (
+                    <div
+                      className="hammer-monitor__selection-frame"
+                      style={activePreviewFrameStyle}
+                      role="button"
+                      tabIndex={0}
+                      aria-label="Move selected visual"
+                      onMouseDown={(event) => beginPreviewVisualDrag(
+                        "move",
+                        activePreviewPlacementRecord.placement_id,
+                        event,
+                      )}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        if (selectedProposedChange) {
+                          selectProposedChange(selectedProposedChange);
+                        }
+                      }}
+                    >
+                      <span className="hammer-monitor__selection-label">Selected visual</span>
+                      <button
+                        type="button"
+                        className="hammer-monitor__selection-handle"
+                        aria-label="Resize selected visual"
+                        onMouseDown={(event) => beginPreviewVisualDrag(
+                          "resize",
+                          activePreviewPlacementRecord.placement_id,
+                          event,
+                        )}
+                      />
+                    </div>
+                  ) : null}
+                </>
               ) : activePreviewVisual.kind === "image" ? (
                 <div className="hammer-monitor__center">
                   <div className="hammer-monitor__eyebrow">Loading Visual</div>

@@ -11,6 +11,7 @@ import type {
   UserId,
   WorkspaceId,
 } from "../domain/ids.js";
+import type { BellowsRoleCode } from "../domain/roles.js";
 import type {
   BellowsSession,
   BellowsSessionMode,
@@ -30,6 +31,7 @@ import type { BellowsPersistenceFollowUpActionType } from "./persistence-store.j
 export const BELLOWS_TONGS_RECOVERY_SNAPSHOT_SCHEMA_VERSION = 1;
 export const BELLOWS_TONGS_SESSION_TABLE = "bellows_sessions";
 export const BELLOWS_TONGS_CHECKPOINT_TABLE = "bellows_session_checkpoints";
+export const BELLOWS_TONGS_JOIN_LINK_TABLE = "bellows_session_join_links";
 
 export const BELLOWS_TONGS_CHECKPOINT_KINDS = [
   "session_created",
@@ -148,8 +150,65 @@ export interface BellowsTongsRehydrationBundle {
   readonly latestCheckpoint: BellowsTongsRecoveryCheckpointRecord | null;
 }
 
+export interface BellowsTongsJoinLinkRecord {
+  readonly joinLinkId: string;
+  readonly sessionId: SessionId;
+  readonly workspaceId: WorkspaceId;
+  readonly tokenHash: string;
+  readonly createdByUserId: string;
+  readonly roleCode: BellowsRoleCode;
+  readonly expiresAt: string;
+  readonly revokedAt: string | null;
+  readonly maxUses: number;
+  readonly useCount: number;
+  readonly lastUsedAt: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface BellowsCreateTongsJoinLinkInput {
+  readonly sessionId: SessionId;
+  readonly roleCode?: BellowsRoleCode;
+  readonly expiresHours?: number;
+  readonly maxUses?: number;
+  readonly createdByUserId?: string;
+}
+
+export interface BellowsCreatedTongsJoinLink {
+  readonly joinLink: BellowsTongsJoinLinkRecord;
+  readonly token: string;
+}
+
+export interface BellowsResolvedTongsJoinLink {
+  readonly joinLinkId: string;
+  readonly sessionId: SessionId;
+  readonly workspaceId: WorkspaceId;
+  readonly roleCode: BellowsRoleCode;
+  readonly title: string;
+  readonly hostUserId: UserId;
+  readonly lifecycleState: BellowsLifecycleState;
+  readonly expiresAt: string;
+  readonly maxUses: number;
+  readonly useCount: number;
+  readonly lastUsedAt: string;
+  readonly resolvedAt: string;
+}
+
 export type BellowsSealTongsSessionInput =
   BellowsAppendTongsRecoveryCheckpointInput;
+
+export interface BellowsTongsJoinLinkRepository {
+  createJoinLink(
+    input: BellowsCreateTongsJoinLinkInput,
+  ): Promise<BellowsCreatedTongsJoinLink>;
+  resolveJoinLink(
+    sessionId: SessionId,
+    token: string,
+  ): Promise<BellowsResolvedTongsJoinLink | null>;
+  revokeJoinLink(
+    joinLinkId: string,
+  ): Promise<boolean>;
+}
 
 export interface BellowsTongsSessionRepository {
   createSessionHeader(
