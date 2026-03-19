@@ -1,8 +1,15 @@
+import { useEffect, useState } from "react";
 import {
   EPISODE_IMAGE_MAP_INTENT_VALUES,
   EPISODE_IMAGE_MAP_SOURCE_TYPE_VALUES,
+  buildImageMapAnchorLabel,
   type EpisodeImageMapEntry,
 } from "../../lib/episode-package-v2";
+import { HEARTH_VISUAL_STYLE_DEFINITIONS } from "../../lib/hearth-visual-styles";
+import type {
+  ImageMapAnchorPickerParagraph,
+  ImageMapScriptSelection,
+} from "../../lib/hearth-image-map-beats";
 
 type ImageMapSaveState = "saved" | "editing" | "saving" | "error" | "offline";
 
@@ -21,6 +28,7 @@ type ImageMapPanelProps = {
   selectedEntryId: string | null;
   draftAnchor: string;
   draftDescription: string;
+  draftStylePreset: string;
   draftIntent: string;
   draftSourceType: string;
   draftPlacementHint: string;
@@ -32,10 +40,23 @@ type ImageMapPanelProps = {
   candidateGenerateError: string | null;
   candidateSelectBusy: boolean;
   candidateSelectionError: string | null;
+  anchorStatusLabel: string | null;
+  anchorStatusTone: "neutral" | "ok" | "warning" | "danger";
+  anchorStatusDetail: string | null;
+  reanchorMode: boolean;
+  reanchorBusy: boolean;
+  reanchorDisabledReason: string | null;
+  reanchorError: string | null;
+  reanchorScriptSourceLabel: string | null;
+  reanchorScriptHint: string | null;
+  reanchorScriptLoading: boolean;
+  reanchorParagraphs: ImageMapAnchorPickerParagraph[];
+  activeAnchorLabel: string | null;
   disabled?: boolean;
   onSelectEntry: (entryId: string) => void;
   onDraftAnchorChange: (value: string) => void;
   onDraftDescriptionChange: (value: string) => void;
+  onDraftStylePresetChange: (value: string) => void;
   onDraftIntentChange: (value: string) => void;
   onDraftSourceTypeChange: (value: string) => void;
   onDraftPlacementHintChange: (value: string) => void;
@@ -47,6 +68,9 @@ type ImageMapPanelProps = {
   onSelectCandidate: (candidateId: string) => void;
   onCopyExport: () => void;
   onDownloadExport: () => void;
+  onStartReanchor: () => void;
+  onCancelReanchor: () => void;
+  onPickReanchor: (selection: ImageMapScriptSelection) => void;
 };
 
 function summarizeDescription(value: string): string {
@@ -64,11 +88,18 @@ function formatSaveState(state: ImageMapSaveState): string {
   return "Save failed";
 }
 
+function resolveInitialPreviewCandidateId(candidateCards: ImageMapCandidateCard[]): string | null {
+  return candidateCards.find((candidate) => candidate.isSelected)?.id
+    ?? candidateCards[0]?.id
+    ?? null;
+}
+
 export default function ImageMapPanel({
   entries,
   selectedEntryId,
   draftAnchor,
   draftDescription,
+  draftStylePreset,
   draftIntent,
   draftSourceType,
   draftPlacementHint,
@@ -80,10 +111,23 @@ export default function ImageMapPanel({
   candidateGenerateError,
   candidateSelectBusy,
   candidateSelectionError,
+  anchorStatusLabel,
+  anchorStatusTone,
+  anchorStatusDetail,
+  reanchorMode,
+  reanchorBusy,
+  reanchorDisabledReason,
+  reanchorError,
+  reanchorScriptSourceLabel,
+  reanchorScriptHint,
+  reanchorScriptLoading,
+  reanchorParagraphs,
+  activeAnchorLabel,
   disabled = false,
   onSelectEntry,
   onDraftAnchorChange,
   onDraftDescriptionChange,
+  onDraftStylePresetChange,
   onDraftIntentChange,
   onDraftSourceTypeChange,
   onDraftPlacementHintChange,
@@ -95,8 +139,34 @@ export default function ImageMapPanel({
   onSelectCandidate,
   onCopyExport,
   onDownloadExport,
+  onStartReanchor,
+  onCancelReanchor,
+  onPickReanchor,
 }: ImageMapPanelProps) {
   const hasSelection = Boolean(selectedEntryId);
+  const selectedCandidateId = candidateCards.find((candidate) => candidate.isSelected)?.id ?? null;
+  const [previewCandidateId, setPreviewCandidateId] = useState<string | null>(
+    () => resolveInitialPreviewCandidateId(candidateCards),
+  );
+
+  useEffect(() => {
+    if (candidateCards.length === 0) {
+      if (previewCandidateId !== null) {
+        setPreviewCandidateId(null);
+      }
+      return;
+    }
+    if (selectedCandidateId && selectedCandidateId !== previewCandidateId) {
+      setPreviewCandidateId(selectedCandidateId);
+      return;
+    }
+    if (previewCandidateId && candidateCards.some((candidate) => candidate.id === previewCandidateId)) {
+      return;
+    }
+    setPreviewCandidateId(resolveInitialPreviewCandidateId(candidateCards));
+  }, [candidateCards, previewCandidateId, selectedCandidateId]);
+
+  const previewCandidate = candidateCards.find((candidate) => candidate.id === previewCandidateId) ?? null;
 
   return (
     <section className="hs-imap-panel" aria-label="Image map panel">
@@ -188,6 +258,95 @@ export default function ImageMapPanel({
                   disabled={disabled}
                 />
               </label>
+              <section className="hs-imap-anchor-card" aria-label="Exact script anchor">
+                <div className="hs-imap-section-heading">
+                  <div className="hs-thumb-section-title">Exact Script Anchor</div>
+                  {anchorStatusLabel ? (
+                    <div className={`hs-imap-anchor-status is-${anchorStatusTone}`}>{anchorStatusLabel}</div>
+                  ) : null}
+                </div>
+                <div className="hs-field-label-muted">
+                  Candidate generation only trusts a structured anchor bound to the current canonical script.
+                </div>
+                {anchorStatusDetail ? (
+                  <div className="hs-imap-anchor-detail">{anchorStatusDetail}</div>
+                ) : null}
+                {reanchorDisabledReason ? (
+                  <div className="hs-field-label-muted">{reanchorDisabledReason}</div>
+                ) : null}
+                <div className="hs-imap-anchor-actions">
+                  <button
+                    type="button"
+                    onClick={reanchorMode ? onCancelReanchor : onStartReanchor}
+                    disabled={disabled || Boolean(reanchorDisabledReason) || reanchorBusy}
+                  >
+                    {reanchorBusy ? "Saving..." : reanchorMode ? "Cancel Re-anchor" : "Re-anchor"}
+                  </button>
+                  <span className="hs-field-label-muted">
+                    Editing the anchor label alone does not rebuild the canonical script anchor.
+                  </span>
+                </div>
+                {reanchorMode ? (
+                  <div className="hs-imap-anchor-picker">
+                    <div className="hs-imap-section-heading">
+                      <div className="hs-thumb-section-title">Pick from Current Script</div>
+                      {reanchorScriptSourceLabel ? (
+                        <div className="hs-field-label-muted">{reanchorScriptSourceLabel}</div>
+                      ) : null}
+                    </div>
+                    {reanchorScriptHint ? (
+                      <div className="hs-field-label-muted">{reanchorScriptHint}</div>
+                    ) : null}
+                    {reanchorError ? (
+                      <div className="hs-imap-preview-empty is-error">{reanchorError}</div>
+                    ) : null}
+                    {reanchorScriptLoading ? (
+                      <div className="hs-imap-empty">Loading current script...</div>
+                    ) : reanchorParagraphs.length === 0 ? (
+                      <div className="hs-imap-empty">No canonical script spans are available yet.</div>
+                    ) : (
+                      <div className="hs-imap-anchor-picker-list">
+                        {reanchorParagraphs.map((paragraph) => {
+                          const paragraphAnchorLabel = buildImageMapAnchorLabel(paragraph.paragraphOption.anchor);
+                          return (
+                            <article key={paragraph.key} className="hs-imap-anchor-picker-paragraph">
+                              <div className="hs-imap-anchor-picker-heading">
+                                <div className="hs-imap-anchor-picker-label">{paragraph.label}</div>
+                                <button
+                                  type="button"
+                                  className={`hs-imap-anchor-picker-option hs-imap-anchor-picker-option-paragraph${activeAnchorLabel === paragraphAnchorLabel ? " is-active" : ""}`}
+                                  onClick={() => onPickReanchor(paragraph.paragraphOption.selection)}
+                                  disabled={disabled || reanchorBusy}
+                                >
+                                  Use full paragraph
+                                </button>
+                              </div>
+                              <div className="hs-imap-anchor-picker-text">{paragraph.text}</div>
+                              <div className="hs-imap-anchor-picker-options">
+                                {paragraph.sentenceOptions.map((option) => {
+                                  const optionAnchorLabel = buildImageMapAnchorLabel(option.anchor);
+                                  return (
+                                    <button
+                                      key={option.key}
+                                      type="button"
+                                      className={`hs-imap-anchor-picker-option${activeAnchorLabel === optionAnchorLabel ? " is-active" : ""}`}
+                                      onClick={() => onPickReanchor(option.selection)}
+                                      disabled={disabled || reanchorBusy}
+                                    >
+                                      <span className="hs-imap-anchor-picker-option-label">{option.label}</span>
+                                      <span className="hs-imap-anchor-picker-option-text">{option.text}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </section>
               <label className="hs-field">
                 <span className="hs-field-label">Description</span>
                 <textarea
@@ -197,6 +356,20 @@ export default function ImageMapPanel({
                   placeholder="What should be shown?"
                   disabled={disabled}
                 />
+              </label>
+              <label className="hs-field">
+                <span className="hs-field-label">Visual Style</span>
+                <select
+                  value={draftStylePreset}
+                  onChange={(event) => onDraftStylePresetChange(event.target.value)}
+                  disabled={disabled}
+                >
+                  {HEARTH_VISUAL_STYLE_DEFINITIONS.map((style) => (
+                    <option key={style.value} value={style.value}>
+                      {style.label}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="hs-field">
                 <span className="hs-field-label">Intent</span>
@@ -248,44 +421,107 @@ export default function ImageMapPanel({
                   Generates two still-image variants for this exact visual beat.
                 </span>
               </div>
+              <section className="hs-imap-preview" aria-label="Still preview">
+                <div className="hs-imap-section-heading">
+                  <div className="hs-thumb-section-title">Preview</div>
+                  {previewCandidate ? (
+                    <div className="hs-field-label-muted">
+                      Viewing {previewCandidate.variantLabel} · {previewCandidate.visualMode ?? "editorial"}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="hs-imap-preview-frame">
+                  {!previewCandidate ? (
+                    <div className="hs-imap-preview-empty">No still candidates generated yet.</div>
+                  ) : previewCandidate.previewState === "ready" && previewCandidate.previewDataUrl ? (
+                    <img
+                      src={previewCandidate.previewDataUrl}
+                      alt={`${previewCandidate.variantLabel} still candidate preview`}
+                      className="hs-imap-preview-image"
+                    />
+                  ) : (
+                    <div className={`hs-imap-preview-empty${previewCandidate.previewState === "error" ? " is-error" : ""}`}>
+                      {previewCandidate.previewState === "loading"
+                        ? "Loading preview..."
+                        : previewCandidate.previewError || "Preview unavailable"}
+                    </div>
+                  )}
+                </div>
+                {previewCandidate ? (
+                  <div className="hs-imap-preview-actions">
+                    <span className="hs-field-label-muted">
+                      Preview a candidate below, then use the button to assign it to this visual beat.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onSelectCandidate(previewCandidate.id)}
+                      disabled={disabled || candidateGenerateBusy || candidateSelectBusy}
+                    >
+                      {previewCandidate.isSelected
+                        ? "Selected for Beat"
+                        : candidateSelectBusy
+                          ? "Saving..."
+                          : "Use This Image"}
+                    </button>
+                  </div>
+                ) : null}
+              </section>
               <section className="hs-imap-candidates" aria-label="Still candidates">
                 {candidateCards.length === 0 ? (
                   <div className="hs-imap-empty">No still candidates generated yet.</div>
                 ) : (
                   candidateCards.map((candidate) => (
-                    <button
+                    <article
                       key={candidate.id}
-                      type="button"
-                      className={`hs-imap-candidate-card${candidate.isSelected ? " is-selected" : ""}`}
-                      onClick={() => onSelectCandidate(candidate.id)}
-                      disabled={disabled || candidateGenerateBusy || candidateSelectBusy}
+                      className={`hs-imap-candidate-card${candidate.isSelected ? " is-selected" : ""}${candidate.id === previewCandidateId ? " is-previewing" : ""}`}
                     >
-                      <div className="hs-imap-candidate-media">
-                        {candidate.previewState === "ready" && candidate.previewDataUrl ? (
-                          <img
-                            src={candidate.previewDataUrl}
-                            alt={`${candidate.variantLabel} still candidate`}
-                            className="hs-imap-candidate-image"
-                          />
-                        ) : (
-                          <div className={`hs-imap-candidate-placeholder is-${candidate.previewState}`}>
-                            {candidate.previewState === "loading" ? "Loading preview..." : "Preview unavailable"}
+                      <button
+                        type="button"
+                        className="hs-imap-candidate-preview-trigger"
+                        onClick={() => setPreviewCandidateId(candidate.id)}
+                        disabled={disabled || candidateGenerateBusy || candidateSelectBusy}
+                        aria-pressed={candidate.id === previewCandidateId}
+                      >
+                        <div className="hs-imap-candidate-media">
+                          {candidate.previewState === "ready" && candidate.previewDataUrl ? (
+                            <img
+                              src={candidate.previewDataUrl}
+                              alt={`${candidate.variantLabel} still candidate`}
+                              className="hs-imap-candidate-image"
+                            />
+                          ) : (
+                            <div className={`hs-imap-candidate-placeholder is-${candidate.previewState}`}>
+                              {candidate.previewState === "loading" ? "Loading preview..." : "Preview unavailable"}
+                            </div>
+                          )}
+                        </div>
+                        <div className="hs-imap-candidate-meta">
+                          <div className="hs-imap-candidate-title">
+                            {candidate.variantLabel}
+                            {candidate.id === previewCandidateId ? (
+                              <span className="hs-imap-candidate-badge is-preview">Previewing</span>
+                            ) : null}
+                            {candidate.isSelected ? <span className="hs-imap-candidate-badge">Selected</span> : null}
                           </div>
-                        )}
-                      </div>
-                      <div className="hs-imap-candidate-meta">
-                        <div className="hs-imap-candidate-title">
-                          {candidate.variantLabel}
-                          {candidate.isSelected ? <span className="hs-imap-candidate-badge">Selected</span> : null}
+                          <div className="hs-imap-candidate-subtitle">
+                            {candidate.visualMode ?? "editorial"}
+                          </div>
+                          {candidate.previewError ? (
+                            <div className="hs-error-text-small">{candidate.previewError}</div>
+                          ) : null}
                         </div>
-                        <div className="hs-imap-candidate-subtitle">
-                          {candidate.visualMode ?? "editorial"}
-                        </div>
-                        {candidate.previewError ? (
-                          <div className="hs-error-text-small">{candidate.previewError}</div>
-                        ) : null}
+                      </button>
+                      <div className="hs-imap-candidate-actions">
+                        <button
+                          type="button"
+                          className="hs-imap-candidate-apply"
+                          onClick={() => onSelectCandidate(candidate.id)}
+                          disabled={disabled || candidateGenerateBusy || candidateSelectBusy}
+                        >
+                          {candidate.isSelected ? "Selected for Beat" : "Use This Image"}
+                        </button>
                       </div>
-                    </button>
+                    </article>
                   ))
                 )}
               </section>

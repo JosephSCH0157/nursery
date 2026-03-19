@@ -1,8 +1,6 @@
 import { Link, useOutletContext } from "react-router-dom";
-import type { CSSProperties } from "react";
 import type { ForgeAppId } from "@forge/tongs";
 import type { AppShellContext } from "./AppShell";
-import forgeInteriorImage from "../../../../assets/forge-interior.png";
 import "./ForgeHub.css";
 
 type HubLink = {
@@ -89,15 +87,11 @@ export default function ForgeHub() {
   const shell = useOutletContext<AppShellContext>();
   const session = shell?.session ?? null;
   const showBackdrop = !!session;
-  const backdropStyle = {
-    "--forge-hub-backdrop":
-      `linear-gradient(180deg, rgba(10,10,12,0.74), rgba(6,8,12,0.84)), url('${forgeInteriorImage}')`,
-  } as CSSProperties;
 
   return (
     <div className={`forge-hub${showBackdrop ? " is-backed" : ""}`}>
       {showBackdrop ? (
-        <div aria-hidden className="forge-hub__backdrop" style={backdropStyle} />
+        <div aria-hidden className="forge-hub__backdrop" />
       ) : null}
       <div className="forge-hub__content">
       <h1 className="forge-hub__title">Podcaster's Forge</h1>

@@ -27,8 +27,21 @@ function findAutoControls(root: ParentNode) {
   const autoRow = root.querySelector<HTMLElement>('#autoRow');
   const wpmRow = root.querySelector<HTMLElement>('#wpmRow');
   const stepRow = root.querySelector<HTMLElement>('#stepControlsRow');
+  const matchAggroRow = root.querySelector<HTMLElement>('#matchAggroRow');
+  const motionSmoothRow = root.querySelector<HTMLElement>('#motionSmoothRow');
   const helpText = root.querySelector<HTMLElement>('#scrollModeHelpText');
-  return { autoSpeed, autoSpeedLabel, autoSpeedWrap, autoToggle, autoRow, wpmRow, stepRow, helpText };
+  return {
+    autoSpeed,
+    autoSpeedLabel,
+    autoSpeedWrap,
+    autoToggle,
+    autoRow,
+    wpmRow,
+    stepRow,
+    matchAggroRow,
+    motionSmoothRow,
+    helpText,
+  };
 }
 
 function setRowVisibility(row: HTMLElement | null, visible: boolean) {
@@ -38,7 +51,18 @@ function setRowVisibility(row: HTMLElement | null, visible: boolean) {
 }
 
 export function applyScrollModeUI(mode: ScrollMode, root: Document | HTMLElement = document): void {
-  const { autoSpeed, autoSpeedLabel, autoSpeedWrap, autoToggle, autoRow, wpmRow, stepRow, helpText } =
+  const {
+    autoSpeed,
+    autoSpeedLabel,
+    autoSpeedWrap,
+    autoToggle,
+    autoRow,
+    wpmRow,
+    stepRow,
+    matchAggroRow,
+    motionSmoothRow,
+    helpText,
+  } =
     findAutoControls(root);
 
   try {
@@ -57,6 +81,8 @@ export function applyScrollModeUI(mode: ScrollMode, root: Document | HTMLElement
   setRowVisibility(autoSpeedWrap as HTMLElement | null, true);
   setRowVisibility(wpmRow as HTMLElement | null, false);
   setRowVisibility(stepRow as HTMLElement | null, false);
+  setRowVisibility(matchAggroRow as HTMLElement | null, false);
+  setRowVisibility(motionSmoothRow as HTMLElement | null, true);
   const defaultHelpText = getBaseHelpText(helpText);
   const setHelp = (content: string) => {
     if (!helpText) return;
@@ -70,6 +96,8 @@ export function applyScrollModeUI(mode: ScrollMode, root: Document | HTMLElement
       setRowVisibility(autoRow as HTMLElement | null, true);
       setRowVisibility(autoSpeedWrap as HTMLElement | null, true);
       setRowVisibility(wpmRow as HTMLElement | null, false);
+      setRowVisibility(matchAggroRow as HTMLElement | null, false);
+      setRowVisibility(motionSmoothRow as HTMLElement | null, true);
       break;
     case 'wpm':
       setRowVisibility(autoRow as HTMLElement | null, true);
@@ -77,11 +105,15 @@ export function applyScrollModeUI(mode: ScrollMode, root: Document | HTMLElement
       setRowVisibility(autoSpeedWrap as HTMLElement | null, false);
       setRowVisibility(autoRow as HTMLElement | null, false);
       setRowVisibility(wpmRow as HTMLElement | null, true);
+      setRowVisibility(matchAggroRow as HTMLElement | null, false);
+      setRowVisibility(motionSmoothRow as HTMLElement | null, true);
       break;
     case 'hybrid':
       setRowVisibility(autoRow as HTMLElement | null, false);
       setRowVisibility(autoSpeedWrap as HTMLElement | null, false);
       setRowVisibility(wpmRow as HTMLElement | null, true);
+      setRowVisibility(matchAggroRow as HTMLElement | null, true);
+      setRowVisibility(motionSmoothRow as HTMLElement | null, true);
       break;
     case 'asr':
       setRowVisibility(autoRow as HTMLElement | null, false);
@@ -92,6 +124,8 @@ export function applyScrollModeUI(mode: ScrollMode, root: Document | HTMLElement
         autoToggle.textContent = 'ASR-controlled';
       }
       setRowVisibility(wpmRow as HTMLElement | null, false);
+      setRowVisibility(matchAggroRow as HTMLElement | null, true);
+      setRowVisibility(motionSmoothRow as HTMLElement | null, true);
       break;
     case 'step':
       if (autoSpeed) autoSpeed.disabled = true;
@@ -102,6 +136,8 @@ export function applyScrollModeUI(mode: ScrollMode, root: Document | HTMLElement
       }
       setRowVisibility(autoRow as HTMLElement | null, false);
       setRowVisibility(stepRow as HTMLElement | null, true);
+      setRowVisibility(matchAggroRow as HTMLElement | null, false);
+      setRowVisibility(motionSmoothRow as HTMLElement | null, false);
       break;
     case 'rehearsal':
       if (autoSpeed) autoSpeed.disabled = true;
@@ -113,6 +149,8 @@ export function applyScrollModeUI(mode: ScrollMode, root: Document | HTMLElement
       setRowVisibility(autoRow as HTMLElement | null, false);
       setRowVisibility(wpmRow as HTMLElement | null, false);
       setRowVisibility(stepRow as HTMLElement | null, false);
+      setRowVisibility(matchAggroRow as HTMLElement | null, false);
+      setRowVisibility(motionSmoothRow as HTMLElement | null, false);
       break;
   }
 }

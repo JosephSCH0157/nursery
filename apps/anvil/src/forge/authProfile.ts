@@ -52,6 +52,7 @@ export type PersistedAppKey =
   | 'asr.filterFillers'
   | 'asr.threshold'
   | 'asr.endpointMs'
+  | 'asr.manualAnchorAdoptEnabled'
   | 'asrCalmModeEnabled'
   | 'asrProfiles'
   | 'asrActiveProfileId'

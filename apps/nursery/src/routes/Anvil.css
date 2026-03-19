@@ -1,0 +1,13 @@
+.anvil-route-status {
+  padding: 24px;
+  display: grid;
+  gap: 8px;
+}
+
+.anvil-route-status__title {
+  margin: 0;
+}
+
+.anvil-route-status__copy {
+  margin: 0;
+}

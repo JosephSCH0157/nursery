@@ -8,6 +8,11 @@ import type {
   WorkspaceMediaMapping,
 } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
+import type {
+  HammerPersistedAudioPolish,
+  HammerPersistedStructuredTranscript,
+  HammerPersistedVisualPlacements,
+} from "../persistence/hammerPersistenceContract";
 
 export type HammerWorkspaceEditPlanStatus = "clean" | "dirty" | "reloaded";
 
@@ -26,8 +31,10 @@ export interface HammerWorkspaceSnapshot {
   mediaRef: MediaRef | null;
   workspaceMapping: WorkspaceMediaMapping | null;
   mediaSourceLabel: string | null;
+  selectedMacroRecipeRef: string | null;
+  lastMacroRunRef: string | null;
+  structuredTranscript: HammerPersistedStructuredTranscript | null;
   editPlan: HammerEditPlan;
-  studioSoundPrepared: boolean;
-  noiseCleanupPrepared: boolean;
-  levelConsistencyPrepared: boolean;
+  visualPlacements: HammerPersistedVisualPlacements | null;
+  audioPolish: HammerPersistedAudioPolish | null;
 }

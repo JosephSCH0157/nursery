@@ -48,7 +48,13 @@ export type GetWorkpieceImageMapResult =
 
 export type SaveWorkpieceImageMapResult =
   | { ok: true; imageMap: WorkpieceImageMapView }
-  | { ok: false; status: number; reason: "request_failed" | "conflict" | "invalid_response"; latest?: WorkpieceImageMapView };
+  | {
+    ok: false;
+    status: number;
+    reason: "request_failed" | "conflict" | "invalid_response";
+    error?: string;
+    latest?: WorkpieceImageMapView;
+  };
 
 export type GenerateWorkpieceImageMapCandidatesResult =
   | {
@@ -87,6 +93,17 @@ function readString(value: unknown): string | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function readApiErrorMessage(body: unknown): string | null {
+  if (!isRecord(body) || !isRecord(body.error)) return null;
+  const message = readString(body.error.message);
+  const details = isRecord(body.error.details) ? body.error.details : null;
+  const reason = details ? readString(details.reason) : null;
+  if (message && reason && !message.includes(reason)) {
+    return `${message} (${reason})`;
+  }
+  return message ?? reason ?? null;
 }
 
 async function readBodyAsJson(response: Response): Promise<unknown> {
@@ -211,10 +228,12 @@ export async function getWorkpieceImageMap(workpieceId: string): Promise<GetWork
   });
   const body = await readBodyAsJson(response);
   if (!response.ok) {
+    const error = readApiErrorMessage(body);
     return {
       ok: false,
       status: response.status,
       reason: "request_failed",
+      ...(error ? { error } : {}),
     };
   }
 
@@ -259,10 +278,12 @@ export async function saveWorkpieceImageMap(args: {
   }
 
   if (!response.ok) {
+    const error = readApiErrorMessage(body);
     return {
       ok: false,
       status: response.status,
       reason: "request_failed",
+      ...(error ? { error } : {}),
     };
   }
 
@@ -326,7 +347,7 @@ export async function generateWorkpieceImageMapCandidates(args: {
   }
 
   if (!response.ok) {
-    const error = isRecord(body) && isRecord(body.error) ? readString(body.error.message) : null;
+    const error = readApiErrorMessage(body);
     return {
       ok: false,
       status: response.status,
@@ -497,7 +518,7 @@ export async function selectWorkpieceImageMapCandidate(args: {
       reason: saved.reason,
       error: saved.reason === "invalid_response"
         ? "Image map selection returned an invalid response."
-        : "Unable to save image selection.",
+        : saved.error ?? "Unable to save image selection.",
       ...(saved.latest ? { latest: saved.latest } : {}),
     };
   }

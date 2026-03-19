@@ -7,6 +7,7 @@ export * from "./calendar-events.js";
 export * from "./db.types.js";
 export * from "./workpiece-commit-api.js";
 export * from "./storage/storage-contract.js";
+export * from "./storage/cloud-prefix.js";
 export * from "./storage/registry-normalize.js";
 export * from "./storage/resolve-mount.js";
 export * from "./storage/storage-guard.js";

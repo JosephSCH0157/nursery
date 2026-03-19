@@ -531,10 +531,14 @@ function bindModalEvents() {
 function initDisplayPairingPanel() {
   if (typeof document === 'undefined' || isDisplayContext()) return;
   ensureStyles();
-  const toggleBtn = document.getElementById('displayToggleBtn');
+  const toggleBtn =
+    document.getElementById('displayToggleBtnSidebar') ??
+    document.getElementById('displayToggleBtn');
   const parent = toggleBtn?.parentElement || document.getElementById('topbarRight');
   if (!parent) return;
+  if (document.getElementById('displayPairBtn')) return;
   const pairBtn = document.createElement('button');
+  pairBtn.id = 'displayPairBtn';
   pairBtn.type = 'button';
   pairBtn.className = 'chip display-pair-btn';
   pairBtn.textContent = 'Pair Tablet';

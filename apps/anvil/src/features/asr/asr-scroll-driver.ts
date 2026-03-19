@@ -1,6 +1,11 @@
 import { computeLineSimilarityFromTokens, normTokens, type MatchResult } from '../../speech/matcher';
 import { speechStore } from '../../state/speech-store';
 import { getAsrSettings } from '../speech/speech-store';
+import {
+  ASR_MANUAL_ANCHOR_EVENT,
+  normalizeManualAnchorTargetIndex,
+  type AsrManualAnchorDetail,
+} from './manual-anchor';
 import { ensureAsrTuningProfile, getActiveAsrTuningProfile, onAsrTuning, type AsrTuningProfile } from '../../asr/tuning-store';
 import {
   applyCanonicalScrollTop,
@@ -166,6 +171,17 @@ type AsrMoveResult = {
 
 type CueBridgeSkipReason = 'blank' | 'cue' | 'note' | 'speaker';
 
+type CueBridgeScanResult = {
+  nextOffset: number | null;
+  skippedReasons: CueBridgeSkipReason[];
+};
+
+type StallCueRescuePolicy = {
+  allow: boolean;
+  directContentForwardRescue: boolean;
+  blockedReason: string;
+};
+
 export type AsrScrollDriverStats = {
   lastIngestAt: number;
   lastCommitAt: number;
@@ -213,6 +229,12 @@ const DEFAULT_CATCHUP_MED_MIN_PX = 80;
 const DEFAULT_CATCHUP_FAST_MIN_PX = 250;
 const DEFAULT_MAX_TARGET_JUMP_PX = 180;
 const DEFAULT_MAX_TARGET_JUMP_HYBRID_PX = 80;
+const LIVE_ASR_COMMIT_MIN_PX = 72;
+const LIVE_ASR_COMMIT_MAX_LINES = 3;
+const LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO = 0.75;
+const LIVE_ASR_GLIDE_MIN_MS = 180;
+const LIVE_ASR_GLIDE_MAX_MS = 520;
+const LIVE_ASR_GLIDE_PX_PER_SEC = 900;
 const DEFAULT_PURSUE_KP = 3.2;
 const DEFAULT_PURSUE_MANUAL_CANCEL_PX = 48;
 const DEFAULT_NO_TARGET_RETRY_SIM = 0.9;
@@ -299,6 +321,7 @@ const GUARD_THROTTLE_MS = 750;
 const DEFAULT_SHORT_TOKEN_MAX = 4;
 const DEFAULT_SHORT_TOKEN_BOOST = 0.12;
 const DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM = 0.2;
+const DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES = 1;
 const DEFAULT_STABLE_INTERIM_NUDGE_MS = 450;
 const DEFAULT_STABLE_INTERIM_NUDGE_COOLDOWN_MS = 900;
 const DEFAULT_STABLE_INTERIM_PREFIX_MIN_TOKENS = 3;
@@ -417,6 +440,9 @@ const DEFAULT_CUE_BRIDGE_LARGE_GAP = 0.12;
 const DEFAULT_CUE_BRIDGE_STABILITY_MIN_EVENTS = 2;
 const DEFAULT_CUE_STALL_RESCUE_DELAY_MS = 900;
 const DEFAULT_CUE_STALL_RESCUE_COOLDOWN_MS = 1800;
+const DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS = 3;
+const DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES = 2;
+const DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS = DEFAULT_STARVATION_COMMIT_GAP_MS * 2;
 const DEFAULT_MULTI_JUMP_MIN_SIM = 0.45;
 const DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS = 0.08;
 const DEFAULT_MULTI_JUMP_HARD_DENY_SIM = 0.3;
@@ -449,6 +475,9 @@ const DEFAULT_LOST_FORWARD_MARKER_CATCHUP_MAX_DELTA_LINES = 6;
 const DEFAULT_LOST_FORWARD_MARKER_CATCHUP_COMMIT_CAP_LINES = 1;
 const DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_COMMIT_CAP_LINES = 2;
 const DEFAULT_LOST_FORWARD_MARKER_CATCHUP_STRONG_MIN_SIM = 0.45;
+const DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_SIM = 0.4;
+const DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_TOKENS = 4;
+const DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_STREAK = 2;
 const LOST_FORWARD_WINDOW_STEPS = [10, DEFAULT_LOST_FORWARD_LOOKAHEAD_LINES, 60] as const;
 const LOST_FORWARD_STAGE_STREAKS = [
   DEFAULT_NO_PROGRESS_STREAK_TRIGGER,
@@ -468,6 +497,9 @@ const DEFAULT_GRACE_ROLLBACK_MIN_PREV_SIM = 0.7;
 const DEFAULT_GRACE_ROLLBACK_MAX_CURRENT_SIM = 0.25;
 const DEFAULT_GRACE_ROLLBACK_MIN_MARGIN = 0.35;
 const DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS = 5000;
+const DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_LINES = 1;
+const DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_SIM = 0.84;
+const DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM = 0.32;
 const DEFAULT_STRONG_FORWARD_COMMIT_SIM = 0.82;
 const DEFAULT_PERMISSIVE_FINAL_MIN_CONTENT_HITS = 2;
 const DEFAULT_PERMISSIVE_FINAL_MIN_OVERLAP_TOKENS = 2;
@@ -926,6 +958,265 @@ function classifySkippableLineForCueBridge(value: string): CueBridgeSkipReason |
   return tokenCount <= 4 && CUE_LINE_WORD_RE.test(normalized) ? 'cue' : null;
 }
 
+function classifyStrictSkippableLineForCueBridge(value: string): CueBridgeSkipReason | null {
+  const raw = String(value || '').trim();
+  if (!raw) return 'blank';
+  if (SPEAKER_TAG_ONLY_RE.test(raw)) return 'speaker';
+  if (NOTE_TAG_ONLY_RE.test(raw) || NOTE_INLINE_BLOCK_RE.test(raw) || /\[\s*\/?\s*note\b/i.test(raw)) return 'note';
+  if (CUE_LINE_BRACKET_RE.test(raw)) return 'cue';
+  return null;
+}
+
+export function scanCueBridgeWindow(
+  windowLines: string[],
+  opts?: { strict?: boolean },
+): CueBridgeScanResult {
+  const classify = opts?.strict
+    ? classifyStrictSkippableLineForCueBridge
+    : classifySkippableLineForCueBridge;
+  const skippedReasons: CueBridgeSkipReason[] = [];
+  for (let offset = 0; offset < windowLines.length; offset += 1) {
+    const reason = classify(windowLines[offset]);
+    if (reason) {
+      skippedReasons.push(reason);
+      continue;
+    }
+    return { nextOffset: offset, skippedReasons };
+  }
+  return { nextOffset: null, skippedReasons };
+}
+
+export function evaluateStallCueRescuePolicy(opts: {
+  reasonTag: string;
+  skippedReasons: CueBridgeSkipReason[];
+}): StallCueRescuePolicy {
+  const reasonTag = String(opts.reasonTag || '').trim().toLowerCase();
+  const skippedReasons = Array.isArray(opts.skippedReasons) ? opts.skippedReasons : [];
+  if (reasonTag === 'auto-stall') {
+    if (!skippedReasons.length) {
+      return {
+        allow: true,
+        directContentForwardRescue: true,
+        blockedReason: '',
+      };
+    }
+    return {
+      allow: true,
+      directContentForwardRescue: false,
+      blockedReason: '',
+    };
+  }
+  if (!skippedReasons.length) {
+    return {
+      allow: false,
+      directContentForwardRescue: false,
+      blockedReason: 'content-line',
+    };
+  }
+  return {
+    allow: true,
+    directContentForwardRescue: false,
+    blockedReason: '',
+  };
+}
+
+export function shouldAllowAutoStallContentRescue(opts: {
+  commitCount: number;
+  deltaLines: number;
+  sinceLastForwardMs: number;
+  lostForwardGateCountSinceCommit: number;
+}): boolean {
+  const commitCount = Number.isFinite(opts.commitCount)
+    ? Math.max(0, Math.floor(opts.commitCount))
+    : 0;
+  const deltaLines = Number.isFinite(opts.deltaLines)
+    ? Math.max(0, Math.floor(opts.deltaLines))
+    : 0;
+  if (deltaLines !== 1) return false;
+  if (commitCount >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS) return true;
+  if (commitCount <= 0) return false;
+  const sinceLastForwardMs = Number.isFinite(opts.sinceLastForwardMs)
+    ? Math.max(0, Number(opts.sinceLastForwardMs))
+    : 0;
+  if (sinceLastForwardMs < DEFAULT_STARVATION_COMMIT_GAP_MS) return false;
+  if (commitCount >= 2 && sinceLastForwardMs >= DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS) {
+    return true;
+  }
+  const lostForwardGateCountSinceCommit = Number.isFinite(opts.lostForwardGateCountSinceCommit)
+    ? Math.max(0, Math.floor(opts.lostForwardGateCountSinceCommit))
+    : 0;
+  const neededLostForwardGates =
+    commitCount >= 2
+      ? 1
+      : DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES;
+  return lostForwardGateCountSinceCommit >= neededLostForwardGates;
+}
+
+export function evaluateWeakForwardClampSupport(opts: {
+  cursorLine: number;
+  requestedIdx: number;
+  clampedIdx: number;
+  selectedScore: number;
+  candidates: Array<{ idx: number; score: number }>;
+}): {
+  allow: boolean;
+  localBestIdx: number | null;
+  localBestScore: number | null;
+  minSupport: number;
+} {
+  const cursorLine = Number.isFinite(opts.cursorLine) ? Math.max(0, Math.floor(opts.cursorLine)) : -1;
+  const requestedIdx = Number.isFinite(opts.requestedIdx) ? Math.max(0, Math.floor(opts.requestedIdx)) : -1;
+  const clampedIdx = Number.isFinite(opts.clampedIdx) ? Math.max(0, Math.floor(opts.clampedIdx)) : -1;
+  const selectedScore = Number.isFinite(opts.selectedScore) ? Number(opts.selectedScore) : Number.NaN;
+  const minSupport = clamp(
+    Math.max(
+      DEFAULT_CURRENT_OVERRIDE_MIN_SIM + DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS,
+      DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM + DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS,
+      (Number.isFinite(selectedScore) ? selectedScore : 0) - DEFAULT_WEAK_CURRENT_FORWARD_SPARSE_SLACK,
+    ),
+    0,
+    1,
+  );
+  if (
+    cursorLine < 0 ||
+    requestedIdx <= clampedIdx ||
+    clampedIdx <= cursorLine ||
+    !Number.isFinite(selectedScore) ||
+    selectedScore >= DEFAULT_STRONG_FORWARD_COMMIT_SIM
+  ) {
+    return {
+      allow: true,
+      localBestIdx: null,
+      localBestScore: null,
+      minSupport,
+    };
+  }
+
+  const localBest = (Array.isArray(opts.candidates) ? opts.candidates : [])
+    .map((entry) => ({
+      idx: Number((entry as any)?.idx),
+      score: Number((entry as any)?.score),
+    }))
+    .filter((entry) =>
+      Number.isFinite(entry.idx) &&
+      Number.isFinite(entry.score) &&
+      entry.idx > cursorLine &&
+      entry.idx <= clampedIdx,
+    )
+    .map((entry) => ({ idx: Math.floor(entry.idx), score: entry.score }))
+    .sort((a, b) => b.score - a.score || a.idx - b.idx)[0] || null;
+
+  return {
+    allow: !!localBest && localBest.score >= minSupport,
+    localBestIdx: localBest ? localBest.idx : null,
+    localBestScore: localBest ? localBest.score : null,
+    minSupport,
+  };
+}
+
+export function resolveWeakFarForwardHoldCandidate(opts: {
+  cursorLine: number;
+  selectedIdx: number;
+  selectedScore: number;
+  currentLineScore?: number;
+  candidates: Array<{ idx: number; score: number }>;
+}): { idx: number; score: number } | null {
+  const cursorLine = Number.isFinite(opts.cursorLine) ? Math.max(0, Math.floor(opts.cursorLine)) : -1;
+  const selectedIdx = Number.isFinite(opts.selectedIdx) ? Math.max(0, Math.floor(opts.selectedIdx)) : -1;
+  const selectedScore = Number.isFinite(opts.selectedScore) ? Number(opts.selectedScore) : Number.NaN;
+  if (cursorLine < 0 || selectedIdx < 0 || !Number.isFinite(selectedScore)) return null;
+  if (selectedIdx <= cursorLine + DEFAULT_WEAK_CURRENT_FORWARD_MAX_DELTA) return null;
+  if (selectedScore >= DEFAULT_STRONG_FORWARD_COMMIT_SIM) return null;
+
+  const nearCandidateMap = new Map<number, number>();
+  const pushCandidate = (idxRaw: number, scoreRaw: number) => {
+    const idx = Number.isFinite(idxRaw) ? Math.max(0, Math.floor(idxRaw)) : -1;
+    const score = Number.isFinite(scoreRaw) ? Number(scoreRaw) : Number.NaN;
+    if (idx < cursorLine || idx > cursorLine + DEFAULT_WEAK_CURRENT_FORWARD_MAX_DELTA) return;
+    if (!Number.isFinite(score)) return;
+    const existing = nearCandidateMap.get(idx);
+    if (existing == null || score > existing) {
+      nearCandidateMap.set(idx, score);
+    }
+  };
+
+  for (const candidate of Array.isArray(opts.candidates) ? opts.candidates : []) {
+    pushCandidate(Number((candidate as any)?.idx), Number((candidate as any)?.score));
+  }
+  pushCandidate(cursorLine, Number(opts.currentLineScore));
+
+  const nearCandidate = Array.from(nearCandidateMap.entries())
+    .map(([idx, score]) => ({ idx, score }))
+    .sort((a, b) => b.score - a.score || a.idx - b.idx)[0];
+  if (!nearCandidate) return null;
+  if (nearCandidate.idx >= selectedIdx) return null;
+  if (nearCandidate.score < selectedScore - DEFAULT_WEAK_CURRENT_FORWARD_SIM_SLACK) return null;
+  return nearCandidate;
+}
+
+export function evaluateCueBoundaryMultiJumpRelaxation(opts: {
+  cursorLine: number;
+  requestedLine: number;
+  promotedLine: number | null;
+  skippedText?: string;
+  isFinal: boolean;
+  forceTag?: string;
+  cueBridgePathValid?: boolean;
+  cueBridgeSkipCountOk?: boolean;
+  cueBridgeDelta?: number;
+}): { allowBridgeEps: boolean; reason: string } {
+  const cursorLine = Number.isFinite(opts.cursorLine) ? Math.max(0, Math.floor(opts.cursorLine)) : -1;
+  const requestedLine = Number.isFinite(opts.requestedLine) ? Math.max(0, Math.floor(opts.requestedLine)) : -1;
+  const promotedLine = Number.isFinite(opts.promotedLine as number)
+    ? Math.max(0, Math.floor(Number(opts.promotedLine)))
+    : -1;
+  const forceTag = String(opts.forceTag || '').toLowerCase();
+  const cueBridgeDelta = Number.isFinite(opts.cueBridgeDelta as number)
+    ? Math.max(0, Math.floor(Number(opts.cueBridgeDelta)))
+    : 0;
+  const finalForcedBridge =
+    !!opts.isFinal &&
+    (
+      forceTag === 'final-forward-nudge' ||
+      forceTag === 'final-forward-fallback' ||
+      forceTag === 'permissive-final-advance'
+    ) &&
+    !!opts.cueBridgePathValid &&
+    !!opts.cueBridgeSkipCountOk &&
+    cueBridgeDelta >= Math.max(0, promotedLine - cursorLine) &&
+    promotedLine > cursorLine &&
+    promotedLine - cursorLine <= DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES;
+  if (finalForcedBridge) {
+    return {
+      allowBridgeEps: true,
+      reason: 'forced-final-bridge',
+    };
+  }
+  const skippedReason = classifyStrictSkippableLineForCueBridge(String(opts.skippedText || ''));
+  const cueSafeImmediatePromotion =
+    cursorLine >= 0 &&
+    requestedLine === cursorLine + 1 &&
+    promotedLine > requestedLine &&
+    promotedLine > cursorLine &&
+    promotedLine - cursorLine <= DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES &&
+    skippedReason != null;
+  if (cueSafeImmediatePromotion) {
+    return {
+      allowBridgeEps: true,
+      reason: `cue-safe:${skippedReason}`,
+    };
+  }
+  return {
+    allowBridgeEps: false,
+    reason: '',
+  };
+}
+
+export function isAutomaticStallRescueReason(reasonTag: string): boolean {
+  const normalized = String(reasonTag || '').trim().toLowerCase();
+  return normalized === 'auto-stall' || normalized.startsWith('stall:');
+}
+
 function isSkippableLineForCueBridge(value: string): boolean {
   return classifySkippableLineForCueBridge(value) != null;
 }
@@ -1241,21 +1532,27 @@ function shouldForcePixelAsrCommitPath(): boolean {
   if (typeof window === 'undefined') return false;
   try {
     const w = window as any;
-    if (w.__tpAsrForceWriterCommit === true) return false;
-    if (w.__tpAsrForcePixelCommit === true) return true;
     const params = new URLSearchParams(window.location.search || '');
     const writerParam = String(params.get('asr_writer') || '').toLowerCase();
     if (writerParam === '1' || writerParam === 'true') return false;
     const pixelParam = String(params.get('asr_pixel') || '').toLowerCase();
     if (pixelParam === '1' || pixelParam === 'true') return true;
+    const liveAsrSession =
+      getScrollMode() === 'asr' &&
+      isSessionLivePhase() &&
+      isSessionAsrArmed();
+    if (liveAsrSession) return true;
+    if (w.__tpAsrForceWriterCommit === true) return false;
+    if (w.__tpAsrForcePixelCommit === true) return true;
     const ls = w.localStorage;
     if (ls?.getItem('tp_asr_force_writer_commit') === '1') return false;
     if (ls?.getItem('tp_asr_force_pixel_commit') === '1') return true;
   } catch {
     // ignore
   }
-  // Writer-first is the canonical path in all environments.
-  // Pixel commits are an explicit debug override only.
+  // Writer-first remains the non-live default.
+  // Live ASR recording sessions use pixel commits so jump caps and smoothing stay in force.
+  // Only URL params are allowed to override that behavior during live capture.
   return false;
 }
 
@@ -1682,6 +1979,19 @@ function resolveLineHeightPx(lineEl: HTMLElement | null): number {
   return 24;
 }
 
+function resolveMotionLineHeightPx(lineEl: HTMLElement | null): number {
+  if (!lineEl) return 24;
+  try {
+    const computed = Number.parseFloat(getComputedStyle(lineEl).lineHeight);
+    if (Number.isFinite(computed) && computed > 1) return computed;
+  } catch {
+    // ignore
+  }
+  const fallback = resolveLineHeightPx(lineEl);
+  if (Number.isFinite(fallback) && fallback > 1) return fallback;
+  return 24;
+}
+
 function resolveLineTopWithinScroller(scroller: HTMLElement | null, lineEl: HTMLElement | null): number {
   if (!scroller || !lineEl) return 0;
   try {
@@ -1711,6 +2021,29 @@ function computeLineTargetTop(scroller: HTMLElement | null, lineEl: HTMLElement 
   const biased = raw - MARKER_BIAS_PX;
   const max = Math.max(0, (scroller.scrollHeight || 0) - scroller.clientHeight);
   return clamp(biased, 0, max);
+}
+
+function resolveLiveAsrCommitCapPx(
+  scroller: HTMLElement | null,
+  lineIdx?: number,
+  lineEl?: HTMLElement | null,
+): number {
+  if (!scroller) return LIVE_ASR_COMMIT_MIN_PX;
+  const resolvedLineEl =
+    lineEl ||
+    (typeof lineIdx === 'number' && Number.isFinite(lineIdx)
+      ? getLineElementByIndex(scroller, Math.max(0, Math.floor(lineIdx)))
+      : null);
+  const lineHeightPx = resolveMotionLineHeightPx(resolvedLineEl);
+  const viewportCap =
+    scroller.clientHeight > 0
+      ? Math.max(LIVE_ASR_COMMIT_MIN_PX, scroller.clientHeight * LIVE_ASR_MAX_COMMIT_VIEWPORT_RATIO)
+      : LIVE_ASR_COMMIT_MIN_PX;
+  const lineDrivenCap =
+    Number.isFinite(lineHeightPx) && lineHeightPx > 1
+      ? lineHeightPx * LIVE_ASR_COMMIT_MAX_LINES
+      : LIVE_ASR_COMMIT_MIN_PX;
+  return clamp(Math.max(LIVE_ASR_COMMIT_MIN_PX, lineDrivenCap), LIVE_ASR_COMMIT_MIN_PX, viewportCap);
 }
 
 function resolveTargetTop(scroller: HTMLElement, lineIndex: number): number | null {
@@ -2345,7 +2678,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   };
   const startGlideTo = (
     targetTop: number,
-    opts: { scroller?: HTMLElement | null; reason?: string; source?: string; durationMs?: number },
+    opts: {
+      scroller?: HTMLElement | null;
+      reason?: string;
+      source?: string;
+      durationMs?: number;
+      easing?: 'easeOutCubic' | 'linear';
+    },
   ): boolean => {
     if (isHybridMode()) return false;
     const scroller = opts.scroller ?? getScroller();
@@ -2371,7 +2710,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       if (cancelled) return;
       const now = Number.isFinite(ts) ? ts : (typeof performance !== 'undefined' ? performance.now() : Date.now());
       const t = clamp((now - startedAt) / duration, 0, 1);
-      const eased = 1 - Math.pow(1 - t, 3); // easeOutCubic
+      const eased = opts.easing === 'linear' ? t : 1 - Math.pow(1 - t, 3);
       const nextTop = fromTop + (toTop - fromTop) * eased;
       const applied = applyScrollWithHybridGuard(nextTop, {
         scroller,
@@ -2618,6 +2957,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let relockRepeatIdx = -1;
   let relockRepeatCount = 0;
   let relockRepeatWindowStart = 0;
+  let adjacentTieForwardIdx = -1;
+  let adjacentTieForwardCount = 0;
+  let adjacentTieForwardWindowStart = 0;
   let lastResyncAt = 0;
   let lastBehindStrongIdx = -1;
   let lastBehindStrongAt = 0;
@@ -2637,6 +2979,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lostForwardWallStreak = 0;
   let lastProgressCursorLine = -1;
   let lastCueStallRescueAt = 0;
+  let lostForwardGateCountAtLastCommit = 0;
   let lostForwardActive = false;
   let lostForwardStage = 0;
   let lostForwardEnteredAt = 0;
@@ -3358,6 +3701,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let catchUpModeUntil = 0;
   const eventRing: AsrEventSnapshot[] = [];
   const guardCounts = new Map<string, number>();
+  const getGuardCount = (reason: string) => guardCounts.get(reason) || 0;
   let manualAnchorPending: { targetIndex: number; ts: number } | null = null;
   let manualScrollLastTop = 0;
   let manualScrollLastAt = 0;
@@ -3540,6 +3884,31 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       updateManualAnchorGlobalState();
       return;
     }
+    setManualAnchorPendingState(targetIndex, now);
+  };
+
+  const handleManualAnchorSignal = (event?: Event) => {
+    if (disposed) return;
+    if (!isManualAnchorAdoptEnabled()) return;
+    const mode = getScrollMode();
+    if (mode !== 'hybrid' && mode !== 'asr') return;
+    const detail = ((event as CustomEvent<AsrManualAnchorDetail> | undefined)?.detail || {}) as AsrManualAnchorDetail;
+    const targetIndex = normalizeManualAnchorTargetIndex(detail.targetIndex);
+    if (targetIndex == null) return;
+    const now = Date.now();
+    manualScrollLastTop = getScroller()?.scrollTop ?? manualScrollLastTop;
+    manualScrollLastAt = now;
+    if (manualAnchorPending && Math.abs(manualAnchorPending.targetIndex - targetIndex) <= MANUAL_ANCHOR_WINDOW_LINES) {
+      manualAnchorPending.ts = now;
+      updateManualAnchorGlobalState();
+      logDev('[ASR_ADOPT] signal refresh targetIndex=' + manualAnchorPending.targetIndex);
+      return;
+    }
+    logDev('[ASR_ADOPT] signal targetIndex=' + targetIndex, {
+      source: detail.source || 'signal',
+      reason: detail.reason || '',
+      targetBlockIdx: detail.targetBlockIdx ?? null,
+    });
     setManualAnchorPendingState(targetIndex, now);
   };
 
@@ -3779,6 +4148,37 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     };
   };
 
+  const resetAdjacentTieForward = () => {
+    adjacentTieForwardIdx = -1;
+    adjacentTieForwardCount = 0;
+    adjacentTieForwardWindowStart = 0;
+  };
+
+  const noteAdjacentTieForward = (
+    now: number,
+    idx: number,
+    sim: number,
+  ): boolean => {
+    if (!Number.isFinite(idx) || !Number.isFinite(sim) || sim < DELTA_MIN_SIM_SMALL) {
+      resetAdjacentTieForward();
+      return false;
+    }
+    const targetIdx = Math.max(0, Math.floor(idx));
+    const windowMs = Math.max(600, consistencyWindowMs || DEFAULT_FORWARD_PROGRESS_WINDOW_MS);
+    if (
+      adjacentTieForwardIdx !== targetIdx ||
+      !adjacentTieForwardWindowStart ||
+      now - adjacentTieForwardWindowStart > windowMs
+    ) {
+      adjacentTieForwardIdx = targetIdx;
+      adjacentTieForwardCount = 1;
+      adjacentTieForwardWindowStart = now;
+    } else {
+      adjacentTieForwardCount += 1;
+    }
+    return adjacentTieForwardCount >= Math.max(2, consistencyCount);
+  };
+
   const recordEvent = (entry: AsrEventSnapshot) => {
     eventRing.push(entry);
     if (eventRing.length > EVENT_RING_MAX) eventRing.shift();
@@ -3854,6 +4254,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   try { window.addEventListener('tp:asr:silence', silenceHandler as EventListener); } catch {}
   try { window.addEventListener('tp:script:reset', resetHandler as EventListener); } catch {}
   try { window.addEventListener('tp:asr:rescue', rescueHandler as EventListener); } catch {}
+  try { window.addEventListener(ASR_MANUAL_ANCHOR_EVENT, handleManualAnchorSignal as EventListener); } catch {}
   try { (window as any).__tpAsrRequestRescue = rescueHandler; } catch {}
 
   const summarizeGuardCounts = (limit = Number.POSITIVE_INFINITY) => {
@@ -3948,9 +4349,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
   };
 
+  // Once ASR is already on the last speakable line, continued speech should
+  // be treated as script-end confirmation instead of stall/starvation.
+  const maybeSuppressTerminalScriptEndWatchdog = (
+    lineIndex: number,
+    reason: string,
+  ): boolean => {
+    if (!Number.isFinite(lineIndex)) return false;
+    const normalizedLine = Math.max(0, Math.floor(lineIndex));
+    const lastSpeakableLineIndex = findLastSpeakableLineIndex();
+    if (lastSpeakableLineIndex < 0 || normalizedLine < lastSpeakableLineIndex) return false;
+    maybeEmitScriptEndEvent(normalizedLine, reason);
+    return true;
+  };
+
   const findNextSpeakableWithinBridge = (
     cursorLine: number,
     maxLookahead = DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES,
+    opts?: { strict?: boolean },
   ): { nextLine: number | null; skippedReasons: CueBridgeSkipReason[] } => {
     const total = getTotalLines();
     if (!Number.isFinite(cursorLine) || total <= 0) {
@@ -3962,16 +4378,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       return { nextLine: null, skippedReasons: [] };
     }
     const end = Math.min(total - 1, begin + Math.max(1, Math.floor(maxLookahead)) - 1);
-    const skippedReasons: CueBridgeSkipReason[] = [];
+    const windowLines: string[] = [];
     for (let idx = begin; idx <= end; idx += 1) {
-      const reason = classifySkippableLineForCueBridge(getLineTextAt(idx));
-      if (reason) {
-        skippedReasons.push(reason);
-        continue;
-      }
-      return { nextLine: idx, skippedReasons };
+      windowLines.push(getLineTextAt(idx));
     }
-    return { nextLine: null, skippedReasons };
+    const scan = scanCueBridgeWindow(windowLines, opts);
+    return {
+      nextLine: scan.nextOffset == null ? null : begin + scan.nextOffset,
+      skippedReasons: scan.skippedReasons,
+    };
   };
 
   const logCueBridgeUse = (
@@ -4498,13 +4913,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (!Number.isFinite(cursorRaw) || cursorRaw < 0) return false;
     const cursorLine = Math.max(0, Math.floor(cursorRaw));
     const reasonTag = String(reason || '').trim().toLowerCase();
-    const isAutoStallRescue = reasonTag === 'auto-stall';
+    if (manualAnchorPending && isAutomaticStallRescueReason(reasonTag)) {
+      stallRescueRequested = false;
+      if (isDevMode()) {
+        warnGuard('cue_stall_rescue_blocked', [
+          `at=${cursorLine}`,
+          'reason=manual-anchor-pending',
+          reason ? `source=${reason}` : '',
+          `target=${manualAnchorPending.targetIndex}`,
+        ]);
+      }
+      return false;
+    }
     const cursorLineText = getLineTextAt(cursorLine);
-    const cursorIsCueLine = isIgnorableCueLineText(cursorLineText);
-    const allowContentForwardRescue = isAutoStallRescue && !cursorIsCueLine;
     const cueBridge = findNextSpeakableWithinBridge(
       cursorLine,
       DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES,
+      { strict: true },
     );
     const targetLine = cueBridge.nextLine;
     if (targetLine == null || targetLine <= cursorLine) return false;
@@ -4512,16 +4937,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (deltaLines <= 0 || deltaLines > DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES) return false;
     const targetText = getLineTextAt(targetLine);
     if (!targetText || isIgnorableCueLineText(targetText)) return false;
-    const directContentForwardRescue =
-      allowContentForwardRescue &&
-      deltaLines === 1 &&
-      cueBridge.skippedReasons.length === 0;
-    if (isAutoStallRescue && !directContentForwardRescue) {
+    const rescuePolicy = evaluateStallCueRescuePolicy({
+      reasonTag,
+      skippedReasons: cueBridge.skippedReasons,
+    });
+    if (!rescuePolicy.allow) {
       stallRescueRequested = false;
       if (isDevMode()) {
         warnGuard('cue_stall_rescue_blocked', [
           `at=${cursorLine}`,
-          'reason=auto-stall-bounded-content-only',
+          `reason=${rescuePolicy.blockedReason || 'policy'}`,
           reason ? `source=${reason}` : '',
           `delta=${deltaLines}`,
           `skipped=[${cueBridge.skippedReasons.join(',')}]`,
@@ -4530,12 +4955,38 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       return false;
     }
-    if (!cueBridge.skippedReasons.length && !directContentForwardRescue) {
+    const directContentForwardRescue = rescuePolicy.directContentForwardRescue;
+    const lostForwardGateCountSinceCommit = Math.max(
+      0,
+      getGuardCount('lost_forward_gate') - lostForwardGateCountAtLastCommit,
+    );
+    const autoStallContentRescueAllowed = shouldAllowAutoStallContentRescue({
+      commitCount,
+      deltaLines,
+      sinceLastForwardMs: now - lastForwardCommitAt,
+      lostForwardGateCountSinceCommit,
+    });
+    const neededLostForwardGates =
+      commitCount >= 2
+        ? 1
+        : DEFAULT_AUTO_STALL_CONTENT_RESCUE_EARLY_LOST_FORWARD_GATES;
+    if (
+      reasonTag === 'auto-stall' &&
+      directContentForwardRescue &&
+      !autoStallContentRescueAllowed
+    ) {
       stallRescueRequested = false;
-      if (isDevMode() && isAutoStallRescue) {
+      if (isDevMode()) {
         warnGuard('cue_stall_rescue_blocked', [
           `at=${cursorLine}`,
-          'reason=content-line',
+          'reason=startup-guard',
+          `commits=${commitCount}`,
+          `hardCommitGate=${DEFAULT_AUTO_STALL_CONTENT_RESCUE_MIN_COMMITS}`,
+          `delta=${deltaLines}`,
+          `lostForwardGates=${lostForwardGateCountSinceCommit}`,
+          `lostForwardNeed=${neededLostForwardGates}`,
+          `severeStallMs=${DEFAULT_AUTO_STALL_CONTENT_RESCUE_SEVERE_STALL_MS}`,
+          `sinceForwardMs=${Math.max(0, now - lastForwardCommitAt)}`,
           reason ? `source=${reason}` : '',
           cursorLineText ? `line="${formatLogSnippet(cursorLineText, 56)}"` : '',
         ]);
@@ -4588,6 +5039,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     commitCount += 1;
     finalsSinceCommit = 0;
     eventsSinceCommit = 0;
+    lostForwardGateCountAtLastCommit = getGuardCount('lost_forward_gate');
     logDriverActive('commit');
     stallHudEmitted = false;
     if (firstCommitIndex == null && Number.isFinite(prevIndex)) {
@@ -4774,6 +5226,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
   const maybeLogStall = (now: number) => {
     if (now - lastCommitAt < DEFAULT_STALL_COMMIT_MS) return;
+    if (maybeSuppressTerminalScriptEndWatchdog(lastLineIndex, 'stall-terminal')) return;
     if (now - lastStallLogAt < DEFAULT_STALL_LOG_COOLDOWN_MS) return;
     lastStallLogAt = now;
     const reasonSummary = summarizeGuardText();
@@ -5290,6 +5743,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }) ?? beforeTop;
     const targetTop = clamp(targetTopRaw, 0, max);
     const reason = commit.forced ? 'asr-forced-commit' : 'asr-commit';
+    const liveAsrGlideActive =
+      getScrollMode() === 'asr' &&
+      isSessionLivePhase() &&
+      isSessionAsrArmed();
     if (isDevMode() && shouldLogLevel(2)) {
       try {
         console.debug('[ASR_COMMIT_MOVE]', {
@@ -5357,6 +5814,40 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
     }
     stopCommitPursuit('pixel-commit');
+    if (liveAsrGlideActive && Math.abs(targetTop - beforeTop) > 0.5) {
+      const distancePx = Math.abs(targetTop - beforeTop);
+      const durationMs = clamp(
+        (distancePx / LIVE_ASR_GLIDE_PX_PER_SEC) * 1000,
+        Math.max(motionTuning.glideDefaultMs, LIVE_ASR_GLIDE_MIN_MS),
+        Math.max(motionTuning.glideMaxMs, LIVE_ASR_GLIDE_MAX_MS),
+      );
+      const glided = startGlideTo(targetTop, {
+        scroller: deps.scroller,
+        reason,
+        source: 'asr-commit',
+        durationMs,
+        easing: 'linear',
+      });
+      if (glided) {
+        bootTrace('SCROLL:apply', {
+          y: Math.round(targetTop),
+          from: Math.round(beforeTop),
+          via: 'glide',
+          reason,
+          lineIdx: commit.lineIdx,
+          blockId: commit.blockId,
+        });
+        pursuitTargetTop = targetTop;
+        lastMoveAt = Date.now();
+        return {
+          method: 'pixel',
+          writerCommitted: false,
+          beforeTop,
+          afterTop: targetTop,
+          movedPx: Math.round(targetTop - beforeTop),
+        };
+      }
+    }
     const appliedTop = applyCanonicalScrollTop(targetTop, {
       scroller: deps.scroller,
       reason,
@@ -5387,6 +5878,143 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       afterTop,
       movedPx: Math.round(afterTop - beforeTop),
     };
+  };
+
+  const enforceLiveAsrCommitCap = (
+    scroller: HTMLElement,
+    beforeTop: number,
+    afterTop: number,
+    lineIdx: number,
+    phase: string,
+  ) => {
+    const liveAsrCommitCapActive =
+      getScrollMode() === 'asr' &&
+      isSessionLivePhase() &&
+      isSessionAsrArmed();
+    if (!liveAsrCommitCapActive) return afterTop;
+    const liveAsrCommitCapPx = resolveLiveAsrCommitCapPx(scroller, lineIdx);
+    const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    const cappedTop = clamp(Math.min(afterTop, beforeTop + liveAsrCommitCapPx), 0, maxTop);
+    if (cappedTop >= afterTop - 0.5) return afterTop;
+    const applied = applyCanonicalScrollTop(cappedTop, {
+      scroller,
+      reason: 'asr-live-commit-cap',
+      source: 'asr-commit',
+    });
+    const finalTop =
+      finiteNumberOrNull(
+        'commit.afterTop.liveCap',
+        Number.isFinite(applied) ? applied : Number(scroller.scrollTop || cappedTop),
+        { lineIdx, phase },
+      ) ?? cappedTop;
+    pursuitTargetTop = finalTop;
+    lastKnownScrollTop = finalTop;
+    lastMoveAt = Date.now();
+    markProgrammaticScroll();
+    bootTrace('SCROLL:apply', {
+      y: Math.round(finalTop),
+      from: Math.round(beforeTop),
+      via: 'live-cap',
+      reason: 'asr-live-commit-cap',
+      lineIdx,
+    });
+    if (isDevMode()) {
+      try {
+        console.info(
+          `ASR_LIVE_COMMIT_CAP phase=${phase} line=${lineIdx} before=${Math.round(beforeTop)} after=${Math.round(afterTop)} capped=${Math.round(finalTop)} limit=${Math.round(liveAsrCommitCapPx)}`,
+        );
+      } catch {}
+    }
+    return finalTop;
+  };
+
+  const tryLiveAsrCorrectiveBackstep = (
+    cursorLine: number,
+    targetLine: number,
+    now: number,
+    targetSim: number,
+    currentSim: number,
+    needSim: number,
+    reason: string,
+    matchId?: string,
+    clue?: string,
+  ) => {
+    if (isWriterCommitWindowActive()) return false;
+    if (getScrollMode() !== 'asr') return false;
+    if (!isSessionLivePhase() || !isSessionAsrArmed()) return false;
+    const safeCursor = Math.max(0, Math.floor(cursorLine));
+    const safeTarget = Math.max(0, Math.floor(targetLine));
+    if (safeTarget >= safeCursor) return false;
+    if (safeCursor - safeTarget > DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_LINES) return false;
+    if (now < graceRollbackCooldownUntil) return false;
+    if (!Number.isFinite(targetSim) || targetSim < DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MIN_SIM) return false;
+    if (!Number.isFinite(currentSim)) return false;
+    if (currentSim > Math.max(needSim, DEFAULT_LIVE_ASR_CORRECTIVE_BACKSTEP_MAX_CURRENT_SIM)) return false;
+    const margin = targetSim - currentSim;
+    if (!Number.isFinite(margin) || margin < DEFAULT_GRACE_ROLLBACK_MIN_MARGIN) return false;
+    const scroller = getScroller();
+    const targetTop = scroller ? resolveTargetTop(scroller, safeTarget) : null;
+    if (!scroller || targetTop == null) return false;
+    const beforeTop = Number(scroller.scrollTop || 0);
+    stopGlide(reason);
+    const applied = applyCanonicalScrollTop(targetTop, {
+      scroller,
+      reason: 'asr-corrective-backstep',
+      source: 'asr-commit',
+    });
+    const afterTop =
+      finiteNumberOrNull(
+        'commit.afterTop.correctiveBackstep',
+        Number.isFinite(applied) ? applied : Number(scroller.scrollTop || targetTop),
+        { reason, lineIdx: safeTarget },
+      ) ?? targetTop;
+    pursuitTargetTop = afterTop;
+    lastKnownScrollTop = afterTop;
+    lastMoveAt = Date.now();
+    markProgrammaticScroll();
+    logCommitScrollStamp('pixel', scroller, beforeTop, afterTop, safeTarget, findBlockByLine(safeTarget)?.blockId ?? -1, false);
+    lastLineIndex = safeTarget;
+    matchAnchorIdx = lastLineIndex;
+    lastSeekTs = now;
+    lastEvidenceAt = now;
+    noteCommit(safeCursor, lastLineIndex, now);
+    closeAmbiguityHold(now, reason, safeCursor, lastLineIndex, targetSim);
+    resetLowSimStreak();
+    behindStrongCount = 0;
+    lastBehindStrongIdx = -1;
+    lastBehindStrongAt = 0;
+    behindStrongSince = 0;
+    lastCommitDeltaPx = 0;
+    microPursuitUntil = 0;
+    setCurrentIndex(lastLineIndex, reason);
+    resetLookahead(reason);
+    behindRecoveryHits.length = 0;
+    largeDeltaConfirm = null;
+    overshootRiskUntil = Math.max(overshootRiskUntil, now + OVERSHOOT_RISK_WINDOW_MS);
+    lastBehindRecoveryAt = now;
+    graceRollbackCooldownUntil = now + DEFAULT_GRACE_ROLLBACK_COOLDOWN_MS;
+    clearMicroRelockPreference();
+    warnGuard('corrective_backstep', [
+      matchId ? `matchId=${matchId}` : '',
+      `current=${safeCursor}`,
+      `rollback=${safeTarget}`,
+      `simPrev=${formatLogScore(targetSim)}`,
+      `simCur=${formatLogScore(currentSim)}`,
+      `need=${formatLogScore(needSim)}`,
+      `margin=${formatLogScore(margin)}`,
+      clue ? `clue="${clue}"` : '',
+    ]);
+    emitHudStatus('corrective_backstep', `Corrective backstep to ${safeTarget + 1}`);
+    logThrottled('ASR_COMMIT', 'log', 'ASR_COMMIT', {
+      prevIndex: safeCursor,
+      nextIndex: lastLineIndex,
+      delta: lastLineIndex - safeCursor,
+      sim: Number.isFinite(targetSim) ? Number(targetSim.toFixed(3)) : targetSim,
+      forced: false,
+      mode: getScrollMode() || 'unknown',
+      reason,
+    });
+    return true;
   };
 
   let scrollContainerIdentityLogged = false;
@@ -5730,6 +6358,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         conf >= DEFAULT_MULTI_JUMP_MIN_SIM &&
         isSessionAsrArmed() &&
         isSessionLivePhase();
+      const consistentCatchupBypass =
+        forceReason === 'catchup-consistent' &&
+        line > lastLineIndex &&
+        line - lastLineIndex <= DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES &&
+        conf >= DELTA_MIN_SIM_SMALL &&
+        isSessionAsrArmed() &&
+        isSessionLivePhase();
       const strongMatch =
         watchdogBypass ||
         progressiveFloorBypass ||
@@ -5737,6 +6372,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         lostForwardBypass ||
         permissiveForwardBypass ||
         finalForwardBypass ||
+        consistentCatchupBypass ||
         stallRescueBypass ||
         (conf >= effectiveMatchThreshold && tieOk);
       if (!strongMatch) {
@@ -5965,6 +6601,33 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       ) {
         const requestedLine = targetLine;
         targetLine = lastLineIndex + effectiveClampDeltaLimit;
+        if (!forced && forceTag !== 'watchdog') {
+          const weakForwardClampSupport = evaluateWeakForwardClampSupport({
+            cursorLine: lastLineIndex,
+            requestedIdx: requestedLine,
+            clampedIdx: targetLine,
+            selectedScore: conf,
+            candidates: topScores,
+          });
+          if (!weakForwardClampSupport.allow) {
+            warnGuard('weak_forward_clamp_blocked', [
+              `current=${lastLineIndex}`,
+              `req=${requestedLine}`,
+              `clamped=${targetLine}`,
+              `sim=${formatLogScore(conf)}`,
+              `need=${formatLogScore(weakForwardClampSupport.minSupport)}`,
+              weakForwardClampSupport.localBestIdx != null
+                ? `local=${weakForwardClampSupport.localBestIdx}`
+                : 'local=na',
+              weakForwardClampSupport.localBestScore != null
+                ? `localSim=${formatLogScore(weakForwardClampSupport.localBestScore)}`
+                : '',
+              snippet ? `clue="${snippet}"` : '',
+            ]);
+            emitHudStatus('weak_forward_clamp_blocked', 'Low-confidence far jump held');
+            return;
+          }
+        }
         if (isDevMode()) {
           try {
             const clampClass = forceTag === 'watchdog' ? 'watchdog' : forced ? 'forced' : 'normal';
@@ -5986,6 +6649,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         const cueBridgeFallback = findNextSpeakableWithinBridge(
           lastLineIndex,
           DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES,
+          { strict: true },
         );
         cueFallbackBridgeReasons = cueBridgeFallback.skippedReasons;
         if (cueBridgeFallback.nextLine != null && cueBridgeFallback.nextLine > lastLineIndex) {
@@ -6038,23 +6702,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           snippet ? `clue="${snippet}"` : '',
         ]);
       }
+      const multiJumpRelaxation = evaluateCueBoundaryMultiJumpRelaxation({
+        cursorLine: lastLineIndex,
+        requestedLine: targetLine,
+        promotedLine: cueSafeTargetLine,
+        skippedText: cueSafeInitialTarget.skippedText,
+        isFinal,
+        forceTag,
+        cueBridgePathValid,
+        cueBridgeSkipCountOk,
+        cueBridgeDelta,
+      });
       targetLine = cueSafeTargetLine;
       const multiJumpDelta = targetLine - lastLineIndex;
       if (multiJumpDelta > 1) {
-        const multiJumpBridgeEpsEligible =
-          isFinal &&
-          (
-            forceTag === 'final-forward-nudge' ||
-            forceTag === 'final-forward-fallback' ||
-            forceTag === 'permissive-final-advance'
-          ) &&
-          cueBridgePathValid &&
-          cueBridgeSkipCountOk &&
-          cueBridgeDelta >= multiJumpDelta &&
-          multiJumpDelta <= DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES;
         const multiJumpNeed = Math.max(
           DEFAULT_MULTI_JUMP_HARD_DENY_SIM,
-          DEFAULT_MULTI_JUMP_MIN_SIM - (multiJumpBridgeEpsEligible ? DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS : 0),
+          DEFAULT_MULTI_JUMP_MIN_SIM - (multiJumpRelaxation.allowBridgeEps ? DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS : 0),
         );
         const hardDeny = conf < DEFAULT_MULTI_JUMP_HARD_DENY_SIM;
         if (hardDeny || conf < multiJumpNeed) {
@@ -6064,7 +6728,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             `delta=${multiJumpDelta}`,
             `sim=${formatLogScore(conf)}`,
             `need=${formatLogScore(multiJumpNeed)}`,
-            multiJumpBridgeEpsEligible ? `eps=${formatLogScore(DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS)}` : '',
+            multiJumpRelaxation.allowBridgeEps ? `eps=${formatLogScore(DEFAULT_MULTI_JUMP_BRIDGE_SIM_EPS)}` : '',
+            multiJumpRelaxation.reason ? `bridge=${multiJumpRelaxation.reason}` : '',
             hardDeny ? `hardFloor=${formatLogScore(DEFAULT_MULTI_JUMP_HARD_DENY_SIM)}` : '',
             forceReason ? `force=${forceReason}` : '',
             snippet ? `clue="${snippet}"` : '',
@@ -6220,21 +6885,37 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             const cueBridge = findNextSpeakableWithinBridge(
               lastLineIndex,
               DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES,
+              { strict: true },
             );
             const bridgeUsed = cueBridge.skippedReasons.length > 0;
             const nextLine = cueBridge.nextLine;
             if (nextLine == null) {
-              warnGuard('cue_commit_blocked', [
+              const lastSpeakableLineIndex = findLastSpeakableLineIndex();
+              const terminalSameLineRecenterAllowed =
+                lastSpeakableLineIndex >= 0 &&
+                lastLineIndex >= lastSpeakableLineIndex;
+              if (!terminalSameLineRecenterAllowed) {
+                warnGuard('cue_commit_blocked', [
+                  `current=${lastLineIndex}`,
+                  `best=${targetLine + 1}`,
+                  `windowEnd=${lastLineIndex + DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES}`,
+                  cueBridge.skippedReasons.length
+                    ? `skipped=[${cueBridge.skippedReasons.join(',')}]`
+                    : '',
+                  snippet ? `clue="${snippet}"` : '',
+                ]);
+                emitHudStatus('cue_commit_blocked', 'Blocked: cue-only commit target');
+                return;
+              }
+              maybeEmitScriptEndEvent(lastLineIndex, 'terminal-recenter');
+              warnGuard('cue_commit_terminal_recenter', [
                 `current=${lastLineIndex}`,
-                `best=${targetLine + 1}`,
-                `windowEnd=${lastLineIndex + DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES}`,
+                `lastSpeakable=${lastSpeakableLineIndex}`,
                 cueBridge.skippedReasons.length
                   ? `skipped=[${cueBridge.skippedReasons.join(',')}]`
                   : '',
                 snippet ? `clue="${snippet}"` : '',
               ]);
-              emitHudStatus('cue_commit_blocked', 'Blocked: cue-only commit target');
-              return;
             }
             const plainStrongFinalAdvance =
               !bridgeUsed &&
@@ -6243,7 +6924,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             const bridgedFinalAdvance =
               bridgeUsed &&
               conf >= DEFAULT_MULTI_JUMP_MIN_SIM;
-            if (bridgedFinalAdvance || plainStrongFinalAdvance) {
+            if (nextLine != null && (bridgedFinalAdvance || plainStrongFinalAdvance)) {
               if (bridgeUsed) {
                 logCueBridgeUse(lastLineIndex, nextLine, cueBridge.skippedReasons, 'same-line-confirm');
               }
@@ -6292,8 +6973,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           const limitedTarget = clamp(desired, base - jumpCap, base + jumpCap);
           const recenterDelta = limitedTarget - base;
           if (Math.abs(recenterDelta) > 0.5) {
+            const sameLineJumpCap =
+              getScrollMode() === 'asr' && isSessionLivePhase() && isSessionAsrArmed()
+                ? resolveLiveAsrCommitCapPx(scroller, targetLine, lineEl)
+                : jumpCap;
             stopGlide('same-line-recenter');
-            pursuitTargetTop = limitedTarget;
+            pursuitTargetTop = clamp(limitedTarget, base - sameLineJumpCap, base + sameLineJumpCap);
             lastSameLineNudgeTs = now;
             lastEvidenceAt = now;
             const lineHeightPx = lineEl?.offsetHeight || lineEl?.clientHeight || 0;
@@ -6330,7 +7015,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           const creepDirection = desired >= base ? 1 : -1;
           const creepStep = Math.min(creepPx, creepBudgetPx - creepBudgetUsed) * creepDirection;
           const creepTarget = clamp(base + creepStep, 0, max);
-          const limitedCreepTarget = clamp(creepTarget, base - jumpCap, base + jumpCap);
+          const sameLineJumpCap =
+            getScrollMode() === 'asr' && isSessionLivePhase() && isSessionAsrArmed()
+              ? resolveLiveAsrCommitCapPx(scroller, targetLine, lineEl)
+              : jumpCap;
+          const limitedCreepTarget = clamp(creepTarget, base - sameLineJumpCap, base + sameLineJumpCap);
           const appliedCreepDelta = limitedCreepTarget - base;
           if (Math.abs(appliedCreepDelta) > 0.5) {
             stopGlide('same-line-creep');
@@ -6359,7 +7048,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           return;
         }
 
-        // Never move backward in ASR mode; preserve monotonic forward motion.
+        const currentLineScoreForBackstep = pending.topScores
+          ?.map((entry) => ({ idx: Number(entry.idx), score: Number(entry.score) }))
+          .find((entry) => Number.isFinite(entry.idx) && Math.floor(entry.idx) === lastLineIndex)?.score;
+        if (tryLiveAsrCorrectiveBackstep(
+          lastLineIndex,
+          targetLine,
+          now,
+          conf,
+          Number.isFinite(currentLineScoreForBackstep) ? Number(currentLineScoreForBackstep) : requiredThresholdValue,
+          requiredThresholdValue,
+          'corrective-backstep',
+          matchId,
+          snippet,
+        )) {
+          updateDebugState('corrective-backstep');
+          return;
+        }
+
         warnGuard('behind_blocked', [
           `current=${lastLineIndex}`,
           `best=${targetLine}`,
@@ -6428,18 +7134,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
 
       const prevLineIndex = lastLineIndex;
+      const modeNow = getScrollMode();
+      const liveAsrCommitCapActive =
+        modeNow === 'asr' &&
+        isSessionLivePhase() &&
+        isSessionAsrArmed();
       const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-      const lineHeightPx = (() => {
-        try {
-          if (!lineEl) return 0;
-          const h = lineEl.offsetHeight || lineEl.clientHeight;
-          if (h && Number.isFinite(h)) return h;
-          const computed = Number.parseFloat(getComputedStyle(lineEl).lineHeight);
-          return Number.isFinite(computed) ? computed : 0;
-        } catch {
-          return 0;
-        }
-      })();
+      const lineHeightPx = resolveMotionLineHeightPx(lineEl);
       const rawDeltaPx = Math.max(0, targetTop - currentTop);
       const maxJumpPx = lineHeightPx > 0 ? lineHeightPx * motionTuning.maxLinesPerCommit : rawDeltaPx;
       const clampedDeltaPx = Math.min(rawDeltaPx, maxJumpPx);
@@ -6457,27 +7158,39 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const taperedDeltaPx = Math.min(clampedDeltaPx, smoothedDeltaPx * taper);
       lastCommitDeltaPx = taperedDeltaPx;
       const maxAllowedTarget = clamp(currentTop + taperedDeltaPx, 0, max);
-      const base = pursuitTargetTop == null ? currentTop : pursuitTargetTop;
+      const base = liveAsrCommitCapActive || pursuitTargetTop == null
+        ? currentTop
+        : pursuitTargetTop;
       const baseClamped = Math.min(base, maxAllowedTarget);
       const candidate = maxAllowedTarget;
-      const limitedTarget = forced ? candidate : Math.min(candidate, baseClamped + jumpCap);
+      const liveAsrCommitCapPx = liveAsrCommitCapActive
+        ? resolveLiveAsrCommitCapPx(scroller, targetLine, lineEl)
+        : jumpCap;
+      const effectiveJumpCap = liveAsrCommitCapActive
+        ? liveAsrCommitCapPx
+        : jumpCap;
+      const limitedTarget =
+        forced && !liveAsrCommitCapActive
+          ? candidate
+          : Math.min(candidate, baseClamped + effectiveJumpCap);
       const nextTargetTop = Math.max(baseClamped, limitedTarget);
       pursuitTargetTop = nextTargetTop;
-      const modeNow = getScrollMode();
-      if (modeNow === 'asr' && !isSessionAsrArmed()) {
+      if (modeNow === 'asr' && (!isSessionLivePhase() || !isSessionAsrArmed())) {
         if (isDevMode() && shouldLogTag('ASR:movement-blocked:not-armed', 1, 1000)) {
           try {
-            console.info('[ASR] movement blocked: not armed', {
+            console.info('[ASR] movement blocked: inactive', {
               current: lastLineIndex,
               best: targetLine,
               delta: targetLine - lastLineIndex,
               sim: Number.isFinite(conf) ? Number(conf.toFixed(3)) : conf,
               mode: modeNow,
+              live: isSessionLivePhase() ? 1 : 0,
+              armed: isSessionAsrArmed() ? 1 : 0,
             });
           } catch {}
         }
         bootTrace('ASR:movement:blocked', {
-          reason: 'not-armed',
+          reason: 'inactive',
           current: lastLineIndex,
           best: targetLine,
           delta: targetLine - lastLineIndex,
@@ -6552,8 +7265,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }
         didGlide = false;
         _postCommitReadabilitySeq += 1;
+        const liveAsrReadabilitySuppressed =
+          getScrollMode() === 'asr' &&
+          isSessionLivePhase() &&
+          isSessionAsrArmed();
         const immediateReadability = applyPostCommitReadabilityGuarantee(scroller, targetLine, {
-          allowNudge: !writerCommitted,
+          // Live ASR should marker-lock to the committed sentence, not shove forward for readability.
+          allowNudge: !writerCommitted && !liveAsrReadabilitySuppressed,
+          maxForwardLines: liveAsrReadabilitySuppressed ? 0 : undefined,
         });
         logPostCommitReadabilityProbe(
           writerCommitted ? 'commit:writer-pending' : 'commit:immediate',
@@ -6564,11 +7283,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         if (!writerCommitted && immediateReadability.nudgeApplied) {
           commitAfterTop = immediateReadability.afterTop;
         }
+        commitAfterTop = enforceLiveAsrCommitCap(
+          scroller,
+          commitBeforeTop,
+          commitAfterTop,
+          targetLine,
+          'commit:immediate',
+        );
         if (writerCommitted) {
           await waitForWriterCommitWindowRelease(writerCommitStartedAt);
           const settledReadability = applyPostCommitReadabilityGuarantee(scroller, targetLine, {
-            allowNudge: true,
+            allowNudge: !liveAsrReadabilitySuppressed,
             forwardOnly: true,
+            maxForwardLines: liveAsrReadabilitySuppressed ? 0 : undefined,
           });
           logPostCommitReadabilityProbe(
             'commit:writer-settle',
@@ -6579,6 +7306,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           if (settledReadability.nudgeApplied) {
             commitAfterTop = settledReadability.afterTop;
           }
+          commitAfterTop = enforceLiveAsrCommitCap(
+            scroller,
+            commitBeforeTop,
+            commitAfterTop,
+            targetLine,
+            'commit:writer-settle',
+          );
           const truth = await verifyWriterCommitTruth(
             (scrollerForStamp || scroller),
             targetLine,
@@ -6844,6 +7578,25 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (!normalized) return;
     const compacted = normalized.replace(/\s+/g, ' ').trim();
     const now = Date.now();
+    const liveAsrSessionActive =
+      getScrollMode() === 'asr' &&
+      isSessionLivePhase() &&
+      isSessionAsrArmed();
+    if (getScrollMode() === 'asr' && !liveAsrSessionActive) {
+      if (isDevMode() && shouldLogTag('ASR_INGEST_IGNORED_INACTIVE', 2, 500)) {
+        try {
+          console.debug('[ASR_INGEST_IGNORED_INACTIVE]', {
+            final: !!isFinal,
+            phaseLive: isSessionLivePhase() ? 1 : 0,
+            armed: isSessionAsrArmed() ? 1 : 0,
+            text: formatLogSnippet(compacted, 48),
+          });
+        } catch {
+          // ignore
+        }
+      }
+      return;
+    }
     const permissiveMatcher = isPermissiveAsrMatcherEnabled();
     const compactedComparable = normalizeComparableText(compacted);
     const compactedTokenCount = normTokens(compactedComparable).length;
@@ -6887,7 +7640,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       starvationDetected && lostForwardAtDetection
         ? attemptForwardRelock(now, currentCursorIndex, compacted, isFinal)
         : null;
-    if (starvationDetected && now - lastStarvationWarnAt >= DEFAULT_STARVATION_WARN_COOLDOWN_MS) {
+    if (starvationDetected && maybeSuppressTerminalScriptEndWatchdog(currentCursorIndex, 'starvation-terminal')) {
+      // Script-end takes precedence over the starvation watchdog.
+    } else if (starvationDetected && now - lastStarvationWarnAt >= DEFAULT_STARVATION_WARN_COOLDOWN_MS) {
       lastStarvationWarnAt = now;
       const pendingForward =
         pendingMatch != null &&
@@ -7643,6 +8398,29 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       conf = selectedInBand.score;
       usedLineFallback = true;
     }
+    const weakFarForwardHold = resolveWeakFarForwardHoldCandidate({
+      cursorLine,
+      selectedIdx: rawIdx,
+      selectedScore: conf,
+      currentLineScore: currentLineSim,
+      candidates: inBandCandidates,
+    });
+    if (weakFarForwardHold && (weakFarForwardHold.idx !== rawIdx || weakFarForwardHold.score !== conf)) {
+      const before = rawIdx;
+      const beforeSim = conf;
+      rawIdx = weakFarForwardHold.idx;
+      conf = weakFarForwardHold.score;
+      usedLineFallback = true;
+      warnGuard('weak_far_forward_hold', [
+        `current=${cursorLine}`,
+        `best=${before}`,
+        `hold=${rawIdx}`,
+        `sim=${formatLogScore(beforeSim)}`,
+        `holdSim=${formatLogScore(conf)}`,
+        `delta=${before - cursorLine}`,
+        snippet ? `clue="${snippet}"` : '',
+      ]);
+    }
     let inBand = rawIdx >= bandStart && rawIdx <= bandEnd;
     const manualAnchorEnabled = isManualAnchorAdoptEnabled();
     if (manualAnchorPending && manualAnchorEnabled && now - manualAnchorPending.ts >= MANUAL_ANCHOR_PENDING_TIMEOUT_MS) {
@@ -8108,6 +8886,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       behindByForBias <= forwardBiasRecentLines &&
       lastLineIndex >= 0 &&
       now - lastForwardCommitAt <= forwardBiasWindowMs;
+    let consistentAdjacentForwardBypass = false;
     if (topScoresSpeakable.length) {
       const bestScore = conf;
       const tieCandidates = topScoresSpeakable
@@ -8119,7 +8898,18 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         .sort((a, b) => a.idx - b.idx || b.score - a.score);
       const forwardPick = forwardCandidates[0];
       const tieNeed = shortFinalRecent ? shortFinalNeed : requiredThreshold;
-      if (hasTie && forwardPick && forwardPick.score < tieNeed && !forwardBiasEligible && !outrunEligible) {
+      const adjacentTieCandidate =
+        !!forwardPick &&
+        !isHybridMode() &&
+        forwardPick.idx === cursorLine + DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES;
+      const consistentAdjacentTieBypass = adjacentTieCandidate
+        ? noteAdjacentTieForward(now, forwardPick.idx, forwardPick.score)
+        : false;
+      if (!adjacentTieCandidate) {
+        resetAdjacentTieForward();
+      }
+      consistentAdjacentForwardBypass = consistentAdjacentTieBypass;
+      if (hasTie && forwardPick && forwardPick.score < tieNeed && !forwardBiasEligible && !outrunEligible && !consistentAdjacentTieBypass) {
         warnGuard('tie_forward', [
           `current=${cursorLine}`,
           `best=${rawIdx}`,
@@ -8130,6 +8920,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           snippet ? `clue="${snippet}"` : '',
         ]);
         if (!permissiveMatcher) return;
+      }
+      if (consistentAdjacentTieBypass && isDevMode()) {
+        try {
+          console.info(
+            `ASR_TIE_FORWARD_CONSISTENT current=${cursorLine} best=${rawIdx} forward=${forwardPick?.idx ?? -1} sim=${formatLogScore(forwardPick?.score ?? 0)} need=${formatLogScore(tieNeed)}`,
+          );
+        } catch {}
       }
       if (hasTie && !forwardPick && !forwardBiasEligible && !shortFinalRecent && !outrunEligible) {
         const guardReason = rawIdx <= cursorLine ? 'same_line_noop' : 'no_match_wait';
@@ -8398,6 +9195,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     let relockOverride = false;
     let relockReason: string | undefined;
     let interimShortLineAmbiguityHold = interimShortLineAmbiguityBase;
+    if (
+      consistentAdjacentForwardBypass &&
+      rawIdx > cursorLine &&
+      conf >= DELTA_MIN_SIM_SMALL
+    ) {
+      effectiveThreshold = Math.min(effectiveThreshold, DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM);
+      forceReason = forceReason || 'progressive-floor';
+    }
     if (interimShortLineAmbiguityBase && strongLongAnchorCandidate) {
       const before = rawIdx;
       rawIdx = strongLongAnchorCandidate.idx;
@@ -8731,6 +9536,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       (rawIdx <= cursorLine || conf < effectiveThreshold);
     if (watchdogStalled) {
       if (strongBehindCompetitor) {
+        const currentLineScoreForBackstep = Number.isFinite(arbitrationCurrentScore)
+          ? arbitrationCurrentScore
+          : conf;
+        if (tryLiveAsrCorrectiveBackstep(
+          cursorLine,
+          strongBehindCompetitor.idx,
+          now,
+          strongBehindCompetitor.score,
+          currentLineScoreForBackstep,
+          watchdogFloor,
+          'watchdog-behind-correct',
+          matchId,
+          snippet,
+        )) {
+          lastStuckWatchdogAt = now;
+          return;
+        }
         lastStuckWatchdogAt = now;
         warnGuard('watchdog_suppressed_behind', [
           `current=${cursorLine}`,
@@ -9022,6 +9844,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         const markerCatchupTarget = markerCatchupGateOk
           ? Math.min(lostForwardPick.idx, cursorLine + markerCatchupCommitCap)
           : lostForwardPick.idx;
+        const strictAdjacentStepGateOk =
+          lostForwardPick.idx === cursorLine + 1 &&
+          lostForwardPick.score >= DEFAULT_LOST_FORWARD_MIN_SIM &&
+          noProgressStreak >= DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_STREAK;
+        const sustainedAdjacentStepGateOk =
+          lostForwardPick.idx === cursorLine + 1 &&
+          noProgressStreak >= DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_STREAK &&
+          transcriptTokens.length >= DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_TOKENS &&
+          (bufferGrowing || isFinal) &&
+          lostForwardPick.score >= DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_SIM &&
+          commitCount > 0;
+        const adjacentStepGateOk =
+          strictAdjacentStepGateOk ||
+          sustainedAdjacentStepGateOk;
+        const adjacentStepNeed =
+          strictAdjacentStepGateOk
+            ? DEFAULT_LOST_FORWARD_MIN_SIM
+            : DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_SIM;
         const teleportGateOk = anchorTeleportGateOk || reseekTeleportGateOk || contentFallbackGateOk;
         const teleportNeed = anchorTeleportGateOk
           ? DEFAULT_LOST_FORWARD_MIN_SIM
@@ -9041,6 +9881,24 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               const activeMs = lostForwardEnteredAt > 0 ? Math.max(0, now - lostForwardEnteredAt) : 0;
               console.info(
                 `ASR_LOST_FORWARD_JUMP mode=${teleportMode} stage=${lostForwardStage} window=+${lostForwardWindow} cap=+${lostForwardCap} current=${cursorLine} best=${before} jump=${rawIdx} delta=${rawIdx - cursorLine} sim=${formatLogScore(conf)} need=${formatLogScore(teleportNeed)} streak=${noProgressStreak} activeMs=${activeMs} anchors=${sharedAnchorHits}/${neededAnchorHits} content=${sharedContentHits} firstOverlap=${firstMeaningfulOverlap ? 1 : 0} tokens=${transcriptTokens.length}`,
+              );
+            } catch {}
+          }
+        } else if (adjacentStepGateOk) {
+          const before = rawIdx;
+          rawIdx = lostForwardPick.idx;
+          conf = lostForwardPick.score;
+          effectiveThreshold = Math.min(effectiveThreshold, adjacentStepNeed);
+          outrunCommit = true;
+          forceReason = 'lost-forward';
+          emitHudStatus(
+            'lost_forward_step',
+            `Advance: +1 line (sim=${formatLogScore(conf)})`,
+          );
+          if (isDevMode()) {
+            try {
+              console.info(
+                `ASR_LOST_FORWARD_STEP current=${cursorLine} best=${before} jump=${rawIdx} delta=${rawIdx - cursorLine} sim=${formatLogScore(conf)} need=${formatLogScore(adjacentStepNeed)} streak=${noProgressStreak} mode=${strictAdjacentStepGateOk ? 'strict' : 'sustained'} tokens=${transcriptTokens.length} growing=${bufferGrowing ? 1 : 0}`,
               );
             } catch {}
           }
@@ -9083,11 +9941,19 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             `behindMarker=${behindMarker ? 1 : 0}`,
             `markerCatchup=${markerCatchupGateOk ? 1 : 0}`,
             `markerStrong=${markerCatchupStrongGateOk ? 1 : 0}`,
+            `adjacentSustain=${sustainedAdjacentStepGateOk ? 1 : 0}`,
             `marker=${cueSafeMarkerIdx}`,
             `window=${lostForwardWindow}`,
             `cap=${lostForwardCap}`,
             snippet ? `clue="${snippet}"` : '',
           ]);
+          if (
+            commitCount > 0 &&
+            now - lastForwardCommitAt >= DEFAULT_CUE_STALL_RESCUE_DELAY_MS &&
+            maybeScheduleStallCueRescue('auto-stall')
+          ) {
+            return;
+          }
         }
       }
     }
@@ -9474,7 +10340,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       permissiveFinalNudgeEligible
     ) {
       const nudgeDeltaCap = DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES;
-      const cueBridge = findNextSpeakableWithinBridge(cursorLine, nudgeDeltaCap);
+      const cueBridge = findNextSpeakableWithinBridge(cursorLine, nudgeDeltaCap, { strict: true });
       const bridgeUsed = cueBridge.skippedReasons.length > 0;
       const nudgeTarget =
         cueBridge.nextLine != null && cueBridge.nextLine > cursorLine
@@ -9554,6 +10420,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const fallbackBridge = findNextSpeakableWithinBridge(
         cursorLine,
         DEFAULT_CUE_BOUNDARY_BRIDGE_MAX_DELTA_LINES,
+        { strict: true },
       );
       const totalLines = getTotalLines();
       let fallbackTarget =
@@ -9665,13 +10532,51 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (allowCatchup && catchupState.ok && rawIdx > cursorLine) {
       const delta = rawIdx - cursorLine;
       if (delta <= catchupMaxDeltaLinesEffective && conf >= catchupMinSimEffective) {
+        const sustainedAdjacentCatchupEligible =
+          !allowForced &&
+          !isHybridMode() &&
+          delta === DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES &&
+          bufferGrowing &&
+          noProgressStreak >= DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_STREAK &&
+          tokenCount >= DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_TOKENS &&
+          conf >= DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_SIM &&
+          (consistencyState.ok || catchupState.ok || lostForwardActive || relockModeActive);
+        const consistentStepCatchupNeed = sustainedAdjacentCatchupEligible
+          ? DEFAULT_SUSTAINED_ADJACENT_FORWARD_MIN_SIM
+          : Math.max(DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM, catchupMinSimEffective);
+        const consistentStepCatchupEligible =
+          !allowForced &&
+          !isHybridMode() &&
+          delta <= DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES &&
+          (consistencyState.ok || catchupState.ok) &&
+          conf >= consistentStepCatchupNeed;
+        const relaxedAdjacentCatchupEligible =
+          sustainedAdjacentCatchupEligible &&
+          delta <= DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES;
         const cooldownRemaining = getForcedCooldownRemaining(now);
         if (!allowForced) {
-          warnGuard('catchup_blocked', [
-            `current=${cursorLine}`,
-            `best=${rawIdx}`,
-            `delta=${delta}`,
-          ]);
+          if (consistentStepCatchupEligible || relaxedAdjacentCatchupEligible) {
+            catchupCommit = true;
+            forceReason = forceReason || 'catchup-consistent';
+            effectiveThreshold = Math.min(
+              effectiveThreshold,
+              consistentStepCatchupNeed,
+            );
+            armPostCatchupGrace('catchup-consistent');
+            if (isDevMode()) {
+              try {
+                console.info(
+                  `ASR_CATCHUP_CONSISTENT current=${cursorLine} best=${rawIdx} delta=${delta} sim=${formatLogScore(conf)} need=${formatLogScore(consistentStepCatchupNeed)} mode=${relaxedAdjacentCatchupEligible && !consistentStepCatchupEligible ? 'sustained' : 'strict'} tokens=${tokenCount} growing=${bufferGrowing ? 1 : 0} streak=${noProgressStreak}`,
+                );
+              } catch {}
+            }
+          } else {
+            warnGuard('catchup_blocked', [
+              `current=${cursorLine}`,
+              `best=${rawIdx}`,
+              `delta=${delta}`,
+            ]);
+          }
         } else if (cooldownRemaining > 0) {
           logForcedDeny('cooldown', [
             `cooldownMs=${cooldownRemaining}`,
@@ -9709,6 +10614,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       rawIdx >= cursorLine &&
       conf >= DEFAULT_PROGRESSIVE_FORWARD_FLOOR_SIM &&
       bufferGrowing;
+    const adjacentForwardInterimProgress =
+      !isFinal &&
+      consistentAdjacentForwardBypass &&
+      rawIdx > cursorLine &&
+      rawIdx - cursorLine <= DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES &&
+      conf >= DELTA_MIN_SIM_SMALL;
     if (!isFinal) {
       if (!allowInterimCommit) {
         interimEligible = false;
@@ -9717,7 +10628,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         !(consistencyState.ok || catchupState.ok) &&
         !strongForwardInterimProgress &&
         !watchdogForwardInterimProgress &&
-        !progressiveForwardInterimProgress
+        !progressiveForwardInterimProgress &&
+        !adjacentForwardInterimProgress
       ) {
         lastInterimBestIdx = -1;
         interimRepeatCount = 0;
@@ -9746,7 +10658,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         interimEligible =
           interimRepeatCount >= effectiveInterimRepeats || consistencyState.ok || catchupState.ok;
         if (!interimEligible) {
-          if (strongForwardInterimProgress || watchdogForwardInterimProgress || progressiveForwardInterimProgress) {
+          if (
+            strongForwardInterimProgress ||
+            watchdogForwardInterimProgress ||
+            progressiveForwardInterimProgress ||
+            adjacentForwardInterimProgress
+          ) {
             interimEligible = true;
           } else {
             warnGuard('interim_unstable', [
@@ -9777,8 +10694,23 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     });
     if (!isFinal) {
       const runtimeMode = getScrollMode();
+      const allowAsrInterimCommit =
+        runtimeMode === 'asr' &&
+        interimEligible &&
+        rawIdx > cursorLine &&
+        rawIdx - cursorLine <= DEFAULT_CATCHUP_CONSISTENT_STEP_MAX_DELTA_LINES &&
+        conf >= DELTA_MIN_SIM_SMALL &&
+        isSessionAsrArmed() &&
+        isSessionLivePhase() &&
+        (
+          adjacentForwardInterimProgress ||
+          progressiveForwardInterimProgress ||
+          strongForwardInterimProgress ||
+          catchupCommit ||
+          consistencyState.ok
+        );
       if (runtimeMode === 'asr') {
-        if (isDevMode()) {
+        if (!allowAsrInterimCommit && isDevMode()) {
           warnGuard('interim_commit_blocked', [
             `current=${cursorLine}`,
             `best=${rawIdx}`,
@@ -9787,7 +10719,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             snippet ? `clue="${snippet}"` : '',
           ]);
         }
-        return;
+        if (!allowAsrInterimCommit) return;
       }
       if (!interimEligible) {
         return;
@@ -10030,6 +10962,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       if (tryBehindRecovery(cursorLine, now, conf, rawIdx, isFinal)) {
         return;
       }
+      const currentLineScoreForBackstep = Number.isFinite(arbitrationCurrentScore)
+        ? arbitrationCurrentScore
+        : requiredThreshold;
+      if (tryLiveAsrCorrectiveBackstep(
+        cursorLine,
+        rawIdx,
+        now,
+        conf,
+        currentLineScoreForBackstep,
+        requiredThreshold,
+        'live-behind-correct',
+        matchId,
+        snippet,
+      )) {
+        return;
+      }
       if (!isFinal) {
         behindStrongCount = 0;
         lastBehindStrongIdx = -1;
@@ -10235,7 +11183,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const finalForwardForcedAdvance =
       (forceReason === 'final-forward-nudge' || forceReason === 'final-forward-fallback') &&
       rawIdx > cursorLine;
-    let hasEvidence = outrunCommit || catchupCommit || lowSimForwardEvidence || slamDunkFinal || strongSmallForwardEvidence
+    let hasEvidence = outrunCommit || catchupCommit || lowSimForwardEvidence || slamDunkFinal || strongSmallForwardEvidence || consistentAdjacentForwardBypass
       ? true
       : isFinal
         ? finalEvidence
@@ -10336,6 +11284,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     try { window.removeEventListener('tp:asr:silence', silenceHandler as EventListener); } catch {}
     try { window.removeEventListener('tp:script:reset', resetHandler as EventListener); } catch {}
     try { window.removeEventListener('tp:asr:rescue', rescueHandler as EventListener); } catch {}
+    try { window.removeEventListener(ASR_MANUAL_ANCHOR_EVENT, handleManualAnchorSignal as EventListener); } catch {}
     detachManualScrollWatcher();
     manualAnchorPending = null;
     resetAmbiguityHoldState();
@@ -10376,6 +11325,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     relockRepeatIdx = -1;
     relockRepeatCount = 0;
     relockRepeatWindowStart = 0;
+    resetAdjacentTieForward();
     lastResyncAt = 0;
     resyncUntil = 0;
     resyncAnchorIdx = null;
@@ -10395,6 +11345,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastForwardCommitAt = Date.now();
     finalsSinceCommit = 0;
     eventsSinceCommit = 0;
+    lostForwardGateCountAtLastCommit = getGuardCount('lost_forward_gate');
     noProgressStreak = 0;
     lostForwardWallStreak = 0;
     lastProgressCursorLine = lastLineIndex;

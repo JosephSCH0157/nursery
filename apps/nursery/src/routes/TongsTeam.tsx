@@ -172,8 +172,11 @@ export default function TongsTeam() {
   const shell = useOutletContext<AppShellContext>();
   const workspaceId = shell?.workspaceId ?? null;
   const session = shell?.session ?? null;
-  const tongsClient = supabase.schema("tongs") as unknown as TongsClient;
-  const tongsReadRpcClient = supabase.schema("tongs") as unknown as TongsReadRpcClient;
+  const tongsClient = useMemo(() => supabase.schema("tongs") as unknown as TongsClient, []);
+  const tongsReadRpcClient = useMemo(
+    () => supabase.schema("tongs") as unknown as TongsReadRpcClient,
+    [],
+  );
 
   const activeWorkspace = useMemo(
     () => shell?.workspaces?.find((workspace) => workspace.id === workspaceId) ?? null,

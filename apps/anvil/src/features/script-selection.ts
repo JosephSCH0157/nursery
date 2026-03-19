@@ -66,7 +66,16 @@ export async function loadScriptById(id: string): Promise<boolean> {
   if (!id) return false;
   try {
     const rec = await ScriptStore.get(id);
-    if (!rec || typeof rec.content !== 'string') return false;
+    if (!rec || typeof rec.content !== 'string' || rec.content.trim().length === 0) {
+      try {
+        (window as any).toast?.('Selected script could not be loaded. Refresh session scripts or reopen it from Hearth.', {
+          type: 'warning',
+        });
+      } catch {
+        // ignore toast failures
+      }
+      return false;
+    }
     const text = rec.content;
     applyScript(text, 'load', { updateEditor: true });
     try {

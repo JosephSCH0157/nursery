@@ -1,246 +1,171 @@
 # File Tree
 
-Generated folders are kept brief for readability (for example `node_modules/`, `dist/`, and `.git/` internals). Synced bundle output under `apps/nursery/public/anvil/` is summarized at a high level.
+Current as of 2026-03-18.
 
-- `.gitattributes`
-- `.gitignore`
+This is a maintained overview of the repository root and major subtrees. Generated or heavyweight internals are summarized instead of expanded, including `.git/`, `node_modules/`, `dist/`, `test-results/`, `.worktrees/`, and other transient output.
+
+- `.github/`
+  - `pull_request_template.md`
+  - `workflows/`
+- `.vscode/`
+  - `extensions.json`
+  - `settings.json`
 - `AGENTS.md`
 - `README.md`
 - `filetree.md`
-- `netlify.toml`
+- `forge.manifest.schema.json`
+- `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`
+- `FORGE_SYSTEM_ARCHITECTURE_MAP.md`
+- `STATE_MACHINE_DIAGRAM.md`
+- `TONGS_PATH_CHARTER.md`
+- `TONGS_V1_RELEASE_HANDOFF_AUTHORITY_SLICE.md`
 - `package.json`
 - `pnpm-lock.yaml`
 - `pnpm-workspace.yaml`
 - `tsconfig.json`
-- `.vscode/`
-  - `extensions.json`
-  - `settings.json`
-- `scripts/`
-  - `smoke.mjs`
+- `netlify.toml`
+- `build-smoke-out.txt`
+- `build-smoke-err.txt`
+- `assets/`
+  - `forge-interior.png`
 - `apps/`
-  - `nursery/` (Vite SPA gateway)
-    - `.env.local`
-    - `.gitignore`
-    - `FORGEHUB_V1_MANIFEST.md`
-    - `eslint.config.js`
-    - `index.html`
-    - `package.json`
-    - `public/`
-      - `_redirects`
-      - `anvil/` (synced runtime bundle from Anvil)
-        - `GENERATED.md`
-        - `account.html`
-        - `display.html`
-        - `forge-config.js`
-        - `hud_popout.html`
-        - `index.js`
-        - `login.html`
-        - `manifest.json`
-        - `reset.html`
-        - `teleprompter_pro.css`
-        - `teleprompter_pro.html`
-        - `adapters/`
-        - `assets/`
-        - `beta/`
-        - `features/`
-        - `forge/`
-        - `hud/`
-        - `index-hooks/`
-        - `net/`
-        - `speech/`
-      - `anvil-login/`
-        - `assets/`
-          - `anvil-favicon.png`
-          - `anvil_teleprompter_logo.png`
-          - `login.png`
-      - `assets/`
-        - `anvil-favicon.png`
-        - `anvil_teleprompter_logo.png`
-        - `forge-splash.png`
-        - `login.png`
-      - `forge-nav.json`
-      - `vite.svg`
-    - `scripts/`
-      - `generate-forge-nav.ts`
-      - `sync-anvil-dist.mjs`
-    - `src/`
-      - `assets/`
-        - `anvil-favicon.png`
-        - `anvil_teleprompter_logo.png`
-        - `login.png`
-        - `react.svg`
-      - `components/`
-        - `AnvilLoginPanel.tsx`
-        - `AuthGate.tsx`
-      - `hooks/`
-        - `useMountRegistry.ts`
-      - `lib/`
-        - `handle-vault.ts`
-        - `mirror.ts`
-        - `mount-registry.ts`
-        - `supabase.ts`
-      - `nav/`
-        - `ForgeNav.tsx`
-        - `anvilNavExtras.ts`
-        - `forgeNavTree.ts`
-      - `routes/`
-        - `Anvil.tsx`
-        - `AppShell.tsx`
-        - `AuthCallback.tsx`
-        - `Barstock.tsx`
-        - `ForgeHub.tsx`
-        - `Login.tsx`
-        - `Placeholder.tsx`
-        - `ResetPassword.tsx`
-        - `SettingsHome.tsx`
-        - `SettingsLayout.tsx`
-        - `SettingsStorage.tsx`
-        - `TongsCalendar.tsx`
-      - `App.css`
-      - `App.tsx`
-      - `index.css`
-      - `main.tsx`
-    - `tsconfig.app.json`
-    - `tsconfig.json`
-    - `tsconfig.node.json`
-    - `vite.config.ts`
-    - `node_modules/` (installed workspace dependencies)
-    - `dist/` (build output)
-  - `bar-stock/`
-    - `.env.local`
-    - `.gitattributes`
-    - `.vscode/`
-      - `settings.json`
-    - `README.md`
-    - `dev-run.js`
-    - `eslint.config.cjs`
-    - `find_sync.py`
-    - `index.html`
-    - `package.json`
-    - `src/`
-      - `App.tsx`
-      - `index.css`
-      - `main.tsx`
-      - `lib/`
-        - `assignments.ts`
-        - `clip.ts`
-        - `hearth-packet.ts`
-        - `io.ts`
-        - `model.ts`
-        - `outbox.ts`
-        - `query.ts`
-        - `store.ts`
-        - `supabase.ts`
-        - `tongs-api.ts`
-        - `tongs-bridge.ts`
-        - `tongs-sync.ts`
-    - `tsconfig.json`
-    - `tsconfig.tsbuildinfo`
-    - `vite.config.ts`
-    - `node_modules/` (installed dependencies)
-    - `dist/` (build output)
-  - `hearth/`
-    - `AGENTS.md`
-    - `HEARTH_V1_MANIFEST.md`
-    - `README.md`
-    - `package.json`
-    - `src/`
-      - `lib/`
-        - `index.ts`
-        - `models.ts`
-        - `tongs-scripts.ts`
-    - `node_modules/` (installed dependencies)
-  - `anvil/` (standalone teleprompter project; contains its own `.git/`)
-    - `.env`
-    - `.eslintrc.json`
+  - `anvil/` - standalone teleprompter app with its own docs, tools, tests, Supabase functions, and generated artifacts
     - `.github/`
     - `.husky/`
-    - `.netlify/`
     - `.vscode/`
-    - `CHANGELOG.md`
-    - `MANIFEST.md`
-    - `README.md`
-    - `TOOLS-README.md`
-    - `VERSION.txt`
-    - `account.html`
-    - `display.html`
-    - `login.html`
-    - `reset.html`
-    - `teleprompter_pro.css`
-    - `teleprompter_pro.html`
-    - `package.json`
+    - `adapters/`
+    - `archive/`
+    - `artifacts/`
+    - `asr/`
+    - `assets/`
+    - `beta/`
+    - `boot/`
+    - `controllers/`
+    - `dev/`
+    - `docs/`
+    - `fixtures/`
+    - `hotkeys/`
+    - `hud/`
+    - `index-hooks/`
+    - `legacy/`
+    - `releases/`
+    - `scripts/`
+    - `settings/`
+    - `speech/`
+    - `speech-stubs/`
     - `src/`
+    - `supabase/`
     - `tests/`
     - `tools/`
-    - `docs/`
-    - `assets/`
-    - `scripts/`
-    - `releases/`
+    - `vendor/`
+    - `package.json`
+    - `README.md`
+    - `MANIFEST.md`
+    - `VERSION.txt`
     - `filetree.md`
     - `filetree.txt`
     - `project_tree.txt`
-    - `node_modules/` (installed dependencies)
-    - `dist/` (build output)
+  - `bar-stock/` - Vite app for spark capture
+    - `.vscode/`
+    - `src/`
+    - `package.json`
+    - `README.md`
+    - `vite.config.ts`
+  - `bellows/` - runtime and domain app with tests
+    - `src/`
+    - `tests/`
+    - `package.json`
+    - `README.md`
+    - `BELLOWS_V1_MANIFEST.md`
+  - `hammer/` - editor/runtime app
+    - `src/`
+    - `tests/`
+    - `package.json`
+    - `README.md`
+    - `HAMMER_V1_MANIFEST.md`
+  - `hearth/` - writing/research app
+    - `src/`
+    - `tests/`
+    - `package.json`
+    - `README.md`
+    - `AGENTS.md`
+    - `HEARTH_V1_MANIFEST.md`
+    - `HEARTH_V2_CONTRACT.md`
+  - `nursery/` - Vite shell and integration gateway for Forge tools
+    - `netlify/`
+    - `playwright/`
+    - `public/`
+    - `scripts/`
+    - `server/`
+    - `src/`
+    - `tests/`
+    - `package.json`
+    - `FORGEHUB_V1_MANIFEST.md`
+    - `vite.config.ts`
+  - `quench/` - Quench application workspace
+    - `src/`
+    - `package.json`
+    - `README.md`
+    - `QUENCH_V1_MANIFEST.md`
+    - `QUENCH_TECHNICAL_ARCHITECTURE.md`
+  - `tongs/` - empty placeholder app directory
+- `docs/`
+  - `FORGE_SYSTEM_ARCHITECTURE.md`
+  - `HAMMER_EDITOR_ARCHITECTURE.md`
+  - `HAMMER_MANIFEST.md`
+  - `QUENCH_MANIFEST.md`
+  - `barstock-workspace-scoping-inventory.md`
+  - `hearth-team-mode-v1.md`
+  - `hearth-vnext-layout.md`
+  - `mobile-v1.md`
+  - `permissions.md`
+  - `deps-sweeps/`
+    - `2026-02-27.md`
 - `packages/`
-  - `.gitkeep`
+  - `contracts/`
+    - `hammer/`
   - `hearth/`
-    - `package.json`
     - `src/`
-      - `index.ts`
-      - `domain/`
-        - `types.ts`
-      - `storage/`
-        - `hearthStore.ts`
-        - `ids.ts`
-        - `localHearthStore.ts`
+    - `package.json`
   - `tongs/`
-    - `TONGS_V1_MANIFEST.md`
-    - `eslint.config.mjs`
-    - `package.json`
-    - `tsconfig.json`
-    - `tsconfig.tsbuildinfo`
+    - `dev/`
+    - `dist/`
     - `src/`
-      - `calendar-events.ts`
-      - `constants.ts`
-      - `db.types.ts`
-      - `defaults.ts`
-      - `index.ts`
-      - `registry.ts`
-      - `roles.ts`
-      - `types.ts`
-      - `storage/`
-        - `registry-normalize.ts`
-        - `resolve-mount.ts`
-        - `storage-contract.ts`
-        - `storage-guard.ts`
-    - `node_modules/` (installed dependencies)
-    - `dist/` (build output)
+    - `tests/`
+    - `package.json`
+    - `TONGS_V1_MANIFEST.md`
+  - `ui-mobile/`
+    - `src/`
+    - `tests/`
+    - `package.json`
+  - `.gitkeep`
+- `releases/`
+  - `forge-v1.2.0-fire-burning.md`
+- `scripts/`
+  - `phase-adaptive-style-alignment-smoke.mjs`
+  - `phase-d-barstock-workspace-smoke.mjs`
+  - `phase-e-calendar-workspace-smoke.mjs`
+  - `phase-f5-ready-meta-smoke.mjs`
+  - `phase-g-team-ui-smoke.mjs`
+  - `run-hearth-phase4-smoke.mjs`
+  - `run-with-nursery-env.mjs`
+  - `smoke.mjs`
 - `supabase/`
+  - `.branches/`
+  - `.temp/`
   - `config.toml`
   - `functions/`
+    - `_shared/`
     - `create-checkout-session/`
-      - `.npmrc`
-      - `deno.json`
-      - `index.ts`
+    - `create-one-time-checkout-session/`
+    - `display-ws/`
     - `stripe-webhook/`
-      - `.npmrc`
-      - `deno.json`
-      - `index.ts`
-  - `migrations/`
-    - `20260131120000_000001_tongs_calendar_events.sql`
-    - `20260201120001_000001_tongs_core_workspaces.sql`
-    - `20260201182712_my_migration.sql`
-    - `20260201184500_tongs_workspaces_insert_policy_fix.sql`
-    - `20260201193000_tongs_workspaces_canonical_insert.sql`
-    - `20260201194500_tongs_workspaces_add_name.sql`
-    - `20260202120002_000001_tongs_calendar_events_add_session_id.sql`
-    - `20260203120003_000001_tongs_workspaces_rls.sql`
-    - `20260204120004_000001_tongs_workspaces_created_by.sql`
-    - `20260205120005_000001_tongs_workspaces_insert_policy.sql`
-    - `20260206120006_000001_tongs_workspaces_add_name.sql`
-    - `20260206120007_000002_public_workspaces_view.sql`
-    - `20260207_forge_workspace_and_calendar_link.sql`
-  - `snippets/`
-  - `.branches/` (Supabase CLI state)
-  - `.temp/` (Supabase CLI cache)
-- `node_modules/` (root workspace dependencies)
+  - `migrations/` - chronological Tongs schema, policy, RPC, and lifecycle migrations through `20260317024500_raise_forge_workpieces_limit.sql`
+  - `snippets/` - currently empty
+- Root planning and doctrine documents
+  - `BELLOWS_*.md`
+  - `HEARTH_TONGS_*.md`
+  - `HEARTH_VISUAL_PLANNING_*.md`
+  - `LOCAL_MIRROR_*.md`
+  - `PHASE_*.md`
+  - `WORKPIECE_DELETION_*.md`

@@ -11,15 +11,75 @@
 // Compatibility helpers (ID aliases and tolerant $id()) must be installed very early
 import { bootstrap } from './boot/boot';
 import './boot/compat-ids';
-// Run bootstrap (best-effort, non-blocking). The legacy monolith still calls
-// window._initCore/_initCoreRunner paths; this ensures the modular runtime
-// sets up the same early hooks when the module entry is used.
-bootstrap().catch(() => { });
 // Install vendor shims (mammoth) so legacy code can use window.ensureMammoth
 import './vendor/mammoth';
 // Settings → ASR wizard wiring (safe to import; guards on element presence)
 import { createScrollBrain } from './scroll/scroll-brain';
 import './ui/settings/asrWizard';
+const LEGACY_QUERY_KEY = 'legacy';
+const LEGACY_STORAGE_KEY = 'tp_legacy';
+
+function isCanonicalTsRuntimeActive() {
+    try {
+        return (window.__TP_TS_PRIMARY__ === true ||
+            window.__TP_BOOT_OWNER === 'ts:index' ||
+            window.__tpBootPath === 'ts:index' ||
+            window.__tpTsBooted === 1);
+    }
+    catch {
+        return false;
+    }
+}
+
+function isExplicitLegacyEntryRequested() {
+    try {
+        if (window.__TP_ALLOW_LEGACY_BOOT === true || window.__tpAllowLegacyBoot === true)
+            return true;
+        const params = new URLSearchParams(window.location.search || '');
+        if (params.get(LEGACY_QUERY_KEY) === '1')
+            return true;
+        if (String(window.location.hash || '').toLowerCase().includes('legacy=1'))
+            return true;
+        return localStorage.getItem(LEGACY_STORAGE_KEY) === '1';
+    }
+    catch {
+        return false;
+    }
+}
+
+const __legacyEntryExplicit = isExplicitLegacyEntryRequested();
+const __runLegacyEntry = (() => {
+    try {
+        if (typeof window === 'undefined' || typeof document === 'undefined')
+            return true;
+        if (__legacyEntryExplicit)
+            return true;
+        return !isCanonicalTsRuntimeActive();
+    }
+    catch {
+        return true;
+    }
+})();
+
+try {
+    const info = (window.__TP_BOOT_INFO = window.__TP_BOOT_INFO || {});
+    info.legacyEntry = __runLegacyEntry ? (__legacyEntryExplicit ? 'explicit' : 'standalone') : 'blocked';
+}
+catch { }
+
+if (!__runLegacyEntry) {
+    try {
+        window.__TP_LEGACY_ENTRY_BLOCKED__ = true;
+        console.warn('[legacy/index] blocked while canonical TS runtime is active. Use ?legacy=1 or boot flags to allow.');
+    }
+    catch { }
+}
+
+if (__runLegacyEntry) {
+// Run bootstrap (best-effort, non-blocking). The legacy monolith still calls
+// window._initCore/_initCoreRunner paths; this ensures the modular runtime
+// sets up the same early hooks when the module entry is used.
+bootstrap().catch(() => { });
 // Create and expose the scroll brain globally
 const scrollBrain = createScrollBrain();
 window.__tpScrollBrain = scrollBrain;
@@ -126,6 +186,7 @@ try {
     }
 }
 catch { }
+}
 try {
     document.addEventListener('DOMContentLoaded', () => {
         // Initialize ASR feature (settings card, hotkeys, topbar UI)

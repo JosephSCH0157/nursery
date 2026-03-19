@@ -12,6 +12,8 @@ import { mwHearthChatApi } from "../scripts/mw-hearth-chat-api";
 
 function buildConfig(overrides: Partial<HearthRuntimeConfig> = {}): HearthRuntimeConfig {
   return {
+    textApiKey: null,
+    imageApiKey: null,
     apiKey: null,
     model: "gpt-5",
     sttModel: "gpt-4o-mini-transcribe",
@@ -52,8 +54,8 @@ test("createHearthAiHandler returns cheap status snapshots", async () => {
   });
 });
 
-test("createHearthAiHandler keeps chat error semantics when api key is missing", async () => {
-  const handler = createHearthAiHandler(buildConfig({ apiKey: null }));
+test("createHearthAiHandler keeps chat error semantics when text api key is missing", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: null, apiKey: null }));
   const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -68,12 +70,12 @@ test("createHearthAiHandler keeps chat error semantics when api key is missing",
   assert.equal(response.status, 500);
   const payload = await response.json();
   assert.equal(payload.ok, false);
-  assert.equal(payload.error, "Missing OPENAI_API_KEY in server env");
+  assert.equal(payload.error, "Missing OPENAI_TEXT_API_KEY (or OPENAI_API_KEY) in server env");
   assert.equal(payload.billing_mode, "forge");
 });
 
-test("createHearthAiHandler keeps stt error semantics when api key is missing", async () => {
-  const handler = createHearthAiHandler(buildConfig({ apiKey: null }));
+test("createHearthAiHandler keeps stt error semantics when text api key is missing", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: null, apiKey: null }));
   const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.stt}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -87,7 +89,7 @@ test("createHearthAiHandler keeps stt error semantics when api key is missing", 
   assert.equal(response.status, 500);
   const payload = await response.json();
   assert.equal(payload.ok, false);
-  assert.equal(payload.error, "Missing OPENAI_API_KEY in server env");
+  assert.equal(payload.error, "Missing OPENAI_TEXT_API_KEY (or OPENAI_API_KEY) in server env");
   assert.equal(payload.billing_mode, "forge");
 });
 

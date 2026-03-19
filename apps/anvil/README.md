@@ -6,7 +6,7 @@ Browser-based teleprompter with mirrored display, speech/scroll helpers, recordi
 - Single ESM entry (`dist/index.js`) with idempotent feature init (`__tpInit`, `[TP-READY]` log).
 - Display mirror via `tp_display` snapshots; display window runs mirror-only JS (no main bundle).
 - HUD and easter eggs are TypeScript (`src/hud/*`, `src/ui/eggs.ts`); legacy HUD/debug live in `legacy/`.
-- Forge auth shell: `/login` and `/account` use `forge-config.js` for Supabase URL/key injection.
+- Forge auth shell: `/login` uses `forge-config.js` for Supabase URL/key injection.
 - Servo + heartbeat smoothing on the display keeps mirror motion buttery while main sends frequent updates.
 
 ## Repo layout
@@ -14,7 +14,7 @@ Browser-based teleprompter with mirrored display, speech/scroll helpers, recordi
 - Main bundle: `dist/index.js` (from `src/index.ts`)
 - Styles: `teleprompter_pro.css`
 - ASR hook: `dist/index-hooks/asr.js`
-- Forge pages: `login.html` → `dist/forge/login.js`, `account.html` → `dist/forge/account.js`
+- Forge pages: `login.html` → `dist/forge/login.js`
 - Legacy/compat: `recorders.js`, stubs in `legacy/` (kept for older bundles)
 
 Authoritative reference:

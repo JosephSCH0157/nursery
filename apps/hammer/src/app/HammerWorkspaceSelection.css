@@ -1,0 +1,122 @@
+.hammer-workspace-selection {
+  display: grid;
+  gap: 18px;
+  padding: 22px 20px;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.92), rgba(2, 6, 23, 0.94));
+  color: #dbe8ff;
+}
+
+.hammer-workspace-selection__header {
+  display: grid;
+  gap: 6px;
+}
+
+.hammer-workspace-selection__eyebrow {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.64;
+}
+
+.hammer-workspace-selection__title,
+.hammer-workspace-selection__summary {
+  margin: 0;
+}
+
+.hammer-workspace-selection__title {
+  font-size: 28px;
+}
+
+.hammer-workspace-selection__summary {
+  font-size: 14px;
+  line-height: 1.5;
+  opacity: 0.78;
+}
+
+.hammer-workspace-selection__error {
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(248, 113, 113, 0.34);
+  background: rgba(127, 29, 29, 0.22);
+  color: #fecaca;
+  font-size: 13px;
+}
+
+.hammer-workspace-selection__empty {
+  padding: 18px 16px;
+  border-radius: 14px;
+  border: 1px dashed rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.44);
+  font-size: 13px;
+  opacity: 0.82;
+}
+
+.hammer-workspace-selection__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.hammer-workspace-selection__option {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.76);
+  color: #dbe8ff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hammer-workspace-selection__option.is-selected {
+  border-color: rgba(96, 165, 250, 0.72);
+  box-shadow: 0 16px 32px rgba(37, 99, 235, 0.14);
+}
+
+.hammer-workspace-selection__option-name {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.hammer-workspace-selection__option-meta {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  color: rgba(191, 219, 254, 0.78);
+  word-break: break-all;
+}
+
+.hammer-workspace-selection__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.hammer-workspace-selection__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  background: rgba(15, 23, 42, 0.72);
+  color: #dbe8ff;
+  padding: 10px 14px;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.hammer-workspace-selection__button:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+
+.hammer-workspace-selection__button:focus-visible,
+.hammer-workspace-selection__option:focus-visible {
+  outline: 2px solid rgba(147, 197, 253, 0.7);
+  outline-offset: 2px;
+}

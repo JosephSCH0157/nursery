@@ -1,0 +1,325 @@
+.tongs-storage {
+  padding: 8px;
+  max-width: 1240px;
+  display: grid;
+  gap: 14px;
+}
+
+.tongs-storage--mobile {
+  max-width: none;
+}
+
+.tongs-storage__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.tongs-storage__title-wrap {
+  display: grid;
+  gap: 6px;
+}
+
+.tongs-storage__title {
+  margin: 0;
+}
+
+.tongs-storage__subtitle {
+  margin: 0;
+  opacity: 0.72;
+}
+
+.tongs-storage__header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.tongs-storage__workspace-pill {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.tongs-storage__workspace-name {
+  font-weight: 700;
+}
+
+.tongs-storage__workspace-role {
+  font-size: 12px;
+  opacity: 0.78;
+}
+
+.tongs-storage__selection-pill {
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.tongs-storage__selection-label {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+  text-transform: uppercase;
+}
+
+.tongs-storage__mono {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.tongs-storage__diagnostic {
+  font-size: 12px;
+  opacity: 0.74;
+}
+
+.tongs-storage__layout {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+}
+
+.tongs-storage__panel {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  display: grid;
+  gap: 12px;
+}
+
+.tongs-storage__panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tongs-storage__panel-title {
+  margin: 0;
+  font-size: 16px;
+}
+
+.tongs-storage__panel-subtitle {
+  margin: 4px 0 0;
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.tongs-storage__roots-list {
+  display: grid;
+  gap: 8px;
+}
+
+.tongs-storage__root-button {
+  text-align: left;
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.18);
+  color: inherit;
+}
+
+.tongs-storage__root-button--active {
+  border-color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.tongs-storage__root-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tongs-storage__root-title {
+  font-weight: 700;
+}
+
+.tongs-storage__root-target {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.tongs-storage__root-badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tongs-storage__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.tongs-storage__badge--capability {
+  border-color: rgba(120, 190, 255, 0.35);
+  color: #d6ebff;
+}
+
+.tongs-storage__badge--mirror {
+  border-color: rgba(151, 255, 196, 0.4);
+  color: #c9ffd9;
+}
+
+.tongs-storage__root-meta {
+  font-size: 12px;
+  opacity: 0.72;
+}
+
+.tongs-storage__meta-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.tongs-storage__meta-card {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.18);
+  display: grid;
+  gap: 6px;
+}
+
+.tongs-storage__meta-label {
+  font-size: 12px;
+  opacity: 0.72;
+}
+
+.tongs-storage__meta-value {
+  font-size: 13px;
+  word-break: break-word;
+}
+
+.tongs-storage__tree-panel {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.tongs-storage__tree-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.tongs-storage__tree-title {
+  margin: 0;
+  font-size: 15px;
+}
+
+.tongs-storage__tree-source {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  opacity: 0.72;
+}
+
+.tongs-storage__badge--source {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.tongs-storage__message {
+  font-size: 13px;
+}
+
+.tongs-storage__message--subtle {
+  opacity: 0.72;
+}
+
+.tongs-storage__message--error {
+  color: #ffb3b3;
+}
+
+.tongs-storage__tree-placeholder {
+  min-height: 120px;
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  padding: 14px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  font-size: 13px;
+  opacity: 0.76;
+}
+
+.tongs-storage__tree-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 14px;
+  display: grid;
+  gap: 6px;
+}
+
+.tongs-storage__tree-node {
+  display: grid;
+  gap: 6px;
+}
+
+.tongs-storage__tree-node details {
+  display: grid;
+  gap: 6px;
+}
+
+.tongs-storage__tree-summary {
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.tongs-storage__tree-entry {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.tongs-storage__tree-icon {
+  font-size: 11px;
+  min-width: 44px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.66;
+}
+
+.tongs-storage__tree-note,
+.tongs-storage__tree-empty,
+.tongs-storage__tree-footnote {
+  font-size: 12px;
+  opacity: 0.72;
+}
+
+@media (max-width: 960px) {
+  .tongs-storage__layout {
+    grid-template-columns: 1fr;
+  }
+}

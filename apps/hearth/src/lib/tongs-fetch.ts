@@ -190,6 +190,11 @@ function resolveFromQuery(): string | null {
   }
 }
 
+export async function hasTongsUserAccessToken(): Promise<boolean> {
+  const token = await resolveUserAccessToken();
+  return Boolean(token);
+}
+
 function resolveRawTongsApiToken(): string | null {
   if (typeof window !== "undefined") {
     const fromQuery = readString(resolveFromQuery());

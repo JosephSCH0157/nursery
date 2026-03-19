@@ -97,17 +97,35 @@ function getFallbackScroller() {
 }
 function isScrollable(el) {
   if (!el) return false;
-  if (el.scrollHeight - el.clientHeight > 2) return true;
+  const scrollHeight = Number(el.scrollHeight || 0);
+  const clientHeight = Number(el.clientHeight || 0);
+  if (scrollHeight - clientHeight > 2 && clientHeight > 0) return true;
+  if (scrollHeight <= 0 && clientHeight <= 0) return false;
   try {
     const st = getComputedStyle(el);
-    return /(auto|scroll)/.test(st.overflowY || "");
+    if (!/(auto|scroll)/.test(st.overflowY || "")) return false;
+    const rect = el.getBoundingClientRect();
+    return clientHeight > 0 || rect.height > 0;
   } catch {
     return false;
   }
 }
 function resolveActiveScroller(primary, fallback) {
+  const hasLayoutBox = (el) => {
+    if (!el) return false;
+    const scrollHeight = Number(el.scrollHeight || 0);
+    const clientHeight = Number(el.clientHeight || 0);
+    if (scrollHeight > 0 || clientHeight > 0) return true;
+    try {
+      const rect = el.getBoundingClientRect();
+      return rect.height > 0 || rect.width > 0;
+    } catch {
+      return false;
+    }
+  };
   if (isScrollable(primary)) return primary;
   if (isScrollable(fallback)) return fallback;
+  if (!hasLayoutBox(primary) && hasLayoutBox(fallback)) return fallback;
   return primary || fallback;
 }
 function describeElement(el) {
@@ -464,6 +482,23 @@ function getScrollWriter() {
   return cached;
 }
 
+// src/features/asr/engine-selection.ts
+var ASR_ENGINE_EXPLICIT_KEY = "tp_asr_engine_explicit_v1";
+function normalizeAsrEngine(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return "";
+  if (normalized === "web-speech") return "webspeech";
+  if (normalized === "offline") return "vosk";
+  return normalized;
+}
+function readLocalAsrEngineExplicit() {
+  try {
+    return localStorage.getItem(ASR_ENGINE_EXPLICIT_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 // src/scroll/audit.ts
 var EXPECTED_WRITERS = /* @__PURE__ */ new Set([
   "ui/applyUiScrollMode",
@@ -645,6 +680,7 @@ var ASR_INTERIM_KEY = "tp_asr_interim_v1";
 var ASR_FILTER_KEY = "tp_asr_filter_v1";
 var ASR_THRESHOLD_KEY = "tp_asr_threshold_v1";
 var ASR_ENDPOINT_KEY = "tp_asr_endpoint_v1";
+var ASR_MANUAL_ANCHOR_KEY = "tp_asr_manual_anchor_v1";
 var ASR_PROFILES_KEY = "tp_asr_profiles_v1";
 var ASR_ACTIVE_PROFILE_KEY = "tp_asr_active_profile_v1";
 var SINGLE_MONITOR_READ_KEY = "tp_single_monitor_read_v1";
@@ -705,6 +741,7 @@ var persistMap = {
   "asr.useInterimResults": ASR_INTERIM_KEY,
   "asr.threshold": ASR_THRESHOLD_KEY,
   "asr.endpointMs": ASR_ENDPOINT_KEY,
+  "asr.manualAnchorAdoptEnabled": ASR_MANUAL_ANCHOR_KEY,
   "asr.filterFillers": ASR_FILTER_KEY,
   asrCalmModeEnabled: ASR_CALM_MODE_KEY,
   asrProfiles: ASR_PROFILES_KEY,
@@ -728,6 +765,64 @@ function loadLegacyAsrSettings() {
   } catch {
     return null;
   }
+}
+function readLegacyAsrBoolean(legacyAsrSettings, ...keys) {
+  for (const key of keys) {
+    const value = legacyAsrSettings?.[key];
+    if (value !== void 0) return !!value;
+  }
+  return null;
+}
+function readLegacyAsrNumber(legacyAsrSettings, ...keys) {
+  for (const key of keys) {
+    const value = legacyAsrSettings?.[key];
+    if (value === void 0) continue;
+    const num = Number(value);
+    if (!Number.isNaN(num)) return num;
+  }
+  return null;
+}
+function migrateLegacyAsrSettings(legacyAsrSettings) {
+  if (!legacyAsrSettings || typeof window === "undefined") return;
+  try {
+    const ls = window.localStorage;
+    const setIfMissing = (key, value) => {
+      if (!key || value == null || value === "") return;
+      if (ls.getItem(key) !== null) return;
+      ls.setItem(key, value);
+    };
+    setIfMissing(ASR_ENGINE_KEY, readInitialAsrEngine(legacyAsrSettings));
+    setIfMissing(ASR_LANG_KEY, typeof legacyAsrSettings.lang === "string" ? legacyAsrSettings.lang : null);
+    const interim = readLegacyAsrBoolean(legacyAsrSettings, "interim");
+    setIfMissing(ASR_INTERIM_KEY, interim == null ? null : interim ? "1" : "0");
+    const filter = readLegacyAsrBoolean(legacyAsrSettings, "filterFillers", "fillerFilter");
+    setIfMissing(ASR_FILTER_KEY, filter == null ? null : filter ? "1" : "0");
+    const threshold = readLegacyAsrNumber(legacyAsrSettings, "threshold");
+    setIfMissing(ASR_THRESHOLD_KEY, threshold == null ? null : String(threshold));
+    const endpointMs = readLegacyAsrNumber(legacyAsrSettings, "endpointMs", "endpointingMs");
+    setIfMissing(ASR_ENDPOINT_KEY, endpointMs == null ? null : String(endpointMs));
+    const manualAnchor = readLegacyAsrBoolean(legacyAsrSettings, "manualAnchorAdoptEnabled");
+    setIfMissing(ASR_MANUAL_ANCHOR_KEY, manualAnchor == null ? null : manualAnchor ? "1" : "0");
+    const calmMode = readLegacyAsrBoolean(legacyAsrSettings, "calmModeEnabled");
+    setIfMissing(ASR_CALM_MODE_KEY, calmMode == null ? null : calmMode ? "1" : "0");
+    ls.removeItem(LEGACY_ASR_SETTINGS_KEY);
+  } catch {
+  }
+}
+function readInitialAsrEngine(legacyAsrSettings) {
+  try {
+    const explicit = readLocalAsrEngineExplicit();
+    const stored = normalizeAsrEngine(localStorage.getItem(ASR_ENGINE_KEY));
+    const legacy = normalizeAsrEngine(
+      legacyAsrSettings?.engine && typeof legacyAsrSettings.engine === "string" ? legacyAsrSettings.engine : ""
+    );
+    const selected = stored || legacy;
+    if (explicit) return selected || "whisper";
+    if (!selected || selected === "webspeech") return "whisper";
+    return selected;
+  } catch {
+  }
+  return "whisper";
 }
 function migrateAutoRecordFlag() {
   try {
@@ -911,17 +1006,7 @@ function buildInitialState() {
       }
     })(),
     asrLive: false,
-    "asr.engine": (() => {
-      try {
-        const raw = localStorage.getItem(ASR_ENGINE_KEY);
-        if (raw) return raw;
-        if (legacyAsrSettings?.engine && typeof legacyAsrSettings.engine === "string") {
-          return legacyAsrSettings.engine;
-        }
-      } catch {
-      }
-      return "webspeech";
-    })(),
+    "asr.engine": readInitialAsrEngine(legacyAsrSettings),
     "asr.language": (() => {
       try {
         const raw = localStorage.getItem(ASR_LANG_KEY);
@@ -946,7 +1031,8 @@ function buildInitialState() {
       try {
         const raw = localStorage.getItem(ASR_FILTER_KEY);
         if (raw !== null) return raw === "1";
-        if (legacyAsrSettings?.filterFillers !== void 0) return !!legacyAsrSettings.filterFillers;
+        const legacy = readLegacyAsrBoolean(legacyAsrSettings, "filterFillers", "fillerFilter");
+        if (legacy !== null) return legacy;
       } catch {
       }
       return true;
@@ -966,15 +1052,29 @@ function buildInitialState() {
         const raw = localStorage.getItem(ASR_ENDPOINT_KEY);
         const num = Number(raw);
         if (raw !== null && !Number.isNaN(num)) return num;
-        if (legacyAsrSettings?.endpointMs !== void 0) return Number(legacyAsrSettings.endpointMs) || 700;
+        const legacy = readLegacyAsrNumber(legacyAsrSettings, "endpointMs", "endpointingMs");
+        if (legacy !== null) return legacy;
       } catch {
       }
       return 700;
+    })(),
+    "asr.manualAnchorAdoptEnabled": (() => {
+      try {
+        const raw = localStorage.getItem(ASR_MANUAL_ANCHOR_KEY);
+        if (raw !== null) return raw === "1";
+        if (legacyAsrSettings?.manualAnchorAdoptEnabled !== void 0) {
+          return legacyAsrSettings.manualAnchorAdoptEnabled !== false;
+        }
+      } catch {
+      }
+      return true;
     })(),
     asrCalmModeEnabled: (() => {
       try {
         const raw = localStorage.getItem(ASR_CALM_MODE_KEY);
         if (raw !== null) return raw === "1";
+        const legacy = readLegacyAsrBoolean(legacyAsrSettings, "calmModeEnabled");
+        if (legacy !== null) return legacy;
       } catch {
       }
       return false;
@@ -1243,6 +1343,7 @@ function sanitizeState(state) {
 function createAppStore(initial) {
   const subs = /* @__PURE__ */ Object.create(null);
   const baseState = buildInitialState();
+  migrateLegacyAsrSettings(loadLegacyAsrSettings());
   const state = sanitizeState(
     Object.assign(
       {},
@@ -1418,7 +1519,62 @@ var VAD_PARTIAL_GRACE_MS = 400;
 var __asrInstances = /* @__PURE__ */ new Set();
 var RESCUE_JUMPS_ENABLED = false;
 var scrollWriter = getScrollWriter();
+var legacyAsrCompatBlockedWarned = false;
+function isCanonicalTsRuntimeActive() {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.__TP_TS_PRIMARY__ === true || window.__TP_BOOT_OWNER === "ts:index" || window.__tpBootPath === "ts:index" || window.__tpTsBooted === 1;
+  } catch {
+    return false;
+  }
+}
+function isExplicitLegacyAsrRequested() {
+  if (typeof window === "undefined") return false;
+  try {
+    if (window.__tpAllowLegacyAsrMode === true) return true;
+    if (window.__TP_ALLOW_LEGACY_BOOT === true) return true;
+    if (window.__tpAllowLegacyBoot === true) return true;
+    const params = new URLSearchParams(window.location.search || "");
+    if (params.get("legacyAsrMode") === "1") return true;
+    if (params.get("legacy") === "1") return true;
+    if (String(window.location.hash || "").toLowerCase().includes("legacy=1")) return true;
+    try {
+      return window.localStorage?.getItem("tp_legacy") === "1";
+    } catch {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+}
+function allowLegacyAsrCompatibilityRuntime() {
+  if (typeof window === "undefined" || typeof document === "undefined") return true;
+  if (isExplicitLegacyAsrRequested()) return true;
+  return !isCanonicalTsRuntimeActive();
+}
+function guardLegacyAsrCompatibilityRuntime() {
+  if (allowLegacyAsrCompatibilityRuntime()) {
+    try {
+      window.__TP_LEGACY_ASR_COMPAT_ONLY__ = true;
+    } catch {
+    }
+    return true;
+  }
+  try {
+    window.__TP_LEGACY_ASR_BLOCKED__ = true;
+  } catch {
+  }
+  if (!legacyAsrCompatBlockedWarned) {
+    legacyAsrCompatBlockedWarned = true;
+    try {
+      console.warn("[ASR legacy] blocked while canonical TS runtime is active. Use ?legacyAsrMode=1 or ?legacy=1 to allow.");
+    } catch {
+    }
+  }
+  return false;
+}
 function initAsrFeature() {
+  if (!guardLegacyAsrCompatibilityRuntime()) return false;
   try {
     console.info("[ASR] dev initAsrFeature()");
   } catch {

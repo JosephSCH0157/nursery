@@ -3,6 +3,8 @@ import {
   applyProductionArtifactToEpisodePackage,
   buildDefaultMetadataDocument,
 } from "./episode-package-v2";
+import { resolveImageMapScriptAnchorFromText } from "./hearth-image-map-beats";
+import { readHearthPrimaryScript } from "./hearth-script-repo";
 
 type WrittenBy = {
   tool: string;
@@ -214,11 +216,26 @@ async function syncEpisodePackageMetadata(args: {
     return { ok: true };
   }
 
+  let resolveImageMapScriptAnchor:
+    | ((anchorText: string, matchHint?: string | null) => ReturnType<typeof resolveImageMapScriptAnchorFromText>)
+    | null
+    = null;
+  if (args.kind === "image_beat_sheet") {
+    const canonicalScript = await readHearthPrimaryScript(args.workpieceId);
+    if (canonicalScript.ok && canonicalScript.data.text?.trim()) {
+      const scriptText = canonicalScript.data.text;
+      resolveImageMapScriptAnchor = (anchorText, matchHint) => (
+        resolveImageMapScriptAnchorFromText(scriptText, anchorText, matchHint)
+      );
+    }
+  }
+
   const nextMetadata = applyProductionArtifactToEpisodePackage({
     metadata,
     action: args.kind,
     rawText,
     generatedAt: readGeneratedAtFromPayload(args.payload),
+    resolveImageMapScriptAnchor,
   });
 
   return commitMetadataDocument({

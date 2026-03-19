@@ -1,9 +1,11 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { resolve, join, dirname, isAbsolute } from "path";
+import { resolve, join, dirname, isAbsolute, extname, sep } from "path";
 import fs from "node:fs";
 import fsPromises from "node:fs/promises";
 import { createHammerDevMediaMiddleware } from "./scripts/mw-hammer-dev-media";
+import { createHammerPrepMiddleware } from "./scripts/mw-hammer-prep";
+import { mwAnvilWhisperApi } from "./scripts/mw-anvil-whisper-api";
 import { mwHearthChatApi } from "./scripts/mw-hearth-chat-api";
 import { createNurseryTongsMiddleware } from "./scripts/mw-tongs-commit-api";
 
@@ -11,6 +13,114 @@ const RETRYABLE_PUBLIC_COPY_CODES = new Set(["EPERM", "EBUSY", "ENOTEMPTY"]);
 const PUBLIC_COPY_RETRIES = 6;
 const PUBLIC_COPY_RETRY_DELAY_MS = 50;
 const EXTRA_FS_ALLOW_ENV_KEYS = ["FORGE_VITE_FS_ALLOW", "FORGE_MEDIA_ROOTS"] as const;
+const ANVIL_DEV_ROUTE_PREFIX = "/anvil/";
+
+function getMimeType(filePath: string): string {
+  switch (extname(filePath).toLowerCase()) {
+    case ".css":
+      return "text/css; charset=utf-8";
+    case ".html":
+      return "text/html; charset=utf-8";
+    case ".ico":
+      return "image/x-icon";
+    case ".jpeg":
+    case ".jpg":
+      return "image/jpeg";
+    case ".js":
+    case ".mjs":
+      return "text/javascript; charset=utf-8";
+    case ".json":
+    case ".map":
+      return "application/json; charset=utf-8";
+    case ".png":
+      return "image/png";
+    case ".svg":
+      return "image/svg+xml";
+    case ".txt":
+      return "text/plain; charset=utf-8";
+    case ".webm":
+      return "video/webm";
+    case ".webmanifest":
+      return "application/manifest+json; charset=utf-8";
+    case ".xml":
+      return "application/xml; charset=utf-8";
+    default:
+      return "application/octet-stream";
+  }
+}
+
+function normalizeAnvilAssetPath(url: string | undefined): string | null {
+  const rawUrl = typeof url === "string" ? url : "";
+  const pathname = rawUrl.split("?")[0]?.split("#")[0] ?? "";
+  if (pathname === "/anvil" || pathname === "/anvil/") {
+    return "teleprompter_pro.html";
+  }
+  if (!pathname.startsWith(ANVIL_DEV_ROUTE_PREFIX)) return null;
+  const encodedRelative = pathname.slice(ANVIL_DEV_ROUTE_PREFIX.length);
+  if (!encodedRelative) return null;
+  let decodedRelative: string;
+  try {
+    decodedRelative = decodeURIComponent(encodedRelative);
+  } catch {
+    return null;
+  }
+  const normalized = decodedRelative.replace(/\\/g, "/");
+  if (
+    normalized.length === 0
+    || normalized.startsWith("/")
+    || normalized.split("/").some((segment) => segment === ".." || segment.length === 0)
+  ) {
+    return null;
+  }
+  return normalized;
+}
+
+function resolveInside(rootDir: string, relativePath: string): string | null {
+  const candidate = resolve(rootDir, relativePath);
+  const normalizedRoot = `${rootDir}${sep}`;
+  if (candidate === rootDir || candidate.startsWith(normalizedRoot)) {
+    return candidate;
+  }
+  return null;
+}
+
+function createAnvilSourceMiddleware() {
+  return async (req: any, res: any, next: (error?: unknown) => void) => {
+    const relativePath = normalizeAnvilAssetPath(req.url);
+    if (!relativePath) {
+      next();
+      return;
+    }
+
+    const sourceRoot = resolve(__dirname, "../anvil");
+    const publicMirrorRoot = resolve(__dirname, "public", "anvil");
+    const candidatePaths = [
+      resolveInside(sourceRoot, relativePath),
+      resolveInside(publicMirrorRoot, relativePath),
+    ].filter((value): value is string => !!value);
+
+    for (const candidatePath of candidatePaths) {
+      try {
+        const stats = await fsPromises.stat(candidatePath);
+        if (!stats.isFile()) continue;
+        res.statusCode = 200;
+        res.setHeader("Content-Type", getMimeType(candidatePath));
+        if (candidatePath.toLowerCase().endsWith(".html")) {
+          res.setHeader("Cache-Control", "no-store");
+        }
+        fs.createReadStream(candidatePath)
+          .on("error", (error) => next(error))
+          .pipe(res);
+        return;
+      } catch {
+        // Try the next candidate path. Locked or missing public mirror files
+        // should not stop dev from loading Anvil.
+      }
+    }
+
+    next();
+  };
+}
 
 function isRetryableCopyError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -90,14 +200,18 @@ export default defineConfig({
     {
       name: "nursery:tongs-commit-api",
       configureServer(server) {
+        server.middlewares.use(createAnvilSourceMiddleware());
         server.middlewares.use(createNurseryTongsMiddleware({ routePrefix: "/tongs" }));
         server.middlewares.use(mwHearthChatApi());
+        server.middlewares.use(mwAnvilWhisperApi());
         server.middlewares.use(createHammerDevMediaMiddleware());
+        server.middlewares.use(createHammerPrepMiddleware());
       },
     },
   ],
   resolve: {
     alias: {
+      "@forge/bellows": resolve(__dirname, "../bellows/dist/index.js"),
       "@forge/quench": resolve(__dirname, "../quench/src/index.ts"),
       "@barstock": resolve(__dirname, "../bar-stock/src"),
       "@hearth": resolve(__dirname, "../hearth/src"),

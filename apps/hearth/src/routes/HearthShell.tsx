@@ -58,13 +58,18 @@ import {
   type HearthWorkpieceSummary,
 } from "../lib/hearth-workpieces";
 import {
+  chooseCanonicalImageMapScriptSource,
+  choosePreferredHydratedDraft,
+  draftHasUsableScriptBody,
+  hydrateDraftBodyFromCanonicalScript,
+} from "../lib/hearth-draft-hydration";
+import {
   selectActiveWorkpieceContext,
   selectDraftForWorkpiece,
   selectWorkpieceNavItems,
 } from "../lib/hearth-nav-model";
 import { mirrorApprovedScriptToLocal, type MirrorApprovedScriptResult } from "../lib/hearth-script-mirror";
 import {
-  HEARTH_CONTENT_CATEGORIES,
   listHearthReadyScripts,
   removeHearthReadyScripts,
   reorderHearthReadyScripts,
@@ -94,6 +99,12 @@ import {
   type HearthOpsStore,
 } from "../lib/hearth-ai-ops";
 import {
+  cloneHearthProposalOps,
+  isHearthProposalBodyOpDirty,
+  resetHearthProposalBodyOp,
+  updateHearthProposalBodyOp,
+} from "../lib/hearth-ai-proposal";
+import {
   formatScriptToAnvilTagsNoAi,
   validateAnvilTagContract,
   type AnvilTagValidation,
@@ -113,9 +124,18 @@ import {
   saveWorkpieceImageMap,
   selectWorkpieceImageMapCandidate,
 } from "../lib/hearth-image-map-repo";
-import { generateImageMapEntriesFromScript, resolveImageMapAnchorContext } from "../lib/hearth-image-map-beats";
+import {
+  assessImageMapScriptAnchor,
+  buildExactScriptAnchorFromSelection,
+  buildImageMapAnchorPickerParagraphs,
+  generateImageMapEntriesFromScript,
+  reanchorImageMapEntry,
+  resolveImageMapAnchorContext,
+} from "../lib/hearth-image-map-beats";
 import type {
   EpisodePackageV2,
+  EpisodeLaunchVariant,
+  EpisodeLaunchVariantStatus,
   EpisodeThumbnailConcept,
   EpisodeThumbnailVersion,
   EpisodeImageMapEntry,
@@ -123,14 +143,43 @@ import type {
 } from "../lib/episode-package-v2";
 import {
   addImageMapEntry,
+  buildImageMapAnchorLabel,
+  ensureLaunchVariantsV2,
   ensureSeoV2,
   normalizeSeoTags,
   removeImageMapEntry,
+  resolvePrimarySeoTitle,
   updateImageMapEntry,
 } from "../lib/episode-package-v2";
+import {
+  DEFAULT_HEARTH_VISUAL_STYLE,
+  normalizeHearthVisualStyle,
+} from "../lib/hearth-visual-styles";
+import {
+  listWorkspaceThumbnailBrandTemplates,
+  resolveDefaultThumbnailBrandTemplate,
+  seedWorkspaceThumbnailBrandTemplates,
+} from "../lib/hearth-thumbnail-brand-templates";
+import type { ThumbnailBrandTemplate } from "../lib/hearth-thumbnail-brand-templates";
+import {
+  DEFAULT_TITLE_STYLE,
+  areEpisodeThumbnailTitleStylesEqual,
+  normalizeEpisodeThumbnailTitleStyle,
+} from "../lib/hearth-title-fonts";
+import type {
+  EpisodeThumbnailTitleStyle,
+  TitleFontPreset,
+  TitleShadowStrength,
+} from "../lib/hearth-title-fonts";
+import {
+  HEARTH_THUMBNAIL_TITLE_CONTRACT,
+  deriveHearthThumbnailOverlayText,
+  resolveHearthThumbnailOverlayText,
+} from "../lib/hearth-thumbnail-title-contract";
 import ThumbnailPanel from "../components/visuals/ThumbnailPanel";
 import ImageMapPanel from "../components/visuals/ImageMapPanel";
 import MetadataPanel from "../components/metadata/MetadataPanel";
+import CollapsibleFocusPanel from "../components/focus/CollapsibleFocusPanel";
 import { MobilePage, useLayoutMode } from "@forge/ui-mobile";
 import {
   getMyWritingProfile,
@@ -146,6 +195,7 @@ const SESSION_SAVE_DELAY_MS = 500;
 const STORE_KIND_KEY = "hearth_store_kind";
 const DEV_MODE_KEY = "tp_dev_mode";
 const MODE_STORAGE_PREFIX = "hearth:ui:mode:v1:";
+const FOCUS_PANEL_LAYOUT_STORAGE_PREFIX = "hearth:focus-layout:v1:";
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
 const CHAT_HISTORY_MAX_MESSAGES = 200;
@@ -167,11 +217,33 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 
 type HearthMode = "sparks" | "episodes" | "ready" | "series" | "focus";
 type FocusTab = "draft" | "planning" | "sources" | "revisions";
+type FocusPanelId = "chat" | "thumbnail" | "imageMap" | "metadata";
 type ProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet";
 type SttLane = "browser" | "ai";
 type SttState = "idle" | "listening" | "transcribing";
 type AiAutosaveReasonCode = "ai_outline" | "ai_script" | "ai_repair" | "ai_rewrite";
 type AiAutosaveReason = `autosave:${AiAutosaveReasonCode}`;
+type ForgeNoticeSeverity = "info" | "success" | "warning" | "error";
+type ForgeNoticeJob =
+  | "image-generated"
+  | "script-completed"
+  | "sources-found"
+  | "save-failed"
+  | "render-finished"
+  | "export-finished"
+  | "job-failed";
+
+type ForgeNoticeDetail = {
+  tool: "hearth";
+  job: ForgeNoticeJob;
+  title: string;
+  message?: string;
+  route?: string;
+  workspaceId?: string;
+  workpieceId?: string;
+  severity: ForgeNoticeSeverity;
+  timestamp: number;
+};
 
 type ScriptApprovalState = {
   hasApprovedScript: boolean;
@@ -210,6 +282,14 @@ type ImageBeatSheetEntry = {
   match?: string;
 };
 
+type CanonicalImageMapScriptState = {
+  status: "idle" | "loading" | "ready" | "error";
+  text: string | null;
+  source: "primary_script" | "saved_draft" | null;
+  includesUnsavedLocalEdits: boolean;
+  error: string | null;
+};
+
 const PRODUCTION_ACTION_LABEL: Record<ProductionAction, string> = {
   seo: "Generate SEO",
   tags: "Generate Tags",
@@ -232,11 +312,46 @@ const TONE_PRESET_OPTIONS = [
 const DEFAULT_TONE_PRESET = "neutral_conversational";
 const EMPTY_WORKPIECE_SUMMARY_LIST: HearthWorkpieceSummary[] = [];
 const EMPTY_READY_SCRIPT_LIST: HearthReadyScript[] = [];
+const DEFAULT_FOCUS_PANEL_LAYOUT: Record<FocusPanelId, boolean> = {
+  chat: false,
+  thumbnail: false,
+  imageMap: false,
+  metadata: false,
+};
+const FORGE_NOTICE_EVENT = "forge:notice";
 
 function readTrimmedString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
+}
+
+function normalizeRailTitleKey(title: string): string {
+  return title.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function buildCurrentForgeNoticeRoute(workspaceId: string | null, workpieceId: string | null): string | null {
+  if (typeof window === "undefined") return null;
+  const nextUrl = new URL(window.location.href);
+  const normalizedWorkspaceId = readTrimmedString(workspaceId);
+  const normalizedWorkpieceId = readTrimmedString(workpieceId);
+  if (normalizedWorkspaceId) {
+    nextUrl.searchParams.set("workspace_id", normalizedWorkspaceId);
+  }
+  if (normalizedWorkpieceId) {
+    nextUrl.searchParams.set("workpiece_id", normalizedWorkpieceId);
+  }
+  return `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`;
+}
+
+function dispatchWindowForgeNotice(detail: Omit<ForgeNoticeDetail, "timestamp">): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent<ForgeNoticeDetail>(FORGE_NOTICE_EVENT, {
+    detail: {
+      ...detail,
+      timestamp: Date.now(),
+    },
+  }));
 }
 
 function normalizeUuid(value: unknown): string | null {
@@ -252,6 +367,59 @@ function normalizeTonePreset(value: unknown): string | null {
   return TONE_PRESET_OPTIONS.some((option) => option.value === normalized)
     ? normalized
     : null;
+}
+
+function resolveImageMapAnchorStatusView(args: {
+  status: "anchored" | "needs_reanchor" | "missing_anchor";
+  scriptState: CanonicalImageMapScriptState;
+}): { label: string; tone: "neutral" | "ok" | "warning" | "danger"; detail: string } {
+  if (args.status === "missing_anchor") {
+    return {
+      label: "Missing anchor",
+      tone: "danger",
+      detail: "This visual beat only has a display label. Re-anchor it to bind an exact structured span from the current canonical script.",
+    };
+  }
+  if (args.scriptState.status === "loading") {
+    return {
+      label: args.status === "needs_reanchor" ? "Needs re-anchor" : "Anchored",
+      tone: "neutral",
+      detail: "Validating this structured anchor against the current canonical script.",
+    };
+  }
+  if (args.scriptState.status === "error") {
+    return {
+      label: "Needs re-anchor",
+      tone: "warning",
+      detail: args.scriptState.error ?? "Hearth could not load the current canonical script to verify this anchor.",
+    };
+  }
+  if (args.status === "anchored") {
+    return {
+      label: "Anchored",
+      tone: "ok",
+      detail: "This visual beat is anchored to an exact span in the current canonical script.",
+    };
+  }
+  return {
+    label: "Needs re-anchor",
+    tone: "warning",
+    detail: "This structured anchor no longer matches the current canonical script. Re-anchor it before generating candidates.",
+  };
+}
+
+function resolveCanonicalImageMapScriptSourceLabel(state: CanonicalImageMapScriptState): string | null {
+  if (state.status !== "ready" || !state.source) return null;
+  return state.source === "primary_script" ? "Source: published script" : "Source: saved draft";
+}
+
+function resolveCanonicalImageMapScriptHint(state: CanonicalImageMapScriptState): string | null {
+  if (state.status === "error") return state.error;
+  if (state.status !== "ready") return null;
+  if (state.includesUnsavedLocalEdits) {
+    return "Unsaved local script edits are not included here. Re-anchoring uses the current canonical saved script.";
+  }
+  return "Pick the exact sentence or paragraph that should drive still generation for this beat.";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -559,6 +727,38 @@ function writeMode(workpieceId: string | null, mode: HearthMode): void {
   }
 }
 
+function readFocusPanelLayout(workpieceId: string | null): Record<FocusPanelId, boolean> {
+  if (!workpieceId || typeof window === "undefined") {
+    return { ...DEFAULT_FOCUS_PANEL_LAYOUT };
+  }
+  try {
+    const raw = window.localStorage.getItem(`${FOCUS_PANEL_LAYOUT_STORAGE_PREFIX}${workpieceId}`);
+    if (!raw) return { ...DEFAULT_FOCUS_PANEL_LAYOUT };
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ...DEFAULT_FOCUS_PANEL_LAYOUT };
+    }
+    const row = parsed as Record<string, unknown>;
+    return {
+      chat: row.chat === true,
+      thumbnail: row.thumbnail === true,
+      imageMap: row.imageMap === true,
+      metadata: row.metadata === true,
+    };
+  } catch {
+    return { ...DEFAULT_FOCUS_PANEL_LAYOUT };
+  }
+}
+
+function writeFocusPanelLayout(workpieceId: string | null, layout: Record<FocusPanelId, boolean>): void {
+  if (!workpieceId || typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(`${FOCUS_PANEL_LAYOUT_STORAGE_PREFIX}${workpieceId}`, JSON.stringify(layout));
+  } catch {
+    // ignore storage failures
+  }
+}
+
 function buildPendingProjectWorkpieceKey(workspaceId: string, projectId: string): string {
   return `${PROJECT_PENDING_WORKPIECE_PREFIX}${workspaceId}:${projectId}`;
 }
@@ -811,6 +1011,7 @@ function buildProductionPrompt(args: {
       "SEO_TITLES:",
       "- 5 options total",
       "- include labels: SAFE, SPICY, BALANCED_1, BALANCED_2, BALANCED_3",
+      `- every title must preserve a thumbnail-safe hook of ${HEARTH_THUMBNAIL_TITLE_CONTRACT.preferred_max_words} words or fewer`,
       "",
       "DESCRIPTION:",
       "- one YouTube-ready description paragraph block",
@@ -1526,9 +1727,6 @@ function OscilloscopeFill({
 }
 
 type SortKey = "updated" | "title";
-type ReadyCategoryFilter = "all" | "uncategorized" | HearthContentCategory;
-type ReadyCategoryGroupKey = HearthContentCategory | "uncategorized";
-type ReadyUrgencyFilter = "all" | "fresh" | "cooling" | "cold";
 type ReadyUrgencyLevel = "fresh" | "warming" | "cooling" | "cold";
 type ReadyLabel = "hot" | "evergreen" | "series";
 
@@ -1547,6 +1745,7 @@ type DiffLine = {
 type PendingAiProposal = {
   assistantText: string;
   ops: HearthOp[];
+  originalOps: HearthOp[];
   selected: boolean[];
   context: EpisodeContext;
   fromGate: boolean;
@@ -1556,18 +1755,6 @@ type PendingAiProposal = {
 type ScriptValidationState = {
   source: "save_notice" | "save_gate" | "ai_apply" | "ai_repair";
   result: AnvilTagValidation;
-};
-
-const READY_CATEGORY_LABEL: Record<HearthContentCategory, string> = {
-  evergreen: "Evergreen",
-  hot_topic: "Hot Topic",
-  viral_reaction: "Viral / Reaction",
-  strategic_anchor: "Strategic Anchor",
-  community: "Community",
-  reflective: "Personal / Reflective",
-  explainer: "Educational / Explainer",
-  experimental: "Experimental",
-  backup: "Backup / Filler",
 };
 
 const READY_URGENCY_APPLICABLE_CATEGORY_SET = new Set<HearthContentCategory>([
@@ -1857,8 +2044,6 @@ export default function HearthShell() {
   const [readyScriptsWorkspaceId, setReadyScriptsWorkspaceId] = useState<string | null>(null);
   const [isReadyScriptsLoading, setIsReadyScriptsLoading] = useState(false);
   const [readyScriptsError, setReadyScriptsError] = useState<string | null>(null);
-  const [readyCategoryFilter, setReadyCategoryFilter] = useState<ReadyCategoryFilter>("all");
-  const [readyUrgencyFilter, setReadyUrgencyFilter] = useState<ReadyUrgencyFilter>("all");
   const [updatingReadyCategoryId, setUpdatingReadyCategoryId] = useState<string | null>(null);
   const [readyCategoryError, setReadyCategoryError] = useState<string | null>(null);
   const [removingReadyIds, setRemovingReadyIds] = useState<string[]>([]);
@@ -1906,11 +2091,20 @@ export default function HearthShell() {
   const [aiTokenBalance, setAiTokenBalance] = useState<number | null>(null);
   const [aiBillingMode, setAiBillingMode] = useState<HearthAiLane>(() => resolveAiLaneFromStorage());
   const [episodePackage, setEpisodePackage] = useState<EpisodePackageV2 | null>(null);
+  const [selectedThumbnailTitleId, setSelectedThumbnailTitleId] = useState<string | null>(null);
   const [selectedThumbnailConceptId, setSelectedThumbnailConceptId] = useState<string>("");
   const [selectedThumbnailVersionId, setSelectedThumbnailVersionId] = useState<string | null>(null);
+  const [selectedLaunchVariantId, setSelectedLaunchVariantId] = useState<string | null>(null);
+  const [launchVariantStatusDraft, setLaunchVariantStatusDraft] = useState<EpisodeLaunchVariantStatus>("draft");
+  const [launchVariantNotesDraft, setLaunchVariantNotesDraft] = useState("");
   const [thumbnailConceptLabelDraft, setThumbnailConceptLabelDraft] = useState("");
   const [thumbnailConceptPromptDraft, setThumbnailConceptPromptDraft] = useState("");
-  const [thumbnailConceptStyleDraft, setThumbnailConceptStyleDraft] = useState("");
+  const [thumbnailConceptStyleDraft, setThumbnailConceptStyleDraft] = useState(DEFAULT_HEARTH_VISUAL_STYLE);
+  const [thumbnailTitleStyleDraft, setThumbnailTitleStyleDraft] = useState<EpisodeThumbnailTitleStyle>(DEFAULT_TITLE_STYLE);
+  const [thumbnailConceptBrandTemplateIdDraft, setThumbnailConceptBrandTemplateIdDraft] = useState<string | null>(null);
+  const [thumbnailBrandTemplates, setThumbnailBrandTemplates] = useState<ThumbnailBrandTemplate[]>([]);
+  const [isThumbnailBrandTemplatesLoading, setIsThumbnailBrandTemplatesLoading] = useState(false);
+  const [thumbnailBrandTemplatesError, setThumbnailBrandTemplatesError] = useState<string | null>(null);
   const [thumbnailPromptOverride, setThumbnailPromptOverride] = useState("");
   const [thumbnailAspect, setThumbnailAspect] = useState<"16:9" | "1:1" | "9:16">("16:9");
   const [isThumbnailGenerating, setIsThumbnailGenerating] = useState(false);
@@ -1918,6 +2112,7 @@ export default function HearthShell() {
   const [isThumbnailUploading, setIsThumbnailUploading] = useState(false);
   const [thumbnailGenerateError, setThumbnailGenerateError] = useState<string | null>(null);
   const [thumbnailUploadError, setThumbnailUploadError] = useState<string | null>(null);
+  const [thumbnailPairingError, setThumbnailPairingError] = useState<string | null>(null);
   const [thumbnailPreviewState, setThumbnailPreviewState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [thumbnailPreviewDataUrl, setThumbnailPreviewDataUrl] = useState<string | null>(null);
   const [thumbnailPreviewError, setThumbnailPreviewError] = useState<string | null>(null);
@@ -1925,6 +2120,7 @@ export default function HearthShell() {
   const [selectedImageMapEntryId, setSelectedImageMapEntryId] = useState<string | null>(null);
   const [imageMapAnchorDraft, setImageMapAnchorDraft] = useState("");
   const [imageMapDescriptionDraft, setImageMapDescriptionDraft] = useState("");
+  const [imageMapStyleDraft, setImageMapStyleDraft] = useState(DEFAULT_HEARTH_VISUAL_STYLE);
   const [imageMapIntentDraft, setImageMapIntentDraft] = useState("cutaway");
   const [imageMapSourceTypeDraft, setImageMapSourceTypeDraft] = useState("stock");
   const [imageMapPlacementHintDraft, setImageMapPlacementHintDraft] = useState("");
@@ -1939,6 +2135,16 @@ export default function HearthShell() {
   const [imageMapCandidatePreviewStateById, setImageMapCandidatePreviewStateById] = useState<Record<string, "loading" | "ready" | "error">>({});
   const [imageMapCandidatePreviewUrlById, setImageMapCandidatePreviewUrlById] = useState<Record<string, string>>({});
   const [imageMapCandidatePreviewErrorById, setImageMapCandidatePreviewErrorById] = useState<Record<string, string>>({});
+  const [canonicalImageMapScriptState, setCanonicalImageMapScriptState] = useState<CanonicalImageMapScriptState>({
+    status: "idle",
+    text: null,
+    source: null,
+    includesUnsavedLocalEdits: false,
+    error: null,
+  });
+  const [isImageMapReanchorMode, setIsImageMapReanchorMode] = useState(false);
+  const [isImageMapReanchorSaving, setIsImageMapReanchorSaving] = useState(false);
+  const [imageMapReanchorError, setImageMapReanchorError] = useState<string | null>(null);
   const [scriptPanelCopyMessage, setScriptPanelCopyMessage] = useState<string | null>(null);
   const episodePackageRequestSeqRef = useRef(0);
   const thumbnailPreviewRequestSeqRef = useRef(0);
@@ -1952,6 +2158,9 @@ export default function HearthShell() {
   const [metadataPreviewMode, setMetadataPreviewMode] = useState<"youtube" | "rss" | "plain">("youtube");
   const [metadataSaveState, setMetadataSaveState] = useState<"saved" | "editing" | "saving" | "offline" | "error">("saved");
   const [metadataSaveError, setMetadataSaveError] = useState<string | null>(null);
+  const [focusPanelLayout, setFocusPanelLayout] = useState<Record<FocusPanelId, boolean>>(() =>
+    readFocusPanelLayout(incomingBarStockIntakeRoute ? null : resolveWorkpieceId()),
+  );
   const [presenceRows, setPresenceRows] = useState<HearthWorkpiecePresence[]>([]);
   const [draftConflictState, setDraftConflictState] = useState<DraftConflictState | null>(null);
   const [mobileOverlayView, setMobileOverlayView] = useState<"editor" | "ready" | null>(null);
@@ -2036,6 +2245,25 @@ export default function HearthShell() {
       episodeId,
     });
   }, [workpieceId]);
+
+  const publishForgeNotice = useCallback((notice: {
+    job: ForgeNoticeJob;
+    title: string;
+    message?: string;
+    severity: ForgeNoticeSeverity;
+    route?: string | null;
+  }) => {
+    dispatchWindowForgeNotice({
+      tool: "hearth",
+      job: notice.job,
+      title: notice.title,
+      message: readTrimmedString(notice.message) ?? undefined,
+      route: readTrimmedString(notice.route) ?? buildCurrentForgeNoticeRoute(workspaceId, workpieceId) ?? undefined,
+      workspaceId: readTrimmedString(workspaceId) ?? undefined,
+      workpieceId: readTrimmedString(workpieceId) ?? undefined,
+      severity: notice.severity,
+    });
+  }, [workspaceId, workpieceId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2165,15 +2393,95 @@ export default function HearthShell() {
     () => (activeWorkpieceIsArchived ? null : buildOpenInAnvilHref(workspaceId, workpieceId)),
     [activeWorkpieceIsArchived, workspaceId, workpieceId],
   );
+  const aiRuntimeBusy = isAiProcessing || isThumbnailGenerating || isImageMapCandidateGenerating;
   const aiCreditsDepleted = aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0;
   const aiEpisodeReady = Boolean(workpieceId?.trim());
   const thumbnailConcepts = episodePackage?.thumbnail.concepts ?? [];
   const thumbnailVersions = episodePackage?.thumbnail.versions ?? [];
+  const launchVariants = episodePackage?.launch_variants ?? [];
+  const selectedLaunchVariant = useMemo(
+    () => launchVariants.find((variant) => variant.id === selectedLaunchVariantId) ?? null,
+    [launchVariants, selectedLaunchVariantId],
+  );
   const primaryThumbnailVersionId = episodePackage?.thumbnail.primary_version_id ?? null;
+  const thumbnailTitleOptions = useMemo(
+    () => metadataTitlesDraft.filter((title) => resolveHearthThumbnailOverlayText(title).trim().length > 0),
+    [metadataTitlesDraft],
+  );
+  const selectedThumbnailTitle = useMemo(
+    () => thumbnailTitleOptions.find((title) => title.id === selectedThumbnailTitleId)
+      ?? resolvePrimarySeoTitle(metadataTitlesDraft),
+    [metadataTitlesDraft, selectedThumbnailTitleId, thumbnailTitleOptions],
+  );
   const selectedThumbnailConcept = thumbnailConcepts.find((concept) => concept.id === selectedThumbnailConceptId) ?? null;
+  const defaultThumbnailBrandTemplate = useMemo(
+    () => resolveDefaultThumbnailBrandTemplate(thumbnailBrandTemplates),
+    [thumbnailBrandTemplates],
+  );
+  const defaultThumbnailBrandTemplateId = defaultThumbnailBrandTemplate?.id ?? null;
   const selectedThumbnailVersion = thumbnailVersions.find((version) => version.id === selectedThumbnailVersionId) ?? null;
   const imageMapEntries = episodePackage?.image_map.entries ?? [];
   const selectedImageMapEntry = imageMapEntries.find((entry) => entry.id === selectedImageMapEntryId) ?? null;
+  const selectedImageMapExactAnchor = useMemo(() => {
+    if (!selectedImageMapEntry || canonicalImageMapScriptState.status !== "ready" || !canonicalImageMapScriptState.text) {
+      return null;
+    }
+    return assessImageMapScriptAnchor(canonicalImageMapScriptState.text, selectedImageMapEntry.script_anchor);
+  }, [canonicalImageMapScriptState.status, canonicalImageMapScriptState.text, selectedImageMapEntry]);
+  const imageMapAnchorStatusView = useMemo(() => {
+    if (!selectedImageMapEntry) return null;
+    const status = selectedImageMapExactAnchor?.status
+      ?? (selectedImageMapEntry.script_anchor ? "anchored" : "missing_anchor");
+    return resolveImageMapAnchorStatusView({
+      status,
+      scriptState: canonicalImageMapScriptState,
+    });
+  }, [canonicalImageMapScriptState, selectedImageMapEntry, selectedImageMapExactAnchor]);
+  const imageMapAnchorPickerParagraphs = useMemo(() => (
+    canonicalImageMapScriptState.status === "ready" && canonicalImageMapScriptState.text
+      ? buildImageMapAnchorPickerParagraphs(canonicalImageMapScriptState.text)
+      : []
+  ), [canonicalImageMapScriptState.status, canonicalImageMapScriptState.text]);
+  const imageMapActiveAnchorLabel = useMemo(() => {
+    const anchor = selectedImageMapExactAnchor?.exactAnchor ?? selectedImageMapEntry?.script_anchor ?? null;
+    return buildImageMapAnchorLabel(anchor);
+  }, [selectedImageMapEntry?.script_anchor, selectedImageMapExactAnchor]);
+  const isCanonicalImageMapScriptPanel = isImageMapReanchorMode && showScriptPanel;
+  const scriptPanelBodyText = useMemo(
+    () => (isCanonicalImageMapScriptPanel ? (canonicalImageMapScriptState.text ?? "") : (activeDraft?.body ?? "")),
+    [activeDraft?.body, canonicalImageMapScriptState.text, isCanonicalImageMapScriptPanel],
+  );
+  const scriptPanelSourceLabel = useMemo(
+    () => (isCanonicalImageMapScriptPanel ? resolveCanonicalImageMapScriptSourceLabel(canonicalImageMapScriptState) : null),
+    [canonicalImageMapScriptState, isCanonicalImageMapScriptPanel],
+  );
+  const scriptPanelHint = useMemo(
+    () => (isCanonicalImageMapScriptPanel ? resolveCanonicalImageMapScriptHint(canonicalImageMapScriptState) : null),
+    [canonicalImageMapScriptState, isCanonicalImageMapScriptPanel],
+  );
+  const imageMapReanchorDisabledReason = useMemo(() => {
+    if (!selectedImageMapEntry) return "Select a visual beat first.";
+    if (imageMapSaveState === "editing" || imageMapSaveState === "saving") {
+      return "Save this visual beat before re-anchoring it.";
+    }
+    if (isImageMapCandidateGenerating || isImageMapCandidateSelecting) {
+      return "Wait for the current image-map action to finish.";
+    }
+    return null;
+  }, [
+    imageMapSaveState,
+    isImageMapCandidateGenerating,
+    isImageMapCandidateSelecting,
+    selectedImageMapEntry,
+  ]);
+  const dirtyProposalBodyCount = useMemo(
+    () => pendingAiProposal?.ops.reduce((count, op, index) => (
+      op.op === "set_body" && isHearthProposalBodyOpDirty(pendingAiProposal.ops, pendingAiProposal.originalOps, index)
+        ? count + 1
+        : count
+    ), 0) ?? 0,
+    [pendingAiProposal],
+  );
   const selectedImageMapCandidates = selectedImageMapEntry?.candidate_assets ?? [];
   const imageMapCandidateCards = selectedImageMapCandidates.map((candidate) => ({
     id: candidate.asset_id,
@@ -2184,6 +2492,13 @@ export default function HearthShell() {
     previewDataUrl: imageMapCandidatePreviewUrlById[candidate.asset_id] ?? null,
     previewError: imageMapCandidatePreviewErrorById[candidate.asset_id] ?? null,
   }));
+  const hasCollapsedFocusPanels = Object.values(focusPanelLayout).some(Boolean);
+  const chatPanelMeta = chatMessages.length > 0
+    ? `${chatMessages.length} message${chatMessages.length === 1 ? "" : "s"}`
+    : "Ready";
+  const thumbnailPanelMeta = `${thumbnailConcepts.length} concepts · ${thumbnailVersions.length} versions`;
+  const imageMapPanelMeta = `${imageMapEntries.length} beat${imageMapEntries.length === 1 ? "" : "s"}`;
+  const metadataPanelMeta = `${thumbnailTitleOptions.length} title${thumbnailTitleOptions.length === 1 ? "" : "s"} · ${metadataTagsDraft.length} tag${metadataTagsDraft.length === 1 ? "" : "s"}`;
   const hasBrowserSpeech = (
     typeof window !== "undefined"
     && (Boolean((window as any).SpeechRecognition) || Boolean((window as any).webkitSpeechRecognition))
@@ -2237,6 +2552,19 @@ export default function HearthShell() {
     return visibleSparks.find((spark) => spark.id === selectedSparkId) ?? visibleSparks[0] ?? null;
   }, [selectedSparkId, visibleSparks]);
   const deferDesktopRailCollections = !isMobile && mode === "sparks" && !hasActiveEpisode;
+  const initialLoadKey = useMemo(() => [
+    storeKind,
+    incomingBarStockIntakeRoute ? "intake" : "standard",
+    normalizeUuid(workspaceId) ?? "none",
+    routeProjectId ?? "none",
+    routeSparkId ?? "none",
+  ].join(":"), [
+    incomingBarStockIntakeRoute,
+    routeProjectId,
+    routeSparkId,
+    storeKind,
+    workspaceId,
+  ]);
   const workpieceNavItems = useMemo(() => selectWorkpieceNavItems({
     workpieces: deferDesktopRailCollections ? EMPTY_WORKPIECE_SUMMARY_LIST : workpieceSummaries,
     drafts,
@@ -2259,6 +2587,18 @@ export default function HearthShell() {
     if (showArchived) return workpieceNavItems;
     return workpieceNavItems.filter((item) => !item.isArchived);
   }, [showArchived, workpieceNavItems]);
+  const duplicateRailTitleKeys = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of filteredWorkpieceNavItems) {
+      const key = normalizeRailTitleKey(item.title);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return new Set(
+      [...counts.entries()]
+        .filter(([, count]) => count > 1)
+        .map(([key]) => key),
+    );
+  }, [filteredWorkpieceNavItems]);
 
   const readyScriptsForDisplay = useMemo(() => {
     if (deferDesktopRailCollections) return EMPTY_READY_SCRIPT_LIST;
@@ -2273,57 +2613,19 @@ export default function HearthShell() {
     [readyScriptsForDisplay],
   );
 
-  const categoryFilteredReadyScripts = useMemo(() => {
-    if (readyCategoryFilter === "all") return visibleReadyScriptsForDisplay;
-    if (readyCategoryFilter === "uncategorized") {
-      return visibleReadyScriptsForDisplay.filter((entry) => !entry.contentCategory);
-    }
-    return visibleReadyScriptsForDisplay.filter((entry) => entry.contentCategory === readyCategoryFilter);
-  }, [readyCategoryFilter, visibleReadyScriptsForDisplay]);
-
   const readyUrgencyCounts = useMemo(() => {
     const counts = { fresh: 0, cooling: 0, cold: 0 };
     const nowMs = Date.now();
-    for (const entry of categoryFilteredReadyScripts) {
+    for (const entry of visibleReadyScriptsForDisplay) {
       const urgency = deriveReadyUrgency(entry, nowMs);
       if (!urgency || urgency === "warming") continue;
       counts[urgency] += 1;
     }
     return counts;
-  }, [categoryFilteredReadyScripts]);
-
-  const filteredReadyScripts = useMemo(() => {
-    if (readyUrgencyFilter === "all") return categoryFilteredReadyScripts;
-    const nowMs = Date.now();
-    return categoryFilteredReadyScripts.filter((entry) => deriveReadyUrgency(entry, nowMs) === readyUrgencyFilter);
-  }, [categoryFilteredReadyScripts, readyUrgencyFilter]);
-
-  const visibleReadyScripts = useMemo(() => {
-    return filteredReadyScripts;
-  }, [filteredReadyScripts]);
+  }, [visibleReadyScriptsForDisplay]);
 
   const orderedReadyScripts = useMemo(() => {
-    return visibleReadyScripts;
-  }, [visibleReadyScripts]);
-
-  const readyCategoryCounts = useMemo(() => {
-    const counts: Record<ReadyCategoryGroupKey, number> = {
-      uncategorized: 0,
-      evergreen: 0,
-      hot_topic: 0,
-      viral_reaction: 0,
-      strategic_anchor: 0,
-      community: 0,
-      reflective: 0,
-      explainer: 0,
-      experimental: 0,
-      backup: 0,
-    };
-    for (const entry of visibleReadyScriptsForDisplay) {
-      const key: ReadyCategoryGroupKey = entry.contentCategory ?? "uncategorized";
-      counts[key] += 1;
-    }
-    return counts;
+    return visibleReadyScriptsForDisplay;
   }, [visibleReadyScriptsForDisplay]);
 
   const readyTotalCount = visibleReadyScriptsForDisplay.length;
@@ -2334,6 +2636,46 @@ export default function HearthShell() {
     () => readyScriptsForDisplay.find((entry) => entry.workpieceId === (workpieceId ?? "")) ?? null,
     [readyScriptsForDisplay, workpieceId],
   );
+  const activeEpisodeReadyStatus = useMemo(() => {
+    if (activeWorkpieceIsArchived) {
+      return {
+        tone: "archived" as const,
+        label: "Archived",
+        detail: activeWorkpiece?.archiveReason
+          ? `Archive reason: ${activeWorkpiece.archiveReason}`
+          : "Restore this episode before it can return to Ready.",
+      };
+    }
+    if (activeReadyScript) {
+      return {
+        tone: "ready" as const,
+        label: "Ready",
+        detail: resolveReadyAttribution(activeReadyScript),
+      };
+    }
+    if (hasApprovedScript && approvedScriptVersion) {
+      return {
+        tone: "ready" as const,
+        label: "Ready",
+        detail: scriptApprovalState.approvedAt
+          ? `Script v${approvedScriptVersion} approved ${formatRelativeUpdatedAt(scriptApprovalState.approvedAt)}`
+          : `Script v${approvedScriptVersion} approved`,
+      };
+    }
+    return {
+      tone: "pending" as const,
+      label: "Not Ready",
+      detail: "Approve Script to move this episode into Ready.",
+    };
+  }, [
+    activeReadyScript,
+    activeWorkpiece?.archiveReason,
+    activeWorkpieceIsArchived,
+    approvedScriptVersion,
+    hasApprovedScript,
+    resolveReadyAttribution,
+    scriptApprovalState.approvedAt,
+  ]);
   const metadataTagSuggestions = useMemo(
     () => buildMetadataTagSuggestions({
       currentTags: metadataTagsDraft,
@@ -2341,42 +2683,6 @@ export default function HearthShell() {
     }),
     [activeReadyScript?.contentCategory, metadataTagsDraft],
   );
-
-  const groupedReadyScripts = useMemo(() => {
-    if (filteredReadyScripts.length === 0) return [] as Array<{
-      key: string;
-      label: string;
-      entries: HearthReadyScript[];
-    }>;
-
-    if (readyCategoryFilter !== "all") {
-      const label = readyCategoryFilter === "uncategorized"
-        ? "Uncategorized"
-        : READY_CATEGORY_LABEL[readyCategoryFilter];
-      return [{ key: readyCategoryFilter, label, entries: filteredReadyScripts }];
-    }
-
-    const grouped = new Map<ReadyCategoryGroupKey, HearthReadyScript[]>();
-    for (const entry of filteredReadyScripts) {
-      const key: ReadyCategoryGroupKey = entry.contentCategory ?? "uncategorized";
-      const existing = grouped.get(key);
-      if (existing) {
-        existing.push(entry);
-      } else {
-        grouped.set(key, [entry]);
-      }
-    }
-
-    const orderedKeys: ReadyCategoryGroupKey[] = [...HEARTH_CONTENT_CATEGORIES, "uncategorized"];
-    const sections: Array<{ key: string; label: string; entries: HearthReadyScript[] }> = [];
-    for (const key of orderedKeys) {
-      const entries = grouped.get(key);
-      if (!entries || entries.length === 0) continue;
-      const label = key === "uncategorized" ? "Uncategorized" : READY_CATEGORY_LABEL[key];
-      sections.push({ key, label, entries });
-    }
-    return sections;
-  }, [filteredReadyScripts, readyCategoryFilter]);
   const diffLines = useMemo(() => {
     if (!selectedRevision || !activeDraft) return [];
     return buildDiffLines(activeDraft.body, selectedRevision.bodySnapshot);
@@ -2525,11 +2831,11 @@ export default function HearthShell() {
 
   useEffect(() => {
     writeHearthAiRuntimeStatus({
-      isAiProcessing,
+      isAiProcessing: aiRuntimeBusy,
       tokenBalance: aiTokenBalance,
       billingMode: aiBillingMode,
     });
-  }, [aiBillingMode, aiTokenBalance, isAiProcessing]);
+  }, [aiBillingMode, aiRuntimeBusy, aiTokenBalance]);
 
   useEffect(() => {
     return () => {
@@ -2671,11 +2977,14 @@ export default function HearthShell() {
       // residue never renders as current truth for the new target.
       setEpisodePackage(null);
       setImageMapMetadataUpdatedAt(null);
+      setSelectedThumbnailTitleId(null);
       setSelectedThumbnailConceptId("");
       setSelectedThumbnailVersionId(null);
+      setSelectedLaunchVariantId(null);
       setSelectedImageMapEntryId(null);
       setThumbnailGenerateError(null);
       setThumbnailUploadError(null);
+      setThumbnailPairingError(null);
       setThumbnailPreviewState("idle");
       setThumbnailPreviewDataUrl(null);
       setThumbnailPreviewError(null);
@@ -3202,11 +3511,11 @@ export default function HearthShell() {
   }, [draftConflictState?.localBody]);
 
   const onCopyScriptPanelText = useCallback(async () => {
-    const text = activeDraft?.body ?? "";
+    const text = scriptPanelBodyText;
     if (!text.trim()) return;
     const copied = await writeTextToClipboard(text);
     setScriptPanelCopyMessage(copied ? "Copied to clipboard." : "Clipboard write failed.");
-  }, [activeDraft?.body]);
+  }, [scriptPanelBodyText]);
 
   const onOpenInAnvil = useCallback(async () => {
     const workspace = workspaceId?.trim() ?? "";
@@ -3298,27 +3607,33 @@ export default function HearthShell() {
       sparks,
       preferredDraftId: options?.preferredDraftId ?? null,
     });
-    if (existingDraft) return existingDraft;
+    let selectedDraft = existingDraft;
 
-    const canonicalDrafts = dedupeDraftListById(await store.listWorkpieceDrafts(normalizedWorkpieceId));
-    if (canonicalDrafts.length > 0) {
-      const mergedDrafts = dedupeDraftListById([...availableDrafts, ...canonicalDrafts]);
-      draftsRef.current = mergedDrafts;
-      setDrafts(mergedDrafts);
-      const canonicalDraft = selectDraftForWorkpiece({
-        workpieceId: normalizedWorkpieceId,
-        drafts: mergedDrafts,
-        sparks,
-        preferredDraftId: options?.preferredDraftId ?? null,
-      }) ?? (
-        options?.preferredDraftId
-          ? mergedDrafts.find((draft) => draft.id === options.preferredDraftId) ?? null
-          : null
-      ) ?? canonicalDrafts
-        .slice()
-        .sort((a, b) => b.updatedAt - a.updatedAt)[0]
-        ?? null;
-      if (canonicalDraft) return canonicalDraft;
+    if (!draftHasUsableScriptBody(selectedDraft)) {
+      const canonicalDrafts = dedupeDraftListById(await store.listWorkpieceDrafts(normalizedWorkpieceId));
+      if (canonicalDrafts.length > 0) {
+        const mergedDrafts = dedupeDraftListById([...availableDrafts, ...canonicalDrafts]);
+        draftsRef.current = mergedDrafts;
+        setDrafts(mergedDrafts);
+        const canonicalDraft = selectDraftForWorkpiece({
+          workpieceId: normalizedWorkpieceId,
+          drafts: mergedDrafts,
+          sparks,
+          preferredDraftId: options?.preferredDraftId ?? null,
+        }) ?? (
+          options?.preferredDraftId
+            ? mergedDrafts.find((draft) => draft.id === options.preferredDraftId) ?? null
+            : null
+        ) ?? canonicalDrafts
+          .slice()
+          .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+          ?? null;
+        selectedDraft = choosePreferredHydratedDraft([selectedDraft, canonicalDraft]);
+      }
+    }
+
+    if (draftHasUsableScriptBody(selectedDraft)) {
+      return selectedDraft;
     }
 
     const availableWorkpieces = options?.workpieces ?? workpieceSummariesRef.current;
@@ -3327,12 +3642,43 @@ export default function HearthShell() {
     if (!scriptRead.ok) {
       setAiRuntimeWarning("Opened Episode, but Hearth could not load the canonical script snapshot.");
     }
+    const canonicalScriptData = scriptRead.ok ? scriptRead.data : null;
+    const canonicalScriptText = readTrimmedString(canonicalScriptData?.text);
+
+    if (selectedDraft && canonicalScriptText) {
+      const repairedDraft = hydrateDraftBodyFromCanonicalScript({
+        draft: selectedDraft,
+        scriptText: canonicalScriptData?.text ?? canonicalScriptText,
+        updatedAt: parseIsoTimestamp(canonicalScriptData?.updatedAt) ?? Date.now(),
+        updatedBy: buildDraftAttribution(hearthUser),
+      });
+
+      try {
+        await store.saveDraft(repairedDraft, { reason: "hydrate_workpiece" });
+        const nextDrafts = dedupeDraftListById([repairedDraft, ...draftsRef.current]);
+        draftsRef.current = nextDrafts;
+        setDrafts(nextDrafts);
+        return repairedDraft;
+      } catch (err) {
+        if (!parseDraftConflictError(err)) {
+          throw err;
+        }
+        const latestDrafts = await refreshDrafts();
+        const latestDraft = selectDraftForWorkpiece({
+          workpieceId: normalizedWorkpieceId,
+          drafts: latestDrafts,
+          sparks,
+          preferredDraftId: options?.preferredDraftId ?? null,
+        });
+        return choosePreferredHydratedDraft([latestDraft, repairedDraft]);
+      }
+    }
 
     const seedBody = options?.seed?.body ?? "";
     const body = seedBody.trim()
       ? seedBody
-      : scriptRead.ok && scriptRead.data.text != null
-        ? scriptRead.data.text
+      : canonicalScriptText
+        ? (canonicalScriptData?.text ?? canonicalScriptText)
         : "## Draft Script\n\n";
     const title = workpieceSummary?.title
       ?? readTrimmedString(options?.seed?.title)
@@ -3780,9 +4126,18 @@ export default function HearthShell() {
     workspaceId,
   ]);
 
+  const loadInitialRef = useRef<(() => Promise<void>) | null>(null);
+  const lastInitialLoadKeyRef = useRef<string | null>(null);
+
   useEffect(() => {
-    void loadInitial();
+    loadInitialRef.current = loadInitial;
   }, [loadInitial]);
+
+  useEffect(() => {
+    if (lastInitialLoadKeyRef.current === initialLoadKey) return;
+    lastInitialLoadKeyRef.current = initialLoadKey;
+    void loadInitialRef.current?.();
+  }, [initialLoadKey]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -4139,6 +4494,41 @@ export default function HearthShell() {
   }, [planningSession, updatePlanningSession, workspaceId, workpieceId]);
 
   useEffect(() => {
+    const workspace = workspaceId?.trim() ?? "";
+    if (!workspace) {
+      setThumbnailBrandTemplates([]);
+      setThumbnailBrandTemplatesError(null);
+      setIsThumbnailBrandTemplatesLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsThumbnailBrandTemplatesLoading(true);
+    setThumbnailBrandTemplatesError(null);
+
+    void (async () => {
+      const seeded = await seedWorkspaceThumbnailBrandTemplates(workspace);
+      if (cancelled) return;
+
+      const listed = await listWorkspaceThumbnailBrandTemplates(workspace);
+      if (cancelled) return;
+      if (!listed.ok) {
+        setThumbnailBrandTemplates([]);
+        setThumbnailBrandTemplatesError(listed.error);
+        setIsThumbnailBrandTemplatesLoading(false);
+        return;
+      }
+      setThumbnailBrandTemplates(listed.data);
+      setThumbnailBrandTemplatesError(!seeded.ok && listed.data.length === 0 ? seeded.error : null);
+      setIsThumbnailBrandTemplatesLoading(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
+
+  useEffect(() => {
     if (thumbnailConcepts.length === 0) {
       setSelectedThumbnailConceptId("");
       return;
@@ -4153,35 +4543,177 @@ export default function HearthShell() {
     if (!selectedThumbnailConcept) {
       setThumbnailConceptLabelDraft("");
       setThumbnailConceptPromptDraft("");
-      setThumbnailConceptStyleDraft("");
+      setThumbnailConceptStyleDraft(DEFAULT_HEARTH_VISUAL_STYLE);
+      setThumbnailTitleStyleDraft(DEFAULT_TITLE_STYLE);
+      setThumbnailConceptBrandTemplateIdDraft(defaultThumbnailBrandTemplateId);
       return;
     }
     setThumbnailConceptLabelDraft(selectedThumbnailConcept.label);
     setThumbnailConceptPromptDraft(selectedThumbnailConcept.prompt_text);
-    setThumbnailConceptStyleDraft(selectedThumbnailConcept.style_preset ?? "");
-  }, [selectedThumbnailConcept]);
+    setThumbnailConceptStyleDraft(normalizeHearthVisualStyle(selectedThumbnailConcept.style_preset));
+    setThumbnailTitleStyleDraft(normalizeEpisodeThumbnailTitleStyle(selectedThumbnailConcept.title_style));
+    setThumbnailConceptBrandTemplateIdDraft(selectedThumbnailConcept.brand_template_id ?? null);
+  }, [defaultThumbnailBrandTemplateId, selectedThumbnailConcept]);
+
+  useEffect(() => {
+    if (!episodePackage || !selectedThumbnailConceptId) return;
+    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
+    const savedConcept = episodePackage.thumbnail.concepts.find((concept) => concept.id === selectedThumbnailConceptId);
+    if (!savedConcept) return;
+    if (areEpisodeThumbnailTitleStylesEqual(savedConcept.title_style, thumbnailTitleStyleDraft)) return;
+
+    const timer = window.setTimeout(() => {
+      const normalizedTitleStyle = normalizeEpisodeThumbnailTitleStyle(thumbnailTitleStyleDraft);
+      const nextEpisodePackage: EpisodePackageV2 = {
+        ...episodePackage,
+        thumbnail: {
+          ...episodePackage.thumbnail,
+          concepts: episodePackage.thumbnail.concepts.map((concept) => (
+            concept.id === selectedThumbnailConceptId
+              ? {
+                  ...concept,
+                  title_style: normalizedTitleStyle,
+                }
+              : concept
+          )),
+        },
+      };
+
+      void persistThumbnailEpisodePackage(
+        nextEpisodePackage,
+        "hearth.thumbnail.concept.title_style.updated.v1",
+        {
+          concept_id: selectedThumbnailConceptId,
+          font_preset: normalizedTitleStyle.font_preset,
+          text_color: normalizedTitleStyle.text_color,
+          shadow_enabled: normalizedTitleStyle.shadow.enabled,
+          shadow_strength: normalizedTitleStyle.shadow.strength,
+        },
+      );
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    episodePackage,
+    isThumbnailConceptSaving,
+    isThumbnailGenerating,
+    isThumbnailUploading,
+    selectedThumbnailConceptId,
+    thumbnailTitleStyleDraft,
+  ]);
+
+  useEffect(() => {
+    if (!episodePackage || !selectedThumbnailConceptId) return;
+    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
+    const savedConcept = episodePackage.thumbnail.concepts.find((concept) => concept.id === selectedThumbnailConceptId);
+    if (!savedConcept) return;
+    const savedTemplateId = savedConcept.brand_template_id ?? null;
+    if (savedTemplateId === (thumbnailConceptBrandTemplateIdDraft ?? null)) return;
+
+    const timer = window.setTimeout(() => {
+      const nextEpisodePackage: EpisodePackageV2 = {
+        ...episodePackage,
+        thumbnail: {
+          ...episodePackage.thumbnail,
+          concepts: episodePackage.thumbnail.concepts.map((concept) => (
+            concept.id === selectedThumbnailConceptId
+              ? {
+                  ...concept,
+                  brand_template_id: thumbnailConceptBrandTemplateIdDraft ?? null,
+                }
+              : concept
+          )),
+        },
+      };
+
+      void persistThumbnailEpisodePackage(
+        nextEpisodePackage,
+        "hearth.thumbnail.concept.brand_template.updated.v1",
+        {
+          concept_id: selectedThumbnailConceptId,
+          brand_template_id: thumbnailConceptBrandTemplateIdDraft ?? null,
+        },
+      );
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    episodePackage,
+    isThumbnailConceptSaving,
+    isThumbnailGenerating,
+    isThumbnailUploading,
+    selectedThumbnailConceptId,
+    thumbnailConceptBrandTemplateIdDraft,
+  ]);
+
+  useEffect(() => {
+    if (launchVariants.length === 0) {
+      setSelectedLaunchVariantId(null);
+      return;
+    }
+    if (selectedLaunchVariantId && launchVariants.some((variant) => variant.id === selectedLaunchVariantId)) {
+      return;
+    }
+    setSelectedLaunchVariantId(null);
+  }, [launchVariants, selectedLaunchVariantId]);
+
+  useEffect(() => {
+    if (!selectedLaunchVariant) {
+      setLaunchVariantStatusDraft("draft");
+      setLaunchVariantNotesDraft("");
+      return;
+    }
+    setLaunchVariantStatusDraft(selectedLaunchVariant.status);
+    setLaunchVariantNotesDraft(selectedLaunchVariant.notes ?? "");
+  }, [selectedLaunchVariant]);
+
+  useEffect(() => {
+    if (thumbnailTitleOptions.length === 0) {
+      setSelectedThumbnailTitleId(null);
+      return;
+    }
+    if (selectedThumbnailTitleId && thumbnailTitleOptions.some((title) => title.id === selectedThumbnailTitleId)) {
+      return;
+    }
+    setSelectedThumbnailTitleId(resolvePrimarySeoTitle(thumbnailTitleOptions)?.id ?? thumbnailTitleOptions[0]?.id ?? null);
+  }, [selectedThumbnailTitleId, thumbnailTitleOptions]);
 
   useEffect(() => {
     if (thumbnailVersions.length === 0) {
       setSelectedThumbnailVersionId(null);
       return;
     }
+    const eligibleVersions = selectedThumbnailConceptId
+      ? thumbnailVersions.filter((version) => version.concept_id === selectedThumbnailConceptId)
+      : thumbnailVersions;
+    if (selectedThumbnailConceptId && eligibleVersions.length === 0) {
+      setSelectedThumbnailVersionId(null);
+      return;
+    }
     if (
       selectedThumbnailVersionId
-      && thumbnailVersions.some((version) => version.id === selectedThumbnailVersionId)
+      && eligibleVersions.some((version) => version.id === selectedThumbnailVersionId)
     ) {
       return;
     }
-    const nextVersionId = primaryThumbnailVersionId
-      ?? thumbnailVersions[thumbnailVersions.length - 1]?.id
+    const nextVersionId = (primaryThumbnailVersionId && eligibleVersions.some((version) => version.id === primaryThumbnailVersionId))
+      ? primaryThumbnailVersionId
+      : eligibleVersions
+        .slice()
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))[0]?.id
       ?? null;
     setSelectedThumbnailVersionId(nextVersionId);
-  }, [primaryThumbnailVersionId, selectedThumbnailVersionId, thumbnailVersions]);
+  }, [primaryThumbnailVersionId, selectedThumbnailConceptId, selectedThumbnailVersionId, thumbnailVersions]);
 
   useEffect(() => {
     setThumbnailPromptOverride("");
     setThumbnailAspect("16:9");
     setThumbnailSafeZoneEnabled(false);
+    setThumbnailPairingError(null);
     setThumbnailPreviewState("idle");
     setThumbnailPreviewDataUrl(null);
     setThumbnailPreviewError(null);
@@ -4240,6 +4772,9 @@ export default function HearthShell() {
   useEffect(() => {
     if (imageMapEntries.length === 0) {
       setSelectedImageMapEntryId(null);
+      setIsImageMapReanchorMode(false);
+      setIsImageMapReanchorSaving(false);
+      setImageMapReanchorError(null);
       return;
     }
     if (selectedImageMapEntryId && imageMapEntries.some((entry) => entry.id === selectedImageMapEntryId)) {
@@ -4252,6 +4787,7 @@ export default function HearthShell() {
     if (!selectedImageMapEntry) {
       setImageMapAnchorDraft("");
       setImageMapDescriptionDraft("");
+      setImageMapStyleDraft(DEFAULT_HEARTH_VISUAL_STYLE);
       setImageMapIntentDraft("cutaway");
       setImageMapSourceTypeDraft("stock");
       setImageMapPlacementHintDraft("");
@@ -4260,6 +4796,7 @@ export default function HearthShell() {
     }
     setImageMapAnchorDraft(selectedImageMapEntry.anchor);
     setImageMapDescriptionDraft(selectedImageMapEntry.description);
+    setImageMapStyleDraft(normalizeHearthVisualStyle(selectedImageMapEntry.style_preset));
     setImageMapIntentDraft(selectedImageMapEntry.intent || "cutaway");
     setImageMapSourceTypeDraft(selectedImageMapEntry.source_type || "stock");
     setImageMapPlacementHintDraft(selectedImageMapEntry.placement_hint ?? "");
@@ -4267,6 +4804,60 @@ export default function HearthShell() {
     setImageMapCandidateError(null);
     setImageMapCandidateSelectionError(null);
   }, [selectedImageMapEntry]);
+
+  useEffect(() => {
+    setIsImageMapReanchorMode(false);
+    setIsImageMapReanchorSaving(false);
+    setImageMapReanchorError(null);
+  }, [workpieceId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!selectedImageMapEntry || !workpieceId) {
+      setCanonicalImageMapScriptState({
+        status: "idle",
+        text: null,
+        source: null,
+        includesUnsavedLocalEdits: false,
+        error: null,
+      });
+      return;
+    }
+
+    setCanonicalImageMapScriptState((current) => ({
+      status: "loading",
+      text: current.text,
+      source: current.source,
+      includesUnsavedLocalEdits: current.includesUnsavedLocalEdits,
+      error: null,
+    }));
+
+    void readCanonicalScriptForImageMapGeneration().then((result) => {
+      if (cancelled) return;
+      if (!result.ok) {
+        setCanonicalImageMapScriptState({
+          status: "error",
+          text: null,
+          source: null,
+          includesUnsavedLocalEdits: false,
+          error: result.message,
+        });
+        return;
+      }
+      setCanonicalImageMapScriptState({
+        status: "ready",
+        text: result.text,
+        source: result.source,
+        includesUnsavedLocalEdits: result.includesUnsavedLocalEdits,
+        error: null,
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedImageMapEntry, workpieceId]);
 
   useEffect(() => {
     const episodeId = workpieceId?.trim() ?? "";
@@ -4356,6 +4947,7 @@ export default function HearthShell() {
 
     const nextAnchor = imageMapAnchorDraft.trim();
     const nextDescription = imageMapDescriptionDraft;
+    const nextStylePreset = normalizeHearthVisualStyle(imageMapStyleDraft);
     const nextIntent = imageMapIntentDraft.trim().toLowerCase();
     const nextSourceType = imageMapSourceTypeDraft.trim().toLowerCase();
     const nextPlacementHint = imageMapPlacementHintDraft.trim() || null;
@@ -4365,6 +4957,7 @@ export default function HearthShell() {
       || current.description !== nextDescription
       || current.visual_intent !== nextDescription
       || current.prompt_basis !== nextDescription
+      || normalizeHearthVisualStyle(current.style_preset) !== nextStylePreset
       || current.intent !== nextIntent
       || current.source_type !== nextSourceType
       || (current.placement_hint ?? null) !== nextPlacementHint
@@ -4395,6 +4988,7 @@ export default function HearthShell() {
             description: nextDescription,
             visual_intent: nextDescription,
             prompt_basis: nextDescription,
+            style_preset: nextStylePreset,
             intent: nextIntent,
             source_type: nextSourceType,
             candidate_assets: [],
@@ -4434,6 +5028,7 @@ export default function HearthShell() {
     episodePackage,
     imageMapAnchorDraft,
     imageMapDescriptionDraft,
+    imageMapStyleDraft,
     imageMapIntentDraft,
     imageMapPlacementHintDraft,
     imageMapSaveState,
@@ -4454,6 +5049,14 @@ export default function HearthShell() {
     const timer = window.setTimeout(() => setScriptPanelCopyMessage(null), 2600);
     return () => window.clearTimeout(timer);
   }, [scriptPanelCopyMessage]);
+
+  useEffect(() => {
+    setFocusPanelLayout(readFocusPanelLayout(workpieceId));
+  }, [workpieceId]);
+
+  useEffect(() => {
+    writeFocusPanelLayout(workpieceId, focusPanelLayout);
+  }, [focusPanelLayout, workpieceId]);
 
   useEffect(() => {
     setMetadataSaveState("saved");
@@ -4494,6 +5097,7 @@ export default function HearthShell() {
       id: title.id,
       label: (title.label || ["A", "B", "C"][index] || `V${index + 1}`).toUpperCase(),
       text: title.text ?? "",
+      thumbnail_text: resolveHearthThumbnailOverlayText(title),
       is_primary: Boolean(title.is_primary),
     }));
     const primaryId = normalizedTitles.find((title) => title.is_primary)?.id ?? normalizedTitles[0]?.id ?? null;
@@ -4814,9 +5418,10 @@ export default function HearthShell() {
   }, []);
 
   useEffect(() => {
+    if (isCanonicalImageMapScriptPanel) return;
     if ((activeDraft?.body ?? "").trim()) return;
     setShowScriptPanel(false);
-  }, [activeDraft?.body]);
+  }, [activeDraft?.body, isCanonicalImageMapScriptPanel]);
 
   useEffect(() => {
     if (!workpieceId) return;
@@ -4858,9 +5463,10 @@ export default function HearthShell() {
     if (!textarea) return;
     textarea.style.height = "auto";
     textarea.style.height = `${textarea.scrollHeight}px`;
-  }, [activeDraft?.body]);
+  }, [scriptPanelBodyText]);
 
   useEffect(() => {
+    if (isCanonicalImageMapScriptPanel) return;
     const activeDraftId = activeDraft?.id ?? null;
     const textarea = bodyRef.current;
     if (!textarea || !session?.uiState || !activeDraftId || activeDraftId !== session.activeDraftId) return;
@@ -4876,7 +5482,7 @@ export default function HearthShell() {
       textarea.scrollTop = session.uiState.scrollTop;
       setScrollTop(session.uiState.scrollTop);
     }
-  }, [activeDraft?.id, session?.activeDraftId]);
+  }, [activeDraft?.id, isCanonicalImageMapScriptPanel, session?.activeDraftId]);
 
   useEffect(() => {
     if (sessionSaveTimer.current) {
@@ -6255,6 +6861,12 @@ export default function HearthShell() {
       if (!result.ok) {
         if (!result.cancelled) {
           setChatError(result.error);
+          publishForgeNotice({
+            job: "job-failed",
+            title: "Hearth job failed",
+            message: result.error,
+            severity: "error",
+          });
         }
         return;
       }
@@ -6302,11 +6914,35 @@ export default function HearthShell() {
         setPendingAiProposal({
           assistantText: assistantContent,
           ops: proposalOps,
+          originalOps: cloneHearthProposalOps(proposalOps),
           selected: proposalOps.map(() => true),
           context: episodeContext,
           fromGate: gateAnswering,
           autosaveReasonCode,
         });
+      }
+
+      if (!args.productionAction) {
+        const scriptUpdated = proposalOps.some((op) => op.op === "set_body");
+        const sourceAdditions = proposalOps.filter((op) => op.op === "add_source").length;
+        if (scriptUpdated) {
+          const sourceSuffix = sourceAdditions > 0
+            ? ` and added ${sourceAdditions} source${sourceAdditions === 1 ? "" : "s"}`
+            : "";
+          publishForgeNotice({
+            job: "script-completed",
+            title: "Script draft ready",
+            message: `Hearth finished a script draft${sourceSuffix}.`,
+            severity: "success",
+          });
+        } else if (sourceAdditions > 0) {
+          publishForgeNotice({
+            job: "sources-found",
+            title: "Sources ready",
+            message: `Hearth added ${sourceAdditions} source${sourceAdditions === 1 ? "" : "s"} to this episode.`,
+            severity: "success",
+          });
+        }
       }
 
       if (result.creditsWarning) {
@@ -6330,6 +6966,12 @@ export default function HearthShell() {
       }
       const message = err instanceof Error ? err.message : "AI request failed.";
       setChatError(message);
+      publishForgeNotice({
+        job: "job-failed",
+        title: "Hearth job failed",
+        message,
+        severity: "error",
+      });
     } finally {
       if (aiRequestControllerRef.current === controller) {
         aiRequestControllerRef.current = null;
@@ -6381,10 +7023,11 @@ export default function HearthShell() {
       setThumbnailGenerateError("Select an Episode before editing visuals.");
       return null;
     }
+    const normalizedEpisodePackage = ensureLaunchVariantsV2(nextEpisodePackage);
     const saved = await saveEpisodePackageForWorkpiece({
       workpieceId: episodeId,
       workspaceId: workspace,
-      episodePackage: nextEpisodePackage,
+      episodePackage: normalizedEpisodePackage,
       eventName,
       eventPayload,
     });
@@ -6399,7 +7042,10 @@ export default function HearthShell() {
 
   async function persistImageMapEntries(args: {
     entries: EpisodeImageMapEntry[];
-  }): Promise<{ ok: true; episodePackage: EpisodePackageV2 } | { ok: false; error: string }> {
+  }): Promise<
+    | { ok: true; episodePackage: EpisodePackageV2; metadataUpdatedAt: string | null }
+    | { ok: false; error: string }
+  > {
     if (!episodePackage) {
       return {
         ok: false,
@@ -6440,7 +7086,7 @@ export default function HearthShell() {
         ok: false,
         error: saved.reason === "invalid_response"
           ? "Image map save returned an invalid response."
-          : "Unable to save image map.",
+          : saved.error ?? "Unable to save image map.",
       };
     }
 
@@ -6450,6 +7096,7 @@ export default function HearthShell() {
     return {
       ok: true,
       episodePackage: nextEpisodePackage,
+      metadataUpdatedAt: saved.imageMap.metadataUpdatedAt,
     };
   }
 
@@ -6468,7 +7115,9 @@ export default function HearthShell() {
       id: createThumbnailClientId("thumb-concept"),
       label,
       prompt_text: promptText,
-      style_preset: thumbnailConceptStyleDraft.trim() || null,
+      style_preset: normalizeHearthVisualStyle(thumbnailConceptStyleDraft),
+      title_style: normalizeEpisodeThumbnailTitleStyle(thumbnailTitleStyleDraft),
+      brand_template_id: thumbnailConceptBrandTemplateIdDraft ?? defaultThumbnailBrandTemplateId,
     };
 
     const nextEpisodePackage: EpisodePackageV2 = {
@@ -6512,7 +7161,9 @@ export default function HearthShell() {
             ...concept,
             label,
             prompt_text: promptText,
-            style_preset: thumbnailConceptStyleDraft.trim() || null,
+            style_preset: normalizeHearthVisualStyle(thumbnailConceptStyleDraft),
+            title_style: normalizeEpisodeThumbnailTitleStyle(thumbnailTitleStyleDraft),
+            brand_template_id: thumbnailConceptBrandTemplateIdDraft ?? null,
           }
         : concept
     ));
@@ -6598,7 +7249,123 @@ export default function HearthShell() {
       { version_id: versionId },
     );
     if (!saved) return;
+    setSelectedThumbnailConceptId(version.concept_id);
     setSelectedThumbnailVersionId(versionId);
+  }
+
+  function onSelectThumbnailTitle(titleId: string): void {
+    setSelectedThumbnailTitleId(titleId);
+    setThumbnailPairingError(null);
+  }
+
+  function onSelectThumbnailVersion(versionId: string): void {
+    const version = thumbnailVersions.find((entry) => entry.id === versionId) ?? null;
+    if (version) {
+      setSelectedThumbnailConceptId(version.concept_id);
+    }
+    setSelectedThumbnailVersionId(versionId);
+    setThumbnailPairingError(null);
+  }
+
+  function onCreateLaunchVariant(): void {
+    setSelectedLaunchVariantId(null);
+    setThumbnailPairingError(null);
+  }
+
+  function onSelectLaunchVariant(variantId: string): void {
+    const variant = launchVariants.find((entry) => entry.id === variantId) ?? null;
+    if (!variant) return;
+    const version = thumbnailVersions.find((entry) => entry.id === variant.thumbnail_version_id) ?? null;
+    if (version) {
+      setSelectedThumbnailConceptId(version.concept_id);
+      setSelectedThumbnailVersionId(version.id);
+    }
+    setSelectedThumbnailTitleId(variant.title_id);
+    setSelectedLaunchVariantId(variant.id);
+    setThumbnailPairingError(null);
+  }
+
+  async function onSaveLaunchVariant() {
+    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
+    if (!episodePackage) return;
+
+    const titleId = selectedThumbnailTitleId?.trim() ?? "";
+    const versionId = selectedThumbnailVersionId?.trim() ?? "";
+    if (!titleId || !versionId) {
+      setThumbnailPairingError("Choose both a title and a thumbnail version before saving a launch variant.");
+      return;
+    }
+
+    const title = metadataTitlesDraft.find((entry) => entry.id === titleId) ?? null;
+    if (!title || !title.text.trim()) {
+      setThumbnailPairingError("Choose a populated title before saving a launch variant.");
+      return;
+    }
+
+    const version = thumbnailVersions.find((entry) => entry.id === versionId) ?? null;
+    if (!version) {
+      setThumbnailPairingError("Select a valid thumbnail version before saving a launch variant.");
+      return;
+    }
+
+    const existingVariant = selectedLaunchVariantId
+      ? episodePackage.launch_variants.find((entry) => entry.id === selectedLaunchVariantId) ?? null
+      : null;
+    const nowIso = new Date().toISOString();
+    const status = launchVariantStatusDraft;
+    const notes = launchVariantNotesDraft.trim() || null;
+    const lastTestedAt = status === "tested" || status === "winner"
+      ? existingVariant?.last_tested_at ?? nowIso
+      : existingVariant?.last_tested_at ?? null;
+    const winnerSelectedAt = status === "winner"
+      ? existingVariant?.winner_selected_at ?? nowIso
+      : null;
+    const nextVariant: EpisodeLaunchVariant = existingVariant
+      ? {
+          ...existingVariant,
+          title_id: titleId,
+          thumbnail_version_id: versionId,
+          updated_at: nowIso,
+          status,
+          notes,
+          last_tested_at: lastTestedAt,
+          winner_selected_at: winnerSelectedAt,
+        }
+      : {
+          id: createThumbnailClientId("launch-variant"),
+          title_id: titleId,
+          thumbnail_version_id: versionId,
+          created_at: nowIso,
+          updated_at: nowIso,
+          status,
+          notes,
+          last_tested_at: lastTestedAt,
+          winner_selected_at: winnerSelectedAt,
+        };
+
+    const nextEpisodePackage: EpisodePackageV2 = {
+      ...episodePackage,
+      launch_variants: existingVariant
+        ? episodePackage.launch_variants.map((entry) => (entry.id === nextVariant.id ? nextVariant : entry))
+        : [...episodePackage.launch_variants, nextVariant],
+    };
+
+    setThumbnailPairingError(null);
+    const saved = await persistThumbnailEpisodePackage(
+      nextEpisodePackage,
+      existingVariant ? "hearth.launch.variant.updated.v1" : "hearth.launch.variant.created.v1",
+      {
+        launch_variant_id: nextVariant.id,
+        title_id: titleId,
+        thumbnail_version_id: versionId,
+        status,
+      },
+    );
+    if (!saved) {
+      setThumbnailPairingError("Unable to save launch variant.");
+      return;
+    }
+    setSelectedLaunchVariantId(nextVariant.id);
   }
 
   async function onGenerateThumbnailVersion(options?: {
@@ -6623,6 +7390,9 @@ export default function HearthShell() {
       ? episodePackage.thumbnail.concepts.find((concept) => concept.id === conceptId) ?? null
       : null;
     const promptOverride = options?.forcePrompt ?? (thumbnailPromptOverride.trim() || null);
+    const effectiveStylePreset = conceptId && conceptId === selectedThumbnailConceptId
+      ? normalizeHearthVisualStyle(thumbnailConceptStyleDraft)
+      : normalizeHearthVisualStyle(resolvedConcept?.style_preset ?? null);
     const usedPrompt = (promptOverride || resolvedConcept?.prompt_text || "").trim();
     if (!conceptId && !promptOverride) {
       setThumbnailGenerateError("Select a concept or provide a prompt override.");
@@ -6649,7 +7419,7 @@ export default function HearthShell() {
         workpieceId: episodeId,
         conceptId,
         prompt: promptOverride,
-        preset: resolvedConcept?.style_preset ?? null,
+        preset: effectiveStylePreset,
         aspect: thumbnailAspect,
         confirmSpend: confirmed,
         alwaysApproveAiSpend: alwaysApproveSpend,
@@ -6685,6 +7455,12 @@ export default function HearthShell() {
         if (savedFailed) {
           setSelectedThumbnailVersionId(failedVersion.id);
         }
+        publishForgeNotice({
+          job: "job-failed",
+          title: "Thumbnail generation failed",
+          message: generated.error,
+          severity: "error",
+        });
         return;
       }
 
@@ -6707,9 +7483,21 @@ export default function HearthShell() {
       if (generated.creditsWarning) {
         setAiRuntimeWarning(generated.creditsWarning);
       }
+      publishForgeNotice({
+        job: "image-generated",
+        title: "Thumbnail ready",
+        message: "Hearth finished generating a thumbnail for this episode.",
+        severity: "success",
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Thumbnail generation failed.";
       setThumbnailGenerateError(message);
+      publishForgeNotice({
+        job: "job-failed",
+        title: "Thumbnail generation failed",
+        message,
+        severity: "error",
+      });
     } finally {
       setIsThumbnailGenerating(false);
     }
@@ -6744,7 +7532,9 @@ export default function HearthShell() {
         id: createThumbnailClientId("thumb-concept-upload"),
         label: "Uploaded",
         prompt_text: "Uploaded image",
-        style_preset: null,
+        style_preset: DEFAULT_HEARTH_VISUAL_STYLE,
+        title_style: DEFAULT_TITLE_STYLE,
+        brand_template_id: defaultThumbnailBrandTemplateId,
       };
       workingEpisodePackage = {
         ...episodePackage,
@@ -6810,6 +7600,7 @@ export default function HearthShell() {
         description: imageMapDescriptionDraft,
         visual_intent: imageMapDescriptionDraft,
         prompt_basis: imageMapDescriptionDraft,
+        style_preset: normalizeHearthVisualStyle(imageMapStyleDraft),
         intent: imageMapIntentDraft.trim().toLowerCase(),
         source_type: imageMapSourceTypeDraft.trim().toLowerCase(),
         placement_hint: imageMapPlacementHintDraft.trim() || null,
@@ -6832,16 +7623,6 @@ export default function HearthShell() {
     }
 
     const primaryScript = await readHearthPrimaryScript(episodeId);
-    if (primaryScript.ok && primaryScript.data.text?.trim()) {
-      const canonicalText = primaryScript.data.text;
-      return {
-        ok: true,
-        text: canonicalText,
-        source: "primary_script",
-        includesUnsavedLocalEdits: Boolean(activeDraft?.body && activeDraft.body.trim() && activeDraft.body !== canonicalText),
-      };
-    }
-
     const canonicalDrafts = dedupeDraftListById(await store.listWorkpieceDrafts(episodeId));
     const preferredDraft = activeDraft?.id
       ? canonicalDrafts.find((draft) => draft.id === activeDraft.id) ?? null
@@ -6850,6 +7631,25 @@ export default function HearthShell() {
       .slice()
       .sort((a, b) => (b.updatedAt ?? b.createdAt ?? 0) - (a.updatedAt ?? a.createdAt ?? 0))[0]
       ?? null;
+    const canonicalChoice = chooseCanonicalImageMapScriptSource({
+      primaryText: primaryScript.ok ? primaryScript.data.text : null,
+      primaryUpdatedAtMs: primaryScript.ok ? (parseIsoTimestamp(primaryScript.data.updatedAt) ?? 0) : null,
+      drafts: canonicalDrafts,
+      preferredDraftId: activeDraft?.id ?? null,
+    });
+
+    if (canonicalChoice) {
+      return {
+        ok: true,
+        text: canonicalChoice.text,
+        source: canonicalChoice.source,
+        includesUnsavedLocalEdits: Boolean(
+          activeDraft?.body
+          && activeDraft.body.trim()
+          && activeDraft.body !== canonicalChoice.text
+        ),
+      };
+    }
 
     if (!latestDraft?.body.trim()) {
       return { ok: false, message: "No canonical script found for this workpiece yet." };
@@ -6863,6 +7663,90 @@ export default function HearthShell() {
         activeDraft?.body && activeDraft.body.trim() && activeDraft.body !== latestDraft.body,
       ),
     };
+  }
+
+  function onStartImageMapReanchor() {
+    if (imageMapReanchorDisabledReason) {
+      setImageMapReanchorError(imageMapReanchorDisabledReason);
+      return;
+    }
+    setMode("focus");
+    setShowManualDraft(false);
+    setShowScriptPanel(true);
+    setImageMapReanchorError(null);
+    setImageMapCandidateError(null);
+    setIsImageMapReanchorMode(true);
+  }
+
+  function onCancelImageMapReanchor() {
+    if (isImageMapReanchorSaving) return;
+    setIsImageMapReanchorMode(false);
+    setImageMapReanchorError(null);
+  }
+
+  async function onPickImageMapReanchor(selection: {
+    paragraphId: string;
+    sentenceStart: number;
+    sentenceEnd: number;
+  }) {
+    if (!episodePackage || !selectedImageMapEntry) return;
+    if (imageMapReanchorDisabledReason) {
+      setImageMapReanchorError(imageMapReanchorDisabledReason);
+      return;
+    }
+    if (canonicalImageMapScriptState.status !== "ready" || !canonicalImageMapScriptState.text) {
+      setImageMapReanchorError("Current canonical script is not ready to re-anchor yet.");
+      return;
+    }
+
+    const nextAnchor = buildExactScriptAnchorFromSelection(canonicalImageMapScriptState.text, selection);
+    if (!nextAnchor) {
+      setImageMapReanchorError("Unable to build an exact anchor from that script selection.");
+      return;
+    }
+
+    const nextEntry = reanchorImageMapEntry(selectedImageMapEntry, canonicalImageMapScriptState.text, selection);
+    if (!nextEntry) {
+      setImageMapReanchorError("Unable to re-anchor this visual beat.");
+      return;
+    }
+
+    setIsImageMapReanchorSaving(true);
+    setImageMapSaveState("saving");
+    setImageMapSaveError(null);
+    setImageMapReanchorError(null);
+    try {
+      const saved = await persistImageMapEntries({
+        entries: episodePackage.image_map.entries.map((entry) => (
+          entry.id === selectedImageMapEntry.id
+            ? {
+                ...nextEntry,
+                script_anchor: nextAnchor,
+              }
+            : entry
+        )),
+      });
+
+      if (!saved.ok) {
+        setImageMapSaveState("error");
+        setImageMapSaveError(saved.error);
+        setImageMapReanchorError(saved.error);
+        return;
+      }
+
+      setImageMapSaveState("saved");
+      setImageMapCandidateError(null);
+      setImageMapCandidateSelectionError(null);
+      setImageMapExportMessage("Visual beat re-anchored to the current canonical script.");
+      setIsImageMapReanchorMode(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to re-anchor this visual beat.";
+      setImageMapSaveState("error");
+      setImageMapSaveError(message);
+      setImageMapReanchorError(message);
+    } finally {
+      setIsImageMapReanchorSaving(false);
+    }
   }
 
   async function onGenerateImageMapCandidates() {
@@ -6879,10 +7763,6 @@ export default function HearthShell() {
       setImageMapCandidateError("Save the image-map entry before generating candidates.");
       return;
     }
-    if (!selectedImageMapEntry.script_anchor) {
-      setImageMapCandidateError("This visual beat needs an exact script anchor before candidate generation.");
-      return;
-    }
     if (aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0) {
       setImageMapCandidateError("No AI credits remaining.");
       return;
@@ -6893,7 +7773,21 @@ export default function HearthShell() {
       setImageMapCandidateError(canonicalScript.message);
       return;
     }
-    const context = resolveImageMapAnchorContext(canonicalScript.text, selectedImageMapEntry.script_anchor);
+
+    const exactAnchorAssessment = assessImageMapScriptAnchor(canonicalScript.text, selectedImageMapEntry.script_anchor);
+    const effectiveScriptAnchor = exactAnchorAssessment.exactAnchor;
+    let expectedMetadataUpdatedAt = imageMapMetadataUpdatedAt;
+
+    if (!effectiveScriptAnchor) {
+      setMode("focus");
+      setShowManualDraft(false);
+      setShowScriptPanel(true);
+      setIsImageMapReanchorMode(true);
+      setImageMapCandidateError("This visual beat needs an exact script anchor before candidate generation. Use Re-anchor to bind it to the current canonical script.");
+      return;
+    }
+
+    const context = resolveImageMapAnchorContext(canonicalScript.text, effectiveScriptAnchor);
 
     const alwaysApproveSpend = resolveAiThumbnailAutoApproveFromStorage();
     const confirmed = alwaysApproveSpend
@@ -6910,7 +7804,7 @@ export default function HearthShell() {
         workpieceId: episodeId,
         workspaceId: workspace,
         imageMapEntryId: selectedImageMapEntry.id,
-        expectedMetadataUpdatedAt: imageMapMetadataUpdatedAt,
+        expectedMetadataUpdatedAt,
         contextBefore: context.before,
         contextAfter: context.after,
         aspect: thumbnailAspect,
@@ -6919,16 +7813,21 @@ export default function HearthShell() {
       });
 
       if (!generated.ok) {
+        const failureMessage = generated.error
+          ?? (generated.reason === "conflict"
+            ? "Image map changed since last load. Reloaded the latest canonical state."
+            : "Still-candidate generation failed.");
         if (generated.reason === "conflict" && generated.latest && episodePackage) {
           setEpisodePackage(replaceEpisodePackageImageMap(episodePackage, generated.latest.entries));
           setImageMapMetadataUpdatedAt(generated.latest.metadataUpdatedAt);
         }
-        setImageMapCandidateError(
-          generated.error
-            ?? (generated.reason === "conflict"
-              ? "Image map changed since last load. Reloaded the latest canonical state."
-              : "Still-candidate generation failed.")
-        );
+        setImageMapCandidateError(failureMessage);
+        publishForgeNotice({
+          job: "job-failed",
+          title: "Timeline image generation failed",
+          message: failureMessage,
+          severity: generated.reason === "conflict" ? "warning" : "error",
+        });
         return;
       }
 
@@ -6944,9 +7843,21 @@ export default function HearthShell() {
       if (generated.creditsWarning) {
         setAiRuntimeWarning(generated.creditsWarning);
       }
+      publishForgeNotice({
+        job: "image-generated",
+        title: "Timeline images ready",
+        message: `Generated ${generated.generatedAssets.length} still candidate${generated.generatedAssets.length === 1 ? "" : "s"} for the selected visual beat.`,
+        severity: "success",
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Still-candidate generation failed.";
       setImageMapCandidateError(message);
+      publishForgeNotice({
+        job: "job-failed",
+        title: "Timeline image generation failed",
+        message,
+        severity: "error",
+      });
     } finally {
       setIsImageMapCandidateGenerating(false);
     }
@@ -7032,6 +7943,7 @@ export default function HearthShell() {
       description: "",
       visual_intent: "",
       prompt_basis: "",
+      style_preset: DEFAULT_HEARTH_VISUAL_STYLE,
       intent: "cutaway",
       source_type: "stock",
       beat_order: episodePackage.image_map.entries.length + 1,
@@ -7070,6 +7982,7 @@ export default function HearthShell() {
       description: selectedImageMapEntry.description,
       visual_intent: selectedImageMapEntry.visual_intent,
       prompt_basis: selectedImageMapEntry.prompt_basis,
+      style_preset: normalizeHearthVisualStyle(selectedImageMapEntry.style_preset),
       intent: selectedImageMapEntry.intent,
       source_type: selectedImageMapEntry.source_type,
       beat_order: selectedImageMapEntry.beat_order,
@@ -7190,7 +8103,11 @@ export default function HearthShell() {
   function onMetadataTitleChange(titleId: string, nextText: string): void {
     setMetadataTitlesDraft((prev) => prev.map((title) => (
       title.id === titleId
-        ? { ...title, text: nextText }
+        ? {
+          ...title,
+          text: nextText,
+          thumbnail_text: deriveHearthThumbnailOverlayText(nextText),
+        }
         : title
     )));
     markMetadataEditing();
@@ -7238,6 +8155,17 @@ export default function HearthShell() {
     setMetadataPreviewMode(mode);
   }
 
+  function onToggleFocusPanel(panelId: FocusPanelId): void {
+    setFocusPanelLayout((prev) => ({
+      ...prev,
+      [panelId]: !prev[panelId],
+    }));
+  }
+
+  function onRestoreDefaultFocusLayout(): void {
+    setFocusPanelLayout({ ...DEFAULT_FOCUS_PANEL_LAYOUT });
+  }
+
   async function onSendChat() {
     const content = chatDraft.trim();
     if (!content) return;
@@ -7260,6 +8188,41 @@ export default function HearthShell() {
       const selected = prev.selected.slice();
       selected[index] = !selected[index];
       return { ...prev, selected };
+    });
+  }
+
+  function onSelectImageMapEntry(entryId: string) {
+    if (entryId !== selectedImageMapEntryId) {
+      setIsImageMapReanchorMode(false);
+      setIsImageMapReanchorSaving(false);
+      setImageMapReanchorError(null);
+    }
+    setSelectedImageMapEntryId(entryId);
+  }
+
+  function onEditAiProposalBody(index: number, value: string) {
+    setScriptValidation(null);
+    setError(null);
+    setChatError(null);
+    setPendingAiProposal((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        ops: updateHearthProposalBodyOp(prev.ops, index, value),
+      };
+    });
+  }
+
+  function onResetAiProposalBody(index: number) {
+    setScriptValidation(null);
+    setError(null);
+    setChatError(null);
+    setPendingAiProposal((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        ops: resetHearthProposalBodyOp(prev.ops, prev.originalOps, index),
+      };
     });
   }
 
@@ -8104,6 +9067,17 @@ export default function HearthShell() {
       : "";
     const hasScript = Boolean((activeDraft?.body ?? "").trim());
     const showScriptEditor = showManualDraft || showScriptPanel;
+    const scriptPanelTitle = isCanonicalImageMapScriptPanel
+      ? "Canonical Script"
+      : (showScriptPanel && hasScript ? "Script" : "Manual Draft");
+    const scriptPanelMetaText = isCanonicalImageMapScriptPanel
+      ? (scriptPanelSourceLabel ?? "Source: canonical script")
+      : `Sources: ${sourcesSummary}${unusedSummary}`;
+    const scriptPanelPlaceholder = isCanonicalImageMapScriptPanel
+      ? (canonicalImageMapScriptState.status === "loading"
+        ? "Loading current canonical script..."
+        : canonicalImageMapScriptState.error ?? "Current canonical script is unavailable.")
+      : "Start writing...";
     const approvedAtText = scriptApprovalState.approvedAt
       ? formatUpdatedAt(scriptApprovalState.approvedAt)
       : "Unknown";
@@ -8280,7 +9254,23 @@ export default function HearthShell() {
         </div>
 
         <div className={`hs-draft-stage${showScriptEditor ? " has-script-panel" : ""}`}>
-          <section className="hs-ai-chat" aria-label="Hearth AI chat">
+          <div className="hs-focus-stack">
+            {hasCollapsedFocusPanels ? (
+              <div className="hs-focus-stack-toolbar">
+                <button type="button" onClick={onRestoreDefaultFocusLayout}>
+                  Restore Default Layout
+                </button>
+              </div>
+            ) : null}
+
+            <CollapsibleFocusPanel
+              panelId="hearth-chat-panel"
+              title="Chat"
+              meta={chatPanelMeta}
+              collapsed={focusPanelLayout.chat}
+              onToggle={() => onToggleFocusPanel("chat")}
+            >
+              <section className="hs-ai-chat" aria-label="Hearth AI chat">
             <div className="hs-ai-chat-header">
               <div className="hs-ai-chat-title">Conversation</div>
               <button
@@ -8317,30 +9307,83 @@ export default function HearthShell() {
                   <div className="hs-ai-proposal-title">Proposed changes</div>
                   <div className="hs-ai-proposal-meta">
                     {pendingAiProposal.selected.filter(Boolean).length} selected · {pendingAiProposal.ops.length} total
+                    {dirtyProposalBodyCount > 0 ? ` · ${dirtyProposalBodyCount} edited from AI` : ""}
                   </div>
                 </div>
 
                 <div className="hs-ai-proposal-list">
                   {pendingAiProposal.ops.map((op, index) => {
                     const diff = buildProposalDiff(op);
+                    const proposalBodyValidation = op.op === "set_body"
+                      ? validateAnvilTagContract(op.value)
+                      : null;
+                    const proposalBodyDirty = op.op === "set_body"
+                      ? isHearthProposalBodyOpDirty(pendingAiProposal.ops, pendingAiProposal.originalOps, index)
+                      : false;
+                    const inputId = `ai-op-${index}`;
                     return (
-                      <label key={`ai-op-${index}`} className="hs-ai-op-row">
+                      <div key={inputId} className="hs-ai-op-row">
                         <input
+                          id={inputId}
                           type="checkbox"
                           checked={Boolean(pendingAiProposal.selected[index])}
                           onChange={() => onToggleAiProposalOp(index)}
                           disabled={isApplyingAiOps}
                         />
                         <div className="hs-ai-op-body">
-                          <div className="hs-ai-op-title">{describeHearthOp(op)}</div>
-                          {diff ? (
+                          <label htmlFor={inputId} className="hs-ai-op-title">
+                            {describeHearthOp(op)}
+                          </label>
+                          {op.op === "set_body" ? (
+                            <div className="hs-ai-op-editor">
+                              {diff ? (
+                                <div className="hs-ai-op-diff">
+                                  <pre>{`- ${diff.before || "(empty)"}`}</pre>
+                                </div>
+                              ) : null}
+                              <label className="hs-field">
+                                <span className="hs-field-label">
+                                  Editable proposed draft
+                                  {proposalBodyDirty ? (
+                                    <span className="hs-ai-op-dirty-badge">Edited from AI</span>
+                                  ) : null}
+                                </span>
+                                <textarea
+                                  value={op.value}
+                                  onChange={(event) => onEditAiProposalBody(index, event.target.value)}
+                                  className="hs-ai-op-textarea"
+                                  rows={12}
+                                  disabled={isApplyingAiOps}
+                                />
+                              </label>
+                              {proposalBodyDirty ? (
+                                <div className="hs-ai-op-dirty-actions">
+                                  <div className="hs-field-label-muted">
+                                    This proposal now differs from the original AI suggestion.
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => onResetAiProposalBody(index)}
+                                    disabled={isApplyingAiOps}
+                                  >
+                                    Reset to AI version
+                                  </button>
+                                </div>
+                              ) : null}
+                              <div className={`hs-ai-op-validation${proposalBodyValidation?.ok ? " is-valid" : " is-invalid"}`}>
+                                {proposalBodyValidation?.ok
+                                  ? "Tag contract OK."
+                                  : proposalBodyValidation?.report ?? "Tag contract check unavailable."}
+                              </div>
+                            </div>
+                          ) : diff ? (
                             <div className="hs-ai-op-diff">
                               <pre>{`- ${diff.before || "(empty)"}`}</pre>
                               <pre>{`+ ${diff.after || "(empty)"}`}</pre>
                             </div>
                           ) : null}
                         </div>
-                      </label>
+                      </div>
                     );
                   })}
                 </div>
@@ -8429,125 +9472,6 @@ export default function HearthShell() {
                   {activeProductionAction === "image_beat_sheet" && isAiProcessing ? "Generating..." : "Image Beat Sheet"}
                 </button>
               </div>
-            ) : null}
-
-            {hasApprovedScript && approvedScriptVersion ? (
-              <ThumbnailPanel
-                concepts={thumbnailConcepts}
-                versions={thumbnailVersions}
-                selectedConceptId={selectedThumbnailConceptId}
-                selectedVersionId={selectedThumbnailVersionId}
-                primaryVersionId={primaryThumbnailVersionId}
-                selectedConceptLabel={thumbnailConceptLabelDraft}
-                selectedConceptPrompt={thumbnailConceptPromptDraft}
-                selectedConceptStylePreset={thumbnailConceptStyleDraft}
-                promptOverride={thumbnailPromptOverride}
-                aspect={thumbnailAspect}
-                safeZoneEnabled={thumbnailSafeZoneEnabled}
-                previewDataUrl={thumbnailPreviewDataUrl}
-                previewState={thumbnailPreviewState}
-                previewError={thumbnailPreviewError}
-                generateError={thumbnailGenerateError}
-                uploadError={thumbnailUploadError}
-                isGenerating={isThumbnailGenerating}
-                isSavingConcept={isThumbnailConceptSaving}
-                isUploading={isThumbnailUploading}
-                onSelectConcept={setSelectedThumbnailConceptId}
-                onSelectedConceptLabelChange={setThumbnailConceptLabelDraft}
-                onSelectedConceptPromptChange={setThumbnailConceptPromptDraft}
-                onSelectedConceptStylePresetChange={setThumbnailConceptStyleDraft}
-                onCreateConcept={() => void onCreateThumbnailConcept()}
-                onSaveConcept={() => void onSaveSelectedThumbnailConcept()}
-                onDeleteConcept={() => void onDeleteSelectedThumbnailConcept()}
-                onPromptOverrideChange={setThumbnailPromptOverride}
-                onAspectChange={setThumbnailAspect}
-                onGenerate={() => void onGenerateThumbnailVersion()}
-                onRegenerate={() => void onGenerateThumbnailVersion({ forceConceptId: selectedThumbnailConceptId || null })}
-                onToggleSafeZone={() => setThumbnailSafeZoneEnabled((prev) => !prev)}
-                onUploadImage={(file) => void onUploadThumbnailImage(file)}
-                onSelectVersion={setSelectedThumbnailVersionId}
-                onSetPrimary={(versionId) => void onSetPrimaryThumbnailVersion(versionId)}
-                onRetryVersion={(version) => void onRetryFailedThumbnailVersion(version)}
-              />
-            ) : null}
-
-            {hasApprovedScript && approvedScriptVersion ? (
-              <ImageMapPanel
-                entries={imageMapEntries}
-                selectedEntryId={selectedImageMapEntryId}
-                draftAnchor={imageMapAnchorDraft}
-                draftDescription={imageMapDescriptionDraft}
-                draftIntent={imageMapIntentDraft}
-                draftSourceType={imageMapSourceTypeDraft}
-                draftPlacementHint={imageMapPlacementHintDraft}
-                saveState={imageMapSaveState}
-                saveError={imageMapSaveError}
-                exportMessage={imageMapExportMessage}
-                candidateCards={imageMapCandidateCards}
-                candidateGenerateBusy={isImageMapCandidateGenerating}
-                candidateGenerateError={imageMapCandidateError}
-                candidateSelectBusy={isImageMapCandidateSelecting}
-                candidateSelectionError={imageMapCandidateSelectionError}
-                disabled={isAiProcessing || isApprovingScript}
-                onSelectEntry={setSelectedImageMapEntryId}
-                onSelectCandidate={(candidateId) => void onSelectImageMapCandidate(candidateId)}
-                onDraftAnchorChange={(value) => {
-                  setImageMapAnchorDraft(value);
-                  setImageMapSaveState("editing");
-                  setImageMapSaveError(null);
-                }}
-                onDraftDescriptionChange={(value) => {
-                  setImageMapDescriptionDraft(value);
-                  setImageMapSaveState("editing");
-                  setImageMapSaveError(null);
-                }}
-                onDraftIntentChange={(value) => {
-                  setImageMapIntentDraft(value);
-                  setImageMapSaveState("editing");
-                  setImageMapSaveError(null);
-                }}
-                onDraftSourceTypeChange={(value) => {
-                  setImageMapSourceTypeDraft(value);
-                  setImageMapSaveState("editing");
-                  setImageMapSaveError(null);
-                }}
-                onDraftPlacementHintChange={(value) => {
-                  setImageMapPlacementHintDraft(value);
-                  setImageMapSaveState("editing");
-                  setImageMapSaveError(null);
-                }}
-                onCreateEntry={() => void onCreateImageMapEntry()}
-                onDuplicateEntry={() => void onDuplicateImageMapEntry()}
-                onDeleteEntry={() => void onDeleteImageMapEntry()}
-                onSeedFromScript={() => void onSeedImageMapFromScript()}
-                onGenerateCandidates={() => void onGenerateImageMapCandidates()}
-                onCopyExport={() => void onCopyImageMapExportJson()}
-                onDownloadExport={onDownloadImageMapExportJson}
-              />
-            ) : null}
-
-            {hasApprovedScript && approvedScriptVersion ? (
-              <MetadataPanel
-                titles={metadataTitlesDraft}
-                tags={metadataTagsDraft}
-                tagInput={metadataTagInputDraft}
-                tagSuggestions={metadataTagSuggestions}
-                descriptionShort={metadataDescriptionShortDraft}
-                descriptionLong={metadataDescriptionLongDraft}
-                previewMode={metadataPreviewMode}
-                saveState={metadataSaveState}
-                saveError={metadataSaveError}
-                disabled={isApprovingScript || !episodePackage}
-                onTitleChange={onMetadataTitleChange}
-                onSetPrimaryTitle={onMetadataSetPrimaryTitle}
-                onTagInputChange={setMetadataTagInputDraft}
-                onAddTagFromInput={onMetadataAddTagFromInput}
-                onRemoveTag={onMetadataRemoveTag}
-                onAddTagSuggestion={onMetadataAddTagSuggestion}
-                onDescriptionShortChange={onMetadataDescriptionShortChange}
-                onDescriptionLongChange={onMetadataDescriptionLongChange}
-                onPreviewModeChange={onMetadataPreviewModeChange}
-              />
             ) : null}
 
             <div className="hs-ai-shortcut-row" role="group" aria-label="Chat shortcuts">
@@ -8645,24 +9569,237 @@ export default function HearthShell() {
             {sttError ? (
               <div className="hs-error-text-small">{sttError}</div>
             ) : null}
-          </section>
+              </section>
+            </CollapsibleFocusPanel>
+
+            {hasApprovedScript && approvedScriptVersion ? (
+              <CollapsibleFocusPanel
+                panelId="hearth-thumbnail-panel"
+                title="Thumbnails"
+                meta={thumbnailPanelMeta}
+                collapsed={focusPanelLayout.thumbnail}
+                onToggle={() => onToggleFocusPanel("thumbnail")}
+              >
+                <ThumbnailPanel
+                  concepts={thumbnailConcepts}
+                  versions={thumbnailVersions}
+                  titleOptions={thumbnailTitleOptions}
+                  launchVariants={launchVariants}
+                  selectedTitleId={selectedThumbnailTitleId}
+                  selectedTitleText={selectedThumbnailTitle ? resolveHearthThumbnailOverlayText(selectedThumbnailTitle) : ""}
+                  selectedConceptId={selectedThumbnailConceptId}
+                  selectedVersionId={selectedThumbnailVersionId}
+                  selectedLaunchVariantId={selectedLaunchVariantId}
+                  selectedLaunchVariantStatus={launchVariantStatusDraft}
+                  selectedLaunchVariantNotes={launchVariantNotesDraft}
+                  selectedLaunchVariantLastTestedAt={selectedLaunchVariant?.last_tested_at ?? null}
+                  selectedLaunchVariantWinnerSelectedAt={selectedLaunchVariant?.winner_selected_at ?? null}
+                  primaryVersionId={primaryThumbnailVersionId}
+                  selectedConceptLabel={thumbnailConceptLabelDraft}
+                  selectedConceptPrompt={thumbnailConceptPromptDraft}
+                  selectedConceptStylePreset={thumbnailConceptStyleDraft}
+                  selectedConceptTitleStyle={thumbnailTitleStyleDraft}
+                  brandTemplates={thumbnailBrandTemplates}
+                  brandTemplatesLoading={isThumbnailBrandTemplatesLoading}
+                  brandTemplatesError={thumbnailBrandTemplatesError}
+                  selectedConceptBrandTemplateId={thumbnailConceptBrandTemplateIdDraft}
+                  promptOverride={thumbnailPromptOverride}
+                  aspect={thumbnailAspect}
+                  safeZoneEnabled={thumbnailSafeZoneEnabled}
+                  previewDataUrl={thumbnailPreviewDataUrl}
+                  previewState={thumbnailPreviewState}
+                  previewError={thumbnailPreviewError}
+                  generateError={thumbnailGenerateError}
+                  uploadError={thumbnailUploadError}
+                  pairingError={thumbnailPairingError}
+                  isGenerating={isThumbnailGenerating}
+                  isSavingConcept={isThumbnailConceptSaving}
+                  isUploading={isThumbnailUploading}
+                  onSelectTitle={onSelectThumbnailTitle}
+                  onSelectConcept={setSelectedThumbnailConceptId}
+                  onSelectedConceptLabelChange={setThumbnailConceptLabelDraft}
+                  onSelectedConceptPromptChange={setThumbnailConceptPromptDraft}
+                  onSelectedConceptStylePresetChange={(value) => setThumbnailConceptStyleDraft(normalizeHearthVisualStyle(value))}
+                  onSelectedConceptTitleFontPresetChange={(value) => setThumbnailTitleStyleDraft((prev) => ({
+                    ...normalizeEpisodeThumbnailTitleStyle(prev),
+                    font_preset: value as TitleFontPreset,
+                  }))}
+                  onSelectedConceptTitleColorChange={(value) => setThumbnailTitleStyleDraft((prev) => ({
+                    ...normalizeEpisodeThumbnailTitleStyle(prev),
+                    text_color: value.toUpperCase(),
+                  }))}
+                  onSelectedConceptTitleShadowEnabledChange={(value) => setThumbnailTitleStyleDraft((prev) => ({
+                    ...normalizeEpisodeThumbnailTitleStyle(prev),
+                    shadow: {
+                      ...normalizeEpisodeThumbnailTitleStyle(prev).shadow,
+                      enabled: value,
+                    },
+                  }))}
+                  onSelectedConceptTitleShadowStrengthChange={(value) => setThumbnailTitleStyleDraft((prev) => ({
+                    ...normalizeEpisodeThumbnailTitleStyle(prev),
+                    shadow: {
+                      ...normalizeEpisodeThumbnailTitleStyle(prev).shadow,
+                      strength: value as TitleShadowStrength,
+                    },
+                  }))}
+                  onSelectedConceptBrandTemplateChange={setThumbnailConceptBrandTemplateIdDraft}
+                  onCreateConcept={() => void onCreateThumbnailConcept()}
+                  onSaveConcept={() => void onSaveSelectedThumbnailConcept()}
+                  onDeleteConcept={() => void onDeleteSelectedThumbnailConcept()}
+                  onPromptOverrideChange={setThumbnailPromptOverride}
+                  onAspectChange={setThumbnailAspect}
+                  onGenerate={() => void onGenerateThumbnailVersion()}
+                  onRegenerate={() => void onGenerateThumbnailVersion({ forceConceptId: selectedThumbnailConceptId || null })}
+                  onToggleSafeZone={() => setThumbnailSafeZoneEnabled((prev) => !prev)}
+                  onUploadImage={(file) => void onUploadThumbnailImage(file)}
+                  onSelectVersion={onSelectThumbnailVersion}
+                  onSetPrimary={(versionId) => void onSetPrimaryThumbnailVersion(versionId)}
+                  onRetryVersion={(version) => void onRetryFailedThumbnailVersion(version)}
+                  onSelectLaunchVariant={onSelectLaunchVariant}
+                  onCreateLaunchVariant={onCreateLaunchVariant}
+                  onSelectedLaunchVariantStatusChange={setLaunchVariantStatusDraft}
+                  onSelectedLaunchVariantNotesChange={setLaunchVariantNotesDraft}
+                  onSaveLaunchVariant={() => void onSaveLaunchVariant()}
+                />
+              </CollapsibleFocusPanel>
+            ) : null}
+
+            {hasApprovedScript && approvedScriptVersion ? (
+              <CollapsibleFocusPanel
+                panelId="hearth-image-map-panel"
+                title="Timeline Images"
+                meta={imageMapPanelMeta}
+                collapsed={focusPanelLayout.imageMap}
+                onToggle={() => onToggleFocusPanel("imageMap")}
+              >
+                <ImageMapPanel
+                  entries={imageMapEntries}
+                  selectedEntryId={selectedImageMapEntryId}
+                  draftAnchor={imageMapAnchorDraft}
+                  draftDescription={imageMapDescriptionDraft}
+                  draftStylePreset={imageMapStyleDraft}
+                  draftIntent={imageMapIntentDraft}
+                  draftSourceType={imageMapSourceTypeDraft}
+                  draftPlacementHint={imageMapPlacementHintDraft}
+                  saveState={imageMapSaveState}
+                  saveError={imageMapSaveError}
+                  exportMessage={imageMapExportMessage}
+                  candidateCards={imageMapCandidateCards}
+                  candidateGenerateBusy={isImageMapCandidateGenerating}
+                  candidateGenerateError={imageMapCandidateError}
+                  candidateSelectBusy={isImageMapCandidateSelecting}
+                  candidateSelectionError={imageMapCandidateSelectionError}
+                  anchorStatusLabel={imageMapAnchorStatusView?.label ?? null}
+                  anchorStatusTone={imageMapAnchorStatusView?.tone ?? "neutral"}
+                  anchorStatusDetail={imageMapAnchorStatusView?.detail ?? null}
+                  reanchorMode={isImageMapReanchorMode}
+                  reanchorBusy={isImageMapReanchorSaving}
+                  reanchorDisabledReason={imageMapReanchorDisabledReason}
+                  reanchorError={imageMapReanchorError}
+                  reanchorScriptSourceLabel={resolveCanonicalImageMapScriptSourceLabel(canonicalImageMapScriptState)}
+                  reanchorScriptHint={resolveCanonicalImageMapScriptHint(canonicalImageMapScriptState)}
+                  reanchorScriptLoading={canonicalImageMapScriptState.status === "loading"}
+                  reanchorParagraphs={imageMapAnchorPickerParagraphs}
+                  activeAnchorLabel={imageMapActiveAnchorLabel}
+                  disabled={isAiProcessing || isApprovingScript || isImageMapReanchorSaving}
+                  onSelectEntry={onSelectImageMapEntry}
+                  onSelectCandidate={(candidateId) => void onSelectImageMapCandidate(candidateId)}
+                  onDraftAnchorChange={(value) => {
+                    setImageMapAnchorDraft(value);
+                    setImageMapSaveState("editing");
+                    setImageMapSaveError(null);
+                  }}
+                  onDraftDescriptionChange={(value) => {
+                    setImageMapDescriptionDraft(value);
+                    setImageMapSaveState("editing");
+                    setImageMapSaveError(null);
+                  }}
+                  onDraftStylePresetChange={(value) => {
+                    setImageMapStyleDraft(normalizeHearthVisualStyle(value));
+                    setImageMapSaveState("editing");
+                    setImageMapSaveError(null);
+                  }}
+                  onDraftIntentChange={(value) => {
+                    setImageMapIntentDraft(value);
+                    setImageMapSaveState("editing");
+                    setImageMapSaveError(null);
+                  }}
+                  onDraftSourceTypeChange={(value) => {
+                    setImageMapSourceTypeDraft(value);
+                    setImageMapSaveState("editing");
+                    setImageMapSaveError(null);
+                  }}
+                  onDraftPlacementHintChange={(value) => {
+                    setImageMapPlacementHintDraft(value);
+                    setImageMapSaveState("editing");
+                    setImageMapSaveError(null);
+                  }}
+                  onCreateEntry={() => void onCreateImageMapEntry()}
+                  onDuplicateEntry={() => void onDuplicateImageMapEntry()}
+                  onDeleteEntry={() => void onDeleteImageMapEntry()}
+                  onSeedFromScript={() => void onSeedImageMapFromScript()}
+                  onGenerateCandidates={() => void onGenerateImageMapCandidates()}
+                  onCopyExport={() => void onCopyImageMapExportJson()}
+                  onDownloadExport={onDownloadImageMapExportJson}
+                  onStartReanchor={onStartImageMapReanchor}
+                  onCancelReanchor={onCancelImageMapReanchor}
+                  onPickReanchor={(selection) => void onPickImageMapReanchor(selection)}
+                />
+              </CollapsibleFocusPanel>
+            ) : null}
+
+            {hasApprovedScript && approvedScriptVersion ? (
+              <CollapsibleFocusPanel
+                panelId="hearth-metadata-panel"
+                title="Metadata"
+                meta={metadataPanelMeta}
+                collapsed={focusPanelLayout.metadata}
+                onToggle={() => onToggleFocusPanel("metadata")}
+              >
+                <MetadataPanel
+                  titles={metadataTitlesDraft}
+                  tags={metadataTagsDraft}
+                  tagInput={metadataTagInputDraft}
+                  tagSuggestions={metadataTagSuggestions}
+                  descriptionShort={metadataDescriptionShortDraft}
+                  descriptionLong={metadataDescriptionLongDraft}
+                  previewMode={metadataPreviewMode}
+                  saveState={metadataSaveState}
+                  saveError={metadataSaveError}
+                  disabled={isApprovingScript || !episodePackage}
+                  onTitleChange={onMetadataTitleChange}
+                  onSetPrimaryTitle={onMetadataSetPrimaryTitle}
+                  onTagInputChange={setMetadataTagInputDraft}
+                  onAddTagFromInput={onMetadataAddTagFromInput}
+                  onRemoveTag={onMetadataRemoveTag}
+                  onAddTagSuggestion={onMetadataAddTagSuggestion}
+                  onDescriptionShortChange={onMetadataDescriptionShortChange}
+                  onDescriptionLongChange={onMetadataDescriptionLongChange}
+                  onPreviewModeChange={onMetadataPreviewModeChange}
+                />
+              </CollapsibleFocusPanel>
+            ) : null}
+          </div>
 
           {showScriptEditor ? (
             <section className="hs-script-panel" aria-label="Manual draft editor">
               <header className="hs-script-panel-header">
                 <div className="hs-script-panel-title">
-                  {showScriptPanel && hasScript ? "Script" : "Manual Draft"}
+                  {scriptPanelTitle}
                 </div>
                 <div className="hs-script-panel-header-actions">
                   {scriptPanelCopyMessage ? (
                     <div className="hs-field-label-muted">{scriptPanelCopyMessage}</div>
                   ) : null}
-                  <div className="hs-script-panel-meta">Sources: {sourcesSummary}{unusedSummary}</div>
+                  {scriptPanelHint ? (
+                    <div className="hs-field-label-muted">{scriptPanelHint}</div>
+                  ) : null}
+                  <div className="hs-script-panel-meta">{scriptPanelMetaText}</div>
                   <button
                     type="button"
                     className="hs-script-panel-copy"
                     onClick={() => void onCopyScriptPanelText()}
-                    disabled={!activeDraft || !activeDraft.body.trim()}
+                    disabled={!scriptPanelBodyText.trim()}
                     title="Copy panel text to clipboard"
                     aria-label="Copy panel text to clipboard"
                   >
@@ -8676,9 +9813,10 @@ export default function HearthShell() {
                 <span className="hs-field-label">Body</span>
                 <textarea
                   ref={bodyRef}
-                  value={activeDraft?.body ?? ""}
-                  placeholder="Start writing..."
+                  value={scriptPanelBodyText}
+                  placeholder={scriptPanelPlaceholder}
                   onChange={(event) => {
+                    if (isCanonicalImageMapScriptPanel) return;
                     setScriptValidation(null);
                     setActiveDraft((prev) => {
                       if (!prev) return prev;
@@ -8686,21 +9824,31 @@ export default function HearthShell() {
                       return { ...prev, body: event.target.value };
                     });
                   }}
-                  onCompositionStart={() => setIsBodyComposing(true)}
-                  onCompositionEnd={() => setIsBodyComposing(false)}
+                  onCompositionStart={() => {
+                    if (isCanonicalImageMapScriptPanel) return;
+                    setIsBodyComposing(true);
+                  }}
+                  onCompositionEnd={() => {
+                    if (isCanonicalImageMapScriptPanel) return;
+                    setIsBodyComposing(false);
+                  }}
                   onSelect={(event) => {
+                    if (isCanonicalImageMapScriptPanel) return;
                     const target = event.target as HTMLTextAreaElement;
                     setCursorPosition(target.selectionStart);
                   }}
                   onKeyUp={(event) => {
+                    if (isCanonicalImageMapScriptPanel) return;
                     const target = event.target as HTMLTextAreaElement;
                     setCursorPosition(target.selectionStart);
                   }}
                   onScroll={(event) => {
+                    if (isCanonicalImageMapScriptPanel) return;
                     const target = event.target as HTMLTextAreaElement;
                     setScrollTop(target.scrollTop);
                   }}
-                  disabled={!activeDraft}
+                  readOnly={isCanonicalImageMapScriptPanel}
+                  disabled={!isCanonicalImageMapScriptPanel && !activeDraft}
                   className="hs-textarea-body hs-textarea-script-panel"
                 />
               </label>
@@ -9391,152 +10539,52 @@ export default function HearthShell() {
                     {isReadyScriptsLoading ? "Refreshing..." : "Refresh"}
                   </button>
                 </div>
-                <div className="hs-ready-record-chips" role="group" aria-label="Ready queue category filters">
-                  <button
-                    type="button"
-                    className={`hs-ready-chip${readyCategoryFilter === "all" ? " is-active" : ""}`}
-                    onClick={() => setReadyCategoryFilter("all")}
-                  >
-                    All ({readyTotalCount})
-                  </button>
-                  {HEARTH_CONTENT_CATEGORIES.map((category) => (
-                    <button
-                      key={category}
-                      type="button"
-                      className={`hs-ready-chip${readyCategoryFilter === category ? " is-active" : ""}`}
-                      onClick={() => setReadyCategoryFilter(category)}
-                    >
-                      {READY_CATEGORY_LABEL[category]} ({readyCategoryCounts[category]})
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    className={`hs-ready-chip${readyCategoryFilter === "uncategorized" ? " is-active" : ""}`}
-                    onClick={() => setReadyCategoryFilter("uncategorized")}
-                  >
-                    Uncategorized ({readyCategoryCounts.uncategorized})
-                  </button>
-                </div>
-                <div className="hs-ready-record-chips" role="group" aria-label="Ready queue urgency filters">
-                  <button
-                    type="button"
-                    className={`hs-ready-chip${readyUrgencyFilter === "all" ? " is-active" : ""}`}
-                    onClick={() => setReadyUrgencyFilter("all")}
-                  >
-                    Urgency: All ({categoryFilteredReadyScripts.length})
-                  </button>
-                  <button
-                    type="button"
-                    className={`hs-ready-chip${readyUrgencyFilter === "fresh" ? " is-active" : ""}`}
-                    onClick={() => setReadyUrgencyFilter("fresh")}
-                  >
-                    Fresh ({readyUrgencyCounts.fresh})
-                  </button>
-                  <button
-                    type="button"
-                    className={`hs-ready-chip${readyUrgencyFilter === "cooling" ? " is-active" : ""}`}
-                    onClick={() => setReadyUrgencyFilter("cooling")}
-                  >
-                    Cooling ({readyUrgencyCounts.cooling})
-                  </button>
-                  <button
-                    type="button"
-                    className={`hs-ready-chip${readyUrgencyFilter === "cold" ? " is-active" : ""}`}
-                    onClick={() => setReadyUrgencyFilter("cold")}
-                  >
-                    Cold ({readyUrgencyCounts.cold})
-                  </button>
-                </div>
                 {readyScriptsError ? <div className="hs-error-text-small">{readyScriptsError}</div> : null}
                 {readyCategoryError ? <div className="hs-error-text-small">{readyCategoryError}</div> : null}
-                <div className="hs-rail-meta">Approved scripts stay here until a recording asset is committed.</div>
+                <div className="hs-rail-meta">
+                  Each episode appears once in Projects. Ready state lives on the project row; queue management lives in the Ready view.
+                </div>
                 {isReadyScriptsLoading ? <p>Loading queue...</p> : null}
-                {!isReadyScriptsLoading && filteredReadyScripts.length === 0 ? (
-                  <p className="hs-rail-meta">
-                    {readyTotalCount === 0
-                      ? removedReadyCount > 0
-                        ? "All ready items are hidden. Restore hidden items to show them here."
-                        : "No items yet. Approve a script to populate this queue."
-                      : readyUrgencyFilter !== "all"
-                        ? "No scripts match this urgency filter."
-                        : "No scripts match this category filter."}
-                  </p>
-                ) : null}
-                {groupedReadyScripts.length > 0 ? (
-                  <div className="hs-ready-record-groups">
-                    {groupedReadyScripts.map((section) => (
-                      <div key={section.key} className="hs-ready-record-group">
-                        <div className="hs-ready-record-group-title">{section.label}</div>
-                        <ul className="hs-ready-record-list">
-                          {section.entries.map((entry) => {
-                            const anvilHref = resolveReadyOpenHref(entry);
-                            const urgency = deriveReadyUrgency(entry);
-                            return (
-                              <li key={entry.id} className="hs-ready-record-item">
-                                <button
-                                  type="button"
-                                  className="hs-ready-record-link"
-                                  onClick={() => void onOpenReadyScriptInHearth(entry)}
-                                >
-                                  <div className="hs-ready-record-title">{entry.title}</div>
-                                </button>
-                                <div className="hs-ready-record-meta-row">
-                                  <div className="hs-ready-record-meta">
-                                    {resolveReadyAttribution(entry)}
-                                  </div>
-                                  {urgency ? (
-                                    <span className={`hs-ready-urgency-badge is-${urgency}`}>
-                                      {READY_URGENCY_LABEL[urgency]}
-                                    </span>
-                                  ) : null}
-                                </div>
-                                <label className="hs-ready-record-label">
-                                  <span>Category</span>
-                                  <select
-                                    value={entry.contentCategory ?? ""}
-                                    disabled={updatingReadyCategoryId === entry.id}
-                                    onChange={(event) => {
-                                      const value = event.target.value;
-                                      const nextCategory = value ? value as HearthContentCategory : null;
-                                      void onSetReadyScriptCategory(entry, nextCategory);
-                                    }}
-                                  >
-                                    <option value="">Uncategorized</option>
-                                    {HEARTH_CONTENT_CATEGORIES.map((category) => (
-                                      <option key={category} value={category}>{READY_CATEGORY_LABEL[category]}</option>
-                                    ))}
-                                  </select>
-                                </label>
-                                <button
-                                  type="button"
-                                  onClick={() => void onOpenReadyScriptInHearth(entry)}
-                                >
-                                  Open in Hearth
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => void onSendBackToEdit(entry)}
-                                  disabled={sendingBackReadyIds.includes(entry.id)}
-                                >
-                                  {sendingBackReadyIds.includes(entry.id) ? "Sending back..." : "Send Back to Edit"}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (!anvilHref) return;
-                                    window.location.assign(anvilHref);
-                                  }}
-                                  disabled={!anvilHref}
-                                >
-                                  Open in Anvil
-                                </button>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      </div>
-                    ))}
+                {!isReadyScriptsLoading ? (
+                  <div className="hs-ready-record-summary">
+                    <div className="hs-ready-record-summary-row">
+                      <span>Ready episodes</span>
+                      <strong>{readyTotalCount}</strong>
+                    </div>
+                    <div className="hs-ready-record-summary-row">
+                      <span>{READY_URGENCY_LABEL.fresh}</span>
+                      <strong>{readyUrgencyCounts.fresh}</strong>
+                    </div>
+                    <div className="hs-ready-record-summary-row">
+                      <span>{READY_URGENCY_LABEL.cooling}</span>
+                      <strong>{readyUrgencyCounts.cooling}</strong>
+                    </div>
+                    <div className="hs-ready-record-summary-row">
+                      <span>{READY_URGENCY_LABEL.cold}</span>
+                      <strong>{readyUrgencyCounts.cold}</strong>
+                    </div>
+                    <div className="hs-ready-record-summary-row">
+                      <span>Hidden</span>
+                      <strong>{removedReadyCount}</strong>
+                    </div>
                   </div>
+                ) : null}
+                <div className="hs-workpiece-actions">
+                  <button
+                    type="button"
+                    className="hs-mode-button"
+                    onClick={() => setMode("ready")}
+                  >
+                    Open Ready View
+                  </button>
+                  {removedReadyCount > 0 ? (
+                    <button type="button" onClick={() => void onRestoreRemovedReady()} disabled={isRestoringReady}>
+                      {isRestoringReady ? "Restoring..." : `Restore hidden (${removedReadyCount})`}
+                    </button>
+                  ) : null}
+                </div>
+                {!isReadyScriptsLoading && readyTotalCount === 0 && removedReadyCount === 0 ? (
+                  <p className="hs-rail-meta">No items yet. Approve a script to populate Ready.</p>
                 ) : null}
               </div>
 
@@ -9581,6 +10629,19 @@ export default function HearthShell() {
                     const isActive = workpieceId === item.workpieceId;
                     const isEditing = Boolean(draftId) && editingDraftId === draftId;
                     const updatedAt = item.updatedAtMs || draft?.updatedAt || Date.now();
+                    const draftLabel = readTrimmedString(draft?.title ?? null);
+                    const showDraftLabel = Boolean(draftLabel && draftLabel !== item.title);
+                    const showWorkpieceId = duplicateRailTitleKeys.has(normalizeRailTitleKey(item.title));
+                    const workpieceBadges = [
+                      item.readyEntry ? { label: "Ready", tone: "ready" } : null,
+                      draft ? { label: "Draft", tone: "draft" } : null,
+                      draft?.revisionCount ? { label: `Revisions ${draft.revisionCount}`, tone: "count" } : null,
+                      item.sparkCount > 0
+                        ? { label: `${item.sparkCount} Spark${item.sparkCount === 1 ? "" : "s"}`, tone: "count" }
+                        : null,
+                      draft?.pinned ? { label: "Pinned", tone: "neutral" } : null,
+                      item.isArchived ? { label: "Archived", tone: "archived" } : null,
+                    ].filter((badge): badge is { label: string; tone: "ready" | "draft" | "count" | "neutral" | "archived" } => Boolean(badge));
                     const isArchiving = archivingWorkpieceIds.includes(item.workpieceId);
                     const isRestoring = restoringWorkpieceIds.includes(item.workpieceId);
                     return (
@@ -9588,55 +10649,73 @@ export default function HearthShell() {
                         <div
                           className={`hs-workpiece-card${isActive ? " is-active" : ""}`}
                         >
-                          {isEditing ? (
-                            <input
-                              aria-label="Edit project title"
-                              value={editingTitle}
-                              onChange={(event) => setEditingTitle(event.target.value)}
-                              onKeyDown={(event) => {
-                                if (!draft) return;
-                                if (event.key === "Enter") {
-                                  event.preventDefault();
-                                  void saveDraftMeta(draft, { title: editingTitle });
-                                  setEditingDraftId(null);
-                                }
-                                if (event.key === "Escape") {
-                                  setEditingDraftId(null);
-                                }
-                              }}
-                              onBlur={() => {
-                                if (draft && editingDraftId === draft.id) {
-                                  void saveDraftMeta(draft, { title: editingTitle });
-                                  setEditingDraftId(null);
-                                }
-                              }}
-                            />
-                          ) : (
-                            <button
-                              onClick={() => void openWorkpieceInFocus(item.workpieceId, {
-                                preferredDraftId: item.draftId,
-                              })}
-                              className="hs-workpiece-button"
-                            >
-                              <div className="hs-workpiece-title-row">
+                          <button
+                            type="button"
+                            onClick={() => void openWorkpieceInFocus(item.workpieceId, {
+                              preferredDraftId: item.draftId,
+                            })}
+                            className="hs-workpiece-button"
+                          >
+                            <div className="hs-workpiece-title-row">
+                              <div className="hs-workpiece-title-stack">
                                 <div className="hs-workpiece-title">{item.title}</div>
-                                {draft?.pinned ? (
-                                  <span className="hs-workpiece-pin" aria-label="Pinned" title="Pinned">
-                                    PIN
-                                  </span>
+                                {showWorkpieceId ? (
+                                  <div className="hs-workpiece-secondary">ID {item.workpieceId.slice(0, 8)}</div>
                                 ) : null}
                               </div>
-                              <div className="hs-workpiece-updated">
-                                Updated {formatUpdatedAt(updatedAt)}
+                            </div>
+                            {workpieceBadges.length > 0 ? (
+                              <div className="hs-workpiece-badges" aria-label="Project status">
+                                {workpieceBadges.map((badge) => (
+                                  <span
+                                    key={`${item.workpieceId}:${badge.label}`}
+                                    className={`hs-workpiece-badge is-${badge.tone}`}
+                                  >
+                                    {badge.label}
+                                  </span>
+                                ))}
                               </div>
-                              <div className="hs-workpiece-updated">
-                                {draft ? `Last edited by ${resolveDraftEditorName(draft)}` : "No attached draft buffer yet"}
-                              </div>
-                            </button>
-                          )}
-                          <div className="hs-workpiece-revisions">
-                            Revisions {draft?.revisionCount ?? "-"}
-                          </div>
+                            ) : null}
+                            <div className="hs-workpiece-updated">
+                              Updated {formatUpdatedAt(updatedAt)}
+                            </div>
+                            <div className="hs-workpiece-updated">
+                              {draft ? `Last edited by ${resolveDraftEditorName(draft)}` : "No attached draft buffer yet"}
+                            </div>
+                            {showDraftLabel ? (
+                              <div className="hs-workpiece-updated">Draft label: {draftLabel}</div>
+                            ) : null}
+                          </button>
+                          {draft && isEditing ? (
+                            <label className="hs-workpiece-draft-label-editor">
+                              <span className="hs-rail-label">Draft label</span>
+                              <input
+                                aria-label="Edit draft label"
+                                value={editingTitle}
+                                onChange={(event) => setEditingTitle(event.target.value)}
+                                onKeyDown={(event) => {
+                                  if (!draft) return;
+                                  if (event.key === "Enter") {
+                                    event.preventDefault();
+                                    void saveDraftMeta(draft, { title: editingTitle });
+                                    setEditingDraftId(null);
+                                  }
+                                  if (event.key === "Escape") {
+                                    setEditingDraftId(null);
+                                  }
+                                }}
+                                onBlur={() => {
+                                  if (draft && editingDraftId === draft.id) {
+                                    void saveDraftMeta(draft, { title: editingTitle });
+                                    setEditingDraftId(null);
+                                  }
+                                }}
+                              />
+                              <span className="hs-rail-meta">
+                                Draft label only. Project title stays synced to Tongs.
+                              </span>
+                            </label>
+                          ) : null}
                           {draft && !item.isArchived ? (
                             <div className="hs-workpiece-actions">
                               <button
@@ -9648,11 +10727,15 @@ export default function HearthShell() {
                               <button
                                 type="button"
                                 onClick={() => {
+                                  if (editingDraftId === draft.id) {
+                                    setEditingDraftId(null);
+                                    return;
+                                  }
                                   setEditingDraftId(draft.id);
                                   setEditingTitle(draft.title);
                                 }}
                               >
-                                Rename
+                                {editingDraftId === draft.id ? "Close Draft Label" : "Edit Draft Label"}
                               </button>
                             </div>
                           ) : null}
@@ -9688,6 +10771,12 @@ export default function HearthShell() {
           {hasActiveEpisode ? (
             <div className="hs-active-workpiece">
               <div className="hs-rail-heading">Active workpiece</div>
+              <div className="hs-active-workpiece-status">
+                <span className={`hs-episode-ready-pill is-${activeEpisodeReadyStatus.tone}`}>
+                  {activeEpisodeReadyStatus.label}
+                </span>
+                <div className="hs-rail-meta">{activeEpisodeReadyStatus.detail}</div>
+              </div>
               {activeWorkpieceIsArchived && activeWorkpiece ? (
                 <>
                   <div className="hs-rail-meta">Archived workpieces are hidden records. Restore to review, then re-ready before recording.</div>

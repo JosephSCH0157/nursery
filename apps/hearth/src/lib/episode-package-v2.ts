@@ -1,3 +1,18 @@
+import {
+  DEFAULT_HEARTH_VISUAL_STYLE,
+  normalizeHearthVisualStyle,
+} from "./hearth-visual-styles";
+import type { HearthVisualStyleValue } from "./hearth-visual-styles";
+import {
+  DEFAULT_TITLE_STYLE,
+  normalizeEpisodeThumbnailTitleStyle,
+} from "./hearth-title-fonts";
+import type { EpisodeThumbnailTitleStyle } from "./hearth-title-fonts";
+import {
+  deriveHearthThumbnailOverlayText,
+  resolveHearthThumbnailOverlayText,
+} from "./hearth-thumbnail-title-contract";
+
 export const EPISODE_PACKAGE_V2_SCHEMA = "forge.episode.package.v2";
 
 const SEO_LABELS = ["A", "B", "C", "D", "E", "F"] as const;
@@ -7,6 +22,7 @@ export type EpisodeSeoTitle = {
   label: string;
   text: string;
   is_primary: boolean;
+  thumbnail_text?: string | null;
 };
 
 export type EpisodeSeo = {
@@ -20,7 +36,9 @@ export type EpisodeThumbnailConcept = {
   id: string;
   label: string;
   prompt_text: string;
-  style_preset?: string | null;
+  style_preset?: HearthVisualStyleValue | null;
+  title_style?: EpisodeThumbnailTitleStyle | null;
+  brand_template_id?: string | null;
 };
 
 export type EpisodeThumbnailVersion = {
@@ -41,6 +59,27 @@ export type EpisodeThumbnail = {
   concepts: EpisodeThumbnailConcept[];
   versions: EpisodeThumbnailVersion[];
   primary_version_id: string | null;
+};
+
+export const EPISODE_LAUNCH_VARIANT_STATUS_VALUES = [
+  "draft",
+  "ready",
+  "tested",
+  "winner",
+] as const;
+
+export type EpisodeLaunchVariantStatus = (typeof EPISODE_LAUNCH_VARIANT_STATUS_VALUES)[number];
+
+export type EpisodeLaunchVariant = {
+  id: string;
+  title_id: string;
+  thumbnail_version_id: string;
+  created_at: string;
+  updated_at: string;
+  status: EpisodeLaunchVariantStatus;
+  notes: string | null;
+  last_tested_at: string | null;
+  winner_selected_at: string | null;
 };
 
 export type EpisodeImageMapScriptAnchor = {
@@ -82,6 +121,7 @@ export type EpisodeImageMapEntry = {
   description: string;
   visual_intent: string;
   prompt_basis: string;
+  style_preset?: HearthVisualStyleValue | null;
   intent: string;
   source_type: string;
   beat_order: number;
@@ -126,6 +166,7 @@ export type EpisodePackageV2 = {
   schema: typeof EPISODE_PACKAGE_V2_SCHEMA;
   seo: EpisodeSeo;
   thumbnail: EpisodeThumbnail;
+  launch_variants: EpisodeLaunchVariant[];
   image_map: EpisodeImageMap;
 };
 
@@ -171,6 +212,14 @@ function normalizeIso(value: unknown, fallbackIso?: string): string {
   if (!raw) return fallbackIso ?? new Date().toISOString();
   const timestamp = Date.parse(raw);
   if (!Number.isFinite(timestamp)) return fallbackIso ?? new Date().toISOString();
+  return new Date(timestamp).toISOString();
+}
+
+function normalizeOptionalIso(value: unknown): string | null {
+  const raw = readString(value);
+  if (!raw) return null;
+  const timestamp = Date.parse(raw);
+  if (!Number.isFinite(timestamp)) return null;
   return new Date(timestamp).toISOString();
 }
 
@@ -227,6 +276,7 @@ function normalizeSeoTitles(value: unknown): EpisodeSeoTitle[] {
         label,
         text,
         is_primary: Boolean(entry.is_primary),
+        thumbnail_text: readString(entry.thumbnail_text) ?? deriveHearthThumbnailOverlayText(text),
       });
       continue;
     }
@@ -237,6 +287,7 @@ function normalizeSeoTitles(value: unknown): EpisodeSeoTitle[] {
       label: SEO_LABELS[i] ?? `V${i + 1}`,
       text,
       is_primary: false,
+      thumbnail_text: deriveHearthThumbnailOverlayText(text),
     });
   }
   if (out.length && !out.some((title) => title.is_primary)) {
@@ -256,6 +307,7 @@ function normalizeLegacyTitleVariants(value: unknown): EpisodeSeoTitle[] {
       label,
       text,
       is_primary: label === "A",
+      thumbnail_text: deriveHearthThumbnailOverlayText(text),
     });
   }
   return variants;
@@ -278,7 +330,9 @@ function normalizeThumbnailConcepts(value: unknown): EpisodeThumbnailConcept[] {
         id: readString(entry.id) ?? `concept-${String(i + 1).padStart(2, "0")}`,
         label,
         prompt_text: promptText,
-        style_preset: readString(entry.style_preset) ?? readString(entry.mood_style),
+        style_preset: normalizeHearthVisualStyle(readString(entry.style_preset) ?? readString(entry.mood_style) ?? null),
+        title_style: normalizeEpisodeThumbnailTitleStyle(entry.title_style),
+        brand_template_id: readString(entry.brand_template_id),
       });
       continue;
     }
@@ -288,7 +342,9 @@ function normalizeThumbnailConcepts(value: unknown): EpisodeThumbnailConcept[] {
       id: `concept-${String(i + 1).padStart(2, "0")}`,
       label: `Concept ${i + 1}`,
       prompt_text: promptText,
-      style_preset: null,
+      style_preset: DEFAULT_HEARTH_VISUAL_STYLE,
+      title_style: DEFAULT_TITLE_STYLE,
+      brand_template_id: null,
     });
   }
   return out;
@@ -323,6 +379,51 @@ function normalizeThumbnailVersions(value: unknown): EpisodeThumbnailVersion[] {
   return out;
 }
 
+function normalizeLaunchVariants(
+  value: unknown,
+  args: {
+    titles: readonly EpisodeSeoTitle[];
+    versions: readonly EpisodeThumbnailVersion[];
+  },
+): EpisodeLaunchVariant[] {
+  if (!Array.isArray(value)) return [];
+  const titleIds = new Set(args.titles.map((title) => title.id));
+  const versionIds = new Set(args.versions.map((version) => version.id));
+  const seen = new Set<string>();
+  const out: EpisodeLaunchVariant[] = [];
+
+  for (let i = 0; i < value.length; i += 1) {
+    const entry = value[i];
+    if (!isRecord(entry)) continue;
+    const id = readString(entry.id) ?? `launch-variant-${String(i + 1).padStart(2, "0")}`;
+    const titleId = readString(entry.title_id) ?? readString(entry.seo_title_id);
+    const thumbnailVersionId = readString(entry.thumbnail_version_id) ?? readString(entry.version_id);
+    if (!titleId || !thumbnailVersionId) continue;
+    if (!titleIds.has(titleId) || !versionIds.has(thumbnailVersionId) || seen.has(id)) continue;
+    seen.add(id);
+    const createdAt = normalizeIso(entry.created_at);
+    const status = EPISODE_LAUNCH_VARIANT_STATUS_VALUES.includes(entry.status as EpisodeLaunchVariantStatus)
+      ? entry.status as EpisodeLaunchVariantStatus
+      : "draft";
+    const notes = readString(entry.notes) ?? null;
+    const lastTestedAt = normalizeOptionalIso(entry.last_tested_at);
+    const winnerSelectedAt = status === "winner" ? normalizeOptionalIso(entry.winner_selected_at) : null;
+    out.push({
+      id,
+      title_id: titleId,
+      thumbnail_version_id: thumbnailVersionId,
+      created_at: createdAt,
+      updated_at: normalizeIso(entry.updated_at, createdAt),
+      status,
+      notes,
+      last_tested_at: lastTestedAt,
+      winner_selected_at: winnerSelectedAt,
+    });
+  }
+
+  return out;
+}
+
 function normalizeImageMapEntries(value: unknown): EpisodeImageMapEntry[] {
   if (!Array.isArray(value)) return [];
   const out: EpisodeImageMapEntry[] = [];
@@ -330,9 +431,10 @@ function normalizeImageMapEntries(value: unknown): EpisodeImageMapEntry[] {
     const entry = value[i];
     if (!isRecord(entry)) continue;
     const scriptAnchor = normalizeImageMapScriptAnchor(entry.script_anchor);
-    const anchor = readString(entry.anchor)
-      ?? readString(entry.attach_after)
-      ?? buildImageMapAnchorLabel(scriptAnchor);
+    const anchor = resolveImageMapDisplayAnchor(
+      readString(entry.anchor) ?? readString(entry.attach_after),
+      scriptAnchor,
+    );
     const description = typeof entry.description === "string" ? entry.description : "";
     const sourceType = readString(entry.source_type) ?? "stock";
     if (!anchor) continue;
@@ -345,6 +447,7 @@ function normalizeImageMapEntries(value: unknown): EpisodeImageMapEntry[] {
       description,
       visual_intent: readString(entry.visual_intent) ?? description,
       prompt_basis: readString(entry.prompt_basis) ?? readString(entry.prompt) ?? description,
+      style_preset: normalizeHearthVisualStyle(readString(entry.style_preset) ?? readString(entry.visual_style) ?? null),
       intent: normalizeImageMapIntent(readString(entry.intent)),
       source_type: normalizeImageMapSourceType(sourceType),
       beat_order: readInteger(entry.beat_order) ?? (i + 1),
@@ -507,6 +610,19 @@ export function buildImageMapAnchorLabel(anchor: EpisodeImageMapScriptAnchor | n
   return `${anchor.paragraph_id}#${sentenceRange}`;
 }
 
+export function resolveImageMapDisplayAnchor(
+  anchor: string | null | undefined,
+  scriptAnchor: EpisodeImageMapScriptAnchor | null | undefined,
+): string {
+  const displayAnchor = readString(anchor);
+  const spanText = readString(scriptAnchor?.span_text);
+  const structuralAnchorLabel = buildImageMapAnchorLabel(scriptAnchor ?? null);
+  if (spanText && (!displayAnchor || displayAnchor === structuralAnchorLabel)) {
+    return spanText;
+  }
+  return displayAnchor ?? spanText ?? structuralAnchorLabel;
+}
+
 function normalizeImageMapEntryPatch(args: {
   entry: Partial<EpisodeImageMapEntry>;
   fallbackId?: string;
@@ -514,7 +630,7 @@ function normalizeImageMapEntryPatch(args: {
   fallbackParagraphBeatOrder?: number;
 }): EpisodeImageMapEntry | null {
   const scriptAnchor = normalizeImageMapScriptAnchor(args.entry.script_anchor);
-  const anchor = readString(args.entry.anchor) ?? buildImageMapAnchorLabel(scriptAnchor);
+  const anchor = resolveImageMapDisplayAnchor(readString(args.entry.anchor), scriptAnchor);
   const description = typeof args.entry.description === "string" ? args.entry.description : "";
   const id = readString(args.entry.id) ?? args.fallbackId ?? createImageMapEntryId();
   if (!anchor || !id) return null;
@@ -527,6 +643,7 @@ function normalizeImageMapEntryPatch(args: {
     description,
     visual_intent: readString(args.entry.visual_intent) ?? description,
     prompt_basis: readString(args.entry.prompt_basis) ?? description,
+    style_preset: normalizeHearthVisualStyle(args.entry.style_preset ?? null),
     intent: normalizeImageMapIntent(readString(args.entry.intent)),
     source_type: normalizeImageMapSourceType(readString(args.entry.source_type)),
     beat_order: readInteger(args.entry.beat_order) ?? args.fallbackBeatOrder ?? 1,
@@ -579,6 +696,7 @@ export function parseSeoTitlesFromText(rawText: string): EpisodeSeoTitle[] {
       label,
       text,
       is_primary: i === 0,
+      thumbnail_text: deriveHearthThumbnailOverlayText(text),
     });
   }
   return titles;
@@ -631,7 +749,9 @@ export function parseThumbnailConceptsFromText(rawText: string): EpisodeThumbnai
       id: `concept-${currentId.toLowerCase()}`,
       label: headline || `THUMBNAIL_${currentId}`,
       prompt_text: promptText,
-      style_preset: moodStyle,
+      style_preset: normalizeHearthVisualStyle(moodStyle),
+      title_style: DEFAULT_TITLE_STYLE,
+      brand_template_id: null,
     });
     currentId = null;
     headline = null;
@@ -694,6 +814,7 @@ export function parseImageMapEntriesFromText(rawText: string): EpisodeImageMapEn
       description,
       visual_intent: description,
       prompt_basis: prompt,
+      style_preset: DEFAULT_HEARTH_VISUAL_STYLE,
       intent: "graphic",
       source_type: "stock",
       beat_order: entries.length + 1,
@@ -745,6 +866,60 @@ export function parseImageMapEntriesFromText(rawText: string): EpisodeImageMapEn
   return entries;
 }
 
+function normalizeImageMapImportLookupText(rawText: string | null | undefined): string {
+  return (rawText ?? "")
+    .replace(/^[“”"'`]+|[“”"'`]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function rehydrateImportedImageBeatSheetEntries(args: {
+  importedEntries: EpisodeImageMapEntry[];
+  existingEntries: readonly EpisodeImageMapEntry[];
+  resolveImageMapScriptAnchor?: ((anchorText: string, matchHint?: string | null) => EpisodeImageMapScriptAnchor | null) | null;
+}): EpisodeImageMapEntry[] {
+  return args.importedEntries.map((entry) => {
+    const resolvedAnchor = args.resolveImageMapScriptAnchor?.(entry.anchor, entry.placement_hint ?? null)
+      ?? (() => {
+        const target = normalizeImageMapImportLookupText(entry.anchor);
+        if (!target) return null;
+        const existing = args.existingEntries.find((candidate) => {
+          if (!candidate.script_anchor) return false;
+          return (
+            normalizeImageMapImportLookupText(candidate.script_anchor.span_text) === target
+            || normalizeImageMapImportLookupText(candidate.anchor) === target
+          );
+        }) ?? null;
+        return existing?.script_anchor ?? null;
+      })();
+
+    if (!resolvedAnchor) {
+      return {
+        ...entry,
+        status: normalizeDerivedImageMapStatus(
+          "draft",
+          null,
+          entry.candidate_assets,
+          entry.selected_asset_id,
+        ),
+      };
+    }
+
+    return {
+      ...entry,
+      anchor: resolveImageMapDisplayAnchor(entry.anchor, resolvedAnchor),
+      script_anchor: resolvedAnchor,
+      status: normalizeDerivedImageMapStatus(
+        "mapped",
+        resolvedAnchor,
+        entry.candidate_assets,
+        entry.selected_asset_id,
+      ),
+    };
+  });
+}
+
 export function createEmptyEpisodePackageV2(): EpisodePackageV2 {
   return {
     schema: EPISODE_PACKAGE_V2_SCHEMA,
@@ -759,6 +934,7 @@ export function createEmptyEpisodePackageV2(): EpisodePackageV2 {
       versions: [],
       primary_version_id: null,
     },
+    launch_variants: [],
     image_map: {
       entries: [],
     },
@@ -820,6 +996,15 @@ export function hydrateEpisodePackageV2(metadata: Record<string, unknown>): Epis
   const primaryVersionId = readString(thumbnailRoot?.primary_version_id)
     ?? readString(metadata.primary_thumbnail_version_id)
     ?? null;
+  const launchVariants = normalizeLaunchVariants(
+    Array.isArray(episodeRoot?.launch_variants)
+      ? episodeRoot.launch_variants
+      : metadata.launch_variants,
+    {
+      titles,
+      versions,
+    },
+  );
 
   const imageMapEntriesFromRoot = normalizeImageMapEntries(imageMapRoot?.entries);
   const imageMapEntriesFromLegacy = normalizeImageMapEntries(metadata.image_map_entries);
@@ -840,6 +1025,7 @@ export function hydrateEpisodePackageV2(metadata: Record<string, unknown>): Epis
       versions,
       primary_version_id: primaryVersionId,
     },
+    launch_variants: launchVariants,
     image_map: {
       entries: imageMapEntriesFromRoot.length
         ? imageMapEntriesFromRoot
@@ -870,6 +1056,7 @@ export function mirrorEpisodePackageV2ToLegacy(metadata: Record<string, unknown>
     thumbnail_concepts: episode.thumbnail.concepts,
     thumbnail_versions: episode.thumbnail.versions,
     primary_thumbnail_version_id: episode.thumbnail.primary_version_id,
+    launch_variants: episode.launch_variants,
     image_map_entries: episode.image_map.entries,
     image_beat_sheet: {
       entries: legacyBeatSheetEntries,
@@ -882,6 +1069,7 @@ export function applyProductionArtifactToEpisodePackage(args: {
   action: ProductionArtifactAction;
   rawText: string;
   generatedAt?: string;
+  resolveImageMapScriptAnchor?: ((anchorText: string, matchHint?: string | null) => EpisodeImageMapScriptAnchor | null) | null;
 }): Record<string, unknown> {
   const hydrated = mirrorEpisodePackageV2ToLegacy(args.metadata);
   const episode = hydrateEpisodePackageV2(hydrated);
@@ -927,7 +1115,11 @@ export function applyProductionArtifactToEpisodePackage(args: {
   }
 
   if (args.action === "image_beat_sheet") {
-    const entries = parseImageMapEntriesFromText(args.rawText);
+    const entries = rehydrateImportedImageBeatSheetEntries({
+      importedEntries: parseImageMapEntriesFromText(args.rawText),
+      existingEntries: episode.image_map.entries,
+      resolveImageMapScriptAnchor: args.resolveImageMapScriptAnchor ?? null,
+    });
     if (entries.length) {
       nextEpisode.image_map.entries = entries;
     }
@@ -954,6 +1146,10 @@ export function ensureSeoV2(pkg: EpisodePackageV2): EpisodePackageV2 {
       label,
       text: typeof title.text === "string" ? title.text : "",
       is_primary: Boolean(title.is_primary),
+      thumbnail_text: resolveHearthThumbnailOverlayText({
+        text: typeof title.text === "string" ? title.text : "",
+        thumbnail_text: typeof title.thumbnail_text === "string" ? title.thumbnail_text : null,
+      }),
     };
   });
 
@@ -986,6 +1182,11 @@ export function ensureSeoV2(pkg: EpisodePackageV2): EpisodePackageV2 {
   };
 }
 
+export function resolvePrimarySeoTitle(titles: readonly EpisodeSeoTitle[]): EpisodeSeoTitle | null {
+  const populated = titles.filter((title) => typeof title.text === "string" && title.text.trim().length > 0);
+  return populated.find((title) => title.is_primary) ?? populated[0] ?? null;
+}
+
 export function ensureImageMapV2(pkg: EpisodePackageV2): EpisodePackageV2 {
   const entries = Array.isArray(pkg.image_map?.entries) ? pkg.image_map.entries : [];
   const paragraphBeatCounts = new Map<string, number>();
@@ -1014,6 +1215,35 @@ export function ensureImageMapV2(pkg: EpisodePackageV2): EpisodePackageV2 {
     image_map: {
       entries: hydratedEntries,
     },
+  };
+}
+
+export function ensureLaunchVariantsV2(pkg: EpisodePackageV2): EpisodePackageV2 {
+  const normalized = ensureSeoV2(pkg);
+  const concepts = Array.isArray(normalized.thumbnail?.concepts)
+    ? normalized.thumbnail.concepts.map((concept, index) => ({
+        ...concept,
+        id: readString(concept.id) ?? `concept-${String(index + 1).padStart(2, "0")}`,
+        label: readString(concept.label) ?? `Concept ${index + 1}`,
+        prompt_text: readString(concept.prompt_text) ?? "",
+        style_preset: normalizeHearthVisualStyle(concept.style_preset ?? null),
+        title_style: normalizeEpisodeThumbnailTitleStyle(concept.title_style),
+        brand_template_id: readString(concept.brand_template_id),
+      }))
+    : [];
+  const versions = Array.isArray(normalized.thumbnail?.versions) ? normalized.thumbnail.versions : [];
+  const launchVariants = normalizeLaunchVariants(normalized.launch_variants, {
+    titles: normalized.seo.titles,
+    versions,
+  });
+
+  return {
+    ...normalized,
+    thumbnail: {
+      ...normalized.thumbnail,
+      concepts,
+    },
+    launch_variants: launchVariants,
   };
 }
 

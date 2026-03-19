@@ -1,3 +1,5 @@
+import { appendForgeUserAuthorization } from './tongs-user-auth';
+
 type WrittenBy = {
   tool: string;
   tool_version: string;
@@ -10,21 +12,54 @@ type RecordingCommitInput = {
   contentType?: string;
 };
 
+export type RecordingDecisionEventName = "take_kept" | "take_discarded";
+
 export type RecordingCommitResult =
   | {
       ok: true;
       workpieceId: string;
       path: string;
       createdCradle: boolean;
+      plannerRecordingSessionId: string | null;
+      captureSessionId: string;
       status: number;
     }
   | {
       ok: false;
       reason: string;
       status?: number;
+      errorCode?: string;
+      errorMessage?: string;
       details?: unknown;
       workspaceId?: string | null;
       workpieceId?: string | null;
+    };
+
+export type AppendRecordingDecisionInput = {
+  workpieceId: string;
+  eventName: RecordingDecisionEventName;
+  filePath: string;
+  originalName: string;
+  contentType: string;
+  bytes: number;
+  durationMs?: number | null;
+  createdCradle?: boolean;
+  plannerRecordingSessionId?: string | null;
+  captureSessionId?: string | null;
+};
+
+export type AppendRecordingDecisionResult =
+  | {
+      ok: true;
+      status: number;
+    }
+  | {
+      ok: false;
+      reason: string;
+      status?: number;
+      errorCode?: string;
+      errorMessage?: string;
+      details?: unknown;
     };
 
 type CreateCradleResult =
@@ -34,9 +69,6 @@ type CreateCradleResult =
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DEFAULT_TOOL_VERSION = "1.8.5";
 const DEFAULT_LANE = "forge-managed";
-const SUPABASE_AUTH_STORAGE_KEY = "forge-auth";
-const SUPABASE_AUTH_KEY_RE = /^sb-[a-z0-9-]+-auth-token$/i;
-
 const WORKSPACE_STORAGE_KEYS = ["forge_workspace_id_v1", "barstock_workspace_id"] as const;
 const WORKPIECE_STORAGE_KEYS = [
   "forge_active_workpiece_id_v1",
@@ -46,7 +78,8 @@ const WORKPIECE_STORAGE_KEYS = [
 
 const ACTIVE_WORKPIECE_KEY = "forge_active_workpiece_id_v1";
 const WORKSPACE_WORKPIECE_PREFIX = "forge_anvil_recording_workpiece_v1:";
-const RECORDING_SESSION_KEY = "forge_anvil_recording_session_v1";
+const CAPTURE_SESSION_KEY = "forge_anvil_capture_session_v1";
+const PLANNER_RECORDING_SESSION_KEY = "forge_anvil_recording_session_v1";
 
 let correlationSeq = 0;
 
@@ -68,82 +101,6 @@ function readLocalStorage(key: string): string | null {
   } catch {
     return null;
   }
-}
-
-function extractAccessTokenFromAuthPayload(value: unknown): string | null {
-  if (!value || typeof value !== "object") return null;
-  if (Array.isArray(value)) {
-    for (const entry of value) {
-      const token = extractAccessTokenFromAuthPayload(entry);
-      if (token) return token;
-    }
-    return null;
-  }
-
-  const row = value as Record<string, unknown>;
-  const direct = readString(row.access_token);
-  if (direct) return direct;
-
-  const currentSession = row.currentSession;
-  if (currentSession && typeof currentSession === "object") {
-    const token = readString((currentSession as Record<string, unknown>).access_token);
-    if (token) return token;
-  }
-
-  const session = row.session;
-  if (session && typeof session === "object") {
-    const token = readString((session as Record<string, unknown>).access_token);
-    if (token) return token;
-  }
-
-  const nested = row.data;
-  if (nested && typeof nested === "object") {
-    const token = extractAccessTokenFromAuthPayload(nested);
-    if (token) return token;
-  }
-
-  return null;
-}
-
-function readAccessTokenFromStorageKey(key: string): string | null {
-  let raw: string | null = null;
-  try {
-    raw = localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-  if (!raw) return null;
-
-  const direct = readString(raw);
-  if (direct && direct !== "null" && direct !== "undefined" && !direct.startsWith("{") && !direct.startsWith("[")) {
-    return direct;
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return extractAccessTokenFromAuthPayload(parsed);
-  } catch {
-    return null;
-  }
-}
-
-function resolveUserAccessToken(): string | null {
-  const primary = readAccessTokenFromStorageKey(SUPABASE_AUTH_STORAGE_KEY);
-  if (primary) return primary;
-
-  try {
-    for (let index = 0; index < localStorage.length; index += 1) {
-      const key = localStorage.key(index);
-      if (!key || key === SUPABASE_AUTH_STORAGE_KEY) continue;
-      if (!SUPABASE_AUTH_KEY_RE.test(key)) continue;
-      const token = readAccessTokenFromStorageKey(key);
-      if (token) return token;
-    }
-  } catch {
-    // ignore storage errors
-  }
-
-  return null;
 }
 
 function writeLocalStorage(key: string, value: string): void {
@@ -221,8 +178,8 @@ function getApiToken(): string | undefined {
   return readLocalStorage("forge_tongs_api_token_v1") ?? undefined;
 }
 
-function getOrCreateRecordingSessionId(): string {
-  const existing = readSessionStorage(RECORDING_SESSION_KEY);
+function getOrCreateCaptureSessionId(): string {
+  const existing = readSessionStorage(CAPTURE_SESSION_KEY);
   if (existing) return existing;
 
   let next = "";
@@ -239,13 +196,17 @@ function getOrCreateRecordingSessionId(): string {
     next = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   }
 
-  writeSessionStorage(RECORDING_SESSION_KEY, next);
+  writeSessionStorage(CAPTURE_SESSION_KEY, next);
   return next;
 }
 
 function nextCorrelationId(prefix: string): string {
   correlationSeq += 1;
-  return `${prefix}:${getOrCreateRecordingSessionId()}:${correlationSeq}`;
+  return `${prefix}:${getOrCreateCaptureSessionId()}:${correlationSeq}`;
+}
+
+function resolvePlannerRecordingSessionId(): string | null {
+  return normalizeUuid(readLocalStorage(PLANNER_RECORDING_SESSION_KEY));
 }
 
 function resolveWorkspaceId(): string | null {
@@ -318,18 +279,14 @@ function sanitizeFilename(name: string): string {
   return `Recording_${new Date().toISOString().replace(/[:.]/g, "-")}.webm`;
 }
 
-function buildHeaders(apiToken?: string): Record<string, string> {
-  const headers: Record<string, string> = {
+async function buildHeaders(apiToken?: string): Promise<Headers> {
+  const headers = new Headers({
     "content-type": "application/json",
-  };
+  });
   if (apiToken) {
-    headers.authorization = `Bearer ${apiToken}`;
+    headers.set("authorization", `Bearer ${apiToken}`);
   }
-  const userAccessToken = resolveUserAccessToken();
-  if (userAccessToken) {
-    headers["x-forge-user-authorization"] = `Bearer ${userAccessToken}`;
-  }
-  return headers;
+  return appendForgeUserAuthorization(headers);
 }
 
 async function readBodyAsJson(response: Response): Promise<unknown> {
@@ -388,6 +345,19 @@ function isCommitAck(body: unknown): boolean {
     || row?.data?.success === true;
 }
 
+function extractApiError(body: unknown): { code?: string; message?: string } {
+  if (!body || typeof body !== "object") return {};
+  const root = body as {
+    error?: { code?: unknown; message?: unknown };
+  };
+  const code = readString(root.error?.code);
+  const message = readString(root.error?.message);
+  return {
+    ...(code ? { code } : {}),
+    ...(message ? { message } : {}),
+  };
+}
+
 function encodeBase64(bytes: Uint8Array): string {
   if (!bytes.length) return "";
 
@@ -419,7 +389,7 @@ async function createCradle(
 ): Promise<CreateCradleResult> {
   const response = await fetch("/tongs/cradles", {
     method: "POST",
-    headers: buildHeaders(apiToken),
+    headers: await buildHeaders(apiToken),
     body: JSON.stringify({
       workspace_id: workspaceId,
       written_by: writtenBy,
@@ -449,7 +419,7 @@ async function commitFileToWorkpiece(
 ): Promise<{ status: number; body: unknown; ok: boolean }> {
   const response = await fetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/commit-file`, {
     method: "POST",
-    headers: buildHeaders(apiToken),
+    headers: await buildHeaders(apiToken),
     body: JSON.stringify(payload),
   });
   const body = await readBodyAsJson(response);
@@ -460,6 +430,7 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
   const writtenBy = getWrittenBy();
   const apiToken = getApiToken();
   const workspaceId = resolveWorkspaceId();
+  const plannerRecordingSessionId = resolvePlannerRecordingSessionId();
   let workpieceId = resolveDirectWorkpieceId() || loadCachedWorkpiece(workspaceId);
   let createdCradle = false;
 
@@ -493,21 +464,23 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
   const path = `recordings/${name}`;
   const contentType = inferContentType(input.contentType, name);
   const bytesBase64 = encodeBase64(input.bytes);
-  const recordingSessionId = getOrCreateRecordingSessionId();
+  const captureSessionId = getOrCreateCaptureSessionId();
 
   const commitPayload = {
     path,
     content_type: contentType,
     written_by: writtenBy,
     bytes_base64: bytesBase64,
-    event_name: "anvil.recording.committed",
+    event_name: "take_completed",
     event_payload: {
       source: "anvil.local-auto",
+      file_path: path,
       original_name: input.originalName,
       bytes: input.bytes.byteLength,
       content_type: contentType,
       created_cradle: createdCradle,
-      recording_session_id: recordingSessionId,
+      recording_session_id: plannerRecordingSessionId,
+      anvil_capture_session_id: captureSessionId,
     },
     correlation_id: nextCorrelationId("anvil-recording"),
   };
@@ -528,10 +501,13 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
   }
 
   if (!commit.ok) {
+    const apiError = extractApiError(commit.body);
     return {
       ok: false,
       reason: didRetry404 ? "commit_failed_after_retry" : "commit_failed",
       status: commit.status,
+      ...(apiError.code ? { errorCode: apiError.code } : {}),
+      ...(apiError.message ? { errorMessage: apiError.message } : {}),
       details: commit.body,
       workspaceId,
       workpieceId,
@@ -543,7 +519,55 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
     workpieceId,
     path,
     createdCradle,
+    plannerRecordingSessionId,
+    captureSessionId,
     status: commit.status,
+  };
+}
+
+export async function appendRecordingDecisionToTongs(
+  input: AppendRecordingDecisionInput,
+): Promise<AppendRecordingDecisionResult> {
+  const apiToken = getApiToken();
+  const writtenBy = getWrittenBy();
+  const captureSessionId = readString(input.captureSessionId) || getOrCreateCaptureSessionId();
+  const response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.workpieceId)}/append-event`, {
+    method: "POST",
+    headers: await buildHeaders(apiToken),
+    body: JSON.stringify({
+      event_name: input.eventName,
+      written_by: writtenBy,
+      payload: {
+        source: "anvil.local-auto",
+        file_path: input.filePath,
+        original_name: input.originalName,
+        bytes: input.bytes,
+        content_type: input.contentType,
+        duration_ms: typeof input.durationMs === "number" && Number.isFinite(input.durationMs)
+          ? Math.max(0, Math.round(input.durationMs))
+          : null,
+        created_cradle: input.createdCradle === true,
+        recording_session_id: input.plannerRecordingSessionId ?? null,
+        anvil_capture_session_id: captureSessionId,
+      },
+      correlation_id: nextCorrelationId(`anvil-${input.eventName}`),
+    }),
+  });
+  const body = await readBodyAsJson(response);
+  if (!response.ok) {
+    const apiError = extractApiError(body);
+    return {
+      ok: false,
+      reason: "append_event_failed",
+      status: response.status,
+      ...(apiError.code ? { errorCode: apiError.code } : {}),
+      ...(apiError.message ? { errorMessage: apiError.message } : {}),
+      details: body,
+    };
+  }
+  return {
+    ok: true,
+    status: response.status,
   };
 }
 

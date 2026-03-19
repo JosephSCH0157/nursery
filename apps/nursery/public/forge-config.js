@@ -37,9 +37,6 @@ window.__forgeStudioMonthlyPriceId =
 window.__forgeSeatMonthlyPriceId =
   window.__forgeSeatMonthlyPriceId ||
   window.__forgeStripePriceCatalog.addons.seat.monthly;
-window.__forgeAnvilPriceId =
-  window.__forgeAnvilPriceId ||
-  window.__forgeCreatorMonthlyPriceId;
 window.__forgeAiPriceId_base =
   window.__forgeAiPriceId_base ||
   window.__forgeStripePriceCatalog.packs.ai_credits.ai_base;

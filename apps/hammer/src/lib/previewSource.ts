@@ -1,4 +1,6 @@
 import type { MediaRef, ResolveMediaResult, WorkspaceMediaMapping } from "../../../../packages/contracts/hammer/media-resolver.contract";
+import type { HammerPersistedAudioPolish } from "../persistence/hammerPersistenceContract";
+import { tongsFetch } from "./tongsFetch";
 
 export function buildHammerDevMediaUrl(localRootAbs: string, localRelpath: string): string {
   const params = new URLSearchParams({
@@ -6,6 +8,14 @@ export function buildHammerDevMediaUrl(localRootAbs: string, localRelpath: strin
     local_relpath: localRelpath,
   });
   return `/api/hammer/dev-media?${params.toString()}`;
+}
+
+export function buildHammerCanonicalWorkpieceReadUrl(workpieceId: string, workpiecePath: string): string {
+  const params = new URLSearchParams({
+    path: workpiecePath,
+    encoding: "binary",
+  });
+  return `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?${params.toString()}`;
 }
 
 export function toBrowserMediaSrc(playableUri: string): string {
@@ -47,4 +57,149 @@ export function resolvePreviewMediaSrc(
   return options.resolveResult.playable_uri
     ? toBrowserMediaSrc(options.resolveResult.playable_uri)
     : null;
+}
+
+export function resolveAudioPolishPreviewSrc(
+  workspaceMapping: WorkspaceMediaMapping | null,
+  audioPolish: HammerPersistedAudioPolish | null | undefined,
+): string | null {
+  if (!workspaceMapping?.local_root_abs) return null;
+  if (!audioPolish || audioPolish.status !== "prepared") return null;
+  if (!audioPolish.output_local_relpath) return null;
+  return buildHammerDevMediaUrl(workspaceMapping.local_root_abs, audioPolish.output_local_relpath);
+}
+
+export type HammerPreviewPlaybackSourceKind = "none" | "fallback" | "polished" | "attached" | "launch";
+
+export interface BuildHammerPreviewPlaybackSourceModelArgs {
+  playbackSrc?: string | null;
+  resolvedMediaSrc?: string | null;
+  polishedMediaSrc?: string | null;
+  preferDevAudioFallback?: boolean;
+  activeMediaUsesDevTone?: boolean;
+  activeMediaRequiresResolution?: boolean;
+  activeDevRecordingName?: string | null;
+  activeMediaDisplayTitle?: string | null;
+}
+
+export interface HammerPreviewPlaybackSourceModel {
+  sourceKind: HammerPreviewPlaybackSourceKind;
+  sourceLabel: string;
+  truthLabel: string;
+  statusLabel: string;
+  displayTitle: string;
+}
+
+function readTrimmed(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+export function buildHammerPreviewPlaybackSourceModel(
+  args: BuildHammerPreviewPlaybackSourceModelArgs,
+): HammerPreviewPlaybackSourceModel {
+  const playbackSrc = readTrimmed(args.playbackSrc);
+  const resolvedMediaSrc = readTrimmed(args.resolvedMediaSrc);
+  const polishedMediaSrc = readTrimmed(args.polishedMediaSrc);
+  const activeDevRecordingName = readTrimmed(args.activeDevRecordingName);
+  const activeMediaDisplayTitle = readTrimmed(args.activeMediaDisplayTitle);
+  const usesPolishedPlayback = Boolean(
+    playbackSrc
+    && resolvedMediaSrc
+    && polishedMediaSrc
+    && !args.preferDevAudioFallback
+    && resolvedMediaSrc === polishedMediaSrc
+  );
+
+  if (!playbackSrc) {
+    return {
+      sourceKind: "none",
+      sourceLabel: "none",
+      truthLabel: "Unavailable",
+      statusLabel: "Preview source unavailable",
+      displayTitle: activeMediaDisplayTitle ?? "Preview source unavailable",
+    };
+  }
+
+  if (args.activeMediaUsesDevTone || args.preferDevAudioFallback || !resolvedMediaSrc) {
+    return {
+      sourceKind: "fallback",
+      sourceLabel: "fallback tone",
+      truthLabel: "Fallback source",
+      statusLabel: args.activeMediaRequiresResolution === false
+        ? "Fallback preview tone ready"
+        : "Fallback preview source active",
+      displayTitle: "Fallback tone",
+    };
+  }
+
+  if (usesPolishedPlayback) {
+    return {
+      sourceKind: "polished",
+      sourceLabel: "polished prep",
+      truthLabel: "Polished prep",
+      statusLabel: "Polished prep connected",
+      displayTitle: "Polished prep",
+    };
+  }
+
+  if (activeDevRecordingName) {
+    return {
+      sourceKind: "attached",
+      sourceLabel: activeDevRecordingName,
+      truthLabel: "Attached media",
+      statusLabel: "Attached recording connected",
+      displayTitle: activeDevRecordingName,
+    };
+  }
+
+  return {
+    sourceKind: "launch",
+    sourceLabel: activeMediaDisplayTitle ?? "launch media",
+    truthLabel: "Launch media",
+    statusLabel: "Mapped media connected",
+    displayTitle: activeMediaDisplayTitle ?? "Launch media",
+  };
+}
+
+export async function loadCanonicalAudioPolishPreviewUrl(args: {
+  workpieceId: string;
+  workpiecePath: string;
+  mimeType?: string | null;
+}): Promise<string> {
+  const response = await tongsFetch(
+    buildHammerCanonicalWorkpieceReadUrl(args.workpieceId, args.workpiecePath),
+    {
+      method: "GET",
+      headers: {
+        accept: "application/octet-stream",
+      },
+      timeoutMs: 60_000,
+    },
+  );
+
+  if (!response.ok) {
+    let message = "Hammer could not load canonical audio preview.";
+    try {
+      const payload = await response.json();
+      if (payload && typeof payload === "object") {
+        const row = payload as { error?: { message?: unknown }; message?: unknown };
+        if (typeof row.error?.message === "string" && row.error.message.trim()) {
+          message = row.error.message.trim();
+        } else if (typeof row.message === "string" && row.message.trim()) {
+          message = row.message.trim();
+        }
+      }
+    } catch {
+      // Keep the fallback message stable when the response is not JSON.
+    }
+    throw new Error(message);
+  }
+
+  const bytes = await response.arrayBuffer();
+  const mimeType = response.headers.get("content-type")?.trim()
+    || args.mimeType?.trim()
+    || "application/octet-stream";
+  return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
 }

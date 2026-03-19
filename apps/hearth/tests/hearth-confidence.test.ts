@@ -29,7 +29,14 @@ import {
   selectWorkpieceImageMapCandidate,
 } from "../src/lib/hearth-image-map-repo";
 import { readHearthPrimaryScript } from "../src/lib/hearth-script-repo";
-import { generateImageMapEntriesFromScript } from "../src/lib/hearth-image-map-beats";
+import {
+  assessImageMapScriptAnchor,
+  buildImageMapAnchorPickerParagraphs,
+  buildExactScriptAnchorFromSelection,
+  generateImageMapEntriesFromScript,
+  reanchorImageMapEntry,
+  resolveImageMapScriptAnchorFromText,
+} from "../src/lib/hearth-image-map-beats";
 import { resolveBarStockSparkHearthWorkpieceId } from "../src/lib/barstock-sparks";
 import {
   isCanonicalSparkDiscoveryResolved,
@@ -43,11 +50,41 @@ import {
   type HearthWorkpieceSummary,
 } from "../src/lib/hearth-workpieces";
 import {
+  chooseCanonicalImageMapScriptSource,
+  choosePreferredHydratedDraft,
+  draftHasUsableScriptBody,
+  hydrateDraftBodyFromCanonicalScript,
+} from "../src/lib/hearth-draft-hydration";
+import {
   selectActiveWorkpieceContext,
   selectWorkpieceNavItems,
 } from "../src/lib/hearth-nav-model";
 import { formatScriptToAnvilTagsNoAi, validateAnvilTagContract } from "../src/lib/anvil-tag-contract";
-import { ensureImageMapV2, type EpisodeImageMapEntry } from "../src/lib/episode-package-v2";
+import {
+  applyProductionArtifactToEpisodePackage,
+  createEmptyEpisodePackageV2,
+  ensureImageMapV2,
+  ensureLaunchVariantsV2,
+  hydrateEpisodePackageV2,
+  mirrorEpisodePackageV2ToLegacy,
+  resolvePrimarySeoTitle,
+  type EpisodeImageMapEntry,
+} from "../src/lib/episode-package-v2";
+import {
+  DEFAULT_HEARTH_VISUAL_STYLE,
+  buildHearthVisualStylePromptLines,
+  normalizeHearthVisualStyle,
+  resolveHearthVisualStyleDefinition,
+} from "../src/lib/hearth-visual-styles";
+import {
+  DEFAULT_TITLE_STYLE,
+  getShadowCss,
+  normalizeEpisodeThumbnailTitleStyle,
+} from "../src/lib/hearth-title-fonts";
+import {
+  resolveThumbnailBrandRender,
+  type ThumbnailBrandTemplate,
+} from "../src/lib/hearth-thumbnail-brand-templates";
 
 class MemoryStorage {
   private store = new Map<string, string>();
@@ -137,7 +174,7 @@ const ARCHIVE_ACTOR_ID = "6f4a0a73-19d2-4926-bf70-ebf2b9306db4";
 function buildImageMapEntryFixture(id: string, overrides?: Partial<EpisodeImageMapEntry>): EpisodeImageMapEntry {
   return {
     id,
-    anchor: "s1:p1#sent1",
+    anchor: "wide skyline",
     script_anchor: {
       section_id: "s1",
       paragraph_id: "s1:p1",
@@ -170,6 +207,26 @@ function buildRevisionSnapshot(workpieceId: string, revisions: Revision[]): Hear
     updated_at: new Date().toISOString(),
     revisions: revisions.map((revision) => revisionToEntry(revision)),
   };
+}
+
+function testResolvePrimarySeoTitlePrefersPrimaryThenPopulatedFallback() {
+  const primary = resolvePrimarySeoTitle([
+    { id: "title-a", label: "A", text: "Primary title", is_primary: true },
+    { id: "title-b", label: "B", text: "Secondary title", is_primary: false },
+  ]);
+  assert.equal(primary?.id, "title-a", "Resolver should return the marked primary title when it has text");
+
+  const fallback = resolvePrimarySeoTitle([
+    { id: "title-a", label: "A", text: "   ", is_primary: true },
+    { id: "title-b", label: "B", text: "Secondary title", is_primary: false },
+    { id: "title-c", label: "C", text: "Third title", is_primary: false },
+  ]);
+  assert.equal(fallback?.id, "title-b", "Resolver should fall back to the first populated title when primary is empty");
+
+  const empty = resolvePrimarySeoTitle([
+    { id: "title-a", label: "A", text: "", is_primary: true },
+  ]);
+  assert.equal(empty, null, "Resolver should return null when no populated titles exist");
 }
 
 function installTongsRevisionFetchHarness(options?: { failReads?: boolean }) {
@@ -1159,6 +1216,7 @@ async function testImageMapRepoReadNormalizesSemanticEntriesAndAssetSummary() {
     if (result.ok) {
       assert.equal(result.imageMap.workpieceId, WORKPIECE_A);
       assert.equal(result.imageMap.workspaceId, WORKSPACE_ID);
+      assert.equal(result.imageMap.entries[0]?.anchor, "wide skyline");
       assert.equal(result.imageMap.entries[0]?.source_type, "stock");
       assert.equal(result.imageMap.entries[0]?.script_anchor?.paragraph_id, "s1:p1");
       assert.equal(result.imageMap.entries[0]?.beat_order, 1);
@@ -1552,8 +1610,57 @@ function testGenerateImageMapEntriesFromScriptEmitsMultipleBeatsWithinParagraph(
     entries.map((entry) => entry.paragraph_beat_order),
     [1, 2, 3],
   );
+  assert.equal(entries[0]?.anchor, entries[0]?.script_anchor?.span_text);
   assert.equal(entries[0]?.script_anchor?.paragraph_id, "s1:p1");
+  assert.equal(entries[0]?.style_preset, DEFAULT_HEARTH_VISUAL_STYLE);
   assert.match(entries[2]?.prompt_basis ?? "", /mississippi/i);
+}
+
+function testGenerateImageMapEntriesFromTaggedScriptSkipsSpeakerAndNoteTags() {
+  const scriptText = [
+    "## Opening",
+    "",
+    "[s1]",
+    "The army moved 40,000 troops to the river crossing.",
+    "[/s1]",
+    "",
+    "[note]",
+    "Show the archival map only in Anvil.",
+    "[/note]",
+    "",
+    "[s2]",
+    "New Orleans never received the reserve column before dawn.",
+    "[/s2]",
+  ].join("\n");
+
+  const entries = generateImageMapEntriesFromScript(scriptText);
+  assert.equal(entries.length, 2);
+  assert.equal(entries[0]?.script_anchor?.span_text, "The army moved 40,000 troops to the river crossing.");
+  assert.equal(entries[0]?.script_anchor?.speaker_block_id, "s1");
+  assert.equal(entries[1]?.script_anchor?.span_text, "New Orleans never received the reserve column before dawn.");
+  assert.equal(entries[1]?.script_anchor?.speaker_block_id, "s2");
+  assert.ok(entries.every((entry) => !/\[\/?(?:s1|s2|note)\]/i.test(entry.script_anchor?.span_text ?? "")));
+}
+
+function testBuildImageMapAnchorPickerParagraphsSkipsStandaloneBlockTags() {
+  const scriptText = [
+    "[s1]",
+    "The fleet arrived before sunrise.",
+    "[/s1]",
+    "[s2]",
+    "Smoke drifted over the harbor.",
+    "[/s2]",
+  ].join("\n");
+
+  const paragraphs = buildImageMapAnchorPickerParagraphs(scriptText);
+  assert.equal(paragraphs.length, 2);
+  assert.equal(paragraphs[0]?.text, "The fleet arrived before sunrise.");
+  assert.equal(paragraphs[1]?.text, "Smoke drifted over the harbor.");
+  assert.ok(paragraphs.every((paragraph) => !/\[\/?s[12]\]/i.test(paragraph.text)));
+  assert.ok(
+    paragraphs.every((paragraph) => paragraph.sentenceOptions.every((option) => !/^\[/.test(option.text))),
+    "Picker options should only contain real sentence content",
+  );
 }
 
 function testEnsureImageMapV2RoundTripsStructuredEntries() {
@@ -1583,6 +1690,767 @@ function testEnsureImageMapV2RoundTripsStructuredEntries() {
   assert.equal(pkg.image_map.entries[0]?.candidate_assets[0]?.visual_mode, "map");
   assert.equal(pkg.image_map.entries[0]?.selected_asset_id, "asset-a");
   assert.equal(pkg.image_map.entries[0]?.status, "selected");
+  assert.equal(pkg.image_map.entries[0]?.style_preset, DEFAULT_HEARTH_VISUAL_STYLE);
+}
+
+function testHydrateEpisodePackageV2KeepsLaunchVariantsBoundToCanonicalAssets() {
+  const episodePackage = hydrateEpisodePackageV2({
+    episode: {
+      schema: "forge.episode.package.v2",
+      seo: {
+        titles: [
+          { id: "seo-title-a", label: "A", text: "Primary launch title", is_primary: true },
+          { id: "seo-title-b", label: "B", text: "Backup launch title", is_primary: false },
+        ],
+        tags: [],
+        description_short: null,
+        description_long: null,
+      },
+      thumbnail: {
+        concepts: [{
+          id: "concept-01",
+          label: "Hero frame",
+          prompt_text: "Storm over harbor",
+          style_preset: "studio_photography",
+        }],
+        versions: [{
+          id: "thumb-version-01",
+          concept_id: "concept-01",
+          created_at: "2026-03-14T01:00:00.000Z",
+          provider: "upload",
+          prompt: "Storm over harbor",
+          asset_id: "asset-thumb-01",
+          status: "ready",
+          provider_request_id: null,
+          asset_path: "assets/thumbnails/thumb-version-01.png",
+          mime_type: "image/png",
+          error: null,
+        }],
+        primary_version_id: "thumb-version-01",
+      },
+      launch_variants: [
+        {
+          id: "launch-variant-a",
+          title_id: "seo-title-a",
+          thumbnail_version_id: "thumb-version-01",
+          created_at: "2026-03-14T01:05:00.000Z",
+          updated_at: "2026-03-14T01:05:00.000Z",
+        },
+        {
+          id: "launch-variant-bad",
+          title_id: "seo-title-missing",
+          thumbnail_version_id: "thumb-version-01",
+          created_at: "2026-03-14T01:06:00.000Z",
+          updated_at: "2026-03-14T01:06:00.000Z",
+        },
+      ],
+      image_map: {
+        entries: [],
+      },
+    },
+  });
+
+  assert.equal(episodePackage.launch_variants.length, 1);
+  assert.equal(episodePackage.launch_variants[0]?.id, "launch-variant-a");
+  assert.equal(episodePackage.launch_variants[0]?.title_id, "seo-title-a");
+  assert.equal(episodePackage.launch_variants[0]?.thumbnail_version_id, "thumb-version-01");
+  assert.equal(episodePackage.launch_variants[0]?.status, "draft");
+  assert.equal(episodePackage.launch_variants[0]?.notes, null);
+  assert.equal(episodePackage.launch_variants[0]?.last_tested_at, null);
+  assert.equal(episodePackage.launch_variants[0]?.winner_selected_at, null);
+
+  const mirrored = mirrorEpisodePackageV2ToLegacy({ episode: episodePackage });
+  assert.equal(Array.isArray(mirrored.launch_variants), true);
+  assert.equal((mirrored.launch_variants as unknown[]).length, 1);
+}
+
+function testHydrateEpisodePackageV2NormalizesLaunchVariantStatusMetadata() {
+  const episodePackage = hydrateEpisodePackageV2({
+    episode: {
+      schema: "forge.episode.package.v2",
+      seo: {
+        titles: [
+          { id: "seo-title-a", label: "A", text: "First launch title", is_primary: true },
+          { id: "seo-title-b", label: "B", text: "Second launch title", is_primary: false },
+        ],
+        tags: [],
+        description_short: null,
+        description_long: null,
+      },
+      thumbnail: {
+        concepts: [{
+          id: "concept-01",
+          label: "Storm over harbor",
+          prompt_text: "Storm over harbor",
+          style_preset: "studio_photography",
+        }],
+        versions: [
+          {
+            id: "thumb-version-01",
+            concept_id: "concept-01",
+            created_at: "2026-03-14T01:00:00.000Z",
+            provider: "upload",
+            prompt: "Storm over harbor",
+            asset_id: "asset-thumb-01",
+            status: "ready",
+            provider_request_id: null,
+            asset_path: "assets/thumbnails/thumb-version-01.png",
+            mime_type: "image/png",
+            error: null,
+          },
+          {
+            id: "thumb-version-02",
+            concept_id: "concept-01",
+            created_at: "2026-03-14T01:10:00.000Z",
+            provider: "upload",
+            prompt: "Storm over harbor alternate",
+            asset_id: "asset-thumb-02",
+            status: "ready",
+            provider_request_id: null,
+            asset_path: "assets/thumbnails/thumb-version-02.png",
+            mime_type: "image/png",
+            error: null,
+          },
+        ],
+        primary_version_id: "thumb-version-01",
+      },
+      launch_variants: [
+        {
+          id: "launch-variant-ready",
+          title_id: "seo-title-a",
+          thumbnail_version_id: "thumb-version-01",
+          created_at: "2026-03-14T01:05:00.000Z",
+          updated_at: "2026-03-14T01:05:00.000Z",
+          status: "ready",
+          notes: "Queue for release review",
+          winner_selected_at: "2026-03-15T02:00:00.000Z",
+        },
+        {
+          id: "launch-variant-winner",
+          title_id: "seo-title-b",
+          thumbnail_version_id: "thumb-version-02",
+          created_at: "2026-03-14T01:15:00.000Z",
+          updated_at: "2026-03-14T01:20:00.000Z",
+          status: "winner",
+          notes: "Strongest click package",
+          last_tested_at: "2026-03-16T04:30:00.000Z",
+          winner_selected_at: "2026-03-17T05:45:00.000Z",
+        },
+      ],
+      image_map: {
+        entries: [],
+      },
+    },
+  });
+
+  assert.equal(episodePackage.launch_variants.length, 2);
+  assert.equal(episodePackage.launch_variants[0]?.status, "ready");
+  assert.equal(episodePackage.launch_variants[0]?.notes, "Queue for release review");
+  assert.equal(episodePackage.launch_variants[0]?.winner_selected_at, null);
+  assert.equal(episodePackage.launch_variants[1]?.status, "winner");
+  assert.equal(episodePackage.launch_variants[1]?.last_tested_at, "2026-03-16T04:30:00.000Z");
+  assert.equal(episodePackage.launch_variants[1]?.winner_selected_at, "2026-03-17T05:45:00.000Z");
+}
+
+function testResolveImageMapScriptAnchorFromTextRecoversExactSentenceAnchor() {
+  const scriptText = [
+    "## Memory",
+    "",
+    "It landed right on the tip of your tongue, like your brain was half-convinced you were tasting something. Golden-hour drive on Orange Blossom Trail with a car window cracked and warm light streaming in.",
+  ].join("\n");
+
+  const anchor = resolveImageMapScriptAnchorFromText(
+    scriptText,
+    "It landed right on the tip of your tongue, like your brain was half-convinced you were tasting something.",
+  );
+
+  assert.ok(anchor, "Exact sentence text should resolve to a structured script anchor");
+  assert.equal(anchor?.paragraph_id, "s1:p1");
+  assert.equal(anchor?.sentence_start, 1);
+  assert.equal(anchor?.sentence_end, 1);
+  assert.match(anchor?.span_text ?? "", /tip of your tongue/i);
+}
+
+function testResolveImageMapScriptAnchorFromTextSupportsOccurrenceHintsAndSentenceRanges() {
+  const scriptText = [
+    "## Citrus",
+    "",
+    "Florida was booming. Groves gave way to subdivisions.",
+    "",
+    "Florida was booming.",
+  ].join("\n");
+
+  const combinedAnchor = resolveImageMapScriptAnchorFromText(
+    scriptText,
+    "Florida was booming. Groves gave way to subdivisions.",
+  );
+  assert.ok(combinedAnchor, "Multi-sentence exact quotes should resolve to a structured anchor");
+  assert.equal(combinedAnchor?.paragraph_id, "s1:p1");
+  assert.equal(combinedAnchor?.sentence_start, 1);
+  assert.equal(combinedAnchor?.sentence_end, 2);
+
+  const firstOccurrence = resolveImageMapScriptAnchorFromText(
+    scriptText,
+    "Florida was booming.",
+    "first occurrence",
+  );
+  const secondOccurrence = resolveImageMapScriptAnchorFromText(
+    scriptText,
+    "Florida was booming.",
+    "second occurrence",
+  );
+
+  assert.equal(firstOccurrence?.paragraph_id, "s1:p1");
+  assert.equal(secondOccurrence?.paragraph_id, "s1:p2");
+}
+
+function testAssessImageMapScriptAnchorDetectsMissingAndStaleAnchors() {
+  const scriptText = [
+    "## Harbor",
+    "",
+    "A convoy crossed the river at dawn. The bridge burned behind them.",
+  ].join("\n");
+  const exactAnchor = buildExactScriptAnchorFromSelection(scriptText, {
+    paragraphId: "s1:p1",
+    sentenceStart: 1,
+    sentenceEnd: 1,
+  });
+
+  assert.ok(exactAnchor, "Selection should resolve to an exact structured anchor");
+
+  const missing = assessImageMapScriptAnchor(scriptText, null);
+  assert.equal(missing.status, "missing_anchor");
+
+  const anchored = assessImageMapScriptAnchor(scriptText, exactAnchor);
+  assert.equal(anchored.status, "anchored");
+  assert.equal(anchored.exactAnchor?.paragraph_id, "s1:p1");
+
+  const stale = assessImageMapScriptAnchor([
+    "## Harbor",
+    "",
+    "A convoy slipped through the harbor at dusk. The bridge burned behind them.",
+  ].join("\n"), exactAnchor);
+  assert.equal(stale.status, "needs_reanchor");
+  assert.equal(stale.exactAnchor, null);
+}
+
+function testBuildExactScriptAnchorFromSelectionSpansSentenceRange() {
+  const scriptText = [
+    "## Campaign",
+    "",
+    "The fleet arrived before sunrise. Smoke drifted over the harbor. Citizens watched from the walls.",
+  ].join("\n");
+
+  const anchor = buildExactScriptAnchorFromSelection(scriptText, {
+    paragraphId: "s1:p1",
+    sentenceStart: 1,
+    sentenceEnd: 2,
+  });
+
+  assert.ok(anchor, "Sentence-range selection should produce a structured anchor");
+  assert.equal(anchor?.paragraph_id, "s1:p1");
+  assert.equal(anchor?.sentence_start, 1);
+  assert.equal(anchor?.sentence_end, 2);
+  assert.match(anchor?.span_text ?? "", /smoke drifted/i);
+}
+
+function testReanchorImageMapEntryPreservesBeatMetadata() {
+  const scriptText = [
+    "## Campaign",
+    "",
+    "The fleet arrived before sunrise. Smoke drifted over the harbor. Citizens watched from the walls.",
+  ].join("\n");
+  const entry = buildImageMapEntryFixture("image-map-reanchor", {
+    anchor: "manual:p1",
+    script_anchor: {
+      section_id: "s1",
+      paragraph_id: "s1:p1",
+      paragraph_order: 1,
+      sentence_start: 1,
+      sentence_end: 1,
+      char_start: 0,
+      char_end: 12,
+      span_text: "wide skyline",
+      speaker_block_id: null,
+    },
+    description: "Keep the harbor wide and tense.",
+    visual_intent: "Keep the harbor wide and tense.",
+    prompt_basis: "Keep the harbor wide and tense.",
+    candidate_assets: [{
+      asset_id: "asset-a",
+      path: "assets/image-map/candidates/a.png",
+      variant_label: "explainer",
+      visual_mode: "map",
+      mime_type: "image/png",
+    }],
+    selected_asset_id: "asset-a",
+    status: "selected",
+    placement_hint: "after-hook",
+  });
+
+  const repaired = reanchorImageMapEntry(entry, scriptText, {
+    paragraphId: "s1:p1",
+    sentenceStart: 2,
+    sentenceEnd: 2,
+  });
+
+  assert.ok(repaired, "Re-anchor should rebuild the structured anchor");
+  assert.equal(repaired?.description, entry.description);
+  assert.equal(repaired?.prompt_basis, entry.prompt_basis);
+  assert.equal(repaired?.selected_asset_id, "asset-a");
+  assert.equal(repaired?.candidate_assets[0]?.asset_id, "asset-a");
+  assert.equal(repaired?.status, "selected");
+  assert.equal(repaired?.anchor, repaired?.script_anchor?.span_text);
+  assert.match(repaired?.script_anchor?.span_text ?? "", /smoke drifted/i);
+}
+
+async function testImageMapRepoSavePersistsReanchoredAnchor() {
+  resetLocalStorage();
+  const harness = installImageMapFetchHarness();
+  const scriptText = [
+    "## Campaign",
+    "",
+    "The fleet arrived before sunrise. Smoke drifted over the harbor. Citizens watched from the walls.",
+  ].join("\n");
+  const entry = reanchorImageMapEntry(buildImageMapEntryFixture("image-map-01"), scriptText, {
+    paragraphId: "s1:p1",
+    sentenceStart: 2,
+    sentenceEnd: 2,
+  });
+
+  assert.ok(entry, "Re-anchor should create a saveable entry");
+
+  try {
+    harness.setSavePayload({
+      image_map: {
+        workpiece_id: WORKPIECE_A,
+        workspace_id: WORKSPACE_ID,
+        entries: [entry],
+        metadata_updated_at: "2026-03-11T09:15:00.000Z",
+      },
+      asset: null,
+    });
+
+    const result = await saveWorkpieceImageMap({
+      workpieceId: WORKPIECE_A,
+      workspaceId: WORKSPACE_ID,
+      entries: [entry!],
+      expectedMetadataUpdatedAt: "2026-03-11T09:10:00.000Z",
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(harness.saveRequests.length, 1);
+    assert.equal(
+      (harness.saveRequests[0]?.body.entries?.[0] as { anchor?: string } | undefined)?.anchor,
+      entry?.script_anchor?.span_text,
+    );
+    assert.equal(
+      ((harness.saveRequests[0]?.body.entries?.[0] as { script_anchor?: { sentence_start?: number } } | undefined)?.script_anchor?.sentence_start),
+      2,
+    );
+  } finally {
+    harness.restore();
+  }
+}
+
+function testApplyProductionArtifactImageBeatSheetResolvesStructuredAnchorsFromCanonicalScript() {
+  const scriptText = [
+    "## Citrus",
+    "",
+    "As Florida's population exploded, groves turned into subdivisions.",
+  ].join("\n");
+
+  const metadata = {
+    schema: "forge.metadata.v1",
+    workpiece_id: WORKPIECE_A,
+    workspace_id: WORKSPACE_ID,
+    created_at: "2026-03-14T01:00:00.000Z",
+    updated_at: "2026-03-14T01:00:00.000Z",
+    status: "draft",
+    notes: null,
+    origin: null,
+    content_category: null,
+    episode: createEmptyEpisodePackageV2(),
+  };
+
+  const nextMetadata = applyProductionArtifactToEpisodePackage({
+    metadata,
+    action: "image_beat_sheet",
+    rawText: [
+      "IMAGE_01",
+      "Attach after: \"As Florida's population exploded, groves turned into subdivisions.\"",
+      "Description: Time-lapse style composite of citrus rows fading into cul-de-sacs.",
+      "Prompt: Time-lapse style composite of citrus rows fading into cul-de-sacs.",
+      "Match: first occurrence",
+    ].join("\n"),
+    resolveImageMapScriptAnchor: (anchorText, matchHint) => (
+      resolveImageMapScriptAnchorFromText(scriptText, anchorText, matchHint)
+    ),
+  });
+
+  const episodePackage = hydrateEpisodePackageV2(nextMetadata);
+  assert.equal(episodePackage.image_map.entries.length, 1);
+  assert.equal(
+    episodePackage.image_map.entries[0]?.anchor,
+    "As Florida's population exploded, groves turned into subdivisions.",
+  );
+  assert.equal(episodePackage.image_map.entries[0]?.script_anchor?.paragraph_id, "s1:p1");
+  assert.equal(episodePackage.image_map.entries[0]?.script_anchor?.sentence_start, 1);
+  assert.equal(episodePackage.image_map.entries[0]?.status, "mapped");
+}
+
+function testVisualStyleCatalogNormalizesAliasesAndPromptHints() {
+  assert.equal(normalizeHearthVisualStyle(null), DEFAULT_HEARTH_VISUAL_STYLE);
+  assert.equal(normalizeHearthVisualStyle("oil on canvas"), "oil_painting");
+  assert.equal(normalizeHearthVisualStyle("3D animation"), "three_d_animation");
+  assert.equal(resolveHearthVisualStyleDefinition("marker").label, "Marker Render");
+  assert.deepEqual(buildHearthVisualStylePromptLines("studio lighting"), [
+    "Visual style: Studio Photography.",
+    "Style direction: studio photography, controlled lighting, crisp subject separation, polished commercial finish.",
+  ]);
+}
+
+function testHydrateEpisodePackageV2NormalizesLegacyVisualStyles() {
+  const episodePackage = hydrateEpisodePackageV2({
+    episode: {
+      schema: "forge.episode.package.v2",
+      seo: {
+        titles: [],
+        tags: [],
+        description_short: null,
+        description_long: null,
+      },
+      thumbnail: {
+        concepts: [{
+          id: "concept-legacy",
+          label: "Legacy concept",
+          prompt_text: "Heroic portrait",
+          mood_style: "oil on canvas",
+        }],
+        versions: [],
+        primary_version_id: null,
+      },
+      image_map: {
+        entries: [{
+          id: "image-map-legacy",
+          anchor: "s1:p1#sent1",
+          script_anchor: {
+            section_id: "s1",
+            paragraph_id: "s1:p1",
+            paragraph_order: 1,
+            sentence_start: 1,
+            sentence_end: 1,
+            char_start: 0,
+            char_end: 12,
+            span_text: "wide skyline",
+            speaker_block_id: null,
+          },
+          description: "wide skyline",
+          visual_intent: "wide skyline",
+          prompt_basis: "wide skyline",
+          intent: "cutaway",
+          source_type: "stock",
+          beat_order: 1,
+          paragraph_beat_order: 1,
+          candidate_assets: [],
+          selected_asset_id: null,
+          status: "mapped",
+          placement_hint: null,
+        }],
+      },
+    },
+  });
+
+  assert.equal(episodePackage.thumbnail.concepts[0]?.style_preset, "oil_painting");
+  assert.equal(episodePackage.image_map.entries[0]?.anchor, "wide skyline");
+  assert.equal(episodePackage.image_map.entries[0]?.style_preset, DEFAULT_HEARTH_VISUAL_STYLE);
+}
+
+function testThumbnailTitleStyleDefaultsNormalizeDeterministically() {
+  assert.deepEqual(
+    normalizeEpisodeThumbnailTitleStyle(null),
+    DEFAULT_TITLE_STYLE,
+    "Missing title style metadata should hydrate to deterministic defaults",
+  );
+
+  const episodePackage = hydrateEpisodePackageV2({
+    episode: {
+      schema: "forge.episode.package.v2",
+      seo: {
+        titles: [],
+        tags: [],
+        description_short: null,
+        description_long: null,
+      },
+      thumbnail: {
+        concepts: [{
+          id: "concept-default-style",
+          label: "Default style",
+          prompt_text: "High-contrast portrait",
+          style_preset: "studio_photography",
+        }],
+        versions: [],
+        primary_version_id: null,
+      },
+      image_map: {
+        entries: [],
+      },
+    },
+  });
+
+  assert.deepEqual(
+    episodePackage.thumbnail.concepts[0]?.title_style,
+    DEFAULT_TITLE_STYLE,
+    "Hydration should apply title styling defaults to legacy thumbnail concepts",
+  );
+}
+
+function testThumbnailTitleStylePartialMetadataDefaultsMissingFields() {
+  const episodePackage = hydrateEpisodePackageV2({
+    episode: {
+      schema: "forge.episode.package.v2",
+      seo: {
+        titles: [],
+        tags: [],
+        description_short: null,
+        description_long: null,
+      },
+      thumbnail: {
+        concepts: [{
+          id: "concept-partial-style",
+          label: "Partial style",
+          prompt_text: "Golden-hour highway",
+          title_style: {
+            text_color: "#ff00aa",
+            shadow: {
+              enabled: false,
+            },
+          },
+        }],
+        versions: [],
+        primary_version_id: null,
+      },
+      image_map: {
+        entries: [],
+      },
+    },
+  });
+
+  assert.deepEqual(episodePackage.thumbnail.concepts[0]?.title_style, {
+    font_preset: "bold_sans",
+    text_color: "#FF00AA",
+    shadow: {
+      enabled: false,
+      strength: "medium",
+    },
+  });
+}
+
+function testThumbnailTitleStylePersistenceRoundTripsThroughEpisodePackage() {
+  const episodePackage = ensureLaunchVariantsV2({
+    schema: "forge.episode.package.v2",
+    seo: {
+      titles: [],
+      tags: [],
+      description_short: null,
+      description_long: null,
+    },
+    thumbnail: {
+      concepts: [{
+        id: "concept-persist-style",
+        label: "Persistent style",
+        prompt_text: "Storm over harbor",
+        style_preset: "studio_photography",
+        title_style: {
+          font_preset: "modern_clean",
+          text_color: "#12ab34",
+          shadow: {
+            enabled: true,
+            strength: "strong",
+          },
+        },
+      }],
+      versions: [],
+      primary_version_id: null,
+    },
+    launch_variants: [],
+    image_map: {
+      entries: [],
+    },
+  });
+
+  const mirrored = mirrorEpisodePackageV2ToLegacy({ episode: episodePackage });
+  assert.deepEqual(
+    ((mirrored.thumbnail_concepts as Array<{ title_style?: unknown }> | undefined)?.[0]?.title_style),
+    {
+      font_preset: "modern_clean",
+      text_color: "#12AB34",
+      shadow: {
+        enabled: true,
+        strength: "strong",
+      },
+    },
+    "Mirroring should keep persisted thumbnail title styling metadata on the episode package",
+  );
+
+  const rehydrated = hydrateEpisodePackageV2(mirrored);
+  assert.deepEqual(
+    rehydrated.thumbnail.concepts[0]?.title_style,
+    {
+      font_preset: "modern_clean",
+      text_color: "#12AB34",
+      shadow: {
+        enabled: true,
+        strength: "strong",
+      },
+    },
+    "Reloading the episode package should restore persisted thumbnail title styling",
+  );
+}
+
+function testThumbnailTitleShadowCssVariants() {
+  assert.equal(getShadowCss({ enabled: false, strength: "strong" }), "none");
+  assert.equal(getShadowCss({ enabled: true, strength: "soft" }), "0 1px 2px rgba(0,0,0,0.6)");
+  assert.equal(
+    getShadowCss({ enabled: true, strength: "medium" }),
+    "0 2px 8px rgba(0,0,0,0.55), 0 8px 18px rgba(0,0,0,0.38)",
+  );
+  assert.equal(getShadowCss({ enabled: true, strength: "strong" }), "0 4px 10px rgba(0,0,0,0.9)");
+}
+
+function createThumbnailBrandTemplateFixture(
+  overrides?: Partial<ThumbnailBrandTemplate>,
+): ThumbnailBrandTemplate {
+  return {
+    id: "8f7ac12b-4386-4ef5-978d-d6152341f5a3",
+    workspaceId: WORKSPACE_ID,
+    slug: "bold-commentary",
+    name: "Bold Commentary",
+    templateJson: {
+      title_style: {
+        font_preset: "modern_clean",
+        text_color: "#FF6600",
+        shadow: {
+          enabled: true,
+          strength: "strong",
+        },
+      },
+      layout: {
+        title_position: "top",
+        alignment: "center",
+        max_lines: 2,
+      },
+      background_treatment: {
+        darken: 0.35,
+        blur: 3,
+      },
+      accent: {
+        border_color: "#FF2200",
+        border_width: 4,
+        corner_radius: 16,
+      },
+    },
+    isDefault: true,
+    archivedAt: null,
+    createdAt: "2026-03-14T12:00:00.000Z",
+    updatedAt: "2026-03-14T12:00:00.000Z",
+    updatedBy: "8ddf173f-4651-47cc-aa05-ef4ea0f5c44b",
+    ...overrides,
+  };
+}
+
+function testThumbnailBrandTemplateIdRoundTripsThroughEpisodePackage() {
+  const templateId = "c1a5c4eb-2480-46bb-b5a4-2b555707f381";
+  const episodePackage = hydrateEpisodePackageV2({
+    episode: {
+      schema: "forge.episode.package.v2",
+      seo: {
+        titles: [],
+        tags: [],
+        description_short: null,
+        description_long: null,
+      },
+      thumbnail: {
+        concepts: [{
+          id: "concept-brand-template",
+          label: "Brand template",
+          prompt_text: "Serious commentary portrait",
+          style_preset: "studio_photography",
+          brand_template_id: templateId,
+        }],
+        versions: [],
+        primary_version_id: null,
+      },
+      image_map: {
+        entries: [],
+      },
+    },
+  });
+
+  assert.equal(
+    episodePackage.thumbnail.concepts[0]?.brand_template_id,
+    templateId,
+    "Hydration should keep thumbnail concept brand template bindings",
+  );
+
+  const mirrored = mirrorEpisodePackageV2ToLegacy({ episode: episodePackage });
+  assert.equal(
+    ((mirrored.thumbnail_concepts as Array<{ brand_template_id?: unknown }> | undefined)?.[0]?.brand_template_id),
+    templateId,
+    "Mirroring should preserve thumbnail concept brand template ids",
+  );
+}
+
+function testResolveThumbnailBrandRenderUsesTemplateForDefaultConceptStyle() {
+  const template = createThumbnailBrandTemplateFixture();
+  const resolved = resolveThumbnailBrandRender({
+    template,
+    conceptTitleStyle: DEFAULT_TITLE_STYLE,
+  });
+
+  assert.deepEqual(
+    resolved.title_style,
+    template.templateJson.title_style,
+    "Template title styling should drive rendering when the concept has no explicit override",
+  );
+  assert.deepEqual(resolved.layout, template.templateJson.layout);
+  assert.deepEqual(resolved.background_treatment, template.templateJson.background_treatment);
+  assert.deepEqual(resolved.accent, template.templateJson.accent);
+  assert.equal(resolved.text_shadow_css, "0 4px 10px rgba(0,0,0,0.9)");
+}
+
+function testResolveThumbnailBrandRenderKeepsExplicitConceptTitleStyleOverride() {
+  const template = createThumbnailBrandTemplateFixture();
+  const resolved = resolveThumbnailBrandRender({
+    template,
+    conceptTitleStyle: {
+      font_preset: "condensed_sans",
+      text_color: "#00AAFF",
+      shadow: {
+        enabled: false,
+        strength: "soft",
+      },
+    },
+  });
+
+  assert.deepEqual(
+    resolved.title_style,
+    {
+      font_preset: "condensed_sans",
+      text_color: "#00AAFF",
+      shadow: {
+        enabled: false,
+        strength: "soft",
+      },
+    },
+    "Explicit concept title styling should override the workspace template styling",
+  );
+  assert.deepEqual(
+    resolved.layout,
+    template.templateJson.layout,
+    "Template layout should still apply when only title styling is overridden",
+  );
+  assert.equal(resolved.text_shadow_css, "none");
 }
 
 async function testBarStockSparkListDiscoveryStaysCanonicalAcrossClients() {
@@ -1803,6 +2671,55 @@ async function testWorkpieceArchiveRoundtripUsesCanonicalEndpoints() {
   }
 }
 
+async function testWorkpieceListDedupesCanonicalIdsBeforeRailConsumption() {
+  resetLocalStorage();
+  const harness = installWorkpieceFetchHarness();
+  harness.setEpisodesPayload([
+    {
+      id: WORKPIECE_A,
+      workspace_id: WORKSPACE_ID,
+      label: "Alpha Episode (stale)",
+      created_at: "2026-03-08T12:00:00.000Z",
+      updated_at: "2026-03-09T12:00:00.000Z",
+    },
+    {
+      id: WORKPIECE_A,
+      workspace_id: WORKSPACE_ID,
+      label: "Alpha Episode",
+      created_at: "2026-03-08T12:00:00.000Z",
+      updated_at: "2026-03-10T12:00:00.000Z",
+    },
+    {
+      id: WORKPIECE_B,
+      workspace_id: WORKSPACE_ID,
+      label: "Beta Episode",
+      created_at: "2026-03-09T12:00:00.000Z",
+      updated_at: "2026-03-10T11:00:00.000Z",
+    },
+  ]);
+
+  try {
+    const workpieces = await listHearthWorkpieces(WORKSPACE_ID);
+    assert.deepEqual(
+      workpieces.map((entry) => entry.workpieceId),
+      [WORKPIECE_A, WORKPIECE_B],
+      "Duplicate canonical ids should collapse before Hearth builds rail rows",
+    );
+    assert.equal(
+      workpieces.filter((entry) => entry.workpieceId === WORKPIECE_A).length,
+      1,
+      "A canonical workpiece id should appear at most once after ingest normalization",
+    );
+    assert.equal(
+      workpieces.find((entry) => entry.workpieceId === WORKPIECE_A)?.title,
+      "Alpha Episode",
+      "The freshest canonical summary should win when duplicate workpiece rows arrive from Tongs",
+    );
+  } finally {
+    harness.restore();
+  }
+}
+
 async function testWorkpieceDraftHydrationReadsCanonicalSnapshotWithoutCachedMapping() {
   const storage = resetLocalStorage();
   storage.setItem("forge_workspace_id_v1", WORKSPACE_ID);
@@ -1842,6 +2759,79 @@ async function testWorkpieceDraftHydrationReadsCanonicalSnapshotWithoutCachedMap
   } finally {
     harness.restore();
   }
+}
+
+function testDraftHydrationPrefersUsableCanonicalBodyOverNewerEmptyBuffer() {
+  const localEmptyDraft = createDraft(WORKPIECE_A, {
+    title: "Episode Title",
+    body: "",
+    updatedAt: Date.parse("2026-03-12T12:00:00.000Z"),
+  });
+  const canonicalDraft = createDraft(WORKPIECE_A, {
+    title: "Episode Title",
+    body: "[s1]\nApproved script body\n[/s1]",
+    updatedAt: Date.parse("2026-03-11T12:00:00.000Z"),
+  });
+
+  const preferred = choosePreferredHydratedDraft([localEmptyDraft, canonicalDraft]);
+
+  assert.equal(draftHasUsableScriptBody(localEmptyDraft), false);
+  assert.equal(draftHasUsableScriptBody(canonicalDraft), true);
+  assert.equal(preferred?.body, canonicalDraft.body);
+}
+
+function testHydrateDraftBodyFromCanonicalScriptRepairsBlankWorkpieceBuffer() {
+  const blankDraft = createDraft(WORKPIECE_A, {
+    title: "Episode Title",
+    body: "",
+    updatedAt: Date.parse("2026-03-10T12:00:00.000Z"),
+  });
+
+  const repaired = hydrateDraftBodyFromCanonicalScript({
+    draft: blankDraft,
+    scriptText: "[s1]\nRecovered approved script\n[/s1]",
+    updatedAt: Date.parse("2026-03-10T15:00:00.000Z"),
+    updatedBy: { userId: "user-1", displayName: "Forge User" },
+  });
+
+  assert.equal(repaired.body, "[s1]\nRecovered approved script\n[/s1]");
+  assert.equal(repaired.updatedAt, Date.parse("2026-03-10T15:00:00.000Z"));
+  assert.equal(repaired.updatedBy?.displayName, "Forge User");
+}
+
+function testChooseCanonicalImageMapScriptSourcePrefersNewerSavedDraftOverStalePrimaryShell() {
+  const savedDraft = createDraft(WORKPIECE_A, {
+    body: "[s1]\nRecovered approved script body with actual anchorable text.\n[/s1]",
+    updatedAt: Date.parse("2026-03-12T15:00:00.000Z"),
+  });
+
+  const selected = chooseCanonicalImageMapScriptSource({
+    primaryText: "# Episode Title",
+    primaryUpdatedAtMs: Date.parse("2026-03-11T09:00:00.000Z"),
+    drafts: [savedDraft],
+    preferredDraftId: WORKPIECE_A,
+  });
+
+  assert.equal(selected?.source, "saved_draft");
+  assert.equal(selected?.text, savedDraft.body);
+}
+
+function testChooseCanonicalImageMapScriptSourceKeepsPublishedScriptWhenItMatchesCurrentTruth() {
+  const primaryText = "[s1]\nCurrent approved script body.\n[/s1]";
+  const savedDraft = createDraft(WORKPIECE_A, {
+    body: primaryText,
+    updatedAt: Date.parse("2026-03-10T15:00:00.000Z"),
+  });
+
+  const selected = chooseCanonicalImageMapScriptSource({
+    primaryText,
+    primaryUpdatedAtMs: Date.parse("2026-03-12T15:00:00.000Z"),
+    drafts: [savedDraft],
+    preferredDraftId: WORKPIECE_A,
+  });
+
+  assert.equal(selected?.source, "primary_script");
+  assert.equal(selected?.text, primaryText);
 }
 
 async function testWorkpieceNavModelStaysWorkpieceFirst() {
@@ -2090,9 +3080,42 @@ async function testAiRequestPayloadIncludesEpisodeId() {
     assert.ok(result.ok, "AI request should succeed in mocked fetch");
     if (result.ok) {
       assert.equal(result.scriptText, "[s1]\nHello\n[/s1]");
+      assert.deepEqual(result.ops, [{ op: "set_body", value: "[s1]\nHello\n[/s1]" }]);
       assert.equal((result.tagAudit as { speaker_blocks_closed?: boolean } | undefined)?.speaker_blocks_closed, true);
     }
     assert.equal(capturedBody?.episode_context && (capturedBody.episode_context as { episodeId?: string }).episodeId, "episode-123");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+async function testAiRequestTreatsScriptTextOnlyAsDeliverable() {
+  resetLocalStorage();
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    assistant_text: "",
+    ops: [],
+    script_text: "[s1]\nCold open\n[/s1]",
+    billing_mode: "forge",
+    token_balance: 77,
+    total_tokens: 9,
+  }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  })) as typeof fetch;
+
+  try {
+    const result = await requestHearthChatReply(
+      [{ role: "user", content: "Write the script." }],
+      createEpisodeContextFixture(),
+    );
+    assert.ok(result.ok, "script_text alone should still count as a deliverable");
+    if (result.ok) {
+      assert.equal(result.assistantText, "");
+      assert.equal(result.scriptText, "[s1]\nCold open\n[/s1]");
+      assert.deepEqual(result.ops, [{ op: "set_body", value: "[s1]\nCold open\n[/s1]" }]);
+    }
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -2195,12 +3218,38 @@ async function run() {
   await testImageMapCandidateSelectionRejectsDetachedCandidate();
   await testImageMapCandidatePreviewLoaderReadsCanonicalFilePath();
   testGenerateImageMapEntriesFromScriptEmitsMultipleBeatsWithinParagraph();
+  testGenerateImageMapEntriesFromTaggedScriptSkipsSpeakerAndNoteTags();
+  testBuildImageMapAnchorPickerParagraphsSkipsStandaloneBlockTags();
   testEnsureImageMapV2RoundTripsStructuredEntries();
+  testHydrateEpisodePackageV2KeepsLaunchVariantsBoundToCanonicalAssets();
+  testHydrateEpisodePackageV2NormalizesLaunchVariantStatusMetadata();
+  testResolvePrimarySeoTitlePrefersPrimaryThenPopulatedFallback();
+  testResolveImageMapScriptAnchorFromTextRecoversExactSentenceAnchor();
+  testResolveImageMapScriptAnchorFromTextSupportsOccurrenceHintsAndSentenceRanges();
+  testAssessImageMapScriptAnchorDetectsMissingAndStaleAnchors();
+  testBuildExactScriptAnchorFromSelectionSpansSentenceRange();
+  testReanchorImageMapEntryPreservesBeatMetadata();
+  await testImageMapRepoSavePersistsReanchoredAnchor();
+  testApplyProductionArtifactImageBeatSheetResolvesStructuredAnchorsFromCanonicalScript();
+  testVisualStyleCatalogNormalizesAliasesAndPromptHints();
+  testHydrateEpisodePackageV2NormalizesLegacyVisualStyles();
+  testThumbnailTitleStyleDefaultsNormalizeDeterministically();
+  testThumbnailTitleStylePartialMetadataDefaultsMissingFields();
+  testThumbnailTitleStylePersistenceRoundTripsThroughEpisodePackage();
+  testThumbnailTitleShadowCssVariants();
+  testThumbnailBrandTemplateIdRoundTripsThroughEpisodePackage();
+  testResolveThumbnailBrandRenderUsesTemplateForDefaultConceptStyle();
+  testResolveThumbnailBrandRenderKeepsExplicitConceptTitleStyleOverride();
   await testBarStockSparkListDiscoveryStaysCanonicalAcrossClients();
   await testSparkIntakeWaitsForCanonicalDiscoveryBeforeDeclaringMissing();
   await testWorkpieceListRoundtripAndPrimaryScriptRead();
   await testWorkpieceArchiveRoundtripUsesCanonicalEndpoints();
+  await testWorkpieceListDedupesCanonicalIdsBeforeRailConsumption();
   await testWorkpieceDraftHydrationReadsCanonicalSnapshotWithoutCachedMapping();
+  testDraftHydrationPrefersUsableCanonicalBodyOverNewerEmptyBuffer();
+  testHydrateDraftBodyFromCanonicalScriptRepairsBlankWorkpieceBuffer();
+  testChooseCanonicalImageMapScriptSourcePrefersNewerSavedDraftOverStalePrimaryShell();
+  testChooseCanonicalImageMapScriptSourceKeepsPublishedScriptWhenItMatchesCurrentTruth();
   await testWorkpieceNavModelStaysWorkpieceFirst();
   await testActiveWorkpieceContextResolvesAttachedArtifactsWithoutCreatingNavRows();
   await testForgedSparkRouteResolutionPrefersBoundWorkpiece();
@@ -2208,6 +3257,7 @@ async function run() {
   await testBuildEpisodeContextIncludesFields();
   await testApplyHearthOpsRequestsSave();
   await testAiRequestPayloadIncludesEpisodeId();
+  await testAiRequestTreatsScriptTextOnlyAsDeliverable();
   await testAnvilTagValidatorAndFormatter();
   // eslint-disable-next-line no-console
   console.log("Hearth confidence tests passed.");

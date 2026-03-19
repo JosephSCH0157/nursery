@@ -6,7 +6,7 @@ import { useLocation } from "react-router-dom";
 export default function HammerEditorHarnessRoute() {
   const location = useLocation();
   const launchContext = useMemo(
-    () => resolveHammerRouteSelection(location.search, location.state).launchContext,
+    () => resolveHammerRouteSelection(location.search, location.state, { allowStubScenario: true }).launchContext,
     [location.search, location.state],
   );
 
