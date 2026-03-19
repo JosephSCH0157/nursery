@@ -57,27 +57,16 @@
 }
 
 .hammer-pane--left,
+.hammer-pane--right {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  align-self: stretch;
+  min-height: 0;
+}
+
 .hammer-pane--center {
   display: grid;
-}
-
-.hammer-pane--left,
-.hammer-pane--right {
-  overflow: hidden;
-  align-content: stretch;
-  align-self: stretch;
-}
-
-.hammer-pane--left.is-script-view {
-  grid-template-rows: auto minmax(0, 1fr);
-}
-
-.hammer-pane--left.is-assets-view,
-.hammer-pane--right {
-  grid-template-rows: minmax(0, 1fr);
-}
-
-.hammer-pane--center {
   grid-template-rows: minmax(0, 1fr);
   align-content: stretch;
   min-height: 0;
@@ -85,14 +74,17 @@
 }
 
 .hammer-pane--right {
-  display: grid;
   gap: 10px;
-  align-content: stretch;
 }
 
-.hammer-pane--left > .hammer-pane-section,
-.hammer-pane--right > .hammer-pane-section,
-.hammer-pane--left > .hammer-transcript-workspace {
+.hammer-pane--left > .hammer-pane-section:first-child {
+  flex: 0 0 auto;
+}
+
+.hammer-pane--left > .hammer-pane-section:last-child,
+.hammer-pane--left > .hammer-transcript-workspace,
+.hammer-pane--right > .hammer-pane-section {
+  flex: 1 1 auto;
   min-height: 0;
 }
 
@@ -1612,9 +1604,9 @@
 
 .hammer-transcript-workspace {
   display: grid;
-  flex: 0 0 clamp(140px, 18vh, 220px);
-  min-height: 140px;
-  max-height: 26vh;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
   min-width: 0;
   overflow: hidden;
 }
