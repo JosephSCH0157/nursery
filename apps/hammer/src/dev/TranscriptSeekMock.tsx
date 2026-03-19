@@ -3573,6 +3573,28 @@ export default function TranscriptSeekMock(
     rejected: proposedChanges.filter((change) => change.status === "rejected").length,
     modified: proposedChanges.filter((change) => change.status === "modified").length,
   }), [proposedChanges]);
+  const polishProposedChanges = useMemo(
+    () => proposedChanges.filter((change) => (
+      change.type === "silence_trim"
+      || change.type === "filler_removal"
+      || change.type === "retake_removal"
+      || change.type === "chapter_inference"
+    )),
+    [proposedChanges],
+  );
+  const polishChangeStatusCounts = useMemo(() => ({
+    suggested: polishProposedChanges.filter((change) => change.status === "suggested").length,
+    approved: polishProposedChanges.filter((change) => change.status === "approved").length,
+    rejected: polishProposedChanges.filter((change) => change.status === "rejected").length,
+    modified: polishProposedChanges.filter((change) => change.status === "modified").length,
+  }), [polishProposedChanges]);
+  const selectedPolishChange = selectedProposedChange && polishProposedChanges.some((change) => change.id === selectedProposedChange.id)
+    ? selectedProposedChange
+    : null;
+  const highlightedTranscriptRowIds = useMemo(
+    () => new Set(selectedPolishChange?.linkedRowIds ?? []),
+    [selectedPolishChange],
+  );
   const selectedVisualPlacement = useMemo(
     () => selectedProposedChange?.type === "visual_placement" && selectedProposedChange.linkedAssetId
       ? currentVisualPlacements?.placements.find((placement) => placement.placement_id === selectedProposedChange.linkedAssetId) ?? null
