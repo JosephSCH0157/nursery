@@ -638,6 +638,11 @@
   gap: 6px;
 }
 
+.hammer-asset-card.is-selected {
+  border-color: rgba(96, 165, 250, 0.54);
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.18);
+}
+
 .hammer-asset-card__header {
   display: flex;
   align-items: center;

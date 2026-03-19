@@ -204,6 +204,7 @@ type HammerProjectAsset = {
   usageHint: string;
   workpieceId: string;
   durationLabel: string | null;
+  placementId?: string | null;
 };
 
 type HammerPaneLayout = {
@@ -3606,6 +3607,7 @@ export default function TranscriptSeekMock(
             : "This is the launch-linked source media backing the current edit and preview path.",
           workpieceId: resolvedLaunch.launch_context.workpiece_id,
           durationLabel: primaryAssetDurationLabel,
+          placementId: null,
       };
 
       if (!activeMediaRef || activeMediaRef.kind === "recording_video" || activeMediaRef.kind === "export_video" || activeMediaRef.kind === "recording_audio" || activeMediaRef.kind === "export_audio" || activeMediaUsesDevTone) {
@@ -3637,6 +3639,7 @@ export default function TranscriptSeekMock(
             : "This anchored image came from the canonical Tongs image-map and is already staged on the timeline.",
           workpieceId: resolvedLaunch.launch_context.workpiece_id,
           durationLabel: formatClock(Math.max(0, placement.end_sec - placement.start_sec)),
+          placementId: placement.placement_id,
         });
       }
 
@@ -6764,7 +6767,13 @@ export default function TranscriptSeekMock(
             </div>
             {activeAssetItems.length > 0 ? (
               activeAssetItems.map((asset) => (
-                <div key={asset.id} className="hammer-asset-card">
+                <div
+                  key={asset.id}
+                  className={cx(
+                    "hammer-asset-card",
+                    asset.placementId && selectedProposedChange?.linkedAssetId === asset.placementId && "is-selected",
+                  )}
+                >
                   <div className="hammer-asset-card__header">
                     <div className="hammer-stack-4">
                       <strong className="hammer-copy-strong">{asset.title}</strong>
@@ -6791,6 +6800,41 @@ export default function TranscriptSeekMock(
                   </div>
                   <div className="hammer-copy-sm hammer-copy-muted hammer-mono">{asset.id}</div>
                   <div className="hammer-copy-sm">{asset.detail}</div>
+                  {asset.placementId ? (() => {
+                    const assetChange = proposedChanges.find((change) => change.linkedAssetId === asset.placementId) ?? null;
+                    if (!assetChange) return null;
+                    return (
+                      <div className="hammer-action-row">
+                        <button
+                          type="button"
+                          className="hammer-button-xs"
+                          onClick={() => selectProposedChange(assetChange)}
+                        >
+                          Review
+                        </button>
+                        <button
+                          type="button"
+                          className="hammer-button-xs"
+                          onClick={() => {
+                            selectProposedChange(assetChange);
+                            setProposedChangeStatus(assetChange, "approved");
+                          }}
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          className="hammer-button-xs"
+                          onClick={() => {
+                            selectProposedChange(assetChange);
+                            setProposedChangeStatus(assetChange, "rejected");
+                          }}
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    );
+                  })() : null}
                 </div>
               ))
             ) : (
