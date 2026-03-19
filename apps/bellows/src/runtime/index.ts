@@ -14,3 +14,4 @@ export * from "./signaling.js";
 export * from "./studio-shell.js";
 export * from "./studio-shell-adapter.js";
 export * from "./studio-shell-harness.js";
+export * from "./tongs-persistence-contract.js";

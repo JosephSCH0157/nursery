@@ -17,3 +17,4 @@ Canonical references:
 - `/d:/nursery/nursery/BELLOWS_V1_RUNTIME_ADAPTER_CONTRACT_LAYER.md`
 - `/d:/nursery/nursery/BELLOWS_V1_STUDIO_SHELL_ADAPTER_SLICE.md`
 - `/d:/nursery/nursery/BELLOWS_V1_PERSISTENCE_ADAPTER_SLICE.md`
+- `/d:/nursery/nursery/BELLOWS_V1_PHASE_SEVEN_TONGS_RECOVERY_PERSISTENCE.md`

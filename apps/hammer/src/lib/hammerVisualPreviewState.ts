@@ -58,6 +58,17 @@ function inferImageMimeType(path: string | null | undefined): string {
   return "image/png";
 }
 
+function normalizeWorkpieceFilePath(workpieceId: string, input: string | null | undefined): string | null {
+  const value = readString(input);
+  if (!value) return null;
+  const normalized = value.replace(/^\/+/, "");
+  const prefix = `workpieces/${workpieceId}/`;
+  if (normalized.startsWith(prefix)) {
+    return normalized.slice(prefix.length);
+  }
+  return normalized;
+}
+
 export function getHammerPreviewVisualAssetRef(placement: HammerVisualPlacementRecord): string {
   return placement.asset_path ?? placement.storage_key ?? placement.asset_id ?? placement.asset_ref;
 }
@@ -110,7 +121,7 @@ export function buildHammerPreviewVisualState(args: {
     ingestState: resolved.approval_state ?? "suggested",
     imageAssetId: resolved.visual.asset_id ?? resolved.visual.asset_ref,
     imageUrl,
-    imagePath: resolved.visual.asset_path ?? null,
+    imagePath: resolved.visual.asset_path ?? resolved.visual.storage_key ?? null,
     entryId: resolved.visual.entry_id,
     placement: resolved.defaults ?? HAMMER_PREVIEW_PLACEMENT_DEFAULTS,
     reason,
@@ -124,7 +135,7 @@ export async function loadHammerPreviewAssetDataUrl(args: {
   | { ok: true; dataUrl: string; path: string }
   | { ok: false; error: string }
 > {
-  const path = readString(args.path);
+  const path = normalizeWorkpieceFilePath(args.workpieceId, args.path);
   if (!path) {
     return { ok: false, error: "Preview image path is missing." };
   }
