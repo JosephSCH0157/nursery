@@ -11,7 +11,7 @@
   --hammer-chip-height: 28px;
   --hammer-strip-height: 48px;
   display: grid;
-  grid-template-rows: minmax(0, min(46vh, 520px)) minmax(360px, 1fr);
+  grid-template-rows: minmax(280px, min(52vh, 600px)) minmax(300px, 1fr);
   gap: var(--hammer-gap-sm);
   min-height: calc(100dvh - 108px);
   height: calc(100dvh - 108px);
@@ -21,7 +21,7 @@
 
 .hammer-editor-shell__upper-wrap {
   min-height: 0;
-  max-height: min(46vh, 520px);
+  max-height: min(52vh, 600px);
   overflow: hidden;
   flex: 0 0 auto;
 }
@@ -36,7 +36,7 @@
 
 .hammer-editor-shell__edit-band {
   min-height: 0;
-  min-block-size: 360px;
+  min-block-size: 300px;
   display: flex;
   flex-direction: column;
   gap: var(--hammer-gap-sm);
@@ -63,9 +63,9 @@
 
 .hammer-pane--left,
 .hammer-pane--right {
-  overflow: auto;
-  align-content: start;
-  align-self: start;
+  overflow: hidden;
+  align-content: stretch;
+  align-self: stretch;
 }
 
 .hammer-pane--left.is-script-view {
@@ -87,7 +87,7 @@
 .hammer-pane--right {
   display: grid;
   gap: 10px;
-  align-content: start;
+  align-content: stretch;
 }
 
 .hammer-center-stack {
