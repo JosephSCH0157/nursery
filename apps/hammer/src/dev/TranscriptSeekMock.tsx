@@ -6213,8 +6213,8 @@ export default function TranscriptSeekMock(
   ]);
 
   useDynamicCssText(dynamicStyleScopeIdRef.current, dynamicStyles.cssText);
-  const transcriptControlsExpanded = isTranscriptControlsCollapsed ? "false" : "true";
-  const previewMonitorExpanded = isPreviewMonitorCollapsed ? "false" : "true";
+  const transcriptControlsExpanded = !isTranscriptControlsCollapsed;
+  const previewMonitorExpanded = !isPreviewMonitorCollapsed;
   const measuredSidePaneStyle = centerStackMeasuredHeight
     ? { height: `${centerStackMeasuredHeight}px`, maxHeight: `${centerStackMeasuredHeight}px` }
     : undefined;
@@ -7164,9 +7164,6 @@ export default function TranscriptSeekMock(
                     <div
                       className="hammer-monitor__selection-frame"
                       style={activePreviewFrameStyle}
-                      role="button"
-                      tabIndex={0}
-                      aria-label="Move selected visual"
                       onMouseDown={(event) => beginPreviewVisualDrag(
                         "move",
                         activePreviewPlacementRecord.placement_id,
@@ -7181,10 +7178,10 @@ export default function TranscriptSeekMock(
                       }}
                     >
                       <span className="hammer-monitor__selection-label">Selected visual</span>
-                      <button
-                        type="button"
+                      <span
                         className="hammer-monitor__selection-handle"
-                        aria-label="Resize selected visual"
+                        role="presentation"
+                        title="Drag to resize selected visual"
                         onMouseDown={(event) => beginPreviewVisualDrag(
                           "resize",
                           activePreviewPlacementRecord.placement_id,
@@ -7385,7 +7382,6 @@ export default function TranscriptSeekMock(
           <div
             id={previewMonitorPanelId}
             className="hammer-preview-monitor-strip"
-            aria-expanded={previewMonitorExpanded}
           >
             <div className="hammer-action-row">
               <button
