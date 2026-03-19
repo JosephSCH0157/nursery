@@ -5456,23 +5456,23 @@ export default function TranscriptSeekMock(
   const activeToolHint = getHammerToolHint(activeTool);
   const activeTimelineToolDefinition = TIMELINE_TOOL_ORDER.find((tool) => tool.id === activeTimelineTool) ?? TIMELINE_TOOL_ORDER[0];
   const activeTimelineZoom = TIMELINE_ZOOM_OPTIONS.find((option) => option.id === timelineZoomId) ?? TIMELINE_ZOOM_OPTIONS[0];
+  const upperPaneMinWidth = paneLayout.left_px
+    + paneLayout.center_px
+    + paneLayout.right_px
+    + TOOL_STRIP_WIDTH_PX
+    + (PANE_DIVIDER_WIDTH_PX * 2);
   const timelineRulerTicks = useMemo(
     () => buildTimelineRulerTicks(effectiveDurationSec),
     [effectiveDurationSec],
   );
   const timelineCanvasWidthPx = useMemo(
     () => Math.max(
-      Math.round((paneLayout.center_px - 180) * activeTimelineZoom.scale),
+      Math.round((upperPaneMinWidth - 220) * activeTimelineZoom.scale),
       Math.round(effectiveDurationSec * 28 * activeTimelineZoom.scale),
       640,
     ),
-    [activeTimelineZoom.scale, effectiveDurationSec, paneLayout.center_px],
+    [activeTimelineZoom.scale, effectiveDurationSec, upperPaneMinWidth],
   );
-  const upperPaneMinWidth = paneLayout.left_px
-    + paneLayout.center_px
-    + paneLayout.right_px
-    + TOOL_STRIP_WIDTH_PX
-    + (PANE_DIVIDER_WIDTH_PX * 2);
   const dynamicStyles = useMemo(() => {
     const rules: string[] = [];
     const addRule = (suffix: string, style: CSSProperties): string => {
@@ -6747,8 +6747,6 @@ export default function TranscriptSeekMock(
           </div>
         </HammerPaneSection>
         )) : null}
-        {timelineWorkspaceContent}
-        {transcriptWorkspaceContent}
         </div>
       </div>
 
@@ -6819,6 +6817,11 @@ export default function TranscriptSeekMock(
         ))}
       </div>
         </div>
+      </div>
+
+      <div className="hammer-editor-shell__edit-band">
+        {timelineWorkspaceContent}
+        {transcriptWorkspaceContent}
       </div>
     </section>
   );
