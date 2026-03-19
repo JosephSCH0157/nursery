@@ -180,6 +180,7 @@ type TimelineClip = {
   badge_label?: string | null;
   badge_tone?: "ripple" | "uncertain";
   title_detail?: string | null;
+  placement_id?: string | null;
 };
 
 type TimelineTrack = {
@@ -225,6 +226,24 @@ type HammerPreviewVisualDraft = {
   x: number;
   y: number;
   scale: number;
+};
+
+type HammerVisualTimelineDragState = {
+  placementId: string;
+  changeId: string;
+  startClientX: number;
+  startSec: number;
+  endSec: number;
+};
+
+type HammerVisualPreviewDragState = {
+  kind: "move" | "resize";
+  placementId: string;
+  startClientX: number;
+  startClientY: number;
+  startDraft: HammerPreviewVisualDraft;
+  containerWidth: number;
+  containerHeight: number;
 };
 
 type HammerDevRecordingEntry = {
@@ -1241,6 +1260,9 @@ export default function TranscriptSeekMock(
   const lastHandledPrepHandoffTokenRef = useRef<number | null>(null);
   const suppressNextPreviewBoundaryActionRef = useRef(false);
   const paneResizeStateRef = useRef<HammerPaneResizeState | null>(null);
+  const visualTimelineDragStateRef = useRef<HammerVisualTimelineDragState | null>(null);
+  const visualPreviewDragStateRef = useRef<HammerVisualPreviewDragState | null>(null);
+  const monitorSurfaceRef = useRef<HTMLDivElement | null>(null);
   const resolver = useMemo(() => new V1HammerMediaResolver(), []);
   const launchContext = useMemo(
     () => props.launchContext ?? (
@@ -1379,6 +1401,7 @@ export default function TranscriptSeekMock(
   const [isPreviewMonitorCollapsed, setIsPreviewMonitorCollapsed] = useState(true);
   const [paneLayout, setPaneLayout] = useState<HammerPaneLayout>(DEFAULT_PANE_LAYOUT);
   const [activeResizeHandle, setActiveResizeHandle] = useState<HammerPaneResizeHandle | null>(null);
+  const [visualDragSessionToken, setVisualDragSessionToken] = useState(0);
   const transcriptControlsPanelId = useId();
   const previewMonitorPanelId = useId();
   const proposedChangeCatalogRef = useRef<Map<string, HammerProposedChange>>(new Map());
@@ -1569,6 +1592,62 @@ export default function TranscriptSeekMock(
       window.removeEventListener("mouseup", onMouseUp);
     };
   }, [activeResizeHandle]);
+
+  useEffect(() => {
+    const hasTimelineDrag = Boolean(visualTimelineDragStateRef.current);
+    const hasPreviewDrag = Boolean(visualPreviewDragStateRef.current);
+    if (!hasTimelineDrag && !hasPreviewDrag) return;
+
+    const onMouseMove = (event: MouseEvent) => {
+      const previewDrag = visualPreviewDragStateRef.current;
+      if (previewDrag) {
+        if (previewDrag.kind === "move") {
+          const deltaX = (event.clientX - previewDrag.startClientX) / previewDrag.containerWidth;
+          const deltaY = (event.clientY - previewDrag.startClientY) / previewDrag.containerHeight;
+          updatePreviewVisualDraft(previewDrag.placementId, {
+            x: previewDrag.startDraft.x + deltaX,
+            y: previewDrag.startDraft.y + deltaY,
+          });
+        } else {
+          const deltaX = (event.clientX - previewDrag.startClientX) / previewDrag.containerWidth;
+          const deltaY = (event.clientY - previewDrag.startClientY) / previewDrag.containerHeight;
+          updatePreviewVisualDraft(previewDrag.placementId, {
+            scale: previewDrag.startDraft.scale + deltaX - (deltaY * 0.35),
+          });
+        }
+      }
+
+      const timelineDrag = visualTimelineDragStateRef.current;
+      if (timelineDrag) {
+        const deltaX = event.clientX - timelineDrag.startClientX;
+        const deltaSec = (deltaX / Math.max(1, timelineCanvasWidthPx)) * effectiveDurationSec;
+        updateVisualPlacementEnd(
+          timelineDrag.changeId,
+          timelineDrag.placementId,
+          timelineDrag.endSec + deltaSec,
+        );
+      }
+    };
+
+    const onMouseUp = () => {
+      visualPreviewDragStateRef.current = null;
+      visualTimelineDragStateRef.current = null;
+    };
+
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = previewVisualDragStateRef.current?.kind === "move" ? "grabbing" : "ew-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+
+    return () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, [effectiveDurationSec, timelineCanvasWidthPx, visualDragSessionToken]);
 
   useEffect(() => {
     let active = true;
@@ -2106,6 +2185,20 @@ export default function TranscriptSeekMock(
     ? {
       objectPosition: `${Math.round(activePreviewPlacementDraft.x * 100)}% ${Math.round(activePreviewPlacementDraft.y * 100)}%`,
       transform: `scale(${activePreviewPlacementDraft.scale})`,
+    }
+    : undefined;
+  const showPreviewVisualFrame = Boolean(
+    activePreviewVisual.kind === "image"
+    && activePreviewPlacementRecord
+    && selectedVisualPlacement
+    && activePreviewPlacementRecord.placement_id === selectedVisualPlacement.placement_id,
+  );
+  const activePreviewFrameStyle: CSSProperties | undefined = activePreviewPlacementDraft
+    ? {
+      left: `${clamp(activePreviewPlacementDraft.x * 100, 18, 82)}%`,
+      top: `${clamp(activePreviewPlacementDraft.y * 100, 18, 82)}%`,
+      width: `${clamp(26 * activePreviewPlacementDraft.scale, 18, 72)}%`,
+      height: `${clamp(34 * activePreviewPlacementDraft.scale, 18, 78)}%`,
     }
     : undefined;
 
@@ -3003,6 +3096,13 @@ export default function TranscriptSeekMock(
   }
 
   function selectTimelineClip(clip: TimelineClip) {
+    if (clip.placement_id) {
+      const linkedChange = proposedChanges.find((change) => change.linkedAssetId === clip.placement_id) ?? null;
+      if (linkedChange) {
+        selectProposedChange(linkedChange);
+        return;
+      }
+    }
     setSelectedProposedChangeId(null);
     if (clip.linked_row_id) {
       const linkedRow = overlayRowById.get(clip.linked_row_id) ?? null;
@@ -3130,6 +3230,30 @@ export default function TranscriptSeekMock(
     }));
   }
 
+  function updateVisualPlacementEnd(
+    changeId: string,
+    placementId: string,
+    nextEndSec: number,
+  ) {
+    setVisualPlacementsState((current) => {
+      const next = cloneVisualPlacements(current ?? props.visualPlacements);
+      if (!next) return current;
+      next.placements = next.placements.map((placement) => {
+        if (placement.placement_id !== placementId) return placement;
+        const safeEnd = clamp(nextEndSec, placement.start_sec + 0.5, transcriptDurationSec);
+        return {
+          ...placement,
+          end_sec: safeEnd,
+        };
+      });
+      return next;
+    });
+    setProposedChangeStatusOverrides((current) => ({
+      ...current,
+      [changeId]: "modified",
+    }));
+  }
+
   function updatePreviewVisualDraft(placementId: string, patch: Partial<HammerPreviewVisualDraft>) {
     setPreviewVisualDrafts((current) => {
       const previous = current[placementId] ?? { x: 0.5, y: 0.5, scale: 1 };
@@ -3143,6 +3267,38 @@ export default function TranscriptSeekMock(
         [placementId]: nextDraft,
       };
     });
+  }
+
+  function beginPreviewVisualDrag(kind: HammerVisualPreviewDragState["kind"], placementId: string, event: React.MouseEvent) {
+    const container = monitorSurfaceRef.current;
+    if (!container) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = container.getBoundingClientRect();
+    const startDraft = previewVisualDrafts[placementId] ?? { x: 0.5, y: 0.5, scale: 1 };
+    visualPreviewDragStateRef.current = {
+      kind,
+      placementId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startDraft,
+      containerWidth: Math.max(1, rect.width),
+      containerHeight: Math.max(1, rect.height),
+    };
+    setVisualDragSessionToken((current) => current + 1);
+  }
+
+  function beginTimelineVisualDurationDrag(changeId: string, placementId: string, clip: TimelineClip, event: React.MouseEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    visualTimelineDragStateRef.current = {
+      placementId,
+      changeId,
+      startClientX: event.clientX,
+      startSec: clip.start_sec,
+      endSec: clip.end_sec,
+    };
+    setVisualDragSessionToken((current) => current + 1);
   }
 
   function reviewSelectedProposedChange() {
@@ -3405,6 +3561,7 @@ export default function TranscriptSeekMock(
       editable: false,
       ripple_hint: false,
       status: placement.ingest_state === "approved" ? "approved" : placement.status,
+      placement_id: placement.placement_id,
       badge_label: placement.ingest_state === "approved"
         ? "Approved"
         : placement.status === "uncertain"
