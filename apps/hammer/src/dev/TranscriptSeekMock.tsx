@@ -1212,6 +1212,7 @@ export default function TranscriptSeekMock(
   const location = useLocation();
   const dynamicStyleScopeIdRef = useRef(`hammer-transcript-seek-mock-${Math.random().toString(36).slice(2, 10)}`);
   const mediaElementRef = useRef<HTMLMediaElement | null>(null);
+  const centerStackRef = useRef<HTMLDivElement | null>(null);
   const transcriptScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const transcriptRowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const transcriptRevealTimeoutRef = useRef<number | null>(null);
@@ -1343,6 +1344,7 @@ export default function TranscriptSeekMock(
   const [preparedReleasePackageLoading, setPreparedReleasePackageLoading] = useState(false);
   const [preparedReleasePackageSaving, setPreparedReleasePackageSaving] = useState(false);
   const [preparedReleasePackageFeedback, setPreparedReleasePackageFeedback] = useState<string | null>(null);
+  const [centerStackMeasuredHeight, setCenterStackMeasuredHeight] = useState<number | null>(null);
   const [activeTimelineTool, setActiveTimelineTool] = useState<TimelineToolId>("select");
   const [showDebugPanels, setShowDebugPanels] = useState(false);
   const [isTranscriptControlsCollapsed, setIsTranscriptControlsCollapsed] = useState(false);
@@ -1453,6 +1455,27 @@ export default function TranscriptSeekMock(
   useEffect(() => {
     writeSessionPaneLayout(paneLayoutStorageKey, paneLayout);
   }, [paneLayout, paneLayoutStorageKey]);
+
+  useEffect(() => {
+    const node = centerStackRef.current;
+    if (!node || typeof ResizeObserver === "undefined") return undefined;
+
+    const updateHeight = () => {
+      const nextHeight = Math.round(node.getBoundingClientRect().height);
+      setCenterStackMeasuredHeight((current) => (current === nextHeight ? current : nextHeight));
+    };
+
+    updateHeight();
+
+    const observer = new ResizeObserver(() => {
+      updateHeight();
+    });
+    observer.observe(node);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [activeTool, isPreviewMonitorCollapsed]);
 
   useEffect(() => {
     if (!activeResizeHandle) return;
@@ -5486,6 +5509,9 @@ export default function TranscriptSeekMock(
   useDynamicCssText(dynamicStyleScopeIdRef.current, dynamicStyles.cssText);
   const transcriptControlsExpanded = isTranscriptControlsCollapsed ? "false" : "true";
   const previewMonitorExpanded = isPreviewMonitorCollapsed ? "false" : "true";
+  const measuredSidePaneStyle = centerStackMeasuredHeight
+    ? { height: `${centerStackMeasuredHeight}px`, maxHeight: `${centerStackMeasuredHeight}px` }
+    : undefined;
 
   return (
     <section className="hammer-editor-shell">
@@ -5496,6 +5522,7 @@ export default function TranscriptSeekMock(
               "hammer-pane hammer-pane--left",
               activeWorkPanel === "script" ? "is-script-view" : "is-assets-view",
             )}
+            style={measuredSidePaneStyle}
           >
         {activeWorkPanel === "script" ? (
         <>
@@ -5867,6 +5894,7 @@ export default function TranscriptSeekMock(
       />
 
       <div className="hammer-pane hammer-pane--center">
+        <div ref={centerStackRef} className="hammer-center-stack">
         <div className="hammer-preview-surface-shell">
           <div className="hammer-monitor">
             <div className="hammer-monitor__chrome">
@@ -6299,6 +6327,7 @@ export default function TranscriptSeekMock(
           </div>
           )}
         </HammerPaneSection>
+        </div>
       </div>
 
       <button
@@ -6312,7 +6341,7 @@ export default function TranscriptSeekMock(
         className={getPaneDividerClassName(activeResizeHandle === "center-right")}
       />
 
-      <div className="hammer-pane hammer-pane--right">
+      <div className="hammer-pane hammer-pane--right" style={measuredSidePaneStyle}>
         <HammerPaneSection
           title={activeToolDefinition.label}
           subtitle={activeToolHint}
