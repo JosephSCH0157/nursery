@@ -49,7 +49,7 @@ export function buildBellowsGuestPresencePayload(args: {
 }
 
 function isDeviceReadinessState(value: unknown): value is BellowsDeviceReadinessState {
-  return value === "pending" || value === "ready" || value === "blocked";
+  return value === "unknown" || value === "pending" || value === "ready" || value === "blocked";
 }
 
 function isRoleCode(value: unknown): value is BellowsRoleCode {
@@ -57,11 +57,16 @@ function isRoleCode(value: unknown): value is BellowsRoleCode {
 }
 
 function isJoinState(value: unknown): value is BellowsJoinState {
-  return value === "pending" || value === "admitted" || value === "rejected" || value === "removed";
+  return value === "pending" || value === "approved" || value === "rejected";
 }
 
 function isPresenceState(value: unknown): value is BellowsPresenceState {
-  return value === "ready" || value === "joining" || value === "offline";
+  return value === "invited"
+    || value === "joining"
+    || value === "ready"
+    || value === "connected"
+    || value === "disconnected"
+    || value === "removed";
 }
 
 function isGuestReadiness(value: unknown): value is BellowsGuestReadiness {

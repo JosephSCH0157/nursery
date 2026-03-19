@@ -1353,6 +1353,8 @@ export default function TranscriptSeekMock(
     firstSegment?.segment_id ?? null,
   );
   const [selectedOverlayRowId, setSelectedOverlayRowId] = useState<string | null>(null);
+  const [transcriptSelectionAnchorGroupId, setTranscriptSelectionAnchorGroupId] = useState<string | null>(null);
+  const [selectedTranscriptGroupIds, setSelectedTranscriptGroupIds] = useState<string[]>([]);
   const [revealedTranscriptRowId, setRevealedTranscriptRowId] = useState<string | null>(null);
   const [pendingTranscriptRevealRowId, setPendingTranscriptRevealRowId] = useState<string | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
@@ -2561,6 +2563,10 @@ export default function TranscriptSeekMock(
   const selectedReadableTranscriptGroup = useMemo(
     () => findHammerReadableTranscriptGroupByRowId(readableTranscriptGroups, selectedOverlayRowId),
     [readableTranscriptGroups, selectedOverlayRowId],
+  );
+  const selectedTranscriptGroupIdSet = useMemo(
+    () => new Set(selectedTranscriptGroupIds),
+    [selectedTranscriptGroupIds],
   );
   const playheadOverlayRow = useMemo(
     () => (
