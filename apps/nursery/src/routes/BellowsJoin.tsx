@@ -272,6 +272,7 @@ function buildStatusTone(
 ): "ok" | "warn" | "error" {
   if (phase === "error") return "error";
   if (hostSignal?.kind === "finalizing" || hostSignal?.kind === "closed") return "warn";
+  if (phase === "permissions" && hasGuestAdvancingHostSignal(hostSignal)) return "warn";
   if (readiness.overall === "blocked") return "warn";
   return "ok";
 }
@@ -286,7 +287,26 @@ function buildStatusHeading(
     case "connecting":
       return "Connecting live session";
     case "permissions":
-      return "Checking devices";
+      switch (hostSignal?.kind) {
+        case "admitted":
+          return "Host opened the room";
+        case "preflight":
+          return "Preflight in progress";
+        case "ready_to_start":
+          return "Studio ready";
+        case "countdown":
+          return "Countdown live";
+        case "sync_initializing":
+          return "Initializing sync";
+        case "recording":
+          return "Recording underway";
+        case "finalizing":
+          return "Session closing out";
+        case "closed":
+          return "Session closed";
+        default:
+          return "Checking devices";
+      }
     case "waiting":
       return "Waiting for host";
     case "signaled":
@@ -323,6 +343,10 @@ function buildPermissionStatusMessage(args: {
   readiness: BellowsParticipantReadiness;
   hostSignal: BellowsHostSessionSignal | null;
 }): string {
+  const deviceSetupAction = args.readiness.overall === "blocked"
+    ? "Bellows still needs camera or microphone permission before you can join."
+    : "Finish camera and microphone setup to join.";
+
   const base = args.readiness.overall === "blocked"
     ? "Bellows connected you, but camera or microphone permissions still need attention."
     : "Bellows is checking local media readiness.";
@@ -331,7 +355,50 @@ function buildPermissionStatusMessage(args: {
     return base;
   }
 
-  return `${args.hostSignal?.headline}. ${base}`;
+  switch (args.hostSignal?.kind) {
+    case "admitted":
+      return `Host opened the room. ${deviceSetupAction}`;
+    case "preflight":
+      return args.readiness.overall === "blocked"
+        ? "Preflight is in progress, but camera or microphone permissions still need attention before you can join."
+        : "Preflight is in progress. Bellows is waiting for your device setup to finish.";
+    case "ready_to_start":
+      return `Studio is ready to start. ${deviceSetupAction}`;
+    case "countdown":
+      return args.readiness.overall === "blocked"
+        ? "Countdown has started, but your camera or microphone is not ready yet."
+        : "Countdown has started. Finish camera and microphone setup now.";
+    case "sync_initializing":
+      return args.readiness.overall === "blocked"
+        ? "Bellows is initializing sync, but your camera or microphone is not ready yet."
+        : "Bellows is initializing sync. Finish camera and microphone setup immediately.";
+    case "recording":
+      return args.readiness.overall === "blocked"
+        ? "Bellows has already moved into recording, but your camera or microphone is still not ready."
+        : "Bellows has already moved into recording. Finish camera and microphone setup immediately.";
+    case "finalizing":
+      return "The session is already closing out. Bellows can no longer wait for device setup to finish.";
+    case "closed":
+      return "This session is closed and no longer admitting live participation.";
+    default:
+      return `${args.hostSignal?.headline ?? "Host signaled"}. ${base}`;
+  }
+}
+
+function buildStatusDetail(args: {
+  phase: JoinPhase;
+  errorMessage: string | null;
+  deviceError: string | null;
+  statusMessage: string;
+  hostSignal: BellowsHostSessionSignal | null;
+}): string {
+  if (args.errorMessage) return args.errorMessage;
+
+  if (args.phase === "permissions" && hasGuestAdvancingHostSignal(args.hostSignal)) {
+    return [args.statusMessage, args.deviceError].filter(Boolean).join(" ");
+  }
+
+  return args.deviceError ?? args.statusMessage;
 }
 
 export default function BellowsJoin() {
@@ -369,7 +436,13 @@ export default function BellowsJoin() {
   const localMedia = useBellowsLocalMediaReadiness(Boolean(resolvedLink && guestKey && presenceConnected));
   const presenceAudioLevelPct = Math.max(0, Math.min(100, Math.round(localMedia.audioLevelPct / 10) * 10));
   const effectiveStatusTone = buildStatusTone(phase, localMedia.readiness, hostSignal);
-  const statusDetail = errorMessage ?? localMedia.deviceError ?? statusMessage;
+  const statusDetail = buildStatusDetail({
+    phase,
+    errorMessage,
+    deviceError: localMedia.deviceError,
+    statusMessage,
+    hostSignal,
+  });
 
   useEffect(() => {
     const node = previewRef.current;

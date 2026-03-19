@@ -295,7 +295,7 @@ type TranscriptSeekMockProps = {
 };
 
 type WorkPanelView = "script" | "assets";
-type AssetPanelView = "video" | "images" | "music";
+type AssetPanelView = "transcript" | "video" | "images" | "music";
 type HammerToolId = "polish" | "audio" | "video" | "captions" | "details" | "finishing" | "export";
 type TimelineToolId = "select" | "hand" | "cut" | "marker" | "comment" | "text";
 
@@ -321,9 +321,10 @@ const WORK_PANEL_VIEWS: Array<{ id: WorkPanelView; label: string }> = [
 ];
 
 const ASSET_PANEL_VIEWS: Array<{ id: AssetPanelView; label: string }> = [
+  { id: "transcript", label: "Transcript" },
   { id: "video", label: "Video" },
   { id: "images", label: "Images" },
-  { id: "music", label: "Music" },
+  { id: "music", label: "Audio" },
 ];
 
 const HAMMER_TOOL_ORDER: Array<{ id: HammerToolId; label: string; shortLabel: string }> = [
@@ -1385,7 +1386,7 @@ export default function TranscriptSeekMock(
   const [editPlanFeedback, setEditPlanFeedback] = useState<string | null>(null);
   const [editPlanFeedbackTone, setEditPlanFeedbackTone] = useState<"neutral" | "success" | "warning">("neutral");
   const [activeWorkPanel, setActiveWorkPanel] = useState<WorkPanelView>("script");
-  const [activeAssetPanel, setActiveAssetPanel] = useState<AssetPanelView>("video");
+  const [activeAssetPanel, setActiveAssetPanel] = useState<AssetPanelView>("transcript");
   const [activeTool, setActiveTool] = useState<HammerToolId>("polish");
   const [selectedMacroRecipeRef, setSelectedMacroRecipeRef] = useState<string | null>(
     () => props.selectedMacroRecipeRef ?? null,
@@ -3875,6 +3876,7 @@ export default function TranscriptSeekMock(
   const projectAssets = useMemo(
     () => {
       const assets: Record<AssetPanelView, HammerProjectAsset[]> = {
+        transcript: [],
         video: [],
         images: [],
         music: [],
@@ -3957,17 +3959,19 @@ export default function TranscriptSeekMock(
     ],
   );
 
-  const activeAssetItems = projectAssets[activeAssetPanel];
+  const activeAssetItems = activeAssetPanel === "transcript" ? [] : projectAssets[activeAssetPanel];
   const activeAssetViewDefinition = ASSET_PANEL_VIEWS.find((panel) => panel.id === activeAssetPanel) ?? ASSET_PANEL_VIEWS[0];
   const linkedAssetCount = projectAssets.video.length + projectAssets.images.length + projectAssets.music.length;
   const activeAssetEmptyMessage = useMemo(() => {
     switch (activeAssetPanel) {
+      case "transcript":
+        return "No transcript is loaded for this workpiece yet.";
       case "video":
         return "No video media is linked to this workpiece yet.";
       case "images":
         return "No images are linked to this workpiece yet.";
       case "music":
-        return "No music assets are available for this edit yet.";
+        return "No audio assets are available for this edit yet.";
       default:
         return "No assets are linked to this workpiece yet.";
     }
@@ -7151,141 +7155,159 @@ export default function TranscriptSeekMock(
         </HammerPaneSection>
         </>
         ) : (
-          <HammerPaneSection
-            title="Assets"
-            subtitle="Assets stays limited to project-linked video, images, and music already attached to this workpiece."
-            action={(
-              <span className="hammer-pill">Source bin</span>
-            )}
-            sectionClassName="hammer-pane-section--overflow-hidden"
-            bodyClassName="hammer-pane-section__body--scroll"
-          >
-            <div className="hammer-tab-row">
-              {ASSET_PANEL_VIEWS.map((panel) => (
-                <button
-                  key={panel.id}
-                  type="button"
-                  onClick={() => setActiveAssetPanel(panel.id)}
-                  className={getToggleButtonClassName(activeAssetPanel === panel.id)}
-                >
-                  {panel.label}
-                </button>
-              ))}
-            </div>
-            <div className="hammer-meta-strip">
-              <span className="hammer-pill">{projectAssets.video.length} video</span>
-              <span className="hammer-pill">{projectAssets.images.length} images</span>
-              <span className="hammer-pill">{projectAssets.music.length} music</span>
-              <span className="hammer-pill">{linkedAssetCount} linked</span>
-            </div>
-            <div className="hammer-assets-context">
-              <div className="hammer-assets-context__head">
-                <strong className="hammer-copy-strong">{activeAssetViewDefinition.label} Collection</strong>
-                <span className="hammer-pill">{sourceModeLabel}</span>
+          <>
+            <HammerPaneSection
+              title="Source Browser"
+              subtitle="Transcript stays semantic and editable. Video, images, and audio stay as linked source material."
+              action={(
+                <span className="hammer-pane-badge">Source rail</span>
+              )}
+              sectionClassName="hammer-pane-section--overflow-hidden"
+              bodyClassName="hammer-pane-section__body--scroll"
+            >
+              <div className="hammer-tab-row">
+                {ASSET_PANEL_VIEWS.map((panel) => (
+                  <button
+                    key={panel.id}
+                    type="button"
+                    onClick={() => setActiveAssetPanel(panel.id)}
+                    className={getToggleButtonClassName(activeAssetPanel === panel.id)}
+                  >
+                    {panel.label}
+                  </button>
+                ))}
               </div>
-              <div className="hammer-inspector-grid">
-                <div>
-                  <div className="hammer-label">workpiece</div>
-                  <div className="hammer-mono">{resolvedLaunch.launch_context.workpiece_id}</div>
-                </div>
-                <div>
-                  <div className="hammer-label">source mode</div>
-                  <div>{sourceModeLabel}</div>
-                </div>
-                <div>
-                  <div className="hammer-label">media source</div>
-                  <div>{activeMediaSourceLabel}</div>
-                </div>
-                <div>
-                  <div className="hammer-label">collection</div>
-                  <div>{activeAssetViewDefinition.label}</div>
-                </div>
+              <div className="hammer-meta-strip">
+                <span className="hammer-pane-badge">{overlayRows.length} transcript lines</span>
+                <span className="hammer-pane-badge">{projectAssets.video.length} video</span>
+                <span className="hammer-pane-badge">{projectAssets.images.length} images</span>
+                <span className="hammer-pane-badge">{projectAssets.music.length} audio</span>
+                <span className="hammer-pane-badge">{linkedAssetCount} linked</span>
               </div>
-            </div>
-            {activeAssetItems.length > 0 ? (
-              activeAssetItems.map((asset) => {
-                const assetChange = asset.placementId
-                  ? proposedChanges.find((change) => change.linkedAssetId === asset.placementId) ?? null
-                  : null;
-                return (
-                <div
-                  key={asset.id}
-                  className={cx(
-                    "hammer-asset-card",
-                    assetChange && getReviewStateClassName(assetChange.status),
-                    asset.placementId && selectedProposedChange?.linkedAssetId === asset.placementId && "is-selected",
-                  )}
-                >
-                  <div className="hammer-asset-card__header">
-                    <div className="hammer-stack-4">
-                      <strong className="hammer-copy-strong">{asset.title}</strong>
-                      <div className="hammer-copy-sm hammer-copy-muted">{asset.usageHint}</div>
-                    </div>
-                    <div className="hammer-inline-list">
-                      <span className="hammer-pill">{asset.kindLabel}</span>
-                      <span className="hammer-pill">{asset.status}</span>
-                    </div>
+            </HammerPaneSection>
+            {activeAssetPanel === "transcript" ? (
+              transcriptWorkspaceContent
+            ) : (
+              <HammerPaneSection
+                title={activeAssetViewDefinition.label}
+                subtitle={`${activeAssetViewDefinition.label} sources linked to this workpiece.`}
+                action={(
+                  <span className="hammer-pane-badge">{sourceModeLabel}</span>
+                )}
+                sectionClassName="hammer-pane-section--overflow-hidden"
+                bodyClassName="hammer-pane-section__body--scroll"
+              >
+                <div className="hammer-assets-context">
+                  <div className="hammer-assets-context__head">
+                    <strong className="hammer-copy-strong">{activeAssetViewDefinition.label} Collection</strong>
+                    <span className="hammer-pane-badge">{sourceModeLabel}</span>
                   </div>
-                  <div className="hammer-asset-card__meta-grid">
-                    <div>
-                      <div className="hammer-label">source</div>
-                      <div>{asset.sourceLabel}</div>
-                    </div>
-                    <div>
-                      <div className="hammer-label">duration</div>
-                      <div>{asset.durationLabel ?? "n/a"}</div>
-                    </div>
+                  <div className="hammer-inspector-grid">
                     <div>
                       <div className="hammer-label">workpiece</div>
-                      <div className="hammer-mono">{asset.workpieceId}</div>
+                      <div className="hammer-mono">{resolvedLaunch.launch_context.workpiece_id}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">source mode</div>
+                      <div>{sourceModeLabel}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">media source</div>
+                      <div>{activeMediaSourceLabel}</div>
+                    </div>
+                    <div>
+                      <div className="hammer-label">collection</div>
+                      <div>{activeAssetViewDefinition.label}</div>
                     </div>
                   </div>
-                  <div className="hammer-copy-sm hammer-copy-muted hammer-mono">{asset.id}</div>
-                  <div className="hammer-copy-sm">{asset.detail}</div>
-                  {assetChange ? (
-                      <div className="hammer-action-row">
-                        <button
-                          type="button"
-                          className="hammer-button-xs"
-                          onClick={() => selectProposedChange(assetChange)}
-                        >
-                          Review
-                        </button>
-                        <button
-                          type="button"
-                          className="hammer-button-xs"
-                          onClick={() => {
-                            selectProposedChange(assetChange);
-                            setProposedChangeStatus(assetChange, "approved");
-                          }}
-                        >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          className="hammer-button-xs"
-                          onClick={() => {
-                            selectProposedChange(assetChange);
-                            setProposedChangeStatus(assetChange, "rejected");
-                          }}
-                        >
-                          Reject
-                        </button>
+                </div>
+                {activeAssetItems.length > 0 ? (
+                  activeAssetItems.map((asset) => {
+                    const assetChange = asset.placementId
+                      ? proposedChanges.find((change) => change.linkedAssetId === asset.placementId) ?? null
+                      : null;
+                    return (
+                      <div
+                        key={asset.id}
+                        className={cx(
+                          "hammer-asset-card",
+                          assetChange && getReviewStateClassName(assetChange.status),
+                          asset.placementId && selectedProposedChange?.linkedAssetId === asset.placementId && "is-selected",
+                        )}
+                      >
+                        <div className="hammer-asset-card__header">
+                          <div className="hammer-stack-4">
+                            <strong className="hammer-copy-strong">{asset.title}</strong>
+                            <div className="hammer-copy-sm hammer-copy-muted">{asset.usageHint}</div>
+                          </div>
+                          <div className="hammer-inline-list">
+                            <span className="hammer-pane-badge">{asset.kindLabel}</span>
+                            <span className="hammer-pane-badge">{asset.status}</span>
+                          </div>
+                        </div>
+                        <div className="hammer-asset-card__meta-grid">
+                          <div>
+                            <div className="hammer-label">source</div>
+                            <div>{asset.sourceLabel}</div>
+                          </div>
+                          <div>
+                            <div className="hammer-label">duration</div>
+                            <div>{asset.durationLabel ?? "n/a"}</div>
+                          </div>
+                          <div>
+                            <div className="hammer-label">workpiece</div>
+                            <div className="hammer-mono">{asset.workpieceId}</div>
+                          </div>
+                        </div>
+                        <div className="hammer-copy-sm hammer-copy-muted hammer-mono">{asset.id}</div>
+                        <div className="hammer-copy-sm">{asset.detail}</div>
+                        {assetChange ? (
+                          <div className="hammer-action-row">
+                            <button
+                              type="button"
+                              className="hammer-button-xs"
+                              onClick={() => selectProposedChange(assetChange)}
+                            >
+                              Review
+                            </button>
+                            <button
+                              type="button"
+                              className="hammer-button-xs"
+                              onClick={() => {
+                                selectProposedChange(assetChange);
+                                setProposedChangeStatus(assetChange, "approved");
+                              }}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              className="hammer-button-xs"
+                              onClick={() => {
+                                selectProposedChange(assetChange);
+                                setProposedChangeStatus(assetChange, "rejected");
+                              }}
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        ) : null}
                       </div>
-                  ) : null}
-                </div>
-              )})
-            ) : (
-              <div className="hammer-assets-empty-state">
-                <div className="hammer-copy-md hammer-copy-dim">
-                  {activeAssetEmptyMessage}
-                </div>
-                <div className="hammer-copy-sm hammer-copy-muted">
-                  When this workpiece gains {activeAssetPanel} assets through its launch context or Tongs-linked media, they will appear here.
-                </div>
-              </div>
+                    );
+                  })
+                ) : (
+                  <div className="hammer-assets-empty-state">
+                    <div className="hammer-copy-md hammer-copy-dim">
+                      {activeAssetEmptyMessage}
+                    </div>
+                    <div className="hammer-copy-sm hammer-copy-muted">
+                      When this workpiece gains {activeAssetViewDefinition.label.toLowerCase()} sources through its launch context or Tongs-linked media, they will appear here.
+                    </div>
+                  </div>
+                )}
+              </HammerPaneSection>
             )}
-          </HammerPaneSection>
+          </>
         )}
       </div>
 
@@ -7838,7 +7860,6 @@ export default function TranscriptSeekMock(
 
       <div className="hammer-editor-shell__edit-band">
         {timelineWorkspaceContent}
-        {transcriptWorkspaceContent}
       </div>
     </section>
   );
