@@ -482,7 +482,7 @@ export interface ReleasePacketStub {
       readiness: ReleasePacketStubAudioPlanReadiness | null;
       executable: boolean;
       backend: "builtin" | "ffmpeg" | "none";
-      current_strategy: "builtin_wav_v1" | null;
+      current_strategy: "builtin_wav_v1" | "ffmpeg_working_audio_v1" | null;
       future_strategy: "ffmpeg_working_audio_v1" | null;
       requires_ffmpeg: boolean;
       detail: string | null;

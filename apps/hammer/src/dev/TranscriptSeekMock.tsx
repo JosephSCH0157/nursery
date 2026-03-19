@@ -3705,6 +3705,11 @@ export default function TranscriptSeekMock(
         <span className="hammer-pill">confidence {selectedProposedChange.confidence ?? "n/a"}</span>
         <span className="hammer-pill">{selectedProposedChange.type.replaceAll("_", " ")}</span>
       </div>
+      {selectedProposedChange.linkedAssetId ? (
+        <div className="hammer-copy-sm hammer-copy-muted hammer-mono">
+          asset {selectedProposedChange.linkedAssetId}
+        </div>
+      ) : null}
       <div className="hammer-action-row">
         <button type="button" className="hammer-button-xs" onClick={reviewSelectedProposedChange}>
           Review
@@ -6649,6 +6654,9 @@ export default function TranscriptSeekMock(
                   <h4 className="hammer-monitor__title">{activePreviewVisual.entryId}</h4>
                   <div className="hammer-monitor__hint">
                     Hammer is resolving the active mapped image from canonical Tongs assets.
+                  </div>
+                  <div className="hammer-copy-sm hammer-copy-muted hammer-mono">
+                    {activePreviewVisual.imagePath ?? activePreviewVisual.imageAssetId}
                   </div>
                 </div>
               ) : (
