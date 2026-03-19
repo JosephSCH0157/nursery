@@ -1139,6 +1139,11 @@
   transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
 }
 
+.hammer-script-row.is-selection-range {
+  border-color: rgba(125, 211, 252, 0.62);
+  box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.16);
+}
+
 .hammer-script-row[data-selected="true"] {
   border-color: rgba(96, 165, 250, 0.72);
   background: rgba(59, 130, 246, 0.2);
@@ -1202,6 +1207,13 @@
 }
 
 .hammer-script-row__status-list {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.hammer-script-row__actions {
   display: flex;
   align-items: center;
   gap: 6px;

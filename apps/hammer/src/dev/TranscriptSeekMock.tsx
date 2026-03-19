@@ -2960,6 +2960,65 @@ export default function TranscriptSeekMock(
     setLastPreviewSkip(null);
   }
 
+  function selectTranscriptGroup(
+    groupId: string,
+    primaryRow: TranscriptOverlayRow,
+    options?: { extendSelection?: boolean },
+  ) {
+    if (options?.extendSelection && transcriptSelectionAnchorGroupId) {
+      const anchorIndex = readableTranscriptGroups.findIndex((group) => group.group_id === transcriptSelectionAnchorGroupId);
+      const targetIndex = readableTranscriptGroups.findIndex((group) => group.group_id === groupId);
+      if (anchorIndex >= 0 && targetIndex >= 0) {
+        const [start, end] = anchorIndex <= targetIndex
+          ? [anchorIndex, targetIndex]
+          : [targetIndex, anchorIndex];
+        setSelectedTranscriptGroupIds(readableTranscriptGroups.slice(start, end + 1).map((group) => group.group_id));
+      } else {
+        setSelectedTranscriptGroupIds([groupId]);
+      }
+    } else {
+      setTranscriptSelectionAnchorGroupId(groupId);
+      setSelectedTranscriptGroupIds([groupId]);
+    }
+    selectTranscriptRow(primaryRow);
+  }
+
+  function syncTranscriptGroupSelectionForRowId(rowId: string | null) {
+    if (!rowId) {
+      setSelectedTranscriptGroupIds([]);
+      setTranscriptSelectionAnchorGroupId(null);
+      return;
+    }
+    const groupId = readableGroupByRowId.get(rowId) ?? null;
+    if (!groupId) {
+      setSelectedTranscriptGroupIds([]);
+      setTranscriptSelectionAnchorGroupId(null);
+      return;
+    }
+    setTranscriptSelectionAnchorGroupId(groupId);
+    setSelectedTranscriptGroupIds([groupId]);
+  }
+
+  function resolveTranscriptSelectionSegments(groupIds: string[]) {
+    return [...new Set(
+      readableTranscriptGroups
+        .filter((group) => groupIds.includes(group.group_id))
+        .flatMap((group) => group.source_segment_ids),
+    )];
+  }
+
+  function removeSelectedTranscriptGroups() {
+    const selectedSegments = resolveTranscriptSelectionSegments(selectedTranscriptGroupIds);
+    if (selectedSegments.length === 0) return;
+    selectedSegments.forEach((segmentId) => setDeleteInstructionApplied(segmentId, true));
+  }
+
+  function restoreSelectedTranscriptGroups() {
+    const selectedSegments = resolveTranscriptSelectionSegments(selectedTranscriptGroupIds);
+    if (selectedSegments.length === 0) return;
+    selectedSegments.forEach((segmentId) => setDeleteInstructionApplied(segmentId, false));
+  }
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
@@ -3071,6 +3130,7 @@ export default function TranscriptSeekMock(
     if (clip.linked_row_id) {
       const linkedRow = overlayRowById.get(clip.linked_row_id) ?? null;
       if (linkedRow) {
+        syncTranscriptGroupSelectionForRowId(linkedRow.row_id);
         seekToRow(linkedRow);
         return;
       }
@@ -3093,6 +3153,7 @@ export default function TranscriptSeekMock(
     if (linkedRowId) {
       const linkedRow = overlayRowById.get(linkedRowId) ?? null;
       if (linkedRow) {
+        syncTranscriptGroupSelectionForRowId(linkedRow.row_id);
         seekToRow(linkedRow);
         return;
       }
@@ -3101,10 +3162,13 @@ export default function TranscriptSeekMock(
     if (linkedSegmentId) {
       const linkedRow = overlayRowBySegmentId.get(linkedSegmentId) ?? null;
       if (linkedRow) {
+        syncTranscriptGroupSelectionForRowId(linkedRow.row_id);
         seekToRow(linkedRow);
         return;
       }
     }
+    setSelectedTranscriptGroupIds([]);
+    setTranscriptSelectionAnchorGroupId(null);
     seekTo(Math.max(0, change.startSec - 1.5), undefined, linkedSegmentId ?? undefined);
   }
 
@@ -3372,6 +3436,27 @@ export default function TranscriptSeekMock(
     });
   }
 
+  function setDeleteInstructionApplied(segmentId: string, shouldApply: boolean) {
+    setEditInstructions((prev) => {
+      const existing = prev.find((instruction) => (
+        instruction.type === "delete"
+        && instruction.segment_id === segmentId
+      ));
+      if (shouldApply) {
+        if (existing) return prev;
+        const next: HammerDeleteInstruction = {
+          instruction_id: createInstructionId(),
+          segment_id: segmentId,
+          type: "delete",
+          created_at: new Date().toISOString(),
+        };
+        return [...prev, next];
+      }
+      if (!existing) return prev;
+      return prev.filter((instruction) => instruction.instruction_id !== existing.instruction_id);
+    });
+  }
+
   function toggleMuteInstruction(segmentId: string) {
     setEditInstructions((prev) => {
       const existing = prev.find((instruction) => (
@@ -3632,6 +3717,8 @@ export default function TranscriptSeekMock(
     proposedChangeCatalogRef.current.clear();
     setSelectedProposedChangeId(null);
     setProposedChangeStatusOverrides({});
+    setTranscriptSelectionAnchorGroupId(null);
+    setSelectedTranscriptGroupIds([]);
   }, [resolvedLaunch.launch_context.workpiece_id]);
 
   useEffect(() => {
@@ -6746,6 +6833,14 @@ export default function TranscriptSeekMock(
               const isAtPlayhead = Boolean(playheadReadableTranscriptGroup && playheadReadableTranscriptGroup.group_id === group.group_id);
               const isReviewHighlighted = group.row_ids.some((rowId) => highlightedTranscriptRowIds.has(rowId));
               const reviewHighlightStatus = isReviewHighlighted ? selectedPolishChange?.status ?? "suggested" : undefined;
+              const isTranscriptRangeSelected = selectedTranscriptGroupIdSet.has(group.group_id);
+              const selectedRangeSegments = isTranscriptRangeSelected
+                ? resolveTranscriptSelectionSegments(selectedTranscriptGroupIds)
+                : [];
+              const selectedRangeDeleted = selectedRangeSegments.length > 0 && selectedRangeSegments.every((segmentId) => {
+                const row = overlayRowBySegmentId.get(segmentId) ?? null;
+                return row?.is_deleted ?? false;
+              });
               return (
                 <div
                   key={group.group_id}
@@ -6758,6 +6853,7 @@ export default function TranscriptSeekMock(
                   }}
                   className={cx(
                     "hammer-script-row",
+                    isTranscriptRangeSelected && "is-selection-range",
                     revealedTranscriptRowId && group.row_ids.includes(revealedTranscriptRowId) && "is-revealed",
                   )}
                   data-selected={isSelected ? "true" : "false"}
@@ -6773,7 +6869,11 @@ export default function TranscriptSeekMock(
                 >
                     <button
                       type="button"
-                      onClick={() => selectTranscriptRow(primaryRow)}
+                      onClick={(event) => selectTranscriptGroup(
+                        group.group_id,
+                        primaryRow,
+                        { extendSelection: event.shiftKey },
+                      )}
                       aria-current={isAtPlayhead ? "true" : undefined}
                       className="hammer-script-row__button"
                     >
@@ -6815,6 +6915,54 @@ export default function TranscriptSeekMock(
                         </div>
                       </div>
                     </button>
+                    {(isReviewHighlighted && selectedPolishChange) || isTranscriptRangeSelected ? (
+                      <div className="hammer-script-row__actions">
+                        {isReviewHighlighted && selectedPolishChange ? (
+                          <>
+                            <button
+                              type="button"
+                              className="hammer-button-xs"
+                              onClick={() => setProposedChangeStatus(selectedPolishChange, "approved")}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              className="hammer-button-xs"
+                              onClick={() => setProposedChangeStatus(selectedPolishChange, "rejected")}
+                            >
+                              Reject
+                            </button>
+                            <button
+                              type="button"
+                              className="hammer-button-xs"
+                              onClick={() => setProposedChangeStatus(selectedPolishChange, "suggested")}
+                            >
+                              Restore
+                            </button>
+                          </>
+                        ) : null}
+                        {isTranscriptRangeSelected ? (
+                          selectedRangeDeleted ? (
+                            <button
+                              type="button"
+                              className="hammer-button-xs"
+                              onClick={restoreSelectedTranscriptGroups}
+                            >
+                              Restore selection
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="hammer-button-xs"
+                              onClick={removeSelectedTranscriptGroups}
+                            >
+                              Remove selection
+                            </button>
+                          )
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 );
               })
