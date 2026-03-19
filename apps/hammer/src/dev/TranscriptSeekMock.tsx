@@ -3801,7 +3801,6 @@ export default function TranscriptSeekMock(
     switch (props.prepHandoffAction.id) {
       case "review_transcript": {
         setActiveTool("polish");
-        setActiveWorkPanel("script");
         setActiveTimelineTool("select");
         if (selectedOverlayRow) {
           if (!revealTranscriptRow(selectedOverlayRow.row_id)) {
@@ -3817,8 +3816,6 @@ export default function TranscriptSeekMock(
       }
       case "review_visuals": {
         setActiveTool("video");
-        setActiveWorkPanel("assets");
-        setActiveAssetPanel("images");
         setActiveTimelineTool("select");
         const suggestedClip = visualSuggestionClips.find((clip) => clip.status === "uncertain")
           ?? visualSuggestionClips[0]
@@ -3830,7 +3827,6 @@ export default function TranscriptSeekMock(
       }
       case "review_audio": {
         setActiveTool("audio");
-        setActiveWorkPanel("script");
         setActiveTimelineTool("select");
         if (selectedOverlayRow) {
           if (!revealTranscriptRow(selectedOverlayRow.row_id)) {
@@ -3846,7 +3842,6 @@ export default function TranscriptSeekMock(
       }
       case "review_macros": {
         setActiveTool("finishing");
-        setActiveWorkPanel("script");
         setActiveTimelineTool("select");
         const nextMacro = macroReadiness.find((entry) => entry.status !== "blocked")
           ?? macroReadiness[0]
@@ -3858,7 +3853,6 @@ export default function TranscriptSeekMock(
       }
       case "begin_manual_editing": {
         setActiveTool("polish");
-        setActiveWorkPanel("script");
         setActiveTimelineTool("select");
         break;
       }
