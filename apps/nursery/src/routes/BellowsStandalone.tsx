@@ -1492,8 +1492,8 @@ export default function BellowsStandalone() {
           <section className="bellows-standalone__panel">
             <div className="bellows-standalone__panel-header">
               <div>
-                <h2>Recovery Controls</h2>
-                <p>Append-only recovery restore: Bellows restores an older snapshot by writing a new canonical recovery checkpoint.</p>
+                <h2>Recovery Restore</h2>
+                <p>Append-only restore: Bellows writes a new canonical recovery checkpoint from an earlier trusted snapshot. Existing recovery history is never rewritten.</p>
               </div>
             </div>
 
@@ -1512,21 +1512,21 @@ export default function BellowsStandalone() {
                 disabled={controlsDisabled || loadingRecoveryTargets || !canStepBackPhase}
                 onClick={() => void runRecoveryRestore("step-back-phase", previousPhaseTarget)}
               >
-                Step Back One Phase
+                Restore Earlier Phase
               </button>
               <button
                 type="button"
                 disabled={controlsDisabled || loadingRecoveryTargets || !canResetToBaseline}
                 onClick={() => void runRecoveryRestore("reset-baseline", baselineTarget)}
               >
-                Reset To Baseline
+                Append Baseline Restore
               </button>
               <button
                 type="button"
                 disabled={loadingRuntime}
                 onClick={() => triggerRuntimeReload("auto")}
               >
-                Reload Canonical State
+                Reload Persisted Truth
               </button>
             </div>
 

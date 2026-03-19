@@ -1045,6 +1045,21 @@ function formatVisualApprovalStateLabel(state: "suggested" | "approved" | null |
   return "Suggested";
 }
 
+function getReviewStateClassName(status: HammerProposedChangeStatus | string | null | undefined): string | null {
+  switch (status) {
+    case "suggested":
+      return "is-suggested";
+    case "approved":
+      return "is-approved";
+    case "rejected":
+      return "is-rejected";
+    case "modified":
+      return "is-modified";
+    default:
+      return null;
+  }
+}
+
 function getTranscriptRowStageMarkers(row: TranscriptOverlayRow): TranscriptRowStageMarker[] {
   const markers: TranscriptRowStageMarker[] = [];
 
@@ -4101,7 +4116,11 @@ export default function TranscriptSeekMock(
                   key={change.id}
                   type="button"
                   onClick={() => selectProposedChange(change)}
-                  className={cx("hammer-proposed-change-row", selectedPolishChange?.id === change.id && "is-selected")}
+                  className={cx(
+                    "hammer-proposed-change-row",
+                    getReviewStateClassName(change.status),
+                    selectedPolishChange?.id === change.id && "is-selected",
+                  )}
                 >
                   <div className="hammer-proposed-change-row__head">
                     <strong className="hammer-copy-strong">{change.label}</strong>
@@ -6720,6 +6739,7 @@ export default function TranscriptSeekMock(
               const isSelected = Boolean(selectedReadableTranscriptGroup && selectedReadableTranscriptGroup.group_id === group.group_id);
               const isAtPlayhead = Boolean(playheadReadableTranscriptGroup && playheadReadableTranscriptGroup.group_id === group.group_id);
               const isReviewHighlighted = group.row_ids.some((rowId) => highlightedTranscriptRowIds.has(rowId));
+              const reviewHighlightStatus = isReviewHighlighted ? selectedPolishChange?.status ?? "suggested" : undefined;
               return (
                 <div
                   key={group.group_id}
@@ -6736,6 +6756,7 @@ export default function TranscriptSeekMock(
                   )}
                   data-selected={isSelected ? "true" : "false"}
                   data-review-highlight={isReviewHighlighted ? "true" : "false"}
+                  data-review-status={reviewHighlightStatus ?? ""}
                   data-overlay-row-id={primaryRow.row_id}
                   data-playhead={isAtPlayhead ? "true" : "false"}
                   data-deleted={groupRows.every((row) => row.is_deleted) ? "true" : "false"}
@@ -6852,11 +6873,16 @@ export default function TranscriptSeekMock(
               </div>
             </div>
             {activeAssetItems.length > 0 ? (
-              activeAssetItems.map((asset) => (
+              activeAssetItems.map((asset) => {
+                const assetChange = asset.placementId
+                  ? proposedChanges.find((change) => change.linkedAssetId === asset.placementId) ?? null
+                  : null;
+                return (
                 <div
                   key={asset.id}
                   className={cx(
                     "hammer-asset-card",
+                    assetChange && getReviewStateClassName(assetChange.status),
                     asset.placementId && selectedProposedChange?.linkedAssetId === asset.placementId && "is-selected",
                   )}
                 >
@@ -6886,10 +6912,7 @@ export default function TranscriptSeekMock(
                   </div>
                   <div className="hammer-copy-sm hammer-copy-muted hammer-mono">{asset.id}</div>
                   <div className="hammer-copy-sm">{asset.detail}</div>
-                  {asset.placementId ? (() => {
-                    const assetChange = proposedChanges.find((change) => change.linkedAssetId === asset.placementId) ?? null;
-                    if (!assetChange) return null;
-                    return (
+                  {assetChange ? (
                       <div className="hammer-action-row">
                         <button
                           type="button"
@@ -6919,10 +6942,9 @@ export default function TranscriptSeekMock(
                           Reject
                         </button>
                       </div>
-                    );
-                  })() : null}
+                  ) : null}
                 </div>
-              ))
+              )})
             ) : (
               <div className="hammer-assets-empty-state">
                 <div className="hammer-copy-md hammer-copy-dim">
