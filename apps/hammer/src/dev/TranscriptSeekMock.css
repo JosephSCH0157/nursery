@@ -195,6 +195,26 @@
   color: #99f6e4;
 }
 
+.hammer-pill--amber {
+  background: rgba(245, 158, 11, 0.16);
+  color: #fde68a;
+}
+
+.hammer-pill--green {
+  background: rgba(52, 211, 153, 0.16);
+  color: #a7f3d0;
+}
+
+.hammer-pill--red {
+  background: rgba(239, 68, 68, 0.16);
+  color: #fecaca;
+}
+
+.hammer-pill--blue {
+  background: rgba(96, 165, 250, 0.16);
+  color: #bfdbfe;
+}
+
 .hammer-meta-strip {
   display: flex;
   align-items: center;
@@ -1109,6 +1129,41 @@
 }
 
 .hammer-script-row__status-pill.is-merge {
+  border-color: rgba(56, 189, 248, 0.32);
+  background: rgba(8, 47, 73, 0.32);
+  color: #bae6fd;
+}
+
+.hammer-proposed-change-list {
+  display: grid;
+  gap: 6px;
+}
+
+.hammer-proposed-change-row {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: var(--hammer-radius-sm);
+  background: rgba(15, 23, 42, 0.3);
+  padding: 8px;
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.hammer-proposed-change-row.is-selected {
+  border-color: rgba(96, 165, 250, 0.44);
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.2);
+}
+
+.hammer-proposed-change-row__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.hammer-script-row__status-pill.is-merge {
   border-color: rgba(56, 189, 248, 0.28);
   background: rgba(8, 47, 73, 0.3);
   color: #bae6fd;
@@ -1654,6 +1709,57 @@
   position: absolute;
   inset: 0;
   background: linear-gradient(90deg, rgba(15, 23, 42, 0.72), rgba(2, 6, 23, 0.92));
+}
+
+.hammer-timeline-change {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  border: 1px solid rgba(226, 232, 240, 0.18);
+  border-radius: 8px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 4px 6px;
+  color: #e2e8f0;
+  background: rgba(148, 163, 184, 0.12);
+  z-index: 1;
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+}
+
+.hammer-timeline-change.is-suggested {
+  background: rgba(245, 158, 11, 0.22);
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.hammer-timeline-change.is-approved {
+  background: rgba(52, 211, 153, 0.18);
+  border-color: rgba(52, 211, 153, 0.34);
+}
+
+.hammer-timeline-change.is-rejected {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(239, 68, 68, 0.34);
+}
+
+.hammer-timeline-change.is-modified {
+  background: rgba(96, 165, 250, 0.18);
+  border-color: rgba(96, 165, 250, 0.36);
+}
+
+.hammer-timeline-change.is-selected {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2);
+}
+
+.hammer-timeline-change__label {
+  font-size: 10px;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
 }
 
 .hammer-track-viewport__empty {

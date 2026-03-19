@@ -3621,6 +3621,119 @@ export default function TranscriptSeekMock(
     : selectedSegment
     ? selectedSegment.segment_id
     : "none";
+  const reviewQueueContent = (
+    <HammerPaneSection
+      title="Review Queue"
+      subtitle="Review machine changes in context."
+      action={(
+        <div className="hammer-action-row">
+          <button
+            type="button"
+            className="hammer-button-xs"
+            onClick={() => {
+              if (previousSuggestedChange) selectProposedChange(previousSuggestedChange);
+            }}
+            disabled={!previousSuggestedChange}
+          >
+            Prev
+          </button>
+          <button
+            type="button"
+            className="hammer-button-xs"
+            onClick={() => {
+              if (nextSuggestedChange) selectProposedChange(nextSuggestedChange);
+            }}
+            disabled={!nextSuggestedChange}
+          >
+            Next
+          </button>
+        </div>
+      )}
+      sectionClassName="hammer-pane-section--overflow-hidden"
+      bodyClassName="hammer-pane-section__body--scroll"
+    >
+      <div className="hammer-meta-strip">
+        <span className="hammer-pill">{proposedChangeStatusCounts.suggested} suggested</span>
+        <span className="hammer-pill">{proposedChangeStatusCounts.approved} approved</span>
+        <span className="hammer-pill">{proposedChangeStatusCounts.modified} modified</span>
+        <span className="hammer-pill">{proposedChangeStatusCounts.rejected} rejected</span>
+      </div>
+      <div className="hammer-proposed-change-list">
+        {proposedChanges.length > 0 ? proposedChanges.map((change) => (
+          <button
+            key={change.id}
+            type="button"
+            onClick={() => selectProposedChange(change)}
+            className={cx("hammer-proposed-change-row", selectedProposedChange?.id === change.id && "is-selected")}
+          >
+            <div className="hammer-proposed-change-row__head">
+              <strong className="hammer-copy-strong">{change.label}</strong>
+              <span className="hammer-pill">{change.status}</span>
+            </div>
+            <div className="hammer-copy-sm hammer-copy-muted">
+              {formatClock(change.startSec)}-{formatClock(change.endSec)} · {change.reason}
+            </div>
+          </button>
+        )) : (
+          <div className="hammer-copy-sm hammer-copy-muted">No proposed changes detected yet.</div>
+        )}
+      </div>
+    </HammerPaneSection>
+  );
+  const selectedProposedChangeInspector = selectedProposedChange ? (
+    <HammerPaneSection
+      title={selectedProposedChange.label}
+      subtitle={selectedProposedChange.reason}
+      action={(
+        <div className="hammer-action-row">
+          <span className="hammer-pill">{selectedProposedChange.status}</span>
+          <span className="hammer-pill">
+            {formatClock(selectedProposedChange.startSec)}-{formatClock(selectedProposedChange.endSec)}
+          </span>
+        </div>
+      )}
+    >
+      <div className="hammer-meta-strip">
+        <span className="hammer-pill">confidence {selectedProposedChange.confidence ?? "n/a"}</span>
+        <span className="hammer-pill">{selectedProposedChange.type.replaceAll("_", " ")}</span>
+      </div>
+      <div className="hammer-action-row">
+        <button type="button" className="hammer-button-xs" onClick={reviewSelectedProposedChange}>
+          Review
+        </button>
+        <button
+          type="button"
+          className="hammer-button-xs"
+          onClick={() => setProposedChangeStatus(selectedProposedChange, "approved")}
+        >
+          Approve
+        </button>
+        <button
+          type="button"
+          className="hammer-button-xs"
+          onClick={() => setProposedChangeStatus(selectedProposedChange, "rejected")}
+        >
+          Reject
+        </button>
+        <button
+          type="button"
+          className="hammer-button-xs"
+          onClick={() => setProposedChangeStatus(selectedProposedChange, "suggested")}
+        >
+          Restore
+        </button>
+      </div>
+    </HammerPaneSection>
+  ) : (
+    <HammerPaneSection
+      title="Selected Change"
+      subtitle="Select a proposed change from the queue or timeline."
+    >
+      <div className="hammer-copy-sm hammer-copy-muted">
+        Pick a change to preview it in context and decide from one place.
+      </div>
+    </HammerPaneSection>
+  );
 
   const toolPanelContent = useMemo((): JSX.Element => {
     switch (activeTool) {
@@ -6936,6 +7049,8 @@ export default function TranscriptSeekMock(
       />
 
       <div className="hammer-pane hammer-pane--right" style={measuredSidePaneStyle}>
+        {reviewQueueContent}
+        {selectedProposedChangeInspector}
         <HammerPaneSection
           title={activeToolDefinition.label}
           subtitle={activeToolHint}
