@@ -121,6 +121,33 @@ function testReportsNoSelectedVisualsWithoutFakePlacements() {
   const visualPackage = buildVisualPackage();
   visualPackage.visuals[0] = {
     ...visualPackage.visuals[0],
+    status: "candidates_generated",
+    selected_asset_id: "asset_01",
+    selected_asset: {
+      ...visualPackage.visuals[0].selected_asset!,
+      storage_key: "",
+      created_at: "",
+      updated_at: "",
+    },
+  };
+
+  const placements = deriveHammerVisualPlacements({
+    transcriptSourceId,
+    transcriptSegments: buildTranscriptSegments(),
+    visualPackage,
+  });
+
+  assert.equal(placements.status, "prepared");
+  assert.equal(placements.placements.length, 1);
+  assert.equal(placements.placements[0]?.status, "uncertain");
+  assert.equal(placements.placements[0]?.uncertainty_flags.includes("image_map_candidate_promoted"), true);
+}
+
+function testReportsNoSelectedVisualsWhenNoCandidateAssetExists() {
+  const visualPackage = buildVisualPackage();
+  visualPackage.visuals[0] = {
+    ...visualPackage.visuals[0],
+    status: "mapped",
     selected_asset_id: null,
     selected_asset: null,
   };
@@ -164,6 +191,7 @@ try {
   testDerivesDeterministicPlacementFromMatchingAnchor();
   testFallsBackToReviewableUncertainPlacementWhenMatchIsWeak();
   testReportsNoSelectedVisualsWithoutFakePlacements();
+  testReportsNoSelectedVisualsWhenNoCandidateAssetExists();
   testReusesPlacementArtifactWhenVisualSourcesHaveNotChanged();
   console.log("Hammer visual placement tests passed.");
 } catch (error) {

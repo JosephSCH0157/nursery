@@ -1,7 +1,11 @@
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import type {
+  EpisodeImageMapAssetRefRecord,
+  EpisodeImageMapEntryRecord,
   EpisodeImageMapScriptAnchorRecord,
+  WorkpieceImageMapResponseData,
   WorkpieceVisualPackageResponseData,
+  WorkpieceVisualPackageSelectedAsset,
 } from "../../../../packages/tongs/src/workpiece-commit-api";
 import type {
   HammerPersistedVisualPlacements,
@@ -80,6 +84,107 @@ function normalizeScriptAnchor(value: unknown): EpisodeImageMapScriptAnchorRecor
   };
 }
 
+function normalizeImageMapAssetRef(value: unknown): EpisodeImageMapAssetRefRecord | null {
+  const row = readJsonObject(value);
+  const assetId = readString(row?.asset_id);
+  if (!assetId) return null;
+  return {
+    asset_id: assetId,
+    path: readString(row?.path),
+    variant_label: readString(row?.variant_label),
+    visual_mode: readString(row?.visual_mode),
+    mime_type: readString(row?.mime_type),
+  };
+}
+
+function normalizeImageMapEntry(value: unknown): EpisodeImageMapEntryRecord | null {
+  const row = readJsonObject(value);
+  const id = readString(row?.id);
+  const anchor = readString(row?.anchor);
+  const description = readString(row?.description);
+  const visualIntent = readString(row?.visual_intent);
+  const promptBasis = readString(row?.prompt_basis);
+  const intent = readString(row?.intent);
+  const sourceType = readString(row?.source_type);
+  const beatOrder = readNumber(row?.beat_order);
+  const paragraphBeatOrder = readNumber(row?.paragraph_beat_order);
+  const status = readString(row?.status);
+  const candidateAssets = Array.isArray(row?.candidate_assets)
+    ? row.candidate_assets.map(normalizeImageMapAssetRef).filter((asset): asset is EpisodeImageMapAssetRefRecord => Boolean(asset))
+    : [];
+  if (
+    !id
+    || !anchor
+    || !description
+    || !visualIntent
+    || !promptBasis
+    || !intent
+    || !sourceType
+    || beatOrder == null
+    || paragraphBeatOrder == null
+    || !status
+  ) {
+    return null;
+  }
+  return {
+    id,
+    anchor,
+    script_anchor: normalizeScriptAnchor(row?.script_anchor),
+    description,
+    visual_intent: visualIntent,
+    prompt_basis: promptBasis,
+    style_preset: null,
+    intent,
+    source_type: sourceType,
+    beat_order: beatOrder,
+    paragraph_beat_order: paragraphBeatOrder,
+    candidate_assets: candidateAssets,
+    selected_asset_id: readString(row?.selected_asset_id),
+    status,
+    placement_hint: readString(row?.placement_hint),
+  };
+}
+
+function normalizeImageMap(payload: unknown): WorkpieceImageMapResponseData | null {
+  const root = readJsonObject(payload);
+  const data = readJsonObject(root?.data);
+  const imageMap = readJsonObject(data?.image_map);
+  const workpieceId = readString(imageMap?.workpiece_id);
+  const workspaceId = readString(imageMap?.workspace_id);
+  const entries = Array.isArray(imageMap?.entries)
+    ? imageMap.entries.map(normalizeImageMapEntry).filter((entry): entry is EpisodeImageMapEntryRecord => Boolean(entry))
+    : null;
+  if (!workpieceId || !workspaceId || !entries) {
+    return null;
+  }
+  const asset = readJsonObject(data?.asset);
+  return {
+    image_map: {
+      workpiece_id: workpieceId,
+      workspace_id: workspaceId,
+      entries,
+      metadata_updated_at: readString(imageMap?.metadata_updated_at),
+    },
+    asset: asset
+      ? {
+        id: readString(asset.id) ?? "",
+        asset_kind: "image_map_json",
+        status: "ready",
+        path: "assets/image-map/image-map.v1.json",
+        storage_bucket: readString(asset.storage_bucket) ?? "",
+        storage_key: readString(asset.storage_key) ?? "",
+        metadata_json: {
+          schema: "forge.image-map.v1",
+          entry_count: readNumber(readJsonObject(asset.metadata_json)?.entry_count) ?? 0,
+        },
+        created_at: readString(asset.created_at) ?? "",
+        updated_at: readString(asset.updated_at) ?? "",
+        supersedes_asset_id: readString(asset.supersedes_asset_id),
+      }
+      : null,
+  };
+}
+
 function normalizeVisualPackage(payload: unknown): WorkpieceVisualPackageResponseData | null {
   const root = readJsonObject(payload);
   const data = readJsonObject(root?.data);
@@ -136,6 +241,89 @@ function normalizeVisualPackage(payload: unknown): WorkpieceVisualPackageRespons
     image_map_updated_at: readString(data?.image_map_updated_at),
     image_map_asset_updated_at: readString(data?.image_map_asset_updated_at),
     visuals: normalizedVisuals,
+  };
+}
+
+function buildFallbackSelectedAsset(
+  asset: EpisodeImageMapAssetRefRecord,
+): WorkpieceVisualPackageSelectedAsset | null {
+  const path = readString(asset.path);
+  if (!path) return null;
+  return {
+    asset_id: asset.asset_id,
+    path,
+    storage_bucket: "forge-workpieces",
+    storage_key: "",
+    mime_type: readString(asset.mime_type) ?? "image/png",
+    bytes: 0,
+    created_at: "",
+    updated_at: "",
+    variant_label: readString(asset.variant_label),
+    visual_mode: readString(asset.visual_mode),
+  };
+}
+
+function mergeVisualPackageWithImageMap(
+  visualPackage: WorkpieceVisualPackageResponseData,
+  imageMap: WorkpieceImageMapResponseData | null,
+): WorkpieceVisualPackageResponseData {
+  if (!imageMap) {
+    return visualPackage;
+  }
+
+  const entryById = new Map(imageMap.image_map.entries.map((entry) => [entry.id, entry] as const));
+  const mergedVisuals = visualPackage.visuals.map((visual) => {
+    if (visual.selected_asset) {
+      return visual;
+    }
+    const entry = entryById.get(visual.entry_id);
+    if (!entry) {
+      return visual;
+    }
+
+    const preferredCandidate = entry.selected_asset_id
+      ? (entry.candidate_assets.find((asset) => asset.asset_id === entry.selected_asset_id) ?? null)
+      : null;
+    const fallbackCandidate = preferredCandidate ?? entry.candidate_assets[0] ?? null;
+    const fallbackSelectedAsset = fallbackCandidate ? buildFallbackSelectedAsset(fallbackCandidate) : null;
+    if (!fallbackSelectedAsset) {
+      return visual;
+    }
+
+    return {
+      ...visual,
+      visual_mode: visual.visual_mode ?? fallbackSelectedAsset.visual_mode ?? null,
+      selected_asset_id: visual.selected_asset_id ?? fallbackSelectedAsset.asset_id,
+      selected_asset: fallbackSelectedAsset,
+    };
+  });
+
+  const visualIds = new Set(mergedVisuals.map((visual) => visual.entry_id));
+  for (const entry of imageMap.image_map.entries) {
+    if (visualIds.has(entry.id)) continue;
+    const preferredCandidate = entry.selected_asset_id
+      ? (entry.candidate_assets.find((asset) => asset.asset_id === entry.selected_asset_id) ?? null)
+      : null;
+    const fallbackCandidate = preferredCandidate ?? entry.candidate_assets[0] ?? null;
+    const fallbackSelectedAsset = fallbackCandidate ? buildFallbackSelectedAsset(fallbackCandidate) : null;
+    if (!fallbackSelectedAsset) continue;
+    mergedVisuals.push({
+      entry_id: entry.id,
+      beat_order: entry.beat_order,
+      paragraph_beat_order: entry.paragraph_beat_order,
+      status: entry.status,
+      script_anchor: entry.script_anchor,
+      visual_mode: fallbackSelectedAsset.visual_mode ?? null,
+      selected_asset_id: entry.selected_asset_id ?? fallbackSelectedAsset.asset_id,
+      selected_asset: fallbackSelectedAsset,
+    });
+  }
+
+  return {
+    ...visualPackage,
+    image_map_updated_at: visualPackage.image_map_updated_at ?? imageMap.image_map.metadata_updated_at,
+    image_map_asset_updated_at: visualPackage.image_map_asset_updated_at ?? imageMap.asset?.updated_at ?? null,
+    visuals: mergedVisuals,
   };
 }
 
@@ -319,32 +507,44 @@ function clonePlacementRecord(record: HammerVisualPlacementRecord): HammerVisual
 export async function loadHammerWorkpieceVisualPackage(
   workpieceId: string,
 ): Promise<VisualPackageResult> {
-  const response = await tongsFetch(
-    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/visual-package`,
-    { method: "GET" },
-  );
-  const payload = await readJsonBody(response);
-  if (!response.ok) {
+  const [visualResponse, imageMapResponse] = await Promise.all([
+    tongsFetch(
+      `/tongs/workpieces/${encodeURIComponent(workpieceId)}/visual-package`,
+      { method: "GET" },
+    ),
+    tongsFetch(
+      `/tongs/workpieces/${encodeURIComponent(workpieceId)}/image-map`,
+      { method: "GET" },
+    ),
+  ]);
+  const [visualPayload, imageMapPayload] = await Promise.all([
+    readJsonBody(visualResponse),
+    readJsonBody(imageMapResponse),
+  ]);
+  if (!visualResponse.ok) {
     return {
       ok: false,
-      status: response.status,
-      error: readErrorMessage(payload, "Failed to load Hammer visual package."),
+      status: visualResponse.status,
+      error: readErrorMessage(visualPayload, "Failed to load Hammer visual package."),
     };
   }
 
-  const visualPackage = normalizeVisualPackage(payload);
+  const visualPackage = normalizeVisualPackage(visualPayload);
   if (!visualPackage) {
     return {
       ok: false,
-      status: response.status,
+      status: visualResponse.status,
       error: "Hammer visual package response was invalid.",
     };
   }
 
+  const imageMap = imageMapResponse.ok ? normalizeImageMap(imageMapPayload) : null;
+  const mergedVisualPackage = mergeVisualPackageWithImageMap(visualPackage, imageMap);
+
   return {
     ok: true,
-    status: response.status,
-    data: visualPackage,
+    status: visualResponse.status,
+    data: mergedVisualPackage,
   };
 }
 
@@ -463,15 +663,17 @@ export function deriveHammerVisualPlacements(args: {
       asset_ref: selectedAsset.asset_id,
       asset_id: selectedAsset.asset_id,
       asset_path: selectedAsset.path,
-      storage_key: selectedAsset.storage_key,
+      storage_key: selectedAsset.storage_key || selectedAsset.path,
       label: selectedAsset.variant_label ?? visual.visual_mode ?? visual.entry_id,
       visual_mode: visual.visual_mode ?? selectedAsset.visual_mode,
       start_sec: startSec,
       end_sec: endSec,
       confidence,
       timing_source: timingSource,
-      status: placementFlags.length > 0 ? "uncertain" : "placed",
-      uncertainty_flags: placementFlags,
+      status: placementFlags.length > 0 || visual.status !== "selected" ? "uncertain" : "placed",
+      uncertainty_flags: visual.status !== "selected"
+        ? [...placementFlags, "image_map_candidate_promoted"]
+        : placementFlags,
     });
   }
 

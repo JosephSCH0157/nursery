@@ -3213,6 +3213,28 @@ export default function TranscriptSeekMock(
         assets.video.push(primaryAsset);
       }
 
+      const seenImageAssetIds = new Set<string>();
+      for (const placement of props.visualPlacements?.placements ?? []) {
+        const imageAssetId = placement.asset_id ?? placement.asset_ref ?? placement.placement_id;
+        if (seenImageAssetIds.has(imageAssetId)) continue;
+        seenImageAssetIds.add(imageAssetId);
+        assets.images.push({
+          id: imageAssetId,
+          title: placement.label ?? placement.visual_mode ?? placement.entry_id,
+          kindLabel: "Anchored Image",
+          sourceLabel: "Tongs image-map",
+          detail: placement.anchor_text
+            ? `Anchored to: ${placement.anchor_text}`
+            : `Anchored image for ${placement.entry_id}.`,
+          status: placement.status === "uncertain" ? "review anchor" : "placed",
+          usageHint: placement.uncertainty_flags.includes("image_map_candidate_promoted")
+            ? "Hammer promoted this anchored image from the canonical image-map so it can be reviewed and placed immediately."
+            : "This anchored image came from the canonical Tongs image-map and is already staged on the timeline.",
+          workpieceId: resolvedLaunch.launch_context.workpiece_id,
+          durationLabel: formatClock(Math.max(0, placement.end_sec - placement.start_sec)),
+        });
+      }
+
       return assets;
     },
     [
@@ -3221,6 +3243,7 @@ export default function TranscriptSeekMock(
       activeMediaRef,
       activeMediaUsesDevTone,
       primaryAssetDurationLabel,
+      props.visualPlacements,
       resolveResult?.status,
       resolvedLaunch.launch_context.workpiece_id,
       sourceModeLabel,
