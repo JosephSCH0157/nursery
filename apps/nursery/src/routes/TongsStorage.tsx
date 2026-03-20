@@ -506,22 +506,26 @@ export default function TongsStorage() {
 
   useEffect(() => {
     if (!selectedRoot) {
-      setRoleRootTreeState({
-        status: "unavailable",
-        source: null,
-        nodes: [],
-        message: "Workspace role root unavailable.",
+      queueMicrotask(() => {
+        setRoleRootTreeState({
+          status: "unavailable",
+          source: null,
+          nodes: [],
+          message: "Workspace role root unavailable.",
+        });
       });
       return;
     }
 
     if (selectedRoot.resolvedTargetType === "tongs_cloud") {
       if (!workspaceId) {
-        setRoleRootTreeState({
-          status: "unavailable",
-          source: null,
-          nodes: [],
-          message: "Workspace context is required to inspect workspace role roots.",
+        queueMicrotask(() => {
+          setRoleRootTreeState({
+            status: "unavailable",
+            source: null,
+            nodes: [],
+            message: "Workspace context is required to inspect workspace role roots.",
+          });
         });
         return;
       }
@@ -533,11 +537,13 @@ export default function TongsStorage() {
       };
 
       let cancelled = false;
-      setRoleRootTreeState({
-        status: "loading",
-        source: cloudSource,
-        nodes: [],
-        message: "Loading workspace role-root listing...",
+      queueMicrotask(() => {
+        setRoleRootTreeState({
+          status: "loading",
+          source: cloudSource,
+          nodes: [],
+          message: "Loading workspace role-root listing...",
+        });
       });
 
       void (async () => {
@@ -579,33 +585,39 @@ export default function TongsStorage() {
 
     const listing = buildListingSource(selectedRoot);
     if (!listing.source) {
-      setRoleRootTreeState({
-        status: "unavailable",
-        source: null,
-        nodes: [],
-        message: listing.message,
+      queueMicrotask(() => {
+        setRoleRootTreeState({
+          status: "unavailable",
+          source: null,
+          nodes: [],
+          message: listing.message,
+        });
       });
       return;
     }
 
     const source = listing.source;
     if (!source.vaultKey) {
-      setRoleRootTreeState({
-        status: "unavailable",
-        source,
-        nodes: [],
-        message: "Local listing is unavailable because no vault key is configured for this root.",
+      queueMicrotask(() => {
+        setRoleRootTreeState({
+          status: "unavailable",
+          source,
+          nodes: [],
+          message: "Local listing is unavailable because no vault key is configured for this root.",
+        });
       });
       return;
     }
     const sourceVaultKey = source.vaultKey;
 
     let cancelled = false;
-    setRoleRootTreeState({
-      status: "loading",
-      source,
-      nodes: [],
-      message: "Loading read-only listing...",
+    queueMicrotask(() => {
+      setRoleRootTreeState({
+        status: "loading",
+        source,
+        nodes: [],
+        message: "Loading read-only listing...",
+      });
     });
 
     void (async () => {
@@ -653,11 +665,13 @@ export default function TongsStorage() {
 
   useEffect(() => {
     if (!workspaceId || selectedRoot?.role !== "recordings") {
-      setCanonicalRecordingsTreeState({
-        status: "unavailable",
-        source: null,
-        nodes: [],
-        message: "Select the Recordings role root to inspect canonical kept takes across workpieces.",
+      queueMicrotask(() => {
+        setCanonicalRecordingsTreeState({
+          status: "unavailable",
+          source: null,
+          nodes: [],
+          message: "Select the Recordings role root to inspect canonical kept takes across workpieces.",
+        });
       });
       return;
     }
@@ -669,11 +683,13 @@ export default function TongsStorage() {
     };
 
     let cancelled = false;
-    setCanonicalRecordingsTreeState({
-      status: "loading",
-      source: canonicalRecordingSource,
-      nodes: [],
-      message: "Loading canonical recording inventory...",
+    queueMicrotask(() => {
+      setCanonicalRecordingsTreeState({
+        status: "loading",
+        source: canonicalRecordingSource,
+        nodes: [],
+        message: "Loading canonical recording inventory...",
+      });
     });
 
     void (async () => {

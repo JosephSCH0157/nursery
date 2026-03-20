@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { BellowsDeviceReadinessState } from "@forge/bellows";
 import type {
   BellowsAudioActivityState,
@@ -204,7 +204,7 @@ export function useBellowsLocalMediaReadiness(
   const readiness = effectiveRequestState.readiness;
   const deviceMessage = effectiveRequestState.deviceMessage;
   const deviceError = effectiveRequestState.deviceError;
-  const audioTracks = stream?.getAudioTracks() ?? [];
+  const audioTracks = useMemo(() => stream?.getAudioTracks() ?? [], [stream]);
   const audioLevelPct = audioTracks.length > 0 ? audioSample.audioLevelPct : 0;
   const audioActivity = audioTracks.length > 0
     ? audioSample.audioActivity

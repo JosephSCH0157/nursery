@@ -1512,8 +1512,7 @@ export default function BellowsStandalone() {
       : null,
     [
       currentHostParticipantId,
-      session?.machineState.lifecycle,
-      session?.sessionId,
+      session,
       viewerLabel,
     ],
   );
@@ -1568,7 +1567,7 @@ export default function BellowsStandalone() {
     return () => {
       active = false;
     };
-  }, [repository, session?.sessionId, session?.events.length]);
+  }, [repository, session, session?.sessionId, session?.events.length]);
 
   useEffect(() => {
     if (!session) {
@@ -1602,7 +1601,7 @@ export default function BellowsStandalone() {
     return () => {
       active = false;
     };
-  }, [repository, session?.sessionId]);
+  }, [repository, session, session?.sessionId]);
 
   useEffect(() => {
     if (!session || !currentHostParticipantId) {
@@ -1688,7 +1687,7 @@ export default function BellowsStandalone() {
       publishedHostSessionSignalRef.current = "";
       void channel.unsubscribe();
     };
-  }, [currentHostParticipantId, currentHostRoleCode, session?.sessionId, viewerLabel]);
+  }, [currentHostParticipantId, currentHostRoleCode, session, session?.sessionId, viewerLabel]);
 
   useEffect(() => {
     if (
@@ -1747,6 +1746,7 @@ export default function BellowsStandalone() {
     hostLocalMedia.readiness,
     hostPresenceAudioLevelPct,
     hostPresenceConnected,
+    session,
     session?.sessionId,
     viewerLabel,
   ]);
